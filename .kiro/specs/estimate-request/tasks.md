@@ -1118,3 +1118,198 @@
   - ゴミ行フィルタ・集計行除外が適用されていることの確認
   - OCR処理全体が30秒のタイムアウト内に完了することの確認
   - _Requirements: 19.1, 19.6, 19.8, 20.1, 20.2, 20.3, 20.5_
+
+- [x] 49. Anthropic SDK導入と環境設定
+- [x] 49.1 (P) @anthropic-ai/sdkパッケージのインストールとenv.d.ts型定義追加
+  - バックエンドに`@anthropic-ai/sdk`パッケージをインストールする
+  - `env.d.ts`のProcessEnvインターフェースに`ANTHROPIC_API_KEY?: string`を追加する
+  - `backend/.env.example`にANTHROPIC_API_KEYの設定例をコメント付きで追加する
+  - _Requirements: 22.1, 22.5_
+
+- [x] 49.2 (P) ClaudeVisionErrorエラークラスの実装
+  - 既存のApiErrorクラスを拡張したClaudeVisionErrorクラスを実装する
+  - コンストラクタの引数順序は既存ApiError（statusCode, message, code?, details?, problemType?）に合わせること
+  - errorTypeプロパティ（timeout, rate_limit, auth_error, parse_error, service_unavailable, unknown）を追加する
+  - 各エラー種別に対応するstaticファクトリメソッド（timeout, rateLimit, authError, parseError, serviceUnavailable, unknown）を実装する
+  - toJSON()メソッドでerrorTypeフィールドを含むレスポンス形式を返す
+  - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.7_
+
+- [x] 50. ClaudeVisionServiceの実装
+- [x] 50.1 ClaudeVisionServiceの基本構造と有効/無効判定
+  - ANTHROPIC_API_KEY環境変数の読み取りとサービスインスタンス初期化を実装する
+  - isEnabled()メソッドでAPIキー設定有無に基づく有効/無効判定を実装する
+  - APIキー未設定時にバックエンド起動ログに「Claude Vision機能が無効です」と記録する
+  - APIキーの値をログ出力やAPIレスポンスに含めないよう制御する
+  - _Requirements: 22.1, 22.2, 22.3, 22.4_
+
+- [x] 50.2 Anthropic Messages API呼び出しとVision解析の実装
+  - @anthropic-ai/sdkのAnthropicクライアントを使用してclient.messages.create()を呼び出す処理を実装する
+  - claude-haiku-4-5-20251001モデルを指定し、SDKのtimeoutオプションで30秒を設定する
+  - 複数ページの画像を1つのMessagesリクエスト内のcontentとして送信する処理を実装する
+  - 各画像をtype: 'image', source: { type: 'base64', media_type, data }形式で構築する
+  - 建設見積書の表構造を解析するプロンプト（フィールド定義、除外ルール、JSON配列出力指示）を組み込む
+  - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.8, 26.1, 26.2, 26.3, 26.4_
+
+- [x] 50.3 Claude APIレスポンスパースとLineItem[]変換の実装
+  - Claude APIレスポンスのcontentブロックからtext型の最初のブロックを取得する処理を実装する
+  - レスポンステキスト内の```json...```マーカーまたは最初の[から最後の]までのJSON配列を抽出するパーサーを実装する
+  - パース結果が配列でない場合やJSON.parse失敗時にparse_errorとして処理する
+  - 各明細行のquantity、unitPrice、amountフィールドについて文字列型の場合はカンマ除去してNumber型に変換する
+  - 明細行データをClaudeVisionLineItem[]形式（customCategory, workType, name, specification, unit, quantity, unitPrice, amount, remarks）に変換する
+  - _Requirements: 21.5, 21.6, 21.7, 26.5, 26.6, 26.7, 26.8_
+
+- [x] 50.4 Claude Vision APIエラーハンドリングの実装
+  - Anthropic SDKのAPIConnectionTimeoutErrorをClaudeVisionError.timeout()に変換する処理を実装する
+  - RateLimitError（429）をClaudeVisionError.rateLimit()に変換する処理を実装する
+  - AuthenticationError（401）をClaudeVisionError.authError()に変換する処理を実装する
+  - その他のErrorをClaudeVisionError.unknown()に変換する処理を実装する
+  - すべてのエラーをPino loggerのlogger.error()で構造化ログに記録する（APIキーは除外）
+  - ログにerrorType、元のエラーメッセージ、リクエスト画像枚数を含める
+  - _Requirements: 23.1, 23.2, 23.3, 23.5, 23.6, 23.7_
+
+- [x] 51. Claude Vision APIルートとスキーマの実装
+- [x] 51.1 (P) Zodバリデーションスキーマの定義
+  - Claude Vision抽出リクエストのZodスキーマを定義する（images配列: 1〜20要素、各要素にbase64DataとmediaType）
+  - base64Dataの空文字チェックとmediaTypeの許可値（image/png, image/jpeg, image/gif, image/webp）バリデーションを実装する
+  - _Requirements: 21.2, 21.7_
+
+- [x] 51.2 claude-vision.routesエンドポイントの実装
+  - POST /api/claude-vision/extractエンドポイントを実装する
+  - authenticate + requirePermissionミドルウェアで認証・認可を適用する
+  - ルートレベルでbody-parser制限（50MB）を適用する: `router.post('/extract', express.json({ limit: '50mb' }), ...)`。グローバル設定（デフォルト制限）は変更しないこと
+  - ClaudeVisionService.isEnabled()がfalseの場合にHTTP 503レスポンスを返却する処理を実装する
+  - Zodスキーマによるリクエストバリデーション後にClaudeVisionService.extractLineItems()を呼び出す処理を実装する
+  - ClaudeVisionErrorの場合にerrorTypeフィールドを含むエラーレスポンスを返却する処理を実装する
+  - _Requirements: 21.1, 21.9, 22.6_
+
+- [x] 51.3 app.tsへのルート登録
+  - 既存のapp.tsにClaude Vision APIルートの登録を追加する
+  - _Requirements: 21.1_
+
+- [x] 52. バックエンドユニットテスト（Claude Vision）
+- [x] 52.1 (P) ClaudeVisionErrorのユニットテスト
+  - 各staticファクトリメソッド（timeout, rateLimit, authError, parseError, serviceUnavailable, unknown）の戻り値を検証する
+  - statusCode、errorType、messageが正しいことを検証する
+  - toJSON()出力にerrorTypeフィールドが含まれることを検証する
+  - ApiErrorを正しく継承していることを検証する
+  - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.7_
+
+- [x] 52.2 (P) claude-vision.schemaのユニットテスト
+  - 正常なリクエストデータのバリデーション成功テスト
+  - images配列が空の場合のバリデーションエラーテスト
+  - images配列が20要素超の場合のバリデーションエラーテスト
+  - 無効なmediaTypeのバリデーションエラーテスト
+  - 空のbase64Dataのバリデーションエラーテスト
+  - _Requirements: 21.2, 21.7_
+
+- [x] 52.3 ClaudeVisionServiceのユニットテスト
+  - Anthropic SDK呼び出しのモックを使用した正常レスポンスのパーステスト
+  - JSON配列抽出テスト（```jsonマーカー付き、[...]直接形式の両方）
+  - 数値型変換テスト（文字列→Number）
+  - カンマ区切り数値処理テスト（例: "1,234,567"→1234567）
+  - タイムアウトエラー発生時のClaudeVisionError.timeout()変換テスト
+  - レート制限エラー発生時のClaudeVisionError.rateLimit()変換テスト
+  - 認証エラー発生時のClaudeVisionError.authError()変換テスト
+  - JSON.parse失敗時のClaudeVisionError.parseError()変換テスト
+  - 汎用エラー発生時のClaudeVisionError.unknown()変換テスト
+  - isEnabled()のtrue/false判定テスト
+  - エラーログ記録時にAPIキーが含まれないことの検証テスト
+  - プロンプト構築テスト（フィールド定義、除外ルール、出力形式指示が含まれること）
+  - _Requirements: 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.4, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 26.1, 26.2, 26.3, 26.4, 26.5, 26.6, 26.7, 26.8_
+
+- [x] 52.4 claude-vision.routesのユニットテスト
+  - 認証チェック（未認証リクエストの401レスポンス）テスト
+  - isEnabled()=false時のHTTP 503レスポンステスト
+  - 正常リクエスト時のサービス呼び出しとレスポンステスト
+  - ClaudeVisionError発生時のエラーレスポンス形式（errorTypeフィールド含む）テスト
+  - Zodバリデーションエラー時の400レスポンステスト
+  - body-parser制限（50MB）がルートレベルで適用されていることの確認テスト
+  - _Requirements: 21.1, 21.9, 22.6, 23.7_
+
+- [x] 53. フロントエンドClaude Vision APIクライアントの実装
+- [x] 53.1 api/claude-vision.tsクライアントモジュールの実装
+  - 既存のapiClient（client.ts）を使用してPOST /api/claude-vision/extractにリクエストを送信する関数を実装する
+  - ClaudeVisionImageInput型とClaudeVisionExtractResponse型を定義する
+  - エラーレスポンスのbodyからerrorTypeフィールドを抽出してClaudeVisionApiErrorに変換する処理を実装する
+  - ClaudeVisionApiErrorクラスにerrorType、statusCode、shouldFallbackプロパティを実装する
+  - shouldFallbackプロパティですべてのエラー種別（503, 504, 429, 401, 422, 500）についてtrueを返す
+  - isClaudeVisionApiError()型ガード関数を実装する
+  - _Requirements: 24.4_
+
+- [x] 54. OcrDataExtractorのClaude Vision抽出パス拡張
+- [x] 54.1 renderPdfPagesToBase64ヘルパー関数の実装
+  - PDFファイルの各ページをCanvas APIで画像に変換しBase64エンコードするヘルパー関数を実装する
+  - 既存のextractPdfHybrid関数内のCanvas描画ロジック（page.render()）を再利用可能な形に切り出す
+  - canvas.toDataURL('image/png')でBase64エンコードし、data:image/png;base64,プレフィックスを除去する
+  - 描画スケールはCAN VAS_RENDER_SCALE = 4.0を使用する
+  - 最大20ページの制約をフロントエンド側でも検証する
+  - _Requirements: 24.3_
+
+- [x] 54.2 OcrDataExtractorのClaude Vision優先抽出フローの実装
+  - PDFファイルに対するOCR処理開始時に、まずClaude Vision抽出を試行するフローを実装する
+  - renderPdfPagesToBase64()でPDFページをBase64画像に変換し、extractWithClaudeVision()でバックエンドに送信する
+  - Claude Vision処理中のインジケーター表示を「Claude Vision APIで解析中...」テキストで実装する
+  - 正常レスポンス時に返却されたlineItemsをLineItemFormData[]に変換し、Requirement 18の数値フォーマット（数量小数2桁、単価整数、金額整数）を適用する
+  - 抽出結果をJSON.stringify(lineItems, null, 2)で整形してテキスト表示し、一括取り込みボタンを表示する
+  - usedClaudeVision状態をtrueに設定する
+  - 成功時に青色のインフォバナー「Claude Vision APIで抽出しました」を表示する
+  - _Requirements: 24.1, 24.2, 24.4, 24.5, 24.6, 24.7, 24.8_
+
+- [x] 54.3 画像ファイルに対するClaude Vision抽出の実装
+  - 画像ファイル（非PDF）に対してもClaude Vision抽出を試行する処理を実装する
+  - 画像の場合はFileReaderでBase64変換し、1つのClaudeVisionImageInputとして送信する
+  - 正常レスポンス時・エラー時の処理はPDFの場合と同じフローを共有する
+  - _Requirements: 24.1, 24.2, 24.4_
+
+- [x] 55. Tesseract.jsフォールバックの実装
+- [x] 55.1 Claude Vision APIエラー時の自動フォールバック処理の実装
+  - ClaudeVisionApiErrorのshouldFallbackがtrueの場合に自動的にTesseract.js OCRにフォールバックする処理を実装する
+  - HTTP 503（機能無効）、504（タイムアウト）、429（レート制限）、401（認証エラー）、422（パースエラー）、500（汎用エラー）のすべてでフォールバックを発動する
+  - フォールバック発動時にfallbackActivated状態をtrueに設定し、フォールバック理由を記録する
+  - フォールバック通知として黄色の警告バナー「Claude Vision APIが利用できないため、従来のOCR処理で実行しています」を表示する
+  - 既存のOCR処理パイプライン（pdfjs-distテキスト抽出→Tesseract.jsフォールバック、画像前処理パイプライン、ゴミ行フィルタ・集計行除外）を実行する
+  - ユーザー操作なしで自動的にClaude Vision抽出からTesseract.jsフォールバックへ切り替える
+  - _Requirements: 25.1, 25.2, 25.3, 25.4, 25.5, 25.6_
+
+- [x] 55.2 両方失敗時のエラー表示と手動入力促進
+  - Claude Vision抽出とTesseract.jsフォールバックの両方が失敗した場合に赤色のエラーバナーを表示する
+  - エラーメッセージ「OCR処理に失敗しました。手動入力してください」を表示し手動入力を促す
+  - _Requirements: 25.7_
+
+- [x] 56. フロントエンドユニットテスト（Claude Vision）
+- [x] 56.1 (P) api/claude-vision.tsのユニットテスト
+  - 正常レスポンスの変換テスト（lineItems配列、pageCount）
+  - エラーレスポンスのClaudeVisionApiError変換テスト（各errorType）
+  - shouldFallbackプロパティのテスト（すべてのエラーでtrue）
+  - isClaudeVisionApiError()型ガードのテスト
+  - _Requirements: 24.4_
+
+- [x] 56.2 (P) OcrDataExtractor Claude Vision拡張のユニットテスト
+  - Claude Vision成功時のフロー（usedClaudeVision=true、結果表示、一括取り込みボタン表示）テスト
+  - Claude Vision失敗→Tesseract.jsフォールバック発動（fallbackActivated=true）テスト
+  - フォールバック通知メッセージ（黄色バナー）表示テスト
+  - Claude Vision成功時の数値フォーマット適用（数量小数2桁、単価整数、金額整数）テスト
+  - 両方失敗時のエラー表示（赤色バナー、手動入力促進）テスト
+  - renderPdfPagesToBase64関数のBase64変換テスト
+  - 画像ファイルに対するClaude Vision抽出試行テスト
+  - Claude Vision成功時の青色インフォバナー表示テスト
+  - _Requirements: 24.1, 24.2, 24.5, 24.6, 24.7, 24.8, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7_
+
+- [x] 57. バックエンド統合テスト（Claude Vision）
+- [x] 57.1 Claude Vision API統合テスト
+  - 認証・認可フロー（未認証リクエストの拒否、権限チェック）の統合テスト
+  - Zodスキーマによるリクエストバリデーションの統合テスト
+  - ANTHROPIC_API_KEY未設定時のHTTP 503レスポンスの統合テスト
+  - 各エラー種別（timeout、rate_limit、auth_error、parse_error）のレスポンス形式検証の統合テスト
+  - _Requirements: 21.1, 21.2, 21.9, 22.6, 23.1, 23.2, 23.3, 23.4, 23.7_
+
+- [x] 58. E2Eテスト（Claude Vision）
+- [x] 58.1 Claude Vision抽出フローのE2Eテスト
+  - PDFアップロード→Claude Vision抽出→結果表示→一括取り込み→明細行確認フローの確認（API利用可能時）
+  - Claude Vision抽出後の数量小数2桁・単価整数・金額整数表示の確認
+  - _Requirements: 24.1, 24.2, 24.5, 24.6, 24.8_
+
+- [x] 58.2 Claude VisionフォールバックのE2Eテスト
+  - Claude Vision API無効時（503）→Tesseract.jsフォールバック発動→フォールバック通知表示→既存OCR結果表示の確認
+  - フォールバック通知バナー（黄色）の表示確認
+  - _Requirements: 25.1, 25.4, 25.5, 25.6_

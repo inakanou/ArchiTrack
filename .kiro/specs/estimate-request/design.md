@@ -2111,3 +2111,714 @@ received_quotation_line_itemsテーブルへのcustom_category列およびwork_t
    - 数量: `formatQuantity(String(quantity))`
    - 単価: `formatUnitPrice(String(unitPrice))`
    - 金額: バックエンドの値をそのまま使用（整数として保存済み）
+
+---
+
+## Claude Vision API連携 - 設計追記（Requirements 21-26）
+
+### Overview（追記）
+
+**Purpose**: Claude Vision API（Anthropic Messages API）を活用したOCR精度の大幅改善を実現する。フロントエンドでPDFページをCanvas画像化し、バックエンドのClaude API（claude-haiku-4-5-20251001モデル）のVision機能に送信して建設見積書の表データをJSON形式で構造化抽出する。Tesseract.jsの日本語認識精度の限界（空セルのゴミ漢字誤認識、文字分離）を根本的に解決する。
+
+**Impact**: バックエンドにClaude Vision API連携エンドポイントと専用サービスを新規追加し、フロントエンドのOcrDataExtractorにClaude Vision抽出パスを追加する。Tesseract.jsフォールバックは維持し、API利用不可時のグレースフルデグラデーションを実現する。
+
+### Goals（追記）
+
+- Claude Vision APIによる高精度な建設見積書OCR構造化抽出を実現する
+- Anthropic APIキーの安全な環境変数管理を実現する
+- Claude Vision APIの各種エラーを適切にハンドリングする
+- フロントエンドにClaude Vision抽出パスを追加し、Tesseract.jsフォールバックを維持する
+- API利用不可時のグレースフルデグラデーション（自動切り替え）を実現する
+
+### Non-Goals（追記）
+
+- Claude APIの直接フロントエンド呼び出し（APIキーの露出を防止するためバックエンド経由とする）
+- Claude APIレスポンスのキャッシング（見積書画像はユニークであるため不要）
+- Claude APIのストリーミングレスポンス（構造化データ抽出では不要）
+
+### Architecture（追記）
+
+#### Architecture Pattern & Boundary Map（追記）
+
+```mermaid
+graph TB
+    subgraph Frontend_OCR_Extended[Frontend - OCR Extended]
+        OcrDataExtractor_Ext[OcrDataExtractor - Claude Vision Path]
+        ClaudeVisionApi[api/claude-vision.ts]
+    end
+
+    subgraph Backend_Claude[Backend - Claude Vision]
+        ClaudeVisionRoutes[claude-vision.routes]
+        ClaudeVisionService[claude-vision.service]
+        ClaudeVisionError[claudeVisionError.ts]
+    end
+
+    subgraph External[External Services]
+        AnthropicAPI[Anthropic Messages API]
+    end
+
+    OcrDataExtractor_Ext -->|Base64画像送信| ClaudeVisionApi
+    ClaudeVisionApi -->|POST /api/claude-vision/extract| ClaudeVisionRoutes
+    ClaudeVisionRoutes --> ClaudeVisionService
+    ClaudeVisionService -->|claude-haiku-4-5-20251001| AnthropicAPI
+    AnthropicAPI -->|JSON構造化データ| ClaudeVisionService
+    ClaudeVisionService -->|LineItem[]| ClaudeVisionRoutes
+    ClaudeVisionRoutes -->|レスポンス| ClaudeVisionApi
+    ClaudeVisionApi -->|LineItemFormData[]| OcrDataExtractor_Ext
+
+    OcrDataExtractor_Ext -->|フォールバック| TesseractFallback[Tesseract.js OCR]
+```
+
+**Architecture Integration（追記）**:
+- Selected pattern: レイヤードアーキテクチャ（既存パターン踏襲）。新規バックエンドサービス/ルート + 既存フロントエンドコンポーネント拡張のハイブリッドアプローチ
+- Domain boundaries: Claude Vision API連携はバックエンドの独立したサービス/ルートとして配置し、既存の受領見積書機能への影響を最小化
+- New components rationale: APIキーの保護のためバックエンド経由が必須。フロントエンドは既存OcrDataExtractorの拡張で対応
+- Steering compliance: TypeScript strict mode、Prisma 7 Driver Adapter（データ層は変更なし）
+
+### Technology Stack（追記）
+
+| Layer | Choice / Version | Role in Feature | Notes |
+|-------|------------------|-----------------|-------|
+| Backend | @anthropic-ai/sdk 0.74.x | Anthropic Messages API クライアント | 新規追加 |
+| Backend | Express 5.2 + TypeScript 5.9 | Claude Vision APIエンドポイント | 既存パターン踏襲 |
+| Frontend | React 19.2 + TypeScript 5.9 | OcrDataExtractor拡張 | 既存コンポーネント拡張 |
+
+### System Flows（追記）
+
+#### Claude Vision抽出フロー
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant OCR as OcrDataExtractor
+    participant API as api/claude-vision.ts
+    participant Backend as claude-vision.routes
+    participant Service as ClaudeVisionService
+    participant Claude as Anthropic API
+
+    User->>OCR: PDFファイルアップロード / OCR実行
+    OCR->>OCR: PDFページをCanvas画像に変換
+    OCR->>OCR: Canvas画像をBase64エンコード
+    OCR->>API: extractWithClaudeVision(base64Images)
+    API->>Backend: POST /api/claude-vision/extract
+    Backend->>Service: extractLineItems(images)
+    Service->>Claude: Messages API (claude-haiku-4-5-20251001, Vision)
+    Claude-->>Service: JSON構造化データ
+    Service->>Service: レスポンスパース・LineItem[]変換
+    Service-->>Backend: LineItem[]
+    Backend-->>API: 200 OK + LineItem[]
+    API-->>OCR: LineItemFormData[]
+    OCR->>OCR: 抽出結果表示 + 一括取り込みボタン表示
+```
+
+#### Claude Vision フォールバックフロー
+
+```mermaid
+sequenceDiagram
+    participant OCR as OcrDataExtractor
+    participant API as api/claude-vision.ts
+    participant Backend as claude-vision.routes
+    participant Tesseract as Tesseract.js
+
+    OCR->>API: extractWithClaudeVision(base64Images)
+    API->>Backend: POST /api/claude-vision/extract
+
+    alt HTTP 503 機能無効
+        Backend-->>API: 503 Service Unavailable
+        API-->>OCR: ClaudeVisionUnavailableError
+        OCR->>OCR: フォールバック通知表示
+        OCR->>Tesseract: 既存OCRパイプライン実行
+    else タイムアウト 30秒
+        Backend-->>API: タイムアウトエラー
+        API-->>OCR: ClaudeVisionTimeoutError
+        OCR->>OCR: フォールバック通知表示
+        OCR->>Tesseract: 既存OCRパイプライン実行
+    else その他エラー
+        Backend-->>API: エラーレスポンス
+        API-->>OCR: ClaudeVisionError
+        OCR->>OCR: フォールバック通知表示
+        OCR->>Tesseract: 既存OCRパイプライン実行
+    else 成功
+        Backend-->>API: 200 OK + LineItem[]
+        API-->>OCR: LineItemFormData[]
+        OCR->>OCR: Claude Vision結果を表示
+    end
+```
+
+### Requirements Traceability（追記）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 21.1 | Claude Vision APIエンドポイント（POST） | claude-vision.routes, ClaudeVisionService | POST /api/claude-vision/extract | Claude Vision抽出フロー |
+| 21.2 | Base64画像データ受信 | claude-vision.routes, claude-vision.schema | POST /api/claude-vision/extract | Claude Vision抽出フロー |
+| 21.3 | Anthropic Messages API（claude-haiku-4-5-20251001）使用 | ClaudeVisionService | Anthropic SDK | Claude Vision抽出フロー |
+| 21.4 | 建設見積書プロンプト | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 21.5 | JSON形式表データ抽出 | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 21.6 | LineItem[]形式変換 | ClaudeVisionService | POST /api/claude-vision/extract | Claude Vision抽出フロー |
+| 21.7 | 明細行フィールド定義 | ClaudeVisionService, claude-vision.schema | POST /api/claude-vision/extract | Claude Vision抽出フロー |
+| 21.8 | 複数ページ一括処理 | ClaudeVisionService, claude-vision.routes | POST /api/claude-vision/extract | Claude Vision抽出フロー |
+| 21.9 | APIエンドポイント認証 | claude-vision.routes, authenticate middleware | POST /api/claude-vision/extract | Claude Vision抽出フロー |
+| 22.1 | ANTHROPIC_API_KEY環境変数読み取り | env.d.ts, ClaudeVisionService | - | - |
+| 22.2 | APIキー未設定時の機能無効化 | ClaudeVisionService | - | - |
+| 22.3 | 機能無効ログ出力 | ClaudeVisionService | - | - |
+| 22.4 | APIキーのログ/レスポンス非出力 | ClaudeVisionService | - | - |
+| 22.5 | .env.example設定例 | .env.example | - | - |
+| 22.6 | 機能無効時のHTTP 503レスポンス | claude-vision.routes, ClaudeVisionService | POST /api/claude-vision/extract | フォールバックフロー |
+| 23.1 | タイムアウトエラー（30秒） | ClaudeVisionService, claudeVisionError | POST /api/claude-vision/extract | エラーハンドリング |
+| 23.2 | レート制限エラー（429） | ClaudeVisionService, claudeVisionError | POST /api/claude-vision/extract | エラーハンドリング |
+| 23.3 | 認証エラー（401） | ClaudeVisionService, claudeVisionError | POST /api/claude-vision/extract | エラーハンドリング |
+| 23.4 | レスポンスパースエラー | ClaudeVisionService, claudeVisionError | POST /api/claude-vision/extract | エラーハンドリング |
+| 23.5 | 汎用エラー | ClaudeVisionService, claudeVisionError | POST /api/claude-vision/extract | エラーハンドリング |
+| 23.6 | エラーログ記録（APIキー除外） | ClaudeVisionService | - | エラーハンドリング |
+| 23.7 | エラー種別レスポンス | claudeVisionError, claude-vision.routes | POST /api/claude-vision/extract | エラーハンドリング |
+| 24.1 | OcrDataExtractor Claude Vision抽出パス追加 | OcrDataExtractor | - | Claude Vision抽出フロー |
+| 24.2 | Claude Vision優先試行 | OcrDataExtractor | - | Claude Vision抽出フロー |
+| 24.3 | Canvas APIでPDFページ画像変換 | OcrDataExtractor | - | Claude Vision抽出フロー |
+| 24.4 | Base64エンコード・バックエンド送信 | OcrDataExtractor, api/claude-vision | POST /api/claude-vision/extract | Claude Vision抽出フロー |
+| 24.5 | 正常返却時の抽出結果表示 | OcrDataExtractor | - | Claude Vision抽出フロー |
+| 24.6 | 正常返却時の一括取り込みボタン表示 | OcrDataExtractor | - | Claude Vision抽出フロー |
+| 24.7 | Claude Vision処理中インジケーター | OcrDataExtractor | - | Claude Vision抽出フロー |
+| 24.8 | Requirement 18準拠の数値表示 | OcrDataExtractor, LineItemEditor | - | Claude Vision抽出フロー |
+| 25.1 | HTTP 503時のTesseract.jsフォールバック | OcrDataExtractor | - | フォールバックフロー |
+| 25.2 | タイムアウト時のフォールバック | OcrDataExtractor | - | フォールバックフロー |
+| 25.3 | エラー時のフォールバック | OcrDataExtractor | - | フォールバックフロー |
+| 25.4 | フォールバック通知メッセージ | OcrDataExtractor | - | フォールバックフロー |
+| 25.5 | 既存OCRパイプライン実行 | OcrDataExtractor | - | フォールバックフロー |
+| 25.6 | 自動切り替え（ユーザー操作不要） | OcrDataExtractor | - | フォールバックフロー |
+| 25.7 | 両方失敗時のエラー表示 | OcrDataExtractor | - | フォールバックフロー |
+| 26.1 | プロンプト: フィールド定義 | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 26.2 | プロンプト: JSON配列形式指示 | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 26.3 | プロンプト: 集計行除外指示 | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 26.4 | プロンプト: ヘッダー行除外指示 | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 26.5 | JSONパーサー実装 | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 26.6 | JSON配列未検出時のパースエラー | ClaudeVisionService, claudeVisionError | - | エラーハンドリング |
+| 26.7 | 数値データのNumber型変換 | ClaudeVisionService | - | Claude Vision抽出フロー |
+| 26.8 | カンマ区切り数値のNumber型変換 | ClaudeVisionService | - | Claude Vision抽出フロー |
+
+### Components and Interfaces（追記）
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| ClaudeVisionService | Backend | Claude Vision APIによる構造化データ抽出 | 21.1-21.8, 22.1-22.4, 23.1-23.7, 26.1-26.8 | @anthropic-ai/sdk (P0), Prisma (不要) | Service |
+| claude-vision.routes | Backend | Claude Vision API連携エンドポイント | 21.1, 21.2, 21.8, 21.9, 22.6 | ClaudeVisionService (P0), authenticate middleware (P0) | API |
+| claude-vision.schema | Backend | リクエスト/レスポンスのZodバリデーション | 21.2, 21.7 | zod (P0) | - |
+| claudeVisionError | Backend | Claude Vision API固有エラークラス | 23.1-23.7 | ApiError (P0) | - |
+| api/claude-vision.ts | Frontend | Claude Vision APIクライアント | 24.4 | client.ts (P0) | API |
+| OcrDataExtractor（拡張） | Frontend | Claude Vision抽出パス + Tesseract.jsフォールバック | 24.1-24.8, 25.1-25.7 | api/claude-vision.ts (P0), Tesseract.js (P1) | State |
+
+#### Backend Services（追記）
+
+##### ClaudeVisionService
+
+| Field | Detail |
+|-------|--------|
+| Intent | Claude Vision API（Anthropic Messages API）を使用してPDFページ画像から建設見積書の表データを構造化抽出する |
+| Requirements | 21.1-21.8, 22.1-22.4, 23.1-23.7, 26.1-26.8 |
+
+**Responsibilities & Constraints**
+- Anthropic Messages API（claude-haiku-4-5-20251001モデル）のVision機能によるPDFページ画像解析
+- 建設見積書の表構造を解析するプロンプトの構築と送信
+- Claude APIレスポンスからJSON形式の表データの抽出とパース
+- 抽出データのLineItem[]形式への変換（数値型変換、カンマ区切り数値処理を含む）
+- ANTHROPIC_API_KEY環境変数の存在チェックによる機能の有効/無効判定
+- Claude APIの各種エラー（タイムアウト、レート制限、認証エラー、パースエラー）のハンドリング
+- APIキーをログ出力やレスポンスに含めない
+- リクエストタイムアウト30秒の設定
+
+**Dependencies**
+- Inbound: claude-vision.routes -- API呼び出し (P0)
+- External: @anthropic-ai/sdk -- Anthropic Messages API クライアント (P0)
+- External: Anthropic Messages API -- Vision機能 (P0)
+
+**Contracts**: Service [x]
+
+###### Service Interface
+
+```typescript
+interface ClaudeVisionServiceDependencies {
+  anthropicApiKey: string | undefined;
+}
+
+/** Claude Vision APIに送信する画像データ */
+interface ClaudeVisionImageInput {
+  /** Base64エンコードされた画像データ（data URL prefixなし） */
+  base64Data: string;
+  /** 画像のメディアタイプ */
+  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+}
+
+/** Claude Vision APIから抽出された明細行データ */
+interface ClaudeVisionLineItem {
+  customCategory: string | null;
+  workType: string | null;
+  name: string;
+  specification: string | null;
+  unit: string | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  amount: number | null;
+  remarks: string | null;
+}
+
+/** Claude Vision抽出結果 */
+interface ClaudeVisionExtractionResult {
+  lineItems: ClaudeVisionLineItem[];
+  /** 処理されたページ数 */
+  pageCount: number;
+}
+
+/** エラー種別 */
+type ClaudeVisionErrorType =
+  | 'timeout'
+  | 'rate_limit'
+  | 'auth_error'
+  | 'parse_error'
+  | 'service_unavailable'
+  | 'unknown';
+
+interface ClaudeVisionService {
+  /** Claude Vision APIが有効かどうかを返す */
+  isEnabled(): boolean;
+
+  /** PDFページ画像から明細行データを抽出する */
+  extractLineItems(
+    images: ClaudeVisionImageInput[]
+  ): Promise<ClaudeVisionExtractionResult>;
+}
+```
+
+- Preconditions: ANTHROPIC_API_KEYが環境変数に設定されていること（isEnabled()がtrueを返すこと）
+- Postconditions: Claude APIから返却されたJSON構造化データがClaudeVisionLineItem[]に変換される
+- Invariants: APIキーがログ出力やレスポンスに含まれないこと。リクエストタイムアウトが30秒であること
+
+**Implementation Notes**
+- Integration: `@anthropic-ai/sdk`の`Anthropic`クライアントを使用して`client.messages.create()`を呼び出す。モデルは`claude-haiku-4-5-20251001`を使用する。タイムアウトはSDKの`timeout`オプションで30秒（30000ミリ秒）を設定する
+- Integration: 複数ページの画像は1つのMessagesリクエスト内のcontentとして全画像を含める。各画像は`{ type: 'image', source: { type: 'base64', media_type, data } }`形式で送信する。画像の後にプロンプトテキストを含める
+- Integration: サービスインスタンス生成時にANTHROPIC_API_KEYの存在を確認し、未設定の場合はisEnabled()がfalseを返す。サーバー起動時にログに「Claude Vision機能が無効です（ANTHROPIC_API_KEY未設定）」と記録する（22.3）
+- Validation: Claude APIレスポンスのcontentブロックからtext型の最初のブロックを取得し、JSON配列を抽出する。レスポンステキスト内の```json...```マーカーまたは最初の`[`から最後の`]`までを抽出してJSON.parse()する（26.5）
+- Validation: パース結果が配列でない場合、またはJSON.parse()が失敗した場合はparse_errorとして処理する（26.6）
+- Validation: 各明細行のquantity、unitPrice、amountフィールドについて、文字列型で返された場合はカンマを除去してparseFloat()でNumber型に変換する（26.7, 26.8）
+- Risks: Claude APIの応答時間はモデル負荷により変動する。30秒タイムアウトで打ち切る。レート制限（429）は一時的であり、フロントエンドでフォールバックが発動する
+
+**プロンプト設計（26.1-26.4）**:
+
+```typescript
+const EXTRACTION_PROMPT = `あなたは建設見積書の表データを抽出するAIです。
+以下の画像は建設見積書のページです。表から明細行データを抽出してJSON配列形式で返してください。
+
+## 抽出対象フィールド
+各明細行について以下のフィールドを抽出してください:
+- customCategory: 任意分類（該当する列がない場合はnull）
+- workType: 工種（該当する列がない場合はnull）
+- name: 名称（必須。項目名、品名、摘要などの列）
+- specification: 規格（該当する列がない場合はnull）
+- unit: 単位（該当する列がない場合はnull）
+- quantity: 数量（数値。該当する列がない場合はnull）
+- unitPrice: 単価（数値。該当する列がない場合はnull）
+- amount: 金額（数値。該当する列がない場合はnull）
+- remarks: 備考（該当する列がない場合はnull）
+
+## 除外ルール
+- ヘッダー行（列名の行）は除外してください
+- 集計行は除外してください（以下のキーワードを含む行: 合計、小計、直接工事費、諸経費、一般管理費、値引き、消費税、計）
+- 空行は除外してください
+
+## 出力形式
+JSON配列のみを出力してください。説明文やマークダウンは不要です。
+数値はカンマなしの数値で出力してください（例: 1234567）。
+
+例:
+[
+  {"customCategory": null, "workType": "土工", "name": "掘削工", "specification": "バックホウ0.45m3", "unit": "m3", "quantity": 150, "unitPrice": 2500, "amount": 375000, "remarks": null},
+  {"customCategory": null, "workType": "土工", "name": "埋戻し工", "specification": null, "unit": "m3", "quantity": 80, "unitPrice": 1800, "amount": 144000, "remarks": "現場発生土使用"}
+]`;
+```
+
+##### claudeVisionError
+
+| Field | Detail |
+|-------|--------|
+| Intent | Claude Vision API固有のエラークラスを定義 |
+| Requirements | 23.1-23.7 |
+
+**Responsibilities & Constraints**
+- Claude Vision APIの各種エラーを型安全にハンドリング
+- エラー種別（timeout、rate_limit、auth_error、parse_error、service_unavailable、unknown）の区別
+- 既存のApiErrorクラスを拡張
+
+**Dependencies**
+- Outbound: ApiError -- 基底エラークラス (P0)
+
+**Contracts**: -
+
+```typescript
+import { ApiError } from './apiError.js';
+
+type ClaudeVisionErrorType =
+  | 'timeout'
+  | 'rate_limit'
+  | 'auth_error'
+  | 'parse_error'
+  | 'service_unavailable'
+  | 'unknown';
+
+class ClaudeVisionError extends ApiError {
+  readonly errorType: ClaudeVisionErrorType;
+
+  constructor(
+    message: string,
+    errorType: ClaudeVisionErrorType,
+    statusCode: number
+  ) {
+    super(message, statusCode);
+    this.errorType = errorType;
+    this.name = 'ClaudeVisionError';
+  }
+
+  static timeout(): ClaudeVisionError {
+    return new ClaudeVisionError(
+      'Claude Vision APIリクエストがタイムアウトしました（30秒）',
+      'timeout',
+      504
+    );
+  }
+
+  static rateLimit(): ClaudeVisionError {
+    return new ClaudeVisionError(
+      'Claude Vision APIのレート制限に達しました。しばらく待ってからリトライしてください',
+      'rate_limit',
+      429
+    );
+  }
+
+  static authError(): ClaudeVisionError {
+    return new ClaudeVisionError(
+      'Claude Vision APIの認証に失敗しました。APIキーが無効です',
+      'auth_error',
+      401
+    );
+  }
+
+  static parseError(): ClaudeVisionError {
+    return new ClaudeVisionError(
+      'Claude Vision APIのレスポンスから構造化データを抽出できませんでした',
+      'parse_error',
+      422
+    );
+  }
+
+  static serviceUnavailable(): ClaudeVisionError {
+    return new ClaudeVisionError(
+      'Claude Vision機能は無効です（ANTHROPIC_API_KEY未設定）',
+      'service_unavailable',
+      503
+    );
+  }
+
+  static unknown(originalMessage: string): ClaudeVisionError {
+    return new ClaudeVisionError(
+      `Claude Vision APIで予期しないエラーが発生しました: ${originalMessage}`,
+      'unknown',
+      500
+    );
+  }
+
+  toJSON(): { error: string; errorType: ClaudeVisionErrorType } {
+    return {
+      error: this.message,
+      errorType: this.errorType,
+    };
+  }
+}
+```
+
+**Implementation Notes**
+- Integration: 既存のApiErrorクラスを拡張し、errorTypeプロパティを追加。errorHandlerミドルウェアでClaudeVisionError固有のレスポンス形式（errorTypeフィールドを含む）を返す
+- Validation: Anthropic SDKのエラーオブジェクト（APIError、APIConnectionError、RateLimitError、AuthenticationError）からClaudeVisionError型への変換をClaudeVisionService内で実装する
+
+#### Backend Routes（追記）
+
+##### claude-vision.routes
+
+| Field | Detail |
+|-------|--------|
+| Intent | Claude Vision API連携のRESTful APIエンドポイントを提供 |
+| Requirements | 21.1, 21.2, 21.8, 21.9, 22.6 |
+
+**Contracts**: API [x]
+
+###### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| POST | /api/claude-vision/extract | ClaudeVisionExtractRequest | ClaudeVisionExtractResponse | 400, 401, 403, 422, 429, 500, 503, 504 |
+
+**Request Schema（claude-vision.schema.ts）**:
+```typescript
+import { z } from 'zod';
+
+const claudeVisionImageSchema = z.object({
+  base64Data: z.string().min(1, 'Base64データは必須です'),
+  mediaType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+});
+
+const claudeVisionExtractRequestSchema = z.object({
+  images: z
+    .array(claudeVisionImageSchema)
+    .min(1, '1つ以上の画像が必要です')
+    .max(20, '一度に処理できる画像は最大20ページです'),
+});
+
+type ClaudeVisionExtractRequest = z.infer<typeof claudeVisionExtractRequestSchema>;
+```
+
+**Response Schema**:
+```typescript
+interface ClaudeVisionExtractResponse {
+  lineItems: ClaudeVisionLineItem[];
+  pageCount: number;
+}
+
+/** エラーレスポンス */
+interface ClaudeVisionErrorResponse {
+  error: string;
+  errorType: ClaudeVisionErrorType;
+}
+```
+
+**Implementation Notes**
+- Integration: authenticate + requirePermission('estimate_request:read')ミドルウェアで認証・認可を実装（21.9）
+- Integration: リクエストボディのバリデーションはZodスキーマで実行。Base64データの最大サイズはExpress body-parserの制限（デフォルト100kb）を拡張する必要がある。`express.json({ limit: '50mb' })`を設定するか、ルート専用のbody-parser設定を適用する
+- Integration: ClaudeVisionService.isEnabled()がfalseの場合はHTTP 503を返却する（22.6）
+- Validation: images配列は1〜20要素の制約。Base64データは空文字でないこと。mediaTypeは許可された画像形式のみ
+- Risks: 大量のBase64画像データを含むリクエストのメモリ使用量。body-parserの制限値を適切に設定する
+
+##### app.ts 変更
+
+既存の`app.ts`に以下のルート登録を追加:
+```typescript
+// Claude Vision API routes
+app.use('/api/claude-vision', claudeVisionRoutes);
+```
+
+##### env.d.ts 変更
+
+既存の`env.d.ts`のProcessEnv interfaceに以下を追加:
+```typescript
+// Anthropic Claude Vision API
+ANTHROPIC_API_KEY?: string;
+```
+
+##### .env.example 変更
+
+既存の`backend/.env.example`に以下を追加:
+```
+# Anthropic Claude Vision API（オプション: 設定しない場合はClaude Vision機能が無効化されます）
+# ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
+```
+
+#### Frontend Components（追記）
+
+##### api/claude-vision.ts（新規）
+
+| Field | Detail |
+|-------|--------|
+| Intent | Claude Vision APIエンドポイントへのフロントエンドクライアント |
+| Requirements | 24.4 |
+
+**Dependencies**
+- Outbound: client.ts -- APIクライアント基盤 (P0)
+
+**Contracts**: API [x]
+
+```typescript
+import { apiClient } from './client';
+
+interface ClaudeVisionImageInput {
+  base64Data: string;
+  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+}
+
+interface ClaudeVisionLineItem {
+  customCategory: string | null;
+  workType: string | null;
+  name: string;
+  specification: string | null;
+  unit: string | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  amount: number | null;
+  remarks: string | null;
+}
+
+interface ClaudeVisionExtractResponse {
+  lineItems: ClaudeVisionLineItem[];
+  pageCount: number;
+}
+
+interface ClaudeVisionErrorResponse {
+  error: string;
+  errorType: 'timeout' | 'rate_limit' | 'auth_error' | 'parse_error' | 'service_unavailable' | 'unknown';
+}
+
+/**
+ * Claude Vision APIでPDFページ画像から明細行データを抽出する
+ *
+ * @throws ClaudeVisionApiError - Claude Vision API固有エラー（errorType付き）
+ */
+async function extractWithClaudeVision(
+  images: ClaudeVisionImageInput[]
+): Promise<ClaudeVisionExtractResponse>;
+
+/**
+ * Claude Vision APIが利用可能かどうかを判定する
+ * HTTP 503が返された場合はfalseを返す
+ */
+function isClaudeVisionApiError(error: unknown): error is ClaudeVisionApiError;
+
+class ClaudeVisionApiError extends Error {
+  readonly errorType: string;
+  readonly statusCode: number;
+
+  constructor(message: string, errorType: string, statusCode: number);
+
+  /** フォールバックすべきエラーかどうか */
+  get shouldFallback(): boolean;
+}
+```
+
+**Implementation Notes**
+- Integration: 既存の`apiClient`（`client.ts`）を使用してPOSTリクエストを送信する。エラーレスポンスのbodyからerrorTypeフィールドを抽出してClaudeVisionApiErrorに変換する
+- Integration: `shouldFallback`プロパティで503（service_unavailable）、504（timeout）、その他のエラーすべてについてtrueを返す。フロントエンド側でこのプロパティを使ってTesseract.jsフォールバックの判定を行う
+- Risks: Base64画像データが大きい場合のネットワーク転送時間。PDFが多ページの場合のリクエストサイズ
+
+##### OcrDataExtractor（拡張 - Claude Vision抽出パス追加）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 既存のOcrDataExtractorにClaude Vision APIによる抽出パスを追加し、Tesseract.jsフォールバックを維持する |
+| Requirements | 24.1-24.8, 25.1-25.7 |
+
+**拡張内容**:
+
+OcrDataExtractorPropsインターフェースの変更は不要（既存のfile、fileUrl、fileMimeType、onImportLineItems、autoStartプロパティで対応可能）。
+
+**State Management（追記）**:
+
+```typescript
+/** OcrDataExtractorStateの拡張 */
+interface OcrDataExtractorStateExtended {
+  // 既存フィールド（変更なし）
+  status: 'idle' | 'processing' | 'completed' | 'error';
+  progress: number;
+  extractedText: string | null;
+  parsedLineItems: LineItemFormData[] | null;
+  errorMessage: string | null;
+  importCompleted: boolean;
+
+  // 追加フィールド（Claude Vision対応）
+  /** Claude Vision抽出が使用されたか */
+  usedClaudeVision: boolean;
+  /** Tesseract.jsフォールバックが発動したか */
+  fallbackActivated: boolean;
+  /** フォールバック理由 */
+  fallbackReason: string | null;
+}
+```
+
+**Claude Vision抽出フロー（OcrDataExtractor内部ロジック追加）**:
+
+1. PDFファイルに対してOCR処理を開始する際、まずClaude Vision抽出を試行する（24.2）
+2. PDFの各ページをCanvas APIで画像に変換する（24.3）。既存の`extractPdfHybrid`関数内のCanvas描画ロジック（`page.render()`）を再利用する。描画スケールは`CANVAS_RENDER_SCALE = 4.0`を使用
+3. Canvas画像を`canvas.toDataURL('image/png')`でBase64エンコードし、`data:image/png;base64,`プレフィックスを除去する（24.4）
+4. `extractWithClaudeVision(images)`を呼び出してバックエンドに送信する（24.4）
+5. 正常レスポンスの場合:
+   - 返却されたlineItemsをLineItemFormData[]に変換する。数値フィールドにはformatQuantity()、formatUnitPrice()、calculateFormattedAmount()を適用する（24.8）
+   - Claude Vision抽出結果として表示する（24.5）。抽出テキストはJSON.stringify(lineItems, null, 2)で整形表示する
+   - 一括取り込みボタンを表示する（24.6）
+   - `usedClaudeVision = true`を設定する
+6. エラーの場合（25.1-25.3）:
+   - ClaudeVisionApiErrorのshouldFallbackがtrueの場合、自動的にTesseract.js OCRにフォールバックする（25.6）
+   - `fallbackActivated = true`を設定し、フォールバック理由を記録する
+   - フォールバック通知メッセージを表示する（25.4）:「Claude Vision APIが利用できないため、Tesseract.js OCRで処理しています」
+   - 既存のOCR処理パイプライン（Requirement 17、19、20の処理）を実行する（25.5）
+7. Claude VisionとTesseract.jsの両方が失敗した場合、エラーメッセージを表示し手動入力を促す（25.7）
+
+**Implementation Notes**
+- Integration: Claude Vision抽出パスは既存のprocessPdf()関数の前に挿入する。まずextractWithClaudeVision()を呼び出し、成功すればprocessPdf()をスキップする。失敗した場合のみprocessPdf()（既存のpdfjs-dist + Tesseract.jsハイブリッドアプローチ）にフォールバックする
+- Integration: Canvas→Base64変換はextractPdfHybrid()内のCanvas描画ロジックを共有するヘルパー関数`renderPdfPagesToBase64(file: File): Promise<ClaudeVisionImageInput[]>`として切り出す。この関数は既存のextractPdfHybrid()からも呼び出し可能な形式で実装する
+- Integration: 画像ファイル（非PDF）に対してもClaude Vision抽出を試行する。画像の場合はFileReaderでBase64変換し、1つのClaudeVisionImageInputとして送信する
+- Validation: Claude Vision処理中のインジケーター表示（24.7）は既存のstatusフィールドを'processing'に設定して対応。プログレスバーのテキストを「Claude Vision APIで解析中...」に変更する
+- Visual: フォールバック通知は黄色の警告バナー（bg-yellow-50 border-yellow-200）で表示し、「Claude Vision APIが利用できないため、従来のOCR処理で実行しています」のテキストを含む
+- Visual: Claude Vision抽出成功時は青色のインフォバナー（bg-blue-50 border-blue-200）で「Claude Vision APIで抽出しました」のテキストを表示する
+- Risks: PDFページ数が多い場合のBase64データサイズが大きくなる可能性がある。最大20ページの制約をフロントエンド側でも検証する
+
+### Error Handling（追記）
+
+#### Claude Vision APIエラー戦略
+
+**バックエンドエラーハンドリング（ClaudeVisionService内）**:
+
+| Anthropic SDK エラー | ClaudeVisionError | HTTP Status | ユーザーメッセージ |
+|---------------------|-------------------|-------------|----------------|
+| APIConnectionTimeoutError | timeout | 504 | Claude Vision APIリクエストがタイムアウトしました（30秒） |
+| RateLimitError (429) | rate_limit | 429 | Claude Vision APIのレート制限に達しました |
+| AuthenticationError (401) | auth_error | 401 | Claude Vision APIの認証に失敗しました |
+| JSON.parse失敗 / 配列未検出 | parse_error | 422 | レスポンスから構造化データを抽出できませんでした |
+| ANTHROPIC_API_KEY未設定 | service_unavailable | 503 | Claude Vision機能は無効です |
+| その他のError | unknown | 500 | 予期しないエラーが発生しました |
+
+**エラーログ記録（23.6）**:
+- すべてのClaude APIエラーをPino loggerの`logger.error()`で構造化ログに記録する
+- ログにはerrorType、元のエラーメッセージ、リクエストの画像枚数を含める
+- APIキー（ANTHROPIC_API_KEY）はログに含めない（23.6）
+
+**フロントエンドエラーハンドリング（OcrDataExtractor内）**:
+
+| バックエンドエラー | フロントエンド動作 | ユーザー通知 |
+|------------------|------------------|-------------|
+| 503 (service_unavailable) | Tesseract.jsフォールバック自動発動 | 黄色バナー: Claude Vision APIが利用できません |
+| 504 (timeout) | Tesseract.jsフォールバック自動発動 | 黄色バナー: Claude Vision APIがタイムアウトしました |
+| 429 (rate_limit) | Tesseract.jsフォールバック自動発動 | 黄色バナー: Claude Vision APIのレート制限です |
+| 401 (auth_error) | Tesseract.jsフォールバック自動発動 | 黄色バナー: Claude Vision APIの認証エラーです |
+| 422 (parse_error) | Tesseract.jsフォールバック自動発動 | 黄色バナー: Claude Vision APIの解析に失敗しました |
+| 500 (unknown) | Tesseract.jsフォールバック自動発動 | 黄色バナー: Claude Vision APIでエラーが発生しました |
+| フォールバックも失敗 | エラー表示 + 手動入力促進 | 赤色バナー: OCR処理に失敗しました。手動入力してください |
+
+### Testing Strategy（追記）
+
+#### Unit Tests（追記）
+
+- **ClaudeVisionService**: Anthropic SDK呼び出しのモック、正常レスポンスのパース、JSON配列抽出、数値型変換、カンマ区切り数値処理、タイムアウトエラー、レート制限エラー、認証エラー、パースエラー、汎用エラー、isEnabled()判定、プロンプト構築
+- **claudeVisionError**: 各ファクトリメソッドの戻り値検証（statusCode、errorType、message）、toJSON()出力
+- **claude-vision.schema**: Zodスキーマバリデーション（正常データ、空配列、最大件数超過、無効なmediaType、空のbase64Data）
+- **claude-vision.routes**: 認証チェック、isEnabled()=false時の503レスポンス、正常リクエストのサービス呼び出し、エラーレスポンスのフォーマット
+- **api/claude-vision.ts（フロントエンド）**: 正常レスポンスの変換、エラーレスポンスのClaudeVisionApiError変換、shouldFallback判定
+- **OcrDataExtractor（Claude Vision拡張）**: Claude Vision成功時のフロー（usedClaudeVision=true）、Claude Vision失敗→Tesseract.jsフォールバック発動（fallbackActivated=true）、フォールバック通知メッセージ表示、Claude Vision成功時の数値フォーマット適用（24.8）、両方失敗時のエラー表示、renderPdfPagesToBase64関数のBase64変換テスト
+
+#### Integration Tests（追記）
+
+- **Claude Vision API統合テスト**: 認証・認可フロー、リクエストバリデーション（Zodスキーマ）
+- **Claude Vision 503テスト**: ANTHROPIC_API_KEY未設定時のHTTP 503レスポンス
+- **Claude Vision エラーレスポンステスト**: 各エラー種別（timeout、rate_limit、auth_error、parse_error）のレスポンス形式検証
+
+#### E2E Tests（追記）
+
+- **Claude Vision抽出フロー**: PDFアップロード→Claude Vision抽出→結果表示→一括取り込み→明細行確認（API利用可能時）
+- **Claude Visionフォールバック**: Claude Vision API無効時（503）→Tesseract.jsフォールバック発動→フォールバック通知表示→既存OCR結果表示
+- **Claude Vision数値フォーマット**: Claude Vision抽出後の数量小数2桁・単価整数・金額整数表示確認
+
+### Security Considerations（追記）
+
+- **APIキー保護**: ANTHROPIC_API_KEYはバックエンド環境変数でのみ管理し、フロントエンドには一切露出しない。フロントエンドからバックエンドAPIエンドポイント経由でClaude APIを呼び出す
+- **APIキーログ非出力**: エラーログ、デバッグログ、APIレスポンスにAPIキーを含めない（22.4）
+- **認証・認可**: Claude Vision APIエンドポイントには既存のauthenticate + requirePermissionミドルウェアを適用し、認証済みユーザーのみアクセス可能とする（21.9）
+- **入力サイズ制限**: images配列は最大20要素。Body-parser制限を50MBに設定してDoS攻撃リスクを軽減
+- **Base64データの検証**: Zodスキーマで空文字チェックとmediaType検証を実施
+
+### Performance & Scalability（追記）
+
+- **リクエストタイムアウト**: 30秒のタイムアウトを設定し、Claude APIの応答遅延による長時間ブロッキングを防止（23.1）
+- **ページ数制限**: 一度に処理できる最大ページ数を20ページに制限し、リクエストサイズと処理時間を制御
+- **Body-parser制限**: Claude Visionエンドポイント専用のbody-parser制限（50MB）を設定。他のエンドポイントのデフォルト制限（100KB）には影響しない
+- **フォールバック性能**: Claude Vision APIエラー時のTesseract.jsフォールバックは追加のネットワークラウンドトリップなしにフロントエンド側で即座に実行される

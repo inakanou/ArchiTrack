@@ -42,6 +42,7 @@ import estimateRequestStatusRoutes from './routes/estimate-request-status.routes
 import companyInfoRoutes from './routes/company-info.routes.js';
 import estimatesRoutes from './routes/estimates.routes.js';
 import projectQuotationsRoutes from './routes/project-quotations.routes.js';
+import claudeVisionRoutes from './routes/claude-vision.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -101,6 +102,10 @@ app.use(
     level: 6,
   })
 );
+
+// Claude Vision API routes (registered BEFORE global body-parser to use route-level 50MB limit)
+// Requirements: 21.1 - ルートレベルで独自のexpress.json({ limit: '50mb' })を持つ
+app.use('/api/claude-vision', claudeVisionRoutes);
 
 app.use(express.json({ limit: '5mb' })); // サムネイル更新のBase64画像データ用に制限を増加
 app.use(cookieParser());

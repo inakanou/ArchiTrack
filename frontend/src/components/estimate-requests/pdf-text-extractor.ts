@@ -441,3 +441,67 @@ export async function extractPdfHybrid(
 
   return { text: ocrText, isTextPdf: false, numPages };
 }
+
+// ============================================================================
+// Claude Vision用: PDFページをBase64画像に変換
+// Task 54.1, Requirement 24.3
+// ============================================================================
+
+/** PDFページをBase64画像に変換する際の最大ページ数 */
+const MAX_PAGES_FOR_VISION = 20;
+
+/**
+ * PDFファイルの各ページをCanvas APIで画像に変換しBase64エンコードする
+ *
+ * 既存のextractPdfWithOcrFallback関数内のCanvas描画ロジックを再利用可能な形で切り出し。
+ * Claude Vision APIに送信するための画像データ配列を返す。
+ *
+ * Task 54.1, Requirement 24.3
+ *
+ * @param file - 処理対象のPDFファイル
+ * @returns Base64エンコードされた画像データの配列（最大20ページ）
+ */
+export async function renderPdfPagesToBase64(
+  file: File
+): Promise<Array<{ base64Data: string; mediaType: 'image/png' }>> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+
+  const pagesToRender = Math.min(pdf.numPages, MAX_PAGES_FOR_VISION);
+  const results: Array<{ base64Data: string; mediaType: 'image/png' }> = [];
+
+  for (let pageNum = 1; pageNum <= pagesToRender; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: CANVAS_RENDER_SCALE });
+
+    // Canvas要素を動的に作成
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('Canvas 2Dコンテキストの取得に失敗しました');
+    }
+
+    // PDFページをCanvas上に描画
+    await page.render({ canvas, viewport }).promise;
+
+    // Canvas描画結果をBase64画像に変換
+    const dataUrl = canvas.toDataURL('image/png');
+
+    // data:image/png;base64, プレフィックスを除去
+    const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+
+    // Canvas参照を即座に解放してメモリを節約
+    canvas.width = 0;
+    canvas.height = 0;
+
+    results.push({
+      base64Data,
+      mediaType: 'image/png' as const,
+    });
+  }
+
+  return results;
+}

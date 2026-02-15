@@ -347,3 +347,90 @@
 4. The システム shall OCRテキスト内のカンマ区切り数値（例: 1,234,567）をカンマ除去して数値として認識する
 5. The システム shall ゴミ行フィルタと集計行除外を一括取り込み（convertOcrTextToLineItems）の行分割処理の直後に適用する
 6. The システム shall 既存のExcelデータパース結果の一括取り込み処理（convertExcelToLineItems）に影響を与えない
+
+### Requirement 21: Claude Vision API連携エンドポイント（バックエンド）
+
+**Objective:** As a システム管理者, I want バックエンドにClaude Vision APIと連携するエンドポイントを追加したい, so that フロントエンドから送信されたPDFページ画像をClaude APIのVision機能で解析し、高精度な構造化データ抽出を実現できる
+
+#### Acceptance Criteria
+
+1. The システム shall バックエンドにPDFページ画像を受け取りClaude Vision APIで解析するAPIエンドポイント（POST）を提供する
+2. The システム shall APIエンドポイントでBase64エンコードされた画像データを受け取る
+3. The システム shall Anthropic Messages API（claude-haiku-4-5-20251001モデル）を使用してVision解析を実行する
+4. The システム shall Claude APIへのリクエストに建設見積書の表構造を解析するためのプロンプトを含める
+5. The システム shall Claude APIのレスポンスからJSON形式の表データを抽出する
+6. The システム shall 抽出したJSON表データを明細行データ（LineItem[]）形式に変換してフロントエンドに返却する
+7. The システム shall 明細行データに任意分類、工種、名称、規格、単位、数量、単価、金額、備考のフィールドを含める
+8. The システム shall 複数ページの画像を一括で受け取り、ページ順に処理する機能を提供する
+9. The システム shall APIエンドポイントへのアクセスに認証を要求する
+
+### Requirement 22: Anthropic APIキー管理と環境設定
+
+**Objective:** As a システム管理者, I want Anthropic APIキーを環境変数で安全に管理したい, so that Claude Vision API連携を安全かつ柔軟に設定できる
+
+#### Acceptance Criteria
+
+1. The システム shall 環境変数ANTHROPIC_API_KEYからAnthropic APIキーを読み取る
+2. If ANTHROPIC_API_KEYが環境変数に設定されていない場合, then the システム shall Claude Vision抽出機能を無効化する
+3. If ANTHROPIC_API_KEYが環境変数に設定されていない場合, then the システム shall バックエンド起動時にClaude Vision機能が無効であることをログに記録する
+4. The システム shall ANTHROPIC_API_KEYの値をログ出力やAPIレスポンスに含めない
+5. The システム shall backend/.env.exampleにANTHROPIC_API_KEYの設定例を記載する
+6. When Claude Vision抽出機能が無効の状態でVision APIエンドポイントにリクエストが送信されたとき, the システム shall 機能が無効であることを示すエラーレスポンス（HTTP 503）を返却する
+
+### Requirement 23: Claude Vision APIエラーハンドリング
+
+**Objective:** As a ユーザー, I want Claude Vision APIの各種エラーが適切に処理されてほしい, so that APIエラー発生時にも操作を継続でき、問題の原因を把握できる
+
+#### Acceptance Criteria
+
+1. If Claude APIリクエストがタイムアウトした場合（30秒）, then the システム shall タイムアウトエラーをフロントエンドに返却する
+2. If Claude APIからレート制限エラー（HTTP 429）を受信した場合, then the システム shall レート制限エラーをフロントエンドに返却し、リトライ可能であることを示す
+3. If Claude APIから認証エラー（HTTP 401）を受信した場合, then the システム shall APIキーが無効であることを示すエラーをフロントエンドに返却する
+4. If Claude APIのレスポンスが期待するJSON形式でない場合, then the システム shall レスポンスパースエラーをフロントエンドに返却する
+5. If Claude APIから予期しないエラーを受信した場合, then the システム shall 汎用エラーメッセージをフロントエンドに返却する
+6. The システム shall すべてのClaude APIエラーをバックエンドのログに記録する（APIキーを除く）
+7. The システム shall エラーレスポンスにエラー種別（timeout、rate_limit、auth_error、parse_error、unknown）を含める
+
+### Requirement 24: フロントエンドClaude Vision抽出パス
+
+**Objective:** As a ユーザー, I want 受領見積書のOCR処理でClaude Vision APIによる高精度な抽出を利用したい, so that Tesseract.jsの日本語認識精度の限界（空セルのゴミ漢字誤認識、文字分離）を根本的に解決し、建設見積書の表データを正確に取り込める
+
+#### Acceptance Criteria
+
+1. The システム shall OcrDataExtractorにClaude Vision APIによる抽出パスを追加する
+2. When ユーザーがPDFファイルに対してOCR処理を開始したとき, the システム shall まずClaude Vision抽出を試行する
+3. The システム shall PDFの各ページをCanvas APIで画像に変換する
+4. The システム shall Canvas画像をBase64エンコードしてバックエンドのClaude Vision APIエンドポイントに送信する
+5. When Claude Vision APIから明細行データが正常に返却されたとき, the システム shall 返却されたデータを抽出結果として表示する
+6. When Claude Vision APIから明細行データが正常に返却されたとき, the システム shall 一括取り込みボタンを表示する
+7. While Claude Vision API処理が実行中のとき, the システム shall 処理中インジケーターを表示する
+8. The システム shall Claude Vision抽出結果をRequirement 18の数値表示形式・丸め規則に従って表示する
+
+### Requirement 25: Tesseract.jsフォールバック（グレースフルデグラデーション）
+
+**Objective:** As a ユーザー, I want Claude Vision APIが利用できない場合でも既存のOCR機能を使いたい, so that API障害時やAPIキー未設定時でも受領見積書のデータ抽出機能を継続利用できる
+
+#### Acceptance Criteria
+
+1. If Claude Vision APIエンドポイントがHTTP 503（機能無効）を返却した場合, then the システム shall 自動的にTesseract.js OCRにフォールバックする
+2. If Claude Vision API処理がタイムアウトした場合, then the システム shall 自動的にTesseract.js OCRにフォールバックする
+3. If Claude Vision API処理がエラーを返却した場合, then the システム shall 自動的にTesseract.js OCRにフォールバックする
+4. When Tesseract.jsフォールバックが発動したとき, the システム shall フォールバックが発動したことをユーザーに通知するメッセージを表示する
+5. When Tesseract.jsフォールバックが発動したとき, the システム shall 既存のOCR処理パイプライン（Requirement 17、19、20の処理）を実行する
+6. The システム shall Claude Vision抽出とTesseract.jsフォールバックの切り替えをユーザー操作なしで自動的に行う
+7. If Claude Vision抽出とTesseract.jsフォールバックの両方が失敗した場合, then the システム shall エラーメッセージを表示し手動入力を促す
+
+### Requirement 26: Claude Vision構造化データ抽出精度
+
+**Objective:** As a ユーザー, I want Claude Vision APIで建設見積書の表構造を視覚的に正確に理解・抽出してほしい, so that 手動修正の手間を最小限に抑え、正確な明細データを取り込める
+
+#### Acceptance Criteria
+
+1. The システム shall Claude APIへのプロンプトに建設見積書の表構造（任意分類、工種、名称、規格、単位、数量、単価、金額、備考）のフィールド定義を含める
+2. The システム shall Claude APIへのプロンプトに抽出結果をJSON配列形式で返却するよう指示を含める
+3. The システム shall Claude APIへのプロンプトに集計行（合計、小計、直接工事費、諸経費、一般管理費、値引き、消費税）を除外するよう指示を含める
+4. The システム shall Claude APIへのプロンプトにヘッダー行を除外するよう指示を含める
+5. The システム shall Claude APIのレスポンスからJSON配列を抽出するパーサーを実装する
+6. If Claude APIのレスポンスにJSON配列が含まれない場合, then the システム shall パースエラーとして処理する
+7. The システム shall 抽出された数値データ（数量、単価、金額）をNumber型に変換する
+8. The システム shall カンマ区切り数値（例: 1,234,567）をカンマ除去してNumber型に変換する
