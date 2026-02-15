@@ -333,6 +333,20 @@ sequenceDiagram
 | 18.10 | OCR/データパース取り込み時の丸め適用 | OcrDataExtractor, LineItemEditor | - | データ取り込み |
 | 18.11 | 項目選択転記時の数量フォーマット適用 | ReceivedQuotationForm, LineItemEditor | - | 項目選択一括転記フロー |
 | 18.12 | 合計金額の整数表示 | LineItemEditor | - | 合計計算 |
+| 19.1 | Canvas描画スケール引き上げ（2.0→4.0） | pdf-text-extractor.ts | - | OCR前処理 |
+| 19.2 | グレースケール変換 | pdf-text-extractor.ts | - | OCR前処理 |
+| 19.3 | 大津の二値化 | pdf-text-extractor.ts | - | OCR前処理 |
+| 19.4 | 水平線除去 | pdf-text-extractor.ts | - | OCR前処理 |
+| 19.5 | 垂直線除去 | pdf-text-extractor.ts | - | OCR前処理 |
+| 19.6 | 画像前処理パイプライン挿入 | pdf-text-extractor.ts | - | OCR前処理 |
+| 19.7 | 新規外部依存なし制約 | pdf-text-extractor.ts | - | OCR前処理 |
+| 19.8 | タイムアウト維持（30秒） | OcrDataExtractor | - | OCR処理フロー |
+| 20.1 | ゴミ行フィルタ（漢字/かな/英数字なし行除外） | OcrDataExtractor | - | テキスト変換改善 |
+| 20.2 | ゴミ行フィルタ（極端に短い行除外） | OcrDataExtractor | - | テキスト変換改善 |
+| 20.3 | 集計行除外（合計/小計等キーワード行除外） | OcrDataExtractor | - | テキスト変換改善 |
+| 20.4 | カンマ区切り数値の正規化 | OcrDataExtractor | - | テキスト変換改善 |
+| 20.5 | フィルタ適用タイミング（行分割直後） | OcrDataExtractor | - | テキスト変換改善 |
+| 20.6 | Excelパース処理への非影響 | OcrDataExtractor | - | テキスト変換改善 |
 
 ## Components and Interfaces
 
@@ -1467,8 +1481,17 @@ interface OcrDataExtractorState {
    b. 全ページ（1〜numPages）を順に`page.getTextContent()`で処理し、テキストアイテムを結合（17.2）
    c. 抽出テキスト量の判定: テキスト文字数が閾値（50文字）以上か
       - **テキストPDF（閾値以上）**: pdfjs-dist抽出テキストをそのまま使用（高速・高精度）（17.3）
-      - **スキャンPDF（閾値未満）**: 各ページをCanvas描画→`canvas.toBlob()`で画像化→Tesseract.jsでOCR実行（17.4）
-   d. スキャンPDFフォールバック時は、pdfjs-distの`page.render()`でCanvas描画し、描画結果をPNG画像に変換してTesseract.jsに渡す
+      - **スキャンPDF（閾値未満）**: 各ページをCanvas描画→**画像前処理パイプライン**→`canvas.toBlob()`で画像化→Tesseract.jsでOCR実行（17.4, 19.1-19.6）
+   d. スキャンPDFフォールバック時は、pdfjs-distの`page.render()`でCanvas描画し、**画像前処理パイプライン（19.2-19.5）を適用後**、描画結果をPNG画像に変換してTesseract.jsに渡す
+   e. **改訂: スキャンPDFフォールバック画像前処理パイプライン（19.1-19.7）**:
+      - Canvas描画スケールを`CANVAS_RENDER_SCALE = 4.0`に引き上げ（19.1。従来: 2.0）
+      - Canvas描画後に`context.getImageData()`でピクセルデータを取得
+      - **Step 1: グレースケール変換（19.2）**: RGB加重平均（0.299R + 0.587G + 0.114B）で各ピクセルをグレースケール値に変換
+      - **Step 2: 大津の二値化（19.3）**: ヒストグラムからクラス間分散を最大化する閾値を自動算出し、各ピクセルを0（黒）または255（白）に変換
+      - **Step 3: 水平線除去（19.4）**: 各行を走査し、連続する黒ピクセル（値=0）のランレングスが画像幅×30%以上の場合、そのランを白ピクセル（255）で置換
+      - **Step 4: 垂直線除去（19.5）**: 各列を走査し、連続する黒ピクセルのランレングスが画像高さ×30%以上の場合、そのランを白ピクセル（255）で置換
+      - `context.putImageData()`で前処理済み画像をCanvasに書き戻し、`canvas.toBlob()`でPNG変換
+      - 全処理はCanvas APIのgetImageData/putImageDataのみで実装し、新規外部依存なし（19.7）
 4. **画像ファイルの処理フロー**: 従来通りTesseract.jsのworker.recognize()で直接OCR実行
 5. **OCR失敗時リトライ（16.5, 16.6）**:
    a. エラー表示エリアに「OCRリトライ」ボタンを追加表示
@@ -1478,21 +1501,28 @@ interface OcrDataExtractorState {
 7. ユーザーが「一括取り込み」ボタンクリック -> onImportLineItemsコールバック実行（16.10）
 8. 「取り込み結果の確認・修正を促すメッセージ」表示（13.13）
 
-**テキストから構造化データへの変換ロジック（改訂版）**:
+**テキストから構造化データへの変換ロジック（改訂版2 - ゴミ行フィルタ・集計行除外対応）**:
 - OCRテキストをタブ区切りまたはスペース区切りで行分割
+- **改訂: ゴミ行フィルタ（20.1, 20.2）**: 行分割直後に以下のフィルタを適用（20.5）:
+  - 漢字（\u4E00-\u9FFF）、ひらがな（\u3040-\u309F）、カタカナ（\u30A0-\u30FF）、英数字（a-zA-Z0-9）のいずれも含まない行を除外（20.1）
+  - 空白を除いた文字数が2文字以下の行を除外（20.2）
+- **改訂: 集計行除外（20.3）**: 以下のキーワードを含む行を明細行変換対象から除外:
+  - キーワード: 合計、小計、直接工事費、諸経費、一般管理費、値引き、消費税
+- **改訂: カンマ区切り数値正規化（20.4）**: 数値認識の前処理として、カンマ区切り数値パターン（例: `1,234,567`）からカンマを除去して数値として認識
 - 各行から任意分類、工種、名称、規格、単位、数量、単価を推定（パターンマッチング）
-- Excelデータはヘッダー行検出後、列マッピングにより自動変換（任意分類、工種列を含む）
+- Excelデータはヘッダー行検出後、列マッピングにより自動変換（任意分類、工種列を含む）。ゴミ行フィルタ・集計行除外はExcelパース処理には適用しない（20.6）
 - 変換精度は完璧でないため、手動修正を前提とする設計
 - **改訂: 数値表示形式の適用（18.10）**: 一括取り込み時にLineItemFormDataを生成する際、数量は`formatQuantity()`（小数2桁固定）、単価は`formatUnitPrice()`（整数丸め）を適用し、金額は`calculateAmount()`で再計算する。これにより取り込み直後から統一された表示形式が適用される
 
 **Implementation Notes**
 - Integration: **PDFテキスト抽出**: pdfjs-distの`getDocument()`でPDFを読み込み、各ページの`getTextContent()`でテキストアイテムを取得。テキストアイテムの`str`プロパティを結合してテキストを構築する。pdfjs-distはreact-pdfの依存として既にインストール済みであり、`import { getDocument } from 'pdfjs-dist'`で直接利用可能（17.1）
-- Integration: **スキャンPDFフォールバック**: `page.getViewport()`でビューポートを取得し、Canvas要素を作成して`page.render()`で描画。`canvas.toBlob('image/png')`で画像Blobに変換し、Tesseract.jsの`worker.recognize()`に渡す。全ページの結果を結合する（17.4）
+- Integration: **スキャンPDFフォールバック**: `page.getViewport({ scale: 4.0 })`でビューポートを取得し（19.1）、Canvas要素を作成して`page.render()`で描画。**描画後に画像前処理パイプラインを適用（19.2-19.5）**: `context.getImageData()`でImageDataを取得→グレースケール変換→大津の二値化→水平線除去→垂直線除去→`context.putImageData()`でCanvasに書き戻し。`canvas.toBlob('image/png')`で画像Blobに変換し、Tesseract.jsの`worker.recognize()`に渡す。全ページの結果を結合する（17.4）
+- Integration: **画像前処理の実装構成（19.7）**: 全処理は`pdf-text-extractor.ts`内にpure functionとして実装する。`preprocessImageData(imageData: ImageData): ImageData`を公開関数とし、内部で`toGrayscale()`、`otsuBinarize()`、`removeHorizontalLines()`、`removeVerticalLines()`の4ステップを順次適用する。Canvas APIのgetImageData/putImageDataのみを使用し、新規npm依存は追加しない
 - Integration: **閾値判定**: 全ページのテキスト結合後、空白を除いた文字数が50文字以上であればテキストPDFと判定。閾値は定数`PDF_TEXT_THRESHOLD = 50`として定義する（17.3）
 - Integration: 画像ファイルは従来通りTesseract.js 7.0.0のcreateWorker()でワーカーを初期化し、worker.recognize()でOCR実行。言語は'jpn'（日本語）を使用
 - Integration: ExcelパースはXLSX.read() + XLSX.utils.sheet_to_jsonで構造化データを抽出
 - Validation: テキスト抽出/OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示（17.8）
-- Risks: スキャンPDFのCanvas描画→OCR処理は時間がかかる可能性がある。PDFページ数が多い場合のメモリ使用量に注意
+- Risks: スキャンPDFのCanvas描画→画像前処理→OCR処理は時間がかかる可能性がある。scale 4.0への引き上げ（19.1）によりCanvas画像サイズが4倍（面積16倍）になるため、PDFページ数が多い場合のメモリ使用量に注意。ただしCanvas参照は各ページ処理後に即座に解放される（既存実装）
 - **改訂: ファイルURL→Fileオブジェクト変換**: `fileUrl`からfetch APIでBlobを取得し、`new File([blob], fileName, { type: mimeType })`でFileオブジェクトを生成する。これにより既存のprocessOcr/processExcelロジックを再利用可能
 - **改訂: リトライ実装**: `retryCount` stateを用いてuseEffectの依存配列に含め、リトライ時にカウントをインクリメントすることで再実行をトリガー
 - **改訂: pdfjs-dist workerの設定**: react-pdfの`pdfjs.GlobalWorkerOptions.workerSrc`設定を共有する。OcrDataExtractorではpdfjs-distのAPIを直接使用してテキスト抽出するが、workerの初期化はFileInlinePreviewと同じ設定を使用する
@@ -1936,7 +1966,8 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - ReceivedQuotationForm: フォームバリデーション、ファイル選択、コンテンツ存在検証、項目選択一括転記（空選択エラー、確認ダイアログ、転記結果、転記時の数量小数2桁フォーマット適用（18.11））
 - LineItemEditor: 明細行追加・削除、金額自動計算、合計計算、Tab移動（customCategory・workType含む）、最終行削除不可、数量フォーカスアウト時の小数2桁固定フォーマット（18.7）、単価フォーカスアウト時の整数丸めフォーマット（18.8）、金額の整数計算（18.9）、合計金額の整数表示（18.12）
 - FileInlinePreview: PDF/画像/Excelプレビュー表示、ファイルタイプ判定
-- OcrDataExtractor: OCR処理実行、Excelパース（customCategory・workType列マッピング含む）、一括取り込み、エラーハンドリング、OCRリトライ、手動トリガーモード、既存ファイルURL経由のOCR実行、一括取り込み時の数値表示形式適用（18.10: 数量小数2桁・単価整数・金額再計算）
+- OcrDataExtractor: OCR処理実行、Excelパース（customCategory・workType列マッピング含む）、一括取り込み、エラーハンドリング、OCRリトライ、手動トリガーモード、既存ファイルURL経由のOCR実行、一括取り込み時の数値表示形式適用（18.10: 数量小数2桁・単価整数・金額再計算）、ゴミ行フィルタ（20.1, 20.2）、集計行除外（20.3）、カンマ区切り数値正規化（20.4）
+- pdf-text-extractor: 画像前処理パイプライン（19.2-19.6）: グレースケール変換、大津の二値化、水平線除去、垂直線除去、パイプライン統合、Canvas描画スケール4.0（19.1）
 - StatusBadge: ステータス表示、色分け
 - StatusTransitionButton: 遷移ボタン表示制御
 - ExcelExportButton: 列ヘッダー「任意分類」表示
@@ -1977,6 +2008,7 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - 数値表示形式（編集画面）: 既存データの数量小数2桁表示確認、単価整数表示確認、金額整数表示確認（18.2, 18.4, 18.6）
 - 数値表示形式（OCR取り込み）: OCR一括取り込み後の数量・単価・金額フォーマット確認（18.10）
 - 数値表示形式（項目転記）: 項目選択転記後の数量小数2桁表示確認（18.11）
+- OCR精度改善: スキャンPDF（罫線つき表形式見積書）のOCR一括取り込み後にゴミ行が除外され、実データのみが明細行に取り込まれることの確認（19.1-19.6, 20.1-20.5）
 
 ## Security Considerations
 

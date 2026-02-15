@@ -4,12 +4,26 @@
  * Task 40.1: pdfjs-distベースのPDFテキスト抽出処理
  * Task 40.2: テキストPDF/スキャンPDF判定とハイブリッド処理フロー
  * Task 40.3: スキャンPDFフォールバック（Canvas→画像→Tesseract OCR）
+ * Task 44.1: Canvas描画スケールの引き上げ（2.0→4.0）
+ * Task 44.2: グレースケール変換関数の実装
+ * Task 44.3: 大津の二値化関数の実装
+ * Task 44.4: 水平線除去関数の実装
+ * Task 44.5: 垂直線除去関数の実装
+ * Task 44.6: 画像前処理パイプライン統合関数の実装
+ * Task 44.7: extractPdfWithOcrFallback関数への画像前処理パイプライン統合
  *
  * Requirements:
  * - 17.1: pdfjs-distのgetTextContent() APIを使用してPDFからテキストを抽出する
  * - 17.2: PDFの全ページ（1ページ目から最終ページ）を対象にテキスト抽出を行う
  * - 17.3: テキストPDFの場合は抽出テキストをそのまま使用する
  * - 17.4: スキャンPDFの場合はCanvas→Tesseract OCRフォールバックを実行する
+ * - 19.1: Canvas描画スケールを2.0から4.0に引き上げる
+ * - 19.2: グレースケール変換（RGB加重平均: 0.299R + 0.587G + 0.114B）
+ * - 19.3: 大津の二値化（Otsu's binarization）
+ * - 19.4: 水平線除去（画像幅の30%以上の連続黒ピクセルを白に置換）
+ * - 19.5: 垂直線除去（画像高さの30%以上の連続黒ピクセルを白に置換）
+ * - 19.6: 画像前処理パイプライン（グレースケール→大津の二値化→水平線除去→垂直線除去）
+ * - 19.7: 新規外部依存なし（Canvas APIのみ使用）
  */
 
 // pdfjs-dist worker設定のインポート（副作用インポート）
@@ -29,9 +43,10 @@ export const PDF_TEXT_THRESHOLD = 50;
 
 /**
  * スキャンPDFフォールバック時のCanvas描画スケール
- * scale 2.0でOCR精度を向上させる
+ * Task 44.1: scale 2.0から4.0に引き上げて高解像度化によりOCR認識精度を向上
+ * Requirements: 19.1
  */
-const CANVAS_RENDER_SCALE = 2.0;
+const CANVAS_RENDER_SCALE = 4.0;
 
 // ============================================================================
 // 型定義
@@ -53,6 +68,211 @@ export interface PdfTextExtractionResult {
  * 進捗通知コールバック
  */
 export type ProgressCallback = (progress: number, message?: string) => void;
+
+// ============================================================================
+// 画像前処理パイプライン（Task 44.2-44.6, Requirements 19.2-19.6）
+// Canvas APIのgetImageData/putImageDataのみを使用（19.7: 新規外部依存なし）
+// ============================================================================
+
+/**
+ * ImageDataをグレースケールに変換する（インプレース）
+ *
+ * RGB加重平均（0.299R + 0.587G + 0.114B）で各ピクセルを変換する。
+ * 人間の視覚に合わせた輝度変換の標準的な重み付けを使用。
+ *
+ * Task 44.2, Requirement 19.2
+ *
+ * @param imageData - 変換対象のImageData（インプレースで変更される）
+ */
+export function toGrayscale(imageData: ImageData): void {
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] ?? 0;
+    const g = data[i + 1] ?? 0;
+    const b = data[i + 2] ?? 0;
+    const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    data[i] = gray;
+    data[i + 1] = gray;
+    data[i + 2] = gray;
+    // alphaチャネル（data[i+3]）はそのまま
+  }
+}
+
+/**
+ * 大津の二値化（Otsu's binarization）を適用する（インプレース）
+ *
+ * 256階調のヒストグラムを構築し、クラス間分散を最大化する閾値を算出して
+ * 各ピクセルを0（黒）または255（白）に変換する。
+ *
+ * Task 44.3, Requirement 19.3
+ *
+ * @param imageData - 変換対象のImageData（グレースケール済み前提、インプレースで変更される）
+ */
+export function otsuBinarize(imageData: ImageData): void {
+  const data = imageData.data;
+  const totalPixels = imageData.width * imageData.height;
+
+  // Step 1: 256階調のヒストグラムを構築
+  const histogram = new Array<number>(256).fill(0);
+  for (let i = 0; i < data.length; i += 4) {
+    const pixelValue = data[i] ?? 0;
+    histogram[pixelValue] = (histogram[pixelValue] ?? 0) + 1;
+  }
+
+  // Step 2: クラス間分散を最大化する閾値を算出
+  let bestThreshold = 0;
+  let maxVariance = 0;
+
+  let w0 = 0; // クラス0（背景）の重み
+  let sum0 = 0; // クラス0の輝度合計
+  let totalSum = 0; // 全体の輝度合計
+
+  for (let t = 0; t < 256; t++) {
+    totalSum += t * (histogram[t] ?? 0);
+  }
+
+  for (let t = 0; t < 256; t++) {
+    const histCount = histogram[t] ?? 0;
+    w0 += histCount;
+    if (w0 === 0) continue;
+
+    const w1 = totalPixels - w0;
+    if (w1 === 0) break;
+
+    sum0 += t * histCount;
+    const mean0 = sum0 / w0;
+    const mean1 = (totalSum - sum0) / w1;
+
+    // クラス間分散
+    const variance = w0 * w1 * (mean0 - mean1) * (mean0 - mean1);
+
+    if (variance > maxVariance) {
+      maxVariance = variance;
+      bestThreshold = t;
+    }
+  }
+
+  // Step 3: 閾値に基づき二値化
+  for (let i = 0; i < data.length; i += 4) {
+    const binaryValue = (data[i] ?? 0) > bestThreshold ? 255 : 0;
+    data[i] = binaryValue;
+    data[i + 1] = binaryValue;
+    data[i + 2] = binaryValue;
+  }
+}
+
+/**
+ * 水平線を除去する（インプレース）
+ *
+ * 各行を左から右へ走査し、連続する黒ピクセル（R=0）のランレングスが
+ * 画像幅×minLengthRatio以上の場合、そのランを白ピクセル（255）で置換する。
+ *
+ * Task 44.4, Requirement 19.4
+ *
+ * @param imageData - 変換対象のImageData（二値化済み前提、インプレースで変更される）
+ * @param minLengthRatio - 除去対象とするランの最小長さ比率（デフォルト: 0.3 = 30%）
+ */
+export function removeHorizontalLines(imageData: ImageData, minLengthRatio: number = 0.3): void {
+  const { data, width, height } = imageData;
+  const minLength = Math.floor(width * minLengthRatio);
+
+  for (let y = 0; y < height; y++) {
+    let runStart = -1;
+    let runLength = 0;
+
+    for (let x = 0; x <= width; x++) {
+      const idx = (y * width + x) * 4;
+      const isBlack = x < width && data[idx] === 0;
+
+      if (isBlack) {
+        if (runStart === -1) {
+          runStart = x;
+          runLength = 1;
+        } else {
+          runLength++;
+        }
+      } else {
+        // ランの終了: 閾値以上なら白に置換
+        if (runStart !== -1 && runLength >= minLength) {
+          for (let rx = runStart; rx < runStart + runLength; rx++) {
+            const rIdx = (y * width + rx) * 4;
+            data[rIdx] = 255;
+            data[rIdx + 1] = 255;
+            data[rIdx + 2] = 255;
+          }
+        }
+        runStart = -1;
+        runLength = 0;
+      }
+    }
+  }
+}
+
+/**
+ * 垂直線を除去する（インプレース）
+ *
+ * 各列を上から下へ走査し、連続する黒ピクセル（R=0）のランレングスが
+ * 画像高さ×minLengthRatio以上の場合、そのランを白ピクセル（255）で置換する。
+ *
+ * Task 44.5, Requirement 19.5
+ *
+ * @param imageData - 変換対象のImageData（二値化済み前提、インプレースで変更される）
+ * @param minLengthRatio - 除去対象とするランの最小長さ比率（デフォルト: 0.3 = 30%）
+ */
+export function removeVerticalLines(imageData: ImageData, minLengthRatio: number = 0.3): void {
+  const { data, width, height } = imageData;
+  const minLength = Math.floor(height * minLengthRatio);
+
+  for (let x = 0; x < width; x++) {
+    let runStart = -1;
+    let runLength = 0;
+
+    for (let y = 0; y <= height; y++) {
+      const idx = (y * width + x) * 4;
+      const isBlack = y < height && data[idx] === 0;
+
+      if (isBlack) {
+        if (runStart === -1) {
+          runStart = y;
+          runLength = 1;
+        } else {
+          runLength++;
+        }
+      } else {
+        // ランの終了: 閾値以上なら白に置換
+        if (runStart !== -1 && runLength >= minLength) {
+          for (let ry = runStart; ry < runStart + runLength; ry++) {
+            const rIdx = (ry * width + x) * 4;
+            data[rIdx] = 255;
+            data[rIdx + 1] = 255;
+            data[rIdx + 2] = 255;
+          }
+        }
+        runStart = -1;
+        runLength = 0;
+      }
+    }
+  }
+}
+
+/**
+ * 画像前処理パイプライン統合関数
+ *
+ * グレースケール変換 → 大津の二値化 → 水平線除去 → 垂直線除去
+ * の4ステップを順次実行する。入力のImageDataをインプレースで変更し、同じ参照を返す。
+ *
+ * Task 44.6, Requirement 19.6
+ *
+ * @param imageData - 処理対象のImageData（インプレースで変更される）
+ * @returns 同じImageData参照（前処理済み）
+ */
+export function preprocessImageData(imageData: ImageData): ImageData {
+  toGrayscale(imageData);
+  otsuBinarize(imageData);
+  removeHorizontalLines(imageData);
+  removeVerticalLines(imageData);
+  return imageData;
+}
 
 // ============================================================================
 // pdfjs-distによるテキスト抽出
@@ -135,6 +355,12 @@ export async function extractPdfWithOcrFallback(
 
       // PDFページをCanvas上に描画
       await page.render({ canvas, viewport }).promise;
+
+      // Task 44.7: 画像前処理パイプラインの適用（Requirements 19.6, 19.7）
+      // Canvas描画後、toBlob()前にImageDataを取得して前処理を実行
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      preprocessImageData(imageData);
+      context.putImageData(imageData, 0, 0);
 
       // Canvas描画結果をPNG画像に変換
       const blob = await new Promise<Blob>((resolve, reject) => {

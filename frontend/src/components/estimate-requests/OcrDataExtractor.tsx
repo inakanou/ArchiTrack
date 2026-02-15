@@ -264,16 +264,103 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
   return lineItems;
 }
 
+// ============================================================================
+// Task 45: OCRテキスト→構造化データ変換ロジック改善
+// Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6
+// ============================================================================
+
+/**
+ * ゴミ行フィルタ
+ *
+ * 以下の条件に該当する行を除外する:
+ * - 漢字・ひらがな・カタカナ・英数字のいずれも含まない行（20.1）
+ * - 空白を除いた文字数が2文字以下の行（20.2）
+ *
+ * Task 45.1, Requirements 20.1, 20.2
+ *
+ * @param lines - フィルタ対象の行配列
+ * @returns フィルタ後の行配列
+ */
+export function filterGarbageLines(lines: string[]): string[] {
+  // 漢字・ひらがな・カタカナ・英数字のいずれかを含むパターン
+  const hasValidChars = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]/;
+
+  return lines.filter((line) => {
+    // 20.1: 漢字・ひらがな・カタカナ・英数字のいずれも含まない行を除外
+    if (!hasValidChars.test(line)) return false;
+
+    // 20.2: 空白を除いた文字数が2文字以下の行を除外
+    const trimmedLength = line.replace(/\s/g, '').length;
+    if (trimmedLength <= 2) return false;
+
+    return true;
+  });
+}
+
+/**
+ * 集計行除外フィルタ
+ *
+ * 以下のキーワードを含む行を除外する:
+ * 合計、小計、直接工事費、諸経費、一般管理費、値引き、消費税
+ *
+ * Task 45.2, Requirement 20.3
+ *
+ * @param lines - フィルタ対象の行配列
+ * @returns フィルタ後の行配列
+ */
+export function filterSummaryLines(lines: string[]): string[] {
+  const summaryKeywords = [
+    '合計',
+    '小計',
+    '直接工事費',
+    '諸経費',
+    '一般管理費',
+    '値引き',
+    '消費税',
+  ];
+
+  return lines.filter((line) => {
+    return !summaryKeywords.some((keyword) => line.includes(keyword));
+  });
+}
+
+/**
+ * カンマ区切り数値の正規化
+ *
+ * カンマ区切り数値パターン（例: 1,234,567）のカンマを除去して数値として認識可能にする。
+ *
+ * Task 45.3, Requirement 20.4
+ *
+ * @param text - 正規化対象のテキスト
+ * @returns カンマ除去後のテキスト
+ */
+export function normalizeCommaNumbers(text: string): string {
+  // カンマ区切り数値パターン（\d{1,3}(,\d{3})+）のカンマを除去
+  return text.replace(/(\d{1,3}(,\d{3})+)/g, (match) => match.replace(/,/g, ''));
+}
+
 /**
  * OCRテキストから構造化データに変換する
  *
  * パターンマッチングにより名称・規格・単位・数量・単価を推定
+ * Task 45: ゴミ行フィルタ、集計行除外、カンマ区切り数値正規化を追加
  *
  * @param text - OCR抽出テキスト
  * @returns 変換された明細行データ
  */
-function convertOcrTextToLineItems(text: string): LineItemFormData[] {
-  const lines = text.split('\n').filter((line) => line.trim());
+export function convertOcrTextToLineItems(text: string): LineItemFormData[] {
+  let lines = text.split('\n').filter((line) => line.trim());
+  if (lines.length === 0) return [];
+
+  // Task 45.1: ゴミ行フィルタ（20.1, 20.2）- 行分割直後に適用（20.5）
+  lines = filterGarbageLines(lines);
+
+  // Task 45.2: 集計行除外（20.3）
+  lines = filterSummaryLines(lines);
+
+  // Task 45.3: カンマ区切り数値の正規化（20.4）
+  lines = lines.map((line) => normalizeCommaNumbers(line));
+
   if (lines.length === 0) return [];
 
   // タブ区切りまたは複数スペース区切りで列分割を試みる
