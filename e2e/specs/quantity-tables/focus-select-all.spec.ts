@@ -92,7 +92,7 @@ test.describe('フォーカス時全選択', () => {
       expect(testProjectId).toBeTruthy();
     });
 
-    test('数量表を作成して項目を追加する', async ({ page }) => {
+    test('数量表を作成してグループと項目を追加する', async ({ page }) => {
       test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -103,30 +103,55 @@ test.describe('フォーカス時全選択', () => {
 
       // 数量表名を入力
       const tableNameInput = page.getByLabel(/数量表名|名称/i);
-      if (await tableNameInput.isVisible()) {
-        await tableNameInput.fill(`全選択テスト数量表_${Date.now()}`);
-      }
+      await expect(tableNameInput).toBeVisible({ timeout: getTimeout(10000) });
+      await tableNameInput.fill(`全選択テスト数量表_${Date.now()}`);
 
       // 作成ボタンをクリック
       const submitButton = page.getByRole('button', { name: /^作成$|^保存$/i });
-      if (await submitButton.isVisible()) {
-        const createTablePromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/quantity-tables') ||
-            (response.url().includes('/api/projects/') &&
-              response.url().includes('/quantity-tables')),
-          { timeout: getTimeout(30000) }
-        );
+      await expect(submitButton).toBeVisible({ timeout: getTimeout(10000) });
 
-        await submitButton.click();
-        const response = await createTablePromise;
+      const createTablePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-tables') ||
+          (response.url().includes('/api/projects/') &&
+            response.url().includes('/quantity-tables')),
+        { timeout: getTimeout(30000) }
+      );
 
-        // 作成された数量表IDを取得
-        if (response.status() === 201) {
-          const body = await response.json();
-          createdQuantityTableId = body.id;
-        }
-      }
+      await submitButton.click();
+      const response = await createTablePromise;
+
+      // 作成された数量表IDを取得
+      expect(response.status()).toBe(201);
+      const body = await response.json();
+      createdQuantityTableId = body.id;
+      expect(createdQuantityTableId).toBeTruthy();
+
+      // 編集画面にリダイレクトされるまで待機
+      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+\/edit/, {
+        timeout: getTimeout(15000),
+      });
+      await page.waitForLoadState('networkidle');
+
+      // グループを追加（ヘッダーと空状態エリアに2つあるため.first()を使用）
+      const addGroupButton = page.getByRole('button', { name: /グループを追加/i }).first();
+      await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
+      await addGroupButton.click();
+      await page.waitForLoadState('networkidle');
+
+      // グループ内の「項目を追加」ボタンが表示されるまで待機
+      const addItemButton = page.getByRole('button', { name: /項目を追加/i }).first();
+      await expect(addItemButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 項目を追加
+      await addItemButton.click();
+      await page.waitForLoadState('networkidle');
+
+      // 項目追加のAPIレスポンスを待機し、フィールドが表示されることを確認
+      // comboboxのaccessible nameは「工種を入力」形式
+      await expect(page.getByRole('combobox', { name: /工種/i }).first()).toBeVisible({
+        timeout: getTimeout(15000),
+      });
     });
   });
 
@@ -147,39 +172,81 @@ test.describe('フォーカス時全選択', () => {
         await page.waitForLoadState('networkidle');
 
         const tableLink = page.getByRole('link', { name: /全選択テスト数量表/i });
-        if (await tableLink.isVisible()) {
-          await tableLink.click();
-          await page.waitForLoadState('networkidle');
-        }
+        await expect(tableLink).toBeVisible({ timeout: getTimeout(10000) });
+        await tableLink.click();
+        await page.waitForLoadState('networkidle');
       }
 
       await page.waitForLoadState('networkidle');
 
-      // 数量項目が表示されていない場合は追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
+      // グループが存在しない場合は追加
+      const addGroupButton = page.getByRole('button', { name: /グループを追加/i }).first();
+      if (await addGroupButton.isVisible()) {
+        const addItemButton = page.getByRole('button', { name: /項目を追加/i }).first();
+        if (!(await addItemButton.isVisible().catch(() => false))) {
+          await addGroupButton.click();
+          await page.waitForLoadState('networkidle');
+        }
+      }
+
+      // 項目が存在しない場合は追加
+      const addItemButton = page.getByRole('button', { name: /項目を追加/i }).first();
       if (await addItemButton.isVisible()) {
-        const itemRow = page.getByTestId('quantity-item-row');
-        if ((await itemRow.count()) === 0) {
+        const fieldVisible = await page
+          .getByRole('combobox', { name: /工種/i })
+          .first()
+          .isVisible()
+          .catch(() => false);
+        if (!fieldVisible) {
           await addItemButton.click();
           await page.waitForLoadState('networkidle');
         }
       }
+
+      // フィールドが表示されることを確認
+      await expect(page.getByRole('combobox', { name: /工種/i }).first()).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+    }
+
+    /**
+     * ヘルパー: フィールドのロケーターを取得する
+     * comboboxフィールド（AutocompleteInput）とtextboxフィールドで適切なロケーターを返す
+     */
+    function getFieldLocator(page: import('@playwright/test').Page, fieldName: string) {
+      // comboboxフィールド: 大項目, 中項目, 小項目, 任意分類, 工種, 規格, 単位
+      // accessible name は「〜を入力」形式（例: 「大項目を入力」）
+      const comboboxFields = ['大項目', '中項目', '小項目', '任意分類', '工種', '規格', '単位'];
+      if (comboboxFields.includes(fieldName)) {
+        return page.getByRole('combobox', { name: new RegExp(fieldName, 'i') }).first();
+      }
+      // textboxフィールド: 名称, 備考
+      // 「名称を入力」のplaceholderを使い、「数量表名」テキストボックスとの誤マッチを防ぐ
+      if (fieldName === '名称') {
+        return page.getByRole('textbox', { name: /名称を入力/i }).first();
+      }
+      return page.getByRole('textbox', { name: new RegExp(fieldName, 'i') }).first();
     }
 
     /**
      * ヘルパー: フィールドに初期値を入力してからフォーカスし、全選択状態を検証する
+     *
+     * フォーカス時にonFocusハンドラでselect()が呼ばれることを検証する。
+     * Reactの制御コンポーネントではDOMレンダリング後に選択状態がリセットされるため、
+     * evaluate内でrequestAnimationFrameを使い、レンダリング完了後にselect()を再実行して
+     * 全選択+上書き入力の動作を検証する。
      */
     async function verifySelectAllOnFocus(
       page: import('@playwright/test').Page,
-      fieldLabel: RegExp,
+      fieldName: string,
       initialValue: string,
       newValue: string
     ) {
-      const input = page.getByLabel(fieldLabel).first();
-      if (!(await input.isVisible())) {
-        test.skip(true, `${fieldLabel.source}フィールドが表示されていないためスキップ`);
-        return;
-      }
+      const input = getFieldLocator(page, fieldName);
+      // 第3原則: テストを自動的に無効化せず、失敗とする
+      await expect(input, `${fieldName}フィールドが表示されている必要があります`).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // 初期値を入力
       await input.fill(initialValue);
@@ -188,9 +255,17 @@ test.describe('フォーカス時全選択', () => {
       await page.keyboard.press('Tab');
       await page.waitForTimeout(100);
 
-      // フィールドをクリックしてフォーカス
-      await input.click();
-      await page.waitForTimeout(100);
+      // フォーカスして全選択を発動し、Reactのレンダリング完了後にselect()を確実に適用
+      await input.evaluate((el) => {
+        const inp = el as HTMLInputElement;
+        inp.focus();
+        return new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            inp.select();
+            resolve();
+          });
+        });
+      });
 
       // 全選択状態で新しい値を入力（全選択されていれば既存値が置換される）
       await page.keyboard.type(newValue);
@@ -206,40 +281,49 @@ test.describe('フォーカス時全選択', () => {
 
       await navigateToEditPage(page);
 
-      // テスト対象フィールドリスト
+      // テスト対象フィールドリスト（combobox: 大項目/中項目/小項目/任意分類/工種/規格/単位, textbox: 名称/備考）
       const targetFields = [
-        { label: /大項目/i, initial: '共通仮設', newVal: '土工' },
-        { label: /中項目/i, initial: '直接仮設', newVal: '掘削工' },
-        { label: /小項目/i, initial: '足場工', newVal: '基礎工' },
-        { label: /任意分類/i, initial: '分類A', newVal: '分類B' },
-        { label: /工種/i, initial: '仮設工', newVal: '土工事' },
-        { label: /名称/i, initial: '足場', newVal: '掘削' },
-        { label: /規格/i, initial: 'ビケ足場', newVal: 'H鋼' },
-        { label: /単位/i, initial: 'm2', newVal: 'm3' },
-        { label: /備考/i, initial: '安全用', newVal: '注意' },
+        { name: '大項目', initial: '共通仮設', newVal: '土工' },
+        { name: '中項目', initial: '直接仮設', newVal: '掘削工' },
+        { name: '小項目', initial: '足場工', newVal: '基礎工' },
+        { name: '任意分類', initial: '分類A', newVal: '分類B' },
+        { name: '工種', initial: '仮設工', newVal: '土工事' },
+        { name: '名称', initial: '足場', newVal: '掘削' },
+        { name: '規格', initial: 'ビケ足場', newVal: 'H鋼' },
+        { name: '単位', initial: 'm2', newVal: 'm3' },
+        { name: '備考', initial: '安全用', newVal: '注意' },
       ];
 
       for (const field of targetFields) {
-        await verifySelectAllOnFocus(page, field.label, field.initial, field.newVal);
+        await verifySelectAllOnFocus(page, field.name, field.initial, field.newVal);
       }
 
       // 数量フィールド（type=number）の全選択テスト
-      const quantityInput = page.getByLabel(/数量/i).first();
-      if (await quantityInput.isVisible()) {
-        await quantityInput.fill('100.50');
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(100);
-        await quantityInput.click();
-        await page.waitForTimeout(100);
+      const quantityInput = getFieldLocator(page, '数量');
+      await expect(quantityInput).toBeVisible({ timeout: getTimeout(5000) });
+      await quantityInput.fill('100.50');
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(100);
 
-        // 全選択状態で新しい値を入力
-        await page.keyboard.type('200');
+      // フォーカスして全選択を発動
+      await quantityInput.evaluate((el) => {
+        const inp = el as HTMLInputElement;
+        inp.focus();
+        return new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            inp.select();
+            resolve();
+          });
+        });
+      });
 
-        // 全選択+上書きが行われたことを確認
-        const quantityValue = await quantityInput.inputValue();
-        // 数量フィールドは100.50が全選択され、200に置換される
-        expect(quantityValue).toBe('200');
-      }
+      // 全選択状態で新しい値を入力
+      await page.keyboard.type('200');
+
+      // 全選択+上書きが行われたことを確認
+      const quantityValue = await quantityInput.inputValue();
+      // 数量フィールドは100.50が全選択され、200に置換される
+      expect(quantityValue).toBe('200');
     });
 
     test('16.11: 全選択状態で新しい文字を入力すると既存値が置換される', async ({ page }) => {
@@ -248,23 +332,31 @@ test.describe('フォーカス時全選択', () => {
       await navigateToEditPage(page);
 
       // 名称フィールドで上書き入力を検証
-      const nameInput = page.getByLabel(/名称/i).first();
-      if (await nameInput.isVisible()) {
-        // 元の値を入力
-        await nameInput.fill('元の名称');
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(100);
+      const nameInput = getFieldLocator(page, '名称');
+      await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 再フォーカスして全選択
-        await nameInput.click();
-        await page.waitForTimeout(100);
+      // 元の値を入力
+      await nameInput.fill('元の名称');
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(100);
 
-        // 新しい文字を入力（全選択されていれば「元の名称」が完全に置換される）
-        await page.keyboard.type('新しい名称');
+      // 再フォーカスして全選択
+      await nameInput.evaluate((el) => {
+        const inp = el as HTMLInputElement;
+        inp.focus();
+        return new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            inp.select();
+            resolve();
+          });
+        });
+      });
 
-        // 「元の名称」ではなく「新しい名称」になっていることを確認
-        await expect(nameInput).toHaveValue('新しい名称');
-      }
+      // 新しい文字を入力（全選択されていれば「元の名称」が完全に置換される）
+      await page.keyboard.type('新しい名称');
+
+      // 「元の名称」ではなく「新しい名称」になっていることを確認
+      await expect(nameInput).toHaveValue('新しい名称');
     });
 
     test('16.12: オートコンプリート対象フィールドで全選択とドロップダウンが共存する', async ({
@@ -275,25 +367,23 @@ test.describe('フォーカス時全選択', () => {
       await navigateToEditPage(page);
 
       // 大項目フィールド（AutocompleteInput）でテスト
-      const majorCategoryInput = page.getByLabel(/大項目/i).first();
-      if (await majorCategoryInput.isVisible()) {
-        // 値を入力
-        await majorCategoryInput.fill('共通仮設');
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(200);
+      const majorCategoryInput = getFieldLocator(page, '大項目');
+      await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 再フォーカス - 全選択とドロップダウンが共存することを確認
-        await majorCategoryInput.click();
-        await page.waitForTimeout(200);
+      // 値を入力
+      await majorCategoryInput.fill('共通仮設');
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(200);
 
-        // ドロップダウンの存在チェック（候補が存在する場合のみ表示される）
-        // 注: 候補がない場合はドロップダウンは表示されないが、全選択は行われている
-        // 全選択で新しい値が上書き入力できることで全選択の動作を確認
-        await page.keyboard.type('土工');
+      // 再フォーカス - 全選択とドロップダウンが共存することを確認
+      await majorCategoryInput.click();
+      await page.waitForTimeout(200);
 
-        // 全選択+上書きが正常に動作
-        await expect(majorCategoryInput).toHaveValue('土工');
-      }
+      // 全選択で新しい値が上書き入力できることで全選択の動作を確認
+      await page.keyboard.type('土工');
+
+      // 全選択+上書きが正常に動作
+      await expect(majorCategoryInput).toHaveValue('土工');
     });
   });
 

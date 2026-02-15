@@ -239,6 +239,13 @@ export const projectFilterSchema = z.object({
     .string()
     .regex(UUID_REGEX, PROJECT_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID)
     .optional(),
+
+  // 新規追加: 終端ステータス（完了・中止・失注）を除外するフラグ
+  // Requirements: 2.7, 2.8
+  excludeTerminalStatuses: z
+    .enum(['true', 'false'])
+    .transform((val) => val === 'true')
+    .optional(),
 });
 
 /**
@@ -258,7 +265,7 @@ export const paginationSchema = z.object({
     .int()
     .min(1, PROJECT_VALIDATION_MESSAGES.LIMIT_MIN)
     .max(100, PROJECT_VALIDATION_MESSAGES.LIMIT_MAX)
-    .default(20),
+    .default(100), // Requirements: 3.1 - デフォルト表示件数を100件に変更
 });
 
 /**

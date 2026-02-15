@@ -268,6 +268,23 @@ export interface ProjectFilter {
   createdTo?: string;
   /** 取引先ID（UUID） */
   tradingPartnerId?: string;
+  /**
+   * 終端ステータス（完了・中止・失注）を除外するフラグ
+   * ステータスフィルタが未指定時のみ有効
+   * Requirements: 2.7, 2.8
+   */
+  excludeTerminalStatuses?: boolean;
+}
+
+/**
+ * ステータス別件数レスポンス
+ * Requirements: 23.1-23.6
+ */
+export interface StatusCountsResponse {
+  /** ステータス別件数（全12ステータス） */
+  counts: Record<ProjectStatus, number>;
+  /** 全ステータス合計件数 */
+  total: number;
 }
 
 /**

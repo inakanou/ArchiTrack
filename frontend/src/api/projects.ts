@@ -26,7 +26,13 @@ import type {
   UpdateProjectInput,
   ProjectFilter,
   StatusChangeInput,
+  StatusCountsResponse,
 } from '../types/project.types';
+import type { ProjectSurveySummary } from '../types/site-survey.types';
+import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
+import type { ProjectItemizedStatementSummary } from '../types/itemized-statement.types';
+import type { ProjectEstimateRequestSummary } from '../types/estimate-request.types';
+import type { EstimateSummary } from './estimates';
 
 // ============================================================================
 // 型定義（クエリパラメータ用）
@@ -112,6 +118,10 @@ export async function getProjects(options: GetProjectsOptions = {}): Promise<Pag
   }
   if (filter?.tradingPartnerId) {
     params.append('tradingPartnerId', filter.tradingPartnerId);
+  }
+  // Requirements: 2.7, 2.8 - 終端ステータス除外フラグ
+  if (filter?.excludeTerminalStatuses) {
+    params.append('excludeTerminalStatuses', 'true');
   }
   if (sort) {
     params.append('sort', sort);
@@ -301,4 +311,64 @@ export async function getStatusHistory(id: string): Promise<StatusHistoryRespons
  */
 export async function getAssignableUsers(): Promise<AssignableUser[]> {
   return apiClient.get<AssignableUser[]>('/api/users/assignable');
+}
+
+/**
+ * ステータス別プロジェクト件数を取得する
+ *
+ * Requirements: 23.1-23.6
+ * 全プロジェクト（論理削除を除く）のステータス別件数と合計件数を取得する。
+ * 検索条件・フィルタ条件は適用しない。
+ *
+ * @returns ステータス別件数と合計件数
+ *
+ * @example
+ * const statusCounts = await getProjectStatusCounts();
+ * console.log(statusCounts.counts.PREPARING); // 5
+ * console.log(statusCounts.total); // 22
+ */
+export async function getProjectStatusCounts(): Promise<StatusCountsResponse> {
+  return apiClient.get<StatusCountsResponse>('/api/projects/status-counts');
+}
+
+// ============================================================================
+// プロジェクト詳細一括取得 (Requirement 29)
+// ============================================================================
+
+/**
+ * プロジェクト詳細サマリー型
+ *
+ * Task 47.1: ProjectDetailSummary型の定義
+ * Requirements: 29.2, 29.6
+ */
+export interface ProjectDetailSummary {
+  /** プロジェクト基本情報 */
+  project: ProjectDetail;
+  /** ステータス変更履歴 */
+  statusHistory: StatusHistoryResponse[];
+  /** 各セクションサマリー */
+  sections: {
+    siteSurveys: ProjectSurveySummary;
+    quantityTables: ProjectQuantityTableSummary;
+    itemizedStatements: ProjectItemizedStatementSummary;
+    estimateRequests: ProjectEstimateRequestSummary;
+    estimates: EstimateSummary;
+  };
+}
+
+/**
+ * プロジェクト詳細サマリーを一括取得する
+ *
+ * Task 47.1: getProjectDetailSummary API関数の追加
+ * Requirements: 29.2, 29.6
+ *
+ * プロジェクト基本情報、ステータス変更履歴、5つのセクションサマリーを
+ * 1リクエストで取得する。従来の7リクエスト（2並列+5逐次）を置換。
+ *
+ * @param id - プロジェクトID（UUID）
+ * @returns プロジェクト詳細サマリー
+ * @throws ApiError プロジェクトが見つからない（404）、認証エラー（401）、権限不足（403）
+ */
+export async function getProjectDetailSummary(id: string): Promise<ProjectDetailSummary> {
+  return apiClient.get<ProjectDetailSummary>(`/api/projects/${id}/detail-summary`);
 }

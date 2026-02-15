@@ -331,7 +331,9 @@ test.describe('現場調査非機能要件', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // 必須フィールドを空のまま送信してバリデーションエラーを発生させる
+      // 必須フィールドを空にして送信し、バリデーションエラーを発生させる
+      const nameInput = page.getByLabel(/調査名/i);
+      await nameInput.clear();
       const createButton = page.getByRole('button', { name: /^作成$/i });
       await createButton.click();
 
@@ -340,10 +342,18 @@ test.describe('現場調査非機能要件', () => {
       const formError = page.locator('.error-message, [data-testid="form-error"], [role="alert"]');
 
       const hasValidationError = await validationError.isVisible({ timeout: getTimeout(5000) });
-      const hasFormError = await formError.isVisible();
+      const hasFormError = await formError.isVisible().catch(() => false);
 
-      // エラーメッセージが表示されることを確認
-      expect(hasValidationError || hasFormError).toBeTruthy();
+      // HTML5 required属性によるネイティブバリデーション検出
+      const hasHtml5Validation = await page.evaluate(() => {
+        const inputs = document.querySelectorAll(
+          'input[required], select[required], textarea[required]'
+        );
+        return Array.from(inputs).some((input) => !(input as HTMLInputElement).validity.valid);
+      });
+
+      // カスタムバリデーション、フォームエラー、またはHTML5バリデーションのいずれか
+      expect(hasValidationError || hasFormError || hasHtml5Validation).toBeTruthy();
     });
   });
 

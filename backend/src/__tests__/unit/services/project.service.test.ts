@@ -2156,4 +2156,187 @@ describe('ProjectService', () => {
       );
     });
   });
+
+  // ==========================================================================
+  // Task 39.1: getStatusCounts - ステータス別プロジェクト件数集計
+  // Requirements: 23.2, 23.3, 23.4, 23.5, 23.6
+  // ==========================================================================
+  describe('getStatusCounts', () => {
+    it('全12ステータスの件数が正しく集計されること (23.4)', async () => {
+      // Arrange: groupByの結果をモック
+      const groupByResult = [
+        { status: 'PREPARING', _count: { _all: 5 } },
+        { status: 'SURVEYING', _count: { _all: 3 } },
+        { status: 'ESTIMATING', _count: { _all: 2 } },
+        { status: 'COMPLETED', _count: { _all: 10 } },
+      ];
+      (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy = vi
+        .fn()
+        .mockResolvedValue(groupByResult);
+
+      // Act
+      const result = await service.getStatusCounts();
+
+      // Assert: 全12ステータスが返却される
+      expect(result.counts.PREPARING).toBe(5);
+      expect(result.counts.SURVEYING).toBe(3);
+      expect(result.counts.ESTIMATING).toBe(2);
+      expect(result.counts.COMPLETED).toBe(10);
+      // 0件のステータスも0として返却される (23.5)
+      expect(result.counts.APPROVING).toBe(0);
+      expect(result.counts.CONTRACTING).toBe(0);
+      expect(result.counts.CONSTRUCTING).toBe(0);
+      expect(result.counts.DELIVERING).toBe(0);
+      expect(result.counts.BILLING).toBe(0);
+      expect(result.counts.AWAITING).toBe(0);
+      expect(result.counts.CANCELLED).toBe(0);
+      expect(result.counts.LOST).toBe(0);
+    });
+
+    it('合計件数が正しく算出されること (23.6)', async () => {
+      // Arrange
+      const groupByResult = [
+        { status: 'PREPARING', _count: { _all: 5 } },
+        { status: 'SURVEYING', _count: { _all: 3 } },
+        { status: 'COMPLETED', _count: { _all: 10 } },
+      ];
+      (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy = vi
+        .fn()
+        .mockResolvedValue(groupByResult);
+
+      // Act
+      const result = await service.getStatusCounts();
+
+      // Assert
+      expect(result.total).toBe(18);
+    });
+
+    it('論理削除されたプロジェクトがカウント対象外であること (23.2)', async () => {
+      // Arrange
+      (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy = vi
+        .fn()
+        .mockResolvedValue([]);
+
+      // Act
+      await service.getStatusCounts();
+
+      // Assert: deletedAt: null でフィルタされている
+      expect(
+        (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { deletedAt: null },
+        })
+      );
+    });
+
+    it('検索条件・フィルタ条件は適用されないこと (23.3)', async () => {
+      // Arrange
+      (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy = vi
+        .fn()
+        .mockResolvedValue([]);
+
+      // Act
+      await service.getStatusCounts();
+
+      // Assert: where条件はdeletedAt: nullのみ
+      expect(
+        (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy
+      ).toHaveBeenCalledWith({
+        by: ['status'],
+        _count: { _all: true },
+        where: { deletedAt: null },
+      });
+    });
+
+    it('0件のステータスも0として返却されること (23.5)', async () => {
+      // Arrange: groupByの結果が空（プロジェクトなし）
+      (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy = vi
+        .fn()
+        .mockResolvedValue([]);
+
+      // Act
+      const result = await service.getStatusCounts();
+
+      // Assert: 全ステータスが0
+      expect(result.counts.PREPARING).toBe(0);
+      expect(result.counts.SURVEYING).toBe(0);
+      expect(result.counts.ESTIMATING).toBe(0);
+      expect(result.counts.APPROVING).toBe(0);
+      expect(result.counts.CONTRACTING).toBe(0);
+      expect(result.counts.CONSTRUCTING).toBe(0);
+      expect(result.counts.DELIVERING).toBe(0);
+      expect(result.counts.BILLING).toBe(0);
+      expect(result.counts.AWAITING).toBe(0);
+      expect(result.counts.COMPLETED).toBe(0);
+      expect(result.counts.CANCELLED).toBe(0);
+      expect(result.counts.LOST).toBe(0);
+      expect(result.total).toBe(0);
+    });
+  });
+
+  // ==========================================================================
+  // Task 40.2: excludeTerminalStatuses動作
+  // Requirements: 2.7, 2.8
+  // ==========================================================================
+  describe('getProjects - excludeTerminalStatuses', () => {
+    beforeEach(() => {
+      (mockPrisma.project.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+      (mockPrisma.project.findMany as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    });
+
+    it('excludeTerminalStatuses=trueで終端ステータスのプロジェクトが除外されること (2.7)', async () => {
+      // Act
+      await service.getProjects(
+        { excludeTerminalStatuses: true },
+        { page: 1, limit: 100 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert: status notIn で COMPLETED, CANCELLED, LOST が除外される
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { notIn: ['COMPLETED', 'CANCELLED', 'LOST'] },
+          }),
+        })
+      );
+    });
+
+    it('ステータスフィルタとexcludeTerminalStatusesの両方が指定された場合、ステータスフィルタが優先されること (2.8)', async () => {
+      // Act
+      await service.getProjects(
+        { status: ['COMPLETED'], excludeTerminalStatuses: true },
+        { page: 1, limit: 100 },
+        { sort: 'updatedAt', order: 'desc' }
+      );
+
+      // Assert: ステータスフィルタが優先される（excludeTerminalStatusesは無視）
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { in: ['COMPLETED'] },
+          }),
+        })
+      );
+    });
+
+    it('excludeTerminalStatuses未指定時は全ステータスのプロジェクトが返却されること', async () => {
+      // Act
+      await service.getProjects({}, { page: 1, limit: 100 }, { sort: 'updatedAt', order: 'desc' });
+
+      // Assert: ステータスフィルタなし（where.statusが設定されない）
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+          }),
+        })
+      );
+      // status属性が含まれないことを確認
+      const findManyMock = mockPrisma.project.findMany as unknown as ReturnType<typeof vi.fn>;
+      const callArgs = findManyMock.mock.calls[0]?.[0] as { where: { status?: unknown } };
+      expect(callArgs?.where?.status).toBeUndefined();
+    });
+  });
 });

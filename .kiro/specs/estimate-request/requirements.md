@@ -8,18 +8,20 @@
 
 ### Requirement 1: 見積依頼セクション表示
 
+~~→ project-management/Requirement 27 に全AC移動~~
+
 **Objective:** As a ユーザー, I want プロジェクト詳細画面で見積依頼セクションを確認したい, so that 見積依頼の作成・管理にアクセスできる
 
 #### Acceptance Criteria
 
-1. The システム shall プロジェクト詳細画面の内訳書セクションの下に見積依頼セクションを表示する
-2. If 見積依頼が存在しない場合, then the システム shall セクション内に「見積依頼はまだありません」というメッセージを表示する
-3. If 見積依頼が存在しない場合, then the システム shall メッセージの下に「新規作成」ボタンを表示する
-4. If 見積依頼が存在しない場合, then the システム shall セクション右上の「新規作成」ボタンと「すべて見る」リンクを非表示にする
-5. If 見積依頼が存在する場合, then the システム shall セクション内に見積依頼を一覧表示する
-6. If 見積依頼が存在する場合, then the システム shall セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する
-7. When ユーザーが「新規作成」ボタンをクリックしたとき, the システム shall 見積依頼作成画面に遷移する
-8. When ユーザーが「すべて見る」リンクをクリックしたとき, the システム shall 見積依頼一覧画面に遷移する
+1. ~~→ project-management/Requirement 27 AC 1 に移動~~
+2. ~~→ project-management/Requirement 27 AC 2 に移動~~
+3. ~~→ project-management/Requirement 27 AC 3 に移動~~
+4. ~~→ project-management/Requirement 27 AC 4 に移動~~
+5. ~~→ project-management/Requirement 27 AC 5 に移動~~
+6. ~~→ project-management/Requirement 27 AC 6 に移動~~
+7. ~~→ project-management/Requirement 27 AC 7 に移動~~
+8. ~~→ project-management/Requirement 27 AC 8 に移動~~
 
 ### Requirement 2: 見積依頼一覧画面
 

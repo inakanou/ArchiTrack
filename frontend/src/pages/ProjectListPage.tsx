@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getProjects } from '../api/projects';
+import { getProjects, getProjectStatusCounts } from '../api/projects';
 import type { GetProjectsOptions } from '../api/projects';
 import type {
   ProjectInfo,
@@ -59,7 +59,7 @@ interface PageState {
  * デフォルトのページ設定
  */
 const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
+const DEFAULT_LIMIT = 100; // Requirements: 3.1 - デフォルト表示件数を100件に変更
 const DEFAULT_SORT_FIELD: SortField = 'updatedAt';
 const DEFAULT_SORT_ORDER: SortOrder = 'desc';
 
@@ -188,34 +188,29 @@ function StatusSummaryCard({
 }
 
 /**
- * 統計サマリーセクション
+ * 統計サマリーセクション（全プロジェクト対象）
+ *
+ * Requirements: 23.1-23.6
+ * - 画面表示中のプロジェクトではなく、DB全体のステータス別件数を表示
+ * - 検索・フィルタ条件に関わらず常に全件数を表示
+ * - 全12ステータスの件数と合計件数を表示
  */
 function StatsSummary({
-  projects,
+  statusCounts,
   total,
   onStatusClick,
 }: {
-  projects: ProjectInfo[];
+  statusCounts: Record<ProjectStatus, number> | null;
   total: number;
   onStatusClick: (status: ProjectStatus) => void;
 }) {
-  // ステータス別の件数を集計
-  const statusCounts = useMemo(() => {
-    const counts: Partial<Record<ProjectStatus, number>> = {};
-    projects.forEach((project) => {
-      counts[project.status] = (counts[project.status] || 0) + 1;
-    });
-    return counts;
-  }, [projects]);
-
-  // 表示するステータス（件数がある順に最大6件）
-  const activeStatuses = useMemo(() => {
-    return (Object.entries(statusCounts) as [ProjectStatus, number][])
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
+  // 全ステータスを表示（件数順にソート）
+  const allStatuses = useMemo(() => {
+    if (!statusCounts) return [];
+    return (Object.entries(statusCounts) as [ProjectStatus, number][]).sort((a, b) => b[1] - a[1]);
   }, [statusCounts]);
 
-  if (activeStatuses.length === 0) {
+  if (!statusCounts) {
     return null;
   }
 
@@ -223,14 +218,14 @@ function StatsSummary({
     <div className="mb-6">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">
-          ステータス別件数（現在表示中）
+          ステータス別件数（全プロジェクト）
         </h2>
         <span className="text-sm text-gray-500">
           全 <span className="font-semibold text-gray-900">{total}</span> 件
         </span>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        {activeStatuses.map(([status, count]) => (
+      <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-12 gap-2">
+        {allStatuses.map(([status, count]) => (
           <StatusSummaryCard key={status} status={status} count={count} onClick={onStatusClick} />
         ))}
       </div>
@@ -332,11 +327,30 @@ export default function ProjectListPage() {
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
+  // ステータス別件数（全プロジェクト対象）
+  // Requirements: 23.1-23.6
+  const [statusCounts, setStatusCounts] = useState<Record<ProjectStatus, number> | null>(null);
+  const [statusCountsTotal, setStatusCountsTotal] = useState(0);
+
   // APIリクエストのデバウンス用
   const debouncedPageState = useDebounce(pageState, DEBOUNCE_DELAY);
 
   // 最新の状態を参照するためのref
   const isInitialMount = useRef(true);
+
+  /**
+   * ステータス別件数を取得（初回ロード時のみ）
+   * Requirements: 23.1-23.6
+   */
+  const fetchStatusCounts = useCallback(async () => {
+    try {
+      const result = await getProjectStatusCounts();
+      setStatusCounts(result.counts);
+      setStatusCountsTotal(result.total);
+    } catch {
+      // ステータス件数取得失敗はサイレントに無視（一覧表示に影響しない）
+    }
+  }, []);
 
   /**
    * プロジェクト一覧を取得
@@ -351,7 +365,12 @@ export default function ProjectListPage() {
         limit: state.limit,
         sort: state.sortField,
         order: state.sortOrder,
-        filter: state.filter,
+        filter: {
+          ...state.filter,
+          // Requirements: 2.7, 2.8 - ステータスフィルタが未指定の場合、終端ステータスを除外
+          excludeTerminalStatuses:
+            !state.filter.status || state.filter.status.length === 0 ? true : undefined,
+        },
       };
 
       const result = await getProjects(options);
@@ -363,6 +382,12 @@ export default function ProjectListPage() {
       setLoading(false);
     }
   }, []);
+
+  // 初回マウント時にステータス別件数を取得
+  // Requirements: 23.1-23.6
+  useEffect(() => {
+    fetchStatusCounts();
+  }, [fetchStatusCounts]);
 
   // デバウンスされた状態が変更されたらAPIを呼び出す
   useEffect(() => {
@@ -627,10 +652,10 @@ export default function ProjectListPage() {
       {/* プロジェクト一覧 */}
       {!loading && !error && projects.length > 0 && (
         <>
-          {/* 統計サマリー */}
+          {/* 統計サマリー（全プロジェクト対象） */}
           <StatsSummary
-            projects={projects}
-            total={pagination.total}
+            statusCounts={statusCounts}
+            total={statusCountsTotal}
             onStatusClick={handleStatusClick}
           />
 

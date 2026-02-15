@@ -12,6 +12,7 @@
 import { test, expect, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
 
 /**
  * プロジェクト管理の追加要件E2Eテスト
@@ -358,7 +359,8 @@ test.describe('プロジェクト管理 追加要件', () => {
         timeout: getTimeout(15000),
       });
 
-      await page.getByLabel(/プロジェクト名/i).fill(`APIテスト_${Date.now()}`);
+      const projectName = `APIテスト_${Date.now()}`;
+      await page.getByLabel(/プロジェクト名/i).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
@@ -372,6 +374,7 @@ test.describe('プロジェクト管理 追加要件', () => {
         }
       }
 
+      // 作成APIを監視
       const createPromise = page.waitForResponse(
         (response: Response) =>
           response.url().includes('/api/projects') &&
@@ -385,24 +388,27 @@ test.describe('プロジェクト管理 追加要件', () => {
       const createData = await createResponse.json();
       const projectId = createData.id;
 
-      // 詳細取得APIを監視（status-historyを除外）
-      const detailPromise = page.waitForResponse(
-        (response: Response) =>
-          response.url().includes(`/api/projects/${projectId}`) &&
-          !response.url().includes('/status-history') &&
-          response.request().method() === 'GET',
-        { timeout: getTimeout(30000) }
+      // SPA遷移後、プロジェクト詳細ページが表示されることを確認
+      await expect(page.getByRole('heading', { name: projectName })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // detail-summary APIをバックエンドに直接呼び出して検証
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const response = await page.request.get(
+        `${API_BASE_URL}/api/projects/${projectId}/detail-summary`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
       );
 
-      await page.goto(`/projects/${projectId}`);
-      await page.waitForLoadState('networkidle');
-
-      // APIレスポンスを確認
-      const response = await detailPromise;
       expect(response.status()).toBe(200);
 
+      // detail-summary APIのレスポンス形式: { project, statusHistory, sections }
       const responseData = await response.json();
-      expect(responseData.id).toBe(projectId);
+      expect(responseData.project.id).toBe(projectId);
     });
 
     /**

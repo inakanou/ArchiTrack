@@ -1,10 +1,10 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2026-02-08T16:00:00Z",
+  "updated_at": "2026-02-13T19:00:00Z",
   "language": "ja",
   "phase": "tasks-generated",
-  "description": "プロジェクト新規作成画面の現場住所について、顧客名を選択したタイミングで、現場住所フィールドが空欄であるなら、選択された取引先の住所を現場住所に設定するよう修正する。",
+  "description": "プロジェクト詳細画面のセクション要件集約とAPI効率化：(1)現場調査・数量表・内訳書・見積依頼・見積書セクションの要件を各specからproject-managementに集約（Requirements 24-28）。(2)プロジェクト詳細画面の7つの個別APIリクエストを1つの一括取得APIに統合（Requirement 29）。(3)E2Eテストの要件カバレッジタグを移動先の要件IDに更新。",
   "approvals": {
     "requirements": {
       "generated": true,

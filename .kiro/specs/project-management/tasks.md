@@ -986,3 +986,305 @@
   - 自動入力された住所でプロジェクトが正常に保存されることを確認
   - 37.1、37.2完了後に実施
   - _Requirements: 1.6, 1.7_
+
+---
+
+## 差分実装タスク（2026-02-13要件変更対応）
+
+以下のタスクは、2026-02-13の要件更新に対応するための差分実装です。
+
+### 変更概要
+
+1. **新規APIエンドポイント GET /api/projects/status-counts**: ステータス別プロジェクト件数をDBの全プロジェクト（論理削除を除く）から集計して返却（23.1-23.6）
+2. **excludeTerminalStatusesクエリパラメータ追加**: ステータスフィルタ未指定時に終端ステータス（完了・中止・失注）をデフォルトで除外（2.7, 2.8, 5.5, 5.7, 5.8）
+3. **デフォルト表示件数の変更**: バックエンド・フロントエンド両方で20件から100件に変更（3.1）
+4. **StatsSummaryコンポーネントの変更**: 画面表示中のプロジェクトではなく新規status-counts APIからのデータを使用（23.1-23.6）
+
+---
+
+## Task 39: バックエンド - ステータス別件数集計API
+
+- [x] 39.1 (P) ProjectServiceにgetStatusCountsメソッドを追加
+  - Prisma groupByで全プロジェクト（deletedAt IS NULL）のステータス別件数を集計
+  - 全12ステータスの初期値を0に設定し、groupBy結果で上書き
+  - 合計件数を算出して返却
+  - 検索条件・フィルタ条件は一切適用しない
+  - _Requirements: 23.2, 23.3, 23.4, 23.5, 23.6_
+
+- [x] 39.2 (P) GET /api/projects/status-countsエンドポイントを追加
+  - /api/projects/:id より前にルートを定義してExpressルートマッチング競合を回避
+  - 認証ミドルウェア（authenticate）を適用
+  - 権限チェック（project:read）を適用
+  - Swagger JSDocコメントを追加
+  - _Requirements: 23.1, 12.1, 12.2, 14.7_
+
+## Task 40: バックエンド - 終端ステータス除外とデフォルト件数変更
+
+- [x] 40.1 (P) excludeTerminalStatusesパラメータをバリデーションスキーマに追加
+  - projectFilterSchemaにexcludeTerminalStatusesフィールド（'true'/'false'のenum、booleanへ変換、オプショナル）を追加
+  - _Requirements: 2.7, 2.8_
+
+- [x] 40.2 ProjectServiceのgetProjectsメソッドに終端ステータス除外ロジックを追加
+  - TERMINAL_STATUSES定数（COMPLETED, CANCELLED, LOST）を定義
+  - ステータスフィルタが指定されている場合は既存ロジック（status in）を適用
+  - ステータスフィルタが未指定かつexcludeTerminalStatuses=trueの場合、status notInで終端ステータスを除外
+  - 40.1のスキーマ更新が必要
+  - _Requirements: 2.7, 2.8_
+
+- [x] 40.3 (P) paginationSchemaのデフォルト表示件数を100件に変更
+  - limitフィールドのdefault値を20から100に変更
+  - max(100)の上限は維持
+  - _Requirements: 3.1_
+
+## Task 41: フロントエンド - ステータス別件数APIクライアントと終端ステータス除外
+
+- [x] 41.1 (P) プロジェクトAPIクライアントにステータス別件数取得関数を追加
+  - getProjectStatusCounts関数を実装（GET /api/projects/status-counts）
+  - StatusCountsResponse型（counts: Record<ProjectStatus, number>, total: number）を定義
+  - エラーハンドリングを実装
+  - _Requirements: 23.1_
+
+- [x] 41.2 (P) プロジェクトAPIクライアントにexcludeTerminalStatusesパラメータ送信を追加
+  - getProjects関数のクエリパラメータ構築にexcludeTerminalStatuses対応を追加
+  - ProjectFilter型にexcludeTerminalStatusesフィールドを追加
+  - _Requirements: 2.7, 2.8_
+
+- [x] 41.3 (P) デフォルト表示件数を100件に変更
+  - ProjectListPageのDEFAULT_LIMIT定数を20から100に変更
+  - _Requirements: 3.1_
+
+## Task 42: フロントエンド - ProjectListPageの統合変更
+
+- [x] 42.1 ProjectListPageにステータス別件数取得と終端ステータス除外を統合
+  - statusCounts状態とfetchStatusCounts関数を追加
+  - 初回マウント時にステータス別件数を取得
+  - ステータスフィルタ未指定時にexcludeTerminalStatuses=trueを付与
+  - ステータスフィルタで終端ステータスが明示選択された場合はexcludeTerminalStatusesを送信しない
+  - StatsSummaryコンポーネントのデータソースを画面表示中のプロジェクト配列からstatusCounts APIレスポンスに変更
+  - フィルタクリア時にデフォルト状態（終端ステータス除外）に復帰する動作を確認
+  - 41.1、41.2、41.3の完了が必要
+  - _Requirements: 2.7, 2.8, 3.1, 5.5, 5.7, 5.8, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6_
+
+## Task 43: 差分実装のユニットテスト
+
+- [x] 43.1 (P) getStatusCountsメソッドのユニットテスト
+  - 全12ステータスの件数が正しく集計されることを検証
+  - 論理削除されたプロジェクトがカウント対象外であることを検証
+  - 0件のステータスも0として返却されることを検証
+  - 合計件数が正しく算出されることを検証
+  - _Requirements: 23.2, 23.3, 23.4, 23.5, 23.6_
+
+- [x] 43.2 (P) excludeTerminalStatuses動作のユニットテスト
+  - excludeTerminalStatuses=trueで終端ステータスのプロジェクトが除外されることを検証
+  - ステータスフィルタとexcludeTerminalStatusesの両方が指定された場合、ステータスフィルタが優先されることを検証
+  - excludeTerminalStatuses未指定時は全ステータスのプロジェクトが返却されることを検証
+  - _Requirements: 2.7, 2.8_
+
+- [x] 43.3 (P) status-countsエンドポイントのルートテスト
+  - 認証済みユーザーがステータス別件数を取得できることを検証
+  - 未認証リクエストが401を返却することを検証
+  - 権限不足のリクエストが403を返却することを検証
+  - _Requirements: 23.1, 12.1, 12.2_
+
+- [x] 43.4 (P) フロントエンドStatsSummaryコンポーネントのユニットテスト
+  - APIレスポンスのstatusCountsデータに基づいて全12ステータスの件数が表示されることを検証
+  - 合計件数が表示されることを検証
+  - statusCountsがnullの場合にコンポーネントが非表示になることを検証
+  - _Requirements: 23.1, 23.4, 23.5, 23.6_
+
+- [x] 43.5 (P) デフォルト表示件数変更のユニットテスト
+  - バックエンドpaginationSchemaのデフォルトlimitが100であることを検証
+  - フロントエンドDEFAULT_LIMITが100であることを検証
+  - _Requirements: 3.1_
+
+## Task 44: 差分実装のE2Eテスト
+
+- [x] 44.1 ステータス別件数表示E2Eテスト
+  - プロジェクト一覧画面でステータス別件数が表示されることを確認
+  - 全12ステータスの件数が表示されていることを確認
+  - 合計件数が表示されていることを確認
+  - 検索・フィルタ操作後もステータス別件数が変化しないことを確認
+  - 43.1、43.4完了後に実施
+  - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.6_
+
+- [x] 44.2 終端ステータス除外E2Eテスト
+  - プロジェクト一覧画面のデフォルト表示で完了・中止・失注ステータスのプロジェクトが表示されないことを確認
+  - ステータスフィルタで「完了」を選択した場合に完了ステータスのプロジェクトが表示されることを確認
+  - フィルタクリア後に再び終端ステータスのプロジェクトが非表示になることを確認
+  - 43.2完了後に実施
+  - _Requirements: 2.7, 2.8, 5.5, 5.7, 5.8_
+
+- [x] 44.3 デフォルト表示件数E2Eテスト
+  - プロジェクト一覧画面のデフォルト表示で最大100件まで表示されることを確認
+  - ページネーションのデフォルト表示件数が100件であることを確認
+  - 43.5完了後に実施
+  - _Requirements: 3.1_
+
+## Task 45: 統合テストと動作確認
+
+- [x] 45.1 差分実装の統合テスト
+  - ステータス別件数APIが全プロジェクトの件数を正しく返却することを確認
+  - 終端ステータス除外が一覧取得APIで正しく動作することを確認
+  - デフォルト表示件数100件が正しく反映されていることを確認
+  - StatsSummaryが新規APIからデータを取得して表示していることを確認
+  - 既存機能（検索、ソート、フィルタリング、ページネーション、CRUD）への影響がないことを確認
+  - 44.1〜44.3完了後に実施
+  - _Requirements: 2.7, 2.8, 3.1, 5.5, 5.7, 5.8, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6_
+
+---
+
+## 差分実装タスク（2026-02-13要件変更対応）: プロジェクト詳細セクション集約とAPI効率化
+
+> Requirements 24-29 に基づく差分実装。プロジェクト詳細画面の5セクション要件を集約し、7つの個別APIリクエストを1つの一括取得APIに統合する。
+
+### 変更概要
+
+1. **セクション要件の集約**（Requirements 24-28）: 各機能specに分散していた現場調査・数量表・内訳書・見積依頼・見積書セクションの表示要件をproject-management specに集約
+2. **プロジェクト詳細API効率化**（Requirement 29）: 7つの個別APIリクエストを1つの一括取得API（`GET /api/projects/:id/detail-summary`）に統合
+3. **既存セクションカードコンポーネント**: SiteSurveySectionCard、QuantityTableSectionCard、ItemizedStatementSectionCard、EstimateRequestSectionCard、EstimateSectionCardは実装済み。一括取得API経由のデータ供給に切り替える
+
+---
+
+## Task 46: バックエンド - プロジェクト詳細一括取得APIエンドポイント
+
+- [x] 46.1 (P) ProjectDetailSummaryレスポンス型の定義
+  - ProjectDetailSummaryインターフェースを定義し、project（基本情報）、statusHistory（ステータス変更履歴）、sections（5つのセクションサマリー）を含める
+  - sectionsオブジェクトの各セクション型（siteSurveys、quantityTables、itemizedStatements、estimateRequests、estimates）を定義
+  - 各セクション型にtotalCountとlatest配列を含め、既存の個別APIレスポンス型との互換性を確保
+  - _Requirements: 29.3, 29.6_
+
+- [x] 46.2 (P) getProjectSectionsヘルパー関数の実装
+  - 5つの既存サービスメソッド（SiteSurveyService.findLatestByProjectId、QuantityTableService.findLatestByProjectId、ItemizedStatementService.findLatestByProjectId、EstimateRequestService.findLatestByProjectId、EstimateService.findLatestByProjectId）をPromise.allSettled()で並列呼び出し
+  - 個別セクションの取得エラー時はデフォルト値（totalCount: 0、latest配列: 空配列）にフォールバックし、他セクションの正常返却を妨げない
+  - EstimateServiceの返却型のフィールド名をestimatesからlatestEstimatesに変換
+  - 46.1の型定義が必要
+  - _Requirements: 29.1, 29.4_
+
+- [x] 46.3 GET /api/projects/:id/detail-summary エンドポイントの実装
+  - projects.routes.tsに新規ルートハンドラを追加
+  - 認証ミドルウェア（authenticateToken）と権限チェック（project:read）を適用
+  - プロジェクト基本情報とステータス履歴をPromise.all()で並列取得（必須データ: 取得失敗時は404/403エラー返却）
+  - 5セクションサマリーをgetProjectSectionsで並列取得し、project、statusHistory、sectionsを一括返却
+  - Swagger JSDocコメントを追加
+  - 46.2の完了が必要
+  - _Requirements: 29.1, 29.2, 29.3, 29.5_
+
+## Task 47: フロントエンド - API統合とProjectDetailPageリファクタリング
+
+- [x] 47.1 (P) getProjectDetailSummary API関数とProjectDetailSummary型の追加
+  - APIクライアントにgetProjectDetailSummary関数を追加（GET /api/projects/:id/detail-summary）
+  - ProjectDetailSummary型（project、statusHistory、sections）を定義
+  - sections内の各セクションサマリー型を定義
+  - 既存の個別API関数（getProject、getStatusHistory等）は削除せず残す（他画面からの利用可能性を考慮）
+  - 46.3の完了が必要
+  - _Requirements: 29.2, 29.6_
+
+- [x] 47.2 ProjectDetailPageのfetchProject関数リファクタリング
+  - 7つの個別APIリクエスト（getProject、getStatusHistory + 5セクション逐次取得）をgetProjectDetailSummaryの1リクエストに置換
+  - レスポンスからproject、statusHistory、各セクションサマリーを分解して各状態変数にセット
+  - 5つの個別セクション用ローディング状態を1つのisLoading状態に統合
+  - 既存のセクションカードコンポーネントへのprops受け渡しは変更なし
+  - 47.1の完了が必要
+  - _Requirements: 29.2, 29.5_
+
+- [x] 47.3 不要なローディング状態の整理
+  - isSurveyLoading、isQuantityTableLoading、isItemizedStatementLoading、isEstimateRequestLoading、isEstimateLoadingの5つの個別ローディング状態を削除
+  - 各セクションカードのローディング表示をisLoading（メインのローディング状態）に統一
+  - 47.2の完了が必要
+  - _Requirements: 29.5_
+
+## Task 48: バックエンドユニットテスト - プロジェクト詳細一括取得API
+
+- [x] 48.1 (P) detail-summaryエンドポイントのルートテスト
+  - 認証済みユーザーがプロジェクト詳細一括データを取得できることを検証
+  - レスポンスにproject、statusHistory、sections（5セクション）が含まれることを検証
+  - 未認証リクエストが401を返却することを検証
+  - 権限不足のリクエストが403を返却することを検証
+  - 存在しないプロジェクトIDでの404エラーを検証
+  - _Requirements: 29.1, 29.3_
+
+- [x] 48.2 (P) getProjectSectionsヘルパーのユニットテスト
+  - 全5セクションが正常に取得できた場合のレスポンス構造を検証
+  - 個別セクション（例: SiteSurveyService）がエラーをスローした場合、当該セクションがデフォルト値（totalCount: 0、空配列）にフォールバックし、他セクションは正常値を返却することを検証
+  - 全セクションがエラーの場合でも全セクションがデフォルト値で返却されることを検証
+  - EstimateServiceのフィールド名変換（estimates→latestEstimates）を検証
+  - _Requirements: 29.4, 29.6_
+
+## Task 49: フロントエンドユニットテスト - プロジェクト詳細一括取得
+
+- [x] 49.1 (P) getProjectDetailSummary API関数のテスト
+  - 正常なAPIレスポンスの取得とパースを検証
+  - ネットワークエラー時の例外伝播を検証
+  - 404/403エラー時のハンドリングを検証
+  - _Requirements: 29.2_
+
+- [x] 49.2 (P) ProjectDetailPageの一括取得動作テスト
+  - fetchProject関数がgetProjectDetailSummaryを1回だけ呼び出すことを検証
+  - レスポンスのproject、statusHistory、各セクションサマリーが正しく状態変数にセットされることを検証
+  - isLoading状態がリクエスト開始時にtrue、完了時にfalseになることを検証
+  - API失敗時のエラー表示を検証
+  - _Requirements: 29.2, 29.5_
+
+## Task 50: E2Eテスト - プロジェクト詳細セクション表示とAPI効率化
+
+- [x] 50.1 現場調査セクション表示E2Eテスト
+  - プロジェクト詳細画面に現場調査セクションが表示されることを確認
+  - 直近2件の現場調査への参照リンクと総数が表示されることを確認
+  - 「すべて表示」リンクをクリックして現場調査一覧画面に遷移することを確認
+  - _Requirements: 24.1, 24.2_
+
+- [x] 50.2 数量表セクション表示E2Eテスト
+  - プロジェクト詳細画面に数量表セクションが表示されることを確認
+  - 数量表の総数とヘッダーが表示されることを確認
+  - 数量表が存在する場合、直近の数量表カード（名称・更新日時・数量項目数）が表示されることを確認
+  - 「すべて見る」リンクをクリックして数量表一覧画面に遷移することを確認
+  - 数量表カードをクリックして編集画面に遷移することを確認
+  - 数量表が存在しない場合、「数量表はまだありません」メッセージと新規作成ボタンが表示されることを確認
+  - _Requirements: 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7_
+
+- [x] 50.3 内訳書セクション表示E2Eテスト
+  - プロジェクト詳細画面に内訳書セクションが数量表セクションの下に表示されることを確認
+  - 数量表が存在しない場合、「まず数量表を作成してください」メッセージが表示されることを確認
+  - 数量表はあるが内訳書がない場合、「内訳書はまだありません」メッセージが表示されることを確認
+  - 内訳書が存在する場合、各行に内訳書名・作成日時・集計元数量表名・合計項目数が表示されることを確認
+  - 内訳書行クリックで詳細画面に遷移することを確認
+  - 数量表が存在する場合に新規作成ボタンが表示されることを確認
+  - 一覧画面へのリンクが表示されることを確認
+  - _Requirements: 26.1, 26.2, 26.3, 26.4, 26.5, 26.6, 26.7, 26.8, 26.9, 26.10, 26.11_
+
+- [x] 50.4 見積依頼セクション表示E2Eテスト
+  - プロジェクト詳細画面に見積依頼セクションが内訳書セクションの下に表示されることを確認
+  - 見積依頼が存在しない場合、「見積依頼はまだありません」メッセージとメッセージ下の「新規作成」ボタンが表示されることを確認
+  - 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンと「すべて見る」リンクが非表示であることを確認
+  - 見積依頼が存在する場合、セクション内に一覧が表示され、セクション右上に「新規作成」ボタンと「すべて見る」リンクが表示されることを確認
+  - 「新規作成」ボタンクリックで見積依頼作成画面に遷移することを確認
+  - 「すべて見る」リンククリックで見積依頼一覧画面に遷移することを確認
+  - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7, 27.8_
+
+- [x] 50.5 見積書セクション表示E2Eテスト
+  - プロジェクト詳細画面に見積書セクションが見積依頼セクションの下に表示されることを確認
+  - セクションタイトル「見積書」と総数が表示されることを確認
+  - 見積書が存在する場合、直近の見積書カード（見積書名・作成日時・合計金額）が表示されることを確認
+  - 見積書カードクリックで見積書画面に遷移することを確認
+  - 「すべて見る」リンクと新規作成ボタンが表示されることを確認
+  - 見積書が存在しない場合、「見積書はまだありません」メッセージと新規作成ボタンが表示されることを確認
+  - ローディング中にスケルトンローダーが表示されることを確認
+  - _Requirements: 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.8, 28.9, 28.10, 28.11, 28.12, 28.13_
+
+- [x] 50.6 プロジェクト詳細API効率化E2Eテスト
+  - プロジェクト詳細画面の初期表示で全セクションが正しく表示されることを確認
+  - ネットワークリクエスト数が削減されていることを確認（detail-summary APIが1リクエストで返却）
+  - 各セクションのリンク・ボタンが正常に動作することを確認
+  - _Requirements: 29.1, 29.2, 29.3, 29.5, 29.6_
+
+## Task 51: 統合テストと動作確認
+
+- [x] 51.1 差分実装の統合テスト
+  - detail-summary APIが全セクションデータを正しく一括返却することを確認
+  - 個別セクションエラー時に他セクションが正常に表示されることを確認
+  - 既存の個別APIエンドポイント（site-surveys/latest等）が引き続き動作することを確認
+  - ProjectDetailPageが1リクエストで全データを取得し全セクションをレンダリングすることを確認
+  - 既存機能（プロジェクトCRUD、ステータス遷移、検索・フィルタ）への影響がないことを確認
+  - E2Eテスト要件カバレッジタグが移動先の要件ID（24-29）に更新されていることを確認
+  - 50.1〜50.6完了後に実施
+  - _Requirements: 24.1, 24.2, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7, 26.1, 26.2, 26.3, 26.4, 26.5, 26.6, 26.7, 26.8, 26.9, 26.10, 26.11, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7, 27.8, 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.8, 28.9, 28.10, 28.11, 28.12, 28.13, 29.1, 29.2, 29.3, 29.4, 29.5, 29.6_

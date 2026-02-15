@@ -14,12 +14,19 @@
  * - 10.13: ステータス変更履歴取得
  * - 10.14: 差し戻し遷移時の理由必須バリデーション
  * - 12.1, 12.2, 12.3: 認証・認可ミドルウェア適用
+ * - 29.1-29.6: プロジェクト詳細一括取得API（detail-summary）
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ProjectService } from '../services/project.service.js';
 import { ProjectStatusService } from '../services/project-status.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
+import { SiteSurveyService } from '../services/site-survey.service.js';
+import { QuantityTableService } from '../services/quantity-table.service.js';
+import { ItemizedStatementService } from '../services/itemized-statement.service.js';
+import { ItemizedStatementPivotService } from '../services/itemized-statement-pivot.service.js';
+import { EstimateRequestService } from '../services/estimate-request.service.js';
+import { EstimateService } from '../services/estimate.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -59,6 +66,16 @@ const projectStatusService = new ProjectStatusService({
   prisma,
   auditLogService,
 });
+const siteSurveyService = new SiteSurveyService({ prisma, auditLogService });
+const quantityTableService = new QuantityTableService({ prisma, auditLogService });
+const pivotService = new ItemizedStatementPivotService({ prisma });
+const itemizedStatementService = new ItemizedStatementService({
+  prisma,
+  auditLogService,
+  pivotService,
+});
+const estimateRequestService = new EstimateRequestService({ prisma, auditLogService });
+const estimateService = new EstimateService({ prisma, auditLogService });
 
 /**
  * 更新リクエストボディ用スキーマ（expectedUpdatedAt必須）
@@ -165,9 +182,20 @@ router.get(
         status?: import('../types/project.types.js').ProjectStatus[];
         createdFrom?: string;
         createdTo?: string;
+        excludeTerminalStatuses?: boolean;
       };
 
-      const { page, limit, sort, order, search, status, createdFrom, createdTo } = validatedQuery;
+      const {
+        page,
+        limit,
+        sort,
+        order,
+        search,
+        status,
+        createdFrom,
+        createdTo,
+        excludeTerminalStatuses,
+      } = validatedQuery;
 
       const result = await projectService.getProjects(
         {
@@ -175,6 +203,7 @@ router.get(
           status,
           createdFrom,
           createdTo,
+          excludeTerminalStatuses,
         },
         { page, limit },
         { sort, order }
@@ -187,6 +216,191 @@ router.get(
 
       res.json(result);
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/projects/status-counts:
+ *   get:
+ *     summary: ステータス別プロジェクト件数取得
+ *     description: 全プロジェクト（論理削除を除く）のステータス別件数を取得。検索条件・フィルタ条件は適用しない。
+ *     tags:
+ *       - Projects
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: ステータス別件数
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 counts:
+ *                   type: object
+ *                   description: 全12ステータスの件数
+ *                 total:
+ *                   type: integer
+ *                   description: 全ステータス合計件数
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *
+ * Requirements: 23.1-23.6
+ * 注意: このルートは/api/projects/:idより前に定義する必要がある
+ * （Expressのルートマッチング順序により、:idパラメータとの競合を回避）
+ */
+router.get(
+  '/status-counts',
+  authenticate,
+  requirePermission('project:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await projectService.getStatusCounts();
+
+      logger.debug({ userId: req.user?.userId }, 'Project status counts retrieved');
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * getProjectSections - 5つのセクションサマリーをPromise.allSettled()で並列取得
+ *
+ * Task 46.2: getProjectSectionsヘルパー関数の実装
+ * Requirements: 29.1, 29.4
+ *
+ * 個別セクションの取得エラー時はデフォルト値にフォールバックし、
+ * 他セクションの正常返却を妨げない。
+ */
+async function getProjectSections(projectId: string) {
+  const results = await Promise.allSettled([
+    siteSurveyService.findLatestByProjectId(projectId),
+    quantityTableService.findLatestByProjectId(projectId),
+    itemizedStatementService.findLatestByProjectId(projectId),
+    estimateRequestService.findLatestByProjectId(projectId),
+    estimateService.findLatestByProjectId(projectId),
+  ]);
+
+  return {
+    siteSurveys:
+      results[0].status === 'fulfilled' ? results[0].value : { totalCount: 0, latestSurveys: [] },
+    quantityTables:
+      results[1].status === 'fulfilled' ? results[1].value : { totalCount: 0, latestTables: [] },
+    itemizedStatements:
+      results[2].status === 'fulfilled'
+        ? results[2].value
+        : { totalCount: 0, latestStatements: [] },
+    estimateRequests:
+      results[3].status === 'fulfilled' ? results[3].value : { totalCount: 0, latestRequests: [] },
+    estimates:
+      results[4].status === 'fulfilled'
+        ? {
+            totalCount: results[4].value.totalCount,
+            latestEstimates: results[4].value.estimates,
+          }
+        : { totalCount: 0, latestEstimates: [] },
+  };
+}
+
+/**
+ * @swagger
+ * /api/projects/{id}/detail-summary:
+ *   get:
+ *     summary: プロジェクト詳細一括取得
+ *     description: プロジェクト基本情報、ステータス変更履歴、5つのセクションサマリーを一括取得
+ *     tags:
+ *       - Projects
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: プロジェクトID
+ *     responses:
+ *       200:
+ *         description: プロジェクト詳細サマリー
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 project:
+ *                   $ref: '#/components/schemas/ProjectDetail'
+ *                 statusHistory:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 sections:
+ *                   type: object
+ *       400:
+ *         description: 無効なプロジェクトID形式
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない
+ *
+ * Task 46.3: GET /api/projects/:id/detail-summary エンドポイントの実装
+ * Requirements: 29.1, 29.2, 29.3, 29.5
+ */
+router.get(
+  '/:id/detail-summary',
+  authenticate,
+  requirePermission('project:read'),
+  validate(projectIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+
+      // プロジェクト基本情報とステータス履歴を並列取得（必須データ）
+      const [projectData, historyData] = await Promise.all([
+        projectService.getProject(id),
+        projectStatusService.getStatusHistory(id),
+      ]);
+
+      // ステータス履歴にラベルを追加
+      const historiesWithLabels = historyData.map((h) => ({
+        ...h,
+        fromStatusLabel: h.fromStatus ? PROJECT_STATUS_LABELS[h.fromStatus as ProjectStatus] : null,
+        toStatusLabel: PROJECT_STATUS_LABELS[h.toStatus as ProjectStatus],
+        transitionTypeLabel: TRANSITION_TYPE_LABELS[h.transitionType as TransitionType],
+      }));
+
+      // 5セクションサマリーを並列取得（個別エラーはフォールバック）
+      const sections = await getProjectSections(id);
+
+      logger.debug({ userId: req.user?.userId, projectId: id }, 'Project detail summary retrieved');
+
+      res.json({
+        project: projectData,
+        statusHistory: historiesWithLabels,
+        sections,
+      });
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) {
+        res.status(404).json({
+          type: error.problemType,
+          title: 'Project Not Found',
+          status: 404,
+          detail: error.message,
+          code: error.code,
+          projectId: error.projectId,
+        });
+        return;
+      }
       next(error);
     }
   }

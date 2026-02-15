@@ -16,15 +16,10 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { ToastProvider } from '../../components/ToastProvider';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
-import * as siteSurveyApi from '../../api/site-surveys';
-import * as quantityTablesApi from '../../api/quantity-tables';
-import * as itemizedStatementsApi from '../../api/itemized-statements';
+import type { ProjectDetailSummary } from '../../api/projects';
 
 // APIモック
 vi.mock('../../api/projects');
-vi.mock('../../api/site-surveys');
-vi.mock('../../api/quantity-tables');
-vi.mock('../../api/itemized-statements');
 
 // useAuthフックのモック
 vi.mock('../../hooks/useAuth', () => ({
@@ -77,6 +72,34 @@ const mockQuantityTables = [
   },
 ];
 
+const defaultSections: ProjectDetailSummary['sections'] = {
+  siteSurveys: { totalCount: 0, latestSurveys: [] },
+  quantityTables: { totalCount: 1, latestTables: mockQuantityTables },
+  itemizedStatements: { totalCount: 0, latestStatements: [] },
+  estimateRequests: { totalCount: 0, latestRequests: [] },
+  estimates: { totalCount: 0, latestEstimates: [] },
+};
+
+/**
+ * デフォルトのProjectDetailSummaryモックデータを生成するヘルパー
+ */
+function createMockSummary(
+  overrides?: Partial<{
+    project: typeof mockProject;
+    statusHistory: typeof mockStatusHistory;
+    sections: Partial<ProjectDetailSummary['sections']>;
+  }>
+): ProjectDetailSummary {
+  return {
+    project: overrides?.project ?? mockProject,
+    statusHistory: overrides?.statusHistory ?? mockStatusHistory,
+    sections: {
+      ...defaultSections,
+      ...overrides?.sections,
+    },
+  } as ProjectDetailSummary;
+}
+
 // 現在のパスを表示するヘルパーコンポーネント
 function LocationDisplay() {
   const location = useLocation();
@@ -86,20 +109,7 @@ function LocationDisplay() {
 describe('ProjectDetailPage - 内訳書ナビゲーション', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
-    vi.mocked(projectsApi.getStatusHistory).mockResolvedValue(mockStatusHistory);
-    vi.mocked(siteSurveyApi.getLatestSiteSurveys).mockResolvedValue({
-      totalCount: 0,
-      latestSurveys: [],
-    });
-    vi.mocked(quantityTablesApi.getLatestQuantityTables).mockResolvedValue({
-      totalCount: 1,
-      latestTables: mockQuantityTables,
-    });
-    vi.mocked(itemizedStatementsApi.getLatestItemizedStatements).mockResolvedValue({
-      totalCount: 0,
-      latestStatements: [],
-    });
+    vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
   });
 
   afterEach(() => {
@@ -191,10 +201,13 @@ describe('ProjectDetailPage - 内訳書ナビゲーション', () => {
           updatedAt: '2026-01-18T10:00:00.000Z',
         },
       ];
-      vi.mocked(itemizedStatementsApi.getLatestItemizedStatements).mockResolvedValue({
-        totalCount: 1,
-        latestStatements: mockExistingStatements,
-      });
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            itemizedStatements: { totalCount: 1, latestStatements: mockExistingStatements },
+          },
+        })
+      );
 
       renderWithRouter();
 
@@ -242,10 +255,13 @@ describe('ProjectDetailPage - 内訳書ナビゲーション', () => {
           updatedAt: '2026-01-18T10:00:00.000Z',
         },
       ];
-      vi.mocked(itemizedStatementsApi.getLatestItemizedStatements).mockResolvedValue({
-        totalCount: 1,
-        latestStatements: mockExistingStatements,
-      });
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            itemizedStatements: { totalCount: 1, latestStatements: mockExistingStatements },
+          },
+        })
+      );
 
       renderWithRouter();
 

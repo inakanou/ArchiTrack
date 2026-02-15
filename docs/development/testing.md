@@ -496,11 +496,11 @@ GitHub Actionsで自動的に以下が実行されます：
 
 ### CI環境のDocker構成
 
-CI環境では `docker-compose.ci.yml` を使用し、標準ポート（3000, 5173）で実行されます：
+CI環境では `docker-compose.ci.yml` を使用し、標準ポート（3000, 5173）で実行されます。フロントエンドは本番と同じ構成（nginx + ビルド済み静的ファイル）を使用しており、nginx固有の設定問題を本番デプロイ前に検出できます：
 
 ```bash
-# CI環境と同じ構成でローカルテスト
-docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+# CI環境と同じ構成でローカルテスト（フロントエンドのビルドが必要）
+docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
 ```
 
 詳細は `.github/workflows/ci.yml` を参照してください。

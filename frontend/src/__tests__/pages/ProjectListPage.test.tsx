@@ -14,18 +14,26 @@
  * - 7.1: プロジェクト詳細画面で全情報を表示
  * - 8.1: 編集ボタンクリック時にプロジェクト編集フォームを表示
  * - 9.1: 削除ボタンクリック時に削除確認ダイアログを表示
+ * - 23.1-23.6: ステータス別件数表示（全プロジェクト対象）
+ * - 2.7, 2.8: 終端ステータス除外
+ * - 3.1: デフォルト表示件数100件
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import ProjectListPage from '../../pages/ProjectListPage';
-import type { PaginatedProjects, ProjectInfo } from '../../types/project.types';
+import type {
+  PaginatedProjects,
+  ProjectInfo,
+  StatusCountsResponse,
+} from '../../types/project.types';
 
 // APIモック
 vi.mock('../../api/projects', () => ({
   getProjects: vi.fn(),
+  getProjectStatusCounts: vi.fn(),
 }));
 
 // useMediaQueryモック（レスポンシブ表示テスト用）
@@ -1124,6 +1132,217 @@ describe('ProjectListPage', () => {
 
       // パンくずナビゲーションがmain要素内に存在する
       expect(main.contains(breadcrumbNav)).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // Task 43.4: StatsSummaryコンポーネントのユニットテスト
+  // Requirements: 23.1, 23.4, 23.5, 23.6
+  // ==========================================================================
+
+  describe('ステータス別件数表示 - StatsSummary（Task 43.4）', () => {
+    const mockStatusCounts: StatusCountsResponse = {
+      counts: {
+        PREPARING: 5,
+        SURVEYING: 3,
+        ESTIMATING: 2,
+        APPROVING: 1,
+        CONTRACTING: 4,
+        CONSTRUCTING: 6,
+        DELIVERING: 0,
+        BILLING: 1,
+        AWAITING: 2,
+        COMPLETED: 10,
+        CANCELLED: 3,
+        LOST: 1,
+      },
+      total: 38,
+    };
+
+    it('APIレスポンスのstatusCountsデータに基づいて全12ステータスの件数が表示される (23.4)', async () => {
+      const { getProjects, getProjectStatusCounts } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+      vi.mocked(getProjectStatusCounts).mockResolvedValue(mockStatusCounts);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 全12ステータスの件数が表示される
+      // ステータス別件数セクションのタイトルと合計件数で確認
+      await waitFor(() => {
+        expect(screen.getByText(/ステータス別件数（全プロジェクト）/)).toBeInTheDocument();
+      });
+
+      // StatsSummaryセクション内で全12ステータスのボタンが表示されることを確認
+      // StatusSummaryCardは button 要素なので、StatsSummaryのgridコンテナ内のボタン数で確認
+      const heading = screen.getByText(/ステータス別件数（全プロジェクト）/);
+      const summarySection = heading.closest('div.mb-6');
+      expect(summarySection).toBeInTheDocument();
+
+      // StatsSummary内のボタン数が12（全ステータス分）であること
+      const statusButtons = within(summarySection as HTMLElement).getAllByRole('button');
+      expect(statusButtons).toHaveLength(12);
+
+      // 0件のステータスも表示される (23.5) - DELIVERING(引渡中)の件数0
+      // 件数0のボタンがある（引渡中のカード内に0が表示される）
+      const deliverButton = within(summarySection as HTMLElement)
+        .getByText('引渡中')
+        .closest('button');
+      expect(deliverButton).toBeInTheDocument();
+      expect(within(deliverButton!).getByText('0')).toBeInTheDocument();
+    });
+
+    it('合計件数が表示される (23.6)', async () => {
+      const { getProjects, getProjectStatusCounts } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+      vi.mocked(getProjectStatusCounts).mockResolvedValue(mockStatusCounts);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // 合計件数38件が表示される
+      await waitFor(() => {
+        expect(screen.getByText('38')).toBeInTheDocument();
+      });
+
+      // 「全プロジェクト」というタイトルが含まれる
+      expect(screen.getByText(/全プロジェクト/)).toBeInTheDocument();
+    });
+
+    it('statusCountsがnullの場合にStatsSummaryが非表示になる (23.1)', async () => {
+      const { getProjects, getProjectStatusCounts } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+      vi.mocked(getProjectStatusCounts).mockRejectedValue(new Error('API error'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      // StatsSummaryが表示されないことを確認（API失敗時はnullが設定される）
+      expect(screen.queryByText(/ステータス別件数/)).not.toBeInTheDocument();
+    });
+
+    it('getProjectStatusCountsが初回マウント時に呼ばれる (23.1)', async () => {
+      const { getProjects, getProjectStatusCounts } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+      vi.mocked(getProjectStatusCounts).mockResolvedValue(mockStatusCounts);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(getProjectStatusCounts).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('ステータス別件数のタイトルに「全プロジェクト」が含まれる (23.3)', async () => {
+      const { getProjects, getProjectStatusCounts } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+      vi.mocked(getProjectStatusCounts).mockResolvedValue(mockStatusCounts);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/ステータス別件数（全プロジェクト）/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Task 43.5: デフォルト表示件数変更のユニットテスト（フロントエンド）
+  // Requirements: 3.1
+  // ==========================================================================
+
+  describe('デフォルト表示件数100件（Task 43.5）', () => {
+    it('初回APIリクエストのlimitが100である', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            limit: 100,
+          })
+        );
+      });
+    });
+
+    it('ページネーションの表示件数セレクトに100件オプションが存在する', async () => {
+      const manyProjectsResponse: PaginatedProjects = {
+        data: mockProjects,
+        pagination: {
+          page: 1,
+          limit: 100,
+          total: 200,
+          totalPages: 2,
+        },
+      };
+
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(manyProjectsResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pagination-controls')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('option', { name: '100件' })).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 43.2 (フロントエンド): excludeTerminalStatuses動作のユニットテスト
+  // Requirements: 2.7, 2.8
+  // ==========================================================================
+
+  describe('終端ステータス除外（Task 43.2 フロントエンド）', () => {
+    it('ステータスフィルタ未指定時にexcludeTerminalStatuses=trueが送信される (2.7)', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            filter: expect.objectContaining({
+              excludeTerminalStatuses: true,
+            }),
+          })
+        );
+      });
+    });
+
+    it('ステータスフィルタが指定された場合はexcludeTerminalStatusesが送信されない (2.8)', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
+
+      renderWithRouter(['/projects?status=PREPARING']);
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledWith(
+          expect.objectContaining({
+            filter: expect.objectContaining({
+              status: expect.arrayContaining(['PREPARING']),
+              excludeTerminalStatuses: undefined,
+            }),
+          })
+        );
+      });
     });
   });
 });

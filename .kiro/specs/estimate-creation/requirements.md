@@ -284,23 +284,25 @@
 
 ### Requirement 16: プロジェクト詳細画面の見積書セクション
 
+~~→ project-management/Requirement 28 に全AC移動~~
+
 **Objective:** As a 積算担当者, I want プロジェクト詳細画面から見積書にアクセスしたい, so that プロジェクトに関連する見積書を素早く確認・管理できる
 
 #### Acceptance Criteria
 
-1. The 見積書作成システム shall プロジェクト詳細画面の見積依頼セクションの下に見積書セクションを表示する
-2. The 見積書作成システム shall 見積書セクションにセクションタイトル「見積書」を表示する
-3. The 見積書作成システム shall 見積書セクションに見積書の総数を表示する（例：全5件）
-4. The 見積書作成システム shall 見積書セクションに直近の見積書をカード形式で表示する
-5. The 見積書作成システム shall 見積書カードに見積書名、作成日時、合計金額を表示する
-6. When ユーザーが見積書カードをクリックした場合, the 見積書作成システム shall 見積書画面へ遷移する
-7. The 見積書作成システム shall 見積書セクションに「すべて見る」リンクを提供する
-8. When ユーザーが「すべて見る」リンクをクリックした場合, the 見積書作成システム shall 見積書一覧画面へ遷移する
-9. The 見積書作成システム shall 見積書セクションに新規作成ボタンを提供する
-10. When ユーザーが新規作成ボタンをクリックした場合, the 見積書作成システム shall 見積書作成画面へ遷移する
-11. When 見積書が存在しない場合, the 見積書作成システム shall 「見積書はまだありません」メッセージと新規作成ボタンを表示する
-12. While 見積書データをロード中の場合, the 見積書作成システム shall スケルトンローダーを表示する
-13. The 見積書作成システム shall 見積書セクションのUIを既存の見積依頼セクションと同様のスタイルで提供する
+1. ~~→ project-management/Requirement 28 AC 1 に移動~~
+2. ~~→ project-management/Requirement 28 AC 2 に移動~~
+3. ~~→ project-management/Requirement 28 AC 3 に移動~~
+4. ~~→ project-management/Requirement 28 AC 4 に移動~~
+5. ~~→ project-management/Requirement 28 AC 5 に移動~~
+6. ~~→ project-management/Requirement 28 AC 6 に移動~~
+7. ~~→ project-management/Requirement 28 AC 7 に移動~~
+8. ~~→ project-management/Requirement 28 AC 8 に移動~~
+9. ~~→ project-management/Requirement 28 AC 9 に移動~~
+10. ~~→ project-management/Requirement 28 AC 10 に移動~~
+11. ~~→ project-management/Requirement 28 AC 11 に移動~~
+12. ~~→ project-management/Requirement 28 AC 12 に移動~~
+13. ~~→ project-management/Requirement 28 AC 13 に移動~~
 
 ### Requirement 17: 受領見積書転記UIの改善
 

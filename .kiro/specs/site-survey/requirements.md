@@ -21,8 +21,8 @@
 **Objective:** As a プロジェクト担当者, I want 現場調査機能への画面遷移が分かりやすいこと, so that 目的の画面に迷わずたどり着ける
 
 #### Acceptance Criteria
-1. When ユーザーがプロジェクト詳細画面を表示する, the Site Survey Service shall 「現場調査」セクションに直近2件の現場調査への参照リンクと現場調査の総数を表示する
-2. When ユーザーが現場調査セクションで「すべて表示」リンクをクリックする, the Site Survey Service shall 当該プロジェクトの現場調査一覧を表示する
+1. ~~→ project-management/Requirement 24 AC 1 に移動~~
+2. ~~→ project-management/Requirement 24 AC 2 に移動~~
 3. When ユーザーが現場調査一覧で項目をクリックする, the Site Survey Service shall 現場調査詳細画面に遷移する
 4. When ユーザーが現場調査詳細画面で画像をクリックする, the Site Survey Service shall 画像ビューア/注釈エディタを開く
 5. The Site Survey Service shall 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
