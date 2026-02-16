@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "mkdir -p coverage/.tmp && vitest run --coverage",
+    "test:coverage": "rm -rf coverage && mkdir -p coverage/.tmp && vitest run --coverage",
     "coverage:check": "node scripts/check-coverage-gaps.cjs",
     "lint": "eslint src/**/*.{js,jsx,ts,tsx} vitest.*.ts",
     "lint:fix": "eslint src/**/*.{js,jsx,ts,tsx} vitest.*.ts --fix",
