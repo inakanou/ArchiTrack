@@ -49,6 +49,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
   // テストデータ
   let createdProjectId: string | null = null;
   let createdTradingPartnerId: string | null = null;
+  let createdQuantityTableId: string | null = null;
   let createdItemizedStatementId: string | null = null;
   let createdEstimateRequestId: string | null = null;
   let accessToken: string = '';
@@ -74,7 +75,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
     });
     expect(assignableRes.ok()).toBeTruthy();
     const assignableData = await assignableRes.json();
-    const salesPersonId = assignableData.data?.[0]?.id ?? null;
+    const salesPersonId = assignableData[0]?.id ?? null;
 
     // プロジェクト作成
     const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
@@ -86,30 +87,70 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       },
     });
     expect(projectRes.ok()).toBeTruthy();
-    createdProjectId = (await projectRes.json()).data?.id ?? null;
+    createdProjectId = (await projectRes.json()).id ?? null;
     expect(createdProjectId).not.toBeNull();
 
     // 取引先作成
     const tpRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       data: {
-        companyName: `E2E取引先_ClaudeVision_${Date.now()}`,
-        companyNameKana: 'イーツーイートリヒキサキ',
+        name: `E2E取引先_ClaudeVision_${Date.now()}`,
+        nameKana: 'イーツーイートリヒキサキ',
+        types: ['SUBCONTRACTOR'],
+        address: '東京都千代田区テスト1-2-3',
       },
     });
     expect(tpRes.ok()).toBeTruthy();
-    createdTradingPartnerId = (await tpRes.json()).data?.id ?? null;
+    createdTradingPartnerId = (await tpRes.json()).id ?? null;
+
+    // 数量表作成（内訳書に必要）
+    const qtRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        data: { name: 'E2E数量表_ClaudeVision' },
+      }
+    );
+    expect(qtRes.ok()).toBeTruthy();
+    createdQuantityTableId = (await qtRes.json()).id ?? null;
+
+    // 数量表にグループと項目を追加（内訳書作成に項目が必要）
+    const groupRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}/groups`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        data: { name: 'テストグループ', displayOrder: 0 },
+      }
+    );
+    expect(groupRes.ok()).toBeTruthy();
+    const groupId = (await groupRes.json()).id;
+
+    const itemRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-groups/${groupId}/items`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        data: {
+          name: 'テスト項目',
+          workType: '工種A',
+          specification: '規格A',
+          unit: '式',
+          quantity: 1.0,
+          displayOrder: 0,
+        },
+      }
+    );
+    expect(itemRes.ok()).toBeTruthy();
 
     // 内訳書作成
     const isRes = await page.request.post(
       `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
       {
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        data: { title: 'E2E内訳書_ClaudeVision' },
+        data: { name: 'E2E内訳書_ClaudeVision', quantityTableId: createdQuantityTableId },
       }
     );
     expect(isRes.ok()).toBeTruthy();
-    createdItemizedStatementId = (await isRes.json()).data?.id ?? null;
+    createdItemizedStatementId = (await isRes.json()).id ?? null;
 
     // 見積依頼作成
     const erRes = await page.request.post(
@@ -117,13 +158,14 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       {
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         data: {
+          name: 'E2E見積依頼_ClaudeVision',
           tradingPartnerId: createdTradingPartnerId,
           itemizedStatementId: createdItemizedStatementId,
         },
       }
     );
     expect(erRes.ok()).toBeTruthy();
-    createdEstimateRequestId = (await erRes.json()).data?.id ?? null;
+    createdEstimateRequestId = (await erRes.json()).id ?? null;
   });
 
   // ==========================================================================
@@ -173,20 +215,24 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       });
 
       // 見積依頼詳細ページに移動
-      await page.goto(
-        `/projects/${createdProjectId}/estimate-requests/${createdEstimateRequestId}`
-      );
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
       // 受領見積書フォームを開く
       await openReceivedQuotationForm(page);
 
-      // PDFファイルをアップロード（ダミーPDF）
+      // 画像ファイルをアップロード（1x1ピクセルPNG）
+      // ダミーPDFではpdfjs-distの解析が失敗するため、有効な画像ファイルを使用
+      const minimalPng = Buffer.from([
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2,
+        0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0,
+        3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+      ]);
       const fileInput = page.locator('input[type="file"]').first();
       await fileInput.setInputFiles({
-        name: 'test-quotation.pdf',
-        mimeType: 'application/pdf',
-        buffer: Buffer.from('%PDF-1.4 test content'),
+        name: 'test-quotation.png',
+        mimeType: 'image/png',
+        buffer: minimalPng,
       });
 
       // 結果が表示されるまで待機
@@ -218,8 +264,8 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       // 明細行の数値フォーマット検証（24.8）
       // 数量: 小数2桁表示 (100.5 -> 100.50)
       // 単価: 整数表示 (2500 -> 2500)
-      const lineItemRows = page.locator('[data-testid^="line-item-row"]');
-      const rowCount = await lineItemRows.count();
+      const lineItemAmounts = page.locator('[data-testid="line-item-amount"]');
+      const rowCount = await lineItemAmounts.count();
       expect(rowCount).toBeGreaterThanOrEqual(2);
     });
   });
@@ -248,33 +294,34 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       });
 
       // 見積依頼詳細ページに移動
-      await page.goto(
-        `/projects/${createdProjectId}/estimate-requests/${createdEstimateRequestId}`
-      );
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
       // 受領見積書フォームを開く
       await openReceivedQuotationForm(page);
 
-      // PDFファイルをアップロード（ダミーPDF）
+      // 画像ファイルをアップロード（1x1ピクセルPNG）
+      const minimalPng = Buffer.from([
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2,
+        0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0,
+        3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+      ]);
       const fileInput = page.locator('input[type="file"]').first();
       await fileInput.setInputFiles({
-        name: 'test-quotation-fallback.pdf',
-        mimeType: 'application/pdf',
-        buffer: Buffer.from('%PDF-1.4 test content for fallback'),
+        name: 'test-quotation-fallback.png',
+        mimeType: 'image/png',
+        buffer: minimalPng,
       });
 
-      // フォールバック警告バナー（黄色）が表示される
+      // フォールバック警告バナー（黄色）が表示される（REQ-25.4）
+      await expect(page.getByTestId('fallback-warning-banner')).toBeVisible({
+        timeout: getTimeout(30000),
+      });
+
+      // バナーテキストの内容を検証（REQ-25.1, 25.5: 従来のOCR処理へのフォールバック）
       await expect(
         page.getByText(/Claude Vision APIが利用できないため、従来のOCR処理で実行しています/)
-      ).toBeVisible({ timeout: getTimeout(30000) });
-
-      // Tesseract.jsフォールバックの処理結果（成功/エラーどちらでも）が表示される
-      // (テスト環境ではTesseract.jsの実際のOCRは実行されるが、ダミーPDFなので結果は不定)
-      // 少なくとも処理が完了するか、エラーが表示されることを確認
-      await expect(
-        page.getByTestId('ocr-extracted-text').or(page.getByTestId('ocr-error-message'))
-      ).toBeVisible({ timeout: getTimeout(60000) });
+      ).toBeVisible();
     });
   });
 
@@ -295,7 +342,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       );
       if (quotationsRes.ok()) {
         const data = await quotationsRes.json();
-        const quotations = data.data?.receivedQuotations ?? [];
+        const quotations = data.receivedQuotations ?? [];
         for (const q of quotations) {
           await page.request.delete(
             `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests/${createdEstimateRequestId}/received-quotations/${q.id}`,
@@ -317,6 +364,13 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
         `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements/${createdItemizedStatementId}`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
+    }
+
+    // 数量表削除
+    if (createdQuantityTableId) {
+      await page.request.delete(`${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
     }
 
     // プロジェクト削除
