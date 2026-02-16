@@ -492,6 +492,7 @@ test.describe('現場調査エクスポート機能', () => {
      * @requirement site-survey/REQ-11.6
      * @requirement site-survey/REQ-11.7
      * @requirement site-survey/REQ-11.8
+     * @requirement site-survey/REQ-11.9
      */
     test('報告書出力対象がある場合にPDF生成プログレスが表示されダウンロードが開始される', async ({
       page,
