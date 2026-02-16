@@ -42,11 +42,18 @@ import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 export const PDF_TEXT_THRESHOLD = 50;
 
 /**
- * スキャンPDFフォールバック時のCanvas描画スケール
+ * スキャンPDFフォールバック時のCanvas描画スケール（Tesseract OCR用）
  * Task 44.1: scale 2.0から4.0に引き上げて高解像度化によりOCR認識精度を向上
  * Requirements: 19.1
  */
 const CANVAS_RENDER_SCALE = 4.0;
+
+/**
+ * Claude Vision API用のCanvas描画スケール
+ * Claude Visionは高解像度を必要としないため2.0で十分。
+ * 4.0だと画像が巨大になりAPIトークン上限に達して全ページが処理されない場合がある。
+ */
+const CLAUDE_VISION_RENDER_SCALE = 2.0;
 
 // ============================================================================
 // 型定義
@@ -463,16 +470,17 @@ const MAX_PAGES_FOR_VISION = 20;
  */
 export async function renderPdfPagesToBase64(
   file: File
-): Promise<Array<{ base64Data: string; mediaType: 'image/png' }>> {
+): Promise<Array<{ base64Data: string; mediaType: 'image/jpeg' }>> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
 
   const pagesToRender = Math.min(pdf.numPages, MAX_PAGES_FOR_VISION);
-  const results: Array<{ base64Data: string; mediaType: 'image/png' }> = [];
+  const results: Array<{ base64Data: string; mediaType: 'image/jpeg' }> = [];
 
   for (let pageNum = 1; pageNum <= pagesToRender; pageNum++) {
     const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: CANVAS_RENDER_SCALE });
+    // Claude Vision用の適切なスケール（Tesseract用の4.0ではなく2.0）
+    const viewport = page.getViewport({ scale: CLAUDE_VISION_RENDER_SCALE });
 
     // Canvas要素を動的に作成
     const canvas = document.createElement('canvas');
@@ -487,11 +495,11 @@ export async function renderPdfPagesToBase64(
     // PDFページをCanvas上に描画
     await page.render({ canvas, viewport }).promise;
 
-    // Canvas描画結果をBase64画像に変換
-    const dataUrl = canvas.toDataURL('image/png');
+    // Canvas描画結果をJPEG画像に変換（PNGより軽量でAPI送信に適する）
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
-    // data:image/png;base64, プレフィックスを除去
-    const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+    // data:image/jpeg;base64, プレフィックスを除去
+    const base64Data = dataUrl.replace(/^data:image\/jpeg;base64,/, '');
 
     // Canvas参照を即座に解放してメモリを節約
     canvas.width = 0;
@@ -499,7 +507,7 @@ export async function renderPdfPagesToBase64(
 
     results.push({
       base64Data,
-      mediaType: 'image/png' as const,
+      mediaType: 'image/jpeg' as const,
     });
   }
 

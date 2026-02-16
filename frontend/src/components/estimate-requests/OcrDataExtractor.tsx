@@ -718,7 +718,9 @@ export function OcrDataExtractor({
     (lineItems: ClaudeVisionLineItem[]): LineItemFormData[] => {
       return lineItems.map((item) => {
         const quantityStr = item.quantity != null ? String(item.quantity) : '';
-        const unitPriceStr = item.unitPrice != null ? String(item.unitPrice) : '';
+        // 単価がnullかつ金額が存在する場合、金額を単価として採用する
+        const effectiveUnitPrice = item.unitPrice != null ? item.unitPrice : item.amount;
+        const unitPriceStr = effectiveUnitPrice != null ? String(effectiveUnitPrice) : '';
 
         // 数値フォーマット適用（18.1-18.6）
         const formattedQuantity = formatQuantity(quantityStr);
