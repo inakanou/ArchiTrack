@@ -12,6 +12,7 @@
  * @module errors/claudeVisionError
  */
 import { ApiError } from './apiError.js';
+import type { ProblemDetails } from '../types/problem-details.js';
 
 /**
  * Claude Vision APIのエラー種別
@@ -122,6 +123,17 @@ export class ClaudeVisionError extends ApiError {
       'unknown',
       'CLAUDE_VISION_UNKNOWN'
     );
+  }
+
+  /**
+   * RFC 7807形式でエラー情報を返す
+   * errorTypeフィールドを含む
+   * Requirements: 23.7
+   */
+  override toProblemDetails(instance?: string): ProblemDetails {
+    const problemDetails = super.toProblemDetails(instance);
+    problemDetails.errorType = this.errorType;
+    return problemDetails;
   }
 
   /**

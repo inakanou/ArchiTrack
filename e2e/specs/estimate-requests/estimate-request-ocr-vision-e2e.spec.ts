@@ -147,14 +147,20 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
     });
 
     // ANTHROPIC_API_KEYが未設定の場合は503、設定済みの場合は200
+    // テスト用の1x1 PNG画像では表データが抽出できないため、422（parse_error）も正当なレスポンス（REQ-23.4）
     const status = response.status();
-    expect([200, 503]).toContain(status);
+    expect([200, 422, 503]).toContain(status);
 
     const data = await response.json();
 
     if (status === 503) {
-      // REQ-22.6: 機能無効時のHTTP 503
-      expect(data).toHaveProperty('error');
+      // REQ-22.6: 機能無効時のHTTP 503（RFC 7807 Problem Details形式）
+      expect(data).toHaveProperty('detail');
+      expect(data).toHaveProperty('errorType', 'service_unavailable');
+    } else if (status === 422) {
+      // REQ-23.4, REQ-23.7: パースエラー時のエラーレスポンス検証（RFC 7807 Problem Details形式）
+      expect(data).toHaveProperty('detail');
+      expect(data).toHaveProperty('errorType', 'parse_error');
     } else {
       // REQ-21.5, REQ-21.6, REQ-21.7: 正常レスポンスの検証
       expect(data).toHaveProperty('lineItems');
@@ -200,7 +206,8 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
     });
 
     const status = response.status();
-    expect([200, 503]).toContain(status);
+    // テスト用の1x1 PNG画像では表データが抽出できないため、422（parse_error）も正当なレスポンス（REQ-23.4）
+    expect([200, 422, 503]).toContain(status);
 
     if (status === 200) {
       const data = await response.json();
@@ -249,7 +256,7 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
     await loginAsUser(page, 'REGULAR_USER');
 
     // ヘルスチェックAPIが応答することで、バックエンドの環境設定が正常であることを間接的に確認
-    const healthResponse = await page.request.get(`${API_BASE_URL}/api/health`);
+    const healthResponse = await page.request.get(`${API_BASE_URL}/health`);
     expect(healthResponse.status()).toBe(200);
   });
 
@@ -289,8 +296,9 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
     expect([400, 503]).toContain(status);
 
     const data = await response.json();
-    // エラーレスポンスにエラー情報が含まれることを確認
-    expect(data).toHaveProperty('error');
+    // エラーレスポンスにエラー情報が含まれることを確認（RFC 7807 Problem Details形式）
+    expect(data).toHaveProperty('detail');
+    expect(data).toHaveProperty('status');
   });
 
   /**
@@ -334,12 +342,24 @@ test.describe('OCR画像前処理パイプライン', () => {
     accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
     expect(accessToken).toBeTruthy();
 
+    const headers = { Authorization: `Bearer ${accessToken}` };
+
+    // 担当者候補を取得（salesPersonIdに必要）
+    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
+      headers,
+    });
+    expect(assignableRes.ok()).toBeTruthy();
+    const assignableUsers = await assignableRes.json();
+    expect(assignableUsers.length).toBeGreaterThan(0);
+    const salesPersonId = assignableUsers[0].id;
+
     // プロジェクト作成
     const projectResponse = await page.request.post(`${API_BASE_URL}/api/projects`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers,
       data: {
         name: `OCRテスト用プロジェクト_${Date.now()}`,
         siteAddress: '東京都渋谷区テスト1-2-3',
+        salesPersonId,
       },
     });
     expect(projectResponse.status()).toBe(201);
@@ -348,24 +368,67 @@ test.describe('OCR画像前処理パイプライン', () => {
 
     // 協力業者作成
     const partnerResponse = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers,
       data: {
         name: `OCRテスト業者_${Date.now()}`,
+        nameKana: 'オーシーアールテストギョウシャ',
         types: ['SUBCONTRACTOR'],
+        address: '東京都渋谷区テスト1-2-3',
       },
     });
     expect(partnerResponse.status()).toBe(201);
     const partnerData = await partnerResponse.json();
     createdTradingPartnerId = partnerData.id;
 
+    // 数量表作成（内訳書の前提条件）
+    const qtRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
+      { headers, data: { name: `OCRテスト数量表_${Date.now()}` } }
+    );
+    expect(qtRes.ok()).toBeTruthy();
+    const qt = await qtRes.json();
+
+    // 数量グループ作成
+    const groupRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
+      { headers, data: { name: 'テストグループ', displayOrder: 0 } }
+    );
+    expect(groupRes.ok()).toBeTruthy();
+    const group = await groupRes.json();
+
+    // 数量項目作成
+    const itemRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
+      {
+        headers,
+        data: {
+          workType: 'テスト工事',
+          name: 'テスト項目',
+          specification: 'テスト規格',
+          unit: '式',
+          quantity: 1,
+        },
+      }
+    );
+    expect(itemRes.ok()).toBeTruthy();
+
+    // 内訳書作成（数量表から生成）
+    const statementRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
+      { headers, data: { name: `OCRテスト内訳書_${Date.now()}`, quantityTableId: qt.id } }
+    );
+    expect(statementRes.ok()).toBeTruthy();
+    const statement = await statementRes.json();
+
     // 見積依頼作成
     const requestResponse = await page.request.post(
       `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests`,
       {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers,
         data: {
+          name: `OCRテスト用見積依頼_${Date.now()}`,
           tradingPartnerId: createdTradingPartnerId,
-          subject: 'OCRテスト用見積依頼',
+          itemizedStatementId: statement.id,
         },
       }
     );
@@ -487,9 +550,15 @@ test.describe('Claude Vision構造化データ抽出精度', () => {
     });
 
     const status = response.status();
-    expect([200, 503]).toContain(status);
+    // テスト用の1x1 PNG画像では表データが抽出できないため、422（parse_error）も正当なレスポンス（REQ-23.4）
+    expect([200, 422, 503]).toContain(status);
 
-    if (status === 200) {
+    if (status === 422) {
+      // REQ-23.4, REQ-23.7: パースエラー時のエラーレスポンス検証（RFC 7807 Problem Details形式）
+      const data = await response.json();
+      expect(data).toHaveProperty('detail');
+      expect(data).toHaveProperty('errorType', 'parse_error');
+    } else if (status === 200) {
       const data = await response.json();
       // REQ-26.5: JSON配列パーサーが正常に動作している
       expect(Array.isArray(data.lineItems)).toBe(true);
