@@ -131,7 +131,7 @@ const styles = {
     justifyContent: 'center',
     padding: '16px',
     backgroundColor: '#f9fafb',
-    maxHeight: '600px',
+    maxHeight: '300px',
     overflowY: 'auto' as const,
     overflowX: 'hidden' as const,
   },
