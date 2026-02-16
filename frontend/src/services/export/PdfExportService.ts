@@ -229,39 +229,22 @@ export class PdfExportService {
   /**
    * デフォルトのファイル名を生成する
    *
-   * 調査名と調査日を使用してファイル名を生成する。
-   * ファイル名に使用できない文字は置換される。
+   * 固定プレフィックス「現場調査報告書」と調査日（YYYYMMDD）を使用してファイル名を生成する。
+   * 形式: 現場調査報告書_YYYYMMDD.pdf
+   *
+   * Requirements: 11.9
    *
    * @param survey 現場調査詳細
-   * @returns ファイル名
+   * @returns ファイル名（例: 現場調査報告書_20251215.pdf）
    */
   generateDefaultFilename(survey: SiteSurveyDetail): string {
-    // 調査名をサニタイズ（ファイル名に使用できない文字を置換）
-    const sanitizedName = this.sanitizeFilename(survey.name);
+    // 固定プレフィックス「現場調査報告書」を使用（Requirements: 11.9）
+    const prefix = '現場調査報告書';
 
-    // 調査日をフォーマット（YYYY-MM-DD形式のまま、またはYYYYMMDD形式）
+    // 調査日をYYYYMMDD形式にフォーマット
     const dateStr = survey.surveyDate.replace(/-/g, '');
 
-    return `${sanitizedName}_${dateStr}.pdf`;
-  }
-
-  /**
-   * ファイル名をサニタイズする
-   *
-   * ファイル名に使用できない文字を安全な文字に置換する。
-   *
-   * @param filename 元のファイル名
-   * @returns サニタイズされたファイル名
-   */
-  private sanitizeFilename(filename: string): string {
-    // ファイル名に使用できない文字を置換
-    // Windows: \ / : * ? " < > |
-    // Unix: /
-    return filename
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_')
-      .trim();
+    return `${prefix}_${dateStr}.pdf`;
   }
 
   /**

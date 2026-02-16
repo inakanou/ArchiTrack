@@ -538,8 +538,8 @@ test.describe('現場調査エクスポート機能', () => {
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
       const filename = download.suggestedFilename();
-      expect(filename).toMatch(/\.pdf$/i);
-      expect(filename).toContain('site-survey');
+      // Requirements 11.9: ファイル名は「現場調査報告書_YYYYMMDD.pdf」形式
+      expect(filename).toMatch(/^現場調査報告書_\d{8}\.pdf$/);
     });
   });
 

@@ -340,40 +340,58 @@ describe('PdfExportService', () => {
 
         expect(createElementSpy).toHaveBeenCalledWith('a');
       });
+
+      it('exportAndDownloadPdf()がデフォルトで「現場調査報告書_YYYYMMDD.pdf」形式のファイル名を使用する', async () => {
+        const { PdfExportService } = await import('../../../services/export/PdfExportService');
+        const service = new PdfExportService();
+        const survey = createTestSurveyDetail({ surveyDate: '2025-12-15' });
+        const images = createTestAnnotatedImages(1);
+
+        // downloadPdfをスパイして呼び出されたファイル名を確認
+        const downloadSpy = vi.spyOn(service, 'downloadPdf');
+
+        await service.exportAndDownloadPdf(survey, images);
+
+        expect(downloadSpy).toHaveBeenCalledWith(expect.any(Blob), '現場調査報告書_20251215.pdf');
+      });
     });
 
     describe('ファイル名生成', () => {
-      it('generateDefaultFilename()がファイル名を生成する', async () => {
-        const { PdfExportService } = await import('../../../services/export/PdfExportService');
-        const service = new PdfExportService();
-        const survey = createTestSurveyDetail({ name: '現場調査A' });
-
-        const filename = service.generateDefaultFilename(survey);
-
-        expect(filename).toContain('現場調査A');
-        expect(filename).toContain('.pdf');
-      });
-
-      it('生成されたファイル名に調査日が含まれる', async () => {
+      it('generateDefaultFilename()が「現場調査報告書_YYYYMMDD.pdf」形式のファイル名を生成する', async () => {
         const { PdfExportService } = await import('../../../services/export/PdfExportService');
         const service = new PdfExportService();
         const survey = createTestSurveyDetail({ surveyDate: '2025-12-15' });
 
         const filename = service.generateDefaultFilename(survey);
 
-        expect(filename).toMatch(/2025-?12-?15|20251215/);
+        // 固定プレフィックス「現場調査報告書」を使用し、調査名は含まない
+        expect(filename).toBe('現場調査報告書_20251215.pdf');
       });
 
-      it('ファイル名の不正な文字が置換される', async () => {
+      it('生成されたファイル名に調査日がYYYYMMDD形式で含まれる', async () => {
         const { PdfExportService } = await import('../../../services/export/PdfExportService');
         const service = new PdfExportService();
-        const survey = createTestSurveyDetail({ name: '現場/調査:テスト' });
+        const survey = createTestSurveyDetail({ surveyDate: '2026-01-05' });
 
         const filename = service.generateDefaultFilename(survey);
 
-        // スラッシュやコロンが含まれない
-        expect(filename).not.toContain('/');
-        expect(filename).not.toContain(':');
+        expect(filename).toBe('現場調査報告書_20260105.pdf');
+      });
+
+      it('調査名に関係なく固定プレフィックス「現場調査報告書」が使用される', async () => {
+        const { PdfExportService } = await import('../../../services/export/PdfExportService');
+        const service = new PdfExportService();
+        const survey = createTestSurveyDetail({
+          name: '特殊な/調査:名前',
+          surveyDate: '2025-06-30',
+        });
+
+        const filename = service.generateDefaultFilename(survey);
+
+        // 調査名は使用されない、固定プレフィックスが使われる
+        expect(filename).toBe('現場調査報告書_20250630.pdf');
+        expect(filename).not.toContain('特殊');
+        expect(filename).not.toContain('調査:名前');
       });
     });
 

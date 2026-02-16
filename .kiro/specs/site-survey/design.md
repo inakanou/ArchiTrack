@@ -384,10 +384,11 @@ sequenceDiagram
 
     PdfReportService->>jsPDF: ページ番号追加
     jsPDF-->>SurveyDetailPage: PDF Blob
-    SurveyDetailPage-->>User: PDFダウンロード開始
+    SurveyDetailPage-->>User: PDFダウンロード開始（ファイル名: 現場調査報告書_YYYYMMDD.pdf）
 ```
 
 **Key Decisions**:
+- PDFダウンロード時のファイル名は「現場調査報告書_YYYYMMDD.pdf」形式とする（YYYYMMDDは調査日、要件11.9対応）
 - 報告書出力フラグ（includeInReport）がONの画像のみをPDFに含める
 - 1ページあたり3組の画像+コメントを配置
 - 画像は表示順序（displayOrder）の昇順で配置
@@ -1234,6 +1235,7 @@ interface IExportService {
 - Integration: 既存のPdfReportService/PdfExportServiceを拡張
 - Validation: 画像数が多い場合は処理中表示（20枚以上で数秒かかる）
 - Risks: フォントファイルサイズ（サブセット化で軽減、約500KB）
+- **PDFファイル名規則（要件11.9）**: `generateDefaultFilename()`は固定プレフィックス「現場調査報告書」と調査日（YYYYMMDD）を組み合わせたファイル名を生成する。呼び出し元（SiteSurveyDetailInfo.tsx）では`generateDefaultFilename()`を使用し、独自のファイル名生成を行わない。
 
 ##### PDF 1ページ3組レイアウト詳細（要件11.5対応）
 
