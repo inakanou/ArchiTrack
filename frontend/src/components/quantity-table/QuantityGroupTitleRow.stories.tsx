@@ -20,7 +20,11 @@ const meta = {
   tags: ['autodocs'],
   decorators: [
     (Story) => (
-      <div style={{ width: '1200px', border: '1px solid #e5e7eb', borderRadius: '4px' }}>
+      <div
+        role="grid"
+        aria-label="数量グループ"
+        style={{ width: '1200px', border: '1px solid #e5e7eb', borderRadius: '4px' }}
+      >
         <Story />
       </div>
     ),
