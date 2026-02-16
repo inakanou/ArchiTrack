@@ -3486,8 +3486,8 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 名称フィールドを取得（テキスト入力）
-      const nameField = page.getByRole('textbox', { name: /名称/ }).first();
+      // 名称フィールドを取得（AutocompleteInput = combobox）
+      const nameField = page.getByRole('combobox', { name: /名称/ }).first();
       await expect(nameField).toBeVisible({ timeout: getTimeout(5000) });
       const targetField = nameField;
 
@@ -3612,8 +3612,8 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 名称フィールドを取得（テキスト入力）
-      const targetField = page.getByRole('textbox', { name: /名称/ }).first();
+      // 名称フィールドを取得（AutocompleteInput = combobox）
+      const targetField = page.getByRole('combobox', { name: /名称/ }).first();
       await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
 
       // CSSのtext-alignを確認
@@ -3997,8 +3997,8 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 必須フィールドを入力する（各項目に名称、工種、単位を設定）
-      // 名称フィールドはtextbox、工種・単位はcomboboxとして実装されている
-      const nameInputs = page.getByRole('textbox', { name: /名称/ });
+      // 名称フィールドはAutocompleteInput（combobox）として実装されている
+      const nameInputs = page.getByRole('combobox', { name: /名称/ });
       const workTypeInputs = page.getByRole('combobox', { name: /工種/ });
       const unitInputs = page.getByRole('combobox', { name: /単位/ });
 
@@ -4191,22 +4191,20 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 新しい項目を追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-      if (await addItemButton.isVisible({ timeout: 3000 })) {
-        await addItemButton.click();
-        await page.waitForLoadState('networkidle');
-      }
+      // 計算方法を「面積・体積」に変更して丸め設定フィールドを表示させる
+      const calcMethodSelect = page.getByRole('combobox', { name: /計算方法/ }).first();
+      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+      await calcMethodSelect.selectOption('面積・体積');
+      await page.waitForTimeout(500);
 
       // 丸め設定を負の値に設定して不整合を発生させる
       const roundingInputs = page.getByLabel(/丸め/);
       const count = await roundingInputs.count();
-      if (count > 0) {
-        const lastInput = roundingInputs.nth(count - 1);
-        await lastInput.fill('-1');
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(500);
-      }
+      expect(count).toBeGreaterThan(0);
+      const lastInput = roundingInputs.nth(count - 1);
+      await lastInput.fill('-1');
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(500);
 
       // エラーメッセージまたはエラーフィールドが表示されることを確認
       const errorMessage = page.getByText(/エラー|不整合|0以下|警告|使用できません/i);
