@@ -102,7 +102,36 @@ test.describe('見積項目の階層移動API', () => {
           `${API_BASE_URL}/api/estimates/${createdEstimateId}/items`,
           {
             headers: { Authorization: `Bearer ${accessToken}` },
-            data: {},
+            data: {
+              parentId: null,
+              displayOrder: i,
+              lines: [
+                {
+                  lineType: 'ESTIMATE',
+                  name: `階層移動テスト項目${i + 1}`,
+                  specification: null,
+                  unit: '式',
+                  quantity: 1,
+                  unitPrice: 1000,
+                },
+                {
+                  lineType: 'EXECUTION',
+                  name: `階層移動テスト項目${i + 1}`,
+                  specification: null,
+                  unit: '式',
+                  quantity: 1,
+                  unitPrice: 1000,
+                },
+                {
+                  lineType: 'VENDOR',
+                  name: `階層移動テスト項目${i + 1}`,
+                  specification: null,
+                  unit: '式',
+                  quantity: 1,
+                  unitPrice: 1000,
+                },
+              ],
+            },
           }
         );
         expect(itemResponse.status()).toBe(201);
@@ -144,20 +173,18 @@ test.describe('見積項目の階層移動API', () => {
       const data = await response.json();
       expect(data.success).toBe(true);
 
-      // 移動後に見積書を取得して親子関係を確認
+      // 移動後に階層構造で取得して親子関係を確認
       const getResponse = await page.request.get(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}`,
+        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items`,
         {
           headers: { Authorization: `Bearer ${accessToken}` },
         }
       );
       expect(getResponse.status()).toBe(200);
 
-      const estimateData = await getResponse.json();
+      const items = await getResponse.json();
       // 移動した項目が親項目の子になっていることを確認
-      const parentItem = estimateData.items.find(
-        (item: { id: string }) => item.id === rootItemIds[0]
-      );
+      const parentItem = items.find((item: { id: string }) => item.id === rootItemIds[0]);
       expect(parentItem).toBeTruthy();
       const childIds = parentItem.children.map((c: { id: string }) => c.id);
       expect(childIds).toContain(rootItemIds[2]);
@@ -193,18 +220,18 @@ test.describe('見積項目の階層移動API', () => {
       const data = await response.json();
       expect(data.success).toBe(true);
 
-      // 移動後に確認
+      // 移動後に階層構造で確認
       const getResponse = await page.request.get(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}`,
+        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items`,
         {
           headers: { Authorization: `Bearer ${accessToken}` },
         }
       );
       expect(getResponse.status()).toBe(200);
 
-      const estimateData = await getResponse.json();
-      // ルートレベルの項目IDに含まれることを確認
-      const rootIds = estimateData.items.map((item: { id: string }) => item.id);
+      const items = await getResponse.json();
+      // ルートレベルの項目IDに含まれることを確認（items配列のトップレベルに存在する）
+      const rootIds = items.map((item: { id: string }) => item.id);
       expect(rootIds).toContain(rootItemIds[2]);
     });
   });
