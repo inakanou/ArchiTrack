@@ -105,6 +105,77 @@ export class PdfExportService {
     images: AnnotatedImageWithComment[],
     options: PdfExportOptions = {}
   ): Promise<Blob> {
+    const doc = await this.buildPdfDocument(survey, images, options);
+
+    // PDFをBlobとして出力
+    return doc.output('blob');
+  }
+
+  /**
+   * PDFをダウンロードする
+   *
+   * Blobからダウンロードリンクを作成し、ブラウザのダウンロード機能を起動する。
+   *
+   * @param blob PDF Blob
+   * @param filename ダウンロードファイル名（デフォルト: 'report.pdf'）
+   */
+  downloadPdf(blob: Blob, filename: string = 'report.pdf'): void {
+    // Object URLを作成
+    const objectUrl = URL.createObjectURL(blob);
+
+    // アンカー要素を作成
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    link.rel = 'noopener';
+
+    // ダウンロードをトリガー
+    document.body.appendChild(link);
+    link.click();
+
+    // Object URLの解放とDOM要素の削除を遅延実行
+    // ブラウザがダウンロードを開始する前にURLが無効化されることを防ぐ
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    }, 40000);
+  }
+
+  /**
+   * PDF報告書を生成してダウンロードする（一括実行）
+   *
+   * エクスポートとダウンロードを一括で実行する便利メソッド。
+   *
+   * @param survey 現場調査詳細
+   * @param images コメント付き注釈画像の配列
+   * @param options エクスポートオプション
+   */
+  async exportAndDownloadPdf(
+    survey: SiteSurveyDetail,
+    images: AnnotatedImageWithComment[],
+    options: PdfExportOptions = {}
+  ): Promise<void> {
+    const blob = await this.exportPdf(survey, images, options);
+    const filename = options.filename || this.generateDefaultFilename(survey);
+    this.downloadPdf(blob, filename);
+  }
+
+  /**
+   * jsPDFドキュメントを構築する（内部メソッド）
+   *
+   * PDF報告書のjsPDFインスタンスを作成・構築し、進捗を報告する。
+   * exportPdfとexportAndDownloadPdfの共通ロジック。
+   *
+   * @param survey 現場調査詳細
+   * @param images コメント付き注釈画像の配列
+   * @param options エクスポートオプション
+   * @returns 構築済みのjsPDFインスタンス
+   */
+  private async buildPdfDocument(
+    survey: SiteSurveyDetail,
+    images: AnnotatedImageWithComment[],
+    options: PdfExportOptions = {}
+  ): Promise<jsPDF> {
     // バリデーション
     if (!survey) {
       throw new Error('Survey detail is required');
@@ -166,9 +237,6 @@ export class PdfExportService {
       message: 'PDFを最終処理中...',
     });
 
-    // PDFをBlobとして出力
-    const blob = doc.output('blob');
-
     // フェーズ4: 完了
     this.reportProgress(onProgress, {
       phase: PDF_EXPORT_PHASES.COMPLETE,
@@ -178,52 +246,7 @@ export class PdfExportService {
       message: 'PDF生成完了',
     });
 
-    return blob;
-  }
-
-  /**
-   * PDFをダウンロードする
-   *
-   * Blobからダウンロードリンクを作成し、ブラウザのダウンロード機能を起動する。
-   *
-   * @param blob PDF Blob
-   * @param filename ダウンロードファイル名（デフォルト: 'report.pdf'）
-   */
-  downloadPdf(blob: Blob, filename: string = 'report.pdf'): void {
-    // Object URLを作成
-    const objectUrl = URL.createObjectURL(blob);
-
-    // アンカー要素を作成
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = filename;
-
-    // ダウンロードをトリガー
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    // Object URLを解放
-    URL.revokeObjectURL(objectUrl);
-  }
-
-  /**
-   * PDF報告書を生成してダウンロードする（一括実行）
-   *
-   * エクスポートとダウンロードを一括で実行する便利メソッド。
-   *
-   * @param survey 現場調査詳細
-   * @param images コメント付き注釈画像の配列
-   * @param options エクスポートオプション
-   */
-  async exportAndDownloadPdf(
-    survey: SiteSurveyDetail,
-    images: AnnotatedImageWithComment[],
-    options: PdfExportOptions = {}
-  ): Promise<void> {
-    const blob = await this.exportPdf(survey, images, options);
-    const filename = options.filename || this.generateDefaultFilename(survey);
-    this.downloadPdf(blob, filename);
+    return doc;
   }
 
   /**
@@ -242,7 +265,9 @@ export class PdfExportService {
     const prefix = '現場調査報告書';
 
     // 調査日をYYYYMMDD形式にフォーマット
-    const dateStr = survey.surveyDate.replace(/-/g, '');
+    // surveyDateがISO8601形式（例: 2026-02-16T00:00:00.000Z）の場合は日付部分のみ抽出
+    const dateOnly = survey.surveyDate.split('T')[0] || survey.surveyDate;
+    const dateStr = dateOnly.replace(/-/g, '');
 
     return `${prefix}_${dateStr}.pdf`;
   }
