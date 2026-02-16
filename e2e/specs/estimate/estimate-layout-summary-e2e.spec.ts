@@ -213,8 +213,8 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
         timeout: getTimeout(5000),
       });
 
-      // 項目追加ボタンをクリック
-      const addButton = page.getByRole('button', { name: /項目追加/i });
+      // 項目追加ボタンをクリック（「子項目追加」ボタンと区別するためexact指定）
+      const addButton = page.getByRole('button', { name: '+ 項目追加' });
       if (await addButton.isVisible()) {
         await addButton.click();
 
