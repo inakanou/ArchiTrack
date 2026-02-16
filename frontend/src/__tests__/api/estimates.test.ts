@@ -25,6 +25,7 @@ import {
   transferFromQuotation,
   exportEstimate,
   downloadEstimate,
+  moveEstimateItem,
 } from '../../api/estimates';
 import type {
   EstimatesResponse,
@@ -783,6 +784,45 @@ describe('estimates API client', () => {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(0);
         expect((error as ApiError).message).toBe('Request timeout');
+      }
+    });
+  });
+
+  // ============================================================================
+  // 階層移動API (Task 27.2, REQ-24)
+  // ============================================================================
+
+  describe('moveEstimateItem', () => {
+    it('項目を別の親に移動できること', async () => {
+      vi.mocked(apiClient.patch).mockResolvedValueOnce({ success: true });
+
+      await moveEstimateItem('est-1', 'item-1', 'parent-1');
+
+      expect(apiClient.patch).toHaveBeenCalledWith('/api/estimates/est-1/items/item-1/move', {
+        newParentId: 'parent-1',
+      });
+    });
+
+    it('項目をルートレベルに移動できること（parentId: null）', async () => {
+      vi.mocked(apiClient.patch).mockResolvedValueOnce({ success: true });
+
+      await moveEstimateItem('est-1', 'item-1', null);
+
+      expect(apiClient.patch).toHaveBeenCalledWith('/api/estimates/est-1/items/item-1/move', {
+        newParentId: null,
+      });
+    });
+
+    it('APIエラーの場合エラーがスローされること', async () => {
+      const mockError = new ApiError(400, '循環参照が発生するため移動できません');
+      vi.mocked(apiClient.patch).mockRejectedValueOnce(mockError);
+
+      try {
+        await moveEstimateItem('est-1', 'item-1', 'parent-1');
+        expect.fail('エラーがスローされるべきです');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).statusCode).toBe(400);
       }
     });
   });

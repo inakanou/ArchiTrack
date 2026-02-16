@@ -190,6 +190,8 @@ import {
   EstimateConflictError,
   DuplicateEstimateNameError,
   EstimateItemHasChildrenError,
+  EstimateItemNotFoundError,
+  EstimateItemCircularReferenceError,
 } from '../../../errors/estimateError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 import { ValidationError } from '../../../errors/apiError.js';
@@ -871,6 +873,80 @@ describe('estimates.routes', () => {
       });
 
       expect(response.status).toBe(201);
+    });
+  });
+
+  // ==========================================
+  // 階層移動API (Task 27.1, REQ-24)
+  // ==========================================
+
+  describe('PATCH /api/estimates/:id/items/:itemId/move', () => {
+    const newParentId = '550e8400-e29b-41d4-a716-446655440010';
+
+    it('項目を別の親に移動できること', async () => {
+      mockMoveItem.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+        .send({ newParentId });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true });
+      expect(mockMoveItem).toHaveBeenCalledWith(estimateItemId, newParentId);
+    });
+
+    it('項目をルートレベルに移動できること（newParentId: null）', async () => {
+      mockMoveItem.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+        .send({ newParentId: null });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true });
+      expect(mockMoveItem).toHaveBeenCalledWith(estimateItemId, null);
+    });
+
+    it('循環参照が発生する場合400を返すこと', async () => {
+      mockMoveItem.mockRejectedValue(
+        new EstimateItemCircularReferenceError(estimateItemId, newParentId)
+      );
+
+      const response = await request(app)
+        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+        .send({ newParentId });
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe('ESTIMATE_ITEM_CIRCULAR_REFERENCE');
+    });
+
+    it('存在しない項目の場合404を返すこと', async () => {
+      mockMoveItem.mockRejectedValue(new EstimateItemNotFoundError(estimateItemId));
+
+      const response = await request(app)
+        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+        .send({ newParentId });
+
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('ESTIMATE_ITEM_NOT_FOUND');
+    });
+
+    it('不正なリクエストボディの場合400を返すこと', async () => {
+      const response = await request(app)
+        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+        .send({ newParentId: 'not-a-uuid' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('estimate:update権限が必要であること', async () => {
+      mockMoveItem.mockResolvedValue(undefined);
+
+      await request(app)
+        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+        .send({ newParentId: null });
+
+      expect(mockRequirePermission).toHaveBeenCalledWith('estimate:update');
     });
   });
 });
