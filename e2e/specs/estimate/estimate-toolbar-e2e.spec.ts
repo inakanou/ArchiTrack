@@ -185,9 +185,11 @@ test.describe('見積項目操作ツールバー', () => {
       await page.getByRole('button', { name: /^\+\s*項目追加$/ }).click();
 
       // 見積項目テーブルに行が追加されたことを確認（3行1セット: 見積/実行/業者）
-      await expect(page.getByText('見積')).toBeVisible({ timeout: getTimeout(5000) });
-      await expect(page.getByText('実行')).toBeVisible();
-      await expect(page.getByText('業者')).toBeVisible();
+      await expect(page.locator('[data-testid="line-type-ESTIMATE"]').first()).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(page.locator('[data-testid="line-type-EXECUTION"]').first()).toBeVisible();
+      await expect(page.locator('[data-testid="line-type-VENDOR"]').first()).toBeVisible();
     });
   });
 });
