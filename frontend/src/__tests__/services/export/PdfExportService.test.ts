@@ -289,6 +289,7 @@ describe('PdfExportService', () => {
 
     describe('ダウンロードトリガー', () => {
       it('downloadPdf()がダウンロードを実行する', async () => {
+        vi.useFakeTimers();
         const { PdfExportService } = await import('../../../services/export/PdfExportService');
         const service = new PdfExportService();
         const survey = createTestSurveyDetail();
@@ -299,8 +300,10 @@ describe('PdfExportService', () => {
 
         // URL.createObjectURLが呼ばれる
         expect(URL.createObjectURL).toHaveBeenCalled();
-        // URL.revokeObjectURLが呼ばれる
+        // URL.revokeObjectURLはsetTimeout内で呼ばれるためタイマーを進める
+        vi.advanceTimersByTime(40000);
         expect(URL.revokeObjectURL).toHaveBeenCalled();
+        vi.useRealTimers();
       });
 
       it('downloadPdf()がデフォルトのファイル名を使用する', async () => {
@@ -315,6 +318,7 @@ describe('PdfExportService', () => {
       });
 
       it('exportAndDownloadPdf()が生成からダウンロードまで一括実行する', async () => {
+        vi.useFakeTimers();
         const { PdfExportService } = await import('../../../services/export/PdfExportService');
         const service = new PdfExportService();
         const survey = createTestSurveyDetail();
@@ -324,7 +328,10 @@ describe('PdfExportService', () => {
 
         // URL操作が実行される
         expect(URL.createObjectURL).toHaveBeenCalled();
+        // URL.revokeObjectURLはsetTimeout内で呼ばれるためタイマーを進める
+        vi.advanceTimersByTime(40000);
         expect(URL.revokeObjectURL).toHaveBeenCalled();
+        vi.useRealTimers();
       });
 
       it('exportAndDownloadPdf()がカスタムファイル名を使用する', async () => {

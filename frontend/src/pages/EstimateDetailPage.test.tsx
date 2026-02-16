@@ -220,7 +220,8 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /削除/i })).toBeInTheDocument();
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      expect(deleteButtons.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -277,11 +278,14 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /削除/i })).toBeInTheDocument();
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      expect(deleteButtons.length).toBeGreaterThanOrEqual(1);
     });
 
-    const deleteButton = screen.getByRole('button', { name: /削除/i });
-    await user.click(deleteButton);
+    // ヘッダーの削除ボタン（有効なもの）を取得
+    const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+    const headerDeleteButton = deleteButtons.find((btn) => !(btn as HTMLButtonElement).disabled)!;
+    await user.click(headerDeleteButton);
 
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -304,11 +308,13 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /削除/i })).toBeInTheDocument();
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      expect(deleteButtons.length).toBeGreaterThanOrEqual(1);
     });
 
-    const deleteButton = screen.getByRole('button', { name: /削除/i });
-    await user.click(deleteButton);
+    const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+    const headerDeleteButton = deleteButtons.find((btn) => !(btn as HTMLButtonElement).disabled)!;
+    await user.click(headerDeleteButton);
 
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -338,19 +344,21 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /削除/i })).toBeInTheDocument();
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+      expect(deleteButtons.length).toBeGreaterThanOrEqual(1);
     });
 
-    const deleteButton = screen.getByRole('button', { name: /削除/i });
-    await user.click(deleteButton);
+    const deleteButtons = screen.getAllByRole('button', { name: /削除/i });
+    const headerDeleteButton = deleteButtons.find((btn) => !(btn as HTMLButtonElement).disabled)!;
+    await user.click(headerDeleteButton);
 
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
     // ダイアログ内の削除ボタンを取得（複数ある場合は最後の要素）
-    const deleteButtons = screen.getAllByRole('button', { name: /^削除$/ });
-    const confirmButton = deleteButtons[deleteButtons.length - 1]!;
+    const dialogDeleteButtons = screen.getAllByRole('button', { name: /^削除$/ });
+    const confirmButton = dialogDeleteButtons[dialogDeleteButtons.length - 1]!;
     await user.click(confirmButton);
 
     await waitFor(() => {

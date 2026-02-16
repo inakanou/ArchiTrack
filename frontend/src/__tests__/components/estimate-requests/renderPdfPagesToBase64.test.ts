@@ -69,7 +69,7 @@ describe('renderPdfPagesToBase64', () => {
       width: 0,
       height: 0,
       getContext: vi.fn().mockReturnValue(mockContext),
-      toDataURL: vi.fn().mockReturnValue('data:image/png;base64,dGVzdEJhc2U2NA=='),
+      toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,dGVzdEJhc2U2NA=='),
     };
 
     // Mock document.createElement
@@ -100,26 +100,26 @@ describe('renderPdfPagesToBase64', () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({
       base64Data: 'dGVzdEJhc2U2NA==', // prefix stripped
-      mediaType: 'image/png',
+      mediaType: 'image/jpeg',
     } satisfies ClaudeVisionImageInput);
   });
 
-  it('should strip data:image/png;base64, prefix from Base64 data', async () => {
-    mockCanvas.toDataURL.mockReturnValue('data:image/png;base64,AAABBBCCC');
+  it('should strip data:image/jpeg;base64, prefix from Base64 data', async () => {
+    mockCanvas.toDataURL.mockReturnValue('data:image/jpeg;base64,AAABBBCCC');
 
     const file = createMockFile('test.pdf');
     const result = await renderPdfPagesToBase64(file);
 
     expect(result[0]!.base64Data).toBe('AAABBBCCC');
-    expect(result[0]!.base64Data).not.toContain('data:image/png;base64,');
+    expect(result[0]!.base64Data).not.toContain('data:image/jpeg;base64,');
   });
 
-  it('should use CANVAS_RENDER_SCALE = 4.0 for viewport', async () => {
+  it('should use CLAUDE_VISION_RENDER_SCALE = 2.0 for viewport', async () => {
     const file = createMockFile('test.pdf');
 
     await renderPdfPagesToBase64(file);
 
-    expect(mockGetViewport).toHaveBeenCalledWith({ scale: 4.0 });
+    expect(mockGetViewport).toHaveBeenCalledWith({ scale: 2.0 });
   });
 
   it('should render all pages for a multi-page PDF', async () => {
@@ -165,11 +165,11 @@ describe('renderPdfPagesToBase64', () => {
     expect(mockCanvas.width).toBe(0); // Released after rendering (set to 0 for memory cleanup)
   });
 
-  it('should call canvas.toDataURL with image/png', async () => {
+  it('should call canvas.toDataURL with image/jpeg and quality 0.85', async () => {
     const file = createMockFile('test.pdf');
     await renderPdfPagesToBase64(file);
 
-    expect(mockCanvas.toDataURL).toHaveBeenCalledWith('image/png');
+    expect(mockCanvas.toDataURL).toHaveBeenCalledWith('image/jpeg', 0.85);
   });
 
   it('should throw error when Canvas 2D context is not available', async () => {
