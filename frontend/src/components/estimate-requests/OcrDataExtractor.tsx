@@ -30,8 +30,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
 import * as XLSX from 'xlsx';
 import type { LineItemFormData } from './LineItemEditor';
-import { extractPdfHybrid } from './pdf-text-extractor';
+import { extractPdfHybrid, renderPdfPagesToBase64 } from './pdf-text-extractor';
 import { formatQuantity, formatUnitPrice, calculateFormattedAmount } from './number-format';
+import {
+  extractWithClaudeVision,
+  ClaudeVisionApiError,
+  isClaudeVisionApiError,
+} from '../../api/claude-vision';
+import type { ClaudeVisionImageInput, ClaudeVisionLineItem } from '../../api/claude-vision';
 
 // ============================================================================
 // 型定義
@@ -264,16 +270,103 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
   return lineItems;
 }
 
+// ============================================================================
+// Task 45: OCRテキスト→構造化データ変換ロジック改善
+// Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6
+// ============================================================================
+
+/**
+ * ゴミ行フィルタ
+ *
+ * 以下の条件に該当する行を除外する:
+ * - 漢字・ひらがな・カタカナ・英数字のいずれも含まない行（20.1）
+ * - 空白を除いた文字数が2文字以下の行（20.2）
+ *
+ * Task 45.1, Requirements 20.1, 20.2
+ *
+ * @param lines - フィルタ対象の行配列
+ * @returns フィルタ後の行配列
+ */
+export function filterGarbageLines(lines: string[]): string[] {
+  // 漢字・ひらがな・カタカナ・英数字のいずれかを含むパターン
+  const hasValidChars = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]/;
+
+  return lines.filter((line) => {
+    // 20.1: 漢字・ひらがな・カタカナ・英数字のいずれも含まない行を除外
+    if (!hasValidChars.test(line)) return false;
+
+    // 20.2: 空白を除いた文字数が2文字以下の行を除外
+    const trimmedLength = line.replace(/\s/g, '').length;
+    if (trimmedLength <= 2) return false;
+
+    return true;
+  });
+}
+
+/**
+ * 集計行除外フィルタ
+ *
+ * 以下のキーワードを含む行を除外する:
+ * 合計、小計、直接工事費、諸経費、一般管理費、値引き、消費税
+ *
+ * Task 45.2, Requirement 20.3
+ *
+ * @param lines - フィルタ対象の行配列
+ * @returns フィルタ後の行配列
+ */
+export function filterSummaryLines(lines: string[]): string[] {
+  const summaryKeywords = [
+    '合計',
+    '小計',
+    '直接工事費',
+    '諸経費',
+    '一般管理費',
+    '値引き',
+    '消費税',
+  ];
+
+  return lines.filter((line) => {
+    return !summaryKeywords.some((keyword) => line.includes(keyword));
+  });
+}
+
+/**
+ * カンマ区切り数値の正規化
+ *
+ * カンマ区切り数値パターン（例: 1,234,567）のカンマを除去して数値として認識可能にする。
+ *
+ * Task 45.3, Requirement 20.4
+ *
+ * @param text - 正規化対象のテキスト
+ * @returns カンマ除去後のテキスト
+ */
+export function normalizeCommaNumbers(text: string): string {
+  // カンマ区切り数値パターン（\d{1,3}(,\d{3})+）のカンマを除去
+  return text.replace(/(\d{1,3}(,\d{3})+)/g, (match) => match.replace(/,/g, ''));
+}
+
 /**
  * OCRテキストから構造化データに変換する
  *
  * パターンマッチングにより名称・規格・単位・数量・単価を推定
+ * Task 45: ゴミ行フィルタ、集計行除外、カンマ区切り数値正規化を追加
  *
  * @param text - OCR抽出テキスト
  * @returns 変換された明細行データ
  */
-function convertOcrTextToLineItems(text: string): LineItemFormData[] {
-  const lines = text.split('\n').filter((line) => line.trim());
+export function convertOcrTextToLineItems(text: string): LineItemFormData[] {
+  let lines = text.split('\n').filter((line) => line.trim());
+  if (lines.length === 0) return [];
+
+  // Task 45.1: ゴミ行フィルタ（20.1, 20.2）- 行分割直後に適用（20.5）
+  lines = filterGarbageLines(lines);
+
+  // Task 45.2: 集計行除外（20.3）
+  lines = filterSummaryLines(lines);
+
+  // Task 45.3: カンマ区切り数値の正規化（20.4）
+  lines = lines.map((line) => normalizeCommaNumbers(line));
+
   if (lines.length === 0) return [];
 
   // タブ区切りまたは複数スペース区切りで列分割を試みる
@@ -485,6 +578,27 @@ const styles = {
     color: '#6b7280',
     textAlign: 'center' as const,
   },
+  claudeVisionInfoBanner: {
+    padding: '8px 16px',
+    backgroundColor: '#eff6ff', // bg-blue-50
+    borderTop: '1px solid #bfdbfe', // border-blue-200
+    fontSize: '13px',
+    color: '#1e40af', // text-blue-800
+  },
+  fallbackWarningBanner: {
+    padding: '8px 16px',
+    backgroundColor: '#fefce8', // bg-yellow-50
+    borderTop: '1px solid #fde68a', // border-yellow-200
+    fontSize: '13px',
+    color: '#92400e', // text-yellow-800
+  },
+  bothFailedErrorBanner: {
+    padding: '8px 16px',
+    backgroundColor: '#fef2f2', // bg-red-50
+    borderTop: '1px solid #fecaca', // border-red-200
+    fontSize: '13px',
+    color: '#991b1b', // text-red-800
+  },
   actionButtonContainer: {
     padding: '16px',
     display: 'flex',
@@ -561,6 +675,11 @@ export function OcrDataExtractor({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [importCompleted, setImportCompleted] = useState(false);
 
+  // Claude Vision対応の追加状態
+  const [usedClaudeVision, setUsedClaudeVision] = useState(false);
+  const [fallbackActivated, setFallbackActivated] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState<string | null>(null);
+
   // ワーカーとタイムアウト管理用のref
   const workerRef = useRef<{
     recognize: (image: File) => Promise<{ data: { text: string } }>;
@@ -592,6 +711,95 @@ export function OcrDataExtractor({
   }, []);
 
   // --------------------------------------------------------------------------
+  // Claude Vision結果をLineItemFormData[]に変換するヘルパー（24.8）
+  // --------------------------------------------------------------------------
+
+  const convertClaudeVisionToLineItems = useCallback(
+    (lineItems: ClaudeVisionLineItem[]): LineItemFormData[] => {
+      return lineItems.map((item) => {
+        const quantityStr = item.quantity != null ? String(item.quantity) : '';
+        // 単価がnullかつ金額が存在する場合、金額を単価として採用する
+        const effectiveUnitPrice = item.unitPrice != null ? item.unitPrice : item.amount;
+        const unitPriceStr = effectiveUnitPrice != null ? String(effectiveUnitPrice) : '';
+
+        // 数値フォーマット適用（18.1-18.6）
+        const formattedQuantity = formatQuantity(quantityStr);
+        const formattedUnitPrice = formatUnitPrice(unitPriceStr);
+        const formattedAmount = calculateFormattedAmount(formattedQuantity, formattedUnitPrice);
+
+        return {
+          id: generateId(),
+          customCategory: item.customCategory ?? '',
+          workType: item.workType ?? '',
+          name: item.name,
+          specification: item.specification ?? '',
+          unit: item.unit ?? '',
+          quantity: formattedQuantity,
+          unitPrice: formattedUnitPrice,
+          amount: formattedAmount,
+          remarks: item.remarks ?? '',
+        };
+      });
+    },
+    []
+  );
+
+  // --------------------------------------------------------------------------
+  // Claude Vision抽出の共通処理（PDF/画像共用）
+  // --------------------------------------------------------------------------
+
+  const processClaudeVision = useCallback(
+    async (images: ClaudeVisionImageInput[]): Promise<boolean> => {
+      try {
+        const result = await extractWithClaudeVision(images);
+        const items = convertClaudeVisionToLineItems(result.lineItems);
+
+        // 結果をJSON形式で整形表示
+        setExtractedText(JSON.stringify(result.lineItems, null, 2));
+        setParsedLineItems(items);
+        setUsedClaudeVision(true);
+        setProgress(100);
+        setStatus('completed');
+        return true;
+      } catch (error) {
+        // shouldFallbackがtrueの場合（全エラー共通）
+        if (isClaudeVisionApiError(error) && (error as ClaudeVisionApiError).shouldFallback) {
+          setFallbackActivated(true);
+          setFallbackReason((error as ClaudeVisionApiError).message);
+          return false;
+        }
+        // その他のエラーもフォールバック
+        setFallbackActivated(true);
+        setFallbackReason(error instanceof Error ? error.message : '不明なエラー');
+        return false;
+      }
+    },
+    [convertClaudeVisionToLineItems]
+  );
+
+  // --------------------------------------------------------------------------
+  // 画像ファイルをBase64に変換するヘルパー（54.3）
+  // --------------------------------------------------------------------------
+
+  const readImageFileAsBase64 = useCallback(
+    async (imageFile: File): Promise<ClaudeVisionImageInput[]> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          // data:image/jpeg;base64, プレフィックスを除去
+          const base64Data = dataUrl.replace(/^data:[^;]+;base64,/, '');
+          const mediaType = imageFile.type as ClaudeVisionImageInput['mediaType'];
+          resolve([{ base64Data, mediaType }]);
+        };
+        reader.onerror = () => reject(new Error('画像ファイルの読み込みに失敗しました'));
+        reader.readAsDataURL(imageFile);
+      });
+    },
+    []
+  );
+
+  // --------------------------------------------------------------------------
   // PDFテキスト抽出（pdfjs-distハイブリッドアプローチ）
   // Requirements: 17.1, 17.2, 17.3, 17.4, 17.8
   // --------------------------------------------------------------------------
@@ -604,8 +812,26 @@ export function OcrDataExtractor({
       setParsedLineItems(null);
       setErrorMessage(null);
       setImportCompleted(false);
+      setUsedClaudeVision(false);
+      setFallbackActivated(false);
+      setFallbackReason(null);
       abortedRef.current = false;
 
+      // ---- Claude Vision抽出を優先的に試行（24.2）----
+      try {
+        const images = await renderPdfPagesToBase64(targetFile);
+        setProgress(30);
+
+        const success = await processClaudeVision(images);
+        if (success) return; // Claude Vision成功 → 終了
+        // processClaudeVisionがfalseの場合 → フォールバック
+      } catch {
+        // renderPdfPagesToBase64のエラーもフォールバックに進む
+        setFallbackActivated(true);
+        setFallbackReason('PDFページのBase64変換に失敗しました');
+      }
+
+      // ---- Tesseract.jsフォールバック（25.1-25.6）----
       try {
         // タイムアウト設定（30秒）
         const timeoutPromise = new Promise<never>((_, reject) => {
@@ -652,12 +878,12 @@ export function OcrDataExtractor({
           await cleanup();
           return;
         }
-        const message = err instanceof Error ? err.message : 'PDFテキスト抽出に失敗しました';
-        setErrorMessage(message);
+        // 両方失敗（25.7）
+        setErrorMessage('OCR処理に失敗しました。手動入力してください');
         setStatus('error');
       }
     },
-    [cleanup]
+    [cleanup, processClaudeVision]
   );
 
   // --------------------------------------------------------------------------
@@ -672,8 +898,25 @@ export function OcrDataExtractor({
       setParsedLineItems(null);
       setErrorMessage(null);
       setImportCompleted(false);
+      setUsedClaudeVision(false);
+      setFallbackActivated(false);
+      setFallbackReason(null);
       abortedRef.current = false;
 
+      // ---- Claude Vision抽出を優先的に試行（24.2, 54.3）----
+      try {
+        const images = await readImageFileAsBase64(targetFile);
+        setProgress(30);
+
+        const success = await processClaudeVision(images);
+        if (success) return; // Claude Vision成功 → 終了
+      } catch {
+        // FileReader変換エラーもフォールバックに進む
+        setFallbackActivated(true);
+        setFallbackReason('画像ファイルのBase64変換に失敗しました');
+      }
+
+      // ---- Tesseract.jsフォールバック（25.1-25.6）----
       try {
         // ワーカー初期化（プリフェッチ）
         setProgress(20);
@@ -731,15 +974,15 @@ export function OcrDataExtractor({
           await cleanup();
           return;
         }
-        const message = err instanceof Error ? err.message : 'OCR処理に失敗しました';
-        setErrorMessage(message);
+        // 両方失敗（25.7）
+        setErrorMessage('OCR処理に失敗しました。手動入力してください');
         setStatus('error');
 
         // エラー時もワーカーを終了してメモリを解放
         await cleanup();
       }
     },
-    [cleanup]
+    [cleanup, processClaudeVision, readImageFileAsBase64]
   );
 
   // --------------------------------------------------------------------------
@@ -989,16 +1232,33 @@ export function OcrDataExtractor({
           <span style={styles.progressText}>
             {fileCategory === 'excel'
               ? 'Excelデータを解析中...'
-              : fileCategory === 'pdf'
-                ? progress < 25
-                  ? 'PDFテキスト抽出中...'
-                  : progress < 90
-                    ? 'PDF処理中...'
-                    : 'テキスト解析中...'
-                : progress < 30
-                  ? 'OCR準備中...'
-                  : 'OCR処理中...'}
+              : !fallbackActivated && progress <= 30
+                ? 'Claude Vision APIで解析中...'
+                : fileCategory === 'pdf'
+                  ? progress < 50
+                    ? 'PDFテキスト抽出中...'
+                    : progress < 90
+                      ? 'PDF処理中...'
+                      : 'テキスト解析中...'
+                  : progress < 50
+                    ? 'OCR準備中...'
+                    : 'OCR処理中...'}
           </span>
+        </div>
+      )}
+
+      {/* Claude Vision成功バナー（24.5） */}
+      {status === 'completed' && usedClaudeVision && !fallbackActivated && (
+        <div style={styles.claudeVisionInfoBanner} data-testid="claude-vision-info-banner">
+          Claude Vision APIで抽出しました
+        </div>
+      )}
+
+      {/* Tesseract.jsフォールバック警告バナー（25.4） */}
+      {fallbackActivated && status === 'completed' && (
+        <div style={styles.fallbackWarningBanner} data-testid="fallback-warning-banner">
+          Claude Vision APIが利用できないため、従来のOCR処理で実行しています
+          {fallbackReason && `（理由: ${fallbackReason}）`}
         </div>
       )}
 

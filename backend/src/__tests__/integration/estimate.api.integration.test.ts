@@ -1199,6 +1199,132 @@ describe('Estimate API Integration Tests', () => {
         expect(response.status).toBe(204);
       });
     });
+
+    // ========================================
+    // Task 28.2: 階層移動API統合テスト (REQ-24)
+    // ========================================
+    describe('見積項目階層移動 PATCH /api/estimates/:id/items/:itemId/move', () => {
+      let moveTestEstimateId: string;
+      let rootItem1Id: string;
+      let rootItem2Id: string;
+      let childItemId: string;
+
+      beforeAll(async () => {
+        // テスト用見積書を作成
+        const estResponse = await request(app)
+          .post(`/api/projects/${testProjectId}/estimates`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ name: '階層移動テスト用見積書' });
+        moveTestEstimateId = estResponse.body.id;
+
+        // ルート項目1を作成
+        const item1Response = await request(app)
+          .post(`/api/estimates/${moveTestEstimateId}/items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            displayOrder: 0,
+            lines: [
+              { lineType: 'ESTIMATE', name: 'ルート項目1' },
+              { lineType: 'EXECUTION', name: 'ルート項目1' },
+              { lineType: 'VENDOR', name: 'ルート項目1' },
+            ],
+          });
+        rootItem1Id = item1Response.body.id;
+
+        // ルート項目2を作成
+        const item2Response = await request(app)
+          .post(`/api/estimates/${moveTestEstimateId}/items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            displayOrder: 1,
+            lines: [
+              { lineType: 'ESTIMATE', name: 'ルート項目2' },
+              { lineType: 'EXECUTION', name: 'ルート項目2' },
+              { lineType: 'VENDOR', name: 'ルート項目2' },
+            ],
+          });
+        rootItem2Id = item2Response.body.id;
+
+        // ルート項目1の子項目を作成
+        const childResponse = await request(app)
+          .post(`/api/estimates/${moveTestEstimateId}/items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            parentId: rootItem1Id,
+            displayOrder: 0,
+            lines: [
+              { lineType: 'ESTIMATE', name: '子項目' },
+              { lineType: 'EXECUTION', name: '子項目' },
+              { lineType: 'VENDOR', name: '子項目' },
+            ],
+          });
+        childItemId = childResponse.body.id;
+      });
+
+      it('子項目をルートレベルに移動できる (Req 24.1, 24.2)', async () => {
+        const response = await request(app)
+          .patch(`/api/estimates/${moveTestEstimateId}/items/${childItemId}/move`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ newParentId: null });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty('success', true);
+
+        // 移動後の状態を確認
+        const detailResponse = await request(app)
+          .get(`/api/estimates/${moveTestEstimateId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(detailResponse.status).toBe(200);
+        const rootItems = detailResponse.body.items;
+        const movedItem = rootItems.find((item: { id: string }) => item.id === childItemId);
+        expect(movedItem).toBeDefined();
+        expect(movedItem.parentId).toBeNull();
+      });
+
+      it('ルート項目を別の項目の子に移動できる (Req 24.1, 24.3)', async () => {
+        // childItemIdは前のテストでルートに移動済みなので、rootItem2Idの子に移動
+        const response = await request(app)
+          .patch(`/api/estimates/${moveTestEstimateId}/items/${childItemId}/move`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ newParentId: rootItem2Id });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty('success', true);
+      });
+
+      it('循環参照が発生する移動は400エラーとなる (Req 24.4)', async () => {
+        // rootItem2Idの子がchildItemId -> rootItem2IdをchildItemIdの子にしようとすると循環参照
+        const response = await request(app)
+          .patch(`/api/estimates/${moveTestEstimateId}/items/${rootItem2Id}/move`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ newParentId: childItemId });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toHaveProperty('code', 'ESTIMATE_ITEM_CIRCULAR_REFERENCE');
+      });
+
+      it('存在しない項目の移動は404エラーとなる (Req 24.5)', async () => {
+        const response = await request(app)
+          .patch(
+            `/api/estimates/${moveTestEstimateId}/items/12345678-1234-4234-a234-123456789012/move`
+          )
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ newParentId: null });
+
+        expect(response.status).toBe(404);
+        expect(response.body).toHaveProperty('code', 'ESTIMATE_ITEM_NOT_FOUND');
+      });
+
+      it('不正なリクエストボディは400エラーとなる', async () => {
+        const response = await request(app)
+          .patch(`/api/estimates/${moveTestEstimateId}/items/${rootItem1Id}/move`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ newParentId: 'invalid-uuid' });
+
+        expect(response.status).toBe(400);
+      });
+    });
   });
 
   // ==========================================

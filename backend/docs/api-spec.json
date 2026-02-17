@@ -3908,6 +3908,80 @@
         }
       }
     },
+    "/api/estimates/{id}/items/{itemId}/move": {
+      "patch": {
+        "summary": "見積項目の階層移動",
+        "description": "見積項目の親子関係を変更（階層移動）",
+        "tags": [
+          "Estimate Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "見積書ID"
+          },
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "移動する見積項目ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newParentId"
+                ],
+                "properties": {
+                  "newParentId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true,
+                    "description": "新しい親項目ID（nullでルートレベルに移動）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "移動成功"
+          },
+          "400": {
+            "description": "バリデーションエラーまたは循環参照"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積項目が見つからない"
+          }
+        }
+      }
+    },
     "/api/estimates/{id}/transfer-quotation": {
       "post": {
         "summary": "受領見積書転記",

@@ -321,9 +321,9 @@ export default function SiteSurveyDetailInfo({
       }));
 
       // PdfExportServiceを使用してPDFを生成・ダウンロード
-      const fileName = `site-survey-${survey.id}-${new Date().toISOString().split('T')[0]}.pdf`;
+      // ファイル名はPdfExportService.generateDefaultFilename()のデフォルト（現場調査報告書_YYYYMMDD.pdf）を使用
+      // Requirements: 11.9
       await exportAndDownloadPdf(survey, annotatedImages, {
-        filename: fileName,
         onProgress: (progress) => {
           setPdfProgress(progress);
         },
