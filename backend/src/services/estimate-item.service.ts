@@ -481,7 +481,10 @@ export class EstimateItemService {
           throw new EstimateItemNotBelongToEstimateError(newParentId, item.estimateId);
         }
 
-        // 3. 循環参照チェック（newParentがitemの子孫でないことを確認）
+        // 3. 循環参照チェック（自分自身またはitemの子孫でないことを確認）
+        if (newParentId === itemId) {
+          throw new EstimateItemCircularReferenceError(itemId, newParentId);
+        }
         const descendants = await this.getDescendantIds(tx, itemId);
         if (descendants.includes(newParentId)) {
           throw new EstimateItemCircularReferenceError(itemId, newParentId);

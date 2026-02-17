@@ -32,9 +32,13 @@ import { EstimateItemService } from '../../../services/estimate-item.service.js'
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import {
   EstimateNotFoundError,
+  EstimateItemNotFoundError,
   EstimateItemHasChildrenError,
+  EstimateItemNotBelongToEstimateError,
   EstimateItemCircularReferenceError,
+  ReceivedQuotationLineItemNotFoundError,
 } from '../../../errors/estimateError.js';
+import { ReceivedQuotationNotFoundError } from '../../../errors/receivedQuotationError.js';
 
 // PrismaClientモック
 const createMockPrisma = () => {
@@ -222,6 +226,60 @@ describe('EstimateItemService', () => {
       await expect(service.createItem(estimateId, input)).rejects.toThrow(EstimateNotFoundError);
     });
 
+    it('親項目が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      const estimateId = 'est-001';
+      const input = {
+        parentId: 'ei-nonexistent',
+        displayOrder: 0,
+        lines: [],
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.createItem(estimateId, input)).rejects.toThrow(
+        EstimateItemNotFoundError
+      );
+    });
+
+    it('親項目が別の見積書に属する場合、エラーを発生させる', async () => {
+      // Arrange
+      const estimateId = 'est-001';
+      const input = {
+        parentId: 'ei-other',
+        displayOrder: 0,
+        lines: [],
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'ei-other', estimateId: 'est-999' }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.createItem(estimateId, input)).rejects.toThrow(
+        EstimateItemNotBelongToEstimateError
+      );
+    });
+
     it('親項目を指定して子項目として作成する（Requirements: REQ-2.1, REQ-2.4）', async () => {
       // Arrange
       const estimateId = 'est-001';
@@ -343,6 +401,21 @@ describe('EstimateItemService', () => {
       await expect(service.deleteItem(itemId)).resolves.not.toThrow();
     });
 
+    it('見積項目が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.deleteItem('ei-nonexistent')).rejects.toThrow(EstimateItemNotFoundError);
+    });
+
     it('子項目がある場合、強制削除フラグなしでエラーを発生させる（Requirements: REQ-12.4）', async () => {
       // Arrange
       const itemId = 'ei-001';
@@ -397,6 +470,23 @@ describe('EstimateItemService', () => {
   });
 
   describe('duplicateItem', () => {
+    it('見積項目が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.duplicateItem('ei-nonexistent')).rejects.toThrow(
+        EstimateItemNotFoundError
+      );
+    });
+
     it('見積項目を複製する（Requirements: REQ-12.5）', async () => {
       // Arrange
       const itemId = 'ei-001';
@@ -450,6 +540,122 @@ describe('EstimateItemService', () => {
   });
 
   describe('moveItem', () => {
+    it('見積項目が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.moveItem('ei-nonexistent', 'ei-002')).rejects.toThrow(
+        EstimateItemNotFoundError
+      );
+    });
+
+    it('新しい親項目が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      const itemId = 'ei-001';
+      const newParentId = 'ei-nonexistent';
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateItem: {
+            findUnique: vi.fn().mockImplementation(({ where }) => {
+              if (where.id === itemId)
+                return Promise.resolve({ id: itemId, estimateId: 'est-001', parentId: null });
+              return Promise.resolve(null);
+            }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.moveItem(itemId, newParentId)).rejects.toThrow(
+        EstimateItemNotFoundError
+      );
+    });
+
+    it('新しい親項目が別の見積書に属する場合、エラーを発生させる', async () => {
+      // Arrange
+      const itemId = 'ei-001';
+      const newParentId = 'ei-other';
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateItem: {
+            findUnique: vi.fn().mockImplementation(({ where }) => {
+              if (where.id === itemId)
+                return Promise.resolve({ id: itemId, estimateId: 'est-001', parentId: null });
+              if (where.id === newParentId)
+                return Promise.resolve({
+                  id: newParentId,
+                  estimateId: 'est-999',
+                  parentId: null,
+                });
+              return Promise.resolve(null);
+            }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.moveItem(itemId, newParentId)).rejects.toThrow(
+        EstimateItemNotBelongToEstimateError
+      );
+    });
+
+    it('自分自身を親に指定した場合、循環参照エラーを発生させる', async () => {
+      // Arrange
+      const itemId = 'ei-001';
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateItem: {
+            findUnique: vi.fn().mockImplementation(({ where }) => {
+              return Promise.resolve({ id: where.id, estimateId: 'est-001', parentId: null });
+            }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.moveItem(itemId, itemId)).rejects.toThrow(
+        EstimateItemCircularReferenceError
+      );
+    });
+
+    it('見積項目をルートに移動する（newParentIdがnull）', async () => {
+      // Arrange
+      const itemId = 'ei-001';
+
+      const mockItem = {
+        id: 'ei-001',
+        estimateId: 'est-001',
+        parentId: 'ei-parent',
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue(mockItem),
+            update: vi.fn().mockResolvedValue({ ...mockItem, parentId: null }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.moveItem(itemId, null)).resolves.not.toThrow();
+    });
+
     it('見積項目の親を変更する（Requirements: REQ-12.6）', async () => {
       // Arrange
       const itemId = 'ei-001';
@@ -543,6 +749,23 @@ describe('EstimateItemService', () => {
   });
 
   describe('reorderItems', () => {
+    it('見積書が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(
+        service.reorderItems('est-nonexistent', [{ id: 'ei-001', displayOrder: 0 }])
+      ).rejects.toThrow(EstimateNotFoundError);
+    });
+
     it('見積項目の表示順序を変更する（Requirements: REQ-12.2）', async () => {
       // Arrange
       const estimateId = 'est-001';
@@ -570,6 +793,241 @@ describe('EstimateItemService', () => {
   });
 
   describe('transferFromQuotation', () => {
+    it('見積書が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(
+        service.transferFromQuotation({
+          estimateId: 'est-nonexistent',
+          receivedQuotationId: 'rq-001',
+          lineItemIds: ['rqli-001'],
+        })
+      ).rejects.toThrow(EstimateNotFoundError);
+    });
+
+    it('受領見積書が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(
+        service.transferFromQuotation({
+          estimateId: 'est-001',
+          receivedQuotationId: 'rq-nonexistent',
+          lineItemIds: ['rqli-001'],
+        })
+      ).rejects.toThrow(ReceivedQuotationNotFoundError);
+    });
+
+    it('転記元の明細行が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'rq-001',
+              name: '業者A見積',
+              deletedAt: null,
+              estimateRequest: { tradingPartner: { name: '業者A' } },
+            }),
+          },
+          receivedQuotationLineItem: {
+            findMany: vi.fn().mockResolvedValue([]),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(
+        service.transferFromQuotation({
+          estimateId: 'est-001',
+          receivedQuotationId: 'rq-001',
+          lineItemIds: ['rqli-nonexistent'],
+        })
+      ).rejects.toThrow(ReceivedQuotationLineItemNotFoundError);
+    });
+
+    it('転記先の見積項目が存在しない場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'rq-001',
+              name: '業者A見積',
+              deletedAt: null,
+              estimateRequest: { tradingPartner: { name: '業者A' } },
+            }),
+          },
+          receivedQuotationLineItem: {
+            findMany: vi.fn().mockResolvedValue([
+              {
+                id: 'rqli-001',
+                receivedQuotationId: 'rq-001',
+                name: '材料A',
+                specification: '規格A',
+                unit: 'm',
+                quantity: 10,
+                unitPrice: 1000,
+                amount: 10000,
+                remarks: null,
+              },
+            ]),
+          },
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(
+        service.transferFromQuotation({
+          estimateId: 'est-001',
+          receivedQuotationId: 'rq-001',
+          lineItemIds: ['rqli-001'],
+          targetEstimateItemId: 'ei-nonexistent',
+        })
+      ).rejects.toThrow(EstimateItemNotFoundError);
+    });
+
+    it('転記先の見積項目が別の見積書に属する場合、エラーを発生させる', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'rq-001',
+              name: '業者A見積',
+              deletedAt: null,
+              estimateRequest: { tradingPartner: { name: '業者A' } },
+            }),
+          },
+          receivedQuotationLineItem: {
+            findMany: vi.fn().mockResolvedValue([
+              {
+                id: 'rqli-001',
+                receivedQuotationId: 'rq-001',
+                name: '材料A',
+                specification: '規格A',
+                unit: 'm',
+                quantity: 10,
+                unitPrice: 1000,
+                amount: 10000,
+                remarks: null,
+              },
+            ]),
+          },
+          estimateItem: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'ei-other', estimateId: 'est-999' }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(
+        service.transferFromQuotation({
+          estimateId: 'est-001',
+          receivedQuotationId: 'rq-001',
+          lineItemIds: ['rqli-001'],
+          targetEstimateItemId: 'ei-other',
+        })
+      ).rejects.toThrow(EstimateItemNotBelongToEstimateError);
+    });
+
+    it('転記先の見積項目の更新後取得がnullの場合、結果に含めない', async () => {
+      // Arrange
+      const params = {
+        estimateId: 'est-001',
+        receivedQuotationId: 'rq-001',
+        lineItemIds: ['rqli-001'],
+        targetEstimateItemId: 'ei-001',
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        let findUniqueCallCount = 0;
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'rq-001',
+              name: '業者A見積',
+              deletedAt: null,
+              estimateRequest: { tradingPartner: { name: '業者A' } },
+            }),
+          },
+          receivedQuotationLineItem: {
+            findMany: vi.fn().mockResolvedValue([
+              {
+                id: 'rqli-001',
+                receivedQuotationId: 'rq-001',
+                name: '材料A',
+                specification: '規格A',
+                unit: 'm',
+                quantity: 10,
+                unitPrice: 1000,
+                amount: 10000,
+                remarks: null,
+              },
+            ]),
+          },
+          estimateItem: {
+            findUnique: vi.fn().mockImplementation(() => {
+              findUniqueCallCount++;
+              if (findUniqueCallCount === 1) {
+                return Promise.resolve({ id: 'ei-001', estimateId: 'est-001' });
+              }
+              // 更新後の取得でnullを返す（防御的コードのテスト）
+              return Promise.resolve(null);
+            }),
+          },
+          estimateItemLine: {
+            update: vi.fn().mockResolvedValue({}),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.transferFromQuotation(params);
+
+      // Assert - updatedItemがnullの場合、resultsに追加されない
+      expect(result).toHaveLength(0);
+    });
+
     it('指定した見積項目に受領見積書を転記する（Requirements: REQ-4.1, REQ-4.3）', async () => {
       // Arrange
       const params = {
@@ -794,6 +1252,116 @@ describe('EstimateItemService', () => {
 
       // Assert
       expect(result).toHaveLength(1); // 新規作成された項目
+    });
+    it('見積項目未指定時、数量・単価がnullの明細行でも新規項目を作成する', async () => {
+      // Arrange
+      const params = {
+        estimateId: 'est-001',
+        receivedQuotationId: 'rq-001',
+        lineItemIds: ['rqli-001'],
+      };
+
+      const mockLineItems = [
+        {
+          id: 'rqli-001',
+          receivedQuotationId: 'rq-001',
+          name: '材料C',
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+        },
+      ];
+
+      const mockCreatedItem = {
+        id: 'ei-new',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lines: [
+          {
+            id: 'eil-001',
+            estimateItemId: 'ei-new',
+            lineType: 'ESTIMATE',
+            name: null,
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: null,
+            remarks: null,
+            sourceReceivedQuotationLineItemId: null,
+            sourceVendorName: null,
+          },
+          {
+            id: 'eil-002',
+            estimateItemId: 'ei-new',
+            lineType: 'EXECUTION',
+            name: null,
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: null,
+            remarks: null,
+            sourceReceivedQuotationLineItemId: null,
+            sourceVendorName: null,
+          },
+          {
+            id: 'eil-003',
+            estimateItemId: 'ei-new',
+            lineType: 'VENDOR',
+            name: '材料C',
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: null,
+            remarks: null,
+            sourceReceivedQuotationLineItemId: 'rqli-001',
+            sourceVendorName: '業者A',
+          },
+        ],
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'est-001', deletedAt: null }),
+          },
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'rq-001',
+              name: '業者A見積',
+              deletedAt: null,
+              estimateRequest: { tradingPartner: { name: '業者A' } },
+            }),
+          },
+          receivedQuotationLineItem: {
+            findMany: vi.fn().mockResolvedValue(mockLineItems),
+          },
+          estimateItem: {
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue(mockCreatedItem),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.transferFromQuotation(params);
+
+      // Assert
+      expect(result).toHaveLength(1);
+      const vendorLine = result[0]!.lines.find((l) => l.lineType === 'VENDOR');
+      expect(vendorLine?.name).toBe('材料C');
+      expect(vendorLine?.quantity).toBeNull();
+      expect(vendorLine?.unitPrice).toBeNull();
+      expect(vendorLine?.amount).toBeNull();
     });
   });
 });

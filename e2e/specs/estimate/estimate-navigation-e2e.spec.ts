@@ -446,8 +446,8 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       // 編集ボタンが表示されることを確認
       await expect(page.getByRole('button', { name: /編集/i })).toBeVisible();
 
-      // 削除ボタンが表示されることを確認
-      await expect(page.getByRole('button', { name: /削除/i })).toBeVisible();
+      // 削除ボタンが表示されることを確認（ツールバーの削除ボタンと区別するため.first()）
+      await expect(page.getByRole('button', { name: /削除/i }).first()).toBeVisible();
 
       // 出力ボタンが表示されることを確認
       await expect(page.getByRole('button', { name: /出力/i })).toBeVisible();
