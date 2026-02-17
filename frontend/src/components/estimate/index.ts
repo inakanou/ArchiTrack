@@ -18,3 +18,6 @@ export type { EstimateExportDialogProps } from './EstimateExportDialog';
 
 export { EstimateCard } from './EstimateCard';
 export type { EstimateCardProps } from './EstimateCard';
+
+export { EstimateItemToolbar } from './EstimateItemToolbar';
+export type { EstimateItemToolbarProps } from './EstimateItemToolbar';

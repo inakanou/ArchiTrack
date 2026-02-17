@@ -1873,3 +1873,132 @@ interface EditableQuantityItemRowProps {
 - 2行目以降の数量項目にメインタイトル行が繰り返し表示されないこと
 - 面積・体積/ピッチ計算用フィールドのタイトル行は各項目に表示されること
 - グループ折りたたみ/再展開後にタイトル行の表示ルールが維持されること
+
+## Phase 8: 名称・備考フィールドのオートコンプリート適用修正
+
+### 概要
+
+Requirement 7で定義されたオートコンプリート対象フィールド（大項目・中項目・小項目・任意分類・工種・**名称**・規格・単位・**備考**）のうち、**名称**と**備考**フィールドの実装が通常の`<input>`要素のままとなっており、`AutocompleteInput`コンポーネントが適用されていない実装漏れを修正する。
+
+### 問題の詳細
+
+| フィールド | 期待される実装 | 現在の実装 | 状態 |
+|-----------|--------------|-----------|------|
+| 大項目 | AutocompleteInput | AutocompleteInput | ✅ 正常 |
+| 中項目 | AutocompleteInput | AutocompleteInput | ✅ 正常 |
+| 小項目 | AutocompleteInput | AutocompleteInput | ✅ 正常 |
+| 任意分類 | AutocompleteInput | AutocompleteInput | ✅ 正常 |
+| 工種 | AutocompleteInput | AutocompleteInput | ✅ 正常 |
+| **名称** | AutocompleteInput | 通常の`<input>` | ❌ 未適用 |
+| 規格 | AutocompleteInput | AutocompleteInput | ✅ 正常 |
+| 単位 | AutocompleteInput | AutocompleteInput | ✅ 正常 |
+| **備考** | AutocompleteInput | 通常の`<input>` | ❌ 未適用 |
+
+### 影響範囲分析
+
+#### バックエンド
+- **変更不要**: `AutocompleteFieldName`型に`'name'`と`'remarks'`は既に定義済み。オートコンプリート候補一括取得APIも名称・備考の候補を返却している。`useAutocompleteCandidateStore`も名称・備考の候補を保持済み。
+
+#### フロントエンド変更対象
+
+| 対象 | 変更内容 | 影響度 |
+|------|---------|--------|
+| FieldValidatedItemRow.tsx | 名称フィールドを`<input>`から`AutocompleteInput`に変更 | 中 |
+| FieldValidatedItemRow.tsx | 備考フィールドを`<input>`から`AutocompleteInput`に変更 | 中 |
+| EditableQuantityItemRow.tsx | 名称フィールドを`<input>`から`AutocompleteInput`に変更 | 中 |
+| EditableQuantityItemRow.tsx | 備考フィールドを`<input>`から`AutocompleteInput`に変更 | 中 |
+
+### 設計方針
+
+#### 名称フィールドの変更（FieldValidatedItemRow）
+
+**現在の実装（行764-789）**: `localName`ローカルステートを使い、blur時にのみ`onUpdate`を呼び出す。
+**変更後**: 他のテキストフィールド（工種、規格等）と同じパターンで`AutocompleteInput`を使用し、`createTextUpdateHandler('name')`で即時更新する。
+
+**localNameステートの除去理由**: `workType`等の必須フィールドも`AutocompleteInput` + 即時更新パターンで正常動作しているため、名称フィールドのみblur更新にする技術的理由はない。
+
+```typescript
+{/* 名称 - 変更後 */}
+<div style={styles.fieldGroup} role="cell">
+  <AutocompleteInput
+    id={`${item.id}-name`}
+    label="名称"
+    value={item.name}
+    onChange={createTextUpdateHandler('name')}
+    error={errors.name}
+    required
+    placeholder="名称を入力"
+    field="name"
+    getSuggestions={getSuggestions}
+    onBlurAddCandidate={onBlurAddCandidate}
+  />
+</div>
+```
+
+#### 備考フィールドの変更（FieldValidatedItemRow）
+
+**現在の実装（行943-978）**: 通常の`<input>`にインラインのonChangeで`validateTextLength` + `onUpdate`。
+**変更後**: `AutocompleteInput`を使用し、`createTextUpdateHandler('remarks')`で即時更新する。
+
+```typescript
+{/* 備考 - 変更後 */}
+<div style={styles.fieldGroup} role="cell">
+  <AutocompleteInput
+    id={`${item.id}-remarks`}
+    label="備考"
+    value={item.remarks || ''}
+    onChange={createTextUpdateHandler('remarks')}
+    error={errors.remarks}
+    placeholder="備考"
+    field="remarks"
+    getSuggestions={getSuggestions}
+    onBlurAddCandidate={onBlurAddCandidate}
+  />
+</div>
+```
+
+#### EditableQuantityItemRowの同様の変更
+
+`EditableQuantityItemRow.tsx`の名称フィールド（行640-668）と備考フィールド（行747-765）にも同じ変更を適用する。
+
+#### localNameステートの整理
+
+名称フィールドが`AutocompleteInput` + `createTextUpdateHandler('name')`に変更されることで、以下のコードが不要になる：
+
+- `const [localName, setLocalName] = useState(item.name)` の除去
+- `handleNameChange`コールバックの除去
+- `handleNameBlur`コールバックの除去
+- `localName`によるprop同期ロジック（行316-318）の除去
+- `fieldSpecErrors`/`requiredErrors`内の`localName`参照を`item.name`に変更
+
+**備考**: `localQuantity`、`localAdjustmentFactor`、`localRoundingUnit`は数値フィールドで即時更新すると型変換の問題があるため、ローカルステートパターンを維持する。
+
+### テスト設計
+
+#### 単体テスト
+
+- FieldValidatedItemRowの名称フィールドがAutocompleteInputとしてレンダリングされることを検証
+- FieldValidatedItemRowの備考フィールドがAutocompleteInputとしてレンダリングされることを検証
+- 名称フィールドでオートコンプリート候補が表示されることを検証
+- 備考フィールドでオートコンプリート候補が表示されることを検証
+- 名称フィールドでblur時に候補が追加されることを検証
+- 備考フィールドでblur時に候補が追加されることを検証
+- 名称フィールドのrequired属性が維持されることを検証
+- 名称フィールドの文字数制限バリデーションが維持されることを検証
+
+#### E2Eテスト
+
+- 名称フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示されること
+- 備考フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示されること
+- 名称フィールドでテキスト入力時に候補がフィルタリングされること
+- 名称フィールドで候補を選択すると値が自動入力されること
+- 全9フィールドでオートコンプリートが一貫して動作すること
+
+### Requirements Traceability（追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 7.1 | 初回表示時に名称・備考を含む9フィールドの候補を一括取得 | AutocompleteCandidateStore | GET /api/.../autocomplete-candidates | オートコンプリートフロー |
+| 7.3 | 名称・備考フィールドのフォーカス時にドロップダウン表示 | AutocompleteInput | - | オートコンプリートフロー |
+| 7.4 | 名称・備考フィールドの候補選択時に自動入力 | AutocompleteInput | - | オートコンプリートフロー |
+| 7.5 | 名称・備考フィールドのblur時に候補追加 | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |

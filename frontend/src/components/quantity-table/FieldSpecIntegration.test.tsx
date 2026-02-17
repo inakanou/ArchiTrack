@@ -165,8 +165,8 @@ describe('FieldValidatedItemRow - Task 14.1', () => {
       // 名称のエラーが表示される
       expect(screen.getByText('名称は必須です')).toBeInTheDocument();
 
-      // 入力フィールドにエラースタイルが適用される
-      const nameInput = screen.getByRole('textbox', { name: /名称/ });
+      // 入力フィールドにエラースタイルが適用される（AutocompleteInputはcomboboxロール）
+      const nameInput = screen.getByRole('combobox', { name: /名称/ });
       expect(nameInput).toHaveAttribute('aria-invalid', 'true');
     });
 

@@ -46,6 +46,9 @@ const mockEditor = {
   toggleExpanded: vi.fn(),
   reorderItems: vi.fn(),
   getTotalAmount: vi.fn(() => '100000'),
+  addItem: vi.fn(),
+  deleteItem: vi.fn(),
+  duplicateItem: vi.fn(),
 };
 
 vi.mock('../../hooks/useEstimateEditor', () => ({
@@ -148,7 +151,8 @@ describe('EstimateDetailPage', () => {
 
       // アクションボタン
       expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
+      // ヘッダーの削除ボタンとツールバーの削除ボタンの両方が存在する
+      expect(screen.getAllByRole('button', { name: '削除' }).length).toBeGreaterThanOrEqual(1);
       expect(screen.getByRole('button', { name: '出力' })).toBeInTheDocument();
       expect(
         screen.getByRole('button', { name: '受領見積書を業者金額に転記' })
@@ -378,6 +382,18 @@ describe('EstimateDetailPage', () => {
   // 削除機能 (REQ-11.4, REQ-14.10)
   // ==========================================================================
   describe('削除機能', () => {
+    /**
+     * ヘッダーの削除ボタンを取得するヘルパー
+     * ツールバーの「削除」ボタンと区別するため、ツールバー外のボタンを返す
+     */
+    function getHeaderDeleteButton(): HTMLElement {
+      const toolbar = screen.getByTestId('estimate-item-toolbar');
+      const allDeleteButtons = screen.getAllByRole('button', { name: '削除' });
+      const headerDeleteButton = allDeleteButtons.find((btn) => !toolbar.contains(btn));
+      if (!headerDeleteButton) throw new Error('Header delete button not found');
+      return headerDeleteButton;
+    }
+
     it('削除ボタンをクリックすると確認ダイアログが表示されること', async () => {
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
 
@@ -387,7 +403,7 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      const deleteButton = screen.getByRole('button', { name: '削除' });
+      const deleteButton = getHeaderDeleteButton();
       await userEvent.click(deleteButton);
 
       // ダイアログが表示される
@@ -408,7 +424,7 @@ describe('EstimateDetailPage', () => {
       });
 
       // 削除ダイアログを開く
-      const deleteButton = screen.getByRole('button', { name: '削除' });
+      const deleteButton = getHeaderDeleteButton();
       await userEvent.click(deleteButton);
 
       // キャンセル
@@ -430,7 +446,7 @@ describe('EstimateDetailPage', () => {
       });
 
       // 削除ダイアログを開く
-      const deleteButton = screen.getByRole('button', { name: '削除' });
+      const deleteButton = getHeaderDeleteButton();
       await userEvent.click(deleteButton);
 
       // 削除実行
@@ -462,7 +478,7 @@ describe('EstimateDetailPage', () => {
       });
 
       // 削除ダイアログを開く
-      const deleteButton = screen.getByRole('button', { name: '削除' });
+      const deleteButton = getHeaderDeleteButton();
       await userEvent.click(deleteButton);
 
       // 削除実行
@@ -599,6 +615,39 @@ describe('EstimateDetailPage', () => {
       // 合計金額が0円として表示されること
       const amountSection = screen.getByText('見積金額合計').closest('div');
       expect(amountSection?.textContent).toContain('0円');
+    });
+  });
+
+  // ==========================================================================
+  // ツールバー統合 (REQ-23, Task 26.2)
+  // ==========================================================================
+  describe('ツールバー統合', () => {
+    it('見積項目セクション内にツールバーが表示されること (REQ-23.1)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+      });
+
+      // ツールバーが存在すること
+      expect(screen.getByTestId('estimate-item-toolbar')).toBeInTheDocument();
+    });
+
+    it('項目追加ボタンクリックでaddItemが呼ばれること (REQ-23.2)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+      });
+
+      const addButton = screen.getByRole('button', { name: /^\+\s*項目追加$/ });
+      await userEvent.click(addButton);
+
+      expect(mockEditor.addItem).toHaveBeenCalledTimes(1);
     });
   });
 

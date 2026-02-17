@@ -281,6 +281,28 @@ export async function exportEstimate(id: string, format: ExportFormat): Promise<
   return response.blob();
 }
 
+// ============================================================================
+// 階層移動API (Task 27.2, REQ-24)
+// ============================================================================
+
+/**
+ * 見積項目を階層移動
+ * Requirements: REQ-24.1-24.5
+ *
+ * @param estimateId - 見積書ID
+ * @param itemId - 移動する見積項目ID
+ * @param newParentId - 新しい親項目ID（nullでルートレベルに移動）
+ */
+export async function moveEstimateItem(
+  estimateId: string,
+  itemId: string,
+  newParentId: string | null
+): Promise<void> {
+  await apiClient.patch(`/api/estimates/${estimateId}/items/${itemId}/move`, {
+    newParentId,
+  });
+}
+
 /**
  * 見積書出力ファイルをダウンロード
  *
