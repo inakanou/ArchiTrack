@@ -38,10 +38,27 @@ vi.mock('tesseract.js', () => ({
 
 // pdf-text-extractorのモック
 const mockExtractPdfHybrid = vi.fn();
+const mockRenderPdfPagesToBase64 = vi.fn();
 
 vi.mock('./pdf-text-extractor', () => ({
   extractPdfHybrid: (...args: unknown[]) => mockExtractPdfHybrid(...args),
+  renderPdfPagesToBase64: (...args: unknown[]) => mockRenderPdfPagesToBase64(...args),
   PDF_TEXT_THRESHOLD: 50,
+}));
+
+// claude-vision APIのモック（非同期処理リーク防止）
+const mockExtractWithClaudeVision = vi.fn();
+
+vi.mock('../../api/claude-vision', () => ({
+  extractWithClaudeVision: (...args: unknown[]) => mockExtractWithClaudeVision(...args),
+  ClaudeVisionApiError: class ClaudeVisionApiError extends Error {
+    shouldFallback: boolean;
+    constructor(message: string) {
+      super(message);
+      this.shouldFallback = true;
+    }
+  },
+  isClaudeVisionApiError: (error: unknown) => error instanceof Error && 'shouldFallback' in error,
 }));
 
 // xlsxのモック
@@ -162,6 +179,10 @@ describe('OcrDataExtractor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTerminate.mockResolvedValue(undefined);
+    // Claude Vision APIはデフォルトでフォールバックさせる（非同期リーク防止）
+    mockExtractWithClaudeVision.mockRejectedValue(new Error('mock: not configured'));
+    // renderPdfPagesToBase64はデフォルトで空配列を返す
+    mockRenderPdfPagesToBase64.mockResolvedValue([]);
   });
 
   // --------------------------------------------------------------------------
@@ -799,22 +820,8 @@ describe('OcrDataExtractor', () => {
 
   describe('ワーカープリフェッチ', () => {
     it('ファイルがセットされた時にOCR準備中インジケーターを表示する', async () => {
-      // ワーカー初期化を遅延させる
-      mockCreateWorker.mockImplementation(
-        () =>
-          new Promise((resolve) =>
-            setTimeout(
-              () =>
-                resolve({
-                  recognize: mockRecognize.mockResolvedValue({
-                    data: { text: 'テスト' },
-                  }),
-                  terminate: mockTerminate,
-                }),
-              3000
-            )
-          )
-      );
+      // ワーカー初期化を永久に保留させる（タイマーリーク防止のためsetTimeoutは使わない）
+      mockCreateWorker.mockImplementation(() => new Promise(() => {}));
 
       const file = createMockFile('test.jpg', 'image/jpeg');
 
@@ -844,6 +851,9 @@ describe('OcrDataExtractor', () => {
       });
 
       const file = createMockFile('text-pdf.pdf', 'application/pdf');
+
+      // 前テストの非同期リークによるcreateWorker呼び出しをリセット
+      mockCreateWorker.mockClear();
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 

@@ -51,6 +51,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      // clean: false - npmスクリプト側で手動クリーンアップを実施
+      // vitestのデフォルトclean(true)はcoverage/ディレクトリを削除する際に
+      // .tmpサブディレクトリも消してしまい、forkワーカーの書き込みがENOENTになるため無効化
+      clean: false,
       exclude: [
         'node_modules/',
         'dist/',

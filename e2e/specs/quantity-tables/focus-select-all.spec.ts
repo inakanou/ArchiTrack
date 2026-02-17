@@ -214,16 +214,28 @@ test.describe('フォーカス時全選択', () => {
      * comboboxフィールド（AutocompleteInput）とtextboxフィールドで適切なロケーターを返す
      */
     function getFieldLocator(page: import('@playwright/test').Page, fieldName: string) {
-      // comboboxフィールド: 大項目, 中項目, 小項目, 任意分類, 工種, 規格, 単位
-      // accessible name は「〜を入力」形式（例: 「大項目を入力」）
-      const comboboxFields = ['大項目', '中項目', '小項目', '任意分類', '工種', '規格', '単位'];
+      // comboboxフィールド: 大項目, 中項目, 小項目, 任意分類, 工種, 名称, 規格, 単位, 備考
+      // すべてAutocompleteInputコンポーネントを使用しており、role="combobox"
+      const comboboxFields = [
+        '大項目',
+        '中項目',
+        '小項目',
+        '任意分類',
+        '工種',
+        '名称',
+        '規格',
+        '単位',
+        '備考',
+      ];
       if (comboboxFields.includes(fieldName)) {
         return page.getByRole('combobox', { name: new RegExp(fieldName, 'i') }).first();
       }
-      // textboxフィールド: 名称, 備考
-      // 「名称を入力」のplaceholderを使い、「数量表名」テキストボックスとの誤マッチを防ぐ
-      if (fieldName === '名称') {
-        return page.getByRole('textbox', { name: /名称を入力/i }).first();
+      // 数量フィールド（table内の唯一のtextbox、nameなし）
+      if (fieldName === '数量') {
+        return page
+          .getByRole('table', { name: /数量項目一覧/ })
+          .getByRole('textbox')
+          .first();
       }
       return page.getByRole('textbox', { name: new RegExp(fieldName, 'i') }).first();
     }

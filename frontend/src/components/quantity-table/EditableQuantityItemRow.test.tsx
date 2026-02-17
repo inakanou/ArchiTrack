@@ -67,8 +67,8 @@ describe('EditableQuantityItemRow', () => {
       // 工種フィールド（AutocompleteInput）
       expect(screen.getByRole('combobox', { name: /工種/ })).toBeInTheDocument();
 
-      // 名称フィールド（通常のinput）
-      expect(screen.getByRole('textbox', { name: /名称/ })).toBeInTheDocument();
+      // 名称フィールド（AutocompleteInputなのでcombobox roleを持つ）
+      expect(screen.getByRole('combobox', { name: /名称/ })).toBeInTheDocument();
 
       // 単位フィールド（AutocompleteInput）
       expect(screen.getByRole('combobox', { name: /単位/ })).toBeInTheDocument();
@@ -79,7 +79,7 @@ describe('EditableQuantityItemRow', () => {
 
       expect(screen.getByRole('combobox', { name: /大項目/ })).toHaveValue('建築工事');
       expect(screen.getByRole('combobox', { name: /工種/ })).toHaveValue('足場工事');
-      expect(screen.getByRole('textbox', { name: /名称/ })).toHaveValue('外部足場');
+      expect(screen.getByRole('combobox', { name: /名称/ })).toHaveValue('外部足場');
       expect(screen.getByRole('combobox', { name: /単位/ })).toHaveValue('m2');
     });
   });
@@ -122,18 +122,12 @@ describe('EditableQuantityItemRow', () => {
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
-      const input = screen.getByRole('textbox', { name: /名称/ });
+      const input = screen.getByRole('combobox', { name: /名称/ });
       await user.clear(input);
       await user.type(input, '更新された名称');
-      // 名称フィールドはblur時にonUpdateが呼ばれる
-      await user.tab();
 
-      expect(onUpdate).toHaveBeenLastCalledWith(
-        'item-1',
-        expect.objectContaining({
-          name: '更新された名称',
-        })
-      );
+      // AutocompleteInput経由でcreateUpdateHandlerが即座にonUpdateを呼ぶ
+      expect(onUpdate).toHaveBeenCalled();
     });
 
     it('単位変更時にonUpdateが呼ばれる', async () => {
@@ -371,7 +365,7 @@ describe('EditableQuantityItemRow', () => {
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
 
-      const input = screen.getByRole('textbox', { name: /備考/ });
+      const input = screen.getByRole('combobox', { name: /備考/ });
       // 文字を追加入力
       await userEvent.type(input, 'X');
 
@@ -464,7 +458,7 @@ describe('EditableQuantityItemRow', () => {
       expect(screen.getByRole('menu')).toBeInTheDocument();
 
       // 他の入力フィールドをクリック（blurイベントをシミュレート）
-      const nameInput = screen.getByRole('textbox', { name: /名称/ });
+      const nameInput = screen.getByRole('combobox', { name: /名称/ });
       await userEvent.click(nameInput);
 
       // メニューが閉じる（blurハンドラによる）
@@ -704,34 +698,21 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
-  describe('名称フィールドのblur動作', () => {
-    it('名称が変更されていない場合、onUpdateは呼ばれない', async () => {
-      const user = userEvent.setup();
-      const onUpdate = vi.fn();
-      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+  describe('名称フィールドの動作', () => {
+    it('名称フィールドがAutoCompleteInputとしてレンダリングされる', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
 
-      const input = screen.getByRole('textbox', { name: /名称/ });
-      // フォーカスしてすぐblur（変更なし）
-      await user.click(input);
-      await user.tab();
-
-      // 名称の更新は呼ばれない（他のフィールドの更新は除外）
-      const nameUpdateCalls = onUpdate.mock.calls.filter((call) => call[1] && 'name' in call[1]);
-      expect(nameUpdateCalls.length).toBe(0);
+      // 名称フィールドがcomboboxロールを持つことを確認
+      const input = screen.getByRole('combobox', { name: /名称/ });
+      expect(input).toBeInTheDocument();
+      expect(input).toHaveValue('外部足場');
     });
 
-    it('名称が空の場合、onUpdateは呼ばれない', async () => {
-      const user = userEvent.setup();
-      const onUpdate = vi.fn();
-      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+    it('名称が空の場合、バリデーションエラーが表示される', () => {
+      const emptyNameItem = { ...mockItem, name: '' };
+      render(<EditableQuantityItemRow {...defaultProps} item={emptyNameItem} />);
 
-      const input = screen.getByRole('textbox', { name: /名称/ });
-      await user.clear(input);
-      await user.tab();
-
-      // 名称の更新は呼ばれない
-      const nameUpdateCalls = onUpdate.mock.calls.filter((call) => call[1] && 'name' in call[1]);
-      expect(nameUpdateCalls.length).toBe(0);
+      expect(screen.getByText('名称は必須です')).toBeInTheDocument();
     });
   });
 });

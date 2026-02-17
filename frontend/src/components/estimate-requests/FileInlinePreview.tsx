@@ -131,7 +131,9 @@ const styles = {
     justifyContent: 'center',
     padding: '16px',
     backgroundColor: '#f9fafb',
-    overflow: 'auto',
+    maxHeight: '300px',
+    overflowY: 'auto' as const,
+    overflowX: 'hidden' as const,
   },
   excelContainer: {
     overflow: 'auto',
