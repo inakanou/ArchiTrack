@@ -26,8 +26,9 @@ release_memory() {
   # Dockerの未使用リソースをクリア（ビルドキャッシュ含む）
   docker system prune -f --volumes > /dev/null 2>&1 || true
 
-  # ファイルシステムキャッシュを解放（root権限不要な範囲で）
-  sync 2>/dev/null || true
+  # 注意: syncコマンドはWSL2のFUSEファイルシステムでD state（割り込み不可スリープ）に
+  # 陥り、プロセスがkill不可能になる。さらにD stateのsyncプロセスがteeパイプのfdを
+  # 保持し続けるため、スクリプト全体がハングする。WSL2環境ではsyncを使用しない。
 
   # Node.jsのガベージコレクションを促進（次のNode.js実行時に効果）
   # 短い待機でプロセスが完全に終了するのを待つ
