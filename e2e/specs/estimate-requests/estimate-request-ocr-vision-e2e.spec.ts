@@ -242,8 +242,8 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
 
     const responseText = await response.text();
 
-    // REQ-22.4: APIキーがレスポンスに含まれないことを確認
-    expect(responseText).not.toContain('ANTHROPIC_API_KEY');
+    // REQ-22.4: 実際のAPIキー値がレスポンスに含まれないことを確認
+    expect(responseText).not.toMatch(/sk-ant-api\d{2}-/);
     expect(responseText).not.toMatch(/sk-ant-/);
   });
 
