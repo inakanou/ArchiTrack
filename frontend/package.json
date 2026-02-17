@@ -30,7 +30,7 @@
     "fabric": "^6.9.1",
     "jspdf": "^4.0.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3",
+    "react-dom": "^19.2.4",
     "react-pdf": "^10.3.0",
     "react-router-dom": "^7.13.0",
     "tesseract.js": "^7.0.0",
