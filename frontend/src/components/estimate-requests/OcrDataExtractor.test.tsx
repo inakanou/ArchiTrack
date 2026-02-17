@@ -852,6 +852,9 @@ describe('OcrDataExtractor', () => {
 
       const file = createMockFile('text-pdf.pdf', 'application/pdf');
 
+      // 前テストの非同期リークによるcreateWorker呼び出しをリセット
+      mockCreateWorker.mockClear();
+
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
       // extractPdfHybridが呼ばれること
