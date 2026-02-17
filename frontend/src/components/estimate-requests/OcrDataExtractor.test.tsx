@@ -840,6 +840,13 @@ describe('OcrDataExtractor', () => {
   // --------------------------------------------------------------------------
 
   describe('PDFテキスト抽出ハイブリッドアプローチ（17.1-17.4, 17.8）', () => {
+    beforeEach(async () => {
+      // 前テスト（ワーカープリフェッチ等）のコンポーネントアンマウント時の
+      // 非同期コールバックをフラッシュしてからモックをクリアする
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      mockCreateWorker.mockClear();
+    });
+
     it('テキストPDF（閾値以上）の場合にpdfjs-distテキストがそのまま返される（17.1, 17.3）', async () => {
       // pdfjs-distが十分なテキスト（50文字以上）を返すモック
       const longText =
@@ -851,9 +858,6 @@ describe('OcrDataExtractor', () => {
       });
 
       const file = createMockFile('text-pdf.pdf', 'application/pdf');
-
-      // 前テストの非同期リークによるcreateWorker呼び出しをリセット
-      mockCreateWorker.mockClear();
 
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
