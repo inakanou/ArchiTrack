@@ -11,16 +11,18 @@
  * - REQ-14.9: 見積書の詳細情報（見積項目一覧、合計金額等）を表示する
  * - REQ-14.10: 編集・削除・出力ボタンを提供する
  * - REQ-15.4-15.8: パンくずナビゲーション
+ * - REQ-23.1-23.10: 見積項目操作ツールバー
+ * - REQ-24.1-24.5: 見積項目の階層移動
  *
  * @module pages/EstimateDetailPage
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getEstimateDetail, deleteEstimate } from '../api/estimates';
+import { getEstimateDetail, deleteEstimate, moveEstimateItem } from '../api/estimates';
 import type { EstimateDetail, EstimateItemHierarchy } from '../api/estimates';
 import { Breadcrumb } from '../components/common';
-import { EstimateItemTable } from '../components/estimate';
+import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
 import type { EstimateItemHierarchyEdit } from '../hooks/useEstimateEditor';
 import { EstimateExportDialog } from '../components/estimate/EstimateExportDialog';
@@ -399,12 +401,54 @@ export default function EstimateDetailPage() {
   const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
   const [isNetDialogOpen, setIsNetDialogOpen] = useState(false);
   const [isProfitDialogOpen, setIsProfitDialogOpen] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   // 編集用フック
   const editor = useEstimateEditor({
     estimateId: id ?? '',
     initialItems: estimate ? toEditFormat(estimate.items) : [],
   });
+
+  // 選択中の項目データを取得（REQ-23）
+  const selectedItem = useMemo(() => {
+    if (!selectedItemId) return null;
+    const findItem = (
+      items: EstimateItemHierarchyEdit[],
+      id: string
+    ): EstimateItemHierarchyEdit | null => {
+      for (const item of items) {
+        if (item.id === id) return item;
+        if (item.children.length > 0) {
+          const found = findItem(item.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return findItem(editor.items, selectedItemId);
+  }, [editor.items, selectedItemId]);
+
+  // 直前の兄弟項目が存在するかを計算（REQ-23.10）
+  const hasPreviousSibling = useMemo(() => {
+    if (!selectedItemId || !selectedItem) return false;
+    const getSiblings = (
+      items: EstimateItemHierarchyEdit[],
+      targetParentId: string | null
+    ): EstimateItemHierarchyEdit[] => {
+      if (targetParentId === null) return items;
+      for (const item of items) {
+        if (item.id === targetParentId) return item.children;
+        if (item.children.length > 0) {
+          const found = getSiblings(item.children, targetParentId);
+          if (found.length > 0) return found;
+        }
+      }
+      return [];
+    };
+    const siblings = getSiblings(editor.items, selectedItem.parentId);
+    const currentIndex = siblings.findIndex((s) => s.id === selectedItemId);
+    return currentIndex > 0;
+  }, [editor.items, selectedItemId, selectedItem]);
 
   /**
    * データ取得
@@ -431,6 +475,88 @@ export default function EstimateDetailPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // 上の階層へ移動（REQ-23.9, REQ-24）
+  const handleMoveUp = useCallback(
+    async (itemId: string) => {
+      if (!estimate) return;
+      const findItem = (
+        items: EstimateItemHierarchyEdit[],
+        targetId: string
+      ): EstimateItemHierarchyEdit | null => {
+        for (const item of items) {
+          if (item.id === targetId) return item;
+          if (item.children.length > 0) {
+            const found = findItem(item.children, targetId);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const item = findItem(editor.items, itemId);
+      if (!item || !item.parentId) return;
+      const parent = findItem(editor.items, item.parentId);
+      if (!parent) return;
+
+      try {
+        await moveEstimateItem(estimate.id, itemId, parent.parentId);
+        await fetchData();
+      } catch {
+        setError('項目の移動に失敗しました');
+      }
+    },
+    [editor.items, estimate, fetchData]
+  );
+
+  // 下の階層へ移動（REQ-23.10, REQ-24）
+  const handleMoveDown = useCallback(
+    async (itemId: string) => {
+      if (!estimate) return;
+      const findItem = (
+        items: EstimateItemHierarchyEdit[],
+        targetId: string
+      ): EstimateItemHierarchyEdit | null => {
+        for (const item of items) {
+          if (item.id === targetId) return item;
+          if (item.children.length > 0) {
+            const found = findItem(item.children, targetId);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const item = findItem(editor.items, itemId);
+      if (!item) return;
+
+      const getSiblings = (
+        items: EstimateItemHierarchyEdit[],
+        targetParentId: string | null
+      ): EstimateItemHierarchyEdit[] => {
+        if (targetParentId === null) return items;
+        for (const it of items) {
+          if (it.id === targetParentId) return it.children;
+          if (it.children.length > 0) {
+            const found = getSiblings(it.children, targetParentId);
+            if (found.length > 0) return found;
+          }
+        }
+        return [];
+      };
+      const siblings = getSiblings(editor.items, item.parentId);
+      const currentIndex = siblings.findIndex((s) => s.id === itemId);
+      if (currentIndex <= 0) return;
+      const previousSibling = siblings[currentIndex - 1];
+      if (!previousSibling) return;
+
+      try {
+        await moveEstimateItem(estimate.id, itemId, previousSibling.id);
+        await fetchData();
+      } catch {
+        setError('項目の移動に失敗しました');
+      }
+    },
+    [editor.items, estimate, fetchData]
+  );
 
   /**
    * 編集モード切替
@@ -677,15 +803,28 @@ export default function EstimateDetailPage() {
           })()}
         </div>
 
-        {/* 見積項目テーブル (REQ-14.9) */}
+        {/* 見積項目テーブル (REQ-14.9, REQ-23) */}
         <div style={styles.card}>
           <h2 style={styles.sectionTitle}>見積項目</h2>
+          <EstimateItemToolbar
+            selectedItemId={selectedItemId}
+            selectedItem={selectedItem}
+            hasPreviousSibling={hasPreviousSibling}
+            onAddItem={() => editor.addItem()}
+            onAddChildItem={(parentId) => editor.addItem(parentId)}
+            onDeleteItem={(itemId) => editor.deleteItem(itemId)}
+            onDuplicateItem={(itemId) => editor.duplicateItem(itemId)}
+            onMoveUp={handleMoveUp}
+            onMoveDown={handleMoveDown}
+          />
           <EstimateItemTable
             items={editor.items}
             draggable={isEditMode}
             onLineChange={isEditMode ? editor.updateLine : undefined}
             onToggleExpand={editor.toggleExpanded}
             onDrop={isEditMode ? editor.reorderItems : undefined}
+            selectedItemId={selectedItemId}
+            onItemSelect={setSelectedItemId}
           />
         </div>
       </div>

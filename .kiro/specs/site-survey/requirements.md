@@ -147,6 +147,7 @@
 6. The Site Survey Service shall 各写真に紐付けられたコメントを当該写真と共にPDFに含める
 7. The Site Survey Service shall 日本語を含むテキスト注釈を正しくレンダリングしてPDF出力する
 8. When ユーザーがPDF生成完了後, the Site Survey Service shall PDFファイルをダウンロード可能にする
+9. When PDFファイルがダウンロードされる, the Site Survey Service shall ファイル名を「現場調査報告書_YYYYMMDD.pdf」形式とする（YYYYMMDDは調査日）
 
 ### Requirement 12: 個別画像エクスポート
 **Objective:** As a 現場調査担当者, I want 個別の注釈付き画像をエクスポートできること, so that 報告書以外の用途にも利用できる
