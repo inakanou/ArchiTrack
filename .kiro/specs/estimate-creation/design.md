@@ -1862,3 +1862,172 @@ const displayAmount = (amount: string | null) => {
 | 20.1-20.6 | サマリーパネル | EstimateDetailPage | - | 表示 |
 | 21.1-21.3 | レイアウト改善 | EstimateDetailPage | - | UI |
 | 22.1-22.9 | 数値表示形式と丸め規則 | EstimateCalculator, EstimateItemRow, EstimateCalculationService, NetAllocationDialog, ProfitRateDialog | 全計算API | 表示・計算 |
+| 23.1-23.10 | 見積項目操作ツールバー | EstimateItemToolbar, EstimateItemTable, EstimateDetailPage | - | UI操作 |
+| 24.1-24.5 | 階層移動API | EstimateItemService, estimates.routes | PATCH /api/estimates/:id/items/:itemId/move | 階層移動 |
+
+## 追加設計（REQ-23〜24対応）
+
+### 新規コンポーネント: EstimateItemToolbar（REQ-23）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積項目の追加・削除・複製・階層移動操作のためのツールバー |
+| Requirements | 23.1-23.10, 12.1, 12.3, 12.5, 12.6 |
+
+**Responsibilities & Constraints**
+- 見積項目テーブルの上部に配置
+- 項目選択状態に応じたボタンの有効/無効制御
+- 各操作ボタンのクリックイベントを親コンポーネントに委譲
+
+**Dependencies**
+- Inbound: EstimateDetailPage — 親コンポーネント (P0)
+- Outbound: useEstimateEditor — 操作関数の呼び出し (P0)
+
+**Contracts**: Props [x]
+
+```typescript
+interface EstimateItemToolbarProps {
+  /** 選択中の項目ID */
+  selectedItemId: string | null;
+  /** 選択中の項目データ（ボタン制御用） */
+  selectedItem: EstimateItemHierarchyEdit | null;
+  /** 項目追加（ルートレベル） */
+  onAddItem: () => void;
+  /** 子項目追加（選択中項目の子として） */
+  onAddChildItem: (parentId: string) => void;
+  /** 項目削除 */
+  onDeleteItem: (itemId: string) => void;
+  /** 項目複製 */
+  onDuplicateItem: (itemId: string) => void;
+  /** 上の階層へ移動（親の兄弟レベルに移動） */
+  onMoveUp: (itemId: string) => void;
+  /** 下の階層へ移動（直前の兄弟項目の子に移動） */
+  onMoveDown: (itemId: string) => void;
+}
+```
+
+**ボタン構成と有効/無効制御**:
+
+| ボタン | アイコン | ラベル | 有効条件 |
+|--------|---------|--------|---------|
+| 項目追加 | + | 項目追加 | 常に有効 |
+| 子項目追加 | +↳ | 子項目追加 | 項目選択中 |
+| 削除 | ゴミ箱 | 削除 | 項目選択中 |
+| 複製 | コピー | 複製 | 項目選択中 |
+| 上の階層へ | ↰ | 上の階層へ | 項目選択中 かつ parentId !== null |
+| 下の階層へ | ↳ | 下の階層へ | 項目選択中 かつ 直前の兄弟項目が存在する |
+
+**UI配置**:
+```
+┌──────────────────────────────────────────────────────┐
+│ [+項目追加] [+↳子項目追加] [複製] [削除] [↰上階層] [↳下階層] │
+├──────────────────────────────────────────────────────┤
+│ 種別 │ 見積業者 │ 名称 │ 規格 │ 単位 │ 数量 │ 単価 │ 金額 │ 備考│
+│ ─────┼──────────┼──────┼──────┼──────┼──────┼──────┼──────┼─────│
+│ ...  │          │      │      │      │      │      │      │     │
+└──────────────────────────────────────────────────────┘
+```
+
+### EstimateDetailPage変更（REQ-23対応）
+
+**変更点**:
+- `selectedItemId`状態を追加し、EstimateItemTableの`onItemSelect`に接続
+- EstimateItemToolbarを見積項目テーブルカードの内部、ヘッダー直後に配置
+- useEstimateEditorの`addItem`、`deleteItem`、`duplicateItem`をツールバーに接続
+- 新規`moveItemUp`、`moveItemDown`関数を実装してツールバーに接続
+
+```typescript
+// EstimateDetailPage 追加実装
+const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
+// 選択中の項目データを取得するヘルパー
+const selectedItem = useMemo(
+  () => selectedItemId ? findItemById(editor.items, selectedItemId) : null,
+  [editor.items, selectedItemId]
+);
+
+// 上の階層へ移動: 現在の親から外して、親の兄弟レベルに配置
+const handleMoveUp = useCallback(async (itemId: string) => {
+  const item = findItemById(editor.items, itemId);
+  if (!item || !item.parentId) return;
+  const parent = findItemById(editor.items, item.parentId);
+  if (!parent) return;
+
+  // API経由で親項目を変更（parent.parentIdに移動）
+  await moveItemApi(estimate.id, itemId, parent.parentId);
+  await fetchData();
+}, [editor.items, estimate, fetchData]);
+
+// 下の階層へ移動: 直前の兄弟項目の子に配置
+const handleMoveDown = useCallback(async (itemId: string) => {
+  const siblings = getSiblings(editor.items, itemId);
+  const currentIndex = siblings.findIndex(s => s.id === itemId);
+  if (currentIndex <= 0) return;
+  const previousSibling = siblings[currentIndex - 1];
+
+  // API経由で親項目を変更（直前の兄弟の子に移動）
+  await moveItemApi(estimate.id, itemId, previousSibling.id);
+  await fetchData();
+}, [editor.items, estimate, fetchData]);
+```
+
+### バックエンド追加: 階層移動APIエンドポイント（REQ-24）
+
+#### 新規エンドポイント
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| PATCH | /api/estimates/:id/items/:itemId/move | `{ parentId: string \| null }` | `{ success: true }` | 400 (循環参照), 404 |
+
+**実装方針**:
+- `estimates.routes.ts` に `PATCH /api/estimates/:id/items/:itemId/move` を追加
+- 既存の `EstimateItemService.moveItem()` を呼び出し（循環参照防止ロジック実装済み）
+- Zodバリデーションスキーマ: `{ parentId: z.string().uuid().nullable() }`
+
+```typescript
+// estimates.routes.ts 追加ルート
+estimateItemRouter.patch('/:itemId/move', async (c) => {
+  const { id, itemId } = c.req.param();
+  const { parentId } = await c.req.json();
+
+  // バリデーション
+  const schema = z.object({ parentId: z.string().uuid().nullable() });
+  const result = schema.safeParse({ parentId });
+  if (!result.success) {
+    return c.json({ error: 'Invalid request' }, 400);
+  }
+
+  try {
+    await estimateItemService.moveItem(itemId, result.data.parentId);
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof EstimateItemCircularReferenceError) {
+      return c.json({ error: '循環参照が発生するため移動できません' }, 400);
+    }
+    if (error instanceof EstimateItemNotFoundError) {
+      return c.json({ error: '見積項目が見つかりません' }, 404);
+    }
+    throw error;
+  }
+});
+```
+
+### フロントエンドAPI関数追加（REQ-24）
+
+```typescript
+// frontend/src/api/estimates.ts 追加
+export async function moveEstimateItem(
+  estimateId: string,
+  itemId: string,
+  parentId: string | null
+): Promise<void> {
+  const response = await apiClient.patch(
+    `/api/estimates/${estimateId}/items/${itemId}/move`,
+    { parentId }
+  );
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || '項目の移動に失敗しました');
+  }
+}
+```

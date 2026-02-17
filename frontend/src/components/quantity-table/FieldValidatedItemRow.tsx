@@ -302,7 +302,6 @@ export default function FieldValidatedItemRow({
   onBlurAddCandidate,
 }: FieldValidatedItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [localName, setLocalName] = useState(item.name);
   const [localQuantity, setLocalQuantity] = useState(item.quantity);
   const [localAdjustmentFactor, setLocalAdjustmentFactor] = useState(item.adjustmentFactor);
   const [localRoundingUnit, setLocalRoundingUnit] = useState(item.roundingUnit);
@@ -313,9 +312,6 @@ export default function FieldValidatedItemRow({
   // 親の値が変更された場合、ローカル状態を同期（key変更またはprops変更時）
   // NOTE: レンダリング中のsetStateは、props変更時の同期パターンとして許容される
   // See: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
-  if (localName !== item.name && document.activeElement?.id !== `${item.id}-name`) {
-    setLocalName(item.name);
-  }
   if (localQuantity !== item.quantity && document.activeElement?.id !== `${item.id}-quantity`) {
     setLocalQuantity(item.quantity);
   }
@@ -340,7 +336,7 @@ export default function FieldValidatedItemRow({
       minorCategory: item.minorCategory,
       customCategory: item.customCategory,
       workType: item.workType,
-      name: localName,
+      name: item.name,
       specification: item.specification,
       unit: item.unit,
       remarks: item.remarks,
@@ -356,10 +352,10 @@ export default function FieldValidatedItemRow({
     item.minorCategory,
     item.customCategory,
     item.workType,
+    item.name,
     item.specification,
     item.unit,
     item.remarks,
-    localName,
     localAdjustmentFactor,
     localRoundingUnit,
     localQuantity,
@@ -373,7 +369,7 @@ export default function FieldValidatedItemRow({
         hasValidationErrors(fieldSpecErrors) ||
         !item.majorCategory ||
         !item.workType ||
-        !localName ||
+        !item.name ||
         !item.unit,
       errors: fieldSpecErrors,
     });
@@ -382,8 +378,8 @@ export default function FieldValidatedItemRow({
     item.id,
     item.majorCategory,
     item.workType,
+    item.name,
     item.unit,
-    localName,
     onValidationChange,
   ]);
 
@@ -416,9 +412,9 @@ export default function FieldValidatedItemRow({
     const baseErrors = getRequiredFieldErrors(item);
     return {
       ...baseErrors,
-      name: !localName?.trim() ? '名称は必須です' : undefined,
+      name: !item.name?.trim() ? '名称は必須です' : undefined,
     };
-  }, [item, showValidation, localName]);
+  }, [item, showValidation]);
 
   // 統合エラー（必須 + フィールド仕様）
   const errors = useMemo(() => {
@@ -430,36 +426,6 @@ export default function FieldValidatedItemRow({
     }
     return combined;
   }, [requiredErrors, fieldSpecErrors]);
-
-  /**
-   * 名称フィールド変更ハンドラ
-   */
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setLocalName(value);
-
-    // リアルタイム文字数検証
-    const result = validateTextLength(value, 'name');
-    if (!result.isValid) {
-      setLocalFieldErrors((prev) => ({ ...prev, name: result.error }));
-    } else {
-      setLocalFieldErrors((prev) => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { name, ...rest } = prev;
-        return rest;
-      });
-    }
-  }, []);
-
-  /**
-   * 名称フィールドblurハンドラ
-   */
-  const handleNameBlur = useCallback(() => {
-    const trimmedValue = localName?.trim() || '';
-    if (trimmedValue && trimmedValue !== item.name) {
-      onUpdate?.(item.id, { name: trimmedValue });
-    }
-  }, [localName, item.id, item.name, onUpdate]);
 
   /**
    * テキストフィールド更新ハンドラを生成（文字数検証付き）
@@ -763,29 +729,18 @@ export default function FieldValidatedItemRow({
 
         {/* 名称 */}
         <div style={styles.fieldGroup} role="cell">
-          <div style={styles.directInputContainer}>
-            <label htmlFor={`${item.id}-name`} style={styles.fieldLabel}>
-              名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-            </label>
-            <div style={styles.inputWrapper}>
-              <input
-                id={`${item.id}-name`}
-                type="text"
-                value={localName}
-                onChange={handleNameChange}
-                onBlur={handleNameBlur}
-                onFocus={handleSelectOnFocus}
-                style={{
-                  ...styles.input,
-                  ...(errors.name ? styles.inputError : {}),
-                }}
-                placeholder="名称を入力"
-                aria-invalid={!!errors.name}
-                aria-required
-              />
-            </div>
-            {errors.name && <span style={styles.errorMessage}>{errors.name}</span>}
-          </div>
+          <AutocompleteInput
+            id={`${item.id}-name`}
+            label="名称"
+            value={item.name}
+            onChange={createTextUpdateHandler('name')}
+            error={errors.name}
+            required
+            placeholder="名称を入力"
+            field="name"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
+          />
         </div>
 
         {/* 規格 */}
@@ -942,39 +897,17 @@ export default function FieldValidatedItemRow({
 
         {/* 備考 */}
         <div style={styles.fieldGroup} role="cell">
-          <div style={styles.directInputContainer}>
-            <label htmlFor={`${item.id}-remarks`} style={styles.fieldLabel}>
-              備考
-            </label>
-            <div style={styles.inputWrapper}>
-              <input
-                id={`${item.id}-remarks`}
-                type="text"
-                value={item.remarks || ''}
-                onFocus={handleSelectOnFocus}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  const result = validateTextLength(value, 'remarks');
-                  if (!result.isValid) {
-                    setLocalFieldErrors((prev) => ({ ...prev, remarks: result.error }));
-                  } else {
-                    setLocalFieldErrors((prev) => {
-                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                      const { remarks, ...rest } = prev;
-                      return rest;
-                    });
-                  }
-                  onUpdate?.(item.id, { remarks: value });
-                }}
-                style={{
-                  ...styles.input,
-                  ...(errors.remarks ? styles.inputError : {}),
-                }}
-                placeholder="備考"
-              />
-            </div>
-            {errors.remarks && <span style={styles.errorMessage}>{errors.remarks}</span>}
-          </div>
+          <AutocompleteInput
+            id={`${item.id}-remarks`}
+            label="備考"
+            value={item.remarks || ''}
+            onChange={createTextUpdateHandler('remarks')}
+            error={errors.remarks}
+            placeholder="備考"
+            field="remarks"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
+          />
         </div>
 
         {/* アクション */}

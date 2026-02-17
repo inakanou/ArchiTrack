@@ -643,3 +643,55 @@
   - フォーカス後にテキスト入力するとリアルタイムで候補がフィルタリング更新されることの確認
   - 対象9フィールド（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考）すべてでフォーカス時の候補表示が動作することの確認
   - _Requirements: 7.3, 7.3a_
+
+## Phase 8: 名称・備考フィールドのオートコンプリート適用修正
+
+- [x] 26. 名称・備考フィールドのAutocompleteInput適用
+- [x] 26.1 (P) FieldValidatedItemRowの名称フィールドをAutocompleteInputに変更する
+  - 名称フィールドの通常`<input>`を`AutocompleteInput`コンポーネントに置き換える
+  - `value={item.name}`、`onChange={createTextUpdateHandler('name')}`、`field="name"`を設定する
+  - `required`属性と`error={errors.name}`を維持する
+  - `getSuggestions`と`onBlurAddCandidate`をpropsとして渡す
+  - `localName`ステートを除去し、`handleNameChange`と`handleNameBlur`コールバックを除去する
+  - `localName`によるprop同期ロジック（行316-318）を除去する
+  - `fieldSpecErrors`と`requiredErrors`内の`localName`参照を`item.name`に変更する
+  - `onValidationChange`コールバック内の`localName`参照を`item.name`に変更する
+  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+
+- [x] 26.2 (P) FieldValidatedItemRowの備考フィールドをAutocompleteInputに変更する
+  - 備考フィールドの通常`<input>`を`AutocompleteInput`コンポーネントに置き換える
+  - `value={item.remarks || ''}`、`onChange={createTextUpdateHandler('remarks')}`、`field="remarks"`を設定する
+  - `error={errors.remarks}`を維持する
+  - `getSuggestions`と`onBlurAddCandidate`をpropsとして渡す
+  - インラインの`onChange`ハンドラ（`validateTextLength` + `onUpdate`処理）を除去する（`createTextUpdateHandler`に統一）
+  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+
+- [x] 26.3 (P) EditableQuantityItemRowの名称フィールドをAutocompleteInputに変更する
+  - FieldValidatedItemRowと同様の変更をEditableQuantityItemRowにも適用する
+  - 名称フィールドの通常`<input>`を`AutocompleteInput`コンポーネントに置き換える
+  - `localName`ステートと関連ハンドラを除去する
+  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+
+- [x] 26.4 (P) EditableQuantityItemRowの備考フィールドをAutocompleteInputに変更する
+  - FieldValidatedItemRowと同様の変更をEditableQuantityItemRowにも適用する
+  - 備考フィールドの通常`<input>`を`AutocompleteInput`コンポーネントに置き換える
+  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+
+- [x] 27. 名称・備考オートコンプリートのテスト
+- [x] 27.1 (P) 名称・備考フィールドのオートコンプリート単体テストを実装する
+  - FieldValidatedItemRowの名称フィールドがAutocompleteInputとしてレンダリングされることを検証する
+  - FieldValidatedItemRowの備考フィールドがAutocompleteInputとしてレンダリングされることを検証する
+  - 名称フィールドでオートコンプリート候補が表示されることを検証する
+  - 備考フィールドでオートコンプリート候補が表示されることを検証する
+  - 名称フィールドでblur時に候補が追加されることを検証する
+  - 名称フィールドのrequired属性が維持されることを検証する
+  - 名称フィールドの文字数制限バリデーションが維持されることを検証する
+  - _Requirements: 7.1, 7.3, 7.4, 7.5_
+
+- [x] 27.2 名称・備考オートコンプリートのE2Eテストを実装する
+  - 名称フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示されることの確認
+  - 備考フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示されることの確認
+  - 名称フィールドでテキスト入力時に候補がフィルタリングされることの確認
+  - 名称フィールドで候補を選択すると値が自動入力されることの確認
+  - 全9フィールド（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考）でオートコンプリートが一貫して動作することの確認
+  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
