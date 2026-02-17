@@ -23,14 +23,21 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // モック関数（vi.mock外でアクセス可能にするためvi.hoistedを使用）
-const { mockCreateWorker, mockXlsxRead, mockSheetToJson, mockExtractPdfHybrid } = vi.hoisted(
-  () => ({
-    mockCreateWorker: vi.fn(),
-    mockXlsxRead: vi.fn(),
-    mockSheetToJson: vi.fn(),
-    mockExtractPdfHybrid: vi.fn(),
-  })
-);
+const {
+  mockCreateWorker,
+  mockXlsxRead,
+  mockSheetToJson,
+  mockExtractPdfHybrid,
+  mockExtractWithClaudeVision,
+  mockRenderPdfPagesToBase64,
+} = vi.hoisted(() => ({
+  mockCreateWorker: vi.fn(),
+  mockXlsxRead: vi.fn(),
+  mockSheetToJson: vi.fn(),
+  mockExtractPdfHybrid: vi.fn(),
+  mockExtractWithClaudeVision: vi.fn(),
+  mockRenderPdfPagesToBase64: vi.fn(),
+}));
 
 // tesseract.jsをモック（軽量版）
 vi.mock('tesseract.js', () => ({
@@ -45,12 +52,33 @@ vi.mock('xlsx', () => ({
   },
 }));
 
-// pdf-text-extractorをモック（PDFハイブリッド抽出）
+// pdf-text-extractorをモック（PDFハイブリッド抽出 + renderPdfPagesToBase64）
 vi.mock('../../../components/estimate-requests/pdf-text-extractor', () => ({
   extractPdfHybrid: mockExtractPdfHybrid,
+  renderPdfPagesToBase64: mockRenderPdfPagesToBase64,
+}));
+
+// claude-vision APIクライアントをモック
+vi.mock('../../../api/claude-vision', () => ({
+  extractWithClaudeVision: mockExtractWithClaudeVision,
+  ClaudeVisionApiError: class ClaudeVisionApiError extends Error {
+    readonly errorType: string;
+    readonly statusCode: number;
+    readonly shouldFallback: boolean = true;
+    constructor(message: string, errorType: string, statusCode: number) {
+      super(message);
+      this.name = 'ClaudeVisionApiError';
+      this.errorType = errorType;
+      this.statusCode = statusCode;
+    }
+  },
+  isClaudeVisionApiError: (error: unknown): boolean => {
+    return error instanceof Error && error.constructor.name === 'ClaudeVisionApiError';
+  },
 }));
 
 import { OcrDataExtractor } from '../../../components/estimate-requests/OcrDataExtractor';
+import { ClaudeVisionApiError } from '../../../api/claude-vision';
 
 describe('OcrDataExtractor', () => {
   const mockOnImportLineItems = vi.fn();
@@ -86,6 +114,16 @@ describe('OcrDataExtractor', () => {
       text: '外壁塗装工事\tシリコン系\tm2\t150\t3500\n防水工事\tウレタン防水\tm2\t50\t8000',
       method: 'pdfjs',
     });
+
+    // Claude Vision API: デフォルトで失敗（既存テストに影響しないよう）
+    mockExtractWithClaudeVision.mockRejectedValue(
+      new ClaudeVisionApiError('Claude Vision機能は無効です', 'service_unavailable', 503)
+    );
+
+    // renderPdfPagesToBase64: デフォルトモック
+    mockRenderPdfPagesToBase64.mockResolvedValue([
+      { base64Data: 'dGVzdA==', mediaType: 'image/png' },
+    ]);
   });
 
   afterEach(() => {
@@ -719,6 +757,267 @@ describe('OcrDataExtractor', () => {
       expect(firstItem.unitPrice).toBe('1235');
       // 金額: 再計算 (2.50 * 1235 = 3087.5 -> 3088)
       expect(firstItem.amount).toBe(3088);
+    });
+  });
+
+  // ==========================================================================
+  // Task 56.2: OcrDataExtractor Claude Vision拡張のユニットテスト
+  //
+  // Requirements:
+  // - 24.1, 24.2: Claude Vision API抽出パスの追加
+  // - 24.5, 24.6: 結果表示、一括取り込みボタン表示
+  // - 24.7: 処理中インジケーター
+  // - 24.8: 数値フォーマット適用
+  // - 25.1-25.6: Tesseract.jsフォールバック
+  // - 25.7: 両方失敗時エラー表示
+  // ==========================================================================
+
+  describe('Claude Vision抽出パス（Task 54.2, 54.3, 55.1, 55.2, 56.2）', () => {
+    // Claude Vision成功レスポンスのモック
+    const mockClaudeVisionSuccessResponse = {
+      lineItems: [
+        {
+          customCategory: null,
+          workType: '土工',
+          name: '掘削工',
+          specification: 'バックホウ',
+          unit: 'm3',
+          quantity: 100.5,
+          unitPrice: 2500,
+          amount: 251250,
+          remarks: null,
+        },
+        {
+          customCategory: null,
+          workType: '土工',
+          name: '埋戻し',
+          specification: null,
+          unit: 'm3',
+          quantity: 50,
+          unitPrice: 1500,
+          amount: 75000,
+          remarks: '再利用土',
+        },
+      ],
+      pageCount: 1,
+    };
+
+    describe('Claude Vision成功フロー（54.2, 56.2）', () => {
+      it('PDFファイルに対してClaude Vision抽出を優先的に試行する', async () => {
+        mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        // Claude Vision APIが呼ばれる
+        await waitFor(() => {
+          expect(mockExtractWithClaudeVision).toHaveBeenCalled();
+        });
+
+        // renderPdfPagesToBase64が呼ばれる
+        expect(mockRenderPdfPagesToBase64).toHaveBeenCalled();
+      });
+
+      it('Claude Vision成功時に抽出結果をJSON形式でテキスト表示する', async () => {
+        mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          const extractedText = screen.getByTestId('ocr-extracted-text');
+          expect(extractedText).toBeInTheDocument();
+          // JSON形式で表示される
+          expect(extractedText.textContent).toContain('掘削工');
+        });
+      });
+
+      it('Claude Vision成功時に一括取り込みボタンを表示する', async () => {
+        mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+          expect(screen.getByText(/2件のデータが検出されました/)).toBeInTheDocument();
+        });
+      });
+
+      it('Claude Vision成功時に青色インフォバナーを表示する', async () => {
+        mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByText(/Claude Vision APIで抽出しました/)).toBeInTheDocument();
+        });
+      });
+
+      it('Claude Vision成功時の一括取り込みで数値フォーマットが適用される（24.8）', async () => {
+        mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
+        const user = userEvent.setup();
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+        });
+
+        await user.click(screen.getByTestId('ocr-import-button'));
+
+        expect(mockOnImportLineItems).toHaveBeenCalledTimes(1);
+        const importedItems = mockOnImportLineItems.mock.calls[0]?.[0];
+        expect(importedItems).toBeDefined();
+        expect(importedItems).toHaveLength(2);
+
+        // 数量: 小数2桁表示 (100.5 -> '100.50')
+        expect(importedItems[0].quantity).toBe('100.50');
+        // 単価: 整数表示 (2500 -> '2500')
+        expect(importedItems[0].unitPrice).toBe('2500');
+        // 金額: 自動計算 (100.50 * 2500 = 251250)
+        expect(importedItems[0].amount).toBe(251250);
+
+        // 2行目
+        expect(importedItems[1].quantity).toBe('50.00');
+        expect(importedItems[1].unitPrice).toBe('1500');
+        expect(importedItems[1].amount).toBe(75000);
+      });
+    });
+
+    describe('画像ファイルに対するClaude Vision抽出（54.3）', () => {
+      it('画像ファイルに対してもClaude Vision抽出を試行する', async () => {
+        mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
+        const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+        render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
+
+        // Claude Vision APIが呼ばれる（画像はrenderPdfPagesToBase64ではなくFileReader経由）
+        await waitFor(() => {
+          expect(mockExtractWithClaudeVision).toHaveBeenCalled();
+        });
+
+        // PDFではないのでrenderPdfPagesToBase64は呼ばれない
+        expect(mockRenderPdfPagesToBase64).not.toHaveBeenCalled();
+      });
+
+      it('画像ファイルClaude Vision成功時に結果と取り込みボタンを表示する', async () => {
+        mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
+        const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+        render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
+          expect(screen.getByText(/2件のデータが検出されました/)).toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('Claude Vision失敗→Tesseract.jsフォールバック（55.1, 55.2）', () => {
+      it('Claude Vision失敗時に自動的にTesseract.jsフォールバックを実行する（PDF）', async () => {
+        // Claude Vision失敗
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError('サービス利用不可', 'service_unavailable', 503)
+        );
+
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        // フォールバック: extractPdfHybridが呼ばれる
+        await waitFor(() => {
+          expect(mockExtractPdfHybrid).toHaveBeenCalled();
+        });
+
+        // 結果が表示される
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+      });
+
+      it('Claude Vision失敗時に自動的にTesseract.jsフォールバックを実行する（画像）', async () => {
+        // Claude Vision失敗
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError('タイムアウト', 'timeout', 504)
+        );
+
+        const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+        render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
+
+        // フォールバック: Tesseract.js workerが呼ばれる
+        await waitFor(() => {
+          expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        });
+      });
+
+      it('フォールバック発動時に黄色の警告バナーを表示する（25.4）', async () => {
+        // Claude Vision失敗
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError('レート制限', 'rate_limit', 429)
+        );
+
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        // フォールバック結果が表示される
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+
+        // 黄色警告バナーが表示される
+        expect(
+          screen.getByText(/Claude Vision APIが利用できないため、従来のOCR処理で実行しています/)
+        ).toBeInTheDocument();
+      });
+
+      it('Claude VisionとTesseract.js両方が失敗した場合にエラーバナーを表示する（25.7）', async () => {
+        // Claude Vision失敗
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError('サービス利用不可', 'service_unavailable', 503)
+        );
+
+        // Tesseract.jsフォールバックも失敗（PDF）
+        mockExtractPdfHybrid.mockRejectedValueOnce(new Error('OCR処理に失敗しました'));
+
+        const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+
+        render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        // エラー表示
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+          expect(
+            screen.getByText(/OCR処理に失敗しました。手動入力してください/)
+          ).toBeInTheDocument();
+        });
+      });
+
+      it('画像ファイルでClaude VisionとTesseract.js両方失敗時にエラー表示する（25.7）', async () => {
+        // Claude Vision失敗
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError('サービス利用不可', 'service_unavailable', 503)
+        );
+
+        // Tesseract.jsフォールバックも失敗（画像）
+        mockWorker.recognize.mockRejectedValueOnce(new Error('OCR失敗'));
+
+        const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+        render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
+
+        // エラー表示
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+          expect(
+            screen.getByText(/OCR処理に失敗しました。手動入力してください/)
+          ).toBeInTheDocument();
+        });
+      });
     });
   });
 });
