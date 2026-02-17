@@ -59,6 +59,7 @@ import {
   addOverheadItemSchema,
   getItemsQuerySchema,
   exportEstimateQuerySchema,
+  moveEstimateItemSchema,
 } from '../schemas/estimate.schema.js';
 import {
   EstimateNotFoundError,
@@ -67,6 +68,7 @@ import {
   EstimateItemNotFoundError,
   EstimateItemHasChildrenError,
   EstimateItemNotBelongToEstimateError,
+  EstimateItemCircularReferenceError,
   ReceivedQuotationLineItemNotFoundError,
   ItemizedStatementNotFoundForEstimateError,
 } from '../errors/estimateError.js';
@@ -1027,6 +1029,106 @@ router.put(
           status: 404,
           detail: error.message,
           code: 'ESTIMATE_NOT_FOUND',
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+// ==========================================
+// 階層移動API (Task 27.1, REQ-24)
+// ==========================================
+
+/**
+ * @swagger
+ * /api/estimates/{id}/items/{itemId}/move:
+ *   patch:
+ *     summary: 見積項目の階層移動
+ *     description: 見積項目の親子関係を変更（階層移動）
+ *     tags:
+ *       - Estimate Items
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 見積書ID
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 移動する見積項目ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - newParentId
+ *             properties:
+ *               newParentId:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
+ *                 description: 新しい親項目ID（nullでルートレベルに移動）
+ *     responses:
+ *       200:
+ *         description: 移動成功
+ *       400:
+ *         description: バリデーションエラーまたは循環参照
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 見積項目が見つからない
+ */
+router.patch(
+  '/:id/items/:itemId/move',
+  authenticate,
+  requirePermission('estimate:update'),
+  validate(estimateItemIdParamSchema, 'params'),
+  validate(moveEstimateItemSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { itemId } = req.validatedParams as { id: string; itemId: string };
+      const { newParentId } = req.validatedBody as { newParentId: string | null };
+
+      await estimateItemService.moveItem(itemId, newParentId);
+
+      logger.info(
+        { userId: req.user?.userId, itemId, newParentId },
+        'Estimate item moved successfully'
+      );
+
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof EstimateItemCircularReferenceError) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/estimate-item-circular-reference',
+          title: 'Circular Reference',
+          status: 400,
+          detail: error.message,
+          code: 'ESTIMATE_ITEM_CIRCULAR_REFERENCE',
+        });
+        return;
+      }
+      if (error instanceof EstimateItemNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/estimate-item-not-found',
+          title: 'Estimate Item Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'ESTIMATE_ITEM_NOT_FOUND',
         });
         return;
       }

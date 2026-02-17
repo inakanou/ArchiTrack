@@ -1029,6 +1029,28 @@
 
 ---
 
+### Phase 22: 調査報告書PDFファイル名の変更（要件11.9対応）
+
+- [x] 44. 調査報告書PDFファイル名を「現場調査報告書_YYYYMMDD.pdf」形式に変更する
+- [x] 44.1 PdfExportService.generateDefaultFilename()を修正する
+  - 固定プレフィックス「現場調査報告書」を使用する
+  - 調査日（survey.surveyDate）をYYYYMMDD形式でフォーマットする
+  - ファイル名形式: `現場調査報告書_YYYYMMDD.pdf`
+  - _Requirements: 11.9_
+- [x] 44.2 SiteSurveyDetailInfo.tsxのhandleExportPdf内のファイル名生成を修正する
+  - 独自ファイル名生成（`site-survey-${survey.id}-${date}.pdf`）を削除する
+  - PdfExportService.generateDefaultFilename()を使用するか、直接「現場調査報告書_YYYYMMDD.pdf」形式を使用する
+  - _Requirements: 11.9_
+- [x] 44.3 既存のPdfExportService単体テストを更新する
+  - generateDefaultFilenameのテストケースを更新して新しいファイル名形式を検証する
+  - exportAndDownloadPdfのデフォルトファイル名テストを更新する
+  - _Requirements: 11.9_
+- [x] 44.4 E2Eテストでファイル名を検証する
+  - PDFダウンロード時のファイル名が「現場調査報告書_YYYYMMDD.pdf」形式であることを確認する
+  - _Requirements: 11.9_
+
+---
+
 ## Requirements Coverage
 
 | 要件 | タスク                                               |
@@ -1120,6 +1142,7 @@
 | 11.6 | 28.2, 30.3, 30.5                                     |
 | 11.7 | 28.4, 30.3, 30.5                                     |
 | 11.8 | 28.3, 30.5                                           |
+| 11.9 | 44.1, 44.2, 44.3, 44.4                               |
 | 12.1 | 29.1, 29.3, 30.4, 30.5                               |
 | 12.2 | 29.1, 30.4, 30.5                                     |
 | 12.3 | 29.1, 30.4, 30.5                                     |

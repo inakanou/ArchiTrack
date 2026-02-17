@@ -34,6 +34,9 @@ declare global {
       R2_SECRET_ACCESS_KEY?: string;
       R2_BUCKET_NAME?: string;
       R2_PUBLIC_URL?: string;
+
+      // Anthropic Claude Vision API
+      ANTHROPIC_API_KEY?: string;
     }
   }
 }

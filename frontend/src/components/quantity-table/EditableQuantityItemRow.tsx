@@ -301,17 +301,9 @@ export default function EditableQuantityItemRow({
   showFieldLabels = true,
 }: EditableQuantityItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  // 名称フィールドのローカル状態（REQ-5.3: blur時にバリデーション）
-  const [localName, setLocalName] = useState(item.name);
   // REQ-8.3: 数量フィールドのローカル状態（入力時に即座に警告を表示するため）
   // REQ-14.2: 小数2桁で常時表示（文字列として保持）
   const [localQuantity, setLocalQuantity] = useState(item.quantity.toFixed(2));
-
-  // 親の値が変更された場合、ローカル状態を同期
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
-    setLocalName(item.name);
-  }, [item.name]);
 
   // 親の数量値が変更された場合、ローカル状態を同期（REQ-14.2: 小数2桁で表示）
   useEffect(() => {
@@ -325,37 +317,15 @@ export default function EditableQuantityItemRow({
     [localQuantity, item.calculationMethod]
   );
 
-  // バリデーションエラー（名称はローカル状態でチェック）
+  // バリデーションエラー
   const errors = useMemo((): Record<string, string | undefined> => {
     if (!showValidation) return {};
     const baseErrors = getValidationErrors(item);
-    // 名称はローカル値でチェック（blur時にリアルタイムでエラー表示）
     return {
       ...baseErrors,
-      name: !localName?.trim() ? '名称は必須です' : undefined,
+      name: !item.name?.trim() ? '名称は必須です' : undefined,
     };
-  }, [item, showValidation, localName]);
-
-  /**
-   * 名称フィールド変更ハンドラ（ローカル状態のみ更新）
-   * REQ-5.3: blur時にバリデーションを実行
-   */
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalName(e.target.value);
-  }, []);
-
-  /**
-   * 名称フィールドblurハンドラ（バリデーション後にAPI呼び出し）
-   * REQ-5.3: 必須フィールド未入力時にエラーメッセージを表示
-   */
-  const handleNameBlur = useCallback(() => {
-    const trimmedValue = localName?.trim() || '';
-    // 有効な値の場合のみAPIを呼び出し
-    if (trimmedValue && trimmedValue !== item.name) {
-      onUpdate?.(item.id, { name: trimmedValue });
-    }
-    // 空の場合はローカル状態を維持し、エラーを表示（APIは呼ばない）
-  }, [localName, item.id, item.name, onUpdate]);
+  }, [item, showValidation]);
 
   /**
    * フィールド更新ハンドラを生成
@@ -639,32 +609,18 @@ export default function EditableQuantityItemRow({
 
         {/* 名称 */}
         <div style={styles.fieldGroup} role="cell">
-          <div style={styles.directInputContainer}>
-            {showFieldLabels && (
-              <label htmlFor={`${item.id}-name`} style={styles.fieldLabel}>
-                名称<span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
-              </label>
-            )}
-            <div style={styles.inputWrapper}>
-              <input
-                id={`${item.id}-name`}
-                type="text"
-                value={localName}
-                onChange={handleNameChange}
-                onBlur={handleNameBlur}
-                style={{
-                  ...styles.input,
-                  ...(errors.name ? styles.inputError : {}),
-                }}
-                placeholder="名称を入力"
-                aria-invalid={!!errors.name}
-                aria-required
-              />
-            </div>
-            {errors.name && (
-              <span style={{ fontSize: '12px', color: '#dc2626' }}>{errors.name}</span>
-            )}
-          </div>
+          <AutocompleteInput
+            id={`${item.id}-name`}
+            label={showFieldLabels ? '名称' : undefined}
+            value={item.name}
+            onChange={createUpdateHandler('name')}
+            error={errors.name}
+            required
+            placeholder="名称を入力"
+            field="name"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
+          />
         </div>
 
         {/* 規格 */}
@@ -745,23 +701,16 @@ export default function EditableQuantityItemRow({
 
         {/* 備考 - 要件順序: 単位の次 */}
         <div style={styles.fieldGroup} role="cell">
-          <div style={styles.directInputContainer}>
-            {showFieldLabels && (
-              <label htmlFor={`${item.id}-remarks`} style={styles.fieldLabel}>
-                備考
-              </label>
-            )}
-            <div style={styles.inputWrapper}>
-              <input
-                id={`${item.id}-remarks`}
-                type="text"
-                value={item.remarks || ''}
-                onChange={(e) => onUpdate?.(item.id, { remarks: e.target.value })}
-                style={styles.input}
-                placeholder="備考"
-              />
-            </div>
-          </div>
+          <AutocompleteInput
+            id={`${item.id}-remarks`}
+            label={showFieldLabels ? '備考' : undefined}
+            value={item.remarks || ''}
+            onChange={createUpdateHandler('remarks')}
+            placeholder="備考"
+            field="remarks"
+            getSuggestions={getSuggestions}
+            onBlurAddCandidate={onBlurAddCandidate}
+          />
         </div>
 
         {/* アクション */}

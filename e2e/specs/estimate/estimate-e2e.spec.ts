@@ -409,8 +409,8 @@ test.describe('見積書機能', () => {
         // 編集モードに切り替え
         await page.getByRole('button', { name: /編集/i }).click();
 
-        // 項目追加ボタンをクリック
-        const addButton = page.getByRole('button', { name: /項目追加/i });
+        // 項目追加ボタンをクリック（「子項目追加」ボタンと区別するためexact指定）
+        const addButton = page.getByRole('button', { name: '+ 項目追加' });
         if (await addButton.isVisible()) {
           await addButton.click();
 
