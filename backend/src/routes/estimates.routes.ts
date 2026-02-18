@@ -1920,7 +1920,10 @@ router.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
-      const { format, lineType } = req.validatedQuery as { format: 'pdf' | 'xlsx'; lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR' };
+      const { format, lineType } = req.validatedQuery as {
+        format: 'pdf' | 'xlsx';
+        lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
+      };
 
       // 見積書を取得
       const estimate = await estimateService.findById(id);
@@ -1955,8 +1958,11 @@ router.get(
       const buffer = await estimateExportService.export(exportData, exportFormat);
 
       // ファイル名を生成
-      const lineTypeLabel = lineType === 'ESTIMATE' ? '見積' : lineType === 'EXECUTION' ? '実行' : '業者';
-      const fileName = estimateExportService.generateFileName(exportData, exportFormat).replace(/\.(pdf|xlsx)$/, `_${lineTypeLabel}.$1`);
+      const lineTypeLabel =
+        lineType === 'ESTIMATE' ? '見積' : lineType === 'EXECUTION' ? '実行' : '業者';
+      const fileName = estimateExportService
+        .generateFileName(exportData, exportFormat)
+        .replace(/\.(pdf|xlsx)$/, `_${lineTypeLabel}.$1`);
 
       // Content-TypeとContent-Dispositionを設定
       const contentType =
@@ -1996,23 +2002,26 @@ router.get(
 /**
  * EstimateItemをEstimateExportItemに変換するヘルパー関数
  */
-function convertToExportItem(item: {
-  id: string;
-  parentId: string | null;
-  displayOrder: number;
-  lines: Array<{
+function convertToExportItem(
+  item: {
     id: string;
-    lineType: string;
-    name: string | null;
-    specification: string | null;
-    unit: string | null;
-    quantity: unknown;
-    unitPrice: unknown;
-    amount: unknown;
-    remarks: string | null;
-  }>;
-  children?: unknown[];
-}, targetLineType?: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'): EstimateExportItem {
+    parentId: string | null;
+    displayOrder: number;
+    lines: Array<{
+      id: string;
+      lineType: string;
+      name: string | null;
+      specification: string | null;
+      unit: string | null;
+      quantity: unknown;
+      unitPrice: unknown;
+      amount: unknown;
+      remarks: string | null;
+    }>;
+    children?: unknown[];
+  },
+  targetLineType?: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'
+): EstimateExportItem {
   // 指定された行タイプのみをフィルタリング（指定なしの場合は全行）
   const filteredLines = targetLineType
     ? item.lines.filter((line) => line.lineType === targetLineType)
