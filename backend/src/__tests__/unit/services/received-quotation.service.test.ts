@@ -2256,7 +2256,14 @@ describe('ReceivedQuotationService', () => {
   describe('netAmountフィールドテスト (Task 64.1)', () => {
     it('明細行作成時にnetAmountが永続化されること（Requirements: 28.12）', async () => {
       const lineItems = [
-        { name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 10000, amount: 10000, netAmount: 9000 },
+        {
+          name: '工事A',
+          sortOrder: 0,
+          quantity: 1,
+          unitPrice: 10000,
+          amount: 10000,
+          netAmount: 9000,
+        },
       ];
       const input = {
         estimateRequestId: 'er-net-001',
@@ -2359,9 +2366,7 @@ describe('ReceivedQuotationService', () => {
         ],
       };
 
-      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
-        mockQuotation as never
-      );
+      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(mockQuotation as never);
 
       const result = await service.findById('rq-net-002');
 
@@ -2401,9 +2406,7 @@ describe('ReceivedQuotationService', () => {
         ],
       };
 
-      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
-        mockQuotation as never
-      );
+      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(mockQuotation as never);
 
       const result = await service.findById('rq-net-003');
 
