@@ -593,10 +593,7 @@ export class EstimateItemService {
       // 2. 各項目の行データを更新
       for (const item of items) {
         for (const line of item.lines) {
-          const amount = this.calculateAmount(
-            line.quantity ?? null,
-            line.unitPrice ?? null
-          );
+          const amount = this.calculateAmount(line.quantity ?? null, line.unitPrice ?? null);
 
           await tx.estimateItemLine.update({
             where: { id: line.id },
