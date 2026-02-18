@@ -357,19 +357,19 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
         return el.getBoundingClientRect().width;
       });
 
-      // カードセクションが横幅全体を使っていることを確認
-      // 項目選択セクションを含むカードの幅がコンテナ幅の90%以上であること
-      const cards = page.locator('[data-testid="estimate-request-detail-page"] > div > div');
-      const cardCount = await cards.count();
+      // セクションカード（h2見出しを含む要素の親カード）が横幅全体を使っていることを確認
+      // 「ステータス」セクションのカード幅でフルワイドを検証
+      const statusHeading = page.getByRole('heading', { name: 'ステータス' });
+      await expect(statusHeading).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (cardCount > 0) {
-        const firstCardWidth = await cards.first().evaluate((el) => {
-          return el.getBoundingClientRect().width;
-        });
+      const cardWidth = await statusHeading.evaluate((el) => {
+        // h2の親カードdiv（border付きの白いカード）の幅を取得
+        const card = el.closest('div');
+        return card ? card.getBoundingClientRect().width : 0;
+      });
 
-        // カード幅がコンテナ幅の90%以上であることを確認（padding考慮）
-        expect(firstCardWidth / containerWidth).toBeGreaterThanOrEqual(0.85);
-      }
+      // カード幅がコンテナ幅の85%以上であることを確認（padding考慮）
+      expect(cardWidth / containerWidth).toBeGreaterThanOrEqual(0.85);
     });
 
     /**

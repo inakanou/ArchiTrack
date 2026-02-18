@@ -60,6 +60,7 @@ import {
   getItemsQuerySchema,
   exportEstimateQuerySchema,
   moveEstimateItemSchema,
+  batchUpdateItemsSchema,
 } from '../schemas/estimate.schema.js';
 import {
   EstimateNotFoundError,
@@ -1003,6 +1004,59 @@ router.post(
  *       404:
  *         description: 見積書が見つからない
  */
+// ==========================================
+// 見積項目バッチ更新API (REQ-27.3)
+// ==========================================
+
+router.put(
+  '/:id/items/batch',
+  authenticate,
+  requirePermission('estimate:update'),
+  validate(estimateIdParamSchema, 'params'),
+  validate(batchUpdateItemsSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const { items } = req.validatedBody as {
+        items: Array<{
+          id: string;
+          lines: Array<{
+            id: string;
+            lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
+            name?: string | null;
+            specification?: string | null;
+            unit?: string | null;
+            quantity?: number | null;
+            unitPrice?: number | null;
+            remarks?: string | null;
+          }>;
+        }>;
+      };
+
+      await estimateItemService.batchUpdateItems(id, items);
+
+      logger.info(
+        { userId: req.user?.userId, estimateId: id, itemCount: items.length },
+        'Estimate items batch updated'
+      );
+
+      res.status(200).json({ success: true });
+    } catch (error) {
+      if (error instanceof EstimateNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/estimate-not-found',
+          title: 'Estimate Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'ESTIMATE_NOT_FOUND',
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
 router.put(
   '/:id/items/reorder',
   authenticate,
@@ -1913,6 +1967,13 @@ router.post(
  */
 router.get(
   '/:id/export',
+  (req: Request, _res: Response, next: NextFunction): void => {
+    // ファイルダウンロード用: クエリパラメータのtokenをAuthorizationヘッダーに変換
+    if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
+      req.headers.authorization = `Bearer ${req.query.token}`;
+    }
+    next();
+  },
   authenticate,
   requirePermission('estimate:read'),
   validate(estimateIdParamSchema, 'params'),

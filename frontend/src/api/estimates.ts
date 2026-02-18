@@ -304,6 +304,35 @@ export async function moveEstimateItem(
 }
 
 /**
+ * 見積項目を一括更新
+ *
+ * Requirements (estimate-creation):
+ * - REQ-27.3: 保存ボタンでDB一括反映
+ *
+ * @param estimateId - 見積書ID
+ * @param items - 更新対象の項目配列
+ */
+export async function batchUpdateEstimateItems(
+  estimateId: string,
+  items: Array<{
+    id: string;
+    lines: Array<{
+      id: string;
+      lineType: string;
+      name?: string | null;
+      specification?: string | null;
+      unit?: string | null;
+      quantity?: number | null;
+      unitPrice?: number | null;
+      remarks?: string | null;
+    }>;
+  }>,
+  updatedAt: string
+): Promise<void> {
+  await apiClient.put(`/api/estimates/${estimateId}/items/batch`, { items, updatedAt });
+}
+
+/**
  * 見積書出力ファイルをダウンロード
  *
  * @param id - 見積書ID

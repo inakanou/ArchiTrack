@@ -19,7 +19,12 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getEstimateDetail, deleteEstimate, moveEstimateItem } from '../api/estimates';
+import {
+  getEstimateDetail,
+  deleteEstimate,
+  moveEstimateItem,
+  batchUpdateEstimateItems,
+} from '../api/estimates';
 import type { EstimateDetail, EstimateItemHierarchy } from '../api/estimates';
 import { Breadcrumb } from '../components/common';
 import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
@@ -407,10 +412,49 @@ export default function EstimateDetailPage() {
     Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
   >(new Set(['ESTIMATE', 'EXECUTION', 'VENDOR']));
 
-  // 編集用フック
+  // 編集用フック（REQ-27.3: 保存ボタンでDB一括反映）
   const editor = useEstimateEditor({
     estimateId: id ?? '',
     initialItems: estimate ? toEditFormat(estimate.items) : [],
+    onSave: async (changes) => {
+      if (!id) return;
+      // 更新対象の項目のみをAPI形式に変換
+      const updateItems: Array<{
+        id: string;
+        lines: Array<{
+          id: string;
+          lineType: string;
+          name?: string | null;
+          specification?: string | null;
+          unit?: string | null;
+          quantity?: number | null;
+          unitPrice?: number | null;
+          remarks?: string | null;
+        }>;
+      }> = [];
+
+      for (const [, change] of changes) {
+        if (change.type === 'update' && change.data) {
+          updateItems.push({
+            id: change.data.id,
+            lines: change.data.lines.map((line) => ({
+              id: line.id,
+              lineType: line.lineType,
+              name: line.name,
+              specification: line.specification,
+              unit: line.unit,
+              quantity: line.quantity ? parseFloat(line.quantity) || null : null,
+              unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
+              remarks: line.remarks,
+            })),
+          });
+        }
+      }
+
+      if (updateItems.length > 0) {
+        await batchUpdateEstimateItems(id, updateItems, estimate?.updatedAt ?? '');
+      }
+    },
   });
 
   // 選択中の項目データを取得（REQ-23）

@@ -167,7 +167,7 @@ const styles = {
 export function EstimateExportDialog({
   isOpen,
   estimateId,
-  estimateName,
+  // estimateName はバックエンドのContent-Dispositionで制御するため未使用
   onClose,
 }: EstimateExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat | null>(null);
@@ -185,41 +185,24 @@ export function EstimateExportDialog({
     setError(null);
 
     try {
-      const response = await fetch(
-        `/api/estimates/${estimateId}/export?format=${selectedFormat}&lineType=${selectedLineType}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-          },
-        }
-      );
+      const token = localStorage.getItem('accessToken') ?? '';
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const url = `${baseUrl}/api/estimates/${estimateId}/export?format=${selectedFormat}&lineType=${selectedLineType}&token=${encodeURIComponent(token)}`;
 
+      // fetchでAPIリクエストを実行しレスポンスを検証
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('見積書の出力に失敗しました');
       }
 
-      const blob = await response.blob();
-
-      // ファイル名生成
-      const lineTypeLabel =
-        selectedLineType === 'ESTIMATE'
-          ? '見積'
-          : selectedLineType === 'EXECUTION'
-            ? '実行'
-            : '業者';
-      const extension = selectedFormat === 'pdf' ? '.pdf' : '.xlsx';
-      const filename = `${estimateName}_${lineTypeLabel}${extension}`;
-
-      // ダウンロード
-      const url = URL.createObjectURL(blob);
+      // ダウンロードはアンカー要素で直接URLを使用
+      // Content-Dispositionヘッダーでファイル名がブラウザに伝達される
       const link = document.createElement('a');
       link.href = url;
-      link.download = filename;
+      link.download = '';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
 
       onClose();
     } catch {
@@ -227,7 +210,7 @@ export function EstimateExportDialog({
     } finally {
       setIsExporting(false);
     }
-  }, [estimateId, estimateName, selectedFormat, selectedLineType, onClose]);
+  }, [estimateId, selectedFormat, selectedLineType, onClose]);
 
   if (!isOpen) return null;
 
