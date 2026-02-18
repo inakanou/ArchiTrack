@@ -406,19 +406,17 @@ test.describe('見積書機能', () => {
           timeout: getTimeout(15000),
         });
 
-        // 編集モードに切り替え
-        await page.getByRole('button', { name: /編集/i }).click();
+        // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
         // 項目追加ボタンをクリック（「子項目追加」ボタンと区別するためexact指定）
         const addButton = page.getByRole('button', { name: '+ 項目追加' });
-        if (await addButton.isVisible()) {
-          await addButton.click();
+        await expect(addButton).toBeVisible({ timeout: getTimeout(10000) });
+        await addButton.click();
 
-          // 3行1セット（見積・実行・業者）が表示されることを確認
-          await expect(page.getByText(/見積/i).first()).toBeVisible({
-            timeout: getTimeout(10000),
-          });
-        }
+        // 3行1セット（見積・実行・業者）が表示されることを確認
+        await expect(page.getByText(/見積/i).first()).toBeVisible({
+          timeout: getTimeout(10000),
+        });
       });
 
       /**
@@ -439,13 +437,7 @@ test.describe('見積書機能', () => {
           timeout: getTimeout(15000),
         });
 
-        // 編集モードに切り替え
-        await page.getByRole('button', { name: /編集/i }).click();
-
-        // 編集モードに切り替わったことを確認（キャンセルボタンが表示される）
-        await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-          timeout: getTimeout(5000),
-        });
+        // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
         // 数量と単価の入力フィールドを探す（aria-labelで検索）
         const quantityInputs = page.locator('input[aria-label="数量"]');
@@ -835,8 +827,7 @@ test.describe('見積書機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 編集モードに切り替え
-      await page.getByRole('button', { name: /編集/i }).click();
+      // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
       // 単価入力フィールドがあれば手入力をテスト
       const unitPriceInputs = page.locator('input[aria-label*="単価"]');
