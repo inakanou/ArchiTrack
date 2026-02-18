@@ -167,7 +167,7 @@ const styles = {
 export function EstimateExportDialog({
   isOpen,
   estimateId,
-  // estimateName はバックエンドのContent-Dispositionで制御するため未使用
+  estimateName,
   onClose,
 }: EstimateExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat | null>(null);
@@ -185,32 +185,42 @@ export function EstimateExportDialog({
     setError(null);
 
     try {
-      const token = localStorage.getItem('accessToken') ?? '';
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const url = `${baseUrl}/api/estimates/${estimateId}/export?format=${selectedFormat}&lineType=${selectedLineType}&token=${encodeURIComponent(token)}`;
+      const url = `/api/estimates/${estimateId}/export?format=${selectedFormat}&lineType=${selectedLineType}`;
 
       // fetchでAPIリクエストを実行しレスポンスを検証
-      const response = await fetch(url);
+      const response = await fetch(url, { method: 'GET' });
       if (!response.ok) {
         throw new Error('見積書の出力に失敗しました');
       }
 
-      // ダウンロードはアンカー要素で直接URLを使用
-      // Content-Dispositionヘッダーでファイル名がブラウザに伝達される
+      // レスポンスからBlobを取得してダウンロード
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      // lineTypeに対応するラベルでファイル名を生成（REQ-32.4）
+      const lineTypeLabels: Record<ExportLineType, string> = {
+        ESTIMATE: '見積',
+        EXECUTION: '実行',
+        VENDOR: '業者',
+      };
+      const ext = selectedFormat === 'pdf' ? 'pdf' : 'xlsx';
+      const fileName = `${estimateName}_${lineTypeLabels[selectedLineType]}.${ext}`;
+
       const link = document.createElement('a');
-      link.href = url;
-      link.download = '';
+      link.href = blobUrl;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
 
+      URL.revokeObjectURL(blobUrl);
       onClose();
     } catch {
       setError('見積書の出力に失敗しました');
     } finally {
       setIsExporting(false);
     }
-  }, [estimateId, selectedFormat, selectedLineType, onClose]);
+  }, [estimateId, estimateName, selectedFormat, selectedLineType, onClose]);
 
   if (!isOpen) return null;
 
