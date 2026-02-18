@@ -230,7 +230,8 @@ Claude Codeのプロジェクト固有設定。
 ```
 .claude/
 ├── CLAUDE.md              # AI運用7原則
-└── commands/              # カスタムスラッシュコマンド
+├── commands/              # カスタムスラッシュコマンド
+└── skills/                # Claude Code Skills（自動適用ガイドライン）
 ```
 
 ### `.github/` - CI/CD

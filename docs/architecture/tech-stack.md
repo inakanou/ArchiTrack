@@ -12,6 +12,7 @@
 | | Vite | 7.x | ビルドツール・開発サーバー |
 | | React Router | 7.x | クライアントサイドルーティング |
 | | TypeScript | 5.9.x | 型安全性 |
+| | Tailwind CSS | 4.x | ユーティリティファーストCSS |
 | **Backend** | Node.js | 22 | サーバーランタイム |
 | | Express | 5.x | Webフレームワーク |
 | | Prisma | 7.x | ORM（Driver Adapter Pattern） |
@@ -79,6 +80,19 @@
 - 型安全なルーティング
 - 宣言的なルート定義
 - フレームワークモード対応
+
+### Tailwind CSS 4
+
+**選定理由:**
+- ユーティリティファーストのCSSフレームワーク
+- ビルド時の最適化（未使用スタイルの自動除去）
+- デザインシステムとの親和性
+- Viteとのネイティブ統合
+
+**特徴:**
+- CSS-firstの設定（PostCSS統合）
+- @importベースの利用
+- レスポンシブデザイン
 
 ---
 
