@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-02-13（Steering Sync: テスト/CI環境のDev/prod parity化、nginx .mjs MIMEタイプ対応、ステータス別件数API追加を反映）_
+_最終更新: 2026-02-18（Steering Sync: Claude Vision OCR統合、pre-commitラッパー構造化、schemas/errors拡充、テスト規模拡大を反映）_
 
 ## ルートディレクトリ構成
 
@@ -22,8 +22,9 @@ ArchiTrack/
 ├── .husky/                 # Git フック管理（Husky v9）
 │   ├── _/                  # Husky内部設定
 │   ├── scripts/            # フック実装スクリプト
+│   │   ├── pre-commit.sh   # pre-commit実装（bash）
 │   │   └── pre-push.sh     # pre-push実装（bash）
-│   ├── pre-commit          # コミット前フック（lint-staged + 型チェック）
+│   ├── pre-commit          # コミット前ラッパー（scripts/pre-commit.sh呼び出し）
 │   ├── commit-msg          # コミットメッセージ検証（commitlint）
 │   └── pre-push            # プッシュ前ラッパー（scripts/pre-push.sh呼び出し）
 ├── .kiro/                  # Kiro開発管理
@@ -150,7 +151,8 @@ Gitフック管理ディレクトリ（Husky v9使用）。
 
 **主要ファイル:**
 
-- `pre-commit` - コミット前に自動実行されるスクリプト
+- `pre-commit` + `scripts/pre-commit.sh` - コミット前に自動実行されるスクリプト
+  - **ラッパー構造**: `pre-commit`（sh）→ `scripts/pre-commit.sh`（bash）でpipefail等を使用
   - バックエンドの変更: Prettier + ESLint + TypeScript型チェック
   - フロントエンドの変更: Prettier + ESLint + TypeScript型チェック
   - E2Eテストの変更: Prettier + ESLint + TypeScript型チェック
@@ -610,7 +612,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（85ファイル）:**
+**Storybookストーリーファイル（115ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -672,7 +674,7 @@ frontend/
 
 ```
 frontend/src/
-├── api/               # APIクライアント（12ファイル）
+├── api/               # APIクライアント（15ファイル）
 │   ├── auth.ts        # 認証API
 │   ├── client.ts      # 共通クライアント
 │   ├── projects.ts    # プロジェクトAPI
@@ -685,8 +687,10 @@ frontend/src/
 │   ├── estimate-requests.ts # 見積依頼API
 │   ├── estimate-request-status.ts # 見積依頼ステータスAPI
 │   ├── received-quotations.ts # 受領見積書API
+│   ├── claude-vision.ts # Claude Vision OCR API
+│   ├── company-info.ts # 自社情報API
 │   └── estimates.ts # 見積書API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore等 26ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore等 22ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts等）
 ├── utils/             # ユーティリティ関数
@@ -721,7 +725,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（92テストファイル、1800+テストケース）
+│   │   └── unit/          # ユニットテスト（134テストファイル）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -756,8 +760,19 @@ backend/
 │   │       └── utils/     # ユーティリティテスト
 │   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
 │   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
-│   ├── errors/            # カスタムエラー定義
-│   │   └── ApiError.ts    # カスタムAPIエラークラス
+│   ├── errors/            # カスタムエラー定義（12ファイル）
+│   │   ├── apiError.ts    # 汎用APIエラークラス
+│   │   ├── projectError.ts # プロジェクト関連エラー
+│   │   ├── tradingPartnerError.ts # 取引先関連エラー
+│   │   ├── siteSurveyError.ts # 現場調査関連エラー
+│   │   ├── quantityTableError.ts # 数量表関連エラー
+│   │   ├── itemizedStatementError.ts # 内訳書関連エラー
+│   │   ├── estimateRequestError.ts # 見積依頼関連エラー
+│   │   ├── estimateRequestStatusError.ts # 見積依頼ステータス関連エラー
+│   │   ├── receivedQuotationError.ts # 受領見積書関連エラー
+│   │   ├── companyInfoError.ts # 自社情報関連エラー
+│   │   ├── estimateError.ts # 見積書関連エラー
+│   │   └── claudeVisionError.ts # Claude Vision関連エラー
 │   ├── middleware/        # ミドルウェア
 │   │   ├── errorHandler.middleware.ts  # エラーハンドリング
 │   │   ├── httpsRedirect.middleware.ts # HTTPS強制リダイレクト
@@ -765,7 +780,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（26ファイル）
+│   ├── routes/            # ルート定義（27ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -791,13 +806,24 @@ backend/
 │   │   ├── received-quotation.routes.ts # 受領見積書ルート（ファイルアップロード）
 │   │   ├── company-info.routes.ts # 自社情報ルート（シングルトンCRUD）
 │   │   ├── project-quotations.routes.ts # プロジェクト単位受領見積書取得ルート（転記用）
+│   │   ├── claude-vision.routes.ts # Claude Vision OCRルート（見積書構造化データ抽出）
 │   │   └── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、利益率、Excel出力）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── schemas/           # Zodバリデーションスキーマ
-│   │   └── project.schema.ts # プロジェクト関連バリデーションスキーマ
-│   ├── services/          # ビジネスロジック（47サービス）
+│   ├── schemas/           # Zodバリデーションスキーマ（11ファイル）
+│   │   ├── project.schema.ts # プロジェクト関連
+│   │   ├── trading-partner.schema.ts # 取引先関連
+│   │   ├── site-survey.schema.ts # 現場調査関連
+│   │   ├── annotation.schema.ts # 注釈関連
+│   │   ├── quantity-table.schema.ts # 数量表関連
+│   │   ├── itemized-statement.schema.ts # 内訳書関連
+│   │   ├── estimate-request.schema.ts # 見積依頼関連
+│   │   ├── received-quotation.schema.ts # 受領見積書関連
+│   │   ├── company-info.schema.ts # 自社情報関連
+│   │   ├── claude-vision.schema.ts # Claude Vision OCR関連
+│   │   └── estimate.schema.ts # 見積書関連
+│   ├── services/          # ビジネスロジック（48サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -844,7 +870,8 @@ backend/
 │   │   ├── estimate-calculation.service.ts # 見積金額計算（NET金額案分）
 │   │   ├── estimate-validation.service.ts # 見積書バリデーション
 │   │   ├── estimate-export.service.ts # 見積書Excel出力
-│   │   └── overhead-cost.service.ts # 諸経費行管理
+│   │   ├── overhead-cost.service.ts # 諸経費行管理
+│   │   └── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -861,10 +888,15 @@ backend/
 │   │   ├── session.types.ts # セッション関連型定義
 │   │   ├── password.types.ts # パスワード関連型定義
 │   │   └── project.types.ts # プロジェクト関連型定義（ステータス、遷移）
-│   ├── utils/             # ユーティリティ関数
+│   ├── utils/             # ユーティリティ関数（8ファイル）
 │   │   ├── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
-│   │   ├── env-validator.ts # 環境変数バリデーション（Zod）
-│   │   └── sentry.ts      # Sentryエラートラッキング
+│   │   ├── sentry.ts      # Sentryエラートラッキング
+│   │   ├── cache.ts       # キャッシュユーティリティ
+│   │   ├── controller-helpers.ts # コントローラーヘルパー
+│   │   ├── result-mapper.ts # Result型マッパー
+│   │   ├── kana-converter.ts # かな変換ユーティリティ
+│   │   ├── seed-helpers.ts # シードデータヘルパー
+│   │   └── timing.ts      # タイミングユーティリティ
 │   ├── app.ts             # Expressアプリケーション（テスト用に分離、Swagger UI統合）
 │   ├── index.ts           # Expressサーバーエントリーポイント（app.tsをimportして起動）
 │   ├── generate-swagger.ts  # Swagger/OpenAPI仕様生成スクリプト（JSDocから生成）
@@ -928,7 +960,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（26ルートファイル）:**
+**実装済みAPI（27ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -1062,6 +1094,9 @@ backend/src/
 
 **プロジェクト単位受領見積書API（project-quotations.routes.ts）:**
 - `GET /api/projects/:projectId/received-quotations`: プロジェクトに紐付く受領見積書一覧取得（転記ダイアログ用）
+
+**Claude Vision OCR API（claude-vision.routes.ts）:**
+- `POST /api/claude-vision/extract`: Claude Vision APIによる見積書画像の構造化データ抽出（複数ページ一括処理対応）
 
 **見積書管理API（estimates.routes.ts）:**
 - `GET /api/projects/:projectId/estimates`: 見積書一覧取得
@@ -1317,7 +1352,9 @@ refactor: improve type safety by eliminating any types
 
 `.husky/`により、以下の3段階でコード品質を自動保証：
 
-#### 1. Pre-commitフック
+#### 1. Pre-commitフック（ラッパー構造）
+
+`.husky/pre-commit`（sh）→ `.husky/scripts/pre-commit.sh`（bash）の2層構造で実装。
 
 コミット前に自動的に以下が実行されます：
 
@@ -1370,8 +1407,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 1800+テストケース（単体、92ファイル）+ 70+テスト（統合、12ファイル）
-- Frontend: 800+テストケース（単体、145ファイル）
+- Backend: 単体テスト134ファイル + 統合テスト23ファイル
+- Frontend: 単体テスト213ファイル
 
 ### .gitignore
 
