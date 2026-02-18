@@ -38,10 +38,7 @@ function renderWithRouter(projectId: string = 'proj-1') {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}/estimates/new`]}>
       <Routes>
-        <Route
-          path="/projects/:projectId/estimates/new"
-          element={<EstimateCreatePage />}
-        />
+        <Route path="/projects/:projectId/estimates/new" element={<EstimateCreatePage />} />
       </Routes>
     </MemoryRouter>
   );

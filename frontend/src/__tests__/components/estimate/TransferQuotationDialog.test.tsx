@@ -114,9 +114,7 @@ describe('TransferQuotationDialog', () => {
   });
 
   it('isOpen=falseの場合は何も表示しない', () => {
-    const { container } = render(
-      <TransferQuotationDialog {...defaultProps} isOpen={false} />
-    );
+    const { container } = render(<TransferQuotationDialog {...defaultProps} isOpen={false} />);
     expect(container.innerHTML).toBe('');
   });
 
@@ -162,14 +160,16 @@ describe('TransferQuotationDialog', () => {
       const options = within(targetSelect).getAllByRole('option');
 
       // item-1: 「外壁塗装 の子項目として作成」
-      const item1Option = options.find((opt) =>
-        opt.textContent?.includes('外壁塗装') && opt.textContent?.includes('の子項目として作成')
+      const item1Option = options.find(
+        (opt) =>
+          opt.textContent?.includes('外壁塗装') && opt.textContent?.includes('の子項目として作成')
       );
       expect(item1Option).toBeDefined();
 
       // item-2: 「防水工事 の子項目として作成」
-      const item2Option = options.find((opt) =>
-        opt.textContent?.includes('防水工事') && opt.textContent?.includes('の子項目として作成')
+      const item2Option = options.find(
+        (opt) =>
+          opt.textContent?.includes('防水工事') && opt.textContent?.includes('の子項目として作成')
       );
       expect(item2Option).toBeDefined();
     });
@@ -182,8 +182,9 @@ describe('TransferQuotationDialog', () => {
       const options = within(targetSelect).getAllByRole('option');
 
       // item-1-1: 「下地処理 の子項目として作成」
-      const childOption = options.find((opt) =>
-        opt.textContent?.includes('下地処理') && opt.textContent?.includes('の子項目として作成')
+      const childOption = options.find(
+        (opt) =>
+          opt.textContent?.includes('下地処理') && opt.textContent?.includes('の子項目として作成')
       );
       expect(childOption).toBeDefined();
     });
@@ -201,13 +202,9 @@ describe('TransferQuotationDialog', () => {
       const options = within(targetSelect).getAllByRole('option');
 
       // ルート項目（外壁塗装）のテキスト
-      const rootOption = options.find((opt) =>
-        opt.textContent?.includes('外壁塗装')
-      );
+      const rootOption = options.find((opt) => opt.textContent?.includes('外壁塗装'));
       // 子項目（下地処理）のテキスト - インデントされているはず
-      const childOption = options.find((opt) =>
-        opt.textContent?.includes('下地処理')
-      );
+      const childOption = options.find((opt) => opt.textContent?.includes('下地処理'));
 
       expect(rootOption).toBeDefined();
       expect(childOption).toBeDefined();

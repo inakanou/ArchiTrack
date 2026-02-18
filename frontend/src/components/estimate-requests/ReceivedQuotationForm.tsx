@@ -474,7 +474,8 @@ function convertToLineItemFormData(
   return items.map((item) => {
     const rawQuantity = item.quantity !== null ? String(item.quantity) : '';
     const rawUnitPrice = item.unitPrice !== null ? String(item.unitPrice) : '';
-    const rawNetAmount = item.netAmount !== null && item.netAmount !== undefined ? String(item.netAmount) : '';
+    const rawNetAmount =
+      item.netAmount !== null && item.netAmount !== undefined ? String(item.netAmount) : '';
     return {
       id: item.id,
       customCategory: item.customCategory ?? '',

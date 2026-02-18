@@ -403,9 +403,9 @@ export default function EstimateDetailPage() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   // 表示行フィルター（デフォルト: すべてON）
-  const [visibleLineTypes, setVisibleLineTypes] = useState<Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>>(
-    new Set(['ESTIMATE', 'EXECUTION', 'VENDOR'])
-  );
+  const [visibleLineTypes, setVisibleLineTypes] = useState<
+    Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  >(new Set(['ESTIMATE', 'EXECUTION', 'VENDOR']));
 
   // 編集用フック
   const editor = useEstimateEditor({
@@ -783,13 +783,30 @@ export default function EstimateDetailPage() {
 
         {/* 見積項目テーブル (REQ-14.9, REQ-23) */}
         <div style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '16px',
+            }}
+          >
             <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>見積項目</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               {/* 表示行フィルター */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '13px', color: '#374151' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  fontSize: '13px',
+                  color: '#374151',
+                }}
+              >
                 <span style={{ fontWeight: 500 }}>表示行:</span>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <label
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+                >
                   <input
                     type="checkbox"
                     checked={visibleLineTypes.has('ESTIMATE')}
@@ -798,7 +815,9 @@ export default function EstimateDetailPage() {
                   />
                   <span style={{ color: '#1d4ed8', fontWeight: 500 }}>見積</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <label
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+                >
                   <input
                     type="checkbox"
                     checked={visibleLineTypes.has('EXECUTION')}
@@ -807,7 +826,9 @@ export default function EstimateDetailPage() {
                   />
                   <span style={{ color: '#166534', fontWeight: 500 }}>実行</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <label
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+                >
                   <input
                     type="checkbox"
                     checked={visibleLineTypes.has('VENDOR')}

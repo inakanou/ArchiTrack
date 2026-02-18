@@ -391,7 +391,13 @@ export function EstimateItemRow({
       data-selected={isSelected.toString()}
     >
       {sortedLines.map((line) => (
-        <LineRow key={line.id} itemId={itemId} line={line} onLineChange={onLineChange} hasChildren={hasChildren} />
+        <LineRow
+          key={line.id}
+          itemId={itemId}
+          line={line}
+          onLineChange={onLineChange}
+          hasChildren={hasChildren}
+        />
       ))}
     </div>
   );

@@ -75,9 +75,7 @@ describe('EstimateItemRow', () => {
 
     it('visibleLineTypesでフィルタリングされること (REQ-28)', () => {
       const visibleLineTypes = new Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>(['ESTIMATE']);
-      render(
-        <EstimateItemRow {...defaultProps} visibleLineTypes={visibleLineTypes} />
-      );
+      render(<EstimateItemRow {...defaultProps} visibleLineTypes={visibleLineTypes} />);
 
       expect(screen.getByTestId('line-type-ESTIMATE')).toBeInTheDocument();
       expect(screen.queryByTestId('line-type-EXECUTION')).not.toBeInTheDocument();

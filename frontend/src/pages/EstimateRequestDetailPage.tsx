@@ -956,9 +956,7 @@ export default function EstimateRequestDetailPage() {
         </div>
 
         {/* 見積依頼文パネル */}
-        {showTextPanel && (
-          <EstimateRequestTextPanel text={estimateText} loading={isTextLoading} />
-        )}
+        {showTextPanel && <EstimateRequestTextPanel text={estimateText} loading={isTextLoading} />}
 
         {/* 項目選択パネル */}
         <div style={styles.card}>

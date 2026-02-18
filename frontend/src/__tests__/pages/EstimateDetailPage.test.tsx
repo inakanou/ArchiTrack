@@ -288,7 +288,9 @@ describe('EstimateDetailPage', () => {
       expect(summaryPanel).toBeInTheDocument();
 
       // アクションボタンの存在確認
-      expect(screen.getByRole('button', { name: '受領見積書を業者金額に転記' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: '受領見積書を業者金額に転記' })
+      ).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '業者金額を実行金額に転記' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '実行金額を見積金額に転記' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '出力' })).toBeInTheDocument();

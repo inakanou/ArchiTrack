@@ -35,9 +35,7 @@ describe('EstimateExportDialog', () => {
   });
 
   it('isOpen=falseの場合は何も表示しない', () => {
-    const { container } = render(
-      <EstimateExportDialog {...defaultProps} isOpen={false} />
-    );
+    const { container } = render(<EstimateExportDialog {...defaultProps} isOpen={false} />);
     expect(container.innerHTML).toBe('');
   });
 
@@ -111,9 +109,9 @@ describe('EstimateExportDialog', () => {
       render(<EstimateExportDialog {...defaultProps} />);
 
       // PDF形式を選択
-      const pdfRadio = screen.getAllByRole('radio').find(
-        (r) => (r as HTMLInputElement).value === 'pdf'
-      );
+      const pdfRadio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === 'pdf');
       await user.click(pdfRadio!);
 
       // 出力ボタンをクリック
@@ -144,15 +142,15 @@ describe('EstimateExportDialog', () => {
       render(<EstimateExportDialog {...defaultProps} />);
 
       // 実行ラジオボタンを選択
-      const executionRadio = screen.getAllByRole('radio').find(
-        (r) => (r as HTMLInputElement).value === 'EXECUTION'
-      );
+      const executionRadio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === 'EXECUTION');
       await user.click(executionRadio!);
 
       // PDF形式を選択
-      const pdfRadio = screen.getAllByRole('radio').find(
-        (r) => (r as HTMLInputElement).value === 'pdf'
-      );
+      const pdfRadio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === 'pdf');
       await user.click(pdfRadio!);
 
       // 出力
@@ -192,11 +190,17 @@ describe('EstimateExportDialog', () => {
       createElementSpy.mockImplementation((...args: Parameters<typeof document.createElement>) => {
         const el = originalCreateElement(...args);
         if (args[0] === 'a') {
-          const originalDescriptor = Object.getOwnPropertyDescriptor(el, 'download') ||
+          const originalDescriptor =
+            Object.getOwnPropertyDescriptor(el, 'download') ||
             Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'download');
           Object.defineProperty(el, 'download', {
-            get() { return capturedDownload; },
-            set(value: string) { capturedDownload = value; if (originalDescriptor?.set) originalDescriptor.set.call(el, value); },
+            get() {
+              return capturedDownload;
+            },
+            set(value: string) {
+              capturedDownload = value;
+              if (originalDescriptor?.set) originalDescriptor.set.call(el, value);
+            },
             configurable: true,
           });
         }
@@ -206,9 +210,9 @@ describe('EstimateExportDialog', () => {
       render(<EstimateExportDialog {...defaultProps} />);
 
       // PDF形式を選択
-      const pdfRadio = screen.getAllByRole('radio').find(
-        (r) => (r as HTMLInputElement).value === 'pdf'
-      );
+      const pdfRadio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === 'pdf');
       await user.click(pdfRadio!);
 
       // 出力
@@ -237,9 +241,9 @@ describe('EstimateExportDialog', () => {
       const user = userEvent.setup();
       render(<EstimateExportDialog {...defaultProps} />);
 
-      const pdfRadio = screen.getAllByRole('radio').find(
-        (r) => (r as HTMLInputElement).value === 'pdf'
-      );
+      const pdfRadio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === 'pdf');
       await user.click(pdfRadio!);
 
       const exportButton = screen.getByRole('button', { name: '出力' });
