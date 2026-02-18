@@ -242,13 +242,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // 編集モードに切り替え
-    await page.getByRole('button', { name: /編集/i }).click();
-
-    // 編集モードに切り替わったことを確認
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // 数量入力フィールドを取得（項目はAPIで作成済み）
     const quantityInputs = page.locator('input[aria-label="数量"]');
@@ -289,11 +283,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // 編集モードに切り替え
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // 単価入力フィールドを取得
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
@@ -334,11 +324,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // 編集モードに切り替え
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // 数量と単価のフィールドを取得
     const quantityInputs = page.locator('input[aria-label="数量"]');
@@ -395,11 +381,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // まず編集モードで業者金額行にデータを入力
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // VENDOR行の数量と単価を入力
     const vendorRows = page.locator('[data-testid="line-type-VENDOR"]');
@@ -538,11 +520,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       }
     }
 
-    // 編集モードで単価フィールドを確認
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // 単価フィールドの値が整数であることを確認
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
@@ -581,11 +559,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // まず編集モードで実行金額行にデータを入力
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // EXECUTION行の数量と単価を入力
     const executionRows = page.locator('[data-testid="line-type-EXECUTION"]');
@@ -652,14 +626,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       }
     }
 
-    // 編集モードで単価が整数であることを確認
-    const editButton = page.getByRole('button', { name: /編集/i });
-    if (await editButton.isVisible()) {
-      await editButton.click();
-      await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    }
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
     const unitPriceCount = await unitPriceInputs.count();
@@ -696,11 +663,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // 編集モードに切り替え
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // 数量入力フィールドを取得
     const quantityInputs = page.locator('input[aria-label="数量"]');
@@ -766,11 +729,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // 編集モードに切り替え
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // 単価入力フィールドを取得
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
@@ -829,11 +788,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // 編集モードに切り替え
-    await page.getByRole('button', { name: /編集/i }).click();
-    await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
+    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
     // 数量と単価のフィールドを取得
     const quantityInputs = page.locator('input[aria-label="数量"]');

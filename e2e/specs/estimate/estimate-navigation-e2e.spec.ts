@@ -443,8 +443,8 @@ test.describe('見積書画面構成・ナビゲーション', () => {
         timeout: getTimeout(15000),
       });
 
-      // 編集ボタンが表示されることを確認
-      await expect(page.getByRole('button', { name: /編集/i })).toBeVisible();
+      // 保存ボタンが表示されることを確認（REQ-27.1: 編集モード切替不要、常にインライン編集可能）
+      await expect(page.getByRole('button', { name: /保存/i })).toBeVisible();
 
       // 削除ボタンが表示されることを確認（ツールバーの削除ボタンと区別するため.first()）
       await expect(page.getByRole('button', { name: /削除/i }).first()).toBeVisible();
