@@ -580,15 +580,24 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       });
 
       // 「見積」チェックボックスが存在すること
-      const estimateCheckbox = page.locator('label').filter({ hasText: '見積' }).locator('input[type="checkbox"]');
+      const estimateCheckbox = page
+        .locator('label')
+        .filter({ hasText: '見積' })
+        .locator('input[type="checkbox"]');
       await expect(estimateCheckbox).toBeVisible({ timeout: getTimeout(10000) });
 
       // 「実行」チェックボックスが存在すること
-      const executionCheckbox = page.locator('label').filter({ hasText: '実行' }).locator('input[type="checkbox"]');
+      const executionCheckbox = page
+        .locator('label')
+        .filter({ hasText: '実行' })
+        .locator('input[type="checkbox"]');
       await expect(executionCheckbox).toBeVisible();
 
       // 「業者」チェックボックスが存在すること
-      const vendorCheckbox = page.locator('label').filter({ hasText: '業者' }).locator('input[type="checkbox"]');
+      const vendorCheckbox = page
+        .locator('label')
+        .filter({ hasText: '業者' })
+        .locator('input[type="checkbox"]');
       await expect(vendorCheckbox).toBeVisible();
     });
 
@@ -610,9 +619,18 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       });
 
       // すべてのチェックボックスがON（チェック済み）であることを確認
-      const estimateCheckbox = page.locator('label').filter({ hasText: '見積' }).locator('input[type="checkbox"]');
-      const executionCheckbox = page.locator('label').filter({ hasText: '実行' }).locator('input[type="checkbox"]');
-      const vendorCheckbox = page.locator('label').filter({ hasText: '業者' }).locator('input[type="checkbox"]');
+      const estimateCheckbox = page
+        .locator('label')
+        .filter({ hasText: '見積' })
+        .locator('input[type="checkbox"]');
+      const executionCheckbox = page
+        .locator('label')
+        .filter({ hasText: '実行' })
+        .locator('input[type="checkbox"]');
+      const vendorCheckbox = page
+        .locator('label')
+        .filter({ hasText: '業者' })
+        .locator('input[type="checkbox"]');
 
       await expect(estimateCheckbox).toBeChecked();
       await expect(executionCheckbox).toBeChecked();
@@ -641,7 +659,10 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       const initialVendorCount = await vendorRows.count();
 
       // 「業者」チェックボックスを外す
-      const vendorCheckbox = page.locator('label').filter({ hasText: '業者' }).locator('input[type="checkbox"]');
+      const vendorCheckbox = page
+        .locator('label')
+        .filter({ hasText: '業者' })
+        .locator('input[type="checkbox"]');
       await vendorCheckbox.uncheck();
 
       // VENDOR行が非表示になることを確認
@@ -671,7 +692,10 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       });
 
       // 「実行」チェックボックスを外す
-      const executionCheckbox = page.locator('label').filter({ hasText: '実行' }).locator('input[type="checkbox"]');
+      const executionCheckbox = page
+        .locator('label')
+        .filter({ hasText: '実行' })
+        .locator('input[type="checkbox"]');
       await executionCheckbox.uncheck();
 
       // EXECUTION行が非表示になることを確認
@@ -871,7 +895,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       await expect(targetSelect).toBeVisible({ timeout: getTimeout(5000) });
 
       // 「新規項目として作成」オプションが存在することを確認
-      const newItemOption = targetSelect.locator('option').filter({ hasText: '新規項目として作成' });
+      const newItemOption = targetSelect
+        .locator('option')
+        .filter({ hasText: '新規項目として作成' });
       await expect(newItemOption).toHaveCount(1);
 
       // ダイアログを閉じる
@@ -948,7 +974,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
 
         // 転記先選択で子項目オプションが存在するか確認
         const targetSelect = page.locator('#target-select');
-        const childOptions = targetSelect.locator('option').filter({ hasText: /の子項目として作成/ });
+        const childOptions = targetSelect
+          .locator('option')
+          .filter({ hasText: /の子項目として作成/ });
         const childOptionCount = await childOptions.count();
 
         if (childOptionCount > 0) {
@@ -1086,9 +1114,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 出力対象ラジオボタンが存在することを確認
-      const estimateRadio = page.locator('input[type="radio"][name="export-line-type"][value="ESTIMATE"]');
-      const executionRadio = page.locator('input[type="radio"][name="export-line-type"][value="EXECUTION"]');
-      const vendorRadio = page.locator('input[type="radio"][name="export-line-type"][value="VENDOR"]');
+      const estimateRadio = page.locator(
+        'input[type="radio"][name="export-line-type"][value="ESTIMATE"]'
+      );
+      const executionRadio = page.locator(
+        'input[type="radio"][name="export-line-type"][value="EXECUTION"]'
+      );
+      const vendorRadio = page.locator(
+        'input[type="radio"][name="export-line-type"][value="VENDOR"]'
+      );
 
       await expect(estimateRadio).toBeVisible();
       await expect(executionRadio).toBeVisible();
@@ -1130,7 +1164,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 「実行」を選択
-      const executionRadio = page.locator('input[type="radio"][name="export-line-type"][value="EXECUTION"]');
+      const executionRadio = page.locator(
+        'input[type="radio"][name="export-line-type"][value="EXECUTION"]'
+      );
       await executionRadio.click();
       await expect(executionRadio).toBeChecked();
 
@@ -1142,7 +1178,10 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
 
       // 出力ボタンをクリック
-      await page.getByRole('dialog').getByRole('button', { name: /^出力$/i }).click();
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: /^出力$/i })
+        .click();
 
       // ダウンロードリクエストのURLにlineType=EXECUTIONが含まれることを確認
       const download = await downloadPromise;
@@ -1172,7 +1211,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 「業者」を選択
-      const vendorRadio = page.locator('input[type="radio"][name="export-line-type"][value="VENDOR"]');
+      const vendorRadio = page.locator(
+        'input[type="radio"][name="export-line-type"][value="VENDOR"]'
+      );
       await vendorRadio.click();
 
       // Excel形式を選択
@@ -1183,7 +1224,10 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
 
       // 出力ボタンをクリック
-      await page.getByRole('dialog').getByRole('button', { name: /^出力$/i }).click();
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: /^出力$/i })
+        .click();
 
       // ダウンロードされたファイル名に「業者」が含まれることを確認
       const download = await downloadPromise;
@@ -1214,7 +1258,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 「見積」を選択（デフォルト）
-      const estimateRadio = page.locator('input[type="radio"][name="export-line-type"][value="ESTIMATE"]');
+      const estimateRadio = page.locator(
+        'input[type="radio"][name="export-line-type"][value="ESTIMATE"]'
+      );
       await expect(estimateRadio).toBeChecked();
 
       // PDF形式を選択
@@ -1231,7 +1277,10 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       );
 
       // 出力ボタンをクリック
-      await page.getByRole('dialog').getByRole('button', { name: /^出力$/i }).click();
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: /^出力$/i })
+        .click();
 
       // APIリクエストにlineTypeパラメータが含まれることを確認
       const apiRequest = await requestPromise;

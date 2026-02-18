@@ -898,7 +898,9 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       });
 
       // 「項目から転記」ボタンが存在する場合
-      const transferFromItemsButton = page.getByRole('button', { name: /項目から転記|選択項目を転記/i });
+      const transferFromItemsButton = page.getByRole('button', {
+        name: /項目から転記|選択項目を転記/i,
+      });
       const transferButtonVisible = await transferFromItemsButton.isVisible().catch(() => false);
 
       if (transferButtonVisible) {
