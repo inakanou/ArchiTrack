@@ -135,6 +135,7 @@ const styles = {
   } as React.CSSProperties,
   submitButtonDisabled: {
     backgroundColor: '#93c5fd',
+    color: '#1e40af',
     cursor: 'not-allowed',
   } as React.CSSProperties,
   errorContainer: {
