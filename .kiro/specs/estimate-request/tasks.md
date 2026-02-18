@@ -1313,3 +1313,130 @@
   - Claude Vision API無効時（503）→Tesseract.jsフォールバック発動→フォールバック通知表示→既存OCR結果表示の確認
   - フォールバック通知バナー（黄色）の表示確認
   - _Requirements: 25.1, 25.4, 25.5, 25.6_
+
+- [x] 59. 見積依頼詳細画面レイアウト変更（Requirement 27）
+- [x] 59.1 EstimateRequestDetailPageのCSS Gridレイアウトをシングルカラムフルワイドに変更
+  - 既存の2カラムCSS Grid（`gridTemplateColumns: '1fr 400px'`）を`flexDirection: 'column'`に変更
+  - mainColumnとsideColumnのdivラッパーを削除し、全セクションをフラットに配置
+  - セクション配置順序: ステータス → 基本情報 → アクション → 見積依頼文パネル → 項目選択 → 選択状況 → 受領見積書
+  - ステータス管理・基本情報・アクションセクションの表示位置は維持
+  - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.5_
+
+- [x] 59.2 フルワイド化に伴うコンポーネントスタイル調整
+  - 選択状況セクション: サイドバー固定幅（400px）からフルワイドへの表示調整
+  - 受領見積書セクション: サイドバー固定幅からフルワイドへの表示調整
+  - ReceivedQuotationListのレイアウトがフルワイドで適切に表示されることを確認
+  - 各セクションの内部padding・marginの調整
+  - _Requirements: 27.4, 27.6, 27.7_
+
+- [x] 60. NET金額フィールドのデータベーススキーマ追加（Requirement 28）
+- [x] 60.1 (P) Prismaスキーマにnet_amount列を追加
+  - ReceivedQuotationLineItemモデルに`netAmount Decimal? @db.Decimal(15, 2) @map("net_amount")`を追加
+  - Prismaマイグレーションを作成して実行
+  - 既存データへの影響なし（NULLABLEのため）
+  - _Requirements: 28.12_
+
+- [x] 61. NET金額フィールドのバックエンド対応（Requirement 28）
+- [x] 61.1 ZodバリデーションスキーマにnetAmountフィールドを追加
+  - lineItemSchemaに`netAmount: z.number().nullable().optional()`を追加
+  - _Requirements: 28.5, 28.12_
+
+- [x] 61.2 ReceivedQuotationServiceのCRUD処理にnetAmountを反映
+  - 明細行の作成・更新処理でnetAmountフィールドを永続化
+  - 明細行の取得処理でnetAmountフィールドを返却
+  - _Requirements: 28.12, 28.13_
+
+- [x] 61.3 受領見積書APIクライアント型定義にnetAmountを追加
+  - LineItemInput型にnetAmountフィールドを追加
+  - ReceivedQuotationLineItemレスポンス型にnetAmountフィールドを追加
+  - _Requirements: 28.12_
+
+- [x] 62. LineItemEditorへのNET金額列追加（Requirement 28）
+- [x] 62.1 (P) LineItemFormDataにnetAmountフィールドを追加
+  - LineItemFormDataインターフェースに`netAmount: string`を追加
+  - 空の明細行生成時のnetAmountデフォルト値を`''`に設定
+  - FIELD_ORDER配列にnetAmountを追加（unitPriceの後、remarksの前）
+  - _Requirements: 28.1, 28.2, 28.4_
+
+- [x] 62.2 LineItemEditorのテーブルにNET金額列を追加
+  - 金額列の右隣にNET金額列ヘッダー（「NET金額」）を追加
+  - 各明細行にNET金額入力フィールドを追加（width: 100px、右寄せ）
+  - NET金額フィールドのonChangeハンドラを実装（手動入力）
+  - NET金額フィールドのonBlurイベントでformatNetAmount()（整数フォーマット）を適用
+  - NET金額のTabキー移動対応
+  - _Requirements: 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7_
+
+- [x] 62.3 LineItemEditorのフッターにNET金額合計を追加
+  - calculateTotalNetAmount()関数の実装（NET金額が入力されている行のみ合計）
+  - 金額合計の右隣に「NET合計」ラベルとNET金額合計を表示
+  - NET金額合計がない場合（全行未入力）は「-」と表示
+  - _Requirements: 28.8, 28.9_
+
+- [x] 63. ReceivedQuotationFormのNET金額対応（Requirement 28）
+- [x] 63.1 ReceivedQuotationFormのsubmit処理でnetAmountを送信
+  - LineItemFormDataからLineItemInputへの変換時にnetAmountフィールドを含める
+  - 空文字列の場合はnullを送信
+  - _Requirements: 28.12_
+
+- [x] 63.2 ReceivedQuotationFormの編集画面で既存netAmountデータを表示
+  - バックエンドから取得したnetAmountをformatNetAmount()で整数フォーマットして表示
+  - _Requirements: 28.13_
+
+- [x] 63.3 一括転記・OCR取り込み時のNET金額空欄設定
+  - 項目選択一括転記時のLineItemFormData生成で`netAmount: ''`を設定
+  - OCR/データパース一括取り込み時のLineItemFormData生成で`netAmount: ''`を設定
+  - _Requirements: 28.10, 28.11_
+
+- [x] 64. レイアウト変更・NET金額のバックエンドテスト（Requirements 27-28）
+- [x] 64.1 ReceivedQuotationServiceのnetAmountフィールドテスト
+  - 明細行作成時のnetAmount永続化テスト
+  - 明細行更新時のnetAmount更新テスト
+  - 明細行取得時のnetAmountフィールド返却テスト
+  - netAmountがnullの場合の動作テスト
+  - _Requirements: 28.12, 28.13_
+
+- [x] 64.2 ZodスキーマのnetAmountバリデーションテスト
+  - netAmountフィールドのnull許容テスト
+  - netAmountフィールドのnumber型テスト
+  - netAmountフィールドの省略時テスト
+  - _Requirements: 28.5_
+
+- [ ] 64.3 受領見積書API統合テストのnetAmount対応追加
+  - 明細行データのnetAmountフィールドの作成・更新・取得の統合テスト
+  - _Requirements: 28.12_
+
+- [x] 65. レイアウト変更・NET金額のフロントエンドテスト（Requirements 27-28）
+- [x] 65.1 EstimateRequestDetailPageのレイアウト変更テスト
+  - セクション表示順序テスト（項目選択→選択状況→受領見積書）
+  - フルワイドレイアウトの適用確認テスト
+  - 既存機能の正常動作テスト
+  - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.6_
+
+- [x] 65.2 LineItemEditorのNET金額列テスト
+  - NET金額列の表示テスト
+  - NET金額入力・フォーカスアウト時の整数フォーマットテスト
+  - NET金額合計の自動計算テスト
+  - 空の明細行生成時のnetAmountデフォルト値テスト
+  - Tab移動順序にnetAmountが含まれることのテスト
+  - _Requirements: 28.1, 28.2, 28.3, 28.6, 28.7, 28.8_
+
+- [x] 65.3 ReceivedQuotationFormのNET金額テスト
+  - submit時のnetAmountデータ送信テスト
+  - 一括転記時のnetAmount空欄設定テスト
+  - OCR取り込み時のnetAmount空欄設定テスト
+  - 編集画面での既存netAmountデータ表示テスト
+  - _Requirements: 28.10, 28.11, 28.12, 28.13_
+
+- [x] 66. レイアウト変更・NET金額のE2Eテスト（Requirements 27-28）
+- [x] 66.1 レイアウト変更のE2Eテスト
+  - 見積依頼詳細画面のセクション表示順序確認（項目選択→選択状況→受領見積書）
+  - フルワイド表示の確認
+  - 既存機能（項目選択、保存、受領見積書CRUD）の動作確認
+  - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.6_
+
+- [x] 66.2 NET金額のE2Eテスト
+  - 受領見積書登録画面でのNET金額入力→フォーカスアウト→整数表示確認→保存→編集画面で表示確認
+  - 複数行のNET金額入力→合計自動計算確認
+  - OCR一括取り込み後のNET金額空欄確認
+  - 項目選択転記後のNET金額空欄確認
+  - _Requirements: 28.1, 28.2, 28.6, 28.7, 28.8, 28.10, 28.11, 28.12, 28.13_

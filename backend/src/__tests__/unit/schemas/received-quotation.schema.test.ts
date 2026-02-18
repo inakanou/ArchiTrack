@@ -531,6 +531,66 @@ describe('received-quotation.schema', () => {
         }
       });
 
+      // ================================================================
+      // Task 64.2: netAmountフィールドのバリデーションテスト
+      // Requirements: 28.5
+      // ================================================================
+      it('netAmountフィールドをnumber型として受け入れること (Task 64.2)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          netAmount: 50000,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.netAmount).toBe(50000);
+        }
+      });
+
+      it('netAmountフィールドがnullの場合を受け入れること (Task 64.2)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          netAmount: null,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.netAmount).toBeNull();
+        }
+      });
+
+      it('netAmountフィールドが省略された場合を受け入れること (Task 64.2)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.netAmount).toBeUndefined();
+        }
+      });
+
+      it('netAmountフィールドが文字列の場合を拒否すること (Task 64.2)', () => {
+        const input = {
+          name: 'テスト項目',
+          sortOrder: 0,
+          netAmount: 'abc',
+        };
+
+        const result = lineItemSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+
       it('customCategoryとworkTypeを含む完全な明細行を受け入れること (Task 36.4)', () => {
         const input = {
           name: '鉄筋D10',

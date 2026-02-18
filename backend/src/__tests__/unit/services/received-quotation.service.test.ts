@@ -2248,4 +2248,167 @@ describe('ReceivedQuotationService', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 64.1: ReceivedQuotationServiceのnetAmountフィールドテスト
+  // Requirements: 28.12, 28.13
+  // ==========================================================================
+  describe('netAmountフィールドテスト (Task 64.1)', () => {
+    it('明細行作成時にnetAmountが永続化されること（Requirements: 28.12）', async () => {
+      const lineItems = [
+        { name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 10000, amount: 10000, netAmount: 9000 },
+      ];
+      const input = {
+        estimateRequestId: 'er-net-001',
+        name: 'NET金額テスト',
+        submittedAt: new Date('2026-02-18'),
+        lineItems,
+      };
+
+      const mockEstimateRequest = { id: 'er-net-001', deletedAt: null };
+
+      const mockCreatedQuotation = {
+        id: 'rq-net-001',
+        estimateRequestId: 'er-net-001',
+        name: 'NET金額テスト',
+        submittedAt: new Date('2026-02-18'),
+        filePath: null,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        createdAt: new Date('2026-02-18T00:00:00Z'),
+        updatedAt: new Date('2026-02-18T00:00:00Z'),
+        deletedAt: null,
+        lineItems: [
+          {
+            id: 'li-net-001',
+            receivedQuotationId: 'rq-net-001',
+            name: '工事A',
+            sortOrder: 0,
+            quantity: 1,
+            unitPrice: 10000,
+            amount: 10000,
+            netAmount: 9000,
+            customCategory: null,
+            workType: null,
+            specification: null,
+            unit: null,
+            remarks: null,
+          },
+        ],
+      };
+
+      let capturedCreateManyData: unknown = null;
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateRequest: {
+            findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+          },
+          receivedQuotation: {
+            create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+          },
+          receivedQuotationLineItem: {
+            createMany: vi.fn().mockImplementation((args) => {
+              capturedCreateManyData = args;
+              return { count: 1 };
+            }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      const result = await service.create(input);
+
+      expect(result.id).toBe('rq-net-001');
+      // createManyに渡されたデータにnetAmountが含まれていることを確認
+      expect(capturedCreateManyData).not.toBeNull();
+      const createData = (capturedCreateManyData as { data: Array<{ netAmount?: unknown }> })?.data;
+      expect(createData?.[0]?.netAmount).toBe(9000);
+    });
+
+    it('明細行取得時にnetAmountフィールドが返却されること（Requirements: 28.13）', async () => {
+      const mockQuotation = {
+        id: 'rq-net-002',
+        estimateRequestId: 'er-net-002',
+        name: 'NET金額取得テスト',
+        submittedAt: new Date('2026-02-18'),
+        filePath: null,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        createdAt: new Date('2026-02-18T00:00:00Z'),
+        updatedAt: new Date('2026-02-18T00:00:00Z'),
+        deletedAt: null,
+        lineItems: [
+          {
+            id: 'li-net-002',
+            receivedQuotationId: 'rq-net-002',
+            name: '工事B',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            specification: null,
+            unit: null,
+            quantity: 5,
+            unitPrice: 2000,
+            amount: 10000,
+            netAmount: 8500,
+            remarks: null,
+          },
+        ],
+      };
+
+      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+        mockQuotation as never
+      );
+
+      const result = await service.findById('rq-net-002');
+
+      expect(result).not.toBeNull();
+      expect(result!.lineItems[0]?.netAmount).toBe(8500);
+    });
+
+    it('netAmountがnullの場合にnullで返却されること（Requirements: 28.13）', async () => {
+      const mockQuotation = {
+        id: 'rq-net-003',
+        estimateRequestId: 'er-net-003',
+        name: 'NET金額null テスト',
+        submittedAt: new Date('2026-02-18'),
+        filePath: null,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        createdAt: new Date('2026-02-18T00:00:00Z'),
+        updatedAt: new Date('2026-02-18T00:00:00Z'),
+        deletedAt: null,
+        lineItems: [
+          {
+            id: 'li-net-003',
+            receivedQuotationId: 'rq-net-003',
+            name: '工事C',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: null,
+            netAmount: null,
+            remarks: null,
+          },
+        ],
+      };
+
+      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+        mockQuotation as never
+      );
+
+      const result = await service.findById('rq-net-003');
+
+      expect(result).not.toBeNull();
+      expect(result!.lineItems[0]?.netAmount).toBeNull();
+    });
+  });
 });

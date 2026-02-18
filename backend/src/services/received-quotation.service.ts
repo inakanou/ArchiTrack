@@ -99,6 +99,7 @@ export interface LineItemInput {
   quantity?: number | null;
   unitPrice?: number | null;
   amount?: number | null;
+  netAmount?: number | null;
   remarks?: string | null;
 }
 
@@ -118,6 +119,7 @@ export interface LineItemInfo {
   quantity: number | null;
   unitPrice: number | null;
   amount: number | null;
+  netAmount: number | null;
   remarks: string | null;
 }
 
@@ -384,6 +386,7 @@ export class ReceivedQuotationService {
             quantity: item.quantity ?? null,
             unitPrice: item.unitPrice ?? null,
             amount: item.amount ?? null,
+            netAmount: item.netAmount ?? null,
             remarks: item.remarks ?? null,
           })),
         });
@@ -420,6 +423,7 @@ export class ReceivedQuotationService {
               quantity: item.quantity ?? null,
               unitPrice: item.unitPrice ?? null,
               amount: item.amount ?? null,
+              netAmount: item.netAmount ?? null,
               remarks: item.remarks ?? null,
             }))
           : lineItemInfos;
@@ -627,6 +631,7 @@ export class ReceivedQuotationService {
               quantity: item.quantity ?? null,
               unitPrice: item.unitPrice ?? null,
               amount: item.amount ?? null,
+              netAmount: item.netAmount ?? null,
               remarks: item.remarks ?? null,
             })),
           });
@@ -750,6 +755,7 @@ export class ReceivedQuotationService {
     quantity: unknown;
     unitPrice: unknown;
     amount: unknown;
+    netAmount?: unknown;
     remarks: string | null;
   }): LineItemInfo {
     return {
@@ -764,6 +770,7 @@ export class ReceivedQuotationService {
       quantity: lineItem.quantity !== null ? Number(lineItem.quantity) : null,
       unitPrice: lineItem.unitPrice !== null ? Number(lineItem.unitPrice) : null,
       amount: lineItem.amount !== null ? Number(lineItem.amount) : null,
+      netAmount: lineItem.netAmount != null ? Number(lineItem.netAmount) : null,
       remarks: lineItem.remarks,
     };
   }
