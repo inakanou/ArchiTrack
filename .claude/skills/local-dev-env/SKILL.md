@@ -1,10 +1,6 @@
 ---
 name: local-dev-env
-description: >
-  ローカル開発環境の起動やブラウザでの動作確認を行う際に自動適用される。
-  開発環境起動、Docker Compose起動、ブラウザ確認、画面動作確認、
-  localhost接続に関する作業時に発動する。
-allowed-tools: Read, Grep, Glob
+description: "ローカル開発環境の起動やブラウザでの動作確認を行う際に自動適用される。開発環境起動、Docker Compose起動、ブラウザ確認、画面動作確認、localhost接続に関する作業時に発動する。"
 ---
 
 # ローカル開発環境・ブラウザ動作確認ガイドライン

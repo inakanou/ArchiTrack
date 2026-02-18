@@ -1,10 +1,6 @@
 ---
 name: readme-update
-description: >
-  README.mdの更新・反映作業時に自動適用される品質基準。
-  README.mdの最新化、プロジェクト状況の反映、ドキュメント更新を行う際に発動する。
-  README、ドキュメント更新、docs/配下のサブドキュメントに関する作業時に適用。
-allowed-tools: Read, Grep, Glob
+description: "README.mdの更新・反映作業時に自動適用される品質基準。README.mdの最新化、プロジェクト状況の反映、ドキュメント更新を行う際に発動する。README、ドキュメント更新、docs/配下のサブドキュメントに関する作業時に適用。"
 ---
 
 # README.md更新ガイドライン

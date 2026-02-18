@@ -1,10 +1,6 @@
 ---
 name: e2e-quality
-description: >
-  E2Eテストの品質基準。E2Eテストの実行、テスト失敗の調査・修正、
-  要件カバレッジを満たすためのテストコード追加・修正を行う際に自動的に適用される。
-  Playwright E2Eテスト、e2e/specs配下のテストファイルに関する作業時に発動する。
-allowed-tools: Read, Grep, Glob
+description: "E2Eテストの品質基準。E2Eテストの実行、テスト失敗の調査・修正、要件カバレッジを満たすためのテストコード追加・修正を行う際に自動的に適用される。Playwright E2Eテスト、e2e/specs配下のテストファイルに関する作業時に発動する。"
 ---
 
 # E2Eテスト品質基準
