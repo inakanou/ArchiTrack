@@ -397,9 +397,6 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
         timeout: getTimeout(15000),
       });
 
-      // ヘッダー部分を取得（h1要素と同じ親要素）
-      const headerRight = page.locator('[data-testid="estimate-detail-page"] > div').nth(1);
-
       // ヘッダー内に転記ボタンが存在しないことを確認
       // ヘッダーは最初のヘッダー部分のみ（削除ボタンだけが含まれる）
       // ヘッダーに「出力」「転記」のテキストが含まれていないことを確認（削除だけが含まれる）
