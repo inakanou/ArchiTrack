@@ -394,7 +394,6 @@ export default function EstimateDetailPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -402,6 +401,11 @@ export default function EstimateDetailPage() {
   const [isNetDialogOpen, setIsNetDialogOpen] = useState(false);
   const [isProfitDialogOpen, setIsProfitDialogOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
+  // 表示行フィルター（デフォルト: すべてON）
+  const [visibleLineTypes, setVisibleLineTypes] = useState<Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>>(
+    new Set(['ESTIMATE', 'EXECUTION', 'VENDOR'])
+  );
 
   // 編集用フック
   const editor = useEstimateEditor({
@@ -559,29 +563,28 @@ export default function EstimateDetailPage() {
   );
 
   /**
-   * 編集モード切替
-   */
-  const handleEditClick = useCallback(() => {
-    setIsEditMode(true);
-  }, []);
-
-  /**
-   * 編集キャンセル
-   */
-  const handleCancelEdit = useCallback(() => {
-    editor.discard();
-    setIsEditMode(false);
-  }, [editor]);
-
-  /**
    * 保存処理
    */
   const handleSave = useCallback(async () => {
     await editor.save();
-    setIsEditMode(false);
     // データを再取得
     await fetchData();
   }, [editor, fetchData]);
+
+  /**
+   * 表示行フィルター切替
+   */
+  const handleToggleLineType = useCallback((lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR') => {
+    setVisibleLineTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineType)) {
+        next.delete(lineType);
+      } else {
+        next.add(lineType);
+      }
+      return next;
+    });
+  }, []);
 
   /**
    * 削除処理
@@ -671,70 +674,13 @@ export default function EstimateDetailPage() {
           <p style={styles.subtitle}>{formatDate(estimate.createdAt)}</p>
         </div>
         <div style={styles.headerRight}>
-          {isEditMode ? (
-            <>
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                style={{ ...styles.actionButton, ...styles.secondaryButton }}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!editor.isDirty || editor.isSaving}
-                style={{ ...styles.actionButton, ...styles.successButton }}
-              >
-                {editor.isSaving ? '保存中...' : '保存'}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setIsTransferDialogOpen(true)}
-                style={{ ...styles.actionButton, ...styles.secondaryButton }}
-              >
-                受領見積書を業者金額に転記
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsNetDialogOpen(true)}
-                style={{ ...styles.actionButton, ...styles.secondaryButton }}
-              >
-                業者金額を実行金額に転記
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsProfitDialogOpen(true)}
-                style={{ ...styles.actionButton, ...styles.secondaryButton }}
-              >
-                実行金額を見積金額に転記
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsExportDialogOpen(true)}
-                style={{ ...styles.actionButton, ...styles.secondaryButton }}
-              >
-                出力
-              </button>
-              <button
-                type="button"
-                onClick={handleEditClick}
-                style={{ ...styles.actionButton, ...styles.primaryButton }}
-              >
-                編集
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsDeleteDialogOpen(true)}
-                style={{ ...styles.actionButton, ...styles.dangerButton }}
-              >
-                削除
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsDeleteDialogOpen(true)}
+            style={{ ...styles.actionButton, ...styles.dangerButton }}
+          >
+            削除
+          </button>
         </div>
       </div>
 
@@ -803,9 +749,91 @@ export default function EstimateDetailPage() {
           })()}
         </div>
 
+        {/* アクションボタン */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+          <button
+            type="button"
+            onClick={() => setIsTransferDialogOpen(true)}
+            style={{ ...styles.actionButton, ...styles.secondaryButton }}
+          >
+            受領見積書を業者金額に転記
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsNetDialogOpen(true)}
+            style={{ ...styles.actionButton, ...styles.secondaryButton }}
+          >
+            業者金額を実行金額に転記
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsProfitDialogOpen(true)}
+            style={{ ...styles.actionButton, ...styles.secondaryButton }}
+          >
+            実行金額を見積金額に転記
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsExportDialogOpen(true)}
+            style={{ ...styles.actionButton, ...styles.secondaryButton }}
+          >
+            出力
+          </button>
+        </div>
+
         {/* 見積項目テーブル (REQ-14.9, REQ-23) */}
         <div style={styles.card}>
-          <h2 style={styles.sectionTitle}>見積項目</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>見積項目</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {/* 表示行フィルター */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '13px', color: '#374151' }}>
+                <span style={{ fontWeight: 500 }}>表示行:</span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={visibleLineTypes.has('ESTIMATE')}
+                    onChange={() => handleToggleLineType('ESTIMATE')}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <span style={{ color: '#1d4ed8', fontWeight: 500 }}>見積</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={visibleLineTypes.has('EXECUTION')}
+                    onChange={() => handleToggleLineType('EXECUTION')}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <span style={{ color: '#166534', fontWeight: 500 }}>実行</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={visibleLineTypes.has('VENDOR')}
+                    onChange={() => handleToggleLineType('VENDOR')}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <span style={{ color: '#b45309', fontWeight: 500 }}>業者</span>
+                </label>
+              </div>
+              {/* 保存ボタン */}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!editor.isDirty || editor.isSaving}
+                style={{
+                  ...styles.actionButton,
+                  ...styles.successButton,
+                  ...(!editor.isDirty || editor.isSaving
+                    ? { backgroundColor: '#86efac', cursor: 'not-allowed' }
+                    : {}),
+                }}
+              >
+                {editor.isSaving ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
           <EstimateItemToolbar
             selectedItemId={selectedItemId}
             selectedItem={selectedItem}
@@ -819,12 +847,13 @@ export default function EstimateDetailPage() {
           />
           <EstimateItemTable
             items={editor.items}
-            draggable={isEditMode}
-            onLineChange={isEditMode ? editor.updateLine : undefined}
+            draggable={true}
+            onLineChange={editor.updateLine}
             onToggleExpand={editor.toggleExpanded}
-            onDrop={isEditMode ? editor.reorderItems : undefined}
+            onDrop={editor.reorderItems}
             selectedItemId={selectedItemId}
             onItemSelect={setSelectedItemId}
+            visibleLineTypes={visibleLineTypes}
           />
         </div>
       </div>
@@ -859,6 +888,7 @@ export default function EstimateDetailPage() {
       <NetAllocationDialog
         isOpen={isNetDialogOpen}
         estimateId={estimate.id}
+        projectId={estimate.projectId}
         items={editor.items}
         onClose={() => setIsNetDialogOpen(false)}
         onComplete={handleTransferComplete}

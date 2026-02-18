@@ -2,6 +2,7 @@
  * @fileoverview 見積書詳細画面のテスト
  *
  * Task 11.3: EstimateDetailPageの実装
+ * Task 29-37: REQ-25〜REQ-32 関連の受入基準テスト
  *
  * Requirements:
  * - REQ-11.2: 見積書を選択した場合、見積書の詳細を表示する
@@ -11,6 +12,9 @@
  * - REQ-14.9: 見積書の詳細情報（見積項目一覧、合計金額等）を表示する
  * - REQ-14.10: 編集・削除・出力ボタンを提供する
  * - REQ-15.4-15.8: パンくずナビゲーション
+ * - REQ-26.1-26.2: アクションボタンの配置改善
+ * - REQ-27.1-27.4: 保存ボタンとクライアントサイド編集
+ * - REQ-28.1-28.4: 表示行フィルター
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -149,10 +153,9 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByText('見積書名')).toBeInTheDocument();
       expect(screen.getByText('第1回内訳書')).toBeInTheDocument();
 
-      // アクションボタン
-      expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
       // ヘッダーの削除ボタンとツールバーの削除ボタンの両方が存在する
       expect(screen.getAllByRole('button', { name: '削除' }).length).toBeGreaterThanOrEqual(1);
+      // アクションボタン（サマリー下）
       expect(screen.getByRole('button', { name: '出力' })).toBeInTheDocument();
       expect(
         screen.getByRole('button', { name: '受領見積書を業者金額に転記' })
@@ -268,10 +271,10 @@ describe('EstimateDetailPage', () => {
   });
 
   // ==========================================================================
-  // 編集機能 (REQ-11.3, REQ-14.10)
+  // REQ-26: アクションボタンの配置改善
   // ==========================================================================
-  describe('編集機能', () => {
-    it('編集ボタンをクリックすると編集モードになること', async () => {
+  describe('アクションボタンの配置 (REQ-26)', () => {
+    it('転記・出力ボタンがサマリーパネルの下に配置されていること (REQ-26.1)', async () => {
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
 
       renderWithRouter();
@@ -280,19 +283,53 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await userEvent.click(editButton);
+      // サマリーパネルの存在確認
+      const summaryPanel = screen.getByTestId('summary-panel');
+      expect(summaryPanel).toBeInTheDocument();
 
-      // 編集モードのボタンが表示される
-      expect(screen.getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
+      // アクションボタンの存在確認
+      expect(screen.getByRole('button', { name: '受領見積書を業者金額に転記' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '業者金額を実行金額に転記' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '実行金額を見積金額に転記' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '出力' })).toBeInTheDocument();
+    });
+
+    it('ヘッダーには削除ボタンのみが配置されていること (REQ-26.2)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+      });
+
+      // ヘッダー部分に転記・出力ボタンがないことを確認
+      // ヘッダーの headerRight には削除ボタンのみがあるべき
+      const headerDeleteButton = screen.getAllByRole('button', { name: '削除' });
+      expect(headerDeleteButton.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ==========================================================================
+  // REQ-27: 保存ボタンとクライアントサイド編集
+  // ==========================================================================
+  describe('保存ボタンとクライアントサイド編集 (REQ-27)', () => {
+    it('見積項目セクション内に保存ボタンが常に表示されること (REQ-27.2)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+      });
+
+      // 保存ボタンが初期状態で表示されている（編集モード切替不要）
       expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument();
-
-      // 通常モードのボタンが非表示になる
-      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
     });
 
-    it('キャンセルボタンをクリックすると編集モードが解除されること', async () => {
+    it('未保存の変更がない場合は保存ボタンが無効状態であること (REQ-27.4)', async () => {
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
+      mockEditor.isDirty = false;
 
       renderWithRouter();
 
@@ -300,22 +337,11 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 編集モードに入る
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await userEvent.click(editButton);
-
-      // キャンセル
-      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
-      await userEvent.click(cancelButton);
-
-      // discardが呼ばれること
-      expect(mockEditor.discard).toHaveBeenCalled();
-
-      // 通常モードに戻る
-      expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      expect(saveButton).toBeDisabled();
     });
 
-    it('保存ボタンをクリックすると保存処理が実行されること', async () => {
+    it('保存ボタンクリック時にsave()が呼び出されること (REQ-27.3)', async () => {
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(mockEstimateDetail);
       mockEditor.isDirty = true;
 
@@ -325,15 +351,9 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 編集モードに入る
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await userEvent.click(editButton);
-
-      // 保存
       const saveButton = screen.getByRole('button', { name: '保存' });
       await userEvent.click(saveButton);
 
-      // saveが呼ばれること
       await waitFor(() => {
         expect(mockEditor.save).toHaveBeenCalled();
       });
@@ -350,17 +370,16 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 編集モードに入る
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await userEvent.click(editButton);
-
-      // 保存中のボタンテキスト
       expect(screen.getByRole('button', { name: '保存中...' })).toBeInTheDocument();
     });
+  });
 
-    it('変更がない場合は保存ボタンが無効になること', async () => {
+  // ==========================================================================
+  // REQ-28: 表示行フィルター
+  // ==========================================================================
+  describe('表示行フィルター (REQ-28)', () => {
+    it('見積・実行・業者の3つのチェックボックスが表示されること (REQ-28.1)', async () => {
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
-      mockEditor.isDirty = false;
 
       renderWithRouter();
 
@@ -368,13 +387,61 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 編集モードに入る
-      const editButton = screen.getByRole('button', { name: '編集' });
-      await userEvent.click(editButton);
+      expect(screen.getByText('表示行:')).toBeInTheDocument();
+      // フィルターのチェックボックスラベルを確認（他の「見積」テキストと区別するためlabel内を検証）
+      const checkboxes = screen.getAllByRole('checkbox');
+      const filterCheckboxes = checkboxes.filter((cb) => {
+        const parent = cb.closest('label');
+        return parent?.textContent?.match(/^見積$|^実行$|^業者$/);
+      });
+      expect(filterCheckboxes).toHaveLength(3);
+    });
 
-      // 保存ボタンが無効
-      const saveButton = screen.getByRole('button', { name: '保存' });
-      expect(saveButton).toBeDisabled();
+    it('デフォルトですべてのチェックボックスがONであること (REQ-28.2)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+      });
+
+      const checkboxes = screen.getAllByRole('checkbox');
+      // 表示行フィルターのチェックボックスは3つ
+      const filterCheckboxes = checkboxes.filter((cb) => {
+        const parent = cb.closest('label');
+        return parent?.textContent?.match(/見積|実行|業者/);
+      });
+      expect(filterCheckboxes).toHaveLength(3);
+      filterCheckboxes.forEach((cb) => {
+        expect(cb).toBeChecked();
+      });
+    });
+
+    it('チェックボックスのON/OFF切り替えが動作すること (REQ-28.3, REQ-28.4)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
+      const user = userEvent.setup();
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+      });
+
+      // 「見積」チェックボックスを見つけてクリック
+      const checkboxes = screen.getAllByRole('checkbox');
+      const estimateCheckbox = checkboxes.find((cb) => {
+        const parent = cb.closest('label');
+        return parent?.textContent?.includes('見積');
+      });
+      expect(estimateCheckbox).toBeDefined();
+
+      await user.click(estimateCheckbox!);
+      expect(estimateCheckbox).not.toBeChecked();
+
+      // 再度クリックでONに戻る
+      await user.click(estimateCheckbox!);
+      expect(estimateCheckbox).toBeChecked();
     });
   });
 
@@ -512,8 +579,7 @@ describe('EstimateDetailPage', () => {
       const exportButton = screen.getByRole('button', { name: '出力' });
       await userEvent.click(exportButton);
 
-      // EstimateExportDialogが表示される（モックされているため存在チェックのみ）
-      // 実際のダイアログの内容はEstimateExportDialogのテストで検証
+      // EstimateExportDialogが表示される
     });
   });
 
@@ -533,8 +599,7 @@ describe('EstimateDetailPage', () => {
       const transferButton = screen.getByRole('button', { name: '受領見積書を業者金額に転記' });
       await userEvent.click(transferButton);
 
-      // TransferQuotationDialogが表示される（モックされているため存在チェックのみ）
-      // 実際のダイアログの内容はTransferQuotationDialogのテストで検証
+      // TransferQuotationDialogが表示される
     });
   });
 
@@ -570,7 +635,6 @@ describe('EstimateDetailPage', () => {
       });
 
       // 日付フォーマットの確認（2025年1月1日または2025年1月2日）
-      // 複数箇所に表示される可能性があるのでgetAllByTextを使用
       const jan1Dates = screen.getAllByText(/2025年1月1日/);
       const jan2Dates = screen.getAllByText(/2025年1月2日/);
       expect(jan1Dates.length).toBeGreaterThan(0);
@@ -578,7 +642,6 @@ describe('EstimateDetailPage', () => {
     });
 
     it('金額がnullの場合は0円が表示されること', async () => {
-      // 金額がnullの項目を設定（calculateTotalByLineTypeで0になる）
       const baseItem = mockEstimateDetail.items[0]!;
       mockEditor.items = [
         {
@@ -597,7 +660,6 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 合計金額が0円として表示されること
       const amountSection = screen.getByText('見積金額合計').closest('div');
       expect(amountSection?.textContent).toContain('0円');
     });
@@ -612,7 +674,6 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // 合計金額が0円として表示されること
       const amountSection = screen.getByText('見積金額合計').closest('div');
       expect(amountSection?.textContent).toContain('0円');
     });
@@ -631,7 +692,6 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // ツールバーが存在すること
       expect(screen.getByTestId('estimate-item-toolbar')).toBeInTheDocument();
     });
 

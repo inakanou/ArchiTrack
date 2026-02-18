@@ -12,7 +12,12 @@
  */
 
 import { useState, useCallback } from 'react';
-import { exportEstimate, type ExportFormat } from '../../api/estimates';
+import type { ExportFormat } from '../../api/estimates';
+
+/**
+ * 出力対象行タイプ
+ */
+type ExportLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
 
 // ============================================================================
 // 型定義
@@ -165,11 +170,12 @@ export function EstimateExportDialog({
   onClose,
 }: EstimateExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat | null>(null);
+  const [selectedLineType, setSelectedLineType] = useState<ExportLineType>('ESTIMATE');
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * 出力実行
+   * 出力実行（lineTypeパラメータ付き）
    */
   const handleExport = useCallback(async () => {
     if (!selectedFormat) return;
@@ -178,11 +184,26 @@ export function EstimateExportDialog({
     setError(null);
 
     try {
-      const blob = await exportEstimate(estimateId, selectedFormat);
+      const response = await fetch(
+        `/api/estimates/${estimateId}/export?format=${selectedFormat}&lineType=${selectedLineType}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('見積書の出力に失敗しました');
+      }
+
+      const blob = await response.blob();
 
       // ファイル名生成
+      const lineTypeLabel = selectedLineType === 'ESTIMATE' ? '見積' : selectedLineType === 'EXECUTION' ? '実行' : '業者';
       const extension = selectedFormat === 'pdf' ? '.pdf' : '.xlsx';
-      const filename = `${estimateName}${extension}`;
+      const filename = `${estimateName}_${lineTypeLabel}${extension}`;
 
       // ダウンロード
       const url = URL.createObjectURL(blob);
@@ -200,7 +221,7 @@ export function EstimateExportDialog({
     } finally {
       setIsExporting(false);
     }
-  }, [estimateId, estimateName, selectedFormat, onClose]);
+  }, [estimateId, estimateName, selectedFormat, selectedLineType, onClose]);
 
   if (!isOpen) return null;
 
@@ -216,7 +237,7 @@ export function EstimateExportDialog({
           見積書出力
         </h2>
 
-        <p style={styles.description}>出力形式を選択してください</p>
+        <p style={styles.description}>出力対象と出力形式を選択してください</p>
 
         {/* エラー表示 */}
         {error && (
@@ -225,7 +246,78 @@ export function EstimateExportDialog({
           </div>
         )}
 
+        {/* 出力対象行タイプ選択 */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>出力対象</div>
+          <div style={styles.formatOptions}>
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedLineType === 'ESTIMATE' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-line-type"
+                value="ESTIMATE"
+                checked={selectedLineType === 'ESTIMATE'}
+                onChange={() => setSelectedLineType('ESTIMATE')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>見積</div>
+                <div style={styles.formatDescription}>見積金額行を出力します</div>
+              </div>
+            </label>
+
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedLineType === 'EXECUTION' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-line-type"
+                value="EXECUTION"
+                checked={selectedLineType === 'EXECUTION'}
+                onChange={() => setSelectedLineType('EXECUTION')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>実行</div>
+                <div style={styles.formatDescription}>実行金額行を出力します</div>
+              </div>
+            </label>
+
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedLineType === 'VENDOR' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-line-type"
+                value="VENDOR"
+                checked={selectedLineType === 'VENDOR'}
+                onChange={() => setSelectedLineType('VENDOR')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>業者</div>
+                <div style={styles.formatDescription}>業者金額行を出力します</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
         {/* 出力形式選択 */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>出力形式</div>
         <div style={styles.formatOptions}>
           {/* PDF */}
           <label
@@ -272,6 +364,7 @@ export function EstimateExportDialog({
               </div>
             </div>
           </label>
+        </div>
         </div>
 
         {/* ボタン */}

@@ -337,7 +337,9 @@ sequenceDiagram
 | NetCalculationPanel | Frontend | NET金額計算UI | 5.1-5.7 | EstimateCalculationService (P0) | State |
 | ProfitRatePanel | Frontend | 利益率適用UI | 6.1-6.6 | EstimateCalculationService (P0) | State |
 | OverheadCostPanel | Frontend | 諸経費計算UI | 7.1-9.6 | OverheadCostService (P0) | State |
-| EstimateExportDialog | Frontend | 出力形式選択UI | 10.1-10.8 | EstimateExportService (P0) | - |
+| EstimateExportDialog | Frontend | 出力形式選択UI | 10.1-10.8, 32.1-32.4 | EstimateExportService (P0) | - |
+| LineTypeFilter | Frontend | 行タイプ表示/非表示フィルター | 28.1-28.4 | EstimateItemTable (P0) | State |
+| EstimateItemToolbar | Frontend | 見積項目操作ツールバー | 23.1-23.10 | useEstimateEditor (P0) | Props |
 
 ### Data Layer
 
@@ -1864,6 +1866,14 @@ const displayAmount = (amount: string | null) => {
 | 22.1-22.9 | 数値表示形式と丸め規則 | EstimateCalculator, EstimateItemRow, EstimateCalculationService, NetAllocationDialog, ProfitRateDialog | 全計算API | 表示・計算 |
 | 23.1-23.10 | 見積項目操作ツールバー | EstimateItemToolbar, EstimateItemTable, EstimateDetailPage | - | UI操作 |
 | 24.1-24.5 | 階層移動API | EstimateItemService, estimates.routes | PATCH /api/estimates/:id/items/:itemId/move | 階層移動 |
+| 25.1 | 見積書名デフォルト値 | EstimateCreatePage | - | 作成フロー |
+| 26.1-26.2 | アクションボタン配置改善 | EstimateDetailPage | - | UI |
+| 27.1-27.4 | 保存ボタンとクライアントサイド編集 | EstimateItemTable, useEstimateEditor, EstimateDetailPage | PUT /api/estimates/:id/items/batch | バッチ保存 |
+| 28.1-28.4 | 表示行フィルター | LineTypeFilter, EstimateItemTable, EstimateDetailPage | - | 表示 |
+| 29.1-29.3 | 親項目の単価自動計算制御 | EstimateItemRow, EstimateItemTable, EstimateCalculator | - | 表示・計算 |
+| 30.1-30.3 | 転記ダイアログ選択肢改善 | TransferQuotationDialog | - | 転記フロー |
+| 31.1-31.2 | NET案分ダイアログ受領見積書情報表示 | NetAllocationDialog | GET /api/projects/:projectId/quotations | NET計算フロー |
+| 32.1-32.4 | 見積書出力の行タイプ選択 | EstimateExportDialog, EstimateExportService, estimates.routes | GET /api/estimates/:id/export?lineType= | 出力フロー |
 
 ## 追加設計（REQ-23〜24対応）
 
@@ -2031,3 +2041,405 @@ export async function moveEstimateItem(
   }
 }
 ```
+
+## 追加設計（REQ-25〜32対応）
+
+### 見積書名デフォルト値（REQ-25）
+
+#### EstimateCreatePage変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積書作成画面の見積書名フィールドにデフォルト値「見積書」を設定 |
+| Requirements | 25.1 |
+
+**変更点**:
+- 見積書名入力フィールドの初期値を`'見積書'`に設定
+
+```typescript
+// EstimateCreatePage 変更箇所
+// 既存: const [name, setName] = useState<string>('');
+// 変更: const [name, setName] = useState<string>('見積書');
+```
+
+**Implementation Notes**
+- 既存のEstimateCreatePageのuseStateの初期値変更のみで対応
+- ユーザーはデフォルト値を自由に変更可能
+- バリデーションルール（必須、最大200文字）はそのまま適用
+
+### アクションボタン配置改善（REQ-26）
+
+#### EstimateDetailPage変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 転記・出力ボタンをサマリーセクションの下に配置し、ヘッダーから除去 |
+| Requirements | 26.1, 26.2 |
+
+**変更点**:
+- ヘッダー部分から「受領見積書を業者金額に転記」「業者金額を実行金額に転記」「実行金額を見積金額に転記」「出力」ボタンを除去
+- サマリーパネルの直後にアクションボタンセクションを新設
+
+**レイアウト変更後**:
+```
+┌──────────────────────────────────────────────────────┐
+│ ヘッダー（見積書名、パンくず、編集・削除ボタンのみ）    │
+├──────────────────────────────────────────────────────┤
+│ 基本情報パネル                                        │
+├──────────────────────────────────────────────────────┤
+│ サマリーパネル（見積/実行/業者合計、利益率/値引率）       │
+├──────────────────────────────────────────────────────┤
+│ アクションボタンセクション                              │
+│ [受領見積書を業者金額に転記] [業者金額を実行金額に転記]  │
+│ [実行金額を見積金額に転記] [出力]                       │
+├──────────────────────────────────────────────────────┤
+│ 見積項目セクション（ツールバー + テーブル + 保存ボタン） │
+└──────────────────────────────────────────────────────┘
+```
+
+**Contracts**: -
+
+```typescript
+// アクションボタンセクションの構成
+interface ActionButtonsSectionProps {
+  onTransferQuotation: () => void; // 受領見積書を業者金額に転記
+  onNetAllocation: () => void; // 業者金額を実行金額に転記
+  onProfitRate: () => void; // 実行金額を見積金額に転記
+  onExport: () => void; // 出力
+}
+```
+
+**Implementation Notes**
+- ボタンは横並びで配置し、画面幅に応じてwrap
+- 各ボタンは対応するダイアログを呼び出す既存のハンドラを使用
+- ヘッダー部分には編集・削除ボタンのみ残す
+
+### 保存ボタンとクライアントサイド編集（REQ-27）
+
+#### useEstimateEditor拡張 / EstimateDetailPage変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積項目の編集をクライアントサイドで行い、保存ボタンでまとめてDBに反映 |
+| Requirements | 27.1, 27.2, 27.3, 27.4 |
+
+**設計方針**:
+- 既存のuseEstimateEditorフックは既にクライアントサイド編集+バッチ保存パターンで設計済み（Performance & Scalabilityセクション参照）
+- REQ-27は既存設計の明示的な要件化
+
+**変更点**:
+
+1. **編集モード切替不要化（REQ-27.1）**:
+   - 既存の編集モード切り替えを廃止
+   - 見積項目の名称・規格・単位・数量・単価・備考を常時インライン編集可能にする
+   - EstimateItemRowの入力フィールドを常に有効化（readOnlyを除去）
+
+2. **保存ボタンの追加（REQ-27.2）**:
+   - 見積項目セクション内にフローティング保存ボタンを配置
+   - ツールバーの右端またはテーブル直下に保存ボタンを表示
+
+3. **バッチ保存の動作（REQ-27.3）**:
+   - 既存の`PUT /api/estimates/:id/items/batch` APIを使用
+   - `useEstimateEditor.save()`がpendingChangesの差分のみを送信
+
+4. **保存ボタンの無効状態（REQ-27.4）**:
+   - `useEstimateEditor.isDirty`がfalseの場合、保存ボタンをdisabled状態で表示
+
+```typescript
+// EstimateDetailPage 見積項目セクション内の保存ボタン
+interface SaveButtonState {
+  isDirty: boolean; // 未保存変更の有無（useEstimateEditor.isDirty）
+  isSaving: boolean; // 保存処理中フラグ
+}
+
+// 保存ボタンの表示制御
+// isDirty === false → disabled
+// isSaving === true → ローディング表示
+```
+
+**Implementation Notes**
+- 既存のuseEstimateEditorフックの`isDirty`と`save()`をそのまま利用
+- 保存ボタンのスタイルは既存のプロジェクトのボタンコンポーネントパターンを踏襲
+- 保存完了後はisDirtyがfalseにリセットされ、保存ボタンが自動的にdisabledになる
+
+### 表示行フィルター（REQ-28）
+
+#### 新規コンポーネント: LineTypeFilter
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積・実行・業者行の表示/非表示を個別に切り替えるフィルターUI |
+| Requirements | 28.1, 28.2, 28.3, 28.4 |
+
+**Responsibilities & Constraints**
+- 「見積」「実行」「業者」の3つのチェックボックスを提供
+- デフォルト値はすべてON
+- チェック状態の変更でEstimateItemTableの表示行をフィルタリング
+
+**Dependencies**
+- Inbound: EstimateDetailPage — 親コンポーネント (P0)
+- Outbound: EstimateItemTable — フィルター状態の受け渡し (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface LineTypeFilterState {
+  showEstimate: boolean; // 見積行の表示（デフォルト: true）
+  showExecution: boolean; // 実行行の表示（デフォルト: true）
+  showVendor: boolean; // 業者行の表示（デフォルト: true）
+}
+
+interface LineTypeFilterProps {
+  visibleLineTypes: LineTypeFilterState;
+  onChange: (state: LineTypeFilterState) => void;
+}
+```
+
+**UI配置**:
+```
+┌──────────────────────────────────────────────────────┐
+│ 見積項目                                              │
+│ [✓見積] [✓実行] [✓業者]               [保存ボタン]   │
+├──────────────────────────────────────────────────────┤
+│ [+項目追加] [+子項目追加] [複製] [削除] [↰上階層] [↳下]│
+├──────────────────────────────────────────────────────┤
+│ 種別 │ 見積業者 │ 名称 │ 規格 │ 単位 │ 数量 │ 単価 ...│
+│ ─────┼──────────┼──────┼──────┼──────┼──────┼──── ...│
+│ ...  │          │      │      │      │      │     ...│
+└──────────────────────────────────────────────────────┘
+```
+
+#### EstimateItemTable変更
+
+**追加Props**:
+```typescript
+interface EstimateItemTableProps {
+  // 既存props...
+  visibleLineTypes: LineTypeFilterState; // 追加: 表示行タイプフィルター
+}
+```
+
+**フィルタリングロジック**:
+- `visibleLineTypes.showEstimate === false` の場合、lineType='ESTIMATE'の行を非表示
+- `visibleLineTypes.showExecution === false` の場合、lineType='EXECUTION'の行を非表示
+- `visibleLineTypes.showVendor === false` の場合、lineType='VENDOR'の行を非表示
+- EstimateItemRowに`visibleLineTypes`を渡し、該当行のレンダリングをスキップ
+
+**Implementation Notes**
+- フィルター状態はEstimateDetailPageで管理し、LineTypeFilterとEstimateItemTableの両方に渡す
+- 非表示の行のデータ自体は保持し、表示のみ制御（バッチ保存時は全行が対象）
+- チェックボックスのUI配置は見積項目セクションのヘッダー部分（ツールバーの上）
+
+### 親項目の単価自動計算制御（REQ-29）
+
+#### EstimateItemRow / EstimateItemTable変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 子項目を持つ親項目の単価フィールドを編集不可にし、金額を子項目の合計として自動計算 |
+| Requirements | 29.1, 29.2, 29.3 |
+
+**変更点**:
+
+1. **単価フィールドの編集不可化（REQ-29.1）**:
+   - EstimateItemRowで`hasChildren`プロパティを追加
+   - `hasChildren === true` の場合、3行すべて（見積/実行/業者）の単価フィールドと数量フィールドを`readOnly`にする
+
+2. **子項目合計の自動計算（REQ-29.2）**:
+   - 既存のEstimateCalculator.calculateHierarchyAmounts()で対応済み
+   - 子項目の金額合計を親項目の金額として表示
+   - 親項目の行タイプ別に子項目の同じ行タイプの金額を合算
+
+3. **手動編集可能フィールドの制限（REQ-29.3）**:
+   - 子項目を持つ親項目では、名称・規格・単位・備考のみ手動編集可能
+   - 数量・単価・金額は自動計算/編集不可
+
+```typescript
+// EstimateItemRow 追加props
+interface EstimateItemRowProps {
+  // 既存props...
+  hasChildren: boolean; // 追加: 子項目を持つかどうか
+}
+
+// hasChildren === true の場合の動作
+// - quantity: readOnly、表示は既存値（又は空白）
+// - unitPrice: readOnly、表示は既存値（又は空白）
+// - amount: 子項目のamount合計を表示（自動計算）
+// - name, specification, unit, remarks: 編集可能
+```
+
+**Implementation Notes**
+- EstimateItemTableで各項目のchildren.lengthを確認し、hasChildrenフラグを算出
+- hasChildren切替時（子項目追加/削除時）に即座にUI状態を更新
+- 既存のEstimateCalculator.calculateHierarchyAmounts()の計算結果を表示に使用
+
+### 受領見積書転記ダイアログの選択肢改善（REQ-30）
+
+#### TransferQuotationDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 転記先の選択肢を「新規項目として作成」と「既存項目名の子項目として作成」に改善 |
+| Requirements | 30.1, 30.2, 30.3 |
+
+**現状分析**:
+- 既存のTransferQuotationDialogには転記先見積項目のドロップダウンが実装済み
+- 現在は`<option value="">新規項目として作成</option>`と既存項目名のフラットリストを表示
+
+**変更点**:
+
+1. **「新規項目として作成」選択肢（REQ-30.1）**:
+   - 既存の実装を維持（ドロップダウンの先頭オプション）
+
+2. **「既存項目名の子項目として作成」選択肢（REQ-30.2）**:
+   - 既存項目のドロップダウン表示を「<項目名>の子項目として作成」形式に変更
+   - 階層構造を反映したインデントまたはプレフィックスで視覚的に区別
+
+3. **転記動作の変更（REQ-30.3）**:
+   - 「<既存項目名>の子項目として作成」選択時、当該項目のparentIdに選択した既存項目IDを設定して転記
+
+```typescript
+// TransferQuotationDialog 転記先ドロップダウンの変更
+// 既存:
+//   <option value="">新規項目として作成</option>
+//   <option value="item-1">建築工事</option>
+//   <option value="item-2">電気設備工事</option>
+
+// 変更後:
+//   <option value="">新規項目として作成</option>
+//   <option value="item-1">建築工事 の子項目として作成</option>
+//   <option value="item-2">  直接仮設工事 の子項目として作成</option>  ← インデントで階層を表現
+//   <option value="item-3">電気設備工事 の子項目として作成</option>
+
+// ドロップダウンの表示ロジック
+function buildTargetOptions(items: EstimateItemHierarchy[], depth: number = 0): TargetOption[] {
+  const options: TargetOption[] = [];
+  for (const item of items) {
+    const indent = '\u00A0\u00A0'.repeat(depth); // non-breaking space でインデント
+    const estimateLine = item.lines.find(l => l.lineType === 'ESTIMATE');
+    const label = `${indent}${estimateLine?.name || '（名称なし）'} の子項目として作成`;
+    options.push({ value: item.id, label });
+    if (item.children.length > 0) {
+      options.push(...buildTargetOptions(item.children, depth + 1));
+    }
+  }
+  return options;
+}
+```
+
+**Implementation Notes**
+- 既存のTransferQuotationDialogの転記先ドロップダウンのオプション生成ロジックを変更
+- 階層の深さに応じたインデント表示
+- 転記APIの呼び出し時にtargetEstimateItemIdとして選択した項目IDを渡す（既存APIで対応可能）
+
+### NET案分ダイアログの受領見積書情報表示（REQ-31）
+
+#### NetAllocationDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | NET案分ダイアログに受領見積書の合計金額とNET金額を表示 |
+| Requirements | 31.1, 31.2 |
+
+**現状分析**:
+- 既存のNetAllocationDialogは受領見積書の合計金額とNET金額の表示を実装済み（コード行377, 399-417に確認済み）
+- `quotationTotalAmount`と受領見積書入力値のNET金額が表示されている
+
+**変更点**:
+
+1. **受領見積書合計金額の表示（REQ-31.1）**:
+   - 既存実装の確認と表示位置の調整
+   - 案分対象業者セクションの下に受領見積書の合計金額を表示
+
+2. **受領見積書のNET金額表示（REQ-31.2）**:
+   - 受領見積書登録画面で入力されたNET金額を取得・表示
+   - `GET /api/projects/:projectId/quotations` レスポンスから対応する受領見積書のlineItemsのnetAmountフィールドを参照
+
+**データ取得**:
+```typescript
+// NetAllocationDialog 受領見積書情報取得
+// 既存のreceivedQuotationsデータから対象業者の受領見積書を特定
+// relatedQuotation.totalAmount: 受領見積書の合計金額
+// relatedQuotation.lineItems[].netAmount: 各明細行のNET金額
+// 表示: 受領見積書全体のNET金額合計
+
+interface ReceivedQuotationDisplayInfo {
+  totalAmount: string | null; // 受領見積書合計金額
+  netAmountTotal: string | null; // NET金額合計（各lineItemのnetAmountの合計）
+}
+```
+
+**Implementation Notes**
+- 既存実装では受領見積書の合計金額表示が実装済みであるため、表示位置・フォーマットの確認が主な対応
+- NET金額の合計計算は、受領見積書のlineItemsのnetAmountフィールドを合算して算出
+- 受領見積書のlineItemsにnetAmountが設定されていない場合は「-」表示
+
+### 見積書出力の行タイプ選択（REQ-32）
+
+#### EstimateExportDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 出力対象の行タイプ（見積/実行/業者）をラジオボタンで選択可能にする |
+| Requirements | 32.1, 32.2, 32.3, 32.4 |
+
+**現状分析**:
+- バックエンド側は既にlineTypeクエリパラメータに対応済み（estimates.routes.tsにlineTypeラベルに基づくファイル名生成ロジックが存在）
+- フロントエンド側のEstimateExportDialogにラジオボタン追加が必要
+
+**変更点**:
+
+1. **ラジオボタンの追加（REQ-32.1）**:
+   - 出力ダイアログに「出力対象」セクションを追加
+   - 「見積」「実行」「業者」の3つのラジオボタンを提供
+   - デフォルト値は「見積」を選択
+
+2. **選択された行タイプの出力制御（REQ-32.2）**:
+   - 選択された行タイプに応じてAPIリクエストにlineTypeパラメータを付加
+
+3. **出力ファイル名への行タイプラベル含有（REQ-32.3）**:
+   - バックエンド側で実装済み（`_見積`, `_実行`, `_業者` がファイル名に付加される）
+
+4. **APIエンドポイントのlineTypeパラメータ（REQ-32.4）**:
+   - バックエンド側で実装済み
+
+```typescript
+// EstimateExportDialog 変更
+interface EstimateExportDialogState {
+  format: 'pdf' | 'xlsx'; // 既存: 出力形式
+  lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'; // 追加: 出力対象行タイプ
+  isExporting: boolean; // 既存: 出力処理中
+}
+
+// API呼び出し変更
+// 既存: GET /api/estimates/:id/export?format=pdf
+// 変更: GET /api/estimates/:id/export?format=pdf&lineType=ESTIMATE
+```
+
+##### API Contract変更
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx', lineType: 'ESTIMATE' \| 'EXECUTION' \| 'VENDOR' | File binary | 404, 500 |
+
+**ダイアログUI**:
+```
+┌─────────────────────────────────┐
+│ 見積書出力                       │
+│                                 │
+│ 出力対象:                       │
+│   ◉ 見積  ○ 実行  ○ 業者       │
+│                                 │
+│ 出力形式:                       │
+│   ◉ PDF  ○ Excel               │
+│                                 │
+│        [キャンセル] [出力]       │
+└─────────────────────────────────┘
+```
+
+**Implementation Notes**
+- バックエンドは既にlineTypeパラメータに対応しているため、フロントエンドの変更のみ
+- ラジオボタンのデフォルト値は「見積」（ESTIMATE）
+- 出力処理中インジケーター表示は既存実装を維持

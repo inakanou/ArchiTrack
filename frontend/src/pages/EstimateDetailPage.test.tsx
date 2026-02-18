@@ -435,9 +435,9 @@ describe('EstimateDetailPage', () => {
   });
 
   /**
-   * REQ-14.10: 編集ボタンを提供する
+   * REQ-27.2: 保存ボタンを常時提供する（編集モード切替は廃止）
    */
-  it('編集ボタンを表示する', async () => {
+  it('保存ボタンを表示する', async () => {
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
         <Routes>
@@ -447,7 +447,7 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument();
     });
   });
 
@@ -658,10 +658,10 @@ describe('EstimateDetailPage', () => {
   });
 
   /**
-   * 編集モード切り替えのテスト
+   * REQ-27.4: isDirty=falseの場合は保存ボタンがdisabled
    */
-  it('編集ボタンクリックで編集モードに切り替わる', async () => {
-    const user = userEvent.setup();
+  it('未変更時は保存ボタンがdisabledで表示される', async () => {
+    mockEditor.isDirty = false;
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -672,17 +672,10 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
-    });
-
-    const editButton = screen.getByRole('button', { name: /編集/i });
-    await user.click(editButton);
-
-    await waitFor(() => {
-      // 編集モードで保存・キャンセルボタンが表示される
       expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /キャンセル/i })).toBeInTheDocument();
     });
+
+    expect(screen.getByRole('button', { name: /保存/i })).toBeDisabled();
   });
 
   /**
@@ -1101,36 +1094,10 @@ describe('EstimateDetailPage', () => {
   });
 
   // =========================================================================
-  // 編集モード: キャンセルと保存のテスト
+  // REQ-27: 保存ボタンのテスト（編集モード廃止、常時インライン編集）
   // =========================================================================
 
-  it('編集モードでキャンセルするとdiscardが呼ばれる', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /編集/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /キャンセル/i })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /キャンセル/i }));
-
-    expect(mockEditor.discard).toHaveBeenCalled();
-  });
-
-  it('編集モードで保存するとeditor.saveが呼ばれデータ再取得される', async () => {
+  it('保存ボタンクリックでeditor.saveが呼ばれデータ再取得される', async () => {
     const user = userEvent.setup();
     mockEditor.isDirty = true;
 
@@ -1141,12 +1108,6 @@ describe('EstimateDetailPage', () => {
         </Routes>
       </MemoryRouter>
     );
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /編集/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument();

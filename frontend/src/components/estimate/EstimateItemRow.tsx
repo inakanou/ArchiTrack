@@ -43,6 +43,10 @@ export interface EstimateItemRowProps {
     field: keyof EstimateItemLineEdit,
     value: string | null
   ) => void;
+  /** 子項目を持つかどうか（trueの場合、単価は自動計算で編集不可） */
+  hasChildren?: boolean;
+  /** 表示する行タイプのフィルター */
+  visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
 }
 
 // ============================================================================
@@ -192,12 +196,13 @@ interface LineRowProps {
     field: keyof EstimateItemLineEdit,
     value: string | null
   ) => void;
+  hasChildren?: boolean;
 }
 
 /**
  * 見積項目行（単一行）
  */
-function LineRow({ itemId, line, onLineChange }: LineRowProps) {
+function LineRow({ itemId, line, onLineChange, hasChildren = false }: LineRowProps) {
   const handleFieldChange = useCallback(
     (field: keyof EstimateItemLineEdit) => (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value || null;
@@ -293,15 +298,21 @@ function LineRow({ itemId, line, onLineChange }: LineRowProps) {
 
       {/* 単価 (REQ-22.8: フォーカスアウト時に整数丸め) */}
       <div>
-        <input
-          type="text"
-          value={line.unitPrice ?? ''}
-          onChange={handleFieldChange('unitPrice')}
-          onBlur={handleUnitPriceBlur}
-          style={styles.input}
-          aria-label="単価"
-          placeholder="単価"
-        />
+        {hasChildren ? (
+          <div style={styles.amountField} aria-label="単価">
+            {formatAmount(line.unitPrice)}
+          </div>
+        ) : (
+          <input
+            type="text"
+            value={line.unitPrice ?? ''}
+            onChange={handleFieldChange('unitPrice')}
+            onBlur={handleUnitPriceBlur}
+            style={styles.input}
+            aria-label="単価"
+            placeholder="単価"
+          />
+        )}
       </div>
 
       {/* 金額（自動計算、入力不可） */}
@@ -354,11 +365,17 @@ export function EstimateItemRow({
   indentLevel = 0,
   isSelected = false,
   onLineChange,
+  hasChildren = false,
+  visibleLineTypes,
 }: EstimateItemRowProps) {
-  // 行タイプの順序で並び替え
+  // 行タイプの順序で並び替え、フィルター適用
   const sortedLines = LINE_TYPE_ORDER.map((lineType) =>
     lines.find((line) => line.lineType === lineType)
-  ).filter((line): line is EstimateItemLineEdit => line !== undefined);
+  ).filter((line): line is EstimateItemLineEdit => {
+    if (line === undefined) return false;
+    if (visibleLineTypes && !visibleLineTypes.has(line.lineType)) return false;
+    return true;
+  });
 
   // インデントスタイル
   const containerStyle: React.CSSProperties = {
@@ -374,7 +391,7 @@ export function EstimateItemRow({
       data-selected={isSelected.toString()}
     >
       {sortedLines.map((line) => (
-        <LineRow key={line.id} itemId={itemId} line={line} onLineChange={onLineChange} />
+        <LineRow key={line.id} itemId={itemId} line={line} onLineChange={onLineChange} hasChildren={hasChildren} />
       ))}
     </div>
   );

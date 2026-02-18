@@ -1920,7 +1920,7 @@ router.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
-      const { format } = req.validatedQuery as { format: 'pdf' | 'xlsx' };
+      const { format, lineType } = req.validatedQuery as { format: 'pdf' | 'xlsx'; lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR' };
 
       // 見積書を取得
       const estimate = await estimateService.findById(id);
@@ -1940,13 +1940,13 @@ router.get(
       // 見積項目を階層構造で取得
       const items = await estimateItemService.getHierarchy(id);
 
-      // 出力用データを構築
+      // 出力用データを構築（指定された行タイプでフィルタリング）
       const exportData: EstimateExportData = {
         id: estimate.id,
         name: estimate.name,
         projectName: (estimate as unknown as { project?: { name: string } }).project?.name ?? '',
         createdAt: estimate.createdAt,
-        items: items.map((item) => convertToExportItem(item)),
+        items: items.map((item) => convertToExportItem(item, lineType)),
         totalAmount: null, // サービス内で計算される
       };
 
@@ -1955,7 +1955,8 @@ router.get(
       const buffer = await estimateExportService.export(exportData, exportFormat);
 
       // ファイル名を生成
-      const fileName = estimateExportService.generateFileName(exportData, exportFormat);
+      const lineTypeLabel = lineType === 'ESTIMATE' ? '見積' : lineType === 'EXECUTION' ? '実行' : '業者';
+      const fileName = estimateExportService.generateFileName(exportData, exportFormat).replace(/\.(pdf|xlsx)$/, `_${lineTypeLabel}.$1`);
 
       // Content-TypeとContent-Dispositionを設定
       const contentType =
@@ -1971,7 +1972,7 @@ router.get(
       res.setHeader('Content-Length', buffer.length);
 
       logger.info(
-        { userId: req.user?.userId, estimateId: id, format },
+        { userId: req.user?.userId, estimateId: id, format, lineType },
         'Estimate exported successfully'
       );
 
@@ -2011,12 +2012,17 @@ function convertToExportItem(item: {
     remarks: string | null;
   }>;
   children?: unknown[];
-}): EstimateExportItem {
+}, targetLineType?: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'): EstimateExportItem {
+  // 指定された行タイプのみをフィルタリング（指定なしの場合は全行）
+  const filteredLines = targetLineType
+    ? item.lines.filter((line) => line.lineType === targetLineType)
+    : item.lines;
+
   return {
     id: item.id,
     parentId: item.parentId,
     displayOrder: item.displayOrder,
-    lines: item.lines.map((line) => ({
+    lines: filteredLines.map((line) => ({
       id: line.id,
       lineType: line.lineType as 'ESTIMATE' | 'EXECUTION' | 'VENDOR',
       name: line.name,
@@ -2028,7 +2034,7 @@ function convertToExportItem(item: {
       remarks: line.remarks,
     })),
     children: Array.isArray(item.children)
-      ? item.children.map((child) => convertToExportItem(child as typeof item))
+      ? item.children.map((child) => convertToExportItem(child as typeof item, targetLineType))
       : [],
   };
 }

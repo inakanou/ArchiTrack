@@ -3,6 +3,7 @@
  *
  * Requirements:
  * - REQ-18.1〜18.9: NET金額案分ダイアログの各機能
+ * - REQ-31.1〜31.2: 受領見積書情報表示
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -18,9 +19,16 @@ vi.mock('../../../api/client', () => ({
   },
 }));
 
+// received-quotationsをモック
+vi.mock('../../../api/received-quotations', () => ({
+  getReceivedQuotationsByProject: vi.fn().mockResolvedValue([]),
+}));
+
 import { apiClient } from '../../../api/client';
+import { getReceivedQuotationsByProject } from '../../../api/received-quotations';
 
 const mockApiPost = vi.mocked(apiClient.post);
+const mockGetQuotations = vi.mocked(getReceivedQuotationsByProject);
 
 const createMockItems = (): EstimateItemHierarchyEdit[] => [
   {
@@ -127,6 +135,7 @@ describe('NetAllocationDialog', () => {
   const defaultProps = {
     isOpen: true,
     estimateId: 'est-1',
+    projectId: 'proj-1',
     items: createMockItems(),
     onClose: vi.fn(),
     onComplete: vi.fn(),
@@ -409,5 +418,144 @@ describe('NetAllocationDialog', () => {
     const select = screen.getByLabelText('対象業者を選択');
     const options = within(select).getAllByRole('option');
     expect(options).toHaveLength(2); // 「選択してください」+ 業者C
+  });
+
+  // ==========================================================================
+  // REQ-31: 受領見積書情報表示
+  // ==========================================================================
+  describe('受領見積書情報表示 (REQ-31)', () => {
+    it('受領見積書の合計金額が業者選択後に表示されること (REQ-31.1)', async () => {
+      const user = userEvent.setup();
+
+      // 受領見積書のモックデータ
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'rq-1',
+          estimateRequestId: 'er-1',
+          name: '業者A見積',
+          submittedAt: new Date('2025-01-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          totalAmount: 120000,
+          lineItems: [
+            {
+              id: 'li-1',
+              receivedQuotationId: 'rq-1',
+              sortOrder: 0,
+              customCategory: null,
+              workType: null,
+              name: '業者A外壁',
+              specification: null,
+              unit: '式',
+              quantity: 1,
+              unitPrice: 80000,
+              amount: 80000,
+              netAmount: 70000,
+              remarks: null,
+            },
+            {
+              id: 'li-2',
+              receivedQuotationId: 'rq-1',
+              sortOrder: 1,
+              customCategory: null,
+              workType: null,
+              name: '業者A防水',
+              specification: null,
+              unit: '式',
+              quantity: 1,
+              unitPrice: 40000,
+              amount: 40000,
+              netAmount: 30000,
+              remarks: null,
+            },
+          ],
+          createdAt: new Date('2025-01-01'),
+          updatedAt: new Date('2025-01-01'),
+        },
+      ]);
+
+      // VENDOR行にsourceReceivedQuotationLineItemIdを設定
+      const itemsWithSource = createMockItems().map((item) => ({
+        ...item,
+        lines: item.lines.map((line) => {
+          if (line.id === 'line-v-1') {
+            return { ...line, sourceReceivedQuotationLineItemId: 'li-1' };
+          }
+          if (line.id === 'line-v-2') {
+            return { ...line, sourceReceivedQuotationLineItemId: 'li-2' };
+          }
+          return line;
+        }),
+      }));
+
+      render(<NetAllocationDialog {...defaultProps} items={itemsWithSource} />);
+
+      await user.selectOptions(screen.getByLabelText('対象業者を選択'), '業者A');
+
+      // 受領見積書情報セクションが表示されるまで待機
+      await waitFor(() => {
+        expect(screen.getByText('受領見積書情報')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('受領見積書合計金額')).toBeInTheDocument();
+    });
+
+    it('NET金額が設定されている場合はNET金額が表示されること (REQ-31.2)', async () => {
+      const user = userEvent.setup();
+
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'rq-1',
+          estimateRequestId: 'er-1',
+          name: '業者A見積',
+          submittedAt: new Date('2025-01-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          totalAmount: 120000,
+          lineItems: [
+            {
+              id: 'li-1',
+              receivedQuotationId: 'rq-1',
+              sortOrder: 0,
+              customCategory: null,
+              workType: null,
+              name: '業者A外壁',
+              specification: null,
+              unit: '式',
+              quantity: 1,
+              unitPrice: 80000,
+              amount: 80000,
+              netAmount: 70000,
+              remarks: null,
+            },
+          ],
+          createdAt: new Date('2025-01-01'),
+          updatedAt: new Date('2025-01-01'),
+        },
+      ]);
+
+      const itemsWithSource = createMockItems().map((item) => ({
+        ...item,
+        lines: item.lines.map((line) => {
+          if (line.id === 'line-v-1') {
+            return { ...line, sourceReceivedQuotationLineItemId: 'li-1' };
+          }
+          return line;
+        }),
+      }));
+
+      render(<NetAllocationDialog {...defaultProps} items={itemsWithSource} />);
+
+      await user.selectOptions(screen.getByLabelText('対象業者を選択'), '業者A');
+
+      await waitFor(() => {
+        expect(screen.getByText('受領見積書情報')).toBeInTheDocument();
+      });
+
+      // NET金額の表示ラベル
+      expect(screen.getByText(/NET金額（受領見積書入力値）/)).toBeInTheDocument();
+    });
   });
 });
