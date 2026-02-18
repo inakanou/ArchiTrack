@@ -597,6 +597,7 @@ describe('ReceivedQuotationForm', () => {
             quantity: 5,
             unitPrice: 2000,
             amount: 10000,
+            netAmount: null,
             remarks: null,
           },
         ],
@@ -872,6 +873,7 @@ describe('ReceivedQuotationForm', () => {
             quantity: 1,
             unitPrice: 10000,
             amount: 10000,
+            netAmount: null,
             remarks: null,
           },
         ],
@@ -985,6 +987,7 @@ describe('ReceivedQuotationForm', () => {
             quantity: 5,
             unitPrice: 2000,
             amount: 10000,
+            netAmount: null,
             remarks: null,
           },
           {
@@ -999,6 +1002,7 @@ describe('ReceivedQuotationForm', () => {
             quantity: 2.5,
             unitPrice: 1234.6,
             amount: 3087,
+            netAmount: null,
             remarks: null,
           },
         ],
@@ -1050,6 +1054,7 @@ describe('ReceivedQuotationForm', () => {
             quantity: 3,
             unitPrice: 1500,
             amount: 4500,
+            netAmount: null,
             remarks: null,
           },
         ],
@@ -1116,6 +1121,7 @@ describe('ReceivedQuotationForm', () => {
         quantity: number | null;
         unitPrice: number | null;
         amount: number | null;
+        netAmount: number | null;
         remarks: string | null;
       }[],
       totalAmount: 0,

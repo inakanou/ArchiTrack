@@ -45,6 +45,7 @@ const mockReceivedQuotations = [
         quantity: 1,
         unitPrice: 100000,
         amount: 100000,
+        netAmount: null,
         remarks: null,
       },
       {
@@ -59,6 +60,7 @@ const mockReceivedQuotations = [
         quantity: 50,
         unitPrice: 8000,
         amount: 400000,
+        netAmount: null,
         remarks: null,
       },
     ],
@@ -87,6 +89,7 @@ const mockReceivedQuotations = [
         quantity: 1,
         unitPrice: 90000,
         amount: 90000,
+        netAmount: null,
         remarks: null,
       },
     ],

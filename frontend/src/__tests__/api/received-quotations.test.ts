@@ -59,6 +59,7 @@ describe('received-quotations API client', () => {
       quantity: 100,
       unitPrice: 150,
       amount: 15000,
+      netAmount: null,
       remarks: null,
     },
     {
@@ -73,6 +74,7 @@ describe('received-quotations API client', () => {
       quantity: 50,
       unitPrice: 12000,
       amount: 600000,
+      netAmount: null,
       remarks: '現場打ち',
     },
   ];
@@ -648,6 +650,7 @@ describe('received-quotations API client', () => {
           quantity: 200,
           unitPrice: 180,
           amount: 36000,
+          netAmount: null,
           remarks: null,
         },
       ];
