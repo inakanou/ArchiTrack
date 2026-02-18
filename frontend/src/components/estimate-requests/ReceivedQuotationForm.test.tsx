@@ -196,7 +196,7 @@ describe('ReceivedQuotationForm', () => {
       expect(screen.getByText(/単位/)).toBeInTheDocument();
       expect(screen.getByText(/数量/)).toBeInTheDocument();
       expect(screen.getByText(/単価/)).toBeInTheDocument();
-      expect(screen.getByText(/金額/)).toBeInTheDocument();
+      expect(screen.getByText(/^金額$/)).toBeInTheDocument();
 
       // ボタン
       expect(screen.getByRole('button', { name: /登録/ })).toBeInTheDocument();
