@@ -105,7 +105,7 @@ const styles = {
   } as React.CSSProperties,
   formatDescription: {
     fontSize: '12px',
-    color: '#6b7280',
+    color: '#636e7b',
     marginTop: '2px',
   } as React.CSSProperties,
   buttonGroup: {
