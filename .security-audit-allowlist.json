@@ -2,7 +2,7 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2026-02-04",
+  "lastUpdated": "2026-02-19",
   "allowlist": {
     "backend": [
       {
@@ -40,6 +40,51 @@
         "expires": "2026-06-01",
         "addedBy": "claude",
         "addedDate": "2026-02-04"
+      },
+      {
+        "package": "@sentry/node",
+        "severity": "high",
+        "reason": "Transitive minimatch ReDoS (GHSA-3ppc-4f35-3m26). @sentry/node@10.39.0 bundles minimatch@9.0.5. No fix available in current major version. Sentry upstream needs to update.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "@sentry/profiling-node",
+        "severity": "high",
+        "reason": "Depends on @sentry/node which has transitive minimatch ReDoS. No fix available in current major version.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "swagger-jsdoc",
+        "severity": "high",
+        "reason": "Transitive glob/minimatch ReDoS (GHSA-3ppc-4f35-3m26). swagger-jsdoc@6.2.8 is the latest stable. v7 is RC only. No non-breaking fix available.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "glob",
+        "severity": "high",
+        "reason": "Transitive dependency of swagger-jsdoc. Uses minimatch <10.2.1 with ReDoS vulnerability. No non-breaking fix available.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "minimatch",
+        "severity": "high",
+        "reason": "ReDoS via repeated wildcards (GHSA-3ppc-4f35-3m26). Transitive dependency pulled in by swagger-jsdoc and @sentry/node. Fix requires minimatch >=10.2.1 which is a semver major change for consuming packages.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
       }
     ],
     "frontend": [
@@ -51,6 +96,51 @@
         "expires": "2026-06-01",
         "addedBy": "system",
         "addedDate": "2025-12-25"
+      },
+      {
+        "package": "fabric",
+        "severity": "high",
+        "reason": "Stored XSS via SVG Export (GHSA-hfvx-25r5-qc3w). Fix requires fabric >=7.2.0 (semver major from 6.9.1). Major version upgrade needs separate testing. Mitigated by sanitizing SVG output on the server side.",
+        "reference": "https://github.com/advisories/GHSA-hfvx-25r5-qc3w",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "@mapbox/node-pre-gyp",
+        "severity": "high",
+        "reason": "Optional transitive dependency with rimraf/glob/minimatch ReDoS chain (GHSA-3ppc-4f35-3m26). No non-breaking fix available.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "rimraf",
+        "severity": "high",
+        "reason": "Transitive dependency of @mapbox/node-pre-gyp. Uses glob <11 with minimatch ReDoS vulnerability. No non-breaking fix available.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "glob",
+        "severity": "high",
+        "reason": "Transitive dependency via @mapbox/node-pre-gyp/rimraf. Uses minimatch <10.2.1 with ReDoS vulnerability. No non-breaking fix available.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
+      },
+      {
+        "package": "minimatch",
+        "severity": "high",
+        "reason": "ReDoS via repeated wildcards (GHSA-3ppc-4f35-3m26). Transitive dependency pulled in by @mapbox/node-pre-gyp chain. Fix requires minimatch >=10.2.1 which is a semver major change.",
+        "reference": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-02-19"
       }
     ],
     "root": []

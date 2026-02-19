@@ -313,7 +313,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       await expect(lineItemTable.getByRole('columnheader', { name: '数量' })).toBeVisible();
       await expect(lineItemTable.getByRole('columnheader', { name: '単価' })).toBeVisible();
       await expect(
-        lineItemTable.getByRole('columnheader', { name: '金額', exact: true }),
+        lineItemTable.getByRole('columnheader', { name: '金額', exact: true })
       ).toBeVisible();
       await expect(lineItemTable.getByRole('columnheader', { name: '備考' })).toBeVisible();
 
