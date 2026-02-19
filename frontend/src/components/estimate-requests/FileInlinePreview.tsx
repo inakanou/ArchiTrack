@@ -175,7 +175,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '120px',
-    color: '#ef4444',
+    color: '#b91c1c',
     fontSize: '14px',
     padding: '16px',
   },
