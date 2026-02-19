@@ -1171,8 +1171,14 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
       const pdfRadio = page.locator('input[type="radio"][name="export-format"][value="pdf"]');
       await pdfRadio.click();
 
-      // ダウンロードの待機設定
-      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
+      // APIリクエストを監視（blob-based downloadのためdownload.url()はblob: URLとなる）
+      const requestPromise = page.waitForRequest(
+        (request) =>
+          request.url().includes('/api/estimates/') &&
+          request.url().includes('/export') &&
+          request.url().includes('lineType=EXECUTION'),
+        { timeout: getTimeout(30000) }
+      );
 
       // 出力ボタンをクリック
       await page
@@ -1180,10 +1186,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // ダウンロードリクエストのURLにlineType=EXECUTIONが含まれることを確認
-      const download = await downloadPromise;
-      const downloadUrl = download.url();
-      expect(downloadUrl).toContain('lineType=EXECUTION');
+      // APIリクエストのURLにlineType=EXECUTIONが含まれることを確認
+      const apiRequest = await requestPromise;
+      expect(apiRequest.url()).toContain('lineType=EXECUTION');
     });
 
     /**
