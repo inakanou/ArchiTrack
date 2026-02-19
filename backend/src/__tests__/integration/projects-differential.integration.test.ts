@@ -777,8 +777,8 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
         })
         .expect(201);
 
-      // 少し待ってから2つ目を作成（タイムスタンプが異なるように）
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // 少し待ってから2つ目を作成（DBタイムスタンプ精度を考慮して十分な間隔を確保）
+      await new Promise((resolve) => setTimeout(resolve, 1100));
 
       await request(app)
         .post('/api/projects')
