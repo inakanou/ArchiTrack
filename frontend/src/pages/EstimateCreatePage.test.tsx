@@ -158,6 +158,7 @@ describe('EstimateCreatePage', () => {
 
   /**
    * REQ-3.3: 内訳書を選択せずに作成した場合、空の見積書を作成する
+   * REQ-25.1: デフォルト値「見積書」が設定されている
    */
   it('内訳書を選択せずに見積書を作成できる', async () => {
     const user = userEvent.setup();
@@ -175,8 +176,9 @@ describe('EstimateCreatePage', () => {
       expect(screen.getByLabelText(/見積書名/i)).toBeInTheDocument();
     });
 
-    // 見積書名を入力
+    // デフォルト値「見積書」をクリアして新規名を入力
     const nameInput = screen.getByLabelText(/見積書名/i);
+    await user.clear(nameInput);
     await user.type(nameInput, '新規見積書');
 
     // 作成ボタンをクリック
@@ -195,6 +197,7 @@ describe('EstimateCreatePage', () => {
 
   /**
    * REQ-3.2: 内訳書を選択した場合、見積金額行の初期値として設定する
+   * REQ-25.1: デフォルト値「見積書」が設定されている
    */
   it('内訳書を選択して見積書を作成できる', async () => {
     const user = userEvent.setup();
@@ -217,8 +220,9 @@ describe('EstimateCreatePage', () => {
       expect(screen.getByLabelText(/見積書名/i)).toBeInTheDocument();
     });
 
-    // 見積書名を入力
+    // デフォルト値「見積書」をクリアして新規名を入力
     const nameInput = screen.getByLabelText(/見積書名/i);
+    await user.clear(nameInput);
     await user.type(nameInput, '新規見積書');
 
     // 内訳書を選択
@@ -242,8 +246,11 @@ describe('EstimateCreatePage', () => {
 
   /**
    * 見積書名が空の場合、作成できない
+   * REQ-25.1: デフォルト値「見積書」が設定されているため、空にするにはクリアが必要
    */
   it('見積書名が空の場合、作成ボタンが無効になる', async () => {
+    const user = userEvent.setup();
+
     render(
       <MemoryRouter initialEntries={['/projects/proj-001/estimates/new']}>
         <Routes>
@@ -255,6 +262,10 @@ describe('EstimateCreatePage', () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/見積書名/i)).toBeInTheDocument();
     });
+
+    // デフォルト値「見積書」をクリアして空にする
+    const nameInput = screen.getByLabelText(/見積書名/i);
+    await user.clear(nameInput);
 
     const submitButton = screen.getByRole('button', { name: /作成/i });
     expect(submitButton).toBeDisabled();

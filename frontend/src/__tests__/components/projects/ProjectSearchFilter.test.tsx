@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProjectSearchFilter from '../../../components/projects/ProjectSearchFilter';
 import type { ProjectFilter } from '../../../types/project.types';
@@ -116,7 +116,9 @@ describe('ProjectSearchFilter', () => {
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
       const searchInput = screen.getByRole('searchbox', { name: /検索/i });
-      await user.type(searchInput, 'テスト');
+      // user.typeは日本語文字のキーストロークシミュレーションが重負荷環境でタイムアウトするため
+      // fireEvent.changeで値を直接設定する（本テストの目的はボタンクリック検証）
+      fireEvent.change(searchInput, { target: { value: 'テスト' } });
 
       const searchButton = screen.getByRole('button', { name: /検索/i });
       await user.click(searchButton);

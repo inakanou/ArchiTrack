@@ -554,6 +554,65 @@ export class EstimateItemService {
   }
 
   /**
+   * 見積項目の行データを一括更新する
+   *
+   * Requirements (estimate-creation):
+   * - REQ-27.3: 保存ボタンでDB一括反映
+   *
+   * @param estimateId - 見積書ID
+   * @param items - 更新対象の項目配列
+   * @throws EstimateNotFoundError 見積書が存在しない場合
+   */
+  async batchUpdateItems(
+    estimateId: string,
+    items: Array<{
+      id: string;
+      lines: Array<{
+        id: string;
+        lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
+        name?: string | null;
+        specification?: string | null;
+        unit?: string | null;
+        quantity?: number | null;
+        unitPrice?: number | null;
+        remarks?: string | null;
+      }>;
+    }>
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      // 1. 見積書の存在確認
+      const estimate = await tx.estimate.findUnique({
+        where: { id: estimateId },
+        select: { id: true, deletedAt: true },
+      });
+
+      if (!estimate || estimate.deletedAt !== null) {
+        throw new EstimateNotFoundError(estimateId);
+      }
+
+      // 2. 各項目の行データを更新
+      for (const item of items) {
+        for (const line of item.lines) {
+          const amount = this.calculateAmount(line.quantity ?? null, line.unitPrice ?? null);
+
+          await tx.estimateItemLine.update({
+            where: { id: line.id },
+            data: {
+              name: line.name ?? null,
+              specification: line.specification ?? null,
+              unit: line.unit ?? null,
+              quantity: line.quantity ?? null,
+              unitPrice: line.unitPrice ?? null,
+              amount,
+              remarks: line.remarks ?? null,
+            },
+          });
+        }
+      }
+    });
+  }
+
+  /**
    * 受領見積書から見積項目に転記する
    *
    * Requirements: REQ-4.1, REQ-4.2, REQ-4.3

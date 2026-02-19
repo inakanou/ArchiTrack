@@ -1100,8 +1100,9 @@ test.describe('見積依頼機能', () => {
       await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
 
       // コピーボタンが表示される（宛先、表題、本文用の3つ）
-      const copyButtons = page.getByRole('button', { name: /コピー/i });
-      await expect(copyButtons.first()).toBeVisible({ timeout: getTimeout(10000) });
+      // パネル内に限定して検索し、データロード完了後に3つ全て表示されるのを待機
+      const copyButtons = panel.getByRole('button', { name: /コピー/i });
+      await expect(copyButtons.nth(2)).toBeVisible({ timeout: getTimeout(10000) });
 
       const count = await copyButtons.count();
       expect(count).toBeGreaterThanOrEqual(3);

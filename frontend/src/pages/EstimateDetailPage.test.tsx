@@ -435,9 +435,9 @@ describe('EstimateDetailPage', () => {
   });
 
   /**
-   * REQ-14.10: 編集ボタンを提供する
+   * REQ-27.2: 保存ボタンを常時提供する（編集モード切替は廃止）
    */
-  it('編集ボタンを表示する', async () => {
+  it('保存ボタンを表示する', async () => {
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
         <Routes>
@@ -447,7 +447,7 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument();
     });
   });
 
@@ -658,10 +658,10 @@ describe('EstimateDetailPage', () => {
   });
 
   /**
-   * 編集モード切り替えのテスト
+   * REQ-27.4: isDirty=falseの場合は保存ボタンがdisabled
    */
-  it('編集ボタンクリックで編集モードに切り替わる', async () => {
-    const user = userEvent.setup();
+  it('未変更時は保存ボタンがdisabledで表示される', async () => {
+    mockEditor.isDirty = false;
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -672,17 +672,10 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
-    });
-
-    const editButton = screen.getByRole('button', { name: /編集/i });
-    await user.click(editButton);
-
-    await waitFor(() => {
-      // 編集モードで保存・キャンセルボタンが表示される
       expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /キャンセル/i })).toBeInTheDocument();
     });
+
+    expect(screen.getByRole('button', { name: /保存/i })).toBeDisabled();
   });
 
   /**
@@ -1101,36 +1094,10 @@ describe('EstimateDetailPage', () => {
   });
 
   // =========================================================================
-  // 編集モード: キャンセルと保存のテスト
+  // REQ-27: 保存ボタンのテスト（編集モード廃止、常時インライン編集）
   // =========================================================================
 
-  it('編集モードでキャンセルするとdiscardが呼ばれる', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /編集/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /キャンセル/i })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /キャンセル/i }));
-
-    expect(mockEditor.discard).toHaveBeenCalled();
-  });
-
-  it('編集モードで保存するとeditor.saveが呼ばれデータ再取得される', async () => {
+  it('保存ボタンクリックでeditor.saveが呼ばれデータ再取得される', async () => {
     const user = userEvent.setup();
     mockEditor.isDirty = true;
 
@@ -1141,12 +1108,6 @@ describe('EstimateDetailPage', () => {
         </Routes>
       </MemoryRouter>
     );
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /編集/i })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /編集/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument();
@@ -1349,5 +1310,458 @@ describe('EstimateDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByText('項目の移動に失敗しました')).toBeInTheDocument();
     });
+  });
+
+  // =========================================================================
+  // 追加カバレッジテスト
+  // =========================================================================
+
+  it('EXECUTIONチェックボックスのON/OFF切り替えが動作すること', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    // 「実行」チェックボックスを見つけてクリック
+    const checkboxes = screen.getAllByRole('checkbox');
+    const executionCheckbox = checkboxes.find((cb) => {
+      const parent = cb.closest('label');
+      return parent?.textContent === '実行';
+    });
+    expect(executionCheckbox).toBeDefined();
+
+    await user.click(executionCheckbox!);
+    expect(executionCheckbox).not.toBeChecked();
+
+    // 再度クリックでONに戻る
+    await user.click(executionCheckbox!);
+    expect(executionCheckbox).toBeChecked();
+  });
+
+  it('VENDORチェックボックスのON/OFF切り替えが動作すること', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    // 「業者」チェックボックスを見つけてクリック
+    const checkboxes = screen.getAllByRole('checkbox');
+    const vendorCheckbox = checkboxes.find((cb) => {
+      const parent = cb.closest('label');
+      return parent?.textContent === '業者';
+    });
+    expect(vendorCheckbox).toBeDefined();
+
+    await user.click(vendorCheckbox!);
+    expect(vendorCheckbox).not.toBeChecked();
+  });
+
+  it('項目選択時にselectedItemとhasPreviousSiblingが計算されること', async () => {
+    const user = userEvent.setup();
+    // 2つの兄弟アイテムをセットして、2番目を選択すればhasPreviousSibling=trueになる
+    mockEditor.items = [
+      {
+        id: 'item-first',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        lines: [],
+        children: [],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+      {
+        id: 'item-001',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 1,
+        lines: [],
+        children: [],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-item-table')).toBeInTheDocument();
+    });
+
+    // onItemSelect('item-001')を呼ぶ
+    await user.click(screen.getByTestId('select-item-btn'));
+
+    await waitFor(() => {
+      // selectedItemIdが設定されたことを確認（テーブルのdata属性で検証）
+      expect(screen.getByTestId('mock-item-table')).toHaveAttribute(
+        'data-selected-item-id',
+        'item-001'
+      );
+    });
+
+    // ツールバーにselectedItemとhasPreviousSiblingが渡されていることを確認
+    expect(capturedToolbarProps.selectedItemId).toBe('item-001');
+    expect(capturedToolbarProps.hasPreviousSibling).toBe(true);
+  });
+
+  it('NaN金額でサマリーが正しく表示されること', async () => {
+    mockEditor.items = [
+      {
+        id: 'item-nan',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        lines: [
+          {
+            id: 'line-nan',
+            estimateItemId: 'item-nan',
+            lineType: 'ESTIMATE' as const,
+            name: 'NaN項目',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: 'abc',
+            amount: 'abc',
+            remarks: null,
+            sourceReceivedQuotationLineItemId: null,
+            sourceVendorName: null,
+          },
+        ],
+        children: [],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    // NaN金額は集計時にskipされ、0円と表示される
+    const summaryPanel = screen.getByTestId('summary-panel');
+    expect(summaryPanel).toBeInTheDocument();
+  });
+
+  it('handleMoveUp: parentが見つからない場合はearly return', async () => {
+    // 子のparentIdは存在するが、editorのitemsツリーではparentが見つからないケース
+    mockEditor.items = [
+      {
+        id: 'item-orphan',
+        estimateId: 'est-001',
+        parentId: 'non-existent-parent',
+        displayOrder: 0,
+        lines: [],
+        children: [],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
+    });
+
+    const onMoveUp = capturedToolbarProps.onMoveUp as (id: string) => void;
+    onMoveUp('item-orphan');
+
+    // parentが見つからないのでAPIは呼ばれない
+    expect(estimatesApi.moveEstimateItem).not.toHaveBeenCalled();
+  });
+
+  it('handleMoveDown: ネストされた階層でgetSiblingsが再帰的に兄弟を検索すること', async () => {
+    // 深い階層: root > parent > [child-a, child-b]
+    // child-bをmoveDownするとgetSiblingsが再帰してparentの子を見つける
+    mockEditor.items = [
+      {
+        id: 'root',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        lines: [],
+        children: [
+          {
+            id: 'nested-parent',
+            estimateId: 'est-001',
+            parentId: 'root',
+            displayOrder: 0,
+            lines: [],
+            children: [
+              {
+                id: 'nested-child-a',
+                estimateId: 'est-001',
+                parentId: 'nested-parent',
+                displayOrder: 0,
+                lines: [],
+                children: [],
+                isExpanded: true,
+                createdAt: '2024-01-15T10:00:00.000Z',
+                updatedAt: '2024-01-15T10:00:00.000Z',
+              },
+              {
+                id: 'nested-child-b',
+                estimateId: 'est-001',
+                parentId: 'nested-parent',
+                displayOrder: 1,
+                lines: [],
+                children: [],
+                isExpanded: true,
+                createdAt: '2024-01-15T10:00:00.000Z',
+                updatedAt: '2024-01-15T10:00:00.000Z',
+              },
+            ],
+            isExpanded: true,
+            createdAt: '2024-01-15T10:00:00.000Z',
+            updatedAt: '2024-01-15T10:00:00.000Z',
+          },
+        ],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ];
+    vi.mocked(estimatesApi.moveEstimateItem).mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
+    });
+
+    const onMoveDown = capturedToolbarProps.onMoveDown as (id: string) => void;
+    // nested-child-bはindex=1でpreviousSibling=nested-child-a
+    // getSiblingsはroot.childrenからnested-parentを探し、その子を返す（再帰）
+    onMoveDown('nested-child-b');
+
+    await waitFor(() => {
+      expect(estimatesApi.moveEstimateItem).toHaveBeenCalledWith(
+        'est-001',
+        'nested-child-b',
+        'nested-child-a'
+      );
+    });
+  });
+
+  it('NET完了コールバックがデータ再取得を実行する', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    // NETダイアログを開いて完了ボタンを押す
+    const netBtn = screen.getByRole('button', { name: /業者金額を実行金額に転記/ });
+    await user.click(netBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-net-dialog')).toBeInTheDocument();
+    });
+
+    vi.mocked(estimatesApi.getEstimateDetail).mockClear();
+
+    await user.click(screen.getByTestId('net-complete'));
+
+    await waitFor(() => {
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledWith('est-001');
+    });
+  });
+
+  it('利益率完了コールバックがデータ再取得を実行する', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    // 利益率ダイアログを開いて完了ボタンを押す
+    const profitBtn = screen.getByRole('button', { name: /実行金額を見積金額に転記/ });
+    await user.click(profitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-profit-dialog')).toBeInTheDocument();
+    });
+
+    vi.mocked(estimatesApi.getEstimateDetail).mockClear();
+
+    await user.click(screen.getByTestId('profit-complete'));
+
+    await waitFor(() => {
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledWith('est-001');
+    });
+  });
+
+  it('サマリーパネルで利益率・値引率が正しく計算されること', async () => {
+    // ESTIMATE, EXECUTION, VENDORの全3行タイプを持つ項目を設定
+    mockEditor.items = [
+      {
+        id: 'item-summary',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        lines: [
+          {
+            id: 'line-est',
+            estimateItemId: 'item-summary',
+            lineType: 'ESTIMATE' as const,
+            name: '工事A',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '120000',
+            amount: '120000',
+            remarks: null,
+            sourceReceivedQuotationLineItemId: null,
+            sourceVendorName: null,
+          },
+          {
+            id: 'line-exec',
+            estimateItemId: 'item-summary',
+            lineType: 'EXECUTION' as const,
+            name: '工事A',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '100000',
+            amount: '100000',
+            remarks: null,
+            sourceReceivedQuotationLineItemId: null,
+            sourceVendorName: null,
+          },
+          {
+            id: 'line-vendor',
+            estimateItemId: 'item-summary',
+            lineType: 'VENDOR' as const,
+            name: '工事A',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '80000',
+            amount: '80000',
+            remarks: null,
+            sourceReceivedQuotationLineItemId: null,
+            sourceVendorName: null,
+          },
+        ],
+        children: [],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('summary-panel')).toBeInTheDocument();
+    });
+
+    // 利益率: 120000 / 100000 * 100 = 120%
+    expect(screen.getByText('120%')).toBeInTheDocument();
+    // 値引率: 100000 / 80000 * 100 = 125%
+    expect(screen.getByText('125%')).toBeInTheDocument();
+  });
+
+  it('selectedItemが子要素をもつ項目の子を選択した場合にfindItemが再帰的に検索すること', async () => {
+    const user = userEvent.setup();
+    mockEditor.items = mockEditorItemsWithHierarchy;
+
+    // select-item-btnは'item-001'をセットするが、ここではmockのonItemSelectを使って
+    // 子アイテムを選択する（capturedToolbarPropsで確認）
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-item-table')).toBeInTheDocument();
+    });
+
+    // onItemSelectを直接呼んで子アイテムを選択
+    const table = screen.getByTestId('mock-item-table');
+    // item-childはmockEditorItemsWithHierarchyのitem-parentの子
+    // selectedItemのfindItemが再帰的にitem-childを見つけるか確認
+    await user.click(screen.getByTestId('select-item-btn'));
+
+    // select-item-btnは'item-001'を選択する。mockEditorItemsWithHierarchyには'item-001'がないため
+    // selectedItem=nullとなりhasPreviousSibling=false
+    await waitFor(() => {
+      expect(table).toHaveAttribute('data-selected-item-id', 'item-001');
+    });
+    // capturedToolbarProps.selectedItem is null because 'item-001' doesn't exist in hierarchy
+    expect(capturedToolbarProps.selectedItemId).toBe('item-001');
   });
 });

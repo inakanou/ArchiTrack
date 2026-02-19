@@ -141,16 +141,6 @@ const styles = {
     cursor: 'pointer',
   } as React.CSSProperties,
   content: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 400px',
-    gap: '24px',
-  } as React.CSSProperties,
-  mainSection: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '24px',
-  } as React.CSSProperties,
-  sideSection: {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '24px',
@@ -898,115 +888,107 @@ export default function EstimateRequestDetailPage() {
         </div>
       </div>
 
-      {/* コンテンツ */}
+      {/* コンテンツ（フルワイドレイアウト: Task 59） */}
       <div style={styles.content}>
-        {/* メインセクション */}
-        <div style={styles.mainSection}>
-          {/* ステータス管理 */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>ステータス</h2>
-            <div style={styles.statusSection}>
-              <span style={styles.statusLabel}>現在のステータス:</span>
-              <StatusBadge status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus} />
-              <StatusTransitionButton
-                status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus}
-                onTransition={handleStatusTransition}
-                onSuccess={handleStatusSuccess}
-              />
-            </div>
-          </div>
-
-          {/* 基本情報 */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>基本情報</h2>
-            <div style={styles.infoGrid}>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>宛先（取引先）</span>
-                <span style={styles.infoValue}>{request.tradingPartnerName}</span>
-              </div>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>見積依頼方法</span>
-                <span style={styles.infoValue}>{formatMethod(request.method)}</span>
-              </div>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>参照内訳書</span>
-                <span style={styles.infoValue}>{request.itemizedStatementName}</span>
-              </div>
-              <div style={styles.infoItem}>
-                <span style={styles.infoLabel}>作成日時</span>
-                <span style={styles.infoValue}>{formatDate(request.createdAt)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* アクションボタン */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>アクション</h2>
-            <div style={styles.actionButtons}>
-              <button
-                type="button"
-                onClick={handleShowText}
-                style={styles.actionButton}
-                aria-expanded={showTextPanel}
-              >
-                {showTextPanel ? '見積依頼文を閉じる' : '見積依頼文を表示'}
-              </button>
-              <ExcelExportButton
-                selectedItems={items.filter((item) => item.selected)}
-                estimateRequestName={request.name}
-              />
-              <ClipboardCopyButton
-                text={items
-                  .filter((item) => item.selected)
-                  .map(
-                    (item) =>
-                      `${item.customCategory ?? ''}\t${item.workType ?? ''}\t${item.name ?? ''}\t${item.specification ?? ''}\t${item.unit ?? ''}\t${item.quantity}`
-                  )
-                  .join('\n')}
-              />
-            </div>
-          </div>
-
-          {/* 見積依頼文パネル */}
-          {showTextPanel && (
-            <EstimateRequestTextPanel text={estimateText} loading={isTextLoading} />
-          )}
-
-          {/* 項目選択パネル */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>項目選択</h2>
-            <ItemSelectionPanel
-              items={items}
-              method={request.method}
-              includeBreakdownInBody={request.includeBreakdownInBody}
-              onItemSelectionChange={handleItemSelectionChange}
-              onMethodChange={handleMethodChange}
-              onIncludeBreakdownChange={handleIncludeBreakdownChange}
+        {/* ステータス管理 */}
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>ステータス</h2>
+          <div style={styles.statusSection}>
+            <span style={styles.statusLabel}>現在のステータス:</span>
+            <StatusBadge status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus} />
+            <StatusTransitionButton
+              status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus}
+              onTransition={handleStatusTransition}
+              onSuccess={handleStatusSuccess}
             />
           </div>
         </div>
 
-        {/* サイドセクション */}
-        <div style={styles.sideSection}>
-          {/* 選択項目数 */}
-          <div style={styles.card}>
-            <h2 style={styles.sectionTitle}>選択状況</h2>
-            <p style={styles.infoValue}>
-              {items.filter((item) => item.selected).length} / {items.length} 項目選択中
-            </p>
+        {/* 基本情報 */}
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>基本情報</h2>
+          <div style={styles.infoGrid}>
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>宛先（取引先）</span>
+              <span style={styles.infoValue}>{request.tradingPartnerName}</span>
+            </div>
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>見積依頼方法</span>
+              <span style={styles.infoValue}>{formatMethod(request.method)}</span>
+            </div>
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>参照内訳書</span>
+              <span style={styles.infoValue}>{request.itemizedStatementName}</span>
+            </div>
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>作成日時</span>
+              <span style={styles.infoValue}>{formatDate(request.createdAt)}</span>
+            </div>
           </div>
+        </div>
 
-          {/* 受領見積書セクション */}
-          <div style={styles.card}>
-            <ReceivedQuotationList
-              estimateRequestId={request.id}
-              quotations={quotations}
-              onAddClick={handleAddQuotationClick}
-              onEditClick={handleEditQuotationClick}
-              onDeleteClick={handleDeleteQuotation}
-              onPreviewClick={handlePreviewQuotation}
+        {/* アクションボタン */}
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>アクション</h2>
+          <div style={styles.actionButtons}>
+            <button
+              type="button"
+              onClick={handleShowText}
+              style={styles.actionButton}
+              aria-expanded={showTextPanel}
+            >
+              {showTextPanel ? '見積依頼文を閉じる' : '見積依頼文を表示'}
+            </button>
+            <ExcelExportButton
+              selectedItems={items.filter((item) => item.selected)}
+              estimateRequestName={request.name}
+            />
+            <ClipboardCopyButton
+              text={items
+                .filter((item) => item.selected)
+                .map(
+                  (item) =>
+                    `${item.customCategory ?? ''}\t${item.workType ?? ''}\t${item.name ?? ''}\t${item.specification ?? ''}\t${item.unit ?? ''}\t${item.quantity}`
+                )
+                .join('\n')}
             />
           </div>
+        </div>
+
+        {/* 見積依頼文パネル */}
+        {showTextPanel && <EstimateRequestTextPanel text={estimateText} loading={isTextLoading} />}
+
+        {/* 項目選択パネル */}
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>項目選択</h2>
+          <ItemSelectionPanel
+            items={items}
+            method={request.method}
+            includeBreakdownInBody={request.includeBreakdownInBody}
+            onItemSelectionChange={handleItemSelectionChange}
+            onMethodChange={handleMethodChange}
+            onIncludeBreakdownChange={handleIncludeBreakdownChange}
+          />
+        </div>
+
+        {/* 選択状況（Task 59: サイドバーから項目選択の下に移動） */}
+        <div style={styles.card}>
+          <h2 style={styles.sectionTitle}>選択状況</h2>
+          <p style={styles.infoValue}>
+            {items.filter((item) => item.selected).length} / {items.length} 項目選択中
+          </p>
+        </div>
+
+        {/* 受領見積書セクション（Task 59: サイドバーから選択状況の下に移動） */}
+        <div style={styles.card}>
+          <ReceivedQuotationList
+            estimateRequestId={request.id}
+            quotations={quotations}
+            onAddClick={handleAddQuotationClick}
+            onEditClick={handleEditQuotationClick}
+            onDeleteClick={handleDeleteQuotation}
+            onPreviewClick={handlePreviewQuotation}
+          />
         </div>
       </div>
 

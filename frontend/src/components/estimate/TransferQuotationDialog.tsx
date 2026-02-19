@@ -417,7 +417,7 @@ export function TransferQuotationDialog({
             {/* 転記先選択 */}
             <div style={styles.section}>
               <label htmlFor="target-select" style={styles.sectionTitle}>
-                転記先見積項目（任意）
+                転記先見積項目
               </label>
               <select
                 id="target-select"
@@ -430,7 +430,7 @@ export function TransferQuotationDialog({
                 {flattenedItems.map((item) => (
                   <option key={item.id} value={item.id}>
                     {'  '.repeat(item.level)}
-                    {item.name}
+                    {item.name} の子項目として作成
                   </option>
                 ))}
               </select>

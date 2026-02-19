@@ -108,6 +108,7 @@ describe('ReceivedQuotationList', () => {
           quantity: 10,
           unitPrice: 1000,
           amount: 10000,
+          netAmount: null,
           remarks: null,
         },
         {
@@ -122,6 +123,7 @@ describe('ReceivedQuotationList', () => {
           quantity: 5,
           unitPrice: 2000,
           amount: 10000,
+          netAmount: null,
           remarks: null,
         },
         {
@@ -136,6 +138,7 @@ describe('ReceivedQuotationList', () => {
           quantity: 1,
           unitPrice: 30000,
           amount: 30000,
+          netAmount: null,
           remarks: null,
         },
       ],
@@ -164,6 +167,7 @@ describe('ReceivedQuotationList', () => {
           quantity: 1,
           unitPrice: 150000,
           amount: 150000,
+          netAmount: null,
           remarks: '一式',
         },
       ],

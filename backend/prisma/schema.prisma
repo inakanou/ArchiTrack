@@ -1000,6 +1000,7 @@ model ReceivedQuotationLineItem {
   quantity            Decimal? @db.Decimal(15, 4) // 数量
   unitPrice           Decimal? @db.Decimal(15, 2) // 単価
   amount              Decimal? @db.Decimal(15, 2) // 金額（数量 x 単価、自動計算）
+  netAmount           Decimal? @db.Decimal(15, 2) @map("net_amount") // NET金額（手動入力、任意）
   remarks             String? // 備考
 
   receivedQuotation ReceivedQuotation @relation(fields: [receivedQuotationId], references: [id], onDelete: Cascade)

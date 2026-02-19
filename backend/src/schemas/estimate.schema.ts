@@ -359,6 +359,7 @@ export const addOverheadItemSchema = z.object({
  */
 export const exportEstimateQuerySchema = z.object({
   format: z.enum(['pdf', 'xlsx']),
+  lineType: z.enum(['ESTIMATE', 'EXECUTION', 'VENDOR']).optional().default('ESTIMATE'),
 });
 
 /**

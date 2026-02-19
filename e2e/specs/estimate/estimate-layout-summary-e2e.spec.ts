@@ -205,37 +205,30 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
         timeout: getTimeout(15000),
       });
 
-      // 編集モードに切り替え
-      await page.getByRole('button', { name: /編集/i }).click();
-
-      // 編集モードに切り替わったことを確認
-      await expect(page.getByRole('button', { name: /キャンセル/i })).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+      // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
       // 項目追加ボタンをクリック（「子項目追加」ボタンと区別するためexact指定）
       const addButton = page.getByRole('button', { name: '+ 項目追加' });
-      if (await addButton.isVisible()) {
-        await addButton.click();
+      await expect(addButton).toBeVisible({ timeout: getTimeout(10000) });
+      await addButton.click();
 
-        // 数量と単価を入力して見積金額を設定
-        const quantityInputs = page.locator('input[aria-label="数量"]');
-        const unitPriceInputs = page.locator('input[aria-label="単価"]');
+      // 数量と単価を入力して見積金額を設定
+      const quantityInputs = page.locator('input[aria-label="数量"]');
+      const unitPriceInputs = page.locator('input[aria-label="単価"]');
 
-        const quantityCount = await quantityInputs.count();
-        if (quantityCount > 0) {
-          // 最初の見積行（ESTIMATE）の数量と単価を入力
-          await quantityInputs.first().fill('10');
-          await unitPriceInputs.first().fill('5000');
-          await unitPriceInputs.first().blur();
-        }
+      const quantityCount = await quantityInputs.count();
+      if (quantityCount > 0) {
+        // 最初の見積行（ESTIMATE）の数量と単価を入力
+        await quantityInputs.first().fill('10');
+        await unitPriceInputs.first().fill('5000');
+        await unitPriceInputs.first().blur();
+      }
 
-        // 保存
-        const saveButton = page.getByRole('button', { name: /保存/i });
-        if (await saveButton.isEnabled()) {
-          await saveButton.click();
-          await page.waitForLoadState('networkidle');
-        }
+      // 保存
+      const saveButton = page.getByRole('button', { name: /保存/i });
+      if (await saveButton.isEnabled()) {
+        await saveButton.click();
+        await page.waitForLoadState('networkidle');
       }
     });
 

@@ -58,6 +58,8 @@ export interface EstimateItemTableProps {
   onDragStart?: (itemId: string) => void;
   /** ドロップコールバック */
   onDrop?: (sourceId: string, targetId: string) => void;
+  /** 表示する行タイプのフィルター */
+  visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
 }
 
 // ============================================================================
@@ -208,6 +210,7 @@ interface ItemRendererProps {
     field: keyof EstimateItemLineEdit,
     value: string | null
   ) => void;
+  visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
 }
 
 /**
@@ -221,6 +224,7 @@ function ItemRenderer({
   onItemSelect,
   onToggleExpand,
   onLineChange,
+  visibleLineTypes,
 }: ItemRendererProps) {
   const hasChildren = item.children.length > 0;
   const isSelected = selectedItemId === item.id;
@@ -278,6 +282,8 @@ function ItemRenderer({
           indentLevel={hasChildren ? 1 : 0} // 展開ボタン分のスペース
           isSelected={isSelected}
           onLineChange={onLineChange}
+          hasChildren={hasChildren}
+          visibleLineTypes={visibleLineTypes}
         />
       </div>
 
@@ -293,6 +299,7 @@ function ItemRenderer({
             onItemSelect={onItemSelect}
             onToggleExpand={onToggleExpand}
             onLineChange={onLineChange}
+            visibleLineTypes={visibleLineTypes}
           />
         ))}
     </>
@@ -329,6 +336,7 @@ export function EstimateItemTable({
   onItemSelect,
   onToggleExpand,
   onLineChange,
+  visibleLineTypes,
 }: EstimateItemTableProps) {
   return (
     <div style={styles.table} aria-label="見積項目テーブル">
@@ -365,6 +373,7 @@ export function EstimateItemTable({
               onItemSelect={onItemSelect}
               onToggleExpand={onToggleExpand}
               onLineChange={onLineChange}
+              visibleLineTypes={visibleLineTypes}
             />
           ))
         )}

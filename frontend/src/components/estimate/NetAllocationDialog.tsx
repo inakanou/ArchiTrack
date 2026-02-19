@@ -17,14 +17,17 @@
  * @module components/estimate/NetAllocationDialog
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 import { apiClient } from '../../api/client';
+import { getReceivedQuotationsByProject } from '../../api/received-quotations';
+import type { ReceivedQuotationInfo } from '../../api/received-quotations';
 import Decimal from 'decimal.js';
 
 export interface NetAllocationDialogProps {
   isOpen: boolean;
   estimateId: string;
+  projectId: string;
   items: EstimateItemHierarchyEdit[];
   onClose: () => void;
   onComplete: () => void;
@@ -148,6 +151,21 @@ interface VendorLine {
   vendorName: string | null;
 }
 
+function findItemLineByLineId(
+  items: EstimateItemHierarchyEdit[],
+  lineId: string
+): { sourceReceivedQuotationLineItemId?: string | null } | null {
+  for (const item of items) {
+    const line = item.lines.find((l) => l.id === lineId);
+    if (line) return line;
+    if (item.children.length > 0) {
+      const found = findItemLineByLineId(item.children, lineId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function collectVendorLines(items: EstimateItemHierarchyEdit[]): VendorLine[] {
   const result: VendorLine[] = [];
   for (const item of items) {
@@ -171,6 +189,7 @@ function collectVendorLines(items: EstimateItemHierarchyEdit[]): VendorLine[] {
 export function NetAllocationDialog({
   isOpen,
   estimateId,
+  projectId,
   items,
   onClose,
   onComplete,
@@ -179,6 +198,21 @@ export function NetAllocationDialog({
   const [excludeLineIds, setExcludeLineIds] = useState<string[]>([]);
   const [netAmount, setNetAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
+
+  // 受領見積書データを取得
+  useEffect(() => {
+    if (!isOpen) return;
+    async function fetchQuotations() {
+      try {
+        const data = await getReceivedQuotationsByProject(projectId);
+        setQuotations(data);
+      } catch {
+        // エラー処理は省略
+      }
+    }
+    fetchQuotations();
+  }, [isOpen, projectId]);
 
   const allVendorLines = useMemo(() => collectVendorLines(items), [items]);
   const vendors = useMemo(() => {
@@ -318,6 +352,78 @@ export function NetAllocationDialog({
             </div>
           </div>
         )}
+
+        {/* 受領見積書の合計金額・NET金額表示 */}
+        {selectedVendor &&
+          (() => {
+            // 選択した業者名に対応する受領見積書を検索
+            const matchingQuotation = quotations.find(
+              (q) =>
+                q.name.includes(selectedVendor) ||
+                q.lineItems.some((li) => li.name?.includes(selectedVendor))
+            );
+            // sourceVendorNameから受領見積書を特定: vendor linesのsourceReceivedQuotationLineItemIdから逆引き
+            const sourceLineItemIds = new Set(
+              targetLines
+                .map((l) => {
+                  const itemData = findItemLineByLineId(items, l.lineId);
+                  return itemData?.sourceReceivedQuotationLineItemId;
+                })
+                .filter(Boolean) as string[]
+            );
+            const relatedQuotation =
+              quotations.find((q) => q.lineItems.some((li) => sourceLineItemIds.has(li.id))) ||
+              matchingQuotation;
+
+            if (!relatedQuotation) return null;
+
+            const quotationTotalAmount = relatedQuotation.totalAmount;
+            const quotationNetAmount = relatedQuotation.lineItems.reduce((sum, li) => {
+              if (li.netAmount !== null && li.netAmount !== undefined) {
+                return sum + li.netAmount;
+              }
+              return sum;
+            }, 0);
+            const hasNetAmount = relatedQuotation.lineItems.some(
+              (li) => li.netAmount !== null && li.netAmount !== undefined
+            );
+
+            return (
+              <div style={styles.section}>
+                <div style={styles.sectionTitle}>受領見積書情報</div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: hasNetAmount ? 'repeat(2, 1fr)' : '1fr',
+                    gap: '12px',
+                    padding: '12px 16px',
+                    backgroundColor: '#f9fafb',
+                    borderRadius: '8px',
+                    border: '1px solid #e5e7eb',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                      受領見積書合計金額
+                    </div>
+                    <div style={{ fontSize: '16px', fontWeight: 600, color: '#1f2937' }}>
+                      {formatAmount(quotationTotalAmount)}
+                    </div>
+                  </div>
+                  {hasNetAmount && (
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                        NET金額（受領見積書入力値）
+                      </div>
+                      <div style={{ fontSize: '16px', fontWeight: 600, color: '#1f2937' }}>
+                        {formatAmount(quotationNetAmount)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
         {/* NET金額入力 (REQ-18.6) */}
         {selectedVendor && (

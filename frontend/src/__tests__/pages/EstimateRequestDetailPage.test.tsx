@@ -77,6 +77,7 @@ const mockReceivedQuotations = [
         quantity: 1,
         unitPrice: 10000,
         amount: 10000,
+        netAmount: null,
         remarks: null,
         sortOrder: 0,
         displayOrder: 0,

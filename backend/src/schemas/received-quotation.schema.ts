@@ -220,6 +220,7 @@ export const lineItemSchema = z.object({
   quantity: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.QUANTITY_INVALID }).nullish(),
   unitPrice: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.UNIT_PRICE_INVALID }).nullish(),
   amount: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.AMOUNT_INVALID }).nullish(),
+  netAmount: z.number().nullable().optional(),
   remarks: z.string().nullish(),
 });
 

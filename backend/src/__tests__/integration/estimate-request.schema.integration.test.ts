@@ -241,8 +241,8 @@ describe('EstimateRequest Schema Integration Tests', () => {
 
       const originalUpdatedAt = estimateRequest.updatedAt;
 
-      // 少し待機してから更新
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // 少し待機してから更新（DBタイムスタンプ精度を考慮して十分な間隔を確保）
+      await new Promise((resolve) => setTimeout(resolve, 1100));
 
       const updatedRequest = await prisma.estimateRequest.update({
         where: { id: estimateRequest.id },

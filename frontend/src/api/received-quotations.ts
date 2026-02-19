@@ -38,6 +38,7 @@ export interface LineItemInfo {
   quantity: number | null;
   unitPrice: number | null;
   amount: number | null;
+  netAmount: number | null;
   remarks: string | null;
 }
 
@@ -55,6 +56,7 @@ export interface LineItemInput {
   quantity?: number;
   unitPrice?: number;
   amount?: number;
+  netAmount?: number | null;
   remarks?: string;
   sortOrder: number;
 }

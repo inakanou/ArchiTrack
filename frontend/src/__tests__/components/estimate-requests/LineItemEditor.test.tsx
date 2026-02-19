@@ -29,6 +29,7 @@ import {
   createEmptyLineItem,
   calculateAmount,
   calculateTotalAmount,
+  calculateTotalNetAmount,
   type LineItemFormData,
 } from '../../../components/estimate-requests/LineItemEditor';
 
@@ -79,6 +80,7 @@ describe('LineItemEditor', () => {
             quantity: '',
             unitPrice: '',
             amount: 10000,
+            netAmount: '',
             remarks: '',
           },
           {
@@ -91,6 +93,7 @@ describe('LineItemEditor', () => {
             quantity: '',
             unitPrice: '',
             amount: 20000,
+            netAmount: '',
             remarks: '',
           },
           {
@@ -103,6 +106,7 @@ describe('LineItemEditor', () => {
             quantity: '',
             unitPrice: '',
             amount: 30000,
+            netAmount: '',
             remarks: '',
           },
         ];
@@ -121,6 +125,7 @@ describe('LineItemEditor', () => {
             quantity: '',
             unitPrice: '',
             amount: 10000,
+            netAmount: '',
             remarks: '',
           },
           {
@@ -133,6 +138,7 @@ describe('LineItemEditor', () => {
             quantity: '',
             unitPrice: '',
             amount: null,
+            netAmount: '',
             remarks: '',
           },
         ];
@@ -252,6 +258,7 @@ describe('LineItemEditor', () => {
           quantity: '10',
           unitPrice: '1000',
           amount: 10000,
+          netAmount: '',
           remarks: '',
         },
         {
@@ -264,6 +271,7 @@ describe('LineItemEditor', () => {
           quantity: '5',
           unitPrice: '2000',
           amount: 10000,
+          netAmount: '',
           remarks: '',
         },
       ];
@@ -287,6 +295,7 @@ describe('LineItemEditor', () => {
           quantity: '10',
           unitPrice: '1000',
           amount: 10000,
+          netAmount: '',
           remarks: '',
         },
         {
@@ -299,6 +308,7 @@ describe('LineItemEditor', () => {
           quantity: '5',
           unitPrice: '2000',
           amount: 10000,
+          netAmount: '',
           remarks: '',
         },
       ];
@@ -339,6 +349,7 @@ describe('LineItemEditor', () => {
           quantity: '',
           unitPrice: '',
           amount: null,
+          netAmount: '',
           remarks: '',
         },
         {
@@ -351,6 +362,7 @@ describe('LineItemEditor', () => {
           quantity: '',
           unitPrice: '',
           amount: null,
+          netAmount: '',
           remarks: '',
         },
       ];
@@ -377,6 +389,7 @@ describe('LineItemEditor', () => {
         quantity: '',
         unitPrice: '1000',
         amount: null,
+        netAmount: '',
         remarks: '',
       };
 
@@ -412,6 +425,7 @@ describe('LineItemEditor', () => {
         quantity: '10',
         unitPrice: '',
         amount: null,
+        netAmount: '',
         remarks: '',
       };
 
@@ -448,6 +462,7 @@ describe('LineItemEditor', () => {
           quantity: '10',
           unitPrice: '1000',
           amount: 10000,
+          netAmount: '',
           remarks: '',
         },
         {
@@ -460,6 +475,7 @@ describe('LineItemEditor', () => {
           quantity: '5',
           unitPrice: '5000',
           amount: 25000,
+          netAmount: '',
           remarks: '',
         },
       ];
@@ -483,6 +499,7 @@ describe('LineItemEditor', () => {
           quantity: '10',
           unitPrice: '1000',
           amount: 10000,
+          netAmount: '',
           remarks: '',
         },
         {
@@ -495,6 +512,7 @@ describe('LineItemEditor', () => {
           quantity: '',
           unitPrice: '',
           amount: null,
+          netAmount: '',
           remarks: '',
         },
       ];
@@ -518,6 +536,7 @@ describe('LineItemEditor', () => {
         quantity: '10',
         unitPrice: '1000',
         amount: 10000,
+        netAmount: '',
         remarks: '',
       };
 
@@ -548,6 +567,7 @@ describe('LineItemEditor', () => {
         quantity: '',
         unitPrice: '',
         amount: null,
+        netAmount: '',
         remarks: '',
       };
 
@@ -587,6 +607,7 @@ describe('LineItemEditor', () => {
           quantity: '',
           unitPrice: '',
           amount: null,
+          netAmount: '',
           remarks: '',
         },
         {
@@ -599,6 +620,7 @@ describe('LineItemEditor', () => {
           quantity: '',
           unitPrice: '',
           amount: null,
+          netAmount: '',
           remarks: '',
         },
       ];
@@ -632,6 +654,7 @@ describe('LineItemEditor', () => {
         quantity: '10',
         unitPrice: '1000',
         amount: 10000,
+        netAmount: '',
         remarks: '',
       };
 
@@ -719,7 +742,7 @@ describe('LineItemEditor', () => {
       expect(item.workType).toBe('');
     });
 
-    it('Tabキーフォーカス移動順序が任意分類、工種、名称、規格、単位、数量、単価、備考になっている', async () => {
+    it('Tabキーフォーカス移動順序が任意分類、工種、名称、規格、単位、数量、単価、NET金額、備考になっている', async () => {
       const user = userEvent.setup();
       const lineItem: LineItemFormData = {
         id: '1',
@@ -731,6 +754,7 @@ describe('LineItemEditor', () => {
         quantity: '',
         unitPrice: '',
         amount: null,
+        netAmount: '',
         remarks: '',
       };
 
@@ -765,9 +789,214 @@ describe('LineItemEditor', () => {
       await user.tab();
       expect(document.activeElement).toBe(screen.getByPlaceholderText('単価'));
 
+      // Tab: NET金額
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByPlaceholderText('NET金額'));
+
       // Tab: 備考
       await user.tab();
       expect(document.activeElement).toBe(screen.getByPlaceholderText('備考'));
+    });
+  });
+
+  // ==========================================================================
+  // Task 65.2: NET金額列テスト (Requirements: 28.1-28.9)
+  // ==========================================================================
+  describe('NET金額列テスト (Task 65.2)', () => {
+    it('ヘッダー行にNET金額列が表示される（Requirements: 28.1）', () => {
+      const emptyLineItem = createEmptyLineItem();
+      render(
+        <LineItemEditor lineItems={[emptyLineItem]} onLineItemsChange={mockOnLineItemsChange} />
+      );
+
+      expect(screen.getByText('NET金額')).toBeInTheDocument();
+    });
+
+    it('createEmptyLineItemでnetAmountが空文字列で初期化される（Requirements: 28.4）', () => {
+      const item = createEmptyLineItem();
+      expect(item.netAmount).toBe('');
+    });
+
+    it('NET金額フィールドへの入力が正常に動作する（Requirements: 28.2）', async () => {
+      const emptyLineItem = createEmptyLineItem();
+      render(
+        <LineItemEditor lineItems={[emptyLineItem]} onLineItemsChange={mockOnLineItemsChange} />
+      );
+
+      const netAmountInput = screen.getByPlaceholderText('NET金額');
+      fireEvent.change(netAmountInput, { target: { value: '5000' } });
+
+      await waitFor(() => {
+        expect(mockOnLineItemsChange).toHaveBeenCalled();
+      });
+
+      const lastCall =
+        mockOnLineItemsChange.mock.calls[mockOnLineItemsChange.mock.calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const updatedItems = lastCall![0] as LineItemFormData[];
+      expect(updatedItems[0]?.netAmount).toBe('5000');
+    });
+
+    it('NET金額フォーカスアウト時に整数フォーマットが適用される（Requirements: 28.6）', async () => {
+      const lineItem: LineItemFormData = {
+        id: '1',
+        customCategory: '',
+        workType: '',
+        name: '項目1',
+        specification: '',
+        unit: '',
+        quantity: '',
+        unitPrice: '',
+        amount: null,
+        netAmount: '5000.7',
+        remarks: '',
+      };
+
+      render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
+
+      const netAmountInput = screen.getByPlaceholderText('NET金額');
+      fireEvent.blur(netAmountInput);
+
+      await waitFor(() => {
+        expect(mockOnLineItemsChange).toHaveBeenCalled();
+      });
+
+      const lastCall =
+        mockOnLineItemsChange.mock.calls[mockOnLineItemsChange.mock.calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const updatedItems = lastCall![0] as LineItemFormData[];
+      // 5000.7 -> 5001 (四捨五入)
+      expect(updatedItems[0]?.netAmount).toBe('5001');
+    });
+
+    describe('calculateTotalNetAmount', () => {
+      it('NET金額が入力されている行のみ合計する（Requirements: 28.8）', () => {
+        const items: LineItemFormData[] = [
+          {
+            id: '1',
+            customCategory: '',
+            workType: '',
+            name: '項目1',
+            specification: '',
+            unit: '',
+            quantity: '',
+            unitPrice: '',
+            amount: null,
+            netAmount: '10000',
+            remarks: '',
+          },
+          {
+            id: '2',
+            customCategory: '',
+            workType: '',
+            name: '項目2',
+            specification: '',
+            unit: '',
+            quantity: '',
+            unitPrice: '',
+            amount: null,
+            netAmount: '20000',
+            remarks: '',
+          },
+          {
+            id: '3',
+            customCategory: '',
+            workType: '',
+            name: '項目3',
+            specification: '',
+            unit: '',
+            quantity: '',
+            unitPrice: '',
+            amount: null,
+            netAmount: '',
+            remarks: '',
+          },
+        ];
+        expect(calculateTotalNetAmount(items)).toBe(30000);
+      });
+
+      it('全行未入力の場合はnullを返す（Requirements: 28.9）', () => {
+        const items: LineItemFormData[] = [
+          {
+            id: '1',
+            customCategory: '',
+            workType: '',
+            name: '項目1',
+            specification: '',
+            unit: '',
+            quantity: '',
+            unitPrice: '',
+            amount: null,
+            netAmount: '',
+            remarks: '',
+          },
+        ];
+        expect(calculateTotalNetAmount(items)).toBeNull();
+      });
+
+      it('空配列の場合はnullを返す', () => {
+        expect(calculateTotalNetAmount([])).toBeNull();
+      });
+    });
+
+    it('NET金額合計が表示される（Requirements: 28.8）', () => {
+      const lineItems: LineItemFormData[] = [
+        {
+          id: '1',
+          customCategory: '',
+          workType: '',
+          name: '項目1',
+          specification: '',
+          unit: '',
+          quantity: '',
+          unitPrice: '',
+          amount: null,
+          netAmount: '10000',
+          remarks: '',
+        },
+        {
+          id: '2',
+          customCategory: '',
+          workType: '',
+          name: '項目2',
+          specification: '',
+          unit: '',
+          quantity: '',
+          unitPrice: '',
+          amount: null,
+          netAmount: '20000',
+          remarks: '',
+        },
+      ];
+
+      render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+      expect(screen.getByText('NET合計')).toBeInTheDocument();
+      const totalNetAmount = screen.getByTestId('total-net-amount');
+      expect(totalNetAmount).toHaveTextContent('30,000');
+    });
+
+    it('全行NET金額未入力の場合はNET合計が「-」と表示される（Requirements: 28.9）', () => {
+      const lineItems: LineItemFormData[] = [
+        {
+          id: '1',
+          customCategory: '',
+          workType: '',
+          name: '項目1',
+          specification: '',
+          unit: '',
+          quantity: '',
+          unitPrice: '',
+          amount: null,
+          netAmount: '',
+          remarks: '',
+        },
+      ];
+
+      render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+      const totalNetAmount = screen.getByTestId('total-net-amount');
+      expect(totalNetAmount).toHaveTextContent('-');
     });
   });
 });

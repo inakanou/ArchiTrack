@@ -58,6 +58,8 @@ export interface LineItemFormData {
   unitPrice: string;
   /** 金額（自動計算値） */
   amount: number | null;
+  /** NET金額（手動入力文字列） */
+  netAmount: string;
   /** 備考 */
   remarks: string;
 }
@@ -90,6 +92,7 @@ const FIELD_ORDER: (keyof LineItemFormData)[] = [
   'unit',
   'quantity',
   'unitPrice',
+  'netAmount',
   'remarks',
 ];
 
@@ -137,6 +140,28 @@ export function calculateTotalAmount(items: LineItemFormData[]): number {
 }
 
 /**
+ * NET金額合計を計算する
+ *
+ * NET金額が入力されている行のみ合計する。
+ * 全行未入力の場合はnullを返す。
+ *
+ * @param items - 明細行データ配列
+ * @returns NET金額合計（整数）またはnull（全行未入力）
+ */
+export function calculateTotalNetAmount(items: LineItemFormData[]): number | null {
+  const netAmounts = items
+    .map((item) => {
+      if (item.netAmount === '') return null;
+      const num = parseFloat(item.netAmount);
+      return isNaN(num) ? null : Math.round(num);
+    })
+    .filter((v): v is number => v !== null);
+
+  if (netAmounts.length === 0) return null;
+  return netAmounts.reduce((sum, val) => sum + val, 0);
+}
+
+/**
  * 空の明細行を生成する
  *
  * @returns 空の明細行データ
@@ -152,6 +177,7 @@ export function createEmptyLineItem(): LineItemFormData {
     quantity: '',
     unitPrice: '',
     amount: null,
+    netAmount: '',
     remarks: '',
   };
 }
@@ -215,6 +241,10 @@ const styles = {
     width: '100px',
   },
   thAmount: {
+    width: '100px',
+    textAlign: 'right' as const,
+  },
+  thNetAmount: {
     width: '100px',
     textAlign: 'right' as const,
   },
@@ -348,6 +378,7 @@ export function LineItemEditor({
   // --------------------------------------------------------------------------
 
   const totalAmount = useMemo(() => calculateTotalAmount(lineItems), [lineItems]);
+  const totalNetAmount = useMemo(() => calculateTotalNetAmount(lineItems), [lineItems]);
 
   // --------------------------------------------------------------------------
   // 明細行の追加
@@ -425,6 +456,16 @@ export function LineItemEditor({
           });
           onLineItemsChange(newItems);
         }
+      } else if (field === 'netAmount') {
+        // NET金額: 整数フォーマット（formatUnitPriceと同一ロジック）
+        const formatted = formatUnitPrice(value);
+        if (formatted !== value) {
+          const newItems = lineItems.map((item) => {
+            if (item.id !== id) return item;
+            return { ...item, netAmount: formatted };
+          });
+          onLineItemsChange(newItems);
+        }
       }
     },
     [lineItems, onLineItemsChange]
@@ -494,6 +535,9 @@ export function LineItemEditor({
             </th>
             <th scope="col" style={{ ...styles.th, ...styles.thAmount }}>
               金額
+            </th>
+            <th scope="col" style={{ ...styles.th, ...styles.thNetAmount }}>
+              NET金額
             </th>
             <th scope="col" style={{ ...styles.th, ...styles.thRemarks }}>
               備考
@@ -644,6 +688,26 @@ export function LineItemEditor({
                 {item.amount !== null ? formatNumber(item.amount) : ''}
               </td>
 
+              {/* NET金額（手動入力） */}
+              <td style={styles.td}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={item.netAmount}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    handleFieldChange(item.id, 'netAmount', e.target.value)
+                  }
+                  onBlur={(e) => handleBlur(e, item.id, 'netAmount')}
+                  onKeyDown={(e) => handleKeyDown(e, index, 'netAmount')}
+                  placeholder="NET金額"
+                  disabled={disabled}
+                  style={{ ...styles.input, ...styles.inputNumber }}
+                  data-row={index}
+                  data-field="netAmount"
+                  aria-label={`行${index + 1} NET金額`}
+                />
+              </td>
+
               {/* 備考 */}
               <td style={styles.td}>
                 <input
@@ -701,6 +765,10 @@ export function LineItemEditor({
           <span style={styles.totalLabel}>合計</span>
           <span style={styles.totalAmount} data-testid="total-amount">
             {formatNumber(totalAmount)}
+          </span>
+          <span style={styles.totalLabel}>NET合計</span>
+          <span style={styles.totalAmount} data-testid="total-net-amount">
+            {totalNetAmount !== null ? formatNumber(totalNetAmount) : '-'}
           </span>
         </div>
       </div>

@@ -456,6 +456,7 @@ function convertToLineItemInput(items: LineItemFormData[]): LineItemInput[] {
       quantity: item.quantity ? parseFloat(item.quantity) : undefined,
       unitPrice: item.unitPrice ? parseFloat(item.unitPrice) : undefined,
       amount: item.amount ?? undefined,
+      netAmount: item.netAmount ? Math.round(parseFloat(item.netAmount)) : null,
       remarks: item.remarks.trim() || undefined,
       sortOrder: index,
     }));
@@ -473,6 +474,8 @@ function convertToLineItemFormData(
   return items.map((item) => {
     const rawQuantity = item.quantity !== null ? String(item.quantity) : '';
     const rawUnitPrice = item.unitPrice !== null ? String(item.unitPrice) : '';
+    const rawNetAmount =
+      item.netAmount !== null && item.netAmount !== undefined ? String(item.netAmount) : '';
     return {
       id: item.id,
       customCategory: item.customCategory ?? '',
@@ -483,6 +486,7 @@ function convertToLineItemFormData(
       quantity: formatQuantity(rawQuantity),
       unitPrice: formatUnitPrice(rawUnitPrice),
       amount: item.amount,
+      netAmount: formatUnitPrice(rawNetAmount),
       remarks: item.remarks ?? '',
     };
   });
@@ -766,6 +770,7 @@ export function ReceivedQuotationForm({
         quantity: formattedQuantity,
         unitPrice: '', // 転記時に単価は空欄
         amount: null,
+        netAmount: '', // 転記時にNET金額は空欄
         remarks: item.remarks ?? '',
       };
     });

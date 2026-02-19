@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-02-13（Steering Sync: テスト/CI環境のDev/prod parity化、nginx .mjs MIMEタイプ対応、プロジェクト一覧デフォルト表示改善・ステータス別件数API追加を反映）_
+_最終更新: 2026-02-18（Steering Sync: Claude Vision OCR統合、セキュリティ監査対応、依存関係バージョン更新、テスト規模拡大を反映）_
 
 ## アーキテクチャ
 
@@ -34,7 +34,7 @@ ArchiTrack/
 
 - `react` ^19.2.3 - UIライブラリ
 - `react-dom` ^19.2.3 - React DOM操作
-- `react-router-dom` ^7.9.6 - React Router v7（ルーティング）
+- `react-router-dom` ^7.13.0 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書エクスポート、SheetJS）
@@ -45,14 +45,14 @@ ArchiTrack/
 - `@types/react` ^19.2.7 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
 - `@vitejs/plugin-react` ^5.1.1 - Vite React プラグイン
-- `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.47.0 - TypeScript ESLintパーサー
+- `@typescript-eslint/eslint-plugin` ^8.54.0 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.54.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
-- `prettier` ^3.7.4 - コードフォーマッター
+- `prettier` ^3.7.3 - コードフォーマッター
 - `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
 - `tailwindcss` ^4.1.18 - ユーティリティファーストCSSフレームワーク
-- `@tailwindcss/postcss` ^4.1.17 - Tailwind CSS PostCSSプラグイン
+- `@tailwindcss/postcss` ^4.1.18 - Tailwind CSS PostCSSプラグイン
 - `vitest` ^4.0.15 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.15 - Vitest UIツール
 - `@vitest/coverage-v8` ^4.0.15 - Vitestカバレッジ（V8プロバイダー）
@@ -60,12 +60,12 @@ ArchiTrack/
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
-- `jsdom` ^27.4.0 - ブラウザ環境シミュレーション
+- `jsdom` ^28.0.0 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.32.1 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
 - `storybook` ^10.1.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
 - `@storybook/react` ^10.1.8 - Storybook React統合（10.x系）
-- `@storybook/react-vite` ^10.1.5 - Storybook React + Vite統合（10.x系）
+- `@storybook/react-vite` ^10.2.7 - Storybook React + Vite統合（10.x系）
 - `@storybook/test-runner` ^0.24.2 - Storybookインタラクションテスト
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
@@ -98,19 +98,20 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.2.0
-- **ORM**: Prisma 7.0.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
-- **データベースクライアント**: pg (PostgreSQL) 8.11.3、@prisma/client 7.0.0、@prisma/adapter-pg 7.2.0
-- **キャッシュクライアント**: ioredis 5.3.2
+- **ORM**: Prisma 7.3.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
+- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.3.0、@prisma/adapter-pg 7.3.0
+- **キャッシュクライアント**: ioredis 5.9.2
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
 - **JWT署名**: jose 6.1.3（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
-- **バリデーション**: zod 4.1.12
+- **バリデーション**: zod 4.3.6
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
 - **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）
+- **AI/OCR精度向上**: @anthropic-ai/sdk 0.74.0（Claude Vision APIによる見積書OCR構造化データ抽出）
 - **ストレージ抽象化**: StorageProvider インターフェースによる環境別バックエンド切り替え
   - LocalStorageProvider（開発・テスト環境）
   - R2StorageProvider（本番環境、Cloudflare R2）
@@ -125,11 +126,12 @@ ArchiTrack/
 - `helmet` ^8.1.0 - セキュリティヘッダー設定
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
-- `@prisma/client` ^7.0.0 - Prisma ORM クライアント（型安全なデータアクセス）
-- `@prisma/adapter-pg` ^7.2.0 - Prisma Driver Adapter for PostgreSQL
+- `@anthropic-ai/sdk` ^0.74.0 - Anthropic Claude Vision API（OCR精度向上）
+- `@prisma/client` ^7.3.0 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/adapter-pg` ^7.3.0 - Prisma Driver Adapter for PostgreSQL
 - `decimal.js` ^10.6.0 - 高精度10進数計算（数量計算）
-- `pg` ^8.11.3 - PostgreSQL クライアント
-- `ioredis` ^5.3.2 - Redis クライアント
+- `pg` ^8.18.0 - PostgreSQL クライアント
+- `ioredis` ^5.9.2 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
 - `nodemailer` ^7.0.12 - メール送信
 - `handlebars` ^4.7.8 - テンプレートエンジン
@@ -139,11 +141,11 @@ ArchiTrack/
 - `qrcode` ^1.5.4 - QRコード生成
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化
 - `express-rate-limit` ^8.2.1 - レート制限
-- `zod` ^4.1.12 - スキーマバリデーション
+- `zod` ^4.3.6 - スキーマバリデーション
 - `dotenv` ^17.2.3 - 環境変数管理
 - `@sentry/node` ^10.30.0 - Sentryエラートラッキング（Backend）
 - `@sentry/profiling-node` ^10.30.0 - Sentryプロファイリング
-- `pino` ^10.1.0 - ロガー
+- `pino` ^10.3.0 - ロガー
 - `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
 - `pino-pretty` ^13.1.2 - ログの整形出力（開発環境）
 - `swagger-jsdoc` ^6.2.8 - JSDocからOpenAPI仕様を生成
@@ -168,7 +170,7 @@ ArchiTrack/
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
-- `prisma` ^7.0.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `prisma` ^7.3.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
@@ -281,7 +283,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 1800+テストケース（単体、92ファイル）+ 70+テスト（統合、12ファイル）
+**テスト合計:** 単体テスト134ファイル + 統合テスト23ファイル
 
 **実行方法:**
 ```bash
@@ -339,7 +341,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 800+テストケース（包括的なユニットテスト群、145テストファイル）
+- 合計: 213テストファイル（包括的なユニットテスト群）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
@@ -1158,7 +1160,9 @@ npm --prefix backend run validate:esm
 npm --prefix frontend run validate:esm
 ```
 
-#### Pre-commitフック（`.husky/pre-commit`）
+#### Pre-commitフック（`.husky/pre-commit` + `scripts/pre-commit.sh`）
+
+**ラッパー構造**: `pre-commit`（sh）→ `scripts/pre-commit.sh`（bash）の2層構造。
 
 コミット前に自動的に以下が実行されます：
 
@@ -1183,40 +1187,34 @@ npm --prefix frontend run validate:esm
 
 **設定ファイル**: `commitlint.config.js`
 
-#### Pre-pushフック（`.husky/pre-push`）
+#### Pre-pushフック（`.husky/pre-push` + `scripts/pre-push.sh`）
+
+**ラッパー構造**: `pre-push`（sh）→ `scripts/pre-push.sh`（bash）の2層構造でpipefail等を使用。
 
 プッシュ前に自動的に以下が実行されます：
 
-0. **Docker環境自動構築**: `docker-compose up -d`
-   - 統合テスト・E2Eテスト実行に必要なサービスを自動起動
-   - PostgreSQL、Redis、Backend、Frontendが起動していない場合に自動セットアップ
-   - 既に起動している場合はスキップ
-1. **Formatチェック（Backend/Frontend/E2E）**: `npm run format:check`
-   - Prettierによるコードフォーマット検証
-   - 整形されていないコードがある場合は警告
-2. **型チェック（Backend/Frontend/E2E）**: `npm run type-check`
-   - TypeScript型エラーの検出
-3. **Lintチェック（Backend/Frontend/E2E）**: `npm run lint`
-   - ESLintによるコード品質検証
-4. **ビルド（Backend/Frontend）**: `npm run build`
-   - 本番環境ビルドの成功確認
-5. **Backend単体テスト**: `npm --prefix backend run test:unit`
-6. **Frontend単体テスト**: `npm --prefix frontend run test`
-7. **Backend統合テスト**: `docker exec architrack-backend npm run test:integration`
-   - Docker環境が自動起動されているため実行可能
-8. **E2Eテスト実行**: `npm run test:e2e`（タイムアウト: 10分）
-   - Docker環境が自動起動されているため実行可能
-   - **同期実行**: テスト完了を待ってからプッシュ実行（Shift-Left原則）
-   - **タイムアウト保護**: 10分でハングアップを防止
-   - **詳細なエラーハンドリング**: タイムアウトとテスト失敗を区別
+0. **Docker環境自動構築**: テスト環境（architrack-test）自動起動
+1. **Formatチェック（Backend/Frontend/E2E）**: Prettierによるコードフォーマット検証
+2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
+3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
+4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認 + ES Module検証
+5. **セキュリティ監査**: `scripts/security-audit.mjs`（本番依存high以上でブロック）
+6. **Backend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
+7. **Frontend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
+8. **Storybookテスト**: インタラクションテスト + アクセシビリティ + カバレッジ80%
+9. **Backend統合テスト**: Docker環境（architrack-test）内で実行
+10. **要件カバレッジチェック**: E2E対象の受入基準100%確認
+11. **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
+12. **コンテナ再起動**: E2E前のメモリリフレッシュ
+13. **E2Eテスト実行**: `CI=true npx playwright test`
 
-型エラー、テスト失敗、またはタイムアウトがある場合、プッシュは中断されます。
+型エラー、テスト失敗、カバレッジ不足がある場合、プッシュは中断されます。
 
 **テスト実行順序の理由:**
-- Format/Lint/型チェック（超高速）→ ビルド（高速）→ 単体テスト（高速）→ 統合テスト（中速）→ E2Eテスト（低速）の順で実行
+- Format/Lint/型チェック（超高速）→ ビルド（高速）→ セキュリティ監査 → 単体テスト（高速）→ Storybook → 統合テスト（中速）→ E2Eテスト（低速）の順で実行
 - **Fail-fast戦略**: 早期ステージでの失敗で即座に中断（無駄なリソース消費を回避）
 - **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
-- **Defense in Depth戦略**: 複数レイヤーでの品質保証（Format → Lint → Type → Build → Unit → Integration → E2E）
+- **Defense in Depth戦略**: 複数レイヤーでの品質保証（Format → Lint → Type → Build → Security → Unit → Storybook → Integration → E2E）
 
 #### lint-staged設定
 

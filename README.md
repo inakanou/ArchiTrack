@@ -66,6 +66,7 @@ npm run dev:docker
 ### 💻 開発
 
 - [開発ワークフロー](docs/development/workflow.md) - Kiro-style SDD、ブランチ戦略
+- [Gitワークフロー](docs/development/git-workflow.md) - Git Flowベースのブランチ戦略
 - [データベースマイグレーション](docs/development/database-migration.md) - Prisma、Draft機能
 - [テスト](docs/development/testing.md) - ユニット・統合・E2Eテスト、要件カバレッジ
 - [デバッグ](docs/development/debugging.md) - VSCodeデバッグ設定、トラブルシューティング
@@ -82,6 +83,8 @@ npm run dev:docker
 - [Railway設定](docs/deployment/railway-setup.md) - Railway初回セットアップ
 - [R2 Lifecycle Rules](docs/deployment/r2-lifecycle-rules.md) - 孤立ファイル自動削除設定
 - [CI/CD設定](docs/deployment/cicd-github-actions.md) - GitHub Actions設定
+- [本番環境デプロイ](docs/deployment/production-deployment.md) - 本番環境へのデプロイ手順
+- [ブランチ保護](docs/deployment/branch-protection.md) - GitHubブランチ保護設定
 - [トラブルシューティング](docs/deployment/troubleshooting.md) - よくある問題と解決方法
 
 ### 🏗️ アーキテクチャ
@@ -112,11 +115,12 @@ npm run dev:docker
 
 | 分類 | 技術 |
 |------|------|
-| **Frontend** | React 19 + Vite 7 + TypeScript 5.9 |
-| **Backend** | Node.js 22 + Express 5 + Prisma 7 |
+| **Frontend** | React 19 + Vite 7 + TypeScript 5.9 + Tailwind CSS 4 |
+| **Backend** | Node.js 22 + Express 5 + Prisma 7 + Zod 4 |
 | **Database** | PostgreSQL 15 + Redis 7 |
 | **Authentication** | JWT (EdDSA) + Argon2 + TOTP |
 | **Testing** | Vitest 4 + Playwright + Storybook 10 |
+| **Monitoring** | Sentry (Frontend + Backend) |
 | **Deployment** | Railway + GitHub Actions |
 
 ---
@@ -125,14 +129,14 @@ npm run dev:docker
 
 ### 実装済み
 - **認証・認可基盤**: JWT（EdDSA署名）+ 2FA、RBAC、監査ログ
-- **プロジェクト管理**: プロジェクトCRUD、12種類のステータス遷移管理、担当者割り当て
+- **プロジェクト管理**: プロジェクトCRUD、12種類のステータス遷移管理、担当者割り当て、ステータス別件数表示、取引先選択時の現場住所自動入力
 - **取引先管理**: 顧客・協力業者のCRUD、種別管理、請求締日・支払日設定
 - **現場調査**: プロジェクトに紐付く調査管理、画像アップロード（R2連携）、Canvas注釈編集（Fabric.js）、PDF報告書エクスポート
-- **数量表作成**: 現場調査結果に基づく数量拾い出し、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援
+- **数量表作成**: 現場調査結果に基づく数量拾い出し、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、数量表コピー機能
 - **内訳書作成**: 数量表項目のピボット集計、分類軸によるグループ化、Excel出力（.xlsx形式）、クリップボードコピー（タブ区切りテキスト）
-- **見積依頼管理**: 協力業者への見積依頼、内訳書項目選択、見積依頼文生成（メール/FAX）、受領見積書登録（OCR構造化データ抽出）、ステータス管理
+- **見積依頼管理**: 協力業者への見積依頼、内訳書項目選択、見積依頼文生成（メール/FAX）、受領見積書登録（OCR構造化データ抽出、再実行/リトライ機能、PDFテキスト抽出ハイブリッドアプローチ）、ステータス管理
 - **自社情報登録**: 会社名・住所・連絡先のシングルトン管理、見積依頼文への自動挿入
-- **見積書作成**: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、Excel出力
+- **見積書作成**: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、利益率適用、諸経費行管理、Excel出力
 - **インフラ**: ヘルスチェックAPI、Swagger、PostgreSQL/Redis統合
 
 ### 開発予定

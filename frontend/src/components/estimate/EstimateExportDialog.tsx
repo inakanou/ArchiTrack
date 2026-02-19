@@ -12,7 +12,12 @@
  */
 
 import { useState, useCallback } from 'react';
-import { exportEstimate, type ExportFormat } from '../../api/estimates';
+import type { ExportFormat } from '../../api/estimates';
+
+/**
+ * 出力対象行タイプ
+ */
+type ExportLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
 
 // ============================================================================
 // 型定義
@@ -100,7 +105,7 @@ const styles = {
   } as React.CSSProperties,
   formatDescription: {
     fontSize: '12px',
-    color: '#6b7280',
+    color: '#636e7b',
     marginTop: '2px',
   } as React.CSSProperties,
   buttonGroup: {
@@ -130,6 +135,7 @@ const styles = {
   } as React.CSSProperties,
   submitButtonDisabled: {
     backgroundColor: '#93c5fd',
+    color: '#1e40af',
     cursor: 'not-allowed',
   } as React.CSSProperties,
   errorContainer: {
@@ -165,11 +171,12 @@ export function EstimateExportDialog({
   onClose,
 }: EstimateExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat | null>(null);
+  const [selectedLineType, setSelectedLineType] = useState<ExportLineType>('ESTIMATE');
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * 出力実行
+   * 出力実行（lineTypeパラメータ付き）
    */
   const handleExport = useCallback(async () => {
     if (!selectedFormat) return;
@@ -178,29 +185,42 @@ export function EstimateExportDialog({
     setError(null);
 
     try {
-      const blob = await exportEstimate(estimateId, selectedFormat);
+      const url = `/api/estimates/${estimateId}/export?format=${selectedFormat}&lineType=${selectedLineType}`;
 
-      // ファイル名生成
-      const extension = selectedFormat === 'pdf' ? '.pdf' : '.xlsx';
-      const filename = `${estimateName}${extension}`;
+      // fetchでAPIリクエストを実行しレスポンスを検証
+      const response = await fetch(url, { method: 'GET' });
+      if (!response.ok) {
+        throw new Error('見積書の出力に失敗しました');
+      }
 
-      // ダウンロード
-      const url = URL.createObjectURL(blob);
+      // レスポンスからBlobを取得してダウンロード
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      // lineTypeに対応するラベルでファイル名を生成（REQ-32.4）
+      const lineTypeLabels: Record<ExportLineType, string> = {
+        ESTIMATE: '見積',
+        EXECUTION: '実行',
+        VENDOR: '業者',
+      };
+      const ext = selectedFormat === 'pdf' ? 'pdf' : 'xlsx';
+      const fileName = `${estimateName}_${lineTypeLabels[selectedLineType]}.${ext}`;
+
       const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
+      link.href = blobUrl;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
 
+      URL.revokeObjectURL(blobUrl);
       onClose();
     } catch {
       setError('見積書の出力に失敗しました');
     } finally {
       setIsExporting(false);
     }
-  }, [estimateId, estimateName, selectedFormat, onClose]);
+  }, [estimateId, estimateName, selectedFormat, selectedLineType, onClose]);
 
   if (!isOpen) return null;
 
@@ -216,7 +236,7 @@ export function EstimateExportDialog({
           見積書出力
         </h2>
 
-        <p style={styles.description}>出力形式を選択してください</p>
+        <p style={styles.description}>出力対象と出力形式を選択してください</p>
 
         {/* エラー表示 */}
         {error && (
@@ -225,53 +245,129 @@ export function EstimateExportDialog({
           </div>
         )}
 
-        {/* 出力形式選択 */}
-        <div style={styles.formatOptions}>
-          {/* PDF */}
-          <label
-            style={{
-              ...styles.formatOption,
-              ...(selectedFormat === 'pdf' ? styles.formatOptionSelected : {}),
-            }}
-          >
-            <input
-              type="radio"
-              name="export-format"
-              value="pdf"
-              checked={selectedFormat === 'pdf'}
-              onChange={() => setSelectedFormat('pdf')}
-              style={styles.radio}
-              disabled={isExporting}
-            />
-            <div style={styles.formatInfo}>
-              <div style={styles.formatName}>PDF形式</div>
-              <div style={styles.formatDescription}>印刷用の見積書をPDFファイルで出力します</div>
-            </div>
-          </label>
-
-          {/* Excel */}
-          <label
-            style={{
-              ...styles.formatOption,
-              ...(selectedFormat === 'xlsx' ? styles.formatOptionSelected : {}),
-            }}
-          >
-            <input
-              type="radio"
-              name="export-format"
-              value="xlsx"
-              checked={selectedFormat === 'xlsx'}
-              onChange={() => setSelectedFormat('xlsx')}
-              style={styles.radio}
-              disabled={isExporting}
-            />
-            <div style={styles.formatInfo}>
-              <div style={styles.formatName}>Excel形式</div>
-              <div style={styles.formatDescription}>
-                編集可能なExcelファイル（.xlsx）で出力します
+        {/* 出力対象行タイプ選択 */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>
+            出力対象
+          </div>
+          <div style={styles.formatOptions}>
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedLineType === 'ESTIMATE' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-line-type"
+                value="ESTIMATE"
+                checked={selectedLineType === 'ESTIMATE'}
+                onChange={() => setSelectedLineType('ESTIMATE')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>見積</div>
+                <div style={styles.formatDescription}>見積金額行を出力します</div>
               </div>
-            </div>
-          </label>
+            </label>
+
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedLineType === 'EXECUTION' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-line-type"
+                value="EXECUTION"
+                checked={selectedLineType === 'EXECUTION'}
+                onChange={() => setSelectedLineType('EXECUTION')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>実行</div>
+                <div style={styles.formatDescription}>実行金額行を出力します</div>
+              </div>
+            </label>
+
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedLineType === 'VENDOR' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-line-type"
+                value="VENDOR"
+                checked={selectedLineType === 'VENDOR'}
+                onChange={() => setSelectedLineType('VENDOR')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>業者</div>
+                <div style={styles.formatDescription}>業者金額行を出力します</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* 出力形式選択 */}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>
+            出力形式
+          </div>
+          <div style={styles.formatOptions}>
+            {/* PDF */}
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedFormat === 'pdf' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-format"
+                value="pdf"
+                checked={selectedFormat === 'pdf'}
+                onChange={() => setSelectedFormat('pdf')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>PDF形式</div>
+                <div style={styles.formatDescription}>印刷用の見積書をPDFファイルで出力します</div>
+              </div>
+            </label>
+
+            {/* Excel */}
+            <label
+              style={{
+                ...styles.formatOption,
+                ...(selectedFormat === 'xlsx' ? styles.formatOptionSelected : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="export-format"
+                value="xlsx"
+                checked={selectedFormat === 'xlsx'}
+                onChange={() => setSelectedFormat('xlsx')}
+                style={styles.radio}
+                disabled={isExporting}
+              />
+              <div style={styles.formatInfo}>
+                <div style={styles.formatName}>Excel形式</div>
+                <div style={styles.formatDescription}>
+                  編集可能なExcelファイル（.xlsx）で出力します
+                </div>
+              </div>
+            </label>
+          </div>
         </div>
 
         {/* ボタン */}

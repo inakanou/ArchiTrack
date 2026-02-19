@@ -9,14 +9,10 @@
  * - REQ-10.8: 見積書出力が処理中の場合、出力処理中であることを表示する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EstimateExportDialog } from './EstimateExportDialog';
-import * as estimatesApi from '../../api/estimates';
-
-// モック
-vi.mock('../../api/estimates');
 
 describe('EstimateExportDialog', () => {
   const defaultProps = {
@@ -26,11 +22,17 @@ describe('EstimateExportDialog', () => {
     onClose: vi.fn(),
   };
 
+  let originalFetch: typeof globalThis.fetch;
+
   beforeEach(() => {
     vi.resetAllMocks();
-    // URL.createObjectURL と URL.revokeObjectURL のモック
+    originalFetch = globalThis.fetch;
     global.URL.createObjectURL = vi.fn(() => 'blob:http://localhost/test');
     global.URL.revokeObjectURL = vi.fn();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   /**
@@ -58,9 +60,12 @@ describe('EstimateExportDialog', () => {
   it('出力形式選択オプションを表示する', () => {
     render(<EstimateExportDialog {...defaultProps} />);
 
-    expect(screen.getByText('出力形式を選択してください')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /PDF/i })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Excel/i })).toBeInTheDocument();
+    expect(screen.getByText('出力対象と出力形式を選択してください')).toBeInTheDocument();
+
+    const formatRadios = screen.getAllByRole('radio').filter((radio) => {
+      return (radio as HTMLInputElement).name === 'export-format';
+    });
+    expect(formatRadios).toHaveLength(2);
   });
 
   /**
@@ -71,7 +76,9 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    const pdfRadio = screen.getByRole('radio', { name: /PDF/i });
+    const pdfRadio = screen
+      .getAllByRole('radio')
+      .find((r) => (r as HTMLInputElement).value === 'pdf')!;
     await user.click(pdfRadio);
 
     expect(pdfRadio).toBeChecked();
@@ -85,7 +92,9 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    const excelRadio = screen.getByRole('radio', { name: /Excel/i });
+    const excelRadio = screen
+      .getAllByRole('radio')
+      .find((r) => (r as HTMLInputElement).value === 'xlsx')!;
     await user.click(excelRadio);
 
     expect(excelRadio).toBeChecked();
@@ -97,9 +106,11 @@ describe('EstimateExportDialog', () => {
   it('PDF出力を実行できる', async () => {
     const user = userEvent.setup();
     const mockBlob = new Blob(['test'], { type: 'application/pdf' });
-    vi.mocked(estimatesApi.exportEstimate).mockResolvedValue(mockBlob);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(mockBlob),
+    });
 
-    // createElementをモックしてaタグの作成を追跡
     const originalCreateElement = document.createElement.bind(document);
     const mockClick = vi.fn();
     vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
@@ -112,19 +123,21 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // PDF を選択
-    const pdfRadio = screen.getByRole('radio', { name: /PDF/i });
+    const pdfRadio = screen
+      .getAllByRole('radio')
+      .find((r) => (r as HTMLInputElement).value === 'pdf')!;
     await user.click(pdfRadio);
 
-    // 出力ボタンをクリック
-    const exportButton = screen.getByRole('button', { name: /出力/i });
+    const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
     await waitFor(() => {
-      expect(estimatesApi.exportEstimate).toHaveBeenCalledWith('est-001', 'pdf');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/estimates/est-001/export?format=pdf&lineType=ESTIMATE',
+        expect.objectContaining({ method: 'GET' })
+      );
     });
 
-    // ダウンロードが実行される
     await waitFor(() => {
       expect(mockClick).toHaveBeenCalled();
     });
@@ -138,9 +151,11 @@ describe('EstimateExportDialog', () => {
     const mockBlob = new Blob(['test'], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
-    vi.mocked(estimatesApi.exportEstimate).mockResolvedValue(mockBlob);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(mockBlob),
+    });
 
-    // createElementをモックしてaタグの作成を追跡
     const originalCreateElement = document.createElement.bind(document);
     const mockClick = vi.fn();
     vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
@@ -153,16 +168,19 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // Excel を選択
-    const excelRadio = screen.getByRole('radio', { name: /Excel/i });
+    const excelRadio = screen
+      .getAllByRole('radio')
+      .find((r) => (r as HTMLInputElement).value === 'xlsx')!;
     await user.click(excelRadio);
 
-    // 出力ボタンをクリック
-    const exportButton = screen.getByRole('button', { name: /出力/i });
+    const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
     await waitFor(() => {
-      expect(estimatesApi.exportEstimate).toHaveBeenCalledWith('est-001', 'xlsx');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/estimates/est-001/export?format=xlsx&lineType=ESTIMATE',
+        expect.objectContaining({ method: 'GET' })
+      );
     });
 
     await waitFor(() => {
@@ -175,29 +193,34 @@ describe('EstimateExportDialog', () => {
    */
   it('出力処理中はローディングインジケーターを表示する', async () => {
     const user = userEvent.setup();
-    vi.mocked(estimatesApi.exportEstimate).mockImplementation(
+    globalThis.fetch = vi.fn().mockImplementation(
       () =>
         new Promise((resolve) => {
-          setTimeout(() => resolve(new Blob(['test'])), 1000);
+          setTimeout(
+            () =>
+              resolve({
+                ok: true,
+                blob: () => Promise.resolve(new Blob(['test'])),
+              }),
+            1000
+          );
         })
     );
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // PDF を選択
-    const pdfRadio = screen.getByRole('radio', { name: /PDF/i });
+    const pdfRadio = screen
+      .getAllByRole('radio')
+      .find((r) => (r as HTMLInputElement).value === 'pdf')!;
     await user.click(pdfRadio);
 
-    // 出力ボタンをクリック
-    const exportButton = screen.getByRole('button', { name: /出力/i });
+    const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
-    // ローディング表示
     await waitFor(() => {
       expect(screen.getByText(/出力中/i)).toBeInTheDocument();
     });
 
-    // 出力ボタンが無効化
     expect(screen.getByRole('button', { name: /出力中/i })).toBeDisabled();
   });
 
@@ -207,7 +230,7 @@ describe('EstimateExportDialog', () => {
   it('出力形式が選択されていない場合、出力ボタンが無効', () => {
     render(<EstimateExportDialog {...defaultProps} />);
 
-    const exportButton = screen.getByRole('button', { name: /出力/i });
+    const exportButton = screen.getByRole('button', { name: '出力' });
     expect(exportButton).toBeDisabled();
   });
 
@@ -219,7 +242,7 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
+    const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
     await user.click(cancelButton);
 
     expect(defaultProps.onClose).toHaveBeenCalled();
@@ -230,16 +253,16 @@ describe('EstimateExportDialog', () => {
    */
   it('出力エラー時はエラーメッセージを表示する', async () => {
     const user = userEvent.setup();
-    vi.mocked(estimatesApi.exportEstimate).mockRejectedValue(new Error('出力に失敗しました'));
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('出力に失敗しました'));
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // PDF を選択
-    const pdfRadio = screen.getByRole('radio', { name: /PDF/i });
+    const pdfRadio = screen
+      .getAllByRole('radio')
+      .find((r) => (r as HTMLInputElement).value === 'pdf')!;
     await user.click(pdfRadio);
 
-    // 出力ボタンをクリック
-    const exportButton = screen.getByRole('button', { name: /出力/i });
+    const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
     await waitFor(() => {
@@ -254,9 +277,11 @@ describe('EstimateExportDialog', () => {
   it('出力成功後にダイアログを閉じる', async () => {
     const user = userEvent.setup();
     const mockBlob = new Blob(['test'], { type: 'application/pdf' });
-    vi.mocked(estimatesApi.exportEstimate).mockResolvedValue(mockBlob);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(mockBlob),
+    });
 
-    // createElementをモックしてaタグの作成を追跡
     const originalCreateElement = document.createElement.bind(document);
     vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
       const element = originalCreateElement(tagName);
@@ -268,10 +293,12 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    const pdfRadio = screen.getByRole('radio', { name: /PDF/i });
+    const pdfRadio = screen
+      .getAllByRole('radio')
+      .find((r) => (r as HTMLInputElement).value === 'pdf')!;
     await user.click(pdfRadio);
 
-    const exportButton = screen.getByRole('button', { name: /出力/i });
+    const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
     await waitFor(() => {

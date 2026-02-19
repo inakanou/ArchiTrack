@@ -2822,3 +2822,389 @@ interface OcrDataExtractorStateExtended {
 - **ページ数制限**: 一度に処理できる最大ページ数を20ページに制限し、リクエストサイズと処理時間を制御
 - **Body-parser制限**: Claude Visionエンドポイント専用のbody-parser制限（50MB）を設定。他のエンドポイントのデフォルト制限（100KB）には影響しない
 - **フォールバック性能**: Claude Vision APIエラー時のTesseract.jsフォールバックは追加のネットワークラウンドトリップなしにフロントエンド側で即座に実行される
+
+---
+
+## レイアウト変更・NET金額追加 - 設計追記（Requirements 27-28）
+
+### Overview（追記2）
+
+**Purpose**: 見積依頼詳細画面のレイアウトを最適化し、選択状況セクションと受領見積書セクションを項目選択セクションの下に移動してフルワイドレイアウト化する。これにより各セクションが横幅全体を使用でき、テーブル表示や明細行の視認性が向上する。また、受領見積書の明細行にNET金額入力欄を追加し、値引きや調整後の実際の取引金額を記録できるようにする。
+
+**Impact**: フロントエンドのEstimateRequestDetailPageのCSS Gridレイアウトを変更する。LineItemEditorにNET金額列を追加し、バックエンドのデータモデル（received_quotation_line_items）にnet_amount列を追加する。
+
+### Goals（追記2）
+
+- 見積依頼詳細画面の各セクションが横幅全体を使用できるフルワイドレイアウトを実現する
+- 受領見積書の明細行にNET金額を記録・管理できる
+
+### Non-Goals（追記2）
+
+- NET金額の自動計算（手動入力のみ）
+- NET金額に基づく値引き率の自動算出
+
+### Architecture（追記2）
+
+変更範囲はフロントエンドのレイアウトとコンポーネント更新、およびバックエンドのデータモデル拡張に限定される。新規コンポーネントやサービスの追加は不要。
+
+### Components and Interfaces - 改訂（Requirements 27-28）
+
+#### EstimateRequestDetailPage - 改訂2（レイアウト変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼詳細画面のレイアウトをフルワイドシングルカラムに変更 |
+| Requirements | 27.1-27.7 |
+
+**改訂内容**:
+
+既存の2カラムCSS Gridレイアウト（`1fr 400px`）をシングルカラムフルワイドレイアウトに変更する。
+
+**変更前**:
+```
+┌─────────────────────────────┬──────────────┐
+│ メインカラム (1fr)           │ サイドバー    │
+│                             │ (400px)      │
+│ ・ステータス管理             │              │
+│ ・基本情報                  │ ・選択状況    │
+│ ・アクション                │ ・受領見積書  │
+│ ・見積依頼文パネル           │              │
+│ ・項目選択セクション         │              │
+└─────────────────────────────┴──────────────┘
+```
+
+**変更後**:
+```
+┌──────────────────────────────────────────────┐
+│ フルワイド                                    │
+│                                              │
+│ ・ステータス管理                              │
+│ ・基本情報                                   │
+│ ・アクション                                  │
+│ ・見積依頼文パネル                             │
+│ ・項目選択セクション                           │
+│ ・選択状況セクション                           │
+│ ・受領見積書セクション                         │
+└──────────────────────────────────────────────┘
+```
+
+**Contracts**: Style [x]
+
+##### Style Changes
+
+```typescript
+// 変更前
+const styles = {
+  content: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 400px',
+    gap: '24px',
+  },
+};
+
+// 変更後
+const styles = {
+  content: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '24px',
+  },
+};
+```
+
+**JSXレイアウト変更**:
+
+```typescript
+// 変更前: 2カラムGrid
+<div style={styles.content}>
+  <div style={styles.mainColumn}>
+    {/* ステータス、基本情報、アクション、見積依頼文、項目選択 */}
+  </div>
+  <div style={styles.sideColumn}>
+    {/* 選択状況、受領見積書 */}
+  </div>
+</div>
+
+// 変更後: シングルカラム
+<div style={styles.content}>
+  {/* ステータス、基本情報、アクション、見積依頼文 */}
+  {/* 項目選択セクション */}
+  {/* 選択状況セクション（項目選択の下に移動） */}
+  {/* 受領見積書セクション（選択状況の下に移動） */}
+</div>
+```
+
+**Implementation Notes**
+- Integration: sideColumnのdivラッパーとmainColumnのdivラッパーを削除し、全セクションを同一の親div直下にフラットに配置する（27.1）
+- Integration: 選択状況セクションの配置順序を項目選択セクションの直下に変更する（27.2）
+- Integration: 受領見積書セクションの配置順序を選択状況セクションの直下に変更する（27.3）
+- Integration: gridTemplateColumnsの設定を削除し、flexDirection: 'column'に変更する（27.4）
+- Validation: 既存の全機能（項目選択、保存、受領見積書CRUD、選択状況表示）が正常に動作することを確認する（27.6）
+- Visual: 各セクションの内部スタイル（padding、border等）は変更なし。横幅がフルワイドになることで内部テーブルの列幅が自動調整される
+- Risks: サイドバー用に最適化されていたコンポーネント（選択状況、受領見積書一覧）のフルワイド表示でのスタイル調整が必要な可能性がある
+
+#### LineItemEditor - 改訂2（NET金額列追加）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書の明細行エディタにNET金額入力フィールドを追加 |
+| Requirements | 28.1-28.9 |
+
+**改訂内容**:
+
+既存のLineItemEditorのテーブルに「NET金額」列を追加する。
+
+**変更前のテーブル列**:
+```
+No | 任意分類 | 工種 | 名称 | 規格 | 単位 | 数量 | 単価 | 金額 | 備考 | 操作
+```
+
+**変更後のテーブル列**:
+```
+No | 任意分類 | 工種 | 名称 | 規格 | 単位 | 数量 | 単価 | 金額 | NET金額 | 備考 | 操作
+```
+
+**State Management（改訂）**:
+
+```typescript
+interface LineItemFormData {
+  id: string;
+  customCategory: string;
+  workType: string;
+  name: string;
+  specification: string;
+  unit: string;
+  quantity: string;
+  unitPrice: string;
+  amount: number | null;
+  netAmount: string;  // 追加: NET金額（手動入力、任意）
+  remarks: string;
+}
+
+// フィールド順序（Tabキー移動用）- 改訂2: netAmountを追加
+const FIELD_ORDER: (keyof LineItemFormData)[] = [
+  'customCategory',
+  'workType',
+  'name',
+  'specification',
+  'unit',
+  'quantity',
+  'unitPrice',
+  // amount はreadonly のためスキップ
+  'netAmount',  // 追加
+  'remarks',
+];
+
+// ============================================================================
+// NET金額のフォーマット関数（Requirement 28.6, 28.7）
+// ============================================================================
+
+/**
+ * NET金額を小数第1位で四捨五入して整数にフォーマットする（28.6, 28.7）
+ * フォーカスアウト時に適用する
+ */
+function formatNetAmount(value: string): string {
+  const num = parseFloat(value);
+  if (isNaN(num)) return value;
+  return String(Math.round(num));
+}
+
+/**
+ * NET金額合計を計算する（28.8）
+ * 入力がある行のみを合計する
+ */
+function calculateTotalNetAmount(items: LineItemFormData[]): number | null {
+  const validItems = items.filter(item => {
+    const num = parseFloat(item.netAmount);
+    return !isNaN(num);
+  });
+  if (validItems.length === 0) return null;
+  return validItems.reduce((sum, item) => sum + parseFloat(item.netAmount), 0);
+}
+```
+
+**テーブルフッター変更**:
+
+```typescript
+// 変更前
+// Left: "+ 行を追加"
+// Right: "合計" + totalAmount
+
+// 変更後
+// Left: "+ 行を追加"
+// Right: "合計" + totalAmount + "NET合計" + totalNetAmount
+```
+
+**Implementation Notes**
+- Integration: NET金額列は金額列の右隣に配置する（28.3）。列幅は金額列と同じ`width: 100px`を使用
+- Integration: NET金額フィールドはユーザーが手動入力する（28.4）。自動計算はしない
+- Integration: NET金額フィールドは任意入力（28.5）。空欄可
+- Integration: NET金額のonBlurイベントでformatNetAmount()を適用し、整数値にフォーマットする（28.6, 28.7）
+- Integration: フッターにNET金額合計を表示する（28.8）。金額合計の右隣に配置する（28.9）
+- Integration: OCR/パース一括取り込み時はNET金額を空欄のままとする（28.10）
+- Integration: 項目選択一括転記時はNET金額を空欄のままとする（28.11）
+- Integration: 空のLineItemFormData生成時のnetAmountのデフォルト値は空文字列`''`とする
+- Visual: NET金額のヘッダーラベルは「NET金額」、右寄せ表示
+- Visual: NET合計のラベルは「NET合計」、金額合計と同じスタイル（bold、右寄せ）
+- Visual: NET合計が null（入力なし）の場合は「-」と表示する
+- Risks: テーブル列数が増えることによる横スクロールの発生。ただしRequirement 27のフルワイドレイアウト化により横幅が広がるため影響は軽微
+
+#### ReceivedQuotationForm - 改訂2（NET金額対応）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書フォームのsubmit処理でNET金額データを送信する |
+| Requirements | 28.1, 28.2, 28.12, 28.13 |
+
+**改訂内容**:
+
+ReceivedQuotationFormのsubmit処理で、各明細行のnetAmountをAPIリクエストに含める。
+
+**State Management（改訂）**:
+
+一括転記ロジック（15.1-15.11）の改訂:
+- 転記実行時、各選択済み項目からLineItemFormDataを生成する際、`netAmount: ''`（空欄）を設定する（28.11）
+
+**Implementation Notes**
+- Integration: LineItemFormDataからLineItemInput（API送信用）への変換時にnetAmountフィールドを追加する。空文字列の場合はnullを送信する
+- Integration: 編集画面の既存データ読み込み時、バックエンドから取得したnetAmountをformatNetAmount()で整数フォーマットして表示する（28.13）
+
+#### ReceivedQuotationList - 改訂2（NET金額合計表示）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書一覧にNET金額合計を表示する |
+| Requirements | 28.8 |
+
+**改訂内容**:
+
+受領見積書一覧の各行にNET金額合計を追加表示する。
+
+**Implementation Notes**
+- Integration: 受領見積書一覧の表示項目に「NET金額合計」を追加する
+- Visual: 金額合計の右隣にNET金額合計を表示する。NET金額合計がない場合は「-」と表示する
+
+### Data Models - 改訂2（Requirements 27-28）
+
+#### Physical Data Model変更
+
+**Table: received_quotation_line_items（改訂2）**
+
+追加列:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| net_amount | DECIMAL(15,2) | NULL | NET金額（任意入力） |
+
+#### Domain Model変更
+
+**Entities（改訂）**:
+- ReceivedQuotationLineItem: id, sortOrder, customCategory, workType, name, specification, unit, quantity, unitPrice, amount, **netAmount**, remarks
+
+### API Contract Changes（Requirements 28）
+
+#### LineItemInput（改訂）
+
+```typescript
+interface LineItemInput {
+  name: string;
+  customCategory?: string;
+  workType?: string;
+  specification?: string;
+  unit?: string;
+  quantity?: number;
+  unitPrice?: number;
+  amount?: number;
+  netAmount?: number;  // 追加: NET金額（任意）
+  remarks?: string;
+  sortOrder: number;
+}
+```
+
+#### ReceivedQuotationLineItemレスポンス（改訂）
+
+```typescript
+interface ReceivedQuotationLineItemResponse {
+  id: string;
+  sortOrder: number;
+  customCategory: string | null;
+  workType: string | null;
+  name: string;
+  specification: string | null;
+  unit: string | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  amount: number | null;
+  netAmount: number | null;  // 追加: NET金額
+  remarks: string | null;
+}
+```
+
+#### Zodスキーマ変更
+
+```typescript
+// received-quotation.schema.ts（改訂）
+const lineItemSchema = z.object({
+  // 既存フィールド...
+  netAmount: z.number().nullable().optional(),  // 追加
+  // ...
+});
+```
+
+### Migration Strategy（追記2）
+
+#### received_quotation_line_items net_amount列追加
+
+1. **Phase 1: 列追加マイグレーション**
+   - `net_amount DECIMAL(15,2) NULL`列を追加
+   - 既存データへの影響なし（NULLABLEのため）
+   - Prismaスキーマに`netAmount Decimal? @db.Decimal(15, 2) @map("net_amount")`を追加
+
+**Rollback Strategy**: 列削除マイグレーションで即座にロールバック可能
+
+### Testing Strategy（追記2）
+
+#### Unit Tests（追記2）
+
+- **EstimateRequestDetailPage**: レイアウト変更後のセクション表示順序テスト（項目選択→選択状況→受領見積書）、フルワイドレイアウトの適用確認
+- **LineItemEditor（NET金額）**: NET金額列の表示、NET金額入力・フォーカスアウト時の整数フォーマット（28.6, 28.7）、NET金額合計の自動計算（28.8）、空の明細行生成時のnetAmountデフォルト値、Tab移動順序にnetAmountが含まれることの確認
+- **ReceivedQuotationForm（NET金額）**: submit時のnetAmountデータ送信、一括転記時のnetAmount空欄設定（28.11）、OCR取り込み時のnetAmount空欄設定（28.10）、編集画面での既存netAmountデータ表示（28.13）
+- **ReceivedQuotationService（NET金額）**: CRUD操作でのnetAmountフィールドの永続化・取得
+- **Zodスキーマ（NET金額）**: netAmountフィールドのバリデーション（null許容、number型）
+
+#### Integration Tests（追記2）
+
+- **受領見積書API（NET金額）**: 明細行データのnetAmountフィールドの作成・更新・取得
+
+#### E2E Tests（追記2）
+
+- **レイアウト変更**: 見積依頼詳細画面のセクション表示順序確認（項目選択→選択状況→受領見積書）、フルワイド表示の確認
+- **NET金額入力**: 受領見積書登録画面でのNET金額入力→フォーカスアウト→整数表示確認→保存→編集画面で表示確認
+- **NET金額合計**: 複数行のNET金額入力→合計自動計算確認
+- **NET金額（OCR取り込み）**: OCR一括取り込み後のNET金額空欄確認
+- **NET金額（項目転記）**: 項目選択転記後のNET金額空欄確認
+
+### Requirements Traceability（追記2）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 27.1 | シングルカラムフルワイドレイアウトに変更 | EstimateRequestDetailPage | - | - |
+| 27.2 | 選択状況セクションを項目選択の下に配置 | EstimateRequestDetailPage | - | - |
+| 27.3 | 受領見積書セクションを選択状況の下に配置 | EstimateRequestDetailPage | - | - |
+| 27.4 | 各セクションがコンテンツ横幅全体を使用 | EstimateRequestDetailPage | - | - |
+| 27.5 | ステータス・基本情報・アクションの位置維持 | EstimateRequestDetailPage | - | - |
+| 27.6 | 既存機能の正常動作維持 | EstimateRequestDetailPage | - | - |
+| 27.7 | レスポンシブデザイン対応 | EstimateRequestDetailPage | - | - |
+| 28.1 | 登録画面にNET金額フィールド表示 | LineItemEditor | - | - |
+| 28.2 | 編集画面にNET金額フィールド表示 | LineItemEditor | - | - |
+| 28.3 | NET金額を金額列の右隣に配置 | LineItemEditor | - | - |
+| 28.4 | NET金額は手動入力フィールド | LineItemEditor | - | - |
+| 28.5 | NET金額は任意入力 | LineItemEditor, Zodスキーマ | - | - |
+| 28.6 | NET金額の整数表示（四捨五入） | LineItemEditor | - | - |
+| 28.7 | NET金額フォーカスアウト時の整数フォーマット | LineItemEditor | - | - |
+| 28.8 | NET金額合計の自動計算・表示 | LineItemEditor | - | - |
+| 28.9 | NET金額合計を金額合計の右隣に配置 | LineItemEditor | - | - |
+| 28.10 | OCR取り込み時NET金額空欄 | OcrDataExtractor, ReceivedQuotationForm | - | - |
+| 28.11 | 項目転記時NET金額空欄 | ReceivedQuotationForm | - | - |
+| 28.12 | NET金額のDB永続化 | ReceivedQuotationService, Prisma | received-quotations API | - |
+| 28.13 | 編集画面で既存NET金額データ表示 | ReceivedQuotationForm, LineItemEditor | - | - |

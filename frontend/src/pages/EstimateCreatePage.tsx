@@ -186,7 +186,7 @@ export default function EstimateCreatePage() {
   const navigate = useNavigate();
 
   // フォーム状態
-  const [name, setName] = useState('');
+  const [name, setName] = useState('見積書');
   const [sourceItemizedStatementId, setSourceItemizedStatementId] = useState('');
 
   // 内訳書オプション
