@@ -378,15 +378,8 @@ export function NetAllocationDialog({
             if (!relatedQuotation) return null;
 
             const quotationTotalAmount = relatedQuotation.totalAmount;
-            const quotationNetAmount = relatedQuotation.lineItems.reduce((sum, li) => {
-              if (li.netAmount !== null && li.netAmount !== undefined) {
-                return sum + li.netAmount;
-              }
-              return sum;
-            }, 0);
-            const hasNetAmount = relatedQuotation.lineItems.some(
-              (li) => li.netAmount !== null && li.netAmount !== undefined
-            );
+            const quotationNetAmount = relatedQuotation.netAmount;
+            const hasNetAmount = quotationNetAmount !== null && quotationNetAmount !== undefined;
 
             return (
               <div style={styles.section}>

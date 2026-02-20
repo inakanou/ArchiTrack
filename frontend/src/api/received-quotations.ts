@@ -25,6 +25,7 @@ import { apiClient, ApiError } from './client';
  * 明細行情報（レスポンス型）
  *
  * Requirements: 11.9, 14.2
+ * Task 61.3: netAmountを削除（受領見積書レベルに移動）
  */
 export interface LineItemInfo {
   id: string;
@@ -38,7 +39,6 @@ export interface LineItemInfo {
   quantity: number | null;
   unitPrice: number | null;
   amount: number | null;
-  netAmount: number | null;
   remarks: string | null;
 }
 
@@ -46,6 +46,7 @@ export interface LineItemInfo {
  * 明細行入力（リクエスト型）
  *
  * Requirements: 11.9, 11.22
+ * Task 61.3: netAmountを削除（受領見積書レベルに移動）
  */
 export interface LineItemInput {
   name: string;
@@ -56,15 +57,15 @@ export interface LineItemInput {
   quantity?: number;
   unitPrice?: number;
   amount?: number;
-  netAmount?: number | null;
   remarks?: string;
   sortOrder: number;
 }
 
 /**
- * 受領見積書情報（改訂版：contentType廃止、明細行・合計金額追加）
+ * 受領見積書情報（改訂版：contentType廃止、明細行・合計金額追加、netAmount追加）
  *
  * Requirements: 11.9, 14.2
+ * Task 61.3: netAmountを受領見積書レベルに追加（Requirements: 28.7, 28.10）
  */
 export interface ReceivedQuotationInfo {
   id: string;
@@ -76,26 +77,30 @@ export interface ReceivedQuotationInfo {
   fileSize: number | null;
   lineItems: LineItemInfo[];
   totalAmount: number | null;
+  netAmount: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 /**
- * 受領見積書作成入力（改訂版：contentType廃止、lineItems追加）
+ * 受領見積書作成入力（改訂版：contentType廃止、lineItems追加、netAmount追加）
  *
  * Requirements: 11.9, 11.22
+ * Task 61.3: netAmountを受領見積書レベルに追加（Requirements: 28.7, 28.10）
  */
 export interface CreateReceivedQuotationInput {
   name: string;
   submittedAt: Date;
   file?: File;
   lineItems?: LineItemInput[];
+  netAmount?: number | null;
 }
 
 /**
- * 受領見積書更新入力（改訂版：contentType廃止、lineItems追加、removeFile追加）
+ * 受領見積書更新入力（改訂版：contentType廃止、lineItems追加、removeFile追加、netAmount追加）
  *
  * Requirements: 11.9, 11.22
+ * Task 61.3: netAmountを受領見積書レベルに追加（Requirements: 28.7, 28.10）
  */
 export interface UpdateReceivedQuotationInput {
   name?: string;
@@ -103,6 +108,7 @@ export interface UpdateReceivedQuotationInput {
   file?: File;
   removeFile?: boolean;
   lineItems?: LineItemInput[];
+  netAmount?: number | null;
 }
 
 // ============================================================================
@@ -262,6 +268,11 @@ export async function createReceivedQuotation(
     formData.append('lineItems', JSON.stringify(input.lineItems));
   }
 
+  // NET金額（Task 61.3: 受領見積書レベルで管理）
+  if (input.netAmount !== undefined && input.netAmount !== null) {
+    formData.append('netAmount', String(input.netAmount));
+  }
+
   // 直接fetchを使用してFormDataを送信
   const response = await sendFormData<ReceivedQuotationInfo>(
     `/api/estimate-requests/${estimateRequestId}/quotations`,
@@ -321,6 +332,11 @@ export async function updateReceivedQuotation(
   // 明細行全量置換パラメータ（Requirements: 11.22）
   if (input.lineItems) {
     formData.append('lineItems', JSON.stringify(input.lineItems));
+  }
+
+  // NET金額（Task 61.3: 受領見積書レベルで管理）
+  if (input.netAmount !== undefined) {
+    formData.append('netAmount', input.netAmount === null ? 'null' : String(input.netAmount));
   }
 
   // 直接fetchを使用してFormDataを送信

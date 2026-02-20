@@ -203,7 +203,6 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
       quantity: '',
       unitPrice: '',
       amount: null,
-      netAmount: '',
       remarks: '',
     };
 
@@ -407,7 +406,6 @@ export function convertOcrTextToLineItems(text: string): LineItemFormData[] {
         quantity: '',
         unitPrice: '',
         amount: null,
-        netAmount: '',
         remarks: '',
       };
 
@@ -739,7 +737,6 @@ export function OcrDataExtractor({
           quantity: formattedQuantity,
           unitPrice: formattedUnitPrice,
           amount: formattedAmount,
-          netAmount: '',
           remarks: item.remarks ?? '',
         };
       });
@@ -1167,7 +1164,6 @@ export function OcrDataExtractor({
           quantity: formattedQuantity,
           unitPrice: formattedUnitPrice,
           amount: formattedAmount,
-          netAmount: item.netAmount ?? '',
         };
       });
       onImportLineItems(formattedItems);

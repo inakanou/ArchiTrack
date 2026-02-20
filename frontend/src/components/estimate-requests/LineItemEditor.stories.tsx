@@ -17,7 +17,7 @@ const mockLineItems: LineItemFormData[] = [
     quantity: '1500',
     unitPrice: '120',
     amount: 180000,
-    netAmount: '',
+
     remarks: '',
   },
   {
@@ -30,7 +30,7 @@ const mockLineItems: LineItemFormData[] = [
     quantity: '50',
     unitPrice: '15000',
     amount: 750000,
-    netAmount: '',
+
     remarks: '打設費込み',
   },
   {
@@ -43,7 +43,7 @@ const mockLineItems: LineItemFormData[] = [
     quantity: '200',
     unitPrice: '3500',
     amount: 700000,
-    netAmount: '',
+
     remarks: '',
   },
 ];

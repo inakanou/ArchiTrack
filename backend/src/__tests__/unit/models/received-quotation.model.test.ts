@@ -162,6 +162,61 @@ describe('ReceivedQuotation Model Schema', () => {
       };
       expect(quotationSelect.lineItems).toBe(true);
     });
+
+    // ================================================================
+    // Task 60: ReceivedQuotationモデルにnetAmountフィールドを追加
+    // Requirements: 28.10
+    // ================================================================
+    it('should have netAmount field (Decimal, optional) for NET金額 (Task 60)', () => {
+      // REQ-28.10: NET金額のDB永続化（受領見積書テーブルに配置）
+      const quotationSelect: Prisma.ReceivedQuotationSelect = {
+        netAmount: true,
+      };
+      expect(quotationSelect.netAmount).toBe(true);
+    });
+
+    it('should accept netAmount in CreateInput (Task 60)', () => {
+      // REQ-28.10: 受領見積書作成時にNET金額を含められること
+      const validInput: Prisma.ReceivedQuotationCreateInput = {
+        name: 'テスト受領見積書',
+        submittedAt: new Date('2026-01-20'),
+        netAmount: 500000,
+        estimateRequest: { connect: { id: 'estimate-request-id' } },
+      };
+
+      expect(validInput.netAmount).toBe(500000);
+    });
+
+    it('should accept Decimal type for netAmount (Task 60)', () => {
+      // Design: NET金額にDecimal(15,2)型を適用
+      const validInput: Prisma.ReceivedQuotationCreateInput = {
+        name: 'テスト受領見積書',
+        submittedAt: new Date('2026-01-20'),
+        netAmount: new Prisma.Decimal('1234567.89'),
+        estimateRequest: { connect: { id: 'estimate-request-id' } },
+      };
+
+      expect(validInput.netAmount).toBeDefined();
+    });
+
+    it('should accept null for netAmount (Task 60)', () => {
+      // REQ-28.7: NET金額は任意入力
+      const validInput: Prisma.ReceivedQuotationCreateInput = {
+        name: 'テスト受領見積書',
+        submittedAt: new Date('2026-01-20'),
+        netAmount: null,
+        estimateRequest: { connect: { id: 'estimate-request-id' } },
+      };
+
+      expect(validInput.netAmount).toBeNull();
+    });
+
+    it('should allow filtering by netAmount (Task 60)', () => {
+      const where: Prisma.ReceivedQuotationWhereInput = {
+        netAmount: { not: null },
+      };
+      expect(where.netAmount).toBeDefined();
+    });
   });
 
   describe('ReceivedQuotation relations', () => {

@@ -438,6 +438,7 @@ describe('NetAllocationDialog', () => {
           fileMimeType: null,
           fileSize: null,
           totalAmount: 120000,
+          netAmount: 100000,
           lineItems: [
             {
               id: 'li-1',
@@ -451,7 +452,6 @@ describe('NetAllocationDialog', () => {
               quantity: 1,
               unitPrice: 80000,
               amount: 80000,
-              netAmount: 70000,
               remarks: null,
             },
             {
@@ -466,7 +466,6 @@ describe('NetAllocationDialog', () => {
               quantity: 1,
               unitPrice: 40000,
               amount: 40000,
-              netAmount: 30000,
               remarks: null,
             },
           ],
@@ -514,6 +513,7 @@ describe('NetAllocationDialog', () => {
           fileMimeType: null,
           fileSize: null,
           totalAmount: 120000,
+          netAmount: 70000,
           lineItems: [
             {
               id: 'li-1',
@@ -527,7 +527,6 @@ describe('NetAllocationDialog', () => {
               quantity: 1,
               unitPrice: 80000,
               amount: 80000,
-              netAmount: 70000,
               remarks: null,
             },
           ],

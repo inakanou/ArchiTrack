@@ -456,7 +456,6 @@ function convertToLineItemInput(items: LineItemFormData[]): LineItemInput[] {
       quantity: item.quantity ? parseFloat(item.quantity) : undefined,
       unitPrice: item.unitPrice ? parseFloat(item.unitPrice) : undefined,
       amount: item.amount ?? undefined,
-      netAmount: item.netAmount ? Math.round(parseFloat(item.netAmount)) : null,
       remarks: item.remarks.trim() || undefined,
       sortOrder: index,
     }));
@@ -474,8 +473,6 @@ function convertToLineItemFormData(
   return items.map((item) => {
     const rawQuantity = item.quantity !== null ? String(item.quantity) : '';
     const rawUnitPrice = item.unitPrice !== null ? String(item.unitPrice) : '';
-    const rawNetAmount =
-      item.netAmount !== null && item.netAmount !== undefined ? String(item.netAmount) : '';
     return {
       id: item.id,
       customCategory: item.customCategory ?? '',
@@ -486,7 +483,6 @@ function convertToLineItemFormData(
       quantity: formatQuantity(rawQuantity),
       unitPrice: formatUnitPrice(rawUnitPrice),
       amount: item.amount,
-      netAmount: formatUnitPrice(rawNetAmount),
       remarks: item.remarks ?? '',
     };
   });
@@ -564,6 +560,13 @@ export function ReceivedQuotationForm({
   const [existingFileName] = useState<string | null>(initialData?.fileName ?? null);
   const [removeFile, setRemoveFile] = useState(false);
 
+  // NET金額状態（Task 63.1: 受領見積書レベルのNET金額フィールド）
+  const [netAmount, setNetAmount] = useState(
+    initialData?.netAmount !== null && initialData?.netAmount !== undefined
+      ? formatUnitPrice(String(initialData.netAmount))
+      : ''
+  );
+
   // 明細行状態（11.14: 初期表示時に1行の空明細行）
   const [lineItems, setLineItems] = useState<LineItemFormData[]>(
     convertToLineItemFormData(initialData?.lineItems)
@@ -612,17 +615,23 @@ export function ReceivedQuotationForm({
 
       const lineItemInputs = convertToLineItemInput(lineItems);
 
+      // Task 63.2: NET金額をAPIリクエストに含める（空文字列 → null）
+      const parsedNetAmount = netAmount.trim() !== '' ? Math.round(parseFloat(netAmount)) : null;
+      const netAmountValue =
+        parsedNetAmount !== null && !isNaN(parsedNetAmount) ? parsedNetAmount : null;
+
       const data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput = {
         name: name.trim(),
         submittedAt: new Date(submittedAt),
         ...(selectedFile ? { file: selectedFile } : {}),
         ...(removeFile ? { removeFile: true } : {}),
         ...(lineItemInputs.length > 0 ? { lineItems: lineItemInputs } : {}),
+        netAmount: netAmountValue,
       };
 
       await onSubmit(data);
     },
-    [name, submittedAt, selectedFile, removeFile, lineItems, validate, onSubmit]
+    [name, submittedAt, selectedFile, removeFile, lineItems, netAmount, validate, onSubmit]
   );
 
   // 名前変更ハンドラ
@@ -770,7 +779,6 @@ export function ReceivedQuotationForm({
         quantity: formattedQuantity,
         unitPrice: '', // 転記時に単価は空欄
         amount: null,
-        netAmount: '', // 転記時にNET金額は空欄
         remarks: item.remarks ?? '',
       };
     });
@@ -1044,6 +1052,34 @@ export function ReceivedQuotationForm({
           lineItems={lineItems}
           onLineItemsChange={handleLineItemsChange}
           disabled={isSubmitting}
+        />
+      </div>
+
+      {/* NET金額フィールド（Task 63.1: 受領見積書レベル、明細行テーブルの下） */}
+      <div style={styles.fieldGroup}>
+        <label htmlFor="net-amount" style={styles.label}>
+          NET金額
+        </label>
+        <input
+          id="net-amount"
+          type="text"
+          inputMode="decimal"
+          value={netAmount}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setNetAmount(e.target.value)}
+          onBlur={() => {
+            const formatted = formatUnitPrice(netAmount);
+            if (formatted !== netAmount) {
+              setNetAmount(formatted);
+            }
+          }}
+          placeholder="NET金額"
+          disabled={isSubmitting}
+          style={{
+            ...styles.input,
+            textAlign: 'right' as const,
+            maxWidth: '200px',
+          }}
+          aria-label="NET金額"
         />
       </div>
 

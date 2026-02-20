@@ -41,6 +41,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: null,
       lineItems: [],
       totalAmount: null,
+      netAmount: null,
       createdAt: new Date('2025-01-16T10:00:00'),
       updatedAt: new Date('2025-01-16T10:00:00'),
     },
@@ -54,6 +55,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: 1024 * 500, // 500KB
       lineItems: [],
       totalAmount: null,
+      netAmount: null,
       createdAt: new Date('2025-01-18T11:30:00'),
       updatedAt: new Date('2025-01-18T11:30:00'),
     },
@@ -67,6 +69,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: 1024 * 1024 * 2, // 2MB
       lineItems: [],
       totalAmount: null,
+      netAmount: null,
       createdAt: new Date('2025-01-20T09:00:00'),
       updatedAt: new Date('2025-01-20T09:00:00'),
     },
@@ -80,6 +83,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: 1024 * 300, // 300KB
       lineItems: [],
       totalAmount: null,
+      netAmount: null,
       createdAt: new Date('2025-01-22T14:00:00'),
       updatedAt: new Date('2025-01-22T14:00:00'),
     },
@@ -108,7 +112,7 @@ describe('ReceivedQuotationList', () => {
           quantity: 10,
           unitPrice: 1000,
           amount: 10000,
-          netAmount: null,
+
           remarks: null,
         },
         {
@@ -123,7 +127,7 @@ describe('ReceivedQuotationList', () => {
           quantity: 5,
           unitPrice: 2000,
           amount: 10000,
-          netAmount: null,
+
           remarks: null,
         },
         {
@@ -138,11 +142,12 @@ describe('ReceivedQuotationList', () => {
           quantity: 1,
           unitPrice: 30000,
           amount: 30000,
-          netAmount: null,
+
           remarks: null,
         },
       ],
       totalAmount: 50000, // 10000 + 10000 + 30000
+      netAmount: null,
       createdAt: new Date('2025-01-26T10:00:00'),
       updatedAt: new Date('2025-01-26T10:00:00'),
     },
@@ -167,11 +172,12 @@ describe('ReceivedQuotationList', () => {
           quantity: 1,
           unitPrice: 150000,
           amount: 150000,
-          netAmount: null,
+
           remarks: '一式',
         },
       ],
       totalAmount: 150000,
+      netAmount: null,
       createdAt: new Date('2025-01-28T10:00:00'),
       updatedAt: new Date('2025-01-28T10:00:00'),
     },
@@ -185,6 +191,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: 1024 * 200,
       lineItems: [],
       totalAmount: null,
+      netAmount: null,
       createdAt: new Date('2025-01-30T10:00:00'),
       updatedAt: new Date('2025-01-30T10:00:00'),
     },

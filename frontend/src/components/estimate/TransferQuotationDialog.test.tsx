@@ -32,6 +32,7 @@ const mockReceivedQuotations = [
     fileMimeType: null,
     fileSize: null,
     totalAmount: 500000,
+    netAmount: null,
     lineItems: [
       {
         id: 'rql-001',
@@ -45,7 +46,7 @@ const mockReceivedQuotations = [
         quantity: 1,
         unitPrice: 100000,
         amount: 100000,
-        netAmount: null,
+
         remarks: null,
       },
       {
@@ -60,7 +61,7 @@ const mockReceivedQuotations = [
         quantity: 50,
         unitPrice: 8000,
         amount: 400000,
-        netAmount: null,
+
         remarks: null,
       },
     ],
@@ -76,6 +77,7 @@ const mockReceivedQuotations = [
     fileMimeType: null,
     fileSize: null,
     totalAmount: 450000,
+    netAmount: null,
     lineItems: [
       {
         id: 'rql-003',
@@ -89,7 +91,7 @@ const mockReceivedQuotations = [
         quantity: 1,
         unitPrice: 90000,
         amount: 90000,
-        netAmount: null,
+
         remarks: null,
       },
     ],
