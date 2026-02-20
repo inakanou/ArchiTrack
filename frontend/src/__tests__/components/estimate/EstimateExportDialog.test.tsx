@@ -2,11 +2,12 @@
  * @fileoverview EstimateExportDialog テスト
  *
  * Task 37.3: 出力ダイアログの行タイプ選択テスト
+ * Task 42.3: ラジオボタンからチェックボックスへの変更対応
  *
  * Requirements:
- * - REQ-32.1: 出力ダイアログに「見積」「実行」「業者」の3つのラジオボタンを提供
- * - REQ-32.2: デフォルト値は「見積」（ESTIMATE）を選択
- * - REQ-32.3: 出力実行時にlineTypeパラメータをAPIリクエストに付加
+ * - REQ-32.1: 出力ダイアログに「見積」「実行」「業者」の3つのチェックボックスを提供
+ * - REQ-32.2: デフォルト値は「見積」（ESTIMATE）のみ選択
+ * - REQ-32.3: 出力実行時にlineTypesパラメータをAPIリクエストに付加
  * - REQ-32.4: 出力ファイル名に行タイプラベルを含める
  */
 
@@ -46,24 +47,21 @@ describe('EstimateExportDialog', () => {
   });
 
   // ==========================================================================
-  // REQ-32.1: 行タイプラジオボタン
+  // REQ-32.1: 行タイプチェックボックス
   // ==========================================================================
-  describe('出力対象ラジオボタン (REQ-32.1)', () => {
-    it('「出力対象」セクションに見積・実行・業者の3つのラジオボタンがあること', () => {
+  describe('出力対象チェックボックス (REQ-32.1)', () => {
+    it('「出力対象」セクションに見積・実行・業者の3つのチェックボックスがあること', () => {
       render(<EstimateExportDialog {...defaultProps} />);
 
       expect(screen.getByText('出力対象')).toBeInTheDocument();
 
-      const lineTypeRadios = screen.getAllByRole('radio').filter((radio) => {
-        return (radio as HTMLInputElement).name === 'export-line-type';
-      });
-      expect(lineTypeRadios).toHaveLength(3);
+      const checkboxes = screen.getAllByRole('checkbox');
+      expect(checkboxes.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('各ラジオボタンのラベルが正しいこと', () => {
+    it('各チェックボックスのラベルが正しいこと', () => {
       render(<EstimateExportDialog {...defaultProps} />);
 
-      // formatName divの中のテキストを確認
       expect(screen.getByText('見積金額行を出力します')).toBeInTheDocument();
       expect(screen.getByText('実行金額行を出力します')).toBeInTheDocument();
       expect(screen.getByText('業者金額行を出力します')).toBeInTheDocument();
@@ -74,25 +72,29 @@ describe('EstimateExportDialog', () => {
   // REQ-32.2: デフォルト値
   // ==========================================================================
   describe('デフォルト値 (REQ-32.2)', () => {
-    it('デフォルトで「見積」（ESTIMATE）が選択されていること', () => {
+    it('デフォルトで「見積」（ESTIMATE）のみが選択されていること', () => {
       render(<EstimateExportDialog {...defaultProps} />);
 
-      const lineTypeRadios = screen.getAllByRole('radio').filter((radio) => {
-        return (radio as HTMLInputElement).name === 'export-line-type';
-      });
-
-      const estimateRadio = lineTypeRadios.find(
-        (r) => (r as HTMLInputElement).value === 'ESTIMATE'
+      const checkboxes = screen.getAllByRole('checkbox');
+      const estimateCheckbox = checkboxes.find(
+        (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
       );
-      expect(estimateRadio).toBeChecked();
+      const executionCheckbox = checkboxes.find(
+        (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
+      );
+      const vendorCheckbox = checkboxes.find((cb) => (cb as HTMLInputElement).value === 'VENDOR');
+
+      expect(estimateCheckbox).toBeChecked();
+      expect(executionCheckbox).not.toBeChecked();
+      expect(vendorCheckbox).not.toBeChecked();
     });
   });
 
   // ==========================================================================
-  // REQ-32.3: lineTypeパラメータ付加
+  // REQ-32.3: lineTypesパラメータ付加
   // ==========================================================================
-  describe('lineTypeパラメータ (REQ-32.3)', () => {
-    it('出力実行時にlineTypeクエリパラメータがAPIリクエストに含まれること', async () => {
+  describe('lineTypesパラメータ (REQ-32.3)', () => {
+    it('出力実行時にlineTypesクエリパラメータがAPIリクエストに含まれること', async () => {
       const user = userEvent.setup();
       const mockBlob = new Blob(['test'], { type: 'application/pdf' });
       const mockResponse = {
@@ -120,7 +122,7 @@ describe('EstimateExportDialog', () => {
 
       await waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalledWith(
-          '/api/estimates/est-1/export?format=pdf&lineType=ESTIMATE',
+          'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
           expect.objectContaining({
             method: 'GET',
           })
@@ -128,7 +130,7 @@ describe('EstimateExportDialog', () => {
       });
     });
 
-    it('実行タイプを選択した場合にlineType=EXECUTIONがAPIリクエストに含まれること', async () => {
+    it('実行タイプを選択した場合にlineTypes=EXECUTIONがAPIリクエストに含まれること', async () => {
       const user = userEvent.setup();
       const mockBlob = new Blob(['test'], { type: 'application/pdf' });
       const mockResponse = {
@@ -141,11 +143,18 @@ describe('EstimateExportDialog', () => {
 
       render(<EstimateExportDialog {...defaultProps} />);
 
-      // 実行ラジオボタンを選択
-      const executionRadio = screen
-        .getAllByRole('radio')
-        .find((r) => (r as HTMLInputElement).value === 'EXECUTION');
-      await user.click(executionRadio!);
+      // デフォルトの見積チェックボックスをOFF
+      const checkboxes = screen.getAllByRole('checkbox');
+      const estimateCheckbox = checkboxes.find(
+        (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
+      )!;
+      await user.click(estimateCheckbox);
+
+      // 実行チェックボックスをON
+      const executionCheckbox = checkboxes.find(
+        (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
+      )!;
+      await user.click(executionCheckbox);
 
       // PDF形式を選択
       const pdfRadio = screen
@@ -159,7 +168,7 @@ describe('EstimateExportDialog', () => {
 
       await waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalledWith(
-          '/api/estimates/est-1/export?format=pdf&lineType=EXECUTION',
+          'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=EXECUTION',
           expect.objectContaining({
             method: 'GET',
           })
@@ -230,8 +239,16 @@ describe('EstimateExportDialog', () => {
   // 出力形式選択
   // ==========================================================================
   describe('出力形式選択', () => {
-    it('出力形式を選択しないと出力ボタンが無効であること', () => {
+    it('チェックボックスが全てOFFの場合、出力ボタンが無効であること', async () => {
+      const user = userEvent.setup();
       render(<EstimateExportDialog {...defaultProps} />);
+
+      // デフォルトでONの見積チェックボックスをOFFにする
+      const checkboxes = screen.getAllByRole('checkbox');
+      const estimateCheckbox = checkboxes.find(
+        (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
+      )!;
+      await user.click(estimateCheckbox);
 
       const exportButton = screen.getByRole('button', { name: '出力' });
       expect(exportButton).toBeDisabled();

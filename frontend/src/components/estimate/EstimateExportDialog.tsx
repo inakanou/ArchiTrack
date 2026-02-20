@@ -270,7 +270,8 @@ export function EstimateExportDialog({
     try {
       // REQ-32.4: lineTypesクエリパラメータ（カンマ区切り）
       const lineTypesParam = getSelectedLineTypeArray(selectedLineTypes).join(',');
-      const url = `/api/estimates/${estimateId}/export?format=${selectedFormat}&lineTypes=${lineTypesParam}`;
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const url = `${baseUrl}/api/estimates/${estimateId}/export?format=${selectedFormat}&lineTypes=${lineTypesParam}`;
 
       // fetchでAPIリクエストを実行しレスポンスを検証
       const response = await fetch(url, { method: 'GET' });

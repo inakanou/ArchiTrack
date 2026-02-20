@@ -2018,16 +2018,11 @@ router.get(
       const exportFormat = format === 'pdf' ? ExportFormat.PDF : ExportFormat.XLSX;
       let buffer: Buffer;
 
-      if (lineTypes.length === 1 && lineTypes[0] === 'ESTIMATE') {
-        // 単一ESTIMATE行タイプの場合は従来のexportメソッドを使用（後方互換性）
-        buffer = await estimateExportService.export(exportData, exportFormat);
+      // REQ-10 AC10-12: 全ての行タイプでプレフィックス付き列名を使用
+      if (exportFormat === ExportFormat.XLSX) {
+        buffer = await estimateExportService.exportToExcelWithLineTypes(exportData, lineTypes);
       } else {
-        // 複数行タイプまたはESTIMATE以外の場合は新しいメソッドを使用
-        if (exportFormat === ExportFormat.XLSX) {
-          buffer = await estimateExportService.exportToExcelWithLineTypes(exportData, lineTypes);
-        } else {
-          buffer = await estimateExportService.exportToPdfWithLineTypes(exportData, lineTypes);
-        }
+        buffer = await estimateExportService.exportToPdfWithLineTypes(exportData, lineTypes);
       }
 
       // ファイル名を生成（複数行タイプ対応）

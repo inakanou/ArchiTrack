@@ -274,9 +274,10 @@ export async function exportEstimate(
   format: ExportFormat,
   lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'> = ['ESTIMATE']
 ): Promise<Blob> {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
   const lineTypesParam = lineTypes.join(',');
   const response = await fetch(
-    `/api/estimates/${id}/export?format=${format}&lineTypes=${lineTypesParam}`,
+    `${baseUrl}/api/estimates/${id}/export?format=${format}&lineTypes=${lineTypesParam}`,
     {
       method: 'GET',
       headers: {

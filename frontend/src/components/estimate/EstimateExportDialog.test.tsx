@@ -232,7 +232,7 @@ describe('EstimateExportDialog', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE',
+        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -277,7 +277,7 @@ describe('EstimateExportDialog', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION,VENDOR',
+        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION,VENDOR',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -413,7 +413,7 @@ describe('EstimateExportDialog', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/estimates/est-001/export?format=pdf&lineTypes=ESTIMATE',
+        'http://localhost:3000/api/estimates/est-001/export?format=pdf&lineTypes=ESTIMATE',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -454,7 +454,7 @@ describe('EstimateExportDialog', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE',
+        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE',
         expect.objectContaining({ method: 'GET' })
       );
     });
