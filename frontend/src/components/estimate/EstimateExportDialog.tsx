@@ -274,7 +274,12 @@ export function EstimateExportDialog({
       const url = `${baseUrl}/api/estimates/${estimateId}/export?format=${selectedFormat}&lineTypes=${lineTypesParam}`;
 
       // fetchでAPIリクエストを実行しレスポンスを検証
-      const response = await fetch(url, { method: 'GET' });
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+      });
       if (!response.ok) {
         throw new Error('見積書の出力に失敗しました');
       }
