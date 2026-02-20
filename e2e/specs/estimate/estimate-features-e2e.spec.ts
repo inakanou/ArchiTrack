@@ -37,7 +37,7 @@ import { API_BASE_URL } from '../../config';
 /**
  * 見積書機能追加のE2Eテスト
  */
-test.describe('見積書機能追加 (REQ-25～REQ-32)', () => {
+test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
   test.describe.configure({ mode: 'serial' });
 
   // テストデータの保存

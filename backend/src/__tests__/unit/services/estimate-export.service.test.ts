@@ -13,6 +13,11 @@
  * - REQ-10.6: ネスト階層ごとに別ページとして出力する
  * - REQ-10.7: 見積金額行のみを出力対象とする（実行金額行・業者金額行は出力しない）
  * - REQ-10.8: 出力処理中であることを表示する
+ * - REQ-10.9: チェックされた行タイプの列を横1列に並べて出力する
+ * - REQ-10.10: 見積行タイプの列名を「見積名称」「見積規格」等とする
+ * - REQ-10.11: 実行行タイプの列名を「実行名称」「実行規格」等とする
+ * - REQ-10.12: 業者行タイプの列名を「業者名称」「業者規格」等とする
+ * - REQ-10.13: チェックされていない行タイプの列を出力しない
  *
  * @module __tests__/unit/services/estimate-export.service.test
  */
@@ -934,6 +939,9 @@ describe('EstimateExportService', () => {
   // Task 42.4: 複数行タイプ出力テスト
   // ============================================================================
 
+  /**
+   * @requirement estimate-creation/REQ-10.13
+   */
   describe('filterLinesByTypes（複数行タイプフィルタリング）', () => {
     it('複数の行タイプでフィルタリングできること', () => {
       const items: EstimateExportItem[] = [
@@ -1014,6 +1022,11 @@ describe('EstimateExportService', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-10.10
+   * @requirement estimate-creation/REQ-10.11
+   * @requirement estimate-creation/REQ-10.12
+   */
   describe('getHeadersForLineTypes（複数行タイプ用プレフィックス付き列名）', () => {
     it('見積行タイプの列名にプレフィックスが付くこと', () => {
       const headers = service.getHeadersForLineTypes(['ESTIMATE']);
@@ -1057,6 +1070,9 @@ describe('EstimateExportService', () => {
       ]);
     });
 
+    /**
+     * @requirement estimate-creation/REQ-10.9
+     */
     it('複数行タイプの列名が横1列に並ぶこと', () => {
       const headers = service.getHeadersForLineTypes(['ESTIMATE', 'EXECUTION']);
 
@@ -1145,6 +1161,10 @@ describe('EstimateExportService', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-10.9
+   * @requirement estimate-creation/REQ-10.13
+   */
   describe('exportToExcelWithLineTypes（複数行タイプExcel出力）', () => {
     it('複数行タイプの列を横1列に並べたExcelを生成できること', async () => {
       const estimate = createTestEstimate({
@@ -1175,6 +1195,10 @@ describe('EstimateExportService', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-10.9
+   * @requirement estimate-creation/REQ-10.13
+   */
   describe('exportToPdfWithLineTypes（複数行タイプPDF出力）', () => {
     it('複数行タイプのPDFを生成できること', async () => {
       const estimate = createTestEstimate({

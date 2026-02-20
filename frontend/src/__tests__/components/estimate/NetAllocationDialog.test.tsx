@@ -1,9 +1,12 @@
 /**
  * @fileoverview NetAllocationDialog テスト
  *
- * Requirements:
- * - REQ-18.1〜18.9: NET金額案分ダイアログの各機能
- * - REQ-31.1〜31.2: 受領見積書情報表示
+ * Requirements (estimate-creation):
+ * - REQ-18.1-REQ-18.9: NET金額案分ダイアログの各機能
+ * - REQ-31.1-REQ-31.2: 受領見積書情報表示
+ * - REQ-33.1: 選択済み案分対象行の合計金額表示
+ * - REQ-33.2: チェック変更時の合計金額再計算
+ * - REQ-33.3: 全チェックOFF時に0円表示
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -620,7 +623,13 @@ describe('NetAllocationDialog', () => {
   // ==========================================================================
   // REQ-33: 案分対象行の合計金額表示
   // ==========================================================================
+  /**
+   * @requirement estimate-creation/REQ-33.1
+   * @requirement estimate-creation/REQ-33.2
+   * @requirement estimate-creation/REQ-33.3
+   */
   describe('案分対象行の合計金額表示 (REQ-33)', () => {
+    /** @requirement estimate-creation/REQ-33.1 */
     it('選択済み案分対象行の合計金額が表示されること (REQ-33.1)', async () => {
       const user = userEvent.setup();
       render(<NetAllocationDialog {...defaultProps} />);
@@ -634,6 +643,7 @@ describe('NetAllocationDialog', () => {
       });
     });
 
+    /** @requirement estimate-creation/REQ-33.2 */
     it('チェックボックスの切替で合計金額が再計算されること (REQ-33.2)', async () => {
       const user = userEvent.setup();
       render(<NetAllocationDialog {...defaultProps} />);
@@ -655,6 +665,7 @@ describe('NetAllocationDialog', () => {
       });
     });
 
+    /** @requirement estimate-creation/REQ-33.3 */
     it('全チェックOFF時に0円が表示されること (REQ-33.3)', async () => {
       const user = userEvent.setup();
       render(<NetAllocationDialog {...defaultProps} />);

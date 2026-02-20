@@ -3,15 +3,19 @@
  *
  * Task 8.1: useEstimateEditorフックの実装
  *
- * Requirements:
- * - 1.3: 金額フィールドを単価と数量の積として自動計算する
- * - 1.4: 金額フィールドを入力不可として表示する
- * - 1.5: 合計行に全見積項目の金額合計を自動計算して表示する
- * - 2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
- * - 12.1: 見積項目を追加した場合、新規の3行1セット（見積・実行・業者金額行）を作成する
- * - 12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
- * - 12.3: 見積項目を削除した場合、3行1セット全体を削除する
- * - 12.5: 見積項目を複製した場合、3行1セット全体を複製する
+ * Requirements (estimate-creation):
+ * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
+ * - REQ-1.4: 金額フィールドを入力不可として表示する
+ * - REQ-1.5: 合計行に全見積項目の金額合計を自動計算して表示する
+ * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
+ * - REQ-12.1: 見積項目を追加した場合、新規の3行1セット（見積・実行・業者金額行）を作成する
+ * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
+ * - REQ-12.3: 見積項目を削除した場合、3行1セット全体を削除する
+ * - REQ-12.5: 見積項目を複製した場合、3行1セット全体を複製する
+ * - REQ-34.1: 見積項目追加後の保存・再読み込みの整合性
+ * - REQ-34.2: 見積項目削除後の保存・再読み込みの整合性
+ * - REQ-34.3: 見積項目編集後の保存・再読み込みの整合性
+ * - REQ-34.4: 保存処理における全変更タイプの正しい処理
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -933,6 +937,7 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /** @requirement estimate-creation/REQ-34.3 */
   describe('updateLine - ステールデータ問題の修正 (REQ-34.3)', () => {
     it('連続したupdateLineでrecordChangeに最新データが記録されること', async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
@@ -975,6 +980,12 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-34.1
+   * @requirement estimate-creation/REQ-34.2
+   * @requirement estimate-creation/REQ-34.3
+   * @requirement estimate-creation/REQ-34.4
+   */
   describe('保存時の変更タイプ処理 (REQ-34.4)', () => {
     it('add/delete/updateの全変更タイプがpendingChangesに正しく記録されること', async () => {
       const onSave = vi.fn().mockResolvedValue(undefined);
