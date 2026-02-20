@@ -25,6 +25,7 @@ import {
   calculateNetSchema,
   batchUpdateItemsSchema,
   calculateOverheadSchema,
+  exportEstimateQuerySchema,
   ESTIMATE_VALIDATION_MESSAGES,
 } from '../../../schemas/estimate.schema.js';
 
@@ -746,6 +747,100 @@ describe('estimate.schema', () => {
           expect(result.data.isRenovation).toBe(false);
         }
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 42.2: exportEstimateQuerySchema（複数行タイプ対応）
+  // ==========================================================================
+  describe('exportEstimateQuerySchema (Task 42.2)', () => {
+    it('lineTypesにカンマ区切りの複数行タイプを指定できる', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'xlsx',
+        lineTypes: 'ESTIMATE,EXECUTION',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['ESTIMATE', 'EXECUTION']);
+      }
+    });
+
+    it('lineTypesに無効な値が含まれる場合はフィルタされる', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'pdf',
+        lineTypes: 'ESTIMATE,INVALID,VENDOR',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['ESTIMATE', 'VENDOR']);
+      }
+    });
+
+    it('lineTypesが未指定でlineTypeが指定されている場合はlineTypeを配列化する', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'pdf',
+        lineType: 'EXECUTION',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['EXECUTION']);
+      }
+    });
+
+    it('lineTypesもlineTypeも未指定の場合はデフォルトでESTIMATEとなる', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'xlsx',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['ESTIMATE']);
+      }
+    });
+
+    it('lineTypesが空文字の場合はlineTypeにフォールバックする', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'pdf',
+        lineTypes: '',
+        lineType: 'VENDOR',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['VENDOR']);
+      }
+    });
+
+    it('lineTypesが全て無効な値の場合はlineTypeにフォールバックする', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'xlsx',
+        lineTypes: 'INVALID1,INVALID2',
+        lineType: 'ESTIMATE',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['ESTIMATE']);
+      }
+    });
+
+    it('lineTypesが全て無効でlineTypeも未指定の場合はデフォルトESTIMATEとなる', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'pdf',
+        lineTypes: 'INVALID',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['ESTIMATE']);
+      }
+    });
+
+    it('3つ全ての行タイプをlineTypesに指定できる', () => {
+      const result = exportEstimateQuerySchema.safeParse({
+        format: 'xlsx',
+        lineTypes: 'ESTIMATE,EXECUTION,VENDOR',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.lineTypes).toEqual(['ESTIMATE', 'EXECUTION', 'VENDOR']);
+      }
     });
   });
 });

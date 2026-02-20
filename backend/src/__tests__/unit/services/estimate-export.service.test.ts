@@ -1194,5 +1194,160 @@ describe('EstimateExportService', () => {
       const signature = result.slice(0, 5).toString('utf-8');
       expect(signature).toBe('%PDF-');
     });
+
+    it('ネストした子項目を含む複数行タイプのPDFを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [
+              createTestLine({ lineType: 'ESTIMATE', name: '見積親項目', amount: 50000 }),
+              createTestLine({ lineType: 'EXECUTION', name: '実行親項目', amount: 40000 }),
+            ],
+            children: [
+              createTestItem({
+                id: 'child-1',
+                parentId: 'parent-1',
+                lines: [
+                  createTestLine({ lineType: 'ESTIMATE', name: '見積子項目1', amount: 20000 }),
+                  createTestLine({ lineType: 'EXECUTION', name: '実行子項目1', amount: 15000 }),
+                ],
+              }),
+              createTestItem({
+                id: 'child-2',
+                parentId: 'parent-1',
+                displayOrder: 1,
+                lines: [
+                  createTestLine({ lineType: 'ESTIMATE', name: '見積子項目2', amount: 30000 }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdfWithLineTypes(estimate, ['ESTIMATE', 'EXECUTION']);
+
+      expect(result).toBeInstanceOf(Buffer);
+      const signature = result.slice(0, 5).toString('utf-8');
+      expect(signature).toBe('%PDF-');
+    });
+
+    it('linesが空の項目名にデフォルト名称を使用してPDFを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-no-line',
+            lines: [],
+            children: [
+              createTestItem({
+                id: 'child-no-line',
+                parentId: 'parent-no-line',
+                lines: [createTestLine({ lineType: 'ESTIMATE', name: '子項目', amount: 5000 })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdfWithLineTypes(estimate, ['ESTIMATE']);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('exportToExcelWithLineTypes（複数行タイプExcel詳細シート）', () => {
+    it('ネストした子項目を含む複数行タイプのExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [
+              createTestLine({ lineType: 'ESTIMATE', name: '見積親項目', amount: 50000 }),
+              createTestLine({ lineType: 'EXECUTION', name: '実行親項目', amount: 40000 }),
+              createTestLine({ lineType: 'VENDOR', name: '業者親項目', amount: 35000 }),
+            ],
+            children: [
+              createTestItem({
+                id: 'child-1',
+                parentId: 'parent-1',
+                lines: [
+                  createTestLine({ lineType: 'ESTIMATE', name: '見積子項目1', amount: 20000 }),
+                  createTestLine({ lineType: 'EXECUTION', name: '実行子項目1', amount: 15000 }),
+                  createTestLine({ lineType: 'VENDOR', name: '業者子項目1', amount: 12000 }),
+                ],
+                children: [
+                  createTestItem({
+                    id: 'grandchild-1',
+                    parentId: 'child-1',
+                    lines: [
+                      createTestLine({ lineType: 'ESTIMATE', name: '見積孫項目', amount: 10000 }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcelWithLineTypes(estimate, [
+        'ESTIMATE',
+        'EXECUTION',
+        'VENDOR',
+      ]);
+
+      expect(result).toBeInstanceOf(Buffer);
+      const signature = result.slice(0, 2).toString('hex');
+      expect(signature).toBe('504b');
+    });
+
+    it('一部の行タイプが存在しない項目を含むExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-partial',
+            lines: [createTestLine({ lineType: 'ESTIMATE', name: '見積のみ親', amount: 30000 })],
+            children: [
+              createTestItem({
+                id: 'child-partial',
+                parentId: 'parent-partial',
+                lines: [createTestLine({ lineType: 'VENDOR', name: '業者のみ子', amount: 10000 })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcelWithLineTypes(estimate, [
+        'ESTIMATE',
+        'EXECUTION',
+        'VENDOR',
+      ]);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('linesが空の項目のExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-empty',
+            lines: [],
+            children: [
+              createTestItem({
+                id: 'child-empty',
+                parentId: 'parent-empty',
+                lines: [createTestLine({ lineType: 'ESTIMATE', name: '子項目', amount: 5000 })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcelWithLineTypes(estimate, ['ESTIMATE']);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
   });
 });
