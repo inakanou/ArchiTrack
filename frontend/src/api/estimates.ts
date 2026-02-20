@@ -260,19 +260,30 @@ export async function transferFromQuotation(
 
 /**
  * 見積書を出力（PDF/Excel）
- * Requirements: REQ-10.1-10.8
+ * Requirements: REQ-10.1-10.8, REQ-32.4
+ *
+ * Task 42.3: lineTypeパラメータをlineTypes（配列）に変更
  *
  * @param id - 見積書ID
  * @param format - 出力形式
+ * @param lineTypes - 出力対象行タイプの配列（デフォルト: ['ESTIMATE']）
  * @returns Blobデータ
  */
-export async function exportEstimate(id: string, format: ExportFormat): Promise<Blob> {
-  const response = await fetch(`/api/estimates/${id}/export?format=${format}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-    },
-  });
+export async function exportEstimate(
+  id: string,
+  format: ExportFormat,
+  lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'> = ['ESTIMATE']
+): Promise<Blob> {
+  const lineTypesParam = lineTypes.join(',');
+  const response = await fetch(
+    `/api/estimates/${id}/export?format=${format}&lineTypes=${lineTypesParam}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+      },
+    }
+  );
 
   if (!response.ok) {
     throw new Error('見積書の出力に失敗しました');

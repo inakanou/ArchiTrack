@@ -1981,9 +1981,9 @@ router.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
-      const { format, lineType } = req.validatedQuery as {
+      const { format, lineTypes } = req.validatedQuery as {
         format: 'pdf' | 'xlsx';
-        lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
+        lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
       };
 
       // 見積書を取得
@@ -2004,26 +2004,38 @@ router.get(
       // 見積項目を階層構造で取得
       const items = await estimateItemService.getHierarchy(id);
 
-      // 出力用データを構築（指定された行タイプでフィルタリング）
+      // 出力用データを構築（全行タイプを含めて渡す）
       const exportData: EstimateExportData = {
         id: estimate.id,
         name: estimate.name,
         projectName: (estimate as unknown as { project?: { name: string } }).project?.name ?? '',
         createdAt: estimate.createdAt,
-        items: items.map((item) => convertToExportItem(item, lineType)),
+        items: items.map((item) => convertToExportItem(item)),
         totalAmount: null, // サービス内で計算される
       };
 
-      // 出力形式に応じてエクスポート
+      // 出力形式に応じてエクスポート（複数行タイプ対応）
       const exportFormat = format === 'pdf' ? ExportFormat.PDF : ExportFormat.XLSX;
-      const buffer = await estimateExportService.export(exportData, exportFormat);
+      let buffer: Buffer;
 
-      // ファイル名を生成
-      const lineTypeLabel =
-        lineType === 'ESTIMATE' ? '見積' : lineType === 'EXECUTION' ? '実行' : '業者';
-      const fileName = estimateExportService
-        .generateFileName(exportData, exportFormat)
-        .replace(/\.(pdf|xlsx)$/, `_${lineTypeLabel}.$1`);
+      if (lineTypes.length === 1 && lineTypes[0] === 'ESTIMATE') {
+        // 単一ESTIMATE行タイプの場合は従来のexportメソッドを使用（後方互換性）
+        buffer = await estimateExportService.export(exportData, exportFormat);
+      } else {
+        // 複数行タイプまたはESTIMATE以外の場合は新しいメソッドを使用
+        if (exportFormat === ExportFormat.XLSX) {
+          buffer = await estimateExportService.exportToExcelWithLineTypes(exportData, lineTypes);
+        } else {
+          buffer = await estimateExportService.exportToPdfWithLineTypes(exportData, lineTypes);
+        }
+      }
+
+      // ファイル名を生成（複数行タイプ対応）
+      const fileName = estimateExportService.generateFileNameWithLineTypes(
+        exportData,
+        exportFormat,
+        lineTypes
+      );
 
       // Content-TypeとContent-Dispositionを設定
       const contentType =
@@ -2039,7 +2051,7 @@ router.get(
       res.setHeader('Content-Length', buffer.length);
 
       logger.info(
-        { userId: req.user?.userId, estimateId: id, format, lineType },
+        { userId: req.user?.userId, estimateId: id, format, lineTypes },
         'Estimate exported successfully'
       );
 

@@ -279,12 +279,13 @@ sequenceDiagram
     participant API as Backend API
 
     User->>UI: 出力ボタンクリック
-    UI->>UI: 出力形式選択（PDF/Excel）
+    UI->>UI: 出力対象チェックボックス選択（見積/実行/業者、複数選択可）
+    UI->>UI: 出力形式選択（Excel/PDF、デフォルトExcel）
     User->>UI: 出力実行ボタンクリック
-    UI->>API: GET /api/estimates/:id/export?format=pdf
-    API->>Export: 見積書出力生成
+    UI->>API: GET /api/estimates/:id/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION
+    API->>Export: 見積書出力生成（選択行タイプの列を横1列に結合）
     Export->>Export: P1: 表紙生成
-    Export->>Export: P2: 第1階層項目一覧
+    Export->>Export: P2: 第1階層項目一覧（行タイプ別プレフィックス付き列名）
     Export->>Export: P3以降: 各階層の子項目一覧
     Export-->>API: ファイルバイナリ
     API-->>UI: ファイルダウンロード
@@ -304,7 +305,7 @@ sequenceDiagram
 | 7.1-7.6 | 共通仮設費プリセット | OverheadCostPanel, OverheadCostService | POST /api/estimates/:id/calculate-overhead | 諸経費計算フロー |
 | 8.1-8.6 | 現場管理費プリセット | OverheadCostPanel, OverheadCostService | POST /api/estimates/:id/calculate-overhead | 諸経費計算フロー |
 | 9.1-9.6 | 一般管理費プリセット | OverheadCostPanel, OverheadCostService | POST /api/estimates/:id/calculate-overhead | 諸経費計算フロー |
-| 10.1-10.8 | 見積書出力 | EstimateExportDialog, EstimateExportService | GET /api/estimates/:id/export | 出力フロー |
+| 10.1-10.14 | 見積書出力 | EstimateExportDialog, EstimateExportService | GET /api/estimates/:id/export | 出力フロー |
 | 11.1-11.7 | 見積書CRUD操作 | EstimateListPage, EstimateDetailPage, EstimateService | CRUD APIs | データ管理 |
 | 12.1-12.6 | 見積項目操作 | EstimateItemTable, EstimateItemRow, EstimateItemService | /api/estimates/:id/items/* | 項目操作 |
 | 13.1-13.6 | データ検証 | バリデーションスキーマ, EstimateCalculationService | 全API | バリデーション |
@@ -656,14 +657,23 @@ interface OverheadCostResult {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 見積書のPDF/Excel出力を提供 |
-| Requirements | 10.1-10.8 |
+| Intent | 見積書のPDF/Excel出力を提供（複数行タイプの同時出力対応） |
+| Requirements | 10.1-10.14, 32.1-32.8 |
 
 **Responsibilities & Constraints**
 - PDF形式の見積書生成（jsPDF）
 - Excel形式の見積書生成（xlsx/SheetJS）
 - ページ構成: P1=表紙、P2=第1階層一覧、P3以降=子項目一覧
-- 見積金額行のみ出力（実行・業者金額行は非出力）
+- 複数行タイプ（見積・実行・業者）の同時出力対応
+- チェックされた行タイプの列を横1列に並べて出力
+- 行タイプごとのプレフィックス付き列名で出力（見積名称、実行名称、業者名称等）
+- チェックされていない行タイプの列は出力しない
+- デフォルト出力形式はExcel（.xlsx）
+
+**列名マッピング**:
+- 見積: 見積名称、見積規格、見積単位、見積数量、見積単価、見積金額、見積備考
+- 実行: 実行名称、実行規格、実行単位、実行数量、実行単価、実行金額、実行備考
+- 業者: 業者名称、業者規格、業者単位、業者数量、業者単価、業者金額、業者備考
 
 **Dependencies**
 - Inbound: estimate.routes — APIルートから呼び出し (P0)
@@ -677,7 +687,7 @@ interface OverheadCostResult {
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx' | File binary | 404, 500 |
+| GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx', lineTypes: string (カンマ区切り, 例: 'ESTIMATE,EXECUTION') | File binary | 400, 404, 500 |
 
 ### API Routes
 
@@ -712,7 +722,7 @@ interface OverheadCostResult {
 | POST | /api/estimates/:id/apply-profit-rate | ApplyProfitRateRequest | - | 400, 404 |
 | POST | /api/estimates/:id/calculate-overhead | CalculateOverheadRequest | OverheadCostResult | 400, 404 |
 | POST | /api/estimates/:id/overhead-items | AddOverheadItemRequest | EstimateItem | 400, 404 |
-| GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx' | File | 404, 500 |
+| GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx', lineTypes: string (カンマ区切り) | File | 400, 404, 500 |
 
 ### Frontend Utilities
 
@@ -1873,7 +1883,7 @@ const displayAmount = (amount: string | null) => {
 | 29.1-29.3 | 親項目の単価自動計算制御 | EstimateItemRow, EstimateItemTable, EstimateCalculator | - | 表示・計算 |
 | 30.1-30.3 | 転記ダイアログ選択肢改善 | TransferQuotationDialog | - | 転記フロー |
 | 31.1-31.2 | NET案分ダイアログ受領見積書情報表示 | NetAllocationDialog | GET /api/projects/:projectId/quotations | NET計算フロー |
-| 32.1-32.4 | 見積書出力の行タイプ選択 | EstimateExportDialog, EstimateExportService, estimates.routes | GET /api/estimates/:id/export?lineType= | 出力フロー |
+| 32.1-32.8 | 見積書出力の行タイプ複数選択 | EstimateExportDialog, EstimateExportService, estimates.routes | GET /api/estimates/:id/export?lineTypes= | 出力フロー |
 
 ## 追加設計（REQ-23〜24対応）
 
@@ -2376,53 +2386,83 @@ interface ReceivedQuotationDisplayInfo {
 - NET金額の合計計算は、受領見積書のlineItemsのnetAmountフィールドを合算して算出
 - 受領見積書のlineItemsにnetAmountが設定されていない場合は「-」表示
 
-### 見積書出力の行タイプ選択（REQ-32）
+### 見積書出力の行タイプ複数選択（REQ-32, REQ-10更新）
 
 #### EstimateExportDialog変更
 
 | Field | Detail |
 |-------|--------|
-| Intent | 出力対象の行タイプ（見積/実行/業者）をラジオボタンで選択可能にする |
-| Requirements | 32.1, 32.2, 32.3, 32.4 |
+| Intent | 出力対象の行タイプ（見積/実行/業者）をチェックボックスで複数選択可能にし、選択された行タイプの列を横1列に並べて出力する |
+| Requirements | 32.1-32.8, 10.7, 10.9-10.14 |
 
 **現状分析**:
 - バックエンド側は既にlineTypeクエリパラメータに対応済み（estimates.routes.tsにlineTypeラベルに基づくファイル名生成ロジックが存在）
-- フロントエンド側のEstimateExportDialogにラジオボタン追加が必要
+- 現行はラジオボタンによる単一選択だが、チェックボックスによる複数選択に変更が必要
+- 出力形式のデフォルトがPDFだがExcelに変更が必要
+- 列名に行タイプのプレフィックスを付ける必要がある
 
 **変更点**:
 
-1. **ラジオボタンの追加（REQ-32.1）**:
-   - 出力ダイアログに「出力対象」セクションを追加
-   - 「見積」「実行」「業者」の3つのラジオボタンを提供
-   - デフォルト値は「見積」を選択
+1. **チェックボックスへの変更（REQ-32.1）**:
+   - ラジオボタンをチェックボックスに変更
+   - 「見積」「実行」「業者」の3つのチェックボックスを提供
+   - デフォルト値は「見積」のみON（REQ-32.5）
+   - 複数選択可能
 
-2. **選択された行タイプの出力制御（REQ-32.2）**:
-   - 選択された行タイプに応じてAPIリクエストにlineTypeパラメータを付加
+2. **チェックされた行タイプの出力制御（REQ-32.2, REQ-10.7）**:
+   - チェックされた行タイプの列のみを出力対象とする
+   - チェックされた行タイプの列を横1列に並べて出力（REQ-10.9）
 
-3. **出力ファイル名への行タイプラベル含有（REQ-32.3）**:
-   - バックエンド側で実装済み（`_見積`, `_実行`, `_業者` がファイル名に付加される）
+3. **行タイプ別プレフィックス付き列名（REQ-32.7, REQ-10.10-10.12）**:
+   - 見積: 見積名称、見積規格、見積単位、見積数量、見積単価、見積金額、見積備考
+   - 実行: 実行名称、実行規格、実行単位、実行数量、実行単価、実行金額、実行備考
+   - 業者: 業者名称、業者規格、業者単位、業者数量、業者単価、業者金額、業者備考
 
-4. **APIエンドポイントのlineTypeパラメータ（REQ-32.4）**:
-   - バックエンド側で実装済み
+4. **チェックされていない列の非表示（REQ-10.13, REQ-32.2）**:
+   - チェックされていない行タイプの列は出力しない
+
+5. **出力ファイル名への行タイプラベル含有（REQ-32.3）**:
+   - 複数選択時はアンダースコア区切りで結合（例：`_見積_実行`）
+
+6. **APIパラメータの変更（REQ-32.4）**:
+   - `lineType`（単一）から`lineTypes`（カンマ区切り複数）に変更
+   - 例：`lineTypes=ESTIMATE,EXECUTION`
+
+7. **出力ボタンの無効化（REQ-32.6）**:
+   - いずれのチェックボックスもチェックされていない場合、出力ボタンを無効化
+
+8. **デフォルト出力形式の変更（REQ-32.8, REQ-10.14）**:
+   - デフォルト出力形式をExcel（.xlsx）に変更
 
 ```typescript
 // EstimateExportDialog 変更
 interface EstimateExportDialogState {
-  format: 'pdf' | 'xlsx'; // 既存: 出力形式
-  lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'; // 追加: 出力対象行タイプ
+  format: 'pdf' | 'xlsx'; // 既存: 出力形式（デフォルト: 'xlsx' に変更）
+  selectedLineTypes: {
+    estimate: boolean; // 見積（デフォルト: true）
+    execution: boolean; // 実行（デフォルト: false）
+    vendor: boolean; // 業者（デフォルト: false）
+  };
   isExporting: boolean; // 既存: 出力処理中
 }
 
+// 列名定義
+const LINE_TYPE_COLUMNS = {
+  ESTIMATE: ['見積名称', '見積規格', '見積単位', '見積数量', '見積単価', '見積金額', '見積備考'],
+  EXECUTION: ['実行名称', '実行規格', '実行単位', '実行数量', '実行単価', '実行金額', '実行備考'],
+  VENDOR: ['業者名称', '業者規格', '業者単位', '業者数量', '業者単価', '業者金額', '業者備考'],
+};
+
 // API呼び出し変更
-// 既存: GET /api/estimates/:id/export?format=pdf
-// 変更: GET /api/estimates/:id/export?format=pdf&lineType=ESTIMATE
+// 既存: GET /api/estimates/:id/export?format=pdf&lineType=ESTIMATE
+// 変更: GET /api/estimates/:id/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION
 ```
 
 ##### API Contract変更
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx', lineType: 'ESTIMATE' \| 'EXECUTION' \| 'VENDOR' | File binary | 404, 500 |
+| GET | /api/estimates/:id/export | format: 'pdf' \| 'xlsx', lineTypes: string (カンマ区切り, 例: 'ESTIMATE,EXECUTION') | File binary | 400, 404, 500 |
 
 **ダイアログUI**:
 ```
@@ -2430,18 +2470,31 @@ interface EstimateExportDialogState {
 │ 見積書出力                       │
 │                                 │
 │ 出力対象:                       │
-│   ◉ 見積  ○ 実行  ○ 業者       │
+│   ☑ 見積  ☐ 実行  ☐ 業者       │
 │                                 │
 │ 出力形式:                       │
-│   ◉ PDF  ○ Excel               │
+│   ○ PDF  ◉ Excel               │
 │                                 │
 │        [キャンセル] [出力]       │
 └─────────────────────────────────┘
 ```
 
+**出力時の列構成例**（見積＋実行がチェックされた場合）:
+```
+| 見積名称 | 見積規格 | 見積単位 | 見積数量 | 見積単価 | 見積金額 | 見積備考 | 実行名称 | 実行規格 | 実行単位 | 実行数量 | 実行単価 | 実行金額 | 実行備考 |
+```
+
+**出力時の列構成例**（見積のみチェックされた場合）:
+```
+| 見積名称 | 見積規格 | 見積単位 | 見積数量 | 見積単価 | 見積金額 | 見積備考 |
+```
+
 **Implementation Notes**
-- バックエンドは既にlineTypeパラメータに対応しているため、フロントエンドの変更のみ
-- ラジオボタンのデフォルト値は「見積」（ESTIMATE）
+- バックエンドのlineTypeパラメータを複数対応（lineTypes、カンマ区切り）に拡張が必要
+- EstimateExportServiceのExcel/PDF出力ロジックを複数行タイプの列結合に対応させる
+- チェックボックスのデフォルト値は「見積」のみON
+- 出力形式のデフォルトはExcel（.xlsx）
+- いずれもチェックされていない場合は出力ボタンをdisabledに
 - 出力処理中インジケーター表示は既存実装を維持
 
 ### 案分対象行の合計金額表示（REQ-33）

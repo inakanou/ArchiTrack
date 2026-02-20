@@ -355,12 +355,37 @@ export const addOverheadItemSchema = z.object({
 /**
  * 見積書出力クエリスキーマ
  *
- * Requirements: REQ-10.1, REQ-10.2
+ * Requirements: REQ-10.1, REQ-10.2, REQ-32.4
+ *
+ * Task 42.2: lineTypeをlineTypes（カンマ区切り複数対応）に変更
+ * 後方互換性のため、lineType（単一値）も受付可能
  */
-export const exportEstimateQuerySchema = z.object({
-  format: z.enum(['pdf', 'xlsx']),
-  lineType: z.enum(['ESTIMATE', 'EXECUTION', 'VENDOR']).optional().default('ESTIMATE'),
-});
+export const exportEstimateQuerySchema = z
+  .object({
+    format: z.enum(['pdf', 'xlsx']),
+    lineTypes: z
+      .string()
+      .optional()
+      .transform((val) => {
+        if (!val) return undefined;
+        return val.split(',').filter((v) => ['ESTIMATE', 'EXECUTION', 'VENDOR'].includes(v));
+      }),
+    // 後方互換性: lineType（単一値）も受付
+    lineType: z.enum(['ESTIMATE', 'EXECUTION', 'VENDOR']).optional(),
+  })
+  .transform((data) => {
+    // lineTypesが指定されている場合はそちらを優先、なければlineTypeから配列を構築
+    const lineTypes =
+      data.lineTypes && data.lineTypes.length > 0
+        ? (data.lineTypes as Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>)
+        : data.lineType
+          ? [data.lineType]
+          : ['ESTIMATE' as const];
+    return {
+      format: data.format,
+      lineTypes,
+    };
+  });
 
 /**
  * 階層取得クエリスキーマ
