@@ -160,7 +160,7 @@ describe('received-quotation.schema', () => {
 
         expect(result.success).toBe(true);
         if (result.success) {
-          expect(result.data.netAmount).toBeUndefined();
+          expect(result.data.netAmount).toBeNull();
         }
       });
 
@@ -191,6 +191,7 @@ describe('received-quotation.schema', () => {
           expect(result.data).toEqual({
             name: 'テスト受領見積書',
             submittedAt: '2024-01-15T00:00:00.000Z',
+            netAmount: null,
           });
         }
       });
