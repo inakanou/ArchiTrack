@@ -225,6 +225,12 @@ export function NetAllocationDialog({
     [allVendorLines, selectedVendor]
   );
 
+  // 選択済み案分対象行の合計金額 (REQ-33)
+  const selectedLinesTotal = useMemo(() => {
+    const activeLines = targetLines.filter((l) => !excludeLineIds.includes(l.lineId));
+    return activeLines.reduce((sum, l) => sum.add(new Decimal(l.amount || 0)), new Decimal(0));
+  }, [targetLines, excludeLineIds]);
+
   const previewResults = useMemo(() => {
     if (!netAmount || !targetLines.length) return null;
     try {
@@ -349,6 +355,24 @@ export function NetAllocationDialog({
                   </div>
                 </div>
               ))}
+              {/* 選択済み案分対象行の合計金額 (REQ-33.1, REQ-33.2, REQ-33.3) */}
+              <div
+                data-testid="selected-lines-total"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  gap: '12px',
+                  padding: '10px 16px',
+                  backgroundColor: '#f3f4f6',
+                  fontWeight: 700,
+                  fontSize: '14px',
+                  borderTop: '2px solid #d1d5db',
+                }}
+              >
+                <span>合計:</span>
+                <span>{formatAmount(selectedLinesTotal.toString())}</span>
+              </div>
             </div>
           </div>
         )}
@@ -385,9 +409,10 @@ export function NetAllocationDialog({
               <div style={styles.section}>
                 <div style={styles.sectionTitle}>受領見積書情報</div>
                 <div
+                  data-testid="quotation-info-grid"
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: hasNetAmount ? 'repeat(2, 1fr)' : '1fr',
+                    gridTemplateColumns: '1fr',
                     gap: '12px',
                     padding: '12px 16px',
                     backgroundColor: '#f9fafb',

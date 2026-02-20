@@ -932,4 +932,190 @@ describe('useEstimateEditor', () => {
       expect(total).toBe('8000');
     });
   });
+
+  describe('updateLine - ステールデータ問題の修正 (REQ-34.3)', () => {
+    it('連続したupdateLineでrecordChangeに最新データが記録されること', async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      // 名称を変更
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後名称A');
+      });
+
+      // 続けて単価を変更（同じ項目に対して）
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'unitPrice', '2000');
+      });
+
+      // 保存時にonSaveに渡される変更データに最新の値が含まれること
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(onSave).toHaveBeenCalled();
+      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
+      const change = savedChanges.get('item-1');
+      expect(change).toBeDefined();
+      expect(change?.type).toBe('update');
+      expect(change?.data).toBeDefined();
+
+      // data内のlinesに最新の名称と単価が反映されていること
+      const estimateLine = change?.data?.lines.find((l) => l.lineType === 'ESTIMATE');
+      expect(estimateLine?.name).toBe('変更後名称A');
+      expect(estimateLine?.unitPrice).toBe('2000');
+      // 金額も自動計算されていること (10 * 2000 = 20000)
+      expect(estimateLine?.amount).toBe('20000');
+    });
+  });
+
+  describe('保存時の変更タイプ処理 (REQ-34.4)', () => {
+    it('add/delete/updateの全変更タイプがpendingChangesに正しく記録されること', async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      // update: 名称変更
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後');
+      });
+
+      // add: 新規追加
+      act(() => {
+        result.current.addItem();
+      });
+
+      // delete: 既存項目削除
+      act(() => {
+        result.current.deleteItem('item-2');
+      });
+
+      // 保存
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(onSave).toHaveBeenCalled();
+      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
+
+      // update
+      const updateChange = savedChanges.get('item-1');
+      expect(updateChange?.type).toBe('update');
+
+      // delete
+      const deleteChange = savedChanges.get('item-2');
+      expect(deleteChange?.type).toBe('delete');
+
+      // add（新規追加されたアイテムを見つける）
+      const addChanges = Array.from(savedChanges.values()).filter((c) => c.type === 'add');
+      expect(addChanges.length).toBe(1);
+    });
+
+    it('追加された項目のデータがpendingChangesに含まれること (REQ-34.1)', async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      // 新規追加
+      act(() => {
+        result.current.addItem();
+      });
+
+      const newItem = result.current.items[2];
+      expect(newItem).toBeDefined();
+      expect(newItem!.lines).toHaveLength(3);
+
+      // 保存
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
+      const addChange = savedChanges.get(newItem!.id);
+      expect(addChange?.type).toBe('add');
+      expect(addChange?.data).toBeDefined();
+      expect(addChange?.data?.lines).toHaveLength(3);
+    });
+
+    it('削除された項目のIDがpendingChangesに含まれること (REQ-34.2)', async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.deleteItem('item-1');
+      });
+
+      // items から削除されていること
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.items[0]?.id).toBe('item-2');
+
+      // 保存
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
+      const deleteChange = savedChanges.get('item-1');
+      expect(deleteChange?.type).toBe('delete');
+    });
+
+    it('編集された項目の最新データがpendingChangesに含まれること (REQ-34.3)', async () => {
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      // 名称を変更
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '最新名称');
+      });
+
+      // 単価を変更
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'unitPrice', '5000');
+      });
+
+      // 保存
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
+      const updateChange = savedChanges.get('item-1');
+      expect(updateChange?.type).toBe('update');
+
+      const estimateLine = updateChange?.data?.lines.find((l) => l.lineType === 'ESTIMATE');
+      // 最新の名称と単価が含まれること
+      expect(estimateLine?.name).toBe('最新名称');
+      expect(estimateLine?.unitPrice).toBe('5000');
+      // 金額も自動計算されていること (10 * 5000 = 50000)
+      expect(estimateLine?.amount).toBe('50000');
+    });
+  });
 });

@@ -24,6 +24,8 @@ import {
   deleteEstimate,
   moveEstimateItem,
   batchUpdateEstimateItems,
+  createEstimateItem,
+  deleteEstimateItem,
 } from '../api/estimates';
 import type { EstimateDetail, EstimateItemHierarchy } from '../api/estimates';
 import { Breadcrumb } from '../components/common';
@@ -418,7 +420,42 @@ export default function EstimateDetailPage() {
     initialItems: estimate ? toEditFormat(estimate.items) : [],
     onSave: async (changes) => {
       if (!id) return;
-      // 更新対象の項目のみをAPI形式に変換
+
+      // 処理順序: 削除→追加→更新 (REQ-34.4)
+
+      // 1. 削除処理
+      const deletePromises: Promise<void>[] = [];
+      for (const [, change] of changes) {
+        if (change.type === 'delete') {
+          // temp-IDはサーバーに存在しないのでスキップ
+          if (change.itemId.startsWith('temp-')) continue;
+          deletePromises.push(deleteEstimateItem(id, change.itemId, true));
+        }
+      }
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+      }
+
+      // 2. 追加処理
+      for (const [, change] of changes) {
+        if (change.type === 'add' && change.data) {
+          await createEstimateItem(id, {
+            parentId: change.data.parentId,
+            displayOrder: change.data.displayOrder,
+            lines: change.data.lines.map((line) => ({
+              lineType: line.lineType,
+              name: line.name,
+              specification: line.specification,
+              unit: line.unit,
+              quantity: line.quantity ? parseFloat(line.quantity) || null : null,
+              unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
+              remarks: line.remarks,
+            })),
+          });
+        }
+      }
+
+      // 3. 更新処理 - editor.itemsから最新データを取得
       const updateItems: Array<{
         id: string;
         lines: Array<{
@@ -434,20 +471,29 @@ export default function EstimateDetailPage() {
       }> = [];
 
       for (const [, change] of changes) {
-        if (change.type === 'update' && change.data) {
-          updateItems.push({
-            id: change.data.id,
-            lines: change.data.lines.map((line) => ({
-              id: line.id,
-              lineType: line.lineType,
-              name: line.name,
-              specification: line.specification,
-              unit: line.unit,
-              quantity: line.quantity ? parseFloat(line.quantity) || null : null,
-              unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
-              remarks: line.remarks,
-            })),
-          });
+        if (change.type === 'update') {
+          // temp-IDはサーバーに存在しないのでスキップ（addで処理済み）
+          if (change.itemId.startsWith('temp-')) continue;
+
+          // editor.itemsから最新データを取得 (REQ-34.3)
+          const latestItem = change.data;
+          if (latestItem) {
+            updateItems.push({
+              id: latestItem.id,
+              lines: latestItem.lines
+                .filter((line) => !line.id.startsWith('temp-'))
+                .map((line) => ({
+                  id: line.id,
+                  lineType: line.lineType,
+                  name: line.name,
+                  specification: line.specification,
+                  unit: line.unit,
+                  quantity: line.quantity ? parseFloat(line.quantity) || null : null,
+                  unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
+                  remarks: line.remarks,
+                })),
+            });
+          }
         }
       }
 

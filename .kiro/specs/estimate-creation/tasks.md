@@ -704,47 +704,47 @@
   - 出力ダイアログの行タイプラジオボタンとlineTypeパラメータ付加確認
   - _Requirements: 30.1, 30.2, 30.3, 31.1, 31.2, 32.1, 32.2, 32.3, 32.4_
 
-- [ ] 38. 案分対象行の合計金額表示の実装（REQ-33対応）
-- [ ] 38.1 NetAllocationDialogに選択済み案分対象行の合計金額を表示
+- [x] 38. 案分対象行の合計金額表示の実装（REQ-33対応）
+- [x] 38.1 NetAllocationDialogに選択済み案分対象行の合計金額を表示
   - selectedLinesTotalをuseMemoで算出（targetLines, excludeLineIds依存）
   - 案分対象行リストの一番下に合計金額行を追加表示（太字・背景色付き）
   - チェックボックスの変更で即座に再計算
   - 全チェックOFF時は0円表示
   - _Requirements: 33.1, 33.2, 33.3_
 
-- [ ] 39. NET案分ダイアログの受領見積書情報表示レイアウト変更（REQ-31更新対応）
-- [ ] 39.1 NetAllocationDialogの受領見積書情報セクションを縦並びレイアウトに変更
+- [x] 39. NET案分ダイアログの受領見積書情報表示レイアウト変更（REQ-31更新対応）
+- [x] 39.1 NetAllocationDialogの受領見積書情報セクションを縦並びレイアウトに変更
   - gridTemplateColumnsを常に'1fr'に変更（横並び→縦並び）
   - 受領見積書合計金額の下にNET金額を表示する配置に変更
   - _Requirements: 31.1, 31.2_
 
-- [ ] 40. 見積項目の保存と再読み込みの整合性バグ修正（REQ-34対応）
-- [ ] 40.1 フロントエンドAPIに見積項目の個別作成・削除関数を追加
+- [x] 40. 見積項目の保存と再読み込みの整合性バグ修正（REQ-34対応）
+- [x] 40.1 フロントエンドAPIに見積項目の個別作成・削除関数を追加
   - frontend/src/api/estimates.tsにcreateEstimateItem関数を追加（POST /api/estimates/:id/items）
   - frontend/src/api/estimates.tsにdeleteEstimateItem関数を追加（DELETE /api/estimates/:id/items/:itemId?forceDelete=true）
   - _Requirements: 34.1, 34.2, 34.4_
 
-- [ ] 40.2 EstimateDetailPageのonSaveコールバックで全変更タイプを処理
+- [x] 40.2 EstimateDetailPageのonSaveコールバックで全変更タイプを処理
   - change.type === 'delete'の処理を追加（deleteEstimateItem呼び出し、temp-IDはスキップ）
   - change.type === 'add'の処理を追加（createEstimateItem呼び出し）
   - change.type === 'update'の処理を修正（editor.itemsから最新データを取得）
   - 処理順序: 削除→追加→更新
   - _Requirements: 34.1, 34.2, 34.3, 34.4_
 
-- [ ] 40.3 useEstimateEditorのupdateLineメソッドのステールデータ問題を修正
+- [x] 40.3 useEstimateEditorのupdateLineメソッドのステールデータ問題を修正
   - recordChangeの呼び出しをsetItemsコールバック内に移動
   - findItemByIdでrecalculatedItems（最新データ）からitemを取得
   - items依存を除去しrecordChangeのみを依存に変更
   - _Requirements: 34.3_
 
-- [ ] 41. REQ-33, REQ-34関連のテスト
-- [ ] 41.1 NetAllocationDialogの合計金額表示テスト
+- [x] 41. REQ-33, REQ-34関連のテスト
+- [x] 41.1 NetAllocationDialogの合計金額表示テスト
   - 選択済み行の合計金額が正しく表示されることの確認
   - チェックボックスの切替で合計金額が再計算されることの確認
   - 全チェックOFF時に0円が表示されることの確認
   - _Requirements: 33.1, 33.2, 33.3_
 
-- [ ] 41.2 (P) 見積項目の保存整合性テスト
+- [x] 41.2 (P) 見積項目の保存整合性テスト
   - 見積項目追加→保存→再読み込みで項目が存在することの確認
   - 見積項目削除→保存→再読み込みで項目が消えていることの確認
   - 見積項目編集→保存→再読み込みで最新の編集内容が反映されていることの確認
