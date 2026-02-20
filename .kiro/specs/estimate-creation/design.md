@@ -2443,3 +2443,272 @@ interface EstimateExportDialogState {
 - バックエンドは既にlineTypeパラメータに対応しているため、フロントエンドの変更のみ
 - ラジオボタンのデフォルト値は「見積」（ESTIMATE）
 - 出力処理中インジケーター表示は既存実装を維持
+
+### 案分対象行の合計金額表示（REQ-33）
+
+#### NetAllocationDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 案分対象行セクションの一番下に選択済み行の合計金額を表示する |
+| Requirements | 33.1, 33.2, 33.3 |
+
+**現状分析**:
+- NetAllocationDialog（`frontend/src/components/estimate/NetAllocationDialog.tsx`）は案分対象行をチェックボックス付きリストで表示（Line 319-353）
+- 現在は個別行の金額のみ表示し、合計金額の表示がない
+- `targetLines`はuseMemoで業者名によりフィルタ済み
+- `excludeLineIds`で除外行を管理
+
+**変更点**:
+
+1. **合計金額の算出（REQ-33.1, 33.2）**:
+   - `targetLines`から`excludeLineIds`に含まれない行の`amount`を合計
+   - useMemoで算出（targetLines, excludeLineIds依存）
+
+2. **合計金額の表示（REQ-33.1）**:
+   - 案分対象行リストの下に合計金額行を追加
+   - スタイルは太字で背景色付き（目立つ表示）
+
+3. **即座の再計算（REQ-33.2, 33.3）**:
+   - チェックボックスの変更によりexcludeLineIdsが更新されると、useMemoが再計算
+   - 全チェックOFF時はDecimal(0)が表示される
+
+```typescript
+// NetAllocationDialog内に追加するuseMemo
+const selectedLinesTotal = useMemo(() => {
+  const activeLines = targetLines.filter((l) => !excludeLineIds.includes(l.lineId));
+  return activeLines.reduce(
+    (sum, l) => sum.add(new Decimal(l.amount || 0)),
+    new Decimal(0)
+  );
+}, [targetLines, excludeLineIds]);
+```
+
+**UI追加位置**:
+```
+┌─────────────────────────────────────┐
+│ 案分対象行（除外する行のチェック...）│
+│ ☑ 直接仮設工事     100,000円        │
+│ ☑ 土工事           200,000円        │
+│ ☐ 共通仮設費        50,000円        │
+│─────────────────────────────────────│
+│ 選択済み合計:       300,000円        │ ← 新規追加
+└─────────────────────────────────────┘
+```
+
+### NET案分ダイアログの受領見積書情報表示レイアウト変更（REQ-31更新）
+
+#### NetAllocationDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書合計金額の下にNET金額を縦並びで表示する |
+| Requirements | 31.1, 31.2 |
+
+**現状分析**:
+- NetAllocationDialog（Line 356-419）は受領見積書の合計金額とNET金額を横並び（grid 2列）で表示
+- `gridTemplateColumns: hasNetAmount ? 'repeat(2, 1fr)' : '1fr'` で制御
+
+**変更点**:
+
+1. **レイアウトを縦並びに変更（REQ-31.2）**:
+   - `gridTemplateColumns`を常に`'1fr'`に変更
+   - 受領見積書合計金額の下にNET金額を表示
+
+```
+変更前:
+┌──────────────────────────────┐
+│ 受領見積書合計金額 │ NET金額   │ ← 横並び
+│ 1,000,000円        │ 800,000円│
+└──────────────────────────────┘
+
+変更後:
+┌──────────────────────────────┐
+│ 受領見積書合計金額            │ ← 縦並び
+│ 1,000,000円                  │
+│ 受領見積書NET金額             │
+│ 800,000円                    │
+└──────────────────────────────┘
+```
+
+### 見積項目の保存と再読み込みの整合性（REQ-34）
+
+#### バグ分析
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積項目の追加・削除・編集を保存後に画面再読み込みしても変更が反映されるようにする |
+| Requirements | 34.1, 34.2, 34.3, 34.4 |
+
+**根本原因**:
+
+1. **追加・削除が保存されない（REQ-34.1, 34.2, 34.4）**:
+   - `EstimateDetailPage.tsx`の`onSave`コールバック（Line 419-457）が`change.type === 'update'`のみ処理
+   - `change.type === 'add'`（新規追加）と`change.type === 'delete'`（削除）が完全に無視されている
+   - フロントエンドAPI（`frontend/src/api/estimates.ts`）に見積項目の個別作成・削除関数が存在しない
+
+2. **編集内容が保存されない（REQ-34.3）**:
+   - `useEstimateEditor.ts`の`updateLine`メソッド（Line 504-549）で、`recordChange`呼び出し時にReactの`items`ステートのクロージャ参照がステール（古い状態）
+   - `setItems`はコールバック形式で最新の`prevItems`を使用するが、`recordChange`に渡す`item`は`findItemById(items, itemId)`で取得しており、`items`はクロージャ内の古い値
+   - 結果として、変更データが常に1つ前の編集状態で記録される
+
+**修正設計**:
+
+#### 1. フロントエンドAPI関数の追加
+
+```typescript
+// frontend/src/api/estimates.ts に追加
+
+/**
+ * 見積項目を作成
+ */
+export async function createEstimateItem(
+  estimateId: string,
+  item: {
+    parentId?: string | null;
+    displayOrder: number;
+    lines: Array<{
+      lineType: string;
+      name?: string | null;
+      specification?: string | null;
+      unit?: string | null;
+      quantity?: number | null;
+      unitPrice?: number | null;
+      remarks?: string | null;
+    }>;
+  }
+): Promise<void> {
+  await apiClient.post(`/api/estimates/${estimateId}/items`, item);
+}
+
+/**
+ * 見積項目を削除
+ */
+export async function deleteEstimateItem(
+  estimateId: string,
+  itemId: string
+): Promise<void> {
+  // NOTE: バックエンドはreq.bodyからforceDeleteを読み取るため、リクエストボディで送信する
+  await apiClient.delete(`/api/estimates/${estimateId}/items/${itemId}`, {
+    data: { forceDelete: true },
+  });
+}
+```
+
+#### 2. onSaveコールバックの修正（EstimateDetailPage）
+
+```typescript
+// EstimateDetailPage.tsx onSave修正
+onSave: async (changes) => {
+  if (!id) return;
+
+  // 削除処理（先に実行）
+  for (const [, change] of changes) {
+    if (change.type === 'delete') {
+      // temp-で始まるIDはサーバーに存在しないためスキップ
+      if (!change.itemId.startsWith('temp-')) {
+        await deleteEstimateItem(id, change.itemId);
+      }
+    }
+  }
+
+  // 追加処理
+  for (const [, change] of changes) {
+    if (change.type === 'add' && change.data) {
+      await createEstimateItem(id, {
+        parentId: change.data.parentId,
+        displayOrder: change.data.displayOrder,
+        lines: change.data.lines.map((line) => ({
+          lineType: line.lineType,
+          name: line.name,
+          specification: line.specification,
+          unit: line.unit,
+          quantity: line.quantity ? parseFloat(line.quantity) || null : null,
+          unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
+          remarks: line.remarks,
+        })),
+      });
+    }
+  }
+
+  // 更新処理（items stateから最新データを取得）
+  const updateItems = [];
+  for (const [, change] of changes) {
+    if (change.type === 'update') {
+      // editor.itemsから最新データを取得
+      const currentItem = findItemInHierarchy(editor.items, change.itemId);
+      if (currentItem && !currentItem.id.startsWith('temp-')) {
+        updateItems.push({
+          id: currentItem.id,
+          lines: currentItem.lines.map((line) => ({
+            id: line.id,
+            lineType: line.lineType,
+            name: line.name,
+            specification: line.specification,
+            unit: line.unit,
+            quantity: line.quantity ? parseFloat(line.quantity) || null : null,
+            unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
+            remarks: line.remarks,
+          })),
+        });
+      }
+    }
+  }
+
+  if (updateItems.length > 0) {
+    await batchUpdateEstimateItems(id, updateItems, estimate?.updatedAt ?? '');
+  }
+},
+```
+
+#### 3. useEstimateEditorの修正（updateLineのステールデータ問題）
+
+```typescript
+// useEstimateEditor.ts updateLine修正
+const updateLine = useCallback(
+  (itemId, lineId, field, value) => {
+    setItems((prevItems) => {
+      const updatedItems = updateItemInHierarchy(prevItems, itemId, (item) => {
+        // ... 既存の更新ロジック ...
+      });
+      const recalculatedItems = recalculateParentAmounts(updatedItems);
+
+      // setItems内で最新データを使ってrecordChangeを呼ぶ
+      const updatedItem = findItemById(recalculatedItems, itemId);
+      if (updatedItem) {
+        // 次のマイクロタスクでrecordChangeを呼ぶ（setItems完了後）
+        queueMicrotask(() => recordChange(itemId, 'update', updatedItem));
+      }
+
+      return recalculatedItems;
+    });
+  },
+  [recordChange]  // itemsを依存から除去
+);
+```
+
+**代替案**: `recordChange`を`setItems`のコールバック内に移動するのが最もクリーン:
+
+```typescript
+const updateLine = useCallback(
+  (itemId, lineId, field, value) => {
+    setItems((prevItems) => {
+      const updatedItems = updateItemInHierarchy(prevItems, itemId, (item) => {
+        // ... 既存の更新ロジック ...
+      });
+      const recalculatedItems = recalculateParentAmounts(updatedItems);
+
+      // コールバック内で最新データを取得してrecordChangeを呼ぶ
+      const updatedItem = findItemById(recalculatedItems, itemId);
+      if (updatedItem) {
+        recordChange(itemId, 'update', updatedItem);
+      }
+
+      return recalculatedItems;
+    });
+  },
+  [recordChange]  // itemsを依存から除去
+);
+```
+
+**注意**: `recordChange`はsetStateを呼ぶため、`setItems`のコールバック内から呼ぶとReactのバッチ更新に依存する。React 18+ではsetState内でのsetStateは安全にバッチ処理される。
