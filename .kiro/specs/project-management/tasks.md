@@ -1288,3 +1288,108 @@
   - E2Eテスト要件カバレッジタグが移動先の要件ID（24-29）に更新されていることを確認
   - 50.1〜50.6完了後に実施
   - _Requirements: 24.1, 24.2, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7, 26.1, 26.2, 26.3, 26.4, 26.5, 26.6, 26.7, 26.8, 26.9, 26.10, 26.11, 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7, 27.8, 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.8, 28.9, 28.10, 28.11, 28.12, 28.13, 29.1, 29.2, 29.3, 29.4, 29.5, 29.6_
+
+---
+
+## Task 52: detail-summary APIのサムネイルURL変換修正（Requirement 30）
+
+- [x] 52.1 getProjectSections ヘルパー関数にサムネイルURL変換ロジックを追加
+  - `backend/src/routes/projects.routes.ts` の `getProjectSections()` 関数を修正
+  - `isStorageConfigured()`, `getStorageProvider()` を `../storage/index.js` からインポート
+  - `siteSurveys.latestSurveys` の各要素に対して以下を実施:
+    - `survey.thumbnailUrl`（ストレージパス）を `storageProvider.getSignedUrl()` で署名付きURLに変換
+    - `survey.thumbnailOriginalPath` を `storageProvider.getSignedUrl()` で署名付きURLに変換し `thumbnailOriginalUrl` として返却
+  - ストレージ未設定時は `thumbnailUrl`, `thumbnailOriginalUrl` を `null` として返却
+  - 個別の署名付きURL生成失敗時は該当フィールドを `null` とし、他のデータ返却を妨げない
+  - `site-surveys.routes.ts` の `/latest` エンドポイント（行234-281）と同一のロジックパターンを使用
+  - _Requirements: 30.1, 30.2, 30.3, 30.4, 30.5_
+
+- [x] 52.2 サムネイルURL変換の単体テスト
+  - `backend/src/__tests__/unit/routes/projects.routes.test.ts` にテストケースを追加
+  - ストレージ設定済み時: `thumbnailUrl` と `thumbnailOriginalUrl` が署名付きURLに変換されることを検証
+  - ストレージ未設定時: `thumbnailUrl` と `thumbnailOriginalUrl` が `null` であることを検証
+  - 署名付きURL生成失敗時: 該当フィールドが `null` になり、他のデータが正常に返却されることを検証
+  - _Requirements: 30.1, 30.2, 30.3, 30.4, 30.5_
+
+## Task 53: プロジェクト詳細画面のUI改善（Requirements 31-34）
+
+- [x] 53.1 パンくずナビゲーション更新
+  - `frontend/src/pages/ProjectDetailPage.tsx` の Breadcrumb items を修正
+  - 変更前: `['ダッシュボード', 'プロジェクト', project.name]`
+  - 変更後: `['ダッシュボード', 'プロジェクト一覧', 'プロジェクト詳細']`
+  - 「ダッシュボード」→ `/` へ遷移、「プロジェクト一覧」→ `/projects` へ遷移、「プロジェクト詳細」はリンクなし（現在地）
+  - _Requirements: 31.1, 31.2, 31.3, 31.4_
+
+- [x] 53.2 「← 一覧に戻る」リンク削除
+  - `frontend/src/pages/ProjectDetailPage.tsx` から `<Link to="/projects">← 一覧に戻る</Link>` を削除
+  - 不要になった `styles.backLink` スタイル定義を削除
+  - _Requirements: 32.1, 32.2_
+
+- [x] 53.3 基本情報のクリップボードコピーボタン追加
+  - `CopyButton` ローカルコンポーネントを `ProjectDetailPage.tsx` 内に実装
+  - `navigator.clipboard.writeText()` でテキストをコピー
+  - コピー成功時に「コピーしました」フィードバックを2秒間表示
+  - コピーボタンにクリップボードアイコン（SVG）を使用、ホバー時にツールチップ「コピー」を表示
+  - コピー成功後はチェックマークアイコンに変化
+  - プロジェクト名、顧客名、現場住所のフィールドにコピーボタンを追加
+  - 顧客名が未設定（null）の場合はコピーボタンを非表示
+  - 現場住所が空欄の場合はコピーボタンを非表示
+  - _Requirements: 33.1, 33.2, 33.3, 33.4, 33.5, 33.6, 33.7, 33.8, 33.9_
+
+- [x] 53.4 基本情報の作成日時・更新日時フィールド削除
+  - `frontend/src/pages/ProjectDetailPage.tsx` の基本情報セクションから作成日時フィールドと更新日時フィールドのJSXブロックを削除
+  - `formatDate` 関数が他で使用されていない場合は削除（使用箇所を確認してから判断）
+  - _Requirements: 34.1, 34.2_
+
+- [x] 53.5 プロジェクト詳細画面UI改善の単体テスト
+  - `frontend/src/__tests__/pages/ProjectDetailPage.test.tsx` にテストケースを追加/更新
+  - パンくず: 「ダッシュボード > プロジェクト一覧 > プロジェクト詳細」が表示されることを検証
+  - 「一覧に戻る」リンクが表示されないことを検証
+  - コピーボタン: プロジェクト名、顧客名、現場住所の各コピーボタンが表示されることを検証
+  - コピーボタンクリック時に `navigator.clipboard.writeText()` が呼ばれることを検証
+  - 顧客名が未設定時にコピーボタンが非表示であることを検証
+  - 作成日時・更新日時が表示されないことを検証
+  - _Requirements: 31.1, 31.2, 31.3, 31.4, 32.1, 33.1, 33.2, 33.3, 33.4, 33.5, 33.6, 33.7, 33.8, 34.1, 34.2_
+
+## Task 54: ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）
+
+- [x] 54.1 ステータス変更履歴の表示を直近3件に制限
+  - `frontend/src/components/projects/StatusTransitionUI.tsx` を修正
+  - `statusHistory` の表示を `statusHistory.slice(0, 3)` で直近3件に制限
+  - 既存の履歴アイテムレンダリングロジックを `HistoryItem` サブコンポーネントとして切り出し（ダイアログとの再利用のため）
+  - _Requirements: 35.1_
+
+- [x] 54.2 「すべての履歴を表示」リンクを追加
+  - `statusHistory.length > 3` の場合に「すべての履歴を表示（全N件）」リンクを表示
+  - `statusHistory.length <= 3` の場合はリンクを非表示
+  - _Requirements: 35.2, 35.3_
+
+- [x] 54.3 全件表示ダイアログを実装
+  - `StatusHistoryDialog` コンポーネントを `StatusTransitionUI.tsx` 内にローカルコンポーネントとして実装
+  - モーダルダイアログ: `role="dialog"`, `aria-modal="true"` でアクセシビリティ対応
+  - ダイアログタイトル: 「ステータス変更履歴（全N件）」
+  - 全件を時系列順（新しい順）で表示（`HistoryItem` サブコンポーネントを再利用）
+  - 「閉じる」ボタンでダイアログを閉じる
+  - ダイアログ外クリック（オーバーレイ）でダイアログを閉じる
+  - ダイアログの最大幅640px、最大高さ80vh（スクロール対応）
+  - _Requirements: 35.4, 35.5, 35.6, 35.7, 35.8_
+
+- [x] 54.4 ステータス変更履歴UIの単体テスト
+  - `frontend/src/__tests__/components/projects/StatusTransitionUI.test.tsx` にテストケースを追加
+  - 履歴3件以下: 全件が表示され、「すべての履歴を表示」リンクが非表示であることを検証
+  - 履歴4件以上: 直近3件のみ表示され、「すべての履歴を表示」リンクが表示されることを検証
+  - リンクをクリック: ダイアログが開き、全件が表示されることを検証
+  - ダイアログの「閉じる」ボタンクリックでダイアログが閉じることを検証
+  - _Requirements: 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7, 35.8_
+
+## Task 55: 統合テストと動作確認
+
+- [x] 55.1 Requirements 30-35 の統合テスト
+  - detail-summary APIでサムネイルが署名付きURLとして返却されることを確認
+  - プロジェクト詳細画面でパンくずが「ダッシュボード > プロジェクト一覧 > プロジェクト詳細」と表示されることを確認
+  - 「一覧に戻る」リンクが表示されないことを確認
+  - プロジェクト名、顧客名、現場住所にコピーボタンが表示され、クリップボードにコピーできることを確認
+  - 基本情報セクションに作成日時・更新日時が表示されないことを確認
+  - ステータス変更履歴が直近3件のみ表示され、4件以上の場合に全件表示ダイアログが動作することを確認
+  - 52.1〜54.4完了後に実施
+  - _Requirements: 30.1, 30.2, 30.3, 30.4, 30.5, 31.1, 31.2, 31.3, 31.4, 32.1, 32.2, 33.1, 33.2, 33.3, 33.4, 33.5, 33.6, 33.7, 33.8, 33.9, 34.1, 34.2, 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7, 35.8_

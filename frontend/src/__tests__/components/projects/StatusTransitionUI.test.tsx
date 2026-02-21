@@ -522,4 +522,175 @@ describe('StatusTransitionUI', () => {
       expect(icon).toBeInTheDocument();
     });
   });
+
+  // ============================================================================
+  // Task 54.1, 54.2, 54.3, 54.4: ステータス変更履歴の表示制限と全件表示ダイアログ
+  // Requirements: 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7, 35.8
+  // ============================================================================
+
+  describe('ステータス変更履歴の表示制限', () => {
+    // 4件以上の履歴データ
+    const mockStatusHistoryMany: StatusHistoryResponse[] = [
+      {
+        id: 'history-1',
+        fromStatus: null,
+        fromStatusLabel: null,
+        toStatus: 'PREPARING',
+        toStatusLabel: '準備中',
+        transitionType: 'initial',
+        transitionTypeLabel: '初期遷移',
+        reason: null,
+        changedBy: { id: 'user-1', displayName: 'ユーザー1' },
+        changedAt: '2025-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'history-2',
+        fromStatus: 'PREPARING',
+        fromStatusLabel: '準備中',
+        toStatus: 'SURVEYING',
+        toStatusLabel: '調査中',
+        transitionType: 'forward',
+        transitionTypeLabel: '順方向遷移',
+        reason: null,
+        changedBy: { id: 'user-1', displayName: 'ユーザー1' },
+        changedAt: '2025-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'history-3',
+        fromStatus: 'SURVEYING',
+        fromStatusLabel: '調査中',
+        toStatus: 'PREPARING',
+        toStatusLabel: '準備中',
+        transitionType: 'backward',
+        transitionTypeLabel: '差し戻し遷移',
+        reason: '調査内容に不備があったため',
+        changedBy: { id: 'user-2', displayName: 'ユーザー2' },
+        changedAt: '2025-01-03T00:00:00.000Z',
+      },
+      {
+        id: 'history-4',
+        fromStatus: 'PREPARING',
+        fromStatusLabel: '準備中',
+        toStatus: 'SURVEYING',
+        toStatusLabel: '調査中',
+        transitionType: 'forward',
+        transitionTypeLabel: '順方向遷移',
+        reason: null,
+        changedBy: { id: 'user-1', displayName: 'ユーザー1' },
+        changedAt: '2025-01-04T00:00:00.000Z',
+      },
+      {
+        id: 'history-5',
+        fromStatus: 'SURVEYING',
+        fromStatusLabel: '調査中',
+        toStatus: 'ESTIMATING',
+        toStatusLabel: '見積中',
+        transitionType: 'forward',
+        transitionTypeLabel: '順方向遷移',
+        reason: null,
+        changedBy: { id: 'user-1', displayName: 'ユーザー1' },
+        changedAt: '2025-01-05T00:00:00.000Z',
+      },
+    ];
+
+    it('履歴が3件以下の場合は全件が表示され、「すべての履歴を表示」リンクが非表示', () => {
+      render(
+        <StatusTransitionUI
+          projectId="test-project-id"
+          currentStatus="PREPARING"
+          allowedTransitions={[]}
+          statusHistory={mockStatusHistory}
+          onTransition={vi.fn()}
+          isLoading={false}
+        />
+      );
+
+      // 3件全てが表示される
+      const historyItems = screen.getAllByTestId(/^status-history-item-/);
+      expect(historyItems).toHaveLength(3);
+
+      // 「すべての履歴を表示」リンクが表示されない
+      expect(screen.queryByText(/すべての履歴を表示/)).not.toBeInTheDocument();
+    });
+
+    it('履歴が4件以上の場合は直近3件のみ表示され、「すべての履歴を表示」リンクが表示される', () => {
+      render(
+        <StatusTransitionUI
+          projectId="test-project-id"
+          currentStatus="ESTIMATING"
+          allowedTransitions={[]}
+          statusHistory={mockStatusHistoryMany}
+          onTransition={vi.fn()}
+          isLoading={false}
+        />
+      );
+
+      // 3件のみ表示される
+      const historyItems = screen.getAllByTestId(/^status-history-item-/);
+      expect(historyItems).toHaveLength(3);
+
+      // 「すべての履歴を表示（全5件）」リンクが表示される
+      const showAllLink = screen.getByText(/すべての履歴を表示（全5件）/);
+      expect(showAllLink).toBeInTheDocument();
+    });
+
+    it('「すべての履歴を表示」リンクをクリックするとダイアログが開き全件表示される', async () => {
+      const user = userEvent.setup();
+      render(
+        <StatusTransitionUI
+          projectId="test-project-id"
+          currentStatus="ESTIMATING"
+          allowedTransitions={[]}
+          statusHistory={mockStatusHistoryMany}
+          onTransition={vi.fn()}
+          isLoading={false}
+        />
+      );
+
+      // リンクをクリック
+      const showAllLink = screen.getByText(/すべての履歴を表示（全5件）/);
+      await user.click(showAllLink);
+
+      // ダイアログが表示される
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+
+      // ダイアログタイトル
+      expect(screen.getByText('ステータス変更履歴（全5件）')).toBeInTheDocument();
+
+      // ダイアログ内に全5件の履歴が表示される
+      const dialogHistoryItems = within(dialog).getAllByTestId(/^status-history-item-/);
+      expect(dialogHistoryItems).toHaveLength(5);
+    });
+
+    it('ダイアログの「閉じる」ボタンをクリックするとダイアログが閉じる', async () => {
+      const user = userEvent.setup();
+      render(
+        <StatusTransitionUI
+          projectId="test-project-id"
+          currentStatus="ESTIMATING"
+          allowedTransitions={[]}
+          statusHistory={mockStatusHistoryMany}
+          onTransition={vi.fn()}
+          isLoading={false}
+        />
+      );
+
+      // ダイアログを開く
+      const showAllLink = screen.getByText(/すべての履歴を表示（全5件）/);
+      await user.click(showAllLink);
+
+      // ダイアログが開いていることを確認
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      // 閉じるボタンをクリック
+      const closeButton = screen.getByRole('button', { name: '閉じる' });
+      await user.click(closeButton);
+
+      // ダイアログが閉じることを確認（FocusManagerがisOpen=falseでnullを返す）
+      // Note: FocusManagerは !isOpen でnullを返すので、ダイアログ内のコンテンツは消える
+      // ただし、BackwardReasonDialogのdialogも存在する可能性があるため、全件表示ダイアログ固有の要素で判定
+      expect(screen.queryByText('ステータス変更履歴（全5件）')).not.toBeInTheDocument();
+    });
+  });
 });

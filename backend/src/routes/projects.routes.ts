@@ -21,7 +21,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { ProjectService } from '../services/project.service.js';
 import { ProjectStatusService } from '../services/project-status.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
-import { SiteSurveyService } from '../services/site-survey.service.js';
+import { SiteSurveyService, type SiteSurveyInfo } from '../services/site-survey.service.js';
 import { QuantityTableService } from '../services/quantity-table.service.js';
 import { ItemizedStatementService } from '../services/itemized-statement.service.js';
 import { ItemizedStatementPivotService } from '../services/itemized-statement-pivot.service.js';
@@ -32,6 +32,7 @@ import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
+import { isStorageConfigured, getStorageProvider } from '../storage/index.js';
 import {
   createProjectSchema,
   updateProjectSchema,
@@ -289,9 +290,66 @@ async function getProjectSections(projectId: string) {
     estimateService.findLatestByProjectId(projectId),
   ]);
 
+  // 現場調査セクションの取得結果
+  const siteSurveysResult =
+    results[0].status === 'fulfilled' ? results[0].value : { totalCount: 0, latestSurveys: [] };
+
+  // thumbnailUrl と thumbnailOriginalUrl を署名付きURLに変換
+  // site-surveys.routes.ts の /latest エンドポイントと同一のロジックパターン
+  let enrichedSurveys = siteSurveysResult.latestSurveys.map((survey: SiteSurveyInfo) => ({
+    ...survey,
+    thumbnailUrl: null as string | null,
+    thumbnailOriginalUrl: null as string | null,
+  }));
+  if (isStorageConfigured()) {
+    const storageProvider = getStorageProvider();
+    if (storageProvider) {
+      enrichedSurveys = await Promise.all(
+        siteSurveysResult.latestSurveys.map(async (survey: SiteSurveyInfo) => {
+          let thumbnailUrl: string | null = null;
+          let thumbnailOriginalUrl: string | null = null;
+
+          // サムネイルURLを生成
+          if (survey.thumbnailUrl) {
+            try {
+              thumbnailUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl as string);
+            } catch (error) {
+              logger.warn(
+                { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
+                'Failed to generate signed URL for thumbnail'
+              );
+            }
+          }
+
+          // 元画像URLを生成（注釈レンダリング用）
+          if (survey.thumbnailOriginalPath) {
+            try {
+              thumbnailOriginalUrl = await storageProvider.getSignedUrl(
+                survey.thumbnailOriginalPath as string
+              );
+            } catch (error) {
+              logger.warn(
+                { surveyId: survey.id, originalPath: survey.thumbnailOriginalPath, error },
+                'Failed to generate signed URL for original image'
+              );
+            }
+          }
+
+          return {
+            ...survey,
+            thumbnailUrl,
+            thumbnailOriginalUrl,
+          };
+        })
+      );
+    }
+  }
+
   return {
-    siteSurveys:
-      results[0].status === 'fulfilled' ? results[0].value : { totalCount: 0, latestSurveys: [] },
+    siteSurveys: {
+      totalCount: siteSurveysResult.totalCount,
+      latestSurveys: enrichedSurveys,
+    },
     quantityTables:
       results[1].status === 'fulfilled' ? results[1].value : { totalCount: 0, latestTables: [] },
     itemizedStatements:

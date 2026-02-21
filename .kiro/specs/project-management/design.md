@@ -3294,3 +3294,473 @@ ProjectDetailPage 初期表示:
 ### 既存API互換性
 
 既存の個別エンドポイント（`/site-surveys/latest`、`/quantity-tables/summary`等）は削除せず、そのまま残す。一括取得エンドポイントは内部的にこれらと同じサービス層メソッドを呼び出すため、レスポンス形式は完全に互換。
+
+---
+
+## Requirements 30-35: プロジェクト詳細画面の改善（2026-02-21追加）
+
+### 実装状態
+
+- フェーズ: **要件追加対応** - 既存実装済みのプロジェクト詳細画面に対する改善
+- 主要変更:
+  - **detail-summary APIのサムネイルURL変換修正**（Requirement 30）
+  - **パンくずナビゲーション更新**（Requirement 31）
+  - **「一覧に戻る」リンク削除**（Requirement 32）
+  - **基本情報のクリップボードコピー機能**（Requirement 33）
+  - **基本情報の日時フィールド非表示**（Requirement 34）
+  - **ステータス変更履歴の表示制限と全件表示ダイアログ**（Requirement 35）
+
+---
+
+### Component 30: detail-summary APIのサムネイルURL変換（Requirement 30）
+
+**Requirements Coverage**: 30.1, 30.2, 30.3, 30.4, 30.5
+
+#### 問題分析
+
+`GET /api/projects/:id/detail-summary` エンドポイント（`projects.routes.ts`）の `getProjectSections()` ヘルパーは、`siteSurveyService.findLatestByProjectId()` の結果をそのまま返却している。このサービスメソッドは `thumbnailUrl` にストレージパス（例: `surveys/{surveyId}/{timestamp}_thumb_{fileName}`）を設定するが、detail-summary APIではこのパスを署名付きURLに変換する処理がない。
+
+一方、`GET /api/projects/:projectId/site-surveys/latest` エンドポイント（`site-surveys.routes.ts`）では、同じサービスメソッドの結果に対して `storageProvider.getSignedUrl()` による変換処理が実装されている。
+
+#### 設計
+
+**変更対象ファイル**: `backend/src/routes/projects.routes.ts`
+
+**変更内容**: `getProjectSections()` の戻り値のうち `siteSurveys` セクションに対して、`site-surveys.routes.ts` の `/latest` エンドポイントと同一のサムネイルURL変換ロジックを適用する。
+
+```typescript
+// backend/src/routes/projects.routes.ts - getProjectSections() 修正
+
+async function getProjectSections(projectId: string) {
+  const results = await Promise.allSettled([
+    siteSurveyService.findLatestByProjectId(projectId),
+    // ... 他のセクション
+  ]);
+
+  // 現場調査セクションのサムネイルURL変換
+  let siteSurveys = results[0].status === 'fulfilled'
+    ? results[0].value
+    : { totalCount: 0, latestSurveys: [] };
+
+  if (siteSurveys.latestSurveys.length > 0 && isStorageConfigured()) {
+    const storageProvider = getStorageProvider();
+    if (storageProvider) {
+      const enrichedSurveys = await Promise.all(
+        siteSurveys.latestSurveys.map(async (survey) => {
+          let thumbnailUrl: string | null = null;
+          let thumbnailOriginalUrl: string | null = null;
+
+          if (survey.thumbnailUrl) {
+            try {
+              thumbnailUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl);
+            } catch (error) {
+              logger.warn(
+                { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
+                'Failed to generate signed URL for thumbnail'
+              );
+            }
+          }
+
+          if (survey.thumbnailOriginalPath) {
+            try {
+              thumbnailOriginalUrl = await storageProvider.getSignedUrl(
+                survey.thumbnailOriginalPath
+              );
+            } catch (error) {
+              logger.warn(
+                { surveyId: survey.id, originalPath: survey.thumbnailOriginalPath, error },
+                'Failed to generate signed URL for original image'
+              );
+            }
+          }
+
+          return { ...survey, thumbnailUrl, thumbnailOriginalUrl };
+        })
+      );
+      siteSurveys = { ...siteSurveys, latestSurveys: enrichedSurveys };
+    }
+  }
+
+  return {
+    siteSurveys,
+    // ... 他のセクション（変更なし）
+  };
+}
+```
+
+**依存関係**: `isStorageConfigured`, `getStorageProvider` を `../storage/index.js` からインポートする必要がある（既に `site-surveys.routes.ts` で使用されているパターン）。
+
+---
+
+### Component 31: パンくずナビゲーション更新（Requirement 31）
+
+**Requirements Coverage**: 31.1, 31.2, 31.3, 31.4
+
+#### 設計
+
+**変更対象ファイル**: `frontend/src/pages/ProjectDetailPage.tsx`
+
+**変更内容**: Breadcrumbコンポーネントの `items` 配列を更新する。
+
+```tsx
+// 変更前（行494-503）:
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト', path: '/projects' },
+    { label: project.name },
+  ]}
+/>
+
+// 変更後:
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: 'プロジェクト詳細' },
+  ]}
+/>
+```
+
+**ポイント**:
+- 第2階層のラベルを「プロジェクト」→「プロジェクト一覧」に変更
+- 第3階層のラベルを `project.name`（動的）→「プロジェクト詳細」（固定テキスト）に変更
+- 第3階層は `path` なしで現在地テキストとして表示される（既存のBreadcrumbコンポーネントの動作）
+
+---
+
+### Component 32: 「一覧に戻る」リンク削除（Requirement 32）
+
+**Requirements Coverage**: 32.1, 32.2
+
+#### 設計
+
+**変更対象ファイル**: `frontend/src/pages/ProjectDetailPage.tsx`
+
+**変更内容**: 以下のJSXブロックを削除する。
+
+```tsx
+// 削除対象（行507-509）:
+<Link to="/projects" style={styles.backLink}>
+  ← 一覧に戻る
+</Link>
+```
+
+また、不要になった `styles.backLink` のスタイル定義（行136-144）も削除する。
+
+---
+
+### Component 33: 基本情報のクリップボードコピー機能（Requirement 33）
+
+**Requirements Coverage**: 33.1, 33.2, 33.3, 33.4, 33.5, 33.6, 33.7, 33.8, 33.9
+
+#### 設計
+
+**変更対象ファイル**: `frontend/src/pages/ProjectDetailPage.tsx`
+
+**新規コンポーネント**: `CopyButton`（ProjectDetailPage.tsx 内のローカルコンポーネント）
+
+**デザインレビュー指摘対応**:
+- 既存の `frontend/src/utils/copy-to-clipboard.ts` ユーティリティを活用し、clipboard API非対応時のフォールバック（`document.execCommand`）を含める
+- 既存の `frontend/src/components/estimate-request/ClipboardCopyButton.tsx` のアイコンパターン（CopyIcon/CheckIcon）を参考にする
+- エラー時にユーザーへのフィードバック（エラー状態表示）を提供する
+
+```tsx
+import { copyToClipboard } from '../../utils/copy-to-clipboard';
+
+/**
+ * クリップボードコピーボタン（小型アイコンボタン版）
+ *
+ * 既存の copy-to-clipboard ユーティリティを活用し、
+ * clipboard API非対応時のフォールバックとエラーハンドリングを提供する。
+ */
+function CopyButton({ text }: { text: string }) {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+
+  const handleCopy = useCallback(async () => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setStatus('copied');
+      setTimeout(() => setStatus('idle'), 2000);
+    } else {
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 2000);
+    }
+  }, [text]);
+
+  const color = status === 'copied' ? '#16a34a' : status === 'error' ? '#dc2626' : '#6b7280';
+  const feedbackText = status === 'copied' ? 'コピーしました' : status === 'error' ? 'コピーに失敗しました' : null;
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title="コピー"
+      aria-label={`${text}をコピー`}
+      style={{
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '4px',
+        color,
+        display: 'inline-flex',
+        alignItems: 'center',
+        marginLeft: '4px',
+      }}
+    >
+      {status === 'copied' ? (
+        // チェックマークアイコン
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        // クリップボードアイコン
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+        </svg>
+      )}
+      {feedbackText && <span style={{ fontSize: '12px', marginLeft: '4px' }}>{feedbackText}</span>}
+    </button>
+  );
+}
+```
+
+**基本情報セクションでの使用**:
+
+```tsx
+{/* プロジェクト名 */}
+<div style={styles.field}>
+  <div style={styles.fieldLabel}>プロジェクト名</div>
+  <div style={{ ...styles.fieldValue, display: 'flex', alignItems: 'center' }}>
+    {project.name}
+    <CopyButton text={project.name} />
+  </div>
+</div>
+
+{/* 顧客名 */}
+<div style={styles.field}>
+  <div style={styles.fieldLabel}>顧客名</div>
+  <div style={{ ...styles.fieldValue, display: 'flex', alignItems: 'center' }}>
+    {project.tradingPartner?.name ?? '-'}
+    {project.tradingPartner?.name && <CopyButton text={project.tradingPartner.name} />}
+  </div>
+</div>
+
+{/* 現場住所 */}
+<div style={styles.field}>
+  <div style={styles.fieldLabel}>現場住所</div>
+  <div style={{ ...styles.fieldValue, display: 'flex', alignItems: 'center' }}>
+    {project.siteAddress || '-'}
+    {project.siteAddress && <CopyButton text={project.siteAddress} />}
+  </div>
+</div>
+```
+
+---
+
+### Component 34: 基本情報の日時フィールド非表示（Requirement 34）
+
+**Requirements Coverage**: 34.1, 34.2
+
+#### 設計
+
+**変更対象ファイル**: `frontend/src/pages/ProjectDetailPage.tsx`
+
+**変更内容**: 基本情報セクションから以下の2ブロックを削除する。
+
+```tsx
+// 削除対象1（作成日時フィールド）:
+<div style={styles.field}>
+  <div style={styles.fieldLabel}>作成日時</div>
+  <div style={styles.fieldValue}>{formatDate(project.createdAt)}</div>
+</div>
+
+// 削除対象2（更新日時フィールド）:
+<div style={styles.field}>
+  <div style={styles.fieldLabel}>更新日時</div>
+  <div style={styles.fieldValue}>{formatDate(project.updatedAt)}</div>
+</div>
+```
+
+---
+
+### Component 35: ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）
+
+**Requirements Coverage**: 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7, 35.8
+
+#### 設計
+
+**変更対象ファイル**: `frontend/src/components/projects/StatusTransitionUI.tsx`
+
+**変更内容**: ステータス変更履歴セクションを以下のように変更する。
+
+1. 履歴表示を `statusHistory.slice(0, 3)` で直近3件に制限する
+2. 4件以上の場合に「すべての履歴を表示」リンクを追加する
+3. 全件表示用のモーダルダイアログを追加する
+
+```tsx
+// StatusTransitionUI コンポーネント内に状態追加
+const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+
+// 表示用の履歴（直近3件）
+const displayedHistory = statusHistory.slice(0, 3);
+const hasMoreHistory = statusHistory.length > 3;
+
+// ステータス変更履歴セクション:
+{/* 変更後の履歴リスト */}
+<ul style={styles.historyList}>
+  {displayedHistory.map((history) => {
+    // 既存のレンダリングロジック（変更なし）
+  })}
+</ul>
+
+{/* 全件表示リンク */}
+{hasMoreHistory && (
+  <button
+    type="button"
+    onClick={() => setIsHistoryDialogOpen(true)}
+    style={{
+      background: 'none',
+      border: 'none',
+      color: '#2563eb',
+      cursor: 'pointer',
+      fontSize: '14px',
+      padding: '8px 0',
+      fontWeight: 500,
+    }}
+  >
+    すべての履歴を表示（全{statusHistory.length}件）
+  </button>
+)}
+
+{/* 全件表示ダイアログ */}
+{isHistoryDialogOpen && (
+  <StatusHistoryDialog
+    statusHistory={statusHistory}
+    projectId={projectId}
+    onClose={() => setIsHistoryDialogOpen(false)}
+  />
+)}
+```
+
+**新規コンポーネント**: `StatusHistoryDialog`（StatusTransitionUI.tsx 内のローカルコンポーネント）
+
+**デザインレビュー指摘対応**:
+- 既存の `FocusManager` コンポーネント（`frontend/src/components/FocusManager.tsx`）を使用する
+- コードベースの全ダイアログ（`BackwardReasonDialog`, `DeleteConfirmationDialog` 等）と同一のパターンを採用
+- FocusManagerがフォーカストラップ、Escapeキーでのクローズ、オーバーレイ管理を一括提供
+- 同ファイル内の `BackwardReasonDialog` と実装パターンを統一
+
+```tsx
+import FocusManager from '../FocusManager';
+
+/**
+ * ステータス変更履歴の全件表示ダイアログ
+ *
+ * FocusManagerラッパーを使用し、フォーカストラップ・Escapeキー・
+ * オーバーレイクリックによるクローズをサポートする。
+ * BackwardReasonDialogと同一のアクセシビリティパターンを採用。
+ */
+function StatusHistoryDialog({
+  isOpen,
+  statusHistory,
+  projectId,
+  onClose,
+}: {
+  isOpen: boolean;
+  statusHistory: StatusHistoryResponse[];
+  projectId: string;
+  onClose: () => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <FocusManager onClose={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`history-dialog-title-${projectId}`}
+        style={{
+          backgroundColor: '#ffffff',
+          borderRadius: '12px',
+          padding: '24px',
+          maxWidth: '640px',
+          width: '90%',
+          maxHeight: '80vh',
+          overflow: 'auto',
+        }}
+      >
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '16px',
+        }}>
+          <h3 id={`history-dialog-title-${projectId}`} style={{ margin: 0, fontSize: '18px' }}>
+            ステータス変更履歴（全{statusHistory.length}件）
+          </h3>
+          <button type="button" onClick={onClose} aria-label="閉じる" style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: '20px', color: '#6b7280', padding: '4px',
+          }}>
+            ✕
+          </button>
+        </div>
+        <ul style={styles.historyList}>
+          {statusHistory.map((history) => {
+            // 既存の履歴アイテムレンダリングロジックを再利用
+            // （HistoryItem サブコンポーネントとして切り出し）
+          })}
+        </ul>
+        <div style={{ textAlign: 'right', marginTop: '16px' }}>
+          <button type="button" onClick={onClose} style={{
+            padding: '8px 16px',
+            backgroundColor: '#e5e7eb',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+          }}>
+            閉じる
+          </button>
+        </div>
+      </div>
+    </FocusManager>
+  );
+}
+```
+
+**呼び出し側の変更**:
+```tsx
+{/* 全件表示ダイアログ - isOpen propsで制御 */}
+<StatusHistoryDialog
+  isOpen={isHistoryDialogOpen}
+  statusHistory={statusHistory}
+  projectId={projectId}
+  onClose={() => setIsHistoryDialogOpen(false)}
+/>
+```
+
+**リファクタリング**: 履歴アイテムのレンダリングロジックを `HistoryItem` サブコンポーネントとして切り出し、メインの履歴リストとダイアログ内の両方で再利用する。
+
+---
+
+### 影響範囲サマリー
+
+| ファイル | 変更内容 | Requirements |
+|----------|----------|-------------|
+| `backend/src/routes/projects.routes.ts` | `getProjectSections()` にサムネイルURL変換ロジック追加 | 30 |
+| `frontend/src/pages/ProjectDetailPage.tsx` | パンくず更新、「一覧に戻る」削除、コピーボタン追加、日時フィールド削除 | 31, 32, 33, 34 |
+| `frontend/src/components/projects/StatusTransitionUI.tsx` | 履歴表示3件制限、全件表示ダイアログ追加 | 35 |
+
+### テスト方針
+
+| テスト対象 | テスト種別 | ファイル |
+|------------|-----------|---------|
+| サムネイルURL変換 | 単体テスト | `backend/src/__tests__/unit/routes/projects.routes.test.ts` |
+| パンくず更新 | 単体テスト | `frontend/src/__tests__/pages/ProjectDetailPage.test.tsx` |
+| コピーボタン | 単体テスト | `frontend/src/__tests__/pages/ProjectDetailPage.test.tsx` |
+| 日時フィールド非表示 | 単体テスト | `frontend/src/__tests__/pages/ProjectDetailPage.test.tsx` |
+| 履歴表示制限 | 単体テスト | `frontend/src/__tests__/components/projects/StatusTransitionUI.test.tsx` |
+| 全件表示ダイアログ | 単体テスト | `frontend/src/__tests__/components/projects/StatusTransitionUI.test.tsx` |

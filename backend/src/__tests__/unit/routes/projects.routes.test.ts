@@ -33,6 +33,36 @@ const mockAuditLogService = vi.hoisted(() => ({
   createLog: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockProjectStatusService = vi.hoisted(() => ({
+  getStatusHistory: vi.fn(),
+  changeStatus: vi.fn(),
+}));
+
+const mockSiteSurveyService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
+const mockQuantityTableService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
+const mockItemizedStatementService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
+const mockItemizedStatementPivotService = vi.hoisted(() => ({}));
+
+const mockEstimateRequestService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
+const mockEstimateService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
+const mockIsStorageConfigured = vi.hoisted(() => vi.fn());
+const mockGetStorageProvider = vi.hoisted(() => vi.fn());
+
 // モック: データベースとRedis
 vi.mock('../../../db', () => ({
   default: vi.fn(() => ({})),
@@ -59,6 +89,67 @@ vi.mock('../../../services/audit-log.service', () => ({
       return mockAuditLogService;
     }
   },
+}));
+
+vi.mock('../../../services/project-status.service', () => ({
+  ProjectStatusService: class {
+    constructor() {
+      return mockProjectStatusService;
+    }
+  },
+}));
+
+vi.mock('../../../services/site-survey.service', () => ({
+  SiteSurveyService: class {
+    constructor() {
+      return mockSiteSurveyService;
+    }
+  },
+}));
+
+vi.mock('../../../services/quantity-table.service', () => ({
+  QuantityTableService: class {
+    constructor() {
+      return mockQuantityTableService;
+    }
+  },
+}));
+
+vi.mock('../../../services/itemized-statement.service', () => ({
+  ItemizedStatementService: class {
+    constructor() {
+      return mockItemizedStatementService;
+    }
+  },
+}));
+
+vi.mock('../../../services/itemized-statement-pivot.service', () => ({
+  ItemizedStatementPivotService: class {
+    constructor() {
+      return mockItemizedStatementPivotService;
+    }
+  },
+}));
+
+vi.mock('../../../services/estimate-request.service', () => ({
+  EstimateRequestService: class {
+    constructor() {
+      return mockEstimateRequestService;
+    }
+  },
+}));
+
+vi.mock('../../../services/estimate.service', () => ({
+  EstimateService: class {
+    constructor() {
+      return mockEstimateService;
+    }
+  },
+}));
+
+vi.mock('../../../storage/index', () => ({
+  isStorageConfigured: (...args: unknown[]) => mockIsStorageConfigured(...args),
+  getStorageProvider: (...args: unknown[]) => mockGetStorageProvider(...args),
 }));
 
 // モック: 認証ミドルウェア
@@ -761,6 +852,166 @@ describe('Projects Routes', () => {
         expect.any(Object),
         expect.any(Object)
       );
+    });
+  });
+
+  // ==========================================================================
+  // Task 52.2: detail-summary APIのサムネイルURL変換テスト
+  // Requirements: 30.1, 30.2, 30.3, 30.4, 30.5
+  // ==========================================================================
+  describe('GET /api/projects/:id/detail-summary - サムネイルURL変換', () => {
+    const mockSurveyWithThumbnail = {
+      id: 'survey-1',
+      projectId: TEST_PROJECT_ID,
+      name: '現場調査1',
+      surveyDate: new Date('2025-06-01'),
+      memo: null,
+      thumbnailUrl: 'uploads/thumbnails/thumb-1.webp',
+      thumbnailImageId: 'image-1',
+      thumbnailOriginalPath: 'uploads/originals/orig-1.jpg',
+      imageCount: 3,
+      createdAt: new Date('2025-06-01'),
+      updatedAt: new Date('2025-06-01'),
+    };
+
+    const mockSurveyWithoutThumbnail = {
+      id: 'survey-2',
+      projectId: TEST_PROJECT_ID,
+      name: '現場調査2',
+      surveyDate: new Date('2025-06-02'),
+      memo: null,
+      thumbnailUrl: null,
+      thumbnailImageId: null,
+      thumbnailOriginalPath: null,
+      imageCount: 0,
+      createdAt: new Date('2025-06-02'),
+      updatedAt: new Date('2025-06-02'),
+    };
+
+    const defaultSectionsSetup = () => {
+      (
+        mockQuantityTableService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestTables: [],
+      });
+      (
+        mockItemizedStatementService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestStatements: [],
+      });
+      (
+        mockEstimateRequestService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestRequests: [],
+      });
+      (mockEstimateService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        estimates: [],
+      });
+      (mockProjectStatusService.getStatusHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (mockProjectService.getProject as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockProjectDetail
+      );
+    };
+
+    it('ストレージ設定済み時: thumbnailUrl と thumbnailOriginalUrl が署名付きURLに変換されること (30.1, 30.2)', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 1,
+        latestSurveys: [mockSurveyWithThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(true);
+      const mockStorageProvider = {
+        getSignedUrl: vi
+          .fn()
+          .mockResolvedValueOnce('https://signed-url.example.com/thumb-1.webp')
+          .mockResolvedValueOnce('https://signed-url.example.com/orig-1.jpg'),
+      };
+      mockGetStorageProvider.mockReturnValue(mockStorageProvider);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      const survey = response.body.sections.siteSurveys.latestSurveys[0];
+      expect(survey.thumbnailUrl).toBe('https://signed-url.example.com/thumb-1.webp');
+      expect(survey.thumbnailOriginalUrl).toBe('https://signed-url.example.com/orig-1.jpg');
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+        'uploads/thumbnails/thumb-1.webp'
+      );
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith('uploads/originals/orig-1.jpg');
+    });
+
+    it('ストレージ未設定時: thumbnailUrl と thumbnailOriginalUrl が null であること (30.3)', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 1,
+        latestSurveys: [mockSurveyWithThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(false);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      const survey = response.body.sections.siteSurveys.latestSurveys[0];
+      expect(survey.thumbnailUrl).toBeNull();
+      expect(survey.thumbnailOriginalUrl).toBeNull();
+    });
+
+    it('署名付きURL生成失敗時: 該当フィールドが null になり、他のデータが正常に返却されること (30.4, 30.5)', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 2,
+        latestSurveys: [mockSurveyWithThumbnail, mockSurveyWithoutThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(true);
+      const mockStorageProvider = {
+        getSignedUrl: vi.fn().mockRejectedValue(new Error('Storage error')),
+      };
+      mockGetStorageProvider.mockReturnValue(mockStorageProvider);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      // 署名付きURL生成失敗時はnullにフォールバック
+      const survey1 = response.body.sections.siteSurveys.latestSurveys[0];
+      expect(survey1.thumbnailUrl).toBeNull();
+      expect(survey1.thumbnailOriginalUrl).toBeNull();
+      // サムネイルがないsurveyはそのままnull
+      const survey2 = response.body.sections.siteSurveys.latestSurveys[1];
+      expect(survey2.thumbnailUrl).toBeNull();
+      expect(survey2.thumbnailOriginalUrl).toBeNull();
+      // 他のセクションデータは正常に返却される
+      expect(response.body.sections.quantityTables).toBeDefined();
+      expect(response.body.sections.estimateRequests).toBeDefined();
+    });
+
+    it('サムネイルが存在しない現場調査の場合: thumbnailOriginalUrl が null であること', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 1,
+        latestSurveys: [mockSurveyWithoutThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(true);
+      const mockStorageProvider = {
+        getSignedUrl: vi.fn(),
+      };
+      mockGetStorageProvider.mockReturnValue(mockStorageProvider);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      const survey = response.body.sections.siteSurveys.latestSurveys[0];
+      expect(survey.thumbnailUrl).toBeNull();
+      expect(survey.thumbnailOriginalUrl).toBeNull();
+      // getSignedUrlは呼ばれない（パスがnullのため）
+      expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
     });
   });
 });

@@ -521,3 +521,79 @@
 4. If 一括取得APIリクエストの個別セクションでエラーが発生した場合, the ArchiTrackシステム shall エラーが発生したセクションのデータをデフォルト値（0件）として返却し、他のセクションのデータは正常に返却する
 5. The ArchiTrackシステム shall 一括取得APIの導入により、プロジェクト詳細画面の初期表示に必要なAPIリクエスト数を従来の7リクエストから大幅に削減する
 6. The ArchiTrackシステム shall 一括取得APIのレスポンス形式を、既存の個別APIと互換性のあるデータ構造で提供する
+
+### Requirement 30: detail-summary APIの現場調査サムネイル署名付きURL変換
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面で現場調査のサムネイルが正しく表示される, so that 現場調査の画像を確認できる
+
+**備考:** detail-summary API経由で取得される現場調査サムネイルがストレージパスのまま返却されており、署名付きURLに変換されていない問題を修正する。
+
+#### Acceptance Criteria
+
+1. When detail-summary APIが現場調査セクションのデータを返却する, the ArchiTrackシステム shall 各現場調査のthumbnailUrlをストレージプロバイダーの署名付きURLに変換して返却する
+2. When detail-summary APIが現場調査セクションのデータを返却する, the ArchiTrackシステム shall 各現場調査のthumbnailOriginalUrlをストレージプロバイダーの署名付きURLに変換して返却する
+3. If ストレージが未設定の場合, then the ArchiTrackシステム shall thumbnailUrlとthumbnailOriginalUrlをnullとして返却する
+4. If 署名付きURL生成に失敗した場合, then the ArchiTrackシステム shall 該当フィールドをnullとし、他のデータの返却を妨げない
+5. The ArchiTrackシステム shall detail-summary APIのサムネイルURL変換ロジックを、既存のGET /api/projects/:projectId/site-surveys/latest エンドポイントと同一のロジックで実装する
+
+### Requirement 31: プロジェクト詳細画面のパンくずナビゲーション更新
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面のパンくずナビゲーションで現在地を把握したい, so that 画面遷移先を直感的に理解できる
+
+**備考:** 本要件は Requirement 21 AC 15 を更新し、パンくずナビゲーションの表記を変更する。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細ページのパンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト詳細」に変更する
+2. When ユーザーがパンくずの「ダッシュボード」をクリックする, the ArchiTrackシステム shall ダッシュボード画面に遷移する
+3. When ユーザーがパンくずの「プロジェクト一覧」をクリックする, the ArchiTrackシステム shall プロジェクト一覧画面に遷移する
+4. The ArchiTrackシステム shall 「プロジェクト詳細」はリンクではなく現在地のテキストとして表示する
+
+### Requirement 32: プロジェクト詳細画面の「一覧に戻る」リンク削除
+
+**Objective:** As a ユーザー, I want パンくずナビゲーションだけで画面遷移できる, so that UIがシンプルで分かりやすくなる
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面から「← 一覧に戻る」リンクを削除する
+2. The ArchiTrackシステム shall パンくずナビゲーションの「プロジェクト一覧」リンクで一覧画面への遷移を提供する
+
+### Requirement 33: 基本情報のクリップボードコピー機能
+
+**Objective:** As a ユーザー, I want プロジェクトの基本情報をワンクリックでコピーしたい, so that 他のアプリケーションに情報を貼り付ける際の手間を省ける
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の基本情報セクションのプロジェクト名の横にクリップボードコピーボタンを表示する
+2. The ArchiTrackシステム shall プロジェクト詳細画面の基本情報セクションの顧客名の横にクリップボードコピーボタンを表示する
+3. The ArchiTrackシステム shall プロジェクト詳細画面の基本情報セクションの現場住所の横にクリップボードコピーボタンを表示する
+4. When ユーザーがプロジェクト名のコピーボタンをクリックする, the ArchiTrackシステム shall プロジェクト名をクリップボードにコピーし、「コピーしました」というフィードバックを表示する
+5. When ユーザーがコピーボタンをクリックする, the ArchiTrackシステム shall navigator.clipboard APIを使用してテキストをコピーする
+6. When ユーザーが顧客名のコピーボタンをクリックする, the ArchiTrackシステム shall 顧客名をクリップボードにコピーし、「コピーしました」というフィードバックを表示する
+7. When ユーザーが現場住所のコピーボタンをクリックする, the ArchiTrackシステム shall 現場住所をクリップボードにコピーし、「コピーしました」というフィードバックを表示する
+8. If コピー対象のフィールドが空欄の場合, then the ArchiTrackシステム shall コピーボタンを非表示にする
+9. The ArchiTrackシステム shall コピーボタンにクリップボードアイコンを使用し、ホバー時にツールチップ「コピー」を表示する
+
+### Requirement 34: 基本情報の日時フィールド非表示
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面の基本情報を簡潔に表示したい, so that 重要な情報に集中できる
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の基本情報セクションから作成日時フィールドを非表示にする
+2. The ArchiTrackシステム shall プロジェクト詳細画面の基本情報セクションから更新日時フィールドを非表示にする
+
+### Requirement 35: ステータス変更履歴の表示制限と全件表示ダイアログ
+
+**Objective:** As a ユーザー, I want ステータス変更履歴を簡潔に確認しつつ全件も閲覧できる, so that 画面を圧迫せずに必要な情報にアクセスできる
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面のステータス変更履歴セクションに直近3件のみを表示する
+2. If ステータス変更履歴が4件以上存在する場合, then the ArchiTrackシステム shall 「すべての履歴を表示」リンクを表示する
+3. If ステータス変更履歴が3件以下の場合, then the ArchiTrackシステム shall 「すべての履歴を表示」リンクを非表示にする
+4. When ユーザーが「すべての履歴を表示」リンクをクリックする, the ArchiTrackシステム shall ステータス変更履歴の全件を表示するダイアログを開く
+5. The ArchiTrackシステム shall ダイアログ内にステータス変更履歴の全件を時系列順（新しい順）で表示する
+6. The ArchiTrackシステム shall ダイアログに「閉じる」ボタンを表示する
+7. When ユーザーが「閉じる」ボタンをクリックする, the ArchiTrackシステム shall ダイアログを閉じる
+8. When ユーザーがダイアログ外をクリックする, the ArchiTrackシステム shall ダイアログを閉じる
