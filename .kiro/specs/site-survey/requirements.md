@@ -230,3 +230,24 @@
 6. When バッチ注釈取得エンドポイントにアクセスする, the Site Survey Service shall 当該現場調査に対するアクセス権限を検証する
 7. If バッチ注釈取得リクエストが失敗する, then the Site Survey Service shall エラーメッセージを表示してユーザーに通知する
 8. The Site Survey Service shall バッチ注釈取得エンドポイントの既存の個別注釈取得エンドポイントとのレスポンス形式の互換性を維持する
+
+### Requirement 19: 画像アップロードバリデーション修正とエラー通知改善
+**Objective:** As a 現場調査担当者, I want ICCプロファイル付きJPEGを含む全ての正規JPEGファイルをアップロードでき、アップロード失敗時にはエラーメッセージが表示されること, so that 現場で撮影した写真が形式の違いにより拒否されることなく登録でき、失敗時にも原因を把握して対処できる
+
+#### Acceptance Criteria
+1. When ユーザーがJPEGファイルをアップロードする, the Site Survey Service shall マジックバイトの先頭3バイト（FF D8 FF）のみでJPEG形式を判定する
+2. When ユーザーがICCプロファイル付きJPEG（4バイト目が0xE2）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+3. When ユーザーがEXIF付きJPEG（4バイト目が0xE1）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+4. When ユーザーがJFIF形式JPEG（4バイト目が0xE0）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+5. When ユーザーがSOSマーカー付きJPEG（4バイト目が0xDA）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+6. When ユーザーがDQTマーカー付きJPEG（4バイト目が0xDB）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+7. If アップロードされたファイルの先頭3バイトがFF D8 FFでない, then the Site Survey Service shall JPEGとして認識せずアップロードを拒否する
+8. The Site Survey Service shall PNG形式（先頭バイト: 89 50 4E 47）の検証を従来通り維持する
+9. The Site Survey Service shall WEBP形式（先頭バイト: 52 49 46 46 + WEBP識別子）の検証を従来通り維持する
+10. When バッチアップロード処理で1件以上のファイルアップロードが失敗する, the Survey Images API shall エラー情報を含む結果を呼び出し元に返却する
+11. When バッチアップロード結果にエラーが含まれる, the Site Survey Detail Page shall ユーザーにエラーメッセージを表示する
+12. When バッチアップロードで一部のファイルが成功し一部が失敗する, the Survey Images API shall 成功したファイルの処理結果を保持しつつ、失敗したファイルのエラー情報も返却する
+13. When バッチアップロードで全てのファイルが失敗する, the Site Survey Detail Page shall 全件失敗を示すエラーメッセージを表示する
+14. If アップロードエラーがファイル形式の不一致による拒否である, then the Site Survey Detail Page shall どのファイルがどの理由で拒否されたかを含むエラーメッセージを表示する
+15. If アップロードエラーがサーバーエラーまたはネットワークエラーである, then the Site Survey Detail Page shall サーバーエラーが発生した旨のエラーメッセージを表示する
+16. When 全てのファイルが正常にアップロードされる, the Site Survey Detail Page shall エラーメッセージを表示しない

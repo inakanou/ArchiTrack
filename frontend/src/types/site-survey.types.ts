@@ -433,6 +433,23 @@ export interface BatchUploadError {
 }
 
 /**
+ * バッチアップロード結果
+ *
+ * 成功結果（SurveyImageInfo配列）とエラー情報（BatchUploadError配列）を含む。
+ * uploadSurveyImages関数の戻り値型として使用される。
+ *
+ * Requirements: 19.10, 19.12, 19.16
+ *
+ * Task 46.1: BatchUploadResult型を定義
+ */
+export interface BatchUploadResult {
+  /** 成功した画像情報の配列 */
+  results: SurveyImageInfo[];
+  /** エラー情報の配列 */
+  errors: BatchUploadError[];
+}
+
+/**
  * バッチアップロードオプション
  *
  * Requirements: 4.2, 4.3

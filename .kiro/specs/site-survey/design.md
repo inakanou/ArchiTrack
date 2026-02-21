@@ -2780,3 +2780,100 @@ interface FabricSerializedObject {
 - R2接続失敗時: 画像アップロード機能の一時無効化
 - R2 Lifecycle Rule設定失敗時: 孤立ファイル手動クリーンアップに切り替え
 - 重大なバグ発見時: フィーチャーフラグによる機能無効化
+
+---
+
+## Requirement 19: 画像アップロードバリデーション修正とエラー通知改善
+
+### 概要
+
+JPEGマジックバイト検証のホワイトリスト方式が不十分で、ICCプロファイル付きJPEG等の正規ファイルがアップロード拒否される問題の修正と、バッチアップロードエラーがユーザーに通知されない問題の修正。
+
+### 変更1: JPEGマジックバイト検証の3バイトプレフィックス化
+
+**対象ファイル**: `backend/src/services/survey-image.service.ts`
+
+**現状の問題**:
+```typescript
+// 4バイト目のマーカーを5種類だけホワイトリスト
+signatures: [
+  [0xff, 0xd8, 0xff, 0xe0], // JFIF
+  [0xff, 0xd8, 0xff, 0xe1], // EXIF
+  [0xff, 0xd8, 0xff, 0xe8], // SPIFF
+  [0xff, 0xd8, 0xff, 0xdb], // DQT
+  [0xff, 0xd8, 0xff, 0xee], // Adobe
+]
+```
+
+JPEG仕様（ITU-T T.81）ではSOI（FF D8）の後に必ず0xFFで始まるマーカーが続く。4バイト目は多数のバリエーション（0xE0-0xEF, 0xC0-0xCF, 0xDA, 0xDB, 0xFE等）があり、ホワイトリスト方式では網羅不可能。
+
+**修正方針**:
+- `MAGIC_BYTES.jpeg` の定義を3バイトプレフィックス `[0xff, 0xd8, 0xff]` に変更
+- `validateJpegMagicBytes` メソッドの比較ロジックを3バイト比較に変更
+- `minLength` を3に変更
+- PNG・WEBP検証には一切手を加えない
+
+**修正後**:
+```typescript
+jpeg: {
+  prefix: [0xff, 0xd8, 0xff],
+  minLength: 3,
+},
+```
+
+```typescript
+private validateJpegMagicBytes(buffer: Buffer): void {
+  const { prefix, minLength } = MAGIC_BYTES.jpeg;
+  if (buffer.length < minLength) {
+    throw new InvalidMagicBytesError('image/jpeg');
+  }
+  const isValid = prefix.every((byte, index) => buffer[index] === byte);
+  if (!isValid) {
+    throw new InvalidMagicBytesError('image/jpeg');
+  }
+}
+```
+
+### 変更2: バッチアップロードエラーの伝搬
+
+**対象ファイル**:
+- `frontend/src/api/survey-images.ts` — 戻り値型変更
+- `frontend/src/types/site-survey.types.ts` — BatchUploadResult型追加
+- `frontend/src/pages/SiteSurveyDetailPage.tsx` — エラー表示追加
+
+**現状の問題**:
+1. `uploadSurveyImages` の戻り値が `SurveyImageInfo[]`（成功分のみ）で、内部の `errors` 配列が外部に公開されない
+2. `SiteSurveyDetailPage.handleImageUpload` が戻り値をチェックしない
+
+**修正方針**:
+
+1. **BatchUploadResult型の新設** (`site-survey.types.ts`):
+```typescript
+export interface BatchUploadResult {
+  results: SurveyImageInfo[];
+  errors: BatchUploadError[];
+}
+```
+
+2. **uploadSurveyImages戻り値変更** (`survey-images.ts`):
+- 戻り値型を `Promise<SurveyImageInfo[]>` → `Promise<BatchUploadResult>` に変更
+- `return results` → `return { results, errors }` に変更
+
+3. **handleImageUploadでのエラー表示** (`SiteSurveyDetailPage.tsx`):
+- `uploadSurveyImages` の戻り値から `errors` を検査
+- エラーカテゴリ判定: 「サポートされていないファイル形式」「MIMEタイプと一致しません」を含む → file_type、それ以外 → server
+- 部分成功時: 「{成功件数}件のアップロードに成功しました。{エラー件数}件のアップロードに失敗しました。{各ファイルのエラー詳細}」
+- 全件失敗時: 「全{件数}件のアップロードに失敗しました。{各ファイルのエラー詳細}」
+- 全件成功時: エラーメッセージ表示なし（既存動作維持）
+- 既存の `error` ステート（`string | null`）の `setError` を使用
+
+### テスト戦略
+
+**バックエンド単体テスト** (`survey-image.service.test.ts`):
+- 3バイトFF D8 FFに各種4バイト目（0xE0, 0xE1, 0xE2, 0xDA, 0xDB, 0xC0, 0xC4等）を組み合わせたバッファで検証成功
+- FF D8 FFでないバッファでInvalidMagicBytesErrorスロー
+- PNG・WEBP既存テストの通過確認
+
+**フロントエンド単体テスト**:
+- `uploadSurveyImages` がBatchUploadResult型を返すことを検証
+- `handleImageUpload` がエラー時に適切なメッセージを生成・表示することを検証
