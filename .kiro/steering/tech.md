@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-02-18（Steering Sync: Claude Vision OCR統合、セキュリティ監査対応、依存関係バージョン更新、テスト規模拡大を反映）_
+_最終更新: 2026-02-21（Steering Sync: 見積書エクスポート複数行タイプ対応、Storybook test-runner設定追加を反映）_
 
 ## アーキテクチャ
 
@@ -79,6 +79,7 @@ ArchiTrack/
 - `frontend/vitest.setup.ts` - Vitestセットアップスクリプト
 - `frontend/.storybook/main.ts` - Storybook設定（React-Vite統合）
 - `frontend/.storybook/preview.ts` - Storybookグローバルパラメータ
+- `frontend/.storybook/test-runner.ts` - Storybook test-runner設定（外部URLモック、決定的テスト結果）
 - `frontend/nginx.conf` - nginx設定（本番環境、.mjs MIMEタイプ対応、SPA routing、Gzip圧縮、セキュリティヘッダー）
 - `frontend/package.json` - 依存関係管理
 - `frontend/.env.example` - 環境変数テンプレート

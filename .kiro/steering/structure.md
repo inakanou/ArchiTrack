@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-02-18（Steering Sync: Claude Vision OCR統合、pre-commitラッパー構造化、schemas/errors拡充、テスト規模拡大を反映）_
+_最終更新: 2026-02-21（Steering Sync: 見積書エクスポート複数行タイプ対応、Storybook test-runner追加、NET金額モデル改善を反映）_
 
 ## ルートディレクトリ構成
 
@@ -242,7 +242,7 @@ git config core.hooksPath .husky
 
 - `.kiro/specs/estimate-request/` - 見積依頼機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全24タスク完了）
-  - 内容: 見積依頼CRUD、内訳書項目選択（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（OCR構造化データ抽出、項目選択からの一括転記、customCategory・workTypeフィールド対応）、ステータス管理（依頼前/依頼済/見積受領済）
+  - 内容: 見積依頼CRUD、内訳書項目選択（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（OCR構造化データ抽出、項目選択からの一括転記、customCategory・workTypeフィールド対応、NET金額は受領見積書単位で管理）、ステータス管理（依頼前/依頼済/見積受領済）
 
 - `.kiro/specs/company-info/` - 自社情報登録機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全22タスク完了）
@@ -250,7 +250,7 @@ git config core.hooksPath .husky
 
 - `.kiro/specs/estimate-creation/` - 見積書作成機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全76タスク完了）
-  - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、Excel出力
+  - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、Excel/PDF出力（複数行タイプ選択対応）
 
 ### `e2e/`
 
@@ -366,7 +366,8 @@ test-results/YYYY-MM-DD_HH-MM-SS-MMMZ/       # スクリーンショット・ビ
 frontend/
 ├── .storybook/            # Storybook設定
 │   ├── main.ts            # Storybook設定ファイル（React-Vite統合）
-│   └── preview.ts         # グローバルパラメータ・デコレータ
+│   ├── preview.ts         # グローバルパラメータ・デコレータ
+│   └── test-runner.ts     # test-runner設定（外部URLモック）
 ├── src/
 │   ├── __tests__/         # 単体テスト
 │   │   ├── api/           # APIクライアントテスト
@@ -1110,7 +1111,7 @@ backend/src/
 - `POST /api/estimates/:id/items/:itemId/transfer`: 受領見積書転記
 - `POST /api/estimates/:id/prorate`: NET金額案分計算
 - `POST /api/estimates/:id/profit-rate`: 利益率適用
-- `GET /api/estimates/:id/export`: Excel出力
+- `GET /api/estimates/:id/export`: Excel/PDF出力（複数行タイプ選択対応：見積・実行・業者）
 
 **実装済みミドルウェア:**
 
