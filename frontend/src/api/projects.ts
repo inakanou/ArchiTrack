@@ -110,12 +110,6 @@ export async function getProjects(options: GetProjectsOptions = {}): Promise<Pag
   if (filter?.status && filter.status.length > 0) {
     params.append('status', filter.status.join(','));
   }
-  if (filter?.createdFrom) {
-    params.append('createdFrom', filter.createdFrom);
-  }
-  if (filter?.createdTo) {
-    params.append('createdTo', filter.createdTo);
-  }
   if (filter?.tradingPartnerId) {
     params.append('tradingPartnerId', filter.tradingPartnerId);
   }

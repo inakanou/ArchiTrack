@@ -204,7 +204,7 @@ describe('ProjectListTable', () => {
       expect(screen.getByText('完了')).toBeInTheDocument();
     });
 
-    it('作成日列が表示される', () => {
+    it('作成日列は表示されない（Task 56.2で削除）', () => {
       renderWithRouter(
         <ProjectListTable
           projects={mockProjects}
@@ -215,7 +215,7 @@ describe('ProjectListTable', () => {
         />
       );
 
-      expect(screen.getByRole('columnheader', { name: /作成日/i })).toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /^作成日$/i })).not.toBeInTheDocument();
     });
 
     it('更新日列が表示される', () => {
@@ -266,7 +266,7 @@ describe('ProjectListTable', () => {
       expect(screen.getByText('工事担当1')).toBeInTheDocument();
     });
 
-    it('カラムの表示順序が正しい（プロジェクト名, 顧客名, 営業担当者, 工事担当者, ステータス, 作成日, 更新日）（Task 22.1で更新）', () => {
+    it('カラムの表示順序が正しい（プロジェクト名, 顧客名, 営業担当者, 工事担当者, ステータス, 更新日）（Task 56.2で作成日列を削除）', () => {
       renderWithRouter(
         <ProjectListTable
           projects={mockProjects}
@@ -286,8 +286,9 @@ describe('ProjectListTable', () => {
       expect(headerTexts[2]).toMatch(/営業担当者/i);
       expect(headerTexts[3]).toMatch(/工事担当者/i);
       expect(headerTexts[4]).toMatch(/ステータス/i);
-      expect(headerTexts[5]).toMatch(/作成日/i);
-      expect(headerTexts[6]).toMatch(/更新日/i);
+      expect(headerTexts[5]).toMatch(/更新日/i);
+      // 6列のみ（作成日は削除済み）
+      expect(headers).toHaveLength(6);
     });
   });
 
@@ -432,11 +433,6 @@ describe('ProjectListTable', () => {
       const statusHeader = screen.getByRole('columnheader', { name: /ステータス/i });
       await userEvent.click(within(statusHeader).getByRole('button'));
       expect(onSort).toHaveBeenCalledWith('status');
-
-      // 作成日カラム
-      const createdHeader = screen.getByRole('columnheader', { name: /作成日/i });
-      await userEvent.click(within(createdHeader).getByRole('button'));
-      expect(onSort).toHaveBeenCalledWith('createdAt');
 
       // 更新日カラム
       const updatedHeader = screen.getByRole('columnheader', { name: /更新日/i });
@@ -628,7 +624,7 @@ describe('ProjectListTable', () => {
   });
 
   describe('日付フォーマット', () => {
-    it('作成日がローカル形式でフォーマットされて表示される', () => {
+    it('更新日がローカル形式でフォーマットされて表示される（Task 56.2で作成日列削除後）', () => {
       renderWithRouter(
         <ProjectListTable
           projects={mockProjects}
@@ -639,15 +635,12 @@ describe('ProjectListTable', () => {
         />
       );
 
-      // 日付がフォーマットされて表示される（例: 2025/01/01）
-      // 実際のフォーマットは日本語ロケールに依存
-      // 行内に複数の日付があるため、getAllByTextを使用
+      // 日付がフォーマットされて表示される（例: 2025/01/06 ※UTCの2025-01-05T15:30:00.000ZはJSTで2025/01/06）
       const row = screen.getByTestId('project-row-project-1');
-      const dateCells = within(row).getAllByText(/2025/);
-      // 作成日と更新日の2つがある
-      expect(dateCells.length).toBeGreaterThanOrEqual(1);
-      // 具体的に作成日2025/01/01が存在することを確認
-      expect(within(row).getByText('2025/01/01')).toBeInTheDocument();
+      // 更新日のみ表示される（作成日列は削除済み）
+      expect(within(row).getByText('2025/01/06')).toBeInTheDocument();
+      // 作成日2025/01/01は表示されない
+      expect(within(row).queryByText('2025/01/01')).not.toBeInTheDocument();
     });
   });
 

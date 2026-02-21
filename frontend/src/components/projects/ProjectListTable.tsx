@@ -38,7 +38,6 @@ export type SortField =
   | 'salesPersonName'
   | 'constructionPersonName'
   | 'status'
-  | 'createdAt'
   | 'updatedAt';
 
 /**
@@ -86,7 +85,6 @@ const COLUMNS: Array<{
   { key: 'salesPersonName', label: '営業担当者', sortable: true },
   { key: 'constructionPersonName', label: '工事担当者', sortable: true },
   { key: 'status', label: 'ステータス', sortable: true },
-  { key: 'createdAt', label: '作成日', sortable: true },
   { key: 'updatedAt', label: '更新日', sortable: true },
 ];
 
@@ -392,27 +390,6 @@ export default function ProjectListTable({
               {/* ステータス */}
               <td className="px-6 py-4 whitespace-nowrap">
                 <StatusBadge projectId={project.id} status={project.status} />
-              </td>
-              {/* 作成日 */}
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                  <svg
-                    width="16"
-                    height="16"
-                    className="text-gray-400 flex-shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
-                  {formatDate(project.createdAt)}
-                </div>
               </td>
               {/* 更新日 */}
               <td className="px-6 py-4 whitespace-nowrap">

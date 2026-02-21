@@ -432,7 +432,6 @@ const COLUMNS = [
   { key: 'name', label: 'プロジェクト名', sortable: true },
   { key: 'customerName', label: '顧客名', sortable: true },
   { key: 'status', label: 'ステータス', sortable: true },
-  { key: 'createdAt', label: '作成日', sortable: true },
   { key: 'updatedAt', label: '更新日', sortable: true },
 ];
 ```
@@ -445,7 +444,6 @@ const COLUMNS = [
   { key: 'salesPersonName', label: '営業担当者', sortable: true },
   { key: 'constructionPersonName', label: '工事担当者', sortable: true },
   { key: 'status', label: 'ステータス', sortable: true },
-  { key: 'createdAt', label: '作成日', sortable: true },
   { key: 'updatedAt', label: '更新日', sortable: true },
 ];
 ```
@@ -456,7 +454,7 @@ const COLUMNS = [
 export type SortField = 'id' | 'name' | 'customerName' | 'status' | 'createdAt' | 'updatedAt';
 
 // 変更後
-export type SortField = 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'createdAt' | 'updatedAt';
+export type SortField = 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'updatedAt';
 ```
 
 ---
@@ -704,7 +702,6 @@ export const SORTABLE_FIELDS = [
   'salesPersonName',    // 営業担当者（salesPerson.displayName）
   'constructionPersonName', // 工事担当者（constructionPerson.displayName）
   'status',
-  'createdAt',
   'updatedAt',
 ] as const;
 ```
@@ -1092,8 +1089,6 @@ sequenceDiagram
 export const projectFilterSchema = z.object({
   search: z.string().min(2, PROJECT_VALIDATION_MESSAGES.SEARCH_TOO_SHORT).optional(),
   status: statusFilterSchema.optional(),
-  createdFrom: dateStringSchema.optional(),
-  createdTo: dateStringSchema.optional(),
   tradingPartnerId: z
     .string()
     .regex(UUID_REGEX, PROJECT_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID)
@@ -1126,12 +1121,10 @@ if (filter.status && filter.status.length > 0) {
 
 `frontend/src/pages/ProjectListPage.tsx`のデフォルト状態と`fetchProjects`を更新:
 ```typescript
-// ProjectFilter型にexcludeTerminalStatuses追加
+// ProjectFilter型にexcludeTerminalStatuses追加（createdFrom/createdToは削除済み）
 interface ProjectFilter {
   search?: string;
   status?: ProjectStatus[];
-  createdFrom?: string;
-  createdTo?: string;
   excludeTerminalStatuses?: boolean;
 }
 
@@ -1691,8 +1684,6 @@ interface UpdateProjectInput {
 interface ProjectFilter {
   search?: string;           // プロジェクト名・取引先名・営業担当者・工事担当者の部分一致（4.1a, 4.1b）
   status?: ProjectStatus[];  // ステータスフィルタ
-  createdFrom?: Date;        // 作成日開始
-  createdTo?: Date;          // 作成日終了
   tradingPartnerId?: string; // 取引先ID（外部キー）
   excludeTerminalStatuses?: boolean; // 終端ステータス（完了・中止・失注）を除外（2.7, 2.8）
 }
@@ -1712,7 +1703,7 @@ interface StatusCountsResponse {
 }
 
 interface SortInput {
-  field: 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'createdAt' | 'updatedAt';
+  field: 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'updatedAt';
   order: 'asc' | 'desc';
 }
 ```
@@ -1912,9 +1903,7 @@ interface ProjectListQuery {
   search?: string;      // 最小2文字（プロジェクト名・顧客名・営業担当者・工事担当者）
   status?: string;      // カンマ区切り複数指定可
   excludeTerminalStatuses?: string; // "true" で終端ステータス除外（2.7, 2.8）
-  createdFrom?: string; // ISO8601形式
-  createdTo?: string;   // ISO8601形式
-  sort?: string;        // name|customerName|salesPersonName|constructionPersonName|status|createdAt|updatedAt
+  sort?: string;        // name|customerName|salesPersonName|constructionPersonName|status|updatedAt
   order?: string;       // asc|desc
 }
 
@@ -2079,11 +2068,9 @@ interface ProjectListState {
   filters: {
     search: string;
     status: ProjectStatus[];
-    createdFrom: Date | null;
-    createdTo: Date | null;
   };
   sort: {
-    field: SortField;  // 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'createdAt' | 'updatedAt'
+    field: SortField;  // 'name' | 'customerName' | 'salesPersonName' | 'constructionPersonName' | 'status' | 'updatedAt'
     order: 'asc' | 'desc';
   };
   // 以下、差分13で追加
@@ -2101,7 +2088,7 @@ interface ProjectListState {
 - Integration: 768px未満でカード表示に切り替え（`useMediaQuery`フック使用）
 - Validation: 検索キーワード2文字以上のバリデーション
 - Risks: 大量データ時のパフォーマンス（仮想スクロールの検討が必要な場合あり）
-- Breadcrumb: 既存の`Breadcrumb`コンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）を再利用し、「ダッシュボード > プロジェクト」のパンくずを表示（21.14）
+- Breadcrumb: 既存の`Breadcrumb`コンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）を再利用し、「ダッシュボード > プロジェクト一覧」のパンくずを表示（21.14）
 - **デフォルト終端ステータス除外（差分10）**: ステータスフィルタが空の場合、`excludeTerminalStatuses=true`を自動付与してAPI呼び出し
 - **デフォルト表示件数100件（差分11）**: `DEFAULT_LIMIT`を100に変更
 - **ステータス別件数（差分13）**: 初回マウント時に`getProjectStatusCounts()`を呼び出し、`StatsSummary`に全プロジェクト対象の件数を渡す。フィルタ変更時は再取得しない
@@ -2167,7 +2154,7 @@ interface ProjectDetailState {
 - **セクション配置順序**: 現場調査 → 数量表 → 内訳書 → 見積依頼 → 見積書（業務フロー順）
 - **個別セクションエラー時**: デフォルト値（totalCount: 0, latest*: []）でフォールバック、他セクションは正常表示（29.4）
 - Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
-- Breadcrumb: 「ダッシュボード > プロジェクト > [プロジェクト名]」のパンくずを表示（21.15）
+- Breadcrumb: 「ダッシュボード > プロジェクト一覧 > [プロジェクト名]」のパンくずを表示（21.15）
 - 設計方針: 取引先管理機能と同様に、詳細ページは読み取り専用とし、編集は独立した`ProjectEditPage`（`/projects/:id/edit`）で行う
 
 ---
@@ -2213,7 +2200,7 @@ interface ProjectEditState {
 - Validation: ProjectFormコンポーネントでクライアントサイドバリデーション実行
 - **409エラー処理**: プロジェクト名重複時は「このプロジェクト名は既に使用されています」を表示
 - Risks: 楽観的排他制御失敗時のUX（ユーザーへの明確な説明が必要）
-- Breadcrumb: 「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」のパンくずを表示（21.17）
+- Breadcrumb: 「ダッシュボード > プロジェクト一覧 > [プロジェクト名] > 編集」のパンくずを表示（21.17）
 - 設計方針: 取引先管理機能の`TradingPartnerEditPage`と同一パターン
 
 ---
@@ -2245,7 +2232,6 @@ const COLUMNS: Array<{
   { key: 'salesPersonName', label: '営業担当者', sortable: true },
   { key: 'constructionPersonName', label: '工事担当者', sortable: true },
   { key: 'status', label: 'ステータス', sortable: true },
-  { key: 'createdAt', label: '作成日', sortable: true },
   { key: 'updatedAt', label: '更新日', sortable: true },
 ];
 ```
@@ -2692,20 +2678,20 @@ interface BreadcrumbProps {
 // 1. プロジェクト一覧ページ（21.14）
 const listBreadcrumb: BreadcrumbItem[] = [
   { label: 'ダッシュボード', path: '/' },
-  { label: 'プロジェクト' }  // 現在ページ（リンクなし）
+  { label: 'プロジェクト一覧' }  // 現在ページ（リンクなし）
 ];
 
 // 2. プロジェクト詳細ページ（21.15）
 const detailBreadcrumb: BreadcrumbItem[] = [
   { label: 'ダッシュボード', path: '/' },
-  { label: 'プロジェクト', path: '/projects' },
+  { label: 'プロジェクト一覧', path: '/projects' },
   { label: project.name }  // 現在ページ（リンクなし）
 ];
 
 // 3. プロジェクト新規作成ページ（21.16）
 const createBreadcrumb: BreadcrumbItem[] = [
   { label: 'ダッシュボード', path: '/' },
-  { label: 'プロジェクト', path: '/projects' },
+  { label: 'プロジェクト一覧', path: '/projects' },
   { label: '新規作成' }  // 現在ページ（リンクなし）
 ];
 
@@ -2713,7 +2699,7 @@ const createBreadcrumb: BreadcrumbItem[] = [
 // ProjectEditPage.tsx で使用
 const editBreadcrumb: BreadcrumbItem[] = [
   { label: 'ダッシュボード', path: '/' },
-  { label: 'プロジェクト', path: '/projects' },
+  { label: 'プロジェクト一覧', path: '/projects' },
   { label: project.name, path: `/projects/${project.id}` },  // 詳細ページへのリンク
   { label: '編集' }  // 現在ページ（リンクなし）
 ];
@@ -2725,21 +2711,21 @@ const editBreadcrumb: BreadcrumbItem[] = [
 
 | ページ | URL | コンポーネント | パンくず |
 |--------|-----|---------------|---------|
-| 詳細 | `/projects/:id` | `ProjectDetailPage` | ダッシュボード > プロジェクト > [プロジェクト名] |
-| 編集 | `/projects/:id/edit` | `ProjectEditPage` | ダッシュボード > プロジェクト > [プロジェクト名] > 編集 |
+| 詳細 | `/projects/:id` | `ProjectDetailPage` | ダッシュボード > プロジェクト一覧 > [プロジェクト名] |
+| 編集 | `/projects/:id/edit` | `ProjectEditPage` | ダッシュボード > プロジェクト一覧 > [プロジェクト名] > 編集 |
 
 ```typescript
 // ProjectDetailPage.tsx - 詳細ページ（読み取り専用）
 const detailBreadcrumbItems: BreadcrumbItem[] = [
   { label: 'ダッシュボード', path: '/' },
-  { label: 'プロジェクト', path: '/projects' },
+  { label: 'プロジェクト一覧', path: '/projects' },
   { label: project.name }  // 現在ページ（リンクなし）
 ];
 
 // ProjectEditPage.tsx - 編集ページ
 const editBreadcrumbItems: BreadcrumbItem[] = [
   { label: 'ダッシュボード', path: '/' },
-  { label: 'プロジェクト', path: '/projects' },
+  { label: 'プロジェクト一覧', path: '/projects' },
   { label: project.name, path: `/projects/${project.id}` },  // 詳細ページへのリンク
   { label: '編集' }  // 現在ページ（リンクなし）
 ];
@@ -3037,10 +3023,10 @@ enum TransitionType {
 - ステータス差し戻し遷移: ステータスボタン → 差し戻し遷移選択 → 理由入力 → 確認
 - ステータス遷移UIの視覚的区別: 順方向（緑）、差し戻し（オレンジ）、終端（赤）の表示確認
 - パンくずナビゲーション（21.14-21.18）:
-  - 一覧ページ: 「ダッシュボード > プロジェクト」の表示確認
-  - 詳細ページ: 「ダッシュボード > プロジェクト > [プロジェクト名]」の表示確認
-  - 新規作成ページ: 「ダッシュボード > プロジェクト > 新規作成」の表示確認
-  - 編集モード時: 「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」の動的表示確認
+  - 一覧ページ: 「ダッシュボード > プロジェクト一覧」の表示確認
+  - 詳細ページ: 「ダッシュボード > プロジェクト一覧 > [プロジェクト名]」の表示確認
+  - 新規作成ページ: 「ダッシュボード > プロジェクト一覧 > 新規作成」の表示確認
+  - 編集モード時: 「ダッシュボード > プロジェクト一覧 > [プロジェクト名] > 編集」の動的表示確認
   - パンくずクリック遷移: 各階層クリックで該当ページへ遷移確認
 - レスポンシブ表示: デスクトップ → タブレット → モバイル
 - キーボードナビゲーション: Tab, Enter, Escape操作
@@ -3392,18 +3378,29 @@ async function getProjectSections(projectId: string) {
 
 ---
 
-### Component 31: パンくずナビゲーション更新（Requirement 31）
+### Component 31: パンくずナビゲーション更新（Requirement 21 AC14-17, Requirement 31）
 
-**Requirements Coverage**: 31.1, 31.2, 31.3, 31.4
+**Requirements Coverage**: 21.14, 21.15, 21.16, 21.17, 31.1, 31.2, 31.3, 31.4
 
 #### 設計
 
-**変更対象ファイル**: `frontend/src/pages/ProjectDetailPage.tsx`
+**変更対象ファイル**:
+- `frontend/src/pages/ProjectDetailPage.tsx`
+- `frontend/src/pages/ProjectListPage.tsx`
+- `frontend/src/pages/ProjectCreatePage.tsx`
+- `frontend/src/pages/ProjectEditPage.tsx`
 
-**変更内容**: Breadcrumbコンポーネントの `items` 配列を更新する。
+**変更内容**: 全プロジェクトページのBreadcrumbコンポーネントで第2階層のラベルを「プロジェクト」→「プロジェクト一覧」に統一する。
 
 ```tsx
-// 変更前（行494-503）:
+// 1. ProjectListPage.tsx（R21 AC14）
+// 変更前:
+{ label: 'プロジェクト' }
+// 変更後:
+{ label: 'プロジェクト一覧' }
+
+// 2. ProjectDetailPage.tsx（R31.1-31.4）
+// 変更前:
 <Breadcrumb
   items={[
     { label: 'ダッシュボード', path: '/' },
@@ -3411,7 +3408,6 @@ async function getProjectSections(projectId: string) {
     { label: project.name },
   ]}
 />
-
 // 変更後:
 <Breadcrumb
   items={[
@@ -3420,11 +3416,23 @@ async function getProjectSections(projectId: string) {
     { label: 'プロジェクト詳細' },
   ]}
 />
+
+// 3. ProjectCreatePage.tsx（R21 AC16）
+// 変更前:
+{ label: 'プロジェクト', path: '/projects' }
+// 変更後:
+{ label: 'プロジェクト一覧', path: '/projects' }
+
+// 4. ProjectEditPage.tsx（R21 AC17）
+// 変更前:
+{ label: 'プロジェクト', path: '/projects' }
+// 変更後:
+{ label: 'プロジェクト一覧', path: '/projects' }
 ```
 
 **ポイント**:
-- 第2階層のラベルを「プロジェクト」→「プロジェクト一覧」に変更
-- 第3階層のラベルを `project.name`（動的）→「プロジェクト詳細」（固定テキスト）に変更
+- 全4ページで第2階層のラベルを「プロジェクト」→「プロジェクト一覧」に変更
+- ProjectDetailPage: 第3階層のラベルを `project.name`（動的）→「プロジェクト詳細」（固定テキスト）に変更（R31.1）
 - 第3階層は `path` なしで現在地テキストとして表示される（既存のBreadcrumbコンポーネントの動作）
 
 ---

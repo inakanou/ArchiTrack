@@ -159,7 +159,7 @@ export default function ProjectCreatePage() {
         <Breadcrumb
           items={[
             { label: 'ダッシュボード', path: '/' },
-            { label: 'プロジェクト', path: '/projects' },
+            { label: 'プロジェクト一覧', path: '/projects' },
             { label: '新規作成' },
           ]}
         />
