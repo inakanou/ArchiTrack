@@ -1255,7 +1255,7 @@ export function OcrDataExtractor({
       )}
 
       {/* Tesseract.jsフォールバック警告バナー（25.4） */}
-      {fallbackActivated && status === 'completed' && (
+      {fallbackActivated && (status === 'processing' || status === 'completed') && (
         <div style={styles.fallbackWarningBanner} data-testid="fallback-warning-banner">
           Claude Vision APIが利用できないため、従来のOCR処理で実行しています
           {fallbackReason && `（理由: ${fallbackReason}）`}

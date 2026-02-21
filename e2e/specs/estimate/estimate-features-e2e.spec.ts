@@ -21,10 +21,10 @@
  * - REQ-30.3: 子項目として転記実行
  * - REQ-31.1: NET案分ダイアログに受領見積書合計金額表示
  * - REQ-31.2: NET案分ダイアログにNET金額表示
- * - REQ-32.1: 出力ダイアログに行タイプ選択ラジオボタン
+ * - REQ-32.1: 出力ダイアログに行タイプ選択チェックボックス（複数選択可能）
  * - REQ-32.2: 選択行タイプのみ出力
  * - REQ-32.3: 出力ファイル名に行タイプラベル含む
- * - REQ-32.4: 出力APIがlineTypeパラメータを受け付ける
+ * - REQ-32.4: 出力APIがlineTypesパラメータ（カンマ区切り）を受け付ける
  *
  * @module e2e/specs/estimate/estimate-features-e2e.spec
  */
@@ -1092,7 +1092,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
     /**
      * @requirement estimate-creation/REQ-32.1
      */
-    test('出力ダイアログに「見積」「実行」「業者」ラジオボタンが選択可能 (estimate-creation/REQ-32.1)', async ({
+    test('出力ダイアログに「見積」「実行」「業者」チェックボックスが選択可能 (estimate-creation/REQ-32.1)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1110,30 +1110,29 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       await page.getByRole('button', { name: /^出力$/i }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 出力対象ラジオボタンが存在することを確認
-      const estimateRadio = page.locator(
-        'input[type="radio"][name="export-line-type"][value="ESTIMATE"]'
-      );
-      const executionRadio = page.locator(
-        'input[type="radio"][name="export-line-type"][value="EXECUTION"]'
-      );
-      const vendorRadio = page.locator(
-        'input[type="radio"][name="export-line-type"][value="VENDOR"]'
-      );
+      // 出力対象チェックボックスが存在することを確認
+      const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
+      const executionCheckbox = page.locator('input[type="checkbox"][value="EXECUTION"]');
+      const vendorCheckbox = page.locator('input[type="checkbox"][value="VENDOR"]');
 
-      await expect(estimateRadio).toBeVisible();
-      await expect(executionRadio).toBeVisible();
-      await expect(vendorRadio).toBeVisible();
+      await expect(estimateCheckbox).toBeVisible();
+      await expect(executionCheckbox).toBeVisible();
+      await expect(vendorCheckbox).toBeVisible();
 
-      // 各ラジオボタンが選択可能であることを確認
-      await executionRadio.click();
-      await expect(executionRadio).toBeChecked();
+      // デフォルトで「見積」のみON（REQ-32.5）
+      await expect(estimateCheckbox).toBeChecked();
+      await expect(executionCheckbox).not.toBeChecked();
+      await expect(vendorCheckbox).not.toBeChecked();
 
-      await vendorRadio.click();
-      await expect(vendorRadio).toBeChecked();
+      // 各チェックボックスが選択可能であることを確認（複数同時選択可能）
+      await executionCheckbox.click();
+      await expect(executionCheckbox).toBeChecked();
+      await expect(estimateCheckbox).toBeChecked(); // 見積も引き続きON
 
-      await estimateRadio.click();
-      await expect(estimateRadio).toBeChecked();
+      await vendorCheckbox.click();
+      await expect(vendorCheckbox).toBeChecked();
+      await expect(estimateCheckbox).toBeChecked(); // 見積も引き続きON
+      await expect(executionCheckbox).toBeChecked(); // 実行も引き続きON
 
       // ダイアログを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
@@ -1160,23 +1159,25 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       await page.getByRole('button', { name: /^出力$/i }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「実行」を選択
-      const executionRadio = page.locator(
-        'input[type="radio"][name="export-line-type"][value="EXECUTION"]'
-      );
-      await executionRadio.click();
-      await expect(executionRadio).toBeChecked();
+      // デフォルトの「見積」チェックを外す
+      const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
+      await estimateCheckbox.uncheck();
+
+      // 「実行」をチェック
+      const executionCheckbox = page.locator('input[type="checkbox"][value="EXECUTION"]');
+      await executionCheckbox.check();
+      await expect(executionCheckbox).toBeChecked();
 
       // PDF形式を選択
       const pdfRadio = page.locator('input[type="radio"][name="export-format"][value="pdf"]');
       await pdfRadio.click();
 
-      // APIリクエストを監視（blob-based downloadのためdownload.url()はblob: URLとなる）
+      // APIリクエストを監視
       const requestPromise = page.waitForRequest(
         (request) =>
           request.url().includes('/api/estimates/') &&
           request.url().includes('/export') &&
-          request.url().includes('lineType=EXECUTION'),
+          request.url().includes('lineTypes=EXECUTION'),
         { timeout: getTimeout(30000) }
       );
 
@@ -1186,9 +1187,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // APIリクエストのURLにlineType=EXECUTIONが含まれることを確認
+      // APIリクエストのURLにlineTypes=EXECUTIONが含まれることを確認
       const apiRequest = await requestPromise;
-      expect(apiRequest.url()).toContain('lineType=EXECUTION');
+      expect(apiRequest.url()).toContain('lineTypes=EXECUTION');
     });
 
     /**
@@ -1212,13 +1213,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       await page.getByRole('button', { name: /^出力$/i }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「業者」を選択
-      const vendorRadio = page.locator(
-        'input[type="radio"][name="export-line-type"][value="VENDOR"]'
-      );
-      await vendorRadio.click();
+      // デフォルトの「見積」チェックを外す
+      const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
+      await estimateCheckbox.uncheck();
 
-      // Excel形式を選択
+      // 「業者」をチェック
+      const vendorCheckbox = page.locator('input[type="checkbox"][value="VENDOR"]');
+      await vendorCheckbox.check();
+
+      // Excel形式を選択（デフォルトでExcelが選択済みだが明示的に指定）
       const excelRadio = page.locator('input[type="radio"][name="export-format"][value="xlsx"]');
       await excelRadio.click();
 
@@ -1241,7 +1244,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
     /**
      * @requirement estimate-creation/REQ-32.4
      */
-    test('出力APIがlineTypeクエリパラメータを受け付ける (estimate-creation/REQ-32.4)', async ({
+    test('出力APIがlineTypesクエリパラメータを受け付ける (estimate-creation/REQ-32.4)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1259,11 +1262,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       await page.getByRole('button', { name: /^出力$/i }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「見積」を選択（デフォルト）
-      const estimateRadio = page.locator(
-        'input[type="radio"][name="export-line-type"][value="ESTIMATE"]'
-      );
-      await expect(estimateRadio).toBeChecked();
+      // 「見積」がデフォルトでチェック済みであることを確認
+      const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
+      await expect(estimateCheckbox).toBeChecked();
 
       // PDF形式を選択
       const pdfRadio = page.locator('input[type="radio"][name="export-format"][value="pdf"]');
@@ -1274,7 +1275,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         (request) =>
           request.url().includes('/api/estimates/') &&
           request.url().includes('/export') &&
-          request.url().includes('lineType='),
+          request.url().includes('lineTypes='),
         { timeout: getTimeout(30000) }
       );
 
@@ -1284,9 +1285,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // APIリクエストにlineTypeパラメータが含まれることを確認
+      // APIリクエストにlineTypesパラメータが含まれることを確認
       const apiRequest = await requestPromise;
-      expect(apiRequest.url()).toContain('lineType=ESTIMATE');
+      expect(apiRequest.url()).toContain('lineTypes=ESTIMATE');
     });
   });
 
