@@ -562,10 +562,11 @@ echo "     - architrack-test (3100/5174/5433/6380): 全自動テスト用（統�
 echo ""
 
 # テスト環境の起動（開発環境とは独立）
-echo "   Starting test environment containers..."
+# --build付きで起動し、ソースコード変更が確実にDockerイメージに反映されるようにする
+echo "   Starting test environment containers (with build)..."
 # Note: `head -20`を使用すると、出力が20行を超えた時点でSIGPIPEが発生し、
 # docker composeが異常終了コード141を返すため、tailを使用して最後の20行を表示
-docker_output=$(npm run test:docker 2>&1)
+docker_output=$(npm run test:docker:build 2>&1)
 docker_exit_code=$?
 echo "$docker_output" | tail -20
 if [ $docker_exit_code -ne 0 ]; then
