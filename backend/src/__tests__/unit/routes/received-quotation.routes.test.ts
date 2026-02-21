@@ -682,4 +682,266 @@ describe('received-quotation.routes', () => {
       expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:read');
     });
   });
+
+  // ================================================================
+  // Task 64.3: 受領見積書API統合テストのnetAmount対応
+  // Requirements: 28.10 (NET金額のDB永続化)
+  // ================================================================
+  describe('netAmount対応 - API統合テスト (Task 64.3)', () => {
+    describe('POST /api/estimate-requests/:id/quotations - netAmount付き作成', () => {
+      it('netAmountフィールドを含むJSONリクエストで受領見積書を作成する', async () => {
+        const mockResult = {
+          id: validUUID,
+          estimateRequestId,
+          name: 'NET金額付き見積書',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: 45000,
+          lineItems: [],
+          totalAmount: null,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z'),
+        };
+
+        mockCreate.mockResolvedValue(mockResult);
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+          .send({
+            name: 'NET金額付き見積書',
+            submittedAt: '2024-01-15T00:00:00.000Z',
+            netAmount: 45000,
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.netAmount).toBe(45000);
+      });
+
+      it('netAmountなしで受領見積書を作成できる（任意フィールド）', async () => {
+        const mockResult = {
+          id: validUUID,
+          estimateRequestId,
+          name: 'NET金額なし見積書',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: null,
+          lineItems: [],
+          totalAmount: null,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z'),
+        };
+
+        mockCreate.mockResolvedValue(mockResult);
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+          .send({
+            name: 'NET金額なし見積書',
+            submittedAt: '2024-01-15T00:00:00.000Z',
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.netAmount).toBeNull();
+      });
+
+      it('netAmountがnullの場合に受領見積書を作成できる', async () => {
+        const mockResult = {
+          id: validUUID,
+          estimateRequestId,
+          name: 'NET金額null見積書',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: null,
+          lineItems: [],
+          totalAmount: null,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z'),
+        };
+
+        mockCreate.mockResolvedValue(mockResult);
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+          .send({
+            name: 'NET金額null見積書',
+            submittedAt: '2024-01-15T00:00:00.000Z',
+            netAmount: null,
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.netAmount).toBeNull();
+      });
+    });
+
+    describe('PUT /api/quotations/:id - netAmount付き更新', () => {
+      it('netAmountフィールドを含むJSONリクエストで受領見積書を更新する', async () => {
+        const mockResult = {
+          id: validUUID,
+          estimateRequestId,
+          name: 'テスト受領見積書',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: 88000,
+          lineItems: [],
+          totalAmount: null,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-02T00:00:00Z'),
+        };
+
+        mockUpdate.mockResolvedValue(mockResult);
+
+        const response = await request(app).put(`/api/quotations/${validUUID}`).send({
+          expectedUpdatedAt: '2024-01-01T00:00:00.000Z',
+          netAmount: 88000,
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.body.netAmount).toBe(88000);
+      });
+
+      it('netAmountをnullに更新できる', async () => {
+        const mockResult = {
+          id: validUUID,
+          estimateRequestId,
+          name: 'テスト受領見積書',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: null,
+          lineItems: [],
+          totalAmount: null,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-02T00:00:00Z'),
+        };
+
+        mockUpdate.mockResolvedValue(mockResult);
+
+        const response = await request(app).put(`/api/quotations/${validUUID}`).send({
+          expectedUpdatedAt: '2024-01-01T00:00:00.000Z',
+          netAmount: null,
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.body.netAmount).toBeNull();
+      });
+    });
+
+    describe('GET /api/quotations/:id - netAmountレスポンス', () => {
+      it('レスポンスにnetAmountフィールドが含まれる', async () => {
+        const mockQuotationWithNet = {
+          id: validUUID,
+          estimateRequestId,
+          name: 'テスト受領見積書',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: 120000,
+          lineItems: [
+            {
+              id: 'li-001',
+              receivedQuotationId: validUUID,
+              sortOrder: 0,
+              name: '工事A',
+              specification: null,
+              unit: null,
+              quantity: 1,
+              unitPrice: 150000,
+              amount: 150000,
+              remarks: null,
+            },
+          ],
+          totalAmount: 150000,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z'),
+        };
+
+        mockFindById.mockResolvedValue(mockQuotationWithNet);
+
+        const response = await request(app).get(`/api/quotations/${validUUID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty('netAmount', 120000);
+      });
+
+      it('netAmountがnullの場合、nullで返却される', async () => {
+        const mockQuotationWithNullNet = {
+          id: validUUID,
+          estimateRequestId,
+          name: 'テスト受領見積書',
+          submittedAt: new Date('2024-01-15T00:00:00Z'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: null,
+          lineItems: [],
+          totalAmount: null,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z'),
+        };
+
+        mockFindById.mockResolvedValue(mockQuotationWithNullNet);
+
+        const response = await request(app).get(`/api/quotations/${validUUID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.netAmount).toBeNull();
+      });
+    });
+
+    describe('GET /api/estimate-requests/:id/quotations - 一覧のnetAmountレスポンス', () => {
+      it('一覧レスポンスの各受領見積書にnetAmountが含まれる', async () => {
+        const mockQuotationsWithNet = [
+          {
+            id: validUUID,
+            estimateRequestId,
+            name: '受領見積書1',
+            submittedAt: new Date('2024-01-15T00:00:00Z'),
+            fileName: null,
+            fileMimeType: null,
+            fileSize: null,
+            netAmount: 75000,
+            lineItems: [],
+            totalAmount: null,
+            createdAt: new Date('2024-01-01T00:00:00Z'),
+            updatedAt: new Date('2024-01-01T00:00:00Z'),
+          },
+          {
+            id: '550e8400-e29b-41d4-a716-446655440099',
+            estimateRequestId,
+            name: '受領見積書2',
+            submittedAt: new Date('2024-01-16T00:00:00Z'),
+            fileName: null,
+            fileMimeType: null,
+            fileSize: null,
+            netAmount: null,
+            lineItems: [],
+            totalAmount: null,
+            createdAt: new Date('2024-01-02T00:00:00Z'),
+            updatedAt: new Date('2024-01-02T00:00:00Z'),
+          },
+        ];
+
+        mockFindByEstimateRequestId.mockResolvedValue(mockQuotationsWithNet);
+
+        const response = await request(app).get(
+          `/api/estimate-requests/${estimateRequestId}/quotations`
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(2);
+        expect(response.body[0]).toHaveProperty('netAmount', 75000);
+        expect(response.body[1]).toHaveProperty('netAmount', null);
+      });
+    });
+  });
 });

@@ -46,6 +46,7 @@ describe('received-quotations API client', () => {
   });
 
   // テスト用の明細行データ
+  // Task 61.3: netAmountを明細行レベルから削除（受領見積書レベルに移動）
   const mockLineItems: LineItemInfo[] = [
     {
       id: 'li-1',
@@ -59,7 +60,6 @@ describe('received-quotations API client', () => {
       quantity: 100,
       unitPrice: 150,
       amount: 15000,
-      netAmount: null,
       remarks: null,
     },
     {
@@ -74,12 +74,12 @@ describe('received-quotations API client', () => {
       quantity: 50,
       unitPrice: 12000,
       amount: 600000,
-      netAmount: null,
       remarks: '現場打ち',
     },
   ];
 
-  // テスト用のモックデータ（改訂版：contentType廃止、lineItems追加）
+  // テスト用のモックデータ（改訂版：contentType廃止、lineItems追加、netAmount受領見積書レベル）
+  // Task 61.3: netAmountを受領見積書レベルに追加（Requirements: 28.7, 28.10）
   const mockQuotationWithLineItems: ReceivedQuotationInfo = {
     id: 'quotation-1',
     estimateRequestId: 'er-1',
@@ -90,6 +90,7 @@ describe('received-quotations API client', () => {
     fileSize: null,
     lineItems: mockLineItems,
     totalAmount: 615000,
+    netAmount: 500000,
     createdAt: new Date('2025-01-20T00:00:00.000Z'),
     updatedAt: new Date('2025-01-20T00:00:00.000Z'),
   };
@@ -104,6 +105,7 @@ describe('received-quotations API client', () => {
     fileSize: 1024000,
     lineItems: [],
     totalAmount: null,
+    netAmount: null,
     createdAt: new Date('2025-01-21T00:00:00.000Z'),
     updatedAt: new Date('2025-01-21T00:00:00.000Z'),
   };
@@ -118,6 +120,7 @@ describe('received-quotations API client', () => {
     fileSize: 2048000,
     lineItems: mockLineItems,
     totalAmount: 615000,
+    netAmount: 550000,
     createdAt: new Date('2025-01-22T00:00:00.000Z'),
     updatedAt: new Date('2025-01-22T00:00:00.000Z'),
   };
@@ -650,7 +653,6 @@ describe('received-quotations API client', () => {
           quantity: 200,
           unitPrice: 180,
           amount: 36000,
-          netAmount: null,
           remarks: null,
         },
       ];
@@ -876,6 +878,188 @@ describe('received-quotations API client', () => {
       });
 
       await expect(getPreviewUrl('quotation-1')).rejects.toThrow(ApiError);
+    });
+  });
+
+  // ==========================================================================
+  // Task 61.3: netAmountフィールドの移動テスト（Requirements: 28.7, 28.10）
+  // ==========================================================================
+  describe('netAmountフィールド移動（Task 61.3）', () => {
+    it('ReceivedQuotationInfoにnetAmountが含まれること', async () => {
+      const mockResponse = {
+        ...mockQuotationWithLineItems,
+        submittedAt: '2025-01-15T00:00:00.000Z',
+        createdAt: '2025-01-20T00:00:00.000Z',
+        updatedAt: '2025-01-20T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await getReceivedQuotation('quotation-1');
+
+      expect(result.netAmount).toBe(500000);
+    });
+
+    it('netAmountがnullの場合もReceivedQuotationInfoに含まれること', async () => {
+      const mockResponse = {
+        ...mockQuotationWithFile,
+        submittedAt: '2025-01-16T00:00:00.000Z',
+        createdAt: '2025-01-21T00:00:00.000Z',
+        updatedAt: '2025-01-21T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await getReceivedQuotation('quotation-2');
+
+      expect(result.netAmount).toBeNull();
+    });
+
+    it('LineItemInfoにnetAmountが含まれないこと', () => {
+      const lineItem: LineItemInfo = {
+        id: 'li-test',
+        receivedQuotationId: 'q-1',
+        sortOrder: 0,
+        customCategory: null,
+        workType: null,
+        name: 'テスト',
+        specification: null,
+        unit: null,
+        quantity: null,
+        unitPrice: null,
+        amount: null,
+        remarks: null,
+      };
+      // netAmountがLineItemInfoのキーに含まれていないことを確認
+      expect('netAmount' in lineItem).toBe(false);
+    });
+
+    it('LineItemInputにnetAmountが含まれないこと', () => {
+      const lineItemInput: LineItemInput = {
+        name: 'テスト',
+        sortOrder: 0,
+      };
+      // netAmountがLineItemInputのキーに含まれていないことを確認
+      expect('netAmount' in lineItemInput).toBe(false);
+    });
+
+    it('createReceivedQuotationでnetAmountがFormDataに含まれること', async () => {
+      const mockResponse = {
+        ...mockQuotationWithLineItems,
+        submittedAt: '2025-01-15T00:00:00.000Z',
+        createdAt: '2025-01-20T00:00:00.000Z',
+        updatedAt: '2025-01-20T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const input = {
+        name: '受領見積書#1',
+        submittedAt: new Date('2025-01-15T00:00:00.000Z'),
+        lineItems: [{ name: '鉄筋工事', sortOrder: 0 }],
+        netAmount: 500000,
+      };
+
+      await createReceivedQuotation('er-1', input);
+
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData.get('netAmount')).toBe('500000');
+    });
+
+    it('createReceivedQuotationでnetAmountがnullの場合はFormDataに含まれないこと', async () => {
+      const mockResponse = {
+        ...mockQuotationWithFile,
+        submittedAt: '2025-01-16T00:00:00.000Z',
+        createdAt: '2025-01-21T00:00:00.000Z',
+        updatedAt: '2025-01-21T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const mockFile = new File(['test'], 'test.pdf', { type: 'application/pdf' });
+      const input = {
+        name: '受領見積書#2',
+        submittedAt: new Date('2025-01-16T00:00:00.000Z'),
+        file: mockFile,
+      };
+
+      await createReceivedQuotation('er-1', input);
+
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData.get('netAmount')).toBeNull();
+    });
+
+    it('updateReceivedQuotationでnetAmountがFormDataに含まれること', async () => {
+      const mockResponse = {
+        ...mockQuotationWithLineItems,
+        netAmount: 450000,
+        submittedAt: '2025-01-15T00:00:00.000Z',
+        createdAt: '2025-01-20T00:00:00.000Z',
+        updatedAt: '2025-01-25T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const input = {
+        netAmount: 450000,
+      };
+
+      await updateReceivedQuotation('quotation-1', input, '2025-01-20T00:00:00.000Z');
+
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      expect(sentFormData.get('netAmount')).toBe('450000');
+    });
+
+    it('updateReceivedQuotationでnetAmountをnullに設定できること', async () => {
+      const mockResponse = {
+        ...mockQuotationWithLineItems,
+        netAmount: null,
+        submittedAt: '2025-01-15T00:00:00.000Z',
+        createdAt: '2025-01-20T00:00:00.000Z',
+        updatedAt: '2025-01-25T00:00:00.000Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const input = {
+        netAmount: null,
+      };
+
+      await updateReceivedQuotation('quotation-1', input, '2025-01-20T00:00:00.000Z');
+
+      const callArgs = mockFetch.mock.calls[0];
+      const sentFormData = callArgs?.[1]?.body as FormData;
+      // nullの場合、明示的にnullを送信する
+      expect(sentFormData.get('netAmount')).toBe('null');
     });
   });
 

@@ -26,7 +26,6 @@ const mockInitialData = {
       quantity: 1500,
       unitPrice: 120,
       amount: 180000,
-      netAmount: null,
       remarks: null,
       sortOrder: 0,
       createdAt: new Date('2025-01-15'),
@@ -43,7 +42,6 @@ const mockInitialData = {
       quantity: 50,
       unitPrice: 15000,
       amount: 750000,
-      netAmount: null,
       remarks: '打設費込み',
       sortOrder: 1,
       createdAt: new Date('2025-01-15'),
@@ -51,6 +49,7 @@ const mockInitialData = {
     },
   ],
   totalAmount: 930000,
+  netAmount: null,
   createdAt: new Date('2025-01-15'),
   updatedAt: new Date('2025-01-15'),
 };

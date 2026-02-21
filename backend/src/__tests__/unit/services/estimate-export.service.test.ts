@@ -13,6 +13,11 @@
  * - REQ-10.6: ネスト階層ごとに別ページとして出力する
  * - REQ-10.7: 見積金額行のみを出力対象とする（実行金額行・業者金額行は出力しない）
  * - REQ-10.8: 出力処理中であることを表示する
+ * - REQ-10.9: チェックされた行タイプの列を横1列に並べて出力する
+ * - REQ-10.10: 見積行タイプの列名を「見積名称」「見積規格」等とする
+ * - REQ-10.11: 実行行タイプの列名を「実行名称」「実行規格」等とする
+ * - REQ-10.12: 業者行タイプの列名を「業者名称」「業者規格」等とする
+ * - REQ-10.13: チェックされていない行タイプの列を出力しない
  *
  * @module __tests__/unit/services/estimate-export.service.test
  */
@@ -925,6 +930,446 @@ describe('EstimateExportService', () => {
       });
 
       const result = await service.exportToExcel(estimate);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  // ============================================================================
+  // Task 42.4: 複数行タイプ出力テスト
+  // ============================================================================
+
+  /**
+   * @requirement estimate-creation/REQ-10.13
+   */
+  describe('filterLinesByTypes（複数行タイプフィルタリング）', () => {
+    it('複数の行タイプでフィルタリングできること', () => {
+      const items: EstimateExportItem[] = [
+        createTestItem({
+          lines: [
+            createTestLine({ id: 'line-1', lineType: 'ESTIMATE', name: '見積行' }),
+            createTestLine({ id: 'line-2', lineType: 'EXECUTION', name: '実行行' }),
+            createTestLine({ id: 'line-3', lineType: 'VENDOR', name: '業者行' }),
+          ],
+        }),
+      ];
+
+      const filtered = service.filterLinesByTypes(items, ['ESTIMATE', 'EXECUTION']);
+
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0]!.lines).toHaveLength(2);
+      expect(filtered[0]!.lines.map((l) => l.lineType)).toEqual(['ESTIMATE', 'EXECUTION']);
+    });
+
+    it('単一の行タイプでフィルタリングできること', () => {
+      const items: EstimateExportItem[] = [
+        createTestItem({
+          lines: [
+            createTestLine({ id: 'line-1', lineType: 'ESTIMATE', name: '見積行' }),
+            createTestLine({ id: 'line-2', lineType: 'EXECUTION', name: '実行行' }),
+            createTestLine({ id: 'line-3', lineType: 'VENDOR', name: '業者行' }),
+          ],
+        }),
+      ];
+
+      const filtered = service.filterLinesByTypes(items, ['VENDOR']);
+
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0]!.lines).toHaveLength(1);
+      expect(filtered[0]!.lines[0]!.lineType).toBe('VENDOR');
+    });
+
+    it('全行タイプを指定した場合は全行が含まれること', () => {
+      const items: EstimateExportItem[] = [
+        createTestItem({
+          lines: [
+            createTestLine({ id: 'line-1', lineType: 'ESTIMATE' }),
+            createTestLine({ id: 'line-2', lineType: 'EXECUTION' }),
+            createTestLine({ id: 'line-3', lineType: 'VENDOR' }),
+          ],
+        }),
+      ];
+
+      const filtered = service.filterLinesByTypes(items, ['ESTIMATE', 'EXECUTION', 'VENDOR']);
+
+      expect(filtered[0]!.lines).toHaveLength(3);
+    });
+
+    it('ネストした項目でも複数行タイプフィルタリングが適用されること', () => {
+      const items: EstimateExportItem[] = [
+        createTestItem({
+          lines: [
+            createTestLine({ lineType: 'ESTIMATE' }),
+            createTestLine({ lineType: 'EXECUTION' }),
+            createTestLine({ lineType: 'VENDOR' }),
+          ],
+          children: [
+            createTestItem({
+              lines: [
+                createTestLine({ lineType: 'ESTIMATE' }),
+                createTestLine({ lineType: 'EXECUTION' }),
+                createTestLine({ lineType: 'VENDOR' }),
+              ],
+            }),
+          ],
+        }),
+      ];
+
+      const filtered = service.filterLinesByTypes(items, ['ESTIMATE', 'VENDOR']);
+
+      expect(filtered[0]!.lines).toHaveLength(2);
+      expect(filtered[0]!.children[0]!.lines).toHaveLength(2);
+    });
+  });
+
+  /**
+   * @requirement estimate-creation/REQ-10.10
+   * @requirement estimate-creation/REQ-10.11
+   * @requirement estimate-creation/REQ-10.12
+   */
+  describe('getHeadersForLineTypes（複数行タイプ用プレフィックス付き列名）', () => {
+    it('見積行タイプの列名にプレフィックスが付くこと', () => {
+      const headers = service.getHeadersForLineTypes(['ESTIMATE']);
+
+      expect(headers).toEqual([
+        '見積名称',
+        '見積規格',
+        '見積単位',
+        '見積数量',
+        '見積単価',
+        '見積金額',
+        '見積備考',
+      ]);
+    });
+
+    it('実行行タイプの列名にプレフィックスが付くこと', () => {
+      const headers = service.getHeadersForLineTypes(['EXECUTION']);
+
+      expect(headers).toEqual([
+        '実行名称',
+        '実行規格',
+        '実行単位',
+        '実行数量',
+        '実行単価',
+        '実行金額',
+        '実行備考',
+      ]);
+    });
+
+    it('業者行タイプの列名にプレフィックスが付くこと', () => {
+      const headers = service.getHeadersForLineTypes(['VENDOR']);
+
+      expect(headers).toEqual([
+        '業者名称',
+        '業者規格',
+        '業者単位',
+        '業者数量',
+        '業者単価',
+        '業者金額',
+        '業者備考',
+      ]);
+    });
+
+    /**
+     * @requirement estimate-creation/REQ-10.9
+     */
+    it('複数行タイプの列名が横1列に並ぶこと', () => {
+      const headers = service.getHeadersForLineTypes(['ESTIMATE', 'EXECUTION']);
+
+      expect(headers).toEqual([
+        '見積名称',
+        '見積規格',
+        '見積単位',
+        '見積数量',
+        '見積単価',
+        '見積金額',
+        '見積備考',
+        '実行名称',
+        '実行規格',
+        '実行単位',
+        '実行数量',
+        '実行単価',
+        '実行金額',
+        '実行備考',
+      ]);
+    });
+
+    it('全行タイプの列名が横1列に並ぶこと', () => {
+      const headers = service.getHeadersForLineTypes(['ESTIMATE', 'EXECUTION', 'VENDOR']);
+
+      expect(headers).toEqual([
+        '見積名称',
+        '見積規格',
+        '見積単位',
+        '見積数量',
+        '見積単価',
+        '見積金額',
+        '見積備考',
+        '実行名称',
+        '実行規格',
+        '実行単位',
+        '実行数量',
+        '実行単価',
+        '実行金額',
+        '実行備考',
+        '業者名称',
+        '業者規格',
+        '業者単位',
+        '業者数量',
+        '業者単価',
+        '業者金額',
+        '業者備考',
+      ]);
+    });
+  });
+
+  describe('generateFileNameWithLineTypes（複数行タイプ対応ファイル名）', () => {
+    it('単一行タイプでファイル名にラベルが含まれること', () => {
+      const estimate = createTestEstimate({ name: 'テスト見積書' });
+
+      const fileName = service.generateFileNameWithLineTypes(estimate, ExportFormat.XLSX, [
+        'ESTIMATE',
+      ]);
+
+      expect(fileName).toContain('_見積');
+      expect(fileName).toContain('.xlsx');
+    });
+
+    it('複数行タイプでファイル名にラベルがアンダースコア区切りで含まれること', () => {
+      const estimate = createTestEstimate({ name: 'テスト見積書' });
+
+      const fileName = service.generateFileNameWithLineTypes(estimate, ExportFormat.XLSX, [
+        'ESTIMATE',
+        'EXECUTION',
+      ]);
+
+      expect(fileName).toContain('_見積_実行');
+      expect(fileName).toContain('.xlsx');
+    });
+
+    it('全行タイプでファイル名に全ラベルが含まれること', () => {
+      const estimate = createTestEstimate({ name: 'テスト見積書' });
+
+      const fileName = service.generateFileNameWithLineTypes(estimate, ExportFormat.PDF, [
+        'ESTIMATE',
+        'EXECUTION',
+        'VENDOR',
+      ]);
+
+      expect(fileName).toContain('_見積_実行_業者');
+      expect(fileName).toContain('.pdf');
+    });
+  });
+
+  /**
+   * @requirement estimate-creation/REQ-10.9
+   * @requirement estimate-creation/REQ-10.13
+   */
+  describe('exportToExcelWithLineTypes（複数行タイプExcel出力）', () => {
+    it('複数行タイプの列を横1列に並べたExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            lines: [
+              createTestLine({ lineType: 'ESTIMATE', name: '見積項目A', amount: 10000 }),
+              createTestLine({ lineType: 'EXECUTION', name: '実行項目A', amount: 8000 }),
+              createTestLine({ lineType: 'VENDOR', name: '業者項目A', amount: 7000 }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcelWithLineTypes(estimate, ['ESTIMATE', 'EXECUTION']);
+
+      expect(result).toBeInstanceOf(Buffer);
+      const signature = result.slice(0, 2).toString('hex');
+      expect(signature).toBe('504b');
+    });
+
+    it('単一行タイプのExcel出力が正しく生成されること', async () => {
+      const estimate = createTestEstimate();
+
+      const result = await service.exportToExcelWithLineTypes(estimate, ['ESTIMATE']);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  /**
+   * @requirement estimate-creation/REQ-10.9
+   * @requirement estimate-creation/REQ-10.13
+   */
+  describe('exportToPdfWithLineTypes（複数行タイプPDF出力）', () => {
+    it('複数行タイプのPDFを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            lines: [
+              createTestLine({ lineType: 'ESTIMATE', name: '見積項目', amount: 10000 }),
+              createTestLine({ lineType: 'EXECUTION', name: '実行項目', amount: 8000 }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdfWithLineTypes(estimate, ['ESTIMATE', 'EXECUTION']);
+
+      expect(result).toBeInstanceOf(Buffer);
+      const signature = result.slice(0, 5).toString('utf-8');
+      expect(signature).toBe('%PDF-');
+    });
+
+    it('ネストした子項目を含む複数行タイプのPDFを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [
+              createTestLine({ lineType: 'ESTIMATE', name: '見積親項目', amount: 50000 }),
+              createTestLine({ lineType: 'EXECUTION', name: '実行親項目', amount: 40000 }),
+            ],
+            children: [
+              createTestItem({
+                id: 'child-1',
+                parentId: 'parent-1',
+                lines: [
+                  createTestLine({ lineType: 'ESTIMATE', name: '見積子項目1', amount: 20000 }),
+                  createTestLine({ lineType: 'EXECUTION', name: '実行子項目1', amount: 15000 }),
+                ],
+              }),
+              createTestItem({
+                id: 'child-2',
+                parentId: 'parent-1',
+                displayOrder: 1,
+                lines: [
+                  createTestLine({ lineType: 'ESTIMATE', name: '見積子項目2', amount: 30000 }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdfWithLineTypes(estimate, ['ESTIMATE', 'EXECUTION']);
+
+      expect(result).toBeInstanceOf(Buffer);
+      const signature = result.slice(0, 5).toString('utf-8');
+      expect(signature).toBe('%PDF-');
+    });
+
+    it('linesが空の項目名にデフォルト名称を使用してPDFを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-no-line',
+            lines: [],
+            children: [
+              createTestItem({
+                id: 'child-no-line',
+                parentId: 'parent-no-line',
+                lines: [createTestLine({ lineType: 'ESTIMATE', name: '子項目', amount: 5000 })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdfWithLineTypes(estimate, ['ESTIMATE']);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+
+  describe('exportToExcelWithLineTypes（複数行タイプExcel詳細シート）', () => {
+    it('ネストした子項目を含む複数行タイプのExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-1',
+            lines: [
+              createTestLine({ lineType: 'ESTIMATE', name: '見積親項目', amount: 50000 }),
+              createTestLine({ lineType: 'EXECUTION', name: '実行親項目', amount: 40000 }),
+              createTestLine({ lineType: 'VENDOR', name: '業者親項目', amount: 35000 }),
+            ],
+            children: [
+              createTestItem({
+                id: 'child-1',
+                parentId: 'parent-1',
+                lines: [
+                  createTestLine({ lineType: 'ESTIMATE', name: '見積子項目1', amount: 20000 }),
+                  createTestLine({ lineType: 'EXECUTION', name: '実行子項目1', amount: 15000 }),
+                  createTestLine({ lineType: 'VENDOR', name: '業者子項目1', amount: 12000 }),
+                ],
+                children: [
+                  createTestItem({
+                    id: 'grandchild-1',
+                    parentId: 'child-1',
+                    lines: [
+                      createTestLine({ lineType: 'ESTIMATE', name: '見積孫項目', amount: 10000 }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcelWithLineTypes(estimate, [
+        'ESTIMATE',
+        'EXECUTION',
+        'VENDOR',
+      ]);
+
+      expect(result).toBeInstanceOf(Buffer);
+      const signature = result.slice(0, 2).toString('hex');
+      expect(signature).toBe('504b');
+    });
+
+    it('一部の行タイプが存在しない項目を含むExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-partial',
+            lines: [createTestLine({ lineType: 'ESTIMATE', name: '見積のみ親', amount: 30000 })],
+            children: [
+              createTestItem({
+                id: 'child-partial',
+                parentId: 'parent-partial',
+                lines: [createTestLine({ lineType: 'VENDOR', name: '業者のみ子', amount: 10000 })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcelWithLineTypes(estimate, [
+        'ESTIMATE',
+        'EXECUTION',
+        'VENDOR',
+      ]);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('linesが空の項目のExcelを生成できること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent-empty',
+            lines: [],
+            children: [
+              createTestItem({
+                id: 'child-empty',
+                parentId: 'parent-empty',
+                lines: [createTestLine({ lineType: 'ESTIMATE', name: '子項目', amount: 5000 })],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToExcelWithLineTypes(estimate, ['ESTIMATE']);
 
       expect(result).toBeInstanceOf(Buffer);
     });

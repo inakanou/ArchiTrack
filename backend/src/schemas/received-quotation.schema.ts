@@ -78,6 +78,13 @@ export const createReceivedQuotationSchema = z.object({
   submittedAt: z
     .string()
     .datetime({ message: RECEIVED_QUOTATION_VALIDATION_MESSAGES.SUBMITTED_AT_INVALID }),
+
+  // Task 61.1: NET金額を受領見積書レベルに追加（Requirements: 28.7, 28.10）
+  // FormData経由では文字列として送信されるため、preprocessで数値に変換
+  netAmount: z.preprocess((val) => {
+    if (val === null || val === undefined || val === '' || val === 'null') return null;
+    return Number(val);
+  }, z.number().nullable().optional()),
 });
 
 /**
@@ -107,6 +114,13 @@ export const updateReceivedQuotationSchema = z.object({
     .optional(),
 
   removeFile: z.boolean().optional(),
+
+  // Task 61.1: NET金額を受領見積書レベルに追加（Requirements: 28.7, 28.10）
+  // FormData経由では文字列として送信されるため、preprocessで数値に変換
+  netAmount: z.preprocess((val) => {
+    if (val === null || val === undefined || val === '' || val === 'null') return null;
+    return Number(val);
+  }, z.number().nullable().optional()),
 
   expectedUpdatedAt: z
     .string()
@@ -220,7 +234,7 @@ export const lineItemSchema = z.object({
   quantity: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.QUANTITY_INVALID }).nullish(),
   unitPrice: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.UNIT_PRICE_INVALID }).nullish(),
   amount: z.number({ message: LINE_ITEM_VALIDATION_MESSAGES.AMOUNT_INVALID }).nullish(),
-  netAmount: z.number().nullable().optional(),
+  // Task 61.1: netAmountは受領見積書レベルに移動（Requirements: 28.5）
   remarks: z.string().nullish(),
 });
 

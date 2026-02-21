@@ -609,12 +609,15 @@ describe('estimates API client', () => {
 
       const result = await exportEstimate('est-1', 'pdf');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/estimates/est-1/export?format=pdf', {
-        method: 'GET',
-        headers: {
-          Authorization: 'Bearer test-access-token',
-        },
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
+        {
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer test-access-token',
+          },
+        }
+      );
       expect(result).toEqual(mockBlob);
     });
 
@@ -629,12 +632,15 @@ describe('estimates API client', () => {
 
       const result = await exportEstimate('est-1', 'xlsx');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/estimates/est-1/export?format=xlsx', {
-        method: 'GET',
-        headers: {
-          Authorization: 'Bearer test-access-token',
-        },
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/estimates/est-1/export?format=xlsx&lineTypes=ESTIMATE',
+        {
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer test-access-token',
+          },
+        }
+      );
       expect(result).toEqual(mockBlob);
     });
 
@@ -657,12 +663,15 @@ describe('estimates API client', () => {
 
       const result = await exportEstimate('est-1', 'pdf');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/estimates/est-1/export?format=pdf', {
-        method: 'GET',
-        headers: {
-          Authorization: 'Bearer null',
-        },
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
+        {
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer null',
+          },
+        }
+      );
       expect(result).toEqual(mockBlob);
     });
   });
@@ -695,12 +704,15 @@ describe('estimates API client', () => {
 
       await downloadEstimate('est-1', 'pdf', '見積書.pdf');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/estimates/est-1/export?format=pdf', {
-        method: 'GET',
-        headers: {
-          Authorization: 'Bearer test-access-token',
-        },
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
+        {
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer test-access-token',
+          },
+        }
+      );
       expect(mockCreateObjectURL).toHaveBeenCalledWith(mockBlob);
       expect(mockLink.href).toBe('blob:test-url');
       expect(mockLink.download).toBe('見積書.pdf');
@@ -721,12 +733,15 @@ describe('estimates API client', () => {
 
       await downloadEstimate('est-1', 'xlsx', '見積書.xlsx');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/estimates/est-1/export?format=xlsx', {
-        method: 'GET',
-        headers: {
-          Authorization: 'Bearer test-access-token',
-        },
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/estimates/est-1/export?format=xlsx&lineTypes=ESTIMATE',
+        {
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer test-access-token',
+          },
+        }
+      );
       expect(mockLink.download).toBe('見積書.xlsx');
     });
 

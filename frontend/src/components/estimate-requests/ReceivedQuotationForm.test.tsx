@@ -597,11 +597,12 @@ describe('ReceivedQuotationForm', () => {
             quantity: 5,
             unitPrice: 2000,
             amount: 10000,
-            netAmount: null,
+
             remarks: null,
           },
         ],
         totalAmount: 10000,
+        netAmount: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -873,11 +874,12 @@ describe('ReceivedQuotationForm', () => {
             quantity: 1,
             unitPrice: 10000,
             amount: 10000,
-            netAmount: null,
+
             remarks: null,
           },
         ],
         totalAmount: 10000,
+        netAmount: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -956,6 +958,240 @@ describe('ReceivedQuotationForm', () => {
   });
 
   // ==========================================================================
+  // Task 63.1: ReceivedQuotationFormにNET金額入力フィールドを追加
+  // ==========================================================================
+
+  describe('NET金額フィールド (Task 63.1)', () => {
+    it('NET金額入力フィールドが明細行テーブルの下に表示される', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const netAmountInput = screen.getByLabelText('NET金額');
+      expect(netAmountInput).toBeInTheDocument();
+    });
+
+    it('NET金額フィールドに値を入力できる', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const netAmountInput = screen.getByLabelText('NET金額');
+      await userEvent.type(netAmountInput, '50000');
+      expect(netAmountInput).toHaveValue('50000');
+    });
+
+    it('NET金額フィールドのフォーカスアウト時に整数フォーマットが適用される', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const netAmountInput = screen.getByLabelText('NET金額');
+      await userEvent.type(netAmountInput, '12345.6');
+      fireEvent.blur(netAmountInput);
+
+      expect(netAmountInput).toHaveValue('12346');
+    });
+
+    it('NET金額フィールドのデフォルト値が空文字列である', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const netAmountInput = screen.getByLabelText('NET金額');
+      expect(netAmountInput).toHaveValue('');
+    });
+  });
+
+  // ==========================================================================
+  // Task 63.2: submit処理でnetAmountを送信
+  // ==========================================================================
+
+  describe('NET金額submit処理 (Task 63.2)', () => {
+    it('NET金額入力時にsubmitデータにnetAmountが含まれる', async () => {
+      mockOnSubmit.mockResolvedValueOnce(undefined);
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 明細行に名称を入力（バリデーション通過のため）
+      const nameInputs = screen.getAllByPlaceholderText(/名称/);
+      await userEvent.type(nameInputs[0]!, 'テスト品目');
+
+      // NET金額を入力
+      const netAmountInput = screen.getByLabelText('NET金額');
+      await userEvent.type(netAmountInput, '50000');
+
+      const submitButton = screen.getByRole('button', { name: /登録/ });
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            netAmount: 50000,
+          })
+        );
+      });
+    });
+
+    it('NET金額が空文字列の場合はnullが送信される', async () => {
+      mockOnSubmit.mockResolvedValueOnce(undefined);
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルをアップロード（バリデーション通過のため）
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      // NET金額は入力しない
+      const submitButton = screen.getByRole('button', { name: /登録/ });
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            netAmount: null,
+          })
+        );
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Task 63.3: 編集画面で既存netAmountデータを表示
+  // ==========================================================================
+
+  describe('NET金額編集画面表示 (Task 63.3)', () => {
+    it('編集画面で既存netAmountデータがフォーマットされて表示される', () => {
+      const initialData = {
+        id: 'rq-net-test',
+        estimateRequestId,
+        name: 'NETテスト見積書',
+        submittedAt: new Date('2025-01-15'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-net-1',
+            receivedQuotationId: 'rq-net-test',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            name: 'テスト品目',
+            specification: null,
+            unit: '式',
+            quantity: 1,
+            unitPrice: 10000,
+            amount: 10000,
+            remarks: null,
+          },
+        ],
+        totalAmount: 10000,
+        netAmount: 8500,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialData}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const netAmountInput = screen.getByLabelText('NET金額');
+      expect(netAmountInput).toHaveValue('8500');
+    });
+
+    it('編集画面で既存netAmountがnullの場合は空欄で表示される', () => {
+      const initialData = {
+        id: 'rq-net-null',
+        estimateRequestId,
+        name: 'NETなし見積書',
+        submittedAt: new Date('2025-01-15'),
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        lineItems: [
+          {
+            id: 'li-net-null',
+            receivedQuotationId: 'rq-net-null',
+            sortOrder: 0,
+            customCategory: null,
+            workType: null,
+            name: 'テスト品目',
+            specification: null,
+            unit: '式',
+            quantity: 1,
+            unitPrice: 10000,
+            amount: 10000,
+            remarks: null,
+          },
+        ],
+        totalAmount: 10000,
+        netAmount: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialData}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const netAmountInput = screen.getByLabelText('NET金額');
+      expect(netAmountInput).toHaveValue('');
+    });
+  });
+
+  // ==========================================================================
   // Task 43.5: 編集画面の既存データ読み込み時のフォーマット適用テスト (42.7)
   //
   // Requirements:
@@ -987,7 +1223,7 @@ describe('ReceivedQuotationForm', () => {
             quantity: 5,
             unitPrice: 2000,
             amount: 10000,
-            netAmount: null,
+
             remarks: null,
           },
           {
@@ -1002,11 +1238,12 @@ describe('ReceivedQuotationForm', () => {
             quantity: 2.5,
             unitPrice: 1234.6,
             amount: 3087,
-            netAmount: null,
+
             remarks: null,
           },
         ],
         totalAmount: 13087,
+        netAmount: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -1054,11 +1291,12 @@ describe('ReceivedQuotationForm', () => {
             quantity: 3,
             unitPrice: 1500,
             amount: 4500,
-            netAmount: null,
+
             remarks: null,
           },
         ],
         totalAmount: 4500,
+        netAmount: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -1121,10 +1359,10 @@ describe('ReceivedQuotationForm', () => {
         quantity: number | null;
         unitPrice: number | null;
         amount: number | null;
-        netAmount: number | null;
         remarks: string | null;
       }[],
       totalAmount: 0,
+      netAmount: null as number | null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -1230,6 +1468,48 @@ describe('ReceivedQuotationForm', () => {
       );
 
       expect(screen.queryByTestId('ocr-data-extractor')).not.toBeInTheDocument();
+    });
+
+    // ================================================================
+    // Task 65.3: ReceivedQuotationFormのNET金額テスト（受領見積書レベル）
+    // Requirements: 28.1, 28.2, 28.3, 28.6, 28.8, 28.9, 28.10, 28.11
+    // ================================================================
+    // NOTE: 基本的なNET金額テストはTask 63.1-63.3で実装済み。
+    // Task 65.3では受領見積書レベルでのNET金額配置の観点を追加テスト。
+
+    it('NET金額フィールドが明細行テーブル（LineItemEditor）の外に配置されていること (Task 65.3, Requirements: 28.3)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // NET金額は明細行テーブル（table要素）の外に配置されるべき
+      const netAmountInput = screen.getByLabelText('NET金額');
+      expect(netAmountInput).toBeInTheDocument();
+
+      // NET金額入力フィールドの最も近いtable祖先がないことを確認
+      // (LineItemEditor内のテーブルに含まれていないこと)
+      const closestTable = netAmountInput.closest('table');
+      expect(closestTable).toBeNull();
+    });
+
+    it('NET金額は受領見積書フォームレベルで1つだけ存在すること (Task 65.3, Requirements: 28.1)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // NET金額のaria-labelを持つ入力フィールドが正確に1つだけ存在すること
+      const netAmountInputs = screen.getAllByLabelText('NET金額');
+      expect(netAmountInputs).toHaveLength(1);
     });
 
     it('ファイル削除後は既存ファイルのOcrDataExtractor/Previewが非表示になる', async () => {

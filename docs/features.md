@@ -276,8 +276,9 @@
 
 - ✅ **受領見積書登録**
   - OCR構造化データ抽出（Tesseract.js）による見積書読み取り
+  - Claude Vision API統合によるOCR精度向上（画像PDF・複雑なレイアウト対応）
   - OCR再実行/リトライ機能
-  - PDFテキスト抽出ハイブリッドアプローチ（テキストPDFはpdfjs-dist、画像PDFはOCR）
+  - PDFテキスト抽出ハイブリッドアプローチ（テキストPDFはpdfjs-dist、画像PDFはOCR/Claude Vision）
   - ファイルアップロード（PDF、画像）
   - 構造化明細データの登録・管理（名称・規格・単位・数量・単価・金額）
   - 項目選択からの一括転記

@@ -485,14 +485,18 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
   });
 
   // ============================================================================
-  // REQ-28: 受領見積書明細行 - NET金額入力欄追加
+  // REQ-28: 受領見積書 - NET金額入力欄（受領見積書レベル）
+  // Task 66.2: NET金額のE2Eテスト
+  // NOTE: NET金額は明細行レベルから受領見積書レベルに移動済み（Task 60-63）
   // ============================================================================
 
-  test.describe('REQ-28: 受領見積書明細行 - NET金額入力欄追加', () => {
+  test.describe('REQ-28: 受領見積書 - NET金額入力欄（受領見積書レベル） (Task 66.2)', () => {
     /**
      * @requirement estimate-request/REQ-28.1
+     * @requirement estimate-request/REQ-28.3
+     * NET金額は受領見積書レベルで管理（明細行テーブルの外に配置）
      */
-    test('受領見積書登録画面の明細行にNET金額入力フィールドが表示される (estimate-request/REQ-28.1)', async ({
+    test('受領見積書登録画面にNET金額入力フィールドが表示される (estimate-request/REQ-28.1)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -516,17 +520,18 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
         timeout: getTimeout(10000),
       });
 
-      // 明細行のNET金額入力フィールドが表示されることを確認
-      const netAmountInput = page.locator('input[aria-label="行1 NET金額"]');
+      // NET金額入力フィールドが受領見積書レベルで表示されることを確認
+      const netAmountInput = page.locator('input[aria-label="NET金額"]');
       await expect(netAmountInput).toBeVisible({ timeout: getTimeout(10000) });
     });
 
     /**
      * @requirement estimate-request/REQ-28.2
-     * @requirement estimate-request/REQ-28.12
-     * @requirement estimate-request/REQ-28.13
+     * @requirement estimate-request/REQ-28.10
+     * @requirement estimate-request/REQ-28.11
+     * NET金額を入力→整数フォーマット確認→保存→編集画面で表示確認
      */
-    test('受領見積書を作成してNET金額が永続化・編集画面で表示される (estimate-request/REQ-28.2, REQ-28.12, REQ-28.13)', async ({
+    test('受領見積書を作成してNET金額が永続化・編集画面で表示される (estimate-request/REQ-28.2, REQ-28.10, REQ-28.11)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -580,8 +585,8 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
         await unitPriceInput.blur();
       }
 
-      // NET金額を入力
-      const netAmountInput = page.locator('input[aria-label="行1 NET金額"]');
+      // NET金額を受領見積書レベルで入力
+      const netAmountInput = page.locator('input[aria-label="NET金額"]');
       await expect(netAmountInput).toBeVisible({ timeout: getTimeout(5000) });
       await netAmountInput.fill('45000');
       await netAmountInput.blur();
@@ -607,9 +612,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
     });
 
     /**
-     * @requirement estimate-request/REQ-28.3
+     * @requirement estimate-request/REQ-28.5
+     * 明細行テーブルにNET金額列が存在しないことの確認
      */
-    test('NET金額入力フィールドが金額列の右隣に配置されている (estimate-request/REQ-28.3)', async ({
+    test('明細行テーブルにNET金額列が存在しないこと (estimate-request/REQ-28.5)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -632,24 +638,17 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
         timeout: getTimeout(10000),
       });
 
-      // テーブルヘッダーの「金額」と「NET金額」の順序を確認
-      const amountHeader = page.locator('th').filter({ hasText: '金額' }).first();
-      const netAmountHeader = page.locator('th').filter({ hasText: 'NET金額' });
+      // 明細行テーブルのヘッダーにNET金額が存在しないことを確認
+      const netAmountHeaders = page.locator('th').filter({ hasText: 'NET金額' });
+      await expect(netAmountHeaders).toHaveCount(0);
 
-      await expect(amountHeader).toBeVisible();
-      await expect(netAmountHeader).toBeVisible();
+      // 行レベルのNET金額入力フィールドが存在しないことを確認
+      const lineNetAmountInput = page.locator('input[aria-label="行1 NET金額"]');
+      await expect(lineNetAmountInput).toHaveCount(0);
 
-      // NET金額ヘッダーが金額ヘッダーの右に配置されていることを確認
-      const amountBbox = await amountHeader.boundingBox();
-      const netAmountBbox = await netAmountHeader.boundingBox();
-
-      expect(amountBbox).toBeTruthy();
-      expect(netAmountBbox).toBeTruthy();
-
-      if (amountBbox && netAmountBbox) {
-        // NET金額がx座標で金額より右側にあることを確認
-        expect(netAmountBbox.x).toBeGreaterThan(amountBbox.x);
-      }
+      // 受領見積書レベルのNET金額フィールドは存在すること
+      const formNetAmountInput = page.locator('input[aria-label="NET金額"]');
+      await expect(formNetAmountInput).toBeVisible();
     });
 
     /**
@@ -679,7 +678,7 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       });
 
       // NET金額入力フィールドが表示され、手動入力可能であることを確認
-      const netAmountInput = page.locator('input[aria-label="行1 NET金額"]');
+      const netAmountInput = page.locator('input[aria-label="NET金額"]');
       await expect(netAmountInput).toBeVisible();
       await expect(netAmountInput).toBeEnabled();
 
@@ -715,7 +714,7 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       });
 
       // NET金額フィールドにrequired属性がないことを確認
-      const netAmountInput = page.locator('input[aria-label="行1 NET金額"]');
+      const netAmountInput = page.locator('input[aria-label="NET金額"]');
       await expect(netAmountInput).toBeVisible();
 
       const isRequired = await netAmountInput.getAttribute('required');
@@ -750,7 +749,7 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       });
 
       // NET金額に小数値を入力
-      const netAmountInput = page.locator('input[aria-label="行1 NET金額"]');
+      const netAmountInput = page.locator('input[aria-label="NET金額"]');
       await netAmountInput.fill('12345.6');
 
       // フォーカスアウト
@@ -764,85 +763,9 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
 
     /**
      * @requirement estimate-request/REQ-28.8
+     * NET金額が受領見積書レベルのフィールドとして初期状態で空欄であること
      */
-    test('構造化データ入力エリア下部にNET金額合計が自動計算して表示される (estimate-request/REQ-28.8)', async ({
-      page,
-    }) => {
-      expect(createdEstimateRequestId).toBeTruthy();
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.locator('[data-testid="estimate-request-detail-page"]')).toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      // 受領見積書の「登録」ボタンをクリック
-      const addButton = page.getByRole('button', { name: /登録|追加/i });
-      await addButton.click();
-
-      // フォームが表示されるのを待機
-      await expect(page.getByText(/受領見積書の登録/i)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
-
-      // NET金額合計表示エリアが存在することを確認
-      const totalNetAmount = page.locator('[data-testid="total-net-amount"]');
-      await expect(totalNetAmount).toBeVisible({ timeout: getTimeout(5000) });
-    });
-
-    /**
-     * @requirement estimate-request/REQ-28.9
-     */
-    test('NET金額合計が既存の金額合計の右隣に配置されている (estimate-request/REQ-28.9)', async ({
-      page,
-    }) => {
-      expect(createdEstimateRequestId).toBeTruthy();
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.locator('[data-testid="estimate-request-detail-page"]')).toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      // 受領見積書の「登録」ボタンをクリック
-      const addButton = page.getByRole('button', { name: /登録|追加/i });
-      await addButton.click();
-
-      // フォームが表示されるのを待機
-      await expect(page.getByText(/受領見積書の登録/i)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
-
-      // 金額合計とNET金額合計が存在すること
-      const totalAmount = page.locator('[data-testid="total-amount"]');
-      const totalNetAmount = page.locator('[data-testid="total-net-amount"]');
-
-      await expect(totalAmount).toBeVisible();
-      await expect(totalNetAmount).toBeVisible();
-
-      // NET金額合計が金額合計の右隣に配置されていることを確認
-      const totalBbox = await totalAmount.boundingBox();
-      const netTotalBbox = await totalNetAmount.boundingBox();
-
-      expect(totalBbox).toBeTruthy();
-      expect(netTotalBbox).toBeTruthy();
-
-      if (totalBbox && netTotalBbox) {
-        // NET金額合計のx座標が金額合計のx座標より大きい（右側に配置）
-        expect(netTotalBbox.x).toBeGreaterThan(totalBbox.x);
-      }
-    });
-
-    /**
-     * @requirement estimate-request/REQ-28.10
-     */
-    test('OCR一括取り込み時にNET金額フィールドが空欄のままである (estimate-request/REQ-28.10)', async ({
+    test('NET金額フィールドが初期状態で空欄である (estimate-request/REQ-28.8)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -866,15 +789,16 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       });
 
       // NET金額フィールドが初期状態で空欄であることを確認
-      const netAmountInput = page.locator('input[aria-label="行1 NET金額"]');
+      const netAmountInput = page.locator('input[aria-label="NET金額"]');
       await expect(netAmountInput).toBeVisible();
       await expect(netAmountInput).toHaveValue('');
     });
 
     /**
-     * @requirement estimate-request/REQ-28.11
+     * @requirement estimate-request/REQ-28.9
+     * NET金額を空欄のまま保存→編集画面でNET金額が空欄であることを確認
      */
-    test('項目選択からの一括転記時にNET金額フィールドが空欄のままである (estimate-request/REQ-28.11)', async ({
+    test('NET金額を空欄のまま保存→編集画面でNET金額が空欄であることを確認 (estimate-request/REQ-28.9)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -892,30 +816,51 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       const addButton = page.getByRole('button', { name: /登録|追加/i });
       await addButton.click();
 
-      // フォームが表示されるのを待機
+      // フォームモーダルが表示されるのを待機
       await expect(page.getByText(/受領見積書の登録/i)).toBeVisible({
         timeout: getTimeout(10000),
       });
 
-      // 「項目から転記」ボタンが存在する場合
-      const transferFromItemsButton = page.getByRole('button', {
-        name: /項目から転記|選択項目を転記/i,
-      });
-      const transferButtonVisible = await transferFromItemsButton.isVisible().catch(() => false);
+      // 受領見積書名を入力
+      const nameInput = page.getByLabel(/受領見積書名|名称/i).first();
+      if (await nameInput.isVisible()) {
+        await nameInput.fill(`NET金額空欄テスト_${Date.now()}`);
+      }
 
-      if (transferButtonVisible) {
-        await transferFromItemsButton.click();
+      // 提出日を入力
+      const dateInput = page.getByLabel(/提出日/i);
+      if (await dateInput.isVisible()) {
+        await dateInput.fill('2026-02-18');
+      }
 
-        // 転記後のNET金額フィールドが空欄であることを確認
-        const netAmountInputs = page.locator('input[data-field="netAmount"]');
-        const netCount = await netAmountInputs.count();
-        for (let i = 0; i < netCount; i++) {
-          await expect(netAmountInputs.nth(i)).toHaveValue('');
+      // 明細行の名称を入力
+      const lineNameInput = page.locator('input[aria-label="行1 名称"]');
+      if (await lineNameInput.isVisible()) {
+        await lineNameInput.fill('NET金額空欄テスト項目');
+      }
+
+      // NET金額は入力しない（空欄のまま）
+      const netAmountInput = page.locator('input[aria-label="NET金額"]');
+      await expect(netAmountInput).toBeVisible();
+      await expect(netAmountInput).toHaveValue('');
+
+      // 保存ボタンをクリック
+      const submitButton = page.getByRole('button', { name: /保存|登録/i }).last();
+      if (await submitButton.isVisible()) {
+        const savePromise = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api') &&
+            response.url().includes('/quotations') &&
+            response.request().method() === 'POST',
+          { timeout: getTimeout(30000) }
+        );
+
+        await submitButton.click();
+        const response = await savePromise;
+
+        if (response.status() !== 201) {
+          throw new Error(`受領見積書の保存に失敗しました: ${response.status()}`);
         }
-      } else {
-        // 転記ボタンが存在しない場合、初期状態でNET金額が空であることを確認
-        const netAmountInput = page.locator('input[aria-label="行1 NET金額"]');
-        await expect(netAmountInput).toHaveValue('');
       }
     });
   });

@@ -523,6 +523,45 @@ describe('LineItemEditor', () => {
   });
 
   // --------------------------------------------------------------------------
+  // NET金額列削除テスト（Task 62.1）
+  // --------------------------------------------------------------------------
+
+  describe('NET金額列が削除されている (Task 62.1)', () => {
+    it('テーブルヘッダーにNET金額列が表示されない', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      expect(screen.queryByText('NET金額')).not.toBeInTheDocument();
+    });
+
+    it('明細行にNET金額入力フィールドが表示されない', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      expect(screen.queryByPlaceholderText('NET金額')).not.toBeInTheDocument();
+    });
+
+    it('フッターにNET合計が表示されない', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      expect(screen.queryByText('NET合計')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('total-net-amount')).not.toBeInTheDocument();
+    });
+
+    it('createEmptyLineItem()にnetAmountフィールドが含まれない', () => {
+      const item = createEmptyLineItem();
+      expect('netAmount' in item).toBe(false);
+    });
+
+    it('LineItemFormDataインターフェースにnetAmountフィールドが含まれない（型レベル確認）', () => {
+      // 実行時チェック：空の明細行にnetAmountプロパティが存在しないことを確認
+      const item = createEmptyLineItem();
+      expect(Object.keys(item)).not.toContain('netAmount');
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // 複数行表示テスト
   // --------------------------------------------------------------------------
 

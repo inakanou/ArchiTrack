@@ -2250,11 +2250,11 @@ describe('ReceivedQuotationService', () => {
   });
 
   // ==========================================================================
-  // Task 64.1: ReceivedQuotationServiceのnetAmountフィールドテスト
-  // Requirements: 28.12, 28.13
+  // Task 61.2: ReceivedQuotationServiceのnetAmountフィールドテスト（受領見積書レベル）
+  // Requirements: 28.10 (NET金額のDB永続化), 28.11 (編集画面で既存NET金額データ表示)
   // ==========================================================================
-  describe('netAmountフィールドテスト (Task 64.1)', () => {
-    it('明細行作成時にnetAmountが永続化されること（Requirements: 28.12）', async () => {
+  describe('netAmountフィールドテスト（受領見積書レベル） (Task 61.2)', () => {
+    it('受領見積書作成時にnetAmountが受領見積書レベルで永続化されること（Requirements: 28.10）', async () => {
       const lineItems = [
         {
           name: '工事A',
@@ -2262,13 +2262,13 @@ describe('ReceivedQuotationService', () => {
           quantity: 1,
           unitPrice: 10000,
           amount: 10000,
-          netAmount: 9000,
         },
       ];
       const input = {
         estimateRequestId: 'er-net-001',
         name: 'NET金額テスト',
         submittedAt: new Date('2026-02-18'),
+        netAmount: 9000,
         lineItems,
       };
 
@@ -2283,6 +2283,7 @@ describe('ReceivedQuotationService', () => {
         fileName: null,
         fileMimeType: null,
         fileSize: null,
+        netAmount: 9000,
         createdAt: new Date('2026-02-18T00:00:00Z'),
         updatedAt: new Date('2026-02-18T00:00:00Z'),
         deletedAt: null,
@@ -2295,7 +2296,6 @@ describe('ReceivedQuotationService', () => {
             quantity: 1,
             unitPrice: 10000,
             amount: 10000,
-            netAmount: 9000,
             customCategory: null,
             workType: null,
             specification: null,
@@ -2305,7 +2305,7 @@ describe('ReceivedQuotationService', () => {
         ],
       };
 
-      let capturedCreateManyData: unknown = null;
+      let capturedCreateData: unknown = null;
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
@@ -2313,13 +2313,13 @@ describe('ReceivedQuotationService', () => {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
-            create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            create: vi.fn().mockImplementation((args) => {
+              capturedCreateData = args;
+              return mockCreatedQuotation;
+            }),
           },
           receivedQuotationLineItem: {
-            createMany: vi.fn().mockImplementation((args) => {
-              capturedCreateManyData = args;
-              return { count: 1 };
-            }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
           },
         };
         return fn(txClient as unknown as PrismaClient);
@@ -2328,13 +2328,14 @@ describe('ReceivedQuotationService', () => {
       const result = await service.create(input);
 
       expect(result.id).toBe('rq-net-001');
-      // createManyに渡されたデータにnetAmountが含まれていることを確認
-      expect(capturedCreateManyData).not.toBeNull();
-      const createData = (capturedCreateManyData as { data: Array<{ netAmount?: unknown }> })?.data;
-      expect(createData?.[0]?.netAmount).toBe(9000);
+      expect(result.netAmount).toBe(9000);
+      // 受領見積書作成データにnetAmountが含まれていることを確認
+      expect(capturedCreateData).not.toBeNull();
+      const createArgs = capturedCreateData as { data: { netAmount?: unknown } };
+      expect(createArgs.data.netAmount).toBe(9000);
     });
 
-    it('明細行取得時にnetAmountフィールドが返却されること（Requirements: 28.13）', async () => {
+    it('受領見積書取得時にnetAmountフィールドが返却されること（Requirements: 28.11）', async () => {
       const mockQuotation = {
         id: 'rq-net-002',
         estimateRequestId: 'er-net-002',
@@ -2344,6 +2345,7 @@ describe('ReceivedQuotationService', () => {
         fileName: null,
         fileMimeType: null,
         fileSize: null,
+        netAmount: 8500,
         createdAt: new Date('2026-02-18T00:00:00Z'),
         updatedAt: new Date('2026-02-18T00:00:00Z'),
         deletedAt: null,
@@ -2360,7 +2362,6 @@ describe('ReceivedQuotationService', () => {
             quantity: 5,
             unitPrice: 2000,
             amount: 10000,
-            netAmount: 8500,
             remarks: null,
           },
         ],
@@ -2371,10 +2372,10 @@ describe('ReceivedQuotationService', () => {
       const result = await service.findById('rq-net-002');
 
       expect(result).not.toBeNull();
-      expect(result!.lineItems[0]?.netAmount).toBe(8500);
+      expect(result!.netAmount).toBe(8500);
     });
 
-    it('netAmountがnullの場合にnullで返却されること（Requirements: 28.13）', async () => {
+    it('netAmountがnullの場合にnullで返却されること（Requirements: 28.7）', async () => {
       const mockQuotation = {
         id: 'rq-net-003',
         estimateRequestId: 'er-net-003',
@@ -2384,6 +2385,7 @@ describe('ReceivedQuotationService', () => {
         fileName: null,
         fileMimeType: null,
         fileSize: null,
+        netAmount: null,
         createdAt: new Date('2026-02-18T00:00:00Z'),
         updatedAt: new Date('2026-02-18T00:00:00Z'),
         deletedAt: null,
@@ -2400,7 +2402,6 @@ describe('ReceivedQuotationService', () => {
             quantity: null,
             unitPrice: null,
             amount: null,
-            netAmount: null,
             remarks: null,
           },
         ],
@@ -2411,7 +2412,227 @@ describe('ReceivedQuotationService', () => {
       const result = await service.findById('rq-net-003');
 
       expect(result).not.toBeNull();
-      expect(result!.lineItems[0]?.netAmount).toBeNull();
+      expect(result!.netAmount).toBeNull();
+    });
+
+    it('明細行のcreateMany/更新データにnetAmountが含まれないこと（Requirements: 28.5）', async () => {
+      const lineItems = [
+        {
+          name: '工事D',
+          sortOrder: 0,
+          quantity: 2,
+          unitPrice: 5000,
+          amount: 10000,
+        },
+      ];
+      const input = {
+        estimateRequestId: 'er-net-004',
+        name: 'NET金額明細行除外テスト',
+        submittedAt: new Date('2026-02-18'),
+        netAmount: 7000,
+        lineItems,
+      };
+
+      const mockEstimateRequest = { id: 'er-net-004', deletedAt: null };
+
+      const mockCreatedQuotation = {
+        id: 'rq-net-004',
+        estimateRequestId: 'er-net-004',
+        name: 'NET金額明細行除外テスト',
+        submittedAt: new Date('2026-02-18'),
+        filePath: null,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        netAmount: 7000,
+        createdAt: new Date('2026-02-18T00:00:00Z'),
+        updatedAt: new Date('2026-02-18T00:00:00Z'),
+        deletedAt: null,
+        lineItems: [],
+      };
+
+      let capturedLineItemData: unknown = null;
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateRequest: {
+            findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
+          },
+          receivedQuotation: {
+            create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+          },
+          receivedQuotationLineItem: {
+            createMany: vi.fn().mockImplementation((args) => {
+              capturedLineItemData = args;
+              return { count: 1 };
+            }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      await service.create(input);
+
+      // createManyに渡された明細行データにnetAmountが含まれていないことを確認
+      expect(capturedLineItemData).not.toBeNull();
+      const lineItemCreateData = (capturedLineItemData as { data: Array<Record<string, unknown>> })
+        ?.data;
+      expect(lineItemCreateData?.[0]).not.toHaveProperty('netAmount');
+    });
+
+    it('受領見積書更新時にnetAmountが更新されること（Requirements: 28.10）', async () => {
+      const quotationId = 'rq-net-upd-001';
+      const expectedUpdatedAt = new Date('2026-02-18T00:00:00Z');
+      const input = {
+        netAmount: 12000,
+      };
+
+      const mockQuotation = {
+        id: quotationId,
+        estimateRequestId: 'er-net-upd-001',
+        name: 'NET金額更新テスト',
+        submittedAt: new Date('2026-02-18'),
+        filePath: null,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        netAmount: 9000,
+        createdAt: new Date('2026-02-17T00:00:00Z'),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      };
+
+      const mockUpdatedQuotation = {
+        ...mockQuotation,
+        netAmount: 12000,
+        updatedAt: new Date('2026-02-18T01:00:00Z'),
+        lineItems: [],
+      };
+
+      let capturedUpdateData: unknown = null;
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue(mockQuotation),
+            update: vi.fn().mockImplementation((args) => {
+              capturedUpdateData = args;
+              return mockUpdatedQuotation;
+            }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      const result = await service.update(quotationId, input, expectedUpdatedAt);
+
+      expect(result.netAmount).toBe(12000);
+      // updateに渡されたデータにnetAmountが含まれていることを確認
+      expect(capturedUpdateData).not.toBeNull();
+      const updateArgs = capturedUpdateData as { data: { netAmount?: unknown } };
+      expect(updateArgs.data.netAmount).toBe(12000);
+    });
+
+    it('受領見積書更新時にnetAmountをnullに更新できること（Requirements: 28.7）', async () => {
+      const quotationId = 'rq-net-upd-002';
+      const expectedUpdatedAt = new Date('2026-02-18T00:00:00Z');
+      const input = {
+        netAmount: null,
+      };
+
+      const mockQuotation = {
+        id: quotationId,
+        estimateRequestId: 'er-net-upd-002',
+        name: 'NET金額null更新テスト',
+        submittedAt: new Date('2026-02-18'),
+        filePath: null,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        netAmount: 9000,
+        createdAt: new Date('2026-02-17T00:00:00Z'),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      };
+
+      const mockUpdatedQuotation = {
+        ...mockQuotation,
+        netAmount: null,
+        updatedAt: new Date('2026-02-18T01:00:00Z'),
+        lineItems: [],
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue(mockQuotation),
+            update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      const result = await service.update(quotationId, input, expectedUpdatedAt);
+
+      expect(result.netAmount).toBeNull();
+    });
+
+    it('findByEstimateRequestIdでnetAmountが各受領見積書に含まれること', async () => {
+      const mockQuotations = [
+        {
+          id: 'rq-net-list-001',
+          estimateRequestId: 'er-net-list',
+          name: 'NET見積書1',
+          submittedAt: new Date('2026-02-18'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: 50000,
+          createdAt: new Date('2026-02-18T00:00:00Z'),
+          updatedAt: new Date('2026-02-18T00:00:00Z'),
+          deletedAt: null,
+          lineItems: [
+            {
+              id: 'li-net-list-001',
+              receivedQuotationId: 'rq-net-list-001',
+              sortOrder: 0,
+              name: '工事X',
+              customCategory: null,
+              workType: null,
+              specification: null,
+              unit: null,
+              quantity: 1,
+              unitPrice: 100000,
+              amount: 100000,
+              remarks: null,
+            },
+          ],
+        },
+        {
+          id: 'rq-net-list-002',
+          estimateRequestId: 'er-net-list',
+          name: 'NET見積書2',
+          submittedAt: new Date('2026-02-19'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: null,
+          createdAt: new Date('2026-02-19T00:00:00Z'),
+          updatedAt: new Date('2026-02-19T00:00:00Z'),
+          deletedAt: null,
+          lineItems: [],
+        },
+      ];
+
+      vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue(mockQuotations as never);
+
+      const result = await service.findByEstimateRequestId('er-net-list');
+
+      expect(result).toHaveLength(2);
+      expect(result[0]!.netAmount).toBe(50000);
+      expect(result[1]!.netAmount).toBeNull();
     });
   });
 });

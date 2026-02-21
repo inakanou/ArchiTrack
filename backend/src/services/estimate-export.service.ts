@@ -107,6 +107,16 @@ const COL_WIDTH_PRICE = 25;
 /** ファイル名に使用できない文字の正規表現 */
 const INVALID_FILENAME_CHARS = /[/\\:*?"<>|]/g;
 
+/** 行タイプのラベルマップ */
+const LINE_TYPE_LABELS: Record<string, string> = {
+  ESTIMATE: '見積',
+  EXECUTION: '実行',
+  VENDOR: '業者',
+};
+
+/** 列名定義（プレフィックスなし） */
+const BASE_COLUMN_NAMES = ['名称', '規格', '単位', '数量', '単価', '金額', '備考'] as const;
+
 // ============================================================================
 // サービスクラス
 // ============================================================================
@@ -270,6 +280,145 @@ export class EstimateExportService {
     }
 
     return total;
+  }
+
+  // ============================================================================
+  // 複数行タイプ対応メソッド (Task 42.2)
+  // ============================================================================
+
+  /**
+   * 複数行タイプでフィルタリングする
+   *
+   * Requirements: REQ-32.2
+   *
+   * @param items - 見積項目
+   * @param lineTypes - フィルタ対象の行タイプ配列
+   * @returns フィルタリングされた見積項目
+   */
+  filterLinesByTypes(
+    items: EstimateExportItem[],
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): EstimateExportItem[] {
+    return items.map((item) => ({
+      ...item,
+      lines: item.lines.filter((line) => lineTypes.includes(line.lineType)),
+      children: this.filterLinesByTypes(item.children, lineTypes),
+    }));
+  }
+
+  /**
+   * 複数行タイプ用のプレフィックス付き列名を生成する
+   *
+   * Requirements: REQ-32.7
+   *
+   * @param lineTypes - 行タイプ配列
+   * @returns プレフィックス付き列名の配列
+   */
+  getHeadersForLineTypes(lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>): string[] {
+    const headers: string[] = [];
+    for (const lineType of lineTypes) {
+      const prefix = LINE_TYPE_LABELS[lineType] ?? lineType;
+      for (const colName of BASE_COLUMN_NAMES) {
+        headers.push(`${prefix}${colName}`);
+      }
+    }
+    return headers;
+  }
+
+  /**
+   * 複数行タイプ対応のファイル名を生成する
+   *
+   * Requirements: REQ-32.3
+   *
+   * @param estimate - 見積書データ
+   * @param format - 出力形式
+   * @param lineTypes - 行タイプ配列
+   * @returns ファイル名
+   */
+  generateFileNameWithLineTypes(
+    estimate: EstimateExportData,
+    format: ExportFormat,
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): string {
+    const safeName = this.sanitizeFileName(estimate.name);
+    const dateStr = this.formatDateForFileName(new Date());
+    const lineTypeLabels = lineTypes.map((lt) => LINE_TYPE_LABELS[lt] ?? lt).join('_');
+    const extension = format === ExportFormat.PDF ? 'pdf' : 'xlsx';
+    return `${safeName}_${dateStr}_${lineTypeLabels}.${extension}`;
+  }
+
+  /**
+   * 複数行タイプ対応のExcelを生成する
+   *
+   * Requirements: REQ-32.2, REQ-32.7, REQ-10.9, REQ-10.10, REQ-10.11
+   *
+   * @param estimate - 見積書データ
+   * @param lineTypes - 行タイプ配列
+   * @returns Excel バッファ
+   */
+  async exportToExcelWithLineTypes(
+    estimate: EstimateExportData,
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): Promise<Buffer> {
+    this.validateEstimateData(estimate);
+
+    // ワークブックを作成
+    const workbook = XLSX.utils.book_new();
+
+    // 表紙シート
+    const coverSheet = this.createCoverSheet(estimate);
+    XLSX.utils.book_append_sheet(workbook, coverSheet, '表紙');
+
+    // プレフィックス付きヘッダーを生成
+    const headers = this.getHeadersForLineTypes(lineTypes);
+
+    // サマリーシート（第1階層一覧）- 複数行タイプ列
+    const summarySheet = this.createMultiLineTypeSummarySheet(estimate.items, lineTypes, headers);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, '項目一覧');
+
+    // 各第1階層項目の詳細シート
+    this.createMultiLineTypeDetailSheets(workbook, estimate.items, lineTypes, headers);
+
+    // バッファとして出力
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    return buffer;
+  }
+
+  /**
+   * 複数行タイプ対応のPDFを生成する
+   *
+   * Requirements: REQ-32.2, REQ-32.7, REQ-10.9, REQ-10.12, REQ-10.13
+   *
+   * @param estimate - 見積書データ
+   * @param lineTypes - 行タイプ配列
+   * @returns PDF バッファ
+   */
+  async exportToPdfWithLineTypes(
+    estimate: EstimateExportData,
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): Promise<Buffer> {
+    this.validateEstimateData(estimate);
+
+    // jsPDFインスタンスを作成
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    // 1ページ目: 表紙
+    this.generateCoverPage(doc, estimate);
+
+    // 2ページ目: 第1階層項目一覧（複数行タイプ対応）
+    doc.addPage();
+    this.generateMultiLineTypeSummaryPage(doc, estimate, estimate.items, lineTypes);
+
+    // 3ページ目以降: 各階層の詳細（複数行タイプ対応）
+    this.generateMultiLineTypeDetailPages(doc, estimate.items, lineTypes, 0);
+
+    // ArrayBufferからBufferへ変換
+    const arrayBuffer = doc.output('arraybuffer');
+    return Buffer.from(arrayBuffer);
   }
 
   // ============================================================================
@@ -552,6 +701,240 @@ export class EstimateExportService {
       // 再帰的に子項目を追加
       if (child.children.length > 0) {
         this.addChildrenToSheet(data, child.children, level + 1);
+      }
+    }
+  }
+
+  // ============================================================================
+  // 複数行タイプ対応プライベートメソッド (Task 42.2)
+  // ============================================================================
+
+  /**
+   * 複数行タイプ対応のサマリーシートを作成する
+   */
+  private createMultiLineTypeSummarySheet(
+    items: EstimateExportItem[],
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>,
+    headers: string[]
+  ): XLSX.WorkSheet {
+    const data: (string | number | null)[][] = [headers];
+
+    for (const item of items) {
+      const row = this.buildMultiLineTypeRow(item, lineTypes);
+      if (row) {
+        data.push(row);
+      }
+    }
+
+    return XLSX.utils.aoa_to_sheet(data);
+  }
+
+  /**
+   * 複数行タイプ対応の詳細シートを作成する
+   */
+  private createMultiLineTypeDetailSheets(
+    workbook: XLSX.WorkBook,
+    items: EstimateExportItem[],
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>,
+    headers: string[]
+  ): void {
+    for (const item of items) {
+      if (item.children.length > 0) {
+        const parentLine = item.lines[0];
+        const sheetName = this.sanitizeSheetName(
+          parentLine?.name ?? `項目${item.displayOrder + 1}`
+        );
+
+        const data: (string | number | null)[][] = [headers];
+
+        this.addMultiLineTypeChildrenToSheet(data, item.children, lineTypes, 0);
+
+        const sheet = XLSX.utils.aoa_to_sheet(data);
+        XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+      }
+    }
+  }
+
+  /**
+   * 子項目を再帰的に複数行タイプ形式でシートデータに追加する
+   */
+  private addMultiLineTypeChildrenToSheet(
+    data: (string | number | null)[][],
+    children: EstimateExportItem[],
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>,
+    level: number
+  ): void {
+    const indent = '  '.repeat(level);
+
+    for (const child of children) {
+      const row = this.buildMultiLineTypeRow(child, lineTypes, indent);
+      if (row) {
+        data.push(row);
+      }
+
+      if (child.children.length > 0) {
+        this.addMultiLineTypeChildrenToSheet(data, child.children, lineTypes, level + 1);
+      }
+    }
+  }
+
+  /**
+   * 複数行タイプの1行分のデータを構築する
+   */
+  private buildMultiLineTypeRow(
+    item: EstimateExportItem,
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>,
+    indent: string = ''
+  ): (string | number | null)[] | null {
+    const row: (string | number | null)[] = [];
+    let hasData = false;
+
+    for (const lineType of lineTypes) {
+      const line = item.lines.find((l) => l.lineType === lineType);
+      if (line) {
+        hasData = true;
+        row.push(
+          indent + (line.name ?? ''),
+          line.specification ?? '',
+          line.unit ?? '',
+          line.quantity,
+          line.unitPrice,
+          line.amount,
+          line.remarks ?? ''
+        );
+      } else {
+        // 該当行タイプのデータがない場合は空列で埋める
+        row.push('', '', '', null, null, null, '');
+      }
+    }
+
+    return hasData ? row : null;
+  }
+
+  /**
+   * 複数行タイプ対応のサマリーページ（PDF）を生成する
+   */
+  private generateMultiLineTypeSummaryPage(
+    doc: jsPDF,
+    _estimate: EstimateExportData,
+    items: EstimateExportItem[],
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): void {
+    let yPos = MARGIN_TOP;
+
+    // ページタイトル
+    doc.setFontSize(FONT_SIZE_HEADER);
+    doc.text('項目一覧', MARGIN_LEFT, yPos);
+    yPos += 10;
+
+    // テーブルヘッダー（複数行タイプ対応）
+    doc.setFontSize(FONT_SIZE_SMALL);
+    this.drawMultiLineTypeTableHeader(doc, yPos, lineTypes);
+    yPos += 8;
+
+    // 各項目を出力
+    for (const item of items) {
+      if (yPos > A4_HEIGHT - MARGIN_BOTTOM - 10) {
+        doc.addPage();
+        yPos = MARGIN_TOP;
+        this.drawMultiLineTypeTableHeader(doc, yPos, lineTypes);
+        yPos += 8;
+      }
+
+      this.drawMultiLineTypeTableRow(doc, yPos, item, lineTypes);
+      yPos += 6;
+    }
+  }
+
+  /**
+   * 複数行タイプ対応の詳細ページ（PDF）を再帰的に生成する
+   */
+  private generateMultiLineTypeDetailPages(
+    doc: jsPDF,
+    items: EstimateExportItem[],
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>,
+    level: number
+  ): void {
+    for (const item of items) {
+      if (item.children.length > 0) {
+        doc.addPage();
+        let yPos = MARGIN_TOP;
+
+        const parentLine = item.lines[0];
+        const title = parentLine?.name ?? `項目 ${item.displayOrder + 1}`;
+        doc.setFontSize(FONT_SIZE_HEADER);
+        doc.text(title, MARGIN_LEFT, yPos);
+        yPos += 10;
+
+        doc.setFontSize(FONT_SIZE_SMALL);
+        this.drawMultiLineTypeTableHeader(doc, yPos, lineTypes);
+        yPos += 8;
+
+        for (const child of item.children) {
+          if (yPos > A4_HEIGHT - MARGIN_BOTTOM - 10) {
+            doc.addPage();
+            yPos = MARGIN_TOP;
+            this.drawMultiLineTypeTableHeader(doc, yPos, lineTypes);
+            yPos += 8;
+          }
+
+          this.drawMultiLineTypeTableRow(doc, yPos, child, lineTypes);
+          yPos += 6;
+        }
+
+        this.generateMultiLineTypeDetailPages(doc, item.children, lineTypes, level + 1);
+      }
+    }
+  }
+
+  /**
+   * 複数行タイプ対応のテーブルヘッダーを描画する（PDF用）
+   */
+  private drawMultiLineTypeTableHeader(
+    doc: jsPDF,
+    yPos: number,
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): void {
+    let xPos = MARGIN_LEFT;
+    doc.setFontSize(FONT_SIZE_SMALL);
+
+    // 列幅を行タイプ数に応じて調整
+    const colWidthName = Math.min(COL_WIDTH_NAME, 180 / (lineTypes.length * 6)) + 10;
+    const colWidthOther = Math.min(15, 180 / (lineTypes.length * 6));
+
+    for (const lineType of lineTypes) {
+      const prefix = LINE_TYPE_LABELS[lineType] ?? lineType;
+      doc.text(`${prefix}名称`, xPos, yPos);
+      xPos += colWidthName;
+      doc.text(`${prefix}金額`, xPos, yPos);
+      xPos += colWidthOther + 10;
+    }
+  }
+
+  /**
+   * 複数行タイプ対応のテーブル行を描画する（PDF用）
+   */
+  private drawMultiLineTypeTableRow(
+    doc: jsPDF,
+    yPos: number,
+    item: EstimateExportItem,
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): void {
+    let xPos = MARGIN_LEFT;
+    doc.setFontSize(FONT_SIZE_SMALL);
+
+    const colWidthName = Math.min(COL_WIDTH_NAME, 180 / (lineTypes.length * 6)) + 10;
+    const colWidthOther = Math.min(15, 180 / (lineTypes.length * 6)) + 10;
+
+    for (const lineType of lineTypes) {
+      const line = item.lines.find((l) => l.lineType === lineType);
+      if (line) {
+        doc.text(this.truncateText(line.name ?? '', 15), xPos, yPos);
+        xPos += colWidthName;
+        doc.text(line.amount ? this.formatNumber(line.amount) : '', xPos, yPos);
+        xPos += colWidthOther;
+      } else {
+        xPos += colWidthName + colWidthOther;
       }
     }
   }

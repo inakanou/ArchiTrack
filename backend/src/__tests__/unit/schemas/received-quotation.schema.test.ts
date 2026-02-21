@@ -115,6 +115,68 @@ describe('received-quotation.schema', () => {
       });
     });
 
+    // ================================================================
+    // Task 61.1: createReceivedQuotationSchemaにnetAmountフィールドを追加
+    // Requirements: 28.7 (NET金額は任意入力), 28.10 (NET金額のDB永続化)
+    // ================================================================
+    describe('netAmount field (Task 61.1)', () => {
+      it('should accept netAmount as number', () => {
+        const input = {
+          name: 'テスト受領見積書',
+          submittedAt: '2024-01-15T00:00:00.000Z',
+          netAmount: 500000,
+        };
+
+        const result = createReceivedQuotationSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.netAmount).toBe(500000);
+        }
+      });
+
+      it('should accept netAmount as null', () => {
+        const input = {
+          name: 'テスト受領見積書',
+          submittedAt: '2024-01-15T00:00:00.000Z',
+          netAmount: null,
+        };
+
+        const result = createReceivedQuotationSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.netAmount).toBeNull();
+        }
+      });
+
+      it('should accept omitted netAmount (optional)', () => {
+        const input = {
+          name: 'テスト受領見積書',
+          submittedAt: '2024-01-15T00:00:00.000Z',
+        };
+
+        const result = createReceivedQuotationSchema.safeParse(input);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.netAmount).toBeNull();
+        }
+      });
+
+      it('should reject netAmount as non-number string', () => {
+        const input = {
+          name: 'テスト受領見積書',
+          submittedAt: '2024-01-15T00:00:00.000Z',
+          netAmount: 'abc',
+        };
+
+        const result = createReceivedQuotationSchema.safeParse(input);
+
+        expect(result.success).toBe(false);
+      });
+    });
+
     describe('simplified schema (Task 20.2: contentType/textContent removed)', () => {
       it('should accept input without contentType or textContent', () => {
         const input = {
@@ -129,6 +191,7 @@ describe('received-quotation.schema', () => {
           expect(result.data).toEqual({
             name: 'テスト受領見積書',
             submittedAt: '2024-01-15T00:00:00.000Z',
+            netAmount: null,
           });
         }
       });
@@ -200,6 +263,38 @@ describe('received-quotation.schema', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.removeFile).toBe(true);
+      }
+    });
+
+    // ================================================================
+    // Task 61.1: updateReceivedQuotationSchemaにnetAmountフィールドを追加
+    // Requirements: 28.7 (NET金額は任意入力), 28.10 (NET金額のDB永続化)
+    // ================================================================
+    it('should accept netAmount in update schema (Task 61.1)', () => {
+      const input = {
+        netAmount: 300000,
+        expectedUpdatedAt: '2024-01-15T00:00:00.000Z',
+      };
+
+      const result = updateReceivedQuotationSchema.safeParse(input);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.netAmount).toBe(300000);
+      }
+    });
+
+    it('should accept null netAmount in update schema (Task 61.1)', () => {
+      const input = {
+        netAmount: null,
+        expectedUpdatedAt: '2024-01-15T00:00:00.000Z',
+      };
+
+      const result = updateReceivedQuotationSchema.safeParse(input);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.netAmount).toBeNull();
       }
     });
   });
@@ -532,10 +627,11 @@ describe('received-quotation.schema', () => {
       });
 
       // ================================================================
-      // Task 64.2: netAmountフィールドのバリデーションテスト
-      // Requirements: 28.5
+      // Task 61.1: lineItemSchemaからnetAmountフィールドが削除されたことの確認
+      // Requirements: 28.5 (明細行にNET金額列を含めない)
       // ================================================================
-      it('netAmountフィールドをnumber型として受け入れること (Task 64.2)', () => {
+      it('lineItemSchemaにnetAmountフィールドが含まれないこと (Task 61.1)', () => {
+        // netAmountは受領見積書レベルで管理するため、明細行スキーマには含まない
         const input = {
           name: 'テスト項目',
           sortOrder: 0,
@@ -544,51 +640,11 @@ describe('received-quotation.schema', () => {
 
         const result = lineItemSchema.safeParse(input);
 
+        // Zod strips unknown fields by default, so parse succeeds but netAmount is stripped
         expect(result.success).toBe(true);
         if (result.success) {
-          expect(result.data.netAmount).toBe(50000);
+          expect((result.data as Record<string, unknown>)['netAmount']).toBeUndefined();
         }
-      });
-
-      it('netAmountフィールドがnullの場合を受け入れること (Task 64.2)', () => {
-        const input = {
-          name: 'テスト項目',
-          sortOrder: 0,
-          netAmount: null,
-        };
-
-        const result = lineItemSchema.safeParse(input);
-
-        expect(result.success).toBe(true);
-        if (result.success) {
-          expect(result.data.netAmount).toBeNull();
-        }
-      });
-
-      it('netAmountフィールドが省略された場合を受け入れること (Task 64.2)', () => {
-        const input = {
-          name: 'テスト項目',
-          sortOrder: 0,
-        };
-
-        const result = lineItemSchema.safeParse(input);
-
-        expect(result.success).toBe(true);
-        if (result.success) {
-          expect(result.data.netAmount).toBeUndefined();
-        }
-      });
-
-      it('netAmountフィールドが文字列の場合を拒否すること (Task 64.2)', () => {
-        const input = {
-          name: 'テスト項目',
-          sortOrder: 0,
-          netAmount: 'abc',
-        };
-
-        const result = lineItemSchema.safeParse(input);
-
-        expect(result.success).toBe(false);
       });
 
       it('customCategoryとworkTypeを含む完全な明細行を受け入れること (Task 36.4)', () => {

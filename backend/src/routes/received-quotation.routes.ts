@@ -148,6 +148,7 @@ router.post(
       const validatedBody = req.validatedBody as {
         name: string;
         submittedAt: string;
+        netAmount?: number | null;
       };
 
       // Task 21.3: multipart内のlineItemsフィールド（JSON文字列）をパース・検証
@@ -178,6 +179,7 @@ router.post(
             }
           : undefined,
         lineItems,
+        netAmount: validatedBody.netAmount,
       };
 
       const quotation = await getReceivedQuotationService().create(input);

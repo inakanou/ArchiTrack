@@ -212,6 +212,29 @@ describe('ReceivedQuotationLineItem Model Schema', () => {
     });
   });
 
+  // ================================================================
+  // Task 60: ReceivedQuotationLineItemからnetAmountフィールドが削除されたことを確認
+  // Requirements: 28.5, 28.10
+  // ================================================================
+  describe('ReceivedQuotationLineItem netAmount field removal (Task 60)', () => {
+    it('should NOT have netAmount field after migration (Task 60)', () => {
+      // REQ-28.5, 28.10: NET金額は明細行ではなく受領見積書テーブルに配置
+      const select: Prisma.ReceivedQuotationLineItemSelect = {};
+      expect((select as Record<string, unknown>)['netAmount']).toBeUndefined();
+    });
+
+    it('should NOT accept netAmount in CreateInput (Task 60)', () => {
+      // NET金額フィールドが明細行のCreateInputに存在しないことを確認
+      const validInput: Prisma.ReceivedQuotationLineItemCreateInput = {
+        sortOrder: 0,
+        name: '外壁塗装',
+        receivedQuotation: { connect: { id: 'received-quotation-id' } },
+      };
+
+      expect((validInput as Record<string, unknown>)['netAmount']).toBeUndefined();
+    });
+  });
+
   describe('ReceivedQuotation has lineItems relation', () => {
     it('should allow including lineItems in ReceivedQuotation queries', () => {
       // REQ-11.9, Design: ReceivedQuotationにlineItemsリレーションを追加

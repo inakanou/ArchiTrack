@@ -912,7 +912,7 @@ model EstimateRequestItem {
 }
 
 /**
- * 受領見積書モデル（改訂版: Task 20.2）
+ * 受領見積書モデル（改訂版: Task 60）
  * 見積依頼に対する協力業者からの返答として届いた受領見積書を管理する。
  * ファイルアップロード（任意）と構造化明細行データ（任意）の共存を許可する。
  * ファイルまたは明細行データのいずれか一方は必須。
@@ -925,6 +925,7 @@ model EstimateRequestItem {
  * - fileName: 元ファイル名
  * - fileMimeType: MIMEタイプ
  * - fileSize: ファイルサイズ（バイト）
+ * - netAmount: NET金額（受領見積書1件につき1つ、任意入力、手動入力）
  * - createdAt: 作成日時
  * - updatedAt: 更新日時（楽観的排他制御用）
  * - deletedAt: 論理削除日時
@@ -940,6 +941,8 @@ model EstimateRequestItem {
  * - 11.22: ファイルまたは明細行データのいずれかが必須
  * - 11.25: 1つの見積依頼に対して複数の受領見積書を許可
  * - 14.1-14.2: 受領見積書データ管理
+ * - 28.4: NET金額は受領見積書1件につき1フィールド
+ * - 28.10: NET金額のDB永続化
  */
 model ReceivedQuotation {
   id                String    @id @default(uuid())
@@ -951,6 +954,7 @@ model ReceivedQuotation {
   fileName          String? // 元ファイル名
   fileMimeType      String? // MIMEタイプ
   fileSize          Int? // ファイルサイズ（バイト）
+  netAmount         Decimal?  @map("net_amount") @db.Decimal(15, 2) // NET金額（受領見積書1件につき1つ、任意入力） (28.4, 28.10)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime? // 論理削除
@@ -1000,7 +1004,7 @@ model ReceivedQuotationLineItem {
   quantity            Decimal? @db.Decimal(15, 4) // 数量
   unitPrice           Decimal? @db.Decimal(15, 2) // 単価
   amount              Decimal? @db.Decimal(15, 2) // 金額（数量 x 単価、自動計算）
-  netAmount           Decimal? @db.Decimal(15, 2) @map("net_amount") // NET金額（手動入力、任意）
+  // netAmountはTask 60でReceivedQuotationモデルに移動（受領見積書1件につき1フィールド）
   remarks             String? // 備考
 
   receivedQuotation ReceivedQuotation @relation(fields: [receivedQuotationId], references: [id], onDelete: Cascade)

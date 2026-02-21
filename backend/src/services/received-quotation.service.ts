@@ -88,6 +88,7 @@ export interface FileInfo {
 /**
  * 明細行入力データ
  * Task 21.1: 明細行データの入力インターフェース
+ * Task 61.2: netAmountを削除（受領見積書レベルに移動）
  */
 export interface LineItemInput {
   name: string;
@@ -99,13 +100,13 @@ export interface LineItemInput {
   quantity?: number | null;
   unitPrice?: number | null;
   amount?: number | null;
-  netAmount?: number | null;
   remarks?: string | null;
 }
 
 /**
  * 明細行情報（出力）
  * Task 21.1: 明細行データの出力インターフェース
+ * Task 61.2: netAmountを削除（受領見積書レベルに移動）
  */
 export interface LineItemInfo {
   id: string;
@@ -119,34 +120,35 @@ export interface LineItemInfo {
   quantity: number | null;
   unitPrice: number | null;
   amount: number | null;
-  netAmount: number | null;
   remarks: string | null;
 }
 
 /**
- * 受領見積書作成入力（改訂版: Task 21.1 明細行対応追加）
+ * 受領見積書作成入力（改訂版: Task 61.2 netAmount追加）
  */
 export interface CreateReceivedQuotationInput {
   estimateRequestId: string;
   name: string;
   submittedAt: Date;
+  netAmount?: number | null;
   file?: FileInfo;
   lineItems?: LineItemInput[];
 }
 
 /**
- * 受領見積書更新入力（改訂版: Task 21.1 明細行対応追加）
+ * 受領見積書更新入力（改訂版: Task 61.2 netAmount追加）
  */
 export interface UpdateReceivedQuotationInput {
   name?: string;
   submittedAt?: Date;
+  netAmount?: number | null;
   file?: FileInfo;
   removeFile?: boolean;
   lineItems?: LineItemInput[];
 }
 
 /**
- * 受領見積書情報（改訂版: Task 21.1 明細行・合計金額追加）
+ * 受領見積書情報（改訂版: Task 61.2 netAmount追加）
  */
 export interface ReceivedQuotationInfo {
   id: string;
@@ -156,6 +158,7 @@ export interface ReceivedQuotationInfo {
   fileName: string | null;
   fileMimeType: string | null;
   fileSize: number | null;
+  netAmount: number | null;
   lineItems: LineItemInfo[];
   totalAmount: number | null;
   createdAt: Date;
@@ -354,7 +357,7 @@ export class ReceivedQuotationService {
         throw new EstimateRequestNotFoundError(input.estimateRequestId);
       }
 
-      // 5. レコードを作成
+      // 5. レコードを作成（Task 61.2: netAmountを受領見積書レベルに永続化）
       const quotation = await tx.receivedQuotation.create({
         data: {
           estimateRequestId: input.estimateRequestId,
@@ -364,6 +367,7 @@ export class ReceivedQuotationService {
           fileName: input.file ? input.file.originalName : null,
           fileMimeType: input.file ? input.file.mimeType : null,
           fileSize: input.file ? input.file.size : null,
+          netAmount: input.netAmount ?? null,
         },
         include: {
           lineItems: {
@@ -373,6 +377,7 @@ export class ReceivedQuotationService {
       });
 
       // 6. 明細行データの一括保存 (Requirements: 14.2)
+      // Task 61.2: netAmountは受領見積書レベルに移動したため、明細行には含めない
       if (correctedLineItems && correctedLineItems.length > 0) {
         await tx.receivedQuotationLineItem.createMany({
           data: correctedLineItems.map((item) => ({
@@ -386,7 +391,6 @@ export class ReceivedQuotationService {
             quantity: item.quantity ?? null,
             unitPrice: item.unitPrice ?? null,
             amount: item.amount ?? null,
-            netAmount: item.netAmount ?? null,
             remarks: item.remarks ?? null,
           })),
         });
@@ -409,6 +413,7 @@ export class ReceivedQuotationService {
       );
 
       // createMany後の明細行を取得するために再取得は不要（correctedLineItemsから構築）
+      // Task 61.2: netAmountは明細行から除外（受領見積書レベルに移動）
       const resultLineItems: LineItemInfo[] =
         correctedLineItems && correctedLineItems.length > 0
           ? correctedLineItems.map((item, index) => ({
@@ -423,7 +428,6 @@ export class ReceivedQuotationService {
               quantity: item.quantity ?? null,
               unitPrice: item.unitPrice ?? null,
               amount: item.amount ?? null,
-              netAmount: item.netAmount ?? null,
               remarks: item.remarks ?? null,
             }))
           : lineItemInfos;
@@ -574,10 +578,11 @@ export class ReceivedQuotationService {
         });
       }
 
-      // 3. 更新データの準備
+      // 3. 更新データの準備（Task 61.2: netAmount追加）
       const updateData: {
         name?: string;
         submittedAt?: Date;
+        netAmount?: number | null;
         filePath?: string | null;
         fileName?: string | null;
         fileMimeType?: string | null;
@@ -589,6 +594,9 @@ export class ReceivedQuotationService {
       }
       if (input.submittedAt !== undefined) {
         updateData.submittedAt = input.submittedAt;
+      }
+      if (input.netAmount !== undefined) {
+        updateData.netAmount = input.netAmount;
       }
 
       // 4. ファイル更新処理
@@ -611,6 +619,7 @@ export class ReceivedQuotationService {
       }
 
       // 5. 明細行の全量置換（DELETE + INSERT）(Task 21.1)
+      // Task 61.2: netAmountは受領見積書レベルに移動したため、明細行には含めない
       if (correctedLineItems !== undefined) {
         // 既存明細行を全削除
         await tx.receivedQuotationLineItem.deleteMany({
@@ -631,7 +640,6 @@ export class ReceivedQuotationService {
               quantity: item.quantity ?? null,
               unitPrice: item.unitPrice ?? null,
               amount: item.amount ?? null,
-              netAmount: item.netAmount ?? null,
               remarks: item.remarks ?? null,
             })),
           });
@@ -742,6 +750,7 @@ export class ReceivedQuotationService {
 
   /**
    * DBの明細行レコードをLineItemInfoに変換
+   * Task 61.2: netAmountを削除（受領見積書レベルに移動）
    */
   private toLineItemInfo(lineItem: {
     id: string;
@@ -755,7 +764,6 @@ export class ReceivedQuotationService {
     quantity: unknown;
     unitPrice: unknown;
     amount: unknown;
-    netAmount?: unknown;
     remarks: string | null;
   }): LineItemInfo {
     return {
@@ -770,14 +778,13 @@ export class ReceivedQuotationService {
       quantity: lineItem.quantity !== null ? Number(lineItem.quantity) : null,
       unitPrice: lineItem.unitPrice !== null ? Number(lineItem.unitPrice) : null,
       amount: lineItem.amount !== null ? Number(lineItem.amount) : null,
-      netAmount: lineItem.netAmount != null ? Number(lineItem.netAmount) : null,
       remarks: lineItem.remarks,
     };
   }
 
   /**
    * データベースの結果をReceivedQuotationInfoに変換（明細行・合計金額を含む）
-   * Task 21.1: 明細行データと合計金額を含むレスポンスへ改訂
+   * Task 61.2: netAmountを受領見積書レベルに追加
    */
   private toReceivedQuotationInfoWithLineItems(
     quotation: {
@@ -789,6 +796,7 @@ export class ReceivedQuotationService {
       fileName: string | null;
       fileMimeType: string | null;
       fileSize: number | null;
+      netAmount?: unknown;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -802,6 +810,7 @@ export class ReceivedQuotationService {
       fileName: quotation.fileName,
       fileMimeType: quotation.fileMimeType,
       fileSize: quotation.fileSize,
+      netAmount: quotation.netAmount != null ? Number(quotation.netAmount) : null,
       lineItems,
       totalAmount: this.calculateTotalAmount(lineItems),
       createdAt: quotation.createdAt,

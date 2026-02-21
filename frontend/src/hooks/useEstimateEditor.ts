@@ -499,7 +499,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   );
 
   /**
-   * 行のフィールドを更新（REQ-1.3, REQ-1.4）
+   * 行のフィールドを更新（REQ-1.3, REQ-1.4, REQ-34.3）
    */
   const updateLine = useCallback(
     (
@@ -536,16 +536,16 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
         // 親項目の金額を再計算（REQ-2.3）
         const recalculatedItems = recalculateParentAmounts(updatedItems);
 
+        // 変更を記録（recalculatedItemsから最新データを取得してステールデータを回避）
+        const updatedItem = findItemById(recalculatedItems, itemId);
+        if (updatedItem) {
+          recordChange(itemId, 'update', updatedItem);
+        }
+
         return recalculatedItems;
       });
-
-      // 変更を記録
-      const item = findItemById(items, itemId);
-      if (item) {
-        recordChange(itemId, 'update', item);
-      }
     },
-    [items, recordChange]
+    [recordChange]
   );
 
   /**

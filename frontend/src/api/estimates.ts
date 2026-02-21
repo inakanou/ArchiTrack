@@ -260,25 +260,93 @@ export async function transferFromQuotation(
 
 /**
  * 見積書を出力（PDF/Excel）
- * Requirements: REQ-10.1-10.8
+ * Requirements: REQ-10.1-10.8, REQ-32.4
+ *
+ * Task 42.3: lineTypeパラメータをlineTypes（配列）に変更
  *
  * @param id - 見積書ID
  * @param format - 出力形式
+ * @param lineTypes - 出力対象行タイプの配列（デフォルト: ['ESTIMATE']）
  * @returns Blobデータ
  */
-export async function exportEstimate(id: string, format: ExportFormat): Promise<Blob> {
-  const response = await fetch(`/api/estimates/${id}/export?format=${format}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-    },
-  });
+export async function exportEstimate(
+  id: string,
+  format: ExportFormat,
+  lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'> = ['ESTIMATE']
+): Promise<Blob> {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const lineTypesParam = lineTypes.join(',');
+  const response = await fetch(
+    `${baseUrl}/api/estimates/${id}/export?format=${format}&lineTypes=${lineTypesParam}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+      },
+    }
+  );
 
   if (!response.ok) {
     throw new Error('見積書の出力に失敗しました');
   }
 
   return response.blob();
+}
+
+// ============================================================================
+// 見積項目 個別作成・削除 API (Task 40.1, REQ-34)
+// ============================================================================
+
+/**
+ * 見積項目の行データ（作成時入力用）
+ */
+export interface CreateEstimateItemLineInput {
+  lineType: EstimateItemLineType;
+  name?: string | null;
+  specification?: string | null;
+  unit?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  remarks?: string | null;
+}
+
+/**
+ * 見積項目を個別作成
+ * Requirements: REQ-34.1, REQ-34.4
+ *
+ * @param estimateId - 見積書ID
+ * @param input - 作成入力（parentId, displayOrder, lines）
+ * @returns 作成された見積項目
+ */
+export async function createEstimateItem(
+  estimateId: string,
+  input: {
+    parentId?: string | null;
+    displayOrder?: number;
+    lines: CreateEstimateItemLineInput[];
+  }
+): Promise<EstimateItemHierarchy> {
+  return apiClient.post<EstimateItemHierarchy>(`/api/estimates/${estimateId}/items`, input);
+}
+
+/**
+ * 見積項目を個別削除
+ * Requirements: REQ-34.2, REQ-34.4
+ *
+ * バックエンドはreq.bodyからforceDeleteを読み取る
+ *
+ * @param estimateId - 見積書ID
+ * @param itemId - 見積項目ID
+ * @param forceDelete - 子項目も含めて強制削除するか
+ */
+export async function deleteEstimateItem(
+  estimateId: string,
+  itemId: string,
+  forceDelete: boolean = true
+): Promise<void> {
+  await apiClient.delete(`/api/estimates/${estimateId}/items/${itemId}`, {
+    body: { forceDelete },
+  });
 }
 
 // ============================================================================
