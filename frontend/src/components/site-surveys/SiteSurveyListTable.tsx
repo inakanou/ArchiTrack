@@ -126,7 +126,25 @@ function SortIcon({ order }: { order: SiteSurveySortOrder }) {
  * Requirements: 3.5
  */
 function ThumbnailImage({ survey }: { survey: SiteSurveyInfo }) {
-  // 注釈表示に必要な情報がある場合
+  // 注釈付きサムネイル（サーバーサイド生成）が存在する場合はそちらを優先（要件20.3）
+  if (survey.annotatedThumbnailUrl) {
+    return (
+      <img
+        src={survey.annotatedThumbnailUrl}
+        alt={`${survey.name}のサムネイル（注釈付き）`}
+        style={{
+          width: '64px',
+          height: '64px',
+          objectFit: 'cover',
+          borderRadius: '8px',
+        }}
+        loading="lazy"
+        data-testid="annotated-thumbnail"
+      />
+    );
+  }
+
+  // 注釈表示に必要な情報がある場合（クライアントサイドフォールバック）
   if (survey.thumbnailImageId && survey.thumbnailOriginalUrl) {
     // AnnotatedImageThumbnail用のSurveyImageInfoオブジェクトを作成
     const imageInfo: SurveyImageInfo = {

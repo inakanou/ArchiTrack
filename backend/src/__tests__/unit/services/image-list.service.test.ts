@@ -21,6 +21,9 @@ const mockPrisma = {
   siteSurvey: {
     findUnique: vi.fn(),
   },
+  imageAnnotation: {
+    findMany: vi.fn(),
+  },
 };
 
 // SignedUrlServiceモック
@@ -60,6 +63,7 @@ describe('ImageListService', () => {
           displayOrder: 1,
           originalPath: 'surveys/123/original1.jpg',
           thumbnailPath: 'surveys/123/thumb1.jpg',
+          annotatedThumbnailPath: null,
           createdAt: new Date('2024-01-01'),
         },
         {
@@ -72,6 +76,7 @@ describe('ImageListService', () => {
           displayOrder: 2,
           originalPath: 'surveys/123/original2.jpg',
           thumbnailPath: 'surveys/123/thumb2.jpg',
+          annotatedThumbnailPath: null,
           createdAt: new Date('2024-01-02'),
         },
       ];
@@ -115,11 +120,13 @@ describe('ImageListService', () => {
           displayOrder: 1,
           originalPath: 'surveys/123/original1.jpg',
           thumbnailPath: 'surveys/123/thumb1.jpg',
+          annotatedThumbnailPath: null,
           createdAt: new Date('2024-01-01'),
         },
       ];
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
       mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
         { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
       ]);
@@ -146,11 +153,13 @@ describe('ImageListService', () => {
           displayOrder: 1,
           originalPath: 'surveys/123/original1.jpg',
           thumbnailPath: 'surveys/123/thumb1.jpg',
+          annotatedThumbnailPath: null,
           createdAt: new Date('2024-01-01'),
         },
       ];
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
       mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
         { success: false, error: 'GENERATION_FAILED', imageId: 'img-1' },
       ]);
@@ -161,6 +170,89 @@ describe('ImageListService', () => {
       expect(result).toHaveLength(1);
       expect(result[0]?.originalUrl).toBeNull();
       expect(result[0]?.thumbnailUrl).toBeNull();
+    });
+
+    it('レスポンスにhasAnnotationsフィールドが含まれること (Task 55.1, Requirement 20.4)', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const userId = 'user-123';
+      const mockImages = [
+        {
+          id: 'img-1',
+          surveyId,
+          fileName: 'image1.jpg',
+          fileSize: 1024,
+          width: 800,
+          height: 600,
+          displayOrder: 1,
+          originalPath: 'surveys/123/original1.jpg',
+          thumbnailPath: 'surveys/123/thumb1.jpg',
+          annotatedThumbnailPath: null,
+          createdAt: new Date('2024-01-01'),
+        },
+        {
+          id: 'img-2',
+          surveyId,
+          fileName: 'image2.jpg',
+          fileSize: 2048,
+          width: 1024,
+          height: 768,
+          displayOrder: 2,
+          originalPath: 'surveys/123/original2.jpg',
+          thumbnailPath: 'surveys/123/thumb2.jpg',
+          annotatedThumbnailPath: null,
+          createdAt: new Date('2024-01-02'),
+        },
+      ];
+
+      // img-1のみ注釈あり
+      mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([{ imageId: 'img-1' }]);
+      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
+        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
+        { success: true, url: 'https://r2.example.com/original2', imageId: 'img-2' },
+      ]);
+      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail');
+
+      const result = await service.findBySurveyIdWithUrls(surveyId, userId);
+
+      expect(result).toHaveLength(2);
+      // img-1は注釈あり
+      expect(result[0]?.hasAnnotations).toBe(true);
+      // img-2は注釈なし
+      expect(result[1]?.hasAnnotations).toBe(false);
+    });
+
+    it('annotatedThumbnailUrlフィールドが含まれること (Task 55.1, Requirement 20.4)', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const userId = 'user-123';
+      const mockImages = [
+        {
+          id: 'img-1',
+          surveyId,
+          fileName: 'image1.jpg',
+          fileSize: 1024,
+          width: 800,
+          height: 600,
+          displayOrder: 1,
+          originalPath: 'surveys/123/original1.jpg',
+          thumbnailPath: 'surveys/123/thumb1.jpg',
+          annotatedThumbnailPath: null,
+          createdAt: new Date('2024-01-01'),
+        },
+      ];
+
+      mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
+      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
+        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
+      ]);
+      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail');
+
+      const result = await service.findBySurveyIdWithUrls(surveyId, userId);
+
+      expect(result).toHaveLength(1);
+      // annotatedThumbnailPathがnullの場合はannotatedThumbnailUrlもnull
+      expect(result[0]?.annotatedThumbnailUrl).toBeNull();
     });
   });
 

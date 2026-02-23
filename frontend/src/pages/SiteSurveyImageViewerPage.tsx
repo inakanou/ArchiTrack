@@ -13,13 +13,13 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { getSiteSurvey } from '../api/site-surveys';
 import { ApiError } from '../api/client';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
-import type { BreadcrumbItem } from '../components/common';
 import AnnotationEditor from '../components/site-surveys/AnnotationEditor';
+import { buildSiteSurveyImageBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 
 // ============================================================================
 // スタイル定義
@@ -41,14 +41,6 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: '24px',
-  } as React.CSSProperties,
-  backLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
   } as React.CSSProperties,
   title: {
     fontSize: '1.5rem',
@@ -147,30 +139,6 @@ const styles = {
 };
 
 // ============================================================================
-// ヘルパー関数
-// ============================================================================
-
-/**
- * 画像ビューアページ用のパンくずを生成
- */
-function buildImageViewerBreadcrumb(
-  projectId: string,
-  projectName: string,
-  surveyId: string,
-  surveyName: string,
-  imageName: string
-): BreadcrumbItem[] {
-  return [
-    { label: 'ダッシュボード', path: '/' },
-    { label: 'プロジェクト', path: '/projects' },
-    { label: projectName, path: `/projects/${projectId}` },
-    { label: '現場調査', path: `/projects/${projectId}/site-surveys` },
-    { label: surveyName, path: `/site-surveys/${surveyId}` },
-    { label: imageName },
-  ];
-}
-
-// ============================================================================
 // コンポーネント
 // ============================================================================
 
@@ -182,8 +150,6 @@ function buildImageViewerBreadcrumb(
  */
 export default function SiteSurveyImageViewerPage() {
   const { id, imageId } = useParams<{ id: string; imageId: string }>();
-  const navigate = useNavigate();
-
   // データ状態
   const [survey, setSurvey] = useState<SiteSurveyDetail | null>(null);
   const [image, setImage] = useState<SurveyImageInfo | null>(null);
@@ -240,17 +206,6 @@ export default function SiteSurveyImageViewerPage() {
     fetchData();
   }, [fetchData]);
 
-  /**
-   * 詳細ページに戻る
-   */
-  const handleBackClick = useCallback(() => {
-    if (id) {
-      navigate(`/site-surveys/${id}`);
-    } else {
-      navigate(-1);
-    }
-  }, [id, navigate]);
-
   // 存在しないリソースの表示
   if (isNotFound) {
     return (
@@ -258,7 +213,7 @@ export default function SiteSurveyImageViewerPage() {
         <ResourceNotFound
           resourceType="画像"
           returnPath={id ? `/site-surveys/${id}` : '/projects'}
-          returnLabel="現場調査に戻る"
+          returnLabel="前の画面に戻る"
         />
       </main>
     );
@@ -304,7 +259,7 @@ export default function SiteSurveyImageViewerPage() {
   }
 
   // パンくずナビゲーション項目
-  const breadcrumbItems = buildImageViewerBreadcrumb(
+  const breadcrumbItems = buildSiteSurveyImageBreadcrumb(
     survey.projectId,
     survey.project.name,
     survey.id,
@@ -322,9 +277,6 @@ export default function SiteSurveyImageViewerPage() {
       {/* ヘッダー */}
       <div style={styles.header}>
         <div>
-          <Link to={`/site-surveys/${id}`} style={styles.backLink} onClick={handleBackClick}>
-            &larr; 現場調査に戻る
-          </Link>
           <h1 style={styles.title}>{image.fileName || '画像'}</h1>
         </div>
         <button

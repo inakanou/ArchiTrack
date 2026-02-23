@@ -900,4 +900,146 @@ describe('AnnotationService', () => {
       });
     });
   });
+
+  describe('注釈付きサムネイル生成フック (Task 53.3)', () => {
+    let serviceWithThumbnail: AnnotationService;
+    let thumbnailPrisma: ReturnType<typeof createMockPrisma>;
+    const mockAnnotatedThumbnailService = {
+      generateAnnotatedThumbnail: vi.fn(),
+    };
+
+    beforeEach(() => {
+      thumbnailPrisma = createMockPrisma();
+      serviceWithThumbnail = new AnnotationService({
+        prisma: thumbnailPrisma,
+        annotatedThumbnailService: mockAnnotatedThumbnailService,
+      } as unknown as AnnotationServiceDependencies);
+      mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockResolvedValue(
+        'annotated-thumbnails/image-123.jpg'
+      );
+    });
+
+    it('注釈保存成功後にサムネイル生成が呼ばれること', async () => {
+      // $transactionのモックを再設定
+      (thumbnailPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            surveyImage: {
+              findUnique: vi.fn().mockResolvedValue(mockSurveyImage),
+            },
+            imageAnnotation: {
+              findUnique: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue(mockImageAnnotation),
+            },
+          };
+          return await fn(tx);
+        }
+      );
+
+      const input: SaveAnnotationInput = {
+        imageId: 'image-123',
+        data: mockAnnotationData,
+      };
+
+      // Act
+      await serviceWithThumbnail.save(input);
+
+      // Assert: サムネイル生成が非同期で呼ばれること
+      // 非同期なのでPromise.resolveで待つ
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalledWith(
+        'image-123',
+        expect.objectContaining({ objects: mockAnnotationData.objects })
+      );
+    });
+
+    it('サムネイル生成失敗時も注釈保存は成功すること', async () => {
+      // Arrange
+      mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockRejectedValue(
+        new Error('thumbnail generation failed')
+      );
+
+      (thumbnailPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            surveyImage: {
+              findUnique: vi.fn().mockResolvedValue(mockSurveyImage),
+            },
+            imageAnnotation: {
+              findUnique: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue(mockImageAnnotation),
+            },
+          };
+          return await fn(tx);
+        }
+      );
+
+      const input: SaveAnnotationInput = {
+        imageId: 'image-123',
+        data: mockAnnotationData,
+      };
+
+      // Act - 注釈保存はエラーなく完了すること
+      const result = await serviceWithThumbnail.save(input);
+
+      // Assert - 注釈保存は成功
+      expect(result).toEqual(
+        expect.objectContaining({
+          id: 'annotation-123',
+          imageId: 'image-123',
+        })
+      );
+
+      // サムネイル生成失敗のPromiseが解決されるまで待つ
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    it('annotatedThumbnailServiceが設定されていない場合はサムネイル生成をスキップすること', async () => {
+      // 前のテストの非同期呼び出しが完了するのを待つ
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // 別の独立したモックを作成
+      const separateMockThumbnailService = {
+        generateAnnotatedThumbnail: vi.fn().mockResolvedValue(null),
+      };
+
+      // annotatedThumbnailService なしのサービス
+      const noThumbnailPrisma = createMockPrisma();
+      const serviceWithoutThumbnail = new AnnotationService({
+        prisma: noThumbnailPrisma,
+      } as unknown as AnnotationServiceDependencies);
+
+      (noThumbnailPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            surveyImage: {
+              findUnique: vi.fn().mockResolvedValue(mockSurveyImage),
+            },
+            imageAnnotation: {
+              findUnique: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue(mockImageAnnotation),
+            },
+          };
+          return await fn(tx);
+        }
+      );
+
+      const input: SaveAnnotationInput = {
+        imageId: 'image-123',
+        data: mockAnnotationData,
+      };
+
+      // Act - エラーなく完了すること
+      const result = await serviceWithoutThumbnail.save(input);
+
+      // Assert
+      expect(result).toEqual(
+        expect.objectContaining({
+          id: 'annotation-123',
+        })
+      );
+      // separateMockThumbnailServiceが呼ばれていないことを確認（独立インスタンス）
+      expect(separateMockThumbnailService.generateAnnotatedThumbnail).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -14,6 +14,7 @@
 
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { SignedUrlService } from './signed-url.service.js';
+import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 
 /**
  * 画像情報（基本情報）
@@ -28,6 +29,7 @@ export interface SurveyImageInfo {
   displayOrder: number;
   originalPath: string;
   thumbnailPath: string;
+  annotatedThumbnailPath: string | null;
   createdAt: Date;
 }
 
@@ -37,6 +39,8 @@ export interface SurveyImageInfo {
 export interface ImageWithUrls extends SurveyImageInfo {
   originalUrl: string | null;
   thumbnailUrl: string | null;
+  annotatedThumbnailUrl: string | null;
+  hasAnnotations: boolean;
 }
 
 /**
@@ -88,6 +92,7 @@ export class ImageListService {
         displayOrder: true,
         originalPath: true,
         thumbnailPath: true,
+        annotatedThumbnailPath: true,
         createdAt: true,
       },
     });
@@ -117,6 +122,13 @@ export class ImageListService {
     // 画像IDの配列を作成
     const imageIds = images.map((img) => img.id);
 
+    // 注釈有無を一括確認（要件20.4対応）
+    const annotations = await this.prisma.imageAnnotation.findMany({
+      where: { imageId: { in: imageIds } },
+      select: { imageId: true },
+    });
+    const annotationImageIds = new Set(annotations.map((a) => a.imageId));
+
     // 一括で署名付きURLを取得（原画像用）
     const originalUrlResults = await this.signedUrlService.generateBatchSignedUrls(
       imageIds,
@@ -139,6 +151,7 @@ export class ImageListService {
 
     for (const image of images) {
       let thumbnailUrl: string | null = null;
+      let annotatedThumbnailUrl: string | null = null;
 
       // サムネイルURLを個別に取得
       try {
@@ -147,10 +160,27 @@ export class ImageListService {
         thumbnailUrl = null;
       }
 
+      // 注釈付きサムネイルURLを生成（要件20.4対応）
+      if (image.annotatedThumbnailPath && isStorageConfigured()) {
+        try {
+          const storageProvider = getStorageProvider();
+          if (storageProvider) {
+            annotatedThumbnailUrl = await storageProvider.getSignedUrl(
+              image.annotatedThumbnailPath,
+              { expiresIn: 900 }
+            );
+          }
+        } catch {
+          annotatedThumbnailUrl = null;
+        }
+      }
+
       imagesWithUrls.push({
         ...image,
         originalUrl: originalUrlMap.get(image.id) ?? null,
         thumbnailUrl,
+        annotatedThumbnailUrl,
+        hasAnnotations: annotationImageIds.has(image.id),
       });
     }
 

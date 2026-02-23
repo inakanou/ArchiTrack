@@ -1,12 +1,16 @@
 /**
  * @fileoverview 現場調査ブレッドクラムユーティリティテスト
  *
- * Task 10.2: ブレッドクラムナビゲーションを実装する
+ * Task 50.1: 既存ブレッドクラム生成関数のラベルを更新する
+ * Task 50.2: 画像プレビュー画面用ブレッドクラム生成関数を新設する
  *
  * Requirements:
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
- * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
- * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
+ * - 2.6: 一覧画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧
+ * - 2.7: 詳細画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査
+ * - 2.8: 画像プレビュー画面（閲覧モード）ブレッドクラム: ... > 現場調査 > 画像
+ * - 2.9: 画像プレビュー画面（編集モード）ブレッドクラム: ... > 現場調査 > 画像
+ * - 2.10: ブレッドクラム各項目クリックで対応画面へ遷移
  */
 
 import { describe, it, expect } from 'vitest';
@@ -15,18 +19,19 @@ import {
   buildSiteSurveyDetailBreadcrumb,
   buildSiteSurveyCreateBreadcrumb,
   buildSiteSurveyEditBreadcrumb,
+  buildSiteSurveyImageBreadcrumb,
 } from '../../utils/siteSurveyBreadcrumb';
 
 describe('siteSurveyBreadcrumb', () => {
   describe('buildSiteSurveyListBreadcrumb', () => {
-    it('現場調査一覧用のパンくずを生成すること', () => {
+    it('現場調査一覧用のパンくずを生成すること（Requirements 2.6）', () => {
       const result = buildSiteSurveyListBreadcrumb('project-123', 'テストプロジェクト');
 
       expect(result).toEqual([
         { label: 'ダッシュボード', path: '/' },
-        { label: 'プロジェクト', path: '/projects' },
+        { label: 'プロジェクト一覧', path: '/projects' },
         { label: 'テストプロジェクト', path: '/projects/project-123' },
-        { label: '現場調査' },
+        { label: '現場調査一覧' },
       ]);
     });
 
@@ -45,7 +50,7 @@ describe('siteSurveyBreadcrumb', () => {
   });
 
   describe('buildSiteSurveyDetailBreadcrumb', () => {
-    it('現場調査詳細用のパンくずを生成すること（Requirements 2.5, 2.6）', () => {
+    it('現場調査詳細用のパンくずを生成すること（Requirements 2.7）', () => {
       const result = buildSiteSurveyDetailBreadcrumb(
         'project-123',
         'テストプロジェクト',
@@ -55,14 +60,14 @@ describe('siteSurveyBreadcrumb', () => {
 
       expect(result).toEqual([
         { label: 'ダッシュボード', path: '/' },
-        { label: 'プロジェクト', path: '/projects' },
+        { label: 'プロジェクト一覧', path: '/projects' },
         { label: 'テストプロジェクト', path: '/projects/project-123' },
-        { label: '現場調査', path: '/projects/project-123/site-surveys' },
+        { label: '現場調査一覧', path: '/projects/project-123/site-surveys' },
         { label: '第1回現場調査' },
       ]);
     });
 
-    it('各項目にクリック可能なパスが設定されていること（Requirements 2.7）', () => {
+    it('各項目にクリック可能なパスが設定されていること（Requirements 2.10）', () => {
       const result = buildSiteSurveyDetailBreadcrumb(
         'proj-1',
         'プロジェクトA',
@@ -104,9 +109,9 @@ describe('siteSurveyBreadcrumb', () => {
 
       expect(result).toEqual([
         { label: 'ダッシュボード', path: '/' },
-        { label: 'プロジェクト', path: '/projects' },
+        { label: 'プロジェクト一覧', path: '/projects' },
         { label: '新規プロジェクト', path: '/projects/project-789' },
-        { label: '現場調査', path: '/projects/project-789/site-surveys' },
+        { label: '現場調査一覧', path: '/projects/project-789/site-surveys' },
         { label: '新規作成' },
       ]);
     });
@@ -131,9 +136,9 @@ describe('siteSurveyBreadcrumb', () => {
 
       expect(result).toEqual([
         { label: 'ダッシュボード', path: '/' },
-        { label: 'プロジェクト', path: '/projects' },
+        { label: 'プロジェクト一覧', path: '/projects' },
         { label: '編集テストプロジェクト', path: '/projects/project-abc' },
-        { label: '現場調査', path: '/projects/project-abc/site-surveys' },
+        { label: '現場調査一覧', path: '/projects/project-abc/site-surveys' },
         { label: '編集対象調査', path: '/site-surveys/survey-xyz' },
         { label: '編集' },
       ]);
@@ -149,16 +154,77 @@ describe('siteSurveyBreadcrumb', () => {
     });
   });
 
+  describe('buildSiteSurveyImageBreadcrumb', () => {
+    it('画像プレビュー用のパンくずを生成すること（Requirements 2.8, 2.9）', () => {
+      const result = buildSiteSurveyImageBreadcrumb(
+        'project-123',
+        'テストプロジェクト',
+        'survey-456',
+        '第1回現場調査',
+        'IMG_001.jpg'
+      );
+
+      expect(result).toEqual([
+        { label: 'ダッシュボード', path: '/' },
+        { label: 'プロジェクト一覧', path: '/projects' },
+        { label: 'テストプロジェクト', path: '/projects/project-123' },
+        { label: '現場調査一覧', path: '/projects/project-123/site-surveys' },
+        { label: '第1回現場調査', path: '/site-surveys/survey-456' },
+        { label: 'IMG_001.jpg' },
+      ]);
+    });
+
+    it('各項目にクリック可能なパスが設定されていること（Requirements 2.10）', () => {
+      const result = buildSiteSurveyImageBreadcrumb(
+        'proj-1',
+        'プロジェクトA',
+        'survey-1',
+        '調査A',
+        '画像.png'
+      );
+
+      expect(result[0]?.path).toBe('/');
+      expect(result[1]?.path).toBe('/projects');
+      expect(result[2]?.path).toBe('/projects/proj-1');
+      expect(result[3]?.path).toBe('/projects/proj-1/site-surveys');
+      expect(result[4]?.path).toBe('/site-surveys/survey-1');
+      // 最後の項目はリンクなし（現在のページ）
+      expect(result[5]?.path).toBeUndefined();
+    });
+
+    it('閲覧モード・編集モード共通で同じ階層構造を返すこと', () => {
+      const result1 = buildSiteSurveyImageBreadcrumb('p', 'P', 's', 'S', 'img');
+      const result2 = buildSiteSurveyImageBreadcrumb('p', 'P', 's', 'S', 'img');
+
+      expect(result1).toEqual(result2);
+    });
+
+    it('画像名に特殊文字が含まれていても正しく処理すること', () => {
+      const result = buildSiteSurveyImageBreadcrumb(
+        'p1',
+        'P1',
+        's1',
+        'S1',
+        '現場写真 (1) & 補足.jpg'
+      );
+
+      expect(result[5]?.label).toBe('現場写真 (1) & 補足.jpg');
+    });
+  });
+
   describe('共通仕様', () => {
     it('全てのビルダーがダッシュボードをルートに持つこと', () => {
       const listBreadcrumb = buildSiteSurveyListBreadcrumb('p', 'P');
       const detailBreadcrumb = buildSiteSurveyDetailBreadcrumb('p', 'P', 's', 'S');
       const createBreadcrumb = buildSiteSurveyCreateBreadcrumb('p', 'P');
       const editBreadcrumb = buildSiteSurveyEditBreadcrumb('p', 'P', 's', 'S');
+      const imageBreadcrumb = buildSiteSurveyImageBreadcrumb('p', 'P', 's', 'S', 'I');
 
-      [listBreadcrumb, detailBreadcrumb, createBreadcrumb, editBreadcrumb].forEach((breadcrumb) => {
-        expect(breadcrumb[0]).toEqual({ label: 'ダッシュボード', path: '/' });
-      });
+      [listBreadcrumb, detailBreadcrumb, createBreadcrumb, editBreadcrumb, imageBreadcrumb].forEach(
+        (breadcrumb) => {
+          expect(breadcrumb[0]).toEqual({ label: 'ダッシュボード', path: '/' });
+        }
+      );
     });
 
     it('全てのビルダーがプロジェクト一覧を2番目に持つこと', () => {
@@ -166,10 +232,13 @@ describe('siteSurveyBreadcrumb', () => {
       const detailBreadcrumb = buildSiteSurveyDetailBreadcrumb('p', 'P', 's', 'S');
       const createBreadcrumb = buildSiteSurveyCreateBreadcrumb('p', 'P');
       const editBreadcrumb = buildSiteSurveyEditBreadcrumb('p', 'P', 's', 'S');
+      const imageBreadcrumb = buildSiteSurveyImageBreadcrumb('p', 'P', 's', 'S', 'I');
 
-      [listBreadcrumb, detailBreadcrumb, createBreadcrumb, editBreadcrumb].forEach((breadcrumb) => {
-        expect(breadcrumb[1]).toEqual({ label: 'プロジェクト', path: '/projects' });
-      });
+      [listBreadcrumb, detailBreadcrumb, createBreadcrumb, editBreadcrumb, imageBreadcrumb].forEach(
+        (breadcrumb) => {
+          expect(breadcrumb[1]).toEqual({ label: 'プロジェクト一覧', path: '/projects' });
+        }
+      );
     });
   });
 });
