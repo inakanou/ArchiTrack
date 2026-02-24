@@ -2,11 +2,11 @@
 
 ## Overview
 
-**Purpose**: 本機能は、積算担当者が現場調査結果に基づいて数量を拾い出し、調査写真と紐づけながら数量表を作成するための機能を提供する。
+**Purpose**: 本機能は、積算担当者が現場調査結果に基づいて数量を拾い出し、注釈付き調査写真と紐づけながら数量表を作成するための機能を提供する。
 
 **Users**: 積算担当者が、プロジェクトに紐付く数量表の作成・編集・管理、コピーによる効率的な再利用、および計算機能（面積・体積、ピッチ）を使用して効率的な積算作業を実施する。
 
-**Impact**: プロジェクト詳細画面に数量表セクションを追加し、新たにQuantityTable、QuantityGroup、QuantityItemエンティティを導入する。数量表コピー機能の追加およびタイトル行表示最適化によるUI改善を含む。
+**Impact**: プロジェクト詳細画面に数量表セクションを追加し、新たにQuantityTable、QuantityGroup、QuantityItemエンティティを導入する。数量表コピー機能の追加、タイトル行表示最適化、パンくずナビゲーション改善（「ダッシュボード」起点の階層構造）、注釈付き写真の全画面統一表示、写真変更・プレビューダイアログでの注釈付き写真表示、写真コメント表示によるUI改善を含む。
 
 ### Goals
 
@@ -18,6 +18,9 @@
 - 厳密なフィールド仕様に基づく入力制御と統一された表示書式
 - 数量表コピーによる類似案件での作業効率化
 - タイトル行表示最適化による画面の視認性向上
+- パンくずナビゲーション改善による画面階層の明確化（「ダッシュボード」起点）
+- 注釈付き写真の全画面統一表示（数量表編集画面、写真選択、写真変更、写真プレビュー）
+- 写真コメント表示による積算作業時の情報参照性向上
 
 ### Non-Goals
 
@@ -51,6 +54,9 @@ graph TB
         CE[CalculationEngine]
         FV[FieldValidator]
         ACS[AutocompleteCandidateStore]
+        PCD[PhotoChangeDialog]
+        PPD[PhotoPreviewDialog]
+        PCC[PhotoCommentDisplay]
     end
 
     subgraph Backend
@@ -80,6 +86,10 @@ graph TB
     QIC --> FV
     QIC --> ACS
 
+    QGC --> PCD
+    QGC --> PPD
+    QGC --> PCC
+
     QTE --> QTR
     QTE --> ACSV
     QTR --> QTSV
@@ -102,6 +112,7 @@ graph TB
 - 既存パターン: SiteSurveyパターンを継承（CRUD、一覧、詳細、楽観的排他制御）
 - 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）、フィールドバリデーター、AutocompleteCandidateStore（フロントエンド初回一括読み込み＋クライアントサイド管理）
 - 追加コンポーネント（REQ-17, 18）: コピー機能（QuantityTableService.copy）、CopyQuantityTableDialog、QuantityGroupTitleRow
+- 追加コンポーネント（REQ-19, 20, 21）: PhotoChangeDialog（注釈付き写真変更）、PhotoPreviewDialog（注釈付き写真プレビュー）、PhotoCommentDisplay（写真コメント表示）
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -227,8 +238,8 @@ sequenceDiagram
 |-------------|---------|------------|------------|-------|
 | 1.1-1.7 | プロジェクト詳細画面の数量表セクション | QuantityTableSectionCard, ProjectDetailPage | GET /api/projects/:id/quantity-tables/summary | - |
 | 2.1-2.5 | 数量表の作成・管理 | QuantityTableListPage, QuantityTableForm | QuantityTableService, QuantityTable API | - |
-| 3.1-3.3 | 数量表編集画面の表示 | QuantityTableEditPage, QuantityGroupComponent | GET /api/quantity-tables/:id | - |
-| 4.1-4.5 | 数量グループの作成・管理 | QuantityGroupComponent, PhotoSelector | QuantityGroupService | - |
+| 3.1-3.4 | 数量表編集画面の表示（注釈付き写真表示含む） | QuantityTableEditPage, QuantityGroupComponent, PhotoCommentDisplay | GET /api/quantity-tables/:id | - |
+| 4.1-4.5 | 数量グループの作成・管理（注釈付き写真選択） | QuantityGroupComponent, PhotoSelector | QuantityGroupService | - |
 | 5.1-5.4 | 数量項目の追加・編集 | QuantityItemComponent, QuantityItemRow | QuantityItemService | - |
 | 6.1-6.5 | 数量項目のコピー・移動 | QuantityItemComponent, DragDropContext | QuantityItemService | - |
 | 7.1 | 初回表示時に候補値を一括取得 | QuantityTableEditPage, AutocompleteCandidateStore | GET /api/projects/:projectId/quantity-items/autocomplete-candidates | オートコンプリートフロー |
@@ -243,7 +254,7 @@ sequenceDiagram
 | 9.1-9.7 | 調整係数 | AdjustmentFactorInput | CalculationEngine, FieldValidator | - |
 | 10.1-10.7 | 丸め設定 | RoundingSettingInput | CalculationEngine, FieldValidator | - |
 | 11.1-11.5 | 数量表の保存 | useAutoSave Hook, SaveIndicator | QuantityTableService | - |
-| 12.1-12.5 | パンくずナビゲーション | Breadcrumb | - | - |
+| 12.1-12.5 | パンくずナビゲーション（ダッシュボード起点、プロジェクト一覧/プロジェクト名表示） | Breadcrumb, QuantityTableListPage, QuantityTableEditPage, QuantityTableCreatePage | - | - |
 | 13.1-13.4 | テキストフィールドの入力制御 | FieldValidator, TextFieldConstraints | QuantityValidationService | - |
 | 14.1-14.5 | 数値フィールドの表示書式 | NumericFormatter, QuantityItemRow | - | - |
 | 15.1-15.3 | 数量フィールドの入力制御 | FieldValidator, NumericInputConstraints | QuantityValidationService | - |
@@ -259,6 +270,18 @@ sequenceDiagram
 | 18.3 | 面積・体積計算用タイトル行は従来通り表示 | EditableQuantityItemRow, CalculationFields | - | - |
 | 18.4 | ピッチ計算用タイトル行は従来通り表示 | EditableQuantityItemRow, CalculationFields | - | - |
 | 18.5 | 再展開時のタイトル行表示ルール維持 | QuantityGroupCard | - | - |
+| 19.1 | 写真変更ダイアログ表示 | QuantityGroupCard, PhotoChangeDialog | - | - |
+| 19.2 | 写真変更ダイアログで注釈付き写真一覧を表示 | PhotoChangeDialog | GET /api/site-surveys/:surveyId/images | - |
+| 19.3 | 写真変更ダイアログで新しい写真を選択 | PhotoChangeDialog | QuantityGroupService.linkSurveyImage | - |
+| 19.4 | 写真変更確定後に編集画面の表示を更新 | QuantityGroupCard, PhotoCommentDisplay | - | - |
+| 20.1 | 写真プレビューダイアログ表示 | QuantityGroupCard, PhotoPreviewDialog | - | - |
+| 20.2 | 写真プレビューダイアログで注釈付き写真を拡大表示 | PhotoPreviewDialog | - | - |
+| 20.3 | プレビュー写真はオリジナルではなく注釈付き写真 | PhotoPreviewDialog | - | - |
+| 21.1 | 写真選択時にコメントを取得 | QuantityGroupCard, PhotoCommentDisplay | GET /api/quantity-tables/:id（SurveyImage.comment含む） | - |
+| 21.2 | 写真コメントを写真の右側に表示 | PhotoCommentDisplay | - | - |
+| 21.3 | コメント未存在時はコメント表示エリアを空白 | PhotoCommentDisplay | - | - |
+| 21.4 | 写真変更時にコメント表示を更新 | PhotoCommentDisplay, PhotoChangeDialog | - | - |
+| 21.5 | グループ折りたたみ時にコメントも非表示 | QuantityGroupCard, PhotoCommentDisplay | - | - |
 
 ## Field Specifications
 
@@ -327,6 +350,9 @@ sequenceDiagram
 | AutocompleteInput | Frontend/Component | オートコンプリート対応テキスト入力 | 7.3, 7.4, 7.5, 7.6, 7.7 | AutocompleteCandidateStore (P0) | - |
 | CopyQuantityTableDialog | Frontend/Component | 数量表コピーダイアログ | 17.1, 17.3, 17.6 | - | - |
 | QuantityGroupTitleRow | Frontend/Component | 数量グループのメインタイトル行 | 18.1, 18.2, 18.5 | - | - |
+| PhotoChangeDialog | Frontend/Component | 注釈付き写真変更ダイアログ | 19.1, 19.2, 19.3, 19.4 | QuantityGroupCard (P0) | - |
+| PhotoPreviewDialog | Frontend/Component | 注釈付き写真プレビューダイアログ | 20.1, 20.2, 20.3 | QuantityGroupCard (P0) | - |
+| PhotoCommentDisplay | Frontend/Component | 写真コメント表示 | 21.1, 21.2, 21.3, 21.4, 21.5 | QuantityGroupCard (P0) | - |
 | FieldValidator | Frontend/Utility | フィールド入力制御・書式 | 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
 
 ### Backend Services
@@ -503,6 +529,10 @@ interface SurveyImageSummary {
   id: string;
   url: string;
   thumbnailUrl: string;
+  /** 注釈付きサムネイルURL（注釈エディタで編集済みの画像、REQ-3.3, 4.2, 19.2, 20.2） */
+  annotatedThumbnailUrl: string | null;
+  /** 写真コメント（REQ-21.1, 21.2） */
+  comment: string | null;
   annotations: Annotation[];
 }
 
@@ -2002,3 +2032,413 @@ Requirement 7で定義されたオートコンプリート対象フィールド�
 | 7.3 | 名称・備考フィールドのフォーカス時にドロップダウン表示 | AutocompleteInput | - | オートコンプリートフロー |
 | 7.4 | 名称・備考フィールドの候補選択時に自動入力 | AutocompleteInput | - | オートコンプリートフロー |
 | 7.5 | 名称・備考フィールドのblur時に候補追加 | AutocompleteInput, AutocompleteCandidateStore | - | オートコンプリートフロー |
+
+## Phase 9: パンくずナビゲーション改善・注釈付き写真統一・写真コメント表示
+
+### 概要
+
+以下の要件追加・更新に対応する:
+
+1. **要件12（更新）**: パンくずナビゲーションのパスを「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧」形式に統一する
+2. **要件3, 4（更新）**: 数量グループへ写真を紐づける際の写真一覧および数量表編集画面に表示される写真を注釈付き写真（注釈エディタで編集済みの画像）に統一する
+3. **要件19（新規）**: 写真変更ダイアログで注釈付き写真一覧を表示する
+4. **要件20（新規）**: 写真プレビューダイアログで注釈付き写真を拡大表示する
+5. **要件21（新規）**: 写真選択時に当該現場調査の写真コメントを数量グループの写真の右側に表示する
+
+### 影響範囲分析
+
+#### パンくずナビゲーション改善（要件12更新）
+
+| 対象 | 現在のパンくず | 変更後のパンくず | 影響度 |
+|------|--------------|----------------|--------|
+| QuantityTableListPage | ダッシュボード > プロジェクト > プロジェクト詳細 > 数量表一覧 | ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 | 小 |
+| QuantityTableEditPage | ダッシュボード > プロジェクト > {プロジェクト名} > 数量表一覧 > {数量表名} | ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > {数量表名} | 小 |
+| QuantityTableCreatePage | ダッシュボード > プロジェクト > {プロジェクト名} > 数量表一覧 > 新規作成 | ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > 新規作成 | 小 |
+
+**変更の要点**:
+- 「プロジェクト」ラベルを「プロジェクト一覧」に変更（パス`/projects`は維持）
+- QuantityTableListPageの「プロジェクト詳細」ラベルを`{プロジェクト名}`に変更し、プロジェクト名を動的表示する
+
+#### 注釈付き写真統一（要件3, 4更新 + 要件19, 20新規）
+
+| 対象 | 変更内容 | 影響度 |
+|------|---------|--------|
+| SurveyImageSummary型（quantity-edit.types.ts） | `annotatedThumbnailUrl`フィールド追加、`comment`フィールド追加 | 中 |
+| QuantityGroupCard | 写真表示を注釈付き写真に変更、コメント表示エリア追加 | 中 |
+| PhotoChangeDialog（新規または既存の写真選択モーダル拡張） | 注釈付き写真一覧を表示する写真変更ダイアログ | 中 |
+| PhotoPreviewDialog（新規） | 注釈付き写真を拡大プレビューするダイアログ | 中 |
+| PhotoCommentDisplay（新規） | 写真コメントを写真の右側に表示するコンポーネント | 小 |
+| QuantityGroupService/Backend API | SurveyImage取得時に`annotatedThumbnailPath`と`comment`を含める | 小 |
+| QuantityTableEditPage | 写真選択モーダルの写真一覧を注釈付き写真に変更 | 小 |
+
+#### 写真コメント表示（要件21新規）
+
+| 対象 | 変更内容 | 影響度 |
+|------|---------|--------|
+| PhotoCommentDisplay（新規） | 写真横にコメントを表示するUIコンポーネント | 小 |
+| QuantityGroupCard | 写真エリアにコメント表示コンポーネントを統合 | 小 |
+| SurveyImageSummary型 | `comment`フィールドの追加（上述） | 小 |
+
+### 設計方針
+
+#### パンくずナビゲーション改善
+
+##### QuantityTableListPage の変更
+
+```typescript
+// 変更前
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト', path: '/projects' },
+    { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+    { label: '数量表一覧' },
+  ]}
+/>
+
+// 変更後（REQ-12.1）
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: projectName, path: `/projects/${projectId}` },
+    { label: '数量表一覧' },
+  ]}
+/>
+```
+
+**注記**: `projectName`は数量表一覧取得時にプロジェクト情報を取得するか、ルートパラメータまたはページステートから取得する。既存のQuantityTableEditPageでは`quantityTable.project.name`として取得できるパターンが確立されているため、QuantityTableListPageでもプロジェクト名を取得する処理を追加する。
+
+##### QuantityTableEditPage の変更
+
+```typescript
+// 変更前
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト', path: '/projects' },
+    { label: quantityTable.project.name, path: `/projects/${quantityTable.projectId}` },
+    { label: '数量表一覧', path: `/projects/${quantityTable.projectId}/quantity-tables` },
+    { label: quantityTable.name },
+  ]}
+/>
+
+// 変更後（REQ-12.2）
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: quantityTable.project.name, path: `/projects/${quantityTable.projectId}` },
+    { label: '数量表一覧', path: `/projects/${quantityTable.projectId}/quantity-tables` },
+    { label: quantityTable.name },
+  ]}
+/>
+```
+
+##### QuantityTableCreatePage の変更
+
+```typescript
+// 変更前
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト', path: '/projects' },
+    { label: project?.name ?? 'プロジェクト', path: `/projects/${projectId}` },
+    { label: '数量表一覧', path: `/projects/${projectId}/quantity-tables` },
+    { label: '新規作成' },
+  ]}
+/>
+
+// 変更後（REQ-12.3）
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: project?.name ?? 'プロジェクト', path: `/projects/${projectId}` },
+    { label: '数量表一覧', path: `/projects/${projectId}/quantity-tables` },
+    { label: '新規作成' },
+  ]}
+/>
+```
+
+#### SurveyImageSummary型の拡張
+
+```typescript
+/**
+ * 数量表編集用の現場調査画像情報（拡張版）
+ *
+ * Requirements: 3.3, 4.2, 19.2, 20.2, 21.1, 21.2
+ */
+export interface SurveyImageSummary {
+  /** 画像ID */
+  id: string;
+  /** サムネイルURL */
+  thumbnailUrl: string;
+  /** 元画像URL */
+  originalUrl: string;
+  /** ファイル名 */
+  fileName: string;
+  /** 注釈の有無 */
+  hasAnnotations: boolean;
+  /** 注釈付きサムネイルURL（注釈エディタで編集済みの画像、REQ-3.3, 4.2, 19.2, 20.2） */
+  annotatedThumbnailUrl: string | null;
+  /** 写真コメント（REQ-21.1, 21.2） */
+  comment: string | null;
+}
+```
+
+**バックエンド変更**: QuantityGroupの詳細取得およびQuantityTable詳細取得のレスポンスに含まれるSurveyImage情報に、`annotatedThumbnailPath`からの署名付きURLと`comment`フィールドを追加する。既存の`image-list.service.ts`で`annotatedThumbnailUrl`を生成するパターンが確立されているため、それを踏襲する。
+
+#### 注釈付き写真の表示ロジック
+
+数量表の全画面で写真を表示する際は、以下の優先順位に従う:
+
+1. `annotatedThumbnailUrl`が存在する場合: 注釈付きサムネイルを表示
+2. `annotatedThumbnailUrl`が存在しない場合: 通常の`thumbnailUrl`にフォールバック
+
+既存の`AnnotatedImageThumbnail`コンポーネント（`frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx`）が同様のフォールバックロジックを持っているため、このコンポーネントを再利用する。
+
+#### PhotoChangeDialog コンポーネント
+
+```typescript
+/**
+ * 写真変更ダイアログ
+ *
+ * 数量グループに紐づけた写真を変更する際に表示されるモーダルダイアログ。
+ * 同一プロジェクトの注釈付き現場調査写真一覧を表示し、新しい写真を選択する。
+ *
+ * Requirements: 19.1, 19.2, 19.3, 19.4
+ */
+interface PhotoChangeDialogProps {
+  /** ダイアログの表示状態 */
+  isOpen: boolean;
+  /** ダイアログを閉じるコールバック */
+  onClose: () => void;
+  /** プロジェクトID（同一プロジェクトの写真一覧取得用） */
+  projectId: string;
+  /** 現在選択中の写真ID（ハイライト表示用） */
+  currentImageId: string | null;
+  /** 写真選択時のコールバック */
+  onSelect: (image: SurveyImageSummary) => void;
+}
+```
+
+**UI仕様**:
+
+- タイトル: 「写真を変更」
+- 同一プロジェクトの全現場調査の写真をグリッド形式で一覧表示
+- 各写真は`annotatedThumbnailUrl`が存在する場合は注釈付きサムネイルを表示、存在しない場合は通常サムネイルにフォールバック
+- 現在選択中の写真にはハイライト（枠線）を表示
+- 写真クリックで選択、`onSelect`コールバックを呼び出し
+- 選択確定後にダイアログを閉じ、呼び出し元のQuantityGroupCardの写真表示とコメント表示を更新
+
+**データ取得**: 既存の現場調査画像一覧取得API（`GET /api/site-surveys/:surveyId/images`）を使用し、プロジェクトに紐付く全現場調査の画像を取得する。レスポンスに含まれる`annotatedThumbnailUrl`を使用して注釈付き写真を表示する。
+
+**既存実装との関係**: 現在のQuantityGroupCardには写真選択用のモーダル（`ImageSelectModal`相当）が存在する場合、そのコンポーネントを拡張して注釈付き写真表示に対応する。新規ダイアログとして作成する場合は、既存パターン（`CopyQuantityTableDialog`等のモーダルパターン）を踏襲する。
+
+#### PhotoPreviewDialog コンポーネント
+
+```typescript
+/**
+ * 写真プレビューダイアログ
+ *
+ * 数量グループに紐づけられた写真を拡大プレビューするモーダルダイアログ。
+ * オリジナル写真ではなく、注釈付き写真（注釈エディタで編集済みの画像）を表示する。
+ *
+ * Requirements: 20.1, 20.2, 20.3
+ */
+interface PhotoPreviewDialogProps {
+  /** ダイアログの表示状態 */
+  isOpen: boolean;
+  /** ダイアログを閉じるコールバック */
+  onClose: () => void;
+  /** プレビュー対象の画像情報 */
+  image: SurveyImageSummary;
+}
+```
+
+**UI仕様**:
+
+- フルスクリーンまたはラージサイズのモーダルで注釈付き写真を拡大表示
+- 表示する画像の優先順位:
+  1. `annotatedThumbnailUrl`（注釈付き画像）が存在する場合はそれを使用
+  2. 存在しない場合は`originalUrl`にフォールバック
+- 閉じるボタン（右上の×ボタン）でダイアログを閉じる
+- 背景クリックまたはEscキーでもダイアログを閉じる
+
+**注記**: 要件20.3により、プレビュー写真は「オリジナル写真ではなく注釈付き写真」とする。拡大表示用に高解像度の注釈付き画像が必要な場合、バックエンドの`annotatedThumbnailPath`が参照する画像の解像度が十分であるかを確認する。不十分な場合はAnnotationRendererServiceで拡大表示用の高解像度版を別途生成する対応を検討するが、現時点では既存のannotatedThumbnailPathの画像をそのまま使用する方針とする。
+
+#### PhotoCommentDisplay コンポーネント
+
+```typescript
+/**
+ * 写真コメント表示コンポーネント
+ *
+ * 数量グループに紐づけられた写真のコメントを、写真の右側に表示する。
+ * コメントが存在しない場合はコメント表示エリアを空白にする。
+ *
+ * Requirements: 21.1, 21.2, 21.3, 21.4, 21.5
+ */
+interface PhotoCommentDisplayProps {
+  /** 写真コメント（nullの場合はコメントなし） */
+  comment: string | null;
+}
+```
+
+**UI仕様**:
+
+- 写真サムネイルの右側にコメントテキストを表示
+- コメントが`null`または空文字の場合、コメント表示エリアは空白（高さは維持しない）
+- フォントサイズ: 12px、色: `#4b5563`（グレー系）
+- テキストが長い場合はワードラップして複数行表示
+- 最大高さ制限（例: 120px）を設け、それを超える場合はスクロール表示
+
+**QuantityGroupCard内のレイアウト変更**:
+
+```typescript
+// 写真表示エリアのレイアウト変更（設計意図の説明）
+<div style={styles.photoArea}>
+  {/* 写真サムネイル（注釈付き） */}
+  <div style={styles.photoThumbnail}>
+    {/* annotatedThumbnailUrl優先、フォールバックでthumbnailUrl */}
+    <img
+      src={group.surveyImage.annotatedThumbnailUrl || group.surveyImage.thumbnailUrl}
+      alt={group.surveyImage.fileName}
+    />
+  </div>
+  {/* 写真コメント表示（REQ-21.2: 写真の右側に配置） */}
+  <PhotoCommentDisplay comment={group.surveyImage.comment} />
+</div>
+```
+
+**折りたたみ時の動作（REQ-21.5）**: QuantityGroupCardのグループ折りたたみ機能は既存の`isExpanded`ステートに基づいて写真表示エリア全体を非表示にする。PhotoCommentDisplayは写真表示エリア内に配置されるため、折りたたみ時に自動的に非表示になる。追加のロジックは不要。
+
+### QuantityGroupCardの変更（統合）
+
+QuantityGroupCardの写真表示エリアに以下の変更を統合する:
+
+1. **写真表示**: `thumbnailUrl`の代わりに`annotatedThumbnailUrl`を優先使用（フォールバックで`thumbnailUrl`）
+2. **写真クリック**: 写真クリック時にPhotoPreviewDialogを開く（REQ-20.1）
+3. **写真変更ボタン**: 写真変更操作時にPhotoChangeDialogを開く（REQ-19.1）
+4. **コメント表示**: 写真の右側にPhotoCommentDisplayを配置（REQ-21.2）
+
+```typescript
+// QuantityGroupCardの拡張Props
+interface QuantityGroupCardProps {
+  // ... 既存Props
+  /** プロジェクトID（写真変更ダイアログ用） */
+  projectId: string;
+}
+```
+
+### バックエンドAPI変更
+
+#### QuantityTable詳細取得API の拡張
+
+`GET /api/quantity-tables/:id` のレスポンスに含まれるQuantityGroupのSurveyImage情報を拡張する:
+
+```typescript
+// 変更前の SurveyImage include
+include: {
+  surveyImage: {
+    select: {
+      id: true,
+      originalPath: true,
+      thumbnailPath: true,
+      fileName: true,
+    }
+  }
+}
+
+// 変更後の SurveyImage include（REQ-3.3, 21.1）
+include: {
+  surveyImage: {
+    select: {
+      id: true,
+      originalPath: true,
+      thumbnailPath: true,
+      annotatedThumbnailPath: true,  // 追加: 注釈付きサムネイルパス
+      fileName: true,
+      comment: true,                  // 追加: 写真コメント
+      annotation: {                   // hasAnnotations判定用
+        select: { id: true }
+      }
+    }
+  }
+}
+```
+
+取得したデータからSurveyImageSummaryを構築する際に、`annotatedThumbnailPath`から署名付きURLを生成して`annotatedThumbnailUrl`として返却する。`comment`フィールドはそのまま返却する。
+
+### テスト設計
+
+#### 単体テスト
+
+**パンくず改善**:
+- QuantityTableListPageのパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧」形式であること
+- QuantityTableEditPageのパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > {数量表名}」形式であること
+- QuantityTableCreatePageのパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > 新規作成」形式であること
+- パンくずの各項目クリックで正しいパスに遷移すること
+- 現在の画面を示す項目がクリック不可（非リンク）であること
+
+**注釈付き写真表示**:
+- QuantityGroupCardで`annotatedThumbnailUrl`が存在する場合に注釈付きサムネイルが表示されること
+- QuantityGroupCardで`annotatedThumbnailUrl`が存在しない場合に通常の`thumbnailUrl`にフォールバックすること
+- PhotoChangeDialogで注釈付き写真一覧が表示されること
+- PhotoChangeDialogで写真を選択すると`onSelect`コールバックが呼ばれること
+- PhotoPreviewDialogで注釈付き写真が拡大表示されること
+- PhotoPreviewDialogで`annotatedThumbnailUrl`が存在しない場合に`originalUrl`にフォールバックすること
+
+**コメント表示**:
+- PhotoCommentDisplayでコメントが正しく表示されること
+- PhotoCommentDisplayでコメントが`null`の場合にコメント表示エリアが空白であること
+- QuantityGroupCardで写真変更後にコメント表示が更新されること
+- QuantityGroupCard折りたたみ時にコメント表示も非表示になること
+
+#### 統合テスト
+
+- QuantityTable詳細取得APIのレスポンスにSurveyImageの`annotatedThumbnailUrl`と`comment`が含まれること
+- `annotatedThumbnailPath`がnullの場合に`annotatedThumbnailUrl`もnullで返却されること
+- `comment`がnullの場合にnullで返却されること
+
+#### E2Eテスト
+
+**パンくず改善**:
+- 数量表一覧画面で「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧」のパンくずが表示されること
+- 数量表編集画面で「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > {数量表名}」のパンくずが表示されること
+- 数量表新規作成画面で「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > 新規作成」のパンくずが表示されること
+- パンくずの各項目をクリックして正しい画面に遷移すること
+
+**注釈付き写真表示**:
+- 数量表編集画面で数量グループに紐づけられた写真が注釈付きで表示されること
+- 写真変更ダイアログで注釈付き写真一覧が表示されること
+- 写真変更ダイアログで新しい写真を選択すると編集画面の写真表示が更新されること
+- 写真プレビューダイアログで注釈付き写真が拡大表示されること
+
+**コメント表示**:
+- 写真が紐づけられている数量グループで写真の右側にコメントが表示されること
+- コメントが存在しない写真の場合、コメント表示エリアが空白であること
+- 写真を変更した際にコメント表示が新しい写真のコメントに更新されること
+- グループを折りたたんだ際にコメント表示も非表示になること
+
+### Requirements Traceability（Phase 9追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 12.1 | 数量表一覧画面のパンくず改善 | QuantityTableListPage, Breadcrumb | - | - |
+| 12.2 | 数量表詳細画面のパンくず改善 | QuantityTableEditPage, Breadcrumb | - | - |
+| 12.3 | 数量表新規作成画面のパンくず改善 | QuantityTableCreatePage, Breadcrumb | - | - |
+| 3.3 | 注釈付き写真の表示 | QuantityGroupCard, AnnotatedImageThumbnail | - | - |
+| 4.2 | 注釈付き写真一覧からの選択 | PhotoChangeDialog | GET /api/site-surveys/:surveyId/images | - |
+| 19.1 | 写真変更ダイアログ表示 | QuantityGroupCard, PhotoChangeDialog | - | - |
+| 19.2 | 写真変更ダイアログで注釈付き写真一覧表示 | PhotoChangeDialog | - | - |
+| 19.3 | 写真変更ダイアログで写真選択 | PhotoChangeDialog, QuantityGroupService | - | - |
+| 19.4 | 写真変更確定後の表示更新 | QuantityGroupCard, PhotoCommentDisplay | - | - |
+| 20.1 | 写真プレビューダイアログ表示 | QuantityGroupCard, PhotoPreviewDialog | - | - |
+| 20.2 | 注釈付き写真の拡大表示 | PhotoPreviewDialog | - | - |
+| 20.3 | プレビューは注釈付き写真 | PhotoPreviewDialog | - | - |
+| 21.1 | 写真選択時にコメント取得 | QuantityGroupCard | - | - |
+| 21.2 | コメントを写真の右側に表示 | PhotoCommentDisplay | - | - |
+| 21.3 | コメント未存在時は空白 | PhotoCommentDisplay | - | - |
+| 21.4 | 写真変更時にコメント更新 | PhotoCommentDisplay, PhotoChangeDialog | - | - |
+| 21.5 | 折りたたみ時にコメント非表示 | QuantityGroupCard | - | - |
