@@ -11,8 +11,11 @@
  * - 15.5: 数量表選択リストを表示する
  * - 15.6: 作成成功時に内訳書詳細画面へ遷移する
  * - 15.7: キャンセル時にプロジェクト詳細画面に遷移する（location.stateまたは?from=listで判定）
+ * - 9.2: パンくず「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > 新規作成」形式
+ * - 9.4: 「ダッシュボード」リンクはダッシュボード画面（/）へ遷移する
  * - 9.5: パンくずナビゲーションを表示する
- * - 9.6: パンくず「プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成」形式
+ * - 9.6: 「{プロジェクト名}」リンクはプロジェクト詳細画面へ遷移する
+ * - 9.7: 「内訳書一覧」リンクは内訳書一覧画面へ遷移する
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -218,17 +221,18 @@ export default function ItemizedStatementCreatePage() {
   return (
     <main role="main" style={styles.container}>
       {/* パンくずナビゲーション */}
-      {/* REQ-9.5, REQ-9.6: プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成 */}
-      <nav aria-label="breadcrumb" style={styles.breadcrumbWrapper}>
+      {/* REQ-9.2, REQ-9.4, REQ-9.5, REQ-9.6, REQ-9.7: ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > 新規作成 */}
+      <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
             { label: project.name, path: `/projects/${projectId}` },
-            { label: '内訳書', path: `/projects/${projectId}/itemized-statements` },
+            { label: '内訳書一覧', path: `/projects/${projectId}/itemized-statements` },
             { label: '新規作成' },
           ]}
         />
-      </nav>
+      </div>
 
       {/* ヘッダー */}
       <div style={styles.header}>
