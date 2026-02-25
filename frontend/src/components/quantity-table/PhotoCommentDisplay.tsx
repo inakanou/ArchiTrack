@@ -49,7 +49,11 @@ export default function PhotoCommentDisplay({ comment }: PhotoCommentDisplayProp
   const hasComment = comment !== null && comment !== '';
 
   return (
-    <div data-testid="photo-comment-display" style={styles.container}>
+    <div
+      data-testid="photo-comment-display"
+      style={styles.container}
+      {...(hasComment ? { tabIndex: 0, role: 'region', 'aria-label': '写真コメント' } : {})}
+    >
       {hasComment ? comment : null}
     </div>
   );
