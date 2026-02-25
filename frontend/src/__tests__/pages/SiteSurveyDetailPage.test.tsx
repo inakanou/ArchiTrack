@@ -182,9 +182,9 @@ describe('SiteSurveyDetailPage', () => {
       const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       expect(breadcrumb).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'ダッシュボード' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'プロジェクト' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'テストプロジェクト' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: '現場調査' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '現場調査一覧' })).toBeInTheDocument();
     });
 
     it('写真管理パネルを表示する', async () => {
@@ -307,7 +307,7 @@ describe('SiteSurveyDetailPage', () => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
 
-      const surveyListLink = screen.getByRole('link', { name: '現場調査' });
+      const surveyListLink = screen.getByRole('link', { name: '現場調査一覧' });
       expect(surveyListLink).toHaveAttribute('href', '/projects/project-456/site-surveys');
     });
   });

@@ -253,7 +253,7 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
 
       // 現場調査一覧ページへ遷移
       await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1, name: '現場調査' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: '現場調査一覧' })).toBeInTheDocument();
       });
     });
   });
@@ -289,7 +289,7 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
       renderIntegration('/projects/project-test-123/site-surveys');
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1, name: '現場調査' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: '現場調査一覧' })).toBeInTheDocument();
       });
 
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
@@ -319,7 +319,7 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
 
       await waitFor(() => {
         const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-        const projectsLink = within(nav).getByRole('link', { name: 'プロジェクト' });
+        const projectsLink = within(nav).getByRole('link', { name: 'プロジェクト一覧' });
         expect(projectsLink).toHaveAttribute('href', '/projects');
       });
     });
@@ -380,7 +380,7 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
 
       // Step 3: 現場調査一覧ページへ遷移したことを確認
       await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1, name: '現場調査' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: '現場調査一覧' })).toBeInTheDocument();
       });
 
       // Step 4: ブレッドクラムからプロジェクト詳細へ戻る
@@ -400,7 +400,7 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
       renderIntegration('/projects/project-test-123/site-surveys');
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1, name: '現場調査' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: '現場調査一覧' })).toBeInTheDocument();
       });
 
       // 現場調査一覧APIが呼び出されている

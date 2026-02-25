@@ -114,7 +114,7 @@ describe('SiteSurveyEditPage', () => {
       const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       expect(breadcrumb).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'ダッシュボード' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'プロジェクト' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧' })).toBeInTheDocument();
     });
   });
 
