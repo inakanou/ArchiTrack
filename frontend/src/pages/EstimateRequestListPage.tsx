@@ -17,6 +17,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getEstimateRequests } from '../api/estimate-requests';
+import { getProject } from '../api/projects';
 import type {
   EstimateRequestInfo,
   EstimateRequestMethod,
@@ -346,6 +347,9 @@ export default function EstimateRequestListPage() {
   // データ状態
   const [data, setData] = useState<PaginatedEstimateRequests | null>(null);
 
+  // プロジェクト名（パンくず表示用）
+  const [projectName, setProjectName] = useState<string>('');
+
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -361,8 +365,14 @@ export default function EstimateRequestListPage() {
     setError(null);
 
     try {
-      const result = await getEstimateRequests(projectId, { page, limit });
+      const [result, projectData] = await Promise.all([
+        getEstimateRequests(projectId, { page, limit }),
+        getProject(projectId),
+      ]);
       setData(result);
+      if (projectData?.name) {
+        setProjectName(projectData.name);
+      }
     } catch {
       setError('見積依頼の取得に失敗しました');
     } finally {
@@ -441,8 +451,9 @@ export default function EstimateRequestListPage() {
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+            { label: projectName || 'プロジェクト', path: `/projects/${projectId}` },
             { label: '見積依頼一覧' },
           ]}
         />

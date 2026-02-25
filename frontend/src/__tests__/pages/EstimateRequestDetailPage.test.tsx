@@ -29,6 +29,9 @@ import { ApiError } from '../../api/client';
 vi.mock('../../api/estimate-requests');
 vi.mock('../../api/received-quotations');
 vi.mock('../../api/estimate-request-status');
+vi.mock('../../api/projects', () => ({
+  getProject: vi.fn().mockResolvedValue({ name: 'テストプロジェクト' }),
+}));
 
 // useNavigateモック
 const mockNavigate = vi.fn();
@@ -271,15 +274,18 @@ describe('EstimateRequestDetailPage', () => {
       expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
     });
 
-    it('戻るリンクを表示する', async () => {
+    it('戻るリンクが存在しない（パンくずナビ改善により削除済み）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
       });
 
-      const backLink = screen.getByRole('link', { name: '見積依頼一覧に戻る' });
-      expect(backLink).toHaveAttribute('href', '/projects/project-1/estimate-requests');
+      // 「← 見積依頼一覧に戻る」リンクは削除されたため存在しない
+      expect(screen.queryByRole('link', { name: '見積依頼一覧に戻る' })).not.toBeInTheDocument();
+      // 代わりにパンくずから「見積依頼一覧」リンクが利用可能
+      const listLink = screen.getByRole('link', { name: '見積依頼一覧' });
+      expect(listLink).toHaveAttribute('href', '/projects/project-1/estimate-requests');
     });
 
     it('選択状況を表示する', async () => {

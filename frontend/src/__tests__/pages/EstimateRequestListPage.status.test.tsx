@@ -15,6 +15,9 @@ import * as estimateRequestApi from '../../api/estimate-requests';
 
 // APIモック
 vi.mock('../../api/estimate-requests');
+vi.mock('../../api/projects', () => ({
+  getProject: vi.fn().mockResolvedValue({ name: 'テストプロジェクト' }),
+}));
 
 // テストデータ
 const mockEstimateRequests = {

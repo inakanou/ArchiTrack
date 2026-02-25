@@ -34,6 +34,7 @@ import {
   updateItemSelection,
   deleteEstimateRequest,
 } from '../api/estimate-requests';
+import { getProject } from '../api/projects';
 import {
   getReceivedQuotations,
   createReceivedQuotation,
@@ -437,6 +438,9 @@ export default function EstimateRequestDetailPage() {
   const [estimateText, setEstimateText] = useState<EstimateRequestText | null>(null);
   const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
 
+  // プロジェクト名（パンくず表示用）
+  const [projectName, setProjectName] = useState<string>('');
+
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -473,6 +477,18 @@ export default function EstimateRequestDetailPage() {
       setRequest(requestData);
       setItems(itemsData);
       setQuotations(quotationsData);
+
+      // プロジェクト名を取得（パンくず表示用）
+      if (requestData?.projectId) {
+        try {
+          const projectData = await getProject(requestData.projectId);
+          if (projectData?.name) {
+            setProjectName(projectData.name);
+          }
+        } catch {
+          // プロジェクト名取得失敗時はフォールバック表示を維持
+        }
+      }
     } catch {
       setError('見積依頼の取得に失敗しました');
     } finally {
@@ -843,8 +859,9 @@ export default function EstimateRequestDetailPage() {
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${request.projectId}` },
+            { label: projectName || 'プロジェクト', path: `/projects/${request.projectId}` },
             {
               label: '見積依頼一覧',
               path: `/projects/${request.projectId}/estimate-requests`,
@@ -857,13 +874,6 @@ export default function EstimateRequestDetailPage() {
       {/* ヘッダー */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <Link
-            to={`/projects/${request.projectId}/estimate-requests`}
-            style={styles.backLink}
-            aria-label="見積依頼一覧に戻る"
-          >
-            ← 見積依頼一覧に戻る
-          </Link>
           <h1 style={styles.title}>{request.name}</h1>
           <p style={styles.subtitle}>
             {formatDate(request.createdAt)} / {request.tradingPartnerName} /{' '}
