@@ -1008,19 +1008,19 @@ describe('ProjectDetailPage', () => {
       expect(projectsLink).toHaveAttribute('href', '/projects');
     });
 
-    it('「プロジェクト詳細」がパンくずの最後に表示される（Task 53.1更新）', async () => {
+    it('プロジェクト名がパンくずの最後に表示される（Task 53.1更新）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // パンくずナビゲーション内で「プロジェクト詳細」を確認
+      // パンくずナビゲーション内でプロジェクト名を確認
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-      expect(within(nav).getByText('プロジェクト詳細')).toBeInTheDocument();
+      expect(within(nav).getByText('テストプロジェクト')).toBeInTheDocument();
     });
 
-    it('現在ページ（プロジェクト詳細）にaria-current="page"が設定される（Task 53.1更新）', async () => {
+    it('現在ページ（プロジェクト名）にaria-current="page"が設定される（Task 53.1更新）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -1028,19 +1028,19 @@ describe('ProjectDetailPage', () => {
       });
 
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-      const currentPage = within(nav).getByText('プロジェクト詳細');
+      const currentPage = within(nav).getByText('テストプロジェクト');
       expect(currentPage).toHaveAttribute('aria-current', 'page');
     });
 
-    it('「プロジェクト詳細」は現在ページとしてリンクなしで表示される（Task 53.1更新）', async () => {
+    it('プロジェクト名は現在ページとしてリンクなしで表示される（Task 53.1更新）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // 「プロジェクト詳細」はリンクではない
-      expect(screen.queryByRole('link', { name: 'プロジェクト詳細' })).not.toBeInTheDocument();
+      // パンくず内のプロジェクト名はリンクではない
+      expect(screen.queryByRole('link', { name: 'テストプロジェクト' })).not.toBeInTheDocument();
     });
 
     it('パンくず項目間に区切り文字「>」が表示される', async () => {
@@ -1056,7 +1056,7 @@ describe('ProjectDetailPage', () => {
       expect(separators).toHaveLength(2);
     });
 
-    it('パンくずに「プロジェクト詳細」が固定テキストとして表示される（Task 53.1更新）', async () => {
+    it('パンくずにプロジェクト名が動的に表示される（Task 53.1更新）', async () => {
       const customProject = {
         ...mockProject,
         name: 'カスタムプロジェクト名',
@@ -1073,9 +1073,9 @@ describe('ProjectDetailPage', () => {
         ).toBeInTheDocument();
       });
 
-      // パンくずにはプロジェクト名ではなく「プロジェクト詳細」が表示される
+      // パンくずにはプロジェクト名が表示される
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-      expect(within(nav).getByText('プロジェクト詳細')).toBeInTheDocument();
+      expect(within(nav).getByText('カスタムプロジェクト名')).toBeInTheDocument();
     });
 
     it('編集ボタンクリック時もパンくずナビゲーションが表示されている', async () => {
@@ -1756,7 +1756,7 @@ describe('ProjectDetailPage', () => {
       expect(projectsLink).toHaveAttribute('href', '/projects');
     });
 
-    it('パンくずの最後に「プロジェクト詳細」がリンクなしで表示される', async () => {
+    it('パンくずの最後にプロジェクト名がリンクなしで表示される', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -1764,12 +1764,12 @@ describe('ProjectDetailPage', () => {
       });
 
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-      expect(within(nav).getByText('プロジェクト詳細')).toBeInTheDocument();
+      expect(within(nav).getByText('テストプロジェクト')).toBeInTheDocument();
       // リンクではないことを確認
-      expect(screen.queryByRole('link', { name: 'プロジェクト詳細' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'テストプロジェクト' })).not.toBeInTheDocument();
     });
 
-    it('パンくずに「プロジェクト詳細」がaria-current="page"で設定される', async () => {
+    it('パンくずにプロジェクト名がaria-current="page"で設定される', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -1777,11 +1777,11 @@ describe('ProjectDetailPage', () => {
       });
 
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-      const currentPage = within(nav).getByText('プロジェクト詳細');
+      const currentPage = within(nav).getByText('テストプロジェクト');
       expect(currentPage).toHaveAttribute('aria-current', 'page');
     });
 
-    it('パンくずに「ダッシュボード > プロジェクト一覧 > プロジェクト詳細」が表示される', async () => {
+    it('パンくずに「ダッシュボード > プロジェクト一覧 > プロジェクト名」が表示される', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -1791,7 +1791,7 @@ describe('ProjectDetailPage', () => {
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       expect(within(nav).getByText('ダッシュボード')).toBeInTheDocument();
       expect(within(nav).getByText('プロジェクト一覧')).toBeInTheDocument();
-      expect(within(nav).getByText('プロジェクト詳細')).toBeInTheDocument();
+      expect(within(nav).getByText('テストプロジェクト')).toBeInTheDocument();
     });
   });
 
