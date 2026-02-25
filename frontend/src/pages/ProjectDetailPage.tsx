@@ -599,7 +599,7 @@ export default function ProjectDetailPage() {
           items={[
             { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細' },
+            { label: project.name },
           ]}
         />
       </div>

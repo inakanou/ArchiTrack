@@ -206,8 +206,8 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
         timeout: getTimeout(10000),
       });
 
-      // 一覧が表示されることを確認（h1またはh2の「現場調査」見出しをマッチ）
-      await expect(page.getByRole('heading', { name: /^現場調査$/i }).first()).toBeVisible({
+      // 一覧が表示されることを確認（h1の「現場調査一覧」見出しをマッチ）
+      await expect(page.getByRole('heading', { name: /^現場調査一覧$/i }).first()).toBeVisible({
         timeout: getTimeout(10000),
       });
 

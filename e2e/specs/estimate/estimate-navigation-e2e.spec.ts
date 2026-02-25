@@ -508,7 +508,8 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       await page.waitForLoadState('networkidle');
 
       // パンくずの「ダッシュボード」リンクをクリック
-      const dashboardLink = page.getByRole('link', { name: 'ダッシュボード' });
+      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      const dashboardLink = breadcrumb.getByRole('link', { name: 'ダッシュボード' });
       await expect(dashboardLink).toBeVisible({ timeout: getTimeout(15000) });
       await dashboardLink.click();
 
