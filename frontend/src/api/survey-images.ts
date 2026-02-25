@@ -150,11 +150,29 @@ export async function uploadSurveyImage(
     formData.append('displayOrder', String(options.displayOrder));
   }
 
-  return requestWithFormData<SurveyImageInfo>(
-    `/api/site-surveys/${surveyId}/images`,
-    formData,
-    'POST'
-  );
+  // バックエンドは単一ファイルもバッチとして処理し、
+  // { successful: [...], failed: [...] } 形式で返す。
+  // 失敗時はステータス207（Multi-Status）で返されるが、
+  // response.ok は 2xx 全体で true のため、レスポンスボディを検査する必要がある。
+  const result = await requestWithFormData<{
+    successful: SurveyImageInfo[];
+    failed: Array<{ fileName: string; error: string }>;
+  }>(`/api/site-surveys/${surveyId}/images`, formData, 'POST');
+
+  // バッチレスポンスの failed 配列にエントリがある場合はエラーをスロー
+  if (result.failed && result.failed.length > 0) {
+    const failedItem = result.failed[0] as { fileName: string; error: string };
+    throw new ApiError(415, failedItem.error, result);
+  }
+
+  // successful 配列から最初のエントリを返す
+  const firstSuccess = result.successful?.[0];
+  if (firstSuccess) {
+    return firstSuccess;
+  }
+
+  // フォールバック: 想定外のレスポンス形式の場合
+  return result as unknown as SurveyImageInfo;
 }
 
 /**
