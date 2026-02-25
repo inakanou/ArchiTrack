@@ -155,6 +155,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
   /**
    * @requirement project-management/REQ-24.1
    * @requirement project-management/REQ-24.2
+   * @requirement site-survey/REQ-2.11
    */
   test.describe('プロジェクト詳細から現場調査へのナビゲーション', () => {
     test('プロジェクト詳細画面に現場調査タブ/セクションが表示される (project-management/REQ-24.1)', async ({
@@ -284,6 +285,8 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
   /**
    * @requirement site-survey/REQ-2.5
    * @requirement site-survey/REQ-2.6
+   * @requirement site-survey/REQ-2.10
+   * @requirement site-survey/REQ-2.12
    */
   test.describe('ブレッドクラムナビゲーション', () => {
     test('現場調査詳細画面にブレッドクラムが表示される (site-survey/REQ-2.5)', async ({ page }) => {

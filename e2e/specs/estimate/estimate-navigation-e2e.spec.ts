@@ -463,7 +463,10 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
   test.describe('タスク20.2/43.4: パンくずナビゲーション（Task 43更新）', () => {
     /**
-     * @requirement estimate-creation/REQ-15.1, REQ-15.2, REQ-15.4, REQ-15.12
+     * @requirement estimate-creation/REQ-15.1
+     * @requirement estimate-creation/REQ-15.2
+     * @requirement estimate-creation/REQ-15.4
+     * @requirement estimate-creation/REQ-15.12
      * 見積書一覧画面でパンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧」を表示する
      */
     test('REQ-15.1：見積書一覧画面でパンくずが「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧」形式で表示される', async ({
@@ -562,7 +565,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.5, REQ-15.6
+     * @requirement estimate-creation/REQ-15.5
+     * @requirement estimate-creation/REQ-15.6
+     * @requirement estimate-creation/REQ-15.7
      * 見積書新規作成画面でパンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 新規作成」を表示する
      */
     test('REQ-15.5：見積書新規作成画面でパンくずが正しい形式で表示される', async ({ page }) => {
@@ -590,7 +595,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.8, REQ-15.9, REQ-15.10
+     * @requirement estimate-creation/REQ-15.8
+     * @requirement estimate-creation/REQ-15.9
+     * @requirement estimate-creation/REQ-15.10
      * 見積書詳細画面でパンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書」を表示する
      */
     test('REQ-15.8：見積書詳細画面でパンくずが「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書」形式で表示される', async ({

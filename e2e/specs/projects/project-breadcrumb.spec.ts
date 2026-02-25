@@ -116,6 +116,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
   test.describe('プロジェクト詳細ページ', () => {
     /**
      * @requirement project-management/REQ-21.15
+     * @requirement project-management/REQ-31.1
      */
     test('詳細ページで「ダッシュボード > プロジェクト一覧 > [プロジェクト名]」のパンくずが表示される (project-management/REQ-21.15)', async ({
       page,
@@ -339,6 +340,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
   test.describe('パンくずナビゲーション遷移', () => {
     /**
      * @requirement project-management/REQ-21.18
+     * @requirement project-management/REQ-31.2
      */
     test('一覧ページのパンくずからダッシュボードリンクをクリックし、ダッシュボードページへ遷移する (project-management/REQ-21.18)', async ({
       page,
@@ -407,6 +409,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
 
     /**
      * @requirement project-management/REQ-21.18
+     * @requirement project-management/REQ-31.3
+     * @requirement project-management/REQ-32.2
      */
     test('詳細ページのパンくずからプロジェクト一覧リンクをクリックし、プロジェクト一覧ページへ遷移する (project-management/REQ-21.18)', async ({
       page,
@@ -493,6 +497,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
 
     /**
      * @requirement project-management/REQ-21.18
+     * @requirement project-management/REQ-31.4
+     * @requirement project-management/REQ-32.1
      */
     test('現在ページ項目がクリック不可（リンクなし）であることを確認 (project-management/REQ-21.18)', async ({
       page,

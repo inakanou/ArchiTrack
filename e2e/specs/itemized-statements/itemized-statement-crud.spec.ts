@@ -1574,6 +1574,7 @@ test.describe('内訳書CRUD操作', () => {
 
   /**
    * パンくずナビゲーション形式テスト (Req 9.2)
+   * @requirement itemized-statement-generation/REQ-9.7
    */
   test.describe('パンくずナビゲーション形式', () => {
     test('パンくずが「プロジェクト一覧 > プロジェクト名 > 内訳書 > 内訳書名」形式で表示される (Req 9.2)', async ({

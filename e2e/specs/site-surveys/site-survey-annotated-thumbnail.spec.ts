@@ -14,6 +14,12 @@ import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 
+/**
+ * @requirement site-survey/REQ-20.1
+ * @requirement site-survey/REQ-20.2
+ * @requirement site-survey/REQ-20.3
+ * @requirement site-survey/REQ-20.4
+ */
 test.describe('注釈付きサムネイル・プレビュー表示', () => {
   test.describe.configure({ mode: 'serial' });
 
