@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { createEstimate } from '../api/estimates';
 import { getItemizedStatements } from '../api/itemized-statements';
 import type { CreateEstimateInput } from '../api/estimates';
@@ -44,15 +44,6 @@ const styles = {
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',
-  } as React.CSSProperties,
-  backLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
-    marginBottom: '8px',
   } as React.CSSProperties,
   title: {
     fontSize: '24px',
@@ -271,12 +262,13 @@ export default function EstimateCreatePage() {
 
   return (
     <main role="main" style={styles.container} data-testid="estimate-create-page">
-      {/* パンくずナビゲーション */}
+      {/* パンくずナビゲーション (REQ-15.5-15.7, REQ-15.11) */}
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+            { label: 'プロジェクト', path: `/projects/${projectId}` },
             { label: '見積書一覧', path: `/projects/${projectId}/estimates` },
             { label: '新規作成' },
           ]}
@@ -285,13 +277,6 @@ export default function EstimateCreatePage() {
 
       {/* ヘッダー */}
       <div style={styles.header}>
-        <Link
-          to={`/projects/${projectId}/estimates`}
-          style={styles.backLink}
-          aria-label="一覧に戻る"
-        >
-          ← 一覧に戻る
-        </Link>
         <h1 style={styles.title}>見積書作成</h1>
       </div>
 
