@@ -218,6 +218,52 @@ describe('AnnotatedThumbnailService', () => {
         data: { annotatedThumbnailPath: null },
       });
     });
+
+    it('注釈オブジェクトが空配列で既存サムネイルがない場合はストレージ削除をスキップすること', async () => {
+      const emptyAnnotation: AnnotationData = {
+        version: '1.0',
+        objects: [],
+      };
+
+      // 1回目: generateAnnotatedThumbnailでimage取得 → annotatedThumbnailPath: null
+      // 2回目: removeAnnotatedThumbnailForImage内でfindUnique
+      mockPrisma.surveyImage.findUnique
+        .mockResolvedValueOnce(testImage) // image lookup
+        .mockResolvedValueOnce({ annotatedThumbnailPath: null }); // removal lookup
+
+      await service.generateAnnotatedThumbnail('image-123', emptyAnnotation);
+
+      // ストレージ削除は呼ばれない
+      expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+      // DB更新はnullに設定
+      expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
+        where: { id: 'image-123' },
+        data: { annotatedThumbnailPath: null },
+      });
+    });
+
+    it('注釈オブジェクトが空配列でストレージ削除に失敗した場合もDB更新は行われること', async () => {
+      const emptyAnnotation: AnnotationData = {
+        version: '1.0',
+        objects: [],
+      };
+
+      mockPrisma.surveyImage.findUnique.mockResolvedValueOnce(testImage).mockResolvedValueOnce({
+        annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg',
+      });
+
+      mockStorageProvider.delete.mockRejectedValue(new Error('Storage delete failed'));
+
+      await service.generateAnnotatedThumbnail('image-123', emptyAnnotation);
+
+      // ストレージ削除は試みられる
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith('annotated-thumbnails/image-123.jpg');
+      // エラーが発生してもDB更新は行われる
+      expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
+        where: { id: 'image-123' },
+        data: { annotatedThumbnailPath: null },
+      });
+    });
   });
 
   describe('removeAnnotatedThumbnail', () => {
@@ -254,6 +300,20 @@ describe('AnnotatedThumbnailService', () => {
       await service.removeAnnotatedThumbnail('nonexistent');
 
       expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+      expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
+    });
+
+    it('R2削除失敗時はDB更新が行われずエラーログが出力されること', async () => {
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        ...testImage,
+        annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg',
+      });
+      mockStorageProvider.delete.mockRejectedValue(new Error('R2 delete failed'));
+
+      await service.removeAnnotatedThumbnail('image-123');
+
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith('annotated-thumbnails/image-123.jpg');
+      // エラー時はDB更新されない（catchブロック内でDB更新なし）
       expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
     });
   });
@@ -403,6 +463,243 @@ describe('generateSvgFromAnnotation', () => {
 
     expect(svg).toContain('<svg');
     expect(svg).toContain('</svg>');
+  });
+
+  it('四角形: 回転ありの場合transformを含むこと', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'rect',
+          left: 10,
+          top: 20,
+          width: 100,
+          height: 50,
+          angle: 45,
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('transform="rotate(45');
+  });
+
+  it('四角形: 最小プロパティ（デフォルト値使用）でもSVGを生成すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'rect',
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('<rect');
+  });
+
+  it('円: 最小プロパティ（デフォルト値使用）でもSVGを生成すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'circle',
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('<ellipse');
+  });
+
+  it('テキスト: 回転ありの場合transformを含むこと', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'text',
+          left: 50,
+          top: 50,
+          text: 'Hello',
+          fontSize: 16,
+          angle: 30,
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('transform="rotate(30');
+  });
+
+  it('テキスト: 最小プロパティ（デフォルト値使用）でもSVGを生成すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'i-text',
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('<text');
+  });
+
+  it('テキスト: XMLエスケープが適用されること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'textbox',
+          text: '<script>&"test\'</script>',
+          left: 0,
+          top: 0,
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('&lt;script&gt;');
+    expect(svg).toContain('&amp;');
+    expect(svg).toContain('&quot;');
+    expect(svg).toContain('&apos;');
+  });
+
+  it('線: 最小プロパティ（デフォルト値使用）でもSVGを生成すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'line',
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('<line');
+  });
+
+  it('パス: pathDataが配列でない場合は空文字を返すこと', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'path',
+          left: 0,
+          top: 0,
+          path: 'invalid' as unknown as unknown[],
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    // pathが無効なので<path>要素は含まれない
+    expect(svg).not.toContain('<path');
+  });
+
+  it('パス: セグメントが配列でない場合は空文字として扱うこと', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'path',
+          left: 0,
+          top: 0,
+          path: ['not-an-array-segment', ['M', 0, 0]],
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('<path');
+    expect(svg).toContain('M 0 0');
+  });
+
+  it('パス: 最小プロパティ（デフォルト値使用）でもSVGを生成すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'path',
+          path: [
+            ['M', 0, 0],
+            ['L', 50, 50],
+          ],
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('<path');
+  });
+
+  it('パス: fill値が非transparentの場合そのまま使用すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'path',
+          left: 0,
+          top: 0,
+          path: [['M', 0, 0]],
+          fill: '#ff0000',
+          stroke: '#00ff00',
+          strokeWidth: 3,
+          scaleX: 2,
+          scaleY: 2,
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('fill="#ff0000"');
+    expect(svg).toContain('scale(2, 2)');
+  });
+
+  it('四角形: fill値が非transparentの場合そのまま使用すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'rect',
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 50,
+          fill: '#0000ff',
+          stroke: '#ff0000',
+          strokeWidth: 2,
+          scaleX: 1,
+          scaleY: 1,
+          angle: 0,
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('fill="#0000ff"');
+  });
+
+  it('円: fill値が非transparentの場合そのまま使用すること', () => {
+    const data: AnnotationData = {
+      version: '1.0',
+      objects: [
+        {
+          type: 'circle',
+          left: 100,
+          top: 100,
+          radius: 50,
+          fill: 'rgba(255,0,0,0.5)',
+          stroke: '#00ff00',
+          strokeWidth: 2,
+          scaleX: 1,
+          scaleY: 1,
+        },
+      ],
+    };
+
+    const svg = generateSvgFromAnnotation(data, 800, 600);
+    expect(svg).toContain('fill="rgba(255,0,0,0.5)"');
   });
 
   it('不明なオブジェクトタイプはスキップすること', () => {
