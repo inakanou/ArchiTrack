@@ -514,7 +514,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       await dashboardLink.click();
 
       // ダッシュボード画面に遷移することを確認
-      await page.waitForURL(/\/$/, { waitUntil: 'domcontentloaded' });
+      await page.waitForURL(/\/dashboard/, { waitUntil: 'domcontentloaded' });
     });
 
     /**
