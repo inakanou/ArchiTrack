@@ -19,6 +19,9 @@
 - **プロジェクト詳細画面での現場調査セクション表示を実現する**
 - **画像削除機能をUI上で提供する**
 - **PDF報告書出力時のAPIリクエスト最適化（バッチ注釈取得）を実現する**
+- **ブレッドクラムナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 画像」の階層構造に統一する**
+- **画面タイトルを「現場調査一覧」に変更し、画像プレビュー画面から「← 現場調査に戻る」リンクを削除する**
+- **注釈付きサムネイル画像の生成・表示をプレビュー画面、詳細画面サムネイル、一覧画面サムネイルで実現する**
 
 ### Non-Goals
 
@@ -435,7 +438,15 @@ sequenceDiagram
 |-------------|---------|------------|------------|-------|
 | 1.1-1.6 | 現場調査CRUD | SurveyService, SurveyRoutes | SurveyAPI | - |
 | **2.1** | **プロジェクト詳細画面の現場調査セクション** | **SiteSurveySectionCard, ProjectDetailPage** | **SurveyListAPI** | - |
-| 2.2-2.7 | 画面遷移・ナビゲーション | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
+| 2.3-2.4 | 画面遷移（一覧→詳細、詳細→ビューア） | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
+| **2.5** | **全現場調査関連画面にブレッドクラム表示** | **全SiteSurvey画面** | **Breadcrumb** | - |
+| **2.6** | **一覧画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧** | **SurveyListPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
+| **2.7** | **詳細画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査** | **SurveyDetailPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
+| **2.8** | **画像プレビュー画面（閲覧モード）ブレッドクラム: ... > 現場調査 > 画像** | **SiteSurveyImageViewerPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
+| **2.9** | **画像プレビュー画面（編集モード）ブレッドクラム: ... > 現場調査 > 画像** | **SiteSurveyImageViewerPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
+| **2.10** | **ブレッドクラム各項目クリックで対応画面へ遷移** | **Breadcrumb** | **Breadcrumb** | - |
+| **2.11** | **一覧画面タイトルを「現場調査一覧」に変更** | **SurveyListPage** | - | - |
+| **2.12** | **画像プレビュー画面から「← 現場調査に戻る」リンクを削除** | **SiteSurveyImageViewerPage** | - | - |
 | 3.1-3.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
 | 4.1-4.6, 4.9 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
 | **4.7** | **画像削除** | **ImageDeleteService, PhotoManagementPanel** | **ImageDeleteAPI** | **画像削除フロー** |
@@ -479,6 +490,10 @@ sequenceDiagram
 | **18.6** | **バッチAPI権限検証** | **SurveyRoutes, AuthMiddleware** | **AnnotationBatchAPI** | - |
 | **18.7** | **バッチAPIエラーハンドリング** | **AnnotationRendererService, SurveyRoutes** | **AnnotationBatchAPI** | - |
 | **18.8** | **既存個別APIとのレスポンス互換性** | **AnnotationService** | **AnnotationBatchAPI** | - |
+| **20.1** | **画像プレビュー画面（閲覧モード）で注釈レンダリング表示** | **SiteSurveyImageViewerPage, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
+| **20.2** | **詳細画面サムネイルに注釈レンダリング表示** | **PhotoManagementPanel, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
+| **20.3** | **一覧画面代表画像サムネイルに注釈レンダリング表示** | **SurveyListPage, SiteSurveyListTable, SiteSurveyListCard, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
+| **20.4** | **注釈保存時にサムネイル画像を生成・更新** | **AnnotationEditor, AnnotatedThumbnailService, ImageService** | **ThumbnailAPI** | **注釈付きサムネイル生成フロー** |
 
 ## Components and Interfaces
 
@@ -488,21 +503,24 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|------------------|-----------|
 | SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | ImageService | Backend/Service | 画像アップロード・処理 | 4 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
-| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18 | PrismaClient (P0) | Service, API |
+| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18, 20.4 | PrismaClient (P0), AnnotatedThumbnailService (P1) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
 | **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
 | ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
-| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18 | All Services (P0) | API |
+| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18, 20 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
-| SurveyListPage | Frontend/Page | 一覧表示 | 2, 3 | SurveyAPI (P0) | State |
-| SurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
+| SurveyListPage | Frontend/Page | 一覧表示（タイトル「現場調査一覧」） | 2, 3, 20.3 | SurveyAPI (P0) | State |
+| SurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
 | **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
 | AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0) | State |
-| ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12 | Fabric.js (P0) | State |
+| ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12, 20.1 | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
 | AutoSaveManager | Frontend/Service | 自動保存・状態復元・QuotaExceeded対応 | 15, 15.7-15.10 | localStorage (P0) | State |
 | **useUnsavedChanges** | Frontend/Hook | 未保存変更検出 | 9.1, 9.3, 10.8, 10.9 | - | State |
+| **AnnotatedImageThumbnail** | Frontend/Component | 注釈付き画像サムネイル表示 | 20.1, 20.2, 20.3 | AnnotationAPI (P0), Fabric.js (P0) | State |
+| **AnnotatedThumbnailService** | Backend/Service | 注釈付きサムネイル画像の生成 | 20.4 | Sharp (P0), Fabric.js Server (P1), R2 (P0) | Service |
+| **siteSurveyBreadcrumb** | Frontend/Utility | ブレッドクラムナビゲーション生成 | 2.5, 2.6, 2.7, 2.8, 2.9, 2.10 | Breadcrumb (P0) | - |
 
 ### Backend / Service Layer
 
@@ -2624,6 +2642,8 @@ interface FabricSerializedObject {
 
 - **AnnotationRendererService**: **バッチ注釈取得統合（renderImagesForReport: バッチAPI使用、フォールバック）（18.2, 18.5, 18.7）**
 - **survey-annotations API**: **getBatchAnnotations関数（正常系、エラーハンドリング）（18.1, 18.7）**
+- **siteSurveyBreadcrumb**: **各関数が更新されたラベル（プロジェクト一覧、現場調査一覧）を生成すること、buildSiteSurveyImageBreadcrumb関数の追加（2.5-2.10）**
+- **AnnotatedThumbnailService**: **SVG生成、Sharp合成、R2保存、DB更新、異常系処理（20.4）**
 
 ### Integration Tests
 
@@ -2655,6 +2675,12 @@ interface FabricSerializedObject {
 - **localStorage容量不足時のユーザー警告表示（15.8）**
 - **プライベートブラウジングモードでの自動保存無効化警告（15.9）**
 - **PDF報告書出力時のバッチ注釈取得（DevToolsでリクエスト数がN→1に削減されること）（18.2, 18.5）**
+- **ブレッドクラムナビゲーションが全画面で正しい階層構造を表示すること（2.5-2.10）**
+- **一覧画面タイトルが「現場調査一覧」であること（2.11）**
+- **画像プレビュー画面に「← 現場調査に戻る」リンクが表示されないこと（2.12）**
+- **注釈保存後にプレビュー画面で注釈が表示されること（20.1）**
+- **注釈保存後に詳細画面サムネイルに注釈が反映されること（20.2）**
+- **注釈保存後に一覧画面の代表画像サムネイルに注釈が反映されること（20.3）**
 
 ### Performance Tests
 
@@ -2774,9 +2800,595 @@ interface FabricSerializedObject {
     - フォールバック（個別取得）の実装
 11. 単体テスト・E2Eテストの追加
 
+### Phase 4: ブレッドクラム・タイトル・戻るリンク更新（要件2 AC5-12対応）
+
+1. `siteSurveyBreadcrumb.ts`の全関数でラベルを更新（「プロジェクト」→「プロジェクト一覧」、「現場調査」→「現場調査一覧」）
+2. `buildSiteSurveyImageBreadcrumb`関数を新設
+3. `SiteSurveyImageViewerPage`のローカルブレッドクラム関数を置換
+4. `SiteSurveyListPage`の画面タイトルを「現場調査一覧」に変更
+5. `SiteSurveyImageViewerPage`から「← 現場調査に戻る」リンクと`handleBackClick`を削除
+6. 単体テスト・E2Eテストの更新
+
+### Phase 5: 注釈付きサムネイル表示（要件20対応）
+
+1. Prismaスキーマに`annotatedThumbnailPath`フィールドを追加、マイグレーション適用
+2. `AnnotatedThumbnailService`の実装（SVG生成、Sharp合成、R2保存）
+3. `AnnotationService.save()`に注釈付きサムネイル生成フックを追加
+4. 画像一覧APIレスポンスに`annotatedThumbnailUrl`、`hasAnnotations`を追加
+5. 一覧APIレスポンスに`annotatedThumbnailUrl`、`representativeImageId`を追加
+6. フロントエンド各画面でAnnotatedImageThumbnailコンポーネントの利用を統合
+7. 単体テスト・E2Eテストの追加
+
 ### Rollback Triggers
 
 - マイグレーション失敗時: Prisma rollback
 - R2接続失敗時: 画像アップロード機能の一時無効化
 - R2 Lifecycle Rule設定失敗時: 孤立ファイル手動クリーンアップに切り替え
 - 重大なバグ発見時: フィーチャーフラグによる機能無効化
+- 注釈付きサムネイル生成失敗時: クライアントサイドAnnotatedImageThumbnailでフォールバック（機能全体は停止しない）
+
+---
+
+## Requirement 19: 画像アップロードバリデーション修正とエラー通知改善
+
+### 概要
+
+JPEGマジックバイト検証のホワイトリスト方式が不十分で、ICCプロファイル付きJPEG等の正規ファイルがアップロード拒否される問題の修正と、バッチアップロードエラーがユーザーに通知されない問題の修正。
+
+### 変更1: JPEGマジックバイト検証の3バイトプレフィックス化
+
+**対象ファイル**: `backend/src/services/survey-image.service.ts`
+
+**現状の問題**:
+```typescript
+// 4バイト目のマーカーを5種類だけホワイトリスト
+signatures: [
+  [0xff, 0xd8, 0xff, 0xe0], // JFIF
+  [0xff, 0xd8, 0xff, 0xe1], // EXIF
+  [0xff, 0xd8, 0xff, 0xe8], // SPIFF
+  [0xff, 0xd8, 0xff, 0xdb], // DQT
+  [0xff, 0xd8, 0xff, 0xee], // Adobe
+]
+```
+
+JPEG仕様（ITU-T T.81）ではSOI（FF D8）の後に必ず0xFFで始まるマーカーが続く。4バイト目は多数のバリエーション（0xE0-0xEF, 0xC0-0xCF, 0xDA, 0xDB, 0xFE等）があり、ホワイトリスト方式では網羅不可能。
+
+**修正方針**:
+- `MAGIC_BYTES.jpeg` の定義を3バイトプレフィックス `[0xff, 0xd8, 0xff]` に変更
+- `validateJpegMagicBytes` メソッドの比較ロジックを3バイト比較に変更
+- `minLength` を3に変更
+- PNG・WEBP検証には一切手を加えない
+
+**修正後**:
+```typescript
+jpeg: {
+  prefix: [0xff, 0xd8, 0xff],
+  minLength: 3,
+},
+```
+
+```typescript
+private validateJpegMagicBytes(buffer: Buffer): void {
+  const { prefix, minLength } = MAGIC_BYTES.jpeg;
+  if (buffer.length < minLength) {
+    throw new InvalidMagicBytesError('image/jpeg');
+  }
+  const isValid = prefix.every((byte, index) => buffer[index] === byte);
+  if (!isValid) {
+    throw new InvalidMagicBytesError('image/jpeg');
+  }
+}
+```
+
+### 変更2: バッチアップロードエラーの伝搬
+
+**対象ファイル**:
+- `frontend/src/api/survey-images.ts` — 戻り値型変更
+- `frontend/src/types/site-survey.types.ts` — BatchUploadResult型追加
+- `frontend/src/pages/SiteSurveyDetailPage.tsx` — エラー表示追加
+
+**現状の問題**:
+1. `uploadSurveyImages` の戻り値が `SurveyImageInfo[]`（成功分のみ）で、内部の `errors` 配列が外部に公開されない
+2. `SiteSurveyDetailPage.handleImageUpload` が戻り値をチェックしない
+
+**修正方針**:
+
+1. **BatchUploadResult型の新設** (`site-survey.types.ts`):
+```typescript
+export interface BatchUploadResult {
+  results: SurveyImageInfo[];
+  errors: BatchUploadError[];
+}
+```
+
+2. **uploadSurveyImages戻り値変更** (`survey-images.ts`):
+- 戻り値型を `Promise<SurveyImageInfo[]>` → `Promise<BatchUploadResult>` に変更
+- `return results` → `return { results, errors }` に変更
+
+3. **handleImageUploadでのエラー表示** (`SiteSurveyDetailPage.tsx`):
+- `uploadSurveyImages` の戻り値から `errors` を検査
+- エラーカテゴリ判定: 「サポートされていないファイル形式」「MIMEタイプと一致しません」を含む → file_type、それ以外 → server
+- 部分成功時: 「{成功件数}件のアップロードに成功しました。{エラー件数}件のアップロードに失敗しました。{各ファイルのエラー詳細}」
+- 全件失敗時: 「全{件数}件のアップロードに失敗しました。{各ファイルのエラー詳細}」
+- 全件成功時: エラーメッセージ表示なし（既存動作維持）
+- 既存の `error` ステート（`string | null`）の `setError` を使用
+
+### テスト戦略
+
+**バックエンド単体テスト** (`survey-image.service.test.ts`):
+- 3バイトFF D8 FFに各種4バイト目（0xE0, 0xE1, 0xE2, 0xDA, 0xDB, 0xC0, 0xC4等）を組み合わせたバッファで検証成功
+- FF D8 FFでないバッファでInvalidMagicBytesErrorスロー
+- PNG・WEBP既存テストの通過確認
+
+**フロントエンド単体テスト**:
+- `uploadSurveyImages` がBatchUploadResult型を返すことを検証
+- `handleImageUpload` がエラー時に適切なメッセージを生成・表示することを検証
+
+---
+
+## Requirement 2 AC 5-12: ブレッドクラムナビゲーション更新・画面タイトル変更・戻るリンク削除
+
+### 概要
+
+現場調査関連画面のブレッドクラムナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 画像」の階層構造に統一し、一覧画面のタイトルを「現場調査一覧」に変更し、画像プレビュー画面から「← 現場調査に戻る」リンクを削除する。
+
+### 変更1: ブレッドクラムユーティリティの更新
+
+**対象ファイル**: `frontend/src/utils/siteSurveyBreadcrumb.ts`
+
+**現状**:
+```typescript
+// buildSiteSurveyListBreadcrumb
+{ label: 'プロジェクト', path: '/projects' },
+{ label: projectName, path: `/projects/${projectId}` },
+{ label: '現場調査' },
+
+// buildSiteSurveyDetailBreadcrumb
+{ label: 'プロジェクト', path: '/projects' },
+{ label: projectName, path: `/projects/${projectId}` },
+{ label: '現場調査', path: `/projects/${projectId}/site-surveys` },
+{ label: surveyName },
+```
+
+**修正後（2.6, 2.7, 2.8, 2.9対応）**:
+```typescript
+// buildSiteSurveyListBreadcrumb
+// 階層: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧
+{ label: 'ダッシュボード', path: '/' },
+{ label: 'プロジェクト一覧', path: '/projects' },
+{ label: projectName, path: `/projects/${projectId}` },
+{ label: '現場調査一覧' },
+
+// buildSiteSurveyDetailBreadcrumb
+// 階層: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査
+{ label: 'ダッシュボード', path: '/' },
+{ label: 'プロジェクト一覧', path: '/projects' },
+{ label: projectName, path: `/projects/${projectId}` },
+{ label: '現場調査一覧', path: `/projects/${projectId}/site-surveys` },
+{ label: surveyName },
+
+// buildSiteSurveyCreateBreadcrumb
+// 階層: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 新規作成
+{ label: 'ダッシュボード', path: '/' },
+{ label: 'プロジェクト一覧', path: '/projects' },
+{ label: projectName, path: `/projects/${projectId}` },
+{ label: '現場調査一覧', path: `/projects/${projectId}/site-surveys` },
+{ label: '新規作成' },
+
+// buildSiteSurveyEditBreadcrumb
+// 階層: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 編集
+{ label: 'ダッシュボード', path: '/' },
+{ label: 'プロジェクト一覧', path: '/projects' },
+{ label: projectName, path: `/projects/${projectId}` },
+{ label: '現場調査一覧', path: `/projects/${projectId}/site-surveys` },
+{ label: surveyName, path: `/site-surveys/${surveyId}` },
+{ label: '編集' },
+```
+
+**画像プレビュー用ブレッドクラム新設（2.8, 2.9対応）**:
+
+`siteSurveyBreadcrumb.ts`に新たなブレッドクラム生成関数を追加する。
+
+```typescript
+/**
+ * 画像プレビュー画面用のパンくずを生成
+ *
+ * 階層: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 画像
+ * 閲覧モード・編集モード共通（2.8, 2.9）
+ *
+ * @param projectId - プロジェクトID
+ * @param projectName - プロジェクト名
+ * @param surveyId - 現場調査ID
+ * @param surveyName - 現場調査名
+ * @param imageName - 画像ファイル名
+ * @returns パンくず項目の配列
+ */
+export function buildSiteSurveyImageBreadcrumb(
+  projectId: string,
+  projectName: string,
+  surveyId: string,
+  surveyName: string,
+  imageName: string
+): BreadcrumbItem[] {
+  return [
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: projectName, path: `/projects/${projectId}` },
+    { label: '現場調査一覧', path: `/projects/${projectId}/site-surveys` },
+    { label: surveyName, path: `/site-surveys/${surveyId}` },
+    { label: imageName },
+  ];
+}
+```
+
+**SiteSurveyImageViewerPageの変更**: ページ内のローカル`buildImageViewerBreadcrumb`関数を削除し、ユーティリティの`buildSiteSurveyImageBreadcrumb`を使用する。
+
+### 変更2: 一覧画面タイトル変更
+
+**対象ファイル**: `frontend/src/pages/SiteSurveyListPage.tsx`
+
+**修正内容（2.11対応）**:
+- `<h1>` タグ内のテキストを「現場調査」から「現場調査一覧」に変更
+
+```typescript
+// 変更前
+<h1 style={STYLES.title}>現場調査</h1>
+
+// 変更後
+<h1 style={STYLES.title}>現場調査一覧</h1>
+```
+
+### 変更3: 「← 現場調査に戻る」リンクの削除
+
+**対象ファイル**: `frontend/src/pages/SiteSurveyImageViewerPage.tsx`
+
+**修正内容（2.12対応）**:
+- 画像プレビュー画面（閲覧モード・編集モード共通）から「← 現場調査に戻る」リンク要素を削除
+- ブレッドクラムナビゲーションが代替ナビゲーションとして機能するため、戻るリンクは不要
+- `ResourceNotFound`コンポーネントの`returnLabel`も「プロジェクトに戻る」等の適切なラベルに変更（またはブレッドクラムに委ねる）
+
+```typescript
+// 削除対象: 以下のLink要素を削除
+<Link to={`/site-surveys/${id}`} style={styles.backLink} onClick={handleBackClick}>
+  &larr; 現場調査に戻る
+</Link>
+```
+
+**`handleBackClick`関数**: 戻るリンク削除に伴い、`handleBackClick`コールバック関数も不要となるため削除する。
+
+### テスト戦略
+
+**フロントエンド単体テスト** (`siteSurveyBreadcrumb.test.ts`):
+- 各ブレッドクラム生成関数が更新されたラベル（「プロジェクト一覧」「現場調査一覧」）を生成することを検証
+- `buildSiteSurveyImageBreadcrumb`が正しい階層構造を生成することを検証
+- 各階層のパスが正しい画面に対応することを検証
+
+**フロントエンド単体テスト** (`SiteSurveyListPage.test.tsx`):
+- 画面タイトルが「現場調査一覧」であることを検証
+
+**フロントエンド単体テスト** (`SiteSurveyImageViewerPage.test.tsx`):
+- 「← 現場調査に戻る」リンクが表示されないことを検証
+- ブレッドクラムが正しい階層構造（...> 現場調査 > 画像）で表示されることを検証
+
+**E2Eテスト**:
+- 現場調査一覧画面のブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧」が表示されること
+- 現場調査詳細画面のブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査」が表示されること
+- 画像プレビュー画面のブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 画像」が表示されること
+- ブレッドクラムの各項目クリックで対応する画面に遷移すること
+- 一覧画面のタイトルが「現場調査一覧」であること
+- 画像プレビュー画面に「← 現場調査に戻る」リンクが表示されないこと
+
+---
+
+## Requirement 20: 注釈のサムネイル・プレビュー表示
+
+### 概要
+
+編集モードで追加・保存した注釈がプレビュー画面（閲覧モード）、現場調査詳細画面のサムネイル、現場調査一覧画面の代表画像サムネイルに反映されるようにする。
+
+### アーキテクチャ方針
+
+注釈付きサムネイル表示には2つのアプローチが考えられる:
+
+1. **クライアントサイドレンダリング（既存AnnotatedImageThumbnail方式）**: 画像と注釈データを取得し、Fabric.jsでクライアントサイドでレンダリング
+2. **サーバーサイドサムネイル生成（AnnotatedThumbnailService方式）**: 注釈保存時にサーバーサイドで注釈付きサムネイルを生成・保存
+
+**採用方針**: 要件20.4に基づき、注釈保存時にサーバーサイドで注釈付きサムネイル画像を生成・更新するサーバーサイド方式を主軸とする。これにより、一覧画面や詳細画面での表示パフォーマンスが向上し、クライアント側のFabric.jsレンダリング負荷を回避できる。クライアントサイドの`AnnotatedImageThumbnail`コンポーネントは、サーバーサイド生成サムネイルが存在しない場合のフォールバックとして活用する。
+
+### 変更1: SurveyImageInfoの拡張
+
+**対象型**: `SurveyImageInfo`（frontend/backend共通）
+
+```typescript
+interface SurveyImageInfo {
+  // 既存フィールド
+  id: string;
+  surveyId: string;
+  originalUrl: string;
+  thumbnailUrl: string;
+  // ...
+
+  // 新規フィールド（20.4対応）
+  annotatedThumbnailUrl: string | null;  // 注釈付きサムネイルURL（署名付き）
+  annotatedThumbnailPath: string | null; // 注釈付きサムネイルのR2パス
+  hasAnnotations: boolean;               // 注釈データが存在するか
+}
+```
+
+### 変更2: データモデル拡張
+
+**Prismaスキーマ変更** (`survey_images`テーブル):
+
+```prisma
+model SurveyImage {
+  // 既存フィールド
+  id              String   @id @default(uuid())
+  surveyId        String
+  originalPath    String
+  thumbnailPath   String
+  // ...
+
+  // 新規フィールド（20.4対応）
+  annotatedThumbnailPath  String?  // 注釈付きサムネイルのR2パス
+}
+```
+
+### 変更3: AnnotatedThumbnailService（バックエンド）
+
+#### AnnotatedThumbnailService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 注釈保存時に注釈付きサムネイル画像を生成・更新する |
+| Requirements | 20.4 |
+
+**Responsibilities & Constraints**
+- 注釈データとオリジナル画像からサーバーサイドで注釈付きサムネイルを生成
+- 生成したサムネイルをCloudflare R2に保存
+- SurveyImage.annotatedThumbnailPathを更新
+- 注釈が存在しない場合はannotatedThumbnailPathをnullに設定
+
+**Dependencies**
+- Inbound: AnnotationService — 注釈保存後のフック (P0)
+- Outbound: Sharp — 画像処理（リサイズ・合成） (P0)
+- Outbound: @aws-sdk/client-s3 — R2保存 (P0)
+- Outbound: PrismaClient — メタデータ更新 (P0)
+
+**Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+##### Service Interface
+
+```typescript
+interface IAnnotatedThumbnailService {
+  /**
+   * 注釈付きサムネイルを生成・更新する
+   *
+   * 注釈保存（AnnotationService.save）成功後に呼び出される。
+   * オリジナル画像に注釈データをレンダリングし、サムネイルサイズにリサイズして
+   * R2に保存する。
+   *
+   * @param imageId - 画像ID
+   * @param annotationData - 注釈データ（Fabric.js JSON形式）
+   * @returns 生成されたサムネイルのR2パス
+   * @requirement 20.4
+   */
+  generateAnnotatedThumbnail(
+    imageId: string,
+    annotationData: AnnotationData
+  ): Promise<string>;
+
+  /**
+   * 注釈付きサムネイルを削除する
+   *
+   * 注釈が全て削除された場合にannotatedThumbnailPathをnullに更新し、
+   * R2からサムネイルファイルを削除する。
+   *
+   * @param imageId - 画像ID
+   */
+  removeAnnotatedThumbnail(imageId: string): Promise<void>;
+}
+```
+
+- Preconditions: imageIdが有効な画像を参照し、annotationDataが有効なFabric.js JSONであること
+- Postconditions: R2にサムネイルが保存され、SurveyImage.annotatedThumbnailPathが更新されること
+- Invariants: サムネイルサイズは400x300px（既存サムネイルよりやや大きめ、注釈の視認性確保）
+
+##### サムネイル生成フロー
+
+```mermaid
+sequenceDiagram
+    participant AnnotationService
+    participant AnnotatedThumbnailService
+    participant R2 as Cloudflare R2
+    participant Sharp
+    participant PostgreSQL
+
+    AnnotationService->>AnnotatedThumbnailService: generateAnnotatedThumbnail(imageId, annotationData)
+    AnnotatedThumbnailService->>PostgreSQL: 画像メタデータ取得（originalPath）
+    PostgreSQL-->>AnnotatedThumbnailService: SurveyImage
+    AnnotatedThumbnailService->>R2: オリジナル画像取得
+    R2-->>AnnotatedThumbnailService: 画像バイナリ
+
+    Note over AnnotatedThumbnailService: SVGオーバーレイ方式で<br/>注釈をレンダリング
+
+    AnnotatedThumbnailService->>AnnotatedThumbnailService: 注釈データからSVGを生成
+    AnnotatedThumbnailService->>Sharp: オリジナル画像にSVGをcomposite
+    Sharp-->>AnnotatedThumbnailService: 注釈付き画像
+    AnnotatedThumbnailService->>Sharp: 400x300pxにリサイズ
+    Sharp-->>AnnotatedThumbnailService: サムネイル画像
+
+    AnnotatedThumbnailService->>R2: サムネイル保存（annotated-thumbnails/{imageId}.jpg）
+    R2-->>AnnotatedThumbnailService: 保存成功
+    AnnotatedThumbnailService->>PostgreSQL: annotatedThumbnailPath更新
+    PostgreSQL-->>AnnotatedThumbnailService: 更新完了
+    AnnotatedThumbnailService-->>AnnotationService: サムネイルパス
+```
+
+##### 注釈レンダリング方式
+
+**サーバーサイドでの注釈レンダリング**:
+
+Fabric.jsはブラウザ環境依存が強く、サーバーサイドでの直接利用は困難。代替として、以下のアプローチを採用する:
+
+1. **SVGオーバーレイ方式**: Fabric.js JSONの注釈データからSVGを生成し、Sharpの`composite`機能でオリジナル画像に重ねる
+2. **対応する注釈タイプ**: 基本的な図形（矢印、円、四角形、線）、寸法線のラベル、テキストコメント
+3. **レンダリング精度**: ブラウザ側のFabric.jsレンダリングと完全一致する必要はない。サムネイルレベルの近似表示で十分
+
+```typescript
+/**
+ * Fabric.js JSON注釈データからSVGを生成する
+ *
+ * サーバーサイドで注釈をレンダリングするためにFabric.js JSONからSVGに変換する。
+ * 完全な互換性は求めず、サムネイル表示レベルの近似表示を実現する。
+ *
+ * @param annotationData - Fabric.js JSON形式の注釈データ
+ * @param imageWidth - オリジナル画像の幅
+ * @param imageHeight - オリジナル画像の高さ
+ * @returns SVG文字列
+ */
+function generateSvgFromAnnotation(
+  annotationData: AnnotationData,
+  imageWidth: number,
+  imageHeight: number
+): string;
+```
+
+**Implementation Notes**:
+- SVG生成はFabric.jsオブジェクトタイプに応じたテンプレートベースで実装
+- テキストには日本語フォント（Noto Sans JP）のフォールバックが必要
+- Sharpのcomposite機能はSVGオーバーレイをサポート（`input: Buffer.from(svgString)`）
+- サムネイル生成はAnnotationService.save()の後処理として非同期実行（注釈保存のレスポンス遅延を回避）
+- サムネイル生成失敗時はannotatedThumbnailPathをnullのまま維持（クライアントサイドフォールバックに依存）
+
+### 変更4: AnnotationService.save()の拡張
+
+**対象ファイル**: `backend/src/services/annotation.service.ts`
+
+注釈保存成功後にAnnotatedThumbnailServiceを呼び出す:
+
+```typescript
+async save(input: SaveAnnotationInput): Promise<AnnotationInfo> {
+  // 既存の注釈保存処理
+  const result = await this.saveAnnotation(input);
+
+  // 注釈付きサムネイル生成（非同期、失敗しても注釈保存は成功）
+  this.annotatedThumbnailService
+    .generateAnnotatedThumbnail(input.imageId, input.data)
+    .catch((error) => {
+      logger.warn({
+        action: 'annotated_thumbnail_generation_failed',
+        imageId: input.imageId,
+        error: error.message,
+      });
+    });
+
+  return result;
+}
+```
+
+### 変更5: 画像一覧APIレスポンスの拡張
+
+**対象ファイル**: `backend/src/routes/survey-images.routes.ts`
+
+画像一覧取得時に`annotatedThumbnailUrl`を署名付きURLとして含める:
+
+```typescript
+// GET /api/site-surveys/:id/images レスポンスに追加
+interface SurveyImageInfo {
+  // ...既存フィールド
+  annotatedThumbnailUrl: string | null; // 注釈付きサムネイルの署名付きURL
+  hasAnnotations: boolean;              // 注釈データが存在するか
+}
+```
+
+### 変更6: フロントエンドの表示更新
+
+#### 20.1: 画像プレビュー画面（閲覧モード）での注釈表示
+
+**対象ファイル**: `frontend/src/pages/SiteSurveyImageViewerPage.tsx`
+
+**設計方針**: 閲覧モードでは既存の`AnnotationEditor`コンポーネントを読み取り専用（`readOnly`プロップ）で使用する。エディタは注釈データをFabric.jsでレンダリングし、編集操作を無効化する。この方式は既に実装済みで、`isEditMode`フラグによってツールバーや操作を非表示にする。
+
+**変更内容**: 閲覧モード時に注釈データを自動的に読み込んで表示する。現在は閲覧モードでも注釈は表示されているが、要件20.1を明示的に満たすために動作を確認・保証する。
+
+#### 20.2: 詳細画面サムネイルでの注釈表示
+
+**対象ファイル**: `frontend/src/components/site-surveys/PhotoManagementPanel.tsx`
+
+**設計方針**: PhotoManagementPanelで表示するフルサイズ写真について、`annotatedThumbnailUrl`が存在する場合はそのURLを画像表示に使用する。注釈なしの場合は従来通り`mediumUrl`または`originalUrl`を使用する。
+
+```typescript
+// PhotoManagementPanel内の画像表示ロジック
+function getDisplayImageUrl(image: SurveyImageInfo): string {
+  // 注釈付きサムネイルが存在する場合はそれを使用
+  if (image.annotatedThumbnailUrl) {
+    return image.annotatedThumbnailUrl;
+  }
+  // フォールバック: 中解像度画像またはオリジナル
+  return image.mediumUrl || image.originalUrl;
+}
+```
+
+**注意**: 詳細画面はフルサイズ写真を表示するため、注釈付きサムネイル（400x300px）では解像度が不足する。代替として:
+- **オプション A（推奨）**: 既存のAnnotatedImageThumbnailコンポーネントをPhotoManagementPanel内で使用し、クライアントサイドで注釈をレンダリング
+- **オプション B**: サーバーサイドで中解像度の注釈付き画像（800x600px程度）も生成する
+
+**採用**: オプションAを採用。PhotoManagementPanelの画像表示部分にAnnotatedImageThumbnailコンポーネントを統合し、Fabric.jsでクライアントサイドレンダリングを行う。
+
+#### 20.3: 一覧画面代表画像サムネイルでの注釈表示
+
+**対象ファイル**:
+- `frontend/src/components/site-surveys/SiteSurveyListTable.tsx`
+- `frontend/src/components/site-surveys/SiteSurveyListCard.tsx`
+- `frontend/src/components/projects/SiteSurveySectionCard.tsx`
+
+**設計方針**: 一覧画面のサムネイル表示にAnnotatedImageThumbnailコンポーネントを使用する。代表画像の`annotatedThumbnailUrl`が存在する場合はサーバーサイド生成済みサムネイルを表示し、存在しない場合はAnnotatedImageThumbnailでクライアントサイドレンダリングにフォールバックする。
+
+**SurveyInfoの拡張**（一覧API向け）:
+```typescript
+interface SurveyInfo {
+  // 既存フィールド
+  id: string;
+  thumbnailUrl: string | null;  // 代表画像の素のサムネイル
+  // ...
+
+  // 新規フィールド（20.3対応）
+  annotatedThumbnailUrl: string | null;  // 代表画像の注釈付きサムネイル
+  representativeImageId: string | null;  // 代表画像のID（AnnotatedImageThumbnailフォールバック用）
+}
+```
+
+**一覧APIレスポンスの拡張**:
+
+SurveyService.findByProjectIdおよびfindLatestByProjectIdのレスポンスに、代表画像の`annotatedThumbnailUrl`と`representativeImageId`を含める。代表画像はdisplayOrder=1の画像とする。
+
+```typescript
+// SurveyService 拡張
+async findByProjectId(...): Promise<PaginatedSurveys> {
+  // 代表画像（displayOrder最小）のannotatedThumbnailPathを取得
+  // 署名付きURLを生成してレスポンスに含める
+}
+```
+
+### テスト戦略
+
+**バックエンド単体テスト**:
+- `AnnotatedThumbnailService.generateAnnotatedThumbnail`: 正常系（SVG生成、Sharp合成、R2保存、DB更新）
+- `AnnotatedThumbnailService.generateAnnotatedThumbnail`: 異常系（R2保存失敗時にnullを返す）
+- `AnnotatedThumbnailService.removeAnnotatedThumbnail`: 正常系（R2削除、DB更新）
+- `AnnotationService.save`: 注釈保存後にサムネイル生成が呼ばれることを検証
+- `generateSvgFromAnnotation`: 各注釈タイプ（矢印、円、四角形、テキスト、寸法線）のSVG変換
+- SurveyService一覧APIレスポンスに`annotatedThumbnailUrl`が含まれることを検証
+
+**フロントエンド単体テスト**:
+- `PhotoManagementPanel`: AnnotatedImageThumbnailコンポーネントを使用して注釈付き画像を表示すること
+- `SiteSurveyListTable`: 代表画像サムネイルに注釈付きサムネイルが表示されること
+- `SiteSurveyListCard`: 代表画像サムネイルに注釈付きサムネイルが表示されること
+- `SiteSurveySectionCard`: 代表画像サムネイルに注釈付きサムネイルが表示されること
+- `SiteSurveyImageViewerPage`: 閲覧モードで注釈がレンダリングされた状態で表示されること
+
+**E2Eテスト**:
+- 注釈を編集モードで保存後、プレビュー画面で注釈が表示されること
+- 注釈保存後、詳細画面のサムネイルに注釈が反映されること
+- 注釈保存後、一覧画面の代表画像サムネイルに注釈が反映されること
+- 注釈が存在しない画像は素のサムネイルが表示されること

@@ -384,7 +384,7 @@ export default function SiteSurveyListPage() {
 
       {/* ヘッダー */}
       <div style={STYLES.header}>
-        <h1 style={STYLES.title}>現場調査</h1>
+        <h1 style={STYLES.title}>現場調査一覧</h1>
         {canCreate && (
           <Link to={`/projects/${projectId}/site-surveys/new`} style={STYLES.createButton}>
             + 新規作成

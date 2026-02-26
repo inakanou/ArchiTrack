@@ -8,6 +8,42 @@ import userEvent from '@testing-library/user-event';
 import QuantityGroupCard from '../../../components/quantity-table/QuantityGroupCard';
 import type { QuantityGroupDetail } from '../../../types/quantity-table.types';
 
+// AnnotatedImageThumbnailをモックして、Fabric.jsの依存関係を回避する
+vi.mock('../../../components/site-surveys/AnnotatedImageThumbnail', () => ({
+  AnnotatedImageThumbnail: ({
+    image,
+    alt,
+    style,
+  }: {
+    image: { id: string; originalUrl?: string | null };
+    alt: string;
+    style?: React.CSSProperties;
+  }) => (
+    <img
+      src={image.originalUrl || ''}
+      alt={alt}
+      style={style}
+      data-testid="annotated-image-thumbnail"
+    />
+  ),
+  default: ({
+    image,
+    alt,
+    style,
+  }: {
+    image: { id: string; originalUrl?: string | null };
+    alt: string;
+    style?: React.CSSProperties;
+  }) => (
+    <img
+      src={image.originalUrl || ''}
+      alt={alt}
+      style={style}
+      data-testid="annotated-image-thumbnail"
+    />
+  ),
+}));
+
 const mockGroup: QuantityGroupDetail = {
   id: 'group-1',
   quantityTableId: 'qt-123',
@@ -136,13 +172,14 @@ describe('QuantityGroupCard', () => {
       expect(screen.getByTestId('image-placeholder-group-1')).toBeInTheDocument();
     });
 
-    it('サムネイルをクリックするとonOpenAnnotationViewerが呼ばれる（画像がある場合）', async () => {
+    it('サムネイルをクリックするとプレビューダイアログが開く（画像がある場合）', async () => {
       const user = userEvent.setup();
       render(<QuantityGroupCard {...defaultProps} />);
 
-      await user.click(screen.getByAltText('photo1.jpg'));
+      await user.click(screen.getByRole('button', { name: '紐付け画像を表示' }));
 
-      expect(defaultProps.onOpenAnnotationViewer).toHaveBeenCalledWith('group-1');
+      // REQ-20.1: プレビューダイアログが開く
+      expect(screen.getByRole('dialog', { name: '写真プレビュー' })).toBeInTheDocument();
     });
 
     it('プレースホルダーをクリックするとonSelectImageが呼ばれる', async () => {
@@ -155,26 +192,26 @@ describe('QuantityGroupCard', () => {
       expect(defaultProps.onSelectImage).toHaveBeenCalledWith('group-1');
     });
 
-    it('サムネイルでEnterキーを押すとonOpenAnnotationViewerが呼ばれる（画像がある場合）', async () => {
+    it('サムネイルでEnterキーを押すとプレビューダイアログが開く（画像がある場合）', async () => {
       const user = userEvent.setup();
       render(<QuantityGroupCard {...defaultProps} />);
 
-      const thumbnail = screen.getByAltText('photo1.jpg').parentElement;
-      thumbnail?.focus();
+      const thumbnailButton = screen.getByRole('button', { name: '紐付け画像を表示' });
+      thumbnailButton.focus();
       await user.keyboard('{Enter}');
 
-      expect(defaultProps.onOpenAnnotationViewer).toHaveBeenCalledWith('group-1');
+      expect(screen.getByRole('dialog', { name: '写真プレビュー' })).toBeInTheDocument();
     });
 
-    it('サムネイルでSpaceキーを押すとonOpenAnnotationViewerが呼ばれる（画像がある場合）', async () => {
+    it('サムネイルでSpaceキーを押すとプレビューダイアログが開く（画像がある場合）', async () => {
       const user = userEvent.setup();
       render(<QuantityGroupCard {...defaultProps} />);
 
-      const thumbnail = screen.getByAltText('photo1.jpg').parentElement;
-      thumbnail?.focus();
+      const thumbnailButton = screen.getByRole('button', { name: '紐付け画像を表示' });
+      thumbnailButton.focus();
       await user.keyboard(' ');
 
-      expect(defaultProps.onOpenAnnotationViewer).toHaveBeenCalledWith('group-1');
+      expect(screen.getByRole('dialog', { name: '写真プレビュー' })).toBeInTheDocument();
     });
   });
 

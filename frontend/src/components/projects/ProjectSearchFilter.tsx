@@ -10,8 +10,6 @@
  * - 4.4: 2文字以上の検索キーワードを要求
  * - 4.5: 検索キーワードが1文字以下の場合、メッセージを表示し検索を実行しない
  * - 5.1: ステータスフィルタで値を選択すると選択されたステータスのプロジェクトのみ表示
- * - 5.2: 期間フィルタで作成日を基準とした日付範囲フィルタリング
- * - 5.3: 期間フィルタで日付範囲を指定すると指定期間内のプロジェクトのみ表示
  * - 5.4: 複数のフィルタを適用するとAND条件で絞り込み
  * - 5.5: フィルタをクリアをクリックするとすべてのフィルタを解除
  */
@@ -74,8 +72,6 @@ export default function ProjectSearchFilter({ filter, onFilterChange }: ProjectS
   const baseId = useId();
   const searchInputId = `${baseId}-search`;
   const statusSelectId = `${baseId}-status`;
-  const fromDateId = `${baseId}-from-date`;
-  const toDateId = `${baseId}-to-date`;
   const errorId = `${baseId}-error`;
 
   /**
@@ -147,32 +143,6 @@ export default function ProjectSearchFilter({ filter, onFilterChange }: ProjectS
   );
 
   /**
-   * 開始日変更ハンドラ
-   */
-  const handleFromDateChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onFilterChange({
-        ...filter,
-        createdFrom: e.target.value || undefined,
-      });
-    },
-    [filter, onFilterChange]
-  );
-
-  /**
-   * 終了日変更ハンドラ
-   */
-  const handleToDateChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onFilterChange({
-        ...filter,
-        createdTo: e.target.value || undefined,
-      });
-    },
-    [filter, onFilterChange]
-  );
-
-  /**
    * フィルタクリアハンドラ
    */
   const handleClearFilters = useCallback(() => {
@@ -181,18 +151,13 @@ export default function ProjectSearchFilter({ filter, onFilterChange }: ProjectS
     onFilterChange({
       search: '',
       status: [],
-      createdFrom: undefined,
-      createdTo: undefined,
     });
   }, [onFilterChange]);
 
   // アクティブフィルタ数を計算
-  const activeFilterCount = [
-    filter.search,
-    filter.status && filter.status.length > 0,
-    filter.createdFrom,
-    filter.createdTo,
-  ].filter(Boolean).length;
+  const activeFilterCount = [filter.search, filter.status && filter.status.length > 0].filter(
+    Boolean
+  ).length;
 
   return (
     <form
@@ -342,59 +307,6 @@ export default function ProjectSearchFilter({ filter, onFilterChange }: ProjectS
               </option>
             ))}
           </select>
-        </div>
-
-        {/* 期間フィルタ */}
-        <div className="flex flex-col">
-          <span className="block text-sm font-medium text-gray-700 mb-1.5">
-            <span className="flex items-center gap-1.5">
-              <svg
-                width="16"
-                height="16"
-                className="text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-              作成日
-            </span>
-          </span>
-          <div className="flex gap-2 items-center">
-            <div className="flex-1">
-              <label htmlFor={fromDateId} className="sr-only">
-                作成日（開始）
-              </label>
-              <input
-                id={fromDateId}
-                type="date"
-                aria-label="作成日（開始）"
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors text-sm"
-                value={filter.createdFrom || ''}
-                onChange={handleFromDateChange}
-              />
-            </div>
-            <span className="text-gray-400 font-medium">~</span>
-            <div className="flex-1">
-              <label htmlFor={toDateId} className="sr-only">
-                作成日（終了）
-              </label>
-              <input
-                id={toDateId}
-                type="date"
-                aria-label="作成日（終了）"
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors text-sm"
-                value={filter.createdTo || ''}
-                onChange={handleToDateChange}
-              />
-            </div>
-          </div>
         </div>
       </div>
 

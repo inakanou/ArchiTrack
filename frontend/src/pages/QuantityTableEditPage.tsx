@@ -1141,7 +1141,7 @@ export default function QuantityTableEditPage() {
         <Breadcrumb
           items={[
             { label: 'ダッシュボード', path: '/' },
-            { label: 'プロジェクト', path: '/projects' },
+            { label: 'プロジェクト一覧', path: '/projects' },
             { label: quantityTable.project.name, path: `/projects/${quantityTable.projectId}` },
             { label: '数量表一覧', path: `/projects/${quantityTable.projectId}/quantity-tables` },
             { label: quantityTable.name },

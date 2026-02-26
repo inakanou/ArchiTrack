@@ -16,6 +16,14 @@
  * - 10.16: ステータス変更UIで順方向遷移と差し戻し遷移を視覚的に区別
  * - 20.2: フォーム要素にaria-label属性を適切に設定
  * - 20.3: エラーメッセージをaria-live属性でスクリーンリーダーに通知
+ * - 35.1: ステータス変更履歴の表示を直近3件に制限
+ * - 35.2: 4件以上の場合「すべての履歴を表示（全N件）」リンクを表示
+ * - 35.3: 3件以下の場合はリンクを非表示
+ * - 35.4: モーダルダイアログで全件表示
+ * - 35.5: ダイアログタイトルに「ステータス変更履歴（全N件）」
+ * - 35.6: 閉じるボタンで閉じる
+ * - 35.7: オーバーレイクリックで閉じる
+ * - 35.8: Escapeキーで閉じる
  */
 
 import { useState, useCallback } from 'react';
@@ -27,6 +35,7 @@ import type {
 } from '../../types/project.types';
 import { PROJECT_STATUS_LABELS, TRANSITION_TYPE_LABELS } from '../../types/project.types';
 import BackwardReasonDialog from './BackwardReasonDialog';
+import FocusManager from '../FocusManager';
 
 // ============================================================================
 // 型定義
@@ -232,6 +241,49 @@ const styles = {
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   } as React.CSSProperties,
+  showAllHistoryLink: {
+    background: 'none',
+    border: 'none',
+    color: '#2563eb',
+    fontSize: '14px',
+    cursor: 'pointer',
+    padding: '8px 0',
+    textDecoration: 'none',
+  } as React.CSSProperties,
+  dialogContainer: {
+    width: '100%',
+    maxWidth: '640px',
+    maxHeight: '80vh',
+    display: 'flex',
+    flexDirection: 'column',
+  } as React.CSSProperties,
+  dialogHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  dialogTitle: {
+    fontSize: '18px',
+    fontWeight: 'bold',
+    color: '#1f2937',
+    margin: 0,
+  } as React.CSSProperties,
+  dialogCloseButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: '500',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    border: '1px solid #d1d5db',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  dialogBody: {
+    overflowY: 'auto',
+    flex: 1,
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -370,6 +422,140 @@ function formatDateTime(isoString: string): string {
 // コンポーネント
 // ============================================================================
 
+// ============================================================================
+// HistoryItem サブコンポーネント
+// ============================================================================
+
+/**
+ * HistoryItem Props
+ */
+interface HistoryItemProps {
+  /** 履歴データ */
+  history: StatusHistoryResponse;
+}
+
+/**
+ * ステータス変更履歴の1件分を表示するサブコンポーネント
+ *
+ * StatusTransitionUIの履歴一覧とStatusHistoryDialogの両方で再利用されます。
+ */
+function HistoryItem({ history }: HistoryItemProps): React.ReactNode {
+  const transitionStyle = TRANSITION_TYPE_STYLES[history.transitionType];
+
+  return (
+    <li
+      key={history.id}
+      data-testid={`status-history-item-${history.id}`}
+      data-transition-type={history.transitionType}
+      style={{
+        ...styles.historyItem,
+        backgroundColor: transitionStyle.bgColor,
+      }}
+    >
+      <div style={styles.historyIcon}>
+        {getTransitionIcon(history.transitionType, transitionStyle.iconColor)}
+      </div>
+      <div style={styles.historyContent}>
+        <div style={styles.historyStatusChange}>
+          {history.fromStatusLabel ? (
+            <>
+              <span>{history.fromStatusLabel}</span>
+              <span style={{ margin: '0 8px' }}></span>
+              <span>{history.toStatusLabel}</span>
+            </>
+          ) : (
+            <span>{history.toStatusLabel}</span>
+          )}
+          <span
+            style={{
+              marginLeft: '8px',
+              fontSize: '12px',
+              color: transitionStyle.iconColor,
+            }}
+          >
+            ({history.transitionTypeLabel})
+          </span>
+        </div>
+        {history.reason && <div style={styles.historyReason}>理由: {history.reason}</div>}
+        <div style={styles.historyMeta}>
+          <span>{history.changedBy.displayName}</span>
+          <span style={{ margin: '0 8px' }}>|</span>
+          <span>{formatDateTime(history.changedAt)}</span>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+// ============================================================================
+// StatusHistoryDialog コンポーネント
+// ============================================================================
+
+/**
+ * StatusHistoryDialog Props
+ */
+interface StatusHistoryDialogProps {
+  /** ダイアログが開いているか */
+  isOpen: boolean;
+  /** ダイアログを閉じるコールバック */
+  onClose: () => void;
+  /** 全件の履歴データ */
+  statusHistory: StatusHistoryResponse[];
+}
+
+/**
+ * ステータス変更履歴の全件表示ダイアログ
+ *
+ * FocusManagerを使用してフォーカストラップ、Escapeキー閉じ、
+ * オーバーレイクリック閉じを提供します。
+ *
+ * Requirements:
+ * - 35.4: モーダルダイアログで全件表示
+ * - 35.5: ダイアログタイトルに「ステータス変更履歴（全N件）」
+ * - 35.6: 閉じるボタンで閉じる
+ * - 35.7: オーバーレイクリックで閉じる
+ * - 35.8: Escapeキーで閉じる
+ */
+function StatusHistoryDialog({
+  isOpen,
+  onClose,
+  statusHistory,
+}: StatusHistoryDialogProps): React.ReactNode {
+  const titleId = 'status-history-dialog-title';
+
+  return (
+    <FocusManager
+      isOpen={isOpen}
+      onClose={onClose}
+      closeOnEscape={true}
+      closeOnOutsideClick={true}
+      ariaLabelledBy={titleId}
+    >
+      <div style={styles.dialogContainer}>
+        <div style={styles.dialogHeader}>
+          <h2 id={titleId} style={styles.dialogTitle}>
+            ステータス変更履歴（全{statusHistory.length}件）
+          </h2>
+          <button type="button" onClick={onClose} style={styles.dialogCloseButton}>
+            閉じる
+          </button>
+        </div>
+        <div style={styles.dialogBody}>
+          <ul style={styles.historyList}>
+            {statusHistory.map((history) => (
+              <HistoryItem key={history.id} history={history} />
+            ))}
+          </ul>
+        </div>
+      </div>
+    </FocusManager>
+  );
+}
+
+// ============================================================================
+// メインコンポーネント
+// ============================================================================
+
 /**
  * ステータス遷移UIコンポーネント
  *
@@ -406,6 +592,11 @@ function StatusTransitionUI({
     toStatus: null,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // 全件表示ダイアログの状態
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+
+  /** 表示する履歴の最大件数 */
+  const HISTORY_DISPLAY_LIMIT = 3;
 
   // 遷移ボタンクリック時の処理
   const handleTransitionClick = useCallback(
@@ -536,57 +727,22 @@ function StatusTransitionUI({
           {statusHistory.length === 0 ? (
             <div style={styles.emptyMessage}>履歴がありません</div>
           ) : (
-            <ul style={styles.historyList}>
-              {statusHistory.map((history) => {
-                const transitionStyle = TRANSITION_TYPE_STYLES[history.transitionType];
-
-                return (
-                  <li
-                    key={history.id}
-                    data-testid={`status-history-item-${history.id}`}
-                    data-transition-type={history.transitionType}
-                    style={{
-                      ...styles.historyItem,
-                      backgroundColor: transitionStyle.bgColor,
-                    }}
-                  >
-                    <div style={styles.historyIcon}>
-                      {getTransitionIcon(history.transitionType, transitionStyle.iconColor)}
-                    </div>
-                    <div style={styles.historyContent}>
-                      <div style={styles.historyStatusChange}>
-                        {history.fromStatusLabel ? (
-                          <>
-                            <span>{history.fromStatusLabel}</span>
-                            <span style={{ margin: '0 8px' }}></span>
-                            <span>{history.toStatusLabel}</span>
-                          </>
-                        ) : (
-                          <span>{history.toStatusLabel}</span>
-                        )}
-                        <span
-                          style={{
-                            marginLeft: '8px',
-                            fontSize: '12px',
-                            color: transitionStyle.iconColor,
-                          }}
-                        >
-                          ({history.transitionTypeLabel})
-                        </span>
-                      </div>
-                      {history.reason && (
-                        <div style={styles.historyReason}>理由: {history.reason}</div>
-                      )}
-                      <div style={styles.historyMeta}>
-                        <span>{history.changedBy.displayName}</span>
-                        <span style={{ margin: '0 8px' }}>|</span>
-                        <span>{formatDateTime(history.changedAt)}</span>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <ul style={styles.historyList}>
+                {statusHistory.slice(0, HISTORY_DISPLAY_LIMIT).map((history) => (
+                  <HistoryItem key={history.id} history={history} />
+                ))}
+              </ul>
+              {statusHistory.length > HISTORY_DISPLAY_LIMIT && (
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryDialogOpen(true)}
+                  style={styles.showAllHistoryLink}
+                >
+                  すべての履歴を表示（全{statusHistory.length}件）
+                </button>
+              )}
+            </>
           )}
         </section>
       </div>
@@ -602,6 +758,13 @@ function StatusTransitionUI({
           isSubmitting={isSubmitting}
         />
       )}
+
+      {/* ステータス変更履歴 全件表示ダイアログ */}
+      <StatusHistoryDialog
+        isOpen={isHistoryDialogOpen}
+        onClose={() => setIsHistoryDialogOpen(false)}
+        statusHistory={statusHistory}
+      />
 
       {/* CSS Animation for loading spinner */}
       <style>

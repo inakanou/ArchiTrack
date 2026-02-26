@@ -303,7 +303,7 @@ describe('Survey Images API Client', () => {
       const result = await uploadSurveyImages(surveyId, files);
 
       // Assert
-      expect(result.length).toBe(3);
+      expect(result.results.length).toBe(3);
       expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
@@ -389,7 +389,8 @@ describe('Survey Images API Client', () => {
       const result = await uploadSurveyImages(surveyId, files);
 
       // Assert
-      expect(result.length).toBe(2); // 成功した2件のみ
+      expect(result.results.length).toBe(2); // 成功した2件のみ
+      expect(result.errors.length).toBe(1); // エラー1件
       expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
@@ -419,7 +420,7 @@ describe('Survey Images API Client', () => {
       });
 
       // Assert
-      expect(result.length).toBe(7);
+      expect(result.results.length).toBe(7);
       expect(mockFetch).toHaveBeenCalledTimes(7);
     });
 
@@ -450,7 +451,7 @@ describe('Survey Images API Client', () => {
       const result = await uploadSurveyImages(surveyId, files, { startDisplayOrder });
 
       // Assert
-      expect(result.length).toBe(2);
+      expect(result.results.length).toBe(2);
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
       // FormDataに正しいdisplayOrderが設定されていることを確認
@@ -485,7 +486,8 @@ describe('Survey Images API Client', () => {
       const result = await uploadSurveyImages(surveyId, files, { onProgress: progressCallback });
 
       // Assert
-      expect(result.length).toBe(1); // 1件のみ成功
+      expect(result.results.length).toBe(1); // 1件のみ成功
+      expect(result.errors.length).toBe(1); // エラー1件
 
       // 進捗コールバックでエラー情報が記録されていることを確認
       const lastCall = progressCallback.mock.calls[progressCallback.mock.calls.length - 1] as [
@@ -511,7 +513,127 @@ describe('Survey Images API Client', () => {
       const result = await uploadSurveyImages(surveyId, files);
 
       // Assert
-      expect(result.length).toBe(1);
+      expect(result.results.length).toBe(1);
+    });
+  });
+
+  // ==========================================================================
+  // Task 48.1: uploadSurveyImagesの戻り値がBatchUploadResultであることを検証
+  // Requirements: 19.10, 19.12, 19.16
+  // ==========================================================================
+  describe('uploadSurveyImages returns BatchUploadResult (Task 48.1)', () => {
+    it('全件成功時にresultsとerrorsの両方を含むBatchUploadResultを返すこと', async () => {
+      // Arrange
+      const files = [
+        new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' }),
+        new File(['content2'], 'photo2.jpg', { type: 'image/jpeg' }),
+      ];
+      const surveyId = 'survey-1';
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-1' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-2' }),
+        });
+
+      // Act
+      const result = await uploadSurveyImages(surveyId, files);
+
+      // Assert - BatchUploadResult型であること
+      expect(result).toHaveProperty('results');
+      expect(result).toHaveProperty('errors');
+      expect(result.results).toHaveLength(2);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('部分失敗時にresultsとerrorsの両方が返却されること - Requirement 19.12', async () => {
+      // Arrange
+      const files = [
+        new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' }),
+        new File(['content2'], 'bad.gif', { type: 'image/gif' }),
+        new File(['content3'], 'photo3.jpg', { type: 'image/jpeg' }),
+      ];
+      const surveyId = 'survey-1';
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-1' }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 415,
+          statusText: 'Unsupported Media Type',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            type: 'about:blank',
+            title: 'Unsupported Media Type',
+            status: 415,
+            detail: 'サポートされていないファイル形式です。',
+            code: 'UNSUPPORTED_FILE_TYPE',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-3' }),
+        });
+
+      // Act
+      const result = await uploadSurveyImages(surveyId, files);
+
+      // Assert - 成功分とエラー分の両方が含まれること
+      expect(result.results).toHaveLength(2);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.fileName).toBe('bad.gif');
+      expect(result.errors[0]?.error).toContain('サポートされていないファイル形式です');
+    });
+
+    it('全件失敗時にresultsが空でerrorsが全件分であること', async () => {
+      // Arrange
+      const files = [
+        new File(['content1'], 'bad1.gif', { type: 'image/gif' }),
+        new File(['content2'], 'bad2.gif', { type: 'image/gif' }),
+      ];
+      const surveyId = 'survey-1';
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 415,
+          statusText: 'Unsupported Media Type',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            detail: 'サポートされていないファイル形式です。',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            detail: 'サーバーエラーが発生しました。',
+          }),
+        });
+
+      // Act
+      const result = await uploadSurveyImages(surveyId, files);
+
+      // Assert
+      expect(result.results).toHaveLength(0);
+      expect(result.errors).toHaveLength(2);
     });
   });
 

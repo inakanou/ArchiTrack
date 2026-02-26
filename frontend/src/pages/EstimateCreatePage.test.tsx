@@ -296,9 +296,10 @@ describe('EstimateCreatePage', () => {
   });
 
   /**
-   * パンくずナビゲーションを表示する
+   * REQ-15.5-15.7, REQ-15.11: パンくずナビゲーション（Task 43.2更新）
+   * パンくず: ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 新規作成
    */
-  it('パンくずナビゲーションを表示する', async () => {
+  it('パンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 新規作成」形式で表示する', async () => {
     render(
       <MemoryRouter initialEntries={['/projects/proj-001/estimates/new']}>
         <Routes>
@@ -308,11 +309,36 @@ describe('EstimateCreatePage', () => {
     );
 
     await waitFor(() => {
+      expect(screen.getByText('ダッシュボード')).toBeInTheDocument();
       expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
-      expect(screen.getByText('プロジェクト詳細')).toBeInTheDocument();
+      expect(screen.getByText('プロジェクト')).toBeInTheDocument();
       expect(screen.getByText('見積書一覧')).toBeInTheDocument();
       expect(screen.getByText('新規作成')).toBeInTheDocument();
     });
+
+    // 「プロジェクト詳細」ラベルが存在しないこと
+    expect(screen.queryByText('プロジェクト詳細')).not.toBeInTheDocument();
+  });
+
+  /**
+   * REQ-15.7: 「← 一覧に戻る」リンクが存在しないこと（Task 43.2）
+   */
+  it('「← 一覧に戻る」リンクが存在しない', async () => {
+    render(
+      <MemoryRouter initialEntries={['/projects/proj-001/estimates/new']}>
+        <Routes>
+          <Route path="/projects/:projectId/estimates/new" element={<EstimateCreatePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-create-page')).toBeInTheDocument();
+    });
+
+    // 「← 一覧に戻る」リンクが存在しないこと
+    expect(screen.queryByText('← 一覧に戻る')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('一覧に戻る')).not.toBeInTheDocument();
   });
 
   /**

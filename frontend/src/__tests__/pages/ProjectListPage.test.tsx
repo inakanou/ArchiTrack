@@ -651,7 +651,7 @@ describe('ProjectListPage', () => {
       });
     });
 
-    it('期間フィルタが表示される', async () => {
+    it('期間フィルタは表示されない（Task 56.3で削除）', async () => {
       const { getProjects } = await import('../../api/projects');
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
 
@@ -661,9 +661,9 @@ describe('ProjectListPage', () => {
         expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
       });
 
-      // 期間フィルタ（作成日From/To）が存在する（日付入力フィールドで確認）
-      expect(screen.getByLabelText('作成日（開始）')).toBeInTheDocument();
-      expect(screen.getByLabelText('作成日（終了）')).toBeInTheDocument();
+      // 期間フィルタ（作成日From/To）は削除されている（Task 56.3）
+      expect(screen.queryByLabelText('作成日（開始）')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('作成日（終了）')).not.toBeInTheDocument();
     });
 
     it('検索入力が2文字未満の場合はエラー表示', async () => {
@@ -742,7 +742,7 @@ describe('ProjectListPage', () => {
       });
     });
 
-    it('作成日列でソートできる', async () => {
+    it('作成日列のソートボタンは存在しない（Task 56.3で削除）', async () => {
       const { getProjects } = await import('../../api/projects');
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
 
@@ -752,19 +752,7 @@ describe('ProjectListPage', () => {
         expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
       });
 
-      const sortButton = screen.getByRole('button', { name: '作成日でソート' });
-      await user.click(sortButton);
-
-      await vi.advanceTimersByTimeAsync(300);
-
-      await waitFor(() => {
-        expect(getProjects).toHaveBeenCalledWith(
-          expect.objectContaining({
-            sort: 'createdAt',
-            order: 'asc',
-          })
-        );
-      });
+      expect(screen.queryByRole('button', { name: '作成日でソート' })).not.toBeInTheDocument();
     });
 
     it('更新日列でソートできる', async () => {
@@ -988,7 +976,7 @@ describe('ProjectListPage', () => {
       expect(screen.getByRole('columnheader', { name: /ステータス/ })).toBeInTheDocument();
     });
 
-    it('テーブルに作成日列が表示される', async () => {
+    it('テーブルに作成日列は表示されない（Task 56.3で削除）', async () => {
       const { getProjects } = await import('../../api/projects');
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
 
@@ -998,7 +986,7 @@ describe('ProjectListPage', () => {
         expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
       });
 
-      expect(screen.getByRole('columnheader', { name: /作成日/ })).toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /作成日/ })).not.toBeInTheDocument();
     });
 
     it('テーブルに更新日列が表示される', async () => {
@@ -1053,7 +1041,7 @@ describe('ProjectListPage', () => {
       expect(dashboardLink).toHaveTextContent('ダッシュボード');
     });
 
-    it('パンくずに「プロジェクト」が現在ページとして表示される', async () => {
+    it('パンくずに「プロジェクト一覧」が現在ページとして表示される', async () => {
       const { getProjects } = await import('../../api/projects');
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
 
@@ -1063,11 +1051,11 @@ describe('ProjectListPage', () => {
         expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
       });
 
-      // 「プロジェクト」が現在ページとして表示される（リンクなし、aria-current="page"）
+      // 「プロジェクト一覧」が現在ページとして表示される（リンクなし、aria-current="page"）
       const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       const currentPage = breadcrumbNav.querySelector('[aria-current="page"]');
       expect(currentPage).toBeInTheDocument();
-      expect(currentPage).toHaveTextContent('プロジェクト');
+      expect(currentPage).toHaveTextContent('プロジェクト一覧');
     });
 
     it('パンくずに区切り文字「>」が表示される', async () => {
@@ -1100,7 +1088,7 @@ describe('ProjectListPage', () => {
       expect(dashboardLink).toHaveAttribute('href', '/');
     });
 
-    it('「プロジェクト」はリンクなし（現在ページ）', async () => {
+    it('「プロジェクト一覧」はリンクなし（現在ページ）', async () => {
       const { getProjects } = await import('../../api/projects');
       vi.mocked(getProjects).mockResolvedValue(mockPaginatedResponse);
 
@@ -1111,7 +1099,7 @@ describe('ProjectListPage', () => {
       });
 
       const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-      // 「プロジェクト」はリンクではない（span要素）
+      // 「プロジェクト一覧」はリンクではない（span要素）
       const projectText = breadcrumbNav.querySelector('[aria-current="page"]');
       expect(projectText).toBeInTheDocument();
       expect(projectText?.tagName.toLowerCase()).toBe('span');

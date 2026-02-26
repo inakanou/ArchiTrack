@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@aws-sdk/client-s3": "^3.992.0",
+    "@aws-sdk/client-s3": "^3.995.0",
     "@aws-sdk/client-sesv2": "^3.992.0",
     "@aws-sdk/s3-request-presigner": "^3.992.0",
     "@node-rs/argon2": "^2.0.2",
@@ -105,7 +105,7 @@
     "@types/ua-parser-js": "^0.7.39",
     "@typescript-eslint/eslint-plugin": "^8.49.0",
     "@typescript-eslint/parser": "^8.49.0",
-    "@vitest/coverage-v8": "^4.0.15",
+    "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.8",
     "autocannon": "^8.0.0",
     "eslint": "^9.39.2",

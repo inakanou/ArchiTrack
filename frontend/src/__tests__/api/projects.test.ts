@@ -139,22 +139,6 @@ describe('projects API client', () => {
       expect(result).toEqual(mockPaginatedProjects);
     });
 
-    it('期間フィルタを指定してプロジェクト一覧を取得できること', async () => {
-      vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedProjects);
-
-      const filter: ProjectFilter = {
-        createdFrom: '2025-01-01',
-        createdTo: '2025-12-31',
-      };
-      const result = await getProjects({ filter });
-
-      expect(apiClient.get).toHaveBeenCalledWith(
-        '/api/projects?createdFrom=2025-01-01&createdTo=2025-12-31',
-        { headers: undefined }
-      );
-      expect(result).toEqual(mockPaginatedProjects);
-    });
-
     it('ソートパラメータを指定してプロジェクト一覧を取得できること', async () => {
       vi.mocked(apiClient.get).mockResolvedValueOnce(mockPaginatedProjects);
 
@@ -172,8 +156,6 @@ describe('projects API client', () => {
       const filter: ProjectFilter = {
         search: 'テスト',
         status: ['PREPARING'],
-        createdFrom: '2025-01-01',
-        createdTo: '2025-12-31',
       };
       const result = await getProjects({
         page: 1,

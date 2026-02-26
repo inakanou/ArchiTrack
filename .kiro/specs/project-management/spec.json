@@ -1,10 +1,10 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2026-02-13T19:00:00Z",
+  "updated_at": "2026-02-21T12:52:16Z",
   "language": "ja",
   "phase": "tasks-generated",
-  "description": "プロジェクト詳細画面のセクション要件集約とAPI効率化：(1)現場調査・数量表・内訳書・見積依頼・見積書セクションの要件を各specからproject-managementに集約（Requirements 24-28）。(2)プロジェクト詳細画面の7つの個別APIリクエストを1つの一括取得APIに統合（Requirement 29）。(3)E2Eテストの要件カバレッジタグを移動先の要件IDに更新。",
+  "description": "プロジェクト詳細画面の改善：(1)detail-summary APIの現場調査サムネイル署名付きURL変換修正（Requirement 30）。(2)パンくずナビゲーション更新（Requirement 31）。(3)「一覧に戻る」リンク削除（Requirement 32）。(4)基本情報のクリップボードコピー機能追加（Requirement 33）。(5)基本情報の作成日時・更新日時を非表示（Requirement 34）。(6)ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）。プロジェクト一覧画面の改善：(7)パンくずナビゲーションを「ダッシュボード > プロジェクト一覧」に変更（Requirement 21 AC 14更新）。(8)テーブルから「作成日」列を削除（Requirement 2 AC 2更新）。(9)フィルタから「作成日」を削除（Requirement 5 AC 2-3削除）。",
   "approvals": {
     "requirements": {
       "generated": true,

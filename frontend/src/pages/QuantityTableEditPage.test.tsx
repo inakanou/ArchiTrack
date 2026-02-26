@@ -1817,9 +1817,9 @@ describe('QuantityTableEditPage', () => {
       const thumbnail = screen.getByAltText('photo1.jpg');
       await user.click(thumbnail);
 
-      // 拡大表示モーダルまたは注釈付き画像ビューアが表示される
+      // 写真プレビューダイアログが表示される（REQ-20.1）
       await waitFor(() => {
-        expect(screen.getByTestId('annotation-viewer-modal')).toBeInTheDocument();
+        expect(screen.getByTestId('photo-preview-overlay')).toBeInTheDocument();
       });
     });
   });

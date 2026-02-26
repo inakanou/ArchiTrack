@@ -356,7 +356,9 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.10, REQ-11.11, REQ-11.12
+     * @requirement estimate-request/REQ-11.10
+     * @requirement estimate-request/REQ-11.11
+     * @requirement estimate-request/REQ-11.12
      * 数値入力と金額自動計算・合計計算の動作確認
      */
     test('REQ-11.10/11/12: 数量・単価入力で金額が自動計算され、合計も更新される', async ({
@@ -408,7 +410,8 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.17, REQ-11.18
+     * @requirement estimate-request/REQ-11.17
+     * @requirement estimate-request/REQ-11.18
      * 明細行の削除と削除ボタン非活性
      */
     test('REQ-11.17/18: 行削除が機能し、1行のみの場合は削除ボタンが非活性', async ({ page }) => {
@@ -641,7 +644,8 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
   test.describe('29.3 OCR/データパース・一括取り込み', () => {
     /**
-     * @requirement estimate-request/REQ-13.5, REQ-13.7
+     * @requirement estimate-request/REQ-13.5
+     * @requirement estimate-request/REQ-13.7
      * ファイルアップロード後のOCR/パース処理開始と処理中インジケーター確認
      */
     test('REQ-13.5/7: 画像アップロード後にOCR処理が開始され、インジケーターが表示される', async ({
@@ -675,7 +679,8 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-13.8, REQ-13.9
+     * @requirement estimate-request/REQ-13.8
+     * @requirement estimate-request/REQ-13.9
      * 抽出結果テキストの表示と選択・コピー可能状態の確認
      * Note: OCR処理は実際のファイル内容に依存するため、
      *       処理中、結果表示、エラーのいずれかを確認
@@ -720,7 +725,9 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-13.10, REQ-13.11, REQ-13.12
+     * @requirement estimate-request/REQ-13.10
+     * @requirement estimate-request/REQ-13.11
+     * @requirement estimate-request/REQ-13.12
      * 一括取り込みボタンによる明細行自動入力と金額自動計算の確認
      * Note: 一括取り込みはデータが検出された場合のみ表示される
      *       E2E環境ではOCR処理完了を保証できないため、処理開始を確認後、

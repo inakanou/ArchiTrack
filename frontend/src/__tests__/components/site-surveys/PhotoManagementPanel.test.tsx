@@ -1072,4 +1072,24 @@ describe('PhotoManagementPanel', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // 注釈付き画像表示テスト (Task 55.2, Requirement 20.2)
+  // ==========================================================================
+
+  describe('注釈付き画像表示 (Task 55.2, Requirement 20.2)', () => {
+    it('PhotoManagementPanelがAnnotatedImageThumbnailで画像を表示すること', () => {
+      render(<PhotoManagementPanel {...defaultProps} />);
+
+      // AnnotatedImageThumbnailが各画像に対してレンダリングされていること
+      // (AnnotatedImageThumbnailは内部でmediumUrl > originalUrlの順でフォールバックする)
+      const images = screen.getAllByRole('img');
+      expect(images).toHaveLength(mockImages.length);
+
+      // 各画像がmediumUrlで表示されていること（AnnotatedImageThumbnailの動作）
+      images.forEach((img, index) => {
+        expect(img).toHaveAttribute('src', `https://example.com/medium/img-${index + 1}.jpg`);
+      });
+    });
+  });
 });

@@ -20,6 +20,7 @@ import type {
   BatchUploadProgress,
   BatchUploadOptions,
   BatchUploadError,
+  BatchUploadResult,
   ImageOrderItem,
   UpdateImageMetadataInput,
   UpdateImageMetadataResponse,
@@ -30,7 +31,7 @@ import type {
 // 型定義の再エクスポート（テスト用）
 // ============================================================================
 
-export type { BatchUploadProgress, BatchUploadOptions, BatchUploadError };
+export type { BatchUploadProgress, BatchUploadOptions, BatchUploadError, BatchUploadResult };
 
 // ============================================================================
 // 定数
@@ -149,11 +150,29 @@ export async function uploadSurveyImage(
     formData.append('displayOrder', String(options.displayOrder));
   }
 
-  return requestWithFormData<SurveyImageInfo>(
-    `/api/site-surveys/${surveyId}/images`,
-    formData,
-    'POST'
-  );
+  // バックエンドは単一ファイルもバッチとして処理し、
+  // { successful: [...], failed: [...] } 形式で返す。
+  // 失敗時はステータス207（Multi-Status）で返されるが、
+  // response.ok は 2xx 全体で true のため、レスポンスボディを検査する必要がある。
+  const result = await requestWithFormData<{
+    successful: SurveyImageInfo[];
+    failed: Array<{ fileName: string; error: string }>;
+  }>(`/api/site-surveys/${surveyId}/images`, formData, 'POST');
+
+  // バッチレスポンスの failed 配列にエントリがある場合はエラーをスロー
+  if (result.failed && result.failed.length > 0) {
+    const failedItem = result.failed[0] as { fileName: string; error: string };
+    throw new ApiError(415, failedItem.error, result);
+  }
+
+  // successful 配列から最初のエントリを返す
+  const firstSuccess = result.successful?.[0];
+  if (firstSuccess) {
+    return firstSuccess;
+  }
+
+  // フォールバック: 想定外のレスポンス形式の場合
+  return result as unknown as SurveyImageInfo;
 }
 
 /**
@@ -165,17 +184,17 @@ export async function uploadSurveyImage(
  * @param surveyId - 現場調査ID（UUID）
  * @param files - アップロードするファイルの配列
  * @param options - バッチアップロードオプション
- * @returns 成功した画像情報の配列（失敗したファイルは含まれない）
+ * @returns 成功した画像情報とエラー情報を含むBatchUploadResult
  *
- * Requirements: 4.2, 4.3
+ * Requirements: 4.2, 4.3, 19.10, 19.12, 19.16
  *
  * @example
  * // 基本的な使用法
- * const images = await uploadSurveyImages('survey-id', files);
+ * const { results, errors } = await uploadSurveyImages('survey-id', files);
  *
  * @example
  * // 進捗コールバック付き
- * const images = await uploadSurveyImages('survey-id', files, {
+ * const { results, errors } = await uploadSurveyImages('survey-id', files, {
  *   onProgress: (progress) => {
  *     console.log(`${progress.completed}/${progress.total} 完了`);
  *   },
@@ -183,7 +202,7 @@ export async function uploadSurveyImage(
  *
  * @example
  * // カスタムバッチサイズ
- * const images = await uploadSurveyImages('survey-id', files, {
+ * const { results, errors } = await uploadSurveyImages('survey-id', files, {
  *   batchSize: 3,
  *   startDisplayOrder: 10,
  * });
@@ -192,7 +211,7 @@ export async function uploadSurveyImages(
   surveyId: string,
   files: File[],
   options: BatchUploadOptions = {}
-): Promise<SurveyImageInfo[]> {
+): Promise<BatchUploadResult> {
   const { onProgress, batchSize = DEFAULT_BATCH_SIZE, startDisplayOrder } = options;
 
   const results: SurveyImageInfo[] = [];
@@ -259,7 +278,7 @@ export async function uploadSurveyImages(
   // 最終進捗通知
   notifyProgress(total - 1);
 
-  return results;
+  return { results, errors };
 }
 
 /**

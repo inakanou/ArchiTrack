@@ -185,9 +185,10 @@ describe('ItemizedStatementDetailPage', () => {
 
         await waitFor(() => {
           const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+          expect(within(breadcrumb).getByText('ダッシュボード')).toBeInTheDocument();
           expect(within(breadcrumb).getByText('プロジェクト一覧')).toBeInTheDocument();
           expect(within(breadcrumb).getByText('テストプロジェクト')).toBeInTheDocument();
-          expect(within(breadcrumb).getByText('内訳書')).toBeInTheDocument();
+          expect(within(breadcrumb).getByText('内訳書一覧')).toBeInTheDocument();
           expect(within(breadcrumb).getByText('テスト内訳書')).toBeInTheDocument();
         });
       });
