@@ -983,8 +983,8 @@ test.describe('数量表CRUD操作', () => {
         // サムネイルをクリックすると注釈ビューアが表示される
         await thumbnail.click();
 
-        // 注釈ビューアモーダルが表示されることを確認
-        const viewerModal = page.getByTestId('annotation-viewer-modal');
+        // 写真プレビューダイアログが表示されることを確認
+        const viewerModal = page.getByTestId('photo-preview-overlay');
         await expect(viewerModal).toBeVisible({ timeout: getTimeout(5000) });
 
         // 注釈がある場合は注釈関連UIも確認

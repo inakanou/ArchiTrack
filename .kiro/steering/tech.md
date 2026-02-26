@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-02-21（Steering Sync: 見積書エクスポート複数行タイプ対応、Storybook test-runner設定追加を反映）_
+_最終更新: 2026-02-25（Steering Sync: テストファイル数更新、バックエンドjsPDF追加、Argon2記載修正を反映）_
 
 ## アーキテクチャ
 
@@ -36,7 +36,7 @@ ArchiTrack/
 - `react-dom` ^19.2.3 - React DOM操作
 - `react-router-dom` ^7.13.0 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
-- `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応）
+- `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書エクスポート、SheetJS）
 - `react-pdf` ^10.3.0 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
@@ -108,6 +108,7 @@ ArchiTrack/
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
+- **PDF生成**: jspdf ^4.1.0（見積書PDF出力）
 - **バリデーション**: zod 4.3.6
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
@@ -284,7 +285,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 単体テスト134ファイル + 統合テスト23ファイル
+**テスト合計:** 単体テスト136ファイル + 統合テスト23ファイル
 
 **実行方法:**
 ```bash
@@ -342,7 +343,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 213テストファイル（包括的なユニットテスト群）
+- 合計: 289テストファイル（包括的なユニットテスト群）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用

@@ -165,8 +165,8 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys`);
       await page.waitForLoadState('networkidle');
 
-      // 一覧が表示されることを確認（h2の「現場調査」見出しを正確にマッチ）
-      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
+      // 一覧が表示されることを確認（h1の「現場調査一覧」見出しをマッチ）
+      await expect(page.getByRole('heading', { name: '現場調査一覧', exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -190,7 +190,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.waitForLoadState('networkidle');
 
       // 一覧が表示されることを確認
-      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
+      await expect(page.getByRole('heading', { name: '現場調査一覧', exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -214,7 +214,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.waitForLoadState('networkidle');
 
       // 一覧が表示されることを確認
-      await expect(page.getByRole('heading', { name: '現場調査', exact: true })).toBeVisible({
+      await expect(page.getByRole('heading', { name: '現場調査一覧', exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
 

@@ -510,26 +510,13 @@ describe('Project Types', () => {
         expect(filter.status).toEqual(['PREPARING', 'SURVEYING']);
       });
 
-      it('should allow date range filter', () => {
-        const filter: ProjectFilter = {
-          createdFrom: '2025-01-01',
-          createdTo: '2025-12-31',
-        };
-        expect(filter.createdFrom).toBe('2025-01-01');
-        expect(filter.createdTo).toBe('2025-12-31');
-      });
-
-      it('should allow combined filters', () => {
+      it('should allow combined filters (Task 56.3: createdFrom/createdTo removed)', () => {
         const filter: ProjectFilter = {
           search: 'テスト',
           status: ['PREPARING'],
-          createdFrom: '2025-01-01',
-          createdTo: '2025-12-31',
         };
         expect(filter.search).toBe('テスト');
         expect(filter.status).toEqual(['PREPARING']);
-        expect(filter.createdFrom).toBe('2025-01-01');
-        expect(filter.createdTo).toBe('2025-12-31');
       });
     });
 

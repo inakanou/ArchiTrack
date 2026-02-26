@@ -99,10 +99,22 @@ export class AnnotationNotFoundError extends Error {
 }
 
 /**
+ * 注釈付きサムネイル生成サービスのインターフェース（オプショナル依存）
+ */
+export interface IAnnotatedThumbnailService {
+  generateAnnotatedThumbnail(
+    imageId: string,
+    annotationData: AnnotationData
+  ): Promise<string | null>;
+}
+
+/**
  * サービス依存関係
  */
 export interface AnnotationServiceDependencies {
   prisma: PrismaClient;
+  /** 注釈付きサムネイル生成サービス（オプショナル、Task 53.3） */
+  annotatedThumbnailService?: IAnnotatedThumbnailService;
 }
 
 /**
@@ -177,9 +189,11 @@ type PrismaTransactionClient = Omit<
  */
 export class AnnotationService {
   private readonly prisma: PrismaClient;
+  private readonly annotatedThumbnailService?: IAnnotatedThumbnailService;
 
   constructor(deps: AnnotationServiceDependencies) {
     this.prisma = deps.prisma;
+    this.annotatedThumbnailService = deps.annotatedThumbnailService;
   }
 
   /**
@@ -208,7 +222,7 @@ export class AnnotationService {
       version: input.data.version || ANNOTATION_SCHEMA_VERSION,
     };
 
-    return await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. 画像の存在確認
       await this.validateImageExists(tx, input.imageId);
 
@@ -231,6 +245,17 @@ export class AnnotationService {
         return await this.createAnnotation(tx, input.imageId, dataWithVersion);
       }
     });
+
+    // 注釈付きサムネイル生成（非同期、失敗しても注釈保存は成功）（Task 53.3）
+    if (this.annotatedThumbnailService) {
+      this.annotatedThumbnailService
+        .generateAnnotatedThumbnail(input.imageId, dataWithVersion)
+        .catch(() => {
+          // サムネイル生成失敗はログのみ（AnnotatedThumbnailService内でログ出力済み）
+        });
+    }
+
+    return result;
   }
 
   /**

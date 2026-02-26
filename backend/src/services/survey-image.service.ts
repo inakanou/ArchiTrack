@@ -126,16 +126,13 @@ export interface SurveyImageServiceDependencies {
  * 各画像フォーマットのファイルシグネチャ（マジックバイト）を定義します。
  */
 const MAGIC_BYTES = {
-  // JPEG: FFD8FFで始まる
+  // JPEG: 先頭3バイト FF D8 FF のみで判定（3バイトプレフィックス方式）
+  // JPEG仕様（ITU-T T.81）ではSOI（FF D8）の後に必ず0xFFで始まるマーカーが続く。
+  // 4バイト目は多数のバリエーション（0xE0-0xEF, 0xC0-0xCF, 0xDA, 0xDB, 0xFE等）があるため、
+  // ホワイトリスト方式では網羅不可能。3バイトプレフィックスで十分な識別精度を確保する。
   jpeg: {
-    signatures: [
-      [0xff, 0xd8, 0xff, 0xe0], // JFIF
-      [0xff, 0xd8, 0xff, 0xe1], // EXIF
-      [0xff, 0xd8, 0xff, 0xe8], // SPIFF
-      [0xff, 0xd8, 0xff, 0xdb], // 量子化テーブル
-      [0xff, 0xd8, 0xff, 0xee], // Adobe JPEG
-    ],
-    minLength: 4,
+    prefix: [0xff, 0xd8, 0xff],
+    minLength: 3,
   },
   // PNG: 89504E470D0A1A0Aで始まる
   png: {
@@ -297,17 +294,21 @@ export class SurveyImageService {
 
   /**
    * JPEGマジックバイトの検証
+   *
+   * 先頭3バイト（FF D8 FF）のみでJPEG形式を判定する。
+   * JPEG仕様（ITU-T T.81）ではSOI（FF D8）の後に必ず0xFFで始まるマーカーが続くため、
+   * 4バイト目のバリエーション（JFIF, EXIF, ICCプロファイル, SOS, DQT等）に依存しない。
+   *
+   * Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7
    */
   private validateJpegMagicBytes(buffer: Buffer): void {
-    const { signatures, minLength } = MAGIC_BYTES.jpeg;
+    const { prefix, minLength } = MAGIC_BYTES.jpeg;
 
     if (buffer.length < minLength) {
       throw new InvalidMagicBytesError('image/jpeg');
     }
 
-    const isValid = signatures.some((signature) =>
-      signature.every((byte, index) => buffer[index] === byte)
-    );
+    const isValid = prefix.every((byte, index) => buffer[index] === byte);
 
     if (!isValid) {
       throw new InvalidMagicBytesError('image/jpeg');

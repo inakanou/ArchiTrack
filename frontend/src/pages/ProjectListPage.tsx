@@ -82,8 +82,6 @@ function parseSearchParams(searchParams: URLSearchParams): Partial<PageState> {
   const order = searchParams.get('order');
   const search = searchParams.get('search');
   const status = searchParams.get('status');
-  const createdFrom = searchParams.get('createdFrom');
-  const createdTo = searchParams.get('createdTo');
 
   return {
     page: page ? parseInt(page, 10) : undefined,
@@ -93,8 +91,6 @@ function parseSearchParams(searchParams: URLSearchParams): Partial<PageState> {
     filter: {
       search: search || undefined,
       status: status ? (status.split(',') as ProjectFilter['status']) : undefined,
-      createdFrom: createdFrom || undefined,
-      createdTo: createdTo || undefined,
     },
   };
 }
@@ -122,12 +118,6 @@ function buildSearchParams(state: PageState): URLSearchParams {
   }
   if (state.filter.status && state.filter.status.length > 0) {
     params.set('status', state.filter.status.join(','));
-  }
-  if (state.filter.createdFrom) {
-    params.set('createdFrom', state.filter.createdFrom);
-  }
-  if (state.filter.createdTo) {
-    params.set('createdTo', state.filter.createdTo);
   }
 
   return params;
@@ -303,8 +293,6 @@ export default function ProjectListPage() {
       filter: {
         search: parsed.filter?.search || '',
         status: parsed.filter?.status || [],
-        createdFrom: parsed.filter?.createdFrom,
-        createdTo: parsed.filter?.createdTo,
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -505,7 +493,7 @@ export default function ProjectListPage() {
   const isEmptyWithoutSearch = isEmpty && !hasSearched;
 
   // パンくずナビゲーション項目
-  const breadcrumbItems = [{ label: 'ダッシュボード', path: '/' }, { label: 'プロジェクト' }];
+  const breadcrumbItems = [{ label: 'ダッシュボード', path: '/' }, { label: 'プロジェクト一覧' }];
 
   return (
     <main role="main" aria-busy={loading} className="py-8">

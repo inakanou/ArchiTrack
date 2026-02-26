@@ -346,14 +346,13 @@ test.describe('プロジェクト一覧操作', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // URLパラメータ付きでアクセス
-      await page.goto('/projects?status=PREPARING&createdFrom=2024-01-01');
+      // URLパラメータ付きでアクセス（Task 56.5でcreatedFrom削除）
+      await page.goto('/projects?status=PREPARING');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
       // URLパラメータが維持されていることを確認
       await expect(page).toHaveURL(/status=PREPARING/);
-      await expect(page).toHaveURL(/createdFrom=2024-01-01/);
 
       // ステータスフィルタの選択状態を確認
       const statusSelect = page.getByRole('listbox', { name: /ステータスフィルタ/i });
@@ -383,29 +382,18 @@ test.describe('プロジェクト一覧操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-5.2
-     * @requirement project-management/REQ-5.3
+     * Task 56.5: 期間フィルタは削除されたため、表示されないことを確認
      */
-    test('期間フィルタで日付範囲を指定するとフィルタリングされる', async ({ page }) => {
+    test('期間フィルタは表示されない（Task 56.5で削除）', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // 開始日を入力
+      // 期間フィルタの入力フィールドが存在しないことを確認
       const fromDate = page.getByRole('textbox', { name: /作成日（開始）/i });
-      await expect(fromDate).toBeVisible({ timeout: getTimeout(10000) });
-
-      const today = new Date();
-      const oneMonthAgo = new Date(today);
-      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-      const fromDateStr = oneMonthAgo.toISOString().split('T')[0]; // YYYY-MM-DD
-
-      await fromDate.fill(fromDateStr as string);
-
-      // URLパラメータに日付が反映されることを確認
-      await expect(page).toHaveURL(/createdFrom=/, { timeout: getTimeout(10000) });
+      await expect(fromDate).not.toBeVisible();
     });
 
     /**

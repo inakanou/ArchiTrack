@@ -2,12 +2,14 @@
  * @fileoverview 内訳書一覧画面
  *
  * Task 18.2: ItemizedStatementListPageの更新
+ * Task 20.1: パンくずナビゲーション実装
  *
  * Requirements:
  * - 3.2: 内訳書セクションは作成済み内訳書を作成日時の降順で一覧表示する
  * - 3.3: 数量表が存在しない場合「まず数量表を作成してください」メッセージを表示する
  * - 3.4: 数量表は存在するが内訳書が存在しない場合「内訳書はまだありません」メッセージを表示する
  * - 3.5: ユーザーが内訳書行をクリックすると内訳書詳細画面に遷移する
+ * - 9.1: パンくず「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧」
  * - 11.5: 内訳書セクションは一覧画面へのリンクを表示する
  * - 15.8: 内訳書一覧画面の新規作成ボタンは内訳書新規作成画面に遷移する
  * - 15.9: 内訳書一覧画面からキャンセルする場合、システムは内訳書一覧画面に遷移する
@@ -17,6 +19,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getItemizedStatements, deleteItemizedStatement } from '../api/itemized-statements';
 import { getQuantityTables } from '../api/quantity-tables';
+import { getProject } from '../api/projects';
 import type {
   ItemizedStatementInfo,
   PaginatedItemizedStatements,
@@ -459,6 +462,9 @@ export default function ItemizedStatementListPage() {
   const [data, setData] = useState<PaginatedItemizedStatements | null>(null);
   const [quantityTables, setQuantityTables] = useState<QuantityTableInfo[]>([]);
 
+  // プロジェクト名（パンくず表示用）
+  const [projectName, setProjectName] = useState<string>('');
+
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -479,15 +485,19 @@ export default function ItemizedStatementListPage() {
     setError(null);
 
     try {
-      const [statementsResult, tablesResult] = await Promise.all([
+      const [statementsResult, tablesResult, projectData] = await Promise.all([
         getItemizedStatements(projectId, {
           sort: 'createdAt',
           order: 'desc',
         }),
         getQuantityTables(projectId, { limit: 100 }),
+        getProject(projectId),
       ]);
       setData(statementsResult);
       setQuantityTables(tablesResult.data);
+      if (projectData?.name) {
+        setProjectName(projectData.name);
+      }
     } catch {
       setError('内訳書の取得に失敗しました');
     } finally {
@@ -585,8 +595,9 @@ export default function ItemizedStatementListPage() {
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+            { label: projectName || 'プロジェクト', path: `/projects/${projectId}` },
             { label: '内訳書一覧' },
           ]}
         />

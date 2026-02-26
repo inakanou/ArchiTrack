@@ -18,10 +18,12 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import ItemizedStatementListPage from '../../pages/ItemizedStatementListPage';
 import * as itemizedStatementsApi from '../../api/itemized-statements';
 import * as quantityTablesApi from '../../api/quantity-tables';
+import * as projectsApi from '../../api/projects';
 
 // APIモック
 vi.mock('../../api/itemized-statements');
 vi.mock('../../api/quantity-tables');
+vi.mock('../../api/projects');
 
 // モックデータ
 const mockItemizedStatements = {
@@ -137,6 +139,19 @@ describe('ItemizedStatementListPage', () => {
     );
     vi.mocked(itemizedStatementsApi.deleteItemizedStatement).mockResolvedValue(undefined);
     vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+    vi.mocked(projectsApi.getProject).mockResolvedValue({
+      id: 'project-123',
+      name: 'テストプロジェクト',
+      description: '',
+      status: 'SURVEYING' as const,
+      statusLabel: '調査中',
+      siteAddress: '',
+      tradingPartnerId: null,
+      tradingPartner: null,
+      salesPerson: { id: 'user-1', displayName: 'テスト担当者' },
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    });
   });
 
   describe('projectIdがない場合', () => {
@@ -559,6 +574,16 @@ describe('ItemizedStatementListPage', () => {
       });
     });
 
+    it('ダッシュボードへのリンクが表示されること', async () => {
+      renderWithRouter('/projects/project-123/itemized-statements');
+
+      await waitFor(() => {
+        const link = screen.getByRole('link', { name: 'ダッシュボード' });
+        expect(link).toBeInTheDocument();
+        expect(link).toHaveAttribute('href', '/');
+      });
+    });
+
     it('プロジェクト一覧へのリンクが表示されること', async () => {
       renderWithRouter('/projects/project-123/itemized-statements');
 
@@ -569,11 +594,11 @@ describe('ItemizedStatementListPage', () => {
       });
     });
 
-    it('プロジェクト詳細へのリンクが表示されること', async () => {
+    it('プロジェクト名へのリンクが表示されること', async () => {
       renderWithRouter('/projects/project-123/itemized-statements');
 
       await waitFor(() => {
-        const link = screen.getByRole('link', { name: 'プロジェクト詳細' });
+        const link = screen.getByRole('link', { name: 'テストプロジェクト' });
         expect(link).toBeInTheDocument();
         expect(link).toHaveAttribute('href', '/projects/project-123');
       });

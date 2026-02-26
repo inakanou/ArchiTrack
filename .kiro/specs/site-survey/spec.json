@@ -1,9 +1,10 @@
 {
   "feature_name": "site-survey",
   "created_at": "2025-12-16T00:00:00Z",
-  "updated_at": "2026-02-16T00:50:38Z",
+  "updated_at": "2026-02-23T04:00:00Z",
   "language": "ja",
   "phase": "tasks-generated",
+  "description": "現場調査機能の更新: パンくずナビゲーション改善（一覧画面・詳細画面・画像プレビュー画面）、画面タイトル変更、戻るリンク削除、注釈のサムネイル・プレビュー表示対応",
   "approvals": {
     "requirements": {
       "generated": true,

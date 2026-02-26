@@ -8,6 +8,10 @@
  * Task 27.2: フィールドラベル変更（「取引先」→「顧客名」）
  * Task 10.1 (site-survey): 現場調査への導線追加
  * Task 7.2 (estimate-request): 見積依頼への導線追加
+ * Task 53.1: パンくずナビゲーション更新（プロジェクト一覧 → プロジェクト詳細）
+ * Task 53.2: 「← 一覧に戻る」リンク削除
+ * Task 53.3: クリップボードコピーボタン追加
+ * Task 53.4: 作成日時・更新日時フィールド削除
  *
  * Requirements:
  * - 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7: プロジェクト詳細表示
@@ -16,7 +20,11 @@
  * - 11.1, 11.2, 11.3, 11.4, 11.5, 11.6: 関連データ参照（機能フラグ対応）
  * - 18.4, 18.5: エラーハンドリング
  * - 19.2: パフォーマンス
- * - 21.15, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト > [プロジェクト名]）
+ * - 21.15, 21.18: パンくずナビゲーション（ダッシュボード > プロジェクト一覧 > プロジェクト詳細）
+ * - 31.1-31.4: パンくずナビゲーション更新
+ * - 32.1-32.2: 「一覧に戻る」リンク削除
+ * - 33.1-33.9: クリップボードコピーボタン追加
+ * - 34.1-34.2: 作成日時・更新日時フィールド削除
  * - 21.21: 編集ボタンクリックで編集ページへ遷移
  * - 22: 顧客情報表示（ラベル「顧客名」）
  * - 2.1, 2.2: 現場調査タブ/セクション表示と遷移
@@ -24,7 +32,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
@@ -103,18 +111,121 @@ const STATUS_TRANSITIONS: Record<ProjectStatus, AllowedTransition[]> = {
   LOST: [],
 };
 
+// ============================================================================
+// CopyButton ローカルコンポーネント
+// Task 53.3: 基本情報のクリップボードコピーボタン追加
+// ============================================================================
+
 /**
- * 日付フォーマット
+ * CopyButton Props
  */
-function formatDate(isoString: string): string {
-  const date = new Date(isoString);
-  return date.toLocaleDateString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+interface CopyButtonProps {
+  /** コピーするテキスト */
+  text: string;
+  /** aria-label */
+  ariaLabel: string;
+}
+
+/**
+ * コピーボタンコンポーネント
+ *
+ * クリップボードにテキストをコピーし、成功/失敗のフィードバックを2秒間表示する。
+ * navigator.clipboard.writeText を使用。非対応ブラウザではエラーフィードバックを表示。
+ *
+ * Requirements: 33.1, 33.2, 33.3, 33.4, 33.5, 33.6, 33.7, 33.8, 33.9
+ */
+function CopyButton({ text, ariaLabel }: CopyButtonProps) {
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  const handleCopy = useCallback(async () => {
+    try {
+      if (!navigator.clipboard) {
+        setStatus('error');
+        setTimeout(() => setStatus('idle'), 2000);
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      setStatus('success');
+      setTimeout(() => setStatus('idle'), 2000);
+    } catch {
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 2000);
+    }
+  }, [text]);
+
+  const copyButtonStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '2px 6px',
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    color: status === 'success' ? '#16a34a' : status === 'error' ? '#dc2626' : '#6b7280',
+    fontSize: '12px',
+    borderRadius: '4px',
+    transition: 'color 0.2s',
+    verticalAlign: 'middle',
+  };
+
+  if (status === 'success') {
+    return (
+      <button type="button" style={copyButtonStyle} aria-label={ariaLabel}>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        <span>コピーしました</span>
+      </button>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <button type="button" style={copyButtonStyle} aria-label={ariaLabel}>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+        <span>コピーに失敗しました</span>
+      </button>
+    );
+  }
+
+  return (
+    <button type="button" onClick={handleCopy} style={copyButtonStyle} aria-label={ariaLabel}>
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </svg>
+    </button>
+  );
 }
 
 // ============================================================================
@@ -132,15 +243,6 @@ const styles = {
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',
-  } as React.CSSProperties,
-  backLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
-    marginBottom: '16px',
   } as React.CSSProperties,
   title: {
     fontSize: '24px',
@@ -496,7 +598,7 @@ export default function ProjectDetailPage() {
         <Breadcrumb
           items={[
             { label: 'ダッシュボード', path: '/' },
-            { label: 'プロジェクト', path: '/projects' },
+            { label: 'プロジェクト一覧', path: '/projects' },
             { label: project.name },
           ]}
         />
@@ -504,9 +606,6 @@ export default function ProjectDetailPage() {
 
       {/* ヘッダー */}
       <div style={styles.header}>
-        <Link to="/projects" style={styles.backLink}>
-          ← 一覧に戻る
-        </Link>
         <h1 style={styles.title}>{project.name}</h1>
         <p style={styles.subtitle}>
           {project.tradingPartner?.name ?? '-'} | {PROJECT_STATUS_LABELS[project.status]}
@@ -543,11 +642,23 @@ export default function ProjectDetailPage() {
         <div style={styles.grid}>
           <div style={styles.field}>
             <div style={styles.fieldLabel}>プロジェクト名</div>
-            <div style={styles.fieldValue}>{project.name}</div>
+            <div
+              style={{ ...styles.fieldValue, display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              {project.name}
+              <CopyButton text={project.name} ariaLabel="プロジェクト名をコピー" />
+            </div>
           </div>
           <div style={styles.field}>
             <div style={styles.fieldLabel}>顧客名</div>
-            <div style={styles.fieldValue}>{project.tradingPartner?.name ?? '-'}</div>
+            <div
+              style={{ ...styles.fieldValue, display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              {project.tradingPartner?.name ?? '-'}
+              {project.tradingPartner?.name && (
+                <CopyButton text={project.tradingPartner.name} ariaLabel="顧客名をコピー" />
+              )}
+            </div>
           </div>
           <div style={styles.field}>
             <div style={styles.fieldLabel}>営業担当者</div>
@@ -561,19 +672,18 @@ export default function ProjectDetailPage() {
           </div>
           <div style={styles.field}>
             <div style={styles.fieldLabel}>現場住所</div>
-            <div style={styles.fieldValue}>{project.siteAddress || '-'}</div>
+            <div
+              style={{ ...styles.fieldValue, display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              {project.siteAddress || '-'}
+              {project.siteAddress && (
+                <CopyButton text={project.siteAddress} ariaLabel="現場住所をコピー" />
+              )}
+            </div>
           </div>
           <div style={styles.field}>
             <div style={styles.fieldLabel}>ステータス</div>
             <div style={styles.fieldValue}>{PROJECT_STATUS_LABELS[project.status]}</div>
-          </div>
-          <div style={styles.field}>
-            <div style={styles.fieldLabel}>作成日時</div>
-            <div style={styles.fieldValue}>{formatDate(project.createdAt)}</div>
-          </div>
-          <div style={styles.field}>
-            <div style={styles.fieldLabel}>更新日時</div>
-            <div style={styles.fieldValue}>{formatDate(project.updatedAt)}</div>
           </div>
         </div>
 

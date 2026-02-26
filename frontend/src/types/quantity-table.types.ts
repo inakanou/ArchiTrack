@@ -292,6 +292,8 @@ export interface CalculationParams {
 
 /**
  * 現場調査画像情報（簡易）
+ *
+ * Requirements: 3.3, 4.2, 19.2, 20.2, 21.1, 21.2
  */
 export interface SurveyImageSummary {
   id: string;
@@ -300,6 +302,10 @@ export interface SurveyImageSummary {
   fileName: string;
   /** 注釈の有無 */
   hasAnnotations?: boolean;
+  /** 注釈付きサムネイルURL（REQ-3.3, 4.2, 19.2, 20.2） */
+  annotatedThumbnailUrl?: string | null;
+  /** 写真コメント（REQ-21.1, 21.2） */
+  comment?: string | null;
 }
 
 /**

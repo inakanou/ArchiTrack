@@ -35,10 +35,11 @@
  * - 7.3: 確認ダイアログで削除を確定した場合に論理削除APIを呼び出す
  * - 7.4: 削除処理中にエラーが発生した場合にエラーメッセージを表示し内訳書を削除しない
  * - 8.4: 集計元の数量表名を参照情報として表示する
- * - 9.1: パンくずナビゲーションを表示する
- * - 9.2: パンくずを「プロジェクト一覧 > {プロジェクト名} > 内訳書 > {内訳書名}」形式で表示する
- * - 9.3: プロジェクト名クリックでプロジェクト詳細画面に遷移する
- * - 9.4: プロジェクト一覧クリックでプロジェクト一覧画面に遷移する
+ * - 9.3: パンくずを「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > {内訳書名}」形式で表示する
+ * - 9.4: 「ダッシュボード」リンクはダッシュボード画面（/）へ遷移する
+ * - 9.5: 「プロジェクト一覧」リンクはプロジェクト一覧画面（/projects）へ遷移する
+ * - 9.6: 「{プロジェクト名}」リンクはプロジェクト詳細画面へ遷移する
+ * - 9.7: 「内訳書一覧」リンクは内訳書一覧画面へ遷移する
  * - 10.2: 削除リクエストを受信すると、システムはリクエストのupdatedAtと現在値を比較する
  * - 10.3: updatedAtが一致しない場合は409 Conflictエラーを返却する
  * - 10.4: 409エラーが返却されると「他のユーザーにより更新されました。画面を再読み込みしてください」メッセージを表示する
@@ -1045,13 +1046,14 @@ export default function ItemizedStatementDetailPage() {
   // 詳細表示
   return (
     <main role="main" aria-busy={isLoading} style={styles.container}>
-      {/* パンくずナビゲーション (Req 9.1, 9.2, 9.3, 9.4) */}
+      {/* パンくずナビゲーション (Req 9.3, 9.4, 9.5, 9.6, 9.7) */}
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
             { label: statement.project.name, path: `/projects/${statement.projectId}` },
-            { label: '内訳書', path: `/projects/${statement.projectId}/itemized-statements` },
+            { label: '内訳書一覧', path: `/projects/${statement.projectId}/itemized-statements` },
             { label: statement.name },
           ]}
         />

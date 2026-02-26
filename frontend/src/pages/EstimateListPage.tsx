@@ -59,14 +59,6 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '8px',
   } as React.CSSProperties,
-  backLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
-  } as React.CSSProperties,
   title: {
     fontSize: '24px',
     fontWeight: 'bold',
@@ -346,12 +338,13 @@ export default function EstimateListPage() {
 
   return (
     <main role="main" style={styles.container} data-testid="estimate-list-page">
-      {/* パンくずナビゲーション (REQ-15.1-15.3) */}
+      {/* パンくずナビゲーション (REQ-15.1-15.4, REQ-15.11, REQ-15.12) */}
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+            { label: 'プロジェクト', path: `/projects/${projectId}` },
             { label: '見積書一覧' },
           ]}
         />
@@ -360,13 +353,6 @@ export default function EstimateListPage() {
       {/* ヘッダー */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <Link
-            to={`/projects/${projectId}`}
-            style={styles.backLink}
-            aria-label="プロジェクト詳細に戻る"
-          >
-            ← プロジェクト詳細に戻る
-          </Link>
           <h1 style={styles.title}>見積書一覧</h1>
           <p style={styles.subtitle}>全{totalCount}件</p>
         </div>

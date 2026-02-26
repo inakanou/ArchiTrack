@@ -20,6 +20,9 @@ import * as itemizedStatementsApi from '../../api/itemized-statements';
 vi.mock('../../api/estimate-requests');
 vi.mock('../../api/trading-partners');
 vi.mock('../../api/itemized-statements');
+vi.mock('../../api/projects', () => ({
+  getProject: vi.fn().mockResolvedValue({ name: 'テストプロジェクト' }),
+}));
 
 // useNavigateモック
 const mockNavigate = vi.fn();
@@ -139,15 +142,15 @@ describe('EstimateRequestCreatePage', () => {
       expect(screen.getByText('新規作成')).toBeInTheDocument();
     });
 
-    it('戻るリンクを表示する', async () => {
+    it('戻るリンクが存在しない（パンくずナビ改善により削除済み）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByTestId('estimate-request-create-page')).toBeInTheDocument();
       });
 
-      const backLink = screen.getByRole('link', { name: '一覧に戻る' });
-      expect(backLink).toHaveAttribute('href', '/projects/project-1/estimate-requests');
+      // 「← 一覧に戻る」リンクは削除されたため存在しない
+      expect(screen.queryByRole('link', { name: '一覧に戻る' })).not.toBeInTheDocument();
     });
 
     it('メインコンテンツにrole="main"が設定されている', async () => {
@@ -187,8 +190,9 @@ describe('EstimateRequestCreatePage', () => {
         expect(screen.getByTestId('estimate-request-create-page')).toBeInTheDocument();
       });
 
-      const backLink = screen.getByRole('link', { name: '一覧に戻る' });
-      expect(backLink).toHaveAttribute('href', '/projects/project-999/estimate-requests');
+      // パンくずの「見積依頼一覧」リンクが正しいプロジェクトIDを含む
+      const listLink = screen.getByRole('link', { name: '見積依頼一覧' });
+      expect(listLink).toHaveAttribute('href', '/projects/project-999/estimate-requests');
     });
   });
 
@@ -200,9 +204,12 @@ describe('EstimateRequestCreatePage', () => {
         expect(screen.getByTestId('estimate-request-create-page')).toBeInTheDocument();
       });
 
-      // パンくずの各項目を確認
+      // パンくずの各項目を確認（Task 67.2: ダッシュボード起点 + プロジェクト名動的表示）
+      expect(screen.getByText('ダッシュボード')).toBeInTheDocument();
       expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
-      expect(screen.getByText('プロジェクト詳細')).toBeInTheDocument();
+      // プロジェクト名が取得されている場合はプロジェクト名、そうでなければ「プロジェクト」
+      const nav = screen.getByRole('navigation', { name: /パンくず/i });
+      expect(nav).toHaveTextContent(/テストプロジェクト|プロジェクト/);
       expect(screen.getByText('見積依頼一覧')).toBeInTheDocument();
       expect(screen.getByText('新規作成')).toBeInTheDocument();
     });

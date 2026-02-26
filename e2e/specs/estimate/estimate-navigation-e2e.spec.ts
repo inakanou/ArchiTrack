@@ -461,12 +461,17 @@ test.describe('見積書画面構成・ナビゲーション', () => {
   // タスク20.2: パンくずナビゲーションのE2Eテスト
   // ============================================================================
 
-  test.describe('タスク20.2: パンくずナビゲーション', () => {
+  test.describe('タスク20.2/43.4: パンくずナビゲーション（Task 43更新）', () => {
     /**
      * @requirement estimate-creation/REQ-15.1
-     * 見積書一覧画面でパンくずナビゲーションを表示する
+     * @requirement estimate-creation/REQ-15.2
+     * @requirement estimate-creation/REQ-15.4
+     * @requirement estimate-creation/REQ-15.12
+     * 見積書一覧画面でパンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧」を表示する
      */
-    test('REQ-15.1：見積書一覧画面でパンくずが表示される', async ({ page }) => {
+    test('REQ-15.1：見積書一覧画面でパンくずが「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧」形式で表示される', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -479,17 +484,44 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       const breadcrumb = page.getByRole('navigation', { name: /パンくず/i });
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(15000) });
 
-      // パンくずの構成を確認：プロジェクト一覧 > プロジェクト詳細 > 見積書一覧
+      // パンくずの構成を確認：ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧
+      await expect(breadcrumb.getByText('ダッシュボード')).toBeVisible();
       await expect(breadcrumb.getByText('プロジェクト一覧')).toBeVisible();
-      await expect(breadcrumb.getByText('プロジェクト詳細', { exact: true })).toBeVisible();
+      await expect(breadcrumb.getByText('プロジェクト', { exact: true })).toBeVisible();
       await expect(breadcrumb.getByText('見積書一覧')).toBeVisible();
+
+      // 「プロジェクト詳細」ラベルが存在しないこと
+      await expect(breadcrumb.getByText('プロジェクト詳細', { exact: true })).not.toBeVisible();
     });
 
     /**
      * @requirement estimate-creation/REQ-15.2
+     * 「ダッシュボード」をクリック可能なリンクとして提供する
+     */
+    test('REQ-15.2：「ダッシュボード」リンクで遷移できる', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積書一覧画面に移動
+      await page.goto(`/projects/${createdProjectId}/estimates`);
+      await page.waitForLoadState('networkidle');
+
+      // パンくずの「ダッシュボード」リンクをクリック
+      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      const dashboardLink = breadcrumb.getByRole('link', { name: 'ダッシュボード' });
+      await expect(dashboardLink).toBeVisible({ timeout: getTimeout(15000) });
+      await dashboardLink.click();
+
+      // ダッシュボード画面に遷移することを確認
+      await page.waitForURL(/\/dashboard/, { waitUntil: 'domcontentloaded' });
+    });
+
+    /**
+     * @requirement estimate-creation/REQ-15.3
      * 「プロジェクト一覧」をクリック可能なリンクとして提供する
      */
-    test('REQ-15.2：「プロジェクト一覧」リンクで遷移できる', async ({ page }) => {
+    test('REQ-15.3：「プロジェクト一覧」リンクで遷移できる', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -508,10 +540,10 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.3
-     * 「プロジェクト詳細」をクリック可能なリンクとして提供する
+     * @requirement estimate-creation/REQ-15.4
+     * 「プロジェクト」をクリック可能なリンクとして提供する
      */
-    test('REQ-15.3：「プロジェクト詳細」リンクで遷移できる', async ({ page }) => {
+    test('REQ-15.4：「プロジェクト」リンクで遷移できる', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -520,24 +552,58 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       await page.goto(`/projects/${createdProjectId}/estimates`);
       await page.waitForLoadState('networkidle');
 
-      // パンくずの「プロジェクト詳細」リンクをクリック
+      // パンくずの「プロジェクト」リンクをクリック
       const breadcrumb = page.getByRole('navigation', { name: /パンくず/i });
-      const projectDetailLink = breadcrumb.getByRole('link', {
-        name: 'プロジェクト詳細',
+      const projectLink = breadcrumb.getByRole('link', {
+        name: 'プロジェクト',
         exact: true,
       });
-      await expect(projectDetailLink).toBeVisible({ timeout: getTimeout(15000) });
-      await projectDetailLink.click();
+      await expect(projectLink).toBeVisible({ timeout: getTimeout(15000) });
+      await projectLink.click();
 
       // プロジェクト詳細画面に遷移することを確認
       await page.waitForURL(new RegExp(`/projects/${createdProjectId}$`));
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.4
-     * 見積書詳細画面でパンくずナビゲーションを表示する
+     * @requirement estimate-creation/REQ-15.5
+     * @requirement estimate-creation/REQ-15.6
+     * @requirement estimate-creation/REQ-15.7
+     * 見積書新規作成画面でパンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 新規作成」を表示する
      */
-    test('REQ-15.4：見積書詳細画面でパンくずが表示される', async ({ page }) => {
+    test('REQ-15.5：見積書新規作成画面でパンくずが正しい形式で表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積書新規作成画面に移動
+      await page.goto(`/projects/${createdProjectId}/estimates/new`);
+      await page.waitForLoadState('networkidle');
+
+      // パンくずナビゲーションが表示されることを確認
+      const breadcrumb = page.getByRole('navigation', { name: /パンくず/i });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(15000) });
+
+      // パンくずの構成を確認：ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 新規作成
+      await expect(breadcrumb.getByText('ダッシュボード')).toBeVisible();
+      await expect(breadcrumb.getByText('プロジェクト一覧')).toBeVisible();
+      await expect(breadcrumb.getByText('プロジェクト', { exact: true })).toBeVisible();
+      await expect(breadcrumb.getByText('見積書一覧')).toBeVisible();
+      await expect(breadcrumb.getByText('新規作成')).toBeVisible();
+
+      // 「← 一覧に戻る」リンクが存在しないこと
+      await expect(page.getByText('← 一覧に戻る')).not.toBeVisible();
+    });
+
+    /**
+     * @requirement estimate-creation/REQ-15.8
+     * @requirement estimate-creation/REQ-15.9
+     * @requirement estimate-creation/REQ-15.10
+     * 見積書詳細画面でパンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書」を表示する
+     */
+    test('REQ-15.8：見積書詳細画面でパンくずが「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書」形式で表示される', async ({
+      page,
+    }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -550,18 +616,24 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       const breadcrumb = page.getByRole('navigation', { name: /パンくず/i });
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(15000) });
 
-      // パンくずの構成を確認：プロジェクト一覧 > プロジェクト詳細 > 見積書一覧 > [見積書名]
+      // パンくずの構成を確認：ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書
+      await expect(breadcrumb.getByText('ダッシュボード')).toBeVisible();
       await expect(breadcrumb.getByText('プロジェクト一覧')).toBeVisible();
-      await expect(breadcrumb.getByText('プロジェクト詳細', { exact: true })).toBeVisible();
+      await expect(breadcrumb.getByText('プロジェクト', { exact: true })).toBeVisible();
       await expect(breadcrumb.getByText('見積書一覧')).toBeVisible();
-      await expect(breadcrumb.getByText(estimateName)).toBeVisible();
+      // 最後の項目が固定テキスト「見積書」であること（見積書名ではない）
+      const lastItem = breadcrumb.locator('[aria-current="page"]');
+      await expect(lastItem).toHaveText('見積書');
+
+      // 「← 見積書一覧に戻る」リンクが存在しないこと
+      await expect(page.getByText('← 見積書一覧に戻る')).not.toBeVisible();
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.5
+     * @requirement estimate-creation/REQ-15.9
      * 見積書詳細画面で「プロジェクト一覧」をクリック可能
      */
-    test('REQ-15.5：詳細画面から「プロジェクト一覧」へ遷移できる', async ({ page }) => {
+    test('REQ-15.9：詳細画面から「プロジェクト一覧」へ遷移できる', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -580,10 +652,10 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.6
-     * 見積書詳細画面で「プロジェクト詳細」をクリック可能
+     * @requirement estimate-creation/REQ-15.9
+     * 見積書詳細画面で「プロジェクト」をクリック可能
      */
-    test('REQ-15.6：詳細画面から「プロジェクト詳細」へ遷移できる', async ({ page }) => {
+    test('REQ-15.9：詳細画面から「プロジェクト」へ遷移できる', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
       expect(createdProjectId).toBeTruthy();
 
@@ -593,24 +665,24 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       await page.goto(`/estimates/${createdEstimateId}`);
       await page.waitForLoadState('networkidle');
 
-      // パンくずの「プロジェクト詳細」リンクをクリック
+      // パンくずの「プロジェクト」リンクをクリック
       const breadcrumb = page.getByRole('navigation', { name: /パンくず/i });
-      const projectDetailLink = breadcrumb.getByRole('link', {
-        name: 'プロジェクト詳細',
+      const projectLink = breadcrumb.getByRole('link', {
+        name: 'プロジェクト',
         exact: true,
       });
-      await expect(projectDetailLink).toBeVisible({ timeout: getTimeout(15000) });
-      await projectDetailLink.click();
+      await expect(projectLink).toBeVisible({ timeout: getTimeout(15000) });
+      await projectLink.click();
 
       // プロジェクト詳細画面に遷移することを確認
       await page.waitForURL(new RegExp(`/projects/${createdProjectId}$`));
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.7
+     * @requirement estimate-creation/REQ-15.9
      * 見積書詳細画面で「見積書一覧」をクリック可能
      */
-    test('REQ-15.7：詳細画面から「見積書一覧」へ遷移できる', async ({ page }) => {
+    test('REQ-15.9：詳細画面から「見積書一覧」へ遷移できる', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
       expect(createdProjectId).toBeTruthy();
 
@@ -631,10 +703,10 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-15.8
+     * @requirement estimate-creation/REQ-15.11
      * パンくずナビゲーションの現在位置（末尾）をリンクなしのテキストとして表示する
      */
-    test('REQ-15.8：現在位置はリンクなしのテキストで表示される', async ({ page }) => {
+    test('REQ-15.11：現在位置はリンクなしのテキストで表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -658,6 +730,30 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
       // 現在位置はリンクではない、またはaria-current="page"を持つ
       expect(!isLink || hasAriaCurrent === 'page').toBeTruthy();
+    });
+
+    /**
+     * @requirement estimate-creation/REQ-15.12
+     * 見積書一覧画面から「← プロジェクト詳細に戻る」リンクが削除されていること
+     */
+    test('REQ-15.12：見積書一覧画面に「← プロジェクト詳細に戻る」リンクが存在しない', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積書一覧画面に移動
+      await page.goto(`/projects/${createdProjectId}/estimates`);
+      await page.waitForLoadState('networkidle');
+
+      // パンくずが表示されていることを確認（ページ描画完了の保証）
+      await expect(page.getByRole('navigation', { name: /パンくず/i })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 「← プロジェクト詳細に戻る」リンクが存在しないこと
+      await expect(page.getByText('← プロジェクト詳細に戻る')).not.toBeVisible();
     });
   });
 

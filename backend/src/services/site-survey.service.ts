@@ -54,6 +54,10 @@ export interface SiteSurveyInfo {
   thumbnailImageId: string | null;
   /** サムネイル元画像パス（注釈レンダリング用） */
   thumbnailOriginalPath: string | null;
+  /** 代表画像の注釈付きサムネイルパス（要件20.3対応） */
+  annotatedThumbnailPath: string | null;
+  /** 代表画像ID（AnnotatedImageThumbnailフォールバック用、要件20.3対応） */
+  representativeImageId: string | null;
   imageCount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -69,6 +73,7 @@ export interface SurveyImageInfo {
   surveyId: string;
   originalPath: string;
   thumbnailPath: string;
+  annotatedThumbnailPath: string | null;
   fileName: string;
   fileSize: number;
   width: number;
@@ -500,6 +505,8 @@ export class SiteSurveyService {
       thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
       thumbnailImageId: firstImage ? firstImage.id : null,
       thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
+      annotatedThumbnailPath: firstImage ? firstImage.annotatedThumbnailPath : null,
+      representativeImageId: firstImage ? firstImage.id : null,
       imageCount: images.length,
       createdAt: siteSurvey.createdAt,
       updatedAt: siteSurvey.updatedAt,
@@ -523,6 +530,7 @@ export class SiteSurveyService {
       surveyId: string;
       originalPath: string;
       thumbnailPath: string;
+      annotatedThumbnailPath: string | null;
       fileName: string;
       fileSize: number;
       width: number;
@@ -538,6 +546,7 @@ export class SiteSurveyService {
       surveyId: img.surveyId,
       originalPath: img.originalPath,
       thumbnailPath: img.thumbnailPath,
+      annotatedThumbnailPath: img.annotatedThumbnailPath,
       fileName: img.fileName,
       fileSize: img.fileSize,
       width: img.width,
@@ -644,6 +653,8 @@ export class SiteSurveyService {
         thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
         thumbnailImageId: firstImage ? firstImage.id : null,
         thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
+        annotatedThumbnailPath: firstImage ? firstImage.annotatedThumbnailPath : null,
+        representativeImageId: firstImage ? firstImage.id : null,
         imageCount: survey.images.length, // includeで取得した件数を使用
         createdAt: survey.createdAt,
         updatedAt: survey.updatedAt,
@@ -720,6 +731,7 @@ export class SiteSurveyService {
               id: true,
               thumbnailPath: true,
               originalPath: true,
+              annotatedThumbnailPath: true,
             },
           },
           _count: {
@@ -742,6 +754,8 @@ export class SiteSurveyService {
         thumbnailUrl: firstImage ? firstImage.thumbnailPath : null,
         thumbnailImageId: firstImage ? firstImage.id : null,
         thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
+        annotatedThumbnailPath: firstImage ? firstImage.annotatedThumbnailPath : null,
+        representativeImageId: firstImage ? firstImage.id : null,
         imageCount: survey._count.images,
         createdAt: survey.createdAt,
         updatedAt: survey.updatedAt,

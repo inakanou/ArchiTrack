@@ -13,6 +13,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getQuantityTables, deleteQuantityTable } from '../api/quantity-tables';
+import { getProject } from '../api/projects';
 import type { QuantityTableInfo, PaginatedQuantityTables } from '../types/quantity-table.types';
 import { Breadcrumb } from '../components/common';
 import CopyQuantityTableDialog from '../components/quantity-table/CopyQuantityTableDialog';
@@ -462,6 +463,9 @@ export default function QuantityTableListPage() {
   const [tableToDelete, setTableToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // プロジェクト名（パンくず表示用）
+  const [projectName, setProjectName] = useState<string>('');
+
   // コピー状態
   const [tableToCopy, setTableToCopy] = useState<{ id: string; name: string } | null>(null);
 
@@ -475,11 +479,17 @@ export default function QuantityTableListPage() {
     setError(null);
 
     try {
-      const result = await getQuantityTables(projectId, {
-        sort: 'createdAt',
-        order: 'desc',
-      });
+      const [result, projectData] = await Promise.all([
+        getQuantityTables(projectId, {
+          sort: 'createdAt',
+          order: 'desc',
+        }),
+        getProject(projectId),
+      ]);
       setData(result);
+      if (projectData?.name) {
+        setProjectName(projectData.name);
+      }
     } catch {
       setError('数量表の取得に失敗しました');
     } finally {
@@ -603,8 +613,8 @@ export default function QuantityTableListPage() {
         <Breadcrumb
           items={[
             { label: 'ダッシュボード', path: '/' },
-            { label: 'プロジェクト', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+            { label: 'プロジェクト一覧', path: '/projects' },
+            { label: projectName || 'プロジェクト', path: `/projects/${projectId}` },
             { label: '数量表一覧' },
           ]}
         />

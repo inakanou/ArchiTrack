@@ -320,7 +320,7 @@ export default function ProjectEditPage() {
   // パンくずナビゲーション項目 (REQ-21.17)
   const breadcrumbItems = [
     { label: 'ダッシュボード', path: '/' },
-    { label: 'プロジェクト', path: '/projects' },
+    { label: 'プロジェクト一覧', path: '/projects' },
     { label: project.name, path: `/projects/${project.id}` },
     { label: '編集' },
   ];
