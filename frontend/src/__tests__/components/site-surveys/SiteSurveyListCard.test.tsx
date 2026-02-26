@@ -136,6 +136,42 @@ describe('SiteSurveyListCard', () => {
     });
   });
 
+  describe('注釈付きサムネイル表示 (Task 55.2, Requirement 20.3)', () => {
+    it('annotatedThumbnailUrlがある場合はサーバーサイド生成済みサムネイルが表示されること', () => {
+      const handleClick = vi.fn();
+      const surveysWithAnnotatedThumbnail: SiteSurveyInfo[] = [
+        {
+          ...mockSurveys[0]!,
+          annotatedThumbnailUrl: 'https://r2.example.com/annotated-thumbnails/img-1.jpg',
+        },
+      ];
+
+      render(
+        <SiteSurveyListCard surveys={surveysWithAnnotatedThumbnail} onCardClick={handleClick} />
+      );
+
+      const card = screen.getByTestId('survey-card-survey-1');
+      const annotatedImg = within(card).getByTestId('annotated-thumbnail');
+      expect(annotatedImg).toBeInTheDocument();
+      expect(annotatedImg).toHaveAttribute(
+        'src',
+        'https://r2.example.com/annotated-thumbnails/img-1.jpg'
+      );
+      expect(annotatedImg).toHaveAttribute('alt', '現場調査Aのサムネイル（注釈付き）');
+    });
+
+    it('annotatedThumbnailUrlがない場合は通常のサムネイルが表示されること', () => {
+      const handleClick = vi.fn();
+
+      render(<SiteSurveyListCard surveys={mockSurveys} onCardClick={handleClick} />);
+
+      const card = screen.getByTestId('survey-card-survey-1');
+      const img = within(card).getByRole('img');
+      expect(img).toHaveAttribute('src', 'https://example.com/thumbnail1.jpg');
+      expect(within(card).queryByTestId('annotated-thumbnail')).not.toBeInTheDocument();
+    });
+  });
+
   describe('クリックイベント', () => {
     it('カードをクリックするとonCardClickが呼ばれる', async () => {
       const handleClick = vi.fn();

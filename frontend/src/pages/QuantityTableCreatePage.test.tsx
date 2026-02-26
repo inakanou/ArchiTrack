@@ -117,7 +117,7 @@ describe('QuantityTableCreatePage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('ダッシュボード')).toBeInTheDocument();
-        expect(screen.getByText('プロジェクト')).toBeInTheDocument();
+        expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
         expect(screen.getByText(mockProject.name)).toBeInTheDocument();
         expect(screen.getByText('数量表一覧')).toBeInTheDocument();
         expect(screen.getByText('新規作成')).toBeInTheDocument();

@@ -190,21 +190,22 @@ describe('ProjectListCard', () => {
       );
     });
 
-    it('作成日が表示される', () => {
+    it('作成日は表示されない（Task 56.2で削除）', () => {
       renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
 
       const card1 = screen.getByTestId('project-card-project-1');
-      expect(within(card1).getByText('2025/01/01')).toBeInTheDocument();
+      // 作成日2025/01/01は表示されない
+      expect(within(card1).queryByText('2025/01/01')).not.toBeInTheDocument();
     });
 
     it('更新日が表示される', () => {
       renderWithRouter(<ProjectListCard projects={mockProjects} onCardClick={vi.fn()} />);
 
       const card1 = screen.getByTestId('project-card-project-1');
-      // 日付セクションには2つの日付が表示される（作成日と更新日）
-      // 現在のUIではテキストラベルではなくアイコンで表示されている
+      // 更新日のみ表示される（作成日は削除済み）
       const dateElements = within(card1).getAllByText(/^\d{4}\/\d{2}\/\d{2}$/);
-      expect(dateElements).toHaveLength(2);
+      expect(dateElements).toHaveLength(1);
+      expect(within(card1).getByText('2025/01/06')).toBeInTheDocument();
     });
   });
 

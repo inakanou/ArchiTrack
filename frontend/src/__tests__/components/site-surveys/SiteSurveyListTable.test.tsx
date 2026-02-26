@@ -151,6 +151,42 @@ describe('SiteSurveyListTable', () => {
   });
 
   // ==========================================================================
+  // 注釈付きサムネイル表示テスト (Task 55.2, Requirements: 20.3)
+  // ==========================================================================
+
+  describe('注釈付きサムネイル表示 (Task 55.2, Requirement 20.3)', () => {
+    it('annotatedThumbnailUrlがある場合はサーバーサイド生成済みサムネイルが表示されること', () => {
+      const surveysWithAnnotatedThumbnail: SiteSurveyInfo[] = [
+        {
+          ...mockSiteSurveys[0]!,
+          annotatedThumbnailUrl: 'https://r2.example.com/annotated-thumbnails/img-1.jpg',
+        },
+      ];
+
+      render(<SiteSurveyListTable {...defaultProps} surveys={surveysWithAnnotatedThumbnail} />);
+
+      const row = screen.getByTestId('survey-row-survey-1');
+      const annotatedImg = within(row).getByTestId('annotated-thumbnail');
+      expect(annotatedImg).toBeInTheDocument();
+      expect(annotatedImg).toHaveAttribute(
+        'src',
+        'https://r2.example.com/annotated-thumbnails/img-1.jpg'
+      );
+      expect(annotatedImg).toHaveAttribute('alt', '現場調査1のサムネイル（注釈付き）');
+    });
+
+    it('annotatedThumbnailUrlがない場合は通常のサムネイルが表示されること', () => {
+      render(<SiteSurveyListTable {...defaultProps} />);
+
+      const row = screen.getByTestId('survey-row-survey-1');
+      const img = within(row).getByRole('img');
+      expect(img).toHaveAttribute('src', 'https://example.com/thumbnail1.jpg');
+      // annotated-thumbnail testidは存在しないこと
+      expect(within(row).queryByTestId('annotated-thumbnail')).not.toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
   // データ表示テスト
   // ==========================================================================
 

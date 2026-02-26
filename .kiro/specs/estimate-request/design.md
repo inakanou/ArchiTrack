@@ -6,7 +6,7 @@
 
 **Users**: 営業担当者および工事担当者が、協力業者への見積依頼作成・管理・送信準備、および受領見積書の登録・管理に使用する。
 
-**Impact**: プロジェクト管理機能に見積依頼セクションを追加し、内訳書・取引先・プロジェクトエンティティと連携する新規機能を実装する。受領見積書はファイルアップロードと構造化明細行データの共存モデルへ移行し、OCR/データパースによる入力支援機能を追加する。項目選択セクションの保存方式をクライアントサイド状態管理+保存ボタン方式に変更し、受領見積書への項目選択一括転記機能を追加する。受領見積書の明細行における数値表示形式と丸め規則を統一し、数量は小数2桁常時表示、単価・金額は整数表示とする。
+**Impact**: プロジェクト管理機能に見積依頼セクションを追加し、内訳書・取引先・プロジェクトエンティティと連携する新規機能を実装する。受領見積書はファイルアップロードと構造化明細行データの共存モデルへ移行し、OCR/データパースによる入力支援機能を追加する。項目選択セクションの保存方式をクライアントサイド状態管理+保存ボタン方式に変更し、受領見積書への項目選択一括転記機能を追加する。受領見積書の明細行における数値表示形式と丸め規則を統一し、数量は小数2桁常時表示、単価・金額は整数表示とする。見積依頼関連画面（一覧・新規作成・詳細）のパンくずナビゲーションをダッシュボード起点の正確な階層構造に改善し、戻るリンクを削除する。
 
 ### Goals
 
@@ -22,6 +22,7 @@
 - 項目選択セクションでの選択操作をクライアントサイドで管理し、保存ボタンで一括永続化する
 - 項目選択セクションで選択した内訳書項目の内容を受領見積書の明細行に一括転記できる
 - 受領見積書の明細行における数値表示形式と丸め規則を統一する（数量: 小数2桁常時表示、単価: 整数表示、金額: 整数表示）
+- 見積依頼関連画面のパンくずナビゲーションをダッシュボード起点の正確な階層構造で表示し、上位階層への素早いナビゲーションを提供する
 
 ### Non-Goals
 
@@ -3194,3 +3195,242 @@ const receivedQuotationSchema = z.object({
 | 28.9 | NET金額フォーカスアウト時の整数フォーマット | ReceivedQuotationForm | - | - |
 | 28.10 | NET金額のDB永続化 | ReceivedQuotationService, Prisma | received-quotations API | - |
 | 28.11 | 編集画面で既存NET金額データ表示 | ReceivedQuotationForm | - | - |
+
+---
+
+## パンくずナビゲーション改善 - 設計追記（Requirement 29）
+
+### Overview（追記3）
+
+**Purpose**: 見積依頼関連画面（一覧・新規作成・詳細）のパンくずナビゲーションをダッシュボード起点の正確な階層構造に改善する。既存の「プロジェクト一覧 > プロジェクト詳細 > 見積依頼一覧」というパンくずを「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧」に変更し、プロジェクト名を動的に表示する。また、新規作成画面の「← 一覧に戻る」リンクと詳細画面の「← 見積依頼一覧に戻る」リンクを削除する（パンくずナビゲーションで同等のナビゲーションが提供されるため冗長）。
+
+**Impact**: フロントエンドの3つの見積依頼関連ページコンポーネント（EstimateRequestListPage、EstimateRequestCreatePage、EstimateRequestDetailPage）のBreadcrumbコンポーネントのitems配列を更新する。バックエンドの変更は不要。内訳書一覧画面（ItemizedStatementListPage）で既に実装済みのパンくず改善パターンに準拠する。
+
+### Goals（追記3）
+
+- 見積依頼関連画面のパンくずナビゲーションをダッシュボード起点に統一する
+- パンくずにプロジェクト名を動的に表示し、ユーザーが現在のコンテキストを正確に把握できるようにする
+- 冗長な「戻る」リンクを削除し、パンくずナビゲーションに一本化する
+
+### Non-Goals（追記3）
+
+- パンくずナビゲーションのスタイル変更（既存のBreadcrumbコンポーネントのUIを維持）
+- バックエンドAPIの変更
+
+### Architecture（追記3）
+
+変更範囲はフロントエンドの3つのページコンポーネントのみに限定される。既存のBreadcrumbコンポーネント（`frontend/src/components/common/Breadcrumb.tsx`）を変更なしで使用する。新規コンポーネントやサービスの追加は不要。
+
+**既存パターンの準拠先**: ItemizedStatementListPage等で改善済みのパンくずパターン（ダッシュボード起点 + プロジェクト名動的表示）に準拠する。
+
+### Components and Interfaces - 改訂（Requirement 29）
+
+#### EstimateRequestListPage - 改訂（パンくずナビゲーション改善）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼一覧画面のパンくずナビゲーションをダッシュボード起点の正確な階層構造に改善する |
+| Requirements | 29.1, 29.2, 29.3, 29.4, 29.5 |
+
+**改訂内容**:
+
+パンくずナビゲーションのitems配列を更新する。プロジェクト名はAPIから取得した見積依頼一覧データまたはプロジェクト情報から取得する。
+
+**変更前**:
+```typescript
+<Breadcrumb
+  items={[
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+    { label: '見積依頼一覧' },
+  ]}
+/>
+```
+
+**変更後**:
+```typescript
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: projectName || 'プロジェクト', path: `/projects/${projectId}` },
+    { label: '見積依頼一覧' },
+  ]}
+/>
+```
+
+**Implementation Notes**
+- Integration: パンくずの先頭に「ダッシュボード」リンク（path: `/`）を追加する（29.1, 29.2）
+- Integration: 「プロジェクト一覧」リンクのパスは`/projects`とする（29.3）
+- Integration: 「プロジェクト」の表示ラベルをプロジェクト名に動的変更する（29.4）。プロジェクト名は既存のAPI呼び出し（`GET /api/projects/:projectId`またはページで保持しているプロジェクト情報）から取得する。取得前は「プロジェクト」をフォールバック表示する
+- Integration: 「見積依頼一覧」は最後の項目としてリンクなしで表示する（29.5）
+- Integration: 既存の「← プロジェクト詳細に戻る」リンクは削除しない（Requirement 29のスコープ外。見積依頼一覧画面は削除対象として指定されていない）
+- Visual: ItemizedStatementListPageの改善済みパンくずパターンに準拠
+
+#### EstimateRequestCreatePage - 改訂（パンくずナビゲーション改善）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼新規作成画面のパンくずナビゲーションをダッシュボード起点の正確な階層構造に改善し、「← 一覧に戻る」リンクを削除する |
+| Requirements | 29.6, 29.7, 29.8, 29.9, 29.10, 29.11, 29.12 |
+
+**改訂内容**:
+
+パンくずナビゲーションのitems配列を更新し、「← 一覧に戻る」リンクを削除する。
+
+**変更前**:
+```typescript
+<Breadcrumb
+  items={[
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+    { label: '見積依頼一覧', path: `/projects/${projectId}/estimate-requests` },
+    { label: '新規作成' },
+  ]}
+/>
+
+{/* 「← 一覧に戻る」リンク */}
+<Link
+  to={`/projects/${projectId}/estimate-requests`}
+  style={styles.backLink}
+  aria-label="一覧に戻る"
+>
+  ← 一覧に戻る
+</Link>
+```
+
+**変更後**:
+```typescript
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: projectName || 'プロジェクト', path: `/projects/${projectId}` },
+    { label: '見積依頼一覧', path: `/projects/${projectId}/estimate-requests` },
+    { label: '新規作成' },
+  ]}
+/>
+
+{/* 「← 一覧に戻る」リンクを削除 */}
+```
+
+**Implementation Notes**
+- Integration: パンくずの先頭に「ダッシュボード」リンク（path: `/`）を追加する（29.6, 29.7）
+- Integration: 「プロジェクト一覧」リンクのパスは`/projects`とする（29.8）
+- Integration: 「プロジェクト」の表示ラベルをプロジェクト名に動的変更する（29.9）。プロジェクト名は既存のAPI呼び出しまたはページで保持しているプロジェクト情報から取得する
+- Integration: 「見積依頼一覧」は見積依頼一覧画面へのリンクとする（29.10）
+- Integration: 「新規作成」は最後の項目としてリンクなしで表示する（29.11）
+- Integration: 「← 一覧に戻る」リンク（`Link`コンポーネント）を削除する（29.12）。パンくずナビゲーションの「見積依頼一覧」リンクが同等のナビゲーションを提供するため冗長
+- Visual: ItemizedStatementCreatePageの改善済みパンくずパターンに準拠
+
+#### EstimateRequestDetailPage - 改訂3（パンくずナビゲーション改善）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼詳細画面のパンくずナビゲーションをダッシュボード起点の正確な階層構造に改善し、「← 見積依頼一覧に戻る」リンクを削除する |
+| Requirements | 29.13, 29.14, 29.15, 29.16, 29.17, 29.18, 29.19 |
+
+**改訂内容**:
+
+パンくずナビゲーションのitems配列を更新し、「← 見積依頼一覧に戻る」リンクを削除する。
+
+**変更前**:
+```typescript
+<Breadcrumb
+  items={[
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: 'プロジェクト詳細', path: `/projects/${request.projectId}` },
+    {
+      label: '見積依頼一覧',
+      path: `/projects/${request.projectId}/estimate-requests`,
+    },
+    { label: request.name },
+  ]}
+/>
+
+{/* 「← 見積依頼一覧に戻る」リンク */}
+<Link
+  to={`/projects/${request.projectId}/estimate-requests`}
+  style={styles.backLink}
+  aria-label="見積依頼一覧に戻る"
+>
+  ← 見積依頼一覧に戻る
+</Link>
+```
+
+**変更後**:
+```typescript
+<Breadcrumb
+  items={[
+    { label: 'ダッシュボード', path: '/' },
+    { label: 'プロジェクト一覧', path: '/projects' },
+    { label: projectName || 'プロジェクト', path: `/projects/${request.projectId}` },
+    {
+      label: '見積依頼一覧',
+      path: `/projects/${request.projectId}/estimate-requests`,
+    },
+    { label: request.name },
+  ]}
+/>
+
+{/* 「← 見積依頼一覧に戻る」リンクを削除 */}
+```
+
+**Implementation Notes**
+- Integration: パンくずの先頭に「ダッシュボード」リンク（path: `/`）を追加する（29.13, 29.14）
+- Integration: 「プロジェクト一覧」リンクのパスは`/projects`とする（29.15）
+- Integration: 「プロジェクト」の表示ラベルをプロジェクト名に動的変更する（29.16）。プロジェクト名は見積依頼データのプロジェクト情報（`request.projectName`等）またはプロジェクト詳細API（`GET /api/projects/:projectId`）から取得する
+- Integration: 「見積依頼一覧」は見積依頼一覧画面へのリンクとする（29.17）
+- Integration: 「見積依頼」は最後の項目としてリンクなしで表示し、見積依頼名（`request.name`）を表示する（29.18）
+- Integration: 「← 見積依頼一覧に戻る」リンク（`Link`コンポーネント）を削除する（29.19）。パンくずナビゲーションの「見積依頼一覧」リンクが同等のナビゲーションを提供するため冗長
+- Visual: ItemizedStatementDetailPageの改善済みパンくずパターンに準拠
+
+### プロジェクト名取得の設計（Requirement 29共通）
+
+パンくずナビゲーションにプロジェクト名を動的に表示するため、各画面でプロジェクト名の取得方法を統一する。
+
+**取得戦略**:
+
+1. **EstimateRequestListPage**: プロジェクト情報を取得するAPI呼び出し（`GET /api/projects/:projectId`）を追加するか、見積依頼一覧APIのレスポンスに含まれるプロジェクト名を使用する。既存のItemizedStatementListPageのパターン（`projectName`ステート + useEffect内でのfetch）を踏襲する
+2. **EstimateRequestCreatePage**: 見積依頼作成画面でプロジェクト名を表示するため、マウント時にプロジェクト情報をAPIから取得する（`GET /api/projects/:projectId`）か、React Routerのstate経由でプロジェクト名を受け渡す
+3. **EstimateRequestDetailPage**: 見積依頼詳細データ取得時にプロジェクト情報（プロジェクト名を含む）も取得する。既存の`GET /api/estimate-requests/:id`レスポンスに`projectName`フィールドが含まれていない場合は、プロジェクト詳細API（`GET /api/projects/:projectId`）を追加呼び出しする
+
+**フォールバック**: プロジェクト名が未取得の状態（APIレスポンス待ち中）では「プロジェクト」というフォールバックテキストを表示する。これにより、パンくずナビゲーションがAPIレスポンス前にも適切に表示される。
+
+### Requirements Traceability（追記3）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 29.1 | 見積依頼一覧画面パンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧」 | EstimateRequestListPage | - | - |
+| 29.2 | 一覧画面「ダッシュボード」をダッシュボード画面へのリンク | EstimateRequestListPage | - | - |
+| 29.3 | 一覧画面「プロジェクト一覧」をプロジェクト一覧画面へのリンク | EstimateRequestListPage | - | - |
+| 29.4 | 一覧画面「プロジェクト」をプロジェクト詳細画面へのリンク、プロジェクト名表示 | EstimateRequestListPage | - | - |
+| 29.5 | 一覧画面「見積依頼一覧」をリンクなしで表示 | EstimateRequestListPage | - | - |
+| 29.6 | 新規作成画面パンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧 > 新規作成」 | EstimateRequestCreatePage | - | - |
+| 29.7 | 新規作成画面「ダッシュボード」をダッシュボード画面へのリンク | EstimateRequestCreatePage | - | - |
+| 29.8 | 新規作成画面「プロジェクト一覧」をプロジェクト一覧画面へのリンク | EstimateRequestCreatePage | - | - |
+| 29.9 | 新規作成画面「プロジェクト」をプロジェクト詳細画面へのリンク、プロジェクト名表示 | EstimateRequestCreatePage | - | - |
+| 29.10 | 新規作成画面「見積依頼一覧」を見積依頼一覧画面へのリンク | EstimateRequestCreatePage | - | - |
+| 29.11 | 新規作成画面「新規作成」をリンクなしで表示 | EstimateRequestCreatePage | - | - |
+| 29.12 | 新規作成画面「← 一覧に戻る」リンク削除 | EstimateRequestCreatePage | - | - |
+| 29.13 | 詳細画面パンくず「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧 > 見積依頼」 | EstimateRequestDetailPage | - | - |
+| 29.14 | 詳細画面「ダッシュボード」をダッシュボード画面へのリンク | EstimateRequestDetailPage | - | - |
+| 29.15 | 詳細画面「プロジェクト一覧」をプロジェクト一覧画面へのリンク | EstimateRequestDetailPage | - | - |
+| 29.16 | 詳細画面「プロジェクト」をプロジェクト詳細画面へのリンク、プロジェクト名表示 | EstimateRequestDetailPage | - | - |
+| 29.17 | 詳細画面「見積依頼一覧」を見積依頼一覧画面へのリンク | EstimateRequestDetailPage | - | - |
+| 29.18 | 詳細画面「見積依頼」をリンクなしで表示、見積依頼名表示 | EstimateRequestDetailPage | - | - |
+| 29.19 | 詳細画面「← 見積依頼一覧に戻る」リンク削除 | EstimateRequestDetailPage | - | - |
+
+### Testing Strategy（追記3）
+
+#### Unit Tests（追記3）
+
+- **EstimateRequestListPage（パンくず改善）**: パンくずナビゲーションが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧」の順序で表示されることの確認。「ダッシュボード」リンクが`/`へ遷移すること。「プロジェクト一覧」リンクが`/projects`へ遷移すること。プロジェクト名がリンクとして表示されること。「見積依頼一覧」がリンクなし（現在のページ）で表示されること
+- **EstimateRequestCreatePage（パンくず改善）**: パンくずナビゲーションが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧 > 新規作成」の順序で表示されることの確認。「見積依頼一覧」リンクが見積依頼一覧画面へ遷移すること。「新規作成」がリンクなし（現在のページ）で表示されること。「← 一覧に戻る」リンクが存在しないことの確認
+- **EstimateRequestDetailPage（パンくず改善）**: パンくずナビゲーションが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧 > {見積依頼名}」の順序で表示されることの確認。見積依頼名がリンクなし（現在のページ）で表示されること。「← 見積依頼一覧に戻る」リンクが存在しないことの確認
+
+#### E2E Tests（追記3）
+
+- **パンくずナビゲーション（見積依頼一覧）**: 見積依頼一覧画面のパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧」の順序で表示される確認。各リンクをクリックして正しい画面に遷移する確認
+- **パンくずナビゲーション（新規作成）**: 見積依頼新規作成画面のパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧 > 新規作成」の順序で表示される確認。「← 一覧に戻る」リンクが存在しない確認
+- **パンくずナビゲーション（詳細）**: 見積依頼詳細画面のパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧 > {見積依頼名}」の順序で表示される確認。「← 見積依頼一覧に戻る」リンクが存在しない確認

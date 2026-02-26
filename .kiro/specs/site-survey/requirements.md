@@ -26,8 +26,13 @@
 3. When ユーザーが現場調査一覧で項目をクリックする, the Site Survey Service shall 現場調査詳細画面に遷移する
 4. When ユーザーが現場調査詳細画面で画像をクリックする, the Site Survey Service shall 画像ビューア/注釈エディタを開く
 5. The Site Survey Service shall 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
-6. The Site Survey Service shall ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
-7. When ユーザーがブレッドクラムの各項目をクリックする, the Site Survey Service shall 対応する画面に遷移する
+6. When ユーザーが現場調査一覧画面を表示する, the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧」を表示する
+7. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査」を表示する
+8. When ユーザーが画像プレビュー画面（閲覧モード）を表示する, the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 画像」を表示する
+9. When ユーザーが画像プレビュー画面（編集モード）を表示する, the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 画像」を表示する
+10. When ユーザーがブレッドクラムの各項目をクリックする, the Site Survey Service shall 対応する画面に遷移する
+11. The Site Survey Service shall 現場調査一覧画面の画面タイトルを「現場調査一覧」として表示する
+12. The Site Survey Service shall 画像プレビュー画面（閲覧モード・編集モード共通）において「← 現場調査に戻る」リンクを表示しない
 
 ### Requirement 3: 現場調査一覧・検索
 **Objective:** As a プロジェクト担当者, I want プロジェクト配下の現場調査を一覧表示・検索できること, so that 必要な現場調査を素早く見つけられる
@@ -230,3 +235,33 @@
 6. When バッチ注釈取得エンドポイントにアクセスする, the Site Survey Service shall 当該現場調査に対するアクセス権限を検証する
 7. If バッチ注釈取得リクエストが失敗する, then the Site Survey Service shall エラーメッセージを表示してユーザーに通知する
 8. The Site Survey Service shall バッチ注釈取得エンドポイントの既存の個別注釈取得エンドポイントとのレスポンス形式の互換性を維持する
+
+### Requirement 19: 画像アップロードバリデーション修正とエラー通知改善
+**Objective:** As a 現場調査担当者, I want ICCプロファイル付きJPEGを含む全ての正規JPEGファイルをアップロードでき、アップロード失敗時にはエラーメッセージが表示されること, so that 現場で撮影した写真が形式の違いにより拒否されることなく登録でき、失敗時にも原因を把握して対処できる
+
+#### Acceptance Criteria
+1. When ユーザーがJPEGファイルをアップロードする, the Site Survey Service shall マジックバイトの先頭3バイト（FF D8 FF）のみでJPEG形式を判定する
+2. When ユーザーがICCプロファイル付きJPEG（4バイト目が0xE2）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+3. When ユーザーがEXIF付きJPEG（4バイト目が0xE1）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+4. When ユーザーがJFIF形式JPEG（4バイト目が0xE0）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+5. When ユーザーがSOSマーカー付きJPEG（4バイト目が0xDA）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+6. When ユーザーがDQTマーカー付きJPEG（4バイト目が0xDB）をアップロードする, the Site Survey Service shall ファイルを正常に受け付けて保存する
+7. If アップロードされたファイルの先頭3バイトがFF D8 FFでない, then the Site Survey Service shall JPEGとして認識せずアップロードを拒否する
+8. The Site Survey Service shall PNG形式（先頭バイト: 89 50 4E 47）の検証を従来通り維持する
+9. The Site Survey Service shall WEBP形式（先頭バイト: 52 49 46 46 + WEBP識別子）の検証を従来通り維持する
+10. When バッチアップロード処理で1件以上のファイルアップロードが失敗する, the Survey Images API shall エラー情報を含む結果を呼び出し元に返却する
+11. When バッチアップロード結果にエラーが含まれる, the Site Survey Detail Page shall ユーザーにエラーメッセージを表示する
+12. When バッチアップロードで一部のファイルが成功し一部が失敗する, the Survey Images API shall 成功したファイルの処理結果を保持しつつ、失敗したファイルのエラー情報も返却する
+13. When バッチアップロードで全てのファイルが失敗する, the Site Survey Detail Page shall 全件失敗を示すエラーメッセージを表示する
+14. If アップロードエラーがファイル形式の不一致による拒否である, then the Site Survey Detail Page shall どのファイルがどの理由で拒否されたかを含むエラーメッセージを表示する
+15. If アップロードエラーがサーバーエラーまたはネットワークエラーである, then the Site Survey Detail Page shall サーバーエラーが発生した旨のエラーメッセージを表示する
+16. When 全てのファイルが正常にアップロードされる, the Site Survey Detail Page shall エラーメッセージを表示しない
+
+### Requirement 20: 注釈のサムネイル・プレビュー表示
+**Objective:** As a 現場調査担当者, I want 編集モードで追加した注釈がプレビュー画面やサムネイルにも反映されること, so that 注釈の内容を各画面で確認できる
+
+#### Acceptance Criteria
+1. When ユーザーが画像プレビュー画面（閲覧モード）を表示する, the Site Survey Service shall 保存済みの注釈をレンダリングした状態で画像を表示する
+2. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各画像のサムネイルに保存済みの注釈をレンダリングした状態で表示する
+3. When ユーザーが現場調査一覧画面を表示する, the Site Survey Service shall 代表画像のサムネイルに保存済みの注釈をレンダリングした状態で表示する
+4. When 注釈が編集モードで保存される, the Site Survey Service shall 注釈をレンダリングしたサムネイル画像を生成・更新する

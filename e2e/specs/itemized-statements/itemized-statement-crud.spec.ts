@@ -1574,6 +1574,7 @@ test.describe('内訳書CRUD操作', () => {
 
   /**
    * パンくずナビゲーション形式テスト (Req 9.2)
+   * @requirement itemized-statement-generation/REQ-9.7
    */
   test.describe('パンくずナビゲーション形式', () => {
     test('パンくずが「プロジェクト一覧 > プロジェクト名 > 内訳書 > 内訳書名」形式で表示される (Req 9.2)', async ({
@@ -1593,8 +1594,8 @@ test.describe('内訳書CRUD操作', () => {
       // プロジェクト名のリンク（動的な名前）
       const projectLink = breadcrumb.locator('a').filter({ hasText: projectName });
       await expect(projectLink).toBeVisible();
-      // 「内訳書」のリンク
-      await expect(breadcrumb.getByRole('link', { name: /^内訳書$/i })).toBeVisible();
+      // 「内訳書一覧」のリンク
+      await expect(breadcrumb.getByRole('link', { name: /^内訳書一覧$/i })).toBeVisible();
       // 内訳書名（現在のページなのでリンクではない場合がある）
       await expect(breadcrumb.getByText(itemizedStatementName)).toBeVisible();
     });

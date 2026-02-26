@@ -18,7 +18,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   getEstimateDetail,
   deleteEstimate,
@@ -61,14 +61,6 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '8px',
-  } as React.CSSProperties,
-  backLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
   } as React.CSSProperties,
   title: {
     fontSize: '24px',
@@ -738,14 +730,15 @@ export default function EstimateDetailPage() {
 
   return (
     <main role="main" style={styles.container} data-testid="estimate-detail-page">
-      {/* パンくずナビゲーション (REQ-15.4-15.8) */}
+      {/* パンくずナビゲーション (REQ-15.8-15.11) */}
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${estimate.projectId}` },
+            { label: 'プロジェクト', path: `/projects/${estimate.projectId}` },
             { label: '見積書一覧', path: `/projects/${estimate.projectId}/estimates` },
-            { label: estimate.name },
+            { label: '見積書' },
           ]}
         />
       </div>
@@ -753,13 +746,6 @@ export default function EstimateDetailPage() {
       {/* ヘッダー */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <Link
-            to={`/projects/${estimate.projectId}/estimates`}
-            style={styles.backLink}
-            aria-label="見積書一覧に戻る"
-          >
-            ← 見積書一覧に戻る
-          </Link>
           <h1 style={styles.title}>{estimate.name}</h1>
           <p style={styles.subtitle}>{formatDate(estimate.createdAt)}</p>
         </div>

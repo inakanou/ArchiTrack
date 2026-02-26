@@ -682,7 +682,9 @@ test.describe('見積書機能', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-5.1, REQ-5.2, REQ-5.3
+     * @requirement estimate-creation/REQ-5.1
+     * @requirement estimate-creation/REQ-5.2
+     * @requirement estimate-creation/REQ-5.3
      * NET金額案分ダイアログへのアクセスと表示
      */
     test('REQ-5.1-5.3：NET金額計算パネルが表示される', async ({ page }) => {
@@ -714,7 +716,8 @@ test.describe('見積書機能', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-5.4, REQ-5.5
+     * @requirement estimate-creation/REQ-5.4
+     * @requirement estimate-creation/REQ-5.5
      * NET金額入力とプレビュー確認
      */
     test('REQ-5.4-5.5：NET金額入力とプレビュー', async ({ page }) => {
@@ -776,7 +779,10 @@ test.describe('見積書機能', () => {
 
   test.describe('タスク15.3: 諸経費自動計算', () => {
     /**
-     * @requirement estimate-creation/REQ-7.1, REQ-7.2, REQ-7.3, REQ-7.4
+     * @requirement estimate-creation/REQ-7.1
+     * @requirement estimate-creation/REQ-7.2
+     * @requirement estimate-creation/REQ-7.3
+     * @requirement estimate-creation/REQ-7.4
      * 共通仮設費の自動計算
      */
     test('REQ-7.1-7.4：諸経費計算パネルの表示', async ({ page }) => {
@@ -810,7 +816,8 @@ test.describe('見積書機能', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-7.5, REQ-7.6
+     * @requirement estimate-creation/REQ-7.5
+     * @requirement estimate-creation/REQ-7.6
      * 計算結果の手入力での上書き
      */
     test('REQ-7.5-7.6：諸経費の手入力上書き', async ({ page }) => {
@@ -849,7 +856,8 @@ test.describe('見積書機能', () => {
 
   test.describe('タスク15.4: 受領見積書転記', () => {
     /**
-     * @requirement estimate-creation/REQ-4.1, REQ-4.2
+     * @requirement estimate-creation/REQ-4.1
+     * @requirement estimate-creation/REQ-4.2
      * 転記ダイアログの表示
      */
     test('REQ-4.1-4.2：転記ダイアログが表示される', async ({ page }) => {
@@ -879,7 +887,8 @@ test.describe('見積書機能', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-4.3, REQ-4.4
+     * @requirement estimate-creation/REQ-4.3
+     * @requirement estimate-creation/REQ-4.4
      * 転記対象行の選択
      */
     test('REQ-4.3-4.4：転記対象行の選択と転記先の指定', async ({ page }) => {
@@ -925,7 +934,8 @@ test.describe('見積書機能', () => {
 
   test.describe('タスク15.5: 利益率適用', () => {
     /**
-     * @requirement estimate-creation/REQ-6.1, REQ-6.2
+     * @requirement estimate-creation/REQ-6.1
+     * @requirement estimate-creation/REQ-6.2
      * 利益率適用ダイアログへのアクセスと表示
      */
     test('REQ-6.1-6.2：利益率入力パネルが表示される', async ({ page }) => {
@@ -960,7 +970,8 @@ test.describe('見積書機能', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-6.3, REQ-6.4
+     * @requirement estimate-creation/REQ-6.3
+     * @requirement estimate-creation/REQ-6.4
      * 上書きオプションの選択
      */
     test('REQ-6.3-6.4：上書きオプションの選択', async ({ page }) => {
@@ -996,7 +1007,8 @@ test.describe('見積書機能', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-6.5, REQ-6.6
+     * @requirement estimate-creation/REQ-6.5
+     * @requirement estimate-creation/REQ-6.6
      * 利益率の適用とプレビュー
      */
     test('REQ-6.5-6.6：利益率の適用とプレビュー', async ({ page }) => {

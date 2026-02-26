@@ -4,10 +4,10 @@
  * Task 20.1: パンくずナビゲーション表示E2Eテスト
  *
  * Requirements:
- * - REQ-21.14: 一覧ページで「ダッシュボード > プロジェクト」の表示
- * - REQ-21.15: 詳細ページで「ダッシュボード > プロジェクト > [プロジェクト名]」の表示
- * - REQ-21.16: 新規作成ページで「ダッシュボード > プロジェクト > 新規作成」の表示
- * - REQ-21.17: 編集ページで「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」の表示
+ * - REQ-21.14: 一覧ページで「ダッシュボード > プロジェクト一覧」の表示
+ * - REQ-21.15: 詳細ページで「ダッシュボード > プロジェクト一覧 > [プロジェクト名]」の表示
+ * - REQ-21.16: 新規作成ページで「ダッシュボード > プロジェクト一覧 > 新規作成」の表示
+ * - REQ-21.17: 編集ページで「ダッシュボード > プロジェクト一覧 > [プロジェクト名] > 編集」の表示
  */
 
 import { test, expect } from '@playwright/test';
@@ -79,7 +79,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
     /**
      * @requirement project-management/REQ-21.14
      */
-    test('一覧ページで「ダッシュボード > プロジェクト」のパンくずが表示される (project-management/REQ-21.14)', async ({
+    test('一覧ページで「ダッシュボード > プロジェクト一覧」のパンくずが表示される (project-management/REQ-21.14)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -97,13 +97,13 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await expect(dashboardLink).toBeVisible({ timeout: getTimeout(10000) });
       await expect(dashboardLink).toHaveAttribute('href', '/');
 
-      // 「プロジェクト」テキストが表示されていることを確認（現在ページなのでリンクなし）
-      const projectText = breadcrumb.getByText('プロジェクト');
+      // 「プロジェクト一覧」テキストが表示されていることを確認（現在ページなのでリンクなし）
+      const projectText = breadcrumb.getByText('プロジェクト一覧');
       await expect(projectText).toBeVisible({ timeout: getTimeout(10000) });
 
       // 現在ページに aria-current="page" が設定されていることを確認
       const currentPage = breadcrumb.locator('[aria-current="page"]');
-      await expect(currentPage).toHaveText('プロジェクト');
+      await expect(currentPage).toHaveText('プロジェクト一覧');
 
       // 区切り文字「>」が表示されていることを確認
       await expect(breadcrumb.getByText('>')).toBeVisible({ timeout: getTimeout(10000) });
@@ -116,8 +116,9 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
   test.describe('プロジェクト詳細ページ', () => {
     /**
      * @requirement project-management/REQ-21.15
+     * @requirement project-management/REQ-31.1
      */
-    test('詳細ページで「ダッシュボード > プロジェクト > [プロジェクト名]」のパンくずが表示される (project-management/REQ-21.15)', async ({
+    test('詳細ページで「ダッシュボード > プロジェクト一覧 > [プロジェクト名]」のパンくずが表示される (project-management/REQ-21.15)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -139,8 +140,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await expect(dashboardLink).toBeVisible({ timeout: getTimeout(10000) });
       await expect(dashboardLink).toHaveAttribute('href', '/');
 
-      // 「プロジェクト」リンクが表示されていることを確認
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      // 「プロジェクト一覧」リンクが表示されていることを確認
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await expect(projectsLink).toBeVisible({ timeout: getTimeout(10000) });
       await expect(projectsLink).toHaveAttribute('href', '/projects');
 
@@ -199,7 +200,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
     /**
      * @requirement project-management/REQ-21.16
      */
-    test('新規作成ページで「ダッシュボード > プロジェクト > 新規作成」のパンくずが表示される (project-management/REQ-21.16)', async ({
+    test('新規作成ページで「ダッシュボード > プロジェクト一覧 > 新規作成」のパンくずが表示される (project-management/REQ-21.16)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -217,8 +218,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await expect(dashboardLink).toBeVisible({ timeout: getTimeout(10000) });
       await expect(dashboardLink).toHaveAttribute('href', '/');
 
-      // 「プロジェクト」リンクが表示されていることを確認
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      // 「プロジェクト一覧」リンクが表示されていることを確認
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await expect(projectsLink).toBeVisible({ timeout: getTimeout(10000) });
       await expect(projectsLink).toHaveAttribute('href', '/projects');
 
@@ -243,7 +244,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
     /**
      * @requirement project-management/REQ-21.17
      */
-    test('編集ページで「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」のパンくずが表示される (project-management/REQ-21.17)', async ({
+    test('編集ページで「ダッシュボード > プロジェクト一覧 > [プロジェクト名] > 編集」のパンくずが表示される (project-management/REQ-21.17)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -265,8 +266,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await expect(dashboardLink).toBeVisible({ timeout: getTimeout(10000) });
       await expect(dashboardLink).toHaveAttribute('href', '/');
 
-      // 「プロジェクト」リンクが表示されていることを確認
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      // 「プロジェクト一覧」リンクが表示されていることを確認
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await expect(projectsLink).toBeVisible({ timeout: getTimeout(10000) });
       await expect(projectsLink).toHaveAttribute('href', '/projects');
 
@@ -339,6 +340,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
   test.describe('パンくずナビゲーション遷移', () => {
     /**
      * @requirement project-management/REQ-21.18
+     * @requirement project-management/REQ-31.2
      */
     test('一覧ページのパンくずからダッシュボードリンクをクリックし、ダッシュボードページへ遷移する (project-management/REQ-21.18)', async ({
       page,
@@ -374,7 +376,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
     /**
      * @requirement project-management/REQ-21.18
      */
-    test('新規作成ページのパンくずからプロジェクトリンクをクリックし、プロジェクト一覧ページへ遷移する (project-management/REQ-21.18)', async ({
+    test('新規作成ページのパンくずからプロジェクト一覧リンクをクリックし、プロジェクト一覧ページへ遷移する (project-management/REQ-21.18)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -387,8 +389,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「プロジェクト」リンクをクリック
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      // 「プロジェクト一覧」リンクをクリック
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await expect(projectsLink).toBeVisible({ timeout: getTimeout(10000) });
       await projectsLink.click();
 
@@ -396,19 +398,21 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await page.waitForURL('/projects', { timeout: getTimeout(15000) });
       await page.waitForLoadState('networkidle');
 
-      // プロジェクト一覧ページのパンくずが「ダッシュボード > プロジェクト」になっていることを確認
+      // プロジェクト一覧ページのパンくずが「ダッシュボード > プロジェクト一覧」になっていることを確認
       const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       await expect(newBreadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 現在ページが「プロジェクト」になっていることを確認
+      // 現在ページが「プロジェクト一覧」になっていることを確認
       const currentPage = newBreadcrumb.locator('[aria-current="page"]');
-      await expect(currentPage).toHaveText('プロジェクト');
+      await expect(currentPage).toHaveText('プロジェクト一覧');
     });
 
     /**
      * @requirement project-management/REQ-21.18
+     * @requirement project-management/REQ-31.3
+     * @requirement project-management/REQ-32.2
      */
-    test('詳細ページのパンくずからプロジェクトリンクをクリックし、プロジェクト一覧ページへ遷移する (project-management/REQ-21.18)', async ({
+    test('詳細ページのパンくずからプロジェクト一覧リンクをクリックし、プロジェクト一覧ページへ遷移する (project-management/REQ-21.18)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -424,8 +428,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「プロジェクト」リンクをクリック
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      // 「プロジェクト一覧」リンクをクリック
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await expect(projectsLink).toBeVisible({ timeout: getTimeout(10000) });
       await projectsLink.click();
 
@@ -436,7 +440,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       // 遷移後も適切なパンくずが表示されることを確認
       const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       const currentPage = newBreadcrumb.locator('[aria-current="page"]');
-      await expect(currentPage).toHaveText('プロジェクト');
+      await expect(currentPage).toHaveText('プロジェクト一覧');
     });
 
     /**
@@ -493,6 +497,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
 
     /**
      * @requirement project-management/REQ-21.18
+     * @requirement project-management/REQ-31.4
+     * @requirement project-management/REQ-32.1
      */
     test('現在ページ項目がクリック不可（リンクなし）であることを確認 (project-management/REQ-21.18)', async ({
       page,
@@ -501,14 +507,14 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
 
       // 各ページで現在ページ項目がリンクではないことを確認
 
-      // 1. 一覧ページ：「プロジェクト」が現在ページ
+      // 1. 一覧ページ：「プロジェクト一覧」が現在ページ
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
       let breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 「プロジェクト」がリンクでないことを確認
+      // 「プロジェクト一覧」がリンクでないことを確認
       let currentPageElement = breadcrumb.locator('[aria-current="page"]');
       await expect(currentPageElement).toBeVisible({ timeout: getTimeout(10000) });
       // リンク要素ではなくspanであることを確認（親がaタグでない）
@@ -597,11 +603,11 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
         await page.waitForLoadState('networkidle');
       }
 
-      // 2. プロジェクト詳細ページ -> プロジェクト一覧ページ（プロジェクトリンク）
+      // 2. プロジェクト詳細ページ -> プロジェクト一覧ページ（プロジェクト一覧リンク）
       breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await projectsLink.click();
       await page.waitForURL('/projects', { timeout: getTimeout(15000) });
       await page.waitForLoadState('networkidle');
@@ -666,7 +672,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 一覧ページ：「プロジェクト」にaria-current="page"
+      // 一覧ページ：「プロジェクト一覧」にaria-current="page"
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
@@ -675,7 +681,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
 
       let currentPage = breadcrumb.locator('[aria-current="page"]');
       await expect(currentPage).toBeVisible({ timeout: getTimeout(10000) });
-      await expect(currentPage).toHaveText('プロジェクト');
+      await expect(currentPage).toHaveText('プロジェクト一覧');
       await expect(currentPage).toHaveAttribute('aria-current', 'page');
 
       // 新規作成ページ：「新規作成」にaria-current="page"
@@ -689,7 +695,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await expect(currentPage).toHaveText('新規作成');
       await expect(currentPage).toHaveAttribute('aria-current', 'page');
 
-      // 詳細ページ：プロジェクト名にaria-current="page"
+      // 詳細ページ: プロジェクト名にaria-current="page"
       const project = await createTestProject(page);
       await page.goto(`/projects/${project.id}`);
       await page.waitForLoadState('networkidle');
@@ -742,9 +748,9 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await dashboardLink.focus();
       await expect(dashboardLink).toBeFocused();
 
-      // Tabキーで次のリンク（プロジェクト）にフォーカス
+      // Tabキーで次のリンク（プロジェクト一覧）にフォーカス
       await page.keyboard.press('Tab');
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await expect(projectsLink).toBeFocused();
 
       // Tabキーで次のリンク（プロジェクト名）にフォーカス
@@ -776,8 +782,8 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      // プロジェクトリンクにフォーカス
-      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト' });
+      // プロジェクト一覧リンクにフォーカス
+      const projectsLink = breadcrumb.getByRole('link', { name: 'プロジェクト一覧' });
       await projectsLink.focus();
       await expect(projectsLink).toBeFocused();
 
@@ -791,7 +797,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       // パンくずが正しく更新されていることを確認
       const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       const currentPage = newBreadcrumb.locator('[aria-current="page"]');
-      await expect(currentPage).toHaveText('プロジェクト');
+      await expect(currentPage).toHaveText('プロジェクト一覧');
     });
 
     /**
@@ -922,7 +928,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       const separators = breadcrumb.locator('span[aria-hidden="true"]');
       const separatorCount = await separators.count();
 
-      // 編集ページには3つの区切り文字があるはず（ダッシュボード > プロジェクト > プロジェクト名 > 編集）
+      // 編集ページには3つの区切り文字があるはず（ダッシュボード > プロジェクト一覧 > プロジェクト名 > 編集）
       expect(separatorCount).toBe(3);
 
       // 各区切り文字が「>」を含むことを確認
@@ -955,7 +961,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       // 全リンクを取得
       const allLinks = await breadcrumb.getByRole('link').all();
 
-      // 編集ページでは3つのリンクがあるはず（ダッシュボード、プロジェクト、プロジェクト名）
+      // 編集ページでは3つのリンクがあるはず（ダッシュボード、プロジェクト一覧、プロジェクト名）
       expect(allLinks.length).toBe(3);
 
       // 最初のリンク（ダッシュボード）にフォーカス
@@ -966,12 +972,12 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
         expect(firstLinkText).toBe('ダッシュボード');
       }
 
-      // Tabキーで2番目のリンク（プロジェクト）にフォーカス
+      // Tabキーで2番目のリンク（プロジェクト一覧）にフォーカス
       await page.keyboard.press('Tab');
       if (allLinks[1]) {
         await expect(allLinks[1]).toBeFocused();
         const secondLinkText = await allLinks[1].textContent();
-        expect(secondLinkText).toBe('プロジェクト');
+        expect(secondLinkText).toBe('プロジェクト一覧');
       }
 
       // Tabキーで3番目のリンク（プロジェクト名）にフォーカス

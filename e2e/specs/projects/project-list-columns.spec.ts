@@ -4,7 +4,7 @@
  * Task 25.2: 一覧表示の列構成変更E2Eテスト
  *
  * Requirements:
- * - 2.2: 各プロジェクトのプロジェクト名、顧客名、営業担当者、工事担当者、ステータス、作成日、更新日を一覧に表示
+ * - 2.2: 各プロジェクトのプロジェクト名、顧客名、営業担当者、工事担当者、ステータス、更新日を一覧に表示（Task 56.5で作成日列削除）
  *        （ID列を削除し、営業担当者・工事担当者列を追加）
  */
 
@@ -365,9 +365,9 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
     // テスト用プロジェクト行を確認
     const cells = testProjectRow.locator('td');
 
-    // 列の数を確認（7列: プロジェクト名、顧客名、営業担当者、工事担当者、ステータス、作成日、更新日）
+    // 列の数を確認（6列: プロジェクト名、顧客名、営業担当者、工事担当者、ステータス、更新日 ※Task 56.5で作成日列削除）
     const cellCount = await cells.count();
-    expect(cellCount).toBe(7);
+    expect(cellCount).toBe(6);
 
     // 営業担当者セル（3列目）の内容を確認
     const salesPersonCell = cells.nth(2);
@@ -432,7 +432,7 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
   /**
    * 列順序の確認テスト
    *
-   * REQ-2.2: 列順序が「プロジェクト名、顧客名、営業担当者、工事担当者、ステータス、作成日、更新日」であることを確認
+   * REQ-2.2: 列順序が「プロジェクト名、顧客名、営業担当者、工事担当者、ステータス、更新日」であることを確認（Task 56.5で作成日列削除）
    * @requirement project-management/REQ-2.2
    */
   test('列順序が正しいことを確認 (project-management/REQ-2.2)', async ({ page }) => {
@@ -461,7 +461,6 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       /営業担当者/,
       /工事担当者/,
       /ステータス/,
-      /作成日/,
       /更新日/,
     ];
 
@@ -470,8 +469,8 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
     const headerButtons = headerRow.locator('button');
     const headerCount = await headerButtons.count();
 
-    // 7列全てがソート可能であることを確認
-    expect(headerCount).toBe(7);
+    // 6列全てがソート可能であることを確認（Task 56.5で作成日列削除）
+    expect(headerCount).toBe(6);
 
     // 各列の順序を確認
     for (let i = 0; i < expectedOrder.length; i++) {

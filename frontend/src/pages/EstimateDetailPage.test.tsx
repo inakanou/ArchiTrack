@@ -488,9 +488,10 @@ describe('EstimateDetailPage', () => {
   });
 
   /**
-   * REQ-15.4-15.8: パンくずナビゲーション
+   * REQ-15.8-15.11: パンくずナビゲーション（Task 43.3更新）
+   * パンくず: ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書
    */
-  it('パンくずナビゲーションを表示する', async () => {
+  it('パンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書」形式で表示する', async () => {
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
         <Routes>
@@ -500,12 +501,44 @@ describe('EstimateDetailPage', () => {
     );
 
     await waitFor(() => {
+      expect(screen.getByText('ダッシュボード')).toBeInTheDocument();
       expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
-      expect(screen.getByText('プロジェクト詳細')).toBeInTheDocument();
+      expect(screen.getByText('プロジェクト')).toBeInTheDocument();
       expect(screen.getByText('見積書一覧')).toBeInTheDocument();
-      // パンくずで見積書名が表示される (複数箇所に表示されるためgetAllByTextを使用)
-      expect(screen.getAllByText('テスト見積書').length).toBeGreaterThan(0);
     });
+
+    // 最後の項目が固定テキスト「見積書」であること（見積書名ではない）
+    const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+    expect(breadcrumb).toBeInTheDocument();
+    // 「見積書」テキストがパンくず内にあること（aria-current="page"）
+    const currentPage = screen.getByText((content, element) => {
+      return element?.getAttribute('aria-current') === 'page' && content === '見積書';
+    });
+    expect(currentPage).toBeInTheDocument();
+
+    // 「プロジェクト詳細」ラベルが存在しないこと
+    expect(screen.queryByText('プロジェクト詳細')).not.toBeInTheDocument();
+  });
+
+  /**
+   * REQ-15.10: 「← 見積書一覧に戻る」リンクが存在しないこと（Task 43.3）
+   */
+  it('「← 見積書一覧に戻る」リンクが存在しない', async () => {
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    // 「← 見積書一覧に戻る」リンクが存在しないこと
+    expect(screen.queryByText('← 見積書一覧に戻る')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('見積書一覧に戻る')).not.toBeInTheDocument();
   });
 
   /**

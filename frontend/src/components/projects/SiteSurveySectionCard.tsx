@@ -284,7 +284,20 @@ function ThumbnailPlaceholder() {
  * thumbnailImageId と thumbnailOriginalUrl がある場合は注釈付きサムネイルを表示
  */
 function SurveyThumbnail({ survey }: { survey: SiteSurveyInfo }) {
-  // 注釈表示に必要な情報がある場合
+  // 注釈付きサムネイル（サーバーサイド生成）が存在する場合はそちらを優先（要件20.3）
+  if (survey.annotatedThumbnailUrl) {
+    return (
+      <img
+        src={survey.annotatedThumbnailUrl}
+        alt={`${survey.name}のサムネイル（注釈付き）`}
+        style={styles.thumbnail}
+        loading="lazy"
+        data-testid="annotated-thumbnail"
+      />
+    );
+  }
+
+  // 注釈表示に必要な情報がある場合（クライアントサイドフォールバック）
   if (survey.thumbnailImageId && survey.thumbnailOriginalUrl) {
     // AnnotatedImageThumbnail用のSurveyImageInfoオブジェクトを作成
     const imageInfo: SurveyImageInfo = {

@@ -2005,6 +2005,882 @@
         "description": "同時更新時にバージョン競合が検出され、適切にエラーを返すことを確認",
         "threshold": "optimistic_lock: handled"
       }
+    },
+    {
+      "id": "estimate-request/REQ-29.1",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼一覧画面のパンくずナビゲーションを正確な階層構造で表示する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.2",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼一覧画面のパンくずの「ダッシュボード」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.3",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼一覧画面のパンくずの「プロジェクト一覧」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.4",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼一覧画面のパンくずの「プロジェクト」をプロジェクト詳細へのリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.5",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼一覧画面のパンくずの「見積依頼一覧」をリンクなしで表示する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.6",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼新規作成画面のパンくずナビゲーションを正確な階層構造で表示する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.7",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼新規作成画面のパンくずの「ダッシュボード」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.8",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼新規作成画面のパンくずの「プロジェクト一覧」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.9",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼新規作成画面のパンくずの「プロジェクト」をプロジェクト詳細へのリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.10",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼新規作成画面のパンくずの「見積依頼一覧」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.11",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼新規作成画面のパンくずの「新規作成」をリンクなしで表示する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.12",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼新規作成画面から「← 一覧に戻る」リンクを削除する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.13",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼詳細画面のパンくずナビゲーションを正確な階層構造で表示する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.14",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼詳細画面のパンくずの「ダッシュボード」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.15",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼詳細画面のパンくずの「プロジェクト一覧」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.16",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼詳細画面のパンくずの「プロジェクト」をプロジェクト詳細へのリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.17",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼詳細画面のパンくずの「見積依頼一覧」をリンクとする",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.18",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼詳細画面のパンくずの「見積依頼」をリンクなしで表示し見積依頼名を表示する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-29.19",
+      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
+      "title": "見積依頼詳細画面から「← 見積依頼一覧に戻る」リンクを削除する",
+      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-30.1",
+      "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
+      "title": "現場調査のthumbnailUrlを署名付きURLに変換して返却する",
+      "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
+      "category": "integration-test",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "バックエンドのインテグレーションテストでAPI応答を検証"
+      }
+    },
+    {
+      "id": "project-management/REQ-30.2",
+      "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
+      "title": "現場調査のthumbnailOriginalUrlを署名付きURLに変換して返却する",
+      "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
+      "category": "integration-test",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "バックエンドのインテグレーションテストでAPI応答を検証"
+      }
+    },
+    {
+      "id": "project-management/REQ-30.3",
+      "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
+      "title": "ストレージ未設定時にthumbnailUrlとthumbnailOriginalUrlをnullとして返却する",
+      "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
+      "category": "integration-test",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "バックエンドのインテグレーションテストでAPI応答を検証"
+      }
+    },
+    {
+      "id": "project-management/REQ-30.4",
+      "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
+      "title": "署名付きURL生成失敗時に該当フィールドをnullとし他のデータ返却を妨げない",
+      "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
+      "category": "integration-test",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "バックエンドのインテグレーションテストでAPI応答を検証"
+      }
+    },
+    {
+      "id": "project-management/REQ-30.5",
+      "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
+      "title": "既存エンドポイントと同一のURL変換ロジックで実装する",
+      "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
+      "category": "integration-test",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "バックエンドのインテグレーションテストでAPI応答を検証"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.1",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "プロジェクト名の横にクリップボードコピーボタンを表示する",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.2",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "顧客名の横にクリップボードコピーボタンを表示する",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.3",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "現場住所の横にクリップボードコピーボタンを表示する",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.4",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "プロジェクト名コピー時にクリップボードにコピーしフィードバックを表示する",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.5",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "navigator.clipboard APIを使用してテキストをコピーする",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.6",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "顧客名コピー時にクリップボードにコピーしフィードバックを表示する",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.7",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "現場住所コピー時にクリップボードにコピーしフィードバックを表示する",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.8",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "コピー対象フィールドが空欄の場合にコピーボタンを非表示にする",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-33.9",
+      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
+      "title": "コピーボタンにクリップボードアイコンとホバー時ツールチップを表示する",
+      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "クリップボードコピー機能のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-34.1",
+      "requirement": "REQ-34: 基本情報の日時フィールド非表示",
+      "title": "基本情報セクションから作成日時フィールドを非表示にする",
+      "reason": "プロジェクト詳細画面の日時フィールド非表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "基本情報表示のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-34.2",
+      "requirement": "REQ-34: 基本情報の日時フィールド非表示",
+      "title": "基本情報セクションから更新日時フィールドを非表示にする",
+      "reason": "プロジェクト詳細画面の日時フィールド非表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "基本情報表示のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.1",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "ステータス変更履歴セクションに直近3件のみを表示する",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.2",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "履歴が4件以上の場合に「すべての履歴を表示」リンクを表示する",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.3",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "履歴が3件以下の場合に「すべての履歴を表示」リンクを非表示にする",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.4",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "「すべての履歴を表示」クリックで全件表示ダイアログを開く",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.5",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "ダイアログ内に全件を時系列順（新しい順）で表示する",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.6",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "ダイアログに「閉じる」ボタンを表示する",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.7",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "「閉じる」ボタンクリックでダイアログを閉じる",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "project-management/REQ-35.8",
+      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
+      "title": "ダイアログ外クリックでダイアログを閉じる",
+      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "ステータス変更履歴のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-19.1",
+      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
+      "title": "写真変更操作時に写真変更ダイアログを表示する",
+      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真変更ダイアログのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-19.2",
+      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
+      "title": "写真変更ダイアログに注釈付き現場調査写真一覧を表示する",
+      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真変更ダイアログのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-19.3",
+      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
+      "title": "写真変更ダイアログで選択した写真に変更する",
+      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真変更ダイアログのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-19.4",
+      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
+      "title": "写真選択確定後に関連写真表示エリアを更新する",
+      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真変更ダイアログのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-21.1",
+      "requirement": "REQ-21: 写真選択時のコメント表示",
+      "title": "写真選択時に当該写真のコメントを取得する",
+      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真コメント表示のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-21.2",
+      "requirement": "REQ-21: 写真選択時のコメント表示",
+      "title": "コメントが存在する場合に写真の右側にコメントを表示する",
+      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真コメント表示のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-21.3",
+      "requirement": "REQ-21: 写真選択時のコメント表示",
+      "title": "コメントが存在しない場合にコメント表示エリアを空白とする",
+      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真コメント表示のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-21.4",
+      "requirement": "REQ-21: 写真選択時のコメント表示",
+      "title": "写真変更時に変更後の写真に対応するコメントに表示を更新する",
+      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真コメント表示のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-21.5",
+      "requirement": "REQ-21: 写真選択時のコメント表示",
+      "title": "数量グループ折りたたみ時にコメント表示も非表示にする",
+      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真コメント表示のE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.1",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "マジックバイトの先頭3バイト（FF D8 FF）のみでJPEG形式を判定する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.2",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "ICCプロファイル付きJPEGを正常に受け付けて保存する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.3",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "EXIF付きJPEGを正常に受け付けて保存する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.4",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "JFIF形式JPEGを正常に受け付けて保存する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.5",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "SOSマーカー付きJPEGを正常に受け付けて保存する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.6",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "DQTマーカー付きJPEGを正常に受け付けて保存する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.7",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "先頭3バイトがFF D8 FFでないファイルのアップロードを拒否する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.8",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "PNG形式の検証を従来通り維持する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.9",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "WEBP形式の検証を従来通り維持する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.10",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "バッチアップロードで失敗時にエラー情報を含む結果を返却する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.11",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "バッチアップロード結果にエラーが含まれる場合にエラーメッセージを表示する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.12",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "一部成功・一部失敗時に成功結果を保持しつつエラー情報も返却する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.13",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "全件失敗時に全件失敗を示すエラーメッセージを表示する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.14",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "ファイル形式不一致による拒否時にファイル名と理由を含むエラーメッセージを表示する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.15",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "サーバーエラーまたはネットワークエラー時にエラーメッセージを表示する",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-19.16",
+      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
+      "title": "全ファイル正常アップロード時にエラーメッセージを表示しない",
+      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-2.8",
+      "requirement": "REQ-2: 画面遷移・ナビゲーション",
+      "title": "画像プレビュー画面（閲覧モード）のブレッドクラム表示",
+      "reason": "画像プレビュー画面のブレッドクラム表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像プレビュー画面ナビゲーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "site-survey/REQ-2.9",
+      "requirement": "REQ-2: 画面遷移・ナビゲーション",
+      "title": "画像プレビュー画面（編集モード）のブレッドクラム表示",
+      "reason": "画像プレビュー画面のブレッドクラム表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "画像プレビュー画面ナビゲーションのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-20.1",
+      "requirement": "REQ-20: 写真プレビューダイアログでの注釈付き写真表示",
+      "title": "写真プレビュー操作時に注釈付き写真を表示",
+      "reason": "数量表の写真プレビューダイアログでの注釈付き写真表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真プレビューダイアログのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-20.2",
+      "requirement": "REQ-20: 写真プレビューダイアログでの注釈付き写真表示",
+      "title": "写真プレビューダイアログで同一調査の注釈付き写真を表示",
+      "reason": "数量表の写真プレビューダイアログでの注釈付き写真表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真プレビューダイアログのE2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-20.3",
+      "requirement": "REQ-20: 写真プレビューダイアログでの注釈付き写真表示",
+      "title": "写真プレビューダイアログでオリジナルではなく注釈付き写真を表示",
+      "reason": "数量表の写真プレビューダイアログでの注釈付き写真表示。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "写真プレビューダイアログのE2Eテストで検証予定"
+      }
     }
   ],
   "categories": {
@@ -2027,17 +2903,27 @@
     "security": {
       "description": "セキュリティ監査やコードレビューで検証が必要な要件",
       "verificationPhase": "security-audit"
+    },
+    "pending-implementation": {
+      "description": "E2Eテスト実装予定の要件。機能実装済みだがE2Eテストが未作成",
+      "verificationPhase": "e2e-testing"
+    },
+    "integration-test": {
+      "description": "E2Eではなくインテグレーションテストで検証する要件",
+      "verificationPhase": "integration-testing"
     }
   },
   "summary": {
-    "totalExclusions": 151,
+    "totalExclusions": 227,
     "byCategory": {
-      "performance": 21,
-      "infrastructure": 81,
-      "fault-tolerance": 21,
-      "data-integrity": 28,
-      "security": 4
+      "performance": 18,
+      "infrastructure": 85,
+      "fault-tolerance": 20,
+      "data-integrity": 26,
+      "security": 5,
+      "pending-implementation": 68,
+      "integration-test": 5
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定"
   }
 }

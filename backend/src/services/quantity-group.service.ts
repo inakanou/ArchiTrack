@@ -59,7 +59,9 @@ export interface SurveyImageInfoSimple {
   id: string;
   thumbnailPath: string;
   originalPath: string;
+  annotatedThumbnailPath: string | null;
   fileName: string;
+  comment: string | null;
 }
 
 /**
@@ -254,7 +256,9 @@ export class QuantityGroupService {
             id: true,
             thumbnailPath: true,
             originalPath: true,
+            annotatedThumbnailPath: true,
             fileName: true,
+            comment: true,
           },
         },
         items: {
@@ -297,7 +301,12 @@ export class QuantityGroupService {
       orderBy: { displayOrder: 'asc' },
       include: {
         surveyImage: {
-          select: { id: true, thumbnailPath: true },
+          select: {
+            id: true,
+            thumbnailPath: true,
+            annotatedThumbnailPath: true,
+            comment: true,
+          },
         },
         _count: {
           select: { items: true },
@@ -556,7 +565,9 @@ export class QuantityGroupService {
       id: string;
       thumbnailPath: string;
       originalPath: string;
+      annotatedThumbnailPath: string | null;
       fileName: string;
+      comment: string | null;
     } | null;
     items: Array<{
       id: string;
@@ -581,7 +592,9 @@ export class QuantityGroupService {
             id: quantityGroup.surveyImage.id,
             thumbnailPath: quantityGroup.surveyImage.thumbnailPath,
             originalPath: quantityGroup.surveyImage.originalPath,
+            annotatedThumbnailPath: quantityGroup.surveyImage.annotatedThumbnailPath,
             fileName: quantityGroup.surveyImage.fileName,
+            comment: quantityGroup.surveyImage.comment,
           }
         : null,
       items: quantityGroup.items.map((item) => ({

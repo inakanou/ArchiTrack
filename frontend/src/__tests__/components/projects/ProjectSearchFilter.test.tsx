@@ -29,8 +29,6 @@ import type { ProjectFilter } from '../../../types/project.types';
 const defaultFilter: ProjectFilter = {
   search: '',
   status: [],
-  createdFrom: undefined,
-  createdTo: undefined,
 };
 
 // ============================================================================
@@ -70,18 +68,18 @@ describe('ProjectSearchFilter', () => {
       expect(statusSelect).toBeInTheDocument();
     });
 
-    it('作成日開始フィルタが表示される', () => {
+    it('作成日開始フィルタは表示されない（Task 56.3で削除）', () => {
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
-      const fromDateInput = screen.getByLabelText(/作成日\s*（開始）|開始日/i);
-      expect(fromDateInput).toBeInTheDocument();
+      const fromDateInput = screen.queryByLabelText(/作成日\s*（開始）|開始日/i);
+      expect(fromDateInput).not.toBeInTheDocument();
     });
 
-    it('作成日終了フィルタが表示される', () => {
+    it('作成日終了フィルタは表示されない（Task 56.3で削除）', () => {
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
-      const toDateInput = screen.getByLabelText(/作成日\s*（終了）|終了日/i);
-      expect(toDateInput).toBeInTheDocument();
+      const toDateInput = screen.queryByLabelText(/作成日\s*（終了）|終了日/i);
+      expect(toDateInput).not.toBeInTheDocument();
     });
 
     it('フィルタクリアボタンが表示される', () => {
@@ -272,74 +270,6 @@ describe('ProjectSearchFilter', () => {
   });
 
   // ==========================================================================
-  // 期間フィルタテスト（project-management/REQ-5.2, REQ-5.3）
-  // ==========================================================================
-
-  describe('期間フィルタ', () => {
-    it('開始日を選択するとonFilterChangeが呼ばれる（project-management/REQ-5.2）', async () => {
-      const user = userEvent.setup();
-      render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
-
-      const fromDateInput = screen.getByLabelText(/作成日\s*（開始）|開始日/i);
-      await user.type(fromDateInput, '2025-01-01');
-
-      expect(onFilterChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdFrom: '2025-01-01',
-        })
-      );
-    });
-
-    it('終了日を選択するとonFilterChangeが呼ばれる（project-management/REQ-5.3）', async () => {
-      const user = userEvent.setup();
-      render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
-
-      const toDateInput = screen.getByLabelText(/作成日\s*（終了）|終了日/i);
-      await user.type(toDateInput, '2025-12-31');
-
-      expect(onFilterChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdTo: '2025-12-31',
-        })
-      );
-    });
-
-    it('日付範囲を指定できる', async () => {
-      const user = userEvent.setup();
-      render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
-
-      const fromDateInput = screen.getByLabelText(/作成日\s*（開始）|開始日/i);
-      const toDateInput = screen.getByLabelText(/作成日\s*（終了）|終了日/i);
-
-      await user.type(fromDateInput, '2025-01-01');
-      await user.type(toDateInput, '2025-12-31');
-
-      // 最後のコールを確認
-      const calls = onFilterChange.mock.calls;
-      expect(calls.length).toBeGreaterThan(0);
-      const lastCall = calls[calls.length - 1]![0];
-      expect(lastCall).toMatchObject({
-        createdTo: '2025-12-31',
-      });
-    });
-
-    it('設定された日付範囲が表示される', () => {
-      const filterWithDates: ProjectFilter = {
-        ...defaultFilter,
-        createdFrom: '2025-01-01',
-        createdTo: '2025-12-31',
-      };
-      render(<ProjectSearchFilter filter={filterWithDates} onFilterChange={onFilterChange} />);
-
-      const fromDateInput = screen.getByLabelText(/作成日\s*（開始）|開始日/i) as HTMLInputElement;
-      const toDateInput = screen.getByLabelText(/作成日\s*（終了）|終了日/i) as HTMLInputElement;
-
-      expect(fromDateInput.value).toBe('2025-01-01');
-      expect(toDateInput.value).toBe('2025-12-31');
-    });
-  });
-
-  // ==========================================================================
   // 複合フィルタテスト（project-management/REQ-5.4）
   // ==========================================================================
 
@@ -367,14 +297,12 @@ describe('ProjectSearchFilter', () => {
       });
     });
 
-    it('すべてのフィルタを組み合わせられる', async () => {
+    it('すべてのフィルタを組み合わせられる（Task 56.3で期間フィルタ削除後）', async () => {
       const user = userEvent.setup();
       // 制御コンポーネントなので、既にフィルタが設定されている状態を渡す
       const filterWithAll: ProjectFilter = {
         search: '',
         status: ['PREPARING'],
-        createdFrom: '2025-01-01',
-        createdTo: '2025-12-31',
       };
       render(<ProjectSearchFilter filter={filterWithAll} onFilterChange={onFilterChange} />);
 
@@ -388,8 +316,6 @@ describe('ProjectSearchFilter', () => {
       const lastCall = calls[calls.length - 1]![0];
       expect(lastCall.search).toBe('テスト');
       expect(lastCall.status).toContain('PREPARING');
-      expect(lastCall.createdFrom).toBe('2025-01-01');
-      expect(lastCall.createdTo).toBe('2025-12-31');
     });
   });
 
@@ -403,8 +329,6 @@ describe('ProjectSearchFilter', () => {
       const filterWithValues: ProjectFilter = {
         search: 'テスト',
         status: ['PREPARING', 'SURVEYING'],
-        createdFrom: '2025-01-01',
-        createdTo: '2025-12-31',
       };
       render(<ProjectSearchFilter filter={filterWithValues} onFilterChange={onFilterChange} />);
 
@@ -414,8 +338,6 @@ describe('ProjectSearchFilter', () => {
       expect(onFilterChange).toHaveBeenCalledWith({
         search: '',
         status: [],
-        createdFrom: undefined,
-        createdTo: undefined,
       });
     });
 
@@ -429,8 +351,6 @@ describe('ProjectSearchFilter', () => {
       expect(onFilterChange).toHaveBeenCalledWith({
         search: '',
         status: [],
-        createdFrom: undefined,
-        createdTo: undefined,
       });
     });
   });
@@ -458,18 +378,18 @@ describe('ProjectSearchFilter', () => {
       expect(errorMessage.closest('[aria-live]') || errorMessage).toHaveAttribute('aria-live');
     });
 
-    it('フォーム要素にラベルが関連付けられる', () => {
+    it('フォーム要素にラベルが関連付けられる（Task 56.3で期間フィルタ削除後）', () => {
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={onFilterChange} />);
 
       // ステータスセレクトにラベルがあること
       const statusSelect = screen.getByLabelText(/ステータス/i);
       expect(statusSelect).toBeInTheDocument();
 
-      // 日付入力にラベルがあること
-      const fromDateInput = screen.getByLabelText(/作成日\s*（開始）|開始日/i);
-      const toDateInput = screen.getByLabelText(/作成日\s*（終了）|終了日/i);
-      expect(fromDateInput).toBeInTheDocument();
-      expect(toDateInput).toBeInTheDocument();
+      // 日付入力は削除されている（Task 56.3）
+      const fromDateInput = screen.queryByLabelText(/作成日\s*（開始）|開始日/i);
+      const toDateInput = screen.queryByLabelText(/作成日\s*（終了）|終了日/i);
+      expect(fromDateInput).not.toBeInTheDocument();
+      expect(toDateInput).not.toBeInTheDocument();
     });
 
     it('検索フォームがform要素としてマークアップされる', () => {

@@ -264,18 +264,18 @@ describe('ProjectCreatePage', () => {
       expect(dashboardLink).toHaveTextContent('ダッシュボード');
     });
 
-    it('パンくずに「プロジェクト」リンクが表示される', async () => {
+    it('パンくずに「プロジェクト一覧」リンクが表示される', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /新規プロジェクト/i })).toBeInTheDocument();
       });
 
-      // 「プロジェクト」リンクが存在する（/projectsへ遷移可能）
+      // 「プロジェクト一覧」リンクが存在する（/projectsへ遷移可能）
       const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       const projectLink = breadcrumbNav.querySelector('a[href="/projects"]');
       expect(projectLink).toBeInTheDocument();
-      expect(projectLink).toHaveTextContent('プロジェクト');
+      expect(projectLink).toHaveTextContent('プロジェクト一覧');
     });
 
     it('パンくずに「新規作成」が現在ページとして表示される', async () => {
@@ -304,7 +304,7 @@ describe('ProjectCreatePage', () => {
       expect(dashboardLink).toHaveAttribute('href', '/');
     });
 
-    it('「プロジェクト」リンクは /projects へ遷移可能', async () => {
+    it('「プロジェクト一覧」リンクは /projects へ遷移可能', async () => {
       renderWithRouter();
 
       await waitFor(() => {

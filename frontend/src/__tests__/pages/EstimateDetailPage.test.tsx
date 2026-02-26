@@ -171,9 +171,10 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      // パンくずの各項目を確認
+      // パンくずの各項目を確認（Task 43.3更新：ダッシュボード起点、「プロジェクト詳細」→「プロジェクト」）
+      expect(screen.getByRole('link', { name: 'ダッシュボード' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'プロジェクト一覧' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'プロジェクト詳細' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: '見積書一覧' })).toBeInTheDocument();
     });
 
@@ -606,10 +607,10 @@ describe('EstimateDetailPage', () => {
   });
 
   // ==========================================================================
-  // 見積書一覧に戻る
+  // 戻るリンクの削除確認（Task 43.3）
   // ==========================================================================
-  describe('見積書一覧に戻る', () => {
-    it('「見積書一覧に戻る」リンクが正しいパスを持つこと', async () => {
+  describe('戻るリンクの削除', () => {
+    it('「見積書一覧に戻る」リンクが存在しないこと（Task 43.3: REQ-15.10）', async () => {
       vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockEstimateDetail);
 
       renderWithRouter();
@@ -618,8 +619,9 @@ describe('EstimateDetailPage', () => {
         expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
       });
 
-      const backLink = screen.getByRole('link', { name: '見積書一覧に戻る' });
-      expect(backLink).toHaveAttribute('href', '/projects/project-1/estimates');
+      // 戻るリンクが存在しないことを確認
+      expect(screen.queryByRole('link', { name: '見積書一覧に戻る' })).not.toBeInTheDocument();
+      expect(screen.queryByText('← 見積書一覧に戻る')).not.toBeInTheDocument();
     });
   });
 

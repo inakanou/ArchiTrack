@@ -46,9 +46,17 @@ describe('SortField型定義（project-management/REQ-6.5 / Task 22.1）', () =>
       expect(field).toBe('status');
     });
 
-    it('createdAtはSortFieldとして有効', () => {
-      const field: SortField = 'createdAt';
-      expect(field).toBe('createdAt');
+    it('createdAtはSortFieldに含まれない（Task 56.2で削除）', () => {
+      // createdAtが型に含まれないことを検証
+      const allSortFields: SortField[] = [
+        'name',
+        'customerName',
+        'salesPersonName',
+        'constructionPersonName',
+        'status',
+        'updatedAt',
+      ];
+      expect((allSortFields as string[]).includes('createdAt')).toBe(false);
     });
 
     it('updatedAtはSortFieldとして有効', () => {
@@ -58,7 +66,7 @@ describe('SortField型定義（project-management/REQ-6.5 / Task 22.1）', () =>
   });
 
   describe('全SortFieldの網羅性テスト', () => {
-    it('SortField型は7つのフィールドを持つ', () => {
+    it('SortField型は6つのフィールドを持つ（Task 56.2でcreatedAt削除）', () => {
       // 型の全フィールドをテスト用に配列化（型システムでの検証）
       const allSortFields: SortField[] = [
         'name',
@@ -66,35 +74,42 @@ describe('SortField型定義（project-management/REQ-6.5 / Task 22.1）', () =>
         'salesPersonName',
         'constructionPersonName',
         'status',
-        'createdAt',
         'updatedAt',
       ];
 
-      expect(allSortFields).toHaveLength(7);
+      expect(allSortFields).toHaveLength(6);
       expect(allSortFields).toContain('name');
       expect(allSortFields).toContain('customerName');
       expect(allSortFields).toContain('salesPersonName');
       expect(allSortFields).toContain('constructionPersonName');
       expect(allSortFields).toContain('status');
-      expect(allSortFields).toContain('createdAt');
       expect(allSortFields).toContain('updatedAt');
     });
 
     it('idはSortFieldに含まれない（Task 22.1で削除）', () => {
-      // 'id'が型に含まれないことを検証
-      // コンパイルエラーにならないよう、文字列として比較
       const allSortFields: SortField[] = [
         'name',
         'customerName',
         'salesPersonName',
         'constructionPersonName',
         'status',
-        'createdAt',
         'updatedAt',
       ];
 
-      // 'id'が含まれていないことを確認
       expect((allSortFields as string[]).includes('id')).toBe(false);
+    });
+
+    it('createdAtはSortFieldに含まれない（Task 56.2で削除）', () => {
+      const allSortFields: SortField[] = [
+        'name',
+        'customerName',
+        'salesPersonName',
+        'constructionPersonName',
+        'status',
+        'updatedAt',
+      ];
+
+      expect((allSortFields as string[]).includes('createdAt')).toBe(false);
     });
   });
 });
