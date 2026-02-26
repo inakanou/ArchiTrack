@@ -2,13 +2,19 @@
  * @fileoverview 数量グループカードコンポーネント
  *
  * Task 5.2: 数量グループコンポーネントを実装する
+ * Task 33.1: 数量グループカードに注釈付き写真表示と写真関連ダイアログを統合する
  *
  * Requirements:
  * - 3.2: 数量グループ一覧と各グループ内の数量項目を階層的に表示する
  * - 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する
+ * - 3.4: グループ折りたたみ時に写真も非表示
  * - 4.1: 数量表編集画面で数量グループ追加操作を行う
  * - 4.3: 数量グループ内で写真選択操作を行う
  * - 4.5: 数量グループの削除操作を行う
+ * - 19.1: 写真変更ダイアログ表示
+ * - 20.1: 写真プレビューダイアログ表示
+ * - 21.2: コメントを写真の右側に表示
+ * - 21.5: 折りたたみ時にコメント非表示
  */
 
 import { useState, useCallback } from 'react';
@@ -18,6 +24,8 @@ import QuantityItemRow from './QuantityItemRow';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
 import QuantityGroupTitleRow from './QuantityGroupTitleRow';
 import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
+import PhotoCommentDisplay from './PhotoCommentDisplay';
+import PhotoPreviewDialog from './PhotoPreviewDialog';
 
 // デフォルトのオートコンプリート関数（isEditable=false時のフォールバック）
 const defaultGetSuggestions = () => [] as string[];
@@ -221,6 +229,28 @@ const styles = {
     cursor: 'pointer',
     transition: 'background-color 0.2s, border-color 0.2s',
   } as React.CSSProperties,
+  // Phase 9: 写真エリアとコメント表示のレイアウト
+  photoArea: {
+    display: 'flex',
+    gap: '12px',
+    margin: '16px',
+    alignItems: 'flex-start',
+  } as React.CSSProperties,
+  photoChangeButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 8px',
+    fontSize: '11px',
+    fontWeight: 500,
+    borderRadius: '4px',
+    border: '1px solid #e5e7eb',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+    marginTop: '4px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -333,11 +363,12 @@ export default function QuantityGroupCard({
   onDeleteItem,
   onCopyItem,
   onMoveItem,
-  onOpenAnnotationViewer,
+  onOpenAnnotationViewer: _onOpenAnnotationViewer,
   getSuggestions,
   onBlurAddCandidate,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const hasAnnotations = group.surveyImage?.hasAnnotations ?? false;
 
   /**
@@ -362,17 +393,31 @@ export default function QuantityGroupCard({
   }, [group.id, onDeleteGroup]);
 
   /**
-   * 画像選択/変更ハンドラ
+   * 画像クリックハンドラ（REQ-20.1: 写真プレビューダイアログを開く）
    */
   const handleImageClick = useCallback(() => {
-    // 画像が既に紐付けられている場合は注釈ビューアを開く（REQ-4.4）
     if (group.surveyImage) {
-      onOpenAnnotationViewer?.(group.id);
+      // 画像が紐付けられている場合はプレビューダイアログを開く
+      setIsPreviewOpen(true);
     } else {
       // 画像がない場合は選択ダイアログを開く
       onSelectImage?.(group.id);
     }
-  }, [group.id, group.surveyImage, onSelectImage, onOpenAnnotationViewer]);
+  }, [group.id, group.surveyImage, onSelectImage]);
+
+  /**
+   * 写真プレビューダイアログを閉じる
+   */
+  const handleClosePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+  }, []);
+
+  /**
+   * 写真変更ボタンハンドラ（REQ-19.1: 写真変更ダイアログを開く）
+   */
+  const handleChangePhoto = useCallback(() => {
+    onSelectImage?.(group.id);
+  }, [group.id, onSelectImage]);
 
   const items = group.items ?? [];
 
@@ -421,63 +466,102 @@ export default function QuantityGroupCard({
           ...(isExpanded ? styles.contentExpanded : styles.contentCollapsed),
         }}
       >
-        {/* 関連画像 / プレースホルダー（REQ-3.3: オリジナル画像を表示） */}
-        <div
-          style={{
-            ...(group.surveyImage ? styles.thumbnailWrapper : styles.thumbnailWrapperSmall),
-            position: 'relative' as const,
-            margin: '16px',
-          }}
-          onClick={handleImageClick}
-          role="button"
-          tabIndex={0}
-          aria-label={group.surveyImage ? '紐付け画像を表示' : '写真を選択'}
-          data-testid={group.surveyImage ? undefined : `image-placeholder-${group.id}`}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handleImageClick();
-            }
-          }}
-        >
-          {group.surveyImage ? (
-            <>
-              <AnnotatedImageThumbnail
-                image={{
-                  id: group.surveyImage.id,
-                  originalUrl: group.surveyImage.originalUrl,
+        {/* 関連画像 / プレースホルダー + コメント表示（REQ-3.3, 21.2, 21.5） */}
+        {group.surveyImage ? (
+          <div style={styles.photoArea}>
+            <div style={{ display: 'flex', flexDirection: 'column' as const }}>
+              <div
+                style={{
+                  ...styles.thumbnailWrapper,
+                  position: 'relative' as const,
                 }}
-                alt={group.surveyImage.fileName}
-                style={styles.thumbnail}
-              />
-              {/* 注釈バッジ（REQ-3.3） */}
-              {hasAnnotations && (
-                <span
-                  data-testid={`annotation-badge-${group.id}`}
-                  style={{
-                    position: 'absolute',
-                    top: '4px',
-                    right: '4px',
-                    backgroundColor: '#dc2626',
-                    color: '#ffffff',
-                    borderRadius: '9999px',
-                    padding: '2px 6px',
-                    fontSize: '10px',
-                    fontWeight: 'bold',
-                    minWidth: '16px',
-                    textAlign: 'center',
+                onClick={handleImageClick}
+                role="button"
+                tabIndex={0}
+                aria-label="紐付け画像を表示"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleImageClick();
+                  }
+                }}
+              >
+                <AnnotatedImageThumbnail
+                  image={{
+                    id: group.surveyImage.id,
+                    originalUrl: group.surveyImage.originalUrl,
                   }}
-                >
-                  注
-                </span>
-              )}
-            </>
-          ) : (
+                  alt={group.surveyImage.fileName}
+                  style={styles.thumbnail}
+                />
+                {/* 注釈バッジ（REQ-3.3） */}
+                {hasAnnotations && (
+                  <span
+                    data-testid={`annotation-badge-${group.id}`}
+                    style={{
+                      position: 'absolute',
+                      top: '4px',
+                      right: '4px',
+                      backgroundColor: '#dc2626',
+                      color: '#ffffff',
+                      borderRadius: '9999px',
+                      padding: '2px 6px',
+                      fontSize: '10px',
+                      fontWeight: 'bold',
+                      minWidth: '16px',
+                      textAlign: 'center',
+                    }}
+                  >
+                    注
+                  </span>
+                )}
+              </div>
+              {/* 写真変更ボタン（REQ-19.1） */}
+              <button
+                type="button"
+                style={styles.photoChangeButton}
+                onClick={handleChangePhoto}
+                aria-label="写真を変更"
+              >
+                写真を変更
+              </button>
+            </div>
+            {/* 写真コメント表示（REQ-21.2） */}
+            <PhotoCommentDisplay comment={group.surveyImage.comment ?? null} />
+          </div>
+        ) : (
+          <div
+            style={{
+              ...styles.thumbnailWrapperSmall,
+              position: 'relative' as const,
+              margin: '16px',
+            }}
+            onClick={handleImageClick}
+            role="button"
+            tabIndex={0}
+            aria-label="写真を選択"
+            data-testid={`image-placeholder-${group.id}`}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleImageClick();
+              }
+            }}
+          >
             <div style={styles.placeholderIcon}>
               <ImagePlaceholderIcon />
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* 写真プレビューダイアログ（REQ-20.1, 20.2, 20.3） */}
+        {group.surveyImage && (
+          <PhotoPreviewDialog
+            isOpen={isPreviewOpen}
+            onClose={handleClosePreview}
+            image={group.surveyImage}
+          />
+        )}
 
         {items.length === 0 ? (
           <div style={styles.emptyState}>項目がありません</div>

@@ -131,13 +131,13 @@ export const SortByStatusDesc: Story = {
 };
 
 /**
- * 作成日昇順ソート
- * 作成日で昇順ソート
+ * 更新日昇順ソート
+ * 更新日で昇順ソート
  */
-export const SortByCreatedAtAsc: Story = {
+export const SortByUpdatedAtAsc: Story = {
   args: {
     projects: sampleProjects,
-    sortField: 'createdAt',
+    sortField: 'updatedAt',
     sortOrder: 'asc',
   },
 };

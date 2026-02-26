@@ -57,6 +57,10 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+vi.mock('../api/projects', () => ({
+  getProject: vi.fn().mockResolvedValue({ name: 'テストプロジェクト' }),
+}));
+
 vi.mock('../api/estimate-requests', () => ({
   getEstimateRequestDetail: vi.fn().mockResolvedValue({
     id: 'er-123',
@@ -537,6 +541,85 @@ describe('EstimateRequestDetailPage', () => {
         // 編集モーダルタイトルが表示される
         expect(screen.getByText('受領見積書の編集')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 67.3: パンくずナビゲーション改善テスト (Requirements: 29.13-29.19)
+  // ==========================================================================
+  describe('パンくずナビゲーション改善 (Task 67.3)', () => {
+    const renderPage = () => {
+      return render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    };
+
+    it('パンくず先頭に「ダッシュボード」リンク（/）が表示される（Requirements: 29.13, 29.14）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const dashboardLink = screen.getByRole('link', { name: 'ダッシュボード' });
+        expect(dashboardLink).toBeInTheDocument();
+        expect(dashboardLink).toHaveAttribute('href', '/');
+      });
+    });
+
+    it('パンくずに「プロジェクト一覧」リンク（/projects）が表示される（Requirements: 29.15）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const projectsLink = screen.getByRole('link', { name: 'プロジェクト一覧' });
+        expect(projectsLink).toBeInTheDocument();
+        expect(projectsLink).toHaveAttribute('href', '/projects');
+      });
+    });
+
+    it('パンくずにプロジェクト名がプロジェクト詳細へのリンクとして表示される（Requirements: 29.16）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const projectLink = screen.getByRole('link', { name: 'テストプロジェクト' });
+        expect(projectLink).toBeInTheDocument();
+        expect(projectLink).toHaveAttribute('href', '/projects/project-123');
+      });
+    });
+
+    it('パンくずに「見積依頼一覧」が見積依頼一覧画面へのリンクとして表示される（Requirements: 29.17）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const listLink = screen.getByRole('link', { name: '見積依頼一覧' });
+        expect(listLink).toBeInTheDocument();
+        expect(listLink).toHaveAttribute('href', '/projects/project-123/estimate-requests');
+      });
+    });
+
+    it('パンくずの最後に見積依頼名がリンクなしで表示される（Requirements: 29.18）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        expect(nav).toHaveTextContent('テスト見積依頼');
+        // 「テスト見積依頼」はリンクではない
+        const links = nav.querySelectorAll('a');
+        const detailLink = Array.from(links).find((link) => link.textContent === 'テスト見積依頼');
+        expect(detailLink).toBeUndefined();
+      });
+    });
+
+    it('「← 見積依頼一覧に戻る」リンクが存在しない（Requirements: 29.19）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト見積依頼' })).toBeInTheDocument();
+      });
+
+      // 「← 見積依頼一覧に戻る」リンクが存在しないことを確認
+      expect(screen.queryByRole('link', { name: /見積依頼一覧に戻る/i })).not.toBeInTheDocument();
     });
   });
 });

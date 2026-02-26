@@ -227,7 +227,7 @@ sequenceDiagram
 | 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7 | 内訳項目のフィルタリング | ItemizedStatementDetailPage | filterParams | - |
 | 7.1, 7.2, 7.3, 7.4 | 内訳書の削除 | ItemizedStatementDetailPage, ItemizedStatementService | DELETE /itemized-statements/:id | - |
 | 8.1, 8.2, 8.3, 8.4 | スナップショット独立性 | ItemizedStatementService | ItemizedStatementItem | - |
-| 9.1, 9.2, 9.3, 9.4, 9.5, 9.6 | パンくずナビゲーション | ItemizedStatementDetailPage, ItemizedStatementCreatePage, Breadcrumb | - | - |
+| 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 | パンくずナビゲーション | ItemizedStatementListPage, ItemizedStatementDetailPage, ItemizedStatementCreatePage, Breadcrumb | - | - |
 | 10.1, 10.2, 10.3, 10.4 | 楽観的排他制御 | ItemizedStatementService | updatedAt | - |
 | 11.1, 11.2, 11.3, 11.4, 11.5, 11.6 | プロジェクト詳細画面への統合 | ItemizedStatementSectionCard | - | - |
 | 12.1, 12.2, 12.3, 12.4, 12.5 | ローディング表示 | 全UI Components | isLoading state | - |
@@ -245,7 +245,7 @@ sequenceDiagram
 | ItemizedStatementCreatePage | Frontend/Page | 内訳書新規作成画面 | 15 | CreateItemizedStatementForm (P0), quantity-tables API (P1) | State |
 | CreateItemizedStatementForm | Frontend/UI | 内訳書作成フォーム | 1, 15 | quantity-tables API (P1) | State |
 | ItemizedStatementSectionCard | Frontend/UI | プロジェクト詳細画面の内訳書セクション | 1.8, 3, 11 | - | - |
-| ItemizedStatementListPage | Frontend/Page | 内訳書一覧画面 | 3, 15.8, 15.9 | itemized-statements API (P0) | State |
+| ItemizedStatementListPage | Frontend/Page | 内訳書一覧画面 | 3, 9.1, 15.8, 15.9 | itemized-statements API (P0) | State |
 | ItemizedStatementDetailPage | Frontend/UI | 内訳書詳細・削除・ソート・フィルタ・出力 | 4, 5, 6, 7, 9, 12, 13, 14 | xlsx (P0), useToast (P1) | State |
 | exportToExcel | Frontend/Utility | Excelファイル生成・ダウンロード | 13 | xlsx (P0) | Function |
 | copyToClipboard | Frontend/Utility | タブ区切りテキストのクリップボードコピー | 14 | Clipboard API (P0) | Function |
@@ -445,13 +445,13 @@ class ItemizedStatementPivotService {
 | Field | Detail |
 |-------|--------|
 | Intent | 内訳書新規作成画面（専用ページ） |
-| Requirements | 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 9.5, 9.6 |
+| Requirements | 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 9.1, 9.2 |
 
 **Responsibilities & Constraints**
 - 内訳書名入力フィールド（デフォルト値「内訳書」）
 - 数量表選択リスト
 - 作成/キャンセルボタン
-- パンくずナビゲーション（プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成）
+- パンくずナビゲーション（ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > 新規作成）
 - プロジェクト詳細画面への戻りリンク
 - SiteSurveyCreatePage、QuantityTableCreatePageと同様のレイアウト
 
@@ -585,10 +585,11 @@ interface ItemizedStatementSectionCardProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 内訳書一覧画面（専用ページ） |
-| Requirements | 3.2-3.6, 15.8, 15.9 |
+| Requirements | 3.2-3.6, 9.1, 15.8, 15.9 |
 
 **Responsibilities & Constraints**
 - 作成済み内訳書を作成日時の降順で一覧表示
+- パンくずナビゲーション（ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧）
 - 数量表有無に応じた条件分岐表示:
   - 数量表なし: 「まず数量表を作成してください」（新規作成ボタン非表示）
   - 数量表あり・内訳書なし: 「内訳書はまだありません」（新規作成ボタン表示）
@@ -598,19 +599,21 @@ interface ItemizedStatementSectionCardProps {
 **Dependencies**
 - Outbound: itemized-statements API — 内訳書一覧取得 (P0)
 - Outbound: quantity-tables API — 数量表一覧取得 (P1)
+- Outbound: Breadcrumb — ナビゲーション表示 (P1)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
 **Implementation Notes**
 - Integration: 新規作成ボタンは`/projects/${projectId}/itemized-statements/new`へのLinkとして実装
 - 変更点: インライン作成フォームから専用作成画面へのナビゲーションに変更
+- パンくず: ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧
 
 #### ItemizedStatementDetailPage
 
 | Field | Detail |
 |-------|--------|
 | Intent | 内訳書詳細表示、ソート、フィルタリング、削除、Excel出力、クリップボードコピー |
-| Requirements | 4.1-4.9, 5.1-5.5, 6.1-6.7, 7.1-7.4, 9.1-9.4, 12.1-12.5, 13.1-13.8, 14.1-14.8 |
+| Requirements | 4.1-4.9, 5.1-5.5, 6.1-6.7, 7.1-7.4, 9.3-9.7, 12.1-12.5, 13.1-13.8, 14.1-14.8 |
 
 **Responsibilities & Constraints**
 - テーブル形式での項目表示（任意分類、工種、名称、規格、数量、単位の順）
@@ -811,7 +814,7 @@ async function copyToClipboard(options: CopyToClipboardOptions): Promise<CopyToC
 ```typescript
 // 内訳書新規作成画面（/projects/:projectId/itemized-statements より先に定義する必要あり）
 // REQ-15.1: 内訳書新規作成画面を独立したページとして提供する
-// REQ-9.5, 9.6: パンくずナビゲーション「プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成」
+// REQ-9.2: パンくずナビゲーション「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > 新規作成」
 {
   path: '/projects/:projectId/itemized-statements/new',
   element: <ItemizedStatementCreatePage />,

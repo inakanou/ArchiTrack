@@ -182,9 +182,9 @@ describe('SiteSurveyDetailPage', () => {
       const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       expect(breadcrumb).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'ダッシュボード' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'プロジェクト' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'テストプロジェクト' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: '現場調査' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '現場調査一覧' })).toBeInTheDocument();
     });
 
     it('写真管理パネルを表示する', async () => {
@@ -307,7 +307,7 @@ describe('SiteSurveyDetailPage', () => {
         expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
       });
 
-      const surveyListLink = screen.getByRole('link', { name: '現場調査' });
+      const surveyListLink = screen.getByRole('link', { name: '現場調査一覧' });
       expect(surveyListLink).toHaveAttribute('href', '/projects/project-456/site-surveys');
     });
   });
@@ -931,7 +931,7 @@ describe('SiteSurveyDetailPage', () => {
   describe('画像アップロード機能', () => {
     beforeEach(() => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
-      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue([]);
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({ results: [], errors: [] });
     });
 
     it('編集権限がある場合、画像アップロードUIが表示される', async () => {
@@ -1227,7 +1227,7 @@ describe('SiteSurveyDetailPage', () => {
           if (options?.onProgress) {
             options.onProgress({ completed: 1, total: 2, current: 1, results: [], errors: [] });
           }
-          return [];
+          return { results: [], errors: [] };
         }
       );
 
@@ -1242,13 +1242,20 @@ describe('SiteSurveyDetailPage', () => {
     });
 
     it('画像アップロード成功時にデータが再取得され進捗が更新される', async () => {
+      const uploadedImage = { ...(mockImages[0] as SurveyImageInfo) };
       vi.mocked(surveyImagesApi.uploadSurveyImages).mockImplementation(
         async (_id, _files, options) => {
           // プログレスコールバックをシミュレート
           if (options?.onProgress) {
-            options.onProgress({ completed: 1, total: 1, current: 1, results: [], errors: [] });
+            options.onProgress({
+              completed: 1,
+              total: 1,
+              current: 1,
+              results: [uploadedImage],
+              errors: [],
+            });
           }
-          return [];
+          return { results: [uploadedImage], errors: [] };
         }
       );
 
@@ -1639,6 +1646,113 @@ describe('SiteSurveyDetailPage', () => {
           expect(screen.getAllByTestId('photo-panel-item')).toHaveLength(1);
         });
       });
+    });
+  });
+
+  // ============================================================================
+  // Task 48.2: アップロードエラー表示テスト
+  // Requirements: 19.11, 19.13, 19.14, 19.15, 19.16
+  // ============================================================================
+  describe('アップロードエラー表示 (Task 48.2, Requirement 19)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    });
+
+    it('部分成功時にエラーメッセージを表示する - Requirement 19.11, 19.13', async () => {
+      // uploadSurveyImagesが部分失敗の結果を返すようにモック
+      // サーバーサイドでマジックバイト検証が失敗するケースをシミュレート
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+        results: [{ ...(mockImages[0] as SurveyImageInfo) }],
+        errors: [
+          {
+            index: 1,
+            fileName: 'corrupted.jpg',
+            error: 'サポートされていないファイル形式です: MIMEタイプと一致しません',
+          },
+        ],
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      // ファイル選択をシミュレート（フロントエンドバリデーションを通過するJPEGファイルのみ）
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(fileInput).toBeTruthy();
+
+      const file1 = new File(['valid-content'], 'photo.jpg', { type: 'image/jpeg' });
+      const file2 = new File(['corrupted-content'], 'corrupted.jpg', { type: 'image/jpeg' });
+      Object.defineProperty(fileInput, 'files', { value: [file1, file2] });
+      fireEvent.change(fileInput);
+
+      // uploadSurveyImagesが呼ばれた後、エラーメッセージが表示されることを確認
+      await waitFor(
+        () => {
+          expect(surveyImagesApi.uploadSurveyImages).toHaveBeenCalled();
+        },
+        { timeout: 3000 }
+      );
+
+      // エラーメッセージが表示されることを確認
+      await waitFor(
+        () => {
+          const alerts = screen.getAllByRole('alert');
+          // エラーメッセージ内に部分成功と失敗の情報が含まれる
+          const uploadError = alerts.find((el) =>
+            el.textContent?.includes('アップロードに失敗しました')
+          );
+          expect(uploadError).toBeTruthy();
+        },
+        { timeout: 3000 }
+      );
+    });
+
+    it('全件成功時にエラーメッセージを表示しない - Requirement 19.16', async () => {
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+        results: [
+          { ...(mockImages[0] as SurveyImageInfo) },
+          { ...(mockImages[1] as SurveyImageInfo) },
+        ],
+        errors: [],
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      // ファイル選択をシミュレート（全てJPEG）
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(fileInput).toBeTruthy();
+
+      const file1 = new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' });
+      const file2 = new File(['content2'], 'photo2.jpg', { type: 'image/jpeg' });
+      Object.defineProperty(fileInput, 'files', { value: [file1, file2] });
+      fireEvent.change(fileInput);
+
+      // uploadSurveyImagesが呼ばれることを確認
+      await waitFor(
+        () => {
+          expect(surveyImagesApi.uploadSurveyImages).toHaveBeenCalled();
+        },
+        { timeout: 3000 }
+      );
+
+      // データ再取得が完了するのを待つ
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurvey).toHaveBeenCalledTimes(2);
+      });
+
+      // エラーメッセージが表示されていないことを確認
+      // 画像セクション内のアップロードエラー用alertが存在しないことを検証
+      const alerts = screen.queryAllByRole('alert');
+      const uploadErrorAlert = alerts.find((el) =>
+        el.textContent?.includes('アップロードに失敗しました')
+      );
+      expect(uploadErrorAlert).toBeUndefined();
     });
   });
 });

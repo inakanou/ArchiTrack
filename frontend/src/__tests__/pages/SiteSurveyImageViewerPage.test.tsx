@@ -153,9 +153,9 @@ describe('SiteSurveyImageViewerPage', () => {
       const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       expect(breadcrumb).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'ダッシュボード' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'プロジェクト' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'テストプロジェクト' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: '現場調査' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '現場調査一覧' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'テスト現場調査' })).toBeInTheDocument();
     });
 
@@ -173,7 +173,7 @@ describe('SiteSurveyImageViewerPage', () => {
       expect(editor).toBeInTheDocument();
     });
 
-    it('現場調査に戻るリンクを表示する', async () => {
+    it('「← 現場調査に戻る」リンクが表示されないこと (Requirement 2.12)', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
 
       renderComponent();
@@ -182,8 +182,7 @@ describe('SiteSurveyImageViewerPage', () => {
         expect(screen.getByRole('heading', { name: 'image1.jpg' })).toBeInTheDocument();
       });
 
-      const backLink = screen.getByRole('link', { name: /現場調査に戻る/ });
-      expect(backLink).toHaveAttribute('href', '/site-surveys/survey-123');
+      expect(screen.queryByRole('link', { name: /現場調査に戻る/ })).not.toBeInTheDocument();
     });
   });
 
@@ -230,7 +229,7 @@ describe('SiteSurveyImageViewerPage', () => {
         expect(screen.getByText(/画像.*見つかりません/)).toBeInTheDocument();
       });
 
-      expect(screen.getByRole('link', { name: '現場調査に戻る' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '前の画面に戻る' })).toBeInTheDocument();
     });
 
     it('画像が見つからない場合にResourceNotFoundを表示する', async () => {
@@ -272,7 +271,7 @@ describe('SiteSurveyImageViewerPage', () => {
   });
 
   describe('ナビゲーション', () => {
-    it('戻るリンククリックで現場調査詳細ページに遷移する', async () => {
+    it('ブレッドクラムのナビゲーションが表示されること（Requirements 2.8, 2.9）', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
 
       renderComponent();
@@ -281,10 +280,9 @@ describe('SiteSurveyImageViewerPage', () => {
         expect(screen.getByRole('heading', { name: 'image1.jpg' })).toBeInTheDocument();
       });
 
-      const backLink = screen.getByRole('link', { name: /現場調査に戻る/ });
-      fireEvent.click(backLink);
-
-      expect(mockNavigate).toHaveBeenCalledWith('/site-surveys/survey-123');
+      // ブレッドクラムの現場調査リンクから詳細ページに遷移できること
+      const surveyLink = screen.getByRole('link', { name: 'テスト現場調査' });
+      expect(surveyLink).toHaveAttribute('href', '/site-surveys/survey-123');
     });
   });
 
@@ -330,6 +328,30 @@ describe('SiteSurveyImageViewerPage', () => {
         'aria-pressed',
         'false'
       );
+    });
+  });
+
+  describe('注釈表示 (Requirement 20.1)', () => {
+    it('閲覧モード（デフォルト）でAnnotationEditorがreadOnlyで注釈を表示すること', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'image1.jpg' })).toBeInTheDocument();
+      });
+
+      // AnnotationEditorが表示されていること
+      const editor = screen.getByTestId('annotation-editor');
+      expect(editor).toBeInTheDocument();
+      // 正しい画像URLとIDが渡されていること
+      expect(editor).toHaveAttribute('data-image-url', 'https://example.com/signed/img1.jpg');
+      expect(editor).toHaveAttribute('data-image-id', 'img-1');
+      expect(editor).toHaveAttribute('data-survey-id', 'survey-123');
+
+      // 編集モードボタンがaria-pressed=falseであること（閲覧モード）
+      const editButton = screen.getByRole('button', { name: '編集モード' });
+      expect(editButton).toHaveAttribute('aria-pressed', 'false');
     });
   });
 

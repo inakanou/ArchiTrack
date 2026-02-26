@@ -72,12 +72,18 @@ export interface QuantityGroupInfo {
 
 /**
  * 現場調査画像サマリー
+ *
+ * Requirements: 3.3, 4.2, 21.1
  */
 export interface SurveyImageSummary {
   id: string;
   thumbnailUrl: string;
   originalUrl: string;
   fileName: string;
+  /** 注釈付きサムネイルURL（REQ-3.3, 4.2, 19.2, 20.2） */
+  annotatedThumbnailUrl: string | null;
+  /** 写真コメント（REQ-21.1, 21.2） */
+  comment: string | null;
 }
 
 /**
@@ -363,7 +369,9 @@ export class QuantityTableService {
                 id: true,
                 thumbnailPath: true,
                 originalPath: true,
+                annotatedThumbnailPath: true,
                 fileName: true,
+                comment: true,
               },
             },
             items: {
@@ -1051,7 +1059,9 @@ export class QuantityTableService {
         id: string;
         thumbnailPath: string;
         originalPath: string;
+        annotatedThumbnailPath: string | null;
         fileName: string;
+        comment: string | null;
       } | null;
       items: Array<{
         id: string;
@@ -1089,6 +1099,10 @@ export class QuantityTableService {
             thumbnailUrl: `/api/storage/${g.surveyImage.thumbnailPath}`,
             originalUrl: `/api/storage/${g.surveyImage.originalPath}`,
             fileName: g.surveyImage.fileName,
+            annotatedThumbnailUrl: g.surveyImage.annotatedThumbnailPath
+              ? `/api/storage/${g.surveyImage.annotatedThumbnailPath}`
+              : null,
+            comment: g.surveyImage.comment ?? null,
           }
         : null,
       displayOrder: g.displayOrder,

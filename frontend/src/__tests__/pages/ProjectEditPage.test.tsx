@@ -155,14 +155,14 @@ describe('ProjectEditPage', () => {
   // ========================================================================
 
   describe('パンくずナビゲーション', () => {
-    it('「ダッシュボード > プロジェクト > [プロジェクト名] > 編集」のパンくずを表示する', async () => {
+    it('「ダッシュボード > プロジェクト一覧 > [プロジェクト名] > 編集」のパンくずを表示する', async () => {
       renderProjectEditPage();
 
       await waitFor(() => {
         expect(screen.getByText('ダッシュボード')).toBeInTheDocument();
       });
 
-      expect(screen.getByText('プロジェクト')).toBeInTheDocument();
+      expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
       expect(screen.getByText('テストプロジェクト')).toBeInTheDocument();
       expect(screen.getByText('編集')).toBeInTheDocument();
     });
@@ -176,11 +176,11 @@ describe('ProjectEditPage', () => {
       });
     });
 
-    it('プロジェクトリンクは /projects へ遷移可能', async () => {
+    it('プロジェクト一覧リンクは /projects へ遷移可能', async () => {
       renderProjectEditPage();
 
       await waitFor(() => {
-        const projectsLink = screen.getByRole('link', { name: 'プロジェクト' });
+        const projectsLink = screen.getByRole('link', { name: 'プロジェクト一覧' });
         expect(projectsLink).toHaveAttribute('href', '/projects');
       });
     });

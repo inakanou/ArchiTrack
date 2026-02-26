@@ -310,7 +310,7 @@ sequenceDiagram
 | 12.1-12.6 | 見積項目操作 | EstimateItemTable, EstimateItemRow, EstimateItemService | /api/estimates/:id/items/* | 項目操作 |
 | 13.1-13.6 | データ検証 | バリデーションスキーマ, EstimateCalculationService | 全API | バリデーション |
 | 14.1-14.10 | 画面構成 | EstimateListPage, EstimateDetailPage, EstimateCard | GET /api/projects/:id/estimates, GET /api/estimates/:id | 画面遷移 |
-| 15.1-15.8 | パンくずナビゲーション | Breadcrumb（共通コンポーネント利用）, EstimateListPage, EstimateDetailPage | - | ナビゲーション |
+| 15.1-15.12 | パンくずナビゲーション | Breadcrumb（共通コンポーネント利用）, EstimateListPage, EstimateCreatePage, EstimateDetailPage | - | ナビゲーション |
 | 16.1-16.13 | プロジェクト詳細画面の見積書セクション | EstimateSectionCard, ProjectDetailPage | GET /api/projects/:id/estimates/latest | セクション表示 |
 
 ## Components and Interfaces
@@ -329,8 +329,8 @@ sequenceDiagram
 | EstimateCalculator | Frontend | クライアントサイド金額計算 | 1.3, 2.3, 13.6 | Decimal.js (P0) | Utility |
 | useEstimateEditor | Frontend | 見積書編集状態管理フック | All edit reqs | EstimateCalculator (P0), React (P0) | State |
 | EstimateListPage | Frontend | 見積書一覧画面 | 14.1-14.7 | EstimateCard (P0), Breadcrumb (P0), PaginationUI (P0) | State |
-| EstimateCreatePage | Frontend | 見積書作成画面 | 3.1-3.5 | ItemizedStatementSelect (P1), Breadcrumb (P0) | - |
-| EstimateDetailPage | Frontend | 見積書詳細画面 | 14.8-14.10, 15.4-15.8 | EstimateItemTable (P0), Panels (P0), Breadcrumb (P0) | State |
+| EstimateCreatePage | Frontend | 見積書作成画面 | 3.1-3.5, 15.5-15.7, 15.11 | ItemizedStatementSelect (P1), Breadcrumb (P0) | - |
+| EstimateDetailPage | Frontend | 見積書詳細画面 | 14.8-14.10, 15.8-15.11 | EstimateItemTable (P0), Panels (P0), Breadcrumb (P0) | State |
 | EstimateCard | Frontend | 見積書カード表示 | 14.3-14.4, 16.4-16.6 | - | - |
 | EstimateSectionCard | Frontend | プロジェクト詳細画面の見積書セクション | 16.1-16.13 | EstimateCard (P0) | State |
 | EstimateItemTable | Frontend | 見積項目テーブル | 1.1-1.6, 2.1-2.6 | EstimateItemRow (P0) | State |
@@ -940,14 +940,15 @@ interface OverheadCostPanelProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 見積書一覧画面: プロジェクトに紐付く見積書の一覧表示とナビゲーション |
-| Requirements | 14.1-14.7, 15.1-15.3 |
+| Requirements | 14.1-14.7, 15.1-15.4, 15.11, 15.12 |
 
 **Responsibilities & Constraints**
 - プロジェクトに紐付く見積書一覧をカード形式で表示
 - 見積書名、作成日時、合計金額の表示
 - ページネーション機能の提供
 - 見積書が存在しない場合の空状態表示
-- パンくずナビゲーション（プロジェクト一覧 > プロジェクト詳細 > 見積書一覧）
+- パンくずナビゲーション（ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧）
+- 「← プロジェクト詳細に戻る」リンクを表示しない
 
 **Dependencies**
 - Inbound: ProjectDetailPage — プロジェクト詳細からの遷移 (P0)
@@ -978,6 +979,8 @@ interface EstimateInfo {
 
 **Implementation Notes**
 - パンくずナビゲーションは既存のBreadcrumbコンポーネントを使用（`frontend/src/components/common/Breadcrumb.tsx`）
+- パンくず構成: ダッシュボード(`/`) > プロジェクト一覧(`/projects`) > プロジェクト(`/projects/:projectId`) > 見積書一覧（現在位置）
+- 「← プロジェクト詳細に戻る」リンクは削除（パンくずナビで代替）
 - ルーティング: `/projects/:projectId/estimates`
 - EstimateRequestListPageのパターンを踏襲
 
@@ -1071,12 +1074,13 @@ interface EstimateInfo {
 | Field | Detail |
 |-------|--------|
 | Intent | 見積書詳細画面: 見積書の詳細情報と編集機能を提供（パンくずナビゲーション対応） |
-| Requirements | 14.8-14.10, 15.4-15.8 |
+| Requirements | 14.8-14.10, 15.8-15.11 |
 
 **Responsibilities & Constraints**
 - 見積書の詳細情報（見積項目一覧、合計金額等）を表示
 - 編集・削除・出力ボタンを提供
-- パンくずナビゲーション（プロジェクト一覧 > プロジェクト詳細 > 見積書一覧 > [見積書名]）
+- パンくずナビゲーション（ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書）
+- 「← 見積書一覧に戻る」リンクを表示しない
 
 **Dependencies**
 - Inbound: EstimateListPage — 見積書一覧からの遷移 (P0)
@@ -1092,16 +1096,39 @@ interface EstimateInfo {
 ```typescript
 // EstimateDetailPageのパンくず設定
 const breadcrumbItems = [
+  { label: 'ダッシュボード', path: '/' },
   { label: 'プロジェクト一覧', path: '/projects' },
-  { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+  { label: 'プロジェクト', path: `/projects/${estimate.projectId}` },
+  { label: '見積書一覧', path: `/projects/${estimate.projectId}/estimates` },
+  { label: '見積書' } // 現在位置（リンクなし）
+];
+```
+
+```typescript
+// EstimateCreatePageのパンくず設定
+const breadcrumbItems = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト一覧', path: '/projects' },
+  { label: 'プロジェクト', path: `/projects/${projectId}` },
   { label: '見積書一覧', path: `/projects/${projectId}/estimates` },
-  { label: estimate.name } // 現在位置（リンクなし）
+  { label: '新規作成' } // 現在位置（リンクなし）
+];
+```
+
+```typescript
+// EstimateListPageのパンくず設定
+const breadcrumbItems = [
+  { label: 'ダッシュボード', path: '/' },
+  { label: 'プロジェクト一覧', path: '/projects' },
+  { label: 'プロジェクト', path: `/projects/${projectId}` },
+  { label: '見積書一覧' } // 現在位置（リンクなし）
 ];
 ```
 
 **Implementation Notes**
 - ルーティング: `/estimates/:id`
 - パンくずは既存のBreadcrumbコンポーネントを使用
+- 全3画面（一覧・新規作成・詳細）で「← 戻る」リンクを削除
 - EstimateRequestDetailPageのパンくず実装を参照
 
 ### Backend Extensions (Requirements 16)
