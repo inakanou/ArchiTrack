@@ -262,10 +262,6 @@ export interface ProjectFilter {
   search?: string;
   /** ステータスフィルタ（複数指定可） */
   status?: ProjectStatus[];
-  /** 作成日開始（ISO8601形式） */
-  createdFrom?: string;
-  /** 作成日終了（ISO8601形式） */
-  createdTo?: string;
   /** 取引先ID（UUID） */
   tradingPartnerId?: string;
   /**

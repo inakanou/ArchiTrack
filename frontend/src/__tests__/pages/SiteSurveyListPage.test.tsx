@@ -144,7 +144,7 @@ describe('SiteSurveyListPage', () => {
       renderWithRouter('/projects/project-123/site-surveys');
 
       await waitFor(() => {
-        const projectsLink = screen.getByRole('link', { name: 'プロジェクト' });
+        const projectsLink = screen.getByRole('link', { name: 'プロジェクト一覧' });
         expect(projectsLink).toBeInTheDocument();
         expect(projectsLink).toHaveAttribute('href', '/projects');
       });
@@ -160,7 +160,7 @@ describe('SiteSurveyListPage', () => {
       });
     });
 
-    it('現在のページ「現場調査」がリンクなしで表示されること', async () => {
+    it('現在のページ「現場調査一覧」がリンクなしで表示されること', async () => {
       renderWithRouter('/projects/project-123/site-surveys');
 
       await waitFor(() => {
@@ -169,8 +169,8 @@ describe('SiteSurveyListPage', () => {
         expect(nav).toBeInTheDocument();
       });
 
-      // 現在のページはリンクではない（ブレッドクラム内に「現場調査」リンクがないこと）
-      expect(screen.queryByRole('link', { name: '現場調査' })).not.toBeInTheDocument();
+      // 現在のページはリンクではない（ブレッドクラム内に「現場調査一覧」リンクがないこと）
+      expect(screen.queryByRole('link', { name: '現場調査一覧' })).not.toBeInTheDocument();
     });
 
     it('aria-current="page"が現在のページに設定されていること', async () => {
@@ -182,17 +182,17 @@ describe('SiteSurveyListPage', () => {
         // ナビゲーション内でaria-current="page"を持つ要素を検索
         const currentItem = nav.querySelector('[aria-current="page"]');
         expect(currentItem).toBeInTheDocument();
-        expect(currentItem).toHaveTextContent('現場調査');
+        expect(currentItem).toHaveTextContent('現場調査一覧');
       });
     });
   });
 
   describe('ページコンテンツ', () => {
-    it('ページタイトルが表示されること', async () => {
+    it('ページタイトルが「現場調査一覧」で表示されること（Requirements 2.11）', async () => {
       renderWithRouter('/projects/project-123/site-surveys');
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: /現場調査/i })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: '現場調査一覧' })).toBeInTheDocument();
       });
     });
 

@@ -229,9 +229,10 @@ describe('EstimateListPage', () => {
   });
 
   /**
-   * REQ-15.1-15.3: パンくずナビゲーション
+   * REQ-15.1-15.4, REQ-15.11, REQ-15.12: パンくずナビゲーション（Task 43.1更新）
+   * パンくず: ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧
    */
-  it('パンくずナビゲーションを表示する', async () => {
+  it('パンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧」形式で表示する', async () => {
     vi.mocked(estimatesApi.getEstimates).mockResolvedValue({
       data: mockEstimates,
       pagination: mockPagination,
@@ -250,12 +251,50 @@ describe('EstimateListPage', () => {
       expect(screen.getByTestId('estimate-list-page')).toBeInTheDocument();
     });
 
-    // パンくずアイテムの確認
+    // パンくずナビゲーションが存在すること
+    const breadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+    expect(breadcrumb).toBeInTheDocument();
+
+    // パンくずアイテムの確認（ダッシュボード起点）
+    expect(screen.getByText('ダッシュボード')).toBeInTheDocument();
     expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
-    expect(screen.getByText('プロジェクト詳細')).toBeInTheDocument();
+    // 「プロジェクト」はexactマッチで確認（「プロジェクト一覧」と区別）
+    const breadcrumbItems = breadcrumb.querySelectorAll('li');
+    const labels = Array.from(breadcrumbItems).map((li) =>
+      li.textContent?.replace(/^>\s*/, '').trim()
+    );
+    expect(labels).toContain('プロジェクト');
     // 見積書一覧は現在ページなのでaria-current="page"の要素として表示される
-    const currentBreadcrumb = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
-    expect(currentBreadcrumb).toBeInTheDocument();
+    expect(labels).toContain('見積書一覧');
+
+    // 「プロジェクト詳細」ラベルが存在しないこと
+    expect(labels).not.toContain('プロジェクト詳細');
+  });
+
+  /**
+   * REQ-15.12: 「← プロジェクト詳細に戻る」リンクが存在しないこと（Task 43.1）
+   */
+  it('「← プロジェクト詳細に戻る」リンクが存在しない', async () => {
+    vi.mocked(estimatesApi.getEstimates).mockResolvedValue({
+      data: mockEstimates,
+      pagination: mockPagination,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/projects/proj-001/estimates']}>
+        <Routes>
+          <Route path="/projects/:projectId/estimates" element={<EstimateListPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-list-page')).toBeInTheDocument();
+    });
+
+    // 「← プロジェクト詳細に戻る」リンクが存在しないこと
+    expect(screen.queryByText('← プロジェクト詳細に戻る')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('プロジェクト詳細に戻る')).not.toBeInTheDocument();
   });
 
   /**

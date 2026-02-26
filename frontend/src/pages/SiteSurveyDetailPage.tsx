@@ -507,16 +507,20 @@ export default function SiteSurveyDetailPage() {
    *
    * ImageUploaderからバリデーション済みファイルを受け取り、
    * 現場調査に画像をアップロードします。
+   *
+   * Task 46.2: バッチアップロードエラーをユーザーに通知
+   * Requirements: 19.11, 19.13, 19.14, 19.15, 19.16
    */
   const handleImageUpload = useCallback(
     async (files: File[]) => {
       if (!id) return;
 
       setIsUploading(true);
+      setError(null);
       setUploadProgress({ completed: 0, total: files.length, current: 0 });
 
       try {
-        await uploadSurveyImages(id, files, {
+        const { results, errors } = await uploadSurveyImages(id, files, {
           onProgress: (progress) => {
             setUploadProgress({
               completed: progress.completed,
@@ -526,8 +530,42 @@ export default function SiteSurveyDetailPage() {
           },
         });
 
-        // アップロード完了後、データを再取得して画像一覧を更新
-        await fetchData();
+        // 成功した画像がある場合、データを再取得して画像一覧を更新
+        // fetchData内でsetError(null)が呼ばれるため、エラーメッセージ設定前に実行する
+        if (results.length > 0) {
+          await fetchData();
+        }
+
+        // エラーがある場合、ユーザーに通知 (Requirement 19.11)
+        // fetchDataの後に設定することで、fetchData内のsetError(null)で上書きされることを防ぐ
+        if (errors.length > 0) {
+          const successCount = results.length;
+          const errorCount = errors.length;
+
+          // エラーメッセージ生成
+          const errorDetails = errors
+            .map((err) => {
+              // エラーカテゴリ判定 (Requirement 19.14, 19.15)
+              const isFileTypeError =
+                err.error.includes('サポートされていないファイル形式') ||
+                err.error.includes('MIMEタイプと一致しません');
+              const reason = isFileTypeError
+                ? 'サポートされていないファイル形式'
+                : 'サーバーエラー';
+              return `${err.fileName}: ${reason}`;
+            })
+            .join('\n');
+
+          if (successCount > 0) {
+            // 部分成功 (Requirement 19.13)
+            setError(
+              `${successCount}件のアップロードに成功しました。${errorCount}件のアップロードに失敗しました。\n${errorDetails}`
+            );
+          } else {
+            // 全件失敗 (Requirement 19.14)
+            setError(`全${errorCount}件のアップロードに失敗しました。\n${errorDetails}`);
+          }
+        }
       } finally {
         setIsUploading(false);
         setUploadProgress(undefined);
@@ -622,6 +660,23 @@ export default function SiteSurveyDetailPage() {
               uploadProgress={uploadProgress}
               compact={true}
             />
+          </div>
+        )}
+
+        {/* アップロードエラー表示 (Task 46.2, Requirements 19.11, 19.13, 19.14, 19.15) */}
+        {error && (
+          <div
+            role="alert"
+            style={{
+              backgroundColor: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '8px',
+              padding: '16px',
+              marginBottom: '16px',
+              whiteSpace: 'pre-line',
+            }}
+          >
+            <p style={{ color: '#991b1b', fontSize: '14px', margin: 0 }}>{error}</p>
           </div>
         )}
 

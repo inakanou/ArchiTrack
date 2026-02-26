@@ -239,8 +239,6 @@ describe('ProjectSearchFilter スクリーンリーダー対応', () => {
   const defaultFilter: ProjectFilter = {
     search: '',
     status: [],
-    createdFrom: undefined,
-    createdTo: undefined,
   };
   const mockOnFilterChange = vi.fn();
 
@@ -263,17 +261,11 @@ describe('ProjectSearchFilter スクリーンリーダー対応', () => {
       expect(statusSelect).toHaveAttribute('aria-label', 'ステータスフィルタ');
     });
 
-    it('日付フィルタにaria-label属性が設定されている', () => {
+    it('日付フィルタは表示されない（Task 56.3で削除）', () => {
       render(<ProjectSearchFilter filter={defaultFilter} onFilterChange={mockOnFilterChange} />);
 
-      expect(screen.getByLabelText('作成日（開始）')).toHaveAttribute(
-        'aria-label',
-        '作成日（開始）'
-      );
-      expect(screen.getByLabelText('作成日（終了）')).toHaveAttribute(
-        'aria-label',
-        '作成日（終了）'
-      );
+      expect(screen.queryByLabelText('作成日（開始）')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('作成日（終了）')).not.toBeInTheDocument();
     });
 
     it('検索ボタンにaria-label属性が設定されている', () => {

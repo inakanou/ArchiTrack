@@ -80,6 +80,10 @@ export interface SurveyImageInfo {
   includeInReport?: boolean;
   /** 中解像度画像URL（署名付きURL、800x600程度） */
   mediumUrl?: string | null;
+  /** 注釈付きサムネイルURL（署名付きURL、要件20.4対応） */
+  annotatedThumbnailUrl?: string | null;
+  /** 注釈付きサムネイルのR2パス（要件20.4対応） */
+  annotatedThumbnailPath?: string | null;
   /** 注釈の有無 */
   hasAnnotations?: boolean;
   /** 注釈データ（注釈が存在する場合） */
@@ -106,6 +110,10 @@ export interface SiteSurveyInfo {
   thumbnailImageId?: string | null;
   /** サムネイル元画像URL（注釈レンダリング用、存在しない場合はnull） */
   thumbnailOriginalUrl?: string | null;
+  /** 代表画像の注釈付きサムネイルURL（要件20.3対応） */
+  annotatedThumbnailUrl?: string | null;
+  /** 代表画像ID（AnnotatedImageThumbnailフォールバック用、要件20.3対応） */
+  representativeImageId?: string | null;
   /** 画像件数 */
   imageCount: number;
   /** 作成日時（ISO8601形式） */
@@ -430,6 +438,23 @@ export interface BatchUploadError {
   fileName: string;
   /** エラーメッセージ */
   error: string;
+}
+
+/**
+ * バッチアップロード結果
+ *
+ * 成功結果（SurveyImageInfo配列）とエラー情報（BatchUploadError配列）を含む。
+ * uploadSurveyImages関数の戻り値型として使用される。
+ *
+ * Requirements: 19.10, 19.12, 19.16
+ *
+ * Task 46.1: BatchUploadResult型を定義
+ */
+export interface BatchUploadResult {
+  /** 成功した画像情報の配列 */
+  results: SurveyImageInfo[];
+  /** エラー情報の配列 */
+  errors: BatchUploadError[];
 }
 
 /**

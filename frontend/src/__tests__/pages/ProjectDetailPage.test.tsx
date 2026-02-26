@@ -185,7 +185,7 @@ describe('ProjectDetailPage', () => {
       expect(screen.getByText('未割当')).toBeInTheDocument();
     });
 
-    it('作成日時と更新日時を表示する', async () => {
+    it('作成日時と更新日時は非表示（Task 53.4で削除）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -194,11 +194,9 @@ describe('ProjectDetailPage', () => {
         ).toBeInTheDocument();
       });
 
-      // 日付ラベルを確認
-      expect(screen.getByText('作成日時')).toBeInTheDocument();
-      expect(screen.getByText('更新日時')).toBeInTheDocument();
-      // 日付値が表示されていることを確認（ステータス履歴にも日付があるので複数）
-      expect(screen.getAllByText(/2025/).length).toBeGreaterThanOrEqual(2);
+      // Task 53.4: 作成日時・更新日時フィールドは削除済み
+      expect(screen.queryByText('作成日時')).not.toBeInTheDocument();
+      expect(screen.queryByText('更新日時')).not.toBeInTheDocument();
     });
 
     it('ローディングインジケータを表示する', () => {
@@ -448,7 +446,7 @@ describe('ProjectDetailPage', () => {
   // ==========================================================================
 
   describe('ナビゲーション', () => {
-    it('「一覧に戻る」リンクを表示する', async () => {
+    it('「一覧に戻る」リンクは表示されない（Task 53.2で削除）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -457,8 +455,8 @@ describe('ProjectDetailPage', () => {
         ).toBeInTheDocument();
       });
 
-      const backLink = screen.getByRole('link', { name: /一覧に戻る/ });
-      expect(backLink).toHaveAttribute('href', '/projects');
+      // Task 53.2: 「一覧に戻る」リンクは削除済み
+      expect(screen.queryByRole('link', { name: /一覧に戻る/ })).not.toBeInTheDocument();
     });
   });
 
@@ -999,18 +997,18 @@ describe('ProjectDetailPage', () => {
       expect(dashboardLink).toHaveAttribute('href', '/');
     });
 
-    it('「プロジェクト」リンクが表示され、/projectsへ遷移可能', async () => {
+    it('「プロジェクト一覧」リンクが表示され、/projectsへ遷移可能（Task 53.1更新）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const projectsLink = screen.getByRole('link', { name: 'プロジェクト' });
+      const projectsLink = screen.getByRole('link', { name: 'プロジェクト一覧' });
       expect(projectsLink).toHaveAttribute('href', '/projects');
     });
 
-    it('プロジェクト名がパンくずの最後に表示される', async () => {
+    it('プロジェクト名がパンくずの最後に表示される（Task 53.1更新）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -1022,7 +1020,7 @@ describe('ProjectDetailPage', () => {
       expect(within(nav).getByText('テストプロジェクト')).toBeInTheDocument();
     });
 
-    it('現在ページ（プロジェクト名）にaria-current="page"が設定される', async () => {
+    it('現在ページ（プロジェクト名）にaria-current="page"が設定される（Task 53.1更新）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
@@ -1034,14 +1032,14 @@ describe('ProjectDetailPage', () => {
       expect(currentPage).toHaveAttribute('aria-current', 'page');
     });
 
-    it('プロジェクト名は現在ページとしてリンクなしで表示される', async () => {
+    it('プロジェクト名は現在ページとしてリンクなしで表示される（Task 53.1更新）', async () => {
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // プロジェクト名はリンクではない
+      // パンくず内のプロジェクト名はリンクではない
       expect(screen.queryByRole('link', { name: 'テストプロジェクト' })).not.toBeInTheDocument();
     });
 
@@ -1058,7 +1056,7 @@ describe('ProjectDetailPage', () => {
       expect(separators).toHaveLength(2);
     });
 
-    it('プロジェクト名がAPIから取得したデータで動的に表示される', async () => {
+    it('パンくずにプロジェクト名が動的に表示される（Task 53.1更新）', async () => {
       const customProject = {
         ...mockProject,
         name: 'カスタムプロジェクト名',
@@ -1075,6 +1073,7 @@ describe('ProjectDetailPage', () => {
         ).toBeInTheDocument();
       });
 
+      // パンくずにはプロジェクト名が表示される
       const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
       expect(within(nav).getByText('カスタムプロジェクト名')).toBeInTheDocument();
     });
@@ -1738,6 +1737,260 @@ describe('ProjectDetailPage', () => {
       });
 
       expect(screen.getByText(/Internal Server Error/)).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 53: プロジェクト詳細画面のUI改善（Requirements 31-34）
+  // ==========================================================================
+
+  describe('パンくずナビゲーション更新（Task 53.1, Requirements 31.1-31.4）', () => {
+    it('パンくずに「プロジェクト一覧」リンクが表示され、/projectsへ遷移可能', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const projectsLink = screen.getByRole('link', { name: 'プロジェクト一覧' });
+      expect(projectsLink).toHaveAttribute('href', '/projects');
+    });
+
+    it('パンくずの最後にプロジェクト名がリンクなしで表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      expect(within(nav).getByText('テストプロジェクト')).toBeInTheDocument();
+      // リンクではないことを確認
+      expect(screen.queryByRole('link', { name: 'テストプロジェクト' })).not.toBeInTheDocument();
+    });
+
+    it('パンくずにプロジェクト名がaria-current="page"で設定される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const currentPage = within(nav).getByText('テストプロジェクト');
+      expect(currentPage).toHaveAttribute('aria-current', 'page');
+    });
+
+    it('パンくずに「ダッシュボード > プロジェクト一覧 > プロジェクト名」が表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      expect(within(nav).getByText('ダッシュボード')).toBeInTheDocument();
+      expect(within(nav).getByText('プロジェクト一覧')).toBeInTheDocument();
+      expect(within(nav).getByText('テストプロジェクト')).toBeInTheDocument();
+    });
+  });
+
+  describe('「一覧に戻る」リンク削除（Task 53.2, Requirements 32.1-32.2）', () => {
+    it('「一覧に戻る」リンクが表示されない', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('link', { name: /一覧に戻る/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('クリップボードコピーボタン（Task 53.3, Requirements 33.1-33.9）', () => {
+    it('プロジェクト名の横にコピーボタンが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const copyButton = screen.getByRole('button', { name: 'プロジェクト名をコピー' });
+      expect(copyButton).toBeInTheDocument();
+    });
+
+    it('顧客名が設定されている場合、顧客名の横にコピーボタンが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const copyButton = screen.getByRole('button', { name: '顧客名をコピー' });
+      expect(copyButton).toBeInTheDocument();
+    });
+
+    it('現場住所が設定されている場合、現場住所の横にコピーボタンが表示される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const copyButton = screen.getByRole('button', { name: '現場住所をコピー' });
+      expect(copyButton).toBeInTheDocument();
+    });
+
+    it('顧客名がnullの場合、顧客名のコピーボタンが表示されない', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          project: { tradingPartner: null },
+        })
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: '顧客名をコピー' })).not.toBeInTheDocument();
+    });
+
+    it('現場住所が空の場合、現場住所のコピーボタンが表示されない', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          project: { siteAddress: '' },
+        })
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: '現場住所をコピー' })).not.toBeInTheDocument();
+    });
+
+    it('コピーボタンをクリックするとクリップボードAPIが呼ばれる', async () => {
+      const user = userEvent.setup();
+
+      // クリップボードAPIのモック
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      const originalClipboard = navigator.clipboard;
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextMock },
+        writable: true,
+        configurable: true,
+      });
+
+      try {
+        renderWithRouter();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        });
+
+        const copyButton = screen.getByRole('button', { name: 'プロジェクト名をコピー' });
+        await user.click(copyButton);
+
+        expect(writeTextMock).toHaveBeenCalledWith('テストプロジェクト');
+      } finally {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: originalClipboard,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+
+    it('コピー成功後に「コピーしました」フィードバックが表示される', async () => {
+      const user = userEvent.setup();
+
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      const originalClipboard = navigator.clipboard;
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextMock },
+        writable: true,
+        configurable: true,
+      });
+
+      try {
+        renderWithRouter();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        });
+
+        const copyButton = screen.getByRole('button', { name: 'プロジェクト名をコピー' });
+        await user.click(copyButton);
+
+        await waitFor(() => {
+          expect(screen.getByText('コピーしました')).toBeInTheDocument();
+        });
+      } finally {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: originalClipboard,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+
+    it('コピー失敗時に「コピーに失敗しました」フィードバックが表示される', async () => {
+      const user = userEvent.setup();
+
+      const writeTextMock = vi.fn().mockRejectedValue(new Error('Failed'));
+      const originalClipboard = navigator.clipboard;
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextMock },
+        writable: true,
+        configurable: true,
+      });
+
+      try {
+        renderWithRouter();
+
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        });
+
+        const copyButton = screen.getByRole('button', { name: 'プロジェクト名をコピー' });
+        await user.click(copyButton);
+
+        await waitFor(() => {
+          expect(screen.getByText('コピーに失敗しました')).toBeInTheDocument();
+        });
+      } finally {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: originalClipboard,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+  });
+
+  describe('作成日時・更新日時フィールド削除（Task 53.4, Requirements 34.1-34.2）', () => {
+    it('作成日時フィールドが表示されない', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('作成日時')).not.toBeInTheDocument();
+    });
+
+    it('更新日時フィールドが表示されない', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('更新日時')).not.toBeInTheDocument();
     });
   });
 });

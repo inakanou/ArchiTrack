@@ -186,8 +186,8 @@ describe('ItemizedStatementCreatePage', () => {
     });
   });
 
-  describe('パンくずナビゲーション（REQ-9.5, REQ-9.6）', () => {
-    it('「プロジェクト一覧 > {プロジェクト名} > 内訳書 > 新規作成」形式で表示する', async () => {
+  describe('パンくずナビゲーション（REQ-9.2, REQ-9.4, REQ-9.5, REQ-9.6, REQ-9.7）', () => {
+    it('「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > 新規作成」形式で表示する', async () => {
       const { getProject } = await import('../../api/projects');
       const { getQuantityTables } = await import('../../api/quantity-tables');
 
@@ -200,13 +200,16 @@ describe('ItemizedStatementCreatePage', () => {
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toBeInTheDocument();
+        expect(
+          screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
+        ).toBeInTheDocument();
       });
 
       // パンくずの各要素を確認
+      expect(screen.getByText('ダッシュボード')).toBeInTheDocument();
       expect(screen.getByText('プロジェクト一覧')).toBeInTheDocument();
       expect(screen.getByText('テストプロジェクト')).toBeInTheDocument();
-      expect(screen.getByText('内訳書')).toBeInTheDocument();
+      expect(screen.getByText('内訳書一覧')).toBeInTheDocument();
       expect(screen.getByText('新規作成')).toBeInTheDocument();
     });
   });

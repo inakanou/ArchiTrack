@@ -453,6 +453,128 @@ describe('SurveyImageService', () => {
       expect(() => service.validateMagicBytes(jpegAdobe, 'image/jpeg')).not.toThrow();
     });
 
+    /**
+     * Task 47: JPEGマジックバイト検証修正 - 3バイトプレフィックス方式のテスト
+     *
+     * Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8, 19.9
+     *
+     * JPEG仕様（ITU-T T.81）ではSOI（FF D8）の後に必ず0xFFで始まるマーカーが続く。
+     * 4バイト目は多数のバリエーションがあるため、先頭3バイト（FF D8 FF）のみで判定する。
+     */
+    describe('JPEG 3-byte prefix validation (Requirement 19)', () => {
+      it('should accept JFIF JPEG (4th byte 0xE0) - Requirement 19.4', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept EXIF JPEG (4th byte 0xE1) - Requirement 19.3', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept ICC profile JPEG (4th byte 0xE2) - Requirement 19.2', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xe2, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept SOS marker JPEG (4th byte 0xDA) - Requirement 19.5', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xda, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept DQT marker JPEG (4th byte 0xDB) - Requirement 19.6', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept SOF0 marker JPEG (4th byte 0xC0)', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept DHT marker JPEG (4th byte 0xC4)', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xc4, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept COM marker JPEG (4th byte 0xFE)', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should accept APP3-APP15 markers (4th byte 0xE3-0xEF)', () => {
+        for (let marker = 0xe3; marker <= 0xef; marker++) {
+          const buffer = Buffer.from([0xff, 0xd8, 0xff, marker, 0x00, 0x00, 0x00, 0x00]);
+          expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+        }
+      });
+
+      it('should reject file without FF D8 FF prefix - Requirement 19.7', () => {
+        // First byte wrong
+        const buffer1 = Buffer.from([0x00, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer1, 'image/jpeg')).toThrow(
+          InvalidMagicBytesError
+        );
+
+        // Second byte wrong
+        const buffer2 = Buffer.from([0xff, 0x00, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer2, 'image/jpeg')).toThrow(
+          InvalidMagicBytesError
+        );
+
+        // Third byte wrong
+        const buffer3 = Buffer.from([0xff, 0xd8, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x00]);
+        expect(() => service.validateMagicBytes(buffer3, 'image/jpeg')).toThrow(
+          InvalidMagicBytesError
+        );
+      });
+
+      it('should accept JPEG with only 3 bytes (minimum valid) - Requirement 19.1', () => {
+        const buffer = Buffer.from([0xff, 0xd8, 0xff]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).not.toThrow();
+      });
+
+      it('should reject JPEG with only 2 bytes (too small)', () => {
+        const buffer = Buffer.from([0xff, 0xd8]);
+        expect(() => service.validateMagicBytes(buffer, 'image/jpeg')).toThrow(
+          InvalidMagicBytesError
+        );
+      });
+    });
+
+    /**
+     * Task 47: PNG・WEBP既存テスト通過確認
+     *
+     * Requirements: 19.8, 19.9
+     */
+    describe('PNG and WEBP validation unchanged (Requirement 19.8, 19.9)', () => {
+      it('should still validate PNG (89 50 4E 47) - Requirement 19.8', () => {
+        const buffer = createValidPngBuffer();
+        expect(() => service.validateMagicBytes(buffer, 'image/png')).not.toThrow();
+      });
+
+      it('should still reject invalid PNG', () => {
+        const buffer = Buffer.from([0x00, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        expect(() => service.validateMagicBytes(buffer, 'image/png')).toThrow(
+          InvalidMagicBytesError
+        );
+      });
+
+      it('should still validate WEBP (RIFF + WEBP) - Requirement 19.9', () => {
+        const buffer = createValidWebpBuffer();
+        expect(() => service.validateMagicBytes(buffer, 'image/webp')).not.toThrow();
+      });
+
+      it('should still reject invalid WEBP', () => {
+        const buffer = Buffer.from([
+          0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]);
+        expect(() => service.validateMagicBytes(buffer, 'image/webp')).toThrow(
+          InvalidMagicBytesError
+        );
+      });
+    });
+
     it('should reject JPEG with buffer too small', () => {
       const smallBuffer = Buffer.from([0xff, 0xd8]);
       expect(() => service.validateMagicBytes(smallBuffer, 'image/jpeg')).toThrow(

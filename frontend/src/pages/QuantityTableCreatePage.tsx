@@ -264,7 +264,7 @@ export default function QuantityTableCreatePage() {
         <Breadcrumb
           items={[
             { label: 'ダッシュボード', path: '/' },
-            { label: 'プロジェクト', path: '/projects' },
+            { label: 'プロジェクト一覧', path: '/projects' },
             { label: project?.name ?? 'プロジェクト', path: `/projects/${projectId}` },
             { label: '数量表一覧', path: `/projects/${projectId}/quantity-tables` },
             { label: '新規作成' },

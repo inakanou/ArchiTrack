@@ -1,7 +1,7 @@
 {
   "feature_name": "itemized-statement-generation",
   "created_at": "2026-01-19T14:08:58+09:00",
-  "updated_at": "2026-01-26T15:30:00+09:00",
+  "updated_at": "2026-02-24T13:01:44Z",
   "language": "ja",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,5 +19,5 @@
     }
   },
   "ready_for_implementation": true,
-  "revision_notes": "タスク更新: 設計検証フィードバック反映（専用作成画面ItemizedStatementCreatePage追加、表示メッセージ文言更新、キャンセル時遷移先ロジック、デフォルト名対応）、Task 17-19追加"
+  "revision_notes": "パンくずナビゲーション更新: 全画面のパンくずを「ダッシュボード > プロジェクト一覧 > プロジェクト > 内訳書一覧」形式に統一、Task 20追加"
 }

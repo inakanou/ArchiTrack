@@ -24,7 +24,12 @@ vi.mock('../api/estimate-requests', () => ({
   getEstimateRequests: vi.fn(),
 }));
 
+vi.mock('../api/projects', () => ({
+  getProject: vi.fn(),
+}));
+
 import { getEstimateRequests } from '../api/estimate-requests';
+import { getProject } from '../api/projects';
 
 // モックデータ
 const mockEstimateRequests: PaginatedEstimateRequests = {
@@ -245,6 +250,11 @@ describe('EstimateRequestListPage', () => {
   describe('ページヘッダー', () => {
     it('ページタイトルを表示する', async () => {
       vi.mocked(getEstimateRequests).mockResolvedValue(mockEstimateRequests);
+      vi.mocked(getProject).mockResolvedValue({ name: 'テストプロジェクト' } as ReturnType<
+        typeof getProject
+      > extends Promise<infer T>
+        ? T
+        : never);
 
       renderWithRouter();
 
@@ -255,6 +265,11 @@ describe('EstimateRequestListPage', () => {
 
     it('パンくずナビゲーションを表示する', async () => {
       vi.mocked(getEstimateRequests).mockResolvedValue(mockEstimateRequests);
+      vi.mocked(getProject).mockResolvedValue({ name: 'テストプロジェクト' } as ReturnType<
+        typeof getProject
+      > extends Promise<infer T>
+        ? T
+        : never);
 
       renderWithRouter();
 
@@ -262,6 +277,89 @@ describe('EstimateRequestListPage', () => {
         expect(
           screen.getByRole('navigation', { name: 'パンくずナビゲーション' })
         ).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Task 67.1: パンくずナビゲーション改善テスト (Requirements: 29.1-29.5)
+  // ==========================================================================
+  describe('パンくずナビゲーション改善 (Task 67.1)', () => {
+    beforeEach(() => {
+      vi.mocked(getEstimateRequests).mockResolvedValue(mockEstimateRequests);
+      vi.mocked(getProject).mockResolvedValue({ name: 'テストプロジェクト' } as ReturnType<
+        typeof getProject
+      > extends Promise<infer T>
+        ? T
+        : never);
+    });
+
+    it('パンくず先頭に「ダッシュボード」リンク（/）が表示される（Requirements: 29.1, 29.2）', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        const dashboardLink = screen.getByRole('link', { name: 'ダッシュボード' });
+        expect(dashboardLink).toBeInTheDocument();
+        expect(dashboardLink).toHaveAttribute('href', '/');
+      });
+    });
+
+    it('パンくずに「プロジェクト一覧」リンク（/projects）が表示される（Requirements: 29.3）', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        const projectsLink = screen.getByRole('link', { name: 'プロジェクト一覧' });
+        expect(projectsLink).toBeInTheDocument();
+        expect(projectsLink).toHaveAttribute('href', '/projects');
+      });
+    });
+
+    it('パンくずにプロジェクト名がプロジェクト詳細へのリンクとして表示される（Requirements: 29.4）', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        const projectLink = screen.getByRole('link', { name: 'テストプロジェクト' });
+        expect(projectLink).toBeInTheDocument();
+        expect(projectLink).toHaveAttribute('href', '/projects/project-123');
+      });
+    });
+
+    it('パンくずの最後に「見積依頼一覧」がリンクなしで表示される（Requirements: 29.5）', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        // 「見積依頼一覧」がパンくず内に存在する
+        expect(nav).toHaveTextContent('見積依頼一覧');
+        // 「見積依頼一覧」はリンクではない（現在のページ）
+        const links = nav.querySelectorAll('a');
+        const estimateListLink = Array.from(links).find(
+          (link) => link.textContent === '見積依頼一覧'
+        );
+        expect(estimateListLink).toBeUndefined();
+      });
+    });
+
+    it('プロジェクト名取得前はフォールバック「プロジェクト」を表示する（Requirements: 29.4）', async () => {
+      vi.mocked(getProject).mockResolvedValue({ name: '' } as ReturnType<
+        typeof getProject
+      > extends Promise<infer T>
+        ? T
+        : never);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        expect(nav).toHaveTextContent('プロジェクト');
+      });
+    });
+
+    it('getProject APIが呼び出される', async () => {
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(getProject).toHaveBeenCalledWith('project-123');
       });
     });
   });

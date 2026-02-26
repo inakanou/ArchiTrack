@@ -17,9 +17,11 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableListPage from './QuantityTableListPage';
 import * as quantityTablesApi from '../api/quantity-tables';
+import * as projectsApi from '../api/projects';
 
 // APIモック
 vi.mock('../api/quantity-tables');
+vi.mock('../api/projects');
 
 // テスト用モックデータ
 const mockQuantityTables = {
@@ -64,7 +66,17 @@ const renderWithRouter = (projectId: string = 'project-123') => {
 
 describe('QuantityTableListPage', () => {
   beforeEach(() => {
-    // Setup logic can go here if needed
+    vi.mocked(projectsApi.getProject).mockResolvedValue({
+      id: 'project-123',
+      name: 'テストプロジェクト',
+      tradingPartnerId: null,
+      tradingPartner: null,
+      salesPerson: { id: 'user-1', displayName: '担当者' },
+      status: 'PREPARING',
+      statusLabel: '進行中',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    });
   });
 
   afterEach(() => {

@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-02-21（Steering Sync: 見積書エクスポート複数行タイプ対応、Storybook test-runner追加、NET金額モデル改善を反映）_
+_最終更新: 2026-02-25（Steering Sync: テストファイル数更新、EstimateItemToolbar追加、annotated-thumbnail.service追加、Argon2記載修正を反映）_
 
 ## ルートディレクトリ構成
 
@@ -514,6 +514,7 @@ frontend/
 │   │       ├── EstimateCard.tsx      # 見積書カード
 │   │       ├── EstimateItemRow.tsx   # 見積項目行
 │   │       ├── EstimateItemTable.tsx # 見積項目テーブル
+│   │       ├── EstimateItemToolbar.tsx # 見積項目ツールバー
 │   │       ├── TransferQuotationDialog.tsx # 受領見積書転記ダイアログ
 │   │       ├── NetCalculationPanel.tsx # NET金額案分パネル
 │   │       ├── NetAllocationDialog.tsx # NET案分ダイアログ（プロジェクト単位受領見積書選択）
@@ -563,6 +564,7 @@ frontend/
 │   │   ├── QuantityTableRedirectPage.tsx # 数量表リダイレクトページ
 │   │   ├── ItemizedStatementListPage.tsx # 内訳書一覧ページ
 │   │   ├── ItemizedStatementDetailPage.tsx # 内訳書詳細ページ
+│   │   ├── ItemizedStatementCreatePage.tsx # 内訳書作成ページ
 │   │   ├── EstimateRequestListPage.tsx # 見積依頼一覧ページ
 │   │   ├── EstimateRequestCreatePage.tsx # 見積依頼作成ページ
 │   │   ├── EstimateRequestDetailPage.tsx # 見積依頼詳細ページ
@@ -613,7 +615,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（115ファイル）:**
+**Storybookストーリーファイル（118ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -691,7 +693,7 @@ frontend/src/
 │   ├── claude-vision.ts # Claude Vision OCR API
 │   ├── company-info.ts # 自社情報API
 │   └── estimates.ts # 見積書API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore等 22ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges等 22ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts等）
 ├── utils/             # ユーティリティ関数
@@ -726,7 +728,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（134テストファイル）
+│   │   └── unit/          # ユニットテスト（136テストファイル）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -824,12 +826,12 @@ backend/
 │   │   ├── company-info.schema.ts # 自社情報関連
 │   │   ├── claude-vision.schema.ts # Claude Vision OCR関連
 │   │   └── estimate.schema.ts # 見積書関連
-│   ├── services/          # ビジネスロジック（48サービス）
+│   ├── services/          # ビジネスロジック（49サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
 │   │   ├── invitation.service.ts # 招待制登録
-│   │   ├── password.service.ts # パスワード管理（bcrypt）
+│   │   ├── password.service.ts # パスワード管理（Argon2）
 │   │   ├── two-factor.service.ts # 2FA管理（TOTP + バックアップコード）
 │   │   ├── role.service.ts # ロール管理
 │   │   ├── permission.service.ts # 権限管理
@@ -853,6 +855,7 @@ backend/
 │   │   ├── image-metadata.service.ts # 画像メタデータ管理
 │   │   ├── signed-url.service.ts # 署名付きURL生成（R2）
 │   │   ├── annotation.service.ts # 注釈管理（Fabric.js JSON保存）
+│   │   ├── annotated-thumbnail.service.ts # 注釈付きサムネイル生成
 │   │   ├── quantity-table.service.ts # 数量表管理（CRUD、楽観的排他制御）
 │   │   ├── quantity-group.service.ts # 数量グループ管理（CRUD、写真紐づけ）
 │   │   ├── quantity-item.service.ts # 数量項目管理（CRUD、移動、コピー）
@@ -1408,8 +1411,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト134ファイル + 統合テスト23ファイル
-- Frontend: 単体テスト213ファイル
+- Backend: 単体テスト136ファイル + 統合テスト23ファイル
+- Frontend: 単体テスト289ファイル
 
 ### .gitignore
 

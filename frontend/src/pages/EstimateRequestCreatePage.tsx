@@ -7,9 +7,10 @@
  * - 3.6: ユーザーが必須項目を入力して保存したとき、見積依頼を作成し詳細画面に遷移する
  */
 
-import { useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { EstimateRequestForm } from '../components/estimate-request';
+import { getProject } from '../api/projects';
 import { Breadcrumb } from '../components/common';
 import type { EstimateRequestInfo } from '../types/estimate-request.types';
 
@@ -28,15 +29,6 @@ const styles = {
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',
-  } as React.CSSProperties,
-  backLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontSize: '14px',
-    marginBottom: '8px',
   } as React.CSSProperties,
   title: {
     fontSize: '24px',
@@ -66,6 +58,22 @@ export default function EstimateRequestCreatePage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
 
+  // プロジェクト名（パンくず表示用）
+  const [projectName, setProjectName] = useState<string>('');
+
+  useEffect(() => {
+    if (!projectId) return;
+    getProject(projectId)
+      .then((data) => {
+        if (data?.name) {
+          setProjectName(data.name);
+        }
+      })
+      .catch(() => {
+        // プロジェクト名取得失敗時はフォールバック表示を維持
+      });
+  }, [projectId]);
+
   /**
    * 作成成功時のコールバック
    * Requirements: 3.6 - 作成後に詳細画面に遷移
@@ -90,8 +98,9 @@ export default function EstimateRequestCreatePage() {
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb
           items={[
+            { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+            { label: projectName || 'プロジェクト', path: `/projects/${projectId}` },
             { label: '見積依頼一覧', path: `/projects/${projectId}/estimate-requests` },
             { label: '新規作成' },
           ]}
@@ -100,13 +109,6 @@ export default function EstimateRequestCreatePage() {
 
       {/* ヘッダー */}
       <div style={styles.header}>
-        <Link
-          to={`/projects/${projectId}/estimate-requests`}
-          style={styles.backLink}
-          aria-label="一覧に戻る"
-        >
-          ← 一覧に戻る
-        </Link>
         <h1 style={styles.title}>見積依頼 新規作成</h1>
       </div>
 

@@ -17,6 +17,10 @@ vi.mock('../api/estimate-requests', () => ({
   createEstimateRequest: vi.fn(),
 }));
 
+vi.mock('../api/projects', () => ({
+  getProject: vi.fn().mockResolvedValue({ name: 'テストプロジェクト' }),
+}));
+
 vi.mock('../api/trading-partners', () => ({
   getTradingPartners: vi.fn().mockResolvedValue({
     data: [
@@ -36,6 +40,8 @@ vi.mock('../api/itemized-statements', () => ({
     pagination: { page: 1, limit: 100, total: 2, totalPages: 1 },
   }),
 }));
+
+import { getProject } from '../api/projects';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -94,26 +100,6 @@ describe('EstimateRequestCreatePage', () => {
   });
 
   /**
-   * Test: 戻るリンクが表示されること
-   */
-  it('戻るリンクが表示されること', async () => {
-    render(
-      <MemoryRouter initialEntries={['/projects/project-123/estimate-requests/new']}>
-        <Routes>
-          <Route
-            path="/projects/:projectId/estimate-requests/new"
-            element={<EstimateRequestCreatePage />}
-          />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: /一覧に戻る/i })).toBeInTheDocument();
-    });
-  });
-
-  /**
    * Test: EstimateRequestFormが表示されること
    */
   it('EstimateRequestFormが表示されること', async () => {
@@ -131,6 +117,96 @@ describe('EstimateRequestCreatePage', () => {
     await waitFor(() => {
       // フォームの存在を確認（見積依頼名入力フィールド）
       expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 67.2: パンくずナビゲーション改善テスト (Requirements: 29.6-29.12)
+  // ==========================================================================
+  describe('パンくずナビゲーション改善 (Task 67.2)', () => {
+    const renderPage = () => {
+      return render(
+        <MemoryRouter initialEntries={['/projects/project-123/estimate-requests/new']}>
+          <Routes>
+            <Route
+              path="/projects/:projectId/estimate-requests/new"
+              element={<EstimateRequestCreatePage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      );
+    };
+
+    it('パンくず先頭に「ダッシュボード」リンク（/）が表示される（Requirements: 29.6, 29.7）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const dashboardLink = screen.getByRole('link', { name: 'ダッシュボード' });
+        expect(dashboardLink).toBeInTheDocument();
+        expect(dashboardLink).toHaveAttribute('href', '/');
+      });
+    });
+
+    it('パンくずに「プロジェクト一覧」リンク（/projects）が表示される（Requirements: 29.8）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const projectsLink = screen.getByRole('link', { name: 'プロジェクト一覧' });
+        expect(projectsLink).toBeInTheDocument();
+        expect(projectsLink).toHaveAttribute('href', '/projects');
+      });
+    });
+
+    it('パンくずにプロジェクト名がプロジェクト詳細へのリンクとして表示される（Requirements: 29.9）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const projectLink = screen.getByRole('link', { name: 'テストプロジェクト' });
+        expect(projectLink).toBeInTheDocument();
+        expect(projectLink).toHaveAttribute('href', '/projects/project-123');
+      });
+    });
+
+    it('パンくずに「見積依頼一覧」が見積依頼一覧画面へのリンクとして表示される（Requirements: 29.10）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const listLink = screen.getByRole('link', { name: '見積依頼一覧' });
+        expect(listLink).toBeInTheDocument();
+        expect(listLink).toHaveAttribute('href', '/projects/project-123/estimate-requests');
+      });
+    });
+
+    it('パンくずの最後に「新規作成」がリンクなしで表示される（Requirements: 29.11）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        const nav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        expect(nav).toHaveTextContent('新規作成');
+        // 「新規作成」はリンクではない
+        const links = nav.querySelectorAll('a');
+        const createLink = Array.from(links).find((link) => link.textContent === '新規作成');
+        expect(createLink).toBeUndefined();
+      });
+    });
+
+    it('「← 一覧に戻る」リンクが存在しない（Requirements: 29.12）', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '見積依頼 新規作成' })).toBeInTheDocument();
+      });
+
+      // 「← 一覧に戻る」リンクが存在しないことを確認
+      expect(screen.queryByRole('link', { name: /一覧に戻る/i })).not.toBeInTheDocument();
+    });
+
+    it('getProject APIが呼び出される', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(getProject).toHaveBeenCalledWith('project-123');
+      });
     });
   });
 });
