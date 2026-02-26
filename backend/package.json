@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@aws-sdk/client-s3": "^3.992.0",
+    "@aws-sdk/client-s3": "^3.995.0",
     "@aws-sdk/client-sesv2": "^3.992.0",
     "@aws-sdk/s3-request-presigner": "^3.992.0",
     "@node-rs/argon2": "^2.0.2",
