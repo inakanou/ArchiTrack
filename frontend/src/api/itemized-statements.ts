@@ -20,6 +20,7 @@ import type {
   CreateItemizedStatementInput,
   ItemizedStatementSortableField,
   ItemizedStatementSortOrder,
+  UpdateItemOrderRequest,
 } from '../types/itemized-statement.types';
 
 // ============================================================================
@@ -187,6 +188,38 @@ export async function createItemizedStatement(
   return apiClient.post<ItemizedStatementInfo>(
     `/api/projects/${projectId}/itemized-statements`,
     input
+  );
+}
+
+/**
+ * 内訳書項目の並び順を更新する
+ *
+ * 楽観的排他制御を使用して全項目のdisplayOrderを一括更新します。
+ *
+ * @param id - 内訳書ID（UUID）
+ * @param request - 並び順更新リクエスト
+ * @returns 更新後の内訳書詳細情報
+ * @throws ApiError 内訳書が見つからない（404）、認証エラー（401）、
+ *                  権限不足（403）、競合（409）、バリデーションエラー（400）
+ *
+ * Requirements: 17.8
+ *
+ * @example
+ * const updated = await updateItemOrder('is-123', {
+ *   items: [
+ *     { id: 'item-1', displayOrder: 0 },
+ *     { id: 'item-2', displayOrder: 1 },
+ *   ],
+ *   updatedAt: '2026-01-23T00:00:00.000Z',
+ * });
+ */
+export async function updateItemOrder(
+  id: string,
+  request: UpdateItemOrderRequest
+): Promise<ItemizedStatementDetail> {
+  return apiClient.patch<ItemizedStatementDetail>(
+    `/api/itemized-statements/${id}/items/order`,
+    request
   );
 }
 

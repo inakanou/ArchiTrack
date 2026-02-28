@@ -22,6 +22,19 @@ import type { ItemizedStatementDetail } from '../../types/itemized-statement.typ
 // APIモック
 vi.mock('../../api/itemized-statements');
 
+// useBlockerをモック（データルーターなしでテストするため）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
+
 // モックデータ
 const mockStatementDetail: ItemizedStatementDetail = {
   id: 'statement-1',
@@ -45,6 +58,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '規格1',
       unit: '本',
       quantity: 10.5,
+      displayOrder: 0,
     },
   ],
 };
