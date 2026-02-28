@@ -15,14 +15,21 @@
  * - 20.1: 写真プレビューダイアログ表示
  * - 21.2: コメントを写真の右側に表示
  * - 21.5: 折りたたみ時にコメント非表示
+ * - 22.1: グループ名クリック時に編集モードに遷移
+ * - 22.2: 編集確定時に即座に反映
+ * - 22.3: 空白名前でのエラーメッセージ表示
+ * - 22.4: グループ名の最大文字数（全角25文字/半角50文字）
+ * - 22.5: 最大文字数超過入力防止
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { calculateStringWidth } from '../../utils/field-validation';
 import type { QuantityGroupDetail, QuantityItemDetail } from '../../types/quantity-table.types';
 import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import QuantityItemRow from './QuantityItemRow';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
 import QuantityGroupTitleRow from './QuantityGroupTitleRow';
+import SortOrderButtons from './SortOrderButtons';
 import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
 import PhotoCommentDisplay from './PhotoCommentDisplay';
 import PhotoPreviewDialog from './PhotoPreviewDialog';
@@ -67,6 +74,16 @@ export interface QuantityGroupCardProps {
   getSuggestions?: (field: AutocompleteFieldName, inputText: string) => string[];
   /** オートコンプリートblur時候補追加関数（Task 18.1: isEditable時に必須） */
   onBlurAddCandidate?: (field: AutocompleteFieldName, value: string) => void;
+  /** グループ名変更コールバック（Task 35.1: REQ-22.1, 22.2） */
+  onRenameGroup?: (groupId: string, newName: string) => void;
+  /** グループのインデックス（並び順ボタン用、Task 37.1） */
+  groupIndex?: number;
+  /** グループの総数（並び順ボタン用、Task 37.1） */
+  groupTotalCount?: number;
+  /** グループを上に移動するコールバック（Task 37.1） */
+  onMoveGroupUp?: (groupId: string) => void;
+  /** グループを下に移動するコールバック（Task 37.1） */
+  onMoveGroupDown?: (groupId: string) => void;
 }
 
 // ============================================================================
@@ -251,6 +268,34 @@ const styles = {
     transition: 'background-color 0.2s',
     marginTop: '4px',
   } as React.CSSProperties,
+  // Task 35.1: グループ名インライン編集用スタイル
+  groupNameEditable: {
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#1f2937',
+    margin: 0,
+    marginBottom: '4px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  groupNameInput: {
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#1f2937',
+    margin: 0,
+    marginBottom: '4px',
+    padding: '2px 6px',
+    border: '1px solid #2563eb',
+    borderRadius: '4px',
+    backgroundColor: '#ffffff',
+    width: '100%',
+    maxWidth: '300px',
+    outline: 'none',
+  } as React.CSSProperties,
+  groupNameError: {
+    fontSize: '11px',
+    color: '#dc2626',
+    margin: '2px 0 0 0',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -351,6 +396,9 @@ function ImagePlaceholderIcon() {
  * グループヘッダー（名前、サムネイル、アクションボタン）と
  * 項目一覧を表示するアコーディオンコンポーネント。
  */
+/** グループ名の最大文字幅（全角25文字/半角50文字） */
+const GROUP_NAME_MAX_WIDTH = 50;
+
 export default function QuantityGroupCard({
   group,
   groupDisplayName,
@@ -366,10 +414,21 @@ export default function QuantityGroupCard({
   onOpenAnnotationViewer: _onOpenAnnotationViewer,
   getSuggestions,
   onBlurAddCandidate,
+  onRenameGroup,
+  groupIndex,
+  groupTotalCount,
+  onMoveGroupUp,
+  onMoveGroupDown,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const hasAnnotations = group.surveyImage?.hasAnnotations ?? false;
+
+  // Task 35.1: インライン編集ステート
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState(groupDisplayName);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   /**
    * 展開/折りたたみを切り替え
@@ -419,6 +478,96 @@ export default function QuantityGroupCard({
     onSelectImage?.(group.id);
   }, [group.id, onSelectImage]);
 
+  // =========================================================================
+  // Task 35.1: グループ名インライン編集ハンドラ
+  // =========================================================================
+
+  /**
+   * グループ名クリック -> 編集モード開始（REQ-22.1）
+   */
+  const handleNameClick = useCallback(() => {
+    if (!isEditable || !onRenameGroup) return;
+    setEditNameValue(groupDisplayName);
+    setNameError(null);
+    setIsEditingName(true);
+  }, [isEditable, onRenameGroup, groupDisplayName]);
+
+  /**
+   * 編集モード開始時にinputにフォーカスを当てる
+   */
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  /**
+   * グループ名の変更を確定する（REQ-22.2）
+   */
+  const handleNameConfirm = useCallback(() => {
+    const trimmed = editNameValue.trim();
+    // 空白チェック（REQ-22.3）
+    if (!trimmed) {
+      setNameError('グループ名を入力してください');
+      return;
+    }
+    // 変更なしの場合はAPIを呼ばない
+    if (trimmed === groupDisplayName) {
+      setIsEditingName(false);
+      setNameError(null);
+      return;
+    }
+    onRenameGroup?.(group.id, trimmed);
+    setIsEditingName(false);
+    setNameError(null);
+  }, [editNameValue, groupDisplayName, group.id, onRenameGroup]);
+
+  /**
+   * 編集キャンセル（Escapeキー）
+   */
+  const handleNameCancel = useCallback(() => {
+    setIsEditingName(false);
+    setEditNameValue(groupDisplayName);
+    setNameError(null);
+  }, [groupDisplayName]);
+
+  /**
+   * キー操作ハンドラ
+   */
+  const handleNameKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleNameConfirm();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleNameCancel();
+      }
+    },
+    [handleNameConfirm, handleNameCancel]
+  );
+
+  /**
+   * グループ名入力変更ハンドラ（REQ-22.4, 22.5: 最大文字数制限）
+   */
+  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    const width = calculateStringWidth(newValue);
+    // 最大文字数を超えない場合のみ更新（REQ-22.5）
+    if (width <= GROUP_NAME_MAX_WIDTH) {
+      setEditNameValue(newValue);
+      setNameError(null);
+    }
+  }, []);
+
+  /**
+   * blurイベントで確定
+   */
+  const handleNameBlur = useCallback(() => {
+    handleNameConfirm();
+  }, [handleNameConfirm]);
+
   const items = group.items ?? [];
 
   return (
@@ -441,9 +590,56 @@ export default function QuantityGroupCard({
 
         {/* グループ情報 */}
         <div style={styles.headerInfo}>
-          <h3 style={styles.groupName}>{groupDisplayName}</h3>
+          {isEditingName ? (
+            <div>
+              <input
+                ref={nameInputRef}
+                type="text"
+                value={editNameValue}
+                onChange={handleNameChange}
+                onKeyDown={handleNameKeyDown}
+                onBlur={handleNameBlur}
+                style={styles.groupNameInput}
+                aria-label="グループ名を編集"
+              />
+              {nameError && <p style={styles.groupNameError}>{nameError}</p>}
+            </div>
+          ) : (
+            <h3
+              style={isEditable && onRenameGroup ? styles.groupNameEditable : styles.groupName}
+              onClick={handleNameClick}
+              role={isEditable && onRenameGroup ? 'button' : undefined}
+              tabIndex={isEditable && onRenameGroup ? 0 : undefined}
+              onKeyDown={
+                isEditable && onRenameGroup
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleNameClick();
+                      }
+                    }
+                  : undefined
+              }
+            >
+              {groupDisplayName}
+            </h3>
+          )}
           <p style={styles.groupMeta}>{group.itemCount}項目</p>
         </div>
+
+        {/* 並び順変更ボタン（Task 37.1: REQ-23.3, 23.4） */}
+        {isEditable &&
+          onMoveGroupUp &&
+          onMoveGroupDown &&
+          groupIndex !== undefined &&
+          groupTotalCount !== undefined && (
+            <SortOrderButtons
+              currentIndex={groupIndex}
+              totalCount={groupTotalCount}
+              onMoveUp={() => onMoveGroupUp(group.id)}
+              onMoveDown={() => onMoveGroupDown(group.id)}
+            />
+          )}
 
         {/* アクションボタン */}
         <div style={styles.headerActions}>
@@ -585,6 +781,8 @@ export default function QuantityGroupCard({
                     getSuggestions={getSuggestions || defaultGetSuggestions}
                     onBlurAddCandidate={onBlurAddCandidate || defaultOnBlurAddCandidate}
                     showFieldLabels={false}
+                    itemIndex={index}
+                    itemTotalCount={items.length}
                   />
                 ) : (
                   <QuantityItemRow
