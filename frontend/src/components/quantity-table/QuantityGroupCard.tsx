@@ -217,6 +217,7 @@ const styles = {
   contentExpanded: {
     maxHeight: '2000px',
     opacity: 1,
+    overflowX: 'auto',
   } as React.CSSProperties,
   itemList: {
     display: 'flex',

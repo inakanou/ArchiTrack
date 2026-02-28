@@ -25,6 +25,8 @@ import {
   updateItemDisplayOrder,
 } from '../api/quantity-tables';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
+import { getAnnotation } from '../api/survey-annotations';
+import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import type {
   QuantityTableDetail,
   QuantityGroupDetail,
@@ -1225,31 +1227,135 @@ export default function QuantityTableEditPage() {
     try {
       const groups = quantityTable.groups ?? [];
 
-      // 数量表データをPDF入力形式に変換
-      const pdfGroups = groups.map((group) => ({
-        name: group.name || '（名称なし）',
-        displayOrder: group.displayOrder,
-        photoDataUrl: group.surveyImage?.annotatedThumbnailUrl || null,
-        photoComment: group.surveyImage?.comment || null,
-        items: (group.items ?? []).map((item) => ({
-          majorCategory: item.majorCategory || '',
-          middleCategory: item.middleCategory || '',
-          minorCategory: item.minorCategory || '',
-          customCategory: item.customCategory || '',
-          workType: item.workType || '',
-          name: item.name || '',
-          specification: item.specification || '',
-          calculationMethod:
-            item.calculationMethod === 'STANDARD'
-              ? '標準'
-              : item.calculationMethod === 'AREA_VOLUME'
-                ? '面積・体積'
-                : 'ピッチ',
-          quantity: String(item.quantity),
-          unit: item.unit || '',
-          remarks: item.remarks || '',
-        })),
-      }));
+      // 画像を注釈付きでdata URLに変換するヘルパー（REQ-26.5）
+      const renderAnnotatedImageToDataUrl = async (
+        imageId: string,
+        imageUrl: string
+      ): Promise<string | null> => {
+        try {
+          // 画像をロード
+          const htmlImage = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('Failed to load image'));
+            img.src = imageUrl;
+          });
+
+          // 注釈データを取得
+          let annotationData = null;
+          try {
+            annotationData = await getAnnotation(imageId);
+          } catch {
+            // 注釈取得失敗時は元画像を使用
+          }
+
+          // 注釈がない場合は元画像をdata URLに変換
+          if (
+            !annotationData ||
+            !annotationData.data?.objects ||
+            annotationData.data.objects.length === 0
+          ) {
+            const canvas = document.createElement('canvas');
+            canvas.width = htmlImage.width;
+            canvas.height = htmlImage.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            ctx.drawImage(htmlImage, 0, 0);
+            return canvas.toDataURL('image/jpeg', 0.85);
+          }
+
+          // 注釈がある場合はFabric.jsでレンダリング
+          const canvas = document.createElement('canvas');
+          canvas.width = htmlImage.width;
+          canvas.height = htmlImage.height;
+          const fabricCanvas = new FabricCanvas(canvas, {
+            width: htmlImage.width,
+            height: htmlImage.height,
+            renderOnAddRemove: false,
+          });
+
+          // 背景画像を設定
+          const fabricImage = new FabricImage(htmlImage, {
+            left: 0,
+            top: 0,
+            originX: 'left',
+            originY: 'top',
+            selectable: false,
+            evented: false,
+          });
+          fabricCanvas.backgroundImage = fabricImage;
+
+          // 注釈オブジェクトを復元
+          const enlivenedObjects = await util.enlivenObjects(annotationData.data.objects);
+          const savedW = annotationData.data.canvasWidth;
+          const savedH = annotationData.data.canvasHeight;
+          const scaleX = savedW && savedW > 0 ? htmlImage.width / savedW : 1;
+          const scaleY = savedH && savedH > 0 ? htmlImage.height / savedH : 1;
+
+          enlivenedObjects.forEach((obj) => {
+            if (obj && typeof obj === 'object' && 'set' in obj) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const fabricObj = obj as any;
+              if (scaleX !== 1 || scaleY !== 1) {
+                fabricObj.set({
+                  left: (fabricObj.left ?? 0) * scaleX,
+                  top: (fabricObj.top ?? 0) * scaleY,
+                  scaleX: (fabricObj.scaleX ?? 1) * scaleX,
+                  scaleY: (fabricObj.scaleY ?? 1) * scaleY,
+                });
+                if (fabricObj.strokeWidth) {
+                  fabricObj.set({ strokeWidth: fabricObj.strokeWidth * ((scaleX + scaleY) / 2) });
+                }
+              }
+              fabricCanvas.add(fabricObj);
+            }
+          });
+
+          fabricCanvas.renderAll();
+          const dataUrl = fabricCanvas.toDataURL({ format: 'jpeg', quality: 0.85, multiplier: 1 });
+          fabricCanvas.dispose();
+          return dataUrl;
+        } catch {
+          return null;
+        }
+      };
+
+      // 数量表データをPDF入力形式に変換（注釈付き画像をレンダリング）
+      const pdfGroups = await Promise.all(
+        groups.map(async (group, index) => {
+          let photoDataUrl: string | null = null;
+          if (group.surveyImage) {
+            const imageUrl = group.surveyImage.originalUrl;
+            photoDataUrl = await renderAnnotatedImageToDataUrl(group.surveyImage.id, imageUrl);
+          }
+
+          return {
+            name: getGroupDisplayName(group, index),
+            displayOrder: group.displayOrder,
+            photoDataUrl,
+            photoComment: group.surveyImage?.comment || null,
+            items: (group.items ?? []).map((item) => ({
+              majorCategory: item.majorCategory || '',
+              middleCategory: item.middleCategory || '',
+              minorCategory: item.minorCategory || '',
+              customCategory: item.customCategory || '',
+              workType: item.workType || '',
+              name: item.name || '',
+              specification: item.specification || '',
+              calculationMethod:
+                item.calculationMethod === 'STANDARD'
+                  ? '標準'
+                  : item.calculationMethod === 'AREA_VOLUME'
+                    ? '面積・体積'
+                    : 'ピッチ',
+              quantity: String(item.quantity),
+              unit: item.unit || '',
+              remarks: item.remarks || '',
+            })),
+          };
+        })
+      );
 
       // PDF生成
       const now = new Date();
