@@ -1465,3 +1465,17 @@
   - 「見積依頼」を現在のページとしてリンクなしで表示し、見積依頼名を表示する
   - 「← 見積依頼一覧に戻る」リンク（Linkコンポーネント）を削除する
   - _Requirements: 29.13, 29.14, 29.15, 29.16, 29.17, 29.18, 29.19_
+
+- [x] 68. 見積依頼新規作成画面の宛先フィールドUI改善（TradingPartnerSelect導入）
+- [x] 68.1 EstimateRequestFormの宛先フィールドをTradingPartnerSelectに置換
+  - `frontend/src/components/estimate-request/EstimateRequestForm.tsx`を修正
+  - `TradingPartnerSelect`コンポーネントをインポート（`from '../projects/TradingPartnerSelect'`）
+  - 宛先フィールドの素の`<select>`タグを`<TradingPartnerSelect>`コンポーネントに置換
+  - プロパティ設定: `value={tradingPartnerId}`, `onChange`, `filterTypes={['SUBCONTRACTOR']}`, `error={errors.tradingPartnerId}`
+  - `handleTradingPartnerChange`のシグネチャを調整（`ChangeEvent<HTMLSelectElement>` → `string`（取引先ID直接受け取り））
+  - `getTradingPartners`による手動取引先データ取得ロジックを削除（TradingPartnerSelect内部で取得するため）
+  - `hasNoSubcontractors`の状態管理・判定ロジックをTradingPartnerSelectの空候補メッセージで代替
+  - 協力業者が存在しない場合のメッセージ表示が維持されることを確認
+  - 既存のバリデーション（必須項目チェック）が正常に動作することを確認
+  - 編集モードでも同様にTradingPartnerSelectが使用されることを確認
+  - _Requirements: 30.1, 30.2, 30.3, 30.4, 30.5, 30.6, 30.7, 30.8, 30.9_

@@ -1114,7 +1114,7 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 | Field | Detail |
 |-------|--------|
 | Intent | 見積依頼の作成・編集フォームを提供 |
-| Requirements | 3.1-3.9, 9.3, 9.6 |
+| Requirements | 3.1-3.9, 9.3, 9.6, 30.1-30.9 |
 
 **Dependencies**
 - Outbound: TradingPartnerSelect -- 取引先選択 (P0)
@@ -1126,6 +1126,49 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 - Integration: 内訳書選択時に項目数を事前取得し、項目が0件の内訳書は選択不可として表示（disabled + ツールチップ「項目がありません」）
 - Validation: 必須項目のバリデーション、協力業者/内訳書の存在チェック
 - Risks: なし
+
+**Requirement 30対応: 宛先フィールドUI改善**
+
+現在の`EstimateRequestForm`の宛先フィールドは素の`<select>`タグを使用しているが、`ProjectForm`の顧客名フィールドと同様に`TradingPartnerSelect`コンポーネントを使用するよう変更する。
+
+変更対象ファイル:
+- `frontend/src/components/estimate-request/EstimateRequestForm.tsx`
+
+変更内容:
+1. `TradingPartnerSelect`をインポート（`from '../projects/TradingPartnerSelect'`）
+2. 宛先フィールドの`<select>`タグを`<TradingPartnerSelect>`コンポーネントに置換
+3. プロパティ設定:
+   - `value={tradingPartnerId}` - 選択中の取引先ID
+   - `onChange={handleTradingPartnerChange}` - 取引先変更ハンドラ（IDのみ受け取るよう調整）
+   - `filterTypes={['SUBCONTRACTOR']}` - 協力業者のみフィルタ
+   - `error={errors.tradingPartnerId}` - バリデーションエラー表示
+4. `getTradingPartners`による手動データ取得を削除（TradingPartnerSelect内部で取得するため）
+5. `hasNoSubcontractors`の判定ロジックをTradingPartnerSelectの内部状態または空候補メッセージで代替
+6. 既存の`handleTradingPartnerChange`のシグネチャを`TradingPartnerSelect`の`onChange`コールバック形式に調整（`ChangeEvent<HTMLSelectElement>` → `string`（取引先ID））
+
+参考実装（ProjectForm.tsx）:
+```tsx
+<TradingPartnerSelect
+  value={tradingPartnerId}
+  onChange={setTradingPartnerId}
+  onSelect={handleTradingPartnerSelect}
+  filterTypes={['CUSTOMER']}
+  error={errors.tradingPartnerId}
+/>
+```
+
+見積依頼フォームでの適用:
+```tsx
+<TradingPartnerSelect
+  value={tradingPartnerId}
+  onChange={(id) => {
+    setTradingPartnerId(id);
+    setIsDirty(true);
+  }}
+  filterTypes={['SUBCONTRACTOR']}
+  error={errors.tradingPartnerId}
+/>
+```
 
 #### EstimateRequestDetailPage
 
