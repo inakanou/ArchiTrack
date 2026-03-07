@@ -38,6 +38,9 @@ import { getItemizedStatements } from '../../api/itemized-statements';
 const mockedGetTradingPartners = vi.mocked(getTradingPartners);
 const mockedGetItemizedStatements = vi.mocked(getItemizedStatements);
 
+// jsdom does not implement scrollIntoView
+Element.prototype.scrollIntoView = vi.fn();
+
 describe('EstimateRequestForm', () => {
   const mockTradingPartners: TradingPartnerInfo[] = [
     {

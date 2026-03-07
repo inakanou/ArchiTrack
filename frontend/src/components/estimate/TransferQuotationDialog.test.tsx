@@ -312,9 +312,9 @@ describe('TransferQuotationDialog', () => {
       expect(screen.getByText('仮設工事')).toBeInTheDocument();
     });
 
-    // 明細行を選択
-    const checkbox = screen.getByTestId('line-checkbox-rql-001');
-    await user.click(checkbox);
+    // 受領見積書選択時に全明細行が自動選択されるため、不要な行を除外
+    const checkbox2 = screen.getByTestId('line-checkbox-rql-002');
+    await user.click(checkbox2); // rql-002を選択解除
 
     // 転記ボタンをクリック
     const transferButton = screen.getByRole('button', { name: /転記/i });
@@ -398,11 +398,9 @@ describe('TransferQuotationDialog', () => {
       expect(screen.getByText('土工事')).toBeInTheDocument();
     });
 
-    // 複数の明細行を選択
+    // 受領見積書選択時に全明細行が自動選択される
     const checkbox1 = screen.getByTestId('line-checkbox-rql-001');
     const checkbox2 = screen.getByTestId('line-checkbox-rql-002');
-    await user.click(checkbox1);
-    await user.click(checkbox2);
 
     expect(checkbox1).toBeChecked();
     expect(checkbox2).toBeChecked();
