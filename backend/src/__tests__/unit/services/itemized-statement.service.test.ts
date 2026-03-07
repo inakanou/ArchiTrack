@@ -897,7 +897,7 @@ describe('ItemizedStatementService', () => {
       expect(mockItemUpdate).toHaveBeenCalledTimes(3);
       expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'ITEMIZED_STATEMENT_ORDER_UPDATED',
+          action: 'ITEMIZED_STATEMENT_UPDATED',
         })
       );
     });
