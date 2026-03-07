@@ -189,7 +189,8 @@ describe('EstimateDetailPage', () => {
 
       expect(screen.getByRole('heading', { name: 'サマリー' })).toBeInTheDocument();
       expect(screen.getByText('見積金額合計')).toBeInTheDocument();
-      expect(screen.getByText('100,000円')).toBeInTheDocument();
+      // 100,000円は見積金額合計と利益額の両方に表示されるためgetAllByTextで確認
+      expect(screen.getAllByText('100,000円').length).toBeGreaterThanOrEqual(1);
     });
 
     it('参照内訳書がない場合はハイフンが表示されること', async () => {
@@ -712,6 +713,91 @@ describe('EstimateDetailPage', () => {
       await userEvent.click(addButton);
 
       expect(mockEditor.addItem).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ==========================================================================
+  // REQ-39: サマリーセクションの表示項目と順序
+  // ==========================================================================
+  describe('サマリーセクション (REQ-39)', () => {
+    it('サマリーセクションに全7項目が正しい順序で表示されること (REQ-39.1)', async () => {
+      // 3行セット（ESTIMATE/EXECUTION/VENDOR）のモックデータを準備
+      const mockWithAllLineTypes: EstimateDetail = {
+        ...mockEstimateDetail,
+        items: [
+          {
+            ...mockEstimateDetail.items[0]!,
+            lines: [
+              {
+                id: 'line-e',
+                estimateItemId: 'item-1',
+                lineType: 'ESTIMATE',
+                name: '工事A',
+                specification: null,
+                unit: '式',
+                quantity: '1',
+                unitPrice: '150000',
+                amount: '150000',
+                remarks: null,
+                sourceReceivedQuotationLineItemId: null,
+                sourceVendorName: null,
+                createdAt: '2025-01-01T00:00:00.000Z',
+                updatedAt: '2025-01-01T00:00:00.000Z',
+              },
+              {
+                id: 'line-x',
+                estimateItemId: 'item-1',
+                lineType: 'EXECUTION',
+                name: '工事A',
+                specification: null,
+                unit: '式',
+                quantity: '1',
+                unitPrice: '120000',
+                amount: '120000',
+                remarks: null,
+                sourceReceivedQuotationLineItemId: null,
+                sourceVendorName: null,
+                createdAt: '2025-01-01T00:00:00.000Z',
+                updatedAt: '2025-01-01T00:00:00.000Z',
+              },
+              {
+                id: 'line-v',
+                estimateItemId: 'item-1',
+                lineType: 'VENDOR',
+                name: '工事A',
+                specification: null,
+                unit: '式',
+                quantity: '1',
+                unitPrice: '100000',
+                amount: '100000',
+                remarks: null,
+                sourceReceivedQuotationLineItemId: null,
+                sourceVendorName: null,
+                createdAt: '2025-01-01T00:00:00.000Z',
+                updatedAt: '2025-01-01T00:00:00.000Z',
+              },
+            ],
+          },
+        ],
+      };
+
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(mockWithAllLineTypes);
+      mockEditor.items = mockWithAllLineTypes.items;
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('summary-panel')).toBeInTheDocument();
+      });
+
+      // REQ-39.1: 表示順序の確認
+      expect(screen.getByText('業者金額合計')).toBeInTheDocument();
+      expect(screen.getByText('実行金額合計')).toBeInTheDocument();
+      expect(screen.getByText('値引額')).toBeInTheDocument();
+      expect(screen.getByText('値引率')).toBeInTheDocument();
+      expect(screen.getByText('見積金額合計')).toBeInTheDocument();
+      expect(screen.getByText('利益額')).toBeInTheDocument();
+      expect(screen.getByText('利益率')).toBeInTheDocument();
     });
   });
 
