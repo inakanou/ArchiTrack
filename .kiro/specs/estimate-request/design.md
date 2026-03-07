@@ -3477,3 +3477,724 @@ const receivedQuotationSchema = z.object({
 - **パンくずナビゲーション（見積依頼一覧）**: 見積依頼一覧画面のパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧」の順序で表示される確認。各リンクをクリックして正しい画面に遷移する確認
 - **パンくずナビゲーション（新規作成）**: 見積依頼新規作成画面のパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧 > 新規作成」の順序で表示される確認。「← 一覧に戻る」リンクが存在しない確認
 - **パンくずナビゲーション（詳細）**: 見積依頼詳細画面のパンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 見積依頼一覧 > {見積依頼名}」の順序で表示される確認。「← 見積依頼一覧に戻る」リンクが存在しない確認
+
+---
+
+## 受領見積書ダイアログ改善 - 設計追記（Requirements 31-34）
+
+### Overview（追記4）
+
+**Purpose**: 受領見積書の登録・編集ダイアログのユーザビリティを改善する。PDFプレビューに拡大縮小機能を追加し、ダイアログの横幅を拡大して表示領域を広くする。明細行のテキストボックスを数量表画面の対応する列と同じサイズ・文字サイズ・パディングに統一する。一括取り込みボタン押下時にNET金額欄が空欄の場合、明細行の合計金額をNET金額欄に自動入力する。
+
+**Impact**: フロントエンドのFileInlinePreview、ReceivedQuotationForm、LineItemEditor、OcrDataExtractorコンポーネントの変更に限定される。バックエンドの変更は不要。データモデルの変更は不要。
+
+### Goals（追記4）
+
+- PDFプレビューの拡大縮小操作により、細かい文字や表の内容を確認しやすくする
+- ダイアログ横幅の拡大によりPDFプレビューと明細行入力エリアの表示領域を広げる
+- 明細行テキストボックスのサイズを数量表画面と統一し、一貫したUI体験を提供する
+- 一括取り込み時のNET金額自動入力により、入力の手間を省く
+
+### Non-Goals（追記4）
+
+- マウスホイールによるPDFプレビューのピンチズーム操作
+- ダイアログ内のドラッグによるPDFプレビューのパン操作
+- 明細行テーブルの列幅を数量表画面と完全に一致させること（テキストボックスのサイズ・文字サイズ・パディングの統一のみ）
+
+### Architecture（追記4）
+
+変更範囲はフロントエンドの既存コンポーネント更新に限定される。新規コンポーネントやサービスの追加は不要。バックエンドの変更は不要。
+
+### Requirements Traceability（追記4）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 31.1 | 登録画面PDFプレビューに拡大ボタン表示 | FileInlinePreview | - | - |
+| 31.2 | 登録画面PDFプレビューに縮小ボタン表示 | FileInlinePreview | - | - |
+| 31.3 | 編集画面PDFプレビューに拡大ボタン表示 | FileInlinePreview | - | - |
+| 31.4 | 編集画面PDFプレビューに縮小ボタン表示 | FileInlinePreview | - | - |
+| 31.5 | 拡大ボタンで表示倍率を段階的に拡大 | FileInlinePreview | - | - |
+| 31.6 | 縮小ボタンで表示倍率を段階的に縮小 | FileInlinePreview | - | - |
+| 31.7 | 現在の表示倍率をパーセンテージで表示 | FileInlinePreview | - | - |
+| 31.8 | 初期表示倍率をプレビューエリア幅に自動フィット | FileInlinePreview | - | - |
+| 31.9 | 最大倍率で拡大ボタンを非活性化 | FileInlinePreview | - | - |
+| 31.10 | 最小倍率で縮小ボタンを非活性化 | FileInlinePreview | - | - |
+| 31.11 | 拡大時にスクロールで表示位置移動可能 | FileInlinePreview | - | - |
+| 31.12 | 拡大縮小後もページナビゲーション正常動作 | FileInlinePreview | - | - |
+| 32.1 | 登録ダイアログ横幅を広い表示領域で表示 | ReceivedQuotationForm | - | - |
+| 32.2 | 編集ダイアログ横幅を広い表示領域で表示 | ReceivedQuotationForm | - | - |
+| 32.3 | 横幅拡大後もレイアウト適切 | ReceivedQuotationForm | - | - |
+| 32.4 | 横幅拡大後も既存機能正常動作 | ReceivedQuotationForm | - | - |
+| 32.5 | 画面端からの余白確保 | ReceivedQuotationForm | - | - |
+| 32.6 | レスポンシブデザイン対応 | ReceivedQuotationForm | - | - |
+| 33.1 | 任意分類テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.2 | 工種テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.3 | 名称テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.4 | 規格テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.5 | 単位テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.6 | 数量テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.7 | 単価テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.8 | 備考テキストボックスサイズ統一 | LineItemEditor | - | - |
+| 33.9 | 文字サイズ統一 | LineItemEditor | - | - |
+| 33.10 | パディング統一 | LineItemEditor | - | - |
+| 33.11 | 編集画面にも同じスタイル適用 | LineItemEditor | - | - |
+| 33.12 | Tabキー移動正常動作維持 | LineItemEditor | - | - |
+| 33.13 | 明細行追加・削除正常動作維持 | LineItemEditor | - | - |
+| 34.1 | 一括取り込み時にNET金額欄の空欄確認 | ReceivedQuotationForm, OcrDataExtractor | - | NET金額自動入力フロー |
+| 34.2 | NET金額空欄時に合計金額を自動入力 | ReceivedQuotationForm, OcrDataExtractor | - | NET金額自動入力フロー |
+| 34.3 | NET金額に既存値がある場合は変更しない | ReceivedQuotationForm, OcrDataExtractor | - | NET金額自動入力フロー |
+| 34.4 | 自動入力NET金額にReq 18丸め規則適用 | ReceivedQuotationForm | - | - |
+| 34.5 | 自動入力NET金額にReq 28表示形式適用 | ReceivedQuotationForm | - | - |
+| 34.6 | 項目選択転記時もNET金額自動入力 | ReceivedQuotationForm | - | NET金額自動入力フロー |
+| 34.7 | 自動入力後も手動編集可能 | ReceivedQuotationForm | - | - |
+
+### Components and Interfaces - 改訂（Requirements 31-34）
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|-----------|--------------|--------|--------------|------------------|-----------|
+| FileInlinePreview（拡張） | Frontend/UI | PDFプレビューの拡大縮小機能を追加 | 31.1-31.12 | react-pdf (P0) | State |
+| ReceivedQuotationForm（改訂3） | Frontend/UI | ダイアログ横幅拡大、NET金額自動入力 | 32.1-32.6, 34.1-34.7 | LineItemEditor (P0), OcrDataExtractor (P0) | State |
+| LineItemEditor（改訂3） | Frontend/UI | テキストボックスサイズを数量表画面と統一 | 33.1-33.13 | - | Style |
+| OcrDataExtractor（拡張2） | Frontend/UI | 一括取り込み完了時のNET金額自動入力コールバック対応 | 34.1-34.3 | ReceivedQuotationForm (P0) | State |
+
+#### FileInlinePreview - 改訂（PDFプレビュー拡大縮小機能）
+
+| Field | Detail |
+|-------|--------|
+| Intent | PDFプレビューに拡大・縮小操作機能を追加し、ズームレベルのコントロールを提供する |
+| Requirements | 31.1-31.12 |
+
+**Responsibilities & Constraints**
+- PDFプレビューのズームレベル管理（拡大・縮小・自動フィット）
+- ズームレベルに応じたPDFページの描画サイズ制御
+- ズームレベルの上下限制御
+- 拡大時のスクロール可能なプレビューエリアの提供
+- ページナビゲーション機能との共存
+
+**Dependencies**
+- External: react-pdf（Document、Page） -- PDFレンダリング (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+/** PDFズーム関連の状態 */
+interface PdfZoomState {
+  /** 現在のズームスケール（1.0 = 100%） */
+  scale: number;
+  /** プレビューエリア幅に基づくフィットスケール（初期値計算用） */
+  fitScale: number;
+  /** フィットスケールの計算完了フラグ */
+  fitScaleReady: boolean;
+}
+
+/** ズーム定数 */
+const ZOOM_STEP = 0.25;       // 1段階あたりの倍率変化量（25%刻み）
+const ZOOM_MIN = 0.5;         // 最小倍率（50%）
+const ZOOM_MAX = 3.0;         // 最大倍率（300%）
+const ZOOM_FIT_DEFAULT = 1.0; // フィットスケール未計算時のデフォルト値
+```
+
+**ズーム操作フロー**:
+
+```
+[初期表示]
+  |
+  v
+[PDFドキュメントロード完了]
+  |
+  v
+[プレビューエリア幅を取得] --> containerRef.current.clientWidth
+  |
+  v
+[fitScale計算] --> fitScale = containerWidth / pdfPageWidth
+  |
+  v
+[scale = fitScale] --> 初期表示は幅フィット（31.8）
+  |
+  v
+[ユーザー操作]
+  |-- [拡大ボタン] --> scale = Math.min(scale + ZOOM_STEP, ZOOM_MAX)（31.5）
+  |-- [縮小ボタン] --> scale = Math.max(scale - ZOOM_STEP, ZOOM_MIN)（31.6）
+  |
+  v
+[Pageコンポーネント再描画] --> <Page scale={scale} ... />
+```
+
+**Implementation Notes**
+- Integration: react-pdfの`<Page>`コンポーネントの`scale`プロパティでズームレベルを制御する。`<Page scale={scale} />`として、状態の`scale`値を直接渡す
+- Integration: PDFドキュメントの読み込み完了時（`onLoadSuccess`）にページ幅を取得し、プレビューコンテナの幅と比較してfitScaleを計算する。`<Document onLoadSuccess={({ numPages }) => ...}>`内で`<Page onLoadSuccess={({ width }) => { setFitScale(containerWidth / width); setScale(containerWidth / width); }}`として初期スケールを設定する（31.8）
+- Integration: プレビューコンテナに`ref`を設定し、`containerRef.current.clientWidth`でコンテナ幅を取得する。コンテナの`overflow: 'auto'`設定により、拡大時にスクロールが自動的に有効になる（31.11）
+- Integration: 拡大縮小操作後もページナビゲーション（前ページ/次ページ）のステートは独立しているため、ページ切り替え時にscaleは維持される（31.12）
+- Visual: ズームコントロールバーをページナビゲーションバーの横に配置する。レイアウト: `[← 前ページ] [1/5] [次ページ →] | [−] [100%] [+]`
+- Visual: 拡大ボタン: `+`アイコン。縮小ボタン: `−`アイコン。スタイルは既存のpdfNavButtonスタイルを再利用する
+- Visual: 倍率表示は`${Math.round(scale * 100)}%`のフォーマット（31.7）
+- Visual: scale >= ZOOM_MAXの場合に拡大ボタンを非活性化（31.9）、scale <= ZOOM_MINの場合に縮小ボタンを非活性化（31.10）。非活性スタイルは既存のpdfNavButtonDisabledを再利用する
+- Visual: pdfContainerスタイルの`maxHeight: '300px'`を維持し、`overflow: 'auto'`とする。拡大時はコンテナ内でスクロールする（31.11）
+
+##### スタイル変更
+
+```typescript
+// FileInlinePreview styles追加
+const styles = {
+  // ...既存スタイル
+
+  pdfZoomControls: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginLeft: '12px',
+    borderLeft: '1px solid #e5e7eb',
+    paddingLeft: '12px',
+  } as React.CSSProperties,
+
+  pdfZoomText: {
+    fontSize: '13px',
+    color: '#6b7280',
+    minWidth: '48px',
+    textAlign: 'center' as const,
+  } as React.CSSProperties,
+};
+```
+
+#### ReceivedQuotationForm - 改訂3（ダイアログ横幅拡大）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書ダイアログの横幅を拡大して表示領域を広げる |
+| Requirements | 32.1-32.6 |
+
+**改訂内容**:
+
+ReceivedQuotationFormは、EstimateRequestDetailPage内でモーダルダイアログとして表示される。ダイアログコンテナのmax-widthを拡大する。
+
+**現在のダイアログコンテナ**: EstimateRequestDetailPageのダイアログ表示ロジック内のインラインスタイルで制御されている。
+
+**変更対象**: EstimateRequestDetailPageの受領見積書ダイアログコンテナのスタイル
+
+##### Style Changes
+
+```typescript
+// EstimateRequestDetailPageのダイアログコンテナスタイル
+
+// 変更前（想定される現在値）
+const dialogContentStyle = {
+  backgroundColor: '#ffffff',
+  borderRadius: '8px',
+  maxWidth: '800px',       // 現在の横幅
+  width: '90%',
+  maxHeight: '90vh',
+  overflow: 'auto',
+};
+
+// 変更後
+const dialogContentStyle = {
+  backgroundColor: '#ffffff',
+  borderRadius: '8px',
+  maxWidth: '95vw',        // ビューポート幅の95%に拡大（32.1, 32.2）
+  width: '1400px',         // 基本幅を1400pxに設定
+  maxHeight: '90vh',
+  overflow: 'auto',
+  margin: '20px',          // 画面端からの余白確保（32.5）
+};
+```
+
+**Implementation Notes**
+- Integration: ダイアログの`maxWidth`を`95vw`に設定し、`width`を`1400px`に拡大する。これにより1920px幅のディスプレイでは1400px幅で表示され、それ以下の画面幅ではビューポート幅の95%に自動縮小される（32.1, 32.2, 32.5, 32.6）
+- Integration: ダイアログ内部のPDFプレビューエリアと明細行入力エリアは横幅100%のため、ダイアログの横幅拡大に自動追従する（32.3）
+- Validation: 既存のすべての機能（ファイルアップロード、OCR実行、一括取り込み、明細行編集、保存、キャンセル）は横幅変更に影響されない（32.4）
+- Visual: `margin: '20px'`で画面端からの最小余白を確保する（32.5）
+- Risks: 小画面（タブレット等）での表示。`maxWidth: '95vw'`により画面幅に応じて自動縮小されるため問題なし（32.6）
+
+#### LineItemEditor - 改訂3（テキストボックスサイズ統一）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書の明細行テキストボックスを数量表画面の対応する列と同じサイズ・文字サイズ・パディングに統一する |
+| Requirements | 33.1-33.13 |
+
+**改訂内容**:
+
+LineItemEditorのテキスト入力フィールドのスタイルを、数量表画面のEditableQuantityItemRowコンポーネントのスタイルに合わせる。
+
+**数量表画面のスタイル基準値（EditableQuantityItemRow / gridConstants.ts）**:
+
+```typescript
+// gridConstants.ts のカラム幅定義
+// 大項目(76px)・中項目(76px)・小項目(76px)・任意分類(76px)・工種(88px)
+// 名称(202px)・規格(202px)・計算方法(90px)・数量(80px)・単位(46px)・備考(76px)・操作(80px)
+
+// EditableQuantityItemRow のinputスタイル
+const quantityTableInputStyle = {
+  width: '100%',
+  height: '22px',
+  padding: '2px 4px',
+  border: '1px solid #d1d5db',
+  borderRadius: '0px',
+  fontSize: '12px',
+  color: '#1f2937',
+  backgroundColor: '#ffffff',
+  outline: 'none',
+  transition: 'border-color 0.2s',
+  boxSizing: 'border-box' as const,
+};
+```
+
+**LineItemEditorの現在のスタイル**:
+
+```typescript
+const currentInputStyle = {
+  width: '100%',
+  padding: '6px 8px',
+  borderRadius: '4px',
+  border: '1px solid #d1d5db',
+  fontSize: '13px',
+  outline: 'none',
+  transition: 'border-color 0.15s',
+  boxSizing: 'border-box' as const,
+};
+```
+
+**変更後のスタイル**:
+
+```typescript
+// LineItemEditor styles.input を数量表画面に統一
+const unifiedInputStyle = {
+  width: '100%',
+  height: '22px',             // 22px（数量表に統一）
+  padding: '2px 4px',         // 2px 4px（数量表に統一）（33.10）
+  border: '1px solid #d1d5db',
+  borderRadius: '0px',        // 0px（数量表に統一）
+  fontSize: '12px',           // 12px（数量表に統一）（33.9）
+  color: '#1f2937',
+  backgroundColor: '#ffffff',
+  outline: 'none',
+  transition: 'border-color 0.2s',
+  boxSizing: 'border-box' as const,
+};
+```
+
+**テーブル列の最小幅設定（数量表に準拠）**:
+
+```typescript
+// LineItemEditor のthスタイル変更
+const columnWidths = {
+  thNo: { width: '40px' },                 // 変更なし
+  thCustomCategory: { minWidth: '76px' },   // 80px → 76px（数量表に準拠）（33.1）
+  thWorkType: { minWidth: '88px' },         // 80px → 88px（数量表に準拠）（33.2）
+  thName: { minWidth: '202px' },            // 120px → 202px（数量表に準拠）（33.3）
+  thSpec: { minWidth: '202px' },            // 80px → 202px（数量表に準拠）（33.4）
+  thUnit: { width: '46px' },               // 60px → 46px（数量表に準拠）（33.5）
+  thQuantity: { width: '80px' },            // 変更なし（数量表と同一）（33.6）
+  thUnitPrice: { width: '100px' },          // 変更なし（33.7）
+  thRemarks: { minWidth: '76px' },          // 変更なし（数量表に準拠）（33.8）
+  thAction: { width: '50px' },              // 変更なし
+};
+```
+
+**Implementation Notes**
+- Integration: LineItemEditorのstyles.inputオブジェクトのプロパティ（height、padding、borderRadius、fontSize、color）を数量表画面のEditableQuantityItemRowのinputスタイルに合わせて更新する（33.1-33.8, 33.9, 33.10）
+- Integration: thスタイルの列幅（minWidth/width）を数量表画面のgridConstants.tsの値に準拠して調整する。ただし、数量表はCSS Grid、LineItemEditorはHTMLテーブルのため、列幅は`minWidth`/`width`で制御する
+- Integration: styles.thのfontSizeとpaddingも数量表に合わせて調整する。fontSize: '12px' → '11px'（数量表のfieldLabelと統一）、padding: '8px 6px' → '4px 4px'（数量表の行間に統一）
+- Integration: styles.tdのpaddingも調整する。'4px 4px' → '2px 2px'（数量表のgap: '2px'に準拠）
+- Integration: 登録画面と編集画面の両方で同一のLineItemEditorコンポーネントを使用しているため、スタイル変更は自動的に両画面に適用される（33.11）
+- Validation: Tabキーによるフィールド間移動のロジック（FIELD_ORDER配列とhandleKeyDown関数）はスタイル変更の影響を受けない（33.12）
+- Validation: 明細行の追加・削除ロジック（handleAddItem、handleDeleteItem関数）はスタイル変更の影響を受けない（33.13）
+- Risks: 列幅の変更（特にthNameとthSpecの大幅拡大）により、ダイアログ内でテーブルが横方向にスクロール可能になる場合がある。LineItemEditorのcontainerスタイル（overflow: 'auto'）で対応済み。ダイアログ横幅拡大（Requirement 32）により表示領域が広がるため、横スクロールの発生は最小限に抑えられる
+
+#### ReceivedQuotationForm - 改訂3b（NET金額自動入力）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 一括取り込みボタン押下時にNET金額欄が空欄の場合、明細行の合計金額をNET金額欄に自動入力する |
+| Requirements | 34.1-34.7 |
+
+**改訂内容**:
+
+ReceivedQuotationFormの一括取り込み完了時のコールバック処理に、NET金額自動入力ロジックを追加する。
+
+##### System Flow
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant OCR as OcrDataExtractor
+    participant Form as ReceivedQuotationForm
+    participant Editor as LineItemEditor
+
+    User->>OCR: 一括取り込みボタンクリック
+    OCR->>Form: onImportLineItems(lineItems)
+    Form->>Editor: setLineItems(lineItems)
+    Form->>Form: 合計金額を計算 calculateTotalAmount(lineItems)
+    Form->>Form: NET金額欄が空欄か確認
+    alt NET金額欄が空欄
+        Form->>Form: NET金額 = formatUnitPrice(String(合計金額))
+    else NET金額欄に値あり
+        Form->>Form: NET金額を変更しない
+    end
+```
+
+**State Management（改訂）**:
+
+```typescript
+/**
+ * 一括取り込み完了時のNET金額自動入力ロジック（34.1-34.5）
+ *
+ * ReceivedQuotationFormのonImportLineItems コールバック内に追加
+ */
+function handleImportLineItems(importedItems: LineItemFormData[]): void {
+  // 既存処理: 明細行データをセット
+  setLineItems(importedItems);
+
+  // NET金額自動入力ロジック（34.1）
+  if (netAmount.trim() === '') {
+    // NET金額欄が空欄の場合（34.2）
+    const totalAmount = calculateTotalAmount(importedItems);
+    if (totalAmount > 0) {
+      // 合計金額をNET金額に設定（34.4: 整数表示、小数第1位で四捨五入）
+      const formattedNetAmount = formatUnitPrice(String(totalAmount));
+      setNetAmount(formattedNetAmount);
+    }
+  }
+  // NET金額欄に既存値がある場合は変更しない（34.3）
+}
+```
+
+**項目選択転記時のNET金額自動入力（34.6）**:
+
+```typescript
+/**
+ * 項目選択からの一括転記完了時のNET金額自動入力ロジック（34.6）
+ *
+ * ReceivedQuotationFormのhandleTranscriptionImport コールバック内に追加
+ */
+function handleTranscriptionImport(transcribedItems: LineItemFormData[]): void {
+  // 既存処理: 転記データを明細行にセット
+  setLineItems(transcribedItems);
+
+  // NET金額自動入力ロジック（34.6）
+  if (netAmount.trim() === '') {
+    const totalAmount = calculateTotalAmount(transcribedItems);
+    if (totalAmount > 0) {
+      const formattedNetAmount = formatUnitPrice(String(totalAmount));
+      setNetAmount(formattedNetAmount);
+    }
+  }
+}
+```
+
+**Implementation Notes**
+- Integration: OcrDataExtractorの`onImportLineItems`コールバックが呼び出された後に、ReceivedQuotationForm内でNET金額自動入力ロジックを実行する。OcrDataExtractor自体の変更は不要（ReceivedQuotationFormがコールバック内で処理する）
+- Integration: `calculateTotalAmount()`は既存のLineItemEditorからエクスポート済みの関数を使用する
+- Integration: `formatUnitPrice()`は既存のnumber-formatからインポート済みの関数を使用する。これにより整数表示（小数第1位で四捨五入）が自動適用される（34.4, 34.5）
+- Integration: 項目選択からの一括転記（Requirement 15）時も同じロジックを適用する（34.6）。ただし、転記時は単価が空欄（Requirement 15.10）のため金額がnullとなり、合計金額は0になる可能性が高い。合計金額が0の場合はNET金額を自動入力しない（意味のある値がないため）
+- Integration: NET金額の自動入力後もフィールドはユーザーが手動で編集可能な状態を維持する（34.7）。自動入力はsetNetAmount()による状態更新のみであり、フィールドのdisabled属性は変更しない
+- Risks: なし。既存のフォーマット関数を再利用するため、丸め規則の一貫性は保証される
+
+### Testing Strategy（追記4）
+
+#### Unit Tests（追記4）
+
+- **FileInlinePreview（PDFズーム）**: 拡大ボタンクリックでscaleが増加すること、縮小ボタンクリックでscaleが減少すること、scale >= ZOOM_MAXで拡大ボタンが非活性であること（31.9）、scale <= ZOOM_MINで縮小ボタンが非活性であること（31.10）、倍率テキストが正しく表示されること（31.7）、PDFロード完了時にfitScaleが設定されること（31.8）、ページ切り替え後もscaleが維持されること（31.12）
+- **ReceivedQuotationForm（ダイアログ横幅）**: ダイアログコンテナのmaxWidthが95vwであること（32.1, 32.2）、widthが1400pxであること
+- **LineItemEditor（テキストボックスサイズ統一）**: inputスタイルのfontSizeが12pxであること（33.9）、paddingが'2px 4px'であること（33.10）、heightが22pxであること、borderRadiusが0pxであること、列ヘッダーのminWidthが数量表に準拠していること（33.1-33.8）、Tabキー移動が正常動作すること（33.12）、明細行追加・削除が正常動作すること（33.13）
+- **ReceivedQuotationForm（NET金額自動入力）**: 一括取り込み時にNET金額欄が空の場合に合計金額が自動入力されること（34.1, 34.2）、NET金額欄に既存値がある場合は変更されないこと（34.3）、自動入力値が整数フォーマットであること（34.4, 34.5）、項目選択転記時にもNET金額自動入力が動作すること（34.6）、自動入力後にNET金額フィールドが編集可能であること（34.7）、合計金額が0の場合はNET金額を自動入力しないこと
+
+#### E2E Tests（追記4）
+
+- **PDFプレビュー拡大縮小**: PDFアップロード→プレビュー表示→拡大ボタンクリック→倍率増加確認→縮小ボタンクリック→倍率減少確認→ページ切り替え→倍率維持確認
+- **ダイアログ横幅拡大**: 受領見積書登録ダイアログの表示幅がデフォルトより広いことの確認、PDFプレビューと明細行テーブルの両方が適切に表示されることの確認
+- **テキストボックスサイズ統一**: 受領見積書登録画面の明細行テキストボックスのフォントサイズ・パディングが数量表画面と同じであることの視覚的確認
+- **NET金額自動入力（OCR一括取り込み）**: PDFアップロード→OCR実行→一括取り込み→NET金額欄に合計金額が自動入力されることの確認→NET金額欄を手動編集できることの確認
+- **NET金額自動入力（既存値保持）**: NET金額欄に手動で値を入力→OCR一括取り込み→NET金額欄の値が変更されないことの確認
+- **NET金額自動入力（項目選択転記）**: 項目選択→「項目選択から転記」ボタン→転記完了後のNET金額自動入力確認（単価が空のため合計が0→自動入力されないことの確認）
+
+---
+
+## 現場調査報告書出力機能 - 設計追記（Requirement 35）
+
+### Overview（追記5）
+
+**Purpose**: 見積依頼詳細画面のアクションセクションに「現場調査報告書出力」ボタンを追加し、該当プロジェクトに紐づく現場調査を選択して調査報告書PDFを出力する機能を提供する。協力業者に見積依頼を行う際に、現場情報を調査報告書として共有するワークフローを実現する。
+
+**Impact**: フロントエンドのEstimateRequestDetailPageに現場調査報告書出力ボタンと現場調査選択UIを追加する。既存の現場調査報告書出力機能（`PdfExportService`、`PdfReportService`、`AnnotationRendererService`）と現場調査API（`getSiteSurveys`、`getSiteSurvey`）を再利用するため、バックエンドの変更は不要。新規コンポーネントやサービスの追加は不要。
+
+### Goals（追記5）
+
+- 見積依頼詳細画面から現場調査報告書を直接出力できるようにする
+- 既存の現場調査報告書出力機能を再利用し、一貫性のあるPDF出力を提供する
+- 現場調査が存在しない場合の適切なハンドリングを提供する
+
+### Non-Goals（追記5）
+
+- 見積依頼画面での報告書出力対象項目の設定変更（現場調査画面で設定済みの前提）
+- 複数の現場調査報告書の一括出力
+- 現場調査報告書のカスタマイズオプション
+
+### Architecture（追記5）
+
+変更範囲はフロントエンドのEstimateRequestDetailPageに限定される。新規コンポーネントの追加は不要。既存の現場調査API（`getSiteSurveys`、`getSiteSurvey`）と現場調査報告書出力サービス（`PdfExportService`、`AnnotationRendererService`）を組み合わせて使用する。
+
+**再利用する既存モジュール**:
+- `frontend/src/api/site-surveys.ts` - `getSiteSurveys()`: プロジェクト紐付き現場調査一覧取得
+- `frontend/src/api/site-surveys.ts` - `getSiteSurvey()`: 現場調査詳細取得（画像一覧含む）
+- `frontend/src/services/export/AnnotationRendererService.ts` - `renderImagesForReport()`: 注釈付き画像レンダリング
+- `frontend/src/services/export/PdfExportService.ts` - `exportAndDownloadPdf()`: PDF生成・ダウンロード
+- `frontend/src/types/site-survey.types.ts` - `SiteSurveyInfo`、`SiteSurveyDetail`型
+
+### System Flows（追記5）
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Page as EstimateRequestDetailPage
+    participant API as Site Survey API
+    participant Renderer as AnnotationRendererService
+    participant Exporter as PdfExportService
+
+    User->>Page: 「現場調査報告書出力」ボタンクリック
+    Page->>API: getSiteSurveys(projectId)
+    API-->>Page: 現場調査一覧
+
+    alt 現場調査が0件
+        Page->>Page: 「現場調査が登録されていません」メッセージ表示
+    else 現場調査が1件以上
+        Page->>Page: 現場調査選択ドロップダウン表示
+        User->>Page: 現場調査を選択
+        User->>Page: 「出力」ボタンクリック
+        Page->>API: getSiteSurvey(selectedSurveyId)
+        API-->>Page: 現場調査詳細（画像一覧含む）
+        Page->>Page: 報告書出力対象画像をフィルタ（includeInReport）
+        Page->>Renderer: renderImagesForReport(exportTargetImages)
+        Renderer-->>Page: 注釈付き画像配列
+        Page->>Exporter: exportAndDownloadPdf(surveyDetail, annotatedImages)
+        Exporter-->>Page: PDFダウンロード完了
+    end
+```
+
+### Requirements Traceability（追記5）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 35.1 | アクションセクションに「現場調査報告書出力」ボタン表示 | EstimateRequestDetailPage | - | - |
+| 35.2 | ボタン押下で現場調査選択UI表示 | EstimateRequestDetailPage | getSiteSurveys API | 現場調査報告書出力フロー |
+| 35.3 | 現場調査選択UIに調査名と調査日を表示 | EstimateRequestDetailPage | SiteSurveyInfo | - |
+| 35.4 | 1件の現場調査を選択可能 | EstimateRequestDetailPage | - | - |
+| 35.5 | 選択後に既存の報告書出力機能を呼び出してPDF生成 | EstimateRequestDetailPage | getSiteSurvey API, renderImagesForReport, exportAndDownloadPdf | 現場調査報告書出力フロー |
+| 35.6 | 出力対象項目の設定は現場調査画面の設定をそのまま使用 | EstimateRequestDetailPage | includeInReportフラグ | - |
+| 35.7 | 生成されたPDFファイルをダウンロード | EstimateRequestDetailPage | exportAndDownloadPdf | 現場調査報告書出力フロー |
+| 35.8 | 生成中のインジケーター表示 | EstimateRequestDetailPage | PdfExportProgress | - |
+| 35.9 | 現場調査0件時に「現場調査が登録されていません」メッセージ表示 | EstimateRequestDetailPage | - | - |
+| 35.10 | 未選択時のバリデーションエラー表示 | EstimateRequestDetailPage | - | - |
+| 35.11 | PDF生成失敗時のエラーメッセージ表示 | EstimateRequestDetailPage | - | - |
+
+### Components and Interfaces - 改訂（Requirement 35）
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|-----------|--------------|--------|--------------|------------------|-----------|
+| EstimateRequestDetailPage（改訂4） | Frontend/Page | アクションセクションに現場調査報告書出力機能を追加 | 35.1-35.11 | getSiteSurveys (P0), getSiteSurvey (P0), renderImagesForReport (P0), exportAndDownloadPdf (P0) | State |
+
+#### EstimateRequestDetailPage - 改訂4（現場調査報告書出力機能）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積依頼詳細画面のアクションセクションに現場調査報告書出力ボタンと選択UIを追加し、選択した現場調査の報告書PDFをダウンロードする |
+| Requirements | 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7, 35.8, 35.9, 35.10, 35.11 |
+
+**Responsibilities & Constraints**
+- アクションセクションへの「現場調査報告書出力」ボタンの追加
+- ボタン押下時の現場調査一覧取得とドロップダウン表示
+- 選択した現場調査の詳細取得、注釈付き画像レンダリング、PDF生成・ダウンロード
+- 現場調査0件時の適切なメッセージ表示
+- PDF生成中のローディングインジケーター表示
+- エラーハンドリング（API失敗、PDF生成失敗）
+
+**Dependencies**
+- External: `getSiteSurveys` (site-surveys API) -- プロジェクト紐付き現場調査一覧取得 (P0)
+- External: `getSiteSurvey` (site-surveys API) -- 現場調査詳細取得（画像一覧含む） (P0)
+- External: `renderImagesForReport` (AnnotationRendererService) -- 注釈付き画像レンダリング (P0)
+- External: `exportAndDownloadPdf` (PdfExportService) -- PDF生成・ダウンロード (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+/** 現場調査報告書出力関連の状態 */
+interface SurveyReportState {
+  /** 現場調査選択ドロップダウンの表示状態 */
+  showSurveySelector: boolean;
+  /** プロジェクトに紐づく現場調査一覧 */
+  siteSurveys: SiteSurveyInfo[];
+  /** 現場調査一覧の取得中フラグ */
+  isLoadingSurveys: boolean;
+  /** 選択された現場調査ID */
+  selectedSurveyId: string;
+  /** PDF生成中フラグ */
+  isGeneratingReport: boolean;
+  /** PDF生成進捗 */
+  reportProgress: PdfExportProgress | null;
+  /** 報告書出力関連のエラーメッセージ */
+  reportError: string | null;
+}
+```
+
+**UIレイアウト（アクションセクション変更部分）**:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ アクション                                                │
+│                                                          │
+│ [見積依頼文を表示] [Excel出力] [クリップボードにコピー]      │
+│ [現場調査報告書出力]                                        │
+│                                                          │
+│ ※「現場調査報告書出力」クリック後:                           │
+│ ┌─────────────────────────────────────────────────┐      │
+│ │ 現場調査を選択:                                    │      │
+│ │ [▼ 現場調査名 (2026-03-01)                     ]  │      │
+│ │                              [出力] [キャンセル]   │      │
+│ └─────────────────────────────────────────────────┘      │
+│                                                          │
+│ ※生成中:                                                 │
+│ [生成中... (50%)]                                         │
+│                                                          │
+│ ※0件時:                                                  │
+│ 「現場調査が登録されていません」                              │
+└──────────────────────────────────────────────────────────┘
+```
+
+**現場調査報告書出力フロー**:
+
+```typescript
+/**
+ * 現場調査報告書出力ボタンのクリックハンドラ（35.1, 35.2）
+ *
+ * ボタンクリック時にプロジェクトの現場調査一覧を取得し、
+ * 選択ドロップダウンを表示する。
+ */
+async function handleSurveyReportClick(): Promise<void> {
+  setIsLoadingSurveys(true);
+  setReportError(null);
+
+  try {
+    // プロジェクトに紐づく現場調査一覧を取得（全件取得）
+    const result = await getSiteSurveys(request.projectId, {
+      limit: 100,
+      sort: 'surveyDate',
+      order: 'desc',
+    });
+
+    setSiteSurveys(result.data);
+
+    if (result.data.length === 0) {
+      // 現場調査0件の場合（35.9）
+      setReportError('現場調査が登録されていません');
+    } else {
+      setShowSurveySelector(true);
+      // 先頭の現場調査をデフォルト選択
+      setSelectedSurveyId(result.data[0].id);
+    }
+  } catch {
+    setReportError('現場調査一覧の取得に失敗しました');
+  } finally {
+    setIsLoadingSurveys(false);
+  }
+}
+
+/**
+ * 報告書出力実行ハンドラ（35.5, 35.6, 35.7, 35.8）
+ *
+ * 選択された現場調査の詳細を取得し、既存の報告書出力機能を使用して
+ * PDF報告書を生成・ダウンロードする。
+ */
+async function handleGenerateReport(): Promise<void> {
+  // 未選択バリデーション（35.10）
+  if (!selectedSurveyId) {
+    setReportError('現場調査を選択してください');
+    return;
+  }
+
+  setIsGeneratingReport(true);
+  setReportError(null);
+  setReportProgress(null);
+
+  try {
+    // 現場調査詳細を取得（画像一覧含む）
+    const surveyDetail = await getSiteSurvey(selectedSurveyId);
+
+    // 報告書出力対象の画像をフィルタ（35.6: 現場調査画面の設定をそのまま使用）
+    const exportTargetImages = surveyDetail.images.filter(
+      (img) => img.includeInReport
+    );
+
+    if (exportTargetImages.length === 0) {
+      setReportError(
+        '報告書出力対象の写真がありません。現場調査画面で出力対象を選択してください。'
+      );
+      setIsGeneratingReport(false);
+      return;
+    }
+
+    // 注釈付き画像をレンダリング
+    const renderedImages = await renderImagesForReport(exportTargetImages);
+
+    // AnnotatedImageWithComment形式に変換
+    const annotatedImages: AnnotatedImageWithComment[] = renderedImages.map(
+      (img) => ({
+        imageInfo: img.imageInfo,
+        dataUrl: img.dataUrl,
+        comment: img.imageInfo.comment ?? null,
+      })
+    );
+
+    // PDF生成・ダウンロード（35.7, 35.8）
+    await exportAndDownloadPdf(surveyDetail, annotatedImages, {
+      onProgress: (progress) => {
+        setReportProgress(progress);
+      },
+    });
+
+    // 成功時にセレクターを閉じる
+    setShowSurveySelector(false);
+  } catch {
+    setReportError('現場調査報告書の生成に失敗しました');
+  } finally {
+    setIsGeneratingReport(false);
+    setReportProgress(null);
+  }
+}
+```
+
+**Implementation Notes**
+- Integration: アクションセクションの既存ボタン（見積依頼文表示、Excel出力、クリップボードコピー）の下に「現場調査報告書出力」ボタンを追加する（35.1）
+- Integration: `getSiteSurveys(request.projectId, { limit: 100, sort: 'surveyDate', order: 'desc' })`でプロジェクトの現場調査一覧を取得する。`request.projectId`は既存のEstimateRequestDetailPageで保持しているプロジェクトIDを使用する（35.2）
+- Integration: 現場調査選択ドロップダウンは`<select>`タグで実装する。各optionに現場調査名と調査日を「{name} ({surveyDate})」形式で表示する（35.3, 35.4）。シンプルなUIのためTradingPartnerSelect等の高度なコンポーネントは不要
+- Integration: 既存の`SiteSurveyDetailInfo.tsx`の`handleExportPdf`処理パターン（`renderImagesForReport` → `exportAndDownloadPdf`）をそのまま踏襲する。出力対象画像のフィルタリング（`img.includeInReport`）も同一ロジックを使用する（35.5, 35.6）
+- Integration: `PdfExportService`の`exportAndDownloadPdf`が生成するファイル名のデフォルト値（`現場調査報告書_YYYYMMDD.pdf`）をそのまま使用する（35.7）
+- Integration: PDF生成中は`isGeneratingReport`フラグでボタンを非活性化し、`reportProgress`で進捗を表示する（35.8）。進捗表示はSiteSurveyDetailInfoで使用済みのパターン（`PdfExportProgress`型）を踏襲する
+- Integration: 現場調査選択ドロップダウンの表示・非表示は`showSurveySelector`フラグで制御する。「キャンセル」ボタンで`showSurveySelector = false`に設定しドロップダウンを閉じる
+- Integration: `reportError`は5秒後に自動的にnullにクリアする（SiteSurveyDetailInfoの既存パターンに準拠）
+- Visual: 「現場調査報告書出力」ボタンのスタイルは既存のactionButtonスタイルを再利用する。現場調査選択ドロップダウンはボタンの下にインラインで表示し、モーダルダイアログは使用しない
+- Visual: 生成中のインジケーターは「生成中... ({percent}%)」のテキスト表示とする。SiteSurveyDetailInfoの既存パターンに準拠
+- Visual: エラーメッセージは赤色テキストでアクションセクション内に表示する
+- Risks: プロジェクトに100件以上の現場調査がある場合、limit: 100では全件取得できない可能性があるが、実運用上は十分な上限値である。必要に応じて将来的にページネーション対応を追加可能
+
+### Testing Strategy（追記5）
+
+#### Unit Tests（追記5）
+
+- **EstimateRequestDetailPage（現場調査報告書出力ボタン）**: アクションセクションに「現場調査報告書出力」ボタンが表示されることの確認（35.1）
+- **EstimateRequestDetailPage（現場調査一覧取得）**: ボタンクリック時にgetSiteSurveysが呼び出されることの確認（35.2）。取得中のローディング状態の確認
+- **EstimateRequestDetailPage（選択UI表示）**: 現場調査一覧取得後にドロップダウンが表示されることの確認。各optionに調査名と調査日が表示されることの確認（35.3, 35.4）
+- **EstimateRequestDetailPage（0件ハンドリング）**: 現場調査0件時に「現場調査が登録されていません」メッセージが表示されることの確認。ドロップダウンが表示されないことの確認（35.9）
+- **EstimateRequestDetailPage（未選択バリデーション）**: 現場調査未選択で出力ボタンクリック時にバリデーションエラーが表示されることの確認（35.10）
+- **EstimateRequestDetailPage（PDF生成）**: 現場調査選択後の出力ボタンクリック時にgetSiteSurvey、renderImagesForReport、exportAndDownloadPdfが順次呼び出されることの確認（35.5）
+- **EstimateRequestDetailPage（生成中インジケーター）**: PDF生成中にボタンが非活性化され、進捗表示が更新されることの確認（35.8）
+- **EstimateRequestDetailPage（エラーハンドリング）**: PDF生成失敗時にエラーメッセージが表示されることの確認（35.11）。報告書出力対象写真が0件時のエラーメッセージ確認
+
+#### E2E Tests（追記5）
+
+- **現場調査報告書出力（正常系）**: 見積依頼詳細画面→「現場調査報告書出力」ボタンクリック→現場調査選択ドロップダウン表示→現場調査を選択→「出力」ボタンクリック→PDF生成中インジケーター表示→PDFダウンロード完了
+- **現場調査報告書出力（0件）**: 現場調査が存在しないプロジェクトの見積依頼詳細画面→「現場調査報告書出力」ボタンクリック→「現場調査が登録されていません」メッセージ表示確認
+- **現場調査報告書出力（キャンセル）**: 「現場調査報告書出力」ボタンクリック→選択ドロップダウン表示→「キャンセル」ボタンクリック→ドロップダウンが閉じることの確認
