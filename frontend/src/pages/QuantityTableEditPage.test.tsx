@@ -809,19 +809,14 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // 削除ボタンを探してクリック（EditableQuantityItemRow内のボタン）
-      const deleteButtons = screen.getAllByRole('button', { name: /項目を削除|削除/ });
-      // 最初の項目の削除ボタンをクリック
-      const itemDeleteButton = deleteButtons.find((btn) =>
-        btn.getAttribute('aria-label')?.includes('項目を削除')
-      );
-      if (itemDeleteButton) {
-        await user.click(itemDeleteButton);
+      // EditableQuantityItemRow内の削除ボタン（aria-label="削除"）をクリック
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      expect(deleteButtons.length).toBeGreaterThan(0);
+      await user.click(deleteButtons[0]!);
 
-        await waitFor(() => {
-          expect(mockDeleteQuantityItem).toHaveBeenCalledWith('item-1');
-        });
-      }
+      await waitFor(() => {
+        expect(mockDeleteQuantityItem).toHaveBeenCalledWith('item-1');
+      });
     });
 
     it('項目削除に失敗した場合はエラーが表示される', async () => {
@@ -835,18 +830,14 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // 削除ボタンを探してクリック
-      const deleteButtons = screen.getAllByRole('button', { name: /項目を削除|削除/ });
-      const itemDeleteButton = deleteButtons.find((btn) =>
-        btn.getAttribute('aria-label')?.includes('項目を削除')
-      );
-      if (itemDeleteButton) {
-        await user.click(itemDeleteButton);
+      // EditableQuantityItemRow内の削除ボタン（aria-label="削除"）をクリック
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      expect(deleteButtons.length).toBeGreaterThan(0);
+      await user.click(deleteButtons[0]!);
 
-        await waitFor(() => {
-          expect(screen.getByText(/項目の削除に失敗しました/)).toBeInTheDocument();
-        });
-      }
+      await waitFor(() => {
+        expect(screen.getByText(/項目の削除に失敗しました/)).toBeInTheDocument();
+      });
     });
   });
 
@@ -2044,6 +2035,113 @@ describe('QuantityTableEditPage', () => {
   });
 
   // ====================================================================
+  // 追加カバレッジテスト: 数量表名のblur（変更なし）(REQ 2.5)
+  // ====================================================================
+
+  describe('REQ 2.5 追加: 名前未変更でblur', () => {
+    it('名前を変更せずにフォーカスを外すとAPIは呼ばれない', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockUpdateQuantityTable = vi.mocked(quantityTablesApi.updateQuantityTable);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      let nameInput: HTMLInputElement;
+      await waitFor(() => {
+        nameInput = screen.getByDisplayValue('テスト数量表') as HTMLInputElement;
+        expect(nameInput).toBeInTheDocument();
+      });
+
+      // フォーカスして何も変えずにblur
+      await user.click(nameInput!);
+      await user.tab(); // tab away to blur
+
+      // 名前が変わっていないのでAPIは呼ばれない
+      expect(mockUpdateQuantityTable).not.toHaveBeenCalled();
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: PDF出力成功パス（画像付き）
+  // ====================================================================
+
+  describe('REQ 26 追加: PDF出力成功パス', () => {
+    it('画像付きグループのPDF出力でrenderAnnotatedImageToDataUrlが呼ばれる', async () => {
+      const user = userEvent.setup();
+
+      // 画像付きテーブルデータ
+      const tableWithPhoto: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithPhoto);
+
+      // Imageコンストラクタをモック（jsdomでは画像読み込みが動作しないため）
+      const originalImage = globalThis.Image;
+      class MockImage {
+        crossOrigin = '';
+        src = '';
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        width = 100;
+        height = 100;
+        constructor() {
+          // srcが設定されたらonerrorを発火（テスト環境では画像読み込み不可）
+          setTimeout(() => {
+            if (this.onerror) this.onerror();
+          }, 0);
+        }
+      }
+      globalThis.Image = MockImage as unknown as typeof Image;
+
+      const { generateQuantityTablePdf } =
+        await import('../services/export/QuantityTablePdfExportService');
+      const mockGeneratePdf = vi.mocked(generateQuantityTablePdf);
+      mockGeneratePdf.mockResolvedValue(new Blob(['test'], { type: 'application/pdf' }));
+
+      const { downloadPdf } = await import('../services/export/PdfExportService');
+      const mockDownload = vi.mocked(downloadPdf);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // PDF出力ボタンをクリック
+      const pdfButton = screen.getByRole('button', { name: /PDF/ });
+      await user.click(pdfButton);
+
+      // PDF生成が呼ばれる（画像はnullになる）
+      await waitFor(() => {
+        expect(mockGeneratePdf).toHaveBeenCalled();
+      });
+
+      // ダウンロードが呼ばれる
+      await waitFor(() => {
+        expect(mockDownload).toHaveBeenCalled();
+      });
+
+      // クリーンアップ
+      globalThis.Image = originalImage;
+    });
+  });
+
+  // ====================================================================
   // 追加カバレッジテスト: 数量表名のEscキー (REQ 2.5)
   // ====================================================================
 
@@ -2061,25 +2159,25 @@ describe('QuantityTableEditPage', () => {
 
       renderWithRouter();
 
+      // データ読み込みと名前表示を待つ
+      let nameInput: HTMLInputElement;
       await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        nameInput = screen.getByDisplayValue('テスト数量表') as HTMLInputElement;
+        expect(nameInput).toBeInTheDocument();
       });
 
-      // 数量表名のinput要素を取得（h1内のinput）
-      const nameInput = screen.getByDisplayValue('テスト数量表') as HTMLInputElement;
-
       // フォーカスして名前を変更
-      await user.click(nameInput);
-      await user.clear(nameInput);
-      await user.type(nameInput, '変更された名前');
-      expect(nameInput.value).toBe('変更された名前');
+      await user.click(nameInput!);
+      await user.clear(nameInput!);
+      await user.type(nameInput!, '変更された名前');
+      expect(nameInput!.value).toBe('変更された名前');
 
       // Escキーで元に戻す
       await user.keyboard('{Escape}');
 
       // Escape後、名前は元に戻る
       await waitFor(() => {
-        expect(nameInput.value).toBe('テスト数量表');
+        expect(nameInput!.value).toBe('テスト数量表');
       });
     });
   });
