@@ -112,8 +112,7 @@ describe('EstimateExportDialog', () => {
     expect(executionCheckbox).toBeTruthy();
     expect(vendorCheckbox).toBeTruthy();
 
-    // 実行と業者もチェックする
-    await user.click(executionCheckbox);
+    // REQ-38.1: デフォルトで見積+実行がON。業者もチェックする
     await user.click(vendorCheckbox);
 
     // 3つともチェックされている
@@ -123,13 +122,13 @@ describe('EstimateExportDialog', () => {
   });
 
   // ============================================================================
-  // REQ-32.5: デフォルト値は「見積」のみON
+  // REQ-38.1: デフォルト値は「見積」と「実行」がON（REQ-32.5を上書き）
   // ============================================================================
 
   /**
-   * REQ-32.5: デフォルト値は「見積」のみON
+   * REQ-38.1: デフォルト値は「見積」と「実行」がON、「業者」はOFF
    */
-  it('デフォルト値は「見積」のみON、「実行」「業者」はOFF', () => {
+  it('デフォルト値は「見積」と「実行」がON、「業者」はOFF', () => {
     render(<EstimateExportDialog {...defaultProps} />);
 
     const checkboxes = screen.getAllByRole('checkbox');
@@ -144,7 +143,7 @@ describe('EstimateExportDialog', () => {
     ) as HTMLInputElement;
 
     expect(estimateCheckbox.checked).toBe(true);
-    expect(executionCheckbox.checked).toBe(false);
+    expect(executionCheckbox.checked).toBe(true);
     expect(vendorCheckbox.checked).toBe(false);
   });
 
@@ -184,16 +183,20 @@ describe('EstimateExportDialog', () => {
     const user = userEvent.setup();
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // デフォルトでは「見積」がONなので出力ボタンは有効（出力形式もデフォルトExcelなので選択済み）
+    // REQ-38.1: デフォルトでは「見積」+「実行」がONなので出力ボタンは有効
     const exportButton = screen.getByRole('button', { name: '出力' });
     expect(exportButton).not.toBeDisabled();
 
-    // 「見積」のチェックを外す
+    // 全てのチェックを外す
     const checkboxes = screen.getAllByRole('checkbox');
     const estimateCheckbox = checkboxes.find(
       (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
     )!;
+    const executionCheckbox = checkboxes.find(
+      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
+    )!;
     await user.click(estimateCheckbox);
+    await user.click(executionCheckbox);
 
     // 全てのチェックボックスがOFFになったので出力ボタンはdisabled
     expect(exportButton).toBeDisabled();

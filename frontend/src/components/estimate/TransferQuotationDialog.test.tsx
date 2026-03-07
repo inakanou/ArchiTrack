@@ -224,10 +224,14 @@ describe('TransferQuotationDialog', () => {
       expect(screen.getByText('仮設工事')).toBeInTheDocument();
     });
 
-    // 明細行のチェックボックスをクリック
+    // 受領見積書選択時に全明細行が自動選択される
     const checkbox = screen.getByTestId('line-checkbox-rql-001');
-    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
 
+    // クリックで選択解除→再選択できることを確認
+    await user.click(checkbox);
+    expect(checkbox).not.toBeChecked();
+    await user.click(checkbox);
     expect(checkbox).toBeChecked();
   });
 
