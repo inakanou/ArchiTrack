@@ -6,6 +6,8 @@ import {
   DuplicateItemizedStatementNameError,
   QuantityOverflowError,
   ItemizedStatementConflictError,
+  InvalidItemOrderError,
+  ItemNotBelongToStatementError,
   ItemizedStatementItemLimitExceededError,
 } from '../../../errors/itemizedStatementError.js';
 import { ApiError, NotFoundError } from '../../../errors/apiError.js';
@@ -464,6 +466,96 @@ describe('Itemized Statement Error Classes', () => {
     });
   });
 
+  describe('InvalidItemOrderError', () => {
+    it('should have 400 status code', () => {
+      const error = new InvalidItemOrderError();
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error.name).toBe('InvalidItemOrderError');
+      expect(error.statusCode).toBe(400);
+      expect(error.code).toBe('INVALID_ITEM_ORDER');
+      expect(error.problemType).toBe(PROBLEM_TYPES.VALIDATION_ERROR);
+    });
+
+    it('should have default error message', () => {
+      const error = new InvalidItemOrderError();
+
+      expect(error.message).toBe('並び順データが不正です');
+    });
+
+    it('should accept custom error message', () => {
+      const customMessage = '項目IDが重複しています';
+      const error = new InvalidItemOrderError(customMessage);
+
+      expect(error.message).toBe(customMessage);
+    });
+
+    it('should capture stack trace', () => {
+      const error = new InvalidItemOrderError();
+
+      expect(error.stack).toBeDefined();
+      expect(error.stack).toContain('itemizedStatementError.test.ts');
+    });
+
+    it('toProblemDetails() should return RFC 7807 format', () => {
+      const error = new InvalidItemOrderError();
+      const problemDetails = error.toProblemDetails('/api/itemized-statements/123/items/order');
+
+      expect(problemDetails).toMatchObject({
+        type: PROBLEM_TYPES.VALIDATION_ERROR,
+        title: 'INVALID_ITEM_ORDER',
+        status: 400,
+        detail: '並び順データが不正です',
+        instance: '/api/itemized-statements/123/items/order',
+      });
+    });
+  });
+
+  describe('ItemNotBelongToStatementError', () => {
+    it('should have 400 status code', () => {
+      const error = new ItemNotBelongToStatementError('item-001', 'is-001');
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error.name).toBe('ItemNotBelongToStatementError');
+      expect(error.statusCode).toBe(400);
+      expect(error.code).toBe('ITEM_NOT_BELONG_TO_STATEMENT');
+      expect(error.problemType).toBe(PROBLEM_TYPES.VALIDATION_ERROR);
+    });
+
+    it('should have correct error message', () => {
+      const error = new ItemNotBelongToStatementError('item-001', 'is-001');
+
+      expect(error.message).toBe('指定された項目がこの内訳書に属していません');
+    });
+
+    it('should include itemId and itemizedStatementId in details', () => {
+      const error = new ItemNotBelongToStatementError('item-001', 'is-001');
+
+      expect(error.details).toEqual({ itemId: 'item-001', itemizedStatementId: 'is-001' });
+    });
+
+    it('should capture stack trace', () => {
+      const error = new ItemNotBelongToStatementError('item-001', 'is-001');
+
+      expect(error.stack).toBeDefined();
+      expect(error.stack).toContain('itemizedStatementError.test.ts');
+    });
+
+    it('toProblemDetails() should return RFC 7807 format', () => {
+      const error = new ItemNotBelongToStatementError('item-001', 'is-001');
+      const problemDetails = error.toProblemDetails('/api/itemized-statements/is-001/items/order');
+
+      expect(problemDetails).toMatchObject({
+        type: PROBLEM_TYPES.VALIDATION_ERROR,
+        title: 'ITEM_NOT_BELONG_TO_STATEMENT',
+        status: 400,
+        detail: '指定された項目がこの内訳書に属していません',
+        instance: '/api/itemized-statements/is-001/items/order',
+        details: { itemId: 'item-001', itemizedStatementId: 'is-001' },
+      });
+    });
+  });
+
   describe('ItemizedStatementItemLimitExceededError', () => {
     it('should have 422 status code', () => {
       const error = new ItemizedStatementItemLimitExceededError(2500);
@@ -570,6 +662,8 @@ describe('Itemized Statement Error Classes', () => {
       expect(new DuplicateItemizedStatementNameError('name', 'projectId')).toBeInstanceOf(ApiError);
       expect(new QuantityOverflowError('value')).toBeInstanceOf(ApiError);
       expect(new ItemizedStatementConflictError()).toBeInstanceOf(ApiError);
+      expect(new InvalidItemOrderError()).toBeInstanceOf(ApiError);
+      expect(new ItemNotBelongToStatementError('item', 'statement')).toBeInstanceOf(ApiError);
       expect(new ItemizedStatementItemLimitExceededError(2500)).toBeInstanceOf(ApiError);
     });
 
@@ -580,6 +674,8 @@ describe('Itemized Statement Error Classes', () => {
       expect(new DuplicateItemizedStatementNameError('name', 'projectId')).toBeInstanceOf(Error);
       expect(new QuantityOverflowError('value')).toBeInstanceOf(Error);
       expect(new ItemizedStatementConflictError()).toBeInstanceOf(Error);
+      expect(new InvalidItemOrderError()).toBeInstanceOf(Error);
+      expect(new ItemNotBelongToStatementError('item', 'statement')).toBeInstanceOf(Error);
       expect(new ItemizedStatementItemLimitExceededError(2500)).toBeInstanceOf(Error);
     });
 

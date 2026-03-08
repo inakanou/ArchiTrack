@@ -34,6 +34,7 @@ import {
   EmptyQuantityItemsError,
   DuplicateItemizedStatementNameError,
   ItemizedStatementConflictError,
+  ItemNotBelongToStatementError,
 } from '../../../errors/itemizedStatementError.js';
 import { ItemizedStatementHasEstimateRequestsError } from '../../../errors/estimateRequestError.js';
 import { QuantityTableNotFoundError } from '../../../errors/quantityTableError.js';
@@ -787,6 +788,260 @@ describe('ItemizedStatementService', () => {
 
       // Assert
       expect(mockAuditLogService.createLog).toHaveBeenCalled();
+    });
+  });
+
+  describe('updateItemOrder', () => {
+    const statementId = 'is-001';
+    const actorId = 'user-001';
+    const updatedAt = new Date('2026-01-23T00:00:00Z');
+    const newUpdatedAt = new Date('2026-01-23T01:00:00Z');
+
+    const mockStatementBase = {
+      id: statementId,
+      projectId: 'proj-001',
+      name: 'テスト内訳書',
+      sourceQuantityTableId: 'qt-001',
+      sourceQuantityTableName: 'テスト数量表',
+      createdAt: new Date('2026-01-19T00:00:00Z'),
+      updatedAt,
+      deletedAt: null,
+    };
+
+    const mockItems = [
+      {
+        id: 'item-001',
+        itemizedStatementId: statementId,
+        customCategory: '分類A',
+        workType: '工種1',
+        name: '名称1',
+        specification: '規格1',
+        unit: 'm',
+        quantity: new Decimal('10.00'),
+        displayOrder: 0,
+      },
+      {
+        id: 'item-002',
+        itemizedStatementId: statementId,
+        customCategory: '分類B',
+        workType: '工種2',
+        name: '名称2',
+        specification: '規格2',
+        unit: 'm2',
+        quantity: new Decimal('20.00'),
+        displayOrder: 1,
+      },
+      {
+        id: 'item-003',
+        itemizedStatementId: statementId,
+        customCategory: '分類C',
+        workType: '工種3',
+        name: '名称3',
+        specification: '規格3',
+        unit: 'm3',
+        quantity: new Decimal('30.00'),
+        displayOrder: 2,
+      },
+    ];
+
+    it('全項目のdisplayOrderが正しく更新される（Requirements: 17.8）', async () => {
+      // Arrange
+      const input = {
+        itemizedStatementId: statementId,
+        items: [
+          { id: 'item-003', displayOrder: 0 },
+          { id: 'item-001', displayOrder: 1 },
+          { id: 'item-002', displayOrder: 2 },
+        ],
+        expectedUpdatedAt: updatedAt,
+      };
+
+      const updatedStatementWithItems = {
+        ...mockStatementBase,
+        updatedAt: newUpdatedAt,
+        project: { id: 'proj-001', name: 'テストプロジェクト' },
+        items: [
+          { ...mockItems[2], displayOrder: 0 },
+          { ...mockItems[0], displayOrder: 1 },
+          { ...mockItems[1], displayOrder: 2 },
+        ],
+      };
+
+      const mockItemUpdate = vi.fn().mockResolvedValue({});
+      const mockStatementUpdate = vi
+        .fn()
+        .mockResolvedValue({ ...mockStatementBase, updatedAt: newUpdatedAt });
+      const mockStatementFindUnique = vi
+        .fn()
+        .mockResolvedValueOnce({ ...mockStatementBase, items: mockItems }) // 1回目: 存在確認
+        .mockResolvedValueOnce(updatedStatementWithItems); // 2回目: 更新後詳細取得
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: mockStatementFindUnique,
+            update: mockStatementUpdate,
+          },
+          itemizedStatementItem: {
+            update: mockItemUpdate,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.updateItemOrder(input, actorId);
+
+      // Assert
+      expect(result.items).toHaveLength(3);
+      expect(mockItemUpdate).toHaveBeenCalledTimes(3);
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ITEMIZED_STATEMENT_UPDATED',
+        })
+      );
+    });
+
+    it('更新後のレスポンスに更新後のupdatedAtが含まれる（Requirements: 17.8）', async () => {
+      // Arrange
+      const input = {
+        itemizedStatementId: statementId,
+        items: [
+          { id: 'item-001', displayOrder: 0 },
+          { id: 'item-002', displayOrder: 1 },
+          { id: 'item-003', displayOrder: 2 },
+        ],
+        expectedUpdatedAt: updatedAt,
+      };
+
+      const updatedStatementWithItems = {
+        ...mockStatementBase,
+        updatedAt: newUpdatedAt,
+        project: { id: 'proj-001', name: 'テストプロジェクト' },
+        items: mockItems.map((item) => ({ ...item })),
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValueOnce({ ...mockStatementBase, items: mockItems })
+              .mockResolvedValueOnce(updatedStatementWithItems),
+            update: vi.fn().mockResolvedValue({ ...mockStatementBase, updatedAt: newUpdatedAt }),
+          },
+          itemizedStatementItem: {
+            update: vi.fn().mockResolvedValue({}),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.updateItemOrder(input, actorId);
+
+      // Assert
+      expect(result.updatedAt).toEqual(newUpdatedAt);
+    });
+
+    it('存在しない内訳書IDに対して404エラーをスローする（Requirements: 17.8）', async () => {
+      // Arrange
+      const input = {
+        itemizedStatementId: 'nonexistent-id',
+        items: [{ id: 'item-001', displayOrder: 0 }],
+        expectedUpdatedAt: updatedAt,
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.updateItemOrder(input, actorId)).rejects.toThrow(
+        ItemizedStatementNotFoundError
+      );
+    });
+
+    it('楽観的排他制御エラー時に409エラーをスローする（Requirements: 17.14）', async () => {
+      // Arrange
+      const input = {
+        itemizedStatementId: statementId,
+        items: [{ id: 'item-001', displayOrder: 0 }],
+        expectedUpdatedAt: new Date('2026-01-20T00:00:00Z'), // 不一致
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockStatementBase, items: mockItems }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.updateItemOrder(input, actorId)).rejects.toThrow(
+        ItemizedStatementConflictError
+      );
+    });
+
+    it('他の内訳書に属する項目IDが含まれる場合に400エラーをスローする（Requirements: 17.10）', async () => {
+      // Arrange
+      const input = {
+        itemizedStatementId: statementId,
+        items: [
+          { id: 'item-001', displayOrder: 0 },
+          { id: 'item-999', displayOrder: 1 }, // 他の内訳書の項目
+          { id: 'item-003', displayOrder: 2 },
+        ],
+        expectedUpdatedAt: updatedAt,
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockStatementBase, items: mockItems }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.updateItemOrder(input, actorId)).rejects.toThrow(
+        ItemNotBelongToStatementError
+      );
+    });
+
+    it('論理削除された内訳書に対して404エラーをスローする', async () => {
+      // Arrange
+      const input = {
+        itemizedStatementId: statementId,
+        items: [{ id: 'item-001', displayOrder: 0 }],
+        expectedUpdatedAt: updatedAt,
+      };
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue({
+              ...mockStatementBase,
+              deletedAt: new Date(),
+              items: [],
+            }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act & Assert
+      await expect(service.updateItemOrder(input, actorId)).rejects.toThrow(
+        ItemizedStatementNotFoundError
+      );
     });
   });
 });

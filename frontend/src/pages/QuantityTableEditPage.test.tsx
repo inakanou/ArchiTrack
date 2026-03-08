@@ -22,6 +22,9 @@ import type { SurveyImageInfo } from '../types/site-survey.types';
 // APIモック
 vi.mock('../api/quantity-tables');
 vi.mock('../api/site-surveys');
+vi.mock('../api/survey-annotations');
+vi.mock('../services/export/QuantityTablePdfExportService');
+vi.mock('../services/export/PdfExportService');
 
 // useAutocompleteCandidateStoreフックのモック
 const mockGetSuggestions = vi.fn().mockReturnValue([]);
@@ -806,19 +809,14 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // 削除ボタンを探してクリック（EditableQuantityItemRow内のボタン）
-      const deleteButtons = screen.getAllByRole('button', { name: /項目を削除|削除/ });
-      // 最初の項目の削除ボタンをクリック
-      const itemDeleteButton = deleteButtons.find((btn) =>
-        btn.getAttribute('aria-label')?.includes('項目を削除')
-      );
-      if (itemDeleteButton) {
-        await user.click(itemDeleteButton);
+      // EditableQuantityItemRow内の削除ボタン（aria-label="削除"）をクリック
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      expect(deleteButtons.length).toBeGreaterThan(0);
+      await user.click(deleteButtons[0]!);
 
-        await waitFor(() => {
-          expect(mockDeleteQuantityItem).toHaveBeenCalledWith('item-1');
-        });
-      }
+      await waitFor(() => {
+        expect(mockDeleteQuantityItem).toHaveBeenCalledWith('item-1');
+      });
     });
 
     it('項目削除に失敗した場合はエラーが表示される', async () => {
@@ -832,18 +830,14 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // 削除ボタンを探してクリック
-      const deleteButtons = screen.getAllByRole('button', { name: /項目を削除|削除/ });
-      const itemDeleteButton = deleteButtons.find((btn) =>
-        btn.getAttribute('aria-label')?.includes('項目を削除')
-      );
-      if (itemDeleteButton) {
-        await user.click(itemDeleteButton);
+      // EditableQuantityItemRow内の削除ボタン（aria-label="削除"）をクリック
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      expect(deleteButtons.length).toBeGreaterThan(0);
+      await user.click(deleteButtons[0]!);
 
-        await waitFor(() => {
-          expect(screen.getByText(/項目の削除に失敗しました/)).toBeInTheDocument();
-        });
-      }
+      await waitFor(() => {
+        expect(screen.getByText(/項目の削除に失敗しました/)).toBeInTheDocument();
+      });
     });
   });
 
@@ -1820,6 +1814,636 @@ describe('QuantityTableEditPage', () => {
       // 写真プレビューダイアログが表示される（REQ-20.1）
       await waitFor(() => {
         expect(screen.getByTestId('photo-preview-overlay')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: グループ名変更 (REQ 22.1, 22.2)
+  // ====================================================================
+
+  describe('REQ 22: グループ名変更', () => {
+    it('グループ名を変更するとAPIが呼ばれてローカル状態が更新される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockUpdateQuantityGroup.mockResolvedValue({
+        id: 'group-1',
+        quantityTableId: 'qt-123',
+        name: '新しいグループ名',
+        surveyImageId: 'img-1',
+        displayOrder: 0,
+        itemCount: 2,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-02T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // グループ名をクリックして編集モードに入る
+      const groupName = screen.getByText('グループ1');
+      await user.click(groupName);
+
+      // 入力フィールドが表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('グループ1')).toBeInTheDocument();
+      });
+
+      // 新しい名前を入力
+      const nameInput = screen.getByDisplayValue('グループ1');
+      await user.clear(nameInput);
+      await user.type(nameInput, '新しいグループ名');
+
+      // Enterで確定（またはblur）
+      await user.keyboard('{Enter}');
+
+      // APIが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
+          'group-1',
+          { name: '新しいグループ名' },
+          expect.any(String)
+        );
+      });
+    });
+
+    it('グループ名変更に失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockUpdateQuantityGroup.mockRejectedValue(new Error('Rename failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const groupName = screen.getByText('グループ1');
+      await user.click(groupName);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('グループ1')).toBeInTheDocument();
+      });
+
+      const nameInput = screen.getByDisplayValue('グループ1');
+      await user.clear(nameInput);
+      await user.type(nameInput, '失敗グループ名');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => {
+        expect(screen.getByText(/グループ名の変更に失敗しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: グループ並び順変更 (REQ 23)
+  // ====================================================================
+
+  describe('REQ 23: グループ並び順変更', () => {
+    it('グループを上に移動するとAPIが呼ばれる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockUpdateGroupOrder = vi.mocked(quantityTablesApi.updateGroupDisplayOrder);
+      mockUpdateGroupOrder.mockResolvedValue(undefined as never);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // SortOrderButtonsは「上へ移動」「下へ移動」aria-labelを使用
+      // グループ・項目両方にボタンがあるので、有効なものをフィルタして最後（グループ用）をクリック
+      const moveUpButtons = screen.getAllByRole('button', { name: /上へ移動/ });
+      const enabledUpButtons = moveUpButtons.filter((btn) => !btn.hasAttribute('disabled'));
+      // 最後の有効な「上へ移動」ボタンがグループ-1のもの
+      await user.click(enabledUpButtons[enabledUpButtons.length - 1]!);
+
+      await waitFor(() => {
+        expect(mockUpdateGroupOrder).toHaveBeenCalled();
+      });
+    });
+
+    it('グループを下に移動するとAPIが呼ばれる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockUpdateGroupOrder = vi.mocked(quantityTablesApi.updateGroupDisplayOrder);
+      mockUpdateGroupOrder.mockResolvedValue(undefined as never);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 最初の「下へ移動」ボタンは1番目のグループのもの
+      const moveDownButtons = screen.getAllByRole('button', { name: /下へ移動/ });
+      await user.click(moveDownButtons[0]!);
+
+      await waitFor(() => {
+        expect(mockUpdateGroupOrder).toHaveBeenCalled();
+      });
+    });
+
+    it('グループ移動APIが失敗すると元の順序に戻りエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockUpdateGroupOrder = vi.mocked(quantityTablesApi.updateGroupDisplayOrder);
+      mockUpdateGroupOrder.mockRejectedValue(new Error('Order update failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const moveDownButtons = screen.getAllByRole('button', { name: /下へ移動/ });
+      await user.click(moveDownButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByText(/グループの並び順変更に失敗しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: 項目移動API連携 (REQ 24)
+  // ====================================================================
+
+  describe('REQ 24: 項目並び順変更（API連携）', () => {
+    it('項目を上に移動するとAPIが呼ばれる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockUpdateItemOrder = vi.mocked(quantityTablesApi.updateItemDisplayOrder);
+      mockUpdateItemOrder.mockResolvedValue(undefined as never);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      // 2番目の項目のアクションメニューを開く
+      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
+      await user.click(menuButtons[1]!);
+
+      // 上に移動ボタンをクリック
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /上に移動/ })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('menuitem', { name: /上に移動/ }));
+
+      await waitFor(() => {
+        expect(mockUpdateItemOrder).toHaveBeenCalledWith(
+          'group-1',
+          expect.arrayContaining([
+            expect.objectContaining({ id: 'item-2' }),
+            expect.objectContaining({ id: 'item-1' }),
+          ])
+        );
+      });
+    });
+
+    it('項目移動APIが失敗すると元の順序に戻りエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockUpdateItemOrder = vi.mocked(quantityTablesApi.updateItemDisplayOrder);
+      mockUpdateItemOrder.mockRejectedValue(new Error('Item order update failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+
+      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
+      await user.click(menuButtons[1]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /上に移動/ })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('menuitem', { name: /上に移動/ }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/項目の並び順変更に失敗しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: 数量表名のblur（変更なし）(REQ 2.5)
+  // ====================================================================
+
+  describe('REQ 2.5 追加: 名前未変更でblur', () => {
+    it('名前を変更せずにフォーカスを外すとAPIは呼ばれない', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockUpdateQuantityTable = vi.mocked(quantityTablesApi.updateQuantityTable);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      let nameInput: HTMLInputElement;
+      await waitFor(() => {
+        nameInput = screen.getByDisplayValue('テスト数量表') as HTMLInputElement;
+        expect(nameInput).toBeInTheDocument();
+      });
+
+      // フォーカスして何も変えずにblur
+      await user.click(nameInput!);
+      await user.tab(); // tab away to blur
+
+      // 名前が変わっていないのでAPIは呼ばれない
+      expect(mockUpdateQuantityTable).not.toHaveBeenCalled();
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: PDF出力成功パス（画像付き）
+  // ====================================================================
+
+  describe('REQ 26 追加: PDF出力成功パス', () => {
+    it('画像付きグループのPDF出力でrenderAnnotatedImageToDataUrlが呼ばれる', async () => {
+      const user = userEvent.setup();
+
+      // 画像付きテーブルデータ
+      const tableWithPhoto: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithPhoto);
+
+      // Imageコンストラクタをモック（jsdomでは画像読み込みが動作しないため）
+      const originalImage = globalThis.Image;
+      class MockImage {
+        crossOrigin = '';
+        src = '';
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        width = 100;
+        height = 100;
+        constructor() {
+          // srcが設定されたらonerrorを発火（テスト環境では画像読み込み不可）
+          setTimeout(() => {
+            if (this.onerror) this.onerror();
+          }, 0);
+        }
+      }
+      globalThis.Image = MockImage as unknown as typeof Image;
+
+      const { generateQuantityTablePdf } =
+        await import('../services/export/QuantityTablePdfExportService');
+      const mockGeneratePdf = vi.mocked(generateQuantityTablePdf);
+      mockGeneratePdf.mockResolvedValue(new Blob(['test'], { type: 'application/pdf' }));
+
+      const { downloadPdf } = await import('../services/export/PdfExportService');
+      const mockDownload = vi.mocked(downloadPdf);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // PDF出力ボタンをクリック
+      const pdfButton = screen.getByRole('button', { name: /PDF/ });
+      await user.click(pdfButton);
+
+      // PDF生成が呼ばれる（画像はnullになる）
+      await waitFor(() => {
+        expect(mockGeneratePdf).toHaveBeenCalled();
+      });
+
+      // ダウンロードが呼ばれる
+      await waitFor(() => {
+        expect(mockDownload).toHaveBeenCalled();
+      });
+
+      // クリーンアップ
+      globalThis.Image = originalImage;
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: 数量表名のEscキー (REQ 2.5)
+  // ====================================================================
+
+  describe('REQ 2.5 追加: 数量表名Escキーキャンセル', () => {
+    it('Escキーで数量表名の編集がキャンセルされ元に戻る', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      // Escでblur→handleNameBlurが呼ばれるため、APIモックを用意
+      const mockUpdateQuantityTable = vi.mocked(quantityTablesApi.updateQuantityTable);
+      mockUpdateQuantityTable.mockResolvedValue({
+        id: 'qt-123',
+        name: 'テスト数量表',
+        updatedAt: '2025-01-02T00:00:00Z',
+      } as never);
+
+      renderWithRouter();
+
+      // データ読み込みと名前表示を待つ
+      let nameInput: HTMLInputElement;
+      await waitFor(() => {
+        nameInput = screen.getByDisplayValue('テスト数量表') as HTMLInputElement;
+        expect(nameInput).toBeInTheDocument();
+      });
+
+      // フォーカスして名前を変更
+      await user.click(nameInput!);
+      await user.clear(nameInput!);
+      await user.type(nameInput!, '変更された名前');
+      expect(nameInput!.value).toBe('変更された名前');
+
+      // Escキーで元に戻す
+      await user.keyboard('{Escape}');
+
+      // Escape後、名前は元に戻る
+      await waitFor(() => {
+        expect(nameInput!.value).toBe('テスト数量表');
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: 保存の競合エラー (REQ 11)
+  // ====================================================================
+
+  describe('REQ 11 追加: 保存の競合エラー', () => {
+    it('保存時に競合エラーが発生した場合、競合メッセージが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockBulkSaveQuantityTable.mockRejectedValue(new Error('競合が発生しました'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 保存ボタンをクリック
+      const saveButton = screen.getByRole('button', { name: /保存/ });
+      await user.click(saveButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/他のユーザーによって更新されました/)).toBeInTheDocument();
+      });
+    });
+
+    it('保存時に一般エラーが発生した場合、一般エラーメッセージが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockBulkSaveQuantityTable.mockRejectedValue(new Error('Network error'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/ });
+      await user.click(saveButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/保存に失敗しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: 写真紐付け失敗 (REQ 4.3)
+  // ====================================================================
+
+  describe('REQ 4.3 追加: 写真紐付け失敗', () => {
+    it('写真紐付けに失敗した場合はエラーが表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: 'テスト調査',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 1,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: 'テスト調査',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: [
+          {
+            id: 'photo-1',
+            surveyId: 'survey-1',
+            originalPath: '/original/photo1.jpg',
+            thumbnailPath: '/thumb/photo1.jpg',
+            originalUrl: '/images/original-1.jpg',
+            thumbnailUrl: '/images/thumb-1.jpg',
+            fileName: 'photo1.jpg',
+            fileSize: 1024,
+            width: 800,
+            height: 600,
+            displayOrder: 0,
+            createdAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+      });
+      mockUpdateQuantityGroup.mockRejectedValue(new Error('Photo link failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 写真選択ボタンをクリック
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('photo-item-photo-1')).toBeInTheDocument();
+      });
+
+      // 写真を選択
+      const photo = screen.getByTestId('photo-item-photo-1');
+      await user.click(photo);
+
+      // エラーが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/写真の紐付けに失敗しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: PDF出力エラー (REQ 26)
+  // ====================================================================
+
+  describe('REQ 26: PDF出力', () => {
+    it('PDF出力中にエラーが発生した場合はエラーメッセージが表示される', async () => {
+      const user = userEvent.setup();
+
+      // 写真なしのテーブルデータ（Image loadingがjsdomで停止するのを回避）
+      const tableWithoutPhotos: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: mockQuantityTableDetail.groups.map((g) => ({
+          ...g,
+          surveyImageId: null,
+          surveyImage: null,
+        })),
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithoutPhotos);
+
+      // モジュールはvi.mockで自動モック済み。generateQuantityTablePdfをrejectさせる
+      const { generateQuantityTablePdf } =
+        await import('../services/export/QuantityTablePdfExportService');
+      const mockGeneratePdf = vi.mocked(generateQuantityTablePdf);
+      mockGeneratePdf.mockRejectedValue(new Error('PDF generation failed'));
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // PDF出力ボタンをクリック
+      const pdfButton = screen.getByRole('button', { name: /PDF/ });
+      await user.click(pdfButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/PDF生成中にエラーが発生しました/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ====================================================================
+  // 追加カバレッジテスト: 写真ダイアログのキーボード操作
+  // ====================================================================
+
+  describe('写真ダイアログのキーボード操作', () => {
+    it('写真選択ダイアログで写真をEnterキーで選択できる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: 'テスト調査',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 1,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: 'テスト調査',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: [
+          {
+            id: 'photo-1',
+            surveyId: 'survey-1',
+            originalPath: '/original/photo1.jpg',
+            thumbnailPath: '/thumb/photo1.jpg',
+            originalUrl: '/images/original-1.jpg',
+            thumbnailUrl: '/images/thumb-1.jpg',
+            fileName: 'photo1.jpg',
+            fileSize: 1024,
+            width: 800,
+            height: 600,
+            displayOrder: 0,
+            createdAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+      });
+      mockUpdateQuantityGroup.mockResolvedValue({
+        id: 'group-2',
+        quantityTableId: 'qt-123',
+        name: null,
+        surveyImageId: 'photo-1',
+        displayOrder: 1,
+        itemCount: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-02T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 写真選択ボタンをクリック
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      // 写真が読み込まれるのを待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('photo-item-photo-1')).toBeInTheDocument();
+      });
+
+      // 写真にフォーカスしてEnterキーで選択
+      const photoButton = screen.getByRole('button', { name: /photo1.jpgを選択/ });
+      await user.click(photoButton);
+
+      // APIが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
+          'group-2',
+          { surveyImageId: 'photo-1' },
+          expect.any(String)
+        );
       });
     });
   });

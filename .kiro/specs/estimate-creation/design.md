@@ -2792,3 +2792,481 @@ const updateLine = useCallback(
 ```
 
 **注意**: `recordChange`はsetStateを呼ぶため、`setItems`のコールバック内から呼ぶとReactのバッチ更新に依存する。React 18+ではsetState内でのsetStateは安全にバッチ処理される。
+
+## 追加設計（REQ-35〜40対応）
+
+### 受領見積書転記ダイアログの表示改善（REQ-35）
+
+#### TransferQuotationDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書選択ドロップダウンに業者名と金額を表示し、転記明細行をデフォルトで全選択する |
+| Requirements | 35.1, 35.2, 35.3 |
+
+**現状分析**:
+- `TransferQuotationDialog.tsx`（Line 366-372）のドロップダウンは `{q.name} ({formatAmount(q.totalAmount)})` 形式で表示
+- `ReceivedQuotationInfo`には`name`（見積書名）と`totalAmount`（合計金額）があるが、協力業者名（`tradingPartnerName`）は含まれていない
+- `findByProjectId`（`received-quotation.service.ts` Line 511-532）は`estimateRequest`をincludeしていないため、`tradingPartnerName`が取得できない
+- 明細行のチェックボックスはデフォルトで未選択状態（Line 240: `useState<string[]>([])`）
+
+**変更点**:
+
+1. **バックエンド: ReceivedQuotationService.findByProjectId拡張（REQ-35.1, 35.2）**:
+   - `estimateRequest`の`tradingPartner`をincludeに追加
+   - レスポンスに`tradingPartnerName`フィールドを追加
+
+```typescript
+// received-quotation.service.ts findByProjectId変更
+async findByProjectId(projectId: string): Promise<ReceivedQuotationWithVendorInfo[]> {
+  const quotations = await this.prisma.receivedQuotation.findMany({
+    where: {
+      deletedAt: null,
+      estimateRequest: {
+        projectId: projectId,
+        deletedAt: null,
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      lineItems: {
+        orderBy: { sortOrder: 'asc' },
+      },
+      estimateRequest: {
+        select: {
+          tradingPartner: {
+            select: { name: true },
+          },
+        },
+      },
+    },
+  });
+
+  return quotations.map((q) => {
+    const lineItemInfos = (q.lineItems || []).map((li) => this.toLineItemInfo(li));
+    const info = this.toReceivedQuotationInfoWithLineItems(q, lineItemInfos);
+    return {
+      ...info,
+      tradingPartnerName: q.estimateRequest?.tradingPartner?.name ?? null,
+    };
+  });
+}
+```
+
+2. **フロントエンド: ReceivedQuotationInfo型拡張**:
+
+```typescript
+// frontend/src/api/received-quotations.ts 型拡張
+export interface ReceivedQuotationInfo {
+  // 既存フィールド...
+  tradingPartnerName?: string | null; // 協力業者名（プロジェクト単位取得時のみ）
+}
+```
+
+3. **フロントエンド: ドロップダウン表示形式変更（REQ-35.1, 35.2）**:
+
+```typescript
+// TransferQuotationDialog.tsx ドロップダウン変更
+// 変更前: {q.name} ({formatAmount(q.totalAmount)})
+// 変更後: {tradingPartnerName} - {formatAmount(q.totalAmount)}
+
+<option key={q.id} value={q.id}>
+  {q.tradingPartnerName || q.name} - {formatAmount(q.totalAmount)}
+</option>
+```
+
+4. **フロントエンド: 明細行チェックボックスのデフォルト全選択（REQ-35.3）**:
+
+```typescript
+// TransferQuotationDialog.tsx handleQuotationChange変更
+const handleQuotationChange = useCallback(
+  (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const quotationId = e.target.value;
+    setSelectedQuotationId(quotationId);
+    // 変更: 選択された受領見積書の全明細行IDをデフォルトで全選択
+    if (quotationId) {
+      const quotation = quotations.find((q) => q.id === quotationId);
+      if (quotation) {
+        setSelectedLineItemIds(quotation.lineItems.map((li) => li.id));
+      }
+    } else {
+      setSelectedLineItemIds([]);
+    }
+  },
+  [quotations]
+);
+```
+
+**Implementation Notes**
+- バックエンドの`findByProjectId`は既存の`toReceivedQuotationInfoWithLineItems`をそのまま利用し、`tradingPartnerName`を追加で付与する
+- `tradingPartnerName`がnullの場合はフォールバックとして`q.name`（見積書名）を表示
+- 明細行の全選択はハンドラ内で実装するため、`useEffect`の追加は不要
+
+### NET金額の自動設定（REQ-36）
+
+#### NetAllocationDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 対象業者選択時にNET金額欄に受領見積書のNET金額を自動設定する |
+| Requirements | 36.1, 36.2 |
+
+**現状分析**:
+- `NetAllocationDialog.tsx`は対象業者選択時に業者金額行一覧を表示
+- NET金額入力フィールドは手入力のみ
+- `ReceivedQuotationInfo`には`netAmount`フィールドが存在する（`received-quotations.ts` Line 80）
+- ダイアログは`getReceivedQuotationsByProject`で受領見積書一覧を取得済み
+
+**変更点**:
+
+1. **業者選択時のNET金額自動設定（REQ-36.1）**:
+
+```typescript
+// NetAllocationDialog.tsx 業者選択ハンドラ変更
+const handleVendorChange = useCallback(
+  (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const vendorName = e.target.value;
+    setSelectedVendor(vendorName);
+    // ... 既存の業者金額行フィルタリング処理 ...
+
+    // REQ-36.1: 選択した業者に対応する受領見積書のNET金額を自動設定
+    if (vendorName && receivedQuotations.length > 0) {
+      // 業者名（tradingPartnerName or sourceVendorName）に一致する受領見積書を検索
+      const matchingQuotation = receivedQuotations.find(
+        (q) => (q.tradingPartnerName || q.name) === vendorName
+      );
+      if (matchingQuotation?.netAmount != null) {
+        setNetAmount(matchingQuotation.netAmount.toString());
+      }
+    }
+  },
+  [receivedQuotations]
+);
+```
+
+2. **手動変更可能の維持（REQ-36.2）**:
+   - NET金額入力フィールドの既存の`onChange`ハンドラはそのまま維持
+   - 自動設定された値はユーザーが自由に上書き可能
+   - 業者を再選択した場合は再度自動設定される
+
+**Implementation Notes**
+- 受領見積書の`netAmount`は受領見積書単位で管理されている（`ReceivedQuotationInfo.netAmount`）
+- 業者名の一致判定は、`tradingPartnerName`（REQ-35で追加予定）または`sourceVendorName`を使用
+- `netAmount`が設定されていない受領見積書の場合は自動設定をスキップし、手入力を要求
+
+### 利益率のデフォルト値設定（REQ-37）
+
+#### ProfitRateDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 利益率入力フィールドのデフォルト値を12.27%に設定する |
+| Requirements | 37.1, 37.2 |
+
+**現状分析**:
+- `ProfitRateDialog.tsx`の利益率入力フィールドの初期値を確認が必要
+- 利益率はuseStateで管理されている
+
+**変更点**:
+
+```typescript
+// ProfitRateDialog.tsx 変更箇所
+// 変更前: const [profitRate, setProfitRate] = useState<string>('');
+// 変更後:
+const DEFAULT_PROFIT_RATE = '12.27';
+const [profitRate, setProfitRate] = useState<string>(DEFAULT_PROFIT_RATE);
+```
+
+**Implementation Notes**
+- デフォルト値`12.27`は文字列として設定（Decimal.js計算との互換性維持）
+- ユーザーはデフォルト値を自由に変更可能（REQ-37.2）
+- バリデーションルール（0.00〜500.00%）はそのまま適用
+- ダイアログを開き直した場合にもデフォルト値がリセットされるよう、ダイアログのopen/close時にstateを初期化
+
+### 見積書出力のデフォルト設定と空欄行処理（REQ-38）
+
+#### EstimateExportDialog変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 出力対象のデフォルトを「見積」と「実行」にし、空欄行を詰めて出力する |
+| Requirements | 38.1, 38.2, 38.3 |
+
+**現状分析**:
+- `EstimateExportDialog.tsx`のデフォルト設定は `estimate: true, execution: false, vendor: false`（REQ-32.5で定義）
+- REQ-38.1でデフォルトを`estimate: true, execution: true`に上書きする
+
+**変更点**:
+
+1. **デフォルト設定の変更（REQ-38.1）**:
+
+```typescript
+// EstimateExportDialog.tsx デフォルト値変更
+// 変更前:
+// const [selectedLineTypes, setSelectedLineTypes] = useState<SelectedLineTypes>({
+//   estimate: true,
+//   execution: false,
+//   vendor: false,
+// });
+
+// 変更後:
+const [selectedLineTypes, setSelectedLineTypes] = useState<SelectedLineTypes>({
+  estimate: true,
+  execution: true,  // REQ-38.1: デフォルトON
+  vendor: false,
+});
+```
+
+2. **空欄行の詰め出力（REQ-38.2, 38.3）**:
+
+**バックエンド: EstimateExportService変更**:
+
+```typescript
+// estimate-export.service.ts 出力ロジック変更
+// Excel/PDF出力時に、選択された行タイプにデータが存在する行のみ出力
+
+interface ExportRowFilter {
+  /** 出力対象の行タイプ */
+  lineTypes: EstimateItemLineType[];
+}
+
+/**
+ * 行をフィルタリングして空欄行を除外する
+ * REQ-38.2, 38.3: 選択された行タイプにデータが存在する行のみ出力
+ */
+function filterEmptyRows(
+  items: EstimateItemWithLines[],
+  selectedLineTypes: EstimateItemLineType[]
+): EstimateItemWithLines[] {
+  return items.filter((item) => {
+    // 選択された行タイプのいずれかにデータが存在するか確認
+    return selectedLineTypes.some((lineType) => {
+      const line = item.lines.find((l) => l.lineType === lineType);
+      return line && hasLineData(line);
+    });
+  });
+}
+
+/**
+ * 行にデータが存在するかを判定
+ */
+function hasLineData(line: EstimateItemLine): boolean {
+  return !!(line.name || line.specification || line.unit ||
+    line.quantity != null || line.unitPrice != null || line.remarks);
+}
+```
+
+**API Contract変更なし**: 既存の`GET /api/estimates/:id/export?lineTypes=...`をそのまま使用。空欄行のフィルタリングはバックエンドの出力ロジック内で処理する。
+
+**ダイアログUI変更**:
+```
+┌─────────────────────────────────┐
+│ 見積書出力                       │
+│                                 │
+│ 出力対象:                       │
+│   ☑ 見積  ☑ 実行  ☐ 業者       │  ← デフォルト変更
+│                                 │
+│ 出力形式:                       │
+│   ○ PDF  ◉ Excel               │
+│                                 │
+│        [キャンセル] [出力]       │
+└─────────────────────────────────┘
+```
+
+**Implementation Notes**
+- REQ-38.1はREQ-32.5（デフォルト「見積」のみON）を上書きする
+- 空欄行判定は、選択された全行タイプの行が空の場合のみ除外（一つでもデータがあれば出力）
+- 親項目（子項目を持つ項目）は子項目が存在する限り常に出力対象とする（階層構造の維持）
+
+### サマリーセクションの表示項目と順序（REQ-39）
+
+#### EstimateDetailPage サマリーパネル変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | サマリーセクションの表示項目を拡張し、表示順序を変更する |
+| Requirements | 39.1-39.9 |
+
+**現状分析**:
+- `EstimateDetailPage.tsx`（Line 788-825）のサマリーパネルは以下を表示:
+  - 見積金額合計、実行金額合計、業者金額合計、利益率、値引率
+- REQ-39では値引額・利益額を追加し、表示順序を変更する
+- 現在の利益率計算式は「見積金額合計÷実行金額合計」だが、REQ-39.8では「利益額÷見積金額合計」に変更
+- 現在の値引率計算式は「実行金額合計÷業者金額合計」だが、REQ-39.5では「値引額÷業者金額合計」に変更
+
+**変更点**:
+
+1. **表示項目と順序の変更（REQ-39.1）**:
+
+```typescript
+// EstimateDetailPage.tsx サマリーパネル変更
+// 表示順序: 業者金額合計 → 実行金額合計 → 値引額 → 値引率 → 見積金額合計 → 利益額 → 利益率
+
+(() => {
+  const estimateTotal = calculateTotalByLineType(editor.items, 'ESTIMATE');
+  const executionTotal = calculateTotalByLineType(editor.items, 'EXECUTION');
+  const vendorTotal = calculateTotalByLineType(editor.items, 'VENDOR');
+
+  // REQ-39.4: 値引額 = 実行金額合計 - 業者金額合計
+  const discountAmount = executionTotal.sub(vendorTotal);
+
+  // REQ-39.5: 値引率 = 値引額 ÷ 業者金額合計（百分率）
+  const discountRate = vendorTotal.isZero()
+    ? '-'
+    : discountAmount.div(vendorTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+
+  // REQ-39.7: 利益額 = 見積金額合計 - 実行金額合計
+  const profitAmount = estimateTotal.sub(executionTotal);
+
+  // REQ-39.8: 利益率 = 利益額 ÷ 見積金額合計（百分率）
+  const profitRate = estimateTotal.isZero()
+    ? '-'
+    : profitAmount.div(estimateTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+
+  return (
+    <div style={styles.summaryGrid}>
+      {/* REQ-39.2: 業者金額合計 */}
+      <div style={styles.summaryItem}>
+        <span style={styles.summaryLabel}>業者金額合計</span>
+        <span style={styles.summaryValue}>{formatAmount(vendorTotal.toString())}</span>
+      </div>
+      {/* REQ-39.3: 実行金額合計 */}
+      <div style={styles.summaryItem}>
+        <span style={styles.summaryLabel}>実行金額合計</span>
+        <span style={styles.summaryValue}>{formatAmount(executionTotal.toString())}</span>
+      </div>
+      {/* REQ-39.4: 値引額 */}
+      <div style={styles.summaryItem}>
+        <span style={styles.summaryLabel}>値引額</span>
+        <span style={styles.summaryValue}>{formatAmount(discountAmount.toString())}</span>
+      </div>
+      {/* REQ-39.5: 値引率 */}
+      <div style={styles.summaryItem}>
+        <span style={styles.summaryLabel}>値引率</span>
+        <span style={styles.summaryValue}>{discountRate}</span>
+      </div>
+      {/* REQ-39.6: 見積金額合計 */}
+      <div style={styles.summaryItem}>
+        <span style={styles.summaryLabel}>見積金額合計</span>
+        <span style={styles.summaryValue}>{formatAmount(estimateTotal.toString())}</span>
+      </div>
+      {/* REQ-39.7: 利益額 */}
+      <div style={styles.summaryItem}>
+        <span style={styles.summaryLabel}>利益額</span>
+        <span style={styles.summaryValue}>{formatAmount(profitAmount.toString())}</span>
+      </div>
+      {/* REQ-39.8: 利益率 */}
+      <div style={styles.summaryItem}>
+        <span style={styles.summaryLabel}>利益率</span>
+        <span style={styles.summaryValue}>{profitRate}</span>
+      </div>
+    </div>
+  );
+})()
+```
+
+2. **SummaryPanelData型の更新**:
+
+```typescript
+// 既存のSummaryPanelData（design.md内で定義済み）を置き換え
+interface SummaryPanelData {
+  vendorTotal: string;      // 業者金額合計（REQ-39.2）
+  executionTotal: string;   // 実行金額合計（REQ-39.3）
+  discountAmount: string;   // 値引額（実行−業者）（REQ-39.4）
+  discountRate: string;     // 値引率（値引額÷業者金額合計）（REQ-39.5）
+  estimateTotal: string;    // 見積金額合計（REQ-39.6）
+  profitAmount: string;     // 利益額（見積−実行）（REQ-39.7）
+  profitRate: string;       // 利益率（利益額÷見積金額合計）（REQ-39.8）
+}
+```
+
+**Implementation Notes**
+- REQ-39.9: 本要件はREQ-20のサマリーパネル表示を完全に置き換える
+- 既存の利益率計算式（見積÷実行）を「利益額÷見積金額合計」に変更
+- 既存の値引率計算式（実行÷業者）を「値引額÷業者金額合計」に変更
+- 値引額・利益額はマイナスになる可能性があるため、マイナス値も正しく表示する
+- ゼロ除算の場合は「-」を表示
+
+### 見積項目テキストフィールドのコンパクト化（REQ-40）
+
+#### EstimateItemRow / EstimateItemTableスタイル変更
+
+| Field | Detail |
+|-------|--------|
+| Intent | 見積項目テーブルの入力フィールドを数量表と同様のコンパクトなスタイルに変更する |
+| Requirements | 40.1, 40.2, 40.3, 40.4 |
+
+**現状分析**:
+- 数量表のテキスト入力フィールド（`TextFieldInput.tsx`）のスタイル:
+  - `fontSize: '12px'`
+  - `padding: '2px 4px'`
+  - `height: '22px'`
+  - `borderRadius: '0px'`
+  - ラベル: `fontSize: '11px'`, `lineHeight: '14px'`
+- 見積項目テーブルの入力フィールドは現在より大きなパディングとフォントサイズを使用している可能性が高い
+
+**変更点**:
+
+1. **テキストサイズの統一（REQ-40.1）**:
+
+```typescript
+// EstimateItemRow.tsx スタイル変更
+const compactInputStyle: React.CSSProperties = {
+  width: '100%',
+  height: '22px',          // 数量表と同じ高さ
+  padding: '2px 4px',      // 数量表と同じパディング（REQ-40.2）
+  border: '1px solid #d1d5db',
+  borderRadius: '0px',     // 数量表と同じ角丸なし
+  fontSize: '12px',        // 数量表と同じフォントサイズ（REQ-40.1）
+  color: '#1f2937',
+  backgroundColor: '#ffffff',
+  outline: 'none',
+  boxSizing: 'border-box' as const,
+};
+
+// セル自体の余白も最小化（REQ-40.3, 40.4）
+const compactCellStyle: React.CSSProperties = {
+  padding: '1px 2px',      // セル内余白を最小化
+};
+```
+
+2. **数値フィールドのスタイル統一**:
+
+```typescript
+// 数量・単価・金額フィールドのスタイル
+const compactNumericInputStyle: React.CSSProperties = {
+  ...compactInputStyle,
+  textAlign: 'right' as const, // 数値は右寄せ
+};
+```
+
+3. **行ラベル（種別列）のスタイル調整**:
+
+```typescript
+// 種別ラベル（見積/実行/業者）のスタイル
+const compactLabelStyle: React.CSSProperties = {
+  fontSize: '11px',        // 数量表のラベルと同じ
+  lineHeight: '22px',      // 入力フィールドの高さに合わせる
+  whiteSpace: 'nowrap' as const,
+};
+```
+
+**Implementation Notes**
+- 数量表（`TextFieldInput.tsx`、`NumericFieldInput.tsx`）のスタイル定数を参照し、完全に一致させる
+- EstimateItemTableのgridTemplateColumnsの調整は不要（列幅は変更しない、セル内のコンテンツサイズのみ変更）
+- 備考フィールドも同様にコンパクト化
+- readOnlyフィールド（金額、親項目の単価等）も同じスタイルを適用
+- スタイル定数を共通化して`EstimateItemRow`内で定義し、全列に適用
+
+### Requirements Traceability（REQ-35〜40追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 35.1-35.2 | 転記ダイアログ業者名+金額表示 | TransferQuotationDialog, ReceivedQuotationService | GET /api/projects/:projectId/quotations | 転記フロー |
+| 35.3 | 転記明細行デフォルト全選択 | TransferQuotationDialog | - | 転記フロー |
+| 36.1-36.2 | NET金額自動設定 | NetAllocationDialog | GET /api/projects/:projectId/quotations | NET計算フロー |
+| 37.1-37.2 | 利益率デフォルト値12.27% | ProfitRateDialog | - | 利益率適用 |
+| 38.1 | 出力デフォルト見積+実行 | EstimateExportDialog | - | 出力フロー |
+| 38.2-38.3 | 空欄行詰め出力 | EstimateExportService | GET /api/estimates/:id/export | 出力フロー |
+| 39.1-39.9 | サマリー表示項目・順序変更 | EstimateDetailPage | - | 表示 |
+| 40.1-40.4 | テキストフィールドコンパクト化 | EstimateItemRow, EstimateItemTable | - | 表示 |

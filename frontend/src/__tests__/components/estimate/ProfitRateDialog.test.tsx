@@ -139,7 +139,9 @@ describe('ProfitRateDialog', () => {
     const user = userEvent.setup();
     render(<ProfitRateDialog {...defaultProps} />);
 
-    await user.type(screen.getByLabelText('利益率 (%)'), '10');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, '10');
 
     expect(screen.getByText('適用プレビュー')).toBeInTheDocument();
     expect(screen.getByText('元の単価')).toBeInTheDocument();
@@ -152,7 +154,9 @@ describe('ProfitRateDialog', () => {
     const user = userEvent.setup();
     render(<ProfitRateDialog {...defaultProps} />);
 
-    await user.type(screen.getByLabelText('利益率 (%)'), 'abc');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, 'abc');
 
     expect(screen.queryByText('適用プレビュー')).not.toBeInTheDocument();
   });
@@ -163,7 +167,9 @@ describe('ProfitRateDialog', () => {
 
     render(<ProfitRateDialog {...defaultProps} />);
 
-    await user.type(screen.getByLabelText('利益率 (%)'), '15');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, '15');
     await user.click(screen.getByRole('button', { name: '適用' }));
 
     await waitFor(() => {
@@ -177,8 +183,14 @@ describe('ProfitRateDialog', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('フォームが無効な場合は適用ボタンが無効', () => {
+  it('利益率が空の場合は適用ボタンが無効', async () => {
+    const user = userEvent.setup();
     render(<ProfitRateDialog {...defaultProps} />);
+
+    // デフォルト12.27をクリアする
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+
     expect(screen.getByRole('button', { name: '適用' })).toBeDisabled();
   });
 
@@ -188,7 +200,9 @@ describe('ProfitRateDialog', () => {
 
     render(<ProfitRateDialog {...defaultProps} />);
 
-    await user.type(screen.getByLabelText('利益率 (%)'), '10');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, '10');
     await user.click(screen.getByRole('button', { name: '適用' }));
 
     await waitFor(() => {
@@ -210,7 +224,9 @@ describe('ProfitRateDialog', () => {
 
     render(<ProfitRateDialog {...defaultProps} />);
 
-    await user.type(screen.getByLabelText('利益率 (%)'), '10');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, '10');
     await user.click(screen.getByRole('button', { name: '適用' }));
 
     await waitFor(() => {
@@ -225,7 +241,9 @@ describe('ProfitRateDialog', () => {
     render(<ProfitRateDialog {...defaultProps} />);
 
     await user.click(screen.getByLabelText(/単価のみ上書き/));
-    await user.type(screen.getByLabelText('利益率 (%)'), '20');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, '20');
     await user.click(screen.getByRole('button', { name: '適用' }));
 
     await waitFor(() => {
@@ -313,10 +331,39 @@ describe('ProfitRateDialog', () => {
 
     render(<ProfitRateDialog {...defaultProps} items={items} />);
 
-    await user.type(screen.getByLabelText('利益率 (%)'), '10');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, '10');
 
     // 子項目の工事名が表示される
     expect(screen.getByText('子項目工事')).toBeInTheDocument();
+  });
+
+  // ==========================================================================
+  // REQ-37.1, REQ-37.2: 利益率デフォルト値12.27%
+  // ==========================================================================
+  describe('利益率デフォルト値 (REQ-37.1, REQ-37.2)', () => {
+    it('利益率入力フィールドのデフォルト値が12.27であること (REQ-37.1)', () => {
+      render(<ProfitRateDialog {...defaultProps} />);
+      const input = screen.getByLabelText('利益率 (%)') as HTMLInputElement;
+      expect(input.value).toBe('12.27');
+    });
+
+    it('デフォルト値12.27でプレビューが表示されること', () => {
+      render(<ProfitRateDialog {...defaultProps} />);
+      // 90000 * 1.1227 = 101043
+      expect(screen.getByText('適用プレビュー')).toBeInTheDocument();
+    });
+
+    it('デフォルト値を自由に変更できること (REQ-37.2)', async () => {
+      const user = userEvent.setup();
+      render(<ProfitRateDialog {...defaultProps} />);
+
+      const input = screen.getByLabelText('利益率 (%)') as HTMLInputElement;
+      await user.clear(input);
+      await user.type(input, '25');
+      expect(input.value).toBe('25');
+    });
   });
 
   it('送信中はフォーム入力が無効になる', async () => {
@@ -325,7 +372,9 @@ describe('ProfitRateDialog', () => {
 
     render(<ProfitRateDialog {...defaultProps} />);
 
-    await user.type(screen.getByLabelText('利益率 (%)'), '10');
+    const input = screen.getByLabelText('利益率 (%)');
+    await user.clear(input);
+    await user.type(input, '10');
     await user.click(screen.getByRole('button', { name: '適用' }));
 
     await waitFor(() => {

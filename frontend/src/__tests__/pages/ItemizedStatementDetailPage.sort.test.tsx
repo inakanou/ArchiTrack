@@ -21,6 +21,19 @@ import type { ItemizedStatementDetail } from '../../types/itemized-statement.typ
 // API モック
 vi.mock('../../api/itemized-statements');
 
+// useBlockerをモック（データルーターなしでテストするため）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
+
 // テストデータ
 const mockStatementDetail: ItemizedStatementDetail = {
   id: 'statement-1',
@@ -41,6 +54,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '100m',
       unit: 'm',
       quantity: 100.0,
+      displayOrder: 0,
     },
     {
       id: 'item-2',
@@ -50,6 +64,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '50mm',
       unit: '本',
       quantity: 50.5,
+      displayOrder: 1,
     },
     {
       id: 'item-3',
@@ -59,6 +74,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '2口',
       unit: '個',
       quantity: 20.0,
+      displayOrder: 2,
     },
     {
       id: 'item-4',
@@ -68,6 +84,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: null,
       unit: 'L',
       quantity: 10.25,
+      displayOrder: 3,
     },
     {
       id: 'item-5',
@@ -77,6 +94,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: 'M10',
       unit: '個',
       quantity: 200.0,
+      displayOrder: 4,
     },
   ],
 };
@@ -113,13 +131,15 @@ function getTableRows(): RowData[] {
   const rows = within(tbody).getAllByRole('row');
   return rows.map((row) => {
     const cells = within(row).getAllByRole('cell');
+    // 並び替えボタン列が先頭にある場合（セルが7つ）はオフセット1を適用
+    const offset = cells.length === 7 ? 1 : 0;
     return {
-      customCategory: cells[0]?.textContent || '',
-      workType: cells[1]?.textContent || '',
-      name: cells[2]?.textContent || '',
-      specification: cells[3]?.textContent || '',
-      quantity: cells[4]?.textContent || '',
-      unit: cells[5]?.textContent || '',
+      customCategory: cells[offset]?.textContent || '',
+      workType: cells[offset + 1]?.textContent || '',
+      name: cells[offset + 2]?.textContent || '',
+      specification: cells[offset + 3]?.textContent || '',
+      quantity: cells[offset + 4]?.textContent || '',
+      unit: cells[offset + 5]?.textContent || '',
     };
   });
 }
@@ -377,37 +397,37 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
   });
 
   describe('Requirement 5.5: デフォルトソート順', () => {
-    it('初期表示時はデフォルトソート順（任意分類・工種・名称・規格の優先度で昇順）が適用される', async () => {
+    it('初期表示時はdisplayOrder順（並び順）で表示される', async () => {
       renderComponent();
       await screen.findByRole('table');
 
       const rows = getTableRows();
 
-      // デフォルトソート: 任意分類 > 工種 > 名称 > 規格 の優先度で昇順
-      // A分類 → 電気工事 → コンセント → 2口
-      // A分類 → 配管工事 → パイプ → 50mm
-      // B分類 → 電気工事 → ケーブル → 100m
-      // C分類 → null → ボルト → M10
-      // null → 塗装工事 → ペイント → null
-      expect(getRow(rows, 0).customCategory).toBe('A分類');
+      // デフォルトソート: displayOrder昇順
+      // displayOrder 0: B分類, 電気工事, ケーブル
+      // displayOrder 1: A分類, 配管工事, パイプ
+      // displayOrder 2: A分類, 電気工事, コンセント
+      // displayOrder 3: null(-), 塗装工事, ペイント
+      // displayOrder 4: C分類, null(-), ボルト
+      expect(getRow(rows, 0).customCategory).toBe('B分類');
       expect(getRow(rows, 0).workType).toBe('電気工事');
-      expect(getRow(rows, 0).name).toBe('コンセント');
+      expect(getRow(rows, 0).name).toBe('ケーブル');
 
       expect(getRow(rows, 1).customCategory).toBe('A分類');
       expect(getRow(rows, 1).workType).toBe('配管工事');
       expect(getRow(rows, 1).name).toBe('パイプ');
 
-      expect(getRow(rows, 2).customCategory).toBe('B分類');
+      expect(getRow(rows, 2).customCategory).toBe('A分類');
       expect(getRow(rows, 2).workType).toBe('電気工事');
-      expect(getRow(rows, 2).name).toBe('ケーブル');
+      expect(getRow(rows, 2).name).toBe('コンセント');
 
-      expect(getRow(rows, 3).customCategory).toBe('C分類');
-      expect(getRow(rows, 3).workType).toBe('-'); // null
-      expect(getRow(rows, 3).name).toBe('ボルト');
+      expect(getRow(rows, 3).customCategory).toBe('-'); // null
+      expect(getRow(rows, 3).workType).toBe('塗装工事');
+      expect(getRow(rows, 3).name).toBe('ペイント');
 
-      expect(getRow(rows, 4).customCategory).toBe('-'); // null
-      expect(getRow(rows, 4).workType).toBe('塗装工事');
-      expect(getRow(rows, 4).name).toBe('ペイント');
+      expect(getRow(rows, 4).customCategory).toBe('C分類');
+      expect(getRow(rows, 4).workType).toBe('-'); // null
+      expect(getRow(rows, 4).name).toBe('ボルト');
     });
   });
 
@@ -422,6 +442,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
         specification: '規格',
         unit: '個',
         quantity: i * 10,
+        displayOrder: i,
       }));
 
       const manyItemsStatement: ItemizedStatementDetail = {

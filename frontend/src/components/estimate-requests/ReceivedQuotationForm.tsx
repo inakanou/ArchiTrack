@@ -36,7 +36,12 @@ import type {
   UpdateReceivedQuotationInput,
   LineItemInput,
 } from '../../api/received-quotations';
-import { LineItemEditor, createEmptyLineItem, type LineItemFormData } from './LineItemEditor';
+import {
+  LineItemEditor,
+  createEmptyLineItem,
+  calculateTotalAmount,
+  type LineItemFormData,
+} from './LineItemEditor';
 import { FileInlinePreview } from './FileInlinePreview';
 import { formatQuantity, formatUnitPrice } from './number-format';
 
@@ -732,10 +737,24 @@ export function ReceivedQuotationForm({
   }, []);
 
   // OCR一括取り込みハンドラ
-  const handleImportLineItems = useCallback((items: LineItemFormData[]) => {
-    setLineItems(items);
-    setErrors((prev) => ({ ...prev, content: undefined }));
-  }, []);
+  const handleImportLineItems = useCallback(
+    (items: LineItemFormData[]) => {
+      setLineItems(items);
+      setErrors((prev) => ({ ...prev, content: undefined }));
+
+      // NET金額自動入力ロジック（34.1, 34.2）
+      if (netAmount.trim() === '') {
+        const totalAmount = calculateTotalAmount(items);
+        if (totalAmount > 0) {
+          // 合計金額をNET金額に設定（34.4: 整数表示、小数第1位で四捨五入）
+          const formattedNetAmount = formatUnitPrice(String(totalAmount));
+          setNetAmount(formattedNetAmount);
+        }
+      }
+      // NET金額欄に既存値がある場合は変更しない（34.3）
+    },
+    [netAmount]
+  );
 
   // 転記関連状態
   const [transcriptionMessage, setTranscriptionMessage] = useState<{
@@ -785,12 +804,22 @@ export function ReceivedQuotationForm({
 
     setLineItems(newLineItems);
     setErrors((prev) => ({ ...prev, content: undefined }));
+
+    // NET金額自動入力ロジック（34.6）
+    if (netAmount.trim() === '') {
+      const totalAmount = calculateTotalAmount(newLineItems);
+      if (totalAmount > 0) {
+        const formattedNetAmount = formatUnitPrice(String(totalAmount));
+        setNetAmount(formattedNetAmount);
+      }
+    }
+
     setTranscriptionMessage({
       type: 'success',
       message: `${newLineItems.length}件の項目を転記しました。内容を確認し、必要に応じて修正してください。`,
     });
     setShowTranscriptionConfirm(false);
-  }, [selectedItems]);
+  }, [selectedItems, netAmount]);
 
   // 転記ボタンクリックハンドラ
   const handleTranscriptionClick = useCallback(() => {
