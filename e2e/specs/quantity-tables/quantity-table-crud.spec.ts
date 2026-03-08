@@ -1343,7 +1343,7 @@ test.describe('数量表CRUD操作', () => {
         '数量',
         '単位',
         '備考',
-        '操作',
+        '並替 / 操作',
       ];
 
       const headerCount = await headers.count();

@@ -532,7 +532,7 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
+      const tradingPartnerSelect = page.locator('[role="combobox"][aria-label="宛先（取引先）"]');
       await expect(tradingPartnerSelect).toBeVisible();
     });
 
@@ -2679,7 +2679,7 @@ test.describe('見積依頼機能', () => {
       });
 
       // 宛先選択フィールドが表示される
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
+      const tradingPartnerSelect = page.locator('[role="combobox"][aria-label="宛先（取引先）"]');
       await expect(tradingPartnerSelect).toBeVisible();
 
       // 選択肢が表示される（協力業者のみがフィルタリングされている）

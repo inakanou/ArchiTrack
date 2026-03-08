@@ -54,13 +54,20 @@ test.describe('内訳書項目の並び替え', () => {
       const loginBody = await loginResponse.json();
       const accessToken = loginBody.accessToken;
 
+      // ユーザー情報を取得（salesPersonId用）
+      const meResponse = await request.get(`${baseUrl}/api/v1/auth/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const meBody = await meResponse.json();
+      const userId = meBody.id;
+
       // プロジェクト作成
       const projectName = `並び替えテスト用プロジェクト_${Date.now()}`;
       const projectResponse = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: {
           name: projectName,
-          status: 'PREPARING',
+          salesPersonId: userId,
         },
       });
       const projectBody = await projectResponse.json();
