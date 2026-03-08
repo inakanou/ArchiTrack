@@ -3274,7 +3274,7 @@ test.describe('数量表CRUD操作', () => {
       await widthField.fill('10');
       await page.keyboard.press('Tab');
 
-      const depthField = page.getByLabel(/奥行き|D/i).first();
+      const depthField = page.getByLabel(/奥行き/).first();
       if (await depthField.isVisible({ timeout: 2000 })) {
         await depthField.fill('3');
         await page.keyboard.press('Tab');

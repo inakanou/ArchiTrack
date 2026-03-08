@@ -36,6 +36,31 @@ async function clickSaveSelectionButton(page: import('@playwright/test').Page) {
 }
 
 /**
+ * TradingPartnerSelectコンボボックスから取引先を選択するヘルパー
+ * ネイティブselectではなくcombobox UIのため、クリック→検索→選択の手順で操作する
+ */
+async function selectTradingPartnerByName(
+  page: import('@playwright/test').Page,
+  partnerName: string
+) {
+  const combobox = page.locator('input[role="combobox"][aria-label="宛先（取引先）"]');
+  await expect(combobox).toBeVisible({ timeout: getTimeout(5000) });
+  await combobox.click();
+  // 既存の値をクリアして検索文字列を入力（十分な長さで一意に特定する）
+  const searchText = partnerName.slice(0, 20);
+  await combobox.fill(searchText);
+  // ドロップダウンリストが表示されるのを待機
+  const listbox = page.locator('ul[role="listbox"]');
+  await expect(listbox).toBeVisible({ timeout: getTimeout(5000) });
+  // 一致するオプションをクリック
+  const option = listbox.locator('li[role="option"]').first();
+  await expect(option).toBeVisible({ timeout: getTimeout(3000) });
+  await option.click();
+  // ドロップダウンが閉じるのを待機
+  await expect(listbox).not.toBeVisible({ timeout: getTimeout(3000) });
+}
+
+/**
  * 見積依頼機能のE2Eテスト
  */
 test.describe('見積依頼機能', () => {
@@ -50,6 +75,7 @@ test.describe('見積依頼機能', () => {
   let createdEstimateRequestId: string | null = null;
   let projectName: string = '';
   let tradingPartnerName: string = '';
+  let tradingPartnerWithoutEmailName: string = '';
   let accessToken: string = '';
 
   test.beforeEach(async ({ context }) => {
@@ -184,8 +210,8 @@ test.describe('見積依頼機能', () => {
 
       await expect(page.getByLabel('取引先名')).toBeVisible({ timeout: getTimeout(10000) });
 
-      const partnerNameNoEmail = `E2Eテスト協力業者_メールなし_${Date.now()}`;
-      await page.getByLabel('取引先名').fill(partnerNameNoEmail);
+      tradingPartnerWithoutEmailName = `E2Eテスト協力業者_メールなし_${Date.now()}`;
+      await page.getByLabel('取引先名').fill(tradingPartnerWithoutEmailName);
       await page.getByLabel('フリガナ', { exact: true }).fill('メールナシ');
       await page.getByLabel('住所').fill('東京都千代田区テスト町2-2-2');
 
@@ -618,8 +644,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1384,8 +1409,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-8.1テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1428,8 +1452,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-8.3テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1589,8 +1612,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-4.4テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1662,8 +1684,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-4.7テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1720,8 +1741,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-5テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1786,8 +1806,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-5.3テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1865,8 +1884,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-6.8テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -1937,8 +1955,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-6.9テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2021,8 +2038,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-9.6テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2102,8 +2118,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-8.2テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2159,8 +2174,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-8.4テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2242,8 +2256,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-4.10テスト見積依頼1');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2276,8 +2289,9 @@ test.describe('見積依頼機能', () => {
       const nameInput2 = page.locator('input#name');
       await nameInput2.fill('REQ-4.10テスト見積依頼2');
 
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
-      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
+      const itemizedStatementSelect2 = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect2.selectOption(createdItemizedStatementId!);
 
       const createPromise2 = page.waitForResponse(
         (response) =>
@@ -2330,8 +2344,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-6.4テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerWithoutEmailId!);
+      await selectTradingPartnerByName(page, tradingPartnerWithoutEmailName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2395,8 +2408,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-6.5テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerWithoutEmailId!);
+      await selectTradingPartnerByName(page, tradingPartnerWithoutEmailName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2458,8 +2470,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-6.7テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2532,8 +2543,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-7.4テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2609,8 +2619,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-8.5テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2690,18 +2699,30 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 宛先選択フィールドが表示される
-      const tradingPartnerSelect = page.locator('[role="combobox"][aria-label="宛先（取引先）"]');
-      await expect(tradingPartnerSelect).toBeVisible();
+      // 宛先選択フィールド（combobox）が表示される
+      const tradingPartnerCombobox = page.locator(
+        'input[role="combobox"][aria-label="宛先（取引先）"]'
+      );
+      await expect(tradingPartnerCombobox).toBeVisible();
 
-      // 選択肢が表示される（協力業者のみがフィルタリングされている）
-      const options = await tradingPartnerSelect.locator('option').all();
-      // プレースホルダー以外に少なくとも1つの選択肢がある
-      expect(options.length).toBeGreaterThan(1);
+      // コンボボックスをクリックしてドロップダウンを開く
+      await tradingPartnerCombobox.click();
+      await page.waitForTimeout(500);
 
-      // 作成した協力業者が選択可能
-      const optionValues = await Promise.all(options.map((o) => o.getAttribute('value')));
-      expect(optionValues).toContain(createdTradingPartnerId);
+      // リストボックスの選択肢を取得
+      const listbox = page.locator('ul[role="listbox"]');
+      await expect(listbox).toBeVisible({ timeout: getTimeout(3000) });
+      const options = await listbox.locator('li[role="option"]').all();
+
+      // 少なくとも1つの選択肢がある
+      expect(options.length).toBeGreaterThan(0);
+
+      // 作成した協力業者名が選択肢に含まれる
+      const optionTexts = await Promise.all(options.map((o) => o.textContent()));
+      const hasPartner = optionTexts.some((text) =>
+        text?.includes(tradingPartnerName.slice(0, 10))
+      );
+      expect(hasPartner).toBeTruthy();
     });
   });
 
@@ -2821,8 +2842,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-7.6テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2923,8 +2943,7 @@ test.describe('見積依頼機能', () => {
       const nameInput = page.locator('input#name');
       await nameInput.fill('REQ-4.14テスト見積依頼');
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      await tradingPartnerSelect.selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
 
       const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
       await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
@@ -2993,7 +3012,7 @@ test.describe('見積依頼機能', () => {
       });
 
       await page.locator('input#name').fill('REQ-4.15テスト依頼1');
-      await page.locator('select[aria-label="宛先"]').selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
       await page.locator('select[aria-label="内訳書"]').selectOption(createdItemizedStatementId!);
 
       const createPromise1 = page.waitForResponse(
@@ -3024,7 +3043,7 @@ test.describe('見積依頼機能', () => {
       });
 
       await page.locator('input#name').fill('REQ-4.15テスト依頼2');
-      await page.locator('select[aria-label="宛先"]').selectOption(createdTradingPartnerId!);
+      await selectTradingPartnerByName(page, tradingPartnerName);
       await page.locator('select[aria-label="内訳書"]').selectOption(createdItemizedStatementId!);
 
       const createPromise2 = page.waitForResponse(
@@ -3109,9 +3128,7 @@ test.describe('見積依頼機能', () => {
       });
 
       await page.locator('input#name').fill('REQ-4.17テスト依頼3');
-      await page
-        .locator('select[aria-label="宛先"]')
-        .selectOption(createdTradingPartnerWithoutEmailId!);
+      await selectTradingPartnerByName(page, tradingPartnerWithoutEmailName);
       await page.locator('select[aria-label="内訳書"]').selectOption(createdItemizedStatementId!);
 
       const createPromise = page.waitForResponse(
