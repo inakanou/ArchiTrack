@@ -1760,10 +1760,10 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByTestId('summary-panel')).toBeInTheDocument();
     });
 
-    // 利益率: 120000 / 100000 * 100 = 120%
-    expect(screen.getByText('120%')).toBeInTheDocument();
-    // 値引率: 100000 / 80000 * 100 = 125%
-    expect(screen.getByText('125%')).toBeInTheDocument();
+    // 利益率: (120000 - 100000) / 120000 * 100 = 16.67% (REQ-39.8)
+    expect(screen.getByText('16.67%')).toBeInTheDocument();
+    // 値引率: (100000 - 80000) / 80000 * 100 = 25%
+    expect(screen.getByText('25%')).toBeInTheDocument();
   });
 
   it('selectedItemが子要素をもつ項目の子を選択した場合にfindItemが再帰的に検索すること', async () => {

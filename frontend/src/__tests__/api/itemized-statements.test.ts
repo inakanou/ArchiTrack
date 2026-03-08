@@ -261,6 +261,7 @@ describe('itemized-statements API client', () => {
           specification: null,
           unit: 'm3',
           quantity: 100.0,
+          displayOrder: 0,
         },
         {
           id: 'item-2',
@@ -270,6 +271,7 @@ describe('itemized-statements API client', () => {
           specification: '良質土',
           unit: 'm3',
           quantity: 50.55,
+          displayOrder: 1,
         },
       ],
     };

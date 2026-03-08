@@ -2,9 +2,18 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2026-02-19",
+  "lastUpdated": "2026-03-07",
   "allowlist": {
     "backend": [
+      {
+        "package": "@hono/node-server",
+        "severity": "high",
+        "reason": "Prisma 7 internal dependency (@prisma/dev). Authorization bypass via encoded slashes (GHSA-wc8c-qw6v-h7f6). Fix requires prisma downgrade to 6.x (breaking change). No runtime impact - dev tool only.",
+        "reference": "https://github.com/advisories/GHSA-wc8c-qw6v-h7f6",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-03-07"
+      },
       {
         "package": "@prisma/dev",
         "severity": "high",
@@ -22,6 +31,15 @@
         "expires": "2026-06-01",
         "addedBy": "system",
         "addedDate": "2025-12-25"
+      },
+      {
+        "package": "prisma",
+        "severity": "high",
+        "reason": "Depends on vulnerable @prisma/dev which contains @hono/node-server and @mrleebo/prisma-ast. Fix requires prisma downgrade to 6.x (breaking change). CLI tool only, not shipped to production runtime.",
+        "reference": "https://github.com/prisma/prisma/issues",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-03-07"
       },
       {
         "package": "valibot",
@@ -143,7 +161,35 @@
         "addedDate": "2026-02-19"
       }
     ],
-    "root": []
+    "root": [
+      {
+        "package": "@hono/node-server",
+        "severity": "high",
+        "reason": "Prisma 7 internal dependency (@prisma/dev). Authorization bypass via encoded slashes (GHSA-wc8c-qw6v-h7f6). Fix requires prisma downgrade to 6.x (breaking change). No runtime impact - dev tool only.",
+        "reference": "https://github.com/advisories/GHSA-wc8c-qw6v-h7f6",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-03-07"
+      },
+      {
+        "package": "@prisma/dev",
+        "severity": "high",
+        "reason": "Prisma 7 internal dev tool. Contains hono/valibot as dependencies. No runtime impact.",
+        "reference": "https://github.com/prisma/prisma/issues",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-03-07"
+      },
+      {
+        "package": "prisma",
+        "severity": "high",
+        "reason": "Depends on vulnerable @prisma/dev which contains @hono/node-server and @mrleebo/prisma-ast. Fix requires prisma downgrade to 6.x (breaking change). CLI tool only, not shipped to production runtime.",
+        "reference": "https://github.com/prisma/prisma/issues",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-03-07"
+      }
+    ]
   },
   "policy": {
     "production": {

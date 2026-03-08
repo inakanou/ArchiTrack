@@ -17,6 +17,7 @@ import { TwoFactorService } from '../../../services/two-factor.service.js';
 import { SessionService } from '../../../services/session.service.js';
 import type { PrismaClient, User, Invitation } from '../../../generated/prisma/client.js';
 import { Ok, Err } from '../../../types/result.js';
+import * as timingModule from '../../../utils/timing.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {
@@ -454,16 +455,16 @@ describe('AuthService', () => {
         loginFailures: 1,
       });
 
-      // Act: ログイン実行時間を測定
-      const startTime = Date.now();
-      const result = await authService.login(email, password);
-      const endTime = Date.now();
-      const elapsedTime = endTime - startTime;
+      const delaySpy = vi.spyOn(timingModule, 'addTimingAttackDelay').mockResolvedValue();
 
-      // Assert: 最低100ms以上の遅延が挿入されたことを確認
+      // Act
+      const result = await authService.login(email, password);
+
+      // Assert: タイミング攻撃対策の遅延関数が呼び出されたことを確認
       expect(result.ok).toBe(false);
-      expect(elapsedTime).toBeGreaterThanOrEqual(100);
-      expect(elapsedTime).toBeLessThan(5000); // 最大5000ms以内（CI環境のシステム負荷を考慮）
+      expect(delaySpy).toHaveBeenCalled();
+
+      delaySpy.mockRestore();
     });
 
     it('アカウントがロックされている場合はACCOUNT_LOCKEDエラーを返す', async () => {

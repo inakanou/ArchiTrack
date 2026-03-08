@@ -135,6 +135,47 @@ export const latestSummaryQuerySchema = z.object({
 export type LatestSummaryQuery = z.infer<typeof latestSummaryQuerySchema>;
 
 /**
+ * 並び順更新リクエストボディスキーマ
+ *
+ * Requirements:
+ * - 17.8: 全項目の並び順をサーバーに一括送信して確定する
+ * - 17.14: updatedAtによる楽観的排他制御を適用する
+ */
+export const updateItemOrderBodySchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          id: z
+            .string()
+            .min(1, ITEMIZED_STATEMENT_VALIDATION_MESSAGES.STATEMENT_ID_REQUIRED)
+            .regex(UUID_REGEX, ITEMIZED_STATEMENT_VALIDATION_MESSAGES.STATEMENT_ID_INVALID_UUID),
+          displayOrder: z.number().int().min(0, '表示順序は0以上の整数で指定してください'),
+        })
+      )
+      .min(1, '項目を1件以上指定してください'),
+    updatedAt: z
+      .string()
+      .min(1, ITEMIZED_STATEMENT_VALIDATION_MESSAGES.UPDATED_AT_REQUIRED)
+      .datetime({ message: ITEMIZED_STATEMENT_VALIDATION_MESSAGES.UPDATED_AT_INVALID_FORMAT }),
+  })
+  .refine(
+    (data) => {
+      // displayOrderが0始まりの連番であることを検証
+      const sortedOrders = data.items.map((item) => item.displayOrder).sort((a, b) => a - b);
+      return sortedOrders.every((order, index) => order === index);
+    },
+    {
+      message: '表示順序は0始まりの連番で指定してください',
+    }
+  );
+
+/**
+ * 並び順更新リクエストボディの型
+ */
+export type UpdateItemOrderBody = z.infer<typeof updateItemOrderBodySchema>;
+
+/**
  * 内訳書削除リクエストボディスキーマ
  *
  * Requirements:
