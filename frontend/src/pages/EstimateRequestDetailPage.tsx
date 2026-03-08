@@ -50,6 +50,10 @@ import type {
 import { transitionStatus } from '../api/estimate-request-status';
 import type { EstimateRequestStatus } from '../api/estimate-request-status';
 import { ApiError } from '../api/client';
+import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
+import type { SiteSurveyInfo } from '../types/site-survey.types';
+import { renderImagesForReport } from '../services/export/AnnotationRendererService';
+import { exportAndDownloadPdf } from '../services/export/PdfExportService';
 import {
   ItemSelectionPanel,
   EstimateRequestTextPanel,
@@ -325,15 +329,17 @@ const styles = {
     justifyContent: 'center',
     zIndex: 1000,
   } as React.CSSProperties,
-  // Task 26.3: モーダルサイズを拡大してファイル+明細行統合フォームを表示
+  // Task 26.3 + Task 70: モーダルサイズを拡大してファイル+明細行統合フォームを表示
+  // Task 70: ダイアログ横幅拡大（Requirements 32.1-32.6）
   modalContent: {
     backgroundColor: '#ffffff',
     borderRadius: '12px',
     padding: '24px',
-    maxWidth: '900px',
-    width: '95%',
+    maxWidth: '95vw',
+    width: '1400px',
     maxHeight: '90vh',
     overflow: 'auto',
+    margin: '20px',
   } as React.CSSProperties,
   modalTitle: {
     fontSize: '18px',
@@ -455,6 +461,14 @@ export default function EstimateRequestDetailPage() {
   const [isQuotationSubmitting, setIsQuotationSubmitting] = useState(false);
   const [existingFilePreviewUrl, setExistingFilePreviewUrl] = useState<string | null>(null);
   const [isLoadingPreviewUrl, setIsLoadingPreviewUrl] = useState(false);
+
+  // 現場調査報告書出力関連
+  const [showSurveySelector, setShowSurveySelector] = useState(false);
+  const [siteSurveys, setSiteSurveys] = useState<SiteSurveyInfo[]>([]);
+  const [selectedSurveyId, setSelectedSurveyId] = useState<string>('');
+  const [isSurveyLoading, setIsSurveyLoading] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [surveyReportError, setSurveyReportError] = useState<string | null>(null);
 
   // ステータス関連
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -819,6 +833,70 @@ export default function EstimateRequestDetailPage() {
     setExistingFilePreviewUrl(null);
   }, []);
 
+  // 現場調査報告書出力ボタンクリックハンドラ
+  const handleSurveyReportClick = useCallback(async () => {
+    if (!request?.projectId) return;
+
+    setShowSurveySelector(true);
+    setIsSurveyLoading(true);
+    setSurveyReportError(null);
+    setSelectedSurveyId('');
+
+    try {
+      const result = await getSiteSurveys(request.projectId, { limit: 100 });
+      setSiteSurveys(result.data);
+    } catch {
+      setSurveyReportError('現場調査の取得に失敗しました');
+    } finally {
+      setIsSurveyLoading(false);
+    }
+  }, [request?.projectId]);
+
+  // 報告書生成ハンドラ
+  const handleGenerateReport = useCallback(async () => {
+    if (!selectedSurveyId) {
+      setSurveyReportError('現場調査を選択してください');
+      return;
+    }
+
+    setIsGeneratingReport(true);
+    setSurveyReportError(null);
+
+    try {
+      // 現場調査詳細を取得
+      const surveyDetail = await getSiteSurvey(selectedSurveyId);
+
+      // 報告書出力対象画像をフィルタ
+      const reportImages = surveyDetail.images.filter((img) => img.includeInReport);
+
+      if (reportImages.length === 0) {
+        setSurveyReportError('報告書出力対象の写真がありません');
+        setIsGeneratingReport(false);
+        return;
+      }
+
+      // 注釈付き画像をレンダリング
+      const renderedImages = await renderImagesForReport(reportImages);
+
+      // RenderedImage → AnnotatedImageWithComment に変換
+      const imagesWithComment = renderedImages.map((rendered) => ({
+        imageInfo: rendered.imageInfo,
+        dataUrl: rendered.dataUrl,
+        comment: rendered.imageInfo.comment ?? null,
+      }));
+
+      // PDF生成・ダウンロード
+      await exportAndDownloadPdf(surveyDetail, imagesWithComment);
+
+      setShowSurveySelector(false);
+      setSelectedSurveyId('');
+    } catch {
+      setSurveyReportError('報告書の出力に失敗しました');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }, [selectedSurveyId]);
+
   // ローディング表示
   if (isLoading) {
     return (
@@ -962,7 +1040,83 @@ export default function EstimateRequestDetailPage() {
                 )
                 .join('\n')}
             />
+            <button
+              type="button"
+              onClick={handleSurveyReportClick}
+              style={styles.actionButton}
+              disabled={isGeneratingReport}
+            >
+              現場調査報告書出力
+            </button>
           </div>
+
+          {/* 現場調査選択UI */}
+          {showSurveySelector && (
+            <div
+              style={{
+                marginTop: '12px',
+                padding: '12px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                backgroundColor: '#f9fafb',
+              }}
+            >
+              {isSurveyLoading ? (
+                <p>読み込み中...</p>
+              ) : siteSurveys.length === 0 ? (
+                <p style={{ color: '#6b7280', fontSize: '14px' }}>現場調査が登録されていません</p>
+              ) : (
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}
+                >
+                  <select
+                    value={selectedSurveyId}
+                    onChange={(e) => {
+                      setSelectedSurveyId(e.target.value);
+                      setSurveyReportError(null);
+                    }}
+                    style={{
+                      padding: '6px 8px',
+                      borderRadius: '4px',
+                      border: '1px solid #d1d5db',
+                      fontSize: '14px',
+                    }}
+                  >
+                    <option value="">現場調査を選択...</option>
+                    {siteSurveys.map((survey) => (
+                      <option key={survey.id} value={survey.id}>
+                        {survey.name} ({new Date(survey.surveyDate).toLocaleDateString('ja-JP')})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleGenerateReport}
+                    disabled={isGeneratingReport}
+                    style={{ ...styles.actionButton, backgroundColor: '#2563eb', color: '#fff' }}
+                  >
+                    {isGeneratingReport ? '生成中...' : '出力'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSurveySelector(false);
+                      setSelectedSurveyId('');
+                      setSurveyReportError(null);
+                    }}
+                    style={styles.actionButton}
+                  >
+                    閉じる
+                  </button>
+                </div>
+              )}
+              {surveyReportError && (
+                <p style={{ color: '#dc2626', fontSize: '13px', marginTop: '8px' }} role="alert">
+                  {surveyReportError}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 見積依頼文パネル */}

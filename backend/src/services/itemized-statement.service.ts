@@ -32,6 +32,7 @@ import {
   EmptyQuantityItemsError,
   DuplicateItemizedStatementNameError,
   ItemizedStatementConflictError,
+  ItemNotBelongToStatementError,
 } from '../errors/itemizedStatementError.js';
 import { QuantityTableNotFoundError } from '../errors/quantityTableError.js';
 import { ItemizedStatementHasEstimateRequestsError } from '../errors/estimateRequestError.js';
@@ -52,6 +53,17 @@ export interface CreateItemizedStatementInput {
   name: string;
   projectId: string;
   sourceQuantityTableId: string;
+}
+
+/**
+ * 並び順更新入力
+ *
+ * Requirements: 17.8
+ */
+export interface UpdateItemOrderInput {
+  itemizedStatementId: string;
+  items: Array<{ id: string; displayOrder: number }>;
+  expectedUpdatedAt: Date;
 }
 
 /**
@@ -453,6 +465,104 @@ export class ItemizedStatementService {
         },
         after: null,
       });
+    });
+  }
+
+  /**
+   * 内訳書項目の並び順を更新する（楽観的排他制御付き）
+   *
+   * Requirements: 17.8, 17.10, 17.14
+   *
+   * @param input - 並び順更新入力
+   * @param actorId - 実行者ID
+   * @returns 更新後の内訳書詳細情報
+   * @throws ItemizedStatementNotFoundError 内訳書が存在しないか既に削除済みの場合
+   * @throws ItemizedStatementConflictError 楽観的排他制御エラー
+   * @throws ItemNotBelongToStatementError 他の内訳書に属する項目IDが含まれる場合
+   */
+  async updateItemOrder(
+    input: UpdateItemOrderInput,
+    actorId: string
+  ): Promise<ItemizedStatementDetailInfo> {
+    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      // 1. 内訳書の存在確認（項目も含めて取得）
+      const itemizedStatement = await tx.itemizedStatement.findUnique({
+        where: { id: input.itemizedStatementId },
+        include: {
+          items: {
+            select: { id: true },
+          },
+        },
+      });
+
+      if (!itemizedStatement || itemizedStatement.deletedAt !== null) {
+        throw new ItemizedStatementNotFoundError(input.itemizedStatementId);
+      }
+
+      // 2. 楽観的排他制御: updatedAtの比較 (Requirements: 17.14)
+      if (itemizedStatement.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+        throw new ItemizedStatementConflictError({
+          expectedUpdatedAt: input.expectedUpdatedAt.toISOString(),
+          actualUpdatedAt: itemizedStatement.updatedAt.toISOString(),
+        });
+      }
+
+      // 3. 全項目IDが対象内訳書に属することを検証 (Requirements: 17.10)
+      const existingItemIds = new Set(itemizedStatement.items.map((item) => item.id));
+      for (const orderItem of input.items) {
+        if (!existingItemIds.has(orderItem.id)) {
+          throw new ItemNotBelongToStatementError(orderItem.id, input.itemizedStatementId);
+        }
+      }
+
+      // 4. トランザクション内で全項目のdisplayOrderを一括更新
+      for (const orderItem of input.items) {
+        await tx.itemizedStatementItem.update({
+          where: { id: orderItem.id },
+          data: { displayOrder: orderItem.displayOrder },
+        });
+      }
+
+      // 5. updatedAtを更新
+      await tx.itemizedStatement.update({
+        where: { id: input.itemizedStatementId },
+        data: { updatedAt: new Date() },
+      });
+
+      // 6. 監査ログの記録
+      await this.auditLogService.createLog({
+        action: 'ITEMIZED_STATEMENT_UPDATED',
+        actorId,
+        targetType: ITEMIZED_STATEMENT_TARGET_TYPE,
+        targetId: input.itemizedStatementId,
+        before: null,
+        after: {
+          itemCount: input.items.length,
+        },
+      });
+
+      // 7. 更新後の内訳書詳細を取得して返却
+      const updatedStatement = await tx.itemizedStatement.findUnique({
+        where: { id: input.itemizedStatementId },
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          items: {
+            orderBy: { displayOrder: 'asc' },
+          },
+        },
+      });
+
+      // updatedStatementがnullの場合は論理的にありえないが安全のため
+      if (!updatedStatement) {
+        throw new ItemizedStatementNotFoundError(input.itemizedStatementId);
+      }
+
+      return this.toItemizedStatementDetailInfo(updatedStatement);
     });
   }
 

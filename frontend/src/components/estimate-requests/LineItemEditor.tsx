@@ -181,9 +181,9 @@ const styles = {
     backgroundColor: '#f9fafb',
   },
   th: {
-    padding: '8px 6px',
+    padding: '4px 4px',
     fontWeight: 600,
-    fontSize: '12px',
+    fontSize: '11px',
     color: '#6b7280',
     textAlign: 'left' as const,
     borderBottom: '2px solid #e5e7eb',
@@ -194,19 +194,19 @@ const styles = {
     textAlign: 'center' as const,
   },
   thCustomCategory: {
-    minWidth: '80px',
+    minWidth: '76px',
   },
   thWorkType: {
-    minWidth: '80px',
+    minWidth: '88px',
   },
   thName: {
-    minWidth: '120px',
+    minWidth: '202px',
   },
   thSpec: {
-    minWidth: '80px',
+    minWidth: '202px',
   },
   thUnit: {
-    width: '60px',
+    width: '46px',
   },
   thQuantity: {
     width: '80px',
@@ -219,14 +219,14 @@ const styles = {
     textAlign: 'right' as const,
   },
   thRemarks: {
-    minWidth: '80px',
+    minWidth: '76px',
   },
   thAction: {
     width: '50px',
     textAlign: 'center' as const,
   },
   td: {
-    padding: '4px 4px',
+    padding: '2px 2px',
     borderBottom: '1px solid #e5e7eb',
     verticalAlign: 'middle' as const,
   },
@@ -247,12 +247,15 @@ const styles = {
   },
   input: {
     width: '100%',
-    padding: '6px 8px',
-    borderRadius: '4px',
+    height: '22px',
+    padding: '2px 4px',
+    borderRadius: '0px',
     border: '1px solid #d1d5db',
-    fontSize: '13px',
+    fontSize: '12px',
+    color: '#1f2937',
+    backgroundColor: '#ffffff',
     outline: 'none',
-    transition: 'border-color 0.15s',
+    transition: 'border-color 0.2s',
     boxSizing: 'border-box' as const,
   },
   inputNumber: {

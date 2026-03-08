@@ -30,7 +30,7 @@ describe('QuantityGroupTitleRow', () => {
       expect(screen.getByText('数量')).toBeInTheDocument();
       expect(screen.getByText('単位')).toBeInTheDocument();
       expect(screen.getByText('備考')).toBeInTheDocument();
-      expect(screen.getByText('操作')).toBeInTheDocument();
+      expect(screen.getByText('並替 / 操作')).toBeInTheDocument();
     });
 
     it('data-testidが設定されている', () => {
@@ -90,7 +90,7 @@ describe('QuantityGroupTitleRow', () => {
         '数量',
         '単位',
         '備考',
-        '操作',
+        '並替 / 操作',
       ];
 
       expectedOrder.forEach((expectedText, index) => {
@@ -103,7 +103,9 @@ describe('QuantityGroupTitleRow', () => {
 
       const columnHeaders = screen.getAllByRole('columnheader');
       // 操作列を除いた11列のテキストを検証
-      const mainFieldTexts = columnHeaders.map((h) => h.textContent).filter((t) => t !== '操作');
+      const mainFieldTexts = columnHeaders
+        .map((h) => h.textContent)
+        .filter((t) => t !== '並替 / 操作');
       expect(mainFieldTexts).toHaveLength(11);
       expect(mainFieldTexts).toEqual([
         '大項目',

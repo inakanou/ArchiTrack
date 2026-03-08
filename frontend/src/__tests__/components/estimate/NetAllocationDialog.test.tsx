@@ -621,6 +621,110 @@ describe('NetAllocationDialog', () => {
   });
 
   // ==========================================================================
+  // REQ-36: NET金額の自動設定
+  // ==========================================================================
+  describe('NET金額の自動設定 (REQ-36)', () => {
+    it('業者選択時にNET金額が自動設定されること (REQ-36.1)', async () => {
+      const user = userEvent.setup();
+
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'rq-1',
+          estimateRequestId: 'er-1',
+          name: '業者A見積',
+          submittedAt: new Date('2025-01-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          totalAmount: 120000,
+          netAmount: 95000,
+          lineItems: [],
+          createdAt: new Date('2025-01-01'),
+          updatedAt: new Date('2025-01-01'),
+          tradingPartnerName: '業者A',
+        } as never,
+      ]);
+
+      render(<NetAllocationDialog {...defaultProps} />);
+
+      await user.selectOptions(screen.getByLabelText('対象業者を選択'), '業者A');
+
+      await waitFor(() => {
+        const netInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+        expect(netInput.value).toBe('95000');
+      });
+    });
+
+    it('自動設定されたNET金額を手動変更できること (REQ-36.2)', async () => {
+      const user = userEvent.setup();
+
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'rq-1',
+          estimateRequestId: 'er-1',
+          name: '業者A見積',
+          submittedAt: new Date('2025-01-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          totalAmount: 120000,
+          netAmount: 95000,
+          lineItems: [],
+          createdAt: new Date('2025-01-01'),
+          updatedAt: new Date('2025-01-01'),
+          tradingPartnerName: '業者A',
+        } as never,
+      ]);
+
+      render(<NetAllocationDialog {...defaultProps} />);
+
+      await user.selectOptions(screen.getByLabelText('対象業者を選択'), '業者A');
+
+      await waitFor(() => {
+        const netInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+        expect(netInput.value).toBe('95000');
+      });
+
+      // 手動で変更
+      const netInput = screen.getByLabelText('NET金額');
+      await user.clear(netInput);
+      await user.type(netInput, '88000');
+      expect((netInput as HTMLInputElement).value).toBe('88000');
+    });
+
+    it('NET金額がnullの場合は自動設定をスキップすること', async () => {
+      const user = userEvent.setup();
+
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'rq-1',
+          estimateRequestId: 'er-1',
+          name: '業者A見積',
+          submittedAt: new Date('2025-01-01'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          totalAmount: 120000,
+          netAmount: null,
+          lineItems: [],
+          createdAt: new Date('2025-01-01'),
+          updatedAt: new Date('2025-01-01'),
+          tradingPartnerName: '業者A',
+        } as never,
+      ]);
+
+      render(<NetAllocationDialog {...defaultProps} />);
+
+      await user.selectOptions(screen.getByLabelText('対象業者を選択'), '業者A');
+
+      await waitFor(() => {
+        const netInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+        expect(netInput.value).toBe('');
+      });
+    });
+  });
+
+  // ==========================================================================
   // REQ-33: 案分対象行の合計金額表示
   // ==========================================================================
   /**

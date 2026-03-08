@@ -801,4 +801,113 @@ describe('LineItemEditor', () => {
       });
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Task 73.2: テキストボックスサイズ統一テスト
+  // Requirements: 33.1-33.13
+  // --------------------------------------------------------------------------
+
+  describe('テキストボックスサイズ統一（33.1-33.13）', () => {
+    it('inputスタイルのfontSizeが12pxである (33.9)', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      const input = screen.getByLabelText('行1 任意分類');
+      expect(input).toHaveStyle({ fontSize: '12px' });
+    });
+
+    it('inputスタイルのpaddingが2px 4pxである (33.10)', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      const input = screen.getByLabelText('行1 任意分類');
+      expect(input).toHaveStyle({ padding: '2px 4px' });
+    });
+
+    it('inputスタイルのheightが22pxである', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      const input = screen.getByLabelText('行1 任意分類');
+      expect(input).toHaveStyle({ height: '22px' });
+    });
+
+    it('inputスタイルのborderRadiusが0pxである', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      const input = screen.getByLabelText('行1 任意分類');
+      expect(input).toHaveStyle({ borderRadius: '0px' });
+    });
+
+    it('列ヘッダーのminWidthが数量表に準拠している (33.1-33.8)', () => {
+      const props = getDefaultProps();
+      render(<LineItemEditor {...props} />);
+
+      const headers = screen.getAllByRole('columnheader');
+      // headers: No, 任意分類, 工種, 名称, 規格, 単位, 数量, 単価, 金額, 備考, 操作
+      const customCategoryHeader = headers.find((h) => h.textContent === '任意分類');
+      const workTypeHeader = headers.find((h) => h.textContent === '工種');
+      const nameHeader = headers.find((h) => h.textContent === '名称');
+      const specHeader = headers.find((h) => h.textContent === '規格');
+      const unitHeader = headers.find((h) => h.textContent === '単位');
+
+      expect(customCategoryHeader).toHaveStyle({ minWidth: '76px' });
+      expect(workTypeHeader).toHaveStyle({ minWidth: '88px' });
+      expect(nameHeader).toHaveStyle({ minWidth: '202px' });
+      expect(specHeader).toHaveStyle({ minWidth: '202px' });
+      expect(unitHeader).toHaveStyle({ width: '46px' });
+    });
+
+    it('スタイル変更後もTabキー移動が正常動作する (33.12)', async () => {
+      const items = [createLineItem(), createLineItem()];
+      const onLineItemsChange = vi.fn();
+      const props = getDefaultProps({
+        lineItems: items,
+        onLineItemsChange,
+      });
+      render(<LineItemEditor {...props} />);
+
+      // 1行目の最後のフィールド（備考）にフォーカス
+      const remarksInput = screen.getByLabelText('行1 備考');
+      remarksInput.focus();
+
+      // Tabキーで2行目に移動
+      fireEvent.keyDown(remarksInput, { key: 'Tab' });
+
+      // 2行目の最初のフィールドにフォーカスが移動
+      const nextInput = screen.getByLabelText('行2 任意分類');
+      expect(nextInput).toBe(document.activeElement);
+    });
+
+    it('スタイル変更後も明細行追加が正常動作する (33.13)', async () => {
+      const user = userEvent.setup();
+      const onLineItemsChange = vi.fn();
+      const props = getDefaultProps({ onLineItemsChange });
+      render(<LineItemEditor {...props} />);
+
+      const addButton = screen.getByRole('button', { name: '行を追加' });
+      await user.click(addButton);
+
+      expect(onLineItemsChange).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ name: '' })])
+      );
+    });
+
+    it('スタイル変更後も明細行削除が正常動作する (33.13)', async () => {
+      const user = userEvent.setup();
+      const items = [createLineItem({ name: 'Item 1' }), createLineItem({ name: 'Item 2' })];
+      const onLineItemsChange = vi.fn();
+      const props = getDefaultProps({
+        lineItems: items,
+        onLineItemsChange,
+      });
+      render(<LineItemEditor {...props} />);
+
+      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
+      await user.click(deleteButtons[0] as HTMLButtonElement);
+
+      expect(onLineItemsChange).toHaveBeenCalled();
+    });
+  });
 });

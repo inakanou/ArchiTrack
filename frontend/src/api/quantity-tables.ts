@@ -589,3 +589,52 @@ export async function bulkSaveQuantityTable(
 ): Promise<BulkSaveResult> {
   return apiClient.put<BulkSaveResult>(`/api/quantity-tables/${quantityTableId}/bulk-save`, input);
 }
+
+// ============================================================================
+// 並び順変更API
+// Task 37.1, 38.1: 数量グループ・数量項目の並び順変更
+// ============================================================================
+
+/**
+ * 並び順更新エントリ
+ */
+export interface DisplayOrderUpdate {
+  id: string;
+  displayOrder: number;
+}
+
+/**
+ * 数量グループの表示順序を一括更新する
+ *
+ * Requirements: 23.1, 23.7
+ *
+ * @param quantityTableId - 数量表ID（UUID）
+ * @param orderUpdates - 並び順更新データ
+ * @throws ApiError バリデーションエラー（400）、数量表が見つからない（404）
+ */
+export async function updateGroupDisplayOrder(
+  quantityTableId: string,
+  orderUpdates: DisplayOrderUpdate[]
+): Promise<void> {
+  return apiClient.put<void>(`/api/quantity-tables/${quantityTableId}/groups/order`, {
+    orderUpdates,
+  });
+}
+
+/**
+ * 数量項目の表示順序を一括更新する
+ *
+ * Requirements: 24.1, 24.7
+ *
+ * @param groupId - 数量グループID（UUID）
+ * @param orderUpdates - 並び順更新データ
+ * @throws ApiError バリデーションエラー（400）、グループが見つからない（404）
+ */
+export async function updateItemDisplayOrder(
+  groupId: string,
+  orderUpdates: DisplayOrderUpdate[]
+): Promise<void> {
+  return apiClient.put<void>(`/api/quantity-groups/${groupId}/items/order`, {
+    orderUpdates,
+  });
+}

@@ -508,7 +508,9 @@ export class ReceivedQuotationService {
    * @param projectId - プロジェクトID
    * @returns 受領見積書一覧
    */
-  async findByProjectId(projectId: string): Promise<ReceivedQuotationInfo[]> {
+  async findByProjectId(
+    projectId: string
+  ): Promise<(ReceivedQuotationInfo & { tradingPartnerName: string | null })[]> {
     const quotations = await this.prisma.receivedQuotation.findMany({
       where: {
         deletedAt: null,
@@ -522,12 +524,25 @@ export class ReceivedQuotationService {
         lineItems: {
           orderBy: { sortOrder: 'asc' },
         },
+        estimateRequest: {
+          select: {
+            tradingPartner: {
+              select: { name: true },
+            },
+          },
+        },
       },
     });
 
     return quotations.map((q) => {
       const lineItemInfos = (q.lineItems || []).map((li) => this.toLineItemInfo(li));
-      return this.toReceivedQuotationInfoWithLineItems(q, lineItemInfos);
+      const info = this.toReceivedQuotationInfoWithLineItems(q, lineItemInfos);
+      return {
+        ...info,
+        tradingPartnerName:
+          (q as unknown as { estimateRequest?: { tradingPartner?: { name: string } | null } })
+            .estimateRequest?.tradingPartner?.name ?? null,
+      };
     });
   }
 

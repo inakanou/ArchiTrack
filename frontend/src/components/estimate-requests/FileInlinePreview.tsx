@@ -10,7 +10,7 @@
  * - 13.4: Excelファイルをテーブル形式でインライン表示（先頭100行のみ）
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Document, Page } from 'react-pdf';
 import * as XLSX from 'xlsx';
 
@@ -53,6 +53,14 @@ type ExcelRow = Array<string | number | null>;
  * Excelプレビューの最大表示行数
  */
 const MAX_EXCEL_ROWS = 100;
+
+/**
+ * PDFズーム定数 (Task 69.1)
+ */
+const ZOOM_STEP = 0.25;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 3.0;
+const ZOOM_FIT_DEFAULT = 1.0;
 
 // ============================================================================
 // ヘルパー関数
@@ -218,6 +226,20 @@ const styles = {
     fontSize: '13px',
     color: '#6b7280',
   },
+  pdfZoomControls: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginLeft: '12px',
+    borderLeft: '1px solid #e5e7eb',
+    paddingLeft: '12px',
+  } as React.CSSProperties,
+  pdfZoomText: {
+    fontSize: '13px',
+    color: '#6b7280',
+    minWidth: '48px',
+    textAlign: 'center' as const,
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -246,20 +268,43 @@ function PreviewSkeleton() {
 // ============================================================================
 
 /**
- * PDFファイルのインラインプレビュー（ページナビゲーション付き全ページ閲覧対応）
+ * PDFファイルのインラインプレビュー（ページナビゲーション・拡大縮小機能付き）
  *
  * Task 40.4: PDFページナビゲーション機能
+ * Task 69.1, 69.2: PDFプレビュー拡大縮小機能
  * Requirement 17.6: PDFプレビューで全ページを閲覧可能にするページナビゲーション機能
+ * Requirements 31.1-31.12: PDFプレビュー拡大縮小機能
  */
 function PdfPreview({ fileUrl }: { fileUrl: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Task 69.1: ズーム状態管理
+  const [scale, setScale] = useState(ZOOM_FIT_DEFAULT);
+  const [fitScaleReady, setFitScaleReady] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const handleLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
     setIsLoading(false);
     setTotalPages(numPages);
   }, []);
+
+  // Task 69.1: ページ読み込み完了時にfitScaleを計算
+  const handlePageLoadSuccess = useCallback(
+    ({ width: pageWidth }: { width: number }) => {
+      if (!fitScaleReady && containerRef.current) {
+        const containerWidth = containerRef.current.clientWidth;
+        if (containerWidth > 0 && pageWidth > 0) {
+          const fitScale = containerWidth / pageWidth;
+          const clampedFitScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fitScale));
+          setScale(clampedFitScale);
+          setFitScaleReady(true);
+        }
+      }
+    },
+    [fitScaleReady]
+  );
 
   const handlePrevPage = useCallback(() => {
     setCurrentPage((prev) => Math.max(1, prev - 1));
@@ -269,9 +314,25 @@ function PdfPreview({ fileUrl }: { fileUrl: string }) {
     setCurrentPage((prev) => Math.min(totalPages, prev + 1));
   }, [totalPages]);
 
+  // Task 69.2: ズーム操作ハンドラ
+  const handleZoomIn = useCallback(() => {
+    setScale((prev) => Math.min(prev + ZOOM_STEP, ZOOM_MAX));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setScale((prev) => Math.max(prev - ZOOM_STEP, ZOOM_MIN));
+  }, []);
+
   return (
     <div>
-      <div style={styles.pdfContainer}>
+      <div
+        ref={containerRef}
+        style={{
+          ...styles.pdfContainer,
+          overflowX: 'auto' as const,
+          overflowY: 'auto' as const,
+        }}
+      >
         {isLoading && <PreviewSkeleton />}
         <Document
           file={fileUrl}
@@ -279,39 +340,74 @@ function PdfPreview({ fileUrl }: { fileUrl: string }) {
           loading={<PreviewSkeleton />}
           error={<div style={styles.errorMessage}>PDFの読み込みに失敗しました</div>}
         >
-          <Page pageNumber={currentPage} width={600} />
+          <Page pageNumber={currentPage} scale={scale} onLoadSuccess={handlePageLoadSuccess} />
         </Document>
       </div>
-      {/* ページナビゲーション: 総ページ数が1の場合は非表示 (17.6) */}
-      {totalPages > 1 && (
+      {/* ナビゲーション・ズームコントロール */}
+      {totalPages > 0 && (
         <div style={styles.pdfNavigation}>
-          <button
-            type="button"
-            onClick={handlePrevPage}
-            disabled={currentPage <= 1}
-            style={{
-              ...styles.pdfNavButton,
-              ...(currentPage <= 1 ? styles.pdfNavButtonDisabled : {}),
-            }}
-            aria-label="前へ"
-          >
-            前へ
-          </button>
-          <span style={styles.pdfNavText}>
-            ページ {currentPage} / {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={handleNextPage}
-            disabled={currentPage >= totalPages}
-            style={{
-              ...styles.pdfNavButton,
-              ...(currentPage >= totalPages ? styles.pdfNavButtonDisabled : {}),
-            }}
-            aria-label="次へ"
-          >
-            次へ
-          </button>
+          {/* ページナビゲーション: 総ページ数が1の場合は非表示 (17.6) */}
+          {totalPages > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={handlePrevPage}
+                disabled={currentPage <= 1}
+                style={{
+                  ...styles.pdfNavButton,
+                  ...(currentPage <= 1 ? styles.pdfNavButtonDisabled : {}),
+                }}
+                aria-label="前へ"
+              >
+                前へ
+              </button>
+              <span style={styles.pdfNavText}>
+                ページ {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={handleNextPage}
+                disabled={currentPage >= totalPages}
+                style={{
+                  ...styles.pdfNavButton,
+                  ...(currentPage >= totalPages ? styles.pdfNavButtonDisabled : {}),
+                }}
+                aria-label="次へ"
+              >
+                次へ
+              </button>
+            </>
+          )}
+          {/* Task 69.2: ズームコントロール (31.1-31.10) */}
+          <div style={styles.pdfZoomControls}>
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              disabled={scale <= ZOOM_MIN}
+              style={{
+                ...styles.pdfNavButton,
+                ...(scale <= ZOOM_MIN ? styles.pdfNavButtonDisabled : {}),
+              }}
+              aria-label="縮小"
+            >
+              -
+            </button>
+            <span style={styles.pdfZoomText} data-testid="zoom-level-text">
+              {Math.round(scale * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              disabled={scale >= ZOOM_MAX}
+              style={{
+                ...styles.pdfNavButton,
+                ...(scale >= ZOOM_MAX ? styles.pdfNavButtonDisabled : {}),
+              }}
+              aria-label="拡大"
+            >
+              +
+            </button>
+          </div>
         </div>
       )}
     </div>

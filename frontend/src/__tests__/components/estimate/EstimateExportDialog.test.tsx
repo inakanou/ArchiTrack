@@ -69,10 +69,10 @@ describe('EstimateExportDialog', () => {
   });
 
   // ==========================================================================
-  // REQ-32.2: デフォルト値
+  // REQ-38.1: デフォルト値（REQ-32.5を上書き: 「見積」と「実行」がON）
   // ==========================================================================
-  describe('デフォルト値 (REQ-32.2)', () => {
-    it('デフォルトで「見積」（ESTIMATE）のみが選択されていること', () => {
+  describe('デフォルト値 (REQ-38.1)', () => {
+    it('デフォルトで「見積」と「実行」が選択されていること（REQ-38.1）', () => {
       render(<EstimateExportDialog {...defaultProps} />);
 
       const checkboxes = screen.getAllByRole('checkbox');
@@ -85,7 +85,7 @@ describe('EstimateExportDialog', () => {
       const vendorCheckbox = checkboxes.find((cb) => (cb as HTMLInputElement).value === 'VENDOR');
 
       expect(estimateCheckbox).toBeChecked();
-      expect(executionCheckbox).not.toBeChecked();
+      expect(executionCheckbox).toBeChecked();
       expect(vendorCheckbox).not.toBeChecked();
     });
   });
@@ -122,7 +122,7 @@ describe('EstimateExportDialog', () => {
 
       await waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalledWith(
-          'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
+          'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE,EXECUTION',
           expect.objectContaining({
             method: 'GET',
           })
@@ -143,18 +143,14 @@ describe('EstimateExportDialog', () => {
 
       render(<EstimateExportDialog {...defaultProps} />);
 
-      // デフォルトの見積チェックボックスをOFF
+      // デフォルトの見積チェックボックスをOFF（REQ-38.1で見積と実行がデフォルトON）
       const checkboxes = screen.getAllByRole('checkbox');
       const estimateCheckbox = checkboxes.find(
         (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
       )!;
       await user.click(estimateCheckbox);
 
-      // 実行チェックボックスをON
-      const executionCheckbox = checkboxes.find(
-        (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
-      )!;
-      await user.click(executionCheckbox);
+      // 実行チェックボックスはデフォルトでONなのでそのまま
 
       // PDF形式を選択
       const pdfRadio = screen
@@ -228,7 +224,7 @@ describe('EstimateExportDialog', () => {
       await user.click(screen.getByRole('button', { name: '出力' }));
 
       await waitFor(() => {
-        expect(capturedDownload).toBe('テスト見積書_見積.pdf');
+        expect(capturedDownload).toBe('テスト見積書_見積_実行.pdf');
       });
 
       createElementSpy.mockRestore();
@@ -243,12 +239,16 @@ describe('EstimateExportDialog', () => {
       const user = userEvent.setup();
       render(<EstimateExportDialog {...defaultProps} />);
 
-      // デフォルトでONの見積チェックボックスをOFFにする
+      // デフォルトでONの見積・実行チェックボックスをOFFにする（REQ-38.1対応）
       const checkboxes = screen.getAllByRole('checkbox');
       const estimateCheckbox = checkboxes.find(
         (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
       )!;
+      const executionCheckbox = checkboxes.find(
+        (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
+      )!;
       await user.click(estimateCheckbox);
+      await user.click(executionCheckbox);
 
       const exportButton = screen.getByRole('button', { name: '出力' });
       expect(exportButton).toBeDisabled();
