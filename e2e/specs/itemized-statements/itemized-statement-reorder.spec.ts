@@ -143,10 +143,9 @@ test.describe('内訳書項目の並び替え', () => {
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i]!;
-        await request.post(`${baseUrl}/api/quantity-tables/${testQuantityTableId}/items`, {
+        await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
           headers: { Authorization: `Bearer ${accessToken}` },
           data: {
-            quantityGroupId: groupId,
             ...item,
             majorCategory: '大項目',
             calculationMethod: 'STANDARD',

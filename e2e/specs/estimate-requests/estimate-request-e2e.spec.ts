@@ -573,15 +573,27 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      const tradingPartnerSelect = page.locator('select[aria-label="宛先"]');
-      const options = await tradingPartnerSelect.locator('option').all();
+      const tradingPartnerInput = page.locator(
+        'input[role="combobox"][aria-label="宛先（取引先）"]'
+      );
+      await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 協力業者が少なくとも1つ選択肢にある（プレースホルダー以外）
-      expect(options.length).toBeGreaterThan(1);
+      // コンボボックスをクリックしてドロップダウンを開く
+      await tradingPartnerInput.click();
+      await page.waitForTimeout(500);
 
-      // 作成した協力業者のIDが選択肢に含まれる
-      const optionValues = await Promise.all(options.map((o) => o.getAttribute('value')));
-      expect(optionValues).toContain(createdTradingPartnerId);
+      // リストボックスの選択肢を取得
+      const listbox = page.locator('ul[role="listbox"]');
+      await expect(listbox).toBeVisible({ timeout: 3000 });
+      const options = await listbox.locator('li[role="option"]').all();
+
+      // 協力業者が少なくとも1つ選択肢にある
+      expect(options.length).toBeGreaterThan(0);
+
+      // 作成した協力業者名が選択肢に含まれる
+      const optionTexts = await Promise.all(options.map((o) => o.textContent()));
+      const hasPartner = optionTexts.some((text) => text?.includes(tradingPartnerName!));
+      expect(hasPartner).toBeTruthy();
     });
 
     /**
