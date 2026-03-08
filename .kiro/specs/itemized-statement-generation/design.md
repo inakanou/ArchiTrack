@@ -15,13 +15,15 @@
 - 数量表の項目を5項目の組み合わせでグループ化し、数量を合計した内訳書を作成する
 - 内訳書をスナップショットとして独立保持し、数量表変更の影響を受けないようにする
 - 内訳書詳細画面でのソート・フィルタリング・ページネーションを提供する
+- 内訳書作成時にピボット集計結果を分類順（任意分類→工種→名称→規格→単位）でソートし、初期表示順を設定する
+- 内訳書詳細画面での上下ボタンによる手動並び替えと一括保存を提供する
 - 既存UIパターン（現場調査・数量表）との一貫性を保ち、操作性を統一する
 - 専用作成画面により、数量表有無に応じた適切なユーザーガイダンスを提供する
 
 ### Non-Goals
 
 - 複数の数量表をまたいだ集計機能（Requirement 1.5で1つのみ選択可能と定義）
-- 内訳書の編集機能（スナップショットの不変性を維持）
+- 内訳書の項目値の編集機能（スナップショットの不変性を維持。ただし表示順序の変更は可能）
 - 数量表の自動再計算機能（スナップショット独立性の維持）
 - バックエンドでのExcel生成（フロントエンドで完結）
 - CSVエクスポート機能（Excel出力とクリップボードコピーで代替）
@@ -188,6 +190,58 @@ sequenceDiagram
     Page->>Page: isExporting = false
 ```
 
+### ピボット集計結果の初期ソート順序
+
+```mermaid
+flowchart TD
+    Start[ピボット集計完了]
+    Sort[任意分類→工種→名称→規格→単位<br/>の優先度で昇順ソート]
+    Assign[ソート順序をdisplayOrderとして付与<br/>0, 1, 2, ...]
+    Save[内訳書項目として保存]
+    End[完了]
+
+    Start --> Sort
+    Sort --> Assign
+    Assign --> Save
+    Save --> End
+```
+
+### 手動並び替えフロー
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Page as ItemizedStatementDetailPage
+    participant State as LocalState (orderedItems)
+    participant API as Backend API
+    participant Toast as useToast
+
+    User->>Page: 上/下ボタンクリック
+    Page->>State: 項目の位置を入れ替え
+    State-->>Page: 更新されたリスト表示
+    Page->>Page: hasOrderChanges = true
+    Page->>Page: 保存ボタンを表示
+
+    Note over User,Page: ユーザーは複数回並び替え可能<br/>（API呼び出しなし）
+
+    User->>Page: 保存ボタンクリック
+    Page->>Page: isSavingOrder = true
+    Page->>API: PATCH /itemized-statements/:id/items/order
+    Note right of API: { items: [{id, displayOrder}...],<br/>updatedAt: "..." }
+    alt 成功
+        API-->>Page: 200 OK (updated statement)
+        Page->>State: hasOrderChanges = false
+        Page->>Toast: success 並び順を保存しました
+    else 楽観的排他制御エラー
+        API-->>Page: 409 Conflict
+        Page->>Toast: error 他のユーザーにより更新されました
+    else その他エラー
+        API-->>Page: 500 Error
+        Page->>Toast: error エラーメッセージ
+    end
+    Page->>Page: isSavingOrder = false
+```
+
 ### クリップボードコピーフロー
 
 ```mermaid
@@ -234,19 +288,21 @@ sequenceDiagram
 | 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8 | Excel出力機能 | ItemizedStatementDetailPage, exportToExcel | ExportToExcelOptions | Excel出力フロー |
 | 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8 | クリップボード出力機能 | ItemizedStatementDetailPage, copyToClipboard | CopyToClipboardOptions | クリップボードコピーフロー |
 | 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9 | 内訳書新規作成画面 | ItemizedStatementCreatePage, CreateItemizedStatementForm | - | 作成フロー |
+| 16.1, 16.2, 16.3, 16.4 | 内訳項目の初期ソート順序 | ItemizedStatementPivotService | aggregateByQuantityTable | 初期ソート順序 |
+| 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10, 17.11, 17.12, 17.13, 17.14 | 内訳項目の手動並び替え | ItemizedStatementDetailPage, ItemizedStatementService | PATCH /itemized-statements/:id/items/order | 手動並び替えフロー |
 
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|-----------------|-----------|
-| ItemizedStatementService | Backend/Service | 内訳書CRUD、ビジネスロジック | 1, 3, 4, 7, 8, 10 | PrismaClient (P0), AuditLogService (P1), PivotService (P0) | Service |
-| ItemizedStatementPivotService | Backend/Service | ピボット集計専用ロジック | 2 | PrismaClient (P0), Decimal.js (P0) | Service |
-| itemized-statements.routes | Backend/Routes | APIエンドポイント定義 | 1, 3, 4, 7, 10 | ItemizedStatementService (P0) | API |
+| ItemizedStatementService | Backend/Service | 内訳書CRUD、ビジネスロジック、並び順更新 | 1, 3, 4, 7, 8, 10, 17 | PrismaClient (P0), AuditLogService (P1), PivotService (P0) | Service |
+| ItemizedStatementPivotService | Backend/Service | ピボット集計・初期ソート | 2, 16 | PrismaClient (P0), Decimal.js (P0) | Service |
+| itemized-statements.routes | Backend/Routes | APIエンドポイント定義 | 1, 3, 4, 7, 10, 17 | ItemizedStatementService (P0) | API |
 | ItemizedStatementCreatePage | Frontend/Page | 内訳書新規作成画面 | 15 | CreateItemizedStatementForm (P0), quantity-tables API (P1) | State |
 | CreateItemizedStatementForm | Frontend/UI | 内訳書作成フォーム | 1, 15 | quantity-tables API (P1) | State |
 | ItemizedStatementSectionCard | Frontend/UI | プロジェクト詳細画面の内訳書セクション | 1.8, 3, 11 | - | - |
 | ItemizedStatementListPage | Frontend/Page | 内訳書一覧画面 | 3, 9.1, 15.8, 15.9 | itemized-statements API (P0) | State |
-| ItemizedStatementDetailPage | Frontend/UI | 内訳書詳細・削除・ソート・フィルタ・出力 | 4, 5, 6, 7, 9, 12, 13, 14 | xlsx (P0), useToast (P1) | State |
+| ItemizedStatementDetailPage | Frontend/UI | 内訳書詳細・削除・ソート・フィルタ・出力・手動並び替え | 4, 5, 6, 7, 9, 12, 13, 14, 17 | xlsx (P0), useToast (P1), SortOrderButtons (P0), useUnsavedChanges (P0) | State |
 | exportToExcel | Frontend/Utility | Excelファイル生成・ダウンロード | 13 | xlsx (P0) | Function |
 | copyToClipboard | Frontend/Utility | タブ区切りテキストのクリップボードコピー | 14 | Clipboard API (P0) | Function |
 
@@ -307,6 +363,7 @@ interface ItemizedStatementItemInfo {
   specification: string | null;
   unit: string | null;
   quantity: number; // 小数点以下2桁
+  displayOrder: number; // 表示順序（0始まり連番）
 }
 
 interface ProjectItemizedStatementSummary {
@@ -330,6 +387,12 @@ interface CreateItemizedStatementInput {
   quantityTableId: string;
 }
 
+interface UpdateItemOrderInput {
+  itemizedStatementId: string;
+  items: Array<{ id: string; displayOrder: number }>;
+  expectedUpdatedAt: Date;
+}
+
 class ItemizedStatementService {
   constructor(deps: ItemizedStatementServiceDependencies);
 
@@ -342,15 +405,18 @@ class ItemizedStatementService {
     sort: { sort: 'createdAt' | 'name'; order: 'asc' | 'desc' }
   ): Promise<PaginatedItemizedStatements>;
   findLatestByProjectId(projectId: string, limit?: number): Promise<ProjectItemizedStatementSummary>;
+  updateItemOrder(input: UpdateItemOrderInput, actorId: string): Promise<ItemizedStatementDetail>;
   delete(id: string, actorId: string, expectedUpdatedAt: Date): Promise<void>;
 }
 ```
 
 - Preconditions:
   - create: プロジェクトが存在し論理削除されていない、数量表が存在し項目が1件以上
+  - updateItemOrder: 内訳書が存在し論理削除されていない、updatedAtが一致、全項目IDが内訳書に属する
   - delete: 内訳書が存在し論理削除されていない、updatedAtが一致
 - Postconditions:
-  - create: 内訳書と集計済み項目がスナップショットとして保存される
+  - create: 内訳書と集計済み項目がソート済みdisplayOrderでスナップショットとして保存される
+  - updateItemOrder: 全項目のdisplayOrderが更新され、内訳書のupdatedAtが更新される
   - delete: 内訳書が論理削除される
 - Invariants: 作成済み内訳書は元データの変更に影響されない
 
@@ -367,6 +433,7 @@ class ItemizedStatementService {
 - null/空文字を同一グループとして扱う
 - 小数点以下2桁精度で計算
 - オーバーフロー検出（-999999.99 〜 9999999.99）
+- 集計結果を「任意分類」「工種」「名称」「規格」「単位」の優先度で昇順ソートして返却する（Requirement 16）
 
 **Dependencies**
 - Inbound: ItemizedStatementService — 集計処理呼び出し (P0)
@@ -431,6 +498,7 @@ class ItemizedStatementPivotService {
 | GET | /api/projects/:projectId/itemized-statements/latest | { limit?: number } | ProjectItemizedStatementSummary | 400, 500 |
 | GET | /api/itemized-statements/:id | - | ItemizedStatementDetail | 404, 500 |
 | DELETE | /api/itemized-statements/:id | { updatedAt: string } | void | 400, 404, 409, 500 |
+| PATCH | /api/itemized-statements/:id/items/order | UpdateItemOrderRequest | ItemizedStatementDetail | 400, 404, 409, 500 |
 
 **Error Responses**:
 - 400 Bad Request: バリデーションエラー（必須項目未入力、形式不正）
@@ -660,6 +728,11 @@ interface ItemizedStatementDetailPageState {
   // ページネーション状態
   currentPage: number;
   pageSize: number;
+
+  // 手動並び替え状態（Requirement 17）
+  orderedItems: ItemizedStatementItemInfo[]; // ローカルで管理する並び替え済み項目リスト
+  hasOrderChanges: boolean; // 未保存の並び替え変更があるか
+  isSavingOrder: boolean; // 並び順保存中フラグ
 }
 ```
 
@@ -668,6 +741,10 @@ interface ItemizedStatementDetailPageState {
 - Validation: フィルタ結果0件時のメッセージ表示
 - Risks: 大量データ時のレンダリングパフォーマンス（仮想スクロール検討可）
 - Excel出力・クリップボードコピーはフィルタ後のデータ（sortedItems）を対象とする
+- 手動並び替え: orderedItemsをローカルStateで管理し、上下ボタン操作時はState更新のみ行う。保存ボタン押下時に1回のPATCHリクエストで全項目のdisplayOrderを一括更新する。フィルタ・カラムソートが適用されている場合は並び替えボタンを非表示とする
+- 離脱防止: beforeunloadイベントとReact Routerのブロック機能で未保存の並び替え変更がある場合に確認ダイアログを表示する
+- ページネーション×並び替え方針: 内訳書の全項目はAPI応答時に一括取得済み（最大2000件）のため、並び替え操作はクライアント側で全件に対して行う。ページネーションはあくまで表示制御であり、上下ボタンはページ境界を越えて前後ページの項目と入れ替え可能とする。保存時は全項目のdisplayOrderを送信する
+- デフォルト表示順の移行方針: Requirement 16の導入により、デフォルト表示順（sortState.column === null時）は既存のapplyDefaultSort（クライアントサイドの任意分類→工種→名称→規格昇順ソート）からdisplayOrder昇順表示に変更する。カラムヘッダークリックによるソートは従来通りクライアントサイドで適用し、ソート解除時はdisplayOrder順に戻る。これにより手動並び替え後の表示順序が保持される。Requirement 5.5のデフォルトソート順は、初回作成時のdisplayOrder設定により「任意分類→工種→名称→規格→単位」昇順と同等の結果となる
 
 ### Frontend / Utility Layer
 
@@ -988,7 +1065,17 @@ interface ItemizedStatementDetailResponse {
     specification: string | null;
     unit: string | null;
     quantity: number;     // 小数点以下2桁
+    displayOrder: number; // 表示順序（0始まり連番）
   }>;
+}
+
+// 並び順更新リクエスト
+interface UpdateItemOrderRequest {
+  items: Array<{
+    id: string;            // 項目ID（UUID）
+    displayOrder: number;  // 新しい表示順序（0始まり連番）
+  }>;
+  updatedAt: string;       // ISO 8601、楽観的排他制御用
 }
 
 // 削除リクエスト
@@ -1012,6 +1099,8 @@ interface DeleteItemizedStatementRequest {
 | EmptyQuantityItemsError | 400 | 選択された数量表に項目がありません | 別の数量表選択 |
 | ExcelExportError | N/A (Frontend) | Excelファイルの生成に失敗しました | 再試行ボタン |
 | ClipboardError | N/A (Frontend) | クリップボードへのコピーに失敗しました | 手動でコピー |
+| InvalidItemOrderError | 400 | 並び順データが不正です | 画面リロード |
+| ItemNotBelongError | 400 | 指定された項目がこの内訳書に属していません | 画面リロード |
 
 ### Error Categories and Responses
 
@@ -1034,14 +1123,15 @@ interface DeleteItemizedStatementRequest {
 
 ### Unit Tests
 
-- ItemizedStatementService: CRUD操作、楽観的排他制御、エラーハンドリング
-- ItemizedStatementPivotService: グループ化ロジック、数量合計、オーバーフロー検出
-- Zodスキーマ: バリデーションルール（必須チェック、文字数制限、UUID形式）
+- ItemizedStatementService: CRUD操作、楽観的排他制御、エラーハンドリング、並び順更新
+- ItemizedStatementPivotService: グループ化ロジック、数量合計、オーバーフロー検出、初期ソート順序
+- Zodスキーマ: バリデーションルール（必須チェック、文字数制限、UUID形式、並び順更新スキーマ）
 - exportToExcel: Excelファイル生成、カラム順序、数量精度、ファイル名形式
 - copyToClipboard: タブ区切り変換、ヘッダー行、数量精度、エラーハンドリング
 - ItemizedStatementCreatePage: 画面レンダリング、フォーム送信、ナビゲーション
 - ItemizedStatementSectionCard: 数量表有無による条件分岐表示
 - ItemizedStatementListPage: 数量表有無による条件分岐表示、ナビゲーション
+- ItemizedStatementDetailPage: 上下ボタンによる並び替え、保存ボタン表示/非表示、未保存変更の離脱防止
 
 ### Integration Tests
 
@@ -1058,6 +1148,8 @@ interface DeleteItemizedStatementRequest {
 - Excel出力フロー: ボタンクリック → ファイルダウンロード → ファイル名検証
 - クリップボードコピーフロー: ボタンクリック → 成功トースト表示 → 貼り付け検証
 - フィルタ後の出力: フィルタ適用 → Excel/クリップボード出力 → フィルタ後データのみ出力検証
+- 手動並び替えフロー: 上下ボタン操作 → 保存ボタンクリック → 並び順保存 → トースト通知
+- 初期ソート順序: 数量表から内訳書作成 → 項目が分類順でソートされていることを検証
 
 ### Performance Tests
 

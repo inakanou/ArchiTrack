@@ -306,8 +306,19 @@ export function NetAllocationDialog({
             id="vendor-select"
             value={selectedVendor}
             onChange={(e) => {
-              setSelectedVendor(e.target.value);
+              const vendorName = e.target.value;
+              setSelectedVendor(vendorName);
               setExcludeLineIds([]);
+
+              // REQ-36.1: 選択した業者に対応する受領見積書のNET金額を自動設定
+              if (vendorName && quotations.length > 0) {
+                const matchingQuotation = quotations.find(
+                  (q) => (q.tradingPartnerName || q.name) === vendorName
+                );
+                if (matchingQuotation?.netAmount != null) {
+                  setNetAmount(matchingQuotation.netAmount.toString());
+                }
+              }
             }}
             style={styles.select}
             disabled={isSubmitting}

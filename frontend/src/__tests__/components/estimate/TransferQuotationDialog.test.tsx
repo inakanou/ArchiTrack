@@ -2,15 +2,20 @@
  * @fileoverview TransferQuotationDialog テスト
  *
  * Task 37.3: 転記ダイアログ改善のテスト
+ * Task 50.1: REQ-35関連テスト
  *
  * Requirements:
  * - REQ-30.1: 転記先ドロップダウンの先頭に「新規項目として作成」選択肢を維持
  * - REQ-30.2: 既存項目のドロップダウン表示を「<項目名> の子項目として作成」形式に変更
  * - REQ-30.3: 階層構造の深さに応じたインデント表示で視覚的に区別
+ * - REQ-35.1: ドロップダウンに協力業者名を表示
+ * - REQ-35.2: ドロップダウンの表示形式を「業者名 - 金額」に変更
+ * - REQ-35.3: 転記明細行のチェックボックスをデフォルト全選択
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { TransferQuotationDialog } from '../../../components/estimate/TransferQuotationDialog';
 import type { EstimateItemHierarchyEdit } from '../../../hooks/useEstimateEditor';
 
@@ -18,6 +23,9 @@ import type { EstimateItemHierarchyEdit } from '../../../hooks/useEstimateEditor
 vi.mock('../../../api/received-quotations', () => ({
   getReceivedQuotationsByProject: vi.fn().mockResolvedValue([]),
 }));
+
+import { getReceivedQuotationsByProject } from '../../../api/received-quotations';
+const mockGetQuotations = vi.mocked(getReceivedQuotationsByProject);
 
 vi.mock('../../../api/estimates', () => ({
   transferFromQuotation: vi.fn(),
@@ -234,6 +242,152 @@ describe('TransferQuotationDialog', () => {
 
       // 「新規項目として作成」(1) + 外壁塗装(1) + 下地処理(1) + 防水工事(1) = 4
       expect(options).toHaveLength(4);
+    });
+  });
+
+  // ==========================================================================
+  // REQ-35.1, REQ-35.2: ドロップダウンに「業者名 - 金額」形式で表示
+  // ==========================================================================
+  describe('受領見積書ドロップダウン表示 (REQ-35.1, REQ-35.2)', () => {
+    it('ドロップダウンに「業者名 - 金額」形式で表示されること', async () => {
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'q-1',
+          estimateRequestId: 'er-1',
+          name: '見積書A',
+          submittedAt: new Date('2025-01-15'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          lineItems: [
+            {
+              id: 'li-1',
+              name: '工事A',
+              specification: null,
+              unit: '式',
+              quantity: 1,
+              unitPrice: 100000,
+              amount: 100000,
+              remarks: null,
+              sortOrder: 0,
+            },
+          ],
+          totalAmount: 100000,
+          netAmount: 90000,
+          createdAt: new Date('2025-01-15'),
+          updatedAt: new Date('2025-01-15'),
+          tradingPartnerName: '株式会社テスト建設',
+        } as never,
+      ]);
+
+      render(<TransferQuotationDialog {...defaultProps} />);
+      await waitForLoaded();
+
+      const quotationSelect = screen.getByLabelText('受領見積書を選択');
+      const options = within(quotationSelect).getAllByRole('option');
+
+      // 「業者名 - 金額」形式で表示される
+      const quotationOption = options.find(
+        (opt) =>
+          opt.textContent?.includes('株式会社テスト建設') && opt.textContent?.includes('100,000')
+      );
+      expect(quotationOption).toBeDefined();
+    });
+
+    it('tradingPartnerNameがnullの場合はname（見積書名）をフォールバック表示すること', async () => {
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'q-2',
+          estimateRequestId: 'er-2',
+          name: 'フォールバック見積書',
+          submittedAt: new Date('2025-01-15'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          lineItems: [],
+          totalAmount: 50000,
+          netAmount: null,
+          createdAt: new Date('2025-01-15'),
+          updatedAt: new Date('2025-01-15'),
+          tradingPartnerName: null,
+        } as never,
+      ]);
+
+      render(<TransferQuotationDialog {...defaultProps} />);
+      await waitForLoaded();
+
+      const quotationSelect = screen.getByLabelText('受領見積書を選択');
+      const options = within(quotationSelect).getAllByRole('option');
+
+      const quotationOption = options.find(
+        (opt) =>
+          opt.textContent?.includes('フォールバック見積書') && opt.textContent?.includes('50,000')
+      );
+      expect(quotationOption).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // REQ-35.3: 転記明細行のデフォルト全選択
+  // ==========================================================================
+  describe('転記明細行のデフォルト全選択 (REQ-35.3)', () => {
+    it('受領見積書選択時に全明細行がデフォルトでチェック済みになること', async () => {
+      const user = userEvent.setup();
+      mockGetQuotations.mockResolvedValue([
+        {
+          id: 'q-1',
+          estimateRequestId: 'er-1',
+          name: '見積書A',
+          submittedAt: new Date('2025-01-15'),
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          lineItems: [
+            {
+              id: 'li-1',
+              name: '工事A',
+              specification: null,
+              unit: '式',
+              quantity: 1,
+              unitPrice: 100000,
+              amount: 100000,
+              remarks: null,
+              sortOrder: 0,
+            },
+            {
+              id: 'li-2',
+              name: '工事B',
+              specification: null,
+              unit: '式',
+              quantity: 1,
+              unitPrice: 50000,
+              amount: 50000,
+              remarks: null,
+              sortOrder: 1,
+            },
+          ],
+          totalAmount: 150000,
+          netAmount: 120000,
+          createdAt: new Date('2025-01-15'),
+          updatedAt: new Date('2025-01-15'),
+          tradingPartnerName: '株式会社テスト建設',
+        } as never,
+      ]);
+
+      render(<TransferQuotationDialog {...defaultProps} />);
+      await waitForLoaded();
+
+      // 受領見積書を選択
+      const quotationSelect = screen.getByLabelText('受領見積書を選択');
+      await user.selectOptions(quotationSelect, 'q-1');
+
+      // 全明細行のチェックボックスがチェック済みであること
+      await waitFor(() => {
+        const checkbox1 = screen.getByTestId('line-checkbox-li-1') as HTMLInputElement;
+        const checkbox2 = screen.getByTestId('line-checkbox-li-2') as HTMLInputElement;
+        expect(checkbox1.checked).toBe(true);
+        expect(checkbox2.checked).toBe(true);
+      });
     });
   });
 });
