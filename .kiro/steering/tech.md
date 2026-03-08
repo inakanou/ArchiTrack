@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-02-25（Steering Sync: テストファイル数更新、バックエンドjsPDF追加、Argon2記載修正を反映）_
+_最終更新: 2026-03-08（Steering Sync: テストファイル数更新、統合テスト増加、内訳書項目並び替えAPI追加を反映）_
 
 ## アーキテクチャ
 
@@ -285,7 +285,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 単体テスト136ファイル + 統合テスト23ファイル
+**テスト合計:** 単体テスト136ファイル + 統合テスト24ファイル
 
 **実行方法:**
 ```bash
@@ -343,7 +343,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 289テストファイル（包括的なユニットテスト群）
+- 合計: 299テストファイル（包括的なユニットテスト群）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用

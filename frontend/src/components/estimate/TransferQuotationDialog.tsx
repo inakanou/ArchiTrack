@@ -265,11 +265,23 @@ export function TransferQuotationDialog({
 
   /**
    * 受領見積書選択時のハンドラ
+   * REQ-35.3: 選択された受領見積書の全明細行IDをデフォルトで全選択
    */
-  const handleQuotationChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedQuotationId(e.target.value);
-    setSelectedLineItemIds([]);
-  }, []);
+  const handleQuotationChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const quotationId = e.target.value;
+      setSelectedQuotationId(quotationId);
+      if (quotationId) {
+        const quotation = quotations.find((q) => q.id === quotationId);
+        if (quotation) {
+          setSelectedLineItemIds(quotation.lineItems.map((li) => li.id));
+        }
+      } else {
+        setSelectedLineItemIds([]);
+      }
+    },
+    [quotations]
+  );
 
   /**
    * 明細行選択時のハンドラ
@@ -366,7 +378,7 @@ export function TransferQuotationDialog({
                 <option value="">選択してください</option>
                 {quotations.map((q) => (
                   <option key={q.id} value={q.id}>
-                    {q.name} ({formatAmount(q.totalAmount)})
+                    {q.tradingPartnerName || q.name} - {formatAmount(q.totalAmount)}
                   </option>
                 ))}
               </select>

@@ -1343,7 +1343,7 @@ test.describe('数量表CRUD操作', () => {
         '数量',
         '単位',
         '備考',
-        '操作',
+        '並替 / 操作',
       ];
 
       const headerCount = await headers.count();
@@ -2309,11 +2309,11 @@ test.describe('数量表CRUD操作', () => {
       await expect(widthField).toBeVisible({ timeout: 3000 });
 
       // 奥行きフィールドを取得
-      const depthField = page.getByLabel(/奥行き|D/i).first();
+      const depthField = page.getByLabel(/奥行き/).first();
       await expect(depthField).toBeVisible({ timeout: 3000 });
 
       // 高さフィールドを取得
-      const heightField = page.getByLabel(/高さ|H/i).first();
+      const heightField = page.getByLabel(/高さ/).first();
       await expect(heightField).toBeVisible({ timeout: 3000 });
 
       // 数量フィールドを取得
@@ -3274,7 +3274,7 @@ test.describe('数量表CRUD操作', () => {
       await widthField.fill('10');
       await page.keyboard.press('Tab');
 
-      const depthField = page.getByLabel(/奥行き|D/i).first();
+      const depthField = page.getByLabel(/奥行き/).first();
       if (await depthField.isVisible({ timeout: 2000 })) {
         await depthField.fill('3');
         await page.keyboard.press('Tab');

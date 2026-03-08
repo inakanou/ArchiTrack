@@ -732,4 +732,150 @@ describe('TradingPartnerSelect', () => {
       );
     });
   });
+
+  describe('カスタムプロパティ (30.1-30.9)', () => {
+    describe('label プロパティ', () => {
+      it('デフォルトではラベルが「顧客名」と表示される', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        expect(screen.getByText('顧客名')).toBeInTheDocument();
+        expect(screen.getByRole('combobox')).toHaveAttribute('aria-label', '顧客名');
+      });
+
+      it('label プロパティで指定したラベルが表示される', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} label="宛先（取引先）" />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        expect(screen.getByText('宛先（取引先）')).toBeInTheDocument();
+        expect(screen.getByRole('combobox')).toHaveAttribute('aria-label', '宛先（取引先）');
+      });
+    });
+
+    describe('required プロパティ', () => {
+      it('デフォルトでは aria-required が false に設定される', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        expect(screen.getByRole('combobox')).toHaveAttribute('aria-required', 'false');
+      });
+
+      it('required=true の場合 aria-required が true に設定される', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} required={true} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        expect(screen.getByRole('combobox')).toHaveAttribute('aria-required', 'true');
+      });
+    });
+
+    describe('placeholder プロパティ', () => {
+      it('デフォルトでは「取引先を検索または選択（任意）」がプレースホルダに表示される', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        expect(screen.getByRole('combobox')).toHaveAttribute(
+          'placeholder',
+          '取引先を検索または選択（任意）'
+        );
+      });
+
+      it('placeholder プロパティで指定したプレースホルダが表示される', async () => {
+        render(
+          <TradingPartnerSelect value="" onChange={vi.fn()} placeholder="宛先を検索または選択" />
+        );
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        expect(screen.getByRole('combobox')).toHaveAttribute('placeholder', '宛先を検索または選択');
+      });
+    });
+
+    describe('showEmptyOption プロパティ', () => {
+      it('デフォルトでは「-- 選択なし --」オプションが表示される', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        const input = screen.getByRole('combobox');
+        fireEvent.focus(input);
+
+        await waitFor(() => {
+          expect(screen.getByText('-- 選択なし --')).toBeInTheDocument();
+        });
+      });
+
+      it('showEmptyOption=false の場合「-- 選択なし --」オプションが非表示になる', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} showEmptyOption={false} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+
+        const input = screen.getByRole('combobox');
+        fireEvent.focus(input);
+
+        await waitFor(() => {
+          expect(screen.getByRole('listbox')).toBeInTheDocument();
+        });
+
+        expect(screen.queryByText('-- 選択なし --')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('onLoadComplete プロパティ', () => {
+      it('取引先データ読み込み完了時にonLoadCompleteが取引先数で呼ばれる', async () => {
+        const handleLoadComplete = vi.fn();
+        render(
+          <TradingPartnerSelect value="" onChange={vi.fn()} onLoadComplete={handleLoadComplete} />
+        );
+
+        await waitFor(() => {
+          expect(handleLoadComplete).toHaveBeenCalledWith(mockTradingPartners.length);
+        });
+      });
+
+      it('取引先が0件の場合にonLoadCompleteが0で呼ばれる', async () => {
+        vi.mocked(tradingPartnersApi.getTradingPartners).mockResolvedValue({
+          data: [],
+          pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+        });
+
+        const handleLoadComplete = vi.fn();
+        render(
+          <TradingPartnerSelect value="" onChange={vi.fn()} onLoadComplete={handleLoadComplete} />
+        );
+
+        await waitFor(() => {
+          expect(handleLoadComplete).toHaveBeenCalledWith(0);
+        });
+      });
+
+      it('onLoadCompleteが未指定でもエラーが発生しない', async () => {
+        render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('combobox')).not.toBeDisabled();
+        });
+      });
+    });
+  });
 });

@@ -55,11 +55,32 @@ vi.mock('react-pdf', () => ({
       </div>
     );
   },
-  Page: ({ pageNumber, width }: { pageNumber: number; width?: number }) => (
-    <div data-testid="pdf-page" data-page-number={pageNumber} data-width={width}>
-      PDF Page {pageNumber}
-    </div>
-  ),
+  Page: ({
+    pageNumber,
+    width,
+    scale,
+    onLoadSuccess,
+  }: {
+    pageNumber: number;
+    width?: number;
+    scale?: number;
+    onLoadSuccess?: (data: { width: number; height: number }) => void;
+  }) => {
+    // Call onLoadSuccess to simulate page load with width info
+    if (onLoadSuccess) {
+      setTimeout(() => onLoadSuccess({ width: 595, height: 842 }), 0);
+    }
+    return (
+      <div
+        data-testid="pdf-page"
+        data-page-number={pageNumber}
+        data-width={width}
+        data-scale={scale}
+      >
+        PDF Page {pageNumber}
+      </div>
+    );
+  },
   pdfjs: {
     GlobalWorkerOptions: {
       workerSrc: '',
@@ -532,6 +553,181 @@ describe('FileInlinePreview', () => {
       // 1ページの場合はナビゲーションボタンが表示されない
       expect(screen.queryByRole('button', { name: /前へ/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /次へ/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 73.1: PDFプレビュー拡大縮小機能テスト
+  // Requirements: 31.1-31.12
+  // --------------------------------------------------------------------------
+
+  describe('PDFプレビュー拡大縮小機能（31.1-31.12）', () => {
+    it('拡大ボタンクリックでscaleが増加する (31.5)', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      // ズームコントロールが表示されるまで待つ
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /拡大/i })).toBeInTheDocument();
+      });
+
+      // 初期倍率を取得
+      const initialZoomText = screen.getByTestId('zoom-level-text').textContent;
+
+      // 拡大ボタンクリック
+      await user.click(screen.getByRole('button', { name: /拡大/i }));
+
+      // 倍率が増加していることを確認
+      await waitFor(() => {
+        const newZoomText = screen.getByTestId('zoom-level-text').textContent;
+        expect(newZoomText).not.toBe(initialZoomText);
+        // パーセンテージが増加している
+        const initialPercent = parseInt(initialZoomText || '0');
+        const newPercent = parseInt(newZoomText || '0');
+        expect(newPercent).toBeGreaterThan(initialPercent);
+      });
+    });
+
+    it('縮小ボタンクリックでscaleが減少する (31.6)', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /拡大/i })).toBeInTheDocument();
+      });
+
+      // まず拡大してから縮小する
+      await user.click(screen.getByRole('button', { name: /拡大/i }));
+
+      await waitFor(() => {
+        const zoomText = screen.getByTestId('zoom-level-text').textContent;
+        expect(parseInt(zoomText || '0')).toBeGreaterThan(100);
+      });
+
+      const afterZoomIn = screen.getByTestId('zoom-level-text').textContent;
+
+      // 縮小ボタンクリック
+      await user.click(screen.getByRole('button', { name: /縮小/i }));
+
+      await waitFor(() => {
+        const newZoomText = screen.getByTestId('zoom-level-text').textContent;
+        const zoomInPercent = parseInt(afterZoomIn || '0');
+        const newPercent = parseInt(newZoomText || '0');
+        expect(newPercent).toBeLessThan(zoomInPercent);
+      });
+    });
+
+    it('scale >= ZOOM_MAX(3.0)で拡大ボタンが非活性である (31.9)', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /拡大/i })).toBeInTheDocument();
+      });
+
+      // ZOOM_MAX(300%)まで拡大ボタンを連打する
+      const zoomInButton = screen.getByRole('button', { name: /拡大/i });
+      for (let i = 0; i < 20; i++) {
+        if ((zoomInButton as HTMLButtonElement).disabled) break;
+        await user.click(zoomInButton);
+      }
+
+      // 拡大ボタンが非活性
+      expect(screen.getByRole('button', { name: /拡大/i })).toBeDisabled();
+      // 倍率が300%
+      expect(screen.getByTestId('zoom-level-text')).toHaveTextContent('300%');
+    });
+
+    it('scale <= ZOOM_MIN(0.5)で縮小ボタンが非活性である (31.10)', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /縮小/i })).toBeInTheDocument();
+      });
+
+      // ZOOM_MIN(50%)まで縮小ボタンを連打する
+      const zoomOutButton = screen.getByRole('button', { name: /縮小/i });
+      for (let i = 0; i < 20; i++) {
+        if ((zoomOutButton as HTMLButtonElement).disabled) break;
+        await user.click(zoomOutButton);
+      }
+
+      // 縮小ボタンが非活性
+      expect(screen.getByRole('button', { name: /縮小/i })).toBeDisabled();
+      // 倍率が50%
+      expect(screen.getByTestId('zoom-level-text')).toHaveTextContent('50%');
+    });
+
+    it('倍率テキストがパーセンテージ形式で正しく表示される (31.7)', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        const zoomText = screen.getByTestId('zoom-level-text');
+        expect(zoomText).toBeInTheDocument();
+        // パーセンテージ形式（数字%）であること
+        expect(zoomText.textContent).toMatch(/^\d+%$/);
+      });
+    });
+
+    it('ページ切り替え後もscaleが維持される (31.12)', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+      const user = userEvent.setup();
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /拡大/i })).toBeInTheDocument();
+      });
+
+      // 拡大
+      await user.click(screen.getByRole('button', { name: /拡大/i }));
+
+      let zoomAfterIncrease: string | null = null;
+      await waitFor(() => {
+        zoomAfterIncrease = screen.getByTestId('zoom-level-text').textContent;
+        expect(parseInt(zoomAfterIncrease || '0')).toBeGreaterThan(100);
+      });
+
+      // ページ切り替え
+      await user.click(screen.getByRole('button', { name: /次へ/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pdf-page')).toHaveAttribute('data-page-number', '2');
+      });
+
+      // scaleが維持されている
+      expect(screen.getByTestId('zoom-level-text').textContent).toBe(zoomAfterIncrease);
+    });
+
+    it('ズームコントロールがPDFプレビュー時に表示される (31.1, 31.2, 31.3, 31.4)', async () => {
+      mockNumPages = 3;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      await waitFor(() => {
+        // 拡大・縮小ボタンと倍率テキストが表示される
+        expect(screen.getByRole('button', { name: /拡大/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /縮小/i })).toBeInTheDocument();
+        expect(screen.getByTestId('zoom-level-text')).toBeInTheDocument();
+      });
     });
   });
 });

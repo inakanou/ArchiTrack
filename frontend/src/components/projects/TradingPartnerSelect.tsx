@@ -65,6 +65,41 @@ export interface TradingPartnerSelectProps {
    * Requirements: 3.4 (estimate-request)
    */
   filterTypes?: TradingPartnerType[];
+  /**
+   * ラベルテキスト
+   * デフォルトは'顧客名'
+   *
+   * Requirements: 30.1 (estimate-request)
+   */
+  label?: string;
+  /**
+   * 必須フィールドかどうか
+   * デフォルトはfalse
+   *
+   * Requirements: 30.2 (estimate-request)
+   */
+  required?: boolean;
+  /**
+   * プレースホルダテキスト
+   * デフォルトは'取引先を検索または選択（任意）'
+   *
+   * Requirements: 30.3 (estimate-request)
+   */
+  placeholder?: string;
+  /**
+   * 「-- 選択なし --」オプションを表示するかどうか
+   * デフォルトはtrue
+   *
+   * Requirements: 30.4 (estimate-request)
+   */
+  showEmptyOption?: boolean;
+  /**
+   * 取引先データ読み込み完了時のコールバック
+   * 読み込まれた取引先の件数を引数として呼び出されます
+   *
+   * Requirements: 30.5 (estimate-request)
+   */
+  onLoadComplete?: (count: number) => void;
 }
 
 // ============================================================================
@@ -190,6 +225,11 @@ export default function TradingPartnerSelect({
   disabled = false,
   error,
   filterTypes = ['CUSTOMER'],
+  label = '顧客名',
+  required = false,
+  placeholder = '取引先を検索または選択（任意）',
+  showEmptyOption = true,
+  onLoadComplete,
 }: TradingPartnerSelectProps) {
   // filterTypesをメモ化（配列の同一性を保持）
   const filterTypesKey = useMemo(() => JSON.stringify(filterTypes), [filterTypes]);
@@ -243,6 +283,7 @@ export default function TradingPartnerSelect({
 
         if (mounted) {
           setTradingPartners(result.data);
+          onLoadComplete?.(result.data.length);
         }
       } catch {
         if (mounted) {
@@ -422,7 +463,7 @@ export default function TradingPartnerSelect({
           color: error ? STYLES.colors.error : STYLES.colors.label,
         }}
       >
-        顧客名
+        {label}
       </label>
 
       {/* 入力フィールドコンテナ */}
@@ -437,12 +478,10 @@ export default function TradingPartnerSelect({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           disabled={disabled || isLoading}
-          placeholder={
-            isLoading ? '読み込み中...' : fetchError ? fetchError : '取引先を検索または選択（任意）'
-          }
+          placeholder={isLoading ? '読み込み中...' : fetchError ? fetchError : placeholder}
           role="combobox"
-          aria-label="顧客名"
-          aria-required="false"
+          aria-label={label}
+          aria-required={required ? 'true' : 'false'}
           aria-expanded={isOpen}
           aria-haspopup="listbox"
           aria-controls={listboxId}
@@ -533,22 +572,24 @@ export default function TradingPartnerSelect({
           }}
         >
           {/* 未選択オプション */}
-          <li
-            id={`${listboxId}-option-empty`}
-            role="option"
-            aria-selected={value === ''}
-            onClick={() => selectPartner(null)}
-            onMouseEnter={() => setHighlightedIndex(-1)}
-            style={{
-              padding: '0.5rem 0.75rem',
-              cursor: 'pointer',
-              backgroundColor: value === '' ? STYLES.colors.selectedBg : 'transparent',
-              color: STYLES.colors.textSecondary,
-              fontStyle: 'italic',
-            }}
-          >
-            -- 選択なし --
-          </li>
+          {showEmptyOption && (
+            <li
+              id={`${listboxId}-option-empty`}
+              role="option"
+              aria-selected={value === ''}
+              onClick={() => selectPartner(null)}
+              onMouseEnter={() => setHighlightedIndex(-1)}
+              style={{
+                padding: '0.5rem 0.75rem',
+                cursor: 'pointer',
+                backgroundColor: value === '' ? STYLES.colors.selectedBg : 'transparent',
+                color: STYLES.colors.textSecondary,
+                fontStyle: 'italic',
+              }}
+            >
+              -- 選択なし --
+            </li>
+          )}
 
           {filteredPartners.length === 0 ? (
             <li

@@ -174,7 +174,8 @@ export function ProfitRateDialog({
   onClose,
   onComplete,
 }: ProfitRateDialogProps) {
-  const [profitRate, setProfitRate] = useState('');
+  const DEFAULT_PROFIT_RATE = '12.27';
+  const [profitRate, setProfitRate] = useState(DEFAULT_PROFIT_RATE);
   const [overwriteOption, setOverwriteOption] = useState<OverwriteOption>('all');
   const [isSubmitting, setIsSubmitting] = useState(false);
 

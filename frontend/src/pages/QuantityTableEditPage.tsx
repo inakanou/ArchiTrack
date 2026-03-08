@@ -21,8 +21,12 @@ import {
   copyQuantityItem,
   updateQuantityTable,
   bulkSaveQuantityTable,
+  updateGroupDisplayOrder,
+  updateItemDisplayOrder,
 } from '../api/quantity-tables';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
+import { getAnnotation } from '../api/survey-annotations';
+import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import type {
   QuantityTableDetail,
   QuantityGroupDetail,
@@ -33,6 +37,8 @@ import { Breadcrumb } from '../components/common';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
+import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExportService';
+import { downloadPdf } from '../services/export/PdfExportService';
 
 // ============================================================================
 // スタイル定義
@@ -133,6 +139,9 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '16px',
+    overflow: 'auto',
+    maxWidth: '100%',
+    maxHeight: 'calc(100vh - 200px)',
   } as React.CSSProperties,
   emptyState: {
     textAlign: 'center' as const,
@@ -341,6 +350,20 @@ const styles = {
     cursor: 'pointer',
     transition: 'background-color 0.2s',
   } as React.CSSProperties,
+  pdfExportButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: '#7c3aed',
+    color: '#ffffff',
+    padding: '10px 20px',
+    borderRadius: '6px',
+    border: 'none',
+    fontSize: '14px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -450,6 +473,8 @@ export default function QuantityTableEditPage() {
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
   // 注釈ビューアモーダル用state（REQ-4.4）
   const [annotationViewerGroupId, setAnnotationViewerGroupId] = useState<string | null>(null);
+  // PDF出力用state（REQ-26.1, 26.9）
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
 
   /**
    * 数量表詳細を取得
@@ -998,6 +1023,361 @@ export default function QuantityTableEditPage() {
   }, []);
 
   /**
+   * グループ名変更ハンドラ
+   *
+   * Requirements: 22.1, 22.2
+   *
+   * グループ名をインラインで変更し、APIに保存する。
+   */
+  const handleRenameGroup = useCallback(
+    async (groupId: string, newName: string) => {
+      setOperationError(null);
+
+      // 対象グループのupdatedAtを取得
+      const targetGroup = quantityTable?.groups?.find((g) => g.id === groupId);
+      if (!targetGroup) return;
+
+      try {
+        await updateQuantityGroup(groupId, { name: newName }, targetGroup.updatedAt);
+
+        // ローカル状態を即時更新
+        setQuantityTable((prev) => {
+          if (!prev) return prev;
+          const updatedGroups = (prev.groups ?? []).map((g) =>
+            g.id === groupId ? { ...g, name: newName } : g
+          );
+          return { ...prev, groups: updatedGroups };
+        });
+      } catch {
+        setOperationError('グループ名の変更に失敗しました');
+      }
+    },
+    [quantityTable]
+  );
+
+  /**
+   * グループを上に移動するハンドラ
+   *
+   * Requirements: 23.3, 23.7
+   *
+   * 隣接する2つのグループのdisplayOrderを入れ替えてAPIで保存する。
+   */
+  const handleMoveGroupUp = useCallback(
+    async (groupId: string) => {
+      if (!quantityTable) return;
+      setOperationError(null);
+
+      const groups = quantityTable.groups ?? [];
+      const currentIndex = groups.findIndex((g) => g.id === groupId);
+      if (currentIndex <= 0) return;
+
+      // 隣接する2つのグループのdisplayOrderを入れ替え
+      const currentGroup = groups[currentIndex]!;
+      const targetGroup = groups[currentIndex - 1]!;
+
+      const orderUpdates = [
+        { id: currentGroup.id, displayOrder: targetGroup.displayOrder },
+        { id: targetGroup.id, displayOrder: currentGroup.displayOrder },
+      ];
+
+      // ローカル状態を即時更新
+      setQuantityTable((prev) => {
+        if (!prev) return prev;
+        const newGroups = [...(prev.groups ?? [])];
+        newGroups[currentIndex] = { ...targetGroup, displayOrder: currentGroup.displayOrder };
+        newGroups[currentIndex - 1] = { ...currentGroup, displayOrder: targetGroup.displayOrder };
+        return { ...prev, groups: newGroups };
+      });
+
+      try {
+        await updateGroupDisplayOrder(quantityTable.id, orderUpdates);
+      } catch {
+        // API失敗時は元に戻す
+        setQuantityTable((prev) => {
+          if (!prev) return prev;
+          const newGroups = [...(prev.groups ?? [])];
+          newGroups[currentIndex - 1] = targetGroup;
+          newGroups[currentIndex] = currentGroup;
+          return { ...prev, groups: newGroups };
+        });
+        setOperationError('グループの並び順変更に失敗しました');
+      }
+    },
+    [quantityTable]
+  );
+
+  /**
+   * グループを下に移動するハンドラ
+   *
+   * Requirements: 23.4, 23.7
+   *
+   * 隣接する2つのグループのdisplayOrderを入れ替えてAPIで保存する。
+   */
+  const handleMoveGroupDown = useCallback(
+    async (groupId: string) => {
+      if (!quantityTable) return;
+      setOperationError(null);
+
+      const groups = quantityTable.groups ?? [];
+      const currentIndex = groups.findIndex((g) => g.id === groupId);
+      if (currentIndex < 0 || currentIndex >= groups.length - 1) return;
+
+      // 隣接する2つのグループのdisplayOrderを入れ替え
+      const currentGroup = groups[currentIndex]!;
+      const targetGroup = groups[currentIndex + 1]!;
+
+      const orderUpdates = [
+        { id: currentGroup.id, displayOrder: targetGroup.displayOrder },
+        { id: targetGroup.id, displayOrder: currentGroup.displayOrder },
+      ];
+
+      // ローカル状態を即時更新
+      setQuantityTable((prev) => {
+        if (!prev) return prev;
+        const newGroups = [...(prev.groups ?? [])];
+        newGroups[currentIndex] = { ...targetGroup, displayOrder: currentGroup.displayOrder };
+        newGroups[currentIndex + 1] = { ...currentGroup, displayOrder: targetGroup.displayOrder };
+        return { ...prev, groups: newGroups };
+      });
+
+      try {
+        await updateGroupDisplayOrder(quantityTable.id, orderUpdates);
+      } catch {
+        // API失敗時は元に戻す
+        setQuantityTable((prev) => {
+          if (!prev) return prev;
+          const newGroups = [...(prev.groups ?? [])];
+          newGroups[currentIndex + 1] = targetGroup;
+          newGroups[currentIndex] = currentGroup;
+          return { ...prev, groups: newGroups };
+        });
+        setOperationError('グループの並び順変更に失敗しました');
+      }
+    },
+    [quantityTable]
+  );
+
+  /**
+   * 項目を上に移動するハンドラ（API連携版）
+   *
+   * Requirements: 24.3, 24.7
+   *
+   * 隣接する2つの項目のdisplayOrderを入れ替えてAPIで保存する。
+   */
+  const handleMoveItemWithApi = useCallback(
+    async (itemId: string, direction: 'up' | 'down') => {
+      if (!quantityTable) return;
+      setOperationError(null);
+
+      const groups = quantityTable.groups ?? [];
+      let targetGroup: (typeof groups)[0] | undefined;
+      let itemIndex = -1;
+
+      for (const group of groups) {
+        const items = group.items ?? [];
+        const idx = items.findIndex((item) => item.id === itemId);
+        if (idx !== -1) {
+          targetGroup = group;
+          itemIndex = idx;
+          break;
+        }
+      }
+
+      if (!targetGroup || itemIndex === -1) return;
+
+      const items = targetGroup.items ?? [];
+      const targetIndex = direction === 'up' ? itemIndex - 1 : itemIndex + 1;
+      if (targetIndex < 0 || targetIndex >= items.length) return;
+
+      const currentItem = items[itemIndex]!;
+      const adjacentItem = items[targetIndex]!;
+
+      const orderUpdates = [
+        { id: currentItem.id, displayOrder: adjacentItem.displayOrder },
+        { id: adjacentItem.id, displayOrder: currentItem.displayOrder },
+      ];
+
+      // ローカル状態を即時更新（handleMoveItemの既存ロジック再利用）
+      handleMoveItem(itemId, direction);
+
+      try {
+        await updateItemDisplayOrder(targetGroup.id, orderUpdates);
+      } catch {
+        // API失敗時は元に戻す（逆方向に移動）
+        handleMoveItem(itemId, direction === 'up' ? 'down' : 'up');
+        setOperationError('項目の並び順変更に失敗しました');
+      }
+    },
+    [quantityTable, handleMoveItem]
+  );
+
+  /**
+   * PDF出力ハンドラ
+   *
+   * Requirements: 26.1, 26.9, 26.10
+   *
+   * 数量表データをQuantityTablePdfInput形式に変換し、PDFを生成・ダウンロードする。
+   */
+  const handlePdfExport = useCallback(async () => {
+    if (isPdfGenerating || !quantityTable) return; // 重複操作防止（REQ-26.9）
+
+    setIsPdfGenerating(true);
+    setOperationError(null);
+
+    try {
+      const groups = quantityTable.groups ?? [];
+
+      // 画像を注釈付きでdata URLに変換するヘルパー（REQ-26.5）
+      const renderAnnotatedImageToDataUrl = async (
+        imageId: string,
+        imageUrl: string
+      ): Promise<string | null> => {
+        try {
+          // 画像をロード
+          const htmlImage = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('Failed to load image'));
+            img.src = imageUrl;
+          });
+
+          // 注釈データを取得
+          let annotationData = null;
+          try {
+            annotationData = await getAnnotation(imageId);
+          } catch {
+            // 注釈取得失敗時は元画像を使用
+          }
+
+          // 注釈がない場合は元画像をdata URLに変換
+          if (
+            !annotationData ||
+            !annotationData.data?.objects ||
+            annotationData.data.objects.length === 0
+          ) {
+            const canvas = document.createElement('canvas');
+            canvas.width = htmlImage.width;
+            canvas.height = htmlImage.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            ctx.drawImage(htmlImage, 0, 0);
+            return canvas.toDataURL('image/jpeg', 0.85);
+          }
+
+          // 注釈がある場合はFabric.jsでレンダリング
+          const canvas = document.createElement('canvas');
+          canvas.width = htmlImage.width;
+          canvas.height = htmlImage.height;
+          const fabricCanvas = new FabricCanvas(canvas, {
+            width: htmlImage.width,
+            height: htmlImage.height,
+            renderOnAddRemove: false,
+          });
+
+          // 背景画像を設定
+          const fabricImage = new FabricImage(htmlImage, {
+            left: 0,
+            top: 0,
+            originX: 'left',
+            originY: 'top',
+            selectable: false,
+            evented: false,
+          });
+          fabricCanvas.backgroundImage = fabricImage;
+
+          // 注釈オブジェクトを復元
+          const enlivenedObjects = await util.enlivenObjects(annotationData.data.objects);
+          const savedW = annotationData.data.canvasWidth;
+          const savedH = annotationData.data.canvasHeight;
+          const scaleX = savedW && savedW > 0 ? htmlImage.width / savedW : 1;
+          const scaleY = savedH && savedH > 0 ? htmlImage.height / savedH : 1;
+
+          enlivenedObjects.forEach((obj) => {
+            if (obj && typeof obj === 'object' && 'set' in obj) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const fabricObj = obj as any;
+              if (scaleX !== 1 || scaleY !== 1) {
+                fabricObj.set({
+                  left: (fabricObj.left ?? 0) * scaleX,
+                  top: (fabricObj.top ?? 0) * scaleY,
+                  scaleX: (fabricObj.scaleX ?? 1) * scaleX,
+                  scaleY: (fabricObj.scaleY ?? 1) * scaleY,
+                });
+                if (fabricObj.strokeWidth) {
+                  fabricObj.set({ strokeWidth: fabricObj.strokeWidth * ((scaleX + scaleY) / 2) });
+                }
+              }
+              fabricCanvas.add(fabricObj);
+            }
+          });
+
+          fabricCanvas.renderAll();
+          const dataUrl = fabricCanvas.toDataURL({ format: 'jpeg', quality: 0.85, multiplier: 1 });
+          fabricCanvas.dispose();
+          return dataUrl;
+        } catch {
+          return null;
+        }
+      };
+
+      // 数量表データをPDF入力形式に変換（注釈付き画像をレンダリング）
+      const pdfGroups = await Promise.all(
+        groups.map(async (group, index) => {
+          let photoDataUrl: string | null = null;
+          if (group.surveyImage) {
+            const imageUrl = group.surveyImage.originalUrl;
+            photoDataUrl = await renderAnnotatedImageToDataUrl(group.surveyImage.id, imageUrl);
+          }
+
+          return {
+            name: getGroupDisplayName(group, index),
+            displayOrder: group.displayOrder,
+            photoDataUrl,
+            photoComment: group.surveyImage?.comment || null,
+            items: (group.items ?? []).map((item) => ({
+              majorCategory: item.majorCategory || '',
+              middleCategory: item.middleCategory || '',
+              minorCategory: item.minorCategory || '',
+              customCategory: item.customCategory || '',
+              workType: item.workType || '',
+              name: item.name || '',
+              specification: item.specification || '',
+              calculationMethod:
+                item.calculationMethod === 'STANDARD'
+                  ? '標準'
+                  : item.calculationMethod === 'AREA_VOLUME'
+                    ? '面積・体積'
+                    : 'ピッチ',
+              quantity: String(item.quantity),
+              unit: item.unit || '',
+              remarks: item.remarks || '',
+            })),
+          };
+        })
+      );
+
+      // PDF生成
+      const now = new Date();
+      const createdDate = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+      const blob = await generateQuantityTablePdf({
+        quantityTableName: quantityTable.name,
+        projectName: quantityTable.project.name,
+        createdDate,
+        groups: pdfGroups,
+      });
+
+      // ダウンロード
+      downloadPdf(blob, `${quantityTable.name}.pdf`);
+    } catch {
+      // REQ-26.10: エラーメッセージ表示
+      setOperationError('PDF生成中にエラーが発生しました。再度お試しください。');
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  }, [isPdfGenerating, quantityTable]);
+
+  /**
    * 保存ハンドラ
    *
    * Requirements: 11.1, 11.2
@@ -1185,6 +1565,19 @@ export default function QuantityTableEditPage() {
               {saveMessage}
             </span>
           )}
+          <button
+            type="button"
+            style={{
+              ...styles.pdfExportButton,
+              opacity: isPdfGenerating ? 0.7 : 1,
+              cursor: isPdfGenerating ? 'wait' : 'pointer',
+            }}
+            onClick={handlePdfExport}
+            disabled={isPdfGenerating}
+            aria-label="PDF出力"
+          >
+            {isPdfGenerating ? 'PDF生成中...' : 'PDF出力'}
+          </button>
           <button type="button" style={styles.saveButton} onClick={handleSave} aria-label="保存">
             保存
           </button>
@@ -1237,10 +1630,15 @@ export default function QuantityTableEditPage() {
                 onUpdateItem={handleUpdateItem}
                 onDeleteItem={handleDeleteItem}
                 onCopyItem={handleCopyItem}
-                onMoveItem={handleMoveItem}
+                onMoveItem={handleMoveItemWithApi}
                 onOpenAnnotationViewer={handleOpenAnnotationViewer}
                 getSuggestions={getSuggestions}
                 onBlurAddCandidate={addCandidateOnBlur}
+                onRenameGroup={handleRenameGroup}
+                groupIndex={index}
+                groupTotalCount={groups.length}
+                onMoveGroupUp={handleMoveGroupUp}
+                onMoveGroupDown={handleMoveGroupDown}
               />
             </div>
           ))}
