@@ -235,10 +235,10 @@ export function EstimateExportDialog({
 }: EstimateExportDialogProps) {
   // REQ-32.8, REQ-10.14: デフォルト出力形式をExcelに変更
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('xlsx');
-  // REQ-32.5: デフォルト値は「見積」のみON
+  // REQ-38.1: デフォルト値は「見積」と「実行」がON（REQ-32.5を上書き）
   const [selectedLineTypes, setSelectedLineTypes] = useState<SelectedLineTypes>({
     estimate: true,
-    execution: false,
+    execution: true,
     vendor: false,
   });
   const [isExporting, setIsExporting] = useState(false);

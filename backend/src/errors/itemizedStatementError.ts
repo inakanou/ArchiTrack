@@ -120,6 +120,38 @@ export class ItemizedStatementConflictError extends ApiError {
 }
 
 /**
+ * 並び順データ不正エラー
+ * 400 Bad Request
+ *
+ * Requirements: 17.8
+ */
+export class InvalidItemOrderError extends ApiError {
+  constructor(message: string = '並び順データが不正です') {
+    super(400, message, 'INVALID_ITEM_ORDER', undefined, PROBLEM_TYPES.VALIDATION_ERROR);
+    this.name = 'InvalidItemOrderError';
+  }
+}
+
+/**
+ * 項目が内訳書に属していないエラー
+ * 400 Bad Request
+ *
+ * Requirements: 17.10
+ */
+export class ItemNotBelongToStatementError extends ApiError {
+  constructor(itemId: string, itemizedStatementId: string) {
+    super(
+      400,
+      '指定された項目がこの内訳書に属していません',
+      'ITEM_NOT_BELONG_TO_STATEMENT',
+      { itemId, itemizedStatementId },
+      PROBLEM_TYPES.VALIDATION_ERROR
+    );
+    this.name = 'ItemNotBelongToStatementError';
+  }
+}
+
+/**
  * 内訳書項目数上限超過エラー
  * 422 Unprocessable Entity
  */

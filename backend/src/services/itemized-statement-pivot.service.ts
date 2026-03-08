@@ -200,10 +200,63 @@ export class ItemizedStatementPivotService {
       });
     }
 
+    // 6. 集計結果を「任意分類」「工種」「名称」「規格」「単位」の優先度で昇順ソート
+    // (Requirements: 16.1, 16.3)
+    // null/空文字はソート先頭に配置する（空文字 < 非空文字）
+    this.sortAggregatedItems(aggregatedItems);
+
     return {
       items: aggregatedItems,
       sourceItemCount: quantityItems.length,
     };
+  }
+
+  /**
+   * 集計結果を「任意分類」「工種」「名称」「規格」「単位」の優先度で昇順ソートする
+   *
+   * Requirements:
+   * - 16.1: ピボット集計結果を5項目の優先度で昇順ソート
+   * - 16.3: null/空文字は空文字として扱い、ソート順序の先頭に配置する
+   *
+   * @param items - ソート対象の集計済み項目配列（in-placeで変更）
+   */
+  private sortAggregatedItems(items: AggregatedItem[]): void {
+    items.sort((a, b) => {
+      // 任意分類で比較
+      const customCategoryResult = this.compareNullableStrings(a.customCategory, b.customCategory);
+      if (customCategoryResult !== 0) return customCategoryResult;
+
+      // 工種で比較
+      const workTypeResult = this.compareNullableStrings(a.workType, b.workType);
+      if (workTypeResult !== 0) return workTypeResult;
+
+      // 名称で比較
+      const nameResult = this.compareNullableStrings(a.name, b.name);
+      if (nameResult !== 0) return nameResult;
+
+      // 規格で比較
+      const specificationResult = this.compareNullableStrings(a.specification, b.specification);
+      if (specificationResult !== 0) return specificationResult;
+
+      // 単位で比較
+      return this.compareNullableStrings(a.unit, b.unit);
+    });
+  }
+
+  /**
+   * null許容文字列を比較する
+   *
+   * null値は空文字として扱い、ソート順序の先頭に配置する（空文字 < 非空文字）。
+   * (Requirements: 16.3)
+   *
+   * @param a - 比較対象1
+   * @param b - 比較対象2
+   * @returns 比較結果（負: a < b、0: a == b、正: a > b）
+   */
+  private compareNullableStrings(a: string | null, b: string | null): number {
+    const aStr = a ?? '';
+    const bStr = b ?? '';
+    return aStr.localeCompare(bStr, 'ja');
   }
 
   /**

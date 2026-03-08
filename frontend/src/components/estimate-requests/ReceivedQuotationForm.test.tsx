@@ -1539,4 +1539,202 @@ describe('ReceivedQuotationForm', () => {
       expect(screen.queryByTestId('ocr-data-extractor')).not.toBeInTheDocument();
     });
   });
+
+  // ==========================================================================
+  // Task 73.3: NET金額自動入力のユニットテスト (Requirements: 34.1-34.7)
+  // ==========================================================================
+  describe('NET金額自動入力 (Task 73.3)', () => {
+    it('OCR一括取り込み時にNET金額欄が空の場合に合計金額が自動入力される (Requirements: 34.1, 34.2)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルをアップロード
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      // OcrDataExtractorが表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+      });
+
+      // NET金額欄が空であることを確認
+      const netAmountInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+      expect(netAmountInput.value).toBe('');
+
+      // OCRインポートボタンをクリック（mock: amount=10000の1件を取り込み）
+      const importButton = screen.getByTestId('mock-import-button');
+      await userEvent.click(importButton);
+
+      // NET金額欄に合計金額（10000）が自動入力される
+      await waitFor(() => {
+        expect(netAmountInput.value).toBe('10000');
+      });
+    });
+
+    it('NET金額欄に既存値がある場合はOCR一括取り込みで変更されない (Requirements: 34.3)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルをアップロード
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      // OcrDataExtractorが表示されるのを待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+      });
+
+      // NET金額欄に既存値を入力
+      const netAmountInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+      await userEvent.type(netAmountInput, '50000');
+      expect(netAmountInput.value).toBe('50000');
+
+      // OCRインポートボタンをクリック
+      const importButton = screen.getByTestId('mock-import-button');
+      await userEvent.click(importButton);
+
+      // NET金額欄の値が変更されないことを確認
+      expect(netAmountInput.value).toBe('50000');
+    });
+
+    it('自動入力されたNET金額が整数フォーマットである (Requirements: 34.4, 34.5)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルをアップロード
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+      });
+
+      // OCRインポートボタンをクリック
+      const importButton = screen.getByTestId('mock-import-button');
+      await userEvent.click(importButton);
+
+      // NET金額が整数フォーマットで入力されている（小数なし）
+      const netAmountInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+      await waitFor(() => {
+        expect(netAmountInput.value).toBe('10000');
+      });
+      // 小数点が含まれていないことを確認
+      expect(netAmountInput.value).not.toContain('.');
+    });
+
+    it('項目選択転記時にNET金額自動入力が動作する（合計が0の場合は自動入力されない）(Requirements: 34.6)', async () => {
+      const mockSelectedItems = [
+        {
+          customCategory: '躯体工事',
+          workType: '鉄筋工事',
+          name: '鉄筋D10',
+          specification: 'SD295A',
+          unit: 'kg',
+          quantity: 1500,
+          remarks: '基礎部分',
+        },
+      ];
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={mockSelectedItems}
+        />
+      );
+
+      // NET金額欄が空であることを確認
+      const netAmountInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+      expect(netAmountInput.value).toBe('');
+
+      // 転記ボタンをクリック（転記時は単価が空欄、amountはnull → 合計金額は0）
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      // 転記完了を待機
+      await waitFor(() => {
+        expect(screen.getByText(/1件.*転記/)).toBeInTheDocument();
+      });
+
+      // 合計金額が0のため、NET金額は自動入力されない
+      expect(netAmountInput.value).toBe('');
+    });
+
+    it('自動入力後にNET金額フィールドが編集可能である (Requirements: 34.7)', async () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルをアップロード
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+      });
+
+      // OCRインポートボタンをクリック
+      const importButton = screen.getByTestId('mock-import-button');
+      await userEvent.click(importButton);
+
+      // NET金額が自動入力されるのを待つ
+      const netAmountInput = screen.getByLabelText('NET金額') as HTMLInputElement;
+      await waitFor(() => {
+        expect(netAmountInput.value).toBe('10000');
+      });
+
+      // 自動入力後も編集可能であることを確認（disabled属性がない）
+      expect(netAmountInput).not.toBeDisabled();
+
+      // 手動で値を変更できることを確認
+      await userEvent.clear(netAmountInput);
+      await userEvent.type(netAmountInput, '25000');
+      expect(netAmountInput.value).toBe('25000');
+    });
+  });
 });

@@ -73,6 +73,7 @@ describe('ItemizedStatementsRoutes', () => {
     findByProjectId: Mock;
     findLatestByProjectId: Mock;
     delete: Mock;
+    updateItemOrder: Mock;
   };
 
   beforeEach(async () => {
@@ -85,6 +86,7 @@ describe('ItemizedStatementsRoutes', () => {
       findByProjectId: vi.fn(),
       findLatestByProjectId: vi.fn(),
       delete: vi.fn(),
+      updateItemOrder: vi.fn(),
     };
 
     MockItemizedStatementService.mockImplementation(() => mockService);
@@ -124,6 +126,7 @@ describe('ItemizedStatementsRoutes', () => {
         findByProjectId = mockService.findByProjectId;
         findLatestByProjectId = mockService.findLatestByProjectId;
         delete = mockService.delete;
+        updateItemOrder = mockService.updateItemOrder;
       },
     }));
 
@@ -554,6 +557,154 @@ describe('ItemizedStatementsRoutes', () => {
         .expect(409);
 
       expect(response.body).toHaveProperty('code', 'ITEMIZED_STATEMENT_CONFLICT');
+    });
+  });
+
+  // ========================================
+  // PATCH /api/itemized-statements/:id/items/order
+  // ========================================
+  describe('PATCH /api/itemized-statements/:id/items/order', () => {
+    const statementId = '123e4567-e89b-12d3-a456-426614174002';
+
+    const validRequestBody = {
+      items: [
+        { id: '123e4567-e89b-12d3-a456-426614174010', displayOrder: 0 },
+        { id: '123e4567-e89b-12d3-a456-426614174011', displayOrder: 1 },
+        { id: '123e4567-e89b-12d3-a456-426614174012', displayOrder: 2 },
+      ],
+      updatedAt: '2026-01-23T00:00:00.000Z',
+    };
+
+    const mockUpdatedDetail = {
+      id: statementId,
+      projectId: '123e4567-e89b-12d3-a456-426614174000',
+      project: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'テスト' },
+      name: 'テスト内訳書',
+      sourceQuantityTableId: '123e4567-e89b-12d3-a456-426614174001',
+      sourceQuantityTableName: 'テスト数量表',
+      itemCount: 3,
+      createdAt: new Date('2026-01-19T00:00:00Z'),
+      updatedAt: new Date('2026-01-23T01:00:00Z'),
+      items: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174010',
+          customCategory: '分類A',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: 10,
+          displayOrder: 0,
+        },
+      ],
+    };
+
+    it('should update item order successfully (Req 17.8)', async () => {
+      mockService.updateItemOrder.mockResolvedValue(mockUpdatedDetail);
+
+      const response = await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send(validRequestBody)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('id', statementId);
+      expect(mockService.updateItemOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemizedStatementId: statementId,
+          items: validRequestBody.items,
+        }),
+        'test-user-id'
+      );
+    });
+
+    it('should return 400 when items array is empty (Req 17.8)', async () => {
+      await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send({
+          items: [],
+          updatedAt: '2026-01-23T00:00:00.000Z',
+        })
+        .expect(400);
+    });
+
+    it('should return 400 when updatedAt is missing', async () => {
+      await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send({
+          items: [{ id: '123e4567-e89b-12d3-a456-426614174010', displayOrder: 0 }],
+        })
+        .expect(400);
+    });
+
+    it('should return 400 when displayOrder is negative', async () => {
+      await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send({
+          items: [{ id: '123e4567-e89b-12d3-a456-426614174010', displayOrder: -1 }],
+          updatedAt: '2026-01-23T00:00:00.000Z',
+        })
+        .expect(400);
+    });
+
+    it('should return 400 when displayOrder is not sequential from 0', async () => {
+      await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send({
+          items: [
+            { id: '123e4567-e89b-12d3-a456-426614174010', displayOrder: 0 },
+            { id: '123e4567-e89b-12d3-a456-426614174011', displayOrder: 2 }, // gap
+          ],
+          updatedAt: '2026-01-23T00:00:00.000Z',
+        })
+        .expect(400);
+    });
+
+    it('should return 404 when itemized statement not found', async () => {
+      const { ItemizedStatementNotFoundError } =
+        await import('../../../errors/itemizedStatementError.js');
+      mockService.updateItemOrder.mockRejectedValue(
+        new ItemizedStatementNotFoundError(statementId)
+      );
+
+      const response = await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send(validRequestBody)
+        .expect(404);
+
+      expect(response.body).toHaveProperty('code', 'ITEMIZED_STATEMENT_NOT_FOUND');
+    });
+
+    it('should return 409 on optimistic lock conflict (Req 17.14)', async () => {
+      const { ItemizedStatementConflictError } =
+        await import('../../../errors/itemizedStatementError.js');
+      mockService.updateItemOrder.mockRejectedValue(
+        new ItemizedStatementConflictError({
+          expectedUpdatedAt: '2026-01-22T00:00:00.000Z',
+          actualUpdatedAt: '2026-01-23T00:00:00.000Z',
+        })
+      );
+
+      const response = await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send(validRequestBody)
+        .expect(409);
+
+      expect(response.body).toHaveProperty('code', 'ITEMIZED_STATEMENT_CONFLICT');
+    });
+
+    it('should return 400 when item does not belong to statement', async () => {
+      const { ItemNotBelongToStatementError } =
+        await import('../../../errors/itemizedStatementError.js');
+      mockService.updateItemOrder.mockRejectedValue(
+        new ItemNotBelongToStatementError('item-999', statementId)
+      );
+
+      const response = await request(app)
+        .patch(`/api/itemized-statements/${statementId}/items/order`)
+        .send(validRequestBody)
+        .expect(400);
+
+      expect(response.body).toHaveProperty('code', 'ITEM_NOT_BELONG_TO_STATEMENT');
     });
   });
 });

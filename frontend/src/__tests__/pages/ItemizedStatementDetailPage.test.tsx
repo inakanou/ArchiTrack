@@ -36,6 +36,19 @@ import type {
 // APIモック
 vi.mock('../../api/itemized-statements');
 
+// useBlockerをモック（データルーターなしでテストするため）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
+
 // モックデータ
 const mockStatementDetail: ItemizedStatementDetail = {
   id: 'statement-1',
@@ -59,6 +72,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '規格1',
       unit: '本',
       quantity: 10.5,
+      displayOrder: 0,
     },
     {
       id: 'item-2',
@@ -68,6 +82,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '規格2',
       unit: 'm',
       quantity: 20.0,
+      displayOrder: 1,
     },
     {
       id: 'item-3',
@@ -77,6 +92,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: null,
       unit: '個',
       quantity: 5,
+      displayOrder: 2,
     },
   ],
 };
@@ -93,6 +109,7 @@ function createManyItems(count: number): ItemizedStatementItemInfo[] {
     specification: `規格${String(index + 1).padStart(padLength, '0')}`,
     unit: '個',
     quantity: index + 1,
+    displayOrder: index,
   }));
 }
 
@@ -288,12 +305,14 @@ describe('ItemizedStatementDetailPage', () => {
 
         await waitFor(() => {
           const headers = screen.getAllByRole('columnheader');
-          expect(headers[0]).toHaveTextContent('任意分類');
-          expect(headers[1]).toHaveTextContent('工種');
-          expect(headers[2]).toHaveTextContent('名称');
-          expect(headers[3]).toHaveTextContent('規格');
-          expect(headers[4]).toHaveTextContent('数量');
-          expect(headers[5]).toHaveTextContent('単位');
+          // 並び替えボタン列が先頭に追加されているため、データカラムは index 1 から開始
+          const dataHeaders = headers.filter((h) => h.textContent !== '');
+          expect(dataHeaders[0]).toHaveTextContent('任意分類');
+          expect(dataHeaders[1]).toHaveTextContent('工種');
+          expect(dataHeaders[2]).toHaveTextContent('名称');
+          expect(dataHeaders[3]).toHaveTextContent('規格');
+          expect(dataHeaders[4]).toHaveTextContent('数量');
+          expect(dataHeaders[5]).toHaveTextContent('単位');
         });
       });
     });

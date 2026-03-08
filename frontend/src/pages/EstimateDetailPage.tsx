@@ -785,40 +785,66 @@ export default function EstimateDetailPage() {
           </div>
         </div>
 
-        {/* サマリーパネル (REQ-21) */}
+        {/* サマリーパネル (REQ-39: REQ-21を完全に置き換え) */}
         <div style={styles.card} data-testid="summary-panel">
           <h2 style={styles.sectionTitle}>サマリー</h2>
           {(() => {
             const estimateTotal = calculateTotalByLineType(editor.items, 'ESTIMATE');
             const executionTotal = calculateTotalByLineType(editor.items, 'EXECUTION');
             const vendorTotal = calculateTotalByLineType(editor.items, 'VENDOR');
-            const profitRateCalc = executionTotal.isZero()
-              ? '-'
-              : estimateTotal.div(executionTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+
+            // REQ-39.4: 値引額 = 実行金額合計 - 業者金額合計
+            const discountAmount = executionTotal.sub(vendorTotal);
+
+            // REQ-39.5: 値引率 = 値引額 ÷ 業者金額合計（百分率）
             const discountRateCalc = vendorTotal.isZero()
               ? '-'
-              : executionTotal.div(vendorTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+              : discountAmount.div(vendorTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+
+            // REQ-39.7: 利益額 = 見積金額合計 - 実行金額合計
+            const profitAmount = estimateTotal.sub(executionTotal);
+
+            // REQ-39.8: 利益率 = 利益額 ÷ 見積金額合計（百分率）
+            const profitRateCalc = estimateTotal.isZero()
+              ? '-'
+              : profitAmount.div(estimateTotal).mul(100).toDecimalPlaces(2).toString() + '%';
+
             return (
               <div style={styles.summaryGrid}>
-                <div style={styles.summaryItem}>
-                  <span style={styles.summaryLabel}>見積金額合計</span>
-                  <span style={styles.summaryValue}>{formatAmount(estimateTotal.toString())}</span>
-                </div>
-                <div style={styles.summaryItem}>
-                  <span style={styles.summaryLabel}>実行金額合計</span>
-                  <span style={styles.summaryValue}>{formatAmount(executionTotal.toString())}</span>
-                </div>
+                {/* REQ-39.2: 業者金額合計 */}
                 <div style={styles.summaryItem}>
                   <span style={styles.summaryLabel}>業者金額合計</span>
                   <span style={styles.summaryValue}>{formatAmount(vendorTotal.toString())}</span>
                 </div>
+                {/* REQ-39.3: 実行金額合計 */}
                 <div style={styles.summaryItem}>
-                  <span style={styles.summaryLabel}>利益率</span>
-                  <span style={styles.summaryValue}>{profitRateCalc}</span>
+                  <span style={styles.summaryLabel}>実行金額合計</span>
+                  <span style={styles.summaryValue}>{formatAmount(executionTotal.toString())}</span>
                 </div>
+                {/* REQ-39.4: 値引額 */}
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>値引額</span>
+                  <span style={styles.summaryValue}>{formatAmount(discountAmount.toString())}</span>
+                </div>
+                {/* REQ-39.5: 値引率 */}
                 <div style={styles.summaryItem}>
                   <span style={styles.summaryLabel}>値引率</span>
                   <span style={styles.summaryValue}>{discountRateCalc}</span>
+                </div>
+                {/* REQ-39.6: 見積金額合計 */}
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>見積金額合計</span>
+                  <span style={styles.summaryValue}>{formatAmount(estimateTotal.toString())}</span>
+                </div>
+                {/* REQ-39.7: 利益額 */}
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>利益額</span>
+                  <span style={styles.summaryValue}>{formatAmount(profitAmount.toString())}</span>
+                </div>
+                {/* REQ-39.8: 利益率 */}
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>利益率</span>
+                  <span style={styles.summaryValue}>{profitRateCalc}</span>
                 </div>
               </div>
             );

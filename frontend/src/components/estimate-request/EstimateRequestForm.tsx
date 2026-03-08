@@ -16,9 +16,8 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { getTradingPartners } from '../../api/trading-partners';
 import { getItemizedStatements } from '../../api/itemized-statements';
-import type { TradingPartnerInfo } from '../../types/trading-partner.types';
+import TradingPartnerSelect from '../projects/TradingPartnerSelect';
 import type { ItemizedStatementInfo } from '../../types/itemized-statement.types';
 import type {
   EstimateRequestInfo,
@@ -297,7 +296,6 @@ export function EstimateRequestForm({
   onSubmit,
 }: EstimateRequestFormProps) {
   // データ取得状態
-  const [tradingPartners, setTradingPartners] = useState<TradingPartnerInfo[]>([]);
   const [itemizedStatements, setItemizedStatements] = useState<ItemizedStatementInfo[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataFetchError, setDataFetchError] = useState<string | null>(null);
@@ -311,8 +309,9 @@ export function EstimateRequestForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
-  // 協力業者が存在しない
-  const hasNoSubcontractors = tradingPartners.length === 0;
+  // 協力業者が存在しない（TradingPartnerSelectのonLoadCompleteで更新）
+  const [subcontractorCount, setSubcontractorCount] = useState<number | null>(null);
+  const hasNoSubcontractors = subcontractorCount === 0;
 
   // 内訳書が存在しない
   const hasNoItemizedStatements = itemizedStatements.length === 0;
@@ -322,7 +321,7 @@ export function EstimateRequestForm({
     return itemizedStatements.find((s) => s.id === itemizedStatementId);
   }, [itemizedStatements, itemizedStatementId]);
 
-  // データ取得
+  // 内訳書データ取得
   useEffect(() => {
     let mounted = true;
 
@@ -331,26 +330,12 @@ export function EstimateRequestForm({
         setIsLoadingData(true);
         setDataFetchError(null);
 
-        // 協力業者を取得（Requirements: 3.4）
-        const partnersPromise = getTradingPartners({
-          limit: 100,
-          filter: { type: ['SUBCONTRACTOR'] },
-          sort: 'nameKana',
-          order: 'asc',
-        });
-
         // 内訳書を取得
-        const statementsPromise = getItemizedStatements(projectId, {
+        const statementsResult = await getItemizedStatements(projectId, {
           limit: 100,
         });
-
-        const [partnersResult, statementsResult] = await Promise.all([
-          partnersPromise,
-          statementsPromise,
-        ]);
 
         if (mounted) {
-          setTradingPartners(partnersResult.data);
           setItemizedStatements(statementsResult.data);
         }
       } catch {
@@ -370,6 +355,11 @@ export function EstimateRequestForm({
       mounted = false;
     };
   }, [projectId]);
+
+  // TradingPartnerSelectの読み込み完了コールバック
+  const handleTradingPartnerLoadComplete = useCallback((count: number) => {
+    setSubcontractorCount(count);
+  }, []);
 
   // バリデーション
   const validate = useCallback((): boolean => {
@@ -441,8 +431,8 @@ export function EstimateRequestForm({
   }, []);
 
   // 取引先選択ハンドラ
-  const handleTradingPartnerChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    setTradingPartnerId(e.target.value);
+  const handleTradingPartnerChange = useCallback((value: string) => {
+    setTradingPartnerId(value);
     setErrors((prev) => ({ ...prev, tradingPartnerId: undefined }));
   }, []);
 
@@ -510,38 +500,19 @@ export function EstimateRequestForm({
         )}
       </div>
 
-      {/* 宛先選択（Requirements: 3.2, 3.4） */}
-      <div style={styles.fieldGroup}>
-        <label htmlFor="tradingPartnerId" style={styles.label}>
-          宛先（取引先）<span style={styles.required}>*</span>
-        </label>
-        <select
-          id="tradingPartnerId"
-          value={tradingPartnerId}
-          onChange={handleTradingPartnerChange}
-          disabled={isSubmitting || hasNoSubcontractors}
-          style={{
-            ...styles.select,
-            ...(errors.tradingPartnerId ? styles.selectError : {}),
-          }}
-          aria-required="true"
-          aria-invalid={!!errors.tradingPartnerId}
-          aria-describedby={errors.tradingPartnerId ? 'tradingPartnerId-error' : undefined}
-          aria-label="宛先"
-        >
-          <option value="">宛先を選択してください</option>
-          {tradingPartners.map((partner) => (
-            <option key={partner.id} value={partner.id}>
-              {partner.name}
-            </option>
-          ))}
-        </select>
-        {errors.tradingPartnerId && (
-          <p id="tradingPartnerId-error" style={styles.errorText} role="alert">
-            {errors.tradingPartnerId}
-          </p>
-        )}
-      </div>
+      {/* 宛先選択（Requirements: 3.2, 3.4, 30.1-30.9） */}
+      <TradingPartnerSelect
+        value={tradingPartnerId}
+        onChange={handleTradingPartnerChange}
+        filterTypes={['SUBCONTRACTOR']}
+        label="宛先（取引先）"
+        required={true}
+        placeholder="宛先を検索または選択"
+        showEmptyOption={false}
+        disabled={isSubmitting || hasNoSubcontractors}
+        error={errors.tradingPartnerId}
+        onLoadComplete={handleTradingPartnerLoadComplete}
+      />
 
       {/* 内訳書選択（Requirements: 3.3） */}
       <div style={styles.fieldGroup}>

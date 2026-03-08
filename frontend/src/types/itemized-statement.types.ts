@@ -80,6 +80,8 @@ export interface ItemizedStatementItemInfo {
   unit: string | null;
   /** 数量（集計値） */
   quantity: number;
+  /** 表示順序（0始まり連番） */
+  displayOrder: number;
 }
 
 /**
@@ -166,6 +168,23 @@ export interface ItemizedStatementFilter {
 // ============================================================================
 // 入力型定義
 // ============================================================================
+
+/**
+ * 並び順更新リクエスト
+ *
+ * Requirements: 17.8
+ */
+export interface UpdateItemOrderRequest {
+  /** 項目ID・表示順序のペア配列 */
+  items: Array<{
+    /** 項目ID（UUID） */
+    id: string;
+    /** 新しい表示順序（0始まり連番） */
+    displayOrder: number;
+  }>;
+  /** 楽観的排他制御用の更新日時（ISO8601形式） */
+  updatedAt: string;
+}
 
 /**
  * 内訳書作成入力

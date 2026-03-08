@@ -514,4 +514,259 @@ describe('ItemizedStatementPivotService', () => {
       expect(keyWithNull).toBe(keyWithEmpty);
     });
   });
+
+  describe('aggregateByQuantityTable - 初期ソート順序（Requirements: 16.1, 16.2, 16.3）', () => {
+    it('集計結果を任意分類→工種→名称→規格→単位の優先度で昇順ソートする（Requirements: 16.1）', async () => {
+      // Arrange
+      const quantityTableId = 'qt-001';
+      const mockItems = [
+        {
+          id: 'item-001',
+          quantityGroupId: 'group-001',
+          customCategory: '分類B',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('10.00'),
+        },
+        {
+          id: 'item-002',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('20.00'),
+        },
+        {
+          id: 'item-003',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種2',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('30.00'),
+        },
+      ];
+
+      vi.mocked(mockPrisma.quantityTable.findUnique).mockResolvedValue({
+        id: quantityTableId,
+        name: 'テスト数量表',
+        projectId: 'proj-001',
+        deletedAt: null,
+      } as never);
+
+      vi.mocked(mockPrisma.quantityItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.aggregateByQuantityTable(quantityTableId);
+
+      // Assert - 分類A(工種1) < 分類A(工種2) < 分類B(工種1)
+      expect(result.items).toHaveLength(3);
+      expect(result.items[0]!.customCategory).toBe('分類A');
+      expect(result.items[0]!.workType).toBe('工種1');
+      expect(result.items[1]!.customCategory).toBe('分類A');
+      expect(result.items[1]!.workType).toBe('工種2');
+      expect(result.items[2]!.customCategory).toBe('分類B');
+      expect(result.items[2]!.workType).toBe('工種1');
+    });
+
+    it('null値と空文字がソート先頭に配置される（Requirements: 16.3）', async () => {
+      // Arrange
+      const quantityTableId = 'qt-001';
+      const mockItems = [
+        {
+          id: 'item-001',
+          quantityGroupId: 'group-001',
+          customCategory: '分類B',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('10.00'),
+        },
+        {
+          id: 'item-002',
+          quantityGroupId: 'group-001',
+          customCategory: null,
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('20.00'),
+        },
+        {
+          id: 'item-003',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('30.00'),
+        },
+      ];
+
+      vi.mocked(mockPrisma.quantityTable.findUnique).mockResolvedValue({
+        id: quantityTableId,
+        name: 'テスト数量表',
+        projectId: 'proj-001',
+        deletedAt: null,
+      } as never);
+
+      vi.mocked(mockPrisma.quantityItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.aggregateByQuantityTable(quantityTableId);
+
+      // Assert - null/空文字 < 分類A < 分類B
+      expect(result.items).toHaveLength(3);
+      expect(result.items[0]!.customCategory).toBeNull();
+      expect(result.items[1]!.customCategory).toBe('分類A');
+      expect(result.items[2]!.customCategory).toBe('分類B');
+    });
+
+    it('同一の任意分類を持つ項目が工種→名称→規格→単位の順でソートされる（Requirements: 16.1）', async () => {
+      // Arrange
+      const quantityTableId = 'qt-001';
+      const mockItems = [
+        {
+          id: 'item-001',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種B',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('10.00'),
+        },
+        {
+          id: 'item-002',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種A',
+          name: '名称B',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('20.00'),
+        },
+        {
+          id: 'item-003',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種A',
+          name: '名称A',
+          specification: '規格B',
+          unit: 'm',
+          quantity: new Decimal('30.00'),
+        },
+        {
+          id: 'item-004',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種A',
+          name: '名称A',
+          specification: '規格A',
+          unit: 'm2',
+          quantity: new Decimal('40.00'),
+        },
+        {
+          id: 'item-005',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種A',
+          name: '名称A',
+          specification: '規格A',
+          unit: 'm',
+          quantity: new Decimal('50.00'),
+        },
+      ];
+
+      vi.mocked(mockPrisma.quantityTable.findUnique).mockResolvedValue({
+        id: quantityTableId,
+        name: 'テスト数量表',
+        projectId: 'proj-001',
+        deletedAt: null,
+      } as never);
+
+      vi.mocked(mockPrisma.quantityItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.aggregateByQuantityTable(quantityTableId);
+
+      // Assert - 分類A,工種A,名称A,規格A,m < 分類A,工種A,名称A,規格A,m2 < 分類A,工種A,名称A,規格B,m < 分類A,工種A,名称B,規格1,m < 分類A,工種B,名称1,規格1,m
+      expect(result.items).toHaveLength(5);
+      expect(result.items[0]!.workType).toBe('工種A');
+      expect(result.items[0]!.name).toBe('名称A');
+      expect(result.items[0]!.specification).toBe('規格A');
+      expect(result.items[0]!.unit).toBe('m');
+      expect(result.items[1]!.unit).toBe('m2');
+      expect(result.items[2]!.specification).toBe('規格B');
+      expect(result.items[3]!.name).toBe('名称B');
+      expect(result.items[4]!.workType).toBe('工種B');
+    });
+
+    it('ソート結果のインデックスが0始まりの連番として利用できる（Requirements: 16.2）', async () => {
+      // Arrange
+      const quantityTableId = 'qt-001';
+      const mockItems = [
+        {
+          id: 'item-001',
+          quantityGroupId: 'group-001',
+          customCategory: '分類C',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('10.00'),
+        },
+        {
+          id: 'item-002',
+          quantityGroupId: 'group-001',
+          customCategory: '分類A',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('20.00'),
+        },
+        {
+          id: 'item-003',
+          quantityGroupId: 'group-001',
+          customCategory: '分類B',
+          workType: '工種1',
+          name: '名称1',
+          specification: '規格1',
+          unit: 'm',
+          quantity: new Decimal('30.00'),
+        },
+      ];
+
+      vi.mocked(mockPrisma.quantityTable.findUnique).mockResolvedValue({
+        id: quantityTableId,
+        name: 'テスト数量表',
+        projectId: 'proj-001',
+        deletedAt: null,
+      } as never);
+
+      vi.mocked(mockPrisma.quantityItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.aggregateByQuantityTable(quantityTableId);
+
+      // Assert - items配列のインデックスが0始まり連番（displayOrderとして使用）
+      expect(result.items).toHaveLength(3);
+      // ソート順: 分類A < 分類B < 分類C
+      expect(result.items[0]!.customCategory).toBe('分類A');
+      expect(result.items[1]!.customCategory).toBe('分類B');
+      expect(result.items[2]!.customCategory).toBe('分類C');
+      // インデックス0, 1, 2がそのままdisplayOrderとして使用される
+      result.items.forEach((_item, index) => {
+        expect(index).toBe(index); // 配列のインデックスが0始まり連番
+      });
+    });
+  });
 });

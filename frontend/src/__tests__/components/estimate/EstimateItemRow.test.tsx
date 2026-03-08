@@ -152,4 +152,45 @@ describe('EstimateItemRow', () => {
       expect(amountFields[0]).toHaveTextContent('100,000');
     });
   });
+
+  // ==========================================================================
+  // REQ-40: テキストフィールドのコンパクト化
+  // ==========================================================================
+  describe('テキストフィールドのコンパクト化 (REQ-40)', () => {
+    it('入力フィールドのフォントサイズが12pxであること (REQ-40.1)', () => {
+      render(<EstimateItemRow {...defaultProps} />);
+
+      const nameInputs = screen.getAllByLabelText('名称');
+      nameInputs.forEach((el) => {
+        expect(el.style.fontSize).toBe('12px');
+      });
+    });
+
+    it('入力フィールドのパディングが2px 4pxであること (REQ-40.2)', () => {
+      render(<EstimateItemRow {...defaultProps} />);
+
+      const nameInputs = screen.getAllByLabelText('名称');
+      nameInputs.forEach((el) => {
+        expect(el.style.padding).toBe('2px 4px');
+      });
+    });
+
+    it('入力フィールドの高さが22pxであること (REQ-40.1)', () => {
+      render(<EstimateItemRow {...defaultProps} />);
+
+      const nameInputs = screen.getAllByLabelText('名称');
+      nameInputs.forEach((el) => {
+        expect(el.style.height).toBe('22px');
+      });
+    });
+
+    it('行ラベルのフォントサイズが11pxであること (REQ-40.4)', () => {
+      render(<EstimateItemRow {...defaultProps} />);
+
+      const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+      // 行タイプラベルは行の最初の子要素
+      const labelDiv = estimateRow.children[0] as HTMLElement;
+      expect(labelDiv.style.fontSize).toBe('11px');
+    });
+  });
 });
