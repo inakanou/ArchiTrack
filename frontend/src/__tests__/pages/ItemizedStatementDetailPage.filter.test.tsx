@@ -24,6 +24,19 @@ import type { ItemizedStatementDetail } from '../../types/itemized-statement.typ
 // API モック
 vi.mock('../../api/itemized-statements');
 
+// useBlockerをモック（データルーターなしでテストするため）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
+
 // テストデータ
 const mockStatementDetail: ItemizedStatementDetail = {
   id: 'statement-1',
@@ -44,6 +57,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: 'VVF2.0-3C',
       unit: 'm',
       quantity: 100.0,
+      displayOrder: 0,
     },
     {
       id: 'item-2',
@@ -53,6 +67,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '2口コンセント',
       unit: '個',
       quantity: 50.5,
+      displayOrder: 1,
     },
     {
       id: 'item-3',
@@ -62,6 +77,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: 'VP50',
       unit: '本',
       quantity: 20.0,
+      displayOrder: 2,
     },
     {
       id: 'item-4',
@@ -71,6 +87,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: null,
       unit: 'L',
       quantity: 10.25,
+      displayOrder: 3,
     },
     {
       id: 'item-5',
@@ -80,6 +97,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '壁掛け型',
       unit: '台',
       quantity: 5.0,
+      displayOrder: 4,
     },
   ],
 };
@@ -418,6 +436,7 @@ describe('ItemizedStatementDetailPage - フィルタリング機能', () => {
         specification: '規格',
         unit: '個',
         quantity: i * 10,
+        displayOrder: i,
       }));
 
       const manyItemsStatement: ItemizedStatementDetail = {
@@ -458,6 +477,7 @@ describe('ItemizedStatementDetailPage - フィルタリング機能', () => {
         specification: '規格',
         unit: '個',
         quantity: i * 10,
+        displayOrder: i,
       }));
 
       const manyItemsStatement: ItemizedStatementDetail = {
@@ -503,6 +523,7 @@ describe('ItemizedStatementDetailPage - フィルタリング機能', () => {
         specification: '規格',
         unit: '個',
         quantity: i,
+        displayOrder: i,
       }));
 
       const manyItemsStatement: ItemizedStatementDetail = {

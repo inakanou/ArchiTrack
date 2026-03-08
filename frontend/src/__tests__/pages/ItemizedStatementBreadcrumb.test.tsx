@@ -32,6 +32,11 @@ vi.mock('react-router-dom', async () => {
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
   };
 });
 
@@ -128,6 +133,7 @@ const mockStatementDetail: ItemizedStatementDetail = {
       specification: '規格1',
       unit: '本',
       quantity: 10.5,
+      displayOrder: 0,
     },
   ],
 };

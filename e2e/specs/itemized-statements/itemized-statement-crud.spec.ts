@@ -1223,8 +1223,20 @@ test.describe('内訳書CRUD操作', () => {
       await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
       await page.waitForLoadState('networkidle');
 
-      // テーブルの数量セル（5番目のカラム）を確認
-      const quantityCells = page.locator('tbody td:nth-child(5)');
+      // テーブルヘッダーから「数量」カラムのインデックスを動的に検出
+      const headerCells = page.locator('thead th');
+      const headerCount = await headerCells.count();
+      let quantityColIndex = -1;
+      for (let i = 0; i < headerCount; i++) {
+        const text = await headerCells.nth(i).textContent();
+        if (text?.trim() === '数量') {
+          quantityColIndex = i + 1; // nth-child is 1-based
+          break;
+        }
+      }
+      expect(quantityColIndex, '数量カラムが見つかりません').toBeGreaterThan(0);
+
+      const quantityCells = page.locator(`tbody td:nth-child(${quantityColIndex})`);
       const count = await quantityCells.count();
 
       if (count > 0) {
@@ -1835,7 +1847,8 @@ test.describe('内訳書CRUD操作', () => {
       expect(is.itemCount).toBe(1);
 
       // 合計数量が31.00であることを確認
-      const quantityCells = page.locator('tbody td:nth-child(5)');
+      // 並び替えボタン列が先頭にあるため、数量は6列目
+      const quantityCells = page.locator('tbody td:nth-child(6)');
       const quantityText = await quantityCells.first().textContent();
       expect(quantityText).toBe('31.00');
 

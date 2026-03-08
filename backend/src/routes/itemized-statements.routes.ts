@@ -44,6 +44,7 @@ import {
   itemizedStatementListQuerySchema,
   latestSummaryQuerySchema,
   deleteItemizedStatementBodySchema,
+  updateItemOrderBodySchema,
 } from '../schemas/itemized-statement.schema.js';
 import {
   ItemizedStatementNotFoundError,
@@ -51,6 +52,8 @@ import {
   DuplicateItemizedStatementNameError,
   ItemizedStatementConflictError,
   QuantityOverflowError,
+  ItemNotBelongToStatementError,
+  InvalidItemOrderError,
 } from '../errors/itemizedStatementError.js';
 import { QuantityTableNotFoundError } from '../errors/quantityTableError.js';
 
@@ -413,6 +416,145 @@ router.get(
 
       res.json(itemizedStatement);
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/itemized-statements/{id}/items/order:
+ *   patch:
+ *     summary: 内訳書項目の並び順更新
+ *     description: 内訳書の全項目のdisplayOrderを一括更新（楽観的排他制御）
+ *     tags:
+ *       - Itemized Statements
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 内訳書ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - items
+ *               - updatedAt
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 minItems: 1
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - id
+ *                     - displayOrder
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     displayOrder:
+ *                       type: integer
+ *                       minimum: 0
+ *               updatedAt:
+ *                 type: string
+ *                 format: date-time
+ *     responses:
+ *       200:
+ *         description: 並び順更新成功
+ *       400:
+ *         description: バリデーションエラー、項目不整合
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 内訳書が見つからない
+ *       409:
+ *         description: 楽観的排他制御エラー
+ */
+router.patch(
+  '/:id/items/order',
+  authenticate,
+  requirePermission('itemized_statement:update'),
+  validate(itemizedStatementIdParamSchema, 'params'),
+  validate(updateItemOrderBodySchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const actorId = req.user!.userId;
+      const validatedBody = req.validatedBody as {
+        items: Array<{ id: string; displayOrder: number }>;
+        updatedAt: string;
+      };
+
+      const input = {
+        itemizedStatementId: id,
+        items: validatedBody.items,
+        expectedUpdatedAt: new Date(validatedBody.updatedAt),
+      };
+
+      const updatedDetail = await itemizedStatementService.updateItemOrder(input, actorId);
+
+      logger.info(
+        {
+          userId: actorId,
+          itemizedStatementId: id,
+          itemCount: validatedBody.items.length,
+        },
+        'Itemized statement item order updated successfully'
+      );
+
+      res.json(updatedDetail);
+    } catch (error) {
+      if (error instanceof ItemizedStatementNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/itemized-statement-not-found',
+          title: 'Itemized Statement Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'ITEMIZED_STATEMENT_NOT_FOUND',
+        });
+        return;
+      }
+      if (error instanceof ItemizedStatementConflictError) {
+        res.status(409).json({
+          type: 'https://architrack.example.com/problems/itemized-statement-conflict',
+          title: 'Conflict',
+          status: 409,
+          detail: error.message,
+          code: 'ITEMIZED_STATEMENT_CONFLICT',
+        });
+        return;
+      }
+      if (error instanceof ItemNotBelongToStatementError) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/item-not-belong-to-statement',
+          title: 'Item Not Belong To Statement',
+          status: 400,
+          detail: error.message,
+          code: 'ITEM_NOT_BELONG_TO_STATEMENT',
+        });
+        return;
+      }
+      if (error instanceof InvalidItemOrderError) {
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/invalid-item-order',
+          title: 'Invalid Item Order',
+          status: 400,
+          detail: error.message,
+          code: 'INVALID_ITEM_ORDER',
+        });
+        return;
+      }
       next(error);
     }
   }

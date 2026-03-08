@@ -181,6 +181,122 @@ vi.mock('../api/received-quotations', () => ({
   getPreviewUrl: vi.fn().mockResolvedValue('https://example.com/preview'),
 }));
 
+// Task 75.1: 現場調査API・サービスのモック
+vi.mock('../api/site-surveys', () => ({
+  getSiteSurveys: vi.fn().mockResolvedValue({
+    data: [
+      {
+        id: 'survey-1',
+        projectId: 'project-123',
+        name: '現場調査A',
+        surveyDate: '2025-02-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 3,
+        createdAt: '2025-02-01T00:00:00.000Z',
+        updatedAt: '2025-02-01T00:00:00.000Z',
+      },
+      {
+        id: 'survey-2',
+        projectId: 'project-123',
+        name: '現場調査B',
+        surveyDate: '2025-03-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 0,
+        createdAt: '2025-03-01T00:00:00.000Z',
+        updatedAt: '2025-03-01T00:00:00.000Z',
+      },
+    ],
+    pagination: { page: 1, limit: 100, total: 2, totalPages: 1 },
+  }),
+  getSiteSurvey: vi.fn().mockResolvedValue({
+    id: 'survey-1',
+    projectId: 'project-123',
+    name: '現場調査A',
+    surveyDate: '2025-02-01',
+    memo: null,
+    thumbnailUrl: null,
+    imageCount: 3,
+    createdAt: '2025-02-01T00:00:00.000Z',
+    updatedAt: '2025-02-01T00:00:00.000Z',
+    project: { id: 'project-123', name: 'テストプロジェクト' },
+    images: [
+      {
+        id: 'img-1',
+        surveyId: 'survey-1',
+        originalPath: 'path/img1.jpg',
+        thumbnailPath: 'path/thumb1.jpg',
+        originalUrl: 'https://example.com/img1.jpg',
+        fileName: 'img1.jpg',
+        fileSize: 1024,
+        width: 800,
+        height: 600,
+        displayOrder: 1,
+        createdAt: '2025-02-01T00:00:00.000Z',
+        includeInReport: true,
+        comment: '写真1コメント',
+      },
+      {
+        id: 'img-2',
+        surveyId: 'survey-1',
+        originalPath: 'path/img2.jpg',
+        thumbnailPath: 'path/thumb2.jpg',
+        originalUrl: 'https://example.com/img2.jpg',
+        fileName: 'img2.jpg',
+        fileSize: 2048,
+        width: 800,
+        height: 600,
+        displayOrder: 2,
+        createdAt: '2025-02-01T00:00:00.000Z',
+        includeInReport: true,
+        comment: null,
+      },
+      {
+        id: 'img-3',
+        surveyId: 'survey-1',
+        originalPath: 'path/img3.jpg',
+        thumbnailPath: 'path/thumb3.jpg',
+        originalUrl: 'https://example.com/img3.jpg',
+        fileName: 'img3.jpg',
+        fileSize: 512,
+        width: 800,
+        height: 600,
+        displayOrder: 3,
+        createdAt: '2025-02-01T00:00:00.000Z',
+        includeInReport: false,
+        comment: null,
+      },
+    ],
+  }),
+}));
+
+vi.mock('../services/export/AnnotationRendererService', () => ({
+  renderImagesForReport: vi.fn().mockResolvedValue([
+    {
+      imageInfo: {
+        id: 'img-1',
+        surveyId: 'survey-1',
+        originalPath: 'path/img1.jpg',
+        thumbnailPath: 'path/thumb1.jpg',
+        fileName: 'img1.jpg',
+        fileSize: 1024,
+        width: 800,
+        height: 600,
+        displayOrder: 1,
+        createdAt: '2025-02-01T00:00:00.000Z',
+        includeInReport: true,
+        comment: '写真1コメント',
+      },
+      dataUrl: 'data:image/jpeg;base64,abc123',
+    },
+  ]),
+}));
+
+vi.mock('../services/export/PdfExportService', () => ({
+  exportAndDownloadPdf: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../api/estimate-request-status', () => ({
   transitionStatus: vi.fn().mockResolvedValue({
     id: 'er-123',
@@ -620,6 +736,267 @@ describe('EstimateRequestDetailPage', () => {
 
       // 「← 見積依頼一覧に戻る」リンクが存在しないことを確認
       expect(screen.queryByRole('link', { name: /見積依頼一覧に戻る/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 73.2: ダイアログ横幅拡大のユニットテスト (Requirements: 32.1, 32.2)
+  // ==========================================================================
+  describe('ダイアログ横幅拡大 (Task 73.2)', () => {
+    it('受領見積書ダイアログのmaxWidthが95vw、widthが1400pxである (Requirements: 32.1, 32.2)', async () => {
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /受領見積書登録/i })).toBeInTheDocument();
+      });
+
+      // 登録ボタンをクリックしてモーダルを開く
+      fireEvent.click(screen.getByRole('button', { name: /受領見積書登録/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('受領見積書の登録')).toBeInTheDocument();
+      });
+
+      // モーダルタイトル（h3）の親要素がmodalContentスタイルを持つdivであることを確認
+      const modalTitle = screen.getByText('受領見積書の登録');
+      const modalContent = modalTitle.parentElement!;
+      expect(modalContent.style.maxWidth).toBe('95vw');
+      expect(modalContent.style.width).toBe('1400px');
+    });
+  });
+
+  // ==========================================================================
+  // Task 75.1: 現場調査報告書出力のユニットテスト (Requirements: 35.1-35.11)
+  // ==========================================================================
+  describe('現場調査報告書出力 (Task 75.1)', () => {
+    it('アクションセクションに「現場調査報告書出力」ボタンが表示される (Requirements: 35.1)', async () => {
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+    });
+
+    it('ボタンクリック時に現場調査一覧取得APIが呼び出される (Requirements: 35.2)', async () => {
+      const { getSiteSurveys } = await import('../api/site-surveys');
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査報告書出力/ }));
+
+      await waitFor(() => {
+        expect(getSiteSurveys).toHaveBeenCalledWith('project-123', expect.any(Object));
+      });
+    });
+
+    it('現場調査一覧取得後にドロップダウンが表示され、調査名と調査日が表示される (Requirements: 35.3)', async () => {
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査報告書出力/ }));
+
+      await waitFor(() => {
+        // ドロップダウン（select要素）が表示される
+        expect(screen.getByRole('combobox')).toBeInTheDocument();
+      });
+
+      // 調査名と調査日が表示される
+      expect(screen.getByText(/現場調査A/)).toBeInTheDocument();
+      expect(screen.getByText(/現場調査B/)).toBeInTheDocument();
+    });
+
+    it('現場調査0件時に「現場調査が登録されていません」メッセージが表示される (Requirements: 35.9)', async () => {
+      const { getSiteSurveys } = await import('../api/site-surveys');
+      (getSiteSurveys as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: [],
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査報告書出力/ }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/現場調査が登録されていません/)).toBeInTheDocument();
+      });
+    });
+
+    it('未選択で出力ボタンクリック時にバリデーションエラーが表示される (Requirements: 35.10)', async () => {
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査報告書出力/ }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument();
+      });
+
+      // 未選択のまま出力ボタンをクリック
+      const generateButton = screen.getByRole('button', { name: '出力' });
+      fireEvent.click(generateButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/現場調査を選択してください/)).toBeInTheDocument();
+      });
+    });
+
+    it('現場調査選択後の出力ボタンクリック時に詳細取得・画像レンダリング・PDF生成が順次呼び出される (Requirements: 35.5, 35.6)', async () => {
+      const { getSiteSurvey } = await import('../api/site-surveys');
+      const { renderImagesForReport } =
+        await import('../services/export/AnnotationRendererService');
+      const { exportAndDownloadPdf } = await import('../services/export/PdfExportService');
+
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査報告書出力/ }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument();
+      });
+
+      // 現場調査を選択
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'survey-1' } });
+
+      // 出力ボタンをクリック
+      const generateButton = screen.getByRole('button', { name: '出力' });
+      fireEvent.click(generateButton);
+
+      // 詳細取得→画像レンダリング→PDF生成の順で呼び出される
+      await waitFor(() => {
+        expect(getSiteSurvey).toHaveBeenCalledWith('survey-1');
+      });
+      await waitFor(() => {
+        expect(renderImagesForReport).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(exportAndDownloadPdf).toHaveBeenCalled();
+      });
+    });
+
+    it('PDF生成失敗時にエラーメッセージが表示される (Requirements: 35.11)', async () => {
+      const { exportAndDownloadPdf } = await import('../services/export/PdfExportService');
+      (exportAndDownloadPdf as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('PDF生成に失敗')
+      );
+
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査報告書出力/ }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument();
+      });
+
+      // 現場調査を選択
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'survey-1' } });
+
+      // 出力ボタンをクリック
+      const generateButton = screen.getByRole('button', { name: '出力' });
+      fireEvent.click(generateButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/報告書の出力に失敗しました/)).toBeInTheDocument();
+      });
+    });
+
+    it('「キャンセル」ボタンクリック時にドロップダウンが閉じる (Requirements: 35.4)', async () => {
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /現場調査報告書出力/ })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査報告書出力/ }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument();
+      });
+
+      // 「閉じる」ボタンを探す
+      const closeButtons = screen
+        .getAllByRole('button')
+        .filter((btn) => btn.textContent === '閉じる');
+      expect(closeButtons.length).toBeGreaterThan(0);
+      fireEvent.click(closeButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+      });
     });
   });
 });

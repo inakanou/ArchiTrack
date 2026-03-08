@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-02-25（Steering Sync: テストファイル数更新、EstimateItemToolbar追加、annotated-thumbnail.service追加、Argon2記載修正を反映）_
+_最終更新: 2026-03-08（Steering Sync: 数量表コンポーネント追加、内訳書並び替えAPI追加、統合テスト増加、フック数更新を反映）_
 
 ## ルートディレクトリ構成
 
@@ -469,7 +469,7 @@ frontend/
 │   │           ├── TextTool.ts      # テキストツール
 │   │           ├── registerCustomShapes.ts # カスタムシェイプ登録
 │   │           └── index.ts         # エクスポート集約
-│   │   ├── quantity-table/          # 数量表コンポーネント（20ファイル）
+│   │   ├── quantity-table/          # 数量表コンポーネント（22ファイル）
 │   │       ├── QuantityInput.tsx    # 数量入力
 │   │       ├── QuantityGroupCard.tsx # 数量グループカード
 │   │       ├── QuantityGroupTitleRow.tsx # グループタイトル行（最適化表示）
@@ -485,7 +485,12 @@ frontend/
 │   │       ├── TextFieldInput.tsx   # テキストフィールド入力
 │   │       ├── CalculationNumericInput.tsx # 計算用数値入力
 │   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
-│   │       └── FieldValidatedItemRow.tsx # バリデーション付き項目行
+│   │       ├── FieldValidatedItemRow.tsx # バリデーション付き項目行
+│   │       ├── PhotoChangeDialog.tsx # 写真変更ダイアログ
+│   │       ├── PhotoCommentDisplay.tsx # 写真コメント表示
+│   │       ├── PhotoPreviewDialog.tsx # 写真プレビューダイアログ
+│   │       ├── SortOrderButtons.tsx # 並び順変更ボタン
+│   │       └── gridConstants.ts     # グリッド定数定義
 │   │   ├── itemized-statement/      # 内訳書コンポーネント（6ファイル）
 │   │       ├── CreateItemizedStatementForm.tsx # 内訳書作成フォーム
 │   │       ├── CreateItemizedStatementForm.stories.tsx # Storybook
@@ -665,6 +670,9 @@ frontend/
 - `QuantityItemRow.stories.tsx` - 数量項目行
 - `RoundingUnitInput.stories.tsx` - 丸め単位入力
 - `TextFieldInput.stories.tsx` - テキストフィールド入力
+- `PhotoChangeDialog.stories.tsx` - 写真変更ダイアログ
+- `PhotoCommentDisplay.stories.tsx` - 写真コメント表示
+- `PhotoPreviewDialog.stories.tsx` - 写真プレビューダイアログ
 
 プロジェクトコンポーネント（projects/）:
 - `QuantityTableSectionCard.stories.tsx` - 数量表セクションカード
@@ -693,7 +701,7 @@ frontend/src/
 │   ├── claude-vision.ts # Claude Vision OCR API
 │   ├── company-info.ts # 自社情報API
 │   └── estimates.ts # 見積書API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges等 22ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges等 26ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts等）
 ├── utils/             # ユーティリティ関数
@@ -1070,6 +1078,7 @@ backend/src/
 - `GET /api/itemized-statements/:id`: 内訳書詳細取得（全項目含む）
 - `POST /api/projects/:projectId/itemized-statements`: 内訳書作成（数量表ピボット集計）
 - `DELETE /api/itemized-statements/:id`: 内訳書論理削除（楽観的排他制御）
+- `PATCH /api/itemized-statements/:id/items/order`: 内訳書項目並び替え（バッチ保存）
 
 **見積依頼管理API（estimate-requests.routes.ts）:**
 - `GET /api/projects/:projectId/estimate-requests`: 見積依頼一覧取得（ページネーション）
@@ -1411,8 +1420,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト136ファイル + 統合テスト23ファイル
-- Frontend: 単体テスト289ファイル
+- Backend: 単体テスト136ファイル + 統合テスト24ファイル
+- Frontend: 単体テスト299ファイル
 
 ### .gitignore
 
