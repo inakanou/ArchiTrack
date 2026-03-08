@@ -55,13 +55,32 @@
  * - 14.5: フィルタが適用されている状態でクリップボードコピーを実行すると、フィルタ後のデータのみをコピーする
  * - 14.6: コピー成功時に「クリップボードにコピーしました」トースト通知を表示する
  * - 14.7: コピー失敗時に「クリップボードへのコピーに失敗しました」エラーメッセージを表示する
+ * - 17.1: 各内訳項目行に上移動ボタンと下移動ボタンを表示する
+ * - 17.2: 先頭の項目の上移動ボタンは無効化する
+ * - 17.3: 末尾の項目の下移動ボタンは無効化する
+ * - 17.4: 上移動ボタンクリックで項目を1つ上に移動する
+ * - 17.5: 下移動ボタンクリックで項目を1つ下に移動する
+ * - 17.6: 並び替え操作はローカルState更新のみ
+ * - 17.7: 並び替え操作後に保存ボタンを表示する
+ * - 17.8: 保存ボタンクリック時にupdateItemOrder APIを呼び出す
+ * - 17.9: 保存成功時にトースト通知を表示する
+ * - 17.12: 未保存変更がある場合にページ離脱時に確認ダイアログを表示する
+ * - 17.13: フィルタやカラムソートが適用されている場合は上下ボタンを非表示にする
+ * - 17.14: updatedAtによる楽観的排他制御を適用する
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getItemizedStatementDetail, deleteItemizedStatement } from '../api/itemized-statements';
+import { useParams, Link, useNavigate, useBlocker } from 'react-router-dom';
+import {
+  getItemizedStatementDetail,
+  deleteItemizedStatement,
+  updateItemOrder,
+} from '../api/itemized-statements';
 import { Breadcrumb } from '../components/common';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import ItemizedStatementDeleteDialog from '../components/itemized-statement/ItemizedStatementDeleteDialog';
+import SortOrderButtons from '../components/quantity-table/SortOrderButtons';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { exportToExcel } from '../utils/export-excel';
 import { copyToClipboard } from '../utils/copy-to-clipboard';
 import type {
@@ -443,6 +462,33 @@ const styles = {
     fontSize: '14px',
     margin: 0,
   } as React.CSSProperties,
+  saveOrderButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: '500',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    border: '1px solid #2563eb',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  saveOrderButtonDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  orderButtonsCell: {
+    padding: '4px 8px',
+    borderBottom: '1px solid #e5e7eb',
+    verticalAlign: 'middle' as const,
+    width: '40px',
+  } as React.CSSProperties,
+  thOrderButtons: {
+    padding: '12px 8px',
+    backgroundColor: '#f9fafb',
+    borderBottom: '2px solid #e5e7eb',
+    width: '40px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -494,29 +540,6 @@ function compareStrings(a: string | null, b: string | null, direction: SortDirec
 function compareNumbers(a: number, b: number, direction: SortDirection): number {
   const result = a - b;
   return direction === 'asc' ? result : -result;
-}
-
-/**
- * デフォルトソート（任意分類 > 工種 > 名称 > 規格 の優先度で昇順）
- * @param items - ソート対象の項目配列
- */
-function applyDefaultSort(items: ItemizedStatementItemInfo[]): ItemizedStatementItemInfo[] {
-  return [...items].sort((a, b) => {
-    // 任意分類で比較
-    const customCategoryResult = compareStrings(a.customCategory, b.customCategory, 'asc');
-    if (customCategoryResult !== 0) return customCategoryResult;
-
-    // 工種で比較
-    const workTypeResult = compareStrings(a.workType, b.workType, 'asc');
-    if (workTypeResult !== 0) return workTypeResult;
-
-    // 名称で比較
-    const nameResult = compareStrings(a.name, b.name, 'asc');
-    if (nameResult !== 0) return nameResult;
-
-    // 規格で比較
-    return compareStrings(a.specification, b.specification, 'asc');
-  });
 }
 
 /**
@@ -658,9 +681,30 @@ interface ItemsTableProps {
   pageSize: number;
   sortState: SortState;
   onSort: (column: SortColumn) => void;
+  /** 並び替えボタンを表示するか（デフォルト順でフィルタなしの場合のみtrue） */
+  showReorderButtons: boolean;
+  /** 全項目数（ページネーション前の全件、並び替えボタンのtotalCountに使用） */
+  totalItemCount: number;
+  /** 上移動ハンドラ（全件リスト内のインデックス） */
+  onMoveUp: (globalIndex: number) => void;
+  /** 下移動ハンドラ（全件リスト内のインデックス） */
+  onMoveDown: (globalIndex: number) => void;
+  /** 並び替えボタンの無効化フラグ */
+  reorderDisabled: boolean;
 }
 
-function ItemsTable({ items, currentPage, pageSize, sortState, onSort }: ItemsTableProps) {
+function ItemsTable({
+  items,
+  currentPage,
+  pageSize,
+  sortState,
+  onSort,
+  showReorderButtons,
+  totalItemCount,
+  onMoveUp,
+  onMoveDown,
+  reorderDisabled,
+}: ItemsTableProps) {
   // ページネーションに基づいて表示する項目を取得
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = startIndex + pageSize;
@@ -670,6 +714,7 @@ function ItemsTable({ items, currentPage, pageSize, sortState, onSort }: ItemsTa
     <table style={styles.table} role="table">
       <thead>
         <tr>
+          {showReorderButtons && <th style={styles.thOrderButtons} />}
           {COLUMNS.map((column) => (
             <SortableHeader
               key={column.key}
@@ -681,26 +726,42 @@ function ItemsTable({ items, currentPage, pageSize, sortState, onSort }: ItemsTa
         </tr>
       </thead>
       <tbody>
-        {displayItems.map((item) => (
-          <tr key={item.id}>
-            <td style={{ ...styles.td, ...(item.customCategory ? {} : styles.tdEmpty) }}>
-              {item.customCategory ?? '-'}
-            </td>
-            <td style={{ ...styles.td, ...(item.workType ? {} : styles.tdEmpty) }}>
-              {item.workType ?? '-'}
-            </td>
-            <td style={{ ...styles.td, ...(item.name ? {} : styles.tdEmpty) }}>
-              {item.name ?? '-'}
-            </td>
-            <td style={{ ...styles.td, ...(item.specification ? {} : styles.tdEmpty) }}>
-              {item.specification ?? '-'}
-            </td>
-            <td style={{ ...styles.td, ...styles.tdQuantity }}>{formatQuantity(item.quantity)}</td>
-            <td style={{ ...styles.td, ...(item.unit ? {} : styles.tdEmpty) }}>
-              {item.unit ?? '-'}
-            </td>
-          </tr>
-        ))}
+        {displayItems.map((item, localIndex) => {
+          const globalIndex = startIndex + localIndex;
+          return (
+            <tr key={item.id}>
+              {showReorderButtons && (
+                <td style={styles.orderButtonsCell}>
+                  <SortOrderButtons
+                    currentIndex={globalIndex}
+                    totalCount={totalItemCount}
+                    onMoveUp={() => onMoveUp(globalIndex)}
+                    onMoveDown={() => onMoveDown(globalIndex)}
+                    disabled={reorderDisabled}
+                  />
+                </td>
+              )}
+              <td style={{ ...styles.td, ...(item.customCategory ? {} : styles.tdEmpty) }}>
+                {item.customCategory ?? '-'}
+              </td>
+              <td style={{ ...styles.td, ...(item.workType ? {} : styles.tdEmpty) }}>
+                {item.workType ?? '-'}
+              </td>
+              <td style={{ ...styles.td, ...(item.name ? {} : styles.tdEmpty) }}>
+                {item.name ?? '-'}
+              </td>
+              <td style={{ ...styles.td, ...(item.specification ? {} : styles.tdEmpty) }}>
+                {item.specification ?? '-'}
+              </td>
+              <td style={{ ...styles.td, ...styles.tdQuantity }}>
+                {formatQuantity(item.quantity)}
+              </td>
+              <td style={{ ...styles.td, ...(item.unit ? {} : styles.tdEmpty) }}>
+                {item.unit ?? '-'}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -806,6 +867,22 @@ export default function ItemizedStatementDetailPage() {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
+  // 手動並び替え状態 (Req 17)
+  const [orderedItems, setOrderedItems] = useState<ItemizedStatementItemInfo[]>([]);
+  const [hasOrderChanges, setHasOrderChanges] = useState(false);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [saveOrderSuccess, setSaveOrderSuccess] = useState(false);
+  const [saveOrderError, setSaveOrderError] = useState<string | null>(null);
+
+  // 未保存変更の検出（Req 17.12）
+  const { markAsChanged, markAsSaved } = useUnsavedChanges({
+    initialDirty: false,
+    enabled: hasOrderChanges,
+  });
+
+  // ページ離脱時のブロック（Req 17.12）
+  const blocker = useBlocker(hasOrderChanges);
+
   /**
    * 内訳書詳細データを取得
    */
@@ -818,6 +895,10 @@ export default function ItemizedStatementDetailPage() {
     try {
       const data = await getItemizedStatementDetail(id);
       setStatement(data);
+      // displayOrder昇順でorderedItemsを初期化
+      const sorted = [...data.items].sort((a, b) => a.displayOrder - b.displayOrder);
+      setOrderedItems(sorted);
+      setHasOrderChanges(false);
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -834,19 +915,20 @@ export default function ItemizedStatementDetailPage() {
     fetchStatement();
   }, [fetchStatement]);
 
-  // フィルタ済み項目 (Req 6.3, 6.4)
+  // フィルタ済み項目 (Req 6.3, 6.4) - orderedItemsを基に
   const filteredItems = useMemo(() => {
-    if (!statement) return [];
-    return applyFilters(statement.items, filters);
-  }, [statement, filters]);
+    if (!statement || orderedItems.length === 0) return [];
+    return applyFilters(orderedItems, filters);
+  }, [statement, orderedItems, filters]);
 
   // ソート済み項目（Req 5.2, 5.3, 5.5）- フィルタ後の項目に対してソート
   const sortedItems = useMemo(() => {
     if (filteredItems.length === 0) return [];
 
     if (sortState.column === null) {
-      // デフォルトソート（Req 5.5）
-      return applyDefaultSort(filteredItems);
+      // デフォルト表示: displayOrder昇順（orderedItemsの順序をそのまま維持）
+      // Req 16の導入により、applyDefaultSortからdisplayOrder順に変更
+      return filteredItems;
     }
 
     // 単一カラムソート（Req 5.2, 5.3）
@@ -974,6 +1056,90 @@ export default function ItemizedStatementDetailPage() {
     }
   }, [statement, isExporting, sortedItems]);
 
+  // フィルタが適用されているかどうか
+  const isFilterActive = useMemo(() => {
+    return Object.values(filters).some((v) => v !== '');
+  }, [filters]);
+
+  // 並び替えボタンの表示条件: デフォルト表示順（カラムソートなし）かつフィルタなし
+  const showReorderButtons = useMemo(() => {
+    return sortState.column === null && !isFilterActive;
+  }, [sortState.column, isFilterActive]);
+
+  // 上移動ハンドラ (Req 17.4)
+  const handleMoveUp = useCallback(
+    (globalIndex: number) => {
+      if (globalIndex <= 0) return;
+      setOrderedItems((prev) => {
+        const next = [...prev];
+        const temp = next[globalIndex - 1]!;
+        next[globalIndex - 1] = next[globalIndex]!;
+        next[globalIndex] = temp;
+        return next;
+      });
+      setHasOrderChanges(true);
+      markAsChanged();
+    },
+    [markAsChanged]
+  );
+
+  // 下移動ハンドラ (Req 17.5)
+  const handleMoveDown = useCallback(
+    (globalIndex: number) => {
+      setOrderedItems((prev) => {
+        if (globalIndex >= prev.length - 1) return prev;
+        const next = [...prev];
+        const temp = next[globalIndex + 1]!;
+        next[globalIndex + 1] = next[globalIndex]!;
+        next[globalIndex] = temp;
+        return next;
+      });
+      setHasOrderChanges(true);
+      markAsChanged();
+    },
+    [markAsChanged]
+  );
+
+  // 並び順保存ハンドラ (Req 17.8, 17.9, 17.14)
+  const handleSaveOrder = useCallback(async () => {
+    if (!statement || isSavingOrder) return;
+
+    setIsSavingOrder(true);
+    setSaveOrderError(null);
+
+    try {
+      const updatedDetail = await updateItemOrder(statement.id, {
+        items: orderedItems.map((item, index) => ({
+          id: item.id,
+          displayOrder: index,
+        })),
+        updatedAt: statement.updatedAt,
+      });
+
+      // 成功時: statementを更新し、orderedItemsを更新後のデータで再初期化
+      setStatement(updatedDetail);
+      const sorted = [...updatedDetail.items].sort((a, b) => a.displayOrder - b.displayOrder);
+      setOrderedItems(sorted);
+      setHasOrderChanges(false);
+      markAsSaved();
+      setSaveOrderSuccess(true);
+      setTimeout(() => {
+        setSaveOrderSuccess(false);
+      }, 3000);
+    } catch (err) {
+      // 楽観的排他制御エラー（409）
+      if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
+        setSaveOrderError('他のユーザーにより更新されました。画面を再読み込みしてください');
+      } else if (err instanceof Error) {
+        setSaveOrderError(err.message);
+      } else {
+        setSaveOrderError('並び順の保存に失敗しました');
+      }
+    } finally {
+      setIsSavingOrder(false);
+    }
+  }, [statement, isSavingOrder, orderedItems, markAsSaved]);
+
   // クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
   const handleCopyToClipboard = useCallback(async () => {
     if (!statement || isCopying) return;
@@ -1071,6 +1237,21 @@ export default function ItemizedStatementDetailPage() {
             <p style={styles.metaInfo}>集計元数量表: {statement.sourceQuantityTableName}</p>
           </div>
           <div style={styles.actionsContainer}>
+            {/* 並び順保存ボタン (Req 17.7, 17.8, 17.9) */}
+            {hasOrderChanges && (
+              <button
+                type="button"
+                style={{
+                  ...styles.saveOrderButton,
+                  ...(isSavingOrder ? styles.saveOrderButtonDisabled : {}),
+                }}
+                aria-label="並び順を保存"
+                onClick={handleSaveOrder}
+                disabled={isSavingOrder}
+              >
+                {isSavingOrder ? '保存中...' : '並び順を保存'}
+              </button>
+            )}
             {/* クリップボードコピーボタン (Req 14.1, 14.6, 14.7) */}
             <button
               type="button"
@@ -1137,6 +1318,27 @@ export default function ItemizedStatementDetailPage() {
         </div>
       )}
 
+      {/* 並び順保存成功メッセージ (Req 17.9) */}
+      {saveOrderSuccess && (
+        <div role="status" style={styles.successMessage}>
+          <p style={styles.successMessageText}>並び順を保存しました</p>
+        </div>
+      )}
+
+      {/* 並び順保存エラーメッセージ (Req 17.14) */}
+      {saveOrderError && (
+        <div role="alert" style={styles.deleteErrorContainer}>
+          <p style={styles.deleteErrorText}>{saveOrderError}</p>
+        </div>
+      )}
+
+      {/* 未保存変更確認ダイアログ (Req 17.12) */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={() => blocker.proceed?.()}
+        onStay={() => blocker.reset?.()}
+      />
+
       {/* 削除確認ダイアログ (Req 7.2, 7.3, 12.3, 12.4) */}
       <ItemizedStatementDeleteDialog
         isOpen={isDeleteDialogOpen}
@@ -1174,6 +1376,11 @@ export default function ItemizedStatementDetailPage() {
                   pageSize={PAGE_SIZE}
                   sortState={sortState}
                   onSort={handleSort}
+                  showReorderButtons={showReorderButtons}
+                  totalItemCount={orderedItems.length}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                  reorderDisabled={isSavingOrder}
                 />
                 {/* ページネーション (Req 4.7, 4.8, 4.9, 6.7) */}
                 {showPagination && (

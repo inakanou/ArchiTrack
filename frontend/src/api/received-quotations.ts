@@ -80,6 +80,8 @@ export interface ReceivedQuotationInfo {
   netAmount: number | null;
   createdAt: Date;
   updatedAt: Date;
+  /** 協力業者名（プロジェクト単位取得時のみ） */
+  tradingPartnerName?: string | null;
 }
 
 /**

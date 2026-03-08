@@ -112,8 +112,7 @@ describe('EstimateExportDialog', () => {
     expect(executionCheckbox).toBeTruthy();
     expect(vendorCheckbox).toBeTruthy();
 
-    // 実行と業者もチェックする
-    await user.click(executionCheckbox);
+    // REQ-38.1: デフォルトで見積+実行がON。業者もチェックする
     await user.click(vendorCheckbox);
 
     // 3つともチェックされている
@@ -123,13 +122,13 @@ describe('EstimateExportDialog', () => {
   });
 
   // ============================================================================
-  // REQ-32.5: デフォルト値は「見積」のみON
+  // REQ-38.1: デフォルト値は「見積」と「実行」がON（REQ-32.5を上書き）
   // ============================================================================
 
   /**
-   * REQ-32.5: デフォルト値は「見積」のみON
+   * REQ-38.1: デフォルト値は「見積」と「実行」がON、「業者」はOFF
    */
-  it('デフォルト値は「見積」のみON、「実行」「業者」はOFF', () => {
+  it('デフォルト値は「見積」と「実行」がON、「業者」はOFF', () => {
     render(<EstimateExportDialog {...defaultProps} />);
 
     const checkboxes = screen.getAllByRole('checkbox');
@@ -144,7 +143,7 @@ describe('EstimateExportDialog', () => {
     ) as HTMLInputElement;
 
     expect(estimateCheckbox.checked).toBe(true);
-    expect(executionCheckbox.checked).toBe(false);
+    expect(executionCheckbox.checked).toBe(true);
     expect(vendorCheckbox.checked).toBe(false);
   });
 
@@ -184,16 +183,20 @@ describe('EstimateExportDialog', () => {
     const user = userEvent.setup();
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // デフォルトでは「見積」がONなので出力ボタンは有効（出力形式もデフォルトExcelなので選択済み）
+    // REQ-38.1: デフォルトでは「見積」+「実行」がONなので出力ボタンは有効
     const exportButton = screen.getByRole('button', { name: '出力' });
     expect(exportButton).not.toBeDisabled();
 
-    // 「見積」のチェックを外す
+    // 全てのチェックを外す
     const checkboxes = screen.getAllByRole('checkbox');
     const estimateCheckbox = checkboxes.find(
       (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
     )!;
+    const executionCheckbox = checkboxes.find(
+      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
+    )!;
     await user.click(estimateCheckbox);
+    await user.click(executionCheckbox);
 
     // 全てのチェックボックスがOFFになったので出力ボタンはdisabled
     expect(exportButton).toBeDisabled();
@@ -226,13 +229,13 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // デフォルト（見積のみON、出力形式Excel）で出力
+    // デフォルト（見積+実行ON、出力形式Excel）で出力（REQ-38.1）
     const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE',
+        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -263,13 +266,9 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // 実行と業者もチェックする
+    // REQ-38.1: デフォルトで見積+実行がON。業者もチェックする
     const checkboxes = screen.getAllByRole('checkbox');
-    const executionCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
-    )!;
     const vendorCheckbox = checkboxes.find((cb) => (cb as HTMLInputElement).value === 'VENDOR')!;
-    await user.click(executionCheckbox);
     await user.click(vendorCheckbox);
 
     const exportButton = screen.getByRole('button', { name: '出力' });
@@ -318,7 +317,14 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // デフォルト（見積のみ、Excel）で出力
+    // REQ-38.1: デフォルト（見積+実行ON、Excel）で出力
+    // 見積のみにするため実行をOFF
+    const checkboxes = screen.getAllByRole('checkbox');
+    const executionCheckbox = checkboxes.find(
+      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
+    )!;
+    await user.click(executionCheckbox);
+
     const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
@@ -359,13 +365,7 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // 実行もチェック
-    const checkboxes = screen.getAllByRole('checkbox');
-    const executionCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
-    )!;
-    await user.click(executionCheckbox);
-
+    // REQ-38.1: デフォルトで見積+実行がON。そのまま出力
     const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
@@ -413,7 +413,7 @@ describe('EstimateExportDialog', () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-001/export?format=pdf&lineTypes=ESTIMATE',
+        'http://localhost:3000/api/estimates/est-001/export?format=pdf&lineTypes=ESTIMATE,EXECUTION',
         expect.objectContaining({ method: 'GET' })
       );
     });
@@ -448,13 +448,13 @@ describe('EstimateExportDialog', () => {
 
     render(<EstimateExportDialog {...defaultProps} />);
 
-    // デフォルトでExcelが選択済み
+    // デフォルトでExcelが選択済み（REQ-38.1: 見積+実行がデフォルトON）
     const exportButton = screen.getByRole('button', { name: '出力' });
     await user.click(exportButton);
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE',
+        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION',
         expect.objectContaining({ method: 'GET' })
       );
     });

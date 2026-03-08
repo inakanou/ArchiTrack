@@ -1119,16 +1119,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       await expect(executionCheckbox).toBeVisible();
       await expect(vendorCheckbox).toBeVisible();
 
-      // デフォルトで「見積」のみON（REQ-32.5）
+      // デフォルトで「見積」と「実行」がON（REQ-38.1）
       await expect(estimateCheckbox).toBeChecked();
-      await expect(executionCheckbox).not.toBeChecked();
+      await expect(executionCheckbox).toBeChecked();
       await expect(vendorCheckbox).not.toBeChecked();
 
       // 各チェックボックスが選択可能であることを確認（複数同時選択可能）
-      await executionCheckbox.click();
-      await expect(executionCheckbox).toBeChecked();
-      await expect(estimateCheckbox).toBeChecked(); // 見積も引き続きON
-
       await vendorCheckbox.click();
       await expect(vendorCheckbox).toBeChecked();
       await expect(estimateCheckbox).toBeChecked(); // 見積も引き続きON

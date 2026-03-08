@@ -4879,6 +4879,93 @@
         }
       }
     },
+    "/api/itemized-statements/{id}/items/order": {
+      "patch": {
+        "summary": "内訳書項目の並び順更新",
+        "description": "内訳書の全項目のdisplayOrderを一括更新（楽観的排他制御）",
+        "tags": [
+          "Itemized Statements"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "内訳書ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "updatedAt"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "displayOrder"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "displayOrder": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "並び順更新成功"
+          },
+          "400": {
+            "description": "バリデーションエラー、項目不整合"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "内訳書が見つからない"
+          },
+          "409": {
+            "description": "楽観的排他制御エラー"
+          }
+        }
+      }
+    },
     "/api/v1/permissions": {
       "get": {
         "summary": "権限一覧取得",

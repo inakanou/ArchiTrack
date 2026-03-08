@@ -17,6 +17,7 @@ import AutocompleteInput from './AutocompleteInput';
 import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import CalculationMethodSelect from './CalculationMethodSelect';
 import CalculationFields from './CalculationFields';
+import SortOrderButtons from './SortOrderButtons';
 import { calculate } from '../../utils/calculation-engine';
 import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
@@ -57,6 +58,10 @@ export interface EditableQuantityItemRowProps {
    * @default true（後方互換性のため）
    */
   showFieldLabels?: boolean;
+  /** 項目のインデックス（並び順ボタン用、Task 38.1） */
+  itemIndex?: number;
+  /** グループ内の項目総数（並び順ボタン用、Task 38.1） */
+  itemTotalCount?: number;
 }
 
 // ============================================================================
@@ -299,6 +304,8 @@ export default function EditableQuantityItemRow({
   getSuggestions,
   onBlurAddCandidate,
   showFieldLabels = true,
+  itemIndex,
+  itemTotalCount,
 }: EditableQuantityItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // REQ-8.3: 数量フィールドのローカル状態（入力時に即座に警告を表示するため）
@@ -715,6 +722,16 @@ export default function EditableQuantityItemRow({
 
         {/* アクション */}
         <div style={styles.actionsCell} role="cell">
+          {/* 並び順変更ボタン（Task 38.1: REQ-24.3, 24.4） */}
+          {itemIndex !== undefined && itemTotalCount !== undefined && (
+            <SortOrderButtons
+              currentIndex={itemIndex}
+              totalCount={itemTotalCount}
+              onMoveUp={() => onMoveUp?.(item.id)}
+              onMoveDown={() => onMoveDown?.(item.id)}
+            />
+          )}
+
           {/* 削除ボタン */}
           <button
             type="button"
