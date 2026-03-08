@@ -116,6 +116,7 @@ describe('Itemized Statement Types', () => {
         specification: '標準',
         unit: 'm3',
         quantity: 100.5,
+        displayOrder: 0,
       };
       expect(item.id).toBe('item-1');
       expect(item.customCategory).toBe('土工');
@@ -135,6 +136,7 @@ describe('Itemized Statement Types', () => {
         specification: null,
         unit: null,
         quantity: 0,
+        displayOrder: 0,
       };
       expect(item.customCategory).toBeNull();
       expect(item.workType).toBeNull();
@@ -168,6 +170,7 @@ describe('Itemized Statement Types', () => {
             specification: null,
             unit: 'm3',
             quantity: 100,
+            displayOrder: 0,
           },
           {
             id: 'item-2',
@@ -177,6 +180,7 @@ describe('Itemized Statement Types', () => {
             specification: '良質土',
             unit: 'm3',
             quantity: 50,
+            displayOrder: 1,
           },
         ],
       };

@@ -1,7 +1,7 @@
 {
   "feature_name": "itemized-statement-generation",
   "created_at": "2026-01-19T14:08:58+09:00",
-  "updated_at": "2026-02-24T13:01:44Z",
+  "updated_at": "2026-02-28T08:52:39Z",
   "language": "ja",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,5 +19,5 @@
     }
   },
   "ready_for_implementation": true,
-  "revision_notes": "パンくずナビゲーション更新: 全画面のパンくずを「ダッシュボード > プロジェクト一覧 > プロジェクト > 内訳書一覧」形式に統一、Task 20追加"
+  "revision_notes": "内訳項目の初期ソート順序（Req 16）と手動並び替え機能（Req 17）を追加。Task 21-24追加。ピボット集計結果の昇順ソート、上下ボタンによる並び替え、保存ボタンによる一括確定、未保存離脱防止を実装"
 }

@@ -1374,4 +1374,162 @@ describe('EstimateExportService', () => {
       expect(result).toBeInstanceOf(Buffer);
     });
   });
+
+  // ==========================================================================
+  // REQ-38.2, REQ-38.3: 空欄行フィルタリング
+  // ==========================================================================
+  describe('空欄行フィルタリング (REQ-38.2, REQ-38.3)', () => {
+    it('選択行タイプにデータがない行がExcel出力から除外されること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'item-with-data',
+            lines: [
+              createTestLine({
+                id: 'line-e-1',
+                lineType: 'ESTIMATE',
+                name: 'データあり',
+                amount: 10000,
+              }),
+            ],
+          }),
+          createTestItem({
+            id: 'item-empty',
+            lines: [
+              createTestLine({
+                id: 'line-e-2',
+                lineType: 'ESTIMATE',
+                name: null,
+                specification: null,
+                unit: null,
+                quantity: null,
+                unitPrice: null,
+                amount: null,
+                remarks: null,
+              }),
+            ],
+          }),
+        ],
+      });
+
+      // Excel出力が成功すること（空欄行がフィルタリングされる）
+      const result = await service.exportToExcelWithLineTypes(estimate, ['ESTIMATE']);
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('選択行タイプにデータがない行がPDF出力から除外されること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'item-with-data',
+            lines: [
+              createTestLine({
+                id: 'line-e-1',
+                lineType: 'ESTIMATE',
+                name: 'データあり',
+                amount: 10000,
+              }),
+            ],
+          }),
+          createTestItem({
+            id: 'item-empty',
+            lines: [
+              createTestLine({
+                id: 'line-e-2',
+                lineType: 'ESTIMATE',
+                name: null,
+                specification: null,
+                unit: null,
+                quantity: null,
+                unitPrice: null,
+                amount: null,
+                remarks: null,
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const result = await service.exportToPdfWithLineTypes(estimate, ['ESTIMATE']);
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('親項目は子項目が存在する限り出力されること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'parent',
+            lines: [
+              createTestLine({
+                id: 'line-parent',
+                lineType: 'ESTIMATE',
+                name: null,
+                specification: null,
+                unit: null,
+                quantity: null,
+                unitPrice: null,
+                amount: null,
+                remarks: null,
+              }),
+            ],
+            children: [
+              createTestItem({
+                id: 'child',
+                parentId: 'parent',
+                lines: [
+                  createTestLine({
+                    id: 'line-child',
+                    lineType: 'ESTIMATE',
+                    name: '子項目データ',
+                    amount: 5000,
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      // 親項目は空欄でも子項目があるので出力される
+      const result = await service.exportToExcelWithLineTypes(estimate, ['ESTIMATE']);
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('一つでもデータがある行タイプがあれば出力対象となること', async () => {
+      const estimate = createTestEstimate({
+        items: [
+          createTestItem({
+            id: 'item-1',
+            lines: [
+              createTestLine({
+                id: 'line-e',
+                lineType: 'ESTIMATE',
+                name: null,
+                specification: null,
+                unit: null,
+                quantity: null,
+                unitPrice: null,
+                amount: null,
+                remarks: null,
+              }),
+              createTestLine({
+                id: 'line-x',
+                lineType: 'EXECUTION',
+                name: '実行データ',
+                amount: 8000,
+              }),
+            ],
+          }),
+        ],
+      });
+
+      // ESTIMATE行は空だがEXECUTION行にデータがあるので出力される
+      const result = await service.exportToExcelWithLineTypes(estimate, ['ESTIMATE', 'EXECUTION']);
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+  });
 });

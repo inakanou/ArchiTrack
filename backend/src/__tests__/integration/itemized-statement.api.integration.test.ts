@@ -606,4 +606,151 @@ describe('Itemized Statement API Integration Tests', () => {
       expect(response.body.latestStatements.length).toBeLessThanOrEqual(2);
     });
   });
+
+  // ==========================================================================
+  // Task 24.3: 並び順更新APIの統合テスト
+  // Requirements: 17.8, 17.10, 17.14
+  // ==========================================================================
+  describe('並び順更新フロー (Req 17.8, 17.10, 17.14)', () => {
+    let orderTestStatementId: string;
+    let orderTestStatementUpdatedAt: string;
+    let orderTestItemIds: string[];
+
+    beforeEach(async () => {
+      // 各テスト前に内訳書をクリーンアップして新しく作成
+      await prisma.itemizedStatement.deleteMany({
+        where: { projectId: testProjectId },
+      });
+
+      // 内訳書を作成
+      const createResponse = await request(app)
+        .post(`/api/projects/${testProjectId}/itemized-statements`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          name: '並び替えテスト用内訳書',
+          quantityTableId: testQuantityTableId,
+        });
+
+      expect(createResponse.status).toBe(201);
+      orderTestStatementId = createResponse.body.id;
+
+      // 詳細を取得して項目IDとupdatedAtを取得
+      const detailResponse = await request(app)
+        .get(`/api/itemized-statements/${orderTestStatementId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(detailResponse.status).toBe(200);
+      orderTestStatementUpdatedAt = detailResponse.body.updatedAt;
+      orderTestItemIds = detailResponse.body.items.map((item: { id: string }) => item.id);
+    });
+
+    it('項目の並び順を更新して保存できる (Req 17.8)', async () => {
+      // 項目の並び順を逆順にする
+      const reversedItems = orderTestItemIds.map((id, index) => ({
+        id,
+        displayOrder: orderTestItemIds.length - 1 - index,
+      }));
+
+      const response = await request(app)
+        .patch(`/api/itemized-statements/${orderTestStatementId}/items/order`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: reversedItems,
+          updatedAt: orderTestStatementUpdatedAt,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.items).toBeInstanceOf(Array);
+      // 更新後のupdatedAtが元と異なることを確認
+      expect(response.body.updatedAt).not.toBe(orderTestStatementUpdatedAt);
+    });
+
+    it('並び順を保存後に再取得すると更新された順序が維持される (Req 17.8)', async () => {
+      // 項目の並び順を逆順にして保存
+      const reversedItems = orderTestItemIds.map((id, index) => ({
+        id,
+        displayOrder: orderTestItemIds.length - 1 - index,
+      }));
+
+      const updateResponse = await request(app)
+        .patch(`/api/itemized-statements/${orderTestStatementId}/items/order`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: reversedItems,
+          updatedAt: orderTestStatementUpdatedAt,
+        });
+
+      expect(updateResponse.status).toBe(200);
+
+      // 再取得して順序が維持されていることを確認
+      const detailResponse = await request(app)
+        .get(`/api/itemized-statements/${orderTestStatementId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(detailResponse.status).toBe(200);
+      const items = detailResponse.body.items;
+
+      // displayOrder順にソートされていることを確認
+      for (let i = 0; i < items.length - 1; i++) {
+        expect(items[i].displayOrder).toBeLessThan(items[i + 1].displayOrder);
+      }
+
+      // 最初の項目が元の最後の項目であることを確認
+      expect(items[0].id).toBe(orderTestItemIds[orderTestItemIds.length - 1]);
+    });
+
+    it('楽観的排他制御エラーで並び順更新が拒否される (Req 17.10, 17.14)', async () => {
+      // まず1回並び順を更新してupdatedAtを変更する
+      const firstUpdate = orderTestItemIds.map((id, index) => ({
+        id,
+        displayOrder: index,
+      }));
+
+      const firstResponse = await request(app)
+        .patch(`/api/itemized-statements/${orderTestStatementId}/items/order`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: firstUpdate,
+          updatedAt: orderTestStatementUpdatedAt,
+        });
+
+      expect(firstResponse.status).toBe(200);
+
+      // 古いupdatedAtで再度更新を試みる（楽観的排他制御エラー）
+      const secondUpdate = orderTestItemIds.map((id, index) => ({
+        id,
+        displayOrder: orderTestItemIds.length - 1 - index,
+      }));
+
+      const secondResponse = await request(app)
+        .patch(`/api/itemized-statements/${orderTestStatementId}/items/order`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: secondUpdate,
+          updatedAt: orderTestStatementUpdatedAt, // 古いupdatedAt
+        });
+
+      expect(secondResponse.status).toBe(409);
+    });
+
+    it('不正な項目IDでの並び順更新が拒否される (Req 17.14)', async () => {
+      const invalidItems = [
+        { id: '00000000-0000-0000-0000-000000000000', displayOrder: 0 },
+        ...orderTestItemIds.slice(1).map((id, index) => ({
+          id,
+          displayOrder: index + 1,
+        })),
+      ];
+
+      const response = await request(app)
+        .patch(`/api/itemized-statements/${orderTestStatementId}/items/order`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: invalidItems,
+          updatedAt: orderTestStatementUpdatedAt,
+        });
+
+      expect(response.status).toBe(400);
+    });
+  });
 });

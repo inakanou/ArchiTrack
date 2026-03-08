@@ -19,6 +19,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { EstimateRequestForm } from './EstimateRequestForm';
 import type { TradingPartnerInfo } from '../../types/trading-partner.types';
 import type { ItemizedStatementInfo } from '../../types/itemized-statement.types';
@@ -37,6 +38,21 @@ import { getItemizedStatements } from '../../api/itemized-statements';
 
 const mockedGetTradingPartners = vi.mocked(getTradingPartners);
 const mockedGetItemizedStatements = vi.mocked(getItemizedStatements);
+
+// jsdom does not implement scrollIntoView
+Element.prototype.scrollIntoView = vi.fn();
+
+/**
+ * TradingPartnerSelectコンボボックスから取引先を選択するヘルパー
+ */
+async function selectTradingPartner(user: ReturnType<typeof userEvent.setup>, name: string) {
+  const combobox = screen.getByRole('combobox', { name: /宛先/ });
+  await user.click(combobox);
+  await waitFor(() => {
+    expect(screen.getByRole('option', { name: new RegExp(name) })).toBeInTheDocument();
+  });
+  await user.click(screen.getByRole('option', { name: new RegExp(name) }));
+}
 
 describe('EstimateRequestForm', () => {
   const mockTradingPartners: TradingPartnerInfo[] = [
@@ -264,6 +280,7 @@ describe('EstimateRequestForm', () => {
     });
 
     it('内訳書が未選択の場合エラーを表示する（Requirements: 3.7）', async () => {
+      const user = userEvent.setup();
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
@@ -274,9 +291,8 @@ describe('EstimateRequestForm', () => {
       const nameInput = screen.getByLabelText(/見積依頼名/);
       fireEvent.change(nameInput, { target: { value: '見積依頼#1' } });
 
-      // 宛先を選択（モック）
-      const selectTradingPartner = screen.getByLabelText(/宛先/);
-      fireEvent.change(selectTradingPartner, { target: { value: 'tp-1' } });
+      // 宛先をコンボボックスから選択
+      await selectTradingPartner(user, '協力業者A');
 
       const submitButton = screen.getByRole('button', { name: /作成/ });
       fireEvent.click(submitButton);
@@ -321,6 +337,7 @@ describe('EstimateRequestForm', () => {
 
   describe('フォーム送信', () => {
     it('必須項目を入力して保存時にonSubmitが呼ばれる（Requirements: 3.6）', async () => {
+      const user = userEvent.setup();
       const mockOnSubmit = vi.fn().mockResolvedValue({
         id: 'er-1',
         projectId: 'project-1',
@@ -345,9 +362,8 @@ describe('EstimateRequestForm', () => {
       const nameInput = screen.getByLabelText(/見積依頼名/);
       fireEvent.change(nameInput, { target: { value: '見積依頼#1' } });
 
-      // 宛先を選択
-      const selectTradingPartner = screen.getByLabelText(/宛先/);
-      fireEvent.change(selectTradingPartner, { target: { value: 'tp-1' } });
+      // 宛先をコンボボックスから選択
+      await selectTradingPartner(user, '協力業者A');
 
       // 内訳書を選択
       const selectItemizedStatement = screen.getByLabelText(/内訳書/);
@@ -367,6 +383,7 @@ describe('EstimateRequestForm', () => {
     });
 
     it('作成成功時にonSuccessが呼ばれる', async () => {
+      const user = userEvent.setup();
       const createdRequest = {
         id: 'er-1',
         projectId: 'project-1',
@@ -393,7 +410,7 @@ describe('EstimateRequestForm', () => {
 
       // フォーム入力
       fireEvent.change(screen.getByLabelText(/見積依頼名/), { target: { value: '見積依頼#1' } });
-      fireEvent.change(screen.getByLabelText(/宛先/), { target: { value: 'tp-1' } });
+      await selectTradingPartner(user, '協力業者A');
       fireEvent.change(screen.getByLabelText(/内訳書/), { target: { value: 'is-1' } });
 
       // 送信
@@ -433,6 +450,7 @@ describe('EstimateRequestForm', () => {
     });
 
     it('送信中はボタンを無効化する', async () => {
+      const user = userEvent.setup();
       const mockOnSubmit = vi.fn().mockReturnValue(new Promise(() => {}));
 
       render(<EstimateRequestForm {...defaultProps} onSubmit={mockOnSubmit} />);
@@ -443,7 +461,7 @@ describe('EstimateRequestForm', () => {
 
       // フォーム入力
       fireEvent.change(screen.getByLabelText(/見積依頼名/), { target: { value: '見積依頼#1' } });
-      fireEvent.change(screen.getByLabelText(/宛先/), { target: { value: 'tp-1' } });
+      await selectTradingPartner(user, '協力業者A');
       fireEvent.change(screen.getByLabelText(/内訳書/), { target: { value: 'is-1' } });
 
       // 送信

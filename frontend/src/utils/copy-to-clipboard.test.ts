@@ -24,6 +24,7 @@ const mockItems: ItemizedStatementItemInfo[] = [
     specification: '規格A',
     unit: 'm',
     quantity: 123.45,
+    displayOrder: 0,
   },
   {
     id: '2',
@@ -33,6 +34,7 @@ const mockItems: ItemizedStatementItemInfo[] = [
     specification: null,
     unit: 'm2',
     quantity: 0.5,
+    displayOrder: 1,
   },
   {
     id: '3',
@@ -42,6 +44,7 @@ const mockItems: ItemizedStatementItemInfo[] = [
     specification: '規格B',
     unit: null,
     quantity: 1000,
+    displayOrder: 2,
   },
 ];
 
@@ -128,6 +131,7 @@ describe('copy-to-clipboard', () => {
           specification: null,
           unit: null,
           quantity: 0.01,
+          displayOrder: 0,
         },
         {
           id: '2',
@@ -137,6 +141,7 @@ describe('copy-to-clipboard', () => {
           specification: null,
           unit: null,
           quantity: 999999.99,
+          displayOrder: 1,
         },
         {
           id: '3',
@@ -146,6 +151,7 @@ describe('copy-to-clipboard', () => {
           specification: null,
           unit: null,
           quantity: -123.45,
+          displayOrder: 2,
         },
         {
           id: '4',
@@ -155,6 +161,7 @@ describe('copy-to-clipboard', () => {
           specification: null,
           unit: null,
           quantity: 5, // 整数の場合
+          displayOrder: 3,
         },
       ];
 

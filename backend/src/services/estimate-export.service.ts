@@ -362,22 +362,32 @@ export class EstimateExportService {
   ): Promise<Buffer> {
     this.validateEstimateData(estimate);
 
+    // REQ-38.2, REQ-38.3: 空欄行をフィルタリング
+    const filteredEstimate = {
+      ...estimate,
+      items: this.filterEmptyRows(estimate.items, lineTypes),
+    };
+
     // ワークブックを作成
     const workbook = XLSX.utils.book_new();
 
     // 表紙シート
-    const coverSheet = this.createCoverSheet(estimate);
+    const coverSheet = this.createCoverSheet(filteredEstimate);
     XLSX.utils.book_append_sheet(workbook, coverSheet, '表紙');
 
     // プレフィックス付きヘッダーを生成
     const headers = this.getHeadersForLineTypes(lineTypes);
 
     // サマリーシート（第1階層一覧）- 複数行タイプ列
-    const summarySheet = this.createMultiLineTypeSummarySheet(estimate.items, lineTypes, headers);
+    const summarySheet = this.createMultiLineTypeSummarySheet(
+      filteredEstimate.items,
+      lineTypes,
+      headers
+    );
     XLSX.utils.book_append_sheet(workbook, summarySheet, '項目一覧');
 
     // 各第1階層項目の詳細シート
-    this.createMultiLineTypeDetailSheets(workbook, estimate.items, lineTypes, headers);
+    this.createMultiLineTypeDetailSheets(workbook, filteredEstimate.items, lineTypes, headers);
 
     // バッファとして出力
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
@@ -399,6 +409,9 @@ export class EstimateExportService {
   ): Promise<Buffer> {
     this.validateEstimateData(estimate);
 
+    // REQ-38.2, REQ-38.3: 空欄行をフィルタリング
+    const filteredItems = this.filterEmptyRows(estimate.items, lineTypes);
+
     // jsPDFインスタンスを作成
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -411,10 +424,10 @@ export class EstimateExportService {
 
     // 2ページ目: 第1階層項目一覧（複数行タイプ対応）
     doc.addPage();
-    this.generateMultiLineTypeSummaryPage(doc, estimate, estimate.items, lineTypes);
+    this.generateMultiLineTypeSummaryPage(doc, estimate, filteredItems, lineTypes);
 
     // 3ページ目以降: 各階層の詳細（複数行タイプ対応）
-    this.generateMultiLineTypeDetailPages(doc, estimate.items, lineTypes, 0);
+    this.generateMultiLineTypeDetailPages(doc, filteredItems, lineTypes, 0);
 
     // ArrayBufferからBufferへ変換
     const arrayBuffer = doc.output('arraybuffer');
@@ -937,6 +950,58 @@ export class EstimateExportService {
         xPos += colWidthName + colWidthOther;
       }
     }
+  }
+
+  // ============================================================================
+  // 空欄行フィルタリング (Task 47.2, REQ-38.2, REQ-38.3)
+  // ============================================================================
+
+  /**
+   * 選択された行タイプにデータが存在しない行を除外する
+   *
+   * Requirements:
+   * - REQ-38.2: 選択された行タイプにデータが存在する行のみ出力
+   * - REQ-38.3: 空欄行を詰めて出力
+   *
+   * @param items - 見積項目
+   * @param lineTypes - 選択された行タイプ
+   * @returns フィルタリングされた見積項目
+   */
+  private filterEmptyRows(
+    items: EstimateExportItem[],
+    lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
+  ): EstimateExportItem[] {
+    return items
+      .filter((item) => {
+        // 子項目を持つ親項目は階層構造維持のため常に出力対象
+        if (item.children.length > 0) return true;
+        // 選択された行タイプのいずれかにデータが存在するか確認
+        return lineTypes.some((lineType) => {
+          const line = item.lines.find((l) => l.lineType === lineType);
+          return line != null && this.hasLineData(line);
+        });
+      })
+      .map((item) => ({
+        ...item,
+        children: this.filterEmptyRows(item.children, lineTypes),
+      }));
+  }
+
+  /**
+   * 行にデータが存在するかを判定する
+   *
+   * @param line - 見積項目行
+   * @returns データが存在する場合true
+   */
+  private hasLineData(line: EstimateExportLine): boolean {
+    return !!(
+      line.name ||
+      line.specification ||
+      line.unit ||
+      line.quantity != null ||
+      line.unitPrice != null ||
+      line.remarks
+    );
   }
 
   // ============================================================================
