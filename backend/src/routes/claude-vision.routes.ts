@@ -56,12 +56,19 @@ router.post(
         throw ClaudeVisionError.serviceUnavailable();
       }
 
-      const { images } = req.validatedBody as ClaudeVisionExtractRequest;
+      const { images, mode } = req.validatedBody as ClaudeVisionExtractRequest;
 
-      logger.info({ imageCount: images.length }, 'Claude Vision extraction request received');
+      logger.info(
+        { imageCount: images.length, mode: mode || 'estimate' },
+        'Claude Vision extraction request received'
+      );
 
-      // Call Claude Vision service
-      const result = await claudeVisionService.extractLineItems(images);
+      // Call appropriate extraction method based on mode
+      // Task 43.2: mode='quantity-table'の場合は数量表用抽出を実行
+      const result =
+        mode === 'quantity-table'
+          ? await claudeVisionService.extractQuantityTableData(images)
+          : await claudeVisionService.extractLineItems(images);
 
       logger.info(
         { lineItemCount: result.lineItems.length, pageCount: result.pageCount },

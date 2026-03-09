@@ -113,7 +113,7 @@ function createEmptyCandidates(): Record<AutocompleteFieldName, string[]> {
  * 5. 50音順（locale: 'ja'）でソート
  */
 function filterCandidates(candidates: string[], inputText: string): string[] {
-  const trimmedInput = inputText.trim();
+  const trimmedInput = (inputText ?? '').trim();
 
   let filtered = candidates.filter((v) => v.trim() !== '');
 
