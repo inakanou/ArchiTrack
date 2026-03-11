@@ -266,7 +266,7 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
             aria-label="ファイルを選択"
             style={{ fontSize: '14px' }}
           />
-          <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+          <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#6b7280' }}>
             対応形式: Excel（.xlsx、.xls）、PDF（.pdf）
           </p>
         </div>
