@@ -266,5 +266,59 @@ describe('ClaudeVisionService - 数量表抽出', () => {
 
       await expect(service.extractQuantityTableData(images)).rejects.toThrow(ClaudeVisionError);
     });
+
+    it('非ClaudeVisionErrorの場合はconvertErrorで変換してスローする', async () => {
+      mockCreate.mockRejectedValue(new Error('unexpected API error'));
+
+      const images = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' as const }];
+
+      try {
+        await service.extractQuantityTableData(images);
+        expect.fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeVisionError);
+        expect((e as ClaudeVisionError).errorType).toBe('unknown');
+      }
+    });
+
+    it('Error以外の値がスローされた場合もClaudeVisionError.unknownに変換する', async () => {
+      mockCreate.mockRejectedValue('string error');
+
+      const images = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' as const }];
+
+      try {
+        await service.extractQuantityTableData(images);
+        expect.fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeVisionError);
+        expect((e as ClaudeVisionError).errorType).toBe('unknown');
+      }
+    });
+
+    it('数値フィールドにboolean等の非number/string型が渡された場合はnullを返す', async () => {
+      const mockResponse = [
+        {
+          majorCategory: null,
+          middleCategory: null,
+          minorCategory: null,
+          customCategory: null,
+          workType: null,
+          name: 'テスト',
+          specification: null,
+          quantity: true,
+          unit: null,
+          remarks: null,
+        },
+      ];
+
+      mockCreate.mockResolvedValue({
+        content: [{ type: 'text', text: JSON.stringify(mockResponse) }],
+      });
+
+      const images = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' as const }];
+
+      const result = await service.extractQuantityTableData(images);
+      expect(result.lineItems[0]?.quantity).toBeNull();
+    });
   });
 });
