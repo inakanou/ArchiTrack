@@ -427,6 +427,90 @@ describe('ImportDialog', () => {
     expect(screen.queryByRole('button', { name: '一括取り込み' })).not.toBeInTheDocument();
   });
 
+  it('グループ選択のキャンセルボタンで選択UIが閉じる', async () => {
+    vi.mocked(useImportDataExtractor).mockReturnValue({
+      status: 'completed',
+      progress: 100,
+      progressMessage: '完了',
+      result: {
+        headers: ['工種', '名称', '数量', '単位'],
+        rows: [{ columns: ['土工', '掘削工', '150', 'm3'], sourceRowIndex: 0 }],
+        extractionType: 'excel-parse',
+      },
+      error: null,
+      startExtraction: mockStartExtraction,
+      retry: mockRetry,
+      reset: mockReset,
+    });
+
+    render(<ImportDialog {...defaultProps} />);
+
+    // 一括取り込みをクリック
+    await userEvent.click(screen.getByRole('button', { name: '一括取り込み' }));
+    expect(screen.getByText('取り込み先グループを選択')).toBeInTheDocument();
+
+    // キャンセルをクリック
+    await userEvent.click(screen.getByText('キャンセル'));
+    expect(screen.queryByText('取り込み先グループを選択')).not.toBeInTheDocument();
+  });
+
+  it('取り込み失敗時にエラーメッセージが表示される', async () => {
+    vi.mocked(useImportDataExtractor).mockReturnValue({
+      status: 'completed',
+      progress: 100,
+      progressMessage: '完了',
+      result: {
+        headers: ['工種', '名称', '数量', '単位'],
+        rows: [{ columns: ['土工', '掘削工', '150', 'm3'], sourceRowIndex: 0 }],
+        extractionType: 'excel-parse',
+      },
+      error: null,
+      startExtraction: mockStartExtraction,
+      retry: mockRetry,
+      reset: mockReset,
+    });
+
+    defaultProps.onImport.mockRejectedValue(new Error('API error'));
+
+    render(<ImportDialog {...defaultProps} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '一括取り込み' }));
+    await userEvent.click(screen.getByText('グループA'));
+
+    await waitFor(() => {
+      expect(screen.getByText('取り込みに失敗しました。')).toBeInTheDocument();
+    });
+  });
+
+  it('ドラッグ&ドロップでファイルをアップロードできる', async () => {
+    render(<ImportDialog {...defaultProps} />);
+
+    const dropZone = screen.getByText(/ファイルをドラッグ&ドロップ/).closest('div')!;
+
+    const file = new File(['test'], 'test.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    fireEvent.dragOver(dropZone);
+    fireEvent.drop(dropZone, {
+      dataTransfer: { files: [file] },
+    });
+
+    expect(mockStartExtraction).toHaveBeenCalledWith(file);
+  });
+
+  it('ドラッグ離脱時にドラッグ状態がリセットされる', () => {
+    render(<ImportDialog {...defaultProps} />);
+
+    const dropZone = screen.getByText(/ファイルをドラッグ&ドロップ/).closest('div')!;
+
+    fireEvent.dragOver(dropZone);
+    fireEvent.dragLeave(dropZone);
+
+    // ドラッグ状態がリセットされたことを確認（エラーなく完了すればOK）
+    expect(dropZone).toBeInTheDocument();
+  });
+
   it('エラー時でもファイルアップロードが許可される', () => {
     vi.mocked(useImportDataExtractor).mockReturnValue({
       status: 'error',

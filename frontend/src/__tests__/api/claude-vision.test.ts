@@ -27,10 +27,15 @@ vi.mock('../../api/client', async () => {
 
 import {
   extractWithClaudeVision,
+  extractWithClaudeVisionForQuantityTable,
   ClaudeVisionApiError,
   isClaudeVisionApiError,
 } from '../../api/claude-vision';
-import type { ClaudeVisionImageInput, ClaudeVisionExtractResponse } from '../../api/claude-vision';
+import type {
+  ClaudeVisionImageInput,
+  ClaudeVisionExtractResponse,
+  ClaudeVisionQuantityExtractResponse,
+} from '../../api/claude-vision';
 
 describe('claude-vision API client', () => {
   beforeEach(() => {
@@ -198,6 +203,108 @@ describe('claude-vision API client', () => {
       expect(isClaudeVisionApiError(null)).toBe(false);
       expect(isClaudeVisionApiError(undefined)).toBe(false);
       expect(isClaudeVisionApiError('string')).toBe(false);
+    });
+  });
+
+  describe('extractWithClaudeVisionForQuantityTable()', () => {
+    it('should call apiClient.post with mode quantity-table', async () => {
+      const mockResponse: ClaudeVisionQuantityExtractResponse = {
+        lineItems: [
+          {
+            majorCategory: '共通仮設',
+            middleCategory: null,
+            minorCategory: null,
+            customCategory: null,
+            workType: '土工',
+            name: '掘削工',
+            specification: 'バックホウ',
+            quantity: 100,
+            unit: 'm3',
+            remarks: null,
+          },
+        ],
+        pageCount: 1,
+      };
+
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResponse);
+
+      const images: ClaudeVisionImageInput[] = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' }];
+
+      const result = await extractWithClaudeVisionForQuantityTable(images);
+
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/api/claude-vision/extract',
+        { images, mode: 'quantity-table' },
+        expect.any(Object)
+      );
+      expect(result.lineItems).toHaveLength(1);
+      expect(result.lineItems[0]!.workType).toBe('土工');
+      expect(result.pageCount).toBe(1);
+    });
+
+    it('should convert ApiError to ClaudeVisionApiError', async () => {
+      const errorResponse = {
+        errorType: 'timeout',
+        message: 'タイムアウト',
+      };
+      vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(504, 'timeout', errorResponse));
+
+      const images: ClaudeVisionImageInput[] = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' }];
+
+      try {
+        await extractWithClaudeVisionForQuantityTable(images);
+        expect.fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeVisionApiError);
+        const err = e as ClaudeVisionApiError;
+        expect(err.errorType).toBe('timeout');
+        expect(err.statusCode).toBe(504);
+        expect(err.shouldFallback).toBe(true);
+      }
+    });
+
+    it('should handle ApiError without errorType in response', async () => {
+      vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(500, 'server error'));
+
+      const images: ClaudeVisionImageInput[] = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' }];
+
+      try {
+        await extractWithClaudeVisionForQuantityTable(images);
+        expect.fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeVisionApiError);
+        expect((e as ClaudeVisionApiError).errorType).toBe('unknown');
+      }
+    });
+
+    it('should wrap non-ApiError as ClaudeVisionApiError', async () => {
+      vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Network failed'));
+
+      const images: ClaudeVisionImageInput[] = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' }];
+
+      try {
+        await extractWithClaudeVisionForQuantityTable(images);
+        expect.fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeVisionApiError);
+        expect((e as ClaudeVisionApiError).errorType).toBe('unknown');
+        expect((e as ClaudeVisionApiError).statusCode).toBe(0);
+      }
+    });
+
+    it('should wrap non-Error thrown values as ClaudeVisionApiError', async () => {
+      vi.mocked(apiClient.post).mockRejectedValueOnce('string error');
+
+      const images: ClaudeVisionImageInput[] = [{ base64Data: 'dGVzdA==', mediaType: 'image/png' }];
+
+      try {
+        await extractWithClaudeVisionForQuantityTable(images);
+        expect.fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeVisionApiError);
+        expect((e as ClaudeVisionApiError).message).toBe('Unknown error');
+        expect((e as ClaudeVisionApiError).statusCode).toBe(0);
+      }
     });
   });
 
