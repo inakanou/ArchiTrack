@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-03-08（Steering Sync: 数量表コンポーネント追加、内訳書並び替えAPI追加、統合テスト増加、フック数更新を反映）_
+_最終更新: 2026-03-12（Steering Sync: 数量表インポート機能追加、テストファイル数更新を反映）_
 
 ## ルートディレクトリ構成
 
@@ -234,7 +234,7 @@ git config core.hooksPath .husky
 
 - `.kiro/specs/quantity-table-generation/` - 数量表作成機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全48タスク完了）
-  - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ、フィールドバリデーション（文字数制限・数値範囲・表示書式）
+  - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ、フィールドバリデーション（文字数制限・数値範囲・表示書式）、数量表インポート（Excel/PDF、Claude Vision OCR連携）
 
 - `.kiro/specs/itemized-statement-generation/` - 内訳書作成機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全16タスク完了）
@@ -319,7 +319,7 @@ e2e/
 - `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
 - `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
 - `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
-- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様、数量表コピー、タイトル行最適化、フォーカス全選択、オートコンプリート最適化）
+- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様、数量表コピー、タイトル行最適化、フォーカス全選択、オートコンプリート最適化、インポート機能）
 - `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
 - `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ、OCR再実行/リトライ、PDFテキスト抽出、数値表示形式、受領見積書ステータス）
 - `company-info/` - 自社情報テスト（CRUD、アクセス制御、楽観的排他制御）
@@ -469,6 +469,13 @@ frontend/
 │   │           ├── TextTool.ts      # テキストツール
 │   │           ├── registerCustomShapes.ts # カスタムシェイプ登録
 │   │           └── index.ts         # エクスポート集約
+│   │   ├── quantity-table-import/    # 数量表インポートコンポーネント（8ファイル）
+│   │       ├── ImportDialog.tsx    # インポートダイアログ（Excel/PDFファイル選択、プレビュー、確定）
+│   │       ├── ImportPreviewTable.tsx # インポートプレビューテーブル
+│   │       ├── excel-parser.ts     # Excelファイルパーサー（SheetJS）
+│   │       ├── field-mapping.ts    # フィールドマッピングロジック
+│   │       ├── pdf-ocr-extractor.ts # PDF OCR抽出（Claude Vision API連携）
+│   │       └── useImportDataExtractor.ts # データ抽出カスタムフック
 │   │   ├── quantity-table/          # 数量表コンポーネント（22ファイル）
 │   │       ├── QuantityInput.tsx    # 数量入力
 │   │       ├── QuantityGroupCard.tsx # 数量グループカード
@@ -620,7 +627,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（118ファイル）:**
+**Storybookストーリーファイル（121ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -673,6 +680,11 @@ frontend/
 - `PhotoChangeDialog.stories.tsx` - 写真変更ダイアログ
 - `PhotoCommentDisplay.stories.tsx` - 写真コメント表示
 - `PhotoPreviewDialog.stories.tsx` - 写真プレビューダイアログ
+- `SortOrderButtons.stories.tsx` - 並び順変更ボタン
+
+数量表インポートコンポーネント（quantity-table-import/）:
+- `ImportDialog.stories.tsx` - インポートダイアログ
+- `ImportPreviewTable.stories.tsx` - インポートプレビューテーブル
 
 プロジェクトコンポーネント（projects/）:
 - `QuantityTableSectionCard.stories.tsx` - 数量表セクションカード
@@ -701,9 +713,9 @@ frontend/src/
 │   ├── claude-vision.ts # Claude Vision OCR API
 │   ├── company-info.ts # 自社情報API
 │   └── estimates.ts # 見積書API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges等 26ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor等 26ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
-├── types/             # 型定義（auth.types.ts、session.types.ts等）
+├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
 ├── utils/             # ユーティリティ関数
 │   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
 │   ├── estimate-calculation.ts # 見積金額計算ユーティリティ（数値表示形式・丸め規則）
@@ -736,7 +748,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（136テストファイル）
+│   │   └── unit/          # ユニットテスト（138テストファイル）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -1109,7 +1121,7 @@ backend/src/
 - `GET /api/projects/:projectId/received-quotations`: プロジェクトに紐付く受領見積書一覧取得（転記ダイアログ用）
 
 **Claude Vision OCR API（claude-vision.routes.ts）:**
-- `POST /api/claude-vision/extract`: Claude Vision APIによる見積書画像の構造化データ抽出（複数ページ一括処理対応）
+- `POST /api/claude-vision/extract`: Claude Vision APIによる画像の構造化データ抽出（複数ページ一括処理対応、mode: 'estimate'=見積書OCR / 'quantity-table'=数量表インポートOCR）
 
 **見積書管理API（estimates.routes.ts）:**
 - `GET /api/projects/:projectId/estimates`: 見積書一覧取得
@@ -1420,8 +1432,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト136ファイル + 統合テスト24ファイル
-- Frontend: 単体テスト299ファイル
+- Backend: 単体テスト138ファイル + 統合テスト24ファイル
+- Frontend: 単体テスト306ファイル
 
 ### .gitignore
 
