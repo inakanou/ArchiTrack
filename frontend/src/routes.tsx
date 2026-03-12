@@ -41,6 +41,7 @@ import EstimateListPage from './pages/EstimateListPage';
 import EstimateCreatePage from './pages/EstimateCreatePage';
 import EstimateDetailPage from './pages/EstimateDetailPage';
 import CompanyInfoPage from './pages/CompanyInfoPage';
+import ContractListPage from './pages/ContractListPage';
 
 /**
  * アプリケーションのルート設定
@@ -309,6 +310,15 @@ export const routes: RouteObject[] = [
       {
         path: '/estimates/:id',
         element: <EstimateDetailPage />,
+      },
+
+      // 契約書一覧
+      // REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
+      // REQ-1.2: 各契約書について契約種類、契約日、ステータスを一覧に表示する
+      // Task 4.1: 契約書一覧ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts',
+        element: <ContractListPage />,
       },
 
       // 取引先一覧
