@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. データモデルとマイグレーションの作成
+- [x] 1. データモデルとマイグレーションの作成
 - [x] 1.1 Prismaスキーマに契約書モデルを追加し、マイグレーションを実行する
   - ContractType（NEW/AMENDMENT）とContractStatus（BEFORE_CONTRACT/CONTRACTED）のEnum定義
   - Contractモデルの全フィールド定義（契約日、工期、引渡日、消費税率、支払条件、別途工事、その他、金額スナップショット等）
@@ -10,8 +10,8 @@
   - Prisma Clientの再生成とマイグレーション実行
   - _Requirements: 3.1, 5.1, 5.3, 8.3_
 
-- [ ] 2. バックエンドバリデーションとサービス層の実装
-- [ ] 2.1 契約書のZodバリデーションスキーマを定義する
+- [x] 2. バックエンドバリデーションとサービス層の実装
+- [x] 2.1 契約書のZodバリデーションスキーマを定義する
   - 契約書作成入力（CreateContractInput）のバリデーションスキーマ（contractType、estimateId、contractDate、工期、引渡日、taxRate、paymentTerms、separateConstruction、otherNotes、supervisorTradingPartnerId、金額フィールド）
   - 契約書更新入力（UpdateContractInput）のバリデーションスキーマ（version含む楽観的排他制御）
   - 契約書一覧クエリ（ContractListQuery）のバリデーションスキーマ
@@ -21,7 +21,7 @@
   - 日付の論理チェック（着手日 <= 完成日等）
   - _Requirements: 3.1, 3.2, 5.1, 5.3, 7.1, 9.2_
 
-- [ ] 2.2 契約書サービス層のCRUD操作を実装する
+- [x] 2.2 契約書サービス層のCRUD操作を実装する
   - プロジェクトスコープの契約書一覧取得（ページネーション、ソート対応、論理削除除外）
   - 契約書詳細取得（リレーション展開：見積書、基契約書、監理者取引先、プロジェクト情報）
   - 契約書作成（新規契約・変更契約の共通処理、ステータスBEFORE_CONTRACTで初期化、金額スナップショット保存）
@@ -30,7 +30,7 @@
   - 変更契約のparentContractIdが同プロジェクトの契約書であることの検証
   - _Requirements: 1.1, 1.2, 7.1, 8.1, 8.3, 9.2_
 
-- [ ] 2.3 契約書ステータス遷移ロジックを実装する
+- [x] 2.3 契約書ステータス遷移ロジックを実装する
   - BEFORE_CONTRACT <-> CONTRACTEDの双方向ステータス遷移
   - ステータス更新後の契約書詳細返却
   - _Requirements: 8.2, 8.3_
