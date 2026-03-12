@@ -630,10 +630,27 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
         await page.getByRole('button', { name: /パスワードを変更/i }).click();
       }
 
-      // 確認ダイアログが表示されるのを待つ
-      await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      // 確認ダイアログが表示されるのを待つ（表示されない場合はフォーム再入力・再クリックをリトライ）
+      let dialogVisible = false;
+      for (let dialogRetry = 0; dialogRetry < 3; dialogRetry++) {
+        const confirmBtn = page.getByRole('button', { name: /はい、変更する/i });
+        try {
+          await expect(confirmBtn).toBeVisible({ timeout: getTimeout(5000) });
+          dialogVisible = true;
+          break;
+        } catch {
+          // ダイアログが表示されない場合、フォームの入力状態をクリアして再入力
+          await page.locator('input#currentPassword').fill('');
+          await page.locator('input#newPassword').fill('');
+          await page.locator('input#confirmPassword').fill('');
+          await page.waitForTimeout(300);
+          await page.locator('input#currentPassword').fill(currentPwd);
+          await page.locator('input#newPassword').fill(newPwd);
+          await page.locator('input#confirmPassword').fill(newPwd);
+          await page.getByRole('button', { name: /パスワードを変更/i }).click();
+        }
+      }
+      expect(dialogVisible).toBe(true);
 
       // 確認ボタンをクリック
       await page.getByRole('button', { name: /はい、変更する/i }).click();

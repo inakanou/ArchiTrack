@@ -22,7 +22,7 @@ const CONFIG = {
   componentDir: path.join(__dirname, '../src/components'),
 
   // 目標カバレッジ（%）
-  targetCoverage: 80,
+  targetCoverage: 100,
 
   // 除外パターン（Storiesが不要なファイル）
   excludePatterns: [

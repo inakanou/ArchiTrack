@@ -90,6 +90,36 @@ export function isClaudeVisionApiError(error: unknown): error is ClaudeVisionApi
 }
 
 // ============================================================================
+// 数量表用型定義
+// ============================================================================
+
+/**
+ * 数量表用のClaude Vision抽出結果の明細行データ
+ *
+ * Task 43.2: 数量表モード対応
+ */
+export interface ClaudeVisionQuantityLineItem {
+  majorCategory: string | null;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string | null;
+  name: string | null;
+  specification: string | null;
+  quantity: number | null;
+  unit: string | null;
+  remarks: string | null;
+}
+
+/**
+ * 数量表用のClaude Vision抽出レスポンス
+ */
+export interface ClaudeVisionQuantityExtractResponse {
+  lineItems: ClaudeVisionQuantityLineItem[];
+  pageCount: number;
+}
+
+// ============================================================================
 // APIクライアント関数
 // ============================================================================
 
@@ -120,6 +150,40 @@ export async function extractWithClaudeVision(
     }
 
     // その他のエラー（ネットワークエラー等）
+    throw new ClaudeVisionApiError(
+      error instanceof Error ? error.message : 'Unknown error',
+      'unknown',
+      0
+    );
+  }
+}
+
+/**
+ * Claude Vision APIで数量表データを抽出する（mode='quantity-table'）
+ *
+ * Task 44.3: Claude Vision API連携によるPDF高精度抽出
+ *
+ * @param images - Base64エンコードされた画像データの配列
+ * @returns 抽出された数量項目データとページ数
+ * @throws ClaudeVisionApiError - Claude Vision API固有エラー
+ */
+export async function extractWithClaudeVisionForQuantityTable(
+  images: ClaudeVisionImageInput[]
+): Promise<ClaudeVisionQuantityExtractResponse> {
+  try {
+    const response = await apiClient.post<ClaudeVisionQuantityExtractResponse>(
+      '/api/claude-vision/extract',
+      { images, mode: 'quantity-table' },
+      { disableRetry: true, timeout: 60000 }
+    );
+    return response;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const response = error.response as Record<string, unknown> | undefined;
+      const errorType = (response?.errorType as ClaudeVisionErrorType) || 'unknown';
+      throw new ClaudeVisionApiError(error.message, errorType, error.statusCode);
+    }
+
     throw new ClaudeVisionApiError(
       error instanceof Error ? error.message : 'Unknown error',
       'unknown',

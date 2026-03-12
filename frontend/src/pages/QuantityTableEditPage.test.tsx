@@ -2447,4 +2447,124 @@ describe('QuantityTableEditPage', () => {
       });
     });
   });
+
+  // ===========================================================================
+  // インポートダイアログ表示
+  // ===========================================================================
+
+  describe('インポートダイアログ', () => {
+    it('インポートボタンクリックでインポートダイアログが開く', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const importButton = screen.getByRole('button', { name: 'インポート' });
+      await user.click(importButton);
+
+      expect(screen.getByText('数量表インポート')).toBeInTheDocument();
+    });
+  });
+
+  // ===========================================================================
+  // 写真選択のキーボード操作
+  // ===========================================================================
+
+  describe('写真選択のキーボード操作', () => {
+    it('写真アイテムでEnterキーを押すと選択される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: 'テスト調査',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 1,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: 'テスト調査',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: [
+          {
+            id: 'photo-1',
+            surveyId: 'survey-1',
+            originalPath: '/original/photo1.jpg',
+            thumbnailPath: '/thumb/photo1.jpg',
+            originalUrl: '/images/original-1.jpg',
+            thumbnailUrl: '/images/thumb-1.jpg',
+            fileName: 'photo1.jpg',
+            fileSize: 1024,
+            width: 800,
+            height: 600,
+            displayOrder: 0,
+            createdAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+      });
+      mockUpdateQuantityGroup.mockResolvedValue({
+        id: 'group-2',
+        quantityTableId: 'qt-123',
+        name: null,
+        surveyImageId: 'photo-1',
+        displayOrder: 1,
+        itemCount: 1,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-02T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 写真選択ボタンをクリック
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      // 写真が読み込まれるのを待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('photo-item-photo-1')).toBeInTheDocument();
+      });
+
+      // 写真にフォーカスしてEnterキーで選択
+      const photoButton = screen.getByRole('button', { name: /photo1.jpgを選択/ });
+      photoButton.focus();
+      await user.keyboard('{Enter}');
+
+      // APIが呼ばれることを確認
+      await waitFor(() => {
+        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
+          'group-2',
+          { surveyImageId: 'photo-1' },
+          expect.any(String)
+        );
+      });
+    });
+  });
 });

@@ -159,11 +159,13 @@ describe('EstimateRequestForm - TradingPartnerSelect統合', () => {
       });
 
       // TradingPartnerSelect内部でgetTradingPartnersがSUBCONTRACTORフィルタで呼ばれる
-      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
-        expect.objectContaining({
-          filter: { type: ['SUBCONTRACTOR'] },
-        })
-      );
+      await waitFor(() => {
+        expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
+          expect.objectContaining({
+            filter: { type: ['SUBCONTRACTOR'] },
+          })
+        );
+      });
     });
   });
 

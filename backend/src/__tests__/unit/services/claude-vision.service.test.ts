@@ -442,6 +442,37 @@ describe('ClaudeVisionService', () => {
       }
     });
 
+    it('should convert non-Error thrown value to ClaudeVisionError.unknown()', async () => {
+      mockCreate.mockRejectedValueOnce('string error value');
+
+      try {
+        await service.extractLineItems([{ base64Data: 'dGVzdA==', mediaType: 'image/png' }]);
+        expect.fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeVisionError);
+        expect((e as ClaudeVisionError).errorType).toBe('unknown');
+      }
+    });
+
+    it('should return null for non-number/string numeric fields (e.g., boolean)', async () => {
+      mockCreate.mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: '[{"name": "テスト", "quantity": true, "unitPrice": false, "amount": [1,2]}]',
+          },
+        ],
+      });
+
+      const result = await service.extractLineItems([
+        { base64Data: 'dGVzdA==', mediaType: 'image/png' },
+      ]);
+
+      expect(result.lineItems[0]!.quantity).toBeNull();
+      expect(result.lineItems[0]!.unitPrice).toBeNull();
+      expect(result.lineItems[0]!.amount).toBeNull();
+    });
+
     it('should log errors without including API key', async () => {
       mockCreate.mockRejectedValueOnce(new Error('Test error'));
 

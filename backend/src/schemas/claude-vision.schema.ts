@@ -33,6 +33,8 @@ export const claudeVisionExtractRequestSchema = z.object({
     .array(claudeVisionImageSchema)
     .min(1, '1つ以上の画像が必要です')
     .max(20, '一度に処理できる画像は最大20ページです'),
+  /** 抽出モード: 'estimate'（見積書）または 'quantity-table'（数量表）。未指定の場合は見積書モード */
+  mode: z.enum(['estimate', 'quantity-table']).optional(),
 });
 
 /** Claude Vision抽出リクエストの型 */

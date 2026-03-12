@@ -39,6 +39,8 @@ import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedIma
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
 import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExportService';
 import { downloadPdf } from '../services/export/PdfExportService';
+import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
+import type { ImportQuantityItem } from '../types/quantity-import.types';
 
 // ============================================================================
 // スタイル定義
@@ -475,6 +477,8 @@ export default function QuantityTableEditPage() {
   const [annotationViewerGroupId, setAnnotationViewerGroupId] = useState<string | null>(null);
   // PDF出力用state（REQ-26.1, 26.9）
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  // インポートダイアログ用state（REQ-27.1）
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
 
   /**
    * 数量表詳細を取得
@@ -1378,6 +1382,74 @@ export default function QuantityTableEditPage() {
   }, [isPdfGenerating, quantityTable]);
 
   /**
+   * インポートハンドラ
+   *
+   * Requirements: 27.1, 31.3, 31.8
+   *
+   * ImportDialogから受け取った数量項目をグループに一括追加する。
+   */
+  const handleImport = useCallback(
+    async (groupId: string, items: ImportQuantityItem[]) => {
+      setOperationError(null);
+
+      try {
+        const targetGroup = (quantityTable?.groups ?? []).find((g) => g.id === groupId);
+        const currentItems = targetGroup?.items ?? [];
+        const maxDisplayOrder = currentItems.reduce(
+          (max, item) => Math.max(max, item.displayOrder),
+          -1
+        );
+
+        const createdItems: Awaited<ReturnType<typeof createQuantityItem>>[] = [];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]!;
+          const newItem = await createQuantityItem(groupId, {
+            majorCategory: item.majorCategory,
+            middleCategory: item.middleCategory || null,
+            minorCategory: item.minorCategory || null,
+            customCategory: item.customCategory || null,
+            workType: item.workType,
+            name: item.name,
+            specification: item.specification || null,
+            unit: item.unit,
+            quantity: item.quantity,
+            calculationMethod: item.calculationMethod,
+            adjustmentFactor: item.adjustmentFactor,
+            roundingUnit: item.roundingUnit,
+            remarks: item.remarks || null,
+            displayOrder: maxDisplayOrder + 1 + i,
+          });
+          createdItems.push(newItem);
+        }
+
+        // ローカル状態を更新
+        setQuantityTable((prev) => {
+          if (!prev) return prev;
+          const updatedGroups = (prev.groups ?? []).map((g) => {
+            if (g.id === groupId) {
+              return {
+                ...g,
+                items: [...(g.items ?? []), ...createdItems],
+                itemCount: (g.itemCount ?? 0) + createdItems.length,
+              };
+            }
+            return g;
+          });
+          return {
+            ...prev,
+            itemCount: prev.itemCount + createdItems.length,
+            groups: updatedGroups,
+          };
+        });
+      } catch {
+        setOperationError('インポートに失敗しました');
+        throw new Error('インポートに失敗しました');
+      }
+    },
+    [quantityTable]
+  );
+
+  /**
    * 保存ハンドラ
    *
    * Requirements: 11.1, 11.2
@@ -1565,6 +1637,17 @@ export default function QuantityTableEditPage() {
               {saveMessage}
             </span>
           )}
+          <button
+            type="button"
+            style={{
+              ...styles.pdfExportButton,
+              backgroundColor: '#0891b2',
+            }}
+            onClick={() => setIsImportDialogOpen(true)}
+            aria-label="インポート"
+          >
+            インポート
+          </button>
           <button
             type="button"
             style={{
@@ -1852,6 +1935,14 @@ export default function QuantityTableEditPage() {
             </div>
           );
         })()}
+
+      {/* インポートダイアログ (REQ-27.1) */}
+      <ImportDialog
+        isOpen={isImportDialogOpen}
+        onClose={() => setIsImportDialogOpen(false)}
+        onImport={handleImport}
+        groups={groups}
+      />
     </main>
   );
 }
