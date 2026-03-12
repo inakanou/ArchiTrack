@@ -119,9 +119,10 @@ sequenceDiagram
     CCP->>API: GET /api/projects/:projectId/estimates
     API-->>CCP: 見積書一覧
     U->>CCP: 見積書選択
-    CCP->>API: GET /api/estimates/:estimateId/summary
-    API-->>CCP: 見積書金額情報
-    CCP->>CCP: 請負代金額・工事価格・消費税額を自動計算表示
+    CCP->>API: GET /api/estimates/:estimateId
+    API-->>CCP: 見積書詳細（項目一覧含む）
+    CCP->>CCP: EstimateCalculator.calculateSubtotal()で工事価格を算出
+    CCP->>CCP: 消費税額＝工事価格×消費税率、請負代金額＝工事価格＋消費税額を自動計算表示
     CCP->>CCP: プロジェクト情報（顧客・自社・工事名・工事場所）を自動表示
     U->>CCP: 残りの項目を入力
     U->>CCP: 作成ボタン押下
@@ -185,8 +186,8 @@ stateDiagram-v2
 | 3.2 | 消費税率デフォルト10% | ContractForm | - | - |
 | 3.3 | 監理者取引先選択UI | TradingPartnerSelect | GET /trading-partners | - |
 | 3.4 | 見積書選択UI | ContractForm | GET /estimates | - |
-| 4.1 | 請負代金額自動表示 | ContractForm | GET /estimates/:id/summary | 新規契約作成フロー |
-| 4.2 | 工事価格自動表示 | ContractForm | GET /estimates/:id/summary | 新規契約作成フロー |
+| 4.1 | 請負代金額自動表示 | ContractForm | GET /estimates/:id（既存API + フロントエンド計算） | 新規契約作成フロー |
+| 4.2 | 工事価格自動表示 | ContractForm | GET /estimates/:id（既存API + フロントエンド計算） | 新規契約作成フロー |
 | 4.3 | 消費税額自動計算 | ContractForm | - | - |
 | 4.4 | 発注者自動表示 | ContractForm | Project.tradingPartner | - |
 | 4.5 | 請負者自動表示 | ContractForm | CompanyInfo | - |
@@ -212,7 +213,7 @@ stateDiagram-v2
 | 9.2 | 編集保存 | ContractForm, ContractService | PUT /contracts/:id | - |
 | 9.3 | 編集キャンセル | ContractForm | - | - |
 | 9.4 | パンくずナビゲーション | Breadcrumb | - | - |
-| 9.5 | 編集時自動表示項目更新 | ContractForm | GET /estimates/:id/summary | - |
+| 9.5 | 編集時自動表示項目更新 | ContractForm | GET /estimates/:id（既存API + フロントエンド計算） | - |
 
 ## Components and Interfaces
 
@@ -319,7 +320,7 @@ interface ContractService {
 **Implementation Notes**
 - Integration: `app.use('/api/projects/:projectId/contracts', contractsRoutes)` + `app.use('/api/contracts', contractsRoutes)` のデュアルマウント
 - Validation: 全エンドポイントにZodスキーマバリデーションを適用
-- Risks: 見積書金額取得時のEstimateServiceへの依存。見積書が論理削除されている場合のエラーハンドリングが必要
+- Risks: 見積書が論理削除されている場合のエラーハンドリングが必要
 
 ### Backend / Validation
 
@@ -383,6 +384,7 @@ interface UpdateContractInput {
   contractAmount: number;
   constructionPrice: number;
   taxAmount: number;
+  version: number; // 楽観的排他制御
 }
 
 // 契約書一覧クエリ
@@ -436,6 +438,7 @@ interface ContractDetail {
     siteAddress: string | null;
     tradingPartner: { id: string; name: string } | null;
   };
+  version: number; // 楽観的排他制御
   createdAt: string;
   updatedAt: string;
 }
@@ -529,7 +532,7 @@ interface ContractDetail {
 **Implementation Notes**
 - Integration: `mode` prop（'create' | 'edit'）でフォーム動作を切り替え。editモードでは契約種類選択を無効化
 - Validation: 各フィールドのクライアントサイドバリデーション。日付の論理チェック（着手日 <= 完成日等）
-- Risks: 見積書金額取得APIの追加が必要（既存EstimateServiceの集計メソッドをAPI化）
+- Risks: なし（既存のGET /api/estimates/:estimateIdとフロントエンドのEstimateCalculator.calculateSubtotal()を利用して金額を算出）
 
 #### ComparisonPanel
 
@@ -611,6 +614,7 @@ CREATE TABLE contracts (
   contract_amount DECIMAL(15,0) NOT NULL DEFAULT 0,
   construction_price DECIMAL(15,0) NOT NULL DEFAULT 0,
   tax_amount DECIMAL(15,0) NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ
@@ -657,6 +661,7 @@ model Contract {
   contractAmount             Decimal        @default(0) @db.Decimal(15, 0)
   constructionPrice          Decimal        @default(0) @db.Decimal(15, 0)
   taxAmount                  Decimal        @default(0) @db.Decimal(15, 0)
+  version                    Int            @default(0)
   createdAt                  DateTime       @default(now())
   updatedAt                  DateTime       @updatedAt
   deletedAt                  DateTime?
@@ -716,7 +721,7 @@ model TradingPartner {
 - 401: 未認証
 - 403: 権限不足
 - 404: 契約書/プロジェクト/見積書が見つからない
-- 409: 楽観的排他制御の競合（将来対応予定）
+- 409: 楽観的排他制御の競合（versionフィールドによる排他制御）
 
 **Business Logic Errors (422)**:
 - 変更契約の基契約書が他プロジェクトの契約書を指している場合
