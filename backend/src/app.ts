@@ -43,6 +43,7 @@ import companyInfoRoutes from './routes/company-info.routes.js';
 import estimatesRoutes from './routes/estimates.routes.js';
 import projectQuotationsRoutes from './routes/project-quotations.routes.js';
 import claudeVisionRoutes from './routes/claude-vision.routes.js';
+import contractsRoutes from './routes/contracts.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -372,6 +373,10 @@ app.use('/api/company-info', companyInfoRoutes);
 // Estimate management routes
 app.use('/api/projects/:projectId/estimates', estimatesRoutes);
 app.use('/api/estimates', estimatesRoutes);
+
+// Contract management routes
+app.use('/api/projects/:projectId/contracts', contractsRoutes);
+app.use('/api/contracts', contractsRoutes);
 
 // Local storage static file serving (development/test only)
 if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {
