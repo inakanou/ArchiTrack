@@ -278,8 +278,8 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await expect(changePasswordBtn).toBeEnabled({ timeout: getTimeout(5000) });
     await changePasswordBtn.click();
 
-    // 確認ダイアログが表示されるので「確認」をクリック
-    await expect(page.getByRole('button', { name: /確認/ })).toBeVisible({
+    // 確認ダイアログが表示されるので「はい、変更する」をクリック
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
       timeout: getTimeout(10000),
     });
 
@@ -287,7 +287,7 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
     await waitForApiResponse(
       page,
       async () => {
-        await page.getByRole('button', { name: /確認/ }).click();
+        await page.getByRole('button', { name: /はい、変更する/i }).click();
       },
       /\/api\/v1\/auth\/password\/change/,
       { timeout: getTimeout(45000) }
@@ -452,7 +452,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     });
 
     // 確認ボタンをクリック
-    await page.getByRole('button', { name: /確認/ }).click();
+    await page.getByRole('button', { name: /はい、変更する/i }).click();
 
     // 成功メッセージまたはリダイレクトを待機（CI環境では応答が遅い場合がある）
     let success = false;
@@ -484,7 +484,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
         await page.locator('input#confirmPassword').fill('SecureTest123!@#');
         await page.getByRole('button', { name: /パスワードを変更/i }).click();
         await page.waitForTimeout(500);
-        const confirmBtn = page.getByRole('button', { name: /確認/ });
+        const confirmBtn = page.getByRole('button', { name: /はい、変更する/i });
         if ((await confirmBtn.count()) > 0 && (await confirmBtn.isVisible())) {
           await confirmBtn.click();
         }
@@ -631,12 +631,12 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       }
 
       // 確認ダイアログが表示されるのを待つ
-      await expect(page.getByRole('button', { name: /確認/ })).toBeVisible({
+      await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
       // 確認ボタンをクリック
-      await page.getByRole('button', { name: /確認/ }).click();
+      await page.getByRole('button', { name: /はい、変更する/i }).click();
 
       // パスワード変更後の状態を待機（成功メッセージ、エラーメッセージ、またはリダイレクト）
       let passwordChangeSucceeded = false;
@@ -681,7 +681,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
           await page.getByRole('button', { name: /パスワードを変更/i }).click();
           await page.waitForTimeout(500);
           // 確認ダイアログが表示されたらクリック
-          const confirmBtn = page.getByRole('button', { name: /確認/ });
+          const confirmBtn = page.getByRole('button', { name: /はい、変更する/i });
           if ((await confirmBtn.count()) > 0 && (await confirmBtn.isVisible())) {
             await confirmBtn.click();
           }
@@ -771,10 +771,10 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
     // 確認ダイアログが表示されるのを待つ
-    await expect(page.getByRole('button', { name: /確認/ })).toBeVisible({
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
       timeout: getTimeout(5000),
     });
-    await page.getByRole('button', { name: /確認/ }).click();
+    await page.getByRole('button', { name: /はい、変更する/i }).click();
 
     // サーバー側でパスワード履歴チェックが行われ、エラーメッセージが表示される
     // バックエンドから英語メッセージが返される（2種類のメッセージに対応）
@@ -840,7 +840,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       await changePasswordBtn.click();
 
       // 確認ダイアログが表示されるのを待つ
-      await expect(page.getByRole('button', { name: /確認/ })).toBeVisible({
+      await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
@@ -848,7 +848,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       await waitForApiResponse(
         page,
         async () => {
-          await page.getByRole('button', { name: /確認/ }).click();
+          await page.getByRole('button', { name: /はい、変更する/i }).click();
         },
         /\/api\/v1\/auth\/password\/change/,
         { timeout: getTimeout(30000), expectedStatus: 200 }
@@ -948,7 +948,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await changePasswordBtn.click();
 
     // 確認ダイアログが表示されるのを待つ
-    await expect(page.getByRole('button', { name: /確認/ })).toBeVisible({
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
       timeout: getTimeout(10000),
     });
 
@@ -956,7 +956,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await waitForApiResponse(
       page,
       async () => {
-        await page.getByRole('button', { name: /確認/ }).click();
+        await page.getByRole('button', { name: /はい、変更する/i }).click();
       },
       /\/api\/v1\/auth\/password\/change/,
       { timeout: getTimeout(30000) }
