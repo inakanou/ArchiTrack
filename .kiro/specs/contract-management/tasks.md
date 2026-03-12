@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. データモデルとマイグレーションの作成
-- [ ] 1.1 Prismaスキーマに契約書モデルを追加し、マイグレーションを実行する
+- [x] 1.1 Prismaスキーマに契約書モデルを追加し、マイグレーションを実行する
   - ContractType（NEW/AMENDMENT）とContractStatus（BEFORE_CONTRACT/CONTRACTED）のEnum定義
   - Contractモデルの全フィールド定義（契約日、工期、引渡日、消費税率、支払条件、別途工事、その他、金額スナップショット等）
   - Project、Estimate、TradingPartner、Contract自己参照のリレーション定義
