@@ -263,6 +263,26 @@ function isCompanyInfo(data: unknown): data is CompanyInfo {
   );
 }
 
+/**
+ * 階層的な見積項目をフラット化する
+ */
+function flattenItems(items: EstimateDetail['items']): EstimateItemWithLines[] {
+  const result: EstimateItemWithLines[] = [];
+  for (const item of items) {
+    result.push({
+      id: item.id,
+      lines: item.lines.map((l) => ({
+        lineType: l.lineType as EstimateItemLineType,
+        amount: l.amount ?? null,
+      })),
+    });
+    if (item.children?.length > 0) {
+      result.push(...flattenItems(item.children));
+    }
+  }
+  return result;
+}
+
 // ============================================================================
 // メインコンポーネント
 // ============================================================================
@@ -317,12 +337,7 @@ export default function ContractForm({
   const [existingContracts, setExistingContracts] = useState<ContractsResponse | null>(null);
   const [parentContractDetail, setParentContractDetail] = useState<ContractDetail | null>(null);
 
-  // 金額計算結果
-  const [constructionPrice, setConstructionPrice] = useState<number>(
-    initialData?.constructionPrice ?? 0
-  );
-  const [taxAmount, setTaxAmount] = useState<number>(initialData?.taxAmount ?? 0);
-  const [contractAmount, setContractAmount] = useState<number>(initialData?.contractAmount ?? 0);
+  // 金額計算結果は useMemo で派生（下記セクション参照）
 
   // ============================================================================
   // データ取得
@@ -385,16 +400,12 @@ export default function ContractForm({
 
   // 見積書詳細を取得（見積書選択時）
   useEffect(() => {
-    if (!formData.estimateId) {
-      setEstimateDetail(null);
-      setConstructionPrice(0);
-      setTaxAmount(0);
-      setContractAmount(0);
-      return;
-    }
-
     let mounted = true;
     const fetchEstimateDetail = async () => {
+      if (!formData.estimateId) {
+        if (mounted) setEstimateDetail(null);
+        return;
+      }
       try {
         const result = await getEstimateDetail(formData.estimateId);
         if (mounted) {
@@ -411,57 +422,39 @@ export default function ContractForm({
   }, [formData.estimateId]);
 
   // ============================================================================
-  // ヘルパー
+  // 金額計算（useMemo で派生）
   // ============================================================================
 
-  /**
-   * 階層的な見積項目をフラット化する
-   */
-  const flattenItems = (items: EstimateDetail['items']): EstimateItemWithLines[] => {
-    const result: EstimateItemWithLines[] = [];
-    for (const item of items) {
-      result.push({
-        id: item.id,
-        lines: item.lines.map((l) => ({
-          lineType: l.lineType as EstimateItemLineType,
-          amount: l.amount ?? null,
-        })),
-      });
-      if (item.children?.length > 0) {
-        result.push(...flattenItems(item.children));
-      }
+  const { constructionPrice, taxAmount, contractAmount } = useMemo(() => {
+    if (!estimateDetail) {
+      return {
+        constructionPrice: initialData?.constructionPrice ?? 0,
+        taxAmount: initialData?.taxAmount ?? 0,
+        contractAmount: initialData?.contractAmount ?? 0,
+      };
     }
-    return result;
-  };
 
-  // 金額計算（見積書詳細取得後、または消費税率変更時）
-  useEffect(() => {
-    if (!estimateDetail) return;
-
-    // EstimateCalculator.calculateSubtotal() でESTIMATE行の合計を算出
     const flatItems = flattenItems(estimateDetail.items);
     const subtotal = EstimateCalculator.calculateSubtotal(flatItems);
     const price = subtotal.toNumber();
-    setConstructionPrice(price);
 
-    // 消費税率
     const taxRateNum = parseFloat(formData.taxRate) / 100;
     if (!isNaN(taxRateNum)) {
       const tax = Math.floor(price * taxRateNum);
-      setTaxAmount(tax);
-      setContractAmount(price + tax);
+      return { constructionPrice: price, taxAmount: tax, contractAmount: price + tax };
     }
-  }, [estimateDetail, formData.taxRate, flattenItems]);
+
+    return { constructionPrice: price, taxAmount: 0, contractAmount: price };
+  }, [estimateDetail, formData.taxRate, initialData]);
 
   // 基契約書詳細を取得（変更契約の基契約書選択時）
   useEffect(() => {
-    if (!formData.parentContractId) {
-      setParentContractDetail(null);
-      return;
-    }
-
     let mounted = true;
     const fetchParentContract = async () => {
+      if (!formData.parentContractId) {
+        if (mounted) setParentContractDetail(null);
+        return;
+      }
       try {
         const result = await getContractDetail(formData.parentContractId);
         if (mounted) {
