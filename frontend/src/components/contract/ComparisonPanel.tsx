@@ -88,11 +88,11 @@ const styles = {
   fieldLabel: {
     fontSize: '13px',
     fontWeight: 500,
-    color: '#6b7280',
+    color: '#4b5563',
   } as React.CSSProperties,
   fieldValue: {
     fontSize: '13px',
-    color: '#374151',
+    color: '#1f2937',
     padding: '4px 8px',
     borderRadius: '4px',
   } as React.CSSProperties,
@@ -107,7 +107,7 @@ const styles = {
   columnHeaderLabel: {
     fontSize: '12px',
     fontWeight: 600,
-    color: '#92400e',
+    color: '#78350f',
     textAlign: 'center' as const,
   } as React.CSSProperties,
 };
