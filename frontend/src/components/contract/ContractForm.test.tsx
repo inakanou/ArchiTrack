@@ -130,10 +130,7 @@ const mockEstimateDetail: estimatesApi.EstimateDetail = {
       estimateId: 'est-001',
       parentId: null,
       displayOrder: 1,
-      lines: [
-        createMockLine('ESTIMATE', '5000000'),
-        createMockLine('EXECUTION', '4000000'),
-      ],
+      lines: [createMockLine('ESTIMATE', '5000000'), createMockLine('EXECUTION', '4000000')],
       children: [],
       createdAt: '2024-01-01T00:00:00.000Z',
       updatedAt: '2024-01-01T00:00:00.000Z',
@@ -143,10 +140,7 @@ const mockEstimateDetail: estimatesApi.EstimateDetail = {
       estimateId: 'est-001',
       parentId: null,
       displayOrder: 2,
-      lines: [
-        createMockLine('ESTIMATE', '3000000'),
-        createMockLine('EXECUTION', '2500000'),
-      ],
+      lines: [createMockLine('ESTIMATE', '3000000'), createMockLine('EXECUTION', '2500000')],
       children: [],
       createdAt: '2024-01-01T00:00:00.000Z',
       updatedAt: '2024-01-01T00:00:00.000Z',
@@ -227,9 +221,7 @@ function setupMocks() {
   vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockParentContractDetail);
 }
 
-function renderContractForm(
-  props: Partial<React.ComponentProps<typeof ContractForm>> = {}
-) {
+function renderContractForm(props: Partial<React.ComponentProps<typeof ContractForm>> = {}) {
   const defaultProps = {
     mode: 'create' as const,
     projectId: 'proj-001',

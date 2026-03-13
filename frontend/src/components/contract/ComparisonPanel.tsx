@@ -218,13 +218,9 @@ export default function ComparisonPanel({
       {renderComparisonRow('支払条件', 'paymentTerms')}
       {renderComparisonRow('別途工事', 'separateConstruction')}
       {renderComparisonRow('その他', 'otherNotes')}
-      {renderComparisonRow('工事価格', 'constructionPrice', (v) =>
-        formatAmount(Number(v))
-      )}
+      {renderComparisonRow('工事価格', 'constructionPrice', (v) => formatAmount(Number(v)))}
       {renderComparisonRow('消費税額', 'taxAmount', (v) => formatAmount(Number(v)))}
-      {renderComparisonRow('請負代金額', 'contractAmount', (v) =>
-        formatAmount(Number(v))
-      )}
+      {renderComparisonRow('請負代金額', 'contractAmount', (v) => formatAmount(Number(v)))}
     </div>
   );
 }

@@ -322,9 +322,7 @@ export default function ContractForm({
     initialData?.constructionPrice ?? 0
   );
   const [taxAmount, setTaxAmount] = useState<number>(initialData?.taxAmount ?? 0);
-  const [contractAmount, setContractAmount] = useState<number>(
-    initialData?.contractAmount ?? 0
-  );
+  const [contractAmount, setContractAmount] = useState<number>(initialData?.contractAmount ?? 0);
 
   // ============================================================================
   // データ取得
@@ -419,25 +417,22 @@ export default function ContractForm({
   /**
    * 階層的な見積項目をフラット化する
    */
-  const flattenItems = useCallback(
-    (items: EstimateDetail['items']): EstimateItemWithLines[] => {
-      const result: EstimateItemWithLines[] = [];
-      for (const item of items) {
-        result.push({
-          id: item.id,
-          lines: item.lines.map((l) => ({
-            lineType: l.lineType as EstimateItemLineType,
-            amount: l.amount ?? null,
-          })),
-        });
-        if (item.children?.length > 0) {
-          result.push(...flattenItems(item.children));
-        }
+  const flattenItems = useCallback((items: EstimateDetail['items']): EstimateItemWithLines[] => {
+    const result: EstimateItemWithLines[] = [];
+    for (const item of items) {
+      result.push({
+        id: item.id,
+        lines: item.lines.map((l) => ({
+          lineType: l.lineType as EstimateItemLineType,
+          amount: l.amount ?? null,
+        })),
+      });
+      if (item.children?.length > 0) {
+        result.push(...flattenItems(item.children));
       }
-      return result;
-    },
-    []
-  );
+    }
+    return result;
+  }, []);
 
   // 金額計算（見積書詳細取得後、または消費税率変更時）
   useEffect(() => {
@@ -500,24 +495,18 @@ export default function ContractForm({
   // イベントハンドラ
   // ============================================================================
 
-  const handleFieldChange = useCallback(
-    (field: keyof FormData, value: string) => {
-      setFormData((prev) => ({ ...prev, [field]: value }));
-    },
-    []
-  );
+  const handleFieldChange = useCallback((field: keyof FormData, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  }, []);
 
-  const handleContractTypeChange = useCallback(
-    (type: ContractType) => {
-      setFormData((prev) => ({
-        ...prev,
-        contractType: type,
-        parentContractId: '',
-      }));
-      setParentContractDetail(null);
-    },
-    []
-  );
+  const handleContractTypeChange = useCallback((type: ContractType) => {
+    setFormData((prev) => ({
+      ...prev,
+      contractType: type,
+      parentContractId: '',
+    }));
+    setParentContractDetail(null);
+  }, []);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
