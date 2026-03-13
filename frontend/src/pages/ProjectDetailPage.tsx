@@ -34,6 +34,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
+import { getContracts } from '../api/contracts';
+import type { ContractListItem } from '../api/contracts';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
@@ -55,6 +57,8 @@ import { QuantityTableSectionCard } from '../components/projects/QuantityTableSe
 import { ItemizedStatementSectionCard } from '../components/projects/ItemizedStatementSectionCard';
 import { EstimateRequestSectionCard } from '../components/projects/EstimateRequestSectionCard';
 import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
+import { ContractSectionCard } from '../components/projects/ContractSectionCard';
+import type { ContractSectionItem } from '../components/projects/ContractSectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -401,6 +405,10 @@ export default function ProjectDetailPage() {
   const [estimateRequestSummary, setEstimateRequestSummary] =
     useState<ProjectEstimateRequestSummary | null>(null);
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
+  const [contractSummary, setContractSummary] = useState<{
+    totalCount: number;
+    latestContracts: ContractSectionItem[];
+  } | null>(null);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -433,6 +441,33 @@ export default function ProjectDetailPage() {
       setItemizedStatementSummary(data.sections.itemizedStatements);
       setEstimateRequestSummary(data.sections.estimateRequests);
       setEstimateSummary(data.sections.estimates);
+
+      // 契約書サマリーを個別に取得（detail-summary APIには未統合）
+      // Task 9.1: プロジェクト詳細画面から契約書一覧への導線を追加する
+      try {
+        const contractsData = await getContracts(id, {
+          limit: 3,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+        const latestContracts: ContractSectionItem[] = contractsData.contracts.map(
+          (c: ContractListItem) => ({
+            id: c.id,
+            contractType: c.contractType,
+            contractDate: c.contractDate,
+            status: c.status,
+            contractAmount: c.contractAmount,
+            createdAt: c.createdAt,
+          })
+        );
+        setContractSummary({
+          totalCount: contractsData.total,
+          latestContracts,
+        });
+      } catch {
+        // 契約書取得の失敗はメインエラーとしない（セクション表示のみ影響）
+        setContractSummary({ totalCount: 0, latestContracts: [] });
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -746,6 +781,14 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         totalCount={estimateSummary?.totalCount ?? 0}
         latestEstimates={estimateSummary?.latestEstimates ?? []}
+        isLoading={isLoading}
+      />
+
+      {/* 契約書セクション (Task 9.1, Requirements 1.4, 1.5) */}
+      <ContractSectionCard
+        projectId={project.id}
+        totalCount={contractSummary?.totalCount ?? 0}
+        latestContracts={contractSummary?.latestContracts ?? []}
         isLoading={isLoading}
       />
 
