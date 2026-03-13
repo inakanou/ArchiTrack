@@ -24,7 +24,10 @@ release_memory() {
   echo "🧹 メモリ解放中（$stage_name 完了後）..."
 
   # Dockerの未使用リソースをクリア（ビルドキャッシュ含む）
-  docker system prune -f --volumes > /dev/null 2>&1 || true
+  # 注意: --volumesを使用すると backend_test_node_modules 等の名前付きボリュームが
+  # 削除され、次回Docker起動時にnpm ciがフルインストールとなり、WSL2環境で
+  # ヘルスチェックタイムアウト（300秒超過）を引き起こすため、ボリュームは保持する
+  docker system prune -f > /dev/null 2>&1 || true
 
   # 注意: syncコマンドはWSL2のFUSEファイルシステムでD state（割り込み不可スリープ）に
   # 陥り、プロセスがkill不可能になる。さらにD stateのsyncプロセスがteeパイプのfdを
