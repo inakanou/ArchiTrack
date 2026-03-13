@@ -42,6 +42,7 @@ import EstimateCreatePage from './pages/EstimateCreatePage';
 import EstimateDetailPage from './pages/EstimateDetailPage';
 import CompanyInfoPage from './pages/CompanyInfoPage';
 import ContractListPage from './pages/ContractListPage';
+import ContractCreatePage from './pages/ContractCreatePage';
 
 /**
  * アプリケーションのルート設定
@@ -312,6 +313,17 @@ export const routes: RouteObject[] = [
         element: <EstimateDetailPage />,
       },
 
+      // 契約書新規作成（/projects/:projectId/contracts より先に定義する必要あり）
+      // REQ-2.3: 変更契約フォーム表示
+      // REQ-2.4: パンくずナビゲーション
+      // REQ-7.1: 作成ボタン押下時にAPI呼び出しと契約書詳細画面への遷移
+      // REQ-7.2: キャンセルボタン押下時に前画面への遷移
+      // REQ-7.3: 作成・キャンセルボタン表示
+      // Task 6.1: 契約書新規作成ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts/new',
+        element: <ContractCreatePage />,
+      },
       // 契約書一覧
       // REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
       // REQ-1.2: 各契約書について契約種類、契約日、ステータスを一覧に表示する
