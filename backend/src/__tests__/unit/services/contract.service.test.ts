@@ -119,6 +119,142 @@ describe('ContractService', () => {
     service = new ContractService(deps);
   });
 
+  describe('findById（文字列日付・関連オブジェクトあり）', () => {
+    it('日付が文字列のレコードを正しく変換できること', async () => {
+      const stringDateRecord = {
+        ...mockContractRecord,
+        contractDate: '2026-04-01',
+        constructionStartDate: '2026-05-01',
+        constructionEndDate: '2026-12-31',
+        deliveryDate: '2027-01-15',
+        taxRate: 0.1,
+        contractAmount: 11000000,
+        constructionPrice: 10000000,
+        taxAmount: 1000000,
+        createdAt: '2026-03-01T00:00:00.000Z',
+        updatedAt: '2026-03-01T00:00:00.000Z',
+      };
+
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        stringDateRecord
+      );
+
+      const result = await service.findById(contractId);
+
+      expect(result).not.toBeNull();
+      expect(result!.contractDate).toBe('2026-04-01');
+      expect(result!.constructionStartDate).toBe('2026-05-01');
+      expect(result!.constructionEndDate).toBe('2026-12-31');
+      expect(result!.deliveryDate).toBe('2027-01-15');
+      expect(result!.taxRate).toBe(0.1);
+      expect(result!.contractAmount).toBe(11000000);
+      expect(result!.createdAt).toBe('2026-03-01T00:00:00.000Z');
+      expect(result!.updatedAt).toBe('2026-03-01T00:00:00.000Z');
+    });
+
+    it('parentContract・supervisorTradingPartnerが存在するレコードを正しく変換できること', async () => {
+      const recordWithRelations = {
+        ...mockContractRecord,
+        parentContract: {
+          id: parentContractId,
+          contractType: 'NEW',
+          contractDate: new Date('2026-03-01'),
+        },
+        supervisorTradingPartner: {
+          id: 'supervisor-1',
+          name: '監理者A',
+        },
+      };
+
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        recordWithRelations
+      );
+
+      const result = await service.findById(contractId);
+
+      expect(result).not.toBeNull();
+      expect(result!.parentContract).toEqual({
+        id: parentContractId,
+        contractType: 'NEW',
+        contractDate: '2026-03-01',
+      });
+      expect(result!.supervisorTradingPartner).toEqual({
+        id: 'supervisor-1',
+        name: '監理者A',
+      });
+    });
+
+    it('parentContractの日付が文字列の場合も変換できること', async () => {
+      const recordWithStringParentDate = {
+        ...mockContractRecord,
+        parentContract: {
+          id: parentContractId,
+          contractType: 'NEW',
+          contractDate: '2026-03-01',
+        },
+      };
+
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        recordWithStringParentDate
+      );
+
+      const result = await service.findById(contractId);
+
+      expect(result!.parentContract!.contractDate).toBe('2026-03-01');
+    });
+
+    it('project.tradingPartnerがnullの場合も正しく変換できること', async () => {
+      const recordNoTradingPartner = {
+        ...mockContractRecord,
+        project: {
+          id: projectId,
+          name: 'テストプロジェクト',
+          siteAddress: '東京都渋谷区',
+          tradingPartner: null,
+        },
+      };
+
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        recordNoTradingPartner
+      );
+
+      const result = await service.findById(contractId);
+
+      expect(result!.project.tradingPartner).toBeNull();
+    });
+  });
+
+  describe('findByProject（一覧変換の分岐カバレッジ）', () => {
+    it('日付が文字列のレコードを一覧変換できること', async () => {
+      const stringDateListRecord = {
+        ...mockContractRecord,
+        contractDate: '2026-04-01',
+        contractAmount: 11000000,
+        createdAt: '2026-03-01T00:00:00.000Z',
+        updatedAt: '2026-03-01T00:00:00.000Z',
+        estimate: null,
+      };
+
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+        stringDateListRecord,
+      ]);
+      (mockPrisma.contract.count as ReturnType<typeof vi.fn>).mockResolvedValue(1);
+
+      const result = await service.findByProject(projectId, {
+        page: 1,
+        limit: 20,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
+
+      const contract = result.contracts[0]!;
+      expect(contract.contractDate).toBe('2026-04-01');
+      expect(contract.estimateName).toBeNull();
+      expect(contract.createdAt).toBe('2026-03-01T00:00:00.000Z');
+      expect(contract.updatedAt).toBe('2026-03-01T00:00:00.000Z');
+    });
+  });
+
   describe('findByProject', () => {
     it('プロジェクトの契約書一覧を取得できること', async () => {
       const mockContracts = [
@@ -451,6 +587,66 @@ describe('ContractService', () => {
       expect(result.id).toBe(contractId);
       expect(result.projectId).toBe(projectId);
       expect(result.status).toBe('CONTRACTED');
+    });
+  });
+
+  describe('findLatestByProjectId', () => {
+    it('プロジェクトの最新契約書サマリーを取得できること', async () => {
+      const mockContracts = [
+        {
+          id: contractId,
+          contractType: 'NEW',
+          contractDate: new Date('2026-04-01'),
+          status: 'BEFORE_CONTRACT',
+          contractAmount: { toNumber: () => 11000000 },
+          createdAt: new Date('2026-03-01'),
+        },
+      ];
+
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(mockContracts);
+      (mockPrisma.contract.count as ReturnType<typeof vi.fn>).mockResolvedValue(1);
+
+      const result = await service.findLatestByProjectId(projectId);
+
+      expect(result.totalCount).toBe(1);
+      expect(result.latestContracts).toHaveLength(1);
+      const latest = result.latestContracts[0]!;
+      expect(latest.id).toBe(contractId);
+      expect(latest.contractDate).toBe('2026-04-01');
+      expect(latest.contractAmount).toBe(11000000);
+    });
+
+    it('日付が文字列の場合もそのまま変換されること', async () => {
+      const mockContracts = [
+        {
+          id: contractId,
+          contractType: 'NEW',
+          contractDate: '2026-04-01',
+          status: 'BEFORE_CONTRACT',
+          contractAmount: 11000000,
+          createdAt: '2026-03-01T00:00:00.000Z',
+        },
+      ];
+
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(mockContracts);
+      (mockPrisma.contract.count as ReturnType<typeof vi.fn>).mockResolvedValue(1);
+
+      const result = await service.findLatestByProjectId(projectId);
+
+      const latest = result.latestContracts[0]!;
+      expect(latest.contractDate).toBe('2026-04-01');
+      expect(latest.contractAmount).toBe(11000000);
+      expect(latest.createdAt).toBe('2026-03-01T00:00:00.000Z');
+    });
+
+    it('契約書が存在しない場合は空配列を返すこと', async () => {
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (mockPrisma.contract.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+
+      const result = await service.findLatestByProjectId(projectId);
+
+      expect(result.totalCount).toBe(0);
+      expect(result.latestContracts).toHaveLength(0);
     });
   });
 
