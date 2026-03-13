@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-03-12（Steering Sync: 数量表インポート機能追加、テストファイル数更新を反映）_
+_最終更新: 2026-03-13（Steering Sync: 契約書管理機能追加、テストファイル数更新を反映）_
 
 ## ルートディレクトリ構成
 
@@ -252,6 +252,10 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全76タスク完了）
   - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、Excel/PDF出力（複数行タイプ選択対応）
 
+- `.kiro/specs/contract-management/` - 契約書管理機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
+  - 内容: 契約書CRUD、新規契約・変更契約種別管理、見積書連動金額自動計算、ステータス管理（契約前/契約済）、変更前後比較表示、楽観的排他制御
+
 ### `e2e/`
 
 Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可能。
@@ -291,7 +295,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── company-info/       # 自社情報テスト
 │   │   └── *.spec.ts
-│   └── estimate/           # 見積書テスト
+│   ├── estimate/           # 見積書テスト
+│   │   └── *.spec.ts
+│   └── contracts/          # 契約書テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -324,6 +330,7 @@ e2e/
 - `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ、OCR再実行/リトライ、PDFテキスト抽出、数値表示形式、受領見積書ステータス）
 - `company-info/` - 自社情報テスト（CRUD、アクセス制御、楽観的排他制御）
 - `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
+- `contracts/` - 契約書テスト（CRUD操作、新規契約・変更契約、金額自動計算、比較表示、ステータス管理）
 
 **テストヘルパー:**
 
@@ -424,7 +431,8 @@ frontend/
 │   │       ├── SiteSurveySectionCard.tsx # 現場調査セクションカード
 │   │       ├── ItemizedStatementSectionCard.tsx # 内訳書セクションカード
 │   │       ├── EstimateSectionCard.tsx # 見積書セクションカード
-│   │       └── EstimateRequestSectionCard.tsx # 見積依頼セクションカード
+│   │       ├── EstimateRequestSectionCard.tsx # 見積依頼セクションカード
+│   │       └── ContractSectionCard.tsx # 契約書セクションカード
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
 │   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
@@ -535,6 +543,9 @@ frontend/
 │   │       ├── ProfitRateDialog.tsx  # 利益率適用ダイアログ
 │   │       ├── EstimateExportDialog.tsx # 見積書Excel出力ダイアログ
 │   │       └── index.ts              # エクスポート集約
+│   │   ├── contract/                # 契約書コンポーネント（5ファイル）
+│   │       ├── ContractForm.tsx     # 契約書作成・編集フォーム（新規/変更契約対応、見積書連動金額計算）
+│   │       └── ComparisonPanel.tsx  # 変更契約の変更前後比較パネル
 │   │   ├── company-info/            # 自社情報コンポーネント
 │   │       └── CompanyInfoForm.tsx   # 自社情報設定フォーム
 │   │   └── common/                  # 共通コンポーネント
@@ -584,7 +595,11 @@ frontend/
 │   │   ├── CompanyInfoPage.tsx # 自社情報設定ページ
 │   │   ├── EstimateListPage.tsx # 見積書一覧ページ
 │   │   ├── EstimateCreatePage.tsx # 見積書作成ページ
-│   │   └── EstimateDetailPage.tsx # 見積書詳細ページ
+│   │   ├── EstimateDetailPage.tsx # 見積書詳細ページ
+│   │   ├── ContractListPage.tsx # 契約書一覧ページ
+│   │   ├── ContractCreatePage.tsx # 契約書作成ページ
+│   │   ├── ContractDetailPage.tsx # 契約書詳細ページ
+│   │   └── ContractEditPage.tsx # 契約書編集ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数（20ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -627,7 +642,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（121ファイル）:**
+**Storybookストーリーファイル（124ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -686,7 +701,12 @@ frontend/
 - `ImportDialog.stories.tsx` - インポートダイアログ
 - `ImportPreviewTable.stories.tsx` - インポートプレビューテーブル
 
+契約書コンポーネント（contract/）:
+- `ContractForm.stories.tsx` - 契約書フォーム
+- `ComparisonPanel.stories.tsx` - 変更前後比較パネル
+
 プロジェクトコンポーネント（projects/）:
+- `ContractSectionCard.stories.tsx` - 契約書セクションカード
 - `QuantityTableSectionCard.stories.tsx` - 数量表セクションカード
 
 内訳書コンポーネント（itemized-statement/）:
@@ -697,7 +717,7 @@ frontend/
 
 ```
 frontend/src/
-├── api/               # APIクライアント（15ファイル）
+├── api/               # APIクライアント（16ファイル）
 │   ├── auth.ts        # 認証API
 │   ├── client.ts      # 共通クライアント
 │   ├── projects.ts    # プロジェクトAPI
@@ -712,7 +732,8 @@ frontend/src/
 │   ├── received-quotations.ts # 受領見積書API
 │   ├── claude-vision.ts # Claude Vision OCR API
 │   ├── company-info.ts # 自社情報API
-│   └── estimates.ts # 見積書API
+│   ├── estimates.ts # 見積書API
+│   └── contracts.ts # 契約書API
 ├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor等 26ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
@@ -748,7 +769,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（138テストファイル）
+│   │   └── unit/          # ユニットテスト（142テストファイル）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -783,7 +804,7 @@ backend/
 │   │       └── utils/     # ユーティリティテスト
 │   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
 │   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
-│   ├── errors/            # カスタムエラー定義（12ファイル）
+│   ├── errors/            # カスタムエラー定義（13ファイル）
 │   │   ├── apiError.ts    # 汎用APIエラークラス
 │   │   ├── projectError.ts # プロジェクト関連エラー
 │   │   ├── tradingPartnerError.ts # 取引先関連エラー
@@ -795,7 +816,8 @@ backend/
 │   │   ├── receivedQuotationError.ts # 受領見積書関連エラー
 │   │   ├── companyInfoError.ts # 自社情報関連エラー
 │   │   ├── estimateError.ts # 見積書関連エラー
-│   │   └── claudeVisionError.ts # Claude Vision関連エラー
+│   │   ├── claudeVisionError.ts # Claude Vision関連エラー
+│   │   └── contractError.ts # 契約書関連エラー
 │   ├── middleware/        # ミドルウェア
 │   │   ├── errorHandler.middleware.ts  # エラーハンドリング
 │   │   ├── httpsRedirect.middleware.ts # HTTPS強制リダイレクト
@@ -803,7 +825,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（27ファイル）
+│   ├── routes/            # ルート定義（28ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -830,11 +852,12 @@ backend/
 │   │   ├── company-info.routes.ts # 自社情報ルート（シングルトンCRUD）
 │   │   ├── project-quotations.routes.ts # プロジェクト単位受領見積書取得ルート（転記用）
 │   │   ├── claude-vision.routes.ts # Claude Vision OCRルート（見積書構造化データ抽出）
-│   │   └── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、利益率、Excel出力）
+│   │   ├── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、利益率、Excel出力）
+│   │   └── contracts.routes.ts # 契約書ルート（CRUD、ステータス遷移）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── schemas/           # Zodバリデーションスキーマ（11ファイル）
+│   ├── schemas/           # Zodバリデーションスキーマ（12ファイル）
 │   │   ├── project.schema.ts # プロジェクト関連
 │   │   ├── trading-partner.schema.ts # 取引先関連
 │   │   ├── site-survey.schema.ts # 現場調査関連
@@ -845,8 +868,9 @@ backend/
 │   │   ├── received-quotation.schema.ts # 受領見積書関連
 │   │   ├── company-info.schema.ts # 自社情報関連
 │   │   ├── claude-vision.schema.ts # Claude Vision OCR関連
-│   │   └── estimate.schema.ts # 見積書関連
-│   ├── services/          # ビジネスロジック（49サービス）
+│   │   ├── estimate.schema.ts # 見積書関連
+│   │   └── contract.schema.ts # 契約書関連
+│   ├── services/          # ビジネスロジック（50サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -895,7 +919,8 @@ backend/
 │   │   ├── estimate-validation.service.ts # 見積書バリデーション
 │   │   ├── estimate-export.service.ts # 見積書Excel出力
 │   │   ├── overhead-cost.service.ts # 諸経費行管理
-│   │   └── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
+│   │   ├── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
+│   │   └── contract.service.ts # 契約書管理（CRUD、ステータス遷移、見積書連動金額計算、楽観的排他制御）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -984,7 +1009,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（27ルートファイル）:**
+**実装済みAPI（28ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -1136,6 +1161,14 @@ backend/src/
 - `POST /api/estimates/:id/prorate`: NET金額案分計算
 - `POST /api/estimates/:id/profit-rate`: 利益率適用
 - `GET /api/estimates/:id/export`: Excel/PDF出力（複数行タイプ選択対応：見積・実行・業者）
+
+**契約書管理API（contracts.routes.ts）:**
+- `GET /api/projects/:projectId/contracts`: 契約書一覧取得（ページネーション、ソート）
+- `GET /api/contracts/:id`: 契約書詳細取得（リレーション展開）
+- `POST /api/projects/:projectId/contracts`: 契約書作成（新規契約・変更契約）
+- `PUT /api/contracts/:id`: 契約書更新（楽観的排他制御）
+- `PATCH /api/contracts/:id/status`: 契約書ステータス変更
+- `DELETE /api/contracts/:id`: 契約書論理削除
 
 **実装済みミドルウェア:**
 
@@ -1432,8 +1465,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト138ファイル + 統合テスト24ファイル
-- Frontend: 単体テスト306ファイル
+- Backend: 単体テスト142ファイル + 統合テスト24ファイル
+- Frontend: 単体テスト314ファイル
 
 ### .gitignore
 
