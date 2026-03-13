@@ -60,6 +60,10 @@ const mockEstimateService = vi.hoisted(() => ({
   findLatestByProjectId: vi.fn(),
 }));
 
+const mockContractService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
 const mockIsStorageConfigured = vi.hoisted(() => vi.fn());
 const mockGetStorageProvider = vi.hoisted(() => vi.fn());
 
@@ -143,6 +147,14 @@ vi.mock('../../../services/estimate.service', () => ({
   EstimateService: class {
     constructor() {
       return mockEstimateService;
+    }
+  },
+}));
+
+vi.mock('../../../services/contract.service', () => ({
+  ContractService: class {
+    constructor() {
+      return mockContractService;
     }
   },
 }));
@@ -1012,6 +1024,115 @@ describe('Projects Routes', () => {
       expect(survey.thumbnailOriginalUrl).toBeNull();
       // getSignedUrlは呼ばれない（パスがnullのため）
       expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // Task 59.3: detail-summary APIの契約書セクション統合テスト
+  // Requirements: 37.1, 37.4, 37.5
+  // ==========================================================================
+  describe('GET /api/projects/:id/detail-summary - 契約書セクション統合', () => {
+    const mockContractData = {
+      totalCount: 2,
+      latestContracts: [
+        {
+          id: 'contract-1',
+          contractType: 'NEW',
+          contractDate: '2025-06-01',
+          status: 'CONTRACTED',
+          contractAmount: 5000000,
+          createdAt: '2025-06-01T00:00:00.000Z',
+        },
+        {
+          id: 'contract-2',
+          contractType: 'AMENDMENT',
+          contractDate: '2025-07-01',
+          status: 'BEFORE_CONTRACT',
+          contractAmount: 6000000,
+          createdAt: '2025-07-01T00:00:00.000Z',
+        },
+      ],
+    };
+
+    const setupAllSections = () => {
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        latestSurveys: [],
+      });
+      (
+        mockQuantityTableService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestTables: [],
+      });
+      (
+        mockItemizedStatementService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestStatements: [],
+      });
+      (
+        mockEstimateRequestService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestRequests: [],
+      });
+      (mockEstimateService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        estimates: [],
+      });
+      mockIsStorageConfigured.mockReturnValue(false);
+    };
+
+    it('契約書セクションデータがレスポンスに含まれること (37.1, 37.2)', async () => {
+      setupAllSections();
+      (mockContractService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockContractData
+      );
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.sections.contracts).toBeDefined();
+      expect(response.body.sections.contracts.totalCount).toBe(2);
+      expect(response.body.sections.contracts.latestContracts).toHaveLength(2);
+      expect(response.body.sections.contracts.latestContracts[0].id).toBe('contract-1');
+      expect(response.body.sections.contracts.latestContracts[0].contractType).toBe('NEW');
+      expect(response.body.sections.contracts.latestContracts[0].status).toBe('CONTRACTED');
+      expect(response.body.sections.contracts.latestContracts[0].contractAmount).toBe(5000000);
+    });
+
+    it('契約書取得エラー時にデフォルト値を返却すること (37.4)', async () => {
+      setupAllSections();
+      (mockContractService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('DB error')
+      );
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.sections.contracts).toBeDefined();
+      expect(response.body.sections.contracts.totalCount).toBe(0);
+      expect(response.body.sections.contracts.latestContracts).toEqual([]);
+    });
+
+    it('契約書取得エラーが他のセクションデータに影響しないこと (37.5)', async () => {
+      setupAllSections();
+      (mockContractService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Contract service error')
+      );
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      // 他のセクションは正常に返却される
+      expect(response.body.sections.siteSurveys).toBeDefined();
+      expect(response.body.sections.quantityTables).toBeDefined();
+      expect(response.body.sections.itemizedStatements).toBeDefined();
+      expect(response.body.sections.estimateRequests).toBeDefined();
+      expect(response.body.sections.estimates).toBeDefined();
+      // 契約書セクションはデフォルト値
+      expect(response.body.sections.contracts.totalCount).toBe(0);
     });
   });
 });

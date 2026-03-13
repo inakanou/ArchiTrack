@@ -160,6 +160,7 @@ function createFullSummary(): ProjectDetailSummary {
           },
         ],
       },
+      contracts: { totalCount: 0, latestContracts: [] },
     },
   } as ProjectDetailSummary;
 }
@@ -284,6 +285,7 @@ describe('Task 51.1: プロジェクト詳細一括取得 統合テスト', () =
           itemizedStatements: { totalCount: 0, latestStatements: [] },
           estimateRequests: { totalCount: 0, latestRequests: [] },
           estimates: { totalCount: 0, latestEstimates: [] },
+          contracts: { totalCount: 0, latestContracts: [] },
         },
       } as ProjectDetailSummary;
       vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(emptySummary);

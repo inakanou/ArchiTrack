@@ -92,6 +92,7 @@ const defaultSections: ProjectDetailSummary['sections'] = {
   itemizedStatements: { totalCount: 0, latestStatements: [] },
   estimateRequests: { totalCount: 0, latestRequests: [] },
   estimates: { totalCount: 0, latestEstimates: [] },
+  contracts: { totalCount: 0, latestContracts: [] },
 };
 
 /**
@@ -1991,6 +1992,100 @@ describe('ProjectDetailPage', () => {
       });
 
       expect(screen.queryByText('更新日時')).not.toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 58.2: 契約書セクション統合テスト
+  // Requirements: 36.1
+  // ==========================================================================
+  describe('契約書セクション統合（Task 58.2, Requirements 36.1）', () => {
+    it('契約書セクションが見積書セクションの下に表示される (36.1)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            estimates: { totalCount: 1, latestEstimates: [] },
+            contracts: {
+              totalCount: 2,
+              latestContracts: [
+                {
+                  id: 'contract-1',
+                  contractType: 'NEW',
+                  contractDate: '2025-06-01',
+                  status: 'CONTRACTED',
+                  contractAmount: 5000000,
+                  createdAt: '2025-06-01T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+        })
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 契約書セクションが存在する
+      expect(screen.getByTestId('contract-section')).toBeInTheDocument();
+      // 契約書のタイトルが表示される
+      expect(screen.getByText('契約書')).toBeInTheDocument();
+      // 総数が表示される
+      expect(screen.getByText('全2件')).toBeInTheDocument();
+    });
+
+    it('契約書セクションが空の場合でも表示される (36.11)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({
+          sections: {
+            contracts: { totalCount: 0, latestContracts: [] },
+          },
+        })
+      );
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId('contract-section')).toBeInTheDocument();
+      expect(screen.getByText('契約書はまだありません')).toBeInTheDocument();
+    });
+
+    it('detail-summaryから契約書データが取得される（個別API不要）', async () => {
+      const mockSummary = createMockSummary({
+        sections: {
+          contracts: {
+            totalCount: 1,
+            latestContracts: [
+              {
+                id: 'contract-1',
+                contractType: 'NEW',
+                contractDate: '2025-06-01',
+                status: 'BEFORE_CONTRACT',
+                contractAmount: 3000000,
+                createdAt: '2025-06-01T00:00:00.000Z',
+              },
+            ],
+          },
+        },
+      });
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(mockSummary);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // detail-summaryから取得したデータが使用される
+      expect(screen.getByTestId('contract-card-contract-1')).toBeInTheDocument();
+      expect(screen.getByText('新規契約')).toBeInTheDocument();
+      // getProjectDetailSummaryのみ呼ばれ、個別のgetContracts APIは呼ばれない
+      expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(1);
     });
   });
 });

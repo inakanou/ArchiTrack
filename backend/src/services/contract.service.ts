@@ -413,6 +413,76 @@ export class ContractService {
   }
 
   /**
+   * プロジェクトの直近の契約書と総数を取得する
+   *
+   * detail-summary APIでの一括取得用メソッド。
+   * EstimateService.findLatestByProjectId と同じパターンを使用。
+   *
+   * Requirements (project-management):
+   * - 37.1: detail-summary APIのレスポンスに契約書セクションデータ（contracts）を含める
+   * - 37.2: 契約書セクションデータに総数（totalCount）と直近の契約書（latestContracts）を含める
+   * - 37.3: 直近の契約書データに契約ID、契約種類、契約日、ステータス、請負代金額、作成日時を含める
+   *
+   * @param projectId - プロジェクトID
+   * @param limit - 取得件数（デフォルト: 3）
+   * @returns 契約書サマリー（totalCount, latestContracts）
+   */
+  async findLatestByProjectId(
+    projectId: string,
+    limit: number = 3
+  ): Promise<{
+    totalCount: number;
+    latestContracts: Array<{
+      id: string;
+      contractType: string;
+      contractDate: string;
+      status: string;
+      contractAmount: number;
+      createdAt: string;
+    }>;
+  }> {
+    const where = {
+      projectId,
+      deletedAt: null,
+    };
+
+    const [contracts, totalCount] = await Promise.all([
+      this.prisma.contract.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          contractType: true,
+          contractDate: true,
+          status: true,
+          contractAmount: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.contract.count({ where }),
+    ]);
+
+    return {
+      totalCount,
+      latestContracts: contracts.map((c) => {
+        const dateStr =
+          c.contractDate instanceof Date
+            ? c.contractDate.toISOString().split('T')[0]
+            : String(c.contractDate);
+        return {
+          id: c.id,
+          contractType: c.contractType,
+          contractDate: dateStr ?? String(c.contractDate),
+          status: c.status,
+          contractAmount: toNumber(c.contractAmount),
+          createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : String(c.createdAt),
+        };
+      }),
+    };
+  }
+
+  /**
    * 契約書論理削除
    */
   async delete(id: string): Promise<void> {

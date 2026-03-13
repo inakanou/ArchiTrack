@@ -33,6 +33,37 @@ import type { ProjectQuantityTableSummary } from '../types/quantity-table.types'
 import type { ProjectItemizedStatementSummary } from '../types/itemized-statement.types';
 import type { ProjectEstimateRequestSummary } from '../types/estimate-request.types';
 import type { EstimateSummary } from './estimates';
+import type { ContractType, ContractStatus } from './contracts';
+
+// ============================================================================
+// 契約書セクションサマリー型（detail-summary API用）
+// ============================================================================
+
+/**
+ * 契約書セクションサマリーアイテム
+ *
+ * Task 59.2: detail-summary API契約書セクション統合
+ * Requirements: 37.2, 37.3
+ */
+export interface ContractSectionSummaryItem {
+  id: string;
+  contractType: ContractType;
+  contractDate: string;
+  status: ContractStatus;
+  contractAmount: number;
+  createdAt: string;
+}
+
+/**
+ * 契約書セクションサマリー
+ *
+ * Task 59.2: detail-summary API契約書セクション統合
+ * Requirements: 37.1, 37.2
+ */
+export interface ContractSectionSummary {
+  totalCount: number;
+  latestContracts: ContractSectionSummaryItem[];
+}
 
 // ============================================================================
 // 型定義（クエリパラメータ用）
@@ -347,6 +378,7 @@ export interface ProjectDetailSummary {
     itemizedStatements: ProjectItemizedStatementSummary;
     estimateRequests: ProjectEstimateRequestSummary;
     estimates: EstimateSummary;
+    contracts: ContractSectionSummary;
   };
 }
 
