@@ -170,7 +170,7 @@ test.describe('契約書管理機能', () => {
       await page.waitForLoadState('networkidle');
 
       // 新規作成ボタンが表示されることを確認
-      const createButton = page.getByRole('link', { name: /新規作成/i });
+      const createButton = page.getByRole('link', { name: '契約書を新規作成' });
       await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
 
       // 新規作成ボタンをクリック
@@ -200,7 +200,7 @@ test.describe('契約書管理機能', () => {
       await expect(newContractRadio).toBeChecked();
 
       // 見積書選択（REQ-3.4）
-      const estimateSelect = page.locator('select[aria-label="見積書"]');
+      const estimateSelect = page.getByLabel('見積書');
       await expect(estimateSelect).toBeVisible({ timeout: getTimeout(10000) });
 
       // 見積書オプションが読み込まれるまで待機
@@ -209,7 +209,7 @@ test.describe('契約書管理機能', () => {
           const select = document.querySelector(selector);
           return select && select.querySelectorAll('option').length > 1;
         },
-        'select[aria-label="見積書"]',
+        'select#estimateId',
         { timeout: getTimeout(15000) }
       );
 
@@ -223,40 +223,38 @@ test.describe('契約書管理機能', () => {
       await expect(page.getByText(/請負代金額/)).toBeVisible();
 
       // 消費税率デフォルト10%の確認（REQ-3.2）
-      const taxRateInput = page.locator('input[aria-label="消費税率"]');
+      const taxRateInput = page.getByLabel('消費税率（%）');
       if (await taxRateInput.isVisible()) {
         const taxRateValue = await taxRateInput.inputValue();
         expect(taxRateValue).toContain('10');
       }
 
       // 契約日を入力（REQ-3.1）
-      const contractDateInput = page.locator('input[type="date"][aria-label="契約日"]');
+      const contractDateInput = page.getByLabel('契約日');
       if (await contractDateInput.isVisible()) {
         await contractDateInput.fill('2024-06-01');
       }
 
       // 工期着手日を入力
-      const startDateInput = page.locator('input[type="date"][aria-label="工期着手日"]');
+      const startDateInput = page.getByLabel('工期着手日');
       if (await startDateInput.isVisible()) {
         await startDateInput.fill('2024-07-01');
       }
 
       // 工期完成日を入力
-      const endDateInput = page.locator('input[type="date"][aria-label="工期完成日"]');
+      const endDateInput = page.getByLabel('工期完成日');
       if (await endDateInput.isVisible()) {
         await endDateInput.fill('2024-12-31');
       }
 
       // 引渡日を入力
-      const deliveryDateInput = page.locator('input[type="date"][aria-label="引渡日"]');
+      const deliveryDateInput = page.getByLabel('引渡日');
       if (await deliveryDateInput.isVisible()) {
         await deliveryDateInput.fill('2025-01-15');
       }
 
       // 支払条件を入力
-      const paymentTermsInput = page.locator(
-        'input[aria-label="支払条件"], textarea[aria-label="支払条件"]'
-      );
+      const paymentTermsInput = page.getByLabel('支払条件');
       if (await paymentTermsInput.isVisible()) {
         await paymentTermsInput.fill('契約時50%、完了時50%');
       }
@@ -384,15 +382,16 @@ test.describe('契約書管理機能', () => {
 
       // 編集画面に遷移したことを確認
       await page.waitForURL(/\/contracts\/[0-9a-f-]+\/edit$/);
+      await page.waitForLoadState('networkidle');
+
+      // フォームデータが読み込まれるまで待機
+      const paymentTermsInput = page.getByLabel('支払条件');
+      await expect(paymentTermsInput).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(paymentTermsInput).toHaveValue(/契約時50%/, { timeout: getTimeout(10000) });
 
       // 支払条件を変更（REQ-9.1）
-      const paymentTermsInput = page.locator(
-        'input[aria-label="支払条件"], textarea[aria-label="支払条件"]'
-      );
-      if (await paymentTermsInput.isVisible()) {
-        await paymentTermsInput.clear();
-        await paymentTermsInput.fill('完了時一括払い');
-      }
+      await paymentTermsInput.clear();
+      await paymentTermsInput.fill('完了時一括払い');
 
       // 保存ボタン押下（REQ-9.2）
       const saveButton = page.getByRole('button', { name: /保存/i });
@@ -442,7 +441,7 @@ test.describe('契約書管理機能', () => {
       await amendmentRadio.click();
 
       // 基となる契約書選択UI（REQ-5.1）
-      const parentContractSelect = page.locator('select[aria-label="基となる契約書"]');
+      const parentContractSelect = page.getByLabel('基となる契約書');
       await expect(parentContractSelect).toBeVisible({ timeout: getTimeout(10000) });
 
       // 契約書オプションが読み込まれるまで待機
@@ -451,7 +450,7 @@ test.describe('契約書管理機能', () => {
           const select = document.querySelector(selector);
           return select && select.querySelectorAll('option').length > 1;
         },
-        'select[aria-label="基となる契約書"]',
+        'select#parentContractId',
         { timeout: getTimeout(15000) }
       );
 
@@ -463,7 +462,9 @@ test.describe('契約書管理機能', () => {
       await page.waitForLoadState('networkidle');
 
       // 変更前後比較表示が表示されることを確認（REQ-6.1, REQ-6.2）
-      await expect(page.getByText(/変更前/i)).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByText('変更前', { exact: true })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // 作成ボタンで変更契約を作成
       const submitButton = page.getByRole('button', { name: /作成/i });
@@ -569,7 +570,7 @@ test.describe('契約書管理機能', () => {
       await page.waitForLoadState('networkidle');
 
       // パンくずが表示されていることを確認
-      const breadcrumb = page.locator('nav[aria-label="パンくず"], nav[aria-label="breadcrumb"]');
+      const breadcrumb = page.locator('nav[aria-label*="パンくず"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
       // ダッシュボードへのリンクが含まれていることを確認
@@ -587,7 +588,7 @@ test.describe('契約書管理機能', () => {
       await page.waitForLoadState('networkidle');
 
       // パンくずが表示されていることを確認
-      const breadcrumb = page.locator('nav[aria-label="パンくず"], nav[aria-label="breadcrumb"]');
+      const breadcrumb = page.locator('nav[aria-label*="パンくず"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
     });
 
@@ -603,7 +604,7 @@ test.describe('契約書管理機能', () => {
       await page.waitForLoadState('networkidle');
 
       // パンくずが表示されていることを確認
-      const breadcrumb = page.locator('nav[aria-label="パンくず"], nav[aria-label="breadcrumb"]');
+      const breadcrumb = page.locator('nav[aria-label*="パンくず"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
     });
 
@@ -619,7 +620,7 @@ test.describe('契約書管理機能', () => {
       await page.waitForLoadState('networkidle');
 
       // パンくずが表示されていることを確認
-      const breadcrumb = page.locator('nav[aria-label="パンくず"], nav[aria-label="breadcrumb"]');
+      const breadcrumb = page.locator('nav[aria-label*="パンくず"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
@@ -720,13 +721,16 @@ test.describe('契約書管理機能', () => {
       await page.goto(`/projects/${createdProjectId}/contracts`);
       await page.waitForLoadState('networkidle');
 
-      // 最初の契約書行をクリック
-      const contractRow = page.locator('tr[data-testid^="contract-row-"], a[href*="/contracts/"]');
-      await expect(contractRow.first()).toBeVisible({ timeout: getTimeout(10000) });
-      await contractRow.first().click();
+      // 最初の契約書行の契約種類リンクをクリック
+      const contractRow = page.locator('tr[data-testid^="contract-row-"]').first();
+      await expect(contractRow).toBeVisible({ timeout: getTimeout(10000) });
+      // 行内のテキスト（契約種類）をクリックして詳細画面に遷移
+      await contractRow.getByText(/新規契約|変更契約/).click({ force: true });
 
       // 詳細画面に遷移したことを確認（REQ-1.5）
-      await page.waitForURL(/\/projects\/[0-9a-f-]+\/contracts\/[0-9a-f-]+$/);
+      await page.waitForURL(/\/projects\/[0-9a-f-]+\/contracts\/[0-9a-f-]+$/, {
+        timeout: getTimeout(15000),
+      });
     });
   });
 });

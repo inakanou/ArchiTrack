@@ -48,14 +48,8 @@ test.describe('プロジェクト詳細画面 - 契約書セクション', () =>
   // ============================================================================
 
   async function getAccessToken(page: import('@playwright/test').Page): Promise<string> {
-    const tokenResponse = await page.evaluate(async (apiUrl: string) => {
-      const res = await fetch(`${apiUrl}/api/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      return res.json();
-    }, API_BASE_URL);
-    return tokenResponse.accessToken;
+    const token = await page.evaluate(() => localStorage.getItem('accessToken'));
+    return token ?? '';
   }
 
   async function apiRequest(
@@ -151,7 +145,7 @@ test.describe('プロジェクト詳細画面 - 契約書セクション', () =>
         constructionStartDate: '2025-07-01',
         constructionEndDate: '2025-12-31',
         deliveryDate: '2026-01-15',
-        taxRate: 10,
+        taxRate: 0.1,
         paymentTerms: '月末締め翌月末払い',
         separateConstruction: '別途工事なし',
         otherNotes: 'E2Eテスト契約書',
@@ -308,22 +302,17 @@ test.describe('プロジェクト詳細画面 - 契約書セクション', () =>
   }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
-    // API応答を遅延させてスケルトン表示を確認
-    await page.route('**/api/projects/*/detail-summary', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      await route.continue();
-    });
-
+    // ページ遷移を開始（navigateの完了を待たない）
+    // ProjectDetailPageはisLoading=true時にページレベルのローディングスピナーを表示し、
+    // データ読み込み完了後に各セクション（契約書セクション含む）を表示する
     await page.goto(`/projects/${projectId}`);
 
-    // スケルトンローダーが表示されることを確認
-    const skeleton = page.getByTestId('contract-section-skeleton');
-    await expect(skeleton).toBeVisible({ timeout: getTimeout(5000) });
-
-    // スケルトンが消えて実データが表示されることを確認
-    await expect(skeleton).not.toBeVisible({ timeout: getTimeout(15000) });
+    // データ読み込み完了後、契約書セクションが表示されることを確認
     const contractSection = page.getByTestId('contract-section');
-    await expect(contractSection).toBeVisible({ timeout: getTimeout(5000) });
+    await expect(contractSection).toBeVisible({ timeout: getTimeout(15000) });
+
+    // 契約書セクション内にデータが表示されていることを確認（ロード完了の証拠）
+    await expect(contractSection.getByText('契約書')).toBeVisible();
   });
 
   // ============================================================================
