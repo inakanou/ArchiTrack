@@ -44,6 +44,7 @@ import CompanyInfoPage from './pages/CompanyInfoPage';
 import ContractListPage from './pages/ContractListPage';
 import ContractCreatePage from './pages/ContractCreatePage';
 import ContractDetailPage from './pages/ContractDetailPage';
+import ContractEditPage from './pages/ContractEditPage';
 
 /**
  * アプリケーションのルート設定
@@ -324,6 +325,17 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/contracts/new',
         element: <ContractCreatePage />,
+      },
+      // 契約書編集（/projects/:projectId/contracts/:contractId より先に定義する必要あり）
+      // REQ-9.1: 契約書編集画面に全項目を編集可能な状態で表示する
+      // REQ-9.2: 編集保存（PUT、楽観的排他制御のversion送信）と詳細画面への遷移
+      // REQ-9.3: 編集キャンセル時に変更を破棄して詳細画面に戻る
+      // REQ-9.4: パンくずナビゲーション
+      // REQ-9.5: 編集時自動表示項目更新
+      // Task 8.1: 契約書編集ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts/:contractId/edit',
+        element: <ContractEditPage />,
       },
       // 契約書詳細
       // REQ-8.1: 契約書詳細画面に全項目を表示する
