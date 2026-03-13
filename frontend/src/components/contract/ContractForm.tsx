@@ -417,7 +417,7 @@ export default function ContractForm({
   /**
    * 階層的な見積項目をフラット化する
    */
-  const flattenItems = useCallback((items: EstimateDetail['items']): EstimateItemWithLines[] => {
+  const flattenItems = (items: EstimateDetail['items']): EstimateItemWithLines[] => {
     const result: EstimateItemWithLines[] = [];
     for (const item of items) {
       result.push({
@@ -432,7 +432,7 @@ export default function ContractForm({
       }
     }
     return result;
-  }, []);
+  };
 
   // 金額計算（見積書詳細取得後、または消費税率変更時）
   useEffect(() => {
