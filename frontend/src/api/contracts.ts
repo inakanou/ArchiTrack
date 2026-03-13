@@ -212,3 +212,18 @@ export async function updateContract(
 ): Promise<ContractDetail> {
   return apiClient.put<ContractDetail>(`/api/contracts/${id}`, input);
 }
+
+/**
+ * 契約書のステータスを更新
+ * Requirements: REQ-8.2, REQ-8.3
+ *
+ * @param id - 契約書ID
+ * @param status - 新しいステータス
+ * @returns 更新された契約書詳細
+ */
+export async function updateContractStatus(
+  id: string,
+  status: ContractStatus
+): Promise<ContractDetail> {
+  return apiClient.patch<ContractDetail>(`/api/contracts/${id}/status`, { status });
+}

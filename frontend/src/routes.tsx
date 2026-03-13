@@ -43,6 +43,7 @@ import EstimateDetailPage from './pages/EstimateDetailPage';
 import CompanyInfoPage from './pages/CompanyInfoPage';
 import ContractListPage from './pages/ContractListPage';
 import ContractCreatePage from './pages/ContractCreatePage';
+import ContractDetailPage from './pages/ContractDetailPage';
 
 /**
  * アプリケーションのルート設定
@@ -323,6 +324,18 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/contracts/new',
         element: <ContractCreatePage />,
+      },
+      // 契約書詳細
+      // REQ-8.1: 契約書詳細画面に全項目を表示する
+      // REQ-8.2, REQ-8.3: ステータス遷移ボタン（双方向遷移）
+      // REQ-8.4: 見積書へのリンク
+      // REQ-8.5: 基契約書へのリンク（変更契約の場合）
+      // REQ-8.6, REQ-8.7: 編集ボタンと編集画面遷移
+      // REQ-8.8: パンくずナビゲーション
+      // Task 7.1: 契約書詳細ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts/:contractId',
+        element: <ContractDetailPage />,
       },
       // 契約書一覧
       // REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
