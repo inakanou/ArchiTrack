@@ -92,15 +92,15 @@ const styles = {
   } as React.CSSProperties,
   removeButton: {
     padding: '4px 8px',
-    border: '1px solid #ef4444',
+    border: '1px solid #dc2626',
     borderRadius: '4px',
     backgroundColor: '#fff',
-    color: '#ef4444',
+    color: '#dc2626',
     fontSize: '12px',
     cursor: 'pointer',
   } as React.CSSProperties,
   validationError: {
-    color: '#ef4444',
+    color: '#dc2626',
     fontSize: '12px',
     marginTop: '2px',
   } as React.CSSProperties,
@@ -147,8 +147,11 @@ export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowPro
 
       {/* 項目名 */}
       <div style={styles.fieldGroup}>
-        <label style={styles.label}>項目名</label>
+        <label htmlFor={`item-name-${item.id}`} style={styles.label}>
+          項目名
+        </label>
         <input
+          id={`item-name-${item.id}`}
           type="text"
           data-testid={`item-name-${item.id}`}
           style={styles.input}
@@ -160,8 +163,11 @@ export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowPro
 
       {/* ラベル文字 */}
       <div style={styles.fieldGroup}>
-        <label style={styles.label}>ラベル</label>
+        <label htmlFor={`label-text-${item.id}`} style={styles.label}>
+          ラベル
+        </label>
         <input
+          id={`label-text-${item.id}`}
           type="text"
           data-testid={`label-text-${item.id}`}
           style={styles.inputSmall}
@@ -173,8 +179,11 @@ export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowPro
 
       {/* 詳細文字 */}
       <div style={styles.fieldGroup}>
-        <label style={styles.label}>詳細</label>
+        <label htmlFor={`detail-text-${item.id}`} style={styles.label}>
+          詳細
+        </label>
         <input
+          id={`detail-text-${item.id}`}
           type="text"
           data-testid={`detail-text-${item.id}`}
           style={styles.input}
@@ -186,8 +195,11 @@ export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowPro
 
       {/* 着工日 */}
       <div style={styles.fieldGroup}>
-        <label style={styles.label}>着工日</label>
+        <label htmlFor={`start-date-${item.id}`} style={styles.label}>
+          着工日
+        </label>
         <input
+          id={`start-date-${item.id}`}
           type="date"
           data-testid={`start-date-${item.id}`}
           style={styles.inputDate}
@@ -199,8 +211,11 @@ export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowPro
 
       {/* 日数 */}
       <div style={styles.fieldGroup}>
-        <label style={styles.label}>日数</label>
+        <label htmlFor={`duration-${item.id}`} style={styles.label}>
+          日数
+        </label>
         <input
+          id={`duration-${item.id}`}
           type="number"
           data-testid={`duration-${item.id}`}
           style={styles.inputNumber}
@@ -219,8 +234,11 @@ export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowPro
 
       {/* 出力対象チェックボックス */}
       <div style={{ ...styles.fieldGroup, alignItems: 'center' }}>
-        <label style={styles.label}>出力</label>
+        <label htmlFor={`export-target-${item.id}`} style={styles.label}>
+          出力
+        </label>
         <input
+          id={`export-target-${item.id}`}
           type="checkbox"
           data-testid={`export-target-${item.id}`}
           style={styles.checkbox}
