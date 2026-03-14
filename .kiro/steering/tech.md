@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-03-13（Steering Sync: 契約書管理機能追加、テストファイル数更新を反映）_
+_最終更新: 2026-03-14（Steering Sync: 工程表作成機能追加を反映）_
 
 ## アーキテクチャ
 
@@ -37,7 +37,8 @@ ArchiTrack/
 - `react-router-dom` ^7.13.0 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
-- `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書エクスポート、SheetJS）
+- `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS）
+- `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.3.0 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
 - `tesseract.js` ^7.0.0 - OCR文字認識（受領見積書構造化データ抽出、再実行/リトライ機能）
@@ -114,6 +115,7 @@ ArchiTrack/
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
 - **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）
 - **AI/OCR精度向上**: @anthropic-ai/sdk 0.74.0（Claude Vision APIによる見積書OCR構造化データ抽出）
+- **祝日データ**: @holiday-jp/holiday_jp ^2.5.1（日本の祝日判定、工程表エクスポート用）
 - **ストレージ抽象化**: StorageProvider インターフェースによる環境別バックエンド切り替え
   - LocalStorageProvider（開発・テスト環境）
   - R2StorageProvider（本番環境、Cloudflare R2）
@@ -285,7 +287,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 単体テスト142ファイル + 統合テスト24ファイル
+**テスト合計:** 単体テスト148ファイル + 統合テスト26ファイル
 
 **実行方法:**
 ```bash
@@ -343,7 +345,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 314テストファイル（包括的なユニットテスト群）
+- 合計: 326テストファイル（包括的なユニットテスト群）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用

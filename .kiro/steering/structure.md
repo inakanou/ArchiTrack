@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-03-13（Steering Sync: 契約書管理機能追加、テストファイル数更新を反映）_
+_最終更新: 2026-03-14（Steering Sync: 工程表作成機能追加を反映）_
 
 ## ルートディレクトリ構成
 
@@ -256,6 +256,10 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
   - 内容: 契約書CRUD、新規契約・変更契約種別管理、見積書連動金額自動計算、ステータス管理（契約前/契約済）、変更前後比較表示、楽観的排他制御
 
+- `.kiro/specs/construction-schedule/` - 工程表作成機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
+  - 内容: 工程表CRUD、工程項目管理（並び替え）、ガントチャート可視化（祝日カレンダー）、数量表連携、Excel/PDFエクスポート、プロジェクト詳細画面統合
+
 ### `e2e/`
 
 Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可能。
@@ -297,7 +301,9 @@ e2e/
 │   │   └── *.spec.ts
 │   ├── estimate/           # 見積書テスト
 │   │   └── *.spec.ts
-│   └── contracts/          # 契約書テスト
+│   ├── contracts/          # 契約書テスト
+│   │   └── *.spec.ts
+│   └── schedules/          # 工程表テスト
 │       └── *.spec.ts
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
@@ -331,6 +337,7 @@ e2e/
 - `company-info/` - 自社情報テスト（CRUD、アクセス制御、楽観的排他制御）
 - `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
 - `contracts/` - 契約書テスト（CRUD操作、新規契約・変更契約、金額自動計算、比較表示、ステータス管理）
+- `schedules/` - 工程表テスト（CRUD操作、ガントチャート表示、エクスポート）
 
 **テストヘルパー:**
 
@@ -432,7 +439,8 @@ frontend/
 │   │       ├── ItemizedStatementSectionCard.tsx # 内訳書セクションカード
 │   │       ├── EstimateSectionCard.tsx # 見積書セクションカード
 │   │       ├── EstimateRequestSectionCard.tsx # 見積依頼セクションカード
-│   │       └── ContractSectionCard.tsx # 契約書セクションカード
+│   │       ├── ContractSectionCard.tsx # 契約書セクションカード
+│   │       └── ScheduleSectionCard.tsx # 工程表セクションカード
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
 │   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
@@ -546,6 +554,12 @@ frontend/
 │   │   ├── contract/                # 契約書コンポーネント（5ファイル）
 │   │       ├── ContractForm.tsx     # 契約書作成・編集フォーム（新規/変更契約対応、見積書連動金額計算）
 │   │       └── ComparisonPanel.tsx  # 変更契約の変更前後比較パネル
+│   │   ├── schedule/               # 工程表コンポーネント（10ファイル）
+│   │       ├── ScheduleForm.tsx    # 工程表作成・編集フォーム
+│   │       ├── ScheduleItemRow.tsx # 工程項目行
+│   │       ├── SortableScheduleList.tsx # 並び替え可能な工程項目リスト
+│   │       ├── GanttChartPanel.tsx # ガントチャート表示パネル（祝日カレンダー対応）
+│   │       └── ExportDialog.tsx    # Excel/PDFエクスポートダイアログ
 │   │   ├── company-info/            # 自社情報コンポーネント
 │   │       └── CompanyInfoForm.tsx   # 自社情報設定フォーム
 │   │   └── common/                  # 共通コンポーネント
@@ -599,7 +613,10 @@ frontend/
 │   │   ├── ContractListPage.tsx # 契約書一覧ページ
 │   │   ├── ContractCreatePage.tsx # 契約書作成ページ
 │   │   ├── ContractDetailPage.tsx # 契約書詳細ページ
-│   │   └── ContractEditPage.tsx # 契約書編集ページ
+│   │   ├── ContractEditPage.tsx # 契約書編集ページ
+│   │   ├── ScheduleListPage.tsx # 工程表一覧ページ
+│   │   ├── ScheduleCreatePage.tsx # 工程表作成ページ
+│   │   └── ScheduleDetailPage.tsx # 工程表詳細ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数（20ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -717,7 +734,7 @@ frontend/
 
 ```
 frontend/src/
-├── api/               # APIクライアント（16ファイル）
+├── api/               # APIクライアント（17ファイル）
 │   ├── auth.ts        # 認証API
 │   ├── client.ts      # 共通クライアント
 │   ├── projects.ts    # プロジェクトAPI
@@ -734,7 +751,8 @@ frontend/src/
 │   ├── company-info.ts # 自社情報API
 │   ├── estimates.ts # 見積書API
 │   └── contracts.ts # 契約書API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor等 26ファイル）
+│   └── schedules.ts # 工程表API
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor、useScheduleState、useHolidayCalendar等 28ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
 ├── utils/             # ユーティリティ関数
@@ -769,7 +787,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（142テストファイル）
+│   │   └── unit/          # ユニットテスト（148テストファイル）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -804,7 +822,7 @@ backend/
 │   │       └── utils/     # ユーティリティテスト
 │   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
 │   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
-│   ├── errors/            # カスタムエラー定義（13ファイル）
+│   ├── errors/            # カスタムエラー定義（14ファイル）
 │   │   ├── apiError.ts    # 汎用APIエラークラス
 │   │   ├── projectError.ts # プロジェクト関連エラー
 │   │   ├── tradingPartnerError.ts # 取引先関連エラー
@@ -817,7 +835,8 @@ backend/
 │   │   ├── companyInfoError.ts # 自社情報関連エラー
 │   │   ├── estimateError.ts # 見積書関連エラー
 │   │   ├── claudeVisionError.ts # Claude Vision関連エラー
-│   │   └── contractError.ts # 契約書関連エラー
+│   │   ├── contractError.ts # 契約書関連エラー
+│   │   └── scheduleError.ts # 工程表関連エラー
 │   ├── middleware/        # ミドルウェア
 │   │   ├── errorHandler.middleware.ts  # エラーハンドリング
 │   │   ├── httpsRedirect.middleware.ts # HTTPS強制リダイレクト
@@ -825,7 +844,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（28ファイル）
+│   ├── routes/            # ルート定義（29ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -853,11 +872,12 @@ backend/
 │   │   ├── project-quotations.routes.ts # プロジェクト単位受領見積書取得ルート（転記用）
 │   │   ├── claude-vision.routes.ts # Claude Vision OCRルート（見積書構造化データ抽出）
 │   │   ├── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、利益率、Excel出力）
-│   │   └── contracts.routes.ts # 契約書ルート（CRUD、ステータス遷移）
+│   │   ├── contracts.routes.ts # 契約書ルート（CRUD、ステータス遷移）
+│   │   └── schedules.routes.ts # 工程表ルート（CRUD、エクスポート）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── schemas/           # Zodバリデーションスキーマ（12ファイル）
+│   ├── schemas/           # Zodバリデーションスキーマ（13ファイル）
 │   │   ├── project.schema.ts # プロジェクト関連
 │   │   ├── trading-partner.schema.ts # 取引先関連
 │   │   ├── site-survey.schema.ts # 現場調査関連
@@ -869,8 +889,9 @@ backend/
 │   │   ├── company-info.schema.ts # 自社情報関連
 │   │   ├── claude-vision.schema.ts # Claude Vision OCR関連
 │   │   ├── estimate.schema.ts # 見積書関連
-│   │   └── contract.schema.ts # 契約書関連
-│   ├── services/          # ビジネスロジック（50サービス）
+│   │   ├── contract.schema.ts # 契約書関連
+│   │   └── schedule.schema.ts # 工程表関連
+│   ├── services/          # ビジネスロジック（52サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -920,7 +941,9 @@ backend/
 │   │   ├── estimate-export.service.ts # 見積書Excel出力
 │   │   ├── overhead-cost.service.ts # 諸経費行管理
 │   │   ├── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
-│   │   └── contract.service.ts # 契約書管理（CRUD、ステータス遷移、見積書連動金額計算、楽観的排他制御）
+│   │   ├── contract.service.ts # 契約書管理（CRUD、ステータス遷移、見積書連動金額計算、楽観的排他制御）
+│   │   ├── schedule.service.ts # 工程表管理（CRUD、工程項目管理、数量表連携、楽観的排他制御）
+│   │   └── schedule-export.service.ts # 工程表エクスポート（Excel/PDF出力）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -1009,7 +1032,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（28ルートファイル）:**
+**実装済みAPI（29ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -1169,6 +1192,14 @@ backend/src/
 - `PUT /api/contracts/:id`: 契約書更新（楽観的排他制御）
 - `PATCH /api/contracts/:id/status`: 契約書ステータス変更
 - `DELETE /api/contracts/:id`: 契約書論理削除
+
+**工程表管理API（schedules.routes.ts）:**
+- `GET /api/projects/:projectId/schedules`: 工程表一覧取得（ページネーション、ソート）
+- `GET /api/schedules/:id`: 工程表詳細取得（工程項目含む）
+- `POST /api/projects/:projectId/schedules`: 工程表作成（数量表連携オプション）
+- `PUT /api/schedules/:id`: 工程表更新（楽観的排他制御）
+- `DELETE /api/schedules/:id`: 工程表論理削除
+- `GET /api/schedules/:id/export`: 工程表エクスポート（Excel/PDF形式選択）
 
 **実装済みミドルウェア:**
 
@@ -1465,8 +1496,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト142ファイル + 統合テスト24ファイル
-- Frontend: 単体テスト314ファイル
+- Backend: 単体テスト148ファイル + 統合テスト26ファイル
+- Frontend: 単体テスト326ファイル
 
 ### .gitignore
 
