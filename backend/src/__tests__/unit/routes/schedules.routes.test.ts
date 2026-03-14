@@ -36,6 +36,7 @@ const {
   mockDelete,
   mockGetExportData,
   mockExportToExcel,
+  mockExportToPdf,
 } = vi.hoisted(() => ({
   mockFindByProject: vi.fn(),
   mockFindById: vi.fn(),
@@ -45,6 +46,7 @@ const {
   mockDelete: vi.fn(),
   mockGetExportData: vi.fn(),
   mockExportToExcel: vi.fn(),
+  mockExportToPdf: vi.fn(),
 }));
 
 // 依存モジュールのモック
@@ -67,6 +69,7 @@ vi.mock('../../../services/schedule-export.service.js', () => ({
   ScheduleExportService: class {
     getExportData = mockGetExportData;
     exportToExcel = mockExportToExcel;
+    exportToPdf = mockExportToPdf;
   },
 }));
 
@@ -549,10 +552,18 @@ describe('工程表ルート', () => {
       expect(mockExportToExcel).toHaveBeenCalledWith(mockExportData);
     });
 
-    it('pdfフォーマットのエクスポートは501を返す（未実装）', async () => {
+    it('pdfフォーマットのエクスポートでPDFファイルが返ること', async () => {
       mockGetExportData.mockResolvedValue(mockExportData);
+      mockExportToPdf.mockResolvedValue(Buffer.from('pdf-data'));
 
-      await request(app).get(`/api/schedules/${scheduleId}/export?format=pdf`).expect(501);
+      const res = await request(app)
+        .get(`/api/schedules/${scheduleId}/export?format=pdf`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('application/pdf');
+      expect(res.headers['content-disposition']).toContain('.pdf');
+      expect(mockGetExportData).toHaveBeenCalledWith(scheduleId);
+      expect(mockExportToPdf).toHaveBeenCalledWith(mockExportData);
     });
 
     it('無効なフォーマットで400エラーが返ること', async () => {

@@ -559,11 +559,17 @@ router.get(
         );
         res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fileName}`);
         res.send(buffer);
+      } else if (format === 'pdf') {
+        const buffer = await scheduleExportService.exportToPdf(exportData);
+        const fileName = encodeURIComponent(`${exportData.name}.pdf`);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fileName}`);
+        res.send(buffer);
       } else {
-        // PDF出力はTask 12で実装予定
-        res.status(501).json({
-          status: 501,
-          detail: 'PDF出力は未実装です',
+        res.status(400).json({
+          status: 400,
+          detail: 'サポートされていない出力形式です',
         });
       }
     } catch (error) {

@@ -173,8 +173,8 @@
   - Bufferをレスポンスとして返却し、フロントエンドでファイルダウンロード
   - _Requirements: 7.1_
 
-- [ ] 12. PDF出力機能の実装
-- [ ] 12.1 ScheduleExportServiceのPDF出力ロジックを実装する
+- [x] 12. PDF出力機能の実装
+- [x] 12.1 ScheduleExportServiceのPDF出力ロジックを実装する
   - jsPDFライブラリを使用したPDF形式ファイル生成
   - A4横向き（ランドスケープ）レイアウト
   - ヘッダーにプロジェクト名と自社名（CompanyInfoから取得）を含める
@@ -187,7 +187,7 @@
   - 日本語フォントの対応（既存見積書PDF出力パターンに従う）
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 9.3, 9.4, 10.5, 11.5_
 
-- [ ] 12.2 (P) PDF出力エンドポイントとの統合
+- [x] 12.2 (P) PDF出力エンドポイントとの統合
   - GET /api/schedules/:id/export?format=pdfからScheduleExportServiceの呼び出し
   - Bufferをレスポンスとして返却し、フロントエンドでファイルダウンロード
   - _Requirements: 8.1_

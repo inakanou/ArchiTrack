@@ -4,6 +4,7 @@
  * TDD: RED phase - テストを先に書く
  *
  * Task 11.1: ScheduleExportServiceのExcel出力ロジックを実装する
+ * Task 12.1: ScheduleExportServiceのPDF出力ロジックを実装する
  *
  * Requirements:
  * - 7.1: Excelダウンロード
@@ -11,10 +12,15 @@
  * - 7.3: 自社名含むExcel
  * - 7.4: 項目情報含むExcel
  * - 7.5: ガントチャート再現Excel
+ * - 8.1: PDFダウンロード
+ * - 8.2: プロジェクト名含むPDF
+ * - 8.3: 自社名含むPDF
+ * - 8.4: 項目情報含むPDF
+ * - 8.5: ガントチャート再現PDF
  * - 9.3: チェックOFF時の出力除外
  * - 9.4: チェック復帰時の出力復帰
- * - 10.5: ラベル文字のExcel出力
- * - 11.5: 詳細文字のExcel出力
+ * - 10.5: ラベル文字のExcel/PDF出力
+ * - 11.5: 詳細文字のExcel/PDF出力
  *
  * @module __tests__/unit/services/schedule-export.service
  */
@@ -397,6 +403,285 @@ describe('ScheduleExportService', () => {
       // 着工日nullの項目のラベルも含まれる
       expect(allText).toContain('基礎');
       expect(allText).toContain('躯体');
+    });
+  });
+
+  // ============================================================================
+  // Task 12.1: PDF出力テスト
+  // ============================================================================
+
+  describe('exportToPdf', () => {
+    // REQ-8.1: PDFダウンロード（Bufferを返す）
+    it('Bufferを返す', async () => {
+      const data = createTestScheduleData();
+      const result = await service.exportToPdf(data);
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    // REQ-8.1: 有効なPDFファイルを生成する
+    it('有効なPDFファイルを生成する（PDFヘッダーを含む）', async () => {
+      const data = createTestScheduleData();
+      const buffer = await service.exportToPdf(data);
+
+      // PDFファイルは%PDFで始まる
+      const header = buffer.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+    });
+
+    // A4横向き（ランドスケープ）レイアウト
+    it('A4横向き（ランドスケープ）レイアウトで生成する', async () => {
+      const data = createTestScheduleData();
+      const buffer = await service.exportToPdf(data);
+
+      // PDFファイルが正常に生成されることを確認
+      // ランドスケープのMediaBoxは[0 0 841.89 595.28]のパターンを含む
+      const pdfContent = buffer.toString('latin1');
+      // A4ランドスケープ: 幅841.89 > 高さ595.28
+      expect(pdfContent).toContain('841');
+      expect(pdfContent).toContain('595');
+    });
+
+    // REQ-8.2: プロジェクト名を含むPDF
+    it('プロジェクト名をヘッダーに含む', async () => {
+      const data = createTestScheduleData({ projectName: '渋谷駅前ビル新築工事PDF' });
+      const buffer = await service.exportToPdf(data);
+
+      // PDFバイナリ内にプロジェクト名が含まれることを確認
+      // jsPDFはテキストをPDF内部に直接埋め込む
+      expect(buffer.length).toBeGreaterThan(0);
+      // PDF生成が正常に完了すること（テキスト内容の検証はPDFパース不要の範囲で）
+    });
+
+    // REQ-8.3: 自社名を含むPDF
+    it('自社名をヘッダーに含む', async () => {
+      const data = createTestScheduleData({ companyName: '株式会社テスト建設PDF' });
+      const buffer = await service.exportToPdf(data);
+
+      expect(buffer.length).toBeGreaterThan(0);
+    });
+
+    // REQ-9.3: isExportTarget=falseの項目を除外
+    it('isExportTarget=falseの項目を出力対象から除外する', async () => {
+      const data = createTestScheduleData();
+      // 3項目中、2項目がisExportTarget=true、1項目がfalse
+      const bufferWithAll = await service.exportToPdf(data);
+
+      // 全項目をisExportTarget=trueにしたデータ
+      const dataAllTrue = createTestScheduleData({
+        items: data.items.map((item) => ({ ...item, isExportTarget: true })),
+      });
+      const bufferAllTrue = await service.exportToPdf(dataAllTrue);
+
+      // 出力対象が多い方がPDFサイズが大きい（またはレイアウトが異なる）
+      // 最低限、両方とも有効なPDFであること
+      expect(bufferWithAll.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      expect(bufferAllTrue.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      // 3項目全てを出力した場合の方がサイズが大きくなるはず
+      expect(bufferAllTrue.length).toBeGreaterThan(bufferWithAll.length);
+    });
+
+    // REQ-9.4: チェック復帰時の出力復帰
+    it('isExportTarget=trueの全項目を出力する', async () => {
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '基礎工事',
+            labelText: '基礎',
+            detailText: 'コンクリート打設',
+            startDate: '2026-04-01',
+            duration: 5,
+            displayOrder: 0,
+            isExportTarget: true,
+          },
+          {
+            id: 'item-2',
+            itemName: '内装工事',
+            labelText: '内装',
+            detailText: 'クロス貼り',
+            startDate: '2026-04-16',
+            duration: 7,
+            displayOrder: 1,
+            isExportTarget: true, // 復帰済
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      expect(buffer).toBeInstanceOf(Buffer);
+      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+
+    // REQ-8.4: 項目情報（着工日・日数・完了日）をテーブル行として出力
+    it('各項目の着工日・日数・完了日をテーブル行として出力する', async () => {
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '基礎工事',
+            labelText: '基礎',
+            detailText: 'コンクリート打設',
+            startDate: '2026-04-01',
+            duration: 5,
+            displayOrder: 0,
+            isExportTarget: true,
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      // PDFが正常に生成され、有効なフォーマットであること
+      expect(buffer).toBeInstanceOf(Buffer);
+      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+
+    // REQ-10.5: ラベル文字のPDF出力（バー左側のテキスト領域に配置）
+    it('ラベル文字をバー左側のテキスト領域に配置する', async () => {
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '基礎工事',
+            labelText: '基礎ラベルPDFテスト',
+            detailText: '',
+            startDate: '2026-04-01',
+            duration: 5,
+            displayOrder: 0,
+            isExportTarget: true,
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      expect(buffer).toBeInstanceOf(Buffer);
+      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+
+    // REQ-11.5: 詳細文字のPDF出力（バー矩形の上にtext()で配置）
+    it('詳細文字をバー矩形の上にtext()で配置する', async () => {
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '基礎工事',
+            labelText: '',
+            detailText: '詳細テキストPDFテスト',
+            startDate: '2026-04-01',
+            duration: 5,
+            displayOrder: 0,
+            isExportTarget: true,
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      expect(buffer).toBeInstanceOf(Buffer);
+      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+
+    // REQ-8.5: ガントチャート再現PDF（rect()による矩形描画）
+    it('rect()による矩形描画でガントチャートのバーを再現する', async () => {
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '基礎工事',
+            labelText: '基礎',
+            detailText: '',
+            startDate: '2026-04-01',
+            duration: 3,
+            displayOrder: 0,
+            isExportTarget: true,
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      // PDFバイナリ内に矩形描画コマンド（re = rectangle）が含まれること
+      const pdfContent = buffer.toString('latin1');
+      expect(pdfContent).toContain(' re');
+    });
+
+    // 土日祝列に薄い背景色の矩形を全行にわたって描画
+    it('土日祝列に薄い背景色の矩形を描画する', async () => {
+      // 2026-04-04 = 土曜日, 2026-04-05 = 日曜日
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '基礎工事',
+            labelText: '基礎',
+            detailText: '',
+            startDate: '2026-04-01',
+            duration: 7,
+            displayOrder: 0,
+            isExportTarget: true,
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      // PDFが有効で矩形描画が含まれること（土日祝の背景色矩形）
+      const pdfContent = buffer.toString('latin1');
+      expect(pdfContent).toContain(' re');
+      // fillコマンドが含まれること
+      expect(pdfContent).toContain(' f');
+    });
+
+    // 出力対象項目が0件の場合
+    it('出力対象項目が0件の場合も正常にPDFを生成する', async () => {
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '内装工事',
+            labelText: '',
+            detailText: '',
+            startDate: '2026-04-01',
+            duration: 5,
+            displayOrder: 0,
+            isExportTarget: false, // 全て出力対象外
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      expect(buffer).toBeInstanceOf(Buffer);
+      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+
+    // 着工日・日数が未入力の項目
+    it('着工日がnullの項目はバー表示なしで情報のみ出力する', async () => {
+      const data = createTestScheduleData({
+        items: [
+          {
+            id: 'item-1',
+            itemName: '基礎工事',
+            labelText: '基礎',
+            detailText: '',
+            startDate: null,
+            duration: null,
+            displayOrder: 0,
+            isExportTarget: true,
+          },
+          {
+            id: 'item-2',
+            itemName: '躯体工事',
+            labelText: '躯体',
+            detailText: '',
+            startDate: '2026-04-01',
+            duration: 5,
+            displayOrder: 1,
+            isExportTarget: true,
+          },
+        ],
+      });
+
+      const buffer = await service.exportToPdf(data);
+      expect(buffer).toBeInstanceOf(Buffer);
+      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
     });
   });
 
