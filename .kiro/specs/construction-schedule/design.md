@@ -537,6 +537,10 @@ interface ScheduleExportServiceInterface {
 - Integration: ScheduleRoutesからexportエンドポイント経由で呼び出し
 - Risks: PDF出力時のフォント対応（日本語フォントの埋め込み）-- 既存の見積書PDF出力パターンに従う
 
+**ガントチャート出力再現方針**
+- **Excel**: 日付列をセルとして展開し、バー期間に該当するセルに背景色（塗りつぶし）を設定する方式。土日祝は対応するセルの背景色を変更。ラベル文字は左列セル、詳細文字はバー先頭セルにテキストとして配置する
+- **PDF**: jsPDFのrect()による矩形描画でバーを再現。座標計算ロジックは、1日あたりの幅（px）を定数で定義し、着工日からのオフセットでX座標を算出する。用紙はA4横向き（ランドスケープ）。土日祝列は薄い背景色の矩形を全行にわたって描画する。ラベル文字はバー左側のテキスト領域に、詳細文字はバー矩形の上にtext()で配置する
+
 ## Data Models
 
 ### Domain Model
@@ -579,6 +583,11 @@ erDiagram
 **Aggregates and Boundaries**:
 - ConstructionSchedule が集約ルート。ScheduleItem は集約内のエンティティ
 - 数量表との関連はスナップショット参照（sourceQuantityItemId）であり、カスケード更新・削除は行わない
+
+**数量表削除時の影響**:
+- 数量表が削除された場合、`ConstructionSchedule.quantityTableId`はNULL（ON DELETE SET NULL）に設定される
+- `ScheduleItem.sourceQuantityItemId`もNULLに設定されるが、`itemName`はスナップショットとして保持されるため表示上は影響なし
+- `sourceType`が`QUANTITY_TABLE`かつ`sourceQuantityItemId`がNULLの場合、UI上では通常の項目として表示し、数量表由来であった旨の表示は行わない（実質的にMANUAL項目と同等の扱いとなる）
 
 **Business Rules & Invariants**:
 - 工程表名は必須（1-200文字）
@@ -752,7 +761,7 @@ interface BulkSaveScheduleItemsInput {
 }
 
 interface BulkSaveScheduleItem {
-  id: string;
+  id: string | null;  // null: 新規作成、既存ID: 更新
   itemName: string;
   labelText: string;
   detailText: string;
@@ -761,6 +770,10 @@ interface BulkSaveScheduleItem {
   displayOrder: number;
   isExportTarget: boolean;
 }
+// バルク保存の動作仕様:
+// - id=null の項目はサーバー側で新規IDを採番して作成する
+// - 既存IDの項目は更新する
+// - リクエストに含まれない既存項目は削除する（差分削除方式）
 
 // バルク保存レスポンス
 interface BulkSaveResult {
