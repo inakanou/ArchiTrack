@@ -156,8 +156,8 @@
   - 出力対象チェックがOFFの項目もガントチャート上に表示を維持
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 9.6, 10.2, 10.3, 11.2, 11.3_
 
-- [ ] 11. Excel出力機能の実装
-- [ ] 11.1 ScheduleExportServiceのExcel出力ロジックを実装する
+- [x] 11. Excel出力機能の実装
+- [x] 11.1 ScheduleExportServiceのExcel出力ロジックを実装する
   - xlsxライブラリを使用した.xlsx形式ファイル生成
   - ヘッダーにプロジェクト名と自社名（CompanyInfoから取得）を含める
   - isExportTarget=trueの項目のみ出力対象としてフィルタ
@@ -168,7 +168,7 @@
   - 土日祝に対応するセルの背景色を変更
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 9.3, 9.4, 10.5, 11.5_
 
-- [ ] 11.2 (P) Excel出力エンドポイントとの統合
+- [x] 11.2 (P) Excel出力エンドポイントとの統合
   - GET /api/schedules/:id/export?format=xlsxからScheduleExportServiceの呼び出し
   - Bufferをレスポンスとして返却し、フロントエンドでファイルダウンロード
   - _Requirements: 7.1_

@@ -21,6 +21,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ScheduleService } from '../services/schedule.service.js';
+import { ScheduleExportService } from '../services/schedule-export.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -48,6 +49,7 @@ import {
 const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
 const scheduleService = new ScheduleService({ prisma });
+const scheduleExportService = new ScheduleExportService({ prisma });
 
 // ==========================================
 // 工程表一覧取得 GET /api/projects/:projectId/schedules
@@ -532,9 +534,9 @@ router.get(
       const id = req.params.id as string;
       const { format } = req.validatedQuery as ExportQuery;
 
-      // 工程表の存在確認
-      const schedule = await scheduleService.findById(id);
-      if (!schedule) {
+      // エクスポートデータの取得（工程表 + プロジェクト情報 + 自社情報）
+      const exportData = await scheduleExportService.getExportData(id);
+      if (!exportData) {
         res.status(404).json({
           status: 404,
           detail: '工程表が見つかりません',
@@ -542,17 +544,28 @@ router.get(
         return;
       }
 
-      // エクスポートサービスはTask 11, 12で実装予定
-      // 現時点ではスタブレスポンスを返す
       logger.info(
         { scheduleId: id, format, userId: req.user?.userId },
         'Schedule export requested'
       );
 
-      res.json({
-        message: `Export format: ${format}`,
-        scheduleId: id,
-      });
+      if (format === 'xlsx') {
+        const buffer = await scheduleExportService.exportToExcel(exportData);
+        const fileName = encodeURIComponent(`${exportData.name}.xlsx`);
+
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fileName}`);
+        res.send(buffer);
+      } else {
+        // PDF出力はTask 12で実装予定
+        res.status(501).json({
+          status: 501,
+          detail: 'PDF出力は未実装です',
+        });
+      }
     } catch (error) {
       next(error);
     }

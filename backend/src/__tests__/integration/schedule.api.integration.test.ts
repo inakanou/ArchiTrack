@@ -988,22 +988,47 @@ describe('Schedule API Integration Tests', () => {
   // GET /api/schedules/:id/export - エクスポート
   // =================================================================
   describe('GET /api/schedules/:id/export', () => {
-    it('エクスポートエンドポイントにアクセスできる', async () => {
+    it('xlsx形式でExcelファイルをダウンロードできる', async () => {
       const schedule = await prisma.constructionSchedule.create({
         data: {
           projectId: testProjectId,
           name: 'エクスポートテスト',
           version: 0,
+          items: {
+            create: [
+              {
+                itemName: 'テスト項目',
+                labelText: 'ラベル',
+                detailText: '詳細',
+                startDate: new Date('2026-04-01'),
+                duration: 5,
+                displayOrder: 0,
+                isExportTarget: true,
+              },
+            ],
+          },
         },
       });
 
       const response = await request(app)
         .get(`/api/schedules/${schedule.id}/export`)
         .query({ format: 'xlsx' })
-        .set('Authorization', `Bearer ${accessToken}`);
+        .set('Authorization', `Bearer ${accessToken}`)
+        .buffer(true)
+        .parse((res, callback) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => callback(null, Buffer.concat(chunks)));
+        });
 
-      // スタブレスポンスなので200を返す
       expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toContain(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      expect(response.headers['content-disposition']).toContain('.xlsx');
+      // レスポンスボディがBufferであることを確認
+      expect(response.body).toBeInstanceOf(Buffer);
+      expect(response.body.length).toBeGreaterThan(0);
     });
 
     it('存在しない工程表のエクスポートは404を返す', async () => {

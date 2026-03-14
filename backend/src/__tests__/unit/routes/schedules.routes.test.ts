@@ -27,15 +27,25 @@ import {
 } from '../../../errors/scheduleError.js';
 
 // vi.hoistedでモック関数を定義（vi.mockと一緒にhoistingされる）
-const { mockFindByProject, mockFindById, mockCreate, mockUpdate, mockBulkSaveItems, mockDelete } =
-  vi.hoisted(() => ({
-    mockFindByProject: vi.fn(),
-    mockFindById: vi.fn(),
-    mockCreate: vi.fn(),
-    mockUpdate: vi.fn(),
-    mockBulkSaveItems: vi.fn(),
-    mockDelete: vi.fn(),
-  }));
+const {
+  mockFindByProject,
+  mockFindById,
+  mockCreate,
+  mockUpdate,
+  mockBulkSaveItems,
+  mockDelete,
+  mockGetExportData,
+  mockExportToExcel,
+} = vi.hoisted(() => ({
+  mockFindByProject: vi.fn(),
+  mockFindById: vi.fn(),
+  mockCreate: vi.fn(),
+  mockUpdate: vi.fn(),
+  mockBulkSaveItems: vi.fn(),
+  mockDelete: vi.fn(),
+  mockGetExportData: vi.fn(),
+  mockExportToExcel: vi.fn(),
+}));
 
 // 依存モジュールのモック
 vi.mock('../../../db.js', () => ({
@@ -50,6 +60,13 @@ vi.mock('../../../services/schedule.service.js', () => ({
     update = mockUpdate;
     bulkSaveItems = mockBulkSaveItems;
     delete = mockDelete;
+  },
+}));
+
+vi.mock('../../../services/schedule-export.service.js', () => ({
+  ScheduleExportService: class {
+    getExportData = mockGetExportData;
+    exportToExcel = mockExportToExcel;
   },
 }));
 
@@ -508,26 +525,34 @@ describe('工程表ルート', () => {
   // Requirements: 1.1, 1.2
   // =================================================================
   describe('GET /api/schedules/:id/export', () => {
-    it('xlsxフォーマットのエクスポートリクエストが受け付けられること', async () => {
-      // エクスポートサービスは未実装なので、ルートがformat validationを通すことを確認
-      // 実際のエクスポートはTask 11, 12で実装
-      mockFindById.mockResolvedValue(mockScheduleDetail);
+    const mockExportData = {
+      id: scheduleId,
+      name: 'テスト工程表',
+      projectName: 'テストプロジェクト',
+      companyName: 'テスト建設',
+      items: [],
+    };
+
+    it('xlsxフォーマットのエクスポートでExcelファイルが返ること', async () => {
+      mockGetExportData.mockResolvedValue(mockExportData);
+      mockExportToExcel.mockResolvedValue(Buffer.from('xlsx-data'));
 
       const res = await request(app)
         .get(`/api/schedules/${scheduleId}/export?format=xlsx`)
         .expect(200);
 
-      expect(res.body).toBeDefined();
+      expect(res.headers['content-type']).toContain(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      expect(res.headers['content-disposition']).toContain('.xlsx');
+      expect(mockGetExportData).toHaveBeenCalledWith(scheduleId);
+      expect(mockExportToExcel).toHaveBeenCalledWith(mockExportData);
     });
 
-    it('pdfフォーマットのエクスポートリクエストが受け付けられること', async () => {
-      mockFindById.mockResolvedValue(mockScheduleDetail);
+    it('pdfフォーマットのエクスポートは501を返す（未実装）', async () => {
+      mockGetExportData.mockResolvedValue(mockExportData);
 
-      const res = await request(app)
-        .get(`/api/schedules/${scheduleId}/export?format=pdf`)
-        .expect(200);
-
-      expect(res.body).toBeDefined();
+      await request(app).get(`/api/schedules/${scheduleId}/export?format=pdf`).expect(501);
     });
 
     it('無効なフォーマットで400エラーが返ること', async () => {
@@ -539,7 +564,7 @@ describe('工程表ルート', () => {
     });
 
     it('存在しない工程表のエクスポートで404エラーが返ること', async () => {
-      mockFindById.mockResolvedValue(null);
+      mockGetExportData.mockResolvedValue(null);
 
       await request(app).get(`/api/schedules/${scheduleId}/export?format=xlsx`).expect(404);
     });
