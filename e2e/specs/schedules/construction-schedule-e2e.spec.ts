@@ -208,7 +208,7 @@ test.describe('工程表機能 E2Eテスト', () => {
       await page.waitForURL(/\/schedules\//, { timeout: getTimeout(15000) });
 
       // 工程表名が表示されること
-      await expect(page.getByText('E2Eテスト工程表')).toBeVisible({
+      await expect(page.getByRole('heading', { name: 'E2Eテスト工程表' })).toBeVisible({
         timeout: getTimeout(10000),
       });
     });
@@ -284,11 +284,12 @@ test.describe('工程表機能 E2Eテスト', () => {
       // 詳細画面に遷移
       await page.waitForURL(/\/schedules\//, { timeout: getTimeout(15000) });
 
-      // 数量表由来の項目が表示されることを確認
-      await expect(page.getByText('E2E基礎工事')).toBeVisible({
+      // 数量表由来の項目が表示されることを確認（input要素のvalue値として表示される）
+      const itemNames = page.locator('[data-testid^="item-name-"]');
+      await expect(itemNames.nth(0)).toHaveValue('E2E基礎工事', {
         timeout: getTimeout(10000),
       });
-      await expect(page.getByText('E2E鉄骨工事')).toBeVisible({
+      await expect(itemNames.nth(1)).toHaveValue('E2E鉄骨工事', {
         timeout: getTimeout(10000),
       });
     });
@@ -323,7 +324,7 @@ test.describe('工程表機能 E2Eテスト', () => {
       await page.waitForURL(/\/schedules\//, { timeout: getTimeout(15000) });
 
       // 詳細画面が表示されること
-      await expect(page.getByText('E2Eテスト工程表')).toBeVisible({
+      await expect(page.getByRole('heading', { name: 'E2Eテスト工程表' })).toBeVisible({
         timeout: getTimeout(10000),
       });
     });
@@ -426,11 +427,12 @@ test.describe('工程表機能 E2Eテスト', () => {
 
       // 出力対象チェックボックスが存在すること
       const checkboxes = page.locator('[data-testid^="export-target-"]');
+      const firstCheckbox = checkboxes.first();
+      await expect(firstCheckbox).toBeVisible({ timeout: getTimeout(10000) });
       const count = await checkboxes.count();
       expect(count).toBeGreaterThan(0);
 
       // デフォルトでチェック済みであること
-      const firstCheckbox = checkboxes.first();
       await expect(firstCheckbox).toBeChecked({ timeout: getTimeout(5000) });
     });
 
@@ -511,11 +513,13 @@ test.describe('工程表機能 E2Eテスト', () => {
 
       // ラベル文字入力欄が存在すること
       const labelInputs = page.locator('[data-testid^="label-text-"]');
+      await expect(labelInputs.first()).toBeVisible({ timeout: getTimeout(10000) });
       const labelCount = await labelInputs.count();
       expect(labelCount).toBeGreaterThan(0);
 
       // 詳細文字入力欄が存在すること
       const detailInputs = page.locator('[data-testid^="detail-text-"]');
+      await expect(detailInputs.first()).toBeVisible({ timeout: getTimeout(10000) });
       const detailCount = await detailInputs.count();
       expect(detailCount).toBeGreaterThan(0);
     });
@@ -614,8 +618,8 @@ test.describe('工程表機能 E2Eテスト', () => {
         timeout: getTimeout(30000),
       });
 
-      // 出力ボタンをクリック
-      await page.getByRole('button', { name: '出力' }).click();
+      // ダイアログ内の出力ボタンをクリック
+      await page.getByRole('dialog').getByRole('button', { name: '出力' }).click();
 
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
@@ -649,8 +653,8 @@ test.describe('工程表機能 E2Eテスト', () => {
         timeout: getTimeout(30000),
       });
 
-      // 出力ボタンをクリック
-      await page.getByRole('button', { name: '出力' }).click();
+      // ダイアログ内の出力ボタンをクリック
+      await page.getByRole('dialog').getByRole('button', { name: '出力' }).click();
 
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
@@ -690,8 +694,8 @@ test.describe('工程表機能 E2Eテスト', () => {
       // 確認ボタンをクリック
       await page.getByRole('button', { name: '確認' }).click();
 
-      // 一覧から消えること
-      await expect(page.getByText('削除テスト工程表')).not.toBeVisible({
+      // 一覧から消えること（リンク要素で特定）
+      await expect(page.getByRole('link', { name: '削除テスト工程表' })).not.toBeVisible({
         timeout: getTimeout(10000),
       });
     });
