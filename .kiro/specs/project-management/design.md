@@ -29,6 +29,7 @@
 - ~~現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）~~ → 現場調査セクション表示はproject-management Requirement 24で管理
 - ~~見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）~~ → 見積書セクション表示はproject-management Requirement 28で管理
 - ~~契約書機能の実装（プロジェクト詳細画面からのリンクのみ）~~ → 契約書セクション表示はproject-management Requirement 36で管理
+- ~~工程表機能の実装（プロジェクト詳細画面からのリンクのみ）~~ → 工程表セクション表示はproject-management Requirement 38で管理
 - 取引先管理機能の実装（別仕様`trading-partner-management`として定義）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
@@ -386,6 +387,8 @@ sequenceDiagram
 | 29.1-29.6 | **プロジェクト詳細API効率化（7リクエスト→1リクエスト）**（差分設計2026-02-13） | ProjectRoutes, ProjectDetailPage, SiteSurveyService, QuantityTableService, ItemizedStatementService, EstimateRequestService, EstimateService | GET /api/projects/:id/detail-summary | プロジェクト詳細一括取得フロー |
 | 36.1-36.13 | **契約書セクション表示**（contract-managementから集約） | ProjectDetailPage, ContractSectionCard | GET /api/projects/:id/detail-summary | - |
 | 37.1-37.5 | **detail-summary APIの契約書セクション統合** | ProjectRoutes, ContractService | GET /api/projects/:id/detail-summary | - |
+| 38.1-38.13 | **工程表セクション表示**（construction-scheduleから集約） | ProjectDetailPage, ScheduleSectionCard | GET /api/projects/:id/detail-summary | - |
+| 39.1-39.5 | **detail-summary APIの工程表セクション統合** | ProjectRoutes, ScheduleService | GET /api/projects/:id/detail-summary | - |
 
 ## Components and Interfaces
 
@@ -395,7 +398,7 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず + **デフォルト終端ステータス除外 + ステータス別件数表示（全プロジェクト対象）** | 2, 3, 4, 5, 6, 21.14, 23 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
 | ProjectListTable | UI/Component | **一覧テーブル（ID列削除、営業担当者・工事担当者列追加）** | 2.2 | ProjectListPage (P0) | - |
-| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず + **6セクション統合表示（一括取得API）** | 7, 8, 9, 10, 11, 21.15, 21.17, 22, 24-29, 36, 37 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1), SiteSurveySectionCard (P1), QuantityTableSectionCard (P1), ItemizedStatementSectionCard (P1), EstimateRequestSectionCard (P1), EstimateSectionCard (P1), ContractSectionCard (P1) | State |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず + **7セクション統合表示（一括取得API）** | 7, 8, 9, 10, 11, 21.15, 21.17, 22, 24-29, 36, 37, 38, 39 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1), SiteSurveySectionCard (P1), QuantityTableSectionCard (P1), ItemizedStatementSectionCard (P1), EstimateRequestSectionCard (P1), EstimateSectionCard (P1), ContractSectionCard (P1), ScheduleSectionCard (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
 | ProjectForm | UI/Component | プロジェクト作成・編集フォーム + **顧客選択時の現場住所自動入力** | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
 | TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応、ラベル「顧客名」、onSelectコールバック追加**） | 1.6, 1.7, 16, 22 | TradingPartnerAPI (P1), kana-converter (P1) | API |
@@ -405,13 +408,14 @@ sequenceDiagram
 | Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
 | ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック + かな検索両対応 + デフォルト終端ステータス除外 + ステータス別件数集計** | 1-9, 11, 13, 14, 16.3, 22.5, 23 | Prisma (P0), AuditLogService (P1), kana-converter (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
-| ProjectRoutes | Backend/Route | RESTful APIエンドポイント + **detail-summary一括取得エンドポイント** | 14, 29, 37 | ProjectService (P0), authorize (P0), SiteSurveyService (P1), QuantityTableService (P1), ItemizedStatementService (P1), EstimateRequestService (P1), EstimateService (P1), ContractService (P1) | API |
+| ProjectRoutes | Backend/Route | RESTful APIエンドポイント + **detail-summary一括取得エンドポイント** | 14, 29, 37, 39 | ProjectService (P0), authorize (P0), SiteSurveyService (P1), QuantityTableService (P1), ItemizedStatementService (P1), EstimateRequestService (P1), EstimateService (P1), ContractService (P1), ScheduleService (P1) | API |
 | SiteSurveySectionCard | UI/Component | 現場調査セクションカード（直近2件・総数・一覧リンク） | 24 | ProjectDetailPage (P0) | - |
 | QuantityTableSectionCard | UI/Component | 数量表セクションカード（直近カード・総数・新規作成・一覧リンク） | 25 | ProjectDetailPage (P0) | - |
 | ItemizedStatementSectionCard | UI/Component | 内訳書セクションカード（降順一覧・数量表依存メッセージ・新規作成・一覧リンク） | 26 | ProjectDetailPage (P0), QuantityTableSectionCard (P1) | - |
 | EstimateRequestSectionCard | UI/Component | 見積依頼セクションカード（一覧・新規作成・すべて見るリンク・空状態表示） | 27 | ProjectDetailPage (P0) | - |
 | EstimateSectionCard | UI/Component | 見積書セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 28 | ProjectDetailPage (P0) | - |
 | ContractSectionCard | UI/Component | 契約書セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 36 | ProjectDetailPage (P0) | - |
+| ScheduleSectionCard | UI/Component | 工程表セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 38 | ProjectDetailPage (P0) | - |
 
 ---
 
@@ -3888,3 +3892,112 @@ interface ContractSectionItem {
 | 契約書セクションカード | 単体テスト | `frontend/src/__tests__/components/projects/ContractSectionCard.test.tsx` |
 | detail-summary API契約書統合 | 単体テスト | `backend/src/__tests__/unit/routes/projects.routes.test.ts` |
 | 契約書セクション遷移 | E2Eテスト | `e2e/specs/project-contract-navigation.spec.ts` |
+
+### 差分設計（2026-03-14要件更新）: 工程表セクション追加（Requirement 38, 39）
+
+#### 概要
+
+プロジェクト詳細画面に工程表セクションを追加する。契約書セクション（ContractSectionCard）と同様のUIパターンを使用し、工程表一覧画面・工程表詳細画面への遷移を提供する。また、detail-summary APIに工程表サマリーを統合し、API呼び出し効率を維持する。
+
+#### 変更箇所
+
+| ファイル | 変更内容 | Requirements |
+|----------|----------|-------------|
+| `frontend/src/components/projects/ScheduleSectionCard.tsx` | 工程表セクションカードコンポーネント新規作成 | 38 |
+| `frontend/src/pages/ProjectDetailPage.tsx` | ScheduleSectionCard統合、工程表サマリーデータ取得 | 38 |
+| `backend/src/services/schedule.service.ts` | findLatestByProjectIdメソッド追加 | 39 |
+| `backend/src/routes/projects.routes.ts` | detail-summary APIに工程表セクション統合 | 39 |
+| `frontend/src/api/projects.ts` | ProjectDetailSummary型に工程表セクション追加 | 39 |
+
+#### ScheduleService.findLatestByProjectId インターフェース
+
+```typescript
+/**
+ * プロジェクトに紐づく工程表の直近データとカウントを取得する。
+ * ContractService.findLatestByProjectId と同一パターン。
+ *
+ * @param projectId - プロジェクトID
+ * @returns totalCount（論理削除除く全件数）と直近3件の工程表サマリー
+ */
+async findLatestByProjectId(projectId: string): Promise<{
+  totalCount: number;
+  latestSchedules: ScheduleSectionItem[];
+}>;
+```
+
+- **取得件数**: 3件（他セクションと統一）
+- **ソート順**: `updatedAt DESC`（更新日時の降順）
+- **フィルタ**: `deletedAt IS NULL`（論理削除除外）
+- **実装パターン**: `Promise.all([prisma.constructionSchedule.count(...), prisma.constructionSchedule.findMany(...)])` による並列実行
+- **工程項目数**: `_count.items` で取得
+
+#### detail-summary APIレスポンス拡張
+
+```typescript
+interface ProjectDetailSummary {
+  project: ProjectDetail;
+  statusHistory: StatusHistoryItem[];
+  sections: {
+    siteSurveys: ProjectSurveySummary;
+    quantityTables: ProjectQuantityTableSummary;
+    itemizedStatements: ProjectItemizedStatementSummary;
+    estimateRequests: ProjectEstimateRequestSummary;
+    estimates: EstimateSummary;
+    contracts: {
+      totalCount: number;
+      latestContracts: ContractSectionItem[];
+    };
+    schedules: {  // 新規追加
+      totalCount: number;
+      latestSchedules: ScheduleSectionItem[];
+    };
+  };
+}
+
+interface ScheduleSectionItem {
+  id: string;
+  name: string;
+  updatedAt: string;
+  itemCount: number;
+}
+```
+
+#### ScheduleSectionCard コンポーネント設計
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に工程表セクションを表示（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） |
+| Requirements | 38.1, 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12, 38.13 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 契約書セクションの下に工程表セクションを表示（38.1）
+- セクションタイトル「工程表」を表示（38.2）
+- 工程表の総数を表示（38.3）
+- 直近の工程表をカード形式で表示（38.4）
+- カードに工程表名、更新日時、工程項目数を表示（38.5）
+- カードクリックで工程表詳細画面に遷移（38.6）
+- 「すべて見る」リンク表示（38.7）、クリックで工程表一覧画面に遷移（38.8）
+- 新規作成ボタン表示（38.9）、クリックで工程表作成画面に遷移（38.10）
+- 工程表がない場合「工程表はまだありません」メッセージと新規作成ボタン表示（38.11）
+- ローディング中はスケルトンローダー表示（38.12）
+- 契約書セクションと同様のスタイル使用（38.13）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Implementation Notes**
+- props: `{ projectId, totalCount, latestSchedules, isLoading }`
+- 遷移先URL:
+  - 工程表詳細: `/schedules/{scheduleId}`
+  - 工程表一覧: `/projects/{projectId}/schedules`
+  - 工程表新規作成: `/projects/{projectId}/schedules/new`
+
+#### テスト方針
+
+| テスト対象 | テスト種別 | ファイル |
+|------------|-----------|---------|
+| 工程表セクションカード | 単体テスト | `frontend/src/__tests__/components/projects/ScheduleSectionCard.test.tsx` |
+| detail-summary API工程表統合 | 単体テスト | `backend/src/__tests__/unit/routes/projects.routes.test.ts` |
+| 工程表セクション遷移 | E2Eテスト | `e2e/specs/project-schedule-navigation.spec.ts` |

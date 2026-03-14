@@ -1493,3 +1493,67 @@
   - 新規作成ボタンで作成画面に遷移することを確認
   - 57.1〜59.2完了後に実施
   - _Requirements: 36.1, 36.2, 36.3, 36.6, 36.7, 36.8, 36.9, 36.10_
+
+---
+
+## 差分実装タスク（2026-03-14要件更新）: 工程表セクション追加
+
+> 契約書セクション（Task 57-60）と同一パターンで工程表セクションを追加する。
+
+## Task 61: 工程表セクションカードコンポーネント
+
+- [x] 61.1 ScheduleSectionCardコンポーネントの作成
+  - `frontend/src/components/projects/ScheduleSectionCard.tsx`: ContractSectionCardと同様のUI・スタイルで工程表セクションカードを新規作成
+  - props: `{ projectId, totalCount, latestSchedules, isLoading }`
+  - セクションタイトル「工程表」、総数表示（全N件）
+  - 直近の工程表をカード形式で表示（工程表名、更新日時、工程項目数）
+  - カードクリックで工程表詳細画面（`/schedules/{scheduleId}`）に遷移
+  - 「すべて見る」リンクで工程表一覧画面（`/projects/{projectId}/schedules`）に遷移
+  - 新規作成ボタンで工程表作成画面（`/projects/{projectId}/schedules/new`）に遷移
+  - 工程表が0件の場合「工程表はまだありません」メッセージと新規作成ボタン表示
+  - ローディング中はスケルトンローダー表示
+  - _Requirements: 38.1, 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12, 38.13_
+
+- [x] 61.2 ScheduleSectionCardの単体テスト
+  - `frontend/src/__tests__/components/projects/ScheduleSectionCard.test.tsx`: カード表示、空状態、スケルトンローダー、リンク先のテスト
+  - 61.1完了後に実施
+  - _Requirements: 38.1-38.13_
+
+## Task 62: プロジェクト詳細画面へのScheduleSectionCard統合
+
+- [x] 62.1 ProjectDetailPageにScheduleSectionCardを追加
+  - `frontend/src/pages/ProjectDetailPage.tsx`: ContractSectionCardの下にScheduleSectionCardを追加
+  - `scheduleSummary` stateの追加、`data.sections.schedules` からのデータ取得
+  - 61.1完了後に実施
+  - _Requirements: 38.1_
+
+- [x] 62.2 ProjectDetailSummary型にスケジュールセクションを追加
+  - `frontend/src/api/projects.ts`: `ScheduleSectionSummary`型と`ScheduleSectionSummaryItem`型を追加、`ProjectDetailSummary.sections`に`schedules`フィールドを追加
+  - _Requirements: 39.1, 39.2, 39.3_
+
+## Task 63: detail-summary APIへの工程表セクション統合
+
+- [x] 63.1 ScheduleServiceにfindLatestByProjectIdメソッドを追加
+  - `backend/src/services/schedule.service.ts`: `findLatestByProjectId(projectId)` を追加（ContractService.findLatestByProjectIdと同一パターン）
+  - `Promise.all([count, findMany])` で並列実行、直近3件を`updatedAt DESC`で取得
+  - `_count.items` で工程項目数を取得
+  - _Requirements: 39.2, 39.3_
+
+- [x] 63.2 getProjectSectionsヘルパーにScheduleService呼び出しを追加
+  - `backend/src/routes/projects.routes.ts`: `ScheduleService`のインポートとインスタンス化を追加
+  - `getProjectSections` 関数の`Promise.allSettled`に`scheduleService.findLatestByProjectId`を追加
+  - エラー時のフォールバック: `{ totalCount: 0, latestSchedules: [] }`
+  - 戻り値に`schedules`セクションを追加
+  - 63.1完了後に実施
+  - _Requirements: 39.1, 39.4, 39.5_
+
+## Task 64: 工程表セクションE2Eテスト
+
+- [x] 64.1 プロジェクト-工程表間ナビゲーションのE2Eテスト
+  - `e2e/specs/project-schedule-navigation.spec.ts`: プロジェクト詳細画面の工程表セクションから工程表一覧・詳細・新規作成への遷移をテスト
+  - 工程表セクションのタイトル・総数表示を確認
+  - 工程表カードのクリックで詳細画面に遷移することを確認
+  - 「すべて見る」リンクで一覧画面に遷移することを確認
+  - 新規作成ボタンで作成画面に遷移することを確認
+  - 61.1〜63.2完了後に実施
+  - _Requirements: 38.1, 38.2, 38.3, 38.6, 38.7, 38.8, 38.9, 38.10_

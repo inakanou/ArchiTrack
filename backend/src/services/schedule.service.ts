@@ -446,4 +446,64 @@ export class ScheduleService {
       data: { deletedAt: new Date() },
     });
   }
+
+  /**
+   * プロジェクトの直近の工程表と総数を取得する
+   *
+   * detail-summary APIでの一括取得用メソッド。
+   * ContractService.findLatestByProjectId と同じパターンを使用。
+   *
+   * Requirements (project-management):
+   * - 39.1: detail-summary APIのレスポンスに工程表セクションデータ（schedules）を含める
+   * - 39.2: 工程表セクションデータに総数（totalCount）と直近の工程表（latestSchedules）を含める
+   * - 39.3: 直近の工程表データに工程表ID、工程表名、更新日時、工程項目数を含める
+   *
+   * @param projectId - プロジェクトID
+   * @param limit - 取得件数（デフォルト: 3）
+   * @returns 工程表サマリー（totalCount, latestSchedules）
+   */
+  async findLatestByProjectId(
+    projectId: string,
+    limit: number = 3
+  ): Promise<{
+    totalCount: number;
+    latestSchedules: Array<{
+      id: string;
+      name: string;
+      updatedAt: string;
+      itemCount: number;
+    }>;
+  }> {
+    const where = {
+      projectId,
+      deletedAt: null,
+    };
+
+    const [schedules, totalCount] = await Promise.all([
+      this.prisma.constructionSchedule.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          updatedAt: true,
+          _count: {
+            select: { items: true },
+          },
+        },
+      }),
+      this.prisma.constructionSchedule.count({ where }),
+    ]);
+
+    return {
+      totalCount,
+      latestSchedules: schedules.map((s) => ({
+        id: s.id,
+        name: s.name,
+        updatedAt: s.updatedAt.toISOString(),
+        itemCount: s._count.items,
+      })),
+    };
+  }
 }

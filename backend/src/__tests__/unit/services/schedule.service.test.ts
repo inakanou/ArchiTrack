@@ -1013,4 +1013,116 @@ describe('ScheduleService', () => {
       expect(txMock.scheduleItem.deleteMany).toHaveBeenCalled();
     });
   });
+
+  // ==========================================================================
+  // findLatestByProjectId (Task 63.1)
+  // Requirements: 39.2, 39.3
+  // ==========================================================================
+  describe('findLatestByProjectId', () => {
+    const projectId = 'project-1';
+
+    it('プロジェクトの工程表総数と直近の工程表を返却する', async () => {
+      const mockSchedules = [
+        {
+          id: 'schedule-1',
+          name: '第1期工程表',
+          updatedAt: new Date('2026-01-15T00:00:00.000Z'),
+          _count: { items: 12 },
+        },
+        {
+          id: 'schedule-2',
+          name: '第2期工程表',
+          updatedAt: new Date('2026-01-10T00:00:00.000Z'),
+          _count: { items: 8 },
+        },
+      ];
+
+      (mockPrisma.constructionSchedule.count as ReturnType<typeof vi.fn>).mockResolvedValue(5);
+      (mockPrisma.constructionSchedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockSchedules
+      );
+
+      const result = await service.findLatestByProjectId(projectId);
+
+      expect(result.totalCount).toBe(5);
+      expect(result.latestSchedules).toHaveLength(2);
+      expect(result.latestSchedules[0]).toEqual({
+        id: 'schedule-1',
+        name: '第1期工程表',
+        updatedAt: '2026-01-15T00:00:00.000Z',
+        itemCount: 12,
+      });
+      expect(result.latestSchedules[1]).toEqual({
+        id: 'schedule-2',
+        name: '第2期工程表',
+        updatedAt: '2026-01-10T00:00:00.000Z',
+        itemCount: 8,
+      });
+    });
+
+    it('デフォルトで3件取得する', async () => {
+      (mockPrisma.constructionSchedule.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+      (mockPrisma.constructionSchedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await service.findLatestByProjectId(projectId);
+
+      expect(mockPrisma.constructionSchedule.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 3,
+          orderBy: { updatedAt: 'desc' },
+        })
+      );
+    });
+
+    it('limitパラメータで取得件数を変更できる', async () => {
+      (mockPrisma.constructionSchedule.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+      (mockPrisma.constructionSchedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await service.findLatestByProjectId(projectId, 5);
+
+      expect(mockPrisma.constructionSchedule.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 5,
+        })
+      );
+    });
+
+    it('論理削除された工程表を除外する', async () => {
+      (mockPrisma.constructionSchedule.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+      (mockPrisma.constructionSchedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await service.findLatestByProjectId(projectId);
+
+      const expectedWhere = { projectId, deletedAt: null };
+      expect(mockPrisma.constructionSchedule.count).toHaveBeenCalledWith({
+        where: expectedWhere,
+      });
+      expect(mockPrisma.constructionSchedule.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expectedWhere,
+        })
+      );
+    });
+
+    it('工程表が0件の場合、空配列を返却する', async () => {
+      (mockPrisma.constructionSchedule.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+      (mockPrisma.constructionSchedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      const result = await service.findLatestByProjectId(projectId);
+
+      expect(result.totalCount).toBe(0);
+      expect(result.latestSchedules).toEqual([]);
+    });
+
+    it('Promise.allで並列実行する', async () => {
+      (mockPrisma.constructionSchedule.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+      (mockPrisma.constructionSchedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await service.findLatestByProjectId(projectId);
+
+      // count と findMany が呼ばれることを確認（Promise.allで並列実行）
+      expect(mockPrisma.constructionSchedule.count).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.constructionSchedule.findMany).toHaveBeenCalledTimes(1);
+    });
+  });
 });

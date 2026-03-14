@@ -66,6 +66,34 @@ export interface ContractSectionSummary {
 }
 
 // ============================================================================
+// 工程表セクションサマリー型（detail-summary API用）
+// ============================================================================
+
+/**
+ * 工程表セクションサマリーアイテム
+ *
+ * Task 62.2: detail-summary API工程表セクション統合
+ * Requirements: 39.2, 39.3
+ */
+export interface ScheduleSectionSummaryItem {
+  id: string;
+  name: string;
+  updatedAt: string;
+  itemCount: number;
+}
+
+/**
+ * 工程表セクションサマリー
+ *
+ * Task 62.2: detail-summary API工程表セクション統合
+ * Requirements: 39.1, 39.2
+ */
+export interface ScheduleSectionSummary {
+  totalCount: number;
+  latestSchedules: ScheduleSectionSummaryItem[];
+}
+
+// ============================================================================
 // 型定義（クエリパラメータ用）
 // ============================================================================
 
@@ -379,6 +407,7 @@ export interface ProjectDetailSummary {
     estimateRequests: ProjectEstimateRequestSummary;
     estimates: EstimateSummary;
     contracts: ContractSectionSummary;
+    schedules: ScheduleSectionSummary;
   };
 }
 
