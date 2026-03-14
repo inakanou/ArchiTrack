@@ -41,6 +41,10 @@ import EstimateListPage from './pages/EstimateListPage';
 import EstimateCreatePage from './pages/EstimateCreatePage';
 import EstimateDetailPage from './pages/EstimateDetailPage';
 import CompanyInfoPage from './pages/CompanyInfoPage';
+import ContractListPage from './pages/ContractListPage';
+import ContractCreatePage from './pages/ContractCreatePage';
+import ContractDetailPage from './pages/ContractDetailPage';
+import ContractEditPage from './pages/ContractEditPage';
 
 /**
  * アプリケーションのルート設定
@@ -309,6 +313,49 @@ export const routes: RouteObject[] = [
       {
         path: '/estimates/:id',
         element: <EstimateDetailPage />,
+      },
+
+      // 契約書新規作成（/projects/:projectId/contracts より先に定義する必要あり）
+      // REQ-2.3: 変更契約フォーム表示
+      // REQ-2.4: パンくずナビゲーション
+      // REQ-7.1: 作成ボタン押下時にAPI呼び出しと契約書詳細画面への遷移
+      // REQ-7.2: キャンセルボタン押下時に前画面への遷移
+      // REQ-7.3: 作成・キャンセルボタン表示
+      // Task 6.1: 契約書新規作成ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts/new',
+        element: <ContractCreatePage />,
+      },
+      // 契約書編集（/projects/:projectId/contracts/:contractId より先に定義する必要あり）
+      // REQ-9.1: 契約書編集画面に全項目を編集可能な状態で表示する
+      // REQ-9.2: 編集保存（PUT、楽観的排他制御のversion送信）と詳細画面への遷移
+      // REQ-9.3: 編集キャンセル時に変更を破棄して詳細画面に戻る
+      // REQ-9.4: パンくずナビゲーション
+      // REQ-9.5: 編集時自動表示項目更新
+      // Task 8.1: 契約書編集ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts/:contractId/edit',
+        element: <ContractEditPage />,
+      },
+      // 契約書詳細
+      // REQ-8.1: 契約書詳細画面に全項目を表示する
+      // REQ-8.2, REQ-8.3: ステータス遷移ボタン（双方向遷移）
+      // REQ-8.4: 見積書へのリンク
+      // REQ-8.5: 基契約書へのリンク（変更契約の場合）
+      // REQ-8.6, REQ-8.7: 編集ボタンと編集画面遷移
+      // REQ-8.8: パンくずナビゲーション
+      // Task 7.1: 契約書詳細ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts/:contractId',
+        element: <ContractDetailPage />,
+      },
+      // 契約書一覧
+      // REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
+      // REQ-1.2: 各契約書について契約種類、契約日、ステータスを一覧に表示する
+      // Task 4.1: 契約書一覧ページコンポーネントを作成する
+      {
+        path: '/projects/:projectId/contracts',
+        element: <ContractListPage />,
       },
 
       // 取引先一覧

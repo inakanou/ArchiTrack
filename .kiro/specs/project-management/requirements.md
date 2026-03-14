@@ -595,3 +595,39 @@
 6. The ArchiTrackシステム shall ダイアログに「閉じる」ボタンを表示する
 7. When ユーザーが「閉じる」ボタンをクリックする, the ArchiTrackシステム shall ダイアログを閉じる
 8. When ユーザーがダイアログ外をクリックする, the ArchiTrackシステム shall ダイアログを閉じる
+
+### Requirement 36: プロジェクト詳細画面の契約書セクション
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面で契約書の概要を確認したい, so that 契約書の作成状況を把握し必要な契約書に素早くアクセスできる
+
+**備考:** 本要件は contract-management/Requirement 1 から集約。見積書セクション（Requirement 28）と同様のUIパターンを使用する。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の見積書セクションの下に契約書セクションを表示する
+2. The ArchiTrackシステム shall 契約書セクションにセクションタイトル「契約書」を表示する
+3. The ArchiTrackシステム shall 契約書セクションに契約書の総数を表示する（例：全5件）
+4. The ArchiTrackシステム shall 契約書セクションに直近の契約書をカード形式で表示する
+5. The ArchiTrackシステム shall 契約書カードに契約種類（新規契約/変更契約）、契約日、ステータス（契約前/契約済）、請負代金額を表示する
+6. When ユーザーが契約書カードをクリックした場合, the ArchiTrackシステム shall 契約書詳細画面へ遷移する
+7. The ArchiTrackシステム shall 契約書セクションに「すべて見る」リンクを提供する
+8. When ユーザーが「すべて見る」リンクをクリックした場合, the ArchiTrackシステム shall 契約書一覧画面へ遷移する
+9. The ArchiTrackシステム shall 契約書セクションに新規作成ボタンを提供する
+10. When ユーザーが新規作成ボタンをクリックした場合, the ArchiTrackシステム shall 契約書作成画面へ遷移する
+11. When 契約書が存在しない場合, the ArchiTrackシステム shall 「契約書はまだありません」メッセージと新規作成ボタンを表示する
+12. While 契約書データをロード中の場合, the ArchiTrackシステム shall スケルトンローダーを表示する
+13. The ArchiTrackシステム shall 契約書セクションのUIを既存の見積書セクションと同様のスタイルで提供する
+
+### Requirement 37: detail-summary APIの契約書セクション統合
+
+**Objective:** As a 開発者, I want detail-summary APIに契約書サマリーを含めたい, so that プロジェクト詳細画面の契約書セクションを効率的に表示できる
+
+**備考:** 本要件は Requirement 29（API効率化）の拡張。現在契約書は個別APIで取得しているが、detail-summary APIに統合する。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall detail-summary APIのレスポンスに契約書セクションデータ（contracts）を含める
+2. The ArchiTrackシステム shall 契約書セクションデータに総数（totalCount）と直近の契約書（latestContracts）を含める
+3. The ArchiTrackシステム shall 直近の契約書データに契約ID、契約種類、契約日、ステータス、請負代金額、作成日時を含める
+4. If 契約書セクションのデータ取得でエラーが発生した場合, the ArchiTrackシステム shall デフォルト値（totalCount: 0, latestContracts: []）を返却し、他のセクションのデータは正常に返却する
+5. The ArchiTrackシステム shall 契約書セクションのデータを他のセクションと同様にPromise.allSettledで並行取得する

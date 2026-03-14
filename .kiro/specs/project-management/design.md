@@ -28,6 +28,7 @@
 
 - ~~現場調査機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）~~ → 現場調査セクション表示はproject-management Requirement 24で管理
 - ~~見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）~~ → 見積書セクション表示はproject-management Requirement 28で管理
+- ~~契約書機能の実装（プロジェクト詳細画面からのリンクのみ）~~ → 契約書セクション表示はproject-management Requirement 36で管理
 - 取引先管理機能の実装（別仕様`trading-partner-management`として定義）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
@@ -383,6 +384,8 @@ sequenceDiagram
 | 27.1-27.8 | **見積依頼セクション表示**（estimate-requestから集約） | ProjectDetailPage, EstimateRequestSectionCard | GET /api/projects/:id/detail-summary | - |
 | 28.1-28.13 | **見積書セクション表示**（estimate-creationから集約） | ProjectDetailPage, EstimateSectionCard | GET /api/projects/:id/detail-summary | - |
 | 29.1-29.6 | **プロジェクト詳細API効率化（7リクエスト→1リクエスト）**（差分設計2026-02-13） | ProjectRoutes, ProjectDetailPage, SiteSurveyService, QuantityTableService, ItemizedStatementService, EstimateRequestService, EstimateService | GET /api/projects/:id/detail-summary | プロジェクト詳細一括取得フロー |
+| 36.1-36.13 | **契約書セクション表示**（contract-managementから集約） | ProjectDetailPage, ContractSectionCard | GET /api/projects/:id/detail-summary | - |
+| 37.1-37.5 | **detail-summary APIの契約書セクション統合** | ProjectRoutes, ContractService | GET /api/projects/:id/detail-summary | - |
 
 ## Components and Interfaces
 
@@ -392,7 +395,7 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず + **デフォルト終端ステータス除外 + ステータス別件数表示（全プロジェクト対象）** | 2, 3, 4, 5, 6, 21.14, 23 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
 | ProjectListTable | UI/Component | **一覧テーブル（ID列削除、営業担当者・工事担当者列追加）** | 2.2 | ProjectListPage (P0) | - |
-| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず + **5セクション統合表示（一括取得API）** | 7, 8, 9, 10, 11, 21.15, 21.17, 22, 24-28, 29 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1), SiteSurveySectionCard (P1), QuantityTableSectionCard (P1), ItemizedStatementSectionCard (P1), EstimateRequestSectionCard (P1), EstimateSectionCard (P1) | State |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず + **6セクション統合表示（一括取得API）** | 7, 8, 9, 10, 11, 21.15, 21.17, 22, 24-29, 36, 37 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1), SiteSurveySectionCard (P1), QuantityTableSectionCard (P1), ItemizedStatementSectionCard (P1), EstimateRequestSectionCard (P1), EstimateSectionCard (P1), ContractSectionCard (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
 | ProjectForm | UI/Component | プロジェクト作成・編集フォーム + **顧客選択時の現場住所自動入力** | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
 | TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応、ラベル「顧客名」、onSelectコールバック追加**） | 1.6, 1.7, 16, 22 | TradingPartnerAPI (P1), kana-converter (P1) | API |
@@ -402,12 +405,13 @@ sequenceDiagram
 | Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
 | ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック + かな検索両対応 + デフォルト終端ステータス除外 + ステータス別件数集計** | 1-9, 11, 13, 14, 16.3, 22.5, 23 | Prisma (P0), AuditLogService (P1), kana-converter (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
-| ProjectRoutes | Backend/Route | RESTful APIエンドポイント + **detail-summary一括取得エンドポイント** | 14, 29 | ProjectService (P0), authorize (P0), SiteSurveyService (P1), QuantityTableService (P1), ItemizedStatementService (P1), EstimateRequestService (P1), EstimateService (P1) | API |
+| ProjectRoutes | Backend/Route | RESTful APIエンドポイント + **detail-summary一括取得エンドポイント** | 14, 29, 37 | ProjectService (P0), authorize (P0), SiteSurveyService (P1), QuantityTableService (P1), ItemizedStatementService (P1), EstimateRequestService (P1), EstimateService (P1), ContractService (P1) | API |
 | SiteSurveySectionCard | UI/Component | 現場調査セクションカード（直近2件・総数・一覧リンク） | 24 | ProjectDetailPage (P0) | - |
 | QuantityTableSectionCard | UI/Component | 数量表セクションカード（直近カード・総数・新規作成・一覧リンク） | 25 | ProjectDetailPage (P0) | - |
 | ItemizedStatementSectionCard | UI/Component | 内訳書セクションカード（降順一覧・数量表依存メッセージ・新規作成・一覧リンク） | 26 | ProjectDetailPage (P0), QuantityTableSectionCard (P1) | - |
 | EstimateRequestSectionCard | UI/Component | 見積依頼セクションカード（一覧・新規作成・すべて見るリンク・空状態表示） | 27 | ProjectDetailPage (P0) | - |
 | EstimateSectionCard | UI/Component | 見積書セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 28 | ProjectDetailPage (P0) | - |
+| ContractSectionCard | UI/Component | 契約書セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 36 | ProjectDetailPage (P0) | - |
 
 ---
 
@@ -2539,6 +2543,43 @@ interface ProjectFormData {
 
 ---
 
+### ContractSectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に契約書セクションを表示（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） |
+| Requirements | 36.1, 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9, 36.10, 36.11, 36.12, 36.13 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 見積書セクションの下に契約書セクションを表示（36.1）
+- セクションタイトル「契約書」を表示（36.2）
+- 契約書の総数を表示（36.3）
+- 直近の契約書をカード形式で表示（36.4）
+- カードに契約種類（新規契約/変更契約）、契約日、ステータス（契約前/契約済）、請負代金額を表示（36.5）
+- カードクリックで契約書詳細画面に遷移（36.6）
+- 「すべて見る」リンク表示（36.7）、クリックで契約書一覧画面に遷移（36.8）
+- 新規作成ボタン表示（36.9）、クリックで契約書作成画面に遷移（36.10）
+- 契約書がない場合「契約書はまだありません」メッセージと新規作成ボタン表示（36.11）
+- ローディング中はスケルトンローダー表示（36.12）
+- 見積書セクションと同様のスタイル使用（36.13）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [ ]
+
+**Implementation Notes**
+- Integration: `ProjectDetailSummary.sections.contracts`から受け取ったデータを表示。または個別API `getContracts()` から取得。
+- props: `{ projectId, totalCount, latestContracts, isLoading }`
+- 遷移先URL:
+  - 契約書詳細: `/projects/{projectId}/contracts/{contractId}`
+  - 契約書一覧: `/projects/{projectId}/contracts`
+  - 契約書新規作成: `/projects/{projectId}/contracts/new`
+
+---
+
 ### StatusTransitionUI
 
 | Field | Detail |
@@ -3772,3 +3813,78 @@ function StatusHistoryDialog({
 | 日時フィールド非表示 | 単体テスト | `frontend/src/__tests__/pages/ProjectDetailPage.test.tsx` |
 | 履歴表示制限 | 単体テスト | `frontend/src/__tests__/components/projects/StatusTransitionUI.test.tsx` |
 | 全件表示ダイアログ | 単体テスト | `frontend/src/__tests__/components/projects/StatusTransitionUI.test.tsx` |
+
+---
+
+### 差分設計（2026-03-13要件更新）: 契約書セクション追加（Requirement 36, 37）
+
+#### 概要
+
+プロジェクト詳細画面に契約書セクションを追加する。見積書セクション（EstimateSectionCard）と同様のUIパターンを使用し、契約書一覧画面・契約書詳細画面への遷移を提供する。また、detail-summary APIに契約書サマリーを統合し、API呼び出し効率を維持する。
+
+#### 変更箇所
+
+| ファイル | 変更内容 | Requirements |
+|----------|----------|-------------|
+| `frontend/src/components/projects/ContractSectionCard.tsx` | 契約書セクションカードコンポーネント（既存実装済み） | 36 |
+| `frontend/src/pages/ProjectDetailPage.tsx` | ContractSectionCard統合、契約書サマリーデータ取得 | 36 |
+| `backend/src/routes/projects.routes.ts` | detail-summary APIに契約書セクション統合 | 37 |
+| `frontend/src/api/projects.ts` | ProjectDetailSummary型に契約書セクション追加 | 37 |
+
+#### ContractService.findLatestByProjectId インターフェース
+
+```typescript
+/**
+ * プロジェクトに紐づく契約書の直近データとカウントを取得する。
+ * EstimateService.findLatestByProjectId と同一パターン。
+ *
+ * @param projectId - プロジェクトID
+ * @returns totalCount（論理削除除く全件数）と直近3件の契約書サマリー
+ */
+async findLatestByProjectId(projectId: string): Promise<{
+  totalCount: number;
+  latestContracts: ContractSectionItem[];
+}>;
+```
+
+- **取得件数**: 3件（他セクションと統一）
+- **ソート順**: `createdAt DESC`（作成日時の降順）
+- **フィルタ**: `deletedAt IS NULL`（論理削除除外）
+- **実装パターン**: `Promise.all([prisma.contract.count(...), prisma.contract.findMany(...)])` による並列実行
+
+#### detail-summary APIレスポンス拡張
+
+```typescript
+interface ProjectDetailSummary {
+  project: ProjectDetail;
+  statusHistory: StatusHistoryItem[];
+  sections: {
+    siteSurveys: ProjectSurveySummary;
+    quantityTables: ProjectQuantityTableSummary;
+    itemizedStatements: ProjectItemizedStatementSummary;
+    estimateRequests: ProjectEstimateRequestSummary;
+    estimates: EstimateSummary;
+    contracts: {  // 新規追加
+      totalCount: number;
+      latestContracts: ContractSectionItem[];
+    };
+  };
+}
+
+interface ContractSectionItem {
+  id: string;
+  contractType: 'NEW' | 'AMENDMENT';
+  contractDate: string;
+  status: 'BEFORE_CONTRACT' | 'CONTRACTED';
+  contractAmount: number;
+  createdAt: string;
+}
+```
+
+#### テスト方針
+
+| テスト対象 | テスト種別 | ファイル |
+|------------|-----------|---------|
+| 契約書セクションカード | 単体テスト | `frontend/src/__tests__/components/projects/ContractSectionCard.test.tsx` |
+| detail-summary API契約書統合 | 単体テスト | `backend/src/__tests__/unit/routes/projects.routes.test.ts` |
+| 契約書セクション遷移 | E2Eテスト | `e2e/specs/project-contract-navigation.spec.ts` |

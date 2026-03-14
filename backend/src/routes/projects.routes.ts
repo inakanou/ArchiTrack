@@ -27,6 +27,7 @@ import { ItemizedStatementService } from '../services/itemized-statement.service
 import { ItemizedStatementPivotService } from '../services/itemized-statement-pivot.service.js';
 import { EstimateRequestService } from '../services/estimate-request.service.js';
 import { EstimateService } from '../services/estimate.service.js';
+import { ContractService } from '../services/contract.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -77,6 +78,7 @@ const itemizedStatementService = new ItemizedStatementService({
 });
 const estimateRequestService = new EstimateRequestService({ prisma, auditLogService });
 const estimateService = new EstimateService({ prisma, auditLogService });
+const contractService = new ContractService({ prisma });
 
 /**
  * 更新リクエストボディ用スキーマ（expectedUpdatedAt必須）
@@ -288,6 +290,7 @@ async function getProjectSections(projectId: string) {
     itemizedStatementService.findLatestByProjectId(projectId),
     estimateRequestService.findLatestByProjectId(projectId),
     estimateService.findLatestByProjectId(projectId),
+    contractService.findLatestByProjectId(projectId),
   ]);
 
   // 現場調査セクションの取得結果
@@ -365,6 +368,8 @@ async function getProjectSections(projectId: string) {
             latestEstimates: results[4].value.estimates,
           }
         : { totalCount: 0, latestEstimates: [] },
+    contracts:
+      results[5].status === 'fulfilled' ? results[5].value : { totalCount: 0, latestContracts: [] },
   };
 }
 

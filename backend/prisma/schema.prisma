@@ -280,6 +280,7 @@ model Project {
   itemizedStatements ItemizedStatement[] // 内訳書リレーション
   estimateRequests   EstimateRequest[] // 見積依頼リレーション
   estimates          Estimate[] // 見積書リレーション
+  contracts          Contract[] // 契約書リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -381,9 +382,10 @@ model TradingPartner {
   deletedAt          DateTime? // 論理削除
 
   // リレーション
-  types            TradingPartnerTypeMapping[]
-  projects         Project[] // この取引先に紐付くプロジェクト
-  estimateRequests EstimateRequest[] // この取引先宛の見積依頼
+  types               TradingPartnerTypeMapping[]
+  projects            Project[] // この取引先に紐付くプロジェクト
+  estimateRequests    EstimateRequest[] // この取引先宛の見積依頼
+  supervisorContracts Contract[]                  @relation("SupervisorContracts") // 監理者としての契約書
 
   // インデックス
   // Requirements: 2.11, 4.8 - 同一の取引先名+支店名の重複を防ぐ複合一意制約
@@ -1136,8 +1138,9 @@ model Estimate {
   updatedAt                   DateTime  @updatedAt
   deletedAt                   DateTime? // 論理削除
 
-  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  items   EstimateItem[]
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items     EstimateItem[]
+  contracts Contract[] // 契約書リレーション
 
   @@index([projectId])
   @@index([deletedAt])
@@ -1240,4 +1243,96 @@ model EstimateItemLine {
   @@index([estimateItemId])
   @@index([lineType])
   @@map("estimate_item_lines")
+}
+
+// ===== Contract Management Data Models =====
+
+/**
+ * 契約種類
+ * Requirements (contract-management): 2.1
+ */
+enum ContractType {
+  NEW // 新規契約
+  AMENDMENT // 変更契約
+}
+
+/**
+ * 契約ステータス
+ * Requirements (contract-management): 8.3
+ */
+enum ContractStatus {
+  BEFORE_CONTRACT // 契約前
+  CONTRACTED // 契約済
+}
+
+/**
+ * 契約書モデル
+ * プロジェクトに紐付く契約書（新規契約・変更契約）を管理する。
+ * 見積書に基づく金額スナップショット、契約条件、ステータス管理を提供する。
+ * フィールド:
+ * - id: 契約書の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - contractType: 契約種類（NEW/AMENDMENT）
+ * - status: 契約ステータス（BEFORE_CONTRACT/CONTRACTED）
+ * - parentContractId: 変更契約の基となる契約書ID（自己参照、任意）
+ * - estimateId: 基となる見積書ID（任意）
+ * - contractDate: 契約日
+ * - constructionStartDate: 工期着手日
+ * - constructionEndDate: 工期完成日
+ * - deliveryDate: 引渡日
+ * - taxRate: 消費税率（デフォルト0.10 = 10%）
+ * - paymentTerms: 支払条件
+ * - separateConstruction: 別途工事
+ * - otherNotes: その他
+ * - supervisorTradingPartnerId: 監理者取引先ID（任意）
+ * - contractAmount: 請負代金額（税込、スナップショット）
+ * - constructionPrice: 工事価格（スナップショット）
+ * - taxAmount: 消費税額（スナップショット）
+ * - version: 楽観的排他制御用バージョン
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * - deletedAt: 論理削除日時
+ * Requirements (contract-management):
+ * - 3.1: 新規契約入力フィールド
+ * - 5.1: 変更契約の基となる契約書選択
+ * - 5.3: 変更契約入力フィールド
+ * - 8.3: ステータス双方向遷移
+ */
+model Contract {
+  id                         String         @id @default(uuid())
+  projectId                  String
+  contractType               ContractType
+  status                     ContractStatus @default(BEFORE_CONTRACT)
+  parentContractId           String?
+  estimateId                 String?
+  contractDate               DateTime       @db.Date
+  constructionStartDate      DateTime       @db.Date
+  constructionEndDate        DateTime       @db.Date
+  deliveryDate               DateTime       @db.Date
+  taxRate                    Decimal        @default(0.10) @db.Decimal(5, 4)
+  paymentTerms               String         @default("")
+  separateConstruction       String         @default("")
+  otherNotes                 String         @default("")
+  supervisorTradingPartnerId String?
+  contractAmount             Decimal        @default(0) @db.Decimal(15, 0)
+  constructionPrice          Decimal        @default(0) @db.Decimal(15, 0)
+  taxAmount                  Decimal        @default(0) @db.Decimal(15, 0)
+  version                    Int            @default(0)
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+  deletedAt                  DateTime?
+
+  project                  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentContract           Contract?       @relation("ContractAmendments", fields: [parentContractId], references: [id], onDelete: SetNull)
+  childContracts           Contract[]      @relation("ContractAmendments")
+  estimate                 Estimate?       @relation(fields: [estimateId], references: [id], onDelete: SetNull)
+  supervisorTradingPartner TradingPartner? @relation("SupervisorContracts", fields: [supervisorTradingPartnerId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([status])
+  @@index([contractDate])
+  @@index([deletedAt])
+  @@index([parentContractId])
+  @@index([estimateId])
+  @@map("contracts")
 }

@@ -28,6 +28,10 @@
  * Requirements (estimate-creation):
  * - REQ-11: 見積書管理権限の定義
  *   - estimate:create, estimate:read, estimate:update, estimate:delete
+ *
+ * Requirements (contracts):
+ * - 契約書管理権限の定義
+ *   - contract:create, contract:read, contract:update, contract:delete
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -393,6 +397,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '見積書の削除',
     },
+
+    // 契約書関連権限（contracts）
+    {
+      resource: 'contract',
+      action: 'create',
+      description: '契約書の作成',
+    },
+    {
+      resource: 'contract',
+      action: 'read',
+      description: '契約書の閲覧',
+    },
+    {
+      resource: 'contract',
+      action: 'update',
+      description: '契約書の更新',
+    },
+    {
+      resource: 'contract',
+      action: 'delete',
+      description: '契約書の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -502,6 +528,11 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'estimate', action: 'read' },
     { resource: 'estimate', action: 'update' },
     { resource: 'estimate', action: 'delete' },
+    // 契約書関連権限（contracts）
+    // 一般ユーザーは契約書の作成・閲覧・更新が可能（削除は管理者のみ）
+    { resource: 'contract', action: 'create' },
+    { resource: 'contract', action: 'read' },
+    { resource: 'contract', action: 'update' },
   ];
 
   // 権限IDを一括取得

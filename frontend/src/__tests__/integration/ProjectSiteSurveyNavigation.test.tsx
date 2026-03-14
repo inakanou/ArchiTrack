@@ -155,6 +155,7 @@ describe('プロジェクト詳細と現場調査の連携（Task 22.2）', () =
         itemizedStatements: { totalCount: 0, latestStatements: [] },
         estimateRequests: { totalCount: 0, latestRequests: [] },
         estimates: { totalCount: 0, latestEstimates: [] },
+        contracts: { totalCount: 0, latestContracts: [] },
       },
     } as ProjectDetailSummary);
     // SiteSurveyListPageで使用されるgetProject（現場調査一覧はgetProjectDetailSummaryを使わない）

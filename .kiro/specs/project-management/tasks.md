@@ -1426,3 +1426,70 @@
   - パンくずナビゲーションのE2Eテストで「プロジェクト」→「プロジェクト一覧」に期待値を更新
   - 作成日列・期間フィルタ関連のE2Eテストを更新
   - _Requirements: 2.2, 5.1, 5.2, 5.3, 5.4, 6.5, 21.14, 21.15, 21.16, 21.17_
+
+## Task 57: 契約書セクションカードコンポーネント
+
+- [x] 57.1 ContractSectionCardコンポーネントの実装
+  - `frontend/src/components/projects/ContractSectionCard.tsx`: 契約書セクションカードを実装
+  - セクションタイトル「契約書」と総数（全N件）を表示
+  - 直近の契約書をカード形式で表示（契約種類、契約日、ステータス、請負代金額）
+  - カードクリックで契約書詳細画面（`/projects/{projectId}/contracts/{contractId}`）へ遷移
+  - 「すべて見る」リンクで契約書一覧画面（`/projects/{projectId}/contracts`）へ遷移
+  - 新規作成ボタンで契約書作成画面（`/projects/{projectId}/contracts/new`）へ遷移
+  - 空状態（「契約書はまだありません」メッセージ+新規作成ボタン）を実装
+  - スケルトンローダーを実装
+  - EstimateSectionCardと同様のスタイルを適用
+  - _Requirements: 36.1, 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9, 36.10, 36.11, 36.12, 36.13_
+
+- [x] 57.2 ContractSectionCardの単体テスト
+  - `frontend/src/__tests__/components/projects/ContractSectionCard.test.tsx`: テストを実装
+  - 契約書データがある場合のカード表示テスト
+  - 空状態の表示テスト
+  - スケルトンローダーの表示テスト
+  - リンク遷移先のテスト（詳細・一覧・新規作成）
+  - 57.1完了後に実施
+  - _Requirements: 36.1, 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9, 36.10, 36.11, 36.12, 36.13_
+
+## Task 58: プロジェクト詳細画面へのContractSectionCard統合
+
+- [x] 58.1 ProjectDetailPageにContractSectionCardを統合
+  - `frontend/src/pages/ProjectDetailPage.tsx`: ContractSectionCardをインポートし見積書セクションの下に配置
+  - 契約書サマリーデータ（totalCount, latestContracts）を取得し、propsとして渡す
+  - ローディング状態を適切に管理
+  - _Requirements: 36.1, 36.4, 36.12_
+
+- [x] 58.2 ProjectDetailPage統合テスト
+  - `frontend/src/__tests__/pages/ProjectDetailPage.test.tsx`: 契約書セクションが見積書セクションの下に表示されることを確認するテストを追加
+  - 58.1完了後に実施
+  - _Requirements: 36.1_
+
+## Task 59: detail-summary APIへの契約書セクション統合
+
+- [x] 59.1 detail-summary APIに契約書サマリーを追加
+  - `backend/src/routes/projects.routes.ts`: `getProjectSections()`にContractServiceの呼び出しを追加
+  - Promise.allSettledで他のセクションと並行取得
+  - エラー時はデフォルト値（totalCount: 0, latestContracts: []）を返却
+  - レスポンスのsectionsに`contracts`フィールドを追加
+  - _Requirements: 37.1, 37.2, 37.3, 37.4, 37.5_
+
+- [x] 59.2 フロントエンド型定義の更新
+  - `frontend/src/api/projects.ts`: ProjectDetailSummaryの型にcontractsセクションを追加
+  - `frontend/src/pages/ProjectDetailPage.tsx`: detail-summaryレスポンスからcontractsデータを取得するよう更新（個別API呼び出しを置き換え）
+  - _Requirements: 37.1, 37.2_
+
+- [x] 59.3 detail-summary API契約書統合テスト
+  - `backend/src/__tests__/unit/routes/projects.routes.test.ts`: detail-summaryレスポンスに契約書セクションが含まれることを確認するテストを追加
+  - 契約書取得エラー時のフォールバック動作テストを追加
+  - 59.1完了後に実施
+  - _Requirements: 37.1, 37.4, 37.5_
+
+## Task 60: 契約書セクションE2Eテスト
+
+- [x] 60.1 プロジェクト-契約書間ナビゲーションのE2Eテスト
+  - `e2e/specs/project-contract-navigation.spec.ts`: プロジェクト詳細画面の契約書セクションから契約書一覧・詳細・新規作成への遷移をテスト
+  - 契約書セクションのタイトル・総数表示を確認
+  - 契約書カードのクリックで詳細画面に遷移することを確認
+  - 「すべて見る」リンクで一覧画面に遷移することを確認
+  - 新規作成ボタンで作成画面に遷移することを確認
+  - 57.1〜59.2完了後に実施
+  - _Requirements: 36.1, 36.2, 36.3, 36.6, 36.7, 36.8, 36.9, 36.10_
