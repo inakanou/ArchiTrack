@@ -16,7 +16,7 @@
   - isExportTargetのデフォルト値true、sourceTypeのデフォルト値'MANUAL'を設定
   - _Requirements: 1.3, 9.2_
 
-- [ ] 2. バックエンドZodバリデーションスキーマの定義
+- [x] 2. バックエンドZodバリデーションスキーマの定義
   - 工程表作成スキーマ: name(必須、1-200文字)、quantityTableId(任意)のバリデーション
   - 工程表更新スキーマ: name(必須、1-200文字)、version(必須)のバリデーション
   - バルク保存スキーマ: version(必須)、items配列（itemName必須1-500文字、labelText 0-200文字、detailText 0-500文字、startDate ISO日付形式null許可、duration正の整数null許可、displayOrder 0以上整数、isExportTarget boolean）のバリデーション
