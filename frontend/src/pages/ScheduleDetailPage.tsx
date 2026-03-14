@@ -4,6 +4,7 @@
  * Task 9.1: ScheduleDetailPageと項目入力行を実装する
  * Task 9.2: SortableScheduleListによる並び順管理を実装する
  * Task 10: ガントチャートコンポーネントの統合
+ * Task 13: フロントエンド出力ダイアログの統合
  *
  * Requirements (construction-schedule):
  * - REQ-1.4: 工程表詳細表示
@@ -33,6 +34,8 @@
  * - REQ-11.1: 詳細文字入力欄
  * - REQ-11.2: 詳細文字のバー上表示
  * - REQ-11.3: 詳細文字リアルタイム更新
+ * - REQ-7.1: Excel出力
+ * - REQ-8.1: PDF出力
  *
  * @module pages/ScheduleDetailPage
  */
@@ -46,6 +49,7 @@ import { useHolidayCalendar } from '../hooks/useHolidayCalendar';
 import { SortableScheduleList } from '../components/schedule/SortableScheduleList';
 import { GanttChartPanel } from '../components/schedule/GanttChartPanel';
 import { Breadcrumb } from '../components/common';
+import { ExportDialog } from '../components/schedule/ExportDialog';
 
 // ============================================================================
 // スタイル定義
@@ -150,6 +154,15 @@ const styles = {
     textDecoration: 'none',
     fontSize: '14px',
   } as React.CSSProperties,
+  exportButton: {
+    padding: '8px 16px',
+    backgroundColor: '#6366f1',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -170,6 +183,9 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
     isLoading: isSaving,
     error: saveError,
   } = useScheduleState(data);
+
+  // 出力ダイアログの表示状態
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
   // ガントチャート表示期間を算出
   const ganttDateRange = useMemo(() => {
@@ -206,6 +222,14 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
         <h1 style={styles.title}>{state.schedule.name}</h1>
         <div style={styles.headerActions}>
           {state.isDirty && <span style={styles.dirtyBadge}>未保存の変更があります</span>}
+          <button
+            type="button"
+            data-testid="export-button"
+            style={styles.exportButton}
+            onClick={() => setIsExportDialogOpen(true)}
+          >
+            出力
+          </button>
           <button
             type="button"
             data-testid="add-item-button"
@@ -250,6 +274,14 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
           <GanttChartPanel items={state.items} holidays={holidays} />
         </div>
       </div>
+
+      {/* 出力ダイアログ */}
+      <ExportDialog
+        isOpen={isExportDialogOpen}
+        scheduleId={state.schedule.id}
+        scheduleName={state.schedule.name}
+        onClose={() => setIsExportDialogOpen(false)}
+      />
     </>
   );
 }
