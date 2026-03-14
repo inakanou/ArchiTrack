@@ -3,6 +3,7 @@
  *
  * Task 9.1: ScheduleDetailPageと項目入力行を実装する
  * Task 9.2: SortableScheduleListによる並び順管理を実装する
+ * Task 10: ガントチャートコンポーネントの統合
  *
  * Requirements (construction-schedule):
  * - REQ-1.4: 工程表詳細表示
@@ -17,20 +18,33 @@
  * - REQ-4.4: 数量表由来・任意項目の混在管理
  * - REQ-5.1: 並び順変更機能
  * - REQ-5.2: 並び順リアルタイム反映
+ * - REQ-6.1: ガントチャートリアルタイム更新
+ * - REQ-6.2: 土曜日色分け
+ * - REQ-6.3: 日曜日色分け
+ * - REQ-6.4: 祝日色分け
+ * - REQ-6.5: 表示期間自動調整
+ * - REQ-6.6: サーバー通信なしの更新
  * - REQ-9.1: 出力対象チェックボックス表示
  * - REQ-9.2: チェックボックス初期値ON
+ * - REQ-9.6: チェックOFF項目のガントチャート表示
  * - REQ-10.1: ラベル文字入力欄
+ * - REQ-10.2: ラベル文字の左列表示
+ * - REQ-10.3: ラベル文字リアルタイム更新
  * - REQ-11.1: 詳細文字入力欄
+ * - REQ-11.2: 詳細文字のバー上表示
+ * - REQ-11.3: 詳細文字リアルタイム更新
  *
  * @module pages/ScheduleDetailPage
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { getScheduleDetail } from '../api/schedules';
 import type { ScheduleDetail } from '../api/schedules';
 import { useScheduleState } from '../hooks/useScheduleState';
+import { useHolidayCalendar } from '../hooks/useHolidayCalendar';
 import { SortableScheduleList } from '../components/schedule/SortableScheduleList';
+import { GanttChartPanel } from '../components/schedule/GanttChartPanel';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -108,12 +122,6 @@ const styles = {
     border: '1px solid #e5e7eb',
     padding: '16px',
   } as React.CSSProperties,
-  ganttPlaceholder: {
-    color: '#6b7280',
-    fontSize: '14px',
-    textAlign: 'center' as const,
-    padding: '48px',
-  } as React.CSSProperties,
   errorMessage: {
     color: '#ef4444',
     fontSize: '14px',
@@ -163,6 +171,34 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
     error: saveError,
   } = useScheduleState(data);
 
+  // ガントチャート表示期間を算出
+  const ganttDateRange = useMemo(() => {
+    let minDate: Date | null = null;
+    let maxDate: Date | null = null;
+
+    for (const item of state.items) {
+      if (!item.startDate || !item.endDate) continue;
+      const start = new Date(item.startDate + 'T00:00:00');
+      const end = new Date(item.endDate + 'T00:00:00');
+      if (!minDate || start < minDate) minDate = start;
+      if (!maxDate || end > maxDate) maxDate = end;
+    }
+
+    if (!minDate || !maxDate) {
+      // デフォルト: 今日から30日間
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const thirtyDaysLater = new Date(today);
+      thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+      return { start: today, end: thirtyDaysLater };
+    }
+
+    return { start: minDate, end: maxDate };
+  }, [state.items]);
+
+  // 祝日カレンダー
+  const { holidays } = useHolidayCalendar(ganttDateRange.start, ganttDateRange.end);
+
   return (
     <>
       {/* ヘッダー */}
@@ -209,9 +245,9 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
           />
         </div>
 
-        {/* ガントチャートエリア（Task 10で実装予定） */}
+        {/* ガントチャートエリア */}
         <div style={styles.ganttArea} data-testid="gantt-chart-area">
-          <div style={styles.ganttPlaceholder}>ガントチャート表示エリア（Task 10で実装予定）</div>
+          <GanttChartPanel items={state.items} holidays={holidays} />
         </div>
       </div>
     </>
