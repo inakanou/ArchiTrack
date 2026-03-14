@@ -47,6 +47,7 @@ import ContractDetailPage from './pages/ContractDetailPage';
 import ContractEditPage from './pages/ContractEditPage';
 import ScheduleListPage from './pages/ScheduleListPage';
 import ScheduleCreatePage from './pages/ScheduleCreatePage';
+import ScheduleDetailPage from './pages/ScheduleDetailPage';
 
 /**
  * アプリケーションのルート設定
@@ -371,11 +372,10 @@ export const routes: RouteObject[] = [
       // 工程表詳細
       // REQ-1.4: 工程表詳細表示
       // Task 9: 工程表詳細・編集画面の実装
-      // Note: ScheduleDetailPage は Task 9 で実装予定
-      // {
-      //   path: '/schedules/:id',
-      //   element: <ScheduleDetailPage />,
-      // },
+      {
+        path: '/schedules/:id',
+        element: <ScheduleDetailPage />,
+      },
       // 工程表一覧
       // REQ-1.1: 工程表一覧表示
       // REQ-1.2: 新規作成ボタン配置
