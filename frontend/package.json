@@ -26,6 +26,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@holiday-jp/holiday_jp": "^2.5.1",
     "@sentry/react": "^10.32.1",
     "fabric": "^6.9.1",
     "jspdf": "^4.0.0",
