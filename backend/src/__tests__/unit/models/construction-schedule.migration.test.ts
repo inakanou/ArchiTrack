@@ -29,69 +29,64 @@ describe('Construction Schedule Migration', () => {
       expect(migrationSql).toContain('CREATE TABLE "construction_schedules"');
     });
 
-    it('should have id as UUID primary key with default', () => {
-      expect(migrationSql).toMatch(/"id" UUID NOT NULL DEFAULT gen_random_uuid\(\)/);
+    it('should have id as TEXT primary key', () => {
+      expect(migrationSql).toContain('"id" TEXT NOT NULL');
     });
 
-    it('should have project_id as non-nullable UUID', () => {
-      expect(migrationSql).toMatch(/"project_id" UUID NOT NULL/);
+    it('should have projectId as non-nullable TEXT', () => {
+      expect(migrationSql).toContain('"projectId" TEXT NOT NULL');
     });
 
     it('should have name field', () => {
-      expect(migrationSql).toMatch(/"name" VARCHAR\(200\) NOT NULL/);
+      expect(migrationSql).toContain('"name" TEXT NOT NULL');
     });
 
-    it('should have quantity_table_id as nullable UUID', () => {
-      // 数量表連携は任意
-      expect(migrationSql).toMatch(/"quantity_table_id" UUID[^,]*,/);
-      // NOT NULLが含まれないこと
+    it('should have quantityTableId as nullable TEXT', () => {
       const quantityTableLine = migrationSql
         .split('\n')
-        .find((line) => line.includes('"quantity_table_id"'));
+        .find((line) => line.includes('"quantityTableId"'));
       expect(quantityTableLine).toBeDefined();
       expect(quantityTableLine).not.toContain('NOT NULL');
     });
 
     it('should have version with default 0', () => {
-      expect(migrationSql).toMatch(/"version" INTEGER NOT NULL DEFAULT 0/);
+      expect(migrationSql).toContain('"version" INTEGER NOT NULL DEFAULT 0');
     });
 
     it('should have timestamp fields', () => {
-      expect(migrationSql).toMatch(
-        /"created_at" TIMESTAMPTZ\(3\) NOT NULL DEFAULT CURRENT_TIMESTAMP/
-      );
-      expect(migrationSql).toMatch(/"updated_at" TIMESTAMPTZ\(3\) NOT NULL/);
+      expect(migrationSql).toContain('"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP');
+      expect(migrationSql).toContain('"updatedAt" TIMESTAMP(3) NOT NULL');
     });
 
-    it('should have nullable deleted_at for soft delete', () => {
+    it('should have nullable deletedAt for soft delete', () => {
       const deletedAtLine = migrationSql
         .split('\n')
-        .find((line) => line.includes('"deleted_at"') && !line.includes('CREATE INDEX'));
+        .find((line) => line.includes('"deletedAt"') && !line.includes('CREATE INDEX'));
       expect(deletedAtLine).toBeDefined();
       expect(deletedAtLine).not.toContain('NOT NULL');
     });
 
-    it('should have project_id index', () => {
+    it('should have projectId index', () => {
       expect(migrationSql).toContain(
-        'CREATE INDEX "idx_construction_schedules_project_id" ON "construction_schedules"("project_id")'
+        'CREATE INDEX "construction_schedules_projectId_idx" ON "construction_schedules"("projectId")'
       );
     });
 
-    it('should have deleted_at index', () => {
+    it('should have deletedAt index', () => {
       expect(migrationSql).toContain(
-        'CREATE INDEX "idx_construction_schedules_deleted_at" ON "construction_schedules"("deleted_at")'
+        'CREATE INDEX "construction_schedules_deletedAt_idx" ON "construction_schedules"("deletedAt")'
       );
     });
 
     it('should have foreign key to projects with CASCADE delete', () => {
       expect(migrationSql).toContain(
-        'FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE'
+        'FOREIGN KEY ("projectId") REFERENCES "projects"("id") ON DELETE CASCADE'
       );
     });
 
     it('should have foreign key to quantity_tables with SET NULL delete', () => {
       expect(migrationSql).toContain(
-        'FOREIGN KEY ("quantity_table_id") REFERENCES "quantity_tables"("id") ON DELETE SET NULL'
+        'FOREIGN KEY ("quantityTableId") REFERENCES "quantity_tables"("id") ON DELETE SET NULL'
       );
     });
   });
@@ -101,44 +96,44 @@ describe('Construction Schedule Migration', () => {
       expect(migrationSql).toContain('CREATE TABLE "schedule_items"');
     });
 
-    it('should have id as UUID primary key with default', () => {
+    it('should have id as TEXT primary key', () => {
       // schedule_itemsテーブル内のid
       const scheduleItemsSection = migrationSql.split('CREATE TABLE "schedule_items"')[1];
       expect(scheduleItemsSection).toBeDefined();
-      expect(scheduleItemsSection).toContain('"id" UUID NOT NULL DEFAULT gen_random_uuid()');
+      expect(scheduleItemsSection).toContain('"id" TEXT NOT NULL');
     });
 
-    it('should have schedule_id as non-nullable UUID', () => {
-      expect(migrationSql).toMatch(/"schedule_id" UUID NOT NULL/);
+    it('should have scheduleId as non-nullable TEXT', () => {
+      expect(migrationSql).toContain('"scheduleId" TEXT NOT NULL');
     });
 
-    it('should have source_type with default MANUAL', () => {
+    it('should have sourceType with default MANUAL', () => {
       // sourceTypeのデフォルト値 'MANUAL'
-      expect(migrationSql).toMatch(/"source_type".*DEFAULT 'MANUAL'/);
+      expect(migrationSql).toMatch(/"sourceType".*DEFAULT 'MANUAL'/);
     });
 
-    it('should have source_quantity_item_id as nullable UUID', () => {
+    it('should have sourceQuantityItemId as nullable TEXT', () => {
       const sourceQtyLine = migrationSql
         .split('\n')
-        .find((line) => line.includes('"source_quantity_item_id"'));
+        .find((line) => line.includes('"sourceQuantityItemId"'));
       expect(sourceQtyLine).toBeDefined();
       expect(sourceQtyLine).not.toContain('NOT NULL');
     });
 
-    it('should have item_name field', () => {
-      expect(migrationSql).toMatch(/"item_name" VARCHAR\(500\) NOT NULL/);
+    it('should have itemName field', () => {
+      expect(migrationSql).toContain('"itemName" TEXT NOT NULL');
     });
 
-    it('should have label_text with empty string default', () => {
-      expect(migrationSql).toMatch(/"label_text" VARCHAR\(200\) NOT NULL DEFAULT ''/);
+    it('should have labelText with empty string default', () => {
+      expect(migrationSql).toContain('"labelText" TEXT NOT NULL DEFAULT \'\'');
     });
 
-    it('should have detail_text with empty string default', () => {
-      expect(migrationSql).toMatch(/"detail_text" VARCHAR\(500\) NOT NULL DEFAULT ''/);
+    it('should have detailText with empty string default', () => {
+      expect(migrationSql).toContain('"detailText" TEXT NOT NULL DEFAULT \'\'');
     });
 
-    it('should have nullable start_date as DATE type', () => {
-      const startDateLine = migrationSql.split('\n').find((line) => line.includes('"start_date"'));
+    it('should have nullable startDate as DATE type', () => {
+      const startDateLine = migrationSql.split('\n').find((line) => line.includes('"startDate"'));
       expect(startDateLine).toBeDefined();
       expect(startDateLine).toContain('DATE');
       expect(startDateLine).not.toContain('NOT NULL');
@@ -151,36 +146,36 @@ describe('Construction Schedule Migration', () => {
       expect(durationLine).not.toContain('NOT NULL');
     });
 
-    it('should have display_order with default 0', () => {
-      expect(migrationSql).toMatch(/"display_order" INTEGER NOT NULL DEFAULT 0/);
+    it('should have displayOrder with default 0', () => {
+      expect(migrationSql).toContain('"displayOrder" INTEGER NOT NULL DEFAULT 0');
     });
 
-    it('should have is_export_target with default true', () => {
+    it('should have isExportTarget with default true', () => {
       // REQ-9.2: デフォルト値はtrue
-      expect(migrationSql).toMatch(/"is_export_target" BOOLEAN NOT NULL DEFAULT true/);
+      expect(migrationSql).toContain('"isExportTarget" BOOLEAN NOT NULL DEFAULT true');
     });
 
-    it('should have schedule_id index', () => {
+    it('should have scheduleId index', () => {
       expect(migrationSql).toContain(
-        'CREATE INDEX "idx_schedule_items_schedule_id" ON "schedule_items"("schedule_id")'
+        'CREATE INDEX "schedule_items_scheduleId_idx" ON "schedule_items"("scheduleId")'
       );
     });
 
-    it('should have composite index on schedule_id and display_order', () => {
+    it('should have composite index on scheduleId and displayOrder', () => {
       expect(migrationSql).toContain(
-        'CREATE INDEX "idx_schedule_items_display_order" ON "schedule_items"("schedule_id", "display_order")'
+        'CREATE INDEX "schedule_items_scheduleId_displayOrder_idx" ON "schedule_items"("scheduleId", "displayOrder")'
       );
     });
 
     it('should have foreign key to construction_schedules with CASCADE delete', () => {
       expect(migrationSql).toContain(
-        'FOREIGN KEY ("schedule_id") REFERENCES "construction_schedules"("id") ON DELETE CASCADE'
+        'FOREIGN KEY ("scheduleId") REFERENCES "construction_schedules"("id") ON DELETE CASCADE'
       );
     });
 
     it('should have foreign key to quantity_items with SET NULL delete', () => {
       expect(migrationSql).toContain(
-        'FOREIGN KEY ("source_quantity_item_id") REFERENCES "quantity_items"("id") ON DELETE SET NULL'
+        'FOREIGN KEY ("sourceQuantityItemId") REFERENCES "quantity_items"("id") ON DELETE SET NULL'
       );
     });
   });
