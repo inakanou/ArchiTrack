@@ -6,9 +6,12 @@
  * @fileoverview useScheduleState フックのユニットテスト
  *
  * Task 6.2: useScheduleState フックを実装する
+ * Task 15.1: useScheduleStateフックの単体テスト作成
  *
  * Requirements:
  * - REQ-3.3: 着工日と日数から完了日を自動算出
+ * - REQ-3.4: 着工日未入力バリデーション
+ * - REQ-3.5: 日数0以下バリデーション
  * - REQ-4.1: 任意項目追加
  * - REQ-4.2: 任意項目の入力欄
  * - REQ-4.3: 任意項目削除
@@ -20,7 +23,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useScheduleState } from '../../hooks/useScheduleState';
+import { useScheduleState, calculateEndDate } from '../../hooks/useScheduleState';
 import type { ScheduleDetail } from '../../api/schedules';
 
 // schedules APIをモック
@@ -462,6 +465,242 @@ describe('useScheduleState', () => {
 
       expect(result.current.error).toBe('Network error');
       // 保存失敗時はdirtyのまま
+      expect(result.current.state.isDirty).toBe(true);
+    });
+
+    it('新規追加項目（temp-id）は保存時にid=nullで送信される', async () => {
+      const mockResult = {
+        updatedItemCount: 3,
+        updatedAt: '2026-03-14T10:00:00Z',
+      };
+      vi.mocked(bulkSaveScheduleItems).mockResolvedValueOnce(mockResult);
+
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const callArgs = vi.mocked(bulkSaveScheduleItems).mock.calls[0]!;
+      const savedItems = callArgs[1].items;
+      // 新規項目（temp-で始まるID）はnullで送信される
+      const newItem = savedItems.find((item: { id: string | null }) => item.id === null);
+      expect(newItem).toBeDefined();
+    });
+
+    it('Error以外の例外でもデフォルトのエラーメッセージがセットされる', async () => {
+      vi.mocked(bulkSaveScheduleItems).mockRejectedValueOnce('unknown error');
+
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.error).toBe('保存に失敗しました');
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.1: calculateEndDate 関数の独立テスト (REQ-3.3)
+  // ==========================================================================
+  describe('calculateEndDate', () => {
+    it('正常な着工日と日数から完了日を算出する', () => {
+      expect(calculateEndDate('2026-04-01', 1)).toBe('2026-04-01');
+      expect(calculateEndDate('2026-04-01', 5)).toBe('2026-04-05');
+      expect(calculateEndDate('2026-04-01', 10)).toBe('2026-04-10');
+    });
+
+    it('着工日がnullの場合はnullを返す', () => {
+      expect(calculateEndDate(null, 5)).toBeNull();
+    });
+
+    it('日数がnullの場合はnullを返す', () => {
+      expect(calculateEndDate('2026-04-01', null)).toBeNull();
+    });
+
+    it('両方nullの場合はnullを返す', () => {
+      expect(calculateEndDate(null, null)).toBeNull();
+    });
+
+    it('無効な日付文字列の場合はnullを返す', () => {
+      expect(calculateEndDate('invalid-date', 5)).toBeNull();
+    });
+
+    it('月末をまたぐ計算が正しい', () => {
+      // 2026-01-30 + 5日 = 2026-02-03
+      expect(calculateEndDate('2026-01-30', 5)).toBe('2026-02-03');
+    });
+
+    it('閏年を正しく処理する', () => {
+      // 2028年は閏年: 2028-02-28 + 2日 = 2028-02-29
+      expect(calculateEndDate('2028-02-28', 2)).toBe('2028-02-29');
+    });
+
+    it('年末をまたぐ計算が正しい', () => {
+      // 2026-12-30 + 5日 = 2027-01-03
+      expect(calculateEndDate('2026-12-30', 5)).toBe('2027-01-03');
+    });
+
+    it('日数1の場合は着工日と同日を返す', () => {
+      expect(calculateEndDate('2026-04-01', 1)).toBe('2026-04-01');
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.1: バリデーションロジック (REQ-3.4, REQ-3.5)
+  // ==========================================================================
+  describe('バリデーションロジック', () => {
+    describe('REQ-3.4: 着工日未入力時のバリデーション', () => {
+      it('着工日がnullで日数が入力されている場合、完了日はnullのまま', () => {
+        const detailWithValidation: ScheduleDetail = {
+          ...mockScheduleDetail,
+          items: [
+            {
+              ...mockScheduleDetail.items[0]!,
+              startDate: null,
+              duration: 10,
+            },
+          ],
+        };
+        const { result } = renderHook(() => useScheduleState(detailWithValidation));
+
+        // 着工日未入力なのでendDateはnull（完了日算出不可）
+        expect(result.current.state.items[0]!.startDate).toBeNull();
+        expect(result.current.state.items[0]!.duration).toBe(10);
+        expect(result.current.state.items[0]!.endDate).toBeNull();
+      });
+
+      it('着工日を後からnullに変更すると完了日もnullになる', () => {
+        const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+        // 最初はendDateが算出されている
+        expect(result.current.state.items[0]!.endDate).toBe('2026-04-10');
+
+        act(() => {
+          result.current.updateItem('item-1', { startDate: null });
+        });
+
+        expect(result.current.state.items[0]!.endDate).toBeNull();
+      });
+    });
+
+    describe('REQ-3.5: 日数0以下のバリデーション', () => {
+      it('日数が0の場合、完了日は着工日の前日になる（カレンダー日ベース計算）', () => {
+        const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+        act(() => {
+          result.current.updateItem('item-1', { duration: 0 });
+        });
+
+        // duration=0: startDate + 0 - 1 = 前日（計算結果は業務的にはバリデーションエラー対象）
+        // calculateEndDate は計算自体は行うが、UIレイヤーでバリデーションを表示する
+        expect(result.current.state.items[0]!.duration).toBe(0);
+        expect(result.current.state.items[0]!.endDate).toBe('2026-03-31');
+      });
+
+      it('日数が負の値の場合、endDateは着工日以前の日付になる', () => {
+        const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+        act(() => {
+          result.current.updateItem('item-1', { duration: -1 });
+        });
+
+        // duration=-1: startDate + (-1) - 1 = 2日前
+        expect(result.current.state.items[0]!.duration).toBe(-1);
+        expect(result.current.state.items[0]!.endDate).toBe('2026-03-30');
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.1: dirty state管理の詳細テスト
+  // ==========================================================================
+  describe('dirty state管理', () => {
+    it('初期状態ではdirtyがfalse', () => {
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+      expect(result.current.state.isDirty).toBe(false);
+    });
+
+    it('複数操作後もdirtyがtrue', () => {
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+      act(() => {
+        result.current.addItem();
+      });
+      act(() => {
+        result.current.updateItem('item-1', { labelText: '変更' });
+      });
+      act(() => {
+        result.current.removeItem('item-2');
+      });
+
+      expect(result.current.state.isDirty).toBe(true);
+    });
+
+    it('保存成功後にdirtyがfalseにリセットされる', async () => {
+      vi.mocked(bulkSaveScheduleItems).mockResolvedValueOnce({
+        updatedItemCount: 2,
+        updatedAt: '2026-03-14T10:00:00Z',
+      });
+
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.state.isDirty).toBe(true);
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.state.isDirty).toBe(false);
+    });
+
+    it('保存失敗後もdirtyがtrueのまま維持される', async () => {
+      vi.mocked(bulkSaveScheduleItems).mockRejectedValueOnce(new Error('保存エラー'));
+
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.state.isDirty).toBe(true);
+    });
+
+    it('保存成功後に再度変更するとdirtyがtrueに戻る', async () => {
+      vi.mocked(bulkSaveScheduleItems).mockResolvedValueOnce({
+        updatedItemCount: 2,
+        updatedAt: '2026-03-14T10:00:00Z',
+      });
+
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+
+      act(() => {
+        result.current.updateItem('item-1', { labelText: '変更1' });
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.state.isDirty).toBe(false);
+
+      act(() => {
+        result.current.updateItem('item-1', { labelText: '変更2' });
+      });
+
       expect(result.current.state.isDirty).toBe(true);
     });
   });

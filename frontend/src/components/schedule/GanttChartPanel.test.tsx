@@ -2,6 +2,7 @@
  * @fileoverview GanttChartPanel コンポーネントテスト
  *
  * Task 10: ガントチャートコンポーネントの実装
+ * Task 15.3: GanttChartPanelの単体テスト作成
  *
  * Requirements (construction-schedule):
  * - REQ-6.1: ガントチャートリアルタイム更新
@@ -312,6 +313,204 @@ describe('GanttChartPanel', () => {
       render(<GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />);
       const weekdayCell = screen.getByTestId('gantt-date-2026-04-01');
       expect(weekdayCell).toHaveAttribute('data-day-type', 'weekday');
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.3: バー位置の描画テスト（追加）
+  // ==========================================================================
+  describe('Task 15.3: バー位置の描画テスト', () => {
+    it('バーの幅が日数に基づいて正しく設定されること', () => {
+      // itemWithDates: startDate=2026-04-01, duration=5, endDate=2026-04-05
+      // バー幅 = (endIdx - startIdx + 1) * DAY_CELL_WIDTH - 2
+      // = (4 - 0 + 1) * 32 - 2 = 158px
+      render(<GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />);
+      const bar = screen.getByTestId('gantt-bar-item-1');
+      expect(bar.style.width).toBe('158px');
+    });
+
+    it('複数項目のバーがそれぞれ正しい幅で描画されること', () => {
+      render(<GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />);
+
+      // item-1: 5日間 -> (5) * 32 - 2 = 158px
+      const bar1 = screen.getByTestId('gantt-bar-item-1');
+      expect(bar1.style.width).toBe('158px');
+
+      // item-2: 7日間 -> (7) * 32 - 2 = 222px
+      const bar2 = screen.getByTestId('gantt-bar-item-2');
+      expect(bar2.style.width).toBe('222px');
+    });
+
+    it('バーの左位置が0（セル内の先頭）から開始されること', () => {
+      render(<GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />);
+      const bar = screen.getByTestId('gantt-bar-item-1');
+      expect(bar.style.left).toBe('0px');
+    });
+
+    it('日数が1の項目でもバーが描画されること', () => {
+      const singleDayItem: ScheduleItem = {
+        ...itemWithDates,
+        id: 'item-single',
+        duration: 1,
+        endDate: '2026-04-01',
+      };
+      render(<GanttChartPanel items={[singleDayItem]} holidays={mockHolidayMap} />);
+      const bar = screen.getByTestId('gantt-bar-item-single');
+      // 1日分: (1) * 32 - 2 = 30px
+      expect(bar.style.width).toBe('30px');
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.3: 土日祝の色分け表示テスト（追加）
+  // ==========================================================================
+  describe('Task 15.3: 土日祝の色分け表示テスト（詳細）', () => {
+    it('ボディセルにも土曜日の色分けが適用されること', () => {
+      render(<GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />);
+      // ボディ内の土曜日セル（data-day-type属性）を確認
+      const bodyCells = document.querySelectorAll('td[data-day-type="saturday"]');
+      expect(bodyCells.length).toBeGreaterThan(0);
+    });
+
+    it('ボディセルにも日曜日の色分けが適用されること', () => {
+      render(<GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />);
+      const bodyCells = document.querySelectorAll('td[data-day-type="sunday"]');
+      expect(bodyCells.length).toBeGreaterThan(0);
+    });
+
+    it('祝日がボディセルにも色分けされること', () => {
+      const longRangeItem: ScheduleItem = {
+        ...itemWithDates,
+        startDate: '2026-04-01',
+        duration: 30,
+        endDate: '2026-04-30',
+      };
+      render(<GanttChartPanel items={[longRangeItem]} holidays={mockHolidayMap} />);
+      const holidayCells = document.querySelectorAll('td[data-day-type="holiday"]');
+      expect(holidayCells.length).toBeGreaterThan(0);
+    });
+
+    it('平日のセルにはweekdayのday-typeが適用されること', () => {
+      render(<GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />);
+      const weekdayCells = document.querySelectorAll('td[data-day-type="weekday"]');
+      expect(weekdayCells.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.3: ラベル文字・詳細文字の表示テスト（追加）
+  // ==========================================================================
+  describe('Task 15.3: ラベル文字・詳細文字の追加テスト', () => {
+    it('詳細文字が空の場合、バー上にdetail要素が表示されないこと', () => {
+      const itemNoDetail: ScheduleItem = {
+        ...itemWithDates,
+        id: 'item-no-detail',
+        detailText: '',
+      };
+      render(<GanttChartPanel items={[itemNoDetail]} holidays={mockHolidayMap} />);
+      expect(screen.getByTestId('gantt-bar-item-no-detail')).toBeInTheDocument();
+      expect(screen.queryByTestId('gantt-detail-item-no-detail')).not.toBeInTheDocument();
+    });
+
+    it('長いラベル文字がセル幅に収まること（overflow hidden）', () => {
+      const itemLongLabel: ScheduleItem = {
+        ...itemWithDates,
+        id: 'item-long-label',
+        labelText: 'とても長いラベル文字が入力された場合のテスト表示確認用テキスト',
+      };
+      render(<GanttChartPanel items={[itemLongLabel]} holidays={mockHolidayMap} />);
+      const labelCell = screen.getByTestId('gantt-label-item-long-label');
+      expect(labelCell).toHaveTextContent(
+        'とても長いラベル文字が入力された場合のテスト表示確認用テキスト'
+      );
+      // title属性にもラベル文字がセットされている
+      expect(labelCell).toHaveAttribute(
+        'title',
+        'とても長いラベル文字が入力された場合のテスト表示確認用テキスト'
+      );
+    });
+
+    it('ラベル文字のtitle属性にラベル文字が設定されていること', () => {
+      render(<GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />);
+      const labelCell = screen.getByTestId('gantt-label-item-1');
+      expect(labelCell).toHaveAttribute('title', '基礎');
+    });
+  });
+
+  // ==========================================================================
+  // Task 15.3: 表示期間の自動調整テスト（追加）
+  // ==========================================================================
+  describe('Task 15.3: 表示期間の自動調整テスト（詳細）', () => {
+    it('単一項目の場合、その項目の着工日〜完了日が表示範囲になること', () => {
+      // itemWithDates: 2026-04-01 ~ 2026-04-05
+      render(<GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />);
+
+      // 表示範囲内の日付が全て存在
+      for (let d = 1; d <= 5; d++) {
+        const dateStr = `2026-04-${String(d).padStart(2, '0')}`;
+        expect(screen.getByTestId(`gantt-date-${dateStr}`)).toBeInTheDocument();
+      }
+
+      // 表示範囲外の日付は存在しない
+      expect(screen.queryByTestId('gantt-date-2026-03-31')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('gantt-date-2026-04-06')).not.toBeInTheDocument();
+    });
+
+    it('複数項目の場合、最早着工日〜最遅完了日が表示範囲になること', () => {
+      // itemWithDates: 2026-04-01 ~ 2026-04-05
+      // itemWithDates2: 2026-04-03 ~ 2026-04-09
+      render(<GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />);
+
+      // 最早着工日（4/1）から最遅完了日（4/9）まで表示
+      expect(screen.getByTestId('gantt-date-2026-04-01')).toBeInTheDocument();
+      expect(screen.getByTestId('gantt-date-2026-04-09')).toBeInTheDocument();
+
+      // 範囲外は非表示
+      expect(screen.queryByTestId('gantt-date-2026-03-31')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('gantt-date-2026-04-10')).not.toBeInTheDocument();
+    });
+
+    it('着工日・日数なしの項目は表示期間の算出に影響しないこと', () => {
+      // itemWithDates: 2026-04-01 ~ 2026-04-05
+      // itemWithoutDates: startDate=null, endDate=null
+      render(
+        <GanttChartPanel items={[itemWithDates, itemWithoutDates]} holidays={mockHolidayMap} />
+      );
+
+      // 表示範囲はitemWithDatesのみに基づく
+      expect(screen.getByTestId('gantt-date-2026-04-01')).toBeInTheDocument();
+      expect(screen.getByTestId('gantt-date-2026-04-05')).toBeInTheDocument();
+      expect(screen.queryByTestId('gantt-date-2026-04-06')).not.toBeInTheDocument();
+    });
+
+    it('月をまたぐ表示期間で年月ヘッダーが正しく分割されること', () => {
+      const crossMonthItem: ScheduleItem = {
+        ...itemWithDates,
+        id: 'cross-month',
+        startDate: '2026-03-30',
+        duration: 5,
+        endDate: '2026-04-03',
+      };
+      render(<GanttChartPanel items={[crossMonthItem]} holidays={mockHolidayMap} />);
+
+      // 3月と4月の両方のヘッダーが表示される
+      expect(screen.getByText('2026年3月')).toBeInTheDocument();
+      expect(screen.getByText('2026年4月')).toBeInTheDocument();
+    });
+
+    it('項目追加により表示期間が拡張されること', () => {
+      const { rerender } = render(
+        <GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />
+      );
+
+      // 初期: 4/1 ~ 4/5
+      expect(screen.queryByTestId('gantt-date-2026-04-09')).not.toBeInTheDocument();
+
+      // 項目追加後: 4/1 ~ 4/9
+      rerender(
+        <GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />
+      );
+      expect(screen.getByTestId('gantt-date-2026-04-09')).toBeInTheDocument();
     });
   });
 });
