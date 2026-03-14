@@ -50,7 +50,7 @@
   - 各項目のdisplayOrder、isExportTarget、labelText、detailText、startDate、durationを保存
   - _Requirements: 3.1, 3.2, 4.1, 4.2, 4.3, 4.4, 5.3, 9.5, 10.4, 11.4_
 
-- [ ] 4. バックエンドAPIルートとカスタムエラーの実装
+- [x] 4. バックエンドAPIルートとカスタムエラーの実装
   - GET /api/projects/:projectId/schedules: 工程表一覧取得エンドポイント
   - POST /api/projects/:projectId/schedules: 工程表作成エンドポイント
   - GET /api/schedules/:id: 工程表詳細取得エンドポイント
