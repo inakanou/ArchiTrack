@@ -148,7 +148,9 @@ test.describe('プロジェクト詳細画面 - 工程表セクション', () =>
     await expect(contractSection).toBeVisible({ timeout: getTimeout(5000) });
 
     // セクションタイトル「工程表」が表示される (REQ-38.2)
-    await expect(scheduleSection.getByText('工程表')).toBeVisible();
+    await expect(
+      scheduleSection.getByRole('heading', { name: '工程表', exact: true })
+    ).toBeVisible();
 
     // 総数が表示される (REQ-38.3)
     await expect(scheduleSection.getByText(/全\d+件/)).toBeVisible();
@@ -266,7 +268,9 @@ test.describe('プロジェクト詳細画面 - 工程表セクション', () =>
     await expect(scheduleSection).toBeVisible({ timeout: getTimeout(15000) });
 
     // 工程表セクション内にデータが表示されていることを確認（ロード完了の証拠）
-    await expect(scheduleSection.getByText('工程表')).toBeVisible();
+    await expect(
+      scheduleSection.getByRole('heading', { name: '工程表', exact: true })
+    ).toBeVisible();
   });
 
   // ============================================================================
