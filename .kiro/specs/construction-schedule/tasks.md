@@ -1,7 +1,7 @@
 # Implementation Plan
 
-- [ ] 1. データベーススキーマとPrismaモデルの定義
-- [ ] 1.1 ConstructionScheduleおよびScheduleItemのPrismaモデルを追加する
+- [x] 1. データベーススキーマとPrismaモデルの定義
+- [x] 1.1 ConstructionScheduleおよびScheduleItemのPrismaモデルを追加する
   - ConstructionScheduleモデル: id, projectId, name, quantityTableId(nullable), version, createdAt, updatedAt, deletedAt を定義
   - ScheduleItemモデル: id, scheduleId, sourceType, sourceQuantityItemId(nullable), itemName, labelText, detailText, startDate, duration, displayOrder, isExportTarget を定義
   - ProjectモデルにconstructionSchedulesリレーションを追加
@@ -10,7 +10,7 @@
   - 適切なインデックス（project_id, deleted_at, schedule_id, display_order）を設定
   - _Requirements: 1.1, 1.3, 2.3, 3.1, 3.2, 4.2, 5.3, 9.1, 9.2, 10.1, 10.4, 11.1, 11.4_
 
-- [ ] 1.2 Prismaマイグレーションを作成して適用する
+- [x] 1.2 Prismaマイグレーションを作成して適用する
   - construction_schedulesテーブルとschedule_itemsテーブルの作成マイグレーション
   - 外部キー制約（ON DELETE CASCADE、ON DELETE SET NULL）の設定
   - isExportTargetのデフォルト値true、sourceTypeのデフォルト値'MANUAL'を設定
