@@ -16,7 +16,7 @@
  * Requirements:
  * 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3,
  * 4.1, 4.2, 5.1, 5.2, 6.1, 6.2, 6.3, 6.4, 7.1, 8.1, 9.1,
- * 9.3, 10.1, 10.2, 11.1, 11.2
+ * 9.3, 9.5, 10.1, 10.2, 11.1, 11.2
  *
  * @module e2e/specs/schedules/construction-schedule-e2e
  */
@@ -432,6 +432,67 @@ test.describe('工程表機能 E2Eテスト', () => {
       // デフォルトでチェック済みであること
       const firstCheckbox = checkboxes.first();
       await expect(firstCheckbox).toBeChecked({ timeout: getTimeout(5000) });
+    });
+
+    /**
+     * @requirement construction-schedule/REQ-9.5
+     */
+    test('出力対象チェックボックスの設定が保存後も永続化される (construction-schedule/REQ-9.5)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/schedules`, {
+        waitUntil: 'networkidle',
+      });
+
+      await page.getByText('数量表連携E2Eテスト').first().click();
+      await page.waitForURL(/\/schedules\//, { timeout: getTimeout(15000) });
+
+      // 出力対象チェックボックスの最初の項目を取得
+      const firstCheckbox = page.locator('[data-testid^="export-target-"]').first();
+      await expect(firstCheckbox).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 現在のチェック状態を取得
+      const wasChecked = await firstCheckbox.isChecked();
+
+      // チェック状態をトグル
+      await firstCheckbox.click();
+      const toggledState = !wasChecked;
+
+      // トグル後の状態が反映されていることを確認
+      if (toggledState) {
+        await expect(firstCheckbox).toBeChecked({ timeout: getTimeout(5000) });
+      } else {
+        await expect(firstCheckbox).not.toBeChecked({ timeout: getTimeout(5000) });
+      }
+
+      // 保存ボタンをクリック
+      await page.getByTestId('save-button').click();
+
+      // 保存完了を待機（成功通知またはネットワークアイドル）
+      await page.waitForResponse(
+        (response) => response.url().includes('/schedules') && response.status() === 200,
+        { timeout: getTimeout(15000) }
+      );
+
+      // ページをリロードして永続化を検証
+      await page.reload({ waitUntil: 'networkidle' });
+
+      // リロード後のチェック状態が保存した状態と一致すること
+      const reloadedCheckbox = page.locator('[data-testid^="export-target-"]').first();
+      if (toggledState) {
+        await expect(reloadedCheckbox).toBeChecked({ timeout: getTimeout(10000) });
+      } else {
+        await expect(reloadedCheckbox).not.toBeChecked({ timeout: getTimeout(10000) });
+      }
+
+      // テストデータのクリーンアップ: 元の状態に戻す
+      await reloadedCheckbox.click();
+      await page.getByTestId('save-button').click();
+      await page.waitForResponse(
+        (response) => response.url().includes('/schedules') && response.status() === 200,
+        { timeout: getTimeout(15000) }
+      );
     });
   });
 
