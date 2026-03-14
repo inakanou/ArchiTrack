@@ -1,56 +1,56 @@
 -- CreateTable
 CREATE TABLE "construction_schedules" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "project_id" UUID NOT NULL,
-    "name" VARCHAR(200) NOT NULL,
-    "quantity_table_id" UUID,
+    "id" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "quantityTableId" TEXT,
     "version" INTEGER NOT NULL DEFAULT 0,
-    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL,
-    "deleted_at" TIMESTAMPTZ(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
 
     CONSTRAINT "construction_schedules_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "schedule_items" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "schedule_id" UUID NOT NULL,
-    "source_type" VARCHAR(20) NOT NULL DEFAULT 'MANUAL',
-    "source_quantity_item_id" UUID,
-    "item_name" VARCHAR(500) NOT NULL,
-    "label_text" VARCHAR(200) NOT NULL DEFAULT '',
-    "detail_text" VARCHAR(500) NOT NULL DEFAULT '',
-    "start_date" DATE,
+    "id" TEXT NOT NULL,
+    "scheduleId" TEXT NOT NULL,
+    "sourceType" TEXT NOT NULL DEFAULT 'MANUAL',
+    "sourceQuantityItemId" TEXT,
+    "itemName" TEXT NOT NULL,
+    "labelText" TEXT NOT NULL DEFAULT '',
+    "detailText" TEXT NOT NULL DEFAULT '',
+    "startDate" DATE,
     "duration" INTEGER,
-    "display_order" INTEGER NOT NULL DEFAULT 0,
-    "is_export_target" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL,
+    "displayOrder" INTEGER NOT NULL DEFAULT 0,
+    "isExportTarget" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "schedule_items_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
-CREATE INDEX "idx_construction_schedules_project_id" ON "construction_schedules"("project_id");
+CREATE INDEX "construction_schedules_projectId_idx" ON "construction_schedules"("projectId");
 
 -- CreateIndex
-CREATE INDEX "idx_construction_schedules_deleted_at" ON "construction_schedules"("deleted_at");
+CREATE INDEX "construction_schedules_deletedAt_idx" ON "construction_schedules"("deletedAt");
 
 -- CreateIndex
-CREATE INDEX "idx_schedule_items_schedule_id" ON "schedule_items"("schedule_id");
+CREATE INDEX "schedule_items_scheduleId_idx" ON "schedule_items"("scheduleId");
 
 -- CreateIndex
-CREATE INDEX "idx_schedule_items_display_order" ON "schedule_items"("schedule_id", "display_order");
+CREATE INDEX "schedule_items_scheduleId_displayOrder_idx" ON "schedule_items"("scheduleId", "displayOrder");
 
 -- AddForeignKey
-ALTER TABLE "construction_schedules" ADD CONSTRAINT "construction_schedules_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "construction_schedules" ADD CONSTRAINT "construction_schedules_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "construction_schedules" ADD CONSTRAINT "construction_schedules_quantity_table_id_fkey" FOREIGN KEY ("quantity_table_id") REFERENCES "quantity_tables"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "construction_schedules" ADD CONSTRAINT "construction_schedules_quantityTableId_fkey" FOREIGN KEY ("quantityTableId") REFERENCES "quantity_tables"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "schedule_items" ADD CONSTRAINT "schedule_items_schedule_id_fkey" FOREIGN KEY ("schedule_id") REFERENCES "construction_schedules"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "schedule_items" ADD CONSTRAINT "schedule_items_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "construction_schedules"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "schedule_items" ADD CONSTRAINT "schedule_items_source_quantity_item_id_fkey" FOREIGN KEY ("source_quantity_item_id") REFERENCES "quantity_items"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "schedule_items" ADD CONSTRAINT "schedule_items_sourceQuantityItemId_fkey" FOREIGN KEY ("sourceQuantityItemId") REFERENCES "quantity_items"("id") ON DELETE SET NULL ON UPDATE CASCADE;
