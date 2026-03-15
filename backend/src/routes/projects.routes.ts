@@ -28,6 +28,7 @@ import { ItemizedStatementPivotService } from '../services/itemized-statement-pi
 import { EstimateRequestService } from '../services/estimate-request.service.js';
 import { EstimateService } from '../services/estimate.service.js';
 import { ContractService } from '../services/contract.service.js';
+import { ScheduleService } from '../services/schedule.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -79,6 +80,7 @@ const itemizedStatementService = new ItemizedStatementService({
 const estimateRequestService = new EstimateRequestService({ prisma, auditLogService });
 const estimateService = new EstimateService({ prisma, auditLogService });
 const contractService = new ContractService({ prisma });
+const scheduleService = new ScheduleService({ prisma });
 
 /**
  * 更新リクエストボディ用スキーマ（expectedUpdatedAt必須）
@@ -291,6 +293,7 @@ async function getProjectSections(projectId: string) {
     estimateRequestService.findLatestByProjectId(projectId),
     estimateService.findLatestByProjectId(projectId),
     contractService.findLatestByProjectId(projectId),
+    scheduleService.findLatestByProjectId(projectId),
   ]);
 
   // 現場調査セクションの取得結果
@@ -370,6 +373,8 @@ async function getProjectSections(projectId: string) {
         : { totalCount: 0, latestEstimates: [] },
     contracts:
       results[5].status === 'fulfilled' ? results[5].value : { totalCount: 0, latestContracts: [] },
+    schedules:
+      results[6].status === 'fulfilled' ? results[6].value : { totalCount: 0, latestSchedules: [] },
   };
 }
 

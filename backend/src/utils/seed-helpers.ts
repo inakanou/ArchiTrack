@@ -419,6 +419,28 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '契約書の削除',
     },
+
+    // 工程表関連権限（construction-schedule）
+    {
+      resource: 'schedule',
+      action: 'create',
+      description: '工程表の作成',
+    },
+    {
+      resource: 'schedule',
+      action: 'read',
+      description: '工程表の閲覧',
+    },
+    {
+      resource: 'schedule',
+      action: 'update',
+      description: '工程表の更新',
+    },
+    {
+      resource: 'schedule',
+      action: 'delete',
+      description: '工程表の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -533,6 +555,12 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'contract', action: 'create' },
     { resource: 'contract', action: 'read' },
     { resource: 'contract', action: 'update' },
+    // 工程表関連権限（construction-schedule）
+    // 一般ユーザーは工程表の作成・閲覧・更新・削除が可能
+    { resource: 'schedule', action: 'create' },
+    { resource: 'schedule', action: 'read' },
+    { resource: 'schedule', action: 'update' },
+    { resource: 'schedule', action: 'delete' },
   ];
 
   // 権限IDを一括取得

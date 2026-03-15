@@ -140,6 +140,8 @@ e2e/
 │   ├── estimate-requests/ # 見積依頼テスト
 │   ├── estimate/          # 見積書テスト
 │   ├── company-info/      # 自社情報テスト
+│   ├── contracts/         # 契約書テスト
+│   ├── schedules/         # 工程表テスト
 │   ├── integration/       # 統合テスト
 │   ├── ui/                # UIテスト
 │   ├── navigation/        # ナビゲーションテスト
@@ -214,7 +216,9 @@ AI支援開発のためのスペック管理。
     ├── itemized-statement-generation/  # 内訳書作成機能 ✅
     ├── estimate-request/      # 見積依頼機能 ✅
     ├── company-info/          # 自社情報登録機能 ✅
-    └── estimate-creation/     # 見積書作成機能 ✅
+    ├── estimate-creation/     # 見積書作成機能 ✅
+    ├── contract-management/   # 契約書管理機能 ✅
+    └── construction-schedule/ # 工程表作成機能 ✅
 ```
 
 **ワークフロー:**

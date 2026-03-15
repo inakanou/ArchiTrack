@@ -28,14 +28,11 @@ export default defineConfig({
     // 環境変数の検証などを行う
     setupFiles: ['./vitest.setup.ts'],
     // Integration tests use shared database, run sequentially to avoid data conflicts
+    // Vitest 4: poolOptions は廃止、トップレベルオプションに移行
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,
-        // メモリ制限を設定（512MB）
-        execArgv: ['--max-old-space-size=512'],
-      },
-    },
+    maxWorkers: 1,
+    minWorkers: 1,
+    execArgv: ['--max-old-space-size=512'],
     // フック（beforeAll/afterAll等）のタイムアウト
     hookTimeout: 20000,
     coverage: {

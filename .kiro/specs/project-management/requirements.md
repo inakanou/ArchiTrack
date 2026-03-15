@@ -631,3 +631,39 @@
 3. The ArchiTrackシステム shall 直近の契約書データに契約ID、契約種類、契約日、ステータス、請負代金額、作成日時を含める
 4. If 契約書セクションのデータ取得でエラーが発生した場合, the ArchiTrackシステム shall デフォルト値（totalCount: 0, latestContracts: []）を返却し、他のセクションのデータは正常に返却する
 5. The ArchiTrackシステム shall 契約書セクションのデータを他のセクションと同様にPromise.allSettledで並行取得する
+
+### Requirement 38: プロジェクト詳細画面の工程表セクション
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面で工程表の概要を確認したい, so that 工程表の作成状況を把握し必要な工程表に素早くアクセスできる
+
+**備考:** 本要件は construction-schedule 仕様から集約。契約書セクション（Requirement 36）と同様のUIパターンを使用する。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の契約書セクションの下に工程表セクションを表示する
+2. The ArchiTrackシステム shall 工程表セクションにセクションタイトル「工程表」を表示する
+3. The ArchiTrackシステム shall 工程表セクションに工程表の総数を表示する（例：全5件）
+4. The ArchiTrackシステム shall 工程表セクションに直近の工程表をカード形式で表示する
+5. The ArchiTrackシステム shall 工程表カードに工程表名、更新日時、工程項目数を表示する
+6. When ユーザーが工程表カードをクリックした場合, the ArchiTrackシステム shall 工程表詳細画面へ遷移する
+7. The ArchiTrackシステム shall 工程表セクションに「すべて見る」リンクを提供する
+8. When ユーザーが「すべて見る」リンクをクリックした場合, the ArchiTrackシステム shall 工程表一覧画面へ遷移する
+9. The ArchiTrackシステム shall 工程表セクションに新規作成ボタンを提供する
+10. When ユーザーが新規作成ボタンをクリックした場合, the ArchiTrackシステム shall 工程表作成画面へ遷移する
+11. When 工程表が存在しない場合, the ArchiTrackシステム shall 「工程表はまだありません」メッセージと新規作成ボタンを表示する
+12. While 工程表データをロード中の場合, the ArchiTrackシステム shall スケルトンローダーを表示する
+13. The ArchiTrackシステム shall 工程表セクションのUIを既存の契約書セクションと同様のスタイルで提供する
+
+### Requirement 39: detail-summary APIの工程表セクション統合
+
+**Objective:** As a 開発者, I want detail-summary APIに工程表サマリーを含めたい, so that プロジェクト詳細画面の工程表セクションを効率的に表示できる
+
+**備考:** 本要件は Requirement 29（API効率化）の拡張。契約書セクション統合（Requirement 37）と同一パターン。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall detail-summary APIのレスポンスに工程表セクションデータ（schedules）を含める
+2. The ArchiTrackシステム shall 工程表セクションデータに総数（totalCount）と直近の工程表（latestSchedules）を含める
+3. The ArchiTrackシステム shall 直近の工程表データに工程表ID、工程表名、更新日時、工程項目数を含める
+4. If 工程表セクションのデータ取得でエラーが発生した場合, the ArchiTrackシステム shall デフォルト値（totalCount: 0, latestSchedules: []）を返却し、他のセクションのデータは正常に返却する
+5. The ArchiTrackシステム shall 工程表セクションのデータを他のセクションと同様にPromise.allSettledで並行取得する

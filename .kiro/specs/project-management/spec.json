@@ -1,10 +1,10 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2026-03-13T09:24:10Z",
+  "updated_at": "2026-03-14T10:43:33Z",
   "language": "ja",
   "phase": "tasks-generated",
-  "description": "プロジェクト詳細画面の改善：(1)detail-summary APIの現場調査サムネイル署名付きURL変換修正（Requirement 30）。(2)パンくずナビゲーション更新（Requirement 31）。(3)「一覧に戻る」リンク削除（Requirement 32）。(4)基本情報のクリップボードコピー機能追加（Requirement 33）。(5)基本情報の作成日時・更新日時を非表示（Requirement 34）。(6)ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）。プロジェクト一覧画面の改善：(7)パンくずナビゲーションを「ダッシュボード > プロジェクト一覧」に変更（Requirement 21 AC 14更新）。(8)テーブルから「作成日」列を削除（Requirement 2 AC 2更新）。(9)フィルタから「作成日」を削除（Requirement 5 AC 2-3削除）。プロジェクト詳細画面の契約書セクション追加：(10)契約書セクション表示（Requirement 36）。(11)detail-summary APIへの契約書セクション統合（Requirement 37）。",
+  "description": "プロジェクト詳細画面の改善：(1)detail-summary APIの現場調査サムネイル署名付きURL変換修正（Requirement 30）。(2)パンくずナビゲーション更新（Requirement 31）。(3)「一覧に戻る」リンク削除（Requirement 32）。(4)基本情報のクリップボードコピー機能追加（Requirement 33）。(5)基本情報の作成日時・更新日時を非表示（Requirement 34）。(6)ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）。プロジェクト一覧画面の改善：(7)パンくずナビゲーションを「ダッシュボード > プロジェクト一覧」に変更（Requirement 21 AC 14更新）。(8)テーブルから「作成日」列を削除（Requirement 2 AC 2更新）。(9)フィルタから「作成日」を削除（Requirement 5 AC 2-3削除）。プロジェクト詳細画面の契約書セクション追加：(10)契約書セクション表示（Requirement 36）。(11)detail-summary APIへの契約書セクション統合（Requirement 37）。プロジェクト詳細画面の工程表セクション追加：(12)工程表セクション表示（Requirement 38）。(13)detail-summary APIへの工程表セクション統合（Requirement 39）。",
   "approvals": {
     "requirements": {
       "generated": true,

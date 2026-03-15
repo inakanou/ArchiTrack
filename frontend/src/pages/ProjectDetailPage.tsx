@@ -34,7 +34,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
-import type { ContractSectionSummary } from '../api/projects';
+import type { ContractSectionSummary, ScheduleSectionSummary } from '../api/projects';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
@@ -57,6 +57,7 @@ import { ItemizedStatementSectionCard } from '../components/projects/ItemizedSta
 import { EstimateRequestSectionCard } from '../components/projects/EstimateRequestSectionCard';
 import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
 import { ContractSectionCard } from '../components/projects/ContractSectionCard';
+import { ScheduleSectionCard } from '../components/projects/ScheduleSectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -404,6 +405,7 @@ export default function ProjectDetailPage() {
     useState<ProjectEstimateRequestSummary | null>(null);
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
   const [contractSummary, setContractSummary] = useState<ContractSectionSummary | null>(null);
+  const [scheduleSummary, setScheduleSummary] = useState<ScheduleSectionSummary | null>(null);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -440,6 +442,10 @@ export default function ProjectDetailPage() {
       // Task 59.2: detail-summary APIから契約書サマリーを取得（個別API呼び出しを置換）
       // Requirements: 37.1, 37.2
       setContractSummary(data.sections.contracts);
+
+      // Task 62.1: detail-summary APIから工程表サマリーを取得
+      // Requirements: 39.1, 39.2
+      setScheduleSummary(data.sections.schedules);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -537,6 +543,8 @@ export default function ProjectDetailPage() {
         setItemizedStatementSummary(data.sections.itemizedStatements);
         setEstimateRequestSummary(data.sections.estimateRequests);
         setEstimateSummary(data.sections.estimates);
+        setContractSummary(data.sections.contracts);
+        setScheduleSummary(data.sections.schedules);
 
         // トースト通知で成功メッセージを表示
         const statusLabel = PROJECT_STATUS_LABELS[newStatus];
@@ -761,6 +769,14 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         totalCount={contractSummary?.totalCount ?? 0}
         latestContracts={contractSummary?.latestContracts ?? []}
+        isLoading={isLoading}
+      />
+
+      {/* 工程表セクション (Task 62.1, Requirements 38.1) */}
+      <ScheduleSectionCard
+        projectId={project.id}
+        totalCount={scheduleSummary?.totalCount ?? 0}
+        latestSchedules={scheduleSummary?.latestSchedules ?? []}
         isLoading={isLoading}
       />
 

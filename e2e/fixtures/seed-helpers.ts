@@ -346,6 +346,28 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'update',
       description: '自社情報の更新',
     },
+
+    // 工程表関連権限
+    {
+      resource: 'schedule',
+      action: 'create',
+      description: '工程表の作成',
+    },
+    {
+      resource: 'schedule',
+      action: 'read',
+      description: '工程表の閲覧',
+    },
+    {
+      resource: 'schedule',
+      action: 'update',
+      description: '工程表の更新',
+    },
+    {
+      resource: 'schedule',
+      action: 'delete',
+      description: '工程表の削除',
+    },
   ];
 
   for (const permission of permissions) {
@@ -451,6 +473,11 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
     { resource: 'company_info', action: 'read' },
     { resource: 'company_info', action: 'update' },
+    // 工程表関連権限
+    { resource: 'schedule', action: 'create' },
+    { resource: 'schedule', action: 'read' },
+    { resource: 'schedule', action: 'update' },
+    { resource: 'schedule', action: 'delete' },
   ];
 
   for (const { resource, action } of basicPermissions) {

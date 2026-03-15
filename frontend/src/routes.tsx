@@ -45,6 +45,9 @@ import ContractListPage from './pages/ContractListPage';
 import ContractCreatePage from './pages/ContractCreatePage';
 import ContractDetailPage from './pages/ContractDetailPage';
 import ContractEditPage from './pages/ContractEditPage';
+import ScheduleListPage from './pages/ScheduleListPage';
+import ScheduleCreatePage from './pages/ScheduleCreatePage';
+import ScheduleDetailPage from './pages/ScheduleDetailPage';
 
 /**
  * アプリケーションのルート設定
@@ -356,6 +359,32 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/contracts',
         element: <ContractListPage />,
+      },
+
+      // 工程表新規作成（/projects/:projectId/schedules より先に定義する必要あり）
+      // REQ-1.2: 工程表新規作成画面表示
+      // REQ-2.1: 数量表選択肢表示
+      // Task 8: フロントエンド工程表作成フォームの実装
+      {
+        path: '/projects/:projectId/schedules/new',
+        element: <ScheduleCreatePage />,
+      },
+      // 工程表詳細
+      // REQ-1.4: 工程表詳細表示
+      // Task 9: 工程表詳細・編集画面の実装
+      {
+        path: '/schedules/:id',
+        element: <ScheduleDetailPage />,
+      },
+      // 工程表一覧
+      // REQ-1.1: 工程表一覧表示
+      // REQ-1.2: 新規作成ボタン配置
+      // REQ-1.4: 詳細画面へのナビゲーション
+      // REQ-1.5: 削除ボタンと確認ダイアログ
+      // Task 7: 工程表一覧画面の実装
+      {
+        path: '/projects/:projectId/schedules',
+        element: <ScheduleListPage />,
       },
 
       // 取引先一覧
