@@ -298,7 +298,11 @@ describe('Seed Script Integration Tests', () => {
     await seedRolePermissions(prisma);
     await seedAdminUser(prisma);
 
-    const rolesCount1 = await prisma.role.count();
+    // seed管理対象のロール・権限のみをカウント（他テストが作成したデータの影響を排除）
+    const seedRoleNames = ['admin', 'user'];
+    const rolesCount1 = await prisma.role.count({
+      where: { name: { in: seedRoleNames } },
+    });
     const permissionsCount1 = await prisma.permission.count();
     const adminUsersCount1 = await prisma.user.count({
       where: { email: 'admin@test.example.com' },
@@ -310,7 +314,9 @@ describe('Seed Script Integration Tests', () => {
     await seedRolePermissions(prisma);
     await seedAdminUser(prisma);
 
-    const rolesCount2 = await prisma.role.count();
+    const rolesCount2 = await prisma.role.count({
+      where: { name: { in: seedRoleNames } },
+    });
     const permissionsCount2 = await prisma.permission.count();
     const adminUsersCount2 = await prisma.user.count({
       where: { email: 'admin@test.example.com' },
