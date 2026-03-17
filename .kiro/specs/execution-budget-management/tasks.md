@@ -67,7 +67,7 @@
   - 発注取消操作時に案分済みの各項目のorderAmountをクリアし、ステータスを「発注取消」に変更する
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 18.1, 18.3_
 
-- [ ] 3.3 発注のルーター実装
+- [x] 3.3 発注のルーター実装
   - GET /orders（一覧）、POST /orders（作成）、GET /orders/:orderId（詳細）、PATCH /orders/:orderId（編集）、PUT /orders/:orderId/items（項目更新）、PATCH /orders/:orderId/status（ステータス変更）、DELETE /orders/:orderId（削除）のエンドポイントを実装する
   - アクセス制御とバリデーションミドルウェアを適用する
   - _Requirements: 17.3, 19.3, 19.9_

@@ -348,6 +348,25 @@ export class ExecutionBudgetService {
   }
 
   /**
+   * プロジェクトIDから実行予算を取得する（軽量版）
+   *
+   * 項目一覧を含まず、実行予算の基本情報のみを返却する。
+   * 発注ルーター等で実行予算IDを取得する際に使用する。
+   *
+   * @param projectId - プロジェクトID
+   * @returns 実行予算の基本情報、存在しない場合はnull
+   */
+  async findByProjectId(
+    projectId: string
+  ): Promise<{ id: string; projectId: string; contractId: string } | null> {
+    const budget = await this.prisma.executionBudget.findFirst({
+      where: { projectId, deletedAt: null },
+      select: { id: true, projectId: true, contractId: true },
+    });
+    return budget;
+  }
+
+  /**
    * 実行予算を項目一覧とともに取得する
    *
    * 階層構造を保持したデータを返却し、以下を計算する:
