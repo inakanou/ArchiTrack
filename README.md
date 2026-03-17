@@ -115,7 +115,7 @@ npm run dev:docker
 
 | 分類 | 技術 |
 |------|------|
-| **Frontend** | React 19 + Vite 7 + TypeScript 5.9 + Tailwind CSS 4 |
+| **Frontend** | React 19 + Vite 7 + React Router 7 + TypeScript 5.9 + Tailwind CSS 4 |
 | **Backend** | Node.js 22 + Express 5 + Prisma 7 + Zod 4 |
 | **Database** | PostgreSQL 15 + Redis 7 |
 | **Authentication** | JWT (EdDSA) + Argon2 + TOTP |
@@ -139,10 +139,10 @@ npm run dev:docker
 - **見積書作成**: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記（改善ダイアログUI）、NET金額案分計算、利益率適用、諸経費行管理、サマリー表示・コンパクトUI、Excel出力
 - **契約書管理**: 新規契約・変更契約の作成、見積書からの金額自動取得、プロジェクト情報自動表示、変更前後比較表示、契約ステータス管理（契約前/契約済）、関連ドキュメントリンク、契約書編集
 - **工程表作成**: 数量表連携による項目自動取得、ガントチャート形式リアルタイム表示（土日祝色分け）、任意項目追加・並び替え、出力対象チェックボックス、ラベル・詳細文字入力、Excel/PDF出力（プロジェクト名・自社名付き）、プロジェクト詳細画面への工程表セクション統合
+- **数量表インポート**: Excel/PDFファイルからの数量データ自動取得（Claude Vision OCR対応）、インポート結果プレビュー、フィールドマッピング
 - **インフラ**: ヘルスチェックAPI、Swagger、PostgreSQL/Redis統合
 
 ### 開発予定
-- 数量表インポート機能（Excel/PDFファイルからの数量データ自動取得）
 - ADR管理機能（作成・編集、バージョン管理、検索機能）
 
 詳細な機能リストは[機能一覧](docs/features.md)を参照してください。
