@@ -40,7 +40,7 @@
   - 論理削除（deletedAtフィールド設定）を実装する
   - _Requirements: 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 4.1, 4.2, 4.3, 4.4, 4.5_
 
-- [ ] 2.3 実行予算のルーター実装
+- [x] 2.3 実行予算のルーター実装
   - POST /api/projects/:projectId/execution-budget（作成）、GET（取得）、DELETE（削除）、PATCH items/:itemId（編集）のエンドポイントを実装する
   - Router({ mergeParams: true })でprojectIdを取得する
   - authenticate + requirePermissionミドルウェアでアクセス制御を適用する
