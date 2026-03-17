@@ -19,6 +19,9 @@ import {
   OrderEditBlockedError,
   OrderDeletionBlockedError,
   ExecutionBudgetNotFoundForOrderError,
+  ConfirmedAmountRequiredError,
+  InvalidOrderStatusTransitionError,
+  NoCheckedItemsError,
 } from '../../../errors/orderError.js';
 
 // ========================================
@@ -46,6 +49,7 @@ function createMockTx() {
       createMany: vi.fn(),
       findMany: vi.fn(),
       deleteMany: vi.fn(),
+      update: vi.fn(),
       updateMany: vi.fn(),
     },
   };
@@ -707,6 +711,675 @@ describe('OrderService', () => {
 
       // Act & Assert
       await expect(service.delete(orderId)).rejects.toThrow(OrderDeletionBlockedError);
+    });
+  });
+
+  // ========================================
+  // Task 3.2: 発注金額確定・案分計算・発注取消サービス
+  // Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 18.1, 18.3
+  // ========================================
+
+  describe('updateStatus - 発注ステータス変更', () => {
+    // ========================================
+    // 8.1, 8.2: 確定発注金額の入力必須チェック
+    // ========================================
+
+    it('ステータスを「発注済」に変更する際、確定発注金額が未入力の場合はConfirmedAmountRequiredErrorをスローする', async () => {
+      // Arrange
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      // Act & Assert
+      await expect(service.updateStatus(orderId, 'ORDERED')).rejects.toThrow(
+        ConfirmedAmountRequiredError
+      );
+    });
+
+    it('ステータスを「発注済」に変更する際、confirmedAmountが空文字の場合はConfirmedAmountRequiredErrorをスローする', async () => {
+      // Arrange
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      // Act & Assert
+      await expect(service.updateStatus(orderId, 'ORDERED', '')).rejects.toThrow(
+        ConfirmedAmountRequiredError
+      );
+    });
+
+    it('ステータスを「発注済」に変更する際、confirmedAmountが0の場合もConfirmedAmountRequiredErrorをスローする', async () => {
+      // Arrange
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      // Act & Assert
+      await expect(service.updateStatus(orderId, 'ORDERED', '0')).rejects.toThrow(
+        ConfirmedAmountRequiredError
+      );
+    });
+
+    it('発注が存在しない場合はOrderNotFoundErrorをスローする', async () => {
+      // Arrange
+      mockTx.order.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.updateStatus(orderId, 'ORDERED', '300000')).rejects.toThrow(
+        OrderNotFoundError
+      );
+    });
+
+    it('論理削除済みの発注はOrderNotFoundErrorをスローする', async () => {
+      // Arrange
+      mockTx.order.findUnique.mockResolvedValue({
+        ...sampleOrder,
+        deletedAt: new Date(),
+      });
+
+      // Act & Assert
+      await expect(service.updateStatus(orderId, 'ORDERED', '300000')).rejects.toThrow(
+        OrderNotFoundError
+      );
+    });
+
+    // ========================================
+    // ステータス遷移バリデーション
+    // ========================================
+
+    it('BEFORE_ORDER → UNDER_REVIEW への遷移を許可する', async () => {
+      // Arrange
+      const existingOrder = { ...sampleOrder, status: 'BEFORE_ORDER' };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'UNDER_REVIEW',
+      });
+
+      // Act
+      const result = await service.updateStatus(orderId, 'UNDER_REVIEW');
+
+      // Assert
+      expect(result.status).toBe('UNDER_REVIEW');
+    });
+
+    it('UNDER_REVIEW → BEFORE_ORDER への遷移を許可する', async () => {
+      // Arrange
+      const existingOrder = { ...sampleOrder, status: 'UNDER_REVIEW' };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'BEFORE_ORDER',
+      });
+
+      // Act
+      const result = await service.updateStatus(orderId, 'BEFORE_ORDER');
+
+      // Assert
+      expect(result.status).toBe('BEFORE_ORDER');
+    });
+
+    it('CANCELLED → ORDERED への遷移は許可しない', async () => {
+      // Arrange
+      mockTx.order.findUnique.mockResolvedValue({
+        ...sampleOrder,
+        status: 'CANCELLED',
+      });
+
+      // Act & Assert
+      await expect(service.updateStatus(orderId, 'ORDERED', '300000')).rejects.toThrow(
+        InvalidOrderStatusTransitionError
+      );
+    });
+
+    // ========================================
+    // 8.3, 8.4, 8.5, 18.1, 18.3: 案分計算
+    // ========================================
+
+    it('確定発注金額をチェック済み項目の実行金額比率で案分する', async () => {
+      // Arrange
+      // 項目1: executionAmount=100000, 項目2: executionAmount=200000
+      // 確定発注金額: 270000
+      // 案分: 100000/300000 * 270000 = 90000, 200000/300000 * 270000 = 180000
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId1,
+            executionAmount: { toString: () => '100000' },
+          },
+        },
+        {
+          id: 'oi-2',
+          orderId,
+          executionBudgetItemId: itemId2,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId2,
+            executionAmount: { toString: () => '200000' },
+          },
+        },
+        {
+          id: 'oi-3',
+          orderId,
+          executionBudgetItemId: itemId3,
+          checked: false,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId3,
+            executionAmount: { toString: () => '300000' },
+          },
+        },
+      ]);
+
+      mockTx.orderItem.update = vi.fn().mockResolvedValue({});
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '270000' },
+      });
+
+      // Act
+      const result = await service.updateStatus(orderId, 'ORDERED', '270000');
+
+      // Assert
+      expect(result.status).toBe('ORDERED');
+      // 案分結果の検証: orderItem.updateが2回（チェック済み項目のみ）呼ばれる
+      expect(mockTx.orderItem.update).toHaveBeenCalledTimes(2);
+      // floor(100000/300000 * 270000) = floor(89999.999...) = 89999
+      // floor(200000/300000 * 270000) = floor(179999.999...) = 179999
+      // 残り: 270000 - 89999 - 179999 = 2 → 項目2(最大金額)に加算 → 180001
+      expect(mockTx.orderItem.update).toHaveBeenCalledWith({
+        where: { id: 'oi-1' },
+        data: { orderAmount: '89999' },
+      });
+      expect(mockTx.orderItem.update).toHaveBeenCalledWith({
+        where: { id: 'oi-2' },
+        data: { orderAmount: '180001' },
+      });
+      // 合計確認: 89999 + 180001 = 270000
+      const calls = (mockTx.orderItem.update as ReturnType<typeof vi.fn>).mock.calls;
+      const total = calls.reduce(
+        (sum: number, call: unknown[]) =>
+          sum + parseInt((call[0] as { data: { orderAmount: string } }).data.orderAmount, 10),
+        0
+      );
+      expect(total).toBe(270000);
+    });
+
+    it('案分端数処理: 1円未満の端数を最も金額の大きい項目に加算する', async () => {
+      // Arrange
+      // 項目1: executionAmount=100000, 項目2: executionAmount=200000
+      // 確定発注金額: 100000
+      // 案分: 100000/300000 * 100000 = 33333.333..., 200000/300000 * 100000 = 66666.666...
+      // 端数切捨て: 33333 + 66666 = 99999, 残り1円 → 項目2(最大金額)に加算 → 66667
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId1,
+            executionAmount: { toString: () => '100000' },
+          },
+        },
+        {
+          id: 'oi-2',
+          orderId,
+          executionBudgetItemId: itemId2,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId2,
+            executionAmount: { toString: () => '200000' },
+          },
+        },
+      ]);
+
+      mockTx.orderItem.update = vi.fn().mockResolvedValue({});
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '100000' },
+      });
+
+      // Act
+      const result = await service.updateStatus(orderId, 'ORDERED', '100000');
+
+      // Assert
+      expect(result.status).toBe('ORDERED');
+      expect(mockTx.orderItem.update).toHaveBeenCalledTimes(2);
+      // 項目1(小さい方): 33333
+      expect(mockTx.orderItem.update).toHaveBeenCalledWith({
+        where: { id: 'oi-1' },
+        data: { orderAmount: '33333' },
+      });
+      // 項目2(大きい方): 66666 + 端数1 = 66667
+      expect(mockTx.orderItem.update).toHaveBeenCalledWith({
+        where: { id: 'oi-2' },
+        data: { orderAmount: '66667' },
+      });
+    });
+
+    it('案分合計が確定発注金額と一致することを保証する（3項目の端数テスト）', async () => {
+      // Arrange
+      // 3項目: 10000, 20000, 30000 = 合計60000
+      // 確定発注金額: 10000
+      // 案分: 10000/60000*10000=1666.66..., 20000/60000*10000=3333.33..., 30000/60000*10000=5000
+      // 切捨て: 1666 + 3333 + 5000 = 9999, 残り1円 → 項目3(最大)に加算 → 5001
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId1,
+            executionAmount: { toString: () => '10000' },
+          },
+        },
+        {
+          id: 'oi-2',
+          orderId,
+          executionBudgetItemId: itemId2,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId2,
+            executionAmount: { toString: () => '20000' },
+          },
+        },
+        {
+          id: 'oi-3',
+          orderId,
+          executionBudgetItemId: itemId3,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId3,
+            executionAmount: { toString: () => '30000' },
+          },
+        },
+      ]);
+
+      mockTx.orderItem.update = vi.fn().mockResolvedValue({});
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '10000' },
+      });
+
+      // Act
+      await service.updateStatus(orderId, 'ORDERED', '10000');
+
+      // Assert
+      expect(mockTx.orderItem.update).toHaveBeenCalledTimes(3);
+
+      // 案分結果を取得して合計を検証
+      const updateCalls = (mockTx.orderItem.update as ReturnType<typeof vi.fn>).mock.calls;
+      let totalProrated = 0;
+      for (const call of updateCalls) {
+        totalProrated += parseInt(call[0].data.orderAmount, 10);
+      }
+      // 合計が確定発注金額と完全に一致する
+      expect(totalProrated).toBe(10000);
+    });
+
+    it('チェック済み項目が1つのみの場合は確定発注金額をそのまま設定する', async () => {
+      // Arrange
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId1,
+            executionAmount: { toString: () => '100000' },
+          },
+        },
+      ]);
+
+      mockTx.orderItem.update = vi.fn().mockResolvedValue({});
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '80000' },
+      });
+
+      // Act
+      await service.updateStatus(orderId, 'ORDERED', '80000');
+
+      // Assert
+      expect(mockTx.orderItem.update).toHaveBeenCalledTimes(1);
+      expect(mockTx.orderItem.update).toHaveBeenCalledWith({
+        where: { id: 'oi-1' },
+        data: { orderAmount: '80000' },
+      });
+    });
+
+    it('チェック済み項目がない場合はNoCheckedItemsErrorをスローする', async () => {
+      // Arrange
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: false,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId1,
+            executionAmount: { toString: () => '100000' },
+          },
+        },
+      ]);
+
+      // Act & Assert
+      await expect(service.updateStatus(orderId, 'ORDERED', '300000')).rejects.toThrow(
+        NoCheckedItemsError
+      );
+    });
+
+    // ========================================
+    // 8.6, 8.7: 発注済ステータスでの編集禁止
+    // ========================================
+
+    it('発注済ステータスでのORDERED以外への遷移を禁止する（UNDER_REVIEWへの戻り）', async () => {
+      // Arrange
+      mockTx.order.findUnique.mockResolvedValue({
+        ...sampleOrder,
+        status: 'ORDERED',
+      });
+
+      // Act & Assert - ORDERED → UNDER_REVIEW は不可
+      await expect(service.updateStatus(orderId, 'UNDER_REVIEW')).rejects.toThrow(
+        InvalidOrderStatusTransitionError
+      );
+    });
+  });
+
+  // ========================================
+  // Task 3.2: cancelOrder - 発注取消
+  // Requirements: 8.8, 8.9
+  // ========================================
+
+  describe('cancelOrder - 発注取消', () => {
+    it('発注取消時に案分済みの各項目のorderAmountをクリアする', async () => {
+      // Arrange
+      const orderedOrder = {
+        ...sampleOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '300000' },
+      };
+      mockTx.order.findUnique.mockResolvedValue(orderedOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: true,
+          orderAmount: { toString: () => '100000' },
+        },
+        {
+          id: 'oi-2',
+          orderId,
+          executionBudgetItemId: itemId2,
+          checked: true,
+          orderAmount: { toString: () => '200000' },
+        },
+      ]);
+
+      mockTx.orderItem.updateMany.mockResolvedValue({ count: 2 });
+      mockTx.order.update.mockResolvedValue({
+        ...orderedOrder,
+        status: 'CANCELLED',
+        confirmedAmount: null,
+      });
+
+      // Act
+      const result = await service.cancelOrder(orderId);
+
+      // Assert
+      expect(result.status).toBe('CANCELLED');
+      // 全項目のorderAmountがnullにクリアされる
+      expect(mockTx.orderItem.updateMany).toHaveBeenCalledWith({
+        where: { orderId },
+        data: { orderAmount: null },
+      });
+    });
+
+    it('発注取消時にステータスを「発注取消」に変更する', async () => {
+      // Arrange
+      const orderedOrder = {
+        ...sampleOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '300000' },
+      };
+      mockTx.order.findUnique.mockResolvedValue(orderedOrder);
+      mockTx.orderItem.findMany.mockResolvedValue([]);
+      mockTx.orderItem.updateMany.mockResolvedValue({ count: 0 });
+      mockTx.order.update.mockResolvedValue({
+        ...orderedOrder,
+        status: 'CANCELLED',
+        confirmedAmount: null,
+      });
+
+      // Act
+      const result = await service.cancelOrder(orderId);
+
+      // Assert
+      expect(result.status).toBe('CANCELLED');
+      expect(mockTx.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: orderId },
+          data: expect.objectContaining({
+            status: 'CANCELLED',
+            confirmedAmount: null,
+          }),
+        })
+      );
+    });
+
+    it('発注済以外のステータスの発注を取消しようとするとInvalidOrderStatusTransitionErrorをスローする', async () => {
+      // Arrange
+      mockTx.order.findUnique.mockResolvedValue({
+        ...sampleOrder,
+        status: 'BEFORE_ORDER',
+      });
+
+      // Act & Assert
+      await expect(service.cancelOrder(orderId)).rejects.toThrow(InvalidOrderStatusTransitionError);
+    });
+
+    it('UNDER_REVIEW状態の発注を取消しようとするとInvalidOrderStatusTransitionErrorをスローする', async () => {
+      // Arrange
+      mockTx.order.findUnique.mockResolvedValue({
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      });
+
+      // Act & Assert
+      await expect(service.cancelOrder(orderId)).rejects.toThrow(InvalidOrderStatusTransitionError);
+    });
+
+    it('存在しない発注の取消はOrderNotFoundErrorをスローする', async () => {
+      // Arrange
+      mockTx.order.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.cancelOrder(orderId)).rejects.toThrow(OrderNotFoundError);
+    });
+  });
+
+  // ========================================
+  // Task 3.2: 案分計算の精度テスト (decimal.js)
+  // Requirements: 18.1, 18.3
+  // ========================================
+
+  describe('案分計算の精度テスト', () => {
+    it('大きな金額での案分計算の精度が保たれる', async () => {
+      // Arrange
+      // 項目1: 12345678, 項目2: 87654322 = 合計100000000
+      // 確定発注金額: 99999999
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId1,
+            executionAmount: { toString: () => '12345678' },
+          },
+        },
+        {
+          id: 'oi-2',
+          orderId,
+          executionBudgetItemId: itemId2,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId2,
+            executionAmount: { toString: () => '87654322' },
+          },
+        },
+      ]);
+
+      mockTx.orderItem.update = vi.fn().mockResolvedValue({});
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '99999999' },
+      });
+
+      // Act
+      await service.updateStatus(orderId, 'ORDERED', '99999999');
+
+      // Assert - 合計が確定発注金額と完全一致
+      const updateCalls = (mockTx.orderItem.update as ReturnType<typeof vi.fn>).mock.calls;
+      let totalProrated = 0;
+      for (const call of updateCalls) {
+        totalProrated += parseInt(call[0].data.orderAmount, 10);
+      }
+      expect(totalProrated).toBe(99999999);
+    });
+
+    it('全項目の実行金額が同じ場合の均等案分', async () => {
+      // Arrange
+      // 3項目とも100000、確定発注金額: 100000
+      // 案分: 33333, 33333, 33334(端数加算)
+      const existingOrder = {
+        ...sampleOrder,
+        status: 'UNDER_REVIEW',
+      };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+
+      mockTx.orderItem.findMany.mockResolvedValue([
+        {
+          id: 'oi-1',
+          orderId,
+          executionBudgetItemId: itemId1,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId1,
+            executionAmount: { toString: () => '100000' },
+          },
+        },
+        {
+          id: 'oi-2',
+          orderId,
+          executionBudgetItemId: itemId2,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId2,
+            executionAmount: { toString: () => '100000' },
+          },
+        },
+        {
+          id: 'oi-3',
+          orderId,
+          executionBudgetItemId: itemId3,
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemId3,
+            executionAmount: { toString: () => '100000' },
+          },
+        },
+      ]);
+
+      mockTx.orderItem.update = vi.fn().mockResolvedValue({});
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => '100000' },
+      });
+
+      // Act
+      await service.updateStatus(orderId, 'ORDERED', '100000');
+
+      // Assert - 合計が100000であること
+      const updateCalls = (mockTx.orderItem.update as ReturnType<typeof vi.fn>).mock.calls;
+      let totalProrated = 0;
+      for (const call of updateCalls) {
+        totalProrated += parseInt(call[0].data.orderAmount, 10);
+      }
+      expect(totalProrated).toBe(100000);
     });
   });
 });

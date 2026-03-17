@@ -20,6 +20,9 @@ import {
   OrderEditBlockedError,
   OrderDeletionBlockedError,
   ExecutionBudgetNotFoundForOrderError,
+  ConfirmedAmountRequiredError,
+  InvalidOrderStatusTransitionError,
+  NoCheckedItemsError,
 } from '../errors/orderError.js';
 
 /**
@@ -104,6 +107,16 @@ const EDITABLE_STATUSES = ['BEFORE_ORDER', 'UNDER_REVIEW'] as const;
  * 削除可能なステータス（発注前、発注金額検討中）
  */
 const DELETABLE_STATUSES = ['BEFORE_ORDER', 'UNDER_REVIEW'] as const;
+
+/**
+ * 有効なステータス遷移マップ
+ */
+const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  BEFORE_ORDER: ['UNDER_REVIEW'],
+  UNDER_REVIEW: ['BEFORE_ORDER', 'ORDERED'],
+  ORDERED: ['CANCELLED'],
+  CANCELLED: [],
+};
 
 /**
  * 発注サービス
@@ -570,6 +583,252 @@ export class OrderService {
       where: { id: orderId },
       data: { deletedAt: new Date() },
     });
+  }
+
+  /**
+   * 発注ステータスを変更する
+   *
+   * ステータスを「発注済」に変更する際:
+   * - 確定発注金額の入力必須チェックを行う
+   * - チェック済み項目の各実行金額の比率で確定発注金額を案分する
+   * - 案分端数は最も金額の大きい項目に加算する
+   * - 案分結果をOrderItem.orderAmountに一括保存する（トランザクション内）
+   *
+   * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 18.1, 18.3
+   *
+   * @param orderId - 発注ID
+   * @param newStatus - 新しいステータス
+   * @param confirmedAmount - 確定発注金額（ORDERED変更時に必須）
+   * @returns 更新後の発注
+   * @throws OrderNotFoundError 発注が存在しない場合
+   * @throws ConfirmedAmountRequiredError 確定発注金額が未入力の場合
+   * @throws InvalidOrderStatusTransitionError 無効なステータス遷移の場合
+   * @throws NoCheckedItemsError チェック済み項目がない場合（ORDERED変更時）
+   */
+  async updateStatus(
+    orderId: string,
+    newStatus: string,
+    confirmedAmount?: string
+  ): Promise<{
+    id: string;
+    tradingPartnerId: string;
+    status: string;
+    confirmedAmount: string | null;
+    version: number;
+  }> {
+    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      // 1. 発注の存在チェック
+      const existing = await tx.order.findUnique({
+        where: { id: orderId },
+      });
+
+      if (!existing || existing.deletedAt !== null) {
+        throw new OrderNotFoundError();
+      }
+
+      // 2. ステータス遷移バリデーション
+      const currentStatus = existing.status as string;
+      const allowedTransitions = VALID_STATUS_TRANSITIONS[currentStatus] || [];
+      if (!allowedTransitions.includes(newStatus)) {
+        throw new InvalidOrderStatusTransitionError();
+      }
+
+      // 3. ORDERED変更時の特別処理
+      if (newStatus === 'ORDERED') {
+        // 3a. 確定発注金額の入力必須チェック
+        if (!confirmedAmount || confirmedAmount.trim() === '' || confirmedAmount === '0') {
+          throw new ConfirmedAmountRequiredError();
+        }
+
+        // 3b. チェック済み項目の取得
+        const orderItems = await tx.orderItem.findMany({
+          where: { orderId },
+          include: {
+            executionBudgetItem: {
+              select: { id: true, executionAmount: true },
+            },
+          },
+        });
+
+        const checkedItems = orderItems.filter((item: { checked: boolean }) => item.checked);
+
+        if (checkedItems.length === 0) {
+          throw new NoCheckedItemsError();
+        }
+
+        // 3c. 案分計算（decimal.jsで高精度計算）
+        const confirmedDecimal = new Decimal(confirmedAmount);
+        const proratedAmounts = this.calculateProration(checkedItems, confirmedDecimal);
+
+        // 3d. 案分結果をOrderItem.orderAmountに一括保存
+        for (const { itemId, amount } of proratedAmounts) {
+          await tx.orderItem.update({
+            where: { id: itemId },
+            data: { orderAmount: amount },
+          });
+        }
+      }
+
+      // 4. ステータス更新
+      const updateData: Record<string, unknown> = {
+        status: newStatus,
+      };
+      if (newStatus === 'ORDERED' && confirmedAmount) {
+        updateData.confirmedAmount = confirmedAmount;
+      }
+
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: updateData,
+      });
+
+      return {
+        id: updated.id,
+        tradingPartnerId: updated.tradingPartnerId,
+        status: updated.status as string,
+        confirmedAmount: updated.confirmedAmount?.toString() ?? null,
+        version: updated.version,
+      };
+    });
+  }
+
+  /**
+   * 発注を取消する
+   *
+   * 発注済ステータスの発注のみ取消可能。
+   * 案分済みの各項目のorderAmountをクリアし、ステータスを「発注取消」に変更する。
+   *
+   * Requirements: 8.8, 8.9
+   *
+   * @param orderId - 発注ID
+   * @returns 更新後の発注
+   * @throws OrderNotFoundError 発注が存在しない場合
+   * @throws InvalidOrderStatusTransitionError 発注済以外のステータスの場合
+   */
+  async cancelOrder(orderId: string): Promise<{
+    id: string;
+    tradingPartnerId: string;
+    status: string;
+    confirmedAmount: string | null;
+    version: number;
+  }> {
+    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      // 1. 発注の存在チェック
+      const existing = await tx.order.findUnique({
+        where: { id: orderId },
+      });
+
+      if (!existing || existing.deletedAt !== null) {
+        throw new OrderNotFoundError();
+      }
+
+      // 2. ORDERED以外からのCANCELLED遷移は不可
+      const currentStatus = existing.status as string;
+      const allowedTransitions = VALID_STATUS_TRANSITIONS[currentStatus] || [];
+      if (!allowedTransitions.includes('CANCELLED')) {
+        throw new InvalidOrderStatusTransitionError();
+      }
+
+      // 3. 全項目のorderAmountをクリア
+      await tx.orderItem.updateMany({
+        where: { orderId },
+        data: { orderAmount: null },
+      });
+
+      // 4. ステータスをCANCELLEDに変更、confirmedAmountをクリア
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'CANCELLED',
+          confirmedAmount: null,
+        },
+      });
+
+      return {
+        id: updated.id,
+        tradingPartnerId: updated.tradingPartnerId,
+        status: updated.status as string,
+        confirmedAmount: updated.confirmedAmount?.toString() ?? null,
+        version: updated.version,
+      };
+    });
+  }
+
+  /**
+   * 確定発注金額をチェック済み項目の実行金額比率で案分する
+   *
+   * decimal.jsで高精度に計算し、1円未満の端数は最も金額の大きい項目に加算する。
+   *
+   * Requirements: 8.3, 8.4, 18.1, 18.3
+   *
+   * @param checkedItems - チェック済み発注項目
+   * @param confirmedAmount - 確定発注金額
+   * @returns 案分結果の配列
+   * @private
+   */
+  private calculateProration(
+    checkedItems: {
+      id: string;
+      executionBudgetItem: {
+        id: string;
+        executionAmount: { toString(): string } | null;
+      };
+    }[],
+    confirmedAmount: Decimal
+  ): { itemId: string; amount: string }[] {
+    // 1. 各項目の実行金額を取得
+    const itemAmounts = checkedItems.map((item) => ({
+      itemId: item.id,
+      executionAmount: item.executionBudgetItem.executionAmount
+        ? new Decimal(item.executionBudgetItem.executionAmount.toString())
+        : new Decimal(0),
+    }));
+
+    // 2. 合計実行金額を計算
+    const totalExecution = itemAmounts.reduce(
+      (sum, item) => sum.add(item.executionAmount),
+      new Decimal(0)
+    );
+
+    // 3. 各項目の案分額を計算（小数点以下切捨て）
+    const results: { itemId: string; amount: Decimal; executionAmount: Decimal }[] = [];
+    let allocatedTotal = new Decimal(0);
+
+    for (const item of itemAmounts) {
+      // 比率 = 項目の実行金額 / 合計実行金額
+      // 案分額 = 確定発注金額 * 比率（1円未満切捨て）
+      const ratio = totalExecution.isZero()
+        ? new Decimal(0)
+        : item.executionAmount.div(totalExecution);
+      const prorated = confirmedAmount.mul(ratio).floor();
+      allocatedTotal = allocatedTotal.add(prorated);
+      results.push({
+        itemId: item.itemId,
+        amount: prorated,
+        executionAmount: item.executionAmount,
+      });
+    }
+
+    // 4. 端数処理: 残りを最も実行金額の大きい項目に加算
+    const remainder = confirmedAmount.sub(allocatedTotal);
+    if (remainder.greaterThan(0)) {
+      // 最も実行金額の大きい項目を見つける
+      let maxIdx = 0;
+      let maxAmount = results[0]!.executionAmount;
+      for (let i = 1; i < results.length; i++) {
+        if (results[i]!.executionAmount.greaterThan(maxAmount)) {
+          maxAmount = results[i]!.executionAmount;
+          maxIdx = i;
+        }
+      }
+      results[maxIdx]!.amount = results[maxIdx]!.amount.add(remainder);
+    }
+
+    // 5. 文字列に変換して返却
+    return results.map((r) => ({
+      itemId: r.itemId,
+      amount: r.amount.toFixed(0),
+    }));
   }
 
   /**

@@ -79,3 +79,54 @@ export class ExecutionBudgetNotFoundForOrderError extends ApiError {
     this.name = 'ExecutionBudgetNotFoundForOrderError';
   }
 }
+
+/**
+ * 確定発注金額未入力エラー（発注済ステータス変更時）
+ * 422 Unprocessable Entity
+ */
+export class ConfirmedAmountRequiredError extends ApiError {
+  constructor(message?: string) {
+    super(
+      422,
+      message || '発注済みに変更するには確定発注金額の入力が必要です',
+      'CONFIRMED_AMOUNT_REQUIRED',
+      undefined,
+      PROBLEM_TYPES.BUSINESS_RULE_VIOLATION
+    );
+    this.name = 'ConfirmedAmountRequiredError';
+  }
+}
+
+/**
+ * 無効なステータス遷移エラー
+ * 422 Unprocessable Entity
+ */
+export class InvalidOrderStatusTransitionError extends ApiError {
+  constructor(message?: string) {
+    super(
+      422,
+      message || '無効なステータス遷移です',
+      'INVALID_ORDER_STATUS_TRANSITION',
+      undefined,
+      PROBLEM_TYPES.BUSINESS_RULE_VIOLATION
+    );
+    this.name = 'InvalidOrderStatusTransitionError';
+  }
+}
+
+/**
+ * チェック済み項目なしエラー（案分計算時）
+ * 422 Unprocessable Entity
+ */
+export class NoCheckedItemsError extends ApiError {
+  constructor(message?: string) {
+    super(
+      422,
+      message || 'チェック済みの項目がありません',
+      'NO_CHECKED_ITEMS',
+      undefined,
+      PROBLEM_TYPES.BUSINESS_RULE_VIOLATION
+    );
+    this.name = 'NoCheckedItemsError';
+  }
+}
