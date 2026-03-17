@@ -8,6 +8,11 @@
  * - 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7: 出来高の履歴管理
  *
  * Task 4.1: 出来高入力・履歴管理サービス実装
+ * Task 4.2: 月別出来高集計サービス実装
+ *
+ * - 16.1: 出来高入力データを月別に集計し、月別出来高一覧を提供する
+ * - 16.2: 対象月、当月出来高金額、累計出来高金額、累計出来高率を表示する
+ * - 16.3: 特定月の項目別出来高明細を表示する
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -76,6 +81,7 @@ function createMockPrisma() {
       executionBudgetItem: {
         findMany: mockTx.executionBudgetItem.findMany,
       },
+      $queryRaw: vi.fn(),
     } as unknown as PrismaClient,
     mockTx,
   };
@@ -624,6 +630,277 @@ describe('ProgressService', () => {
       });
 
       expect(result.items[0]!.progressRate).toBe('0.0');
+    });
+  });
+
+  // ========================================
+  // Task 4.2: 月別出来高集計（Req 16.1, 16.2, 16.3）
+  // ========================================
+
+  // ========================================
+  // getMonthlyAggregation: 月別出来高集計（Req 16.1, 16.2）
+  // ========================================
+
+  describe('getMonthlyAggregation', () => {
+    it('出来高入力データを月別に集計し、対象月・当月出来高金額・累計出来高金額・累計出来高率を返す', async () => {
+      // 実行予算の存在チェック
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+
+      // 実行予算項目（実行金額合計: 1,500,000）
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+
+      // $queryRawで月別集計結果を返す
+      // 2026年1月: 出来高合計 300,000
+      // 2026年2月: 出来高合計 500,000
+      // 2026年3月: 出来高合計 850,000
+      (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { year_month: '2026-01', monthly_amount: '300000' },
+        { year_month: '2026-02', monthly_amount: '500000' },
+        { year_month: '2026-03', monthly_amount: '850000' },
+      ]);
+
+      const result = await service.getMonthlyAggregation(BUDGET_ID);
+
+      expect(result).toHaveLength(3);
+
+      // 1月: 当月=300,000, 累計=300,000, 累計率=300000/1500000*100=20.0%
+      expect(result[0]!.yearMonth).toBe('2026-01');
+      expect(result[0]!.monthlyAmount).toBe('300000');
+      expect(result[0]!.cumulativeAmount).toBe('300000');
+      expect(result[0]!.cumulativeRate).toBe('20.0');
+
+      // 2月: 当月=500,000, 累計=800,000, 累計率=800000/1500000*100=53.3%
+      expect(result[1]!.yearMonth).toBe('2026-02');
+      expect(result[1]!.monthlyAmount).toBe('500000');
+      expect(result[1]!.cumulativeAmount).toBe('800000');
+      expect(result[1]!.cumulativeRate).toBe('53.3');
+
+      // 3月: 当月=850,000, 累計=1,650,000, 累計率=1650000/1500000*100=110.0%
+      expect(result[2]!.yearMonth).toBe('2026-03');
+      expect(result[2]!.monthlyAmount).toBe('850000');
+      expect(result[2]!.cumulativeAmount).toBe('1650000');
+      expect(result[2]!.cumulativeRate).toBe('110.0');
+    });
+
+    it('出来高レコードが存在しない場合、空配列を返す', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+
+      (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      const result = await service.getMonthlyAggregation(BUDGET_ID);
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('実行金額合計が0の場合、累計出来高率を0.0とする', async () => {
+      const zeroAmountItems = [
+        {
+          id: ITEM_ID_1,
+          executionBudgetId: BUDGET_ID,
+          executionAmount: null,
+          parentId: null,
+          name: '項目A',
+        },
+      ];
+
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        zeroAmountItems
+      );
+
+      (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { year_month: '2026-01', monthly_amount: '100000' },
+      ]);
+
+      const result = await service.getMonthlyAggregation(BUDGET_ID);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.cumulativeRate).toBe('0.0');
+    });
+
+    it('SQLレベルのGROUP BY集計で$queryRawを使用する', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+
+      (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await service.getMonthlyAggregation(BUDGET_ID);
+
+      // $queryRawが呼ばれていることを確認（SQLレベルの集計）
+      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('実行予算が存在しない場合、ExecutionBudgetNotFoundForProgressErrorをスローする', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      await expect(service.getMonthlyAggregation(BUDGET_ID)).rejects.toThrow(
+        ExecutionBudgetNotFoundForProgressError
+      );
+    });
+  });
+
+  // ========================================
+  // getMonthlyDetail: 月別明細取得（Req 16.3）
+  // ========================================
+
+  describe('getMonthlyDetail', () => {
+    it('特定月の項目別出来高明細を取得する', async () => {
+      // 実行予算の存在チェック
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+
+      // 実行予算項目
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+
+      // 2026年3月の出来高レコード（施工日が2026-03-xxのもの）
+      const marchRecords = [
+        {
+          id: 'rec-march-1',
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-10'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          items: [
+            {
+              id: 'pri-1',
+              progressRecordId: 'rec-march-1',
+              executionBudgetItemId: ITEM_ID_1,
+              amount: { toString: () => '400000' },
+              executionBudgetItem: mockBudgetItems[0],
+            },
+            {
+              id: 'pri-2',
+              progressRecordId: 'rec-march-1',
+              executionBudgetItemId: ITEM_ID_2,
+              amount: { toString: () => '200000' },
+              executionBudgetItem: mockBudgetItems[1],
+            },
+          ],
+        },
+        {
+          id: 'rec-march-2',
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-20'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          items: [
+            {
+              id: 'pri-3',
+              progressRecordId: 'rec-march-2',
+              executionBudgetItemId: ITEM_ID_1,
+              amount: { toString: () => '600000' },
+              executionBudgetItem: mockBudgetItems[0],
+            },
+            {
+              id: 'pri-4',
+              progressRecordId: 'rec-march-2',
+              executionBudgetItemId: ITEM_ID_2,
+              amount: { toString: () => '300000' },
+              executionBudgetItem: mockBudgetItems[1],
+            },
+          ],
+        },
+      ];
+
+      mockPrisma.progressRecord.findMany = vi.fn().mockResolvedValue(marchRecords);
+
+      const result = await service.getMonthlyDetail(BUDGET_ID, '2026-03');
+
+      expect(result).toHaveLength(2);
+
+      // 1つ目のレコード（3月10日）
+      expect(result[0]!.constructionDate).toEqual(new Date('2026-03-10'));
+      expect(result[0]!.items).toHaveLength(2);
+
+      // 項目Aの出来高率: 400000 / 1000000 * 100 = 40.0%
+      const rec1ItemA = result[0]!.items.find(
+        (i: { executionBudgetItemId: string }) => i.executionBudgetItemId === ITEM_ID_1
+      );
+      expect(rec1ItemA?.amount).toBe('400000');
+      expect(rec1ItemA?.progressRate).toBe('40.0');
+
+      // 2つ目のレコード（3月20日）
+      expect(result[1]!.constructionDate).toEqual(new Date('2026-03-20'));
+
+      // 項目Aの出来高率: 600000 / 1000000 * 100 = 60.0%
+      const rec2ItemA = result[1]!.items.find(
+        (i: { executionBudgetItemId: string }) => i.executionBudgetItemId === ITEM_ID_1
+      );
+      expect(rec2ItemA?.amount).toBe('600000');
+      expect(rec2ItemA?.progressRate).toBe('60.0');
+    });
+
+    it('指定月に出来高レコードが存在しない場合、空配列を返す', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+
+      mockPrisma.progressRecord.findMany = vi.fn().mockResolvedValue([]);
+
+      const result = await service.getMonthlyDetail(BUDGET_ID, '2026-06');
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('施工日の日付範囲フィルタリングでProgressRecordを取得する', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+
+      const findManyMock = vi.fn().mockResolvedValue([]);
+      mockPrisma.progressRecord.findMany = findManyMock;
+
+      await service.getMonthlyDetail(BUDGET_ID, '2026-03');
+
+      // findManyがconstructionDateの範囲フィルタを使用していることを確認
+      expect(findManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            executionBudgetId: BUDGET_ID,
+            constructionDate: {
+              gte: new Date('2026-03-01'),
+              lt: new Date('2026-04-01'),
+            },
+          }),
+        })
+      );
+    });
+
+    it('実行予算が存在しない場合、ExecutionBudgetNotFoundForProgressErrorをスローする', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      await expect(service.getMonthlyDetail(BUDGET_ID, '2026-03')).rejects.toThrow(
+        ExecutionBudgetNotFoundForProgressError
+      );
     });
   });
 });
