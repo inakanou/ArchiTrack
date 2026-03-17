@@ -21,7 +21,7 @@
   - _Requirements: 19.7_
 
 - [ ] 2. 実行予算のバックエンドサービスとAPI
-- [ ] 2.1 実行予算の作成サービス実装
+- [x] 2.1 実行予算の作成サービス実装
   - 契約書IDからEstimate → EstimateItem → EstimateItemLine（EXECUTION行）を取得し、実行予算項目として初期化するロジックを実装する
   - EstimateItemLineのVENDOR行からsourceVendorNameを取得し、取引先マスタから名前完全一致でplannedVendorIdを設定する（不一致時はnull）
   - プロジェクトに対する実行予算の存在チェック（ユニーク制約）を実装する
