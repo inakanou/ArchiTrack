@@ -5,7 +5,7 @@
 > Major + Sub-task structure with `(P)` markers for parallel-capable tasks.
 
 - [ ] 1. データベーススキーマとマイグレーション
-- [ ] 1.1 実行予算関連テーブルのPrismaスキーマ定義とマイグレーション作成
+- [x] 1.1 実行予算関連テーブルのPrismaスキーマ定義とマイグレーション作成
   - ExecutionBudget、ExecutionBudgetItem、Order、OrderItem、ProgressRecord、ProgressRecordItem、MonthlyCloseHistoryの各モデルを定義する
   - OrderStatusとAmendmentStatusのenum型を定義する
   - 各テーブルのインデックス、ユニーク制約、外部キー制約、カスケード削除設定を行う

@@ -45,6 +45,9 @@ model User {
   // Estimate Request Management リレーション
   estimateRequestStatusChanges EstimateRequestStatusHistory[] @relation("EstimateRequestStatusChangedByUser")
 
+  // Execution Budget Management リレーション
+  monthlyCloseHistories MonthlyCloseHistory[]
+
   @@index([email])
   @@index([isLocked])
   @@map("users")
@@ -282,6 +285,7 @@ model Project {
   estimates             Estimate[] // 見積書リレーション
   contracts             Contract[] // 契約書リレーション
   constructionSchedules ConstructionSchedule[] // 工程表リレーション
+  executionBudgets      ExecutionBudget[] // 実行予算リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -387,6 +391,10 @@ model TradingPartner {
   projects            Project[] // この取引先に紐付くプロジェクト
   estimateRequests    EstimateRequest[] // この取引先宛の見積依頼
   supervisorContracts Contract[]                  @relation("SupervisorContracts") // 監理者としての契約書
+
+  // Execution Budget Management リレーション
+  plannedVendorExecutionBudgetItems ExecutionBudgetItem[] @relation("PlannedVendorExecutionBudgetItems")
+  orders                            Order[]               @relation("OrderTradingPartner")
 
   // インデックス
   // Requirements: 2.11, 4.8 - 同一の取引先名+支店名の重複を防ぐ複合一意制約
@@ -1186,6 +1194,9 @@ model EstimateItem {
   children EstimateItem[]     @relation("EstimateItemHierarchy")
   lines    EstimateItemLine[]
 
+  // Execution Budget Management リレーション
+  executionBudgetItems ExecutionBudgetItem[]
+
   @@index([estimateId])
   @@index([parentId])
   @@index([estimateId, displayOrder])
@@ -1331,6 +1342,9 @@ model Contract {
   estimate                 Estimate?       @relation(fields: [estimateId], references: [id], onDelete: SetNull)
   supervisorTradingPartner TradingPartner? @relation("SupervisorContracts", fields: [supervisorTradingPartnerId], references: [id], onDelete: SetNull)
 
+  // Execution Budget Management リレーション
+  executionBudgets ExecutionBudget[]
+
   @@index([projectId])
   @@index([status])
   @@index([contractDate])
@@ -1436,4 +1450,288 @@ model ScheduleItem {
   @@index([scheduleId])
   @@index([scheduleId, displayOrder])
   @@map("schedule_items")
+}
+
+// ===== Execution Budget Management Data Models =====
+
+/**
+ * 発注ステータス
+ * Requirements (execution-budget-management): 6.7, 8.1-8.9
+ */
+enum OrderStatus {
+  BEFORE_ORDER // 発注前
+  UNDER_REVIEW // 発注金額検討中
+  ORDERED // 発注済
+  CANCELLED // 発注取消
+}
+
+/**
+ * 変更ステータス
+ * Requirements (execution-budget-management): 15.4
+ */
+enum AmendmentStatus {
+  AMENDMENT_DELETED // 変更削除
+}
+
+/**
+ * 実行予算モデル
+ * プロジェクトに紐付く実行予算を管理する。
+ * プロジェクトに対して1つだけ存在する。契約書に基づいて作成される。
+ * フィールド:
+ * - id: 実行予算の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、UNIQUE制約）
+ * - contractId: 基となる契約書ID（外部キー）
+ * - version: 楽観的排他制御用バージョン
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * - deletedAt: 論理削除日時
+ * Requirements (execution-budget-management):
+ * - 1.5: プロジェクトに対して実行予算を1つだけ作成可能
+ * - 19.1: PostgreSQLデータベースに永続化
+ * - 19.8: 論理削除をサポート
+ */
+model ExecutionBudget {
+  id         String    @id @default(uuid())
+  projectId  String    @unique
+  contractId String
+  version    Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  project               Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract              Contract              @relation(fields: [contractId], references: [id])
+  items                 ExecutionBudgetItem[]
+  orders                Order[]
+  progressRecords       ProgressRecord[]
+  monthlyCloseHistories MonthlyCloseHistory[]
+
+  @@index([contractId])
+  @@map("execution_budgets")
+}
+
+/**
+ * 実行予算項目モデル
+ * 見積項目に対応する実行予算の各行。階層構造（親子関係）を保持する。
+ * フィールド:
+ * - id: 項目ID（UUID）
+ * - executionBudgetId: 実行予算ID（外部キー、カスケード削除）
+ * - estimateItemId: 参照元見積項目ID（外部キー、SET NULL）
+ * - parentId: 親項目ID（自己参照、カスケード削除）
+ * - displayOrder: 表示順序
+ * - name: 項目名
+ * - specification: 規格
+ * - unit: 単位
+ * - quantity: 数量（Decimal 15,4）
+ * - estimateUnitPrice: 見積単価（Decimal 15,2）
+ * - estimateAmount: 見積金額（Decimal 15,0）
+ * - executionUnitPrice: 実行単価（Decimal 15,2）
+ * - executionAmount: 実行金額（Decimal 15,0）
+ * - amendmentAmount: 変更金額（Decimal 15,0、デフォルト0）
+ * - previousMonthExpense: 先月までの支出（Decimal 15,0、デフォルト0）
+ * - currentMonthExpense: 今月の支出（Decimal 15,0、デフォルト0）
+ * - plannedVendorId: 発注予定取引先ID（外部キー、SET NULL）
+ * - amendmentStatus: 変更ステータス（AMENDMENT_DELETED等）
+ * - remarks: 備考
+ * Requirements (execution-budget-management):
+ * - 3.1-3.10: 実行予算項目の一覧表示
+ * - 4.1-4.5: 実行予算項目の編集
+ * - 13.1-13.8: 原価管理
+ */
+model ExecutionBudgetItem {
+  id                   String           @id @default(uuid())
+  executionBudgetId    String
+  estimateItemId       String?
+  parentId             String?
+  displayOrder         Int
+  name                 String?
+  specification        String?
+  unit                 String?
+  quantity             Decimal?         @db.Decimal(15, 4)
+  estimateUnitPrice    Decimal?         @db.Decimal(15, 2)
+  estimateAmount       Decimal?         @db.Decimal(15, 0)
+  executionUnitPrice   Decimal?         @db.Decimal(15, 2)
+  executionAmount      Decimal?         @db.Decimal(15, 0)
+  amendmentAmount      Decimal          @default(0) @db.Decimal(15, 0)
+  previousMonthExpense Decimal          @default(0) @db.Decimal(15, 0)
+  currentMonthExpense  Decimal          @default(0) @db.Decimal(15, 0)
+  plannedVendorId      String?
+  amendmentStatus      AmendmentStatus?
+  remarks              String?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  executionBudget     ExecutionBudget       @relation(fields: [executionBudgetId], references: [id], onDelete: Cascade)
+  estimateItem        EstimateItem?         @relation(fields: [estimateItemId], references: [id], onDelete: SetNull)
+  parent              ExecutionBudgetItem?  @relation("ExecutionBudgetItemHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children            ExecutionBudgetItem[] @relation("ExecutionBudgetItemHierarchy")
+  plannedVendor       TradingPartner?       @relation("PlannedVendorExecutionBudgetItems", fields: [plannedVendorId], references: [id], onDelete: SetNull)
+  orderItems          OrderItem[]
+  progressRecordItems ProgressRecordItem[]
+
+  @@index([executionBudgetId])
+  @@index([parentId])
+  @@index([estimateItemId])
+  @@index([plannedVendorId])
+  @@map("execution_budget_items")
+}
+
+/**
+ * 発注モデル
+ * 実行予算に紐づく発注を管理する。
+ * フィールド:
+ * - id: 発注ID（UUID）
+ * - executionBudgetId: 実行予算ID（外部キー、カスケード削除）
+ * - tradingPartnerId: 発注取引先ID（外部キー）
+ * - status: 発注ステータス（BEFORE_ORDER/UNDER_REVIEW/ORDERED/CANCELLED）
+ * - confirmedAmount: 確定発注金額（Decimal 15,0）
+ * - version: 楽観的排他制御用
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * - deletedAt: 論理削除日時
+ * Requirements (execution-budget-management):
+ * - 6.1-6.8: 発注の作成と取引先指定
+ * - 7.1-7.5: 発注の編集と削除
+ * - 8.1-8.9: 発注金額の確定と案分
+ */
+model Order {
+  id                String      @id @default(uuid())
+  executionBudgetId String
+  tradingPartnerId  String
+  status            OrderStatus @default(BEFORE_ORDER)
+  confirmedAmount   Decimal?    @db.Decimal(15, 0)
+  version           Int         @default(0)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  deletedAt         DateTime?
+
+  executionBudget ExecutionBudget @relation(fields: [executionBudgetId], references: [id], onDelete: Cascade)
+  tradingPartner  TradingPartner  @relation("OrderTradingPartner", fields: [tradingPartnerId], references: [id])
+  items           OrderItem[]
+
+  @@index([executionBudgetId])
+  @@index([tradingPartnerId])
+  @@index([status])
+  @@map("orders")
+}
+
+/**
+ * 発注項目モデル
+ * 発注に含まれる見積項目の選択状態を管理する。
+ * フィールド:
+ * - id: 発注項目ID（UUID）
+ * - orderId: 発注ID（外部キー、カスケード削除）
+ * - executionBudgetItemId: 実行予算項目ID（外部キー）
+ * - checked: チェック状態（デフォルトfalse）
+ * - orderAmount: 案分後の発注金額（Decimal 15,0）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * Requirements (execution-budget-management):
+ * - 6.3-6.5: 見積項目のチェック管理
+ * - 8.3-8.5: 案分計算結果の保存
+ */
+model OrderItem {
+  id                    String   @id @default(uuid())
+  orderId               String
+  executionBudgetItemId String
+  checked               Boolean  @default(false)
+  orderAmount           Decimal? @db.Decimal(15, 0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  order               Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  executionBudgetItem ExecutionBudgetItem @relation(fields: [executionBudgetItemId], references: [id])
+
+  @@unique([orderId, executionBudgetItemId])
+  @@index([orderId])
+  @@index([executionBudgetItemId])
+  @@map("order_items")
+}
+
+/**
+ * 出来高レコードモデル
+ * 施工日ごとの出来高レコードを管理する。
+ * フィールド:
+ * - id: 出来高レコードID（UUID）
+ * - executionBudgetId: 実行予算ID（外部キー、カスケード削除）
+ * - constructionDate: 施工日
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * Requirements (execution-budget-management):
+ * - 11.1-11.11: 出来高入力機能
+ * - 12.1-12.7: 出来高の履歴管理
+ */
+model ProgressRecord {
+  id                String   @id @default(uuid())
+  executionBudgetId String
+  constructionDate  DateTime @db.Date
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  executionBudget ExecutionBudget      @relation(fields: [executionBudgetId], references: [id], onDelete: Cascade)
+  items           ProgressRecordItem[]
+
+  @@unique([executionBudgetId, constructionDate])
+  @@index([executionBudgetId])
+  @@map("progress_records")
+}
+
+/**
+ * 出来高項目モデル
+ * 出来高レコードの項目別金額を管理する。
+ * フィールド:
+ * - id: 出来高項目ID（UUID）
+ * - progressRecordId: 出来高レコードID（外部キー、カスケード削除）
+ * - executionBudgetItemId: 実行予算項目ID（外部キー）
+ * - amount: 出来高金額（Decimal 15,0、デフォルト0）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時
+ * Requirements (execution-budget-management):
+ * - 11.9: 出来高金額の直接入力
+ * - 12.1: 施工日と各項目の出来高金額を1レコードとして保存
+ */
+model ProgressRecordItem {
+  id                    String   @id @default(uuid())
+  progressRecordId      String
+  executionBudgetItemId String
+  amount                Decimal  @default(0) @db.Decimal(15, 0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  progressRecord      ProgressRecord      @relation(fields: [progressRecordId], references: [id], onDelete: Cascade)
+  executionBudgetItem ExecutionBudgetItem @relation(fields: [executionBudgetItemId], references: [id])
+
+  @@unique([progressRecordId, executionBudgetItemId])
+  @@index([progressRecordId])
+  @@index([executionBudgetItemId])
+  @@map("progress_record_items")
+}
+
+/**
+ * 月次締め履歴モデル
+ * 月次締め処理の実行履歴を管理する。
+ * フィールド:
+ * - id: 月次締め履歴ID（UUID）
+ * - executionBudgetId: 実行予算ID（外部キー、カスケード削除）
+ * - targetMonth: 締め対象月（YYYY-MM形式）
+ * - closedById: 実行者ID（外部キー）
+ * - closedAt: 締め日時
+ * Requirements (execution-budget-management):
+ * - 14.3: 締め日時と対象月を履歴として記録
+ * - 14.4: 月次締め履歴を一覧表示
+ * - 14.5: 同一月の重複締め阻止（ユニーク制約）
+ */
+model MonthlyCloseHistory {
+  id                String   @id @default(uuid())
+  executionBudgetId String
+  targetMonth       String
+  closedById        String
+  closedAt          DateTime @default(now())
+
+  executionBudget ExecutionBudget @relation(fields: [executionBudgetId], references: [id], onDelete: Cascade)
+  closedBy        User            @relation(fields: [closedById], references: [id])
+
+  @@unique([executionBudgetId, targetMonth])
+  @@index([executionBudgetId])
+  @@map("monthly_close_histories")
 }
