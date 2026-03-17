@@ -91,7 +91,7 @@
   - SQLレベルのGROUP BY集計で月別データを効率的に取得する
   - _Requirements: 16.1, 16.2, 16.3_
 
-- [ ] 4.3 出来高のルーター実装
+- [x] 4.3 出来高のルーター実装
   - POST /progress（保存）、GET /progress（履歴一覧）、GET /progress/:date（施工日指定取得）、DELETE /progress/:progressRecordId（削除）、GET /progress/monthly（月別集計）、GET /progress/monthly/:yearMonth（月別明細）のエンドポイントを実装する
   - アクセス制御とバリデーションミドルウェアを適用する
   - _Requirements: 17.4, 19.4, 19.9_
