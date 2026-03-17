@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-03-14（Steering Sync: 工程表作成機能追加を反映）_
+_最終更新: 2026-03-17（Steering Sync: Storybook数130、site-surveyコンポーネント追加を反映）_
 
 ## ルートディレクトリ構成
 
@@ -452,6 +452,9 @@ frontend/
 │   │       ├── TradingPartnerTypeSelect.tsx # 取引先種別選択
 │   │       ├── BillingClosingDaySelect.tsx # 請求締日選択
 │   │       └── PaymentDateSelect.tsx # 支払日選択
+│   │   ├── site-survey/              # 現場調査共通コンポーネント（注釈復元ダイアログ等）
+│   │   │   ├── RestoreAnnotationDialog.tsx # 注釈復元ダイアログ
+│   │   │   └── index.ts              # エクスポート集約
 │   │   ├── site-surveys/            # 現場調査コンポーネント
 │   │       ├── SiteSurveyForm.tsx   # 現場調査作成・編集フォーム
 │   │       ├── SiteSurveyListTable.tsx # 現場調査一覧テーブル
@@ -659,7 +662,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（124ファイル）:**
+**Storybookストーリーファイル（130ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -692,7 +695,11 @@ frontend/
 - `PhotoManagementPanel.stories.tsx` - 写真管理パネル
 - `AnnotatedImageThumbnail.stories.tsx` - 注釈付きサムネイル
 - `ImageExportDialog.stories.tsx` - エクスポートダイアログ
+- `StorageWarningBanner.stories.tsx` - ストレージ警告バナー
 - `tools/DimensionValueInput.stories.tsx` - 寸法値入力
+
+現場調査コンポーネント（site-survey/）:
+- `RestoreAnnotationDialog.stories.tsx` - 注釈復元ダイアログ
 
 数量表コンポーネント（quantity-table/）:
 - `AdjustmentFactorInput.stories.tsx` - 調整係数入力
