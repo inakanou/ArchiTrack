@@ -130,7 +130,7 @@
   - 月別出来高データをPDFファイルで出力する
   - _Requirements: 16.4, 16.5_
 
-- [ ] 6.3 エクスポートのルーター実装
+- [x] 6.3 エクスポートのルーター実装
   - GET /orders/:orderId/export（発注エクスポート）、GET /progress/monthly/export（月別出来高エクスポート）のエンドポイントを実装する
   - format（xlsx/pdf）クエリパラメータによる出力形式切り替えを実装する
   - バイナリファイルレスポンスの適切なContent-Type設定を行う

@@ -303,3 +303,30 @@ export const monthlyCloseSchema = z.object({
  * 月次締め入力の型
  */
 export type MonthlyCloseInput = z.infer<typeof monthlyCloseSchema>;
+
+// ========================================
+// エクスポートスキーマ
+// ========================================
+
+/**
+ * エクスポート出力形式
+ */
+const EXPORT_FORMATS = ['xlsx', 'pdf'] as const;
+
+/**
+ * エクスポートクエリスキーマ
+ *
+ * format（xlsx/pdf）クエリパラメータによる出力形式切り替え。
+ *
+ * Requirements: 19.9（APIレスポンスに適切なHTTPステータスコードを返却する）
+ */
+export const exportQuerySchema = z.object({
+  format: z.enum(EXPORT_FORMATS, {
+    message: 'サポートされていない出力形式です。xlsx または pdf を指定してください',
+  }),
+});
+
+/**
+ * エクスポートクエリの型
+ */
+export type ExportQuery = z.infer<typeof exportQuerySchema>;
