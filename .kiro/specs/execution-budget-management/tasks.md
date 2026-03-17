@@ -105,7 +105,7 @@
   - 出来高金額と累計支出の比率（出来高対支出比率）を算出する
   - _Requirements: 13.1, 13.2, 13.5, 13.6, 13.7, 13.8_
 
-- [ ] 5.2 (P) 月次締めサービス実装
+- [x] 5.2 (P) 月次締めサービス実装
   - 月次締め処理として、全項目のcurrentMonthExpenseをpreviousMonthExpenseに累積し、currentMonthExpenseを0にリセットする
   - トランザクション内で一括更新とMonthlyCloseHistory作成を行う
   - 同一月に対する重複締めを阻止するバリデーションを実装する

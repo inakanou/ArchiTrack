@@ -95,3 +95,22 @@ export class ExecutionBudgetDeletionBlockedError extends ApiError {
     this.name = 'ExecutionBudgetDeletionBlockedError';
   }
 }
+
+/**
+ * 月次締め重複エラー
+ * 409 Conflict - 同一月に対して既に月次締めが実行済みの場合
+ *
+ * Requirement: 14.5
+ */
+export class MonthlyCloseAlreadyExistsError extends ApiError {
+  constructor(targetMonth: string) {
+    super(
+      409,
+      `${targetMonth}は既に月次締め済みです`,
+      'MONTHLY_CLOSE_ALREADY_EXISTS',
+      { targetMonth },
+      PROBLEM_TYPES.CONFLICT
+    );
+    this.name = 'MonthlyCloseAlreadyExistsError';
+  }
+}
