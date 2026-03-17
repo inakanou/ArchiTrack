@@ -21,6 +21,10 @@
 - 月次締めの取り消し機能
 - 複数の実行予算を同一プロジェクトに紐付ける機能
 
+### 設計判断
+- **出来高金額の意味**: 出来高金額は「その施工日時点での累計進捗金額」を表す。施工日ごとの差分入力ではなく、各項目の到達金額を入力する方式とする。実行予算一覧に表示する出来高金額は、最新施工日のレコードにおける各項目の値を反映する
+- **発注取消ステータス**: 発注済ステータスからの取消を可能とする。OrderStatusに「CANCELLED（発注取消）」を追加し、取消時は案分された発注金額をクリアする
+
 ## Architecture
 
 > 詳細な調査結果は `research.md` を参照。
@@ -161,7 +165,7 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     User->>UI: ステータスを発注済に変更
-    UI->>API: PATCH /api/projects/:projectId/orders/:orderId/status
+    UI->>API: PATCH /api/projects/:projectId/execution-budget/orders/:orderId/status
     API->>SVC: updateStatus(orderId, ORDERED)
     SVC->>DB: 確定発注金額の入力チェック
     SVC->>SVC: チェック済み項目の実行金額比率で案分計算
@@ -298,10 +302,11 @@ interface ExecutionBudgetService {
 **Responsibilities & Constraints**
 - 発注の作成（取引先指定、発注予定取引先が一致する項目の自動チェック）
 - 発注項目のチェック追加・削除
-- ステータス管理（BEFORE_ORDER → UNDER_REVIEW → ORDERED）
+- ステータス管理（BEFORE_ORDER → UNDER_REVIEW → ORDERED → CANCELLED）
 - 発注済時の案分計算（確定発注金額をチェック済み項目の実行金額比率で配分）
 - 案分端数処理（最大金額項目に1円未満の端数を加算）
-- 発注済ステータスでの編集・削除禁止
+- 発注取消時の案分済み発注金額クリア
+- 発注済ステータスでの編集禁止（取消のみ可能）
 
 **Dependencies**
 - Inbound: order.routes — HTTP API (P0)
@@ -330,23 +335,23 @@ interface OrderService {
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/projects/:projectId/orders | - | OrderSummary[] | 404 |
-| POST | /api/projects/:projectId/orders | { tradingPartnerId } | Order | 400, 404 |
-| GET | /api/projects/:projectId/orders/:orderId | - | OrderWithItems | 404 |
-| PATCH | /api/projects/:projectId/orders/:orderId | { tradingPartnerId?, confirmedAmount? } | Order | 400, 404, 409 |
-| PUT | /api/projects/:projectId/orders/:orderId/items | { itemIds: string[] } | OrderWithItems | 400, 404, 409 |
-| PATCH | /api/projects/:projectId/orders/:orderId/status | { status, confirmedAmount? } | Order | 400, 404, 409, 422 |
-| DELETE | /api/projects/:projectId/orders/:orderId | - | 204 | 400, 404, 409 |
+| GET | /api/projects/:projectId/execution-budget/orders | - | OrderSummary[] | 404 |
+| POST | /api/projects/:projectId/execution-budget/orders | { tradingPartnerId } | Order | 400, 404 |
+| GET | /api/projects/:projectId/execution-budget/orders/:orderId | - | OrderWithItems | 404 |
+| PATCH | /api/projects/:projectId/execution-budget/orders/:orderId | { tradingPartnerId?, confirmedAmount? } | Order | 400, 404, 409 |
+| PUT | /api/projects/:projectId/execution-budget/orders/:orderId/items | { itemIds: string[] } | OrderWithItems | 400, 404, 409 |
+| PATCH | /api/projects/:projectId/execution-budget/orders/:orderId/status | { status, confirmedAmount? } | Order | 400, 404, 409, 422 |
+| DELETE | /api/projects/:projectId/execution-budget/orders/:orderId | - | 204 | 400, 404, 409 |
 
 ##### State Management
-- State model: OrderStatus enum (BEFORE_ORDER, UNDER_REVIEW, ORDERED)
+- State model: OrderStatus enum (BEFORE_ORDER, UNDER_REVIEW, ORDERED, CANCELLED)
 - Persistence: Prismaで永続化、statusフィールド
 - Concurrency: 楽観的排他制御（versionフィールド）
 
 **Implementation Notes**
 - Integration: TradingPartnerSelectコンポーネント（既存）を発注取引先選択で再利用
-- Validation: ステータスORDERED変更時にconfirmedAmountの必須チェック。発注済ステータスでの編集操作拒否
-- Risks: 案分計算の端数処理テストを網羅的に実施する必要がある
+- Validation: ステータスORDERED変更時にconfirmedAmountの必須チェック。発注済ステータスでの編集操作拒否（取消のみ許可）
+- Risks: 案分計算の端数処理テストを網羅的に実施する必要がある。発注取消時の金額クリア処理の整合性確認
 
 #### ProgressService
 
@@ -480,7 +485,7 @@ interface ProgressService {
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/projects/:projectId/orders/:orderId/export | ?format=xlsx\|pdf | Binary file | 400, 404 |
+| GET | /api/projects/:projectId/execution-budget/orders/:orderId/export | ?format=xlsx\|pdf | Binary file | 400, 404 |
 | GET | /api/projects/:projectId/execution-budget/progress/monthly/export | ?format=xlsx\|pdf | Binary file | 400, 404 |
 
 ### Frontend / Page Layer
@@ -533,7 +538,7 @@ interface ProgressService {
 
 **Implementation Notes**
 - Integration: TradingPartnerSelectを再利用。チェック状態はローカルステートで管理し、保存ボタンでAPI送信
-- Risks: 発注済ステータスへの変更は不可逆操作。確認ダイアログを表示
+- Risks: 発注済ステータスへの変更は確認ダイアログを表示。発注取消時も確認ダイアログを表示し、案分済み発注金額がクリアされる旨を警告
 
 #### ProgressInputPage
 
@@ -575,7 +580,8 @@ interface ProgressService {
 - 残予算 = 実行金額 - 累計支出
 - 出来高率 = 出来高金額 / 実行金額 x 100
 - 確定発注金額 = SUM(チェック済み項目のorderAmount)
-- 発注済ステータスの発注は編集・削除不可
+- 発注済ステータスの発注は編集不可（取消のみ可能）
+- 発注取消時は案分済み発注金額をクリアし、ステータスをCANCELLEDに変更
 - 発注済の発注が存在する実行予算は削除不可
 
 ```mermaid
@@ -736,6 +742,7 @@ enum OrderStatus {
   BEFORE_ORDER = 'BEFORE_ORDER'       // 発注前
   UNDER_REVIEW = 'UNDER_REVIEW'       // 発注金額検討中
   ORDERED = 'ORDERED'                 // 発注済
+  CANCELLED = 'CANCELLED'             // 発注取消
 }
 
 enum AmendmentStatus {
@@ -756,7 +763,7 @@ enum AmendmentStatus {
 - 409 Conflict: 楽観的排他制御の競合、既存実行予算との重複、同月の重複締め
 
 **Business Logic Errors (422)**:
-- 発注済ステータスでの編集・削除試行
+- 発注済ステータスでの編集試行（取消以外）
 - 確定発注金額未入力での発注済ステータス変更
 - 発注済発注が存在する実行予算の削除試行
 
