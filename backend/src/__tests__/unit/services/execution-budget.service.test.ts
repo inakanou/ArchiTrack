@@ -1,18 +1,16 @@
 /**
- * @fileoverview ExecutionBudgetService 実行予算作成 ユニットテスト
+ * @fileoverview ExecutionBudgetService ユニットテスト
  *
  * TDD: RED phase - テストを先に書く
  *
  * Requirements:
- * - 1.1: プロジェクトに紐づく実行予算の存在有無を表示する
- * - 1.2: 契約書選択ダイアログを表示する
- * - 1.3: 選択した契約書に紐づく見積書のすべての見積項目を取得し、実行予算項目として初期化する
- * - 1.4: 各項目の発注予定取引先に見積書の業者金額行に設定されている取引先を自動的に適用する
- * - 1.5: プロジェクトに対して実行予算を1つだけ作成可能とする
- * - 1.6: 既に実行予算が存在するプロジェクトで新規作成を試行した場合エラー
- * - 1.7: 実行予算に紐づく契約書名、契約金額、作成日時を表示する
+ * - 1.1-1.7: 実行予算の作成（Task 2.1）
+ * - 2.1-2.3: 実行予算の削除（Task 2.2）
+ * - 3.1-3.10: 実行予算項目一覧表示（Task 2.2）
+ * - 4.1-4.5: 実行予算項目の編集（Task 2.2）
  *
  * Task 2.1: 実行予算の作成サービス実装
+ * Task 2.2: 実行予算の取得・削除・編集サービス実装
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -24,6 +22,9 @@ import type { PrismaClient } from '../../../generated/prisma/client.js';
 import {
   ExecutionBudgetAlreadyExistsError,
   ContractNotFoundForBudgetError,
+  ExecutionBudgetNotFoundError,
+  ExecutionBudgetConflictError,
+  ExecutionBudgetDeletionBlockedError,
 } from '../../../errors/executionBudgetError.js';
 
 // ========================================
@@ -37,11 +38,14 @@ function createMockTx() {
   return {
     executionBudget: {
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
     },
     executionBudgetItem: {
       createMany: vi.fn(),
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
     },
     contract: {
@@ -51,6 +55,12 @@ function createMockTx() {
       findUnique: vi.fn(),
     },
     tradingPartner: {
+      findFirst: vi.fn(),
+    },
+    order: {
+      findFirst: vi.fn(),
+    },
+    progressRecordItem: {
       findFirst: vi.fn(),
     },
   };
@@ -64,6 +74,19 @@ function createMockPrisma() {
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
         return fn(mockTx);
       }),
+      executionBudget: {
+        findFirst: mockTx.executionBudget.findFirst,
+        findUnique: mockTx.executionBudget.findUnique,
+        update: mockTx.executionBudget.update,
+      },
+      executionBudgetItem: {
+        findMany: mockTx.executionBudgetItem.findMany,
+        findUnique: mockTx.executionBudgetItem.findUnique,
+        update: mockTx.executionBudgetItem.update,
+      },
+      order: {
+        findFirst: mockTx.order.findFirst,
+      },
     } as unknown as PrismaClient,
     mockTx,
   };
@@ -566,6 +589,456 @@ describe('ExecutionBudgetService', () => {
       await expect(service.create(projectId, contractId)).rejects.toThrow(
         ContractNotFoundForBudgetError
       );
+    });
+  });
+
+  // ========================================
+  // Task 2.2: 実行予算の取得・削除・編集サービス実装
+  // ========================================
+
+  describe('getWithItems', () => {
+    // 実行予算項目のモックデータ（階層構造あり）
+    const mockBudgetWithItems = {
+      id: createdBudgetId,
+      projectId,
+      contractId,
+      version: 0,
+      createdAt: new Date('2026-03-18'),
+      updatedAt: new Date('2026-03-18'),
+      deletedAt: null,
+      contract: {
+        id: contractId,
+        contractAmount: { toString: () => '10000000' },
+      },
+      items: [
+        {
+          id: 'eb-item-1',
+          executionBudgetId: createdBudgetId,
+          parentId: null,
+          displayOrder: 0,
+          name: '建築工事',
+          specification: null,
+          unit: null,
+          quantity: null,
+          estimateUnitPrice: null,
+          estimateAmount: { toString: () => '5000000' },
+          executionUnitPrice: null,
+          executionAmount: { toString: () => '4500000' },
+          amendmentAmount: { toString: () => '0' },
+          previousMonthExpense: { toString: () => '0' },
+          currentMonthExpense: { toString: () => '0' },
+          plannedVendorId: null,
+          plannedVendor: null,
+          remarks: null,
+          amendmentStatus: null,
+          children: [
+            {
+              id: 'eb-item-2',
+              executionBudgetId: createdBudgetId,
+              parentId: 'eb-item-1',
+              displayOrder: 1,
+              name: '直接仮設工事',
+              specification: '一式',
+              unit: '式',
+              quantity: { toString: () => '1' },
+              estimateUnitPrice: { toString: () => '500000' },
+              estimateAmount: { toString: () => '500000' },
+              executionUnitPrice: { toString: () => '450000' },
+              executionAmount: { toString: () => '450000' },
+              amendmentAmount: { toString: () => '0' },
+              previousMonthExpense: { toString: () => '100000' },
+              currentMonthExpense: { toString: () => '50000' },
+              plannedVendorId: tradingPartnerId1,
+              plannedVendor: { id: tradingPartnerId1, name: '株式会社テスト工務店' },
+              remarks: null,
+              amendmentStatus: null,
+              children: [],
+              orderItems: [
+                {
+                  checked: true,
+                  orderAmount: { toString: () => '440000' },
+                  order: { status: 'ORDERED', deletedAt: null },
+                },
+              ],
+            },
+            {
+              id: 'eb-item-3',
+              executionBudgetId: createdBudgetId,
+              parentId: 'eb-item-1',
+              displayOrder: 2,
+              name: '鉄筋コンクリート工事',
+              specification: null,
+              unit: 'm3',
+              quantity: { toString: () => '10' },
+              estimateUnitPrice: { toString: () => '50000' },
+              estimateAmount: { toString: () => '500000' },
+              executionUnitPrice: { toString: () => '48000' },
+              executionAmount: { toString: () => '480000' },
+              amendmentAmount: { toString: () => '100000' },
+              previousMonthExpense: { toString: () => '200000' },
+              currentMonthExpense: { toString: () => '30000' },
+              plannedVendorId: null,
+              plannedVendor: null,
+              remarks: 'テスト備考',
+              amendmentStatus: null,
+              children: [],
+              orderItems: [],
+            },
+          ],
+          orderItems: [],
+        },
+      ],
+    };
+
+    it('プロジェクトIDから実行予算と階層構造を保持した項目一覧を取得する', async () => {
+      // Arrange
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetWithItems
+      );
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(createdBudgetId);
+      expect(result!.items).toBeDefined();
+      // ルート項目を検証
+      expect(result!.items).toHaveLength(1);
+      expect(result!.items[0]!.name).toBe('建築工事');
+      // 子項目を検証
+      expect(result!.items[0]!.children).toHaveLength(2);
+      expect(result!.items[0]!.children[0]!.name).toBe('直接仮設工事');
+      expect(result!.items[0]!.children[1]!.name).toBe('鉄筋コンクリート工事');
+    });
+
+    it('親項目の各金額列に子項目の合計値を計算する', async () => {
+      // Arrange
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetWithItems
+      );
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      const parentItem = result!.items[0]!;
+      // 親項目の見積金額 = 子項目の合計（500000 + 500000 = 1000000）
+      expect(parentItem.calculatedEstimateAmount).toBe('1000000');
+      // 親項目の実行金額 = 子項目の合計（450000 + 480000 = 930000）
+      expect(parentItem.calculatedExecutionAmount).toBe('930000');
+      // 親項目の変更金額 = 子項目の合計（0 + 100000 = 100000）
+      expect(parentItem.calculatedAmendmentAmount).toBe('100000');
+      // 親項目の発注金額 = 子項目の合計（440000 + 0 = 440000）
+      expect(parentItem.calculatedOrderAmount).toBe('440000');
+      // 親項目の累計支出 = 子項目の合計（150000 + 230000 = 380000）
+      expect(parentItem.calculatedTotalExpense).toBe('380000');
+    });
+
+    it('合計行データ（全金額列の合計）と利益見込額を算出する', async () => {
+      // Arrange
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetWithItems
+      );
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      // 合計行（リーフ項目の合計）
+      expect(result!.totals).toBeDefined();
+      expect(result!.totals.estimateAmount).toBe('1000000');
+      expect(result!.totals.executionAmount).toBe('930000');
+      expect(result!.totals.amendmentAmount).toBe('100000');
+      expect(result!.totals.orderAmount).toBe('440000');
+      expect(result!.totals.totalExpense).toBe('380000');
+      // 利益見込額 = 契約金額 - 実行金額合計 = 10000000 - 930000 = 9070000
+      expect(result!.totals.expectedProfit).toBe('9070000');
+    });
+
+    it('発注進捗率（発注済み項目数 / 全リーフ項目数）を計算する', async () => {
+      // Arrange
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetWithItems
+      );
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      // リーフ項目: eb-item-2(発注済み), eb-item-3(未発注) → 1/2 = 0.5
+      expect(result!.orderProgressRate).toBe(0.5);
+    });
+
+    it('実行予算が存在しない場合はnullを返す', async () => {
+      // Arrange
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('論理削除済みの実行予算は取得しない', async () => {
+      // Arrange
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result).toBeNull();
+      expect(mockPrisma.executionBudget.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ projectId, deletedAt: null }),
+        })
+      );
+    });
+  });
+
+  describe('updateItem', () => {
+    const itemId = 'eb-item-2';
+    const mockExistingItem = {
+      id: itemId,
+      executionBudgetId: createdBudgetId,
+      quantity: { toString: () => '10' },
+      executionUnitPrice: { toString: () => '48000' },
+      executionAmount: { toString: () => '480000' },
+      remarks: null,
+      executionBudget: {
+        id: createdBudgetId,
+        version: 0,
+        deletedAt: null,
+      },
+    };
+
+    it('実行単価の更新時に実行金額（数量 x 実行単価）を自動計算する', async () => {
+      // Arrange
+      (mockPrisma.executionBudgetItem.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockExistingItem
+      );
+      (mockPrisma.executionBudgetItem.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockExistingItem,
+        executionUnitPrice: { toString: () => '50000' },
+        executionAmount: { toString: () => '500000' },
+      });
+      (mockPrisma.executionBudget.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: createdBudgetId,
+        version: 1,
+      });
+
+      // Act
+      const result = await service.updateItem(itemId, { executionUnitPrice: '50000', version: 0 });
+
+      // Assert: 実行金額 = 数量(10) x 実行単価(50000) = 500000
+      expect(mockPrisma.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: itemId },
+          data: expect.objectContaining({
+            executionUnitPrice: '50000',
+            executionAmount: '500000',
+          }),
+        })
+      );
+      expect(result).toBeDefined();
+    });
+
+    it('楽観的排他制御でバージョン不一致の場合はExecutionBudgetConflictErrorを投げる', async () => {
+      // Arrange
+      (mockPrisma.executionBudgetItem.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockExistingItem,
+        executionBudget: {
+          id: createdBudgetId,
+          version: 5, // DBのバージョンが5
+          deletedAt: null,
+        },
+      });
+
+      // Act & Assert: リクエストのversionは0（不一致）
+      await expect(
+        service.updateItem(itemId, { executionUnitPrice: '50000', version: 0 })
+      ).rejects.toThrow(ExecutionBudgetConflictError);
+    });
+
+    it('備考フィールドの更新を実装する', async () => {
+      // Arrange
+      (mockPrisma.executionBudgetItem.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockExistingItem
+      );
+      (mockPrisma.executionBudgetItem.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockExistingItem,
+        remarks: '新しい備考',
+      });
+      (mockPrisma.executionBudget.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: createdBudgetId,
+        version: 1,
+      });
+
+      // Act
+      const result = await service.updateItem(itemId, { remarks: '新しい備考', version: 0 });
+
+      // Assert
+      expect(mockPrisma.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: itemId },
+          data: expect.objectContaining({
+            remarks: '新しい備考',
+          }),
+        })
+      );
+      expect(result).toBeDefined();
+    });
+
+    it('項目が存在しない場合はExecutionBudgetNotFoundErrorを投げる', async () => {
+      // Arrange
+      (mockPrisma.executionBudgetItem.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        null
+      );
+
+      // Act & Assert
+      await expect(
+        service.updateItem(itemId, { executionUnitPrice: '50000', version: 0 })
+      ).rejects.toThrow(ExecutionBudgetNotFoundError);
+    });
+
+    it('数量がnullの場合は実行金額をnullに設定する', async () => {
+      // Arrange
+      const itemWithoutQuantity = {
+        ...mockExistingItem,
+        quantity: null,
+      };
+      (mockPrisma.executionBudgetItem.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        itemWithoutQuantity
+      );
+      (mockPrisma.executionBudgetItem.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...itemWithoutQuantity,
+        executionUnitPrice: { toString: () => '50000' },
+        executionAmount: null,
+      });
+      (mockPrisma.executionBudget.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: createdBudgetId,
+        version: 1,
+      });
+
+      // Act
+      await service.updateItem(itemId, { executionUnitPrice: '50000', version: 0 });
+
+      // Assert
+      expect(mockPrisma.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            executionAmount: null,
+          }),
+        })
+      );
+    });
+
+    it('更新後にExecutionBudgetのバージョンをインクリメントする', async () => {
+      // Arrange
+      (mockPrisma.executionBudgetItem.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockExistingItem
+      );
+      (mockPrisma.executionBudgetItem.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockExistingItem,
+        executionUnitPrice: { toString: () => '50000' },
+        executionAmount: { toString: () => '500000' },
+      });
+      (mockPrisma.executionBudget.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: createdBudgetId,
+        version: 1,
+      });
+
+      // Act
+      await service.updateItem(itemId, { executionUnitPrice: '50000', version: 0 });
+
+      // Assert
+      expect(mockPrisma.executionBudget.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: createdBudgetId },
+          data: { version: { increment: 1 } },
+        })
+      );
+    });
+  });
+
+  describe('delete', () => {
+    it('発注済みの発注が存在しない場合は論理削除する', async () => {
+      // Arrange
+      const mockBudget = {
+        id: createdBudgetId,
+        projectId,
+        deletedAt: null,
+      };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      // 発注済みの発注なし
+      mockTx.order.findFirst.mockResolvedValue(null);
+      mockTx.executionBudget.update.mockResolvedValue({
+        ...mockBudget,
+        deletedAt: new Date(),
+      });
+
+      // Act
+      await service.delete(projectId);
+
+      // Assert: deletedAtフィールドが設定される（論理削除）
+      expect(mockTx.executionBudget.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: createdBudgetId },
+          data: expect.objectContaining({
+            deletedAt: expect.any(Date),
+          }),
+        })
+      );
+    });
+
+    it('発注済みの発注が存在する場合はExecutionBudgetDeletionBlockedErrorを投げる', async () => {
+      // Arrange
+      const mockBudget = {
+        id: createdBudgetId,
+        projectId,
+        deletedAt: null,
+      };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      // 発注済みの発注が存在
+      mockTx.order.findFirst.mockResolvedValue({
+        id: 'order-1',
+        status: 'ORDERED',
+        deletedAt: null,
+      });
+
+      // Act & Assert
+      await expect(service.delete(projectId)).rejects.toThrow(ExecutionBudgetDeletionBlockedError);
+    });
+
+    it('実行予算が存在しない場合はExecutionBudgetNotFoundErrorを投げる', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.delete(projectId)).rejects.toThrow(ExecutionBudgetNotFoundError);
+    });
+
+    it('トランザクション内で削除処理を実行する', async () => {
+      // Arrange
+      const mockBudget = {
+        id: createdBudgetId,
+        projectId,
+        deletedAt: null,
+      };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.order.findFirst.mockResolvedValue(null);
+      mockTx.executionBudget.update.mockResolvedValue({
+        ...mockBudget,
+        deletedAt: new Date(),
+      });
+
+      // Act
+      await service.delete(projectId);
+
+      // Assert: $transactionが呼び出されていることを確認
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
   });
 });
