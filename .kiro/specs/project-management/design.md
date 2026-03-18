@@ -30,6 +30,7 @@
 - ~~見積書機能の実装（プロジェクト詳細画面からのリンクのみ、機能フラグで制御）~~ → 見積書セクション表示はproject-management Requirement 28で管理
 - ~~契約書機能の実装（プロジェクト詳細画面からのリンクのみ）~~ → 契約書セクション表示はproject-management Requirement 36で管理
 - ~~工程表機能の実装（プロジェクト詳細画面からのリンクのみ）~~ → 工程表セクション表示はproject-management Requirement 38で管理
+- ~~実行予算管理機能の実装（プロジェクト詳細画面からのリンクのみ）~~ → 実行予算セクション表示はproject-management Requirement 40で管理
 - 取引先管理機能の実装（別仕様`trading-partner-management`として定義）
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
@@ -389,6 +390,8 @@ sequenceDiagram
 | 37.1-37.5 | **detail-summary APIの契約書セクション統合** | ProjectRoutes, ContractService | GET /api/projects/:id/detail-summary | - |
 | 38.1-38.13 | **工程表セクション表示**（construction-scheduleから集約） | ProjectDetailPage, ScheduleSectionCard | GET /api/projects/:id/detail-summary | - |
 | 39.1-39.5 | **detail-summary APIの工程表セクション統合** | ProjectRoutes, ScheduleService | GET /api/projects/:id/detail-summary | - |
+| 40.1-40.10 | **実行予算セクション表示**（execution-budget-managementから集約） | ProjectDetailPage, ExecutionBudgetSectionCard | GET /api/projects/:id/detail-summary | - |
+| 41.1-41.5 | **detail-summary APIの実行予算セクション統合** | ProjectRoutes, ExecutionBudgetService | GET /api/projects/:id/detail-summary | - |
 
 ## Components and Interfaces
 
@@ -398,7 +401,7 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | ProjectListPage | UI/Page | プロジェクト一覧表示・検索・フィルタ・ソート・パンくず + **デフォルト終端ステータス除外 + ステータス別件数表示（全プロジェクト対象）** | 2, 3, 4, 5, 6, 21.14, 23 | ProjectService (P0), useAuth (P0), Breadcrumb (P1) | State |
 | ProjectListTable | UI/Component | **一覧テーブル（ID列削除、営業担当者・工事担当者列追加）** | 2.2 | ProjectListPage (P0) | - |
-| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず + **7セクション統合表示（一括取得API）** | 7, 8, 9, 10, 11, 21.15, 21.17, 22, 24-29, 36, 37, 38, 39 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1), SiteSurveySectionCard (P1), QuantityTableSectionCard (P1), ItemizedStatementSectionCard (P1), EstimateRequestSectionCard (P1), EstimateSectionCard (P1), ContractSectionCard (P1), ScheduleSectionCard (P1) | State |
+| ProjectDetailPage | UI/Page | プロジェクト詳細表示・編集・削除・パンくず + **8セクション統合表示（一括取得API）** | 7, 8, 9, 10, 11, 21.15, 21.17, 22, 24-29, 36, 37, 38, 39, 40, 41 | ProjectService (P0), ProjectStatusService (P1), Breadcrumb (P1), SiteSurveySectionCard (P1), QuantityTableSectionCard (P1), ItemizedStatementSectionCard (P1), EstimateRequestSectionCard (P1), EstimateSectionCard (P1), ContractSectionCard (P1), ScheduleSectionCard (P1), ExecutionBudgetSectionCard (P1) | State |
 | ProjectCreatePage | UI/Page | プロジェクト新規作成画面・パンくず | 1, 21.16 | ProjectForm (P0), Breadcrumb (P1) | State |
 | ProjectForm | UI/Component | プロジェクト作成・編集フォーム + **顧客選択時の現場住所自動入力** | 1, 8, 13, 16, 17, 22 | TradingPartnerSelect (P1), UserSelect (P1) | Service |
 | TradingPartnerSelect | UI/Component | 取引先選択（**ひらがな・カタカナ両対応、ラベル「顧客名」、onSelectコールバック追加**） | 1.6, 1.7, 16, 22 | TradingPartnerAPI (P1), kana-converter (P1) | API |
@@ -408,7 +411,7 @@ sequenceDiagram
 | Breadcrumb | UI/Component | パンくずナビゲーション（既存再利用） | 21.14-21.18 | react-router-dom (P0) | - |
 | ProjectService | Backend/Service | プロジェクトCRUD + **一意性チェック + かな検索両対応 + デフォルト終端ステータス除外 + ステータス別件数集計** | 1-9, 11, 13, 14, 16.3, 22.5, 23 | Prisma (P0), AuditLogService (P1), kana-converter (P1) | Service, API |
 | ProjectStatusService | Backend/Service | ステータス遷移ロジック | 10 | Prisma (P0), AuditLogService (P1) | Service |
-| ProjectRoutes | Backend/Route | RESTful APIエンドポイント + **detail-summary一括取得エンドポイント** | 14, 29, 37, 39 | ProjectService (P0), authorize (P0), SiteSurveyService (P1), QuantityTableService (P1), ItemizedStatementService (P1), EstimateRequestService (P1), EstimateService (P1), ContractService (P1), ScheduleService (P1) | API |
+| ProjectRoutes | Backend/Route | RESTful APIエンドポイント + **detail-summary一括取得エンドポイント** | 14, 29, 37, 39, 41 | ProjectService (P0), authorize (P0), SiteSurveyService (P1), QuantityTableService (P1), ItemizedStatementService (P1), EstimateRequestService (P1), EstimateService (P1), ContractService (P1), ScheduleService (P1), ExecutionBudgetService (P1) | API |
 | SiteSurveySectionCard | UI/Component | 現場調査セクションカード（直近2件・総数・一覧リンク） | 24 | ProjectDetailPage (P0) | - |
 | QuantityTableSectionCard | UI/Component | 数量表セクションカード（直近カード・総数・新規作成・一覧リンク） | 25 | ProjectDetailPage (P0) | - |
 | ItemizedStatementSectionCard | UI/Component | 内訳書セクションカード（降順一覧・数量表依存メッセージ・新規作成・一覧リンク） | 26 | ProjectDetailPage (P0), QuantityTableSectionCard (P1) | - |
@@ -416,6 +419,7 @@ sequenceDiagram
 | EstimateSectionCard | UI/Component | 見積書セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 28 | ProjectDetailPage (P0) | - |
 | ContractSectionCard | UI/Component | 契約書セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 36 | ProjectDetailPage (P0) | - |
 | ScheduleSectionCard | UI/Component | 工程表セクションカード（直近カード・総数・新規作成・一覧リンク・スケルトンローダー） | 38 | ProjectDetailPage (P0) | - |
+| ExecutionBudgetSectionCard | UI/Component | 実行予算セクションカード（単一サマリーカード・新規作成・スケルトンローダー、1:1関係） | 40 | ProjectDetailPage (P0) | - |
 
 ---
 
@@ -4001,3 +4005,129 @@ interface ScheduleSectionItem {
 | 工程表セクションカード | 単体テスト | `frontend/src/__tests__/components/projects/ScheduleSectionCard.test.tsx` |
 | detail-summary API工程表統合 | 単体テスト | `backend/src/__tests__/unit/routes/projects.routes.test.ts` |
 | 工程表セクション遷移 | E2Eテスト | `e2e/specs/project-schedule-navigation.spec.ts` |
+
+### 差分設計（2026-03-19要件更新）: 実行予算セクション追加（Requirement 40, 41）
+
+#### 概要
+
+プロジェクト詳細画面に実行予算セクションを追加する。実行予算はプロジェクトに対して1つしか存在しないため、他のセクション（契約書・工程表等の1:N関係）とは異なるUIパターンを使用する。具体的には、「すべて見る」リンクや総数表示は不要で、単一のサマリーカードまたは未作成状態を表示する。また、detail-summary APIに実行予算サマリーを統合し、API呼び出し効率を維持する。
+
+#### 変更箇所
+
+| ファイル | 変更内容 | Requirements |
+|----------|----------|-------------|
+| `frontend/src/components/projects/ExecutionBudgetSectionCard.tsx` | 既存コンポーネントの修正（props型の調整、空状態メッセージ修正） | 40 |
+| `frontend/src/pages/ProjectDetailPage.tsx` | 個別 `getExecutionBudget` フェッチの削除、detail-summary レスポンスからのデータ参照に切り替え | 40 |
+| `backend/src/services/execution-budget.service.ts` | `getSummaryByProjectId` メソッド新規追加（既存 `findByProjectId` とは別） | 41 |
+| `backend/src/routes/projects.routes.ts` | detail-summary APIに実行予算セクション統合 | 41 |
+| `frontend/src/api/projects.ts` | ProjectDetailSummary型に実行予算セクション追加 | 41 |
+
+**注記**: `ExecutionBudgetSectionCard` は execution-budget-management 仕様（Task 8.1/14.1）で既に実装済み。本対応では既存コンポーネントの軽微な修正と、detail-summary API への統合を行う。
+
+#### ExecutionBudgetService.getSummaryByProjectId インターフェース
+
+```typescript
+/**
+ * プロジェクトに紐づく実行予算のサマリーを取得する（detail-summary API用の軽量メソッド）。
+ * 実行予算はプロジェクトに対して1つのみ存在する（1:1関係）。
+ * 他セクション（findLatestByProjectId）と異なり、配列ではなくオブジェクトまたはnullを返す。
+ *
+ * 既存の findByProjectId（基本情報のみ返却）とは別に、
+ * サマリー表示に必要な集計データを含むメソッドとして新規追加する。
+ *
+ * @param projectId - プロジェクトID
+ * @returns 実行予算サマリーまたはnull（未作成時）
+ */
+async getSummaryByProjectId(projectId: string): Promise<ExecutionBudgetSectionItem | null>;
+```
+
+- **取得件数**: 1件（1:1関係のため）
+- **フィルタ**: `deletedAt IS NULL`（論理削除除外）
+- **関連データ**: 契約書名（`contract.name`経由）、契約金額、実行金額合計（集計計算）
+- **利益見込額**: 契約金額 − 実行金額合計（算出値）
+- **発注進捗率**: 発注済み項目数 / 全項目数（算出値）
+- **既存メソッドとの関係**: `findByProjectId` は `{ id, projectId, contractId }` のみ返却する軽量メソッドとして維持。`getSummaryByProjectId` はフロントエンド表示に必要な集計データを含む
+
+#### detail-summary APIレスポンス拡張
+
+```typescript
+interface ProjectDetailSummary {
+  project: ProjectDetail;
+  statusHistory: StatusHistoryItem[];
+  sections: {
+    siteSurveys: ProjectSurveySummary;
+    quantityTables: ProjectQuantityTableSummary;
+    itemizedStatements: ProjectItemizedStatementSummary;
+    estimateRequests: ProjectEstimateRequestSummary;
+    estimates: EstimateSummary;
+    contracts: {
+      totalCount: number;
+      latestContracts: ContractSectionItem[];
+    };
+    schedules: {
+      totalCount: number;
+      latestSchedules: ScheduleSectionItem[];
+    };
+    executionBudget: ExecutionBudgetSectionItem | null;  // 新規追加（1:1関係のためオブジェクトまたはnull）
+  };
+}
+
+/**
+ * detail-summary APIレスポンス用の型。
+ * フロントエンド既存型 ExecutionBudgetSectionInfo と互換性を持つ。
+ * 金額フィールドは既存コンポーネントに合わせて string 型（フォーマット済み）で返却する。
+ */
+interface ExecutionBudgetSectionItem {
+  id: string;
+  contractName: string;
+  contractAmount: number;
+  createdAt: string;
+  executionAmountTotal: string;   // 既存型 ExecutionBudgetSectionInfo に合わせて string
+  profitForecast: string;         // 既存型に合わせて string
+  orderProgressRate: string;      // 発注進捗率（既存コンポーネントで表示済み）
+}
+```
+
+#### ExecutionBudgetSectionCard コンポーネント設計
+
+| Field | Detail |
+|-------|--------|
+| Intent | プロジェクト詳細画面に実行予算セクションを表示（単一サマリーカード・新規作成・スケルトンローダー、1:1関係） |
+| Requirements | 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10 |
+| Owner / Reviewers | Frontend Team |
+
+**Responsibilities & Constraints**
+- 工程表セクションの下に実行予算セクションを表示（40.1）
+- セクションタイトル「実行予算」を表示（40.2）
+- 実行予算が存在する場合、サマリーカードを表示（40.3）
+- カードに契約書名、契約金額、実行金額合計、利益見込額、発注進捗率、作成日時を表示（40.4）
+- カードクリックで実行予算管理画面に遷移（40.5）
+- 実行予算が存在しない場合「実行予算はまだありません」メッセージと新規作成ボタン表示（40.6）
+- 新規作成ボタンクリックで実行予算作成画面に遷移（40.7）
+- ローディング中はスケルトンローダー表示（40.8）
+- 「すべて見る」リンクを表示しない（40.9、1:1関係のため）
+- 契約書セクションと同様のスタイル使用（40.10）
+
+**Dependencies**
+- Inbound: ProjectDetailPage — セクション表示 (P0)
+- Outbound: react-router-dom — 画面遷移 (P0)
+
+**Implementation Notes**
+- props: `{ projectId, budgetInfo: ExecutionBudgetSectionInfo | null, isLoading }` （既存の `ExecutionBudgetSectionCardProps` を維持）
+- 遷移先URL:
+  - 実行予算管理: `/projects/{projectId}/execution-budget`
+  - 実行予算新規作成: `/projects/{projectId}/execution-budget/new`
+- 他のセクションカードとの主な差異:
+  - `totalCount` prop なし（1:1関係のため総数表示不要）
+  - `latestItems` 配列ではなく単一オブジェクトまたはnull
+  - 「すべて見る」リンクなし
+- 金額表示: 3桁区切りカンマ付き（例: ¥1,234,567）
+- 利益見込額が負の場合は赤色で警告表示
+
+#### テスト方針
+
+| テスト対象 | テスト種別 | ファイル |
+|------------|-----------|---------|
+| 実行予算セクションカード | 単体テスト | `frontend/src/__tests__/components/projects/ExecutionBudgetSectionCard.test.tsx` |
+| detail-summary API実行予算統合 | 単体テスト | `backend/src/__tests__/unit/routes/projects.routes.test.ts` |
+| 実行予算セクション遷移 | E2Eテスト | `e2e/specs/project-execution-budget-navigation.spec.ts` |

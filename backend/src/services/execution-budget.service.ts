@@ -169,6 +169,23 @@ export interface ApplyAmendmentResult {
 }
 
 /**
+ * detail-summary APIレスポンス用の実行予算サマリー型。
+ * フロントエンド既存型 ExecutionBudgetSectionInfo と互換性を持つ。
+ *
+ * Task 67.1
+ * Requirements: 41.2, 41.3
+ */
+export interface ExecutionBudgetSectionItem {
+  id: string;
+  contractName: string;
+  contractAmount: number;
+  createdAt: string;
+  executionAmountTotal: string;
+  profitForecast: string;
+  orderProgressRate: string;
+}
+
+/**
  * Prismaトランザクションクライアント型
  */
 type PrismaTransactionClient = Omit<
@@ -414,6 +431,108 @@ export class ExecutionBudgetService {
       select: { id: true, projectId: true, contractId: true },
     });
     return budget;
+  }
+
+  /**
+   * プロジェクトに紐づく実行予算のサマリーを取得する（detail-summary API用の軽量メソッド）。
+   * 実行予算はプロジェクトに対して1つのみ存在する（1:1関係）。
+   *
+   * 既存の findByProjectId（基本情報のみ返却）とは別に、
+   * サマリー表示に必要な集計データを含むメソッドとして新規追加する。
+   *
+   * Task 67.1: ExecutionBudgetServiceにgetSummaryByProjectIdメソッドを追加
+   * Requirements: 41.2, 41.3
+   *
+   * @param projectId - プロジェクトID
+   * @returns 実行予算サマリーまたはnull（未作成時）
+   */
+  async getSummaryByProjectId(projectId: string): Promise<ExecutionBudgetSectionItem | null> {
+    const budget = await this.prisma.executionBudget.findFirst({
+      where: { projectId, deletedAt: null },
+      include: {
+        contract: {
+          select: {
+            id: true,
+            contractAmount: true,
+            estimate: {
+              select: { name: true },
+            },
+          },
+        },
+        items: {
+          where: { parentId: null, deletedAt: null },
+          select: {
+            id: true,
+            executionAmount: true,
+            orderItems: {
+              include: {
+                order: {
+                  select: { status: true, deletedAt: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!budget) {
+      return null;
+    }
+
+    // 契約書名
+    const contractName =
+      (budget.contract as unknown as { estimate?: { name: string } | null })?.estimate?.name ??
+      '見積書なし';
+
+    // 契約金額
+    const contractAmountRaw = (
+      budget.contract as unknown as { contractAmount?: { toString(): string } | null }
+    )?.contractAmount;
+    const contractAmount = contractAmountRaw ? Number(contractAmountRaw.toString()) : 0;
+
+    // 実行金額合計（ルート項目の実行金額を合計）
+    type RawItem = {
+      id: string;
+      executionAmount: { toString(): string } | null;
+      orderItems: Array<{
+        checked: boolean;
+        orderAmount: { toString(): string } | null;
+        order: { status: string; deletedAt: Date | null } | null;
+      }>;
+    };
+    const items = budget.items as unknown as RawItem[];
+    let executionTotal = new Decimal(0);
+    const totalItems = items.length;
+    let orderedItems = 0;
+
+    for (const item of items) {
+      if (item.executionAmount) {
+        executionTotal = executionTotal.add(new Decimal(item.executionAmount.toString()));
+      }
+      // 発注済みかチェック
+      const hasOrdered = item.orderItems?.some(
+        (oi) => oi.checked && oi.order && oi.order.status === 'ORDERED' && !oi.order.deletedAt
+      );
+      if (hasOrdered) {
+        orderedItems++;
+      }
+    }
+
+    const executionAmountTotal = executionTotal.toFixed(0);
+    const profitForecast = new Decimal(contractAmount).sub(executionTotal).toFixed(0);
+    const orderProgressRate =
+      totalItems > 0 ? Math.round((orderedItems / totalItems) * 100).toString() : '0';
+
+    return {
+      id: budget.id,
+      contractName,
+      contractAmount,
+      createdAt: budget.createdAt.toISOString(),
+      executionAmountTotal,
+      profitForecast,
+      orderProgressRate,
+    };
   }
 
   /**

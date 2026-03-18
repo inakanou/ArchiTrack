@@ -34,6 +34,7 @@ import type { ProjectItemizedStatementSummary } from '../types/itemized-statemen
 import type { ProjectEstimateRequestSummary } from '../types/estimate-request.types';
 import type { EstimateSummary } from './estimates';
 import type { ContractType, ContractStatus } from './contracts';
+import type { ExecutionBudgetSectionInfo } from '../components/projects/ExecutionBudgetSectionCard';
 
 // ============================================================================
 // 契約書セクションサマリー型（detail-summary API用）
@@ -408,6 +409,7 @@ export interface ProjectDetailSummary {
     estimates: EstimateSummary;
     contracts: ContractSectionSummary;
     schedules: ScheduleSectionSummary;
+    executionBudget: ExecutionBudgetSectionInfo | null;
   };
 }
 

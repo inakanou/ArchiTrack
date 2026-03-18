@@ -210,11 +210,8 @@ function ExecutionBudgetSkeleton() {
 function EmptyState({ projectId }: { projectId: string }) {
   return (
     <div style={styles.emptyState}>
-      <p style={styles.emptyText}>実行予算はまだ作成されていません</p>
-      <Link
-        to={`/projects/${projectId}/execution-budget`}
-        style={styles.addButton}
-      >
+      <p style={styles.emptyText}>実行予算はまだありません</p>
+      <Link to={`/projects/${projectId}/execution-budget`} style={styles.addButton}>
         新規作成
       </Link>
     </div>
@@ -224,13 +221,7 @@ function EmptyState({ projectId }: { projectId: string }) {
 /**
  * 実行予算情報表示
  */
-function BudgetInfo({
-  projectId,
-  info,
-}: {
-  projectId: string;
-  info: ExecutionBudgetSectionInfo;
-}) {
+function BudgetInfo({ projectId, info }: { projectId: string; info: ExecutionBudgetSectionInfo }) {
   return (
     <div>
       <div style={styles.infoGrid}>
@@ -260,10 +251,7 @@ function BudgetInfo({
         </div>
       </div>
       <div style={{ marginTop: '16px', textAlign: 'right' as const }}>
-        <Link
-          to={`/projects/${projectId}/execution-budget`}
-          style={styles.viewLink}
-        >
+        <Link to={`/projects/${projectId}/execution-budget`} style={styles.viewLink}>
           詳細を見る
         </Link>
       </div>

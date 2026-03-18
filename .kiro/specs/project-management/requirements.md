@@ -667,3 +667,36 @@
 3. The ArchiTrackシステム shall 直近の工程表データに工程表ID、工程表名、更新日時、工程項目数を含める
 4. If 工程表セクションのデータ取得でエラーが発生した場合, the ArchiTrackシステム shall デフォルト値（totalCount: 0, latestSchedules: []）を返却し、他のセクションのデータは正常に返却する
 5. The ArchiTrackシステム shall 工程表セクションのデータを他のセクションと同様にPromise.allSettledで並行取得する
+
+### Requirement 40: プロジェクト詳細画面の実行予算セクション
+
+**Objective:** As a ユーザー, I want プロジェクト詳細画面で実行予算の概要を確認したい, so that 実行予算の作成状況を把握し実行予算管理画面に素早くアクセスできる
+
+**備考:** 本要件は execution-budget-management/Requirement 1 から集約。実行予算はプロジェクトに対して1つしか存在しないため、他のセクション（契約書・工程表等）とは異なり、一覧表示ではなく単一カードまたは未作成状態を表示する。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall プロジェクト詳細画面の工程表セクションの下に実行予算セクションを表示する
+2. The ArchiTrackシステム shall 実行予算セクションにセクションタイトル「実行予算」を表示する
+3. When 実行予算が存在する場合, the ArchiTrackシステム shall 実行予算のサマリーカードを表示する
+4. The ArchiTrackシステム shall 実行予算サマリーカードに契約書名、契約金額、実行金額合計、利益見込額、作成日時を表示する
+5. When ユーザーが実行予算サマリーカードをクリックした場合, the ArchiTrackシステム shall 実行予算管理画面へ遷移する
+6. When 実行予算が存在しない場合, the ArchiTrackシステム shall 「実行予算はまだありません」メッセージと新規作成ボタンを表示する
+7. When ユーザーが新規作成ボタンをクリックした場合, the ArchiTrackシステム shall 実行予算作成画面へ遷移する
+8. While 実行予算データをロード中の場合, the ArchiTrackシステム shall スケルトンローダーを表示する
+9. The ArchiTrackシステム shall 実行予算セクションに「すべて見る」リンクを表示しない（プロジェクトに対して実行予算は1つのみ存在するため）
+10. The ArchiTrackシステム shall 実行予算セクションのUIを既存の契約書セクションと同様のスタイルで提供する
+
+### Requirement 41: detail-summary APIの実行予算セクション統合
+
+**Objective:** As a 開発者, I want detail-summary APIに実行予算サマリーを含めたい, so that プロジェクト詳細画面の実行予算セクションを効率的に表示できる
+
+**備考:** 本要件は Requirement 29（API効率化）の拡張。工程表セクション統合（Requirement 39）と同一パターンだが、実行予算はプロジェクトに対して1つのみ存在するため、配列ではなくオブジェクトまたはnullで返却する。
+
+#### Acceptance Criteria
+
+1. The ArchiTrackシステム shall detail-summary APIのレスポンスに実行予算セクションデータ（executionBudget）を含める
+2. When 実行予算が存在する場合, the ArchiTrackシステム shall 実行予算データに実行予算ID、契約書名、契約金額、実行金額合計、利益見込額、作成日時を含める
+3. When 実行予算が存在しない場合, the ArchiTrackシステム shall 実行予算セクションデータをnullとして返却する
+4. If 実行予算セクションのデータ取得でエラーが発生した場合, the ArchiTrackシステム shall デフォルト値（null）を返却し、他のセクションのデータは正常に返却する
+5. The ArchiTrackシステム shall 実行予算セクションのデータを他のセクションと同様にPromise.allSettledで並行取得する

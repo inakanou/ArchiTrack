@@ -35,13 +35,10 @@ describe('ProjectDetailPage 実行予算セクションカード統合（静的�
     });
   });
 
-  describe('実行予算APIの呼び出し確認', () => {
-    it('実行予算APIモジュールがインポートされている', () => {
-      expect(projectDetailSource).toContain("from '../api/execution-budget'");
-    });
-
-    it('getExecutionBudget関数が使用されている', () => {
-      expect(projectDetailSource).toContain('getExecutionBudget');
+  describe('実行予算データの取得確認', () => {
+    it('detail-summary APIレスポンスから実行予算データを参照している', () => {
+      // detail-summary統合後は個別APIではなく、sections.executionBudgetからデータを取得
+      expect(projectDetailSource).toContain('executionBudget');
     });
   });
 

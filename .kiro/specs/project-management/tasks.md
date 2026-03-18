@@ -1557,3 +1557,64 @@
   - 新規作成ボタンで作成画面に遷移することを確認
   - 61.1〜63.2完了後に実施
   - _Requirements: 38.1, 38.2, 38.3, 38.6, 38.7, 38.8, 38.9, 38.10_
+
+## 差分実装タスク（2026-03-19要件更新）: 実行予算セクション追加
+
+> 工程表セクション（Task 61-64）と同様のパターンだが、実行予算はプロジェクトに対して1つのみ存在するため（1:1関係）、一覧表示ではなく単一カードまたは未作成状態を表示する。
+
+## Task 65: 実行予算セクションカードコンポーネントの修正
+
+- [x] 65.1 ExecutionBudgetSectionCardの空状態メッセージ修正
+  - `frontend/src/components/projects/ExecutionBudgetSectionCard.tsx`: 既存コンポーネントは execution-budget-management 仕様で実装済み
+  - 空状態メッセージを「実行予算はまだ作成されていません」→「実行予算はまだありません」に修正（AC 40.6準拠）
+  - _Requirements: 40.6_
+
+- [x] 65.2 ExecutionBudgetSectionCardの単体テスト更新
+  - `frontend/src/__tests__/components/projects/ExecutionBudgetSectionCard.test.tsx`: 空状態メッセージの修正に合わせてテスト更新
+  - 65.1完了後に実施
+  - _Requirements: 40.6_
+
+## Task 66: プロジェクト詳細画面のdetail-summary統合
+
+- [x] 66.1 ProjectDetailPageの個別フェッチをdetail-summary統合に切り替え
+  - `frontend/src/pages/ProjectDetailPage.tsx`: 個別の `getExecutionBudget` API呼び出しを削除し、`data.sections.executionBudget` からデータを取得するよう変更
+  - 既存の `executionBudgetInfo` state と `isExecutionBudgetLoading` state の取得元を detail-summary レスポンスに切り替え
+  - 67.2完了後に実施（detail-summary APIに実行予算が含まれている必要があるため）
+  - _Requirements: 40.1, 41.1_
+
+- [x] 66.2 ProjectDetailSummary型に実行予算セクションを追加
+  - `frontend/src/api/projects.ts`: `ProjectDetailSummary.sections`に`executionBudget`フィールドを追加（型: `ExecutionBudgetSectionInfo | null`、既存の`ExecutionBudgetSectionInfo`型を再利用）
+  - _Requirements: 41.1, 41.2, 41.3_
+
+## Task 67: detail-summary APIへの実行予算セクション統合
+
+- [x] 67.1 ExecutionBudgetServiceにgetSummaryByProjectIdメソッドを追加
+  - `backend/src/services/execution-budget.service.ts`: `getSummaryByProjectId(projectId)` を新規追加（既存の `findByProjectId` とは別メソッド）
+  - 既存 `findByProjectId` は `{ id, projectId, contractId }` のみ返却する軽量メソッドとして維持
+  - 1:1関係のため、`findFirst` で単一レコードを取得（配列ではない）
+  - `deletedAt IS NULL` フィルタ適用
+  - 関連データ: 契約書名（`contract`リレーション経由）、契約金額
+  - 実行金額合計: 実行予算項目の実行金額を集計
+  - 利益見込額: 契約金額 − 実行金額合計を算出
+  - 発注進捗率: 発注済み項目数 / 全項目数を算出
+  - 返却型: `ExecutionBudgetSectionInfo | null`（フロントエンド既存型と互換）
+  - _Requirements: 41.2, 41.3_
+
+- [x] 67.2 getProjectSectionsヘルパーにExecutionBudgetService呼び出しを追加
+  - `backend/src/routes/projects.routes.ts`: `ExecutionBudgetService`のインポートとインスタンス化を追加
+  - `getProjectSections` 関数の`Promise.allSettled`に`executionBudgetService.getSummaryByProjectId`を追加（8番目のPromise）
+  - エラー時のフォールバック: `null`（他セクションの `{ totalCount: 0, latest*: [] }` とは異なるパターン）
+  - 戻り値に`executionBudget`セクションを追加
+  - 67.1完了後に実施
+  - _Requirements: 41.1, 41.4, 41.5_
+
+## Task 68: 実行予算セクションE2Eテスト
+
+- [x] 68.1 プロジェクト-実行予算間ナビゲーションのE2Eテスト
+  - `e2e/specs/project-execution-budget-navigation.spec.ts`: プロジェクト詳細画面の実行予算セクションから実行予算管理・新規作成への遷移をテスト
+  - 実行予算セクションのタイトル表示を確認
+  - 実行予算サマリーカードの表示内容（契約書名、金額）を確認
+  - サマリーカードのクリックで実行予算管理画面に遷移することを確認
+  - 未作成時の新規作成ボタンで作成画面に遷移することを確認
+  - 65.1〜67.2完了後に実施
+  - _Requirements: 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7_

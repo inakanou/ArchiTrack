@@ -62,7 +62,6 @@ import {
   ExecutionBudgetSectionCard,
   type ExecutionBudgetSectionInfo,
 } from '../components/projects/ExecutionBudgetSectionCard';
-import { getExecutionBudget } from '../api/execution-budget';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -455,6 +454,11 @@ export default function ProjectDetailPage() {
       // Task 62.1: detail-summary APIから工程表サマリーを取得
       // Requirements: 39.1, 39.2
       setScheduleSummary(data.sections.schedules);
+
+      // Task 66.1: detail-summary APIから実行予算サマリーを取得（個別API呼び出しを置換）
+      // Requirements: 40.1, 41.1
+      setExecutionBudgetInfo(data.sections.executionBudget);
+      setIsExecutionBudgetLoading(false);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -478,43 +482,6 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     fetchProject();
   }, [fetchProject]);
-
-  /**
-   * 実行予算データを取得
-   *
-   * Task 14.1: プロジェクト詳細画面への実行予算セクションカードの統合
-   * Requirements: REQ-1.1
-   */
-  useEffect(() => {
-    if (!id) return;
-
-    const fetchExecutionBudget = async () => {
-      setIsExecutionBudgetLoading(true);
-      try {
-        const data = await getExecutionBudget(id);
-        if (data) {
-          setExecutionBudgetInfo({
-            id: data.id,
-            contractName: data.contract.estimate?.name ?? '見積書なし',
-            contractAmount: data.contract.contractAmount,
-            createdAt: data.createdAt,
-            executionAmountTotal: data.summary.totalExecutionAmount,
-            profitForecast: data.summary.profitForecast,
-            orderProgressRate: data.summary.orderProgressRate,
-          });
-        } else {
-          setExecutionBudgetInfo(null);
-        }
-      } catch {
-        // エラー時は未作成状態として表示
-        setExecutionBudgetInfo(null);
-      } finally {
-        setIsExecutionBudgetLoading(false);
-      }
-    };
-
-    fetchExecutionBudget();
-  }, [id]);
 
   /**
    * 許可された遷移先を取得
@@ -591,6 +558,7 @@ export default function ProjectDetailPage() {
         setEstimateSummary(data.sections.estimates);
         setContractSummary(data.sections.contracts);
         setScheduleSummary(data.sections.schedules);
+        setExecutionBudgetInfo(data.sections.executionBudget);
 
         // トースト通知で成功メッセージを表示
         const statusLabel = PROJECT_STATUS_LABELS[newStatus];

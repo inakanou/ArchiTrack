@@ -1734,4 +1734,231 @@ describe('ExecutionBudgetService', () => {
       expect(result.newContractAmount).toBe('6000000');
     });
   });
+
+  // ========================================
+  // getSummaryByProjectId
+  // Task 67.1: detail-summary API用サマリーメソッド
+  // Requirements: 41.2, 41.3
+  // ========================================
+
+  describe('getSummaryByProjectId', () => {
+    it('実行予算が存在する場合、サマリー情報を返却する', async () => {
+      // Arrange
+      const { prisma, mockTx } = createMockPrisma();
+      const service = new ExecutionBudgetService({ prisma });
+
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: 'budget-1',
+        projectId,
+        contractId,
+        version: 1,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: { toString: () => '5000000' },
+          estimate: { name: '工事見積書A' },
+        },
+        items: [
+          {
+            id: 'item-1',
+            parentId: null,
+            executionAmount: { toString: () => '3000000' },
+            orderItems: [
+              {
+                checked: true,
+                orderAmount: { toString: () => '1000000' },
+                order: { status: 'ORDERED', deletedAt: null },
+              },
+            ],
+            children: [],
+          },
+          {
+            id: 'item-2',
+            parentId: null,
+            executionAmount: { toString: () => '1000000' },
+            orderItems: [],
+            children: [],
+          },
+        ],
+      });
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe('budget-1');
+      expect(result!.contractName).toBe('工事見積書A');
+      expect(result!.contractAmount).toBe(5000000);
+      expect(result!.createdAt).toBeDefined();
+      expect(result!.executionAmountTotal).toBeDefined();
+      expect(result!.profitForecast).toBeDefined();
+      expect(result!.orderProgressRate).toBeDefined();
+    });
+
+    it('実行予算が存在しない場合、nullを返却する', async () => {
+      // Arrange
+      const { prisma, mockTx } = createMockPrisma();
+      const service = new ExecutionBudgetService({ prisma });
+
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('契約金額から実行金額合計を引いた利益見込額を返却する', async () => {
+      // Arrange
+      const { prisma, mockTx } = createMockPrisma();
+      const service = new ExecutionBudgetService({ prisma });
+
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: 'budget-1',
+        projectId,
+        contractId,
+        version: 1,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: { toString: () => '10000000' },
+          estimate: { name: '見積書B' },
+        },
+        items: [
+          {
+            id: 'item-1',
+            parentId: null,
+            executionAmount: { toString: () => '7000000' },
+            orderItems: [],
+            children: [],
+          },
+        ],
+      });
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      // 利益見込額 = 10000000 - 7000000 = 3000000
+      expect(result!.profitForecast).toBe('3000000');
+      expect(result!.executionAmountTotal).toBe('7000000');
+    });
+
+    it('発注進捗率を正しく計算する', async () => {
+      // Arrange
+      const { prisma, mockTx } = createMockPrisma();
+      const service = new ExecutionBudgetService({ prisma });
+
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: 'budget-1',
+        projectId,
+        contractId,
+        version: 1,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: { toString: () => '5000000' },
+          estimate: { name: '見積書C' },
+        },
+        items: [
+          {
+            id: 'item-1',
+            parentId: null,
+            executionAmount: { toString: () => '2000000' },
+            orderItems: [
+              {
+                checked: true,
+                orderAmount: { toString: () => '2000000' },
+                order: { status: 'ORDERED', deletedAt: null },
+              },
+            ],
+            children: [],
+          },
+          {
+            id: 'item-2',
+            parentId: null,
+            executionAmount: { toString: () => '3000000' },
+            orderItems: [],
+            children: [],
+          },
+        ],
+      });
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert
+      // 1/2 items ordered = 50%
+      expect(result).not.toBeNull();
+      expect(result!.orderProgressRate).toBe('50');
+    });
+
+    it('見積書名がない場合は「見積書なし」を返却する', async () => {
+      // Arrange
+      const { prisma, mockTx } = createMockPrisma();
+      const service = new ExecutionBudgetService({ prisma });
+
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: 'budget-1',
+        projectId,
+        contractId,
+        version: 1,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: { toString: () => '1000000' },
+          estimate: null,
+        },
+        items: [],
+      });
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.contractName).toBe('見積書なし');
+    });
+
+    it('項目が0件の場合、発注進捗率は0を返却する', async () => {
+      // Arrange
+      const { prisma, mockTx } = createMockPrisma();
+      const service = new ExecutionBudgetService({ prisma });
+
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: 'budget-1',
+        projectId,
+        contractId,
+        version: 1,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: { toString: () => '1000000' },
+          estimate: { name: '見積書D' },
+        },
+        items: [],
+      });
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.orderProgressRate).toBe('0');
+      expect(result!.executionAmountTotal).toBe('0');
+    });
+  });
 });

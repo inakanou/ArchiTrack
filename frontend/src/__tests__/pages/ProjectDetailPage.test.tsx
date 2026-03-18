@@ -94,6 +94,7 @@ const defaultSections: ProjectDetailSummary['sections'] = {
   estimates: { totalCount: 0, latestEstimates: [] },
   contracts: { totalCount: 0, latestContracts: [] },
   schedules: { totalCount: 0, latestSchedules: [] },
+  executionBudget: null,
 };
 
 /**
