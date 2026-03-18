@@ -58,6 +58,11 @@ import { EstimateRequestSectionCard } from '../components/projects/EstimateReque
 import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
 import { ContractSectionCard } from '../components/projects/ContractSectionCard';
 import { ScheduleSectionCard } from '../components/projects/ScheduleSectionCard';
+import {
+  ExecutionBudgetSectionCard,
+  type ExecutionBudgetSectionInfo,
+} from '../components/projects/ExecutionBudgetSectionCard';
+import { getExecutionBudget } from '../api/execution-budget';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -406,6 +411,10 @@ export default function ProjectDetailPage() {
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
   const [contractSummary, setContractSummary] = useState<ContractSectionSummary | null>(null);
   const [scheduleSummary, setScheduleSummary] = useState<ScheduleSectionSummary | null>(null);
+  const [executionBudgetInfo, setExecutionBudgetInfo] = useState<ExecutionBudgetSectionInfo | null>(
+    null
+  );
+  const [isExecutionBudgetLoading, setIsExecutionBudgetLoading] = useState(true);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -469,6 +478,43 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     fetchProject();
   }, [fetchProject]);
+
+  /**
+   * 実行予算データを取得
+   *
+   * Task 14.1: プロジェクト詳細画面への実行予算セクションカードの統合
+   * Requirements: REQ-1.1
+   */
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchExecutionBudget = async () => {
+      setIsExecutionBudgetLoading(true);
+      try {
+        const data = await getExecutionBudget(id);
+        if (data) {
+          setExecutionBudgetInfo({
+            id: data.id,
+            contractName: data.contract.estimate?.name ?? '見積書なし',
+            contractAmount: data.contract.contractAmount,
+            createdAt: data.createdAt,
+            executionAmountTotal: data.summary.totalExecutionAmount,
+            profitForecast: data.summary.profitForecast,
+            orderProgressRate: data.summary.orderProgressRate,
+          });
+        } else {
+          setExecutionBudgetInfo(null);
+        }
+      } catch {
+        // エラー時は未作成状態として表示
+        setExecutionBudgetInfo(null);
+      } finally {
+        setIsExecutionBudgetLoading(false);
+      }
+    };
+
+    fetchExecutionBudget();
+  }, [id]);
 
   /**
    * 許可された遷移先を取得
@@ -770,6 +816,13 @@ export default function ProjectDetailPage() {
         totalCount={contractSummary?.totalCount ?? 0}
         latestContracts={contractSummary?.latestContracts ?? []}
         isLoading={isLoading}
+      />
+
+      {/* 実行予算セクション (Task 14.1, Requirements 1.1) */}
+      <ExecutionBudgetSectionCard
+        projectId={project.id}
+        budgetInfo={executionBudgetInfo}
+        isLoading={isExecutionBudgetLoading}
       />
 
       {/* 工程表セクション (Task 62.1, Requirements 38.1) */}
