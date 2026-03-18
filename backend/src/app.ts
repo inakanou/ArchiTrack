@@ -45,6 +45,11 @@ import projectQuotationsRoutes from './routes/project-quotations.routes.js';
 import claudeVisionRoutes from './routes/claude-vision.routes.js';
 import contractsRoutes from './routes/contracts.routes.js';
 import schedulesRoutes from './routes/schedules.routes.js';
+import executionBudgetRoutes from './routes/execution-budget.routes.js';
+import orderRoutes from './routes/order.routes.js';
+import progressRoutes from './routes/progress.routes.js';
+import costMonthlyCloseRoutes from './routes/cost-monthly-close.routes.js';
+import exportRoutes from './routes/export.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -382,6 +387,15 @@ app.use('/api/contracts', contractsRoutes);
 // Schedule management routes
 app.use('/api/projects/:projectId/schedules', schedulesRoutes);
 app.use('/api/schedules', schedulesRoutes);
+
+// Execution Budget management routes
+// 注意: エクスポートルートはprogressルートより先にマウントする
+// （progress/monthly/exportがprogress/monthly/:yearMonthより先にマッチする必要がある）
+app.use('/api/projects/:projectId/execution-budget', exportRoutes);
+app.use('/api/projects/:projectId/execution-budget', executionBudgetRoutes);
+app.use('/api/projects/:projectId/execution-budget/orders', orderRoutes);
+app.use('/api/projects/:projectId/execution-budget/progress', progressRoutes);
+app.use('/api/projects/:projectId/execution-budget', costMonthlyCloseRoutes);
 
 // Local storage static file serving (development/test only)
 if (getStorageType() === 'local' && process.env.LOCAL_STORAGE_PATH) {
