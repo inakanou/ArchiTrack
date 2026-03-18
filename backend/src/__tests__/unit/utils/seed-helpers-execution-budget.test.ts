@@ -13,7 +13,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Request, Response, NextFunction } from 'express';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
+import type { RBACService } from '../../../services/rbac.service.js';
 
 // ========================================================================
 // seedPermissions - 実行予算関連パーミッション定義
@@ -433,8 +435,8 @@ describe('ルーター パーミッションミドルウェア適用テスト', 
 
       const middleware = requirePermission(
         'execution_budget:write',
-        mockRBACService as any,
-        mockPrisma as any
+        mockRBACService as unknown as RBACService,
+        mockPrisma as unknown as PrismaClient
       );
 
       const mockReq = {
@@ -448,7 +450,11 @@ describe('ルーター パーミッションミドルウェア適用テスト', 
       };
       const mockNext = vi.fn();
 
-      await middleware(mockReq as any, mockRes as any, mockNext);
+      await middleware(
+        mockReq as unknown as Request,
+        mockRes as unknown as Response,
+        mockNext as NextFunction
+      );
 
       expect(mockRes.status).toHaveBeenCalledWith(403);
       expect(mockRes.json).toHaveBeenCalledWith(
@@ -475,8 +481,8 @@ describe('ルーター パーミッションミドルウェア適用テスト', 
 
       const middleware = requirePermission(
         'execution_budget:read',
-        mockRBACService as any,
-        mockPrisma as any
+        mockRBACService as unknown as RBACService,
+        mockPrisma as unknown as PrismaClient
       );
 
       const mockReq = {
@@ -490,7 +496,11 @@ describe('ルーター パーミッションミドルウェア適用テスト', 
       };
       const mockNext = vi.fn();
 
-      await middleware(mockReq as any, mockRes as any, mockNext);
+      await middleware(
+        mockReq as unknown as Request,
+        mockRes as unknown as Response,
+        mockNext as NextFunction
+      );
 
       expect(mockNext).toHaveBeenCalled();
       expect(mockRes.status).not.toHaveBeenCalled();
