@@ -419,9 +419,7 @@ describe('ルーター パーミッションミドルウェア適用テスト', 
   describe('権限不足時の403レスポンス（Requirement 17.6）', () => {
     it('requirePermissionミドルウェアが権限不足時に403 Forbiddenを返す', async () => {
       // authorize.middleware.tsのrequirePermissionが権限不足時に403を返すことを確認
-      const { requirePermission } = await import(
-        '../../../middleware/authorize.middleware.js'
-      );
+      const { requirePermission } = await import('../../../middleware/authorize.middleware.js');
 
       // モックのRBACServiceを使って権限不足をシミュレート
       const mockRBACService = {
@@ -464,9 +462,7 @@ describe('ルーター パーミッションミドルウェア適用テスト', 
     });
 
     it('requirePermissionミドルウェアが権限所持時にnextを呼ぶ', async () => {
-      const { requirePermission } = await import(
-        '../../../middleware/authorize.middleware.js'
-      );
+      const { requirePermission } = await import('../../../middleware/authorize.middleware.js');
 
       const mockRBACService = {
         hasPermission: vi.fn().mockResolvedValue(true),
