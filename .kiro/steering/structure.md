@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-03-17（Steering Sync: Storybook数130、site-surveyコンポーネント追加を反映）_
+_最終更新: 2026-03-19（Steering Sync: 実行予算管理機能追加を反映）_
 
 ## ルートディレクトリ構成
 
@@ -260,6 +260,10 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 工程表CRUD、工程項目管理（並び替え）、ガントチャート可視化（祝日カレンダー）、数量表連携、Excel/PDFエクスポート、プロジェクト詳細画面統合
 
+- `.kiro/specs/execution-budget-management/` - 実行予算管理機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
+  - 内容: 実行予算CRUD（契約書・見積書連動）、実行予算項目管理、発注管理（ステータス遷移・金額案分）、出来高入力（パーセンテージボタン）、原価管理（月次締め処理）、変更契約適用履歴、Excel/PDFエクスポート（発注書・出来高）
+
 ### `e2e/`
 
 Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可能。
@@ -338,6 +342,7 @@ e2e/
 - `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
 - `contracts/` - 契約書テスト（CRUD操作、新規契約・変更契約、金額自動計算、比較表示、ステータス管理）
 - `schedules/` - 工程表テスト（CRUD操作、ガントチャート表示、エクスポート）
+- `project-execution-budget-navigation.spec.ts` - 実行予算ナビゲーションテスト（ルートレベル配置）
 
 **テストヘルパー:**
 
@@ -440,7 +445,8 @@ frontend/
 │   │       ├── EstimateSectionCard.tsx # 見積書セクションカード
 │   │       ├── EstimateRequestSectionCard.tsx # 見積依頼セクションカード
 │   │       ├── ContractSectionCard.tsx # 契約書セクションカード
-│   │       └── ScheduleSectionCard.tsx # 工程表セクションカード
+│   │       ├── ScheduleSectionCard.tsx # 工程表セクションカード
+│   │       └── ExecutionBudgetSectionCard.tsx # 実行予算セクションカード
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
 │   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
@@ -619,7 +625,10 @@ frontend/
 │   │   ├── ContractEditPage.tsx # 契約書編集ページ
 │   │   ├── ScheduleListPage.tsx # 工程表一覧ページ
 │   │   ├── ScheduleCreatePage.tsx # 工程表作成ページ
-│   │   └── ScheduleDetailPage.tsx # 工程表詳細ページ
+│   │   ├── ScheduleDetailPage.tsx # 工程表詳細ページ
+│   │   ├── ExecutionBudgetPage.tsx # 実行予算管理ページ（発注・出来高・原価統合）
+│   │   ├── OrderDetailPage.tsx # 発注詳細ページ
+│   │   └── ProgressInputPage.tsx # 出来高入力ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数（20ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -741,7 +750,7 @@ frontend/
 
 ```
 frontend/src/
-├── api/               # APIクライアント（17ファイル）
+├── api/               # APIクライアント（20ファイル）
 │   ├── auth.ts        # 認証API
 │   ├── client.ts      # 共通クライアント
 │   ├── projects.ts    # プロジェクトAPI
@@ -758,8 +767,11 @@ frontend/src/
 │   ├── company-info.ts # 自社情報API
 │   ├── estimates.ts # 見積書API
 │   └── contracts.ts # 契約書API
-│   └── schedules.ts # 工程表API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor、useScheduleState、useHolidayCalendar等 28ファイル）
+│   ├── schedules.ts # 工程表API
+│   ├── execution-budget.ts # 実行予算API
+│   ├── order-detail.ts # 発注詳細API
+│   └── progress.ts # 出来高API
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor、useScheduleState、useHolidayCalendar等 29ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
 ├── utils/             # ユーティリティ関数
@@ -794,7 +806,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（148テストファイル）
+│   │   └── unit/          # ユニットテスト（166テストファイル）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -829,7 +841,7 @@ backend/
 │   │       └── utils/     # ユーティリティテスト
 │   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
 │   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
-│   ├── errors/            # カスタムエラー定義（14ファイル）
+│   ├── errors/            # カスタムエラー定義（17ファイル）
 │   │   ├── apiError.ts    # 汎用APIエラークラス
 │   │   ├── projectError.ts # プロジェクト関連エラー
 │   │   ├── tradingPartnerError.ts # 取引先関連エラー
@@ -843,7 +855,10 @@ backend/
 │   │   ├── estimateError.ts # 見積書関連エラー
 │   │   ├── claudeVisionError.ts # Claude Vision関連エラー
 │   │   ├── contractError.ts # 契約書関連エラー
-│   │   └── scheduleError.ts # 工程表関連エラー
+│   │   ├── scheduleError.ts # 工程表関連エラー
+│   │   ├── executionBudgetError.ts # 実行予算関連エラー
+│   │   ├── orderError.ts # 発注関連エラー
+│   │   └── progressError.ts # 出来高関連エラー
 │   ├── middleware/        # ミドルウェア
 │   │   ├── errorHandler.middleware.ts  # エラーハンドリング
 │   │   ├── httpsRedirect.middleware.ts # HTTPS強制リダイレクト
@@ -851,7 +866,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（29ファイル）
+│   ├── routes/            # ルート定義（34ファイル）
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -880,11 +895,16 @@ backend/
 │   │   ├── claude-vision.routes.ts # Claude Vision OCRルート（見積書構造化データ抽出）
 │   │   ├── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、利益率、Excel出力）
 │   │   ├── contracts.routes.ts # 契約書ルート（CRUD、ステータス遷移）
-│   │   └── schedules.routes.ts # 工程表ルート（CRUD、エクスポート）
+│   │   ├── schedules.routes.ts # 工程表ルート（CRUD、エクスポート）
+│   │   ├── execution-budget.routes.ts # 実行予算ルート（CRUD、変更契約適用）
+│   │   ├── order.routes.ts # 発注ルート（CRUD、ステータス遷移、金額案分）
+│   │   ├── progress.routes.ts # 出来高ルート（CRUD、パーセンテージ入力）
+│   │   ├── cost-monthly-close.routes.ts # 月次締めルート（原価管理）
+│   │   └── export.routes.ts # エクスポートルート（発注書・出来高Excel/PDF）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── schemas/           # Zodバリデーションスキーマ（13ファイル）
+│   ├── schemas/           # Zodバリデーションスキーマ（14ファイル）
 │   │   ├── project.schema.ts # プロジェクト関連
 │   │   ├── trading-partner.schema.ts # 取引先関連
 │   │   ├── site-survey.schema.ts # 現場調査関連
@@ -897,8 +917,9 @@ backend/
 │   │   ├── claude-vision.schema.ts # Claude Vision OCR関連
 │   │   ├── estimate.schema.ts # 見積書関連
 │   │   ├── contract.schema.ts # 契約書関連
-│   │   └── schedule.schema.ts # 工程表関連
-│   ├── services/          # ビジネスロジック（52サービス）
+│   │   ├── schedule.schema.ts # 工程表関連
+│   │   └── execution-budget.schema.ts # 実行予算関連
+│   ├── services/          # ビジネスロジック（59サービス）
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -950,7 +971,14 @@ backend/
 │   │   ├── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
 │   │   ├── contract.service.ts # 契約書管理（CRUD、ステータス遷移、見積書連動金額計算、楽観的排他制御）
 │   │   ├── schedule.service.ts # 工程表管理（CRUD、工程項目管理、数量表連携、楽観的排他制御）
-│   │   └── schedule-export.service.ts # 工程表エクスポート（Excel/PDF出力）
+│   │   ├── schedule-export.service.ts # 工程表エクスポート（Excel/PDF出力）
+│   │   ├── execution-budget.service.ts # 実行予算管理（CRUD、契約書・見積書連動、変更契約適用、楽観的排他制御）
+│   │   ├── order.service.ts # 発注管理（CRUD、ステータス遷移、金額案分）
+│   │   ├── order-export.service.ts # 発注書エクスポート（Excel/PDF出力）
+│   │   ├── progress.service.ts # 出来高管理（CRUD、パーセンテージ入力）
+│   │   ├── progress-export.service.ts # 出来高エクスポート（Excel/PDF出力）
+│   │   ├── cost.service.ts # 原価管理（原価集計・分析）
+│   │   └── monthly-close.service.ts # 月次締め処理（締め・解除・履歴管理）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -1039,7 +1067,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（29ルートファイル）:**
+**実装済みAPI（34ルートファイル）:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -1207,6 +1235,37 @@ backend/src/
 - `PUT /api/schedules/:id`: 工程表更新（楽観的排他制御）
 - `DELETE /api/schedules/:id`: 工程表論理削除
 - `GET /api/schedules/:id/export`: 工程表エクスポート（Excel/PDF形式選択）
+
+**実行予算管理API（execution-budget.routes.ts）:**
+- `GET /api/projects/:projectId/execution-budgets`: 実行予算一覧取得
+- `GET /api/execution-budgets/:id`: 実行予算詳細取得（項目含む）
+- `POST /api/projects/:projectId/execution-budgets`: 実行予算作成（契約書・見積書連動）
+- `PUT /api/execution-budgets/:id`: 実行予算更新（楽観的排他制御）
+- `DELETE /api/execution-budgets/:id`: 実行予算論理削除
+- `POST /api/execution-budgets/:id/apply-amendment`: 変更契約適用
+
+**発注管理API（order.routes.ts）:**
+- `GET /api/execution-budgets/:executionBudgetId/orders`: 発注一覧取得
+- `GET /api/orders/:id`: 発注詳細取得
+- `POST /api/execution-budgets/:executionBudgetId/orders`: 発注作成（金額案分）
+- `PUT /api/orders/:id`: 発注更新
+- `PATCH /api/orders/:id/status`: 発注ステータス変更
+- `DELETE /api/orders/:id`: 発注削除
+
+**出来高管理API（progress.routes.ts）:**
+- `GET /api/orders/:orderId/progress-records`: 出来高一覧取得
+- `POST /api/orders/:orderId/progress-records`: 出来高登録（パーセンテージ入力）
+- `PUT /api/progress-records/:id`: 出来高更新
+- `DELETE /api/progress-records/:id`: 出来高削除
+
+**月次締めAPI（cost-monthly-close.routes.ts）:**
+- `POST /api/projects/:projectId/monthly-close`: 月次締め実行
+- `DELETE /api/projects/:projectId/monthly-close/:yearMonth`: 月次締め解除
+- `GET /api/projects/:projectId/monthly-close-history`: 月次締め履歴取得
+
+**エクスポートAPI（export.routes.ts）:**
+- `GET /api/orders/:id/export`: 発注書エクスポート（Excel/PDF）
+- `GET /api/progress-records/:id/export`: 出来高エクスポート（Excel/PDF）
 
 **実装済みミドルウェア:**
 
@@ -1503,8 +1562,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト148ファイル + 統合テスト26ファイル
-- Frontend: 単体テスト326ファイル
+- Backend: 単体テスト166ファイル + 統合テスト31ファイル
+- Frontend: 単体テスト339ファイル
 
 ### .gitignore
 
