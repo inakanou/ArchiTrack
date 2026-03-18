@@ -50,6 +50,7 @@ import ScheduleCreatePage from './pages/ScheduleCreatePage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
 import ExecutionBudgetPage from './pages/ExecutionBudgetPage';
 import OrderDetailPage from './pages/OrderDetailPage';
+import ProgressInputPage from './pages/ProgressInputPage';
 
 /**
  * アプリケーションのルート設定
@@ -409,6 +410,16 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/execution-budget/orders/:orderId',
         element: <OrderDetailPage />,
+      },
+
+      // 出来高入力ページ
+      // REQ-11.1-11.11: 出来高入力機能
+      // REQ-12.3-12.6: 出来高の履歴管理
+      // REQ-16.1-16.5: 月別出来高集計
+      // Task 10.1-10.3: フロントエンド出来高入力ページ
+      {
+        path: '/projects/:projectId/execution-budget/progress',
+        element: <ProgressInputPage />,
       },
 
       // 取引先一覧
