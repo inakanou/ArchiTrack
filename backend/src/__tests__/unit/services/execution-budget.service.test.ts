@@ -25,6 +25,8 @@ import {
   ExecutionBudgetNotFoundError,
   ExecutionBudgetConflictError,
   ExecutionBudgetDeletionBlockedError,
+  AmendmentContractNotFoundError,
+  AmendmentAlreadyAppliedError,
 } from '../../../errors/executionBudgetError.js';
 
 // ========================================
@@ -50,6 +52,7 @@ function createMockTx() {
     },
     contract: {
       findUnique: vi.fn(),
+      findMany: vi.fn(),
     },
     estimate: {
       findUnique: vi.fn(),
@@ -62,6 +65,10 @@ function createMockTx() {
     },
     progressRecordItem: {
       findFirst: vi.fn(),
+    },
+    amendmentApplyHistory: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
     },
   };
 }
@@ -1039,6 +1046,692 @@ describe('ExecutionBudgetService', () => {
 
       // Assert: $transactionが呼び出されていることを確認
       expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+  });
+
+  // ========================================
+  // Task 7.1: 契約変更反映サービス実装
+  // Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8
+  // ========================================
+
+  describe('getUnreflectedAmendments - 未反映変更契約一覧の取得', () => {
+    it('同一プロジェクト内の未反映変更契約一覧を返却する（Req 15.1）', async () => {
+      // Arrange: 実行予算が存在する
+      const mockBudget = {
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        deletedAt: null,
+      };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+
+      // 変更契約が2件あり、1件は既に反映済み
+      const amendmentContract1Id = '550e8400-e29b-41d4-a716-446655440020';
+      const amendmentContract2Id = '550e8400-e29b-41d4-a716-446655440021';
+      mockTx.contract.findMany = vi.fn().mockResolvedValue([
+        {
+          id: amendmentContract1Id,
+          projectId,
+          contractType: 'AMENDMENT',
+          status: 'CONTRACTED',
+          estimateId: 'est-1',
+          contractAmount: { toString: () => '6000000' },
+          deletedAt: null,
+          estimate: { name: '変更見積書1' },
+        },
+        {
+          id: amendmentContract2Id,
+          projectId,
+          contractType: 'AMENDMENT',
+          status: 'CONTRACTED',
+          estimateId: 'est-2',
+          contractAmount: { toString: () => '7000000' },
+          deletedAt: null,
+          estimate: { name: '変更見積書2' },
+        },
+      ]);
+
+      // 1件は既に反映済み
+      mockTx.amendmentApplyHistory.findFirst
+        .mockResolvedValueOnce({ id: 'history-1' }) // contract1は反映済み
+        .mockResolvedValueOnce(null); // contract2は未反映
+
+      // Act
+      const result = await service.getUnreflectedAmendments(projectId);
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe(amendmentContract2Id);
+    });
+
+    it('実行予算が存在しない場合はエラーをスローする', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.getUnreflectedAmendments(projectId)).rejects.toThrow(
+        ExecutionBudgetNotFoundError
+      );
+    });
+  });
+
+  describe('getAmendmentDiff - 変更契約の項目差分取得', () => {
+    it('変更契約に紐づく見積書の項目差分を算出して返却する（Req 15.2）', async () => {
+      // Arrange
+      const amendmentContractId = '550e8400-e29b-41d4-a716-446655440020';
+      const mockBudget = {
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        deletedAt: null,
+      };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+
+      // 変更契約を取得
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+      });
+
+      // 変更契約に紐づく見積書の項目
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [
+          {
+            id: 'new-item-1',
+            estimateId: 'est-amendment',
+            parentId: null,
+            displayOrder: 0,
+            lines: [
+              {
+                lineType: 'EXECUTION',
+                name: '追加工事',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '1' },
+                unitPrice: { toString: () => '200000' },
+                amount: { toString: () => '200000' },
+              },
+            ],
+          },
+          {
+            id: 'item-2', // estimateItemIdが既存項目と一致
+            estimateId: 'est-amendment',
+            parentId: null,
+            displayOrder: 1,
+            lines: [
+              {
+                lineType: 'EXECUTION',
+                name: '直接仮設工事',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '2' }, // 数量変更
+                unitPrice: { toString: () => '450000' },
+                amount: { toString: () => '900000' },
+              },
+            ],
+          },
+        ],
+      });
+
+      // 既存の実行予算項目
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        {
+          id: 'budget-item-2',
+          executionBudgetId: createdBudgetId,
+          estimateItemId: 'item-2',
+          name: '直接仮設工事',
+          quantity: { toString: () => '1' },
+          executionAmount: { toString: () => '450000' },
+        },
+      ]);
+
+      // Act
+      const result = await service.getAmendmentDiff(projectId, amendmentContractId);
+
+      // Assert
+      expect(result.addedItems.length).toBeGreaterThanOrEqual(1);
+      expect(result.modifiedItems.length).toBeGreaterThanOrEqual(1);
+      expect(result.contractAmount).toBeDefined();
+    });
+  });
+
+  describe('applyAmendment - 変更契約の反映', () => {
+    const amendmentContractId = '550e8400-e29b-41d4-a716-446655440020';
+    const mockBudget = {
+      id: createdBudgetId,
+      projectId,
+      contractId,
+      deletedAt: null,
+    };
+
+    it('新規項目を実行予算に追加する（Req 15.3）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      // 変更契約
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      // 変更契約の見積項目: 新規項目のみ
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [
+          {
+            id: 'new-est-item-1',
+            estimateId: 'est-amendment',
+            parentId: null,
+            displayOrder: 10,
+            lines: [
+              {
+                lineType: 'EXECUTION',
+                name: '追加工事A',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '1' },
+                unitPrice: { toString: () => '300000' },
+                amount: { toString: () => '300000' },
+              },
+              {
+                lineType: 'ESTIMATE',
+                name: '追加工事A',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '1' },
+                unitPrice: { toString: () => '350000' },
+                amount: { toString: () => '350000' },
+              },
+            ],
+          },
+        ],
+      });
+
+      // 既存の実行予算項目（マッチなし）
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([]);
+      mockTx.executionBudgetItem.createMany = vi.fn().mockResolvedValue({ count: 1 });
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      const result = await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert: 新規項目がcreateManyで追加されている
+      expect(mockTx.executionBudgetItem.createMany).toHaveBeenCalled();
+      // 変更反映履歴が記録されている（Req 15.8）
+      expect(mockTx.amendmentApplyHistory.create).toHaveBeenCalled();
+      expect(result).toBeDefined();
+    });
+
+    it('既存項目の数量・金額を更新する（Req 15.3）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      // 変更契約の見積項目: 既存項目の数量変更
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [
+          {
+            id: 'item-2', // 既存estimateItemIdに一致
+            estimateId: 'est-amendment',
+            parentId: null,
+            displayOrder: 1,
+            lines: [
+              {
+                lineType: 'EXECUTION',
+                name: '直接仮設工事',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '3' },
+                unitPrice: { toString: () => '450000' },
+                amount: { toString: () => '1350000' },
+              },
+              {
+                lineType: 'ESTIMATE',
+                name: '直接仮設工事',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '3' },
+                unitPrice: { toString: () => '500000' },
+                amount: { toString: () => '1500000' },
+              },
+            ],
+          },
+        ],
+      });
+
+      // 既存の実行予算項目
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        {
+          id: 'budget-item-2',
+          executionBudgetId: createdBudgetId,
+          estimateItemId: 'item-2',
+          name: '直接仮設工事',
+          quantity: { toString: () => '1' },
+          executionUnitPrice: { toString: () => '450000' },
+          executionAmount: { toString: () => '450000' },
+          amendmentAmount: { toString: () => '0' },
+        },
+      ]);
+
+      mockTx.executionBudgetItem.update.mockResolvedValue({
+        id: 'budget-item-2',
+        quantity: { toString: () => '3' },
+        executionAmount: { toString: () => '1350000' },
+        amendmentAmount: { toString: () => '900000' },
+      });
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      const result = await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert: 既存項目が更新されている
+      expect(mockTx.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'budget-item-2' },
+          data: expect.objectContaining({
+            quantity: '3',
+            executionAmount: '1350000',
+          }),
+        })
+      );
+      expect(result).toBeDefined();
+    });
+
+    it('変更削除対象項目が発注済みの場合AMENDMENT_DELETEDステータスを付与する（Req 15.4）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '4000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      // 変更契約の見積項目は空（既存項目が変更で削除対象）
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [],
+      });
+
+      // 既存の実行予算項目（2つ、1つは発注済み）
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        {
+          id: 'budget-item-ordered',
+          executionBudgetId: createdBudgetId,
+          estimateItemId: 'item-2',
+          name: '直接仮設工事',
+          executionAmount: { toString: () => '450000' },
+          amendmentAmount: { toString: () => '0' },
+          amendmentStatus: null,
+          deletedAt: null,
+          orderItems: [
+            {
+              checked: true,
+              order: { status: 'ORDERED', deletedAt: null },
+            },
+          ],
+          progressRecordItems: [],
+        },
+      ]);
+
+      mockTx.executionBudgetItem.update.mockResolvedValue({});
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert: AMENDMENT_DELETEDステータスが付与される
+      expect(mockTx.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'budget-item-ordered' },
+          data: expect.objectContaining({
+            amendmentStatus: 'AMENDMENT_DELETED',
+          }),
+        })
+      );
+    });
+
+    it('変更削除対象項目が出来高入力済みの場合AMENDMENT_DELETEDステータスを付与する（Req 15.4）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '4000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [],
+      });
+
+      // 出来高入力済み
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        {
+          id: 'budget-item-progress',
+          executionBudgetId: createdBudgetId,
+          estimateItemId: 'item-3',
+          name: 'コンクリート工事',
+          executionAmount: { toString: () => '600000' },
+          amendmentAmount: { toString: () => '0' },
+          amendmentStatus: null,
+          deletedAt: null,
+          orderItems: [],
+          progressRecordItems: [{ id: 'pri-1', amount: { toString: () => '100000' } }],
+        },
+      ]);
+
+      mockTx.executionBudgetItem.update.mockResolvedValue({});
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert
+      expect(mockTx.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'budget-item-progress' },
+          data: expect.objectContaining({
+            amendmentStatus: 'AMENDMENT_DELETED',
+          }),
+        })
+      );
+    });
+
+    it('変更削除対象項目が未発注かつ出来高未入力の場合論理削除する（Req 15.5）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '4000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [],
+      });
+
+      // 未発注かつ出来高なし
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        {
+          id: 'budget-item-unused',
+          executionBudgetId: createdBudgetId,
+          estimateItemId: 'item-4',
+          name: '未使用工事',
+          executionAmount: { toString: () => '200000' },
+          amendmentAmount: { toString: () => '0' },
+          amendmentStatus: null,
+          deletedAt: null,
+          orderItems: [],
+          progressRecordItems: [],
+        },
+      ]);
+
+      mockTx.executionBudgetItem.update.mockResolvedValue({});
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert: deletedAtが設定される（論理削除）
+      expect(mockTx.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'budget-item-unused' },
+          data: expect.objectContaining({
+            deletedAt: expect.any(Date),
+          }),
+        })
+      );
+    });
+
+    it('変更反映履歴を記録する（Req 15.8）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+        estimate: { name: '第1回変更契約' },
+      });
+
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [],
+      });
+
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([]);
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({
+        id: 'history-1',
+        executionBudgetId: createdBudgetId,
+        contractId: amendmentContractId,
+        contractName: '第1回変更契約',
+        appliedAt: new Date(),
+      });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert: AmendmentApplyHistory作成が呼ばれる
+      expect(mockTx.amendmentApplyHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            executionBudgetId: createdBudgetId,
+            contractId: amendmentContractId,
+            contractName: '第1回変更契約',
+          }),
+        })
+      );
+    });
+
+    it('変更金額列に金額差分を設定する（Req 15.7）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      // 既存項目の金額が変更
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [
+          {
+            id: 'item-2',
+            estimateId: 'est-amendment',
+            parentId: null,
+            displayOrder: 1,
+            lines: [
+              {
+                lineType: 'EXECUTION',
+                name: '直接仮設工事',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '2' },
+                unitPrice: { toString: () => '450000' },
+                amount: { toString: () => '900000' },
+              },
+            ],
+          },
+        ],
+      });
+
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        {
+          id: 'budget-item-2',
+          executionBudgetId: createdBudgetId,
+          estimateItemId: 'item-2',
+          name: '直接仮設工事',
+          quantity: { toString: () => '1' },
+          executionUnitPrice: { toString: () => '450000' },
+          executionAmount: { toString: () => '450000' },
+          amendmentAmount: { toString: () => '0' },
+          amendmentStatus: null,
+          deletedAt: null,
+          orderItems: [],
+          progressRecordItems: [],
+        },
+      ]);
+
+      mockTx.executionBudgetItem.update.mockResolvedValue({});
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert: amendmentAmount = 新実行金額 - 旧実行金額 = 900000 - 450000 = 450000
+      expect(mockTx.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'budget-item-2' },
+          data: expect.objectContaining({
+            amendmentAmount: '450000',
+          }),
+        })
+      );
+    });
+
+    it('既に反映済みの変更契約を指定した場合はエラーをスローする', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue({ id: 'existing-history' });
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      // Act & Assert
+      await expect(service.applyAmendment(projectId, amendmentContractId)).rejects.toThrow(
+        AmendmentAlreadyAppliedError
+      );
+    });
+
+    it('変更契約が存在しない場合はエラーをスローする', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.applyAmendment(projectId, amendmentContractId)).rejects.toThrow(
+        AmendmentContractNotFoundError
+      );
+    });
+
+    it('実行予算が存在しない場合はエラーをスローする', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.applyAmendment(projectId, amendmentContractId)).rejects.toThrow(
+        ExecutionBudgetNotFoundError
+      );
+    });
+
+    it('変更前後の契約金額データを返却する（Req 15.6）', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        ...mockBudget,
+        contract: { contractAmount: { toString: () => '5000000' } },
+      });
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [],
+      });
+
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([]);
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...mockBudget, version: 1 });
+
+      // Act
+      const result = await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert: 変更前後の契約金額が含まれる
+      expect(result.previousContractAmount).toBeDefined();
+      expect(result.newContractAmount).toBe('6000000');
     });
   });
 });

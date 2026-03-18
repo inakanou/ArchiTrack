@@ -21,15 +21,20 @@ import {
   ExecutionBudgetNotFoundError,
   ExecutionBudgetConflictError,
   ExecutionBudgetDeletionBlockedError,
+  AmendmentContractNotFoundError,
+  AmendmentAlreadyAppliedError,
 } from '../../../errors/executionBudgetError.js';
 
 // vi.hoistedでモック関数を定義
-const { mockCreate, mockGetWithItems, mockUpdateItem, mockDelete } = vi.hoisted(() => ({
-  mockCreate: vi.fn(),
-  mockGetWithItems: vi.fn(),
-  mockUpdateItem: vi.fn(),
-  mockDelete: vi.fn(),
-}));
+const { mockCreate, mockGetWithItems, mockUpdateItem, mockDelete, mockApplyAmendment } = vi.hoisted(
+  () => ({
+    mockCreate: vi.fn(),
+    mockGetWithItems: vi.fn(),
+    mockUpdateItem: vi.fn(),
+    mockDelete: vi.fn(),
+    mockApplyAmendment: vi.fn(),
+  })
+);
 
 // 依存モジュールのモック
 vi.mock('../../../db.js', () => ({
@@ -42,6 +47,7 @@ vi.mock('../../../services/execution-budget.service.js', () => ({
     getWithItems = mockGetWithItems;
     updateItem = mockUpdateItem;
     delete = mockDelete;
+    applyAmendment = mockApplyAmendment;
   },
 }));
 
@@ -355,6 +361,83 @@ describe('実行予算ルート', () => {
       const res = await request(app)
         .patch(`/api/projects/${projectId}/execution-budget/items/${itemId}`)
         .send({ executionUnitPrice: '85000', version: 0 })
+        .expect(409);
+
+      expect(res.body.status).toBe(409);
+    });
+  });
+
+  // =================================================================
+  // POST /api/projects/:projectId/execution-budget/apply-amendment - 契約変更反映
+  // Task 7.2: 契約変更反映のルーター実装
+  // Requirements: 19.2, 19.9
+  // =================================================================
+  describe('POST /api/projects/:projectId/execution-budget/apply-amendment', () => {
+    const amendmentContractId = '550e8400-e29b-41d4-a716-446655440050';
+
+    const mockApplyAmendmentResult = {
+      addedCount: 2,
+      modifiedCount: 1,
+      deletedCount: 0,
+      previousContractAmount: '10000000',
+      newContractAmount: '12000000',
+    };
+
+    it('変更契約を実行予算に反映できること（200 OK）', async () => {
+      mockApplyAmendment.mockResolvedValue(mockApplyAmendmentResult);
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/execution-budget/apply-amendment`)
+        .send({ contractId: amendmentContractId })
+        .expect(200);
+
+      expect(res.body.addedCount).toBe(2);
+      expect(res.body.modifiedCount).toBe(1);
+      expect(res.body.previousContractAmount).toBe('10000000');
+      expect(res.body.newContractAmount).toBe('12000000');
+      expect(mockApplyAmendment).toHaveBeenCalledWith(projectId, amendmentContractId);
+    });
+
+    it('contractIdが不正な形式で400エラーが返ること', async () => {
+      await request(app)
+        .post(`/api/projects/${projectId}/execution-budget/apply-amendment`)
+        .send({ contractId: 'invalid-uuid' })
+        .expect(400);
+    });
+
+    it('contractIdが未指定で400エラーが返ること', async () => {
+      await request(app)
+        .post(`/api/projects/${projectId}/execution-budget/apply-amendment`)
+        .send({})
+        .expect(400);
+    });
+
+    it('実行予算が存在しない場合404エラーが返ること', async () => {
+      mockApplyAmendment.mockRejectedValue(new ExecutionBudgetNotFoundError());
+
+      await request(app)
+        .post(`/api/projects/${projectId}/execution-budget/apply-amendment`)
+        .send({ contractId: amendmentContractId })
+        .expect(404);
+    });
+
+    it('変更契約が存在しない場合404エラーが返ること', async () => {
+      mockApplyAmendment.mockRejectedValue(new AmendmentContractNotFoundError(amendmentContractId));
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/execution-budget/apply-amendment`)
+        .send({ contractId: amendmentContractId })
+        .expect(404);
+
+      expect(res.body.status).toBe(404);
+    });
+
+    it('変更契約が既に反映済みの場合409エラーが返ること', async () => {
+      mockApplyAmendment.mockRejectedValue(new AmendmentAlreadyAppliedError(amendmentContractId));
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/execution-budget/apply-amendment`)
+        .send({ contractId: amendmentContractId })
         .expect(409);
 
       expect(res.body.status).toBe(409);

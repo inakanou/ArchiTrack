@@ -24,6 +24,8 @@ import {
   ExecutionBudgetNotFoundError,
   ExecutionBudgetConflictError,
   ExecutionBudgetDeletionBlockedError,
+  AmendmentContractNotFoundError,
+  AmendmentAlreadyAppliedError,
 } from '../errors/executionBudgetError.js';
 
 /**
@@ -116,6 +118,54 @@ export interface ExecutionBudgetWithItemsResult {
   items: ExecutionBudgetItemWithCalculations[];
   totals: ExecutionBudgetTotals;
   orderProgressRate: number;
+}
+
+/**
+ * 未反映変更契約情報
+ */
+export interface UnreflectedAmendment {
+  id: string;
+  contractType: string;
+  status: string;
+  estimateId: string | null;
+  contractAmount: string | null;
+  estimateName: string | null;
+}
+
+/**
+ * 変更契約の項目差分
+ */
+export interface AmendmentDiff {
+  addedItems: Array<{
+    estimateItemId: string;
+    name: string | null;
+    specification: string | null;
+    unit: string | null;
+    quantity: string | null;
+    executionUnitPrice: string | null;
+    executionAmount: string | null;
+  }>;
+  modifiedItems: Array<{
+    budgetItemId: string;
+    estimateItemId: string;
+    name: string | null;
+    oldQuantity: string | null;
+    newQuantity: string | null;
+    oldExecutionAmount: string | null;
+    newExecutionAmount: string | null;
+  }>;
+  contractAmount: string | null;
+}
+
+/**
+ * 変更契約反映結果
+ */
+export interface ApplyAmendmentResult {
+  addedCount: number;
+  modifiedCount: number;
+  deletedCount: number;
+  previousContractAmount: string | null;
+  newContractAmount: string | null;
 }
 
 /**
@@ -603,6 +653,414 @@ export class ExecutionBudgetService {
   }
 
   /**
+   * 同一プロジェクト内の未反映変更契約一覧を取得する
+   *
+   * Requirements: 15.1
+   *
+   * @param projectId - プロジェクトID
+   * @returns 未反映の変更契約一覧
+   * @throws ExecutionBudgetNotFoundError 実行予算が存在しない場合
+   */
+  async getUnreflectedAmendments(projectId: string): Promise<UnreflectedAmendment[]> {
+    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      // 1. 実行予算の存在チェック
+      const budget = await tx.executionBudget.findFirst({
+        where: { projectId, deletedAt: null },
+      });
+
+      if (!budget) {
+        throw new ExecutionBudgetNotFoundError();
+      }
+
+      // 2. 同一プロジェクト内の変更契約（AMENDMENT型、契約済）を取得
+      const amendmentContracts = await (
+        tx as unknown as {
+          contract: { findMany: (args: unknown) => Promise<AmendmentContractData[]> };
+        }
+      ).contract.findMany({
+        where: {
+          projectId,
+          contractType: 'AMENDMENT',
+          status: 'CONTRACTED',
+          deletedAt: null,
+        },
+        include: {
+          estimate: {
+            select: { name: true },
+          },
+        },
+      });
+
+      // 3. 既に反映済みの変更契約を除外
+      const unreflected: UnreflectedAmendment[] = [];
+      for (const contract of amendmentContracts) {
+        const alreadyApplied = await tx.amendmentApplyHistory.findFirst({
+          where: {
+            executionBudgetId: budget.id,
+            contractId: contract.id,
+          },
+        });
+
+        if (!alreadyApplied) {
+          unreflected.push({
+            id: contract.id,
+            contractType: contract.contractType,
+            status: contract.status,
+            estimateId: contract.estimateId ?? null,
+            contractAmount: contract.contractAmount?.toString() ?? null,
+            estimateName: contract.estimate?.name ?? null,
+          });
+        }
+      }
+
+      return unreflected;
+    });
+  }
+
+  /**
+   * 変更契約に紐づく見積書の項目差分を算出し表示データを返却する
+   *
+   * Requirements: 15.2
+   *
+   * @param projectId - プロジェクトID
+   * @param contractId - 変更契約ID
+   * @returns 項目差分データ
+   */
+  async getAmendmentDiff(projectId: string, contractId: string): Promise<AmendmentDiff> {
+    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      // 1. 実行予算の存在チェック
+      const budget = await tx.executionBudget.findFirst({
+        where: { projectId, deletedAt: null },
+      });
+
+      if (!budget) {
+        throw new ExecutionBudgetNotFoundError();
+      }
+
+      // 2. 変更契約の取得
+      const contract = await (
+        tx as unknown as {
+          contract: { findUnique: (args: unknown) => Promise<AmendmentContractDetailData | null> };
+        }
+      ).contract.findUnique({
+        where: { id: contractId },
+      });
+
+      if (!contract || contract.deletedAt !== null || contract.contractType !== 'AMENDMENT') {
+        throw new AmendmentContractNotFoundError(contractId);
+      }
+
+      // 3. 変更契約に紐づく見積書の項目を取得
+      const estimate = await tx.estimate.findUnique({
+        where: { id: contract.estimateId! },
+        include: {
+          items: {
+            orderBy: [{ parentId: 'asc' }, { displayOrder: 'asc' }],
+            include: { lines: true },
+          },
+        },
+      });
+
+      // 4. 既存の実行予算項目を取得
+      const existingItems = await tx.executionBudgetItem.findMany({
+        where: { executionBudgetId: budget.id },
+      });
+
+      // estimateItemIdでマッピング
+      const existingByEstimateItemId = new Map<string, ExistingBudgetItemData>();
+      for (const item of existingItems as unknown as ExistingBudgetItemData[]) {
+        if (item.estimateItemId) {
+          existingByEstimateItemId.set(item.estimateItemId, item);
+        }
+      }
+
+      // 5. 差分を算出
+      const addedItems: AmendmentDiff['addedItems'] = [];
+      const modifiedItems: AmendmentDiff['modifiedItems'] = [];
+
+      if (estimate?.items) {
+        for (const amendItem of estimate.items as unknown as EstimateItemData[]) {
+          const executionLine = amendItem.lines.find((l) => l.lineType === 'EXECUTION');
+          const existing = existingByEstimateItemId.get(amendItem.id);
+
+          if (!existing) {
+            // 新規項目
+            addedItems.push({
+              estimateItemId: amendItem.id,
+              name: executionLine?.name ?? null,
+              specification: executionLine?.specification ?? null,
+              unit: executionLine?.unit ?? null,
+              quantity: executionLine?.quantity?.toString() ?? null,
+              executionUnitPrice: executionLine?.unitPrice?.toString() ?? null,
+              executionAmount: executionLine?.amount?.toString() ?? null,
+            });
+          } else {
+            // 既存項目の変更チェック
+            const newAmount = executionLine?.amount?.toString() ?? null;
+            const oldAmount = existing.executionAmount?.toString() ?? null;
+            const newQty = executionLine?.quantity?.toString() ?? null;
+            const oldQty = existing.quantity?.toString() ?? null;
+
+            if (newAmount !== oldAmount || newQty !== oldQty) {
+              modifiedItems.push({
+                budgetItemId: existing.id,
+                estimateItemId: amendItem.id,
+                name: executionLine?.name ?? null,
+                oldQuantity: oldQty,
+                newQuantity: newQty,
+                oldExecutionAmount: oldAmount,
+                newExecutionAmount: newAmount,
+              });
+            }
+          }
+        }
+      }
+
+      return {
+        addedItems,
+        modifiedItems,
+        contractAmount: contract.contractAmount?.toString() ?? null,
+      };
+    });
+  }
+
+  /**
+   * 変更契約を実行予算に反映する
+   *
+   * トランザクション内で以下を実行:
+   * 1. 実行予算の存在チェック
+   * 2. 変更契約の存在・反映済みチェック
+   * 3. 変更契約に紐づく見積書の項目を取得
+   * 4. 新規項目の追加・既存項目の更新・削除対象の処理
+   * 5. 変更反映履歴の記録
+   *
+   * Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8
+   *
+   * @param projectId - プロジェクトID
+   * @param contractId - 変更契約ID
+   * @returns 反映結果
+   * @throws ExecutionBudgetNotFoundError 実行予算が存在しない場合
+   * @throws AmendmentContractNotFoundError 変更契約が存在しない場合
+   * @throws AmendmentAlreadyAppliedError 変更契約が既に反映済みの場合
+   */
+  async applyAmendment(projectId: string, contractId: string): Promise<ApplyAmendmentResult> {
+    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      // 1. 実行予算の存在チェック
+      const budget = await tx.executionBudget.findFirst({
+        where: { projectId, deletedAt: null },
+        include: {
+          contract: {
+            select: { contractAmount: true },
+          },
+        },
+      });
+
+      if (!budget) {
+        throw new ExecutionBudgetNotFoundError();
+      }
+
+      // 2. 変更契約の取得と検証
+      const amendmentContract = await (
+        tx as unknown as {
+          contract: {
+            findUnique: (args: unknown) => Promise<AmendmentContractWithEstimateData | null>;
+          };
+        }
+      ).contract.findUnique({
+        where: { id: contractId },
+        include: {
+          estimate: {
+            select: { name: true },
+          },
+        },
+      });
+
+      if (
+        !amendmentContract ||
+        amendmentContract.deletedAt !== null ||
+        amendmentContract.contractType !== 'AMENDMENT'
+      ) {
+        throw new AmendmentContractNotFoundError(contractId);
+      }
+
+      // 3. 反映済みチェック
+      const alreadyApplied = await tx.amendmentApplyHistory.findFirst({
+        where: {
+          executionBudgetId: budget.id,
+          contractId,
+        },
+      });
+
+      if (alreadyApplied) {
+        throw new AmendmentAlreadyAppliedError(contractId);
+      }
+
+      // 4. 変更契約の見積書の項目を取得
+      const estimate = amendmentContract.estimateId
+        ? await tx.estimate.findUnique({
+            where: { id: amendmentContract.estimateId },
+            include: {
+              items: {
+                orderBy: [{ parentId: 'asc' }, { displayOrder: 'asc' }],
+                include: { lines: true },
+              },
+            },
+          })
+        : null;
+
+      // 5. 既存の実行予算項目を取得（発注・出来高情報含む）
+      const existingItems = await tx.executionBudgetItem.findMany({
+        where: { executionBudgetId: budget.id },
+        include: {
+          orderItems: {
+            include: {
+              order: { select: { status: true, deletedAt: true } },
+            },
+          },
+          progressRecordItems: true,
+        },
+      });
+
+      const existingByEstimateItemId = new Map<string, RawExistingItemWithRelations>();
+      for (const item of existingItems as unknown as RawExistingItemWithRelations[]) {
+        if (item.estimateItemId) {
+          existingByEstimateItemId.set(item.estimateItemId, item);
+        }
+      }
+
+      // 6. 変更契約の見積項目IDのセット
+      const amendmentEstimateItemIds = new Set<string>();
+      const amendmentItems = (estimate?.items as unknown as EstimateItemData[]) ?? [];
+      for (const item of amendmentItems) {
+        amendmentEstimateItemIds.add(item.id);
+      }
+
+      let addedCount = 0;
+      let modifiedCount = 0;
+      let deletedCount = 0;
+
+      // 7. 新規項目の追加と既存項目の更新
+      const newItemsData = [];
+      for (const amendItem of amendmentItems) {
+        const executionLine = amendItem.lines.find((l) => l.lineType === 'EXECUTION');
+        const estimateLine = amendItem.lines.find((l) => l.lineType === 'ESTIMATE');
+        const existing = existingByEstimateItemId.get(amendItem.id);
+
+        if (!existing) {
+          // 新規項目の追加
+          const primaryLine = executionLine || estimateLine;
+          newItemsData.push({
+            executionBudgetId: budget.id,
+            estimateItemId: amendItem.id,
+            parentId: null as string | null,
+            displayOrder: amendItem.displayOrder,
+            name: primaryLine?.name ?? null,
+            specification: primaryLine?.specification ?? null,
+            unit: primaryLine?.unit ?? null,
+            quantity: estimateLine?.quantity ? estimateLine.quantity.toString() : null,
+            estimateUnitPrice: estimateLine?.unitPrice ? estimateLine.unitPrice.toString() : null,
+            estimateAmount: estimateLine?.amount ? estimateLine.amount.toString() : null,
+            executionUnitPrice: executionLine?.unitPrice
+              ? executionLine.unitPrice.toString()
+              : null,
+            executionAmount: executionLine?.amount ? executionLine.amount.toString() : null,
+            amendmentAmount: executionLine?.amount ? executionLine.amount.toString() : '0',
+          });
+          addedCount++;
+        } else {
+          // 既存項目の数量・金額更新
+          const newAmount = executionLine?.amount?.toString() ?? null;
+          const newQty = executionLine?.quantity?.toString() ?? null;
+          const newUnitPrice = executionLine?.unitPrice?.toString() ?? null;
+          const oldAmount = existing.executionAmount?.toString() ?? '0';
+
+          // 変更金額 = 新実行金額 - 旧実行金額
+          const amendmentAmount = newAmount
+            ? new Decimal(newAmount).sub(new Decimal(oldAmount)).toFixed(0)
+            : '0';
+
+          await tx.executionBudgetItem.update({
+            where: { id: existing.id },
+            data: {
+              quantity: newQty,
+              executionUnitPrice: newUnitPrice,
+              executionAmount: newAmount,
+              amendmentAmount,
+            },
+          });
+          modifiedCount++;
+        }
+      }
+
+      // 新規項目の一括作成
+      if (newItemsData.length > 0) {
+        await tx.executionBudgetItem.createMany({
+          data: newItemsData,
+        });
+      }
+
+      // 8. 変更契約の見積項目に含まれない既存項目の処理（削除対象）
+      for (const [estimateItemId, existingItem] of existingByEstimateItemId) {
+        if (!amendmentEstimateItemIds.has(estimateItemId) && !existingItem.deletedAt) {
+          const hasOrderedItems = existingItem.orderItems?.some(
+            (oi: { checked: boolean; order: { status: string; deletedAt: Date | null } | null }) =>
+              oi.checked && oi.order?.status === 'ORDERED' && !oi.order.deletedAt
+          );
+          const hasProgressItems =
+            existingItem.progressRecordItems && existingItem.progressRecordItems.length > 0;
+
+          if (hasOrderedItems || hasProgressItems) {
+            // 発注済みまたは出来高入力済み → AMENDMENT_DELETEDステータスを付与
+            await tx.executionBudgetItem.update({
+              where: { id: existingItem.id },
+              data: { amendmentStatus: 'AMENDMENT_DELETED' },
+            });
+          } else {
+            // 未発注かつ出来高未入力 → 論理削除
+            await tx.executionBudgetItem.update({
+              where: { id: existingItem.id },
+              data: { deletedAt: new Date() },
+            });
+          }
+          deletedCount++;
+        }
+      }
+
+      // 9. 変更反映履歴の記録 (Req 15.8)
+      const contractName = amendmentContract.estimate?.name ?? `変更契約 ${contractId}`;
+      await tx.amendmentApplyHistory.create({
+        data: {
+          executionBudgetId: budget.id,
+          contractId,
+          contractName,
+        },
+      });
+
+      // 10. バージョンインクリメント
+      await tx.executionBudget.update({
+        where: { id: budget.id },
+        data: { version: { increment: 1 } },
+      });
+
+      // 変更前後の契約金額 (Req 15.6)
+      const budgetWithContract = budget as unknown as {
+        contract?: { contractAmount?: { toString(): string } };
+      };
+      const previousContractAmount =
+        budgetWithContract.contract?.contractAmount?.toString() ?? null;
+      const newContractAmount = amendmentContract.contractAmount?.toString() ?? null;
+
+      return {
+        addedCount,
+        modifiedCount,
+        deletedCount,
+        previousContractAmount,
+        newContractAmount,
+      };
+    });
+  }
+
+  /**
    * 項目とその子項目を再帰的に処理し、金額を計算する
    * @private
    */
@@ -833,4 +1291,83 @@ interface RawBudgetItem {
     orderAmount: { toString(): string } | null;
     order: { status: string; deletedAt: Date | null } | null;
   }>;
+}
+
+/**
+ * 変更契約データ（findMany結果）
+ * @private
+ */
+interface AmendmentContractData {
+  id: string;
+  projectId: string;
+  contractType: string;
+  status: string;
+  estimateId: string | null;
+  contractAmount: { toString(): string } | null;
+  deletedAt: Date | null;
+  estimate: { name: string } | null;
+}
+
+/**
+ * 変更契約詳細データ（findUnique結果）
+ * @private
+ */
+interface AmendmentContractDetailData {
+  id: string;
+  projectId: string;
+  contractType: string;
+  status: string;
+  estimateId: string | null;
+  contractAmount: { toString(): string } | null;
+  deletedAt: Date | null;
+}
+
+/**
+ * 変更契約（見積書名含む）データ
+ * @private
+ */
+interface AmendmentContractWithEstimateData {
+  id: string;
+  projectId: string;
+  contractType: string;
+  status: string;
+  estimateId: string | null;
+  contractAmount: { toString(): string } | null;
+  deletedAt: Date | null;
+  estimate: { name: string } | null;
+}
+
+/**
+ * 既存実行予算項目データ（差分算出用）
+ * @private
+ */
+interface ExistingBudgetItemData {
+  id: string;
+  executionBudgetId: string;
+  estimateItemId: string | null;
+  name: string | null;
+  quantity: { toString(): string } | null;
+  executionUnitPrice: { toString(): string } | null;
+  executionAmount: { toString(): string } | null;
+  amendmentAmount: { toString(): string } | null;
+}
+
+/**
+ * 既存実行予算項目データ（発注・出来高リレーション含む）
+ * @private
+ */
+interface RawExistingItemWithRelations {
+  id: string;
+  executionBudgetId: string;
+  estimateItemId: string | null;
+  name: string | null;
+  executionAmount: { toString(): string } | null;
+  amendmentAmount: { toString(): string } | null;
+  amendmentStatus: string | null;
+  deletedAt: Date | null;
+  orderItems: Array<{
+    checked: boolean;
+    order: { status: string; deletedAt: Date | null } | null;
+  }>;
+  progressRecordItems: Array<{ id: string }>;
 }

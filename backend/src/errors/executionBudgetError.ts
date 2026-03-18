@@ -97,6 +97,44 @@ export class ExecutionBudgetDeletionBlockedError extends ApiError {
 }
 
 /**
+ * 変更契約未検出エラー
+ * 404 Not Found - 指定された変更契約が存在しないか、AMENDMENT型でない場合
+ *
+ * Requirement: 15.1
+ */
+export class AmendmentContractNotFoundError extends ApiError {
+  constructor(contractId?: string) {
+    super(
+      404,
+      '指定された変更契約が見つかりません',
+      'AMENDMENT_CONTRACT_NOT_FOUND',
+      contractId ? { contractId } : undefined,
+      PROBLEM_TYPES.NOT_FOUND
+    );
+    this.name = 'AmendmentContractNotFoundError';
+  }
+}
+
+/**
+ * 変更契約反映済みエラー
+ * 409 Conflict - 指定された変更契約が既に実行予算に反映済みの場合
+ *
+ * Requirement: 15.1
+ */
+export class AmendmentAlreadyAppliedError extends ApiError {
+  constructor(contractId?: string) {
+    super(
+      409,
+      'この変更契約は既に反映済みです',
+      'AMENDMENT_ALREADY_APPLIED',
+      contractId ? { contractId } : undefined,
+      PROBLEM_TYPES.CONFLICT
+    );
+    this.name = 'AmendmentAlreadyAppliedError';
+  }
+}
+
+/**
  * 月次締め重複エラー
  * 409 Conflict - 同一月に対して既に月次締めが実行済みの場合
  *

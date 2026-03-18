@@ -26,8 +26,10 @@ import logger from '../utils/logger.js';
 import {
   createExecutionBudgetSchema,
   updateExecutionBudgetItemSchema,
+  applyAmendmentSchema,
   type CreateExecutionBudgetInput,
   type UpdateExecutionBudgetItemInput,
+  type ApplyAmendmentInput,
 } from '../schemas/execution-budget.schema.js';
 import {
   ExecutionBudgetAlreadyExistsError,
@@ -35,6 +37,8 @@ import {
   ExecutionBudgetNotFoundError,
   ExecutionBudgetConflictError,
   ExecutionBudgetDeletionBlockedError,
+  AmendmentContractNotFoundError,
+  AmendmentAlreadyAppliedError,
 } from '../errors/executionBudgetError.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
@@ -207,6 +211,67 @@ router.patch(
         return;
       }
       if (error instanceof ExecutionBudgetConflictError) {
+        res.status(409).json({
+          status: 409,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+// ==========================================
+// 契約変更反映 POST /api/projects/:projectId/execution-budget/apply-amendment
+// Task 7.2: 契約変更反映のルーター実装
+// Requirements: 19.2, 19.9
+// ==========================================
+router.post(
+  '/apply-amendment',
+  authenticate,
+  requirePermission('execution_budget:write'),
+  validate(applyAmendmentSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const projectId = req.params.projectId;
+      if (!projectId) {
+        res.status(400).json({
+          status: 400,
+          detail: 'プロジェクトIDが必要です',
+        });
+        return;
+      }
+
+      const { contractId } = req.validatedBody as ApplyAmendmentInput;
+
+      const result = await executionBudgetService.applyAmendment(projectId, contractId);
+
+      logger.info(
+        { projectId, contractId, userId: req.user?.userId },
+        'Amendment applied to execution budget'
+      );
+
+      res.json(result);
+    } catch (error) {
+      if (error instanceof ExecutionBudgetNotFoundError) {
+        res.status(404).json({
+          status: 404,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      if (error instanceof AmendmentContractNotFoundError) {
+        res.status(404).json({
+          status: 404,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      if (error instanceof AmendmentAlreadyAppliedError) {
         res.status(409).json({
           status: 409,
           detail: error.message,

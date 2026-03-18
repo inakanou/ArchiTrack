@@ -1499,15 +1499,41 @@ model ExecutionBudget {
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
 
-  project               Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  contract              Contract              @relation(fields: [contractId], references: [id])
-  items                 ExecutionBudgetItem[]
-  orders                Order[]
-  progressRecords       ProgressRecord[]
-  monthlyCloseHistories MonthlyCloseHistory[]
+  project                 Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract                Contract                @relation(fields: [contractId], references: [id])
+  items                   ExecutionBudgetItem[]
+  orders                  Order[]
+  progressRecords         ProgressRecord[]
+  monthlyCloseHistories   MonthlyCloseHistory[]
+  amendmentApplyHistories AmendmentApplyHistory[]
 
   @@index([contractId])
   @@map("execution_budgets")
+}
+
+/**
+ * 変更契約反映履歴モデル
+ * 実行予算に対して変更契約を反映した履歴を記録する。
+ * フィールド:
+ * - id: 履歴ID（UUID）
+ * - executionBudgetId: 実行予算ID（外部キー、カスケード削除）
+ * - contractId: 反映した変更契約ID（外部キー）
+ * - contractName: 変更契約名（スナップショット）
+ * - appliedAt: 適用日時
+ * Requirements (execution-budget-management):
+ * - 15.8: 変更反映の履歴（適用日時、変更契約名）を記録する
+ */
+model AmendmentApplyHistory {
+  id                String   @id @default(uuid())
+  executionBudgetId String
+  contractId        String
+  contractName      String
+  appliedAt         DateTime @default(now())
+
+  executionBudget ExecutionBudget @relation(fields: [executionBudgetId], references: [id], onDelete: Cascade)
+
+  @@index([executionBudgetId])
+  @@map("amendment_apply_histories")
 }
 
 /**
@@ -1560,6 +1586,7 @@ model ExecutionBudgetItem {
   remarks              String?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
+  deletedAt            DateTime?
 
   executionBudget     ExecutionBudget       @relation(fields: [executionBudgetId], references: [id], onDelete: Cascade)
   estimateItem        EstimateItem?         @relation(fields: [estimateItemId], references: [id], onDelete: SetNull)

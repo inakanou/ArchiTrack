@@ -172,6 +172,27 @@ export const updateExecutionBudgetItemSchema = z.object({
 export type UpdateExecutionBudgetItemInput = z.infer<typeof updateExecutionBudgetItemSchema>;
 
 // ========================================
+// 契約変更反映スキーマ
+// ========================================
+
+/**
+ * 契約変更反映入力スキーマ
+ *
+ * Requirements: 15.1-15.8（契約変更への対応）
+ */
+export const applyAmendmentSchema = z.object({
+  contractId: z
+    .string()
+    .min(1, EXECUTION_BUDGET_VALIDATION_MESSAGES.CONTRACT_ID_REQUIRED)
+    .regex(UUID_REGEX, EXECUTION_BUDGET_VALIDATION_MESSAGES.CONTRACT_ID_INVALID_UUID),
+});
+
+/**
+ * 契約変更反映入力の型
+ */
+export type ApplyAmendmentInput = z.infer<typeof applyAmendmentSchema>;
+
+// ========================================
 // 発注スキーマ
 // ========================================
 
