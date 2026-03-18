@@ -248,8 +248,8 @@
   - Excel・PDFエクスポートボタンを実装する
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5_
 
-- [ ] 11. アクセス制御とパーミッション設定
-- [ ] 11.1 実行予算関連のパーミッション定義とミドルウェア適用
+- [x] 11. アクセス制御とパーミッション設定
+- [x] 11.1 実行予算関連のパーミッション定義とミドルウェア適用
   - execution_budget:read、execution_budget:write、order:read、order:write、progress:read、progress:write、cost:write、monthly_close:writeの各パーミッションを定義する
   - VIEWER以上のロールに閲覧系パーミッションを許可する
   - EDITOR以上のロールに作成・編集・削除系パーミッションを許可する

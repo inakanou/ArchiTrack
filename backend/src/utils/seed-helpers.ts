@@ -441,6 +441,56 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '工程表の削除',
     },
+
+    // 実行予算関連権限（execution-budget-management/REQ-17.1, 17.2）
+    {
+      resource: 'execution_budget',
+      action: 'read',
+      description: '実行予算の閲覧',
+    },
+    {
+      resource: 'execution_budget',
+      action: 'write',
+      description: '実行予算の作成・編集・削除',
+    },
+
+    // 発注関連権限（execution-budget-management/REQ-17.3）
+    {
+      resource: 'order',
+      action: 'read',
+      description: '発注の閲覧',
+    },
+    {
+      resource: 'order',
+      action: 'write',
+      description: '発注の作成・編集・削除・ステータス変更',
+    },
+
+    // 出来高関連権限（execution-budget-management/REQ-17.4）
+    {
+      resource: 'progress',
+      action: 'read',
+      description: '出来高の閲覧',
+    },
+    {
+      resource: 'progress',
+      action: 'write',
+      description: '出来高の入力・編集・削除',
+    },
+
+    // 原価関連権限（execution-budget-management/REQ-17.5）
+    {
+      resource: 'cost',
+      action: 'write',
+      description: '原価（支出実績）の入力',
+    },
+
+    // 月次締め関連権限（execution-budget-management/REQ-17.5）
+    {
+      resource: 'monthly_close',
+      action: 'write',
+      description: '月次締めの実行',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -561,6 +611,18 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'schedule', action: 'read' },
     { resource: 'schedule', action: 'update' },
     { resource: 'schedule', action: 'delete' },
+    // 実行予算関連権限（execution-budget-management/REQ-17.1-17.5）
+    // 一般ユーザー（EDITOR相当）は実行予算の全操作が可能
+    // VIEWER以上: 閲覧系（read）パーミッション
+    // EDITOR以上: 書き込み系（write）パーミッション
+    { resource: 'execution_budget', action: 'read' },
+    { resource: 'execution_budget', action: 'write' },
+    { resource: 'order', action: 'read' },
+    { resource: 'order', action: 'write' },
+    { resource: 'progress', action: 'read' },
+    { resource: 'progress', action: 'write' },
+    { resource: 'cost', action: 'write' },
+    { resource: 'monthly_close', action: 'write' },
   ];
 
   // 権限IDを一括取得
