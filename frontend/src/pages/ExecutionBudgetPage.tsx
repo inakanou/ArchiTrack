@@ -376,21 +376,13 @@ function TreeRow({
         {/* 数量 */}
         <td style={{ ...styles.td, ...styles.tdRight }}>{item.quantity || ''}</td>
         {/* 見積単価 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.estimateUnitPrice)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.estimateUnitPrice)}</td>
         {/* 見積金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.estimateAmount)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.estimateAmount)}</td>
         {/* 実行単価 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.executionUnitPrice)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.executionUnitPrice)}</td>
         {/* 実行金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.executionAmount)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.executionAmount)}</td>
         {/* 変更金額 */}
         <td
           style={{
@@ -404,20 +396,14 @@ function TreeRow({
         {/* 発注予定取引先 */}
         <td style={styles.td}>{item.plannedVendorName || ''}</td>
         {/* 発注金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.orderAmount)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.orderAmount)}</td>
         {/* 発注ステータス */}
         <td style={styles.td}>
           {item.orderStatus === 'ORDERED' && (
-            <span style={{ ...styles.statusBadge, ...styles.orderedBadge }}>
-              発注済
-            </span>
+            <span style={{ ...styles.statusBadge, ...styles.orderedBadge }}>発注済</span>
           )}
           {item.orderStatus && item.orderStatus !== 'ORDERED' && (
-            <span style={styles.statusBadge}>
-              {getOrderStatusLabel(item.orderStatus)}
-            </span>
+            <span style={styles.statusBadge}>{getOrderStatusLabel(item.orderStatus)}</span>
           )}
         </td>
         {/* 先月までの支出 */}
@@ -448,13 +434,9 @@ function TreeRow({
           {formatAmount(remaining)}
         </td>
         {/* 出来高金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.progressAmount)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.progressAmount)}</td>
         {/* 出来高率 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatRate(item.progressRate)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatRate(item.progressRate)}</td>
         {/* 備考 */}
         <td style={styles.td}>{item.remarks || ''}</td>
       </tr>
@@ -643,9 +625,9 @@ export function ExecutionBudgetPage() {
                       value={contract.id}
                       checked={selectedContractId === contract.id}
                       onChange={() => setSelectedContractId(contract.id)}
-                    />
-                    {' '}
-                    {contract.estimateName || '(名称なし)'} - {formatAmount(contract.contractAmount)}円
+                    />{' '}
+                    {contract.estimateName || '(名称なし)'} -{' '}
+                    {formatAmount(contract.contractAmount)}円
                   </label>
                 ))}
               </div>
@@ -719,7 +701,9 @@ export function ExecutionBudgetPage() {
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>実行金額合計</span>
-          <span style={styles.infoValue}>{formatAmount(budget.summary.totalExecutionAmount)}円</span>
+          <span style={styles.infoValue}>
+            {formatAmount(budget.summary.totalExecutionAmount)}円
+          </span>
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>利益見込額</span>
@@ -886,9 +870,7 @@ export function ExecutionBudgetPage() {
           <div style={styles.dialog} role="dialog" aria-label="削除確認">
             <h3 style={styles.dialogTitle}>実行予算の削除</h3>
             <p>この実行予算を削除してもよろしいですか？</p>
-            {deleteError && (
-              <p style={{ color: '#dc2626', marginTop: '8px' }}>{deleteError}</p>
-            )}
+            {deleteError && <p style={{ color: '#dc2626', marginTop: '8px' }}>{deleteError}</p>}
             <div style={styles.dialogActions}>
               <button
                 style={{ ...styles.button, ...styles.secondaryButton }}
@@ -899,10 +881,7 @@ export function ExecutionBudgetPage() {
               >
                 キャンセル
               </button>
-              <button
-                style={{ ...styles.button, ...styles.dangerButton }}
-                onClick={handleDelete}
-              >
+              <button style={{ ...styles.button, ...styles.dangerButton }} onClick={handleDelete}>
                 削除する
               </button>
             </div>

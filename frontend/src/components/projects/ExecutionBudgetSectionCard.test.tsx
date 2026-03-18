@@ -46,11 +46,7 @@ describe('ExecutionBudgetSectionCard', () => {
   describe('実行予算が存在しない場合', () => {
     it('セクションタイトル「実行予算」を表示する', () => {
       renderWithRouter(
-        <ExecutionBudgetSectionCard
-          projectId={projectId}
-          budgetInfo={null}
-          isLoading={false}
-        />
+        <ExecutionBudgetSectionCard projectId={projectId} budgetInfo={null} isLoading={false} />
       );
 
       expect(screen.getByText('実行予算')).toBeInTheDocument();
@@ -58,11 +54,7 @@ describe('ExecutionBudgetSectionCard', () => {
 
     it('「実行予算はまだ作成されていません」メッセージを表示する', () => {
       renderWithRouter(
-        <ExecutionBudgetSectionCard
-          projectId={projectId}
-          budgetInfo={null}
-          isLoading={false}
-        />
+        <ExecutionBudgetSectionCard projectId={projectId} budgetInfo={null} isLoading={false} />
       );
 
       expect(screen.getByText('実行予算はまだ作成されていません')).toBeInTheDocument();
@@ -70,11 +62,7 @@ describe('ExecutionBudgetSectionCard', () => {
 
     it('作成ボタンを表示する', () => {
       renderWithRouter(
-        <ExecutionBudgetSectionCard
-          projectId={projectId}
-          budgetInfo={null}
-          isLoading={false}
-        />
+        <ExecutionBudgetSectionCard projectId={projectId} budgetInfo={null} isLoading={false} />
       );
 
       expect(screen.getByText('新規作成')).toBeInTheDocument();
@@ -154,21 +142,14 @@ describe('ExecutionBudgetSectionCard', () => {
 
       const link = screen.getByText('詳細を見る');
       expect(link).toBeInTheDocument();
-      expect(link.closest('a')).toHaveAttribute(
-        'href',
-        `/projects/${projectId}/execution-budget`
-      );
+      expect(link.closest('a')).toHaveAttribute('href', `/projects/${projectId}/execution-budget`);
     });
   });
 
   describe('ローディング状態', () => {
     it('スケルトンローダーを表示する', () => {
       renderWithRouter(
-        <ExecutionBudgetSectionCard
-          projectId={projectId}
-          budgetInfo={null}
-          isLoading={true}
-        />
+        <ExecutionBudgetSectionCard projectId={projectId} budgetInfo={null} isLoading={true} />
       );
 
       expect(screen.getByTestId('execution-budget-section-skeleton')).toBeInTheDocument();
@@ -176,11 +157,7 @@ describe('ExecutionBudgetSectionCard', () => {
 
     it('ローディング中はコンテンツを非表示にする', () => {
       renderWithRouter(
-        <ExecutionBudgetSectionCard
-          projectId={projectId}
-          budgetInfo={null}
-          isLoading={true}
-        />
+        <ExecutionBudgetSectionCard projectId={projectId} budgetInfo={null} isLoading={true} />
       );
 
       expect(screen.queryByText('実行予算はまだ作成されていません')).not.toBeInTheDocument();

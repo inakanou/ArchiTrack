@@ -273,9 +273,7 @@ export async function updateItemCost(
  * 発注一覧を取得
  */
 export async function getOrders(projectId: string): Promise<OrderSummary[]> {
-  return apiClient.get<OrderSummary[]>(
-    `/api/projects/${projectId}/execution-budget/orders`
-  );
+  return apiClient.get<OrderSummary[]>(`/api/projects/${projectId}/execution-budget/orders`);
 }
 
 /**
@@ -294,9 +292,7 @@ export async function executeMonthlyClose(
 /**
  * 月次締め履歴を取得
  */
-export async function getMonthlyCloseHistory(
-  projectId: string
-): Promise<MonthlyCloseHistory[]> {
+export async function getMonthlyCloseHistory(projectId: string): Promise<MonthlyCloseHistory[]> {
   return apiClient.get<MonthlyCloseHistory[]>(
     `/api/projects/${projectId}/execution-budget/monthly-close`
   );
@@ -305,9 +301,7 @@ export async function getMonthlyCloseHistory(
 /**
  * 未反映変更契約一覧を取得
  */
-export async function getUnreflectedAmendments(
-  projectId: string
-): Promise<UnreflectedAmendment[]> {
+export async function getUnreflectedAmendments(projectId: string): Promise<UnreflectedAmendment[]> {
   return apiClient.get<UnreflectedAmendment[]>(
     `/api/projects/${projectId}/execution-budget/unreflected-amendments`
   );

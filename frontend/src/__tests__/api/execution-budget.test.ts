@@ -160,9 +160,7 @@ describe('execution-budget API client', () => {
 
       const result = await getExecutionBudget(projectId);
 
-      expect(apiClient.get).toHaveBeenCalledWith(
-        `/api/projects/${projectId}/execution-budget`
-      );
+      expect(apiClient.get).toHaveBeenCalledWith(`/api/projects/${projectId}/execution-budget`);
       expect(result).toEqual(mockExecutionBudget);
     });
 
@@ -192,10 +190,9 @@ describe('execution-budget API client', () => {
 
       const result = await createExecutionBudget(projectId, { contractId: 'contract-1' });
 
-      expect(apiClient.post).toHaveBeenCalledWith(
-        `/api/projects/${projectId}/execution-budget`,
-        { contractId: 'contract-1' }
-      );
+      expect(apiClient.post).toHaveBeenCalledWith(`/api/projects/${projectId}/execution-budget`, {
+        contractId: 'contract-1',
+      });
       expect(result).toEqual(mockExecutionBudget);
     });
 
@@ -203,9 +200,9 @@ describe('execution-budget API client', () => {
       const mockError = new ApiError(409, 'Conflict');
       vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
 
-      await expect(
-        createExecutionBudget(projectId, { contractId: 'contract-1' })
-      ).rejects.toThrow(ApiError);
+      await expect(createExecutionBudget(projectId, { contractId: 'contract-1' })).rejects.toThrow(
+        ApiError
+      );
     });
   });
 
@@ -218,9 +215,7 @@ describe('execution-budget API client', () => {
 
       await deleteExecutionBudget(projectId);
 
-      expect(apiClient.delete).toHaveBeenCalledWith(
-        `/api/projects/${projectId}/execution-budget`
-      );
+      expect(apiClient.delete).toHaveBeenCalledWith(`/api/projects/${projectId}/execution-budget`);
     });
 
     it('発注済みの発注がある場合に400エラーをスローする', async () => {
@@ -335,9 +330,9 @@ describe('execution-budget API client', () => {
       const mockError = new ApiError(409, 'Conflict');
       vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
 
-      await expect(
-        executeMonthlyClose(projectId, { targetMonth: '2026-03' })
-      ).rejects.toThrow(ApiError);
+      await expect(executeMonthlyClose(projectId, { targetMonth: '2026-03' })).rejects.toThrow(
+        ApiError
+      );
     });
   });
 

@@ -41,10 +41,7 @@ const renderPage = (projectId = 'project-1') => {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}/execution-budget`]}>
       <Routes>
-        <Route
-          path="/projects/:projectId/execution-budget"
-          element={<ExecutionBudgetPage />}
-        />
+        <Route path="/projects/:projectId/execution-budget" element={<ExecutionBudgetPage />} />
       </Routes>
     </MemoryRouter>
   );
