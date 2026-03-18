@@ -469,7 +469,7 @@ export function ExecutionBudgetPage() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [monthlyHistory, setMonthlyHistory] = useState<MonthlyCloseHistory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [_error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [expandedState, setExpandedState] = useState<TreeItemState>({});
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -566,7 +566,7 @@ export function ExecutionBudgetPage() {
       const response = await getContracts(projectId);
       setContracts(response.contracts);
       setShowCreateDialog(true);
-    } catch (err) {
+    } catch {
       setError('契約書一覧の取得に失敗しました');
     }
   }, [projectId]);
