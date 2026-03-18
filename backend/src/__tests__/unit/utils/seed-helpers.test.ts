@@ -18,6 +18,13 @@
  *
  * Task 2.1: 取引先管理権限のシード登録テスト
  * Task 6.4: 現場調査アクセス制御権限のシード登録テスト
+ *
+ * Requirements (contract-management):
+ * - 13.1, 13.2, 13.3, 13.4: 契約書管理権限の定義
+ *   - contract:create, contract:read, contract:update, contract:delete権限
+ *   - 一般ユーザーロールへの契約書基本権限割り当て（削除権限は管理者のみ）
+ *
+ * Task 11.2: 契約書操作用の権限をシステムに定義する
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -795,6 +802,227 @@ describe('seedRolePermissions - 現場調査管理権限', () => {
 
       // 一般ユーザーロールにはsite_survey:delete権限が割り当てられていないことを確認
       expect(siteSurveyDeleteAssignment).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * 契約書権限のテスト（contract-management/REQ-13.1, 13.2, 13.3, 13.4）
+ * Task 11.2: 契約書操作用の権限をシステムに定義する
+ */
+describe('seedPermissions - 契約書管理権限', () => {
+  let mockPrisma: Partial<PrismaClient>;
+  let createManyData: Array<{ resource: string; action: string; description: string }>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    createManyData = [];
+    mockPrisma = {
+      permission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
+        findFirst: vi.fn().mockResolvedValue(null),
+      } as unknown as PrismaClient['permission'],
+      role: {
+        upsert: vi.fn().mockResolvedValue({}),
+        findUnique: vi.fn().mockResolvedValue({ id: 'role-id', name: 'admin' }),
+      } as unknown as PrismaClient['role'],
+      rolePermission: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  });
+
+  describe('契約書権限の定義（contract-management/REQ-13.3）', () => {
+    it('contract:create権限が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const contractCreatePerm = createManyData.find(
+        (perm) => perm.resource === 'contract' && perm.action === 'create'
+      );
+
+      expect(contractCreatePerm).toBeDefined();
+      expect(contractCreatePerm!.description).toBe('契約書の作成');
+    });
+
+    it('contract:read権限が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const contractReadPerm = createManyData.find(
+        (perm) => perm.resource === 'contract' && perm.action === 'read'
+      );
+
+      expect(contractReadPerm).toBeDefined();
+      expect(contractReadPerm!.description).toBe('契約書の閲覧');
+    });
+
+    it('contract:update権限が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const contractUpdatePerm = createManyData.find(
+        (perm) => perm.resource === 'contract' && perm.action === 'update'
+      );
+
+      expect(contractUpdatePerm).toBeDefined();
+      expect(contractUpdatePerm!.description).toBe('契約書の更新');
+    });
+
+    it('contract:delete権限が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const contractDeletePerm = createManyData.find(
+        (perm) => perm.resource === 'contract' && perm.action === 'delete'
+      );
+
+      expect(contractDeletePerm).toBeDefined();
+      expect(contractDeletePerm!.description).toBe('契約書の削除');
+    });
+
+    it('全4つの契約書権限が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const contractPermissions = createManyData.filter((perm) => perm.resource === 'contract');
+
+      expect(contractPermissions).toHaveLength(4);
+      const actions = contractPermissions.map((perm) => perm.action);
+      expect(actions).toContain('create');
+      expect(actions).toContain('read');
+      expect(actions).toContain('update');
+      expect(actions).toContain('delete');
+    });
+  });
+});
+
+describe('seedRolePermissions - 契約書管理権限', () => {
+  let mockPrisma: Partial<PrismaClient>;
+  let rolePermissionData: Array<{ roleId: string; permissionId: string }>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    rolePermissionData = [];
+  });
+
+  const createMockPrisma = (
+    userRoleId: string,
+    permissions: Array<{ id: string; resource: string; action: string }>
+  ) => {
+    return {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: userRoleId, name: 'user' };
+          return null;
+        }),
+      } as unknown as PrismaClient['role'],
+      permission: {
+        findFirst: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.resource === '*' && where.action === '*') {
+            return { id: 'all-perm-id', resource: '*', action: '*' };
+          }
+          return null;
+        }),
+        findMany: vi.fn().mockResolvedValue(permissions),
+      } as unknown as PrismaClient['permission'],
+      rolePermission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          rolePermissionData = [...rolePermissionData, ...data];
+          return { count: data.length };
+        }),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  };
+
+  describe('一般ユーザーロールへの契約書権限割り当て（contract-management/REQ-13.3）', () => {
+    it('一般ユーザーにcontract:create権限が割り当てられる', async () => {
+      const userRoleId = 'user-role-id';
+      const contractCreatePermissionId = 'contract-create-perm-id';
+
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: contractCreatePermissionId, resource: 'contract', action: 'create' },
+        { id: 'contract-read-perm-id', resource: 'contract', action: 'read' },
+        { id: 'contract-update-perm-id', resource: 'contract', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      const contractCreateAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === contractCreatePermissionId
+      );
+
+      expect(contractCreateAssignment).toBeDefined();
+    });
+
+    it('一般ユーザーにcontract:read権限が割り当てられる', async () => {
+      const userRoleId = 'user-role-id';
+      const contractReadPermissionId = 'contract-read-perm-id';
+
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'contract-create-perm-id', resource: 'contract', action: 'create' },
+        { id: contractReadPermissionId, resource: 'contract', action: 'read' },
+        { id: 'contract-update-perm-id', resource: 'contract', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      const contractReadAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === contractReadPermissionId
+      );
+
+      expect(contractReadAssignment).toBeDefined();
+    });
+
+    it('一般ユーザーにcontract:update権限が割り当てられる', async () => {
+      const userRoleId = 'user-role-id';
+      const contractUpdatePermissionId = 'contract-update-perm-id';
+
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'contract-create-perm-id', resource: 'contract', action: 'create' },
+        { id: 'contract-read-perm-id', resource: 'contract', action: 'read' },
+        { id: contractUpdatePermissionId, resource: 'contract', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      const contractUpdateAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === contractUpdatePermissionId
+      );
+
+      expect(contractUpdateAssignment).toBeDefined();
+    });
+
+    it('一般ユーザーにcontract:delete権限は割り当てられない（管理者のみ）', async () => {
+      const userRoleId = 'user-role-id';
+      const contractDeletePermissionId = 'contract-delete-perm-id';
+
+      mockPrisma = createMockPrisma(userRoleId, [
+        { id: 'contract-create-perm-id', resource: 'contract', action: 'create' },
+        { id: 'contract-read-perm-id', resource: 'contract', action: 'read' },
+        { id: 'contract-update-perm-id', resource: 'contract', action: 'update' },
+        { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+      ]);
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      const contractDeleteAssignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === contractDeletePermissionId
+      );
+
+      // 一般ユーザーロールにはcontract:delete権限が割り当てられていないことを確認
+      expect(contractDeleteAssignment).toBeUndefined();
     });
   });
 });

@@ -21,6 +21,8 @@ import { getProject } from '../api/projects';
 import ContractForm from '../components/contract/ContractForm';
 import type { ContractFormProjectInfo } from '../components/contract/ContractForm';
 import { Breadcrumb } from '../components/common';
+import { useToast } from '../hooks/useToast';
+import { classifyContractError } from '../utils/contractErrorHandler';
 
 // ============================================================================
 // スタイル定義
@@ -101,55 +103,57 @@ const styles = {
 export default function ContractCreatePage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const toast = useToast();
 
   // プロジェクト情報の取得状態
   const [projectInfo, setProjectInfo] = useState<ContractFormProjectInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadErrorRetryable, setLoadErrorRetryable] = useState(false);
 
   // 作成処理の状態
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // プロジェクト情報を取得
-  useEffect(() => {
+  /**
+   * プロジェクト情報を取得
+   * REQ-11.1, REQ-11.2: エラー種別に応じたフィードバック
+   */
+  const fetchProject = useCallback(async () => {
     if (!projectId) return;
 
-    let mounted = true;
-    const fetchProject = async () => {
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const project = await getProject(projectId);
-        if (mounted) {
-          setProjectInfo({
-            id: project.id,
-            name: project.name,
-            siteAddress: project.siteAddress ?? null,
-            tradingPartner: project.tradingPartner
-              ? { id: project.tradingPartner.id, name: project.tradingPartner.name }
-              : null,
-          });
-        }
-      } catch {
-        if (mounted) {
-          setLoadError('プロジェクト情報の取得に失敗しました');
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-    fetchProject();
-    return () => {
-      mounted = false;
-    };
+    setIsLoading(true);
+    setLoadError(null);
+    setLoadErrorRetryable(false);
+    try {
+      const project = await getProject(projectId);
+      setProjectInfo({
+        id: project.id,
+        name: project.name,
+        siteAddress: project.siteAddress ?? null,
+        tradingPartner: project.tradingPartner
+          ? { id: project.tradingPartner.id, name: project.tradingPartner.name }
+          : null,
+      });
+    } catch (err) {
+      const classified = classifyContractError(err);
+      toast.error(classified.message);
+      setLoadError(classified.message);
+      setLoadErrorRetryable(classified.retryable);
+    } finally {
+      setIsLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // プロジェクト情報を取得
+  useEffect(() => {
+    fetchProject();
+  }, [fetchProject]);
 
   /**
    * フォーム送信処理
-   * Requirements: REQ-7.1
+   * Requirements: REQ-7.1, REQ-11.1, REQ-11.2
    */
   const handleSubmit = useCallback(
     async (data: CreateContractInput) => {
@@ -160,14 +164,17 @@ export default function ContractCreatePage() {
 
       try {
         const contract = await createContract(projectId, data);
+        toast.success('契約書を作成しました。');
         navigate(`/projects/${projectId}/contracts/${contract.id}`);
-      } catch {
-        setCreateError('契約書の作成に失敗しました');
+      } catch (err) {
+        const classified = classifyContractError(err);
+        toast.error(classified.message);
+        setCreateError(classified.message);
       } finally {
         setIsSubmitting(false);
       }
     },
-    [projectId, navigate]
+    [projectId, navigate, toast]
   );
 
   /**
@@ -204,6 +211,25 @@ export default function ContractCreatePage() {
       <main role="main" style={styles.container}>
         <div role="alert" style={styles.errorContainer}>
           <p style={styles.errorText}>{loadError}</p>
+          {loadErrorRetryable && (
+            <button
+              type="button"
+              onClick={fetchProject}
+              style={{
+                backgroundColor: '#dc2626',
+                color: '#ffffff',
+                border: 'none',
+                padding: '8px 16px',
+                fontSize: '14px',
+                fontWeight: 500,
+                borderRadius: '6px',
+                cursor: 'pointer',
+                marginTop: '8px',
+              }}
+            >
+              再試行
+            </button>
+          )}
         </div>
       </main>
     );

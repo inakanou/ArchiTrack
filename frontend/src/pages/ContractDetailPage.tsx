@@ -12,15 +12,20 @@
  * - REQ-8.6: 編集ボタンを提供する
  * - REQ-8.7: 編集ボタン押下時、契約書編集画面に遷移する
  * - REQ-8.8: パンくずナビゲーションを表示する
+ * - REQ-13.5: 権限に基づくUI要素の表示/非表示制御（編集、ステータス遷移、削除ボタン）
  *
  * @module pages/ContractDetailPage
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getContractDetail, updateContractStatus } from '../api/contracts';
 import type { ContractDetail } from '../api/contracts';
 import { Breadcrumb } from '../components/common';
+import { DeleteConfirmDialog } from '../components/contracts/DeleteConfirmDialog';
+import { useToast } from '../hooks/useToast';
+import { usePermission } from '../hooks/usePermission';
+import { classifyContractError } from '../utils/contractErrorHandler';
 
 // ============================================================================
 // ヘルパー関数
@@ -252,6 +257,19 @@ const styles = {
     gap: '4px',
     gridColumn: 'span 2',
   } as React.CSSProperties,
+  deleteButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '8px 16px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: 500,
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+    cursor: 'pointer',
+    border: 'none',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -287,6 +305,13 @@ function StatusBadge({ status }: { status: ContractDetail['status'] }) {
  */
 export default function ContractDetailPage() {
   const { projectId, contractId } = useParams<{ projectId: string; contractId: string }>();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { hasPermission } = usePermission();
+
+  // 権限チェック (REQ-13.5)
+  const canUpdate = hasPermission('contract:update');
+  const canDelete = hasPermission('contract:delete');
 
   // データ状態
   const [contract, setContract] = useState<ContractDetail | null>(null);
@@ -295,9 +320,11 @@ export default function ContractDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   /**
    * 契約書詳細を取得
+   * REQ-11.1, REQ-11.2: エラー種別に応じたフィードバック
    */
   const fetchContract = useCallback(async () => {
     if (!contractId) return;
@@ -308,11 +335,14 @@ export default function ContractDetailPage() {
     try {
       const data = await getContractDetail(contractId);
       setContract(data);
-    } catch {
-      setError('契約書の取得に失敗しました');
+    } catch (err) {
+      const classified = classifyContractError(err);
+      toast.error(classified.message);
+      setError(classified.message);
     } finally {
       setIsLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractId]);
 
   // 初回読み込み
@@ -333,12 +363,34 @@ export default function ContractDetailPage() {
     try {
       const updated = await updateContractStatus(contractId, newStatus);
       setContract(updated);
-    } catch {
-      setError('ステータスの更新に失敗しました');
+      toast.success('ステータスを変更しました。');
+    } catch (err) {
+      const classified = classifyContractError(err);
+      toast.error(classified.message);
     } finally {
       setIsUpdatingStatus(false);
     }
-  }, [contract, contractId]);
+  }, [contract, contractId, toast]);
+
+  /**
+   * 削除成功ハンドラ
+   * REQ-8.11, REQ-11.7: 削除成功時にトースト表示＆一覧画面遷移
+   */
+  const handleDeleteSuccess = useCallback(() => {
+    toast.success('契約書を削除しました。');
+    navigate(`/projects/${projectId}/contracts`);
+  }, [toast, navigate, projectId]);
+
+  /**
+   * 削除エラーハンドラ
+   * REQ-12.1, REQ-12.2: 削除制約エラー時にトースト通知
+   */
+  const handleDeleteError = useCallback(
+    (errorMsg: string) => {
+      toast.error(errorMsg);
+    },
+    [toast]
+  );
 
   // ローディング表示
   if (isLoading) {
@@ -395,33 +447,48 @@ export default function ContractDetailPage() {
           <h1 style={styles.title}>契約書詳細</h1>
         </div>
         <div style={styles.headerRight}>
-          {/* ステータス遷移ボタン (REQ-8.2, REQ-8.3) */}
-          <button
-            type="button"
-            onClick={handleStatusChange}
-            disabled={isUpdatingStatus}
-            style={{
-              ...styles.statusButton,
-              ...(contract.status === 'BEFORE_CONTRACT'
-                ? styles.statusButtonContract
-                : styles.statusButtonRevert),
-            }}
-          >
-            {isUpdatingStatus
-              ? '更新中...'
-              : contract.status === 'BEFORE_CONTRACT'
-                ? '契約済にする'
-                : '契約前に戻す'}
-          </button>
+          {/* ステータス遷移ボタン (REQ-8.2, REQ-8.3, REQ-13.5) */}
+          {canUpdate && (
+            <button
+              type="button"
+              onClick={handleStatusChange}
+              disabled={isUpdatingStatus}
+              style={{
+                ...styles.statusButton,
+                ...(contract.status === 'BEFORE_CONTRACT'
+                  ? styles.statusButtonContract
+                  : styles.statusButtonRevert),
+              }}
+            >
+              {isUpdatingStatus
+                ? '更新中...'
+                : contract.status === 'BEFORE_CONTRACT'
+                  ? '契約済にする'
+                  : '契約前に戻す'}
+            </button>
+          )}
 
-          {/* 編集ボタン (REQ-8.6, REQ-8.7) */}
-          <Link
-            to={`/projects/${projectId}/contracts/${contractId}/edit`}
-            style={styles.editLink}
-            aria-label="編集"
-          >
-            編集
-          </Link>
+          {/* 編集ボタン (REQ-8.6, REQ-8.7, REQ-13.5) */}
+          {canUpdate && (
+            <Link
+              to={`/projects/${projectId}/contracts/${contractId}/edit`}
+              style={styles.editLink}
+              aria-label="編集"
+            >
+              編集
+            </Link>
+          )}
+
+          {/* 削除ボタン (REQ-8.9, REQ-13.5) */}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteDialog(true)}
+              style={styles.deleteButton}
+            >
+              削除
+            </button>
+          )}
         </div>
       </div>
 
@@ -569,6 +636,17 @@ export default function ContractDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* 削除確認ダイアログ (REQ-8.10) */}
+      {contractId && (
+        <DeleteConfirmDialog
+          contractId={contractId}
+          isOpen={showDeleteDialog}
+          onClose={() => setShowDeleteDialog(false)}
+          onDeleteSuccess={handleDeleteSuccess}
+          onDeleteError={handleDeleteError}
+        />
+      )}
     </main>
   );
 }

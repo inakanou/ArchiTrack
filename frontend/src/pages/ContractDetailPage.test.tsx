@@ -2,6 +2,7 @@
  * @fileoverview 契約書詳細画面テスト
  *
  * Task 7.1: ContractDetailPageの実装
+ * Task 15.1: 各画面にusePermissionフックを統合してUI要素を制御する
  *
  * Requirements (contract-management):
  * - REQ-8.1: 契約書詳細画面に新規作成時に入力した全項目と自動表示項目を表示する
@@ -12,6 +13,7 @@
  * - REQ-8.6: 編集ボタンを提供する
  * - REQ-8.7: 編集ボタン押下時、契約書編集画面に遷移する
  * - REQ-8.8: パンくずナビゲーションを表示する
+ * - REQ-13.5: UI要素の権限制御
  *
  * @module pages/ContractDetailPage.test
  */
@@ -23,9 +25,25 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ContractDetailPage from './ContractDetailPage';
 import * as contractsApi from '../api/contracts';
 import type { ContractDetail } from '../api/contracts';
+import { ApiError } from '../api/client';
+import { ToastContext } from '../hooks/useToast';
+import type { ToastContextValue } from '../hooks/useToast';
 
 // モック
 vi.mock('../api/contracts');
+
+// usePermissionフックのモック
+const mockHasPermission = vi.fn().mockReturnValue(true);
+const mockHasAllPermissions = vi.fn().mockReturnValue(true);
+const mockHasAnyPermission = vi.fn().mockReturnValue(true);
+vi.mock('../hooks/usePermission', () => ({
+  usePermission: () => ({
+    hasPermission: mockHasPermission,
+    hasAllPermissions: mockHasAllPermissions,
+    hasAnyPermission: mockHasAnyPermission,
+    isLoading: false,
+  }),
+}));
 
 // ============================================================================
 // テストデータ
@@ -88,32 +106,58 @@ const mockContractedDetail: ContractDetail = {
 // ヘルパー関数
 // ============================================================================
 
+/** モックトーストコンテキスト値を作成 */
+function createMockToastContext(): ToastContextValue {
+  return {
+    toasts: [],
+    addToast: vi.fn().mockReturnValue('toast-1'),
+    removeToast: vi.fn(),
+    success: vi.fn().mockReturnValue('toast-1'),
+    error: vi.fn().mockReturnValue('toast-1'),
+    warning: vi.fn().mockReturnValue('toast-1'),
+    info: vi.fn().mockReturnValue('toast-1'),
+    projectCreated: vi.fn().mockReturnValue('toast-1'),
+    projectUpdated: vi.fn().mockReturnValue('toast-1'),
+    projectDeleted: vi.fn().mockReturnValue('toast-1'),
+    projectStatusChanged: vi.fn().mockReturnValue('toast-1'),
+    operationFailed: vi.fn().mockReturnValue('toast-1'),
+  };
+}
+
+let mockToastContext: ToastContextValue;
+
 /**
  * テスト用レンダリング
  */
 function renderContractDetailPage(contractId = 'contract-1', projectId = 'project-1') {
+  mockToastContext = createMockToastContext();
   return render(
-    <MemoryRouter initialEntries={[`/projects/${projectId}/contracts/${contractId}`]}>
-      <Routes>
-        <Route path="/projects/:projectId/contracts/:contractId" element={<ContractDetailPage />} />
-        <Route
-          path="/projects/:projectId/contracts/:contractId/edit"
-          element={<div data-testid="edit-page">編集画面</div>}
-        />
-        <Route
-          path="/projects/:projectId/estimates"
-          element={<div data-testid="estimates-page">見積書一覧</div>}
-        />
-        <Route
-          path="/estimates/:id"
-          element={<div data-testid="estimate-detail-page">見積書詳細</div>}
-        />
-        <Route
-          path="/projects/:projectId/contracts"
-          element={<div data-testid="contract-list-page">契約書一覧</div>}
-        />
-      </Routes>
-    </MemoryRouter>
+    <ToastContext.Provider value={mockToastContext}>
+      <MemoryRouter initialEntries={[`/projects/${projectId}/contracts/${contractId}`]}>
+        <Routes>
+          <Route
+            path="/projects/:projectId/contracts/:contractId"
+            element={<ContractDetailPage />}
+          />
+          <Route
+            path="/projects/:projectId/contracts/:contractId/edit"
+            element={<div data-testid="edit-page">編集画面</div>}
+          />
+          <Route
+            path="/projects/:projectId/estimates"
+            element={<div data-testid="estimates-page">見積書一覧</div>}
+          />
+          <Route
+            path="/estimates/:id"
+            element={<div data-testid="estimate-detail-page">見積書詳細</div>}
+          />
+          <Route
+            path="/projects/:projectId/contracts"
+            element={<div data-testid="contract-list-page">契約書一覧</div>}
+          />
+        </Routes>
+      </MemoryRouter>
+    </ToastContext.Provider>
   );
 }
 
@@ -123,7 +167,11 @@ function renderContractDetailPage(contractId = 'contract-1', projectId = 'projec
 
 describe('ContractDetailPage', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    // デフォルトではすべての権限を付与（既存テストとの互換性）
+    mockHasPermission.mockReturnValue(true);
+    mockHasAllPermissions.mockReturnValue(true);
+    mockHasAnyPermission.mockReturnValue(true);
   });
 
   // --------------------------------------------------------------------------
@@ -325,6 +373,31 @@ describe('ContractDetailPage', () => {
         expect(screen.getByText('契約済')).toBeInTheDocument();
       });
     });
+
+    /**
+     * REQ-11.5: ステータス変更成功時に「ステータスを変更しました。」のトースト通知を表示する
+     */
+    it('ステータス変更成功時に「ステータスを変更しました。」のトースト通知を表示する', async () => {
+      const user = userEvent.setup();
+      const updatedContract = { ...mockNewContractDetail, status: 'CONTRACTED' as const };
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(contractsApi.updateContractStatus).mockResolvedValue(updatedContract);
+
+      renderContractDetailPage();
+
+      // ページ内容が完全にレンダリングされるまで待つ
+      await waitFor(() => {
+        expect(screen.getByText('契約前')).toBeInTheDocument();
+      });
+
+      const button = screen.getByRole('button', { name: /契約済にする/ });
+      await user.click(button);
+
+      // トースト通知が表示される
+      await waitFor(() => {
+        expect(mockToastContext.success).toHaveBeenCalledWith('ステータスを変更しました。');
+      });
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -419,6 +492,128 @@ describe('ContractDetailPage', () => {
   });
 
   // --------------------------------------------------------------------------
+  // REQ-8.9: 削除ボタン
+  // --------------------------------------------------------------------------
+  describe('REQ-8.9: 削除ボタン', () => {
+    it('契約書詳細画面に削除ボタンを表示する', async () => {
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /削除/ })).toBeInTheDocument();
+    });
+
+    it('削除ボタン押下で削除確認ダイアログを表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      // 削除ボタンをクリック（ステータスや編集ボタンとは別の削除ボタン）
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await user.click(deleteButton);
+
+      // 削除確認ダイアログが表示される
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText('この契約書を削除しますか?')).toBeInTheDocument();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-8.10, REQ-8.11, REQ-11.7: 削除フロー統合
+  // --------------------------------------------------------------------------
+  describe('REQ-8.10, REQ-8.11, REQ-11.7: 削除フロー', () => {
+    it('削除成功時にトースト通知を表示し一覧画面に遷移する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(contractsApi.deleteContract).mockResolvedValue();
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      // 削除ボタンをクリック
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      // ダイアログで削除を確認
+      await user.click(screen.getByRole('button', { name: /削除する/ }));
+
+      // トースト通知が表示される
+      await waitFor(() => {
+        expect(mockToastContext.success).toHaveBeenCalledWith('契約書を削除しました。');
+      });
+
+      // 一覧画面に遷移
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-list-page')).toBeInTheDocument();
+      });
+    });
+
+    it('削除制約エラー（子契約存在）時にトースト通知でエラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      const errorMessage = 'この契約書は変更契約の基となっているため削除できません';
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(contractsApi.deleteContract).mockRejectedValue(
+        new ApiError(422, errorMessage, { message: errorMessage })
+      );
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      // 削除ボタンをクリック
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      // ダイアログで削除を確認
+      await user.click(screen.getByRole('button', { name: /削除する/ }));
+
+      // トーストでエラーメッセージが表示される
+      await waitFor(() => {
+        expect(mockToastContext.error).toHaveBeenCalledWith(errorMessage);
+      });
+    });
+
+    it('削除制約エラー（契約済）時にトースト通知でエラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      const errorMessage =
+        '契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください';
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockContractedDetail);
+      vi.mocked(contractsApi.deleteContract).mockRejectedValue(
+        new ApiError(422, errorMessage, { message: errorMessage })
+      );
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      // 削除ボタンをクリック
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      // ダイアログで削除を確認
+      await user.click(screen.getByRole('button', { name: /削除する/ }));
+
+      // トーストでエラーメッセージが表示される
+      await waitFor(() => {
+        expect(mockToastContext.error).toHaveBeenCalledWith(errorMessage);
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // ローディング・エラー状態
   // --------------------------------------------------------------------------
   describe('ローディング・エラー状態', () => {
@@ -431,7 +626,9 @@ describe('ContractDetailPage', () => {
     });
 
     it('エラー時にエラーメッセージと再試行ボタンを表示する', async () => {
-      vi.mocked(contractsApi.getContractDetail).mockRejectedValue(new Error('API Error'));
+      vi.mocked(contractsApi.getContractDetail).mockRejectedValue(
+        new ApiError(500, 'Internal Server Error')
+      );
 
       renderContractDetailPage();
 
@@ -439,7 +636,9 @@ describe('ContractDetailPage', () => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/契約書の取得に失敗しました/)).toBeInTheDocument();
+      // エラートーストが呼ばれる
+      expect(mockToastContext.error).toHaveBeenCalled();
+      // サーバーエラーの場合は再試行ボタンが表示される
       expect(screen.getByRole('button', { name: /再試行/ })).toBeInTheDocument();
     });
 
@@ -463,6 +662,228 @@ describe('ContractDetailPage', () => {
       });
 
       expect(contractsApi.getContractDetail).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-11.1: ネットワークエラー時のフィードバック
+  // --------------------------------------------------------------------------
+  describe('REQ-11.1: ネットワークエラー', () => {
+    it('データ取得時にネットワークエラーが発生した場合、トースト通知を表示する', async () => {
+      vi.mocked(contractsApi.getContractDetail).mockRejectedValue(new ApiError(0, 'Network error'));
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(mockToastContext.error).toHaveBeenCalledWith(
+          '通信エラーが発生しました。再試行してください。'
+        );
+      });
+    });
+
+    it('ネットワークエラー時に再試行ボタンを表示する', async () => {
+      vi.mocked(contractsApi.getContractDetail).mockRejectedValue(new ApiError(0, 'Network error'));
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /再試行/ })).toBeInTheDocument();
+      });
+    });
+
+    it('ステータス更新時にネットワークエラーが発生した場合、トースト通知を表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(contractsApi.updateContractStatus).mockRejectedValue(
+        new ApiError(0, 'Network error')
+      );
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      const button = screen.getByRole('button', { name: /契約済にする/ });
+      await user.click(button);
+
+      await waitFor(() => {
+        expect(mockToastContext.error).toHaveBeenCalledWith(
+          '通信エラーが発生しました。再試行してください。'
+        );
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-11.2: サーバーエラー（5xx）時のフィードバック
+  // --------------------------------------------------------------------------
+  describe('REQ-11.2: サーバーエラー', () => {
+    it('データ取得時にサーバーエラーが発生した場合、トースト通知を表示する', async () => {
+      vi.mocked(contractsApi.getContractDetail).mockRejectedValue(
+        new ApiError(500, 'Internal Server Error')
+      );
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(mockToastContext.error).toHaveBeenCalledWith(
+          'システムエラーが発生しました。しばらくしてからお試しください。'
+        );
+      });
+    });
+
+    it('ステータス更新時にサーバーエラーが発生した場合、トースト通知を表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(contractsApi.updateContractStatus).mockRejectedValue(
+        new ApiError(500, 'Internal Server Error')
+      );
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      const button = screen.getByRole('button', { name: /契約済にする/ });
+      await user.click(button);
+
+      await waitFor(() => {
+        expect(mockToastContext.error).toHaveBeenCalledWith(
+          'システムエラーが発生しました。しばらくしてからお試しください。'
+        );
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-13.5: 権限ベースUI制御
+  // --------------------------------------------------------------------------
+  describe('REQ-13.5: 権限ベースUI制御', () => {
+    /**
+     * contract:update権限がある場合、編集ボタンを表示する
+     */
+    it('contract:update権限がある場合、編集ボタンを表示する', async () => {
+      mockHasPermission.mockImplementation(
+        (perm: string) => perm === 'contract:update' || perm === 'contract:delete'
+      );
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('link', { name: /編集/ })).toBeInTheDocument();
+    });
+
+    /**
+     * contract:update権限がない場合、編集ボタンを非表示にする
+     */
+    it('contract:update権限がない場合、編集ボタンを非表示にする', async () => {
+      mockHasPermission.mockImplementation((perm: string) => perm === 'contract:delete');
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('link', { name: /編集/ })).not.toBeInTheDocument();
+    });
+
+    /**
+     * contract:update権限がある場合、ステータス遷移ボタンを表示する
+     */
+    it('contract:update権限がある場合、ステータス遷移ボタンを表示する', async () => {
+      mockHasPermission.mockImplementation(
+        (perm: string) => perm === 'contract:update' || perm === 'contract:delete'
+      );
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /契約済にする/ })).toBeInTheDocument();
+    });
+
+    /**
+     * contract:update権限がない場合、ステータス遷移ボタンを非表示にする
+     */
+    it('contract:update権限がない場合、ステータス遷移ボタンを非表示にする', async () => {
+      mockHasPermission.mockImplementation((perm: string) => perm === 'contract:delete');
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: /契約済にする/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /契約前に戻す/ })).not.toBeInTheDocument();
+    });
+
+    /**
+     * contract:delete権限がある場合、削除ボタンを表示する
+     */
+    it('contract:delete権限がある場合、削除ボタンを表示する', async () => {
+      mockHasPermission.mockImplementation(
+        (perm: string) => perm === 'contract:update' || perm === 'contract:delete'
+      );
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
+    });
+
+    /**
+     * contract:delete権限がない場合、削除ボタンを非表示にする
+     */
+    it('contract:delete権限がない場合、削除ボタンを非表示にする', async () => {
+      mockHasPermission.mockImplementation((perm: string) => perm === 'contract:update');
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    });
+
+    /**
+     * 全権限がない場合、編集・ステータス・削除ボタンがすべて非表示になる
+     */
+    it('全権限がない場合、編集・ステータス・削除ボタンがすべて非表示になる', async () => {
+      mockHasPermission.mockReturnValue(false);
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      // 編集ボタン非表示
+      expect(screen.queryByRole('link', { name: /編集/ })).not.toBeInTheDocument();
+      // ステータス遷移ボタン非表示
+      expect(screen.queryByRole('button', { name: /契約済にする/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /契約前に戻す/ })).not.toBeInTheDocument();
+      // 削除ボタン非表示
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
     });
   });
 });

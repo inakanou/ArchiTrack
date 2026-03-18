@@ -21,6 +21,7 @@ import {
   ContractNotFoundError,
   ContractConflictError,
   ContractValidationError,
+  ContractDeletionConstraintError,
 } from '../../../errors/contractError.js';
 
 // Prismaモック
@@ -655,6 +656,7 @@ describe('ContractService', () => {
       (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
         mockContractRecord
       );
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       (mockPrisma.contract.update as ReturnType<typeof vi.fn>).mockResolvedValue({
         ...mockContractRecord,
         deletedAt: new Date(),
@@ -676,6 +678,73 @@ describe('ContractService', () => {
       });
 
       await expect(service.delete(contractId)).rejects.toThrow(ContractNotFoundError);
+    });
+
+    it('子契約（deletedAtがnullの変更契約）が存在する場合はContractDeletionConstraintErrorをスローすること', async () => {
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockContractRecord
+      );
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          id: 'child-contract-id',
+          parentContractId: contractId,
+          deletedAt: null,
+        },
+      ]);
+
+      await expect(service.delete(contractId)).rejects.toThrow(ContractDeletionConstraintError);
+      await expect(service.delete(contractId)).rejects.toThrow(
+        'この契約書は変更契約の基となっているため削除できません'
+      );
+    });
+
+    it('ステータスがCONTRACTEDの場合はContractDeletionConstraintErrorをスローすること', async () => {
+      const contractedRecord = {
+        ...mockContractRecord,
+        status: 'CONTRACTED',
+      };
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        contractedRecord
+      );
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await expect(service.delete(contractId)).rejects.toThrow(ContractDeletionConstraintError);
+      await expect(service.delete(contractId)).rejects.toThrow(
+        '契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください'
+      );
+    });
+
+    it('子契約が全て論理削除済みの場合は削除制約エラーにならないこと', async () => {
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockContractRecord
+      );
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (mockPrisma.contract.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockContractRecord,
+        deletedAt: new Date(),
+      });
+
+      await expect(service.delete(contractId)).resolves.not.toThrow();
+    });
+
+    it('子契約もなくステータスもBEFORE_CONTRACTの場合は正常に論理削除できること', async () => {
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockContractRecord
+      );
+      (mockPrisma.contract.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (mockPrisma.contract.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockContractRecord,
+        deletedAt: new Date(),
+      });
+
+      await expect(service.delete(contractId)).resolves.not.toThrow();
+
+      expect(mockPrisma.contract.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: contractId },
+          data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+        })
+      );
     });
   });
 });

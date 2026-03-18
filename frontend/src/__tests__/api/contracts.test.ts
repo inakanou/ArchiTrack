@@ -17,6 +17,7 @@ import {
   createContract,
   updateContract,
   updateContractStatus,
+  deleteContract,
   type ContractsResponse,
   type ContractDetail,
   type CreateContractInput,
@@ -320,6 +321,58 @@ describe('contracts API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValueOnce(mockError);
 
       await expect(updateContractStatus('contract-1', 'CONTRACTED')).rejects.toThrow(ApiError);
+    });
+  });
+
+  // ==========================================================================
+  // deleteContract - 契約書削除 (Task 13.1)
+  // ==========================================================================
+  describe('deleteContract', () => {
+    it('契約書を削除する', async () => {
+      vi.mocked(apiClient.delete).mockResolvedValueOnce(undefined);
+
+      await deleteContract('contract-1');
+
+      expect(apiClient.delete).toHaveBeenCalledWith('/api/contracts/contract-1');
+    });
+
+    it('子契約が存在する場合に422エラーをスローする', async () => {
+      const mockError = new ApiError(
+        422,
+        'この契約書は変更契約の基となっているため削除できません',
+        {
+          message: 'この契約書は変更契約の基となっているため削除できません',
+        }
+      );
+      vi.mocked(apiClient.delete).mockRejectedValueOnce(mockError);
+
+      try {
+        await deleteContract('contract-1');
+        expect.fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError);
+        expect((err as ApiError).statusCode).toBe(422);
+      }
+    });
+
+    it('契約済ステータスの場合に422エラーをスローする', async () => {
+      const mockError = new ApiError(
+        422,
+        '契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください',
+        {
+          message: '契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください',
+        }
+      );
+      vi.mocked(apiClient.delete).mockRejectedValueOnce(mockError);
+
+      await expect(deleteContract('contract-1')).rejects.toThrow(ApiError);
+    });
+
+    it('404エラー時に例外をスローする', async () => {
+      const mockError = new ApiError(404, 'Not Found');
+      vi.mocked(apiClient.delete).mockRejectedValueOnce(mockError);
+
+      await expect(deleteContract('nonexistent')).rejects.toThrow(ApiError);
     });
   });
 });

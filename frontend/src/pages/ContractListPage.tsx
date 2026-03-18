@@ -10,6 +10,7 @@
  * - REQ-1.4: ユーザーが新規作成ボタンを押した場合、契約書新規作成画面に遷移する
  * - REQ-1.5: ユーザーが一覧の契約書を選択した場合、選択した契約書の詳細画面に遷移する
  * - REQ-1.6: 一覧画面にパンくずナビゲーションを表示する
+ * - REQ-13.5: contract:create権限がない場合、新規作成ボタンを非表示にする
  *
  * @module pages/ContractListPage
  */
@@ -19,6 +20,7 @@ import { useParams, Link } from 'react-router-dom';
 import { getContracts } from '../api/contracts';
 import type { ContractsResponse, ContractListItem } from '../api/contracts';
 import { Breadcrumb } from '../components/common';
+import { usePermission } from '../hooks/usePermission';
 
 // ============================================================================
 // 定数定義
@@ -259,14 +261,16 @@ function PlusIcon() {
 /**
  * 空状態表示
  */
-function EmptyState({ projectId }: { projectId: string }) {
+function EmptyState({ projectId, canCreate }: { projectId: string; canCreate: boolean }) {
   return (
     <div style={styles.emptyState} data-testid="empty-state">
       <p style={styles.emptyText}>契約書はまだありません</p>
-      <Link to={`/projects/${projectId}/contracts/new`} style={styles.createButton}>
-        <PlusIcon />
-        新規作成
-      </Link>
+      {canCreate && (
+        <Link to={`/projects/${projectId}/contracts/new`} style={styles.createButton}>
+          <PlusIcon />
+          新規作成
+        </Link>
+      )}
     </div>
   );
 }
@@ -298,6 +302,10 @@ function StatusBadge({ status }: { status: ContractListItem['status'] }) {
  */
 export default function ContractListPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { hasPermission } = usePermission();
+
+  // 権限チェック (REQ-13.5)
+  const canCreate = hasPermission('contract:create');
 
   // データ状態
   const [data, setData] = useState<ContractsResponse | null>(null);
@@ -391,19 +399,21 @@ export default function ContractListPage() {
           <h1 style={styles.title}>契約書一覧</h1>
           <p style={styles.subtitle}>全{totalCount}件</p>
         </div>
-        <Link
-          to={`/projects/${projectId}/contracts/new`}
-          style={styles.createButton}
-          aria-label="契約書を新規作成"
-        >
-          <PlusIcon />
-          新規作成
-        </Link>
+        {canCreate && (
+          <Link
+            to={`/projects/${projectId}/contracts/new`}
+            style={styles.createButton}
+            aria-label="契約書を新規作成"
+          >
+            <PlusIcon />
+            新規作成
+          </Link>
+        )}
       </div>
 
       {/* 一覧 */}
       {totalCount === 0 ? (
-        <EmptyState projectId={projectId!} />
+        <EmptyState projectId={projectId!} canCreate={canCreate} />
       ) : (
         <table style={styles.table} data-testid="contract-list-table">
           <thead>

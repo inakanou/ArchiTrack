@@ -21,6 +21,8 @@ import { getProject } from '../api/projects';
 import ContractForm from '../components/contract/ContractForm';
 import type { ContractFormProjectInfo } from '../components/contract/ContractForm';
 import { Breadcrumb } from '../components/common';
+import { useToast } from '../hooks/useToast';
+import { classifyContractError } from '../utils/contractErrorHandler';
 
 // ============================================================================
 // スタイル定義
@@ -104,6 +106,7 @@ export default function ContractEditPage() {
     contractId: string;
   }>();
   const navigate = useNavigate();
+  const toast = useToast();
 
   // データ状態
   const [contract, setContract] = useState<ContractDetail | null>(null);
@@ -112,69 +115,69 @@ export default function ContractEditPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadErrorRetryable, setLoadErrorRetryable] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  // 契約書データとプロジェクト情報を取得
-  useEffect(() => {
+  /**
+   * 契約書データとプロジェクト情報を取得
+   * REQ-11.1, REQ-11.2: エラー種別に応じたフィードバック
+   */
+  const fetchData = useCallback(async () => {
     if (!projectId || !contractId) return;
 
-    let mounted = true;
+    setIsLoading(true);
+    setLoadError(null);
+    setLoadErrorRetryable(false);
 
-    const fetchData = async () => {
-      setIsLoading(true);
-      setLoadError(null);
+    try {
+      // 契約書詳細とプロジェクト情報を並行取得
+      const [contractData, projectData] = await Promise.all([
+        getContractDetail(contractId),
+        getProject(projectId),
+      ]);
 
-      try {
-        // 契約書詳細とプロジェクト情報を並行取得
-        const [contractData, projectData] = await Promise.all([
-          getContractDetail(contractId),
-          getProject(projectId),
-        ]);
+      setContract(contractData);
+      setProjectInfo({
+        id: projectData.id,
+        name: projectData.name,
+        siteAddress: projectData.siteAddress ?? null,
+        tradingPartner: projectData.tradingPartner
+          ? { id: projectData.tradingPartner.id, name: projectData.tradingPartner.name }
+          : null,
+      });
+    } catch (err) {
+      const classified = classifyContractError(err);
+      toast.error(classified.message);
 
-        if (mounted) {
-          setContract(contractData);
-          setProjectInfo({
-            id: projectData.id,
-            name: projectData.name,
-            siteAddress: projectData.siteAddress ?? null,
-            tradingPartner: projectData.tradingPartner
-              ? { id: projectData.tradingPartner.id, name: projectData.tradingPartner.name }
-              : null,
-          });
+      // エラーの種類に応じたメッセージ設定
+      if (err instanceof Error && err.message === 'Not Found') {
+        // どちらが失敗したか判別するために個別に再試行
+        try {
+          await getContractDetail(contractId);
+          // 契約書は取得成功 → プロジェクト情報の取得失敗
+          setLoadError('プロジェクト情報の取得に失敗しました');
+        } catch {
+          setLoadError('契約書の取得に失敗しました');
         }
-      } catch (err) {
-        if (mounted) {
-          // エラーの種類に応じたメッセージ設定
-          if (err instanceof Error && err.message === 'Not Found') {
-            // どちらが失敗したか判別するために個別に再試行
-            try {
-              await getContractDetail(contractId);
-              // 契約書は取得成功→プロジェクト情報の取得失敗
-              setLoadError('プロジェクト情報の取得に失敗しました');
-            } catch {
-              setLoadError('契約書の取得に失敗しました');
-            }
-          } else {
-            setLoadError('データの取得に失敗しました');
-          }
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
+      } else {
+        setLoadError(classified.message);
       }
-    };
-
-    fetchData();
-    return () => {
-      mounted = false;
-    };
+      setLoadErrorRetryable(classified.retryable);
+    } finally {
+      setIsLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, contractId]);
+
+  // 初回取得
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   /**
    * フォーム送信処理
-   * Requirements: REQ-9.2
+   * Requirements: REQ-9.2, REQ-11.1, REQ-11.2, REQ-11.4
    *
    * 楽観的排他制御のversionを含むUpdateContractInputをAPIに送信する。
    */
@@ -205,14 +208,17 @@ export default function ContractEditPage() {
         };
 
         await updateContract(contractId, updateData);
+        toast.success('契約書を更新しました。');
         navigate(`/projects/${projectId}/contracts/${contractId}`);
-      } catch {
-        setUpdateError('契約書の更新に失敗しました');
+      } catch (err) {
+        const classified = classifyContractError(err);
+        toast.error(classified.message);
+        setUpdateError(classified.message);
       } finally {
         setIsSubmitting(false);
       }
     },
-    [contractId, contract, projectId, navigate]
+    [contractId, contract, projectId, navigate, toast]
   );
 
   /**
@@ -251,6 +257,25 @@ export default function ContractEditPage() {
       <main role="main" style={styles.container}>
         <div role="alert" style={styles.errorContainer}>
           <p style={styles.errorText}>{loadError}</p>
+          {loadErrorRetryable && (
+            <button
+              type="button"
+              onClick={fetchData}
+              style={{
+                backgroundColor: '#dc2626',
+                color: '#ffffff',
+                border: 'none',
+                padding: '8px 16px',
+                fontSize: '14px',
+                fontWeight: 500,
+                borderRadius: '6px',
+                cursor: 'pointer',
+                marginTop: '8px',
+              }}
+            >
+              再試行
+            </button>
+          )}
         </div>
       </main>
     );

@@ -38,6 +38,7 @@ import {
   ContractNotFoundError,
   ContractConflictError,
   ContractValidationError,
+  ContractDeletionConstraintError,
 } from '../errors/contractError.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
@@ -447,6 +448,8 @@ router.patch(
  *         description: 権限不足
  *       404:
  *         description: 契約書が見つからない
+ *       422:
+ *         description: 削除制約エラー（子契約存在・契約済ステータス）
  */
 router.delete(
   '/:id',
@@ -465,6 +468,14 @@ router.delete(
       if (error instanceof ContractNotFoundError) {
         res.status(404).json({
           status: 404,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      if (error instanceof ContractDeletionConstraintError) {
+        res.status(422).json({
+          status: 422,
           detail: error.message,
           code: error.code,
         });

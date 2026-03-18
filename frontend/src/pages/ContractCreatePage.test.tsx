@@ -2,6 +2,7 @@
  * @fileoverview ContractCreatePage テスト
  *
  * Task 6.1: 契約書新規作成ページコンポーネントを作成する
+ * Task 14.1: 契約書作成成功時のトースト通知表示
  *
  * Requirements (contract-management):
  * - REQ-2.3: 変更契約フォーム表示
@@ -9,6 +10,7 @@
  * - REQ-7.1: 作成ボタン押下時にAPI呼び出し（POST）と契約書詳細画面への遷移
  * - REQ-7.2: キャンセルボタン押下時に前画面への遷移（何も作成しない）
  * - REQ-7.3: 作成・キャンセルボタン表示
+ * - REQ-11.5: 契約書作成成功時に「契約書を作成しました。」のトースト通知を表示
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -18,6 +20,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ContractCreatePage from './ContractCreatePage';
 import * as contractsApi from '../api/contracts';
 import * as projectsApi from '../api/projects';
+import { ToastContext } from '../hooks/useToast';
+import type { ToastContextValue } from '../hooks/useToast';
 
 // モック
 vi.mock('../api/contracts');
@@ -110,13 +114,86 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// ContractFormをモック（バリデーション付きの実フォームではなく、送信をシミュレートするモック）
+vi.mock('../components/contract/ContractForm', () => ({
+  default: ({
+    onSubmit,
+    onCancel,
+  }: {
+    mode: string;
+    projectId: string;
+    projectInfo: unknown;
+    onSubmit: (data: contractsApi.CreateContractInput) => void;
+    onCancel: () => void;
+    isSubmitting?: boolean;
+    initialData?: unknown;
+  }) => {
+    void onSubmit;
+    void onCancel;
+    return (
+      <div data-testid="contract-form">
+        <button
+          type="button"
+          onClick={() =>
+            onSubmit({
+              contractType: 'NEW',
+              parentContractId: null,
+              estimateId: 'est-001',
+              contractDate: '2024-06-01',
+              constructionStartDate: '2024-07-01',
+              constructionEndDate: '2024-12-31',
+              deliveryDate: '2025-01-15',
+              taxRate: 0.1,
+              paymentTerms: '月末締め翌月末払い',
+              separateConstruction: '',
+              otherNotes: '',
+              supervisorTradingPartnerId: null,
+              contractAmount: 11000000,
+              constructionPrice: 10000000,
+              taxAmount: 1000000,
+            })
+          }
+        >
+          作成
+        </button>
+        <button type="button" onClick={onCancel}>
+          キャンセル
+        </button>
+      </div>
+    );
+  },
+}));
+
+/** モックトーストコンテキスト値を作成 */
+function createMockToastContext(): ToastContextValue {
+  return {
+    toasts: [],
+    addToast: vi.fn().mockReturnValue('toast-1'),
+    removeToast: vi.fn(),
+    success: vi.fn().mockReturnValue('toast-1'),
+    error: vi.fn().mockReturnValue('toast-1'),
+    warning: vi.fn().mockReturnValue('toast-1'),
+    info: vi.fn().mockReturnValue('toast-1'),
+    projectCreated: vi.fn().mockReturnValue('toast-1'),
+    projectUpdated: vi.fn().mockReturnValue('toast-1'),
+    projectDeleted: vi.fn().mockReturnValue('toast-1'),
+    projectStatusChanged: vi.fn().mockReturnValue('toast-1'),
+    operationFailed: vi.fn().mockReturnValue('toast-1'),
+  };
+}
+
+let mockToastContext: ToastContextValue;
+
 function renderWithRouter(projectId = 'proj-001') {
+  mockToastContext = createMockToastContext();
   return render(
-    <MemoryRouter initialEntries={[`/projects/${projectId}/contracts/new`]}>
-      <Routes>
-        <Route path="/projects/:projectId/contracts/new" element={<ContractCreatePage />} />
-      </Routes>
-    </MemoryRouter>
+    <ToastContext.Provider value={mockToastContext}>
+      <MemoryRouter initialEntries={[`/projects/${projectId}/contracts/new`]}>
+        <Routes>
+          <Route path="/projects/:projectId/contracts/new" element={<ContractCreatePage />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastContext.Provider>
   );
 }
 
@@ -187,7 +264,7 @@ describe('ContractCreatePage', () => {
       expect(screen.getByTestId('contract-form')).toBeInTheDocument();
     });
 
-    // フォームを送信する（ContractForm内の作成ボタン）
+    // フォームを送信する（モックContractForm内の作成ボタン）
     const submitButton = screen.getByRole('button', { name: '作成' });
     await userEvent.click(submitButton);
 
@@ -232,22 +309,20 @@ describe('ContractCreatePage', () => {
   /**
    * エラー状態のテスト
    */
-  it('プロジェクト情報取得失敗時にエラーメッセージを表示する', async () => {
+  it('プロジェクト情報取得失敗時にエラーを表示する', async () => {
     vi.mocked(projectsApi.getProject).mockRejectedValue(new Error('Not Found'));
 
     renderWithRouter();
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(mockToastContext.error).toHaveBeenCalled();
     });
-
-    expect(screen.getByText('プロジェクト情報の取得に失敗しました')).toBeInTheDocument();
   });
 
   /**
    * API呼び出し失敗時のエラーハンドリング
    */
-  it('契約書作成失敗時にエラーメッセージを表示する', async () => {
+  it('契約書作成失敗時にエラートーストを表示する', async () => {
     vi.mocked(contractsApi.createContract).mockRejectedValue(new Error('Validation Error'));
 
     renderWithRouter();
@@ -260,11 +335,41 @@ describe('ContractCreatePage', () => {
     await userEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-      expect(screen.getByText('契約書の作成に失敗しました')).toBeInTheDocument();
+      expect(mockToastContext.error).toHaveBeenCalled();
     });
 
     // 遷移しないことを確認
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  // ==========================================================================
+  // REQ-11.5: 契約書作成成功時のトースト通知
+  // ==========================================================================
+
+  /**
+   * REQ-11.5: 契約書作成成功時に「契約書を作成しました。」のトースト通知を表示する
+   */
+  it('契約書作成成功時に「契約書を作成しました。」のトースト通知を表示する', async () => {
+    vi.mocked(contractsApi.createContract).mockResolvedValue(mockCreatedContract);
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-form')).toBeInTheDocument();
+    });
+
+    // フォームを送信する
+    const submitButton = screen.getByRole('button', { name: '作成' });
+    await userEvent.click(submitButton);
+
+    // トースト通知が表示される
+    await waitFor(() => {
+      expect(mockToastContext.success).toHaveBeenCalledWith('契約書を作成しました。');
+    });
+
+    // 詳細画面に遷移する
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/proj-001/contracts/contract-new-001');
+    });
   });
 });

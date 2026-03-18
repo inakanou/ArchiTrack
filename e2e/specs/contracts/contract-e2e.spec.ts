@@ -2,6 +2,7 @@
  * @fileoverview 契約書管理機能E2Eテスト
  *
  * Task 9.2: E2Eテストを作成する
+ * Task 16.3: E2Eテストに削除・バリデーション・権限フローを追加する
  *
  * Requirements coverage (contract-management):
  * - REQ-1.1 ~ REQ-1.6: 契約書一覧画面
@@ -11,8 +12,12 @@
  * - REQ-5.1 ~ REQ-5.3: 変更契約入力項目
  * - REQ-6.1 ~ REQ-6.2: 変更前後比較表示
  * - REQ-7.1 ~ REQ-7.3: 作成・キャンセル操作
- * - REQ-8.1 ~ REQ-8.8: 詳細画面
+ * - REQ-8.1 ~ REQ-8.11: 詳細画面（削除含む）
  * - REQ-9.1 ~ REQ-9.5: 編集画面
+ * - REQ-10.1, REQ-10.6, REQ-10.7, REQ-10.8: バリデーション
+ * - REQ-11.5, REQ-11.6, REQ-11.7: 成功メッセージ
+ * - REQ-12.1, REQ-12.2: 削除制約
+ * - REQ-13.5: 権限制御
  *
  * テストフロー:
  * 1. 新規契約作成フロー（見積書選択 -> 金額自動表示 -> 入力 -> 作成 -> 詳細画面遷移）
@@ -21,6 +26,11 @@
  * 4. 編集フロー（詳細画面 -> 編集ボタン -> フォーム編集 -> 保存 -> 詳細画面反映）
  * 5. キャンセル操作フロー（新規作成キャンセル、編集キャンセル）
  * 6. パンくずナビゲーション（全画面での表示確認）
+ * 9. バリデーションフロー（必須項目未入力 -> エラー -> 修正 -> 送信成功）
+ * 10. 権限制御フロー（権限のないユーザーでのUI要素非表示確認）
+ * 11. 削除制約フロー - 契約済ステータス
+ * 12. 削除制約フロー - 子契約存在
+ * 13. 削除フロー（正常削除 -> トースト表示 -> 一覧画面遷移）
  *
  * @module e2e/specs/contracts/contract-e2e.spec
  */
@@ -43,7 +53,10 @@ test.describe('契約書管理機能', () => {
   let createdContractId: string | null = null;
   let createdAmendmentContractId: string | null = null;
   let accessToken: string = '';
+  let adminAccessToken: string = '';
   let projectName: string = '';
+  /** 削除テスト用の契約書ID（正常削除用） */
+  let deletableContractId: string | null = null;
 
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
@@ -125,6 +138,23 @@ test.describe('契約書管理機能', () => {
       accessToken = loginBody.accessToken;
 
       expect(accessToken).toBeTruthy();
+    });
+
+    /**
+     * テスト準備：管理者APIトークンの取得
+     */
+    test('準備2.5：管理者APIトークンを取得する', async ({ request }) => {
+      const baseUrl = API_BASE_URL;
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'admin@example.com',
+          password: 'AdminPass123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      adminAccessToken = loginBody.accessToken;
+
+      expect(adminAccessToken).toBeTruthy();
     });
 
     /**
@@ -730,6 +760,480 @@ test.describe('契約書管理機能', () => {
       // 詳細画面に遷移したことを確認（REQ-1.5）
       await page.waitForURL(/\/projects\/[0-9a-f-]+\/contracts\/[0-9a-f-]+$/, {
         timeout: getTimeout(15000),
+      });
+    });
+  });
+
+  // ============================================================================
+  // 9. バリデーションフロー
+  // ============================================================================
+
+  test.describe('9. バリデーションフロー', () => {
+    /**
+     * REQ-10.1, REQ-10.6: 必須項目未入力での送信 -> エラーメッセージ表示
+     */
+    test('9-1: 必須項目未入力で作成ボタンを押すとバリデーションエラーが表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新規作成画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/new`);
+      await page.waitForLoadState('networkidle');
+
+      // フォーム表示を待機
+      const submitButton = page.getByRole('button', { name: /作成/i });
+      await expect(submitButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 消費税率をクリアする（デフォルト10%が入っているため）
+      const taxRateInput = page.getByLabel('消費税率（%）');
+      if (await taxRateInput.isVisible()) {
+        await taxRateInput.clear();
+      }
+
+      // 何も入力せずに作成ボタンを押す
+      await submitButton.click();
+
+      // バリデーションエラーメッセージが表示されることを確認（REQ-10.6）
+      await expect(page.getByText('見積書の選択は必須です')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(page.getByText('契約日の入力は必須です')).toBeVisible();
+      await expect(page.getByText('工期着手日の入力は必須です')).toBeVisible();
+      await expect(page.getByText('工期完成日の入力は必須です')).toBeVisible();
+      await expect(page.getByText('引渡日の入力は必須です')).toBeVisible();
+      await expect(page.getByText('消費税率の入力は必須です')).toBeVisible();
+    });
+
+    /**
+     * REQ-10.7: 着手日が完成日より後の場合のエラー
+     */
+    test('9-2: 着手日が完成日より後の場合にエラーメッセージが表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新規作成画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/new`);
+      await page.waitForLoadState('networkidle');
+
+      // フォーム表示を待機
+      await expect(page.getByRole('button', { name: /作成/i })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 見積書を選択
+      const estimateSelect = page.getByLabel('見積書');
+      await page.waitForFunction(
+        (selector) => {
+          const select = document.querySelector(selector);
+          return select && select.querySelectorAll('option').length > 1;
+        },
+        'select#estimateId',
+        { timeout: getTimeout(15000) }
+      );
+      await estimateSelect.selectOption({ index: 1 });
+
+      // 契約日を入力
+      await page.getByLabel('契約日').fill('2024-06-01');
+
+      // 着手日を完成日より後に設定（REQ-10.7）
+      await page.getByLabel('工期着手日').fill('2025-01-01');
+      await page.getByLabel('工期完成日').fill('2024-06-01');
+
+      // 引渡日を入力
+      await page.getByLabel('引渡日').fill('2025-02-01');
+
+      // 作成ボタンを押す
+      await page.getByRole('button', { name: /作成/i }).click();
+
+      // 論理チェックエラーが表示されることを確認
+      await expect(page.getByText('着手日は完成日以前の日付を指定してください')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+
+    /**
+     * REQ-10.8: 変更契約で基契約書未選択の場合のエラー
+     */
+    test('9-3: 変更契約で基契約書が未選択の場合にエラーメッセージが表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新規作成画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/new`);
+      await page.waitForLoadState('networkidle');
+
+      // 変更契約を選択
+      const amendmentRadio = page.getByLabel(/変更契約/i);
+      await expect(amendmentRadio).toBeVisible({ timeout: getTimeout(10000) });
+      await amendmentRadio.click();
+
+      // 見積書を選択
+      const estimateSelect = page.getByLabel('見積書');
+      await page.waitForFunction(
+        (selector) => {
+          const select = document.querySelector(selector);
+          return select && select.querySelectorAll('option').length > 1;
+        },
+        'select#estimateId',
+        { timeout: getTimeout(15000) }
+      );
+      await estimateSelect.selectOption({ index: 1 });
+
+      // その他の必須項目を入力するが基契約書は選択しない
+      await page.getByLabel('契約日').fill('2024-06-01');
+      await page.getByLabel('工期着手日').fill('2024-07-01');
+      await page.getByLabel('工期完成日').fill('2024-12-31');
+      await page.getByLabel('引渡日').fill('2025-01-15');
+
+      // 作成ボタンを押す
+      await page.getByRole('button', { name: /作成/i }).click();
+
+      // 基契約書必須エラーが表示されることを確認（REQ-10.8）
+      await expect(page.getByText('変更契約の場合、基となる契約書の選択は必須です')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+
+    /**
+     * バリデーションエラー修正後に送信成功する
+     */
+    test('9-4: バリデーションエラーを修正して送信すると作成に成功する', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdEstimateId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新規作成画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/new`);
+      await page.waitForLoadState('networkidle');
+
+      // フォーム表示を待機
+      const submitButton = page.getByRole('button', { name: /作成/i });
+      await expect(submitButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 何も入力せずに作成ボタンを押す -> エラー表示
+      await submitButton.click();
+      await expect(page.getByText('見積書の選択は必須です')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // エラーを修正: 見積書を選択
+      const estimateSelect = page.getByLabel('見積書');
+      await page.waitForFunction(
+        (selector) => {
+          const select = document.querySelector(selector);
+          return select && select.querySelectorAll('option').length > 1;
+        },
+        'select#estimateId',
+        { timeout: getTimeout(15000) }
+      );
+      await estimateSelect.selectOption({ index: 1 });
+
+      // エラーを修正: 日付項目を入力
+      await page.getByLabel('契約日').fill('2024-06-01');
+      await page.getByLabel('工期着手日').fill('2024-07-01');
+      await page.getByLabel('工期完成日').fill('2024-12-31');
+      await page.getByLabel('引渡日').fill('2025-01-15');
+
+      // 作成ボタンを再度押す -> 今度は成功するはず
+      const createResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/projects/') &&
+          response.url().includes('/contracts') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(30000) }
+      );
+
+      await submitButton.click();
+      const response = await createResponse;
+      expect(response.status()).toBe(201);
+
+      // 詳細画面に遷移（成功）
+      await page.waitForURL(/\/projects\/[0-9a-f-]+\/contracts\/[0-9a-f-]+$/);
+
+      // 削除テスト用に契約書IDを保存
+      const url = page.url();
+      const contractMatch = url.match(/\/contracts\/([0-9a-f-]+)$/);
+      deletableContractId = contractMatch?.[1] ?? null;
+      expect(deletableContractId).toBeTruthy();
+    });
+  });
+
+  // ============================================================================
+  // 10. 権限制御フロー
+  // ============================================================================
+
+  test.describe('10. 権限制御フロー', () => {
+    /**
+     * REQ-13.5: 一般ユーザー（contract:deleteなし）で削除ボタンが非表示
+     * 一般ユーザーロールはcontract:create, contract:read, contract:updateは持つが
+     * contract:deleteは持たないため、削除ボタンが非表示になることを確認する
+     */
+    test('10-1: 一般ユーザーでは契約書詳細画面の削除ボタンが非表示になる', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdContractId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 契約書詳細画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/${createdContractId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 詳細画面が表示されることを確認
+      await expect(page.getByText(/新規契約/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 編集ボタンは表示されることを確認（contract:update権限あり）
+      await expect(page.getByRole('link', { name: /編集/i })).toBeVisible();
+
+      // ステータス遷移ボタンは表示されることを確認（contract:update権限あり）
+      const statusButton = page.getByRole('button', { name: /契約済にする|契約前に戻す/ });
+      await expect(statusButton).toBeVisible();
+
+      // 削除ボタンは非表示であることを確認（contract:delete権限なし）
+      const deleteButton = page.getByRole('button', { name: /^削除$/ });
+      await expect(deleteButton).not.toBeVisible();
+    });
+
+    /**
+     * REQ-13.5: 管理者ユーザー（全権限あり）で全ボタンが表示
+     */
+    test('10-2: 管理者ユーザーでは契約書詳細画面の全ボタンが表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdContractId).toBeTruthy();
+      await loginAsUser(page, 'ADMIN_USER');
+
+      // 契約書詳細画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/${createdContractId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 詳細画面が表示されることを確認
+      await expect(page.getByText(/新規契約/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 編集ボタンが表示されることを確認
+      await expect(page.getByRole('link', { name: /編集/i })).toBeVisible();
+
+      // ステータス遷移ボタンが表示されることを確認
+      const statusButton = page.getByRole('button', { name: /契約済にする|契約前に戻す/ });
+      await expect(statusButton).toBeVisible();
+
+      // 削除ボタンが表示されることを確認（contract:delete権限あり）
+      const deleteButton = page.getByRole('button', { name: /^削除$/ });
+      await expect(deleteButton).toBeVisible();
+    });
+
+    /**
+     * REQ-13.5: 一般ユーザーでも契約書一覧画面の新規作成ボタンは表示される
+     * （一般ユーザーはcontract:create権限を持つため）
+     */
+    test('10-3: 一般ユーザーでは契約書一覧画面の新規作成ボタンが表示される', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 契約書一覧画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts`);
+      await page.waitForLoadState('networkidle');
+
+      // 新規作成ボタンが表示されることを確認（contract:create権限あり）
+      const createButton = page.getByRole('link', { name: '契約書を新規作成' });
+      await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
+    });
+  });
+
+  // ============================================================================
+  // 11. 削除制約フロー - 契約済ステータス
+  // ============================================================================
+
+  test.describe('11. 削除制約フロー - 契約済ステータス', () => {
+    /**
+     * 準備: 削除テスト用にステータスを契約済にする
+     */
+    test('11-0: 削除テスト用契約書のステータスを契約済にする', async ({ request }) => {
+      expect(deletableContractId).toBeTruthy();
+      expect(adminAccessToken).toBeTruthy();
+
+      const baseUrl = API_BASE_URL;
+      const response = await request.patch(
+        `${baseUrl}/api/contracts/${deletableContractId}/status`,
+        {
+          headers: { Authorization: `Bearer ${adminAccessToken}` },
+          data: { status: 'CONTRACTED' },
+        }
+      );
+      expect(response.ok()).toBeTruthy();
+    });
+
+    /**
+     * REQ-12.2: 契約済ステータスの契約書の削除 -> エラーメッセージ表示
+     */
+    test('11-1: 契約済ステータスの契約書を削除しようとするとエラーメッセージが表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(deletableContractId).toBeTruthy();
+      await loginAsUser(page, 'ADMIN_USER');
+
+      // 契約済の契約書詳細画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/${deletableContractId}`);
+      await page.waitForLoadState('networkidle');
+
+      // ステータスが「契約済」であることを確認
+      await expect(page.getByText('契約済')).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 削除ボタンをクリック
+      const deleteButton = page.getByRole('button', { name: /^削除$/ });
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+
+      // 確認ダイアログが表示されることを確認（REQ-8.10）
+      await expect(page.getByText('この契約書を削除しますか?')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 削除するボタンをクリック
+      const confirmDeleteResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes('/contracts/') && response.request().method() === 'DELETE',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /削除する/i }).click();
+      const response = await confirmDeleteResponse;
+      expect(response.status()).toBe(422);
+
+      // エラーメッセージが表示されることを確認（REQ-12.2）
+      await expect(page.getByText(/契約済の契約書は削除できません/)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+
+    /**
+     * 後処理: ステータスを契約前に戻す
+     */
+    test('11-2: 削除テスト用契約書のステータスを契約前に戻す', async ({ request }) => {
+      expect(deletableContractId).toBeTruthy();
+      expect(adminAccessToken).toBeTruthy();
+
+      const baseUrl = API_BASE_URL;
+      const response = await request.patch(
+        `${baseUrl}/api/contracts/${deletableContractId}/status`,
+        {
+          headers: { Authorization: `Bearer ${adminAccessToken}` },
+          data: { status: 'BEFORE_CONTRACT' },
+        }
+      );
+      expect(response.ok()).toBeTruthy();
+    });
+  });
+
+  // ============================================================================
+  // 12. 削除制約フロー - 子契約存在
+  // ============================================================================
+
+  test.describe('12. 削除制約フロー - 子契約存在', () => {
+    /**
+     * REQ-12.1: 子契約が存在する契約書の削除 -> エラーメッセージ表示
+     * createdContractIdは変更契約（createdAmendmentContractId）の基契約書であるため削除不可
+     */
+    test('12-1: 子契約が存在する契約書を削除しようとするとエラーメッセージが表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdContractId).toBeTruthy();
+      expect(createdAmendmentContractId).toBeTruthy();
+      await loginAsUser(page, 'ADMIN_USER');
+
+      // 基契約書（変更契約の親）の詳細画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/${createdContractId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 詳細画面が表示されることを確認
+      await expect(page.getByText(/新規契約/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 削除ボタンをクリック
+      const deleteButton = page.getByRole('button', { name: /^削除$/ });
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+
+      // 確認ダイアログが表示されることを確認
+      await expect(page.getByText('この契約書を削除しますか?')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 削除するボタンをクリック
+      const confirmDeleteResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes('/contracts/') && response.request().method() === 'DELETE',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /削除する/i }).click();
+      const response = await confirmDeleteResponse;
+      expect(response.status()).toBe(422);
+
+      // エラーメッセージが表示されることを確認（REQ-12.1）
+      await expect(page.getByText(/変更契約の基となっているため削除できません/)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+  });
+
+  // ============================================================================
+  // 13. 削除フロー（正常削除）
+  // ============================================================================
+
+  test.describe('13. 削除フロー', () => {
+    /**
+     * REQ-8.9, REQ-8.10, REQ-8.11, REQ-11.7:
+     * 削除ボタン -> 確認ダイアログ -> 削除成功 -> トースト表示 -> 一覧画面遷移
+     */
+    test('13-1: 契約書を削除すると成功トーストが表示され一覧画面に遷移する', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(deletableContractId).toBeTruthy();
+      await loginAsUser(page, 'ADMIN_USER');
+
+      // 削除対象の契約書詳細画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/${deletableContractId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 詳細画面が表示されることを確認
+      await expect(page.locator('[data-testid="contract-detail-page"]')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 削除ボタンをクリック（REQ-8.9）
+      const deleteButton = page.getByRole('button', { name: /^削除$/ });
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+
+      // 確認ダイアログが表示されることを確認（REQ-8.10）
+      await expect(page.getByText('この契約書を削除しますか?')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 削除するボタンをクリック
+      const deleteResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes('/contracts/') && response.request().method() === 'DELETE',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /削除する/i }).click();
+
+      const response = await deleteResponse;
+      expect(response.status()).toBe(204);
+
+      // 成功トーストが表示されることを確認（REQ-11.7）
+      await expect(page.getByText('契約書を削除しました。')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 一覧画面に遷移したことを確認（REQ-8.11）
+      await page.waitForURL(/\/projects\/[0-9a-f-]+\/contracts$/, {
+        timeout: getTimeout(10000),
       });
     });
   });

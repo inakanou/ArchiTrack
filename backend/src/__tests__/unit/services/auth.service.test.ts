@@ -652,7 +652,16 @@ describe('AuthService', () => {
       // Arrange: モックの設定
       const userId = 'user-456';
 
-      const mockUser: User & { userRoles: Array<{ role: { name: string } }> } = {
+      const mockUser: User & {
+        userRoles: Array<{
+          role: {
+            name: string;
+            rolePermissions: Array<{
+              permission: { resource: string; action: string };
+            }>;
+          };
+        }>;
+      } = {
         id: userId,
         email: 'user2@example.com',
         displayName: 'User Two',
@@ -666,7 +675,17 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-        userRoles: [{ role: { name: 'user' } }],
+        userRoles: [
+          {
+            role: {
+              name: 'user',
+              rolePermissions: [
+                { permission: { resource: 'contract', action: 'read' } },
+                { permission: { resource: 'contract', action: 'create' } },
+              ],
+            },
+          },
+        ],
       };
 
       // Prisma.user.findUnique() のモック
@@ -683,6 +702,10 @@ describe('AuthService', () => {
         expect(result.value.displayName).toBe('User Two');
         expect(result.value.roles).toContain('user');
         expect(result.value.twoFactorEnabled).toBe(false);
+        // permissions フィールドの検証
+        expect(result.value.permissions).toBeDefined();
+        expect(result.value.permissions).toContain('contract:read');
+        expect(result.value.permissions).toContain('contract:create');
       }
     });
 

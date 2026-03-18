@@ -607,3 +607,332 @@ describe('ContractForm - Task 5.4', () => {
     });
   });
 });
+
+// ============================================================================
+// Task 12.1 テスト: クライアントサイドバリデーション
+// ============================================================================
+
+describe('ContractForm - Task 12.1 バリデーション', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    setupMocks();
+  });
+
+  /**
+   * REQ-10.1: 見積書選択必須チェック
+   * REQ-10.2: 契約日必須チェック
+   * REQ-10.3: 工期着手日・完成日必須チェック
+   * REQ-10.4: 引渡日必須チェック
+   * REQ-10.5: 消費税率必須チェック
+   * REQ-10.6: 必須項目エラーメッセージ
+   */
+  it('必須項目が未入力の状態で送信するとバリデーションエラーが表示される', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    // 消費税率をクリアしてから送信
+    const taxRateInput = screen.getByLabelText('消費税率（%）');
+    await user.clear(taxRateInput);
+
+    // 送信ボタンをクリック
+    const submitButton = screen.getByRole('button', { name: '作成' });
+    await user.click(submitButton);
+
+    // onSubmitが呼ばれていないことを確認
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // エラーメッセージが表示される
+    await waitFor(() => {
+      expect(screen.getByText('見積書の選択は必須です')).toBeInTheDocument();
+    });
+    expect(screen.getByText('契約日の入力は必須です')).toBeInTheDocument();
+    expect(screen.getByText('工期着手日の入力は必須です')).toBeInTheDocument();
+    expect(screen.getByText('工期完成日の入力は必須です')).toBeInTheDocument();
+    expect(screen.getByText('引渡日の入力は必須です')).toBeInTheDocument();
+    expect(screen.getByText('消費税率の入力は必須です')).toBeInTheDocument();
+  });
+
+  /**
+   * REQ-10.5: 消費税率範囲チェック（0-100%）
+   */
+  it('消費税率が0未満の場合にバリデーションエラーが表示される', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    // 見積書一覧のロードを待つ
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    // 全必須フィールドを入力
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    const contractDate = screen.getByLabelText('契約日');
+    await user.type(contractDate, '2024-06-01');
+    const startDate = screen.getByLabelText('工期着手日');
+    await user.type(startDate, '2024-07-01');
+    const endDate = screen.getByLabelText('工期完成日');
+    await user.type(endDate, '2024-12-31');
+    const deliveryDate = screen.getByLabelText('引渡日');
+    await user.type(deliveryDate, '2025-01-15');
+
+    // 消費税率を-1に設定
+    const taxRateInput = screen.getByLabelText('消費税率（%）');
+    await user.clear(taxRateInput);
+    await user.type(taxRateInput, '-1');
+
+    // 送信ボタンをクリック
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    // onSubmitが呼ばれていない
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // 範囲エラーメッセージ
+    await waitFor(() => {
+      expect(
+        screen.getByText('消費税率は0以上100以下の数値を指定してください')
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('消費税率が100を超える場合にバリデーションエラーが表示される', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    await user.type(screen.getByLabelText('契約日'), '2024-06-01');
+    await user.type(screen.getByLabelText('工期着手日'), '2024-07-01');
+    await user.type(screen.getByLabelText('工期完成日'), '2024-12-31');
+    await user.type(screen.getByLabelText('引渡日'), '2025-01-15');
+
+    const taxRateInput = screen.getByLabelText('消費税率（%）');
+    await user.clear(taxRateInput);
+    await user.type(taxRateInput, '101');
+
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('消費税率は0以上100以下の数値を指定してください')
+      ).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * REQ-10.7: 着手日・完成日の論理チェック
+   */
+  it('工期着手日が完成日より後の場合にエラーメッセージが表示される', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    await user.type(screen.getByLabelText('契約日'), '2024-06-01');
+    // 着手日を完成日より後に設定
+    await user.type(screen.getByLabelText('工期着手日'), '2025-01-01');
+    await user.type(screen.getByLabelText('工期完成日'), '2024-12-31');
+    await user.type(screen.getByLabelText('引渡日'), '2025-01-15');
+
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText('着手日は完成日以前の日付を指定してください')).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * REQ-10.8: 変更契約の基契約書必須チェック
+   */
+  it('変更契約で基契約書が未選択の場合にエラーメッセージが表示される', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    // 変更契約を選択
+    await user.click(screen.getByLabelText('変更契約'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('基となる契約書')).toBeInTheDocument();
+    });
+
+    // 必須フィールドを入力（基契約書以外）
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    await user.type(screen.getByLabelText('契約日'), '2024-06-01');
+    await user.type(screen.getByLabelText('工期着手日'), '2024-07-01');
+    await user.type(screen.getByLabelText('工期完成日'), '2024-12-31');
+    await user.type(screen.getByLabelText('引渡日'), '2025-01-15');
+
+    // 基契約書を選択しないまま送信
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('変更契約の場合、基となる契約書の選択は必須です')
+      ).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * バリデーション通過時にonSubmitが呼ばれることを確認
+   */
+  it('全バリデーション通過時にonSubmitが呼ばれる', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    await user.type(screen.getByLabelText('契約日'), '2024-06-01');
+    await user.type(screen.getByLabelText('工期着手日'), '2024-07-01');
+    await user.type(screen.getByLabelText('工期完成日'), '2024-12-31');
+    await user.type(screen.getByLabelText('引渡日'), '2025-01-15');
+
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * バリデーションエラーが修正後にクリアされることを確認
+   */
+  it('バリデーションエラーがフィールド修正後にクリアされる', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    // 未入力のまま送信してエラーを発生させる
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('見積書の選択は必須です')).toBeInTheDocument();
+    });
+
+    // 見積書を選択してエラーが消えることを確認
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+
+    await waitFor(() => {
+      expect(screen.queryByText('見積書の選択は必須です')).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * 消費税率が0の場合にバリデーションを通過する（境界値テスト）
+   */
+  it('消費税率0%はバリデーションを通過する', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    await user.type(screen.getByLabelText('契約日'), '2024-06-01');
+    await user.type(screen.getByLabelText('工期着手日'), '2024-07-01');
+    await user.type(screen.getByLabelText('工期完成日'), '2024-12-31');
+    await user.type(screen.getByLabelText('引渡日'), '2025-01-15');
+
+    const taxRateInput = screen.getByLabelText('消費税率（%）');
+    await user.clear(taxRateInput);
+    await user.type(taxRateInput, '0');
+
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * 消費税率が100の場合にバリデーションを通過する（境界値テスト）
+   */
+  it('消費税率100%はバリデーションを通過する', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    await user.type(screen.getByLabelText('契約日'), '2024-06-01');
+    await user.type(screen.getByLabelText('工期着手日'), '2024-07-01');
+    await user.type(screen.getByLabelText('工期完成日'), '2024-12-31');
+    await user.type(screen.getByLabelText('引渡日'), '2025-01-15');
+
+    const taxRateInput = screen.getByLabelText('消費税率（%）');
+    await user.clear(taxRateInput);
+    await user.type(taxRateInput, '100');
+
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * 着手日と完成日が同日の場合にバリデーションを通過する（境界値テスト）
+   */
+  it('工期着手日と完成日が同日の場合はバリデーションを通過する', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ onSubmit });
+
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書A')).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByLabelText('見積書'), 'est-001');
+    await user.type(screen.getByLabelText('契約日'), '2024-06-01');
+    await user.type(screen.getByLabelText('工期着手日'), '2024-12-31');
+    await user.type(screen.getByLabelText('工期完成日'), '2024-12-31');
+    await user.type(screen.getByLabelText('引渡日'), '2025-01-15');
+
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+  });
+});

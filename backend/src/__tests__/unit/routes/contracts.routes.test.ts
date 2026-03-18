@@ -23,6 +23,7 @@ import {
   ContractNotFoundError,
   ContractConflictError,
   ContractValidationError,
+  ContractDeletionConstraintError,
 } from '../../../errors/contractError.js';
 
 // vi.hoistedでモック関数を定義（vi.mockと一緒にhoistingされる）
@@ -432,6 +433,34 @@ describe('契約書ルート', () => {
       mockDelete.mockRejectedValue(new ContractNotFoundError());
 
       await request(app).delete(`/api/contracts/${contractId}`).expect(404);
+    });
+
+    it('子契約が存在する場合の削除で422エラーが返ること', async () => {
+      mockDelete.mockRejectedValue(
+        new ContractDeletionConstraintError(
+          'この契約書は変更契約の基となっているため削除できません'
+        )
+      );
+
+      const res = await request(app).delete(`/api/contracts/${contractId}`).expect(422);
+
+      expect(res.body.status).toBe(422);
+      expect(res.body.detail).toBe('この契約書は変更契約の基となっているため削除できません');
+    });
+
+    it('ステータスがCONTRACTEDの場合の削除で422エラーが返ること', async () => {
+      mockDelete.mockRejectedValue(
+        new ContractDeletionConstraintError(
+          '契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください'
+        )
+      );
+
+      const res = await request(app).delete(`/api/contracts/${contractId}`).expect(422);
+
+      expect(res.body.status).toBe(422);
+      expect(res.body.detail).toBe(
+        '契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください'
+      );
     });
   });
 });
