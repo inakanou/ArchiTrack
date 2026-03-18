@@ -49,6 +49,7 @@ import ScheduleListPage from './pages/ScheduleListPage';
 import ScheduleCreatePage from './pages/ScheduleCreatePage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
 import ExecutionBudgetPage from './pages/ExecutionBudgetPage';
+import OrderDetailPage from './pages/OrderDetailPage';
 
 /**
  * アプリケーションのルート設定
@@ -396,6 +397,18 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/execution-budget',
         element: <ExecutionBudgetPage />,
+      },
+
+      // 発注詳細ページ
+      // REQ-6.1-6.8: 発注の作成と取引先指定
+      // REQ-7.1-7.5: 発注の編集と削除
+      // REQ-8.1-8.9: 発注金額の確定と案分
+      // REQ-10.1-10.4: 発注一覧のエクスポート
+      // Task 9.1: 発注の作成・編集・削除UI実装
+      // Task 9.2: 発注エクスポートUI実装
+      {
+        path: '/projects/:projectId/execution-budget/orders/:orderId',
+        element: <OrderDetailPage />,
       },
 
       // 取引先一覧
