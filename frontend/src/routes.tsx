@@ -48,6 +48,7 @@ import ContractEditPage from './pages/ContractEditPage';
 import ScheduleListPage from './pages/ScheduleListPage';
 import ScheduleCreatePage from './pages/ScheduleCreatePage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
+import ExecutionBudgetPage from './pages/ExecutionBudgetPage';
 
 /**
  * アプリケーションのルート設定
@@ -385,6 +386,16 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/schedules',
         element: <ScheduleListPage />,
+      },
+
+      // 実行予算メインページ
+      // REQ-1.1-1.7: 実行予算の作成
+      // REQ-2.1-2.3: 実行予算の削除
+      // REQ-3.1-3.10: 実行予算項目一覧
+      // Task 8.1-8.4: フロントエンド実行予算メインページ
+      {
+        path: '/projects/:projectId/execution-budget',
+        element: <ExecutionBudgetPage />,
       },
 
       // 取引先一覧
