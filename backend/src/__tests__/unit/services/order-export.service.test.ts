@@ -313,6 +313,42 @@ describe('OrderExportService', () => {
       const workbook = XLSX.read(buffer, { type: 'buffer' });
       expect(workbook.SheetNames).toContain('発注一覧');
     });
+
+    it('executionAmountやorderAmountがnullの項目でもExcelを正常に出力する', async () => {
+      const data = createTestOrderExportData({
+        status: 'ORDERED',
+        items: [
+          {
+            name: 'null金額項目',
+            specification: null,
+            unit: null,
+            quantity: null,
+            executionUnitPrice: null,
+            executionAmount: null,
+            orderAmount: null,
+          },
+          {
+            name: '金額あり項目',
+            specification: '仕様',
+            unit: 'm2',
+            quantity: '10.0000',
+            executionUnitPrice: '1000.00',
+            executionAmount: '10000',
+            orderAmount: '9500',
+          },
+        ],
+      });
+      const buffer = await service.exportToExcel(data);
+
+      expect(buffer).toBeInstanceOf(Buffer);
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheet = workbook.Sheets['発注一覧']!;
+      const sheetData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
+      const flatData = sheetData.flat().map(String);
+
+      // 金額ありの項目データが含まれる
+      expect(flatData.some((cell) => cell.includes('金額あり項目'))).toBe(true);
+    });
   });
 
   // ==========================================================================
@@ -360,6 +396,38 @@ describe('OrderExportService', () => {
 
       expect(buffer).toBeInstanceOf(Buffer);
       expect(buffer.length).toBeGreaterThan(0);
+    });
+
+    it('executionAmountやorderAmountがnullの項目でもPDFを正常に出力する', async () => {
+      const data = createTestOrderExportData({
+        status: 'ORDERED',
+        items: [
+          {
+            name: 'null金額項目',
+            specification: null,
+            unit: null,
+            quantity: null,
+            executionUnitPrice: null,
+            executionAmount: null,
+            orderAmount: null,
+          },
+          {
+            name: '金額あり項目',
+            specification: '仕様',
+            unit: 'm2',
+            quantity: '10.0000',
+            executionUnitPrice: '1000.00',
+            executionAmount: '10000',
+            orderAmount: '9500',
+          },
+        ],
+      });
+      const buffer = await service.exportToPdf(data);
+
+      expect(buffer).toBeInstanceOf(Buffer);
+      expect(buffer.length).toBeGreaterThan(0);
+      const header = buffer.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
     });
 
     it('ヘッダー情報がPDFに含まれる (REQ-10.3)', async () => {

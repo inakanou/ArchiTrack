@@ -788,6 +788,65 @@ describe('ExecutionBudgetService', () => {
       expect(result).toBeNull();
     });
 
+    it('orderItemsが存在するが発注済みでない場合、発注金額と発注ステータスはnullとなる', async () => {
+      // Arrange: orderItemsがあるがORDERED以外のステータス
+      const mockBudgetWithUnorderedItems = {
+        ...mockBudgetWithItems,
+        contract: {
+          id: contractId,
+          contractAmount: null, // contractAmountもnullでテスト
+        },
+        items: [
+          {
+            id: 'eb-item-1',
+            executionBudgetId: createdBudgetId,
+            parentId: null,
+            displayOrder: 0,
+            name: '工事A',
+            specification: null,
+            unit: '式',
+            quantity: { toString: () => '1' },
+            estimateUnitPrice: { toString: () => '100000' },
+            estimateAmount: { toString: () => '100000' },
+            executionUnitPrice: { toString: () => '90000' },
+            executionAmount: { toString: () => '90000' },
+            amendmentAmount: { toString: () => '0' },
+            previousMonthExpense: null, // null: || '0' ブランチをカバー
+            currentMonthExpense: null, // null: || '0' ブランチをカバー
+            plannedVendorId: null,
+            plannedVendor: null,
+            remarks: null,
+            amendmentStatus: null,
+            children: [],
+            orderItems: [
+              {
+                checked: false, // checked=false → hasOrderedItemはfalseのまま
+                orderAmount: { toString: () => '80000' },
+                order: { status: 'BEFORE_ORDER', deletedAt: null },
+              },
+            ],
+          },
+        ],
+      };
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetWithUnorderedItems
+      );
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      const item = result!.items[0]!;
+      // 発注済みのorderItemがないため、orderAmountとorderStatusはnull
+      expect(item.orderAmount).toBeNull();
+      expect(item.orderStatus).toBeNull();
+      // contractAmountがnullの場合、利益見込額は'0'
+      expect(result!.totals.expectedProfit).toBe('0');
+      // 累計支出はpreviousMonthExpense=null, currentMonthExpense=null → 0
+      expect(result!.totals.totalExpense).toBe('0');
+    });
+
     it('論理削除済みの実行予算は取得しない', async () => {
       // Arrange
       (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
@@ -1115,6 +1174,29 @@ describe('ExecutionBudgetService', () => {
     });
   });
 
+  describe('findByProjectId', () => {
+    it('プロジェクトIDから実行予算の基本情報を取得する', async () => {
+      const mockBudget = { id: createdBudgetId, projectId, contractId };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+
+      const result = await service.findByProjectId(projectId);
+
+      expect(result).toEqual(mockBudget);
+      expect(mockTx.executionBudget.findFirst).toHaveBeenCalledWith({
+        where: { projectId, deletedAt: null },
+        select: { id: true, projectId: true, contractId: true },
+      });
+    });
+
+    it('実行予算が存在しない場合はnullを返す', async () => {
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+
+      const result = await service.findByProjectId(projectId);
+
+      expect(result).toBeNull();
+    });
+  });
+
   describe('getAmendmentDiff - 変更契約の項目差分取得', () => {
     it('変更契約に紐づく見積書の項目差分を算出して返却する（Req 15.2）', async () => {
       // Arrange
@@ -1198,6 +1280,61 @@ describe('ExecutionBudgetService', () => {
       expect(result.addedItems.length).toBeGreaterThanOrEqual(1);
       expect(result.modifiedItems.length).toBeGreaterThanOrEqual(1);
       expect(result.contractAmount).toBeDefined();
+    });
+
+    it('実行予算が存在しない場合はエラーをスローする', async () => {
+      const amendmentContractId = '550e8400-e29b-41d4-a716-446655440020';
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+
+      await expect(service.getAmendmentDiff(projectId, amendmentContractId)).rejects.toThrow(
+        ExecutionBudgetNotFoundError
+      );
+    });
+
+    it('変更契約が論理削除済みの場合はAmendmentContractNotFoundErrorをスローする', async () => {
+      const amendmentContractId = '550e8400-e29b-41d4-a716-446655440020';
+      const mockBudget = {
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        deletedAt: null,
+      };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        deletedAt: new Date(),
+      });
+
+      await expect(service.getAmendmentDiff(projectId, amendmentContractId)).rejects.toThrow(
+        AmendmentContractNotFoundError
+      );
+    });
+
+    it('契約タイプがAMENDMENTでない場合はAmendmentContractNotFoundErrorをスローする', async () => {
+      const amendmentContractId = '550e8400-e29b-41d4-a716-446655440020';
+      const mockBudget = {
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        deletedAt: null,
+      };
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'ORIGINAL',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        deletedAt: null,
+      });
+
+      await expect(service.getAmendmentDiff(projectId, amendmentContractId)).rejects.toThrow(
+        AmendmentContractNotFoundError
+      );
     });
   });
 
