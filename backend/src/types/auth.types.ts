@@ -49,6 +49,7 @@ export interface UserProfile {
   email: string;
   displayName: string;
   roles: string[];
+  permissions?: string[];
   createdAt: Date;
   twoFactorEnabled: boolean;
 }

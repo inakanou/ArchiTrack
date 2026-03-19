@@ -58,6 +58,10 @@ import { EstimateRequestSectionCard } from '../components/projects/EstimateReque
 import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
 import { ContractSectionCard } from '../components/projects/ContractSectionCard';
 import { ScheduleSectionCard } from '../components/projects/ScheduleSectionCard';
+import {
+  ExecutionBudgetSectionCard,
+  type ExecutionBudgetSectionInfo,
+} from '../components/projects/ExecutionBudgetSectionCard';
 import { Breadcrumb } from '../components/common';
 
 // ============================================================================
@@ -406,6 +410,10 @@ export default function ProjectDetailPage() {
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
   const [contractSummary, setContractSummary] = useState<ContractSectionSummary | null>(null);
   const [scheduleSummary, setScheduleSummary] = useState<ScheduleSectionSummary | null>(null);
+  const [executionBudgetInfo, setExecutionBudgetInfo] = useState<ExecutionBudgetSectionInfo | null>(
+    null
+  );
+  const [isExecutionBudgetLoading, setIsExecutionBudgetLoading] = useState(true);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -446,6 +454,11 @@ export default function ProjectDetailPage() {
       // Task 62.1: detail-summary APIから工程表サマリーを取得
       // Requirements: 39.1, 39.2
       setScheduleSummary(data.sections.schedules);
+
+      // Task 66.1: detail-summary APIから実行予算サマリーを取得（個別API呼び出しを置換）
+      // Requirements: 40.1, 41.1
+      setExecutionBudgetInfo(data.sections.executionBudget);
+      setIsExecutionBudgetLoading(false);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
@@ -545,6 +558,7 @@ export default function ProjectDetailPage() {
         setEstimateSummary(data.sections.estimates);
         setContractSummary(data.sections.contracts);
         setScheduleSummary(data.sections.schedules);
+        setExecutionBudgetInfo(data.sections.executionBudget);
 
         // トースト通知で成功メッセージを表示
         const statusLabel = PROJECT_STATUS_LABELS[newStatus];
@@ -770,6 +784,13 @@ export default function ProjectDetailPage() {
         totalCount={contractSummary?.totalCount ?? 0}
         latestContracts={contractSummary?.latestContracts ?? []}
         isLoading={isLoading}
+      />
+
+      {/* 実行予算セクション (Task 14.1, Requirements 1.1) */}
+      <ExecutionBudgetSectionCard
+        projectId={project.id}
+        budgetInfo={executionBudgetInfo}
+        isLoading={isExecutionBudgetLoading}
       />
 
       {/* 工程表セクション (Task 62.1, Requirements 38.1) */}

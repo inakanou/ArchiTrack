@@ -11,10 +11,11 @@
 ### Goals
 - プロジェクトに紐付く工程表のCRUD管理
 - 数量表との連携による項目自動取得（スナップショット方式）
-- ガントチャート形式でのリアルタイム表示（フロントエンド完結、土日祝色分け）
+- ガントチャート形式でのリアルタイム表示（フロントエンド完結、土日祝色分け、入力から200ms以内の更新）
 - 項目の並び順管理（ドラッグ&ドロップ）
-- Excel/PDF形式での出力（プロジェクト名・自社名付き、出力対象選択）
+- Excel/PDF形式での出力（プロジェクト名・自社名付き、出力対象選択、エラーハンドリング）
 - ラベル文字・詳細文字による工程表の表示カスタマイズ
+- 非機能要件: 1工程表あたり最大200項目、Excel/PDF出力30秒以内
 
 ### Non-Goals
 - 工程間の依存関係（先行・後続関係）管理
@@ -185,16 +186,19 @@ sequenceDiagram
 | 6.4 | 祝日色分け | GanttChartPanel, useHolidayCalendar | - | - |
 | 6.5 | 表示期間自動調整 | GanttChartPanel | - | - |
 | 6.6 | サーバー通信なしの更新 | GanttChartPanel, useScheduleState | - | ガントチャートリアルタイム更新 |
+| 6.7 | 入力から200ms以内の表示更新 | GanttChartPanel | - | ガントチャートリアルタイム更新 |
 | 7.1 | Excelダウンロード | ExportDialog | GET /api/schedules/:id/export?format=xlsx | Excel/PDF出力フロー |
 | 7.2 | プロジェクト名含むExcel | ScheduleExportService | - | - |
 | 7.3 | 自社名含むExcel | ScheduleExportService | - | - |
 | 7.4 | 項目情報含むExcel | ScheduleExportService | - | - |
-| 7.5 | ガントチャート再現Excel | ScheduleExportService | - | - |
+| 7.5 | ガントチャート出力（項目名・バー・土日祝色分け） | ScheduleExportService | - | - |
+| 7.6 | Excel出力失敗時エラー表示 | ExportDialog, ScheduleExportService | - | Excel/PDF出力フロー |
 | 8.1 | PDFダウンロード | ExportDialog | GET /api/schedules/:id/export?format=pdf | Excel/PDF出力フロー |
 | 8.2 | プロジェクト名含むPDF | ScheduleExportService | - | - |
 | 8.3 | 自社名含むPDF | ScheduleExportService | - | - |
 | 8.4 | 項目情報含むPDF | ScheduleExportService | - | - |
-| 8.5 | ガントチャート再現PDF | ScheduleExportService | - | - |
+| 8.5 | ガントチャート出力（項目名・バー・土日祝色分け） | ScheduleExportService | - | - |
+| 8.6 | PDF出力失敗時エラー表示 | ExportDialog, ScheduleExportService | - | Excel/PDF出力フロー |
 | 9.1 | 出力対象チェックボックス表示 | ScheduleItemRow | - | - |
 | 9.2 | チェックボックス初期値ON | ScheduleService | - | - |
 | 9.3 | チェックOFF時の出力除外 | ScheduleExportService | - | Excel/PDF出力フロー |
@@ -211,6 +215,10 @@ sequenceDiagram
 | 11.3 | 詳細文字リアルタイム更新 | GanttChartPanel, useScheduleState | - | - |
 | 11.4 | 詳細文字の永続化 | ScheduleService | PUT /api/schedules/:id | - |
 | 11.5 | 詳細文字のExcel/PDF出力 | ScheduleExportService | - | - |
+| 12.1 | 最大200項目サポート | ScheduleService, useScheduleState | - | - |
+| 12.2 | 200項目でのスムーズ描画 | GanttChartPanel | - | - |
+| 12.3 | Excel出力30秒以内 | ScheduleExportService | - | - |
+| 12.4 | PDF出力30秒以内 | ScheduleExportService | - | - |
 
 ## Components and Interfaces
 
@@ -222,11 +230,11 @@ sequenceDiagram
 | ScheduleItemRow | UI/Component | 工程表項目行 | 3.1-3.5, 4.1-4.2, 9.1, 10.1, 11.1 | useScheduleState (P0) | - |
 | SortableScheduleList | UI/Component | 項目並び順管理 | 5.1, 5.2 | useScheduleState (P0) | - |
 | GanttChartPanel | UI/Component | ガントチャート表示 | 6.1-6.6, 9.6, 10.2-10.3, 11.2-11.3 | useHolidayCalendar (P0) | State |
-| ExportDialog | UI/Component | Excel/PDF出力ダイアログ | 7.1, 8.1 | ScheduleExportAPI (P0) | API |
+| ExportDialog | UI/Component | Excel/PDF出力ダイアログ | 7.1, 7.6, 8.1, 8.6 | ScheduleExportAPI (P0) | API |
 | useScheduleState | UI/Hook | 工程表状態管理 | 3.3, 4.1-4.4, 5.2, 6.1, 6.6 | - | State |
 | useHolidayCalendar | UI/Hook | 祝日カレンダー管理 | 6.2-6.4 | @holiday-jp/holiday_jp (P0) | - |
 | ScheduleRoutes | Backend/Route | APIエンドポイント | 1.1-1.5 | ScheduleService (P0) | API |
-| ScheduleService | Backend/Service | 工程表ビジネスロジック | 1.1-1.5, 2.2-2.4, 5.3-5.4, 9.2, 9.5, 10.4, 11.4 | Prisma (P0) | Service |
+| ScheduleService | Backend/Service | 工程表ビジネスロジック | 1.1-1.5, 2.2-2.4, 5.3-5.4, 9.2, 9.5, 10.4, 11.4, 12.1 | Prisma (P0) | Service |
 | ScheduleExportService | Backend/Service | Excel/PDF出力 | 7.1-7.5, 8.1-8.5, 9.3-9.4, 10.5, 11.5 | xlsx (P0), jsPDF (P0), Prisma (P0) | Service, API |
 | ScheduleSchema | Backend/Schema | Zodバリデーション | 全CRUD操作 | Zod (P0) | - |
 | ScheduleError | Backend/Error | カスタムエラー | 1.5, 1.6 | - | - |
@@ -305,8 +313,8 @@ interface UseScheduleStateReturn {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 工程表データをガントチャート形式で視覚的に表示し、入力変更時にリアルタイムで更新する |
-| Requirements | 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 9.6, 10.2, 10.3, 11.2, 11.3 |
+| Intent | 工程表データをガントチャート形式で視覚的に表示し、入力変更時にリアルタイム（200ms以内）で更新する |
+| Requirements | 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 9.6, 10.2, 10.3, 11.2, 11.3, 12.2 |
 
 **Responsibilities & Constraints**
 - 全項目の着工日〜完了日範囲からガントチャートの表示期間を自動算出
@@ -345,7 +353,8 @@ interface HolidayMap {
 **Implementation Notes**
 - Integration: HTML table/divベースのカスタム実装。日付列はヘッダーに年月日を表示し、各行にバーをCSS positionで配置
 - Validation: 着工日・日数が未入力の項目はバーを表示しない
-- Risks: 100項目超の場合の描画パフォーマンス -- CSS containmentで最適化
+- Performance: 入力変更から200ms以内の描画更新（Req 6.7）。200項目でのスムーズ描画（Req 12.2）
+- Risks: 200項目時の描画パフォーマンス -- CSS containment + useMemoによる差分計算で最適化
 
 #### useHolidayCalendar
 
@@ -424,7 +433,7 @@ function useHolidayCalendar(startDate: Date, endDate: Date): UseHolidayCalendarR
 - **ScheduleListPage**: プロジェクト詳細からの一覧表示、作成・削除操作
 - **ScheduleDetailPage**: 工程表の詳細・編集画面。ScheduleItemRow群とGanttChartPanelを並列配置
 - **ScheduleForm**: 工程表名入力と数量表選択のダイアログ
-- **ExportDialog**: Excel/PDF出力形式選択ダイアログ
+- **ExportDialog**: Excel/PDF出力形式選択ダイアログ。出力失敗時はエラーメッセージを表示し、再試行ボタンを提供（Req 7.6, 8.6）
 
 ### Backend / Service Layer
 
@@ -504,7 +513,7 @@ interface ScheduleServiceInterface {
 | Field | Detail |
 |-------|--------|
 | Intent | 工程表データをExcel/PDF形式でファイル出力する |
-| Requirements | 7.1-7.5, 8.1-8.5, 9.3-9.4, 10.5, 11.5 |
+| Requirements | 7.1-7.6, 8.1-8.6, 9.3-9.4, 10.5, 11.5, 12.3, 12.4 |
 
 **Responsibilities & Constraints**
 - isExportTarget=trueの項目のみを出力対象とする
@@ -535,6 +544,8 @@ interface ScheduleExportServiceInterface {
 
 **Implementation Notes**
 - Integration: ScheduleRoutesからexportエンドポイント経由で呼び出し
+- Performance: Excel出力30秒以内（Req 12.3）、PDF出力30秒以内（Req 12.4）
+- Error Handling: 出力処理失敗時はエラーメッセージをフロントエンドに返却し、ExportDialogで再試行を促す（Req 7.6, 8.6）
 - Risks: PDF出力時のフォント対応（日本語フォントの埋め込み）-- 既存の見積書PDF出力パターンに従う
 
 **ガントチャート出力再現方針**
@@ -809,6 +820,10 @@ interface BulkSaveResult {
 - 数量表IDが無効（存在しないまたは別プロジェクト）
 - 着工日未設定での日数設定
 
+**Export Errors (500)**:
+- Excel出力処理失敗（ファイル生成エラー）→ エラーメッセージ返却、フロントエンドで再試行を促す（Req 7.6）
+- PDF出力処理失敗（ファイル生成エラー）→ エラーメッセージ返却、フロントエンドで再試行を促す（Req 8.6）
+
 ### Monitoring
 - pinoロガーによるCRUD操作ログ
 - Sentry統合によるエラー追跡
@@ -837,7 +852,8 @@ interface BulkSaveResult {
 
 ## Optional Sections
 
-### Performance & Scalability
-- ガントチャートのリアルタイム描画: フロントエンド完結。100項目程度をターゲットとし、CSS containmentで描画パフォーマンスを最適化
-- バルク保存: トランザクション内でバッチ処理。200項目以下を想定
-- Excel/PDF出力: バックエンドでのストリーミング生成。メモリ使用量に注意
+### Performance & Scalability (Req 12)
+- ガントチャートのリアルタイム描画: フロントエンド完結。200項目をターゲットとし、入力変更から200ms以内に表示更新（Req 6.7, 12.2）。CSS containment + useMemoで描画パフォーマンスを最適化
+- バルク保存: トランザクション内でバッチ処理。最大200項目（Req 12.1）
+- Excel出力: バックエンドでのストリーミング生成。30秒以内に完了（Req 12.3）。メモリ使用量に注意
+- PDF出力: バックエンドでのストリーミング生成。30秒以内に完了（Req 12.4）。メモリ使用量に注意

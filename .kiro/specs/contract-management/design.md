@@ -13,6 +13,10 @@
 - 変更契約における変更前後の比較表示で変更内容の可視性を確保する
 - 契約ステータス（契約前/契約済）の双方向遷移を提供する
 - 既存の見積書・契約書へのトレーサビリティリンクを提供する
+- フロントエンドでのデータバリデーションによりユーザーへの即時フィードバックを実現する
+- エラー回復とフィードバック（成功メッセージ、エラー種別の区別、再試行）を提供する
+- 削除制約（子契約存在チェック、ステータスチェック）によりデータ整合性を保護する
+- 権限ベースのUI制御によりユーザー体験とセキュリティを両立する
 
 ### Non-Goals
 - 契約書のPDF出力（将来対応）
@@ -45,6 +49,8 @@ graph TB
         CE[ContractEditPage]
         CF[ContractForm]
         CMP[ComparisonPanel]
+        DCD[DeleteConfirmDialog]
+        UP[usePermission]
     end
 
     subgraph Backend
@@ -64,6 +70,8 @@ graph TB
         ES[EstimateService]
         PI[ProjectInfo]
         CI[CompanyInfo]
+        AC[AuthContext]
+        TN[ToastNotification]
     end
 
     CL --> CR
@@ -72,6 +80,7 @@ graph TB
     CE --> CR
     CF --> TPS
     CF --> CMP
+    CD --> DCD
 
     CR --> CS
     CR --> CV
@@ -84,13 +93,19 @@ graph TB
     CL --> BC
     CC --> BC
     CE --> BC
+
+    CL --> UP
+    CC --> UP
+    CD --> UP
+    CE --> UP
+    UP --> AC
 ```
 
 **Architecture Integration**:
 - Selected pattern: 既存CRUDパターン踏襲（Express + Prisma + React）
 - Domain/feature boundaries: 契約書ドメインは独立したサービス・ルート・コンポーネントとして分離
-- Existing patterns preserved: デュアルマウントAPI、Zodバリデーション、論理削除、パンくずナビゲーション
-- New components rationale: ContractFormは新規契約/変更契約の共通フォーム、ComparisonPanelは変更契約専用の差分表示
+- Existing patterns preserved: デュアルマウントAPI、Zodバリデーション、論理削除、パンくずナビゲーション、トースト通知
+- New components rationale: ContractFormは新規契約/変更契約の共通フォーム、ComparisonPanelは変更契約専用の差分表示、DeleteConfirmDialogは削除制約表示付き確認ダイアログ、usePermissionは権限ベースUI制御フック
 - Steering compliance: TypeScript型安全性、Prisma ORM、既存テストパターン準拠
 
 ### Technology Stack
@@ -159,6 +174,39 @@ sequenceDiagram
     CCP->>CCP: 契約書詳細画面に遷移
 ```
 
+### 契約書削除フロー（制約チェック付き）
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CDP as ContractDetailPage
+    participant DCD as DeleteConfirmDialog
+    participant API as Backend API
+    participant CS as ContractService
+    participant DB as PostgreSQL
+
+    U->>CDP: 削除ボタン押下
+    CDP->>DCD: 確認ダイアログ表示
+    U->>DCD: 削除を確認
+    DCD->>API: DELETE /api/contracts/:id
+    API->>CS: delete(id)
+    CS->>DB: 子契約チェック（childContracts）
+    alt 子契約が存在する場合
+        CS-->>API: 422 子契約存在エラー
+        API-->>DCD: エラーレスポンス
+        DCD->>CDP: エラーメッセージをトースト表示
+    else ステータスがCONTRACTEDの場合
+        CS-->>API: 422 契約済エラー
+        API-->>DCD: エラーレスポンス
+        DCD->>CDP: エラーメッセージをトースト表示
+    else 制約なし
+        CS->>DB: 論理削除（deletedAt更新）
+        CS-->>API: 204 No Content
+        API-->>CDP: 成功
+        CDP->>CDP: 成功トースト表示、一覧画面に遷移
+    end
+```
+
 ### ステータス遷移フロー
 
 ```mermaid
@@ -214,20 +262,47 @@ stateDiagram-v2
 | 9.3 | 編集キャンセル | ContractForm | - | - |
 | 9.4 | パンくずナビゲーション | Breadcrumb | - | - |
 | 9.5 | 編集時自動表示項目更新 | ContractForm | GET /estimates/:id（既存API + フロントエンド計算） | - |
+| 8.9 | 削除ボタン | ContractDetailPage, DeleteConfirmDialog, usePermission | - | - |
+| 8.10 | 削除確認ダイアログ | DeleteConfirmDialog | - | 契約書削除フロー |
+| 8.11 | 契約書論理削除 | ContractService, contracts.routes | DELETE /contracts/:id | 契約書削除フロー |
+| 10.1 | 見積書選択必須 | ContractForm | - | - |
+| 10.2 | 契約日必須 | ContractForm | - | - |
+| 10.3 | 工期着手日・完成日必須 | ContractForm | - | - |
+| 10.4 | 引渡日必須 | ContractForm | - | - |
+| 10.5 | 消費税率必須・範囲 | ContractForm, contract.validators | - | - |
+| 10.6 | 必須項目エラーメッセージ | ContractForm | - | - |
+| 10.7 | 着手日・完成日論理チェック | ContractForm, contract.validators | - | - |
+| 10.8 | 変更契約基契約書必須 | ContractForm, contract.validators | - | - |
+| 11.1 | ネットワークエラー・再試行 | ContractCreatePage, ContractEditPage, ContractDetailPage | - | - |
+| 11.2 | サーバーエラー（5xx）表示 | ContractCreatePage, ContractEditPage, ContractDetailPage | - | - |
+| 11.3 | セッション期限切れリダイレクト | AuthContext（既存） | - | - |
+| 11.4 | 楽観的排他制御競合エラー | ContractEditPage | PUT /contracts/:id（409応答） | - |
+| 11.5 | 作成成功メッセージ | ContractCreatePage | - | 新規契約作成フロー |
+| 11.6 | 編集成功メッセージ | ContractEditPage | - | - |
+| 11.7 | 削除成功メッセージ | ContractDetailPage | - | 契約書削除フロー |
+| 12.1 | 子契約存在時の削除拒否 | ContractService | DELETE /contracts/:id（422応答） | 契約書削除フロー |
+| 12.2 | 契約済ステータス時の削除拒否 | ContractService | DELETE /contracts/:id（422応答） | 契約書削除フロー |
+| 13.1 | 認証済みユーザー限定閲覧 | contracts.routes（authenticate） | - | - |
+| 13.2 | 権限チェック実行 | contracts.routes（requirePermission） | - | - |
+| 13.3 | 権限定義 | seed-helpers（contract:create/read/update/delete） | - | - |
+| 13.4 | 403 Forbidden返却 | contracts.routes（requirePermission） | - | - |
+| 13.5 | UI要素の権限制御 | usePermission, ContractListPage, ContractDetailPage | - | - |
 
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
-| ContractService | Backend/Service | 契約書CRUDビジネスロジック | 1.1-1.2, 7.1, 8.1-8.3, 9.2 | PrismaClient (P0), EstimateService (P1) | Service, API |
-| contracts.routes | Backend/Route | 契約書REST APIエンドポイント | 全要件 | ContractService (P0), validate middleware (P0) | API |
-| contract.validators | Backend/Validation | リクエストバリデーション | 3.1-3.4, 7.1, 9.2 | Zod (P0) | - |
-| ContractListPage | Frontend/Page | 契約書一覧画面 | 1.1-1.6 | ContractService API (P0), Breadcrumb (P1) | State |
-| ContractCreatePage | Frontend/Page | 契約書新規作成画面 | 2.1-2.4, 3.1-3.4, 4.1-4.7, 5.1-5.3, 6.1-6.2, 7.1-7.3 | ContractForm (P0), Breadcrumb (P1) | State |
-| ContractDetailPage | Frontend/Page | 契約書詳細画面 | 8.1-8.8 | ContractService API (P0), Breadcrumb (P1) | State |
-| ContractEditPage | Frontend/Page | 契約書編集画面 | 9.1-9.5 | ContractForm (P0), Breadcrumb (P1) | State |
-| ContractForm | Frontend/Component | 契約書入力フォーム（新規/変更/編集共通） | 2.1-2.4, 3.1-3.4, 5.1-5.3, 7.1-7.3, 9.1-9.5 | TradingPartnerSelect (P0), ComparisonPanel (P1) | State |
+| ContractService | Backend/Service | 契約書CRUDビジネスロジック・削除制約 | 1.1-1.2, 7.1, 8.1-8.3, 8.9-8.11, 9.2, 12.1-12.2 | PrismaClient (P0), EstimateService (P1) | Service, API |
+| contracts.routes | Backend/Route | 契約書REST APIエンドポイント・認証・権限 | 全要件, 13.1-13.4 | ContractService (P0), validate middleware (P0), authenticate (P0), requirePermission (P0) | API |
+| contract.validators | Backend/Validation | リクエストバリデーション | 3.1-3.4, 7.1, 9.2, 10.1-10.5, 10.7-10.8 | Zod (P0) | - |
+| ContractListPage | Frontend/Page | 契約書一覧画面・権限制御 | 1.1-1.6, 13.5 | ContractService API (P0), Breadcrumb (P1), usePermission (P1) | State |
+| ContractCreatePage | Frontend/Page | 契約書新規作成画面・成功/エラーフィードバック | 2.1-2.4, 3.1-3.4, 4.1-4.7, 5.1-5.3, 6.1-6.2, 7.1-7.3, 10.1-10.8, 11.1-11.2, 11.5, 13.5 | ContractForm (P0), Breadcrumb (P1), usePermission (P1) | State |
+| ContractDetailPage | Frontend/Page | 契約書詳細画面・削除・権限制御 | 8.1-8.11, 11.1-11.2, 11.7, 13.5 | ContractService API (P0), Breadcrumb (P1), DeleteConfirmDialog (P0), usePermission (P1) | State |
+| ContractEditPage | Frontend/Page | 契約書編集画面・成功/エラーフィードバック | 9.1-9.5, 10.1-10.8, 11.1-11.2, 11.4, 11.6, 13.5 | ContractForm (P0), Breadcrumb (P1), usePermission (P1) | State |
+| ContractForm | Frontend/Component | 契約書入力フォーム（クライアントサイドバリデーション付き） | 2.1-2.4, 3.1-3.4, 5.1-5.3, 7.1-7.3, 9.1-9.5, 10.1-10.8 | TradingPartnerSelect (P0), ComparisonPanel (P1) | State |
 | ComparisonPanel | Frontend/Component | 変更前後比較表示パネル | 6.1-6.2 | なし | - |
+| DeleteConfirmDialog | Frontend/Component | 削除確認ダイアログ | 8.9-8.11, 12.1-12.2 | なし | - |
+| usePermission | Frontend/Hook | ユーザー権限チェックフック | 13.5 | AuthContext (P0) | - |
 
 ### Backend / Service
 
@@ -235,8 +310,8 @@ stateDiagram-v2
 
 | Field | Detail |
 |-------|--------|
-| Intent | 契約書のCRUD操作、ステータス遷移、関連データ取得のビジネスロジック |
-| Requirements | 1.1, 1.2, 7.1, 8.1, 8.3, 9.2 |
+| Intent | 契約書のCRUD操作、ステータス遷移、削除制約チェック、関連データ取得のビジネスロジック |
+| Requirements | 1.1, 1.2, 7.1, 8.1, 8.3, 8.9-8.11, 9.2, 12.1, 12.2 |
 
 **Responsibilities & Constraints**
 - 契約書のCRUD操作（作成・取得・更新・一覧・論理削除）
@@ -244,6 +319,8 @@ stateDiagram-v2
 - 見積書金額のスナップショット取得と保存
 - プロジェクトスコープの契約書一覧取得
 - 論理削除された契約書の除外
+- 削除時の制約チェック: 子契約（変更契約の基となっている場合）の存在確認
+- 削除時の制約チェック: ステータスが「契約済」の場合の削除拒否
 
 **Dependencies**
 - Outbound: PrismaClient — データベースアクセス (P0)
@@ -276,12 +353,18 @@ interface ContractService {
     status: ContractStatus
   ): Promise<ContractDetail>;
 
+  /**
+   * 契約書論理削除（制約チェック付き）
+   * @throws ContractDeletionConstraintError 子契約が存在する場合
+   * @throws ContractDeletionConstraintError ステータスがCONTRACTEDの場合
+   */
   delete(id: string): Promise<void>;
 }
 ```
 - Preconditions: projectIdが有効なプロジェクトIDであること、見積書IDが指定された場合は同プロジェクトの見積書であること
 - Postconditions: 作成時にステータスはBEFORE_CONTRACTで初期化、金額フィールドはスナップショットとして保存
 - Invariants: 変更契約のparentContractIdは同プロジェクトの契約書であること
+- **削除制約**: delete()はchildContracts（deletedAtがnullの子契約）の存在を確認し、存在する場合は`ContractDeletionConstraintError`をスロー。またステータスがCONTRACTEDの場合も同エラーをスロー
 
 ### Backend / Route
 
@@ -315,7 +398,7 @@ interface ContractService {
 | POST | /api/projects/:projectId/contracts | CreateContractInput | ContractDetail | 400, 401, 403, 404, 409 |
 | PUT | /api/contracts/:id | UpdateContractInput | ContractDetail | 400, 401, 403, 404, 409 |
 | PATCH | /api/contracts/:id/status | { status: ContractStatus } | ContractDetail | 400, 401, 403, 404 |
-| DELETE | /api/contracts/:id | - | 204 No Content | 401, 403, 404 |
+| DELETE | /api/contracts/:id | - | 204 No Content | 401, 403, 404, 422 |
 
 **Implementation Notes**
 - Integration: `app.use('/api/projects/:projectId/contracts', contractsRoutes)` + `app.use('/api/contracts', contractsRoutes)` のデュアルマウント
@@ -329,7 +412,7 @@ interface ContractService {
 | Field | Detail |
 |-------|--------|
 | Intent | 契約書APIリクエストのZodバリデーションスキーマ定義 |
-| Requirements | 3.1, 3.2, 3.4, 5.1, 7.1, 9.2 |
+| Requirements | 3.1, 3.2, 3.4, 5.1, 7.1, 9.2, 10.1-10.5, 10.7, 10.8 |
 
 **Responsibilities & Constraints**
 - 全入力フィールドの型・制約バリデーション
@@ -450,48 +533,62 @@ interface ContractDetail {
 
 | Field | Detail |
 |-------|--------|
-| Intent | プロジェクト配下の契約書一覧表示と新規作成画面への遷移 |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 |
+| Intent | プロジェクト配下の契約書一覧表示、新規作成画面への遷移、権限制御 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 13.5 |
 
 **Implementation Notes**
 - Integration: プロジェクト詳細ページからの遷移。`/projects/:projectId/contracts` パス
-- Validation: 一覧データのローディング・エラー状態のハンドリング
+- Validation: 一覧データのローディング・エラー状態のハンドリング。新規作成ボタンはcontract:create権限がない場合は非表示
 - Risks: なし（標準CRUDパターン）
 
 #### ContractCreatePage
 
 | Field | Detail |
 |-------|--------|
-| Intent | 新規契約・変更契約の作成画面。契約種類選択 → フォーム入力 → 作成の一連のフロー |
-| Requirements | 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 6.1, 6.2, 7.1, 7.2, 7.3 |
+| Intent | 新規契約・変更契約の作成画面。バリデーション・成功/エラーフィードバック付き |
+| Requirements | 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 6.1, 6.2, 7.1, 7.2, 7.3, 10.1-10.8, 11.1, 11.2, 11.5, 13.5 |
 
 **Implementation Notes**
-- Integration: ContractFormコンポーネントに契約種類選択状態とmode='create'を渡す
-- Validation: フォームバリデーションはContractFormに委譲
+- Integration: ContractFormコンポーネントに契約種類選択状態とmode='create'を渡す。作成成功時にトースト通知を表示
+- Validation: フォームバリデーションはContractFormに委譲。API送信エラーの種別判定（ネットワーク/5xx/400/409）と適切なメッセージ表示
 - Risks: 変更契約時に基契約書+見積書の2段階のデータフェッチが必要
 
 #### ContractDetailPage
 
 | Field | Detail |
 |-------|--------|
-| Intent | 契約書の全情報表示、ステータス遷移、関連ドキュメントリンク、編集画面遷移 |
-| Requirements | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8 |
+| Intent | 契約書の全情報表示、ステータス遷移、削除、関連ドキュメントリンク、編集画面遷移、権限制御 |
+| Requirements | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 8.11, 11.1, 11.2, 11.7, 13.5 |
+
+**Responsibilities & Constraints**
+- 削除ボタンの表示（contract:delete権限を持つユーザーのみ表示）
+- 削除確認ダイアログ（DeleteConfirmDialog）の表示
+- 削除成功時のトースト通知と一覧画面遷移
+- 削除制約エラー（422）のトースト通知（子契約存在エラー、契約済エラーの区別表示）
+- 編集ボタンの権限制御（contract:update権限）
+- ステータス遷移ボタンの権限制御（contract:update権限）
+- ネットワークエラー/5xxエラーの種別に応じたエラーメッセージ表示
+
+**Dependencies**
+- Outbound: DeleteConfirmDialog — 削除確認UI (P0)
+- Outbound: usePermission — 権限チェック (P1)
+- Outbound: ToastNotification — 成功/エラーフィードバック (P0)
 
 **Implementation Notes**
 - Integration: 見積書リンクは `/projects/:projectId/estimates/:estimateId` へ、基契約書リンクは `/projects/:projectId/contracts/:parentContractId` へ遷移
-- Validation: ステータス遷移時にAPIエラーをトースト通知で表示
+- Validation: ステータス遷移時・削除時にAPIエラーをトースト通知で表示。422エラーのメッセージをサーバーレスポンスから取得して表示
 - Risks: なし
 
 #### ContractEditPage
 
 | Field | Detail |
 |-------|--------|
-| Intent | 既存契約書の編集画面。ContractFormをmode='edit'で利用 |
-| Requirements | 9.1, 9.2, 9.3, 9.4, 9.5 |
+| Intent | 既存契約書の編集画面。バリデーション・成功/エラーフィードバック・排他制御付き |
+| Requirements | 9.1, 9.2, 9.3, 9.4, 9.5, 10.1-10.8, 11.1, 11.2, 11.4, 11.6, 13.5 |
 
 **Implementation Notes**
-- Integration: 既存契約書データをフォーム初期値としてロード
-- Validation: 見積書変更時に金額の自動再計算を実行
+- Integration: 既存契約書データをフォーム初期値としてロード。編集成功時にトースト通知を表示
+- Validation: 見積書変更時に金額の自動再計算を実行。409エラー（楽観的排他制御競合）時は競合メッセージと最新データ確認の誘導を表示
 - Risks: なし
 
 ### Frontend / Component
@@ -500,8 +597,8 @@ interface ContractDetail {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 新規契約・変更契約・編集の共通フォームコンポーネント |
-| Requirements | 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 4.1-4.7, 5.1, 5.2, 5.3, 6.1, 6.2, 7.1, 7.2, 7.3, 9.1, 9.5 |
+| Intent | 新規契約・変更契約・編集の共通フォームコンポーネント（クライアントサイドバリデーション付き） |
+| Requirements | 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4, 4.1-4.7, 5.1, 5.2, 5.3, 6.1, 6.2, 7.1, 7.2, 7.3, 9.1, 9.5, 10.1-10.8 |
 
 **Responsibilities & Constraints**
 - 契約種類選択UI（新規契約/変更契約のラジオボタン）
@@ -511,6 +608,7 @@ interface ContractDetail {
 - 変更契約時の基契約書選択とComparisonPanel連携
 - 金額自動計算（請負代金額、工事価格、消費税額）
 - 消費税率デフォルト値10%
+- **クライアントサイドバリデーション**: 送信前にフォーム全体を検証し、エラーのあるフィールドにインラインエラーメッセージを表示
 
 **Dependencies**
 - Outbound: TradingPartnerSelect — 監理者取引先選択 (P0)
@@ -526,12 +624,35 @@ interface ContractDetail {
   - `parentContract`: 基契約書データ（変更契約時のみ）
   - `estimateSummary`: 選択中の見積書金額情報
   - `projectInfo`: プロジェクト・顧客・自社情報（自動取得）
+  - `validationErrors`: フィールドごとのバリデーションエラーメッセージ（`Record<string, string>`）
 - Persistence & consistency: フォーム状態はReact stateで管理、API送信時のみバックエンドと同期
 - Concurrency strategy: なし（フォーム入力は単一ユーザー操作）
 
+##### Client-Side Validation Rules
+```typescript
+interface ContractFormValidationRules {
+  // 必須チェック
+  estimateId: '見積書の選択は必須です';
+  contractDate: '契約日の入力は必須です';
+  constructionStartDate: '工期着手日の入力は必須です';
+  constructionEndDate: '工期完成日の入力は必須です';
+  deliveryDate: '引渡日の入力は必須です';
+  taxRate: '消費税率の入力は必須です';
+
+  // 範囲チェック
+  taxRateRange: '消費税率は0以上100以下の数値を指定してください'; // UI: 0-100%, 内部: 0-1
+
+  // 論理チェック
+  dateLogic: '着手日は完成日以前の日付を指定してください';
+
+  // 条件付きチェック
+  parentContractId: '変更契約の場合、基となる契約書の選択は必須です'; // contractType === 'AMENDMENT'の場合のみ
+}
+```
+
 **Implementation Notes**
 - Integration: `mode` prop（'create' | 'edit'）でフォーム動作を切り替え。editモードでは契約種類選択を無効化
-- Validation: 各フィールドのクライアントサイドバリデーション。日付の論理チェック（着手日 <= 完成日等）
+- Validation: 送信ボタン押下時にvalidateForm()を実行し、全フィールドのバリデーションを一括実行。エラーがある場合は送信を中止し、各フィールドのインラインにエラーメッセージを表示。消費税率はUIで0-100%入力、内部で0-1に変換してバリデーション・送信
 - Risks: なし（既存のGET /api/estimates/:estimateIdとフロントエンドのEstimateCalculator.calculateSubtotal()を利用して金額を算出）
 
 #### ComparisonPanel
@@ -554,6 +675,77 @@ interface ContractDetail {
 - Validation: なし（表示専用コンポーネント）
 - Risks: フィールド数が多いためレイアウトの複雑性に注意。レスポンシブ対応が必要
 
+#### DeleteConfirmDialog
+
+| Field | Detail |
+|-------|--------|
+| Intent | 契約書削除の確認ダイアログ。削除制約エラーのフィードバック表示を含む |
+| Requirements | 8.9, 8.10, 8.11, 12.1, 12.2 |
+
+**Responsibilities & Constraints**
+- 削除確認メッセージの表示（「この契約書を削除しますか?」）
+- 確認・キャンセルボタンの提供
+- 削除API呼び出し結果のハンドリング（成功時: ダイアログ閉じ + 親コンポーネントにコールバック、エラー時: エラーメッセージ表示）
+
+**Dependencies**
+- Inbound: ContractDetailPage — 削除対象の契約書ID (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+- State model:
+  - `isOpen`: ダイアログの表示状態
+  - `isDeleting`: 削除処理中フラグ（二重送信防止）
+  - `errorMessage`: 削除制約エラーメッセージ（422応答のmessageを表示）
+- Persistence & consistency: ダイアログ表示中のローカルstate
+
+**Implementation Notes**
+- Integration: ContractDetailPageから`contractId`と`onDeleteSuccess`コールバックを受け取る。削除成功時は親コンポーネントが一覧画面へ遷移
+- Validation: 削除APIの422レスポンスからエラーメッセージを取得し、ダイアログ内に表示。ユーザーは閉じるボタンでダイアログを閉じる
+- Risks: なし
+
+### Frontend / Hook
+
+#### usePermission
+
+| Field | Detail |
+|-------|--------|
+| Intent | ユーザーの権限に基づくUI要素の表示/非表示制御を提供するカスタムフック |
+| Requirements | 13.5 |
+
+**Responsibilities & Constraints**
+- AuthContextからユーザーの権限情報を取得
+- 指定された権限名に対するチェック結果（boolean）を返却
+- 複数権限の一括チェック（AND/OR）をサポート
+
+**Dependencies**
+- Outbound: AuthContext — ユーザー情報・権限取得 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### State Management
+```typescript
+/**
+ * 権限チェックフック
+ * AuthContextのUser.permissionsを参照して権限の有無を判定する
+ */
+interface UsePermissionReturn {
+  /** 指定された権限を保持しているか */
+  hasPermission: (permission: string) => boolean;
+  /** 指定された全権限を保持しているか（AND） */
+  hasAllPermissions: (permissions: string[]) => boolean;
+  /** 指定されたいずれかの権限を保持しているか（OR） */
+  hasAnyPermission: (permissions: string[]) => boolean;
+  /** 権限情報がロード中か */
+  isLoading: boolean;
+}
+```
+
+**Implementation Notes**
+- Integration: AuthContextのUser型に`permissions?: string[]`フィールドを追加する必要がある。ログインAPIのレスポンスまたは/api/v1/users/me エンドポイントから権限一覧を取得してAuthContextに保存する
+- Validation: 権限情報が未ロードの場合はデフォルトでfalseを返却（権限なしとして安全側に倒す）
+- Risks: 権限変更がリアルタイムで反映されない（次回ログインまたはトークンリフレッシュ時に更新）
+
 ## Data Models
 
 ### Domain Model
@@ -566,6 +758,8 @@ interface ContractDetail {
   - 新規契約の場合、parentContractIdはnull
   - ステータスはBEFORE_CONTRACT <-> CONTRACTEDの双方向遷移
   - 金額フィールド（contractAmount, constructionPrice, taxAmount）は作成時のスナップショット
+  - **削除制約**: 他の変更契約の基となっている契約書（childContractsが存在）は削除不可
+  - **削除制約**: ステータスが「契約済（CONTRACTED）」の契約書は削除不可
 
 ### Logical Data Model
 
@@ -717,15 +911,38 @@ model TradingPartner {
 ### Error Categories and Responses
 
 **User Errors (4xx)**:
-- 400: バリデーションエラー（日付の論理矛盾、必須フィールド欠落、変更契約時のparentContractId未指定）
+- 400: バリデーションエラー（日付の論理矛盾、必須フィールド欠落、変更契約時のparentContractId未指定、消費税率範囲外）
 - 401: 未認証
-- 403: 権限不足
+- 403: 権限不足（contract:create/read/update/delete権限の欠如）
 - 404: 契約書/プロジェクト/見積書が見つからない
 - 409: 楽観的排他制御の競合（versionフィールドによる排他制御）
 
 **Business Logic Errors (422)**:
 - 変更契約の基契約書が他プロジェクトの契約書を指している場合
 - 論理削除済みの見積書を参照しようとした場合
+- **契約書が他の変更契約の基となっている場合の削除拒否**（メッセージ: 「この契約書は変更契約の基となっているため削除できません」）
+- **契約書のステータスが「契約済」の場合の削除拒否**（メッセージ: 「契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください」）
+
+**Frontend Error Handling Strategy**:
+
+| エラー種別 | 判定条件 | UIフィードバック |
+|-----------|---------|----------------|
+| ネットワークエラー | fetch例外（TypeError等） | トースト: 「通信エラーが発生しました。再試行してください。」+ 再試行ボタン |
+| サーバーエラー（5xx） | response.status >= 500 | トースト: 「システムエラーが発生しました。しばらくしてからお試しください。」 |
+| バリデーションエラー（400） | response.status === 400 | フィールドエラー: サーバーレスポンスのエラー詳細を各フィールドに表示 |
+| 権限エラー（403） | response.status === 403 | トースト: 「この操作を行う権限がありません。」 |
+| 排他制御競合（409） | response.status === 409 | トースト: 「他のユーザーがこの契約書を更新しました。最新データを確認してください。」+ 再読込誘導 |
+| ビジネスエラー（422） | response.status === 422 | トースト: サーバーレスポンスのmessageフィールドをそのまま表示 |
+| セッション期限切れ（401） | response.status === 401 | AuthContext既存処理: ログインページリダイレクト |
+
+**成功フィードバック**:
+
+| 操作 | トーストメッセージ |
+|------|------------------|
+| 契約書作成成功 | 「契約書を作成しました。」 |
+| 契約書編集成功 | 「契約書を更新しました。」 |
+| 契約書削除成功 | 「契約書を削除しました。」 |
+| ステータス変更成功 | 「ステータスを変更しました。」 |
 
 ### Monitoring
 - 既存のPinoロガーでエラーログを記録
@@ -734,25 +951,38 @@ model TradingPartner {
 ## Testing Strategy
 
 ### Unit Tests
-- ContractService: CRUD操作、ステータス遷移ロジック、バリデーション境界値
+- ContractService: CRUD操作、ステータス遷移ロジック、バリデーション境界値、**削除制約チェック（子契約存在、ステータスCONTRACTED）**
 - contract.validators: Zodスキーマの各フィールドバリデーション
-- ContractForm: フォーム状態管理、金額自動計算、契約種類切り替え
+- ContractForm: フォーム状態管理、金額自動計算、契約種類切り替え、**クライアントサイドバリデーション（必須チェック、範囲チェック、論理チェック、条件付きチェック）**
 - ComparisonPanel: 変更前後の値表示、変更ハイライト
+- **DeleteConfirmDialog**: 削除確認表示、削除実行、エラーメッセージ表示、二重送信防止
+- **usePermission**: 権限チェック（hasPermission/hasAllPermissions/hasAnyPermission）、権限未ロード時のデフォルト動作
 
 ### Integration Tests
 - 契約書CRUD APIエンドポイント（認証・権限込み）
 - プロジェクト削除時の契約書カスケード削除
 - 見積書金額のスナップショット保存の整合性
+- **削除制約APIテスト**: 子契約が存在する場合のDELETE 422レスポンス、ステータスCONTRACTED時のDELETE 422レスポンス
+- **権限APIテスト**: 権限のないユーザーによるCRUD操作の403レスポンス
 
 ### E2E Tests
-- 新規契約の作成フロー（見積書選択 → 金額自動表示 → 作成 → 詳細画面遷移）
+- 新規契約の作成フロー（見積書選択 → 金額自動表示 → 作成 → 詳細画面遷移 → **成功トースト表示**）
 - 変更契約の作成フロー（基契約書選択 → デフォルト値設定 → 比較表示 → 作成）
 - ステータス遷移（契約前 → 契約済 → 契約前）
-- 編集フロー（詳細画面 → 編集 → 保存 → 詳細画面）
+- 編集フロー（詳細画面 → 編集 → 保存 → 詳細画面 → **成功トースト表示**）
 - パンくずナビゲーション（全画面）
+- **バリデーションフロー**: 必須項目未入力での送信 → エラーメッセージ表示 → 修正 → 送信成功
+- **削除フロー**: 削除ボタン → 確認ダイアログ → 削除成功 → トースト表示 → 一覧遷移
+- **削除制約フロー**: 子契約が存在する契約書の削除 → エラーメッセージ表示
+- **権限制御フロー**: 権限のないユーザーでの新規作成ボタン/編集ボタン/削除ボタンの非表示確認
 
 ## Security Considerations
 
-- 認証: 全エンドポイントにauthenticateミドルウェアを適用
-- 権限: requirePermissionミドルウェアによる権限チェック。契約書の読み取り/作成/更新/削除にそれぞれ個別の権限を設定
+- 認証: 全エンドポイントにauthenticateミドルウェアを適用（既存実装済み）
+- 権限: requirePermissionミドルウェアによる権限チェック（既存実装済み）
+  - `contract:read`: 契約書一覧・詳細の閲覧
+  - `contract:create`: 契約書の新規作成
+  - `contract:update`: 契約書の編集・ステータス変更
+  - `contract:delete`: 契約書の削除
 - プロジェクトスコープ: ユーザーがアクセス権を持つプロジェクトの契約書のみ操作可能
+- **フロントエンドUI権限制御**: usePermissionフックにより、権限のない操作に対応するUI要素（新規作成ボタン、編集ボタン、削除ボタン、ステータス遷移ボタン）を非表示または無効化。ただしフロントエンドの制御は利便性のためであり、セキュリティの本体はバックエンドのrequirePermissionミドルウェアが担保する

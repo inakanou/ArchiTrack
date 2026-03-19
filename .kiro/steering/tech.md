@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-03-14（Steering Sync: 工程表作成機能追加を反映）_
+_最終更新: 2026-03-19（Steering Sync: 実行予算管理機能追加を反映）_
 
 ## アーキテクチャ
 
@@ -52,7 +52,7 @@ ArchiTrack/
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.7.3 - コードフォーマッター
 - `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
-- `tailwindcss` ^4.1.18 - ユーティリティファーストCSSフレームワーク
+- `tailwindcss` ^4.2.1 - ユーティリティファーストCSSフレームワーク
 - `@tailwindcss/postcss` ^4.1.18 - Tailwind CSS PostCSSプラグイン
 - `vitest` ^4.0.15 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.15 - Vitest UIツール
@@ -64,7 +64,7 @@ ArchiTrack/
 - `jsdom` ^28.0.0 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.32.1 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
-- `storybook` ^10.1.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
+- `storybook` ^10.2.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
 - `@storybook/react` ^10.1.8 - Storybook React統合（10.x系）
 - `@storybook/react-vite` ^10.2.7 - Storybook React + Vite統合（10.x系）
 - `@storybook/test-runner` ^0.24.2 - Storybookインタラクションテスト
@@ -287,7 +287,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 単体テスト148ファイル + 統合テスト26ファイル
+**テスト合計:** 単体テスト166ファイル + 統合テスト31ファイル
 
 **実行方法:**
 ```bash
@@ -345,7 +345,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 326テストファイル（包括的なユニットテスト群）
+- 合計: 339テストファイル（包括的なユニットテスト群）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用

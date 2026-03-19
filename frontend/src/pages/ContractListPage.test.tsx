@@ -2,6 +2,7 @@
  * @fileoverview ContractListPage テスト
  *
  * Task 4.1: 契約書一覧ページコンポーネントを作成する
+ * Task 15.1: 各画面にusePermissionフックを統合してUI要素を制御する
  *
  * Requirements (contract-management):
  * - REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
@@ -10,6 +11,7 @@
  * - REQ-1.4: ユーザーが新規作成ボタンを押した場合、契約書新規作成画面に遷移する
  * - REQ-1.5: ユーザーが一覧の契約書を選択した場合、選択した契約書の詳細画面に遷移する
  * - REQ-1.6: 一覧画面にパンくずナビゲーションを表示する
+ * - REQ-13.5: UI要素の権限制御
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -21,6 +23,19 @@ import * as contractsApi from '../api/contracts';
 
 // モック
 vi.mock('../api/contracts');
+
+// usePermissionフックのモック
+const mockHasPermission = vi.fn().mockReturnValue(true);
+const mockHasAllPermissions = vi.fn().mockReturnValue(true);
+const mockHasAnyPermission = vi.fn().mockReturnValue(true);
+vi.mock('../hooks/usePermission', () => ({
+  usePermission: () => ({
+    hasPermission: mockHasPermission,
+    hasAllPermissions: mockHasAllPermissions,
+    hasAnyPermission: mockHasAnyPermission,
+    isLoading: false,
+  }),
+}));
 
 const mockContracts = [
   {
@@ -60,6 +75,10 @@ function renderWithRouter(projectId = 'proj-001') {
 describe('ContractListPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // デフォルトではすべての権限を付与（既存テストとの互換性）
+    mockHasPermission.mockReturnValue(true);
+    mockHasAllPermissions.mockReturnValue(true);
+    mockHasAnyPermission.mockReturnValue(true);
   });
 
   /**
@@ -306,6 +325,70 @@ describe('ContractListPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('全2件')).toBeInTheDocument();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-13.5: 権限ベースUI制御
+  // --------------------------------------------------------------------------
+  describe('REQ-13.5: 権限ベースUI制御', () => {
+    /**
+     * contract:create権限がある場合、新規作成ボタンを表示する
+     */
+    it('contract:create権限がある場合、新規作成ボタンを表示する', async () => {
+      mockHasPermission.mockImplementation((perm: string) => perm === 'contract:create');
+      vi.mocked(contractsApi.getContracts).mockResolvedValue({
+        contracts: mockContracts,
+        total: 2,
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-list-page')).toBeInTheDocument();
+      });
+
+      expect(screen.getByLabelText('契約書を新規作成')).toBeInTheDocument();
+    });
+
+    /**
+     * contract:create権限がない場合、新規作成ボタンを非表示にする
+     */
+    it('contract:create権限がない場合、新規作成ボタンを非表示にする', async () => {
+      mockHasPermission.mockReturnValue(false);
+      vi.mocked(contractsApi.getContracts).mockResolvedValue({
+        contracts: mockContracts,
+        total: 2,
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-list-page')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByLabelText('契約書を新規作成')).not.toBeInTheDocument();
+    });
+
+    /**
+     * contract:create権限がない場合、空状態でも新規作成ボタンを非表示にする
+     */
+    it('contract:create権限がない場合、空状態でも新規作成ボタンを非表示にする', async () => {
+      mockHasPermission.mockReturnValue(false);
+      vi.mocked(contractsApi.getContracts).mockResolvedValue({
+        contracts: [],
+        total: 0,
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+      });
+
+      // 空状態でもヘッダーの新規作成ボタン、空状態内の新規作成リンクともに非表示
+      const createLinks = screen.queryAllByRole('link', { name: /新規作成/i });
+      expect(createLinks).toHaveLength(0);
     });
   });
 });

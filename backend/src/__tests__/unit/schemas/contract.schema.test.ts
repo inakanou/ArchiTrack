@@ -312,13 +312,172 @@ describe('updateContractSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('着手日が完成日より後の場合エラーになること', () => {
-    const result = updateContractSchema.safeParse({
-      ...validUpdateData,
-      constructionStartDate: '2026-12-31',
-      constructionEndDate: '2026-05-01',
+  describe('クロスフィールドバリデーション（.refine）', () => {
+    it('着手日が完成日より後の場合エラーになること', () => {
+      const result = updateContractSchema.safeParse({
+        ...validUpdateData,
+        constructionStartDate: '2026-12-31',
+        constructionEndDate: '2026-05-01',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = getErrorMessages(result);
+        expect(
+          messages.some((m) => m.includes(CONTRACT_VALIDATION_MESSAGES.START_DATE_BEFORE_END_DATE))
+        ).toBe(true);
+      }
     });
-    expect(result.success).toBe(false);
+
+    it('着手日と完成日が同じ場合はバリデーションが成功すること', () => {
+      const result = updateContractSchema.safeParse({
+        ...validUpdateData,
+        constructionStartDate: '2026-06-01',
+        constructionEndDate: '2026-06-01',
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('taxRate バリデーション', () => {
+    it('taxRateが負の値の場合エラーになること', () => {
+      const result = updateContractSchema.safeParse({
+        ...validUpdateData,
+        taxRate: -0.01,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = getErrorMessages(result);
+        expect(messages.some((m) => m.includes(CONTRACT_VALIDATION_MESSAGES.TAX_RATE_MIN))).toBe(
+          true
+        );
+      }
+    });
+
+    it('taxRateが1を超える場合エラーになること', () => {
+      const result = updateContractSchema.safeParse({
+        ...validUpdateData,
+        taxRate: 1.01,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = getErrorMessages(result);
+        expect(messages.some((m) => m.includes(CONTRACT_VALIDATION_MESSAGES.TAX_RATE_MAX))).toBe(
+          true
+        );
+      }
+    });
+
+    it('taxRateが0の場合はバリデーションが成功すること', () => {
+      const result = updateContractSchema.safeParse({
+        ...validUpdateData,
+        taxRate: 0,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('taxRateが1の場合はバリデーションが成功すること', () => {
+      const result = updateContractSchema.safeParse({
+        ...validUpdateData,
+        taxRate: 1,
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+});
+
+describe('createContractSchema - クロスフィールドバリデーション（.refine）', () => {
+  describe('着手日<=完成日の論理チェック', () => {
+    it('着手日が完成日より後の場合、constructionStartDateパスにエラーが設定されること', () => {
+      const result = createContractSchema.safeParse({
+        ...validCreateData,
+        constructionStartDate: '2026-12-31',
+        constructionEndDate: '2026-05-01',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const startDateError = result.error.issues.find((issue) =>
+          issue.path.includes('constructionStartDate')
+        );
+        expect(startDateError).toBeDefined();
+        expect(startDateError?.message).toBe(
+          CONTRACT_VALIDATION_MESSAGES.START_DATE_BEFORE_END_DATE
+        );
+      }
+    });
+  });
+
+  describe('変更契約時のparentContractId必須チェック', () => {
+    it('AMENDMENTでparentContractIdが未指定（undefined）の場合エラーになること', () => {
+      const { parentContractId: _, ...dataWithout } = validCreateData;
+      void _;
+      const result = createContractSchema.safeParse({
+        ...dataWithout,
+        contractType: 'AMENDMENT',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const parentError = result.error.issues.find((issue) =>
+          issue.path.includes('parentContractId')
+        );
+        expect(parentError).toBeDefined();
+        expect(parentError?.message).toBe(CONTRACT_VALIDATION_MESSAGES.PARENT_CONTRACT_REQUIRED);
+      }
+    });
+
+    it('NEWでparentContractIdが指定されていても成功すること', () => {
+      const result = createContractSchema.safeParse({
+        ...validCreateData,
+        contractType: 'NEW',
+        parentContractId: '550e8400-e29b-41d4-a716-446655440003',
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('消費税率の境界値テスト', () => {
+    it('taxRateが0の場合はバリデーションが成功すること', () => {
+      const result = createContractSchema.safeParse({
+        ...validCreateData,
+        taxRate: 0,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('taxRateが1の場合はバリデーションが成功すること', () => {
+      const result = createContractSchema.safeParse({
+        ...validCreateData,
+        taxRate: 1,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('taxRateが0未満の場合エラーメッセージが正しいこと', () => {
+      const result = createContractSchema.safeParse({
+        ...validCreateData,
+        taxRate: -0.01,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = getErrorMessages(result);
+        expect(messages.some((m) => m.includes(CONTRACT_VALIDATION_MESSAGES.TAX_RATE_MIN))).toBe(
+          true
+        );
+      }
+    });
+
+    it('taxRateが1超の場合エラーメッセージが正しいこと', () => {
+      const result = createContractSchema.safeParse({
+        ...validCreateData,
+        taxRate: 1.01,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const messages = getErrorMessages(result);
+        expect(messages.some((m) => m.includes(CONTRACT_VALIDATION_MESSAGES.TAX_RATE_MAX))).toBe(
+          true
+        );
+      }
+    });
   });
 });
 

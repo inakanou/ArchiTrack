@@ -25,6 +25,7 @@ import {
   ContractNotFoundError,
   ContractConflictError,
   ContractValidationError,
+  ContractDeletionConstraintError,
 } from '../errors/contractError.js';
 
 /**
@@ -483,7 +484,16 @@ export class ContractService {
   }
 
   /**
-   * 契約書論理削除
+   * 契約書論理削除（制約チェック付き）
+   *
+   * Requirements:
+   * - 8.11: 契約書論理削除
+   * - 12.1: 子契約が存在する場合の削除拒否
+   * - 12.2: ステータスが契約済の場合の削除拒否
+   *
+   * @throws ContractNotFoundError 契約書が見つからない場合
+   * @throws ContractDeletionConstraintError 子契約が存在する場合
+   * @throws ContractDeletionConstraintError ステータスがCONTRACTEDの場合
    */
   async delete(id: string): Promise<void> {
     const existing = await this.prisma.contract.findUnique({
@@ -492,6 +502,27 @@ export class ContractService {
 
     if (!existing || existing.deletedAt) {
       throw new ContractNotFoundError();
+    }
+
+    // 削除制約チェック: 子契約（deletedAtがnullの変更契約）の存在確認
+    const activeChildContracts = await this.prisma.contract.findMany({
+      where: {
+        parentContractId: id,
+        deletedAt: null,
+      },
+    });
+
+    if (activeChildContracts.length > 0) {
+      throw new ContractDeletionConstraintError(
+        'この契約書は変更契約の基となっているため削除できません'
+      );
+    }
+
+    // 削除制約チェック: ステータスがCONTRACTEDの場合
+    if (existing.status === 'CONTRACTED') {
+      throw new ContractDeletionConstraintError(
+        '契約済の契約書は削除できません。ステータスを契約前に戻してから削除してください'
+      );
     }
 
     await this.prisma.contract.update({

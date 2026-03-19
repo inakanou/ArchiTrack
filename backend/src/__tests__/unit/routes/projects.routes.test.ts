@@ -64,6 +64,14 @@ const mockContractService = vi.hoisted(() => ({
   findLatestByProjectId: vi.fn(),
 }));
 
+const mockScheduleService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
+const mockExecutionBudgetService = vi.hoisted(() => ({
+  getSummaryByProjectId: vi.fn(),
+}));
+
 const mockIsStorageConfigured = vi.hoisted(() => vi.fn());
 const mockGetStorageProvider = vi.hoisted(() => vi.fn());
 
@@ -155,6 +163,22 @@ vi.mock('../../../services/contract.service', () => ({
   ContractService: class {
     constructor() {
       return mockContractService;
+    }
+  },
+}));
+
+vi.mock('../../../services/schedule.service', () => ({
+  ScheduleService: class {
+    constructor() {
+      return mockScheduleService;
+    }
+  },
+}));
+
+vi.mock('../../../services/execution-budget.service', () => ({
+  ExecutionBudgetService: class {
+    constructor() {
+      return mockExecutionBudgetService;
     }
   },
 }));
@@ -1081,6 +1105,17 @@ describe('Projects Routes', () => {
         totalCount: 0,
         estimates: [],
       });
+      (mockContractService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        latestContracts: [],
+      });
+      (mockScheduleService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        latestSchedules: [],
+      });
+      (
+        mockExecutionBudgetService.getSummaryByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(null);
       mockIsStorageConfigured.mockReturnValue(false);
     };
 
@@ -1133,6 +1168,123 @@ describe('Projects Routes', () => {
       expect(response.body.sections.estimates).toBeDefined();
       // 契約書セクションはデフォルト値
       expect(response.body.sections.contracts.totalCount).toBe(0);
+    });
+  });
+
+  // Task 67.2: detail-summary APIの実行予算セクション統合テスト
+  // Requirements: 41.1, 41.2, 41.3, 41.4, 41.5
+  describe('GET /api/projects/:id/detail-summary - 実行予算セクション統合', () => {
+    const setupAllSectionsForBudget = () => {
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        latestSurveys: [],
+      });
+      (
+        mockQuantityTableService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestTables: [],
+      });
+      (
+        mockItemizedStatementService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestStatements: [],
+      });
+      (
+        mockEstimateRequestService.findLatestByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        totalCount: 0,
+        latestRequests: [],
+      });
+      (mockEstimateService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        estimates: [],
+      });
+      (mockContractService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        latestContracts: [],
+      });
+      (mockScheduleService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 0,
+        latestSchedules: [],
+      });
+      (
+        mockExecutionBudgetService.getSummaryByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(null);
+      mockIsStorageConfigured.mockReturnValue(false);
+    };
+
+    it('実行予算セクションデータがレスポンスに含まれること (41.1, 41.2)', async () => {
+      setupAllSectionsForBudget();
+      const mockBudgetSummary = {
+        id: 'budget-1',
+        contractName: '工事見積書A',
+        contractAmount: 5000000,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        executionAmountTotal: '3500000',
+        profitForecast: '1500000',
+        orderProgressRate: '50',
+      };
+      (
+        mockExecutionBudgetService.getSummaryByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(mockBudgetSummary);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.sections.executionBudget).toBeDefined();
+      expect(response.body.sections.executionBudget.id).toBe('budget-1');
+      expect(response.body.sections.executionBudget.contractName).toBe('工事見積書A');
+      expect(response.body.sections.executionBudget.contractAmount).toBe(5000000);
+      expect(response.body.sections.executionBudget.executionAmountTotal).toBe('3500000');
+      expect(response.body.sections.executionBudget.profitForecast).toBe('1500000');
+      expect(response.body.sections.executionBudget.orderProgressRate).toBe('50');
+    });
+
+    it('実行予算が存在しない場合nullを返却すること (41.3)', async () => {
+      setupAllSectionsForBudget();
+      (
+        mockExecutionBudgetService.getSummaryByProjectId as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(null);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.sections.executionBudget).toBeNull();
+    });
+
+    it('実行予算取得エラー時にnullを返却すること (41.4)', async () => {
+      setupAllSectionsForBudget();
+      (
+        mockExecutionBudgetService.getSummaryByProjectId as ReturnType<typeof vi.fn>
+      ).mockRejectedValue(new Error('DB error'));
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.sections.executionBudget).toBeNull();
+    });
+
+    it('実行予算取得エラーが他のセクションデータに影響しないこと (41.5)', async () => {
+      setupAllSectionsForBudget();
+      (
+        mockExecutionBudgetService.getSummaryByProjectId as ReturnType<typeof vi.fn>
+      ).mockRejectedValue(new Error('ExecutionBudget service error'));
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      // 他のセクションは正常に返却される
+      expect(response.body.sections.siteSurveys).toBeDefined();
+      expect(response.body.sections.quantityTables).toBeDefined();
+      expect(response.body.sections.itemizedStatements).toBeDefined();
+      expect(response.body.sections.estimateRequests).toBeDefined();
+      expect(response.body.sections.estimates).toBeDefined();
+      expect(response.body.sections.contracts).toBeDefined();
+      expect(response.body.sections.schedules).toBeDefined();
+      // 実行予算セクションはデフォルト値
+      expect(response.body.sections.executionBudget).toBeNull();
     });
   });
 });

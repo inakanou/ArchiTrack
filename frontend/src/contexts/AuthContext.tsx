@@ -20,6 +20,7 @@ export interface User {
   email: string;
   displayName: string;
   roles?: string[];
+  permissions?: string[];
   createdAt?: string;
   emailVerified?: boolean;
   twoFactorEnabled?: boolean;

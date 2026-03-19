@@ -747,6 +747,7 @@ export class AuthService implements IAuthService {
   async getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>> {
     try {
       // Fetch user with only necessary fields (optimized query)
+      // permissions も含めて取得（フロントエンドの権限ベースUI制御で使用）
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -760,6 +761,16 @@ export class AuthService implements IAuthService {
               role: {
                 select: {
                   name: true,
+                  rolePermissions: {
+                    select: {
+                      permission: {
+                        select: {
+                          resource: true,
+                          action: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -772,12 +783,21 @@ export class AuthService implements IAuthService {
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
+      // Extract unique permissions from all roles (resource:action format)
+      const permissionSet = new Set<string>();
+      for (const ur of user.userRoles) {
+        for (const rp of ur.role.rolePermissions) {
+          permissionSet.add(`${rp.permission.resource}:${rp.permission.action}`);
+        }
+      }
+
       // Convert to UserProfile format
       const userProfile: UserProfile = {
         id: user.id,
         email: user.email,
         displayName: user.displayName,
         roles: user.userRoles.map((ur) => ur.role.name),
+        permissions: Array.from(permissionSet),
         createdAt: user.createdAt,
         twoFactorEnabled: user.twoFactorEnabled,
       };

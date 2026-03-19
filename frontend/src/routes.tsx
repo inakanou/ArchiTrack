@@ -48,6 +48,9 @@ import ContractEditPage from './pages/ContractEditPage';
 import ScheduleListPage from './pages/ScheduleListPage';
 import ScheduleCreatePage from './pages/ScheduleCreatePage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
+import ExecutionBudgetPage from './pages/ExecutionBudgetPage';
+import OrderDetailPage from './pages/OrderDetailPage';
+import ProgressInputPage from './pages/ProgressInputPage';
 
 /**
  * アプリケーションのルート設定
@@ -385,6 +388,38 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/schedules',
         element: <ScheduleListPage />,
+      },
+
+      // 実行予算メインページ
+      // REQ-1.1-1.7: 実行予算の作成
+      // REQ-2.1-2.3: 実行予算の削除
+      // REQ-3.1-3.10: 実行予算項目一覧
+      // Task 8.1-8.4: フロントエンド実行予算メインページ
+      {
+        path: '/projects/:projectId/execution-budget',
+        element: <ExecutionBudgetPage />,
+      },
+
+      // 発注詳細ページ
+      // REQ-6.1-6.8: 発注の作成と取引先指定
+      // REQ-7.1-7.5: 発注の編集と削除
+      // REQ-8.1-8.9: 発注金額の確定と案分
+      // REQ-10.1-10.4: 発注一覧のエクスポート
+      // Task 9.1: 発注の作成・編集・削除UI実装
+      // Task 9.2: 発注エクスポートUI実装
+      {
+        path: '/projects/:projectId/execution-budget/orders/:orderId',
+        element: <OrderDetailPage />,
+      },
+
+      // 出来高入力ページ
+      // REQ-11.1-11.11: 出来高入力機能
+      // REQ-12.3-12.6: 出来高の履歴管理
+      // REQ-16.1-16.5: 月別出来高集計
+      // Task 10.1-10.3: フロントエンド出来高入力ページ
+      {
+        path: '/projects/:projectId/execution-budget/progress',
+        element: <ProgressInputPage />,
       },
 
       // 取引先一覧

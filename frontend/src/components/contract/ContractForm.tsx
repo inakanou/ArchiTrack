@@ -238,6 +238,14 @@ const styles = {
     gridTemplateColumns: '1fr 1fr',
     gap: '16px',
   } as React.CSSProperties,
+  errorMessage: {
+    fontSize: '12px',
+    color: '#dc2626',
+    marginTop: '4px',
+  } as React.CSSProperties,
+  inputError: {
+    border: '1px solid #dc2626',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -309,6 +317,9 @@ export default function ContractForm({
   initialData,
   isSubmitting = false,
 }: ContractFormProps) {
+  // バリデーションエラー状態
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
   // フォーム状態
   const [formData, setFormData] = useState<FormData>(() => {
     if (initialData) {
@@ -488,8 +499,87 @@ export default function ContractForm({
   // イベントハンドラ
   // ============================================================================
 
+  // ============================================================================
+  // バリデーション
+  // ============================================================================
+
+  /**
+   * フォーム全体のバリデーションを実行する
+   *
+   * Requirements:
+   * - REQ-10.1: 見積書選択必須
+   * - REQ-10.2: 契約日必須
+   * - REQ-10.3: 工期着手日・完成日必須
+   * - REQ-10.4: 引渡日必須
+   * - REQ-10.5: 消費税率必須・範囲（0-100%）
+   * - REQ-10.7: 着手日・完成日論理チェック
+   * - REQ-10.8: 変更契約基契約書必須
+   *
+   * @returns バリデーションが通過した場合true
+   */
+  const validateForm = useCallback((): boolean => {
+    const errors: Record<string, string> = {};
+
+    // 必須チェック (REQ-10.1)
+    if (!formData.estimateId) {
+      errors.estimateId = '見積書の選択は必須です';
+    }
+
+    // 必須チェック (REQ-10.2)
+    if (!formData.contractDate) {
+      errors.contractDate = '契約日の入力は必須です';
+    }
+
+    // 必須チェック (REQ-10.3)
+    if (!formData.constructionStartDate) {
+      errors.constructionStartDate = '工期着手日の入力は必須です';
+    }
+    if (!formData.constructionEndDate) {
+      errors.constructionEndDate = '工期完成日の入力は必須です';
+    }
+
+    // 必須チェック (REQ-10.4)
+    if (!formData.deliveryDate) {
+      errors.deliveryDate = '引渡日の入力は必須です';
+    }
+
+    // 必須・範囲チェック (REQ-10.5)
+    if (formData.taxRate === '') {
+      errors.taxRate = '消費税率の入力は必須です';
+    } else {
+      const taxRateNum = parseFloat(formData.taxRate);
+      if (isNaN(taxRateNum) || taxRateNum < 0 || taxRateNum > 100) {
+        errors.taxRate = '消費税率は0以上100以下の数値を指定してください';
+      }
+    }
+
+    // 論理チェック (REQ-10.7)
+    if (formData.constructionStartDate && formData.constructionEndDate) {
+      if (formData.constructionStartDate > formData.constructionEndDate) {
+        errors.constructionStartDate = '着手日は完成日以前の日付を指定してください';
+      }
+    }
+
+    // 条件付きチェック (REQ-10.8)
+    if (formData.contractType === 'AMENDMENT' && !formData.parentContractId) {
+      errors.parentContractId = '変更契約の場合、基となる契約書の選択は必須です';
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [formData]);
+
   const handleFieldChange = useCallback((field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+    // フィールド変更時に該当フィールドのエラーをクリア
+    setValidationErrors((prev) => {
+      if (prev[field]) {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      }
+      return prev;
+    });
   }, []);
 
   const handleContractTypeChange = useCallback((type: ContractType) => {
@@ -504,6 +594,11 @@ export default function ContractForm({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+
+      // バリデーション実行 (REQ-10.6)
+      if (!validateForm()) {
+        return;
+      }
 
       const taxRateDecimal = parseFloat(formData.taxRate) / 100;
 
@@ -527,7 +622,7 @@ export default function ContractForm({
 
       onSubmit(input);
     },
-    [formData, contractAmount, constructionPrice, taxAmount, onSubmit]
+    [formData, contractAmount, constructionPrice, taxAmount, onSubmit, validateForm]
   );
 
   // 比較用: 変更前の値を計算
@@ -615,7 +710,10 @@ export default function ContractForm({
               id="parentContractId"
               value={formData.parentContractId}
               onChange={(e) => handleFieldChange('parentContractId', e.target.value)}
-              style={styles.select}
+              style={{
+                ...styles.select,
+                ...(validationErrors.parentContractId ? styles.inputError : {}),
+              }}
               disabled={mode === 'edit'}
             >
               <option value="">-- 選択してください --</option>
@@ -627,6 +725,9 @@ export default function ContractForm({
                 </option>
               ))}
             </select>
+            {validationErrors.parentContractId && (
+              <div style={styles.errorMessage}>{validationErrors.parentContractId}</div>
+            )}
           </div>
         )}
       </div>
@@ -673,7 +774,10 @@ export default function ContractForm({
             id="estimateId"
             value={formData.estimateId}
             onChange={(e) => handleFieldChange('estimateId', e.target.value)}
-            style={styles.select}
+            style={{
+              ...styles.select,
+              ...(validationErrors.estimateId ? styles.inputError : {}),
+            }}
           >
             <option value="">-- 見積書を選択してください --</option>
             {estimates?.data.map((est) => (
@@ -682,6 +786,9 @@ export default function ContractForm({
               </option>
             ))}
           </select>
+          {validationErrors.estimateId && (
+            <div style={styles.errorMessage}>{validationErrors.estimateId}</div>
+          )}
         </div>
 
         {/* 消費税率 (REQ-3.2) */}
@@ -694,11 +801,16 @@ export default function ContractForm({
             id="taxRate"
             value={formData.taxRate}
             onChange={(e) => handleFieldChange('taxRate', e.target.value)}
-            style={{ ...styles.input, maxWidth: '120px' }}
-            min="0"
-            max="100"
+            style={{
+              ...styles.input,
+              maxWidth: '120px',
+              ...(validationErrors.taxRate ? styles.inputError : {}),
+            }}
             step="0.1"
           />
+          {validationErrors.taxRate && (
+            <div style={styles.errorMessage}>{validationErrors.taxRate}</div>
+          )}
         </div>
 
         {/* 金額自動表示 (REQ-4.1-4.3) */}
@@ -737,8 +849,15 @@ export default function ContractForm({
             id="contractDate"
             value={formData.contractDate}
             onChange={(e) => handleFieldChange('contractDate', e.target.value)}
-            style={{ ...styles.input, maxWidth: '200px' }}
+            style={{
+              ...styles.input,
+              maxWidth: '200px',
+              ...(validationErrors.contractDate ? styles.inputError : {}),
+            }}
           />
+          {validationErrors.contractDate && (
+            <div style={styles.errorMessage}>{validationErrors.contractDate}</div>
+          )}
         </div>
 
         <div style={styles.dateGrid}>
@@ -751,8 +870,14 @@ export default function ContractForm({
               id="constructionStartDate"
               value={formData.constructionStartDate}
               onChange={(e) => handleFieldChange('constructionStartDate', e.target.value)}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(validationErrors.constructionStartDate ? styles.inputError : {}),
+              }}
             />
+            {validationErrors.constructionStartDate && (
+              <div style={styles.errorMessage}>{validationErrors.constructionStartDate}</div>
+            )}
           </div>
           <div style={styles.fieldGroup}>
             <label htmlFor="constructionEndDate" style={styles.label}>
@@ -763,8 +888,14 @@ export default function ContractForm({
               id="constructionEndDate"
               value={formData.constructionEndDate}
               onChange={(e) => handleFieldChange('constructionEndDate', e.target.value)}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(validationErrors.constructionEndDate ? styles.inputError : {}),
+              }}
             />
+            {validationErrors.constructionEndDate && (
+              <div style={styles.errorMessage}>{validationErrors.constructionEndDate}</div>
+            )}
           </div>
         </div>
 
@@ -777,8 +908,15 @@ export default function ContractForm({
             id="deliveryDate"
             value={formData.deliveryDate}
             onChange={(e) => handleFieldChange('deliveryDate', e.target.value)}
-            style={{ ...styles.input, maxWidth: '200px' }}
+            style={{
+              ...styles.input,
+              maxWidth: '200px',
+              ...(validationErrors.deliveryDate ? styles.inputError : {}),
+            }}
           />
+          {validationErrors.deliveryDate && (
+            <div style={styles.errorMessage}>{validationErrors.deliveryDate}</div>
+          )}
         </div>
 
         <div style={styles.fieldGroup}>

@@ -2,6 +2,7 @@
  * @fileoverview 契約書編集画面テスト
  *
  * Task 8.1: 契約書編集ページコンポーネントを作成する
+ * Task 14.1: 契約書編集成功時のトースト通知表示
  *
  * Requirements (contract-management):
  * - REQ-9.1: 契約書編集画面に全項目を編集可能な状態で表示する
@@ -9,6 +10,7 @@
  * - REQ-9.3: 編集キャンセル時に変更を破棄して契約書詳細画面に戻る
  * - REQ-9.4: パンくずナビゲーションを表示する
  * - REQ-9.5: 編集時自動表示項目更新（見積書変更時の金額自動再計算）
+ * - REQ-11.6: 契約書編集成功時に「契約書を更新しました。」のトースト通知を表示
  *
  * @module pages/ContractEditPage.test
  */
@@ -21,6 +23,8 @@ import ContractEditPage from './ContractEditPage';
 import * as contractsApi from '../api/contracts';
 import * as projectsApi from '../api/projects';
 import type { ContractDetail } from '../api/contracts';
+import { ToastContext } from '../hooks/useToast';
+import type { ToastContextValue } from '../hooks/useToast';
 
 // モック
 vi.mock('../api/contracts');
@@ -120,16 +124,39 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+/** モックトーストコンテキスト値を作成 */
+function createMockToastContext(): ToastContextValue {
+  return {
+    toasts: [],
+    addToast: vi.fn().mockReturnValue('toast-1'),
+    removeToast: vi.fn(),
+    success: vi.fn().mockReturnValue('toast-1'),
+    error: vi.fn().mockReturnValue('toast-1'),
+    warning: vi.fn().mockReturnValue('toast-1'),
+    info: vi.fn().mockReturnValue('toast-1'),
+    projectCreated: vi.fn().mockReturnValue('toast-1'),
+    projectUpdated: vi.fn().mockReturnValue('toast-1'),
+    projectDeleted: vi.fn().mockReturnValue('toast-1'),
+    projectStatusChanged: vi.fn().mockReturnValue('toast-1'),
+    operationFailed: vi.fn().mockReturnValue('toast-1'),
+  };
+}
+
+let mockToastContext: ToastContextValue;
+
 function renderWithRouter(projectId = 'project-1', contractId = 'contract-1') {
+  mockToastContext = createMockToastContext();
   return render(
-    <MemoryRouter initialEntries={[`/projects/${projectId}/contracts/${contractId}/edit`]}>
-      <Routes>
-        <Route
-          path="/projects/:projectId/contracts/:contractId/edit"
-          element={<ContractEditPage />}
-        />
-      </Routes>
-    </MemoryRouter>
+    <ToastContext.Provider value={mockToastContext}>
+      <MemoryRouter initialEntries={[`/projects/${projectId}/contracts/${contractId}/edit`]}>
+        <Routes>
+          <Route
+            path="/projects/:projectId/contracts/:contractId/edit"
+            element={<ContractEditPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    </ToastContext.Provider>
   );
 }
 
@@ -331,10 +358,43 @@ describe('ContractEditPage', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
-      expect(screen.getByText('契約書の更新に失敗しました')).toBeInTheDocument();
     });
+
+    // エラートーストが呼ばれる
+    expect(mockToastContext.error).toHaveBeenCalled();
 
     // 遷移しないことを確認
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  // ==========================================================================
+  // REQ-11.6: 契約書編集成功時のトースト通知
+  // ==========================================================================
+
+  /**
+   * REQ-11.6: 契約書編集成功時に「契約書を更新しました。」のトースト通知を表示する
+   */
+  it('契約書編集成功時に「契約書を更新しました。」のトースト通知を表示する', async () => {
+    vi.mocked(contractsApi.updateContract).mockResolvedValue(mockUpdatedContract);
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-form')).toBeInTheDocument();
+    });
+
+    // 保存ボタンをクリック
+    const submitButton = screen.getByRole('button', { name: '保存' });
+    await userEvent.click(submitButton);
+
+    // トースト通知が表示される
+    await waitFor(() => {
+      expect(mockToastContext.success).toHaveBeenCalledWith('契約書を更新しました。');
+    });
+
+    // 詳細画面に遷移する
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1/contracts/contract-1');
+    });
   });
 });

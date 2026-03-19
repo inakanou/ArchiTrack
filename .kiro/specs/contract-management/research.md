@@ -95,8 +95,87 @@
 - 見積書の金額集計ロジックの再利用 — 既存サービスのメソッドを呼び出す形で実装
 - 消費税率変更時の既存契約への影響 — 契約書ごとに消費税率を独立して保持することで回避済み
 
+## Research Log (Req 10-13 追加分)
+
+### フロントエンドバリデーションパターンの分析
+- **Context**: Req 10（データバリデーション）でフロントエンド側のバリデーションが未実装
+- **Sources Consulted**: `frontend/src/components/contract/ContractForm.tsx`, `backend/src/schemas/contract.schema.ts`
+- **Findings**:
+  - バックエンドにはZodスキーマによる包括的なバリデーションが既に存在する（createContractSchema, updateContractSchema）
+  - フロントエンドのContractFormにはクライアントサイドバリデーションが未実装（エラーメッセージ表示なし）
+  - 消費税率はバックエンド側で0-1（小数）で管理されており、フロントエンドではUIで0-100%表示に変換する必要がある
+  - バリデーションメッセージ定数がバックエンドの`CONTRACT_VALIDATION_MESSAGES`に定義済み
+- **Implications**: フロントエンドにもバリデーションロジックを追加し、送信前にユーザーにフィードバックを提供する
+
+### エラーハンドリング・フィードバックパターンの分析
+- **Context**: Req 11（エラー回復とフィードバック）で成功メッセージ、5xxエラー区別、再試行ボタンが未実装
+- **Sources Consulted**: `frontend/src/types/toast.types.ts`, `frontend/src/pages/ContractCreatePage.tsx`, `frontend/src/pages/ContractDetailPage.tsx`
+- **Findings**:
+  - プロジェクト全体でトースト通知システム（ToastType: success/error/warning/info）が既に確立されている
+  - 契約書の作成・編集・削除成功時のトースト通知が未実装
+  - ネットワークエラーと5xxサーバーエラーの区別がフロントエンド側で行われていない
+  - 楽観的排他制御の競合エラー（409）はバックエンドで実装済みだが、フロントエンドでの特別なハンドリングがない
+- **Implications**: 既存のトーストシステムを活用し、成功・エラーメッセージを統合的に管理する
+
+### 削除制約パターンの分析
+- **Context**: Req 12（契約書削除の制約）で子契約チェックとステータスチェックがサービス層で未実装
+- **Sources Consulted**: `backend/src/services/contract.service.ts`, `backend/prisma/schema.prisma`
+- **Findings**:
+  - 現在のdelete()メソッドは存在チェック後に即座に論理削除を実行しており、制約チェックがない
+  - Prismaスキーマに`childContracts Contract[] @relation("ContractAmendments")`が既に定義されている
+  - 子契約の存在確認は`childContracts`リレーションを用いたクエリで実現可能
+  - ステータスチェックは既存の`status`フィールドを参照するだけで実現可能
+  - フロントエンドの詳細画面に削除ボタン・確認ダイアログが未実装
+- **Implications**: ContractService.delete()にビジネスルール検証を追加し、フロントエンドにDeleteConfirmDialogを追加する
+
+### フロントエンド権限制御パターンの分析
+- **Context**: Req 13（アクセス制御）でバックエンドのミドルウェアは存在するが、フロントエンドUI権限制御が未実装
+- **Sources Consulted**: `frontend/src/contexts/AuthContext.tsx`, `frontend/src/hooks/useAuth.ts`, `backend/src/routes/contracts.routes.ts`, `backend/src/utils/seed-helpers.ts`
+- **Findings**:
+  - バックエンドの全エンドポイントにrequirePermission()ミドルウェアが適用済み（contract:read, contract:create, contract:update, contract:delete）
+  - AuthContextのUser型には`roles?: string[]`があるが、`permissions`フィールドは直接保持されていない
+  - フロントエンドでの権限ベースUI制御の確立パターンが存在しない（権限はバックエンドで強制されるのみ）
+  - フロントエンドでのUI権限制御は、ユーザーのロールに紐付く権限をAPIで取得するか、ログイン時に権限一覧をレスポンスに含める方式が考えられる
+- **Implications**: usePermissionカスタムフックを新設し、ユーザー権限に基づくUI要素の表示/非表示制御を実現する。権限情報はAuthContextに統合するか、別途APIから取得する
+
+## Design Decisions (Req 10-13 追加分)
+
+### Decision: フロントエンドバリデーションの実装方式
+- **Context**: Req 10でフロントエンド側のバリデーションが必要
+- **Alternatives Considered**:
+  1. React Hook Formなどのフォームライブラリ導入
+  2. Zodスキーマをフロントエンドでも共有（monorepo共有パッケージ）
+  3. ContractForm内にカスタムバリデーションロジックを実装
+- **Selected Approach**: ContractForm内にカスタムバリデーションロジックを実装
+- **Rationale**: 既存のContractFormがすでにReact stateベースで構築されており、フォームライブラリの導入は既存実装との乖離が大きい。バリデーションルールはバックエンドのZodスキーマと対応するが、UIに特化したメッセージとインラインエラー表示に最適化する
+- **Trade-offs**: バックエンドとフロントエンドのバリデーションルールの二重管理が発生するが、消費税率の表示変換（0-1 vs 0-100%）など、レイヤ固有のロジックがあるため妥当
+
+### Decision: 権限情報のフロントエンド取得方式
+- **Context**: Req 13でフロントエンドUI要素の権限ベース制御が必要
+- **Alternatives Considered**:
+  1. ログイン時のレスポンスにpermissions配列を含める（AuthContext拡張）
+  2. 別途 GET /api/v1/users/me/permissions APIを新設
+  3. ロール名に基づくハードコードされた権限マッピング
+- **Selected Approach**: ログイン時のレスポンスにpermissions配列を含め、AuthContextのUser型にpermissionsフィールドを追加。usePermissionカスタムフックで権限チェックユーティリティを提供
+- **Rationale**: 認証フロー内で権限情報も同時に取得することで追加APIコールを回避。既存のAuthContext機構を自然に拡張可能
+- **Trade-offs**: ユーザーの権限変更が即座にUIに反映されない（次回ログインまたはトークンリフレッシュ時に更新）が、契約書管理のユースケースでは許容範囲内
+
+### Decision: 削除制約のエラー区分方式
+- **Context**: Req 12で子契約存在チェックとステータスチェックのエラーが必要
+- **Alternatives Considered**:
+  1. 422 Unprocessable Entity（ビジネスルール違反）
+  2. 409 Conflict（リソース状態の競合）
+  3. 400 Bad Request
+- **Selected Approach**: 422 Unprocessable Entity
+- **Rationale**: 削除リクエスト自体の形式は正しいが、ビジネスルール上の制約により処理できない状態を示す。既存のError Handlingセクションでもビジネスロジックエラーに422を使用しており一貫性がある
+- **Trade-offs**: なし
+
 ## References
 - Prismaスキーマ: `backend/prisma/schema.prisma`
 - 見積書ルート: `backend/src/routes/estimates.routes.ts`
 - TradingPartnerSelect: `frontend/src/components/projects/TradingPartnerSelect.tsx`
 - パンくずナビゲーション: `frontend/src/components/common/Breadcrumb.tsx`
+- トースト通知型定義: `frontend/src/types/toast.types.ts`
+- 契約書バリデーションスキーマ: `backend/src/schemas/contract.schema.ts`
+- 認証コンテキスト: `frontend/src/contexts/AuthContext.tsx`
+- 契約書サービス: `backend/src/services/contract.service.ts`

@@ -227,3 +227,14 @@ export async function updateContractStatus(
 ): Promise<ContractDetail> {
   return apiClient.patch<ContractDetail>(`/api/contracts/${id}/status`, { status });
 }
+
+/**
+ * 契約書を削除（論理削除）
+ * Requirements: REQ-8.11, REQ-12.1, REQ-12.2
+ *
+ * @param id - 契約書ID
+ * @throws ApiError 422 - 子契約が存在する場合、または契約済ステータスの場合
+ */
+export async function deleteContract(id: string): Promise<void> {
+  return apiClient.delete<void>(`/api/contracts/${id}`);
+}
