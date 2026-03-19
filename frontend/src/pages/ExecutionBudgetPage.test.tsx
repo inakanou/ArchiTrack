@@ -21,10 +21,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ExecutionBudgetPage from './ExecutionBudgetPage';
 import * as executionBudgetApi from '../api/execution-budget';
+import * as contractsApi from '../api/contracts';
+import { ApiError } from '../api/client';
 
 // APIモック
 vi.mock('../api/execution-budget');
@@ -366,6 +369,520 @@ describe('ExecutionBudgetPage', () => {
     it('「変更契約の反映」ボタンを表示する', async () => {
       renderPage();
       expect(await screen.findByText('変更契約の反映')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // ダイアログ操作テスト
+  // ==========================================================================
+  describe('ダイアログ操作', () => {
+    describe('契約書選択ダイアログ', () => {
+      beforeEach(() => {
+        vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(null);
+        vi.mocked(executionBudgetApi.getOrders).mockResolvedValue([]);
+        vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue([]);
+      });
+
+      it('「実行予算を作成」クリックで契約書選択ダイアログを表示する', async () => {
+        vi.mocked(contractsApi.getContracts).mockResolvedValue({
+          contracts: [
+            {
+              id: 'c-1',
+              contractType: 'NEW',
+              contractDate: '2026-01-01',
+              status: 'CONTRACTED',
+              contractAmount: 5000000,
+              estimateName: '見積書X',
+              parentContractId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ],
+          total: 1,
+        });
+
+        renderPage();
+        const createButton = await screen.findByText('実行予算を作成');
+        await userEvent.click(createButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '契約書選択' })).toBeInTheDocument();
+        });
+        expect(screen.getByText(/見積書X/)).toBeInTheDocument();
+        expect(screen.getByText(/5,000,000/)).toBeInTheDocument();
+      });
+
+      it('契約書を選択して作成ボタンで実行予算を作成する', async () => {
+        vi.mocked(contractsApi.getContracts).mockResolvedValue({
+          contracts: [
+            {
+              id: 'c-1',
+              contractType: 'NEW',
+              contractDate: '2026-01-01',
+              status: 'CONTRACTED',
+              contractAmount: 5000000,
+              estimateName: '見積書X',
+              parentContractId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ],
+          total: 1,
+        });
+        vi.mocked(executionBudgetApi.createExecutionBudget).mockResolvedValue({
+          ...mockBudget,
+          id: 'eb-new',
+          contractId: 'c-1',
+        });
+
+        renderPage();
+        const createButton = await screen.findByText('実行予算を作成');
+        await userEvent.click(createButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '契約書選択' })).toBeInTheDocument();
+        });
+
+        // 契約書を選択
+        const radio = screen.getByRole('radio');
+        await userEvent.click(radio);
+
+        // 作成ボタンをクリック
+        const submitButton = screen.getByText('作成');
+        await userEvent.click(submitButton);
+
+        await waitFor(() => {
+          expect(executionBudgetApi.createExecutionBudget).toHaveBeenCalledWith('project-1', {
+            contractId: 'c-1',
+          });
+        });
+      });
+
+      it('キャンセルボタンでダイアログを閉じる', async () => {
+        vi.mocked(contractsApi.getContracts).mockResolvedValue({
+          contracts: [
+            {
+              id: 'c-1',
+              contractType: 'NEW',
+              contractDate: '2026-01-01',
+              status: 'CONTRACTED',
+              contractAmount: 5000000,
+              estimateName: '見積書X',
+              parentContractId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ],
+          total: 1,
+        });
+
+        renderPage();
+        const createButton = await screen.findByText('実行予算を作成');
+        await userEvent.click(createButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '契約書選択' })).toBeInTheDocument();
+        });
+
+        const cancelButton = screen.getByText('キャンセル');
+        await userEvent.click(cancelButton);
+
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        });
+      });
+
+      it('契約書一覧取得失敗時にエラーにならない', async () => {
+        vi.mocked(contractsApi.getContracts).mockRejectedValue(new Error('Network error'));
+
+        renderPage();
+        const createButton = await screen.findByText('実行予算を作成');
+        await userEvent.click(createButton);
+
+        // ダイアログが表示されないことを確認
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('削除確認ダイアログ', () => {
+      beforeEach(() => {
+        vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+        vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+        vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+      });
+
+      it('削除ボタンクリックで削除確認ダイアログを表示する', async () => {
+        renderPage();
+        const deleteButton = await screen.findByText('削除');
+        await userEvent.click(deleteButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '削除確認' })).toBeInTheDocument();
+        });
+        expect(screen.getByText('この実行予算を削除してもよろしいですか？')).toBeInTheDocument();
+      });
+
+      it('削除確認ダイアログで削除を実行する', async () => {
+        vi.mocked(executionBudgetApi.deleteExecutionBudget).mockResolvedValue(undefined);
+
+        renderPage();
+        const deleteButton = await screen.findByText('削除');
+        await userEvent.click(deleteButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '削除確認' })).toBeInTheDocument();
+        });
+
+        const confirmButton = screen.getByText('削除する');
+        await userEvent.click(confirmButton);
+
+        await waitFor(() => {
+          expect(executionBudgetApi.deleteExecutionBudget).toHaveBeenCalledWith('project-1');
+        });
+      });
+
+      it('削除キャンセルでダイアログを閉じる', async () => {
+        renderPage();
+        const deleteButton = await screen.findByText('削除');
+        await userEvent.click(deleteButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '削除確認' })).toBeInTheDocument();
+        });
+
+        const cancelButton = screen.getByText('キャンセル');
+        await userEvent.click(cancelButton);
+
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        });
+      });
+
+      it('削除APIエラー時にエラーメッセージを表示する', async () => {
+        vi.mocked(executionBudgetApi.deleteExecutionBudget).mockRejectedValue(
+          new ApiError(400, '発注済みの項目があるため削除できません')
+        );
+
+        renderPage();
+        const deleteButton = await screen.findByText('削除');
+        await userEvent.click(deleteButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '削除確認' })).toBeInTheDocument();
+        });
+
+        const confirmButton = screen.getByText('削除する');
+        await userEvent.click(confirmButton);
+
+        await waitFor(() => {
+          expect(screen.getByText('発注済みの項目があるため削除できません')).toBeInTheDocument();
+        });
+      });
+    });
+
+    describe('月次締めダイアログ', () => {
+      beforeEach(() => {
+        vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+        vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+        vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+      });
+
+      it('月次締めボタンクリックでダイアログを表示する', async () => {
+        renderPage();
+        const monthlyCloseButton = await screen.findByText('月次締め');
+        await userEvent.click(monthlyCloseButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '月次締め' })).toBeInTheDocument();
+        });
+        expect(screen.getByText(/締め対象月を入力してください/)).toBeInTheDocument();
+      });
+
+      it('月次締めを実行する', async () => {
+        vi.mocked(executionBudgetApi.executeMonthlyClose).mockResolvedValue({
+          id: 'mc-2',
+          executionBudgetId: 'eb-1',
+          targetMonth: '2026-03',
+          closedById: 'user-1',
+          closedByName: '担当者A',
+          closedAt: '2026-03-19T00:00:00Z',
+        });
+
+        renderPage();
+        const monthlyCloseButton = await screen.findByText('月次締め');
+        await userEvent.click(monthlyCloseButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '月次締め' })).toBeInTheDocument();
+        });
+
+        // 月を入力
+        const monthInput = screen.getByDisplayValue('');
+        await userEvent.type(monthInput, '2026-03');
+
+        // 締め処理を実行
+        const submitButton = screen.getByText('締め処理を実行');
+        await userEvent.click(submitButton);
+
+        await waitFor(() => {
+          expect(executionBudgetApi.executeMonthlyClose).toHaveBeenCalledWith('project-1', {
+            targetMonth: '2026-03',
+          });
+        });
+      });
+
+      it('月次締めキャンセルでダイアログを閉じる', async () => {
+        renderPage();
+        const monthlyCloseButton = await screen.findByText('月次締め');
+        await userEvent.click(monthlyCloseButton);
+
+        await waitFor(() => {
+          expect(screen.getByRole('dialog', { name: '月次締め' })).toBeInTheDocument();
+        });
+
+        const cancelButton = screen.getByText('キャンセル');
+        await userEvent.click(cancelButton);
+
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        });
+      });
+    });
+  });
+
+  // ==========================================================================
+  // ツリー折りたたみ・展開テスト
+  // ==========================================================================
+  describe('ツリー折りたたみ・展開', () => {
+    beforeEach(() => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+    });
+
+    it('親項目の折りたたみボタンで子項目を非表示にする', async () => {
+      renderPage();
+      expect(await screen.findByText('仮設工事')).toBeInTheDocument();
+
+      // 折りたたみボタンをクリック
+      const toggleButton = screen.getByLabelText('折りたたむ');
+      await userEvent.click(toggleButton);
+
+      // 子項目が非表示になる
+      await waitFor(() => {
+        expect(screen.queryByText('仮設工事')).not.toBeInTheDocument();
+      });
+    });
+
+    it('折りたたんだ項目を展開ボタンで再表示する', async () => {
+      renderPage();
+      expect(await screen.findByText('仮設工事')).toBeInTheDocument();
+
+      // 折りたたむ
+      const toggleButton = screen.getByLabelText('折りたたむ');
+      await userEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText('仮設工事')).not.toBeInTheDocument();
+      });
+
+      // 展開する
+      const expandButton = screen.getByLabelText('展開する');
+      await userEvent.click(expandButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('仮設工事')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // エラーハンドリングテスト
+  // ==========================================================================
+  describe('エラーハンドリング', () => {
+    it('データ取得時のApiErrorをハンドリングする', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockRejectedValue(
+        new ApiError(500, 'サーバーエラー')
+      );
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue([]);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue([]);
+
+      renderPage();
+
+      // エラー時でもページがクラッシュしない（emptyState表示）
+      await waitFor(() => {
+        expect(screen.getByText('実行予算を作成')).toBeInTheDocument();
+      });
+    });
+
+    it('データ取得時の非ApiErrorをハンドリングする', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockRejectedValue(
+        new Error('Network error')
+      );
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue([]);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue([]);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('実行予算を作成')).toBeInTheDocument();
+      });
+    });
+
+    it('月次締めAPIエラー時にエラーにならない', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+      vi.mocked(executionBudgetApi.executeMonthlyClose).mockRejectedValue(
+        new ApiError(400, '月次締め済みです')
+      );
+
+      renderPage();
+      const monthlyCloseButton = await screen.findByText('月次締め');
+      await userEvent.click(monthlyCloseButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: '月次締め' })).toBeInTheDocument();
+      });
+
+      const monthInput = screen.getByDisplayValue('');
+      await userEvent.type(monthInput, '2026-03');
+
+      const submitButton = screen.getByText('締め処理を実行');
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(executionBudgetApi.executeMonthlyClose).toHaveBeenCalled();
+      });
+    });
+
+    it('実行予算作成APIエラー時にエラーにならない', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(null);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue([]);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue([]);
+      vi.mocked(contractsApi.getContracts).mockResolvedValue({
+        contracts: [
+          {
+            id: 'c-1',
+            contractType: 'NEW',
+            contractDate: '2026-01-01',
+            status: 'CONTRACTED',
+            contractAmount: 5000000,
+            estimateName: '見積書X',
+            parentContractId: null,
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(executionBudgetApi.createExecutionBudget).mockRejectedValue(
+        new ApiError(400, '作成に失敗しました')
+      );
+
+      renderPage();
+      const createButton = await screen.findByText('実行予算を作成');
+      await userEvent.click(createButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: '契約書選択' })).toBeInTheDocument();
+      });
+
+      const radio = screen.getByRole('radio');
+      await userEvent.click(radio);
+
+      const submitButton = screen.getByText('作成');
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(executionBudgetApi.createExecutionBudget).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 空の一覧表示テスト
+  // ==========================================================================
+  describe('空の一覧表示', () => {
+    it('発注が存在しない場合にメッセージを表示する', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue([]);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+
+      renderPage();
+      expect(await screen.findByText('発注はまだありません')).toBeInTheDocument();
+    });
+
+    it('月次締め履歴が存在しない場合にメッセージを表示する', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue([]);
+
+      renderPage();
+      expect(await screen.findByText('月次締め履歴はありません')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // ローディング表示テスト
+  // ==========================================================================
+  describe('ローディング', () => {
+    it('データ取得中にローディング表示する', () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockReturnValue(new Promise(() => {}));
+      vi.mocked(executionBudgetApi.getOrders).mockReturnValue(new Promise(() => {}));
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockReturnValue(new Promise(() => {}));
+
+      renderPage();
+      expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // 負の金額表示テスト
+  // ==========================================================================
+  describe('負の金額表示', () => {
+    it('利益見込額が負の場合に表示する', async () => {
+      const budgetWithNegativeProfit = {
+        ...mockBudget,
+        summary: {
+          ...mockBudget.summary,
+          profitForecast: '-50000',
+        },
+      };
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(budgetWithNegativeProfit);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+
+      renderPage();
+      expect(await screen.findByText(/-50,000/)).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // 副次取得エラーのキャッチテスト
+  // ==========================================================================
+  describe('副次データ取得エラー', () => {
+    it('getOrders失敗時でも空配列でフォールバックする', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockRejectedValue(new Error('orders failed'));
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+
+      renderPage();
+      // ordersが失敗しても空配列で発注一覧は表示される
+      expect(await screen.findByText('発注はまだありません')).toBeInTheDocument();
+    });
+
+    it('getMonthlyCloseHistory失敗時でも空配列でフォールバックする', async () => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockRejectedValue(
+        new Error('history failed')
+      );
+
+      renderPage();
+      expect(await screen.findByText('月次締め履歴はありません')).toBeInTheDocument();
     });
   });
 });

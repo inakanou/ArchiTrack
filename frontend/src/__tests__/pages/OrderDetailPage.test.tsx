@@ -20,6 +20,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import OrderDetailPage from '../../pages/OrderDetailPage';
 import * as orderDetailApi from '../../api/order-detail';
 import type { OrderWithItems } from '../../api/order-detail';
+import { ApiError } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/order-detail');
@@ -507,6 +508,527 @@ describe('OrderDetailPage', () => {
 
       // 取引先選択の存在確認
       expect(screen.getByRole('combobox', { name: /取引先/ })).toBeInTheDocument();
+    });
+
+    it('取引先未選択時は作成ボタンが無効化される', async () => {
+      renderCreatePage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '発注作成', level: 1 })).toBeInTheDocument();
+      });
+
+      const createButton = screen.getByText('作成');
+      expect(createButton).toBeDisabled();
+    });
+
+    it('キャンセルボタンで実行予算ページに戻る', async () => {
+      renderCreatePage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '発注作成', level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('キャンセル')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // チェックボックス操作テスト
+  // ==========================================================================
+  describe('チェックボックス操作', () => {
+    it('未チェック項目をチェックすると合計金額が更新される', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('工事項目B')).toBeInTheDocument();
+      });
+
+      // 工事項目B(未チェック)をチェックする
+      const checkboxB = screen.getByLabelText('工事項目Bを選択');
+      await userEvent.click(checkboxB);
+
+      // チェックが入ったことを確認
+      expect(checkboxB).toBeChecked();
+    });
+
+    it('チェック済み項目のチェックを外せる', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('工事項目A')).toBeInTheDocument();
+      });
+
+      // 工事項目A(チェック済み)のチェックを外す
+      const checkboxA = screen.getByLabelText('工事項目Aを選択');
+      expect(checkboxA).toBeChecked();
+      await userEvent.click(checkboxA);
+      expect(checkboxA).not.toBeChecked();
+    });
+  });
+
+  // ==========================================================================
+  // 項目保存テスト
+  // ==========================================================================
+  describe('項目保存', () => {
+    it('チェック状態を保存ボタンでAPIを呼び出す', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+      vi.mocked(orderDetailApi.updateOrderItems).mockResolvedValueOnce(mockOrderWithItems);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('チェック状態を保存')).toBeInTheDocument();
+      });
+
+      const saveButton = screen.getByText('チェック状態を保存');
+      await userEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrderItems).toHaveBeenCalledWith('project-1', 'order-1', {
+          itemIds: expect.any(Array),
+        });
+      });
+    });
+
+    it('項目保存APIエラー時にエラーにならない', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+      vi.mocked(orderDetailApi.updateOrderItems).mockRejectedValueOnce(
+        new ApiError(400, '保存に失敗しました')
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('チェック状態を保存')).toBeInTheDocument();
+      });
+
+      const saveButton = screen.getByText('チェック状態を保存');
+      await userEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrderItems).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 確定発注金額テスト
+  // ==========================================================================
+  describe('確定発注金額', () => {
+    it('確定発注金額を入力して保存ボタンでAPIを呼び出す', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+      vi.mocked(orderDetailApi.updateOrder).mockResolvedValueOnce({
+        ...mockOrderWithItems,
+        confirmedAmount: '800000',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('確定発注金額')).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText('確定発注金額');
+      await userEvent.type(input, '800000');
+
+      const saveButton = screen.getByText('保存');
+      await userEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrder).toHaveBeenCalledWith('project-1', 'order-1', {
+          confirmedAmount: '800000',
+        });
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 発注確定実行テスト
+  // ==========================================================================
+  describe('発注確定実行', () => {
+    it('発注確定ダイアログで確定ボタンをクリックする', async () => {
+      const underReviewOrder = {
+        ...mockOrderWithItems,
+        status: 'UNDER_REVIEW' as const,
+        confirmedAmount: '750000',
+      };
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(underReviewOrder);
+      vi.mocked(orderDetailApi.updateOrderStatus).mockResolvedValueOnce(mockOrderedOrder);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('検討中')).toBeInTheDocument();
+      });
+
+      // 発注済ボタンをクリック
+      const orderedButton = screen.getByRole('button', { name: /発注済/i });
+      await userEvent.click(orderedButton);
+
+      // 確認ダイアログが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/発注を確定しますか/)).toBeInTheDocument();
+      });
+
+      // 確定するボタンをクリック
+      const confirmButton = screen.getByText('確定する');
+      await userEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrderStatus).toHaveBeenCalledWith('project-1', 'order-1', {
+          status: 'ORDERED',
+          confirmedAmount: '750000',
+        });
+      });
+    });
+
+    it('発注確定APIエラー時にダイアログを閉じる', async () => {
+      const underReviewOrder = {
+        ...mockOrderWithItems,
+        status: 'UNDER_REVIEW' as const,
+        confirmedAmount: '750000',
+      };
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(underReviewOrder);
+      vi.mocked(orderDetailApi.updateOrderStatus).mockRejectedValueOnce(
+        new ApiError(400, '確定に失敗しました')
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('検討中')).toBeInTheDocument();
+      });
+
+      const orderedButton = screen.getByRole('button', { name: /発注済/i });
+      await userEvent.click(orderedButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/発注を確定しますか/)).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByText('確定する');
+      await userEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrderStatus).toHaveBeenCalled();
+      });
+    });
+
+    it('発注確定ダイアログのキャンセルでダイアログを閉じる', async () => {
+      const underReviewOrder = {
+        ...mockOrderWithItems,
+        status: 'UNDER_REVIEW' as const,
+        confirmedAmount: '750000',
+      };
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(underReviewOrder);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('検討中')).toBeInTheDocument();
+      });
+
+      const orderedButton = screen.getByRole('button', { name: /発注済/i });
+      await userEvent.click(orderedButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/発注を確定しますか/)).toBeInTheDocument();
+      });
+
+      const cancelButton = screen.getByText('キャンセル');
+      await userEvent.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/発注を確定しますか/)).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 発注取消実行テスト
+  // ==========================================================================
+  describe('発注取消実行', () => {
+    it('取消ダイアログで取消実行する', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderedOrder);
+      vi.mocked(orderDetailApi.updateOrderStatus).mockResolvedValueOnce({
+        ...mockOrderWithItems,
+        status: 'CANCELLED',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('発注済')).toBeInTheDocument();
+      });
+
+      const cancelButton = screen.getByRole('button', { name: /発注取消/ });
+      await userEvent.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/案分済みの発注金額がクリアされます/)).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByText('取消する');
+      await userEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrderStatus).toHaveBeenCalledWith('project-1', 'order-1', {
+          status: 'CANCELLED',
+        });
+      });
+    });
+
+    it('取消ダイアログのキャンセルでダイアログを閉じる', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderedOrder);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('発注済')).toBeInTheDocument();
+      });
+
+      const cancelOrderButton = screen.getByRole('button', { name: /発注取消/ });
+      await userEvent.click(cancelOrderButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/案分済みの発注金額がクリアされます/)).toBeInTheDocument();
+      });
+
+      const cancelDialogButton = screen.getByText('キャンセル');
+      await userEvent.click(cancelDialogButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/案分済みの発注金額がクリアされます/)).not.toBeInTheDocument();
+      });
+    });
+
+    it('取消APIエラー時にダイアログを閉じる', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderedOrder);
+      vi.mocked(orderDetailApi.updateOrderStatus).mockRejectedValueOnce(
+        new ApiError(400, '取消に失敗しました')
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('発注済')).toBeInTheDocument();
+      });
+
+      const cancelButton = screen.getByRole('button', { name: /発注取消/ });
+      await userEvent.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/案分済みの発注金額がクリアされます/)).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByText('取消する');
+      await userEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrderStatus).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 削除実行テスト
+  // ==========================================================================
+  describe('削除実行', () => {
+    it('削除ダイアログで削除を実行する', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+      vi.mocked(orderDetailApi.deleteOrder).mockResolvedValueOnce(undefined);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '発注詳細', level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await userEvent.click(deleteButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/この発注を削除してもよろしいですか/)).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByText('削除する');
+      await userEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.deleteOrder).toHaveBeenCalledWith('project-1', 'order-1');
+      });
+    });
+
+    it('削除ダイアログのキャンセルでダイアログを閉じる', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '発注詳細', level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await userEvent.click(deleteButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/この発注を削除してもよろしいですか/)).toBeInTheDocument();
+      });
+
+      const cancelButton = screen.getByText('キャンセル');
+      await userEvent.click(cancelButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/この発注を削除してもよろしいですか/)).not.toBeInTheDocument();
+      });
+    });
+
+    it('削除APIエラー時にエラーメッセージを表示する', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+      vi.mocked(orderDetailApi.deleteOrder).mockRejectedValueOnce(
+        new ApiError(400, '削除に失敗しました')
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '発注詳細', level: 1 })).toBeInTheDocument();
+      });
+
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await userEvent.click(deleteButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/この発注を削除してもよろしいですか/)).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByText('削除する');
+      await userEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('削除に失敗しました')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // エクスポートエラーテスト
+  // ==========================================================================
+  describe('エクスポートエラー', () => {
+    it('エクスポートAPIエラー時にエラーにならない', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+      vi.mocked(orderDetailApi.exportOrder).mockRejectedValueOnce(
+        new ApiError(500, 'エクスポートに失敗しました')
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Excel/i })).toBeInTheDocument();
+      });
+
+      const excelButton = screen.getByRole('button', { name: /Excel/i });
+      await userEvent.click(excelButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.exportOrder).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // データ取得エラーテスト
+  // ==========================================================================
+  describe('データ取得エラー', () => {
+    it('ApiErrorの場合エラーメッセージを表示する', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockRejectedValueOnce(
+        new ApiError(404, '発注が見つかりません')
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('発注が見つかりません')).toBeInTheDocument();
+      });
+    });
+
+    it('非ApiErrorの場合デフォルトメッセージを表示する', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockRejectedValueOnce(new Error('Network error'));
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('データの取得に失敗しました')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // ステータスバッジ表示テスト
+  // ==========================================================================
+  describe('ステータスバッジ', () => {
+    it('取消ステータスの発注を表示する', async () => {
+      const cancelledOrder: OrderWithItems = {
+        ...mockOrderWithItems,
+        status: 'CANCELLED',
+      };
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(cancelledOrder);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText('取消')).toBeInTheDocument();
+      });
+
+      // 取消ステータスではチェックボックスが無効化される
+      const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      checkboxes.forEach((cb) => {
+        expect(cb).toBeDisabled();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // ローディング表示テスト
+  // ==========================================================================
+  describe('ローディング', () => {
+    it('データ取得中にローディング表示する', () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockReturnValue(new Promise(() => {}));
+
+      renderPage();
+      expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // 確定発注金額入力テスト（発注済み時の保存不可を含む）
+  // ==========================================================================
+  describe('確定発注金額保存APIエラー', () => {
+    it('保存APIエラー時にエラーにならない', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+      vi.mocked(orderDetailApi.updateOrder).mockRejectedValueOnce(
+        new ApiError(400, '保存に失敗しました')
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('確定発注金額')).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText('確定発注金額');
+      await userEvent.type(input, '800000');
+
+      const saveButton = screen.getByText('保存');
+      await userEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(orderDetailApi.updateOrder).toHaveBeenCalled();
+      });
     });
   });
 });
