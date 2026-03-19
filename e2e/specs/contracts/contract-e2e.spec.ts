@@ -1105,7 +1105,7 @@ test.describe('契約書管理機能', () => {
       expect(response.status()).toBe(422);
 
       // エラーメッセージが表示されることを確認（REQ-12.2）
-      await expect(page.getByText(/契約済の契約書は削除できません/)).toBeVisible({
+      await expect(page.getByText(/契約済の契約書は削除できません/).first()).toBeVisible({
         timeout: getTimeout(10000),
       });
     });
@@ -1175,7 +1175,9 @@ test.describe('契約書管理機能', () => {
       expect(response.status()).toBe(422);
 
       // エラーメッセージが表示されることを確認（REQ-12.1）
-      await expect(page.getByText(/変更契約の基となっているため削除できません/)).toBeVisible({
+      await expect(
+        page.getByText(/変更契約の基となっているため削除できません/).first()
+      ).toBeVisible({
         timeout: getTimeout(10000),
       });
     });

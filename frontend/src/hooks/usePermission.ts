@@ -62,15 +62,28 @@ export function usePermission(): UsePermissionReturn {
 
   /**
    * 指定された権限を保持しているかチェック
+   * ワイルドカード権限（*:*、resource:*、*:action）にも対応する
    * 権限情報が未ロードの場合はfalseを返す（安全側に倒す）
    */
-  const hasPermission = useCallback(
+  const checkPermission = useCallback(
     (permission: string): boolean => {
       if (!permission) return false;
-      return permissionSet.has(permission);
+      // 完全一致チェック
+      if (permissionSet.has(permission)) return true;
+      // ワイルドカードチェック（*:* は全権限を許可）
+      if (permissionSet.has('*:*')) return true;
+      // resource:* または *:action のワイルドカードチェック
+      const [resource, action] = permission.split(':');
+      if (resource && action) {
+        if (permissionSet.has(`${resource}:*`)) return true;
+        if (permissionSet.has(`*:${action}`)) return true;
+      }
+      return false;
     },
     [permissionSet]
   );
+
+  const hasPermission = checkPermission;
 
   /**
    * 指定された全ての権限を保持しているかチェック（AND）
@@ -79,9 +92,9 @@ export function usePermission(): UsePermissionReturn {
   const hasAllPermissions = useCallback(
     (permissions: string[]): boolean => {
       if (permissions.length === 0) return true;
-      return permissions.every((p) => permissionSet.has(p));
+      return permissions.every((p) => checkPermission(p));
     },
-    [permissionSet]
+    [checkPermission]
   );
 
   /**
@@ -91,9 +104,9 @@ export function usePermission(): UsePermissionReturn {
   const hasAnyPermission = useCallback(
     (permissions: string[]): boolean => {
       if (permissions.length === 0) return false;
-      return permissions.some((p) => permissionSet.has(p));
+      return permissions.some((p) => checkPermission(p));
     },
-    [permissionSet]
+    [checkPermission]
   );
 
   return {
