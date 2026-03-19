@@ -52,12 +52,12 @@ describe('ExecutionBudgetSectionCard', () => {
       expect(screen.getByText('実行予算')).toBeInTheDocument();
     });
 
-    it('「実行予算はまだ作成されていません」メッセージを表示する', () => {
+    it('「実行予算はまだありません」メッセージを表示する', () => {
       renderWithRouter(
         <ExecutionBudgetSectionCard projectId={projectId} budgetInfo={null} isLoading={false} />
       );
 
-      expect(screen.getByText('実行予算はまだ作成されていません')).toBeInTheDocument();
+      expect(screen.getByText('実行予算はまだありません')).toBeInTheDocument();
     });
 
     it('作成ボタンを表示する', () => {
@@ -160,7 +160,7 @@ describe('ExecutionBudgetSectionCard', () => {
         <ExecutionBudgetSectionCard projectId={projectId} budgetInfo={null} isLoading={true} />
       );
 
-      expect(screen.queryByText('実行予算はまだ作成されていません')).not.toBeInTheDocument();
+      expect(screen.queryByText('実行予算はまだありません')).not.toBeInTheDocument();
     });
   });
 });
