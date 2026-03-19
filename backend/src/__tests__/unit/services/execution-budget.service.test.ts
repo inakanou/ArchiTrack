@@ -567,6 +567,31 @@ describe('ExecutionBudgetService', () => {
       expect(items[2].estimateItemId).toBe('item-3');
     });
 
+    it('Phase2でestimateItemIdがnullの項目はマッピングに含めない', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+      mockTx.contract.findUnique.mockResolvedValue(mockContract);
+      mockTx.estimate.findUnique.mockResolvedValue(mockEstimate);
+      mockTx.tradingPartner.findFirst.mockResolvedValue(null);
+      mockTx.executionBudget.create.mockResolvedValue(mockCreatedBudget);
+      mockTx.executionBudgetItem.createMany.mockResolvedValue({ count: 3 });
+
+      // findManyの戻り値にestimateItemIdがnullの項目を含める
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        { id: ebItemId1, estimateItemId: 'item-1' },
+        { id: ebItemId2, estimateItemId: 'item-2' },
+        { id: ebItemId3, estimateItemId: 'item-3' },
+        { id: 'eb-item-orphan', estimateItemId: null }, // estimateItemIdがnullの項目
+      ]);
+      mockTx.executionBudgetItem.update.mockResolvedValue({});
+
+      // Act
+      await service.create(projectId, contractId);
+
+      // Assert: parentId更新が正常に行われること（子項目item-2, item-3の2回）
+      expect(mockTx.executionBudgetItem.update).toHaveBeenCalledTimes(2);
+    });
+
     it('トランザクション内でExecutionBudgetとExecutionBudgetItemsが一括作成される', async () => {
       // Arrange
       mockTx.executionBudget.findFirst.mockResolvedValue(null);
@@ -582,6 +607,99 @@ describe('ExecutionBudgetService', () => {
 
       // Assert: $transactionが呼び出されていることを確認
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('フラット構造（全項目のparentIdがnull）の場合はPhase2のparentId更新をスキップする', async () => {
+      // Arrange: 全項目のparentIdがnullのフラット見積
+      const flatEstimateItems = [
+        {
+          id: 'flat-item-1',
+          estimateId,
+          parentId: null,
+          displayOrder: 0,
+          lines: [
+            {
+              lineType: 'ESTIMATE',
+              name: '工事A',
+              specification: null,
+              unit: '式',
+              quantity: { toString: () => '1' },
+              unitPrice: { toString: () => '100000' },
+              amount: { toString: () => '100000' },
+            },
+            {
+              lineType: 'EXECUTION',
+              name: '工事A',
+              specification: null,
+              unit: '式',
+              quantity: { toString: () => '1' },
+              unitPrice: { toString: () => '90000' },
+              amount: { toString: () => '90000' },
+            },
+            {
+              lineType: 'VENDOR',
+              name: null,
+              specification: null,
+              unit: null,
+              quantity: null,
+              unitPrice: null,
+              amount: null,
+              sourceVendorName: null,
+            },
+          ],
+        },
+        {
+          id: 'flat-item-2',
+          estimateId,
+          parentId: null,
+          displayOrder: 1,
+          lines: [
+            {
+              lineType: 'ESTIMATE',
+              name: '工事B',
+              specification: null,
+              unit: '式',
+              quantity: { toString: () => '2' },
+              unitPrice: { toString: () => '50000' },
+              amount: { toString: () => '100000' },
+            },
+            {
+              lineType: 'EXECUTION',
+              name: '工事B',
+              specification: null,
+              unit: '式',
+              quantity: { toString: () => '2' },
+              unitPrice: { toString: () => '45000' },
+              amount: { toString: () => '90000' },
+            },
+            {
+              lineType: 'VENDOR',
+              name: null,
+              specification: null,
+              unit: null,
+              quantity: null,
+              unitPrice: null,
+              amount: null,
+              sourceVendorName: null,
+            },
+          ],
+        },
+      ];
+      const flatEstimate = { id: estimateId, projectId, items: flatEstimateItems };
+
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+      mockTx.contract.findUnique.mockResolvedValue(mockContract);
+      mockTx.estimate.findUnique.mockResolvedValue(flatEstimate);
+      mockTx.tradingPartner.findFirst.mockResolvedValue(null);
+      mockTx.executionBudget.create.mockResolvedValue(mockCreatedBudget);
+      mockTx.executionBudgetItem.createMany.mockResolvedValue({ count: 2 });
+
+      // Act
+      await service.create(projectId, contractId);
+
+      // Assert: Phase 2のfindMany/updateが呼ばれないこと（parentId更新がスキップされる）
+      expect(mockTx.executionBudgetItem.findMany).not.toHaveBeenCalled();
+      expect(mockTx.executionBudgetItem.update).not.toHaveBeenCalled();
     });
 
     it('契約書にestimateIdがない場合はContractNotFoundForBudgetErrorを投げる', async () => {
@@ -2066,6 +2184,54 @@ describe('ExecutionBudgetService', () => {
       // Assert
       expect(result).not.toBeNull();
       expect(result!.contractName).toBe('見積書なし');
+    });
+
+    it('実行金額がnullの項目はスキップし契約金額がnullの場合は0として計算する', async () => {
+      // Arrange
+      const { prisma, mockTx } = createMockPrisma();
+      const service = new ExecutionBudgetService({ prisma });
+
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: 'budget-1',
+        projectId,
+        contractId,
+        version: 1,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: null,
+          estimate: { name: '見積書E' },
+        },
+        items: [
+          {
+            id: 'item-1',
+            parentId: null,
+            executionAmount: null,
+            orderItems: [],
+            children: [],
+          },
+          {
+            id: 'item-2',
+            parentId: null,
+            executionAmount: { toString: () => '500000' },
+            orderItems: [],
+            children: [],
+          },
+        ],
+      });
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      // executionAmountがnullの項目はスキップ、合計は500000のみ
+      expect(result!.executionAmountTotal).toBe('500000');
+      // contractAmountがnullの場合0として扱い、利益見込額 = 0 - 500000 = -500000
+      expect(result!.profitForecast).toBe('-500000');
+      expect(result!.contractAmount).toBe(0);
     });
 
     it('項目が0件の場合、発注進捗率は0を返却する', async () => {
