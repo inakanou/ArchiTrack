@@ -48,6 +48,19 @@ export default defineConfig({
     testTimeout: 10000,
     // フック（beforeAll/afterAll等）のタイムアウト
     hookTimeout: 10000,
+    // 環境のティアダウンタイムアウト（ミリ秒）
+    // forkプールでRPCメッセージ（onUserConsoleLog等）がフラッシュされる前に
+    // 環境が破棄されるEnvironmentTeardownErrorを防ぐ
+    teardownTimeout: 5000,
+    // コンソールログのフィルタリング（vitest本体レベル）
+    // RPCチャネル経由のconsole転送を減らし、EnvironmentTeardownErrorを防ぐ
+    onConsoleLog(log) {
+      // テスト中のデバッグログやネットワークエラーログを抑制
+      if (log.includes('[DEBUG]') || log.includes('Not implemented')) {
+        return false;
+      }
+      return undefined;
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
