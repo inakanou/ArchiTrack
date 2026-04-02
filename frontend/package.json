@@ -50,7 +50,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^8.57.1",
-    "@typescript-eslint/parser": "^8.54.0",
+    "@typescript-eslint/parser": "^8.57.1",
     "@vitejs/plugin-react": "^5.1.1",
     "@vitest/coverage-istanbul": "^4.1.0",
     "@vitest/coverage-v8": "^4.1.0",
@@ -75,7 +75,7 @@
     "tailwindcss": "^4.2.1",
     "terser": "^5.36.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.56.1",
+    "typescript-eslint": "^8.57.1",
     "vite": "^7.2.7",
     "vitest": "^4.1.0",
     "wait-on": "^9.0.3"
