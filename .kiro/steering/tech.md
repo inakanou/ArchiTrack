@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-04-06（Steering Sync: 依存関係バージョン更新を反映）_
+_最終更新: 2026-04-06（Steering Sync: 依存関係バージョン更新、現場調査新機能追加を反映）_
 
 ## アーキテクチャ
 
@@ -39,25 +39,25 @@ ArchiTrack/
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
-- `react-pdf` ^10.3.0 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
+- `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
 - `tesseract.js` ^7.0.0 - OCR文字認識（受領見積書構造化データ抽出、再実行/リトライ機能）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
 - `@types/react` ^19.2.7 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
 - `@vitejs/plugin-react` ^5.1.1 - Vite React プラグイン
-- `@typescript-eslint/eslint-plugin` ^8.54.0 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.54.0 - TypeScript ESLintパーサー
+- `@typescript-eslint/eslint-plugin` ^8.57.1 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.57.1 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
-- `prettier` ^3.7.3 - コードフォーマッター
-- `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
+- `prettier` ^3.8.1 - コードフォーマッター
+- `lint-staged` ^16.4.0 - ステージングファイルへのリンター実行
 - `tailwindcss` ^4.2.2 - ユーティリティファーストCSSフレームワーク
 - `@tailwindcss/postcss` ^4.1.18 - Tailwind CSS PostCSSプラグイン
-- `vitest` ^4.1.0 - 単体テストフレームワーク
-- `@vitest/ui` ^4.1.0 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.1.0 - Vitestカバレッジ（V8プロバイダー）
-- `@vitest/coverage-istanbul` ^4.1.0 - Vitestカバレッジ（Istanbulプロバイダー）
+- `vitest` ^4.1.2 - 単体テストフレームワーク
+- `@vitest/ui` ^4.1.2 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.1.2 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-istanbul` ^4.1.2 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
@@ -146,9 +146,9 @@ ArchiTrack/
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化
 - `express-rate-limit` ^8.2.1 - レート制限
 - `zod` ^4.3.6 - スキーマバリデーション
-- `dotenv` ^17.2.3 - 環境変数管理
-- `@sentry/node` ^10.30.0 - Sentryエラートラッキング（Backend）
-- `@sentry/profiling-node` ^10.30.0 - Sentryプロファイリング
+- `dotenv` ^17.3.1 - 環境変数管理
+- `@sentry/node` ^10.39.0 - Sentryエラートラッキング（Backend）
+- `@sentry/profiling-node` ^10.39.0 - Sentryプロファイリング
 - `pino` ^10.3.0 - ロガー
 - `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
 - `pino-pretty` ^13.1.2 - ログの整形出力（開発環境）
@@ -158,19 +158,19 @@ ArchiTrack/
 - `tsx` ^4.20.6 - TypeScript実行環境
 - `@types/express` ^5.0.5 - Express型定義
 - `@types/cors` ^2.8.19 - CORS型定義
-- `@types/node` ^25.0.3 - Node.js型定義
-- `@types/pg` ^8.15.6 - PostgreSQL型定義
+- `@types/node` ^24.10.1 - Node.js型定義
+- `@types/pg` ^8.16.0 - PostgreSQL型定義
 - `@types/swagger-jsdoc` ^6.0.4 - swagger-jsdoc型定義
 - `@types/swagger-ui-express` ^4.1.8 - swagger-ui-express型定義
 - `@typescript-eslint/eslint-plugin` ^8.49.0 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.49.0 - TypeScript ESLintパーサー
-- `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
-- `prettier` ^3.7.4 - コードフォーマッター
-- `husky` ^9.1.7 - Git フックマネージャー
-- `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
+- `eslint` ^9.39.2 - コード品質チェック（Flat Config形式）
+- `prettier` ^3.8.1 - コードフォーマッター
+- `husky` ^9.0.11 - Git フックマネージャー
+- `lint-staged` ^16.4.0 - ステージングファイルへのリンター実行
 - `vitest` ^4.0.6 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.8 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.15 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-v8` ^4.0.18 - Vitestカバレッジ（V8プロバイダー）
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
@@ -231,9 +231,9 @@ ArchiTrack/
 
 **主要な依存関係:**
 - `vitest` ^4.0.6 - テストランナー
-- `supertest` ^7.2.0 - HTTPアサーション
-- `@vitest/ui` ^4.0.6 - 対話的UIツール
-- `@vitest/coverage-v8` ^4.0.6 - カバレッジツール（V8プロバイダー）
+- `supertest` ^7.1.4 - HTTPアサーション
+- `@vitest/ui` ^4.0.8 - 対話的UIツール
+- `@vitest/coverage-v8` ^4.0.18 - カバレッジツール（V8プロバイダー）
 
 **設定ファイル:**
 - `backend/vitest.config.ts` - Node.js環境設定、カバレッジ閾値設定
