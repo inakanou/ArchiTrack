@@ -572,7 +572,7 @@ describe('ImageUploader', () => {
       render(<ImageUploader {...defaultProps} />);
 
       const input = screen.getByTestId('file-input');
-      const invalidFile = createMockFile('test.gif', 1024, 'image/gif');
+      const invalidFile = createMockFile('oversized.jpg', MAX_FILE_SIZE_BYTES + 1024, 'image/jpeg');
 
       fireEvent.change(input, { target: { files: [invalidFile] } });
 
