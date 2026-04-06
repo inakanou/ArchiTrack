@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-03-19（Steering Sync: 実行予算管理機能追加を反映）_
+_最終更新: 2026-04-06（Steering Sync: 依存関係バージョン更新を反映）_
 
 ## アーキテクチャ
 
@@ -33,7 +33,7 @@ ArchiTrack/
 ### 主要な依存関係
 
 - `react` ^19.2.3 - UIライブラリ
-- `react-dom` ^19.2.3 - React DOM操作
+- `react-dom` ^19.2.4 - React DOM操作
 - `react-router-dom` ^7.13.0 - React Router v7（ルーティング）
 - `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
@@ -52,12 +52,12 @@ ArchiTrack/
 - `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.7.3 - コードフォーマッター
 - `lint-staged` ^16.2.7 - ステージングファイルへのリンター実行
-- `tailwindcss` ^4.2.1 - ユーティリティファーストCSSフレームワーク
+- `tailwindcss` ^4.2.2 - ユーティリティファーストCSSフレームワーク
 - `@tailwindcss/postcss` ^4.1.18 - Tailwind CSS PostCSSプラグイン
-- `vitest` ^4.0.15 - 単体テストフレームワーク
-- `@vitest/ui` ^4.0.15 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.15 - Vitestカバレッジ（V8プロバイダー）
-- `@vitest/coverage-istanbul` ^4.0.15 - Vitestカバレッジ（Istanbulプロバイダー）
+- `vitest` ^4.1.0 - 単体テストフレームワーク
+- `@vitest/ui` ^4.1.0 - Vitest UIツール
+- `@vitest/coverage-v8` ^4.1.0 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-istanbul` ^4.1.0 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
@@ -314,12 +314,12 @@ npm --prefix backend run coverage:check  # カバレッジギャップ検出（0
 ### Frontend単体テスト
 
 **主要な依存関係:**
-- `vitest` ^4.0.15 - テストランナー
+- `vitest` ^4.1.0 - テストランナー
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^6.9.1 - DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
-- `jsdom` ^27.2.0 - ブラウザ環境エミュレーション
-- `@vitest/ui` ^4.0.15 - 対話的UIツール
+- `jsdom` ^28.0.0 - ブラウザ環境エミュレーション
+- `@vitest/ui` ^4.1.0 - 対話的UIツール
 
 **設定ファイル:**
 - `frontend/vitest.config.ts` - jsdom環境、React プラグイン設定
