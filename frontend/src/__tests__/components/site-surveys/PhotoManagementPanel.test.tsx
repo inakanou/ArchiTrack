@@ -829,7 +829,13 @@ describe('PhotoManagementPanel', () => {
 
     it('削除中の状態ではボタンが無効化されること', async () => {
       const user = userEvent.setup();
-      const onDelete = vi.fn().mockImplementation(() => new Promise(() => {})); // 永遠に解決しない
+      let resolveDelete: () => void;
+      const onDelete = vi.fn().mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveDelete = resolve;
+          })
+      );
 
       render(<PhotoManagementPanel {...defaultProps} onDelete={onDelete} />);
 
@@ -843,6 +849,12 @@ describe('PhotoManagementPanel', () => {
       // 削除中の状態になる
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /削除中/i })).toBeInTheDocument();
+      });
+
+      // Promiseを解決してクリーンアップ（EnvironmentTeardownError防止）
+      resolveDelete!();
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /削除中/i })).not.toBeInTheDocument();
       });
     });
   });
