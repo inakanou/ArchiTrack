@@ -54,7 +54,7 @@
     "@node-rs/argon2": "^2.0.2",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
-    "@sentry/node": "^10.39.0",
+    "@sentry/node": "^10.47.0",
     "@sentry/profiling-node": "^10.39.0",
     "@types/bull": "^4.10.4",
     "@types/handlebars": "^4.1.0",
