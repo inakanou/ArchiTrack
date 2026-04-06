@@ -301,8 +301,13 @@ export class AnnotatedThumbnailService {
       const svgString = generateSvgFromAnnotation(annotationData, image.width, image.height);
       const svgBuffer = Buffer.from(svgString);
 
-      // 4. Sharpでオリジナル画像にSVGをcomposite
-      const compositeResult = await sharp(originalBuffer)
+      // 4. Sharpでオリジナル画像にSVGをcomposite（回転対応 - Req 22.4, 22.5）
+      const rotation = annotationData.imageRotation ?? 0;
+      let pipeline = sharp(originalBuffer);
+      if (rotation !== 0) {
+        pipeline = pipeline.rotate(rotation);
+      }
+      const compositeResult = await pipeline
         .composite([{ input: svgBuffer, top: 0, left: 0 }])
         .resize(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, { fit: 'inside' })
         .jpeg({ quality: JPEG_QUALITY })

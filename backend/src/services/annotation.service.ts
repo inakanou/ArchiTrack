@@ -151,6 +151,8 @@ export interface AnnotationData {
   objects: FabricSerializedObject[];
   background?: string;
   viewportTransform?: number[];
+  /** 背景画像の回転角度 (Req 22.4) */
+  imageRotation?: 0 | 90 | 180 | 270;
 }
 
 /**

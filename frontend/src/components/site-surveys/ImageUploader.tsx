@@ -267,15 +267,8 @@ export function ImageUploader({
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // ファイルバリデーション
+  // 要件21対応: MIMEタイプチェックを廃止し、画像形式の最終判定をバックエンドのマジックバイト検証に委ねる
   const validateFile = useCallback((file: File): ValidationError | null => {
-    // MIMEタイプチェック
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      return {
-        file,
-        error: `${file.name}: サポートされていないファイル形式です。JPEG、PNG、WEBPのみ対応しています。`,
-      };
-    }
-
     // ファイルサイズチェック
     if (file.size > MAX_FILE_SIZE_BYTES) {
       return {

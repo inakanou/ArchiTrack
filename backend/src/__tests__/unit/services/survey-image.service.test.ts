@@ -22,6 +22,7 @@ import {
   InvalidFileTypeError,
   InvalidMagicBytesError,
   SurveySurveyNotFoundError,
+  UnsupportedImageFormatError,
 } from '../../../services/survey-image.service.js';
 import type { StorageProvider } from '../../../storage/storage-provider.interface.js';
 
@@ -300,18 +301,19 @@ describe('SurveyImageService', () => {
       expect(() => service.validateFile(input.file)).not.toThrow();
     });
 
-    it('should reject file with invalid MIME type even if magic bytes are valid', () => {
+    it('should accept file with invalid MIME type if magic bytes are valid (Req 21.1)', () => {
       const input: UploadImageInput = {
         surveyId: 'survey-123',
         file: {
           buffer: createValidJpegBuffer(),
-          mimetype: 'image/gif', // Invalid MIME type
+          mimetype: 'image/gif', // Invalid MIME type but valid magic bytes
           originalname: 'photo.gif',
           size: 1000,
         },
       };
 
-      expect(() => service.validateFile(input.file)).toThrow(InvalidFileTypeError);
+      // validateFileはマジックバイトのみで判定するため、MIMEタイプに関わらず許可する
+      expect(service.validateFile(input.file)).toBe('image/jpeg');
     });
 
     it('should reject file with valid MIME type but invalid magic bytes', () => {
@@ -328,7 +330,7 @@ describe('SurveyImageService', () => {
         },
       };
 
-      expect(() => service.validateFile(input.file)).toThrow(InvalidMagicBytesError);
+      expect(() => service.validateFile(input.file)).toThrow(UnsupportedImageFormatError);
     });
   });
 
@@ -641,6 +643,173 @@ describe('SurveyImageService', () => {
       expect(sanitized).not.toContain('<');
       expect(sanitized).not.toContain('>');
       expect(sanitized).not.toContain('"');
+    });
+  });
+
+  /**
+   * Task 57.1: detectMimeTypeByMagicBytesの単体テスト
+   *
+   * Requirements: 21.1, 21.2, 21.3, 21.4, 21.6
+   */
+  describe('detectMimeTypeByMagicBytes (Requirement 21)', () => {
+    it('should detect JPEG by FF D8 FF prefix with JFIF 4th byte (0xE0)', () => {
+      const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00]);
+      expect(service.detectMimeTypeByMagicBytes(buffer)).toBe('image/jpeg');
+    });
+
+    it('should detect JPEG by FF D8 FF prefix with EXIF 4th byte (0xE1)', () => {
+      const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x00, 0x00, 0x00]);
+      expect(service.detectMimeTypeByMagicBytes(buffer)).toBe('image/jpeg');
+    });
+
+    it('should detect JPEG by FF D8 FF prefix with ICC profile 4th byte (0xE2)', () => {
+      const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xe2, 0x00, 0x00, 0x00, 0x00]);
+      expect(service.detectMimeTypeByMagicBytes(buffer)).toBe('image/jpeg');
+    });
+
+    it('should detect JPEG by FF D8 FF prefix with DQT 4th byte (0xDB)', () => {
+      const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x00, 0x00, 0x00]);
+      expect(service.detectMimeTypeByMagicBytes(buffer)).toBe('image/jpeg');
+    });
+
+    it('should detect JPEG with minimum 3-byte buffer (FF D8 FF)', () => {
+      const buffer = Buffer.from([0xff, 0xd8, 0xff]);
+      expect(service.detectMimeTypeByMagicBytes(buffer)).toBe('image/jpeg');
+    });
+
+    it('should detect PNG by 8-byte signature', () => {
+      const buffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      expect(service.detectMimeTypeByMagicBytes(buffer)).toBe('image/png');
+    });
+
+    it('should detect WEBP by RIFF header + WEBP signature', () => {
+      const buffer = Buffer.from([
+        0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+      ]);
+      expect(service.detectMimeTypeByMagicBytes(buffer)).toBe('image/webp');
+    });
+
+    it('should throw UnsupportedImageFormatError for empty buffer', () => {
+      const buffer = Buffer.alloc(0);
+      expect(() => service.detectMimeTypeByMagicBytes(buffer)).toThrow(UnsupportedImageFormatError);
+    });
+
+    it('should throw UnsupportedImageFormatError for non-image binary (0x00 0x00 0x00)', () => {
+      const buffer = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+      expect(() => service.detectMimeTypeByMagicBytes(buffer)).toThrow(UnsupportedImageFormatError);
+    });
+
+    it('should throw UnsupportedImageFormatError for GIF binary', () => {
+      // GIF89a header
+      const buffer = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+      expect(() => service.detectMimeTypeByMagicBytes(buffer)).toThrow(UnsupportedImageFormatError);
+    });
+
+    it('should throw UnsupportedImageFormatError for PDF binary', () => {
+      // %PDF header
+      const buffer = Buffer.from([0x25, 0x50, 0x44, 0x46]);
+      expect(() => service.detectMimeTypeByMagicBytes(buffer)).toThrow(UnsupportedImageFormatError);
+    });
+
+    it('should have correct error properties', () => {
+      const buffer = Buffer.alloc(0);
+      try {
+        service.detectMimeTypeByMagicBytes(buffer);
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(UnsupportedImageFormatError);
+        expect((error as UnsupportedImageFormatError).code).toBe('UNSUPPORTED_IMAGE_FORMAT');
+        expect((error as UnsupportedImageFormatError).name).toBe('UnsupportedImageFormatError');
+      }
+    });
+  });
+
+  /**
+   * Task 57.2: validateFileの拡張子不一致許容テスト
+   *
+   * Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 21.8
+   */
+  describe('validateFile - extension mismatch tolerance (Requirement 21)', () => {
+    it('should return image/jpeg for .png extension with JPEG content (Req 21.2)', () => {
+      const file = {
+        buffer: createValidJpegBuffer(),
+        mimetype: 'image/png',
+        originalname: 'photo.png',
+        size: 1000,
+      };
+      expect(service.validateFile(file)).toBe('image/jpeg');
+    });
+
+    it('should return image/png for .jpg extension with PNG content (Req 21.3)', () => {
+      const file = {
+        buffer: createValidPngBuffer(),
+        mimetype: 'image/jpeg',
+        originalname: 'photo.jpg',
+        size: 1000,
+      };
+      expect(service.validateFile(file)).toBe('image/png');
+    });
+
+    it('should return image/jpeg for .txt extension with JPEG content (Req 21.5)', () => {
+      const file = {
+        buffer: createValidJpegBuffer(),
+        mimetype: 'text/plain',
+        originalname: 'photo.txt',
+        size: 1000,
+      };
+      expect(service.validateFile(file)).toBe('image/jpeg');
+    });
+
+    it('should return image/webp for text/plain mimetype with WEBP content (Req 21.5)', () => {
+      const file = {
+        buffer: createValidWebpBuffer(),
+        mimetype: 'text/plain',
+        originalname: 'file.txt',
+        size: 1000,
+      };
+      expect(service.validateFile(file)).toBe('image/webp');
+    });
+
+    it('should throw UnsupportedImageFormatError for unsupported content (Req 21.6)', () => {
+      const buffer = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+      const file = {
+        buffer,
+        mimetype: 'image/jpeg',
+        originalname: 'fake.jpg',
+        size: 100,
+      };
+      expect(() => service.validateFile(file)).toThrow(UnsupportedImageFormatError);
+    });
+
+    it('should return string (detected MIME type) instead of void (Req 21.7)', () => {
+      const file = {
+        buffer: createValidJpegBuffer(),
+        mimetype: 'image/jpeg',
+        originalname: 'photo.jpg',
+        size: 1000,
+      };
+      const result = service.validateFile(file);
+      expect(typeof result).toBe('string');
+      expect(result).toBe('image/jpeg');
+    });
+  });
+
+  /**
+   * UnsupportedImageFormatError
+   */
+  describe('UnsupportedImageFormatError', () => {
+    it('should create error with correct properties', () => {
+      const error = new UnsupportedImageFormatError();
+      expect(error.name).toBe('UnsupportedImageFormatError');
+      expect(error.code).toBe('UNSUPPORTED_IMAGE_FORMAT');
+      expect(error.message).toContain('JPEG');
+      expect(error.message).toContain('PNG');
+      expect(error.message).toContain('WEBP');
+    });
+
+    it('should be an instance of Error', () => {
+      const error = new UnsupportedImageFormatError();
+      expect(error).toBeInstanceOf(Error);
     });
   });
 });

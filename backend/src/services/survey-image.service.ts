@@ -56,6 +56,24 @@ export class InvalidMagicBytesError extends Error {
 }
 
 /**
+ * サポート対象外の画像形式エラー
+ *
+ * マジックバイト判定でJPEG/PNG/WEBPのいずれにも該当しない場合にスローされる。
+ *
+ * @requirement 21.6
+ */
+export class UnsupportedImageFormatError extends Error {
+  readonly code = 'UNSUPPORTED_IMAGE_FORMAT';
+
+  constructor() {
+    super(
+      'サポートされていない画像形式です。JPEG、PNG、WEBP形式のファイルをアップロードしてください。'
+    );
+    this.name = 'UnsupportedImageFormatError';
+  }
+}
+
+/**
  * 現場調査が見つからないエラー
  */
 export class SurveySurveyNotFoundError extends Error {
@@ -243,6 +261,61 @@ export class SurveyImageService {
    */
   getPrismaClient(): PrismaClient {
     return this.prisma;
+  }
+
+  /**
+   * マジックバイトからMIMEタイプを自動検出する
+   *
+   * ファイルの先頭バイトを解析し、サポート対象の画像形式を判定する。
+   * 拡張子やブラウザ提供のMIMEタイプに依存せず、実際のバイナリ内容のみで判定する。
+   *
+   * @param buffer - ファイルのバッファ
+   * @returns 検出されたMIMEタイプ（サポート対象形式の場合）
+   * @throws {UnsupportedImageFormatError} サポート対象形式に該当しない場合
+   *
+   * @requirement 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.8
+   */
+  detectMimeTypeByMagicBytes(buffer: Buffer): string {
+    if (buffer.length === 0) {
+      throw new UnsupportedImageFormatError();
+    }
+
+    // JPEG判定: FF D8 FF（3バイトプレフィックス）
+    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+      return 'image/jpeg';
+    }
+
+    // PNG判定: 89 50 4E 47 0D 0A 1A 0A（8バイト）
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    ) {
+      return 'image/png';
+    }
+
+    // WEBP判定: RIFF + 4バイト + WEBP（12バイト）
+    if (
+      buffer.length >= 12 &&
+      buffer[0] === 0x52 &&
+      buffer[1] === 0x49 &&
+      buffer[2] === 0x46 &&
+      buffer[3] === 0x46 &&
+      buffer[8] === 0x57 &&
+      buffer[9] === 0x45 &&
+      buffer[10] === 0x42 &&
+      buffer[11] === 0x50
+    ) {
+      return 'image/webp';
+    }
+
+    throw new UnsupportedImageFormatError();
   }
 
   /**
@@ -441,20 +514,19 @@ export class SurveyImageService {
   /**
    * ファイルの総合バリデーション
    *
-   * MIMEタイプとマジックバイトの二重検証を実行します。
+   * マジックバイトのみでファイル形式を判定する。
+   * 拡張子・ブラウザ提供MIMEタイプは判定に使用しない。
    *
-   * Requirements: 4.5, 4.8
+   * Requirements: 4.5, 4.8, 21.1, 21.7, 21.8
    *
    * @param file - 検証するファイル
-   * @throws {InvalidFileTypeError} サポートされていないMIMEタイプの場合
-   * @throws {InvalidMagicBytesError} マジックバイトがMIMEタイプと一致しない場合
+   * @returns 検出された実際のMIMEタイプ
+   * @throws {UnsupportedImageFormatError} サポート対象外の画像形式の場合
    */
-  validateFile(file: UploadFile): void {
-    // Step 1: MIMEタイプの検証
-    this.validateMimeType(file.mimetype);
-
-    // Step 2: マジックバイトの検証
-    this.validateMagicBytes(file.buffer, file.mimetype);
+  validateFile(file: UploadFile): string {
+    // マジックバイトのみで画像形式を判定
+    const detectedMimeType = this.detectMimeTypeByMagicBytes(file.buffer);
+    return detectedMimeType;
   }
 
   /**

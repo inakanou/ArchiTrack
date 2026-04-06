@@ -265,3 +265,29 @@
 2. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 各画像のサムネイルに保存済みの注釈をレンダリングした状態で表示する
 3. When ユーザーが現場調査一覧画面を表示する, the Site Survey Service shall 代表画像のサムネイルに保存済みの注釈をレンダリングした状態で表示する
 4. When 注釈が編集モードで保存される, the Site Survey Service shall 注釈をレンダリングしたサムネイル画像を生成・更新する
+
+### Requirement 21: 画像アップロード時の拡張子不一致許容
+**Objective:** As a 現場調査担当者, I want ファイル拡張子と実際の画像形式が一致しなくてもアップロードできること, so that 拡張子が変更された画像ファイルでも問題なく現場写真を登録できる
+
+#### Acceptance Criteria
+1. When ユーザーがファイル拡張子と実際の画像形式（マジックバイト判定結果）が異なるファイルをアップロードする, the Site Survey Service shall マジックバイトによる画像形式判定結果がサポート対象形式（JPEG/PNG/WEBP）であればアップロードを許可する
+2. When ユーザーが拡張子が`.png`だが実際の画像形式がJPEGであるファイルをアップロードする, the Site Survey Service shall マジックバイトによりJPEGと判定しアップロードを許可する
+3. When ユーザーが拡張子が`.jpg`だが実際の画像形式がPNGであるファイルをアップロードする, the Site Survey Service shall マジックバイトによりPNGと判定しアップロードを許可する
+4. When ユーザーが拡張子が`.jpeg`だが実際の画像形式がWEBPであるファイルをアップロードする, the Site Survey Service shall マジックバイトによりWEBPと判定しアップロードを許可する
+5. When ユーザーが画像ファイル以外の拡張子（例: `.txt`, `.pdf`）だが実際の画像形式がサポート対象であるファイルをアップロードする, the Site Survey Service shall マジックバイトによる画像形式判定結果に基づきアップロードを許可する
+6. If マジックバイトによる画像形式判定結果がサポート対象形式（JPEG/PNG/WEBP）のいずれにも該当しない, then the Site Survey Service shall ファイル拡張子に関わらずアップロードを拒否してエラーメッセージを表示する
+7. The Site Survey Service shall アップロードされたファイルのContent-Typeをマジックバイトによる実際の画像形式に基づいて設定する
+8. The Site Survey Service shall 拡張子ベースのバリデーションを行わず、マジックバイトによる画像形式判定のみでファイル形式の可否を決定する
+
+### Requirement 22: 注釈エディタでの画像回転機能
+**Objective:** As a 現場調査担当者, I want 注釈エディタ（編集モード）で画像を回転できること, so that 撮影時の向きが正しくない写真を編集中に補正して注釈を追加できる
+
+#### Acceptance Criteria
+1. When ユーザーが注釈エディタ（編集モード）で回転ボタンを押す, the Site Survey Service shall 背景画像を90度単位で回転する
+2. When 注釈エディタで画像が回転される, the Site Survey Service shall 描画済みの注釈オブジェクトを回転に追従させず、現在の位置・サイズを維持する
+3. When 注釈エディタで画像が回転される, the Site Survey Service shall 回転後の画像サイズに合わせてキャンバスのサイズを調整する
+4. When ユーザーが回転操作後に保存ボタンを押す, the Site Survey Service shall 回転状態を含む画像データを永続化する
+5. When ユーザーが回転済み画像を再度開く, the Site Survey Service shall 保存された回転状態を復元して表示する
+6. When ユーザーが回転操作を行う, the Site Survey Service shall 回転操作をUndo/Redo履歴に記録する
+7. The Site Survey Service shall 注釈エディタの回転ボタンを既存のツールバーに配置する
+8. When ユーザーが注釈エディタで複数回回転操作を行う, the Site Survey Service shall 累積回転角度（0度/90度/180度/270度）を正しく管理する

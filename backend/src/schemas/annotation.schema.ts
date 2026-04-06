@@ -74,6 +74,8 @@ export const annotationDataSchema = z.object({
   canvasWidth: z.number().positive().optional(),
   /** 保存時のキャンバス高さ（スケール変換用） */
   canvasHeight: z.number().positive().optional(),
+  /** 背景画像の回転角度 (Req 22.4) */
+  imageRotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional(),
 });
 
 /**
