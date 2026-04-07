@@ -2847,6 +2847,198 @@
       }
     },
     {
+      "id": "site-survey/REQ-21.1",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "拡張子と実際の画像形式が異なるファイルのアップロード許可",
+      "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテスト(survey-image.service.test.ts)でカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-21.2",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "拡張子.pngで実際はJPEGのファイルアップロード",
+      "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-21.3",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "拡張子.jpgで実際はPNGのファイルアップロード",
+      "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-21.4",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "拡張子.jpegで実際はWEBPのファイルアップロード",
+      "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-21.5",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "画像以外の拡張子で実際はサポート対象形式のファイルアップロード",
+      "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-21.6",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "非サポート形式のファイルアップロード拒否",
+      "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-21.7",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "Content-Typeをマジックバイト判定結果に基づいて設定",
+      "reason": "Content-Type設定はHTTPレベルの処理でE2Eでの正確な検証が困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでContent-Type設定を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-21.8",
+      "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
+      "title": "拡張子ベースのバリデーションを行わずマジックバイト判定のみ使用",
+      "reason": "バリデーション方式の内部実装詳細はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでバリデーション方式を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.1",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "回転ボタンクリックで背景画像を90度単位で回転",
+      "reason": "Canvas操作を伴う注釈エディタの回転機能はE2Eでは検証困難。ユニットテスト(AnnotationEditor.test.tsx)でカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxで回転機能を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.2",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "回転時に注釈オブジェクトの位置・サイズを維持",
+      "reason": "Canvas上の注釈オブジェクト座標操作はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxで注釈維持を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.3",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "回転後のキャンバスサイズ調整",
+      "reason": "Canvas APIのサイズ調整はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxでキャンバスサイズ調整を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.4",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "回転状態を含む画像データの永続化",
+      "reason": "回転状態の保存はAPI経由の永続化処理。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxで保存処理を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.5",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "保存された回転状態の復元表示",
+      "reason": "Canvas上での回転状態復元はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxで状態復元を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.6",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "回転操作のUndo/Redo履歴記録",
+      "reason": "Canvas操作のUndo/Redo履歴はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxでUndo/Redo履歴を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.7",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "回転ボタンのツールバー配置",
+      "reason": "Canvas注釈エディタのツールバー配置はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxでツールバー配置を検証済み"
+      }
+    },
+    {
+      "id": "site-survey/REQ-22.8",
+      "requirement": "REQ-22: 注釈エディタでの画像回転機能",
+      "title": "累積回転角度の正しい管理",
+      "reason": "Canvas上の累積回転角度管理はE2Eでは検証困難。ユニットテストでカバー済み",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsxで累積回転角度を検証済み"
+      }
+    },
+    {
       "id": "quantity-table-generation/REQ-20.1",
       "requirement": "REQ-20: 写真プレビューダイアログでの注釈付き写真表示",
       "title": "写真プレビュー操作時に注釈付き写真を表示",
@@ -7028,16 +7220,16 @@
     }
   },
   "summary": {
-    "totalExclusions": 558,
+    "totalExclusions": 574,
     "byCategory": {
       "performance": 23,
-      "infrastructure": 85,
+      "infrastructure": 101,
       "fault-tolerance": 20,
       "data-integrity": 28,
       "security": 5,
       "pending-implementation": 363,
       "integration-test": 34
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証。site-survey/REQ-21.1-21.8は画像アップロード時の拡張子不一致許容でマジックバイト判定はバイナリレベル処理のためユニットテストで検証。site-survey/REQ-22.1-22.8は注釈エディタでの画像回転機能でCanvas操作のためユニットテストで検証"
   }
 }

@@ -323,8 +323,10 @@ describe('ImageUploader', () => {
   // ==========================================================================
 
   describe('file validation', () => {
-    it('should reject unsupported file types', async () => {
-      const onUpload = vi.fn();
+    it('should allow any MIME type and delegate format validation to backend (Req 21.8)', async () => {
+      // 要件21対応: フロントエンドではMIMEタイプチェッ���を行わず、
+      // バックエンドのマジックバイト検証に画像���式判定を委ねる
+      const onUpload = vi.fn().mockResolvedValue({});
       const onValidationError = vi.fn();
       render(
         <ImageUploader
@@ -335,21 +337,16 @@ describe('ImageUploader', () => {
       );
 
       const input = screen.getByTestId('file-input');
-      const invalidFile = createMockFile('test.gif', 1024, 'image/gif');
+      const gifFile = createMockFile('test.gif', 1024, 'image/gif');
 
-      fireEvent.change(input, { target: { files: [invalidFile] } });
+      fireEvent.change(input, { target: { files: [gifFile] } });
 
       await waitFor(() => {
-        expect(onValidationError).toHaveBeenCalledWith(
-          expect.arrayContaining([
-            expect.objectContaining({
-              file: invalidFile,
-              error: expect.stringContaining('形式'),
-            }),
-          ])
-        );
+        // MIMEタイプに関わらずバックエンドに送信される
+        expect(onUpload).toHaveBeenCalledWith([gifFile]);
       });
-      expect(onUpload).not.toHaveBeenCalled();
+      // フロントエンドではバリデーションエラーが発生��ない
+      expect(onValidationError).not.toHaveBeenCalled();
     });
 
     it('should reject files exceeding size limit', async () => {
@@ -381,7 +378,7 @@ describe('ImageUploader', () => {
       expect(onUpload).not.toHaveBeenCalled();
     });
 
-    it('should pass valid files and report invalid files separately', async () => {
+    it('should pass valid files and report oversized files separately', async () => {
       const onUpload = vi.fn().mockResolvedValue(undefined);
       const onValidationError = vi.fn();
       render(
@@ -394,25 +391,26 @@ describe('ImageUploader', () => {
 
       const input = screen.getByTestId('file-input');
       const validFile = createMockFile('valid.jpg', 1024);
-      const invalidFile = createMockFile('invalid.gif', 1024, 'image/gif');
+      // 要件21対応: MIMEタイプバリデーション廃止によりサイズ超過でテスト
+      const oversizedFile = createMockFile('large.jpg', MAX_FILE_SIZE_BYTES + 1024, 'image/jpeg');
 
-      fireEvent.change(input, { target: { files: [validFile, invalidFile] } });
+      fireEvent.change(input, { target: { files: [validFile, oversizedFile] } });
 
       await waitFor(() => {
         expect(onUpload).toHaveBeenCalledWith([validFile]);
         expect(onValidationError).toHaveBeenCalledWith(
-          expect.arrayContaining([expect.objectContaining({ file: invalidFile })])
+          expect.arrayContaining([expect.objectContaining({ file: oversizedFile })])
         );
       });
     });
 
-    it('should display validation error messages', async () => {
+    it('should display validation error messages for oversized files', async () => {
       render(<ImageUploader {...defaultProps} />);
 
       const input = screen.getByTestId('file-input');
-      const invalidFile = createMockFile('test.gif', 1024, 'image/gif');
+      const oversizedFile = createMockFile('large.jpg', MAX_FILE_SIZE_BYTES + 1024, 'image/jpeg');
 
-      fireEvent.change(input, { target: { files: [invalidFile] } });
+      fireEvent.change(input, { target: { files: [oversizedFile] } });
 
       await waitFor(() => {
         expect(screen.getByTestId('validation-errors')).toBeInTheDocument();
@@ -425,9 +423,9 @@ describe('ImageUploader', () => {
 
       const input = screen.getByTestId('file-input');
 
-      // First, trigger validation error
-      const invalidFile = createMockFile('test.gif', 1024, 'image/gif');
-      fireEvent.change(input, { target: { files: [invalidFile] } });
+      // First, trigger validation error (サイズ超過)
+      const oversizedFile = createMockFile('large.jpg', MAX_FILE_SIZE_BYTES + 1024, 'image/jpeg');
+      fireEvent.change(input, { target: { files: [oversizedFile] } });
 
       await waitFor(() => {
         expect(screen.getByTestId('validation-errors')).toBeInTheDocument();
@@ -574,7 +572,7 @@ describe('ImageUploader', () => {
       render(<ImageUploader {...defaultProps} />);
 
       const input = screen.getByTestId('file-input');
-      const invalidFile = createMockFile('test.gif', 1024, 'image/gif');
+      const invalidFile = createMockFile('oversized.jpg', MAX_FILE_SIZE_BYTES + 1024, 'image/jpeg');
 
       fireEvent.change(input, { target: { files: [invalidFile] } });
 
@@ -661,6 +659,66 @@ describe('ImageUploader', () => {
     it('should apply compact style when compact prop is true', () => {
       render(<ImageUploader {...defaultProps} compact />);
       expect(screen.getByTestId('image-uploader')).toHaveAttribute('data-compact', 'true');
+    });
+  });
+
+  // ==========================================================================
+  // 拡��子不一致ファイルのアップロード（Requirement 21）
+  // ==========================================================================
+
+  describe('extension mismatch upload (Requirement 21)', () => {
+    it('should allow uploading a file with mismatched extension when MIME type is image/* (Req 21.1)', async () => {
+      // 拡張子.pngだが中身がJPEGのファイルをブラウザが開くとimage/pngとしてMIMEタイプが設定される
+      // image/*はサポート対象なのでフロントエンドバリデーション��通過すべき
+      const mockOnUpload = vi.fn().mockResolvedValue({});
+      render(<ImageUploader {...defaultProps} onUpload={mockOnUpload} />);
+
+      const file = createMockFile('photo.png', 1024, 'image/png');
+      const input = screen.getByTestId('file-input');
+      fireEvent.change(input, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(mockOnUpload).toHaveBeenCalledWith([file]);
+      });
+    });
+
+    it('should allow uploading a file with non-image extension but image MIME type (Req 21.5)', async () => {
+      // ブラウザがfile.type をtext/plainと設定した場合でもアップロードが試行されるべき
+      // フロントエンドでは画像形式かどうかの最終判定をバックエ��ドに委ねる
+      const mockOnUpload = vi.fn().mockResolvedValue({});
+      render(<ImageUploader {...defaultProps} onUpload={mockOnUpload} />);
+
+      const file = createMockFile('document.txt', 1024, 'text/plain');
+      const input = screen.getByTestId('file-input');
+      fireEvent.change(input, { target: { files: [file] } });
+
+      // text/plainの場合、フロントエンドのバリデーションを緩和して
+      // バックエンドでマジックバイト判定に委ねるか、エラーメッセー��を表示する
+      // 要件21.5: 画像以外の拡張子でも実際の画像形式がサポート対象であれば許可
+      // => フロントエンドではMIMEタイプがimage/*でない場合もバックエンドに委ねる
+      await waitFor(() => {
+        expect(mockOnUpload).toHaveBeenCalledWith([file]);
+      });
+    });
+
+    it('should show error when backend rejects non-image file (Req 21.6)', async () => {
+      const mockOnUpload = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'サポートされていない画像形式です。JPEG、PNG、WEBP形式のファイルをアップロードしてください。'
+          )
+        );
+      const mockOnError = vi.fn();
+      render(<ImageUploader {...defaultProps} onUpload={mockOnUpload} onError={mockOnError} />);
+
+      const file = createMockFile('photo.jpg', 1024, 'image/jpeg');
+      const input = screen.getByTestId('file-input');
+      fireEvent.change(input, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(mockOnUpload).toHaveBeenCalled();
+      });
     });
   });
 });

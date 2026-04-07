@@ -172,8 +172,8 @@ export class ImageUploadService {
       throw new MaxImagesExceededError(currentCount, ImageUploadService.MAX_IMAGES_PER_SURVEY);
     }
 
-    // ファイルバリデーション
-    this.surveyImageService.validateFile(file);
+    // ファイルバリデーション（マジックバイト判定結果のMIMEタイプを取得 - 要件21.7対応）
+    const detectedMimeType = this.surveyImageService.validateFile(file);
 
     // ファイル名をサニタイズ
     const sanitizedFileName = this.surveyImageService.sanitizeFileName(file.originalname);
@@ -186,11 +186,11 @@ export class ImageUploadService {
     const originalPath = `surveys/${surveyId}/${timestamp}_${sanitizedFileName}`;
     const thumbnailPath = `surveys/${surveyId}/${timestamp}_thumb_${sanitizedFileName}`;
 
-    // S3にアップロード（原画像）
-    await this.uploadToStorage(originalPath, processedImage.original.buffer, file.mimetype);
+    // S3にアップロード（原画像）（Content-Typeはマジックバイト判定結果を使用 - 要件21.7対応）
+    await this.uploadToStorage(originalPath, processedImage.original.buffer, detectedMimeType);
 
-    // S3にアップロード（サムネイル）
-    await this.uploadToStorage(thumbnailPath, processedImage.thumbnail, file.mimetype);
+    // S3にアップロード（サムネイル）（Content-Typeはマジックバイト判定結果を使用 - 要件21.7対応）
+    await this.uploadToStorage(thumbnailPath, processedImage.thumbnail, detectedMimeType);
 
     // 表示順序を決定
     const nextDisplayOrder = displayOrder ?? (await this.getNextDisplayOrder(surveyId));

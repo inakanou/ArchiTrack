@@ -317,6 +317,116 @@ describe('AnnotatedThumbnailService', () => {
       expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * Task 59.3: サムネイル・PDF出力での回転反映の単体テスト
+   * Requirements: 22.4, 22.5
+   */
+  describe('画像回転反映 (Requirement 22)', () => {
+    it('imageRotationが90度の場合にSharp.rotateが呼ばれること', async () => {
+      const sharp = (await import('sharp')).default;
+
+      const mockRotate = vi.fn().mockReturnValue(mockSharpInstance);
+      mockSharpInstance.composite.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.resize.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.jpeg.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('thumbnail'));
+      (mockSharpInstance as Record<string, unknown>).rotate = mockRotate;
+
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: 'image-1',
+        surveyId: 'survey-1',
+        originalPath: 'surveys/survey-1/original.jpg',
+        width: 800,
+        height: 600,
+        annotatedThumbnailPath: null,
+      });
+
+      mockStorageProvider.get.mockResolvedValue(Buffer.from('image-data'));
+      mockStorageProvider.upload.mockResolvedValue(undefined);
+      mockPrisma.surveyImage.update.mockResolvedValue({});
+
+      const annotationData: AnnotationData = {
+        version: '1.0',
+        objects: [{ type: 'rect', left: 10, top: 20, width: 100, height: 50 }],
+        imageRotation: 90,
+      };
+
+      await service.generateAnnotatedThumbnail('image-1', annotationData);
+
+      expect(sharp).toHaveBeenCalled();
+      expect(mockRotate).toHaveBeenCalledWith(90);
+    });
+
+    it('imageRotationが0度の場合にSharp.rotateが呼ばれないこと', async () => {
+      const sharp = (await import('sharp')).default;
+
+      const mockRotate = vi.fn().mockReturnValue(mockSharpInstance);
+      mockSharpInstance.composite.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.resize.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.jpeg.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('thumbnail'));
+      (mockSharpInstance as Record<string, unknown>).rotate = mockRotate;
+
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: 'image-1',
+        surveyId: 'survey-1',
+        originalPath: 'surveys/survey-1/original.jpg',
+        width: 800,
+        height: 600,
+        annotatedThumbnailPath: null,
+      });
+
+      mockStorageProvider.get.mockResolvedValue(Buffer.from('image-data'));
+      mockStorageProvider.upload.mockResolvedValue(undefined);
+      mockPrisma.surveyImage.update.mockResolvedValue({});
+
+      const annotationData: AnnotationData = {
+        version: '1.0',
+        objects: [{ type: 'rect', left: 10, top: 20, width: 100, height: 50 }],
+        imageRotation: 0,
+      };
+
+      await service.generateAnnotatedThumbnail('image-1', annotationData);
+
+      expect(sharp).toHaveBeenCalled();
+      expect(mockRotate).not.toHaveBeenCalled();
+    });
+
+    it('imageRotationが未定義の場合にSharp.rotateが呼ばれないこと', async () => {
+      const sharp = (await import('sharp')).default;
+
+      const mockRotate = vi.fn().mockReturnValue(mockSharpInstance);
+      mockSharpInstance.composite.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.resize.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.jpeg.mockReturnValue(mockSharpInstance);
+      mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('thumbnail'));
+      (mockSharpInstance as Record<string, unknown>).rotate = mockRotate;
+
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: 'image-1',
+        surveyId: 'survey-1',
+        originalPath: 'surveys/survey-1/original.jpg',
+        width: 800,
+        height: 600,
+        annotatedThumbnailPath: null,
+      });
+
+      mockStorageProvider.get.mockResolvedValue(Buffer.from('image-data'));
+      mockStorageProvider.upload.mockResolvedValue(undefined);
+      mockPrisma.surveyImage.update.mockResolvedValue({});
+
+      const annotationData: AnnotationData = {
+        version: '1.0',
+        objects: [{ type: 'rect', left: 10, top: 20, width: 100, height: 50 }],
+      };
+
+      await service.generateAnnotatedThumbnail('image-1', annotationData);
+
+      expect(sharp).toHaveBeenCalled();
+      expect(mockRotate).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('generateSvgFromAnnotation', () => {
@@ -702,7 +812,7 @@ describe('generateSvgFromAnnotation', () => {
     expect(svg).toContain('fill="rgba(255,0,0,0.5)"');
   });
 
-  it('不明なオブジェクトタイプはスキップすること', () => {
+  it('不明なオブジェク��タイプはスキップすること', () => {
     const data: AnnotationData = {
       version: '1.0',
       objects: [
@@ -716,7 +826,7 @@ describe('generateSvgFromAnnotation', () => {
 
     const svg = generateSvgFromAnnotation(data, 800, 600);
 
-    // エラーにならずSVGが生成される
+    // エラーにならずSVGが生���される
     expect(svg).toContain('<svg');
     expect(svg).toContain('</svg>');
   });

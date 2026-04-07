@@ -251,8 +251,8 @@ export class BatchUploadService {
     file: UploadFile,
     displayOrder: number
   ): Promise<UploadSuccessResult> {
-    // ファイルのバリデーション
-    this.surveyImageService.validateFile(file);
+    // ファイルのバリデーション（マジックバイト判定結果のMIMEタイプを取得 - 要件21.7対応）
+    const detectedMimeType = this.surveyImageService.validateFile(file);
 
     // 画像処理（圧縮・サムネイル生成）
     const processed = await this.imageProcessor.processImage(file.buffer);
@@ -265,9 +265,9 @@ export class BatchUploadService {
     const originalPath = `surveys/${surveyId}/${timestamp}_${sanitizedFilename}`;
     const thumbnailPath = `surveys/${surveyId}/${timestamp}_thumb_${sanitizedFilename}`;
 
-    // S3にアップロード
-    await this.uploadToS3(originalPath, processed.original.buffer, file.mimetype);
-    await this.uploadToS3(thumbnailPath, processed.thumbnail, file.mimetype);
+    // S3にアップロード（Content-Typeはマジックバイト判定結果を使用 - 要件21.7対応）
+    await this.uploadToS3(originalPath, processed.original.buffer, detectedMimeType);
+    await this.uploadToS3(thumbnailPath, processed.thumbnail, detectedMimeType);
 
     // データベースに保存
     const imageRecord = await this.prisma.surveyImage.create({

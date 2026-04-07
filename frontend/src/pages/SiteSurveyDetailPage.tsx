@@ -548,6 +548,7 @@ export default function SiteSurveyDetailPage() {
               // エラーカテゴリ判定 (Requirement 19.14, 19.15)
               const isFileTypeError =
                 err.error.includes('サポートされていないファイル形式') ||
+                err.error.includes('サポートされていない画像形式') ||
                 err.error.includes('MIMEタイプと一致しません');
               const reason = isFileTypeError
                 ? 'サポートされていないファイル形式'

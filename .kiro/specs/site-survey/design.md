@@ -22,6 +22,8 @@
 - **ブレッドクラムナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査 > 画像」の階層構造に統一する**
 - **画面タイトルを「現場調査一覧」に変更し、画像プレビュー画面から「← 現場調査に戻る」リンクを削除する**
 - **注釈付きサムネイル画像の生成・表示をプレビュー画面、詳細画面サムネイル、一覧画面サムネイルで実現する**
+- **画像アップロード時の拡張子チェックを廃止し、マジックバイトによる画像形式判定のみでアップロード可否を決定する**
+- **注釈エディタ（編集モード）での90度単位の背景画像回転機能を提供する（描画済み注釈は回転に追従しない）**
 
 ### Non-Goals
 
@@ -494,6 +496,22 @@ sequenceDiagram
 | **20.2** | **詳細画面サムネイルに注釈レンダリング表示** | **PhotoManagementPanel, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
 | **20.3** | **一覧画面代表画像サムネイルに注釈レンダリング表示** | **SurveyListPage, SiteSurveyListTable, SiteSurveyListCard, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
 | **20.4** | **注釈保存時にサムネイル画像を生成・更新** | **AnnotationEditor, AnnotatedThumbnailService, ImageService** | **ThumbnailAPI** | **注釈付きサムネイル生成フロー** |
+| **21.1** | **拡張子不一致でもマジックバイト判定がサポート対象ならアップロード許可** | **ImageService (validateFile)** | **ImageAPI** | **アップロードフロー** |
+| **21.2** | **拡張子.pngだが実際はJPEGのファイルを許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.3** | **拡張子.jpgだが実際はPNGのファイルを許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.4** | **拡張子.jpegだが実際はWEBPのファイルを許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.5** | **画像以外の拡張子(.txt等)でもマジックバイトがサポート対象なら許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.6** | **マジックバイトがサポート対象外の場合は拡張子に関わらず拒否** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.7** | **Content-Typeをマジックバイトの実際の画像形式に基づいて設定** | **ImageService (validateFile)** | **ImageAPI** | **アップロードフロー** |
+| **21.8** | **拡張子ベースのバリデーション廃止** | **ImageService (validateFile)** | **ImageAPI** | - |
+| **22.1** | **注釈エディタで回転ボタンにより背景画像を90度単位で回転** | **AnnotationEditor** | - | **画像回転フロー** |
+| **22.2** | **回転時に描画済み注釈は追従せず現在の位置・サイズを維持** | **AnnotationEditor** | - | - |
+| **22.3** | **回転後の画像サイズに合わせてキャンバスサイズを調整** | **AnnotationEditor** | - | - |
+| **22.4** | **回転状態を含む画像データの永続化** | **AnnotationEditor, AnnotationService** | **AnnotationAPI** | **注釈編集フロー** |
+| **22.5** | **保存された回転状態の復元** | **AnnotationEditor** | **AnnotationAPI** | - |
+| **22.6** | **回転操作のUndo/Redo履歴記録** | **AnnotationEditor, UndoManager** | - | - |
+| **22.7** | **回転ボタンを既存ツールバーに配置** | **AnnotationEditor** | - | - |
+| **22.8** | **累積回転角度（0/90/180/270度）の管理** | **AnnotationEditor** | - | - |
 
 ## Components and Interfaces
 
@@ -502,7 +520,7 @@ sequenceDiagram
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
 | SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
-| ImageService | Backend/Service | 画像アップロード・処理 | 4 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
+| ImageService | Backend/Service | 画像アップロード・処理 | 4, 21 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
 | AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18, 20.4 | PrismaClient (P0), AnnotatedThumbnailService (P1) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
 | **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
@@ -512,7 +530,7 @@ sequenceDiagram
 | SurveyListPage | Frontend/Page | 一覧表示（タイトル「現場調査一覧」） | 2, 3, 20.3 | SurveyAPI (P0) | State |
 | SurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
 | **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
-| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0) | State |
+| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13, 22 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0) | State |
 | ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12, 20.1 | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
@@ -632,15 +650,16 @@ interface ISurveyService {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像のアップロード、圧縮、サムネイル生成、ストレージ管理を担当 |
-| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8, 4.9, 4.10 |
+| Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8, 4.9, 4.10, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 21.8 |
 
 **Responsibilities & Constraints**
-- ファイル形式バリデーション（JPEG, PNG, WEBP）
+- ファイル形式バリデーション（JPEG, PNG, WEBP） — **マジックバイトのみで判定、拡張子・MIMEタイプは判定に使用しない（要件21対応）**
 - 300KB超過時の段階的圧縮（250KB〜350KBの範囲に収める）
 - 200x200pxサムネイル自動生成
 - Cloudflare R2（S3互換API）へのアップロード
 - 画像表示順序の管理
 - バッチアップロード時は5件ずつキュー処理して順次実行
+- **Content-Typeはマジックバイト判定結果に基づいて設定（要件21.7対応）**
 
 **Dependencies**
 - Inbound: SurveyRoutes — ファイルアップロード処理 (P0)
@@ -701,13 +720,13 @@ interface IImageService {
 }
 ```
 
-- Preconditions: ファイルがJPEG/PNG/WEBP形式であること
+- Preconditions: ファイルのマジックバイトがJPEG/PNG/WEBP形式であること（拡張子・MIMEタイプは問わない）
 - Postconditions: サムネイルが生成されストレージに保存されること
 - Invariants: 元画像とサムネイルは同一トランザクションで管理
 
 **Implementation Notes**
 - Integration: S3Clientはシングルトンで接続管理、環境変数で設定切替
-- Validation: MIMEタイプとマジックバイトの二重検証
+- Validation: **マジックバイトのみで画像形式を判定（要件21対応）。拡張子・ブラウザ提供MIMEタイプは判定に使用しない。**
 - Risks: R2の無料枠（10GB/月、100万リクエスト/月）を超過時の課金に注意
 
 ##### Cloudflare R2 設定詳細
@@ -1960,7 +1979,7 @@ interface ImageExportDialogProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像上での注釈編集インターフェースを提供 |
-| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 13.1-13.5, 17.1-17.6 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 13.1-13.5, 17.1-17.6, 22.1-22.8 |
 
 **Responsibilities & Constraints**
 - Fabric.jsキャンバスの初期化と管理
@@ -1969,6 +1988,7 @@ interface ImageExportDialogProps {
 - Undo/Redo操作の管理
 - **手動保存方式**: 保存ボタンクリックでサーバーに保存
 - **未保存変更検出**: useUnsavedChangesフックとの統合
+- **背景画像の90度単位回転（要件22対応）**: 描画済み注釈は回転に追従しない
 
 **Dependencies**
 - Inbound: SurveyDetailPage — 親コンポーネント (P0)
@@ -1991,6 +2011,8 @@ interface AnnotationEditorState {
   canUndo: boolean;
   canRedo: boolean;
   toolOptions: ToolOptions;
+  /** 背景画像の累積回転角度（要件22.8対応） */
+  imageRotation: 0 | 90 | 180 | 270;
 }
 
 type ToolType =
@@ -2018,6 +2040,7 @@ interface ToolOptions {
 - Validation: ツール切り替え時に未保存変更を確認
 - Risks: 大量オブジェクト時のパフォーマンス低下
 - **保存方式変更**: オートセーブから手動保存に変更、isDirtyフラグで変更検出
+- **画像回転（要件22対応）**: 回転操作は背景画像のみに適用し、描画済み注釈オブジェクトの位置・サイズは維持する。回転角度は注釈データのメタデータとして永続化する。
 
 ##### 描画ツール使用中のオブジェクト選択防止（要件17）
 
@@ -2556,6 +2579,8 @@ interface AnnotationDataV1 {
   objects: FabricSerializedObject[];
   background?: string;
   viewportTransform?: number[];
+  /** 背景画像の回転角度（要件22.4, 22.5対応） */
+  imageRotation?: 0 | 90 | 180 | 270;
 }
 
 interface FabricSerializedObject {
@@ -2630,7 +2655,7 @@ interface FabricSerializedObject {
 ### Unit Tests
 
 - **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携、**直近N件取得**
-- **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード
+- **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード、**マジックバイトのみによる形式判定（detectMimeTypeByMagicBytes: JPEG/PNG/WEBP各形式の正常判定、未サポート形式の拒否）（21.1-21.8）**、**拡張子不一致ファイルの許可（拡張子.pngで中身JPEG等）（21.2-21.5）**、**Content-Typeのマジックバイト準拠設定（21.7）**
 - **ImageMetadataService**: コメント更新、報告書フラグ更新、**順序更新**、バリデーション、**一括更新（メタデータ+順序）**
 - **ImageDeleteService**: 画像削除、注釈連動削除、R2連携、**孤立ファイルorphaned/移動（4.8）**
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート、**バッチ注釈取得（findByImageIds: 正常系、注釈なし画像、不正imageId、空配列）（18.1, 18.3, 18.4, 18.8）**
@@ -2638,6 +2663,7 @@ interface FabricSerializedObject {
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
 - **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視、**QuotaExceededError LRUリトライ（15.7）、プライベートブラウジング検出（15.9）、クロスブラウザエラー検出（15.10）**
 - **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation
+- **AnnotationEditor（回転機能）**: **handleRotate（90度回転、キャンバスサイズ調整、注釈非追従）（22.1, 22.2, 22.3）**、**回転状態の保存・復元（imageRotationフィールド）（22.4, 22.5）**、**回転操作のUndo/Redo（22.6）**、**累積回転角度管理（22.8）**
 - **SurveyDetailPage**: **handleOrderChange（ローカル状態更新）**、**handleSaveMetadata（メタデータ+順序一括保存）**、**pendingOrderRefパターン**
 
 - **AnnotationRendererService**: **バッチ注釈取得統合（renderImagesForReport: バッチAPI使用、フォールバック）（18.2, 18.5, 18.7）**
@@ -2681,6 +2707,12 @@ interface FabricSerializedObject {
 - **注釈保存後にプレビュー画面で注釈が表示されること（20.1）**
 - **注釈保存後に詳細画面サムネイルに注釈が反映されること（20.2）**
 - **注釈保存後に一覧画面の代表画像サムネイルに注釈が反映されること（20.3）**
+- **拡張子と中身が不一致のファイル（.pngだがJPEG等）のアップロードが成功すること（21.1-21.5）**
+- **マジックバイトがサポート対象外のファイルのアップロードが拒否されること（21.6）**
+- **注釈エディタで回転ボタンクリックにより画像が90度回転すること（22.1）**
+- **回転後に描画済み注釈の位置・サイズが変わらないこと（22.2）**
+- **回転状態が保存・復元されること（22.4, 22.5）**
+- **回転操作がUndo/Redoで取り消し・再実行できること（22.6）**
 
 ### Performance Tests
 
@@ -2713,7 +2745,7 @@ interface FabricSerializedObject {
 
 ### File Upload Security
 
-- ファイル形式の二重検証（MIMEタイプ + マジックバイト）
+- **ファイル形式の検証はマジックバイトのみで実施（要件21対応）**: 拡張子・ブラウザ提供MIMEタイプは判定に使用しない。マジックバイトがJPEG/PNG/WEBPのいずれかに一致する場合のみアップロードを許可する。
 - ファイルサイズ制限（単一ファイル50MB、バッチ合計100MB）
 - ファイル名のサニタイズ（パストラバーサル防止）
 - アップロード時のウイルススキャン（将来の拡張）
@@ -2818,6 +2850,25 @@ interface FabricSerializedObject {
 5. 一覧APIレスポンスに`annotatedThumbnailUrl`、`representativeImageId`を追加
 6. フロントエンド各画面でAnnotatedImageThumbnailコンポーネントの利用を統合
 7. 単体テスト・E2Eテストの追加
+
+### Phase 6: 画像アップロード拡張子不一致許容（要件21対応）
+
+1. `SurveyImageService`に`detectMimeTypeByMagicBytes`メソッドを追加
+2. `validateFile`メソッドを変更: MIMEタイプチェック廃止、マジックバイトのみで形式判定
+3. Content-Type設定をマジックバイト判定結果に基づくよう変更
+4. 拡張子ベースバリデーション(`ALLOWED_EXTENSIONS`)の参照を廃止
+5. 単体テスト・統合テストの追加・更新
+
+### Phase 7: 注釈エディタ画像回転機能（要件22対応）
+
+1. `AnnotationEditor`に回転ボタンと`handleRotate`ロジックを追加
+2. 回転状態（`imageRotation`）をAnnotationEditorStateに追加
+3. 注釈データ（`AnnotationDataV1`）に`imageRotation`フィールドを追加
+4. 保存時に`imageRotation`を注釈データに含めて永続化
+5. 復元時に`imageRotation`を読み込んで背景画像を回転表示
+6. 回転操作のUndo/Redoコマンドを実装
+7. ツールバーに回転ボタンUIを追加
+8. 単体テスト・E2Eテストの追加
 
 ### Rollback Triggers
 
@@ -3392,3 +3443,424 @@ async findByProjectId(...): Promise<PaginatedSurveys> {
 - 注釈保存後、詳細画面のサムネイルに注釈が反映されること
 - 注釈保存後、一覧画面の代表画像サムネイルに注釈が反映されること
 - 注釈が存在しない画像は素のサムネイルが表示されること
+
+---
+
+## Requirement 21: 画像アップロード時の拡張子不一致許容
+
+### 概要
+
+ファイル拡張子と実際の画像形式（マジックバイト判定結果）が一致しなくてもアップロードを許可する。マジックバイトによる画像形式判定のみでアップロード可否を決定し、拡張子チェックおよびブラウザ提供MIMEタイプに基づくバリデーションを廃止する。
+
+### 設計方針
+
+現在の`validateFile`メソッドは以下の二重検証を行っている:
+1. `validateMimeType(file.mimetype)` — ブラウザ提供のMIMEタイプをチェック
+2. `validateMagicBytes(file.buffer, file.mimetype)` — MIMEタイプに対応するマジックバイトをチェック
+
+この方式では、ブラウザがファイル拡張子に基づいてMIMEタイプを設定するため、拡張子が`.png`だが中身がJPEGの場合、`file.mimetype`が`image/png`となり、マジックバイト検証（PNGのシグネチャを期待）で失敗する。
+
+**修正方針**: MIMEタイプチェックを廃止し、マジックバイトのみでファイル形式を自動判定する。判定結果がサポート対象形式（JPEG/PNG/WEBP）であればアップロードを許可し、検出された実際のMIMEタイプをContent-Typeとして設定する。
+
+### 変更1: detectMimeTypeByMagicBytesメソッドの新設
+
+**対象ファイル**: `backend/src/services/survey-image.service.ts`
+
+```typescript
+/**
+ * マジックバイトからMIMEタイプを自動検出する
+ *
+ * ファイルの先頭バイトを解析し、サポート対象の画像形式を判定する。
+ * 拡張子やブラウザ提供のMIMEタイプに依存せず、実際のバイナリ内容のみで判定する。
+ *
+ * @param buffer - ファイルのバッファ
+ * @returns 検出されたMIMEタイプ（サポート対象形式の場合）
+ * @throws {UnsupportedImageFormatError} サポート対象形式に該当しない場合
+ *
+ * @requirement 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.8
+ */
+detectMimeTypeByMagicBytes(buffer: Buffer): string {
+  if (buffer.length === 0) {
+    throw new UnsupportedImageFormatError();
+  }
+
+  // JPEG判定: FF D8 FF（3バイトプレフィックス）
+  if (buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  // PNG判定: 89 50 4E 47 0D 0A 1A 0A（8バイト）
+  if (buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a) {
+    return 'image/png';
+  }
+
+  // WEBP判定: RIFF + 4バイト + WEBP（12バイト）
+  if (buffer.length >= 12 &&
+      buffer[0] === 0x52 &&
+      buffer[1] === 0x49 &&
+      buffer[2] === 0x46 &&
+      buffer[3] === 0x46 &&
+      buffer[8] === 0x57 &&
+      buffer[9] === 0x45 &&
+      buffer[10] === 0x42 &&
+      buffer[11] === 0x50) {
+    return 'image/webp';
+  }
+
+  throw new UnsupportedImageFormatError();
+}
+```
+
+### 変更2: UnsupportedImageFormatErrorの新設
+
+**対象ファイル**: `backend/src/services/survey-image.service.ts`
+
+```typescript
+/**
+ * サポート対象外の画像形式エラー
+ *
+ * マジックバイト判定でJPEG/PNG/WEBPのいずれにも該当しない場合にスローされる。
+ *
+ * @requirement 21.6
+ */
+export class UnsupportedImageFormatError extends Error {
+  readonly code = 'UNSUPPORTED_IMAGE_FORMAT';
+
+  constructor() {
+    super(
+      'サポートされていない画像形式です。JPEG、PNG、WEBP形式のファイルをアップロードしてください。'
+    );
+    this.name = 'UnsupportedImageFormatError';
+  }
+}
+```
+
+### 変更3: validateFileメソッドの変更
+
+**対象ファイル**: `backend/src/services/survey-image.service.ts`
+
+**現行**:
+```typescript
+validateFile(file: UploadFile): void {
+  // Step 1: MIMEタイプの検証
+  this.validateMimeType(file.mimetype);
+
+  // Step 2: マジックバイトの検証
+  this.validateMagicBytes(file.buffer, file.mimetype);
+}
+```
+
+**修正後**:
+```typescript
+/**
+ * ファイルの総合バリデーション
+ *
+ * マジックバイトのみでファイル形式を判定する。
+ * 拡張子・ブラウザ提供MIMEタイプは判定に使用しない。
+ *
+ * @param file - 検証するファイル
+ * @returns 検出された実際のMIMEタイプ
+ * @throws {UnsupportedImageFormatError} サポート対象外の画像形式の場合
+ *
+ * @requirement 21.1, 21.7, 21.8
+ */
+validateFile(file: UploadFile): string {
+  // マジックバイトのみで画像形式を判定
+  const detectedMimeType = this.detectMimeTypeByMagicBytes(file.buffer);
+  return detectedMimeType;
+}
+```
+
+**戻り値の変更**: `void` → `string`（検出されたMIMEタイプを返却）
+
+### 変更4: アップロード処理でのContent-Type設定
+
+**対象ファイル**: アップロード処理を行う呼び出し元（`batch-upload.service.ts`等）
+
+`validateFile`が返す検出済みMIMEタイプを使用して、R2へのアップロード時のContent-Typeを設定する:
+
+```typescript
+// 変更前: ブラウザ提供のMIMEタイプを使用
+surveyImageService.validateFile(file);
+// Content-Type は file.mimetype を使用
+
+// 変更後: マジックバイト判定結果のMIMEタイプを使用
+const detectedMimeType = surveyImageService.validateFile(file);
+// Content-Type は detectedMimeType を使用（要件21.7対応）
+```
+
+### 変更5: validateMimeTypeとALLOWED_EXTENSIONSの非推奨化
+
+**設計方針**:
+- `validateMimeType`メソッド: `validateFile`からの呼び出しを削除。他の箇所で使用されていなければ削除候補。後方互換性のため残す場合は`@deprecated`アノテーションを付与。
+- `ALLOWED_EXTENSIONS`: 拡張子ベースのバリデーションは行わないため、参照を廃止。サニタイズ処理での拡張子操作は維持（ファイル名保存のため）。
+- `validateMagicBytes`メソッド: `detectMimeTypeByMagicBytes`に置き換え。既存テストで使用されている場合は、テストを`detectMimeTypeByMagicBytes`に移行。
+
+### テスト戦略
+
+**バックエンド単体テスト** (`survey-image.service.test.ts`):
+- `detectMimeTypeByMagicBytes`: FF D8 FF + 各種4バイト目でJPEGとして検出
+- `detectMimeTypeByMagicBytes`: PNGシグネチャで `image/png` として検出
+- `detectMimeTypeByMagicBytes`: RIFFヘッダー+WEBPで `image/webp` として検出
+- `detectMimeTypeByMagicBytes`: 空バッファで`UnsupportedImageFormatError`スロー
+- `detectMimeTypeByMagicBytes`: 非画像バイナリ（0x00 0x00 0x00等）で`UnsupportedImageFormatError`スロー
+- `validateFile`: 拡張子`.png`だが中身がJPEGのファイルで `image/jpeg` を返却
+- `validateFile`: 拡張子`.jpg`だが中身がPNGのファイルで `image/png` を返却
+- `validateFile`: 拡張子`.txt`だが中身がJPEGのファイルで `image/jpeg` を返却
+- `validateFile`: MIMEタイプ`text/plain`だが中身がWEBPのファイルで `image/webp` を返却
+- `validateFile`: 中身がサポート対象外のファイルで`UnsupportedImageFormatError`スロー
+
+**フロントエンド単体テスト**:
+- `handleImageUpload`: 拡張子不一致ファイルのアップロードが成功すること
+- `handleImageUpload`: バリデーションエラー時にエラーメッセージが表示されること
+
+---
+
+## Requirement 22: 注釈エディタでの画像回転機能
+
+### 概要
+
+注釈エディタ（編集モード）で背景画像を90度単位で回転する機能を追加する。描画済みの注釈オブジェクトは回転に追従せず、現在の位置・サイズを維持する。回転状態は注釈データのメタデータとして永続化し、再表示時に復元する。
+
+### アーキテクチャ方針
+
+**背景画像の回転方式**:
+
+Fabric.jsでは背景画像（`canvas.backgroundImage`）にもFabricImageのtransformプロパティ（`angle`等）を適用可能。回転時は以下の手順で処理する:
+
+1. 背景画像の`angle`プロパティを更新（90度ずつ累積）
+2. 回転により画像の幅と高さが入れ替わる場合（90度/270度）、キャンバスサイズを調整
+3. 背景画像の`left`/`top`を調整して回転後の画像がキャンバス内に正しく配置されるようにする
+4. 描画済み注釈オブジェクトには一切変更を加えない
+
+**注釈非追従の理由**: 要件22.2で明示的に「描画済みの注釈オブジェクトを回転に追従させず、現在の位置・サイズを維持する」と定義されている。これはユーザーが画像の向きを補正するユースケース（撮影時の向き違い）を想定しており、注釈は補正後の正しい向きに対して追加するものと位置付けられる。
+
+### 変更1: 回転状態の管理
+
+**対象ファイル**: `frontend/src/components/site-surveys/AnnotationEditor.tsx`
+
+```typescript
+/** 背景画像の累積回転角度を管理するRef */
+const imageRotationRef = useRef<0 | 90 | 180 | 270>(0);
+```
+
+### 変更2: handleRotateハンドラの実装
+
+**対象ファイル**: `frontend/src/components/site-surveys/AnnotationEditor.tsx`
+
+```typescript
+/**
+ * 背景画像を90度時計回りに回転する
+ *
+ * - 背景画像のangleを90度加算（累積回転）
+ * - 90度/270度の場合はキャンバスの幅と高さを入れ替え
+ * - 描画済み注釈オブジェクトの位置・サイズは維持（追従しない）
+ * - Undo/Redo履歴に回転操作を記録
+ *
+ * @requirement 22.1, 22.2, 22.3, 22.6, 22.8
+ */
+const handleRotate = useCallback(() => {
+  const canvas = fabricCanvasRef.current;
+  const bgImage = backgroundImageRef.current;
+  if (!canvas || !bgImage) return;
+
+  // 1. 回転前の状態を保存（Undo用）
+  const prevRotation = imageRotationRef.current;
+  const prevWidth = canvas.getWidth();
+  const prevHeight = canvas.getHeight();
+
+  // 2. 新しい回転角度を計算（0 → 90 → 180 → 270 → 0）
+  const newRotation = ((prevRotation + 90) % 360) as 0 | 90 | 180 | 270;
+  imageRotationRef.current = newRotation;
+
+  // 3. 背景画像の回転を適用
+  applyImageRotation(canvas, bgImage, newRotation);
+
+  // 4. Undo/Redo履歴に記録
+  undoManager.execute({
+    type: 'rotate',
+    execute: () => {
+      imageRotationRef.current = newRotation;
+      applyImageRotation(canvas, bgImage, newRotation);
+    },
+    undo: () => {
+      imageRotationRef.current = prevRotation;
+      applyImageRotation(canvas, bgImage, prevRotation);
+    },
+  });
+
+  // 5. 未保存フラグを立てる
+  markAsChanged();
+
+  // 6. 状態を更新
+  setState((prev) => ({ ...prev, imageRotation: newRotation }));
+}, [undoManager, markAsChanged]);
+
+/**
+ * 背景画像に回転を適用し、キャンバスサイズを調整する
+ *
+ * @param canvas - Fabric.jsキャンバス
+ * @param bgImage - 背景画像
+ * @param rotation - 適用する回転角度
+ *
+ * @requirement 22.3
+ */
+function applyImageRotation(
+  canvas: FabricCanvas,
+  bgImage: FabricImage,
+  rotation: 0 | 90 | 180 | 270
+): void {
+  // 元画像の自然サイズ（スケール前）
+  const naturalWidth = bgImage.width ?? 0;
+  const naturalHeight = bgImage.height ?? 0;
+  const scale = bgImage.scaleX ?? 1;
+
+  // 90度/270度の場合は幅と高さが入れ替わる
+  const isSwapped = rotation === 90 || rotation === 270;
+  const canvasWidth = isSwapped
+    ? naturalHeight * scale
+    : naturalWidth * scale;
+  const canvasHeight = isSwapped
+    ? naturalWidth * scale
+    : naturalHeight * scale;
+
+  // キャンバスサイズを調整
+  canvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+
+  // 背景画像の回転を設定
+  bgImage.set({
+    angle: rotation,
+    originX: 'center',
+    originY: 'center',
+    left: canvasWidth / 2,
+    top: canvasHeight / 2,
+  });
+
+  canvas.renderAll();
+}
+```
+
+### 変更3: 回転状態の保存
+
+**対象ファイル**: `frontend/src/components/site-surveys/AnnotationEditor.tsx`（handleSave内）
+
+```typescript
+// 注釈データを構築（回転状態を含める - 要件22.4対応）
+const annotationData = {
+  version: '1.0',
+  objects: objects.map((obj) => obj.toObject()),
+  canvasWidth: canvas.getWidth(),
+  canvasHeight: canvas.getHeight(),
+  imageRotation: imageRotationRef.current, // 回転角度を含める
+};
+```
+
+### 変更4: 回転状態の復元
+
+**対象ファイル**: `frontend/src/components/site-surveys/AnnotationEditor.tsx`（注釈データ復元処理内）
+
+```typescript
+// 注釈データ復元時に回転状態も復元（要件22.5対応）
+if (annotationData && annotationData.data) {
+  // 回転状態の復元
+  const savedRotation = (annotationData.data.imageRotation ?? 0) as 0 | 90 | 180 | 270;
+  if (savedRotation !== 0 && backgroundImageRef.current) {
+    imageRotationRef.current = savedRotation;
+    applyImageRotation(canvas, backgroundImageRef.current, savedRotation);
+    setState((prev) => ({ ...prev, imageRotation: savedRotation }));
+  }
+
+  // 注釈オブジェクトの復元（既存処理）
+  if (annotationData.data.objects && annotationData.data.objects.length > 0) {
+    const enlivenedObjects = await util.enlivenObjects(annotationData.data.objects);
+    // ... 既存の復元処理
+  }
+}
+```
+
+### 変更5: ツールバーに回転ボタンを追加
+
+**対象ファイル**: `frontend/src/components/site-surveys/AnnotationEditor.tsx`（ツールバー部分）
+
+```typescript
+// ツールバーに回転ボタンを追加（要件22.7対応）
+// 既存のツールボタン群（select, dimension, arrow, circle, ...）の後ろに配置
+<button
+  type="button"
+  onClick={handleRotate}
+  style={toolbarButtonStyle}
+  title="画像を90度回転"
+  disabled={state.isSaving}
+>
+  回転
+</button>
+```
+
+**UI配置**: 回転ボタンは注釈ツール群とは別のグループ（画像操作グループ）としてツールバーに配置する。Undo/Redoボタンの近くに配置し、画像操作と注釈操作を視覚的に分離する。
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ [選択][寸法線][矢印][円][四角][多角形][折れ線][フリーハンド][テキスト]    │
+│ ──── 区切り ────                                                         │
+│ [回転] │ [Undo][Redo] │ [保存]                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 変更6: 閲覧モードでの回転表示
+
+**対象ファイル**: `frontend/src/pages/SiteSurveyImageViewerPage.tsx`
+
+閲覧モード（読み取り専用AnnotationEditor）でも、保存された`imageRotation`を読み込んで背景画像を回転表示する。変更4の復元処理がAnnotationEditor内で実行されるため、追加の変更は不要（AnnotationEditorが閲覧モードでも回転状態を復元する）。
+
+### 変更7: サムネイル・PDF出力への回転反映
+
+**サムネイル生成（AnnotatedThumbnailService）**:
+- 注釈データに含まれる`imageRotation`フィールドを読み取り、オリジナル画像をSharpで回転してからSVGオーバーレイを合成する
+- `sharp.rotate(rotation)`でサーバーサイドの回転を適用
+
+**PDF報告書出力（AnnotationRendererService）**:
+- `renderImagesForReport`で各画像の注釈データから`imageRotation`を読み取り、Fabric.jsキャンバスの背景画像に回転を適用してからレンダリング
+
+```typescript
+// AnnotatedThumbnailService: サーバーサイドでの回転適用
+const rotation = annotationData.imageRotation ?? 0;
+let pipeline = sharp(imageBuffer);
+if (rotation !== 0) {
+  pipeline = pipeline.rotate(rotation);
+}
+// ... SVGオーバーレイ合成処理
+```
+
+### テスト戦略
+
+**フロントエンド単体テスト** (`AnnotationEditor.test.tsx`):
+- `handleRotate`: 0度 → 90度 → 180度 → 270度 → 0度の循環的な回転
+- `handleRotate`: 回転後にキャンバスサイズが正しく調整されること（90度で幅と高さが入れ替わる）
+- `handleRotate`: 回転後に描画済み注釈オブジェクトの位置・サイズが変わらないこと
+- `handleRotate`: 回転操作がUndoManagerに記録されること
+- `handleRotate`: Undo実行で前の回転角度に戻ること
+- `handleSave`: 保存データに`imageRotation`フィールドが含まれること
+- 注釈データ復元: `imageRotation`が復元されて背景画像が回転表示されること
+- 注釈データ復元: `imageRotation`が未定義の場合は0度（回転なし）で表示されること
+
+**バックエンド単体テスト**:
+- `AnnotatedThumbnailService`: `imageRotation`が90度の場合にSharp.rotateが呼ばれること
+- `AnnotatedThumbnailService`: `imageRotation`が0度（または未定義）の場合にSharp.rotateが呼ばれないこと
+
+**E2Eテスト**:
+- 注釈エディタで回転ボタンクリックにより画像が90度回転すること
+- 回転後に既存の注釈が同じ位置に表示されること
+- 回転 → 保存 → 再表示で回転状態が復元されること
+- 回転 → Undo → 元の回転角度に戻ること
+- 4回回転で元に戻ること（360度 = 0度）

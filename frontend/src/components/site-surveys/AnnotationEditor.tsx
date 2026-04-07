@@ -99,6 +99,8 @@ interface AnnotationEditorState {
   isSaving: boolean;
   /** 保存成功メッセージ */
   saveSuccess: boolean;
+  /** 背景画像の回転角度 */
+  imageRotation: 0 | 90 | 180 | 270;
 }
 
 /**
@@ -280,6 +282,9 @@ function AnnotationEditor({
   // Canvas dispose状態を追跡（React StrictModeでの二重マウント対応）
   const isDisposedRef = useRef(false);
 
+  /** 背景画像の累積回転角度を管理するRef (Req 22.1, 22.8) */
+  const imageRotationRef = useRef<0 | 90 | 180 | 270>(0);
+
   // Canvas要素参照（動的に生成）
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -293,6 +298,7 @@ function AnnotationEditor({
     canRedo: false,
     isSaving: false,
     saveSuccess: false,
+    imageRotation: 0,
   });
 
   // エクスポートダイアログの状態管理（REQ-12.2, 12.3, 12.4）
@@ -535,7 +541,7 @@ function AnnotationEditor({
         // REQ-9.2: 保存された注釈データを復元
         try {
           const annotationData = await getAnnotation(imageId);
-          if (annotationData && annotationData.data && annotationData.data.objects) {
+          if (annotationData && annotationData.data) {
             // 再度disposeチェック
             /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */
             if (
@@ -547,9 +553,17 @@ function AnnotationEditor({
               return;
             }
 
+            // 回転状態の復元 (Req 22.4, 22.5)
+            const savedRotation = (annotationData.data.imageRotation ?? 0) as 0 | 90 | 180 | 270;
+            if (savedRotation !== 0 && backgroundImageRef.current) {
+              imageRotationRef.current = savedRotation;
+              applyImageRotation(canvas, backgroundImageRef.current, savedRotation);
+              setState((prev) => ({ ...prev, imageRotation: savedRotation }));
+            }
+
             // 注釈オブジェクトを復元
             const objects = annotationData.data.objects;
-            if (objects.length > 0) {
+            if (objects && objects.length > 0) {
               // Fabric.js v6 の enlivenObjects を使用してオブジェクトを復元
               const enlivenedObjects = await util.enlivenObjects(objects);
 
@@ -1201,6 +1215,88 @@ function AnnotationEditor({
   }, [undoManager]);
 
   /**
+   * 背景画像に回転を適用し、キャンバスサイズを調整する
+   *
+   * @param canvas - Fabric.jsキャンバス
+   * @param bgImage - 背景画像
+   * @param rotation - 適用する回転角度
+   *
+   * @requirement 22.3
+   */
+  const applyImageRotation = useCallback(
+    (canvas: FabricCanvas, bgImage: FabricImage, rotation: 0 | 90 | 180 | 270): void => {
+      // 元画像の自然サイズ（スケール前）
+      const naturalWidth = bgImage.width ?? 0;
+      const naturalHeight = bgImage.height ?? 0;
+      const scale = bgImage.scaleX ?? 1;
+
+      // 90度/270度の場合は幅と高さが入れ替わる
+      const isSwapped = rotation === 90 || rotation === 270;
+      const canvasWidth = isSwapped ? naturalHeight * scale : naturalWidth * scale;
+      const canvasHeight = isSwapped ? naturalWidth * scale : naturalHeight * scale;
+
+      // キャンバスサイズを調整
+      canvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+
+      // 背景画像の回転を設定
+      bgImage.set({
+        angle: rotation,
+        originX: 'center',
+        originY: 'center',
+        left: canvasWidth / 2,
+        top: canvasHeight / 2,
+      });
+
+      canvas.renderAll();
+    },
+    []
+  );
+
+  /**
+   * 背景画像を90度時計回りに回転する
+   *
+   * - 背景画像のangleを90度加算（累積回転）
+   * - 90度/270度の場合はキャンバスの幅と高さを入れ替え
+   * - 描画済み注釈オブジェクトの位置・サイズは維持（追従しない）
+   * - Undo/Redo履歴に回転操作を記録
+   *
+   * @requirement 22.1, 22.2, 22.3, 22.6, 22.8
+   */
+  const handleRotate = useCallback(() => {
+    const canvas = fabricCanvasRef.current;
+    const bgImage = backgroundImageRef.current;
+    if (!canvas || !bgImage) return;
+
+    // 1. 回転前の状態を保存（Undo用）
+    const prevRotation = imageRotationRef.current;
+
+    // 2. 新しい回転角度を計算（0 → 90 → 180 → 270 → 0）
+    const newRotation = ((prevRotation + 90) % 360) as 0 | 90 | 180 | 270;
+    imageRotationRef.current = newRotation;
+
+    // 3. 背景画像の回転を適用
+    applyImageRotation(canvas, bgImage, newRotation);
+
+    // 4. Undo/Redo履歴に記録（pushWithoutExecuteで既に実行済みの操作を記録）
+    undoManager.pushWithoutExecute({
+      type: 'rotate',
+      execute: () => {
+        imageRotationRef.current = newRotation;
+        applyImageRotation(canvas, bgImage, newRotation);
+        setState((prev) => ({ ...prev, imageRotation: newRotation }));
+      },
+      undo: () => {
+        imageRotationRef.current = prevRotation;
+        applyImageRotation(canvas, bgImage, prevRotation);
+        setState((prev) => ({ ...prev, imageRotation: prevRotation }));
+      },
+    });
+
+    // 5. 状態を更新
+    setState((prev) => ({ ...prev, imageRotation: newRotation }));
+  }, [undoManager, applyImageRotation]);
+
+  /**
    * 保存操作ハンドラ
    *
    * REQ-9.1: 全ての注釈データをデータベースに保存する
@@ -1220,12 +1316,13 @@ function AnnotationEditor({
       // Canvasからオブジェクトを取得（背景画像を除く）
       const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
 
-      // 注釈データを構築（キャンバス寸法を含める - PDF/サムネイルでのスケール変換用）
+      // 注釈データを構築（キャンバス寸法と回転角度を含める - PDF/サムネイルでのスケール変換・回転用）
       const annotationData = {
         version: '1.0',
         objects: objects.map((obj) => obj.toObject()),
         canvasWidth: canvas.getWidth(),
         canvasHeight: canvas.getHeight(),
+        imageRotation: imageRotationRef.current,
       };
 
       // APIを呼び出して保存
@@ -1483,6 +1580,7 @@ function AnnotationEditor({
               onExport={handleExport}
               canUndo={state.canUndo}
               canRedo={state.canRedo}
+              onRotate={handleRotate}
             />
           </div>
         )}

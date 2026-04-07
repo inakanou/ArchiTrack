@@ -605,6 +605,8 @@ export interface AnnotationData {
   canvasWidth?: number;
   /** 保存時のキャンバス高さ（スケール変換用） */
   canvasHeight?: number;
+  /** 背景画像の回転角度 (Req 22.4) */
+  imageRotation?: 0 | 90 | 180 | 270;
 }
 
 /**

@@ -218,7 +218,8 @@ AI支援開発のためのスペック管理。
     ├── company-info/          # 自社情報登録機能 ✅
     ├── estimate-creation/     # 見積書作成機能 ✅
     ├── contract-management/   # 契約書管理機能 ✅
-    └── construction-schedule/ # 工程表作成機能 ✅
+    ├── construction-schedule/ # 工程表作成機能 ✅
+    └── execution-budget-management/ # 実行予算管理機能 ✅
 ```
 
 **ワークフロー:**
