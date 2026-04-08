@@ -6,7 +6,7 @@
 
 **Users**: 積算担当者が、プロジェクトに紐付く数量表の作成・編集・管理、コピーによる効率的な再利用、計算機能（面積・体積、ピッチ）を使用して効率的な積算作業を実施する。さらに、ExcelファイルおよびPDFファイルから数量項目をインポートし、手入力作業を大幅に削減する。
 
-**Impact**: プロジェクト詳細画面に数量表セクションを追加し、QuantityTable、QuantityGroup、QuantityItemエンティティを導入する。数量表コピー機能、タイトル行表示最適化、パンくずナビゲーション改善（「ダッシュボード」起点の階層構造）、注釈付き写真の全画面統一表示、写真変更・プレビューダイアログでの注釈付き写真表示、写真コメント表示によるUI改善を含む。数量グループの名前変更機能、数量グループおよび数量項目の並び順管理（上下ボタンUI）、画面スクロールバー表示、数量表のPDF出力機能を追加する。さらに、ExcelファイルのデータパースおよびPDFファイルのOCR処理（pdfjs-dist + Tesseract.js + Claude Vision API）によるインポート機能を追加し、数量項目の一括取り込みを実現する。
+**Impact**: プロジェクト詳細画面に数量表セクションを追加し、QuantityTable、QuantityGroup、QuantityItemエンティティを導入する。数量表コピー機能、タイトル行表示最適化、パンくずナビゲーション改善（「ダッシュボード」起点の階層構造）、注釈付き写真の全画面統一表示、写真変更・プレビューダイアログでの注釈付き写真表示、写真コメント表示によるUI改善を含む。数量グループの名前変更機能、数量グループおよび数量項目の並び順管理（上下ボタンUI）、画面スクロールバー表示、数量表のPDF出力機能を追加する。さらに、ExcelファイルのデータパースおよびPDFファイルのOCR処理（pdfjs-dist + Tesseract.js + Claude Vision API）によるインポート機能を追加し、数量項目の一括取り込みを実現する。加えて、写真コメント表示の不具合修正（写真選択時・初回表示時・写真変更時のコメント取得・表示を修正）および数量項目のアクションボタン統合（並び替えボタン・削除ボタンをアクションメニュー内に集約しUI簡素化）を行う。
 
 ### Goals
 
@@ -26,6 +26,8 @@
 - 画面スクロールバー表示による小画面環境での操作性確保
 - PDF出力機能による数量表の帳票化と関係者への共有・提出の効率化
 - インポート機能によるExcel・PDFからの数量項目一括取り込みと手入力作業の大幅削減
+- 写真コメント表示の不具合修正によるRequirement 21の受け入れ基準の完全充足
+- 数量項目のアクションボタン統合による表の視認性・操作性の向上
 
 ### Non-Goals
 
@@ -58,6 +60,7 @@ graph TB
         QTS[QuantityTableSectionCard]
         QGC[QuantityGroupComponent]
         QIC[QuantityItemComponent]
+        QIAM[QuantityItemActionMenu]
         CE[CalculationEngine]
         FV[FieldValidator]
         ACS[AutocompleteCandidateStore]
@@ -106,7 +109,7 @@ graph TB
     QGC --> PPD
     QGC --> PCC
     QGC --> SOB
-    QIC --> SOB
+    QIC --> QIAM
 
     IMP --> IMPEXT
     IMP --> IMPPRV
@@ -142,6 +145,8 @@ graph TB
 - 追加コンポーネント（REQ-25）: スクロールバー表示（QuantityTableEditPage CSSスタイル調整）
 - 追加コンポーネント（REQ-26）: QuantityTablePdfExportService（数量表PDF出力、フロントエンドjsPDF）
 - 追加コンポーネント（REQ-27-34）: ImportDialog、ImportDataExtractor、ImportPreviewTable、ImportFieldMapping（数量表インポート機能、受領見積書登録機能のOCRパイプラインを再利用）
+- 修正コンポーネント（REQ-35）: PhotoCommentDisplay・QuantityGroupCard・QuantityTableEditPageの写真コメント取得・表示ロジック修正
+- 変更コンポーネント（REQ-36）: EditableQuantityItemRow内のアクションセルを再構成。SortOrderButtonsと削除ボタンを個別表示から削除し、アクションメニュー内に「上へ移動」「下へ移動」「削除」を統合。QuantityItemActionMenuを新設
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -398,6 +403,8 @@ sequenceDiagram
 | 32.1-32.6 | フィールドマッピング調整 | ImportFieldMapping, ImportPreviewTable | - | 数量表インポートフロー |
 | 33.1-33.5 | OCR再実行・リトライ機能 | ImportDialog, ImportDataExtractor | - | - |
 | 34.1-34.5 | インラインプレビュー | ImportDialog | react-pdf, SheetJS xlsx | - |
+| 35.1-35.7 | 写真コメント表示の不具合修正 | PhotoCommentDisplay, QuantityGroupCard, QuantityTableEditPage | GET /api/quantity-tables/:id | - |
+| 36.1-36.9 | 数量項目のアクションボタン統合 | QuantityItemActionMenu, EditableQuantityItemRow | - | - |
 
 ## Field Specifications
 
@@ -468,8 +475,9 @@ sequenceDiagram
 | QuantityGroupTitleRow | Frontend/Component | 数量グループのメインタイトル行 | 18.1, 18.2, 18.5 | - | - |
 | PhotoChangeDialog | Frontend/Component | 注釈付き写真変更ダイアログ | 19.1-19.4 | QuantityGroupCard (P0) | - |
 | PhotoPreviewDialog | Frontend/Component | 注釈付き写真プレビューダイアログ | 20.1-20.3 | QuantityGroupCard (P0) | - |
-| PhotoCommentDisplay | Frontend/Component | 写真コメント表示 | 21.1-21.5 | QuantityGroupCard (P0) | - |
-| SortOrderButtons | Frontend/Component | 並び順変更ボタンUI | 23.3-23.8, 24.3-24.8 | - | - |
+| PhotoCommentDisplay | Frontend/Component | 写真コメント表示 | 21.1-21.5, 35.1-35.7 | QuantityGroupCard (P0) | - |
+| SortOrderButtons | Frontend/Component | 並び順変更ボタンUI | 23.3-23.8 | - | - |
+| QuantityItemActionMenu | Frontend/Component | 数量項目アクションメニュー（並び替え・削除・コピー統合） | 36.1-36.9 | EditableQuantityItemRow (P0) | - |
 | QuantityTablePdfExportService | Frontend/Service | 数量表PDF出力サービス | 26.1-26.12 | jsPDF (P0), PdfFontService (P0) | Service |
 | FieldValidator | Frontend/Utility | フィールド入力制御・書式 | 13.1-13.4, 14.1-14.5, 15.1-15.3 | - | Service |
 | ImportDialog | Frontend/Component | 数量表インポートダイアログ | 27.1-27.8, 31.1-31.9, 33.1-33.5, 34.1-34.5 | ImportDataExtractor (P0), ImportPreviewTable (P0), ImportFieldMapping (P0) | State |
@@ -1313,6 +1321,114 @@ function convertToQuantityItems(
 
 ---
 
+### 不具合修正・UI改善コンポーネント
+
+#### PhotoCommentDisplay修正（REQ-35）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 写真コメント表示の不具合を修正し、写真選択時・初回表示時・写真変更時にコメントを正しく取得・表示する |
+| Requirements | 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7 |
+
+**不具合分析**
+
+現在の実装では`PhotoCommentDisplay`コンポーネント自体は正しく実装されているが、`QuantityGroupCard`から渡されるcommentプロパティが正しく設定されていない。具体的には以下の問題が存在する:
+
+1. **写真選択時のコメント未取得**: `QuantityGroupCard`で写真を選択（`linkSurveyImage`）した際、レスポンスに含まれる`comment`フィールドをローカルステートに反映していない
+2. **初回表示時のコメント未伝播**: `QuantityTableEditPage`から`QuantityGroupCard`へデータを渡す際、`surveyImage.comment`の値が適切に伝播されていない場合がある
+3. **写真変更ダイアログでの更新未反映**: `PhotoChangeDialog`で写真を変更した後、変更後の写真のコメントを取得してQuantityGroupCardのステートを更新するフローが欠落している
+
+**修正対象コンポーネントと変更内容**
+
+| コンポーネント | 修正内容 |
+|---------------|---------|
+| QuantityGroupCard | 写真選択（linkSurveyImage）レスポンスのcommentフィールドをローカルステートに反映する。初回表示時にpropsのsurveyImage.commentを正しくPhotoCommentDisplayに伝播する |
+| QuantityTableEditPage | 数量表詳細API（GET /api/quantity-tables/:id）のレスポンスに含まれるsurveyImage.commentをグループステートに正しくマッピングする |
+| PhotoChangeDialog | 写真変更確定後、変更後の写真のcommentを含むレスポンスを親（QuantityGroupCard）に返却し、コメント表示を更新する |
+
+**Responsibilities & Constraints**
+
+- 既存のPhotoCommentDisplayコンポーネントの実装は変更不要（propsの型・表示ロジックは正しい）
+- バックエンドAPI（QuantityTableService、QuantityGroupService）は既にcommentフィールドを返却している（修正不要）
+- 修正はフロントエンドのステート管理とデータフロー（コメントの伝播経路）に限定される
+- 折りたたみ・展開時のコメント表示制御は既存の`isExpanded`制御に従い、追加対応不要
+
+**Implementation Notes**
+
+- Integration: QuantityGroupCard内の`handleLinkImage`コールバックで、APIレスポンスの`comment`フィールドをローカルステートの`surveyImage`オブジェクトに含める
+- Integration: PhotoChangeDialogの`onPhotoChanged`コールバックの型を拡張し、変更後の写真のcommentを含める
+- Validation: コメントがnullの場合はPhotoCommentDisplayが空白表示を行うため、null安全性を維持する
+- Risks: APIレスポンスのcommentフィールドが既に正しく返却されていることが前提。バックエンド側の修正が不要であることを確認済み
+
+---
+
+#### QuantityItemActionMenu（REQ-36）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 数量項目の行アクション（上へ移動・下へ移動・削除・コピー）を単一のドロップダウンメニューに統合し、表のボタン数を削減する |
+| Requirements | 36.1, 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9 |
+
+**Responsibilities & Constraints**
+
+- アクションメニューボタン（三点メニューアイコン）の1つのみを行の右端に表示する
+- メニュー内に「上へ移動」「下へ移動」「コピー」「削除」の操作項目を含める
+- 最上位の項目では「上へ移動」をdisabled、最下位の項目では「下へ移動」をdisabledにする
+- メニュー外クリックでドロップダウンを閉じる
+- 既存のSortOrderButtonsコンポーネントを行から削除し、アクションメニュー内の「上へ移動」「下へ移動」に置き換える
+- 既存の削除ボタンを行から削除し、アクションメニュー内の「削除」に置き換える
+- 「削除」はメニュー内で赤文字スタイルを適用し、視覚的に区別する
+
+**Dependencies**
+
+- Inbound: EditableQuantityItemRow (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+interface QuantityItemActionMenuProps {
+  /** メニュー開閉状態 */
+  isOpen: boolean;
+  /** メニュー開閉トグルコールバック */
+  onToggle: () => void;
+  /** メニューを閉じるコールバック */
+  onClose: () => void;
+  /** 上に移動コールバック */
+  onMoveUp: () => void;
+  /** 下に移動コールバック */
+  onMoveDown: () => void;
+  /** コピーコールバック */
+  onCopy: () => void;
+  /** 削除コールバック */
+  onDelete: () => void;
+  /** 上に移動可能かどうか（falseの場合はdisabled） */
+  canMoveUp: boolean;
+  /** 下に移動可能かどうか（falseの場合はdisabled） */
+  canMoveDown: boolean;
+}
+```
+
+**EditableQuantityItemRow変更内容**
+
+| 変更箇所 | Before | After |
+|----------|--------|-------|
+| アクションセル構成 | SortOrderButtons + 削除ボタン + メニューボタン（コピー・移動） | QuantityItemActionMenuボタンのみ |
+| メニュー項目 | コピー、上に移動（条件付き）、下に移動（条件付き） | 上へ移動（disabled対応）、下へ移動（disabled対応）、コピー、削除（赤文字） |
+| ボタン数（行表示） | 最大4個（上・下・削除・メニュー） | 1個（メニューボタンのみ） |
+| gridTemplateColumns | アクション列80px | アクション列40pxに縮小可能 |
+
+**Implementation Notes**
+
+- Integration: EditableQuantityItemRowのアクションセルからSortOrderButtonsコンポーネントの参照と削除ボタンを除去し、QuantityItemActionMenuに統合する
+- Integration: 既存のonMoveUp、onMoveDown、onDelete、onCopyコールバックはそのまま維持し、QuantityItemActionMenuに転送する
+- Integration: メニュー外クリック検出はonBlurイベント（`e.currentTarget.contains(e.relatedTarget)`パターン）を維持する
+- Validation: canMoveUp=falseの場合は「上へ移動」にdisabled属性を付与、canMoveDown=falseの場合は「下へ移動」にdisabled属性を付与
+- Risks: SortOrderButtonsは数量グループの並び順変更（REQ-23）では引き続き使用されるため、コンポーネント自体は削除しない。EditableQuantityItemRowからの参照のみを削除する
+
+---
+
 ### Backend Extension（インポート機能用）
 
 #### ClaudeVisionService拡張
@@ -1547,6 +1663,9 @@ enum CalculationMethod {
 - ImportDialog: ファイル形式バリデーション、処理状態管理、リトライ機能のテスト
 - ImportPreviewTable: プレビューテーブル表示、テキスト選択可能性のテスト
 - ClaudeVisionService: 数量表用プロンプトでの抽出テスト
+- PhotoCommentDisplay: コメントあり/なし/null時の表示テスト（既存テストで対応済み、修正後の回帰確認）
+- QuantityGroupCard: 写真選択時のコメント伝播テスト（linkSurveyImageレスポンスのcommentフィールド反映）
+- QuantityItemActionMenu: メニュー開閉、disabled制御（canMoveUp/canMoveDown）、各アクションコールバック呼び出し
 
 ### Integration Tests
 
@@ -1580,6 +1699,16 @@ enum CalculationMethod {
 - インポート操作（PDFファイル）
   - PDFファイルアップロード → OCR処理 → プレビュー表示 → 一括取り込みの一連フロー
   - PDFインラインプレビューとページナビゲーションの動作確認
+- 写真コメント表示
+  - 数量グループに写真を紐づけた際にコメントが写真の右側に正しく表示されること
+  - 数量表編集画面の初回表示時に既存写真のコメントが表示されること
+  - 写真変更ダイアログで写真を変更した後、変更後の写真のコメントが表示されること
+  - コメントが存在しない写真の場合、コメント表示エリアが空白であること
+- 数量項目アクションメニュー
+  - アクションメニューボタンのみが行の右端に表示されること
+  - メニュー内から「上へ移動」「下へ移動」「コピー」「削除」が実行できること
+  - 最上位項目の「上へ移動」がdisabled、最下位項目の「下へ移動」がdisabledであること
+  - メニュー外クリックでメニューが閉じること
 - インポートエラーハンドリング
   - サポート対象外ファイル形式のエラー表示
   - OCR処理失敗時のリトライ動作確認
