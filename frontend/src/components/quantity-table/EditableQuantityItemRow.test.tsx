@@ -207,12 +207,15 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
-  describe('削除操作', () => {
-    it('削除ボタンクリック時にonDeleteが呼ばれる', async () => {
+  describe('削除操作（REQ-36: アクションメニュー統合後）', () => {
+    it('アクションメニューの削除をクリック時にonDeleteが呼ばれる', async () => {
       const onDelete = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onDelete={onDelete} />);
 
-      const deleteButton = screen.getByLabelText('削除');
+      const moreButton = screen.getByLabelText('アクション');
+      await userEvent.click(moreButton);
+
+      const deleteButton = screen.getByRole('menuitem', { name: /削除/ });
       await userEvent.click(deleteButton);
 
       expect(onDelete).toHaveBeenCalledWith('item-1');
@@ -566,21 +569,21 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
-  describe('REQ-6.3: 項目移動', () => {
-    it('上に移動ボタンをクリックするとonMoveUpが呼ばれる', async () => {
+  describe('REQ-6.3: 項目移動（REQ-36: アクションメニュー統合後）', () => {
+    it('上へ移動ボタンをクリックするとonMoveUpが呼ばれる', async () => {
       const onMoveUp = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onMoveUp={onMoveUp} canMoveUp={true} />);
 
       const moreButton = screen.getByLabelText('アクション');
       await userEvent.click(moreButton);
 
-      const moveUpButton = screen.getByRole('menuitem', { name: /上に移動/ });
+      const moveUpButton = screen.getByRole('menuitem', { name: /上へ移動/ });
       await userEvent.click(moveUpButton);
 
       expect(onMoveUp).toHaveBeenCalledWith('item-1');
     });
 
-    it('下に移動ボタンをクリックするとonMoveDownが呼ばれる', async () => {
+    it('下へ移動ボタンをクリックするとonMoveDownが呼ばれる', async () => {
       const onMoveDown = vi.fn();
       render(
         <EditableQuantityItemRow {...defaultProps} onMoveDown={onMoveDown} canMoveDown={true} />
@@ -589,28 +592,30 @@ describe('EditableQuantityItemRow', () => {
       const moreButton = screen.getByLabelText('アクション');
       await userEvent.click(moreButton);
 
-      const moveDownButton = screen.getByRole('menuitem', { name: /下に移動/ });
+      const moveDownButton = screen.getByRole('menuitem', { name: /下へ移動/ });
       await userEvent.click(moveDownButton);
 
       expect(onMoveDown).toHaveBeenCalledWith('item-1');
     });
 
-    it('canMoveUpがfalseの場合、上に移動ボタンは表示されない', async () => {
+    it('canMoveUpがfalseの場合、上へ移動ボタンはdisabledである', async () => {
       render(<EditableQuantityItemRow {...defaultProps} canMoveUp={false} />);
 
       const moreButton = screen.getByLabelText('アクション');
       await userEvent.click(moreButton);
 
-      expect(screen.queryByRole('menuitem', { name: /上に移動/ })).not.toBeInTheDocument();
+      const moveUpButton = screen.getByRole('menuitem', { name: /上へ移動/ });
+      expect(moveUpButton).toBeDisabled();
     });
 
-    it('canMoveDownがfalseの場合、下に移動ボタンは表示されない', async () => {
+    it('canMoveDownがfalseの場合、下へ移動ボタンはdisabledである', async () => {
       render(<EditableQuantityItemRow {...defaultProps} canMoveDown={false} />);
 
       const moreButton = screen.getByLabelText('アクション');
       await userEvent.click(moreButton);
 
-      expect(screen.queryByRole('menuitem', { name: /下に移動/ })).not.toBeInTheDocument();
+      const moveDownButton = screen.getByRole('menuitem', { name: /下へ移動/ });
+      expect(moveDownButton).toBeDisabled();
     });
   });
 

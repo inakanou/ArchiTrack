@@ -782,8 +782,6 @@ export default function QuantityGroupCard({
                     getSuggestions={getSuggestions || defaultGetSuggestions}
                     onBlurAddCandidate={onBlurAddCandidate || defaultOnBlurAddCandidate}
                     showFieldLabels={false}
-                    itemIndex={index}
-                    itemTotalCount={items.length}
                   />
                 ) : (
                   <QuantityItemRow

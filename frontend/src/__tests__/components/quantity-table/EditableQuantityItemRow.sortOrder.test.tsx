@@ -2,6 +2,7 @@
  * @fileoverview 数量項目行の並び順管理テスト
  *
  * Task 38.2: 数量項目の並び順管理の単体テストを実装する
+ * Task 50.2: アクションメニュー統合後の並び順操作テスト（REQ-36対応）
  *
  * Requirements:
  * - 24.1: 数量項目の並び順データ保持
@@ -9,6 +10,7 @@
  * - 24.3: 数量項目「上へ移動」ボタン
  * - 24.4: 数量項目「下へ移動」ボタン
  * - 24.7: 項目並び順変更の保存
+ * - 36.1: アクションメニューに統合
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -43,8 +45,8 @@ const createMockItem = (overrides?: Partial<QuantityItemDetail>): QuantityItemDe
 const defaultGetSuggestions = () => [] as string[];
 const defaultOnBlurAddCandidate = () => {};
 
-describe('EditableQuantityItemRow 並び順管理', () => {
-  it('SortOrderButtonsが操作列に表示される（REQ-24.3, 24.4）', () => {
+describe('EditableQuantityItemRow 並び順管理（アクションメニュー統合後）', () => {
+  it('アクションメニューが操作列に表示される（REQ-36.1）', () => {
     render(
       <EditableQuantityItemRow
         item={createMockItem()}
@@ -52,15 +54,13 @@ describe('EditableQuantityItemRow 並び順管理', () => {
         onBlurAddCandidate={defaultOnBlurAddCandidate}
         canMoveUp={true}
         canMoveDown={true}
-        itemIndex={1}
-        itemTotalCount={3}
       />
     );
 
-    expect(screen.getByTestId('sort-order-buttons')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'アクション' })).toBeInTheDocument();
   });
 
-  it('「上へ移動」クリックでonMoveUpが正しいitemIdで呼ばれる（REQ-24.3, 24.7）', async () => {
+  it('メニュー内の「上へ移動」クリックでonMoveUpが正しいitemIdで呼ばれる（REQ-24.3, 24.7）', async () => {
     const user = userEvent.setup();
     const onMoveUp = vi.fn();
     render(
@@ -71,16 +71,15 @@ describe('EditableQuantityItemRow 並び順管理', () => {
         onMoveUp={onMoveUp}
         canMoveUp={true}
         canMoveDown={true}
-        itemIndex={1}
-        itemTotalCount={3}
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /上へ移動/i }));
+    await user.click(screen.getByRole('button', { name: 'アクション' }));
+    await user.click(screen.getByRole('menuitem', { name: /上へ移動/i }));
     expect(onMoveUp).toHaveBeenCalledWith('item-abc');
   });
 
-  it('「下へ移動」クリックでonMoveDownが正しいitemIdで呼ばれる（REQ-24.4, 24.7）', async () => {
+  it('メニュー内の「下へ移動」クリックでonMoveDownが正しいitemIdで呼ばれる（REQ-24.4, 24.7）', async () => {
     const user = userEvent.setup();
     const onMoveDown = vi.fn();
     render(
@@ -91,16 +90,16 @@ describe('EditableQuantityItemRow 並び順管理', () => {
         onMoveDown={onMoveDown}
         canMoveUp={true}
         canMoveDown={true}
-        itemIndex={1}
-        itemTotalCount={3}
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /下へ移動/i }));
+    await user.click(screen.getByRole('button', { name: 'アクション' }));
+    await user.click(screen.getByRole('menuitem', { name: /下へ移動/i }));
     expect(onMoveDown).toHaveBeenCalledWith('item-xyz');
   });
 
-  it('最上位項目（index=0）では「上へ移動」がdisabled（REQ-24.5）', () => {
+  it('最上位項目（canMoveUp=false）ではメニュー内の「上へ移動」がdisabled（REQ-24.5）', async () => {
+    const user = userEvent.setup();
     render(
       <EditableQuantityItemRow
         item={createMockItem()}
@@ -108,16 +107,16 @@ describe('EditableQuantityItemRow 並び順管理', () => {
         onBlurAddCandidate={defaultOnBlurAddCandidate}
         canMoveUp={false}
         canMoveDown={true}
-        itemIndex={0}
-        itemTotalCount={3}
       />
     );
 
-    expect(screen.getByRole('button', { name: /上へ移動/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /下へ移動/i })).not.toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'アクション' }));
+    expect(screen.getByRole('menuitem', { name: /上へ移動/i })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: /下へ移動/i })).not.toBeDisabled();
   });
 
-  it('最下位項目（index=totalCount-1）では「下へ移動」がdisabled（REQ-24.6）', () => {
+  it('最下位項目（canMoveDown=false）ではメニュー内の「下へ移動」がdisabled（REQ-24.6）', async () => {
+    const user = userEvent.setup();
     render(
       <EditableQuantityItemRow
         item={createMockItem()}
@@ -125,16 +124,16 @@ describe('EditableQuantityItemRow 並び順管理', () => {
         onBlurAddCandidate={defaultOnBlurAddCandidate}
         canMoveUp={true}
         canMoveDown={false}
-        itemIndex={2}
-        itemTotalCount={3}
       />
     );
 
-    expect(screen.getByRole('button', { name: /上へ移動/i })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: /下へ移動/i })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'アクション' }));
+    expect(screen.getByRole('menuitem', { name: /上へ移動/i })).not.toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: /下へ移動/i })).toBeDisabled();
   });
 
-  it('項目が1つの場合は両ボタンがdisabled（REQ-24.8）', () => {
+  it('項目が1つの場合はメニュー内の両方がdisabled（REQ-24.8）', async () => {
+    const user = userEvent.setup();
     render(
       <EditableQuantityItemRow
         item={createMockItem()}
@@ -142,12 +141,11 @@ describe('EditableQuantityItemRow 並び順管理', () => {
         onBlurAddCandidate={defaultOnBlurAddCandidate}
         canMoveUp={false}
         canMoveDown={false}
-        itemIndex={0}
-        itemTotalCount={1}
       />
     );
 
-    expect(screen.getByRole('button', { name: /上へ移動/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /下へ移動/i })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'アクション' }));
+    expect(screen.getByRole('menuitem', { name: /上へ移動/i })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: /下へ移動/i })).toBeDisabled();
   });
 });
