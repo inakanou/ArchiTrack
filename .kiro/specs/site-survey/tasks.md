@@ -1372,7 +1372,7 @@
   - _Boundary: annotated-thumbnail.service.ts_
   - _Requirements: 23.8_
 
-- [ ] 60.3 AnnotationService.save のサムネイル生成を同期化する
+- [x] 60.3 AnnotationService.save のサムネイル生成を同期化する
   - `backend/src/services/annotation.service.ts:250-258` の fire-and-forget を `await` に変更
   - try/catch で失敗時に `ThumbnailRegenerationError` を throw
   - 再生成成功時に `result.annotatedThumbnailPath` を新 path で更新してから return

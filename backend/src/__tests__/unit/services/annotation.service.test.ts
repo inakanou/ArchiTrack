@@ -953,7 +953,7 @@ describe('AnnotationService', () => {
       );
     });
 
-    it('サムネイル生成失敗時も注釈保存は成功すること', async () => {
+    it('サムネイル生成失敗時は ThumbnailRegenerationError を throw すること（Task 60.3 同期化）', async () => {
       // Arrange
       mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockRejectedValue(
         new Error('thumbnail generation failed')
@@ -979,19 +979,13 @@ describe('AnnotationService', () => {
         data: mockAnnotationData,
       };
 
-      // Act - 注釈保存はエラーなく完了すること
-      const result = await serviceWithThumbnail.save(input);
-
-      // Assert - 注釈保存は成功
-      expect(result).toEqual(
-        expect.objectContaining({
-          id: 'annotation-123',
-          imageId: 'image-123',
-        })
-      );
-
-      // サムネイル生成失敗のPromiseが解決されるまで待つ
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Act & Assert: Task 60.3 により同期化されたので失敗はそのまま throw される。
+      // 注釈自体の DB 保存は成功しているが、呼び出し側（ルート層）で
+      // ThumbnailRegenerationError を検知してクライアントに警告を返す契約。
+      await expect(serviceWithThumbnail.save(input)).rejects.toMatchObject({
+        name: 'ThumbnailRegenerationError',
+        code: 'THUMBNAIL_REGENERATION_FAILED',
+      });
     });
 
     it('annotatedThumbnailServiceが設定されていない場合はサムネイル生成をスキップすること', async () => {

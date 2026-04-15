@@ -27,6 +27,8 @@
 
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { Prisma } from '../generated/prisma/client.js';
+import logger from '../utils/logger.js';
+import { ThumbnailRegenerationError } from './errors.js';
 
 /**
  * 現在のスキーマバージョン
@@ -174,6 +176,14 @@ export interface AnnotationInfo {
   version: string;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * 注釈付きサムネイルのR2オブジェクトパス。
+   * `save()` 実行直後に同期再生成された最新パス（Task 60.3）。
+   * - 再生成成功時: 新しいタイムスタンプ付きパス
+   * - ソースなし/空注釈で削除された場合: null
+   * - `save()` 以外の経路（findByImageId等）で取得した場合は未設定
+   */
+  annotatedThumbnailPath?: string | null;
 }
 
 /**
@@ -248,13 +258,28 @@ export class AnnotationService {
       }
     });
 
-    // 注釈付きサムネイル生成（非同期、失敗しても注釈保存は成功）（Task 53.3）
+    // 注釈付きサムネイル生成（同期化: Task 60.3）
+    // Req 23.1-23.4: 注釈/画像編集が終わった時点で最新のサムネイルパスを保証する。
+    // imageRotation のみ変更された場合も dataWithVersion 経由で同じフローを通る。
     if (this.annotatedThumbnailService) {
-      this.annotatedThumbnailService
-        .generateAnnotatedThumbnail(input.imageId, dataWithVersion)
-        .catch(() => {
-          // サムネイル生成失敗はログのみ（AnnotatedThumbnailService内でログ出力済み）
+      try {
+        const newPath = await this.annotatedThumbnailService.generateAnnotatedThumbnail(
+          input.imageId,
+          dataWithVersion
+        );
+        // newPath が null の場合（元画像なし/空注釈でサムネイル削除済み等）もそのまま反映する。
+        result.annotatedThumbnailPath = newPath;
+      } catch (error) {
+        logger.error({
+          action: 'annotated_thumbnail_regeneration_failed',
+          imageId: input.imageId,
+          error: error instanceof Error ? error.message : String(error),
         });
+        throw new ThumbnailRegenerationError(
+          '注釈の保存には成功しましたが、サムネイルの再生成に失敗しました。画面を再読み込みしてください。',
+          { cause: error }
+        );
+      }
     }
 
     return result;
