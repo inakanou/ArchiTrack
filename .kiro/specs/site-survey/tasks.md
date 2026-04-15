@@ -1393,7 +1393,7 @@
   - _Boundary: annotation.service.test.ts_
   - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.6_
 
-- [ ] 60.5 (P) AnnotatedThumbnailService の単体テストを追加する
+- [x] 60.5 (P) AnnotatedThumbnailService の単体テストを追加する
   - `backend/src/services/__tests__/annotated-thumbnail.service.test.ts` にテストケース追加
   - 連続呼び出しで異なる path が返ることを検証（冪等性）
   - R2 PUT 失敗時に DB 更新されないことを検証
