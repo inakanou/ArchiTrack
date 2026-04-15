@@ -1361,7 +1361,7 @@
   - _Boundary: errors.ts_
   - _Requirements: 23.6_
 
-- [ ] 60.2 AnnotatedThumbnailService.generateAnnotatedThumbnail を冪等化する
+- [x] 60.2 AnnotatedThumbnailService.generateAnnotatedThumbnail を冪等化する
   - `backend/src/services/annotated-thumbnail.service.ts` を変更
   - 新サムネイルをタイムスタンプ付きキー `annotated-thumbnails/{imageId}.{Date.now()}.jpg` で R2 に PUT
   - DB の `annotatedThumbnailPath` を新キーに更新

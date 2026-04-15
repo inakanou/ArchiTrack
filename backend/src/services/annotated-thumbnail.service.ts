@@ -263,77 +263,91 @@ export class AnnotatedThumbnailService {
     imageId: string,
     annotationData: AnnotationData
   ): Promise<string | null> {
-    try {
-      // 1. 画像メタデータ取得
-      const image = await this.prisma.surveyImage.findUnique({
-        where: { id: imageId },
-        select: {
-          id: true,
-          surveyId: true,
-          originalPath: true,
-          width: true,
-          height: true,
-        },
-      });
+    // 1. 画像メタデータ取得
+    //    Requirement 23.8: 旧サムネイルパスも取得し、冪等な置き換えで旧キー削除対象を得る
+    const image = await this.prisma.surveyImage.findUnique({
+      where: { id: imageId },
+      select: {
+        id: true,
+        surveyId: true,
+        originalPath: true,
+        width: true,
+        height: true,
+        annotatedThumbnailPath: true,
+      },
+    });
 
-      if (!image) {
-        logger.warn({ imageId }, 'Annotated thumbnail: image not found');
-        return null;
-      }
+    if (!image) {
+      logger.warn({ imageId }, 'Annotated thumbnail: image not found');
+      return null;
+    }
 
-      // 注釈オブジェクトが空の場合はサムネイルを削除
-      if (!annotationData.objects || annotationData.objects.length === 0) {
-        await this.removeAnnotatedThumbnailForImage(imageId, image);
-        return null;
-      }
+    // 注釈オブジェクトが空の場合はサムネイルを削除
+    if (!annotationData.objects || annotationData.objects.length === 0) {
+      await this.removeAnnotatedThumbnailForImage(imageId, image);
+      return null;
+    }
 
-      // 2. オリジナル画像取得
-      const originalBuffer = await this.storageProvider.get(image.originalPath);
-      if (!originalBuffer) {
-        logger.warn(
-          { imageId, path: image.originalPath },
-          'Annotated thumbnail: original image not found in storage'
-        );
-        return null;
-      }
-
-      // 3. SVGオーバーレイ生成
-      const svgString = generateSvgFromAnnotation(annotationData, image.width, image.height);
-      const svgBuffer = Buffer.from(svgString);
-
-      // 4. Sharpでオリジナル画像にSVGをcomposite（回転対応 - Req 22.4, 22.5）
-      const rotation = annotationData.imageRotation ?? 0;
-      let pipeline = sharp(originalBuffer);
-      if (rotation !== 0) {
-        pipeline = pipeline.rotate(rotation);
-      }
-      const compositeResult = await pipeline
-        .composite([{ input: svgBuffer, top: 0, left: 0 }])
-        .resize(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, { fit: 'inside' })
-        .jpeg({ quality: JPEG_QUALITY })
-        .toBuffer();
-
-      // 5. R2に保存
-      const thumbnailPath = `${ANNOTATED_THUMBNAIL_PREFIX}/${imageId}.jpg`;
-      await this.storageProvider.upload(thumbnailPath, compositeResult, {
-        contentType: 'image/jpeg',
-      });
-
-      // 6. DB更新
-      await this.prisma.surveyImage.update({
-        where: { id: imageId },
-        data: { annotatedThumbnailPath: thumbnailPath },
-      });
-
-      logger.info({ imageId, thumbnailPath }, 'Annotated thumbnail generated successfully');
-      return thumbnailPath;
-    } catch (error) {
-      logger.error(
-        { imageId, error: error instanceof Error ? error.message : String(error) },
-        'Failed to generate annotated thumbnail'
+    // 2. オリジナル画像取得
+    //    原画像が欠損している場合は再生成不能なので null を返す（再生成失敗ではなくソース欠如）
+    const originalBuffer = await this.storageProvider.get(image.originalPath);
+    if (!originalBuffer) {
+      logger.warn(
+        { imageId, path: image.originalPath },
+        'Annotated thumbnail: original image not found in storage'
       );
       return null;
     }
+
+    // 3. SVGオーバーレイ生成
+    const svgString = generateSvgFromAnnotation(annotationData, image.width, image.height);
+    const svgBuffer = Buffer.from(svgString);
+
+    // 4. Sharpでオリジナル画像にSVGをcomposite（回転対応 - Req 22.4, 22.5）
+    const rotation = annotationData.imageRotation ?? 0;
+    let pipeline = sharp(originalBuffer);
+    if (rotation !== 0) {
+      pipeline = pipeline.rotate(rotation);
+    }
+    const compositeResult = await pipeline
+      .composite([{ input: svgBuffer, top: 0, left: 0 }])
+      .resize(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, { fit: 'inside' })
+      .jpeg({ quality: JPEG_QUALITY })
+      .toBuffer();
+
+    // 5. R2 にタイムスタンプ付き新キーで PUT（アトミック置き換え）
+    //    Requirement 23.8: 既存キーを上書きせず、新キーで保存する
+    //    PUT 失敗時は例外を伝播させ、DB 更新は行わない（旧状態を保持）
+    const newPath = `${ANNOTATED_THUMBNAIL_PREFIX}/${imageId}.${Date.now()}.jpg`;
+    await this.storageProvider.upload(newPath, compositeResult, {
+      contentType: 'image/jpeg',
+    });
+
+    // 6. DB 更新（旧 path 退避）
+    const oldPath = image.annotatedThumbnailPath;
+    await this.prisma.surveyImage.update({
+      where: { id: imageId },
+      data: { annotatedThumbnailPath: newPath },
+    });
+
+    // 7. 旧キーの best-effort 削除
+    //    失敗してもログのみで本処理の成否には影響させない（孤立ファイル処理に委譲）
+    if (oldPath && oldPath !== newPath) {
+      this.storageProvider.delete(oldPath).catch((err: unknown) => {
+        logger.warn(
+          {
+            action: 'stale_annotated_thumbnail_delete_failed',
+            imageId,
+            oldPath,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          'Failed to delete stale annotated thumbnail (best-effort)'
+        );
+      });
+    }
+
+    logger.info({ imageId, thumbnailPath: newPath }, 'Annotated thumbnail generated successfully');
+    return newPath;
   }
 
   /**
