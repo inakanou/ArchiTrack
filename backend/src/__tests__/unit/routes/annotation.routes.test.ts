@@ -27,6 +27,15 @@ const mockAnnotationService = vi.hoisted(() => ({
   validateAnnotationData: vi.fn(),
 }));
 
+// モック: ストレージプロバイダ (Task 61.1: annotatedThumbnailUrl 署名付きURL生成)
+const mockStorageProvider = vi.hoisted(() => ({
+  getSignedUrl: vi.fn(),
+}));
+vi.mock('../../../storage/index.js', () => ({
+  isStorageConfigured: vi.fn(() => true),
+  getStorageProvider: vi.fn(() => mockStorageProvider),
+}));
+
 // モック: データベースとRedis
 vi.mock('../../../db', () => ({
   default: vi.fn(() => ({})),
@@ -109,6 +118,7 @@ import {
   AnnotationConflictError,
   InvalidAnnotationDataError,
 } from '../../../services/annotation.service.js';
+import { ThumbnailRegenerationError } from '../../../services/errors.js';
 
 describe('Annotation Routes', () => {
   let app: Application;
@@ -143,6 +153,7 @@ describe('Annotation Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStorageProvider.getSignedUrl.mockReset();
 
     app = express();
     app.use(express.json());
@@ -365,6 +376,71 @@ describe('Annotation Routes', () => {
       expect(response.body).toMatchObject({
         code: 'ANNOTATION_CONFLICT',
       });
+    });
+
+    // ========================================================================
+    // Task 61.1: annotatedThumbnailUrl をレスポンスに含める (Requirements 23.5, 23.6)
+    // ========================================================================
+
+    it('should include annotatedThumbnailUrl signed URL when annotatedThumbnailPath is returned (Task 61.1, Req 23.5)', async () => {
+      const annotatedPath = 'surveys/abc/annotated_thumbnails/thumb-v2.webp';
+      const signedUrl = 'https://r2.example.com/signed/thumb-v2.webp?token=abc';
+
+      (mockAnnotationService.save as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockAnnotationInfo,
+        annotatedThumbnailPath: annotatedPath,
+      });
+      mockStorageProvider.getSignedUrl.mockResolvedValue(signedUrl);
+
+      const response = await request(app)
+        .put(`/api/site-surveys/images/${TEST_IMAGE_ID}/annotations`)
+        .send(validSaveInput);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        id: TEST_ANNOTATION_ID,
+        imageId: TEST_IMAGE_ID,
+        annotatedThumbnailUrl: signedUrl,
+      });
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+        annotatedPath,
+        expect.objectContaining({ expiresIn: expect.any(Number) })
+      );
+    });
+
+    it('should return annotatedThumbnailUrl: null when annotatedThumbnailPath is null (Task 61.1, Req 23.5)', async () => {
+      (mockAnnotationService.save as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockAnnotationInfo,
+        annotatedThumbnailPath: null,
+      });
+
+      const response = await request(app)
+        .put(`/api/site-surveys/images/${TEST_IMAGE_ID}/annotations`)
+        .send(validSaveInput);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('annotatedThumbnailUrl', null);
+      expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
+    });
+
+    it('should return 500 with THUMBNAIL_REGENERATION_FAILED when service throws ThumbnailRegenerationError (Task 61.1, Req 23.6)', async () => {
+      (mockAnnotationService.save as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new ThumbnailRegenerationError(
+          '注釈の保存には成功しましたが、サムネイルの再生成に失敗しました。画面を再読み込みしてください。',
+          { cause: new Error('R2 PUT failed') }
+        )
+      );
+
+      const response = await request(app)
+        .put(`/api/site-surveys/images/${TEST_IMAGE_ID}/annotations`)
+        .send(validSaveInput);
+
+      expect(response.status).toBe(500);
+      expect(response.body).toMatchObject({
+        code: 'THUMBNAIL_REGENERATION_FAILED',
+        status: 500,
+      });
+      expect(response.body.detail).toContain('サムネイル');
     });
   });
 

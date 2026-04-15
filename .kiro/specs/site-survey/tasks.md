@@ -1404,7 +1404,7 @@
   - _Requirements: 23.8_
 
 - [ ] 61. バックエンド: 保存レスポンスへのサムネイル URL 追加
-- [ ] 61.1 注釈保存 API レスポンスに annotatedThumbnailUrl を含める
+- [x] 61.1 注釈保存 API レスポンスに annotatedThumbnailUrl を含める
   - `backend/src/routes/survey-annotations.routes.ts` の保存エンドポイントを変更
   - `AnnotationService.save` の戻り値から `annotatedThumbnailPath` を取得し署名付き URL を生成
   - レスポンス型 `SaveAnnotationResponse` に `annotatedThumbnailUrl: string | null` を追加
