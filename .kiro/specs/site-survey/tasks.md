@@ -1353,7 +1353,7 @@
 ### Phase 22: 画像編集画面での変更に伴うサムネイル再生成の確実化（要件23）
 
 - [ ] 60. バックエンド: サムネイル再生成の同期化と冪等性保証
-- [ ] 60.1 ThumbnailRegenerationError クラスを追加する
+- [x] 60.1 ThumbnailRegenerationError クラスを追加する
   - `backend/src/services/errors.ts`（既存エラー定義ファイルが無ければ新規作成）に `ThumbnailRegenerationError` クラスを定義
   - `code = 'THUMBNAIL_REGENERATION_FAILED'` 定数、`cause` オプション対応
   - export して他サービスから import 可能にする
