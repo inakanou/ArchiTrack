@@ -1350,6 +1350,100 @@
   - 4回回転で元に戻ること
   - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8_
 
+### Phase 22: 画像編集画面での変更に伴うサムネイル再生成の確実化（要件23）
+
+- [ ] 60. バックエンド: サムネイル再生成の同期化と冪等性保証
+- [ ] 60.1 ThumbnailRegenerationError クラスを追加する
+  - `backend/src/services/errors.ts`（既存エラー定義ファイルが無ければ新規作成）に `ThumbnailRegenerationError` クラスを定義
+  - `code = 'THUMBNAIL_REGENERATION_FAILED'` 定数、`cause` オプション対応
+  - export して他サービスから import 可能にする
+  - 完了条件: `ThumbnailRegenerationError` を throw するテストがコンパイル・実行可能
+  - _Boundary: errors.ts_
+  - _Requirements: 23.6_
+
+- [ ] 60.2 AnnotatedThumbnailService.generateAnnotatedThumbnail を冪等化する
+  - `backend/src/services/annotated-thumbnail.service.ts` を変更
+  - 新サムネイルをタイムスタンプ付きキー `annotated-thumbnails/{imageId}.{Date.now()}.jpg` で R2 に PUT
+  - DB の `annotatedThumbnailPath` を新キーに更新
+  - 更新成功後に旧キーを best-effort で R2 から DELETE（失敗はログのみ）
+  - R2 PUT 失敗時は DB 更新を行わず例外を throw
+  - 完了条件: 連続呼び出しで既存サムネイルが破損せず、毎回新キーが返却される
+  - _Depends: 60.1_
+  - _Boundary: annotated-thumbnail.service.ts_
+  - _Requirements: 23.8_
+
+- [ ] 60.3 AnnotationService.save のサムネイル生成を同期化する
+  - `backend/src/services/annotation.service.ts:250-258` の fire-and-forget を `await` に変更
+  - try/catch で失敗時に `ThumbnailRegenerationError` を throw
+  - 再生成成功時に `result.annotatedThumbnailPath` を新 path で更新してから return
+  - `imageRotation` のみの変更時も同じフローを通ることを保証
+  - 完了条件: 単体テストで `save()` 実行後に同期的に最新 `annotatedThumbnailPath` が返却される
+  - _Depends: 60.1, 60.2_
+  - _Boundary: annotation.service.ts_
+  - _Requirements: 23.1, 23.2, 23.3, 23.4_
+
+- [ ] 60.4 AnnotationService の単体テストを追加する
+  - `backend/src/services/__tests__/annotation.service.test.ts` にテストケース追加
+  - 注釈編集保存時にサムネイル再生成が完了するまで待機することを検証
+  - `imageRotation` 単独変更でも再生成が呼ばれることを検証
+  - 回転+注釈編集併用時に最終状態で再生成されることを検証
+  - サムネイル再生成失敗時に `ThumbnailRegenerationError` が throw されることを検証
+  - 完了条件: `pnpm test annotation.service` が新規テストを含めて全て pass
+  - _Depends: 60.3_
+  - _Boundary: annotation.service.test.ts_
+  - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.6_
+
+- [ ] 60.5 (P) AnnotatedThumbnailService の単体テストを追加する
+  - `backend/src/services/__tests__/annotated-thumbnail.service.test.ts` にテストケース追加
+  - 連続呼び出しで異なる path が返ることを検証（冪等性）
+  - R2 PUT 失敗時に DB 更新されないことを検証
+  - DB 更新後に旧キー削除が best-effort で呼ばれることを検証
+  - 完了条件: `pnpm test annotated-thumbnail.service` が新規テストを含めて全て pass
+  - _Depends: 60.2_
+  - _Boundary: annotated-thumbnail.service.test.ts_
+  - _Requirements: 23.8_
+
+- [ ] 61. バックエンド: 保存レスポンスへのサムネイル URL 追加
+- [ ] 61.1 注釈保存 API レスポンスに annotatedThumbnailUrl を含める
+  - `backend/src/routes/survey-annotations.routes.ts` の保存エンドポイントを変更
+  - `AnnotationService.save` の戻り値から `annotatedThumbnailPath` を取得し署名付き URL を生成
+  - レスポンス型 `SaveAnnotationResponse` に `annotatedThumbnailUrl: string | null` を追加
+  - `ThumbnailRegenerationError` 捕捉時に HTTP 500 + エラーコード `THUMBNAIL_REGENERATION_FAILED` + メッセージを返却
+  - 完了条件: API を手動で叩いた際に再生成後の新サムネイル URL がレスポンスに含まれる
+  - _Depends: 60.3_
+  - _Boundary: survey-annotations.routes.ts_
+  - _Requirements: 23.5, 23.6_
+
+- [ ] 62. フロントエンド: 保存後のサムネイル反映
+- [ ] 62.1 注釈エディタの保存ハンドラでレスポンスの annotatedThumbnailUrl を反映する
+  - `frontend/src/pages/SiteSurveyAnnotationEditorPage.tsx`（または該当保存ハンドラ）を変更
+  - 保存成功時に TanStack Query の `['surveyImages', surveyId]` キャッシュを新 `annotatedThumbnailUrl` で更新、または `invalidateQueries` で再取得
+  - 完了条件: 注釈保存後、別遷移なしで詳細画面サムネイルが新状態で表示される
+  - _Depends: 61.1_
+  - _Boundary: SiteSurveyAnnotationEditorPage.tsx_
+  - _Requirements: 23.5, 23.7_
+
+- [ ] 62.2 ThumbnailRegenerationError 受信時のエラー通知を実装する
+  - 保存ハンドラで `code === 'THUMBNAIL_REGENERATION_FAILED'` を判定
+  - エラー Toast に「注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。」を表示
+  - `invalidateQueries` で画像一覧を強制再取得し旧状態残留を防止
+  - 完了条件: 意図的にサムネイル生成を失敗させた場合にエラー Toast が表示され、画像一覧が再取得される
+  - _Depends: 61.1_
+  - _Boundary: SiteSurveyAnnotationEditorPage.tsx_
+  - _Requirements: 23.6_
+
+- [ ] 63. 統合テスト・E2E テスト
+- [ ] 63.1 E2E テスト: サムネイル再生成シナリオを追加する
+  - `e2e/specs/site-survey-thumbnail-regeneration.spec.ts` を新規作成
+  - シナリオ1: 注釈追加→保存→詳細画面で新サムネイル表示
+  - シナリオ2: 画像回転のみ→保存→詳細画面で回転後サムネイル表示
+  - シナリオ3: 回転+注釈追加→保存→詳細画面で両方反映されたサムネイル表示
+  - シナリオ4: 保存→ページリロード→保存直後と同じサムネイルが表示される
+  - 完了条件: `pnpm test:e2e site-survey-thumbnail-regeneration` が全シナリオ pass
+  - _Depends: 60.3, 61.1, 62.1_
+  - _Boundary: e2e/specs/site-survey-thumbnail-regeneration.spec.ts_
+  - _Requirements: 23.1, 23.2, 23.3, 23.5, 23.7_
+
 ---
 
 ## Requirements Coverage
@@ -1536,3 +1630,11 @@
 | 22.6 | 58.2, 59.2, 59.4                                    |
 | 22.7 | 58.4, 59.4                                          |
 | 22.8 | 58.1, 59.1, 59.4                                    |
+| 23.1 | 60.3, 60.4, 63.1                                    |
+| 23.2 | 60.3, 60.4, 63.1                                    |
+| 23.3 | 60.3, 60.4, 63.1                                    |
+| 23.4 | 60.3, 60.4                                          |
+| 23.5 | 61.1, 62.1, 63.1                                    |
+| 23.6 | 60.1, 60.3, 60.4, 61.1, 62.2                        |
+| 23.7 | 62.1, 63.1                                          |
+| 23.8 | 60.2, 60.5                                          |

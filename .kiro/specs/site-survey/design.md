@@ -512,6 +512,14 @@ sequenceDiagram
 | **22.6** | **回転操作のUndo/Redo履歴記録** | **AnnotationEditor, UndoManager** | - | - |
 | **22.7** | **回転ボタンを既存ツールバーに配置** | **AnnotationEditor** | - | - |
 | **22.8** | **累積回転角度（0/90/180/270度）の管理** | **AnnotationEditor** | - | - |
+| **23.1** | **注釈追加・編集・削除保存時のサムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
+| **23.2** | **画像回転保存時のサムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
+| **23.3** | **回転+注釈編集併用時の最終状態サムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
+| **23.4** | **保存処理のサムネイル再生成完了保証（同期化）** | **AnnotationService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
+| **23.5** | **再生成後の詳細・一覧画面サムネイル表示更新** | **PhotoManagementPanel, SiteSurveyListTable, SiteSurveyListCard, SurveyDetailPage** | **AnnotationAPI, ThumbnailAPI** | - |
+| **23.6** | **サムネイル再生成失敗時のエラー通知と旧状態残留防止** | **AnnotationService, AnnotatedThumbnailService, AnnotationEditor** | **AnnotationAPI** | - |
+| **23.7** | **再オープン時のサムネイル一致保証** | **AnnotatedThumbnailService, SurveyImagesRoutes** | **ImageAPI** | - |
+| **23.8** | **冪等なサムネイル再生成処理（既存サムネイル破損防止）** | **AnnotatedThumbnailService** | - | - |
 
 ## Components and Interfaces
 
@@ -3864,3 +3872,283 @@ if (rotation !== 0) {
 - 回転 → 保存 → 再表示で回転状態が復元されること
 - 回転 → Undo → 元の回転角度に戻ること
 - 4回回転で元に戻ること（360度 = 0度）
+
+---
+
+## Requirement 23: 画像編集画面での変更に伴うサムネイル再生成の確実化
+
+### 概要
+
+画像編集画面（注釈エディタ / 編集モード）で行った変更（注釈の追加・編集・削除、および画像回転）を保存した際に、`annotatedThumbnailPath` が変更後の最終状態で **確実に** 再生成されるようにする。現状、注釈保存レスポンスとサムネイル再生成は非同期の fire-and-forget パターンで分離されており、以下の不具合が発生している。
+
+### 現状の問題分析（根本原因）
+
+**対象ファイル**: `backend/src/services/annotation.service.ts`
+
+現行実装（抜粋）:
+```typescript
+// 注釈付きサムネイル生成（非同期、失敗しても注釈保存は成功）
+if (this.annotatedThumbnailService) {
+  this.annotatedThumbnailService
+    .generateAnnotatedThumbnail(input.imageId, dataWithVersion)
+    .catch(() => {
+      // サムネイル生成失敗はログのみ
+    });
+}
+return result; // ← サムネイル生成完了を待たずにレスポンス返却
+```
+
+この fire-and-forget パターンにより以下の問題が生じている:
+
+1. **レース条件**: 注釈保存レスポンス受信直後にクライアントが画像一覧を再取得しても、バックエンドのサムネイル再生成がまだ完了しておらず、旧 `annotatedThumbnailPath`（もしくは null）が返却される
+2. **失敗の隠蔽**: サムネイル生成失敗時にクライアントへ通知されず、旧サムネイルが残存したまま保存成功として扱われる（AC6 違反）
+3. **回転単独保存の未対応**: Req 22 で追加された `imageRotation` フィールドのみを変更した場合でも、注釈データ全体の一部として `annotationData` が更新されるため同フローを通るが、fire-and-forget の問題は同様に発生する
+4. **エラー時の旧状態残留**: 再生成失敗時に既存の `annotatedThumbnailPath` が旧状態のまま残り、詳細画面・一覧画面に古いサムネイルが表示され続ける
+
+### Boundary Commitments
+
+**This spec owns**:
+- `AnnotationService.save` 実行パスにおけるサムネイル再生成のタイミング同期化
+- `AnnotatedThumbnailService.generateAnnotatedThumbnail` の冪等性・エラーハンドリング
+- 再生成失敗時のクライアントへのエラー伝播経路
+- フロントエンド側で保存完了後に最新サムネイル URL を取得する導線
+
+**This spec does NOT own**:
+- サムネイル生成ロジック自体の描画精度（Req 20 の責務）
+- R2 ストレージの SLA やネットワーク信頼性
+- サムネイル生成アルゴリズム（SVG 合成 + Sharp、Req 20 既存設計を流用）
+
+### 変更1: AnnotationService.save の同期化
+
+**対象ファイル**: `backend/src/services/annotation.service.ts`
+
+fire-and-forget を廃し、サムネイル再生成を `await` して注釈保存のトランザクション的な後処理として扱う。失敗時は `AnnotationService.save` がエラーを投げ、ルーティング層でクライアントへ 5xx エラーを返却する。
+
+```typescript
+async save(input: SaveAnnotationInput): Promise<AnnotationInfo> {
+  // 既存の注釈保存処理（DB 更新）
+  const result = await this.saveAnnotation(input);
+
+  // 注釈付きサムネイル生成（同期・待機）
+  if (this.annotatedThumbnailService) {
+    try {
+      const thumbnailPath = await this.annotatedThumbnailService
+        .generateAnnotatedThumbnail(input.imageId, dataWithVersion);
+      // 再生成完了後の最新 annotatedThumbnailPath を返却データに反映
+      result.annotatedThumbnailPath = thumbnailPath;
+    } catch (error) {
+      // ログ出力後、ThumbnailRegenerationError を throw してクライアントへ伝播
+      logger.error({
+        action: 'annotated_thumbnail_regeneration_failed',
+        imageId: input.imageId,
+        error: (error as Error).message,
+      });
+      throw new ThumbnailRegenerationError(
+        '注釈の保存には成功しましたが、サムネイルの再生成に失敗しました。画面を再読み込みしてください。',
+        { cause: error }
+      );
+    }
+  }
+
+  return result;
+}
+```
+
+**設計上の決定**:
+- **同期化の採用理由（AC4）**: 保存完了＝サムネイル再生成完了、という不変条件をクライアントが前提にできるようにする。レスポンス時間が数百ms伸びても、現場調査のユースケース（注釈編集後の画面遷移頻度は低め）では許容範囲
+- **注釈保存は成功扱い**: DB への注釈データ保存自体は既にコミット済みのため、サムネイル再生成失敗時にロールバックは行わない。代わりに `ThumbnailRegenerationError` で「注釈は保存されたがサムネイル再生成に失敗した」旨を明示する
+- **エラーコード**: HTTP 500 ではなく HTTP 207 (Multi-Status) 相当で扱うことも検討したが、運用シンプルさを優先し HTTP 500 + 明示的エラーメッセージで統一
+
+### 変更2: ThumbnailRegenerationError クラス追加
+
+**対象ファイル**: `backend/src/services/errors.ts`（新規または既存エラー定義ファイル）
+
+```typescript
+/**
+ * 注釈保存は成功したがサムネイル再生成に失敗した場合のエラー。
+ * クライアントは注釈データの再保存は不要だが、サムネイル表示が旧状態のままであることをユーザーに通知する必要がある。
+ */
+export class ThumbnailRegenerationError extends Error {
+  readonly code = 'THUMBNAIL_REGENERATION_FAILED';
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'ThumbnailRegenerationError';
+  }
+}
+```
+
+### 変更3: AnnotatedThumbnailService の冪等性保証
+
+**対象ファイル**: `backend/src/services/annotated-thumbnail.service.ts`
+
+`generateAnnotatedThumbnail` を冪等化する。既存のサムネイルが存在する場合でも、新しいサムネイルを生成してから既存を置き換えるアトミックな流れにする（AC8）。
+
+**アトミック置き換えの方針**:
+1. 新サムネイルを別キー（例: `annotated-thumbnails/{imageId}.{timestamp}.jpg`）で R2 に PUT
+2. DB の `annotatedThumbnailPath` を新キーに更新
+3. 旧キーを R2 から DELETE（失敗しても DB 更新は成功扱い・孤立ファイル処理に委譲）
+
+この方針により、R2 PUT 失敗時は旧サムネイルが残り、DB 更新失敗時も旧 path を参照し続けるため、「旧状態のまま残る」ケースを排除しつつ「破損したサムネイル」が表示されない不変条件を保証する（AC6・AC8）。
+
+```typescript
+async generateAnnotatedThumbnail(
+  imageId: string,
+  annotationData: AnnotationData
+): Promise<string | null> {
+  const image = await this.prisma.surveyImage.findUnique({ where: { id: imageId } });
+  if (!image) return null;
+
+  // 1. 原画像取得
+  const imageBuffer = await this.r2.getObject(image.originalPath);
+
+  // 2. 回転適用 → SVG オーバーレイ合成
+  const rotation = annotationData.imageRotation ?? 0;
+  const thumbnailBuffer = await this.composeAnnotatedThumbnail(
+    imageBuffer,
+    annotationData,
+    rotation
+  );
+
+  // 3. タイムスタンプ付き新キーで R2 に PUT（アトミック置き換え）
+  const newPath = `annotated-thumbnails/${imageId}.${Date.now()}.jpg`;
+  await this.r2.putObject(newPath, thumbnailBuffer, 'image/jpeg');
+
+  // 4. DB 更新（旧 path 退避）
+  const oldPath = image.annotatedThumbnailPath;
+  await this.prisma.surveyImage.update({
+    where: { id: imageId },
+    data: { annotatedThumbnailPath: newPath },
+  });
+
+  // 5. 旧キーの削除（失敗時は孤立ファイル処理に委譲、本処理の成否には影響させない）
+  if (oldPath) {
+    this.r2.deleteObject(oldPath).catch((err) => {
+      logger.warn({
+        action: 'stale_annotated_thumbnail_delete_failed',
+        imageId,
+        oldPath,
+        error: err.message,
+      });
+    });
+  }
+
+  return newPath;
+}
+```
+
+### 変更4: SaveAnnotation レスポンスに annotatedThumbnailUrl を含める
+
+**対象ファイル**: `backend/src/routes/survey-annotations.routes.ts`
+
+注釈保存レスポンスに最新の `annotatedThumbnailPath` から生成した署名付き URL を含める。フロントエンドはこの URL を受け取ることで、追加の API 呼び出しなしに最新サムネイルを表示できる（AC5）。
+
+```typescript
+interface SaveAnnotationResponse {
+  annotation: AnnotationInfo;
+  annotatedThumbnailUrl: string | null; // 再生成後の最新署名付き URL
+}
+```
+
+### 変更5: フロントエンドのサムネイル反映
+
+**対象ファイル**: `frontend/src/pages/SiteSurveyAnnotationEditorPage.tsx`（または該当する保存ハンドラ）
+
+```typescript
+async function handleSave() {
+  try {
+    const response = await saveAnnotation(payload);
+    // 再生成後の annotatedThumbnailUrl を画像一覧キャッシュに反映
+    queryClient.setQueryData(['surveyImages', surveyId], (prev) =>
+      prev?.map((img) =>
+        img.id === imageId
+          ? { ...img, annotatedThumbnailUrl: response.annotatedThumbnailUrl }
+          : img
+      )
+    );
+    // もしくは queryClient.invalidateQueries で再取得
+    toast.success('保存しました');
+  } catch (error) {
+    if (isThumbnailRegenerationError(error)) {
+      toast.error(error.message);
+      // 画像一覧を再取得して最新状態に同期
+      queryClient.invalidateQueries({ queryKey: ['surveyImages', surveyId] });
+    } else {
+      toast.error('保存に失敗しました');
+    }
+  }
+}
+```
+
+**AC5/AC7 対応**: 現場調査詳細画面・一覧画面のサムネイル表示は TanStack Query のキャッシュ無効化で最新状態に同期する。再オープン時は API 経由で最新 `annotatedThumbnailPath` を取得するため、保存時点で DB が更新されていれば自動的に一致が保証される。
+
+### サムネイル同期再生成フロー
+
+```mermaid
+sequenceDiagram
+    participant FE as AnnotationEditor
+    participant API as SurveyAnnotationsRoutes
+    participant AS as AnnotationService
+    participant ATS as AnnotatedThumbnailService
+    participant R2 as Cloudflare R2
+    participant DB as Prisma
+
+    FE->>API: PUT /api/annotations (注釈データ+imageRotation)
+    API->>AS: save(input)
+    AS->>DB: 注釈データ更新
+    DB-->>AS: OK
+    AS->>ATS: generateAnnotatedThumbnail(imageId, data) [await]
+    ATS->>R2: GET 原画像
+    R2-->>ATS: imageBuffer
+    ATS->>ATS: 回転適用 + SVG 合成
+    ATS->>R2: PUT 新サムネイル (timestamped key)
+    R2-->>ATS: OK
+    ATS->>DB: annotatedThumbnailPath 更新
+    DB-->>ATS: OK
+    ATS->>R2: DELETE 旧サムネイル (best-effort)
+    ATS-->>AS: newPath
+    AS-->>API: AnnotationInfo + newPath
+    API->>API: 署名付き URL 生成
+    API-->>FE: 200 OK + annotatedThumbnailUrl
+    FE->>FE: キャッシュ更新・画面反映
+
+    Note over AS,ATS: 失敗時: ThumbnailRegenerationError → 500 + 明示メッセージ
+```
+
+### テスト戦略
+
+**バックエンド単体テスト** (`annotation.service.test.ts`):
+- `save`: サムネイル再生成が成功した場合にレスポンスに新 `annotatedThumbnailPath` が含まれること (23.1, 23.4)
+- `save`: 注釈データに `imageRotation` のみ変更がある場合でもサムネイル再生成が呼ばれること (23.2)
+- `save`: 回転と注釈編集の両方を含む保存でサムネイル再生成が最終状態で呼ばれること (23.3)
+- `save`: サムネイル再生成が失敗した場合に `ThumbnailRegenerationError` を throw すること (23.6)
+- `save`: サムネイル再生成は同期的に完了してから return すること（fire-and-forget でないことの検証） (23.4)
+
+**バックエンド単体テスト** (`annotated-thumbnail.service.test.ts`):
+- `generateAnnotatedThumbnail`: 既存サムネイルがある状態で再生成しても新しい path が返却され、旧 path とは異なること (23.8)
+- `generateAnnotatedThumbnail`: R2 PUT 失敗時は DB 更新を行わないこと (23.8)
+- `generateAnnotatedThumbnail`: DB 更新成功後に旧サムネイル削除が非同期 best-effort で実行されること (23.8)
+- `generateAnnotatedThumbnail`: 連続呼び出しで既存サムネイルが破損しないこと（冪等性） (23.8)
+
+**フロントエンド単体テスト**:
+- 保存成功時にレスポンスの `annotatedThumbnailUrl` で画像一覧キャッシュが更新されること (23.5)
+- `ThumbnailRegenerationError` 受信時にエラー Toast を表示し画像一覧を再取得すること (23.6)
+
+**E2E テスト**:
+- 注釈追加 → 保存 → 詳細画面で新サムネイルが表示されること (23.1, 23.5)
+- 画像回転のみ → 保存 → 詳細画面で回転後サムネイルが表示されること (23.2, 23.5)
+- 回転 + 注釈追加 → 保存 → 詳細画面で両方を反映したサムネイルが表示されること (23.3, 23.5)
+- 保存 → 画面再読み込み → 表示サムネイルが保存直後のものと一致すること (23.7)
+- 注釈編集画面を閉じて再オープン → 表示サムネイルが最新状態であること (23.7)
+
+### File Structure Plan
+
+| ファイル | 種別 | 責務 |
+|---------|------|------|
+| `backend/src/services/annotation.service.ts` | 変更 | `save` メソッドのサムネイル再生成を await 同期化、エラー伝播 |
+| `backend/src/services/annotated-thumbnail.service.ts` | 変更 | `generateAnnotatedThumbnail` の冪等化（タイムスタンプキー＋旧削除） |
+| `backend/src/services/errors.ts` | 変更 または 新規 | `ThumbnailRegenerationError` クラス追加 |
+| `backend/src/routes/survey-annotations.routes.ts` | 変更 | 保存レスポンスに `annotatedThumbnailUrl` を含める、エラーハンドリング追加 |
+| `frontend/src/pages/SiteSurveyAnnotationEditorPage.tsx` | 変更 | 保存成功時のキャッシュ更新、エラー時の再取得 |
+| `backend/src/services/__tests__/annotation.service.test.ts` | 変更 | Req 23 AC のテストケース追加 |
+| `backend/src/services/__tests__/annotated-thumbnail.service.test.ts` | 変更 | 冪等性・アトミック置き換えのテストケース追加 |
+| `e2e/specs/site-survey-thumbnail-regeneration.spec.ts` | 新規 | Req 23 の E2E シナリオ |
