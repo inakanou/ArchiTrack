@@ -1382,7 +1382,7 @@
   - _Boundary: annotation.service.ts_
   - _Requirements: 23.1, 23.2, 23.3, 23.4_
 
-- [ ] 60.4 AnnotationService の単体テストを追加する
+- [x] 60.4 AnnotationService の単体テストを追加する
   - `backend/src/services/__tests__/annotation.service.test.ts` にテストケース追加
   - 注釈編集保存時にサムネイル再生成が完了するまで待機することを検証
   - `imageRotation` 単独変更でも再生成が呼ばれることを検証
