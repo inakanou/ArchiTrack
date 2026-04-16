@@ -123,6 +123,8 @@ export interface AnnotationEditorProps {
   readOnly?: boolean;
   /** 画像情報（ImageExportDialog用、REQ-12.2, 12.3, 12.4） */
   imageInfo?: SurveyImageInfo;
+  /** 注釈保存成功時のコールバック（REQ-23.5: サムネイルURL反映用） */
+  onAnnotationSaved?: (result: { annotatedThumbnailUrl: string | null }) => void;
 }
 
 // ============================================================================
@@ -268,6 +270,7 @@ function AnnotationEditor({
   surveyId,
   readOnly = false,
   imageInfo,
+  onAnnotationSaved,
 }: AnnotationEditorProps): React.JSX.Element {
   // DOM参照 - Canvas要素を動的に挿入するコンテナ
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -1326,7 +1329,14 @@ function AnnotationEditor({
       };
 
       // APIを呼び出して保存
-      await saveAnnotation(imageId, { data: annotationData });
+      const saveResponse = await saveAnnotation(imageId, { data: annotationData });
+
+      // REQ-23.5: レスポンスのannotatedThumbnailUrlをコールバックで通知
+      if (onAnnotationSaved) {
+        onAnnotationSaved({
+          annotatedThumbnailUrl: saveResponse.annotatedThumbnailUrl ?? null,
+        });
+      }
 
       // サムネイルを更新（注釈付き画像を反映）
       try {
@@ -1358,7 +1368,7 @@ function AnnotationEditor({
         error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
       }));
     }
-  }, [imageId, state.isSaving]);
+  }, [imageId, state.isSaving, onAnnotationSaved]);
 
   /**
    * エクスポートダイアログを開く

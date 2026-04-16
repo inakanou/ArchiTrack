@@ -1528,6 +1528,97 @@ describe('AnnotationEditor', () => {
         expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
       });
     });
+
+    it('保存成功時にonAnnotationSavedコールバックがannotatedThumbnailUrlと共に呼ばれる (REQ-23.5)', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      const mockOnAnnotationSaved = vi.fn();
+
+      const mockResponseWithThumbnail = {
+        ...mockAnnotationInfo,
+        annotatedThumbnailUrl: 'https://example.com/new-thumbnail.jpg',
+      };
+      mockSaveAnnotation.mockResolvedValue(mockResponseWithThumbnail);
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} onAnnotationSaved={mockOnAnnotationSaved} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // onAnnotationSavedがannotatedThumbnailUrlと共に呼ばれることを確認
+      await waitFor(() => {
+        expect(mockOnAnnotationSaved).toHaveBeenCalledWith({
+          annotatedThumbnailUrl: 'https://example.com/new-thumbnail.jpg',
+        });
+      });
+    });
+
+    it('保存成功時にonAnnotationSavedコールバックがnullのannotatedThumbnailUrlで呼ばれる (REQ-23.5)', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      const mockOnAnnotationSaved = vi.fn();
+
+      // annotatedThumbnailUrlがない場合
+      mockSaveAnnotation.mockResolvedValue(mockAnnotationInfo);
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} onAnnotationSaved={mockOnAnnotationSaved} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // onAnnotationSavedがnullのannotatedThumbnailUrlで呼ばれることを確認
+      await waitFor(() => {
+        expect(mockOnAnnotationSaved).toHaveBeenCalledWith({
+          annotatedThumbnailUrl: null,
+        });
+      });
+    });
+
+    it('onAnnotationSavedが未設定でも保存が正常に動作する (REQ-23.7)', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+
+      const mockResponseWithThumbnail = {
+        ...mockAnnotationInfo,
+        annotatedThumbnailUrl: 'https://example.com/new-thumbnail.jpg',
+      };
+      mockSaveAnnotation.mockResolvedValue(mockResponseWithThumbnail);
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      // onAnnotationSavedを渡さない
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      // エラーなく保存成功メッセージが表示される
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
+      });
+    });
   });
 
   describe('エクスポート機能', () => {

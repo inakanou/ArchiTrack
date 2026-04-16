@@ -627,6 +627,8 @@ export interface AnnotationInfo {
   createdAt: string;
   /** 更新日時（ISO8601形式） */
   updatedAt: string;
+  /** 注釈付きサムネイルURL（署名付きURL、保存レスポンスに含まれる。Requirements 23.5） */
+  annotatedThumbnailUrl?: string | null;
 }
 
 /**

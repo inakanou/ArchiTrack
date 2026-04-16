@@ -166,6 +166,19 @@ export default function SiteSurveyImageViewerPage() {
   const [pan] = useState({ x: 0, y: 0 });
 
   /**
+   * 注釈保存成功時のコールバック（REQ-23.5: サムネイルURL即時反映）
+   *
+   * AnnotationEditorの保存レスポンスに含まれるannotatedThumbnailUrlを
+   * ローカルのimage stateに反映し、画面遷移なしで最新サムネイルを表示する。
+   */
+  const handleAnnotationSaved = useCallback((result: { annotatedThumbnailUrl: string | null }) => {
+    setImage((prev) => {
+      if (!prev) return prev;
+      return { ...prev, annotatedThumbnailUrl: result.annotatedThumbnailUrl };
+    });
+  }, []);
+
+  /**
    * 現場調査と画像データを取得
    */
   const fetchData = useCallback(async () => {
@@ -304,6 +317,7 @@ export default function SiteSurveyImageViewerPage() {
             initialPan={pan}
             readOnly={!isEditMode}
             imageInfo={image}
+            onAnnotationSaved={handleAnnotationSaved}
           />
         </div>
       ) : (

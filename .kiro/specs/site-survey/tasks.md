@@ -1415,7 +1415,7 @@
   - _Requirements: 23.5, 23.6_
 
 - [ ] 62. フロントエンド: 保存後のサムネイル反映
-- [ ] 62.1 注釈エディタの保存ハンドラでレスポンスの annotatedThumbnailUrl を反映する
+- [x] 62.1 注釈エディタの保存ハンドラでレスポンスの annotatedThumbnailUrl を反映する
   - `frontend/src/pages/SiteSurveyAnnotationEditorPage.tsx`（または該当保存ハンドラ）を変更
   - 保存成功時に TanStack Query の `['surveyImages', surveyId]` キャッシュを新 `annotatedThumbnailUrl` で更新、または `invalidateQueries` で再取得
   - 完了条件: 注釈保存後、別遷移なしで詳細画面サムネイルが新状態で表示される
