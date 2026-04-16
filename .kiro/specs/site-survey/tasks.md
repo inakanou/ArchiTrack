@@ -1352,7 +1352,7 @@
 
 ### Phase 22: 画像編集画面での変更に伴うサムネイル再生成の確実化（要件23）
 
-- [ ] 60. バックエンド: サムネイル再生成の同期化と冪等性保証
+- [x] 60. バックエンド: サムネイル再生成の同期化と冪等性保証
 - [x] 60.1 ThumbnailRegenerationError クラスを追加する
   - `backend/src/services/errors.ts`（既存エラー定義ファイルが無ければ新規作成）に `ThumbnailRegenerationError` クラスを定義
   - `code = 'THUMBNAIL_REGENERATION_FAILED'` 定数、`cause` オプション対応
@@ -1403,7 +1403,7 @@
   - _Boundary: annotated-thumbnail.service.test.ts_
   - _Requirements: 23.8_
 
-- [ ] 61. バックエンド: 保存レスポンスへのサムネイル URL 追加
+- [x] 61. バックエンド: 保存レスポンスへのサムネイル URL 追加
 - [x] 61.1 注釈保存 API レスポンスに annotatedThumbnailUrl を含める
   - `backend/src/routes/survey-annotations.routes.ts` の保存エンドポイントを変更
   - `AnnotationService.save` の戻り値から `annotatedThumbnailPath` を取得し署名付き URL を生成
@@ -1414,7 +1414,7 @@
   - _Boundary: survey-annotations.routes.ts_
   - _Requirements: 23.5, 23.6_
 
-- [ ] 62. フロントエンド: 保存後のサムネイル反映
+- [x] 62. フロントエンド: 保存後のサムネイル反映
 - [x] 62.1 注釈エディタの保存ハンドラでレスポンスの annotatedThumbnailUrl を反映する
   - `frontend/src/pages/SiteSurveyAnnotationEditorPage.tsx`（または該当保存ハンドラ）を変更
   - 保存成功時に TanStack Query の `['surveyImages', surveyId]` キャッシュを新 `annotatedThumbnailUrl` で更新、または `invalidateQueries` で再取得
@@ -1423,7 +1423,7 @@
   - _Boundary: SiteSurveyAnnotationEditorPage.tsx_
   - _Requirements: 23.5, 23.7_
 
-- [ ] 62.2 ThumbnailRegenerationError 受信時のエラー通知を実装する
+- [x] 62.2 ThumbnailRegenerationError 受信時のエラー通知を実装する
   - 保存ハンドラで `code === 'THUMBNAIL_REGENERATION_FAILED'` を判定
   - エラー Toast に「注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。」を表示
   - `invalidateQueries` で画像一覧を強制再取得し旧状態残留を防止

@@ -318,6 +318,7 @@ export default function SiteSurveyImageViewerPage() {
             readOnly={!isEditMode}
             imageInfo={image}
             onAnnotationSaved={handleAnnotationSaved}
+            onRequestRefresh={fetchData}
           />
         </div>
       ) : (
