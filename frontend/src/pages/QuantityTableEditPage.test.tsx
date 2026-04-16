@@ -809,10 +809,15 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // EditableQuantityItemRow内の削除ボタン（aria-label="削除"）をクリック
-      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
-      expect(deleteButtons.length).toBeGreaterThan(0);
-      await user.click(deleteButtons[0]!);
+      // アクションメニューを開いて削除を実行
+      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
+      expect(menuButtons.length).toBeGreaterThan(0);
+      await user.click(menuButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /削除/ })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('menuitem', { name: /削除/ }));
 
       await waitFor(() => {
         expect(mockDeleteQuantityItem).toHaveBeenCalledWith('item-1');
@@ -830,10 +835,15 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // EditableQuantityItemRow内の削除ボタン（aria-label="削除"）をクリック
-      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
-      expect(deleteButtons.length).toBeGreaterThan(0);
-      await user.click(deleteButtons[0]!);
+      // アクションメニューを開いて削除を実行
+      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
+      expect(menuButtons.length).toBeGreaterThan(0);
+      await user.click(menuButtons[0]!);
+
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /削除/ })).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('menuitem', { name: /削除/ }));
 
       await waitFor(() => {
         expect(screen.getByText(/項目の削除に失敗しました/)).toBeInTheDocument();
@@ -1351,12 +1361,12 @@ describe('QuantityTableEditPage', () => {
       expect(menuButtons.length).toBeGreaterThan(1);
       await user.click(menuButtons[1]!);
 
-      // 上に移動ボタンが表示されるのを待つ
+      // 上へ移動ボタンが表示されるのを待つ
       await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /上に移動/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /上へ移動/ })).toBeInTheDocument();
       });
 
-      const moveUpButton = screen.getByRole('menuitem', { name: /上に移動/ });
+      const moveUpButton = screen.getByRole('menuitem', { name: /上へ移動/ });
       await user.click(moveUpButton);
 
       // 項目の順序が変わることを確認
@@ -1378,12 +1388,12 @@ describe('QuantityTableEditPage', () => {
       expect(menuButtons.length).toBeGreaterThan(0);
       await user.click(menuButtons[0]!);
 
-      // 下に移動ボタンが表示されるのを待つ
+      // 下へ移動ボタンが表示されるのを待つ
       await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /下に移動/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /下へ移動/ })).toBeInTheDocument();
       });
 
-      const moveDownButton = screen.getByRole('menuitem', { name: /下に移動/ });
+      const moveDownButton = screen.getByRole('menuitem', { name: /下へ移動/ });
       await user.click(moveDownButton);
 
       // 項目の順序が変わることを確認
@@ -1991,11 +2001,11 @@ describe('QuantityTableEditPage', () => {
       const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
       await user.click(menuButtons[1]!);
 
-      // 上に移動ボタンをクリック
+      // 上へ移動ボタンをクリック
       await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /上に移動/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /上へ移動/ })).toBeInTheDocument();
       });
-      await user.click(screen.getByRole('menuitem', { name: /上に移動/ }));
+      await user.click(screen.getByRole('menuitem', { name: /上へ移動/ }));
 
       await waitFor(() => {
         expect(mockUpdateItemOrder).toHaveBeenCalledWith(
@@ -2024,9 +2034,9 @@ describe('QuantityTableEditPage', () => {
       await user.click(menuButtons[1]!);
 
       await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /上に移動/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /上へ移動/ })).toBeInTheDocument();
       });
-      await user.click(screen.getByRole('menuitem', { name: /上に移動/ }));
+      await user.click(screen.getByRole('menuitem', { name: /上へ移動/ }));
 
       await waitFor(() => {
         expect(screen.getByText(/項目の並び順変更に失敗しました/)).toBeInTheDocument();
