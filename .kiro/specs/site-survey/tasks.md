@@ -1432,8 +1432,8 @@
   - _Boundary: SiteSurveyAnnotationEditorPage.tsx_
   - _Requirements: 23.6_
 
-- [ ] 63. 統合テスト・E2E テスト
-- [ ] 63.1 E2E テスト: サムネイル再生成シナリオを追加する
+- [x] 63. 統合テスト・E2E テスト
+- [x] 63.1 E2E テスト: サムネイル再生成シナリオを追加する
   - `e2e/specs/site-survey-thumbnail-regeneration.spec.ts` を新規作成
   - シナリオ1: 注釈追加→保存→詳細画面で新サムネイル表示
   - シナリオ2: 画像回転のみ→保存→詳細画面で回転後サムネイル表示
