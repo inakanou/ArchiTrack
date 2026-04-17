@@ -42,9 +42,8 @@ import type { SurveyImageInfo } from '../../../types/site-survey.types';
 // vi.hoistedでモックインスタンスを定義（ホイスティング対応）
 const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
   const mockCanvasInstance = {
-    setWidth: vi.fn(),
-    setHeight: vi.fn(),
-    backgroundImage: null as unknown, // Fabric.js v6 API
+    setDimensions: vi.fn(),
+    backgroundImage: null as unknown, // Fabric.js v7 API
     renderAll: vi.fn(),
     dispose: vi.fn(),
     getZoom: vi.fn(() => 1),
@@ -261,7 +260,7 @@ describe('ImageViewer', () => {
 
       // Canvasのメソッドが呼ばれることを確認
       await waitFor(() => {
-        expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
       });
     });
 
@@ -271,7 +270,7 @@ describe('ImageViewer', () => {
 
       // Canvasが初期化されるのを待つ
       await waitFor(() => {
-        expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
       });
 
       // isOpenをfalseに変更
@@ -340,8 +339,7 @@ describe('ImageViewer', () => {
       await flushPromises();
 
       await waitFor(() => {
-        expect(mockCanvasInstance.setWidth).toHaveBeenCalled();
-        expect(mockCanvasInstance.setHeight).toHaveBeenCalled();
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
       });
     });
   });
