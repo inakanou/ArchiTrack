@@ -41,8 +41,6 @@ afterAll(() => {
 // vi.hoistedでモックインスタンスを定義（ホイスティング対応）
 const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
   const mockCanvasInstance = {
-    setWidth: vi.fn(),
-    setHeight: vi.fn(),
     setDimensions: vi.fn(),
     backgroundImage: null as unknown,
     renderAll: vi.fn(),
@@ -2032,10 +2030,10 @@ describe('AnnotationEditor', () => {
       const onCalls = mockCanvasInstance.on.mock.calls;
       const mouseDownHandler = onCalls.find(
         (call: unknown[]) => call[0] === 'mouse:down'
-      )?.[1] as (options: { pointer: { x: number; y: number } }) => void;
+      )?.[1] as (options: { scenePoint: { x: number; y: number } }) => void;
 
       if (mouseDownHandler) {
-        mouseDownHandler({ pointer: { x: 100, y: 100 } });
+        mouseDownHandler({ scenePoint: { x: 100, y: 100 } });
       }
     });
 
@@ -2206,7 +2204,7 @@ describe('AnnotationEditor', () => {
     const getMouseDownHandler = () => {
       const onCalls = mockCanvasInstance.on.mock.calls;
       return onCalls.find((call: unknown[]) => call[0] === 'mouse:down')?.[1] as
-        | ((options: { pointer: { x: number; y: number } }) => void)
+        | ((options: { scenePoint: { x: number; y: number } }) => void)
         | undefined;
     };
 
@@ -2216,7 +2214,7 @@ describe('AnnotationEditor', () => {
     const getMouseUpHandler = () => {
       const onCalls = mockCanvasInstance.on.mock.calls;
       return onCalls.find((call: unknown[]) => call[0] === 'mouse:up')?.[1] as
-        | ((options: { pointer: { x: number; y: number } }) => void)
+        | ((options: { scenePoint: { x: number; y: number } }) => void)
         | undefined;
     };
 
@@ -2260,13 +2258,13 @@ describe('AnnotationEditor', () => {
 
         // 既存オブジェクト上でmouse:downを発火
         // containsPointチェックが除去されていれば、ドラッグが開始される
-        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+        mouseDownHandler!({ scenePoint: { x: 100, y: 100 } });
 
         // mouse:upを発火して図形が作成されることを確認
         const mouseUpHandler = getMouseUpHandler();
         expect(mouseUpHandler).toBeDefined();
 
-        mouseUpHandler!({ pointer: { x: 200, y: 200 } });
+        mouseUpHandler!({ scenePoint: { x: 200, y: 200 } });
 
         // 図形がcanvas.addで追加されることを確認
         expect(mockCanvasInstance.add).toHaveBeenCalled();
@@ -2292,12 +2290,12 @@ describe('AnnotationEditor', () => {
         expect(mouseDownHandler).toBeDefined();
 
         // 既存オブジェクト上でmouse:downを発火
-        mouseDownHandler!({ pointer: { x: 50, y: 50 } });
+        mouseDownHandler!({ scenePoint: { x: 50, y: 50 } });
 
         const mouseUpHandler = getMouseUpHandler();
         expect(mouseUpHandler).toBeDefined();
 
-        mouseUpHandler!({ pointer: { x: 150, y: 150 } });
+        mouseUpHandler!({ scenePoint: { x: 150, y: 150 } });
 
         // 図形が追加されることを確認
         expect(mockCanvasInstance.add).toHaveBeenCalled();
@@ -2322,12 +2320,12 @@ describe('AnnotationEditor', () => {
         const mouseDownHandler = getMouseDownHandler();
         expect(mouseDownHandler).toBeDefined();
 
-        mouseDownHandler!({ pointer: { x: 50, y: 50 } });
+        mouseDownHandler!({ scenePoint: { x: 50, y: 50 } });
 
         const mouseUpHandler = getMouseUpHandler();
         expect(mouseUpHandler).toBeDefined();
 
-        mouseUpHandler!({ pointer: { x: 200, y: 200 } });
+        mouseUpHandler!({ scenePoint: { x: 200, y: 200 } });
 
         expect(mockCanvasInstance.add).toHaveBeenCalled();
       });
@@ -2351,7 +2349,7 @@ describe('AnnotationEditor', () => {
         mockCanvasInstance.getObjects.mockReturnValue([]);
         const mouseDownHandler = getMouseDownHandler();
         expect(mouseDownHandler).toBeDefined();
-        mouseDownHandler!({ pointer: { x: 10, y: 10 } });
+        mouseDownHandler!({ scenePoint: { x: 10, y: 10 } });
 
         // 既存オブジェクトを配置してマウスアップ位置で検出されるようにする
         setupExistingObject();
@@ -2360,7 +2358,7 @@ describe('AnnotationEditor', () => {
         expect(mouseUpHandler).toBeDefined();
 
         // 既存オブジェクト上でmouse:upを発火
-        mouseUpHandler!({ pointer: { x: 200, y: 200 } });
+        mouseUpHandler!({ scenePoint: { x: 200, y: 200 } });
 
         // containsPointチェックが除去されていれば、図形が作成される
         expect(mockCanvasInstance.add).toHaveBeenCalled();
@@ -2388,11 +2386,11 @@ describe('AnnotationEditor', () => {
         expect(mouseDownHandler).toBeDefined();
 
         // 既存オブジェクト上で1つ目の頂点を追加
-        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+        mouseDownHandler!({ scenePoint: { x: 100, y: 100 } });
         // 2つ目の頂点を追加
-        mouseDownHandler!({ pointer: { x: 200, y: 100 } });
+        mouseDownHandler!({ scenePoint: { x: 200, y: 100 } });
         // 3つ目の頂点を追加
-        mouseDownHandler!({ pointer: { x: 150, y: 200 } });
+        mouseDownHandler!({ scenePoint: { x: 150, y: 200 } });
 
         // containsPointチェックが除去されていれば、頂点が追加される
         // 多角形ツールはmouse:downでreturnせず、頂点を追加するはず
@@ -2401,10 +2399,10 @@ describe('AnnotationEditor', () => {
         const onCalls = mockCanvasInstance.on.mock.calls;
         const dblClickHandler = onCalls.find(
           (call: unknown[]) => call[0] === 'mouse:dblclick'
-        )?.[1] as ((options: { pointer: { x: number; y: number } }) => void) | undefined;
+        )?.[1] as ((options: { scenePoint: { x: number; y: number } }) => void) | undefined;
         expect(dblClickHandler).toBeDefined();
 
-        dblClickHandler!({ pointer: { x: 150, y: 200 } });
+        dblClickHandler!({ scenePoint: { x: 150, y: 200 } });
 
         // 多角形が追加される
         expect(mockCanvasInstance.add).toHaveBeenCalled();
@@ -2430,17 +2428,17 @@ describe('AnnotationEditor', () => {
         expect(mouseDownHandler).toBeDefined();
 
         // 既存オブジェクト上で点を追加
-        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
-        mouseDownHandler!({ pointer: { x: 200, y: 150 } });
+        mouseDownHandler!({ scenePoint: { x: 100, y: 100 } });
+        mouseDownHandler!({ scenePoint: { x: 200, y: 150 } });
 
         // mouse:dblclickで折れ線を完了
         const onCalls = mockCanvasInstance.on.mock.calls;
         const dblClickHandler = onCalls.find(
           (call: unknown[]) => call[0] === 'mouse:dblclick'
-        )?.[1] as ((options: { pointer: { x: number; y: number } }) => void) | undefined;
+        )?.[1] as ((options: { scenePoint: { x: number; y: number } }) => void) | undefined;
         expect(dblClickHandler).toBeDefined();
 
-        dblClickHandler!({ pointer: { x: 200, y: 150 } });
+        dblClickHandler!({ scenePoint: { x: 200, y: 150 } });
 
         // 折れ線が追加される
         expect(mockCanvasInstance.add).toHaveBeenCalled();
@@ -2473,7 +2471,7 @@ describe('AnnotationEditor', () => {
         // エラーが出るが、それはcontainsPointを通過している証拠である。
         // canvas.addが呼ばれること（テキストオブジェクト追加）を確認する。
         try {
-          mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+          mouseDownHandler!({ scenePoint: { x: 100, y: 100 } });
         } catch (e) {
           // TextAnnotation.setupDoubleClickEditingがモック環境でthis.onを呼ぶため
           // TypeErrorが発生するが、これはcontainsPointチェック通過後の処理である
@@ -2507,7 +2505,7 @@ describe('AnnotationEditor', () => {
         expect(mouseDownHandler).toBeDefined();
 
         // 選択ツールでmouse:downを発火
-        mouseDownHandler!({ pointer: { x: 100, y: 100 } });
+        mouseDownHandler!({ scenePoint: { x: 100, y: 100 } });
 
         // 選択ツールは早期returnするため、canvas.addは呼ばれない
         // (Fabric.jsのデフォルト動作でオブジェクト選択が行われる)
