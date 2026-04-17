@@ -49,13 +49,20 @@ export default defineConfig(({ mode }) => {
         maxParallelFileOps: 2,
         output: {
           manualChunks: isProduction
-            ? {
+            ? (id: string) => {
                 // React関連を別チャンクに分離
-                react: ['react', 'react-dom'],
+                if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+                  return 'react';
+                }
                 // PDF.js関連を別チャンクに分離（react-pdf + pdfjs-dist）
-                'pdf-viewer': ['react-pdf', 'pdfjs-dist'],
+                if (id.includes('node_modules/react-pdf/') || id.includes('node_modules/pdfjs-dist/')) {
+                  return 'pdf-viewer';
+                }
                 // OCR関連を別チャンクに分離（Tesseract.js）
-                ocr: ['tesseract.js'],
+                if (id.includes('node_modules/tesseract.js/')) {
+                  return 'ocr';
+                }
+                return undefined;
               }
             : undefined,
         },
