@@ -953,7 +953,7 @@ describe('AnnotationService', () => {
       );
     });
 
-    it('サムネイル生成失敗時も注釈保存は成功すること', async () => {
+    it('サムネイル生成失敗時は ThumbnailRegenerationError を throw すること（Task 60.3 同期化）', async () => {
       // Arrange
       mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockRejectedValue(
         new Error('thumbnail generation failed')
@@ -979,19 +979,195 @@ describe('AnnotationService', () => {
         data: mockAnnotationData,
       };
 
-      // Act - 注釈保存はエラーなく完了すること
-      const result = await serviceWithThumbnail.save(input);
+      // Act & Assert: Task 60.3 により同期化されたので失敗はそのまま throw される。
+      // 注釈自体の DB 保存は成功しているが、呼び出し側（ルート層）で
+      // ThumbnailRegenerationError を検知してクライアントに警告を返す契約。
+      await expect(serviceWithThumbnail.save(input)).rejects.toMatchObject({
+        name: 'ThumbnailRegenerationError',
+        code: 'THUMBNAIL_REGENERATION_FAILED',
+      });
+    });
 
-      // Assert - 注釈保存は成功
-      expect(result).toEqual(
-        expect.objectContaining({
-          id: 'annotation-123',
-          imageId: 'image-123',
-        })
+    it('save() はサムネイル再生成の完了を同期的に待機すること (Task 60.4, AC 23.1/23.4)', async () => {
+      // Arrange: generateAnnotatedThumbnail は非同期的に解決される
+      let resolved = false;
+      const newPath = 'annotated-thumbnails/image-123.1700000000000.jpg';
+      mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        resolved = true;
+        return newPath;
+      });
+
+      (thumbnailPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            surveyImage: {
+              findUnique: vi.fn().mockResolvedValue(mockSurveyImage),
+            },
+            imageAnnotation: {
+              findUnique: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue(mockImageAnnotation),
+            },
+          };
+          return await fn(tx);
+        }
       );
 
-      // サムネイル生成失敗のPromiseが解決されるまで待つ
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      const input: SaveAnnotationInput = {
+        imageId: 'image-123',
+        data: mockAnnotationData,
+      };
+
+      // Act: save() が await された時点で、generateAnnotatedThumbnail の
+      // 非同期処理も完了済みであること（= 同期的に待機している）を検証する。
+      const result = await serviceWithThumbnail.save(input);
+
+      // Assert: 再生成完了フラグが立っており、新しいパスが結果に反映されている
+      expect(resolved).toBe(true);
+      expect(result.annotatedThumbnailPath).toBe(newPath);
+      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalled();
+    });
+
+    it('imageRotation 単独変更でもサムネイル再生成が呼ばれること (Task 60.4, AC 23.2)', async () => {
+      // Arrange
+      const newPath = 'annotated-thumbnails/image-123.1700000000001.jpg';
+      mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockResolvedValue(newPath);
+
+      (thumbnailPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            surveyImage: {
+              findUnique: vi.fn().mockResolvedValue(mockSurveyImage),
+            },
+            imageAnnotation: {
+              findUnique: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue(mockImageAnnotation),
+            },
+          };
+          return await fn(tx);
+        }
+      );
+
+      // imageRotation のみを変更した注釈データ（objects は空配列）
+      const rotationOnlyData: AnnotationData = {
+        version: '1.0',
+        objects: [],
+        imageRotation: 90,
+      };
+
+      const input: SaveAnnotationInput = {
+        imageId: 'image-123',
+        data: rotationOnlyData,
+      };
+
+      // Act
+      const result = await serviceWithThumbnail.save(input);
+
+      // Assert: imageRotation を含む dataWithVersion でサムネイル生成が呼ばれる
+      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalled();
+      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalledWith(
+        'image-123',
+        expect.objectContaining({
+          imageRotation: 90,
+          objects: [],
+        })
+      );
+      expect(result.annotatedThumbnailPath).toBe(newPath);
+    });
+
+    it('回転 + 注釈編集の併用時は最終状態でサムネイル再生成されること (Task 60.4, AC 23.3)', async () => {
+      // Arrange
+      const newPath = 'annotated-thumbnails/image-123.1700000000002.jpg';
+      mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockResolvedValue(newPath);
+
+      (thumbnailPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            surveyImage: {
+              findUnique: vi.fn().mockResolvedValue(mockSurveyImage),
+            },
+            imageAnnotation: {
+              findUnique: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue(mockImageAnnotation),
+            },
+          };
+          return await fn(tx);
+        }
+      );
+
+      // 回転と注釈編集を同時に含む最終状態
+      const combinedData: AnnotationData = {
+        version: '1.0',
+        imageRotation: 180,
+        objects: [
+          {
+            type: 'rect',
+            version: '5.3.0',
+            left: 10,
+            top: 20,
+            width: 100,
+            height: 50,
+            fill: 'red',
+          },
+        ],
+      };
+
+      const input: SaveAnnotationInput = {
+        imageId: 'image-123',
+        data: combinedData,
+      };
+
+      // Act
+      const result = await serviceWithThumbnail.save(input);
+
+      // Assert: 最終状態 (imageRotation: 180 + objects) でサムネイル生成が呼ばれる
+      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalled();
+      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalledWith(
+        'image-123',
+        expect.objectContaining({
+          imageRotation: 180,
+          objects: combinedData.objects,
+        })
+      );
+      expect(result.annotatedThumbnailPath).toBe(newPath);
+    });
+
+    it('サムネイル生成失敗時の ThumbnailRegenerationError は cause に元エラーを保持すること (Task 60.4, AC 23.6 補強)', async () => {
+      // Arrange: 上の「失敗時 throw」テストを補強し、code と cause を検証する。
+      const originalError = new Error('R2 PUT failed');
+      mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockRejectedValue(originalError);
+
+      (thumbnailPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            surveyImage: {
+              findUnique: vi.fn().mockResolvedValue(mockSurveyImage),
+            },
+            imageAnnotation: {
+              findUnique: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue(mockImageAnnotation),
+            },
+          };
+          return await fn(tx);
+        }
+      );
+
+      const input: SaveAnnotationInput = {
+        imageId: 'image-123',
+        data: mockAnnotationData,
+      };
+
+      // Act & Assert
+      let caught: unknown;
+      try {
+        await serviceWithThumbnail.save(input);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeDefined();
+      expect((caught as Error).name).toBe('ThumbnailRegenerationError');
+      expect((caught as { code: string }).code).toBe('THUMBNAIL_REGENERATION_FAILED');
+      expect((caught as { cause: unknown }).cause).toBe(originalError);
     });
 
     it('annotatedThumbnailServiceが設定されていない場合はサムネイル生成をスキップすること', async () => {

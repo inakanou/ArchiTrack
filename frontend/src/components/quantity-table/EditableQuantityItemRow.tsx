@@ -17,7 +17,7 @@ import AutocompleteInput from './AutocompleteInput';
 import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import CalculationMethodSelect from './CalculationMethodSelect';
 import CalculationFields from './CalculationFields';
-import SortOrderButtons from './SortOrderButtons';
+import QuantityItemActionMenu from './QuantityItemActionMenu';
 import { calculate } from '../../utils/calculation-engine';
 import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
@@ -58,10 +58,6 @@ export interface EditableQuantityItemRowProps {
    * @default true（後方互換性のため）
    */
   showFieldLabels?: boolean;
-  /** 項目のインデックス（並び順ボタン用、Task 38.1） */
-  itemIndex?: number;
-  /** グループ内の項目総数（並び順ボタン用、Task 38.1） */
-  itemTotalCount?: number;
 }
 
 // ============================================================================
@@ -149,119 +145,7 @@ const styles = {
     alignItems: 'flex-start',
     paddingTop: '15px',
   } as React.CSSProperties,
-  actionButton: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '28px',
-    height: '28px',
-    border: 'none',
-    borderRadius: '4px',
-    backgroundColor: 'transparent',
-    color: '#6b7280',
-    cursor: 'pointer',
-    transition: 'background-color 0.2s, color 0.2s',
-  } as React.CSSProperties,
-  deleteButton: {
-    color: '#dc2626',
-  } as React.CSSProperties,
-  menuWrapper: {
-    position: 'relative' as const,
-  } as React.CSSProperties,
-  menu: {
-    position: 'absolute' as const,
-    right: 0,
-    top: '100%',
-    backgroundColor: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: '6px',
-    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-    zIndex: 10,
-    minWidth: '120px',
-    padding: '4px 0',
-  } as React.CSSProperties,
-  menuItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    width: '100%',
-    padding: '8px 12px',
-    border: 'none',
-    backgroundColor: 'transparent',
-    color: '#374151',
-    fontSize: '13px',
-    cursor: 'pointer',
-    textAlign: 'left' as const,
-  } as React.CSSProperties,
 };
-
-// ============================================================================
-// サブコンポーネント
-// ============================================================================
-
-/**
- * 削除アイコン
- */
-function TrashIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
-
-/**
- * 三点メニューアイコン
- */
-function MoreIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="1" />
-      <circle cx="12" cy="5" r="1" />
-      <circle cx="12" cy="19" r="1" />
-    </svg>
-  );
-}
-
-/**
- * コピーアイコン
- */
-function CopyIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
 
 // ============================================================================
 // バリデーションロジック
@@ -304,8 +188,6 @@ export default function EditableQuantityItemRow({
   getSuggestions,
   onBlurAddCandidate,
   showFieldLabels = true,
-  itemIndex,
-  itemTotalCount,
 }: EditableQuantityItemRowProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // REQ-8.3: 数量フィールドのローカル状態（入力時に即座に警告を表示するため）
@@ -484,37 +366,6 @@ export default function EditableQuantityItemRow({
     },
     [item.id, item.calculationMethod, item.calculationParams, item.adjustmentFactor, onUpdate]
   );
-
-  /**
-   * 削除ハンドラ
-   */
-  const handleDelete = useCallback(() => {
-    onDelete?.(item.id);
-  }, [item.id, onDelete]);
-
-  /**
-   * コピーハンドラ
-   */
-  const handleCopy = useCallback(() => {
-    onCopy?.(item.id);
-    setIsMenuOpen(false);
-  }, [item.id, onCopy]);
-
-  /**
-   * 上に移動ハンドラ（REQ-6.3）
-   */
-  const handleMoveUp = useCallback(() => {
-    onMoveUp?.(item.id);
-    setIsMenuOpen(false);
-  }, [item.id, onMoveUp]);
-
-  /**
-   * 下に移動ハンドラ（REQ-6.3）
-   */
-  const handleMoveDown = useCallback(() => {
-    onMoveDown?.(item.id);
-    setIsMenuOpen(false);
-  }, [item.id, onMoveDown]);
 
   /**
    * メニュー開閉を切り替え
@@ -720,73 +571,23 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* アクション */}
+        {/* アクション（REQ-36: アクションメニューに統合） */}
         <div style={styles.actionsCell} role="cell">
-          {/* 並び順変更ボタン（Task 38.1: REQ-24.3, 24.4） */}
-          {itemIndex !== undefined && itemTotalCount !== undefined && (
-            <SortOrderButtons
-              currentIndex={itemIndex}
-              totalCount={itemTotalCount}
-              onMoveUp={() => onMoveUp?.(item.id)}
-              onMoveDown={() => onMoveDown?.(item.id)}
-            />
-          )}
-
-          {/* 削除ボタン */}
-          <button
-            type="button"
-            style={{ ...styles.actionButton, ...styles.deleteButton }}
-            onClick={handleDelete}
-            aria-label="削除"
-            title="削除"
-          >
-            <TrashIcon />
-          </button>
-
-          {/* アクションメニュー */}
-          <div style={styles.menuWrapper}>
-            <button
-              type="button"
-              style={styles.actionButton}
-              onClick={handleToggleMenu}
-              aria-label="アクション"
-              aria-haspopup="menu"
-              aria-expanded={isMenuOpen}
-            >
-              <MoreIcon />
-            </button>
-
-            {isMenuOpen && (
-              <div style={styles.menu} role="menu">
-                <button type="button" style={styles.menuItem} onClick={handleCopy} role="menuitem">
-                  <CopyIcon />
-                  コピー
-                </button>
-                {canMoveUp && (
-                  <button
-                    type="button"
-                    style={styles.menuItem}
-                    onClick={handleMoveUp}
-                    role="menuitem"
-                  >
-                    <span style={{ fontSize: '14px' }}>↑</span>
-                    上に移動
-                  </button>
-                )}
-                {canMoveDown && (
-                  <button
-                    type="button"
-                    style={styles.menuItem}
-                    onClick={handleMoveDown}
-                    role="menuitem"
-                  >
-                    <span style={{ fontSize: '14px' }}>↓</span>
-                    下に移動
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <QuantityItemActionMenu
+            isOpen={isMenuOpen}
+            onToggle={handleToggleMenu}
+            onClose={handleCloseMenu}
+            onMoveUp={() => onMoveUp?.(item.id)}
+            onMoveDown={() => onMoveDown?.(item.id)}
+            onCopy={() => {
+              onCopy?.(item.id);
+            }}
+            onDelete={() => {
+              onDelete?.(item.id);
+            }}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+          />
         </div>
       </div>
 

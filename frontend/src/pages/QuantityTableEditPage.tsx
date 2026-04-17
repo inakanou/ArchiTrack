@@ -794,6 +794,7 @@ export default function QuantityTableEditPage() {
                       originalUrl: selectedPhoto.originalUrl || '',
                       fileName: selectedPhoto.fileName,
                       hasAnnotations: selectedPhoto.hasAnnotations,
+                      comment: selectedPhoto.comment ?? null,
                     }
                   : null,
                 updatedAt: updatedGroup.updatedAt,

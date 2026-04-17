@@ -42,7 +42,9 @@ import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
 import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
 import { saveAnnotation, getAnnotation, updateThumbnail } from '../../api/survey-annotations';
+import { ApiError } from '../../api/client';
 import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
+import { useToast } from '../../hooks/useToast';
 import ImageExportDialog from './ImageExportDialog';
 import type { ExportOptions } from './ImageExportDialog';
 import type { SurveyImageInfo } from '../../types/site-survey.types';
@@ -123,6 +125,10 @@ export interface AnnotationEditorProps {
   readOnly?: boolean;
   /** 画像情報（ImageExportDialog用、REQ-12.2, 12.3, 12.4） */
   imageInfo?: SurveyImageInfo;
+  /** 注釈保存成功時のコールバック（REQ-23.5: サムネイルURL反映用） */
+  onAnnotationSaved?: (result: { annotatedThumbnailUrl: string | null }) => void;
+  /** 画像一覧の強制再取得コールバック（REQ-23.6: サムネイル再生成失敗時の旧状態残留防止） */
+  onRequestRefresh?: () => void;
 }
 
 // ============================================================================
@@ -268,7 +274,11 @@ function AnnotationEditor({
   surveyId,
   readOnly = false,
   imageInfo,
+  onAnnotationSaved,
+  onRequestRefresh,
 }: AnnotationEditorProps): React.JSX.Element {
+  // Toast通知フック（REQ-23.6: サムネイル再生成失敗時のエラー通知用）
+  const toast = useToast();
   // DOM参照 - Canvas要素を動的に挿入するコンテナ
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1326,7 +1336,14 @@ function AnnotationEditor({
       };
 
       // APIを呼び出して保存
-      await saveAnnotation(imageId, { data: annotationData });
+      const saveResponse = await saveAnnotation(imageId, { data: annotationData });
+
+      // REQ-23.5: レスポンスのannotatedThumbnailUrlをコールバックで通知
+      if (onAnnotationSaved) {
+        onAnnotationSaved({
+          annotatedThumbnailUrl: saveResponse.annotatedThumbnailUrl ?? null,
+        });
+      }
 
       // サムネイルを更新（注釈付き画像を反映）
       try {
@@ -1351,6 +1368,38 @@ function AnnotationEditor({
         setState((prev) => ({ ...prev, saveSuccess: false }));
       }, 3000);
     } catch (err) {
+      // REQ-23.6: THUMBNAIL_REGENERATION_FAILED エラーの判定
+      // 注釈保存自体は成功しているが、サムネイル再生成のみ失敗したケース
+      if (
+        err instanceof ApiError &&
+        err.response &&
+        typeof err.response === 'object' &&
+        (err.response as Record<string, unknown>).code === 'THUMBNAIL_REGENERATION_FAILED'
+      ) {
+        console.warn('サムネイル再生成に失敗しました:', err);
+
+        // 保存中状態を解除（注釈保存自体は成功しているのでエラー状態にしない）
+        setState((prev) => ({ ...prev, isSaving: false }));
+
+        // エラー Toast を表示
+        toast.error(
+          '注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。',
+          { duration: 8000 }
+        );
+
+        // onAnnotationSaved を null で通知（サムネイルURLは取得できなかった）
+        if (onAnnotationSaved) {
+          onAnnotationSaved({ annotatedThumbnailUrl: null });
+        }
+
+        // 画像一覧を強制再取得して旧状態残留を防止
+        if (onRequestRefresh) {
+          onRequestRefresh();
+        }
+
+        return;
+      }
+
       console.error('注釈の保存に失敗しました:', err);
       setState((prev) => ({
         ...prev,
@@ -1358,7 +1407,7 @@ function AnnotationEditor({
         error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
       }));
     }
-  }, [imageId, state.isSaving]);
+  }, [imageId, state.isSaving, onAnnotationSaved, onRequestRefresh, toast]);
 
   /**
    * エクスポートダイアログを開く

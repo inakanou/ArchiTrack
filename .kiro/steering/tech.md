@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-04-06（Steering Sync: 依存関係バージョン更新、現場調査新機能追加を反映）_
+_最終更新: 2026-04-08（Steering Sync: 依存関係バージョン更新を反映）_
 
 ## アーキテクチャ
 
@@ -102,7 +102,7 @@ ArchiTrack/
 - **フレームワーク**: Express 5.2.0
 - **ORM**: Prisma 7.3.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
 - **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.3.0、@prisma/adapter-pg 7.3.0
-- **キャッシュクライアント**: ioredis 5.9.2
+- **キャッシュクライアント**: ioredis 5.10.1
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
 - **JWT署名**: jose 6.1.3（EdDSA署名）
@@ -135,7 +135,7 @@ ArchiTrack/
 - `@prisma/adapter-pg` ^7.3.0 - Prisma Driver Adapter for PostgreSQL
 - `decimal.js` ^10.6.0 - 高精度10進数計算（数量計算）
 - `pg` ^8.18.0 - PostgreSQL クライアント
-- `ioredis` ^5.9.2 - Redis クライアント
+- `ioredis` ^5.10.1 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
 - `nodemailer` ^7.0.12 - メール送信
 - `handlebars` ^4.7.8 - テンプレートエンジン
@@ -147,8 +147,8 @@ ArchiTrack/
 - `express-rate-limit` ^8.2.1 - レート制限
 - `zod` ^4.3.6 - スキーマバリデーション
 - `dotenv` ^17.3.1 - 環境変数管理
-- `@sentry/node` ^10.39.0 - Sentryエラートラッキング（Backend）
-- `@sentry/profiling-node` ^10.39.0 - Sentryプロファイリング
+- `@sentry/node` ^10.47.0 - Sentryエラートラッキング（Backend）
+- `@sentry/profiling-node` ^10.47.0 - Sentryプロファイリング
 - `pino` ^10.3.0 - ロガー
 - `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
 - `pino-pretty` ^13.1.2 - ログの整形出力（開発環境）
@@ -287,7 +287,7 @@ coverage: {
     - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 単体テスト166ファイル + 統合テスト31ファイル
+**テスト合計:** 単体テスト167ファイル + 統合テスト31ファイル
 
 **実行方法:**
 ```bash

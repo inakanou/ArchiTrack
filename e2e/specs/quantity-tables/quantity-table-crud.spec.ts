@@ -1409,10 +1409,15 @@ test.describe('数量表CRUD操作', () => {
 
       const initialRowCount = await page.getByTestId('quantity-item-row').count();
 
-      // 削除ボタンが表示されることを確認（必須）
-      const deleteButton = itemRow.getByRole('button', { name: /削除/ });
-      await expect(deleteButton).toBeVisible({ timeout: 3000 });
-      await deleteButton.click();
+      // アクションメニューを開いて削除を実行（REQ-36: アクションメニューに統合）
+      const actionButton = itemRow.getByRole('button', { name: /アクション/ });
+      await expect(actionButton).toBeVisible({ timeout: 3000 });
+      await actionButton.click();
+
+      // ドロップダウンメニュー内の削除ボタンをクリック
+      const deleteMenuItem = page.getByRole('menuitem', { name: /削除/ });
+      await expect(deleteMenuItem).toBeVisible({ timeout: 3000 });
+      await deleteMenuItem.click();
 
       // 確認ダイアログが表示されれば確認ボタンをクリック
       // 注意: ダイアログ内のボタンのみを探す（行の削除ボタンと混同しないため）
@@ -1739,12 +1744,12 @@ test.describe('数量表CRUD操作', () => {
       await expect(moreButton).toBeVisible({ timeout: 3000 });
       await moreButton.click();
 
-      // 移動オプションが表示される（必須）
-      const moveOption = page.getByRole('menuitem', { name: /移動|並び替え|↓|↑/ });
-      await expect(moveOption).toBeVisible({ timeout: 3000 });
+      // 「下へ移動」オプションが表示される（必須）（最初の項目なので「下へ移動」を使用）
+      const moveDownOption = page.getByRole('menuitem', { name: /下へ移動/ });
+      await expect(moveDownOption).toBeVisible({ timeout: 3000 });
 
       // 移動オプションをクリック
-      await moveOption.click();
+      await moveDownOption.click();
 
       // 移動後、項目が表示されていることを確認（必須）
       await expect(page.getByTestId('quantity-item-row').first()).toBeVisible({ timeout: 5000 });

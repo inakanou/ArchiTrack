@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-03-19（Steering Sync: 実行予算管理機能追加を反映）_
+_最終更新: 2026-04-08（Steering Sync: テストファイル数・Storybookカウント・contracts/コンポーネント追加を反映）_
 
 ## ルートディレクトリ構成
 
@@ -571,6 +571,9 @@ frontend/
 │   │       └── ExportDialog.tsx    # Excel/PDFエクスポートダイアログ
 │   │   ├── company-info/            # 自社情報コンポーネント
 │   │       └── CompanyInfoForm.tsx   # 自社情報設定フォーム
+│   │   ├── contracts/               # 契約書共通コンポーネント
+│   │       ├── DeleteConfirmDialog.tsx # 契約書削除確認ダイアログ
+│   │       └── DeleteConfirmDialog.stories.tsx # Storybook
 │   │   └── common/                  # 共通コンポーネント
 │   │       ├── Breadcrumb.tsx       # パンくずナビゲーション
 │   │       ├── ConflictDialog.tsx    # 楽観的排他制御競合ダイアログ
@@ -671,7 +674,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（130ファイル）:**
+**Storybookストーリーファイル（132ファイル）:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -737,6 +740,9 @@ frontend/
 契約書コンポーネント（contract/）:
 - `ContractForm.stories.tsx` - 契約書フォーム
 - `ComparisonPanel.stories.tsx` - 変更前後比較パネル
+
+契約書共通コンポーネント（contracts/）:
+- `DeleteConfirmDialog.stories.tsx` - 契約書削除確認ダイアログ
 
 プロジェクトコンポーネント（projects/）:
 - `ContractSectionCard.stories.tsx` - 契約書セクションカード
@@ -806,7 +812,7 @@ backend/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
 │   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（166テストファイル）
+│   │   └── unit/          # ユニットテスト（167テストファイル）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
@@ -1562,7 +1568,7 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト166ファイル + 統合テスト31ファイル
+- Backend: 単体テスト167ファイル + 統合テスト31ファイル
 - Frontend: 単体テスト339ファイル
 
 ### .gitignore

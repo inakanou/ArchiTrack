@@ -137,6 +137,7 @@ describe('AnnotatedThumbnailService', () => {
           originalPath: true,
           width: true,
           height: true,
+          annotatedThumbnailPath: true,
         },
       });
 
@@ -152,21 +153,23 @@ describe('AnnotatedThumbnailService', () => {
       // JPEG変換
       expect(mockSharpInstance.jpeg).toHaveBeenCalledWith({ quality: 80 });
 
-      // R2にアップロード
+      // R2にアップロード（タイムスタンプ付き新キー）
       expect(mockStorageProvider.upload).toHaveBeenCalledWith(
-        'annotated-thumbnails/image-123.jpg',
+        expect.stringMatching(/^annotated-thumbnails\/image-123\.\d+\.jpg$/),
         expect.any(Buffer),
         { contentType: 'image/jpeg' }
       );
 
+      const uploadedKey = mockStorageProvider.upload.mock.calls[0]![0] as string;
+
       // DB更新
       expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
         where: { id: 'image-123' },
-        data: { annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg' },
+        data: { annotatedThumbnailPath: uploadedKey },
       });
 
       // 結果パスの返却
-      expect(result).toBe('annotated-thumbnails/image-123.jpg');
+      expect(result).toBe(uploadedKey);
     });
 
     it('異常系: 画像が見つからない場合nullを返すこと', async () => {
@@ -178,14 +181,68 @@ describe('AnnotatedThumbnailService', () => {
       expect(mockStorageProvider.get).not.toHaveBeenCalled();
     });
 
-    it('異常系: R2保存失敗時にnullを返すこと', async () => {
+    it('異常系: R2保存失敗時は例外を throw し、DB 更新を行わないこと', async () => {
       mockStorageProvider.upload.mockRejectedValue(new Error('R2 upload failed'));
+
+      await expect(
+        service.generateAnnotatedThumbnail('image-123', testAnnotationData)
+      ).rejects.toThrow('R2 upload failed');
+
+      // DB更新は行われない
+      expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
+    });
+
+    it('冪等性: 連続呼び出しで毎回異なるタイムスタンプ付きパスが返ること', async () => {
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        ...testImage,
+        annotatedThumbnailPath: null,
+      });
+
+      const first = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
+      // Date.now() の粒度差を確保
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const second = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
+
+      expect(first).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
+      expect(second).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
+      expect(first).not.toBe(second);
+    });
+
+    it('冪等性: 既存 annotatedThumbnailPath が存在する場合、DB 更新後に旧キーを best-effort で削除すること', async () => {
+      const oldPath = 'annotated-thumbnails/image-123.1700000000000.jpg';
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        ...testImage,
+        annotatedThumbnailPath: oldPath,
+      });
+      mockStorageProvider.delete.mockResolvedValue(undefined);
 
       const result = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
 
-      expect(result).toBeNull();
-      // DB更新は行われない
-      expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
+      // DB 更新が先に行われている
+      expect(mockPrisma.surveyImage.update).toHaveBeenCalled();
+      // 旧キーの削除が呼ばれる
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(oldPath);
+      // 新 path が返る
+      expect(result).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
+      expect(result).not.toBe(oldPath);
+    });
+
+    it('冪等性: 旧キー削除が失敗しても本メソッドは正常完了し新 path を返すこと', async () => {
+      const oldPath = 'annotated-thumbnails/image-123.1700000000000.jpg';
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        ...testImage,
+        annotatedThumbnailPath: oldPath,
+      });
+      mockStorageProvider.delete.mockRejectedValue(new Error('R2 delete failed'));
+
+      const result = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
+
+      expect(result).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
+      expect(mockPrisma.surveyImage.update).toHaveBeenCalled();
+      // delete は試みられる
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(oldPath);
+      // best-effort のため非同期 reject がテスト終了前に解決されるのを待つ
+      await new Promise((resolve) => setImmediate(resolve));
     });
 
     it('異常系: オリジナル画像取得失敗時にnullを返すこと', async () => {

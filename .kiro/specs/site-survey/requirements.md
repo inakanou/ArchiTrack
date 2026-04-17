@@ -291,3 +291,16 @@
 6. When ユーザーが回転操作を行う, the Site Survey Service shall 回転操作をUndo/Redo履歴に記録する
 7. The Site Survey Service shall 注釈エディタの回転ボタンを既存のツールバーに配置する
 8. When ユーザーが注釈エディタで複数回回転操作を行う, the Site Survey Service shall 累積回転角度（0度/90度/180度/270度）を正しく管理する
+
+### Requirement 23: 画像編集画面での変更に伴うサムネイル再生成の確実化
+**Objective:** As a 現場調査担当者, I want 画像編集画面で行った画像変更（回転・注釈の追加/編集/削除）を保存した際に、サムネイルが変更後の最終状態で確実に再生成されること, so that 詳細画面や一覧画面で常に最新の画像状態を確認できる
+
+#### Acceptance Criteria
+1. When ユーザーが画像編集画面で注釈の追加・編集・削除を行い保存する, the Site Survey Service shall 保存後の注釈をレンダリングしたサムネイル画像を再生成する
+2. When ユーザーが画像編集画面で画像を回転して保存する, the Site Survey Service shall 回転後の画像状態を反映したサムネイル画像を再生成する
+3. When ユーザーが画像編集画面で回転と注釈編集の両方を行い保存する, the Site Survey Service shall 回転と注釈の両方を反映した最終状態のサムネイル画像を再生成する
+4. When 画像編集画面の保存処理が完了する, the Site Survey Service shall サムネイル再生成処理の完了を保証してから保存完了とみなす
+5. When サムネイル再生成が完了する, the Site Survey Service shall 現場調査詳細画面および現場調査一覧画面のサムネイル表示を最新の再生成結果に更新する
+6. If サムネイル再生成処理に失敗する, then the Site Survey Service shall エラーメッセージを表示し、サムネイルが旧状態のまま残らないよう再試行または明示的なエラー状態を提示する
+7. When ユーザーが保存後に画像編集画面を再度開く, the Site Survey Service shall 表示中のサムネイルが保存時に再生成された最新画像と一致することを保証する
+8. The Site Survey Service shall 画像変更を伴わない保存操作（例: 変更なしの保存）でもサムネイル再生成処理が冪等に動作し、既存サムネイルを破損させない
