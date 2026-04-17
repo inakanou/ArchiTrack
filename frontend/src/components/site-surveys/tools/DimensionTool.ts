@@ -292,6 +292,8 @@ export class DimensionLine extends Path {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
       fill: '',
+      originX: 'left',
+      originY: 'top',
       selectable: true,
       evented: true,
       hasControls: true,

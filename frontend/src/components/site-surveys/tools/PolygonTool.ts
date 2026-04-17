@@ -129,6 +129,8 @@ export class PolygonShape extends Polygon {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
       fill: mergedOptions.fill,
+      originX: 'left',
+      originY: 'top',
       hasControls: true,
       hasBorders: true,
       lockMovementX: false,

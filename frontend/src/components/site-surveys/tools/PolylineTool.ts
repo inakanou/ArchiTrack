@@ -129,6 +129,8 @@ export class PolylineShape extends Polyline {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
       fill: mergedOptions.fill,
+      originX: 'left',
+      originY: 'top',
       hasControls: true,
       hasBorders: true,
       lockMovementX: false,

@@ -680,8 +680,8 @@ function AnnotationEditor({
   const setupEventListeners = useCallback((canvas: FabricCanvas) => {
     // マウスダウンイベント - ドラッグ開始または多角形/折れ線の頂点追加
     canvas.on('mouse:down', (options: TPointerEventInfo<TPointerEvent>) => {
-      // Fabric.js v6ではoptions.pointerを使用（キャンバス座標）
-      const pointer = options.pointer;
+      // Fabric.js v7ではoptions.scenePointを使用（キャンバス座標）
+      const pointer = options.scenePoint;
       const activeTool = activeToolRef.current;
       if (!pointer) {
         return;
@@ -758,7 +758,7 @@ function AnnotationEditor({
 
     // マウス移動イベント - ドラッグ中のプレビュー表示
     canvas.on('mouse:move', (options: TPointerEventInfo<TPointerEvent>) => {
-      const pointer = options.pointer;
+      const pointer = options.scenePoint;
       const activeTool = activeToolRef.current;
       const dragState = dragStateRef.current;
       const currentStyle = styleOptionsRef.current;
@@ -925,7 +925,7 @@ function AnnotationEditor({
 
       // 注: handleToolChangeで描画ツール選択時にevented: false, selectable: falseを
       // 全オブジェクトに設定済みのため、既存オブジェクト上でも図形作成を実行する。
-      const pointer = options.pointer;
+      const pointer = options.scenePoint;
 
       // ドラッグ中でなければ何もしない
       if (!dragState.isDragging || !dragState.startPoint) {

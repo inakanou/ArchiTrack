@@ -1161,8 +1161,7 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
         // Canvasサイズを設定
         const scaledWidth = imgWidth * scale;
         const scaledHeight = imgHeight * scale;
-        canvas.setWidth(scaledWidth);
-        canvas.setHeight(scaledHeight);
+        canvas.setDimensions({ width: scaledWidth, height: scaledHeight });
 
         // 背景画像として設定（Fabric.js v6 API）
         canvas.backgroundImage = img;
@@ -1252,8 +1251,7 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
     // 初期サイズを設定
     const containerWidth = containerRef.current?.clientWidth || 800;
     const containerHeight = containerRef.current?.clientHeight || 600;
-    canvas.setWidth(containerWidth);
-    canvas.setHeight(containerHeight);
+    canvas.setDimensions({ width: containerWidth, height: containerHeight });
 
     // 画像を読み込み
     if (imageUrl) {
