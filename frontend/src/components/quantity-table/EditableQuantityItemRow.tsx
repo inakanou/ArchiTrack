@@ -142,8 +142,11 @@ const styles = {
     display: 'flex',
     gap: '4px',
     justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-    paddingTop: '15px',
+    alignItems: 'center',
+    height: '22px',
+  } as React.CSSProperties,
+  actionsCellWithLabel: {
+    marginTop: '15px',
   } as React.CSSProperties,
 };
 
@@ -572,7 +575,13 @@ export default function EditableQuantityItemRow({
         </div>
 
         {/* アクション（REQ-36: アクションメニューに統合） */}
-        <div style={styles.actionsCell} role="cell">
+        <div
+          style={{
+            ...styles.actionsCell,
+            ...(showFieldLabels ? styles.actionsCellWithLabel : {}),
+          }}
+          role="cell"
+        >
           <QuantityItemActionMenu
             isOpen={isMenuOpen}
             onToggle={handleToggleMenu}
