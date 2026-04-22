@@ -141,9 +141,6 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '16px',
-    overflow: 'auto',
-    maxWidth: '100%',
-    maxHeight: 'calc(100vh - 200px)',
   } as React.CSSProperties,
   emptyState: {
     textAlign: 'center' as const,

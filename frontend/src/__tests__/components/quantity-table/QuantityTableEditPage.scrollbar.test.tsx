@@ -4,8 +4,8 @@
  * Task 39.2: スクロールバー表示の単体テストを実装する
  *
  * Requirements:
- * - 25.1: 水平スクロールバー表示
- * - 25.2: 垂直スクロールバー表示
+ * - 25.1/25.2: インラインスクロールバーではなく画面直下でスクロールする
+ *   （アクションメニュードロップダウンの表示が切れないようにするため）
  * - 25.3: ビューポート内収まり時のスクロールバー非表示
  */
 
@@ -101,7 +101,7 @@ describe('数量表編集画面 スクロールバー', () => {
     vi.clearAllMocks();
   });
 
-  it('数量グループセクションにoverflow: autoスタイルが適用される（REQ-25.1, 25.2）', async () => {
+  it('数量グループセクションにインラインのoverflow:autoを設定しない（アクションメニュー切れ防止）', async () => {
     render(
       <MemoryRouter initialEntries={['/projects/proj-1/quantity-tables/qt-1']}>
         <Routes>
@@ -116,11 +116,12 @@ describe('数量表編集画面 スクロールバー', () => {
     // データ読み込み完了を待つ
     const groupSection = await screen.findByTestId('quantity-group-section', {}, { timeout: 5000 });
 
-    // overflow: auto が適用されている
-    expect(groupSection.style.overflow).toBe('auto');
+    // インラインスクロールバーを生じさせない（auto/scroll 以外）
+    expect(['auto', 'scroll']).not.toContain(groupSection.style.overflow);
+    expect(['auto', 'scroll']).not.toContain(groupSection.style.overflowY);
   });
 
-  it('数量グループセクションにmaxHeightが設定されている（REQ-25.2）', async () => {
+  it('数量グループセクションにmaxHeightを設定しない（ページ直下スクロールに委ねる）', async () => {
     render(
       <MemoryRouter initialEntries={['/projects/proj-1/quantity-tables/qt-1']}>
         <Routes>
@@ -134,7 +135,7 @@ describe('数量表編集画面 スクロールバー', () => {
 
     const groupSection = await screen.findByTestId('quantity-group-section', {}, { timeout: 5000 });
 
-    // maxHeight が設定されている
-    expect(groupSection.style.maxHeight).toBeTruthy();
+    // maxHeight は設定しない
+    expect(groupSection.style.maxHeight).toBe('');
   });
 });
