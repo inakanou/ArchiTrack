@@ -23,12 +23,6 @@
     "noImplicitReturns": true,
     "noImplicitOverride": true,
 
-    /* Path aliases */
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    },
-
     /* Testing */
     "types": ["vitest/globals"],
 
