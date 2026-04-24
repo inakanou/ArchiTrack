@@ -191,10 +191,11 @@ export function AnnotationContextMenu({
   return (
     <>
       {/* 透明オーバーレイ: メニュー外タップで onClose（Req 27.5） */}
+      {/* role="presentation" の要素には aria-label を付与できない（axe: aria-prohibited-attr）ため、
+          視覚的・意味的にも非表示の透明レイヤーとして属性を最小化する */}
       <div
         data-testid="annotation-context-menu-overlay"
         role="presentation"
-        aria-label="コンテキストメニューを閉じる"
         style={STYLES.overlay}
         onClick={onClose}
       />
