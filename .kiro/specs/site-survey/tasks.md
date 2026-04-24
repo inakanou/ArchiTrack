@@ -1690,7 +1690,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 24.5, 24.6, 24.7, 24.9, 24.10_
   - _Boundary: Arrow_
 
-- [ ] 65.3 `registerCustomShapes` で Group 版 Arrow を再登録
+- [x] 65.3 `registerCustomShapes` で Group 版 Arrow を再登録
   - `classRegistry.setClass('arrow', Arrow)` の対象クラスを Group 版に差し替える
   - `type: 'arrow'` の文字列 ID は維持し、既存データの `enlivenObjects` 経路を壊さない
   - 観測可能な完了状態: 旧 Path 形式で保存された `{type: 'arrow', ...}` JSON を `util.enlivenObjects` に渡すと新 Group 版 Arrow として復元される
