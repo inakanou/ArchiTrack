@@ -1660,7 +1660,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 26.5_
   - _Boundary: AnnotationStyleTokens_
 
-- [ ] 64.3 各ツール側の既定値定数をトークン参照へ差し替え
+- [x] 64.3 各ツール側の既定値定数をトークン参照へ差し替え
   - `ArrowTool.ts`、`TextTool.ts`、`RectangleTool.ts`、`CircleTool.ts`、`PolygonTool.ts`、`PolylineTool.ts`、`FreehandTool.ts`、`DimensionTool.ts` のツール別 `DEFAULT_*_OPTIONS` をトークン参照に置換する
   - 既定本体色の不整合（Arrow の黒固定など）をトークンの既定に統一する
   - 観測可能な完了状態: 各ツールのツール別定数を検査すると、重複していた色/線幅ハードコードが削除され `ANNOTATION_DEFAULTS` を参照する形になっている

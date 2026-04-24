@@ -12,6 +12,8 @@
 
 import { Path } from 'fabric';
 
+import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -64,10 +66,14 @@ export interface ArrowJSON {
 
 /**
  * デフォルトの矢印オプション
+ *
+ * Task 64.3: 本体色/線幅は `ANNOTATION_DEFAULTS`（Req 26.5 一元管理トークン）を参照。
+ * Req 26.1: 初期線幅は 3px 以上（ANNOTATION_DEFAULTS.strokeWidth）。
+ * Req 26.2: 初期本体色は赤系（ANNOTATION_DEFAULTS.stroke）。
  */
 export const DEFAULT_ARROW_OPTIONS: ArrowOptions = {
-  stroke: '#000000',
-  strokeWidth: 2,
+  stroke: ANNOTATION_DEFAULTS.stroke,
+  strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
   arrowheadSize: 10,
 };
 

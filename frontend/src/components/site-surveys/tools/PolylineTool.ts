@@ -12,6 +12,8 @@
 
 import { Polyline } from 'fabric';
 
+import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -67,10 +69,13 @@ export interface PolylineJSON {
 
 /**
  * デフォルトの折れ線オプション
+ *
+ * Task 64.3: 本体色/線幅は `ANNOTATION_DEFAULTS`（Req 26.5 一元管理トークン）を参照。
+ * 塗りつぶしは従来通り 'transparent'（Fabric 上の透明表現）を維持する。
  */
 export const DEFAULT_POLYLINE_OPTIONS: PolylineOptions = {
-  stroke: '#000000',
-  strokeWidth: 2,
+  stroke: ANNOTATION_DEFAULTS.stroke,
+  strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
   fill: 'transparent',
 };
 

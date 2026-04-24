@@ -20,6 +20,8 @@
 
 import { IText, type Canvas as FabricCanvas } from 'fabric';
 
+import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -135,12 +137,17 @@ export const DEFAULT_BALLOON_OPTIONS: Required<BalloonOptions> = {
 
 /**
  * デフォルトのテキストオプション
+ *
+ * Task 64.3: 本体色（fill）/フォントサイズは `ANNOTATION_DEFAULTS`（Req 26.5 一元管理
+ * トークン）を参照。テキストの `fill` は本体色（筆跡色）を意味するため、
+ * `ANNOTATION_DEFAULTS.stroke`（赤系トークン）を採用する（Req 26.2）。
+ * `DEFAULT_BALLOON_OPTIONS` は吹き出し枠の別概念スタイルのため変更しない。
  */
 export const DEFAULT_TEXT_OPTIONS: TextAnnotationOptions = {
   initialText: '',
-  fontSize: 16,
+  fontSize: ANNOTATION_DEFAULTS.fontSize,
   fontFamily: 'sans-serif',
-  fill: '#000000',
+  fill: ANNOTATION_DEFAULTS.stroke,
   backgroundColor: 'transparent',
 };
 

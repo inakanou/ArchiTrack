@@ -19,6 +19,8 @@
 
 import { Path, FabricText, Rect, type Canvas } from 'fabric';
 
+import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -95,10 +97,14 @@ export interface DimensionLineJSON {
 
 /**
  * デフォルトの寸法線オプション
+ *
+ * Task 64.3: 本体色/線幅は `ANNOTATION_DEFAULTS`（Req 26.5 一元管理トークン）を参照。
+ * Req 26.1: 初期線幅は 3px 以上（ANNOTATION_DEFAULTS.strokeWidth）。
+ * ラベル用の `DEFAULT_LABEL_STYLE` は本体色とは別の概念のため変更しない。
  */
 export const DEFAULT_DIMENSION_OPTIONS: DimensionLineOptions = {
-  stroke: '#000000',
-  strokeWidth: 2,
+  stroke: ANNOTATION_DEFAULTS.stroke,
+  strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
   capLength: 10,
 };
 
