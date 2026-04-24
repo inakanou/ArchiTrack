@@ -1737,7 +1737,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.6_
   - _Boundary: Gestures Layer_
 
-- [ ] 67.2 `touchGestureManager` の state machine と custom イベント emitter 実装
+- [x] 67.2 `touchGestureManager` の state machine と custom イベント emitter 実装
   - `attach(canvas, getCurrentTool): detachFn` 形式で Fabric Canvas にアタッチする
   - `enablePointerEvents: true` を初手採用し、canvas element の `pointerdown/pointermove/pointerup/pointercancel` を listen する
   - state machine（`idle → one-finger-down → drawing | long-press | double-tap | two-finger-pinch-pan | three-plus-suspend → cooldown → idle`）を実装する
