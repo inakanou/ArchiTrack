@@ -1791,7 +1791,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: AnnotationGuide_
 
 - [ ] 70. (P) モバイルツールバー拡張
-- [ ] 70.1 ツールバーの flexWrap と 44x44 タップ領域、ツールバー領域の描画抑止境界を導入
+- [x] 70.1 ツールバーの flexWrap と 44x44 タップ領域、ツールバー領域の描画抑止境界を導入
   - `AnnotationToolbar.tsx` の `STYLES.toolbar` に `flexWrap: 'wrap'` を追加し、既存 `overflowX: 'auto'` と両立させる
   - 各ボタンの `minWidth/minHeight` を 44 論理ピクセルに統一する
   - 端末回転（縦横）時に `window.innerWidth` 変化でレイアウトが自動再構成される

@@ -12,7 +12,7 @@
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   type ToolType,
   type ToolDefinition,
@@ -63,6 +63,7 @@ const STYLES = {
   toolbar: {
     display: 'flex',
     flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
     alignItems: 'center',
     gap: '4px',
     padding: '8px',
@@ -70,6 +71,9 @@ const STYLES = {
     borderRadius: '8px',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
     overflowX: 'auto' as const,
+    // Req 28.6: ツールバー領域内のタップ/クリックが背景 canvas への描画として
+    // 誤発火しないよう、明示的なポインタ境界を確立する
+    pointerEvents: 'auto' as const,
   },
   separator: {
     width: '1px',
@@ -157,8 +161,9 @@ const STYLES = {
       flexDirection: 'column' as const,
       alignItems: 'center',
       justifyContent: 'center',
-      minWidth: '48px',
-      minHeight: '48px',
+      // Req 28.3 / design.md AnnotationToolbar (ext): 44x44 論理ピクセルに統一
+      minWidth: '44px',
+      minHeight: '44px',
       padding: '8px',
       border: '1px solid transparent',
       borderRadius: '6px',
@@ -424,6 +429,31 @@ function AnnotationToolbar({
   canRedo = true,
   onRotate,
 }: AnnotationToolbarProps): React.JSX.Element {
+  /**
+   * Req 28.4: 端末回転 (orientation) 時のレイアウト再構成。
+   *
+   * `window.innerWidth` が変化したときに再レンダリングをトリガし、
+   * flexWrap と overflowX による折返し/スクロールの再計算を行わせる。
+   * 現時点では幅値自体は分岐に使っておらず、React の再描画契機として
+   * 利用する (Req 28.1, 28.2, 28.4)。
+   */
+  const [, setViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 0
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const handleResize = (): void => {
+      setViewportWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
   /**
    * ツールボタンクリックハンドラ
    */
