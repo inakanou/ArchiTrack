@@ -2,17 +2,22 @@
  * @fileoverview 矢印ツール
  *
  * Task 15.1: 矢印ツールを実装する
+ * Task 65.1: Arrow クラスを Group ベースへ再設計（白縁取りダブルストローク）
  *
  * ドラッグによる矢印描画、矢印の方向（開始点→終了点）、
- * カスタムFabric.jsオブジェクト実装を行うモジュールです。
+ * 白縁取り付き Group 構造のカスタム Fabric.js オブジェクト実装を行うモジュールです。
  *
  * Requirements:
  * - 7.1: 矢印ツールを選択してドラッグすると開始点から終了点へ矢印を描画する
+ * - 24.1: 矢印本体線の両側に白色の縁取り線を付与して表示する
+ * - 24.2: 白縁取り線幅を本体線幅の1.5倍以上の太さで付与する
+ * - 24.3: 本体色を変更しても白縁取り部分の色は常に白のまま維持する
+ * - 24.4: 移動・リサイズ・回転時に白縁取りを本体と同期して変形する
  */
 
-import { Path } from 'fabric';
+import { Group, Path } from 'fabric';
 
-import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+import { ANNOTATION_DEFAULTS, type ArrowOutlineAttribute } from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -50,6 +55,9 @@ export interface ArrowOptions {
 
 /**
  * 矢印のシリアライズ形式
+ *
+ * Task 65.1 時点では従来スキーマを維持（後方互換）。
+ * `outline` フィールドの永続化は Task 65.2 で拡張予定。
  */
 export interface ArrowJSON {
   type: 'arrow';
@@ -171,10 +179,14 @@ function generateArrowPath(startPoint: Point, endPoint: Point, arrowheadSize: nu
 /**
  * 矢印クラス
  *
- * Fabric.js Pathを拡張した矢印オブジェクト。
- * シャフトライン（始点から終点への直線）と矢じりで構成される。
+ * Fabric.js Group を拡張した矢印オブジェクト。
+ * - outlinePath: 白い縁取り（本体線幅 + 縁取り幅×2）
+ * - bodyPath: 本体色の細い線
+ * の 2 つの子 Path を持つ。
+ *
+ * `type === 'arrow'` は維持（classRegistry 後方互換）。
  */
-export class Arrow extends Path {
+export class Arrow extends Group {
   /** 始点 */
   private _startPoint: Point;
 
@@ -189,6 +201,15 @@ export class Arrow extends Path {
 
   /** 矢印の角度（度） */
   private _arrowAngle: number;
+
+  /** 白縁取り属性 */
+  private _outline: ArrowOutlineAttribute;
+
+  /** 外側の白縁取り Path */
+  private _outlinePath: Path;
+
+  /** 本体色の Path */
+  private _bodyPath: Path;
 
   /**
    * Arrowコンストラクタ
@@ -205,14 +226,47 @@ export class Arrow extends Path {
     const arrowAngle = calculateAngle(startPoint, endPoint);
     const length = calculateDistance(startPoint, endPoint);
 
-    // 矢印のSVGパスを生成
+    // 矢印のSVGパスを生成（2つの Path で共有）
     const pathData = generateArrowPath(startPoint, endPoint, mergedOptions.arrowheadSize);
 
-    // Pathを初期化
-    super(pathData, {
+    // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
+    const outline: ArrowOutlineAttribute = { ...ANNOTATION_DEFAULTS.arrowOutline };
+
+    // 外側 Path（白縁取り）を生成
+    const outlinePath = new Path(pathData, {
+      stroke: outline.color,
+      strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
+      fill: '',
+      strokeLineCap: 'round',
+      strokeLineJoin: 'round',
+      opacity: outline.enabled ? 1 : 0,
+      originX: 'left',
+      originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // 本体 Path を生成
+    const bodyPath = new Path(pathData, {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
       fill: '',
+      originX: 'left',
+      originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // Group を初期化（outline → body の順で重ね、body が上に描画される）
+    // 本体色/本体線幅は Group 自体にもミラー設定して、既存 consumer の `arrow.stroke` /
+    // `arrow.strokeWidth` 参照（Task 65.1 以前の API）との後方互換を維持する。
+    super([outlinePath, bodyPath], {
       originX: 'left',
       originY: 'top',
       selectable: true,
@@ -221,6 +275,11 @@ export class Arrow extends Path {
       hasBorders: true,
       lockMovementX: false,
       lockMovementY: false,
+      subTargetCheck: false,
+      objectCaching: false,
+      stroke: mergedOptions.stroke,
+      strokeWidth: mergedOptions.strokeWidth,
+      fill: '',
     });
 
     // プロパティを設定
@@ -229,6 +288,9 @@ export class Arrow extends Path {
     this._arrowheadSize = mergedOptions.arrowheadSize;
     this._length = length;
     this._arrowAngle = normalizeAngle(arrowAngle);
+    this._outline = outline;
+    this._outlinePath = outlinePath;
+    this._bodyPath = bodyPath;
   }
 
   // ==========================================================================
@@ -351,6 +413,8 @@ export class Arrow extends Path {
 
   /**
    * ジオメトリを更新（端点変更時）
+   *
+   * Task 65.1: outlinePath と bodyPath の双方に同一 path data を適用する。
    */
   private _updateGeometry(): void {
     // 角度と距離を再計算
@@ -360,8 +424,9 @@ export class Arrow extends Path {
     // 新しいパスデータを生成
     const pathData = generateArrowPath(this._startPoint, this._endPoint, this._arrowheadSize);
 
-    // パスを更新（Fabric.js v6のAPIを使用）
-    this._setPath(pathData);
+    // 両方の子 Path を更新（Fabric.js v6/v7 の内部 API）
+    this._outlinePath._setPath(pathData);
+    this._bodyPath._setPath(pathData);
 
     // 座標を更新
     this.setCoords();
@@ -372,16 +437,25 @@ export class Arrow extends Path {
   // ==========================================================================
 
   /**
-   * 線色を更新
+   * 線色（本体色）を更新
+   *
+   * Task 65.1 (Req 24.3): 白縁取り（outlinePath）の色は常に白のまま維持する。
+   * `arrow.stroke` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStroke(color: string): void {
+    this._bodyPath.set('stroke', color);
     this.set('stroke', color);
   }
 
   /**
-   * 線の太さを更新
+   * 線の太さ（本体線幅）を更新
+   *
+   * Task 65.1 (Req 24.2): 白縁取り Path の線幅も `width + outline.width * 2` に同期更新する。
+   * `arrow.strokeWidth` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStrokeWidth(width: number): void {
+    this._bodyPath.set('strokeWidth', width);
+    this._outlinePath.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
 
@@ -413,10 +487,47 @@ export class Arrow extends Path {
    */
   getStyle(): ArrowOptions {
     return {
-      stroke: this.stroke as string,
-      strokeWidth: this.strokeWidth as number,
+      stroke: (this._bodyPath.stroke as string) ?? '',
+      strokeWidth: (this._bodyPath.strokeWidth as number) ?? 0,
       arrowheadSize: this._arrowheadSize,
     };
+  }
+
+  // ==========================================================================
+  // 白縁取り属性の更新
+  // ==========================================================================
+
+  /**
+   * 白縁取り属性を部分更新
+   *
+   * Task 65.1 (Req 24.1, 24.2):
+   * - enabled=false のときは outlinePath.opacity=0（構造は保持）
+   * - enabled=true のときは outlinePath.opacity=1 かつ stroke/width を再適用
+   *
+   * @param next 部分更新する属性
+   */
+  setOutline(next: Partial<ArrowOutlineAttribute>): void {
+    this._outline = { ...this._outline, ...next };
+
+    if (this._outline.enabled) {
+      const bodyStrokeWidth = (this._bodyPath.strokeWidth as number) ?? 0;
+      this._outlinePath.set({
+        opacity: 1,
+        stroke: this._outline.color,
+        strokeWidth: bodyStrokeWidth + this._outline.width * 2,
+      });
+    } else {
+      this._outlinePath.set({ opacity: 0 });
+    }
+  }
+
+  /**
+   * 現在の白縁取り属性を取得
+   *
+   * @returns 現在の outline 属性のコピー
+   */
+  getOutline(): ArrowOutlineAttribute | undefined {
+    return { ...this._outline };
   }
 
   // ==========================================================================
@@ -425,6 +536,9 @@ export class Arrow extends Path {
 
   /**
    * オブジェクトをJSON形式にシリアライズ
+   *
+   * Task 65.1 時点では従来スキーマを維持（後方互換）。
+   * `outline` フィールドの永続化は Task 65.2 で拡張予定。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): ArrowJSON {
@@ -432,8 +546,8 @@ export class Arrow extends Path {
       type: 'arrow' as const,
       startPoint: this.startPoint,
       endPoint: this.endPoint,
-      stroke: this.stroke as string,
-      strokeWidth: this.strokeWidth as number,
+      stroke: (this._bodyPath.stroke as string) ?? '',
+      strokeWidth: (this._bodyPath.strokeWidth as number) ?? 0,
       arrowheadSize: this._arrowheadSize,
     };
   }

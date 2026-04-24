@@ -1674,7 +1674,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: AnnotationStyleTokens_
 
 - [ ] 65. (P) 矢印の Group 化と白縁取り
-- [ ] 65.1 Arrow クラスを Group ベースへ再設計
+- [x] 65.1 Arrow クラスを Group ベースへ再設計
   - 既存 `generateArrowPath` を流用し、Group の子として白い外側 Path（縁取り）と本体色の内側 Path を持つ構成に変更する
   - 外側 Path の線幅は本体線幅の 1.5 倍以上、ストロークは白固定、`strokeLineCap: 'round'`、`strokeLineJoin: 'round'` を適用する
   - 本体色変更・リサイズ・回転・移動時に Group の scale 伝搬で白縁取りが本体と同期して変形する

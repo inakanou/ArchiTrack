@@ -158,6 +158,16 @@ vi.mock('fabric', () => {
       mockSetCoords();
     }
 
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+
     toObject(): Record<string, unknown> {
       return {};
     }
