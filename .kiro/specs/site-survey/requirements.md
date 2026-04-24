@@ -304,3 +304,108 @@
 6. If サムネイル再生成処理に失敗する, then the Site Survey Service shall エラーメッセージを表示し、サムネイルが旧状態のまま残らないよう再試行または明示的なエラー状態を提示する
 7. When ユーザーが保存後に画像編集画面を再度開く, the Site Survey Service shall 表示中のサムネイルが保存時に再生成された最新画像と一致することを保証する
 8. The Site Survey Service shall 画像変更を伴わない保存操作（例: 変更なしの保存）でもサムネイル再生成処理が冪等に動作し、既存サムネイルを破損させない
+
+### 追加範囲の境界補足（Requirements 24 以降）
+
+Requirements 24 以降は、画像注釈の視認性向上（白縁取り表現）と、スマートフォン現場運用向けの描画操作性強化を対象とする。既存 Requirements 1〜23 の責務境界は維持する。
+
+- **In scope**: 矢印・テキスト注釈の白縁取り/白アウトライン表現、白縁取り前提のデフォルトスタイル調整、ダブルタップ・長押しのタッチジェスチャー、モバイル向けツールバーレイアウト、ツール選択時の視覚フィードバック、マルチタッチ入力時の描画安全性
+- **Out of scope**: 番号付きマーカー注釈、ハイライター（半透明マーカー）注釈、ぼかし/モザイク注釈、切り抜き/トリミング、注釈のコピー&ペースト、曲線（カーブ）矢印
+- **Adjacent expectations**: 既存の Requirement 5（画像ビューア）、Requirement 7（マーキング図形）、Requirement 8（テキストコメント）、Requirement 13（Undo/Redo）、Requirement 15（レスポンシブ対応）、Requirement 17（描画ツール使用中のオブジェクト選択防止）の挙動は維持し、本追加範囲はこれらを拡張する形で成立する
+
+### Requirement 24: 矢印注釈の白縁取り表示
+**Objective:** As a 現場調査担当者, I want 画像の背景色や模様に関わらず矢印注釈を明確に視認できること, so that 暗い写真・明るい写真・柄のある図面のいずれでも矢印が埋もれずに判読できる
+
+#### Acceptance Criteria
+1. When ユーザーが矢印ツールで矢印注釈を描画する, the Site Survey Service shall 矢印本体線の両側に白色の縁取り線を付与して表示する
+2. The Site Survey Service shall 矢印の白縁取り線幅を本体線幅の1.5倍以上の太さで付与し、本体色との境界を背景色に依らず視認可能にする
+3. When ユーザーが矢印の本体色を変更する, the Site Survey Service shall 白縁取り部分の色は常に白のまま維持する
+4. When ユーザーが矢印注釈を移動・リサイズ・回転する, the Site Survey Service shall 白縁取りを本体と同期して変形する
+5. When ユーザーが矢印の描画設定を切り替える, the Site Survey Service shall 白縁取りの有効/無効をユーザーが任意に切替可能にする
+6. When ユーザーが注釈を保存する, the Site Survey Service shall 白縁取り属性（有効/無効・縁取り幅）を注釈データに含めて永続化する
+7. When ユーザーが保存済みの矢印注釈を再表示する, the Site Survey Service shall 保存された白縁取り属性を復元して表示する
+8. When 注釈付き画像をサムネイル・プレビュー・PDF・個別エクスポートでレンダリングする, the Site Survey Service shall 編集画面と同一の白縁取り表現を適用する
+9. If ユーザーが過去に白縁取り属性を持たずに保存した矢印注釈を表示する, then the Site Survey Service shall 当該注釈を白縁取りなしの従来表現のまま表示する（後方互換維持）
+10. When ユーザーが白縁取りの有効化/無効化を切替える, the Site Survey Service shall その操作をUndo/Redo履歴に記録する
+
+### Requirement 25: テキスト注釈の白アウトライン表示
+**Objective:** As a 現場調査担当者, I want 背景色なしでもテキスト注釈を明確に視認できること, so that 明るい背景と暗い背景の両方で同一の注釈が判読できる
+
+#### Acceptance Criteria
+1. When ユーザーがテキスト注釈を配置する, the Site Survey Service shall 文字の外側に白色のアウトラインを付与して表示する
+2. The Site Survey Service shall テキストの白アウトラインの有効/無効をユーザーが任意に切替可能にする
+3. The Site Survey Service shall テキストの白アウトラインを、既存の背景色（Requirement 8）とは独立して設定可能にする
+4. When ユーザーがテキスト色を変更する, the Site Survey Service shall 白アウトライン部分の色は常に白のまま維持する
+5. When ユーザーがテキスト注釈のフォントサイズを変更する, the Site Survey Service shall 白アウトライン幅をフォントサイズの概ね10〜20%の比率で自動調整する
+6. When ユーザーがテキスト注釈を編集・移動・リサイズする, the Site Survey Service shall 白アウトラインを本体と同期して更新する
+7. When ユーザーが注釈を保存する, the Site Survey Service shall 白アウトライン属性（有効/無効・幅）を注釈データに含めて永続化する
+8. When ユーザーが保存済みのテキスト注釈を再表示する, the Site Survey Service shall 保存された白アウトライン属性を復元して表示する
+9. When 注釈付き画像をサムネイル・プレビュー・PDF・個別エクスポートでレンダリングする, the Site Survey Service shall 編集画面と同一の白アウトライン表現を適用する
+10. If ユーザーが過去に白アウトライン属性を持たずに保存したテキスト注釈を表示する, then the Site Survey Service shall 当該注釈を白アウトラインなしの従来表現のまま表示する（後方互換維持）
+11. When ユーザーが白アウトラインの有効化/無効化を切替える, the Site Survey Service shall その操作をUndo/Redo履歴に記録する
+12. The Site Survey Service shall 日本語を含むマルチバイト文字に対しても白アウトラインを正しくレンダリングする
+
+### Requirement 26: 注釈ツールのデフォルトスタイル調整
+**Objective:** As a 現場調査担当者, I want 新規注釈のデフォルトスタイルが屋外現場写真でも視認できる初期値であること, so that 毎回色・線幅を手動調整せずとも十分な視認性が得られる
+
+#### Acceptance Criteria
+1. The Site Survey Service shall 矢印・寸法線・罫線系注釈の初期線幅を、モバイル画面でも明瞭に視認できる太さ（概ね3論理ピクセル以上）に設定する
+2. The Site Survey Service shall 新規矢印・テキスト注釈の初期本体色を、白縁取り/白アウトラインと組み合わせた際に暗/明両方の背景で視認可能な有彩色（赤系またはオレンジ系）に設定する
+3. When ユーザーが初回に矢印ツールまたはテキストツールを選択する, the Site Survey Service shall 白縁取り/白アウトラインが有効な初期状態でツールを起動する
+4. When ユーザーが注釈ツールのスタイル（色・線幅・白縁取り有無等）を変更して注釈を描画する, the Site Survey Service shall 当該編集セッション内の同ツール再利用時に直前のスタイル設定を引き継ぐ
+5. The Site Survey Service shall 各ツールの既定色・既定線幅・既定白縁取り有無を設定資材として一元管理する
+6. When 既存の注釈エディタ設定にユーザーが明示的に選択した色・線幅が存在する, the Site Survey Service shall 当該セッション中はユーザー選択値を優先する
+
+### Requirement 27: タッチジェスチャーによる注釈編集操作性向上
+**Objective:** As a 現場担当者, I want スマートフォンの指操作のみで注釈の編集・複製・削除が行えること, so that 現場で手袋や片手操作でも注釈運用が完結する
+
+#### Acceptance Criteria
+1. When ユーザーが既存のテキスト注釈をタッチデバイスでダブルタップする, the Site Survey Service shall 当該テキスト注釈を編集モードに遷移させる
+2. When ユーザーが既存の注釈オブジェクトをタッチデバイスで長押しする, the Site Survey Service shall 当該オブジェクトを選択状態に遷移させたうえで、編集・複製・削除を含むコンテキストメニューを表示する
+3. When ユーザーがコンテキストメニューの各項目をタップする, the Site Survey Service shall 対応する操作（編集・複製・削除 等）を実行する
+4. While コンテキストメニューが表示中, the Site Survey Service shall 背景画像への新規描画操作を受け付けない
+5. When ユーザーがコンテキストメニュー外の領域をタップする, the Site Survey Service shall コンテキストメニューを閉じる
+6. The Site Survey Service shall ダブルタップの有効タップ間隔を一般的なタッチUI慣習値（概ね300ms以内）、長押しの有効保持時間を同慣習値（概ね500ms以上）に設定する
+7. When ユーザーが長押しまたはダブルタップで実行した操作（編集・複製・削除等）を行う, the Site Survey Service shall その操作をUndo/Redo履歴に記録する
+8. When マウス環境でユーザーが既存のテキスト注釈をダブルクリックする, the Site Survey Service shall タッチジェスチャー導入後も従来通り編集モードへ遷移する（Requirement 8との後方互換を維持）
+9. If ユーザーが描画ツール選択中に既存オブジェクトを長押しする, then the Site Survey Service shall Requirement 17 の「描画ツール使用中のオブジェクト選択防止」仕様を優先し、コンテキストメニューを表示しない
+10. When ユーザーが選択ツール選択中に既存オブジェクトを長押しする, the Site Survey Service shall コンテキストメニューを表示する
+
+### Requirement 28: モバイル向けツールバーレイアウト
+**Objective:** As a 現場担当者, I want スマートフォン画面でも全ての注釈ツール・属性設定にアクセスできること, so that モバイル単独で注釈作業が完結する
+
+#### Acceptance Criteria
+1. When ユーザーがモバイル幅（概ね幅768px未満）の画面で注釈エディタを表示する, the Site Survey Service shall ツールバーの項目が画面幅に収まるようレイアウトする
+2. If ツールバー項目が画面幅に収まらない, then the Site Survey Service shall 折返しまたはスクロール可能な領域として項目全てにアクセス可能にする
+3. The Site Survey Service shall モバイル幅ツールバーの各項目のタップ領域を最小44x44論理ピクセル以上のサイズで提供する
+4. When ユーザーが端末の向き（縦/横）を変更する, the Site Survey Service shall ツールバーのレイアウトを新しい画面幅に合わせて再構成する
+5. The Site Survey Service shall モバイル幅であっても、デスクトップ幅で提供している注釈ツール・色・線幅・白縁取り設定・Undo/Redoの全操作にアクセス可能にする
+6. When ユーザーがツールバー領域を操作する, the Site Survey Service shall ツールバー操作が背景画像への描画として誤って発火しないようにする
+7. The Site Survey Service shall モバイル幅ツールバーの色ピッカー・線幅ピッカーを、タッチ操作で誤選択しにくい間隔で配置する
+8. When ユーザーがツールバー上で現在選択中のツールをタップする, the Site Survey Service shall 選択状態を維持しつつ、利用可能な場合は当該ツールの詳細属性パネル（色・線幅・白縁取り有無等）を表示/非表示トグルする
+
+### Requirement 29: ツール選択・操作時の視覚フィードバック
+**Objective:** As a 現場担当者, I want 今どのツールがどの状態で選択されているかが一目で分かること, so that 誤ったツールで操作して注釈を破壊することがない
+
+#### Acceptance Criteria
+1. When ユーザーが注釈ツールを選択する, the Site Survey Service shall 選択中ツールをツールバー上で視覚的にハイライト表示する
+2. While ユーザーが特定の注釈ツールを選択中, the Site Survey Service shall 当該ツール用のカーソル表現（マウス環境）またはタッチ時のガイド表示（タッチデバイス）を画像領域上で提供する
+3. When ユーザーが描画操作を開始する, the Site Survey Service shall 描画中の仮表示（プレビュー）を画像上に表示する
+4. When ユーザーがタッチデバイスで注釈オブジェクトを選択する, the Site Survey Service shall 選択中オブジェクトのハンドルを、タップで操作可能な最小サイズ（概ね32x32論理ピクセル以上）で表示する
+5. The Site Survey Service shall 選択中オブジェクトのハンドルサイズを、タッチ操作時（拡大）とマウス操作時（通常）で切替える
+6. Where 初見で用途が分かりにくいツール項目がある, the Site Survey Service shall ツールバー項目のツールヒント（名称・短い説明）をマウスホバーまたは長押しで表示する
+7. When ユーザーがツールを選択後、一定時間内に描画操作を開始しない, the Site Survey Service shall 選択中ツールに対する簡易ガイド（例: 「ドラッグで描画」「タップでテキスト入力」等）を画像領域に非侵襲的に提示する
+8. The Site Survey Service shall 視覚フィードバック要素（ハイライト・カーソル・プレビュー・ハンドル・ツールヒント・簡易ガイド）がコンテキストメニュー表示中およびマルチタッチ入力中でも互いに競合しないよう制御する
+
+### Requirement 30: マルチタッチ入力の安全性
+**Objective:** As a 現場担当者, I want タッチ操作中に複数本の指が触れても注釈が破壊されないこと, so that ピンチズーム/パン中の意図しない描画発火や注釈崩壊を回避できる
+
+#### Acceptance Criteria
+1. When ユーザーが画面に2本指でタッチする, the Site Survey Service shall 進行中の描画操作を中断し、ピンチズーム/パンモード（Requirement 5, 15）に遷移する
+2. If ユーザーが3本以上の指を同時にタッチする, then the Site Survey Service shall 新規描画操作を受け付けず、全ての指が離れるまで描画コミットを抑止する
+3. When ユーザーがマルチタッチ中に指を1本残して他の指を離す, the Site Survey Service shall 描画再開を短時間（誤タップ抑止のため概ね150ms以上）抑止する
+4. If マルチタッチ中に描画操作が誤発火した場合, then the Site Survey Service shall Undoによる即時復旧を可能にする（当該誤発火分を1ステップで取り消せる）
+5. When 描画ツール使用中にマルチタッチが発生する, the Site Survey Service shall Requirement 17 の「描画ツール使用中のオブジェクト選択防止」仕様を維持する
+6. While マルチタッチ入力中, the Site Survey Service shall Requirement 5 のピンチズーム・パン操作の従来挙動を阻害しない
+7. When マルチタッチから1本指に戻り描画再開が許可される, the Site Survey Service shall 直前のピンチ/パンによるビュー状態（ズーム倍率・表示位置）を維持したまま描画を再開する
+8. The Site Survey Service shall マルチタッチ中に誤って描画確定されないよう、描画コミット条件（単一指のドラッグ継続）を内部判定基準として維持する
