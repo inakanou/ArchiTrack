@@ -238,7 +238,6 @@ export default function ItemCopyMoveDialog({
   // ダイアログが開くたびに選択をリセット
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- ダイアログ開閉時のリセットは意図的
       setSelectedGroupId(null);
     }
   }, [isOpen]);
