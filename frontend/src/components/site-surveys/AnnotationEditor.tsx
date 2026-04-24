@@ -53,6 +53,7 @@ import { util } from 'fabric';
 import './tools/registerCustomShapes';
 // Task 72.1: タッチジェスチャー統合 (Req 27.1, 27.2, 30.1) とハンドルサイズ設定 (Req 29.4, 29.5)
 import { createTouchGestureManager } from './gestures/touchGestureManager';
+import type { GesturePayload } from './gestures/touchGestureManager';
 import { configureHandleSizes } from './annotation-visual-feedback';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
@@ -318,6 +319,15 @@ function AnnotationEditor({
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  // Task 72.2 (Req 27.10): 長押し由来コンテキストメニューの表示状態。
+  // 実際の描画は Task 72.3 で AnnotationContextMenu コンポーネントをマウントする際に行う。
+  // 本タスクでは state と配線のみを提供する。
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    position: { x: number; y: number } | null;
+    targetObject: FabricObject | null;
+  }>({ visible: false, position: null, targetObject: null });
 
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
   const undoManagerRef = useRef<UndoManager | null>(null);
@@ -1088,6 +1098,47 @@ function AnnotationEditor({
   }, []);
 
   /**
+   * Task 72.2 (Req 27.1): ダブルタップハンドラ
+   *
+   * touchGestureManager が発火する `custom:dbltap` を受け、target が TextAnnotation 系
+   * (`textAnnotation` / `i-text` / `text`) であれば `enterEditing()` を呼んで編集モードに
+   * 遷移させる。マウス環境の `mouse:dblclick` は既存のセットアップで維持されている
+   * （Req 27.8 後方互換）。
+   */
+  const handleDoubleTap = useCallback((payload: GesturePayload) => {
+    const target = payload.target as { type?: string; enterEditing?: () => void } | undefined;
+    if (!target) {
+      return;
+    }
+    if (target.type === 'textAnnotation' || target.type === 'i-text' || target.type === 'text') {
+      target.enterEditing?.();
+    }
+  }, []);
+
+  /**
+   * Task 72.2 (Req 27.9, 27.10): 長押しハンドラ
+   *
+   * 選択ツール選択中かつ target がある場合のみコンテキストメニュー state を visible にする。
+   * 描画ツール選択中は Req 17 (描画ツール使用中のオブジェクト選択防止) と Req 27.9 に従い
+   * コンテキストメニューを表示せず何もしない。
+   */
+  const handleLongPress = useCallback((payload: GesturePayload) => {
+    // Req 27.9 / Req 17: 描画ツール選択中は長押しによるメニュー表示を行わない
+    if (activeToolRef.current !== 'select') {
+      return;
+    }
+    // 防御的: target が無い長押しはメニューを開かない
+    if (!payload.target) {
+      return;
+    }
+    setContextMenu({
+      visible: true,
+      position: { x: payload.clientX, y: payload.clientY },
+      targetObject: payload.target as FabricObject,
+    });
+  }, []);
+
+  /**
    * Fabric.js Canvasの初期化
    *
    * React StrictModeでの二重マウント対応:
@@ -1148,6 +1199,16 @@ function AnnotationEditor({
         () => activeToolRef.current
       );
 
+      // Task 72.2 (Req 27.1, 27.9, 27.10): touchGestureManager が fire する
+      // custom:dbltap / custom:longpress に React 側ハンドラを配線する。
+      // 既存の mouse:dblclick は setupEventListeners が登録しており、Req 27.8 の
+      // マウス従来挙動は維持される。
+      // Fabric の on/off はイベント名に union 型を要求するため、型アサーションで回避する。
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (canvas as any).on('custom:dbltap', handleDoubleTap);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (canvas as any).on('custom:longpress', handleLongPress);
+
       // Fabric.js と UndoManager の連携用にCanvasを状態に設定
       setFabricCanvas(canvas);
 
@@ -1198,6 +1259,11 @@ function AnnotationEditor({
           if (!readOnly) {
             removeEventListeners(canvas);
           }
+          // Task 72.2: custom:dbltap / custom:longpress のリスナーを解除
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (canvas as any).off('custom:dbltap', handleDoubleTap);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (canvas as any).off('custom:longpress', handleLongPress);
           // Canvasをdispose
           canvas.dispose();
         } catch (err) {
@@ -1221,7 +1287,14 @@ function AnnotationEditor({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- imageUrlの変更は別のuseEffectで対応
-  }, [loadImage, setupEventListeners, removeEventListeners, readOnly]);
+  }, [
+    loadImage,
+    setupEventListeners,
+    removeEventListeners,
+    readOnly,
+    handleDoubleTap,
+    handleLongPress,
+  ]);
 
   /**
    * 画像URLが変更された場合の再読み込み
@@ -1674,6 +1747,7 @@ function AnnotationEditor({
           ref={containerRef}
           style={STYLES.container}
           data-testid="annotation-editor-container"
+          data-context-menu-visible={contextMenu.visible ? 'true' : 'false'}
           role="application"
           aria-label={readOnly ? '注釈ビューア' : '注釈エディタ'}
           tabIndex={readOnly ? -1 : 0}

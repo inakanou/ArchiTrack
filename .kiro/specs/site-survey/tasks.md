@@ -1841,7 +1841,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.1, 27.2, 29.4, 29.5, 30.1_
   - _Boundary: AnnotationEditor (ext)_
 
-- [ ] 72.2 `custom:dbltap` / `custom:longpress` ハンドラ配線と Req 17 調停
+- [x] 72.2 `custom:dbltap` / `custom:longpress` ハンドラ配線と Req 17 調停
   - `canvas.on('custom:dbltap', handleDoubleTap)` と `canvas.on('custom:longpress', handleLongPress)` を配線する
   - `handleDoubleTap`: target が TextAnnotation なら `target.enterEditing()` を呼ぶ。マウス環境の既存 `mousedblclick` 動作は維持する
   - `handleLongPress`: 選択ツール選択中のみコンテキストメニューを表示、描画ツール選択中は Req 17 準拠で無視する
