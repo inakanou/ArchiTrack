@@ -51,6 +51,9 @@ import type { SurveyImageInfo } from '../../types/site-survey.types';
 import { util } from 'fabric';
 // カスタムシェイプをFabric.jsクラスレジストリに登録（enlivenObjectsで復元するために必要）
 import './tools/registerCustomShapes';
+// Task 72.1: タッチジェスチャー統合 (Req 27.1, 27.2, 30.1) とハンドルサイズ設定 (Req 29.4, 29.5)
+import { createTouchGestureManager } from './gestures/touchGestureManager';
+import { configureHandleSizes } from './annotation-visual-feedback';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -349,6 +352,9 @@ function AnnotationEditor({
 
   // プレビュー用オブジェクト参照（描画途中のプレビュー表示用）
   const previewShapeRef = useRef<FabricObject | null>(null);
+
+  // Task 72.1: touchGestureManager の detach 関数参照（unmount 時に detach するため）
+  const touchGestureDetachRef = useRef<(() => void) | null>(null);
 
   // Fabric.js と UndoManager の連携フック
   // fabricCanvasRef.currentを使用（Canvasがない場合はnull）
@@ -1115,14 +1121,32 @@ function AnnotationEditor({
       canvasElementRef.current = canvasElement;
 
       // Canvasを初期化（サイズを初期化時に指定）
+      // Task 72.1 / design.md §4611: enablePointerEvents を有効化し、
+      // touchGestureManager が PointerEvent ベースで多指ジェスチャーを厳密判定できるようにする
       canvas = new FabricCanvas(canvasElement, {
         selection: false, // 背景画像が選択されないように
         renderOnAddRemove: true,
         width: containerWidth,
         height: containerHeight,
+        enablePointerEvents: true,
       });
 
       fabricCanvasRef.current = canvas;
+
+      // Task 72.1 (Req 29.4, 29.5): タッチ/マウス環境に応じたハンドルサイズを設定
+      configureHandleSizes();
+
+      // Task 72.1 (Req 27.1, 27.2, 30.1): touchGestureManager を canvas にアタッチ
+      // getCurrentTool は activeToolRef.current を返し、ハンドラ側で Req 17 調停に使う。
+      // touchGestureManager は FabricCanvasLike（fire/getElement の最小サーフェス）を要求する。
+      // Fabric の Canvas.fire はイベント名に union 型を要求するため、
+      // custom:dbltap / custom:longpress など拡張イベントを扱う本 manager へは構造的に
+      // 満たされる形でキャストして渡す。
+      const gestureManager = createTouchGestureManager();
+      touchGestureDetachRef.current = gestureManager.attach(
+        canvas as unknown as import('./gestures/touchGestureManager').FabricCanvasLike,
+        () => activeToolRef.current
+      );
 
       // Fabric.js と UndoManager の連携用にCanvasを状態に設定
       setFabricCanvas(canvas);
@@ -1157,6 +1181,17 @@ function AnnotationEditor({
     return () => {
       // dispose状態を設定（非同期処理をキャンセル）
       isDisposedRef.current = true;
+
+      // Task 72.1: touchGestureManager を detach（canvas dispose 前にリスナーを解除）
+      if (touchGestureDetachRef.current) {
+        try {
+          touchGestureDetachRef.current();
+        } catch (err) {
+          console.warn('Error during touch gesture manager detach:', err);
+        }
+        touchGestureDetachRef.current = null;
+      }
+
       if (canvas) {
         try {
           // readOnlyモードでなければイベントリスナーを解除

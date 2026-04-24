@@ -1833,7 +1833,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: Visual Feedback_
 
 - [ ] 72. AnnotationEditor 統合（Integration）
-- [ ] 72.1 `touchGestureManager` の attach/detach を useEffect で配線
+- [x] 72.1 `touchGestureManager` の attach/detach を useEffect で配線
   - 初期化 useEffect で `touchGestureManager.attach(canvas, () => activeToolRef.current)` を実行し、cleanup で detach を呼ぶ
   - ハンドルサイズ設定 `configureHandleSizes()` を同 useEffect で 1 回実行する
   - 観測可能な完了状態: AnnotationEditor マウント時に touchGestureManager が canvas にアタッチされ、unmount 時に detach が呼ばれる（テストで verify）

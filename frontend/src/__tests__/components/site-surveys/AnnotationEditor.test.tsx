@@ -119,6 +119,32 @@ vi.mock('../../../hooks/useToast', () => ({
   useToast: () => mockToast,
 }));
 
+// Task 72.1: touchGestureManager のモック（実体は PointerEvent を listen するため
+// jsdom 環境 + Canvas モック では副作用が発生する。attach/detach の no-op モックに差し替える）
+vi.mock('../../../components/site-surveys/gestures/touchGestureManager', () => ({
+  createTouchGestureManager: () => ({
+    attach: () => () => {}, // no-op detach を返す
+    getTouchState: () => 'idle',
+  }),
+}));
+
+// Task 72.1: annotation-visual-feedback のモック
+vi.mock('../../../components/site-surveys/annotation-visual-feedback', () => ({
+  configureHandleSizes: vi.fn(),
+  applyToolCursor: vi.fn(),
+  TOOL_CURSOR_MAP: {
+    select: 'default',
+    arrow: 'crosshair',
+    text: 'text',
+    dimension: 'crosshair',
+    circle: 'crosshair',
+    rectangle: 'crosshair',
+    polygon: 'crosshair',
+    polyline: 'crosshair',
+    freehand: 'crosshair',
+  },
+}));
+
 // Fabric.jsのモック
 vi.mock('fabric', () => {
   function MockCanvas() {
