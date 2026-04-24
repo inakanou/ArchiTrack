@@ -1817,14 +1817,14 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: AnnotationToolbar, StylePanel_
 
 - [ ] 71. (P) 視覚フィードバック基盤設定モジュール
-- [ ] 71.1 ハンドルサイズのメディアクエリ分岐設定モジュール
+- [x] 71.1 ハンドルサイズのメディアクエリ分岐設定モジュール
   - `annotation-visual-feedback.ts`（新規）に `configureHandleSizes()` 関数を作成し、`matchMedia('(pointer: coarse)')` でタッチ/マウスを判定する
   - タッチ時は `FabricObject.ownDefaults.cornerSize = 20`、`touchCornerSize = 40`、マウス時はそれぞれ 13 / 24 に設定する
   - 観測可能な完了状態: 関数呼出後、新規作成した FabricObject の `cornerSize` がデバイスに応じた値になる
   - _Requirements: 29.4, 29.5_
   - _Boundary: Visual Feedback_
 
-- [ ] 71.2 ツール別カーソルマップと適用関数
+- [x] 71.2 ツール別カーソルマップと適用関数
   - `annotation-visual-feedback.ts` に `applyToolCursor(canvas, tool)` 関数を作成する
   - ツール別カーソルマップ（例: 矢印ツール→crosshair、テキストツール→text、選択ツール→default）を定義する
   - `canvas.defaultCursor`、`canvas.hoverCursor`、`canvas.freeDrawingCursor` を適宜更新する
