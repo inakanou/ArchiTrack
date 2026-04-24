@@ -1877,7 +1877,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 29.1, 29.2_
   - _Boundary: AnnotationEditor (ext)_
 
-- [ ] 72.6 `AnnotationRendererService` での Group 矢印と textStroke 出力の統合検証
+- [x] 72.6 `AnnotationRendererService` での Group 矢印と textStroke 出力の統合検証
   - Group 版 Arrow と `paintFirst: 'stroke'` テキストが toDataURL で正しく書き出されることを既存レンダラで検証する
   - 既存の `strokeWidth` スケーリング分岐は Group Arrow ではスキップされるが、Group の `scaleX/scaleY` 伝搬で描画結果が正しいことを確認する
   - スケール非等倍（保存時と描画時で canvas サイズが異なる）条件でも白縁取り・白アウトラインが期待幅でレンダリングされる
