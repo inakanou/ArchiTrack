@@ -12,7 +12,7 @@
  * - 8.5: テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { type StyleOptions, DEFAULT_STYLE_OPTIONS } from './style-panel.constants';
 import { ANNOTATION_DEFAULTS } from './annotation-style-tokens';
 import type { ToolType } from './annotation-toolbar.constants';
@@ -153,6 +153,14 @@ const STYLES = {
     display: 'flex',
     flexWrap: 'wrap' as const,
     gap: '4px',
+  },
+  /**
+   * Task 70.3 (Req 28.7): モバイル幅ではタップ誤選択抑止のため
+   * プリセットコンテナ (色/線幅/フォントサイズ) の gap を 8px 以上に拡張する。
+   * デスクトップ幅では従来の密な 4px レイアウトを維持する。
+   */
+  presetContainerMobile: {
+    gap: '8px',
   },
   presetButton: {
     width: '24px',
@@ -316,6 +324,27 @@ function StylePanel({
    * 本コンポーネント内部 state として保持する（親側からのリセット不要）。
    */
   const [collapsed, setCollapsed] = useState<boolean>(() => isMobileWidth());
+
+  /**
+   * モバイル幅かどうかのフラグ (Req 28.7)
+   *
+   * プリセットコンテナのタップ領域間 gap をモバイル幅で 8px 以上に拡張するために使う。
+   * 端末回転やブラウザ幅変更に追従できるよう、resize イベントで再評価する。
+   */
+  const [isMobile, setIsMobile] = useState<boolean>(() => isMobileWidth());
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const handleResize = (): void => {
+      setIsMobile(isMobileWidth());
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   /**
    * 折りたたみ/展開トグル (Req 28.8)
@@ -599,7 +628,13 @@ function StylePanel({
                 />
                 <span style={STYLES.colorValue}>{normalizedStrokeColor}</span>
               </div>
-              <div data-testid="stroke-color-presets" style={STYLES.presetContainer}>
+              <div
+                data-testid="stroke-color-presets"
+                style={{
+                  ...STYLES.presetContainer,
+                  ...(isMobile ? STYLES.presetContainerMobile : {}),
+                }}
+              >
                 {PRESET_COLORS.map((color, index) => (
                   <button
                     key={color}
@@ -641,7 +676,13 @@ function StylePanel({
                   {normalizedFillColor === 'transparent' ? 'なし' : normalizedFillColor}
                 </span>
               </div>
-              <div data-testid="fill-color-presets" style={STYLES.presetContainer}>
+              <div
+                data-testid="fill-color-presets"
+                style={{
+                  ...STYLES.presetContainer,
+                  ...(isMobile ? STYLES.presetContainerMobile : {}),
+                }}
+              >
                 <button
                   type="button"
                   onClick={handleNoFill}
@@ -710,7 +751,13 @@ function StylePanel({
                   {styleOptions.strokeWidth}
                 </span>
               </div>
-              <div style={STYLES.presetContainer}>
+              <div
+                data-testid="stroke-width-preset-container"
+                style={{
+                  ...STYLES.presetContainer,
+                  ...(isMobile ? STYLES.presetContainerMobile : {}),
+                }}
+              >
                 {PRESET_STROKE_WIDTHS.map((width) => (
                   <button
                     key={width}
@@ -758,7 +805,13 @@ function StylePanel({
                 />
                 <span style={{ ...STYLES.label, marginLeft: '4px' }}>px</span>
               </div>
-              <div style={STYLES.presetContainer}>
+              <div
+                data-testid="font-size-preset-container"
+                style={{
+                  ...STYLES.presetContainer,
+                  ...(isMobile ? STYLES.presetContainerMobile : {}),
+                }}
+              >
                 {PRESET_FONT_SIZES.map((size) => (
                   <button
                     key={size}
