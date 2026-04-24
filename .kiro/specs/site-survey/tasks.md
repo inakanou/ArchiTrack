@@ -1653,7 +1653,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 26.1, 26.2, 26.3, 26.5_
   - _Boundary: AnnotationStyleTokens_
 
-- [ ] 64.2 `annotation-toolbar.constants.ts` をトークン参照へ移行
+- [x] 64.2 `annotation-toolbar.constants.ts` をトークン参照へ移行
   - 既存 `DEFAULT_STYLE_OPTIONS` の値を `annotation-style-tokens` から import する形に置換する
   - トークン側と重複していた値はトークンを単一情報源とし、定数ファイルからは撤去する
   - 観測可能な完了状態: `DEFAULT_STYLE_OPTIONS` が `ANNOTATION_DEFAULTS` を展開した形になっており、既存 import 元は変更不要で同値を取得できる
