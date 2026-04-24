@@ -57,7 +57,7 @@ import './tools/registerCustomShapes';
 // Task 72.1: タッチジェスチャー統合 (Req 27.1, 27.2, 30.1) とハンドルサイズ設定 (Req 29.4, 29.5)
 import { createTouchGestureManager } from './gestures/touchGestureManager';
 import type { GesturePayload } from './gestures/touchGestureManager';
-import { configureHandleSizes } from './annotation-visual-feedback';
+import { configureHandleSizes, applyToolCursor } from './annotation-visual-feedback';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -446,6 +446,27 @@ function AnnotationEditor({
         guideTimerRef.current = null;
       }
     };
+  }, [state.activeTool]);
+
+  /**
+   * Task 72.5 (Req 29.1, 29.2): ツール切替時のカーソル適用連動。
+   *
+   * - `applyToolCursor(canvas, activeTool)` を呼出して
+   *   `defaultCursor` / `hoverCursor` / `freeDrawingCursor` を更新する
+   * - `canvas.setCursor(canvas.defaultCursor)` を明示呼出し、
+   *   ホバー中のカーソルを即時に反映する（マウスが画像領域上にある状態で
+   *   ツールを切替えた直後に現カーソルが残る問題を回避）
+   * - マウント初期や unmount 過程で canvas が未確立の場合は何もしない
+   */
+  useEffect(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    applyToolCursor(canvas, state.activeTool);
+    if (canvas.defaultCursor) {
+      canvas.setCursor(canvas.defaultCursor);
+    }
   }, [state.activeTool]);
 
   /**

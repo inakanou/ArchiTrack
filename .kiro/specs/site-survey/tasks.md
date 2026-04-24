@@ -1869,7 +1869,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 29.7, 29.8_
   - _Boundary: AnnotationEditor (ext)_
 
-- [ ] 72.5 ツール切替時のカーソル適用連動
+- [x] 72.5 ツール切替時のカーソル適用連動
   - ツール変更の useEffect で `applyToolCursor(canvas, activeTool)` を呼び出す
   - `canvas.setCursor(canvas.defaultCursor)` を明示呼出してカーソル切替を即時反映する
   - 観測可能な完了状態: ツールバーで矢印→テキストを切替えると、画像領域上のマウスカーソルが crosshair→text に変わる
