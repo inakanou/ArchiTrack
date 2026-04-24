@@ -1697,7 +1697,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 24.9_
   - _Boundary: Arrow_
 
-- [ ] 65.4 矢印の単体テスト（白縁取り・後方互換）
+- [x] 65.4 矢印の単体テスト（白縁取り・後方互換）
   - 白縁取り有効時に Group の子が 2 つになること、`setOutline({enabled:false})` で outlinePath の opacity が 0 になること、`toObject`→`fromObject` ラウンドトリップで outline が保持されることを検証する
   - outline 未定義の旧形式 JSON から白縁取り無しとして復元されることを検証する
   - 観測可能な完了状態: 上記 4 ケースを含む単体テストが全て pass
@@ -1981,3 +1981,4 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ## Implementation Notes
 
 - **64.4**: トークン単体テスト（`ANNOTATION_DEFAULTS.strokeWidth >= 3`、`arrowOutline.enabled === true`、`textOutline.enabled === true`）は 64.1 で `annotation-style-tokens.test.ts` に先行実装済み。同ファイル 12 テスト全合格を確認（vitest）して観測可能完了状態を満たすため、差分コード追加なしでクローズ。
+- **65.4**: 矢印の単体テスト 4 ケース（Group 2 子、`setOutline({enabled:false})` で opacity=0、toObject→fromObject round-trip、legacy JSON 後方互換）は 65.1 の `ArrowTool.outline.test.ts`（19 テスト）、65.2 の `ArrowTool.serialization.test.ts`（17 テスト）、65.3 の `registerCustomShapes.arrow.test.ts`（6 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
