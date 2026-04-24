@@ -1646,7 +1646,7 @@
 Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30` セクションに対応。既存 Requirement 1〜23 の責務境界は維持し、新規ファイル追加と既存ファイルの最小変更で構成する。
 
 - [ ] 64. ツール横断スタイルトークンの導入（Foundation）
-- [ ] 64.1 `annotation-style-tokens.ts` を新規作成しツール横断の既定値を一元化
+- [x] 64.1 `annotation-style-tokens.ts` を新規作成しツール横断の既定値を一元化
   - 既定本体色、既定線幅、既定フォントサイズ、矢印白縁取り既定（enabled=true）、テキスト白アウトライン既定（enabled=true）を保持する
   - 既定線幅は 3 論理ピクセル以上、既定本体色は赤系/橙系の視認性確保カラーを採用する
   - 観測可能な完了状態: `ANNOTATION_DEFAULTS` を import すると矢印/テキスト用の既定値が取得でき、各値がユニットテストで検証可能
