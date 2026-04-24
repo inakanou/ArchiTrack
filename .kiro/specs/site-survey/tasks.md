@@ -1747,7 +1747,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.1, 27.2, 27.6, 30.1, 30.2, 30.3, 30.6, 30.7, 30.8_
   - _Boundary: touchGestureManager_
 
-- [ ] 67.3 `ImageViewer.tsx` 側の 3 本指抑止と cooldown 連携
+- [x] 67.3 `ImageViewer.tsx` 側の 3 本指抑止と cooldown 連携
   - `handleTouchStart` / `handleTouchMove` で `touches.length >= 3` を検出し、touchGestureManager に `three-plus-suspend` 遷移を通知、進行中のズーム/パンを中止する
   - `touchend` で `touches.length === 0` かつ前状態が `three-plus-suspend` の場合、150ms の cooldown タイマで `idle` 復帰する
   - 既存 1 本指パン / 2 本指ピンチズームの Req 5 挙動は変更しない

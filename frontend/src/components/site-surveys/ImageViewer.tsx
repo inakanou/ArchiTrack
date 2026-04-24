@@ -38,6 +38,7 @@ import {
   type ImageViewerViewState,
   type ImageViewerRef,
 } from './image-viewer.constants';
+import { COOLDOWN_MS } from './gestures/gesture-thresholds';
 
 // 定数と型の再エクスポート（後方互換性のため）
 
@@ -449,6 +450,14 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
   const initialPinchDistanceRef = useRef<number | null>(null);
   const initialZoomRef = useRef<number>(initialViewState?.zoom ?? 1);
   const touchPanStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // マルチタッチ安全性（Req 30.1-30.8, Task 67.3）
+  // - threePlusSuspendRef: 3本指以上が観測されて全指離脱までズーム/パン/新規ジェスチャ開始を抑止
+  // - cooldownActiveRef: 全指離脱後の誤タップ抑止期間（COOLDOWN_MS）に新規ジェスチャ開始を抑止
+  // - cooldownTimeoutRef: 進行中の cooldown 解除 setTimeout の識別子（多重起動・アンマウント対策）
+  const threePlusSuspendRef = useRef<boolean>(false);
+  const cooldownActiveRef = useRef<boolean>(false);
+  const cooldownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // onViewStateChange参照（useCallbackで最新の値を参照するため）
   const onViewStateChangeRef = useRef(onViewStateChange);
@@ -917,11 +926,37 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   /**
    * タッチ開始ハンドラ
+   *
+   * Requirements:
+   * - 30.2: 3本以上の指を同時にタッチした場合、新規描画/ジェスチャを受け付けない
+   * - 30.3: マルチタッチから戻った直後の誤タップを cooldown で抑止する
+   * - 30.5, 30.6: 既存の1本指/2本指ジェスチャ挙動は変更しない
    */
   const handleTouchStart = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
       const touches = getTouchPoints(event.touches);
       touchStartPointsRef.current = touches;
+
+      // Req 30.2: 3本指以上はズーム/パンを中止し three-plus-suspend に遷移
+      if (touches.length >= 3) {
+        threePlusSuspendRef.current = true;
+        initialPinchDistanceRef.current = null;
+        touchPanStartRef.current = null;
+        setState((prev) => ({ ...prev, isTouching: true }));
+        return;
+      }
+
+      // Req 30.3: cooldown 中は新規ジェスチャ（パン/ピンチ）を開始しない
+      if (cooldownActiveRef.current) {
+        setState((prev) => ({ ...prev, isTouching: true }));
+        return;
+      }
+
+      // three-plus-suspend 中の部分離脱は新規ジェスチャ開始を許可しない
+      if (threePlusSuspendRef.current) {
+        setState((prev) => ({ ...prev, isTouching: true }));
+        return;
+      }
 
       if (touches.length === 2) {
         // 2本指：ピンチズームまたはパン操作の開始
@@ -950,11 +985,20 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   /**
    * タッチ移動ハンドラ
+   *
+   * Requirements:
+   * - 30.1, 30.2: 3本指以上またはsuspend中はズーム/パンを実行しない
+   * - 30.5, 30.6: 通常時の1本指/2本指ジェスチャ挙動は変更しない
    */
   const handleTouchMove = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
       event.preventDefault();
       const touches = getTouchPoints(event.touches);
+
+      // Req 30.1/30.2: 3本指以上、three-plus-suspend 中、cooldown 中はズーム/パンを抑止
+      if (touches.length >= 3 || threePlusSuspendRef.current || cooldownActiveRef.current) {
+        return;
+      }
 
       if (touches.length === 2 && initialPinchDistanceRef.current !== null) {
         // 2本指：ピンチズーム処理
@@ -1016,13 +1060,23 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   /**
    * タッチ終了ハンドラ
+   *
+   * Requirements:
+   * - 30.3: 3本指以上からの離脱後、COOLDOWN_MS の間は新規ジェスチャを抑止する
+   * - 30.5, 30.6: 通常時の後処理は変更しない
    */
   const handleTouchEnd = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
       const touches = getTouchPoints(event.touches);
+      const wasThreePlusSuspend = threePlusSuspendRef.current;
 
-      // 最後のパン位置を確定
-      if (touchPanStartRef.current && touchStartPointsRef.current.length >= 1) {
+      // suspend または cooldown 中はパン位置確定（誤発火扱い）をスキップ
+      if (
+        touchPanStartRef.current &&
+        touchStartPointsRef.current.length >= 1 &&
+        !wasThreePlusSuspend &&
+        !cooldownActiveRef.current
+      ) {
         const canvas = fabricCanvasRef.current;
         if (canvas) {
           const vpt = canvas.viewportTransform;
@@ -1039,10 +1093,24 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
         initialPinchDistanceRef.current = null;
         touchPanStartRef.current = null;
         setState((prev) => ({ ...prev, isTouching: false }));
+
+        // Req 30.3: 3本指以上からの離脱は COOLDOWN_MS の cooldown に遷移する
+        if (wasThreePlusSuspend) {
+          threePlusSuspendRef.current = false;
+          cooldownActiveRef.current = true;
+          if (cooldownTimeoutRef.current !== null) {
+            clearTimeout(cooldownTimeoutRef.current);
+          }
+          cooldownTimeoutRef.current = setTimeout(() => {
+            cooldownActiveRef.current = false;
+            cooldownTimeoutRef.current = null;
+          }, COOLDOWN_MS);
+        }
       } else {
         // まだタッチが残っている場合は更新
         touchStartPointsRef.current = touches;
-        if (touches.length === 1) {
+        // three-plus-suspend 中は新規ジェスチャ開始用の ref を更新しない
+        if (!wasThreePlusSuspend && touches.length === 1) {
           // 1本指に戻った場合、パン開始位置を更新
           const touch0 = touches[0];
           if (touch0) {
@@ -1057,11 +1125,20 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   /**
    * タッチキャンセルハンドラ
+   *
+   * Requirements:
+   * - 30.2, 30.3: three-plus-suspend / cooldown 状態も安全にリセットする
    */
   const handleTouchCancel = useCallback(() => {
     touchStartPointsRef.current = [];
     initialPinchDistanceRef.current = null;
     touchPanStartRef.current = null;
+    threePlusSuspendRef.current = false;
+    cooldownActiveRef.current = false;
+    if (cooldownTimeoutRef.current !== null) {
+      clearTimeout(cooldownTimeoutRef.current);
+      cooldownTimeoutRef.current = null;
+    }
     setState((prev) => ({ ...prev, isTouching: false }));
   }, []);
 
@@ -1295,6 +1372,19 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
     }
     return undefined;
   }, [isOpen, handleKeyDown]);
+
+  /**
+   * マルチタッチ cooldown タイマーのクリーンアップ（Req 30.3, Task 67.3）
+   * アンマウント時に保留中の setTimeout を解放してメモリリーク/コールバック誤発火を防ぐ
+   */
+  useEffect(() => {
+    return () => {
+      if (cooldownTimeoutRef.current !== null) {
+        clearTimeout(cooldownTimeoutRef.current);
+        cooldownTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // モーダルが閉じている場合は何も表示しない
   if (!isOpen) {
