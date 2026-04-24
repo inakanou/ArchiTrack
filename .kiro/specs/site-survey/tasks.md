@@ -1800,7 +1800,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 28.1, 28.2, 28.3, 28.4, 28.5, 28.6_
   - _Boundary: AnnotationToolbar_
 
-- [ ] 70.2 `StylePanel` 開閉トグルと白縁取り切替 UI の追加
+- [x] 70.2 `StylePanel` 開閉トグルと白縁取り切替 UI の追加
   - モバイル幅（`matchMedia('(max-width: 768px)')`）では StylePanel を初期折りたたみ、デスクトップ幅では初期展開する
   - 矢印ツール選択時に「白縁取り」ON/OFF トグル、テキストツール選択時に「白アウトライン」ON/OFF トグルを StylePanel に追加する
   - 選択中ツールを再タップすると StylePanel の開閉がトグルする

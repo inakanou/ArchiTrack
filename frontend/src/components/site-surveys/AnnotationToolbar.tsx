@@ -53,6 +53,14 @@ export interface AnnotationToolbarProps {
   canRedo?: boolean;
   /** 回転操作のコールバック (Req 22.1) */
   onRotate?: () => void;
+  /**
+   * 選択中ツールを再タップした際のコールバック (Req 28.8)
+   *
+   * 現在の `activeTool` と同じツールボタンがクリックされた場合のみ発火する。
+   * 親（AnnotationEditor）はこのコールバックを使って StylePanel の開閉をトグルする。
+   * 省略時は発火しない（後方互換: 再タップは従来通り `onToolChange` のみ発火）。
+   */
+  onActiveToolReTap?: () => void;
 }
 
 // ============================================================================
@@ -428,6 +436,7 @@ function AnnotationToolbar({
   canUndo = true,
   canRedo = true,
   onRotate,
+  onActiveToolReTap,
 }: AnnotationToolbarProps): React.JSX.Element {
   /**
    * Req 28.4: 端末回転 (orientation) 時のレイアウト再構成。
@@ -456,12 +465,19 @@ function AnnotationToolbar({
 
   /**
    * ツールボタンクリックハンドラ
+   *
+   * Req 28.8: 選択中ツールを再タップした場合、`onActiveToolReTap` を発火する
+   * （親が受けとって StylePanel の開閉を切替える）。`onToolChange` は
+   * 後方互換のため再タップでも従来どおり発火する。
    */
   const handleToolClick = useCallback(
     (tool: ToolType) => {
+      if (tool === activeTool && onActiveToolReTap) {
+        onActiveToolReTap();
+      }
       onToolChange(tool);
     },
-    [onToolChange]
+    [activeTool, onActiveToolReTap, onToolChange]
   );
 
   /**
