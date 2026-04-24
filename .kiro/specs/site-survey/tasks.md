@@ -1682,7 +1682,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 24.1, 24.2, 24.3, 24.4_
   - _Boundary: Arrow_
 
-- [ ] 65.2 矢印 outline 属性のシリアライズと防御的フォールバック
+- [x] 65.2 矢印 outline 属性のシリアライズと防御的フォールバック
   - `outline: { enabled, color, width }` 属性を `toObject` に含め、`enabled=false` 時は `outlinePath.opacity=0` で非表示化する
   - `fromObject` で `outline` 未定義データは白縁取り無しの従来表現でフォールバックし、必須フィールド欠落時は安全な既定（座標 (0,0)、stroke 黒、strokeWidth 2、arrowheadSize 10）で復元し warning ログを送出する
   - 白縁取りの有効化/無効化操作が Undo/Redo 履歴に記録される

@@ -56,8 +56,8 @@ export interface ArrowOptions {
 /**
  * 矢印のシリアライズ形式
  *
- * Task 65.1 時点では従来スキーマを維持（後方互換）。
- * `outline` フィールドの永続化は Task 65.2 で拡張予定。
+ * Task 65.2: `outline?: ArrowOutlineAttribute` を追加（Req 24.6, 24.7）。
+ * `outline` が未定義のデータは白縁取り無しの従来表現で復元される（Req 24.9 後方互換）。
  */
 export interface ArrowJSON {
   type: 'arrow';
@@ -66,6 +66,8 @@ export interface ArrowJSON {
   stroke: string;
   strokeWidth: number;
   arrowheadSize: number;
+  /** 白縁取り属性（未設定は従来表現フォールバック） */
+  outline?: ArrowOutlineAttribute;
 }
 
 // ============================================================================
@@ -504,6 +506,11 @@ export class Arrow extends Group {
    * - enabled=false のときは outlinePath.opacity=0（構造は保持）
    * - enabled=true のときは outlinePath.opacity=1 かつ stroke/width を再適用
    *
+   * Task 65.2 (Req 24.10):
+   * - canvas にアタッチ済みであれば `object:modified` イベントを発火し、
+   *   `useFabricUndoIntegration` 経由で Undo/Redo 履歴に切替操作を記録する。
+   *   canvas 未アタッチ時は安全に no-op（例外を投げない）。
+   *
    * @param next 部分更新する属性
    */
   setOutline(next: Partial<ArrowOutlineAttribute>): void {
@@ -519,6 +526,14 @@ export class Arrow extends Group {
     } else {
       this._outlinePath.set({ opacity: 0 });
     }
+
+    // Req 24.10: Undo/Redo 履歴記録のため canvas:object:modified を発火する。
+    // Fabric.js v6 以降は FabricObject.canvas プロパティがアタッチ後に設定される。
+    // canvas 未アタッチ（新規生成直後など）は安全に skip。
+    const attachedCanvas = (
+      this as unknown as { canvas?: { fire?: (event: string, options?: unknown) => void } }
+    ).canvas;
+    attachedCanvas?.fire?.('object:modified', { target: this });
   }
 
   /**
@@ -537,8 +552,9 @@ export class Arrow extends Group {
   /**
    * オブジェクトをJSON形式にシリアライズ
    *
-   * Task 65.1 時点では従来スキーマを維持（後方互換）。
-   * `outline` フィールドの永続化は Task 65.2 で拡張予定。
+   * Task 65.2 (Req 24.6):
+   * - `outline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   *   design.md §Arrow (Group) Postconditions「新規保存時は必ず outline を含める」に従う。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): ArrowJSON {
@@ -549,6 +565,7 @@ export class Arrow extends Group {
       stroke: (this._bodyPath.stroke as string) ?? '',
       strokeWidth: (this._bodyPath.strokeWidth as number) ?? 0,
       arrowheadSize: this._arrowheadSize,
+      outline: { ...this._outline },
     };
   }
 
@@ -557,15 +574,83 @@ export class Arrow extends Group {
    *
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * Task 65.2 (Req 24.7, 24.9, design.md Migration 安全性):
+   * - `object.outline` 定義時は setOutline で復元（Req 24.7）
+   * - `object.outline` 未定義の旧データは「白縁取り無し」の従来表現で復元する（Req 24.9 後方互換）
+   * - 必須フィールド（startPoint/endPoint/stroke/strokeWidth/arrowheadSize）欠落や
+   *   null/undefined 受領時は安全な既定値（座標 (0,0)、stroke 黒、strokeWidth 2、arrowheadSize 10）で
+   *   復元し、console.warn を送出する（防御的フォールバック）。
+   *
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたArrowインスタンス
    */
   static override fromObject(object: ArrowJSON): Promise<Arrow> {
-    const arrow = new Arrow(object.startPoint, object.endPoint, {
-      stroke: object.stroke,
-      strokeWidth: object.strokeWidth,
-      arrowheadSize: object.arrowheadSize,
+    // 防御的バリデーション: 必須フィールドの存在確認
+    const safeDefaults = {
+      startPoint: { x: 0, y: 0 } as Point,
+      endPoint: { x: 0, y: 0 } as Point,
+      stroke: '#000000',
+      strokeWidth: 2,
+      arrowheadSize: 10,
+    };
+
+    const hasValidRequiredFields =
+      object != null &&
+      typeof object === 'object' &&
+      object.startPoint != null &&
+      typeof object.startPoint === 'object' &&
+      typeof (object.startPoint as Point).x === 'number' &&
+      typeof (object.startPoint as Point).y === 'number' &&
+      object.endPoint != null &&
+      typeof object.endPoint === 'object' &&
+      typeof (object.endPoint as Point).x === 'number' &&
+      typeof (object.endPoint as Point).y === 'number' &&
+      typeof object.stroke === 'string' &&
+      typeof object.strokeWidth === 'number' &&
+      typeof object.arrowheadSize === 'number';
+
+    let startPoint: Point;
+    let endPoint: Point;
+    let stroke: string;
+    let strokeWidth: number;
+    let arrowheadSize: number;
+
+    if (!hasValidRequiredFields) {
+      // 不正データ: 警告ログ + 安全な既定値で復元
+
+      console.warn('[ArrowTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      startPoint = safeDefaults.startPoint;
+      endPoint = safeDefaults.endPoint;
+      stroke = safeDefaults.stroke;
+      strokeWidth = safeDefaults.strokeWidth;
+      arrowheadSize = safeDefaults.arrowheadSize;
+    } else {
+      startPoint = object.startPoint;
+      endPoint = object.endPoint;
+      stroke = object.stroke;
+      strokeWidth = object.strokeWidth;
+      arrowheadSize = object.arrowheadSize;
+    }
+
+    const arrow = new Arrow(startPoint, endPoint, {
+      stroke,
+      strokeWidth,
+      arrowheadSize,
     });
+
+    // outline 属性の復元
+    if (hasValidRequiredFields && object.outline !== undefined) {
+      // Req 24.7: 保存された outline を復元
+      arrow.setOutline(object.outline);
+    } else {
+      // Req 24.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.arrowOutline（enabled=true）を無効化し、
+      //   outlinePath.opacity=0 + width=0 で「白縁取り無し」状態にする。
+      arrow.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+    }
+
     return Promise.resolve(arrow);
   }
 }
