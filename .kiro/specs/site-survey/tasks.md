@@ -1773,7 +1773,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.2, 27.3, 27.4, 27.5_
   - _Boundary: AnnotationContextMenu_
 
-- [ ] 68.2 `AnnotationContextMenu` の単体コンポーネントテスト
+- [x] 68.2 `AnnotationContextMenu` の単体コンポーネントテスト
   - `visible=true` で表示され、`visible=false` で非表示になることを検証する
   - 各アクション（edit / duplicate / delete）のタップで対応する action 値が onAction に渡されることを検証する
   - メニュー外タップで onClose が呼ばれることを検証する
@@ -1984,3 +1984,4 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **65.4**: 矢印の単体テスト 4 ケース（Group 2 子、`setOutline({enabled:false})` で opacity=0、toObject→fromObject round-trip、legacy JSON 後方互換）は 65.1 の `ArrowTool.outline.test.ts`（19 テスト）、65.2 の `ArrowTool.serialization.test.ts`（17 テスト）、65.3 の `registerCustomShapes.arrow.test.ts`（6 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **66.3**: テキスト注釈の単体テスト 4 ケース（`setTextOutline({widthRatio:0.15})` で strokeWidth=fontSize*0.15、日本語マルチバイト白アウトライン適用、backgroundColor と textOutline の独立性、旧形式 JSON の後方互換復元）は 66.1 の `TextTool.outline.test.ts`（9 テスト、多バイト含む）、66.2 の `TextTool.serialization.test.ts`（25 テスト、widthRatio=0.15 round-trip / backgroundColor 独立 / legacy JSON 含む）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **67.4**: touchGestureManager 単体テスト（fake timers、300ms/500ms/150ms 閾値、2/3+ 指遷移、描画コミット抑止）は 67.2 の `touchGestureManager.test.ts`（18 テスト、全 state 遷移と payload 検証）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
+- **68.2**: AnnotationContextMenu 単体テスト 3 ケース（visible トグル、edit/duplicate/delete アクション、外タップ close）は 68.1 の `AnnotationContextMenu.test.tsx`（16 テスト）で既にカバー済み。観測可能完了状態を満たすため追加実装なしでクローズ。
