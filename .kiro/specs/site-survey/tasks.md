@@ -1667,7 +1667,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 26.1, 26.2, 26.5_
   - _Boundary: Tools Layer_
 
-- [ ] 64.4 トークンの単体テスト
+- [x] 64.4 トークンの単体テスト
   - 既定線幅が視認性要件を満たすこと、矢印/テキストの白縁取り既定が enabled=true であることを検証する
   - 観測可能な完了状態: テストスイートで `ANNOTATION_DEFAULTS.strokeWidth >= 3`、`arrowOutline.enabled === true`、`textOutline.enabled === true` が全て pass
   - _Requirements: 26.1, 26.2, 26.3_
@@ -1975,3 +1975,9 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 | 30.6 | 67.2, 67.3                                                       |
 | 30.7 | 67.2                                                             |
 | 30.8 | 67.2, 67.4                                                       |
+
+---
+
+## Implementation Notes
+
+- **64.4**: トークン単体テスト（`ANNOTATION_DEFAULTS.strokeWidth >= 3`、`arrowOutline.enabled === true`、`textOutline.enabled === true`）は 64.1 で `annotation-style-tokens.test.ts` に先行実装済み。同ファイル 12 テスト全合格を確認（vitest）して観測可能完了状態を満たすため、差分コード追加なしでクローズ。
