@@ -1782,7 +1782,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: AnnotationContextMenu_
 
 - [ ] 69. (P) `AnnotationGuide` コンポーネント
-- [ ] 69.1 `AnnotationGuide.tsx` 新規作成
+- [x] 69.1 `AnnotationGuide.tsx` 新規作成
   - `{ visible, toolKind, onDismiss }` プロパティを受ける React コンポーネントを作成する
   - ツール種別に応じた簡易ガイド文言（例: 「ドラッグで描画」「タップでテキスト入力」）を表示する
   - 画像領域に非侵襲的にオーバーレイ表示し、任意タップで dismiss する
