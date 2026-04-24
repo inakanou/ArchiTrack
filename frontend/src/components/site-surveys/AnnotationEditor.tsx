@@ -32,6 +32,8 @@ import {
 } from 'fabric';
 import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
 import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
+import { AnnotationGuide } from './AnnotationGuide';
+import { GUIDE_IDLE_MS } from './gestures/gesture-thresholds';
 import { createArrow } from './tools/ArrowTool';
 import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
@@ -330,6 +332,12 @@ function AnnotationEditor({
     targetObject: FabricObject | null;
   }>({ visible: false, position: null, targetObject: null });
 
+  // Task 72.4 (Req 29.7, 29.8): AnnotationGuide の表示状態と idle タイマ参照。
+  // ツール選択後 GUIDE_IDLE_MS (=3000ms) 間描画操作が無ければ guideVisible=true にし、
+  // 描画開始 (mouse:down) もしくは別ツールへの切替で dismiss する。
+  const [guideVisible, setGuideVisible] = useState(false);
+  const guideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
   const undoManagerRef = useRef<UndoManager | null>(null);
   if (!undoManagerRef.current) {
@@ -405,6 +413,40 @@ function AnnotationEditor({
     }
     canvas.skipTargetFind = contextMenu.visible;
   }, [contextMenu.visible]);
+
+  /**
+   * Task 72.4 (Req 29.7, 29.8): ツール選択変更時に idle タイマ (GUIDE_IDLE_MS=3000ms) を開始し、
+   * 3 秒間描画操作が無い場合に AnnotationGuide を visible にする。
+   *
+   * - select ツールはガイド対象外（操作ヒント不要）
+   * - ツール変更のたびにガイドを一旦非表示にし、新しいタイマを設定する
+   * - クリーンアップ時は進行中のタイマを破棄する
+   */
+  useEffect(() => {
+    // ツール変更時にまず非表示へ戻す
+    setGuideVisible(false);
+    if (guideTimerRef.current) {
+      clearTimeout(guideTimerRef.current);
+      guideTimerRef.current = null;
+    }
+
+    // select は簡易ガイドの対象外
+    if (state.activeTool === 'select') {
+      return;
+    }
+
+    guideTimerRef.current = setTimeout(() => {
+      setGuideVisible(true);
+      guideTimerRef.current = null;
+    }, GUIDE_IDLE_MS);
+
+    return () => {
+      if (guideTimerRef.current) {
+        clearTimeout(guideTimerRef.current);
+        guideTimerRef.current = null;
+      }
+    };
+  }, [state.activeTool]);
 
   /**
    * ツール変更ハンドラ
@@ -709,6 +751,14 @@ function AnnotationEditor({
   const setupEventListeners = useCallback((canvas: FabricCanvas) => {
     // マウスダウンイベント - ドラッグ開始または多角形/折れ線の頂点追加
     canvas.on('mouse:down', (options: TPointerEventInfo<TPointerEvent>) => {
+      // Task 72.4 (Req 29.7, 29.8): 描画/操作が開始されたら簡易ガイドを dismiss し、
+      // idle タイマも破棄する。描画直前/途中の非侵襲的なガイドが視覚的競合を起こさないため。
+      if (guideTimerRef.current) {
+        clearTimeout(guideTimerRef.current);
+        guideTimerRef.current = null;
+      }
+      setGuideVisible(false);
+
       // Fabric.js v7ではoptions.scenePointを使用（キャンバス座標）
       const pointer = options.scenePoint;
       const activeTool = activeToolRef.current;
@@ -1315,6 +1365,12 @@ function AnnotationEditor({
       // dispose状態を設定（非同期処理をキャンセル）
       isDisposedRef.current = true;
 
+      // Task 72.4: idle ガイドタイマを破棄（unmount 後の setState を防止）
+      if (guideTimerRef.current) {
+        clearTimeout(guideTimerRef.current);
+        guideTimerRef.current = null;
+      }
+
       // Task 72.1: touchGestureManager を detach（canvas dispose 前にリスナーを解除）
       if (touchGestureDetachRef.current) {
         try {
@@ -1858,6 +1914,15 @@ function AnnotationEditor({
               </div>
             </div>
           )}
+
+          {/* Task 72.4 (Req 29.7, 29.8): ツール選択後の簡易ガイドオーバーレイ。
+              - 画像領域（container）内に配置し、非侵襲的に表示する。
+              - 表示制御は state.activeTool に連動した useEffect の idle タイマが担う。 */}
+          <AnnotationGuide
+            visible={guideVisible}
+            toolKind={state.activeTool}
+            onDismiss={() => setGuideVisible(false)}
+          />
         </div>
       </div>
 

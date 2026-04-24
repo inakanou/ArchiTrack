@@ -1860,7 +1860,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.2, 27.3, 27.4, 27.5, 27.7_
   - _Boundary: AnnotationEditor (ext)_
 
-- [ ] 72.4 `AnnotationGuide` のマウントと idle タイマー連動
+- [x] 72.4 `AnnotationGuide` のマウントと idle タイマー連動
   - ツール選択変更時に idle タイマ（`GUIDE_IDLE_MS=3000`）を開始する
   - 3 秒間描画操作が無い場合に AnnotationGuide を visible にする
   - 描画開始または別操作で guide を dismiss する
