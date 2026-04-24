@@ -1731,7 +1731,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: TextAnnotation_
 
 - [ ] 67. (P) タッチジェスチャー判定基盤
-- [ ] 67.1 `gesture-thresholds.ts` 閾値定数モジュール
+- [x] 67.1 `gesture-thresholds.ts` 閾値定数モジュール
   - `DOUBLE_TAP_MS = 300`、`LONG_PRESS_MS = 500`、`COOLDOWN_MS = 150`、`DRAG_THRESHOLD_PX = 8`、`GUIDE_IDLE_MS = 3000` を定義する
   - 観測可能な完了状態: 各閾値定数が import 可能で、touchGestureManager およびガイド表示から参照される
   - _Requirements: 27.6_
