@@ -1764,7 +1764,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: touchGestureManager_
 
 - [ ] 68. (P) `AnnotationContextMenu` コンポーネント
-- [ ] 68.1 `AnnotationContextMenu.tsx` 新規作成
+- [x] 68.1 `AnnotationContextMenu.tsx` 新規作成
   - `{ visible, position, targetObject, onAction, onClose }` プロパティを受ける React コンポーネントを作成する
   - アクション項目: 編集（テキストのみ有効）、複製、削除を表示する
   - メニュー外タップ検知のため透明オーバーレイ `<div>` を背景に配置する
