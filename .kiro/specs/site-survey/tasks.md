@@ -1712,7 +1712,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 25.1, 25.3, 25.12_
   - _Boundary: TextAnnotation_
 
-- [ ] 66.2 textOutline 属性のシリアライズとフォントサイズ連動
+- [x] 66.2 textOutline 属性のシリアライズとフォントサイズ連動
   - `textOutline: { enabled, widthRatio }` 属性を `toObject` に含め、`enabled=false` 時は `stroke: ''` で無効化する
   - フォントサイズ変更時に `strokeWidth = fontSize × widthRatio`（既定 widthRatio=0.12、範囲 0.10〜0.20）を `object:modified` で自動再計算する
   - `textOutline` 未定義の旧データは白アウトライン無しの従来表現でフォールバックする
