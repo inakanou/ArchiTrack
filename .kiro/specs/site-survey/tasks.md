@@ -1755,7 +1755,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 30.1, 30.2, 30.3, 30.5, 30.6, 30.8_
   - _Boundary: ImageViewer (touch ext)_
 
-- [ ] 67.4 `touchGestureManager` の単体テスト
+- [x] 67.4 `touchGestureManager` の単体テスト
   - Jest の fake timers で各 state 遷移と閾値（300ms/500ms/150ms）を検証する
   - 2 本指タッチで `two-finger-pinch-pan` へ、3 本指で `three-plus-suspend` へ遷移することを確認する
   - 3 本指中は新規描画コミットが抑止されることを確認する
@@ -1983,3 +1983,4 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **64.4**: トークン単体テスト（`ANNOTATION_DEFAULTS.strokeWidth >= 3`、`arrowOutline.enabled === true`、`textOutline.enabled === true`）は 64.1 で `annotation-style-tokens.test.ts` に先行実装済み。同ファイル 12 テスト全合格を確認（vitest）して観測可能完了状態を満たすため、差分コード追加なしでクローズ。
 - **65.4**: 矢印の単体テスト 4 ケース（Group 2 子、`setOutline({enabled:false})` で opacity=0、toObject→fromObject round-trip、legacy JSON 後方互換）は 65.1 の `ArrowTool.outline.test.ts`（19 テスト）、65.2 の `ArrowTool.serialization.test.ts`（17 テスト）、65.3 の `registerCustomShapes.arrow.test.ts`（6 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **66.3**: テキスト注釈の単体テスト 4 ケース（`setTextOutline({widthRatio:0.15})` で strokeWidth=fontSize*0.15、日本語マルチバイト白アウトライン適用、backgroundColor と textOutline の独立性、旧形式 JSON の後方互換復元）は 66.1 の `TextTool.outline.test.ts`（9 テスト、多バイト含む）、66.2 の `TextTool.serialization.test.ts`（25 テスト、widthRatio=0.15 round-trip / backgroundColor 独立 / legacy JSON 含む）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
+- **67.4**: touchGestureManager 単体テスト（fake timers、300ms/500ms/150ms 閾値、2/3+ 指遷移、描画コミット抑止）は 67.2 の `touchGestureManager.test.ts`（18 テスト、全 state 遷移と payload 検証）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
