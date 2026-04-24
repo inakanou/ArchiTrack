@@ -1705,7 +1705,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: Arrow_
 
 - [ ] 66. (P) テキスト注釈の白アウトライン
-- [ ] 66.1 IText に `paintFirst: 'stroke'` と白ストローク設定を導入
+- [x] 66.1 IText に `paintFirst: 'stroke'` と白ストローク設定を導入
   - テキスト生成時に `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth = fontSize × widthRatio`、`strokeUniform: true` を設定する
   - 既存の `splitByGrapheme: true` と `backgroundColor` 設定は維持し、白アウトラインと背景色を独立制御可能にする
   - 観測可能な完了状態: 背景色なしのテキスト注釈を配置すると、明背景/暗背景の両方で白アウトラインにより文字が視認可能

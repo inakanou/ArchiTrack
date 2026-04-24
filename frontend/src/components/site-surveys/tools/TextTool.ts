@@ -20,7 +20,9 @@
 
 import { IText, type Canvas as FabricCanvas } from 'fabric';
 
-import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+import { ANNOTATION_DEFAULTS, type TextOutlineAttribute } from '../annotation-style-tokens';
+
+export type { TextOutlineAttribute };
 
 // ============================================================================
 // 型定義
@@ -72,6 +74,12 @@ export interface TextAnnotationOptions {
   backgroundColor: string;
   /** 吹き出しスタイル（Task 16.3） */
   balloonStyle?: BalloonStyleType;
+  /**
+   * 白アウトライン属性（Task 66.1 / Req 25.1, 25.3, 25.12）
+   *
+   * 省略時は `ANNOTATION_DEFAULTS.textOutline` が既定値として適用される。
+   */
+  textOutline?: TextOutlineAttribute;
 }
 
 /**
@@ -183,6 +191,19 @@ export class TextAnnotation extends IText {
   /** 吹き出しのパディング */
   private _balloonPadding: number = DEFAULT_BALLOON_OPTIONS.padding;
 
+  /**
+   * 白アウトライン属性（Task 66.1 / Req 25.1, 25.3, 25.12）
+   *
+   * 既定値は `ANNOTATION_DEFAULTS.textOutline` に従う。
+   * 本タスクでは内部状態の保持と `getTextOutline()` による参照のみを提供する。
+   * 有効時、コンストラクタで IText に `paintFirst: 'stroke'`・`stroke: '#ffffff'`・
+   * `strokeWidth = fontSize * widthRatio`・`strokeUniform: true` を適用する。
+   */
+  private _textOutline: TextOutlineAttribute = {
+    enabled: ANNOTATION_DEFAULTS.textOutline.enabled,
+    widthRatio: ANNOTATION_DEFAULTS.textOutline.widthRatio,
+  };
+
   /** フォントサイズ */
   declare fontSize: number;
 
@@ -223,6 +244,13 @@ export class TextAnnotation extends IText {
     // 設定をマージ
     const mergedOptions = { ...DEFAULT_TEXT_OPTIONS, ...options };
 
+    // 白アウトライン設定を解決（Task 66.1 / Req 25.1, 25.3, 25.12）
+    // 指定があれば明示値、なければ ANNOTATION_DEFAULTS.textOutline を既定として使用。
+    const resolvedTextOutline: TextOutlineAttribute = {
+      enabled: options.textOutline?.enabled ?? ANNOTATION_DEFAULTS.textOutline.enabled,
+      widthRatio: options.textOutline?.widthRatio ?? ANNOTATION_DEFAULTS.textOutline.widthRatio,
+    };
+
     // ITextを初期化
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const iTextOptions: any = {
@@ -241,12 +269,22 @@ export class TextAnnotation extends IText {
       lockMovementY: false,
       originX: 'left',
       originY: 'top',
-      // マルチバイト文字対応: グラフィームで分割
+      // マルチバイト文字対応: グラフィームで分割（Req 25.12 既存挙動維持）
       splitByGrapheme: true,
       // 編集モードのスタイル
       editingBorderColor: '#3b82f6',
       cursorColor: '#3b82f6',
     };
+
+    // 白アウトライン有効時のみ IText 側にストローク属性を追加（Req 25.1）。
+    // backgroundColor は上で既に設定済みで、ここでは上書きしないため独立制御が保たれる（Req 25.3）。
+    if (resolvedTextOutline.enabled) {
+      iTextOptions.paintFirst = 'stroke';
+      iTextOptions.stroke = '#ffffff';
+      iTextOptions.strokeWidth = mergedOptions.fontSize * resolvedTextOutline.widthRatio;
+      iTextOptions.strokeUniform = true;
+    }
+
     super(mergedOptions.initialText, iTextOptions);
 
     // プロパティを設定
@@ -262,6 +300,9 @@ export class TextAnnotation extends IText {
     this.lockMovementY = false;
     this.editable = true;
     this.isEditing = false;
+
+    // 白アウトライン内部状態を保持
+    this._textOutline = resolvedTextOutline;
 
     // 吹き出しスタイルの初期化（Task 16.3）
     if (mergedOptions.balloonStyle) {
@@ -495,6 +536,34 @@ export class TextAnnotation extends IText {
     if (options.padding !== undefined) {
       this._balloonPadding = options.padding;
     }
+  }
+
+  // ==========================================================================
+  // 白アウトライン（Task 66.1 / Req 25.1, 25.3, 25.12）
+  // ==========================================================================
+
+  /**
+   * 白アウトライン属性を取得する
+   *
+   * @returns 現在の `TextOutlineAttribute`（常に新しいオブジェクトを返し内部状態を破壊させない）
+   */
+  getTextOutline(): TextOutlineAttribute {
+    return { ...this._textOutline };
+  }
+
+  /**
+   * 白アウトライン属性を更新する（内部状態のみ）
+   *
+   * 本タスク (66.1) では内部状態のみを更新する最小実装とする。
+   * キャンバスへの再描画通知・Undo フック・`strokeWidth` 再計算は Task 66.2 で扱う。
+   *
+   * @param next 部分更新値（指定されたフィールドのみ反映）
+   */
+  setTextOutline(next: Partial<TextOutlineAttribute>): void {
+    this._textOutline = {
+      enabled: next.enabled ?? this._textOutline.enabled,
+      widthRatio: next.widthRatio ?? this._textOutline.widthRatio,
+    };
   }
 
   // ==========================================================================
