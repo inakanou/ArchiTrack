@@ -1851,7 +1851,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.1, 27.7, 27.8, 27.9, 27.10_
   - _Boundary: AnnotationEditor (ext)_
 
-- [ ] 72.3 `AnnotationContextMenu` のマウントと状態管理
+- [x] 72.3 `AnnotationContextMenu` のマウントと状態管理
   - AnnotationEditor に `{ visible, position, targetObject }` の state を追加し、`handleLongPress` で visible=true にする
   - ContextMenu visible 中は `canvas.skipTargetFind = true` で背景描画を抑止する
   - edit/duplicate/delete アクションの canvas 操作（duplicate は clone + offset、delete は remove）を実装する

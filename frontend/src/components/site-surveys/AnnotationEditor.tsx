@@ -31,6 +31,7 @@ import {
   type TPointerEvent,
 } from 'fabric';
 import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
+import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
 import { createArrow } from './tools/ArrowTool';
 import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
@@ -392,6 +393,18 @@ function AnnotationEditor({
       undoManager.setOnChange(null);
     };
   }, [undoManager]);
+
+  /**
+   * Task 72.3 (Req 27.4): コンテキストメニュー表示中は canvas.skipTargetFind = true にし、
+   * 背景画像への新規描画操作（ヒットテスト/選択）を抑止する。メニュー非表示時は false に戻す。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    canvas.skipTargetFind = contextMenu.visible;
+  }, [contextMenu.visible]);
 
   /**
    * ツール変更ハンドラ
@@ -1139,6 +1152,65 @@ function AnnotationEditor({
   }, []);
 
   /**
+   * Task 72.3 (Req 27.5): コンテキストメニューを閉じる
+   *
+   * オーバーレイの外タップ、またはアクション実行直後に呼ばれる。state を初期化する。
+   */
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenu({ visible: false, position: null, targetObject: null });
+  }, []);
+
+  /**
+   * Task 72.3 (Req 27.3, 27.7): コンテキストメニューのアクション実行
+   *
+   * - edit: テキスト系オブジェクト（text / i-text / textAnnotation）のみ enterEditing() を呼ぶ
+   * - duplicate: Fabric v6 の `clone()` は Promise<FabricObject> を返すため、.then で受けて
+   *   `{ left: left+20, top: top+20 }` オフセットを set した後 canvas.add + setActiveObject する
+   * - delete: canvas.remove(target) でオブジェクトを削除
+   *
+   * いずれの操作も `useFabricUndoIntegration` が `object:added` / `object:removed` を
+   * 自然に捕捉し、Undo 履歴に載せる（Req 27.7）。
+   */
+  const handleContextMenuAction = useCallback((action: ContextMenuAction, target: FabricObject) => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    switch (action) {
+      case 'edit': {
+        const t = target as unknown as { type?: string; enterEditing?: () => void };
+        if (t.type === 'text' || t.type === 'i-text' || t.type === 'textAnnotation') {
+          t.enterEditing?.();
+        }
+        break;
+      }
+      case 'duplicate': {
+        const cloneFn = (target as unknown as { clone?: () => Promise<FabricObject> }).clone;
+        if (typeof cloneFn !== 'function') {
+          break;
+        }
+        cloneFn.call(target).then((cloned: FabricObject) => {
+          cloned.set({
+            left: (target.left ?? 0) + 20,
+            top: (target.top ?? 0) + 20,
+          });
+          canvas.add(cloned);
+          canvas.setActiveObject(cloned);
+          canvas.requestRenderAll();
+        });
+        break;
+      }
+      case 'delete': {
+        canvas.remove(target);
+        canvas.requestRenderAll();
+        break;
+      }
+    }
+    // 実行後はメニューを閉じる
+    setContextMenu({ visible: false, position: null, targetObject: null });
+  }, []);
+
+  /**
    * Fabric.js Canvasの初期化
    *
    * React StrictModeでの二重マウント対応:
@@ -1801,6 +1873,15 @@ function AnnotationEditor({
           downloading={isDownloading}
         />
       )}
+
+      {/* 注釈コンテキストメニュー (Task 72.3, Req 27.2-27.5, 27.7) */}
+      <AnnotationContextMenu
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        targetObject={contextMenu.targetObject}
+        onAction={handleContextMenuAction}
+        onClose={handleContextMenuClose}
+      />
     </>
   );
 }
