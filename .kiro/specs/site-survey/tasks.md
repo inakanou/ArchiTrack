@@ -1645,7 +1645,7 @@
 
 Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30` セクションに対応。既存 Requirement 1〜23 の責務境界は維持し、新規ファイル追加と既存ファイルの最小変更で構成する。
 
-- [ ] 64. ツール横断スタイルトークンの導入（Foundation）
+- [x] 64. ツール横断スタイルトークンの導入（Foundation）
 - [x] 64.1 `annotation-style-tokens.ts` を新規作成しツール横断の既定値を一元化
   - 既定本体色、既定線幅、既定フォントサイズ、矢印白縁取り既定（enabled=true）、テキスト白アウトライン既定（enabled=true）を保持する
   - 既定線幅は 3 論理ピクセル以上、既定本体色は赤系/橙系の視認性確保カラーを採用する
@@ -1673,7 +1673,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 26.1, 26.2, 26.3_
   - _Boundary: AnnotationStyleTokens_
 
-- [ ] 65. (P) 矢印の Group 化と白縁取り
+- [x] 65. (P) 矢印の Group 化と白縁取り
 - [x] 65.1 Arrow クラスを Group ベースへ再設計
   - 既存 `generateArrowPath` を流用し、Group の子として白い外側 Path（縁取り）と本体色の内側 Path を持つ構成に変更する
   - 外側 Path の線幅は本体線幅の 1.5 倍以上、ストロークは白固定、`strokeLineCap: 'round'`、`strokeLineJoin: 'round'` を適用する
@@ -1704,7 +1704,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 24.1, 24.5, 24.7, 24.9_
   - _Boundary: Arrow_
 
-- [ ] 66. (P) テキスト注釈の白アウトライン
+- [x] 66. (P) テキスト注釈の白アウトライン
 - [x] 66.1 IText に `paintFirst: 'stroke'` と白ストローク設定を導入
   - テキスト生成時に `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth = fontSize × widthRatio`、`strokeUniform: true` を設定する
   - 既存の `splitByGrapheme: true` と `backgroundColor` 設定は維持し、白アウトラインと背景色を独立制御可能にする
@@ -1730,7 +1730,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 25.1, 25.3, 25.5, 25.10, 25.12_
   - _Boundary: TextAnnotation_
 
-- [ ] 67. (P) タッチジェスチャー判定基盤
+- [x] 67. (P) タッチジェスチャー判定基盤
 - [x] 67.1 `gesture-thresholds.ts` 閾値定数モジュール
   - `DOUBLE_TAP_MS = 300`、`LONG_PRESS_MS = 500`、`COOLDOWN_MS = 150`、`DRAG_THRESHOLD_PX = 8`、`GUIDE_IDLE_MS = 3000` を定義する
   - 観測可能な完了状態: 各閾値定数が import 可能で、touchGestureManager およびガイド表示から参照される
@@ -1763,7 +1763,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.6, 30.2, 30.3, 30.4, 30.8_
   - _Boundary: touchGestureManager_
 
-- [ ] 68. (P) `AnnotationContextMenu` コンポーネント
+- [x] 68. (P) `AnnotationContextMenu` コンポーネント
 - [x] 68.1 `AnnotationContextMenu.tsx` 新規作成
   - `{ visible, position, targetObject, onAction, onClose }` プロパティを受ける React コンポーネントを作成する
   - アクション項目: 編集（テキストのみ有効）、複製、削除を表示する
@@ -1781,7 +1781,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 27.2, 27.3, 27.5_
   - _Boundary: AnnotationContextMenu_
 
-- [ ] 69. (P) `AnnotationGuide` コンポーネント
+- [x] 69. (P) `AnnotationGuide` コンポーネント
 - [x] 69.1 `AnnotationGuide.tsx` 新規作成
   - `{ visible, toolKind, onDismiss }` プロパティを受ける React コンポーネントを作成する
   - ツール種別に応じた簡易ガイド文言（例: 「ドラッグで描画」「タップでテキスト入力」）を表示する
@@ -1790,7 +1790,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 29.7, 29.8_
   - _Boundary: AnnotationGuide_
 
-- [ ] 70. (P) モバイルツールバー拡張
+- [x] 70. (P) モバイルツールバー拡張
 - [x] 70.1 ツールバーの flexWrap と 44x44 タップ領域、ツールバー領域の描画抑止境界を導入
   - `AnnotationToolbar.tsx` の `STYLES.toolbar` に `flexWrap: 'wrap'` を追加し、既存 `overflowX: 'auto'` と両立させる
   - 各ボタンの `minWidth/minHeight` を 44 論理ピクセルに統一する
@@ -1816,7 +1816,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 28.7_
   - _Boundary: AnnotationToolbar, StylePanel_
 
-- [ ] 71. (P) 視覚フィードバック基盤設定モジュール
+- [x] 71. (P) 視覚フィードバック基盤設定モジュール
 - [x] 71.1 ハンドルサイズのメディアクエリ分岐設定モジュール
   - `annotation-visual-feedback.ts`（新規）に `configureHandleSizes()` 関数を作成し、`matchMedia('(pointer: coarse)')` でタッチ/マウスを判定する
   - タッチ時は `FabricObject.ownDefaults.cornerSize = 20`、`touchCornerSize = 40`、マウス時はそれぞれ 13 / 24 に設定する
@@ -1832,7 +1832,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 29.2_
   - _Boundary: Visual Feedback_
 
-- [ ] 72. AnnotationEditor 統合（Integration）
+- [x] 72. AnnotationEditor 統合（Integration）
 - [x] 72.1 `touchGestureManager` の attach/detach を useEffect で配線
   - 初期化 useEffect で `touchGestureManager.attach(canvas, () => activeToolRef.current)` を実行し、cleanup で detach を呼ぶ
   - ハンドルサイズ設定 `configureHandleSizes()` を同 useEffect で 1 回実行する
@@ -1886,7 +1886,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 24.8, 25.9_
   - _Boundary: AnnotationRendererService_
 
-- [ ] 73. E2E 検証（Validation）
+- [x] 73. E2E 検証（Validation）
 - [x] 73.1 モバイル Viewport での主要シナリオ E2E
   - Playwright のモバイル Viewport (375x667) で以下シナリオを検証する: (a) 白縁取り付き矢印を配置→保存→リロード→復元、(b) テキスト注釈に白アウトラインを付与→保存→リロード→復元、(c) 既存注釈を長押しでコンテキストメニュー表示→削除、(d) 既存テキストをダブルタップで編集モード、(e) モバイルツールバーの全ツールにタップ到達可能
   - 観測可能な完了状態: 上記 5 シナリオを含む E2E テストが CI で全て pass
@@ -1900,7 +1900,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 24.8, 25.9, 30.4_
   - _Boundary: Integration Test_
 
-- [ ] 74. パフォーマンス検証
+- [x] 74. パフォーマンス検証
 - [x] 74.1 Arrow Group の高頻度描画 FPS 検証
   - 100 個の Group 矢印を canvas に配置し、全体ドラッグ/ズーム時の描画 FPS を計測する
   - `objectCaching` 設定（Group は false、子 Path は true）が期待通りに機能し、Requirement 16.2 の 60fps 目標を維持できるかを検証する
