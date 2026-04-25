@@ -9,6 +9,9 @@
  * - JapaneseFontRendererとの統合
  *
  * @see requirements.md - 要件10.6, 11.7
+ *
+ * @requirement site-survey/REQ-24.8
+ * @requirement site-survey/REQ-25.9
  */
 
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';

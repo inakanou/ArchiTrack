@@ -13,6 +13,19 @@
  * - 24.2: 白縁取り線幅を本体線幅の1.5倍以上の太さで付与する
  * - 24.3: 本体色を変更しても白縁取り部分の色は常に白のまま維持する
  * - 24.4: 移動・リサイズ・回転時に白縁取りを本体と同期して変形する
+ *
+ * @requirement site-survey/REQ-24.1
+ * @requirement site-survey/REQ-24.2
+ * @requirement site-survey/REQ-24.3
+ * @requirement site-survey/REQ-24.4
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-24.6
+ * @requirement site-survey/REQ-24.7
+ * @requirement site-survey/REQ-24.9
+ * @requirement site-survey/REQ-24.10
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Group, Path } from 'fabric';

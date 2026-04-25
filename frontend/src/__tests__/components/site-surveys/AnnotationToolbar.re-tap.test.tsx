@@ -12,6 +12,8 @@
  *   activeTool と同じツールボタンをクリックした時のみ発火する
  * - 非アクティブなツールボタンをクリックした場合は発火しない
  * - prop 未指定時も既存動作（onToolChange）が壊れないこと
+ *
+ * @requirement site-survey/REQ-28.8
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

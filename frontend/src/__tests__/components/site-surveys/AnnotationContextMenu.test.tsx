@@ -15,6 +15,10 @@
  * - タップ領域（最小 44x44 論理ピクセル）
  * - 透明オーバーレイ（メニュー外タップで onClose）
  * - position による絶対配置
+ *
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-27.3
+ * @requirement site-survey/REQ-27.5
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

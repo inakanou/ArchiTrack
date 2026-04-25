@@ -18,6 +18,10 @@
  * - TextAnnotation コンストラクタ時の IText 初期化オプション
  * - getTextOutline() の既定戻り値
  * - マルチバイト文字での同等構造
+ *
+ * @requirement site-survey/REQ-25.1
+ * @requirement site-survey/REQ-25.3
+ * @requirement site-survey/REQ-25.12
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

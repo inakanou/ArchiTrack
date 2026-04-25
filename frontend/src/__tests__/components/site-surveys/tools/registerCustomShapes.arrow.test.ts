@@ -17,6 +17,8 @@
  *   `util.enlivenObjects` の内部パイプラインは Fabric 側で `classRegistry.getClass(type).fromObject(...)`
  *   相当の処理を行うため、本テストでは登録確認と `Arrow.fromObject` の直接検証で
  *   「enlivenObjects 経路を壊さない」観測可能完了を成立させる。
+ *
+ * @requirement site-survey/REQ-24.9
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

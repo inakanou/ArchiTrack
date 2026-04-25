@@ -13,6 +13,9 @@
  * Design: design.md "AnnotationGuide"
  *   - visible, toolKind, onDismiss を受ける presentational component
  *   - 表示閾値 (GUIDE_IDLE_MS=3000) は親コンポーネント側で管理する
+ *
+ * @requirement site-survey/REQ-29.7
+ * @requirement site-survey/REQ-29.8
  */
 
 import type { CSSProperties, MouseEvent } from 'react';

@@ -9,6 +9,10 @@
  * 書込みに限定する。
  *
  * Boundary: Visual Feedback
+ *
+ * @requirement site-survey/REQ-29.2
+ * @requirement site-survey/REQ-29.4
+ * @requirement site-survey/REQ-29.5
  */
 
 import { FabricObject } from 'fabric';

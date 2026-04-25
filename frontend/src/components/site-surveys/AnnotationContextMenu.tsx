@@ -14,6 +14,11 @@
  * - 28.3: タップ領域は最小 44x44 論理ピクセル以上
  *
  * Design: design.md "AnnotationContextMenu" セクション参照
+ *
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-27.3
+ * @requirement site-survey/REQ-27.4
+ * @requirement site-survey/REQ-27.5
  */
 
 import React, { useCallback } from 'react';

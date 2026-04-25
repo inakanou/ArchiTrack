@@ -12,6 +12,12 @@
  * - 30.1: 2本指入力時の描画中断（attach 経由）
  *
  * Boundary: AnnotationEditor (ext)
+ *
+ * @requirement site-survey/REQ-27.1
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-29.4
+ * @requirement site-survey/REQ-29.5
+ * @requirement site-survey/REQ-30.1
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';

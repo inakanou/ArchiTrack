@@ -3,6 +3,8 @@
  *
  * これらの定数は touchGestureManager およびガイド表示から参照される
  * ため、値と相互関係のサニティを保証する。
+ *
+ * @requirement site-survey/REQ-27.6
  */
 import { describe, it, expect } from 'vitest';
 import {

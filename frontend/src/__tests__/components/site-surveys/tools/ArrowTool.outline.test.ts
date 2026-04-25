@@ -13,6 +13,11 @@
  * - 線の端点・接合は round（視認性確保）
  * - Group 移動時に子が連動
  * - ジオメトリ更新時に両方の子 Path のパスデータが更新される
+ *
+ * @requirement site-survey/REQ-24.1
+ * @requirement site-survey/REQ-24.2
+ * @requirement site-survey/REQ-24.3
+ * @requirement site-survey/REQ-24.4
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

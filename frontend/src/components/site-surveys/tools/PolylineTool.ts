@@ -8,6 +8,10 @@
  *
  * Requirements:
  * - 7.5: 折れ線ツールを選択して点をクリックすると折れ線を描画する
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Polyline } from 'fabric';

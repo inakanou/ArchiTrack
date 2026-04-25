@@ -11,6 +11,8 @@
  * - `DEFAULT_STYLE_OPTIONS` の各フィールドが `ANNOTATION_DEFAULTS` と同値である
  * - 既存 import 元が参照するフィールド名（strokeColor / strokeWidth / fillColor /
  *   fontSize）が維持されている
+ *
+ * @requirement site-survey/REQ-26.5
  */
 
 import { describe, it, expect } from 'vitest';

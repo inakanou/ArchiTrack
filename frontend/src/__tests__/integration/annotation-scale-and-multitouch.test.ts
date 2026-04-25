@@ -6,6 +6,10 @@
  * - 24.8: 白縁取り表現を dataURL 出力で再現する
  * - 25.9: 白アウトライン表現を dataURL 出力で再現する
  * - 30.4: マルチタッチ中の誤発火を Undo で 1 ステップ復旧
+ *
+ * @requirement site-survey/REQ-24.8
+ * @requirement site-survey/REQ-25.9
+ * @requirement site-survey/REQ-30.4
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

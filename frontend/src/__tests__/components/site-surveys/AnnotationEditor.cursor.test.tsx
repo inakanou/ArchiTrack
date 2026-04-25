@@ -14,6 +14,9 @@
  * 本テストでは `annotation-visual-feedback` を実モジュールとして利用し、
  * Canvas モック側で mutable な defaultCursor/hoverCursor/freeDrawingCursor と
  * setCursor spy を提供する。
+ *
+ * @requirement site-survey/REQ-29.1
+ * @requirement site-survey/REQ-29.2
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';

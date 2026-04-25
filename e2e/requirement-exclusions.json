@@ -7226,6 +7226,32 @@
         "description": "変更なし保存操作後にサムネイルURLが同一であることを検証",
         "threshold": "thumbnail_url: unchanged"
       }
+    },
+    {
+      "id": "site-survey/REQ-29.3",
+      "requirement": "site-survey/REQ-29: ツール選択・操作時の視覚フィードバック",
+      "title": "描画操作開始時のドラッグ中プレビュー描画",
+      "reason": "Fabric.js 既存のドラッグ中プレビュー描画挙動を維持する要件であり、新規実装は不要。挙動はライブラリレベルで保証されているため、E2Eではなく既存挙動の維持確認で担保",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "library-behavior",
+        "tool": "Fabric.js / Code Review",
+        "description": "Fabric.js のデフォルトのドラッグ中プレビュー挙動が無効化されていないことをコードレビューで確認",
+        "threshold": "fabric_default_preview: preserved"
+      }
+    },
+    {
+      "id": "site-survey/REQ-29.6",
+      "requirement": "site-survey/REQ-29: ツール選択・操作時の視覚フィードバック",
+      "title": "用途が分かりにくいツール項目への title/aria-label",
+      "reason": "AnnotationToolbar の既存 title 属性 / aria-label 実装を維持する要件であり、新規実装は不要。アクセシビリティ属性の存在は既存単体テストで担保",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest / React Testing Library",
+        "description": "AnnotationToolbar.test.tsx でツールボタンの title / aria-label 属性が付与されていることを確認",
+        "threshold": "a11y_attributes: present"
+      }
     }
   ],
   "categories": {
@@ -7259,10 +7285,10 @@
     }
   },
   "summary": {
-    "totalExclusions": 577,
+    "totalExclusions": 579,
     "byCategory": {
       "performance": 23,
-      "infrastructure": 101,
+      "infrastructure": 103,
       "fault-tolerance": 21,
       "data-integrity": 28,
       "security": 5,

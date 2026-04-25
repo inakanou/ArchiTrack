@@ -10,6 +10,13 @@
  * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
  * - 7.1: 矢印ツールを選択してドラッグすると開始点から終了点へ矢印を描画する
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
+ *
+ * @requirement site-survey/REQ-28.1
+ * @requirement site-survey/REQ-28.2
+ * @requirement site-survey/REQ-28.3
+ * @requirement site-survey/REQ-28.4
+ * @requirement site-survey/REQ-28.5
+ * @requirement site-survey/REQ-28.6
  */
 
 import React, { useCallback, useEffect, useState } from 'react';

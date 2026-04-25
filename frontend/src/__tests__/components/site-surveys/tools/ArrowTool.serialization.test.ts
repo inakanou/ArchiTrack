@@ -14,6 +14,12 @@
  * - Arrow.fromObject(object without outline) が enabled=false / opacity=0 で復元する（Req 24.9）
  * - Arrow.fromObject(不正 JSON) が安全な既定値で復元し console.warn を出す（防御）
  * - setOutline() が canvas.fire('object:modified') を発火する（Undo 連携, Req 24.10）
+ *
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-24.6
+ * @requirement site-survey/REQ-24.7
+ * @requirement site-survey/REQ-24.9
+ * @requirement site-survey/REQ-24.10
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

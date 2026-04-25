@@ -8,6 +8,10 @@
  *
  * Requirements:
  * - 7.2: 円ツールを選択してドラッグすると円または楕円を描画する
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Ellipse } from 'fabric';

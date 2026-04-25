@@ -24,6 +24,12 @@
  * - 27.10: 選択ツール中の長押しはメニューを表示する
  *
  * Boundary: AnnotationEditor (ext)
+ *
+ * @requirement site-survey/REQ-27.1
+ * @requirement site-survey/REQ-27.7
+ * @requirement site-survey/REQ-27.8
+ * @requirement site-survey/REQ-27.9
+ * @requirement site-survey/REQ-27.10
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';

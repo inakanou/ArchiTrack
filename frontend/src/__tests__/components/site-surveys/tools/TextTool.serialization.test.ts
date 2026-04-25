@@ -18,6 +18,15 @@
  * - widthRatio は [0.10, 0.20] にクランプ
  * - setTextOutline は canvas.fire('object:modified') を発火（Undo/Redo 連携）
  * - fontSize 変更時 strokeWidth を自動再計算（object:modified にフック）
+ *
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-25.4
+ * @requirement site-survey/REQ-25.5
+ * @requirement site-survey/REQ-25.6
+ * @requirement site-survey/REQ-25.7
+ * @requirement site-survey/REQ-25.8
+ * @requirement site-survey/REQ-25.10
+ * @requirement site-survey/REQ-25.11
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

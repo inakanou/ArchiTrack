@@ -8,6 +8,10 @@
  *
  * Requirements:
  * - 7.3: 四角形ツールを選択してドラッグすると長方形を描画する
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Rect } from 'fabric';

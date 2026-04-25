@@ -13,6 +13,8 @@
  *   (a) Group Arrow 100 個の構造的メモリフットプリントを検証
  *   (b) objectCaching 戦略（Group=false, 子 Path=true）が適用されていることを検証
  *   (c) 実ランタイム（Chromium）でのベンチマークは手動計測を推奨
+ *
+ * @requirement site-survey/REQ-24.1
  */
 
 import { describe, it, expect } from 'vitest';

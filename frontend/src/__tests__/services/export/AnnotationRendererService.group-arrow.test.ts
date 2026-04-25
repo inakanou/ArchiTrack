@@ -21,6 +21,9 @@
  *   レンダリングする際、編集画面と同一の白縁取り表現を適用する
  * - 25.9: 注釈付き画像をサムネイル・プレビュー・PDF・個別エクスポートで
  *   レンダリングする際、編集画面と同一の白アウトライン表現を適用する
+ *
+ * @requirement site-survey/REQ-24.8
+ * @requirement site-survey/REQ-25.9
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

@@ -18,6 +18,23 @@
  * - 7.8: 選択中の図形をドラッグすると図形の位置を移動する
  * - 7.9: 選択中の図形のハンドルをドラッグすると図形のサイズを変更する
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
+ *
+ * @requirement site-survey/REQ-27.1
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-27.3
+ * @requirement site-survey/REQ-27.4
+ * @requirement site-survey/REQ-27.5
+ * @requirement site-survey/REQ-27.7
+ * @requirement site-survey/REQ-27.8
+ * @requirement site-survey/REQ-27.9
+ * @requirement site-survey/REQ-27.10
+ * @requirement site-survey/REQ-29.1
+ * @requirement site-survey/REQ-29.2
+ * @requirement site-survey/REQ-29.4
+ * @requirement site-survey/REQ-29.5
+ * @requirement site-survey/REQ-29.7
+ * @requirement site-survey/REQ-29.8
+ * @requirement site-survey/REQ-30.1
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';

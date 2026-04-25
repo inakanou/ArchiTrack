@@ -10,6 +10,9 @@
  * - 29.8: 視覚フィードバック要素（ハイライト・カーソル・プレビュー・ハンドル・
  *         ツールヒント・簡易ガイド）がコンテキストメニュー表示中および
  *         マルチタッチ入力中でも互いに競合しないよう制御する
+ *
+ * @requirement site-survey/REQ-29.7
+ * @requirement site-survey/REQ-29.8
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

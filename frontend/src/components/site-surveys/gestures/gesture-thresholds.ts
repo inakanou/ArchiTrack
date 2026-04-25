@@ -3,6 +3,8 @@
  *
  * touchGestureManager およびガイド表示から参照される共通定数。
  * 値の変更は UX と Req 27.6 の受入条件に直接影響するため慎重に扱うこと。
+ *
+ * @requirement site-survey/REQ-27.6
  */
 export const DOUBLE_TAP_MS = 300;
 export const LONG_PRESS_MS = 500;

@@ -12,6 +12,8 @@
  * - モバイル幅において、線幅プリセットコンテナ・フォントサイズプリセットコンテナも同様に
  *   gap >= 8px を持つ
  * - デスクトップ幅では既存挙動を壊さない（gap は 4px のまま）
+ *
+ * @requirement site-survey/REQ-28.7
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

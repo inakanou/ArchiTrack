@@ -8,6 +8,10 @@
  *
  * Requirements:
  * - 7.6: フリーハンドツールを選択して描画するとフリーハンドの線を描画する
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Path, PencilBrush, type Canvas, type TPointerEvent, type TEvent } from 'fabric';

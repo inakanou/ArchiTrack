@@ -10,6 +10,11 @@
  * 既定本体色には `#e53935`（赤系）を採用。白縁取りと組み合わせたとき暗/明双方の
  * 背景で視認性が確保でき、既存の `DEFAULT_STYLE_OPTIONS.strokeColor = '#ff0000'`
  * に近い色調のため UX 上の連続性も維持される。
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.3
+ * @requirement site-survey/REQ-26.5
  */
 
 import type { ToolType } from './annotation-toolbar.constants';

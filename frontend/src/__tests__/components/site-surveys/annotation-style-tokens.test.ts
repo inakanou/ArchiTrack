@@ -12,6 +12,11 @@
  * テスト対象:
  * - ANNOTATION_DEFAULTS の各値が視認性要件を満たす
  * - getToolDefaults(tool) が各ツールの既定値を返す
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.3
+ * @requirement site-survey/REQ-26.5
  */
 
 import { describe, it, expect } from 'vitest';

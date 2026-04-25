@@ -21,6 +21,12 @@
  * - matchMedia('(max-width: 768px)') を mock してモバイル幅で初期折りたたみ、
  *   デスクトップ幅で初期展開になる
  * - styleOptions の outline 値が round-trip で復元される（Req 26.4 観測代替）
+ *
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-26.3
+ * @requirement site-survey/REQ-26.4
+ * @requirement site-survey/REQ-26.6
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

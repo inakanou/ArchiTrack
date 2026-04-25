@@ -8,6 +8,12 @@
  *
  * 状態遷移:
  *   idle → one-finger-down → drawing | two-finger-pinch-pan | three-plus-suspend → cooldown → idle
+ *
+ * @requirement site-survey/REQ-27.6
+ * @requirement site-survey/REQ-30.2
+ * @requirement site-survey/REQ-30.3
+ * @requirement site-survey/REQ-30.4
+ * @requirement site-survey/REQ-30.8
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createTouchGestureManager } from '../../../../components/site-surveys/gestures/touchGestureManager';

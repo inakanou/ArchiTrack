@@ -16,6 +16,13 @@
  * - STYLES.toolbar に pointerEvents: 'auto' が設定されている（描画抑止境界）
  * - 各ツールボタンの min 寸法が 44x44 論理ピクセルで統一されている
  * - orientation / resize 変化時に React 再描画が走る
+ *
+ * @requirement site-survey/REQ-28.1
+ * @requirement site-survey/REQ-28.2
+ * @requirement site-survey/REQ-28.3
+ * @requirement site-survey/REQ-28.4
+ * @requirement site-survey/REQ-28.5
+ * @requirement site-survey/REQ-28.6
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

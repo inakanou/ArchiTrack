@@ -19,6 +19,16 @@
  *     3 本指以降の厳密判定のため PointerEvent で一本化）
  *   - ImageViewer.tsx の既存 TouchEvent 処理とは独立（重複発火を避けるため pointer* のみ）
  *   - 閾値は gesture-thresholds.ts に集約（DRY / UX レビュー容易化）
+ *
+ * @requirement site-survey/REQ-27.1
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-27.6
+ * @requirement site-survey/REQ-30.1
+ * @requirement site-survey/REQ-30.2
+ * @requirement site-survey/REQ-30.3
+ * @requirement site-survey/REQ-30.6
+ * @requirement site-survey/REQ-30.7
+ * @requirement site-survey/REQ-30.8
  */
 import { COOLDOWN_MS, DOUBLE_TAP_MS, DRAG_THRESHOLD_PX, LONG_PRESS_MS } from './gesture-thresholds';
 

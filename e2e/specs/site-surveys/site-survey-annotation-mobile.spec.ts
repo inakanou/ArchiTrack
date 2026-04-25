@@ -11,6 +11,18 @@
  *
  * 実行要件: `npm run test:docker` で architrack-test 環境を起動してから
  *   `npx playwright test site-survey-annotation-mobile --project=mobile`
+ *
+ * @requirement site-survey/REQ-24.1
+ * @requirement site-survey/REQ-24.6
+ * @requirement site-survey/REQ-24.7
+ * @requirement site-survey/REQ-25.1
+ * @requirement site-survey/REQ-25.7
+ * @requirement site-survey/REQ-25.8
+ * @requirement site-survey/REQ-27.1
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-27.3
+ * @requirement site-survey/REQ-28.1
+ * @requirement site-survey/REQ-28.5
  */
 
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';

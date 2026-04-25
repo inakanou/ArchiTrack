@@ -6,6 +6,10 @@
  * Task 71.2 (Req 29.2): ツール別カーソルマップを Canvas に適用する。
  *
  * Boundary: Visual Feedback
+ *
+ * @requirement site-survey/REQ-29.2
+ * @requirement site-survey/REQ-29.4
+ * @requirement site-survey/REQ-29.5
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

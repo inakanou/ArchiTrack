@@ -19,6 +19,12 @@
  *   自然に捕捉するため、本テストでは canvas 操作が実行されることを確認する）
  *
  * Boundary: AnnotationEditor (ext)
+ *
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-27.3
+ * @requirement site-survey/REQ-27.4
+ * @requirement site-survey/REQ-27.5
+ * @requirement site-survey/REQ-27.7
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';

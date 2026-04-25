@@ -10,6 +10,15 @@
  * - 6.7: 寸法線の色・線の太さをカスタマイズ可能にする
  * - 7.10: 図形の色・線の太さ・塗りつぶしをカスタマイズ可能にする
  * - 8.5: テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
+ *
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-26.3
+ * @requirement site-survey/REQ-26.4
+ * @requirement site-survey/REQ-26.6
+ * @requirement site-survey/REQ-28.7
+ * @requirement site-survey/REQ-28.8
+ * @requirement site-survey/REQ-29.1
  */
 
 import React, { useCallback, useEffect, useState } from 'react';

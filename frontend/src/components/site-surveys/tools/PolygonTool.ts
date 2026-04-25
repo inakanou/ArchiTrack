@@ -8,6 +8,10 @@
  *
  * Requirements:
  * - 7.4: 多角形ツールを選択して頂点をクリックすると多角形を描画する
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Polygon } from 'fabric';

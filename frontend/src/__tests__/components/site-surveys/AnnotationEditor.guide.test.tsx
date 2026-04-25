@@ -15,6 +15,9 @@
  *         マルチタッチ入力中でも互いに競合しないよう制御する
  *
  * Boundary: AnnotationEditor (ext)
+ *
+ * @requirement site-survey/REQ-29.7
+ * @requirement site-survey/REQ-29.8
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';

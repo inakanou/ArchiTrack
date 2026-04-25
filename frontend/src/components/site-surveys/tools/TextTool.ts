@@ -16,6 +16,21 @@
  * - 8.5: テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
  * - 8.6: テキストに吹き出し形式（四角・角丸・楕円・雲など）を適用可能にする
  * - 8.7: 日本語を含むマルチバイト文字の入力・表示をサポートする
+ *
+ * @requirement site-survey/REQ-25.1
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-25.3
+ * @requirement site-survey/REQ-25.4
+ * @requirement site-survey/REQ-25.5
+ * @requirement site-survey/REQ-25.6
+ * @requirement site-survey/REQ-25.7
+ * @requirement site-survey/REQ-25.8
+ * @requirement site-survey/REQ-25.10
+ * @requirement site-survey/REQ-25.11
+ * @requirement site-survey/REQ-25.12
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { IText, type Canvas as FabricCanvas } from 'fabric';

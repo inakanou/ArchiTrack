@@ -15,6 +15,9 @@
  * - 6.4: 既存の寸法線をクリックすると寸法線を選択状態にして編集可能にする
  * - 6.5: 寸法線の端点をドラッグすると寸法線の位置を調整する
  * - 6.7: 寸法線の色・線の太さをカスタマイズ可能にする
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Path, FabricText, Rect, type Canvas } from 'fabric';

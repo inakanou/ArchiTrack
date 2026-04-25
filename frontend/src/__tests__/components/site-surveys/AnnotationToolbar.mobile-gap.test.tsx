@@ -9,6 +9,8 @@
  * テスト対象:
  * - AnnotationToolbar 内のインライン StylePanel（描画ツール選択時に表示される色/線幅入力群）が
  *   隣接タップ領域間に 8px 以上の間隔を持つ
+ *
+ * @requirement site-survey/REQ-28.7
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

@@ -26,6 +26,13 @@
  * - ドラッグによる表示領域移動
  * - 拡大時のスクロール対応
  * - 表示状態の共有（onViewStateChange, initialViewState, ref）
+ *
+ * @requirement site-survey/REQ-30.1
+ * @requirement site-survey/REQ-30.2
+ * @requirement site-survey/REQ-30.3
+ * @requirement site-survey/REQ-30.5
+ * @requirement site-survey/REQ-30.6
+ * @requirement site-survey/REQ-30.8
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

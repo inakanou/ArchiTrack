@@ -7,6 +7,8 @@
  * `ANNOTATION_DEFAULTS` (`./annotation-style-tokens`) から参照する。本ファイルは
  * 既存 consumer 向けのフィールド名ブリッジ（`strokeColor` ← `stroke`,
  * `fillColor` ← `fill`）のみを提供し、値そのものはトークン側で管理する。
+ *
+ * @requirement site-survey/REQ-26.5
  */
 
 import { ANNOTATION_DEFAULTS } from './annotation-style-tokens';
