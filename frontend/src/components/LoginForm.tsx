@@ -25,7 +25,7 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
 
   // error prop の変更を監視してロック時間を設定
   const [generalError, setGeneralError] = useState('');
-  /* eslint-disable react-hooks/set-state-in-effect */
+
   // Deriving state from error prop is a valid use case for setting state in useEffect
   useEffect(() => {
     if (error) {
@@ -51,7 +51,6 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
       setLockTimeRemaining(0);
     }
   }, [error]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 自動フォーカス
   useEffect(() => {

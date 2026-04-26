@@ -18,6 +18,23 @@
  * - 7.8: 選択中の図形をドラッグすると図形の位置を移動する
  * - 7.9: 選択中の図形のハンドルをドラッグすると図形のサイズを変更する
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
+ *
+ * @requirement site-survey/REQ-27.1
+ * @requirement site-survey/REQ-27.2
+ * @requirement site-survey/REQ-27.3
+ * @requirement site-survey/REQ-27.4
+ * @requirement site-survey/REQ-27.5
+ * @requirement site-survey/REQ-27.7
+ * @requirement site-survey/REQ-27.8
+ * @requirement site-survey/REQ-27.9
+ * @requirement site-survey/REQ-27.10
+ * @requirement site-survey/REQ-29.1
+ * @requirement site-survey/REQ-29.2
+ * @requirement site-survey/REQ-29.4
+ * @requirement site-survey/REQ-29.5
+ * @requirement site-survey/REQ-29.7
+ * @requirement site-survey/REQ-29.8
+ * @requirement site-survey/REQ-30.1
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -31,6 +48,9 @@ import {
   type TPointerEvent,
 } from 'fabric';
 import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
+import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
+import { AnnotationGuide } from './AnnotationGuide';
+import { GUIDE_IDLE_MS } from './gestures/gesture-thresholds';
 import { createArrow } from './tools/ArrowTool';
 import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
@@ -51,6 +71,10 @@ import type { SurveyImageInfo } from '../../types/site-survey.types';
 import { util } from 'fabric';
 // カスタムシェイプをFabric.jsクラスレジストリに登録（enlivenObjectsで復元するために必要）
 import './tools/registerCustomShapes';
+// Task 72.1: タッチジェスチャー統合 (Req 27.1, 27.2, 30.1) とハンドルサイズ設定 (Req 29.4, 29.5)
+import { createTouchGestureManager } from './gestures/touchGestureManager';
+import type { GesturePayload } from './gestures/touchGestureManager';
+import { configureHandleSizes, applyToolCursor } from './annotation-visual-feedback';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -316,6 +340,21 @@ function AnnotationEditor({
   const [isExporting, setIsExporting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  // Task 72.2 (Req 27.10): 長押し由来コンテキストメニューの表示状態。
+  // 実際の描画は Task 72.3 で AnnotationContextMenu コンポーネントをマウントする際に行う。
+  // 本タスクでは state と配線のみを提供する。
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    position: { x: number; y: number } | null;
+    targetObject: FabricObject | null;
+  }>({ visible: false, position: null, targetObject: null });
+
+  // Task 72.4 (Req 29.7, 29.8): AnnotationGuide の表示状態と idle タイマ参照。
+  // ツール選択後 GUIDE_IDLE_MS (=3000ms) 間描画操作が無ければ guideVisible=true にし、
+  // 描画開始 (mouse:down) もしくは別ツールへの切替で dismiss する。
+  const [guideVisible, setGuideVisible] = useState(false);
+  const guideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
   const undoManagerRef = useRef<UndoManager | null>(null);
   if (!undoManagerRef.current) {
@@ -350,6 +389,9 @@ function AnnotationEditor({
   // プレビュー用オブジェクト参照（描画途中のプレビュー表示用）
   const previewShapeRef = useRef<FabricObject | null>(null);
 
+  // Task 72.1: touchGestureManager の detach 関数参照（unmount 時に detach するため）
+  const touchGestureDetachRef = useRef<(() => void) | null>(null);
+
   // Fabric.js と UndoManager の連携フック
   // fabricCanvasRef.currentを使用（Canvasがない場合はnull）
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
@@ -376,6 +418,73 @@ function AnnotationEditor({
       undoManager.setOnChange(null);
     };
   }, [undoManager]);
+
+  /**
+   * Task 72.3 (Req 27.4): コンテキストメニュー表示中は canvas.skipTargetFind = true にし、
+   * 背景画像への新規描画操作（ヒットテスト/選択）を抑止する。メニュー非表示時は false に戻す。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    canvas.skipTargetFind = contextMenu.visible;
+  }, [contextMenu.visible]);
+
+  /**
+   * Task 72.4 (Req 29.7, 29.8): ツール選択変更時に idle タイマ (GUIDE_IDLE_MS=3000ms) を開始し、
+   * 3 秒間描画操作が無い場合に AnnotationGuide を visible にする。
+   *
+   * - select ツールはガイド対象外（操作ヒント不要）
+   * - ツール変更のたびにガイドを一旦非表示にし、新しいタイマを設定する
+   * - クリーンアップ時は進行中のタイマを破棄する
+   */
+  useEffect(() => {
+    // ツール変更時にまず非表示へ戻す
+    setGuideVisible(false);
+    if (guideTimerRef.current) {
+      clearTimeout(guideTimerRef.current);
+      guideTimerRef.current = null;
+    }
+
+    // select は簡易ガイドの対象外
+    if (state.activeTool === 'select') {
+      return;
+    }
+
+    guideTimerRef.current = setTimeout(() => {
+      setGuideVisible(true);
+      guideTimerRef.current = null;
+    }, GUIDE_IDLE_MS);
+
+    return () => {
+      if (guideTimerRef.current) {
+        clearTimeout(guideTimerRef.current);
+        guideTimerRef.current = null;
+      }
+    };
+  }, [state.activeTool]);
+
+  /**
+   * Task 72.5 (Req 29.1, 29.2): ツール切替時のカーソル適用連動。
+   *
+   * - `applyToolCursor(canvas, activeTool)` を呼出して
+   *   `defaultCursor` / `hoverCursor` / `freeDrawingCursor` を更新する
+   * - `canvas.setCursor(canvas.defaultCursor)` を明示呼出し、
+   *   ホバー中のカーソルを即時に反映する（マウスが画像領域上にある状態で
+   *   ツールを切替えた直後に現カーソルが残る問題を回避）
+   * - マウント初期や unmount 過程で canvas が未確立の場合は何もしない
+   */
+  useEffect(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    applyToolCursor(canvas, state.activeTool);
+    if (canvas.defaultCursor) {
+      canvas.setCursor(canvas.defaultCursor);
+    }
+  }, [state.activeTool]);
 
   /**
    * ツール変更ハンドラ
@@ -680,6 +789,14 @@ function AnnotationEditor({
   const setupEventListeners = useCallback((canvas: FabricCanvas) => {
     // マウスダウンイベント - ドラッグ開始または多角形/折れ線の頂点追加
     canvas.on('mouse:down', (options: TPointerEventInfo<TPointerEvent>) => {
+      // Task 72.4 (Req 29.7, 29.8): 描画/操作が開始されたら簡易ガイドを dismiss し、
+      // idle タイマも破棄する。描画直前/途中の非侵襲的なガイドが視覚的競合を起こさないため。
+      if (guideTimerRef.current) {
+        clearTimeout(guideTimerRef.current);
+        guideTimerRef.current = null;
+      }
+      setGuideVisible(false);
+
       // Fabric.js v7ではoptions.scenePointを使用（キャンバス座標）
       const pointer = options.scenePoint;
       const activeTool = activeToolRef.current;
@@ -1082,6 +1199,106 @@ function AnnotationEditor({
   }, []);
 
   /**
+   * Task 72.2 (Req 27.1): ダブルタップハンドラ
+   *
+   * touchGestureManager が発火する `custom:dbltap` を受け、target が TextAnnotation 系
+   * (`textAnnotation` / `i-text` / `text`) であれば `enterEditing()` を呼んで編集モードに
+   * 遷移させる。マウス環境の `mouse:dblclick` は既存のセットアップで維持されている
+   * （Req 27.8 後方互換）。
+   */
+  const handleDoubleTap = useCallback((payload: GesturePayload) => {
+    const target = payload.target as { type?: string; enterEditing?: () => void } | undefined;
+    if (!target) {
+      return;
+    }
+    if (target.type === 'textAnnotation' || target.type === 'i-text' || target.type === 'text') {
+      target.enterEditing?.();
+    }
+  }, []);
+
+  /**
+   * Task 72.2 (Req 27.9, 27.10): 長押しハンドラ
+   *
+   * 選択ツール選択中かつ target がある場合のみコンテキストメニュー state を visible にする。
+   * 描画ツール選択中は Req 17 (描画ツール使用中のオブジェクト選択防止) と Req 27.9 に従い
+   * コンテキストメニューを表示せず何もしない。
+   */
+  const handleLongPress = useCallback((payload: GesturePayload) => {
+    // Req 27.9 / Req 17: 描画ツール選択中は長押しによるメニュー表示を行わない
+    if (activeToolRef.current !== 'select') {
+      return;
+    }
+    // 防御的: target が無い長押しはメニューを開かない
+    if (!payload.target) {
+      return;
+    }
+    setContextMenu({
+      visible: true,
+      position: { x: payload.clientX, y: payload.clientY },
+      targetObject: payload.target as FabricObject,
+    });
+  }, []);
+
+  /**
+   * Task 72.3 (Req 27.5): コンテキストメニューを閉じる
+   *
+   * オーバーレイの外タップ、またはアクション実行直後に呼ばれる。state を初期化する。
+   */
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenu({ visible: false, position: null, targetObject: null });
+  }, []);
+
+  /**
+   * Task 72.3 (Req 27.3, 27.7): コンテキストメニューのアクション実行
+   *
+   * - edit: テキスト系オブジェクト（text / i-text / textAnnotation）のみ enterEditing() を呼ぶ
+   * - duplicate: Fabric v6 の `clone()` は Promise<FabricObject> を返すため、.then で受けて
+   *   `{ left: left+20, top: top+20 }` オフセットを set した後 canvas.add + setActiveObject する
+   * - delete: canvas.remove(target) でオブジェクトを削除
+   *
+   * いずれの操作も `useFabricUndoIntegration` が `object:added` / `object:removed` を
+   * 自然に捕捉し、Undo 履歴に載せる（Req 27.7）。
+   */
+  const handleContextMenuAction = useCallback((action: ContextMenuAction, target: FabricObject) => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    switch (action) {
+      case 'edit': {
+        const t = target as unknown as { type?: string; enterEditing?: () => void };
+        if (t.type === 'text' || t.type === 'i-text' || t.type === 'textAnnotation') {
+          t.enterEditing?.();
+        }
+        break;
+      }
+      case 'duplicate': {
+        const cloneFn = (target as unknown as { clone?: () => Promise<FabricObject> }).clone;
+        if (typeof cloneFn !== 'function') {
+          break;
+        }
+        cloneFn.call(target).then((cloned: FabricObject) => {
+          cloned.set({
+            left: (target.left ?? 0) + 20,
+            top: (target.top ?? 0) + 20,
+          });
+          canvas.add(cloned);
+          canvas.setActiveObject(cloned);
+          canvas.requestRenderAll();
+        });
+        break;
+      }
+      case 'delete': {
+        canvas.remove(target);
+        canvas.requestRenderAll();
+        break;
+      }
+    }
+    // 実行後はメニューを閉じる
+    setContextMenu({ visible: false, position: null, targetObject: null });
+  }, []);
+
+  /**
    * Fabric.js Canvasの初期化
    *
    * React StrictModeでの二重マウント対応:
@@ -1115,14 +1332,42 @@ function AnnotationEditor({
       canvasElementRef.current = canvasElement;
 
       // Canvasを初期化（サイズを初期化時に指定）
+      // Task 72.1 / design.md §4611: enablePointerEvents を有効化し、
+      // touchGestureManager が PointerEvent ベースで多指ジェスチャーを厳密判定できるようにする
       canvas = new FabricCanvas(canvasElement, {
         selection: false, // 背景画像が選択されないように
         renderOnAddRemove: true,
         width: containerWidth,
         height: containerHeight,
+        enablePointerEvents: true,
       });
 
       fabricCanvasRef.current = canvas;
+
+      // Task 72.1 (Req 29.4, 29.5): タッチ/マウス環境に応じたハンドルサイズを設定
+      configureHandleSizes();
+
+      // Task 72.1 (Req 27.1, 27.2, 30.1): touchGestureManager を canvas にアタッチ
+      // getCurrentTool は activeToolRef.current を返し、ハンドラ側で Req 17 調停に使う。
+      // touchGestureManager は FabricCanvasLike（fire/getElement の最小サーフェス）を要求する。
+      // Fabric の Canvas.fire はイベント名に union 型を要求するため、
+      // custom:dbltap / custom:longpress など拡張イベントを扱う本 manager へは構造的に
+      // 満たされる形でキャストして渡す。
+      const gestureManager = createTouchGestureManager();
+      touchGestureDetachRef.current = gestureManager.attach(
+        canvas as unknown as import('./gestures/touchGestureManager').FabricCanvasLike,
+        () => activeToolRef.current
+      );
+
+      // Task 72.2 (Req 27.1, 27.9, 27.10): touchGestureManager が fire する
+      // custom:dbltap / custom:longpress に React 側ハンドラを配線する。
+      // 既存の mouse:dblclick は setupEventListeners が登録しており、Req 27.8 の
+      // マウス従来挙動は維持される。
+      // Fabric の on/off はイベント名に union 型を要求するため、型アサーションで回避する。
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (canvas as any).on('custom:dbltap', handleDoubleTap);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (canvas as any).on('custom:longpress', handleLongPress);
 
       // Fabric.js と UndoManager の連携用にCanvasを状態に設定
       setFabricCanvas(canvas);
@@ -1157,12 +1402,34 @@ function AnnotationEditor({
     return () => {
       // dispose状態を設定（非同期処理をキャンセル）
       isDisposedRef.current = true;
+
+      // Task 72.4: idle ガイドタイマを破棄（unmount 後の setState を防止）
+      if (guideTimerRef.current) {
+        clearTimeout(guideTimerRef.current);
+        guideTimerRef.current = null;
+      }
+
+      // Task 72.1: touchGestureManager を detach（canvas dispose 前にリスナーを解除）
+      if (touchGestureDetachRef.current) {
+        try {
+          touchGestureDetachRef.current();
+        } catch (err) {
+          console.warn('Error during touch gesture manager detach:', err);
+        }
+        touchGestureDetachRef.current = null;
+      }
+
       if (canvas) {
         try {
           // readOnlyモードでなければイベントリスナーを解除
           if (!readOnly) {
             removeEventListeners(canvas);
           }
+          // Task 72.2: custom:dbltap / custom:longpress のリスナーを解除
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (canvas as any).off('custom:dbltap', handleDoubleTap);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (canvas as any).off('custom:longpress', handleLongPress);
           // Canvasをdispose
           canvas.dispose();
         } catch (err) {
@@ -1186,7 +1453,14 @@ function AnnotationEditor({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- imageUrlの変更は別のuseEffectで対応
-  }, [loadImage, setupEventListeners, removeEventListeners, readOnly]);
+  }, [
+    loadImage,
+    setupEventListeners,
+    removeEventListeners,
+    readOnly,
+    handleDoubleTap,
+    handleLongPress,
+  ]);
 
   /**
    * 画像URLが変更された場合の再読み込み
@@ -1639,6 +1913,7 @@ function AnnotationEditor({
           ref={containerRef}
           style={STYLES.container}
           data-testid="annotation-editor-container"
+          data-context-menu-visible={contextMenu.visible ? 'true' : 'false'}
           role="application"
           aria-label={readOnly ? '注釈ビューア' : '注釈エディタ'}
           tabIndex={readOnly ? -1 : 0}
@@ -1677,6 +1952,15 @@ function AnnotationEditor({
               </div>
             </div>
           )}
+
+          {/* Task 72.4 (Req 29.7, 29.8): ツール選択後の簡易ガイドオーバーレイ。
+              - 画像領域（container）内に配置し、非侵襲的に表示する。
+              - 表示制御は state.activeTool に連動した useEffect の idle タイマが担う。 */}
+          <AnnotationGuide
+            visible={guideVisible}
+            toolKind={state.activeTool}
+            onDismiss={() => setGuideVisible(false)}
+          />
         </div>
       </div>
 
@@ -1692,6 +1976,15 @@ function AnnotationEditor({
           downloading={isDownloading}
         />
       )}
+
+      {/* 注釈コンテキストメニュー (Task 72.3, Req 27.2-27.5, 27.7) */}
+      <AnnotationContextMenu
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        targetObject={contextMenu.targetObject}
+        onAction={handleContextMenuAction}
+        onClose={handleContextMenuClose}
+      />
     </>
   );
 }

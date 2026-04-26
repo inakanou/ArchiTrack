@@ -10,9 +10,16 @@
  * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
  * - 7.1: 矢印ツールを選択してドラッグすると開始点から終了点へ矢印を描画する
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
+ *
+ * @requirement site-survey/REQ-28.1
+ * @requirement site-survey/REQ-28.2
+ * @requirement site-survey/REQ-28.3
+ * @requirement site-survey/REQ-28.4
+ * @requirement site-survey/REQ-28.5
+ * @requirement site-survey/REQ-28.6
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   type ToolType,
   type ToolDefinition,
@@ -53,6 +60,14 @@ export interface AnnotationToolbarProps {
   canRedo?: boolean;
   /** 回転操作のコールバック (Req 22.1) */
   onRotate?: () => void;
+  /**
+   * 選択中ツールを再タップした際のコールバック (Req 28.8)
+   *
+   * 現在の `activeTool` と同じツールボタンがクリックされた場合のみ発火する。
+   * 親（AnnotationEditor）はこのコールバックを使って StylePanel の開閉をトグルする。
+   * 省略時は発火しない（後方互換: 再タップは従来通り `onToolChange` のみ発火）。
+   */
+  onActiveToolReTap?: () => void;
 }
 
 // ============================================================================
@@ -63,6 +78,7 @@ const STYLES = {
   toolbar: {
     display: 'flex',
     flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
     alignItems: 'center',
     gap: '4px',
     padding: '8px',
@@ -70,6 +86,9 @@ const STYLES = {
     borderRadius: '8px',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
     overflowX: 'auto' as const,
+    // Req 28.6: ツールバー領域内のタップ/クリックが背景 canvas への描画として
+    // 誤発火しないよう、明示的なポインタ境界を確立する
+    pointerEvents: 'auto' as const,
   },
   separator: {
     width: '1px',
@@ -157,8 +176,9 @@ const STYLES = {
       flexDirection: 'column' as const,
       alignItems: 'center',
       justifyContent: 'center',
-      minWidth: '48px',
-      minHeight: '48px',
+      // Req 28.3 / design.md AnnotationToolbar (ext): 44x44 論理ピクセルに統一
+      minWidth: '44px',
+      minHeight: '44px',
       padding: '8px',
       border: '1px solid transparent',
       borderRadius: '6px',
@@ -423,15 +443,48 @@ function AnnotationToolbar({
   canUndo = true,
   canRedo = true,
   onRotate,
+  onActiveToolReTap,
 }: AnnotationToolbarProps): React.JSX.Element {
   /**
+   * Req 28.4: 端末回転 (orientation) 時のレイアウト再構成。
+   *
+   * `window.innerWidth` が変化したときに再レンダリングをトリガし、
+   * flexWrap と overflowX による折返し/スクロールの再計算を行わせる。
+   * 現時点では幅値自体は分岐に使っておらず、React の再描画契機として
+   * 利用する (Req 28.1, 28.2, 28.4)。
+   */
+  const [, setViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 0
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const handleResize = (): void => {
+      setViewportWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  /**
    * ツールボタンクリックハンドラ
+   *
+   * Req 28.8: 選択中ツールを再タップした場合、`onActiveToolReTap` を発火する
+   * （親が受けとって StylePanel の開閉を切替える）。`onToolChange` は
+   * 後方互換のため再タップでも従来どおり発火する。
    */
   const handleToolClick = useCallback(
     (tool: ToolType) => {
+      if (tool === activeTool && onActiveToolReTap) {
+        onActiveToolReTap();
+      }
       onToolChange(tool);
     },
-    [onToolChange]
+    [activeTool, onActiveToolReTap, onToolChange]
   );
 
   /**

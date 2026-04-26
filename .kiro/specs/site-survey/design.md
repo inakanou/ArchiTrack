@@ -4152,3 +4152,672 @@ sequenceDiagram
 | `backend/src/services/__tests__/annotation.service.test.ts` | 変更 | Req 23 AC のテストケース追加 |
 | `backend/src/services/__tests__/annotated-thumbnail.service.test.ts` | 変更 | 冪等性・アトミック置き換えのテストケース追加 |
 | `e2e/specs/site-survey-thumbnail-regeneration.spec.ts` | 新規 | Req 23 の E2E シナリオ |
+
+---
+
+## Requirements 24-30: 画像注釈の視認性向上・モバイル操作性強化
+
+### Overview
+
+**Purpose**: 画像注釈の視認性（矢印・テキストの白縁取り）と、スマートフォン現場運用時の描画操作性（タッチジェスチャー、モバイルツールバー、視覚フィードバック、マルチタッチ安全性）を強化する。
+
+**Users**: 現場で片手または手袋着用のまま注釈を追加・編集する現場調査担当者。デスクトップでマウス操作する担当者にも後方互換で提供される。
+
+**Impact**: 既存の Fabric.js ベースの注釈スタック（`AnnotationEditor.tsx` / `tools/*.ts` / `AnnotationToolbar.tsx` / `ImageViewer.tsx`）を Fabric 7.3.1 標準APIとカスタムジェスチャー層で拡張する。既存 Requirement 1〜23 の責務境界は維持する。
+
+#### Goals
+- 任意の背景（屋外写真・暗所写真・柄付き図面）で矢印・テキスト注釈を視認可能にする
+- スマホ単独で注釈の配置・編集・削除・複製が完結する操作性を実現する
+- デフォルトスタイルを一元管理し、既定値で十分な視認性を担保する
+- 既存注釈データ（白縁取り属性を持たないもの）を破壊せず後方互換表示する
+
+#### Non-Goals
+- 番号付きマーカー、ハイライター、ぼかし/モザイク、切り抜き/トリミング、注釈のコピー&ペースト（ペーストボード経由）、曲線（カーブ）矢印（`discovery-addendum-2026-04-24.md` で Out of Scope 確定）
+- TailwindCSS への全面移行（プロジェクトレベル別スコープ）
+- リアルタイム共同編集
+
+### Boundary Commitments
+
+#### This Spec Owns
+- `Arrow` カスタムクラスの内部構造（単一 Path → Group 化）と `outline` 属性の定義/永続化
+- `TextAnnotation` カスタムクラスの `stroke`/`paintFirst` 設定と `textOutline` 属性の定義/永続化
+- 新規 `touchGestureManager`（canvas-level `custom:dbltap`/`custom:longpress` emitter と N-finger state machine）の実装と所有
+- `AnnotationContextMenu` React コンポーネントと提供するアクション集合（編集・複製・削除）
+- `annotation-style-tokens.ts` によるツール横断デフォルトスタイルの一元管理
+- 白縁取り/白アウトラインの toDataURL レンダリングでの再現性
+- 既存 Requirement 17（描画ツール中のオブジェクト選択防止）と新規タッチジェスチャーの調停ルール
+
+#### Out of Boundary
+- 番号付きマーカー・ハイライター・ぼかし・トリミング・コピー&ペースト・曲線矢印のような新ツール種別
+- 注釈以外の UI 領域（プロジェクト管理画面、PDF レポートのレイアウト等）
+- `ImageViewer.tsx` のズーム・パン・90度回転ロジックの変更（Req 5, 22 の範囲は維持）
+- サムネイル生成・PDF 生成のパイプライン本体（Req 11, 20, 23 の範囲）。ただし新属性を正しく通すための最小限の互換確認は本Specが担保
+- バックエンドのデータスキーマ変更（注釈JSONは `version` フィールド内の `objects[].type` と任意属性のみで拡張）
+
+#### Allowed Dependencies
+- Fabric.js 7.3.1 標準API（`Group`, `Path`, `IText`, `classRegistry`, `Canvas` イベント、`cornerSize`/`touchCornerSize`、`defaultCursor`/`hoverCursor`/`freeDrawingCursor`、`paintFirst: 'stroke'`、`strokeUniform: true`）
+- 既存 `UndoManager` / `useFabricUndoIntegration`（object:modified ベースで差分記録）
+- 既存 `AnnotationRendererService`（toDataURL 出力パイプラインをそのまま使用）
+- React 19 標準 API（`useRef`, `useEffect`, `useCallback`）およびプロジェクト既存の `useUnsavedChanges` フック
+- ブラウザ標準 `matchMedia('(pointer: coarse)')` / `PointerEvent` API
+
+#### Revalidation Triggers
+- 注釈データJSONスキーマに必須属性を追加する場合（今回は任意属性のみなので該当しない、将来該当した場合は再確認）
+- Fabric.js のメジャーバージョン変更（`paintFirst` や `cornerSize`/`touchCornerSize` のAPI変更時）
+- 既存 Requirement 5（画像ビューア）、17（選択防止）、22（画像回転）の挙動変更
+- `AnnotationRendererService` のレンダリング戦略変更（toDataURL → server-side rendering への移行等）
+- 長押し・ダブルタップの判定閾値を変更する場合（UX 整合性の影響範囲）
+
+### Architecture
+
+#### Existing Architecture Analysis
+
+- Frontend 単独で完結する拡張。バックエンドは既存 `survey-annotations.routes.ts` の JSON 保存フローをそのまま利用し、Prisma スキーマも無変更
+- Canvas コアは `AnnotationEditor.tsx`、ビューアは `ImageViewer.tsx` に分離。タッチイベントは `ImageViewer.tsx` が一次レシーバ
+- ツール実装は `tools/*.ts` に `extends Path | IText | Ellipse | Rect | ...` で配置、`registerCustomShapes.ts` で `classRegistry.setClass('arrow', Arrow)` 等により登録
+- Undo/Redo は `UndoManager` + `useFabricUndoIntegration` による `object:modified` 差分スナップショット方式が既に整備済み
+
+#### Architecture Pattern & Boundary Map
+
+```mermaid
+graph TB
+    subgraph Viewer
+        ImageViewer
+        TouchGestureManager
+    end
+
+    subgraph Editor
+        AnnotationEditor
+        AnnotationToolbar
+        AnnotationContextMenu
+        AnnotationGuide
+    end
+
+    subgraph Tools
+        ArrowGroup
+        TextOutline
+        OtherTools
+    end
+
+    subgraph Infra
+        StyleTokens
+        UndoManager
+        AnnotationRendererService
+    end
+
+    ImageViewer --> TouchGestureManager
+    AnnotationEditor --> TouchGestureManager
+    AnnotationEditor --> AnnotationToolbar
+    AnnotationEditor --> AnnotationContextMenu
+    AnnotationEditor --> AnnotationGuide
+    AnnotationEditor --> Tools
+    AnnotationToolbar --> StyleTokens
+    Tools --> StyleTokens
+    Tools --> UndoManager
+    AnnotationRendererService --> Tools
+```
+
+**Architecture Integration**:
+- Pattern: 既存 Clean Architecture 層（Component → Tool → Fabric）に、横断責務を持つ `gestures/` と `style/` の薄い横串レイヤを追加
+- Domain boundary: ジェスチャー判定を `ImageViewer`/`AnnotationEditor` からユーティリティへ抽出し、視覚表現（白縁取り/アウトライン）はツール本体の属性拡張で吸収
+- Dependency direction: `Infra (StyleTokens, UndoManager) → Tools → Editor/Viewer Components`。`AnnotationContextMenu` は `AnnotationEditor` から呼ばれるプレゼンテーション層、逆向き依存は禁止
+- Steering compliance: TypeScript strict mode、ESLint、Prettier、既存の `hooks/useXxx.ts` / `services/XxxService.ts` パターン
+
+#### Technology Stack
+
+| Layer | Choice / Version | Role in Feature | Notes |
+|-------|------------------|-----------------|-------|
+| Canvas Library | Fabric.js 7.3.1 | 注釈描画・シリアライズ | `tech.md` 記載の "6.x" は実態とズレ。本拡張で7.3.1前提の挙動に寄せる |
+| Frontend Framework | React 19.2.0 + TypeScript 5.9.3 | UI実装（コンテキストメニュー、簡易ガイド、ツールバー拡張） | 既存スタック |
+| Gesture Detection | ブラウザ標準 TouchEvent / PointerEvent | ダブルタップ・長押し・N本指判定 | 追加ライブラリなし |
+| Responsive Layout | inline style + CSS media query（`@media (pointer: coarse)`） | モバイルツールバーとハンドルサイズ分岐 | TailwindCSS 全面移行は別スコープ |
+
+新規外部依存は**追加しない**。
+
+### File Structure Plan
+
+#### Directory Structure
+
+```
+frontend/src/components/site-surveys/
+├── AnnotationEditor.tsx               # 変更: gestureManager 組込み、context menu マウント
+├── AnnotationToolbar.tsx              # 変更: flexWrap、StylePanel トグル、白縁取りトグルUI
+├── AnnotationContextMenu.tsx          # 新規: 長押し/右クリックで表示されるメニュー
+├── AnnotationGuide.tsx                # 新規: ツール選択後の簡易ガイドオーバーレイ
+├── ImageViewer.tsx                    # 変更: 3本指以上の抑止、touchGestureManager との橋渡し
+├── annotation-style-tokens.ts         # 新規: ツール横断の既定値トークン（旧 annotation-toolbar.constants.ts から移植）
+├── annotation-toolbar.constants.ts    # 変更: トークン参照に置換、重複定義撤去
+├── gestures/
+│   ├── touchGestureManager.ts         # 新規: custom:dbltap / custom:longpress emitter + N-finger state machine
+│   └── gesture-thresholds.ts          # 新規: 300ms/500ms/150ms 等の閾値定数
+└── tools/
+    ├── ArrowTool.ts                   # 変更: Arrow extends Path → extends Group（白縁取りダブルストローク）
+    ├── TextTool.ts                    # 変更: paintFirst: 'stroke'、textOutline 属性
+    ├── CircleTool.ts                  # 変更（軽微）: StyleTokens 参照に置換
+    ├── RectangleTool.ts               # 変更（軽微）: StyleTokens 参照に置換
+    ├── PolygonTool.ts                 # 変更（軽微）: StyleTokens 参照に置換
+    ├── PolylineTool.ts                # 変更（軽微）: StyleTokens 参照に置換
+    ├── FreehandTool.ts                # 変更（軽微）: StyleTokens 参照に置換
+    ├── DimensionTool.ts               # 変更（軽微）: StyleTokens 参照に置換
+    └── registerCustomShapes.ts        # 変更: Arrow Group 版を再登録（type='arrow' を維持）
+
+frontend/src/services/export/
+└── AnnotationRendererService.ts       # 変更（検証中心）: Group版Arrow / paintFirst テキストの再描画確認、テスト追加
+
+frontend/src/__tests__/site-surveys/
+├── tools/
+│   ├── ArrowTool.outline.test.ts      # 新規: 白縁取りのシリアライズ/復元/後方互換
+│   └── TextTool.outline.test.ts       # 新規: textOutline のシリアライズ/復元/後方互換
+├── gestures/
+│   └── touchGestureManager.test.ts    # 新規: dbltap/longpress/N-finger 判定ロジック
+├── AnnotationContextMenu.test.tsx     # 新規: メニュー表示・選択・閉じるの挙動
+└── annotation-style-tokens.test.ts    # 新規: 既定値の妥当性
+
+e2e/specs/
+└── site-survey-annotation-mobile.spec.ts  # 新規: モバイルViewportでの長押し・ダブルタップ・白縁取り保存E2E
+```
+
+#### Modified Files（主要変更点サマリー）
+
+- `tools/ArrowTool.ts` — `Arrow` を `Group` ベースに再設計。内部に `outlinePath`（白・太）と `bodyPath`（本体色・細）の2枚を持つ。`toObject`/`fromObject` に `outline?: { enabled, color, width }` を追加。既存 `generateArrowPath()` はそのまま流用
+- `tools/TextTool.ts` — `IText` 初期化時に `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth`（フォントサイズの10-20%）、`strokeUniform: true` を設定。`textOutline?: { enabled, widthRatio }` 属性を追加
+- `AnnotationEditor.tsx` — 初期化時に `touchGestureManager.attach(canvas)` を呼び、`custom:dbltap`/`custom:longpress` を listen。`AnnotationContextMenu` をマウント、座標管理
+- `ImageViewer.tsx` — `handleTouchStart`/`handleTouchMove` に 3本指以上の早期リターン（= 描画コミット抑止）と cooldown タイマを追加
+- `AnnotationToolbar.tsx` — ツールバーに `flexWrap: 'wrap'` とスクロール両対応、`StylePanel` の開閉トグル、白縁取りON/OFF UIを追加
+- `annotation-toolbar.constants.ts` — `DEFAULT_STYLE_OPTIONS` / ツール別 `DEFAULT_*_OPTIONS` を `annotation-style-tokens.ts` から参照する形に置換
+- `registerCustomShapes.ts` — `classRegistry.setClass('arrow', Arrow)` を Group 版 Arrow で再登録（type ID は `'arrow'` を維持）
+- `services/export/AnnotationRendererService.ts` — Group 版 Arrow / `paintFirst` テキストが `toDataURL` で正しく出ることをテストで検証。**実装上の注意点（実読確認済み）**: 現行 `:153` は `await util.enlivenObjects(...)` を正しく使用しており、Group 化 Arrow の非同期 `fromObject` との互換性は確保される。ただし `:181-185` の `strokeWidth` スケーリング分岐は、Group 化 Arrow では Group 本体に `strokeWidth` が存在しないためスキップされる。これは Fabric Group が子 Path に親の `scaleX/scaleY` を伝搬するため描画結果は正しいが、旧 Path 版と新 Group 版で内部経路が異なるため、Integration Test でスケール非等倍時の矢印レンダリングを必ず検証する
+
+### System Flows
+
+#### タッチジェスチャー判定フロー（Req 27, 30）
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> OneFingerDown: touchstart 1 finger
+    OneFingerDown --> LongPress: 500ms elapsed no move
+    OneFingerDown --> DoubleTap: second tap within 300ms same place
+    OneFingerDown --> Drawing: move beyond threshold
+    OneFingerDown --> Idle: touchend single tap
+    Drawing --> Idle: touchend
+
+    Idle --> TwoFingerPinchPan: touchstart 2 fingers
+    OneFingerDown --> TwoFingerPinchPan: second finger added
+    Drawing --> TwoFingerPinchPan: second finger added commits aborted
+    TwoFingerPinchPan --> Cooldown: one finger lifted
+    TwoFingerPinchPan --> ThreePlusSuspend: third finger added
+
+    ThreePlusSuspend --> ThreePlusSuspend: any touch change
+    ThreePlusSuspend --> Cooldown: all fingers lifted
+
+    Cooldown --> Idle: 150ms elapsed
+```
+
+**Key decisions**:
+- 描画の commit 条件は **single finger drag 継続** のみ。2本指以上が一時でも入ったら進行中の描画を中止
+- `Cooldown`（150ms）により、ピンチ解除直後の誤描画を抑止
+- `ThreePlusSuspend` では新規描画を一切受け付けず、全指が離れるまでサスペンド
+- `LongPress` および `DoubleTap` は `canvas.fire('custom:longpress' | 'custom:dbltap', opt)` で発火し、各ツールは `mousedblclick` と並列に受信
+
+#### 矢印の白縁取りレンダリングフロー（Req 24）
+
+```mermaid
+sequenceDiagram
+    participant Tool as ArrowTool
+    participant Arrow as Arrow Group
+    participant Outline as outlinePath
+    participant Body as bodyPath
+    participant Canvas as Fabric Canvas
+
+    Tool->>Arrow: new Arrow(start, end, options)
+    Arrow->>Outline: new Path(pathData, strokeWidth = body + outlineWidth*2, stroke = white)
+    Arrow->>Body: new Path(pathData, strokeWidth = body, stroke = bodyColor)
+    Arrow->>Arrow: add(outlinePath, bodyPath) in order
+    Canvas->>Arrow: render
+    Arrow->>Outline: render first (under)
+    Arrow->>Body: render second (over)
+```
+
+Body が Outline より上に描画されることで、矢じり端部も含めて本体色の周囲に均一な白縁取りが現れる。`setStroke`/`setStrokeWidth`/`setOutline` は両 Path を同期更新する。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 24.1-24.10 | 矢印の白縁取り表示・属性永続化・後方互換・Undo連携 | ArrowTool (Group refactor), StyleTokens, AnnotationRendererService | `Arrow.setOutline`, `Arrow.toObject/fromObject` 拡張 | 矢印レンダリング |
+| 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), StyleTokens | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
+| 26.1-26.6 | ツール横断デフォルトスタイルの一元化、セッション内継承、白縁取り初期ON | annotation-style-tokens, AnnotationEditor styleOptionsRef | `AnnotationToolDefaults` interface | - |
+| 27.1-27.10 | ダブルタップ編集、長押しメニュー、Req8/Req17連携 | touchGestureManager, AnnotationContextMenu, AnnotationEditor | `GestureEvent`, `ContextMenuAction` | ジェスチャー判定フロー |
+| 28.1-28.8 | モバイルツールバー、折返し・スクロール、属性パネル開閉、44px タップ領域 | AnnotationToolbar, StylePanel | toolbar layout contract | - |
+| 29.1-29.8 | ツールハイライト、カーソル、プレビュー、指向けハンドル、ツールヒント、簡易ガイド | AnnotationToolbar, AnnotationGuide, Fabric defaults | `CursorStrategy`, `HandleSizeStrategy` | - |
+| 30.1-30.8 | マルチタッチ安全性、3本指抑止、cooldown、Req5/Req17 維持 | touchGestureManager, ImageViewer | `TouchState` enum, state transitions | ジェスチャー判定フロー |
+
+### Components and Interfaces
+
+#### Component Summary
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| Arrow (Group) | Tools | 白縁取り付き矢印を Group で表現 | 24.1-24.10 | Fabric Group/Path (P0), StyleTokens (P1) | State, Serialization |
+| TextAnnotation (outline) | Tools | 白アウトライン付きテキスト | 25.1-25.12 | Fabric IText (P0), StyleTokens (P1) | State, Serialization |
+| AnnotationStyleTokens | Infra | ツール横断既定値一元管理 | 26.1-26.6 | - | Config module |
+| touchGestureManager | Gestures | dbltap/longpress/N-finger state machine | 27.1-27.10, 30.1-30.8 | Fabric Canvas (P0), ImageViewer (P0) | Service, State |
+| AnnotationContextMenu | UI | 長押し/右クリックで出るメニュー | 27.2-27.5, 27.7, 27.10 | AnnotationEditor (P0), UndoManager (P1) | UI props |
+| AnnotationGuide | UI | ツール選択後の簡易ガイドオーバーレイ | 29.7-29.8 | AnnotationEditor (P1) | UI props |
+| AnnotationToolbar (ext) | UI | モバイルレイアウト・白縁取りトグル | 26.3, 28.1-28.8, 29.1, 29.6 | StyleTokens (P0) | UI props |
+| ImageViewer (touch ext) | Viewer | 3本指以上抑止、gestureManager連携 | 30.1-30.8 | touchGestureManager (P0) | Internal |
+| AnnotationEditor (ext) | Editor | gestureManager attach、context menu mount | 24-30 cross-cutting | touchGestureManager (P0), ContextMenu (P1) | Internal |
+
+#### Tools Layer
+
+##### Arrow (Group)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 矢印を Group（outlinePath + bodyPath の2枚）で表現し、後方互換を保ちつつ白縁取りを提供 |
+| Requirements | 24.1, 24.2, 24.3, 24.4, 24.5, 24.6, 24.7, 24.8, 24.9, 24.10 |
+
+**Responsibilities & Constraints**
+- 既存 `generateArrowPath(start, end, arrowheadSize)` を流用し、同一 path data を持つ2つの `Path` を Group 内に配置
+- `outlinePath.strokeWidth = bodyStrokeWidth + outlineWidth * 2`、`outlinePath.stroke = '#ffffff'`、`strokeLineCap: 'round'`、`strokeLineJoin: 'round'`
+- `bodyPath.strokeWidth = bodyStrokeWidth`、`bodyPath.stroke = bodyColor`
+- `outline: { enabled: boolean; color: string; width: number }` 属性を保持。`enabled=false` のときは `outlinePath` の `opacity=0` か Group から `remove` のどちらかで非表示化（design-phase で `opacity=0` 方式を採用し、復元時の構造安定性を優先）
+- `type: 'arrow'` は維持（classRegistry 後方互換）
+
+**Dependencies**
+- Inbound: AnnotationEditor (P0) — ツール選択→新規矢印作成
+- Outbound: Fabric Group/Path (P0), StyleTokens (P1) — 既定 outline 幅
+- External: Fabric.js 7.3.1 (P0)
+
+**Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
+
+##### Service Interface (Arrow)
+
+```typescript
+interface ArrowOutlineAttribute {
+  enabled: boolean;
+  color: string;   // '#ffffff' 固定（将来拡張のためプロパティとして保持）
+  width: number;   // 白縁取りの片側幅。本体 strokeWidth * 0.75 を推奨既定
+}
+
+interface ArrowJSON {
+  type: 'arrow';
+  startPoint: Point;
+  endPoint: Point;
+  stroke: string;
+  strokeWidth: number;
+  arrowheadSize: number;
+  outline?: ArrowOutlineAttribute;  // 未設定は白縁取り無しの従来表現（Req 24.9）
+}
+
+class Arrow extends Group {
+  setOutline(next: Partial<ArrowOutlineAttribute>): void;
+  getOutline(): ArrowOutlineAttribute | undefined;
+  override toObject(propertiesToInclude?: string[]): ArrowJSON;
+  static override fromObject(object: ArrowJSON): Promise<Arrow>;
+}
+```
+
+- Preconditions: `startPoint`/`endPoint` は有限値、`arrowheadSize > 0`
+- Postconditions: Group は 2 つの Path を子に持つ。`toObject` は `outline` 未設定なら当該フィールドを省略
+- Invariants: `outlinePath.strokeWidth > bodyPath.strokeWidth`（白縁取り有効時）、`type === 'arrow'`
+
+**Implementation Notes**
+- Integration: `registerCustomShapes.ts` での再登録。既存 `DimensionTool` の矢じり参照は本 Arrow を直接参照していないため影響は無し（別途 path を持つ）
+- Validation: 旧データ（Path 単体シリアライズ）は `type: 'arrow'` を持つため `fromObject` が復元を受け持つ。`outline` 未定義は白縁取り無しとして表示
+- Risks: Group 化による `objectCaching` 挙動差異（research.md R1）。当初は Arrow Group に `objectCaching: false`、子 Path に `objectCaching: true` を指定し、高頻度描画時の FPS を計測する
+- Migration 安全性: git 履歴（`d7f3cf3`, `dfd3b7b`）確認により、`ArrowTool.ts` は初出時からカスタム `toObject` を持っており、Fabric 標準シリアライズで保存された矢印データはプロダクションに存在しない。ただし防御的フォールバックとして `fromObject` 実装では `startPoint` / `endPoint` / `stroke` / `strokeWidth` / `arrowheadSize` 必須フィールドの型検証を行い、不正なら安全な既定値（座標 (0,0)、stroke 黒、strokeWidth 2、arrowheadSize 10）で復元し warning ログを送出する
+
+##### TextAnnotation (outline)
+
+| Field | Detail |
+|-------|--------|
+| Intent | IText に `paintFirst: 'stroke'` + 白ストロークを付加し、視認性を向上 |
+| Requirements | 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7, 25.8, 25.9, 25.10, 25.11, 25.12 |
+
+**Responsibilities & Constraints**
+- `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth = fontSize * widthRatio`（既定 `widthRatio = 0.12`）、`strokeUniform: true`
+- `textOutline: { enabled: boolean; widthRatio: number }` 属性を保持。`enabled=false` のときは `stroke` を `''` にして無効化
+- `backgroundColor` は既存通り独立制御（Req 25.3）
+- `splitByGrapheme: true` 既存設定を維持（Req 25.12）
+
+**Dependencies**
+- Inbound: AnnotationEditor — テキストツール選択→テキスト配置
+- Outbound: Fabric IText (P0), StyleTokens (P1)
+- External: Fabric.js 7.3.1 (P0)
+
+**Contracts**: State [x], Serialization [x]
+
+##### Service Interface (TextAnnotation)
+
+```typescript
+interface TextOutlineAttribute {
+  enabled: boolean;
+  widthRatio: number;  // fontSize に対する比率 (0.10〜0.20)
+}
+
+interface TextAnnotationJSON {
+  type: 'text';
+  text: string;
+  left: number;
+  top: number;
+  fontSize: number;
+  fontFamily: string;
+  fill: string;
+  backgroundColor?: string;
+  textOutline?: TextOutlineAttribute;  // 未設定は従来表現（Req 25.10）
+}
+
+class TextAnnotation extends IText {
+  setTextOutline(next: Partial<TextOutlineAttribute>): void;
+  getTextOutline(): TextOutlineAttribute | undefined;
+  override toObject(propertiesToInclude?: string[]): TextAnnotationJSON;
+  static override fromObject(object: TextAnnotationJSON): Promise<TextAnnotation>;
+}
+```
+
+- Preconditions: `fontSize > 0`、`widthRatio ∈ [0, 1]`
+- Postconditions: `paintFirst === 'stroke'`（enabled 時）、`stroke` は `'#ffffff'` または `''`
+- Invariants: `textOutline.widthRatio` 変更時 `strokeWidth = fontSize * widthRatio` を即時反映
+
+**Implementation Notes**
+- Integration: 既存 `TextTool.ts:139-243` の IText 初期化ブロックに設定追記
+- Validation: `textOutline` 未定義の既存データは `paintFirst: 'fill'`（Fabric 既定）で復元される → 従来表現のまま（Req 25.10）
+- Risks: `strokeUniform: true` は Fabric 7 の標準。フォントサイズを頻繁に変更するシナリオで stroke 再計算が必要なため `object:modified` にフック
+
+#### Infra Layer
+
+##### AnnotationStyleTokens
+
+| Field | Detail |
+|-------|--------|
+| Intent | ツール横断の既定色・線幅・フォントサイズ・白縁取り既定を一元管理 |
+| Requirements | 26.1, 26.2, 26.3, 26.4, 26.5, 26.6 |
+
+**Service Interface**
+
+```typescript
+interface AnnotationToolDefaults {
+  stroke: string;            // 既定本体色（赤系または橙系、design で確定）
+  strokeWidth: number;       // 既定線幅（3px 以上）
+  fontSize: number;          // 既定フォントサイズ
+  fill: string;              // 既定塗りつぶし（通常 '' 透明）
+  arrowOutline: ArrowOutlineAttribute;   // 矢印の既定白縁取り（enabled: true）
+  textOutline: TextOutlineAttribute;     // テキストの既定白アウトライン（enabled: true）
+}
+
+export const ANNOTATION_DEFAULTS: AnnotationToolDefaults;
+export function getToolDefaults(tool: ToolKind): AnnotationToolDefaults;
+```
+
+**Implementation Notes**
+- Integration: 各 tool は import し、既存ハードコード（例 `ArrowTool.ts:68-72`）を置換
+- Validation: 単体テストで `ANNOTATION_DEFAULTS` の各値が視認性要件（Req 26.1-26.2）を満たすことを確認（例: `strokeWidth >= 3`、`arrowOutline.enabled === true`）
+- Risks: セッション内継承（Req 26.4）は既存 `AnnotationEditor.styleOptionsRef` の仕組みをそのまま流用、本トークンは初期値のみ供給
+
+#### Gestures Layer
+
+##### touchGestureManager
+
+| Field | Detail |
+|-------|--------|
+| Intent | Fabric canvas にアタッチし、ダブルタップ・長押し・N本指状態をイベント化する |
+| Requirements | 27.1, 27.2, 27.6, 27.7, 27.9, 27.10, 30.1-30.8 |
+
+**Responsibilities & Constraints**
+- `attach(canvas: Canvas): DetachFn` / `detach(): void` パターン
+- Fabric canvas の `mouse:down` / `mouse:move` / `mouse:up` を listen し、追加で canvas element の `pointerdown`/`pointermove`/`pointerup`/`pointercancel` を listen（`enablePointerEvents: true` 併用）
+- 内部 state machine（System Flows セクションの図）を保持
+- 判定結果を `canvas.fire('custom:dbltap', opt)` または `canvas.fire('custom:longpress', opt)` で発火
+- 閾値は `gesture-thresholds.ts` に集約（`DOUBLE_TAP_MS = 300`、`LONG_PRESS_MS = 500`、`COOLDOWN_MS = 150`、`DRAG_THRESHOLD_PX = 8`）
+- Req 17 連携: カスタムイベント発火時にオプションで `currentTool` を含め、subscriber 側で選択ツール判定が可能
+
+**Dependencies**
+- Inbound: AnnotationEditor, ImageViewer
+- Outbound: Fabric Canvas (P0)
+- External: ブラウザ TouchEvent / PointerEvent API
+
+**Contracts**: Service [x], Event [x], State [x]
+
+##### Service Interface
+
+```typescript
+interface GesturePayload {
+  pointerType: 'touch' | 'mouse' | 'pen';
+  clientX: number;
+  clientY: number;
+  target?: FabricObject;
+  currentTool: ToolKind;
+}
+
+interface TouchGestureManager {
+  attach(canvas: Canvas, getCurrentTool: () => ToolKind): () => void;  // returns detach
+  getTouchState(): TouchState;
+}
+
+type TouchState =
+  | 'idle'
+  | 'one-finger-down'
+  | 'drawing'
+  | 'two-finger-pinch-pan'
+  | 'three-plus-suspend'
+  | 'cooldown';
+```
+
+**Implementation Notes**
+- Integration: `AnnotationEditor.tsx` 初期化時に `const detach = touchGestureManager.attach(canvas, () => activeToolRef.current)` し、unmount 時に `detach()` を呼ぶ
+- Validation: 単体テストで各 state 遷移と閾値（300ms/500ms/150ms）を検証。Jest の `jest.useFakeTimers()` を使用
+- Risks / Decisions: **`enablePointerEvents: true` を初手から採用する**。根拠は (a) Fabric の `mouse:down` は TouchEvent 由来のとき touch identifier を安定供給せず、3本指以降の厳密判定（Req 30.2）が困難、(b) PointerEvent は touch/mouse/pen を一本化でき `pointerType` 判定で touch 専用分岐が明確化できる。`ImageViewer.tsx` の既存 TouchEvent 処理との重複発火は、`touchGestureManager` 側が `pointer*` のみを listen し、`ImageViewer.tsx` の既存 `onTouchStart/Move/End` には手を入れない方針で分離する。Safari 13.1+ の PointerEvents 対応は ArchiTrack の対応ブラウザ要件内（steering/tech.md 準拠）
+
+#### UI Layer
+
+##### AnnotationContextMenu
+
+| Field | Detail |
+|-------|--------|
+| Intent | 長押しまたは右クリック時に選択オブジェクトのアクションを提示 |
+| Requirements | 27.2, 27.3, 27.4, 27.5, 27.7, 27.10 |
+
+**Responsibilities & Constraints**
+- `AnnotationEditor` から `{ visible, position, targetObject, onAction, onClose }` プロパティを受ける
+- アクション: 編集（テキストのみ）/ 複製 / 削除
+- 複製は対象 `clone()` + `set({ left: left+20, top: top+20 })` 後に canvas.add
+- メニュー外タップで `onClose()`、背景描画はコンテキストメニュー visible 中は `AnnotationEditor` 側で `canvas.skipTargetFind = true` 等で抑止
+
+**Shared Props Base**
+
+```typescript
+interface BaseAnnotationOverlayProps {
+  visible: boolean;
+  position: { x: number; y: number } | null;
+  onClose(): void;
+}
+
+interface AnnotationContextMenuProps extends BaseAnnotationOverlayProps {
+  targetObject: FabricObject | null;
+  onAction(action: ContextMenuAction, target: FabricObject): void;
+}
+
+type ContextMenuAction = 'edit' | 'duplicate' | 'delete';
+```
+
+**Implementation Notes**
+- Integration: `AnnotationEditor.tsx` の return 直下にポータル配置。位置はジェスチャーイベントの `clientX/Y` から計算
+- Validation: テストで edit → IText.enterEditing、duplicate → canvas.add、delete → canvas.remove の各経路を確認。Undo履歴への記録は各アクション実行後に `useFabricUndoIntegration` が `object:added`/`object:removed` を捕捉し自然に乗る
+- Risks: メニュー表示中のタッチ抑止が不十分な場合、背後キャンバスに描画イベントが漏れる。`pointerEvents: auto`（メニュー）と `skipTargetFind`（キャンバス）の組合せで防御
+
+##### AnnotationGuide
+
+| Field | Detail |
+|-------|--------|
+| Intent | ツール選択後、一定時間描画が無い場合に操作ヒントを非侵襲的に表示 |
+| Requirements | 29.7, 29.8 |
+
+シンプルな presentational component（StylePanel 付近の Implementation Note レベル）。`visible`、`toolKind`、`onDismiss` を受ける。表示閾値は `gesture-thresholds.GUIDE_IDLE_MS = 3000`。
+
+##### AnnotationToolbar (ext)
+
+| Field | Detail |
+|-------|--------|
+| Intent | モバイル向けレイアウトおよび白縁取りトグルUIを追加 |
+| Requirements | 26.3, 28.1-28.8, 29.1, 29.6 |
+
+**Implementation Notes**
+- `STYLES.toolbar` に `flexWrap: 'wrap'` を追加、同時に `overflowX: 'auto'` を維持（狭小幅で両対応）
+- `button.base.minWidth/minHeight: 44px` に統一（現状 48px だが 44x44 を明示的に設定、Req 28.3）
+- StylePanel は開閉ボタンを設け、初期状態はモバイル幅では閉、デスクトップ幅では開（CSS media query か `matchMedia` で判定）
+- 矢印・テキストの StylePanel に「白縁取り」「白アウトライン」のON/OFFトグルを追加（Req 24.5, 25.2）
+- タップ領域の妥当性は視覚回帰テスト（Playwright screenshot）で担保
+
+##### ImageViewer (touch ext)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 3本指以上の抑止、cooldown、touchGestureManager との橋渡し |
+| Requirements | 30.1-30.8 |
+
+**Implementation Notes**
+- `handleTouchStart` 冒頭で `touches.length >= 3` を検出し、`touchGestureManager` に `'three-plus-suspend'` 状態遷移を通知、既存ズーム/パン処理を中止
+- `handleTouchEnd` で `touches.length === 0` かつ前状態が `three-plus-suspend` なら `cooldown` へ遷移（`setTimeout(150ms)` で `idle` 復帰）
+- 既存 1本指パン / 2本指ピンチズーム ロジックは Req 5 維持のため変更しない
+- Req 17 の「描画ツール中のオブジェクト選択防止」は Fabric 側 `canvas.selection = false` 等で既に実装されており、本拡張では触らない
+
+##### AnnotationEditor (ext)
+
+| Field | Detail |
+|-------|--------|
+| Intent | gestureManager の attach/detach、context menu のマウント、保存時に outline 属性を含める |
+| Requirements | Cross-cutting 24-30 |
+
+**Implementation Notes**
+- `useEffect` 内で `const detach = touchGestureManager.attach(canvas, () => activeToolRef.current)` を実行し、cleanup で `detach()`
+- `canvas.on('custom:dbltap', handleDoubleTap)` / `canvas.on('custom:longpress', handleLongPress)` を配線
+  - `handleDoubleTap`: target が `TextAnnotation` なら `target.enterEditing()`
+  - `handleLongPress`: 選択ツールなら ContextMenu を開く、描画ツールなら Req 17 により無視
+- ContextMenu の visible/position/target state を useState で保持
+- カーソル制御: `activeTool` 変更の useEffect で `canvas.defaultCursor = toolCursorMap[activeTool]` を設定
+
+### Data Models
+
+本拡張はバックエンド DB スキーマを変更しない。**注釈JSONの拡張のみ**で完結する。
+
+#### 注釈JSON スキーマ拡張（後方互換）
+
+```typescript
+// 既存
+interface AnnotationSaveDataV1 {
+  version: '1.0';
+  objects: FabricObjectJSON[];
+  canvasWidth: number;
+  canvasHeight: number;
+  imageRotation: number;
+}
+
+// 変更なし（objects 内の各要素が拡張される）
+
+// 矢印（拡張後）
+interface ArrowJSON {
+  type: 'arrow';
+  startPoint: Point;
+  endPoint: Point;
+  stroke: string;
+  strokeWidth: number;
+  arrowheadSize: number;
+  outline?: { enabled: boolean; color: string; width: number };  // optional: 未設定は従来表現
+}
+
+// テキスト（拡張後）
+interface TextAnnotationJSON {
+  type: 'text';
+  text: string;
+  left: number;
+  top: number;
+  fontSize: number;
+  fontFamily: string;
+  fill: string;
+  backgroundColor?: string;
+  textOutline?: { enabled: boolean; widthRatio: number };  // optional
+}
+```
+
+**後方互換ルール**:
+- 任意フィールド未設定のデータは従来表現で復元（Req 24.9, 25.10）
+- 新規保存時は必ず `outline` / `textOutline` を含める（enabled=false の場合も）
+- バックエンド API（`survey-annotations.routes.ts`）は JSON をそのまま受け流すため変更不要
+
+### Error Handling
+
+#### エラー戦略
+
+- **ジェスチャー誤検出**: `touchGestureManager` が誤って `custom:longpress` を発火した場合、`AnnotationContextMenu` は `targetObject == null || skipTargetFind` のときメニュー非表示でフェイルセーフ
+- **描画誤発火**: マルチタッチ中に新規オブジェクトが誤って `canvas.add` された場合、`useFabricUndoIntegration` が `object:added` を Undo 履歴に記録するので Ctrl+Z で即座に復旧（Req 30.4）
+- **白縁取りレンダリング失敗**: `paintFirst: 'stroke'` 設定時に Fabric が例外を投げた場合、Sentry にログ送出 + `enabled=false` にフォールバック。ユーザーには Toast で通知
+- **シリアライズ/復元失敗**: `fromObject` で `outline` が不正値なら警告ログ + 属性を drop して従来表現にフォールバック（Req 24.9, 25.10 と同じ挙動）
+- **Context menu外タップ不検知**: ポータル背景に透明オーバーレイ `<div>` を配置し `onClick={onClose}` で確実に閉じる
+
+### Testing Strategy
+
+#### Unit Tests（各 3-5 項目）
+
+- **Arrow (Group)**
+  - 白縁取り有効時に Group の子が 2 つ（outlinePath, bodyPath）になる
+  - `setOutline({ enabled: false })` で `outlinePath.opacity === 0` になる
+  - `toObject` → `fromObject` ラウンドトリップで `outline` 属性が保持される
+  - `outline` 未定義の旧データ `fromObject` で白縁取り無しとして復元される（Req 24.9）
+- **TextAnnotation (outline)**
+  - `setTextOutline({ enabled: true, widthRatio: 0.15 })` で `paintFirst === 'stroke'` かつ `strokeWidth === fontSize * 0.15`
+  - `fontSize` 変更で `strokeWidth` が自動更新される（Req 25.5）
+  - `backgroundColor` と `textOutline` が独立に変更可能（Req 25.3）
+  - `textOutline` 未定義の旧データで従来表現（Req 25.10）
+- **touchGestureManager**
+  - 300ms 以内の 2 連続 mouse:down で `custom:dbltap` 発火
+  - 500ms 無動作で `custom:longpress` 発火
+  - 2本指で state が `two-finger-pinch-pan` に遷移
+  - 3本指で state が `three-plus-suspend` に遷移、新規描画抑止
+  - 全指離れ後 150ms で `idle` 復帰
+- **AnnotationStyleTokens**
+  - `ANNOTATION_DEFAULTS.strokeWidth >= 3`
+  - `arrowOutline.enabled === true` かつ `textOutline.enabled === true`（Req 26.3）
+
+#### Integration Tests
+
+- **ContextMenu + Undo 統合**: 長押し → Delete アクション → Undo で元に戻る
+- **Arrow Group + AnnotationRendererService**: Group 矢印を `toDataURL` で書き出し、dataURL 内に白縁取り相当のピクセルが含まれる（色サンプリング検証）。**追加**: 保存時キャンバスと描画時キャンバスのサイズが異なる（スケール非等倍）条件で書き出し、Group 化に伴う `strokeWidth` スケーリング経路変更（上記 §File Structure Plan の注釈）で矢印太さ・白縁取り太さが期待通りに拡縮されることを検証
+- **TextOutline + Save/Load**: textOutline 設定後に保存 → 再取得 → 同一アウトラインが復元される
+- **Multi-touch + Drawing commit**: 1本指描画中に 2 本目を追加 → 進行中描画が破棄される、Undo 履歴に commit 残らない（Req 30.2, 30.4）
+
+#### E2E Tests（Playwright、モバイル Viewport）
+
+- 白縁取り付き矢印を配置 → 保存 → ページリロード → 矢印の白縁取りが復元されている
+- テキスト注釈を配置 → 白アウトライン有効化 → 保存 → リロードで復元
+- 長押しでコンテキストメニュー表示 → 「削除」タップで注釈が消える
+- ダブルタップで既存テキスト注釈が編集モードに入る
+- モバイル Viewport (375x667) でツールバーの全ツールに到達可能（折返し・スクロール挙動）
+
+#### Performance / Compat
+
+- Group 化 Arrow の描画 FPS（要件: 60fps、Req 16.2 維持）を 100 オブジェクト配置時に計測（research.md R1）
+- `toDataURL` 出力時の高解像度（multiplier=2）で `paintFirst: 'stroke'` テキストが破綻しないかの視覚回帰テスト
+
+### Migration Strategy
+
+バックエンド DB マイグレーションは**不要**。注釈JSONの拡張のみで後方互換が成立する。
+
+```mermaid
+flowchart LR
+    Old[既存注釈データ<br/>outline未定義] -->|fromObject| Render[従来表現で描画]
+    New[新規保存注釈<br/>outline必須] -->|fromObject| RenderOutline[白縁取り付きで描画]
+    Render -->|ユーザーが編集| UpdateUI[ツールバーで白縁取り有効化]
+    UpdateUI -->|toObject/保存| MigratedData[outline: enabled=true で保存]
+```
+
+**Phase breakdown**:
+- **Phase 1**（リリース直後）: 新規注釈は白縁取り有効で保存。既存注釈は従来表現のまま、ユーザー編集時のみ新属性が乗る
+- **Phase 2**（任意・別Spec）: 一括マイグレーションで既存矢印・テキストに白縁取りを付与する場合、バッチを別途実装
+
+**Rollback triggers**:
+- Group 化 Arrow の描画パフォーマンスが 60fps を切る（research.md R1 が失敗）
+- `paintFirst: 'stroke'` で既存マルチバイトテキストの表示崩れが発生（research.md R3 が失敗）
+
+上記いずれかが発覚した場合、`outline`/`textOutline` の `enabled=false` を既定にし、UIトグルで opt-in 方式にする。

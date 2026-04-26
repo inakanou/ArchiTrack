@@ -16,9 +16,28 @@
  * - 8.5: テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
  * - 8.6: テキストに吹き出し形式（四角・角丸・楕円・雲など）を適用可能にする
  * - 8.7: 日本語を含むマルチバイト文字の入力・表示をサポートする
+ *
+ * @requirement site-survey/REQ-25.1
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-25.3
+ * @requirement site-survey/REQ-25.4
+ * @requirement site-survey/REQ-25.5
+ * @requirement site-survey/REQ-25.6
+ * @requirement site-survey/REQ-25.7
+ * @requirement site-survey/REQ-25.8
+ * @requirement site-survey/REQ-25.10
+ * @requirement site-survey/REQ-25.11
+ * @requirement site-survey/REQ-25.12
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { IText, type Canvas as FabricCanvas } from 'fabric';
+
+import { ANNOTATION_DEFAULTS, type TextOutlineAttribute } from '../annotation-style-tokens';
+
+export type { TextOutlineAttribute };
 
 // ============================================================================
 // 型定義
@@ -70,6 +89,12 @@ export interface TextAnnotationOptions {
   backgroundColor: string;
   /** 吹き出しスタイル（Task 16.3） */
   balloonStyle?: BalloonStyleType;
+  /**
+   * 白アウトライン属性（Task 66.1 / Req 25.1, 25.3, 25.12）
+   *
+   * 省略時は `ANNOTATION_DEFAULTS.textOutline` が既定値として適用される。
+   */
+  textOutline?: TextOutlineAttribute;
 }
 
 /**
@@ -103,6 +128,12 @@ export interface TextAnnotationJSON {
   balloonStrokeWidth: number;
   /** 吹き出しのパディング */
   balloonPadding: number;
+  /**
+   * 白アウトライン属性（Task 66.2 / Req 25.7, 25.8, 25.10）
+   *
+   * 未定義の旧データは白アウトラインなしの従来表現で復元される（Req 25.10 後方互換）。
+   */
+  textOutline?: TextOutlineAttribute;
 }
 
 // ============================================================================
@@ -134,13 +165,31 @@ export const DEFAULT_BALLOON_OPTIONS: Required<BalloonOptions> = {
 };
 
 /**
+ * 白アウトライン widthRatio の許容範囲（design.md `TextOutlineAttribute` 0.10〜0.20）
+ *
+ * Task 66.2: `setTextOutline` では本範囲外の値をクランプする。
+ */
+const TEXT_OUTLINE_WIDTH_RATIO_MIN = 0.1;
+const TEXT_OUTLINE_WIDTH_RATIO_MAX = 0.2;
+
+/**
+ * 白アウトラインストロークの色（固定値、Req 25.4）
+ */
+const TEXT_OUTLINE_STROKE_COLOR = '#ffffff';
+
+/**
  * デフォルトのテキストオプション
+ *
+ * Task 64.3: 本体色（fill）/フォントサイズは `ANNOTATION_DEFAULTS`（Req 26.5 一元管理
+ * トークン）を参照。テキストの `fill` は本体色（筆跡色）を意味するため、
+ * `ANNOTATION_DEFAULTS.stroke`（赤系トークン）を採用する（Req 26.2）。
+ * `DEFAULT_BALLOON_OPTIONS` は吹き出し枠の別概念スタイルのため変更しない。
  */
 export const DEFAULT_TEXT_OPTIONS: TextAnnotationOptions = {
   initialText: '',
-  fontSize: 16,
+  fontSize: ANNOTATION_DEFAULTS.fontSize,
   fontFamily: 'sans-serif',
-  fill: '#000000',
+  fill: ANNOTATION_DEFAULTS.stroke,
   backgroundColor: 'transparent',
 };
 
@@ -175,6 +224,27 @@ export class TextAnnotation extends IText {
 
   /** 吹き出しのパディング */
   private _balloonPadding: number = DEFAULT_BALLOON_OPTIONS.padding;
+
+  /**
+   * 白アウトライン属性（Task 66.1 / Req 25.1, 25.3, 25.12）
+   *
+   * 既定値は `ANNOTATION_DEFAULTS.textOutline` に従う。
+   * 本タスクでは内部状態の保持と `getTextOutline()` による参照のみを提供する。
+   * 有効時、コンストラクタで IText に `paintFirst: 'stroke'`・`stroke: '#ffffff'`・
+   * `strokeWidth = fontSize * widthRatio`・`strokeUniform: true` を適用する。
+   */
+  private _textOutline: TextOutlineAttribute = {
+    enabled: ANNOTATION_DEFAULTS.textOutline.enabled,
+    widthRatio: ANNOTATION_DEFAULTS.textOutline.widthRatio,
+  };
+
+  /**
+   * `_applyOutlineToIText` / `set` オーバーライド再入ガード（Task 66.2）
+   *
+   * `_applyOutlineToIText` 内の `super.set` は本フラグを立てて実行され、
+   * `set` オーバーライドの fontSize 監視ロジックをバイパスして無限ループを防ぐ。
+   */
+  private _isApplyingOutline: boolean = false;
 
   /** フォントサイズ */
   declare fontSize: number;
@@ -216,6 +286,13 @@ export class TextAnnotation extends IText {
     // 設定をマージ
     const mergedOptions = { ...DEFAULT_TEXT_OPTIONS, ...options };
 
+    // 白アウトライン設定を解決（Task 66.1 / Req 25.1, 25.3, 25.12）
+    // 指定があれば明示値、なければ ANNOTATION_DEFAULTS.textOutline を既定として使用。
+    const resolvedTextOutline: TextOutlineAttribute = {
+      enabled: options.textOutline?.enabled ?? ANNOTATION_DEFAULTS.textOutline.enabled,
+      widthRatio: options.textOutline?.widthRatio ?? ANNOTATION_DEFAULTS.textOutline.widthRatio,
+    };
+
     // ITextを初期化
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const iTextOptions: any = {
@@ -234,12 +311,22 @@ export class TextAnnotation extends IText {
       lockMovementY: false,
       originX: 'left',
       originY: 'top',
-      // マルチバイト文字対応: グラフィームで分割
+      // マルチバイト文字対応: グラフィームで分割（Req 25.12 既存挙動維持）
       splitByGrapheme: true,
       // 編集モードのスタイル
       editingBorderColor: '#3b82f6',
       cursorColor: '#3b82f6',
     };
+
+    // 白アウトライン有効時のみ IText 側にストローク属性を追加（Req 25.1）。
+    // backgroundColor は上で既に設定済みで、ここでは上書きしないため独立制御が保たれる（Req 25.3）。
+    if (resolvedTextOutline.enabled) {
+      iTextOptions.paintFirst = 'stroke';
+      iTextOptions.stroke = '#ffffff';
+      iTextOptions.strokeWidth = mergedOptions.fontSize * resolvedTextOutline.widthRatio;
+      iTextOptions.strokeUniform = true;
+    }
+
     super(mergedOptions.initialText, iTextOptions);
 
     // プロパティを設定
@@ -255,6 +342,9 @@ export class TextAnnotation extends IText {
     this.lockMovementY = false;
     this.editable = true;
     this.isEditing = false;
+
+    // 白アウトライン内部状態を保持
+    this._textOutline = resolvedTextOutline;
 
     // 吹き出しスタイルの初期化（Task 16.3）
     if (mergedOptions.balloonStyle) {
@@ -491,6 +581,149 @@ export class TextAnnotation extends IText {
   }
 
   // ==========================================================================
+  // 白アウトライン（Task 66.1 / Req 25.1, 25.3, 25.12）
+  // ==========================================================================
+
+  /**
+   * 白アウトライン属性を取得する
+   *
+   * @returns 現在の `TextOutlineAttribute`（常に新しいオブジェクトを返し内部状態を破壊させない）
+   */
+  getTextOutline(): TextOutlineAttribute {
+    return { ...this._textOutline };
+  }
+
+  /**
+   * 白アウトライン属性を更新する
+   *
+   * Task 66.2 (Req 25.2, 25.4, 25.6, 25.11):
+   * - 内部状態 `_textOutline` を部分更新（enabled / widthRatio）
+   * - `widthRatio` は [0.10, 0.20] にクランプ（design.md `TextOutlineAttribute`）
+   * - IText 側の `stroke` / `strokeWidth` / `paintFirst` / `strokeUniform` を
+   *   enabled 状態に応じて適用する（enabled=false のとき `stroke=''`, `strokeWidth=0`）
+   * - canvas にアタッチ済みの場合、`object:modified` を発火して Undo/Redo 履歴に記録する
+   *   （Req 25.11）。canvas 未アタッチ時は安全に no-op（例外を投げない）。
+   *
+   * @param next 部分更新値（指定されたフィールドのみ反映）
+   */
+  setTextOutline(next: Partial<TextOutlineAttribute>): void {
+    const mergedEnabled = next.enabled ?? this._textOutline.enabled;
+    const mergedWidthRatio = next.widthRatio ?? this._textOutline.widthRatio;
+
+    // widthRatio を [0.10, 0.20] にクランプ（design.md 4497）
+    const clampedWidthRatio = Math.min(
+      TEXT_OUTLINE_WIDTH_RATIO_MAX,
+      Math.max(TEXT_OUTLINE_WIDTH_RATIO_MIN, mergedWidthRatio)
+    );
+
+    this._textOutline = {
+      enabled: mergedEnabled,
+      widthRatio: clampedWidthRatio,
+    };
+
+    // IText 側の描画属性を再適用
+    this._applyOutlineToIText();
+
+    // Req 25.11: Undo/Redo 履歴記録のため canvas:object:modified を発火する
+    // Fabric.js v6 以降は FabricObject.canvas プロパティがアタッチ後に設定される。
+    // canvas 未アタッチ（新規生成直後など）は安全に skip。
+    const attachedCanvas = (
+      this as unknown as { canvas?: { fire?: (event: string, options?: unknown) => void } }
+    ).canvas;
+    attachedCanvas?.fire?.('object:modified', { target: this });
+  }
+
+  /**
+   * 現在の `_textOutline` 状態と `fontSize` を元に IText 側の描画属性を再適用する
+   *
+   * - enabled=true: `paintFirst='stroke'`, `stroke='#ffffff'`,
+   *   `strokeWidth = fontSize * widthRatio`, `strokeUniform=true`
+   * - enabled=false: `stroke=''`, `strokeWidth=0`（無効化）
+   *
+   * Task 66.2 (Req 25.2, 25.5, 25.6): `setTextOutline` と
+   * `set('fontSize', ...)` 双方から呼び出される集約処理。
+   */
+  private _applyOutlineToIText(): void {
+    // 再入ガードを立ててから super.set を直接呼び出す
+    // （this.set 経由にすると override が fontSize 監視ロジックに入る可能性がある）
+    this._isApplyingOutline = true;
+    try {
+      if (this._textOutline.enabled) {
+        super.set({
+          paintFirst: 'stroke',
+          stroke: TEXT_OUTLINE_STROKE_COLOR,
+          strokeWidth: this.fontSize * this._textOutline.widthRatio,
+          strokeUniform: true,
+        });
+      } else {
+        super.set({
+          stroke: '',
+          strokeWidth: 0,
+        });
+      }
+    } finally {
+      this._isApplyingOutline = false;
+    }
+  }
+
+  // ==========================================================================
+  // set() オーバーライド（Task 66.2 / Req 25.5）
+  // ==========================================================================
+
+  /**
+   * プロパティ設定のオーバーライド
+   *
+   * Fabric.js の `set(key, value)` および `set(options)` の両形式をサポートする。
+   * `fontSize` が更新された場合、白アウトラインが有効なら
+   * `strokeWidth = fontSize * widthRatio` を自動再計算する（Req 25.5）。
+   *
+   * 本メソッドは `_applyOutlineToIText` から再入する可能性があるため、
+   * 再入中は fontSize 監視ロジックをスキップして無限ループを防ぐ。
+   *
+   * @param key プロパティ名 または プロパティ/値のオブジェクト
+   * @param value プロパティ値（key が string の場合のみ使用）
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  override set(key: any, value?: any): this {
+    // 親クラスに委譲して実際の値更新を行う
+    super.set(key, value);
+
+    // 再入ガード: `_applyOutlineToIText` からの set では再計算しない
+    if (this._isApplyingOutline) {
+      return this;
+    }
+
+    // _textOutline が未初期化（super コンストラクタ中の呼び出し）の場合は skip
+    if (!this._textOutline) {
+      return this;
+    }
+
+    // fontSize が更新されたかを判定（(key, value) / (options) 両形式に対応）
+    let fontSizeChanged = false;
+    if (typeof key === 'string') {
+      if (key === 'fontSize') {
+        fontSizeChanged = true;
+      }
+    } else if (key !== null && typeof key === 'object') {
+      if (Object.prototype.hasOwnProperty.call(key, 'fontSize')) {
+        fontSizeChanged = true;
+      }
+    }
+
+    if (fontSizeChanged && this._textOutline.enabled) {
+      // strokeWidth の再計算のみ行う（stroke 等は変更しない）
+      this._isApplyingOutline = true;
+      try {
+        super.set('strokeWidth', this.fontSize * this._textOutline.widthRatio);
+      } finally {
+        this._isApplyingOutline = false;
+      }
+    }
+
+    return this;
+  }
+
+  // ==========================================================================
   // 編集モード
   // ==========================================================================
 
@@ -576,6 +809,9 @@ export class TextAnnotation extends IText {
       balloonStrokeColor: this._balloonStrokeColor,
       balloonStrokeWidth: this._balloonStrokeWidth,
       balloonPadding: this._balloonPadding,
+      // 白アウトライン属性（Task 66.2 / Req 25.7）
+      // 新規保存時は必ず現状の _textOutline を含める（enabled=false の場合も含める）。
+      textOutline: { ...this._textOutline },
     };
   }
 
@@ -585,31 +821,104 @@ export class TextAnnotation extends IText {
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
    * classRegistryに登録されたクラスはこのメソッドを通じて復元される。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * Task 66.2 (Req 25.8, 25.10):
+   * - `object.textOutline` 定義時は `setTextOutline` で復元（Req 25.8）
+   * - `object.textOutline` 未定義の旧データは「白アウトラインなし」の従来表現で復元する
+   *   （Req 25.10 後方互換）。`_textOutline.enabled=false` にして `stroke=''`・`strokeWidth=0`。
+   * - 必須フィールド（text / position / fontSize / fontFamily / fill）欠落や
+   *   null/undefined 受領時は安全な既定値で復元し `console.warn` を送出する（防御的フォールバック）。
+   *
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたTextAnnotationインスタンス
    */
   static override fromObject(object: TextAnnotationJSON): Promise<TextAnnotation> {
-    const textAnnotation = new TextAnnotation(object.position, {
-      initialText: object.text,
-      fontSize: object.fontSize,
-      fontFamily: object.fontFamily,
-      fill: object.fill,
-      backgroundColor: object.backgroundColor,
-      balloonStyle: object.balloonStyle,
+    // 防御的バリデーション: 必須フィールド確認
+    const safeDefaults = {
+      text: '',
+      position: { x: 0, y: 0 } as Point,
+      fontSize: 16,
+      fontFamily: 'sans-serif',
+      fill: '#000000',
+      backgroundColor: 'transparent',
+    };
+
+    const isValidInput = object != null && typeof object === 'object';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = object as any;
+    const hasValidRequiredFields =
+      isValidInput &&
+      typeof raw.text === 'string' &&
+      raw.position != null &&
+      typeof raw.position === 'object' &&
+      typeof raw.position.x === 'number' &&
+      typeof raw.position.y === 'number' &&
+      typeof raw.fontSize === 'number' &&
+      typeof raw.fontFamily === 'string' &&
+      typeof raw.fill === 'string';
+
+    let text: string;
+    let position: Point;
+    let fontSize: number;
+    let fontFamily: string;
+    let fill: string;
+    let backgroundColor: string;
+
+    if (!hasValidRequiredFields) {
+      console.warn('[TextTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      text = safeDefaults.text;
+      position = safeDefaults.position;
+      fontSize = safeDefaults.fontSize;
+      fontFamily = safeDefaults.fontFamily;
+      fill = safeDefaults.fill;
+      backgroundColor = safeDefaults.backgroundColor;
+    } else {
+      text = raw.text;
+      position = raw.position;
+      fontSize = raw.fontSize;
+      fontFamily = raw.fontFamily;
+      fill = raw.fill;
+      backgroundColor =
+        typeof raw.backgroundColor === 'string'
+          ? raw.backgroundColor
+          : safeDefaults.backgroundColor;
+    }
+
+    const textAnnotation = new TextAnnotation(position, {
+      initialText: text,
+      fontSize,
+      fontFamily,
+      fill,
+      backgroundColor,
+      balloonStyle: isValidInput ? raw.balloonStyle : undefined,
     });
 
     // 吹き出し設定を復元
-    if (object.balloonBackgroundColor) {
-      textAnnotation.setBalloonBackgroundColor(object.balloonBackgroundColor);
+    if (isValidInput) {
+      if (typeof raw.balloonBackgroundColor === 'string') {
+        textAnnotation.setBalloonBackgroundColor(raw.balloonBackgroundColor);
+      }
+      if (typeof raw.balloonStrokeColor === 'string') {
+        textAnnotation.setBalloonStrokeColor(raw.balloonStrokeColor);
+      }
+      if (typeof raw.balloonStrokeWidth === 'number') {
+        textAnnotation.setBalloonStrokeWidth(raw.balloonStrokeWidth);
+      }
+      if (typeof raw.balloonPadding === 'number') {
+        textAnnotation.setBalloonPadding(raw.balloonPadding);
+      }
     }
-    if (object.balloonStrokeColor) {
-      textAnnotation.setBalloonStrokeColor(object.balloonStrokeColor);
-    }
-    if (object.balloonStrokeWidth !== undefined) {
-      textAnnotation.setBalloonStrokeWidth(object.balloonStrokeWidth);
-    }
-    if (object.balloonPadding !== undefined) {
-      textAnnotation.setBalloonPadding(object.balloonPadding);
+
+    // 白アウトライン属性の復元（Task 66.2 / Req 25.8, 25.10）
+    if (isValidInput && hasValidRequiredFields && raw.textOutline !== undefined) {
+      // Req 25.8: 保存された textOutline を復元
+      textAnnotation.setTextOutline(raw.textOutline);
+    } else {
+      // Req 25.10: textOutline 未定義の旧データは白アウトラインなしの従来表現で復元
+      // コンストラクタ既定では enabled=true なので明示的に無効化する。
+      textAnnotation.setTextOutline({ enabled: false });
     }
 
     return Promise.resolve(textAnnotation);

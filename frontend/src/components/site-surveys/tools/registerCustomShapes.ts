@@ -8,6 +8,8 @@
  * Fabric.jsのクラスレジストリに登録される。
  *
  * @see https://fabricjs.com/docs/fabric.classRegistry
+ *
+ * @requirement site-survey/REQ-24.9
  */
 
 import { classRegistry } from 'fabric';

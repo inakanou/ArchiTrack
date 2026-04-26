@@ -186,20 +186,56 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
 
   /**
    * キャンバスの中心座標を取得するヘルパー関数
+   *
+   * 注:
+   * - Fabric.jsキャンバスは画像読み込み完了時に setDimensions で最終サイズに変更されるため、
+   *   upper-canvas の bounding box が Fabric キャンバスの getWidth/getHeight と一致し、
+   *   かつ背景画像が設定済みになるまで待機する。
+   * - さらに、ツールボタンの aria-pressed 切替などでツールバー領域の高さが変わると、
+   *   その下に配置されるキャンバスの screen Y 座標が数十px ずれる場合がある。
+   *   そのため、複数回連続して同じ座標が観測されるまで待機して座標を安定化させる。
    */
   async function getCanvasCenter(
     page: import('@playwright/test').Page
   ): Promise<{ x: number; y: number }> {
     const upperCanvas = page.locator('.upper-canvas');
-    let box = null;
+    let box: { x: number; y: number; width: number; height: number } | null = null;
+    let stableCount = 0;
+    let lastBox: { x: number; y: number; width: number; height: number } | null = null;
 
-    // キャンバスサイズが10px以上になるまで最大10秒待機
+    // boundingBox が Fabric キャンバスの実サイズに一致し、かつ位置が安定するまで最大10秒待機
     for (let i = 0; i < 20; i++) {
       box = await upperCanvas.boundingBox();
-      if (box && box.width > 10 && box.height > 10) {
-        break;
+      const fabricSize = await page.evaluate(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const canvas = (window as any).__fabricCanvas;
+        if (!canvas) return null;
+        return {
+          width: canvas.getWidth(),
+          height: canvas.getHeight(),
+          hasBackground: canvas.backgroundImage !== null && canvas.backgroundImage !== undefined,
+        };
+      });
+      const sizeMatches =
+        box &&
+        box.width > 10 &&
+        box.height > 10 &&
+        fabricSize &&
+        fabricSize.hasBackground &&
+        Math.abs(fabricSize.width - box.width) < 1 &&
+        Math.abs(fabricSize.height - box.height) < 1;
+      const positionStable =
+        box && lastBox && Math.abs(box.x - lastBox.x) < 1 && Math.abs(box.y - lastBox.y) < 1;
+      if (sizeMatches && positionStable) {
+        stableCount += 1;
+        if (stableCount >= 2) {
+          break;
+        }
+      } else {
+        stableCount = 0;
       }
-      await page.waitForTimeout(500);
+      lastBox = box;
+      await page.waitForTimeout(200);
     }
 
     if (!box || box.width <= 10 || box.height <= 10) {
@@ -276,18 +312,23 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
   /**
    * 初期オブジェクト（四角形）を描画して、描画ツールテストの前提条件を整えるヘルパー
    * 描画後にオブジェクト数が増えたことを検証し、キャンバス中心座標を返す
+   *
+   * 注: ツールボタンの aria-pressed 切替でツールバー高さが変わりキャンバス位置が
+   * シフトすることがあるため、getCanvasCenter はツール選択後（レイアウト安定後）に呼び出す。
    */
   async function drawInitialRectangle(
     page: import('@playwright/test').Page
   ): Promise<{ center: { x: number; y: number }; objectCountAfter: number }> {
-    const center = await getCanvasCenter(page);
     const objectCountBefore = await getCanvasObjectCount(page);
 
-    // 四角形ツールを選択して描画
+    // 四角形ツールを選択（このタイミングで toolbar の layout が変わりうる）
     const rectTool = page.getByRole('button', { name: /四角形/i });
     await expect(rectTool).toBeVisible({ timeout: getTimeout(5000) });
     await rectTool.click();
     await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
+
+    // ツール選択後の安定したキャンバス座標を取得
+    const center = await getCanvasCenter(page);
 
     // キャンバス中央付近に四角形を描画
     await performDrag(page, center.x - 40, center.y - 30, center.x + 40, center.y + 30);
@@ -443,12 +484,15 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     }
 
     // 初期オブジェクト（四角形）を描画
-    const { center, objectCountAfter: countAfterFirst } = await drawInitialRectangle(page);
+    const { objectCountAfter: countAfterFirst } = await drawInitialRectangle(page);
 
     // 円ツールに切り替え
     const circleTool = page.getByRole('button', { name: /円/i });
     await circleTool.click();
     await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
+
+    // ツール切替後にレイアウトが安定したキャンバス座標を再取得
+    const center = await getCanvasCenter(page);
 
     // 既存オブジェクトの外側から描画開始し、既存オブジェクト上でマウスアップ
     // 開始点: 既存オブジェクトの左上外側（キャンバス内に収まる座標）

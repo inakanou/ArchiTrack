@@ -107,7 +107,7 @@ export function useUndoState({ undoManager }: UseUndoStateOptions): UseUndoState
     // 初回マウント時は useState の初期値が使用されるため不要
     if (prevUndoManagerRef.current !== null && prevUndoManagerRef.current !== undoManager) {
       // undoManagerが変更された場合、新しい状態に同期
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- undoManager変更時の同期処理として必要
+
       setState({
         canUndo: undoManager.canUndo(),
         canRedo: undoManager.canRedo(),

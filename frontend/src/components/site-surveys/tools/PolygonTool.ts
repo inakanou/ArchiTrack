@@ -8,9 +8,15 @@
  *
  * Requirements:
  * - 7.4: 多角形ツールを選択して頂点をクリックすると多角形を描画する
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Polygon } from 'fabric';
+
+import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -67,10 +73,13 @@ export interface PolygonJSON {
 
 /**
  * デフォルトの多角形オプション
+ *
+ * Task 64.3: 本体色/線幅は `ANNOTATION_DEFAULTS`（Req 26.5 一元管理トークン）を参照。
+ * 塗りつぶしは従来通り 'transparent'（Fabric 上の透明表現）を維持する。
  */
 export const DEFAULT_POLYGON_OPTIONS: PolygonOptions = {
-  stroke: '#000000',
-  strokeWidth: 2,
+  stroke: ANNOTATION_DEFAULTS.stroke,
+  strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
   fill: 'transparent',
 };
 

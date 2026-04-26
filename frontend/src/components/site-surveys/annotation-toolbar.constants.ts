@@ -2,7 +2,16 @@
  * @fileoverview 注釈ツールバーの定数と型定義
  *
  * react-refresh/only-export-components 対応のため分離
+ *
+ * Task 64.2 (Req 26.5): `DEFAULT_STYLE_OPTIONS` の値はツール横断の単一情報源である
+ * `ANNOTATION_DEFAULTS` (`./annotation-style-tokens`) から参照する。本ファイルは
+ * 既存 consumer 向けのフィールド名ブリッジ（`strokeColor` ← `stroke`,
+ * `fillColor` ← `fill`）のみを提供し、値そのものはトークン側で管理する。
+ *
+ * @requirement site-survey/REQ-26.5
  */
+
+import { ANNOTATION_DEFAULTS } from './annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -131,10 +140,15 @@ export const TOOL_ORDER: ToolType[] = [
 
 /**
  * デフォルトのスタイルオプション
+ *
+ * Req 26.5: 値は `ANNOTATION_DEFAULTS` を単一情報源として展開する。
+ * フィールド名は既存 consumer との互換性を維持するため従来の
+ * `strokeColor` / `fillColor` を保持し、トークン側の `stroke` / `fill` から
+ * マッピングする。
  */
 export const DEFAULT_STYLE_OPTIONS: StyleOptions = {
-  strokeColor: '#ff0000',
-  strokeWidth: 2,
-  fillColor: '',
-  fontSize: 16,
+  strokeColor: ANNOTATION_DEFAULTS.stroke,
+  strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
+  fillColor: ANNOTATION_DEFAULTS.fill,
+  fontSize: ANNOTATION_DEFAULTS.fontSize,
 };

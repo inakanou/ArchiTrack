@@ -199,7 +199,6 @@ export default function EditableQuantityItemRow({
 
   // 親の数量値が変更された場合、ローカル状態を同期（REQ-14.2: 小数2桁で表示）
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 親からの同期のため必要
     setLocalQuantity(item.quantity.toFixed(2));
   }, [item.quantity]);
 

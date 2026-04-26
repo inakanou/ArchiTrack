@@ -26,6 +26,13 @@
  * - ドラッグによる表示領域移動
  * - 拡大時のスクロール対応
  * - 表示状態の共有（onViewStateChange, initialViewState, ref）
+ *
+ * @requirement site-survey/REQ-30.1
+ * @requirement site-survey/REQ-30.2
+ * @requirement site-survey/REQ-30.3
+ * @requirement site-survey/REQ-30.5
+ * @requirement site-survey/REQ-30.6
+ * @requirement site-survey/REQ-30.8
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -2007,6 +2014,211 @@ describe('ImageViewer', () => {
         // パン操作のためのsetViewportTransformは呼ばれない
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+      });
+    });
+
+    // ========================================================================
+    // Task 67.3: 3本指以上の抑止と cooldown 連携
+    // Requirements: 30.1, 30.2, 30.3, 30.5, 30.6, 30.8
+    // ========================================================================
+    describe('3+ finger multitouch safety', () => {
+      it('3本指タッチで進行中のピンチズーム/パンが中止される', async () => {
+        // ズーム状態にしてパン有効化
+        mockCanvasInstance.getZoom.mockImplementation(() => 2.0);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 先に3本指タッチで three-plus-suspend に入る
+        const threeFingerStart = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 150, clientY: 150, identifier: 1 },
+          { clientX: 200, clientY: 200, identifier: 2 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, threeFingerStart);
+
+        // この時点でsetViewportTransform呼び出し履歴をクリア
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        // 3本指のまま移動してもズーム/パンが発動しないこと
+        const threeFingerMove = createTouchEvent('touchmove', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 250, clientY: 250, identifier: 1 },
+          { clientX: 300, clientY: 300, identifier: 2 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, threeFingerMove);
+
+        // さらに1本離して2本指になった瞬間に移動してもズーム/パンが再開しないこと
+        // （three-plus-suspend は 全指離脱までピンチ再開を抑止）
+        const twoFingerAfterSuspend = createTouchEvent('touchmove', [
+          { clientX: 60, clientY: 60, identifier: 0 },
+          { clientX: 260, clientY: 260, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, twoFingerAfterSuspend);
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+      });
+
+      it('3本指から全指離脱後 150ms 以内の1本指パンは抑止される', async () => {
+        mockCanvasInstance.getZoom.mockImplementation(() => 2.0);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 3本指タッチ → 全指離脱（cooldown 開始）
+        const threeFingerStart = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 150, clientY: 150, identifier: 1 },
+          { clientX: 200, clientY: 200, identifier: 2 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, threeFingerStart);
+
+        const allRelease = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, allRelease);
+
+        // cooldown 中に履歴をクリア
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        // 150ms 以内（50ms 経過時点）に1本指パンを試行
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const cooldownPanStart = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, cooldownPanStart);
+
+        const cooldownPanMove = createTouchEvent('touchmove', [
+          { clientX: 200, clientY: 200, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, cooldownPanMove);
+
+        // cooldown 中はパンが発動しない
+        expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+
+        // cleanup: パン終了
+        await dispatchTouchEvent(canvasContainer, createTouchEvent('touchend', []));
+      });
+
+      it('3本指から全指離脱後 150ms 経過後は新規1本指パンが受け付けられる', async () => {
+        mockCanvasInstance.getZoom.mockImplementation(() => 2.0);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+
+        // 3本指タッチ → 全指離脱
+        const threeFingerStart = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 150, clientY: 150, identifier: 1 },
+          { clientX: 200, clientY: 200, identifier: 2 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, threeFingerStart);
+
+        await dispatchTouchEvent(canvasContainer, createTouchEvent('touchend', []));
+
+        // cooldown 期間を十分に超える待機（150ms + 余裕）
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        // cooldown 解除後の1本指パン
+        const newPanStart = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, newPanStart);
+
+        const newPanMove = createTouchEvent('touchmove', [
+          { clientX: 200, clientY: 200, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, newPanMove);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+
+        await dispatchTouchEvent(canvasContainer, createTouchEvent('touchend', []));
+      });
+
+      it('既存の1本指パン挙動は変更されない（回帰防止: Req 5）', async () => {
+        mockCanvasInstance.getZoom.mockImplementation(() => 2.0);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        // 3本指抑止やcooldownに入らない通常の1本指パン
+        const touchStartEvent = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchStartEvent);
+
+        const touchMoveEvent = createTouchEvent('touchmove', [
+          { clientX: 150, clientY: 150, identifier: 0 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, touchMoveEvent);
+
+        const touchEndEvent = createTouchEvent('touchend', []);
+        await dispatchTouchEvent(canvasContainer, touchEndEvent);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
+      });
+
+      it('既存の2本指ピンチズーム挙動は変更されない（回帰防止: Req 5）', async () => {
+        mockCanvasInstance.getZoom.mockImplementation(() => 1.0);
+
+        render(<ImageViewer {...defaultProps} />);
+        await flushPromises();
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        const canvasContainer = screen.getByTestId('canvas-container');
+        mockCanvasInstance.setViewportTransform.mockClear();
+
+        const pinchStart = createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 120, clientY: 120, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, pinchStart);
+
+        const pinchMove = createTouchEvent('touchmove', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 200, clientY: 200, identifier: 1 },
+        ]);
+        await dispatchTouchEvent(canvasContainer, pinchMove);
+
+        await dispatchTouchEvent(canvasContainer, createTouchEvent('touchend', []));
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+        });
       });
     });
   });

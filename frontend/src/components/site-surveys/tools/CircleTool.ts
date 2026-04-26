@@ -8,9 +8,15 @@
  *
  * Requirements:
  * - 7.2: 円ツールを選択してドラッグすると円または楕円を描画する
+ *
+ * @requirement site-survey/REQ-26.1
+ * @requirement site-survey/REQ-26.2
+ * @requirement site-survey/REQ-26.5
  */
 
 import { Ellipse } from 'fabric';
+
+import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -66,10 +72,13 @@ export interface CircleJSON {
 
 /**
  * デフォルトの円・楕円オプション
+ *
+ * Task 64.3: 本体色/線幅は `ANNOTATION_DEFAULTS`（Req 26.5 一元管理トークン）を参照。
+ * 塗りつぶしは従来通り 'transparent'（Fabric 上の透明表現）を維持する。
  */
 export const DEFAULT_CIRCLE_OPTIONS: CircleOptions = {
-  stroke: '#000000',
-  strokeWidth: 2,
+  stroke: ANNOTATION_DEFAULTS.stroke,
+  strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
   fill: 'transparent',
 };
 
