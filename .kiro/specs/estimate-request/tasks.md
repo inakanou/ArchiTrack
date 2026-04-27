@@ -1658,7 +1658,7 @@
   - _Boundary: LineItemEditor_
   - _Requirements: 37.1, 37.16_
 
-- [ ] 78.2 (P) LineItemActionMenu サブコンポーネントの実装
+- [x] 78.2 (P) LineItemActionMenu サブコンポーネントの実装
   - 縦三点リーダー（︙）アイコンのトグルボタンを行末に配置する
   - クリックでメニューパネル（position: absolute, right: 0, top: 100%）を開閉する
   - メニュー内に「上に移動」「下に移動」「削除」の 3 項目を表示する（削除は赤字 #dc2626）

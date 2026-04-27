@@ -21,8 +21,10 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
+  useState,
   type KeyboardEvent,
   type ChangeEvent,
   type FocusEvent,
@@ -780,6 +782,295 @@ export function LineItemEditor({
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// LineItemActionMenu サブコンポーネント
+// ============================================================================
+// design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」(4559-4609)
+// および design.md「Components and Interfaces - 改訂」(4375) に基づき、
+// 同ファイル内のサブコンポーネントとして定義する。
+//
+// Requirements: 37.4, 37.5, 37.9, 37.10, 37.11
+// Task: 78.2
+
+/**
+ * 明細行アクションメニューの Props
+ *
+ * design.md「LineItemActionMenu §Component Interface」(4582-4598) に準拠。
+ *
+ * 注: design.md 4588-4589 の `isOnly` コメントには「上下と削除を非活性にする」
+ * とあるが、Req 11 AC 19（行が1行のみのとき削除ボタンを非活性化する）の
+ * 責務は LineItemEditor 側で扱い、本コンポーネントは isOnly=true 時に
+ * 「上に移動」「下に移動」のみを非活性化する（task 78.2 指示書および
+ * design.md 4375 の Req Coverage 37.4-37.5, 37.9-37.11 と整合）。
+ */
+export interface LineItemActionMenuProps {
+  /** 該当行が先頭行かどうか（上に移動を非活性にする） */
+  isFirst: boolean;
+  /** 該当行が末尾行かどうか（下に移動を非活性にする） */
+  isLast: boolean;
+  /** 明細行が1行のみかどうか（上に移動・下に移動の両方を非活性にする） */
+  isOnly: boolean;
+  /** 上に移動コールバック */
+  onMoveUp: () => void;
+  /** 下に移動コールバック */
+  onMoveDown: () => void;
+  /** 削除コールバック */
+  onDelete: () => void;
+  /** メニュー全体の非活性化（保存中・再認証中などに使用） */
+  disabled?: boolean;
+  /** トグルボタンに付与する追加 aria-label（行番号などを補強する用途） */
+  ariaLabel?: string;
+}
+
+// LineItemActionMenu 専用スタイル
+const actionMenuStyles = {
+  container: {
+    position: 'relative' as const,
+    display: 'inline-block',
+  },
+  toggleButton: {
+    width: '24px',
+    height: '24px',
+    padding: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '18px',
+    lineHeight: 1,
+    color: '#374151',
+    backgroundColor: 'transparent',
+    border: '1px solid transparent',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    transition: 'background-color 0.15s, border-color 0.15s',
+  },
+  toggleButtonDisabled: {
+    color: '#d1d5db',
+    cursor: 'not-allowed',
+  },
+  panel: {
+    position: 'absolute' as const,
+    top: '100%',
+    right: 0,
+    marginTop: '2px',
+    minWidth: '120px',
+    backgroundColor: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '4px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.12)',
+    padding: '4px 0',
+    zIndex: 10,
+  },
+  menuItem: {
+    display: 'block',
+    width: '100%',
+    padding: '6px 12px',
+    fontSize: '13px',
+    color: '#1f2937',
+    backgroundColor: 'transparent',
+    border: 'none',
+    textAlign: 'left' as const,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
+    transition: 'background-color 0.1s',
+  },
+  menuItemDisabled: {
+    color: '#9ca3af',
+    cursor: 'not-allowed',
+  },
+  menuItemDelete: {
+    color: '#dc2626',
+  },
+};
+
+/**
+ * 明細行アクションメニュー
+ *
+ * design.md 4559-4609 に基づき、明細行ごとに「上に移動」「下に移動」「削除」
+ * を集約したポップオーバー型のアクションメニューを提供する。
+ *
+ * 主な責務:
+ * - 縦三点リーダー (⋮) のトグルボタンと、クリックで開閉するメニューパネルの提供
+ * - 外側クリック・Escape キーでのメニュー自動クローズ
+ * - メニュー展開時に最初の有効項目へフォーカスを移動
+ * - Escape クローズ時にトグルボタンへフォーカスを戻す
+ * - isFirst/isLast/isOnly フラグによる上下移動の非活性化
+ *
+ * @example
+ * ```tsx
+ * <LineItemActionMenu
+ *   isFirst={index === 0}
+ *   isLast={index === items.length - 1}
+ *   isOnly={items.length === 1}
+ *   onMoveUp={() => handleMoveUp(index)}
+ *   onMoveDown={() => handleMoveDown(index)}
+ *   onDelete={() => handleDelete(item.id)}
+ *   disabled={isSaving}
+ * />
+ * ```
+ */
+export function LineItemActionMenu({
+  isFirst,
+  isLast,
+  isOnly,
+  onMoveUp,
+  onMoveDown,
+  onDelete,
+  disabled = false,
+  ariaLabel,
+}: LineItemActionMenuProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const moveUpRef = useRef<HTMLButtonElement>(null);
+  const moveDownRef = useRef<HTMLButtonElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+
+  // disabled 状態の判定（design.md 4571: isFirst/isLast/isOnly による上下移動の非活性）
+  const moveUpDisabled = disabled || isFirst || isOnly;
+  const moveDownDisabled = disabled || isLast || isOnly;
+  const deleteDisabled = disabled;
+
+  // メニューを閉じてトグルボタンへフォーカスを戻す（Escape クローズ時）
+  const closeMenuAndRestoreFocus = useCallback(() => {
+    setIsOpen(false);
+    // 次のレンダリング後にフォーカスを戻す
+    requestAnimationFrame(() => {
+      toggleRef.current?.focus();
+    });
+  }, []);
+
+  // トグルボタンクリック
+  const handleToggle = useCallback(() => {
+    if (disabled) return;
+    setIsOpen((prev) => !prev);
+  }, [disabled]);
+
+  // メニュー外クリックでクローズ（design.md 4606: document level click listener）
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (containerRef.current && !containerRef.current.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentClick);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick);
+    };
+  }, [isOpen]);
+
+  // Escape キーでクローズしてトグルボタンへフォーカスを戻す（design.md 4609）
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        closeMenuAndRestoreFocus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, closeMenuAndRestoreFocus]);
+
+  // メニュー展開時に最初の有効項目にフォーカス（design.md 4609）
+  useEffect(() => {
+    if (!isOpen) return;
+    // 上→下→削除の順で最初に活性な項目にフォーカス
+    const firstEnabled =
+      (!moveUpDisabled && moveUpRef.current) ||
+      (!moveDownDisabled && moveDownRef.current) ||
+      (!deleteDisabled && deleteRef.current) ||
+      null;
+    if (firstEnabled) {
+      // useEffect 内なので DOM 反映済み。requestAnimationFrame で 1 フレーム待ってからフォーカスする
+      requestAnimationFrame(() => {
+        firstEnabled.focus();
+      });
+    }
+  }, [isOpen, moveUpDisabled, moveDownDisabled, deleteDisabled]);
+
+  // メニュー項目クリックハンドラ（コールバック実行 → メニュー閉じる）
+  const handleMenuItemClick = useCallback((callback: () => void) => {
+    callback();
+    setIsOpen(false);
+  }, []);
+
+  return (
+    <div ref={containerRef} style={actionMenuStyles.container}>
+      <button
+        ref={toggleRef}
+        type="button"
+        onClick={handleToggle}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel ?? '操作メニュー'}
+        style={{
+          ...actionMenuStyles.toggleButton,
+          ...(disabled ? actionMenuStyles.toggleButtonDisabled : {}),
+        }}
+      >
+        {/* 縦三点リーダー（⋮） */}
+        <span aria-hidden="true">&#x22EE;</span>
+      </button>
+
+      {isOpen && (
+        <div role="menu" style={actionMenuStyles.panel}>
+          <button
+            ref={moveUpRef}
+            type="button"
+            role="menuitem"
+            disabled={moveUpDisabled}
+            onClick={() => handleMenuItemClick(onMoveUp)}
+            style={{
+              ...actionMenuStyles.menuItem,
+              ...(moveUpDisabled ? actionMenuStyles.menuItemDisabled : {}),
+            }}
+          >
+            上に移動
+          </button>
+          <button
+            ref={moveDownRef}
+            type="button"
+            role="menuitem"
+            disabled={moveDownDisabled}
+            onClick={() => handleMenuItemClick(onMoveDown)}
+            style={{
+              ...actionMenuStyles.menuItem,
+              ...(moveDownDisabled ? actionMenuStyles.menuItemDisabled : {}),
+            }}
+          >
+            下に移動
+          </button>
+          <button
+            ref={deleteRef}
+            type="button"
+            role="menuitem"
+            disabled={deleteDisabled}
+            onClick={() => handleMenuItemClick(onDelete)}
+            style={{
+              ...actionMenuStyles.menuItem,
+              ...actionMenuStyles.menuItemDelete,
+              ...(deleteDisabled ? actionMenuStyles.menuItemDisabled : {}),
+            }}
+          >
+            削除
+          </button>
+        </div>
+      )}
     </div>
   );
 }
