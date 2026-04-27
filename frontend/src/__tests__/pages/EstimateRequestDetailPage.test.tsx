@@ -33,6 +33,15 @@ vi.mock('../../api/projects', () => ({
   getProject: vi.fn().mockResolvedValue({ name: 'テストプロジェクト' }),
 }));
 
+// Task 79.3 で ReceivedQuotationForm が useAuth() を直接購読するため、
+// AuthProvider を含まない単体テスト環境向けに最小限のモックを提供する。
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({
+    sessionExpiredDuringOperation: false,
+    sessionExpired: false,
+  }),
+}));
+
 // useNavigateモック
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
