@@ -1765,7 +1765,7 @@
   - _Boundary: ReceivedQuotationForm test_
   - _Requirements: 36.13, 37.13, 37.14, 38.1, 38.4, 38.5, 38.6, 38.7, 38.10, 38.12, 38.13_
 
-- [ ] 81.4 (P) OcrDataExtractor セッション切れ連携のユニットテスト
+- [x] 81.4 (P) OcrDataExtractor セッション切れ連携のユニットテスト
   - sessionExpiredDuringOperation=true 中に OCR 関連ボタンが disabled となることのテスト
   - sessionExpiredDuringOperation=false 復帰後に元の disabled 条件（isExtracting のみ）に戻ることのテスト
   - 観察可能完了: OcrDataExtractor のテストファイルにセッション切れ関連テストが追加され pass する
