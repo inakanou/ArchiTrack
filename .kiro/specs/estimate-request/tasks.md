@@ -1693,7 +1693,7 @@
   - _Boundary: ReceivedQuotationForm_
   - _Requirements: 38.1, 38.6, 38.7_
 
-- [ ] 79.2 (P) isFormDirty 純粋関数と useUnsavedChangesGuard カスタムフックの実装
+- [x] 79.2 (P) isFormDirty 純粋関数と useUnsavedChangesGuard カスタムフックの実装
   - isFormDirty(currentState, snapshot) を実装する。比較規則: scalar フィールド（name/submittedAt/netAmount）は文字列等価＋null/undefined/'' 正規化、selectedFile は参照同一性、lineItems は配列長＋各要素の customCategory/workType/name/specification/unit/quantity/unitPrice/remarks/sortOrder の文字列等価比較（amount と id は除外）
   - useUnsavedChangesGuard(isDirty) を実装する。isDirty=true の間 beforeunload リスナを登録し e.preventDefault() + e.returnValue = '' を設定する
   - confirmCloseIfDirty コールバックを返し、isDirty=true 時に window.confirm で「変更が保存されていません。閉じてもよろしいですか？」を表示する
