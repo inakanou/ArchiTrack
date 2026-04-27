@@ -1603,3 +1603,183 @@
   - 現場調査が存在しないプロジェクトで「現場調査報告書出力」ボタンクリック→「現場調査が登録されていません」メッセージ表示の確認
   - 「現場調査報告書出力」ボタンクリック→選択ドロップダウン表示→「キャンセル」ボタンクリック→ドロップダウンが閉じることの確認
   - _Requirements: 35.1, 35.2, 35.5, 35.7, 35.8, 35.9_
+
+## 受領見積書ダイアログ改善2（Requirements 36-38）
+
+- [ ] 76. 受領見積書ダイアログ改善2 の事前調査と既存データ整合化
+- [x] 76.1 (P) received_quotation_line_items.sort_order の既存 NULL データ調査と必要時の整合化
+  - 既存テーブル `received_quotation_line_items` に対し `sort_order IS NULL` のレコード件数を SQL クエリで確認する
+  - **0 件の場合**: design.md「Migration Strategy: データ移行不要」と整合するためマイグレーション SQL の発行はスキップする
+  - **1 件以上の場合のみ**: 各受領見積書ごとに作成日時順または既存配列順で 0,1,2,... を補完する一回限りのマイグレーション SQL を作成・適用し、再検証で NULL 件数が 0 件になることを確認する
+  - フロントエンド側の防御ロジック（タスク 78.1 で実装する配列インデックス補完）はいずれの結果でも維持される
+  - 観察可能完了: 検証クエリ結果と対応内容（スキップまたはマイグレーション実行）が記録され、最終的に sort_order に NULL が存在しない状態が確認できる
+  - _Boundary: backend/migrations_
+  - _Requirements: 37.1_
+
+- [ ] 76.2 (P) OcrDataExtractor の Claude Vision API 呼び出し経路の確認と必要時の apiClient 経由化
+  - `frontend/src/components/estimate-requests/OcrDataExtractor.tsx` および参照されるサービス層を確認し、Claude Vision API 呼び出しが既存の `apiClient`（401 自動リフレッシュ対応）経由か、直接 `fetch`/`axios` 等を使用しているかを判定する
+  - 直接呼び出し型であれば apiClient 経由に書き換え、`sessionExpiredCallback` 連鎖を有効化する
+  - apiClient 経由型であれば変更なし（タスク 79/80 のみで十分）
+  - 観察可能完了: Claude Vision API 呼び出しが apiClient 経由に統一され、401 検知時に AuthContext.sessionExpiredDuringOperation が true に切り替わる経路がコード上で確認できる
+  - _Boundary: OcrDataExtractor_
+  - _Requirements: 38.11_
+
+- [ ] 77. FileInlinePreview にプレビュー縦幅リサイズ機能を追加（Requirement 36）
+- [ ] 77.1 (P) useResizableHeight カスタムフックを実装
+  - 高さ state を初期マウント時に localStorage（キー: `architrack:received-quotation:preview-height`）から復元、保存値なし時はデフォルト値 400px を採用する
+  - heightRef を毎レンダで height と同期し、Pointer Events のクロージャから常に最新値を参照可能にする（design review Issue 3 対応）
+  - onResizeStart で startY/startHeight を記録し setPointerCapture を呼び出す
+  - useEffect 内で window レベルの pointermove/pointerup を登録し、依存配列は [isResizing] のみとする（height は heightRef 経由で参照）
+  - pointermove で delta 計算と最小値 200px / 最大値 min(800px, viewport_height * 0.7) のクランプを実施する
+  - pointerup で localStorage に Math.floor(heightRef.current) を保存（書き込み失敗時はサイレントフォールバック）
+  - 観察可能完了: フックを呼ぶと height/onResizeStart/isResizing が返り、ドラッグ操作で height が clamp 範囲内で変化、pointerup で localStorage が更新される
+  - _Boundary: FileInlinePreview_
+  - _Requirements: 36.4, 36.5, 36.6, 36.7, 36.8, 36.9, 36.10, 36.11_
+
+- [ ] 77.2 リサイズハンドル UI とプレビューコンテナの高さ動的化
+  - PDF/画像/Excel 用の各コンテナで maxHeight 固定値（300/500/400px）を `height: ${dynamicHeight}px` 指定に置換し、`overflow: 'auto'` を維持する
+  - 各コンテナ直下にリサイズハンドル div を配置し、`cursor: ns-resize`、6px 高、ホバー/アクティブ時の背景色変化を適用する
+  - ハンドルに `role="separator"`、`aria-orientation="horizontal"`、`aria-label="プレビューエリアの高さを変更"` を付与する
+  - リサイズ操作中は `body { cursor: ns-resize; user-select: none; }` を一時的に適用しテキスト選択を抑止する
+  - 既存のページナビゲーション（Req 17.6）と PDF 拡大縮小（Req 31）の挙動が変わらないことを目視確認する
+  - 観察可能完了: PDF/画像/Excel のいずれを表示してもプレビュー領域下端にハンドルが表示され、ドラッグで縦幅が変化、再オープンで前回値が復元される
+  - _Boundary: FileInlinePreview_
+  - _Depends: 77.1_
+  - _Requirements: 36.1, 36.2, 36.3, 36.12, 36.13, 36.14_
+
+- [ ] 78. LineItemEditor に並び順保持と上下移動・アクションメニューを追加（Requirement 37）
+- [ ] 78.1 (P) LineItemFormData 型拡張と sortOrder ヘルパー関数の実装
+  - LineItemFormData に sortOrder: number フィールドを追加する
+  - createEmptyLineItem(sortOrder: number) ファクトリ関数を定義する
+  - reassignSortOrder(items) を実装し、配列を 0,1,2,... の連続 sortOrder に再採番する
+  - sortBySortOrder(items) を実装し、配列を sortOrder 昇順でソートする
+  - サーバー応答の lineItems 変換時に sortOrder が NULL/undefined のレコードを配列インデックスから補完する防御的ロジックを追加する
+  - 観察可能完了: 各ヘルパー関数のユニットテストで sortOrder 連続性と NULL 防御の挙動が確認できる
+  - _Boundary: LineItemEditor_
+  - _Requirements: 37.1, 37.16_
+
+- [ ] 78.2 (P) LineItemActionMenu サブコンポーネントの実装
+  - 縦三点リーダー（︙）アイコンのトグルボタンを行末に配置する
+  - クリックでメニューパネル（position: absolute, right: 0, top: 100%）を開閉する
+  - メニュー内に「上に移動」「下に移動」「削除」の 3 項目を表示する（削除は赤字 #dc2626）
+  - isFirst/isLast/isOnly Props で各ボタンの disabled を制御する
+  - 外側クリック（document level click listener）と Escape キーでメニューを閉じる
+  - メニュー展開時に最初の有効項目にフォーカスを移し、Esc 閉じでトグルボタンへフォーカスを戻す
+  - role="menu"/role="menuitem"/aria-haspopup="menu"/aria-expanded を付与する
+  - 観察可能完了: トグル開閉、3項目クリック、キーボード/外側クリッククローズ、disabled 制御が単体で動作するコンポーネント
+  - _Boundary: LineItemActionMenu_
+  - _Requirements: 37.4, 37.5, 37.9, 37.10, 37.11_
+
+- [ ] 78.3 LineItemEditor の上下移動操作・追加/削除整合化と既存削除ボタンの統合
+  - handleMoveUp(rowIndex)/handleMoveDown(rowIndex) を実装し、隣接要素スワップ後に reassignSortOrder を適用して onLineItemsChange に渡す
+  - handleAddRow を改訂し、新規行の sortOrder を `Math.max(...sortOrders) + 1`（空配列時は 0）で割り当てる
+  - handleDeleteRow を改訂し、削除後に reassignSortOrder を適用する
+  - 行末アクション列に LineItemActionMenu を配置し、isFirst/isLast/isOnly コールバックを bind する
+  - 行内に直接配置されていた既存削除ボタン（Req 11 AC 17 旧実装）を撤去する
+  - 表示時の lineItems 配列を sortBySortOrder で昇順ソートしてレンダリングする
+  - Tab キーによるフィールド間順次移動（Req 11 AC 20-21）が表示順序に追従することを確認する
+  - 観察可能完了: 受領見積書ダイアログを開いて明細行を 5 行追加、メニュー操作で並び替え後、画面表示と sortOrder 値が一致する
+  - _Boundary: LineItemEditor_
+  - _Depends: 78.1, 78.2_
+  - _Requirements: 37.2, 37.3, 37.6, 37.7, 37.8, 37.12, 37.15, 37.17_
+
+- [ ] 79. ReceivedQuotationForm にセッション保護・未保存変更ガード・並び順送信を統合（Requirements 38, 36.13, 37.13-37.14）
+- [ ] 79.1 (P) usePendingSaveAfterReauth カスタムフックの実装
+  - pendingRef を useRef で保持し、setPendingSave/clearPendingSave コールバックを返却する
+  - useAuth().sessionExpiredDuringOperation を購読し、prevReauthRef で true→false 遷移エッジを検知する
+  - 遷移時に sessionExpired が false（再認証成功）の場合、pendingRef を再実行して null クリアする
+  - 遷移時に sessionExpired が true（ログイン画面遷移）の場合、pendingRef を null クリアして実行しない
+  - 観察可能完了: フックのユニットテストで再認証成功→自動再実行、ログイン画面遷移→クリア（再実行なし）の両分岐が確認できる
+  - _Boundary: ReceivedQuotationForm_
+  - _Requirements: 38.1, 38.6, 38.7_
+
+- [ ] 79.2 (P) isFormDirty 純粋関数と useUnsavedChangesGuard カスタムフックの実装
+  - isFormDirty(currentState, snapshot) を実装する。比較規則: scalar フィールド（name/submittedAt/netAmount）は文字列等価＋null/undefined/'' 正規化、selectedFile は参照同一性、lineItems は配列長＋各要素の customCategory/workType/name/specification/unit/quantity/unitPrice/remarks/sortOrder の文字列等価比較（amount と id は除外）
+  - useUnsavedChangesGuard(isDirty) を実装する。isDirty=true の間 beforeunload リスナを登録し e.preventDefault() + e.returnValue = '' を設定する
+  - confirmCloseIfDirty コールバックを返し、isDirty=true 時に window.confirm で「変更が保存されていません。閉じてもよろしいですか？」を表示する
+  - 観察可能完了: state 変更で isDirty=true になり beforeunload が発火、state を初期値に戻すと isDirty=false に戻る
+  - _Boundary: ReceivedQuotationForm_
+  - _Requirements: 38.12, 38.13_
+
+- [ ] 79.3 ReceivedQuotationForm の保存リトライ・isReauthInProgress・初期スナップショット・並び順送信を統合
+  - usePendingSaveAfterReauth と useUnsavedChangesGuard を import し、初期スナップショットを `useEffect(..., [quotationId, isOpen])` で確定する（編集時はサーバー応答、登録時は空状態）
+  - performSave を実装し、lineItems を index ベースで sortOrder=0,1,2,... に同期して送信する
+  - 保存処理開始時に setPendingSave(performSave) を呼び pendingRef にラップ済み saveFn をセットする
+  - performSave 内の 401 検知時は pendingRef を維持して return（再認証成功時に自動再実行される）
+  - performSave 内の 409 競合検知時は楽観的排他制御エラーフロー（再認証フローと別系統）で処理し pendingRef をクリアする
+  - 保存成功時に snapshot を最新値で更新、isDirty=false にし、onSaveSuccess + onClose を呼ぶ
+  - sessionExpiredDuringOperation が true の間 isReauthInProgress フラグでダイアログ内ボタン（保存・追加・メニュー・ファイル UP・OCR・項目転記）を disabled にする
+  - 一括取り込み（Req 13.11）および項目選択転記（Req 15.4）経路で取り込んだ lineItems に reassignSortOrder を適用してから state に反映する
+  - ダイアログクローズ要求（×ボタン、ダイアログ背景クリック、Esc キー）すべてに confirmCloseIfDirty を介在させる
+  - dialog コンテナの maxHeight: 90vh 制約を維持し、プレビュー領域のリサイズ機能（タスク 77）と挙動上整合することを確認する
+  - apiClient の 401 検知 → AuthContext.sessionExpiredDuringOperation の更新 → 既存 SessionExpiredModal の表示までの導線がフォーム経路上で正常動作することを確認する
+  - 観察可能完了: 受領見積書登録ダイアログでセッション切れシミュレート→モーダル表示→再認証成功→保存自動実行→ダイアログクローズの一連フローが手動テストで成立する
+  - _Boundary: ReceivedQuotationForm_
+  - _Depends: 78.1, 79.1, 79.2_
+  - _Requirements: 36.13, 37.3, 37.13, 37.14, 38.2, 38.4, 38.5, 38.10_
+
+- [ ] 80. OcrDataExtractor のセッション切れ時連携（Requirement 38.11）
+- [ ] 80.1 OcrDataExtractor で sessionExpiredDuringOperation を購読しボタン非活性化
+  - useAuth().sessionExpiredDuringOperation を購読する
+  - true の間「OCR 実行」「OCR リトライ」「データパース実行」ボタンを isExtracting と OR 結合した条件で disabled にする
+  - apiClient 経由ならば 401 検知が自動連鎖（タスク 76.2 で確認/対応済）するため、ローディング状態は中断されモーダル表示が走る
+  - 観察可能完了: セッション切れシミュレーション中に OCR 関連ボタンが視覚的に disabled となり、復帰後は元の disabled 条件（isExtracting のみ）に戻る
+  - _Boundary: OcrDataExtractor_
+  - _Depends: 76.2_
+  - _Requirements: 38.11_
+
+- [ ] 81. 受領見積書ダイアログ改善2 のテスト
+- [ ] 81.1 (P) FileInlinePreview リサイズ機能のユニットテスト
+  - 各プレビューモード（PDF/画像/Excel）でリサイズハンドルが表示されることのテスト
+  - pointerdown→pointermove→pointerup イベントで height がドラッグ位置に追従することのテスト
+  - 高さが RESIZE_MIN_HEIGHT 未満／RESIZE_MAX_HEIGHT 超過にならないクランプのテスト
+  - pointerup 完了時に localStorage.setItem が呼ばれることのテスト
+  - 初期マウント時に localStorage.getItem 値が初期 height として復元されることのテスト
+  - localStorage 値なし時のデフォルト値使用のテスト
+  - localStorage アクセス失敗（モック失敗）時にエラーがスローされず継続動作することのテスト
+  - ページナビゲーション・拡大縮小操作後の height 維持のテスト
+  - 観察可能完了: FileInlinePreview のテストファイル全 8 ケースが pass する
+  - _Boundary: FileInlinePreview test_
+  - _Requirements: 36.1, 36.2, 36.3, 36.4, 36.5, 36.7, 36.8, 36.9, 36.10, 36.11, 36.12, 36.14_
+
+- [ ] 81.2 (P) LineItemActionMenu と LineItemEditor 並び順機能のユニットテスト
+  - LineItemActionMenu: トグル開閉、3項目表示、isFirst/isLast/isOnly disabled 制御、外側クリック・Escape クローズ、フォーカス制御のテスト
+  - LineItemEditor: handleMoveUp/handleMoveDown 後の sortOrder 連続性、handleAddRow の末尾連続割当、handleDeleteRow 後の連続性、表示時 sortBySortOrder 適用、行内旧削除ボタン非存在、Tab キー追従のテスト
+  - reassignSortOrder/sortBySortOrder/createEmptyLineItem の単体テスト
+  - サーバー応答に sortOrder NULL を含むケースで配列インデックス補完が動作することのテスト
+  - 観察可能完了: LineItemEditor および LineItemActionMenu のテストファイル全ケースが pass する
+  - _Boundary: LineItemEditor test, LineItemActionMenu test_
+  - _Requirements: 37.1, 37.2, 37.3, 37.4, 37.5, 37.6, 37.7, 37.8, 37.9, 37.10, 37.11, 37.15, 37.16, 37.17_
+
+- [ ] 81.3 (P) ReceivedQuotationForm セッション保護・未保存変更ガード・並び順送信のユニットテスト
+  - usePendingSaveAfterReauth: true→false 遷移時の自動再実行、sessionExpired=true 時のスキップ＋クリアのテスト
+  - isFormDirty: scalar/File/lineItems 各規則に基づく差分検出のテスト（File 参照同一性、lineItems の各フィールド比較、amount/id 除外）
+  - useUnsavedChangesGuard: isDirty=true 時の beforeunload 発火、confirmCloseIfDirty の挙動テスト
+  - 保存時に lineItems の sortOrder が index ベース 0,1,2,... で送信されることのテスト
+  - 401 受信時の pendingSaveOperation 維持、再認証成功時の自動再実行、保存成功フィードバックのテスト
+  - 409 競合時の楽観的排他制御エラーフローが再認証フローと独立して動作することのテスト
+  - sessionExpiredDuringOperation=true 中のボタン disabled のテスト
+  - 一括取り込み・項目選択転記時の reassignSortOrder 適用のテスト
+  - 保存成功時の snapshot 更新と isDirty=false 復帰のテスト
+  - 観察可能完了: ReceivedQuotationForm のテストファイル全ケースが pass する
+  - _Boundary: ReceivedQuotationForm test_
+  - _Requirements: 36.13, 37.13, 37.14, 38.1, 38.4, 38.5, 38.6, 38.7, 38.10, 38.12, 38.13_
+
+- [ ] 81.4 (P) OcrDataExtractor セッション切れ連携のユニットテスト
+  - sessionExpiredDuringOperation=true 中に OCR 関連ボタンが disabled となることのテスト
+  - sessionExpiredDuringOperation=false 復帰後に元の disabled 条件（isExtracting のみ）に戻ることのテスト
+  - 観察可能完了: OcrDataExtractor のテストファイルにセッション切れ関連テストが追加され pass する
+  - _Boundary: OcrDataExtractor test_
+  - _Requirements: 38.11_
+
+- [ ]* 81.5 受領見積書ダイアログ改善2 の E2E テスト
+  - プレビュー縦幅リサイズと永続化（ダイアログ閉じる→再オープンで復元）の確認
+  - 明細行の上下移動と保存→再取得で並び順永続化の確認
+  - アクションメニュー集約（行内旧削除ボタン非存在、3項目表示、disabled 制御）の確認
+  - セッション切れシミュレート→ SessionExpiredModal 表示（パスワード入力欄 = Req 38.3、ログイン画面遷移ボタン）→ パスワード誤入力時のエラーメッセージ表示と再入力許可（Req 38.8）→ 通常ログイン API による再認証成功検証（Req 38.14）→ 保存自動実行→完了通知の確認
+  - 「ログイン画面へ移動」選択時に編集破棄でログイン画面遷移する確認
+  - 未保存変更時の ✕ ボタンクリック→ 「変更が保存されていません」確認ダイアログ表示の確認
+  - 未保存変更時のブラウザリロード→ ブラウザ標準確認ダイアログ表示の確認
+  - 観察可能完了: 上記 7 シナリオの Playwright E2E テストが全て pass する
+  - _Boundary: e2e/specs_
+  - _Requirements: 36.1, 36.4, 36.9, 36.10, 37.7, 37.13, 38.2, 38.3, 38.6, 38.7, 38.8, 38.12, 38.13, 38.14_
