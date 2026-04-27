@@ -1751,7 +1751,7 @@
   - _Boundary: LineItemEditor test, LineItemActionMenu test_
   - _Requirements: 37.1, 37.2, 37.3, 37.4, 37.5, 37.6, 37.7, 37.8, 37.9, 37.10, 37.11, 37.15, 37.16, 37.17_
 
-- [ ] 81.3 (P) ReceivedQuotationForm セッション保護・未保存変更ガード・並び順送信のユニットテスト
+- [x] 81.3 (P) ReceivedQuotationForm セッション保護・未保存変更ガード・並び順送信のユニットテスト
   - usePendingSaveAfterReauth: true→false 遷移時の自動再実行、sessionExpired=true 時のスキップ＋クリアのテスト
   - isFormDirty: scalar/File/lineItems 各規則に基づく差分検出のテスト（File 参照同一性、lineItems の各フィールド比較、amount/id 除外）
   - useUnsavedChangesGuard: isDirty=true 時の beforeunload 発火、confirmCloseIfDirty の挙動テスト

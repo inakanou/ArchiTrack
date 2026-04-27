@@ -27,15 +27,22 @@ import userEvent from '@testing-library/user-event';
 
 // Task 79.3: ReceivedQuotationForm が useAuth() を直接購読するため、
 // AuthProvider を含まない単体テスト環境向けに最小限のモックを提供する。
-// アサーションロジックは変更せず、test setup のみを補強する（第3原則準拠）。
+// Task 81.3: テスト毎に sessionExpiredDuringOperation / sessionExpired を切替えるため、
+// 可変オブジェクトを参照する形に拡張する（既存テストはデフォルト値=false で同等挙動を維持）。
+const mockAuthState = {
+  sessionExpiredDuringOperation: false,
+  sessionExpired: false,
+};
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
-    sessionExpiredDuringOperation: false,
-    sessionExpired: false,
+    sessionExpiredDuringOperation: mockAuthState.sessionExpiredDuringOperation,
+    sessionExpired: mockAuthState.sessionExpired,
   }),
 }));
 
 import { ReceivedQuotationForm } from './ReceivedQuotationForm';
+// Task 81.3: 401/409 系のリトライ・楽観的競合フローテストで ApiError をスローするため import
+import { ApiError } from '../../api/client';
 
 // FileInlinePreviewとOcrDataExtractorをモック
 vi.mock('./FileInlinePreview', () => ({
@@ -111,6 +118,9 @@ vi.mock('./OcrDataExtractor', () => ({
             onImportLineItems([
               {
                 id: 'mock-1',
+                sortOrder: 0,
+                customCategory: '',
+                workType: '',
                 name: 'テスト品目',
                 specification: 'テスト規格',
                 unit: '個',
@@ -156,6 +166,9 @@ vi.mock('./OcrDataExtractor', () => ({
             onImportLineItems([
               {
                 id: 'mock-1',
+                sortOrder: 0,
+                customCategory: '',
+                workType: '',
                 name: 'テスト品目',
                 specification: 'テスト規格',
                 unit: '個',
@@ -181,6 +194,9 @@ describe('ReceivedQuotationForm', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Task 81.3: 各テスト毎に mockAuthState をデフォルト（未認証エラー無し）に戻す
+    mockAuthState.sessionExpiredDuringOperation = false;
+    mockAuthState.sessionExpired = false;
   });
 
   describe('基本レンダリング (Task 26.1)', () => {
@@ -1746,6 +1762,477 @@ describe('ReceivedQuotationForm', () => {
       await userEvent.clear(netAmountInput);
       await userEvent.type(netAmountInput, '25000');
       expect(netAmountInput.value).toBe('25000');
+    });
+  });
+
+  // ==========================================================================
+  // Task 81.3: セッション保護・未保存変更ガード・並び順送信のロックインテスト
+  //
+  // Requirements:
+  // - 36.13: ダイアログ高さの上限制約維持（本テストでは UI 操作経路のみ確認、
+  //           リサイズ機能自体は FileInlinePreview のテストでカバー）
+  // - 37.13: 保存時に lineItems の sortOrder を index ベース 0,1,2,... で送信
+  // - 37.14: 一括取り込み・項目選択転記時に reassignSortOrder を適用
+  // - 38.1, 38.4, 38.5, 38.6, 38.7, 38.10, 38.12, 38.13:
+  //   セッション切れ時の編集状態保護・自動リトライ・楽観的競合・未保存変更ガード
+  // ==========================================================================
+  describe('Task 81.3: セッション保護・未保存変更ガード・並び順送信', () => {
+    /**
+     * 編集モード用の初期データ（sortOrder 非連続）
+     */
+    const initialDataWithGappedSortOrders = {
+      id: 'rq-sort',
+      estimateRequestId,
+      name: 'ソート順テスト',
+      submittedAt: new Date('2026-04-01'),
+      fileName: null as string | null,
+      fileMimeType: null as string | null,
+      fileSize: null as number | null,
+      lineItems: [
+        {
+          id: 'li-a',
+          receivedQuotationId: 'rq-sort',
+          sortOrder: 0,
+          customCategory: null,
+          workType: null,
+          name: 'A',
+          specification: null,
+          unit: '個',
+          quantity: 1,
+          unitPrice: 100,
+          amount: 100,
+          remarks: null,
+        },
+        {
+          id: 'li-b',
+          receivedQuotationId: 'rq-sort',
+          sortOrder: 5,
+          customCategory: null,
+          workType: null,
+          name: 'B',
+          specification: null,
+          unit: '個',
+          quantity: 2,
+          unitPrice: 200,
+          amount: 400,
+          remarks: null,
+        },
+        {
+          id: 'li-c',
+          receivedQuotationId: 'rq-sort',
+          sortOrder: 100,
+          customCategory: null,
+          workType: null,
+          name: 'C',
+          specification: null,
+          unit: '個',
+          quantity: 3,
+          unitPrice: 300,
+          amount: 900,
+          remarks: null,
+        },
+      ],
+      totalAmount: 1400,
+      netAmount: null as number | null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // ------------------------------------------------------------------------
+    // (1) 保存時の sortOrder index ベース連続採番 (Requirements: 37.13)
+    // ------------------------------------------------------------------------
+    it('保存時に lineItems の sortOrder が index ベース 0,1,2,... で送信される (Requirements: 37.13)', async () => {
+      mockOnSubmit.mockResolvedValueOnce(undefined);
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithGappedSortOrders}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const submitButton = screen.getByRole('button', { name: /更新/ });
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalled();
+      });
+
+      const submittedData = mockOnSubmit.mock.calls[0]![0] as {
+        lineItems: { name: string; sortOrder: number }[];
+      };
+      expect(submittedData.lineItems).toBeDefined();
+      // 送信時は index ベースで 0,1,2,... に再採番される
+      const sortOrders = submittedData.lineItems.map((it) => it.sortOrder);
+      expect(sortOrders).toEqual([0, 1, 2]);
+      // 表示順 = 入力順 = sortOrder 順 を担保
+      const names = submittedData.lineItems.map((it) => it.name);
+      expect(names).toEqual(['A', 'B', 'C']);
+    });
+
+    // ------------------------------------------------------------------------
+    // (2) 401 受信時に pendingSaveOperation を維持し、再認証成功で自動再実行
+    //     (Requirements: 38.1, 38.6)
+    // ------------------------------------------------------------------------
+    it('401 受信時に保存状態を維持し、再認証成功時に保存処理が自動再実行される (Requirements: 38.1, 38.6)', async () => {
+      // 1回目: 401 で reject, 2回目: 成功
+      mockOnSubmit
+        .mockRejectedValueOnce(new ApiError(401, 'Unauthorized'))
+        .mockResolvedValueOnce(undefined);
+
+      const { rerender } = render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 明細行に最低1行のデータを入力（バリデーション通過）
+      const nameInputs = screen.getAllByPlaceholderText(/名称/);
+      await userEvent.type(nameInputs[0]!, 'リトライ品目');
+
+      // 1 回目の保存（401）
+      const submitButton = screen.getByRole('button', { name: /登録/ });
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+      });
+
+      // 楽観的競合エラーは表示されない（401 は別系統）
+      expect(screen.queryByTestId('optimistic-conflict-error')).not.toBeInTheDocument();
+      // 一般保存エラーも表示されない（401 はグローバルモーダル側で処理）
+      expect(screen.queryByTestId('save-error')).not.toBeInTheDocument();
+
+      // 再認証中フラグ ON
+      mockAuthState.sessionExpiredDuringOperation = true;
+      rerender(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // 再認証成功（true → false 遷移、sessionExpired は false のまま）
+      mockAuthState.sessionExpiredDuringOperation = false;
+      mockAuthState.sessionExpired = false;
+      rerender(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // pending save が自動再実行され、onSubmit が 2 回目に呼ばれる
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // (3) 409 競合時の楽観的排他制御エラーフロー（再認証フローと独立）
+    //     (Requirements: 38.10)
+    // ------------------------------------------------------------------------
+    it('409 競合時に optimistic-conflict-error が表示され、再認証リトライは発火しない (Requirements: 38.10)', async () => {
+      mockOnSubmit.mockRejectedValueOnce(new ApiError(409, 'Conflict'));
+
+      const { rerender } = render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const nameInputs = screen.getAllByPlaceholderText(/名称/);
+      await userEvent.type(nameInputs[0]!, '競合品目');
+
+      const submitButton = screen.getByRole('button', { name: /登録/ });
+      await userEvent.click(submitButton);
+
+      // 楽観的排他制御エラー表示（Req 38.10）
+      expect(await screen.findByTestId('optimistic-conflict-error')).toBeInTheDocument();
+
+      const callCountAfter409 = mockOnSubmit.mock.calls.length;
+      expect(callCountAfter409).toBe(1);
+
+      // 再認証中→成功遷移を発生させても、409 では pending がクリア済みのためリトライしない
+      mockAuthState.sessionExpiredDuringOperation = true;
+      rerender(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+      mockAuthState.sessionExpiredDuringOperation = false;
+      rerender(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await Promise.resolve();
+      // onSubmit の呼び出し回数は 1 回のまま
+      expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+    });
+
+    // ------------------------------------------------------------------------
+    // (4) 再認証中の操作ボタン非活性化 (Requirements: 38.4, 38.5)
+    // ------------------------------------------------------------------------
+    it('sessionExpiredDuringOperation=true の間、保存・ファイル UP・項目選択・明細行操作が disabled になる (Requirements: 38.4)', () => {
+      mockAuthState.sessionExpiredDuringOperation = true;
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={[
+            {
+              customCategory: '躯体',
+              workType: '鉄筋',
+              name: '鉄筋D10',
+              specification: 'SD295A',
+              unit: 'kg',
+              quantity: 100,
+              remarks: '',
+            },
+          ]}
+        />
+      );
+
+      // 保存ボタンが disabled
+      const submitButton = screen.getByRole('button', { name: /登録/ });
+      expect(submitButton).toBeDisabled();
+
+      // ファイル input が disabled
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      expect(fileInput).toBeDisabled();
+
+      // 項目選択から転記ボタン（selectedItems あり）も disabled
+      const transcribeButton = screen.getByTestId('transcription-button');
+      expect(transcribeButton).toBeDisabled();
+
+      // 受領見積書名・提出日も非活性
+      expect(screen.getByLabelText(/受領見積書名/)).toBeDisabled();
+      expect(screen.getByLabelText(/提出日/)).toBeDisabled();
+
+      // キャンセルボタンは isSubmitting ベース（再認証フラグでは無効化されない）
+      const cancelButton = screen.getByRole('button', { name: /キャンセル/ });
+      expect(cancelButton).not.toBeDisabled();
+    });
+
+    // ------------------------------------------------------------------------
+    // (5) OCR 一括取り込み時の reassignSortOrder 適用 (Requirements: 37.14)
+    // ------------------------------------------------------------------------
+    it('OCR 一括取り込み後に保存すると lineItems の sortOrder が連続採番される (Requirements: 37.14)', async () => {
+      mockOnSubmit.mockResolvedValueOnce(undefined);
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // ファイルアップロード → OcrDataExtractor 表示
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      // モック OCR 取り込みボタンを起動（1 件取り込み）
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+      });
+      const importButton = screen.getByTestId('mock-import-button');
+      await userEvent.click(importButton);
+
+      // 取り込み後に保存
+      const submitButton = screen.getByRole('button', { name: /登録/ });
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalled();
+      });
+
+      const submittedData = mockOnSubmit.mock.calls[0]![0] as {
+        lineItems?: { sortOrder: number; name: string }[];
+      };
+      expect(submittedData.lineItems).toBeDefined();
+      // OCR 取り込み 1 件 → sortOrder は [0]（連続採番）
+      const sortOrders = submittedData.lineItems!.map((it) => it.sortOrder);
+      expect(sortOrders).toEqual([0]);
+      expect(submittedData.lineItems![0]!.name).toBe('テスト品目');
+    });
+
+    // ------------------------------------------------------------------------
+    // (6) 項目選択転記時の reassignSortOrder 適用 (Requirements: 37.14)
+    // ------------------------------------------------------------------------
+    it('項目選択転記後に保存すると lineItems の sortOrder が連続採番される (Requirements: 37.14)', async () => {
+      mockOnSubmit.mockResolvedValueOnce(undefined);
+
+      const selectedItems = [
+        {
+          customCategory: '躯体',
+          workType: '鉄筋',
+          name: '鉄筋A',
+          specification: 'SD295',
+          unit: 'kg',
+          quantity: 100,
+          remarks: '',
+        },
+        {
+          customCategory: '躯体',
+          workType: '鉄筋',
+          name: '鉄筋B',
+          specification: 'SD345',
+          unit: 'kg',
+          quantity: 200,
+          remarks: '',
+        },
+        {
+          customCategory: '躯体',
+          workType: 'コンクリート',
+          name: 'コンクリ',
+          specification: '21-8-20',
+          unit: 'm3',
+          quantity: 5,
+          remarks: '',
+        },
+      ];
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          selectedItems={selectedItems}
+        />
+      );
+
+      const transcribeButton = screen.getByRole('button', { name: /項目選択から転記/ });
+      await userEvent.click(transcribeButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/3件.*転記/)).toBeInTheDocument();
+      });
+
+      // 単価が空だと convertToLineItemInput を通っても name が空でない限り送信対象
+      // しかし unitPrice 空でも name があれば lineItems に含まれる
+      const submitButton = screen.getByRole('button', { name: /登録/ });
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalled();
+      });
+
+      const submittedData = mockOnSubmit.mock.calls[0]![0] as {
+        lineItems?: { sortOrder: number; name: string }[];
+      };
+      expect(submittedData.lineItems).toBeDefined();
+      // 3 件 → sortOrder は [0, 1, 2]
+      const sortOrders = submittedData.lineItems!.map((it) => it.sortOrder);
+      expect(sortOrders).toEqual([0, 1, 2]);
+      const names = submittedData.lineItems!.map((it) => it.name);
+      expect(names).toEqual(['鉄筋A', '鉄筋B', 'コンクリ']);
+    });
+
+    // ------------------------------------------------------------------------
+    // (7) 保存成功時の snapshot 更新と isDirty=false 復帰
+    //     (Requirements: 38.12, design.md 4911)
+    // ------------------------------------------------------------------------
+    it('保存成功後はキャンセル時に未保存変更ガードが発火しない（snapshot が最新化される） (Requirements: 38.12)', async () => {
+      mockOnSubmit.mockResolvedValueOnce(undefined);
+      const confirmSpy = vi.spyOn(window, 'confirm');
+
+      try {
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            estimateRequestId={estimateRequestId}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        // 明細行に入力（dirty 状態を作る）
+        const nameInputs = screen.getAllByPlaceholderText(/名称/);
+        await userEvent.type(nameInputs[0]!, 'スナップショット品目');
+
+        // 保存実行 → 成功
+        const submitButton = screen.getByRole('button', { name: /登録/ });
+        await userEvent.click(submitButton);
+
+        await waitFor(() => {
+          expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+        });
+
+        // 保存成功後にキャンセルボタンをクリック
+        // snapshot が最新化されているため isDirty=false → window.confirm は呼ばれない
+        const cancelButton = screen.getByRole('button', { name: /キャンセル/ });
+        await userEvent.click(cancelButton);
+
+        expect(confirmSpy).not.toHaveBeenCalled();
+        expect(mockOnCancel).toHaveBeenCalled();
+      } finally {
+        confirmSpy.mockRestore();
+      }
+    });
+
+    // ------------------------------------------------------------------------
+    // (補) 未保存変更がある状態でキャンセル時に確認ダイアログが表示される
+    //     (Requirements: 38.12)
+    // ------------------------------------------------------------------------
+    it('未保存変更がある状態でキャンセル時に window.confirm が呼ばれる (Requirements: 38.12)', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      try {
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            estimateRequestId={estimateRequestId}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const nameInputs = screen.getAllByPlaceholderText(/名称/);
+        await userEvent.type(nameInputs[0]!, '未保存品目');
+
+        const cancelButton = screen.getByRole('button', { name: /キャンセル/ });
+        await userEvent.click(cancelButton);
+
+        // 未保存変更ガード（Req 38.12）が発火
+        expect(confirmSpy).toHaveBeenCalledWith(
+          '変更が保存されていません。閉じてもよろしいですか？'
+        );
+        expect(mockOnCancel).toHaveBeenCalled(); // confirm が true なのでキャンセル続行
+      } finally {
+        confirmSpy.mockRestore();
+      }
     });
   });
 });
