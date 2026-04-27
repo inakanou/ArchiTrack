@@ -1670,7 +1670,7 @@
   - _Boundary: LineItemActionMenu_
   - _Requirements: 37.4, 37.5, 37.9, 37.10, 37.11_
 
-- [ ] 78.3 LineItemEditor の上下移動操作・追加/削除整合化と既存削除ボタンの統合
+- [x] 78.3 LineItemEditor の上下移動操作・追加/削除整合化と既存削除ボタンの統合
   - handleMoveUp(rowIndex)/handleMoveDown(rowIndex) を実装し、隣接要素スワップ後に reassignSortOrder を適用して onLineItemsChange に渡す
   - handleAddRow を改訂し、新規行の sortOrder を `Math.max(...sortOrders) + 1`（空配列時は 0）で割り当てる
   - handleDeleteRow を改訂し、削除後に reassignSortOrder を適用する

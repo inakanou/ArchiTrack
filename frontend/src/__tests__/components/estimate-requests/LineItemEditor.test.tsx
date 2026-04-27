@@ -255,7 +255,13 @@ describe('LineItemEditor', () => {
   });
 
   describe('明細行削除テスト（Requirements: 11.16, 11.17, 11.18）', () => {
-    it('各明細行に削除ボタンが表示される（Requirements: 11.16）', () => {
+    // task 78.3 改訂4: 行内の独立した削除ボタンは LineItemActionMenu の
+    // メニュー項目（role="menuitem"）に統合された。各テストは「操作メニュー
+    // トグルを開いてからメニュー内の削除を取得する」フローへ最小修正している。
+    // 削除メニュー項目の disabled 制御は LineItemEditor の deleteDisabled prop
+    // を介して行うため、Req 11 AC 19（1 行のみのとき削除非活性）の挙動は維持。
+    it('各明細行に削除ボタンが表示される（Requirements: 11.16）', async () => {
+      const user = userEvent.setup();
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
@@ -285,14 +291,20 @@ describe('LineItemEditor', () => {
 
           remarks: '',
           // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
-          sortOrder: 0,
+          sortOrder: 1,
         },
       ];
 
       render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
 
-      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
-      expect(deleteButtons).toHaveLength(2);
+      // 各行のアクションメニュートグルが行末に存在する（=各行に削除導線がある）
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      expect(toggles).toHaveLength(2);
+
+      // メニューを開けば「削除」menuitem が露出することを確認
+      await user.click(toggles[0]!);
+      const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+      expect(deleteItem).toBeInTheDocument();
     });
 
     it('削除ボタンクリックで該当行を削除する（Requirements: 11.17）', async () => {
@@ -326,17 +338,17 @@ describe('LineItemEditor', () => {
 
           remarks: '',
           // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
-          sortOrder: 0,
+          sortOrder: 1,
         },
       ];
 
       render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
 
-      // 1行目の削除ボタンをクリック
-      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
-      const firstDeleteButton = deleteButtons[0];
-      expect(firstDeleteButton).toBeDefined();
-      await user.click(firstDeleteButton!);
+      // 1行目の操作メニューを開いて「削除」メニュー項目をクリック
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      await user.click(toggles[0]!);
+      const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+      await user.click(deleteItem);
 
       expect(mockOnLineItemsChange).toHaveBeenCalledTimes(1);
       const newItems = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[] | undefined;
@@ -344,17 +356,22 @@ describe('LineItemEditor', () => {
       expect(newItems?.[0]?.id).toBe('2');
     });
 
-    it('明細行が1行のみの場合は削除ボタンが非活性になる（Requirements: 11.18）', () => {
+    it('明細行が1行のみの場合は削除ボタンが非活性になる（Requirements: 11.18）', async () => {
+      const user = userEvent.setup();
       const emptyLineItem = createEmptyLineItem();
       render(
         <LineItemEditor lineItems={[emptyLineItem]} onLineItemsChange={mockOnLineItemsChange} />
       );
 
-      const deleteButton = screen.getByRole('button', { name: /削除/ });
-      expect(deleteButton).toBeDisabled();
+      // メニューを開いて「削除」menuitem の disabled 状態を確認
+      const toggle = screen.getByRole('button', { name: /の操作メニュー$/ });
+      await user.click(toggle);
+      const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+      expect(deleteItem).toBeDisabled();
     });
 
-    it('明細行が2行以上の場合は削除ボタンが活性になる', () => {
+    it('明細行が2行以上の場合は削除ボタンが活性になる', async () => {
+      const user = userEvent.setup();
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
@@ -384,16 +401,21 @@ describe('LineItemEditor', () => {
 
           remarks: '',
           // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
-          sortOrder: 0,
+          sortOrder: 1,
         },
       ];
 
       render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
 
-      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
-      deleteButtons.forEach((btn) => {
-        expect(btn).not.toBeDisabled();
-      });
+      // 各行ごとにメニューを開いて、削除メニュー項目が活性であることを確認
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      for (const toggle of toggles) {
+        await user.click(toggle);
+        const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+        expect(deleteItem).not.toBeDisabled();
+        // メニューを閉じてから次の行を検証する
+        await user.keyboard('{Escape}');
+      }
     });
   });
 
@@ -719,9 +741,10 @@ describe('LineItemEditor', () => {
       const addButton = screen.getByRole('button', { name: '行を追加' });
       expect(addButton).toBeDisabled();
 
-      // 削除ボタンもdisabled
-      const deleteButton = screen.getByRole('button', { name: /削除/ });
-      expect(deleteButton).toBeDisabled();
+      // 操作メニューのトグルボタンもdisabled（task 78.3 改訂4: 削除導線は
+      // LineItemActionMenu に統合され、disabled 時はメニュー全体が非活性化される）
+      const toggle = screen.getByRole('button', { name: /の操作メニュー$/ });
+      expect(toggle).toBeDisabled();
     });
   });
 

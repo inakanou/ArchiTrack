@@ -2,6 +2,7 @@
  * @fileoverview 構造化明細行入力エディタコンポーネント
  *
  * Task 23.1: LineItemEditorコンポーネントの実装
+ * Task 78.3: 並び順保持・上下移動・アクションメニュー集約への改訂4対応
  *
  * Requirements:
  * - 11.9: 構造化データ入力エリアに明細行フィールドを表示する
@@ -11,12 +12,20 @@
  * - 11.13: フォーム初期表示時に1行の空の明細行を表示する
  * - 11.14: 明細行の追加ボタンを表示する
  * - 11.15: 追加ボタンクリックで新しい空の明細行を末尾に追加する
- * - 11.16: 各明細行に削除ボタンを表示する
+ * - 11.16: 各明細行に削除ボタンを表示する（task 78.3 でアクションメニュー内に統合）
  * - 11.17: 削除ボタンクリックで該当行を削除し合計金額を再計算する
  * - 11.18: 明細行が1行のみの場合は削除ボタンを非活性にする
  * - 11.19: Tabキーによるフィールド間の順次移動をサポートする
  * - 11.20: 最終フィールドでTabキーを押すと次の明細行の最初のフィールドへ移動する
  * - 11.21: 金額フィールドは入力不可（読み取り専用）とする
+ * - 37.2: 受領見積書登録画面の明細行を sortOrder の昇順で表示する
+ * - 37.3: 受領見積書編集画面の明細行を sortOrder の昇順で表示する
+ * - 37.6: 行内既存削除ボタンをアクションメニュー内に統合する
+ * - 37.7: 「上に移動」操作で隣接要素とスワップして並び順を更新する
+ * - 37.8: 「下に移動」操作で隣接要素とスワップして並び順を更新する
+ * - 37.12: 並び替え操作はクライアントサイドのみで状態を管理する
+ * - 37.15: 行追加時に末尾 sortOrder の次の値を割り当てる
+ * - 37.17: 並び替え操作後も Tab 順次移動を表示順序に追従させる
  */
 
 import {
@@ -422,30 +431,79 @@ export function LineItemEditor({
   const tableRef = useRef<HTMLTableElement>(null);
 
   // --------------------------------------------------------------------------
+  // 表示用ソート（task 78.3 / Req 37.2, 37.3）
+  // --------------------------------------------------------------------------
+  // design.md 4677-4680, 4719: lineItems は常に sortOrder 順で表示・操作する。
+  // render 直前で sortBySortOrder を一度だけ適用し、その結果を表示・各種ハンドラ
+  // のインデックス基準として共通利用することで、表示順 (=DOM 順) とデータ順を
+  // 一致させる。これにより Req 37.17（並び替え後も Tab 順次移動が表示順序に
+  // 追従する）も DOM 順を維持するだけで自然に満たされる。
+  const sortedItems = useMemo(() => sortBySortOrder(lineItems), [lineItems]);
+
+  // --------------------------------------------------------------------------
   // 合計金額の計算（useMemo）
   // --------------------------------------------------------------------------
 
   const totalAmount = useMemo(() => calculateTotalAmount(lineItems), [lineItems]);
 
   // --------------------------------------------------------------------------
-  // 明細行の追加
+  // 明細行の追加（task 78.3 / Req 37.15）
   // --------------------------------------------------------------------------
+  // design.md 4702-4709: 新規行の sortOrder は既存最大値 + 1（空配列時は 0）。
 
   const handleAddLine = useCallback(() => {
-    const newItems = [...lineItems, createEmptyLineItem()];
+    const nextSortOrder =
+      lineItems.length === 0 ? 0 : Math.max(...lineItems.map((item) => item.sortOrder)) + 1;
+    const newItems = [...lineItems, createEmptyLineItem(nextSortOrder)];
     onLineItemsChange(newItems);
   }, [lineItems, onLineItemsChange]);
 
   // --------------------------------------------------------------------------
-  // 明細行の削除
+  // 明細行の削除（task 78.3 / Req 11 AC 17, 37.6）
   // --------------------------------------------------------------------------
+  // design.md 4711-4715: 削除後に reassignSortOrder で 0,1,2,... の連続性を維持する。
 
   const handleDeleteLine = useCallback(
     (id: string) => {
-      const newItems = lineItems.filter((item) => item.id !== id);
-      onLineItemsChange(newItems);
+      const filtered = lineItems.filter((item) => item.id !== id);
+      onLineItemsChange(reassignSortOrder(filtered));
     },
     [lineItems, onLineItemsChange]
+  );
+
+  // --------------------------------------------------------------------------
+  // 明細行の上に移動 / 下に移動（task 78.3 / Req 37.7, 37.8）
+  // --------------------------------------------------------------------------
+  // design.md 4683-4700: 表示順 (sortedItems) における隣接要素とスワップし、
+  // reassignSortOrder で 0,1,2,... の連続値に再採番する。
+  // rowIndex は表示順インデックス（=sortedItems の index）を受け取る。
+
+  const handleMoveUp = useCallback(
+    (rowIndex: number) => {
+      if (rowIndex <= 0) return; // 先頭行は無視（Req 37.9 の防御）
+      const next = [...sortedItems];
+      const prev = next[rowIndex - 1];
+      const cur = next[rowIndex];
+      if (!prev || !cur) return;
+      next[rowIndex - 1] = cur;
+      next[rowIndex] = prev;
+      onLineItemsChange(reassignSortOrder(next));
+    },
+    [sortedItems, onLineItemsChange]
+  );
+
+  const handleMoveDown = useCallback(
+    (rowIndex: number) => {
+      if (rowIndex >= sortedItems.length - 1) return; // 末尾行は無視（Req 37.10 の防御）
+      const next = [...sortedItems];
+      const cur = next[rowIndex];
+      const after = next[rowIndex + 1];
+      if (!cur || !after) return;
+      next[rowIndex] = after;
+      next[rowIndex + 1] = cur;
+      onLineItemsChange(reassignSortOrder(next));
+    },
+    [sortedItems, onLineItemsChange]
   );
 
   // --------------------------------------------------------------------------
@@ -519,7 +577,9 @@ export function LineItemEditor({
       // 現在のフィールドが行の最終フィールド（備考）であるか確認
       const isLastField = fieldName === FIELD_ORDER[FIELD_ORDER.length - 1];
 
-      if (isLastField && rowIndex < lineItems.length - 1) {
+      // task 78.3 / Req 37.17: 「次の行」は表示順 (sortedItems) 上の次の行を指す。
+      // data-row はソート後インデックスで採番されるため、DOM 順序と整合する。
+      if (isLastField && rowIndex < sortedItems.length - 1) {
         // 次の行が存在する場合、次の行の最初のフィールドにフォーカス
         e.preventDefault();
         const nextRowIndex = rowIndex + 1;
@@ -532,14 +592,16 @@ export function LineItemEditor({
         }
       }
     },
-    [lineItems.length]
+    [sortedItems.length]
   );
 
   // --------------------------------------------------------------------------
   // レンダリング
   // --------------------------------------------------------------------------
 
-  const canDelete = lineItems.length > 1;
+  // task 78.3: 削除可否は表示順上の長さに基づく（=元配列長と等しいが、
+  // sortedItems を表示の真とするため統一する）。
+  const canDelete = sortedItems.length > 1;
 
   return (
     <div style={styles.container}>
@@ -582,7 +644,7 @@ export function LineItemEditor({
           </tr>
         </thead>
         <tbody>
-          {lineItems.map((item, index) => (
+          {sortedItems.map((item, index) => (
             <tr key={item.id}>
               {/* No */}
               <td style={{ ...styles.td, ...styles.tdNo }}>{index + 1}</td>
@@ -740,20 +802,22 @@ export function LineItemEditor({
                 />
               </td>
 
-              {/* 操作（削除ボタン） */}
+              {/* 操作（アクションメニュー） - task 78.3 / Req 37.4-37.6 */}
+              {/* design.md 4724: 既存の行内削除ボタンと同じ列（行末）に配置し、列幅は変更しない。
+                  Req 11 AC 19（1 行のみのとき削除を非活性化）の責務は LineItemEditor 側で扱い、
+                  deleteDisabled を介してメニュー内の削除項目を非活性化する。 */}
               <td style={{ ...styles.td, ...styles.tdAction }}>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteLine(item.id)}
-                  disabled={disabled || !canDelete}
-                  style={{
-                    ...styles.deleteButton,
-                    ...(disabled || !canDelete ? styles.deleteButtonDisabled : {}),
-                  }}
-                  aria-label={`行${index + 1}を削除`}
-                >
-                  削除
-                </button>
+                <LineItemActionMenu
+                  isFirst={index === 0}
+                  isLast={index === sortedItems.length - 1}
+                  isOnly={sortedItems.length === 1}
+                  onMoveUp={() => handleMoveUp(index)}
+                  onMoveDown={() => handleMoveDown(index)}
+                  onDelete={() => handleDeleteLine(item.id)}
+                  disabled={disabled}
+                  deleteDisabled={!canDelete}
+                  ariaLabel={`行${index + 1}の操作メニュー`}
+                />
               </td>
             </tr>
           ))}
@@ -822,6 +886,15 @@ export interface LineItemActionMenuProps {
   onDelete: () => void;
   /** メニュー全体の非活性化（保存中・再認証中などに使用） */
   disabled?: boolean;
+  /**
+   * 削除メニュー項目のみを個別に非活性化するフラグ
+   *
+   * task 78.3: Req 11 AC 19（行が1行のみのとき削除を非活性化）の責務は
+   * LineItemEditor 側で扱う。LineItemEditor は `isOnly` 時に
+   * `deleteDisabled={true}` を渡すことで本コンポーネントの削除項目を
+   * disabled 表示にする。`disabled` (全体) と独立して制御できる点が要点。
+   */
+  deleteDisabled?: boolean;
   /** トグルボタンに付与する追加 aria-label（行番号などを補強する用途） */
   ariaLabel?: string;
 }
@@ -921,6 +994,7 @@ export function LineItemActionMenu({
   onMoveDown,
   onDelete,
   disabled = false,
+  deleteDisabled: deleteDisabledProp = false,
   ariaLabel,
 }: LineItemActionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -933,7 +1007,9 @@ export function LineItemActionMenu({
   // disabled 状態の判定（design.md 4571: isFirst/isLast/isOnly による上下移動の非活性）
   const moveUpDisabled = disabled || isFirst || isOnly;
   const moveDownDisabled = disabled || isLast || isOnly;
-  const deleteDisabled = disabled;
+  // task 78.3: 削除メニュー項目は親（LineItemEditor）から渡される
+  // deleteDisabled prop と全体 disabled の OR で確定する。
+  const deleteDisabled = disabled || deleteDisabledProp;
 
   // メニューを閉じてトグルボタンへフォーカスを戻す（Escape クローズ時）
   const closeMenuAndRestoreFocus = useCallback(() => {
