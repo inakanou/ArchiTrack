@@ -4198,3 +4198,844 @@ async function handleGenerateReport(): Promise<void> {
 - **現場調査報告書出力（正常系）**: 見積依頼詳細画面→「現場調査報告書出力」ボタンクリック→現場調査選択ドロップダウン表示→現場調査を選択→「出力」ボタンクリック→PDF生成中インジケーター表示→PDFダウンロード完了
 - **現場調査報告書出力（0件）**: 現場調査が存在しないプロジェクトの見積依頼詳細画面→「現場調査報告書出力」ボタンクリック→「現場調査が登録されていません」メッセージ表示確認
 - **現場調査報告書出力（キャンセル）**: 「現場調査報告書出力」ボタンクリック→選択ドロップダウン表示→「キャンセル」ボタンクリック→ドロップダウンが閉じることの確認
+
+## 受領見積書ダイアログ改善2 - 設計追記（Requirements 36-38）
+
+### Overview（追記6）
+
+**Purpose**: 受領見積書登録/編集ダイアログのユーザビリティとデータ保全性を強化する。インラインプレビューエリアの縦幅をユーザーがハンドルドラッグでリサイズできるようにし、リサイズ後の高さを localStorage に永続化する（Requirement 36）。明細行の並び順（sortOrder）を保持し、各行のアクションメニューに「上に移動」「下に移動」「削除」を統合してユーザーが任意の順序に並び替えられるようにする（Requirement 37）。受領見積書編集中のセッション切れに対し、`user-authentication/REQ-30` で実装済みの `SessionExpiredModal` を経由したインプレース再認証フローと、再認証成功後の保存処理自動リトライを組み合わせ、編集状態を完全保持する。さらに未保存変更状態でのダイアログクローズ・ページ離脱時に確認ダイアログを表示する（Requirement 38）。
+
+**Impact**: フロントエンドの `FileInlinePreview`、`LineItemEditor`、`ReceivedQuotationForm` の改訂と、明細行アクションメニューのサブコンポーネント新規追加に限定される。バックエンド・データモデル・APIスキーマの変更は不要（`LineItemInput.sortOrder` と `LineItemInfo.sortOrder` は既存）。新規外部ライブラリ追加は不要（リサイズハンドルは Pointer Events で実装、再認証モーダルは既存コンポーネントを再利用）。
+
+### Goals（追記6）
+
+- インラインプレビューの縦幅をユーザー操作で調整でき、明細行の入力スペースとバランスをとれる UI を提供する
+- リサイズ後の縦幅を同一ブラウザ環境で永続化し、ダイアログを反復する作業フローを快適にする
+- 受領見積書の明細行の順序を意図したとおりに保持し、上下移動による並び替えを可能にする
+- アクションメニュー集約により明細行の表示密度を保ちながら操作可能性を担保する（quantity-table の SortOrderButtons 集約と整合）
+- セッション切れ時の編集破棄ケースを完全解消する（再認証モーダル → 編集状態完全保持 → 保存自動リトライのワンストップフロー）
+- 未保存変更状態でのダイアログクローズ／ページ離脱時の誤操作防止を提供する
+
+### Non-Goals（追記6）
+
+- ドラッグ＆ドロップによる明細行並び替え（要件 37 ではアクションメニュー内の上下ボタン操作のみ）
+- リサイズ後の縦幅をサーバーに永続化してマルチデバイス共有する機能
+- 編集中フォーム全体をローカルドラフトとして自動保存する機能（受領見積書フォームの全状態を localStorage に逐次保存する仕組みは作らない）
+- セッション切れ以外の認証関連エラー（権限不足、アカウントロック等）の特別扱い
+- 既存 `SessionExpiredModal` の挙動変更（モーダル本体の仕様は user-authentication 側に従う）
+- リサイズ操作のキーボードショートカット（マウス/タッチドラッグのみ）
+
+### Architecture（追記6）
+
+変更範囲はフロントエンドの既存コンポーネント拡張に限定される。新規追加は明細行アクションメニュー用の小さなサブコンポーネント `LineItemActionMenu`（`LineItemEditor.tsx` 内）と、リサイズ高さ管理のカスタムフック `useResizableHeight`（`FileInlinePreview.tsx` 内）のみ。
+
+**再利用する既存モジュール**:
+- `frontend/src/components/SessionExpiredModal.tsx` -- 既存の再認証モーダル（user-authentication/REQ-30 で実装済み、`ProtectedLayout` でグローバルマウント）
+- `frontend/src/contexts/AuthContext.tsx` -- `sessionExpiredDuringOperation` フラグ、`sessionExpired` フラグ、`handleReauthSuccess`、`navigateToLogin`
+- `frontend/src/api/client.ts` -- 401 検知時の自動トークンリフレッシュおよび `sessionExpiredCallback` 通知（既存）
+- `frontend/src/api/received-quotations.ts` -- 既存 `LineItemInput.sortOrder` / `LineItemInfo.sortOrder` フィールド
+- `frontend/src/components/quantity-table/SortOrderButtons.tsx` -- 上下移動ボタン UI 先例（コンセプトを参照、受領見積書側はメニュー内に再構成）
+
+**新規追加（フロントエンドのみ）**:
+- `LineItemActionMenu` -- `LineItemEditor.tsx` 内のサブコンポーネント。明細行ごとのアクションメニュー（上に移動・下に移動・削除）
+- `useResizableHeight` -- `FileInlinePreview.tsx` 内のカスタムフック。Pointer Events によるドラッグ追従、最小・最大値クランプ、localStorage 永続化を担う
+- localStorage キー: `architrack:received-quotation:preview-height`
+
+### System Flows（追記6）
+
+#### セッション切れ時の保存自動リトライフロー（Requirements 38.1-38.7, 38.9, 38.11）
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Form as ReceivedQuotationForm
+    participant ApiClient as ApiClient
+    participant TokenMgr as TokenRefreshManager
+    participant AuthCtx as AuthContext
+    participant Modal as SessionExpiredModal
+    participant Server as Server
+
+    User->>Form: 「保存」ボタンクリック
+    Form->>Form: pendingSaveOperationRef = saveFn を保持
+    Form->>ApiClient: createReceivedQuotation()/updateReceivedQuotation()
+    ApiClient->>Server: POST/PUT
+    Server-->>ApiClient: 401 Unauthorized
+    ApiClient->>TokenMgr: refreshToken()
+    TokenMgr->>Server: refresh
+    Server-->>TokenMgr: 401（refresh失敗）
+    TokenMgr-->>ApiClient: refresh失敗
+    ApiClient->>AuthCtx: sessionExpiredCallback()
+    AuthCtx->>AuthCtx: setSessionExpiredDuringOperation(true)
+    AuthCtx->>Modal: isOpen = true
+    Note over Form: ダイアログと編集状態は React state で維持
+    Modal->>User: 認証情報入力フォーム表示
+
+    alt ユーザーが認証成功
+        User->>Modal: パスワード入力＋送信
+        Modal->>ApiClient: login()
+        ApiClient->>Server: POST /auth/login
+        Server-->>ApiClient: 200 + 新トークン
+        Modal->>AuthCtx: onReauthSuccess()
+        AuthCtx->>AuthCtx: setSessionExpiredDuringOperation(false)
+        Form->>Form: useEffect が false 遷移を検知
+        Form->>Form: pendingSaveOperationRef を再実行
+        Form->>ApiClient: 保存リトライ
+        ApiClient->>Server: POST/PUT（新トークン付き）
+        Server-->>ApiClient: 200 OK
+        Form->>User: 完了フィードバック・ダイアログクローズ
+    else ユーザーが「ログイン画面へ移動」を選択
+        Modal->>AuthCtx: onNavigateToLogin()
+        AuthCtx->>AuthCtx: setSessionExpiredDuringOperation(false), setSessionExpired(true)
+        Form->>Form: useEffect が sessionExpired=true を検知してリトライをスキップ
+        Note over Form: アプリ全体がログイン画面へ遷移、編集状態はユーザー選択により破棄
+    end
+```
+
+#### 明細行並び替えフロー（Requirements 37.7-37.13）
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Row as LineItemRow
+    participant Menu as LineItemActionMenu
+    participant Editor as LineItemEditor
+    participant Form as ReceivedQuotationForm
+    participant Server as Server
+
+    User->>Row: アクションメニュー（︙）クリック
+    Row->>Menu: メニュー展開
+    User->>Menu: 「上に移動」クリック
+    Menu->>Editor: onMoveUp(rowIndex)
+    Editor->>Editor: lineItems 配列内で index と index-1 をスワップ
+    Editor->>Editor: reassignSortOrder(items)（連続値再採番）
+    Editor->>Form: onLineItemsChange(newItems)
+    Note over Form: クライアント状態のみ更新、サーバーリクエストなし
+
+    User->>Form: 「保存」ボタンクリック
+    Form->>Server: createReceivedQuotation/updateReceivedQuotation（lineItems に sortOrder 含む）
+    Server-->>Form: 200 OK
+    Form->>Form: 取得 API レスポンスを sortOrder 昇順で再ソートして再表示
+```
+
+### Requirements Traceability（追記6）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 36.1 | 登録画面プレビューエリアにリサイズハンドル表示 | FileInlinePreview | useResizableHeight | - |
+| 36.2 | 編集画面プレビューエリアにリサイズハンドル表示 | FileInlinePreview | useResizableHeight | - |
+| 36.3 | PDF/画像/Excelプレビューに統一適用 | FileInlinePreview | useResizableHeight | - |
+| 36.4 | ハンドルドラッグで縦幅追従 | FileInlinePreview | useResizableHeight (PointerEvents) | - |
+| 36.5 | 縦幅最小値の定義 | FileInlinePreview | RESIZE_MIN_HEIGHT | - |
+| 36.6 | 縦幅最大値の動的算出 | FileInlinePreview | RESIZE_MAX_HEIGHT | - |
+| 36.7 | 最小値到達時の縮小抑止 | FileInlinePreview | useResizableHeight clamp | - |
+| 36.8 | 最大値到達時の拡大抑止 | FileInlinePreview | useResizableHeight clamp | - |
+| 36.9 | リサイズ完了時に永続化領域へ保存 | FileInlinePreview | useResizableHeight persist | - |
+| 36.10 | ダイアログ再表示時に保存値を初期値復元 | FileInlinePreview | useResizableHeight restore | - |
+| 36.11 | 保存値なし時のデフォルト値使用 | FileInlinePreview | RESIZE_DEFAULT_HEIGHT | - |
+| 36.12 | リサイズ後もページナビ・拡大縮小（Req 17/31）正常動作 | FileInlinePreview | - | - |
+| 36.13 | ダイアログ高さ上限の維持 | FileInlinePreview, ReceivedQuotationForm | RESIZE_MAX_HEIGHT 算出 | - |
+| 36.14 | リサイズハンドルの視覚的明示 | FileInlinePreview | resizeHandle styles | - |
+| 37.1 | 明細行に並び順情報を保持 | LineItemEditor | LineItemFormData.sortOrder | 並び替えフロー |
+| 37.2 | 登録画面で sortOrder 昇順表示 | LineItemEditor | sortBySortOrder | 並び替えフロー |
+| 37.3 | 編集画面で sortOrder 昇順表示 | LineItemEditor, ReceivedQuotationForm | sortBySortOrder | 並び替えフロー |
+| 37.4 | 行ごとのアクションメニュー表示 | LineItemEditor, LineItemActionMenu | - | - |
+| 37.5 | アクションメニュー内に上下/削除統合 | LineItemActionMenu | - | - |
+| 37.6 | 行内既存削除ボタンをメニュー内に統合（Req 11 AC 17 改訂） | LineItemEditor | - | - |
+| 37.7 | 上に移動操作 | LineItemEditor, LineItemActionMenu | onMoveUp | 並び替えフロー |
+| 37.8 | 下に移動操作 | LineItemEditor, LineItemActionMenu | onMoveDown | 並び替えフロー |
+| 37.9 | 先頭行の上ボタン非活性 | LineItemActionMenu | isUpDisabled | - |
+| 37.10 | 末尾行の下ボタン非活性 | LineItemActionMenu | isDownDisabled | - |
+| 37.11 | 1行のみ時の上下ボタン非活性 | LineItemActionMenu | isUpDisabled, isDownDisabled | - |
+| 37.12 | 並び替えはクライアントサイドで管理 | LineItemEditor | onLineItemsChange | 並び替えフロー |
+| 37.13 | 保存ボタン押下時に並び順を含めて一括コミット | ReceivedQuotationForm | createReceivedQuotation, updateReceivedQuotation | 並び替えフロー, 保存リトライフロー |
+| 37.14 | 一括取り込み/一括転記時に sortOrder 順次割当 | ReceivedQuotationForm, OcrDataExtractor | applyExtractedLineItems, applySelectedItems | - |
+| 37.15 | 行追加時に末尾連続 sortOrder 割当 | LineItemEditor | createEmptyLineItem 改訂 | - |
+| 37.16 | 行削除後の sortOrder 連続性維持 | LineItemEditor | reassignSortOrder | - |
+| 37.17 | 並び替え後も Tab 順序が表示順に追従 | LineItemEditor | useTabNavigation | - |
+| 38.1 | 保存処理での 401 検知時にダイアログ保持 | ReceivedQuotationForm | usePendingSaveAfterReauth | 保存リトライフロー |
+| 38.2 | セッション切れ検知時に再認証モーダル表示 | SessionExpiredModal（既存） | sessionExpiredDuringOperation | 保存リトライフロー |
+| 38.3 | モーダルにユーザー認証情報入力欄 | SessionExpiredModal（既存） | - | - |
+| 38.4 | モーダル表示中はダイアログ操作非活性 | ReceivedQuotationForm | isReauthInProgress | - |
+| 38.5 | モーダル表示中は編集状態完全保持 | ReceivedQuotationForm | React state 維持 | 保存リトライフロー |
+| 38.6 | 再認証成功時に保存自動リトライ | ReceivedQuotationForm | usePendingSaveAfterReauth | 保存リトライフロー |
+| 38.7 | リトライ成功時の通常完了フィードバック | ReceivedQuotationForm | onSaveSuccess | 保存リトライフロー |
+| 38.8 | 認証エラー時のメッセージ表示と再入力許可 | SessionExpiredModal（既存） | - | - |
+| 38.9 | ~~削除（design review Issue 1, 2026-04-27）: 既存 SessionExpiredModal にキャンセル UI 不在のため撤廃~~ | - | - | - |
+| 38.10 | リトライ後の楽観的排他制御競合は別エラーフロー | ReceivedQuotationForm | optimisticConflictHandler | - |
+| 38.11 | アップロード/OCR中のセッション切れも同フロー | ReceivedQuotationForm, OcrDataExtractor | sessionExpiredDuringOperation 監視 | 保存リトライフロー |
+| 38.12 | 未保存変更時のダイアログクローズ確認 | ReceivedQuotationForm | useUnsavedChangesGuard | - |
+| 38.13 | 未保存変更時のページ離脱確認 | ReceivedQuotationForm | beforeunload event | - |
+| 38.14 | モーダル経由認証は通常ログインと同等検証 | SessionExpiredModal（既存） | login API | - |
+
+### Components and Interfaces - 改訂（Requirements 36-38）
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|-----------|--------------|--------|--------------|------------------|-----------|
+| FileInlinePreview（拡張2） | Frontend/UI | プレビューエリアの縦幅リサイズ機能を追加し、localStorage に永続化 | 36.1-36.14 | useResizableHeight (新規 hook), Pointer Events API | State |
+| LineItemActionMenu（新規） | Frontend/UI | 明細行アクションメニュー（上下移動・削除を統合） | 37.4-37.5, 37.9-37.11 | - | Component |
+| LineItemEditor（改訂4） | Frontend/UI | 並び順保持・上下移動・アクションメニュー集約 | 37.1-37.2, 37.4, 37.6-37.12, 37.15-37.17 | LineItemActionMenu (P0) | State |
+| ReceivedQuotationForm（改訂4） | Frontend/UI | 並び順を含む一括保存・セッション切れ時の保存自動リトライ・未保存変更ガード | 36.13, 37.3, 37.13-37.14, 38.1, 38.4-38.7, 38.9-38.13 | LineItemEditor (P0), SessionExpiredModal (既存・P0), AuthContext (P0) | State |
+| OcrDataExtractor（拡張3） | Frontend/UI | アップロード/OCR中セッション切れの保存リトライフロー連携 | 38.11 | AuthContext (P0) | State |
+
+#### FileInlinePreview - 改訂2（プレビュー縦幅リサイズ）
+
+| Field | Detail |
+|-------|--------|
+| Intent | インラインプレビューエリア（PDF/画像/Excel）に縦方向リサイズハンドルを追加し、ユーザーがドラッグで縦幅を調整できるようにする。リサイズ後の高さは localStorage に永続化し、次回ダイアログ表示時に復元する |
+| Requirements | 36.1, 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9, 36.10, 36.11, 36.12, 36.13, 36.14 |
+
+**Responsibilities & Constraints**
+- プレビューエリア（pdfContainer/imageContainer/excelContainer）の縦幅を `height` プロパティで動的制御する
+- 各コンテナ下端にリサイズハンドル（高さ 6-8px のドラッグ可能バー）を表示する
+- Pointer Events（pointerdown/pointermove/pointerup）でドラッグ追従を実装する
+- 最小値（200px）／最大値（min(800px, viewport_height * 0.7)）でクランプする
+- リサイズ完了時（pointerup）に高さを localStorage に保存する
+- 既存の Req 17 ページナビゲーション、Req 31 拡大縮小、Req 33 明細行サイズ統一の挙動を変更しない
+- ダイアログ全体の `maxHeight: 90vh` 上限を尊重し、プレビュー単体で枠外にはみ出さない
+
+**Dependencies**
+- Internal: `useResizableHeight` カスタムフック（同ファイル内に新規実装） (P0)
+- External: ブラウザ標準 Pointer Events API、Web Storage API (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+/** リサイズ可能な高さの定数 */
+const RESIZE_MIN_HEIGHT = 200;
+const RESIZE_DEFAULT_HEIGHT = 400;
+const RESIZE_MAX_VIEWPORT_RATIO = 0.7;
+const RESIZE_MAX_ABSOLUTE_HEIGHT = 800;
+const RESIZE_STORAGE_KEY = 'architrack:received-quotation:preview-height';
+
+/** リサイズフックの返却型 */
+interface ResizableHeightHandle {
+  /** 現在の高さ（px） */
+  height: number;
+  /** リサイズハンドルに付与する pointerdown ハンドラ */
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  /** リサイズ操作中フラグ（カーソル/視覚効果用） */
+  isResizing: boolean;
+}
+
+/** 最大値計算（viewport 依存） */
+function computeMaxHeight(): number {
+  const viewportBased = Math.floor(window.innerHeight * RESIZE_MAX_VIEWPORT_RATIO);
+  return Math.min(RESIZE_MAX_ABSOLUTE_HEIGHT, viewportBased);
+}
+
+/** localStorage からの復元（Req 36.10, 36.11） */
+function loadPersistedHeight(): number {
+  try {
+    const raw = localStorage.getItem(RESIZE_STORAGE_KEY);
+    if (raw === null) return RESIZE_DEFAULT_HEIGHT;
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) return RESIZE_DEFAULT_HEIGHT;
+    return Math.min(Math.max(parsed, RESIZE_MIN_HEIGHT), computeMaxHeight());
+  } catch {
+    return RESIZE_DEFAULT_HEIGHT;
+  }
+}
+
+/** カスタムフック（design review Issue 3 対応: heightRef 方式により useEffect 再アタッチを回避） */
+function useResizableHeight(): ResizableHeightHandle {
+  const [height, setHeight] = useState<number>(loadPersistedHeight);
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+  const startYRef = useRef<number>(0);
+  const startHeightRef = useRef<number>(0);
+  const heightRef = useRef<number>(height);
+
+  // height を ref と同期: 毎レンダで最新値を heightRef.current に反映する
+  // これにより listener 内クロージャから常に最新値を参照できる
+  heightRef.current = height;
+
+  const onResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    startYRef.current = event.clientY;
+    startHeightRef.current = heightRef.current;
+    setIsResizing(true);
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (e: PointerEvent) => {
+      const delta = e.clientY - startYRef.current;
+      const max = computeMaxHeight();
+      const next = Math.min(
+        Math.max(startHeightRef.current + delta, RESIZE_MIN_HEIGHT),
+        max
+      );
+      setHeight(next);
+    };
+    const onUp = () => {
+      setIsResizing(false);
+      // heightRef.current で最新値を参照（クロージャ経由で安全に取得）
+      try {
+        localStorage.setItem(RESIZE_STORAGE_KEY, String(Math.floor(heightRef.current)));
+      } catch {
+        // localStorage 書込失敗時は黙って継続（プライベートブラウジング等）
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [isResizing]); // height を依存配列から外す: heightRef 経由で最新値を参照するため再アタッチ不要
+
+  return { height, onResizeStart, isResizing };
+}
+```
+
+**Implementation Notes**
+- Integration: 既存の `pdfContainer`、`imageContainer`、`excelContainer` の `maxHeight: '300px'/'500px'/'400px'` 固定値を `height: ${height}px` の動的指定に置き換える（Req 36.3）。`overflow: 'auto'` は維持し、コンテンツが高さを超える場合のスクロールを担保する
+- Integration: PDF プレビューの場合、Req 31 の拡大時スクロール（`overflow: auto`）と本リサイズが共存する。height 変更時にも react-pdf の `<Page>` の描画は影響を受けない（Req 36.12）
+- Integration: ページナビゲーションバー（前/次ページ）はプレビューコンテナの**外側**に配置されているため、リサイズ対象に含まれない。リサイズ対象は描画領域のみ（Req 36.12）
+- Visual: リサイズハンドルは各プレビューコンテナの直下に配置する。スタイル: `height: 6px`、`background: #e5e7eb`、`cursor: ns-resize`、ホバー時 `background: #9ca3af`、ドラッグ中 `background: #6b7280`（Req 36.14）
+- Visual: ハンドル要素には `aria-label="プレビューエリアの高さを変更"`、`role="separator"`、`aria-orientation="horizontal"` を付与しアクセシビリティを担保
+- Visual: ドラッグ中は `body { cursor: ns-resize; user-select: none; }` を適用してテキスト選択を抑止する（`isResizing` 状態で副作用としてクラス付与）
+- Persistence: localStorage 書込失敗（プライベートブラウジング、容量超過、無効化）時は黙ってフォールバックし、ダイアログ動作を阻害しない（Req 36.11 と整合）
+- Persistence: 保存値は `Math.floor(height)` で整数化し、復元時に min/max でクランプして異常値を防御する（Req 36.7, 36.8）
+- Compatibility: Pointer Events は IE 非対応だが、本プロダクトのサポート対象（Chrome/Firefox/Safari/Edge 最新）では問題ない
+
+##### スタイル変更
+
+```typescript
+const styles = {
+  // ...既存スタイル
+
+  pdfContainer: {
+    // 旧: maxHeight: '300px'
+    height: 'var(--preview-height, 400px)', // height は useResizableHeight で動的制御
+    overflow: 'auto',
+    border: '1px solid #d1d5db',
+    borderBottom: 'none',
+    backgroundColor: '#f9fafb',
+  } as React.CSSProperties,
+
+  imageContainer: {
+    // 旧: maxHeight: '500px'
+    height: 'var(--preview-height, 400px)',
+    overflow: 'auto',
+    border: '1px solid #d1d5db',
+    borderBottom: 'none',
+    backgroundColor: '#f9fafb',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as React.CSSProperties,
+
+  excelContainer: {
+    // 旧: maxHeight: '400px'
+    height: 'var(--preview-height, 400px)',
+    overflow: 'auto',
+    border: '1px solid #d1d5db',
+    borderBottom: 'none',
+    backgroundColor: '#ffffff',
+  } as React.CSSProperties,
+
+  resizeHandle: {
+    height: '6px',
+    backgroundColor: '#e5e7eb',
+    cursor: 'ns-resize',
+    border: '1px solid #d1d5db',
+    borderTop: 'none',
+    transition: 'background-color 0.15s',
+  } as React.CSSProperties,
+
+  resizeHandleActive: {
+    backgroundColor: '#6b7280',
+  } as React.CSSProperties,
+
+  resizeHandleHover: {
+    backgroundColor: '#9ca3af',
+  } as React.CSSProperties,
+};
+```
+
+#### LineItemActionMenu - 新規（明細行アクションメニュー）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 明細行ごとに「上に移動」「下に移動」「削除」を集約したアクションメニュー（ポップオーバー）を提供する |
+| Requirements | 37.4, 37.5, 37.9, 37.10, 37.11 |
+
+**Responsibilities & Constraints**
+- 縦三点リーダー（︙）アイコンの単一トグルボタンを行末に表示する
+- ボタンクリックで小さなポップオーバー（メニューパネル）を開閉する
+- メニュー項目: 「上に移動」「下に移動」「削除」の 3 つ
+- 各項目クリック時に対応するコールバックを呼び出し、メニューを自動で閉じる
+- 上下移動ボタンの非活性制御を `isFirst`/`isLast`/`isOnly` フラグで実施する（Req 37.9-37.11）
+- 外側クリック・Escape キーでメニューを閉じる
+- 既存の SortOrderButtons コンポーネントは流用せず、メニュー項目として組み込む（quantity-table の「アクションメニュー化」方針と統一）
+
+**Dependencies**
+- External: なし（純粋な React コンポーネント）
+
+**Contracts**: Component [x]
+
+##### Component Interface
+
+```typescript
+export interface LineItemActionMenuProps {
+  /** 該当行が先頭行かどうか（上に移動を非活性にする） */
+  isFirst: boolean;
+  /** 該当行が末尾行かどうか（下に移動を非活性にする） */
+  isLast: boolean;
+  /** 明細行が1行のみかどうか（上下と削除を非活性にする。削除は Req 11 AC 19 維持） */
+  isOnly: boolean;
+  /** 上に移動コールバック */
+  onMoveUp: () => void;
+  /** 下に移動コールバック */
+  onMoveDown: () => void;
+  /** 削除コールバック */
+  onDelete: () => void;
+  /** メニュー全体の非活性化（保存中・再認証中などに使用） */
+  disabled?: boolean;
+}
+
+export function LineItemActionMenu(props: LineItemActionMenuProps): JSX.Element;
+```
+
+**Implementation Notes**
+- Visual: トグルボタンは縦三点リーダー（`⋮` または `&vellip;`）。サイズは 24x24px、明細行の高さに揃える
+- Visual: メニューパネルは `position: absolute`、`right: 0`、`top: 100%`、影付き白背景、border-radius 4px
+- Interaction: メニュー外クリックで閉じる（document level の click リスナを useEffect で登録/解除）
+- Interaction: 各メニュー項目は `<button type="button">`。「削除」は赤字（color: #dc2626）でリスクを示す
+- A11y: メニュー全体に `role="menu"`、各項目に `role="menuitem"`、トグルボタンに `aria-haspopup="menu"`/`aria-expanded` を付与
+- A11y: メニュー展開時にフォーカスを最初の有効項目に移し、Escape で閉じてトグルボタンへフォーカスを戻す
+
+#### LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 明細行に sortOrder を保持し、上下移動による並び替えを実装する。既存の行内削除ボタンを LineItemActionMenu に集約する |
+| Requirements | 37.1, 37.2, 37.4, 37.6, 37.7, 37.8, 37.10, 37.11, 37.12, 37.15, 37.16, 37.17 |
+
+**Responsibilities & Constraints**
+- `LineItemFormData` 型に `sortOrder: number` を追加する
+- フォーム表示時に `lineItems` を sortOrder 昇順でソートする
+- 上に移動・下に移動操作時、配列内の隣接要素とスワップし、`reassignSortOrder` で 0,1,2,... の連続値に再採番する
+- 行追加時、新規行に `sortOrder = 既存の最大値 + 1` を割り当てる
+- 行削除時、削除後の残行の sortOrder を 0,1,2,... に再採番する
+- Req 11 AC 17（行内削除ボタン）の旧実装を削除し、LineItemActionMenu に集約する
+- 既存の Tab 順次移動（Req 11 AC 20-21）の対象列・順序は維持する。並び替えで行が動いても、画面上の表示順に追従する（DOM 順をそのまま保つため自然に追従）
+
+**Dependencies**
+- Internal: `LineItemActionMenu`（同ファイル内の新規サブコンポーネント） (P0)
+- External: なし
+
+**Contracts**: State [x]
+
+##### Type Changes
+
+```typescript
+/**
+ * 明細行のフォームデータ（改訂4: sortOrder を追加）
+ */
+export interface LineItemFormData {
+  /** クライアント側の一時 ID（generateId() で生成） */
+  id: string;
+  /** 並び順（0始まり、連続値） */
+  sortOrder: number;
+  customCategory: string;
+  workType: string;
+  name: string;
+  specification: string;
+  unit: string;
+  quantity: string;        // 入力時は文字列、保存時に数値変換
+  unitPrice: string;
+  amount: string;          // 自動計算結果
+  remarks: string;
+}
+
+/** 空行ファクトリ（改訂4: sortOrder を引数で受け取る） */
+function createEmptyLineItem(sortOrder: number): LineItemFormData {
+  return {
+    id: generateId(),
+    sortOrder,
+    customCategory: '',
+    workType: '',
+    name: '',
+    specification: '',
+    unit: '',
+    quantity: '',
+    unitPrice: '',
+    amount: '',
+    remarks: '',
+  };
+}
+
+/** sortOrder を 0,1,2,... の連続値に再採番（Req 37.16） */
+function reassignSortOrder(items: LineItemFormData[]): LineItemFormData[] {
+  return items.map((item, index) => ({ ...item, sortOrder: index }));
+}
+
+/** sortOrder 昇順ソート（Req 37.2, 37.3） */
+function sortBySortOrder(items: LineItemFormData[]): LineItemFormData[] {
+  return [...items].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+```
+
+##### 並び替え操作
+
+```typescript
+/** 上に移動（Req 37.7） */
+const handleMoveUp = useCallback((rowIndex: number) => {
+  if (rowIndex <= 0) return; // 先頭行は無視（Req 37.9 の防御）
+  const next = [...lineItems];
+  [next[rowIndex - 1], next[rowIndex]] = [next[rowIndex], next[rowIndex - 1]];
+  onLineItemsChange(reassignSortOrder(next));
+}, [lineItems, onLineItemsChange]);
+
+/** 下に移動（Req 37.8） */
+const handleMoveDown = useCallback((rowIndex: number) => {
+  if (rowIndex >= lineItems.length - 1) return; // 末尾行は無視（Req 37.10）
+  const next = [...lineItems];
+  [next[rowIndex], next[rowIndex + 1]] = [next[rowIndex + 1], next[rowIndex]];
+  onLineItemsChange(reassignSortOrder(next));
+}, [lineItems, onLineItemsChange]);
+
+/** 行追加（Req 37.15: 末尾連続 sortOrder 割当） */
+const handleAddRow = useCallback(() => {
+  const nextSortOrder = lineItems.length === 0
+    ? 0
+    : Math.max(...lineItems.map((item) => item.sortOrder)) + 1;
+  const next = [...lineItems, createEmptyLineItem(nextSortOrder)];
+  onLineItemsChange(next);
+}, [lineItems, onLineItemsChange]);
+
+/** 行削除（Req 37.16: 連続性維持） */
+const handleDeleteRow = useCallback((id: string) => {
+  const next = lineItems.filter((item) => item.id !== id);
+  onLineItemsChange(reassignSortOrder(next));
+}, [lineItems, onLineItemsChange]);
+```
+
+**Implementation Notes**
+- Integration: `LineItemEditor` の Props には影響しない。`onLineItemsChange` で渡す配列は常に表示順（=sortOrder 順）に整列されている前提を維持する
+- Integration: `OcrDataExtractor` 経由の一括取り込み（Req 13.11）と「項目選択から転記」（Req 15.4）で生成される明細行リストには、生成箇所で `reassignSortOrder` を適用してから `onLineItemsChange` に渡す（Req 37.14）
+- Integration: 編集時にサーバーから取得した `LineItemInfo[]` を `LineItemFormData[]` に変換する箇所で `sortBySortOrder` を呼び出してから state に設定する（Req 37.3）
+- Migration: 既存データに sortOrder が NULL のレコードがある場合は、API レイヤで配列インデックス順に 0,1,2,... を割り当ててから返却する（バックエンドは既に sort_order 列を持っているため、データ移行時の互換性は問題にならないが、フロントエンド側の防御として実装する）
+- Visual: 既存の行内「削除」ボタン（Req 11 AC 17）は LineItemActionMenu に統合する。これに伴い `LineItemEditor` 内の `<button onClick={() => onDelete(item.id)}>削除</button>` を `<LineItemActionMenu ...>` に置換する
+- Visual: `LineItemActionMenu` は既存の削除ボタンと同じ列（行末のアクション列）に配置する。列幅は変更しない
+- A11y: アクションメニュー化により Tab 移動は「メニュートグル → メニュー項目」になるため、Req 11 AC 20-21 の編集フィールド間 Tab 移動には干渉しない
+- Test: 上下移動・削除操作後の sortOrder の連続性、保存時の lineItems 配列の sortOrder 値が画面表示順と一致することを ユニットテストで検証する
+
+#### ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書登録/編集ダイアログのトップレベルとして、(1) lineItems 保存時の sortOrder 同期、(2) セッション切れ時の保存自動リトライ、(3) 未保存変更状態でのクローズ・離脱ガードを担う |
+| Requirements | 36.13, 37.3, 37.13, 37.14, 38.1, 38.4, 38.5, 38.6, 38.7, 38.10, 38.11, 38.12, 38.13 |
+
+**Responsibilities & Constraints**
+- ダイアログの表示・編集状態（受領見積書名、提出日、ファイル、明細行、NET金額、PDF プレビュー位置・倍率・縦幅）を React state として保持し、再認証モーダル表示中も維持する（Req 38.5）
+- 保存ボタン押下時、`pendingSaveOperationRef` に save 関数をキャッシュしてから API を呼び出す（Req 38.1）
+- API 呼び出しがセッション切れにより `sessionExpiredCallback` 経由で中断された場合、`pendingSaveOperationRef` は維持される
+- `useAuth().sessionExpiredDuringOperation` を監視し、true → false の遷移時に再認証成功と判定して `pendingSaveOperationRef` を再実行する（Req 38.6）
+- ただし `useAuth().sessionExpired` が true の場合（ログイン画面遷移選択）は再実行をスキップして `pendingSaveOperationRef` をクリアし、ユーザー選択の結果として編集状態の保持は行わずアプリ全体がログイン画面へ遷移する
+- 再認証中はダイアログ内の操作（保存ボタン、明細行編集、ファイルアップロード、OCR 実行、項目選択転記）を `isReauthInProgress` フラグで非活性化する（Req 38.4）
+- 保存リトライ後の楽観的排他制御競合（HTTP 409 等）は再認証フローと別系統のエラーフローで処理する（Req 38.10）
+- 未保存変更を `isDirty` フラグで管理し、ダイアログクローズ要求時に確認ダイアログを表示する（Req 38.12）
+- ダイアログがマウントされている間、`window.beforeunload` イベントで未保存変更時のページ離脱確認を表示する（Req 38.13）
+- 保存時に `lineItems` を sortOrder 昇順で送信する（Req 37.13）。`OcrDataExtractor` 経由および「項目選択から転記」経由で取り込んだデータは `reassignSortOrder` を通してから state に反映する（Req 37.14）
+
+**Dependencies**
+- Internal: `LineItemEditor`（改訂4） (P0)
+- Internal: `FileInlinePreview`（拡張2） (P0)
+- Internal: `OcrDataExtractor`（拡張3） (P0)
+- External: `useAuth()`（既存） (P0)
+- External: `SessionExpiredModal`（既存・`ProtectedLayout` でグローバル mount） (P0)
+
+**Contracts**: State [x]
+
+##### State Management
+
+```typescript
+/** ペンディング保存操作（再認証成功後にリトライする関数） */
+type PendingSaveOperation = () => Promise<void>;
+
+/** 受領見積書フォームの拡張状態（改訂4 で追加分） */
+interface FormExtendedState {
+  /** 再認証進行中フラグ（モーダル表示中の操作非活性化に使用） */
+  isReauthInProgress: boolean;
+  /** 編集状態が保存後と差分があるかどうか */
+  isDirty: boolean;
+}
+
+/** カスタムフック: セッション切れ時の保存自動リトライ */
+function usePendingSaveAfterReauth(): {
+  setPendingSave: (op: PendingSaveOperation) => void;
+  clearPendingSave: () => void;
+} {
+  const { sessionExpiredDuringOperation, sessionExpired } = useAuth();
+  const pendingRef = useRef<PendingSaveOperation | null>(null);
+  const prevReauthRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const wasReauthInProgress = prevReauthRef.current;
+    prevReauthRef.current = sessionExpiredDuringOperation;
+
+    // 再認証モーダルが閉じた瞬間のみ判定（true → false 遷移）
+    if (
+      wasReauthInProgress &&
+      !sessionExpiredDuringOperation &&
+      !sessionExpired &&
+      pendingRef.current
+    ) {
+      const op = pendingRef.current;
+      pendingRef.current = null;
+      void op();
+    }
+
+    // ログイン画面遷移選択時は pending をクリア
+    if (sessionExpired && pendingRef.current) {
+      pendingRef.current = null;
+    }
+  }, [sessionExpiredDuringOperation, sessionExpired]);
+
+  const setPendingSave = useCallback((op: PendingSaveOperation) => {
+    pendingRef.current = op;
+  }, []);
+
+  const clearPendingSave = useCallback(() => {
+    pendingRef.current = null;
+  }, []);
+
+  return { setPendingSave, clearPendingSave };
+}
+
+/** カスタムフック: 未保存変更ガード */
+function useUnsavedChangesGuard(isDirty: boolean): {
+  confirmCloseIfDirty: () => boolean;
+} {
+  // ページ離脱時のブラウザ標準確認ダイアログ（Req 38.13）
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // 仕様上文字列指定でブラウザ標準ダイアログ表示
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
+
+  // ダイアログクローズ要求時の確認（Req 38.12）
+  const confirmCloseIfDirty = useCallback((): boolean => {
+    if (!isDirty) return true;
+    return window.confirm('変更が保存されていません。閉じてもよろしいですか？');
+  }, [isDirty]);
+
+  return { confirmCloseIfDirty };
+}
+```
+
+##### 保存ハンドラ（リトライ対応）
+
+```typescript
+const { sessionExpiredDuringOperation } = useAuth();
+const { setPendingSave, clearPendingSave } = usePendingSaveAfterReauth();
+const isReauthInProgress = sessionExpiredDuringOperation;
+
+const performSave = useCallback(async (): Promise<void> => {
+  // lineItems は表示順 = sortOrder 順で送信される（LineItemEditor 側で整列済み）
+  const input: CreateReceivedQuotationInput | UpdateReceivedQuotationInput = {
+    name,
+    submittedAt,
+    file: selectedFile,
+    lineItems: lineItems.map((item, index) => ({
+      name: item.name,
+      customCategory: item.customCategory || undefined,
+      workType: item.workType || undefined,
+      specification: item.specification || undefined,
+      unit: item.unit || undefined,
+      quantity: parseQuantity(item.quantity),
+      unitPrice: parseUnitPrice(item.unitPrice),
+      amount: parseAmount(item.amount),
+      remarks: item.remarks || undefined,
+      sortOrder: index, // 0,1,2,... の連続値で送信（Req 37.13）
+    })),
+    netAmount,
+  };
+
+  try {
+    if (isEditMode) {
+      await updateReceivedQuotation(quotationId, input as UpdateReceivedQuotationInput);
+    } else {
+      await createReceivedQuotation(estimateRequestId, input as CreateReceivedQuotationInput);
+    }
+    clearPendingSave();
+    setIsDirty(false);
+    onSaveSuccess?.();
+    onClose();
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 409) {
+      // 楽観的排他制御競合: 再認証フローとは別ハンドリング（Req 38.10）
+      clearPendingSave();
+      setOptimisticConflictError(err);
+      return;
+    }
+    if (err instanceof ApiError && err.statusCode === 401) {
+      // 401 はクライアント層で sessionExpiredCallback 経由でモーダル表示中
+      // pendingSaveOperationRef を維持して再認証成功時のリトライを待機（Req 38.6）
+      // ここでは何もしない（pending は handleSave で既にセット済み）
+      return;
+    }
+    setSaveError(err instanceof Error ? err.message : '保存に失敗しました');
+    clearPendingSave();
+  }
+}, [name, submittedAt, selectedFile, lineItems, netAmount, /* ... */]);
+
+const handleSave = useCallback(async () => {
+  if (isReauthInProgress) return; // 再認証中は二重起動を抑止（Req 38.4）
+  setPendingSave(performSave);
+  await performSave();
+}, [isReauthInProgress, performSave, setPendingSave]);
+```
+
+**Implementation Notes**
+- Integration: 既存の `SessionExpiredModal` は `ProtectedLayout` でグローバルマウント済みのため、本フォーム内に新規モーダルを追加する必要はない。`ReceivedQuotationForm` は `useAuth()` 経由で `sessionExpiredDuringOperation` を購読するだけでよい
+- Integration: 既存の API クライアント（`frontend/src/api/client.ts`）は 401 検知時の自動リフレッシュ＋ `sessionExpiredCallback` 通知が動作している。本フォームでは追加の HTTP 拡張は不要
+- Integration: `OcrDataExtractor` 内のアップロード/OCR 処理中に 401 が発生した場合も、同じく `sessionExpiredCallback` 経由でモーダルが表示される。フォーム側で個別ハンドリングは不要だが、表示中のフォーム状態（編集中の明細行など）は React state として維持されるため Req 38.11 の「処理を中断して再認証モーダルを表示」は自然に成立する
+- Integration: 再認証成功後、OCR/アップロード処理は自動再実行しない（保存処理のみリトライ）。ユーザーは既存の「OCR リトライ」ボタン（Req 16.5）等で再実行する
+- isDirty 判定: `ReceivedQuotationForm` 内に **初期スナップショット** を保持し、現在の form state と比較して算出する。フィールド種別ごとに以下の比較規則を適用する：
+  - **scalar フィールド**（`name`, `submittedAt`, `netAmount`）: 値の文字列等価で比較（`submittedAt` は `Date` を ISO 文字列化、`netAmount` は数値→文字列化）。`null`/`undefined`/`''` の差異は正規化してから比較し、空入力同士は等価とする
+  - **`selectedFile`**（`File` オブジェクト）: 参照同一性（`===`）で判定。React state に `File` オブジェクトを保持しているため、ユーザーがファイルをドロップ/選択して差し替えた場合のみ参照が変わる。ファイル内容のハッシュ比較は不要
+  - **`lineItems`**（配列）: (a) 配列長が初期スナップショットと異なる、または (b) いずれかの行で `customCategory`/`workType`/`name`/`specification`/`unit`/`quantity`/`unitPrice`/`remarks`/`sortOrder` のいずれかが初期スナップショットと文字列等価で異なる、のいずれかが成立した場合に dirty。`amount` は数量×単価の自動計算結果のため判定対象から除外する。`id`（client-side 一時ID）は判定対象から除外
+  - **初期スナップショット確定タイミング**: ダイアログが open になった瞬間に `useEffect(() => { ... }, [quotationId, isOpen])` で固定する。編集時はサーバー応答を、登録時は空状態（`createEmptyLineItem(0)` 1行＋空スカラー＋ `selectedFile=null`＋ `netAmount=null`）をそのまま保持する
+  - **算出**: `useMemo(() => isFormDirty(currentState, snapshot), [name, submittedAt, selectedFile, lineItems, netAmount, snapshot])` で再評価コストを抑える。`isFormDirty` は上記規則を実装する純粋関数として `ReceivedQuotationForm.tsx` 内に定義する
+  - **保存成功時のリセット**: 保存成功（`onSaveSuccess`）の直前に snapshot を最新の form state で更新し、`isDirty=false` に戻す（ダイアログを閉じる前に未保存変更ガードが誤発火しないように）
+- Visual: ダイアログ閉じる操作（×ボタン、ダイアログ背景クリック、Esc キー）すべてに `confirmCloseIfDirty()` を介在させる
+- Visual: 再認証中（`isReauthInProgress`）はダイアログ内の保存ボタン、追加ボタン、削除メニュー、ファイルアップロード、OCR/データパース実行ボタンを `disabled` に切り替え、視覚的に処理保留中であることを示す。インラインプレビューやテキストフィールドの読み取り表示は維持（Req 38.5 の編集状態保持と矛盾しない、操作の非活性化のみ）
+- Error Handling: 楽観的排他制御競合（Req 14.6, Req 38.10）時は専用のエラーバナー＋「最新を読み込み」ボタンを表示する。再認証フローとは独立して扱う
+
+#### OcrDataExtractor - 拡張3（セッション切れ時の処理連携）
+
+| Field | Detail |
+|-------|--------|
+| Intent | OCR/データパース処理中にセッション切れが発生した場合、既存の `sessionExpiredCallback` 経由のモーダル表示に連携し、処理を中断する |
+| Requirements | 38.11 |
+
+**Responsibilities & Constraints**
+- 既存の OCR 実行（Claude Vision API 呼び出し、Tesseract.js フォールバック）の最中に発生した 401 は、`apiClient` の sessionExpiredCallback 経由で自動的にモーダルを表示する
+- OCR 処理中のローディング状態は、再認証モーダル表示中も維持しつつ、処理は中断する（API 呼び出しが reject される）
+- 再認証成功後、OCR/データパース処理は自動再開しない。ユーザーが既存の「OCR 実行」「OCR リトライ」（Req 16.5）「データパース実行」ボタンから再実行する
+
+**Dependencies**
+- External: `useAuth()`（既存） (P0)
+- External: `apiClient`（既存・401 ハンドリング統合済み） (P0)
+
+**Contracts**: State [x]
+
+**Implementation Notes**
+- Integration: 本コンポーネントには新規ロジック追加は最小限で、`useAuth().sessionExpiredDuringOperation` を購読し、true の間は OCR 関連ボタンの `disabled` 制御を行う（既に `isExtracting` 等の既存フラグがある場合は、それと OR で結合する）
+- Integration: 中断された OCR 処理は、`sessionExpiredDuringOperation` が false になった時点で `onSessionExpiredCancellation` 等のコールバックでクリア状態に戻し、ボタンが再活性化された状態でユーザーが再実行できるようにする
+
+### Data Models（追記6）
+
+データベーススキーマ・API スキーマの変更は不要。本追記での型変更はフロントエンド内部のみ。
+
+**フロントエンド型変更**:
+- `LineItemFormData` に `sortOrder: number` フィールド追加（既存型の拡張）
+- `LineItemFormData[]` を扱う変換層（API レスポンス → form data、form data → API 入力）に sortOrder の通し採番ロジックを追加
+
+**永続化スキーマ**: 変更なし。`received_quotation_line_items.sort_order` 列および `LineItemInput.sortOrder` / `LineItemInfo.sortOrder` API フィールドは既存。
+
+### Storage（追記6）
+
+**localStorage 仕様**:
+
+| Key | Value | Purpose | Lifecycle | Failure Mode |
+|-----|-------|---------|-----------|--------------|
+| `architrack:received-quotation:preview-height` | 整数文字列（例: `"450"`） | プレビューエリア縦幅の永続化（Req 36.9, 36.10） | リサイズ完了時に書き込み、ダイアログ表示時に読み込み | プライベートブラウジング/容量超過/無効化時はサイレントフォールバックして `RESIZE_DEFAULT_HEIGHT (400)` を使用（Req 36.11） |
+
+**衝突回避**: キーには `architrack:` 接頭辞と機能ドメイン（`received-quotation`）を含めて、他機能との衝突を防ぐ。
+
+### Migration Strategy（追記6）
+
+**データ移行**: 不要。
+
+**移行に伴う互換性**:
+- 既存の受領見積書データの `sort_order` 列はバックエンド側で既に保持されている。フロントエンドは取得時に sortOrder 昇順で表示するように変更する
+- もし既存データに sortOrder が NULL または未設定のレコードが存在する場合、フロントエンド側の変換層で配列インデックス順に 0,1,2,... を割り当てて防御的にハンドリングする
+- localStorage キーは新規追加であるため、既存ユーザー環境での衝突は発生しない
+
+**ロールバック**: 本追記の機能をロールバックする場合、フロントエンドの変更を巻き戻すのみで完結する。データベース・API 互換性に影響なし。
+
+### Testing Strategy（追記6）
+
+#### Unit Tests（追記6）
+
+**FileInlinePreview（拡張2）**:
+- リサイズハンドルが PDF/画像/Excel すべてのプレビューモードで表示されることの確認（Req 36.1, 36.2, 36.3）
+- ハンドルへの pointerdown → pointermove → pointerup イベント連鎖で height state がドラッグ位置に追従することの確認（Req 36.4）
+- 縦幅が `RESIZE_MIN_HEIGHT (200)` 未満にならないことの確認（Req 36.5, 36.7）
+- 縦幅が `computeMaxHeight()` の戻り値を超えないことの確認（Req 36.6, 36.8）
+- pointerup 完了時に `localStorage.setItem` が呼ばれ、`Math.floor(height)` 文字列が保存されることの確認（Req 36.9）
+- 初期マウント時に `localStorage.getItem` から取得した値が初期 height として復元されることの確認（Req 36.10）
+- localStorage に値がない場合のデフォルト値（`RESIZE_DEFAULT_HEIGHT (400)`）使用の確認（Req 36.11）
+- ページナビゲーション・拡大縮小操作後もリサイズ後の height が維持されることの確認（Req 36.12）
+- リサイズ操作中に `cursor: ns-resize` 等の視覚スタイルが適用されることの確認（Req 36.14）
+- localStorage アクセス失敗（モック失敗）時にエラーがスローされず、デフォルト値で継続動作することの確認（Req 36.11 の防御）
+
+**LineItemActionMenu（新規）**:
+- トグルボタンクリックでメニューが開閉することの確認（Req 37.4）
+- メニュー内に「上に移動」「下に移動」「削除」の 3 項目が表示されることの確認（Req 37.5）
+- `isFirst` true 時に「上に移動」が disabled となることの確認（Req 37.9）
+- `isLast` true 時に「下に移動」が disabled となることの確認（Req 37.10）
+- `isOnly` true 時に「上に移動」「下に移動」が両方 disabled となることの確認（Req 37.11）
+- 各メニュー項目クリック時に対応するコールバックが呼ばれ、メニューが自動で閉じることの確認
+- 外側クリック・Escape キーでメニューが閉じることの確認
+
+**LineItemEditor（改訂4）**:
+- 受領見積書編集時にサーバーから取得した lineItems が sortOrder 昇順で表示されることの確認（Req 37.2, 37.3）
+- 上に移動操作で対象行が 1 つ上に移動し、sortOrder が 0,1,2,... に再採番されることの確認（Req 37.7, 37.16）
+- 下に移動操作で対象行が 1 つ下に移動し、sortOrder が再採番されることの確認（Req 37.8, 37.16）
+- 行追加時に新規行の sortOrder が `Math.max(...sortOrders) + 1` となることの確認（Req 37.15）
+- 行削除時に残行の sortOrder が 0,1,2,... に再採番されることの確認（Req 37.16）
+- アクションメニュー化により行内に旧「削除」ボタンが存在しないことの確認（Req 37.6）
+- 並び替え後に Tab キーで明細行間を移動した際、表示順序通りに移動することの確認（Req 37.17）
+
+**ReceivedQuotationForm（改訂4）**:
+- 保存時に lineItems が sortOrder 順で送信され、各行の sortOrder が 0,1,2,... の連続値であることの確認（Req 37.13）
+- OCR 一括取り込み・項目選択転記で取り込んだ明細行に対して `reassignSortOrder` が適用されることの確認（Req 37.14）
+- セッション切れ（`sessionExpiredDuringOperation` が true）中にダイアログ内の操作ボタンが disabled となることの確認（Req 38.4）
+- セッション切れ中にダイアログの編集状態（name, submittedAt, lineItems, netAmount, file 等）が保持されることの確認（Req 38.5）
+- `sessionExpiredDuringOperation` が true → false に遷移した時点で `pendingSaveOperationRef` が再実行されることの確認（Req 38.6）
+- 再認証成功後の保存リトライが成功した際に `onSaveSuccess` と `onClose` が呼ばれることの確認（Req 38.7）
+- `sessionExpired` が true（ログイン画面遷移）の場合、`pendingSaveOperationRef` がクリアされ、再実行されないことの確認（Req 38.9）
+- 保存リトライ後の HTTP 409 競合時に楽観的排他制御エラーフローが起動し、再認証フローとは独立してエラーハンドリングされることの確認（Req 38.10）
+- isDirty=true で `onClose` を呼び出した際に `window.confirm` ダイアログが表示されることの確認（Req 38.12）
+- isDirty=true 時に `beforeunload` イベントで preventDefault が呼ばれることの確認（Req 38.13）
+
+#### Integration Tests（追記6）
+
+- ダイアログ表示 → リサイズ → ダイアログ閉じる → 再表示で同じ高さが復元される完全な永続化フローの確認（Req 36.9, 36.10）
+- 明細行を 5 行追加 → 中央の行を上に 2 回移動 → 保存 → 再取得して表示順が変更後の順序で復元されることの確認（Req 37.7, 37.13, 37.3）
+- セッション切れシミュレーション（API モックで 401 + リフレッシュ失敗）→ モーダル表示 → ダイアログ状態維持の確認 → モーダルで再認証成功 → 保存 API が同じペイロードでリトライされ成功することの確認（Req 38.1, 38.5, 38.6, 38.7）
+
+#### E2E Tests（追記6）
+
+- **プレビュー縦幅リサイズ（永続化）**: 受領見積書登録ダイアログを開く → PDF をアップロード → リサイズハンドルを下方向にドラッグして縦幅を拡大 → ダイアログを閉じる → 別の受領見積書登録ダイアログを開く → リサイズした縦幅が初期値として復元されていることの確認
+- **明細行並び替え**: 受領見積書編集画面を開く → 既存明細行 5 行が sortOrder 順で表示されることの確認 → 3 行目のアクションメニューを開く → 「上に移動」を 2 回クリック → 該当行が 1 行目に移動 → 保存 → 再度編集画面を開いて並び順が永続化されていることの確認
+- **アクションメニュー集約**: 明細行のアクションメニュー（︙）を開く → 「上に移動」「下に移動」「削除」が表示される → 行内に旧「削除」ボタンが存在しない → 1 行のみの状態では上下ボタンが非活性 → 「削除」も Req 11 AC 19 に従って非活性
+- **セッション切れ時の保存リトライ（再認証成功）**: 受領見積書登録ダイアログで明細行に複数行入力 → サーバ側でセッション期限切れをシミュレート → 「保存」ボタンクリック → SessionExpiredModal が表示される → ダイアログの編集内容（明細行、ファイル等）が背後で保持されている → モーダルで再認証成功 → 保存処理が自動実行される → 保存完了通知＋ダイアログクローズ → 一覧画面に新規受領見積書が表示される
+- **セッション切れ時のキャンセル**: 上記と同様の状況で SessionExpiredModal が表示された後、「ログイン画面へ移動」を選択 → ログイン画面へ遷移 → 再ログイン → 受領見積書登録ダイアログは閉じている（ペンディング保存はクリア済み）
+- **未保存変更時のクローズ確認**: 受領見積書編集ダイアログで明細行を変更 → ダイアログの ✕ ボタンをクリック → 「変更が保存されていません。閉じてもよろしいですか？」確認ダイアログが表示される → キャンセルでダイアログが閉じない・OK でダイアログが閉じることの確認
+- **未保存変更時のページ離脱確認**: 受領見積書編集ダイアログで内容を変更 → ブラウザのリロードボタン押下 → ブラウザ標準の「ページから移動しますか？」確認が表示される
+
+### Security Considerations（追記6）
+
+- **再認証**: `SessionExpiredModal` 経由の認証は通常のログインAPI（`POST /auth/login`）と同じエンドポイント・同じ認証検証ロジックを通る（Req 38.14）。本追記で認証経路を新設・短絡しない
+- **localStorage**: プレビュー縦幅は機密情報ではないため、localStorage への平文保存で問題ない。整数値のみを保存し、ユーザー入力起源の文字列を含めない（XSS 経路にしない）
+- **未保存変更ガード**: `window.confirm` および `beforeunload` はブラウザ標準機能であり、追加のセキュリティリスクは導入しない
+
+### Performance & Scalability（追記6）
+
+- リサイズ操作の `pointermove` イベントは ~60Hz で発火するが、state 更新は React の自動バッチ処理に任せる。サブピクセル変動を抑えたい場合は `requestAnimationFrame` ベースのスロットリングを Implementation Notes に記載済みの通り将来追加可能
+- 明細行の上下移動は O(n) の配列スワップ＋ O(n) の sortOrder 再採番。明細行は通常数十行レベルでありパフォーマンス影響なし
+- セッション切れリトライは pending operation を 1 件のみ保持する（重複起動なし）。再認証成功後の単発リトライのため負荷増なし
