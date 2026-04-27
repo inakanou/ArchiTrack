@@ -1684,7 +1684,7 @@
   - _Requirements: 37.2, 37.3, 37.6, 37.7, 37.8, 37.12, 37.15, 37.17_
 
 - [ ] 79. ReceivedQuotationForm にセッション保護・未保存変更ガード・並び順送信を統合（Requirements 38, 36.13, 37.13-37.14）
-- [ ] 79.1 (P) usePendingSaveAfterReauth カスタムフックの実装
+- [x] 79.1 (P) usePendingSaveAfterReauth カスタムフックの実装
   - pendingRef を useRef で保持し、setPendingSave/clearPendingSave コールバックを返却する
   - useAuth().sessionExpiredDuringOperation を購読し、prevReauthRef で true→false 遷移エッジを検知する
   - 遷移時に sessionExpired が false（再認証成功）の場合、pendingRef を再実行して null クリアする
