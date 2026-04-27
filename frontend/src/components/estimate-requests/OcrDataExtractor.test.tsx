@@ -73,6 +73,16 @@ vi.mock('xlsx', () => {
   };
 });
 
+// Task 80.1: OcrDataExtractor が useAuth() を直接購読するため、
+// AuthProvider を含まない単体テスト環境向けに最小限のモックを提供する。
+// 既存テストのアサーションロジックは変更せず、test setup のみを補強する（第3原則準拠）。
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({
+    sessionExpiredDuringOperation: false,
+    sessionExpired: false,
+  }),
+}));
+
 import { OcrDataExtractor } from './OcrDataExtractor';
 import type { LineItemFormData } from './LineItemEditor';
 import * as XLSX from 'xlsx';

@@ -1719,7 +1719,7 @@
   - _Requirements: 36.13, 37.3, 37.13, 37.14, 38.2, 38.4, 38.5, 38.10_
 
 - [ ] 80. OcrDataExtractor のセッション切れ時連携（Requirement 38.11）
-- [ ] 80.1 OcrDataExtractor で sessionExpiredDuringOperation を購読しボタン非活性化
+- [x] 80.1 OcrDataExtractor で sessionExpiredDuringOperation を購読しボタン非活性化
   - useAuth().sessionExpiredDuringOperation を購読する
   - true の間「OCR 実行」「OCR リトライ」「データパース実行」ボタンを isExtracting と OR 結合した条件で disabled にする
   - apiClient 経由ならば 401 検知が自動連鎖（タスク 76.2 で確認/対応済）するため、ローディング状態は中断されモーダル表示が走る
