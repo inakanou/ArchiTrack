@@ -62,6 +62,145 @@ const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3.0;
 const ZOOM_FIT_DEFAULT = 1.0;
 
+/**
+ * プレビュー縦幅リサイズ定数 (Task 77.1, Requirement 36.4-36.11)
+ *
+ * - RESIZE_MIN_HEIGHT: 最小縦幅（px）
+ * - RESIZE_DEFAULT_HEIGHT: localStorage に保存値が無い場合のデフォルト縦幅（px）
+ * - RESIZE_MAX_VIEWPORT_RATIO: ビューポート高さに対する最大比率
+ * - RESIZE_MAX_ABSOLUTE_HEIGHT: 絶対上限（px）
+ * - RESIZE_STORAGE_KEY: localStorage キー
+ */
+const RESIZE_MIN_HEIGHT = 200;
+const RESIZE_DEFAULT_HEIGHT = 400;
+const RESIZE_MAX_VIEWPORT_RATIO = 0.7;
+const RESIZE_MAX_ABSOLUTE_HEIGHT = 800;
+const RESIZE_STORAGE_KEY = 'architrack:received-quotation:preview-height';
+
+// ============================================================================
+// 縦幅リサイズフック (Task 77.1)
+// ============================================================================
+
+/**
+ * useResizableHeight フックの返却型
+ *
+ * Requirements:
+ * - 36.4: ドラッグ操作で縦幅を変更可能にする
+ * - 36.5: 最小値 200px / 最大値 min(800px, viewport_height * 0.7) でクランプする
+ * - 36.6: ドラッグ中フラグでカーソル/視覚効果を切り替える
+ */
+export interface ResizableHeightHandle {
+  /** 現在の高さ（px） */
+  height: number;
+  /** リサイズハンドルに付与する pointerdown ハンドラ */
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  /** リサイズ操作中フラグ（カーソル/視覚効果用） */
+  isResizing: boolean;
+}
+
+/**
+ * 最大縦幅を計算する（viewport 依存）
+ *
+ * Requirement 36.5: 最大値は min(RESIZE_MAX_ABSOLUTE_HEIGHT, viewport_height * RESIZE_MAX_VIEWPORT_RATIO)
+ */
+function computeMaxHeight(): number {
+  const viewportBased = Math.floor(window.innerHeight * RESIZE_MAX_VIEWPORT_RATIO);
+  return Math.min(RESIZE_MAX_ABSOLUTE_HEIGHT, viewportBased);
+}
+
+/**
+ * localStorage から永続化済みの縦幅を復元する
+ *
+ * Requirements:
+ * - 36.10: localStorage から復元する
+ * - 36.11: localStorage 取得失敗時はデフォルト値にフォールバックし、エラーをスローしない
+ *
+ * 戻り値は必ず [RESIZE_MIN_HEIGHT, computeMaxHeight()] の範囲にクランプされる。
+ * 値が存在しない / NaN / parse 失敗 / localStorage アクセス失敗時はデフォルト値を返す。
+ */
+function loadPersistedHeight(): number {
+  try {
+    const raw = localStorage.getItem(RESIZE_STORAGE_KEY);
+    if (raw === null) return RESIZE_DEFAULT_HEIGHT;
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) return RESIZE_DEFAULT_HEIGHT;
+    return Math.min(Math.max(parsed, RESIZE_MIN_HEIGHT), computeMaxHeight());
+  } catch {
+    // localStorage アクセス失敗（プライベートブラウジング、無効化）はサイレントフォールバック
+    return RESIZE_DEFAULT_HEIGHT;
+  }
+}
+
+/**
+ * プレビューエリアの縦幅をドラッグ操作でリサイズ可能にするカスタムフック
+ *
+ * Task 77.1
+ * Requirements:
+ * - 36.4: ドラッグ追従で縦幅を変更
+ * - 36.5: 最小値 200px / 最大値 min(800px, viewport_height * 0.7) でクランプ
+ * - 36.6: リサイズ中フラグを返却（UI 反映は 77.2 で実施）
+ * - 36.7: 最小値クランプ（負方向ドラッグ）
+ * - 36.8: 最大値クランプ（正方向ドラッグ）
+ * - 36.9: pointerup で操作を完了する
+ * - 36.10: pointerup 時点の高さを localStorage に保存
+ * - 36.11: localStorage 書込失敗時はサイレントフォールバック
+ *
+ * design review Issue 3 対応:
+ *   useEffect 依存配列から height を除外し、heightRef.current を経由して
+ *   listener 内クロージャから常に最新値を参照する（リスナ再アタッチを回避）。
+ */
+export function useResizableHeight(): ResizableHeightHandle {
+  const [height, setHeight] = useState<number>(loadPersistedHeight);
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+  const startYRef = useRef<number>(0);
+  const startHeightRef = useRef<number>(0);
+  const heightRef = useRef<number>(height);
+
+  // height を ref と同期: 毎レンダで最新値を heightRef.current に反映する
+  // これにより pointermove/pointerup の listener 内クロージャから常に最新値を参照できる
+  heightRef.current = height;
+
+  const onResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    startYRef.current = event.clientY;
+    startHeightRef.current = heightRef.current;
+    setIsResizing(true);
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const onMove = (e: PointerEvent) => {
+      const delta = e.clientY - startYRef.current;
+      const max = computeMaxHeight();
+      const next = Math.min(Math.max(startHeightRef.current + delta, RESIZE_MIN_HEIGHT), max);
+      setHeight(next);
+    };
+
+    const onUp = () => {
+      setIsResizing(false);
+      // heightRef.current で最新値を参照（クロージャ経由で安全に取得）
+      try {
+        localStorage.setItem(RESIZE_STORAGE_KEY, String(Math.floor(heightRef.current)));
+      } catch {
+        // localStorage 書込失敗（プライベートブラウジング、容量超過、無効化）はサイレントフォールバック
+      }
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    // height は依存配列から外す: heightRef 経由で最新値を参照するため再アタッチ不要
+  }, [isResizing]);
+
+  return { height, onResizeStart, isResizing };
+}
+
 // ============================================================================
 // ヘルパー関数
 // ============================================================================

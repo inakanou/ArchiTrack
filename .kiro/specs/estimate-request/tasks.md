@@ -1625,7 +1625,7 @@
   - _Requirements: 38.11_
 
 - [ ] 77. FileInlinePreview にプレビュー縦幅リサイズ機能を追加（Requirement 36）
-- [ ] 77.1 (P) useResizableHeight カスタムフックを実装
+- [x] 77.1 (P) useResizableHeight カスタムフックを実装
   - 高さ state を初期マウント時に localStorage（キー: `architrack:received-quotation:preview-height`）から復元、保存値なし時はデフォルト値 400px を採用する
   - heightRef を毎レンダで height と同期し、Pointer Events のクロージャから常に最新値を参照可能にする（design review Issue 3 対応）
   - onResizeStart で startY/startHeight を記録し setPointerCapture を呼び出す
