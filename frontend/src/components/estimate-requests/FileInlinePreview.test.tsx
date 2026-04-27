@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // ============================================================================
@@ -727,6 +727,428 @@ describe('FileInlinePreview', () => {
         expect(screen.getByRole('button', { name: /拡大/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /縮小/i })).toBeInTheDocument();
         expect(screen.getByTestId('zoom-level-text')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 81.1: useResizableHeight (Task 77.1 / 77.2) のリサイズ機能テスト
+  // Requirements: 36.1, 36.2, 36.3, 36.4, 36.5, 36.7, 36.8, 36.9, 36.10,
+  //               36.11, 36.12, 36.14
+  //
+  // 本ブロックは Task 77.1（useResizableHeight）と Task 77.2（リサイズハンドル
+  // 配置 + body スタイル副作用）の特性化テスト（characterization tests）として
+  // 既存の観察可能挙動を固定する。プロダクションコードは既に実装済みであり、
+  // RED フェーズは N/A だが、各テストは具体的な観察可能挙動を検証する。
+  // --------------------------------------------------------------------------
+
+  describe('FileInlinePreview - useResizableHeight (Task 77/81.1)', () => {
+    const RESIZE_STORAGE_KEY = 'architrack:received-quotation:preview-height';
+    const RESIZE_MIN_HEIGHT = 200;
+    const RESIZE_DEFAULT_HEIGHT = 400;
+
+    // jsdom は HTMLElement.prototype.setPointerCapture / releasePointerCapture
+    // を実装していない。useResizableHeight 内の onResizeStart で
+    // setPointerCapture(pointerId) を呼ぶため、テスト中はスタブする必要がある。
+    let originalSetPointerCapture:
+      | ((typeof HTMLElement.prototype)['setPointerCapture'] & (() => void))
+      | undefined;
+    let originalReleasePointerCapture:
+      | ((typeof HTMLElement.prototype)['releasePointerCapture'] & (() => void))
+      | undefined;
+
+    beforeEach(() => {
+      // jsdom 未実装の Pointer Capture API をスタブ化
+      originalSetPointerCapture = (HTMLElement.prototype as unknown as Record<string, unknown>)
+        .setPointerCapture as never;
+      originalReleasePointerCapture = (HTMLElement.prototype as unknown as Record<string, unknown>)
+        .releasePointerCapture as never;
+      (HTMLElement.prototype as unknown as Record<string, unknown>).setPointerCapture = vi.fn();
+      (HTMLElement.prototype as unknown as Record<string, unknown>).releasePointerCapture = vi.fn();
+    });
+
+    afterEach(() => {
+      // 復元: 他テストへの影響を避けるため
+      if (originalSetPointerCapture === undefined) {
+        delete (HTMLElement.prototype as unknown as Record<string, unknown>).setPointerCapture;
+      } else {
+        (HTMLElement.prototype as unknown as Record<string, unknown>).setPointerCapture =
+          originalSetPointerCapture;
+      }
+      if (originalReleasePointerCapture === undefined) {
+        delete (HTMLElement.prototype as unknown as Record<string, unknown>).releasePointerCapture;
+      } else {
+        (HTMLElement.prototype as unknown as Record<string, unknown>).releasePointerCapture =
+          originalReleasePointerCapture;
+      }
+    });
+
+    /**
+     * ImagePreview の外側 div（リサイズ対象コンテナ）を取得するヘルパ。
+     * 画像プレビュー時の高さ反映を検証する用途で使用する。
+     */
+    const getImageContainerHeightPx = (): number => {
+      const img = screen.getByRole('img');
+      const container = img.parentElement as HTMLElement;
+      const heightStyle = container.style.height;
+      // "400px" → 400
+      return Number.parseInt(heightStyle.replace('px', ''), 10);
+    };
+
+    describe('リサイズハンドル表示 (Req 36.1, 36.2, 36.3)', () => {
+      it('PDFプレビュー時にリサイズハンドルが表示される (36.1, 36.2, 36.3)', async () => {
+        const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+        render(<FileInlinePreview file={pdfFile} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('pdf-document')).toBeInTheDocument();
+        });
+
+        // role="separator" / aria-orientation="horizontal" / aria-label を持つ
+        const handle = screen.getByTestId('preview-resize-handle');
+        expect(handle).toBeInTheDocument();
+        expect(handle).toHaveAttribute('role', 'separator');
+        expect(handle).toHaveAttribute('aria-orientation', 'horizontal');
+        expect(handle).toHaveAttribute('aria-label', 'プレビューエリアの高さを変更');
+      });
+
+      it('画像プレビュー時にリサイズハンドルが表示される (36.1, 36.2, 36.3)', () => {
+        const imageFile = createMockFile('test.png', 'image/png');
+
+        render(<FileInlinePreview file={imageFile} />);
+
+        const handle = screen.getByTestId('preview-resize-handle');
+        expect(handle).toBeInTheDocument();
+        expect(handle).toHaveAttribute('role', 'separator');
+      });
+
+      it('Excelプレビュー時にリサイズハンドルが表示される (36.1, 36.2, 36.3)', async () => {
+        const excelFile = createMockFile(
+          'test.xlsx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+
+        render(<FileInlinePreview file={excelFile} />);
+
+        await waitFor(() => {
+          expect(screen.getByRole('table')).toBeInTheDocument();
+        });
+
+        const handle = screen.getByTestId('preview-resize-handle');
+        expect(handle).toBeInTheDocument();
+        expect(handle).toHaveAttribute('role', 'separator');
+      });
+    });
+
+    describe('ドラッグによる縦幅追従 (Req 36.4)', () => {
+      it('pointerdown→pointermove→pointerup で height がドラッグ位置に追従する (36.4)', async () => {
+        // localStorage は空の状態（=デフォルト 400px から開始）
+        const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+        // viewport を十分大きく取り、最大値クランプの影響を回避する
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', {
+          configurable: true,
+          value: 2000,
+        });
+
+        try {
+          const imageFile = createMockFile('test.png', 'image/png');
+          render(<FileInlinePreview file={imageFile} />);
+
+          // 初期高さは RESIZE_DEFAULT_HEIGHT (400)
+          expect(getImageContainerHeightPx()).toBe(RESIZE_DEFAULT_HEIGHT);
+
+          const handle = screen.getByTestId('preview-resize-handle');
+
+          // pointerdown: clientY=100 で開始
+          fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 });
+
+          // pointermove: clientY=150 → delta=+50 → 400 + 50 = 450
+          fireEvent.pointerMove(window, { pointerId: 1, clientY: 150 });
+
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(450);
+          });
+
+          // pointerup
+          fireEvent.pointerUp(window, { pointerId: 1, clientY: 150 });
+
+          // pointerup 後も height は維持される
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(450);
+          });
+
+          expect(getItemSpy).toHaveBeenCalledWith(RESIZE_STORAGE_KEY);
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+    });
+
+    describe('クランプ動作 (Req 36.5, 36.7, 36.8)', () => {
+      it('RESIZE_MIN_HEIGHT (200) 未満にならないようクランプされる (36.5, 36.7)', async () => {
+        vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        try {
+          const imageFile = createMockFile('test.png', 'image/png');
+          render(<FileInlinePreview file={imageFile} />);
+
+          expect(getImageContainerHeightPx()).toBe(RESIZE_DEFAULT_HEIGHT); // 400
+
+          const handle = screen.getByTestId('preview-resize-handle');
+
+          // 大きく上にドラッグ（delta=-1000）→ 400 - 1000 = -600 になるはずだが
+          // クランプにより RESIZE_MIN_HEIGHT (200) で止まる
+          fireEvent.pointerDown(handle, { pointerId: 1, clientY: 1000 });
+          fireEvent.pointerMove(window, { pointerId: 1, clientY: 0 });
+
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(RESIZE_MIN_HEIGHT);
+          });
+
+          fireEvent.pointerUp(window, { pointerId: 1, clientY: 0 });
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+
+      it('RESIZE_MAX_HEIGHT (min(800, viewport*0.7)) 超過にならないようクランプされる (36.5, 36.8)', async () => {
+        vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+        // viewport=1000 → max = min(800, 700) = 700
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 1000 });
+        const expectedMax = Math.min(800, Math.floor(1000 * 0.7)); // 700
+
+        try {
+          const imageFile = createMockFile('test.png', 'image/png');
+          render(<FileInlinePreview file={imageFile} />);
+
+          expect(getImageContainerHeightPx()).toBe(RESIZE_DEFAULT_HEIGHT);
+
+          const handle = screen.getByTestId('preview-resize-handle');
+
+          // 大きく下にドラッグ（delta=+5000）→ 400 + 5000 = 5400 だが
+          // computeMaxHeight() で 700 にクランプ
+          fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 });
+          fireEvent.pointerMove(window, { pointerId: 1, clientY: 5100 });
+
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(expectedMax);
+          });
+
+          fireEvent.pointerUp(window, { pointerId: 1, clientY: 5100 });
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+    });
+
+    describe('localStorage 永続化 (Req 36.9, 36.10, 36.11)', () => {
+      it('pointerup 完了時に localStorage.setItem が Math.floor(height) で呼ばれる (36.9)', async () => {
+        vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+        const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {});
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        try {
+          const imageFile = createMockFile('test.png', 'image/png');
+          render(<FileInlinePreview file={imageFile} />);
+
+          const handle = screen.getByTestId('preview-resize-handle');
+
+          // 400 → +75 → 475 へリサイズ
+          fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 });
+          fireEvent.pointerMove(window, { pointerId: 1, clientY: 175 });
+
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(475);
+          });
+
+          // pointerup までは setItem は呼ばれない
+          expect(setItemSpy).not.toHaveBeenCalledWith(RESIZE_STORAGE_KEY, expect.any(String));
+
+          fireEvent.pointerUp(window, { pointerId: 1, clientY: 175 });
+
+          // pointerup で setItem が呼ばれる
+          await waitFor(() => {
+            expect(setItemSpy).toHaveBeenCalledWith(RESIZE_STORAGE_KEY, '475');
+          });
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+
+      it('初期マウント時に localStorage.getItem の値が初期 height として復元される (36.10)', () => {
+        // localStorage に "350" が保存されている状態を再現
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+          if (key === RESIZE_STORAGE_KEY) return '350';
+          return null;
+        });
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        try {
+          const imageFile = createMockFile('test.png', 'image/png');
+          render(<FileInlinePreview file={imageFile} />);
+
+          // 復元値 350 が初期 height として適用される
+          expect(getImageContainerHeightPx()).toBe(350);
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+
+      it('localStorage に値がない場合はデフォルト値 (RESIZE_DEFAULT_HEIGHT=400) を使用する (36.11)', () => {
+        // getItem が null を返す（保存値なし）
+        vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        try {
+          const imageFile = createMockFile('test.png', 'image/png');
+          render(<FileInlinePreview file={imageFile} />);
+
+          // デフォルト値 400 が使われる
+          expect(getImageContainerHeightPx()).toBe(RESIZE_DEFAULT_HEIGHT);
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+
+      it('localStorage アクセス失敗時もエラーをスローせず継続動作する (36.11 防御)', async () => {
+        // 初期読み込み（getItem）失敗時もスローしない
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+          throw new Error('localStorage 取得失敗');
+        });
+        // 書き込み（setItem）失敗時もスローしない
+        const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+          throw new Error('localStorage 書込失敗');
+        });
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        try {
+          const imageFile = createMockFile('test.png', 'image/png');
+
+          // render 自体がスローしないこと（getItem スロー時のフォールバック）
+          expect(() => {
+            render(<FileInlinePreview file={imageFile} />);
+          }).not.toThrow();
+
+          // フォールバックでデフォルト値 400 が使われる
+          expect(getImageContainerHeightPx()).toBe(RESIZE_DEFAULT_HEIGHT);
+
+          const handle = screen.getByTestId('preview-resize-handle');
+
+          // pointerup（setItem スロー）でもエラー伝播しないこと
+          fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 });
+          fireEvent.pointerMove(window, { pointerId: 1, clientY: 150 });
+
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(450);
+          });
+
+          expect(() => {
+            fireEvent.pointerUp(window, { pointerId: 1, clientY: 150 });
+          }).not.toThrow();
+
+          // setItem は呼ばれたが、スローされた例外が握りつぶされていることを確認
+          expect(setItemSpy).toHaveBeenCalled();
+
+          // 例外後も後続レンダリングが破綻していない（高さは 450 で維持される）
+          expect(getImageContainerHeightPx()).toBe(450);
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+    });
+
+    describe('リサイズ後の他機能との共存 (Req 36.12)', () => {
+      it('PDFのページナビゲーション・拡大縮小操作後もリサイズした height が維持される (36.12)', async () => {
+        // 復元値として 350 を localStorage に置き、初期 height を 350 に固定
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+          if (key === RESIZE_STORAGE_KEY) return '350';
+          return null;
+        });
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {});
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        const user = userEvent.setup();
+        mockNumPages = 3;
+
+        try {
+          const pdfFile = createMockFile('test.pdf', 'application/pdf');
+          render(<FileInlinePreview file={pdfFile} />);
+
+          // PDF コンテナの高さ取得関数（PDF プレビュー専用）
+          const getPdfContainerHeightPx = (): number => {
+            const page = screen.getByTestId('pdf-page');
+            // pdf-page → pdf-document → pdfContainer (height 適用) という構造
+            // pdfContainer は ref を持つ最も外側のスクロール領域
+            let node: HTMLElement | null = page.parentElement;
+            while (node && !node.style.height) {
+              node = node.parentElement;
+            }
+            return node ? Number.parseInt(node.style.height.replace('px', ''), 10) : -1;
+          };
+
+          await waitFor(() => {
+            expect(screen.getByTestId('pdf-document')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /次へ/i })).toBeInTheDocument();
+          });
+
+          // 初期 height = 350 が適用される
+          expect(getPdfContainerHeightPx()).toBe(350);
+
+          // ページナビゲーション操作
+          await user.click(screen.getByRole('button', { name: /次へ/i }));
+          await waitFor(() => {
+            expect(screen.getByTestId('pdf-page')).toHaveAttribute('data-page-number', '2');
+          });
+
+          // ページ移動後も height = 350 が維持される
+          expect(getPdfContainerHeightPx()).toBe(350);
+
+          // 拡大縮小操作
+          await user.click(screen.getByRole('button', { name: /拡大/i }));
+          await waitFor(() => {
+            const zoomText = screen.getByTestId('zoom-level-text').textContent ?? '';
+            expect(parseInt(zoomText, 10)).toBeGreaterThan(0);
+          });
+
+          // 拡大縮小後も height = 350 が維持される
+          expect(getPdfContainerHeightPx()).toBe(350);
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
       });
     });
   });

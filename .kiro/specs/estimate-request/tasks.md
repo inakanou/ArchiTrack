@@ -1729,7 +1729,7 @@
   - _Requirements: 38.11_
 
 - [ ] 81. 受領見積書ダイアログ改善2 のテスト
-- [ ] 81.1 (P) FileInlinePreview リサイズ機能のユニットテスト
+- [x] 81.1 (P) FileInlinePreview リサイズ機能のユニットテスト
   - 各プレビューモード（PDF/画像/Excel）でリサイズハンドルが表示されることのテスト
   - pointerdown→pointermove→pointerup イベントで height がドラッグ位置に追従することのテスト
   - 高さが RESIZE_MIN_HEIGHT 未満／RESIZE_MAX_HEIGHT 超過にならないクランプのテスト
