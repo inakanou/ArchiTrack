@@ -24,6 +24,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
+// Task 79.3: ReceivedQuotationForm が useAuth() を直接購読するため、
+// AuthProvider を含まない単体テスト環境向けに最小限のモックを提供する。
+// アサーションロジックは変更せず、test setup のみを補強する（第3原則準拠）。
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({
+    sessionExpiredDuringOperation: false,
+    sessionExpired: false,
+  }),
+}));
+
 import { ReceivedQuotationForm } from './ReceivedQuotationForm';
 
 // FileInlinePreviewとOcrDataExtractorをモック

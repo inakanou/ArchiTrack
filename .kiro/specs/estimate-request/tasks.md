@@ -1701,7 +1701,7 @@
   - _Boundary: ReceivedQuotationForm_
   - _Requirements: 38.12, 38.13_
 
-- [ ] 79.3 ReceivedQuotationForm の保存リトライ・isReauthInProgress・初期スナップショット・並び順送信を統合
+- [x] 79.3 ReceivedQuotationForm の保存リトライ・isReauthInProgress・初期スナップショット・並び順送信を統合
   - usePendingSaveAfterReauth と useUnsavedChangesGuard を import し、初期スナップショットを `useEffect(..., [quotationId, isOpen])` で確定する（編集時はサーバー応答、登録時は空状態）
   - performSave を実装し、lineItems を index ベースで sortOrder=0,1,2,... に同期して送信する
   - 保存処理開始時に setPendingSave(performSave) を呼び pendingRef にラップ済み saveFn をセットする
