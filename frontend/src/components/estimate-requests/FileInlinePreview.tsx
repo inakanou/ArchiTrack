@@ -266,10 +266,10 @@ const styles = {
     justifyContent: 'center',
     padding: '16px',
     backgroundColor: '#f9fafb',
+    overflow: 'auto' as const,
   },
   image: {
     maxWidth: '100%',
-    maxHeight: '500px',
     objectFit: 'contain' as const,
     borderRadius: '4px',
   },
@@ -278,14 +278,26 @@ const styles = {
     justifyContent: 'center',
     padding: '16px',
     backgroundColor: '#f9fafb',
-    maxHeight: '300px',
     overflowY: 'auto' as const,
     overflowX: 'hidden' as const,
   },
   excelContainer: {
     overflow: 'auto',
-    maxHeight: '400px',
   },
+  resizeHandle: {
+    height: '6px',
+    backgroundColor: '#e5e7eb',
+    cursor: 'ns-resize',
+    border: '1px solid #d1d5db',
+    borderTop: 'none',
+    transition: 'background-color 0.15s',
+  } as React.CSSProperties,
+  resizeHandleHover: {
+    backgroundColor: '#9ca3af',
+  } as React.CSSProperties,
+  resizeHandleActive: {
+    backgroundColor: '#6b7280',
+  } as React.CSSProperties,
   excelTable: {
     width: '100%',
     borderCollapse: 'collapse' as const,
@@ -403,6 +415,74 @@ function PreviewSkeleton() {
 }
 
 // ============================================================================
+// リサイズハンドル / Body スタイル副作用 (Task 77.2)
+// ============================================================================
+
+/**
+ * リサイズハンドルの Props
+ *
+ * Requirements:
+ * - 36.1, 36.2, 36.3: PDF/画像/Excel すべてのプレビュー下端に表示するリサイズハンドル
+ * - 36.14: ホバー / ドラッグ中の視覚フィードバック
+ */
+interface PreviewResizeHandleProps {
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  isResizing: boolean;
+}
+
+/**
+ * プレビューエリア下端に表示する縦幅リサイズハンドル
+ *
+ * - ホバー時 background: #9ca3af（state ベースで切り替え）
+ * - ドラッグ中 (isResizing) は background: #6b7280
+ * - role="separator"、aria-orientation="horizontal"、aria-label でアクセシビリティ確保
+ */
+function PreviewResizeHandle({ onResizeStart, isResizing }: PreviewResizeHandleProps) {
+  const [hovered, setHovered] = useState(false);
+
+  const style: React.CSSProperties = {
+    ...styles.resizeHandle,
+    ...(hovered ? styles.resizeHandleHover : {}),
+    ...(isResizing ? styles.resizeHandleActive : {}),
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="プレビューエリアの高さを変更"
+      data-testid="preview-resize-handle"
+      style={style}
+      onPointerDown={onResizeStart}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    />
+  );
+}
+
+/**
+ * リサイズ操作中に document.body のカーソルとテキスト選択を抑止する副作用フック
+ *
+ * Requirement 36.14: ドラッグ中の視覚的フィードバック（カーソル / テキスト選択抑止）
+ *
+ * isResizing が true の間だけ body の cursor を 'ns-resize'、user-select を 'none' に
+ * 切り替え、終了時に元の値を復元する（クリーンアップで restore）。
+ */
+function useBodyResizingStyle(isResizing: boolean) {
+  useEffect(() => {
+    if (!isResizing) return;
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+    };
+  }, [isResizing]);
+}
+
+// ============================================================================
 // PDFプレビューコンポーネント
 // ============================================================================
 
@@ -414,7 +494,17 @@ function PreviewSkeleton() {
  * Requirement 17.6: PDFプレビューで全ページを閲覧可能にするページナビゲーション機能
  * Requirements 31.1-31.12: PDFプレビュー拡大縮小機能
  */
-function PdfPreview({ fileUrl }: { fileUrl: string }) {
+function PdfPreview({
+  fileUrl,
+  height,
+  onResizeStart,
+  isResizing,
+}: {
+  fileUrl: string;
+  height: number;
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  isResizing: boolean;
+}) {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -468,6 +558,7 @@ function PdfPreview({ fileUrl }: { fileUrl: string }) {
         ref={containerRef}
         style={{
           ...styles.pdfContainer,
+          height: `${height}px`,
           overflowX: 'auto' as const,
           overflowY: 'auto' as const,
         }}
@@ -482,6 +573,8 @@ function PdfPreview({ fileUrl }: { fileUrl: string }) {
           <Page pageNumber={currentPage} scale={scale} onLoadSuccess={handlePageLoadSuccess} />
         </Document>
       </div>
+      {/* リサイズハンドル: スクロール領域の直下、ナビゲーションバーの上 (Req 36.1, 36.12) */}
+      <PreviewResizeHandle onResizeStart={onResizeStart} isResizing={isResizing} />
       {/* ナビゲーション・ズームコントロール */}
       {totalPages > 0 && (
         <div style={styles.pdfNavigation}>
@@ -559,11 +652,28 @@ function PdfPreview({ fileUrl }: { fileUrl: string }) {
 
 /**
  * 画像ファイルのインラインプレビュー
+ *
+ * Task 77.2: 縦幅は useResizableHeight 経由で動的制御し、リサイズハンドルを下端に配置する
  */
-function ImagePreview({ fileUrl, fileName }: { fileUrl: string; fileName: string }) {
+function ImagePreview({
+  fileUrl,
+  fileName,
+  height,
+  onResizeStart,
+  isResizing,
+}: {
+  fileUrl: string;
+  fileName: string;
+  height: number;
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  isResizing: boolean;
+}) {
   return (
-    <div style={styles.imageContainer}>
-      <img src={fileUrl} alt={fileName} style={styles.image} />
+    <div>
+      <div style={{ ...styles.imageContainer, height: `${height}px` }}>
+        <img src={fileUrl} alt={fileName} style={styles.image} />
+      </div>
+      <PreviewResizeHandle onResizeStart={onResizeStart} isResizing={isResizing} />
     </div>
   );
 }
@@ -574,8 +684,22 @@ function ImagePreview({ fileUrl, fileName }: { fileUrl: string; fileName: string
 
 /**
  * Excelファイルのテーブル形式プレビュー
+ *
+ * Task 77.2: 縦幅は useResizableHeight 経由で動的制御し、リサイズハンドルを下端に配置する
  */
-function ExcelPreview({ data, totalRows }: { data: ExcelRow[]; totalRows: number }) {
+function ExcelPreview({
+  data,
+  totalRows,
+  height,
+  onResizeStart,
+  isResizing,
+}: {
+  data: ExcelRow[];
+  totalRows: number;
+  height: number;
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  isResizing: boolean;
+}) {
   if (data.length === 0) {
     return <div style={styles.noPreview}>データが空です</div>;
   }
@@ -586,36 +710,39 @@ function ExcelPreview({ data, totalRows }: { data: ExcelRow[]; totalRows: number
   const isLimited = totalRows > MAX_EXCEL_ROWS + 1; // ヘッダー行を除く
 
   return (
-    <div style={styles.excelContainer}>
-      <table style={styles.excelTable} role="table">
-        <thead>
-          <tr>
-            <th style={styles.excelTh}>#</th>
-            {headerRow?.map((cell, colIndex) => (
-              <th key={colIndex} style={styles.excelTh}>
-                {cell !== null && cell !== undefined ? String(cell) : ''}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {dataRows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
-              <td style={styles.excelRowNumber}>{rowIndex + 1}</td>
-              {row.map((cell, colIndex) => (
-                <td key={colIndex} style={styles.excelTd}>
+    <div>
+      <div style={{ ...styles.excelContainer, height: `${height}px` }}>
+        <table style={styles.excelTable} role="table">
+          <thead>
+            <tr>
+              <th style={styles.excelTh}>#</th>
+              {headerRow?.map((cell, colIndex) => (
+                <th key={colIndex} style={styles.excelTh}>
                   {cell !== null && cell !== undefined ? String(cell) : ''}
-                </td>
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-      {isLimited && (
-        <div style={styles.rowLimitNotice}>
-          {totalRows - 1}行中、先頭{MAX_EXCEL_ROWS}行のみ表示しています
-        </div>
-      )}
+          </thead>
+          <tbody>
+            {dataRows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                <td style={styles.excelRowNumber}>{rowIndex + 1}</td>
+                {row.map((cell, colIndex) => (
+                  <td key={colIndex} style={styles.excelTd}>
+                    {cell !== null && cell !== undefined ? String(cell) : ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {isLimited && (
+          <div style={styles.rowLimitNotice}>
+            {totalRows - 1}行中、先頭{MAX_EXCEL_ROWS}行のみ表示しています
+          </div>
+        )}
+      </div>
+      <PreviewResizeHandle onResizeStart={onResizeStart} isResizing={isResizing} />
     </div>
   );
 }
@@ -654,6 +781,11 @@ export function FileInlinePreview({
   const [totalExcelRows, setTotalExcelRows] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Task 77.2: 縦幅リサイズ（hook を 1 回呼び出し、PDF/画像/Excel の各プレビューで共有する）
+  // localStorage への永続化と復元は hook 内で完結し、3 種類のコンテナで同じ height が適用される
+  const { height, onResizeStart, isResizing } = useResizableHeight();
+  useBodyResizingStyle(isResizing);
 
   // --------------------------------------------------------------------------
   // プレビュータイプの判定
@@ -850,7 +982,12 @@ export function FileInlinePreview({
   if (previewType === 'pdf' && previewUrl) {
     return (
       <div style={styles.container}>
-        <PdfPreview fileUrl={previewUrl} />
+        <PdfPreview
+          fileUrl={previewUrl}
+          height={height}
+          onResizeStart={onResizeStart}
+          isResizing={isResizing}
+        />
       </div>
     );
   }
@@ -860,7 +997,13 @@ export function FileInlinePreview({
     const fileName = file?.name ?? 'image';
     return (
       <div style={styles.container}>
-        <ImagePreview fileUrl={previewUrl} fileName={fileName} />
+        <ImagePreview
+          fileUrl={previewUrl}
+          fileName={fileName}
+          height={height}
+          onResizeStart={onResizeStart}
+          isResizing={isResizing}
+        />
       </div>
     );
   }
@@ -869,7 +1012,13 @@ export function FileInlinePreview({
   if (previewType === 'excel' && excelData) {
     return (
       <div style={styles.container}>
-        <ExcelPreview data={excelData} totalRows={totalExcelRows} />
+        <ExcelPreview
+          data={excelData}
+          totalRows={totalExcelRows}
+          height={height}
+          onResizeStart={onResizeStart}
+          isResizing={isResizing}
+        />
       </div>
     );
   }

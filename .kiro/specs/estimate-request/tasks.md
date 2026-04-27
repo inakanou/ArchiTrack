@@ -1636,7 +1636,7 @@
   - _Boundary: FileInlinePreview_
   - _Requirements: 36.4, 36.5, 36.6, 36.7, 36.8, 36.9, 36.10, 36.11_
 
-- [ ] 77.2 リサイズハンドル UI とプレビューコンテナの高さ動的化
+- [x] 77.2 リサイズハンドル UI とプレビューコンテナの高さ動的化
   - PDF/画像/Excel 用の各コンテナで maxHeight 固定値（300/500/400px）を `height: ${dynamicHeight}px` 指定に置換し、`overflow: 'auto'` を維持する
   - 各コンテナ直下にリサイズハンドル div を配置し、`cursor: ns-resize`、6px 高、ホバー/アクティブ時の背景色変化を適用する
   - ハンドルに `role="separator"`、`aria-orientation="horizontal"`、`aria-label="プレビューエリアの高さを変更"` を付与する
