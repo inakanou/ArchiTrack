@@ -81,6 +81,8 @@ describe('LineItemEditor', () => {
             amount: 10000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
           {
             id: '2',
@@ -94,6 +96,8 @@ describe('LineItemEditor', () => {
             amount: 20000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
           {
             id: '3',
@@ -107,6 +111,8 @@ describe('LineItemEditor', () => {
             amount: 30000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
         ];
         expect(calculateTotalAmount(items)).toBe(60000);
@@ -126,6 +132,8 @@ describe('LineItemEditor', () => {
             amount: 10000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
           {
             id: '2',
@@ -139,6 +147,8 @@ describe('LineItemEditor', () => {
             amount: null,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
         ];
         expect(calculateTotalAmount(items)).toBe(10000);
@@ -259,6 +269,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -272,6 +284,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -296,6 +310,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -309,6 +325,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -350,6 +368,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -363,6 +383,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -390,6 +412,8 @@ describe('LineItemEditor', () => {
         amount: null,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -426,6 +450,8 @@ describe('LineItemEditor', () => {
         amount: null,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -463,6 +489,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -476,6 +504,8 @@ describe('LineItemEditor', () => {
           amount: 25000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -500,6 +530,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -513,6 +545,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -537,6 +571,8 @@ describe('LineItemEditor', () => {
         amount: 10000,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -568,6 +604,8 @@ describe('LineItemEditor', () => {
         amount: null,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -608,6 +646,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -621,6 +661,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -655,6 +697,8 @@ describe('LineItemEditor', () => {
         amount: 10000,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(
@@ -754,6 +798,8 @@ describe('LineItemEditor', () => {
         unitPrice: '',
         amount: null,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -831,6 +877,8 @@ describe('LineItemEditor', () => {
         unitPrice: '1000',
         amount: 10000,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -876,6 +924,8 @@ describe('LineItemEditor', () => {
         unitPrice: '1000',
         amount: 10000,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);

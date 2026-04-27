@@ -475,7 +475,7 @@ function convertToLineItemFormData(
   if (!items || items.length === 0) {
     return [createEmptyLineItem()];
   }
-  return items.map((item) => {
+  return items.map((item, index) => {
     const rawQuantity = item.quantity !== null ? String(item.quantity) : '';
     const rawUnitPrice = item.unitPrice !== null ? String(item.unitPrice) : '';
     return {
@@ -489,6 +489,8 @@ function convertToLineItemFormData(
       unitPrice: formatUnitPrice(rawUnitPrice),
       amount: item.amount,
       remarks: item.remarks ?? '',
+      // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+      sortOrder: index,
     };
   });
 }
@@ -782,7 +784,7 @@ export function ReceivedQuotationForm({
 
     const selectedOnly = selectedItems;
     let idCtr = 0;
-    const newLineItems: LineItemFormData[] = selectedOnly.map((item) => {
+    const newLineItems: LineItemFormData[] = selectedOnly.map((item, index) => {
       idCtr++;
       // 18.11: 転記時に数量にformatQuantity()を適用して小数2桁固定表示
       const rawQuantity =
@@ -799,6 +801,8 @@ export function ReceivedQuotationForm({
         unitPrice: '', // 転記時に単価は空欄
         amount: null,
         remarks: item.remarks ?? '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: index,
       };
     });
 

@@ -204,6 +204,8 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
       unitPrice: '',
       amount: null,
       remarks: '',
+      // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+      sortOrder: 0,
     };
 
     if (columnMapping) {
@@ -407,6 +409,8 @@ export function convertOcrTextToLineItems(text: string): LineItemFormData[] {
         unitPrice: '',
         amount: null,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       // 数値でないトークンを名称として、数値トークンを数量・単価として推定
@@ -716,7 +720,7 @@ export function OcrDataExtractor({
 
   const convertClaudeVisionToLineItems = useCallback(
     (lineItems: ClaudeVisionLineItem[]): LineItemFormData[] => {
-      return lineItems.map((item) => {
+      return lineItems.map((item, index) => {
         const quantityStr = item.quantity != null ? String(item.quantity) : '';
         // 単価がnullかつ金額が存在する場合、金額を単価として採用する
         const effectiveUnitPrice = item.unitPrice != null ? item.unitPrice : item.amount;
@@ -738,6 +742,8 @@ export function OcrDataExtractor({
           unitPrice: formattedUnitPrice,
           amount: formattedAmount,
           remarks: item.remarks ?? '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: index,
         };
       });
     },

@@ -19,6 +19,8 @@ const mockLineItems: LineItemFormData[] = [
     amount: 180000,
 
     remarks: '',
+    // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+    sortOrder: 0,
   },
   {
     id: 'line-2',
@@ -32,6 +34,8 @@ const mockLineItems: LineItemFormData[] = [
     amount: 750000,
 
     remarks: '打設費込み',
+    // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+    sortOrder: 1,
   },
   {
     id: 'line-3',
@@ -45,6 +49,8 @@ const mockLineItems: LineItemFormData[] = [
     amount: 700000,
 
     remarks: '',
+    // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+    sortOrder: 2,
   },
 ];
 

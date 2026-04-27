@@ -38,10 +38,18 @@ import { formatQuantity, formatUnitPrice, calculateFormattedAmount } from './num
  *
  * design.mdに基づく型定義。
  * quantity/unitPriceは入力用に文字列、amountは自動計算値。
+ *
+ * 改訂4 (Task 78.1): sortOrder フィールドを追加。
+ *   - 0始まりの連続値で並び順を保持する。
+ *   - 上下移動・行追加・行削除時には reassignSortOrder で連続性を維持する。
+ *   - 表示時は sortBySortOrder で昇順ソートしてからレンダリングする。
+ *   Requirements: 37.1, 37.16
  */
 export interface LineItemFormData {
   /** クライアントサイド一時ID */
   id: string;
+  /** 並び順（0始まり、連続値）。改訂4 (Task 78.1) で追加 */
+  sortOrder: number;
   /** 任意分類 */
   customCategory: string;
   /** 工種 */
@@ -139,11 +147,19 @@ export function calculateTotalAmount(items: LineItemFormData[]): number {
 /**
  * 空の明細行を生成する
  *
+ * 改訂4 (Task 78.1): sortOrder 引数を受け取れるように拡張。
+ * - design.md「LineItemEditor 改訂4」§Type Changes (4655-4669) に準拠する。
+ * - 既存呼び出し箇所との後方互換性のため引数はオプショナル（デフォルト 0）。
+ *   実際の運用では handleAddRow / convertToLineItemFormData 等から
+ *   明示的な値（末尾 sortOrder + 1 や配列 index 等）が渡される（Task 78.3 / 79.3 で改訂）。
+ *
+ * @param sortOrder - 並び順（0始まり、連続値）。省略時は 0
  * @returns 空の明細行データ
  */
-export function createEmptyLineItem(): LineItemFormData {
+export function createEmptyLineItem(sortOrder: number = 0): LineItemFormData {
   return {
     id: generateId(),
+    sortOrder,
     customCategory: '',
     workType: '',
     name: '',
@@ -154,6 +170,63 @@ export function createEmptyLineItem(): LineItemFormData {
     amount: null,
     remarks: '',
   };
+}
+
+/**
+ * sortOrder を 0,1,2,... の連続値に再採番する純粋関数
+ *
+ * 改訂4 (Task 78.1): design.md「LineItemEditor 改訂4」§Type Changes (4672-4675) に準拠。
+ * 上下移動・行追加・行削除後に呼び出して並び順の連続性を維持する。
+ *
+ * Requirements: 37.16
+ *
+ * @param items - 明細行データ配列（順序は保持される）
+ * @returns sortOrder が 0,1,2,... に再採番された新しい配列（参照は新規）
+ */
+export function reassignSortOrder(items: LineItemFormData[]): LineItemFormData[] {
+  return items.map((item, index) => ({ ...item, sortOrder: index }));
+}
+
+/**
+ * sortOrder 昇順でソートする純粋関数
+ *
+ * 改訂4 (Task 78.1): design.md「LineItemEditor 改訂4」§Type Changes (4677-4680) に準拠。
+ * サーバー応答変換時および表示時に呼び出して表示順を確定する。
+ *
+ * Requirements: 37.2, 37.3
+ *
+ * @param items - 明細行データ配列
+ * @returns sortOrder 昇順にソートされた新しい配列（入力配列は変更しない）
+ */
+export function sortBySortOrder(items: LineItemFormData[]): LineItemFormData[] {
+  return [...items].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+/**
+ * サーバー応答などで sortOrder が NULL/undefined の明細行を、
+ * 配列インデックスから補完する防御的ヘルパー関数
+ *
+ * 改訂4 (Task 78.1): design.md「LineItemEditor 改訂4」§Implementation Notes (4722) に準拠。
+ * 既存データに sort_order が NULL のレコードが残存している場合に備えた
+ * フロントエンド側の防御として用意する。
+ *
+ * 使用想定:
+ * - ReceivedQuotationForm.convertToLineItemFormData 等のサーバー応答変換ヘルパー
+ *   から呼び出して、sortOrder が欠落している要素にインデックス値を割り当てる。
+ *   （実際の組み込みは Task 79.3 で行う）
+ *
+ * Requirements: 37.16
+ *
+ * @param items - sortOrder が欠落している可能性がある明細行配列
+ * @returns 全要素に有効な sortOrder が設定された新しい配列
+ */
+export function ensureSortOrders(
+  items: Array<Omit<LineItemFormData, 'sortOrder'> & { sortOrder?: number | null }>
+): LineItemFormData[] {
+  return items.map((item, index) => ({
+    ...item,
+    sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index,
+  }));
 }
 
 /**

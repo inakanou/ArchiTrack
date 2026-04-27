@@ -1648,7 +1648,7 @@
   - _Requirements: 36.1, 36.2, 36.3, 36.12, 36.13, 36.14_
 
 - [ ] 78. LineItemEditor に並び順保持と上下移動・アクションメニューを追加（Requirement 37）
-- [ ] 78.1 (P) LineItemFormData 型拡張と sortOrder ヘルパー関数の実装
+- [x] 78.1 (P) LineItemFormData 型拡張と sortOrder ヘルパー関数の実装
   - LineItemFormData に sortOrder: number フィールドを追加する
   - createEmptyLineItem(sortOrder: number) ファクトリ関数を定義する
   - reassignSortOrder(items) を実装し、配列を 0,1,2,... の連続 sortOrder に再採番する
