@@ -9,13 +9,14 @@
 | 分類 | 技術 | バージョン | 用途 |
 |------|------|-----------|------|
 | **Frontend** | React | 19.x | UIライブラリ |
-| | Vite | 7.x | ビルドツール・開発サーバー |
+| | Vite | 8.x | ビルドツール・開発サーバー |
 | | React Router | 7.x | クライアントサイドルーティング |
-| | TypeScript | 5.9.x | 型安全性 |
+| | TypeScript | 6.x | 型安全性 |
 | | Tailwind CSS | 4.x | ユーティリティファーストCSS |
 | **Backend** | Node.js | 22 | サーバーランタイム |
 | | Express | 5.x | Webフレームワーク |
 | | Prisma | 7.x | ORM（Driver Adapter Pattern） |
+| | TypeScript | 5.9.x | 型安全性 |
 | | Zod | 4.x | バリデーション |
 | **Database** | PostgreSQL | 15 | リレーショナルデータベース |
 | | Redis | 7 | キャッシュ・セッション |
@@ -29,7 +30,6 @@
 | | Storybook | 10.x | UIコンポーネントテスト |
 | **Development** | Docker | - | コンテナ化 |
 | | Docker Compose | - | ローカル開発環境 |
-| | TypeScript | 5.9.x | 型安全性 |
 | | ESLint | 9.x | Linter（Flat Config） |
 | | Prettier | 3.x | フォーマッター |
 | **Deployment** | Railway | - | ホスティング |
@@ -54,7 +54,7 @@
 - 宣言的UI
 - React Compiler対応準備
 
-### Vite 7
+### Vite 8
 
 **選定理由:**
 - 高速な開発サーバー（ESビルド）
@@ -67,6 +67,7 @@
 - 高速なコールドスタート
 - プラグインエコシステム
 - Environment API対応
+- フロントエンドは TypeScript 6 系へ追従済み（バックエンドは 5.9 系で運用）
 
 ### React Router 7
 
