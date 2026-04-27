@@ -1742,7 +1742,7 @@
   - _Boundary: FileInlinePreview test_
   - _Requirements: 36.1, 36.2, 36.3, 36.4, 36.5, 36.7, 36.8, 36.9, 36.10, 36.11, 36.12, 36.14_
 
-- [ ] 81.2 (P) LineItemActionMenu と LineItemEditor 並び順機能のユニットテスト
+- [x] 81.2 (P) LineItemActionMenu と LineItemEditor 並び順機能のユニットテスト
   - LineItemActionMenu: トグル開閉、3項目表示、isFirst/isLast/isOnly disabled 制御、外側クリック・Escape クローズ、フォーカス制御のテスト
   - LineItemEditor: handleMoveUp/handleMoveDown 後の sortOrder 連続性、handleAddRow の末尾連続割当、handleDeleteRow 後の連続性、表示時 sortBySortOrder 適用、行内旧削除ボタン非存在、Tab キー追従のテスト
   - reassignSortOrder/sortBySortOrder/createEmptyLineItem の単体テスト
