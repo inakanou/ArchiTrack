@@ -1616,7 +1616,7 @@
   - _Boundary: backend/migrations_
   - _Requirements: 37.1_
 
-- [ ] 76.2 (P) OcrDataExtractor の Claude Vision API 呼び出し経路の確認と必要時の apiClient 経由化
+- [x] 76.2 (P) OcrDataExtractor の Claude Vision API 呼び出し経路の確認と必要時の apiClient 経由化
   - `frontend/src/components/estimate-requests/OcrDataExtractor.tsx` および参照されるサービス層を確認し、Claude Vision API 呼び出しが既存の `apiClient`（401 自動リフレッシュ対応）経由か、直接 `fetch`/`axios` 等を使用しているかを判定する
   - 直接呼び出し型であれば apiClient 経由に書き換え、`sessionExpiredCallback` 連鎖を有効化する
   - apiClient 経由型であれば変更なし（タスク 79/80 のみで十分）
