@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-04-08（Steering Sync: 依存関係バージョン更新を反映）_
+_最終更新: 2026-04-27（Steering Sync: Vite 8 / TypeScript 6（frontend）/ fabric 7 / Prisma 7.7 へのバージョン追従を反映）_
 
 ## アーキテクチャ
 
@@ -23,9 +23,9 @@ ArchiTrack/
 
 ### 技術スタック
 
-- **言語**: TypeScript 5.9.3
+- **言語**: TypeScript 6.0.3（フロントエンドのみ。バックエンド/E2E は 5.9 系で運用）
 - **フレームワーク**: React 19.2.0
-- **ビルドツール**: Vite 7.2.7
+- **ビルドツール**: Vite 8.0.8
 - **開発サーバー**: Vite Dev Server
 - **Webサーバー（本番）**: nginx
 - **パッケージマネージャ**: npm
@@ -35,21 +35,21 @@ ArchiTrack/
 - `react` ^19.2.3 - UIライブラリ
 - `react-dom` ^19.2.4 - React DOM操作
 - `react-router-dom` ^7.13.0 - React Router v7（ルーティング）
-- `fabric` ^6.9.1 - Canvas注釈エディタ（現場調査画像編集）
+- `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
 - `tesseract.js` ^7.0.0 - OCR文字認識（受領見積書構造化データ抽出、再実行/リトライ機能）
-- `typescript` ^5.9.3 - TypeScriptコンパイラ
+- `typescript` ^6.0.3 - TypeScriptコンパイラ（フロントエンドのみ TypeScript 6 系へ追従）
 - `@types/react` ^19.2.7 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
-- `@vitejs/plugin-react` ^5.1.1 - Vite React プラグイン
+- `@vitejs/plugin-react` ^6.0.1 - Vite React プラグイン
 - `@typescript-eslint/eslint-plugin` ^8.57.1 - TypeScript ESLintプラグイン
 - `@typescript-eslint/parser` ^8.57.1 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
-- `eslint-plugin-react-hooks` ^7.0.1 - React Hooks ESLintプラグイン
+- `eslint-plugin-react-hooks` ^7.1.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.8.1 - コードフォーマッター
 - `lint-staged` ^16.4.0 - ステージングファイルへのリンター実行
 - `tailwindcss` ^4.2.2 - ユーティリティファーストCSSフレームワーク
@@ -66,7 +66,7 @@ ArchiTrack/
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
 - `storybook` ^10.2.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
 - `@storybook/react` ^10.1.8 - Storybook React統合（10.x系）
-- `@storybook/react-vite` ^10.2.7 - Storybook React + Vite統合（10.x系）
+- `@storybook/react-vite` ^10.3.5 - Storybook React + Vite統合（10.x系）
 - `@storybook/test-runner` ^0.24.2 - Storybookインタラクションテスト
 - `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
 
@@ -100,8 +100,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.2.0
-- **ORM**: Prisma 7.3.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
-- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.3.0、@prisma/adapter-pg 7.3.0
+- **ORM**: Prisma 7.7.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
+- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.7.0、@prisma/adapter-pg 7.6.0
 - **キャッシュクライアント**: ioredis 5.10.1
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
@@ -131,8 +131,8 @@ ArchiTrack/
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
 - `@anthropic-ai/sdk` ^0.74.0 - Anthropic Claude Vision API（OCR精度向上）
-- `@prisma/client` ^7.3.0 - Prisma ORM クライアント（型安全なデータアクセス）
-- `@prisma/adapter-pg` ^7.3.0 - Prisma Driver Adapter for PostgreSQL
+- `@prisma/client` ^7.7.0 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/adapter-pg` ^7.6.0 - Prisma Driver Adapter for PostgreSQL
 - `decimal.js` ^10.6.0 - 高精度10進数計算（数量計算）
 - `pg` ^8.18.0 - PostgreSQL クライアント
 - `ioredis` ^5.10.1 - Redis クライアント
@@ -174,7 +174,7 @@ ArchiTrack/
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
-- `prisma` ^7.3.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `prisma` ^7.7.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
