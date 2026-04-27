@@ -5,6 +5,14 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
 import { OcrDataExtractor } from './OcrDataExtractor';
+import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
+
+// Task 79.3 で OcrDataExtractor が useAuth() を直接購読するため、
+// Storybook 環境向けに最小限の AuthContext 値を供給する。
+const mockAuthContext = {
+  sessionExpiredDuringOperation: false,
+  sessionExpired: false,
+} as unknown as AuthContextValue;
 
 const meta = {
   title: 'EstimateRequests/OcrDataExtractor',
@@ -21,6 +29,13 @@ const meta = {
   args: {
     onImportLineItems: fn(),
   },
+  decorators: [
+    (Story) => (
+      <AuthContext.Provider value={mockAuthContext}>
+        <Story />
+      </AuthContext.Provider>
+    ),
+  ],
 } satisfies Meta<typeof OcrDataExtractor>;
 
 export default meta;
