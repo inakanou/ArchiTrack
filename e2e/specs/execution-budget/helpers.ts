@@ -226,6 +226,8 @@ export async function createTestContract(
     contractAmount?: number;
     constructionPrice?: number;
     taxAmount?: number;
+    contractType?: 'NEW' | 'AMENDMENT';
+    parentContractId?: string;
   }
 ): Promise<string> {
   const constructionPrice = options?.constructionPrice ?? 1000000;
@@ -234,7 +236,8 @@ export async function createTestContract(
   const res = await request.post(`${API_BASE_URL}/api/projects/${projectId}/contracts`, {
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     data: {
-      contractType: 'NEW',
+      contractType: options?.contractType ?? 'NEW',
+      parentContractId: options?.parentContractId ?? null,
       estimateId,
       contractDate: '2024-06-01',
       constructionStartDate: '2024-07-01',
@@ -254,6 +257,26 @@ export async function createTestContract(
   }
   const body = (await res.json()) as { id: string };
   return body.id;
+}
+
+/**
+ * 契約書のステータスを CONTRACTED に変更する
+ *
+ * 変更契約一覧 API は `status: 'CONTRACTED'` の AMENDMENT 契約のみを対象とするため、
+ * 反映対象として一覧に表示させるには事前にこの操作が必要。
+ */
+export async function setContractContracted(
+  request: APIRequestContext,
+  token: string,
+  contractId: string
+): Promise<void> {
+  const res = await request.patch(`${API_BASE_URL}/api/contracts/${contractId}/status`, {
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    data: { status: 'CONTRACTED' },
+  });
+  if (!res.ok()) {
+    throw new Error(`contract status update failed: ${res.status()} ${await res.text()}`);
+  }
 }
 
 /**

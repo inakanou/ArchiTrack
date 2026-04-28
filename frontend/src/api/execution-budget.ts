@@ -128,9 +128,12 @@ export interface UpdateExecutionBudgetItemInput {
 
 /**
  * 原価入力
+ *
+ * REQ-13.2/13.3/13.4: 楽観的排他制御のため version を必須とする
  */
 export interface UpdateCostInput {
   currentMonthExpense: string;
+  version: number;
 }
 
 /**
@@ -167,35 +170,57 @@ export interface MonthlyCloseInput {
 
 /**
  * 変更契約反映の差分情報
+ *
+ * REQ-15.2: 変更契約に紐づく見積書の項目差分（追加・変更）
+ * REQ-15.6: 変更前後の契約金額（contractAmount は変更後）
  */
 export interface AmendmentDiff {
-  contractId: string;
-  contractName: string;
   addedItems: Array<{
-    name: string;
-    amount: string;
+    estimateItemId: string;
+    name: string | null;
+    specification: string | null;
+    unit: string | null;
+    quantity: string | null;
+    executionUnitPrice: string | null;
+    executionAmount: string | null;
   }>;
-  updatedItems: Array<{
-    name: string;
-    beforeAmount: string;
-    afterAmount: string;
+  modifiedItems: Array<{
+    budgetItemId: string;
+    estimateItemId: string;
+    name: string | null;
+    oldQuantity: string | null;
+    newQuantity: string | null;
+    oldExecutionAmount: string | null;
+    newExecutionAmount: string | null;
   }>;
-  deletedItems: Array<{
-    name: string;
-    amount: string;
-  }>;
-  beforeContractAmount: number;
-  afterContractAmount: number;
+  contractAmount: string | null;
 }
 
 /**
  * 未反映変更契約
+ *
+ * REQ-15.1: 未反映の変更契約一覧
  */
 export interface UnreflectedAmendment {
   id: string;
-  contractDate: string;
-  contractAmount: number;
+  contractType: string;
+  status: string;
+  estimateId: string | null;
+  contractAmount: string | null;
   estimateName: string | null;
+}
+
+/**
+ * 変更契約反映結果
+ *
+ * REQ-15.3, 15.6: 反映実行結果と変更前後の契約金額
+ */
+export interface ApplyAmendmentResult {
+  addedCount: number;
+  modifiedCount: number;
+  deletedCount: number;
+  previousContractAmount: string | null;
+  newContractAmount: string | null;
 }
 
 // ============================================================================
@@ -256,14 +281,30 @@ export async function updateExecutionBudgetItem(
 }
 
 /**
+ * 原価更新レスポンス
+ *
+ * REQ-13.2/13.5/13.6/13.8: 累計支出/残予算/超過フラグ/出来高対支出比率を返却
+ */
+export interface CostUpdateResult {
+  id: string;
+  currentMonthExpense: string;
+  previousMonthExpense: string;
+  totalExpense: string;
+  remainingBudget: string | null;
+  isOverBudget: boolean;
+  progressToExpenseRatio: string | null;
+  version: number;
+}
+
+/**
  * 原価を入力
  */
 export async function updateItemCost(
   projectId: string,
   itemId: string,
   input: UpdateCostInput
-): Promise<ExecutionBudgetItem> {
-  return apiClient.patch<ExecutionBudgetItem>(
+): Promise<CostUpdateResult> {
+  return apiClient.patch<CostUpdateResult>(
     `/api/projects/${projectId}/execution-budget/items/${itemId}/cost`,
     input
   );
@@ -321,12 +362,14 @@ export async function getAmendmentDiff(
 
 /**
  * 変更契約を反映
+ *
+ * REQ-15.3: 変更内容を実行予算に反映する
  */
 export async function applyAmendment(
   projectId: string,
   contractId: string
-): Promise<ExecutionBudgetWithItems> {
-  return apiClient.post<ExecutionBudgetWithItems>(
+): Promise<ApplyAmendmentResult> {
+  return apiClient.post<ApplyAmendmentResult>(
     `/api/projects/${projectId}/execution-budget/apply-amendment`,
     { contractId }
   );

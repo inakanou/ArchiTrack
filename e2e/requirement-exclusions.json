@@ -2998,162 +2998,6 @@
       }
     },
     {
-      "id": "execution-budget-management/REQ-11.1",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "施工日入力欄と出来高入力フォーム",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "施工日入力欄と出来高金額入力フォームが表示されることをE2Eテストで検証予定",
-        "threshold": "form_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.2",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "カレンダー選択",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "施工日をカレンダー選択で入力できることをE2Eテストで検証予定",
-        "threshold": "calendar_picker: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.3",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "即0%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "即0%ボタン押下で出来高金額が0円に設定されることをE2Eテストで検証予定",
-        "threshold": "amount_set: 0"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.4",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "即50%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "即50%ボタン押下で出来高金額が実行金額の50%に設定されることをE2Eテストで検証予定",
-        "threshold": "amount_set: 50%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.5",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "即100%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "即100%ボタン押下で出来高金額が実行金額の100%に設定されることをE2Eテストで検証予定",
-        "threshold": "amount_set: 100%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.6",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "+5%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "+5%ボタン押下で出来高金額が実行金額の5%分加算されることをE2Eテストで検証予定",
-        "threshold": "amount_increment: +5%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.7",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "-5%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "-5%ボタン押下で出来高金額が実行金額の5%分減算されることをE2Eテストで検証予定",
-        "threshold": "amount_decrement: -5%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.8",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高金額が0円未満にならないよう制限",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高金額が0円未満にならないよう制限されることをE2Eテストで検証予定",
-        "threshold": "min_amount: 0"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.9",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高金額の直接入力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高金額を直接入力できることをE2Eテストで検証予定",
-        "threshold": "direct_input: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.10",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高率の自動計算",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高率が自動計算されて表示されることをE2Eテストで検証予定",
-        "threshold": "auto_calc: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.11",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高合計金額と合計率表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "全項目の出来高合計金額と合計率が表示されることをE2Eテストで検証予定",
-        "threshold": "totals_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.1",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "出来高レコード保存",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "施工日と出来高金額がレコードとして保存されることをE2Eテストで検証予定",
-        "threshold": "record_saved: true"
-      }
-    },
-    {
       "id": "execution-budget-management/REQ-12.2",
       "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
       "title": "同一施工日の上書き保存",
@@ -3166,58 +3010,6 @@
       }
     },
     {
-      "id": "execution-budget-management/REQ-12.3",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "履歴一覧を施工日降順で表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高履歴一覧が施工日降順で表示されることをE2Eテストで検証予定",
-        "threshold": "sort_order: desc"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.4",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "過去の出来高レコード選択で表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "過去の出来高レコードを選択して編集画面に読み込めることをE2Eテストで検証予定",
-        "threshold": "record_loaded: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.5",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "出来高レコード削除確認ダイアログ",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高レコード削除時に確認ダイアログが表示されることをE2Eテストで検証予定",
-        "threshold": "dialog_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.6",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "出来高レコード削除",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高レコードが削除されることをE2Eテストで検証予定",
-        "threshold": "record_deleted: true"
-      }
-    },
-    {
       "id": "execution-budget-management/REQ-13.2",
       "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
       "title": "累計支出の自動計算",
@@ -3227,32 +3019,6 @@
         "method": "integration-test",
         "tool": "Vitest",
         "description": "累計支出の計算ロジックを検証"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-13.3",
-      "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
-      "title": "月次締めで今月の支出を先月へ移動",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月次締め操作で今月の支出が先月までの支出に累積されることをE2Eテストで検証予定",
-        "threshold": "accumulation: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-13.4",
-      "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
-      "title": "月次締め後に今月の支出リセット",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月次締め完了後に今月の支出がリセットされることをE2Eテストで検証予定",
-        "threshold": "reset: true"
       }
     },
     {
@@ -3292,45 +3058,6 @@
       }
     },
     {
-      "id": "execution-budget-management/REQ-15.1",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更契約の反映ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算画面に変更契約の反映ボタンが表示されることをE2Eテストで検証予定",
-        "threshold": "button_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.2",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "未適用変更契約一覧表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "未反映の変更契約一覧が表示されることをE2Eテストで検証予定",
-        "threshold": "list_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.3",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更内容の確認と適用",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更契約の項目差分を確認して実行予算に適用できることをE2Eテストで検証予定",
-        "threshold": "changes_applied: true"
-      }
-    },
-    {
       "id": "execution-budget-management/REQ-15.4",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "発注済み・出来高入力済み項目の保護",
@@ -3355,32 +3082,6 @@
       }
     },
     {
-      "id": "execution-budget-management/REQ-15.6",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更前後の契約金額比較表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更前後の契約金額が並べて比較表示されることをE2Eテストで検証予定",
-        "threshold": "comparison_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.7",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更金額列に差分表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算一覧の変更金額列に変更契約による金額差分が表示されることをE2Eテストで検証予定",
-        "threshold": "diff_displayed: true"
-      }
-    },
-    {
       "id": "execution-budget-management/REQ-15.8",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "変更反映の履歴記録",
@@ -3390,71 +3091,6 @@
         "method": "integration-test",
         "tool": "Vitest + Prisma",
         "description": "履歴レコード保存を検証"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.1",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "月別出来高一覧画面",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高一覧画面が提供されることをE2Eテストで検証予定",
-        "threshold": "screen_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.2",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "月別出来高一覧列（対象月、当月出来高等）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高一覧に必要な列が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.3",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "月別出来高明細表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "特定月の項目別出来高明細が表示されることをE2Eテストで検証予定",
-        "threshold": "detail_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.4",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "Excelファイル出力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高データのExcel出力をE2Eテストで検証予定",
-        "threshold": "excel_export: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.5",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "PDFファイル出力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高データのPDF出力をE2Eテストで検証予定",
-        "threshold": "pdf_export: functional"
       }
     },
     {

@@ -49,6 +49,7 @@ import ScheduleListPage from './pages/ScheduleListPage';
 import ScheduleCreatePage from './pages/ScheduleCreatePage';
 import ScheduleDetailPage from './pages/ScheduleDetailPage';
 import ExecutionBudgetPage from './pages/ExecutionBudgetPage';
+import ExecutionBudgetAmendmentPage from './pages/ExecutionBudgetAmendmentPage';
 import OrderDetailPage from './pages/OrderDetailPage';
 import ProgressInputPage from './pages/ProgressInputPage';
 
@@ -398,6 +399,16 @@ export const routes: RouteObject[] = [
       {
         path: '/projects/:projectId/execution-budget',
         element: <ExecutionBudgetPage />,
+      },
+
+      // 変更契約反映ページ（/execution-budget/orders/:orderId より先に定義する必要あり）
+      // REQ-15.1: 未反映変更契約一覧表示
+      // REQ-15.2: 変更契約に紐づく見積書の項目差分表示
+      // REQ-15.3: 変更内容を実行予算に反映する操作
+      // REQ-15.6: 変更前後の契約金額比較表示
+      {
+        path: '/projects/:projectId/execution-budget/amendments',
+        element: <ExecutionBudgetAmendmentPage />,
       },
 
       // 発注詳細ページ

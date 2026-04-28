@@ -192,6 +192,18 @@ const mockMonthlyHistory: executionBudgetApi.MonthlyCloseHistory[] = [
 describe('ExecutionBudgetPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 「変更契約の反映」ボタン表示には未反映変更契約が1件以上必要 (REQ-15.1)
+    // 各テストで上書きしない限り、ここで既定で1件返すモックを置く
+    vi.mocked(executionBudgetApi.getUnreflectedAmendments).mockResolvedValue([
+      {
+        id: 'amendment-1',
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'estimate-amendment-1',
+        contractAmount: '12000000',
+        estimateName: '見積書B（変更）',
+      },
+    ]);
   });
 
   // ==========================================================================

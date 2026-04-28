@@ -28,11 +28,14 @@ import {
   getOrders,
   executeMonthlyClose,
   getMonthlyCloseHistory,
+  getUnreflectedAmendments,
+  updateItemCost,
   type ExecutionBudgetWithItems,
   type ExecutionBudgetItem,
   type OrderSummary,
   type MonthlyCloseHistory,
   type OrderStatus,
+  type UnreflectedAmendment,
 } from '../api/execution-budget';
 import { getContracts, type ContractListItem } from '../api/contracts';
 import { ApiError } from '../api/client';
@@ -327,17 +330,25 @@ const styles = {
 
 /**
  * 実行予算項目のツリー行を再帰的にレンダリングする
+ *
+ * REQ-13.2: 今月の支出を入力すると累計支出を自動再計算して表示する
  */
 function TreeRow({
   item,
   depth,
   expandedState,
   onToggle,
+  onCostUpdate,
+  isCostSaving,
+  costSaveError,
 }: {
   item: ExecutionBudgetItem;
   depth: number;
   expandedState: TreeItemState;
   onToggle: (id: string) => void;
+  onCostUpdate: (itemId: string, value: string) => Promise<void>;
+  isCostSaving: boolean;
+  costSaveError: string | null;
 }) {
   const hasChildren = item.children && item.children.length > 0;
   const isExpanded = expandedState[item.id] !== false; // デフォルトで展開
@@ -383,8 +394,9 @@ function TreeRow({
         <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.executionUnitPrice)}</td>
         {/* 実行金額 */}
         <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.executionAmount)}</td>
-        {/* 変更金額 */}
+        {/* 変更金額 (REQ-15.7) */}
         <td
+          data-testid={`amendment-amount-${item.id}`}
           style={{
             ...styles.td,
             ...styles.tdRight,
@@ -410,9 +422,20 @@ function TreeRow({
         <td style={{ ...styles.td, ...styles.tdRight }}>
           {formatAmount(item.previousMonthExpense)}
         </td>
-        {/* 今月の支出 */}
+        {/* 今月の支出 (REQ-13.2: 入力可能) */}
         <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.currentMonthExpense)}
+          {hasChildren ? (
+            // 親項目は子の合計を表示するのみ
+            formatAmount(item.currentMonthExpense)
+          ) : (
+            <CurrentMonthExpenseInput
+              itemId={item.id}
+              value={item.currentMonthExpense}
+              onCostUpdate={onCostUpdate}
+              isSaving={isCostSaving}
+              error={costSaveError}
+            />
+          )}
         </td>
         {/* 累計支出 */}
         <td style={{ ...styles.td, ...styles.tdRight }}>
@@ -450,9 +473,93 @@ function TreeRow({
             depth={depth + 1}
             expandedState={expandedState}
             onToggle={onToggle}
+            onCostUpdate={onCostUpdate}
+            isCostSaving={isCostSaving}
+            costSaveError={costSaveError}
           />
         ))}
     </>
+  );
+}
+
+/**
+ * 今月の支出 入力コンポーネント
+ *
+ * REQ-13.2: 入力 → PATCH .../cost → 累計支出に反映
+ * 表示は3桁区切りカンマ付き整数。フォーカス時はカンマを除去して編集可能とする。
+ */
+function CurrentMonthExpenseInput({
+  itemId,
+  value,
+  onCostUpdate,
+  isSaving,
+  error,
+}: {
+  itemId: string;
+  value: string;
+  onCostUpdate: (itemId: string, value: string) => Promise<void>;
+  isSaving: boolean;
+  error: string | null;
+}) {
+  const [draft, setDraft] = useState<string>(() => formatAmount(value) || '');
+  const [isFocused, setIsFocused] = useState(false);
+
+  // 親stateの値が変わった場合（再取得後）はdraftを同期する
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(formatAmount(value) || '');
+    }
+  }, [value, isFocused]);
+
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+    // フォーカス時はカンマを除去した値（編集容易性のため）
+    const raw = (value ?? '').replace(/[^0-9-]/g, '');
+    setDraft(raw === '' ? '' : String(parseInt(raw, 10) || 0));
+  }, [value]);
+
+  const handleBlur = useCallback(async () => {
+    setIsFocused(false);
+    // 入力値の正規化: 数値以外を除去し整数に
+    const raw = draft.replace(/[^0-9-]/g, '');
+    const numeric = raw === '' ? '0' : String(parseInt(raw, 10) || 0);
+    // 値が変更されている場合のみAPI呼び出し
+    const currentValue = (value ?? '0').replace(/[^0-9-]/g, '');
+    const currentNumeric = currentValue === '' ? '0' : String(parseInt(currentValue, 10) || 0);
+    if (numeric !== currentNumeric) {
+      await onCostUpdate(itemId, numeric);
+    } else {
+      // 変更なしでもフォーマット表示に戻す
+      setDraft(formatAmount(numeric) || '');
+    }
+  }, [draft, value, itemId, onCostUpdate]);
+
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+      <input
+        type="text"
+        inputMode="numeric"
+        data-testid={`current-month-expense-input-${itemId}`}
+        aria-label={`今月の支出 ${itemId}`}
+        value={draft}
+        disabled={isSaving}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        style={{
+          width: '100px',
+          padding: '4px 6px',
+          textAlign: 'right',
+          border: '1px solid #d1d5db',
+          borderRadius: '4px',
+          fontSize: '13px',
+          backgroundColor: isSaving ? '#f3f4f6' : '#ffffff',
+        }}
+      />
+      {error && (
+        <span style={{ fontSize: '11px', color: '#dc2626', marginTop: '2px' }}>{error}</span>
+      )}
+    </span>
   );
 }
 
@@ -468,6 +575,7 @@ export function ExecutionBudgetPage() {
   const [budget, setBudget] = useState<ExecutionBudgetWithItems | null>(null);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [monthlyHistory, setMonthlyHistory] = useState<MonthlyCloseHistory[]>([]);
+  const [unreflectedAmendments, setUnreflectedAmendments] = useState<UnreflectedAmendment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
   const [expandedState, setExpandedState] = useState<TreeItemState>({});
@@ -478,6 +586,9 @@ export function ExecutionBudgetPage() {
   const [selectedContractId, setSelectedContractId] = useState<string>('');
   const [monthlyCloseMonth, setMonthlyCloseMonth] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // REQ-13.2: 原価入力中のローディング/エラー
+  const [isCostSaving, setIsCostSaving] = useState(false);
+  const [costSaveError, setCostSaveError] = useState<string | null>(null);
 
   // データ取得
   const fetchData = useCallback(async () => {
@@ -485,14 +596,16 @@ export function ExecutionBudgetPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [budgetData, ordersData, historyData] = await Promise.all([
+      const [budgetData, ordersData, historyData, amendmentsData] = await Promise.all([
         getExecutionBudget(projectId),
         getOrders(projectId).catch(() => [] as OrderSummary[]),
         getMonthlyCloseHistory(projectId).catch(() => [] as MonthlyCloseHistory[]),
+        getUnreflectedAmendments(projectId).catch(() => [] as UnreflectedAmendment[]),
       ]);
       setBudget(budgetData);
       setOrders(ordersData);
       setMonthlyHistory(historyData);
+      setUnreflectedAmendments(amendmentsData);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -543,6 +656,32 @@ export function ExecutionBudgetPage() {
       }
     }
   }, [projectId, fetchData]);
+
+  // 原価更新（今月の支出）
+  // REQ-13.2: 入力 → PATCH cost → 累計支出/残予算/合計値の再計算（再取得）
+  const handleCostUpdate = useCallback(
+    async (itemId: string, value: string) => {
+      if (!projectId || !budget) return;
+      setIsCostSaving(true);
+      setCostSaveError(null);
+      try {
+        await updateItemCost(projectId, itemId, {
+          currentMonthExpense: value,
+          version: budget.version,
+        });
+        await fetchData();
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setCostSaveError(err.message);
+        } else {
+          setCostSaveError('原価の更新に失敗しました');
+        }
+      } finally {
+        setIsCostSaving(false);
+      }
+    },
+    [projectId, budget, fetchData]
+  );
 
   // 月次締め
   const handleMonthlyClose = useCallback(async () => {
@@ -674,12 +813,15 @@ export function ExecutionBudgetPage() {
           >
             月次締め
           </button>
-          <button
-            style={{ ...styles.button, ...styles.secondaryButton }}
-            onClick={() => navigate(`/projects/${projectId}/execution-budget/amendments`)}
-          >
-            変更契約の反映
-          </button>
+          {unreflectedAmendments.length > 0 && (
+            <button
+              data-testid="apply-amendment-button"
+              style={{ ...styles.button, ...styles.secondaryButton }}
+              onClick={() => navigate(`/projects/${projectId}/execution-budget/amendments`)}
+            >
+              変更契約の反映
+            </button>
+          )}
           <button
             style={{ ...styles.button, ...styles.dangerButton }}
             onClick={() => setShowDeleteDialog(true)}
@@ -758,6 +900,9 @@ export function ExecutionBudgetPage() {
                   depth={0}
                   expandedState={expandedState}
                   onToggle={handleToggle}
+                  onCostUpdate={handleCostUpdate}
+                  isCostSaving={isCostSaving}
+                  costSaveError={costSaveError}
                 />
               ))}
               {/* 合計行 */}

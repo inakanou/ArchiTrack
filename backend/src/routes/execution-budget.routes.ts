@@ -224,6 +224,94 @@ router.patch(
 );
 
 // ==========================================
+// 未反映変更契約一覧取得 GET /api/projects/:projectId/execution-budget/unreflected-amendments
+// Requirements: 15.1, 19.2, 19.9
+// ==========================================
+router.get(
+  '/unreflected-amendments',
+  authenticate,
+  requirePermission('execution_budget:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const projectId = req.params.projectId;
+      if (!projectId) {
+        res.status(400).json({
+          status: 400,
+          detail: 'プロジェクトIDが必要です',
+        });
+        return;
+      }
+
+      const result = await executionBudgetService.getUnreflectedAmendments(projectId);
+
+      res.json(result);
+    } catch (error) {
+      if (error instanceof ExecutionBudgetNotFoundError) {
+        res.status(404).json({
+          status: 404,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+// ==========================================
+// 変更契約差分取得 GET /api/projects/:projectId/execution-budget/amendment-diff/:contractId
+// Requirements: 15.2, 15.6, 19.2, 19.9
+// ==========================================
+router.get(
+  '/amendment-diff/:contractId',
+  authenticate,
+  requirePermission('execution_budget:read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const projectId = req.params.projectId;
+      const contractId = req.params.contractId;
+      if (!projectId) {
+        res.status(400).json({
+          status: 400,
+          detail: 'プロジェクトIDが必要です',
+        });
+        return;
+      }
+      if (!contractId) {
+        res.status(400).json({
+          status: 400,
+          detail: '変更契約IDが必要です',
+        });
+        return;
+      }
+
+      const result = await executionBudgetService.getAmendmentDiff(projectId, contractId);
+
+      res.json(result);
+    } catch (error) {
+      if (error instanceof ExecutionBudgetNotFoundError) {
+        res.status(404).json({
+          status: 404,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      if (error instanceof AmendmentContractNotFoundError) {
+        res.status(404).json({
+          status: 404,
+          detail: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+// ==========================================
 // 契約変更反映 POST /api/projects/:projectId/execution-budget/apply-amendment
 // Task 7.2: 契約変更反映のルーター実装
 // Requirements: 19.2, 19.9
