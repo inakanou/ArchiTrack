@@ -2,7 +2,7 @@
   "$schema": "./requirement-exclusions.schema.json",
   "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
   "version": "1.0.0",
-  "lastUpdated": "2024-12-04",
+  "lastUpdated": "2026-04-28",
   "exclusions": [
     {
       "id": "REQ-23.3",
@@ -4039,6 +4039,378 @@
       "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
       "title": "現場調査報告書出力機能11",
       "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.2",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ2",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.3",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ3",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.5",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ5",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.6",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ6",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.7",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ7",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.8",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ8",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.11",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ11",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.12",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ12",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.13",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ13",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-36.14",
+      "requirement": "REQ-36: 受領見積書 - インラインプレビュー縦幅リサイズ",
+      "title": "インラインプレビュー縦幅リサイズ14",
+      "reason": "受領見積書のインラインプレビュー縦幅リサイズ。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.1",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動1",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.2",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動2",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.3",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動3",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.4",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動4",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.5",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動5",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.6",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動6",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.8",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動8",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.9",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動9",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.10",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動10",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.11",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動11",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.12",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動12",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.14",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動14",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.15",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動15",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.16",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動16",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-37.17",
+      "requirement": "REQ-37: 受領見積書 - 明細行の並び順保持と上下移動",
+      "title": "明細行の並び順保持と上下移動17",
+      "reason": "受領見積書の明細行並び順保持と上下移動。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-38.1",
+      "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
+      "title": "編集中セッション切れ時の編集状態保護1",
+      "reason": "受領見積書編集中セッション切れ時の編集状態保護。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-38.4",
+      "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
+      "title": "編集中セッション切れ時の編集状態保護4",
+      "reason": "受領見積書編集中セッション切れ時の編集状態保護。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-38.5",
+      "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
+      "title": "編集中セッション切れ時の編集状態保護5",
+      "reason": "受領見積書編集中セッション切れ時の編集状態保護。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-38.9",
+      "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
+      "title": "編集中セッション切れ時の編集状態保護9",
+      "reason": "design review Issue 1 (2026-04-27) で撤廃済みの受入基準。要件書上は strikethrough で削除表記済みのため E2E テスト不要",
+      "category": "removed-from-spec",
+      "alternativeVerification": {
+        "method": "spec-review",
+        "tool": "requirements.md",
+        "description": "requirements.md にて削除表記（~~削除~~）を維持し、実装対象外であることを明示する"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-38.10",
+      "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
+      "title": "編集中セッション切れ時の編集状態保護10",
+      "reason": "受領見積書編集中セッション切れ時の編集状態保護。E2Eテスト実装予定",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "E2Eテストで検証予定"
+      }
+    },
+    {
+      "id": "estimate-request/REQ-38.11",
+      "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
+      "title": "編集中セッション切れ時の編集状態保護11",
+      "reason": "受領見積書編集中セッション切れ時の編集状態保護。E2Eテスト実装予定",
       "category": "pending-implementation",
       "alternativeVerification": {
         "method": "e2e-test",
