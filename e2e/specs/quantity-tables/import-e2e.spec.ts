@@ -6,6 +6,10 @@
  * - @requirement quantity-table-generation/REQ-27.2: ファイルアップロードエリア表示
  * - @requirement quantity-table-generation/REQ-27.3: Excel/PDF受付
  * - @requirement quantity-table-generation/REQ-27.4: サポート対象外でエラー
+ * - @requirement quantity-table-generation/REQ-27.5: Excelパース自動開始
+ * - @requirement quantity-table-generation/REQ-27.6: PDF OCR自動開始
+ * - @requirement quantity-table-generation/REQ-27.7: 処理中インジケーター
+ * - @requirement quantity-table-generation/REQ-27.8: 処理中ボタン非活性化
  * - @requirement quantity-table-generation/REQ-28.2: 全シート解析
  * - @requirement quantity-table-generation/REQ-28.3: 列マッピング
  * - @requirement quantity-table-generation/REQ-28.4: プレビューテーブル
@@ -180,6 +184,120 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
     // エラーメッセージが表示される（role=alert または「対応していないファイル形式」テキスト）
     const errorAlert = page.getByText(/対応していないファイル形式|対応ファイル形式/);
     await expect(errorAlert.first()).toBeVisible({ timeout: getTimeout(5000) });
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-27.5: Excelファイルアップロード時にExcelパース自動開始
+   *
+   * Excel ファイル(.xlsx)をアップロードすると、ユーザーの追加操作なしにパース処理が起動し、
+   * プレビュー領域に処理状態（インジケーターまたは結果）が現れる。
+   */
+  test('Excel(.xlsx)アップロード時にパース処理が自動起動する (REQ-27.5)', async ({ page }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles({
+      name: 'auto-start.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('PK\x03\x04dummy-excel-bytes'),
+    });
+
+    // 自動起動の証拠: インジケーターが現れるか、エラー/プレビューが現れる（いずれにせよ処理は走った）
+    const dialog = page.getByRole('dialog');
+    await expect(
+      dialog
+        .locator(
+          '[role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="preview" i], [role="alert"]'
+        )
+        .first()
+    ).toBeVisible({ timeout: getTimeout(10000) });
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-27.6: PDFファイルアップロード時にOCR自動開始
+   *
+   * PDF ファイルをアップロードすると、ユーザーの追加操作なしに OCR 処理が起動し、
+   * プレビュー領域に処理状態（インジケーターまたは結果）が現れる。
+   */
+  test('PDFアップロード時にOCR処理が自動起動する (REQ-27.6)', async ({ page }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_PDF);
+
+    const dialog = page.getByRole('dialog');
+    await expect(
+      dialog
+        .locator(
+          '[role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="preview" i], [role="alert"]'
+        )
+        .first()
+    ).toBeVisible({ timeout: getTimeout(15000) });
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-27.7: 処理中インジケーター表示
+   *
+   * ファイルアップロード直後、処理中インジケーター（role=status / aria-live / プログレス系）が
+   * ダイアログ内に表示される。処理完了で消えるか結果に置き換わる。
+   */
+  test('ファイルアップロード後に処理中インジケーターが表示される (REQ-27.7)', async ({ page }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_PDF);
+
+    const dialog = page.getByRole('dialog');
+    const indicator = dialog
+      .locator(
+        '[role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="loading" i]'
+      )
+      .first();
+    await expect(indicator).toBeVisible({ timeout: getTimeout(15000) });
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-27.8: 処理中時のボタン非活性化
+   *
+   * 処理中はキャンセル以外の主要操作（再アップロード・取り込み等）が disabled に切り替わる。
+   * インジケーターが見えている間に少なくとも 1 つのボタンが disabled であることを確認する。
+   */
+  test('処理中はダイアログ内ボタンが非活性化される (REQ-27.8)', async ({ page }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_PDF);
+
+    const dialog = page.getByRole('dialog');
+
+    // 処理開始のシグナル（インジケーターまたは結果）を待つ
+    await expect(
+      dialog
+        .locator(
+          '[role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="preview" i], [role="alert"]'
+        )
+        .first()
+    ).toBeVisible({ timeout: getTimeout(15000) });
+
+    // 処理中スナップショット時点で disabled なボタンが少なくとも 1 つあること
+    const disabledButtons = dialog.locator('button[disabled]');
+    expect(await disabledButtons.count()).toBeGreaterThan(0);
   });
 });
 

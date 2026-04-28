@@ -2523,54 +2523,6 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-27.5",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.5",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.6",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.6",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.7",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.7",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.8",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.8",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
       "id": "quantity-table-generation/REQ-28.1",
       "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
       "title": "Excelデータパースによる数量項目抽出28.1",
@@ -3205,13 +3157,12 @@
       "id": "execution-budget-management/REQ-12.2",
       "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
       "title": "同一施工日の上書き保存",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "同一施工日の上書き保存ロジックはバックエンドの upsert 制御で実施されるため、データ整合性は統合テストで検証",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "同一施工日の出来高が上書き保存されることをE2Eテストで検証予定",
-        "threshold": "overwrite: functional"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "同一施工日の出来高レコードが unique 制約により上書き保存されることを検証"
       }
     },
     {
