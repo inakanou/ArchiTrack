@@ -897,4 +897,99 @@ describe('ExecutionBudgetPage', () => {
       expect(await screen.findByText('月次締め履歴はありません')).toBeInTheDocument();
     });
   });
+
+  // ==========================================================================
+  // 原価更新（今月の支出） - REQ-13.2
+  // ==========================================================================
+  describe('原価更新 (REQ-13.2)', () => {
+    beforeEach(() => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+    });
+
+    it('今月支出の編集確定時に updateItemCost が呼ばれる', async () => {
+      vi.mocked(executionBudgetApi.updateItemCost).mockResolvedValue({
+        id: 'item-2',
+        currentMonthExpense: '70000',
+        previousMonthExpense: '100000',
+        totalExpense: '170000',
+        remainingBudget: '280000',
+        isOverBudget: false,
+        progressToExpenseRatio: null,
+        version: 2,
+      });
+      renderPage();
+      const input = await screen.findByTestId('current-month-expense-input-item-2');
+      await userEvent.click(input);
+      await userEvent.clear(input);
+      await userEvent.type(input, '70000');
+      // フォーカスを外して確定
+      await userEvent.tab();
+      await waitFor(() => {
+        expect(executionBudgetApi.updateItemCost).toHaveBeenCalledWith(
+          'project-1',
+          'item-2',
+          expect.objectContaining({ currentMonthExpense: '70000', version: 1 })
+        );
+      });
+    });
+
+    it('updateItemCost ApiError 時にエラー表示する', async () => {
+      vi.mocked(executionBudgetApi.updateItemCost).mockRejectedValue(
+        new ApiError(409, 'バージョン競合')
+      );
+      renderPage();
+      const input = await screen.findByTestId('current-month-expense-input-item-2');
+      await userEvent.click(input);
+      await userEvent.clear(input);
+      await userEvent.type(input, '70000');
+      await userEvent.tab();
+      // 全ての CostInput でエラーが共有表示されるため findAllByText を使用
+      const errors = await screen.findAllByText('バージョン競合');
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('updateItemCost 一般エラー時に汎用メッセージを表示する', async () => {
+      vi.mocked(executionBudgetApi.updateItemCost).mockRejectedValue(new Error('boom'));
+      renderPage();
+      const input = await screen.findByTestId('current-month-expense-input-item-2');
+      await userEvent.click(input);
+      await userEvent.clear(input);
+      await userEvent.type(input, '70000');
+      await userEvent.tab();
+      const errors = await screen.findAllByText('原価の更新に失敗しました');
+      expect(errors.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
+  // 変更契約反映ボタン - REQ-15.1 ナビゲート
+  // ==========================================================================
+  describe('変更契約反映ナビゲート (REQ-15.1)', () => {
+    beforeEach(() => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(mockBudget);
+      vi.mocked(executionBudgetApi.getOrders).mockResolvedValue(mockOrders);
+      vi.mocked(executionBudgetApi.getMonthlyCloseHistory).mockResolvedValue(mockMonthlyHistory);
+    });
+
+    it('「変更契約の反映」ボタン押下で変更契約反映ページに遷移する', async () => {
+      renderPage();
+      const button = await screen.findByTestId('apply-amendment-button');
+      await userEvent.click(button);
+      // ナビゲート後、ルートが切り替わって反映ページが表示されないため
+      // ExecutionBudgetPage の見出しが消えていることで遷移を確認
+      await waitFor(() => {
+        expect(screen.queryByTestId('apply-amendment-button')).not.toBeInTheDocument();
+      });
+    });
+
+    it('未反映変更契約が0件の場合は「変更契約の反映」ボタンを表示しない', async () => {
+      vi.mocked(executionBudgetApi.getUnreflectedAmendments).mockResolvedValue([]);
+      renderPage();
+      // 月次締めボタンが表示されるまで待つ（その時点で副次取得は完了）
+      await screen.findByText('月次締め');
+      expect(screen.queryByTestId('apply-amendment-button')).not.toBeInTheDocument();
+    });
+  });
 });
