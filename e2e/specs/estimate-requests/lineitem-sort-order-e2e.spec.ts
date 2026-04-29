@@ -66,9 +66,16 @@ test.describe('受領見積書 明細行の並び順と上下移動（REQ-37 残
       });
       accessToken = (await loginResponse.json()).accessToken;
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       const project = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `E2E_Sort_${Date.now()}`, siteAddress: '東京都' },
+        data: { name: `E2E_Sort_${Date.now()}`, siteAddress: '東京都', salesPersonId },
       });
       createdProjectId = (await project.json()).id;
 
@@ -78,7 +85,7 @@ test.describe('受領見積書 明細行の並び順と上下移動（REQ-37 残
           name: `Sort業者_${Date.now()}`,
           nameKana: 'ソート',
           address: '東京都',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `sort-${Date.now()}@example.com`,
         },
       });
@@ -166,8 +173,11 @@ test.describe('受領見積書 明細行の並び順と上下移動（REQ-37 残
       await expect(page.getByRole('menuitem', { name: '削除' })).toBeVisible();
 
       // REQ-37.6: 行内に独立した「削除」 button が存在しない（td 直下のスタンドアロン削除ボタン廃止）
-      // メニューが開いた状態で menuitem 以外の "削除" ボタンが無いことを確認
-      const standaloneDelete = page.getByRole('button', { name: /^削除$/ });
+      // 検証範囲は明細行テーブル内に限定する（見積依頼ヘッダーにも「削除」ボタンが存在するため）。
+      // menuitem ロールは getByRole('button') の対象外なので、メニューの「削除」menuitem は数に含まれない。
+      const standaloneDelete = page
+        .locator('table')
+        .getByRole('button', { name: '削除', exact: true });
       await expect(standaloneDelete).toHaveCount(0);
     });
   });
@@ -492,7 +502,8 @@ test.describe('受領見積書 明細行の並び順と上下移動（REQ-37 残
           headers: { Authorization: `Bearer ${accessToken}` },
           multipart: {
             name: `Sort永続化_${Date.now()}`,
-            submittedAt: '2026-04-27',
+            // createReceivedQuotationSchema は ISO 8601 datetime（z.string().datetime()）を要求
+            submittedAt: '2026-04-27T00:00:00.000Z',
             lineItems: JSON.stringify([
               {
                 customCategory: '',
@@ -541,7 +552,9 @@ test.describe('受領見積書 明細行の並び順と上下移動（REQ-37 残
       await loginAsUser(page, 'REGULAR_USER');
       await page.goto(`/estimate-requests/${requestId}`);
       await page.waitForLoadState('networkidle');
-      const editButton = page.getByRole('button', { name: /編集|変更/ }).first();
+      // ページ内には「ステータスを依頼済に変更する」ボタンも存在し /編集|変更/ で
+      // 先頭にマッチしてしまう。受領見積書一覧の「編集」ボタンを完全一致で取得する
+      const editButton = page.getByRole('button', { name: '編集', exact: true }).first();
       await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
       await editButton.click();
       await expect(page.getByText(/受領見積書の編集/i)).toBeVisible({

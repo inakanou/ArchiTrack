@@ -61,6 +61,8 @@ export interface UpdateExecutionBudgetItemInput {
  */
 export interface ExecutionBudgetItemWithCalculations {
   id: string;
+  /** 紐づく見積項目ID（フロントエンド・E2E テストで実行予算項目と見積項目の対応付けに使用） */
+  estimateItemId: string | null;
   parentId: string | null;
   displayOrder: number;
   name: string | null;
@@ -113,6 +115,15 @@ export interface ExecutionBudgetWithItemsResult {
   contractId: string;
   version: number;
   contractAmount: string | null;
+  /**
+   * 紐づく契約書情報（フロントエンドのページで契約金額・見積書名表示に使用）。
+   * 契約が存在しない場合は null。
+   */
+  contract: {
+    id: string;
+    contractAmount: string;
+    estimate: { name: string } | null;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
   items: ExecutionBudgetItemWithCalculations[];
@@ -557,6 +568,11 @@ export class ExecutionBudgetService {
           select: {
             id: true,
             contractAmount: true,
+            // フロントエンド ExecutionBudgetPage で `budget.contract.estimate?.name` を表示するため、
+            // 契約に紐づく見積書名も返却する（基本情報バーの「契約書」表示に使用）
+            estimate: {
+              select: { name: true },
+            },
           },
         },
         items: {
@@ -640,6 +656,15 @@ export class ExecutionBudgetService {
       contractId: budget.contractId,
       version: budget.version,
       contractAmount: budget.contract?.contractAmount?.toString() ?? null,
+      // フロントエンド側で `budget.contract.estimate?.name` 等を表示するため、
+      // include した contract オブジェクトをそのまま返す（id / contractAmount / estimate.name）。
+      contract: budget.contract
+        ? {
+            id: budget.contract.id,
+            contractAmount: budget.contract.contractAmount.toString(),
+            estimate: budget.contract.estimate ? { name: budget.contract.estimate.name } : null,
+          }
+        : null,
       createdAt: budget.createdAt,
       updatedAt: budget.updatedAt,
       items: processedItems,
@@ -1194,6 +1219,7 @@ export class ExecutionBudgetService {
     // 基本的な項目データ
     const processed: ExecutionBudgetItemWithCalculations = {
       id: item.id,
+      estimateItemId: item.estimateItemId ?? null,
       parentId: item.parentId,
       displayOrder: item.displayOrder,
       name: item.name ?? null,
@@ -1387,6 +1413,7 @@ export class ExecutionBudgetService {
  */
 interface RawBudgetItem {
   id: string;
+  estimateItemId: string | null;
   parentId: string | null;
   displayOrder: number;
   name: string | null;

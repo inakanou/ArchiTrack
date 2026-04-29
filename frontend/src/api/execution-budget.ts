@@ -94,20 +94,24 @@ export interface ExecutionBudget {
 
 /**
  * 実行予算（項目付き）
+ *
+ * 注: バックエンド `executionBudgetService.getWithItems` のレスポンスに合わせて
+ * フィールド名を統一（旧 `summary.*` 古名から `totals.*` 新名へ）。
  */
 export interface ExecutionBudgetWithItems extends ExecutionBudget {
   items: ExecutionBudgetItem[];
-  summary: {
-    totalEstimateAmount: string;
-    totalExecutionAmount: string;
-    totalAmendmentAmount: string;
-    totalOrderAmount: string;
+  totals: {
+    estimateAmount: string;
+    executionAmount: string;
+    amendmentAmount: string;
+    orderAmount: string;
     totalExpense: string;
-    totalRemainingBudget: string;
-    totalProgressAmount: string;
-    profitForecast: string;
-    orderProgressRate: string;
+    remainingBudget: string;
+    progressAmount: string;
+    expectedProfit: string;
   };
+  /** 発注進捗率（バックエンド getWithItems では budget 直下） */
+  orderProgressRate: number;
 }
 
 /**

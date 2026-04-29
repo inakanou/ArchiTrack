@@ -44,9 +44,19 @@ async function setupBaseData(request: APIRequestContext, prefix: string): Promis
   });
   const accessToken: string = (await loginResponse.json()).accessToken;
 
+  // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+  const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const salesPersonId = (await usersResponse.json())[0]?.id;
+
   const project = await request.post(`${baseUrl}/api/projects`, {
     headers: { Authorization: `Bearer ${accessToken}` },
-    data: { name: `${prefix}_${Date.now()}`, siteAddress: '東京都サーベイ1-2-3' },
+    data: {
+      name: `${prefix}_${Date.now()}`,
+      siteAddress: '東京都サーベイ1-2-3',
+      salesPersonId,
+    },
   });
   const projectId = (await project.json()).id;
 
@@ -56,7 +66,7 @@ async function setupBaseData(request: APIRequestContext, prefix: string): Promis
       name: `${prefix}業者_${Date.now()}`,
       nameKana: 'サーベイ',
       address: '東京都',
-      isSubcontractor: true,
+      types: ['SUBCONTRACTOR'],
       email: `${prefix.toLowerCase()}-${Date.now()}@example.com`,
     },
   });

@@ -75,10 +75,35 @@ async function openReceivedQuotationCreateDialog(page: Page, estimateRequestId: 
  * 既存のフロントエンド設計（frontend/src/api/client.ts L185-235）に依存。
  */
 async function simulateSessionExpiration(page: Page) {
-  await page.evaluate(() => {
-    localStorage.setItem('accessToken', 'invalid-expired-token-for-e2e');
-    localStorage.setItem('refreshToken', 'invalid-expired-refresh-token-for-e2e');
+  // localStorage の accessToken/refreshToken を書き換えても、AuthContext のメモリ内 state には
+  // valid なトークンが保持されたままになるため、API リクエストが成功してしまう。
+  // そこで、受領見積書 POST を「最初の 1 回だけ」401 で返すルートモックを設定し、
+  // refresh API も 401 で返して、リトライ時には外して通常フローに戻す。
+  // これにより以下の認証フローが確実に発火する:
+  //   1) 保存リクエスト → 401 (mock)
+  //   2) リフレッシュ試行 → 401 (mock)
+  //   3) SessionExpiredModal 表示
+  //   4) 再認証成功 → 自動リトライ → 通常レスポンスで保存成功
+  let savePostFailed = false;
+  await page.route('**/api/estimate-requests/*/quotations', async (route) => {
+    if (!savePostFailed && route.request().method() === 'POST') {
+      savePostFailed = true;
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'session expired (e2e)' }),
+      });
+      return;
+    }
+    await route.continue();
   });
+  await page.route('**/api/v1/auth/refresh', (route) =>
+    route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'session expired (e2e)' }),
+    })
+  );
 }
 
 test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', () => {
@@ -115,12 +140,20 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       // プロジェクト作成
       const projectResponse = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: {
           name: `E2Eダイアログ改善2_${Date.now()}`,
           siteAddress: '東京都千代田区テスト町1-2-3',
+          salesPersonId,
         },
       });
       expect(projectResponse.status()).toBe(201);
@@ -128,14 +161,14 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       createdProjectId = projectBody.id;
       expect(createdProjectId).toBeTruthy();
 
-      // 取引先作成（協力業者フラグ ON）
+      // 取引先作成（協力業者）
       const tradingPartnerResponse = await request.post(`${baseUrl}/api/trading-partners`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: {
           name: `E2Eダイアログ改善2業者_${Date.now()}`,
           nameKana: 'ダイアログカイゼンギョウシャ',
           address: '東京都千代田区テスト町2-3-4',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `dialog-improvements-${Date.now()}@example.com`,
         },
       });
@@ -252,20 +285,78 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       await expect(resizeHandle).toHaveAttribute('aria-label', 'プレビューエリアの高さを変更');
 
       // 縦方向にドラッグして縦幅を変更（Req 36.4 / 36.9）
+      // 実装の useResizableHeight は React の onPointerDown でフックを開始し、
+      // onPointerDown 後に setIsResizing(true) → 次レンダで window に pointermove/pointerup を
+      // attach する。page.mouse.* は MouseEvent ベースで Chromium の auto pointer 発火に依存する。
+      // Playwright + Chromium の組み合わせでは onPointerDown が確実に発火しないことがあるため、
+      // ハンドル要素に対して PointerEvent を直接 dispatchEvent して挙動を確定させる。
       const handleBox = await resizeHandle.boundingBox();
       expect(handleBox).toBeTruthy();
       if (handleBox) {
         const startX = handleBox.x + handleBox.width / 2;
         const startY = handleBox.y + handleBox.height / 2;
         const targetY = startY + 120; // 下方向に 120px ドラッグ → 縦幅拡大
-        await page.mouse.move(startX, startY);
-        await page.mouse.down();
-        await page.mouse.move(startX, targetY, { steps: 10 });
-        await page.mouse.up();
+
+        // ハンドルに pointerdown を直接送る（onResizeStart → setIsResizing(true)）
+        await resizeHandle.dispatchEvent('pointerdown', {
+          pointerId: 1,
+          pointerType: 'mouse',
+          button: 0,
+          buttons: 1,
+          clientX: startX,
+          clientY: startY,
+          isPrimary: true,
+        });
+        // useEffect が window に pointermove/pointerup を attach するレンダーを待つ
+        await page.waitForTimeout(150);
+
+        // window に pointermove を発行（実装は window 側でリスナー登録）
+        await page.evaluate(
+          ({ x, y, targetY: ty }) => {
+            const ev = new PointerEvent('pointermove', {
+              pointerId: 1,
+              pointerType: 'mouse',
+              button: 0,
+              buttons: 1,
+              clientX: x,
+              clientY: ty,
+              isPrimary: true,
+              bubbles: true,
+            });
+            window.dispatchEvent(ev);
+            void y;
+          },
+          { x: startX, y: startY, targetY }
+        );
+
+        // pointerup → localStorage 保存
+        await page.evaluate(
+          ({ x, y }) => {
+            const ev = new PointerEvent('pointerup', {
+              pointerId: 1,
+              pointerType: 'mouse',
+              button: 0,
+              buttons: 0,
+              clientX: x,
+              clientY: y,
+              isPrimary: true,
+              bubbles: true,
+            });
+            window.dispatchEvent(ev);
+          },
+          { x: startX, y: targetY }
+        );
       }
 
-      // pointerup 後に localStorage に保存される（Req 36.9）
-      // setItem は同期的だが、useState 更新後の effect で行うため少し待機
+      // pointerup 後に localStorage に保存される（Req 36.9, 36.10）
+      // pointerup 内で localStorage.setItem を行うが、React 状態更新と同フレーム実行のため
+      // 念のため Locator アサーションのリトライ機構を使って書き込み完了を待つ。
+      await expect
+        .poll(
+          async () => page.evaluate((key) => localStorage.getItem(key), PREVIEW_HEIGHT_STORAGE_KEY),
+          { timeout: getTimeout(5000) }
+        )
+        .not.toBeNull();
       const persistedHeight = await page.evaluate(
         (key) => localStorage.getItem(key),
         PREVIEW_HEIGHT_STORAGE_KEY
@@ -333,9 +424,11 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       });
 
       // 行内に旧式の単独「削除」ボタン（td 直下の独立 <button>）が存在しないことを確認
-      // アクションメニュー内の「削除」menuitem はメニューを開かない限り表示されない。
-      // td 直下に "削除" テキストの button が無いことで、Req 37.7 の集約を確認する。
-      const inlineDeleteButtons = page.getByRole('button', { name: /^削除$/ });
+      // 検証範囲は明細行テーブル内に限定する（見積依頼ヘッダーにも「削除」ボタンが存在するため）。
+      // menuitem ロールは getByRole('button') の対象外なので、メニューの「削除」menuitem は数に含まれない。
+      const inlineDeleteButtons = page
+        .locator('table')
+        .getByRole('button', { name: '削除', exact: true });
       await expect(inlineDeleteButtons).toHaveCount(0);
 
       // 行2 のアクションメニュー（中間行）→ 上下とも有効
@@ -441,8 +534,10 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       });
 
       // 受領見積書一覧から作成済みの行を編集ボタン経由で再オープン
+      // ページ内には「ステータスを依頼済に変更する」ボタンも存在し /編集|変更/ で
+      // 先頭にマッチしてしまうため、受領見積書一覧の「編集」ボタンを完全一致で取得する
       await page.waitForLoadState('networkidle');
-      const editButton = page.getByRole('button', { name: /編集|変更/ }).first();
+      const editButton = page.getByRole('button', { name: '編集', exact: true }).first();
       await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
       await editButton.click();
 

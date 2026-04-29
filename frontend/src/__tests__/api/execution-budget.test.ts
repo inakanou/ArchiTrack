@@ -97,17 +97,17 @@ const mockExecutionBudget: ExecutionBudgetWithItems = {
       progressRate: null,
     },
   ],
-  summary: {
-    totalEstimateAmount: '1000000',
-    totalExecutionAmount: '900000',
-    totalAmendmentAmount: '0',
-    totalOrderAmount: '0',
+  totals: {
+    estimateAmount: '1000000',
+    executionAmount: '900000',
+    amendmentAmount: '0',
+    orderAmount: '0',
     totalExpense: '0',
-    totalRemainingBudget: '900000',
-    totalProgressAmount: '0',
-    profitForecast: '100000',
-    orderProgressRate: '0',
+    remainingBudget: '900000',
+    progressAmount: '0',
+    expectedProfit: '100000',
   },
+  orderProgressRate: 0,
 };
 
 const mockOrders: OrderSummary[] = [

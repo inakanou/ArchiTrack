@@ -120,8 +120,14 @@ test.describe('実行予算管理 - 項目編集・原価・月次締め', () =>
     // 各行に対する発注予定取引先セルにテキスト入力欄が存在しない（読み取り専用）
     const rowWithItem = page.locator('table tr').filter({ hasText: '原価対象項目1' });
     await expect(rowWithItem).toBeVisible({ timeout: getTimeout(10000) });
-    // 行内に input 要素（編集可能フィールド）が存在しないことを確認
-    const inputCount = await rowWithItem.locator('input[type="text"]').count();
+
+    // 行全体で input を数えると、備考列の編集可能 input まで含めてしまうため、
+    // 発注予定取引先列のヘッダ位置（colIdx）を特定し、その列のセルだけを検証する。
+    const headerCells = await table.locator('thead th').allTextContents();
+    const vendorColIdx = headerCells.findIndex((t) => t.trim() === '発注予定取引先');
+    expect(vendorColIdx).toBeGreaterThanOrEqual(0);
+    const vendorCell = rowWithItem.locator('td').nth(vendorColIdx);
+    const inputCount = await vendorCell.locator('input').count();
     expect(inputCount).toBe(0);
   });
 

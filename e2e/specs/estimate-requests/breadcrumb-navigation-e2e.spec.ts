@@ -68,6 +68,15 @@ test.describe('見積依頼画面パンくずナビゲーション（REQ-29）',
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      expect(usersResponse.ok()).toBe(true);
+      const usersBody = await usersResponse.json();
+      const salesPersonId = usersBody[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       // プロジェクト作成
       projectName = `E2Eパンくず_${Date.now()}`;
       const projectResponse = await request.post(`${baseUrl}/api/projects`, {
@@ -75,6 +84,7 @@ test.describe('見積依頼画面パンくずナビゲーション（REQ-29）',
         data: {
           name: projectName,
           siteAddress: '東京都千代田区パンくず町1-2-3',
+          salesPersonId,
         },
       });
       expect(projectResponse.status()).toBe(201);
@@ -89,7 +99,7 @@ test.describe('見積依頼画面パンくずナビゲーション（REQ-29）',
           name: `E2Eパンくず業者_${Date.now()}`,
           nameKana: 'パンクズギョウシャ',
           address: '東京都千代田区パンくず町2-3-4',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `breadcrumb-${Date.now()}@example.com`,
         },
       });

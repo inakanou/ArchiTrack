@@ -171,6 +171,12 @@ async function sendFormData<T>(
 
     // エラーレスポンスの処理
     if (!response.ok) {
+      // Req 38.x: 401 のときは apiClient 経由で SessionExpiredModal をトリガーする。
+      // sendFormData は apiClient を bypass して fetch を直接呼ぶため、
+      // ここで明示的に sessionExpiredCallback を発火させないとモーダルが出ない。
+      if (response.status === 401) {
+        apiClient.triggerSessionExpired();
+      }
       // RFC 7807 Problem Details形式のdetailフィールド、または従来のerrorフィールドを優先的に使用
       const errorMessage =
         (data && typeof data === 'object'

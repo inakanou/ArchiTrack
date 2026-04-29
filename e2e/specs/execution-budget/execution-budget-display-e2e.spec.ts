@@ -175,7 +175,9 @@ test.describe('実行予算管理 - 作成・表示・一覧', () => {
 
     const emptySection = page.getByTestId('execution-budget-section');
     await expect(emptySection).toBeVisible({ timeout: getTimeout(15000) });
-    await expect(emptySection.getByText(/実行予算はまだありません|実行予算/)).toBeVisible();
+    // セクションタイトル h3「実行予算」と本文 p「実行予算はまだありません」の両方にマッチするため、
+    // 先頭マッチに限定して strict mode 違反を回避する
+    await expect(emptySection.getByText(/実行予算はまだありません|実行予算/).first()).toBeVisible();
 
     // 実行予算ありのプロジェクト（契約書名が表示される）
     await page.goto(`/projects/${displayProjectId}`);

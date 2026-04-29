@@ -98,9 +98,16 @@ test.describe('受領見積書 明細行テキストボックスサイズ統一�
       });
       accessToken = (await loginResponse.json()).accessToken;
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       const project = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `E2E_TextSize_${Date.now()}`, siteAddress: '東京都' },
+        data: { name: `E2E_TextSize_${Date.now()}`, siteAddress: '東京都', salesPersonId },
       });
       createdProjectId = (await project.json()).id;
 
@@ -110,7 +117,7 @@ test.describe('受領見積書 明細行テキストボックスサイズ統一�
           name: `TextSize業者_${Date.now()}`,
           nameKana: 'テキストサイズ',
           address: '東京都',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `textsize-${Date.now()}@example.com`,
         },
       });
@@ -236,7 +243,8 @@ test.describe('受領見積書 明細行テキストボックスサイズ統一�
           headers: { Authorization: `Bearer ${accessToken}` },
           multipart: {
             name: `編集サイズ_${Date.now()}`,
-            submittedAt: '2026-04-27',
+            // createReceivedQuotationSchema は ISO 8601 datetime（z.string().datetime()）を要求
+            submittedAt: '2026-04-27T00:00:00.000Z',
             lineItems: JSON.stringify([
               {
                 customCategory: '',
@@ -260,7 +268,9 @@ test.describe('受領見積書 明細行テキストボックスサイズ統一�
       await loginAsUser(page, 'REGULAR_USER');
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
-      const editButton = page.getByRole('button', { name: /編集|変更/ }).first();
+      // ページ内には「ステータスを依頼済に変更する」ボタンも存在し /編集|変更/ で
+      // 先頭にマッチしてしまう。受領見積書一覧の「編集」ボタンを完全一致で取得する
+      const editButton = page.getByRole('button', { name: '編集', exact: true }).first();
       await editButton.click();
       await expect(page.getByText(/受領見積書の編集/i)).toBeVisible({
         timeout: getTimeout(15000),

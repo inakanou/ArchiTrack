@@ -56,17 +56,17 @@ const mockBudget: executionBudgetApi.ExecutionBudgetWithItems = {
     estimate: { id: 'estimate-1', name: '見積書A' },
   },
   items: [],
-  summary: {
-    totalEstimateAmount: '10000000',
-    totalExecutionAmount: '10000000',
-    totalAmendmentAmount: '0',
-    totalOrderAmount: '0',
+  totals: {
+    estimateAmount: '10000000',
+    executionAmount: '10000000',
+    amendmentAmount: '0',
+    orderAmount: '0',
     totalExpense: '0',
-    totalRemainingBudget: '10000000',
-    totalProgressAmount: '0',
-    profitForecast: '0',
-    orderProgressRate: '0.0',
+    remainingBudget: '10000000',
+    progressAmount: '0',
+    expectedProfit: '0',
   },
+  orderProgressRate: 0,
 };
 
 const mockAmendments: executionBudgetApi.UnreflectedAmendment[] = [

@@ -92,7 +92,16 @@ test.describe('実行予算管理 - 実行予算の削除', () => {
     const itemId = budget.items[0]?.id as string;
     await updateOrderItems(request, token, projectWithOrderedId, order.id, [itemId]);
 
-    // ステータスを発注済へ
+    // ステータスを UNDER_REVIEW → ORDERED の 2 段階で遷移する
+    // （VALID_STATUS_TRANSITIONS: BEFORE_ORDER→UNDER_REVIEW→ORDERED の経路）
+    const reviewRes = await request.patch(
+      `${API_BASE_URL}/api/projects/${projectWithOrderedId}/execution-budget/orders/${order.id}/status`,
+      {
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        data: { status: 'UNDER_REVIEW' },
+      }
+    );
+    expect(reviewRes.status()).toBe(200);
     const statusRes = await request.patch(
       `${API_BASE_URL}/api/projects/${projectWithOrderedId}/execution-budget/orders/${order.id}/status`,
       {
@@ -122,7 +131,9 @@ test.describe('実行予算管理 - 実行予算の削除', () => {
     // 削除確認ダイアログが表示される
     const dialog = page.getByRole('dialog', { name: '削除確認' });
     await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
-    await expect(dialog.getByText(/実行予算の削除|削除してもよろしいですか/)).toBeVisible();
+    // タイトル h3「実行予算の削除」と本文 p「削除してもよろしいですか」の両方にマッチするため、
+    // 先頭マッチに限定して strict mode 違反を回避する
+    await expect(dialog.getByText(/実行予算の削除|削除してもよろしいですか/).first()).toBeVisible();
 
     // ダイアログ内に「キャンセル」「削除する」ボタンが存在
     await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeVisible();

@@ -56,9 +56,16 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
       });
       accessToken = (await loginResponse.json()).accessToken;
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       const project = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `E2EダイアログW_${Date.now()}`, siteAddress: '東京都' },
+        data: { name: `E2EダイアログW_${Date.now()}`, siteAddress: '東京都', salesPersonId },
       });
       createdProjectId = (await project.json()).id;
 
@@ -66,9 +73,10 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: {
           name: `ダイアログW業者_${Date.now()}`,
-          nameKana: 'ダイアログW',
+          // nameKana は全角カタカナのみ許可（trading-partner.schema.ts: NAME_KANA_KATAKANA_ONLY）
+          nameKana: 'ダイアログダブリュー',
           address: '東京都',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `dialog-w-${Date.now()}@example.com`,
         },
       });
@@ -281,7 +289,9 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
           headers: { Authorization: `Bearer ${accessToken}` },
           multipart: {
             name: `編集W_${Date.now()}`,
-            submittedAt: '2026-04-27',
+            // createReceivedQuotationSchema は ISO 8601 datetime（z.string().datetime()）を要求するため
+            // 日付のみ '2026-04-27' は datetime 形式不正として 400 になる
+            submittedAt: '2026-04-27T00:00:00.000Z',
             lineItems: JSON.stringify([
               {
                 customCategory: '',
@@ -308,7 +318,9 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      const editButton = page.getByRole('button', { name: /編集|変更/ }).first();
+      // ページ内には「ステータスを見積受領済に変更する」ボタンも存在し /編集|変更/ で
+      // 先頭にマッチしてしまう。受領見積書一覧の「編集」ボタンを完全一致で取得する
+      const editButton = page.getByRole('button', { name: '編集', exact: true }).first();
       await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
       await editButton.click();
 

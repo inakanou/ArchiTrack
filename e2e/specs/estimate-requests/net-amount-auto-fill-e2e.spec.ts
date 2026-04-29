@@ -62,9 +62,16 @@ test.describe('受領見積書 NET金額自動入力（REQ-34）', () => {
       });
       accessToken = (await loginResponse.json()).accessToken;
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       const project = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `E2E_NET_${Date.now()}`, siteAddress: '東京都' },
+        data: { name: `E2E_NET_${Date.now()}`, siteAddress: '東京都', salesPersonId },
       });
       createdProjectId = (await project.json()).id;
 
@@ -74,7 +81,7 @@ test.describe('受領見積書 NET金額自動入力（REQ-34）', () => {
           name: `NET業者_${Date.now()}`,
           nameKana: 'ネット',
           address: '東京都',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `net-${Date.now()}@example.com`,
         },
       });
@@ -161,8 +168,12 @@ test.describe('受領見積書 NET金額自動入力（REQ-34）', () => {
     }
 
     // 保存ボタン
+    // 既に同一選択状態が永続化済みの場合（前テストで保存済み）、ボタンは disabled のまま表示される。
+    // isVisible は disabled でも true を返すため、isEnabled も併せて判定して空打ちを避ける。
     const saveButton = page.getByTestId('save-selection-button');
-    if (await saveButton.isVisible().catch(() => false)) {
+    const visible = await saveButton.isVisible().catch(() => false);
+    const enabled = await saveButton.isEnabled().catch(() => false);
+    if (visible && enabled) {
       await saveButton.click();
       await expect(page.getByText('保存しました')).toBeVisible({ timeout: getTimeout(10000) });
     }

@@ -227,7 +227,13 @@ export function SessionExpiredModal({
   return (
     <>
       {/* 要件30.5: オーバーレイ（クリック無効） */}
-      <div className="fixed inset-0 bg-black/50 z-50" aria-hidden="true" />
+      {/* 操作中の業務ダイアログ（zIndex: 1000 等）より前面に表示するため、
+          inline style で zIndex: 2147483646 を指定（最大値 - 1） */}
+      <div
+        className="fixed inset-0 bg-black/50"
+        style={{ zIndex: 2147483646 }}
+        aria-hidden="true"
+      />
 
       {/* 要件30.19: role="dialog", aria-modal="true", aria-labelledby */}
       <div
@@ -235,7 +241,8 @@ export function SessionExpiredModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="session-expired-title"
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 flex items-center justify-center p-4"
+        style={{ zIndex: 2147483647 }}
       >
         {/* 要件30.21: レスポンシブ対応 - デスクトップmax-w-md、モバイルフルスクリーン */}
         <div className="bg-white rounded-lg shadow-xl w-full max-w-md md:mx-auto max-md:min-h-[80vh] max-md:flex max-md:flex-col max-md:justify-center p-6">

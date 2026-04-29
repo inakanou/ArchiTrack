@@ -307,10 +307,12 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const summaryPanel = page.locator('[data-testid="summary-panel"]');
       await expect(summaryPanel).toBeVisible({ timeout: getTimeout(15000) });
 
+      // summary-panel 全体やその内側の grid div も「業者金額合計」を has するため、
+      // 最も内側の summaryItem div を取得するために .last() を使う
       const vendorRow = summaryPanel
         .locator('div')
         .filter({ has: page.getByText('業者金額合計', { exact: true }) })
-        .first();
+        .last();
       await expect(vendorRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const rowText = await vendorRow.textContent();
@@ -336,7 +338,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const executionRow = summaryPanel
         .locator('div')
         .filter({ has: page.getByText('実行金額合計', { exact: true }) })
-        .first();
+        .last();
       await expect(executionRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const rowText = await executionRow.textContent();
@@ -362,7 +364,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const discountRow = summaryPanel
         .locator('div')
         .filter({ has: page.getByText('値引額', { exact: true }) })
-        .first();
+        .last();
       await expect(discountRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const rowText = await discountRow.textContent();
@@ -388,7 +390,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const discountRateRow = summaryPanel
         .locator('div')
         .filter({ has: page.getByText('値引率', { exact: true }) })
-        .first();
+        .last();
       await expect(discountRateRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const rowText = await discountRateRow.textContent();
@@ -417,7 +419,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const estimateRow = summaryPanel
         .locator('div')
         .filter({ has: page.getByText('見積金額合計', { exact: true }) })
-        .first();
+        .last();
       await expect(estimateRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const rowText = await estimateRow.textContent();
@@ -443,7 +445,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const profitRow = summaryPanel
         .locator('div')
         .filter({ has: page.getByText('利益額', { exact: true }) })
-        .first();
+        .last();
       await expect(profitRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const rowText = await profitRow.textContent();
@@ -469,7 +471,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const profitRateRow = summaryPanel
         .locator('div')
         .filter({ has: page.getByText('利益率', { exact: true }) })
-        .first();
+        .last();
       await expect(profitRateRow).toBeVisible({ timeout: getTimeout(5000) });
 
       const rowText = await profitRateRow.textContent();

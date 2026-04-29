@@ -153,17 +153,17 @@ const mockBudget: executionBudgetApi.ExecutionBudgetWithItems = {
       ],
     },
   ],
-  summary: {
-    totalEstimateAmount: '1000000',
-    totalExecutionAmount: '930000',
-    totalAmendmentAmount: '0',
-    totalOrderAmount: '440000',
+  totals: {
+    estimateAmount: '1000000',
+    executionAmount: '930000',
+    amendmentAmount: '0',
+    orderAmount: '440000',
     totalExpense: '150000',
-    totalRemainingBudget: '780000',
-    totalProgressAmount: '200000',
-    profitForecast: '70000',
-    orderProgressRate: '50.0',
+    remainingBudget: '780000',
+    progressAmount: '200000',
+    expectedProfit: '70000',
   },
+  orderProgressRate: 50,
 };
 
 // テストデータ: 出来高履歴

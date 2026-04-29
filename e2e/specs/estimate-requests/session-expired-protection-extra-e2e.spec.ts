@@ -35,10 +35,43 @@ async function openCreateDialog(page: Page, estimateRequestId: string) {
 }
 
 async function simulateSessionExpiration(page: Page) {
+  // localStorage の accessToken/refreshToken を書き換えても、AuthContext のメモリ内 state には
+  // valid なトークンが保持されたままになるため、API リクエストが成功してしまう。
+  // そこで、受領見積書 POST/PUT を「最初の 1 回だけ」401 で返すルートモックを設定し、
+  // refresh API も 401 で返して、リトライ時には外して通常フローに戻す。
+  // これにより以下の認証フローが確実に発火する:
+  //   1) 保存リクエスト → 401 (mock)
+  //   2) リフレッシュ試行 → 401 (mock)
+  //   3) sendFormData が apiClient.triggerSessionExpired() を呼び出して SessionExpiredModal 表示
   await page.evaluate(() => {
     localStorage.setItem('accessToken', 'invalid-expired-token-for-e2e');
     localStorage.setItem('refreshToken', 'invalid-expired-refresh-token-for-e2e');
   });
+  await page.context().clearCookies();
+  let saveFailed = false;
+  await page.route(
+    /\/api\/(estimate-requests\/[^/]+\/quotations|quotations\/[^/]+)$/,
+    async (route) => {
+      const method = route.request().method();
+      if (!saveFailed && (method === 'POST' || method === 'PUT')) {
+        saveFailed = true;
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'session expired (e2e)' }),
+        });
+        return;
+      }
+      await route.continue();
+    }
+  );
+  await page.route('**/api/v1/auth/refresh', (route) =>
+    route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'session expired (e2e)' }),
+    })
+  );
 }
 
 test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', () => {
@@ -66,9 +99,16 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
       });
       accessToken = (await loginResponse.json()).accessToken;
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       const project = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `E2E_Session_${Date.now()}`, siteAddress: '東京都' },
+        data: { name: `E2E_Session_${Date.now()}`, siteAddress: '東京都', salesPersonId },
       });
       createdProjectId = (await project.json()).id;
 
@@ -78,7 +118,7 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
           name: `Session業者_${Date.now()}`,
           nameKana: 'セッション',
           address: '東京都',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `session-${Date.now()}@example.com`,
         },
       });
@@ -261,7 +301,8 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
           headers: { Authorization: `Bearer ${accessToken}` },
           multipart: {
             name: `競合_${Date.now()}`,
-            submittedAt: '2026-04-27',
+            // createReceivedQuotationSchema は ISO 8601 datetime（z.string().datetime()）を要求
+            submittedAt: '2026-04-27T00:00:00.000Z',
             lineItems: JSON.stringify([
               {
                 customCategory: '',
@@ -287,18 +328,23 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
       await loginAsUser(page, 'REGULAR_USER');
       await page.goto(`/estimate-requests/${requestId}`);
       await page.waitForLoadState('networkidle');
-      const editButton = page.getByRole('button', { name: /編集|変更/ }).first();
+      // ページ内には「ステータスを依頼済に変更する」ボタンも存在し /編集|変更/ で
+      // 先頭にマッチしてしまう。受領見積書一覧の「編集」ボタンを完全一致で取得する
+      const editButton = page.getByRole('button', { name: '編集', exact: true }).first();
       await editButton.click();
       await expect(page.getByText(/受領見積書の編集/i)).toBeVisible({
         timeout: getTimeout(15000),
       });
 
       // 同一受領見積書を別経路で先に更新して updatedAt を進めることで競合状態を作る
+      // updateReceivedQuotationSchema は expectedUpdatedAt 必須（楽観的排他制御）
+      // submittedAt は z.string().datetime() なので ISO 8601 形式で送る必要がある
       await request.put(`${baseUrl}/api/quotations/${createdQuotationId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: {
           name: `競合更新_${Date.now()}`,
-          submittedAt: '2026-04-27',
+          submittedAt: '2026-04-27T00:00:00.000Z',
+          expectedUpdatedAt: created.updatedAt,
           lineItems: [
             {
               customCategory: '',
@@ -318,7 +364,8 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
 
       // ブラウザ側で何か編集して保存 → 409
       await page.locator('#quotation-name').fill(`競合TEST_${Date.now()}`);
-      const submitButton = page.getByRole('button', { name: /^登録$|^保存$/ }).last();
+      // 編集ダイアログの保存ボタンは「更新」、新規ダイアログは「登録」または「保存」
+      const submitButton = page.getByRole('button', { name: /^登録$|^保存$|^更新$/ }).last();
       await submitButton.click();
 
       // REQ-38.10: 楽観的排他制御エラー表示が出る

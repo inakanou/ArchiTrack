@@ -827,28 +827,22 @@ describe('ProgressService', () => {
 
       const result = await service.getMonthlyDetail(BUDGET_ID, '2026-03');
 
+      // 新仕様（Req-16.3）: 月内の項目別集計を返す（記録別ではない）
       expect(result).toHaveLength(2);
 
-      // 1つ目のレコード（3月10日）
-      expect(result[0]!.constructionDate).toEqual(new Date('2026-03-10'));
-      expect(result[0]!.items).toHaveLength(2);
+      // 項目A: 月内合計 400000 + 600000 = 1000000、率 = 1000000 / 1000000 = 100.0%
+      const itemA = result.find((i) => i.executionBudgetItemId === ITEM_ID_1);
+      expect(itemA?.itemName).toBe('項目A');
+      expect(itemA?.executionAmount).toBe('1000000');
+      expect(itemA?.progressAmount).toBe('1000000');
+      expect(itemA?.progressRate).toBe('100.0');
 
-      // 項目Aの出来高率: 400000 / 1000000 * 100 = 40.0%
-      const rec1ItemA = result[0]!.items.find(
-        (i: { executionBudgetItemId: string }) => i.executionBudgetItemId === ITEM_ID_1
-      );
-      expect(rec1ItemA?.amount).toBe('400000');
-      expect(rec1ItemA?.progressRate).toBe('40.0');
-
-      // 2つ目のレコード（3月20日）
-      expect(result[1]!.constructionDate).toEqual(new Date('2026-03-20'));
-
-      // 項目Aの出来高率: 600000 / 1000000 * 100 = 60.0%
-      const rec2ItemA = result[1]!.items.find(
-        (i: { executionBudgetItemId: string }) => i.executionBudgetItemId === ITEM_ID_1
-      );
-      expect(rec2ItemA?.amount).toBe('600000');
-      expect(rec2ItemA?.progressRate).toBe('60.0');
+      // 項目B: 月内合計 200000 + 300000 = 500000、率 = 500000 / 500000 = 100.0%
+      const itemB = result.find((i) => i.executionBudgetItemId === ITEM_ID_2);
+      expect(itemB?.itemName).toBe('項目B');
+      expect(itemB?.executionAmount).toBe('500000');
+      expect(itemB?.progressAmount).toBe('500000');
+      expect(itemB?.progressRate).toBe('100.0');
     });
 
     it('指定月に出来高レコードが存在しない場合、空配列を返す', async () => {

@@ -466,7 +466,9 @@ export default function ProgressInputPage() {
       if (!projectId) return;
       try {
         const data = await getProgressByDate(projectId, record.constructionDate);
-        setConstructionDate(record.constructionDate);
+        // backend の ISO 8601 datetime 文字列 ("2024-06-15T00:00:00.000Z") を
+        // <input type="date"> 用の YYYY-MM-DD 形式に変換する
+        setConstructionDate(record.constructionDate.substring(0, 10));
         // 既存の出来高データを入力欄に読み込み
         setProgressItems((prev) =>
           prev.map((item) => {

@@ -40,6 +40,29 @@ async function openCreateDialog(page: Page, estimateRequestId: string) {
   });
 }
 
+/**
+ * canvas の祖先を辿って overflowY=auto/scroll となる要素（FileInlinePreview の pdfContainer）の
+ * 描画高さを取得する。`page.locator('div').filter({ has: canvas }).first()` だとページ全体の
+ * 祖先 div を取得してしまい、preview 縦幅検証ができないため、このヘルパーを使う。
+ */
+async function getPdfContainerHeight(page: Page): Promise<number | null> {
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: getTimeout(20000) });
+  return page
+    .locator('canvas')
+    .first()
+    .evaluate((canvas) => {
+      let el: HTMLElement | null = canvas.parentElement;
+      while (el) {
+        const computed = window.getComputedStyle(el).overflowY;
+        if (computed === 'auto' || computed === 'scroll') {
+          return el.getBoundingClientRect().height;
+        }
+        el = el.parentElement;
+      }
+      return null;
+    });
+}
+
 test.describe('受領見積書 インラインプレビュー縦幅リサイズ（REQ-36 残り）', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -65,9 +88,16 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       });
       accessToken = (await loginResponse.json()).accessToken;
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       const project = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `E2E_Resize_${Date.now()}`, siteAddress: '東京都' },
+        data: { name: `E2E_Resize_${Date.now()}`, siteAddress: '東京都', salesPersonId },
       });
       createdProjectId = (await project.json()).id;
 
@@ -77,7 +107,7 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
           name: `Resize業者_${Date.now()}`,
           nameKana: 'リサイズ',
           address: '東京都',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `resize-${Date.now()}@example.com`,
         },
       });
@@ -181,15 +211,10 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       await page.locator('[data-testid="file-input"]').setInputFiles('e2e/fixtures/test-file.pdf');
 
       // PDF プレビューエリアの実高さを測定 → 200px 以上
-      const pdfContainer = page
-        .locator('div')
-        .filter({ has: page.locator('canvas') })
-        .first();
-      await expect(pdfContainer).toBeVisible({ timeout: getTimeout(20000) });
-      const box = await pdfContainer.boundingBox();
-      expect(box).toBeTruthy();
-      if (box) {
-        expect(box.height).toBeGreaterThanOrEqual(RESIZE_MIN_HEIGHT - 1); // 1px の丸め誤差許容
+      const pdfContainerHeight = await getPdfContainerHeight(page);
+      expect(pdfContainerHeight).not.toBeNull();
+      if (pdfContainerHeight != null) {
+        expect(pdfContainerHeight).toBeGreaterThanOrEqual(RESIZE_MIN_HEIGHT - 1); // 1px の丸め誤差許容
       }
     });
 
@@ -213,16 +238,11 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       await openCreateDialog(page, createdEstimateRequestId as string);
       await page.locator('[data-testid="file-input"]').setInputFiles('e2e/fixtures/test-file.pdf');
 
-      const pdfContainer = page
-        .locator('div')
-        .filter({ has: page.locator('canvas') })
-        .first();
-      await expect(pdfContainer).toBeVisible({ timeout: getTimeout(20000) });
-      const box = await pdfContainer.boundingBox();
-      expect(box).toBeTruthy();
-      if (box) {
+      const pdfContainerHeight = await getPdfContainerHeight(page);
+      expect(pdfContainerHeight).not.toBeNull();
+      if (pdfContainerHeight != null) {
         // RESIZE_MAX_ABSOLUTE_HEIGHT = 800px と viewport*0.7 のうち小さい方
-        expect(box.height).toBeLessThanOrEqual(RESIZE_MAX_ABSOLUTE_HEIGHT);
+        expect(pdfContainerHeight).toBeLessThanOrEqual(RESIZE_MAX_ABSOLUTE_HEIGHT);
       }
     });
   });
@@ -248,17 +268,12 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       await openCreateDialog(page, createdEstimateRequestId as string);
       await page.locator('[data-testid="file-input"]').setInputFiles('e2e/fixtures/test-file.pdf');
 
-      const pdfContainer = page
-        .locator('div')
-        .filter({ has: page.locator('canvas') })
-        .first();
-      await expect(pdfContainer).toBeVisible({ timeout: getTimeout(20000) });
-      const box = await pdfContainer.boundingBox();
-      expect(box).toBeTruthy();
-      if (box) {
+      const pdfContainerHeight = await getPdfContainerHeight(page);
+      expect(pdfContainerHeight).not.toBeNull();
+      if (pdfContainerHeight != null) {
         // 既定値 400px の付近（スクロールバー等で多少ずれても許容: ±20px）
-        expect(box.height).toBeGreaterThanOrEqual(RESIZE_DEFAULT_HEIGHT - 20);
-        expect(box.height).toBeLessThanOrEqual(RESIZE_DEFAULT_HEIGHT + 20);
+        expect(pdfContainerHeight).toBeGreaterThanOrEqual(RESIZE_DEFAULT_HEIGHT - 20);
+        expect(pdfContainerHeight).toBeLessThanOrEqual(RESIZE_DEFAULT_HEIGHT + 20);
       }
     });
   });
@@ -296,10 +311,15 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
         await page.mouse.up();
       }
 
-      // 拡大縮小機能の確認: 拡大ボタン押下 → 倍率テキスト変更
+      // 拡大縮小機能の確認: 拡大ボタン押下 → 倍率テキストが +25% 増える
+      // 初期スケールは fit-to-width（REQ-31.8）で動的に決まるため、絶対値ではなく相対変化で検証する
+      const zoomText = page.getByTestId('zoom-level-text');
+      await expect(zoomText).toHaveText(/^\d+%$/);
+      const initialText = (await zoomText.textContent()) ?? '';
+      const initial = Number(initialText.replace('%', ''));
       const zoomIn = page.getByRole('button', { name: '拡大' });
       await zoomIn.click();
-      await expect(page.getByTestId('zoom-level-text')).toHaveText('125%');
+      await expect(zoomText).toHaveText(`${initial + 25}%`);
     });
   });
 
@@ -403,7 +423,8 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
           headers: { Authorization: `Bearer ${accessToken}` },
           multipart: {
             name: `編集リサイズ_${Date.now()}`,
-            submittedAt: '2026-04-27',
+            // createReceivedQuotationSchema は ISO 8601 datetime（z.string().datetime()）を要求
+            submittedAt: '2026-04-27T00:00:00.000Z',
             file: { name: 'test-file.pdf', mimeType: 'application/pdf', buffer: pdfBuffer },
           },
         }
@@ -415,8 +436,10 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // 編集ボタン（最初）
-      const editButton = page.getByRole('button', { name: /編集|変更/ }).first();
+      // 編集ボタン
+      // ページ内には「ステータスを依頼済に変更する」ボタンも存在し /編集|変更/ で
+      // 先頭にマッチしてしまう。受領見積書一覧の「編集」ボタンを完全一致で取得する
+      const editButton = page.getByRole('button', { name: '編集', exact: true }).first();
       await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
       await editButton.click();
 

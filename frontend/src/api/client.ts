@@ -391,6 +391,18 @@ class ApiClient {
   setSessionExpiredCallback(callback: (() => void) | null): void {
     this.sessionExpiredCallback = callback;
   }
+
+  /**
+   * セッション切れコールバックを発火する
+   * apiClient を経由しない FormData 送信経路（multipart upload）から、
+   * 401 検出時に共通の SessionExpiredModal トリガーを呼び出すための公開メソッド。
+   * Req 38.x（セッション切れ時のモーダル表示）が multipart upload 経路でも動くようにする。
+   */
+  triggerSessionExpired(): void {
+    if (this.sessionExpiredCallback) {
+      this.sessionExpiredCallback();
+    }
+  }
 }
 
 // シングルトンインスタンスをエクスポート

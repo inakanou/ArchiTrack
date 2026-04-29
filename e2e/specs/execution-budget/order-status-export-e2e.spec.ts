@@ -94,10 +94,17 @@ test.describe('実行予算管理 - 発注ステータス反映 / エクスポ�
     orderedItemId = orderedBudgetItem!.id;
     unorderedItemId = unorderedBudgetItem!.id;
 
-    // 発注作成・項目チェック・発注済へ
+    // 発注作成・項目チェック・BEFORE_ORDER → UNDER_REVIEW → ORDERED の 2 段階遷移
     const order = await createTestOrder(request, token, projectId, partnerId);
     orderId = order.id;
     await updateOrderItems(request, token, projectId, orderId, [orderedItemId]);
+    await request.patch(
+      `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${orderId}/status`,
+      {
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        data: { status: 'UNDER_REVIEW' },
+      }
+    );
     const statusRes = await request.patch(
       `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${orderId}/status`,
       {
@@ -125,7 +132,9 @@ test.describe('実行予算管理 - 発注ステータス反映 / エクスポ�
     // 発注済み項目の行に「発注済」のステータスバッジが表示される
     const orderedRow = page.locator('table tr').filter({ hasText: '発注済み対象項目' });
     await expect(orderedRow).toBeVisible({ timeout: getTimeout(15000) });
-    await expect(orderedRow.getByText('発注済')).toBeVisible();
+    // 行内のテキスト「発注済」は項目名セル（"発注済み対象項目"）にも部分一致するため、
+    // exact: true で完全一致のステータス表示 span を取得する
+    await expect(orderedRow.getByText('発注済', { exact: true })).toBeVisible();
   });
 
   // ============================================================================
@@ -145,7 +154,11 @@ test.describe('実行予算管理 - 発注ステータス反映 / エクスポ�
     await expect(orderedRow).toBeVisible({ timeout: getTimeout(15000) });
 
     // 確定発注金額 180,000 がそのまま発注金額として案分される
-    await expect(orderedRow.getByText('180,000')).toBeVisible({ timeout: getTimeout(10000) });
+    // 行内に同金額のセルが複数（実行金額・発注金額・残予算など）出るため
+    // .first() で先頭マッチに限定して strict mode 違反を回避する
+    await expect(orderedRow.getByText('180,000').first()).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
     // API でも item.orderAmount が設定されていることを確認
     const budgetRes = await request.get(

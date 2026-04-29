@@ -516,11 +516,13 @@ test.describe('契約書管理機能', () => {
       });
 
       // 変更契約でも自動表示項目（金額計算・プロジェクト情報）が表示されることを確認（REQ-5.4）
-      await expect(page.getByText(/工事価格/)).toBeVisible();
-      await expect(page.getByText(/消費税額/)).toBeVisible();
-      await expect(page.getByText(/請負代金額/)).toBeVisible();
-      await expect(page.getByText(/工事名/)).toBeVisible();
-      await expect(page.getByText(/工事場所/)).toBeVisible();
+      // 変更契約フォームでは比較表示パネル（ComparisonPanel）にも同名ラベルが存在するため
+      // strict mode 違反を避けるべく first() で先頭要素を対象にする
+      await expect(page.getByText(/工事価格/).first()).toBeVisible();
+      await expect(page.getByText(/消費税額/).first()).toBeVisible();
+      await expect(page.getByText(/請負代金額/).first()).toBeVisible();
+      await expect(page.getByText(/工事名/).first()).toBeVisible();
+      await expect(page.getByText(/工事場所/).first()).toBeVisible();
 
       // 作成ボタンで変更契約を作成
       const submitButton = page.getByRole('button', { name: /作成/i });

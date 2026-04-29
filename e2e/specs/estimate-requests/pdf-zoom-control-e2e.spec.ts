@@ -73,9 +73,16 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       });
       accessToken = (await loginResponse.json()).accessToken;
 
+      // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
+      const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const salesPersonId = (await usersResponse.json())[0]?.id;
+      expect(salesPersonId).toBeTruthy();
+
       const project = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `E2E_PDFZoom_${Date.now()}`, siteAddress: '東京都' },
+        data: { name: `E2E_PDFZoom_${Date.now()}`, siteAddress: '東京都', salesPersonId },
       });
       createdProjectId = (await project.json()).id;
 
@@ -85,7 +92,7 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
           name: `PDFZoom業者_${Date.now()}`,
           nameKana: 'ピーディーエフズーム',
           address: '東京都',
-          isSubcontractor: true,
+          types: ['SUBCONTRACTOR'],
           email: `pdfzoom-${Date.now()}@example.com`,
         },
       });
@@ -149,7 +156,7 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
      * @requirement estimate-request/REQ-31.7
      * @requirement estimate-request/REQ-31.8
      */
-    test('登録画面で拡大・縮小ボタン、現在倍率パーセンテージ、初期100%が表示される (REQ-31.1, 31.2, 31.7, 31.8)', async ({
+    test('登録画面で拡大・縮小ボタンと現在倍率パーセンテージが表示され、初期倍率はプレビュー幅にフィットする (REQ-31.1, 31.2, 31.7, 31.8)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -160,10 +167,19 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       await expect(page.getByRole('button', { name: '拡大' })).toBeVisible();
       // REQ-31.2: 縮小ボタン
       await expect(page.getByRole('button', { name: '縮小' })).toBeVisible();
-      // REQ-31.7, 31.8: 倍率テキスト＝初期 100%（ZOOM_FIT_DEFAULT=1.0）
+
+      // REQ-31.7: 倍率テキストがパーセンテージ形式で表示される
+      // REQ-31.8: 初期表示倍率はプレビューエリア幅にフィット（design.md: 3518-3519, 3614, 3627 参照）
+      // 100% 固定ではなく fit-to-width のため、ZOOM_MIN(50) ～ ZOOM_MAX(300) の範囲で何らかの値が入る。
       const zoomText = page.getByTestId('zoom-level-text');
       await expect(zoomText).toBeVisible();
-      await expect(zoomText).toHaveText('100%');
+      // パーセンテージ表示（REQ-31.7）
+      await expect(zoomText).toHaveText(/^\d+%$/);
+      // 初期スケールが fit 計算後に 50〜300 の範囲（REQ-31.8）
+      const text = (await zoomText.textContent()) ?? '';
+      const value = Number(text.replace('%', ''));
+      expect(value).toBeGreaterThanOrEqual(50);
+      expect(value).toBeLessThanOrEqual(300);
     });
   });
 
@@ -187,19 +203,23 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       const zoomIn = page.getByRole('button', { name: '拡大' });
       const zoomOut = page.getByRole('button', { name: '縮小' });
 
-      // 初期 100%
-      await expect(zoomText).toHaveText('100%');
-      // REQ-31.5: 1 段階拡大 → 125%
-      await zoomIn.click();
-      await expect(zoomText).toHaveText('125%');
-      await zoomIn.click();
-      await expect(zoomText).toHaveText('150%');
+      // 初期スケールは fit-to-width（REQ-31.8）で動的に決まる。
+      // ZOOM_STEP=0.25 で +25% / -25% の相対変化を検証する。
+      await expect(zoomText).toHaveText(/^\d+%$/);
+      const initialText = (await zoomText.textContent()) ?? '';
+      const initial = Number(initialText.replace('%', ''));
 
-      // REQ-31.6: 縮小して 100% に戻る
+      // REQ-31.5: 1 段階拡大 → +25%
+      await zoomIn.click();
+      await expect(zoomText).toHaveText(`${initial + 25}%`);
+      await zoomIn.click();
+      await expect(zoomText).toHaveText(`${initial + 50}%`);
+
+      // REQ-31.6: 縮小して initial に戻る
       await zoomOut.click();
-      await expect(zoomText).toHaveText('125%');
+      await expect(zoomText).toHaveText(`${initial + 25}%`);
       await zoomOut.click();
-      await expect(zoomText).toHaveText('100%');
+      await expect(zoomText).toHaveText(`${initial}%`);
     });
 
     /**
@@ -215,9 +235,10 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       const zoomText = page.getByTestId('zoom-level-text');
       const zoomIn = page.getByRole('button', { name: '拡大' });
 
-      // 100% → 125% → 150% → 175% → 200% → 225% → 250% → 275% → 300%
-      // ZOOM_STEP=0.25, ZOOM_MAX=3.0 のため、8 回拡大で最大に到達
-      for (let i = 0; i < 8; i++) {
+      // 初期スケールは fit-to-width のため最低 50% から開始される可能性を考慮し、
+      // 50% → +25% × 10 = 300% 到達できるようループ回数を 12 まで許容する。
+      // ZOOM_STEP=0.25, ZOOM_MAX=3.0 のため、最大値に達したらボタンが disabled になる。
+      for (let i = 0; i < 12; i++) {
         if (await zoomIn.isDisabled()) break;
         await zoomIn.click();
       }
@@ -238,8 +259,10 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       const zoomText = page.getByTestId('zoom-level-text');
       const zoomOut = page.getByRole('button', { name: '縮小' });
 
-      // 100% → 75% → 50% (ZOOM_MIN=0.5)
-      for (let i = 0; i < 5; i++) {
+      // 初期スケールは fit-to-width のため最大 300% から開始される可能性を考慮し、
+      // 300% → -25% × 10 = 50% 到達できるようループ回数を 12 まで許容する。
+      // ZOOM_STEP=0.25, ZOOM_MIN=0.5 のため、最小値に達したらボタンが disabled になる。
+      for (let i = 0; i < 12; i++) {
         if (await zoomOut.isDisabled()) break;
         await zoomOut.click();
       }
@@ -261,22 +284,30 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       await loginAsUser(page, 'REGULAR_USER');
       await openCreateDialogWithPdf(page, createdEstimateRequestId as string);
 
-      // 拡大して 200% にする
+      // 初期スケール（fit-to-width）から十分に拡大してスクロール領域を発生させる
       const zoomIn = page.getByRole('button', { name: '拡大' });
       for (let i = 0; i < 4; i++) {
+        if (await zoomIn.isDisabled()) break;
         await zoomIn.click();
       }
-      await expect(page.getByTestId('zoom-level-text')).toHaveText('200%');
+      // 倍率テキストが何らかの値で表示され続けていることを確認（REQ-31.7）
+      await expect(page.getByTestId('zoom-level-text')).toHaveText(/^\d+%$/);
 
-      // PDF コンテナは overflow: auto / scroll でスクロール可能であることを検証
-      // FileInlinePreview.tsx で pdfContainer に overflowX/overflowY: 'auto' が設定されている
-      // scrollWidth > clientWidth を満たすかは実装上スケール 200% で必ず成立するため、
-      // CSS overflow プロパティがコンテナに適用されていることを確認する
-      const pdfContainer = page
-        .locator('div')
-        .filter({ has: page.locator('canvas') })
-        .first();
-      const overflowY = await pdfContainer.evaluate((el) => window.getComputedStyle(el).overflowY);
+      // PDF コンテナは overflow: auto / scroll でスクロール可能であることを検証する。
+      // FileInlinePreview.tsx で pdfContainer に overflowX/overflowY: 'auto' が設定されている。
+      // canvas の祖先を辿って overflowY が auto/scroll になる要素が存在することを確認する。
+      const overflowY = await page
+        .locator('canvas')
+        .first()
+        .evaluate((canvas) => {
+          let el: HTMLElement | null = canvas.parentElement;
+          while (el) {
+            const computed = window.getComputedStyle(el).overflowY;
+            if (computed === 'auto' || computed === 'scroll') return computed;
+            el = el.parentElement;
+          }
+          return null;
+        });
       expect(['auto', 'scroll']).toContain(overflowY);
     });
   });
@@ -301,9 +332,15 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       await loginAsUser(page, 'REGULAR_USER');
       await openCreateDialogWithPdf(page, createdEstimateRequestId as string);
 
+      const zoomText = page.getByTestId('zoom-level-text');
+      // 初期スケールは fit-to-width で動的（REQ-31.8）。拡大による相対変化を検証する
+      await expect(zoomText).toHaveText(/^\d+%$/);
+      const initialText = (await zoomText.textContent()) ?? '';
+      const initial = Number(initialText.replace('%', ''));
       const zoomIn = page.getByRole('button', { name: '拡大' });
       await zoomIn.click();
-      await expect(page.getByTestId('zoom-level-text')).toHaveText('125%');
+      const expectedAfterZoom = `${initial + 25}%`;
+      await expect(zoomText).toHaveText(expectedAfterZoom);
 
       // ページナビゲーション「次へ」ボタンが存在する場合に限り、活性であることを確認する
       const nextButton = page.getByRole('button', { name: '次へ' });
@@ -323,7 +360,7 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       // 単一ページでもテキストは表示される実装になっていればよい
       // （totalPages>0 ガードで pdfNavigation は描画される）
       // 倍率テキストとズームコントロールが拡大縮小後も健全であることを確認
-      await expect(page.getByTestId('zoom-level-text')).toHaveText('125%');
+      await expect(zoomText).toHaveText(expectedAfterZoom);
       await expect(page.getByRole('button', { name: '縮小' })).toBeEnabled();
     });
   });
@@ -354,7 +391,8 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       const formData: Record<string, string | { name: string; mimeType: string; buffer: Buffer }> =
         {
           name: `編集ズームテスト_${Date.now()}`,
-          submittedAt: '2026-04-27',
+          // createReceivedQuotationSchema は ISO 8601 datetime（z.string().datetime()）を要求
+          submittedAt: '2026-04-27T00:00:00.000Z',
           file: {
             name: 'test-file.pdf',
             mimeType: 'application/pdf',
@@ -376,7 +414,9 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       await page.waitForLoadState('networkidle');
 
       // 一覧から編集ボタンをクリック
-      const editButton = page.getByRole('button', { name: /編集|変更/ }).first();
+      // ページ内には「ステータスを依頼済に変更する」ボタンも存在し /編集|変更/ で
+      // 先頭にマッチしてしまう。受領見積書一覧の「編集」ボタンを完全一致で取得する
+      const editButton = page.getByRole('button', { name: '編集', exact: true }).first();
       await expect(editButton).toBeVisible({ timeout: getTimeout(10000) });
       await editButton.click();
 

@@ -153,17 +153,17 @@ const mockBudget: executionBudgetApi.ExecutionBudgetWithItems = {
       ],
     },
   ],
-  summary: {
-    totalEstimateAmount: '1000000',
-    totalExecutionAmount: '930000',
-    totalAmendmentAmount: '0',
-    totalOrderAmount: '440000',
+  totals: {
+    estimateAmount: '1000000',
+    executionAmount: '930000',
+    amendmentAmount: '0',
+    orderAmount: '440000',
     totalExpense: '150000',
-    totalRemainingBudget: '780000',
-    totalProgressAmount: '200000',
-    profitForecast: '70000',
-    orderProgressRate: '50.0',
+    remainingBudget: '780000',
+    progressAmount: '200000',
+    expectedProfit: '70000',
   },
+  orderProgressRate: 50,
 };
 
 const mockOrders: executionBudgetApi.OrderSummary[] = [
@@ -858,9 +858,9 @@ describe('ExecutionBudgetPage', () => {
     it('利益見込額が負の場合に表示する', async () => {
       const budgetWithNegativeProfit = {
         ...mockBudget,
-        summary: {
-          ...mockBudget.summary,
-          profitForecast: '-50000',
+        totals: {
+          ...mockBudget.totals,
+          expectedProfit: '-50000',
         },
       };
       vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(budgetWithNegativeProfit);

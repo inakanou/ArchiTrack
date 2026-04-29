@@ -290,8 +290,9 @@ test.describe('実行予算管理 - 発注管理', () => {
     await expect(page.getByText('検討中').first()).toBeVisible({ timeout: getTimeout(15000) });
 
     // 確定発注金額を入力して発注済に遷移
+    // ページには「チェック状態を保存」ボタンも存在するため完全一致で「保存」ボタンを掴む
     await page.getByLabel('確定発注金額').fill('300000');
-    await page.getByRole('button', { name: '保存' }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click();
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
     await page.getByRole('button', { name: '発注済にする' }).click();
@@ -393,7 +394,9 @@ test.describe('実行予算管理 - 発注管理', () => {
     // 削除確認ダイアログが表示される (REQ-7.3)
     const dialog = page.getByRole('dialog', { name: '削除確認' });
     await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
-    await expect(dialog.getByText(/発注の削除|削除してもよろしいですか/)).toBeVisible();
+    // ダイアログ内に h3「発注の削除」と p「削除してもよろしいですか」の両方が存在するため
+    // .first() で先頭マッチに限定して strict mode 違反を回避する
+    await expect(dialog.getByText(/発注の削除|削除してもよろしいですか/).first()).toBeVisible();
 
     // 削除を確定 (REQ-7.4)
     const deleteResponse = page.waitForResponse(
@@ -418,9 +421,18 @@ test.describe('実行予算管理 - 発注管理', () => {
   test('発注済ステータスの発注は削除を阻止する (execution-budget-management/REQ-7.5)', async ({
     request,
   }) => {
-    // 発注作成 → チェック → 発注済へ
+    // 発注作成 → チェック → UNDER_REVIEW → 発注済へ
+    // VALID_STATUS_TRANSITIONS: BEFORE_ORDER→UNDER_REVIEW→ORDERED の経路
     const order = await createTestOrder(request, token, projectId, partnerId);
     await updateOrderItems(request, token, projectId, order.id, [firstItemId]);
+    const reviewRes = await request.patch(
+      `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
+      {
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        data: { status: 'UNDER_REVIEW' },
+      }
+    );
+    expect(reviewRes.status()).toBe(200);
     const statusRes = await request.patch(
       `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
       {
@@ -493,6 +505,14 @@ test.describe('実行予算管理 - 発注管理', () => {
     const order = await createTestOrder(request, token, projectId, partnerId);
     await updateOrderItems(request, token, projectId, order.id, [firstItemId, secondItemId]);
 
+    // BEFORE_ORDER → UNDER_REVIEW → ORDERED の 2 段階遷移を経由する
+    await request.patch(
+      `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
+      {
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        data: { status: 'UNDER_REVIEW' },
+      }
+    );
     // 確定発注金額を 380000 (= 実行金額合計) として発注済へ
     const statusRes = await request.patch(
       `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
@@ -542,6 +562,14 @@ test.describe('実行予算管理 - 発注管理', () => {
   }) => {
     const order = await createTestOrder(request, token, projectId, partnerId);
     await updateOrderItems(request, token, projectId, order.id, [firstItemId]);
+    // BEFORE_ORDER → UNDER_REVIEW → ORDERED の 2 段階遷移
+    await request.patch(
+      `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
+      {
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        data: { status: 'UNDER_REVIEW' },
+      }
+    );
     const statusRes = await request.patch(
       `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
       {
@@ -586,6 +614,14 @@ test.describe('実行予算管理 - 発注管理', () => {
   }) => {
     const order = await createTestOrder(request, token, projectId, partnerId);
     await updateOrderItems(request, token, projectId, order.id, [firstItemId]);
+    // BEFORE_ORDER → UNDER_REVIEW → ORDERED の 2 段階遷移
+    await request.patch(
+      `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
+      {
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        data: { status: 'UNDER_REVIEW' },
+      }
+    );
     const statusRes = await request.patch(
       `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${order.id}/status`,
       {
@@ -607,7 +643,9 @@ test.describe('実行予算管理 - 発注管理', () => {
     // 取消確認ダイアログが表示される
     const dialog = page.getByRole('dialog', { name: '発注取消確認' });
     await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
-    await expect(dialog.getByText(/取消しますか|案分済み/)).toBeVisible();
+    // ダイアログ内に h3 タイトルと p 本文の両方が同正規表現にマッチするため
+    // .first() で先頭マッチに限定して strict mode 違反を回避する
+    await expect(dialog.getByText(/取消しますか|案分済み/).first()).toBeVisible();
 
     // 取消ボタン・キャンセルボタンが提供される
     await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeVisible();

@@ -130,11 +130,14 @@ test.describe('実行予算管理 - 今月の支出入力と月次締めの累�
     const targetRow = page.locator('table tr').filter({ hasText: 'コスト入力対象項目' });
     await expect(targetRow).toBeVisible({ timeout: getTimeout(15000) });
 
-    // 行内に 80,000 が少なくとも2セル分存在する（今月支出 + 累計支出）
+    // 入力値が今月支出 input に保持され、累計支出 td にも反映されることを確認する。
+    // 今月支出のセルは <input> のみで textContent は空のため、行全体の td 一致数では
+    // 検証できない。input の value と累計支出セルの表示の両方を別々にチェックする。
+    await expect(costInput).toHaveValue('80,000');
     const matched = targetRow.locator('td').filter({ hasText: /^80,000$/ });
     await expect
       .poll(async () => matched.count(), { timeout: getTimeout(10000) })
-      .toBeGreaterThanOrEqual(2);
+      .toBeGreaterThanOrEqual(1);
   });
 
   // ============================================================================
@@ -208,9 +211,11 @@ test.describe('実行予算管理 - 今月の支出入力と月次締めの累�
     expect(['0', '']).toContain(inputValue);
 
     // 先月までの支出列に累積後の金額（80,000）が表示される
-    await expect(targetRow.getByText(formatAmountForDisplay(expectedPreviousAfter))).toBeVisible({
-      timeout: getTimeout(10000),
-    });
+    // 月次締め後、先月支出と累計支出の両方が同額 (80,000) で表示されるため
+    // strict mode 違反を避けて先頭マッチに限定する
+    await expect(
+      targetRow.getByText(formatAmountForDisplay(expectedPreviousAfter)).first()
+    ).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   // ============================================================================

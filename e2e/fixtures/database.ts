@@ -83,6 +83,11 @@ export async function cleanDatabase(): Promise<void> {
   // トランザクションで確実にクリーンアップ
   // 外部キー制約の順序を考慮して削除（依存される側を先に削除）
   await client.$transaction([
+    // 進捗レコード項目 / 発注項目: executionBudgetItem への FK が cascade なしのため、
+    // Project (→ ExecutionBudget → ExecutionBudgetItem) 削除前に明示的に削除する
+    client.progressRecordItem.deleteMany(),
+    client.progressRecord.deleteMany(),
+    client.orderItem.deleteMany(),
     // プロジェクト関連テーブルを先に削除（Userに依存）
     client.projectStatusHistory.deleteMany(),
     client.project.deleteMany(),

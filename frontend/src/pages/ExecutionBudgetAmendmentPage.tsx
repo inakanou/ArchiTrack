@@ -305,7 +305,8 @@ export function ExecutionBudgetAmendmentPage(): React.ReactElement {
   }
 
   // 変更前契約金額（基契約金額）
-  const beforeContractAmount = budget?.contract.contractAmount ?? null;
+  // budget.contract が API レスポンスに含まれない可能性があるため null 安全にアクセス
+  const beforeContractAmount = budget?.contract?.contractAmount ?? null;
 
   return (
     <div style={styles.page}>

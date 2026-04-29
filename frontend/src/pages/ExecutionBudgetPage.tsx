@@ -835,32 +835,32 @@ export function ExecutionBudgetPage() {
       <div style={styles.infoBar}>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>契約書</span>
-          <span style={styles.infoValue}>{budget.contract.estimate?.name || '(名称なし)'}</span>
+          <span style={styles.infoValue}>{budget.contract?.estimate?.name || '(名称なし)'}</span>
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>契約金額</span>
-          <span style={styles.infoValue}>{formatAmount(budget.contract.contractAmount)}円</span>
+          <span style={styles.infoValue}>
+            {budget.contract ? `${formatAmount(budget.contract.contractAmount)}円` : '-'}
+          </span>
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>実行金額合計</span>
-          <span style={styles.infoValue}>
-            {formatAmount(budget.summary.totalExecutionAmount)}円
-          </span>
+          <span style={styles.infoValue}>{formatAmount(budget.totals.executionAmount)}円</span>
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>利益見込額</span>
           <span
             style={{
               ...styles.infoValue,
-              ...(isNegative(budget.summary.profitForecast) ? { color: '#dc2626' } : {}),
+              ...(isNegative(budget.totals.expectedProfit) ? { color: '#dc2626' } : {}),
             }}
           >
-            {formatAmount(budget.summary.profitForecast)}円
+            {formatAmount(budget.totals.expectedProfit)}円
           </span>
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>発注進捗率</span>
-          <span style={styles.infoValue}>{budget.summary.orderProgressRate}%</span>
+          <span style={styles.infoValue}>{budget.orderProgressRate}%</span>
         </div>
       </div>
 
@@ -913,30 +913,30 @@ export function ExecutionBudgetPage() {
                 <td style={styles.td}></td>
                 <td style={styles.td}></td>
                 <td style={{ ...styles.td, ...styles.tdRight }}>
-                  {formatAmount(budget.summary.totalEstimateAmount)}
+                  {formatAmount(budget.totals.estimateAmount)}
                 </td>
                 <td style={styles.td}></td>
                 <td style={{ ...styles.td, ...styles.tdRight }}>
-                  {formatAmount(budget.summary.totalExecutionAmount)}
+                  {formatAmount(budget.totals.executionAmount)}
                 </td>
                 <td style={{ ...styles.td, ...styles.tdRight }}>
-                  {formatAmount(budget.summary.totalAmendmentAmount)}
-                </td>
-                <td style={styles.td}></td>
-                <td style={{ ...styles.td, ...styles.tdRight }}>
-                  {formatAmount(budget.summary.totalOrderAmount)}
+                  {formatAmount(budget.totals.amendmentAmount)}
                 </td>
                 <td style={styles.td}></td>
+                <td style={{ ...styles.td, ...styles.tdRight }}>
+                  {formatAmount(budget.totals.orderAmount)}
+                </td>
                 <td style={styles.td}></td>
                 <td style={styles.td}></td>
+                <td style={styles.td}></td>
                 <td style={{ ...styles.td, ...styles.tdRight }}>
-                  {formatAmount(budget.summary.totalExpense)}
+                  {formatAmount(budget.totals.totalExpense)}
                 </td>
                 <td style={{ ...styles.td, ...styles.tdRight }}>
-                  {formatAmount(budget.summary.totalRemainingBudget)}
+                  {formatAmount(budget.totals.remainingBudget)}
                 </td>
                 <td style={{ ...styles.td, ...styles.tdRight }}>
-                  {formatAmount(budget.summary.totalProgressAmount)}
+                  {formatAmount(budget.totals.progressAmount)}
                 </td>
                 <td style={styles.td}></td>
                 <td style={styles.td}></td>

@@ -124,7 +124,11 @@ async function gotoProgressInputPage(page: Page, projectId: string): Promise<voi
   await page.goto(`/projects/${projectId}/execution-budget/progress`);
   await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
   // タイトル「出来高入力」が表示されるまで待つ
-  await expect(page.getByRole('heading', { name: '出来高入力', exact: true })).toBeVisible({
+  // ページには h1（ページタイトル）と h2（セクションタイトル）の両方に同テキストが存在するため
+  // h1（level: 1）に限定して strict mode 違反を回避する
+  await expect(
+    page.getByRole('heading', { name: '出来高入力', exact: true, level: 1 })
+  ).toBeVisible({
     timeout: getTimeout(15000),
   });
 }
