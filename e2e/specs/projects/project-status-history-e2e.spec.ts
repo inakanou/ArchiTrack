@@ -127,10 +127,20 @@ test.describe('プロジェクトステータス変更履歴の表示制限と�
     await transitionForward(page, '決裁待ち');
     await transitionForward(page, '契約中');
 
-    // 履歴件数が4件以上に増えたことを確認（INITIAL + forward 4 = 5件）
-    const historyItems = page.locator('[data-testid^="status-history-item-"]');
+    // 履歴件数が4件以上に増えたことを確認（INITIAL + forward 4 = 5件）。
+    // セクション本体は HISTORY_DISPLAY_LIMIT=3 でクリップされるため (REQ-35.1)、
+    // 全件数は「すべての履歴を表示（全N件）」リンクラベルから検証する。
+    const showAllButton = page.getByRole('button', { name: /すべての履歴を表示/ });
+    await expect(showAllButton).toBeVisible({ timeout: getTimeout(15000) });
     await expect
-      .poll(async () => historyItems.count(), { timeout: getTimeout(15000) })
+      .poll(
+        async () => {
+          const text = (await showAllButton.textContent()) ?? '';
+          const match = text.match(/全(\d+)件/);
+          return match?.[1] ? parseInt(match[1], 10) : 0;
+        },
+        { timeout: getTimeout(15000) }
+      )
       .toBeGreaterThanOrEqual(4);
   });
 
