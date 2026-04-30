@@ -247,7 +247,7 @@ function BudgetInfo({ projectId, info }: { projectId: string; info: ExecutionBud
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>発注進捗率</span>
-          <span style={styles.infoValue}>{info.orderProgressRate}%</span>
+          <span style={styles.infoValue}>{`${Number(info.orderProgressRate).toFixed(1)}%`}</span>
         </div>
       </div>
       <div style={{ marginTop: '16px', textAlign: 'right' as const }}>

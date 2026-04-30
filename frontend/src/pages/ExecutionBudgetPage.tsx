@@ -860,7 +860,7 @@ export function ExecutionBudgetPage() {
         </div>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>発注進捗率</span>
-          <span style={styles.infoValue}>{budget.orderProgressRate}%</span>
+          <span style={styles.infoValue}>{`${Number(budget.orderProgressRate).toFixed(1)}%`}</span>
         </div>
       </div>
 

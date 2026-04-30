@@ -116,7 +116,7 @@ describe('ExecutionBudgetSectionCard', () => {
     // 実行金額合計
     expect(screen.getByText('3,500,000円')).toBeInTheDocument();
     // 発注進捗率
-    expect(screen.getByText('50%')).toBeInTheDocument();
+    expect(screen.getByText('50.0%')).toBeInTheDocument();
   });
 
   // ==========================================================================
