@@ -661,7 +661,7 @@ export class ExecutionBudgetService {
       contract: budget.contract
         ? {
             id: budget.contract.id,
-            contractAmount: budget.contract.contractAmount.toString(),
+            contractAmount: budget.contract.contractAmount?.toString() ?? null,
             estimate: budget.contract.estimate ? { name: budget.contract.estimate.name } : null,
           }
         : null,

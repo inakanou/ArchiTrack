@@ -386,6 +386,7 @@ describe('ProgressService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           _count: { items: 5 },
+          items: [],
         },
         {
           id: 'rec-1',
@@ -394,6 +395,7 @@ describe('ProgressService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           _count: { items: 5 },
+          items: [],
         },
       ];
 
