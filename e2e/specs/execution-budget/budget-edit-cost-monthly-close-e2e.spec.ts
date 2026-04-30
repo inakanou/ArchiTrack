@@ -230,13 +230,20 @@ test.describe('実行予算管理 - 項目編集・原価・月次締め', () =>
     page,
     request,
   }) => {
+    // 楽観的排他制御のため現在のバージョンを取得
+    const budgetRes = await request.get(
+      `${API_BASE_URL}/api/projects/${projectId}/execution-budget`,
+      { headers: authHeaders(token) }
+    );
+    const budget = (await budgetRes.json()) as { version: number };
+
     // 今月支出を実行金額より大きく設定
     // firstItem の実行金額は 100,000 なので、200,000 を入れる
     const costRes = await request.patch(
       `${API_BASE_URL}/api/projects/${projectId}/execution-budget/items/${firstItemId}/cost`,
       {
         headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
-        data: { currentMonthExpense: '200000' },
+        data: { currentMonthExpense: '200000', version: budget.version },
       }
     );
     expect([200, 201]).toContain(costRes.status());

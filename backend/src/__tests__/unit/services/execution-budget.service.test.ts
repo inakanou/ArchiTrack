@@ -66,6 +66,9 @@ function createMockTx() {
     progressRecordItem: {
       findFirst: vi.fn(),
     },
+    progressRecord: {
+      findFirst: vi.fn(),
+    },
     amendmentApplyHistory: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -93,6 +96,9 @@ function createMockPrisma() {
       },
       order: {
         findFirst: mockTx.order.findFirst,
+      },
+      progressRecord: {
+        findFirst: mockTx.progressRecord.findFirst,
       },
     } as unknown as PrismaClient,
     mockTx,

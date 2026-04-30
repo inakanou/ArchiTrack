@@ -82,6 +82,10 @@ export interface ExecutionBudgetItemWithCalculations {
   amendmentStatus: string | null;
   orderAmount: string | null;
   orderStatus: string | null;
+  /** 最新施工日における出来高金額（REQ-12.7） */
+  progressAmount: string | null;
+  /** 出来高率（出来高金額 / 実行金額 x 100、小数点第一位まで） */
+  progressRate: string | null;
   children: ExecutionBudgetItemWithCalculations[];
   // 親項目の場合、子項目の合計値を計算
   calculatedEstimateAmount: string | null;
@@ -640,6 +644,10 @@ export class ExecutionBudgetService {
     // リーフ項目を収集して合計を計算
     const leafItems: ExecutionBudgetItemWithCalculations[] = [];
     this.collectLeafItems(processedItems, leafItems);
+
+    // REQ-12.7: 最新施工日の出来高金額を各項目に反映
+    const latestProgressMap = await this.getLatestProgressMap(budget.id);
+    this.applyProgressToItems(processedItems, latestProgressMap);
 
     // 合計行の計算
     const totals = this.calculateTotals(
@@ -1239,6 +1247,8 @@ export class ExecutionBudgetService {
       amendmentStatus: item.amendmentStatus ?? null,
       orderAmount: orderInfo.orderAmount,
       orderStatus: orderInfo.orderStatus,
+      progressAmount: null,
+      progressRate: null,
       children,
       calculatedEstimateAmount: null,
       calculatedExecutionAmount: null,
@@ -1376,7 +1386,8 @@ export class ExecutionBudgetService {
     const orderAmount = this.sumOrderAmount(leafItems);
     const totalExpense = this.sumTotalExpense(leafItems);
     const remainingBudget = new Decimal(executionAmount).sub(new Decimal(totalExpense)).toFixed(0);
-    const progressAmount = '0'; // 出来高は別途計算
+    // REQ-12.7: 全項目の最新施工日における出来高金額の合計（リーフ項目に反映済みの値を集約）
+    const progressAmount = this.sumProgressAmount(leafItems);
 
     // 利益見込額 = 契約金額 - 実行金額合計
     const expectedProfit = contractAmount
@@ -1404,6 +1415,95 @@ export class ExecutionBudgetService {
 
     const orderedCount = leafItems.filter((item) => item.orderStatus === 'ORDERED').length;
     return orderedCount / leafItems.length;
+  }
+
+  /**
+   * 最新施工日における各実行予算項目の出来高金額を取得する
+   *
+   * REQ-12.7: 各項目の最新施工日における出来高金額（累計進捗金額）を、
+   * 実行予算一覧画面の出来高金額列に反映するためのデータを返却する。
+   *
+   * @private
+   */
+  private async getLatestProgressMap(executionBudgetId: string): Promise<Map<string, string>> {
+    const latestRecord = await this.prisma.progressRecord.findFirst({
+      where: { executionBudgetId },
+      orderBy: { constructionDate: 'desc' },
+      include: {
+        items: { select: { executionBudgetItemId: true, amount: true } },
+      },
+    });
+
+    const map = new Map<string, string>();
+    if (!latestRecord) return map;
+
+    for (const item of latestRecord.items as Array<{
+      executionBudgetItemId: string;
+      amount: { toString(): string };
+    }>) {
+      map.set(item.executionBudgetItemId, item.amount.toString());
+    }
+    return map;
+  }
+
+  /**
+   * 階層構造の各項目に最新出来高金額・出来高率を反映する
+   *
+   * REQ-12.7: リーフ項目には最新出来高を直接反映し、
+   * 親項目には子の出来高合計と実行金額合計から算出した出来高率を反映する。
+   *
+   * @private
+   */
+  private applyProgressToItems(
+    items: ExecutionBudgetItemWithCalculations[],
+    latestProgressMap: Map<string, string>
+  ): void {
+    for (const item of items) {
+      if (item.children.length > 0) {
+        this.applyProgressToItems(item.children, latestProgressMap);
+
+        const childLeaves: ExecutionBudgetItemWithCalculations[] = [];
+        this.collectLeafItems(item.children, childLeaves);
+        const childProgressTotal = this.sumProgressAmount(childLeaves);
+        const childExecutionTotal = this.sumField(childLeaves, 'executionAmount');
+
+        item.progressAmount = childProgressTotal;
+        item.calculatedProgressAmount = childProgressTotal;
+        item.progressRate = this.computeProgressRate(childProgressTotal, childExecutionTotal);
+      } else {
+        const amount = latestProgressMap.get(item.id) ?? null;
+        item.progressAmount = amount;
+        item.progressRate = this.computeProgressRate(amount, item.executionAmount);
+      }
+    }
+  }
+
+  /**
+   * 出来高率を算出する（出来高金額 / 実行金額 x 100、小数点第一位まで）
+   * @private
+   */
+  private computeProgressRate(
+    progressAmount: string | null,
+    executionAmount: string | null
+  ): string | null {
+    if (!progressAmount || !executionAmount) return null;
+    const exec = new Decimal(executionAmount);
+    if (exec.isZero()) return null;
+    return new Decimal(progressAmount).div(exec).mul(100).toFixed(1);
+  }
+
+  /**
+   * リーフ項目の出来高金額を合計する
+   * @private
+   */
+  private sumProgressAmount(items: ExecutionBudgetItemWithCalculations[]): string {
+    let total = new Decimal(0);
+    for (const item of items) {
+      if (item.progressAmount) {
+        total = total.add(new Decimal(item.progressAmount));
+      }
+    }
+    return total.toFixed(0);
   }
 }
 
