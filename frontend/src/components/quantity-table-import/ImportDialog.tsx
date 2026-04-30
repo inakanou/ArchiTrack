@@ -201,6 +201,9 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="quantity-import-dialog-title"
         style={{
           backgroundColor: '#fff',
           borderRadius: '8px',
@@ -221,7 +224,12 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
             marginBottom: '16px',
           }}
         >
-          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>数量表インポート</h2>
+          <h2
+            id="quantity-import-dialog-title"
+            style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}
+          >
+            数量表インポート
+          </h2>
           <button
             type="button"
             onClick={onClose}

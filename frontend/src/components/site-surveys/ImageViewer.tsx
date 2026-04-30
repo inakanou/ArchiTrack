@@ -1240,6 +1240,15 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
         const scaledHeight = imgHeight * scale;
         canvas.setDimensions({ width: scaledWidth, height: scaledHeight });
 
+        // Fabric v7 で originX/Y の既定値が left/top → center/center に変更されたため、
+        // 画像をキャンバスの中心に配置することで全体表示する。
+        img.set({
+          originX: 'center',
+          originY: 'center',
+          left: scaledWidth / 2,
+          top: scaledHeight / 2,
+        });
+
         // 背景画像として設定（Fabric.js v6 API）
         canvas.backgroundImage = img;
         // 背景画像の参照を保存

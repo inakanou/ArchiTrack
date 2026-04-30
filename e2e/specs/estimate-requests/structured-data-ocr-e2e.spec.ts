@@ -321,15 +321,16 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const addButton = page.getByRole('button', { name: /行を追加/i });
       await expect(addButton).toBeVisible();
 
-      // 明細行テーブル内の削除ボタンのみをカウント（ページヘッダーの削除ボタンを除外）
-      const lineItemDeleteButtons = lineItemTable.getByRole('button', { name: /削除/i });
-      const initialCount = await lineItemDeleteButtons.count();
+      // REQ-37.7 でスタンドアロン削除ボタンはアクションメニュー（menuitem）に集約されたため、
+      // 行数カウントは行ごとの「行N の操作メニュー」ボタンで代替検証する
+      const rowMenuButtons = lineItemTable.getByRole('button', { name: /行\d+の操作メニュー/ });
+      const initialCount = await rowMenuButtons.count();
 
       // 行を追加
       await addButton.click();
 
       // 行が追加されたことを確認（1行増える）
-      await expect(lineItemDeleteButtons).toHaveCount(initialCount + 1);
+      await expect(rowMenuButtons).toHaveCount(initialCount + 1);
     });
 
     /**
@@ -346,13 +347,12 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
-      // 明細行テーブル内の削除ボタン（1行のみの場合は1つ）
+      // REQ-37.7 でスタンドアロン削除ボタンはアクションメニュー（menuitem）に集約された。
+      // REQ-11.13 の本質「初期表示で 1 行の空明細行」は、行ごとに 1 つ存在する
+      // 「行N の操作メニュー」ボタン数で代替検証する。
       const lineItemTable = page.locator('form table');
-      const deleteButtons = lineItemTable.getByRole('button', { name: /削除/i });
-      await expect(deleteButtons).toHaveCount(1);
-
-      // 削除ボタンは非活性（1行のみの場合）
-      await expect(deleteButtons.first()).toBeDisabled();
+      const rowMenuButtons = lineItemTable.getByRole('button', { name: /行\d+の操作メニュー/ });
+      await expect(rowMenuButtons).toHaveCount(1);
     });
 
     /**
@@ -424,28 +424,31 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
-      // 明細行テーブル内の削除ボタンを取得
+      // REQ-37.7 で削除はスタンドアロンボタンから「行N の操作メニュー」内 menuitem に集約された。
+      // REQ-11.17/18 の本質「行削除機能 + 1 行時の非活性」をメニュー UI ベースで検証する。
       const lineItemTable = page.locator('form table');
-      const deleteButtons = lineItemTable.getByRole('button', { name: /削除/i });
+      const rowMenuButtons = lineItemTable.getByRole('button', { name: /行\d+の操作メニュー/ });
 
-      // 初期状態：1行のみ、削除ボタンは非活性
-      await expect(deleteButtons).toHaveCount(1);
-      await expect(deleteButtons.first()).toBeDisabled();
+      // 初期状態：1 行のみ → メニュー内の「削除」menuitem が disabled
+      await expect(rowMenuButtons).toHaveCount(1);
+      await rowMenuButtons.first().click();
+      await expect(page.getByRole('menuitem', { name: '削除' })).toBeDisabled();
+      await page.keyboard.press('Escape'); // メニュー閉じる
 
-      // 行を追加
+      // 行を追加 → 行 2 つ
       await page.getByRole('button', { name: /行を追加/i }).click();
-      await expect(deleteButtons).toHaveCount(2);
+      await expect(rowMenuButtons).toHaveCount(2);
 
-      // 2行の場合、両方の削除ボタンが活性
-      await expect(deleteButtons.first()).toBeEnabled();
-      await expect(deleteButtons.nth(1)).toBeEnabled();
+      // 2 行の場合 → 「削除」menuitem は enabled で、押すと該当行が削除される
+      await rowMenuButtons.first().click();
+      const deleteMenuItem = page.getByRole('menuitem', { name: '削除' });
+      await expect(deleteMenuItem).toBeEnabled();
+      await deleteMenuItem.click();
 
-      // 1行削除
-      await deleteButtons.first().click();
-
-      // 1行に戻る
-      await expect(deleteButtons).toHaveCount(1);
-      await expect(deleteButtons.first()).toBeDisabled();
+      // 1 行に戻る + 削除 menuitem は再び disabled
+      await expect(rowMenuButtons).toHaveCount(1);
+      await rowMenuButtons.first().click();
+      await expect(page.getByRole('menuitem', { name: '削除' })).toBeDisabled();
     });
 
     /**

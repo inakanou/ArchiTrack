@@ -66,6 +66,9 @@ function createMockTx() {
     progressRecordItem: {
       findFirst: vi.fn(),
     },
+    progressRecord: {
+      findFirst: vi.fn(),
+    },
     amendmentApplyHistory: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -93,6 +96,9 @@ function createMockPrisma() {
       },
       order: {
         findFirst: mockTx.order.findFirst,
+      },
+      progressRecord: {
+        findFirst: mockTx.progressRecord.findFirst,
       },
     } as unknown as PrismaClient,
     mockTx,
@@ -979,6 +985,47 @@ describe('ExecutionBudgetService', () => {
           where: expect.objectContaining({ projectId, deletedAt: null }),
         })
       );
+    });
+
+    it('項目が0件の場合、発注進捗率は0を返却し合計値は全て0となる', async () => {
+      // Arrange: items: [] でリーフ項目0件のケース（calculateOrderProgressRateの早期return）
+      const mockEmptyBudget = {
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        version: 0,
+        createdAt: new Date('2026-03-18'),
+        updatedAt: new Date('2026-03-18'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: { toString: () => '10000000' },
+          estimate: { name: '見積書X' },
+        },
+        items: [],
+      };
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockEmptyBudget
+      );
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.items).toHaveLength(0);
+      expect(result!.orderProgressRate).toBe(0);
+      expect(result!.totals.estimateAmount).toBe('0');
+      expect(result!.totals.executionAmount).toBe('0');
+      expect(result!.totals.orderAmount).toBe('0');
+      // contractAmount=10000000、executionAmount=0 → 利益見込額 = 10000000
+      expect(result!.totals.expectedProfit).toBe('10000000');
+      // contract.estimate が non-null なので estimate.name が返る
+      expect(result!.contract).toEqual({
+        id: contractId,
+        contractAmount: '10000000',
+        estimate: { name: '見積書X' },
+      });
     });
   });
 

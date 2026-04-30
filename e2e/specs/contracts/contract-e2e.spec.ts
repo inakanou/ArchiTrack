@@ -7,17 +7,17 @@
  * Requirements coverage (contract-management):
  * - REQ-1.1 ~ REQ-1.6: 契約書一覧画面
  * - REQ-2.1 ~ REQ-2.4: 契約種類選択
- * - REQ-3.1 ~ REQ-3.4: 新規契約入力項目
+ * - REQ-3.1 ~ REQ-3.9: 新規契約入力項目（見積書/契約日/工期/引渡日/消費税率/支払条件・別途工事・その他/監理者/見積書一覧UI）
  * - REQ-4.1 ~ REQ-4.7: 自動表示項目
- * - REQ-5.1 ~ REQ-5.3: 変更契約入力項目
+ * - REQ-5.1 ~ REQ-5.4: 変更契約入力項目（自動表示項目含む）
  * - REQ-6.1 ~ REQ-6.2: 変更前後比較表示
  * - REQ-7.1 ~ REQ-7.3: 作成・キャンセル操作
- * - REQ-8.1 ~ REQ-8.11: 詳細画面（削除含む）
+ * - REQ-8.1 ~ REQ-8.11: 詳細画面（削除ボタン REQ-8.9 含む）
  * - REQ-9.1 ~ REQ-9.5: 編集画面
- * - REQ-10.1, REQ-10.6, REQ-10.7, REQ-10.8: バリデーション
+ * - REQ-10.1 ~ REQ-10.8: バリデーション（必須・範囲・論理チェック）
  * - REQ-11.5, REQ-11.6, REQ-11.7: 成功メッセージ
  * - REQ-12.1, REQ-12.2: 削除制約
- * - REQ-13.5: 権限制御
+ * - REQ-13.2, REQ-13.4, REQ-13.5: 権限制御（権限チェック・403・UI制御）
  *
  * テストフロー:
  * 1. 新規契約作成フロー（見積書選択 -> 金額自動表示 -> 入力 -> 作成 -> 詳細画面遷移）
@@ -214,6 +214,12 @@ test.describe('契約書管理機能', () => {
     /**
      * REQ-2.1, REQ-2.2, REQ-3.1, REQ-3.2, REQ-3.4, REQ-4.1, REQ-4.2, REQ-4.3:
      * 新規契約フォームでの入力と金額自動計算
+     *
+     * @requirement contract-management/REQ-3.5: 新規契約フォームに消費税率の入力フィールドを提供する
+     * @requirement contract-management/REQ-3.6: 消費税率のデフォルト値を10%に設定する
+     * @requirement contract-management/REQ-3.7: 新規契約フォームに支払条件・別途工事・その他の入力フィールドを提供する
+     * @requirement contract-management/REQ-3.8: 新規契約フォームに監理者となる取引先を検索・選択できるUIを提供する
+     * @requirement contract-management/REQ-3.9: 見積書選択フィールド操作時にプロジェクトの見積書一覧から選択できるUIを提供する
      */
     test('1-2: 新規契約を作成し、見積書選択時に金額が自動表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
@@ -283,11 +289,22 @@ test.describe('契約書管理機能', () => {
         await deliveryDateInput.fill('2025-01-15');
       }
 
-      // 支払条件を入力
+      // 支払条件・別途工事・その他の入力フィールド存在確認（REQ-3.7）
       const paymentTermsInput = page.getByLabel('支払条件');
-      if (await paymentTermsInput.isVisible()) {
-        await paymentTermsInput.fill('契約時50%、完了時50%');
-      }
+      await expect(paymentTermsInput).toBeVisible({ timeout: getTimeout(10000) });
+      await paymentTermsInput.fill('契約時50%、完了時50%');
+
+      const separateConstructionInput = page.getByLabel('別途工事');
+      await expect(separateConstructionInput).toBeVisible();
+      await separateConstructionInput.fill('追加工事はなし');
+
+      const otherNotesInput = page.getByLabel('その他');
+      await expect(otherNotesInput).toBeVisible();
+      await otherNotesInput.fill('特記事項なし');
+
+      // 監理者検索・選択UIの存在確認（REQ-3.8）
+      // TradingPartnerSelectが「監理者」セクション内に表示されていることを確認
+      await expect(page.getByRole('heading', { name: '監理者' })).toBeVisible();
 
       // プロジェクト情報の自動表示確認（REQ-4.4, REQ-4.6, REQ-4.7）
       await expect(page.getByText(/工事名/)).toBeVisible();
@@ -455,6 +472,8 @@ test.describe('契約書管理機能', () => {
     /**
      * REQ-2.3, REQ-5.1, REQ-5.2, REQ-5.3, REQ-6.1, REQ-6.2:
      * 変更契約作成（基契約書選択 -> デフォルト値設定 -> 変更前後比較表示 -> 作成）
+     *
+     * @requirement contract-management/REQ-5.4: 変更契約でも新規契約と同様に自動表示項目（金額計算・プロジェクト情報）を表示する
      */
     test('4-1: 変更契約を作成できる（基契約書選択とデフォルト値設定）', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
@@ -495,6 +514,15 @@ test.describe('契約書管理機能', () => {
       await expect(page.getByText('変更前', { exact: true })).toBeVisible({
         timeout: getTimeout(10000),
       });
+
+      // 変更契約でも自動表示項目（金額計算・プロジェクト情報）が表示されることを確認（REQ-5.4）
+      // 変更契約フォームでは比較表示パネル（ComparisonPanel）にも同名ラベルが存在するため
+      // strict mode 違反を避けるべく first() で先頭要素を対象にする
+      await expect(page.getByText(/工事価格/).first()).toBeVisible();
+      await expect(page.getByText(/消費税額/).first()).toBeVisible();
+      await expect(page.getByText(/請負代金額/).first()).toBeVisible();
+      await expect(page.getByText(/工事名/).first()).toBeVisible();
+      await expect(page.getByText(/工事場所/).first()).toBeVisible();
 
       // 作成ボタンで変更契約を作成
       const submitButton = page.getByRole('button', { name: /作成/i });
@@ -771,6 +799,12 @@ test.describe('契約書管理機能', () => {
   test.describe('9. バリデーションフロー', () => {
     /**
      * REQ-10.1, REQ-10.6: 必須項目未入力での送信 -> エラーメッセージ表示
+     *
+     * @requirement contract-management/REQ-10.2: 契約日の入力を必須とする
+     * @requirement contract-management/REQ-10.3: 工期の着手日および完成日の入力を必須とする
+     * @requirement contract-management/REQ-10.4: 引渡日の入力を必須とする
+     * @requirement contract-management/REQ-10.5: 消費税率の入力を必須とし、0以上100以下の数値のみ許可する
+     * @requirement contract-management/REQ-10.6: 必須項目未入力時にバリデーションエラーメッセージを表示する
      */
     test('9-1: 必須項目未入力で作成ボタンを押すとバリデーションエラーが表示される', async ({
       page,
@@ -808,6 +842,8 @@ test.describe('契約書管理機能', () => {
 
     /**
      * REQ-10.7: 着手日が完成日より後の場合のエラー
+     *
+     * @requirement contract-management/REQ-10.7: 着手日が完成日より後の場合「着手日は完成日以前の日付を指定してください」エラーを表示する
      */
     test('9-2: 着手日が完成日より後の場合にエラーメッセージが表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
@@ -856,6 +892,8 @@ test.describe('契約書管理機能', () => {
 
     /**
      * REQ-10.8: 変更契約で基契約書未選択の場合のエラー
+     *
+     * @requirement contract-management/REQ-10.8: 変更契約で基となる契約書が未選択の場合、選択を求めるバリデーションエラーを表示する
      */
     test('9-3: 変更契約で基契約書が未選択の場合にエラーメッセージが表示される', async ({
       page,
@@ -973,6 +1011,8 @@ test.describe('契約書管理機能', () => {
      * REQ-13.5: 一般ユーザー（contract:deleteなし）で削除ボタンが非表示
      * 一般ユーザーロールはcontract:create, contract:read, contract:updateは持つが
      * contract:deleteは持たないため、削除ボタンが非表示になることを確認する
+     *
+     * @requirement contract-management/REQ-13.2: 契約書の作成・編集・削除操作に対して適切な権限チェックを実行する
      */
     test('10-1: 一般ユーザーでは契約書詳細画面の削除ボタンが非表示になる', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
@@ -1000,6 +1040,8 @@ test.describe('契約書管理機能', () => {
 
     /**
      * REQ-13.5: 管理者ユーザー（全権限あり）で全ボタンが表示
+     *
+     * @requirement contract-management/REQ-8.9: 契約書詳細画面に削除ボタンを提供する
      */
     test('10-2: 管理者ユーザーでは契約書詳細画面の全ボタンが表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
@@ -1191,6 +1233,9 @@ test.describe('契約書管理機能', () => {
     /**
      * REQ-8.9, REQ-8.10, REQ-8.11, REQ-11.7:
      * 削除ボタン -> 確認ダイアログ -> 削除成功 -> トースト表示 -> 一覧画面遷移
+     *
+     * @requirement contract-management/REQ-8.9: 契約書詳細画面に削除ボタンを提供する
+     * @requirement contract-management/REQ-11.7: 契約書の削除が成功した場合、成功メッセージを表示する
      */
     test('13-1: 契約書を削除すると成功トーストが表示され一覧画面に遷移する', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
@@ -1237,6 +1282,75 @@ test.describe('契約書管理機能', () => {
       await page.waitForURL(/\/projects\/[0-9a-f-]+\/contracts$/, {
         timeout: getTimeout(10000),
       });
+    });
+  });
+
+  // ============================================================================
+  // 14. 消費税率の範囲バリデーション
+  // ============================================================================
+
+  test.describe('14. 消費税率の範囲バリデーション', () => {
+    /**
+     * REQ-10.5: 消費税率は0以上100以下の数値のみ許可
+     *
+     * @requirement contract-management/REQ-10.5: 消費税率の入力を必須とし、0以上100以下の数値のみ許可する
+     */
+    test('14-1: 消費税率に範囲外の値（100超）を入力するとバリデーションエラーが表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 新規作成画面に移動
+      await page.goto(`/projects/${createdProjectId}/contracts/new`);
+      await page.waitForLoadState('networkidle');
+
+      // フォーム表示を待機
+      const submitButton = page.getByRole('button', { name: /作成/i });
+      await expect(submitButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 消費税率に範囲外の値（150）を入力
+      const taxRateInput = page.getByLabel('消費税率（%）');
+      await expect(taxRateInput).toBeVisible({ timeout: getTimeout(10000) });
+      await taxRateInput.clear();
+      await taxRateInput.fill('150');
+
+      // 作成ボタンを押す
+      await submitButton.click();
+
+      // 範囲外エラーメッセージが表示されることを確認（REQ-10.5）
+      await expect(page.getByText('消費税率は0以上100以下の数値を指定してください')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+  });
+
+  // ============================================================================
+  // 15. 権限制御（API 403 Forbidden）
+  // ============================================================================
+
+  test.describe('15. 権限制御（API 403 Forbidden）', () => {
+    /**
+     * REQ-13.4: 権限のないユーザーが操作を試みた場合、403 Forbiddenを返却する
+     *
+     * REGULAR_USERはcontract:create/read/update権限を持つが、contract:delete権限を持たない。
+     * このユーザーのトークンで契約書削除APIを直接呼び出すと、サーバーが403を返却することを確認する。
+     *
+     * @requirement contract-management/REQ-13.4: 権限のないユーザーが操作を試みた場合、403 Forbiddenを返却する
+     */
+    test('15-1: contract:delete権限のないユーザーが削除APIを呼ぶと403が返却される', async ({
+      request,
+    }) => {
+      expect(createdContractId).toBeTruthy();
+      expect(accessToken).toBeTruthy();
+
+      const baseUrl = API_BASE_URL;
+      const response = await request.delete(`${baseUrl}/api/contracts/${createdContractId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      // 権限なしのため403 Forbiddenが返却されることを確認
+      expect(response.status()).toBe(403);
     });
   });
 });

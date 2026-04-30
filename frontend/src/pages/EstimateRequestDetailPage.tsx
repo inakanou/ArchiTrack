@@ -26,6 +26,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 import {
   getEstimateRequestDetail,
   getEstimateRequestItems,
@@ -462,6 +463,16 @@ export default function EstimateRequestDetailPage() {
   const [existingFilePreviewUrl, setExistingFilePreviewUrl] = useState<string | null>(null);
   const [isLoadingPreviewUrl, setIsLoadingPreviewUrl] = useState(false);
 
+  // 受領見積書 - セッション切れ時の保存リトライ用に保持する送信データ（Req 38.6, 38.7）
+  const [pendingQuotationSubmission, setPendingQuotationSubmission] = useState<{
+    data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput;
+    editingId: string | null;
+    editingUpdatedAt: string | null;
+  } | null>(null);
+
+  // セッション切れ状態（再認証成功で false に戻ったことを検知してリトライを発火）
+  const { sessionExpiredDuringOperation } = useAuth();
+
   // 現場調査報告書出力関連
   const [showSurveySelector, setShowSurveySelector] = useState(false);
   const [siteSurveys, setSiteSurveys] = useState<SiteSurveyInfo[]>([]);
@@ -759,6 +770,10 @@ export default function EstimateRequestDetailPage() {
 
   /**
    * 受領見積書フォーム送信
+   *
+   * Req 38.6, 38.7: 401（セッション切れ）発生時は送信データを pendingQuotationSubmission に
+   * 保持し、SessionExpiredModal での再認証成功後（sessionExpiredDuringOperation が false に
+   * 戻ったタイミング）に自動リトライする。
    */
   const handleQuotationSubmit = useCallback(
     async (data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput) => {
@@ -784,14 +799,62 @@ export default function EstimateRequestDetailPage() {
         setShowQuotationForm(false);
         setEditingQuotation(null);
         setExistingFilePreviewUrl(null);
-      } catch {
-        // エラー処理
+        setPendingQuotationSubmission(null);
+      } catch (err) {
+        // Req 38.6: 401 はセッション切れ → SessionExpiredModal が表示される。
+        // 再認証成功後にリトライするため送信データを保持する。
+        if (err instanceof ApiError && err.statusCode === 401) {
+          setPendingQuotationSubmission({
+            data,
+            editingId: editingQuotation ? editingQuotation.id : null,
+            editingUpdatedAt: editingQuotation ? editingQuotation.updatedAt.toISOString() : null,
+          });
+        }
       } finally {
         setIsQuotationSubmitting(false);
       }
     },
     [id, editingQuotation]
   );
+
+  /**
+   * Req 38.6, 38.7: 再認証成功後の保存自動リトライ
+   *
+   * sessionExpiredDuringOperation が true → false に遷移したタイミングで
+   * 保留中の送信データを使って保存処理を再実行する。
+   */
+  useEffect(() => {
+    if (!pendingQuotationSubmission) return;
+    if (sessionExpiredDuringOperation) return;
+    if (!id) return;
+
+    const pending = pendingQuotationSubmission;
+    const retry = async () => {
+      setIsQuotationSubmitting(true);
+      try {
+        if (pending.editingId && pending.editingUpdatedAt) {
+          await updateReceivedQuotation(
+            pending.editingId,
+            pending.data as UpdateReceivedQuotationInput,
+            pending.editingUpdatedAt
+          );
+        } else {
+          await createReceivedQuotation(id, pending.data as CreateReceivedQuotationInput);
+        }
+        const updatedQuotations = await getReceivedQuotations(id);
+        setQuotations(updatedQuotations);
+        setShowQuotationForm(false);
+        setEditingQuotation(null);
+        setExistingFilePreviewUrl(null);
+      } catch {
+        // 楽観的排他制御競合等のリトライ失敗時は保留状態を解除し、ユーザーの再操作に委ねる（Req 38.10）
+      } finally {
+        setPendingQuotationSubmission(null);
+        setIsQuotationSubmitting(false);
+      }
+    };
+    void retry();
+  }, [sessionExpiredDuringOperation, pendingQuotationSubmission, id]);
 
   /**
    * 受領見積書削除

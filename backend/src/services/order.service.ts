@@ -57,12 +57,26 @@ export interface OrderItemDetail {
   executionBudgetItemId: string;
   checked: boolean;
   orderAmount: string | null;
+  // 互換維持: flat フィールドも残す（既存の calculateCheckedExecutionTotal 等が参照）
   name: string | null;
   specification: string | null;
   unit: string | null;
   quantity: string | null;
   executionUnitPrice: string | null;
   executionAmount: string | null;
+  // フロントエンド OrderDetailPage は item.executionBudgetItem.* で参照するため
+  // ネスト構造も併せて返却する
+  executionBudgetItem: {
+    id: string;
+    name: string | null;
+    specification: string | null;
+    unit: string | null;
+    quantity: string | null;
+    executionUnitPrice: string | null;
+    executionAmount: string | null;
+    plannedVendorId: string | null;
+    plannedVendorName: string | null;
+  };
 }
 
 /**
@@ -326,18 +340,33 @@ export class OrderService {
           executionUnitPrice: { toString(): string } | null;
           executionAmount: { toString(): string } | null;
         };
-      }) => ({
-        id: item.id,
-        executionBudgetItemId: item.executionBudgetItem.id,
-        checked: item.checked,
-        orderAmount: item.orderAmount?.toString() ?? null,
-        name: item.executionBudgetItem.name,
-        specification: item.executionBudgetItem.specification,
-        unit: item.executionBudgetItem.unit,
-        quantity: item.executionBudgetItem.quantity?.toString() ?? null,
-        executionUnitPrice: item.executionBudgetItem.executionUnitPrice?.toString() ?? null,
-        executionAmount: item.executionBudgetItem.executionAmount?.toString() ?? null,
-      })
+      }) => {
+        const nested = {
+          id: item.executionBudgetItem.id,
+          name: item.executionBudgetItem.name,
+          specification: item.executionBudgetItem.specification,
+          unit: item.executionBudgetItem.unit,
+          quantity: item.executionBudgetItem.quantity?.toString() ?? null,
+          executionUnitPrice: item.executionBudgetItem.executionUnitPrice?.toString() ?? null,
+          executionAmount: item.executionBudgetItem.executionAmount?.toString() ?? null,
+          // plannedVendor 系は本 endpoint の include 対象外のため null で返却
+          plannedVendorId: null,
+          plannedVendorName: null,
+        };
+        return {
+          id: item.id,
+          executionBudgetItemId: item.executionBudgetItem.id,
+          checked: item.checked,
+          orderAmount: item.orderAmount?.toString() ?? null,
+          name: nested.name,
+          specification: nested.specification,
+          unit: nested.unit,
+          quantity: nested.quantity,
+          executionUnitPrice: nested.executionUnitPrice,
+          executionAmount: nested.executionAmount,
+          executionBudgetItem: nested,
+        };
+      }
     );
 
     // チェック済み項目の合計実行金額を自動計算
@@ -519,18 +548,32 @@ export class OrderService {
             executionUnitPrice: { toString(): string } | null;
             executionAmount: { toString(): string } | null;
           };
-        }) => ({
-          id: item.id,
-          executionBudgetItemId: item.executionBudgetItem.id,
-          checked: item.checked,
-          orderAmount: item.orderAmount?.toString() ?? null,
-          name: item.executionBudgetItem.name,
-          specification: item.executionBudgetItem.specification,
-          unit: item.executionBudgetItem.unit,
-          quantity: item.executionBudgetItem.quantity?.toString() ?? null,
-          executionUnitPrice: item.executionBudgetItem.executionUnitPrice?.toString() ?? null,
-          executionAmount: item.executionBudgetItem.executionAmount?.toString() ?? null,
-        })
+        }) => {
+          const nested = {
+            id: item.executionBudgetItem.id,
+            name: item.executionBudgetItem.name,
+            specification: item.executionBudgetItem.specification,
+            unit: item.executionBudgetItem.unit,
+            quantity: item.executionBudgetItem.quantity?.toString() ?? null,
+            executionUnitPrice: item.executionBudgetItem.executionUnitPrice?.toString() ?? null,
+            executionAmount: item.executionBudgetItem.executionAmount?.toString() ?? null,
+            plannedVendorId: null,
+            plannedVendorName: null,
+          };
+          return {
+            id: item.id,
+            executionBudgetItemId: item.executionBudgetItem.id,
+            checked: item.checked,
+            orderAmount: item.orderAmount?.toString() ?? null,
+            name: nested.name,
+            specification: nested.specification,
+            unit: nested.unit,
+            quantity: nested.quantity,
+            executionUnitPrice: nested.executionUnitPrice,
+            executionAmount: nested.executionAmount,
+            executionBudgetItem: nested,
+          };
+        }
       );
 
       const totalExecutionAmount = this.calculateCheckedExecutionTotal(items);

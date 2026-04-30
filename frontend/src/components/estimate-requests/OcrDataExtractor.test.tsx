@@ -22,6 +22,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ComponentProps } from 'react';
 
 // ============================================================================
 // モック設定
@@ -72,6 +73,22 @@ vi.mock('xlsx', () => {
     },
   };
 });
+
+// Task 80.1: OcrDataExtractor が useAuth() を直接購読するため、
+// AuthProvider を含まない単体テスト環境向けに最小限のモックを提供する。
+// Task 81.4: テスト毎に sessionExpiredDuringOperation を切り替えてセッション切れ連携の
+// disabled 制御を検証するため、可変オブジェクトを参照する形に拡張する
+// （既存テストはデフォルト値=false で同等挙動を維持。第3原則準拠）。
+const mockAuthState = {
+  sessionExpiredDuringOperation: false,
+  sessionExpired: false,
+};
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({
+    sessionExpiredDuringOperation: mockAuthState.sessionExpiredDuringOperation,
+    sessionExpired: mockAuthState.sessionExpired,
+  }),
+}));
 
 import { OcrDataExtractor } from './OcrDataExtractor';
 import type { LineItemFormData } from './LineItemEditor';
@@ -183,6 +200,9 @@ describe('OcrDataExtractor', () => {
     mockExtractWithClaudeVision.mockRejectedValue(new Error('mock: not configured'));
     // renderPdfPagesToBase64はデフォルトで空配列を返す
     mockRenderPdfPagesToBase64.mockResolvedValue([]);
+    // Task 81.4: 各テスト毎に mockAuthState をデフォルト（未認証エラー無し）に戻す
+    mockAuthState.sessionExpiredDuringOperation = false;
+    mockAuthState.sessionExpired = false;
   });
 
   // --------------------------------------------------------------------------
@@ -994,5 +1014,99 @@ describe('OcrDataExtractor', () => {
         { timeout: 35000 }
       );
     }, 40000); // テスト自体のタイムアウトを40秒に設定
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 81.4: セッション切れ連携 (Requirement 38.11)
+  // OcrDataExtractor が useAuth().sessionExpiredDuringOperation を購読し、
+  // 再認証モーダル表示中は OCR 関連ボタン（手動トリガー / リトライ）を非活性化する。
+  // false への復帰時は元の disabled 条件（isProcessing のみ）に戻ることを保証する。
+  // --------------------------------------------------------------------------
+
+  describe('Task 81.4: セッション切れ連携 (Requirement 38.11)', () => {
+    type OcrProps = ComponentProps<typeof OcrDataExtractor>;
+
+    it('sessionExpiredDuringOperation=true の間、手動トリガー（OCR実行/データパース実行）ボタンが disabled になる', async () => {
+      // 再認証モーダル表示中（=セッション切れ操作中）の状態を再現
+      mockAuthState.sessionExpiredDuringOperation = true;
+
+      const file = createMockFile('test.jpg', 'image/jpeg');
+      const props: OcrProps = { ...defaultProps({ file }), autoStart: false };
+
+      render(<OcrDataExtractor {...props} />);
+
+      // autoStart=false かつ status=idle なので手動トリガーボタンが描画される
+      const manualButton = await screen.findByRole('button', { name: /OCR実行/ });
+      expect(manualButton).toBeDisabled();
+    });
+
+    it('sessionExpiredDuringOperation=true→false に復帰すると手動トリガーボタンが活性化される', async () => {
+      // 初期状態: 再認証モーダル表示中
+      mockAuthState.sessionExpiredDuringOperation = true;
+
+      const file = createMockFile('test.jpg', 'image/jpeg');
+      const props: OcrProps = { ...defaultProps({ file }), autoStart: false };
+
+      const { rerender } = render(<OcrDataExtractor {...props} />);
+
+      const manualButtonDisabled = await screen.findByRole('button', { name: /OCR実行/ });
+      expect(manualButtonDisabled).toBeDisabled();
+
+      // 再認証成功 → sessionExpiredDuringOperation が false に遷移
+      mockAuthState.sessionExpiredDuringOperation = false;
+      rerender(<OcrDataExtractor {...props} />);
+
+      // 元の disabled 条件（isProcessing=false なので有効）に戻ること
+      const manualButtonEnabled = await screen.findByRole('button', { name: /OCR実行/ });
+      expect(manualButtonEnabled).not.toBeDisabled();
+    });
+
+    it('sessionExpiredDuringOperation=true の間、エラー時の OCR リトライボタンが disabled になる', async () => {
+      // OCR 失敗 → status='error' を発火させ、リトライボタンを描画
+      setupMockWorker({ recognizeError: new Error('OCR処理に失敗しました') });
+
+      const file = createMockFile('test.jpg', 'image/jpeg');
+
+      const { rerender } = render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      // エラー表示の確定（リトライボタンが描画される）まで待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+      });
+      const retryButton = await screen.findByRole('button', { name: /OCRリトライ/ });
+      expect(retryButton).not.toBeDisabled();
+
+      // セッション切れ発生 → 再レンダリングで disabled 化を検証
+      mockAuthState.sessionExpiredDuringOperation = true;
+      rerender(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      const retryButtonDisabled = await screen.findByRole('button', { name: /OCRリトライ/ });
+      expect(retryButtonDisabled).toBeDisabled();
+    });
+
+    it('sessionExpiredDuringOperation=true→false 復帰後、OCR リトライボタンが活性化される', async () => {
+      setupMockWorker({ recognizeError: new Error('OCR処理に失敗しました') });
+
+      const file = createMockFile('test.jpg', 'image/jpeg');
+
+      const { rerender } = render(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
+      });
+
+      // セッション切れ → リトライボタン disabled
+      mockAuthState.sessionExpiredDuringOperation = true;
+      rerender(<OcrDataExtractor {...defaultProps({ file })} />);
+      const retryButtonDisabled = await screen.findByRole('button', { name: /OCRリトライ/ });
+      expect(retryButtonDisabled).toBeDisabled();
+
+      // 再認証成功 → false に遷移したらボタンが復帰すること
+      mockAuthState.sessionExpiredDuringOperation = false;
+      rerender(<OcrDataExtractor {...defaultProps({ file })} />);
+
+      const retryButtonEnabled = await screen.findByRole('button', { name: /OCRリトライ/ });
+      expect(retryButtonEnabled).not.toBeDisabled();
+    });
   });
 });

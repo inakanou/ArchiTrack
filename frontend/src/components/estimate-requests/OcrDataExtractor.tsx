@@ -38,6 +38,7 @@ import {
   isClaudeVisionApiError,
 } from '../../api/claude-vision';
 import type { ClaudeVisionImageInput, ClaudeVisionLineItem } from '../../api/claude-vision';
+import { useAuth } from '../../hooks/useAuth';
 
 // ============================================================================
 // 型定義
@@ -204,6 +205,8 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
       unitPrice: '',
       amount: null,
       remarks: '',
+      // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+      sortOrder: 0,
     };
 
     if (columnMapping) {
@@ -407,6 +410,8 @@ export function convertOcrTextToLineItems(text: string): LineItemFormData[] {
         unitPrice: '',
         amount: null,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       // 数値でないトークンを名称として、数値トークンを数量・単価として推定
@@ -691,6 +696,12 @@ export function OcrDataExtractor({
   // 手動トリガーモードで使用するファイルオブジェクトの保持
   const fetchedFileRef = useRef<File | null>(null);
 
+  // タスク 80.1（要件 38.11）: セッション切れ中は OCR 関連ボタンを非活性化する
+  // apiClient 経由の 401 検知が自動的に sessionExpiredCallback を発火させ、
+  // sessionExpiredDuringOperation が true の間は再認証モーダルが表示されている。
+  // useAuth() は早期 return より前で常に同順序で呼び出す必要があるためここで購読する。
+  const { sessionExpiredDuringOperation } = useAuth();
+
   // --------------------------------------------------------------------------
   // クリーンアップ
   // --------------------------------------------------------------------------
@@ -716,7 +727,7 @@ export function OcrDataExtractor({
 
   const convertClaudeVisionToLineItems = useCallback(
     (lineItems: ClaudeVisionLineItem[]): LineItemFormData[] => {
-      return lineItems.map((item) => {
+      return lineItems.map((item, index) => {
         const quantityStr = item.quantity != null ? String(item.quantity) : '';
         // 単価がnullかつ金額が存在する場合、金額を単価として採用する
         const effectiveUnitPrice = item.unitPrice != null ? item.unitPrice : item.amount;
@@ -738,6 +749,8 @@ export function OcrDataExtractor({
           unitPrice: formattedUnitPrice,
           amount: formattedAmount,
           remarks: item.remarks ?? '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: index,
         };
       });
     },
@@ -1194,6 +1207,12 @@ export function OcrDataExtractor({
   // 処理中フラグ
   const isProcessing = status === 'processing';
 
+  // タスク 80.1（要件 38.11）: セッション切れ中は OCR 関連ボタンを非活性化する
+  // useAuth() は早期 return より前で常に同順序で呼び出す必要があるため、
+  // フック呼び出しはレンダリング分岐の前で行う
+  const isReauthInProgress = sessionExpiredDuringOperation;
+  const isOcrActionDisabled = isProcessing || isReauthInProgress;
+
   return (
     <div style={styles.container}>
       {/* ヘッダー */}
@@ -1207,10 +1226,10 @@ export function OcrDataExtractor({
           <button
             type="button"
             onClick={handleManualExecute}
-            disabled={isProcessing}
+            disabled={isOcrActionDisabled}
             style={{
               ...styles.actionButton,
-              ...(isProcessing ? styles.buttonDisabled : {}),
+              ...(isOcrActionDisabled ? styles.buttonDisabled : {}),
             }}
           >
             {fileCategory === 'excel' ? 'データパース実行' : 'OCR実行'}
@@ -1306,10 +1325,10 @@ export function OcrDataExtractor({
             <button
               type="button"
               onClick={handleRetry}
-              disabled={isProcessing}
+              disabled={isOcrActionDisabled}
               style={{
                 ...styles.retryButton,
-                ...(isProcessing ? styles.buttonDisabled : {}),
+                ...(isOcrActionDisabled ? styles.buttonDisabled : {}),
               }}
             >
               OCRリトライ

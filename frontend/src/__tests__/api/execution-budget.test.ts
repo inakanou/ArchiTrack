@@ -97,17 +97,17 @@ const mockExecutionBudget: ExecutionBudgetWithItems = {
       progressRate: null,
     },
   ],
-  summary: {
-    totalEstimateAmount: '1000000',
-    totalExecutionAmount: '900000',
-    totalAmendmentAmount: '0',
-    totalOrderAmount: '0',
+  totals: {
+    estimateAmount: '1000000',
+    executionAmount: '900000',
+    amendmentAmount: '0',
+    orderAmount: '0',
     totalExpense: '0',
-    totalRemainingBudget: '900000',
-    totalProgressAmount: '0',
-    profitForecast: '100000',
-    orderProgressRate: '0',
+    remainingBudget: '900000',
+    progressAmount: '0',
+    expectedProfit: '100000',
   },
+  orderProgressRate: 0,
 };
 
 const mockOrders: OrderSummary[] = [
@@ -136,8 +136,10 @@ const mockMonthlyCloseHistory: MonthlyCloseHistory[] = [
 const mockUnreflectedAmendments: UnreflectedAmendment[] = [
   {
     id: 'contract-2',
-    contractDate: '2026-03-15',
-    contractAmount: 12000000,
+    contractType: 'AMENDMENT',
+    status: 'CONTRACTED',
+    estimateId: 'estimate-2',
+    contractAmount: '12000000',
     estimateName: '見積書B（変更）',
   },
 ];
@@ -276,11 +278,12 @@ describe('execution-budget API client', () => {
 
       const result = await updateItemCost(projectId, 'item-1', {
         currentMonthExpense: '100000',
+        version: 1,
       });
 
       expect(apiClient.patch).toHaveBeenCalledWith(
         `/api/projects/${projectId}/execution-budget/items/item-1/cost`,
-        { currentMonthExpense: '100000' }
+        { currentMonthExpense: '100000', version: 1 }
       );
       expect(result.currentMonthExpense).toBe('100000');
     });
@@ -373,7 +376,14 @@ describe('execution-budget API client', () => {
   // ==========================================================================
   describe('applyAmendment', () => {
     it('変更契約を反映する', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockExecutionBudget);
+      const mockApplyResult = {
+        addedCount: 1,
+        modifiedCount: 1,
+        deletedCount: 0,
+        previousContractAmount: '10000000',
+        newContractAmount: '12000000',
+      };
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockApplyResult);
 
       const result = await applyAmendment(projectId, 'contract-2');
 
@@ -381,7 +391,7 @@ describe('execution-budget API client', () => {
         `/api/projects/${projectId}/execution-budget/apply-amendment`,
         { contractId: 'contract-2' }
       );
-      expect(result).toEqual(mockExecutionBudget);
+      expect(result).toEqual(mockApplyResult);
     });
   });
 });

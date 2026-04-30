@@ -126,12 +126,15 @@ services:
           memory: 512M
           cpus: '0.5'
     # Strengthened healthcheck for long test runs
+    # start_period: WSL2環境では初回起動時にnpm ci(1〜5分)+Prisma生成+マイグレーション+シードが
+    # 直列実行され、healthcheck失敗→autohealによる強制再起動ループに陥る。
+    # 初回セットアップを完走できる十分な猶予として10分を確保する。
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 5s
       timeout: 3s
       retries: 3
-      start_period: 30s
+      start_period: 600s
     environment:
       NODE_ENV: test
       PORT: 3000

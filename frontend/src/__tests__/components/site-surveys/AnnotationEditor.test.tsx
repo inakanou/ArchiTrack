@@ -680,6 +680,27 @@ describe('AnnotationEditor', () => {
           expect(mockFabricImageInstance.set).toHaveBeenCalled();
         });
       });
+
+      // Fabric v7 で originX/Y の既定値が left/top → center/center に変更された
+      // 影響で初期表示時に画像の右下1/4のみが見える不具合への回帰防止。
+      it('初期表示時に背景画像が center origin で canvas 中央に配置される', async () => {
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(mockFromURL).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+          expect(mockFabricImageInstance.set).toHaveBeenCalledWith(
+            expect.objectContaining({
+              originX: 'center',
+              originY: 'center',
+              left: expect.any(Number),
+              top: expect.any(Number),
+            })
+          );
+        });
+      });
     });
 
     describe('Canvas参照の管理', () => {

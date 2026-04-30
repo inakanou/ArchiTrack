@@ -386,6 +386,7 @@ describe('ProgressService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           _count: { items: 5 },
+          items: [],
         },
         {
           id: 'rec-1',
@@ -394,6 +395,7 @@ describe('ProgressService', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           _count: { items: 5 },
+          items: [],
         },
       ];
 
@@ -827,28 +829,22 @@ describe('ProgressService', () => {
 
       const result = await service.getMonthlyDetail(BUDGET_ID, '2026-03');
 
+      // 新仕様（Req-16.3）: 月内の項目別集計を返す（記録別ではない）
       expect(result).toHaveLength(2);
 
-      // 1つ目のレコード（3月10日）
-      expect(result[0]!.constructionDate).toEqual(new Date('2026-03-10'));
-      expect(result[0]!.items).toHaveLength(2);
+      // 項目A: 月内合計 400000 + 600000 = 1000000、率 = 1000000 / 1000000 = 100.0%
+      const itemA = result.find((i) => i.executionBudgetItemId === ITEM_ID_1);
+      expect(itemA?.itemName).toBe('項目A');
+      expect(itemA?.executionAmount).toBe('1000000');
+      expect(itemA?.progressAmount).toBe('1000000');
+      expect(itemA?.progressRate).toBe('100.0');
 
-      // 項目Aの出来高率: 400000 / 1000000 * 100 = 40.0%
-      const rec1ItemA = result[0]!.items.find(
-        (i: { executionBudgetItemId: string }) => i.executionBudgetItemId === ITEM_ID_1
-      );
-      expect(rec1ItemA?.amount).toBe('400000');
-      expect(rec1ItemA?.progressRate).toBe('40.0');
-
-      // 2つ目のレコード（3月20日）
-      expect(result[1]!.constructionDate).toEqual(new Date('2026-03-20'));
-
-      // 項目Aの出来高率: 600000 / 1000000 * 100 = 60.0%
-      const rec2ItemA = result[1]!.items.find(
-        (i: { executionBudgetItemId: string }) => i.executionBudgetItemId === ITEM_ID_1
-      );
-      expect(rec2ItemA?.amount).toBe('600000');
-      expect(rec2ItemA?.progressRate).toBe('60.0');
+      // 項目B: 月内合計 200000 + 300000 = 500000、率 = 500000 / 500000 = 100.0%
+      const itemB = result.find((i) => i.executionBudgetItemId === ITEM_ID_2);
+      expect(itemB?.itemName).toBe('項目B');
+      expect(itemB?.executionAmount).toBe('500000');
+      expect(itemB?.progressAmount).toBe('500000');
+      expect(itemB?.progressRate).toBe('100.0');
     });
 
     it('指定月に出来高レコードが存在しない場合、空配列を返す', async () => {
@@ -901,6 +897,74 @@ describe('ProgressService', () => {
       await expect(service.getMonthlyDetail(BUDGET_ID, '2026-03')).rejects.toThrow(
         ExecutionBudgetNotFoundForProgressError
       );
+    });
+
+    it('対象月が12月の場合、翌年1月で日付範囲を構築する', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+      const findManyMock = vi.fn().mockResolvedValue([]);
+      mockPrisma.progressRecord.findMany = findManyMock;
+
+      await service.getMonthlyDetail(BUDGET_ID, '2026-12');
+
+      expect(findManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            constructionDate: {
+              gte: new Date('2026-12-01'),
+              lt: new Date('2027-01-01'),
+            },
+          }),
+        })
+      );
+    });
+
+    it('実行予算項目の executionAmount と name が null の場合、率0.0で itemName/executionAmount を null として返す', async () => {
+      const itemsWithNulls = [
+        {
+          id: ITEM_ID_1,
+          executionBudgetId: BUDGET_ID,
+          executionAmount: null,
+          parentId: null,
+          name: null,
+        },
+      ];
+
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        itemsWithNulls
+      );
+
+      const records = [
+        {
+          id: 'rec-null-1',
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-15'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          items: [
+            {
+              executionBudgetItemId: ITEM_ID_1,
+              amount: { toString: () => '100000' },
+            },
+          ],
+        },
+      ];
+      mockPrisma.progressRecord.findMany = vi.fn().mockResolvedValue(records);
+
+      const result = await service.getMonthlyDetail(BUDGET_ID, '2026-03');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.itemName).toBeNull();
+      expect(result[0]?.executionAmount).toBeNull();
+      expect(result[0]?.progressAmount).toBe('100000');
+      expect(result[0]?.progressRate).toBe('0.0');
     });
   });
 });

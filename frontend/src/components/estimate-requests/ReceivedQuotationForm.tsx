@@ -24,6 +24,8 @@
 import {
   useState,
   useCallback,
+  useEffect,
+  useMemo,
   useRef,
   Suspense,
   lazy,
@@ -36,14 +38,21 @@ import type {
   UpdateReceivedQuotationInput,
   LineItemInput,
 } from '../../api/received-quotations';
+import { ApiError } from '../../api/client';
 import {
   LineItemEditor,
   createEmptyLineItem,
   calculateTotalAmount,
+  ensureSortOrders,
+  reassignSortOrder,
+  sortBySortOrder,
   type LineItemFormData,
 } from './LineItemEditor';
 import { FileInlinePreview } from './FileInlinePreview';
 import { formatQuantity, formatUnitPrice } from './number-format';
+import { useAuth } from '../../hooks/useAuth';
+import { usePendingSaveAfterReauth } from './usePendingSaveAfterReauth';
+import { isFormDirty, useUnsavedChangesGuard, type FormSnapshot } from './useUnsavedChangesGuard';
 
 // OcrDataExtractorを遅延ロード（バンドルサイズ影響回避）
 const OcrDataExtractor = lazy(() => import('./OcrDataExtractor'));
@@ -468,16 +477,22 @@ function convertToLineItemInput(items: LineItemFormData[]): LineItemInput[] {
 
 /**
  * ReceivedQuotationInfoのlineItemsをLineItemFormDataに変換
+ *
+ * Task 79.3: サーバー応答 lineItems を `LineItemFormData[]` に変換する際に、
+ * sortOrder の NULL/undefined を `ensureSortOrders` で配列インデックスに補完し、
+ * `sortBySortOrder` で昇順整列してから返す（Req 37.3）。
  */
 function convertToLineItemFormData(
   items: ReceivedQuotationInfo['lineItems'] | undefined
 ): LineItemFormData[] {
   if (!items || items.length === 0) {
-    return [createEmptyLineItem()];
+    return [createEmptyLineItem(0)];
   }
-  return items.map((item) => {
+  // sortOrder 欠落補完用の中間配列（id を含めて ensureSortOrders に渡す）
+  const intermediate = items.map((item) => {
     const rawQuantity = item.quantity !== null ? String(item.quantity) : '';
     const rawUnitPrice = item.unitPrice !== null ? String(item.unitPrice) : '';
+    const rawSortOrder = (item as { sortOrder?: number | null }).sortOrder;
     return {
       id: item.id,
       customCategory: item.customCategory ?? '',
@@ -489,8 +504,11 @@ function convertToLineItemFormData(
       unitPrice: formatUnitPrice(rawUnitPrice),
       amount: item.amount,
       remarks: item.remarks ?? '',
+      sortOrder: typeof rawSortOrder === 'number' ? rawSortOrder : null,
     };
   });
+  // Req 37.3: NULL/undefined 補完 → 昇順ソート
+  return sortBySortOrder(ensureSortOrders(intermediate));
 }
 
 // ============================================================================
@@ -583,7 +601,73 @@ export function ReceivedQuotationForm({
   // エラー状態
   const [errors, setErrors] = useState<FormErrors>({});
 
+  // 楽観的排他制御エラー（Req 38.10: 再認証フローと別系統）
+  const [optimisticConflictError, setOptimisticConflictError] = useState<ApiError | null>(null);
+  // 一般保存エラー
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ============================================================================
+  // Task 79.3: セッション保護・isDirty スナップショット・並び順送信統合
+  // ============================================================================
+
+  // 認証状態（Req 38.4: 再認証中操作非活性化、Req 38.6/38.7: 再認証成功/ログイン遷移時の挙動）
+  const { sessionExpiredDuringOperation } = useAuth();
+  const isReauthInProgress = sessionExpiredDuringOperation;
+
+  // 保存リトライ用フック（Req 38.1, 38.6, 38.7）
+  const { setPendingSave, clearPendingSave } = usePendingSaveAfterReauth();
+
+  // 初期スナップショット（design.md 4905-4911: ダイアログ open 時に確定）
+  // mount 時に現行 state を初期スナップショットとして保持し、
+  // initialData 切替（編集対象切替）時のみ再確定する。
+  const buildInitialSnapshot = useCallback((): FormSnapshot => {
+    return {
+      name: initialData?.name ?? '見積書',
+      submittedAt: formatDateForInput(initialData?.submittedAt ?? new Date()),
+      netAmount:
+        initialData?.netAmount !== null && initialData?.netAmount !== undefined
+          ? formatUnitPrice(String(initialData.netAmount))
+          : '',
+      selectedFile: null,
+      lineItems: convertToLineItemFormData(initialData?.lineItems),
+    };
+    // initialData の参照変化（編集対象切替）でスナップショットを再ビルドするため
+    // 内部の各フィールドではなく initialData そのものを依存に含める。
+  }, [initialData]);
+
+  const [snapshot, setSnapshot] = useState<FormSnapshot>(() => buildInitialSnapshot());
+
+  // 初期スナップショット確定タイミング（design.md 4909）
+  // ダイアログ open 相当のキー（initialData の id 変化 = 編集対象切替）でスナップショットをリセット。
+  // 新規作成モードでは initialData=undefined のためマウント時の初期値で確定済み。
+  const initialDataId = initialData?.id ?? null;
+  useEffect(() => {
+    setSnapshot(buildInitialSnapshot());
+    // initialDataId 変化時のみ snapshot を再構築する。
+    // buildInitialSnapshot 自体は initialData に依存しているため意図通り。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDataId]);
+
+  // isDirty 算出（design.md 4910: useMemo で再評価コスト抑制）
+  const isDirty = useMemo(
+    () =>
+      isFormDirty(
+        {
+          name,
+          submittedAt,
+          netAmount,
+          selectedFile,
+          lineItems,
+        },
+        snapshot
+      ),
+    [name, submittedAt, netAmount, selectedFile, lineItems, snapshot]
+  );
+
+  // 未保存変更ガード（Req 38.12, 38.13）
+  const { confirmCloseIfDirty } = useUnsavedChangesGuard(isDirty);
 
   // バリデーション
   const validate = useCallback((): boolean => {
@@ -610,33 +694,87 @@ export function ReceivedQuotationForm({
   }, [name, submittedAt, selectedFile, existingFileName, removeFile, lineItems]);
 
   // フォーム送信
+  // Task 79.3: 保存リトライ・401/409 ハンドリング・isReauthInProgress を統合
+  // - performSave: API 呼び出し本体（401: pending 維持で return / 409: 楽観的競合エラーフロー / 成功: snapshot 更新）
+  // - handleSave: form submit/handleSubmit から呼ばれるエントリ。setPendingSave で再認証成功時のリトライを準備
+  const performSave = useCallback(async (): Promise<void> => {
+    // Req 37.13: lineItems を index ベースで sortOrder=0,1,2,... に再採番して送信。
+    //   convertToLineItemInput は filter（空名行除外）後に index で sortOrder を割り当てる
+    //   ため、画面表示順 = sortOrder 連続値という不変条件を担保する。
+    const lineItemInputs = convertToLineItemInput(lineItems);
+
+    // Task 63.2: NET金額をAPIリクエストに含める（空文字列 → null）
+    const parsedNetAmount = netAmount.trim() !== '' ? Math.round(parseFloat(netAmount)) : null;
+    const netAmountValue =
+      parsedNetAmount !== null && !isNaN(parsedNetAmount) ? parsedNetAmount : null;
+
+    const data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput = {
+      name: name.trim(),
+      submittedAt: new Date(submittedAt),
+      ...(selectedFile ? { file: selectedFile } : {}),
+      ...(removeFile ? { removeFile: true } : {}),
+      ...(lineItemInputs.length > 0 ? { lineItems: lineItemInputs } : {}),
+      netAmount: netAmountValue,
+    };
+
+    try {
+      await onSubmit(data);
+      // 保存成功（design.md 4871-4874, 4911）: snapshot を最新化し isDirty=false に戻す。
+      // ダイアログクローズ動作は親 (onSubmit 内 setShowQuotationForm(false)) で行われるが、
+      // クローズ前に未保存変更ガードが誤発火しないよう snapshot を即時同期する。
+      clearPendingSave();
+      setSaveError(null);
+      setOptimisticConflictError(null);
+      setSnapshot({
+        name,
+        submittedAt,
+        netAmount,
+        selectedFile,
+        lineItems,
+      });
+    } catch (err) {
+      // Req 38.10: 楽観的排他制御競合は再認証フローと別系統で処理
+      if (err instanceof ApiError && err.statusCode === 409) {
+        clearPendingSave();
+        setOptimisticConflictError(err);
+        return;
+      }
+      // Req 38.1, 38.6: 401 はクライアント層で sessionExpiredCallback 経由でモーダル表示中。
+      //   pendingSaveOperation を維持して再認証成功時のリトライを待機する。
+      if (err instanceof ApiError && err.statusCode === 401) {
+        return;
+      }
+      // それ以外の保存エラー
+      setSaveError(err instanceof Error ? err.message : '保存に失敗しました');
+      clearPendingSave();
+    }
+  }, [
+    name,
+    submittedAt,
+    selectedFile,
+    removeFile,
+    lineItems,
+    netAmount,
+    onSubmit,
+    clearPendingSave,
+  ]);
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+
+      // Req 38.4: 再認証中は保存処理の二重起動を抑止
+      if (isReauthInProgress) return;
 
       if (!validate()) {
         return;
       }
 
-      const lineItemInputs = convertToLineItemInput(lineItems);
-
-      // Task 63.2: NET金額をAPIリクエストに含める（空文字列 → null）
-      const parsedNetAmount = netAmount.trim() !== '' ? Math.round(parseFloat(netAmount)) : null;
-      const netAmountValue =
-        parsedNetAmount !== null && !isNaN(parsedNetAmount) ? parsedNetAmount : null;
-
-      const data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput = {
-        name: name.trim(),
-        submittedAt: new Date(submittedAt),
-        ...(selectedFile ? { file: selectedFile } : {}),
-        ...(removeFile ? { removeFile: true } : {}),
-        ...(lineItemInputs.length > 0 ? { lineItems: lineItemInputs } : {}),
-        netAmount: netAmountValue,
-      };
-
-      await onSubmit(data);
+      // Req 38.1: 保存処理開始時に pendingRef にラップ済み saveFn をセット
+      setPendingSave(performSave);
+      await performSave();
     },
-    [name, submittedAt, selectedFile, removeFile, lineItems, netAmount, validate, onSubmit]
+    [isReauthInProgress, validate, setPendingSave, performSave]
   );
 
   // 名前変更ハンドラ
@@ -737,14 +875,16 @@ export function ReceivedQuotationForm({
   }, []);
 
   // OCR一括取り込みハンドラ
+  // Task 79.3: Req 37.14 - 取り込んだ lineItems に reassignSortOrder を適用してから state 反映
   const handleImportLineItems = useCallback(
     (items: LineItemFormData[]) => {
-      setLineItems(items);
+      const reordered = reassignSortOrder(items);
+      setLineItems(reordered);
       setErrors((prev) => ({ ...prev, content: undefined }));
 
       // NET金額自動入力ロジック（34.1, 34.2）
       if (netAmount.trim() === '') {
-        const totalAmount = calculateTotalAmount(items);
+        const totalAmount = calculateTotalAmount(reordered);
         if (totalAmount > 0) {
           // 合計金額をNET金額に設定（34.4: 整数表示、小数第1位で四捨五入）
           const formattedNetAmount = formatUnitPrice(String(totalAmount));
@@ -782,7 +922,7 @@ export function ReceivedQuotationForm({
 
     const selectedOnly = selectedItems;
     let idCtr = 0;
-    const newLineItems: LineItemFormData[] = selectedOnly.map((item) => {
+    const newLineItems: LineItemFormData[] = selectedOnly.map((item, index) => {
       idCtr++;
       // 18.11: 転記時に数量にformatQuantity()を適用して小数2桁固定表示
       const rawQuantity =
@@ -799,15 +939,18 @@ export function ReceivedQuotationForm({
         unitPrice: '', // 転記時に単価は空欄
         amount: null,
         remarks: item.remarks ?? '',
+        sortOrder: index,
       };
     });
 
-    setLineItems(newLineItems);
+    // Task 79.3: Req 37.14 - 転記後の lineItems に reassignSortOrder を適用してから反映
+    const reordered = reassignSortOrder(newLineItems);
+    setLineItems(reordered);
     setErrors((prev) => ({ ...prev, content: undefined }));
 
     // NET金額自動入力ロジック（34.6）
     if (netAmount.trim() === '') {
-      const totalAmount = calculateTotalAmount(newLineItems);
+      const totalAmount = calculateTotalAmount(reordered);
       if (totalAmount > 0) {
         const formattedNetAmount = formatUnitPrice(String(totalAmount));
         setNetAmount(formattedNetAmount);
@@ -816,7 +959,7 @@ export function ReceivedQuotationForm({
 
     setTranscriptionMessage({
       type: 'success',
-      message: `${newLineItems.length}件の項目を転記しました。内容を確認し、必要に応じて修正してください。`,
+      message: `${reordered.length}件の項目を転記しました。内容を確認し、必要に応じて修正してください。`,
     });
     setShowTranscriptionConfirm(false);
   }, [selectedItems, netAmount]);
@@ -852,6 +995,15 @@ export function ReceivedQuotationForm({
     executeTranscription();
   }, [executeTranscription]);
 
+  // キャンセル/クローズハンドラ（Req 38.12: 未保存変更ガード介在）
+  // ダイアログクローズ要求（×ボタン、背景クリック、Esc 等）のすべての経路から
+  // この handler を経由するように上位（EstimateRequestDetailPage）でも onCancel に
+  // 渡されるが、本フォーム内のキャンセルボタンクリックパスでも confirmCloseIfDirty を介在させる。
+  const handleCancel = useCallback(() => {
+    if (!confirmCloseIfDirty()) return;
+    onCancel();
+  }, [confirmCloseIfDirty, onCancel]);
+
   const submitButtonText = mode === 'create' ? '登録' : '更新';
   const submitButtonLoadingText = mode === 'create' ? '登録中...' : '更新中...';
 
@@ -859,6 +1011,9 @@ export function ReceivedQuotationForm({
   const hasCurrentFile = selectedFile !== null || (existingFileName !== null && !removeFile);
   const displayFileName = selectedFile?.name ?? existingFileName;
   const displayFileSize = selectedFile?.size ?? initialData?.fileSize;
+
+  // Req 38.4: 再認証中は内部の操作系（保存・追加・メニュー・ファイル UP・OCR・項目転記）を非活性化
+  const isOperationLocked = isSubmitting || isReauthInProgress;
 
   return (
     <form onSubmit={handleSubmit} style={styles.form}>
@@ -874,7 +1029,7 @@ export function ReceivedQuotationForm({
           onChange={handleNameChange}
           maxLength={200}
           placeholder="受領見積書名を入力"
-          disabled={isSubmitting}
+          disabled={isOperationLocked}
           style={{
             ...styles.input,
             ...(errors.name ? styles.inputError : {}),
@@ -899,7 +1054,7 @@ export function ReceivedQuotationForm({
           type="date"
           value={submittedAt}
           onChange={handleDateChange}
-          disabled={isSubmitting}
+          disabled={isOperationLocked}
           style={{
             ...styles.input,
             ...(errors.submittedAt ? styles.inputError : {}),
@@ -959,7 +1114,7 @@ export function ReceivedQuotationForm({
           data-testid="file-input"
           accept={ALLOWED_FILE_EXTENSIONS}
           onChange={handleFileChange}
-          disabled={isSubmitting}
+          disabled={isOperationLocked}
           style={styles.hiddenInput}
         />
 
@@ -976,7 +1131,7 @@ export function ReceivedQuotationForm({
               type="button"
               onClick={handleRemoveFile}
               style={styles.removeFileButton}
-              disabled={isSubmitting}
+              disabled={isOperationLocked}
             >
               削除
             </button>
@@ -1050,10 +1205,10 @@ export function ReceivedQuotationForm({
             <button
               type="button"
               onClick={handleTranscriptionClick}
-              disabled={isSubmitting}
+              disabled={isOperationLocked}
               style={{
                 ...styles.transcriptionButton,
-                ...(isSubmitting ? styles.transcriptionButtonDisabled : {}),
+                ...(isOperationLocked ? styles.transcriptionButtonDisabled : {}),
               }}
               data-testid="transcription-button"
             >
@@ -1080,7 +1235,7 @@ export function ReceivedQuotationForm({
         <LineItemEditor
           lineItems={lineItems}
           onLineItemsChange={handleLineItemsChange}
-          disabled={isSubmitting}
+          disabled={isOperationLocked}
         />
       </div>
 
@@ -1102,7 +1257,7 @@ export function ReceivedQuotationForm({
             }
           }}
           placeholder="NET金額"
-          disabled={isSubmitting}
+          disabled={isOperationLocked}
           style={{
             ...styles.input,
             textAlign: 'right' as const,
@@ -1119,11 +1274,25 @@ export function ReceivedQuotationForm({
         </p>
       )}
 
+      {/* 楽観的排他制御エラー（Req 38.10: 再認証フローと別系統） */}
+      {optimisticConflictError && (
+        <p style={styles.errorText} role="alert" data-testid="optimistic-conflict-error">
+          他のユーザーが編集を反映済みのため保存できませんでした。最新を読み込んでやり直してください。
+        </p>
+      )}
+
+      {/* 一般保存エラー */}
+      {saveError && (
+        <p style={styles.errorText} role="alert" data-testid="save-error">
+          {saveError}
+        </p>
+      )}
+
       {/* ボタングループ */}
       <div style={styles.buttonGroup}>
         <button
           type="button"
-          onClick={onCancel}
+          onClick={handleCancel}
           disabled={isSubmitting}
           style={{
             ...styles.button,
@@ -1135,11 +1304,11 @@ export function ReceivedQuotationForm({
         </button>
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isOperationLocked}
           style={{
             ...styles.button,
             ...styles.submitButton,
-            ...(isSubmitting ? styles.submitButtonDisabled : {}),
+            ...(isOperationLocked ? styles.submitButtonDisabled : {}),
           }}
         >
           {isSubmitting ? (

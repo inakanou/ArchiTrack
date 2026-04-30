@@ -627,15 +627,21 @@ function AnnotationEditor({
         // スケールを設定
         img.scale(scale);
 
-        // 背景画像として設定する前に選択不可・移動不可に設定
+        // Canvasサイズを計算
+        const scaledWidth = imgWidth * scale;
+        const scaledHeight = imgHeight * scale;
+
+        // 背景画像として設定する前に選択不可・移動不可に設定。
+        // 併せて Fabric v7 で originX/Y の既定値が left/top → center/center に変更されたため、
+        // 画像をキャンバス中心に配置して全体表示する。
         img.set({
           selectable: false,
           evented: false,
+          originX: 'center',
+          originY: 'center',
+          left: scaledWidth / 2,
+          top: scaledHeight / 2,
         });
-
-        // Canvasサイズを設定（Fabric.js v6互換）
-        const scaledWidth = imgWidth * scale;
-        const scaledHeight = imgHeight * scale;
 
         // 再度disposeチェック（React StrictModeでのcanvas置換も考慮）
         /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */

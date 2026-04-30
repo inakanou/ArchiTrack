@@ -298,12 +298,13 @@ export function OrderDetailPage() {
   const isLocked = isOrdered || isCancelled;
 
   // チェック済み項目の合計実行金額を計算
+  // order が null、items が未定義（API レスポンスに含まれない更新系応答）の場合は 0 を返す
   const totalCheckedExecutionAmount = useMemo(() => {
-    if (!order) return 0;
+    if (!order || !order.items) return 0;
     return order.items
       .filter((item) => checkedItemIds.has(item.executionBudgetItemId))
       .reduce((sum, item) => {
-        const amount = parseInt(item.executionBudgetItem.executionAmount || '0', 10);
+        const amount = parseInt(item.executionBudgetItem?.executionAmount || '0', 10);
         return sum + (isNaN(amount) ? 0 : amount);
       }, 0);
   }, [order, checkedItemIds]);
@@ -788,7 +789,7 @@ export function OrderDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {order.items.map((item) => (
+              {(order.items ?? []).map((item) => (
                 <tr key={item.id}>
                   <td style={styles.td}>
                     <input

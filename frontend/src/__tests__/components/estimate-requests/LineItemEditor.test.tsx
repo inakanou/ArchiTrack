@@ -26,9 +26,13 @@ import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import {
   LineItemEditor,
+  LineItemActionMenu,
   createEmptyLineItem,
   calculateAmount,
   calculateTotalAmount,
+  reassignSortOrder,
+  sortBySortOrder,
+  ensureSortOrders,
   type LineItemFormData,
 } from '../../../components/estimate-requests/LineItemEditor';
 
@@ -81,6 +85,8 @@ describe('LineItemEditor', () => {
             amount: 10000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
           {
             id: '2',
@@ -94,6 +100,8 @@ describe('LineItemEditor', () => {
             amount: 20000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
           {
             id: '3',
@@ -107,6 +115,8 @@ describe('LineItemEditor', () => {
             amount: 30000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
         ];
         expect(calculateTotalAmount(items)).toBe(60000);
@@ -126,6 +136,8 @@ describe('LineItemEditor', () => {
             amount: 10000,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
           {
             id: '2',
@@ -139,6 +151,8 @@ describe('LineItemEditor', () => {
             amount: null,
 
             remarks: '',
+            // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+            sortOrder: 0,
           },
         ];
         expect(calculateTotalAmount(items)).toBe(10000);
@@ -245,7 +259,13 @@ describe('LineItemEditor', () => {
   });
 
   describe('明細行削除テスト（Requirements: 11.16, 11.17, 11.18）', () => {
-    it('各明細行に削除ボタンが表示される（Requirements: 11.16）', () => {
+    // task 78.3 改訂4: 行内の独立した削除ボタンは LineItemActionMenu の
+    // メニュー項目（role="menuitem"）に統合された。各テストは「操作メニュー
+    // トグルを開いてからメニュー内の削除を取得する」フローへ最小修正している。
+    // 削除メニュー項目の disabled 制御は LineItemEditor の deleteDisabled prop
+    // を介して行うため、Req 11 AC 19（1 行のみのとき削除非活性）の挙動は維持。
+    it('各明細行に削除ボタンが表示される（Requirements: 11.16）', async () => {
+      const user = userEvent.setup();
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
@@ -259,6 +279,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -272,13 +294,21 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 1,
         },
       ];
 
       render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
 
-      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
-      expect(deleteButtons).toHaveLength(2);
+      // 各行のアクションメニュートグルが行末に存在する（=各行に削除導線がある）
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      expect(toggles).toHaveLength(2);
+
+      // メニューを開けば「削除」menuitem が露出することを確認
+      await user.click(toggles[0]!);
+      const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+      expect(deleteItem).toBeInTheDocument();
     });
 
     it('削除ボタンクリックで該当行を削除する（Requirements: 11.17）', async () => {
@@ -296,6 +326,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -309,16 +341,18 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 1,
         },
       ];
 
       render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
 
-      // 1行目の削除ボタンをクリック
-      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
-      const firstDeleteButton = deleteButtons[0];
-      expect(firstDeleteButton).toBeDefined();
-      await user.click(firstDeleteButton!);
+      // 1行目の操作メニューを開いて「削除」メニュー項目をクリック
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      await user.click(toggles[0]!);
+      const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+      await user.click(deleteItem);
 
       expect(mockOnLineItemsChange).toHaveBeenCalledTimes(1);
       const newItems = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[] | undefined;
@@ -326,17 +360,22 @@ describe('LineItemEditor', () => {
       expect(newItems?.[0]?.id).toBe('2');
     });
 
-    it('明細行が1行のみの場合は削除ボタンが非活性になる（Requirements: 11.18）', () => {
+    it('明細行が1行のみの場合は削除ボタンが非活性になる（Requirements: 11.18）', async () => {
+      const user = userEvent.setup();
       const emptyLineItem = createEmptyLineItem();
       render(
         <LineItemEditor lineItems={[emptyLineItem]} onLineItemsChange={mockOnLineItemsChange} />
       );
 
-      const deleteButton = screen.getByRole('button', { name: /削除/ });
-      expect(deleteButton).toBeDisabled();
+      // メニューを開いて「削除」menuitem の disabled 状態を確認
+      const toggle = screen.getByRole('button', { name: /の操作メニュー$/ });
+      await user.click(toggle);
+      const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+      expect(deleteItem).toBeDisabled();
     });
 
-    it('明細行が2行以上の場合は削除ボタンが活性になる', () => {
+    it('明細行が2行以上の場合は削除ボタンが活性になる', async () => {
+      const user = userEvent.setup();
       const lineItems: LineItemFormData[] = [
         {
           id: '1',
@@ -350,6 +389,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -363,15 +404,22 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 1,
         },
       ];
 
       render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
 
-      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
-      deleteButtons.forEach((btn) => {
-        expect(btn).not.toBeDisabled();
-      });
+      // 各行ごとにメニューを開いて、削除メニュー項目が活性であることを確認
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      for (const toggle of toggles) {
+        await user.click(toggle);
+        const deleteItem = screen.getByRole('menuitem', { name: '削除' });
+        expect(deleteItem).not.toBeDisabled();
+        // メニューを閉じてから次の行を検証する
+        await user.keyboard('{Escape}');
+      }
     });
   });
 
@@ -390,6 +438,8 @@ describe('LineItemEditor', () => {
         amount: null,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -426,6 +476,8 @@ describe('LineItemEditor', () => {
         amount: null,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -463,6 +515,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -476,6 +530,8 @@ describe('LineItemEditor', () => {
           amount: 25000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -500,6 +556,8 @@ describe('LineItemEditor', () => {
           amount: 10000,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -513,6 +571,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -537,6 +597,8 @@ describe('LineItemEditor', () => {
         amount: 10000,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -568,6 +630,8 @@ describe('LineItemEditor', () => {
         amount: null,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -608,6 +672,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
         {
           id: '2',
@@ -621,6 +687,8 @@ describe('LineItemEditor', () => {
           amount: null,
 
           remarks: '',
+          // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+          sortOrder: 0,
         },
       ];
 
@@ -655,6 +723,8 @@ describe('LineItemEditor', () => {
         amount: 10000,
 
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(
@@ -675,9 +745,10 @@ describe('LineItemEditor', () => {
       const addButton = screen.getByRole('button', { name: '行を追加' });
       expect(addButton).toBeDisabled();
 
-      // 削除ボタンもdisabled
-      const deleteButton = screen.getByRole('button', { name: /削除/ });
-      expect(deleteButton).toBeDisabled();
+      // 操作メニューのトグルボタンもdisabled（task 78.3 改訂4: 削除導線は
+      // LineItemActionMenu に統合され、disabled 時はメニュー全体が非活性化される）
+      const toggle = screen.getByRole('button', { name: /の操作メニュー$/ });
+      expect(toggle).toBeDisabled();
     });
   });
 
@@ -754,6 +825,8 @@ describe('LineItemEditor', () => {
         unitPrice: '',
         amount: null,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -831,6 +904,8 @@ describe('LineItemEditor', () => {
         unitPrice: '1000',
         amount: 10000,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -876,6 +951,8 @@ describe('LineItemEditor', () => {
         unitPrice: '1000',
         amount: 10000,
         remarks: '',
+        // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
+        sortOrder: 0,
       };
 
       render(<LineItemEditor lineItems={[lineItem]} onLineItemsChange={mockOnLineItemsChange} />);
@@ -885,6 +962,598 @@ describe('LineItemEditor', () => {
 
       // NET金額合計は明細行レベルでは表示されないこと
       expect(screen.queryByTestId('total-net-amount')).not.toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 81.2: LineItemActionMenu と LineItemEditor 並び順機能のユニットテスト
+  // Requirements: 37.1, 37.2, 37.3, 37.4, 37.5, 37.6, 37.7, 37.8, 37.9, 37.10,
+  //               37.11, 37.15, 37.16, 37.17
+  // ==========================================================================
+  describe('Task 81.2: ヘルパー関数の単体テスト', () => {
+    describe('reassignSortOrder (Requirements: 37.16)', () => {
+      it('順序を保持しつつ sortOrder を 0,1,2,... の連続値に再採番する', () => {
+        const items: LineItemFormData[] = [
+          { ...createEmptyLineItem(10), id: 'a' },
+          { ...createEmptyLineItem(20), id: 'b' },
+          { ...createEmptyLineItem(30), id: 'c' },
+        ];
+
+        const result = reassignSortOrder(items);
+
+        expect(result).toHaveLength(3);
+        expect(result[0]?.id).toBe('a');
+        expect(result[0]?.sortOrder).toBe(0);
+        expect(result[1]?.id).toBe('b');
+        expect(result[1]?.sortOrder).toBe(1);
+        expect(result[2]?.id).toBe('c');
+        expect(result[2]?.sortOrder).toBe(2);
+      });
+
+      it('入力配列を変更せず新しい配列を返す（イミュータブル）', () => {
+        const items: LineItemFormData[] = [
+          { ...createEmptyLineItem(5), id: 'a' },
+          { ...createEmptyLineItem(7), id: 'b' },
+        ];
+        const original = items.map((item) => ({ ...item }));
+
+        const result = reassignSortOrder(items);
+
+        expect(result).not.toBe(items);
+        expect(items[0]?.sortOrder).toBe(original[0]?.sortOrder);
+        expect(items[1]?.sortOrder).toBe(original[1]?.sortOrder);
+      });
+
+      it('空配列に対しては空配列を返す', () => {
+        expect(reassignSortOrder([])).toEqual([]);
+      });
+    });
+
+    describe('sortBySortOrder (Requirements: 37.2, 37.3)', () => {
+      it('sortOrder 昇順にソートした新しい配列を返す', () => {
+        const items: LineItemFormData[] = [
+          { ...createEmptyLineItem(2), id: 'c' },
+          { ...createEmptyLineItem(0), id: 'a' },
+          { ...createEmptyLineItem(1), id: 'b' },
+        ];
+
+        const result = sortBySortOrder(items);
+
+        expect(result.map((item) => item.id)).toEqual(['a', 'b', 'c']);
+      });
+
+      it('入力配列を変更しない（破壊的でない）', () => {
+        const items: LineItemFormData[] = [
+          { ...createEmptyLineItem(2), id: 'c' },
+          { ...createEmptyLineItem(0), id: 'a' },
+        ];
+        const originalOrder = items.map((item) => item.id);
+
+        sortBySortOrder(items);
+
+        expect(items.map((item) => item.id)).toEqual(originalOrder);
+      });
+
+      it('既に昇順の配列でも安定して結果を返す', () => {
+        const items: LineItemFormData[] = [
+          { ...createEmptyLineItem(0), id: 'a' },
+          { ...createEmptyLineItem(1), id: 'b' },
+          { ...createEmptyLineItem(2), id: 'c' },
+        ];
+
+        expect(sortBySortOrder(items).map((item) => item.id)).toEqual(['a', 'b', 'c']);
+      });
+    });
+
+    describe('createEmptyLineItem (Requirements: 37.1, 37.15)', () => {
+      it('引数省略時は sortOrder=0 で生成する', () => {
+        const item = createEmptyLineItem();
+        expect(item.sortOrder).toBe(0);
+      });
+
+      it('明示的に渡した sortOrder を保持する', () => {
+        const item = createEmptyLineItem(7);
+        expect(item.sortOrder).toBe(7);
+      });
+
+      it('生成された明細行は全フィールドが既定値で初期化されている', () => {
+        const item = createEmptyLineItem(3);
+        expect(item.id).toBeTruthy();
+        expect(item.sortOrder).toBe(3);
+        expect(item.customCategory).toBe('');
+        expect(item.workType).toBe('');
+        expect(item.name).toBe('');
+        expect(item.specification).toBe('');
+        expect(item.unit).toBe('');
+        expect(item.quantity).toBe('');
+        expect(item.unitPrice).toBe('');
+        expect(item.amount).toBeNull();
+        expect(item.remarks).toBe('');
+      });
+    });
+
+    describe('ensureSortOrders (Requirements: 37.16, design.md 4722)', () => {
+      it('全件 sortOrder=null の場合に配列インデックス値を割り当てる', () => {
+        const incoming = [
+          { ...createEmptyLineItem(0), id: 'a', sortOrder: null as number | null },
+          { ...createEmptyLineItem(0), id: 'b', sortOrder: null as number | null },
+          { ...createEmptyLineItem(0), id: 'c', sortOrder: null as number | null },
+        ];
+
+        const result = ensureSortOrders(incoming);
+
+        expect(result[0]?.sortOrder).toBe(0);
+        expect(result[1]?.sortOrder).toBe(1);
+        expect(result[2]?.sortOrder).toBe(2);
+      });
+
+      it('一部の sortOrder が undefined の場合のみ配列インデックスで補完する', () => {
+        // index=0 は値あり(5)、index=1 は undefined → 1 で補完、index=2 は値あり(8)
+        const incoming = [
+          { ...createEmptyLineItem(0), id: 'a', sortOrder: 5 },
+          { ...createEmptyLineItem(0), id: 'b', sortOrder: undefined as number | undefined },
+          { ...createEmptyLineItem(0), id: 'c', sortOrder: 8 },
+        ];
+
+        const result = ensureSortOrders(incoming);
+
+        expect(result[0]?.sortOrder).toBe(5);
+        expect(result[1]?.sortOrder).toBe(1);
+        expect(result[2]?.sortOrder).toBe(8);
+      });
+
+      it('既に有効な sortOrder を持つ配列はそのまま保持する', () => {
+        const incoming = [
+          { ...createEmptyLineItem(0), id: 'a', sortOrder: 10 },
+          { ...createEmptyLineItem(0), id: 'b', sortOrder: 20 },
+        ];
+
+        const result = ensureSortOrders(incoming);
+
+        expect(result[0]?.sortOrder).toBe(10);
+        expect(result[1]?.sortOrder).toBe(20);
+      });
+    });
+  });
+
+  describe('Task 81.2: LineItemActionMenu サブコンポーネントのテスト', () => {
+    /** メニュー操作テスト用ヘルパー（共通プロップスを生成） */
+    const buildMenuProps = (overrides: Partial<Parameters<typeof LineItemActionMenu>[0]> = {}) => ({
+      isFirst: false,
+      isLast: false,
+      isOnly: false,
+      onMoveUp: vi.fn(),
+      onMoveDown: vi.fn(),
+      onDelete: vi.fn(),
+      ariaLabel: 'テスト行の操作メニュー',
+      ...overrides,
+    });
+
+    describe('トグル開閉 (Requirements: 37.4, 37.5)', () => {
+      it('初期状態ではメニューが閉じている（menuitem が存在しない）', () => {
+        const props = buildMenuProps();
+        render(<LineItemActionMenu {...props} />);
+
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+        expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+      });
+
+      it('トグルクリックで 3 つのメニュー項目（上に移動・下に移動・削除）が表示される', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps();
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        const menuItems = screen.getAllByRole('menuitem');
+        expect(menuItems).toHaveLength(3);
+        expect(screen.getByRole('menuitem', { name: '上に移動' })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: '下に移動' })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: '削除' })).toBeInTheDocument();
+      });
+
+      it('もう一度トグルをクリックするとメニューが閉じる', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps();
+        render(<LineItemActionMenu {...props} />);
+
+        const toggle = screen.getByRole('button', { name: 'テスト行の操作メニュー' });
+        await user.click(toggle);
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+
+        await user.click(toggle);
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      });
+
+      it('メニュー項目クリック時に対応するコールバックが実行され、メニューが自動で閉じる', async () => {
+        const user = userEvent.setup();
+        const onMoveUp = vi.fn();
+        const props = buildMenuProps({ onMoveUp });
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+        await user.click(screen.getByRole('menuitem', { name: '上に移動' }));
+
+        expect(onMoveUp).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('disabled 制御 (Requirements: 37.9, 37.10, 37.11)', () => {
+      it('isFirst=true のとき「上に移動」のみ非活性化する (Req 37.9)', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps({ isFirst: true });
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        expect(screen.getByRole('menuitem', { name: '上に移動' })).toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: '下に移動' })).not.toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: '削除' })).not.toBeDisabled();
+      });
+
+      it('isLast=true のとき「下に移動」のみ非活性化する (Req 37.10)', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps({ isLast: true });
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        expect(screen.getByRole('menuitem', { name: '上に移動' })).not.toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: '下に移動' })).toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: '削除' })).not.toBeDisabled();
+      });
+
+      it('isOnly=true のとき「上に移動」「下に移動」を非活性化する (Req 37.11)', async () => {
+        const user = userEvent.setup();
+        // 削除は LineItemEditor 側で deleteDisabled を介して制御するため、
+        // LineItemActionMenu 単体では isOnly のみでは削除は非活性化されない仕様（task 78.2 / 78.3）。
+        const props = buildMenuProps({ isOnly: true });
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        expect(screen.getByRole('menuitem', { name: '上に移動' })).toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: '下に移動' })).toBeDisabled();
+      });
+
+      it('deleteDisabled=true のとき「削除」のみ非活性化する (Req 11 AC 19 と Req 37.11 の整合)', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps({ deleteDisabled: true });
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        expect(screen.getByRole('menuitem', { name: '削除' })).toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: '上に移動' })).not.toBeDisabled();
+        expect(screen.getByRole('menuitem', { name: '下に移動' })).not.toBeDisabled();
+      });
+
+      it('disabled=true ではトグルボタン自体が非活性化されメニューを開けない', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps({ disabled: true });
+        render(<LineItemActionMenu {...props} />);
+
+        const toggle = screen.getByRole('button', { name: 'テスト行の操作メニュー' });
+        expect(toggle).toBeDisabled();
+
+        await user.click(toggle);
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('外側クリック・Escape クローズ (Requirements: 37.4 補強)', () => {
+      it('メニュー外をクリックするとメニューが閉じる', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps();
+        // 外側クリック対象として別 DOM ノードを用意する
+        render(
+          <div>
+            <button type="button" data-testid="outside-target">
+              外側
+            </button>
+            <LineItemActionMenu {...props} />
+          </div>
+        );
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+
+        // mousedown が outside-target に到達することで close される
+        fireEvent.mouseDown(screen.getByTestId('outside-target'));
+
+        await waitFor(() => {
+          expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+        });
+      });
+
+      it('Escape キーでメニューが閉じ、トグルボタンへフォーカスが戻る', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps();
+        render(<LineItemActionMenu {...props} />);
+
+        const toggle = screen.getByRole('button', { name: 'テスト行の操作メニュー' });
+        await user.click(toggle);
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+
+        // Escape を発火
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        await waitFor(() => {
+          expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+        });
+        await waitFor(() => {
+          expect(document.activeElement).toBe(toggle);
+        });
+      });
+    });
+
+    describe('フォーカス制御 (Requirements: 37.4 / design.md 4609)', () => {
+      it('メニュー展開時に最初の有効項目（上に移動）にフォーカスが移る', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps();
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        await waitFor(() => {
+          expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: '上に移動' }));
+        });
+      });
+
+      it('isFirst=true のときは「下に移動」が最初の有効項目としてフォーカスされる', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps({ isFirst: true });
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        await waitFor(() => {
+          expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: '下に移動' }));
+        });
+      });
+
+      it('isOnly=true のときは「削除」が最初の有効項目としてフォーカスされる', async () => {
+        const user = userEvent.setup();
+        const props = buildMenuProps({ isOnly: true });
+        render(<LineItemActionMenu {...props} />);
+
+        await user.click(screen.getByRole('button', { name: 'テスト行の操作メニュー' }));
+
+        await waitFor(() => {
+          expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: '削除' }));
+        });
+      });
+    });
+  });
+
+  describe('Task 81.2: LineItemEditor の並び順機能テスト', () => {
+    /** sortOrder を明示した最小限の明細行ファクトリ */
+    const buildLineItem = (
+      id: string,
+      sortOrder: number,
+      overrides: Partial<LineItemFormData> = {}
+    ): LineItemFormData => ({
+      id,
+      sortOrder,
+      customCategory: '',
+      workType: '',
+      name: '',
+      specification: '',
+      unit: '',
+      quantity: '',
+      unitPrice: '',
+      amount: null,
+      remarks: '',
+      ...overrides,
+    });
+
+    describe('表示順は sortBySortOrder 適用 (Requirements: 37.2, 37.3)', () => {
+      it('lineItems が sortOrder の降順で渡されても画面には昇順で表示される', () => {
+        const lineItems: LineItemFormData[] = [
+          buildLineItem('c', 2, { name: 'C行' }),
+          buildLineItem('a', 0, { name: 'A行' }),
+          buildLineItem('b', 1, { name: 'B行' }),
+        ];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        // 名称フィールドは表示順に並ぶ（DOM 順 = sortOrder 昇順）
+        const nameInputs = screen.getAllByPlaceholderText('名称') as HTMLInputElement[];
+        expect(nameInputs.map((input) => input.value)).toEqual(['A行', 'B行', 'C行']);
+      });
+    });
+
+    describe('handleMoveUp / handleMoveDown 後の sortOrder 連続性 (Requirements: 37.7, 37.8, 37.16)', () => {
+      it('「上に移動」操作後、隣接行とスワップされ sortOrder が 0,1,2,... に再採番される', async () => {
+        const user = userEvent.setup();
+        const lineItems: LineItemFormData[] = [
+          buildLineItem('a', 0, { name: 'A行' }),
+          buildLineItem('b', 1, { name: 'B行' }),
+          buildLineItem('c', 2, { name: 'C行' }),
+        ];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        // 2行目（B）の操作メニューを開いて「上に移動」をクリック
+        const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+        await user.click(toggles[1]!);
+        await user.click(screen.getByRole('menuitem', { name: '上に移動' }));
+
+        expect(mockOnLineItemsChange).toHaveBeenCalledTimes(1);
+        const updated = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[];
+        // 並び順: B, A, C となる
+        expect(updated.map((item) => item.id)).toEqual(['b', 'a', 'c']);
+        // sortOrder が 0,1,2 に再採番されている
+        expect(updated.map((item) => item.sortOrder)).toEqual([0, 1, 2]);
+      });
+
+      it('「下に移動」操作後、隣接行とスワップされ sortOrder が 0,1,2,... に再採番される', async () => {
+        const user = userEvent.setup();
+        const lineItems: LineItemFormData[] = [
+          buildLineItem('a', 0, { name: 'A行' }),
+          buildLineItem('b', 1, { name: 'B行' }),
+          buildLineItem('c', 2, { name: 'C行' }),
+        ];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        // 1行目（A）の操作メニューを開いて「下に移動」をクリック
+        const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+        await user.click(toggles[0]!);
+        await user.click(screen.getByRole('menuitem', { name: '下に移動' }));
+
+        expect(mockOnLineItemsChange).toHaveBeenCalledTimes(1);
+        const updated = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[];
+        // 並び順: B, A, C となる
+        expect(updated.map((item) => item.id)).toEqual(['b', 'a', 'c']);
+        expect(updated.map((item) => item.sortOrder)).toEqual([0, 1, 2]);
+      });
+
+      it('lineItems が乱れた sortOrder で渡されても、表示順を基準に「上に移動」が動作する (Req 37.17 整合)', async () => {
+        const user = userEvent.setup();
+        // sortOrder は 0,1,2 だが配列順はバラバラ → 表示順は a,b,c
+        const lineItems: LineItemFormData[] = [
+          buildLineItem('c', 2, { name: 'C行' }),
+          buildLineItem('a', 0, { name: 'A行' }),
+          buildLineItem('b', 1, { name: 'B行' }),
+        ];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        // 表示順 2行目（B）に対する「上に移動」 → 結果は b,a,c の順
+        const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+        await user.click(toggles[1]!);
+        await user.click(screen.getByRole('menuitem', { name: '上に移動' }));
+
+        const updated = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[];
+        expect(updated.map((item) => item.id)).toEqual(['b', 'a', 'c']);
+        expect(updated.map((item) => item.sortOrder)).toEqual([0, 1, 2]);
+      });
+    });
+
+    describe('handleAddRow の末尾連続割当 (Requirements: 37.15)', () => {
+      it('追加した行に既存最大 sortOrder + 1 が割り当てられる', async () => {
+        const user = userEvent.setup();
+        const lineItems: LineItemFormData[] = [
+          buildLineItem('a', 0),
+          buildLineItem('b', 1),
+          buildLineItem('c', 2),
+        ];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        await user.click(screen.getByRole('button', { name: '行を追加' }));
+
+        const updated = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[];
+        expect(updated).toHaveLength(4);
+        // 末尾の新規行は sortOrder=3
+        expect(updated[3]?.sortOrder).toBe(3);
+      });
+
+      it('既存 sortOrder が連続でない場合でも最大値+1 が新規行に割り当てられる', async () => {
+        const user = userEvent.setup();
+        // 意図的に sortOrder=10 の項目を末尾に置く
+        const lineItems: LineItemFormData[] = [buildLineItem('a', 0), buildLineItem('b', 10)];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        await user.click(screen.getByRole('button', { name: '行を追加' }));
+
+        const updated = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[];
+        // 新規行の sortOrder は max(0, 10) + 1 = 11
+        const added = updated[updated.length - 1];
+        expect(added?.sortOrder).toBe(11);
+      });
+    });
+
+    describe('handleDeleteRow 後の連続性 (Requirements: 37.16)', () => {
+      it('中間行を削除しても残行の sortOrder が 0,1,2,... に再採番される', async () => {
+        const user = userEvent.setup();
+        const lineItems: LineItemFormData[] = [
+          buildLineItem('a', 0, { name: 'A行' }),
+          buildLineItem('b', 1, { name: 'B行' }),
+          buildLineItem('c', 2, { name: 'C行' }),
+        ];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        // 2行目（B）の削除メニュー項目をクリック
+        const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+        await user.click(toggles[1]!);
+        await user.click(screen.getByRole('menuitem', { name: '削除' }));
+
+        const updated = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[];
+        expect(updated.map((item) => item.id)).toEqual(['a', 'c']);
+        expect(updated.map((item) => item.sortOrder)).toEqual([0, 1]);
+      });
+    });
+
+    describe('行内旧削除ボタンの非存在 (Requirements: 37.6)', () => {
+      it('旧実装の行内独立した削除ボタン（ラベル「削除」のbutton）が直接行内に存在しない', () => {
+        const lineItems: LineItemFormData[] = [buildLineItem('a', 0), buildLineItem('b', 1)];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        // メニューを開く前は「削除」ボタンが表示されてはいけない（旧 row-button が削除済み）
+        const visibleDeleteButtons = screen.queryAllByRole('button', { name: '削除' });
+        expect(visibleDeleteButtons).toHaveLength(0);
+
+        // role="menuitem" としての「削除」も、メニューが閉じている状態では存在しない
+        const visibleDeleteMenuItems = screen.queryAllByRole('menuitem', { name: '削除' });
+        expect(visibleDeleteMenuItems).toHaveLength(0);
+      });
+    });
+
+    describe('Tab キーが表示順に追従する (Requirements: 37.17)', () => {
+      it('lineItems が降順で渡されても、表示順1行目→表示順2行目へ Tab で移動する', async () => {
+        const user = userEvent.setup();
+        // 配列順は降順、表示順は a,b
+        const lineItems: LineItemFormData[] = [
+          buildLineItem('b', 1, { name: 'B行' }),
+          buildLineItem('a', 0, { name: 'A行' }),
+        ];
+
+        render(<LineItemEditor lineItems={lineItems} onLineItemsChange={mockOnLineItemsChange} />);
+
+        // 表示順1行目（A行）の備考フィールドにフォーカス
+        const remarksInputs = screen.getAllByPlaceholderText('備考');
+        // 表示順1行目=A行が remarksInputs[0]
+        await user.click(remarksInputs[0]!);
+
+        await user.tab();
+
+        // 表示順2行目（B行）の任意分類にフォーカスが移る
+        const customCategoryInputs = screen.getAllByPlaceholderText('任意分類');
+        expect(document.activeElement).toBe(customCategoryInputs[1]);
+      });
+    });
+
+    describe('サーバー応答に sortOrder NULL を含むケース (Requirements: 37.16, design.md 4722)', () => {
+      it('ensureSortOrders → sortBySortOrder の組み合わせで全行が表示順を確定できる', () => {
+        // バックエンドから受け取った想定の生データ。1件は sortOrder=null
+        const incoming = [
+          { ...createEmptyLineItem(0), id: 'a', sortOrder: null as number | null, name: 'A行' },
+          { ...createEmptyLineItem(0), id: 'b', sortOrder: 5, name: 'B行' },
+          { ...createEmptyLineItem(0), id: 'c', sortOrder: null as number | null, name: 'C行' },
+        ];
+
+        // 防御的補完
+        const ensured = ensureSortOrders(incoming);
+        // a=0, b=5, c=2 になる（a/c は配列インデックス、b は値保持）
+        expect(ensured.find((item) => item.id === 'a')?.sortOrder).toBe(0);
+        expect(ensured.find((item) => item.id === 'b')?.sortOrder).toBe(5);
+        expect(ensured.find((item) => item.id === 'c')?.sortOrder).toBe(2);
+
+        // sortBySortOrder で表示順を確定
+        const sorted = sortBySortOrder(ensured);
+        expect(sorted.map((item) => item.id)).toEqual(['a', 'c', 'b']);
+
+        // 補完済み sortOrder 列で LineItemEditor を描画しても破綻しないこと
+        render(<LineItemEditor lineItems={sorted} onLineItemsChange={mockOnLineItemsChange} />);
+        const nameInputs = screen.getAllByPlaceholderText('名称') as HTMLInputElement[];
+        expect(nameInputs.map((input) => input.value)).toEqual(['A行', 'C行', 'B行']);
+      });
     });
   });
 });

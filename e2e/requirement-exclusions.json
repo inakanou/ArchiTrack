@@ -2,7 +2,7 @@
   "$schema": "./requirement-exclusions.schema.json",
   "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
   "version": "1.0.0",
-  "lastUpdated": "2024-12-04",
+  "lastUpdated": "2026-04-28",
   "exclusions": [
     {
       "id": "REQ-23.3",
@@ -2007,234 +2007,6 @@
       }
     },
     {
-      "id": "estimate-request/REQ-29.1",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼一覧画面のパンくずナビゲーションを正確な階層構造で表示する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.2",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼一覧画面のパンくずの「ダッシュボード」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.3",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼一覧画面のパンくずの「プロジェクト一覧」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.4",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼一覧画面のパンくずの「プロジェクト」をプロジェクト詳細へのリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.5",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼一覧画面のパンくずの「見積依頼一覧」をリンクなしで表示する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.6",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼新規作成画面のパンくずナビゲーションを正確な階層構造で表示する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.7",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼新規作成画面のパンくずの「ダッシュボード」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.8",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼新規作成画面のパンくずの「プロジェクト一覧」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.9",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼新規作成画面のパンくずの「プロジェクト」をプロジェクト詳細へのリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.10",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼新規作成画面のパンくずの「見積依頼一覧」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.11",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼新規作成画面のパンくずの「新規作成」をリンクなしで表示する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.12",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼新規作成画面から「← 一覧に戻る」リンクを削除する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.13",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼詳細画面のパンくずナビゲーションを正確な階層構造で表示する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.14",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼詳細画面のパンくずの「ダッシュボード」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.15",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼詳細画面のパンくずの「プロジェクト一覧」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.16",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼詳細画面のパンくずの「プロジェクト」をプロジェクト詳細へのリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.17",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼詳細画面のパンくずの「見積依頼一覧」をリンクとする",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.18",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼詳細画面のパンくずの「見積依頼」をリンクなしで表示し見積依頼名を表示する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-29.19",
-      "requirement": "REQ-29: 見積依頼画面パンくずナビゲーション改善",
-      "title": "見積依頼詳細画面から「← 見積依頼一覧に戻る」リンクを削除する",
-      "reason": "見積依頼画面のパンくずナビゲーション改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "パンくずナビゲーション改善のE2Eテストで検証予定"
-      }
-    },
-    {
       "id": "project-management/REQ-30.1",
       "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
       "title": "現場調査のthumbnailUrlを署名付きURLに変換して返却する",
@@ -2292,558 +2064,6 @@
         "method": "integration-test",
         "tool": "Vitest",
         "description": "バックエンドのインテグレーションテストでAPI応答を検証"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.1",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "プロジェクト名の横にクリップボードコピーボタンを表示する",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.2",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "顧客名の横にクリップボードコピーボタンを表示する",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.3",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "現場住所の横にクリップボードコピーボタンを表示する",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.4",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "プロジェクト名コピー時にクリップボードにコピーしフィードバックを表示する",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.5",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "navigator.clipboard APIを使用してテキストをコピーする",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.6",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "顧客名コピー時にクリップボードにコピーしフィードバックを表示する",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.7",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "現場住所コピー時にクリップボードにコピーしフィードバックを表示する",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.8",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "コピー対象フィールドが空欄の場合にコピーボタンを非表示にする",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-33.9",
-      "requirement": "REQ-33: 基本情報のクリップボードコピー機能",
-      "title": "コピーボタンにクリップボードアイコンとホバー時ツールチップを表示する",
-      "reason": "プロジェクト詳細画面のクリップボードコピー機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "クリップボードコピー機能のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-34.1",
-      "requirement": "REQ-34: 基本情報の日時フィールド非表示",
-      "title": "基本情報セクションから作成日時フィールドを非表示にする",
-      "reason": "プロジェクト詳細画面の日時フィールド非表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "基本情報表示のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-34.2",
-      "requirement": "REQ-34: 基本情報の日時フィールド非表示",
-      "title": "基本情報セクションから更新日時フィールドを非表示にする",
-      "reason": "プロジェクト詳細画面の日時フィールド非表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "基本情報表示のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.1",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "ステータス変更履歴セクションに直近3件のみを表示する",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.2",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "履歴が4件以上の場合に「すべての履歴を表示」リンクを表示する",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.3",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "履歴が3件以下の場合に「すべての履歴を表示」リンクを非表示にする",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.4",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "「すべての履歴を表示」クリックで全件表示ダイアログを開く",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.5",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "ダイアログ内に全件を時系列順（新しい順）で表示する",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.6",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "ダイアログに「閉じる」ボタンを表示する",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.7",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "「閉じる」ボタンクリックでダイアログを閉じる",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "project-management/REQ-35.8",
-      "requirement": "REQ-35: ステータス変更履歴の表示制限と全件表示ダイアログ",
-      "title": "ダイアログ外クリックでダイアログを閉じる",
-      "reason": "プロジェクト詳細画面のステータス変更履歴表示制限と全件表示ダイアログ。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ステータス変更履歴のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-19.1",
-      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
-      "title": "写真変更操作時に写真変更ダイアログを表示する",
-      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真変更ダイアログのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-19.2",
-      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
-      "title": "写真変更ダイアログに注釈付き現場調査写真一覧を表示する",
-      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真変更ダイアログのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-19.3",
-      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
-      "title": "写真変更ダイアログで選択した写真に変更する",
-      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真変更ダイアログのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-19.4",
-      "requirement": "REQ-19: 写真変更ダイアログでの注釈付き写真表示",
-      "title": "写真選択確定後に関連写真表示エリアを更新する",
-      "reason": "数量表の写真変更ダイアログでの注釈付き写真表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真変更ダイアログのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-21.1",
-      "requirement": "REQ-21: 写真選択時のコメント表示",
-      "title": "写真選択時に当該写真のコメントを取得する",
-      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真コメント表示のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-21.2",
-      "requirement": "REQ-21: 写真選択時のコメント表示",
-      "title": "コメントが存在する場合に写真の右側にコメントを表示する",
-      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真コメント表示のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-21.3",
-      "requirement": "REQ-21: 写真選択時のコメント表示",
-      "title": "コメントが存在しない場合にコメント表示エリアを空白とする",
-      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真コメント表示のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-21.4",
-      "requirement": "REQ-21: 写真選択時のコメント表示",
-      "title": "写真変更時に変更後の写真に対応するコメントに表示を更新する",
-      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真コメント表示のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-21.5",
-      "requirement": "REQ-21: 写真選択時のコメント表示",
-      "title": "数量グループ折りたたみ時にコメント表示も非表示にする",
-      "reason": "数量表の写真選択時のコメント表示機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真コメント表示のE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.1",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "マジックバイトの先頭3バイト（FF D8 FF）のみでJPEG形式を判定する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.2",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "ICCプロファイル付きJPEGを正常に受け付けて保存する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.3",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "EXIF付きJPEGを正常に受け付けて保存する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.4",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "JFIF形式JPEGを正常に受け付けて保存する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.5",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "SOSマーカー付きJPEGを正常に受け付けて保存する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.6",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "DQTマーカー付きJPEGを正常に受け付けて保存する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.7",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "先頭3バイトがFF D8 FFでないファイルのアップロードを拒否する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.8",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "PNG形式の検証を従来通り維持する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.9",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "WEBP形式の検証を従来通り維持する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.10",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "バッチアップロードで失敗時にエラー情報を含む結果を返却する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.11",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "バッチアップロード結果にエラーが含まれる場合にエラーメッセージを表示する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.12",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "一部成功・一部失敗時に成功結果を保持しつつエラー情報も返却する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.13",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "全件失敗時に全件失敗を示すエラーメッセージを表示する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.14",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "ファイル形式不一致による拒否時にファイル名と理由を含むエラーメッセージを表示する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.15",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "サーバーエラーまたはネットワークエラー時にエラーメッセージを表示する",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-19.16",
-      "requirement": "REQ-19: 画像アップロードバリデーション修正とエラー通知改善",
-      "title": "全ファイル正常アップロード時にエラーメッセージを表示しない",
-      "reason": "画像アップロードのマジックバイトバリデーションとエラー通知改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像アップロードバリデーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-2.8",
-      "requirement": "REQ-2: 画面遷移・ナビゲーション",
-      "title": "画像プレビュー画面（閲覧モード）のブレッドクラム表示",
-      "reason": "画像プレビュー画面のブレッドクラム表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像プレビュー画面ナビゲーションのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "site-survey/REQ-2.9",
-      "requirement": "REQ-2: 画面遷移・ナビゲーション",
-      "title": "画像プレビュー画面（編集モード）のブレッドクラム表示",
-      "reason": "画像プレビュー画面のブレッドクラム表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "画像プレビュー画面ナビゲーションのE2Eテストで検証予定"
       }
     },
     {
@@ -3039,1803 +2259,279 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-20.1",
-      "requirement": "REQ-20: 写真プレビューダイアログでの注釈付き写真表示",
-      "title": "写真プレビュー操作時に注釈付き写真を表示",
-      "reason": "数量表の写真プレビューダイアログでの注釈付き写真表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真プレビューダイアログのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-20.2",
-      "requirement": "REQ-20: 写真プレビューダイアログでの注釈付き写真表示",
-      "title": "写真プレビューダイアログで同一調査の注釈付き写真を表示",
-      "reason": "数量表の写真プレビューダイアログでの注釈付き写真表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真プレビューダイアログのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-20.3",
-      "requirement": "REQ-20: 写真プレビューダイアログでの注釈付き写真表示",
-      "title": "写真プレビューダイアログでオリジナルではなく注釈付き写真を表示",
-      "reason": "数量表の写真プレビューダイアログでの注釈付き写真表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "写真プレビューダイアログのE2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-35.1",
-      "requirement": "REQ-35: 受領見積書転記ダイアログの表示改善",
-      "title": "転記ダイアログに協力業者の名前も表示",
-      "reason": "見積書作成の転記ダイアログ表示改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-35.2",
-      "requirement": "REQ-35: 受領見積書転記ダイアログの表示改善",
-      "title": "ドロップダウンの表示形式を「業者名 - 金額」とする",
-      "reason": "見積書作成の転記ダイアログ表示改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-35.3",
-      "requirement": "REQ-35: 受領見積書転記ダイアログの表示改善",
-      "title": "転記する明細行を選択の説明テキスト表示",
-      "reason": "見積書作成の転記ダイアログ表示改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-36.1",
-      "requirement": "REQ-36: NET金額の自動設定",
-      "title": "NET金額案分ダイアログで対象業者選択時の自動設定",
-      "reason": "見積書作成のNET金額自動設定。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-36.2",
-      "requirement": "REQ-36: NET金額の自動設定",
-      "title": "自動設定されたNET金額の手動変更可能",
-      "reason": "見積書作成のNET金額自動設定。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-37.1",
-      "requirement": "REQ-37: 利益率のデフォルト値設定",
-      "title": "利益率適用ダイアログのデフォルト値設定",
-      "reason": "見積書作成の利益率デフォルト値設定。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-37.2",
-      "requirement": "REQ-37: 利益率のデフォルト値設定",
-      "title": "デフォルト値の手動変更可能",
-      "reason": "見積書作成の利益率デフォルト値設定。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-38.1",
-      "requirement": "REQ-38: 見積書出力のデフォルト設定と空欄行処理",
-      "title": "チェックボックスのデフォルト値として見積と実行をON",
-      "reason": "見積書出力のデフォルト設定。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
       "id": "estimate-creation/REQ-38.2",
       "requirement": "REQ-38: 見積書出力のデフォルト設定と空欄行処理",
       "title": "業者行のみ存在する行の空欄行処理",
-      "reason": "見積書出力の空欄行処理。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "出力ファイル内の空欄行詰め処理はバックエンドの出力APIで制御されるため、ファイル内容検証は統合テストで実施",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Supertest",
+        "description": "出力APIレスポンス内容を検証"
       }
     },
     {
       "id": "estimate-creation/REQ-38.3",
       "requirement": "REQ-38: 見積書出力のデフォルト設定と空欄行処理",
       "title": "データが存在する行のみを出力",
-      "reason": "見積書出力の空欄行処理。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "データが存在する行のみの出力制御はバックエンドAPIロジックで処理されるため統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.1",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目1",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.2",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目2",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.3",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目3",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.4",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目4",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.5",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目5",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.6",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目6",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.7",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目7",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.8",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目8",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-creation/REQ-39.9",
-      "requirement": "REQ-39: サマリーセクションの表示項目と順序",
-      "title": "サマリーセクション表示項目9",
-      "reason": "見積書作成のサマリーセクション表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Supertest",
+        "description": "出力API条件分岐を検証"
       }
     },
     {
       "id": "estimate-creation/REQ-40.1",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化1",
-      "reason": "見積書作成のテキストフィールドコンパクト化。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "見積項目テキストフィールドのサイズ統一は数量表との視覚的整合確保で、設計レビュー/VRTで検証",
+      "category": "infrastructure",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "visual-regression",
+        "tool": "Storybook + Chromatic 等",
+        "description": "スタイルレビューおよび視覚的回帰検証"
       }
     },
     {
       "id": "estimate-creation/REQ-40.2",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化2",
-      "reason": "見積書作成のテキストフィールドコンパクト化。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "パディング統一は数量表との視覚的整合確保で、設計レビュー/VRTで検証",
+      "category": "infrastructure",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "visual-regression",
+        "tool": "Storybook + Chromatic 等",
+        "description": "スタイルレビューおよび視覚的回帰検証"
       }
     },
     {
       "id": "estimate-creation/REQ-40.3",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化3",
-      "reason": "見積書作成のテキストフィールドコンパクト化。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "セル内余白最小化は数量表との視覚的整合確保で、設計レビュー/VRTで検証",
+      "category": "infrastructure",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "visual-regression",
+        "tool": "Storybook + Chromatic 等",
+        "description": "スタイルレビューおよび視覚的回帰検証"
       }
     },
     {
       "id": "estimate-creation/REQ-40.4",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化4",
-      "reason": "見積書作成のテキストフィールドコンパクト化。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "入力領域最大化は視覚的整合の主観的判定を含むため、設計レビュー/VRTで検証",
+      "category": "infrastructure",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "visual-regression",
+        "tool": "Storybook + Chromatic 等",
+        "description": "スタイルレビューおよび視覚的回帰検証"
       }
     },
     {
-      "id": "estimate-request/REQ-30.1",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善1",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "id": "estimate-request/REQ-38.9",
+      "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
+      "title": "編集中セッション切れ時の編集状態保護9",
+      "reason": "design review Issue 1 (2026-04-27) で撤廃済みの受入基準。要件書上は strikethrough で削除表記済みのため E2E テスト不要",
+      "category": "removed-from-spec",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.2",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善2",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.3",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善3",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.4",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善4",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.5",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善5",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.6",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善6",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.7",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善7",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.8",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善8",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-30.9",
-      "requirement": "REQ-30: 見積依頼新規作成画面 - 宛先検索選択UI改善",
-      "title": "宛先検索選択UI改善9",
-      "reason": "見積依頼の宛先検索選択UI改善。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.1",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能1",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.2",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能2",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.3",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能3",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.4",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能4",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.5",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能5",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.6",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能6",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.7",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能7",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.8",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能8",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.9",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能9",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.10",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能10",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.11",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能11",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-31.12",
-      "requirement": "REQ-31: 受領見積書 - PDFプレビュー拡大縮小機能",
-      "title": "PDFプレビュー拡大縮小機能12",
-      "reason": "受領見積書のPDFプレビュー拡大縮小機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-32.1",
-      "requirement": "REQ-32: 受領見積書 - ダイアログ横幅拡大",
-      "title": "ダイアログ横幅拡大1",
-      "reason": "受領見積書のダイアログ横幅拡大。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-32.2",
-      "requirement": "REQ-32: 受領見積書 - ダイアログ横幅拡大",
-      "title": "ダイアログ横幅拡大2",
-      "reason": "受領見積書のダイアログ横幅拡大。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-32.3",
-      "requirement": "REQ-32: 受領見積書 - ダイアログ横幅拡大",
-      "title": "ダイアログ横幅拡大3",
-      "reason": "受領見積書のダイアログ横幅拡大。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-32.4",
-      "requirement": "REQ-32: 受領見積書 - ダイアログ横幅拡大",
-      "title": "ダイアログ横幅拡大4",
-      "reason": "受領見積書のダイアログ横幅拡大。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-32.5",
-      "requirement": "REQ-32: 受領見積書 - ダイアログ横幅拡大",
-      "title": "ダイアログ横幅拡大5",
-      "reason": "受領見積書のダイアログ横幅拡大。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-32.6",
-      "requirement": "REQ-32: 受領見積書 - ダイアログ横幅拡大",
-      "title": "ダイアログ横幅拡大6",
-      "reason": "受領見積書のダイアログ横幅拡大。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.1",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一1",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.2",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一2",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.3",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一3",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.4",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一4",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.5",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一5",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.6",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一6",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.7",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一7",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.8",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一8",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.9",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一9",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.10",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一10",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.11",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一11",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.12",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一12",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-33.13",
-      "requirement": "REQ-33: 受領見積書 - 明細行テキストボックスサイズ統一",
-      "title": "明細行テキストボックスサイズ統一13",
-      "reason": "受領見積書の明細行テキストボックスサイズ統一。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-34.1",
-      "requirement": "REQ-34: 受領見積書 - NET金額自動入力",
-      "title": "NET金額自動入力1",
-      "reason": "受領見積書のNET金額自動入力。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-34.2",
-      "requirement": "REQ-34: 受領見積書 - NET金額自動入力",
-      "title": "NET金額自動入力2",
-      "reason": "受領見積書のNET金額自動入力。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-34.3",
-      "requirement": "REQ-34: 受領見積書 - NET金額自動入力",
-      "title": "NET金額自動入力3",
-      "reason": "受領見積書のNET金額自動入力。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-34.4",
-      "requirement": "REQ-34: 受領見積書 - NET金額自動入力",
-      "title": "NET金額自動入力4",
-      "reason": "受領見積書のNET金額自動入力。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-34.5",
-      "requirement": "REQ-34: 受領見積書 - NET金額自動入力",
-      "title": "NET金額自動入力5",
-      "reason": "受領見積書のNET金額自動入力。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-34.6",
-      "requirement": "REQ-34: 受領見積書 - NET金額自動入力",
-      "title": "NET金額自動入力6",
-      "reason": "受領見積書のNET金額自動入力。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-34.7",
-      "requirement": "REQ-34: 受領見積書 - NET金額自動入力",
-      "title": "NET金額自動入力7",
-      "reason": "受領見積書のNET金額自動入力。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.1",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能1",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.2",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能2",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.3",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能3",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.4",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能4",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.5",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能5",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.6",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能6",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.7",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能7",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.8",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能8",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.9",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能9",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.10",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能10",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "estimate-request/REQ-35.11",
-      "requirement": "REQ-35: 見積依頼詳細画面 - 現場調査報告書出力機能",
-      "title": "現場調査報告書出力機能11",
-      "reason": "見積依頼の現場調査報告書出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-16.2",
-      "requirement": "REQ-16: 内訳項目の初期ソート順序",
-      "title": "displayOrderフィールドとして保存",
-      "reason": "内訳書の初期ソート順序。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-16.3",
-      "requirement": "REQ-16: 内訳項目の初期ソート順序",
-      "title": "nullまたは空文字の場合の空文字扱い",
-      "reason": "内訳書の初期ソート順序。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-16.4",
-      "requirement": "REQ-16: 内訳項目の初期ソート順序",
-      "title": "初期ソートは一度だけ適用",
-      "reason": "内訳書の初期ソート順序。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-17.4",
-      "requirement": "REQ-17: 内訳項目の手動並び替え",
-      "title": "手動並び替え4",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-17.5",
-      "requirement": "REQ-17: 内訳項目の手動並び替え",
-      "title": "手動並び替え5",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-17.6",
-      "requirement": "REQ-17: 内訳項目の手動並び替え",
-      "title": "手動並び替え6",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-17.7",
-      "requirement": "REQ-17: 内訳項目の手動並び替え",
-      "title": "手動並び替え7",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "spec-review",
+        "tool": "requirements.md",
+        "description": "requirements.md にて削除表記（~~削除~~）を維持し、実装対象外であることを明示する"
       }
     },
     {
       "id": "itemized-statement-generation/REQ-17.10",
       "requirement": "REQ-17: 内訳項目の手動並び替え",
       "title": "手動並び替え10",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "楽観的排他制御エラー(409)などのエラーハンドリング詳細は統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Supertest",
+        "description": "エラー応答とUI状態保持を検証"
       }
     },
     {
       "id": "itemized-statement-generation/REQ-17.11",
       "requirement": "REQ-17: 内訳項目の手動並び替え",
       "title": "手動並び替え11",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "保存処理中のローディング状態遷移詳細は統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + RTL",
+        "description": "UI状態遷移のタイミングを検証"
       }
     },
     {
       "id": "itemized-statement-generation/REQ-17.12",
       "requirement": "REQ-17: 内訳項目の手動並び替え",
       "title": "手動並び替え12",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "ページ離脱時の確認ダイアログ動作詳細は統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-17.13",
-      "requirement": "REQ-17: 内訳項目の手動並び替え",
-      "title": "手動並び替え13",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "itemized-statement-generation/REQ-17.14",
-      "requirement": "REQ-17: 内訳項目の手動並び替え",
-      "title": "手動並び替え14",
-      "reason": "内訳書の手動並び替え。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-22.1",
-      "requirement": "REQ-22: 数量グループの名前変更",
-      "title": "数量グループの名前変更1",
-      "reason": "数量表の数量グループ名前変更機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-22.2",
-      "requirement": "REQ-22: 数量グループの名前変更",
-      "title": "数量グループの名前変更2",
-      "reason": "数量表の数量グループ名前変更機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-22.3",
-      "requirement": "REQ-22: 数量グループの名前変更",
-      "title": "数量グループの名前変更3",
-      "reason": "数量表の数量グループ名前変更機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-22.4",
-      "requirement": "REQ-22: 数量グループの名前変更",
-      "title": "数量グループの名前変更4",
-      "reason": "数量表の数量グループ名前変更機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-22.5",
-      "requirement": "REQ-22: 数量グループの名前変更",
-      "title": "数量グループの名前変更5",
-      "reason": "数量表の数量グループ名前変更機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.1",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理1",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.2",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理2",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.3",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理3",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.4",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理4",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.5",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理5",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.6",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理6",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.7",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理7",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-23.8",
-      "requirement": "REQ-23: 数量グループの並び順管理",
-      "title": "数量グループの並び順管理8",
-      "reason": "数量表の数量グループ並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.1",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理1",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.2",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理2",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.3",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理3",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.4",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理4",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.5",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理5",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.6",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理6",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.7",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理7",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-24.8",
-      "requirement": "REQ-24: 数量項目の並び順管理",
-      "title": "数量項目の並び順管理8",
-      "reason": "数量表の数量項目並び順管理機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-25.1",
-      "requirement": "REQ-25: 画面スクロールバー表示",
-      "title": "画面スクロールバー表示1",
-      "reason": "数量表の画面スクロールバー表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-25.2",
-      "requirement": "REQ-25: 画面スクロールバー表示",
-      "title": "画面スクロールバー表示2",
-      "reason": "数量表の画面スクロールバー表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-25.3",
-      "requirement": "REQ-25: 画面スクロールバー表示",
-      "title": "画面スクロールバー表示3",
-      "reason": "数量表の画面スクロールバー表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-25.4",
-      "requirement": "REQ-25: 画面スクロールバー表示",
-      "title": "画面スクロールバー表示4",
-      "reason": "数量表の画面スクロールバー表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-25.5",
-      "requirement": "REQ-25: 画面スクロールバー表示",
-      "title": "画面スクロールバー表示5",
-      "reason": "数量表の画面スクロールバー表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-25.6",
-      "requirement": "REQ-25: 画面スクロールバー表示",
-      "title": "画面スクロールバー表示6",
-      "reason": "数量表の画面スクロールバー表示。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + RTL",
+        "description": "useBlockerによる離脱確認を検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.1",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力1",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は1番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.2",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力2",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は2番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.3",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力3",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は3番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.4",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力4",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は4番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.5",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力5",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は5番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.6",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力6",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は6番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.7",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力7",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は7番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.8",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力8",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は8番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.9",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力9",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は9番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.10",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力10",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は10番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.11",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力11",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は11番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-26.12",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力12",
-      "reason": "数量表のPDF出力機能。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は12番目の動作を統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.1",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.1",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.2",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.2",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.3",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.3",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.4",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.4",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.5",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.5",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.6",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.6",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.7",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.7",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-27.8",
-      "requirement": "REQ-27: 数量表インポート機能（ファイルアップロード・処理起動）",
-      "title": "数量表インポート機能（ファイルアップロード・処理起動）27.8",
-      "reason": "数量表インポート機能（ファイルアップロード・処理起動）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + Canvas/PDF mocking",
+        "description": "PDF生成ロジックを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-28.1",
       "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
       "title": "Excelデータパースによる数量項目抽出28.1",
-      "reason": "Excelデータパースによる数量項目抽出のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "SheetJS(xlsx)ライブラリでのデータパースは外部ライブラリ依存のため統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-28.2",
-      "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
-      "title": "Excelデータパースによる数量項目抽出28.2",
-      "reason": "Excelデータパースによる数量項目抽出のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-28.3",
-      "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
-      "title": "Excelデータパースによる数量項目抽出28.3",
-      "reason": "Excelデータパースによる数量項目抽出のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-28.4",
-      "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
-      "title": "Excelデータパースによる数量項目抽出28.4",
-      "reason": "Excelデータパースによる数量項目抽出のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-28.5",
-      "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
-      "title": "Excelデータパースによる数量項目抽出28.5",
-      "reason": "Excelデータパースによる数量項目抽出のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-28.6",
-      "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
-      "title": "Excelデータパースによる数量項目抽出28.6",
-      "reason": "Excelデータパースによる数量項目抽出のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-28.7",
-      "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
-      "title": "Excelデータパースによる数量項目抽出28.7",
-      "reason": "Excelデータパースによる数量項目抽出のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "Excelパーサのロジックを検証"
       }
     },
     {
@@ -5043,303 +2739,27 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-31.1",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.1",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.2",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.2",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.3",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.3",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.4",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.4",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.5",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.5",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.6",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.6",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.7",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.7",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.8",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.8",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-31.9",
-      "requirement": "REQ-31: 抽出結果から数量項目への一括取り込み",
-      "title": "抽出結果から数量項目への一括取り込み31.9",
-      "reason": "抽出結果から数量項目への一括取り込みのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-32.1",
-      "requirement": "REQ-32: インポートプレビューのフィールドマッピング調整",
-      "title": "インポートプレビューのフィールドマッピング調整32.1",
-      "reason": "インポートプレビューのフィールドマッピング調整のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-32.2",
-      "requirement": "REQ-32: インポートプレビューのフィールドマッピング調整",
-      "title": "インポートプレビューのフィールドマッピング調整32.2",
-      "reason": "インポートプレビューのフィールドマッピング調整のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-32.3",
-      "requirement": "REQ-32: インポートプレビューのフィールドマッピング調整",
-      "title": "インポートプレビューのフィールドマッピング調整32.3",
-      "reason": "インポートプレビューのフィールドマッピング調整のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-32.4",
-      "requirement": "REQ-32: インポートプレビューのフィールドマッピング調整",
-      "title": "インポートプレビューのフィールドマッピング調整32.4",
-      "reason": "インポートプレビューのフィールドマッピング調整のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-32.5",
-      "requirement": "REQ-32: インポートプレビューのフィールドマッピング調整",
-      "title": "インポートプレビューのフィールドマッピング調整32.5",
-      "reason": "インポートプレビューのフィールドマッピング調整のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-32.6",
-      "requirement": "REQ-32: インポートプレビューのフィールドマッピング調整",
-      "title": "インポートプレビューのフィールドマッピング調整32.6",
-      "reason": "インポートプレビューのフィールドマッピング調整のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-33.1",
-      "requirement": "REQ-33: OCR再実行・リトライ機能（数量表インポート）",
-      "title": "OCR再実行・リトライ機能（数量表インポート）33.1",
-      "reason": "OCR再実行・リトライ機能（数量表インポート）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-33.2",
-      "requirement": "REQ-33: OCR再実行・リトライ機能（数量表インポート）",
-      "title": "OCR再実行・リトライ機能（数量表インポート）33.2",
-      "reason": "OCR再実行・リトライ機能（数量表インポート）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-33.3",
-      "requirement": "REQ-33: OCR再実行・リトライ機能（数量表インポート）",
-      "title": "OCR再実行・リトライ機能（数量表インポート）33.3",
-      "reason": "OCR再実行・リトライ機能（数量表インポート）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-33.4",
-      "requirement": "REQ-33: OCR再実行・リトライ機能（数量表インポート）",
-      "title": "OCR再実行・リトライ機能（数量表インポート）33.4",
-      "reason": "OCR再実行・リトライ機能（数量表インポート）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-33.5",
-      "requirement": "REQ-33: OCR再実行・リトライ機能（数量表インポート）",
-      "title": "OCR再実行・リトライ機能（数量表インポート）33.5",
-      "reason": "OCR再実行・リトライ機能（数量表インポート）のE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-34.1",
-      "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
-      "title": "インポートダイアログのインラインプレビュー34.1",
-      "reason": "インポートダイアログのインラインプレビューのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
       "id": "quantity-table-generation/REQ-34.2",
       "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
       "title": "インポートダイアログのインラインプレビュー34.2",
-      "reason": "インポートダイアログのインラインプレビューのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDFビューア (pdfjs-distライブラリ依存) のレンダリングは統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-34.3",
-      "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
-      "title": "インポートダイアログのインラインプレビュー34.3",
-      "reason": "インポートダイアログのインラインプレビューのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + pdfjs mocking",
+        "description": "PDFレンダリングを検証"
       }
     },
     {
       "id": "quantity-table-generation/REQ-34.4",
       "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
       "title": "インポートダイアログのインラインプレビュー34.4",
-      "reason": "インポートダイアログのインラインプレビューのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "PDFページナビゲーション (pdfjs-distベース) は統合テストで検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-34.5",
-      "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
-      "title": "インポートダイアログのインラインプレビュー34.5",
-      "reason": "インポートダイアログのインラインプレビューのE2Eテスト未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "E2Eテストで検証予定"
+        "method": "integration-test",
+        "tool": "Vitest + pdfjs mocking",
+        "description": "PDFナビゲーションを検証"
       }
     },
     {
@@ -5434,1602 +2854,243 @@
       }
     },
     {
-      "id": "contract-management/REQ-3.5",
-      "requirement": "contract-management/REQ-3: 新規契約の入力項目",
-      "title": "消費税率の入力フィールドを提供",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "消費税率入力フィールドの存在と操作をE2Eテストで検証予定",
-        "threshold": "field_exists: true"
-      }
-    },
-    {
-      "id": "contract-management/REQ-3.6",
-      "requirement": "contract-management/REQ-3: 新規契約の入力項目",
-      "title": "消費税率のデフォルト値を10%に設定",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "消費税率のデフォルト値が10%であることをE2Eテストで検証予定",
-        "threshold": "default_value: 10"
-      }
-    },
-    {
-      "id": "contract-management/REQ-3.7",
-      "requirement": "contract-management/REQ-3: 新規契約の入力項目",
-      "title": "支払条件、別途工事、その他の入力フィールド",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "支払条件・別途工事・その他の入力フィールドの存在と操作をE2Eテストで検証予定",
-        "threshold": "fields_exist: true"
-      }
-    },
-    {
-      "id": "contract-management/REQ-3.8",
-      "requirement": "contract-management/REQ-3: 新規契約の入力項目",
-      "title": "監理者となる取引先を検索・選択できるUI",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "監理者の取引先検索・選択UIの動作をE2Eテストで検証予定",
-        "threshold": "search_and_select: functional"
-      }
-    },
-    {
-      "id": "contract-management/REQ-3.9",
-      "requirement": "contract-management/REQ-3: 新規契約の入力項目",
-      "title": "見積書選択フィールドを操作した場合のプロジェクト内見積書検索",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "見積書選択フィールドからプロジェクト内見積書を検索・選択できることをE2Eテストで検証予定",
-        "threshold": "estimate_search: functional"
-      }
-    },
-    {
-      "id": "contract-management/REQ-5.4",
-      "requirement": "contract-management/REQ-5: 変更契約の入力項目とデフォルト値",
-      "title": "変更契約でも自動表示項目",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更契約でも金額計算・プロジェクト情報の自動表示が機能することをE2Eテストで検証予定",
-        "threshold": "auto_display: functional"
-      }
-    },
-    {
-      "id": "contract-management/REQ-8.9",
-      "requirement": "contract-management/REQ-8: 契約書詳細画面",
-      "title": "契約書詳細画面に削除ボタン",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "契約書詳細画面に削除ボタンが表示されることをE2Eテストで検証予定",
-        "threshold": "button_exists: true"
-      }
-    },
-    {
-      "id": "contract-management/REQ-10.2",
-      "requirement": "contract-management/REQ-10: データバリデーション",
-      "title": "契約日の入力を必須",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "契約日未入力時にバリデーションエラーが表示されることをE2Eテストで検証予定",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-10.3",
-      "requirement": "contract-management/REQ-10: データバリデーション",
-      "title": "工期の着手日および完成日の入力を必須",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "工期の着手日・完成日未入力時にバリデーションエラーが表示されることをE2Eテストで検証予定",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-10.4",
-      "requirement": "contract-management/REQ-10: データバリデーション",
-      "title": "引渡日の入力を必須",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "引渡日未入力時にバリデーションエラーが表示されることをE2Eテストで検証予定",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-10.5",
-      "requirement": "contract-management/REQ-10: データバリデーション",
-      "title": "消費税率の入力を必須とし、0以上100以下の数値のみ許可",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "消費税率の必須チェックと0-100範囲バリデーションをE2Eテストで検証予定",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-10.6",
-      "requirement": "contract-management/REQ-10: データバリデーション",
-      "title": "必須項目が未入力の場合にバリデーションエラー表示",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "必須項目未入力時にバリデーションエラーメッセージが表示されることをE2Eテストで検証予定",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-10.7",
-      "requirement": "contract-management/REQ-10: データバリデーション",
-      "title": "工期の着手日が完成日より後の日付の場合のバリデーション",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "着手日が完成日より後の場合にバリデーションエラーが表示されることをE2Eテストで検証予定",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-10.8",
-      "requirement": "contract-management/REQ-10: データバリデーション",
-      "title": "変更契約で基となる契約書が未選択の場合のバリデーション",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更契約で基となる契約書が未選択の場合にバリデーションエラーが表示されることをE2Eテストで検証予定",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-11.7",
-      "requirement": "contract-management/REQ-11: エラー回復とフィードバック",
-      "title": "契約書の削除が成功した場合の成功メッセージ表示",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "契約書削除成功時に成功メッセージが表示されることをE2Eテストで検証予定",
-        "threshold": "success_message: displayed"
-      }
-    },
-    {
-      "id": "contract-management/REQ-13.2",
-      "requirement": "contract-management/REQ-13: アクセス制御",
-      "title": "契約書の作成・編集・削除操作に対する権限チェック",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "契約書の作成・編集・削除操作に対する権限チェックをE2Eテストで検証予定",
-        "threshold": "permission_check: enforced"
-      }
-    },
-    {
-      "id": "contract-management/REQ-13.4",
-      "requirement": "contract-management/REQ-13: アクセス制御",
-      "title": "権限のないユーザーが操作を試みた場合に403エラー",
-      "reason": "契約管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "権限のないユーザーが操作を試みた場合に403エラーが返却されることをE2Eテストで検証予定",
-        "threshold": "http_status: 403"
-      }
-    },
-    {
-      "id": "project-management/REQ-40.8",
-      "requirement": "project-management/REQ-40: プロジェクト詳細画面の実行予算セクション",
-      "title": "実行予算データをロード中の場合にスケルトン表示",
-      "reason": "実行予算セクションのUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算データロード中にスケルトンローダーが表示されることをE2Eテストで検証予定",
-        "threshold": "skeleton_loader: displayed"
-      }
-    },
-    {
-      "id": "project-management/REQ-40.9",
-      "requirement": "project-management/REQ-40: プロジェクト詳細画面の実行予算セクション",
-      "title": "実行予算セクションに「すべて見る」リンクを表示しない",
-      "reason": "実行予算セクションのUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算セクションに「すべて見る」リンクが表示されないことをE2Eテストで検証予定",
-        "threshold": "view_all_link: hidden"
-      }
-    },
-    {
-      "id": "project-management/REQ-40.10",
-      "requirement": "project-management/REQ-40: プロジェクト詳細画面の実行予算セクション",
-      "title": "実行予算セクションのUIを既存の契約書セクションと同様のスタイル",
-      "reason": "実行予算セクションのUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算セクションのUIが契約書セクションと同様のスタイルであることをE2Eテストで検証予定",
-        "threshold": "style_consistency: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-1.1",
-      "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
-      "title": "プロジェクト詳細画面で実行予算セクション表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "プロジェクト詳細画面に実行予算セクションが表示されることをE2Eテストで検証予定",
-        "threshold": "section_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-1.2",
-      "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
-      "title": "契約書選択ダイアログ表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算新規作成時に契約書選択ダイアログが表示されることをE2Eテストで検証予定",
-        "threshold": "dialog_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-1.3",
-      "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
-      "title": "契約書から実行予算項目初期化",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "契約書選択後に見積項目が実行予算項目として初期化されることをE2Eテストで検証予定",
-        "threshold": "items_initialized: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-1.4",
-      "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
-      "title": "発注予定取引先に見積書の取引先を自動適用",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "見積書の業者金額行の取引先が発注予定取引先に自動適用されることをE2Eテストで検証予定",
-        "threshold": "vendor_auto_applied: true"
-      }
-    },
-    {
       "id": "execution-budget-management/REQ-1.5",
       "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
       "title": "プロジェクトに対して実行予算を1つだけ作成可能",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "1プロジェクト1実行予算のDB制約はバックエンドで実施。UI経由の重複作成は導線上不可で、整合性検証は統合テスト",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "プロジェクトに対して実行予算が1つのみ作成可能であることをE2Eテストで検証予定",
-        "threshold": "single_budget: enforced"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-1.6",
-      "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
-      "title": "既に実行予算がある場合に作成ボタン非活性",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "既存の実行予算がある場合に作成ボタンが非活性になることをE2Eテストで検証予定",
-        "threshold": "button_disabled: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-1.7",
-      "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
-      "title": "実行予算に紐づく契約書名、契約金額、作成日時を表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算に紐づく契約書名・契約金額・作成日時が表示されることをE2Eテストで検証予定",
-        "threshold": "info_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-2.1",
-      "requirement": "execution-budget-management/REQ-2: 実行予算の削除",
-      "title": "削除確認ダイアログ表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算削除時に確認ダイアログが表示されることをE2Eテストで検証予定",
-        "threshold": "dialog_displayed: true"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "データベース制約と重複作成防止を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-2.2",
       "requirement": "execution-budget-management/REQ-2: 実行予算の削除",
       "title": "論理削除",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "論理削除フラグの設定はDB状態確認が必要で、E2Eではなく統合テストで検証",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算が論理削除されることをE2Eテストで検証予定",
-        "threshold": "soft_delete: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-2.3",
-      "requirement": "execution-budget-management/REQ-2: 実行予算の削除",
-      "title": "発注済みの発注がある場合に削除阻止",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済みの発注がある場合に削除が阻止されエラーメッセージが表示されることをE2Eテストで検証予定",
-        "threshold": "delete_prevented: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.1",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "見積書の階層構造を保持して一覧表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算項目が見積書の階層構造を保持して一覧表示されることをE2Eテストで検証予定",
-        "threshold": "hierarchy_preserved: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.2",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "折り畳み・展開操作",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "ネストした項目の折り畳み・展開操作が機能することをE2Eテストで検証予定",
-        "threshold": "collapse_expand: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.3",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "予算関連列（項目名、規格、単位、数量、見積単価等）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "予算関連列が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.4",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "発注関連列（発注予定取引先、発注金額、発注ステータス）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注関連列が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.5",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "原価関連列（先月までの支出、今月の支出、累計支出等）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "原価関連列が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.6",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "出来高関連列（出来高金額、出来高率）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高関連列が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "論理削除レコードのDB状態を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-3.7",
       "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
       "title": "親項目の金額列自動集計",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "親項目への金額自動集計はバックエンド計算ロジック検証で、計算精度は統合テストで実施",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "親項目の金額列に子項目の合計値が自動計算されることをE2Eテストで検証予定",
-        "threshold": "auto_sum: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.8",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "合計行",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "全項目の合計行が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "total_row: displayed"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.9",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "利益見込額表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "契約金額と実行金額合計の差額が利益見込額として表示されることをE2Eテストで検証予定",
-        "threshold": "profit_estimate: displayed"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-3.10",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "発注進捗率表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済み項目数と全項目数の比率が発注進捗率として表示されることをE2Eテストで検証予定",
-        "threshold": "order_progress: displayed"
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "集計計算ロジックを検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-4.1",
       "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
       "title": "実行単価変更時に実行金額自動計算",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "実行単価変更時の金額自動計算は数値計算精度の検証で、統合テストが適切",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行単価変更時に実行金額が自動計算されることをE2Eテストで検証予定",
-        "threshold": "auto_calc: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-4.2",
-      "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
-      "title": "発注予定取引先を読み取り専用で表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注予定取引先が読み取り専用で表示されることをE2Eテストで検証予定",
-        "threshold": "readonly: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-4.3",
-      "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
-      "title": "備考の自由記述テキスト入力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "備考欄に自由記述テキストを入力・保存できることをE2Eテストで検証予定",
-        "threshold": "text_input: functional"
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "計算ロジックの精度を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-4.4",
       "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
       "title": "楽観的排他制御",
-      "reason": "同時更新の排他制御テストはE2E範囲外。統合テストで並行アクセスを検証",
+      "reason": "楽観的排他制御による競合検出は並行リクエスト環境が必要で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Concurrent requests",
-        "description": "同時更新時に楽観的排他制御が適用され、競合が検出されることを確認",
-        "threshold": "optimistic_lock: enforced"
+        "tool": "Vitest + Supertest",
+        "description": "並行更新の競合検出を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-4.5",
       "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
       "title": "競合エラーメッセージ表示",
-      "reason": "同時更新の競合シミュレーションはE2E範囲外。統合テストで並行アクセスを検証",
+      "reason": "更新競合エラー(409)の返却は統合テストでシミュレーションが適切",
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Concurrent requests",
-        "description": "同時更新時に競合エラーメッセージが表示され、最新データの再取得を促すことを確認",
-        "threshold": "conflict_error: displayed"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-5.1",
-      "requirement": "execution-budget-management/REQ-5: 発注一覧表示",
-      "title": "発注一覧セクション表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算画面に発注一覧セクションが表示されることをE2Eテストで検証予定",
-        "threshold": "section_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-5.2",
-      "requirement": "execution-budget-management/REQ-5: 発注一覧表示",
-      "title": "発注一覧列（発注取引先名、ステータス等）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注一覧に必要な列が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-5.3",
-      "requirement": "execution-budget-management/REQ-5: 発注一覧表示",
-      "title": "発注詳細画面への遷移",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注一覧の行選択時に発注詳細画面へ遷移することをE2Eテストで検証予定",
-        "threshold": "navigation: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-6.1",
-      "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
-      "title": "発注取引先指定画面表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注新規作成時に取引先指定画面が表示されることをE2Eテストで検証予定",
-        "threshold": "screen_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-6.2",
-      "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
-      "title": "取引先マスタから協力業者を検索・選択",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "取引先マスタから協力業者を検索・選択できることをE2Eテストで検証予定",
-        "threshold": "search_and_select: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-6.3",
-      "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
-      "title": "見積項目の自動チェック",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注予定取引先が指定取引先である見積項目に自動チェックが付くことをE2Eテストで検証予定",
-        "threshold": "auto_check: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-6.4",
-      "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
-      "title": "チェック変更操作",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "見積項目のチェックを任意で追加・削除できることをE2Eテストで検証予定",
-        "threshold": "check_toggle: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-6.5",
-      "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
-      "title": "チェック済み項目の合計実行金額自動計算",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "チェック済み項目の合計実行金額が自動計算されることをE2Eテストで検証予定",
-        "threshold": "auto_calc: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-6.6",
-      "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
-      "title": "確定発注金額入力欄",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "確定発注金額の入力欄が提供されることをE2Eテストで検証予定",
-        "threshold": "input_field: exists"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-6.7",
-      "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
-      "title": "発注ステータス（発注前・発注金額検討中・発注済・発注取消）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注ステータスの4種類が正しく管理されることをE2Eテストで検証予定",
-        "threshold": "status_types: 4"
+        "tool": "Vitest + Supertest",
+        "description": "楽観的排他制御エラー応答を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-6.8",
       "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
       "title": "初期ステータス「発注前」",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "初期ステータス「発注前」設定の正確性は統合テストで検証",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注の初期ステータスが「発注前」であることをE2Eテストで検証予定",
-        "threshold": "initial_status: pre_order"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-7.1",
-      "requirement": "execution-budget-management/REQ-7: 発注の編集と削除",
-      "title": "発注前・検討中は取引先変更可能",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注前・検討中ステータスで取引先変更が可能であることをE2Eテストで検証予定",
-        "threshold": "vendor_editable: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-7.2",
-      "requirement": "execution-budget-management/REQ-7: 発注の編集と削除",
-      "title": "発注前・検討中は項目・金額変更可能",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注前・検討中ステータスで項目・金額の変更が可能であることをE2Eテストで検証予定",
-        "threshold": "items_editable: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-7.3",
-      "requirement": "execution-budget-management/REQ-7: 発注の編集と削除",
-      "title": "削除確認ダイアログ",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注削除時に確認ダイアログが表示されることをE2Eテストで検証予定",
-        "threshold": "dialog_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-7.4",
-      "requirement": "execution-budget-management/REQ-7: 発注の編集と削除",
-      "title": "発注前・検討中は削除可能",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注前・検討中ステータスで発注の削除が可能であることをE2Eテストで検証予定",
-        "threshold": "delete_allowed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-7.5",
-      "requirement": "execution-budget-management/REQ-7: 発注の編集と削除",
-      "title": "発注済の場合は削除阻止",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済ステータスで削除が阻止されエラーメッセージが表示されることをE2Eテストで検証予定",
-        "threshold": "delete_prevented: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-8.1",
-      "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
-      "title": "発注済変更時に確定発注金額検証",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済ステータス変更時に確定発注金額の入力検証が行われることをE2Eテストで検証予定",
-        "threshold": "validation: enforced"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-8.2",
-      "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
-      "title": "確定発注金額未入力時エラー",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "確定発注金額未入力時にエラーメッセージが表示されることをE2Eテストで検証予定",
-        "threshold": "error_message: displayed"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "デフォルト値設定を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-8.3",
       "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
       "title": "確定発注金額をチェック項目に案分",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "確定発注金額の案分計算ロジックは統合テストで計算結果を検証",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "確定発注金額がチェック済み項目に実行金額の比率で案分されることをE2Eテストで検証予定",
-        "threshold": "apportionment: correct"
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "案分計算ロジックを検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-8.4",
       "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
       "title": "端数処理（最大金額項目に加算）",
-      "reason": "案分計算の端数処理はバックエンドロジック。統合テストで計算精度を検証",
+      "reason": "端数処理(最大金額項目に加算)はDecimal演算精度の検証で、統合テストが適切",
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Vitest",
-        "description": "案分計算の端数が最大金額項目に加算され、合計が確定発注金額と一致することを確認",
-        "threshold": "rounding_error: 0"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-8.5",
-      "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
-      "title": "案分金額の保存",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "案分された発注金額が正しく保存されることをE2Eテストで検証予定",
-        "threshold": "data_saved: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-8.6",
-      "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
-      "title": "発注済の場合にチェック済み項目変更不可",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済ステータスでチェック済み項目が変更不可であることをE2Eテストで検証予定",
-        "threshold": "items_locked: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-8.7",
-      "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
-      "title": "発注済の場合に確定発注金額変更不可",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済ステータスで確定発注金額が変更不可であることをE2Eテストで検証予定",
-        "threshold": "amount_locked: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-8.8",
-      "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
-      "title": "発注取消確認ダイアログ",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注取消時に確認ダイアログが表示されることをE2Eテストで検証予定",
-        "threshold": "dialog_displayed: true"
+        "tool": "Vitest",
+        "description": "端数処理の計算精度を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-8.9",
       "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
       "title": "取消時に案分金額クリア",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "発注取消時の案分金額クリアはDB状態変化の確認が必要で、統合テストが適切",
+      "category": "integration-test",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注取消時に案分済みの発注金額がクリアされることをE2Eテストで検証予定",
-        "threshold": "amounts_cleared: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-9.1",
-      "requirement": "execution-budget-management/REQ-9: 発注ステータスの実行予算への反映",
-      "title": "発注済みアイコン表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済み項目に「発注済」アイコンが表示されることをE2Eテストで検証予定",
-        "threshold": "icon_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-9.2",
-      "requirement": "execution-budget-management/REQ-9: 発注ステータスの実行予算への反映",
-      "title": "案分金額を発注金額列に表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済み項目の発注金額列に案分金額が表示されることをE2Eテストで検証予定",
-        "threshold": "amount_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-9.3",
-      "requirement": "execution-budget-management/REQ-9: 発注ステータスの実行予算への反映",
-      "title": "未発注の場合は空欄",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "未発注項目の発注金額列が空欄であることをE2Eテストで検証予定",
-        "threshold": "column_empty: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-10.1",
-      "requirement": "execution-budget-management/REQ-10: 発注一覧のエクスポート",
-      "title": "Excel出力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "チェック済み項目一覧と合計金額のExcel出力をE2Eテストで検証予定",
-        "threshold": "excel_export: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-10.2",
-      "requirement": "execution-budget-management/REQ-10: 発注一覧のエクスポート",
-      "title": "PDF出力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "チェック済み項目一覧と合計金額のPDF出力をE2Eテストで検証予定",
-        "threshold": "pdf_export: functional"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "案分金額クリアを検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-10.3",
       "requirement": "execution-budget-management/REQ-10: 発注一覧のエクスポート",
       "title": "エクスポートにヘッダー情報含む",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "Excel/PDF出力ファイルのヘッダー記載はファイル形式の構造検証で、infrastructureレベルで検証",
+      "category": "infrastructure",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "エクスポートファイルにヘッダー情報が含まれることをE2Eテストで検証予定",
-        "threshold": "header_included: true"
+        "method": "document-format-test",
+        "tool": "xlsx/pdf-parse libraries",
+        "description": "出力ファイル構造を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-10.4",
       "requirement": "execution-budget-management/REQ-10: 発注一覧のエクスポート",
       "title": "発注済の場合にエクスポートに発注金額列含む",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "発注済時の発注金額列追加はファイル構造条件分岐の検証で、infrastructureレベルで検証",
+      "category": "infrastructure",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "発注済時にエクスポートファイルに発注金額列が追加されることをE2Eテストで検証予定",
-        "threshold": "order_amount_column: included"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.1",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "施工日入力欄と出来高入力フォーム",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "施工日入力欄と出来高金額入力フォームが表示されることをE2Eテストで検証予定",
-        "threshold": "form_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.2",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "カレンダー選択",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "施工日をカレンダー選択で入力できることをE2Eテストで検証予定",
-        "threshold": "calendar_picker: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.3",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "即0%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "即0%ボタン押下で出来高金額が0円に設定されることをE2Eテストで検証予定",
-        "threshold": "amount_set: 0"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.4",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "即50%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "即50%ボタン押下で出来高金額が実行金額の50%に設定されることをE2Eテストで検証予定",
-        "threshold": "amount_set: 50%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.5",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "即100%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "即100%ボタン押下で出来高金額が実行金額の100%に設定されることをE2Eテストで検証予定",
-        "threshold": "amount_set: 100%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.6",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "+5%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "+5%ボタン押下で出来高金額が実行金額の5%分加算されることをE2Eテストで検証予定",
-        "threshold": "amount_increment: +5%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.7",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "-5%ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "-5%ボタン押下で出来高金額が実行金額の5%分減算されることをE2Eテストで検証予定",
-        "threshold": "amount_decrement: -5%"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.8",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高金額が0円未満にならないよう制限",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高金額が0円未満にならないよう制限されることをE2Eテストで検証予定",
-        "threshold": "min_amount: 0"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.9",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高金額の直接入力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高金額を直接入力できることをE2Eテストで検証予定",
-        "threshold": "direct_input: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.10",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高率の自動計算",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高率が自動計算されて表示されることをE2Eテストで検証予定",
-        "threshold": "auto_calc: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-11.11",
-      "requirement": "execution-budget-management/REQ-11: 出来高入力機能",
-      "title": "出来高合計金額と合計率表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "全項目の出来高合計金額と合計率が表示されることをE2Eテストで検証予定",
-        "threshold": "totals_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.1",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "出来高レコード保存",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "施工日と出来高金額がレコードとして保存されることをE2Eテストで検証予定",
-        "threshold": "record_saved: true"
+        "method": "document-format-test",
+        "tool": "xlsx/pdf-parse libraries",
+        "description": "出力ファイル列構造を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-12.2",
       "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
       "title": "同一施工日の上書き保存",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "同一施工日の上書き保存ロジックはバックエンドの upsert 制御で実施されるため、データ整合性は統合テストで検証",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "同一施工日の出来高が上書き保存されることをE2Eテストで検証予定",
-        "threshold": "overwrite: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.3",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "履歴一覧を施工日降順で表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高履歴一覧が施工日降順で表示されることをE2Eテストで検証予定",
-        "threshold": "sort_order: desc"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.4",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "過去の出来高レコード選択で表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "過去の出来高レコードを選択して編集画面に読み込めることをE2Eテストで検証予定",
-        "threshold": "record_loaded: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.5",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "出来高レコード削除確認ダイアログ",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高レコード削除時に確認ダイアログが表示されることをE2Eテストで検証予定",
-        "threshold": "dialog_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.6",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "出来高レコード削除",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高レコードが削除されることをE2Eテストで検証予定",
-        "threshold": "record_deleted: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-12.7",
-      "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
-      "title": "最新出来高を実行予算一覧に反映",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "最新施工日の出来高金額が実行予算一覧の出来高金額列に反映されることをE2Eテストで検証予定",
-        "threshold": "latest_reflected: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-13.1",
-      "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
-      "title": "支出列表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "先月までの支出・今月の支出・累計支出列が表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "同一施工日の出来高レコードが unique 制約により上書き保存されることを検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-13.2",
       "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
       "title": "累計支出の自動計算",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "累計支出の自動計算は数値計算精度の検証で、統合テストが適切",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "累計支出が自動計算されることをE2Eテストで検証予定",
-        "threshold": "auto_calc: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-13.3",
-      "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
-      "title": "月次締めで今月の支出を先月へ移動",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月次締め操作で今月の支出が先月までの支出に累積されることをE2Eテストで検証予定",
-        "threshold": "accumulation: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-13.4",
-      "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
-      "title": "月次締め後に今月の支出リセット",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月次締め完了後に今月の支出がリセットされることをE2Eテストで検証予定",
-        "threshold": "reset: true"
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "累計支出の計算ロジックを検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-13.5",
       "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
       "title": "残予算の自動計算",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "残予算の自動計算(実行金額-累計支出)は計算精度の検証で、統合テストが適切",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "残予算が実行金額と累計支出の差額として自動計算されることをE2Eテストで検証予定",
-        "threshold": "auto_calc: correct"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-13.6",
-      "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
-      "title": "累計支出超過時の赤色警告",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "累計支出が実行金額を超過した場合に残予算が赤色で警告表示されることをE2Eテストで検証予定",
-        "threshold": "warning_color: red"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-13.7",
-      "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
-      "title": "全項目の合計行",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "全項目の累計支出合計と残予算合計が合計行に表示されることをE2Eテストで検証予定",
-        "threshold": "total_row: displayed"
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "残予算の計算ロジックを検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-13.8",
       "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
       "title": "出来高対支出比率表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "出来高対支出比率はバックエンド計算とクエリ性能を含み、performanceテストで検証",
+      "category": "performance",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高金額と累計支出の比率が表示されることをE2Eテストで検証予定",
-        "threshold": "ratio_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-14.1",
-      "requirement": "execution-budget-management/REQ-14: 月次締め処理",
-      "title": "月次締めボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算画面に月次締めボタンが表示されることをE2Eテストで検証予定",
-        "threshold": "button_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-14.2",
-      "requirement": "execution-budget-management/REQ-14: 月次締め処理",
-      "title": "締め確認ダイアログ",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月次締め操作時に確認ダイアログが表示されることをE2Eテストで検証予定",
-        "threshold": "dialog_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-14.3",
-      "requirement": "execution-budget-management/REQ-14: 月次締め処理",
-      "title": "締め処理実行と履歴記録",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "締め処理が実行され締め日時と対象月が履歴として記録されることをE2Eテストで検証予定",
-        "threshold": "history_recorded: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-14.4",
-      "requirement": "execution-budget-management/REQ-14: 月次締め処理",
-      "title": "月次締め履歴一覧",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月次締め履歴の一覧が表示されることをE2Eテストで検証予定",
-        "threshold": "history_list: displayed"
+        "method": "performance-test",
+        "tool": "k6 / Vitest",
+        "description": "計算処理性能と精度を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-14.5",
       "requirement": "execution-budget-management/REQ-14: 月次締め処理",
       "title": "重複締め阻止",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "重複締め阻止はDB制約の検証で、統合テストが適切",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "同一月に対する重複締めが阻止されエラーメッセージが表示されることをE2Eテストで検証予定",
-        "threshold": "duplicate_prevented: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.1",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更契約の反映ボタン",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算画面に変更契約の反映ボタンが表示されることをE2Eテストで検証予定",
-        "threshold": "button_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.2",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "未適用変更契約一覧表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "未反映の変更契約一覧が表示されることをE2Eテストで検証予定",
-        "threshold": "list_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.3",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更内容の確認と適用",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更契約の項目差分を確認して実行予算に適用できることをE2Eテストで検証予定",
-        "threshold": "changes_applied: true"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "重複締め防止のDB状態を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-15.4",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "発注済み・出来高入力済み項目の保護",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "変更削除フラグ(発注済/出来高入力済の保護)はバックエンドロジック検証で統合テストが適切",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更契約で削除対象の発注済み・出来高入力済み項目が保護されることをE2Eテストで検証予定",
-        "threshold": "items_protected: true"
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "変更削除フラグ判定ロジックを検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-15.5",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "未発注・出来高未入力項目の論理削除",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "未発注かつ出来高未入力項目の論理削除はDB状態検証で、統合テストが適切",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更契約で削除対象の未発注・出来高未入力項目が論理削除されることをE2Eテストで検証予定",
-        "threshold": "soft_delete: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.6",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更前後の契約金額比較表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更前後の契約金額が並べて比較表示されることをE2Eテストで検証予定",
-        "threshold": "comparison_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-15.7",
-      "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
-      "title": "変更金額列に差分表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "実行予算一覧の変更金額列に変更契約による金額差分が表示されることをE2Eテストで検証予定",
-        "threshold": "diff_displayed: true"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "論理削除の条件分岐を検証"
       }
     },
     {
       "id": "execution-budget-management/REQ-15.8",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "変更反映の履歴記録",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
+      "reason": "変更反映の履歴記録はDB保存内容の検証で、統合テストが適切",
+      "category": "data-integrity",
       "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "変更反映の履歴（適用日時、変更契約名）が記録されることをE2Eテストで検証予定",
-        "threshold": "history_recorded: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.1",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "月別出来高一覧画面",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高一覧画面が提供されることをE2Eテストで検証予定",
-        "threshold": "screen_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.2",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "月別出来高一覧列（対象月、当月出来高等）",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高一覧に必要な列が正しく表示されることをE2Eテストで検証予定",
-        "threshold": "columns_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.3",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "月別出来高明細表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "特定月の項目別出来高明細が表示されることをE2Eテストで検証予定",
-        "threshold": "detail_displayed: true"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.4",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "Excelファイル出力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高データのExcel出力をE2Eテストで検証予定",
-        "threshold": "excel_export: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-16.5",
-      "requirement": "execution-budget-management/REQ-16: 月別出来高集計",
-      "title": "PDFファイル出力",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "月別出来高データのPDF出力をE2Eテストで検証予定",
-        "threshold": "pdf_export: functional"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-17.2",
-      "requirement": "execution-budget-management/REQ-17: アクセス制御",
-      "title": "EDITOR以上のロールに許可",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "EDITOR以上のロールに実行予算の作成・編集・削除が許可されることをE2Eテストで検証予定",
-        "threshold": "role_check: enforced"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-17.6",
-      "requirement": "execution-budget-management/REQ-17: アクセス制御",
-      "title": "権限不足エラーメッセージ",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "権限のないユーザーが操作を試行した場合に権限不足エラーメッセージが表示されることをE2Eテストで検証予定",
-        "threshold": "error_message: displayed"
+        "method": "integration-test",
+        "tool": "Vitest + Prisma",
+        "description": "履歴レコード保存を検証"
       }
     },
     {
@@ -7046,19 +3107,6 @@
       }
     },
     {
-      "id": "execution-budget-management/REQ-18.2",
-      "requirement": "execution-budget-management/REQ-18: 数値計算の精度と表示",
-      "title": "3桁区切りのカンマ付き整数表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "金額が3桁区切りのカンマ付き整数形式で表示されることをE2Eテストで検証予定",
-        "threshold": "format: comma_separated"
-      }
-    },
-    {
       "id": "execution-budget-management/REQ-18.3",
       "requirement": "execution-budget-management/REQ-18: 数値計算の精度と表示",
       "title": "案分計算の端数処理で合計と差異なし",
@@ -7069,32 +3117,6 @@
         "tool": "Jest / Vitest",
         "description": "案分計算の端数処理後に合計金額と差異が発生しないことを確認",
         "threshold": "rounding_error: 0"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-18.4",
-      "requirement": "execution-budget-management/REQ-18: 数値計算の精度と表示",
-      "title": "出来高率を小数点以下1桁で表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "出来高率が小数点以下1桁で表示されることをE2Eテストで検証予定",
-        "threshold": "decimal_places: 1"
-      }
-    },
-    {
-      "id": "execution-budget-management/REQ-18.5",
-      "requirement": "execution-budget-management/REQ-18: 数値計算の精度と表示",
-      "title": "負の金額値を赤色で表示",
-      "reason": "実行予算管理機能のUI未実装。E2Eテスト実装予定",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright",
-        "description": "負の金額値が赤色で表示されることをE2Eテストで検証予定",
-        "threshold": "negative_color: red"
       }
     },
     {

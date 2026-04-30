@@ -77,6 +77,16 @@ vi.mock('../../../api/claude-vision', () => ({
   },
 }));
 
+// Task 80.1: OcrDataExtractor が useAuth() を直接購読するため、
+// AuthProvider を含まない単体テスト環境向けに最小限のモックを提供する。
+// 既存テストのアサーションロジックは変更せず、test setup のみを補強する（第3原則準拠）。
+vi.mock('../../../hooks/useAuth', () => ({
+  useAuth: () => ({
+    sessionExpiredDuringOperation: false,
+    sessionExpired: false,
+  }),
+}));
+
 import { OcrDataExtractor } from '../../../components/estimate-requests/OcrDataExtractor';
 import { ClaudeVisionApiError } from '../../../api/claude-vision';
 

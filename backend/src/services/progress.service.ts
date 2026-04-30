@@ -75,6 +75,21 @@ export interface ProgressRecordSummary {
   createdAt: Date;
   updatedAt: Date;
   itemCount: number;
+  /** 出来高金額の項目合計（履歴一覧に表示する用途） */
+  totalAmount: string;
+}
+
+/**
+ * 月別出来高項目別明細
+ *
+ * Requirements: 16.3 - 特定月の項目別出来高明細を返す
+ */
+export interface MonthlyProgressDetailItem {
+  executionBudgetItemId: string;
+  itemName: string | null;
+  executionAmount: string | null;
+  progressAmount: string;
+  progressRate: string;
 }
 
 /**
@@ -278,17 +293,27 @@ export class ProgressService {
         _count: {
           select: { items: true },
         },
+        items: {
+          select: { amount: true },
+        },
       },
     });
 
-    return records.map((r) => ({
-      id: r.id,
-      executionBudgetId: r.executionBudgetId,
-      constructionDate: r.constructionDate,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      itemCount: (r as unknown as { _count: { items: number } })._count.items,
-    }));
+    return records.map((r) => {
+      const items = (r as unknown as { items: Array<{ amount: { toString(): string } }> }).items;
+      const totalAmount = items
+        .reduce((sum, it) => sum.plus(new Decimal(it.amount.toString())), new Decimal(0))
+        .toString();
+      return {
+        id: r.id,
+        executionBudgetId: r.executionBudgetId,
+        constructionDate: r.constructionDate,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        itemCount: (r as unknown as { _count: { items: number } })._count.items,
+        totalAmount,
+      };
+    });
   }
 
   /**
@@ -519,7 +544,7 @@ export class ProgressService {
   async getMonthlyDetail(
     executionBudgetId: string,
     yearMonth: string
-  ): Promise<ProgressRecordResult[]> {
+  ): Promise<MonthlyProgressDetailItem[]> {
     // 1. 実行予算の存在チェック
     const budget = await this.prisma.executionBudget.findFirst({
       where: { id: executionBudgetId, deletedAt: null },
@@ -529,17 +554,11 @@ export class ProgressService {
       throw new ExecutionBudgetNotFoundForProgressError();
     }
 
-    // 2. 実行予算項目を取得（出来高率計算用）
+    // 2. 実行予算項目を取得（項目名・実行金額を引くため）
     // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
     const budgetItems = await (this.prisma.executionBudgetItem.findMany as Function)({
       where: { executionBudgetId },
     });
-
-    const budgetItemMap = new Map(
-      (budgetItems as Array<{ id: string; executionAmount: { toString(): string } | null }>).map(
-        (bi) => [bi.id, bi]
-      )
-    );
 
     // 3. 対象月の日付範囲を計算
     const [year, month] = yearMonth.split('-').map(Number);
@@ -560,56 +579,48 @@ export class ProgressService {
       orderBy: { constructionDate: 'asc' },
       include: {
         items: {
-          include: {
-            executionBudgetItem: true,
+          select: {
+            executionBudgetItemId: true,
+            amount: true,
           },
         },
       },
     });
 
-    // 5. 各レコードの出来高率を計算してレスポンスを構築
-    return records.map((record) => {
-      let totalAmount = new Decimal(0);
-      let totalExecutionAmount = new Decimal(0);
+    // 5. 月内の出来高項目を `executionBudgetItemId` ごとに合計（REQ-16.3 項目別明細）
+    const itemTotals = new Map<string, Decimal>();
+    for (const record of records) {
+      for (const ci of record.items) {
+        const cur = itemTotals.get(ci.executionBudgetItemId) ?? new Decimal(0);
+        itemTotals.set(ci.executionBudgetItemId, cur.plus(new Decimal(ci.amount.toString())));
+      }
+    }
 
-      const items: ProgressItemResult[] = record.items.map((ci) => {
-        const amount = new Decimal(ci.amount.toString());
-        totalAmount = totalAmount.plus(amount);
-
-        const budgetItem = budgetItemMap.get(ci.executionBudgetItemId);
-        const executionAmount = budgetItem?.executionAmount
-          ? new Decimal(budgetItem.executionAmount.toString())
+    // 6. 項目別レスポンスを構築（実行予算項目の displayOrder 順を維持するため
+    //    budgetItems の並びに沿って出力する）
+    return (
+      budgetItems as Array<{
+        id: string;
+        name: string | null;
+        executionAmount: { toString(): string } | null;
+      }>
+    )
+      .filter((bi) => itemTotals.has(bi.id))
+      .map((bi) => {
+        const total = itemTotals.get(bi.id) ?? new Decimal(0);
+        const executionAmount = bi.executionAmount
+          ? new Decimal(bi.executionAmount.toString())
           : new Decimal(0);
-
-        totalExecutionAmount = totalExecutionAmount.plus(executionAmount);
-
         const progressRate = executionAmount.isZero()
           ? '0.0'
-          : amount.dividedBy(executionAmount).times(100).toFixed(1);
-
+          : total.dividedBy(executionAmount).times(100).toFixed(1);
         return {
-          id: ci.id,
-          progressRecordId: ci.progressRecordId,
-          executionBudgetItemId: ci.executionBudgetItemId,
-          amount: amount.toString(),
+          executionBudgetItemId: bi.id,
+          itemName: bi.name ?? null,
+          executionAmount: bi.executionAmount?.toString() ?? null,
+          progressAmount: total.toString(),
           progressRate,
         };
       });
-
-      const totalRate = totalExecutionAmount.isZero()
-        ? '0.0'
-        : totalAmount.dividedBy(totalExecutionAmount).times(100).toFixed(1);
-
-      return {
-        id: record.id,
-        executionBudgetId: record.executionBudgetId,
-        constructionDate: record.constructionDate,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
-        items,
-        totalAmount: totalAmount.toString(),
-        totalRate,
-      };
-    });
   }
 }

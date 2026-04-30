@@ -5,11 +5,20 @@
  *
  * Requirements coverage (itemized-statement-generation):
  * - REQ-16.1: 初期ソート順序（任意分類>工種>名称>規格>単位の昇順）
+ * - REQ-16.2: 初期ソート結果が displayOrder フィールドとして保存される
+ * - REQ-16.3: ソート対象値が null または空文字の場合、空文字として扱い先頭に配置する
+ * - REQ-16.4: 初期ソート順序は内訳書作成時に一度だけ適用され、手動並び替えで上書き可能
  * - REQ-17.1: 各内訳項目行に上移動ボタン(上向き矢印)と下移動ボタン(下向き矢印)を表示する
  * - REQ-17.2: 先頭の項目の上移動ボタンを無効化する
  * - REQ-17.3: 末尾の項目の下移動ボタンを無効化する
+ * - REQ-17.4: 先頭項目の上移動ボタンクリック時に何もしない（ボタンが無効化されている）
+ * - REQ-17.5: 末尾項目の下移動ボタンクリック時に何もしない（ボタンが無効化されている）
+ * - REQ-17.6: 並び替え操作はクライアントサイドのみで状態管理し、操作ごとにサーバーリクエストを発生させない
+ * - REQ-17.7: 並び替え操作が行われた場合に保存ボタンを表示する
  * - REQ-17.8: 保存ボタンクリック時にAPIを呼び出す
  * - REQ-17.9: 保存成功時に「並び順を保存しました」トースト通知
+ * - REQ-17.13: 手動並び替えはフィルタやカラムソートが適用されていない状態でのみ操作可能（ボタン非表示）
+ * - REQ-17.14: 並び順の保存リクエストでupdatedAtによる楽観的排他制御を適用する
  *
  * @module e2e/specs/itemized-statements/itemized-statement-reorder.spec
  */
@@ -176,7 +185,10 @@ test.describe('内訳書項目の並び替え', () => {
   /**
    * 並び替えUI表示テスト
    */
-  test.describe('並び替えUI (REQ-17.1, REQ-17.2, REQ-17.3)', () => {
+  test.describe('並び替えUI (REQ-17.1, REQ-17.2, REQ-17.3, REQ-17.4, REQ-17.5)', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-17.1: 各内訳項目行に上移動ボタンと下移動ボタンを表示する
+     */
     test('各項目行に上下ボタンが表示される', async ({ page }) => {
       if (!createdItemizedStatementId) {
         throw new Error('内訳書IDが未設定です');
@@ -202,6 +214,10 @@ test.describe('内訳書項目の並び替え', () => {
       expect(upCount).toBe(downCount);
     });
 
+    /**
+     * @requirement itemized-statement-generation/REQ-17.2: 先頭の項目の上移動ボタンを無効化する
+     * @requirement itemized-statement-generation/REQ-17.4: 先頭項目の上移動ボタンクリック時にシステムは何もしない（ボタンを無効化する）
+     */
     test('先頭項目の上移動ボタンが無効化されている', async ({ page }) => {
       if (!createdItemizedStatementId) {
         throw new Error('内訳書IDが未設定です');
@@ -216,6 +232,10 @@ test.describe('内訳書項目の並び替え', () => {
       await expect(firstUpButton).toBeDisabled();
     });
 
+    /**
+     * @requirement itemized-statement-generation/REQ-17.3: 末尾の項目の下移動ボタンを無効化する
+     * @requirement itemized-statement-generation/REQ-17.5: 末尾項目の下移動ボタンクリック時にシステムは何もしない（ボタンを無効化する）
+     */
     test('末尾項目の下移動ボタンが無効化されている', async ({ page }) => {
       if (!createdItemizedStatementId) {
         throw new Error('内訳書IDが未設定です');
@@ -235,7 +255,12 @@ test.describe('内訳書項目の並び替え', () => {
   /**
    * 並び替え操作と保存テスト
    */
-  test.describe('並び替え操作と保存 (REQ-17.8, REQ-17.9)', () => {
+  test.describe('並び替え操作と保存 (REQ-17.6, REQ-17.7, REQ-17.8, REQ-17.9)', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-17.7: 並び替え操作が行われた場合に保存ボタンを表示する
+     * @requirement itemized-statement-generation/REQ-17.8: 保存ボタンクリック時に全項目の並び順をサーバーに一括送信して確定する
+     * @requirement itemized-statement-generation/REQ-17.9: 並び順の保存成功時に「並び順を保存しました」トースト通知を表示する
+     */
     test('項目を下方向に移動して保存すると並び順が保存される', async ({ page }) => {
       if (!createdItemizedStatementId) {
         throw new Error('内訳書IDが未設定です');
@@ -292,6 +317,10 @@ test.describe('内訳書項目の並び替え', () => {
       expect(secondRowName).toBe(firstRowName);
     });
 
+    /**
+     * @requirement itemized-statement-generation/REQ-17.7: 並び替え操作が行われた場合に保存ボタンを表示する
+     * @requirement itemized-statement-generation/REQ-17.8: 保存ボタンクリック時に全項目の並び順をサーバーに一括送信して確定する
+     */
     test('項目を上方向に移動して保存すると並び順が保存される', async ({ page }) => {
       if (!createdItemizedStatementId) {
         throw new Error('内訳書IDが未設定です');
@@ -329,6 +358,9 @@ test.describe('内訳書項目の並び替え', () => {
       });
     });
 
+    /**
+     * @requirement itemized-statement-generation/REQ-17.6: 並び替え操作はクライアントサイドのみで状態を管理し、操作ごとにサーバーリクエストを発生させない
+     */
     test('複数回並び替え操作後に保存するとAPIは1回のみ呼ばれる', async ({ page }) => {
       if (!createdItemizedStatementId) {
         throw new Error('内訳書IDが未設定です');
@@ -382,7 +414,10 @@ test.describe('内訳書項目の並び替え', () => {
   /**
    * 初期ソート順序テスト
    */
-  test.describe('初期ソート順序 (REQ-16.1)', () => {
+  test.describe('初期ソート順序 (REQ-16.1, REQ-16.2)', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-16.1: 内訳書作成時にピボット集計結果を任意分類>工種>名称>規格>単位の優先度で昇順ソートする
+     */
     test('内訳書作成時に任意分類>工種>名称>規格>単位の昇順で並ぶ', async ({ page, request }) => {
       if (!testProjectId || !testQuantityTableId) {
         throw new Error('テスト用リソースが未設定です');
@@ -442,6 +477,425 @@ test.describe('内訳書項目の並び替え', () => {
       for (let i = 0; i < nonEmptyCategories.length - 1; i++) {
         expect(nonEmptyCategories[i]! <= nonEmptyCategories[i + 1]!).toBe(true);
       }
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-16.2: 初期ソート順序は各項目のdisplayOrderフィールドとして保存される
+     */
+    test('内訳書作成時に項目の displayOrder が 0 から連番で保存される', async ({ request }) => {
+      if (!testProjectId || !testQuantityTableId) {
+        throw new Error('テスト用リソースが未設定です');
+      }
+
+      const baseUrl = API_BASE_URL;
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 新しい内訳書を作成
+      const statementResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: 'displayOrder確認用内訳書',
+            quantityTableId: testQuantityTableId,
+          },
+        }
+      );
+      const statementBody = await statementResponse.json();
+      const statementId = statementBody.id;
+      expect(statementId).toBeTruthy();
+
+      // 詳細APIで items の displayOrder を確認
+      const detailResponse = await request.get(
+        `${baseUrl}/api/itemized-statements/${statementId}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      const detailBody = await detailResponse.json();
+      expect(Array.isArray(detailBody.items)).toBe(true);
+      expect(detailBody.items.length).toBeGreaterThan(0);
+
+      // displayOrder昇順で並べたとき、0,1,2,...の連番であること
+      const sortedByDisplayOrder = [...detailBody.items].sort(
+        (a: { displayOrder: number }, b: { displayOrder: number }) =>
+          a.displayOrder - b.displayOrder
+      );
+      sortedByDisplayOrder.forEach((item: { displayOrder: number }, index: number) => {
+        expect(item.displayOrder).toBe(index);
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-16.3: ソート対象の値がnullまたは空文字の場合、空文字として扱いソート順序の先頭に配置する
+     */
+    test('null または空文字の任意分類を持つ項目は初期ソートで先頭に配置される', async ({
+      page,
+      request,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('テスト用プロジェクトが未設定です');
+      }
+
+      const baseUrl = API_BASE_URL;
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 専用の数量表を作成（null任意分類を含む項目を投入）
+      const qtResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/quantity-tables`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { name: 'null任意分類テスト数量表' },
+        }
+      );
+      const qtBody = await qtResponse.json();
+      const qtId = qtBody.id;
+
+      const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qtId}/groups`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { name: 'グループ', displayOrder: 0 },
+      });
+      const groupBody = await groupResponse.json();
+      const groupId = groupBody.id;
+
+      // 1件目: 任意分類 null
+      // 2件目: 任意分類 'A分類'
+      // 3件目: 任意分類 'B分類'
+      const items = [
+        {
+          customCategory: null,
+          workType: '工種X',
+          name: '名称X',
+          specification: '規格X',
+          unit: '式',
+          quantity: 1,
+        },
+        {
+          customCategory: 'A分類',
+          workType: '工種Y',
+          name: '名称Y',
+          specification: '規格Y',
+          unit: '式',
+          quantity: 2,
+        },
+        {
+          customCategory: 'B分類',
+          workType: '工種Z',
+          name: '名称Z',
+          specification: '規格Z',
+          unit: '式',
+          quantity: 3,
+        },
+      ];
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]!;
+        await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            ...item,
+            majorCategory: '大項目',
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+            displayOrder: i,
+          },
+        });
+      }
+
+      // 内訳書作成
+      const statementResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: 'null任意分類確認用内訳書',
+            quantityTableId: qtId,
+          },
+        }
+      );
+      const statementBody = await statementResponse.json();
+      const statementId = statementBody.id;
+      expect(statementId).toBeTruthy();
+
+      // UI で先頭行が任意分類null/空であることを確認
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${statementId}`);
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      const table = page.getByRole('table');
+      const tbodyRows = table.locator('tbody tr');
+      const firstRowCells = tbodyRows.first().getByRole('cell');
+      const cellCount = await firstRowCells.count();
+      // SortOrderButtons列がある場合はoffset=1
+      const offset = cellCount === 7 ? 1 : 0;
+      const firstRowCategoryText = await firstRowCells.nth(offset).textContent();
+
+      // null任意分類は表示上 '-' (空文字扱い) となり、先頭行に配置される
+      expect(firstRowCategoryText?.trim()).toBe('-');
+    });
+  });
+
+  /**
+   * 初期ソート順序の上書きテスト (REQ-16.4)
+   */
+  test.describe('手動並び替えによる上書き (REQ-16.4)', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-16.4: 初期ソート順序は内訳書作成時に一度だけ適用され、以降の手動並び替えで上書き可能
+     */
+    test('手動並び替え保存後はリロードしても並び順が維持され、初期ソートが上書きされる', async ({
+      page,
+      request,
+    }) => {
+      if (!testProjectId || !testQuantityTableId) {
+        throw new Error('テスト用リソースが未設定です');
+      }
+
+      const baseUrl = API_BASE_URL;
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 専用の内訳書を作成（既存の並び替え操作テストと干渉しないように）
+      const statementResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: '初期ソート上書き確認用内訳書',
+            quantityTableId: testQuantityTableId,
+          },
+        }
+      );
+      const statementBody = await statementResponse.json();
+      const statementId = statementBody.id;
+      expect(statementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${statementId}`);
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      const table = page.getByRole('table');
+      const tbodyRows = table.locator('tbody tr');
+      const rowCount = await tbodyRows.count();
+      expect(rowCount).toBeGreaterThan(1);
+
+      // 並び替え前の先頭行の名称を取得
+      const firstRowCells = tbodyRows.first().getByRole('cell');
+      const cellCount = await firstRowCells.count();
+      const offset = cellCount === 7 ? 1 : 0;
+      // 名称列は customCategory(offset+0) → workType(+1) → name(+2)
+      const initialFirstRowName = await firstRowCells.nth(offset + 2).textContent();
+
+      // 先頭行を下方向に移動
+      const firstDownButton = tbodyRows.first().getByRole('button', { name: '下へ移動' });
+      await firstDownButton.click();
+
+      // 保存
+      const saveButton = page.getByRole('button', { name: /並び順を保存/ });
+      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+
+      const orderUpdatePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/items/order') &&
+          response.request().method() === 'PATCH' &&
+          response.status() === 200,
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      await orderUpdatePromise;
+      await expect(page.getByText(/並び順を保存しました/)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // ページをリロードしても、手動並び替え順が維持され、初期ソート順に戻らない
+      await page.reload();
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      const reloadedRows = page.getByRole('table').locator('tbody tr');
+      const secondRowCells = reloadedRows.nth(1).getByRole('cell');
+      const reloadedCellCount = await secondRowCells.count();
+      const reloadedOffset = reloadedCellCount === 7 ? 1 : 0;
+      const movedRowName = await secondRowCells.nth(reloadedOffset + 2).textContent();
+
+      // 元の先頭行が2番目に移動している（初期ソートに戻っていない）
+      expect(movedRowName).toBe(initialFirstRowName);
+    });
+  });
+
+  /**
+   * フィルタ・カラムソート時の並び替えボタン非表示テスト (REQ-17.13)
+   */
+  test.describe('並び替えボタン表示条件 (REQ-17.13)', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-17.13: 手動並び替えはフィルタやカラムソートが適用されていない状態でのみ操作可能とする
+     */
+    test('フィルタ未適用かつカラムソート未適用時のみ上下ボタンが表示される', async ({ page }) => {
+      if (!createdItemizedStatementId) {
+        throw new Error('内訳書IDが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 初期状態: 上下ボタンが表示されている
+      const upButtons = page.getByRole('button', { name: '上へ移動' });
+      const downButtons = page.getByRole('button', { name: '下へ移動' });
+      expect(await upButtons.count()).toBeGreaterThan(0);
+      expect(await downButtons.count()).toBeGreaterThan(0);
+
+      // 任意分類カラムヘッダーをクリックしてカラムソートを適用
+      const customCategoryHeader = page.getByRole('columnheader', { name: /任意分類/ });
+      await customCategoryHeader.click();
+
+      // カラムソート適用後: 上下ボタンが非表示になる
+      await expect(page.getByRole('button', { name: '上へ移動' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '下へ移動' })).toHaveCount(0);
+
+      // カラムソートを解除（同カラムで降順 → 何もない状態に戻すため、別のテストへ進む前にリロード）
+      await page.reload();
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 初期状態の確認（再度ボタンが表示）
+      expect(await page.getByRole('button', { name: '上へ移動' }).count()).toBeGreaterThan(0);
+
+      // フィルタを適用（id指定で確実にフィルタ入力を選択）
+      const filterInput = page.locator('#filter-customCategory');
+      await filterInput.fill('A');
+
+      // フィルタ適用後: 上下ボタンが非表示になる
+      await expect(page.getByRole('button', { name: '上へ移動' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '下へ移動' })).toHaveCount(0);
+
+      // フィルタクリアで再表示されることを確認
+      await page.getByRole('button', { name: 'フィルタをクリア' }).click();
+      expect(await page.getByRole('button', { name: '上へ移動' }).count()).toBeGreaterThan(0);
+    });
+  });
+
+  /**
+   * 楽観的排他制御テスト (REQ-17.14)
+   */
+  test.describe('楽観的排他制御 (REQ-17.14)', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-17.14: 並び順の保存リクエストを送信する際、updatedAtによる楽観的排他制御を適用する
+     */
+    test('別経路で内訳書が更新された後の並び順保存は409エラーで拒否される', async ({
+      page,
+      request,
+    }) => {
+      if (!testProjectId || !testQuantityTableId) {
+        throw new Error('テスト用リソースが未設定です');
+      }
+
+      const baseUrl = API_BASE_URL;
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
+
+      // 楽観的排他制御テスト専用の内訳書を作成
+      const statementResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: '楽観的排他制御テスト内訳書',
+            quantityTableId: testQuantityTableId,
+          },
+        }
+      );
+      const statementBody = await statementResponse.json();
+      const conflictStatementId = statementBody.id;
+      expect(conflictStatementId).toBeTruthy();
+
+      // 詳細を取得して updatedAt と items を取得
+      const detailResponse = await request.get(
+        `${baseUrl}/api/itemized-statements/${conflictStatementId}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      const detailBody = await detailResponse.json();
+      const initialUpdatedAt = detailBody.updatedAt;
+      const itemIds = detailBody.items
+        .sort(
+          (a: { displayOrder: number }, b: { displayOrder: number }) =>
+            a.displayOrder - b.displayOrder
+        )
+        .map((item: { id: string }) => item.id);
+
+      // ブラウザで該当画面を開く（updatedAtがクライアントに反映される）
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${conflictStatementId}`);
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      // ブラウザで先頭行を下方向に移動（並び替え操作）
+      const tbodyRows = page.getByRole('table').locator('tbody tr');
+      const firstDownButton = tbodyRows.first().getByRole('button', { name: '下へ移動' });
+      await firstDownButton.click();
+
+      // 別経路で並び順を更新（updatedAt を進める）
+      // ※ 末尾2件を入れ替えるなど、ブラウザ側と異なる並び順で更新
+      const reversedIds = [...itemIds].reverse();
+      const externalUpdateResponse = await request.patch(
+        `${baseUrl}/api/itemized-statements/${conflictStatementId}/items/order`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            items: reversedIds.map((id: string, index: number) => ({
+              id,
+              displayOrder: index,
+            })),
+            updatedAt: initialUpdatedAt,
+          },
+        }
+      );
+      expect(externalUpdateResponse.status()).toBe(200);
+
+      // ブラウザから保存ボタンをクリック → 古い updatedAt で送信されるため 409 になる
+      const saveButton = page.getByRole('button', { name: /並び順を保存/ });
+      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
+
+      const conflictResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/items/order') &&
+          response.request().method() === 'PATCH' &&
+          response.status() === 409,
+        { timeout: getTimeout(30000) }
+      );
+
+      await saveButton.click();
+      await conflictResponsePromise;
+
+      // 409エラー時に「他のユーザーにより更新されました」メッセージが表示される
+      await expect(
+        page.getByText(/他のユーザーにより更新されました.*画面を再読み込みしてください/)
+      ).toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 

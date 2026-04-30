@@ -5,6 +5,14 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
 import { ReceivedQuotationForm } from './ReceivedQuotationForm';
+import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
+
+// Task 79.3 で ReceivedQuotationForm（および遅延ロードする OcrDataExtractor）が
+// useAuth() を直接購読するため、Storybook 環境向けに最小限の AuthContext 値を供給する。
+const mockAuthContext = {
+  sessionExpiredDuringOperation: false,
+  sessionExpired: false,
+} as unknown as AuthContextValue;
 
 const mockInitialData = {
   id: 'rq-1',
@@ -70,6 +78,13 @@ const meta = {
     onSubmit: fn(),
     onCancel: fn(),
   },
+  decorators: [
+    (Story) => (
+      <AuthContext.Provider value={mockAuthContext}>
+        <Story />
+      </AuthContext.Provider>
+    ),
+  ],
 } satisfies Meta<typeof ReceivedQuotationForm>;
 
 export default meta;
