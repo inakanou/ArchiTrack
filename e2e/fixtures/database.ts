@@ -54,21 +54,14 @@ export function getPrismaClient(): InstanceType<typeof PrismaClient> {
 /**
  * データベースの全テストデータをクリーンアップ
  *
- * 外部キー制約の順序を考慮して、依存関係の逆順でテーブルをクリアします。
- * トランザクションを使用してACID特性を保証し、並列実行時の競合を防止します。
- * マスターデータ（Role, Permission）は削除しません。
- *
- * 削除順序:
- * 1. ProjectStatusHistory（Projectに依存）
- * 2. Project（Userに依存）
- * 3. AuditLog（Userに依存）
- * 4. RefreshToken（Userに依存）
- * 5. TwoFactorBackupCode（Userに依存）
- * 6. PasswordHistory（Userに依存）
- * 7. PasswordResetToken（Userに依存）
- * 8. Invitation（Userに依存、オプショナル）
- * 9. UserRole（User, Roleに依存）
- * 10. User
+ * 全データテーブルを TRUNCATE ... RESTART IDENTITY CASCADE で初期化します。
+ * deleteMany を順次実行する方式は、Project → ExecutionBudget → ExecutionBudgetItem の
+ * cascade 削除時に `order_items_executionBudgetItemId_fkey` (ON DELETE RESTRICT) が
+ * 残存行で衝突し失敗することがあったため、順序依存のない TRUNCATE を採用します。
+ * 保持するマスターデータは以下の通り:
+ * - permissions（権限マスター）
+ * - roles（isSystem=true のシステムロール）
+ * - role_permissions（システムロールに紐づくもの）
  *
  * @example
  * ```typescript
@@ -77,34 +70,60 @@ export function getPrismaClient(): InstanceType<typeof PrismaClient> {
  * });
  * ```
  */
+const TRUNCATE_TARGET_TABLES = [
+  'amendment_apply_histories',
+  'audit_logs',
+  'company_info',
+  'construction_schedules',
+  'contracts',
+  'estimate_item_lines',
+  'estimate_items',
+  'estimate_request_items',
+  'estimate_request_status_histories',
+  'estimate_requests',
+  'estimates',
+  'execution_budget_items',
+  'execution_budgets',
+  'image_annotations',
+  'invitations',
+  'itemized_statement_items',
+  'itemized_statements',
+  'monthly_close_histories',
+  'order_items',
+  'orders',
+  'password_histories',
+  'password_reset_tokens',
+  'progress_record_items',
+  'progress_records',
+  'project_status_histories',
+  'projects',
+  'quantity_groups',
+  'quantity_items',
+  'quantity_tables',
+  'received_quotation_line_items',
+  'received_quotations',
+  'refresh_tokens',
+  'schedule_items',
+  'site_surveys',
+  'survey_images',
+  'trading_partner_type_mappings',
+  'trading_partners',
+  'two_factor_backup_codes',
+  'user_roles',
+  'users',
+] as const;
+
 export async function cleanDatabase(): Promise<void> {
   const client = getPrismaClient();
 
-  // トランザクションで確実にクリーンアップ
-  // 外部キー制約の順序を考慮して削除（依存される側を先に削除）
+  // 単一の TRUNCATE 文で対象テーブル全体を初期化する。
+  // RESTART IDENTITY で連番列をリセット、CASCADE で未列挙の依存テーブルも安全に処理する。
+  const tableList = TRUNCATE_TARGET_TABLES.map((t) => `"${t}"`).join(', ');
+  await client.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`);
+
+  // テストで作成された非システムロール（isSystem=false）と、その role_permissions を削除する。
+  // permissions / システムロールはマスターとして保持する。
   await client.$transaction([
-    // 進捗レコード項目 / 発注項目: executionBudgetItem への FK が cascade なしのため、
-    // Project (→ ExecutionBudget → ExecutionBudgetItem) 削除前に明示的に削除する
-    client.progressRecordItem.deleteMany(),
-    client.progressRecord.deleteMany(),
-    client.orderItem.deleteMany(),
-    // プロジェクト関連テーブルを先に削除（Userに依存）
-    client.projectStatusHistory.deleteMany(),
-    client.project.deleteMany(),
-    // 取引先関連テーブルを削除
-    client.tradingPartner.deleteMany(),
-    // 自社情報テーブルを削除
-    client.companyInfo.deleteMany(),
-    // 認証・ユーザー関連テーブル
-    client.auditLog.deleteMany(),
-    client.refreshToken.deleteMany(),
-    client.twoFactorBackupCode.deleteMany(),
-    client.passwordHistory.deleteMany(),
-    client.passwordResetToken.deleteMany(),
-    client.invitation.deleteMany(),
-    client.userRole.deleteMany(), // UserとRoleに依存するため、User削除前に実行
-    client.user.deleteMany(),
-    // テストで作成されたロールの関連権限を削除
     client.rolePermission.deleteMany({
       where: {
         role: {
@@ -112,7 +131,6 @@ export async function cleanDatabase(): Promise<void> {
         },
       },
     }),
-    // テストで作成されたロールを削除（isSystem=false）
     client.role.deleteMany({
       where: {
         isSystem: false,
