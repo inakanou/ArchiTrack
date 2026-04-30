@@ -57,6 +57,12 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// Req 38.6, 38.7: useAuth は SessionExpiredModal 状態の購読にのみ使用するため、
+// 単体テストでは AuthProvider を立ち上げず、必要なフィールドだけ返すモックで十分。
+vi.mock('../hooks/useAuth', () => ({
+  useAuth: () => ({ sessionExpiredDuringOperation: false }),
+}));
+
 vi.mock('../api/projects', () => ({
   getProject: vi.fn().mockResolvedValue({ name: 'テストプロジェクト' }),
 }));
