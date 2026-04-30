@@ -898,5 +898,73 @@ describe('ProgressService', () => {
         ExecutionBudgetNotFoundForProgressError
       );
     });
+
+    it('対象月が12月の場合、翌年1月で日付範囲を構築する', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetItems
+      );
+      const findManyMock = vi.fn().mockResolvedValue([]);
+      mockPrisma.progressRecord.findMany = findManyMock;
+
+      await service.getMonthlyDetail(BUDGET_ID, '2026-12');
+
+      expect(findManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            constructionDate: {
+              gte: new Date('2026-12-01'),
+              lt: new Date('2027-01-01'),
+            },
+          }),
+        })
+      );
+    });
+
+    it('実行予算項目の executionAmount と name が null の場合、率0.0で itemName/executionAmount を null として返す', async () => {
+      const itemsWithNulls = [
+        {
+          id: ITEM_ID_1,
+          executionBudgetId: BUDGET_ID,
+          executionAmount: null,
+          parentId: null,
+          name: null,
+        },
+      ];
+
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudget
+      );
+      (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+        itemsWithNulls
+      );
+
+      const records = [
+        {
+          id: 'rec-null-1',
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-15'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          items: [
+            {
+              executionBudgetItemId: ITEM_ID_1,
+              amount: { toString: () => '100000' },
+            },
+          ],
+        },
+      ];
+      mockPrisma.progressRecord.findMany = vi.fn().mockResolvedValue(records);
+
+      const result = await service.getMonthlyDetail(BUDGET_ID, '2026-03');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.itemName).toBeNull();
+      expect(result[0]?.executionAmount).toBeNull();
+      expect(result[0]?.progressAmount).toBe('100000');
+      expect(result[0]?.progressRate).toBe('0.0');
+    });
   });
 });
