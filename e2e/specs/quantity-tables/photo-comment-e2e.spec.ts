@@ -15,11 +15,27 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 
+let testProjectId: string | null = null;
+let createdQuantityTableId: string | null = null;
+
+/**
+ * 数量表編集画面へ遷移する。
+ *
+ * 事前準備で作成した tableId が利用できる場合は直接遷移し、
+ * それ以外は /projects → 詳細 → 一覧 → カード のUIフローでナビゲートする。
+ */
 async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
+  if (createdQuantityTableId) {
+    await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+    await page.waitForLoadState('networkidle');
+    const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
+    return await editArea.isVisible({ timeout: getTimeout(10000) }).catch(() => false);
+  }
+
   await page.goto('/projects');
   await page.waitForLoadState('networkidle');
 
-  const projectCard = page.locator('[data-testid="project-card"]').first();
+  const projectCard = page.locator('[data-testid^="project-card-"]').first();
   if (!(await projectCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
     return false;
   }
@@ -48,6 +64,109 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
 
   test.beforeEach(async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
+  });
+
+  /**
+   * 事前準備: テスト用プロジェクト・数量表・グループを作成
+   *
+   * REQ-21 のテストはグループの存在を前提とするため、独立して実行できるよう
+   * 事前にプロジェクト・数量表・グループ1件を作成する。写真未紐付けでも
+   * 写真選択UIのプレースホルダー経路と、コメント表示エリアの存在/非表示
+   * （REQ-21.1〜21.5）を検証可能となる。
+   */
+  test.describe('事前準備', () => {
+    test('テスト用プロジェクトを作成する', async ({ page }) => {
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+
+      await page.getByRole('button', { name: /新規作成/i }).click();
+      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      const projectName = `REQ21_PJ_${Date.now()}`;
+      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
+
+      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+      const salesPersonValue = await salesPersonSelect.inputValue();
+      if (!salesPersonValue) {
+        const options = await salesPersonSelect.locator('option').all();
+        if (options.length > 1 && options[1]) {
+          const firstUserOption = await options[1].getAttribute('value');
+          if (firstUserOption) {
+            await salesPersonSelect.selectOption(firstUserOption);
+          }
+        }
+      }
+
+      const createProjectPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/projects') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      await createProjectPromise;
+
+      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
+      const projectMatch = page.url().match(/\/projects\/([0-9a-f-]+)$/);
+      testProjectId = projectMatch?.[1] ?? null;
+      expect(testProjectId).toBeTruthy();
+    });
+
+    test('テスト用数量表とグループを作成する', async ({ page }) => {
+      if (!testProjectId) {
+        throw new Error(
+          'testProjectIdが未設定です。プロジェクト作成テストが正しく実行されていません。'
+        );
+      }
+
+      await page.goto(`/projects/${testProjectId}/quantity-tables`);
+      await page.waitForLoadState('networkidle');
+
+      const createButton = page.getByRole('link', { name: /新規作成/i });
+      await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
+      await createButton.click();
+
+      const nameInput = page.getByRole('textbox', { name: /数量表名/i });
+      await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
+      await nameInput.clear();
+      await nameInput.fill(`REQ21_数量表_${Date.now()}`);
+
+      const createConfirmButton = page.getByRole('button', { name: /^作成$/i });
+      await createConfirmButton.click();
+
+      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+\/edit$/, {
+        timeout: getTimeout(15000),
+      });
+      const tableMatch = page.url().match(/\/quantity-tables\/([0-9a-f-]+)\/edit$/);
+      createdQuantityTableId = tableMatch?.[1] ?? null;
+      expect(createdQuantityTableId).toBeTruthy();
+
+      // グループを1つ追加（REQ-21 のテストはグループの存在を前提）
+      const addGroupApiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/quantity-tables/') &&
+          response.url().includes('/groups') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(20000) }
+      );
+
+      const addGroupButton = page
+        .getByRole('button', { name: /グループ追加|グループを追加/i })
+        .first();
+      await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
+      await addGroupButton.click();
+      await addGroupApiPromise;
+
+      const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+      await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
+    });
   });
 
   /**
@@ -162,13 +281,28 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
+    // 写真変更ボタン or プレースホルダーから選択ダイアログを開く
     const changeButton = page.getByRole('button', { name: '写真を変更' }).first();
-    if (!(await changeButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+    const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
+
+    const changeButtonVisible = await changeButton
+      .isVisible({ timeout: getTimeout(3000) })
+      .catch(() => false);
+    const placeholderVisible = await placeholder
+      .isVisible({ timeout: getTimeout(3000) })
+      .catch(() => false);
+
+    if (!changeButtonVisible && !placeholderVisible) {
       await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
       return;
     }
 
-    await changeButton.click();
+    if (changeButtonVisible) {
+      await changeButton.click();
+    } else {
+      await placeholder.click();
+    }
+
     const dialog = page.getByRole('dialog').first();
     await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
 
@@ -186,15 +320,16 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
       } else {
         await page.keyboard.press('Escape');
       }
+      await expect(dialog).not.toBeVisible({ timeout: getTimeout(5000) });
     }
 
     // 操作後、コメント表示エリアまたは写真関連UIが画面に存在することを検証
-    const commentArea = page.locator('[data-testid="photo-comment-display"]').first();
-    const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
+    const commentAreaAfter = page.locator('[data-testid="photo-comment-display"]').first();
+    const placeholderAfter = page.locator('[data-testid^="image-placeholder-"]').first();
 
     const stillThere =
-      (await commentArea.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) ||
-      (await placeholder.isVisible({ timeout: getTimeout(3000) }).catch(() => false));
+      (await commentAreaAfter.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) ||
+      (await placeholderAfter.isVisible({ timeout: getTimeout(3000) }).catch(() => false));
 
     expect(
       stillThere,
@@ -231,11 +366,22 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
       return;
     }
 
+    // 折りたたみ前のコメント表示エリアを記録
+    const commentArea = groupCard.locator('[data-testid="photo-comment-display"]').first();
+    const commentVisibleBefore = await commentArea
+      .isVisible({ timeout: getTimeout(2000) })
+      .catch(() => false);
+
     await collapseButton.click();
 
-    // 折りたたみ後、コメント表示エリアが非表示になる（CSSのvisibility:hidden等）
-    const commentArea = groupCard.locator('[data-testid="photo-comment-display"]').first();
-    // visibility:hidden または non-visible いずれかでも non-visible 判定される
-    await expect(commentArea).not.toBeVisible({ timeout: getTimeout(5000) });
+    if (commentVisibleBefore) {
+      // 折りたたみ後、コメント表示エリアが非表示になる（CSSのvisibility:hidden等）
+      await expect(commentArea).not.toBeVisible({ timeout: getTimeout(5000) });
+    } else {
+      // 写真未紐付けでコメントエリアが元々無いケース。プレースホルダーが折りたたみ後に
+      // 非表示になることでREQ-21.5（写真と一緒に非表示）の挙動を検証する。
+      const placeholder = groupCard.locator('[data-testid^="image-placeholder-"]').first();
+      await expect(placeholder).not.toBeVisible({ timeout: getTimeout(5000) });
+    }
   });
 });
