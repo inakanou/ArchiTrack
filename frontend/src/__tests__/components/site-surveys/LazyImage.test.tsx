@@ -543,8 +543,8 @@ describe('LazyImage', () => {
         />
       );
 
-      const container = screen.getByTestId('lazy-image-container');
-      expect(container).toHaveStyle({ borderRadius: '8px' });
+      const container = screen.getByTestId('lazy-image-container') as HTMLElement;
+      expect(container.style.borderRadius).toBe('8px');
     });
   });
 

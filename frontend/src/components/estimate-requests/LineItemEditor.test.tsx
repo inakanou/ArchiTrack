@@ -784,8 +784,8 @@ describe('LineItemEditor', () => {
       const props = getDefaultProps();
       render(<LineItemEditor {...props} />);
 
-      const input = screen.getByLabelText('行1 任意分類');
-      expect(input).toHaveStyle({ borderRadius: '0px' });
+      const input = screen.getByLabelText('行1 任意分類') as HTMLInputElement;
+      expect(input.style.borderRadius).toBe('0px');
     });
 
     it('列ヘッダーのminWidthが数量表に準拠している (33.1-33.8)', () => {
