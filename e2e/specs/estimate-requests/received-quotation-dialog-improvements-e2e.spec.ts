@@ -267,11 +267,13 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 既存の永続化値を消し、初期状態をクリーンに
-      await page.goto(`/estimate-requests/${requestId}`);
-      await page.evaluate((key) => localStorage.removeItem(key), PREVIEW_HEIGHT_STORAGE_KEY);
-
       // 1 回目: ダイアログを開く
+      // 注: 各テストは新規 BrowserContext で実行されるため localStorage は空。
+      //     かつて存在した「事前 page.goto + removeItem」は二重ナビゲーションを誘発し、
+      //     1 回目の goto が起動した /api/v1/auth/refresh のレスポンスを 2 回目の goto が
+      //     キャンセルする一方、バックエンド側ではリフレッシュトークンのローテーションが
+      //     完了してしまい、2 回目の goto に伴う refresh が 401 を返す競合が発生していた。
+      //     openReceivedQuotationCreateDialog の単一 goto に集約することで競合を回避する。
       await openReceivedQuotationCreateDialog(page, requestId);
 
       // PDFをアップロード（プレビュー領域 = リサイズ対象を出現させる）
@@ -641,29 +643,9 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       await expect(sessionDialog).toBeHidden();
     });
 
-    /**
-     * task 81.5 シナリオ5
-     *
-     * NOTE: Req 38.9（再認証モーダルの「ログイン画面へ移動」選択時の挙動）は
-     * design review Issue 1（2026-04-27, requirements.md L655）で「撤廃済み」と
-     * 明記されている。SessionExpiredModal（user-authentication/REQ-30）は連続
-     * 3 回失敗時にのみ「ログイン画面へ移動」ボタンを露出する設計のため、
-     * E2E でのカジュアルな「最初から離脱できる」シナリオとは整合しない。
-     *
-     * 本タスク仕様（task 81.5 シナリオ5）はこの撤廃前要件を前提としているため、
-     * 厳密な「ログイン画面遷移＋編集破棄」検証はバックエンドの能動的な
-     * SessionExpiredModal 失敗 3 連続シミュレーションが必要となる。
-     * その手段が現時点で利用不可なため、`test.skip` を documented reason 付きで
-     * 残し、仕様意図（要件側で撤廃済み）を将来読者に伝える。
-     */
-    test.skip('「ログイン画面へ移動」選択時に編集破棄でログイン画面遷移する (Req 38 シナリオ5: 撤廃済み)', () => {
-      // Skip reason:
-      // - requirements.md L655 で Req 38.9 は「~~削除（design review Issue 1, 2026-04-27）~~」
-      //   とマーク済み。再認証モーダルにキャンセル UI/Esc 無効化ポリシーが適用されるため、
-      //   3 回連続認証失敗フローを能動的にシミュレートしないと「ログイン画面へ移動」
-      //   ボタンが露出しない。バックエンドに失敗回数強制シミュレーション API は
-      //   未提供のため、本シナリオは現状ペンディング。
-    });
+    // task 81.5 シナリオ5 に対応していた Req 38.9 は requirements.md L655 で
+    // design review Issue 1 (2026-04-27) によって正式撤廃済みのため、対応テスト
+    // 定義は無効化（test.skip）ではなく削除する。
 
     /**
      * task 81.5 シナリオ6（仕様：「✕ ボタン」、現実：「キャンセル」ボタン）
