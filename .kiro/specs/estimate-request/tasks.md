@@ -1861,7 +1861,7 @@
   - _Depends: 82.3_
   - _Requirements: 39.1, 39.2, 39.5_
 
-- [ ] 84.2 (P) EstimateRequestListPage の「-」フォールバック
+- [x] 84.2 (P) EstimateRequestListPage の「-」フォールバック
   - frontend/src/pages/EstimateRequestListPage.tsx の参照内訳書名表示箇所（`{request.itemizedStatementName}`）を `{request.itemizedStatementName ?? '-'}` に変更
   - 観察可能完了: 内訳書未紐付けの見積依頼が一覧で参照内訳書名列に「-」と表示される（ハイフン文字、半角）
   - _Boundary: EstimateRequestListPage_
