@@ -43,12 +43,15 @@ export interface EstimateRequestServiceDependencies {
 
 /**
  * 見積依頼作成入力
+ *
+ * Requirements: 39.4 - itemizedStatementId は任意（NULL 許容）
  */
 export interface CreateEstimateRequestInput {
   name: string;
   projectId: string;
   tradingPartnerId: string;
-  itemizedStatementId: string;
+  /** 内訳書ID（任意・NULL 許容） Requirements: 39.4 */
+  itemizedStatementId?: string | null;
   method?: EstimateRequestMethod;
   includeBreakdownInBody?: boolean;
 }
@@ -70,14 +73,18 @@ export type EstimateRequestStatus = 'BEFORE_REQUEST' | 'REQUESTED' | 'QUOTATION_
 
 /**
  * 見積依頼情報（一覧用）
+ *
+ * Requirements: 39.4, 39.12 - itemizedStatementId / itemizedStatementName は NULL 許容
  */
 export interface EstimateRequestInfo {
   id: string;
   projectId: string;
   tradingPartnerId: string;
   tradingPartnerName: string;
-  itemizedStatementId: string;
-  itemizedStatementName: string;
+  /** 内訳書ID（未紐付け時は null） Requirements: 39.4 */
+  itemizedStatementId: string | null;
+  /** 内訳書名（未紐付け時は null） Requirements: 39.4 */
+  itemizedStatementName: string | null;
   name: string;
   method: EstimateRequestMethod;
   includeBreakdownInBody: boolean;
@@ -211,9 +218,14 @@ export class EstimateRequestService {
         throw new TradingPartnerNotSubcontractorError(input.tradingPartnerId);
       }
 
+      // Task 82.2: 型レベル nullable 化に伴う暫定的な非 null narrowing。
+      // 現行 create() は内訳書必須前提のロジック（既存挙動）。Task 83.2 で
+      // hasItemizedStatement ブランチへ置き換えられる予定（design.md L5347-5413 参照）。
+      const itemizedStatementIdRequired = input.itemizedStatementId!;
+
       // 3. 内訳書の存在確認と項目取得
       const itemizedStatement = await tx.itemizedStatement.findUnique({
-        where: { id: input.itemizedStatementId },
+        where: { id: itemizedStatementIdRequired },
         select: {
           id: true,
           name: true,
@@ -227,12 +239,12 @@ export class EstimateRequestService {
       });
 
       if (!itemizedStatement || itemizedStatement.deletedAt !== null) {
-        throw new ItemizedStatementNotFoundError(input.itemizedStatementId);
+        throw new ItemizedStatementNotFoundError(itemizedStatementIdRequired);
       }
 
       // 4. 内訳書項目が0件の場合エラー (Requirements: 4.13)
       if (itemizedStatement.items.length === 0) {
-        throw new EmptyItemizedStatementItemsError(input.itemizedStatementId);
+        throw new EmptyItemizedStatementItemsError(itemizedStatementIdRequired);
       }
 
       // 5. 見積依頼の作成
@@ -240,7 +252,7 @@ export class EstimateRequestService {
         data: {
           projectId: input.projectId,
           tradingPartnerId: input.tradingPartnerId,
-          itemizedStatementId: input.itemizedStatementId,
+          itemizedStatementId: itemizedStatementIdRequired,
           name: input.name.trim(),
           method: input.method ?? 'EMAIL',
           includeBreakdownInBody: input.includeBreakdownInBody ?? false,
@@ -701,12 +713,14 @@ export class EstimateRequestService {
    * データベースの結果をEstimateRequestInfoに変換
    *
    * Task 13.4: ステータスと受領見積書数を追加
+   * Task 82.2: itemizedStatementId / itemizedStatement の null セーフ化
+   * Requirements: 39.4, 39.12
    */
   private toEstimateRequestInfo(request: {
     id: string;
     projectId: string;
     tradingPartnerId: string;
-    itemizedStatementId: string;
+    itemizedStatementId: string | null;
     name: string;
     method: EstimateRequestMethod;
     includeBreakdownInBody: boolean;
@@ -714,7 +728,7 @@ export class EstimateRequestService {
     createdAt: Date;
     updatedAt: Date;
     tradingPartner: { id: string; name: string };
-    itemizedStatement: { id: string; name: string };
+    itemizedStatement: { id: string; name: string } | null;
     _count?: {
       receivedQuotations: number;
     };
@@ -724,8 +738,9 @@ export class EstimateRequestService {
       projectId: request.projectId,
       tradingPartnerId: request.tradingPartnerId,
       tradingPartnerName: request.tradingPartner.name,
-      itemizedStatementId: request.itemizedStatementId,
-      itemizedStatementName: request.itemizedStatement.name,
+      // Requirements: 39.4 - 内訳書未紐付け時は null
+      itemizedStatementId: request.itemizedStatementId ?? null,
+      itemizedStatementName: request.itemizedStatement?.name ?? null,
       name: request.name,
       method: request.method,
       includeBreakdownInBody: request.includeBreakdownInBody,

@@ -1794,7 +1794,7 @@
   - _Boundary: backend/prisma_
   - _Requirements: 39.4_
 
-- [ ] 82.2 (P) Backend サービス型定義の nullable 化
+- [x] 82.2 (P) Backend サービス型定義の nullable 化
   - backend/src/services/estimate-request.service.ts の CreateEstimateRequestInput.itemizedStatementId を `string | null | undefined` に変更
   - EstimateRequestInfo.itemizedStatementId と itemizedStatementName を `string | null` に変更
   - toEstimateRequestInfo() の戻り値で `request.itemizedStatement?.name ?? null`、`request.itemizedStatementId ?? null` の null セーフ化
