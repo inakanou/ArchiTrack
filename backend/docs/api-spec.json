@@ -2970,8 +2970,7 @@
                 "type": "object",
                 "required": [
                   "name",
-                  "tradingPartnerId",
-                  "itemizedStatementId"
+                  "tradingPartnerId"
                 ],
                 "properties": {
                   "name": {
@@ -2987,7 +2986,8 @@
                   "itemizedStatementId": {
                     "type": "string",
                     "format": "uuid",
-                    "description": "内訳書ID"
+                    "nullable": true,
+                    "description": "内訳書ID（任意）。省略時は内訳書未紐付けの見積依頼として作成される"
                   },
                   "method": {
                     "type": "string",

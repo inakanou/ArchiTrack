@@ -1822,7 +1822,7 @@
   - _Depends: 82.2_
   - _Requirements: 39.1, 39.2_
 
-- [ ] 83.2 EstimateRequestService.create() の内訳書なし分岐
+- [x] 83.2 EstimateRequestService.create() の内訳書なし分岐
   - create() メソッドに `const hasItemizedStatement = input.itemizedStatementId !== undefined && input.itemizedStatementId !== null` を導入
   - 内訳書なしブランチで ItemizedStatement 検証・items 0件チェック・EstimateRequestItem.createMany をスキップ
   - 内訳書なし保存時に includeBreakdownInBody を false 強制
