@@ -5039,3 +5039,638 @@ const handleSave = useCallback(async () => {
 - リサイズ操作の `pointermove` イベントは ~60Hz で発火するが、state 更新は React の自動バッチ処理に任せる。サブピクセル変動を抑えたい場合は `requestAnimationFrame` ベースのスロットリングを Implementation Notes に記載済みの通り将来追加可能
 - 明細行の上下移動は O(n) の配列スワップ＋ O(n) の sortOrder 再採番。明細行は通常数十行レベルでありパフォーマンス影響なし
 - セッション切れリトライは pending operation を 1 件のみ保持する（重複起動なし）。再認証成功後の単発リトライのため負荷増なし
+
+## 内訳書任意化 - 設計追記（Requirement 39）
+
+### Overview（追記7）
+
+**Purpose**: 数量表（内訳書）作成前に協力業者へ取り急ぎ見積依頼を行うユースケースを成立させるため、見積依頼作成時の内訳書選択を必須から任意に変更する。データモデルでは `EstimateRequest.itemizedStatementId` を NULL 許容に変更し、Service 層では内訳書未紐付けケース（以後「クイックリクエスト」）の作成パスを分岐実装する。フロントエンドでは関連 UI（項目選択、Excel 出力、本文オプション、一覧表示、編集画面）を内訳書の有無に応じて条件レンダリングする。受領見積書セクションは従来通り利用可能とし、後段の見積書作成機能は受領見積書の内訳を活用する想定（本要件のスコープ外）。
+
+**Impact**: DB スキーマ 1 列の nullable 化＋単一マイグレーション、バックエンド 3 ファイル（schema/service/route）、本文生成 1 ファイル、フロントエンド 7 ファイル（types/form/list/detail/edit/textPanel）、テスト 4 ファイル。新規外部ライブラリ追加なし。新規コンポーネント・新規 API エンドポイント追加なし。
+
+### Goals（追記7）
+
+- 内訳書未紐付けの見積依頼を作成・参照・編集できる UI とデータ経路を提供する
+- 既存の「内訳書あり」ケースの挙動・データを一切変更しない（Req 39 AC 12）
+- 監査ログとレスポンス型の互換性を保ちつつ nullable 化を反映する
+- 受領見積書セクションを内訳書未紐付けでも従来通り利用可能とする（Req 39 AC 11）
+
+### Non-Goals（追記7）
+
+- 既存見積依頼に対する内訳書後付け機能（ユーザー回答により撤廃）
+- 受領見積書から内訳書を自動生成する機能（後段の見積書作成スペックの領域）
+- Req 6 AC 9（「添付内訳書の通り」表示）の実装ギャップ解消（既存ドリフトとして本要件のスコープ外、R-39-1 で確定）
+- 内訳書なし専用のクイック作成画面・専用フォームの新設（既存フォームの条件レンダリングで対応、Option B を Gap Analysis で却下）
+- `EstimateRequestStatus` 遷移ロジックの変更（R-39-7 で内訳書非依存を確認済み）
+
+### Boundary Commitments（追記7）
+
+#### このスペックが所有するもの
+
+- `EstimateRequest.itemizedStatementId` の nullable 化（Prisma スキーマ＋マイグレーション）
+- `EstimateRequestService.create()` の内訳書未紐付け分岐ロジック（ItemizedStatement 検証スキップ、`EstimateRequestItem` 自動初期化スキップ、監査ログの nullable 反映）
+- `createEstimateRequestSchema` の `itemizedStatementId` optional 化と OpenAPI required リスト更新
+- `EstimateRequestTextService.generate{Email,Fax}Body()` の内訳書 null セーフ化（`includeBreakdownInBody && hasItemizedStatement` ガード）
+- `EstimateRequestInfo` 型の `itemizedStatementId` / `itemizedStatementName` を `string | null` 化（FE/BE 両方）
+- 内訳書未紐付け状態の UI 条件レンダリング（フォーム必須解除、一覧の「-」、詳細の項目選択セクション・Excel・本文オプション非表示、編集画面の内訳書ブロック条件表示）
+- 既存テストの「内訳書必須」前提 assertion 更新と「内訳書なし」パスの新規テスト追加
+
+#### スコープ外（Out of Boundary）
+
+- 内訳書あり ↔ なし の編集による相互変換（編集画面では内訳書フィールドは引き続き読み取り専用、R-39-4）
+- Req 6 AC 9 と現行実装のドリフト解消
+- `ItemizedStatement` モデル・関連サービス・関連画面の変更
+- `EstimateRequestStatus` の遷移条件・StatusTransitionButton の変更
+- 監査ログ閲覧 UI の変更
+- 受領見積書データから内訳書を派生させる経路
+
+#### 許容される依存
+
+- Internal: 既存の `EstimateRequestService` / `EstimateRequestTextService` / `auditLogService` / `EstimateRequestForm` / `EstimateRequestListPage` / `EstimateRequestDetailPage` / `EstimateRequestEditPage` / `ItemSelectionPanel` / `ExcelExportButton` / `EstimateRequestTextPanel` の改訂
+- External: Prisma マイグレーション（`ALTER COLUMN ... DROP NOT NULL`）、Zod `.optional().nullable()` API、既存 React パターンによる条件レンダリング
+- 新規依存ライブラリ: なし
+
+#### 再評価が必要なトリガー（Revalidation Triggers）
+
+- 後続スペックで「内訳書なし → 内訳書あり」への変換（後付け）機能を追加するとき → `EstimateRequestService` に attach API 設計が必要、本設計の Out of Boundary に含めた前提が崩れる
+- `includeBreakdownInBody` を内訳書なしでも true 設定可能にする要件が出たとき → DB の制約強化（CHECK 制約等）を検討
+- `EstimateRequestItem` の auto-create を内訳書なしでも生成する要件が出たとき → 現設計の skip 分岐を解除
+- Req 6 AC 9 を実装と整合させる要件が出たとき → `EstimateRequestTextService` の generate*Body の本文生成ロジックを再設計
+
+### Architecture（追記7）
+
+変更範囲は既存の見積依頼関連レイヤ全体（DB → BE Service → BE Schema/Route → BE Text Service → FE Types → FE Form/List/Detail/Edit）に薄く広く渡るが、各レイヤの変更は「nullable パスの追加と null セーフ化」に限定される。新規レイヤ・新規ファイル・新規依存はない（Prisma マイグレーション SQL 1 ファイルを除く）。
+
+**変更モジュールマップ**
+
+```mermaid
+graph LR
+  subgraph DB
+    Schema[schema.prisma]
+    Migration[migration.sql]
+  end
+  subgraph BE
+    BeSchema[estimate-request.schema.ts]
+    Service[estimate-request.service.ts]
+    TextService[estimate-request-text.service.ts]
+    Routes[estimate-requests.routes.ts]
+  end
+  subgraph FE
+    Types[estimate-request.types.ts]
+    Form[EstimateRequestForm.tsx]
+    ListPage[EstimateRequestListPage.tsx]
+    DetailPage[EstimateRequestDetailPage.tsx]
+    EditPage[EstimateRequestEditPage.tsx]
+    TextPanel[EstimateRequestTextPanel.tsx]
+  end
+
+  Schema --> Migration
+  Schema --> Service
+  BeSchema --> Routes
+  Service --> Routes
+  Service --> TextService
+  Routes --> Types
+  Types --> Form
+  Types --> ListPage
+  Types --> DetailPage
+  Types --> EditPage
+  Types --> TextPanel
+```
+
+**依存方向**: DB → Backend Service / Schema → API Route → Frontend Types → Frontend UI（既存パターン踏襲、逆方向なし）
+
+### System Flows（追記7）
+
+#### クイックリクエスト作成フロー（Requirements 39.1-39.5）
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Form as EstimateRequestForm
+    participant Api as POST /estimate-requests
+    participant Svc as EstimateRequestService.create
+    participant DB as Prisma
+
+    User->>Form: 名前・宛先のみ入力（内訳書未選択）
+    User->>Form: 「作成」ボタンクリック
+    Form->>Form: validate() で name/tradingPartnerId のみ検証
+    Form->>Api: { name, tradingPartnerId, itemizedStatementId: undefined }
+    Api->>Api: createEstimateRequestSchema.parse()（itemizedStatementId は optional）
+    Api->>Svc: create(input)
+    Svc->>DB: tradingPartner 検証（既存）
+    Svc->>DB: subcontractor type 確認（既存）
+    alt input.itemizedStatementId が null/undefined
+        Note over Svc: 内訳書検証・items 0件検証・EstimateRequestItem 自動初期化をスキップ
+        Svc->>DB: estimateRequest.create({ ..., itemizedStatementId: null })
+        Svc->>Svc: 監査ログ after.itemizedStatementId=null, itemCount=0
+    else input.itemizedStatementId が指定
+        Svc->>DB: itemizedStatement 検証（既存）
+        Svc->>DB: items 0件チェック（既存）
+        Svc->>DB: estimateRequest.create + estimateRequestItem.createMany
+        Svc->>Svc: 監査ログ after.itemizedStatementId=値, itemCount=N
+    end
+    Svc-->>Api: EstimateRequestInfo（itemizedStatementId/Name は string | null）
+    Api-->>Form: 201 Created
+    Form->>User: 詳細画面へ遷移
+```
+
+#### 内訳書未紐付け詳細画面の表示フロー（Requirements 39.7-39.10）
+
+```mermaid
+flowchart TD
+    Start[詳細画面マウント] --> Fetch[GET /estimate-requests/:id]
+    Fetch --> Check{itemizedStatementId<br/>=== null?}
+    Check -->|Yes| HideItem[項目選択セクション<br/>非表示]
+    HideItem --> HideExcel[Excel出力ボタン<br/>非表示]
+    HideExcel --> HideToggle[「内訳書を本文に含める」<br/>チェックボックス非表示]
+    HideToggle --> ShowDash[「参照内訳書」表示行に「-」]
+    ShowDash --> ShowMethod[見積依頼方法ラジオ＋保存ボタン<br/>表示維持]
+    ShowMethod --> ShowReceived[受領見積書セクション<br/>表示維持]
+    Check -->|No| Existing[既存挙動<br/>すべてのセクションを表示]
+    Existing --> ShowReceived
+```
+
+### Requirements Traceability（追記7）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 39.1 | 内訳書選択フィールドを任意項目化 | EstimateRequestForm | validate (内訳書必須チェック削除), required属性削除 | クイックリクエスト作成フロー |
+| 39.2 | 内訳書未選択での保存→詳細画面遷移 | EstimateRequestForm, EstimateRequestService.create | createEstimateRequestSchema.itemizedStatementId.optional, create 内訳書なしブランチ | クイックリクエスト作成フロー |
+| 39.3 | 内訳書選択時は従来通り | EstimateRequestService.create | create 内訳書ありブランチ（既存維持） | クイックリクエスト作成フロー |
+| 39.4 | データモデル NULL 許容 | EstimateRequest model | Prisma `itemizedStatementId String?`, migration `DROP NOT NULL` | - |
+| 39.5 | 内訳書未登録時のメッセージ「（任意）」付与＋保存許可 | EstimateRequestForm | hasNoItemizedStatements の disabled 連動を解除 | クイックリクエスト作成フロー |
+| 39.6 | 一覧の参照内訳書名列に「-」表示 | EstimateRequestListPage | `request.itemizedStatementName ?? '-'` レンダリング | - |
+| 39.7 | 詳細画面の項目選択セクション非表示 | EstimateRequestDetailPage | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
+| 39.8 | 「本文に含める」「Excel出力」非表示 | EstimateRequestDetailPage, EstimateRequestTextPanel, ExcelExportButton | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
+| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略） | クイックリクエスト作成フロー |
+| 39.10 | 見積依頼方法・保存ボタン利用可能 | EstimateRequestDetailPage, EstimateRequestService.update | 既存の updateEstimateRequestSchema（method/name のみ）を継続利用 | - |
+| 39.11 | 受領見積書セクション利用可 | EstimateRequestDetailPage（受領見積書セクション部分） | 既存リレーション・既存 UI 変更なし | - |
+| 39.12 | 既存（内訳書あり）見積依頼の挙動・データ・表示無変更 | 全コンポーネント | nullable 分岐を「null の場合のみ追加挙動」として閉じる | - |
+
+### Components and Interfaces - 改訂（Requirement 39）
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|-----------|--------------|--------|--------------|------------------|-----------|
+| EstimateRequest model（改訂） | Backend/Data | `itemizedStatementId` を nullable 化 | 39.4, 39.12 | Prisma 7 (P0) | State |
+| createEstimateRequestSchema（改訂） | Backend/Schema | `itemizedStatementId` optional 化 | 39.1, 39.2 | Zod 4 (P0) | API |
+| EstimateRequestService（改訂2） | Backend/Service | クイックリクエスト分岐（内訳書検証・項目自動初期化スキップ）と監査ログ nullable 化 | 39.2, 39.3, 39.4, 39.12 | EstimateRequest model (P0), auditLogService (P0) | Service |
+| EstimateRequestTextService（改訂） | Backend/Service | 内訳書 null セーフ化と本文生成ガード | 39.9 | EstimateRequest model (P0) | Service |
+| EstimateRequest routes（改訂） | Backend/Route | OpenAPI required リスト更新と req body 型反映 | 39.1, 39.2, 39.4 | createEstimateRequestSchema (P0), EstimateRequestService (P0) | API |
+| EstimateRequestInfo / CreateEstimateRequestInput types（改訂） | Frontend/Types | nullable 化を FE 型に伝搬 | 39.4, 39.12 | - | State |
+| EstimateRequestForm（改訂2） | Frontend/UI | 内訳書必須化を解除（マーカー・validate・disabled） | 39.1, 39.2, 39.5 | EstimateRequestInfo type (P0) | State |
+| EstimateRequestListPage（改訂） | Frontend/UI | 参照内訳書名の「-」フォールバック | 39.6, 39.12 | EstimateRequestInfo type (P0) | State |
+| EstimateRequestDetailPage（改訂） | Frontend/UI | 内訳書未紐付け時の項目選択／Excel／本文オプション／参照内訳書表示の条件レンダリング | 39.7, 39.8, 39.10, 39.11, 39.12 | ItemSelectionPanel, ExcelExportButton, EstimateRequestTextPanel (各 P0) | State |
+| EstimateRequestTextPanel（改訂） | Frontend/UI | 「内訳書を本文に含める」チェックを内訳書ありの時のみ表示 | 39.8 | EstimateRequestInfo type (P0) | State |
+| EstimateRequestEditPage（改訂） | Frontend/UI | 内訳書（読み取り専用）ブロックを内訳書ありの時のみ表示 | 39.12 | EstimateRequestInfo type (P0) | State |
+
+#### EstimateRequest model（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | `itemizedStatementId` を `String` から `String?` に変更し、リレーション側も optional 化 |
+| Requirements | 39.4, 39.12 |
+
+**Schema 変更（差分）**
+
+```prisma
+model EstimateRequest {
+  id                     String                @id @default(uuid())
+  projectId              String
+  tradingPartnerId       String
+  itemizedStatementId    String?               // 旧: String → String? に変更（Req 39.4）
+  name                   String
+  method                 EstimateRequestMethod @default(EMAIL)
+  status                 EstimateRequestStatus @default(BEFORE_REQUEST)
+  includeBreakdownInBody Boolean               @default(false)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  deletedAt              DateTime?
+
+  project            Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradingPartner     TradingPartner                 @relation(fields: [tradingPartnerId], references: [id])
+  itemizedStatement  ItemizedStatement?             @relation(fields: [itemizedStatementId], references: [id])  // 旧: 必須 → optional に変更
+  selectedItems      EstimateRequestItem[]
+  receivedQuotations ReceivedQuotation[]
+  statusHistory      EstimateRequestStatusHistory[]
+
+  @@index([projectId])
+  @@index([tradingPartnerId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("estimate_requests")
+}
+```
+
+**Migration（新規ファイル）**: `backend/prisma/migrations/{timestamp}_make_estimate_request_itemized_statement_optional/migration.sql`
+
+```sql
+ALTER TABLE "estimate_requests"
+  ALTER COLUMN "itemized_statement_id" DROP NOT NULL;
+```
+
+**Implementation Notes**
+- Integration: 既存行は `itemizedStatementId` が必須の状態で投入されているため、`DROP NOT NULL` のみで追加データ変換は不要（Req 39.12）
+- Migration: 既存の連番命名規則（`YYYYMMDDHHMMSS_description`）に従う。実行タイムスタンプは `npx prisma migrate dev` 生成値を採用
+- Reverse migration: ロールバック時は `ALTER COLUMN ... SET NOT NULL` だが、すでに NULL 行が存在すると失敗する可能性があるため、本要件で書き戻し戦略は提供しない
+- Index: `itemizedStatementId` には現在インデックスがなく、外部キー制約のみ。nullable 化後も検索パターン変更なしのためインデックス追加なし
+
+#### createEstimateRequestSchema（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | `itemizedStatementId` を optional 化し、空文字も許容 |
+| Requirements | 39.1, 39.2 |
+
+**Schema 変更（差分）**
+
+```typescript
+export const createEstimateRequestSchema = z.object({
+  name: z.string().min(1, ...).max(200, ...).refine(...),
+  tradingPartnerId: z.string().min(1, ...).regex(UUID_REGEX, ...),
+
+  // 旧: 必須 (z.string().min(1, ...).regex(UUID_REGEX, ...))
+  // 新: optional + nullable + 空文字許容（FE から '' で送信される可能性に対応）
+  itemizedStatementId: z
+    .string()
+    .regex(UUID_REGEX, ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_INVALID_UUID)
+    .optional()
+    .nullable()
+    .or(z.literal('').transform(() => null)),
+
+  method: z.enum(...).default('EMAIL'),
+  includeBreakdownInBody: z.boolean().default(false),
+});
+```
+
+**Implementation Notes**
+- Validation: UUID 形式チェックは値が指定された場合のみ適用（`.optional()` により undefined 許容、`.nullable()` で null 許容、空文字は変換で null へ）
+- Compatibility: 既存の `ITEMIZED_STATEMENT_ID_REQUIRED` メッセージ定数は他箇所で参照していないかを確認のうえ撤去/保持を決定（撤去推奨）
+- API doc: routes 側で OpenAPI `required` から `itemizedStatementId` を削除し、説明に「省略時は内訳書未紐付けの見積依頼として作成される」を追記
+
+#### EstimateRequestService（改訂2）
+
+| Field | Detail |
+|-------|--------|
+| Intent | クイックリクエストブランチを `create()` に追加し、`EstimateRequestInfo` の nullable 化を `toEstimateRequestInfo()` 全箇所に伝搬 |
+| Requirements | 39.2, 39.3, 39.4, 39.12 |
+
+**Interface 変更**
+
+```typescript
+export interface CreateEstimateRequestInput {
+  name: string;
+  projectId: string;
+  tradingPartnerId: string;
+  itemizedStatementId?: string | null; // 旧: string（必須） → optional + nullable
+  method?: EstimateRequestMethod;
+  includeBreakdownInBody?: boolean;
+}
+
+export interface EstimateRequestInfo {
+  id: string;
+  projectId: string;
+  tradingPartnerId: string;
+  tradingPartnerName: string;
+  itemizedStatementId: string | null;     // 旧: string → string | null
+  itemizedStatementName: string | null;   // 旧: string → string | null
+  name: string;
+  method: EstimateRequestMethod;
+  includeBreakdownInBody: boolean;
+  status: EstimateRequestStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  receivedQuotationCount?: number;
+}
+```
+
+**create() 分岐ロジック（差分）**
+
+```typescript
+async create(input: CreateEstimateRequestInput, actorId: string): Promise<EstimateRequestInfo> {
+  return await this.prisma.$transaction(async (tx) => {
+    // 1-2. 取引先・協力業者検証（既存通り、変更なし）
+    // ...
+
+    const hasItemizedStatement =
+      input.itemizedStatementId !== undefined && input.itemizedStatementId !== null;
+
+    let itemCount = 0;
+    if (hasItemizedStatement) {
+      // 3-4. 内訳書検証 + items 0件チェック（既存通り、ガード内に集約）
+      const itemizedStatement = await tx.itemizedStatement.findUnique({ ... });
+      if (!itemizedStatement || itemizedStatement.deletedAt !== null) {
+        throw new ItemizedStatementNotFoundError(input.itemizedStatementId!);
+      }
+      if (itemizedStatement.items.length === 0) {
+        throw new EmptyItemizedStatementItemsError(input.itemizedStatementId!);
+      }
+      itemCount = itemizedStatement.items.length;
+    }
+
+    // 5. 見積依頼の作成
+    const estimateRequest = await tx.estimateRequest.create({
+      data: {
+        projectId: input.projectId,
+        tradingPartnerId: input.tradingPartnerId,
+        itemizedStatementId: hasItemizedStatement ? input.itemizedStatementId! : null,
+        name: input.name.trim(),
+        method: input.method ?? 'EMAIL',
+        includeBreakdownInBody: hasItemizedStatement ? (input.includeBreakdownInBody ?? false) : false,
+      },
+      include: {
+        tradingPartner: { select: { id: true, name: true } },
+        itemizedStatement: { select: { id: true, name: true } }, // null 許容（Prisma の optional relation）
+      },
+    });
+
+    // 6. EstimateRequestItem の自動初期化（内訳書ありの時のみ実行）
+    if (hasItemizedStatement) {
+      const itemsData = /* 既存のロジック */;
+      await tx.estimateRequestItem.createMany({ data: itemsData });
+    }
+
+    // 7. 監査ログ（itemizedStatementId・itemCount は nullable / 0 で記録）
+    await this.auditLogService.createLog({
+      action: 'ESTIMATE_REQUEST_CREATED',
+      actorId,
+      targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+      targetId: estimateRequest.id,
+      before: null,
+      after: {
+        projectId: estimateRequest.projectId,
+        tradingPartnerId: estimateRequest.tradingPartnerId,
+        itemizedStatementId: estimateRequest.itemizedStatementId, // string | null
+        name: estimateRequest.name,
+        method: estimateRequest.method,
+        itemCount, // 0 または N
+      },
+    });
+
+    return this.toEstimateRequestInfo(estimateRequest);
+  });
+}
+```
+
+**Implementation Notes**
+- Integration: `toEstimateRequestInfo()` の戻り値で `itemizedStatementId: request.itemizedStatementId ?? null`、`itemizedStatementName: request.itemizedStatement?.name ?? null` に変更（R-39-2）
+- Integration: `findById` / `findByProjectId` / `findLatestByProjectId` / `update` / `delete` の `include: { itemizedStatement: { select: ... } }` は Prisma の optional relation により null 返却が許容される。Service 側で追加の null チェックは不要（select 句のみ変更不要）
+- Audit log: `delete` の `before.itemizedStatementId` も nullable 反映（既存 `select` ステートメントの結果が `string | null` になるため自動追従）
+- Test impact: `service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）
+- includeBreakdownInBody: 内訳書なしで作成した見積依頼は `includeBreakdownInBody=false` で固定保存（R-39-3）。ユーザー入力の `true` は無視
+
+#### EstimateRequestTextService（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | `generateEmailBody` / `generateFaxBody` で `itemizedStatement` が null の場合に【見積対象項目】セクション生成を抑止 |
+| Requirements | 39.9 |
+
+**Body 生成ガード（差分）**
+
+```typescript
+private async getEstimateRequestWithDetails(estimateRequestId: string) {
+  const request = await this.prisma.estimateRequest.findUnique({
+    where: { id: estimateRequestId },
+    include: {
+      tradingPartner: { ... },
+      itemizedStatement: { select: { id: true, name: true } }, // null 許容（Prisma optional relation）
+      project: { ... },
+    },
+  });
+  // 既存の deletedAt チェック維持
+  return request;
+}
+
+private async getSelectedItems(estimateRequestId: string): Promise<SelectedItemInfo[]> {
+  // 既存のまま。内訳書なしの見積依頼では EstimateRequestItem が 0 件のため空配列を返す
+  // （EstimateRequestService.create で auto-init をスキップしているため自然に 0 件）
+}
+
+// generateEmailBody / generateFaxBody 内（差分）
+if (request.includeBreakdownInBody && selectedItems.length > 0) { // 旧: includeBreakdownInBody のみ
+  lines.push('【見積対象項目】');
+  // ...
+}
+```
+
+**Implementation Notes**
+- Behavior: 内訳書未紐付けでは `EstimateRequestItem` が存在しない＋ `includeBreakdownInBody=false` 強制保存のため、二重ガードで【見積対象項目】セクションは確実に省略される
+- 既存ドリフト: Req 6 AC 9（「添付内訳書の通り」表示）と現行実装の不一致は本要件のスコープ外（Out of Boundary）
+- Type safety: `request.itemizedStatement` は Prisma の optional relation として `{ id: string; name: string } | null` 型で取得され、生成関数内で参照する箇所はないため追加修正なし
+
+#### EstimateRequestForm（改訂2）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書フィールドの必須化を全面解除し、validate / disabled / required マーカー / メッセージから内訳書必須前提を除去 |
+| Requirements | 39.1, 39.2, 39.5 |
+
+**Component 変更（差分）**
+
+```typescript
+// 1. 必須マーカーを削除（line 520 付近）
+<label htmlFor="itemizedStatementId" style={styles.label}>
+  内訳書 <span style={styles.helperText}>（任意）</span> {/* 旧: <span style={styles.required}>*</span> */}
+</label>
+
+// 2. select の disabled を hasNoItemizedStatements 連動から isSubmitting のみに変更
+<select
+  ...
+  disabled={isSubmitting} // 旧: isSubmitting || hasNoItemizedStatements
+  aria-required={false}   // 旧: 'true'
+  ...
+/>
+
+// 3. 内訳書未登録メッセージを「（任意）」付き＋色を警告から情報トーンに変更
+{hasNoItemizedStatements && (
+  <div style={styles.infoMessage}> {/* 既存 emptyMessage は警告色 */}
+    内訳書が登録されていません（任意）。
+  </div>
+)}
+
+// 4. validate() から itemizedStatementId 必須チェックを削除
+const validate = useCallback((): boolean => {
+  const newErrors: FormErrors = {};
+  if (!name.trim()) newErrors.name = '見積依頼名を入力してください';
+  if (!tradingPartnerId) newErrors.tradingPartnerId = '宛先を選択してください';
+  // 旧: itemizedStatementId 必須チェック削除
+  // 内訳書が選択されている場合のみ「項目0件」エラーを残す
+  if (itemizedStatementId && selectedStatement && selectedStatement.itemCount === 0) {
+    newErrors.itemizedStatementId = '選択された内訳書に項目がありません';
+  }
+  setErrors(newErrors);
+  return Object.keys(newErrors).length === 0;
+}, [name, tradingPartnerId, itemizedStatementId, selectedStatement]);
+
+// 5. 提出ボタンの disabled から hasNoItemizedStatements を除外
+<button
+  type="submit"
+  disabled={isSubmitting || hasNoSubcontractors} // 旧: || hasNoItemizedStatements
+  ...
+>
+
+// 6. 送信時に空文字を undefined に変換
+const input: CreateEstimateRequestInput = {
+  name: name.trim(),
+  tradingPartnerId,
+  itemizedStatementId: itemizedStatementId || undefined, // 旧: itemizedStatementId
+};
+```
+
+**Implementation Notes**
+- Visual: `infoMessage` スタイルを新規追加（既存 `emptyMessage` の警告色 `#fef3c7/#92400e` から情報色 `#eff6ff/#1e40af` へ調整）
+- Accessibility: `aria-required="false"` 化と `aria-invalid` の連動も既存ロジックで自動追従
+- Form behavior: 内訳書を選択 → 解除（空文字に戻す）も許可。選択された内訳書の items 0 件チェックは残す（選んだ場合は項目必須）
+- Test impact: `EstimateRequestForm.test.tsx` の「必須バリデーション」テストから内訳書部分を削除し、「内訳書未選択での送信成功」「内訳書未登録時もボタン非活性にならない」のケースを追加
+
+#### EstimateRequestListPage（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 一覧の参照内訳書名列で null フォールバック「-」を表示 |
+| Requirements | 39.6, 39.12 |
+
+**Implementation Notes**
+- 単一行修正: `{request.itemizedStatementName ?? '-'}`（line 312 付近）
+- Accessibility: 表示文字列が `-` でも既存のセル構造で問題なし
+- Test impact: `e2e` 側で「内訳書なしの見積依頼が一覧に表示され、参照内訳書名列が `-` であること」を 1 ケース追加
+
+#### EstimateRequestDetailPage（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書未紐付け時に項目選択・Excel・本文オプション・参照内訳書セクションを条件レンダリングし、見積依頼方法・受領見積書セクションは維持 |
+| Requirements | 39.7, 39.8, 39.10, 39.11, 39.12 |
+
+**Implementation Notes**
+- ガード変数: `const hasItemizedStatement = request.itemizedStatementId !== null;`
+- 条件レンダリング対象（hasItemizedStatement === false で非表示）:
+  - `<ItemSelectionPanel>`（項目選択セクション全体）
+  - `<ExcelExportButton>`
+  - 「内訳書を本文に含める」チェックボックス（`<EstimateRequestTextPanel>` 内のサブ要素 → コンポーネント側で同等のガード、本ページからは props 経由で `showIncludeBreakdownToggle={hasItemizedStatement}` を渡す）
+- 表示維持対象:
+  - 見積依頼方法ラジオボタン（method 変更可能）
+  - 「保存」ボタン（method/name の更新は通常通り可能、Req 39.10）
+  - 受領見積書セクション（Req 39.11）
+  - ステータス遷移ボタン（既存挙動維持、Req 39 範囲外）
+- 「参照内訳書」表示行: `{request.itemizedStatementName ?? '-'}`（line 1071-1072 付近）
+- Layout: 項目選択セクション非表示時は、レイアウト崩れを避けるため上部の見積依頼方法／保存ボタンと受領見積書セクションが詰まる形になる。既存のフルワイドレイアウト（Req 27）配下でも自然な詰まりとなり追加の調整不要
+
+#### EstimateRequestTextPanel（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 「内訳書を本文に含める」チェックボックスを内訳書ありの時のみ表示 |
+| Requirements | 39.8 |
+
+**Implementation Notes**
+- Props 拡張: `showIncludeBreakdownToggle?: boolean`（デフォルト `true` で後方互換）
+- 親（DetailPage）から `showIncludeBreakdownToggle={hasItemizedStatement}` を渡す
+- 内部実装: `{showIncludeBreakdownToggle && <Checkbox ... />}` のシンプルなガード
+
+#### EstimateRequestEditPage（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書（読み取り専用）ブロックを内訳書ありの時のみ表示 |
+| Requirements | 39.12 |
+
+**Implementation Notes**
+- 単一ブロックガード: `{request.itemizedStatementName !== null && <div>...</div>}`（line 410-414 付近）
+- 編集画面では内訳書を新規付与しない（R-39-4 で確定、Out of Boundary）
+
+### Data Models（追記7）
+
+#### Domain Model 影響
+
+- **EstimateRequest**: ItemizedStatement との関連が「必須」→「任意」に変更。アグリゲートとしての整合性は `EstimateRequestItem` の存在有無で表現される（内訳書なし → `EstimateRequestItem` 0 件）
+- **EstimateRequestItem**: 既存通り。内訳書なしの EstimateRequest に対しては作成されない（既存の cascade delete 整合性は `EstimateRequest` 削除時にのみ機能）
+- **ItemizedStatement**: 一切の変更なし。`estimateRequests` リレーションは optional 側からの参照になるが、ItemizedStatement 単独での挙動は不変
+
+#### API Contract 変更
+
+- `POST /estimate-requests`（routes.ts）の OpenAPI required リスト: `itemizedStatementId` を削除。説明欄に「省略時は内訳書未紐付けの見積依頼として作成される」追記
+- レスポンスの `EstimateRequestInfo.itemizedStatementId` / `itemizedStatementName`: `string` → `string | null`（破壊的変更扱いだが、既存クライアントは null セーフ実装済みであるべき。本要件で FE 側を同時更新するため整合）
+
+### Error Handling（追記7）
+
+- `ItemizedStatementNotFoundError`: 内訳書 ID が指定された場合のみ throw（既存）。内訳書なしブランチでは到達しない
+- `EmptyItemizedStatementItemsError`: 同上。内訳書なしブランチでは到達しない
+- `EstimateRequestNotFoundError` / `EstimateRequestConflictError`: 既存挙動変更なし
+- 新規エラー: 追加なし
+- API レスポンスの 404/422 シナリオ: 内訳書 ID 指定時のみ発生（既存と同じ）
+
+### Testing Strategy（追記7）
+
+#### Backend Unit Tests（追記7）
+
+- `EstimateRequestService.create()` 内訳書なしケース:
+  - 保存成功時に `itemizedStatementId=null`、`includeBreakdownInBody=false` で永続化されることの確認（Req 39.2, 39.4）
+  - `EstimateRequestItem.createMany` が呼ばれないことの確認（R-39-5）
+  - 監査ログ `after.itemizedStatementId=null`、`after.itemCount=0` の確認（R-39-6）
+- `EstimateRequestService.create()` 内訳書ありケース（既存）: 挙動変更なしの回帰確認（Req 39.3, 39.12）
+- `EstimateRequestTextService.generate{Email,Fax}Body()`: 内訳書なし＋ `includeBreakdownInBody=false`（強制）で【見積対象項目】セクションが省略されることの確認（Req 39.9）
+- `createEstimateRequestSchema`: `itemizedStatementId` 未指定／null／空文字／UUID で各々 valid（Req 39.1）。不正な UUID 文字列のみ invalid
+
+#### Backend Integration Tests（追記7）
+
+- `POST /estimate-requests` ボディから `itemizedStatementId` を省略 → 201 + `itemizedStatementId=null` レスポンスの確認（Req 39.2, 39.4）
+- `POST /estimate-requests` で `itemizedStatementId` を空文字送信 → 201 + null 化の確認（Req 39.1）
+- 既存の `itemizedStatementId` 必須前提の 422 ケースは削除し、不正 UUID の場合のみ 422 とすることの確認
+
+#### Frontend Component Tests（追記7）
+
+- `EstimateRequestForm`:
+  - 内訳書未選択でも「作成」ボタンが活性であることの確認（Req 39.5）
+  - 内訳書未選択での送信が `itemizedStatementId: undefined` で API へ届くことの確認（Req 39.2）
+  - 必須マーカー `*` が表示されないことの確認（Req 39.1）
+  - 内訳書未登録時のメッセージが「（任意）」付きであることの確認（Req 39.5）
+  - 内訳書を選択してから解除（空文字に戻す）→ 送信成功する確認
+
+#### E2E Tests（追記7）
+
+- **クイックリクエスト作成 → 詳細表示**: プロジェクト詳細から見積依頼新規作成 → 名前・宛先のみ入力（内訳書空欄）→ 「作成」→ 詳細画面で項目選択セクション・Excel 出力・「本文に含める」チェックボックスが非表示であることの確認、参照内訳書表示が「-」であることの確認、見積依頼方法ラジオと保存ボタンは表示されていることの確認、受領見積書セクションは利用可能であることの確認（Req 39.2, 39.7, 39.8, 39.10, 39.11）
+- **一覧の「-」表示**: 内訳書なしの見積依頼を一覧から開く → 参照内訳書名列に「-」が表示されることの確認（Req 39.6）
+- **編集画面での挙動**: 内訳書なしの見積依頼の編集画面 → 内訳書（読み取り専用）ブロックが非表示であることの確認、name/method の更新は可能であることの確認（Req 39.10, 39.12）
+- **既存（内訳書あり）の回帰**: 既存の内訳書ありの見積依頼を作成 → 詳細・一覧・編集すべての画面で従来通りの表示であることの確認（Req 39.12）
+
+### Migration Strategy（追記7）
+
+- **DB マイグレーション**: 単一の `ALTER COLUMN ... DROP NOT NULL` を発行する純加算マイグレーション。既存行の影響なし（Req 39.12）
+- **既存データ**: 既存見積依頼レコードはすべて `itemizedStatementId` が設定済みのため、本マイグレーション後も影響なし
+- **デプロイ順序**: マイグレーション → バックエンド（API レスポンス nullable 化）→ フロントエンドの順で安全。フロントエンドが先行デプロイされるとサーバが旧 schema のまま 422 を返す可能性があるため、CI/CD のデプロイ順序を厳守
+- **ロールバック**: ロールバック時は手動で `SET NOT NULL` を実行する必要があるが、すでに NULL 行が存在する場合は失敗する。ロールバック手順は本要件のスコープ外（運用判断）
+
+### Security Considerations（追記7）
+
+- 認可・認証経路に変更なし。既存のミドルウェア・JWT 検証・CSRF 保護を継続利用
+- 入力バリデーション: `createEstimateRequestSchema` の UUID 形式チェックは値が指定された場合のみ適用。空文字・null・undefined の混在を Zod で正規化済み
+- データ漏洩リスク: なし（nullable 化はメタデータ表現の変更のみ）
+
+### File Structure Plan（追記7）
+
+| Path | Status | Responsibility |
+|------|--------|----------------|
+| `backend/prisma/schema.prisma` | Modified | `EstimateRequest.itemizedStatementId` を `String?` 化、リレーションを optional 化 |
+| `backend/prisma/migrations/{timestamp}_make_estimate_request_itemized_statement_optional/migration.sql` | New | `ALTER COLUMN itemized_statement_id DROP NOT NULL` |
+| `backend/src/schemas/estimate-request.schema.ts` | Modified | `createEstimateRequestSchema.itemizedStatementId` を optional/nullable/空文字許容に変更 |
+| `backend/src/services/estimate-request.service.ts` | Modified | `CreateEstimateRequestInput.itemizedStatementId?: string \| null`、`EstimateRequestInfo.itemizedStatementId / Name: string \| null`、`create()` のクイックリクエスト分岐、`toEstimateRequestInfo()` の null セーフ化 |
+| `backend/src/services/estimate-request-text.service.ts` | Modified | `generate{Email,Fax}Body()` で `selectedItems.length > 0` の追加ガード |
+| `backend/src/routes/estimate-requests.routes.ts` | Modified | OpenAPI required から `itemizedStatementId` を削除、説明追記 |
+| `frontend/src/types/estimate-request.types.ts` | Modified | `EstimateRequestInfo.itemizedStatementId / Name: string \| null`、`CreateEstimateRequestInput.itemizedStatementId?: string` |
+| `frontend/src/components/estimate-request/EstimateRequestForm.tsx` | Modified | 必須マーカー削除、validate 内 itemizedStatementId 必須チェック削除、disabled 連動解除、メッセージ調整、送信時 undefined 変換 |
+| `frontend/src/pages/EstimateRequestListPage.tsx` | Modified | 参照内訳書名列に `?? '-'` フォールバック |
+| `frontend/src/pages/EstimateRequestDetailPage.tsx` | Modified | `hasItemizedStatement` ガードで項目選択／Excel／参照内訳書／本文含めるチェックを条件レンダリング |
+| `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx` | Modified | `showIncludeBreakdownToggle` props 追加、チェックボックス条件レンダリング |
+| `frontend/src/pages/EstimateRequestEditPage.tsx` | Modified | 内訳書（読み取り専用）ブロックを `itemizedStatementName !== null` 時のみ表示 |
+| `backend/src/__tests__/integration/routes/estimate-requests.routes.test.ts` | Modified | 内訳書なしでの作成（201）ケース追加、必須前提 422 ケースを削除 |
+| `backend/src/__tests__/unit/services/estimate-request.service.test.ts` | Modified | `create()` の内訳書なしケース、監査ログ確認、`EstimateRequestItem` 未生成確認のテスト追加 |
+| `frontend/src/components/estimate-request/EstimateRequestForm.test.tsx` | Modified | 必須バリデーションから内訳書部分を削除、内訳書なし送信成功テスト追加 |
+| `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` | Modified | クイックリクエスト作成→詳細表示、一覧の「-」、編集画面の挙動、既存回帰の各 spec 追加・更新 |
+
+### Open Questions / Risks（追記7）
+
+- **R-39-1（既存ドリフト）**: Req 6 AC 9 と現行実装の不一致は本要件のスコープ外として持ち越す。Req 39 AC 9 は「内訳書未紐付け時に【見積対象項目】セクションを省略する」と読み替え、実装は `selectedItems.length > 0 && includeBreakdownInBody` ガードで統一。後段で Req 6 AC 9 を実装と整合させる場合は別タスクで `EstimateRequestTextService` の追補設計が必要
+- **デプロイ順序**: BE 先行 → FE の順を厳守（FE 先行だと旧 BE の 422 で作成失敗）
+- **既存 E2E 環境のデータ依存**: 既存の `estimate-request-e2e.spec.ts` の前提データに「内訳書必須」が組まれている場合、テストデータ整備（fixtures）も併せて更新が必要
