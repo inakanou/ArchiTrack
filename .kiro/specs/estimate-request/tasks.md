@@ -1868,7 +1868,7 @@
   - _Depends: 82.3_
   - _Requirements: 39.6, 39.12_
 
-- [ ] 84.3 (P) EstimateRequestDetailPage の条件レンダリング＋EstimateRequestTextPanel props 追加
+- [x] 84.3 (P) EstimateRequestDetailPage の条件レンダリング＋EstimateRequestTextPanel props 追加
   - frontend/src/pages/EstimateRequestDetailPage.tsx で `const hasItemizedStatement = request.itemizedStatementId !== null` ガードを導入
   - !hasItemizedStatement のとき ItemSelectionPanel と ExcelExportButton セクション全体を非表示
   - 「参照内訳書」表示行（line 1071-1072 付近）を `request.itemizedStatementName ?? '-'` に変更
