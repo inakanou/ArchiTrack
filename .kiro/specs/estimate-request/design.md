@@ -5202,7 +5202,7 @@ flowchart TD
 | 39.6 | 一覧の参照内訳書名列に「-」表示 | EstimateRequestListPage | `request.itemizedStatementName ?? '-'` レンダリング | - |
 | 39.7 | 詳細画面の項目選択セクション非表示 | EstimateRequestDetailPage | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
 | 39.8 | 「本文に含める」「Excel出力」非表示 | EstimateRequestDetailPage, EstimateRequestTextPanel, ExcelExportButton | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
-| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略） | クイックリクエスト作成フロー |
+| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody, EstimateRequestService.update | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略）／update() の `includeBreakdownInBody` 強制 false 正規化（design review Issue 1） | クイックリクエスト作成フロー |
 | 39.10 | 見積依頼方法・保存ボタン利用可能 | EstimateRequestDetailPage, EstimateRequestService.update | 既存の updateEstimateRequestSchema（method/name のみ）を継続利用 | - |
 | 39.11 | 受領見積書セクション利用可 | EstimateRequestDetailPage（受領見積書セクション部分） | 既存リレーション・既存 UI 変更なし | - |
 | 39.12 | 既存（内訳書あり）見積依頼の挙動・データ・表示無変更 | 全コンポーネント | nullable 分岐を「null の場合のみ追加挙動」として閉じる | - |
@@ -5412,12 +5412,28 @@ async create(input: CreateEstimateRequestInput, actorId: string): Promise<Estima
 }
 ```
 
+**update() でのガード追加（design review Issue 1, 2026-05-08 対応）**
+
+`create()` で確立した「内訳書なし → `includeBreakdownInBody=false` 強制」（R-39-3）の制約は `update()` でも一貫させる。`updateEstimateRequestSchema` は `includeBreakdownInBody.optional()` のため API 経由で内訳書なしの見積依頼に対し `true` を PATCH 可能だが、Service 層で対象レコードの `itemizedStatementId === null` を確認のうえ、入力 `includeBreakdownInBody` を無視（または false に正規化）する。
+
+```typescript
+// EstimateRequestService.update() 内、updateData 構築箇所（差分）
+if (input.includeBreakdownInBody !== undefined) {
+  // 内訳書なしの見積依頼は本文へ含めることが意味を持たないため false 強制（Req 39.9, R-39-3）
+  updateData.includeBreakdownInBody =
+    estimateRequest.itemizedStatementId === null ? false : input.includeBreakdownInBody;
+}
+```
+
+監査ログの `before` / `after` には正規化後の値を記録する（input ではなく `updateData` ベース）。
+
 **Implementation Notes**
 - Integration: `toEstimateRequestInfo()` の戻り値で `itemizedStatementId: request.itemizedStatementId ?? null`、`itemizedStatementName: request.itemizedStatement?.name ?? null` に変更（R-39-2）
 - Integration: `findById` / `findByProjectId` / `findLatestByProjectId` / `update` / `delete` の `include: { itemizedStatement: { select: ... } }` は Prisma の optional relation により null 返却が許容される。Service 側で追加の null チェックは不要（select 句のみ変更不要）
 - Audit log: `delete` の `before.itemizedStatementId` も nullable 反映（既存 `select` ステートメントの結果が `string | null` になるため自動追従）
-- Test impact: `service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）
-- includeBreakdownInBody: 内訳書なしで作成した見積依頼は `includeBreakdownInBody=false` で固定保存（R-39-3）。ユーザー入力の `true` は無視
+- Test impact: `service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）。さらに `update()` のガードに対し「内訳書なしの見積依頼に `includeBreakdownInBody=true` を更新リクエスト → 永続化された値が false で監査ログも false」のテストを 1 件追加
+- includeBreakdownInBody（create）: 内訳書なしで作成した見積依頼は `includeBreakdownInBody=false` で固定保存（R-39-3）。ユーザー入力の `true` は無視
+- includeBreakdownInBody（update）: 上記 update() ガード参照。create と同等の制約を適用
 
 #### EstimateRequestTextService（改訂）
 
@@ -5610,6 +5626,7 @@ const input: CreateEstimateRequestInput = {
   - `EstimateRequestItem.createMany` が呼ばれないことの確認（R-39-5）
   - 監査ログ `after.itemizedStatementId=null`、`after.itemCount=0` の確認（R-39-6）
 - `EstimateRequestService.create()` 内訳書ありケース（既存）: 挙動変更なしの回帰確認（Req 39.3, 39.12）
+- `EstimateRequestService.update()` 内訳書なし対象に `includeBreakdownInBody=true` を渡すケース: 永続化された値が `false` に正規化され、監査ログ `after.includeBreakdownInBody=false` で記録されることの確認（Req 39.9, R-39-3, design review Issue 1）
 - `EstimateRequestTextService.generate{Email,Fax}Body()`: 内訳書なし＋ `includeBreakdownInBody=false`（強制）で【見積対象項目】セクションが省略されることの確認（Req 39.9）
 - `createEstimateRequestSchema`: `itemizedStatementId` 未指定／null／空文字／UUID で各々 valid（Req 39.1）。不正な UUID 文字列のみ invalid
 
