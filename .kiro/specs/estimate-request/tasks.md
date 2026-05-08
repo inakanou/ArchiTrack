@@ -1898,7 +1898,7 @@
   - _Depends: 83.2, 83.3_
   - _Requirements: 39.2, 39.3, 39.4, 39.9_
 
-- [ ] 85.2 (P) Backend routes.test.ts integration カバレッジ更新
+- [x] 85.2 (P) Backend routes.test.ts integration カバレッジ更新
   - backend/src/__tests__/integration/routes/estimate-requests.routes.test.ts に追加テスト
   - POST /estimate-requests で itemizedStatementId 省略 → 201 + itemizedStatementId=null レスポンスの確認
   - 空文字送信 → 201 + null 化の確認
