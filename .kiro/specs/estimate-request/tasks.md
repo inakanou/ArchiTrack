@@ -1832,7 +1832,7 @@
   - _Depends: 82.1, 82.2, 83.1_
   - _Requirements: 39.2, 39.3, 39.4_
 
-- [ ] 83.3 EstimateRequestService.update() の includeBreakdownInBody 正規化
+- [x] 83.3 EstimateRequestService.update() の includeBreakdownInBody 正規化
   - update() の updateData 構築箇所で対象レコードの itemizedStatementId === null のとき input.includeBreakdownInBody を false に正規化（design.md「update() でのガード追加」セクション参照）
   - 監査ログ before/after も正規化後の値で記録
   - 観察可能完了: 内訳書なしの見積依頼に対し includeBreakdownInBody=true を update() に渡しても永続化値が false で、監査ログ after.includeBreakdownInBody も false

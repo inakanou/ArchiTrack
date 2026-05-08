@@ -717,6 +717,131 @@ describe('EstimateRequestService', () => {
         service.update('er-001', { name: '新しい名前' }, 'user-001', expectedUpdatedAt)
       ).rejects.toThrow(EstimateRequestConflictError);
     });
+
+    it('内訳書なしの見積依頼に includeBreakdownInBody=true を渡しても false に正規化される（Requirements: 39.9）', async () => {
+      // Arrange
+      const requestId = 'er-002';
+      const actorId = 'user-001';
+      const expectedUpdatedAt = new Date('2026-05-08T00:00:00Z');
+      const input = {
+        includeBreakdownInBody: true, // ユーザーが true を指定
+      };
+
+      // 対象レコードは itemizedStatementId === null（内訳書なし）
+      const mockRequest = {
+        id: 'er-002',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: null,
+        name: '内訳書なし見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        createdAt: new Date('2026-05-07T00:00:00Z'),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+        tradingPartner: { id: 'tp-001', name: 'テスト協力業者' },
+        itemizedStatement: null,
+      };
+
+      const mockUpdatedRequest = {
+        ...mockRequest,
+        includeBreakdownInBody: false, // 永続化値は false
+        updatedAt: new Date('2026-05-08T01:00:00Z'),
+      };
+
+      const updateSpy = vi.fn().mockResolvedValue(mockUpdatedRequest);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateRequest: {
+            findUnique: vi.fn().mockResolvedValue(mockRequest),
+            update: updateSpy,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.update(requestId, input, actorId, expectedUpdatedAt);
+
+      // Assert: 永続化値は false に正規化されている
+      expect(updateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: requestId },
+          data: expect.objectContaining({
+            includeBreakdownInBody: false,
+          }),
+        })
+      );
+      expect(result.includeBreakdownInBody).toBe(false);
+
+      // Assert: 監査ログ after も正規化後の値（false）
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ESTIMATE_REQUEST_UPDATED',
+          after: expect.objectContaining({
+            includeBreakdownInBody: false,
+          }),
+        })
+      );
+    });
+
+    it('内訳書ありの見積依頼に includeBreakdownInBody=true を渡したときは true がそのまま反映される（Requirements: 39.12）', async () => {
+      // Arrange: 既存挙動が保たれることを確認
+      const requestId = 'er-003';
+      const actorId = 'user-001';
+      const expectedUpdatedAt = new Date('2026-05-08T00:00:00Z');
+      const input = {
+        includeBreakdownInBody: true,
+      };
+
+      const mockRequest = {
+        id: 'er-003',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: 'is-001',
+        name: '内訳書あり見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        createdAt: new Date('2026-05-07T00:00:00Z'),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+        tradingPartner: { id: 'tp-001', name: 'テスト協力業者' },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+      };
+
+      const mockUpdatedRequest = {
+        ...mockRequest,
+        includeBreakdownInBody: true,
+        updatedAt: new Date('2026-05-08T01:00:00Z'),
+      };
+
+      const updateSpy = vi.fn().mockResolvedValue(mockUpdatedRequest);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateRequest: {
+            findUnique: vi.fn().mockResolvedValue(mockRequest),
+            update: updateSpy,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.update(requestId, input, actorId, expectedUpdatedAt);
+
+      // Assert: 内訳書ありなので true がそのまま反映される
+      expect(updateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: requestId },
+          data: expect.objectContaining({
+            includeBreakdownInBody: true,
+          }),
+        })
+      );
+      expect(result.includeBreakdownInBody).toBe(true);
+    });
   });
 
   describe('delete', () => {

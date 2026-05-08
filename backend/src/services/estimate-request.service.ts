@@ -476,7 +476,11 @@ export class EstimateRequestService {
         updateData.method = input.method;
       }
       if (input.includeBreakdownInBody !== undefined) {
-        updateData.includeBreakdownInBody = input.includeBreakdownInBody;
+        // Task 83.3: 内訳書なしの見積依頼は本文へ含めることが意味を持たないため
+        // includeBreakdownInBody=false に正規化（Requirements: 39.9, R-39-3）。
+        // 監査ログ before/after も updateData ベースの正規化後の値で記録される。
+        updateData.includeBreakdownInBody =
+          estimateRequest.itemizedStatementId === null ? false : input.includeBreakdownInBody;
       }
 
       // 4. 更新
