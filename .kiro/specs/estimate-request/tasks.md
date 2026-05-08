@@ -1909,7 +1909,7 @@
   - _Depends: 83.1, 83.2_
   - _Requirements: 39.1, 39.2, 39.4_
 
-- [ ] 85.3 (P) Backend estimate-request-text.service.test.ts カバレッジ更新
+- [x] 85.3 (P) Backend estimate-request-text.service.test.ts カバレッジ更新
   - backend/src/__tests__/unit/services/estimate-request-text.service.test.ts に追加テスト（ファイル未存在の場合は新規作成）
   - 内訳書なし＋ includeBreakdownInBody=false のケースで本文に【見積対象項目】セクションが含まれないことの確認（メール本文／FAX本文両方）
   - 既存の内訳書あり＋ includeBreakdownInBody=true で【見積対象項目】セクションが含まれるケース（既存 or 新規）も確認
