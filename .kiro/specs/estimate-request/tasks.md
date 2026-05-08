@@ -1812,7 +1812,7 @@
   - _Requirements: 39.4, 39.12_
 
 - [ ] 83. Backend Service / Schema / Route の改訂（Requirement 39）
-- [ ] 83.1 createEstimateRequestSchema の optional 化と routes OpenAPI 更新
+- [x] 83.1 createEstimateRequestSchema の optional 化と routes OpenAPI 更新
   - backend/src/schemas/estimate-request.schema.ts の itemizedStatementId フィールドを `.regex(UUID_REGEX, ...).optional().nullable().or(z.literal('').transform(() => null))` に変更
   - ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_REQUIRED 定数を撤去（参照元なしを grep で確認後）
   - backend/src/routes/estimate-requests.routes.ts の OpenAPI required リストから itemizedStatementId を削除し、説明欄に「省略時は内訳書未紐付けの見積依頼として作成される」を追記
