@@ -1880,7 +1880,7 @@
   - _Depends: 82.3_
   - _Requirements: 39.7, 39.8, 39.10, 39.11, 39.12_
 
-- [ ] 84.4 (P) EstimateRequestEditPage の条件表示
+- [x] 84.4 (P) EstimateRequestEditPage の条件表示
   - frontend/src/pages/EstimateRequestEditPage.tsx の内訳書（読み取り専用）ブロック（line 410-414 付近）を `{request.itemizedStatementName !== null && (<div>...</div>)}` で条件レンダリング
   - 観察可能完了: 内訳書未紐付けの見積依頼の編集画面で、内訳書読み取り専用ブロックが非表示で、name・method の更新は通常通り可能（保存成功で詳細画面に戻る）
   - _Boundary: EstimateRequestEditPage_
