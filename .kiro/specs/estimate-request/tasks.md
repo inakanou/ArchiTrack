@@ -1785,7 +1785,7 @@
   - _Requirements: 36.1, 36.4, 36.9, 36.10, 37.7, 37.13, 38.2, 38.3, 38.6, 38.7, 38.8, 38.12, 38.13, 38.14_
 
 - [ ] 82. 内訳書任意化の Foundation - DB スキーマと型定義（Requirement 39）
-- [ ] 82.1 EstimateRequest.itemizedStatementId の nullable 化（Prisma スキーマ＋マイグレーション）
+- [x] 82.1 EstimateRequest.itemizedStatementId の nullable 化（Prisma スキーマ＋マイグレーション）
   - backend/prisma/schema.prisma の EstimateRequest model で itemizedStatementId を String? に変更し、リレーション itemizedStatement も optional に変更
   - npx prisma migrate dev --name make_estimate_request_itemized_statement_optional でマイグレーションファイルを生成
   - 生成された migration.sql が `ALTER TABLE estimate_requests ALTER COLUMN itemized_statement_id DROP NOT NULL` のみであることを確認（不要な ALTER が含まれる場合は手動で削除）
