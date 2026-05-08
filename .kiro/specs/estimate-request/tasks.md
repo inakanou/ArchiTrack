@@ -1784,7 +1784,7 @@
   - _Boundary: e2e/specs_
   - _Requirements: 36.1, 36.4, 36.9, 36.10, 37.7, 37.13, 38.2, 38.3, 38.6, 38.7, 38.8, 38.12, 38.13, 38.14_
 
-- [ ] 82. 内訳書任意化の Foundation - DB スキーマと型定義（Requirement 39）
+- [x] 82. 内訳書任意化の Foundation - DB スキーマと型定義（Requirement 39）
 - [x] 82.1 EstimateRequest.itemizedStatementId の nullable 化（Prisma スキーマ＋マイグレーション）
   - backend/prisma/schema.prisma の EstimateRequest model で itemizedStatementId を String? に変更し、リレーション itemizedStatement も optional に変更
   - npx prisma migrate dev --name make_estimate_request_itemized_statement_optional でマイグレーションファイルを生成
@@ -1811,7 +1811,7 @@
   - _Boundary: frontend/src/types_
   - _Requirements: 39.4, 39.12_
 
-- [ ] 83. Backend Service / Schema / Route の改訂（Requirement 39）
+- [x] 83. Backend Service / Schema / Route の改訂（Requirement 39）
 - [x] 83.1 createEstimateRequestSchema の optional 化と routes OpenAPI 更新
   - backend/src/schemas/estimate-request.schema.ts の itemizedStatementId フィールドを `.regex(UUID_REGEX, ...).optional().nullable().or(z.literal('').transform(() => null))` に変更
   - ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_REQUIRED 定数を撤去（参照元なしを grep で確認後）
@@ -1848,7 +1848,7 @@
   - _Depends: 82.1_
   - _Requirements: 39.9_
 
-- [ ] 84. Frontend 各画面の条件レンダリング（Requirement 39）
+- [x] 84. Frontend 各画面の条件レンダリング（Requirement 39）
 - [x] 84.1 (P) EstimateRequestForm の必須化解除
   - frontend/src/components/estimate-request/EstimateRequestForm.tsx の内訳書フィールド `*` 必須マーカーを `<span style={styles.helperText}>（任意）</span>` に置換
   - select の disabled を `isSubmitting` のみに変更（`hasNoItemizedStatements` 連動を削除）、aria-required="false"
@@ -1887,7 +1887,7 @@
   - _Depends: 82.3_
   - _Requirements: 39.10, 39.12_
 
-- [ ] 85. 内訳書任意化のテスト（Requirement 39）
+- [x] 85. 内訳書任意化のテスト（Requirement 39）
 - [x] 85.1 (P) Backend service.test.ts の create/update カバレッジ追加
   - backend/src/__tests__/unit/services/estimate-request.service.test.ts に追加テスト
   - create() 内訳書なしケース 3 件: itemizedStatementId=null/includeBreakdownInBody=false で永続化されることの確認、EstimateRequestItem.createMany が呼ばれないことの mock 確認、監査ログ after.itemizedStatementId=null/itemCount=0 の確認
@@ -1931,7 +1931,7 @@
   - _Depends: 84.1_
   - _Requirements: 39.1, 39.2, 39.5_
 
-- [ ] 85.5 内訳書任意化の E2E テスト
+- [x] 85.5 内訳書任意化の E2E テスト
   - e2e/specs/estimate-requests/estimate-request-e2e.spec.ts に追加スペック 4 シナリオ
   - シナリオ 1（クイック作成→詳細）: プロジェクト詳細から見積依頼新規作成 → 内訳書空欄で送信 → 詳細画面で項目選択セクション・Excel 出力・「本文に含める」非表示、参照内訳書「-」、見積依頼方法ラジオ・保存ボタン・受領見積書セクションが利用可能であることの確認
   - シナリオ 2（一覧表示）: 内訳書なしの見積依頼が一覧で参照内訳書名列に「-」と表示されることの確認
