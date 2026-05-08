@@ -1849,7 +1849,7 @@
   - _Requirements: 39.9_
 
 - [ ] 84. Frontend 各画面の条件レンダリング（Requirement 39）
-- [ ] 84.1 (P) EstimateRequestForm の必須化解除
+- [x] 84.1 (P) EstimateRequestForm の必須化解除
   - frontend/src/components/estimate-request/EstimateRequestForm.tsx の内訳書フィールド `*` 必須マーカーを `<span style={styles.helperText}>（任意）</span>` に置換
   - select の disabled を `isSubmitting` のみに変更（`hasNoItemizedStatements` 連動を削除）、aria-required="false"
   - 内訳書未登録時のメッセージを「内訳書が登録されていません（任意）」に変更し、新規 infoMessage スタイル（`#eff6ff/#1e40af` 系の情報トーン）を追加
