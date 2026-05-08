@@ -1840,7 +1840,7 @@
   - _Depends: 83.2_
   - _Requirements: 39.9_
 
-- [ ] 83.4 EstimateRequestTextService の null セーフガード
+- [x] 83.4 EstimateRequestTextService の null セーフガード
   - backend/src/services/estimate-request-text.service.ts の generateEmailBody/generateFaxBody 内 `if (request.includeBreakdownInBody)` 条件を `if (request.includeBreakdownInBody && selectedItems.length > 0)` に変更
   - getEstimateRequestWithDetails の include 句は変更不要（Prisma の optional relation で自動的に null 許容）
   - 観察可能完了: 内訳書なしの見積依頼で generateText() を呼び出すと、本文に【見積対象項目】セクションが含まれない（メール本文・FAX本文どちらも）
