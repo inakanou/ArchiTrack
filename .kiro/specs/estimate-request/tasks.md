@@ -1918,7 +1918,7 @@
   - _Depends: 83.4_
   - _Requirements: 39.9_
 
-- [ ] 85.4 (P) Frontend EstimateRequestForm.test.tsx カバレッジ更新
+- [x] 85.4 (P) Frontend EstimateRequestForm.test.tsx カバレッジ更新
   - frontend/src/components/estimate-request/EstimateRequestForm.test.tsx に追加テスト
   - 内訳書未選択での送信が `itemizedStatementId: undefined` で onSubmit へ届くことの確認
   - 内訳書未登録時にも「作成」ボタンが活性であることの確認
