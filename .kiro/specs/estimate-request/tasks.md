@@ -1888,7 +1888,7 @@
   - _Requirements: 39.10, 39.12_
 
 - [ ] 85. 内訳書任意化のテスト（Requirement 39）
-- [ ] 85.1 (P) Backend service.test.ts の create/update カバレッジ追加
+- [x] 85.1 (P) Backend service.test.ts の create/update カバレッジ追加
   - backend/src/__tests__/unit/services/estimate-request.service.test.ts に追加テスト
   - create() 内訳書なしケース 3 件: itemizedStatementId=null/includeBreakdownInBody=false で永続化されることの確認、EstimateRequestItem.createMany が呼ばれないことの mock 確認、監査ログ after.itemizedStatementId=null/itemCount=0 の確認
   - update() 内訳書なし対象に includeBreakdownInBody=true を渡すと永続化値が false に正規化されることの確認 1 件
