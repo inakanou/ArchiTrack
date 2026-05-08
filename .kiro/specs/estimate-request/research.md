@@ -346,3 +346,106 @@ design.md 追記6 で既にカバー済みのため再分析不要:
 - ✅ Effort（S/M/L）と Risk（Low/Medium）の justification
 - ✅ Recommendations for next phase（Tasks 段階）
 - ✅ Research Items（R-1 〜 R-4）
+
+---
+
+## Gap Analysis: Requirement 39 — 見積依頼における内訳書の任意化（2026-05-08）
+
+### スコープ
+
+数量表（内訳書）作成前に電話などの手段で取り急ぎ協力業者へ見積依頼を行うユースケースを成立させるため、見積依頼作成時の内訳書選択を必須から任意に変更する。受領見積書は従来通り紐付け可能とし、後段の見積書作成機能は受領見積書の内訳を活用する想定（本要件のスコープ外）。
+
+### 1. Requirement-to-Asset Map（既存資産との対応）
+
+| Req 39 AC | 既存資産（変更対象） | 状態 | 変更概要 |
+|-----------|---------------------|------|----------|
+| AC 1, AC 4（任意化＋NULL許容） | `backend/prisma/schema.prisma:875` `itemizedStatementId String` | Constraint | `String?` 化＋マイグレーション発行 |
+| AC 1, AC 2（任意入力） | `backend/src/schemas/estimate-request.schema.ts:83-86` Zod `itemizedStatementId` 必須 | Constraint | `.optional()` 付与＋メッセージ調整 |
+| AC 2, AC 3（保存ロジック分岐） | `backend/src/services/estimate-request.service.ts:51,79,190-282` `EstimateRequestService.create()` | Missing | 内訳書未紐付け分岐（ItemizedStatement findUnique・items 0 件チェック・EstimateRequestItem 自動初期化を条件付き化） |
+| AC 1, AC 5（フォーム挙動） | `frontend/src/components/estimate-request/EstimateRequestForm.tsx:317,365-384,466-468,520(★),526,544,576-583` | Missing | `*` 必須マーカー削除、`hasNoItemizedStatements` を提出ボタン disabled 条件から除外、validate 関数の `itemizedStatementId` 必須チェック削除、内訳書未登録メッセージを「（任意）」に変更 |
+| AC 6（一覧画面の「-」表示） | `frontend/src/pages/EstimateRequestListPage.tsx:312` `{request.itemizedStatementName}` | Missing | NULL 時に「-」表示する条件分岐 |
+| AC 7（詳細画面の項目選択セクション非表示） | `frontend/src/pages/EstimateRequestDetailPage.tsx`（項目選択セクション）/ `frontend/src/components/estimate-request/ItemSelectionPanel.tsx` | Missing | `itemizedStatementId` 不在時にセクション非表示。「保存」ボタン（method変更）への動線は維持 |
+| AC 8（Excel出力・本文含めるチェック非表示） | `frontend/src/components/estimate-request/ExcelExportButton.tsx` / `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx`（`includeBreakdownInBody` チェックボックス） | Missing | `itemizedStatementId` 不在時に非表示 |
+| AC 9（本文【内容】の固定文言） | `backend/src/services/estimate-request-text.service.ts:249-298,303-360` `generateEmailBody`/`generateFaxBody` | Constraint＋Unknown | 現状実装は `includeBreakdownInBody=false` 時に項目セクションを単に省略する挙動。Req 6 AC 9 が指定する「添付内訳書の通り」表示は未実装（既存の仕様⇄実装ギャップ）。Req 39 AC 9 でも同 Req 6 AC 9 を参照しているため、本実装の前に仕様⇄実装の整合確認が必要（R-1） |
+| AC 10（method 保存可能） | 既存の `update` フロー | OK | 内訳書未紐付けでも `updateEstimateRequestSchema` は影響なし（method・name のみ更新可能） |
+| AC 11（受領見積書セクション利用可） | 既存の `received_quotations` リレーション・受領見積書系コンポーネント | OK | `EstimateRequest` の `receivedQuotations` リレーションは内訳書とは独立しているため変更不要 |
+| AC 12（既存データ無変更） | 既存マイグレーション・データ | OK | `String?` 化は NULL 許容化のみで、既存行の `itemizedStatementId` は維持 |
+| 編集画面の読み取り専用表示 | `frontend/src/pages/EstimateRequestEditPage.tsx:410-414` 「内訳書（読み取り専用）」 | Missing | 内訳書未紐付け時は当該ブロックを非表示またはプレースホルダ表示 |
+| 型定義 | `frontend/src/types/estimate-request.types.ts`（`EstimateRequestInfo.itemizedStatementId` 等）/ backend types | Missing | nullable 化に追従（FE 型・BE 型両方） |
+| API ドキュメント | `backend/src/routes/estimate-requests.routes.ts:92-105`（OpenAPI required リスト） | Missing | `required` から `itemizedStatementId` を除外、説明追記 |
+
+### 2. 整合制約・既存パターン
+
+- **マイグレーションパターン**: `backend/prisma/migrations/` は連番タイムスタンプ命名規則（例: `20260318200001_add_amendment_apply_history`）。ALTER COLUMN 系の単純変更は単独マイグレーションで実施するのが慣例。
+- **Service 層**: `EstimateRequestService.create()` はトランザクション内で「取引先確認 → 内訳書確認 → 項目0件チェック → EstimateRequest 作成 → EstimateRequestItem 自動初期化 → 監査ログ」の6ステップ構成。本要件では2-4を条件付き化する形が最小侵襲。
+- **監査ログ**: `auditLogService.createLog()` の `after.itemizedStatementId`/`after.itemCount` は nullable 化が必要（後者は 0 で代替可）。
+- **テスト境界**: backend は service unit + routes integration、frontend は component test、e2e は Playwright spec。Req 39 では下記4箇所のテストに既存「内訳書必須」前提の assertion が含まれるため更新が必要。
+  - `backend/src/__tests__/integration/routes/estimate-requests.routes.test.ts:246-266`（404/422 の前提）
+  - `frontend/src/components/estimate-request/EstimateRequestForm.test.tsx:282-301, 324-333`（必須バリデーション、内訳書未登録時の挙動）
+  - `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts:569-582, 1529-1578`（内訳書選択フィールド表示／未登録メッセージ）
+
+### 3. 実装アプローチオプション
+
+#### Option A: 既存コンポーネント拡張（推奨）
+
+- 既存の `EstimateRequest` モデル・サービス・コンポーネントに `itemizedStatementId` nullable パスを追加。
+- 各画面コンポーネントで `itemizedStatementId` / `itemizedStatementName` の null チェックによる条件レンダリングを追加。
+- フォームの validate / disabled / required マーカーから内訳書必須を除外。
+
+**Trade-offs**
+- ✅ 最小侵襲。既存パターン・既存テスト構造を踏襲できる
+- ✅ Option A は CLAUDE.md「Don't add features beyond what the task requires」に整合
+- ❌ 条件分岐が複数コンポーネントに散在するため、null パスのテストカバレッジを意識的に確保する必要あり
+
+#### Option B: 内訳書なしモード専用画面/フォームの分離
+
+- `EstimateRequestCreatePage` に「クイック見積依頼（内訳書なし）」モードを追加し、専用フォームを切り替え表示。
+
+**Trade-offs**
+- ✅ 各モードのフォーム責務が明確
+- ❌ ユースケース差は「内訳書フィールドの有無のみ」なので過剰分離。コード重複が増える
+- ❌ 既存テスト構造との不整合が発生
+
+#### Option C: ハイブリッド（DB nullable + 仮想内訳書）
+
+- DB は nullable 化するが、UI レイヤでは「空内訳書（items 0 件）」を自動生成して見かけ上必須を保つ。
+
+**Trade-offs**
+- ❌ ユーザーが意図しないダミー内訳書がデータとして残る（前回ユーザー回答「DBの itemizedStatementId nullable に変更する」で明示的に却下済み）
+- ❌ 受領見積書の内訳を活用するフローと整合しない
+
+→ **Option A を推奨**（前回のユーザー意思決定とも整合）。
+
+### 4. Effort / Risk
+
+| 項目 | 評価 | 根拠 |
+|------|------|------|
+| **総合 Effort** | **M（3〜5日）** | DB 1 マイグレーション + BE service/schema/route 3ファイル + FE 6〜7コンポーネント/ページ + 既存テスト更新（unit×3、integration×1、E2E×2）。新規パターン導入なし、既存マイグレーション・分岐パターン踏襲 |
+| **総合 Risk** | **Low-Medium** | 既存の内訳書必須前提テストが多いため、`null` パスの assertion 漏れと、レスポンス型互換性（`itemizedStatementName` を `string` から `string | null` に変える際のフロント参照箇所網羅）に注意。マイグレーション自体は `DROP NOT NULL` 単一操作で低リスク |
+
+### 5. Research Items（design 段階で確定）
+
+| ID | テーマ | 内容 |
+|----|------|------|
+| R-39-1 | 本文【内容】セクションの仕様⇄実装整合 | Req 6 AC 9 が「添付内訳書の通り」表示を要求している一方、`estimate-request-text.service.ts` の現行実装は `includeBreakdownInBody=false` 時に項目セクションを完全省略している。Req 39 AC 9 が Req 6 AC 9 を参照しているため、design 段階で「仕様に合わせて実装変更する」か「実装に合わせて仕様を調整する」かを決定する。本要件のスコープを最小化するなら後者（Req 39 AC 9 を実装現状に合わせる）が無難 |
+| R-39-2 | `EstimateRequestInfo.itemizedStatementId` / `itemizedStatementName` の型 | `string` から `string | null` に変える必要がある。フロント側の参照箇所（`EstimateRequestListPage.tsx:312`、`EstimateRequestDetailPage.tsx:1071-1072`、`EstimateRequestEditPage.tsx:413` 等）の null セーフ化を網羅 |
+| R-39-3 | `includeBreakdownInBody` の制約 | 内訳書未紐付け時の `includeBreakdownInBody` の扱い。①保存時に強制 false、②UIで非表示・送信時 false、③DB の Boolean default false のままで実害なし、のいずれを採るか design で確定 |
+| R-39-4 | 編集画面の挙動 | `EstimateRequestEditPage` は現状内訳書を変更不可（読み取り専用）。本要件で「内訳書なし→あり」を許可するか／既存通り変更不可とするか確定。ユーザー回答「後付け不要」より、編集での後付けは想定しない方針 |
+| R-39-5 | EstimateRequestItem 自動初期化のスキップ | 内訳書未紐付け時は `EstimateRequestItem` を作成しないことを確定。後で内訳書を紐付ける機能はスコープ外（ユーザー回答）なので、`EstimateRequestItem` のレコードは「最初に内訳書ありで作成された見積依頼」に対してのみ生成される運用となる |
+| R-39-6 | 監査ログ | `ESTIMATE_REQUEST_CREATED` の `after` ペイロードで `itemizedStatementId` / `itemCount` を nullable 化。監査ログ閲覧側の互換性（既存ログとの差分表現）を確認 |
+| R-39-7 | EstimateRequestStatus の影響 | `BEFORE_REQUEST` / `REQUESTED` / `QUOTATION_RECEIVED` の遷移ロジックは内訳書非依存と仮定。design で確認 |
+
+### 6. Recommendations for Design Phase
+
+- **アプローチ**: Option A（既存コンポーネント拡張）を採用。データモデル変更（nullable 化）→ Service 層の条件分岐 → Schema/API ドキュメント → フロント条件レンダリング → テスト更新の順で設計。
+- **Foundation タスク候補**: R-39-1〜R-39-7 の確定（特に R-39-1 は文言挙動を変えるため要件側との整合判断が必要、R-39-3 は API スキーマ確定の前提）。
+- **データモデル先行**: Prisma スキーマ変更とマイグレーションは独立タスクとして先行実施可。後続の Service / FE タスクは生成後の Prisma 型に依存。
+- **テスト更新**: Service unit テスト・Form コンポーネントテスト・E2E spec を「内訳書あり」「内訳書なし」両パスで網羅。既存の必須前提 assertion はリグレッションを避けるため strikethrough ではなく置換更新が望ましい。
+
+### 7. Output Checklist 充足
+
+- ✅ Requirement-to-Asset Map（§1 表、Missing/Constraint タグ付き）
+- ✅ Options A/B/C と選定理由（§3）
+- ✅ Effort / Risk と一行 justification（§4）
+- ✅ Recommendations for next phase（§6、design 段階に持ち越す Research Items §5）
+- ✅ Research Items（R-39-1 〜 R-39-7）
