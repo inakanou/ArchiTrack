@@ -1804,7 +1804,7 @@
   - _Depends: 82.1_
   - _Requirements: 39.4, 39.12_
 
-- [ ] 82.3 (P) Frontend 型定義の nullable 化
+- [x] 82.3 (P) Frontend 型定義の nullable 化
   - frontend/src/types/estimate-request.types.ts の EstimateRequestInfo.itemizedStatementId と itemizedStatementName を `string | null` に変更
   - CreateEstimateRequestInput.itemizedStatementId を optional（`string | undefined`）に変更
   - 観察可能完了: tsc --noEmit が frontend ディレクトリで成功し、EstimateRequestInfo を参照する各画面コンポーネントが新しい型と整合する（後続タスク 84.x で利用箇所を null セーフ化する）
