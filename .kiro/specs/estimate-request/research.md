@@ -449,3 +449,120 @@ design.md 追記6 で既にカバー済みのため再分析不要:
 - ✅ Effort / Risk と一行 justification（§4）
 - ✅ Recommendations for next phase（§6、design 段階に持ち越す Research Items §5）
 - ✅ Research Items（R-39-1 〜 R-39-7）
+
+---
+
+## Requirement 40 — 受領見積書OCRセクション折りたたみ機能 Gap Analysis (2026-05-11)
+
+### 1. Current State Investigation
+
+#### 対象アセット
+
+| 領域 | パス | 役割 |
+|------|------|------|
+| 受領見積書 登録/編集フォーム | `frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx` | ダイアログ本体。`selectedFile` または編集モードの `existingFilePreviewUrl` 存在時に `OcrDataExtractor` を `styles.ocrSection` 内に描画 |
+| OCR 抽出コンポーネント | `frontend/src/components/estimate-requests/OcrDataExtractor.tsx` | 内部 state（`status` / `progress` / `extractedText` / `parsedLineItems` / `errorMessage` / `importCompleted` / `usedClaudeVision` / `fallbackActivated` / `fallbackReason`）を保持。`useEffect`（行 1128）でファイル変更時に OCR を自動起動 |
+| 既存 styles | `ReceivedQuotationForm.tsx:301` `ocrSection: { marginTop: '16px' }` | ヘッダ・トグル領域なし。現状は単純な margin 付き div |
+| ユニットテスト | `frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx` | 既存テストファイル。Requirement 31-38 関連のテストが追加済み |
+| E2E テスト | `e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` | Req 31-38 を対象とするダイアログ改善 E2E。Req 40 もここに追加するのが自然 |
+
+#### 既存 UI パターン（再利用候補）
+
+| パス | 内容 |
+|------|------|
+| `frontend/src/components/estimate/EstimateItemTable.tsx:150-165` | `ChevronIcon({ isExpanded })` — `▶/▼` 風の三角アイコンを `transform: rotate` で表現。`aria-label={item.isExpanded ? '折りたたむ' : '展開する'}` を採用 |
+| `frontend/src/components/estimate/EstimateItemTable.tsx:271-291` | 行クリックで `item.isExpanded` をトグル。`aria-label` で展開状態を明示 |
+| `frontend/src/components/quantity-table/QuantityItemActionMenu.tsx:190` ほか | `aria-expanded={isOpen}` を多用。トリガー要素の ARIA 標準パターン |
+
+> **所見**: 折りたたみ用の共通コンポーネントは存在しないが、`ChevronIcon` のローカル定義パターンとアクセシビリティ規約は確立済み。今回は独立した state ベースの折りたたみのため、`ReceivedQuotationForm` ローカルで同パターンを踏襲するのが最小コスト。
+
+#### OCR コンポーネントの内部仕様（折りたたみ中 unmount 不可の根拠）
+
+- `OcrDataExtractor` は **内部 state でしか OCR 進行状況・結果を保持しない**（外部 prop / ref に書き戻していない）。
+- `useEffect` が `file` の参照変化で OCR を起動するため、unmount → remount すると OCR が **再起動** されるか、`autoStart={false}` 経路では **抽出結果が失われる**。
+- 結果として、Req 40 AC 11/12（折りたたみ中も処理継続、結果は内部保持して展開時に表示）を満たすには、折りたたみ時に **コンポーネントを unmount せず CSS で隠す** 実装が必須。
+
+### 2. Requirement-to-Asset Map
+
+| Req 40 AC | 必要技術 | 対応アセット / ギャップタグ |
+|-----------|---------|----------------------------|
+| AC 1-2: 登録/編集にヘッダ表示 | UI 追加 | `ReceivedQuotationForm.tsx` の `ocrSection` ラッパー直下に新規ヘッダ要素 [Missing] |
+| AC 3: ラベル + 視覚的指示子 | UI コンポーネント | `EstimateItemTable.tsx:150` の `ChevronIcon` パターン踏襲 [Constraint: 共通コンポーネント未抽出。ローカル実装で対応] |
+| AC 4: クリックトグル | React state | `useState<boolean>` ローカル state [Missing] |
+| AC 5: キーボード操作（Enter/Space） | a11y | `onKeyDown` ハンドラ + `role="button"` + `tabIndex={0}`、または `<button>` 要素 [Missing] |
+| AC 6-7: 展開/折りたたみで本体表示制御 | スタイル制御 | `display: none` または `hidden` 属性（unmount 不可）[Constraint: §1 の OCR 内部 state 保持要件] |
+| AC 8-9: デフォルト展開 | state 初期値 | `useState(true)` [Missing] |
+| AC 10: 非永続化 | 仕様（実装するな） | `localStorage`/`sessionStorage` を**使わない**ことを保証 [Constraint] |
+| AC 11: 折りたたみ中も OCR 処理継続 | コンポーネントライフサイクル | unmount しない（§1 参照）[Constraint] |
+| AC 12: 抽出結果の内部保持 | コンポーネントライフサイクル | 同上 [Constraint] |
+| AC 13: 処理中/完了/失敗いずれでも操作可 | 仕様 | ヘッダのトグル動作を `isProcessing` 等で無効化しない [Constraint] |
+| AC 14: 表示条件未成立時はヘッダごと非表示 | 条件レンダリング | 既存の `selectedFile` / `existingFilePreviewUrl` 条件ラップを継承 [既存実装で対応可] |
+| AC 15: 全ファイル種別対応 | UI 適用範囲 | ファイル種別による分岐は OcrDataExtractor 内部で処理済み。ヘッダ自体は MIME に依存しない [既存実装で対応可] |
+| AC 16: フォーカス時の視覚的明示 | a11y / スタイル | `:focus-visible` または focus state スタイル [Missing] |
+| AC 17: 既存機能への非影響 | リグレッション抑制 | 純粋に視覚的ラップを追加するだけのため、`selectedFile` / `lineItems` / `OcrDataExtractor` props / 保存ハンドラ等は変更なし [Constraint] |
+
+### 3. Implementation Approach Options
+
+#### Option A: ReceivedQuotationForm にローカル state + インライン UI を追加（推奨）
+
+- 変更ファイル: `ReceivedQuotationForm.tsx` のみ
+- 追加要素:
+  - `const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState(true);`
+  - セクションヘッダ JSX（クリック/キーボード対応、`aria-expanded`、`aria-controls`）
+  - ヘッダ用 styles（`ocrSectionHeader`, `ocrSectionTitle`, `ocrSectionChevron`）
+  - 本体ラッパーに `style={{ display: isOcrSectionExpanded ? 'block' : 'none' }}`
+- **トレードオフ**:
+  - ✅ 最小コスト、既存パターン（EstimateItemTable の ChevronIcon）と整合
+  - ✅ OcrDataExtractor の props/ライフサイクルに一切手を入れない
+  - ❌ 折りたたみ UI が他で再利用される未来があれば共通化機会を逸する（現状他に折りたたみ要件は存在しない）
+
+#### Option B: 折りたたみ用の共通 `CollapsibleSection` コンポーネントを新規作成して適用
+
+- 変更ファイル: `frontend/src/components/common/CollapsibleSection.tsx` 新規 + `ReceivedQuotationForm.tsx` で利用
+- **トレードオフ**:
+  - ✅ 将来 Req 4（項目選択セクション）など他セクションに展開しやすい
+  - ❌ 新規コンポーネントぶんの設計・テスト・Storybook が必要で Effort が増える
+  - ❌ 現状で他に折りたたみ要件が立っていない（過剰設計のリスク）
+
+#### Option C: HTML `<details>` / `<summary>` 要素ベース
+
+- 変更ファイル: `ReceivedQuotationForm.tsx` のみ。`<details>` で OCR セクション全体をラップ
+- **トレードオフ**:
+  - ✅ 実装最小、ブラウザ標準で a11y サポート（`open` 属性）
+  - ❌ `<details>` の `open` をプログラマティックに `useState` と双方向同期させる必要があり、結局 state 管理が増える
+  - ❌ ブラウザ標準スタイルとプロジェクトのデザイントークンの整合に追加スタイル調整が必要
+  - ❌ `<details>` は閉じた時に内部 DOM を保持するためライフサイクル要件は満たすが、フォーム内のフォーカス管理（Tab 順）が暗黙的に変わるため Req 38 AC 12-13（未保存ガード）との挙動差分検証が増える
+
+### 4. Effort & Risk
+
+| 項目 | 評価 | 根拠 |
+|------|------|------|
+| **総合 Effort** | **S（1〜2日）** | UI 1 ファイル + state 1 個 + ユニットテスト 1〜2 件 + E2E 1 シナリオ。新規依存・新規 API・新規 DB なし |
+| **総合 Risk** | **Low** | 既存ロジック（OCR/データパース/保存/未保存ガード/セッション保護）に対して読み取り専用のラッパー追加。最大の制約は「OcrDataExtractor を unmount しない」のみで、`display: none` で機械的に担保可能 |
+
+### 5. Research Items（design 段階で確定）
+
+| ID | テーマ | 内容 |
+|----|------|------|
+| R-40-1 | 折りたたみ実装方式 | `display: none` / `visibility: hidden` / `hidden` 属性 のいずれを採るか。`display: none` は Tab 順から外れるため未保存ガードの Tab 動作に影響なし、`visibility: hidden` は領域確保されるためレイアウト崩れ。`hidden` 属性は `display: none` 相当だが ARIA で隠す意図が明確。design で確定 |
+| R-40-2 | アクセシビリティ実装 | ヘッダを `<button type="button">` で実装するか、`<div role="button" tabIndex={0}>` で実装するか。`<button>` がスクリーンリーダー対応とキーボード対応（Enter/Space）を自動取得するため第一候補。既存パターンとの整合（`EstimateItemTable.tsx:268-275` も `<button>` を使用）も確認のうえ design で確定 |
+| R-40-3 | ChevronIcon の共通化 | 既存 `EstimateItemTable.tsx` ローカル定義の `ChevronIcon` を共通コンポーネントに抽出するか、`ReceivedQuotationForm.tsx` 内に同等の実装を再定義するか。Req 40 単体では再定義（Option A）が最小だが、抽出機会として design で判断 |
+| R-40-4 | ヘッダラベル文言 | 「OCR / データパース」「OCR・データパース取り込み」「OCR セクション」など、ラベル文言を design で確定。ファイル種別（PDF/画像/Excel）に依存しない汎用文言が望ましい |
+| R-40-5 | Req 38 AC 5（セッション切れ時の編集状態保持）への影響 | 再認証成功後にダイアログを保持したまま保存リトライする際、折りたたみ state（`isOcrSectionExpanded`）は内部 state なので Req 38 の編集状態保持に含めなくても破棄されない（ダイアログが unmount されないため）。design で念のため確認 |
+| R-40-6 | テスト戦略 | ユニットテスト（`ReceivedQuotationForm.test.tsx`）でヘッダの存在・トグル動作・ARIA 属性を検証。E2E（`received-quotation-dialog-improvements-e2e.spec.ts`）で「折りたたみ → 再展開でも抽出結果が保持される」シナリオを検証。design で具体ケース確定 |
+
+### 6. Recommendations for Design Phase
+
+- **アプローチ**: Option A（既存コンポーネント拡張、ローカル state + インライン UI）を推奨。Effort S / Risk Low。
+- **必須制約**: OcrDataExtractor を unmount せず、`display: none`（または `hidden` 属性）で隠すこと（R-40-1 で確定）。
+- **a11y**: `<button type="button">` ベースのヘッダを推奨（R-40-2）。Enter/Space 自動対応 + `aria-expanded` + `aria-controls`。
+- **追加 Boundary**: 本要件はビューの開閉のみを扱い、OCR エンジン・データモデル・API・既存ダイアログ機能（Req 31-38）には触れない。
+- **テスト**: 単体「初期展開」「クリックで折りたたみ」「再クリックで再展開」「キーボード（Enter/Space）でトグル」「ARIA 属性」+ E2E「折りたたみ中も OCR 抽出結果が保持される」「ダイアログ再オープン時に展開状態に戻る」。
+
+### 7. Output Checklist 充足
+
+- ✅ Requirement-to-Asset Map（§2 表、Missing/Constraint タグ付き）
+- ✅ Options A/B/C と選定理由（§3）
+- ✅ Effort / Risk と一行 justification（§4）
+- ✅ Recommendations for next phase（§6、design 段階に持ち越す Research Items §5）
+- ✅ Research Items（R-40-1 〜 R-40-6）
