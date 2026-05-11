@@ -1945,7 +1945,7 @@
 
 - [ ] 86. 受領見積書 OCR セクション折りたたみ機能の実装（Requirement 40）
 
-- [ ] 86.1 ReceivedQuotationForm に OCR セクション折りたたみ機能を実装
+- [x] 86.1 ReceivedQuotationForm に OCR セクション折りたたみ機能を実装
   - frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx を編集
   - ローカル state `isOcrSectionExpanded`（初期値 true）と `isOcrHeaderFocused`（初期値 false）を追加（design.md「State Management（追記）」参照）
   - ハンドラ `handleToggleOcrSection`（state トグル）、`handleOcrHeaderFocus` / `handleOcrHeaderBlur`（フォーカス state 切替）を `useCallback` で追加
