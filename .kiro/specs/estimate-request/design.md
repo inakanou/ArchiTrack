@@ -5749,6 +5749,12 @@ const input: CreateEstimateRequestInput = {
 - `OcrDataExtractor` の内部 state 設計が変更され、外部 state によって OCR 進行・結果を保持できるようになった場合（unmount/remount 戦略を再評価）
 - セッション切れ時の編集状態保護（Req 38 AC 5）の保持対象に折りたたみ状態を含める要求が追加された場合
 
+### Design Review Outcomes（追記8）
+
+design review (2026-05-11, kiro-validate-design) で Critical Issue 1 件を確認し対応を確定:
+
+- **Critical Issue 1（Req 40 AC 16 フォーカス視覚化の OS 依存性）**: ユーザー選択 (a) により、`useState<boolean> isOcrHeaderFocused` + `onFocus`/`onBlur` ハンドラ + 明示的な `styles.ocrSectionHeaderFocus`（`outline` / `boxShadow`）の inline style マージ方式を採用。本セクション以降の State Management / Handlers / JSX 変更例 / Styles 追加 / Testing Strategy / File Structure Plan / Open Questions に反映済み
+
 ### Architecture（追記8）
 
 #### コンポーネント構造（変更後）
@@ -5786,7 +5792,7 @@ graph TB
 - **理由**:
   - ブラウザ標準でクリック・Enter・Space キーの操作を自動受理（Req 40 AC 4-5）
   - スクリーンリーダー対応（role="button" 暗黙）
-  - `:focus-visible` で標準的なフォーカスリングを取得可能（Req 40 AC 16）
+  - フォーカス状態の視覚化は **`useState<boolean>` ベースのフォーカス state**（`onFocus`/`onBlur` で切り替え）でインライン style に明示的な `outline` / `boxShadow` を適用する方式を採用（design review 2026-05-11 Critical Issue 1 対応、Req 40 AC 16）。OS デフォルトのフォーカスリングは環境依存（ブラウザ・OS テーマ・アクセシビリティ設定）でテストでも検証困難なため不採用
   - 既存パターン（`EstimateItemTable.tsx:268-275`）と整合
 - **属性**:
   - `aria-expanded={isOcrSectionExpanded}` — トグル状態を明示
@@ -5850,7 +5856,7 @@ const handleToggleOcrSection = useCallback(() => {
 | 40.13 | 処理中/完了/失敗いずれでも操作可 | `ReceivedQuotationForm` | `<button>` を disabled にしない | — |
 | 40.14 | 表示条件未成立時の非表示 | `ReceivedQuotationForm` | 既存の `selectedFile` / `existingFilePreviewUrl` 条件レンダリング継承 | — |
 | 40.15 | 全ファイル種別対応 | `ReceivedQuotationForm` | MIME 分岐なし | — |
-| 40.16 | フォーカス時の視覚的明示 | `styles.ocrSectionHeaderFocus` | `:focus-visible` または `outline` style | — |
+| 40.16 | フォーカス時の視覚的明示 | `ReceivedQuotationForm`, `styles.ocrSectionHeaderFocus` | `useState isOcrHeaderFocused` + `onFocus`/`onBlur` ハンドラ + `styles.ocrSectionHeaderFocus`（`outline`/`boxShadow`）の inline style マージ | — |
 | 40.17 | 既存機能への非影響 | `ReceivedQuotationForm` | OcrDataExtractor props/呼び出し変更なし、保存 handler 変更なし | — |
 
 ### Components and Interfaces - 改訂（Requirement 40）
@@ -5868,11 +5874,13 @@ const handleToggleOcrSection = useCallback(() => {
 ```typescript
 // 既存 state 群の末尾に追加
 const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);
+const [isOcrHeaderFocused, setIsOcrHeaderFocused] = useState<boolean>(false);
 ```
 
 **Notes**:
-- 初期値 `true` は Req 40 AC 8/9 を満たす
-- ダイアログを閉じて再オープンすると `ReceivedQuotationForm` が unmount→remount されるため自動的に `true` に戻る（Req 40 AC 10）
+- `isOcrSectionExpanded` の初期値 `true` は Req 40 AC 8/9 を満たす
+- ダイアログを閉じて再オープンすると `ReceivedQuotationForm` が unmount→remount されるため自動的に初期値に戻る（Req 40 AC 10）
+- `isOcrHeaderFocused` は Req 40 AC 16（フォーカス時の視覚的明示）を OS 非依存・テスト検証可能な形で達成するための補助 state（design review 2026-05-11 Critical Issue 1 対応）
 - 既存の保存ハンドラ・スナップショット比較・未保存変更ガード・セッション保護フローには関与させない（Req 40 AC 17）
 
 ##### Handlers（追記）
@@ -5880,6 +5888,14 @@ const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);
 ```typescript
 const handleToggleOcrSection = useCallback(() => {
   setIsOcrSectionExpanded((prev) => !prev);
+}, []);
+
+const handleOcrHeaderFocus = useCallback(() => {
+  setIsOcrHeaderFocused(true);
+}, []);
+
+const handleOcrHeaderBlur = useCallback(() => {
+  setIsOcrHeaderFocused(false);
 }, []);
 ```
 
@@ -5905,9 +5921,14 @@ const handleToggleOcrSection = useCallback(() => {
     <button
       type="button"
       onClick={handleToggleOcrSection}
+      onFocus={handleOcrHeaderFocus}
+      onBlur={handleOcrHeaderBlur}
       aria-expanded={isOcrSectionExpanded}
       aria-controls="received-quotation-ocr-section-body"
-      style={styles.ocrSectionHeader}
+      style={{
+        ...styles.ocrSectionHeader,
+        ...(isOcrHeaderFocused ? styles.ocrSectionHeaderFocus : {}),
+      }}
     >
       <OcrChevronIcon isExpanded={isOcrSectionExpanded} />
       <span style={styles.ocrSectionTitle}>OCR / データパース</span>
@@ -5958,9 +5979,14 @@ ocrSectionTitle: {
 ocrSectionChevron: {
   transition: 'transform 150ms ease',
 } as React.CSSProperties,
+ocrSectionHeaderFocus: {
+  outline: '2px solid #2563eb',
+  outlineOffset: '2px',
+  boxShadow: '0 0 0 4px rgba(37, 99, 235, 0.2)',
+} as React.CSSProperties,
 ```
 
-- `:focus-visible` はインライン style では表現困難なため、必要に応じて `outline` を `onFocus`/`onBlur` で切り替えるか、CSS-in-JS の `:focus-visible` パターンを採用する。本設計では React のインライン style のままで OS デフォルトのフォーカスリング表示に委ねることを許容（Req 40 AC 16）
+- フォーカス時の視覚化は `useState isOcrHeaderFocused` + `onFocus`/`onBlur` で `ocrSectionHeaderFocus` を inline style マージする方式を採用（design review 2026-05-11 Critical Issue 1 対応、Req 40 AC 16）。OS デフォルトのフォーカスリングではなく **明示的な `outline` / `boxShadow`** をプロジェクトのデザイントークン色（青系 `#2563eb`）で表示し、テストでも `style` プロパティ経由で assertion 可能
 - `cursor: 'pointer'` でホバー時の操作可能性を明示（Req 40 AC 16）
 - 既存の `ocrSection` style は変更しない
 
@@ -5994,7 +6020,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 - **Integration**: 既存 `OcrDataExtractor` の props は変更しない。`file`, `fileUrl`, `fileMimeType`, `autoStart`, `onImportLineItems` の渡し方は現行コードそのまま
 - **Validation Hooks**: なし（フォームバリデーション・送信ペイロードに影響しない）
 - **Open Questions / Risks**:
-  - `focus-visible` の表現方法はインライン style では制約があるため、必要なら CSS class を新設するか `useState` ベースのフォーカス state を追加するか、design 確定段階では OS デフォルトのフォーカスリングで Req 40 AC 16 を満たすと判断
+  - フォーカス時の視覚化は `useState isOcrHeaderFocused` ベースで `outline` / `boxShadow` を inline style として明示的に適用する方式を採用（design review 2026-05-11 Critical Issue 1 対応）。OS デフォルトのフォーカスリング依存は不採用（環境依存・テスト検証困難のため）
   - 折りたたみ中の OCR 完了通知（toast 等）が現状存在しないため、ユーザーが折りたたみ中に処理完了を視認できない可能性がある — 既存挙動（OCR 完了通知は抽出結果テキストの出現のみ）を維持しスコープ外とする
 
 ### Data Models（追記8）
@@ -6016,6 +6042,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 7. **登録/編集両モードでヘッダ表示**: `mode="create"` と `mode="edit"` の両方でヘッダ要素が描画されることを検証
 8. **ファイル未アップロード時はヘッダ非表示**: `selectedFile === null && (mode === 'create' || existingFileName === null)` のとき、ヘッダ要素が DOM に存在しないことを検証
 9. **再オープン時に展開状態に戻る**: コンポーネント unmount → remount でデフォルトに戻ることを検証
+10. **フォーカス時の視覚的明示**: セクションヘッダに `focus()` を発火後、要素の `style.outline`（または `style` プロパティ）に `styles.ocrSectionHeaderFocus` のスタイル値（`outline: '2px solid #2563eb'` 等）が反映されていることを検証。`blur()` 後にフォーカス style が解除されることも検証（Req 40 AC 16、design review Critical Issue 1 対応）
 
 #### Frontend E2E Tests（追記8）
 
@@ -6052,13 +6079,13 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 
 | Path | Status | Responsibility |
 |------|--------|----------------|
-| `frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx` | Modified | (1) state `isOcrSectionExpanded` と `setIsOcrSectionExpanded` 追加、(2) handler `handleToggleOcrSection` 追加、(3) ローカル関数 `OcrChevronIcon` 追加、(4) OCR セクションラッパーに `<button>` ヘッダ要素と body ラッパー (`<div hidden>`) 追加、(5) styles に `ocrSectionHeader` / `ocrSectionTitle` / `ocrSectionChevron` 追加。登録/編集の両 OCR セクション分岐に同じ変更を適用 |
-| `frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx` | Modified | Testing Strategy §1 の Unit Tests 9 ケース追加 |
+| `frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx` | Modified | (1) state `isOcrSectionExpanded` および `isOcrHeaderFocused` と setter を追加、(2) handler `handleToggleOcrSection` / `handleOcrHeaderFocus` / `handleOcrHeaderBlur` を追加、(3) ローカル関数 `OcrChevronIcon` を追加、(4) OCR セクションラッパーに `<button>` ヘッダ要素（`onFocus`/`onBlur` 付き）と body ラッパー (`<div hidden>`) を追加、(5) styles に `ocrSectionHeader` / `ocrSectionTitle` / `ocrSectionChevron` / `ocrSectionHeaderFocus` を追加。登録/編集の両 OCR セクション分岐に同じ変更を適用（design review 2026-05-11 Critical Issue 1 対応でフォーカス state を追加） |
+| `frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx` | Modified | Testing Strategy §1 の Unit Tests 10 ケース追加（初期展開／クリック・Enter・Space トグル／DOM 保持／登録&編集両モード／ファイル未存在時の非表示／再オープン時のデフォルト復帰／フォーカス時の視覚的明示） |
 | `e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` | Modified | Testing Strategy §2 の E2E シナリオ 2 件追加 |
 
 ### Open Questions / Risks（追記8）
 
 - **R-40-5 確認結果**: Req 38 AC 5（セッション切れ時の編集状態保護）の保持対象に `isOcrSectionExpanded` を含めなくても問題ない。ダイアログが unmount されない限り state は React により保持されるため、再認証成功後の状態保持は自動的に成立する
-- **focus-visible 表現**: インライン style では `:focus-visible` 疑似クラスを直接書けない。実装で OS デフォルトのフォーカスリング（ブラウザ標準）を採用し、Req 40 AC 16 はそれで満たすと判断。明示的なフォーカスリング style が必要になった場合はインライン style ではなく `style` モジュール化または CSS file 追加を検討
+- **focus-visible 表現**: ~~インライン style では `:focus-visible` 疑似クラスを直接書けない。実装で OS デフォルトのフォーカスリング（ブラウザ標準）を採用し、Req 40 AC 16 はそれで満たすと判断~~ → design review 2026-05-11 Critical Issue 1 対応により方針確定: `useState<boolean> isOcrHeaderFocused` + `onFocus`/`onBlur` ハンドラで `styles.ocrSectionHeaderFocus`（明示的な `outline` / `boxShadow`）を inline style マージする方式を採用。OS 非依存かつテスト検証可能（要素の `style` プロパティで assertion 可）
 - **折りたたみ中の完了通知**: OCR 完了は現状抽出結果テキストの出現でしか視認できない。折りたたみ中にユーザーが処理完了に気づきにくい点は既存挙動を維持しスコープ外とする
 - **依存性のリスク**: なし。新規ライブラリ・新規 API・新規 DB マイグレーションは一切なし

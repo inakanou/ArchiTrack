@@ -601,3 +601,24 @@ design.md 追記6 で既にカバー済みのため再分析不要:
 | R-40-4 | ヘッダラベル文言は「OCR / データパース」で確定。ファイル種別 PDF/画像/Excel いずれにも対応する汎用文言 |
 | R-40-5 | Req 38 AC 5（セッション切れ時の編集状態保護）の保持対象に `isOcrSectionExpanded` を **含めない**。ダイアログが unmount されない限り React state として保持されるため、再認証成功後の状態保持は自動成立 |
 | R-40-6 | テスト戦略確定: Unit 9 ケース（初期展開・クリック/Enter/Space トグル・DOM 保持・登録&編集両モード・ファイル未存在時の非表示・再オープン時のデフォルト復帰）+ E2E 2 シナリオ（抽出結果保持・再オープン展開） |
+
+### 10. Design Review Outcomes（Req 40, 2026-05-11）
+
+kiro-validate-design 実施結果: **GO**
+
+#### Critical Issue 1（対応済み）
+
+- **Concern**: Req 40 AC 16（フォーカス時の視覚的明示）の達成手段が `OS デフォルトのフォーカスリング` 依存となっており、環境依存（ブラウザ・OS テーマ・アクセシビリティ設定）でテスト検証困難
+- **User Decision**: 選択肢 (a) — `useState<boolean> isOcrHeaderFocused` + `onFocus`/`onBlur` ハンドラ + 明示的な `outline` / `boxShadow` を `styles.ocrSectionHeaderFocus` として inline style マージ
+- **Resolution**: design.md「Design Review Outcomes」「State Management」「Handlers」「JSX 変更」「Styles 追加」「Requirements Traceability（40.16 行）」「Testing Strategy（テストケース 10）」「File Structure Plan（責務記述更新）」「Open Questions（focus-visible 表現）」「アクセシビリティ実装 R-40-2」を更新
+- **Traceability 更新**: Req 40.16 → `ReceivedQuotationForm` + `styles.ocrSectionHeaderFocus` + フォーカス state ハンドラ
+- **テストケース追加**: Unit Tests に「フォーカス時の視覚的明示」検証 1 件追加（合計 10 ケース）
+
+#### Design Strengths
+
+- Boundary Commitments の徹底（Out of Boundary に OcrDataExtractor 内部 state / FileInlinePreview / 明細行エディタ / BE/DB を明示）
+- 「OcrDataExtractor unmount 不可」制約を Architecture / R-40-1 / Open Questions の 3 箇所で多重確認
+
+#### R-40-6 更新
+
+- テスト戦略確定: Unit **10** ケース（初期展開・クリック/Enter/Space トグル・DOM 保持・登録&編集両モード・ファイル未存在時の非表示・再オープン時のデフォルト復帰・**フォーカス時の視覚的明示**）+ E2E 2 シナリオ
