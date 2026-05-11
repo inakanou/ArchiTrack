@@ -1942,3 +1942,38 @@
   - _Boundary: e2e/specs_
   - _Depends: 83.1, 83.2, 83.3, 83.4, 84.1, 84.2, 84.3, 84.4_
   - _Requirements: 39.2, 39.6, 39.7, 39.8, 39.10, 39.11, 39.12_
+
+- [ ] 86. 受領見積書 OCR セクション折りたたみ機能の実装（Requirement 40）
+
+- [ ] 86.1 ReceivedQuotationForm に OCR セクション折りたたみ機能を実装
+  - frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx を編集
+  - ローカル state `isOcrSectionExpanded`（初期値 true）と `isOcrHeaderFocused`（初期値 false）を追加（design.md「State Management（追記）」参照）
+  - ハンドラ `handleToggleOcrSection`（state トグル）、`handleOcrHeaderFocus` / `handleOcrHeaderBlur`（フォーカス state 切替）を `useCallback` で追加
+  - ローカル関数 `OcrChevronIcon`（`▶` 文字 + transform: rotate ベース、aria-hidden="true"）を追加
+  - styles に `ocrSectionHeader` / `ocrSectionTitle` / `ocrSectionChevron` / `ocrSectionHeaderFocus`（outline: 2px solid #2563eb、boxShadow、outlineOffset）を追加
+  - 既存の OCR セクションラッパー（登録時: `selectedFile` 存在条件、編集時: `mode === 'edit' && existingFileName && !removeFile && existingFilePreviewUrl` 条件）を `<button type="button">` ヘッダ + `<div id="received-quotation-ocr-section-body" hidden={!isOcrSectionExpanded}>` 構造に変更。OCR セクションが表示される条件が成立しないとき（ファイル未アップロード／編集モードでファイル削除済み）はヘッダごと非表示（Req 40.14）
+  - `<button>` には onClick / onFocus / onBlur / aria-expanded / aria-controls 属性を付与し、style はインライン展開で `{...styles.ocrSectionHeader, ...(isOcrHeaderFocused ? styles.ocrSectionHeaderFocus : {})}` をマージ
+  - 登録分岐と編集分岐の両方に同じヘッダ構造を適用し、PDF/画像/Excel の全ファイル種別で同等に動作させる（Req 40.15）
+  - `OcrDataExtractor` の props（`file` / `fileUrl` / `fileMimeType` / `autoStart` / `onImportLineItems`）は変更しない（Req 40.17）。`hidden` 属性で隠すことで unmount を回避し、OCR 処理進行と抽出結果の内部 state を保持する（Req 40.11, 40.12）
+  - 観察可能完了: `npm --prefix frontend run typecheck` と `npm --prefix frontend run lint` が pass する。`npm --prefix frontend run dev` で受領見積書登録ダイアログを開きファイルアップロードすると「OCR / データパース」ヘッダが表示され、クリックで OCR セクション本体が表示/非表示にトグルする
+  - _Boundary: ReceivedQuotationForm_
+  - _Requirements: 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13, 40.14, 40.15, 40.16, 40.17_
+
+- [ ] 86.2 (P) ReceivedQuotationForm.test.tsx に折りたたみ機能の Unit テスト 10 ケースを追加
+  - frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx を編集
+  - 以下のテストケースを追加: (1) 初期表示時に OCR セクション本体が表示され `aria-expanded="true"` であること、(2) ヘッダクリックで本体が `hidden` 属性を持ち `aria-expanded="false"` になること、(3) 再クリックで再展開すること、(4) Enter キー押下でトグル発火すること、(5) Space キー押下でトグル発火すること、(6) 折りたたみ状態でも `OcrDataExtractor` の DOM ノードが残存（unmount されない）すること、(7) `mode="create"` と `mode="edit"` の両方でヘッダ要素が描画されること、(8) ファイル未存在時（`selectedFile === null` かつ `existingFileName === null`）はヘッダ要素が DOM に存在しないこと、(9) コンポーネントを unmount → remount するとデフォルト展開状態に戻ること、(10) ヘッダに `focus()` 発火後に要素の `style.outline` に `styles.ocrSectionHeaderFocus` のスタイル値が反映され、`blur()` 後に解除されること
+  - 既存テストの実行構成（vitest + React Testing Library）を踏襲し、テスト前提条件で機能を自動的に無効化しない
+  - 観察可能完了: `npm --prefix frontend run test -- ReceivedQuotationForm` を実行し全 pass、新規追加 10 ケースが含まれる（テストランナー出力で確認）
+  - _Boundary: ReceivedQuotationForm test_
+  - _Depends: 86.1_
+  - _Requirements: 40.1, 40.2, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13, 40.14, 40.16_
+
+- [ ] 86.3 (P) received-quotation-dialog-improvements-e2e.spec.ts に折りたたみ機能の E2E シナリオ 2 件を追加
+  - e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts を編集
+  - シナリオ 1（抽出結果保持、Req 40.11/40.12）: 受領見積書登録ダイアログを開く → PDF をアップロード → OCR 完了を待機 → 抽出結果テキストが表示されることを確認 → セクションヘッダをクリックして折りたたみ → 抽出結果テキストが視覚的に非表示であることを確認 → 再度クリックして展開 → 抽出結果テキストが再表示されることを検証
+  - シナリオ 2（再オープン時のデフォルト復帰、Req 40.10）: 折りたたみ状態でダイアログを閉じる → 同じ受領見積書を再度開く → OCR セクションが展開状態（`aria-expanded="true"`）であることを検証
+  - 既存テストの実行構成（Playwright）を踏襲し、テスト前提条件で機能を自動的に無効化しない
+  - 観察可能完了: `CI=true npx playwright test e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` を実行し全 pass、Playwright HTML レポート（playwright-report/index.html）で新規 2 シナリオが含まれる
+  - _Boundary: e2e/specs/estimate-requests_
+  - _Depends: 86.1_
+  - _Requirements: 40.8, 40.9, 40.10, 40.11, 40.12_
