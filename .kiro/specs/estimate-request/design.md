@@ -5691,3 +5691,374 @@ const input: CreateEstimateRequestInput = {
 - **R-39-1（既存ドリフト）**: Req 6 AC 9 と現行実装の不一致は本要件のスコープ外として持ち越す。Req 39 AC 9 は「内訳書未紐付け時に【見積対象項目】セクションを省略する」と読み替え、実装は `selectedItems.length > 0 && includeBreakdownInBody` ガードで統一。後段で Req 6 AC 9 を実装と整合させる場合は別タスクで `EstimateRequestTextService` の追補設計が必要
 - **デプロイ順序**: BE 先行 → FE の順を厳守（FE 先行だと旧 BE の 422 で作成失敗）
 - **既存 E2E 環境のデータ依存**: 既存の `estimate-request-e2e.spec.ts` の前提データに「内訳書必須」が組まれている場合、テストデータ整備（fixtures）も併せて更新が必要
+
+---
+
+## OCRセクション折りたたみ機能 - 設計追記（Requirement 40）
+
+### Overview（追記8）
+
+受領見積書登録/編集ダイアログ（`ReceivedQuotationForm`）の OCR セクション（OCR/データパースのアクションエリア）を、セクションヘッダのクリックまたはキーボード操作で折りたたみ可能にする。デフォルトは展開状態、永続化なし（ダイアログを閉じて再度開くと展開状態に戻る）。折りたたみ中も OCR 処理および抽出結果は内部状態として保持し、再展開時に表示される。
+
+本追記は Requirement 40 の 17 件の Acceptance Criteria を満たす設計を定義する。
+
+### Goals（追記8）
+
+- ダイアログ内の縦方向スペースを節約し、明細行編集に集中できる UI を提供する
+- 既存の OCR 処理（Requirement 13/16/17/19/20/23/24）と既存のダイアログ機能（Requirement 31-38）に対して挙動を変更しない
+- セクションヘッダにアクセシビリティ標準（`<button>` ベース、`aria-expanded`、`aria-controls`、キーボード操作）を適用する
+
+### Non-Goals（追記8）
+
+- 折りたたみ状態の永続化（localStorage 等）— Req 40 AC 10 で明示的に対象外
+- 共通 `CollapsibleSection` コンポーネントの抽出— 現状他に折りたたみ要件がないため過剰設計を避ける（R-40-3）
+- 折りたたみ機能を本要件以外のセクション（項目選択、選択状況、受領見積書一覧、ファイルプレビュー等）へ適用すること
+- OCR エンジン側（`OcrDataExtractor` の内部処理、Tesseract.js / Claude Vision / pdfjs-dist 処理パイプライン）への変更
+- 折りたたみ状態をサーバーへ送信／DB へ保存すること
+
+### Boundary Commitments（追記8）
+
+#### このスペックが所有するもの
+
+- `ReceivedQuotationForm.tsx` 内の OCR セクションラッパー（`styles.ocrSection`）に対するセクションヘッダ要素の追加
+- `ReceivedQuotationForm.tsx` のローカル state `isOcrSectionExpanded: boolean`（初期値 `true`）と setter
+- セクションヘッダ用の新規 styles（`ocrSectionHeader`, `ocrSectionTitle`, `ocrSectionChevron`, `ocrSectionHeaderFocus`）
+- OCR セクション本体ラッパーへの表示制御（`hidden` HTML 属性）の適用
+- `ChevronIcon` ローカルコンポーネント（`EstimateItemTable.tsx:150-165` のパターンを踏襲）
+
+#### スコープ外（Out of Boundary）
+
+- `OcrDataExtractor` コンポーネント本体および内部 state（`status`, `progress`, `extractedText`, `parsedLineItems`, `errorMessage`, `importCompleted`, `usedClaudeVision`, `fallbackActivated`, `fallbackReason`）
+- `FileInlinePreview`（PDF プレビューの拡大縮小・縦幅リサイズ等）
+- 明細行エディタ（`LineItemEditor`、項目選択からの転記、上下移動、削除）
+- バックエンド API・データモデル・Prisma スキーマ
+- 共通コンポーネント（`frontend/src/components/common/` 配下）への新規ファイル追加
+- 他のダイアログ・他の画面（一覧、詳細、新規作成、編集ページ）の UI 変更
+- 受領見積書 1 件あたりの NET 金額（Req 33-34）、明細行並び順（Req 37）等の既存機能
+
+#### 許容される依存
+
+- `react`（既存）— `useState` のみ追加利用
+- 既存の `ReceivedQuotationForm` のローカル state / props / handler — 読み取り専用で参照（変更しない）
+- 既存の `OcrDataExtractor`（遅延ロード経由）— props および呼び出し方を変更しない
+
+#### 再評価が必要なトリガー（Revalidation Triggers）
+
+- 折りたたみ状態を永続化する要求が将来追加された場合（Req 40 AC 10 を改訂）
+- 他セクションに折りたたみ機能を展開する要求が追加された場合（共通 `CollapsibleSection` 抽出の Build vs Adopt 判断を再評価）
+- `OcrDataExtractor` の内部 state 設計が変更され、外部 state によって OCR 進行・結果を保持できるようになった場合（unmount/remount 戦略を再評価）
+- セッション切れ時の編集状態保護（Req 38 AC 5）の保持対象に折りたたみ状態を含める要求が追加された場合
+
+### Architecture（追記8）
+
+#### コンポーネント構造（変更後）
+
+```mermaid
+graph TB
+    ReceivedQuotationForm --> OcrSectionWrapper
+    OcrSectionWrapper --> OcrSectionHeader
+    OcrSectionWrapper --> OcrSectionBody
+    OcrSectionHeader --> ChevronIcon
+    OcrSectionHeader --> TitleLabel
+    OcrSectionBody --> OcrDataExtractor
+```
+
+- `OcrSectionWrapper`: 既存の `styles.ocrSection` div を継続利用。条件レンダリングは従来通り（`selectedFile` または `existingFilePreviewUrl` 存在時のみ描画）
+- `OcrSectionHeader`: 新規追加の `<button type="button">` 要素。クリック / Enter / Space で `isOcrSectionExpanded` をトグル
+- `OcrSectionBody`: 既存の `<Suspense>` + `<OcrDataExtractor>` を `<div>` でラップし、`hidden={!isOcrSectionExpanded}` を付与
+
+#### 折りたたみ実装方式（R-40-1 確定）
+
+- **採用**: `hidden` HTML 属性（`<div hidden={!isOcrSectionExpanded}>...</div>`）
+- **理由**:
+  - 標準仕様により `display: none` と等価な視覚的非表示を提供
+  - Tab フォーカス順から要素が外れるため、ダイアログ全体のキーボードナビゲーション（Tab）と整合
+  - ARIA 上「隠す意図」が明確で、`aria-controls` で参照される対象として適切
+  - DOM ツリーには残るため `OcrDataExtractor` は unmount されず、内部 state（OCR 進行・結果）が保持される（Req 40 AC 11/12 の必須制約）
+- **代替案却下**:
+  - `display: none` を直接 style で指定 — `hidden` 属性のほうが意図が宣言的
+  - `visibility: hidden` — 領域確保によりレイアウト崩れの懸念
+  - 条件レンダリング（`isOcrSectionExpanded && <OcrDataExtractor />`）— **不採用**。OcrDataExtractor が unmount されて OCR 処理と抽出結果が失われるため Req 40 AC 11/12 違反
+
+#### アクセシビリティ実装（R-40-2 確定）
+
+- **採用**: `<button type="button">` ベースのセクションヘッダ
+- **理由**:
+  - ブラウザ標準でクリック・Enter・Space キーの操作を自動受理（Req 40 AC 4-5）
+  - スクリーンリーダー対応（role="button" 暗黙）
+  - `:focus-visible` で標準的なフォーカスリングを取得可能（Req 40 AC 16）
+  - 既存パターン（`EstimateItemTable.tsx:268-275`）と整合
+- **属性**:
+  - `aria-expanded={isOcrSectionExpanded}` — トグル状態を明示
+  - `aria-controls="received-quotation-ocr-section-body"` — 関連付ける body 要素の id を参照
+  - `aria-label`（または可視ラベル）— セクションの目的を明示
+
+#### ChevronIcon ローカル定義（R-40-3 確定）
+
+`EstimateItemTable.tsx:150-165` の `ChevronIcon` パターンを `ReceivedQuotationForm.tsx` 内にローカル定義する。
+
+```typescript
+function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
+  // 既存 EstimateItemTable.tsx の ChevronIcon と同等の SVG / span 表現
+  // transform: rotate で 0deg ↔ 90deg を切り替え
+}
+```
+
+共通化は本要件のスコープ外（Boundary）。共通 `CollapsibleSection` 抽出は Revalidation Triggers の条件成立時に再検討。
+
+#### ヘッダラベル文言（R-40-4 確定）
+
+- **採用**: `OCR / データパース`
+- **理由**: ファイル種別（PDF/画像 → OCR、Excel → データパース）どちらも内包する汎用文言。既存 Req 13 AC 5-6、Req 16 AC 1/7 の用語と整合
+
+#### State 管理
+
+- 新規 state: `const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);`
+- 配置: `ReceivedQuotationForm.tsx` の他のローカル state（行 575-905 付近）と同じスコープ
+- 初期値: `true`（Req 40 AC 8-9）
+- リセット契機: ダイアログ unmount 時（ダイアログを閉じて再度開くと初期値に戻る、Req 40 AC 10）
+- セッション切れ時の保護: 不要（ダイアログが unmount されない限り state は保持される、Req 40 Revalidation Triggers / R-40-5 確定）
+
+#### イベントハンドラ
+
+```typescript
+const handleToggleOcrSection = useCallback(() => {
+  setIsOcrSectionExpanded((prev) => !prev);
+}, []);
+```
+
+- `onClick` で呼び出し（Req 40 AC 4）
+- `<button>` 要素なので Enter/Space は標準で `click` イベントを発火（Req 40 AC 5）
+- `isProcessing` 等で `disabled` 化しない（Req 40 AC 13 — 処理中/完了/失敗いずれでも操作許可）
+
+### Requirements Traceability（追記8）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 40.1 | 登録ダイアログのヘッダ表示 | `ReceivedQuotationForm` | `OcrSectionHeader` JSX | OCR セクション描画 |
+| 40.2 | 編集ダイアログのヘッダ表示 | `ReceivedQuotationForm` | `OcrSectionHeader` JSX | 同上（編集モード分岐内） |
+| 40.3 | ラベル + 視覚的指示子 | `OcrChevronIcon` (local) | `<span>OCR / データパース</span>` + `<OcrChevronIcon isExpanded={...} />` | — |
+| 40.4 | クリックトグル | `ReceivedQuotationForm` | `handleToggleOcrSection` onClick | — |
+| 40.5 | キーボード操作 | `ReceivedQuotationForm` | `<button type="button">` 標準動作 | — |
+| 40.6 | 展開状態の本体表示 | `ReceivedQuotationForm` | `<div hidden={!isOcrSectionExpanded}>` | — |
+| 40.7 | 折りたたみ状態の本体非表示 | `ReceivedQuotationForm` | 同上 | — |
+| 40.8 | 登録初期展開 | `ReceivedQuotationForm` | `useState<boolean>(true)` | ダイアログ open |
+| 40.9 | 編集初期展開 | `ReceivedQuotationForm` | 同上 | ダイアログ open |
+| 40.10 | 非永続化 | `ReceivedQuotationForm` | state リセットは unmount 任せ。localStorage 等を使わない | ダイアログ close → open |
+| 40.11 | 折りたたみ中 OCR 処理継続 | `ReceivedQuotationForm` | `hidden` 属性で unmount 回避。`OcrDataExtractor` 内部 state 維持 | OCR 進行中の折りたたみ |
+| 40.12 | 抽出結果の内部保持 | `OcrDataExtractor`（既存） | 内部 state 継続 | 折りたたみ→再展開 |
+| 40.13 | 処理中/完了/失敗いずれでも操作可 | `ReceivedQuotationForm` | `<button>` を disabled にしない | — |
+| 40.14 | 表示条件未成立時の非表示 | `ReceivedQuotationForm` | 既存の `selectedFile` / `existingFilePreviewUrl` 条件レンダリング継承 | — |
+| 40.15 | 全ファイル種別対応 | `ReceivedQuotationForm` | MIME 分岐なし | — |
+| 40.16 | フォーカス時の視覚的明示 | `styles.ocrSectionHeaderFocus` | `:focus-visible` または `outline` style | — |
+| 40.17 | 既存機能への非影響 | `ReceivedQuotationForm` | OcrDataExtractor props/呼び出し変更なし、保存 handler 変更なし | — |
+
+### Components and Interfaces - 改訂（Requirement 40）
+
+#### ReceivedQuotationForm - 改訂5（OCRセクション折りたたみ）
+
+**Intent**: 既存の OCR セクションラッパーにセクションヘッダを追加し、ローカル state でトグル可能にする。
+
+**Requirements**: 40.1〜40.17
+
+**Dependencies**: なし（既存 import で十分）
+
+##### State Management（追記）
+
+```typescript
+// 既存 state 群の末尾に追加
+const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);
+```
+
+**Notes**:
+- 初期値 `true` は Req 40 AC 8/9 を満たす
+- ダイアログを閉じて再オープンすると `ReceivedQuotationForm` が unmount→remount されるため自動的に `true` に戻る（Req 40 AC 10）
+- 既存の保存ハンドラ・スナップショット比較・未保存変更ガード・セッション保護フローには関与させない（Req 40 AC 17）
+
+##### Handlers（追記）
+
+```typescript
+const handleToggleOcrSection = useCallback(() => {
+  setIsOcrSectionExpanded((prev) => !prev);
+}, []);
+```
+
+##### JSX 変更（既存 OCR セクションラッパー）
+
+変更前（`ReceivedQuotationForm.tsx:1168-1196` 付近、模式表現）:
+
+```tsx
+{showOcrCondition && (
+  <div style={styles.ocrSection}>
+    <Suspense fallback={...}>
+      <OcrDataExtractor ... />
+    </Suspense>
+  </div>
+)}
+```
+
+変更後:
+
+```tsx
+{showOcrCondition && (
+  <div style={styles.ocrSection}>
+    <button
+      type="button"
+      onClick={handleToggleOcrSection}
+      aria-expanded={isOcrSectionExpanded}
+      aria-controls="received-quotation-ocr-section-body"
+      style={styles.ocrSectionHeader}
+    >
+      <OcrChevronIcon isExpanded={isOcrSectionExpanded} />
+      <span style={styles.ocrSectionTitle}>OCR / データパース</span>
+    </button>
+    <div
+      id="received-quotation-ocr-section-body"
+      hidden={!isOcrSectionExpanded}
+    >
+      <Suspense fallback={...}>
+        <OcrDataExtractor ... />
+      </Suspense>
+    </div>
+  </div>
+)}
+```
+
+**Notes**:
+- `showOcrCondition` は既存の `selectedFile ? ... : (mode === 'edit' && existingFileName && !removeFile && existingFilePreviewUrl)` を参照する条件
+- 登録時と編集時の両分岐に **同じヘッダ構造** を適用する（Req 40 AC 1/2）
+- `<div id="received-quotation-ocr-section-body">` の `id` は `aria-controls` の参照先として固定
+- `hidden` 属性により `OcrDataExtractor` は DOM に残るが視覚的に非表示。内部 state（OCR 進行・結果）は維持される（Req 40 AC 11/12）
+- `OcrDataExtractor` の props（`file` / `onImportLineItems` / `fileUrl` / `fileMimeType` / `autoStart`）は **一切変更しない**（Req 40 AC 17）
+
+##### Styles 追加
+
+```typescript
+// 既存 styles オブジェクトの ocrSection 周辺に追加
+ocrSectionHeader: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  padding: '8px 12px',
+  width: '100%',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '14px',
+  fontWeight: 600,
+  color: '#374151',
+  textAlign: 'left',
+} as React.CSSProperties,
+ocrSectionTitle: {
+  fontSize: '14px',
+  fontWeight: 600,
+  color: '#374151',
+} as React.CSSProperties,
+ocrSectionChevron: {
+  transition: 'transform 150ms ease',
+} as React.CSSProperties,
+```
+
+- `:focus-visible` はインライン style では表現困難なため、必要に応じて `outline` を `onFocus`/`onBlur` で切り替えるか、CSS-in-JS の `:focus-visible` パターンを採用する。本設計では React のインライン style のままで OS デフォルトのフォーカスリング表示に委ねることを許容（Req 40 AC 16）
+- `cursor: 'pointer'` でホバー時の操作可能性を明示（Req 40 AC 16）
+- 既存の `ocrSection` style は変更しない
+
+##### OcrChevronIcon ローカル定義
+
+```typescript
+function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        width: '12px',
+        height: '12px',
+        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+        transition: 'transform 150ms ease',
+        userSelect: 'none',
+      }}
+      aria-hidden="true"
+    >
+      ▶
+    </span>
+  );
+}
+```
+
+- `aria-hidden="true"` で支援技術には冗長表現として読み上げさせない（aria-expanded で状態は伝わる）
+- SVG ではなく `▶` 文字を採用し、依存とビルドサイズを最小化（既存 EstimateItemTable.tsx の方針と一致）
+
+##### Implementation Notes
+
+- **Integration**: 既存 `OcrDataExtractor` の props は変更しない。`file`, `fileUrl`, `fileMimeType`, `autoStart`, `onImportLineItems` の渡し方は現行コードそのまま
+- **Validation Hooks**: なし（フォームバリデーション・送信ペイロードに影響しない）
+- **Open Questions / Risks**:
+  - `focus-visible` の表現方法はインライン style では制約があるため、必要なら CSS class を新設するか `useState` ベースのフォーカス state を追加するか、design 確定段階では OS デフォルトのフォーカスリングで Req 40 AC 16 を満たすと判断
+  - 折りたたみ中の OCR 完了通知（toast 等）が現状存在しないため、ユーザーが折りたたみ中に処理完了を視認できない可能性がある — 既存挙動（OCR 完了通知は抽出結果テキストの出現のみ）を維持しスコープ外とする
+
+### Data Models（追記8）
+
+- 変更なし。本要件は UI 状態（クライアントローカル）のみで完結し、DB スキーマ・API ペイロード・型定義に影響しない
+
+### Testing Strategy（追記8）
+
+#### Frontend Unit Tests（追記8）
+
+`frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx` にテストケース追加（R-40-6 確定）:
+
+1. **初期展開**: ダイアログを開いた直後、OCR セクション本体（`OcrDataExtractor` のラッパー）が表示されていることを検証。`aria-expanded="true"` を検証
+2. **クリックで折りたたみ**: セクションヘッダ（`<button>`）をクリック後、本体ラッパーが `hidden` 属性を持つこと、`aria-expanded="false"` であることを検証
+3. **再クリックで再展開**: 折りたたみ後にもう一度クリックし、`hidden` が外れて `aria-expanded="true"` に戻ることを検証
+4. **キーボード（Enter）でトグル**: ヘッダにフォーカスして Enter を押下し、トグルが発火することを検証
+5. **キーボード（Space）でトグル**: 同上、Space で発火することを検証
+6. **OCRセクションのDOM保持**: 折りたたみ状態でも `OcrDataExtractor` の DOM ノードが残っていることを検証（unmount されないこと）
+7. **登録/編集両モードでヘッダ表示**: `mode="create"` と `mode="edit"` の両方でヘッダ要素が描画されることを検証
+8. **ファイル未アップロード時はヘッダ非表示**: `selectedFile === null && (mode === 'create' || existingFileName === null)` のとき、ヘッダ要素が DOM に存在しないことを検証
+9. **再オープン時に展開状態に戻る**: コンポーネント unmount → remount でデフォルトに戻ることを検証
+
+#### Frontend E2E Tests（追記8）
+
+`e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` にシナリオ追加（R-40-6 確定）:
+
+1. **抽出結果保持テスト**: 受領見積書登録ダイアログを開く → PDF をアップロード → OCR 完了を待機 → 抽出結果テキストが表示されることを確認 → セクションヘッダをクリックして折りたたみ → 再度クリックして展開 → 抽出結果テキストが再表示されることを検証（Req 40 AC 11/12）
+2. **再オープン時のデフォルト復帰**: 折りたたみ状態でダイアログを閉じる → 同じ受領見積書を再度開く → OCR セクションが展開状態であることを検証（Req 40 AC 10）
+
+#### Backend Tests
+
+- 変更なし（DB スキーマ・API 影響なし）
+
+### Migration Strategy（追記8）
+
+- DB マイグレーションなし
+- API バージョニング不要
+- ロールアウト: フロントエンドのリリースのみで完結。後方互換性の懸念なし
+- ロールバック: 単一ファイルの変更のため、Revert で即時ロールバック可能
+
+### Security Considerations（追記8）
+
+- 認証経路に変更なし
+- 入力バリデーション影響なし（折りたたみ state は送信ペイロードに含まない）
+- XSS リスク: `OcrChevronIcon` の `▶` 文字は静的、ヘッダラベルも静的、`aria-controls` の id も静的。動的内容を innerHTML で挿入しない
+- セッション切れ時の保護: Req 38 のフローに変更なし（折りたたみ state はクライアントローカル UI 状態のため、保存・再認証・編集状態保持に関与しない）
+
+### Performance & Scalability（追記8）
+
+- 描画コスト: `<button>` 1 個 + `<span>` 1 個 + `<div hidden>` 1 個の追加のみ。レンダリング負荷は無視できる
+- メモリ: state 1 個（boolean）と handler 1 個（useCallback）追加のみ
+- 折りたたみ中のリソース利用: `OcrDataExtractor` は DOM に残るが、CSS により非表示。OCR 処理（Web Worker / Claude API / pdfjs-dist）は折りたたみ状態の影響を受けない（Req 40 AC 11）
+
+### File Structure Plan（追記8）
+
+| Path | Status | Responsibility |
+|------|--------|----------------|
+| `frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx` | Modified | (1) state `isOcrSectionExpanded` と `setIsOcrSectionExpanded` 追加、(2) handler `handleToggleOcrSection` 追加、(3) ローカル関数 `OcrChevronIcon` 追加、(4) OCR セクションラッパーに `<button>` ヘッダ要素と body ラッパー (`<div hidden>`) 追加、(5) styles に `ocrSectionHeader` / `ocrSectionTitle` / `ocrSectionChevron` 追加。登録/編集の両 OCR セクション分岐に同じ変更を適用 |
+| `frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx` | Modified | Testing Strategy §1 の Unit Tests 9 ケース追加 |
+| `e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` | Modified | Testing Strategy §2 の E2E シナリオ 2 件追加 |
+
+### Open Questions / Risks（追記8）
+
+- **R-40-5 確認結果**: Req 38 AC 5（セッション切れ時の編集状態保護）の保持対象に `isOcrSectionExpanded` を含めなくても問題ない。ダイアログが unmount されない限り state は React により保持されるため、再認証成功後の状態保持は自動的に成立する
+- **focus-visible 表現**: インライン style では `:focus-visible` 疑似クラスを直接書けない。実装で OS デフォルトのフォーカスリング（ブラウザ標準）を採用し、Req 40 AC 16 はそれで満たすと判断。明示的なフォーカスリング style が必要になった場合はインライン style ではなく `style` モジュール化または CSS file 追加を検討
+- **折りたたみ中の完了通知**: OCR 完了は現状抽出結果テキストの出現でしか視認できない。折りたたみ中にユーザーが処理完了に気づきにくい点は既存挙動を維持しスコープ外とする
+- **依存性のリスク**: なし。新規ライブラリ・新規 API・新規 DB マイグレーションは一切なし

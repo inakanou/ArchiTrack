@@ -566,3 +566,38 @@ design.md 追記6 で既にカバー済みのため再分析不要:
 - ✅ Effort / Risk と一行 justification（§4）
 - ✅ Recommendations for next phase（§6、design 段階に持ち越す Research Items §5）
 - ✅ Research Items（R-40-1 〜 R-40-6）
+
+### 8. Design Synthesis Outcomes（Req 40, 2026-05-11）
+
+設計フェーズの synthesis 3 レンズを適用した結果:
+
+#### Generalization
+
+- 折りたたみ可能セクションは現状プロジェクト内で他に明示的な要件が存在しないため、共通 `CollapsibleSection` コンポーネントへの一般化は **見送り**。Option B 却下の根拠を強化
+- 将来他セクション（項目選択、選択状況、ファイルプレビュー等）に折りたたみが要求された段階で抽出を再評価（design.md 追記8 の Revalidation Triggers に明記）
+
+#### Build vs Adopt
+
+- **採用**: React の `useState` + 標準 `<button>` 要素 + HTML `hidden` 属性のみ。新規ライブラリなし
+- **却下**:
+  - HTML `<details>`/`<summary>`: ブラウザ標準で a11y は得られるが、`open` 属性と React state の双方向同期コスト、デザイントークン適用のための追加スタイル調整、Tab フォーカス順の暗黙変化により Req 38 AC 12-13（未保存ガード）の挙動検証が増えるため不採用
+  - 共通コンポーネントライブラリ（Headless UI / Radix UI 等）: 既存プロジェクトに未導入。Req 40 単体で導入する justification が弱く却下
+- **採用根拠**: 既存 `EstimateItemTable.tsx` ローカル定義の `ChevronIcon` パターンと一貫性があり、依存追加なしで Req 40 AC 全てを満たせる
+
+#### Simplification
+
+- 共通コンポーネント抽出を見送ったことで、変更ファイル数は **3 ファイル**（実装 1 + テスト 2）に圧縮
+- ChevronIcon は SVG ではなく `▶` 文字でローカル定義し、依存とビルドサイズを最小化
+- state は単一の boolean、handler は 1 個の `useCallback`。複雑な抽象化（Reducer、Context、外部 hook）を避ける
+- styles は既存の `ocrSection` を変更せず、新規 3 個（`ocrSectionHeader` / `ocrSectionTitle` / `ocrSectionChevron`）のみ追加
+
+### 9. Research Item 確定状況（Req 40, 2026-05-11）
+
+| ID | 確定内容 |
+|----|---------|
+| R-40-1 | `hidden` HTML 属性を採用。`display: none` 等価 + ARIA 明確 + Tab フォーカス外。OcrDataExtractor unmount 回避により Req 40 AC 11/12 を機械的に担保 |
+| R-40-2 | `<button type="button">` を採用。Enter/Space 標準対応 + a11y 最善 + 既存パターン（EstimateItemTable.tsx）と整合 |
+| R-40-3 | ChevronIcon は ReceivedQuotationForm 内ローカル定義。共通化は Revalidation Trigger 発動時に再評価 |
+| R-40-4 | ヘッダラベル文言は「OCR / データパース」で確定。ファイル種別 PDF/画像/Excel いずれにも対応する汎用文言 |
+| R-40-5 | Req 38 AC 5（セッション切れ時の編集状態保護）の保持対象に `isOcrSectionExpanded` を **含めない**。ダイアログが unmount されない限り React state として保持されるため、再認証成功後の状態保持は自動成立 |
+| R-40-6 | テスト戦略確定: Unit 9 ケース（初期展開・クリック/Enter/Space トグル・DOM 保持・登録&編集両モード・ファイル未存在時の非表示・再オープン時のデフォルト復帰）+ E2E 2 シナリオ（抽出結果保持・再オープン展開） |
