@@ -77,12 +77,28 @@ const styles = {
     // 名称15.5全角(202px)・規格15.5全角(202px)・計算方法(90px)・数量10半角(80px)・単位3全角(46px)・備考5.5全角(76px)・アクション(80px)
     gridTemplateColumns: QUANTITY_ITEM_GRID_COLUMNS,
     gap: '2px',
+    // Task 51.1 Spike: 既存と同じ 'start' を維持（既存セルのラベル＋入力の縦配置を壊さないため）。
+    // 操作列セル内の inline 配置は actionCellInlineWrapper の flex-direction: row + align-items: center で行う
     alignItems: 'start',
     padding: '2px 4px',
   } as React.CSSProperties,
-  calculationFieldsRow: {
-    padding: '0 4px 4px 4px',
-    backgroundColor: '#f9fafb',
+  // Task 51.1 Spike: 採用案（操作列セル wrapper 拡張）
+  // 操作列セル内に flex wrapper を新設し、アクションメニュー + CalculationFields を横並び配置する
+  actionCellInlineWrapper: {
+    display: 'flex',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '4px',
+    // Grid の操作列セル幅(80px)を超えて右側に展開できるように flex-shrink を抑止
+    flexShrink: 0,
+  } as React.CSSProperties,
+  // Task 51.1 Spike: 操作列セル内に inline 配置した CalculationFields は折り返さない
+  inlineCalculationFields: {
+    display: 'flex',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '4px',
+    flexShrink: 0,
   } as React.CSSProperties,
   fieldGroup: {
     // グリッドセルとしてのラッパー（内部レイアウトは各コンポーネントが担当）
@@ -573,7 +589,12 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* アクション（REQ-36: アクションメニューに統合） */}
+        {/*
+          アクション（REQ-36: アクションメニューに統合）+ 計算用フィールド inline 配置（REQ-37 / Task 51.1 Spike 採用案）
+          操作列セル内に wrapper div を新設し、アクションメニューと CalculationFields を横並び配置する。
+          計算用フィールド群は flex-shrink: 0 により右側へ inline 展開され、ビューポートを超える場合は
+          ページ全体（REQ-25）の水平スクロールで閲覧する。
+        */}
         <div
           style={{
             ...styles.actionsCell,
@@ -581,39 +602,40 @@ export default function EditableQuantityItemRow({
           }}
           role="cell"
         >
-          <QuantityItemActionMenu
-            isOpen={isMenuOpen}
-            onToggle={handleToggleMenu}
-            onClose={handleCloseMenu}
-            onMoveUp={() => onMoveUp?.(item.id)}
-            onMoveDown={() => onMoveDown?.(item.id)}
-            onCopy={() => {
-              onCopy?.(item.id);
-            }}
-            onDelete={() => {
-              onDelete?.(item.id);
-            }}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-          />
+          <div data-testid="action-cell-inline-wrapper" style={styles.actionCellInlineWrapper}>
+            <QuantityItemActionMenu
+              isOpen={isMenuOpen}
+              onToggle={handleToggleMenu}
+              onClose={handleCloseMenu}
+              onMoveUp={() => onMoveUp?.(item.id)}
+              onMoveDown={() => onMoveDown?.(item.id)}
+              onCopy={() => {
+                onCopy?.(item.id);
+              }}
+              onDelete={() => {
+                onDelete?.(item.id);
+              }}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+            />
+            {/* 計算用フィールド（面積・体積またはピッチモード時のみ表示） */}
+            {/* REQ-9, REQ-10: 調整係数・丸め設定も計算用フィールドエリアに表示 */}
+            {item.calculationMethod !== 'STANDARD' && (
+              <div style={styles.inlineCalculationFields}>
+                <CalculationFields
+                  method={item.calculationMethod}
+                  params={item.calculationParams || {}}
+                  onChange={handleCalculationParamsChange}
+                  adjustmentFactor={item.adjustmentFactor}
+                  onAdjustmentFactorChange={handleAdjustmentFactorUpdate}
+                  roundingUnit={item.roundingUnit}
+                  onRoundingUnitChange={handleRoundingUnitUpdate}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* 計算用フィールド（面積・体積またはピッチモード時のみ表示） */}
-      {/* REQ-9, REQ-10: 調整係数・丸め設定も計算用フィールドエリアに表示 */}
-      {item.calculationMethod !== 'STANDARD' && (
-        <div style={styles.calculationFieldsRow}>
-          <CalculationFields
-            method={item.calculationMethod}
-            params={item.calculationParams || {}}
-            onChange={handleCalculationParamsChange}
-            adjustmentFactor={item.adjustmentFactor}
-            onAdjustmentFactorChange={handleAdjustmentFactorUpdate}
-            roundingUnit={item.roundingUnit}
-            onRoundingUnitChange={handleRoundingUnitUpdate}
-          />
-        </div>
-      )}
 
       {/* 数値入力フィールドのスピナーを非表示にするスタイル */}
       <style>

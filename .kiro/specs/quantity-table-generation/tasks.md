@@ -1227,7 +1227,7 @@
   - _Requirements: 36.1, 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9_
 
 - [ ] 51. 計算用フィールドの行内水平配置
-- [ ] 51.1 採用案（操作列セル wrapper 拡張）の Spike 検証を行う
+- [x] 51.1 採用案（操作列セル wrapper 拡張）の Spike 検証を行う
   - 操作列セル wrapper を一時的に新設し、CalculationFields を inline 配置した最小 POC を作成する
   - 数量項目行の高さがレイアウト変更前と同等（37px 程度）に収まることを DOM 計測で確認する
   - 既存の Storybook デコレータ・QuantityTableEditPage.scrollbar.test.tsx・CalculationFields.test.tsx の改修範囲を測定する

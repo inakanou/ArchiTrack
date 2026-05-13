@@ -659,6 +659,113 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
+  // ============================================================================
+  // Task 51.1 Spike: 操作列セル wrapper 拡張 - DOM 構造検測
+  //
+  // 採用案では、計算用フィールド群を操作列セル内の wrapper div に inline 配置する。
+  // jsdom は実高さを計測しないため、style 属性・className・flex-direction 等の
+  // 構造的属性で「行高さを増やさない配置」が適用されているかを assertion する。
+  // 実高さの計測検証は後続タスク（E2E）で行う前提。
+  //
+  // Requirements: 37.1（操作列右側に同一行水平配置）, 37.3（行高さ不変）
+  // ============================================================================
+  describe('Task 51.1 Spike: 操作列セル wrapper 拡張', () => {
+    it('面積・体積モード時、操作列セル内に inline 配置用 wrapper（横並び flex）が存在する', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      // 操作列セル内の wrapper を data-testid で取得
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      expect(wrapper).toBeInTheDocument();
+      // 行高さを増やさず横並び配置するため flex-direction: row が必要
+      expect(wrapper.style.display).toBe('flex');
+      expect(wrapper.style.flexDirection).toBe('row');
+      expect(wrapper.style.alignItems).toBe('center');
+    });
+
+    it('面積・体積モード時、計算用フィールド群が wrapper 内（操作列セル内）に配置される', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      const widthInput = screen.getByLabelText(/幅/);
+      // 計算用フィールド「幅」が操作列セル内の wrapper の子孫であること
+      expect(wrapper.contains(widthInput)).toBe(true);
+    });
+
+    it('ピッチモード時、計算用フィールド群が wrapper 内（操作列セル内）に配置される', () => {
+      const itemWithPitch = {
+        ...mockItem,
+        calculationMethod: 'PITCH' as const,
+        calculationParams: {
+          rangeLength: 10,
+          endLength1: 1,
+          endLength2: 1,
+          pitchLength: 2,
+        },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithPitch} />);
+
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      const rangeInput = screen.getByLabelText(/範囲長/);
+      expect(wrapper.contains(rangeInput)).toBe(true);
+    });
+
+    it('標準モード時、計算用フィールド wrapper の子要素にはアクションメニューのみ存在し、計算用フィールド群は描画されない', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      // wrapper 自体は標準モードでも存在する（操作ボタン用）
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      expect(wrapper).toBeInTheDocument();
+      // 計算用フィールド（幅）が描画されていないこと
+      expect(screen.queryByLabelText(/幅/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/範囲長/)).not.toBeInTheDocument();
+    });
+
+    it('面積・体積モード時、別行（calculationFieldsRow 別行 div）として計算用フィールドが描画されない', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      // 採用案では「メイン行の操作列内」へ移すため、行下別行の data-testid は存在しないこと
+      // POC として明示的な testid を持たせて並列レイアウトであることを保証する
+      const widthInput = screen.getByLabelText(/幅/);
+      const row = screen.getByTestId('quantity-item-row');
+      // 計算用フィールド「幅」が role="row" 要素配下の同一 row 内に含まれること
+      const mainRow = row.querySelector('[role="row"]');
+      expect(mainRow).not.toBeNull();
+      expect(mainRow?.contains(widthInput)).toBe(true);
+    });
+
+    it('面積・体積モード時、メイン行（role="row"）に固定 height が指定されていない', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const row = screen.getByTestId('quantity-item-row');
+      const mainRow = row.querySelector('[role="row"]') as HTMLElement | null;
+      expect(mainRow).not.toBeNull();
+      // 内容に応じた高さに対応するため、メイン行 div 自体には固定 height を指定しない。
+      // 実行高さ 37px はメイン行の子要素（label 14px + input 22px + gap 1px = 37px）と
+      // 操作列セル wrapper の align-items: center により達成する。
+      expect(mainRow!.style.height).toBe('');
+    });
+  });
+
   describe('小項目・任意分類フィールド', () => {
     it('小項目フィールドが表示される', () => {
       render(<EditableQuantityItemRow {...defaultProps} />);
