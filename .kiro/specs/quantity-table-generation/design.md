@@ -147,6 +147,8 @@ graph TB
 - 追加コンポーネント（REQ-27-34）: ImportDialog、ImportDataExtractor、ImportPreviewTable、ImportFieldMapping（数量表インポート機能、受領見積書登録機能のOCRパイプラインを再利用）
 - 修正コンポーネント（REQ-35）: PhotoCommentDisplay・QuantityGroupCard・QuantityTableEditPageの写真コメント取得・表示ロジック修正
 - 変更コンポーネント（REQ-36）: EditableQuantityItemRow内のアクションセルを再構成。SortOrderButtonsと削除ボタンを個別表示から削除し、アクションメニュー内に「上へ移動」「下へ移動」「削除」を統合。QuantityItemActionMenuを新設
+- 変更コンポーネント（REQ-37）: EditableQuantityItemRow および CalculationFields のレイアウト変更。計算用フィールド群（面積・体積／ピッチ）を「メイン行の下に別行表示」から「メイン行の操作列の右側に同一行で水平配置（ラベル+テキストボックス交互、行高さ不変）」へ変更。`calculationFieldsRow` 別行 div を削除し、`CalculationFields` を inline 配置に書き換え
+- 追加コンポーネント（REQ-38）: QuantityGroupCard表題部にコピーボタンを追加（ダイアログ無し、押下即実行）、QuantityGroupService.copy（同一数量表内へグループ複製、数量項目・写真紐づけを保持）、`POST /api/quantity-groups/:id/copy` ルートを新設
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -235,6 +237,41 @@ sequenceDiagram
         QTSV-->>API: エラー
         API-->>Dialog: エラーレスポンス
         Dialog->>Dialog: エラーメッセージ表示・インジケーター解除
+    end
+```
+
+### 数量グループコピーフロー（REQ-38）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant QTE as QuantityTableEditPage
+    participant QGC as QuantityGroupCard
+    participant API
+    participant QGSV as QuantityGroupService
+    participant DB as PostgreSQL
+
+    User->>QGC: グループ表題部のコピーボタンをクリック
+    QGC->>QGC: コピー中インジケーター表示・重複押下防止
+    QGC->>API: POST /api/quantity-groups/:id/copy
+    API->>QGSV: copy(groupId, actorId)
+    QGSV->>DB: BEGIN TRANSACTION
+    QGSV->>DB: 元グループと配下の全数量項目を取得
+    QGSV->>DB: 元グループの直下のdisplayOrderを算出し後続を+1シフト
+    QGSV->>DB: 複製グループを挿入（name="{元名}のコピー"、surveyImageIdを保持）
+    QGSV->>DB: 配下の全数量項目を複製（displayOrder・全フィールド値を保持）
+    QGSV->>DB: 監査ログ記録（QUANTITY_GROUP_COPIED）
+    QGSV->>DB: COMMIT
+    QGSV-->>API: 複製されたQuantityGroupInfo
+    API-->>QGC: 201 Created + QuantityGroupInfo
+    QGC->>QTE: 複製先グループをローカルステートに反映
+    QTE->>QTE: 複製先グループを元グループの直下に表示（編集可能状態）
+
+    alt エラー発生時
+        QGSV->>DB: ROLLBACK
+        QGSV-->>API: エラー
+        API-->>QGC: エラーレスポンス
+        QGC->>QGC: エラーメッセージ表示・インジケーター解除
     end
 ```
 
@@ -405,6 +442,8 @@ sequenceDiagram
 | 34.1-34.5 | インラインプレビュー | ImportDialog | react-pdf, SheetJS xlsx | - |
 | 35.1-35.7 | 写真コメント表示の不具合修正 | PhotoCommentDisplay, QuantityGroupCard, QuantityTableEditPage | GET /api/quantity-tables/:id | - |
 | 36.1-36.9 | 数量項目のアクションボタン統合 | QuantityItemActionMenu, EditableQuantityItemRow | - | - |
+| 37.1-37.12 | 計算用フィールドの行内水平配置（面積・体積／ピッチ） | EditableQuantityItemRow, CalculationFields, gridConstants | - | - |
+| 38.1-38.12 | 数量グループのコピー機能（同一数量表内） | QuantityGroupCard, QuantityGroupService.copy | POST /api/quantity-groups/:id/copy | 数量グループコピーフロー |
 
 ## Field Specifications
 
@@ -1429,6 +1468,174 @@ interface QuantityItemActionMenuProps {
 
 ---
 
+#### 計算用フィールドの行内水平配置（REQ-37）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 計算方法「面積・体積」または「ピッチ」選択時の計算用フィールド群を、メイン行の操作列右側に同一行で水平配置し、ラベルとテキストボックスを交互に並べる。行高さは増やさず、画面右側へのはみ出しは水平スクロールで対応する |
+| Requirements | 37.1, 37.2, 37.3, 37.4, 37.5, 37.6, 37.7, 37.8, 37.9, 37.10, 37.11, 37.12 |
+
+**Responsibilities & Constraints**
+
+- 計算用フィールド群は CSS Grid メイン行の外側ではなく、メイン行の操作列セルの直右側に inline-flex で水平配置される
+- ラベルとテキストボックスはペア単位で `flex-direction: row` 配置（既存の縦ペアから横ペアに変更）
+- ラベル幅・高さを縮小し、メイン行高さ（37px）と同等以下に収める
+- 計算用フィールド群の表示順序は要件で固定（面積・体積: W → D → H → 重量 → 調整係数 → 丸め設定／ピッチ: 範囲長 → 端長1 → 端長2 → ピッチ長 → 長さ → 重量 → 調整係数 → 丸め設定）
+- 計算方法「標準」では計算用フィールド群を一切表示しない
+- 計算方法切替時は即時に計算用フィールド群を表示／非表示する（既存の reactive レンダリングを維持）
+- 計算用フィールドのバリデーション・自動計算・小数桁表示・デフォルト値は既存実装（REQ-8/9/10）と同等に維持する（配置変更のみで動作変更なし）
+- 計算用フィールド群の専用タイトル行（別行）を表示しない（REQ-18 AC3/AC4 と整合）
+
+**Dependencies**
+
+- Inbound: QuantityGroupCard (P0) — itemList を介して EditableQuantityItemRow を描画
+- Outbound: CalculationEngine (P0) — 計算ロジックの呼び出しは既存どおり
+
+**Contracts**: State [x]
+
+**修正対象ファイルと変更内容**
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` | `calculationFieldsRow` 別行 div（L602-616）を削除し、メイン行（L396-600）の操作セルの直右側に `<CalculationFields>` を inline 配置。行高さ 37px を維持するため `flex-direction: row` + 縦パディング縮小 |
+| `frontend/src/components/quantity-table/CalculationFields.tsx` | `container` / `fieldsGrid`（L85-95）を縦ペア grid から水平 flex（label + input ペアの連続配置）に変更。各 NumberInputField / AdjustmentField のラベル高さを 14px、入力高さを 22px に統一 |
+| `frontend/src/components/quantity-table/gridConstants.ts` | 計算用フィールド領域は Grid 内列ではなく Grid 外の inline 領域として扱う方針を定数コメントに記載 |
+| `frontend/src/components/quantity-table/QuantityGroupTitleRow.tsx` | 計算用フィールド専用タイトル列は追加しない（REQ-18 整合）。タイトル行はメイン列のみ |
+
+**Layout Strategy**
+
+- メイン行は既存どおり 12列 CSS Grid（1180px）で描画する
+- 操作列セル（最右列）の `display: contents` を解除し、操作列セル `wrapper` の `display: flex; flex-direction: row; align-items: center` で操作ボタン群 + `<CalculationFields>` を横並びに配置
+- もしくは EditableQuantityItemRow の最上位コンテナを `display: flex; flex-direction: row` に変更し、Grid メイン行と inline 計算用フィールド群を兄弟要素として並べる（実装段階で 2 案のうち回帰影響が小さい方を選択）
+- 計算用フィールド群がビューポート右端を超えても表領域は `overflow-x: visible` を維持し、ページ全体（REQ-25）の水平スクロールで閲覧する
+- 行ごとに計算方法が異なる場合（標準／面積・体積／ピッチ混在）、各行の右端位置が揃わない点は許容仕様とする（REQ-37 AC8）
+
+**Implementation Notes**
+
+- Integration: `item.calculationMethod` の値に応じて `<CalculationFields>` を条件レンダリングする既存パターンを継続
+- Integration: `onUpdate` コールバック・`calculationParams` の状態管理は既存どおり継続使用
+- Validation: 行高さが 37px を超えないこと（DOM 計測テスト）、ラベルが visually-hidden ではないこと（getByLabelText で取得可能なこと）を回帰テストで担保
+- Risks: 既存の Storybook デコレータ・スクロールバーテスト（`QuantityTableEditPage.scrollbar.test.tsx`）が「行下表示」を暗黙前提にしている可能性。実装時に当該テストの assertion を新レイアウト前提に書き換える
+- Risks: `CalculationFields.test.tsx` の縦ペア前提テストを全面的に書き換える
+- Risks: 既存 e2e の数量項目編集シナリオで `getByLabelText('幅(W)')` 等のラベルベースセレクタが引き続き動作することを確認
+
+---
+
+#### 数量グループのコピー機能（REQ-38）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 各数量グループパネルの表題部にコピーボタンを追加し、押下時に当該グループ（配下の全数量項目および写真紐づけを含む）を同一数量表内に複製する。複製先のグループは元グループの直下に挿入し、名前は「{元名}のコピー」とする |
+| Requirements | 38.1, 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12 |
+
+**Responsibilities & Constraints**
+
+- グループパネル表題部に「コピー」ボタンを追加（ダイアログ無し、押下即実行）
+- 既存ボタン（展開／グループ名／並替↑↓／削除）との視覚干渉を避ける配置（並替ボタンと削除ボタンの間に挿入）
+- コピーボタンのアイコンは Copy 系アイコン（中立色、削除ボタンの赤系とは区別）
+- 複製処理はバックエンドで `$transaction` 一括実行（部分書き込み残留を防止）
+- 複製先のグループ名は「{元名}のコピー」。最大文字数（全角25/半角50、REQ-22 AC4）を超える場合は元名部分を切り詰めて「のコピー」を末尾に付与
+- 複製先の displayOrder は元グループの displayOrder + 1。後続グループの displayOrder を +1 シフトする一括 UPDATE を同一トランザクション内で実行
+- 写真紐づけ（surveyImageId）は元グループと同じ値を保持（中間テーブルなし、直接 FK の再利用）
+- 数量項目は元グループの全項目をフィールド値・displayOrder ともに複製
+- 複製処理中はボタンを disabled 化して重複押下を防止、スピナーを表示
+- エラー時は ROLLBACK し、部分的に作成された複製データを残さない
+- 監査ログに `QUANTITY_GROUP_COPIED` アクションを記録（既存 `auditLogService.createLog()` を再利用）
+
+**Dependencies**
+
+- Inbound: QuantityTableEditPage (P0) — `handleCopyGroup` ハンドラの配線
+- Outbound: QuantityGroupCard (P0) — `onCopyGroup` プロップの追加
+- Outbound: QuantityGroupService (P0) — `copy()` メソッドの新設
+- Outbound: PostgreSQL via Prisma (P0) — `$transaction` 内で QuantityGroup・QuantityItem を新規 INSERT
+
+**Contracts**: Service [x], API [x]
+
+##### Service Interface
+
+```typescript
+// backend/src/services/quantity-group.service.ts
+class QuantityGroupService {
+  /**
+   * 数量グループを同一数量表内に複製する
+   * @param groupId 複製元グループID
+   * @param actorId 操作ユーザーID（監査ログ用）
+   * @returns 複製されたグループの情報
+   * @throws QuantityGroupNotFoundError 元グループが存在しない場合
+   * @throws ForbiddenError 数量表への書き込み権限がない場合
+   */
+  async copy(
+    groupId: string,
+    actorId: string,
+  ): Promise<QuantityGroupInfo>;
+}
+
+interface QuantityGroupInfo {
+  id: string;
+  quantityTableId: string;
+  name: string;
+  surveyImageId: string | null;
+  displayOrder: number;
+  itemCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+##### API Contract
+
+| 項目 | 内容 |
+|------|------|
+| Method / Path | `POST /api/quantity-groups/:id/copy` |
+| 認証 | 必須（既存 JWT 認証） |
+| 権限 | `quantity_table:create`（REQ-17 の copyQuantityTable と同等） |
+| Request Body | 無し（空オブジェクトを許容） |
+| Response (201) | `QuantityGroupInfo`（複製先グループ） |
+| Response (404) | 元グループが存在しない、または論理削除済み |
+| Response (403) | 権限不足 |
+| Response (409) | 楽観的排他制御競合（同時に元グループが削除された場合） |
+| Response (500) | サーバー内部エラー（ROLLBACK 済み） |
+| Idempotency | 非べき等（押下ごとに新グループが作成される）。フロント側で重複押下をスピナーで防止 |
+
+##### Frontend Interface
+
+```typescript
+// frontend/src/api/quantity-groups.ts
+export async function copyQuantityGroup(
+  groupId: string,
+): Promise<QuantityGroupInfo>;
+
+// frontend/src/components/quantity-table/QuantityGroupCard.tsx の拡張プロップ
+interface QuantityGroupCardProps {
+  // 既存プロップに加えて:
+  onCopyGroup?: (groupId: string) => void | Promise<void>;
+  isCopying?: boolean;
+}
+```
+
+**修正対象ファイルと変更内容**
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 表題部の並替ボタン（L631-643）と削除ボタン（L646-656）の間に「コピー」ボタンを追加。`onCopyGroup` / `isCopying` プロップを追加し、isCopying 中は disabled + スピナー表示 |
+| `frontend/src/pages/QuantityTableEditPage.tsx` | `handleCopyGroup(groupId)` ハンドラを追加し `QuantityGroupCard` に配線。API 成功時に複製先グループをローカルステートに反映し、元グループの直下に挿入 |
+| `frontend/src/api/quantity-groups.ts`（新規 or 既存 API クライアントに追記） | `copyQuantityGroup(groupId): Promise<QuantityGroupInfo>` を追加（`POST /api/quantity-groups/:id/copy` を呼び出し） |
+| `backend/src/routes/quantity-groups.routes.ts` | `POST /:id/copy` ルートを追加（既存ファイル L127-700 に追記）。権限ミドルウェア `requirePermission('quantity_table:create')` を適用 |
+| `backend/src/services/quantity-group.service.ts` | `copy(groupId, actorId): Promise<QuantityGroupInfo>` メソッドを追加。`quantity-table.service.ts:910-1014` の copy パターンを参考に縮小実装 |
+| `backend/src/schemas/quantity-table.schema.ts`（または分離ファイル） | リクエストボディは空のため新規スキーマ不要（ルート側で空オブジェクト許容） |
+
+**Implementation Notes**
+
+- Integration: 既存の `quantity-group.service.ts` の `create()` / `update()` メソッドを内部から呼ばず、`copy()` 内で直接 `prisma.quantityGroup.create()` / `prisma.quantityItem.createMany()` を実行する（REQ-17 と同パターン）
+- Integration: 後続グループの displayOrder シフトは `prisma.quantityGroup.updateMany({ where: { quantityTableId, displayOrder: { gt: srcGroup.displayOrder } }, data: { displayOrder: { increment: 1 } } })` を `$transaction` 内で実行
+- Validation: 元グループの存在チェック → 数量表 ID 経由で書き込み権限チェック → トランザクション開始の順
+- Validation: 名前文字数超過時の切り詰めロジックは `QuantityValidationService` に `truncateForCopy(originalName: string, suffix: string): string` を新設して再利用可能化
+- Risks: 数量項目が大量（数百件）にあるグループのコピーは DB 負荷が増加する。既存 REQ-17（数量表コピー）と同等のサイズ想定（最大 100 項目程度）でテストし、必要に応じてレート制限を後追い検討（design 外 / out of scope）
+- Risks: 監査ログのアクション名は既存パターン（`QUANTITY_TABLE_COPIED`, `QUANTITY_ITEM_COPIED`）に合わせ `QUANTITY_GROUP_COPIED` を新設
+- Open Question: コピーボタンの配置位置（並替↑↓の右／削除ボタンの左）は実装段階で UI レビューを経て確定（research.md Section 5 #5 と整合）
+
+---
+
 ### Backend Extension（インポート機能用）
 
 #### ClaudeVisionService拡張
@@ -1666,6 +1873,11 @@ enum CalculationMethod {
 - PhotoCommentDisplay: コメントあり/なし/null時の表示テスト（既存テストで対応済み、修正後の回帰確認）
 - QuantityGroupCard: 写真選択時のコメント伝播テスト（linkSurveyImageレスポンスのcommentフィールド反映）
 - QuantityItemActionMenu: メニュー開閉、disabled制御（canMoveUp/canMoveDown）、各アクションコールバック呼び出し
+- EditableQuantityItemRow (REQ-37): 計算方法切替時の計算用フィールド群の表示/非表示、行高さが37px以下を維持すること、ラベルとテキストボックスが交互配置されること
+- CalculationFields (REQ-37): 面積・体積モードでW→D→H→重量→調整係数→丸め設定の順、ピッチモードで範囲長→端長1→端長2→ピッチ長→長さ→重量→調整係数→丸め設定の順で水平配置されること、ラベルが visually-hidden ではないこと
+- QuantityValidationService.truncateForCopy (REQ-38): 文字数超過時の元名切り詰めとサフィックス付与
+- QuantityGroupService.copy (REQ-38): グループと配下項目の複製、surveyImageId保持、displayOrderの +1 シフト、監査ログ記録、エラー時のロールバック
+- QuantityGroupCard (REQ-38): コピーボタンの表示、isCopying中のdisabled・スピナー表示、onCopyGroupコールバック呼び出し
 
 ### Integration Tests
 
@@ -1675,6 +1887,7 @@ enum CalculationMethod {
 - フィールドバリデーションエラー時の保存阻止
 - オートコンプリート候補一括取得API: GROUP BYで重複排除された候補値の返却
 - 数量表コピーAPI: 全データが正しく複製されること
+- 数量グループコピーAPI (REQ-38): 元グループの全項目・写真紐づけが複製されること、displayOrderが元グループ+1の位置に挿入されること、後続グループのdisplayOrderが+1シフトされること、監査ログが記録されること
 - Claude Vision API（数量表モード）: 数量表用プロンプトで正しい列マッピングが返却されること
 
 ### E2E Tests
@@ -1709,6 +1922,21 @@ enum CalculationMethod {
   - メニュー内から「上へ移動」「下へ移動」「コピー」「削除」が実行できること
   - 最上位項目の「上へ移動」がdisabled、最下位項目の「下へ移動」がdisabledであること
   - メニュー外クリックでメニューが閉じること
+- 計算用フィールド配置（REQ-37）
+  - 計算方法を「面積・体積」「ピッチ」に切り替えると、計算用フィールド群がメイン行の操作列右側に同一行で水平表示されること（行の下に別行として表示されないこと）
+  - ラベルとテキストボックスが交互に配置され、すべてのラベルがDOMで可視であること
+  - メイン行の行高さがレイアウト変更前と同等であること
+  - 計算方法「標準」では計算用フィールド群が表示されないこと
+  - 計算用フィールド群がビューポート右端を超えても、ページ全体の水平スクロールで閲覧可能であること
+  - 同一グループ内に標準／面積・体積／ピッチが混在しても、各行が独立して正しく描画されること
+- 数量グループコピー（REQ-38）
+  - グループパネル表題部のコピーボタンをクリックすると、複製先グループが元グループの直下に出現すること
+  - 複製先グループの名前が「{元名}のコピー」となること（文字数超過時は元名が切り詰められること）
+  - 複製先グループに元グループの全数量項目（フィールド値・並び順を含む）が含まれること
+  - 元グループに紐づけられていた写真が複製先グループにも紐づけられていること
+  - 後続グループの並び順が +1 シフトされ、表全体の並び順が正しく更新されていること
+  - コピー処理中はボタンがdisabled化され、スピナーが表示されること
+  - 複製先グループのグループ名が直ちにインライン編集可能であること（既存 REQ-22 と整合）
 - インポートエラーハンドリング
   - サポート対象外ファイル形式のエラー表示
   - OCR処理失敗時のリトライ動作確認

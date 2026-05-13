@@ -246,3 +246,55 @@ model QuantityGroup {
 - 数量項目（QuantityItem）単位のコピー（REQ-6 で既実装）
 - 別の数量表へのグループ移動（user 確認済み、本イテレーションでは同一数量表内のみ）
 - 数量グループ名前変更（REQ-22 既実装）
+
+---
+
+## 7. Design Phase Synthesis (2026-05-13)
+
+`/kiro-spec-design` 実行時の synthesis 結果を記録する。
+
+### 7.1 Generalization
+
+- REQ-38（グループコピー）は REQ-17（数量表コピー）の縮小特殊ケースとして扱う。サービス層は同一の `$transaction` + displayOrder保持 + 監査ログ記録のパターンを流用
+- REQ-37 と REQ-18 AC3/AC4 は同一の "calculation fields 配置" 問題の表裏。要件側で整合更新済み、設計側では REQ-37 を主要件として扱い REQ-18 は計算用専用タイトル行廃止のみの参照関係に整理
+
+### 7.2 Build vs Adopt
+
+- **Adopt**: 既存 `QuantityTableService.copy()` のロジック構造（`$transaction` + sourceデータ取得 + 新規挿入 + 監査ログ）を `QuantityGroupService.copy()` で踏襲
+- **Adopt**: 既存 `auditLogService.createLog()` を `QUANTITY_GROUP_COPIED` アクションで再利用
+- **Adopt**: 既存の CSS Grid メイン行レイアウト（`gridConstants.ts` の 12列定義）はそのまま維持し、計算用フィールド群のみ Grid 外 inline 配置に変更
+- **Build**: グループ名文字数超過時の切り詰めユーティリティ `truncateForCopy()` を `QuantityValidationService` に新設（既存実装になし）
+
+### 7.3 Simplification
+
+- **Skip CopyQuantityGroupDialog**: ユーザー要件（コピーボタン押下のみ・ダイアログ無し）に従い、新規 Dialog コンポーネントを作成しない
+- **Skip name input override**: API リクエストボディに `name` フィールドを置かず、サーバー側で自動的に「{元名}のコピー」を生成する（簡素化）
+- **Skip separate route file**: グループコピー API は既存 `quantity-groups.routes.ts` に追記し、新規ルートファイルを作成しない
+- **Skip calculation field title row**: REQ-37 の新レイアウトでは inline ラベルが各フィールドに付随するため、計算用フィールド専用タイトル行（別行）は不要（既に未実装）
+
+### 7.4 設計時の決定事項（research.md Section 5 の解消状況）
+
+| Research Item | 解消方針 |
+|---------------|---------|
+| #1 行高さ不変の CSS 戦略 | ラベル高さ 14px + 入力高さ 22px の縦ペアを横ペアに変更。ラベルは visually-hidden ではなく可視のまま縦パディングを縮小して 37px 以下に収める |
+| #2 操作列右側の領域 | 実装段階で 2 案（操作列セル `display: contents` 解除 / EditableQuantityItemRow 最上位を flex 化）を試し、回帰影響が小さい方を選択（design.md 内で明記） |
+| #3 行ごとの計算用フィールド長の差異 | REQ-37 AC8 で「各行が独立して描画される（右端不揃いは許容）」と明示済み |
+| #4 displayOrder 再採番戦略 | `prisma.quantityGroup.updateMany({ where: { displayOrder: { gt: src } }, data: { displayOrder: { increment: 1 } } })` を `$transaction` 内で実行する個別 UPDATE 方式を採用 |
+| #5 コピーボタン配置 | 並替ボタン↑↓と削除ボタンの間に挿入（Open Question として実装段階の UI レビューで最終確定） |
+| #6 認可スコープ | 既存 `quantity_table:create` 権限を流用（REQ-17 と同等） |
+| #7 監査ログアクション名 | `QUANTITY_GROUP_COPIED` を新設（既存パターンに合わせる） |
+| #8 e2e テストの前提 | `CalculationFields.test.tsx` および `QuantityTableEditPage.scrollbar.test.tsx` の書き換えを Implementation Notes に明記 |
+
+### 7.5 Boundary Commitments
+
+- **Owns**: 数量表編集画面の数量項目行レイアウト、数量グループコピー機能（フロント UI + API + Service）、計算用フィールドの配置仕様
+- **Out of Boundary**: 数量項目単位のコピー（REQ-6 既実装）、別数量表へのグループ移動、写真注釈エディタの変更、数量グループ削除確認 UI の変更
+- **Allowed Dependencies**:
+  - 既存 `CalculationEngine`, `FieldValidator`, `QuantityValidationService`, `auditLogService` を呼び出し可能
+  - 既存 `prisma.quantityGroup` / `prisma.quantityItem` テーブルへの read/write
+  - 既存の `requirePermission('quantity_table:create')` ミドルウェアの再利用
+- **Revalidation Triggers**:
+  - 計算用フィールドの種類（W/D/H/重量/調整係数/丸め設定／範囲長/端長1/端長2/ピッチ長/長さ/重量/調整係数/丸め設定）が追加・削除された場合
+  - グループ名の最大文字数仕様（REQ-22 AC4）が変更された場合
+  - 別数量表へのグループ移動／コピーがスコープに加わった場合
+  - 行高さ仕様（37px）が他要件で変更された場合
