@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
 import type { QuantityItemDetail } from '../../types/quantity-table.types';
@@ -1066,6 +1066,462 @@ describe('EditableQuantityItemRow', () => {
       render(<EditableQuantityItemRow {...defaultProps} item={emptyNameItem} />);
 
       expect(screen.getByText('名称は必須です')).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // Task 51.4: 計算方法切替時の表示制御と動作互換性
+  //
+  // Requirements: 37.7, 37.8, 37.9, 37.10, 37.11, 37.12
+  // Requirement 8/9/10 と同等の挙動を維持しているかを回帰防止する。
+  // ============================================================================
+  describe('Task 51.4: 計算方法切替時の表示制御と動作互換性', () => {
+    // ------------------------------------------------------------------------
+    // Requirement 37.7: 標準モードでは計算用フィールド群を一切表示しない
+    // ------------------------------------------------------------------------
+    describe('Requirement 37.7: 標準モードで計算用フィールド非表示', () => {
+      it('STANDARD モードのとき、操作列 inline wrapper 内に CalculationFields の入力が一切存在しない', () => {
+        render(<EditableQuantityItemRow {...defaultProps} />);
+        const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+
+        // 面積・体積で表示される全フィールド
+        expect(wrapper.querySelector('input[id$="-width"]')).toBeNull();
+        // wrapper 内に「幅」ラベル / 「奥行き」ラベル等が存在しないこと
+        // CalculationFields 内の getByLabelText 対象が一切描画されていないこと
+        expect(screen.queryByLabelText(/^幅/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/奥行き/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/^高さ/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/重量/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/範囲長/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/端長1/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/端長2/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/ピッチ長/)).not.toBeInTheDocument();
+        // 調整係数 / 丸め設定も非表示（REQ-9.8 / REQ-10.8）
+        expect(screen.queryByLabelText(/調整係数/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/丸め設定/)).not.toBeInTheDocument();
+        // 「直接数量を入力してください」メッセージ（CalculationFields の STANDARD 出力）も
+        // 計算用フィールド群が wrapper に存在しないことの直接証拠としては不要なので
+        // 描画されない（CalculationFields は条件レンダリングで描画自体スキップ）
+        expect(screen.queryByText(/直接数量を入力/)).not.toBeInTheDocument();
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // Requirement 37.10 / 37.11: 計算方法切替時の即時表示／非表示／差し替え
+    // ------------------------------------------------------------------------
+    describe('Requirement 37.10 / 37.11: 計算方法切替時の即時表示・非表示', () => {
+      it('STANDARD → AREA_VOLUME に切り替えると面積・体積の計算用フィールドが即座に表示される', () => {
+        const { rerender } = render(<EditableQuantityItemRow {...defaultProps} />);
+        // 初期: STANDARD → 計算用フィールド非表示
+        expect(screen.queryByLabelText(/^幅/)).not.toBeInTheDocument();
+
+        // 切替: AREA_VOLUME
+        rerender(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        // 即座に表示
+        expect(screen.getByLabelText(/^幅/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/奥行き/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/^高さ/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/重量/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/調整係数/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/丸め設定/)).toBeInTheDocument();
+      });
+
+      it('AREA_VOLUME → STANDARD に切り替えると計算用フィールドが即座に非表示になる', () => {
+        const { rerender } = render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        expect(screen.getByLabelText(/^幅/)).toBeInTheDocument();
+
+        rerender(<EditableQuantityItemRow {...defaultProps} item={{ ...mockItem }} />);
+        // 即座に非表示
+        expect(screen.queryByLabelText(/^幅/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/調整係数/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/丸め設定/)).not.toBeInTheDocument();
+      });
+
+      it('AREA_VOLUME → PITCH に切り替えると面積・体積フィールドが消えピッチフィールドに差し替わる', () => {
+        const { rerender } = render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        // 初期: 面積・体積フィールド表示
+        expect(screen.getByLabelText(/^幅/)).toBeInTheDocument();
+        expect(screen.queryByLabelText(/範囲長/)).not.toBeInTheDocument();
+
+        rerender(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'PITCH',
+              calculationParams: {
+                rangeLength: 10,
+                endLength1: 1,
+                endLength2: 1,
+                pitchLength: 2,
+              },
+            }}
+          />
+        );
+        // 面積・体積フィールドは消える
+        expect(screen.queryByLabelText(/^幅/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/奥行き/)).not.toBeInTheDocument();
+        // ピッチフィールドが表示される
+        expect(screen.getByLabelText(/範囲長/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/端長1/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/端長2/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/ピッチ長/)).toBeInTheDocument();
+        // 調整係数・丸め設定はピッチでも継続表示
+        expect(screen.getByLabelText(/調整係数/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/丸め設定/)).toBeInTheDocument();
+      });
+
+      it('PITCH → AREA_VOLUME に切り替えるとピッチフィールドが消え面積・体積フィールドに差し替わる', () => {
+        const { rerender } = render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'PITCH',
+              calculationParams: {
+                rangeLength: 10,
+                endLength1: 1,
+                endLength2: 1,
+                pitchLength: 2,
+              },
+            }}
+          />
+        );
+        expect(screen.getByLabelText(/範囲長/)).toBeInTheDocument();
+
+        rerender(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        // ピッチフィールドは消える
+        expect(screen.queryByLabelText(/範囲長/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/端長1/)).not.toBeInTheDocument();
+        // 面積・体積フィールドが表示される
+        expect(screen.getByLabelText(/^幅/)).toBeInTheDocument();
+        expect(screen.getByLabelText(/奥行き/)).toBeInTheDocument();
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // Requirement 37.8: 混在時の独立した描画
+    // ------------------------------------------------------------------------
+    describe('Requirement 37.8: 混在時の独立描画', () => {
+      it('STANDARD・AREA_VOLUME・PITCH を同時に複数行描画したとき、各行が独立して対応する計算用フィールドを表示する', () => {
+        const standardItem: QuantityItemDetail = {
+          ...mockItem,
+          id: 'item-standard',
+          calculationMethod: 'STANDARD',
+        };
+        const areaVolumeItem: QuantityItemDetail = {
+          ...mockItem,
+          id: 'item-area-volume',
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: { width: 10, depth: 5 },
+        };
+        const pitchItem: QuantityItemDetail = {
+          ...mockItem,
+          id: 'item-pitch',
+          calculationMethod: 'PITCH',
+          calculationParams: {
+            rangeLength: 10,
+            endLength1: 1,
+            endLength2: 1,
+            pitchLength: 2,
+          },
+        };
+
+        const { container } = render(
+          <>
+            <EditableQuantityItemRow {...defaultProps} item={standardItem} />
+            <EditableQuantityItemRow {...defaultProps} item={areaVolumeItem} />
+            <EditableQuantityItemRow {...defaultProps} item={pitchItem} />
+          </>
+        );
+
+        // 3 つの quantity-item-row が並んでいること
+        const rowsList = Array.from(
+          container.querySelectorAll('[data-testid="quantity-item-row"]')
+        ) as HTMLElement[];
+        expect(rowsList.length).toBe(3);
+
+        // 行ごとに「自分の計算方法に対応するフィールド」だけを持つこと
+        const standardRow = rowsList[0]!;
+        const areaVolumeRow = rowsList[1]!;
+        const pitchRow = rowsList[2]!;
+
+        // STANDARD 行: 計算用フィールドゼロ
+        expect(standardRow.querySelector('input[type="text"][inputmode="decimal"]')).not.toBeNull();
+        // 数量入力フィールド以外に CalculationFields の入力がない
+        // 「幅 / 範囲長 / 調整係数」が STANDARD 行内に存在しないこと
+        expect(within(standardRow).queryByLabelText(/^幅/)).not.toBeInTheDocument();
+        expect(within(standardRow).queryByLabelText(/範囲長/)).not.toBeInTheDocument();
+        expect(within(standardRow).queryByLabelText(/調整係数/)).not.toBeInTheDocument();
+
+        // AREA_VOLUME 行: 面積・体積フィールド存在、ピッチフィールド非存在
+        expect(within(areaVolumeRow).getByLabelText(/^幅/)).toBeInTheDocument();
+        expect(within(areaVolumeRow).getByLabelText(/奥行き/)).toBeInTheDocument();
+        expect(within(areaVolumeRow).queryByLabelText(/範囲長/)).not.toBeInTheDocument();
+        expect(within(areaVolumeRow).getByLabelText(/調整係数/)).toBeInTheDocument();
+
+        // PITCH 行: ピッチフィールド存在、面積・体積フィールド非存在
+        expect(within(pitchRow).getByLabelText(/範囲長/)).toBeInTheDocument();
+        expect(within(pitchRow).getByLabelText(/端長1/)).toBeInTheDocument();
+        expect(within(pitchRow).getByLabelText(/ピッチ長/)).toBeInTheDocument();
+        expect(within(pitchRow).queryByLabelText(/^幅/)).not.toBeInTheDocument();
+        expect(within(pitchRow).queryByLabelText(/奥行き/)).not.toBeInTheDocument();
+        expect(within(pitchRow).getByLabelText(/調整係数/)).toBeInTheDocument();
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // Requirement 37.12: 計算用フィールド群の専用タイトル行（別行）を表示しない
+    // ------------------------------------------------------------------------
+    describe('Requirement 37.12: 専用タイトル行非描画', () => {
+      it('AREA_VOLUME モード時、計算用フィールド群の専用タイトル行を別行として描画しない', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        const row = screen.getByTestId('quantity-item-row');
+        // 旧レイアウトでメイン行下に別行を描画していた data-testid が残存しないこと
+        expect(row.querySelector('[data-testid="calculation-fields-row"]')).toBeNull();
+        // 役割 row は 1 つだけ（メイン行のみ）。計算用フィールド専用 row は存在しない。
+        const rowsInside = row.querySelectorAll('[role="row"]');
+        expect(rowsInside.length).toBe(1);
+        // 計算用フィールド「幅」がメイン行（role="row"）内部に配置されること
+        const mainRow = rowsInside[0] as HTMLElement;
+        const widthInput = screen.getByLabelText(/^幅/);
+        expect(mainRow.contains(widthInput)).toBe(true);
+      });
+
+      it('PITCH モード時も計算用フィールド群の専用タイトル行を別行として描画しない', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'PITCH',
+              calculationParams: {
+                rangeLength: 10,
+                endLength1: 1,
+                endLength2: 1,
+                pitchLength: 2,
+              },
+            }}
+          />
+        );
+        const row = screen.getByTestId('quantity-item-row');
+        expect(row.querySelector('[data-testid="calculation-fields-row"]')).toBeNull();
+        const rowsInside = row.querySelectorAll('[role="row"]');
+        expect(rowsInside.length).toBe(1);
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // Requirement 37.9: バリデーション・自動計算・小数2桁表示・デフォルト値が
+    //                   Requirement 8・9・10 と同一に保たれる
+    // ------------------------------------------------------------------------
+    describe('Requirement 37.9: Requirement 8/9/10 動作互換性', () => {
+      it('面積・体積モードで params 既存値が小数2桁で表示される（REQ-14.3 同等）', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5, height: 2 },
+            }}
+          />
+        );
+        expect(screen.getByLabelText(/^幅/)).toHaveValue('10.00');
+        expect(screen.getByLabelText(/奥行き/)).toHaveValue('5.00');
+        expect(screen.getByLabelText(/^高さ/)).toHaveValue('2.00');
+      });
+
+      it('面積・体積モードの調整係数・丸め設定はデフォルト値 1.00 / 0.01 で表示される（REQ-9.1 / REQ-10.1）', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10 },
+              adjustmentFactor: 1,
+              roundingUnit: 0.01,
+            }}
+          />
+        );
+        expect(screen.getByLabelText(/調整係数/)).toHaveValue('1.00');
+        expect(screen.getByLabelText(/丸め設定/)).toHaveValue('0.01');
+      });
+
+      it('面積・体積モードで計算用列の値変更時、onUpdate に再計算後の quantity が含まれる（REQ-8.6 / REQ-8.11 自動再計算）', async () => {
+        const user = userEvent.setup();
+        const onUpdate = vi.fn();
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+              adjustmentFactor: 1,
+              roundingUnit: 0.01,
+            }}
+            onUpdate={onUpdate}
+          />
+        );
+        const heightInput = screen.getByLabelText(/^高さ/);
+        await user.clear(heightInput);
+        await user.type(heightInput, '2');
+        await user.tab();
+
+        // calculationParams と quantity の両方が onUpdate 引数に渡されること
+        const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+        expect(lastCall?.[0]).toBe('item-1');
+        // calculationParams は height=2 を含む
+        expect(lastCall?.[1]).toEqual(
+          expect.objectContaining({
+            calculationParams: expect.objectContaining({ height: 2 }),
+            // 10 * 5 * 2 = 100、調整係数1、丸め 0.01 → quantity=100
+            quantity: expect.any(Number),
+          })
+        );
+        expect(lastCall?.[1].quantity).toBe(100);
+      });
+
+      it('調整係数を変更すると quantity が再計算される（REQ-9.2 / REQ-9.6）', async () => {
+        const user = userEvent.setup();
+        const onUpdate = vi.fn();
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5, height: 2 },
+              adjustmentFactor: 1,
+              roundingUnit: 0.01,
+            }}
+            onUpdate={onUpdate}
+          />
+        );
+        const factorInput = screen.getByLabelText(/調整係数/);
+        await user.clear(factorInput);
+        await user.type(factorInput, '1.5');
+        await user.tab();
+
+        const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+        expect(lastCall?.[1]).toEqual(
+          expect.objectContaining({
+            adjustmentFactor: 1.5,
+            // 10 * 5 * 2 * 1.5 = 150
+            quantity: 150,
+          })
+        );
+      });
+
+      it('丸め設定を変更すると quantity が再計算される（REQ-10.2 / REQ-10.6）', async () => {
+        const user = userEvent.setup();
+        const onUpdate = vi.fn();
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 1.234, depth: 1, height: 1 },
+              adjustmentFactor: 1,
+              roundingUnit: 0.01,
+            }}
+            onUpdate={onUpdate}
+          />
+        );
+        const roundingInput = screen.getByLabelText(/丸め設定/);
+        await user.clear(roundingInput);
+        await user.type(roundingInput, '0.1');
+        await user.tab();
+
+        const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+        expect(lastCall?.[1]).toEqual(
+          expect.objectContaining({
+            roundingUnit: 0.1,
+            // 1.234 を 0.1 単位で切り上げ → 1.3
+            quantity: expect.any(Number),
+          })
+        );
+        // 切り上げ結果が 1.3 になる（REQ-10.2 切り上げ仕様）
+        expect(lastCall?.[1].quantity).toBeCloseTo(1.3, 5);
+      });
+
+      it('計算方法を STANDARD → AREA_VOLUME に切り替えると、既存 calculationParams で quantity が再計算される（REQ-8.1 切替時再計算）', async () => {
+        const onUpdate = vi.fn();
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'STANDARD',
+              // STANDARD 状態だが、過去に AREA_VOLUME で入力された params が保持されている想定
+              calculationParams: { width: 4, depth: 5, height: 2 },
+              adjustmentFactor: 1,
+              roundingUnit: 0.01,
+            }}
+            onUpdate={onUpdate}
+          />
+        );
+        // 計算方法セレクトを AREA_VOLUME に変更
+        const select = screen.getByRole('combobox', { name: /計算方法/ });
+        await userEvent.selectOptions(select, 'AREA_VOLUME');
+
+        // onUpdate に再計算結果（4*5*2 = 40）と calculationMethod 切替が含まれること
+        const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+        expect(lastCall?.[1]).toEqual(
+          expect.objectContaining({
+            calculationMethod: 'AREA_VOLUME',
+            quantity: 40,
+          })
+        );
+      });
     });
   });
 });
