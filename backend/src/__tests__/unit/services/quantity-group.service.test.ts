@@ -19,6 +19,10 @@
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { QuantityGroupService } from '../../../services/quantity-group.service.js';
+import {
+  QuantityGroupNotFoundError,
+  OptimisticLockError,
+} from '../../../errors/quantityTableError.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 
@@ -29,8 +33,12 @@ type MockPrismaClient = {
     findUnique: Mock;
     findMany: Mock;
     update: Mock;
+    updateMany: Mock;
     delete: Mock;
     count: Mock;
+  };
+  quantityItem: {
+    createMany: Mock;
   };
   quantityTable: {
     findUnique: Mock;
@@ -38,6 +46,7 @@ type MockPrismaClient = {
   surveyImage: {
     findUnique: Mock;
   };
+  $queryRaw: Mock;
   $transaction: Mock;
 };
 
@@ -54,8 +63,12 @@ describe('QuantityGroupService', () => {
         findUnique: vi.fn(),
         findMany: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
         delete: vi.fn(),
         count: vi.fn(),
+      },
+      quantityItem: {
+        createMany: vi.fn(),
       },
       quantityTable: {
         findUnique: vi.fn(),
@@ -63,6 +76,7 @@ describe('QuantityGroupService', () => {
       surveyImage: {
         findUnique: vi.fn(),
       },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked-table' }]),
       $transaction: vi.fn((callback) => callback(mockPrisma)),
     };
 
@@ -786,6 +800,132 @@ describe('QuantityGroupService', () => {
 
       // Assert
       expect(result.name).toBeNull();
+    });
+  });
+
+  describe('copy', () => {
+    const sourceGroupId = '123e4567-e89b-12d3-a456-426614174010';
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174011';
+    const actorId = '123e4567-e89b-12d3-a456-426614174012';
+    const copiedGroupId = '123e4567-e89b-12d3-a456-426614174020';
+
+    /**
+     * 元グループとその配下項目を含む findUnique のモック結果を組み立てる
+     */
+    function buildSourceGroup(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        id: sourceGroupId,
+        quantityTableId,
+        name: '元グループ',
+        surveyImageId: 'survey-image-1',
+        displayOrder: 2,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        quantityTable: { id: quantityTableId, deletedAt: null },
+        items: [
+          {
+            id: 'item-1',
+            quantityGroupId: sourceGroupId,
+            majorCategory: '大項目',
+            middleCategory: '中項目',
+            minorCategory: '小項目',
+            customCategory: null,
+            workType: '工種A',
+            name: '名称A',
+            specification: '規格A',
+            unit: 'm',
+            calculationMethod: 'STANDARD',
+            calculationParams: null,
+            adjustmentFactor: '1.0000',
+            roundingUnit: '0.0100',
+            quantity: '10.5000',
+            remarks: '備考',
+            displayOrder: 0,
+          },
+        ],
+        ...overrides,
+      };
+    }
+
+    /**
+     * 複製先グループの create 結果（_count 込み）
+     */
+    function buildCopiedGroup() {
+      return {
+        id: copiedGroupId,
+        quantityTableId,
+        name: '元グループのコピー',
+        surveyImageId: 'survey-image-1',
+        displayOrder: 3,
+        createdAt: new Date('2026-01-06T01:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+        _count: { items: 1 },
+      };
+    }
+
+    it('正常系: グループと配下項目が複製され、複製先 QuantityGroupInfo が返却される', async () => {
+      // Arrange
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(buildSourceGroup());
+      mockPrisma.quantityGroup.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.quantityGroup.create.mockResolvedValue(buildCopiedGroup());
+      mockPrisma.quantityItem.createMany.mockResolvedValue({ count: 1 });
+
+      // Act
+      const result = await service.copy(sourceGroupId, actorId);
+
+      // Assert
+      expect(result.id).toBe(copiedGroupId);
+      expect(result.quantityTableId).toBe(quantityTableId);
+      expect(result.surveyImageId).toBe('survey-image-1');
+      expect(result.displayOrder).toBe(3);
+      expect(result.name).toBe('元グループのコピー');
+      // SELECT FOR UPDATE が呼び出されている
+      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+      // 後続グループの displayOrder シフト
+      expect(mockPrisma.quantityGroup.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            quantityTableId,
+            displayOrder: { gt: 2 },
+          }),
+          data: { displayOrder: { increment: 1 } },
+        })
+      );
+      // QuantityItem.createMany により配下項目を複製
+      expect(mockPrisma.quantityItem.createMany).toHaveBeenCalled();
+      // 監査ログに QUANTITY_GROUP_COPIED が記録される
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'QUANTITY_GROUP_COPIED',
+          actorId,
+        })
+      );
+    });
+
+    it('元グループが存在しない場合は QuantityGroupNotFoundError', async () => {
+      // Arrange
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'locked-table' }]);
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.copy(sourceGroupId, actorId)).rejects.toThrow(
+        QuantityGroupNotFoundError
+      );
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+    });
+
+    it('SELECT FOR UPDATE が対象数量表を検出できない場合は OptimisticLockError', async () => {
+      // Arrange: 親 QuantityTable のロック取得時に行が見つからない（削除済みなど）
+      mockPrisma.$queryRaw.mockResolvedValue([]);
+      // ロック取得前に元グループから quantityTableId を取得するため findUnique は1度呼ばれる
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+        id: sourceGroupId,
+        quantityTableId,
+        deletedAt: null,
+      });
+
+      // Act & Assert
+      await expect(service.copy(sourceGroupId, actorId)).rejects.toThrow(OptimisticLockError);
     });
   });
 });

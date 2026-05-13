@@ -1291,7 +1291,7 @@
   - _Requirements: 38.5, 38.6_
   - _Boundary: QuantityValidationService_
 
-- [ ] 52.2 QuantityGroupService.copy メソッドを実装する
+- [x] 52.2 QuantityGroupService.copy メソッドを実装する
   - $transaction 開始直後に親 QuantityTable 行へ SELECT FOR UPDATE で行ロックを取得し、同一数量表内の並行 displayOrder 操作を serialize する
   - 元数量グループと配下の全数量項目を取得する
   - 元グループの displayOrder より大きい後続グループの displayOrder を一括 +1 シフトする
