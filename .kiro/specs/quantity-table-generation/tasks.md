@@ -1225,3 +1225,170 @@
   - 行に表示されるボタンがアクションメニューボタン1つのみであることの単体テスト
   - アクションメニューからの操作が正しく動作することのE2Eテスト
   - _Requirements: 36.1, 36.2, 36.3, 36.4, 36.5, 36.6, 36.7, 36.8, 36.9_
+
+- [ ] 51. 計算用フィールドの行内水平配置
+- [ ] 51.1 採用案（操作列セル wrapper 拡張）の Spike 検証を行う
+  - 操作列セル wrapper を一時的に新設し、CalculationFields を inline 配置した最小 POC を作成する
+  - 数量項目行の高さがレイアウト変更前と同等（37px 程度）に収まることを DOM 計測で確認する
+  - 既存の Storybook デコレータ・QuantityTableEditPage.scrollbar.test.tsx・CalculationFields.test.tsx の改修範囲を測定する
+  - 採用案で行高さ不変を満たせない場合は contingency 案（最上位 flex 化）へ切り替える判断を design.md と本タスクファイルに記録する
+  - 観測可能完了条件: 採用案で行高さ 37px 維持可能 / 既存テスト書き換え工数の概算が確定し、後続タスクの実装方針が確定する
+  - _Requirements: 37.1, 37.3_
+  - _Boundary: EditableQuantityItemRow_
+
+- [ ] 51.2 計算用フィールド群の水平配置レイアウトを実装する
+  - 数量項目行のメイン行下に表示されていた計算用フィールド別行のラッパー要素を削除する
+  - メイン行の操作列セル内に wrapper を新設し、操作ボタン群と計算用フィールド群を flex で横並びに配置する
+  - 計算方法「面積・体積」または「ピッチ」を選択した数量項目で、計算用フィールド群がメイン行操作列の直右側に同一行で表示される
+  - メイン行の行高さがレイアウト変更前と同等の 37px 以下を維持する
+  - 計算用フィールド群がビューポート右端を超えてもページ全体の水平スクロールで閲覧可能（表領域は overflow を発生させない）
+  - _Requirements: 37.1, 37.3, 37.6, 37.7_
+  - _Boundary: EditableQuantityItemRow_
+
+- [ ] 51.3 計算用フィールドのラベル・入力交互配置を実装する
+  - 計算用フィールド群の内部レイアウトを縦ペア（label の上に input）から水平ペア（label の右に input）に変更する
+  - 面積・体積モードで「幅(W) → 奥行き(D) → 高さ(H) → 重量 → 調整係数 → 丸め設定」の順序で水平配置される
+  - ピッチモードで「範囲長 → 端長1 → 端長2 → ピッチ長 → 長さ → 重量 → 調整係数 → 丸め設定」の順序で水平配置される
+  - 各フィールドラベルは可視（visually-hidden ではない）状態で表示され、対応するテキストボックスの左に隣接する
+  - ラベル高さ 14px、入力高さ 22px に統一されメイン行の行高さ内に収まる
+  - _Requirements: 37.2, 37.4, 37.5_
+  - _Boundary: CalculationFields_
+
+- [ ] 51.4 計算方法切替時の表示制御と動作互換性を維持する
+  - 計算方法「標準」では計算用フィールド群がメイン行操作列の右側に一切表示されない
+  - 計算方法を「標準」⇔「面積・体積」⇔「ピッチ」と切り替えた際、計算用フィールド群が即座に表示／非表示／差し替わる
+  - 同一数量グループ内に標準・面積・体積・ピッチが混在する場合、各数量項目行が独立して対応する計算用フィールド群を表示する
+  - 各フィールドのバリデーション・自動計算・小数2桁表示・デフォルト値の挙動が Requirement 8・9・10 と同一に保たれる
+  - 計算用フィールド群の専用タイトル行（別行）は描画されない
+  - _Requirements: 37.7, 37.8, 37.9, 37.10, 37.11, 37.12_
+  - _Boundary: EditableQuantityItemRow, CalculationFields_
+
+- [ ] 51.5 計算用フィールド配置のテストを実装する
+  - 計算方法切替時に計算用フィールド群がメイン行操作列の右側に inline 表示されること（行下に別行表示されないこと）の単体テスト
+  - ラベルとテキストボックスが交互配置され、すべてのラベルが getByLabelText で取得可能であることの単体テスト
+  - 数量項目行の DOM 高さがレイアウト変更前と同等であることの DOM 計測テスト
+  - 計算方法「標準」で計算用フィールド群が表示されないことの単体テスト
+  - 標準・面積・体積・ピッチ混在時に各行が独立して正しく描画されることの単体テスト
+  - ビューポート右端を超える場合にページ全体スクロールで計算用フィールド群が閲覧可能であることの E2E テスト
+  - 既存の CalculationFields.test.tsx および QuantityTableEditPage.scrollbar.test.tsx の assertion を新レイアウト前提に書き換える
+  - 観測可能完了条件: 新規・既存テストがすべて通過し、CI で計算用フィールドの配置仕様が回帰防止される
+  - _Requirements: 37.1, 37.2, 37.3, 37.4, 37.5, 37.6, 37.7, 37.8, 37.12_
+  - _Boundary: EditableQuantityItemRow, CalculationFields_
+
+- [ ] 51.6 数量グループタイトル行を新レイアウト前提に整合させる
+  - QuantityGroupTitleRow に計算用フィールド専用タイトル列を追加しない（メイン列のみ維持）
+  - 既存実装に計算用フィールド専用タイトル行が描画されていないことを確認する
+  - REQ-18 AC3・AC4 が新レイアウトでも成立することの assertion を更新する
+  - 観測可能完了条件: QuantityGroupTitleRow.tsx のスナップショットと REQ-18 関連テストが新レイアウト前提で通過する
+  - _Requirements: 37.12, 18.3, 18.4_
+  - _Boundary: QuantityGroupTitleRow_
+
+- [ ] 52. 数量グループのコピー機能（バックエンド）
+- [ ] 52.1 グループ名切り詰めユーティリティを実装する
+  - QuantityValidationService に名前 + サフィックスが最大文字数（全角25/半角50）を超える場合に元名を切り詰めて末尾にサフィックスを付与するユーティリティを追加する
+  - 全角・半角混在時の文字数カウントは既存の QuantityValidationService の文字数カウントロジックに合わせる
+  - 観測可能完了条件: ユーティリティの単体テストで「上限超過時の切り詰め」「上限以下時の素通し」「全角半角混在時のカウント」が緑になる
+  - _Requirements: 38.5, 38.6_
+  - _Boundary: QuantityValidationService_
+
+- [ ] 52.2 QuantityGroupService.copy メソッドを実装する
+  - $transaction 開始直後に親 QuantityTable 行へ SELECT FOR UPDATE で行ロックを取得し、同一数量表内の並行 displayOrder 操作を serialize する
+  - 元数量グループと配下の全数量項目を取得する
+  - 元グループの displayOrder より大きい後続グループの displayOrder を一括 +1 シフトする
+  - 複製グループを displayOrder = 元 + 1、surveyImageId = 元と同値、name = 切り詰めユーティリティ適用後の「{元名}のコピー」で挿入する
+  - 配下の全数量項目を全フィールド値・displayOrder を保持して複製する
+  - 監査ログに QUANTITY_GROUP_COPIED アクションを記録する
+  - エラー時は ROLLBACK され、ロック取得失敗・ロック後の元グループ削除検出時は OptimisticLockError、元グループ不存在時は QuantityGroupNotFoundError、権限不足時は ForbiddenError を伝播する
+  - 観測可能完了条件: トランザクションが成功すると新規 QuantityGroup と配下 QuantityItem が DB に永続化され、サービス層から QuantityGroupInfo が返却される
+  - _Requirements: 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.8, 38.10_
+  - _Boundary: QuantityGroupService_
+  - _Depends: 52.1_
+
+- [ ] 52.3 グループコピー API ルートを実装する
+  - POST /api/quantity-groups/:id/copy ルートを既存 quantity-groups.routes.ts に追加する
+  - 既存 JWT 認証ミドルウェアを適用する
+  - requirePermission('quantity_table:create') を適用する
+  - リクエストボディは空オブジェクトを許容する
+  - QuantityGroupService.copy を呼び出し、Service 層例外を 404（NotFoundError）/ 403（ForbiddenError）/ 409（OptimisticLockError）/ 500（その他）に正しくマッピングする
+  - 成功時に 201 Created と QuantityGroupInfo を返却する
+  - 観測可能完了条件: curl 等で POST /api/quantity-groups/:id/copy を叩くと 201 と複製先グループ情報が返ってくる
+  - _Requirements: 38.2, 38.9, 38.10_
+  - _Boundary: quantity-groups.routes.ts_
+  - _Depends: 52.2_
+
+- [ ] 52.4 (P) QuantityGroupService.copy の単体テストを実装する
+  - 正常系: 全項目・写真紐づけが複製され、元グループの直下に displayOrder が +1 で挿入される
+  - 後続グループの displayOrder が +1 シフトされる
+  - ロック競合シナリオで OptimisticLockError が発生する
+  - 元グループが存在しない場合に QuantityGroupNotFoundError が発生する
+  - 監査ログ QUANTITY_GROUP_COPIED が記録される
+  - 名前が最大文字数を超える場合に元名が切り詰められる
+  - 観測可能完了条件: 上記すべての単体テストが緑、サービス層のロックロジック・命名ロジック・複製ロジックが回帰防止される
+  - _Requirements: 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.10_
+  - _Boundary: QuantityGroupService_
+
+- [ ] 52.5 (P) グループコピー API の統合テストを実装する
+  - 認証なしリクエストが 401 で拒否される
+  - 権限なしユーザーで 403 が返る
+  - 存在しないグループ ID で 404 が返る
+  - 並行コピー操作（同一グループに対する 2 リクエスト同時実行）で片方が 409 を返す
+  - 成功時に 201 と QuantityGroupInfo が返り、DB に複製データが永続化される
+  - 観測可能完了条件: supertest 等の統合テストで上記シナリオがすべて緑
+  - _Requirements: 38.2, 38.9, 38.10_
+  - _Boundary: quantity-groups.routes.ts_
+
+- [ ] 53. 数量グループのコピー機能（フロントエンド統合）
+- [ ] 53.1 コピー API クライアントを追加する
+  - copyQuantityGroup(groupId) を新規実装し POST /api/quantity-groups/:id/copy を呼び出す
+  - レスポンスを QuantityGroupInfo 型として受け取る
+  - 既存 fetcher の認証ヘッダ付与・エラーハンドリング規約に従う
+  - 観測可能完了条件: API クライアントから関数を呼び出すと適切なエンドポイントに POST リクエストが発行され、QuantityGroupInfo が返却される
+  - _Requirements: 38.2_
+  - _Boundary: api/quantity-groups.ts_
+
+- [ ] 53.2 数量グループカードにコピーボタンを追加する
+  - グループパネル表題部の並替↑↓ボタンと削除ボタンの間にコピーボタンを配置する
+  - 中立色の Copy 系アイコンを使用し、削除ボタンの赤系スタイルと視覚的に区別する
+  - onCopyGroup プロップと isCopying プロップを追加する
+  - isCopying 中はボタンを disabled にしてスピナーを表示し、重複押下を防止する
+  - 既存ボタン（展開・名前編集・並替・削除）と視覚干渉しない配置とする
+  - 観測可能完了条件: Storybook 上でコピーボタンが並替と削除の間に表示され、isCopying=true のストーリーでスピナーが表示される
+  - _Requirements: 38.1, 38.9, 38.12_
+  - _Boundary: QuantityGroupCard_
+
+- [ ] 53.3 数量表編集画面にコピーハンドラを配線する
+  - グループカードのコピーボタン押下時に copyQuantityGroup API を呼び出す
+  - API 成功時に複製先グループをローカルステートに反映し、元グループの直下に挿入する
+  - 後続グループの displayOrder シフトをローカルステートにも反映する
+  - 複製先のグループ名が直ちにインライン編集可能な状態で画面に表示される（既存 Requirement 22 と整合）
+  - API 失敗時にエラーメッセージを表示してボタンを再有効化する
+  - 409 レスポンス時は「他のユーザーが操作中です。再試行してください」メッセージを表示し、リトライ可能状態に戻す
+  - 観測可能完了条件: 画面上でコピーボタンを押下すると複製先グループが元グループの直下に出現し、編集可能状態で表示される
+  - _Requirements: 38.7, 38.9, 38.10, 38.11_
+  - _Boundary: QuantityTableEditPage_
+  - _Depends: 53.1, 53.2_
+
+- [ ] 54. 数量グループのコピー機能（テスト）
+- [ ] 54.1 (P) コピー機能のフロントエンド単体テストを実装する
+  - QuantityGroupCard のコピーボタン表示の単体テスト
+  - isCopying=true 時にボタンが disabled かつスピナー表示されることの単体テスト
+  - onCopyGroup コールバックがクリックで呼び出されることの単体テスト
+  - copyQuantityGroup API クライアントが正しいエンドポイントを呼び出すことの単体テスト
+  - QuantityTableEditPage の handleCopyGroup が API レスポンスをステートに反映することの単体テスト
+  - 409 レスポンス時に再試行案内メッセージが表示されることの単体テスト
+  - 観測可能完了条件: 上記すべての単体テストが緑、UI コンポーネントの責務が回帰防止される
+  - _Requirements: 38.1, 38.7, 38.9, 38.10, 38.11_
+  - _Boundary: QuantityGroupCard, api/quantity-groups.ts, QuantityTableEditPage_
+
+- [ ] 54.2 数量グループコピーの E2E テストを実装する
+  - グループ表題部のコピーボタン押下で複製先グループが元グループの直下に出現する
+  - 複製先グループ名が「{元名}のコピー」となり、文字数超過時は元名が切り詰められた名前で複製される
+  - 複製先に元グループの全数量項目（フィールド値・並び順）が含まれる
+  - 元グループに紐づけられていた写真が複製先にも紐づけられている
+  - 後続グループの並び順が +1 シフトされ、表全体の並び順が正しく更新される
+  - コピー処理中はボタンが disabled でスピナーが表示される
+  - 複製先のグループ名が直ちにインライン編集可能な状態で表示される
+  - 観測可能完了条件: Playwright E2E で上記シナリオが緑、本番相当の動作が回帰防止される
+  - _Requirements: 38.1, 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.9, 38.11_
+  - _Boundary: QuantityTableEditPage E2E_
+  - _Depends: 53.3, 52.3_
