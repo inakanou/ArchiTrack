@@ -82,8 +82,12 @@ const styles = {
     alignItems: 'start',
     padding: '2px 4px',
   } as React.CSSProperties,
-  // Task 51.1 Spike: 採用案（操作列セル wrapper 拡張）
-  // 操作列セル内に flex wrapper を新設し、アクションメニュー + CalculationFields を横並び配置する
+  // Task 51.1 Spike / Task 51.2: 採用案（操作列セル wrapper 拡張）
+  // 操作列セル内に flex wrapper を新設し、アクションメニュー + CalculationFields を横並び配置する。
+  // Task 51.2: whiteSpace: nowrap で計算用フィールド群が行内幅不足で折り返さないようにし、
+  // 行高さ 37px を維持する（REQ-37.1 同一行水平配置 / REQ-37.3 行高さ不変）。
+  // overflow は指定しない（visible 既定を維持）。表領域 overflow はページ全体スクロールに委ねる
+  // （REQ-37.6 / design.md L1519）。
   actionCellInlineWrapper: {
     display: 'flex',
     flexDirection: 'row' as const,
@@ -91,14 +95,18 @@ const styles = {
     gap: '4px',
     // Grid の操作列セル幅(80px)を超えて右側に展開できるように flex-shrink を抑止
     flexShrink: 0,
+    // 計算用フィールド群が折り返さないこと（REQ-37.1 同一行配置）を構造で保証
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
-  // Task 51.1 Spike: 操作列セル内に inline 配置した CalculationFields は折り返さない
+  // Task 51.1 Spike / Task 51.2: 操作列セル内に inline 配置した CalculationFields は折り返さない
   inlineCalculationFields: {
     display: 'flex',
     flexDirection: 'row' as const,
     alignItems: 'center',
     gap: '4px',
     flexShrink: 0,
+    // フィールド間（label + input ペアの並び）でも折り返さない
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   fieldGroup: {
     // グリッドセルとしてのラッパー（内部レイアウトは各コンポーネントが担当）

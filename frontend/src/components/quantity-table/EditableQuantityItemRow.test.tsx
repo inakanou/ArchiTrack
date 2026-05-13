@@ -766,6 +766,247 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
+  // ============================================================================
+  // Task 51.2: 計算用フィールド群の水平配置レイアウト - 行高さ維持 / overflow 規約
+  //
+  // 51.1 Spike で操作列セル wrapper への inline 配置を導入済み。51.2 では以下を担保:
+  //   - メイン行高さが内容物（label 14px + input 22px + 行内 padding 2px*2 = 40px 程度）
+  //     で暴れず、固定 height / min-height で 37px 超過を強制しないこと（行高さ不変規約）
+  //   - 計算用フィールド群を含む wrapper が flex-shrink: 0 を持ち、Grid 列幅(80px)を
+  //     超えて右側に展開できること（操作列セルから視覚的にはみ出して表示される）
+  //   - EditableQuantityItemRow 自身（最上位 wrapper / メイン row / 操作列セル wrapper）
+  //     のスタイルが overflow-x: auto / scroll を持たず、表領域 overflow を発生させないこと
+  //     （計算用フィールド群がビューポート右端を超えた場合、ページ全体の水平スクロールで閲覧する
+  //       — design.md L1519「表領域は overflow-x: visible を維持」）
+  //
+  // Requirements: 37.1 (操作列右側に同一行水平配置), 37.3 (行高さ不変),
+  //               37.6 (ビューポート右端超過時はページ全体スクロール),
+  //               37.7 (標準モードでは非表示)
+  // ============================================================================
+  describe('Task 51.2: 行高さ維持 / overflow 規約', () => {
+    it('面積・体積モード時、メイン行（role="row"）に min-height 固定指定がない（37px 超過を強制しない）', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const row = screen.getByTestId('quantity-item-row');
+      const mainRow = row.querySelector('[role="row"]') as HTMLElement | null;
+      expect(mainRow).not.toBeNull();
+      // min-height を指定すると内容より大きい固定高さを強制し、37px 超過の原因となる。
+      // 行高さは子要素自然高さで決まる前提のため min-height は空であること。
+      expect(mainRow!.style.minHeight).toBe('');
+    });
+
+    it('面積・体積モード時、操作列セル wrapper に flex-shrink: 0 が指定され Grid 列幅(80px)を超えた展開が可能', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      // flex-shrink: 0 でないと Grid 操作列(80px)に押し込まれ折り返し or 切り詰めが発生する。
+      // 計算用フィールド群が右側へ inline 展開するための必須条件。
+      expect(wrapper.style.flexShrink).toBe('0');
+    });
+
+    it('面積・体積モード時、EditableQuantityItemRow 最上位 wrapper に overflow-x: auto/scroll が指定されていない（表領域は overflow:visible 維持）', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const row = screen.getByTestId('quantity-item-row');
+      // design.md L1519: 計算用フィールド群がビューポート右端を超えても表領域は
+      // overflow-x: visible を維持し、ページ全体の水平スクロールで閲覧する。
+      // EditableQuantityItemRow が overflow-x: auto を出すと、行内スクロールバーが出て
+      // アクションメニュードロップダウンが切れる（REQ-25.1/25.2 と整合）。
+      expect(['auto', 'scroll']).not.toContain(row.style.overflowX);
+      expect(['auto', 'scroll']).not.toContain(row.style.overflow);
+    });
+
+    it('面積・体積モード時、メイン行 div に overflow-x: auto/scroll が指定されていない', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const row = screen.getByTestId('quantity-item-row');
+      const mainRow = row.querySelector('[role="row"]') as HTMLElement | null;
+      expect(mainRow).not.toBeNull();
+      // メイン行自体に overflow-x: auto を出すと行ごとに独立した水平スクロールバーが
+      // 発生して視認性が落ちる。ページ全体スクロール（REQ-25）に委ねる。
+      expect(['auto', 'scroll']).not.toContain(mainRow!.style.overflowX);
+      expect(['auto', 'scroll']).not.toContain(mainRow!.style.overflow);
+    });
+
+    it('面積・体積モード時、操作列セル wrapper に overflow-x: auto/scroll が指定されていない', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      // wrapper にスクロール出すとアクションメニューのドロップダウンが切れるため不可。
+      expect(['auto', 'scroll']).not.toContain(wrapper.style.overflowX);
+      expect(['auto', 'scroll']).not.toContain(wrapper.style.overflow);
+    });
+
+    it('ピッチモード時、計算用フィールド群を含む wrapper も同じ flex-shrink/overflow 規約に従う', () => {
+      const itemWithPitch = {
+        ...mockItem,
+        calculationMethod: 'PITCH' as const,
+        calculationParams: {
+          rangeLength: 10,
+          endLength1: 1,
+          endLength2: 1,
+          pitchLength: 2,
+        },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithPitch} />);
+
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      expect(wrapper.style.flexShrink).toBe('0');
+      expect(['auto', 'scroll']).not.toContain(wrapper.style.overflowX);
+      expect(['auto', 'scroll']).not.toContain(wrapper.style.overflow);
+    });
+
+    it('標準モード時、計算用フィールドが表示されない（操作列セル wrapper には計算フィールド非描画）', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      // 計算フィールドは描画されないため、wrapper の自然幅は操作ボタン分のみで収まる。
+      expect(screen.queryByLabelText(/幅/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/範囲長/)).not.toBeInTheDocument();
+      // wrapper は存在するが overflow 規約は維持される。
+      expect(wrapper).toBeInTheDocument();
+      expect(['auto', 'scroll']).not.toContain(wrapper.style.overflowX);
+    });
+
+    it('メイン行の縦パディングが 2px 以下（37px 行高さ維持のため余分な縦余白を持たない）', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const row = screen.getByTestId('quantity-item-row');
+      const mainRow = row.querySelector('[role="row"]') as HTMLElement | null;
+      expect(mainRow).not.toBeNull();
+      // design.md L1500: 行高さ 37px 維持のため縦パディング縮小。
+      // 子要素は label 14px + input 22px + gap 1px = 37px なので、縦パディングが
+      // それを超えると行が膨らむ。padding-top / padding-bottom は 2px 以下に抑える。
+      // jsdom では shorthand padding が個別プロパティに展開されないことがあるため
+      // shorthand と個別の両方を確認する。
+      const styleTop = mainRow!.style.paddingTop;
+      const styleBottom = mainRow!.style.paddingBottom;
+      const shorthand = mainRow!.style.padding;
+
+      // shorthand に '2px 4px' 等が入っている場合は先頭値を縦パディングとして扱う
+      let verticalPadding: string;
+      if (styleTop) {
+        verticalPadding = styleTop;
+      } else if (shorthand) {
+        verticalPadding = shorthand.split(' ')[0] ?? '';
+      } else {
+        verticalPadding = '';
+      }
+      // 数値抽出して 2px 以下であることを assertion
+      const num = parseFloat(verticalPadding || '0');
+      expect(Number.isNaN(num)).toBe(false);
+      expect(num).toBeLessThanOrEqual(2);
+
+      // 同様に padding-bottom も 2px 以下
+      let verticalPaddingBottom: string;
+      if (styleBottom) {
+        verticalPaddingBottom = styleBottom;
+      } else if (shorthand) {
+        const parts = shorthand.split(' ');
+        // 'top right bottom left' or 'vertical horizontal'
+        verticalPaddingBottom = parts.length >= 3 ? (parts[2] ?? '') : (parts[0] ?? '');
+      } else {
+        verticalPaddingBottom = '';
+      }
+      const numBottom = parseFloat(verticalPaddingBottom || '0');
+      expect(Number.isNaN(numBottom)).toBe(false);
+      expect(numBottom).toBeLessThanOrEqual(2);
+    });
+
+    it('メイン行の alignItems が start に維持され、縦ストレッチで行高さが暴れない', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const row = screen.getByTestId('quantity-item-row');
+      const mainRow = row.querySelector('[role="row"]') as HTMLElement | null;
+      expect(mainRow).not.toBeNull();
+      // 51.1 Spike 採用案で「メイン行 alignItems: 'start' を維持し、操作列セル
+      // wrapper の alignItems: center で inline 配置を実現する」と決まっている。
+      // alignItems が stretch / center に変わると、計算用フィールド群の高さに
+      // 引きずられて他セルも縦伸びし 37px 超過の原因になる。
+      expect(mainRow!.style.alignItems).toBe('start');
+    });
+
+    it('操作列セル wrapper に whiteSpace: nowrap が指定され、計算用フィールド群が折り返さない', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      render(<EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />);
+
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      // flex-shrink: 0 だけでは wrapper 内の inline 要素は折り返しうる。
+      // 「メイン行と同一行内で水平配置（REQ-37.1）」を保証するため whiteSpace: nowrap で
+      // 折り返しを明示的に抑止する。これにより 51.3 で CalculationFields 内部レイアウトを
+      // 横ペア化したときに、行内幅不足で改行されて行高さが暴れる事態を防げる。
+      expect(wrapper.style.whiteSpace).toBe('nowrap');
+    });
+
+    it('計算用フィールド inline ラッパーに whiteSpace: nowrap が指定され、フィールド間で折り返さない', () => {
+      const itemWithAreaVolume = {
+        ...mockItem,
+        calculationMethod: 'AREA_VOLUME' as const,
+        calculationParams: { width: 10, depth: 5 },
+      };
+      const { container } = render(
+        <EditableQuantityItemRow {...defaultProps} item={itemWithAreaVolume} />
+      );
+
+      // inlineCalculationFields は action-cell-inline-wrapper 内に存在する。
+      // CalculationFields のラッパー自身を取得するため、action-cell-inline-wrapper の
+      // 子要素のうち QuantityItemActionMenu 以外の div を絞り込む。
+      const wrapper = screen.getByTestId('action-cell-inline-wrapper');
+      // 計算用フィールドの「幅」入力が含まれる祖先 div の whiteSpace を確認する
+      const widthInput = screen.getByLabelText(/幅/);
+      // 一階層上に遡って wrapper 直下の inline ラッパー要素を取得
+      let node: HTMLElement | null = widthInput.parentElement;
+      while (node && node !== wrapper && node.parentElement !== wrapper) {
+        node = node.parentElement;
+      }
+      expect(node).not.toBeNull();
+      expect(node).not.toBe(wrapper);
+      // この inline ラッパーで折り返し抑止
+      expect((node as HTMLElement).style.whiteSpace).toBe('nowrap');
+      // 念のためコンテナ取得確認
+      expect(container.contains(widthInput)).toBe(true);
+    });
+  });
+
   describe('小項目・任意分類フィールド', () => {
     it('小項目フィールドが表示される', () => {
       render(<EditableQuantityItemRow {...defaultProps} />);
