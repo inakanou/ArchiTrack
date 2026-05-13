@@ -2235,4 +2235,262 @@ describe('ReceivedQuotationForm', () => {
       }
     });
   });
+
+  // ==========================================================================
+  // OCRセクション折りたたみ機能のテスト（Task 86.2）
+  //
+  // Requirements:
+  // - 40.1, 40.2: 登録/編集の両ダイアログでセクションヘッダ表示
+  // - 40.4, 40.5: ヘッダクリックで OCR セクション本体をトグル（展開↔折りたたみ）
+  // - 40.6, 40.7: キーボード（Enter / Space）でトグル発火
+  // - 40.8, 40.9: ダイアログ初期表示時は展開状態（aria-expanded="true"）
+  // - 40.10: 永続化なし。unmount → remount でデフォルト展開状態に戻る
+  // - 40.11, 40.12: 折りたたみ中も OcrDataExtractor は unmount されず DOM に保持
+  // - 40.13: aria-expanded / aria-controls を付与
+  // - 40.14: 表示条件未成立時はヘッダを描画しない
+  // - 40.16: フォーカス時の視覚的明示（outline / boxShadow）
+  // ==========================================================================
+  describe('OCRセクション折りたたみ機能 (Req 40 / Task 86.2)', () => {
+    /** create モードでファイルアップロード済みの状態を作るヘルパー */
+    const renderWithUploadedFile = async () => {
+      const utils = render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+      const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', {
+        value: [validFile],
+        writable: false,
+      });
+      fireEvent.change(fileInput);
+
+      // ファイルがアップロードされ OCR セクションが描画されるまで待機
+      await screen.findByTestId('ocr-section-header');
+      return utils;
+    };
+
+    /** 編集モードで既存ファイルがある状態を作るヘルパー */
+    const renderEditModeWithExistingFile = () => {
+      const initialDataWithFile = {
+        id: 'rq-existing',
+        estimateRequestId: 'er-123',
+        name: 'テスト見積書',
+        submittedAt: new Date('2025-01-15'),
+        fileName: 'existing.pdf',
+        fileMimeType: 'application/pdf',
+        fileSize: 1024,
+        lineItems: [] as {
+          id: string;
+          receivedQuotationId: string;
+          sortOrder: number;
+          customCategory: string | null;
+          workType: string | null;
+          name: string;
+          specification: string | null;
+          unit: string | null;
+          quantity: number | null;
+          unitPrice: number | null;
+          amount: number | null;
+          remarks: string | null;
+        }[],
+        totalAmount: 0,
+        netAmount: null as number | null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      return render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={initialDataWithFile}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          existingFilePreviewUrl="https://example.com/preview.pdf"
+        />
+      );
+    };
+
+    // (1) 初期展開: ダイアログを開いた直後、OCR セクション本体が表示され
+    //              aria-expanded="true" であること（Req 40.8, 40.9, 40.13）
+    it('初期表示時に OCR セクション本体が表示され aria-expanded="true" である (Req 40.8/40.9/40.13)', async () => {
+      await renderWithUploadedFile();
+
+      const header = screen.getByTestId('ocr-section-header');
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+      expect(header).toHaveAttribute('aria-controls', 'received-quotation-ocr-section-body');
+
+      const body = document.getElementById('received-quotation-ocr-section-body');
+      expect(body).not.toBeNull();
+      // hidden 属性が外れている（初期は展開状態）
+      expect(body!.hasAttribute('hidden')).toBe(false);
+      // OcrDataExtractor が body の子として描画されている
+      expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+    });
+
+    // (2) クリックで折りたたみ: ヘッダクリックで本体が hidden 属性を持ち
+    //                          aria-expanded="false" になること（Req 40.4）
+    it('ヘッダクリックで本体が hidden になり aria-expanded="false" になる (Req 40.4)', async () => {
+      await renderWithUploadedFile();
+
+      const header = screen.getByTestId('ocr-section-header');
+      fireEvent.click(header);
+
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+      const body = document.getElementById('received-quotation-ocr-section-body');
+      expect(body).not.toBeNull();
+      expect(body!.hasAttribute('hidden')).toBe(true);
+    });
+
+    // (3) 再クリックで再展開: 折りたたみ後にもう一度クリックし、hidden が外れて
+    //                       aria-expanded="true" に戻ること（Req 40.5）
+    it('折りたたみ後の再クリックで展開状態に戻る (Req 40.5)', async () => {
+      await renderWithUploadedFile();
+
+      const header = screen.getByTestId('ocr-section-header');
+      fireEvent.click(header); // 折りたたみ
+      fireEvent.click(header); // 再展開
+
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+      const body = document.getElementById('received-quotation-ocr-section-body');
+      expect(body).not.toBeNull();
+      expect(body!.hasAttribute('hidden')).toBe(false);
+    });
+
+    // (4) Enter キーでトグル: ヘッダにフォーカスして Enter を押下し、
+    //                        トグルが発火すること（Req 40.6）
+    it('Enter キーでトグルが発火する (Req 40.6)', async () => {
+      const user = userEvent.setup();
+      await renderWithUploadedFile();
+
+      const header = screen.getByTestId('ocr-section-header');
+      header.focus();
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+
+      await user.keyboard('{Enter}');
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+
+      await user.keyboard('{Enter}');
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    // (5) Space キーでトグル: ヘッダにフォーカスして Space を押下し、
+    //                        トグルが発火すること（Req 40.7）
+    it('Space キーでトグルが発火する (Req 40.7)', async () => {
+      const user = userEvent.setup();
+      await renderWithUploadedFile();
+
+      const header = screen.getByTestId('ocr-section-header');
+      header.focus();
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+
+      await user.keyboard(' ');
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+
+      await user.keyboard(' ');
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    // (6) OCRセクションのDOM保持: 折りたたみ状態でも OcrDataExtractor の
+    //                             DOM ノードが残っていること（unmount されない、Req 40.11/40.12）
+    it('折りたたみ状態でも OcrDataExtractor の DOM が残存する (Req 40.11/40.12)', async () => {
+      await renderWithUploadedFile();
+
+      // 展開状態で OcrDataExtractor が存在
+      expect(screen.getByTestId('ocr-data-extractor')).toBeInTheDocument();
+
+      const header = screen.getByTestId('ocr-section-header');
+      fireEvent.click(header); // 折りたたむ
+
+      // 折りたたみ後も DOM ノードが残る（hidden 属性付きで保持）
+      const ocrExtractor = screen.getByTestId('ocr-data-extractor');
+      expect(ocrExtractor).toBeInTheDocument();
+
+      // 親 body には hidden が付与されている
+      const body = document.getElementById('received-quotation-ocr-section-body');
+      expect(body).not.toBeNull();
+      expect(body!.hasAttribute('hidden')).toBe(true);
+      expect(body!.contains(ocrExtractor)).toBe(true);
+    });
+
+    // (7) 登録/編集両モードでヘッダ表示: mode="create" と mode="edit" の両方で
+    //                                    ヘッダ要素が描画されること（Req 40.1/40.2）
+    it('mode="create" でファイルアップロード後にヘッダが描画される (Req 40.1)', async () => {
+      await renderWithUploadedFile();
+      expect(screen.getByTestId('ocr-section-header')).toBeInTheDocument();
+    });
+
+    it('mode="edit" で既存ファイルがある場合にヘッダが描画される (Req 40.2)', () => {
+      renderEditModeWithExistingFile();
+      expect(screen.getByTestId('ocr-section-header')).toBeInTheDocument();
+    });
+
+    // (8) ファイル未存在時はヘッダ非表示: selectedFile === null かつ
+    //                                    existingFileName === null のとき、
+    //                                    ヘッダ要素が DOM に存在しないこと（Req 40.14）
+    it('ファイル未存在時（create モードで未アップロード）はヘッダが描画されない (Req 40.14)', () => {
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      expect(screen.queryByTestId('ocr-section-header')).not.toBeInTheDocument();
+    });
+
+    // (9) 再オープン時に展開状態に戻る: unmount → remount でデフォルト展開状態に
+    //                                  戻ること（Req 40.10、永続化なし）
+    it('unmount → remount でデフォルトの展開状態（aria-expanded="true"）に戻る (Req 40.10)', async () => {
+      const { unmount } = await renderWithUploadedFile();
+
+      // 折りたたみ操作
+      const header = screen.getByTestId('ocr-section-header');
+      fireEvent.click(header);
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+
+      // unmount
+      unmount();
+      expect(screen.queryByTestId('ocr-section-header')).not.toBeInTheDocument();
+
+      // remount（新たに render）→ 同条件でファイルアップロード
+      await renderWithUploadedFile();
+      const newHeader = screen.getByTestId('ocr-section-header');
+      // デフォルトの展開状態に戻る
+      expect(newHeader).toHaveAttribute('aria-expanded', 'true');
+      const body = document.getElementById('received-quotation-ocr-section-body');
+      expect(body).not.toBeNull();
+      expect(body!.hasAttribute('hidden')).toBe(false);
+    });
+
+    // (10) フォーカス時の視覚的明示: ヘッダに focus() 発火後、style.outline に
+    //      styles.ocrSectionHeaderFocus のスタイル値が反映されること、
+    //      blur() 後に解除されること（Req 40.16、design review Critical Issue 1）
+    it('focus 時に outline / boxShadow が付与され、blur 時に解除される (Req 40.16)', async () => {
+      await renderWithUploadedFile();
+
+      const header = screen.getByTestId('ocr-section-header') as HTMLButtonElement;
+
+      // 初期状態（未フォーカス）: focus スタイルは未適用
+      expect(header.style.outline).not.toContain('2px solid');
+
+      // focus 発火 → outline / outlineOffset / boxShadow が適用される
+      fireEvent.focus(header);
+      expect(header.style.outline).toBe('2px solid #2563eb');
+      expect(header.style.outlineOffset).toBe('2px');
+      expect(header.style.boxShadow).toBe('0 0 0 4px rgba(37, 99, 235, 0.2)');
+
+      // blur 発火 → focus スタイルが解除される
+      fireEvent.blur(header);
+      expect(header.style.outline).not.toContain('2px solid');
+      expect(header.style.boxShadow).not.toContain('rgba(37, 99, 235, 0.2)');
+    });
+  });
 });
