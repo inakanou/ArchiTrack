@@ -1338,7 +1338,7 @@
   - _Boundary: quantity-groups.routes.ts_
 
 - [ ] 53. 数量グループのコピー機能（フロントエンド統合）
-- [ ] 53.1 コピー API クライアントを追加する
+- [x] 53.1 コピー API クライアントを追加する
   - copyQuantityGroup(groupId) を新規実装し POST /api/quantity-groups/:id/copy を呼び出す
   - レスポンスを QuantityGroupInfo 型として受け取る
   - 既存 fetcher の認証ヘッダ付与・エラーハンドリング規約に従う
