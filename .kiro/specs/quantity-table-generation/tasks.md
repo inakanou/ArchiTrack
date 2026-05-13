@@ -1316,7 +1316,7 @@
   - _Boundary: quantity-groups.routes.ts_
   - _Depends: 52.2_
 
-- [ ] 52.4 (P) QuantityGroupService.copy の単体テストを実装する
+- [x] 52.4 (P) QuantityGroupService.copy の単体テストを実装する
   - 正常系: 全項目・写真紐づけが複製され、元グループの直下に displayOrder が +1 で挿入される
   - 後続グループの displayOrder が +1 シフトされる
   - ロック競合シナリオで OptimisticLockError が発生する
