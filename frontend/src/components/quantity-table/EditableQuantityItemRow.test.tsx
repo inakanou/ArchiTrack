@@ -1524,4 +1524,206 @@ describe('EditableQuantityItemRow', () => {
       });
     });
   });
+
+  // ============================================================================
+  // Task 51.5: 計算用フィールド配置のテスト統合検証
+  //
+  // Requirements: 37.1, 37.2, 37.3, 37.4, 37.5, 37.6（E2E 側）, 37.7, 37.8, 37.12
+  // 51.1-51.4 で個別の構造アサーションを積み上げたが、本ブロックでは
+  // 「EditableQuantityItemRow の利用視点での総括」として以下を独立に検証する:
+  //   1. 面積・体積モード時、AC 4 全 6 ラベルが getByLabelText で取得可能
+  //   2. ピッチモード時、AC 5 全 8 ラベルが getByLabelText で取得可能
+  //   3. メイン行内の DOM 構造高さ（label 14px + input 22px 構造）を維持
+  //   4. 計算用フィールド群が role="row" 内の同一行に inline 配置（別行非存在）
+  //
+  // 51.6 で対応する E2E 検証（ビューポート右端超過時のページ全体スクロール）は
+  // e2e/specs/quantity-tables/quantity-table-inline-calculation-fields.spec.ts で実施。
+  // ============================================================================
+  describe('Task 51.5: 計算用フィールド配置統合検証', () => {
+    describe('Requirement 37.2: 全ラベル getByLabelText 取得可能', () => {
+      it('面積・体積モード時、AC 4 順序の全 6 ラベル（幅・奥行き・高さ・重量・調整係数・丸め設定）が getByLabelText で取得可能で input と関連付けられている', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        const expected: Array<RegExp> = [
+          /^幅/,
+          /奥行き/,
+          /^高さ/,
+          /^重量/,
+          /^調整係数/,
+          /^丸め設定/,
+        ];
+        for (const labelText of expected) {
+          const input = screen.getByLabelText(labelText);
+          expect(input).toBeInstanceOf(HTMLInputElement);
+          // input が id を持ち、対応する label と htmlFor で関連付けられていること
+          expect((input as HTMLInputElement).id).toBeTruthy();
+        }
+      });
+
+      it('ピッチモード時、AC 5 順序の全 8 ラベル（範囲長・端長1・端長2・ピッチ長・長さ・重量・調整係数・丸め設定）が getByLabelText で取得可能で input と関連付けられている', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'PITCH',
+              calculationParams: {
+                rangeLength: 10,
+                endLength1: 1,
+                endLength2: 1,
+                pitchLength: 2,
+              },
+            }}
+          />
+        );
+        const expected: Array<string | RegExp> = [
+          /^範囲長/,
+          /^端長1/,
+          /^端長2/,
+          /^ピッチ長/,
+          '長さ',
+          /^重量/,
+          /^調整係数/,
+          /^丸め設定/,
+        ];
+        for (const labelText of expected) {
+          const input = screen.getByLabelText(labelText);
+          expect(input).toBeInstanceOf(HTMLInputElement);
+          expect((input as HTMLInputElement).id).toBeTruthy();
+        }
+      });
+    });
+
+    describe('Requirement 37.3: 行高さ構造（label 14px + input 22px の維持）', () => {
+      it('面積・体積モード時、計算用フィールドの label が 14px、input が 22px のままメイン行に inline 配置される', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        const labels: Array<RegExp> = [/^幅/, /奥行き/, /^高さ/, /^重量/, /^調整係数/, /^丸め設定/];
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const label = wrapper.querySelector('label') as HTMLLabelElement;
+          expect(label.style.height).toBe('14px');
+          expect(input.style.height).toBe('22px');
+        }
+      });
+
+      it('ピッチモード時も計算用フィールドの label が 14px、input が 22px に維持される', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'PITCH',
+              calculationParams: {
+                rangeLength: 10,
+                endLength1: 1,
+                endLength2: 1,
+                pitchLength: 2,
+              },
+            }}
+          />
+        );
+        const labels: Array<string | RegExp> = [
+          /^範囲長/,
+          /^端長1/,
+          /^端長2/,
+          /^ピッチ長/,
+          '長さ',
+          /^重量/,
+          /^調整係数/,
+          /^丸め設定/,
+        ];
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const label = wrapper.querySelector('label') as HTMLLabelElement;
+          expect(label.style.height).toBe('14px');
+          expect(input.style.height).toBe('22px');
+        }
+      });
+    });
+
+    describe('Requirement 37.1, 37.12: 計算用フィールド群がメイン行と同一行に inline 配置（別行不在）', () => {
+      it('面積・体積モード時、計算用フィールド群がメイン行（role="row"）内に配置され、計算用フィールド専用行が描画されない', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5 },
+            }}
+          />
+        );
+        const row = screen.getByTestId('quantity-item-row');
+        // 子孫の role="row" は 1 つだけ（メイン行のみ）
+        const innerRows = row.querySelectorAll('[role="row"]');
+        expect(innerRows.length).toBe(1);
+
+        // 旧レイアウトの calculation-fields-row（別行）が残存しないこと
+        expect(row.querySelector('[data-testid="calculation-fields-row"]')).toBeNull();
+
+        // 各計算用フィールドの入力がメイン行内に配置されていること
+        const mainRow = innerRows[0] as HTMLElement;
+        for (const labelText of [/^幅/, /奥行き/, /^高さ/, /^重量/, /^調整係数/, /^丸め設定/]) {
+          const input = screen.getByLabelText(labelText);
+          expect(mainRow.contains(input)).toBe(true);
+        }
+      });
+
+      it('ピッチモード時、計算用フィールド群がメイン行（role="row"）内に配置され、計算用フィールド専用行が描画されない', () => {
+        render(
+          <EditableQuantityItemRow
+            {...defaultProps}
+            item={{
+              ...mockItem,
+              calculationMethod: 'PITCH',
+              calculationParams: {
+                rangeLength: 10,
+                endLength1: 1,
+                endLength2: 1,
+                pitchLength: 2,
+              },
+            }}
+          />
+        );
+        const row = screen.getByTestId('quantity-item-row');
+        const innerRows = row.querySelectorAll('[role="row"]');
+        expect(innerRows.length).toBe(1);
+        expect(row.querySelector('[data-testid="calculation-fields-row"]')).toBeNull();
+
+        const mainRow = innerRows[0] as HTMLElement;
+        for (const labelText of [
+          /^範囲長/,
+          /^端長1/,
+          /^端長2/,
+          /^ピッチ長/,
+          '長さ',
+          /^重量/,
+          /^調整係数/,
+          /^丸め設定/,
+        ] as Array<string | RegExp>) {
+          const input = screen.getByLabelText(labelText);
+          expect(mainRow.contains(input)).toBe(true);
+        }
+      });
+    });
+  });
 });
