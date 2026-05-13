@@ -346,6 +346,238 @@ describe('CalculationFields', () => {
   });
 
   // ============================================================================
+  // 行内水平配置レイアウトテスト（Requirement 37.2, 37.4, 37.5）
+  // ============================================================================
+
+  describe('行内水平配置レイアウト（タスク 51.3）', () => {
+    /**
+     * Field wrapper（label + input のペア）を取得するヘルパー。
+     * label の親要素を返す。
+     */
+    function getFieldWrapper(labelText: string | RegExp): HTMLElement {
+      const input = screen.getByLabelText(labelText) as HTMLInputElement;
+      const wrapper = input.parentElement as HTMLElement | null;
+      if (!wrapper) {
+        throw new Error(`fieldWrapper not found for label: ${String(labelText)}`);
+      }
+      return wrapper;
+    }
+
+    describe('面積・体積モード', () => {
+      it('各フィールドの wrapper が flex-direction: row（label が input の左に水平配置）である', () => {
+        render(
+          <CalculationFields method="AREA_VOLUME" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [/幅/i, /奥行き/i, /高さ/i, /重量/i, /調整係数/i, /丸め設定/i];
+        for (const labelText of labels) {
+          const wrapper = getFieldWrapper(labelText);
+          expect(wrapper.style.display).toBe('flex');
+          expect(wrapper.style.flexDirection).toBe('row');
+        }
+      });
+
+      it('label 要素が input 要素より DOM 順序で先に出現する（label が input の左隣）', () => {
+        render(
+          <CalculationFields method="AREA_VOLUME" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [/幅/i, /奥行き/i, /高さ/i, /重量/i, /調整係数/i, /丸め設定/i];
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label');
+          expect(labelEl).not.toBeNull();
+          // label が input より先に出現することを確認
+          const compare = labelEl!.compareDocumentPosition(input);
+          // DOCUMENT_POSITION_FOLLOWING (4) bit が立っていれば label の方が前
+          expect(compare & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        }
+      });
+
+      it('すべての label が visible である（visibility:hidden / display:none / visually-hidden 化されていない）', () => {
+        render(
+          <CalculationFields method="AREA_VOLUME" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [/幅/i, /奥行き/i, /高さ/i, /重量/i, /調整係数/i, /丸め設定/i];
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label') as HTMLLabelElement;
+          expect(labelEl).not.toBeNull();
+          // インラインスタイルとして visibility:hidden や display:none が指定されていないこと
+          expect(labelEl.style.visibility).not.toBe('hidden');
+          expect(labelEl.style.display).not.toBe('none');
+          // ラベルテキストが空でないこと（visually-hidden 用のクリッピングをしていない）
+          expect((labelEl.textContent ?? '').trim().length).toBeGreaterThan(0);
+        }
+      });
+
+      it('label の高さが 14px、input の高さが 22px に統一されている', () => {
+        render(
+          <CalculationFields method="AREA_VOLUME" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [/幅/i, /奥行き/i, /高さ/i, /重量/i, /調整係数/i, /丸め設定/i];
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label') as HTMLLabelElement;
+          expect(labelEl.style.height).toBe('14px');
+          expect(input.style.height).toBe('22px');
+        }
+      });
+
+      it('フィールドが「幅(W) → 奥行き(D) → 高さ(H) → 重量 → 調整係数 → 丸め設定」の順序で水平配置される', () => {
+        const { container } = render(
+          <CalculationFields method="AREA_VOLUME" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        // すべての input 要素を DOM 順序で取得し、対応するラベルテキストを並べる
+        const inputs = Array.from(container.querySelectorAll('input')) as HTMLInputElement[];
+        const labelTexts = inputs.map((input) => {
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label');
+          return (labelEl?.textContent ?? '').replace('*', '').trim();
+        });
+
+        expect(labelTexts).toEqual([
+          '幅（W）',
+          '奥行き（D）',
+          '高さ（H）',
+          '重量',
+          '調整係数',
+          '丸め設定',
+        ]);
+      });
+    });
+
+    describe('ピッチモード', () => {
+      it('各フィールドの wrapper が flex-direction: row（label が input の左に水平配置）である', () => {
+        render(
+          <CalculationFields method="PITCH" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [
+          /範囲長/i,
+          /端長1/i,
+          /端長2/i,
+          /ピッチ長/i,
+          '長さ',
+          /重量/i,
+          /調整係数/i,
+          /丸め設定/i,
+        ] as Array<string | RegExp>;
+        for (const labelText of labels) {
+          const wrapper = getFieldWrapper(labelText);
+          expect(wrapper.style.display).toBe('flex');
+          expect(wrapper.style.flexDirection).toBe('row');
+        }
+      });
+
+      it('label 要素が input 要素より DOM 順序で先に出現する（label が input の左隣）', () => {
+        render(
+          <CalculationFields method="PITCH" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [
+          /範囲長/i,
+          /端長1/i,
+          /端長2/i,
+          /ピッチ長/i,
+          '長さ',
+          /重量/i,
+          /調整係数/i,
+          /丸め設定/i,
+        ] as Array<string | RegExp>;
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label');
+          expect(labelEl).not.toBeNull();
+          const compare = labelEl!.compareDocumentPosition(input);
+          expect(compare & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        }
+      });
+
+      it('すべての label が visible である（visibility:hidden / display:none / visually-hidden 化されていない）', () => {
+        render(
+          <CalculationFields method="PITCH" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [
+          /範囲長/i,
+          /端長1/i,
+          /端長2/i,
+          /ピッチ長/i,
+          '長さ',
+          /重量/i,
+          /調整係数/i,
+          /丸め設定/i,
+        ] as Array<string | RegExp>;
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label') as HTMLLabelElement;
+          expect(labelEl).not.toBeNull();
+          expect(labelEl.style.visibility).not.toBe('hidden');
+          expect(labelEl.style.display).not.toBe('none');
+          expect((labelEl.textContent ?? '').trim().length).toBeGreaterThan(0);
+        }
+      });
+
+      it('label の高さが 14px、input の高さが 22px に統一されている', () => {
+        render(
+          <CalculationFields method="PITCH" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const labels = [
+          /範囲長/i,
+          /端長1/i,
+          /端長2/i,
+          /ピッチ長/i,
+          '長さ',
+          /重量/i,
+          /調整係数/i,
+          /丸め設定/i,
+        ] as Array<string | RegExp>;
+        for (const labelText of labels) {
+          const input = screen.getByLabelText(labelText) as HTMLInputElement;
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label') as HTMLLabelElement;
+          expect(labelEl.style.height).toBe('14px');
+          expect(input.style.height).toBe('22px');
+        }
+      });
+
+      it('フィールドが「範囲長 → 端長1 → 端長2 → ピッチ長 → 長さ → 重量 → 調整係数 → 丸め設定」の順序で水平配置される', () => {
+        const { container } = render(
+          <CalculationFields method="PITCH" params={{}} onChange={vi.fn()} disabled={false} />
+        );
+
+        const inputs = Array.from(container.querySelectorAll('input')) as HTMLInputElement[];
+        const labelTexts = inputs.map((input) => {
+          const wrapper = input.parentElement as HTMLElement;
+          const labelEl = wrapper.querySelector('label');
+          return (labelEl?.textContent ?? '').replace('*', '').trim();
+        });
+
+        expect(labelTexts).toEqual([
+          '範囲長',
+          '端長1',
+          '端長2',
+          'ピッチ長',
+          '長さ',
+          '重量',
+          '調整係数',
+          '丸め設定',
+        ]);
+      });
+    });
+  });
+
+  // ============================================================================
   // アクセシビリティテスト
   // ============================================================================
 
