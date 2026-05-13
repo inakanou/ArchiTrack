@@ -1504,11 +1504,20 @@ interface QuantityItemActionMenuProps {
 
 **Layout Strategy**
 
-- メイン行は既存どおり 12列 CSS Grid（1180px）で描画する
-- 操作列セル（最右列）の `display: contents` を解除し、操作列セル `wrapper` の `display: flex; flex-direction: row; align-items: center` で操作ボタン群 + `<CalculationFields>` を横並びに配置
-- もしくは EditableQuantityItemRow の最上位コンテナを `display: flex; flex-direction: row` に変更し、Grid メイン行と inline 計算用フィールド群を兄弟要素として並べる（実装段階で 2 案のうち回帰影響が小さい方を選択）
-- 計算用フィールド群がビューポート右端を超えても表領域は `overflow-x: visible` を維持し、ページ全体（REQ-25）の水平スクロールで閲覧する
-- 行ごとに計算方法が異なる場合（標準／面積・体積／ピッチ混在）、各行の右端位置が揃わない点は許容仕様とする（REQ-37 AC8）
+採用案（デフォルト）と contingency 案を以下のとおり明示する。実装は採用案で着手し、採用案で行高さ不変（37px）が満たせない／既存テスト回帰が許容範囲を超えるなどの実測結果が出た場合に限り contingency 案に切り替える。
+
+- **採用案（操作列セル wrapper 拡張）**:
+  - メイン行は既存どおり 12列 CSS Grid（1180px）で描画する
+  - 操作列セル（最右列）内に `wrapper` div を新設し、`display: flex; flex-direction: row; align-items: center; gap: 4px` で「既存操作ボタン群 + `<CalculationFields>`」を横並び配置
+  - 計算用フィールド群は wrapper 内で `flex-shrink: 0` を指定し、操作ボタンと同列内に水平展開
+  - **採用理由**: 既存 Grid メイン行のレイアウト構造（12列定義・gridTemplateColumns・gap）を維持できるため、Storybook デコレータ・scrollbar test の改修範囲が最小化される。回帰影響を局所化できる
+- **Contingency 案（最上位 flex 化）**:
+  - EditableQuantityItemRow の最上位コンテナを `display: flex; flex-direction: row` に変更し、Grid メイン行と inline 計算用フィールド群を兄弟要素として並べる
+  - **採用条件**: 採用案で行高さ 37px を維持できない場合、または操作列セル内に計算用フィールド群を収めると DOM 構造が複雑化しすぎる場合に切り替える
+  - 切り替え時は `QuantityTableEditPage.scrollbar.test.tsx` と Storybook デコレータの assertion 全面書き換えが必要になることを Spike タスクで事前確認する
+- **共通仕様**:
+  - 計算用フィールド群がビューポート右端を超えても表領域は `overflow-x: visible` を維持し、ページ全体（REQ-25）の水平スクロールで閲覧する
+  - 行ごとに計算方法が異なる場合（標準／面積・体積／ピッチ混在）、各行の右端位置が揃わない点は許容仕様とする（REQ-37 AC8）
 
 **Implementation Notes**
 
@@ -1561,8 +1570,10 @@ class QuantityGroupService {
    * @param groupId 複製元グループID
    * @param actorId 操作ユーザーID（監査ログ用）
    * @returns 複製されたグループの情報
-   * @throws QuantityGroupNotFoundError 元グループが存在しない場合
+   * @throws QuantityGroupNotFoundError 元グループが存在しない／論理削除済みの場合
    * @throws ForbiddenError 数量表への書き込み権限がない場合
+   * @throws OptimisticLockError 並行操作により displayOrder シフトが競合した場合、
+   *                              または copy 処理中に元グループが他セッションで削除された場合
    */
   async copy(
     groupId: string,
@@ -1582,6 +1593,45 @@ interface QuantityGroupInfo {
 }
 ```
 
+##### Concurrency Control
+
+複製先 displayOrder の挿入と後続グループの +1 シフトは、同一数量表に対する別セッションからの並行操作（グループ追加・並び替え・別グループの copy）と競合する可能性がある。これを防ぐため、`$transaction` 開始直後に親 QuantityTable 行へ排他ロックを取得して serialize する。
+
+```typescript
+await prisma.$transaction(async (tx) => {
+  // 1. 親 QuantityTable に行ロックを取得（並行 displayOrder 操作を serialize）
+  await tx.$queryRaw`
+    SELECT id FROM "QuantityTable"
+    WHERE id = ${quantityTableId} AND "deletedAt" IS NULL
+    FOR UPDATE
+  `;
+
+  // 2. 元グループの再取得（ロック取得後の最新状態で確認）
+  const sourceGroup = await tx.quantityGroup.findUnique({
+    where: { id: groupId },
+    include: { items: true },
+  });
+  if (!sourceGroup) throw new QuantityGroupNotFoundError(groupId);
+
+  // 3. 後続グループの displayOrder を +1 シフト
+  await tx.quantityGroup.updateMany({
+    where: {
+      quantityTableId: sourceGroup.quantityTableId,
+      displayOrder: { gt: sourceGroup.displayOrder },
+    },
+    data: { displayOrder: { increment: 1 } },
+  });
+
+  // 4. 複製グループの挿入
+  // 5. 配下数量項目の複製
+  // 6. 監査ログ記録
+});
+```
+
+- **ロック粒度**: QuantityTable 行単位。同一数量表内の並行 displayOrder 操作のみ serialize し、別の数量表への操作はブロックしない
+- **失敗ハンドリング**: ロック取得タイムアウト（既存 Prisma デフォルト 5 秒）または `SELECT FOR UPDATE` で対象行が削除済みの場合、`OptimisticLockError` を投げて API 層で 409 にマップする
+- **代替案不採用**: `isolationLevel: 'Serializable'` も検討したが、PostgreSQL の Serializable は実行時にシリアライズ失敗を検出するため、ロック取得時点で失敗させる `FOR UPDATE` の方が動作が予測可能で既存サービス層パターン（`quantity-table.service.ts`）と整合する
+
 ##### API Contract
 
 | 項目 | 内容 |
@@ -1591,11 +1641,12 @@ interface QuantityGroupInfo {
 | 権限 | `quantity_table:create`（REQ-17 の copyQuantityTable と同等） |
 | Request Body | 無し（空オブジェクトを許容） |
 | Response (201) | `QuantityGroupInfo`（複製先グループ） |
-| Response (404) | 元グループが存在しない、または論理削除済み |
-| Response (403) | 権限不足 |
-| Response (409) | 楽観的排他制御競合（同時に元グループが削除された場合） |
-| Response (500) | サーバー内部エラー（ROLLBACK 済み） |
+| Response (404) | 元グループが存在しない、または論理削除済み（Service 層の `QuantityGroupNotFoundError` をマッピング） |
+| Response (403) | 権限不足（Service 層の `ForbiddenError` をマッピング） |
+| Response (409) | 並行制御競合（Service 層の `OptimisticLockError` をマッピング）。原因: ロック取得タイムアウト／ロック後の元グループ削除検出／並行 displayOrder 操作の serialize 失敗 |
+| Response (500) | サーバー内部エラー（ROLLBACK 済み、上記以外） |
 | Idempotency | 非べき等（押下ごとに新グループが作成される）。フロント側で重複押下をスピナーで防止 |
+| 409 ハンドリング（フロント） | ユーザーに「他のユーザーが操作中です。再試行してください」メッセージを表示し、コピーボタンを再有効化（リトライ可能状態に戻す） |
 
 ##### Frontend Interface
 
@@ -1628,6 +1679,8 @@ interface QuantityGroupCardProps {
 
 - Integration: 既存の `quantity-group.service.ts` の `create()` / `update()` メソッドを内部から呼ばず、`copy()` 内で直接 `prisma.quantityGroup.create()` / `prisma.quantityItem.createMany()` を実行する（REQ-17 と同パターン）
 - Integration: 後続グループの displayOrder シフトは `prisma.quantityGroup.updateMany({ where: { quantityTableId, displayOrder: { gt: srcGroup.displayOrder } }, data: { displayOrder: { increment: 1 } } })` を `$transaction` 内で実行
+- Concurrency: トランザクション開始直後に親 QuantityTable 行への `SELECT ... FOR UPDATE` を取得し、同一数量表に対する並行 displayOrder 操作（追加・並び替え・別グループの copy）を serialize する（詳細: 上記 Concurrency Control セクション）
+- Concurrency: ロック取得失敗・タイムアウト・ロック後の元グループ削除検出は `OptimisticLockError` として上位に伝播し、API 層で 409 にマップする
 - Validation: 元グループの存在チェック → 数量表 ID 経由で書き込み権限チェック → トランザクション開始の順
 - Validation: 名前文字数超過時の切り詰めロジックは `QuantityValidationService` に `truncateForCopy(originalName: string, suffix: string): string` を新設して再利用可能化
 - Risks: 数量項目が大量（数百件）にあるグループのコピーは DB 負荷が増加する。既存 REQ-17（数量表コピー）と同等のサイズ想定（最大 100 項目程度）でテストし、必要に応じてレート制限を後追い検討（design 外 / out of scope）
@@ -1888,6 +1941,7 @@ enum CalculationMethod {
 - オートコンプリート候補一括取得API: GROUP BYで重複排除された候補値の返却
 - 数量表コピーAPI: 全データが正しく複製されること
 - 数量グループコピーAPI (REQ-38): 元グループの全項目・写真紐づけが複製されること、displayOrderが元グループ+1の位置に挿入されること、後続グループのdisplayOrderが+1シフトされること、監査ログが記録されること
+- 数量グループコピー並行制御 (REQ-38): 同一数量表に対する copy/add/reorder 操作が並行実行された場合、`SELECT FOR UPDATE` ロックにより serialize されること（先発操作完了まで後発操作はブロックされる）、ロック取得タイムアウト時に `OptimisticLockError` が返却され API 層で 409 にマップされること
 - Claude Vision API（数量表モード）: 数量表用プロンプトで正しい列マッピングが返却されること
 
 ### E2E Tests

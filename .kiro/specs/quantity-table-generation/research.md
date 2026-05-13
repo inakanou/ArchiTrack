@@ -285,6 +285,16 @@ model QuantityGroup {
 | #7 監査ログアクション名 | `QUANTITY_GROUP_COPIED` を新設（既存パターンに合わせる） |
 | #8 e2e テストの前提 | `CalculationFields.test.tsx` および `QuantityTableEditPage.scrollbar.test.tsx` の書き換えを Implementation Notes に明記 |
 
+### 7.4.1 Design Review Outcomes (2026-05-13)
+
+`/kiro-validate-design` で抽出された 3 件の Critical Issue を design.md に反映済み。
+
+| Issue | 対応内容 | design.md 反映箇所 |
+|-------|----------|-------------------|
+| #1 REQ-37 Layout Strategy が2案残置 | 採用案（操作列セル wrapper 拡張）を default、contingency 案（最上位 flex 化）を採用条件付きで併記。理由を明示 | Layout Strategy セクション |
+| #2 REQ-38 並行 displayOrder 競合制御未定義 | `SELECT ... FOR UPDATE` で親 QuantityTable 行ロックを取得し serialize する方針を Concurrency Control セクションで明文化。`isolationLevel: 'Serializable'` を代替案として検討して不採用とした理由も記載 | Concurrency Control セクション、Implementation Notes |
+| #3 Service Interface と API Contract のエラー型不整合 | Service Interface に `@throws OptimisticLockError` を追加。API Contract で 404/403/409 と Service 例外型のマッピングを明示し、フロント側 409 ハンドリングも記述 | Service Interface, API Contract |
+
 ### 7.5 Boundary Commitments
 
 - **Owns**: 数量表編集画面の数量項目行レイアウト、数量グループコピー機能（フロント UI + API + Service）、計算用フィールドの配置仕様
