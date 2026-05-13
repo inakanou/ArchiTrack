@@ -1304,7 +1304,7 @@
   - _Boundary: QuantityGroupService_
   - _Depends: 52.1_
 
-- [ ] 52.3 グループコピー API ルートを実装する
+- [x] 52.3 グループコピー API ルートを実装する
   - POST /api/quantity-groups/:id/copy ルートを既存 quantity-groups.routes.ts に追加する
   - 既存 JWT 認証ミドルウェアを適用する
   - requirePermission('quantity_table:create') を適用する

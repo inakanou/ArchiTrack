@@ -52,6 +52,7 @@ describe('QuantityGroupsRoutes', () => {
     update: Mock;
     updateDisplayOrder: Mock;
     delete: Mock;
+    copy: Mock;
   };
 
   beforeEach(async () => {
@@ -65,6 +66,7 @@ describe('QuantityGroupsRoutes', () => {
       update: vi.fn(),
       updateDisplayOrder: vi.fn(),
       delete: vi.fn(),
+      copy: vi.fn(),
     };
 
     MockQuantityGroupService.mockImplementation(() => mockService);
@@ -101,6 +103,7 @@ describe('QuantityGroupsRoutes', () => {
         update = mockService.update;
         updateDisplayOrder = mockService.updateDisplayOrder;
         delete = mockService.delete;
+        copy = mockService.copy;
       },
     }));
 
@@ -351,6 +354,120 @@ describe('QuantityGroupsRoutes', () => {
       const response = await request(app).delete(`/api/quantity-groups/${groupId}`).expect(404);
 
       expect(response.body).toHaveProperty('code', 'QUANTITY_GROUP_NOT_FOUND');
+    });
+  });
+
+  /**
+   * POST /api/quantity-groups/:id/copy
+   *
+   * Requirements:
+   * - 38.2: 数量グループのコピーボタンクリックで同一数量表内に複製する
+   * - 38.9: 処理中であることを示すインジケーター表示（フロント要件だが API レイヤから 201 が返ることを担保）
+   * - 38.10: エラー時は ROLLBACK し不完全なコピーデータを残さない（API 層では 404/409/500 の正しいマッピングで担保）
+   */
+  describe('POST /api/quantity-groups/:id/copy', () => {
+    const groupId = '123e4567-e89b-12d3-a456-426614174001';
+
+    it('should copy quantity group and return 201 with QuantityGroupInfo (Req 38.2)', async () => {
+      const copiedGroup = {
+        id: '123e4567-e89b-12d3-a456-426614174099',
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'グループ1のコピー',
+        surveyImageId: '123e4567-e89b-12d3-a456-426614174002',
+        displayOrder: 1,
+        itemCount: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockService.copy.mockResolvedValue(copiedGroup);
+
+      const response = await request(app)
+        .post(`/api/quantity-groups/${groupId}/copy`)
+        .send({})
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        id: copiedGroup.id,
+        quantityTableId: copiedGroup.quantityTableId,
+        name: 'グループ1のコピー',
+        surveyImageId: copiedGroup.surveyImageId,
+        displayOrder: 1,
+        itemCount: 3,
+      });
+      expect(mockService.copy).toHaveBeenCalledWith(groupId, 'test-user-id');
+    });
+
+    it('should accept empty body (no Content-Type / no body) and still return 201', async () => {
+      const copiedGroup = {
+        id: '123e4567-e89b-12d3-a456-426614174099',
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: null,
+        surveyImageId: null,
+        displayOrder: 1,
+        itemCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockService.copy.mockResolvedValue(copiedGroup);
+
+      await request(app).post(`/api/quantity-groups/${groupId}/copy`).expect(201);
+
+      expect(mockService.copy).toHaveBeenCalledWith(groupId, 'test-user-id');
+    });
+
+    it('should return 404 when source group not found (QuantityGroupNotFoundError)', async () => {
+      const { QuantityGroupNotFoundError } = await import('../../../errors/quantityTableError.js');
+      mockService.copy.mockRejectedValue(new QuantityGroupNotFoundError(groupId));
+
+      const response = await request(app)
+        .post(`/api/quantity-groups/${groupId}/copy`)
+        .send({})
+        .expect(404);
+
+      expect(response.body).toHaveProperty('code', 'QUANTITY_GROUP_NOT_FOUND');
+    });
+
+    it('should return 409 on concurrent lock conflict (OptimisticLockError) (Req 38.10)', async () => {
+      const { OptimisticLockError } = await import('../../../errors/quantityTableError.js');
+      mockService.copy.mockRejectedValue(
+        new OptimisticLockError('並行操作との競合が発生しました。再試行してください。', {
+          groupId,
+        })
+      );
+
+      const response = await request(app)
+        .post(`/api/quantity-groups/${groupId}/copy`)
+        .send({})
+        .expect(409);
+
+      expect(response.body).toHaveProperty('code', 'OPTIMISTIC_LOCK_ERROR');
+    });
+
+    it('should return 403 when service throws ForbiddenError', async () => {
+      const { ForbiddenError } = await import('../../../errors/apiError.js');
+      mockService.copy.mockRejectedValue(new ForbiddenError('権限がありません'));
+
+      const response = await request(app)
+        .post(`/api/quantity-groups/${groupId}/copy`)
+        .send({})
+        .expect(403);
+
+      expect(response.body).toHaveProperty('code', 'FORBIDDEN');
+    });
+
+    it('should return 500 on unknown error', async () => {
+      mockService.copy.mockRejectedValue(new Error('unexpected db failure'));
+
+      // Express default error handler returns 500; route must delegate via next(err)
+      // Suppress noisy console.error from Express default error handler
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await request(app).post(`/api/quantity-groups/${groupId}/copy`).send({}).expect(500);
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
     });
   });
 });
