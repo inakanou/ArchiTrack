@@ -1943,7 +1943,7 @@
   - _Depends: 83.1, 83.2, 83.3, 83.4, 84.1, 84.2, 84.3, 84.4_
   - _Requirements: 39.2, 39.6, 39.7, 39.8, 39.10, 39.11, 39.12_
 
-- [ ] 86. 受領見積書 OCR セクション折りたたみ機能の実装（Requirement 40）
+- [x] 86. 受領見積書 OCR セクション折りたたみ機能の実装（Requirement 40）
 
 - [x] 86.1 ReceivedQuotationForm に OCR セクション折りたたみ機能を実装
   - frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx を編集
@@ -1959,7 +1959,7 @@
   - _Boundary: ReceivedQuotationForm_
   - _Requirements: 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13, 40.14, 40.15, 40.16, 40.17_
 
-- [ ] 86.2 (P) ReceivedQuotationForm.test.tsx に折りたたみ機能の Unit テスト 10 ケースを追加
+- [x] 86.2 (P) ReceivedQuotationForm.test.tsx に折りたたみ機能の Unit テスト 10 ケースを追加
   - frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx を編集
   - 以下のテストケースを追加: (1) 初期表示時に OCR セクション本体が表示され `aria-expanded="true"` であること、(2) ヘッダクリックで本体が `hidden` 属性を持ち `aria-expanded="false"` になること、(3) 再クリックで再展開すること、(4) Enter キー押下でトグル発火すること、(5) Space キー押下でトグル発火すること、(6) 折りたたみ状態でも `OcrDataExtractor` の DOM ノードが残存（unmount されない）すること、(7) `mode="create"` と `mode="edit"` の両方でヘッダ要素が描画されること、(8) ファイル未存在時（`selectedFile === null` かつ `existingFileName === null`）はヘッダ要素が DOM に存在しないこと、(9) コンポーネントを unmount → remount するとデフォルト展開状態に戻ること、(10) ヘッダに `focus()` 発火後に要素の `style.outline` に `styles.ocrSectionHeaderFocus` のスタイル値が反映され、`blur()` 後に解除されること
   - 既存テストの実行構成（vitest + React Testing Library）を踏襲し、テスト前提条件で機能を自動的に無効化しない
@@ -1968,7 +1968,7 @@
   - _Depends: 86.1_
   - _Requirements: 40.1, 40.2, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13, 40.14, 40.16_
 
-- [ ] 86.3 (P) received-quotation-dialog-improvements-e2e.spec.ts に折りたたみ機能の E2E シナリオ 2 件を追加
+- [x] 86.3 (P) received-quotation-dialog-improvements-e2e.spec.ts に折りたたみ機能の E2E シナリオ 2 件を追加
   - e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts を編集
   - シナリオ 1（抽出結果保持、Req 40.11/40.12）: 受領見積書登録ダイアログを開く → PDF をアップロード → OCR 完了を待機 → 抽出結果テキストが表示されることを確認 → セクションヘッダをクリックして折りたたみ → 抽出結果テキストが視覚的に非表示であることを確認 → 再度クリックして展開 → 抽出結果テキストが再表示されることを検証
   - シナリオ 2（再オープン時のデフォルト復帰、Req 40.10）: 折りたたみ状態でダイアログを閉じる → 同じ受領見積書を再度開く → OCR セクションが展開状態（`aria-expanded="true"`）であることを検証
@@ -1977,3 +1977,7 @@
   - _Boundary: e2e/specs/estimate-requests_
   - _Depends: 86.1_
   - _Requirements: 40.8, 40.9, 40.10, 40.11, 40.12_
+
+## Implementation Notes
+
+- フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
