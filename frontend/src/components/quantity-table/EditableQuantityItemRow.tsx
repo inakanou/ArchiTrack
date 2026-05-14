@@ -423,6 +423,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-majorCategory`}
             label={showFieldLabels ? '大項目' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '大項目'}
             value={item.majorCategory}
             onChange={createUpdateHandler('majorCategory')}
             error={errors.majorCategory}
@@ -438,6 +439,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-middleCategory`}
             label={showFieldLabels ? '中項目' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '中項目'}
             value={item.middleCategory || ''}
             onChange={createUpdateHandler('middleCategory')}
             placeholder="中項目を入力"
@@ -452,6 +454,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-minorCategory`}
             label={showFieldLabels ? '小項目' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '小項目'}
             value={item.minorCategory || ''}
             onChange={createUpdateHandler('minorCategory')}
             placeholder="小項目を入力"
@@ -466,6 +469,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-customCategory`}
             label={showFieldLabels ? '任意分類' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '任意分類'}
             value={item.customCategory || ''}
             onChange={createUpdateHandler('customCategory')}
             placeholder="任意分類を入力"
@@ -480,6 +484,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-workType`}
             label={showFieldLabels ? '工種' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '工種'}
             value={item.workType}
             onChange={createUpdateHandler('workType')}
             error={errors.workType}
@@ -496,6 +501,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-name`}
             label={showFieldLabels ? '名称' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '名称'}
             value={item.name}
             onChange={createUpdateHandler('name')}
             error={errors.name}
@@ -512,6 +518,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-specification`}
             label={showFieldLabels ? '規格' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '規格'}
             value={item.specification || ''}
             onChange={createUpdateHandler('specification')}
             placeholder="規格を入力"
@@ -556,6 +563,7 @@ export default function EditableQuantityItemRow({
                 }}
                 aria-required
                 aria-invalid={negativeQuantityWarning}
+                aria-label={showFieldLabels ? undefined : '数量'}
               />
             </div>
             {/* REQ-8.3: 負の値警告メッセージ */}
@@ -572,6 +580,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-unit`}
             label={showFieldLabels ? '単位' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '単位'}
             value={item.unit}
             onChange={createUpdateHandler('unit')}
             error={errors.unit}
@@ -588,6 +597,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-remarks`}
             label={showFieldLabels ? '備考' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '備考'}
             value={item.remarks || ''}
             onChange={createUpdateHandler('remarks')}
             placeholder="備考"
