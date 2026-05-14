@@ -2,9 +2,18 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2026-03-07",
+  "lastUpdated": "2026-05-14",
   "allowlist": {
     "backend": [
+      {
+        "package": "fast-uri",
+        "severity": "high",
+        "reason": "Prisma 7 internal dependency (@prisma/client → prisma → @prisma/dev → @prisma/streams-local → ajv → fast-uri). Path traversal (GHSA-q3j6-qgpj-74h6) and host confusion (GHSA-v39h-62p7-jpjc). Fix requires prisma downgrade to 6.x (breaking change). No runtime impact - dev tool only.",
+        "reference": "https://github.com/advisories/GHSA-q3j6-qgpj-74h6",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-05-14"
+      },
       {
         "package": "@hono/node-server",
         "severity": "high",
@@ -162,6 +171,15 @@
       }
     ],
     "root": [
+      {
+        "package": "fast-uri",
+        "severity": "high",
+        "reason": "Prisma 7 internal dependency (@prisma/client → prisma → @prisma/dev → @prisma/streams-local → ajv → fast-uri). Path traversal (GHSA-q3j6-qgpj-74h6) and host confusion (GHSA-v39h-62p7-jpjc). Fix requires prisma downgrade to 6.x (breaking change). No runtime impact - dev tool only.",
+        "reference": "https://github.com/advisories/GHSA-q3j6-qgpj-74h6",
+        "expires": "2026-06-01",
+        "addedBy": "claude",
+        "addedDate": "2026-05-14"
+      },
       {
         "package": "@hono/node-server",
         "severity": "high",

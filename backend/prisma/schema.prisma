@@ -872,7 +872,7 @@ model EstimateRequest {
   id                     String                @id @default(uuid())
   projectId              String
   tradingPartnerId       String
-  itemizedStatementId    String
+  itemizedStatementId    String? // Requirements: 39.4 - 内訳書未紐付けでの作成を許可（NULL 許容）
   name                   String // 見積依頼名（必須、最大200文字）
   method                 EstimateRequestMethod @default(EMAIL) // 見積依頼方法
   status                 EstimateRequestStatus @default(BEFORE_REQUEST) // 見積依頼ステータス（Requirements: 12.3）
@@ -883,7 +883,7 @@ model EstimateRequest {
 
   project            Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   tradingPartner     TradingPartner                 @relation(fields: [tradingPartnerId], references: [id])
-  itemizedStatement  ItemizedStatement              @relation(fields: [itemizedStatementId], references: [id])
+  itemizedStatement  ItemizedStatement?             @relation(fields: [itemizedStatementId], references: [id], onDelete: Restrict) // Requirements: 39.4 - optional 化（FK 動作は従来の RESTRICT を維持）
   selectedItems      EstimateRequestItem[]
   receivedQuotations ReceivedQuotation[] // Requirements: 11.11 - 複数の受領見積書
   statusHistory      EstimateRequestStatusHistory[] // Requirements: 12.11 - ステータス変更履歴

@@ -301,6 +301,36 @@ const styles = {
   ocrSection: {
     marginTop: '16px',
   },
+  // Requirement 40: OCRセクション折りたたみ機能 — セクションヘッダ用スタイル
+  ocrSectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 12px',
+    width: '100%',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 600,
+    color: '#374151',
+    textAlign: 'left',
+  } as React.CSSProperties,
+  ocrSectionTitle: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: '#374151',
+  } as React.CSSProperties,
+  ocrSectionChevron: {
+    transition: 'transform 150ms ease',
+  } as React.CSSProperties,
+  // Requirement 40 AC 16: フォーカス時の視覚的明示（OS 非依存・テスト検証可能）
+  ocrSectionHeaderFocus: {
+    outline: '2px solid #2563eb',
+    outlineOffset: '2px',
+    boxShadow: '0 0 0 4px rgba(37, 99, 235, 0.2)',
+  } as React.CSSProperties,
   lineItemsSection: {
     marginTop: '16px',
   },
@@ -537,6 +567,38 @@ function LoadingSpinner() {
         }
       `}</style>
     </svg>
+  );
+}
+
+// ============================================================================
+// OCRセクションヘッダ用のシェブロンアイコン（Requirement 40）
+// ============================================================================
+
+/**
+ * OCRセクションヘッダの展開/折りたたみ状態を視覚的に示すシェブロンアイコン
+ *
+ * Requirements:
+ * - 40.3: セクションの名称ラベルと、現在の展開状態または折りたたみ状態を示す視覚的な指示子を表示
+ *
+ * `▶` 文字を CSS `transform: rotate` で 0deg ↔ 90deg に切り替えて状態を表現する。
+ * `aria-hidden="true"` で支援技術には冗長表現として読み上げさせない
+ * （状態は `<button>` の `aria-expanded` で伝達）。
+ */
+function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }) {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        width: '12px',
+        height: '12px',
+        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+        transition: 'transform 150ms ease',
+        userSelect: 'none',
+      }}
+      aria-hidden="true"
+    >
+      ▶
+    </span>
   );
 }
 
@@ -903,6 +965,13 @@ export function ReceivedQuotationForm({
   } | null>(null);
   const [showTranscriptionConfirm, setShowTranscriptionConfirm] = useState(false);
 
+  // Requirement 40: OCRセクション折りたたみ機能のローカル state
+  // - Req 40 AC 8/9: 初期値 true（登録・編集ダイアログのいずれも展開状態で開く）
+  // - Req 40 AC 10: 永続化なし（unmount → remount で自動的に初期値に戻る）
+  const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);
+  // Req 40 AC 16: フォーカス時の視覚的明示を OS 非依存で実現する補助 state
+  const [isOcrHeaderFocused, setIsOcrHeaderFocused] = useState<boolean>(false);
+
   // 既存明細行データが有効か判定（空の1行のみでない場合）
   const hasExistingLineItemData = useCallback((): boolean => {
     if (lineItems.length === 0) return false;
@@ -994,6 +1063,24 @@ export function ReceivedQuotationForm({
   const handleTranscriptionConfirm = useCallback(() => {
     executeTranscription();
   }, [executeTranscription]);
+
+  // Requirement 40: OCRセクション折りたたみ機能のハンドラ
+  // Req 40 AC 4/5/13: クリック・Enter・Space で展開/折りたたみをトグル
+  // （`<button type="button">` 標準動作により Enter/Space は click を発火）
+  // Req 40 AC 13: 処理中/完了/失敗いずれの状態でも disabled 化しない
+  const handleToggleOcrSection = useCallback(() => {
+    setIsOcrSectionExpanded((prev) => !prev);
+  }, []);
+
+  // Req 40 AC 16: フォーカス取得時にヘッダの視覚的明示を有効化
+  const handleOcrHeaderFocus = useCallback(() => {
+    setIsOcrHeaderFocused(true);
+  }, []);
+
+  // Req 40 AC 16: フォーカス喪失時に視覚的明示を解除
+  const handleOcrHeaderBlur = useCallback(() => {
+    setIsOcrHeaderFocused(false);
+  }, []);
 
   // キャンセル/クローズハンドラ（Req 38.12: 未保存変更ガード介在）
   // ダイアログクローズ要求（×ボタン、背景クリック、Esc 等）のすべての経路から
@@ -1166,13 +1253,38 @@ export function ReceivedQuotationForm({
       )}
 
       {/* OcrDataExtractor（遅延ロード） */}
+      {/*
+        Requirement 40: OCRセクション折りたたみ機能
+        - Req 40 AC 1/2: 登録/編集の両ダイアログでヘッダを表示
+        - Req 40 AC 14: 表示条件未成立時はヘッダごと非表示（既存条件レンダリングを継承）
+        - Req 40 AC 11/12: `hidden` 属性により OcrDataExtractor は unmount されず内部 state を維持
+        - Req 40 AC 17: OcrDataExtractor の props は一切変更しない
+      */}
       {selectedFile ? (
         <div style={styles.ocrSection}>
-          <Suspense
-            fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
+          <button
+            type="button"
+            onClick={handleToggleOcrSection}
+            onFocus={handleOcrHeaderFocus}
+            onBlur={handleOcrHeaderBlur}
+            aria-expanded={isOcrSectionExpanded}
+            aria-controls="received-quotation-ocr-section-body"
+            style={{
+              ...styles.ocrSectionHeader,
+              ...(isOcrHeaderFocused ? styles.ocrSectionHeaderFocus : {}),
+            }}
+            data-testid="ocr-section-header"
           >
-            <OcrDataExtractor file={selectedFile} onImportLineItems={handleImportLineItems} />
-          </Suspense>
+            <OcrChevronIcon isExpanded={isOcrSectionExpanded} />
+            <span style={styles.ocrSectionTitle}>OCR / データパース</span>
+          </button>
+          <div id="received-quotation-ocr-section-body" hidden={!isOcrSectionExpanded}>
+            <Suspense
+              fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
+            >
+              <OcrDataExtractor file={selectedFile} onImportLineItems={handleImportLineItems} />
+            </Suspense>
+          </div>
         </div>
       ) : (
         mode === 'edit' &&
@@ -1180,17 +1292,35 @@ export function ReceivedQuotationForm({
         !removeFile &&
         existingFilePreviewUrl && (
           <div style={styles.ocrSection}>
-            <Suspense
-              fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
+            <button
+              type="button"
+              onClick={handleToggleOcrSection}
+              onFocus={handleOcrHeaderFocus}
+              onBlur={handleOcrHeaderBlur}
+              aria-expanded={isOcrSectionExpanded}
+              aria-controls="received-quotation-ocr-section-body"
+              style={{
+                ...styles.ocrSectionHeader,
+                ...(isOcrHeaderFocused ? styles.ocrSectionHeaderFocus : {}),
+              }}
+              data-testid="ocr-section-header"
             >
-              <OcrDataExtractor
-                file={null}
-                fileUrl={existingFilePreviewUrl}
-                fileMimeType={initialData?.fileMimeType ?? undefined}
-                autoStart={false}
-                onImportLineItems={handleImportLineItems}
-              />
-            </Suspense>
+              <OcrChevronIcon isExpanded={isOcrSectionExpanded} />
+              <span style={styles.ocrSectionTitle}>OCR / データパース</span>
+            </button>
+            <div id="received-quotation-ocr-section-body" hidden={!isOcrSectionExpanded}>
+              <Suspense
+                fallback={<div style={styles.suspenseFallback}>OCRエンジンを読み込み中...</div>}
+              >
+                <OcrDataExtractor
+                  file={null}
+                  fileUrl={existingFilePreviewUrl}
+                  fileMimeType={initialData?.fileMimeType ?? undefined}
+                  autoStart={false}
+                  onImportLineItems={handleImportLineItems}
+                />
+              </Suspense>
+            </div>
           </div>
         )
       )}

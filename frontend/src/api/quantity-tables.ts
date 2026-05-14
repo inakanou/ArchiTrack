@@ -15,6 +15,7 @@ import type {
   QuantityTableInfo,
   QuantityTableDetail,
   QuantityGroupDetail,
+  QuantityGroupInfo,
   QuantityItemDetail,
   CreateQuantityTableInput,
   UpdateQuantityTableInput,
@@ -363,6 +364,28 @@ export async function updateQuantityGroup(
  */
 export async function deleteQuantityGroup(id: string): Promise<void> {
   return apiClient.delete<void>(`/api/quantity-groups/${id}`);
+}
+
+/**
+ * 数量グループを同一数量表内に複製する
+ *
+ * 元グループの直下に displayOrder = 元 + 1 で新規グループが挿入され、
+ * 配下の全数量項目（各フィールド・並び順）と現場調査写真の紐づけが複製されます。
+ * 複製先のグループ名は `{元のグループ名}のコピー`、上限超過時は元名が切り詰められます。
+ *
+ * Task 53.1
+ * Requirements: 38.2
+ *
+ * @param groupId - 複製元の数量グループID（UUID）
+ * @returns 複製先グループの情報（QuantityGroupInfo）
+ * @throws ApiError 元グループが見つからない（404）、認証エラー（401）、権限不足（403）、楽観的排他競合（409）、サーバーエラー（500）
+ *
+ * @example
+ * const copiedGroup = await copyQuantityGroup('group-id');
+ * // copiedGroup.id でコピーされたグループのIDを取得
+ */
+export async function copyQuantityGroup(groupId: string): Promise<QuantityGroupInfo> {
+  return apiClient.post<QuantityGroupInfo>(`/api/quantity-groups/${groupId}/copy`);
 }
 
 // ============================================================================
