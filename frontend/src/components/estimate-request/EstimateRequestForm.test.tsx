@@ -279,7 +279,56 @@ describe('EstimateRequestForm', () => {
       });
     });
 
-    it('内訳書が未選択の場合エラーを表示する（Requirements: 3.7）', async () => {
+    it('内訳書未選択でも送信成功する（Requirements: 39.1, 39.2）', async () => {
+      const user = userEvent.setup();
+      const mockOnSubmit = vi.fn().mockResolvedValue({
+        id: 'er-1',
+        projectId: 'project-1',
+        tradingPartnerId: 'tp-1',
+        tradingPartnerName: '協力業者A',
+        itemizedStatementId: null,
+        itemizedStatementName: null,
+        name: '見積依頼#1',
+        method: 'EMAIL' as const,
+        includeBreakdownInBody: false,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      render(<EstimateRequestForm {...defaultProps} onSubmit={mockOnSubmit} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
+      });
+
+      // 名前を入力
+      const nameInput = screen.getByLabelText(/見積依頼名/);
+      fireEvent.change(nameInput, { target: { value: '見積依頼#1' } });
+
+      // 宛先をコンボボックスから選択（内訳書は未選択のまま）
+      await selectTradingPartner(user, '協力業者A');
+
+      const submitButton = screen.getByRole('button', { name: /作成/ });
+      fireEvent.click(submitButton);
+
+      // 内訳書未選択でも onSubmit が呼ばれ、itemizedStatementId は undefined
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith({
+          name: '見積依頼#1',
+          tradingPartnerId: 'tp-1',
+          itemizedStatementId: undefined,
+        });
+      });
+
+      // 「内訳書を選択してください」というバリデーションエラー（role="alert"）は出ない
+      const alerts = screen.queryAllByRole('alert');
+      const itemizedStatementError = alerts.find((el) =>
+        el.textContent?.includes('内訳書を選択してください')
+      );
+      expect(itemizedStatementError).toBeUndefined();
+    });
+
+    it('内訳書を選択した場合、項目0件の場合のみエラーを表示する（Requirements: 39.1）', async () => {
       const user = userEvent.setup();
       render(<EstimateRequestForm {...defaultProps} />);
 
@@ -294,12 +343,73 @@ describe('EstimateRequestForm', () => {
       // 宛先をコンボボックスから選択
       await selectTradingPartner(user, '協力業者A');
 
+      // 空の内訳書（itemCount: 0）を選択 - option は disabled なので value 直接設定で再現
+      const select = screen.getByLabelText(/内訳書/);
+      fireEvent.change(select, { target: { value: 'is-3' } });
+
       const submitButton = screen.getByRole('button', { name: /作成/ });
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toHaveTextContent(/内訳書を選択してください/);
+        expect(screen.getByText(/選択された内訳書に項目がありません/)).toBeInTheDocument();
       });
+    });
+
+    it('内訳書を選択 → 解除（空文字に戻す）した場合でも送信成功する（Requirements: 39.1, 39.2）', async () => {
+      const user = userEvent.setup();
+      const mockOnSubmit = vi.fn().mockResolvedValue({
+        id: 'er-1',
+        projectId: 'project-1',
+        tradingPartnerId: 'tp-1',
+        tradingPartnerName: '協力業者A',
+        itemizedStatementId: null,
+        itemizedStatementName: null,
+        name: '見積依頼#1',
+        method: 'EMAIL' as const,
+        includeBreakdownInBody: false,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
+
+      render(<EstimateRequestForm {...defaultProps} onSubmit={mockOnSubmit} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
+      });
+
+      // 名前を入力
+      const nameInput = screen.getByLabelText(/見積依頼名/);
+      fireEvent.change(nameInput, { target: { value: '見積依頼#1' } });
+
+      // 宛先を選択
+      await selectTradingPartner(user, '協力業者A');
+
+      // 内訳書を一度選択
+      const select = screen.getByLabelText(/内訳書/);
+      fireEvent.change(select, { target: { value: 'is-1' } });
+
+      // 選択を解除（空文字に戻す）
+      fireEvent.change(select, { target: { value: '' } });
+
+      // 送信
+      const submitButton = screen.getByRole('button', { name: /作成/ });
+      fireEvent.click(submitButton);
+
+      // itemizedStatementId は undefined で onSubmit が呼ばれる
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith({
+          name: '見積依頼#1',
+          tradingPartnerId: 'tp-1',
+          itemizedStatementId: undefined,
+        });
+      });
+
+      // 「内訳書を選択してください」というバリデーションエラー（role="alert"）は出ない
+      const alerts = screen.queryAllByRole('alert');
+      const itemizedStatementError = alerts.find((el) =>
+        el.textContent?.includes('内訳書を選択してください')
+      );
+      expect(itemizedStatementError).toBeUndefined();
     });
   });
 
@@ -321,7 +431,7 @@ describe('EstimateRequestForm', () => {
       });
     });
 
-    it('内訳書が存在しない場合メッセージを表示する（Requirements: 3.9）', async () => {
+    it('内訳書が存在しない場合「（任意）」付きメッセージを表示する（Requirements: 39.5）', async () => {
       mockedGetItemizedStatements.mockResolvedValue({
         data: [],
         pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
@@ -330,8 +440,42 @@ describe('EstimateRequestForm', () => {
       render(<EstimateRequestForm {...defaultProps} />);
 
       await waitFor(() => {
-        expect(screen.getByText(/内訳書が登録されていません/)).toBeInTheDocument();
+        expect(screen.getByText(/内訳書が登録されていません（任意）/)).toBeInTheDocument();
       });
+    });
+
+    it('内訳書が存在しない場合でも「作成」ボタンは活性のままである（Requirements: 39.5）', async () => {
+      mockedGetItemizedStatements.mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      });
+
+      render(<EstimateRequestForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/内訳書が登録されていません（任意）/)).toBeInTheDocument();
+      });
+
+      // 「作成」ボタンは活性（hasNoItemizedStatements は disabled 条件から外れている）
+      const submitButton = screen.getByRole('button', { name: /作成/ });
+      expect(submitButton).not.toBeDisabled();
+    });
+
+    it('内訳書が存在しない場合でも内訳書 select は活性のままである（Requirements: 39.5）', async () => {
+      mockedGetItemizedStatements.mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      });
+
+      render(<EstimateRequestForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/内訳書が登録されていません（任意）/)).toBeInTheDocument();
+      });
+
+      // 内訳書 select は活性（hasNoItemizedStatements に連動しない）
+      const select = screen.getByLabelText(/内訳書/);
+      expect(select).not.toBeDisabled();
     });
   });
 
@@ -497,6 +641,32 @@ describe('EstimateRequestForm', () => {
         const nameInput = screen.getByLabelText(/見積依頼名/);
         expect(nameInput).toHaveAttribute('aria-required', 'true');
       });
+    });
+
+    it('内訳書フィールドはaria-required="false"である（Requirements: 39.1）', async () => {
+      render(<EstimateRequestForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/内訳書/)).toBeInTheDocument();
+      });
+
+      const select = screen.getByLabelText(/内訳書/);
+      expect(select).toHaveAttribute('aria-required', 'false');
+    });
+
+    it('内訳書ラベルに「（任意）」マーカーが表示され、必須マーカー「*」は表示されない（Requirements: 39.1）', async () => {
+      render(<EstimateRequestForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/内訳書/)).toBeInTheDocument();
+      });
+
+      // ラベル領域内に「（任意）」が存在し、必須マーカー「*」は存在しない
+      const select = screen.getByLabelText(/内訳書/);
+      const fieldGroup = select.closest('div');
+      expect(fieldGroup?.textContent).toContain('（任意）');
+      // 必須マーカー「*」が内訳書フィールド領域に表示されないことの確認（Req 39.1）
+      expect(fieldGroup?.textContent).not.toContain('*');
     });
 
     it('エラー時にaria-invalidが設定される', async () => {
