@@ -59,10 +59,10 @@ export interface EstimateRequestInfo {
   tradingPartnerId: string;
   /** 取引先名 */
   tradingPartnerName: string;
-  /** 内訳書ID */
-  itemizedStatementId: string;
-  /** 内訳書名 */
-  itemizedStatementName: string;
+  /** 内訳書ID（内訳書未紐付け時は null） */
+  itemizedStatementId: string | null;
+  /** 内訳書名（内訳書未紐付け時は null） */
+  itemizedStatementName: string | null;
   /** 見積依頼名 */
   name: string;
   /** 見積依頼方法（メール/FAX） */
@@ -194,8 +194,8 @@ export interface CreateEstimateRequestInput {
   name: string;
   /** 取引先ID（UUID、必須） */
   tradingPartnerId: string;
-  /** 内訳書ID（UUID、必須） */
-  itemizedStatementId: string;
+  /** 内訳書ID（UUID、任意。Requirement 39.1 - 内訳書未紐付けでの作成を許可） */
+  itemizedStatementId?: string;
   /** 見積依頼方法（デフォルト: EMAIL） */
   method?: EstimateRequestMethod;
   /** 内訳書を本文に含める（デフォルト: false） */

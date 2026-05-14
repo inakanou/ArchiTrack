@@ -84,19 +84,34 @@ const PITCH_FIELDS: FieldDefinition[] = [
 const styles = {
   container: {
     display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '2px',
-  } as React.CSSProperties,
-  fieldsGrid: {
-    display: 'grid',
-    // 半角10文字分の幅: 10 * 7 + 10(padding/border) = 80px
-    gridTemplateColumns: 'repeat(auto-fill, 80px)',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
     gap: '4px',
   } as React.CSSProperties,
+  /**
+   * フィールド群コンテナ：ラベルとテキストボックスを交互に水平配置する。
+   * Task 51.3 / REQ-37.2, 37.4, 37.5
+   * - 縦ペア grid から水平 flex に変更
+   * - ペア単位で `flex-direction: row`（label の右に input）に配置（51.3）
+   * - 各ペアは flex-shrink: 0 で潰れず横並びに展開
+   */
+  fieldsGrid: {
+    display: 'flex',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '6px',
+    flexWrap: 'nowrap' as const,
+  } as React.CSSProperties,
+  /**
+   * 1 フィールド分の wrapper（label + input）の内部レイアウト：
+   * label を input の左に水平配置する（51.3）
+   */
   fieldWrapper: {
     display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '1px',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '4px',
+    flexShrink: 0,
   } as React.CSSProperties,
   label: {
     fontSize: '11px',
@@ -114,7 +129,7 @@ const styles = {
     fontSize: '11px',
   } as React.CSSProperties,
   input: {
-    width: '100%',
+    width: '70px',
     height: '22px',
     padding: '0 4px',
     fontSize: '12px',

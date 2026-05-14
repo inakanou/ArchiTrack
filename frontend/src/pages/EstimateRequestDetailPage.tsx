@@ -994,6 +994,12 @@ export default function EstimateRequestDetailPage() {
     );
   }
 
+  // Task 84.3: 内訳書未紐付け時の条件レンダリングガード（Requirements: 39.7, 39.8, 39.10, 39.11, 39.12）
+  // - hasItemizedStatement === false の場合、項目選択セクション・Excel出力ボタン・
+  //   「内訳書を本文に含める」チェックボックスを非表示にする
+  // - 見積依頼方法・保存ボタン・受領見積書セクション・ステータス遷移ボタンは表示維持
+  const hasItemizedStatement = request.itemizedStatementId !== null;
+
   return (
     <main role="main" style={styles.container} data-testid="estimate-request-detail-page">
       {/* パンくずナビゲーション */}
@@ -1069,7 +1075,8 @@ export default function EstimateRequestDetailPage() {
             </div>
             <div style={styles.infoItem}>
               <span style={styles.infoLabel}>参照内訳書</span>
-              <span style={styles.infoValue}>{request.itemizedStatementName}</span>
+              {/* Task 84.3: 内訳書未紐付け時は "-" を表示（Requirements: 39.7） */}
+              <span style={styles.infoValue}>{request.itemizedStatementName ?? '-'}</span>
             </div>
             <div style={styles.infoItem}>
               <span style={styles.infoLabel}>作成日時</span>
@@ -1090,10 +1097,13 @@ export default function EstimateRequestDetailPage() {
             >
               {showTextPanel ? '見積依頼文を閉じる' : '見積依頼文を表示'}
             </button>
-            <ExcelExportButton
-              selectedItems={items.filter((item) => item.selected)}
-              estimateRequestName={request.name}
-            />
+            {/* Task 84.3: 内訳書未紐付け時は Excel 出力ボタンを非表示（Requirements: 39.8） */}
+            {hasItemizedStatement && (
+              <ExcelExportButton
+                selectedItems={items.filter((item) => item.selected)}
+                estimateRequestName={request.name}
+              />
+            )}
             <ClipboardCopyButton
               text={items
                 .filter((item) => item.selected)
@@ -1182,29 +1192,46 @@ export default function EstimateRequestDetailPage() {
           )}
         </div>
 
-        {/* 見積依頼文パネル */}
-        {showTextPanel && <EstimateRequestTextPanel text={estimateText} loading={isTextLoading} />}
-
-        {/* 項目選択パネル */}
-        <div style={styles.card}>
-          <h2 style={styles.sectionTitle}>項目選択</h2>
-          <ItemSelectionPanel
-            items={items}
-            method={request.method}
-            includeBreakdownInBody={request.includeBreakdownInBody}
-            onItemSelectionChange={handleItemSelectionChange}
-            onMethodChange={handleMethodChange}
-            onIncludeBreakdownChange={handleIncludeBreakdownChange}
+        {/* 見積依頼文パネル
+            Task 84.3: 内訳書未紐付け時は本文オプション（「内訳書を本文に含める」）を
+            非表示とするため、TextPanel に showIncludeBreakdownToggle を伝搬する
+            （Requirements: 39.8） */}
+        {showTextPanel && (
+          <EstimateRequestTextPanel
+            text={estimateText}
+            loading={isTextLoading}
+            showIncludeBreakdownToggle={hasItemizedStatement}
           />
-        </div>
+        )}
 
-        {/* 選択状況（Task 59: サイドバーから項目選択の下に移動） */}
-        <div style={styles.card}>
-          <h2 style={styles.sectionTitle}>選択状況</h2>
-          <p style={styles.infoValue}>
-            {items.filter((item) => item.selected).length} / {items.length} 項目選択中
-          </p>
-        </div>
+        {/* 項目選択パネル
+            Task 84.3: 内訳書未紐付け時は項目選択セクション全体を非表示
+            （Requirements: 39.7） */}
+        {hasItemizedStatement && (
+          <div style={styles.card}>
+            <h2 style={styles.sectionTitle}>項目選択</h2>
+            <ItemSelectionPanel
+              items={items}
+              method={request.method}
+              includeBreakdownInBody={request.includeBreakdownInBody}
+              onItemSelectionChange={handleItemSelectionChange}
+              onMethodChange={handleMethodChange}
+              onIncludeBreakdownChange={handleIncludeBreakdownChange}
+            />
+          </div>
+        )}
+
+        {/* 選択状況（Task 59: サイドバーから項目選択の下に移動）
+            Task 84.3: 内訳書未紐付け時は項目自体が存在しないため、選択状況も非表示
+            （Requirements: 39.7） */}
+        {hasItemizedStatement && (
+          <div style={styles.card}>
+            <h2 style={styles.sectionTitle}>選択状況</h2>
+            <p style={styles.infoValue}>
+              {items.filter((item) => item.selected).length} / {items.length} 項目選択中
+            </p>
+          </div>
+        )}
 
         {/* 受領見積書セクション（Task 59: サイドバーから選択状況の下に移動） */}
         <div style={styles.card}>
