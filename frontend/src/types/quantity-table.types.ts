@@ -334,6 +334,34 @@ export interface QuantityItemDetail {
 }
 
 /**
+ * 数量グループ情報（簡易・コピー API レスポンス用）
+ *
+ * Requirements: 38.2
+ *
+ * `QuantityGroupDetail` から items / surveyImage を除いた軽量レスポンス型。
+ * バックエンドの `QuantityGroupService.QuantityGroupInfo`（Date 型を JSON 経由で
+ * ISO8601 文字列に変換した形）と一致する。
+ */
+export interface QuantityGroupInfo {
+  /** グループID（UUID） */
+  id: string;
+  /** 所属する数量表ID（UUID） */
+  quantityTableId: string;
+  /** グループ名（未設定の場合は null） */
+  name: string | null;
+  /** 紐付いている現場調査画像ID（未紐付けの場合は null） */
+  surveyImageId: string | null;
+  /** 表示順序（0 始まりの非負整数） */
+  displayOrder: number;
+  /** 配下の数量項目数 */
+  itemCount: number;
+  /** 作成日時（ISO8601形式） */
+  createdAt: string;
+  /** 更新日時（ISO8601形式） */
+  updatedAt: string;
+}
+
+/**
  * 数量グループ情報（詳細取得用）
  */
 export interface QuantityGroupDetail {

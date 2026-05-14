@@ -5039,3 +5039,1053 @@ const handleSave = useCallback(async () => {
 - リサイズ操作の `pointermove` イベントは ~60Hz で発火するが、state 更新は React の自動バッチ処理に任せる。サブピクセル変動を抑えたい場合は `requestAnimationFrame` ベースのスロットリングを Implementation Notes に記載済みの通り将来追加可能
 - 明細行の上下移動は O(n) の配列スワップ＋ O(n) の sortOrder 再採番。明細行は通常数十行レベルでありパフォーマンス影響なし
 - セッション切れリトライは pending operation を 1 件のみ保持する（重複起動なし）。再認証成功後の単発リトライのため負荷増なし
+
+## 内訳書任意化 - 設計追記（Requirement 39）
+
+### Overview（追記7）
+
+**Purpose**: 数量表（内訳書）作成前に協力業者へ取り急ぎ見積依頼を行うユースケースを成立させるため、見積依頼作成時の内訳書選択を必須から任意に変更する。データモデルでは `EstimateRequest.itemizedStatementId` を NULL 許容に変更し、Service 層では内訳書未紐付けケース（以後「クイックリクエスト」）の作成パスを分岐実装する。フロントエンドでは関連 UI（項目選択、Excel 出力、本文オプション、一覧表示、編集画面）を内訳書の有無に応じて条件レンダリングする。受領見積書セクションは従来通り利用可能とし、後段の見積書作成機能は受領見積書の内訳を活用する想定（本要件のスコープ外）。
+
+**Impact**: DB スキーマ 1 列の nullable 化＋単一マイグレーション、バックエンド 3 ファイル（schema/service/route）、本文生成 1 ファイル、フロントエンド 7 ファイル（types/form/list/detail/edit/textPanel）、テスト 4 ファイル。新規外部ライブラリ追加なし。新規コンポーネント・新規 API エンドポイント追加なし。
+
+### Goals（追記7）
+
+- 内訳書未紐付けの見積依頼を作成・参照・編集できる UI とデータ経路を提供する
+- 既存の「内訳書あり」ケースの挙動・データを一切変更しない（Req 39 AC 12）
+- 監査ログとレスポンス型の互換性を保ちつつ nullable 化を反映する
+- 受領見積書セクションを内訳書未紐付けでも従来通り利用可能とする（Req 39 AC 11）
+
+### Non-Goals（追記7）
+
+- 既存見積依頼に対する内訳書後付け機能（ユーザー回答により撤廃）
+- 受領見積書から内訳書を自動生成する機能（後段の見積書作成スペックの領域）
+- Req 6 AC 9（「添付内訳書の通り」表示）の実装ギャップ解消（既存ドリフトとして本要件のスコープ外、R-39-1 で確定）
+- 内訳書なし専用のクイック作成画面・専用フォームの新設（既存フォームの条件レンダリングで対応、Option B を Gap Analysis で却下）
+- `EstimateRequestStatus` 遷移ロジックの変更（R-39-7 で内訳書非依存を確認済み）
+
+### Boundary Commitments（追記7）
+
+#### このスペックが所有するもの
+
+- `EstimateRequest.itemizedStatementId` の nullable 化（Prisma スキーマ＋マイグレーション）
+- `EstimateRequestService.create()` の内訳書未紐付け分岐ロジック（ItemizedStatement 検証スキップ、`EstimateRequestItem` 自動初期化スキップ、監査ログの nullable 反映）
+- `createEstimateRequestSchema` の `itemizedStatementId` optional 化と OpenAPI required リスト更新
+- `EstimateRequestTextService.generate{Email,Fax}Body()` の内訳書 null セーフ化（`includeBreakdownInBody && hasItemizedStatement` ガード）
+- `EstimateRequestInfo` 型の `itemizedStatementId` / `itemizedStatementName` を `string | null` 化（FE/BE 両方）
+- 内訳書未紐付け状態の UI 条件レンダリング（フォーム必須解除、一覧の「-」、詳細の項目選択セクション・Excel・本文オプション非表示、編集画面の内訳書ブロック条件表示）
+- 既存テストの「内訳書必須」前提 assertion 更新と「内訳書なし」パスの新規テスト追加
+
+#### スコープ外（Out of Boundary）
+
+- 内訳書あり ↔ なし の編集による相互変換（編集画面では内訳書フィールドは引き続き読み取り専用、R-39-4）
+- Req 6 AC 9 と現行実装のドリフト解消
+- `ItemizedStatement` モデル・関連サービス・関連画面の変更
+- `EstimateRequestStatus` の遷移条件・StatusTransitionButton の変更
+- 監査ログ閲覧 UI の変更
+- 受領見積書データから内訳書を派生させる経路
+
+#### 許容される依存
+
+- Internal: 既存の `EstimateRequestService` / `EstimateRequestTextService` / `auditLogService` / `EstimateRequestForm` / `EstimateRequestListPage` / `EstimateRequestDetailPage` / `EstimateRequestEditPage` / `ItemSelectionPanel` / `ExcelExportButton` / `EstimateRequestTextPanel` の改訂
+- External: Prisma マイグレーション（`ALTER COLUMN ... DROP NOT NULL`）、Zod `.optional().nullable()` API、既存 React パターンによる条件レンダリング
+- 新規依存ライブラリ: なし
+
+#### 再評価が必要なトリガー（Revalidation Triggers）
+
+- 後続スペックで「内訳書なし → 内訳書あり」への変換（後付け）機能を追加するとき → `EstimateRequestService` に attach API 設計が必要、本設計の Out of Boundary に含めた前提が崩れる
+- `includeBreakdownInBody` を内訳書なしでも true 設定可能にする要件が出たとき → DB の制約強化（CHECK 制約等）を検討
+- `EstimateRequestItem` の auto-create を内訳書なしでも生成する要件が出たとき → 現設計の skip 分岐を解除
+- Req 6 AC 9 を実装と整合させる要件が出たとき → `EstimateRequestTextService` の generate*Body の本文生成ロジックを再設計
+
+### Architecture（追記7）
+
+変更範囲は既存の見積依頼関連レイヤ全体（DB → BE Service → BE Schema/Route → BE Text Service → FE Types → FE Form/List/Detail/Edit）に薄く広く渡るが、各レイヤの変更は「nullable パスの追加と null セーフ化」に限定される。新規レイヤ・新規ファイル・新規依存はない（Prisma マイグレーション SQL 1 ファイルを除く）。
+
+**変更モジュールマップ**
+
+```mermaid
+graph LR
+  subgraph DB
+    Schema[schema.prisma]
+    Migration[migration.sql]
+  end
+  subgraph BE
+    BeSchema[estimate-request.schema.ts]
+    Service[estimate-request.service.ts]
+    TextService[estimate-request-text.service.ts]
+    Routes[estimate-requests.routes.ts]
+  end
+  subgraph FE
+    Types[estimate-request.types.ts]
+    Form[EstimateRequestForm.tsx]
+    ListPage[EstimateRequestListPage.tsx]
+    DetailPage[EstimateRequestDetailPage.tsx]
+    EditPage[EstimateRequestEditPage.tsx]
+    TextPanel[EstimateRequestTextPanel.tsx]
+  end
+
+  Schema --> Migration
+  Schema --> Service
+  BeSchema --> Routes
+  Service --> Routes
+  Service --> TextService
+  Routes --> Types
+  Types --> Form
+  Types --> ListPage
+  Types --> DetailPage
+  Types --> EditPage
+  Types --> TextPanel
+```
+
+**依存方向**: DB → Backend Service / Schema → API Route → Frontend Types → Frontend UI（既存パターン踏襲、逆方向なし）
+
+### System Flows（追記7）
+
+#### クイックリクエスト作成フロー（Requirements 39.1-39.5）
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Form as EstimateRequestForm
+    participant Api as POST /estimate-requests
+    participant Svc as EstimateRequestService.create
+    participant DB as Prisma
+
+    User->>Form: 名前・宛先のみ入力（内訳書未選択）
+    User->>Form: 「作成」ボタンクリック
+    Form->>Form: validate() で name/tradingPartnerId のみ検証
+    Form->>Api: { name, tradingPartnerId, itemizedStatementId: undefined }
+    Api->>Api: createEstimateRequestSchema.parse()（itemizedStatementId は optional）
+    Api->>Svc: create(input)
+    Svc->>DB: tradingPartner 検証（既存）
+    Svc->>DB: subcontractor type 確認（既存）
+    alt input.itemizedStatementId が null/undefined
+        Note over Svc: 内訳書検証・items 0件検証・EstimateRequestItem 自動初期化をスキップ
+        Svc->>DB: estimateRequest.create({ ..., itemizedStatementId: null })
+        Svc->>Svc: 監査ログ after.itemizedStatementId=null, itemCount=0
+    else input.itemizedStatementId が指定
+        Svc->>DB: itemizedStatement 検証（既存）
+        Svc->>DB: items 0件チェック（既存）
+        Svc->>DB: estimateRequest.create + estimateRequestItem.createMany
+        Svc->>Svc: 監査ログ after.itemizedStatementId=値, itemCount=N
+    end
+    Svc-->>Api: EstimateRequestInfo（itemizedStatementId/Name は string | null）
+    Api-->>Form: 201 Created
+    Form->>User: 詳細画面へ遷移
+```
+
+#### 内訳書未紐付け詳細画面の表示フロー（Requirements 39.7-39.10）
+
+```mermaid
+flowchart TD
+    Start[詳細画面マウント] --> Fetch[GET /estimate-requests/:id]
+    Fetch --> Check{itemizedStatementId<br/>=== null?}
+    Check -->|Yes| HideItem[項目選択セクション<br/>非表示]
+    HideItem --> HideExcel[Excel出力ボタン<br/>非表示]
+    HideExcel --> HideToggle[「内訳書を本文に含める」<br/>チェックボックス非表示]
+    HideToggle --> ShowDash[「参照内訳書」表示行に「-」]
+    ShowDash --> ShowMethod[見積依頼方法ラジオ＋保存ボタン<br/>表示維持]
+    ShowMethod --> ShowReceived[受領見積書セクション<br/>表示維持]
+    Check -->|No| Existing[既存挙動<br/>すべてのセクションを表示]
+    Existing --> ShowReceived
+```
+
+### Requirements Traceability（追記7）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 39.1 | 内訳書選択フィールドを任意項目化 | EstimateRequestForm | validate (内訳書必須チェック削除), required属性削除 | クイックリクエスト作成フロー |
+| 39.2 | 内訳書未選択での保存→詳細画面遷移 | EstimateRequestForm, EstimateRequestService.create | createEstimateRequestSchema.itemizedStatementId.optional, create 内訳書なしブランチ | クイックリクエスト作成フロー |
+| 39.3 | 内訳書選択時は従来通り | EstimateRequestService.create | create 内訳書ありブランチ（既存維持） | クイックリクエスト作成フロー |
+| 39.4 | データモデル NULL 許容 | EstimateRequest model | Prisma `itemizedStatementId String?`, migration `DROP NOT NULL` | - |
+| 39.5 | 内訳書未登録時のメッセージ「（任意）」付与＋保存許可 | EstimateRequestForm | hasNoItemizedStatements の disabled 連動を解除 | クイックリクエスト作成フロー |
+| 39.6 | 一覧の参照内訳書名列に「-」表示 | EstimateRequestListPage | `request.itemizedStatementName ?? '-'` レンダリング | - |
+| 39.7 | 詳細画面の項目選択セクション非表示 | EstimateRequestDetailPage | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
+| 39.8 | 「本文に含める」「Excel出力」非表示 | EstimateRequestDetailPage, EstimateRequestTextPanel, ExcelExportButton | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
+| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody, EstimateRequestService.update | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略）／update() の `includeBreakdownInBody` 強制 false 正規化（design review Issue 1） | クイックリクエスト作成フロー |
+| 39.10 | 見積依頼方法・保存ボタン利用可能 | EstimateRequestDetailPage, EstimateRequestService.update | 既存の updateEstimateRequestSchema（method/name のみ）を継続利用 | - |
+| 39.11 | 受領見積書セクション利用可 | EstimateRequestDetailPage（受領見積書セクション部分） | 既存リレーション・既存 UI 変更なし | - |
+| 39.12 | 既存（内訳書あり）見積依頼の挙動・データ・表示無変更 | 全コンポーネント | nullable 分岐を「null の場合のみ追加挙動」として閉じる | - |
+
+### Components and Interfaces - 改訂（Requirement 39）
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|-----------|--------------|--------|--------------|------------------|-----------|
+| EstimateRequest model（改訂） | Backend/Data | `itemizedStatementId` を nullable 化 | 39.4, 39.12 | Prisma 7 (P0) | State |
+| createEstimateRequestSchema（改訂） | Backend/Schema | `itemizedStatementId` optional 化 | 39.1, 39.2 | Zod 4 (P0) | API |
+| EstimateRequestService（改訂2） | Backend/Service | クイックリクエスト分岐（内訳書検証・項目自動初期化スキップ）と監査ログ nullable 化 | 39.2, 39.3, 39.4, 39.12 | EstimateRequest model (P0), auditLogService (P0) | Service |
+| EstimateRequestTextService（改訂） | Backend/Service | 内訳書 null セーフ化と本文生成ガード | 39.9 | EstimateRequest model (P0) | Service |
+| EstimateRequest routes（改訂） | Backend/Route | OpenAPI required リスト更新と req body 型反映 | 39.1, 39.2, 39.4 | createEstimateRequestSchema (P0), EstimateRequestService (P0) | API |
+| EstimateRequestInfo / CreateEstimateRequestInput types（改訂） | Frontend/Types | nullable 化を FE 型に伝搬 | 39.4, 39.12 | - | State |
+| EstimateRequestForm（改訂2） | Frontend/UI | 内訳書必須化を解除（マーカー・validate・disabled） | 39.1, 39.2, 39.5 | EstimateRequestInfo type (P0) | State |
+| EstimateRequestListPage（改訂） | Frontend/UI | 参照内訳書名の「-」フォールバック | 39.6, 39.12 | EstimateRequestInfo type (P0) | State |
+| EstimateRequestDetailPage（改訂） | Frontend/UI | 内訳書未紐付け時の項目選択／Excel／本文オプション／参照内訳書表示の条件レンダリング | 39.7, 39.8, 39.10, 39.11, 39.12 | ItemSelectionPanel, ExcelExportButton, EstimateRequestTextPanel (各 P0) | State |
+| EstimateRequestTextPanel（改訂） | Frontend/UI | 「内訳書を本文に含める」チェックを内訳書ありの時のみ表示 | 39.8 | EstimateRequestInfo type (P0) | State |
+| EstimateRequestEditPage（改訂） | Frontend/UI | 内訳書（読み取り専用）ブロックを内訳書ありの時のみ表示 | 39.12 | EstimateRequestInfo type (P0) | State |
+
+#### EstimateRequest model（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | `itemizedStatementId` を `String` から `String?` に変更し、リレーション側も optional 化 |
+| Requirements | 39.4, 39.12 |
+
+**Schema 変更（差分）**
+
+```prisma
+model EstimateRequest {
+  id                     String                @id @default(uuid())
+  projectId              String
+  tradingPartnerId       String
+  itemizedStatementId    String?               // 旧: String → String? に変更（Req 39.4）
+  name                   String
+  method                 EstimateRequestMethod @default(EMAIL)
+  status                 EstimateRequestStatus @default(BEFORE_REQUEST)
+  includeBreakdownInBody Boolean               @default(false)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  deletedAt              DateTime?
+
+  project            Project                        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tradingPartner     TradingPartner                 @relation(fields: [tradingPartnerId], references: [id])
+  itemizedStatement  ItemizedStatement?             @relation(fields: [itemizedStatementId], references: [id])  // 旧: 必須 → optional に変更
+  selectedItems      EstimateRequestItem[]
+  receivedQuotations ReceivedQuotation[]
+  statusHistory      EstimateRequestStatusHistory[]
+
+  @@index([projectId])
+  @@index([tradingPartnerId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("estimate_requests")
+}
+```
+
+**Migration（新規ファイル）**: `backend/prisma/migrations/{timestamp}_make_estimate_request_itemized_statement_optional/migration.sql`
+
+```sql
+ALTER TABLE "estimate_requests"
+  ALTER COLUMN "itemized_statement_id" DROP NOT NULL;
+```
+
+**Implementation Notes**
+- Integration: 既存行は `itemizedStatementId` が必須の状態で投入されているため、`DROP NOT NULL` のみで追加データ変換は不要（Req 39.12）
+- Migration: 既存の連番命名規則（`YYYYMMDDHHMMSS_description`）に従う。実行タイムスタンプは `npx prisma migrate dev` 生成値を採用
+- Reverse migration: ロールバック時は `ALTER COLUMN ... SET NOT NULL` だが、すでに NULL 行が存在すると失敗する可能性があるため、本要件で書き戻し戦略は提供しない
+- Index: `itemizedStatementId` には現在インデックスがなく、外部キー制約のみ。nullable 化後も検索パターン変更なしのためインデックス追加なし
+
+#### createEstimateRequestSchema（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | `itemizedStatementId` を optional 化し、空文字も許容 |
+| Requirements | 39.1, 39.2 |
+
+**Schema 変更（差分）**
+
+```typescript
+export const createEstimateRequestSchema = z.object({
+  name: z.string().min(1, ...).max(200, ...).refine(...),
+  tradingPartnerId: z.string().min(1, ...).regex(UUID_REGEX, ...),
+
+  // 旧: 必須 (z.string().min(1, ...).regex(UUID_REGEX, ...))
+  // 新: optional + nullable + 空文字許容（FE から '' で送信される可能性に対応）
+  itemizedStatementId: z
+    .string()
+    .regex(UUID_REGEX, ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_INVALID_UUID)
+    .optional()
+    .nullable()
+    .or(z.literal('').transform(() => null)),
+
+  method: z.enum(...).default('EMAIL'),
+  includeBreakdownInBody: z.boolean().default(false),
+});
+```
+
+**Implementation Notes**
+- Validation: UUID 形式チェックは値が指定された場合のみ適用（`.optional()` により undefined 許容、`.nullable()` で null 許容、空文字は変換で null へ）
+- Compatibility: 既存の `ITEMIZED_STATEMENT_ID_REQUIRED` メッセージ定数は他箇所で参照していないかを確認のうえ撤去/保持を決定（撤去推奨）
+- API doc: routes 側で OpenAPI `required` から `itemizedStatementId` を削除し、説明に「省略時は内訳書未紐付けの見積依頼として作成される」を追記
+
+#### EstimateRequestService（改訂2）
+
+| Field | Detail |
+|-------|--------|
+| Intent | クイックリクエストブランチを `create()` に追加し、`EstimateRequestInfo` の nullable 化を `toEstimateRequestInfo()` 全箇所に伝搬 |
+| Requirements | 39.2, 39.3, 39.4, 39.12 |
+
+**Interface 変更**
+
+```typescript
+export interface CreateEstimateRequestInput {
+  name: string;
+  projectId: string;
+  tradingPartnerId: string;
+  itemizedStatementId?: string | null; // 旧: string（必須） → optional + nullable
+  method?: EstimateRequestMethod;
+  includeBreakdownInBody?: boolean;
+}
+
+export interface EstimateRequestInfo {
+  id: string;
+  projectId: string;
+  tradingPartnerId: string;
+  tradingPartnerName: string;
+  itemizedStatementId: string | null;     // 旧: string → string | null
+  itemizedStatementName: string | null;   // 旧: string → string | null
+  name: string;
+  method: EstimateRequestMethod;
+  includeBreakdownInBody: boolean;
+  status: EstimateRequestStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  receivedQuotationCount?: number;
+}
+```
+
+**create() 分岐ロジック（差分）**
+
+```typescript
+async create(input: CreateEstimateRequestInput, actorId: string): Promise<EstimateRequestInfo> {
+  return await this.prisma.$transaction(async (tx) => {
+    // 1-2. 取引先・協力業者検証（既存通り、変更なし）
+    // ...
+
+    const hasItemizedStatement =
+      input.itemizedStatementId !== undefined && input.itemizedStatementId !== null;
+
+    let itemCount = 0;
+    if (hasItemizedStatement) {
+      // 3-4. 内訳書検証 + items 0件チェック（既存通り、ガード内に集約）
+      const itemizedStatement = await tx.itemizedStatement.findUnique({ ... });
+      if (!itemizedStatement || itemizedStatement.deletedAt !== null) {
+        throw new ItemizedStatementNotFoundError(input.itemizedStatementId!);
+      }
+      if (itemizedStatement.items.length === 0) {
+        throw new EmptyItemizedStatementItemsError(input.itemizedStatementId!);
+      }
+      itemCount = itemizedStatement.items.length;
+    }
+
+    // 5. 見積依頼の作成
+    const estimateRequest = await tx.estimateRequest.create({
+      data: {
+        projectId: input.projectId,
+        tradingPartnerId: input.tradingPartnerId,
+        itemizedStatementId: hasItemizedStatement ? input.itemizedStatementId! : null,
+        name: input.name.trim(),
+        method: input.method ?? 'EMAIL',
+        includeBreakdownInBody: hasItemizedStatement ? (input.includeBreakdownInBody ?? false) : false,
+      },
+      include: {
+        tradingPartner: { select: { id: true, name: true } },
+        itemizedStatement: { select: { id: true, name: true } }, // null 許容（Prisma の optional relation）
+      },
+    });
+
+    // 6. EstimateRequestItem の自動初期化（内訳書ありの時のみ実行）
+    if (hasItemizedStatement) {
+      const itemsData = /* 既存のロジック */;
+      await tx.estimateRequestItem.createMany({ data: itemsData });
+    }
+
+    // 7. 監査ログ（itemizedStatementId・itemCount は nullable / 0 で記録）
+    await this.auditLogService.createLog({
+      action: 'ESTIMATE_REQUEST_CREATED',
+      actorId,
+      targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+      targetId: estimateRequest.id,
+      before: null,
+      after: {
+        projectId: estimateRequest.projectId,
+        tradingPartnerId: estimateRequest.tradingPartnerId,
+        itemizedStatementId: estimateRequest.itemizedStatementId, // string | null
+        name: estimateRequest.name,
+        method: estimateRequest.method,
+        itemCount, // 0 または N
+      },
+    });
+
+    return this.toEstimateRequestInfo(estimateRequest);
+  });
+}
+```
+
+**update() でのガード追加（design review Issue 1, 2026-05-08 対応）**
+
+`create()` で確立した「内訳書なし → `includeBreakdownInBody=false` 強制」（R-39-3）の制約は `update()` でも一貫させる。`updateEstimateRequestSchema` は `includeBreakdownInBody.optional()` のため API 経由で内訳書なしの見積依頼に対し `true` を PATCH 可能だが、Service 層で対象レコードの `itemizedStatementId === null` を確認のうえ、入力 `includeBreakdownInBody` を無視（または false に正規化）する。
+
+```typescript
+// EstimateRequestService.update() 内、updateData 構築箇所（差分）
+if (input.includeBreakdownInBody !== undefined) {
+  // 内訳書なしの見積依頼は本文へ含めることが意味を持たないため false 強制（Req 39.9, R-39-3）
+  updateData.includeBreakdownInBody =
+    estimateRequest.itemizedStatementId === null ? false : input.includeBreakdownInBody;
+}
+```
+
+監査ログの `before` / `after` には正規化後の値を記録する（input ではなく `updateData` ベース）。
+
+**Implementation Notes**
+- Integration: `toEstimateRequestInfo()` の戻り値で `itemizedStatementId: request.itemizedStatementId ?? null`、`itemizedStatementName: request.itemizedStatement?.name ?? null` に変更（R-39-2）
+- Integration: `findById` / `findByProjectId` / `findLatestByProjectId` / `update` / `delete` の `include: { itemizedStatement: { select: ... } }` は Prisma の optional relation により null 返却が許容される。Service 側で追加の null チェックは不要（select 句のみ変更不要）
+- Audit log: `delete` の `before.itemizedStatementId` も nullable 反映（既存 `select` ステートメントの結果が `string | null` になるため自動追従）
+- Test impact: `service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）。さらに `update()` のガードに対し「内訳書なしの見積依頼に `includeBreakdownInBody=true` を更新リクエスト → 永続化された値が false で監査ログも false」のテストを 1 件追加
+- includeBreakdownInBody（create）: 内訳書なしで作成した見積依頼は `includeBreakdownInBody=false` で固定保存（R-39-3）。ユーザー入力の `true` は無視
+- includeBreakdownInBody（update）: 上記 update() ガード参照。create と同等の制約を適用
+
+#### EstimateRequestTextService（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | `generateEmailBody` / `generateFaxBody` で `itemizedStatement` が null の場合に【見積対象項目】セクション生成を抑止 |
+| Requirements | 39.9 |
+
+**Body 生成ガード（差分）**
+
+```typescript
+private async getEstimateRequestWithDetails(estimateRequestId: string) {
+  const request = await this.prisma.estimateRequest.findUnique({
+    where: { id: estimateRequestId },
+    include: {
+      tradingPartner: { ... },
+      itemizedStatement: { select: { id: true, name: true } }, // null 許容（Prisma optional relation）
+      project: { ... },
+    },
+  });
+  // 既存の deletedAt チェック維持
+  return request;
+}
+
+private async getSelectedItems(estimateRequestId: string): Promise<SelectedItemInfo[]> {
+  // 既存のまま。内訳書なしの見積依頼では EstimateRequestItem が 0 件のため空配列を返す
+  // （EstimateRequestService.create で auto-init をスキップしているため自然に 0 件）
+}
+
+// generateEmailBody / generateFaxBody 内（差分）
+if (request.includeBreakdownInBody && selectedItems.length > 0) { // 旧: includeBreakdownInBody のみ
+  lines.push('【見積対象項目】');
+  // ...
+}
+```
+
+**Implementation Notes**
+- Behavior: 内訳書未紐付けでは `EstimateRequestItem` が存在しない＋ `includeBreakdownInBody=false` 強制保存のため、二重ガードで【見積対象項目】セクションは確実に省略される
+- 既存ドリフト: Req 6 AC 9（「添付内訳書の通り」表示）と現行実装の不一致は本要件のスコープ外（Out of Boundary）
+- Type safety: `request.itemizedStatement` は Prisma の optional relation として `{ id: string; name: string } | null` 型で取得され、生成関数内で参照する箇所はないため追加修正なし
+
+#### EstimateRequestForm（改訂2）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書フィールドの必須化を全面解除し、validate / disabled / required マーカー / メッセージから内訳書必須前提を除去 |
+| Requirements | 39.1, 39.2, 39.5 |
+
+**Component 変更（差分）**
+
+```typescript
+// 1. 必須マーカーを削除（line 520 付近）
+<label htmlFor="itemizedStatementId" style={styles.label}>
+  内訳書 <span style={styles.helperText}>（任意）</span> {/* 旧: <span style={styles.required}>*</span> */}
+</label>
+
+// 2. select の disabled を hasNoItemizedStatements 連動から isSubmitting のみに変更
+<select
+  ...
+  disabled={isSubmitting} // 旧: isSubmitting || hasNoItemizedStatements
+  aria-required={false}   // 旧: 'true'
+  ...
+/>
+
+// 3. 内訳書未登録メッセージを「（任意）」付き＋色を警告から情報トーンに変更
+{hasNoItemizedStatements && (
+  <div style={styles.infoMessage}> {/* 既存 emptyMessage は警告色 */}
+    内訳書が登録されていません（任意）。
+  </div>
+)}
+
+// 4. validate() から itemizedStatementId 必須チェックを削除
+const validate = useCallback((): boolean => {
+  const newErrors: FormErrors = {};
+  if (!name.trim()) newErrors.name = '見積依頼名を入力してください';
+  if (!tradingPartnerId) newErrors.tradingPartnerId = '宛先を選択してください';
+  // 旧: itemizedStatementId 必須チェック削除
+  // 内訳書が選択されている場合のみ「項目0件」エラーを残す
+  if (itemizedStatementId && selectedStatement && selectedStatement.itemCount === 0) {
+    newErrors.itemizedStatementId = '選択された内訳書に項目がありません';
+  }
+  setErrors(newErrors);
+  return Object.keys(newErrors).length === 0;
+}, [name, tradingPartnerId, itemizedStatementId, selectedStatement]);
+
+// 5. 提出ボタンの disabled から hasNoItemizedStatements を除外
+<button
+  type="submit"
+  disabled={isSubmitting || hasNoSubcontractors} // 旧: || hasNoItemizedStatements
+  ...
+>
+
+// 6. 送信時に空文字を undefined に変換
+const input: CreateEstimateRequestInput = {
+  name: name.trim(),
+  tradingPartnerId,
+  itemizedStatementId: itemizedStatementId || undefined, // 旧: itemizedStatementId
+};
+```
+
+**Implementation Notes**
+- Visual: `infoMessage` スタイルを新規追加（既存 `emptyMessage` の警告色 `#fef3c7/#92400e` から情報色 `#eff6ff/#1e40af` へ調整）
+- Accessibility: `aria-required="false"` 化と `aria-invalid` の連動も既存ロジックで自動追従
+- Form behavior: 内訳書を選択 → 解除（空文字に戻す）も許可。選択された内訳書の items 0 件チェックは残す（選んだ場合は項目必須）
+- Test impact: `EstimateRequestForm.test.tsx` の「必須バリデーション」テストから内訳書部分を削除し、「内訳書未選択での送信成功」「内訳書未登録時もボタン非活性にならない」のケースを追加
+
+#### EstimateRequestListPage（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 一覧の参照内訳書名列で null フォールバック「-」を表示 |
+| Requirements | 39.6, 39.12 |
+
+**Implementation Notes**
+- 単一行修正: `{request.itemizedStatementName ?? '-'}`（line 312 付近）
+- Accessibility: 表示文字列が `-` でも既存のセル構造で問題なし
+- Test impact: `e2e` 側で「内訳書なしの見積依頼が一覧に表示され、参照内訳書名列が `-` であること」を 1 ケース追加
+
+#### EstimateRequestDetailPage（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書未紐付け時に項目選択・Excel・本文オプション・参照内訳書セクションを条件レンダリングし、見積依頼方法・受領見積書セクションは維持 |
+| Requirements | 39.7, 39.8, 39.10, 39.11, 39.12 |
+
+**Implementation Notes**
+- ガード変数: `const hasItemizedStatement = request.itemizedStatementId !== null;`
+- 条件レンダリング対象（hasItemizedStatement === false で非表示）:
+  - `<ItemSelectionPanel>`（項目選択セクション全体）
+  - `<ExcelExportButton>`
+  - 「内訳書を本文に含める」チェックボックス（`<EstimateRequestTextPanel>` 内のサブ要素 → コンポーネント側で同等のガード、本ページからは props 経由で `showIncludeBreakdownToggle={hasItemizedStatement}` を渡す）
+- 表示維持対象:
+  - 見積依頼方法ラジオボタン（method 変更可能）
+  - 「保存」ボタン（method/name の更新は通常通り可能、Req 39.10）
+  - 受領見積書セクション（Req 39.11）
+  - ステータス遷移ボタン（既存挙動維持、Req 39 範囲外）
+- 「参照内訳書」表示行: `{request.itemizedStatementName ?? '-'}`（line 1071-1072 付近）
+- Layout: 項目選択セクション非表示時は、レイアウト崩れを避けるため上部の見積依頼方法／保存ボタンと受領見積書セクションが詰まる形になる。既存のフルワイドレイアウト（Req 27）配下でも自然な詰まりとなり追加の調整不要
+
+#### EstimateRequestTextPanel（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 「内訳書を本文に含める」チェックボックスを内訳書ありの時のみ表示 |
+| Requirements | 39.8 |
+
+**Implementation Notes**
+- Props 拡張: `showIncludeBreakdownToggle?: boolean`（デフォルト `true` で後方互換）
+- 親（DetailPage）から `showIncludeBreakdownToggle={hasItemizedStatement}` を渡す
+- 内部実装: `{showIncludeBreakdownToggle && <Checkbox ... />}` のシンプルなガード
+
+#### EstimateRequestEditPage（改訂）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書（読み取り専用）ブロックを内訳書ありの時のみ表示 |
+| Requirements | 39.12 |
+
+**Implementation Notes**
+- 単一ブロックガード: `{request.itemizedStatementName !== null && <div>...</div>}`（line 410-414 付近）
+- 編集画面では内訳書を新規付与しない（R-39-4 で確定、Out of Boundary）
+
+### Data Models（追記7）
+
+#### Domain Model 影響
+
+- **EstimateRequest**: ItemizedStatement との関連が「必須」→「任意」に変更。アグリゲートとしての整合性は `EstimateRequestItem` の存在有無で表現される（内訳書なし → `EstimateRequestItem` 0 件）
+- **EstimateRequestItem**: 既存通り。内訳書なしの EstimateRequest に対しては作成されない（既存の cascade delete 整合性は `EstimateRequest` 削除時にのみ機能）
+- **ItemizedStatement**: 一切の変更なし。`estimateRequests` リレーションは optional 側からの参照になるが、ItemizedStatement 単独での挙動は不変
+
+#### API Contract 変更
+
+- `POST /estimate-requests`（routes.ts）の OpenAPI required リスト: `itemizedStatementId` を削除。説明欄に「省略時は内訳書未紐付けの見積依頼として作成される」追記
+- レスポンスの `EstimateRequestInfo.itemizedStatementId` / `itemizedStatementName`: `string` → `string | null`（破壊的変更扱いだが、既存クライアントは null セーフ実装済みであるべき。本要件で FE 側を同時更新するため整合）
+
+### Error Handling（追記7）
+
+- `ItemizedStatementNotFoundError`: 内訳書 ID が指定された場合のみ throw（既存）。内訳書なしブランチでは到達しない
+- `EmptyItemizedStatementItemsError`: 同上。内訳書なしブランチでは到達しない
+- `EstimateRequestNotFoundError` / `EstimateRequestConflictError`: 既存挙動変更なし
+- 新規エラー: 追加なし
+- API レスポンスの 404/422 シナリオ: 内訳書 ID 指定時のみ発生（既存と同じ）
+
+### Testing Strategy（追記7）
+
+#### Backend Unit Tests（追記7）
+
+- `EstimateRequestService.create()` 内訳書なしケース:
+  - 保存成功時に `itemizedStatementId=null`、`includeBreakdownInBody=false` で永続化されることの確認（Req 39.2, 39.4）
+  - `EstimateRequestItem.createMany` が呼ばれないことの確認（R-39-5）
+  - 監査ログ `after.itemizedStatementId=null`、`after.itemCount=0` の確認（R-39-6）
+- `EstimateRequestService.create()` 内訳書ありケース（既存）: 挙動変更なしの回帰確認（Req 39.3, 39.12）
+- `EstimateRequestService.update()` 内訳書なし対象に `includeBreakdownInBody=true` を渡すケース: 永続化された値が `false` に正規化され、監査ログ `after.includeBreakdownInBody=false` で記録されることの確認（Req 39.9, R-39-3, design review Issue 1）
+- `EstimateRequestTextService.generate{Email,Fax}Body()`: 内訳書なし＋ `includeBreakdownInBody=false`（強制）で【見積対象項目】セクションが省略されることの確認（Req 39.9）
+- `createEstimateRequestSchema`: `itemizedStatementId` 未指定／null／空文字／UUID で各々 valid（Req 39.1）。不正な UUID 文字列のみ invalid
+
+#### Backend Integration Tests（追記7）
+
+- `POST /estimate-requests` ボディから `itemizedStatementId` を省略 → 201 + `itemizedStatementId=null` レスポンスの確認（Req 39.2, 39.4）
+- `POST /estimate-requests` で `itemizedStatementId` を空文字送信 → 201 + null 化の確認（Req 39.1）
+- 既存の `itemizedStatementId` 必須前提の 422 ケースは削除し、不正 UUID の場合のみ 422 とすることの確認
+
+#### Frontend Component Tests（追記7）
+
+- `EstimateRequestForm`:
+  - 内訳書未選択でも「作成」ボタンが活性であることの確認（Req 39.5）
+  - 内訳書未選択での送信が `itemizedStatementId: undefined` で API へ届くことの確認（Req 39.2）
+  - 必須マーカー `*` が表示されないことの確認（Req 39.1）
+  - 内訳書未登録時のメッセージが「（任意）」付きであることの確認（Req 39.5）
+  - 内訳書を選択してから解除（空文字に戻す）→ 送信成功する確認
+
+#### E2E Tests（追記7）
+
+- **クイックリクエスト作成 → 詳細表示**: プロジェクト詳細から見積依頼新規作成 → 名前・宛先のみ入力（内訳書空欄）→ 「作成」→ 詳細画面で項目選択セクション・Excel 出力・「本文に含める」チェックボックスが非表示であることの確認、参照内訳書表示が「-」であることの確認、見積依頼方法ラジオと保存ボタンは表示されていることの確認、受領見積書セクションは利用可能であることの確認（Req 39.2, 39.7, 39.8, 39.10, 39.11）
+- **一覧の「-」表示**: 内訳書なしの見積依頼を一覧から開く → 参照内訳書名列に「-」が表示されることの確認（Req 39.6）
+- **編集画面での挙動**: 内訳書なしの見積依頼の編集画面 → 内訳書（読み取り専用）ブロックが非表示であることの確認、name/method の更新は可能であることの確認（Req 39.10, 39.12）
+- **既存（内訳書あり）の回帰**: 既存の内訳書ありの見積依頼を作成 → 詳細・一覧・編集すべての画面で従来通りの表示であることの確認（Req 39.12）
+
+### Migration Strategy（追記7）
+
+- **DB マイグレーション**: 単一の `ALTER COLUMN ... DROP NOT NULL` を発行する純加算マイグレーション。既存行の影響なし（Req 39.12）
+- **既存データ**: 既存見積依頼レコードはすべて `itemizedStatementId` が設定済みのため、本マイグレーション後も影響なし
+- **デプロイ順序**: マイグレーション → バックエンド（API レスポンス nullable 化）→ フロントエンドの順で安全。フロントエンドが先行デプロイされるとサーバが旧 schema のまま 422 を返す可能性があるため、CI/CD のデプロイ順序を厳守
+- **ロールバック**: ロールバック時は手動で `SET NOT NULL` を実行する必要があるが、すでに NULL 行が存在する場合は失敗する。ロールバック手順は本要件のスコープ外（運用判断）
+
+### Security Considerations（追記7）
+
+- 認可・認証経路に変更なし。既存のミドルウェア・JWT 検証・CSRF 保護を継続利用
+- 入力バリデーション: `createEstimateRequestSchema` の UUID 形式チェックは値が指定された場合のみ適用。空文字・null・undefined の混在を Zod で正規化済み
+- データ漏洩リスク: なし（nullable 化はメタデータ表現の変更のみ）
+
+### File Structure Plan（追記7）
+
+| Path | Status | Responsibility |
+|------|--------|----------------|
+| `backend/prisma/schema.prisma` | Modified | `EstimateRequest.itemizedStatementId` を `String?` 化、リレーションを optional 化 |
+| `backend/prisma/migrations/{timestamp}_make_estimate_request_itemized_statement_optional/migration.sql` | New | `ALTER COLUMN itemized_statement_id DROP NOT NULL` |
+| `backend/src/schemas/estimate-request.schema.ts` | Modified | `createEstimateRequestSchema.itemizedStatementId` を optional/nullable/空文字許容に変更 |
+| `backend/src/services/estimate-request.service.ts` | Modified | `CreateEstimateRequestInput.itemizedStatementId?: string \| null`、`EstimateRequestInfo.itemizedStatementId / Name: string \| null`、`create()` のクイックリクエスト分岐、`toEstimateRequestInfo()` の null セーフ化 |
+| `backend/src/services/estimate-request-text.service.ts` | Modified | `generate{Email,Fax}Body()` で `selectedItems.length > 0` の追加ガード |
+| `backend/src/routes/estimate-requests.routes.ts` | Modified | OpenAPI required から `itemizedStatementId` を削除、説明追記 |
+| `frontend/src/types/estimate-request.types.ts` | Modified | `EstimateRequestInfo.itemizedStatementId / Name: string \| null`、`CreateEstimateRequestInput.itemizedStatementId?: string` |
+| `frontend/src/components/estimate-request/EstimateRequestForm.tsx` | Modified | 必須マーカー削除、validate 内 itemizedStatementId 必須チェック削除、disabled 連動解除、メッセージ調整、送信時 undefined 変換 |
+| `frontend/src/pages/EstimateRequestListPage.tsx` | Modified | 参照内訳書名列に `?? '-'` フォールバック |
+| `frontend/src/pages/EstimateRequestDetailPage.tsx` | Modified | `hasItemizedStatement` ガードで項目選択／Excel／参照内訳書／本文含めるチェックを条件レンダリング |
+| `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx` | Modified | `showIncludeBreakdownToggle` props 追加、チェックボックス条件レンダリング |
+| `frontend/src/pages/EstimateRequestEditPage.tsx` | Modified | 内訳書（読み取り専用）ブロックを `itemizedStatementName !== null` 時のみ表示 |
+| `backend/src/__tests__/integration/routes/estimate-requests.routes.test.ts` | Modified | 内訳書なしでの作成（201）ケース追加、必須前提 422 ケースを削除 |
+| `backend/src/__tests__/unit/services/estimate-request.service.test.ts` | Modified | `create()` の内訳書なしケース、監査ログ確認、`EstimateRequestItem` 未生成確認のテスト追加 |
+| `frontend/src/components/estimate-request/EstimateRequestForm.test.tsx` | Modified | 必須バリデーションから内訳書部分を削除、内訳書なし送信成功テスト追加 |
+| `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` | Modified | クイックリクエスト作成→詳細表示、一覧の「-」、編集画面の挙動、既存回帰の各 spec 追加・更新 |
+
+### Open Questions / Risks（追記7）
+
+- **R-39-1（既存ドリフト）**: Req 6 AC 9 と現行実装の不一致は本要件のスコープ外として持ち越す。Req 39 AC 9 は「内訳書未紐付け時に【見積対象項目】セクションを省略する」と読み替え、実装は `selectedItems.length > 0 && includeBreakdownInBody` ガードで統一。後段で Req 6 AC 9 を実装と整合させる場合は別タスクで `EstimateRequestTextService` の追補設計が必要
+- **デプロイ順序**: BE 先行 → FE の順を厳守（FE 先行だと旧 BE の 422 で作成失敗）
+- **既存 E2E 環境のデータ依存**: 既存の `estimate-request-e2e.spec.ts` の前提データに「内訳書必須」が組まれている場合、テストデータ整備（fixtures）も併せて更新が必要
+
+---
+
+## OCRセクション折りたたみ機能 - 設計追記（Requirement 40）
+
+### Overview（追記8）
+
+受領見積書登録/編集ダイアログ（`ReceivedQuotationForm`）の OCR セクション（OCR/データパースのアクションエリア）を、セクションヘッダのクリックまたはキーボード操作で折りたたみ可能にする。デフォルトは展開状態、永続化なし（ダイアログを閉じて再度開くと展開状態に戻る）。折りたたみ中も OCR 処理および抽出結果は内部状態として保持し、再展開時に表示される。
+
+本追記は Requirement 40 の 17 件の Acceptance Criteria を満たす設計を定義する。
+
+### Goals（追記8）
+
+- ダイアログ内の縦方向スペースを節約し、明細行編集に集中できる UI を提供する
+- 既存の OCR 処理（Requirement 13/16/17/19/20/23/24）と既存のダイアログ機能（Requirement 31-38）に対して挙動を変更しない
+- セクションヘッダにアクセシビリティ標準（`<button>` ベース、`aria-expanded`、`aria-controls`、キーボード操作）を適用する
+
+### Non-Goals（追記8）
+
+- 折りたたみ状態の永続化（localStorage 等）— Req 40 AC 10 で明示的に対象外
+- 共通 `CollapsibleSection` コンポーネントの抽出— 現状他に折りたたみ要件がないため過剰設計を避ける（R-40-3）
+- 折りたたみ機能を本要件以外のセクション（項目選択、選択状況、受領見積書一覧、ファイルプレビュー等）へ適用すること
+- OCR エンジン側（`OcrDataExtractor` の内部処理、Tesseract.js / Claude Vision / pdfjs-dist 処理パイプライン）への変更
+- 折りたたみ状態をサーバーへ送信／DB へ保存すること
+
+### Boundary Commitments（追記8）
+
+#### このスペックが所有するもの
+
+- `ReceivedQuotationForm.tsx` 内の OCR セクションラッパー（`styles.ocrSection`）に対するセクションヘッダ要素の追加
+- `ReceivedQuotationForm.tsx` のローカル state `isOcrSectionExpanded: boolean`（初期値 `true`）と setter
+- セクションヘッダ用の新規 styles（`ocrSectionHeader`, `ocrSectionTitle`, `ocrSectionChevron`, `ocrSectionHeaderFocus`）
+- OCR セクション本体ラッパーへの表示制御（`hidden` HTML 属性）の適用
+- `ChevronIcon` ローカルコンポーネント（`EstimateItemTable.tsx:150-165` のパターンを踏襲）
+
+#### スコープ外（Out of Boundary）
+
+- `OcrDataExtractor` コンポーネント本体および内部 state（`status`, `progress`, `extractedText`, `parsedLineItems`, `errorMessage`, `importCompleted`, `usedClaudeVision`, `fallbackActivated`, `fallbackReason`）
+- `FileInlinePreview`（PDF プレビューの拡大縮小・縦幅リサイズ等）
+- 明細行エディタ（`LineItemEditor`、項目選択からの転記、上下移動、削除）
+- バックエンド API・データモデル・Prisma スキーマ
+- 共通コンポーネント（`frontend/src/components/common/` 配下）への新規ファイル追加
+- 他のダイアログ・他の画面（一覧、詳細、新規作成、編集ページ）の UI 変更
+- 受領見積書 1 件あたりの NET 金額（Req 33-34）、明細行並び順（Req 37）等の既存機能
+
+#### 許容される依存
+
+- `react`（既存）— `useState` のみ追加利用
+- 既存の `ReceivedQuotationForm` のローカル state / props / handler — 読み取り専用で参照（変更しない）
+- 既存の `OcrDataExtractor`（遅延ロード経由）— props および呼び出し方を変更しない
+
+#### 再評価が必要なトリガー（Revalidation Triggers）
+
+- 折りたたみ状態を永続化する要求が将来追加された場合（Req 40 AC 10 を改訂）
+- 他セクションに折りたたみ機能を展開する要求が追加された場合（共通 `CollapsibleSection` 抽出の Build vs Adopt 判断を再評価）
+- `OcrDataExtractor` の内部 state 設計が変更され、外部 state によって OCR 進行・結果を保持できるようになった場合（unmount/remount 戦略を再評価）
+- セッション切れ時の編集状態保護（Req 38 AC 5）の保持対象に折りたたみ状態を含める要求が追加された場合
+
+### Design Review Outcomes（追記8）
+
+design review (2026-05-11, kiro-validate-design) で Critical Issue 1 件を確認し対応を確定:
+
+- **Critical Issue 1（Req 40 AC 16 フォーカス視覚化の OS 依存性）**: ユーザー選択 (a) により、`useState<boolean> isOcrHeaderFocused` + `onFocus`/`onBlur` ハンドラ + 明示的な `styles.ocrSectionHeaderFocus`（`outline` / `boxShadow`）の inline style マージ方式を採用。本セクション以降の State Management / Handlers / JSX 変更例 / Styles 追加 / Testing Strategy / File Structure Plan / Open Questions に反映済み
+
+### Architecture（追記8）
+
+#### コンポーネント構造（変更後）
+
+```mermaid
+graph TB
+    ReceivedQuotationForm --> OcrSectionWrapper
+    OcrSectionWrapper --> OcrSectionHeader
+    OcrSectionWrapper --> OcrSectionBody
+    OcrSectionHeader --> ChevronIcon
+    OcrSectionHeader --> TitleLabel
+    OcrSectionBody --> OcrDataExtractor
+```
+
+- `OcrSectionWrapper`: 既存の `styles.ocrSection` div を継続利用。条件レンダリングは従来通り（`selectedFile` または `existingFilePreviewUrl` 存在時のみ描画）
+- `OcrSectionHeader`: 新規追加の `<button type="button">` 要素。クリック / Enter / Space で `isOcrSectionExpanded` をトグル
+- `OcrSectionBody`: 既存の `<Suspense>` + `<OcrDataExtractor>` を `<div>` でラップし、`hidden={!isOcrSectionExpanded}` を付与
+
+#### 折りたたみ実装方式（R-40-1 確定）
+
+- **採用**: `hidden` HTML 属性（`<div hidden={!isOcrSectionExpanded}>...</div>`）
+- **理由**:
+  - 標準仕様により `display: none` と等価な視覚的非表示を提供
+  - Tab フォーカス順から要素が外れるため、ダイアログ全体のキーボードナビゲーション（Tab）と整合
+  - ARIA 上「隠す意図」が明確で、`aria-controls` で参照される対象として適切
+  - DOM ツリーには残るため `OcrDataExtractor` は unmount されず、内部 state（OCR 進行・結果）が保持される（Req 40 AC 11/12 の必須制約）
+- **代替案却下**:
+  - `display: none` を直接 style で指定 — `hidden` 属性のほうが意図が宣言的
+  - `visibility: hidden` — 領域確保によりレイアウト崩れの懸念
+  - 条件レンダリング（`isOcrSectionExpanded && <OcrDataExtractor />`）— **不採用**。OcrDataExtractor が unmount されて OCR 処理と抽出結果が失われるため Req 40 AC 11/12 違反
+
+#### アクセシビリティ実装（R-40-2 確定）
+
+- **採用**: `<button type="button">` ベースのセクションヘッダ
+- **理由**:
+  - ブラウザ標準でクリック・Enter・Space キーの操作を自動受理（Req 40 AC 4-5）
+  - スクリーンリーダー対応（role="button" 暗黙）
+  - フォーカス状態の視覚化は **`useState<boolean>` ベースのフォーカス state**（`onFocus`/`onBlur` で切り替え）でインライン style に明示的な `outline` / `boxShadow` を適用する方式を採用（design review 2026-05-11 Critical Issue 1 対応、Req 40 AC 16）。OS デフォルトのフォーカスリングは環境依存（ブラウザ・OS テーマ・アクセシビリティ設定）でテストでも検証困難なため不採用
+  - 既存パターン（`EstimateItemTable.tsx:268-275`）と整合
+- **属性**:
+  - `aria-expanded={isOcrSectionExpanded}` — トグル状態を明示
+  - `aria-controls="received-quotation-ocr-section-body"` — 関連付ける body 要素の id を参照
+  - `aria-label`（または可視ラベル）— セクションの目的を明示
+
+#### ChevronIcon ローカル定義（R-40-3 確定）
+
+`EstimateItemTable.tsx:150-165` の `ChevronIcon` パターンを `ReceivedQuotationForm.tsx` 内にローカル定義する。
+
+```typescript
+function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
+  // 既存 EstimateItemTable.tsx の ChevronIcon と同等の SVG / span 表現
+  // transform: rotate で 0deg ↔ 90deg を切り替え
+}
+```
+
+共通化は本要件のスコープ外（Boundary）。共通 `CollapsibleSection` 抽出は Revalidation Triggers の条件成立時に再検討。
+
+#### ヘッダラベル文言（R-40-4 確定）
+
+- **採用**: `OCR / データパース`
+- **理由**: ファイル種別（PDF/画像 → OCR、Excel → データパース）どちらも内包する汎用文言。既存 Req 13 AC 5-6、Req 16 AC 1/7 の用語と整合
+
+#### State 管理
+
+- 新規 state: `const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);`
+- 配置: `ReceivedQuotationForm.tsx` の他のローカル state（行 575-905 付近）と同じスコープ
+- 初期値: `true`（Req 40 AC 8-9）
+- リセット契機: ダイアログ unmount 時（ダイアログを閉じて再度開くと初期値に戻る、Req 40 AC 10）
+- セッション切れ時の保護: 不要（ダイアログが unmount されない限り state は保持される、Req 40 Revalidation Triggers / R-40-5 確定）
+
+#### イベントハンドラ
+
+```typescript
+const handleToggleOcrSection = useCallback(() => {
+  setIsOcrSectionExpanded((prev) => !prev);
+}, []);
+```
+
+- `onClick` で呼び出し（Req 40 AC 4）
+- `<button>` 要素なので Enter/Space は標準で `click` イベントを発火（Req 40 AC 5）
+- `isProcessing` 等で `disabled` 化しない（Req 40 AC 13 — 処理中/完了/失敗いずれでも操作許可）
+
+### Requirements Traceability（追記8）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 40.1 | 登録ダイアログのヘッダ表示 | `ReceivedQuotationForm` | `OcrSectionHeader` JSX | OCR セクション描画 |
+| 40.2 | 編集ダイアログのヘッダ表示 | `ReceivedQuotationForm` | `OcrSectionHeader` JSX | 同上（編集モード分岐内） |
+| 40.3 | ラベル + 視覚的指示子 | `OcrChevronIcon` (local) | `<span>OCR / データパース</span>` + `<OcrChevronIcon isExpanded={...} />` | — |
+| 40.4 | クリックトグル | `ReceivedQuotationForm` | `handleToggleOcrSection` onClick | — |
+| 40.5 | キーボード操作 | `ReceivedQuotationForm` | `<button type="button">` 標準動作 | — |
+| 40.6 | 展開状態の本体表示 | `ReceivedQuotationForm` | `<div hidden={!isOcrSectionExpanded}>` | — |
+| 40.7 | 折りたたみ状態の本体非表示 | `ReceivedQuotationForm` | 同上 | — |
+| 40.8 | 登録初期展開 | `ReceivedQuotationForm` | `useState<boolean>(true)` | ダイアログ open |
+| 40.9 | 編集初期展開 | `ReceivedQuotationForm` | 同上 | ダイアログ open |
+| 40.10 | 非永続化 | `ReceivedQuotationForm` | state リセットは unmount 任せ。localStorage 等を使わない | ダイアログ close → open |
+| 40.11 | 折りたたみ中 OCR 処理継続 | `ReceivedQuotationForm` | `hidden` 属性で unmount 回避。`OcrDataExtractor` 内部 state 維持 | OCR 進行中の折りたたみ |
+| 40.12 | 抽出結果の内部保持 | `OcrDataExtractor`（既存） | 内部 state 継続 | 折りたたみ→再展開 |
+| 40.13 | 処理中/完了/失敗いずれでも操作可 | `ReceivedQuotationForm` | `<button>` を disabled にしない | — |
+| 40.14 | 表示条件未成立時の非表示 | `ReceivedQuotationForm` | 既存の `selectedFile` / `existingFilePreviewUrl` 条件レンダリング継承 | — |
+| 40.15 | 全ファイル種別対応 | `ReceivedQuotationForm` | MIME 分岐なし | — |
+| 40.16 | フォーカス時の視覚的明示 | `ReceivedQuotationForm`, `styles.ocrSectionHeaderFocus` | `useState isOcrHeaderFocused` + `onFocus`/`onBlur` ハンドラ + `styles.ocrSectionHeaderFocus`（`outline`/`boxShadow`）の inline style マージ | — |
+| 40.17 | 既存機能への非影響 | `ReceivedQuotationForm` | OcrDataExtractor props/呼び出し変更なし、保存 handler 変更なし | — |
+
+### Components and Interfaces - 改訂（Requirement 40）
+
+#### ReceivedQuotationForm - 改訂5（OCRセクション折りたたみ）
+
+**Intent**: 既存の OCR セクションラッパーにセクションヘッダを追加し、ローカル state でトグル可能にする。
+
+**Requirements**: 40.1〜40.17
+
+**Dependencies**: なし（既存 import で十分）
+
+##### State Management（追記）
+
+```typescript
+// 既存 state 群の末尾に追加
+const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);
+const [isOcrHeaderFocused, setIsOcrHeaderFocused] = useState<boolean>(false);
+```
+
+**Notes**:
+- `isOcrSectionExpanded` の初期値 `true` は Req 40 AC 8/9 を満たす
+- ダイアログを閉じて再オープンすると `ReceivedQuotationForm` が unmount→remount されるため自動的に初期値に戻る（Req 40 AC 10）
+- `isOcrHeaderFocused` は Req 40 AC 16（フォーカス時の視覚的明示）を OS 非依存・テスト検証可能な形で達成するための補助 state（design review 2026-05-11 Critical Issue 1 対応）
+- 既存の保存ハンドラ・スナップショット比較・未保存変更ガード・セッション保護フローには関与させない（Req 40 AC 17）
+
+##### Handlers（追記）
+
+```typescript
+const handleToggleOcrSection = useCallback(() => {
+  setIsOcrSectionExpanded((prev) => !prev);
+}, []);
+
+const handleOcrHeaderFocus = useCallback(() => {
+  setIsOcrHeaderFocused(true);
+}, []);
+
+const handleOcrHeaderBlur = useCallback(() => {
+  setIsOcrHeaderFocused(false);
+}, []);
+```
+
+##### JSX 変更（既存 OCR セクションラッパー）
+
+変更前（`ReceivedQuotationForm.tsx:1168-1196` 付近、模式表現）:
+
+```tsx
+{showOcrCondition && (
+  <div style={styles.ocrSection}>
+    <Suspense fallback={...}>
+      <OcrDataExtractor ... />
+    </Suspense>
+  </div>
+)}
+```
+
+変更後:
+
+```tsx
+{showOcrCondition && (
+  <div style={styles.ocrSection}>
+    <button
+      type="button"
+      onClick={handleToggleOcrSection}
+      onFocus={handleOcrHeaderFocus}
+      onBlur={handleOcrHeaderBlur}
+      aria-expanded={isOcrSectionExpanded}
+      aria-controls="received-quotation-ocr-section-body"
+      style={{
+        ...styles.ocrSectionHeader,
+        ...(isOcrHeaderFocused ? styles.ocrSectionHeaderFocus : {}),
+      }}
+    >
+      <OcrChevronIcon isExpanded={isOcrSectionExpanded} />
+      <span style={styles.ocrSectionTitle}>OCR / データパース</span>
+    </button>
+    <div
+      id="received-quotation-ocr-section-body"
+      hidden={!isOcrSectionExpanded}
+    >
+      <Suspense fallback={...}>
+        <OcrDataExtractor ... />
+      </Suspense>
+    </div>
+  </div>
+)}
+```
+
+**Notes**:
+- `showOcrCondition` は既存の `selectedFile ? ... : (mode === 'edit' && existingFileName && !removeFile && existingFilePreviewUrl)` を参照する条件
+- 登録時と編集時の両分岐に **同じヘッダ構造** を適用する（Req 40 AC 1/2）
+- `<div id="received-quotation-ocr-section-body">` の `id` は `aria-controls` の参照先として固定
+- `hidden` 属性により `OcrDataExtractor` は DOM に残るが視覚的に非表示。内部 state（OCR 進行・結果）は維持される（Req 40 AC 11/12）
+- `OcrDataExtractor` の props（`file` / `onImportLineItems` / `fileUrl` / `fileMimeType` / `autoStart`）は **一切変更しない**（Req 40 AC 17）
+
+##### Styles 追加
+
+```typescript
+// 既存 styles オブジェクトの ocrSection 周辺に追加
+ocrSectionHeader: {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  padding: '8px 12px',
+  width: '100%',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '14px',
+  fontWeight: 600,
+  color: '#374151',
+  textAlign: 'left',
+} as React.CSSProperties,
+ocrSectionTitle: {
+  fontSize: '14px',
+  fontWeight: 600,
+  color: '#374151',
+} as React.CSSProperties,
+ocrSectionChevron: {
+  transition: 'transform 150ms ease',
+} as React.CSSProperties,
+ocrSectionHeaderFocus: {
+  outline: '2px solid #2563eb',
+  outlineOffset: '2px',
+  boxShadow: '0 0 0 4px rgba(37, 99, 235, 0.2)',
+} as React.CSSProperties,
+```
+
+- フォーカス時の視覚化は `useState isOcrHeaderFocused` + `onFocus`/`onBlur` で `ocrSectionHeaderFocus` を inline style マージする方式を採用（design review 2026-05-11 Critical Issue 1 対応、Req 40 AC 16）。OS デフォルトのフォーカスリングではなく **明示的な `outline` / `boxShadow`** をプロジェクトのデザイントークン色（青系 `#2563eb`）で表示し、テストでも `style` プロパティ経由で assertion 可能
+- `cursor: 'pointer'` でホバー時の操作可能性を明示（Req 40 AC 16）
+- 既存の `ocrSection` style は変更しない
+
+##### OcrChevronIcon ローカル定義
+
+```typescript
+function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        width: '12px',
+        height: '12px',
+        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+        transition: 'transform 150ms ease',
+        userSelect: 'none',
+      }}
+      aria-hidden="true"
+    >
+      ▶
+    </span>
+  );
+}
+```
+
+- `aria-hidden="true"` で支援技術には冗長表現として読み上げさせない（aria-expanded で状態は伝わる）
+- SVG ではなく `▶` 文字を採用し、依存とビルドサイズを最小化（既存 EstimateItemTable.tsx の方針と一致）
+
+##### Implementation Notes
+
+- **Integration**: 既存 `OcrDataExtractor` の props は変更しない。`file`, `fileUrl`, `fileMimeType`, `autoStart`, `onImportLineItems` の渡し方は現行コードそのまま
+- **Validation Hooks**: なし（フォームバリデーション・送信ペイロードに影響しない）
+- **Open Questions / Risks**:
+  - フォーカス時の視覚化は `useState isOcrHeaderFocused` ベースで `outline` / `boxShadow` を inline style として明示的に適用する方式を採用（design review 2026-05-11 Critical Issue 1 対応）。OS デフォルトのフォーカスリング依存は不採用（環境依存・テスト検証困難のため）
+  - 折りたたみ中の OCR 完了通知（toast 等）が現状存在しないため、ユーザーが折りたたみ中に処理完了を視認できない可能性がある — 既存挙動（OCR 完了通知は抽出結果テキストの出現のみ）を維持しスコープ外とする
+
+### Data Models（追記8）
+
+- 変更なし。本要件は UI 状態（クライアントローカル）のみで完結し、DB スキーマ・API ペイロード・型定義に影響しない
+
+### Testing Strategy（追記8）
+
+#### Frontend Unit Tests（追記8）
+
+`frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx` にテストケース追加（R-40-6 確定）:
+
+1. **初期展開**: ダイアログを開いた直後、OCR セクション本体（`OcrDataExtractor` のラッパー）が表示されていることを検証。`aria-expanded="true"` を検証
+2. **クリックで折りたたみ**: セクションヘッダ（`<button>`）をクリック後、本体ラッパーが `hidden` 属性を持つこと、`aria-expanded="false"` であることを検証
+3. **再クリックで再展開**: 折りたたみ後にもう一度クリックし、`hidden` が外れて `aria-expanded="true"` に戻ることを検証
+4. **キーボード（Enter）でトグル**: ヘッダにフォーカスして Enter を押下し、トグルが発火することを検証
+5. **キーボード（Space）でトグル**: 同上、Space で発火することを検証
+6. **OCRセクションのDOM保持**: 折りたたみ状態でも `OcrDataExtractor` の DOM ノードが残っていることを検証（unmount されないこと）
+7. **登録/編集両モードでヘッダ表示**: `mode="create"` と `mode="edit"` の両方でヘッダ要素が描画されることを検証
+8. **ファイル未アップロード時はヘッダ非表示**: `selectedFile === null && (mode === 'create' || existingFileName === null)` のとき、ヘッダ要素が DOM に存在しないことを検証
+9. **再オープン時に展開状態に戻る**: コンポーネント unmount → remount でデフォルトに戻ることを検証
+10. **フォーカス時の視覚的明示**: セクションヘッダに `focus()` を発火後、要素の `style.outline`（または `style` プロパティ）に `styles.ocrSectionHeaderFocus` のスタイル値（`outline: '2px solid #2563eb'` 等）が反映されていることを検証。`blur()` 後にフォーカス style が解除されることも検証（Req 40 AC 16、design review Critical Issue 1 対応）
+
+#### Frontend E2E Tests（追記8）
+
+`e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` にシナリオ追加（R-40-6 確定）:
+
+1. **抽出結果保持テスト**: 受領見積書登録ダイアログを開く → PDF をアップロード → OCR 完了を待機 → 抽出結果テキストが表示されることを確認 → セクションヘッダをクリックして折りたたみ → 再度クリックして展開 → 抽出結果テキストが再表示されることを検証（Req 40 AC 11/12）
+2. **再オープン時のデフォルト復帰**: 折りたたみ状態でダイアログを閉じる → 同じ受領見積書を再度開く → OCR セクションが展開状態であることを検証（Req 40 AC 10）
+
+#### Backend Tests
+
+- 変更なし（DB スキーマ・API 影響なし）
+
+### Migration Strategy（追記8）
+
+- DB マイグレーションなし
+- API バージョニング不要
+- ロールアウト: フロントエンドのリリースのみで完結。後方互換性の懸念なし
+- ロールバック: 単一ファイルの変更のため、Revert で即時ロールバック可能
+
+### Security Considerations（追記8）
+
+- 認証経路に変更なし
+- 入力バリデーション影響なし（折りたたみ state は送信ペイロードに含まない）
+- XSS リスク: `OcrChevronIcon` の `▶` 文字は静的、ヘッダラベルも静的、`aria-controls` の id も静的。動的内容を innerHTML で挿入しない
+- セッション切れ時の保護: Req 38 のフローに変更なし（折りたたみ state はクライアントローカル UI 状態のため、保存・再認証・編集状態保持に関与しない）
+
+### Performance & Scalability（追記8）
+
+- 描画コスト: `<button>` 1 個 + `<span>` 1 個 + `<div hidden>` 1 個の追加のみ。レンダリング負荷は無視できる
+- メモリ: state 1 個（boolean）と handler 1 個（useCallback）追加のみ
+- 折りたたみ中のリソース利用: `OcrDataExtractor` は DOM に残るが、CSS により非表示。OCR 処理（Web Worker / Claude API / pdfjs-dist）は折りたたみ状態の影響を受けない（Req 40 AC 11）
+
+### File Structure Plan（追記8）
+
+| Path | Status | Responsibility |
+|------|--------|----------------|
+| `frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx` | Modified | (1) state `isOcrSectionExpanded` および `isOcrHeaderFocused` と setter を追加、(2) handler `handleToggleOcrSection` / `handleOcrHeaderFocus` / `handleOcrHeaderBlur` を追加、(3) ローカル関数 `OcrChevronIcon` を追加、(4) OCR セクションラッパーに `<button>` ヘッダ要素（`onFocus`/`onBlur` 付き）と body ラッパー (`<div hidden>`) を追加、(5) styles に `ocrSectionHeader` / `ocrSectionTitle` / `ocrSectionChevron` / `ocrSectionHeaderFocus` を追加。登録/編集の両 OCR セクション分岐に同じ変更を適用（design review 2026-05-11 Critical Issue 1 対応でフォーカス state を追加） |
+| `frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx` | Modified | Testing Strategy §1 の Unit Tests 10 ケース追加（初期展開／クリック・Enter・Space トグル／DOM 保持／登録&編集両モード／ファイル未存在時の非表示／再オープン時のデフォルト復帰／フォーカス時の視覚的明示） |
+| `e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` | Modified | Testing Strategy §2 の E2E シナリオ 2 件追加 |
+
+### Open Questions / Risks（追記8）
+
+- **R-40-5 確認結果**: Req 38 AC 5（セッション切れ時の編集状態保護）の保持対象に `isOcrSectionExpanded` を含めなくても問題ない。ダイアログが unmount されない限り state は React により保持されるため、再認証成功後の状態保持は自動的に成立する
+- **focus-visible 表現**: ~~インライン style では `:focus-visible` 疑似クラスを直接書けない。実装で OS デフォルトのフォーカスリング（ブラウザ標準）を採用し、Req 40 AC 16 はそれで満たすと判断~~ → design review 2026-05-11 Critical Issue 1 対応により方針確定: `useState<boolean> isOcrHeaderFocused` + `onFocus`/`onBlur` ハンドラで `styles.ocrSectionHeaderFocus`（明示的な `outline` / `boxShadow`）を inline style マージする方式を採用。OS 非依存かつテスト検証可能（要素の `style` プロパティで assertion 可）
+- **折りたたみ中の完了通知**: OCR 完了は現状抽出結果テキストの出現でしか視認できない。折りたたみ中にユーザーが処理完了に気づきにくい点は既存挙動を維持しスコープ外とする
+- **依存性のリスク**: なし。新規ライブラリ・新規 API・新規 DB マイグレーションは一切なし

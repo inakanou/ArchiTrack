@@ -571,4 +571,195 @@ describe('QuantityValidationService', () => {
       expect(results[1]!.isValid).toBe(false);
     });
   });
+
+  /**
+   * グループ名切り詰めユーティリティ（Task 52.1）
+   *
+   * Requirements:
+   * - 38.5: 複製先グループ名を「{元名}のコピー」とする
+   * - 38.6: 上限（全角25文字/半角50文字、REQ-22 AC4）を超える場合は元名を切り詰めてサフィックスを末尾に付与する
+   *
+   * 文字幅カウントは既存の QuantityFieldValidationService.calculateStringWidth と同一仕様
+   * （全角=2, 半角=1, ASCII/半角カナ=1）。
+   */
+  describe('truncateNameWithSuffix', () => {
+    it('結果が maxWidth 以下なら元名 + suffix をそのまま返す（Requirements: 38.5）', () => {
+      // Arrange: 「あ」(width=2) × 5 + 「のコピー」(width=8) = 18 <= 50
+      const originalName = 'あああああ';
+      const suffix = 'のコピー';
+      const maxWidth = 50;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result).toBe('あああああのコピー');
+    });
+
+    it('半角のみで maxWidth 以下なら素通し（Requirements: 38.5）', () => {
+      // Arrange: 半角40文字 + 'のコピー'(width=8) = 48 <= 50
+      const originalName = 'a'.repeat(40);
+      const suffix = 'のコピー';
+      const maxWidth = 50;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result).toBe('a'.repeat(40) + 'のコピー');
+    });
+
+    it('上限超過時、元名側を切り詰めて suffix を末尾に必ず付与する（Requirements: 38.6）', () => {
+      // Arrange: 「あ」(width=2) × 25 = 50, suffix「のコピー」(width=8) を含めると 58 で 50 超過
+      // 期待: 元名を width(50 - 8) = 42 以内に切り詰める → 「あ」× 21 (width=42) + 「のコピー」
+      const originalName = 'あ'.repeat(25);
+      const suffix = 'のコピー';
+      const maxWidth = 50;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result.endsWith(suffix)).toBe(true);
+      expect(service.calculateStringWidth(result)).toBeLessThanOrEqual(maxWidth);
+      expect(result).toBe('あ'.repeat(21) + 'のコピー');
+    });
+
+    it('全角・半角混在で上限超過時、既存カウントロジックに従って切り詰められる（Requirements: 38.6）', () => {
+      // Arrange: 「あa」(width=3) × 16 = width48 + suffix「のコピー」(width=8) = 56 で 50 超過
+      // 期待: 元名 width <= 42 まで切り詰め → 「あa」を貪欲消費して width<=42 になる範囲
+      // 「あa」14回 = width42, 末尾「のコピー」付与 → width50
+      const originalName = 'あa'.repeat(16);
+      const suffix = 'のコピー';
+      const maxWidth = 50;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result.endsWith(suffix)).toBe(true);
+      expect(service.calculateStringWidth(result)).toBeLessThanOrEqual(maxWidth);
+      expect(result).toBe('あa'.repeat(14) + 'のコピー');
+    });
+
+    it('半角カナ（U+FF61〜U+FF9F）は width=1 としてカウントされる', () => {
+      // Arrange: 半角カナ「ｶ」(width=1) × 50 + 'のコピー'(width=8) = 58 で 50 超過
+      // 期待: 元名を width <= 42 まで切り詰め → 「ｶ」× 42 + 「のコピー」
+      const originalName = 'ｶ'.repeat(50);
+      const suffix = 'のコピー';
+      const maxWidth = 50;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result.endsWith(suffix)).toBe(true);
+      expect(service.calculateStringWidth(result)).toBeLessThanOrEqual(maxWidth);
+      expect(result).toBe('ｶ'.repeat(42) + 'のコピー');
+    });
+
+    it('境界値: 元名+suffix がちょうど maxWidth と一致する場合は切り詰めない', () => {
+      // Arrange: 「あ」(width=2) × 21 = width42, + 「のコピー」(width=8) = ちょうど 50
+      const originalName = 'あ'.repeat(21);
+      const suffix = 'のコピー';
+      const maxWidth = 50;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result).toBe('あ'.repeat(21) + 'のコピー');
+      expect(service.calculateStringWidth(result)).toBe(50);
+    });
+
+    it('元名が空文字の場合は suffix のみを返す', () => {
+      // Arrange
+      const originalName = '';
+      const suffix = 'のコピー';
+      const maxWidth = 50;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result).toBe('のコピー');
+    });
+
+    it('suffix の幅が maxWidth と等しい場合は元名を空に切り詰めて suffix のみを返す', () => {
+      // Arrange: suffix「のコピー」(width=8) maxWidth=8 → 元名分の余地ゼロ
+      const originalName = 'あいうえ';
+      const suffix = 'のコピー';
+      const maxWidth = 8;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert
+      expect(result).toBe('のコピー');
+      expect(service.calculateStringWidth(result)).toBeLessThanOrEqual(maxWidth);
+    });
+
+    it('suffix だけで maxWidth を超える場合は suffix をそのまま返す（要件外のエッジケース）', () => {
+      // Arrange: suffix「のコピー」(width=8) より maxWidth=4 が小さい
+      const originalName = 'あいうえお';
+      const suffix = 'のコピー';
+      const maxWidth = 4;
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, maxWidth);
+
+      // Assert: 元名を完全に削っても上限内に収まらないため suffix のみ返す
+      // （Requirements 38.6 はサフィックスを「必ず末尾に付与」と定めているため suffix 落としは不可）
+      expect(result).toBe('のコピー');
+    });
+
+    it('maxWidth が 0 以下の場合は空文字を返す（防御的エッジケース）', () => {
+      // Arrange
+      const originalName = 'あいうえお';
+      const suffix = 'のコピー';
+
+      // Act
+      const result = service.truncateNameWithSuffix(originalName, suffix, 0);
+
+      // Assert
+      expect(result).toBe('');
+    });
+  });
+
+  describe('truncateForCopy', () => {
+    it('design.md 準拠の固定上限（全角25/半角50）で truncateNameWithSuffix を呼び出す（Requirements: 38.5, 38.6）', () => {
+      // Arrange: width が ちょうど 50 を超えるケース
+      const originalName = 'あ'.repeat(25);
+      const suffix = 'のコピー';
+
+      // Act
+      const result = service.truncateForCopy(originalName, suffix);
+
+      // Assert: 全角25 × width2 = 50, suffix を含めて 58 超過 → 切り詰め
+      expect(result.endsWith(suffix)).toBe(true);
+      expect(service.calculateStringWidth(result)).toBeLessThanOrEqual(50);
+    });
+
+    it('短い名前はそのまま「{元名}のコピー」を返す（Requirements: 38.5）', () => {
+      // Arrange
+      const originalName = 'グループA';
+      const suffix = 'のコピー';
+
+      // Act
+      const result = service.truncateForCopy(originalName, suffix);
+
+      // Assert
+      expect(result).toBe('グループAのコピー');
+    });
+  });
+
+  describe('calculateStringWidth', () => {
+    it('既存仕様：全角=2, 半角=1, 半角カナ=1', () => {
+      expect(service.calculateStringWidth('')).toBe(0);
+      expect(service.calculateStringWidth('abc')).toBe(3);
+      expect(service.calculateStringWidth('あいう')).toBe(6);
+      expect(service.calculateStringWidth('aあ')).toBe(3);
+      expect(service.calculateStringWidth('ｶﾅ')).toBe(2);
+    });
+  });
 });
