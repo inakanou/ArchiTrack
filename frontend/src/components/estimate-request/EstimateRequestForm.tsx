@@ -196,6 +196,14 @@ const styles = {
     fontSize: '14px',
     textAlign: 'center' as const,
   },
+  infoMessage: {
+    padding: '16px',
+    backgroundColor: '#eff6ff',
+    borderRadius: '6px',
+    color: '#1e40af',
+    fontSize: '14px',
+    textAlign: 'center' as const,
+  },
   generalError: {
     padding: '12px',
     backgroundColor: '#fef2f2',
@@ -373,9 +381,8 @@ export function EstimateRequestForm({
       newErrors.tradingPartnerId = '宛先を選択してください';
     }
 
-    if (!itemizedStatementId) {
-      newErrors.itemizedStatementId = '内訳書を選択してください';
-    } else if (selectedStatement && selectedStatement.itemCount === 0) {
+    // Requirements 39.1: 内訳書は任意。選択されたときのみ「項目0件」エラーを残す
+    if (itemizedStatementId && selectedStatement && selectedStatement.itemCount === 0) {
       newErrors.itemizedStatementId = '選択された内訳書に項目がありません';
     }
 
@@ -399,7 +406,8 @@ export function EstimateRequestForm({
         const input: CreateEstimateRequestInput = {
           name: name.trim(),
           tradingPartnerId,
-          itemizedStatementId,
+          // Requirements 39.2: 空文字を undefined に変換し、内訳書未紐付け作成を許可
+          itemizedStatementId: itemizedStatementId || undefined,
         };
 
         let result: EstimateRequestInfo;
@@ -462,9 +470,9 @@ export function EstimateRequestForm({
       {/* 協力業者がない場合のメッセージ（Requirements: 3.8） */}
       {hasNoSubcontractors && <div style={styles.emptyMessage}>協力業者が登録されていません。</div>}
 
-      {/* 内訳書がない場合のメッセージ（Requirements: 3.9） */}
+      {/* 内訳書がない場合のメッセージ（Requirements: 39.5） */}
       {hasNoItemizedStatements && (
-        <div style={styles.emptyMessage}>内訳書が登録されていません。</div>
+        <div style={styles.infoMessage}>内訳書が登録されていません（任意）。</div>
       )}
 
       {/* 一般エラー表示 */}
@@ -514,21 +522,21 @@ export function EstimateRequestForm({
         onLoadComplete={handleTradingPartnerLoadComplete}
       />
 
-      {/* 内訳書選択（Requirements: 3.3） */}
+      {/* 内訳書選択（Requirements: 3.3, 39.1） */}
       <div style={styles.fieldGroup}>
         <label htmlFor="itemizedStatementId" style={styles.label}>
-          内訳書<span style={styles.required}>*</span>
+          内訳書 <span style={styles.helperText}>（任意）</span>
         </label>
         <select
           id="itemizedStatementId"
           value={itemizedStatementId}
           onChange={handleItemizedStatementChange}
-          disabled={isSubmitting || hasNoItemizedStatements}
+          disabled={isSubmitting}
           style={{
             ...styles.select,
             ...(errors.itemizedStatementId ? styles.selectError : {}),
           }}
-          aria-required="true"
+          aria-required="false"
           aria-invalid={!!errors.itemizedStatementId}
           aria-describedby={
             errors.itemizedStatementId
@@ -573,13 +581,11 @@ export function EstimateRequestForm({
         </button>
         <button
           type="submit"
-          disabled={isSubmitting || hasNoSubcontractors || hasNoItemizedStatements}
+          disabled={isSubmitting || hasNoSubcontractors}
           style={{
             ...styles.button,
             ...styles.submitButton,
-            ...(isSubmitting || hasNoSubcontractors || hasNoItemizedStatements
-              ? styles.submitButtonDisabled
-              : {}),
+            ...(isSubmitting || hasNoSubcontractors ? styles.submitButtonDisabled : {}),
           }}
         >
           {isSubmitting ? (

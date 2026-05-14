@@ -748,6 +748,169 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
   });
 
   // ============================================================================
+  // Req 40: OCRセクション折りたたみ機能（task 86.3）
+  // ============================================================================
+
+  test.describe('Req 40: OCRセクション折りたたみ機能 (task 86.3)', () => {
+    /**
+     * task 86.3 シナリオ 1（抽出結果保持、Req 40.11/40.12）
+     *
+     * 受領見積書登録ダイアログを開く → PDF をアップロード → OCR セクションが
+     * 展開状態で表示されることを確認 → ヘッダクリックで折りたたみ → OCR 処理が
+     * 折りたたみ中も継続することを確認（40.11）→ 完了結果が内部状態に保持される
+     * （40.12）→ 再度クリックで展開時に抽出結果テキストが表示されることを検証する。
+     *
+     * 注: Claude Vision API 経路に到達するスキャン PDF 入力の場合、API レスポンスの
+     * 揺らぎを避けるためモックエンドポイントで即時応答を返す。pdfjs-dist の直接抽出
+     * 経路に進む場合（テキスト PDF）はモックは未使用のままで pass する。
+     *
+     * @requirement estimate-request/REQ-40.11
+     * @requirement estimate-request/REQ-40.12
+     */
+    test('折りたたみ中もOCR処理が継続し、再展開時に抽出結果テキストが表示される (REQ-40.11, 40.12)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+      const requestId = createdEstimateRequestId as string;
+
+      // Claude Vision API をモック（スキャンPDF経路でも安定して完了させる）
+      // テキストPDF経路（pdfjs-dist直接抽出）の場合はこのモックは呼ばれない。
+      await page.route('**/api/claude-vision/extract', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            lineItems: [
+              {
+                customCategory: null,
+                workType: null,
+                name: 'モック抽出項目',
+                specification: null,
+                unit: '式',
+                quantity: 1,
+                unitPrice: 10000,
+                amount: 10000,
+                remarks: null,
+              },
+            ],
+            pageCount: 1,
+          }),
+        });
+      });
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await openReceivedQuotationCreateDialog(page, requestId);
+
+      // PDF アップロード → OCR セクションが出現
+      const fileInput = page.locator('input[type="file"]').first();
+      await fileInput.setInputFiles('e2e/fixtures/test-file.pdf');
+
+      // OCR セクションヘッダが表示される（Req 40.1）
+      const ocrHeader = page.locator('[data-testid="ocr-section-header"]');
+      await expect(ocrHeader).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 初期状態は展開（aria-expanded="true"、Req 40.8）
+      await expect(ocrHeader).toHaveAttribute('aria-expanded', 'true');
+
+      // OCR セクション本体が表示されている
+      const ocrBody = page.locator('#received-quotation-ocr-section-body');
+      await expect(ocrBody).toBeVisible();
+
+      // OCR 処理開始の証拠（progress/extracted/error のいずれかが OCR セクション内に出現）
+      const progressIndicator = ocrBody.locator('[data-testid="ocr-progress-indicator"]');
+      const extractedText = ocrBody.locator('[data-testid="ocr-extracted-text"]');
+      const errorMessage = ocrBody.locator('[data-testid="ocr-error-message"]');
+
+      // 処理開始（progress 表示）または直接結果到達のいずれか
+      await expect(progressIndicator.or(extractedText).or(errorMessage).first()).toBeVisible({
+        timeout: getTimeout(60000),
+      });
+
+      // ヘッダクリックで折りたたみ（Req 40.4）
+      await ocrHeader.click();
+      await expect(ocrHeader).toHaveAttribute('aria-expanded', 'false');
+
+      // 折りたたみ後も OCR セクション本体ノードは DOM に残り hidden 属性で隠されている
+      // （Req 40.11/40.12 の前提: unmount されず内部 state が保持される）
+      await expect(ocrBody).toHaveAttribute('hidden', '');
+
+      // 折りたたみ中も OCR 処理が継続し、完了結果が内部状態に保持される（Req 40.11/40.12）
+      // 抽出結果または失敗のいずれかが OCR セクション本体内に出現するまで待機する。
+      // 本体は hidden 属性で視覚的に隠れているが、要素自体は DOM に存在する。
+      await expect(extractedText.or(errorMessage).first()).toBeAttached({
+        timeout: getTimeout(90000),
+      });
+
+      // 視覚的には非表示（hidden 属性により body が toBeHidden）
+      await expect(ocrBody).toBeHidden();
+
+      // 再度クリックで展開（Req 40.5）
+      await ocrHeader.click();
+      await expect(ocrHeader).toHaveAttribute('aria-expanded', 'true');
+      await expect(ocrBody).toBeVisible();
+      await expect(ocrBody).not.toHaveAttribute('hidden', /.*/);
+
+      // 展開後に OCR 結果（抽出テキスト or エラー）が視覚的に再表示される（Req 40.12）
+      await expect(extractedText.or(errorMessage).first()).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+    });
+
+    /**
+     * task 86.3 シナリオ 2（再オープン時のデフォルト復帰、Req 40.10）
+     *
+     * 折りたたみ状態でダイアログを閉じる → 同じ受領見積書を再度開く → OCR
+     * セクションが展開状態（aria-expanded="true"）であることを検証する。
+     * 折りたたみ状態は永続化されないことの確認。
+     *
+     * @requirement estimate-request/REQ-40.10
+     */
+    test('折りたたみ状態でダイアログを閉じて再オープンすると展開状態に戻る (REQ-40.10)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+      const requestId = createdEstimateRequestId as string;
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 1 回目: ダイアログを開く → ファイルアップロード → 折りたたみ
+      await openReceivedQuotationCreateDialog(page, requestId);
+
+      await page.locator('input[type="file"]').first().setInputFiles('e2e/fixtures/test-file.pdf');
+
+      const ocrHeader = page.locator('[data-testid="ocr-section-header"]');
+      await expect(ocrHeader).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(ocrHeader).toHaveAttribute('aria-expanded', 'true');
+
+      // ヘッダクリックで折りたたみ
+      await ocrHeader.click();
+      await expect(ocrHeader).toHaveAttribute('aria-expanded', 'false');
+
+      // ダイアログを閉じる（キャンセル）— 未保存変更ガード confirm が出る可能性
+      page.once('dialog', (dialog) => {
+        void dialog.accept();
+      });
+      await page
+        .getByRole('button', { name: /キャンセル/i })
+        .first()
+        .click();
+      await expect(page.getByText(/受領見積書の登録/i)).toBeHidden({ timeout: getTimeout(10000) });
+
+      // 2 回目: 同じ見積依頼の登録ダイアログを再オープン → ファイルアップロード
+      await openReceivedQuotationCreateDialog(page, requestId);
+      await page.locator('input[type="file"]').first().setInputFiles('e2e/fixtures/test-file.pdf');
+
+      // OCR セクションヘッダが再描画され、デフォルトの展開状態に戻ること（Req 40.10）
+      const reopenedHeader = page.locator('[data-testid="ocr-section-header"]');
+      await expect(reopenedHeader).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(reopenedHeader).toHaveAttribute('aria-expanded', 'true');
+
+      const reopenedBody = page.locator('#received-quotation-ocr-section-body');
+      await expect(reopenedBody).toBeVisible();
+    });
+  });
+
+  // ============================================================================
   // クリーンアップ
   // ============================================================================
 
