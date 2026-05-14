@@ -43,12 +43,15 @@ export interface EstimateRequestServiceDependencies {
 
 /**
  * 見積依頼作成入力
+ *
+ * Requirements: 39.4 - itemizedStatementId は任意（NULL 許容）
  */
 export interface CreateEstimateRequestInput {
   name: string;
   projectId: string;
   tradingPartnerId: string;
-  itemizedStatementId: string;
+  /** 内訳書ID（任意・NULL 許容） Requirements: 39.4 */
+  itemizedStatementId?: string | null;
   method?: EstimateRequestMethod;
   includeBreakdownInBody?: boolean;
 }
@@ -70,14 +73,18 @@ export type EstimateRequestStatus = 'BEFORE_REQUEST' | 'REQUESTED' | 'QUOTATION_
 
 /**
  * 見積依頼情報（一覧用）
+ *
+ * Requirements: 39.4, 39.12 - itemizedStatementId / itemizedStatementName は NULL 許容
  */
 export interface EstimateRequestInfo {
   id: string;
   projectId: string;
   tradingPartnerId: string;
   tradingPartnerName: string;
-  itemizedStatementId: string;
-  itemizedStatementName: string;
+  /** 内訳書ID（未紐付け時は null） Requirements: 39.4 */
+  itemizedStatementId: string | null;
+  /** 内訳書名（未紐付け時は null） Requirements: 39.4 */
+  itemizedStatementName: string | null;
   name: string;
   method: EstimateRequestMethod;
   includeBreakdownInBody: boolean;
@@ -172,20 +179,19 @@ export class EstimateRequestService {
    *
    * トランザクション内で以下を実行:
    * 1. 取引先の存在確認と協力業者タイプの確認
-   * 2. 内訳書の存在確認
-   * 3. 内訳書項目の確認（0件の場合エラー）
-   * 4. 見積依頼の作成
-   * 5. EstimateRequestItemの自動初期化（全項目をselected=falseで作成）
-   * 6. 監査ログの記録
+   * 2. 内訳書ありの場合: 内訳書の存在確認・項目0件チェック
+   * 3. 見積依頼の作成（itemizedStatementId は nullable、内訳書なしは includeBreakdownInBody=false 強制）
+   * 4. 内訳書ありの場合: EstimateRequestItem の自動初期化（全項目 selected=false で作成）
+   * 5. 監査ログの記録（itemizedStatementId / itemCount は nullable / 0 で記録）
    *
-   * Requirements: 3.6, 8.1, 8.2, 8.3
+   * Requirements: 3.6, 8.1, 8.2, 8.3, 39.2, 39.3, 39.4
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
    * @returns 作成された見積依頼情報
    * @throws TradingPartnerNotSubcontractorError 取引先が協力業者ではない場合
-   * @throws ItemizedStatementNotFoundError 内訳書が存在しない場合
-   * @throws EmptyItemizedStatementItemsError 内訳書に項目がない場合
+   * @throws ItemizedStatementNotFoundError 内訳書が存在しない場合（内訳書ありのとき）
+   * @throws EmptyItemizedStatementItemsError 内訳書に項目がない場合（内訳書ありのとき）
    */
   async create(input: CreateEstimateRequestInput, actorId: string): Promise<EstimateRequestInfo> {
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
@@ -211,39 +217,59 @@ export class EstimateRequestService {
         throw new TradingPartnerNotSubcontractorError(input.tradingPartnerId);
       }
 
-      // 3. 内訳書の存在確認と項目取得
-      const itemizedStatement = await tx.itemizedStatement.findUnique({
-        where: { id: input.itemizedStatementId },
-        select: {
-          id: true,
-          name: true,
-          projectId: true,
-          deletedAt: true,
-          items: {
-            select: { id: true, displayOrder: true },
-            orderBy: { displayOrder: 'asc' },
+      // Task 83.2: 内訳書任意化（Requirements: 39.2, 39.3, 39.4）
+      // itemizedStatementId が undefined または null の場合、内訳書検証・項目0件チェック・
+      // EstimateRequestItem 生成をすべてスキップする。
+      const hasItemizedStatement =
+        input.itemizedStatementId !== undefined && input.itemizedStatementId !== null;
+
+      // 3. 内訳書の存在確認と項目取得（内訳書ありの場合のみ実行）
+      let itemizedStatementItems: Array<{ id: string; displayOrder: number }> = [];
+      let itemCount = 0;
+
+      if (hasItemizedStatement) {
+        // hasItemizedStatement ガードにより non-null が保証される
+        const itemizedStatementId = input.itemizedStatementId!;
+        const itemizedStatement = await tx.itemizedStatement.findUnique({
+          where: { id: itemizedStatementId },
+          select: {
+            id: true,
+            name: true,
+            projectId: true,
+            deletedAt: true,
+            items: {
+              select: { id: true, displayOrder: true },
+              orderBy: { displayOrder: 'asc' },
+            },
           },
-        },
-      });
+        });
 
-      if (!itemizedStatement || itemizedStatement.deletedAt !== null) {
-        throw new ItemizedStatementNotFoundError(input.itemizedStatementId);
+        if (!itemizedStatement || itemizedStatement.deletedAt !== null) {
+          throw new ItemizedStatementNotFoundError(itemizedStatementId);
+        }
+
+        // 内訳書項目が0件の場合エラー (Requirements: 4.13)
+        if (itemizedStatement.items.length === 0) {
+          throw new EmptyItemizedStatementItemsError(itemizedStatementId);
+        }
+
+        itemizedStatementItems = itemizedStatement.items;
+        itemCount = itemizedStatement.items.length;
       }
 
-      // 4. 内訳書項目が0件の場合エラー (Requirements: 4.13)
-      if (itemizedStatement.items.length === 0) {
-        throw new EmptyItemizedStatementItemsError(input.itemizedStatementId);
-      }
-
-      // 5. 見積依頼の作成
+      // 4. 見積依頼の作成
+      // Requirements: 39.3 - 内訳書なしのときは includeBreakdownInBody=false を強制
+      // Requirements: 39.4 - itemizedStatementId は NULL 許容
       const estimateRequest = await tx.estimateRequest.create({
         data: {
           projectId: input.projectId,
           tradingPartnerId: input.tradingPartnerId,
-          itemizedStatementId: input.itemizedStatementId,
+          itemizedStatementId: hasItemizedStatement ? input.itemizedStatementId! : null,
           name: input.name.trim(),
           method: input.method ?? 'EMAIL',
-          includeBreakdownInBody: input.includeBreakdownInBody ?? false,
+          includeBreakdownInBody: hasItemizedStatement
+            ? (input.includeBreakdownInBody ?? false)
+            : false,
         },
         include: {
           tradingPartner: { select: { id: true, name: true } },
@@ -251,16 +277,18 @@ export class EstimateRequestService {
         },
       });
 
-      // 6. EstimateRequestItemの自動初期化（全項目をselected=falseで作成）
-      const itemsData = itemizedStatement.items.map((item) => ({
-        estimateRequestId: estimateRequest.id,
-        itemizedStatementItemId: item.id,
-        selected: false,
-      }));
+      // 5. EstimateRequestItem の自動初期化（内訳書ありの時のみ実行）
+      if (hasItemizedStatement) {
+        const itemsData = itemizedStatementItems.map((item) => ({
+          estimateRequestId: estimateRequest.id,
+          itemizedStatementItemId: item.id,
+          selected: false,
+        }));
 
-      await tx.estimateRequestItem.createMany({ data: itemsData });
+        await tx.estimateRequestItem.createMany({ data: itemsData });
+      }
 
-      // 7. 監査ログの記録
+      // 6. 監査ログの記録（itemizedStatementId / itemCount は nullable / 0 で記録）
       await this.auditLogService.createLog({
         action: 'ESTIMATE_REQUEST_CREATED',
         actorId,
@@ -273,7 +301,7 @@ export class EstimateRequestService {
           itemizedStatementId: estimateRequest.itemizedStatementId,
           name: estimateRequest.name,
           method: estimateRequest.method,
-          itemCount: itemizedStatement.items.length,
+          itemCount,
         },
       });
 
@@ -448,7 +476,11 @@ export class EstimateRequestService {
         updateData.method = input.method;
       }
       if (input.includeBreakdownInBody !== undefined) {
-        updateData.includeBreakdownInBody = input.includeBreakdownInBody;
+        // Task 83.3: 内訳書なしの見積依頼は本文へ含めることが意味を持たないため
+        // includeBreakdownInBody=false に正規化（Requirements: 39.9, R-39-3）。
+        // 監査ログ before/after も updateData ベースの正規化後の値で記録される。
+        updateData.includeBreakdownInBody =
+          estimateRequest.itemizedStatementId === null ? false : input.includeBreakdownInBody;
       }
 
       // 4. 更新
@@ -701,12 +733,14 @@ export class EstimateRequestService {
    * データベースの結果をEstimateRequestInfoに変換
    *
    * Task 13.4: ステータスと受領見積書数を追加
+   * Task 82.2: itemizedStatementId / itemizedStatement の null セーフ化
+   * Requirements: 39.4, 39.12
    */
   private toEstimateRequestInfo(request: {
     id: string;
     projectId: string;
     tradingPartnerId: string;
-    itemizedStatementId: string;
+    itemizedStatementId: string | null;
     name: string;
     method: EstimateRequestMethod;
     includeBreakdownInBody: boolean;
@@ -714,7 +748,7 @@ export class EstimateRequestService {
     createdAt: Date;
     updatedAt: Date;
     tradingPartner: { id: string; name: string };
-    itemizedStatement: { id: string; name: string };
+    itemizedStatement: { id: string; name: string } | null;
     _count?: {
       receivedQuotations: number;
     };
@@ -724,8 +758,9 @@ export class EstimateRequestService {
       projectId: request.projectId,
       tradingPartnerId: request.tradingPartnerId,
       tradingPartnerName: request.tradingPartner.name,
-      itemizedStatementId: request.itemizedStatementId,
-      itemizedStatementName: request.itemizedStatement.name,
+      // Requirements: 39.4 - 内訳書未紐付け時は null
+      itemizedStatementId: request.itemizedStatementId ?? null,
+      itemizedStatementName: request.itemizedStatement?.name ?? null,
       name: request.name,
       method: request.method,
       includeBreakdownInBody: request.includeBreakdownInBody,

@@ -2970,8 +2970,7 @@
                 "type": "object",
                 "required": [
                   "name",
-                  "tradingPartnerId",
-                  "itemizedStatementId"
+                  "tradingPartnerId"
                 ],
                 "properties": {
                   "name": {
@@ -2987,7 +2986,8 @@
                   "itemizedStatementId": {
                     "type": "string",
                     "format": "uuid",
-                    "description": "内訳書ID"
+                    "nullable": true,
+                    "description": "内訳書ID（任意）。省略時は内訳書未紐付けの見積依頼として作成される"
                   },
                   "method": {
                     "type": "string",
@@ -6339,6 +6339,62 @@
           },
           "404": {
             "description": "数量グループが見つからない"
+          }
+        }
+      }
+    },
+    "/api/quantity-groups/{id}/copy": {
+      "post": {
+        "summary": "数量グループのコピー",
+        "description": "指定された数量グループを同一数量表内に複製し、元グループの直下に挿入する。\n配下の全数量項目と現場調査写真の紐づけも複製される。\n",
+        "tags": [
+          "Quantity Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "複製元の数量グループID"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "複製成功（複製先グループ情報を返却）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "元の数量グループが見つからない"
+          },
+          "409": {
+            "description": "並行制御競合（OptimisticLockError）"
+          },
+          "500": {
+            "description": "サーバー内部エラー"
           }
         }
       }

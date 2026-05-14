@@ -3,13 +3,19 @@
  *
  * Task 23.3: 数量グループカードにタイトル行表示を統合する
  * Task 24.2: 数量グループカードのタイトル行統合テストを実装する
+ * Task 51.6: 数量グループタイトル行を新レイアウト前提に整合させる
  *
  * Requirements:
  * - 18.1: メインのタイトル行を数量グループの一番上にのみ表示する
  * - 18.2: 数量グループ内の2行目以降の数量項目にはメインのタイトル行を繰り返し表示しない
- * - 18.3: 面積・体積計算用フィールドのタイトル行は該当する計算用フィールド群とセットで表示する
- * - 18.4: ピッチ計算用フィールドのタイトル行は該当する計算用フィールド群とセットで表示する
+ * - 18.3: 計算用フィールド群の専用タイトル行を別行として表示せず、Requirement 37 に基づき
+ *   各計算用フィールドのラベルを当該行内で当該テキストボックスの左側に隣接表示する
+ *   （新レイアウト：計算用フィールド群は EditableQuantityItemRow の操作列右側に
+ *   inline 配置され、各ラベルが CalculationFields 内で可視化される）
+ * - 18.4: 計算用フィールド群の項目見出しを行内インラインラベル（Requirement 37 AC 2）として
+ *   扱い、メイングループの計算用フィールド専用タイトル行はレイアウトから廃止する
  * - 18.5: 折りたたみ/再展開後にタイトル行の表示ルールが維持される
+ * - 37.12: 計算用フィールド群の専用タイトル行（別行）を表示しない（REQ-18 AC3/AC4 と整合）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -283,10 +289,17 @@ describe('QuantityGroupCard - タイトル行統合', () => {
   });
 
   /**
-   * Task 24.2: 数量グループカードのタイトル行統合テスト（追加分）
+   * Task 24.2 / Task 51.6: 数量グループカードのタイトル行統合テスト（追加分）
+   *
+   * REQ-18.3 の解釈は新レイアウト（REQ-37）に基づき以下の通り更新される:
+   * - 計算用フィールド群の専用タイトル行（別行）は描画されない
+   * - 各計算用フィールドのラベルは CalculationFields コンポーネント内に
+   *   行内インラインラベル（テキストボックスの左側）として描画される
+   * - メインフィールドラベル非表示時でも、計算用フィールドのインラインラベルは
+   *   従来通り可視化されている（テキストとして取得可能）
    */
-  describe('Task 24.2: REQ-18.3: メインフィールドラベル非表示時でも面積・体積計算用フィールドのタイトルは表示される', () => {
-    it('面積・体積モードの項目で計算用フィールドラベル（幅/奥行き/高さ/重量/調整係数/丸め設定）が表示される', () => {
+  describe('Task 24.2 / Task 51.6: REQ-18.3 / REQ-37.12: 面積・体積計算用フィールドの行内インラインラベル', () => {
+    it('面積・体積モードの項目で計算用フィールドラベル（幅/奥行き/高さ/重量/調整係数/丸め設定）が行内インラインラベルとして表示される', () => {
       render(
         <QuantityGroupCard
           {...defaultProps}
@@ -299,6 +312,12 @@ describe('QuantityGroupCard - タイトル行統合', () => {
       const titleRows = screen.getAllByTestId('quantity-group-title-row');
       expect(titleRows).toHaveLength(1);
 
+      // メインタイトル行には計算用フィールド固有のラベルが含まれない（REQ-37.12）
+      const mainTitleRow = titleRows[0]!;
+      expect(within(mainTitleRow).queryByText('幅（W）')).not.toBeInTheDocument();
+      expect(within(mainTitleRow).queryByText('奥行き（D）')).not.toBeInTheDocument();
+      expect(within(mainTitleRow).queryByText('高さ（H）')).not.toBeInTheDocument();
+
       // 項目行のメインフィールドラベルは非表示
       const itemRows = screen.getAllByTestId('quantity-item-row');
       expect(itemRows).toHaveLength(1);
@@ -307,7 +326,7 @@ describe('QuantityGroupCard - タイトル行統合', () => {
       expect(labelTexts).not.toContain('大項目');
       expect(labelTexts).not.toContain('工種');
 
-      // 計算用フィールドのラベルは表示される（REQ-18.3）
+      // 計算用フィールドの行内インラインラベル（REQ-18.3 / REQ-37.2）は表示される
       expect(screen.getByText('幅（W）')).toBeInTheDocument();
       expect(screen.getByText('奥行き（D）')).toBeInTheDocument();
       expect(screen.getByText('高さ（H）')).toBeInTheDocument();
@@ -317,8 +336,8 @@ describe('QuantityGroupCard - タイトル行統合', () => {
     });
   });
 
-  describe('Task 24.2: REQ-18.4: メインフィールドラベル非表示時でもピッチ計算用フィールドのタイトルは表示される', () => {
-    it('ピッチモードの項目で計算用フィールドラベル（範囲長/端長1/端長2/ピッチ長等）が表示される', () => {
+  describe('Task 24.2 / Task 51.6: REQ-18.4 / REQ-37.12: ピッチ計算用フィールドの行内インラインラベル', () => {
+    it('ピッチモードの項目で計算用フィールドラベル（範囲長/端長1/端長2/ピッチ長等）が行内インラインラベルとして表示される', () => {
       render(
         <QuantityGroupCard {...defaultProps} group={mockGroupWithPitchItem} isEditable={true} />
       );
@@ -326,6 +345,13 @@ describe('QuantityGroupCard - タイトル行統合', () => {
       // メインタイトル行は1つだけ
       const titleRows = screen.getAllByTestId('quantity-group-title-row');
       expect(titleRows).toHaveLength(1);
+
+      // メインタイトル行には計算用フィールド固有のラベルが含まれない（REQ-37.12）
+      const mainTitleRow = titleRows[0]!;
+      expect(within(mainTitleRow).queryByText('範囲長')).not.toBeInTheDocument();
+      expect(within(mainTitleRow).queryByText('端長1')).not.toBeInTheDocument();
+      expect(within(mainTitleRow).queryByText('端長2')).not.toBeInTheDocument();
+      expect(within(mainTitleRow).queryByText('ピッチ長')).not.toBeInTheDocument();
 
       // 項目行のメインフィールドラベルは非表示
       const itemRows = screen.getAllByTestId('quantity-item-row');
@@ -335,11 +361,32 @@ describe('QuantityGroupCard - タイトル行統合', () => {
       expect(labelTexts).not.toContain('大項目');
       expect(labelTexts).not.toContain('工種');
 
-      // ピッチ計算用フィールドのラベルは表示される（REQ-18.4）
+      // ピッチ計算用フィールドの行内インラインラベル（REQ-18.4 / REQ-37.2）は表示される
       expect(screen.getByText('範囲長')).toBeInTheDocument();
       expect(screen.getByText('端長1')).toBeInTheDocument();
       expect(screen.getByText('端長2')).toBeInTheDocument();
       expect(screen.getByText('ピッチ長')).toBeInTheDocument();
+    });
+
+    it('REQ-18.4 / REQ-37.12: 数量グループカード全体で QuantityGroupTitleRow は1つだけ描画され、計算用フィールド専用のタイトル行（別行）は描画されない', () => {
+      // 面積・体積モード項目を含むグループでも、計算用フィールド専用の追加タイトル行は描画されない
+      render(
+        <QuantityGroupCard
+          {...defaultProps}
+          group={mockGroupWithAreaVolumeItem}
+          isEditable={true}
+        />
+      );
+
+      // QuantityGroupTitleRow（メインタイトル行）は1つだけ
+      const titleRows = screen.getAllByTestId('quantity-group-title-row');
+      expect(titleRows).toHaveLength(1);
+
+      // 計算用フィールド専用のタイトル行用 testid は存在しない
+      expect(
+        screen.queryByTestId('quantity-group-calculation-fields-title-row')
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('calculation-fields-title-row')).not.toBeInTheDocument();
     });
   });
 

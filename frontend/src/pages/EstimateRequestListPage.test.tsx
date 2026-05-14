@@ -363,4 +363,56 @@ describe('EstimateRequestListPage', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 84.2: 内訳書未紐付け（null）時のフォールバック表示 (Requirements: 39.6, 39.12)
+  // ==========================================================================
+  describe('内訳書未紐付け時のフォールバック表示 (Task 84.2)', () => {
+    it('itemizedStatementName が null の場合、参照内訳書名列に「-」を表示する（Requirements: 39.6）', async () => {
+      const dataWithNullItemized: PaginatedEstimateRequests = {
+        data: [
+          {
+            id: 'request-null',
+            projectId: 'project-123',
+            tradingPartnerId: 'partner-1',
+            tradingPartnerName: '株式会社ABC工業',
+            itemizedStatementId: null,
+            itemizedStatementName: null,
+            name: '内訳書なし見積依頼',
+            method: 'EMAIL',
+            includeBreakdownInBody: false,
+            createdAt: '2024-05-15T00:00:00.000Z',
+            updatedAt: '2024-05-15T00:00:00.000Z',
+          },
+        ],
+        pagination: {
+          page: 1,
+          limit: 20,
+          total: 1,
+          totalPages: 1,
+        },
+      };
+
+      vi.mocked(getEstimateRequests).mockResolvedValue(dataWithNullItemized);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        const card = screen.getByTestId('request-card-request-null');
+        // メタ行に「-」が含まれること（参照内訳書名列のフォールバック）
+        expect(card).toHaveTextContent(/メール\s*\/\s*-/);
+      });
+    });
+
+    it('itemizedStatementName が存在する場合は内訳書名を表示し変更しない（Requirements: 39.12）', async () => {
+      vi.mocked(getEstimateRequests).mockResolvedValue(mockEstimateRequests);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        // 既存の表示挙動が維持されていること
+        expect(screen.getAllByText(/第1回見積内訳書/).length).toBeGreaterThanOrEqual(1);
+      });
+    });
+  });
 });

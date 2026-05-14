@@ -18,6 +18,29 @@ import { MemoryRouter } from 'react-router-dom';
 import QuantityGroupCard from './QuantityGroupCard';
 import type { QuantityGroupDetail } from '../../types/quantity-table.types';
 
+// AnnotatedImageThumbnail をモックして、注釈データ取得 API 呼び出し（および
+// アンマウント後に発火する logger.warn）を抑止する。これがないと
+// vitest-worker teardown 中に onUserConsoleLog が pending のまま rpc が閉じられ、
+// EnvironmentTeardownError として Unhandled Rejection になり test:coverage が失敗する。
+vi.mock('../site-surveys/AnnotatedImageThumbnail', () => ({
+  AnnotatedImageThumbnail: ({
+    image,
+    alt,
+    style,
+  }: {
+    image: { id: string; originalUrl?: string | null };
+    alt: string;
+    style?: React.CSSProperties;
+  }) => (
+    <img
+      src={image.originalUrl || ''}
+      alt={alt}
+      style={style}
+      data-testid="annotated-image-thumbnail"
+    />
+  ),
+}));
+
 // テストデータ
 const mockGroupWithImage: QuantityGroupDetail = {
   id: 'group-1',

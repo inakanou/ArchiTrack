@@ -485,6 +485,67 @@ describe('Estimate Request API Integration Tests', () => {
 
         expect(response.status).toBe(400);
       });
+
+      // Requirements: 39.1, 39.2, 39.4 - itemizedStatementId は任意項目（Requirement 39 内訳書任意化）
+      // design.md Backend Integration Tests（追記7, line 5635-5637）で要請されたカバレッジ
+      it('itemizedStatementId を省略しても作成でき、レスポンスでは null となる (Req 39.2, 39.4)', async () => {
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/estimate-requests`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            name: '内訳書なし作成テスト_省略',
+            tradingPartnerId: testTradingPartnerId,
+            // itemizedStatementId を意図的に省略
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body).toMatchObject({
+          name: '内訳書なし作成テスト_省略',
+          projectId: testProjectId,
+          tradingPartnerId: testTradingPartnerId,
+          itemizedStatementId: null,
+          method: 'EMAIL',
+        });
+        expect(response.body.id).toBeDefined();
+      });
+
+      it('itemizedStatementId に空文字を送信すると null に変換されて作成成功する (Req 39.1)', async () => {
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/estimate-requests`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            name: '内訳書なし作成テスト_空文字',
+            tradingPartnerId: testTradingPartnerId,
+            itemizedStatementId: '',
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body).toMatchObject({
+          name: '内訳書なし作成テスト_空文字',
+          projectId: testProjectId,
+          tradingPartnerId: testTradingPartnerId,
+          itemizedStatementId: null,
+        });
+      });
+
+      // tasks.md line 1905 / design.md line 5637 では "422" と記述されているが、
+      // 実装では Zod バリデーション失敗は ValidationError(statusCode=400) で返却される
+      // （backend/src/errors/apiError.ts ValidationError、backend/src/middleware/validate.middleware.ts）。
+      // 実装に合わせて 400 で検証する（不正 UUID のみエラーとなる挙動自体の確認が本質）。
+      it('itemizedStatementId に不正な UUID 文字列を送ると 400（バリデーションエラー）を返す (Req 39.1)', async () => {
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/estimate-requests`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            name: '不正 UUID テスト',
+            tradingPartnerId: testTradingPartnerId,
+            itemizedStatementId: 'invalid-uuid',
+          });
+
+        expect(response.status).toBe(400);
+        // ValidationError 形式: code = 'VALIDATION_ERROR'
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+      });
     });
 
     describe('見積依頼一覧取得 (GET /api/projects/:projectId/estimate-requests)', () => {

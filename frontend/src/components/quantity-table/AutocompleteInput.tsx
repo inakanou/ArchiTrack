@@ -41,6 +41,8 @@ export interface AutocompleteInputProps {
   placeholder?: string;
   /** ラベル */
   label?: string;
+  /** 可視ラベル非表示時に <input> へ付与するアクセシブルネーム（label 未指定時のみ有効） */
+  ariaLabel?: string;
   /** 入力フィールドのID */
   id?: string;
   /** エラーメッセージ */
@@ -166,6 +168,7 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
     onBlurAddCandidate,
     placeholder = '',
     label,
+    ariaLabel,
     id: propId,
     error,
     required = false,
@@ -371,6 +374,7 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
           aria-invalid={!!error}
           aria-required={required}
           aria-describedby={error ? `${inputId}-error` : undefined}
+          aria-label={!label && ariaLabel ? ariaLabel : undefined}
           value={value}
           placeholder={placeholder}
           disabled={disabled}
@@ -388,7 +392,7 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
           ref={listboxRef}
           id={listboxId}
           role="listbox"
-          aria-label={`${label || ''}の候補`}
+          aria-label={`${label || ariaLabel || ''}の候補`}
           style={styles.dropdown}
         >
           {suggestions.map((suggestion, index) => {
