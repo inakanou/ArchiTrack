@@ -420,4 +420,137 @@ export class QuantityValidationService {
   validateBatch(items: QuantityItemValidationInput[]): ValidationResult[] {
     return items.map((item) => this.validateQuantityItem(item));
   }
+
+  // ============================================================================
+  // Task 52.1: グループ名切り詰めユーティリティ
+  //
+  // Requirements:
+  // - 38.5: 複製先グループ名を「{元名}のコピー」とする
+  // - 38.6: 上限（全角25文字/半角50文字、REQ-22 AC4）を超える場合は元名を切り詰めて
+  //         サフィックスを末尾に必ず付与する
+  // ============================================================================
+
+  /**
+   * 数量グループ名の最大文字幅（半角換算）
+   *
+   * REQ-22 AC4 で規定された「全角25文字/半角50文字」を半角換算した値。
+   * 全角=2, 半角=1 でカウントするため、最大幅は半角50に統一される。
+   */
+  private static readonly GROUP_NAME_MAX_WIDTH = 50;
+
+  /**
+   * 文字幅を計算する
+   *
+   * 全角文字は2、半角文字は1としてカウントします。
+   * QuantityFieldValidationService.calculateStringWidth と同一仕様で、
+   * 名前文字数制限のサーバーサイド検証ロジックを共通化する基礎関数。
+   *
+   * 判定基準:
+   * - U+0000〜U+007F（ASCII）: 半角（width=1）
+   * - U+FF61〜U+FF9F（半角カタカナ）: 半角（width=1）
+   * - その他: 全角（width=2）
+   *
+   * @param value - 検証対象の文字列
+   * @returns 文字幅（半角換算）
+   */
+  calculateStringWidth(value: string): number {
+    let width = 0;
+    for (const char of value) {
+      const codePoint = char.codePointAt(0) ?? 0;
+      if (
+        // ASCII文字（半角英数字・記号）
+        (codePoint >= 0x0000 && codePoint <= 0x007f) ||
+        // 半角カタカナ
+        (codePoint >= 0xff61 && codePoint <= 0xff9f)
+      ) {
+        width += 1;
+      } else {
+        // 全角文字
+        width += 2;
+      }
+    }
+    return width;
+  }
+
+  /**
+   * 名前 + サフィックスが maxWidth を超える場合に元名側を切り詰め、
+   * サフィックスを末尾に必ず付与した文字列を返す（Task 52.1）。
+   *
+   * Requirements:
+   * - 38.5: 複製先グループ名を「{元名}のコピー」とする
+   * - 38.6: 上限（全角25/半角50, REQ-22 AC4）超過時は元名を切り詰めてサフィックスを末尾に付与
+   *
+   * 切り詰めアルゴリズム:
+   * 1. originalName + suffix の幅が maxWidth 以下ならそのまま連結して返す
+   * 2. 超過時は (maxWidth - suffix の幅) 以内に収まるよう元名先頭から1文字ずつ消費して
+   *    切り詰め、末尾に suffix を必ず付与する
+   * 3. suffix だけで maxWidth を超える場合は suffix をそのまま返す
+   *    （Requirements 38.6 はサフィックスを「必ず末尾に付与」と定めているため suffix 落としは行わない）
+   * 4. maxWidth が 0 以下の場合は空文字を返す（防御的）
+   *
+   * 全角・半角混在時のカウントは calculateStringWidth と同一（全角=2, 半角=1）。
+   *
+   * @param originalName - 元のグループ名
+   * @param suffix - 末尾に付与するサフィックス（例: "のコピー"）
+   * @param maxWidth - 結果文字列の最大文字幅（半角換算）
+   * @returns 切り詰め後の文字列
+   */
+  truncateNameWithSuffix(originalName: string, suffix: string, maxWidth: number): string {
+    // 防御的エッジケース: maxWidth が 0 以下なら空文字
+    if (maxWidth <= 0) {
+      return '';
+    }
+
+    const suffixWidth = this.calculateStringWidth(suffix);
+
+    // suffix だけで maxWidth を超える場合は suffix をそのまま返す
+    // （Requirements 38.6 はサフィックスの末尾付与を必須としているため、suffix を切り詰めない）
+    if (suffixWidth >= maxWidth) {
+      return suffix;
+    }
+
+    // 全体幅が maxWidth 以下なら素通し
+    const originalWidth = this.calculateStringWidth(originalName);
+    if (originalWidth + suffixWidth <= maxWidth) {
+      return originalName + suffix;
+    }
+
+    // 元名側を切り詰める: (maxWidth - suffixWidth) 以内に収まるよう
+    // 先頭から1文字（コードポイント単位）ずつ貪欲に消費する
+    const allowedNameWidth = maxWidth - suffixWidth;
+    let truncatedName = '';
+    let accumulated = 0;
+    for (const char of originalName) {
+      const charWidth = this.calculateStringWidth(char);
+      if (accumulated + charWidth > allowedNameWidth) {
+        break;
+      }
+      truncatedName += char;
+      accumulated += charWidth;
+    }
+
+    return truncatedName + suffix;
+  }
+
+  /**
+   * 数量グループのコピー時の名前生成（design.md 準拠 API）
+   *
+   * Requirements:
+   * - 38.5, 38.6
+   *
+   * design.md セクション「数量グループのコピー機能（REQ-38）」で指定された
+   * `truncateForCopy(originalName, suffix)` を提供する。最大文字幅は
+   * REQ-22 AC4 の「全角25/半角50」固定値（半角換算 50）を使用する。
+   *
+   * @param originalName - 元のグループ名
+   * @param suffix - 末尾に付与するサフィックス（通常は「のコピー」）
+   * @returns 文字数制限内に収めた複製先グループ名
+   */
+  truncateForCopy(originalName: string, suffix: string): string {
+    return this.truncateNameWithSuffix(
+      originalName,
+      suffix,
+      QuantityValidationService.GROUP_NAME_MAX_WIDTH
+    );
+  }
 }

@@ -19,11 +19,13 @@ import {
   createQuantityItem,
   deleteQuantityItem,
   copyQuantityItem,
+  copyQuantityGroup,
   updateQuantityTable,
   bulkSaveQuantityTable,
   updateGroupDisplayOrder,
   updateItemDisplayOrder,
 } from '../api/quantity-tables';
+import { ApiError } from '../api/client';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import { getAnnotation } from '../api/survey-annotations';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
@@ -459,6 +461,9 @@ export default function QuantityTableEditPage() {
   // 削除確認ダイアログ用state（REQ-4.5）
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+  // グループコピー処理中のグループID集合（Task 53.3: REQ-38.9）
+  // 同一グループの重複コピー操作を防止し、ボタンの disabled 状態を制御する
+  const [copyingGroupIds, setCopyingGroupIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   // 数量表名編集用state（REQ-2.5）
   const [editingName, setEditingName] = useState<string>('');
@@ -680,6 +685,58 @@ export default function QuantityTableEditPage() {
       setIsDeletingGroup(false);
     }
   }, [groupToDelete, isDeletingGroup]);
+
+  /**
+   * グループコピーハンドラ
+   *
+   * Task 53.3
+   * Requirements: 38.7, 38.9, 38.10, 38.11
+   *
+   * - 同一グループに対する重複コピー操作を防止する（REQ-38.9）
+   * - API 成功時は数量表詳細を再取得して、複製先グループの直下挿入と後続グループの
+   *   displayOrder シフトを画面に正しく反映する（REQ-38.7, 38.11）
+   *   ※ バックエンドの copyQuantityGroup レスポンス（QuantityGroupInfo）は items / surveyImage
+   *     を含まないため、ローカル差分更新ではなく再取得を採用する
+   * - API 失敗時はエラーメッセージを表示し、ボタンを再有効化する（REQ-38.10）
+   * - 409（楽観的排他競合）時は「他のユーザーが操作中です。再試行してください」を表示する
+   */
+  const handleCopyGroup = useCallback(
+    async (groupId: string) => {
+      // 重複押下防止（REQ-38.9）
+      if (copyingGroupIds.has(groupId)) return;
+
+      setOperationError(null);
+      setCopyingGroupIds((prev) => {
+        const next = new Set(prev);
+        next.add(groupId);
+        return next;
+      });
+
+      try {
+        await copyQuantityGroup(groupId);
+
+        // 数量表詳細を再取得して、複製先グループ・displayOrder シフト・全項目を反映
+        if (id) {
+          const refreshed = await getQuantityTableDetail(id);
+          setQuantityTable(refreshed);
+        }
+      } catch (error) {
+        // 409 は楽観的排他競合（他ユーザー操作中）
+        if (error instanceof ApiError && error.statusCode === 409) {
+          setOperationError('他のユーザーが操作中です。再試行してください');
+        } else {
+          setOperationError('グループのコピーに失敗しました');
+        }
+      } finally {
+        setCopyingGroupIds((prev) => {
+          const next = new Set(prev);
+          next.delete(groupId);
+          return next;
+        });
+      }
+    },
+    [id, copyingGroupIds]
+  );
 
   /**
    * 写真選択ダイアログを開く
@@ -1720,6 +1777,8 @@ export default function QuantityTableEditPage() {
                 groupTotalCount={groups.length}
                 onMoveGroupUp={handleMoveGroupUp}
                 onMoveGroupDown={handleMoveGroupDown}
+                onCopyGroup={handleCopyGroup}
+                isCopying={copyingGroupIds.has(group.id)}
               />
             </div>
           ))}

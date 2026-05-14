@@ -301,8 +301,8 @@ describe('EstimateRequest Schema Integration Tests', () => {
         },
       });
 
-      expect(estimateRequest.itemizedStatement).toBeDefined();
-      expect(estimateRequest.itemizedStatement.id).toBe(testItemizedStatementId);
+      expect(estimateRequest.itemizedStatement).not.toBeNull();
+      expect(estimateRequest.itemizedStatement?.id).toBe(testItemizedStatementId);
     });
 
     it('should cascade delete estimate request when project is deleted', async () => {
