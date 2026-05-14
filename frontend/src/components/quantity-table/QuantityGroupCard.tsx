@@ -84,6 +84,16 @@ export interface QuantityGroupCardProps {
   onMoveGroupUp?: (groupId: string) => void;
   /** グループを下に移動するコールバック（Task 37.1） */
   onMoveGroupDown?: (groupId: string) => void;
+  /** グループコピーコールバック（Task 53.2: REQ-38.1, 38.12）
+   *  - 指定時、表題部の並替ボタンと削除ボタンの間にコピーボタンが表示される
+   *  - クリック時、groupId を引数に呼び出される
+   */
+  onCopyGroup?: (groupId: string) => void;
+  /** コピー処理中フラグ（Task 53.2: REQ-38.9）
+   *  - true の間はコピーボタンを disabled にしスピナーを表示し、重複押下を防止する
+   *  - 親コンポーネント（QuantityTableEditPage）がステートを保持する（Task 53.3 で配線）
+   */
+  isCopying?: boolean;
 }
 
 // ============================================================================
@@ -202,6 +212,33 @@ const styles = {
     color: '#b91c1c',
     cursor: 'pointer',
     transition: 'background-color 0.2s',
+  } as React.CSSProperties,
+  // Task 53.2: コピーボタン（中立色 / 削除ボタンの赤系と視覚的に区別、REQ-38.1, 38.12）
+  copyButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 12px',
+    fontSize: '12px',
+    fontWeight: 500,
+    borderRadius: '4px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  } as React.CSSProperties,
+  // Task 53.2: コピー処理中の disabled スタイル（REQ-38.9）
+  copyButtonDisabled: {
+    cursor: 'not-allowed',
+    opacity: 0.6,
+  } as React.CSSProperties,
+  // Task 53.2: スピナー（円弧 SVG を CSS アニメーションで回転）
+  copyButtonSpinner: {
+    display: 'inline-block',
+    width: '14px',
+    height: '14px',
+    animation: 'quantity-group-card-spin 0.8s linear infinite',
   } as React.CSSProperties,
   content: {
     padding: '0',
@@ -345,6 +382,53 @@ function PlusIcon() {
 }
 
 /**
+ * コピーアイコン（Task 53.2: REQ-38.1）
+ * 中立色（currentColor）の重なった四角形 SVG（Lucide Copy 風）
+ */
+function CopyIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+/**
+ * スピナーアイコン（Task 53.2: REQ-38.9）
+ * 円弧の SVG（CSS animation で回転）。クラス名による干渉を避けるため
+ * 親要素側で animation を制御する。
+ */
+function SpinnerIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-testid="copy-group-spinner"
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  );
+}
+
+/**
  * ゴミ箱アイコン
  */
 function TrashIcon() {
@@ -420,6 +504,8 @@ export default function QuantityGroupCard({
   groupTotalCount,
   onMoveGroupUp,
   onMoveGroupDown,
+  onCopyGroup,
+  isCopying = false,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -451,6 +537,16 @@ export default function QuantityGroupCard({
   const handleDeleteGroup = useCallback(() => {
     onDeleteGroup?.(group.id);
   }, [group.id, onDeleteGroup]);
+
+  /**
+   * グループコピーハンドラ（Task 53.2: REQ-38.1, 38.9）
+   * - isCopying 中は重複押下を防止する（disabled 時は onClick が発火しないが、
+   *   防御的に early return も入れる）
+   */
+  const handleCopyGroup = useCallback(() => {
+    if (isCopying) return;
+    onCopyGroup?.(group.id);
+  }, [group.id, isCopying, onCopyGroup]);
 
   /**
    * 画像クリックハンドラ（REQ-20.1: 写真プレビューダイアログを開く）
@@ -573,6 +669,9 @@ export default function QuantityGroupCard({
 
   return (
     <article style={styles.card} data-testid="quantity-group-card">
+      {/* Task 53.2: コピー中スピナー用 keyframes（CSS-in-JS では @keyframes が表現できないため
+          inline <style> として一度だけ宣言する。複数カード描画でも同じ名前なら重複は無害） */}
+      <style>{`@keyframes quantity-group-card-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       {/* ヘッダー */}
       <div style={styles.header}>
         {/* 展開/折りたたみボタン */}
@@ -644,6 +743,30 @@ export default function QuantityGroupCard({
 
         {/* アクションボタン */}
         <div style={styles.headerActions}>
+          {/* グループコピーボタン（Task 53.2: REQ-38.1, 38.9, 38.12）
+              並替ボタンと削除ボタンの間に配置し、中立色で視覚的に削除と区別する */}
+          {isEditable && onCopyGroup && (
+            <button
+              type="button"
+              style={{
+                ...styles.copyButton,
+                ...(isCopying ? styles.copyButtonDisabled : {}),
+              }}
+              onClick={handleCopyGroup}
+              disabled={isCopying}
+              aria-label="グループをコピー"
+              aria-busy={isCopying || undefined}
+            >
+              {isCopying ? (
+                <span style={styles.copyButtonSpinner}>
+                  <SpinnerIcon />
+                </span>
+              ) : (
+                <CopyIcon />
+              )}
+              {isCopying ? 'コピー中...' : 'グループをコピー'}
+            </button>
+          )}
           <button
             type="button"
             style={styles.deleteButton}

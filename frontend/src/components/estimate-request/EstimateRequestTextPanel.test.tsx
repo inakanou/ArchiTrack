@@ -204,4 +204,28 @@ describe('EstimateRequestTextPanel', () => {
       expect(preElement).toBeInTheDocument();
     });
   });
+
+  // ==========================================================================
+  // Task 84.3: showIncludeBreakdownToggle prop（Requirements: 39.8）
+  // ==========================================================================
+  describe('showIncludeBreakdownToggle prop（Task 84.3, Requirements: 39.8）', () => {
+    it('showIncludeBreakdownToggle prop を受け取れる（型契約）（Requirements: 39.8）', () => {
+      // showIncludeBreakdownToggle prop を渡してもエラーにならないこと（後方互換）
+      render(<EstimateRequestTextPanel text={mockText} showIncludeBreakdownToggle={true} />);
+      expect(screen.getByText(/見積依頼文/)).toBeInTheDocument();
+    });
+
+    it('showIncludeBreakdownToggle=false でも正常にレンダリングされる（Requirements: 39.8）', () => {
+      render(<EstimateRequestTextPanel text={mockText} showIncludeBreakdownToggle={false} />);
+      // 既存の見積依頼文の表示は維持される
+      expect(screen.getByText(/見積依頼文/)).toBeInTheDocument();
+      expect(screen.getByText('test@example.com')).toBeInTheDocument();
+    });
+
+    it('showIncludeBreakdownToggle のデフォルトは true（後方互換）（Requirements: 39.8）', () => {
+      // prop 未指定でも従来通り表示されることを確認（後方互換）
+      render(<EstimateRequestTextPanel text={mockText} />);
+      expect(screen.getByText(/見積依頼文/)).toBeInTheDocument();
+    });
+  });
 });

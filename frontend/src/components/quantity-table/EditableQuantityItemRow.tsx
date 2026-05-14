@@ -77,12 +77,36 @@ const styles = {
     // 名称15.5全角(202px)・規格15.5全角(202px)・計算方法(90px)・数量10半角(80px)・単位3全角(46px)・備考5.5全角(76px)・アクション(80px)
     gridTemplateColumns: QUANTITY_ITEM_GRID_COLUMNS,
     gap: '2px',
+    // Task 51.1 Spike: 既存と同じ 'start' を維持（既存セルのラベル＋入力の縦配置を壊さないため）。
+    // 操作列セル内の inline 配置は actionCellInlineWrapper の flex-direction: row + align-items: center で行う
     alignItems: 'start',
     padding: '2px 4px',
   } as React.CSSProperties,
-  calculationFieldsRow: {
-    padding: '0 4px 4px 4px',
-    backgroundColor: '#f9fafb',
+  // Task 51.1 Spike / Task 51.2: 採用案（操作列セル wrapper 拡張）
+  // 操作列セル内に flex wrapper を新設し、アクションメニュー + CalculationFields を横並び配置する。
+  // Task 51.2: whiteSpace: nowrap で計算用フィールド群が行内幅不足で折り返さないようにし、
+  // 行高さ 37px を維持する（REQ-37.1 同一行水平配置 / REQ-37.3 行高さ不変）。
+  // overflow は指定しない（visible 既定を維持）。表領域 overflow はページ全体スクロールに委ねる
+  // （REQ-37.6 / design.md L1519）。
+  actionCellInlineWrapper: {
+    display: 'flex',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '4px',
+    // Grid の操作列セル幅(80px)を超えて右側に展開できるように flex-shrink を抑止
+    flexShrink: 0,
+    // 計算用フィールド群が折り返さないこと（REQ-37.1 同一行配置）を構造で保証
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  // Task 51.1 Spike / Task 51.2: 操作列セル内に inline 配置した CalculationFields は折り返さない
+  inlineCalculationFields: {
+    display: 'flex',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '4px',
+    flexShrink: 0,
+    // フィールド間（label + input ペアの並び）でも折り返さない
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   fieldGroup: {
     // グリッドセルとしてのラッパー（内部レイアウトは各コンポーネントが担当）
@@ -399,6 +423,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-majorCategory`}
             label={showFieldLabels ? '大項目' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '大項目'}
             value={item.majorCategory}
             onChange={createUpdateHandler('majorCategory')}
             error={errors.majorCategory}
@@ -414,6 +439,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-middleCategory`}
             label={showFieldLabels ? '中項目' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '中項目'}
             value={item.middleCategory || ''}
             onChange={createUpdateHandler('middleCategory')}
             placeholder="中項目を入力"
@@ -428,6 +454,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-minorCategory`}
             label={showFieldLabels ? '小項目' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '小項目'}
             value={item.minorCategory || ''}
             onChange={createUpdateHandler('minorCategory')}
             placeholder="小項目を入力"
@@ -442,6 +469,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-customCategory`}
             label={showFieldLabels ? '任意分類' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '任意分類'}
             value={item.customCategory || ''}
             onChange={createUpdateHandler('customCategory')}
             placeholder="任意分類を入力"
@@ -456,6 +484,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-workType`}
             label={showFieldLabels ? '工種' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '工種'}
             value={item.workType}
             onChange={createUpdateHandler('workType')}
             error={errors.workType}
@@ -472,6 +501,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-name`}
             label={showFieldLabels ? '名称' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '名称'}
             value={item.name}
             onChange={createUpdateHandler('name')}
             error={errors.name}
@@ -488,6 +518,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-specification`}
             label={showFieldLabels ? '規格' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '規格'}
             value={item.specification || ''}
             onChange={createUpdateHandler('specification')}
             placeholder="規格を入力"
@@ -532,6 +563,7 @@ export default function EditableQuantityItemRow({
                 }}
                 aria-required
                 aria-invalid={negativeQuantityWarning}
+                aria-label={showFieldLabels ? undefined : '数量'}
               />
             </div>
             {/* REQ-8.3: 負の値警告メッセージ */}
@@ -548,6 +580,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-unit`}
             label={showFieldLabels ? '単位' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '単位'}
             value={item.unit}
             onChange={createUpdateHandler('unit')}
             error={errors.unit}
@@ -564,6 +597,7 @@ export default function EditableQuantityItemRow({
           <AutocompleteInput
             id={`${item.id}-remarks`}
             label={showFieldLabels ? '備考' : undefined}
+            ariaLabel={showFieldLabels ? undefined : '備考'}
             value={item.remarks || ''}
             onChange={createUpdateHandler('remarks')}
             placeholder="備考"
@@ -573,7 +607,12 @@ export default function EditableQuantityItemRow({
           />
         </div>
 
-        {/* アクション（REQ-36: アクションメニューに統合） */}
+        {/*
+          アクション（REQ-36: アクションメニューに統合）+ 計算用フィールド inline 配置（REQ-37 / Task 51.1 Spike 採用案）
+          操作列セル内に wrapper div を新設し、アクションメニューと CalculationFields を横並び配置する。
+          計算用フィールド群は flex-shrink: 0 により右側へ inline 展開され、ビューポートを超える場合は
+          ページ全体（REQ-25）の水平スクロールで閲覧する。
+        */}
         <div
           style={{
             ...styles.actionsCell,
@@ -581,39 +620,40 @@ export default function EditableQuantityItemRow({
           }}
           role="cell"
         >
-          <QuantityItemActionMenu
-            isOpen={isMenuOpen}
-            onToggle={handleToggleMenu}
-            onClose={handleCloseMenu}
-            onMoveUp={() => onMoveUp?.(item.id)}
-            onMoveDown={() => onMoveDown?.(item.id)}
-            onCopy={() => {
-              onCopy?.(item.id);
-            }}
-            onDelete={() => {
-              onDelete?.(item.id);
-            }}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-          />
+          <div data-testid="action-cell-inline-wrapper" style={styles.actionCellInlineWrapper}>
+            <QuantityItemActionMenu
+              isOpen={isMenuOpen}
+              onToggle={handleToggleMenu}
+              onClose={handleCloseMenu}
+              onMoveUp={() => onMoveUp?.(item.id)}
+              onMoveDown={() => onMoveDown?.(item.id)}
+              onCopy={() => {
+                onCopy?.(item.id);
+              }}
+              onDelete={() => {
+                onDelete?.(item.id);
+              }}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+            />
+            {/* 計算用フィールド（面積・体積またはピッチモード時のみ表示） */}
+            {/* REQ-9, REQ-10: 調整係数・丸め設定も計算用フィールドエリアに表示 */}
+            {item.calculationMethod !== 'STANDARD' && (
+              <div style={styles.inlineCalculationFields}>
+                <CalculationFields
+                  method={item.calculationMethod}
+                  params={item.calculationParams || {}}
+                  onChange={handleCalculationParamsChange}
+                  adjustmentFactor={item.adjustmentFactor}
+                  onAdjustmentFactorChange={handleAdjustmentFactorUpdate}
+                  roundingUnit={item.roundingUnit}
+                  onRoundingUnitChange={handleRoundingUnitUpdate}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* 計算用フィールド（面積・体積またはピッチモード時のみ表示） */}
-      {/* REQ-9, REQ-10: 調整係数・丸め設定も計算用フィールドエリアに表示 */}
-      {item.calculationMethod !== 'STANDARD' && (
-        <div style={styles.calculationFieldsRow}>
-          <CalculationFields
-            method={item.calculationMethod}
-            params={item.calculationParams || {}}
-            onChange={handleCalculationParamsChange}
-            adjustmentFactor={item.adjustmentFactor}
-            onAdjustmentFactorChange={handleAdjustmentFactorUpdate}
-            roundingUnit={item.roundingUnit}
-            onRoundingUnitChange={handleRoundingUnitUpdate}
-          />
-        </div>
-      )}
 
       {/* 数値入力フィールドのスピナーを非表示にするスタイル */}
       <style>
