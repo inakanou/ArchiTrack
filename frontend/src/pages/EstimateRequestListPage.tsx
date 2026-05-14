@@ -309,7 +309,7 @@ function RequestCard({ request }: { request: EstimateRequestInfo }) {
         <h2 style={styles.requestName}>{request.name}</h2>
         <p style={styles.requestMeta}>
           {formatDate(request.createdAt)} / {request.tradingPartnerName} /{' '}
-          {formatMethod(request.method)} / {request.itemizedStatementName}
+          {formatMethod(request.method)} / {request.itemizedStatementName ?? '-'}
         </p>
       </div>
       {/* ステータスバッジ (Requirements 12.12) */}

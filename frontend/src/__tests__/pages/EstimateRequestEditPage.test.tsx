@@ -177,6 +177,61 @@ describe('EstimateRequestEditPage', () => {
       expect(screen.getByText('宛先は変更できません')).toBeInTheDocument();
       expect(screen.getByText('内訳書は変更できません')).toBeInTheDocument();
     });
+
+    it('内訳書未紐付け（itemizedStatementName=null）の場合は内訳書ブロックを非表示にする (Requirements 39.10, 39.12)', async () => {
+      vi.mocked(estimateRequestApi.getEstimateRequestDetail).mockResolvedValue({
+        ...mockEstimateRequest,
+        itemizedStatementId: null,
+        itemizedStatementName: null,
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-edit-page')).toBeInTheDocument();
+      });
+
+      // 内訳書ブロック全体が非表示
+      expect(screen.queryByText('内訳書は変更できません')).not.toBeInTheDocument();
+      // ラベル「内訳書」自体も非表示（label テキストとして）
+      expect(screen.queryByText('内訳書', { selector: 'label' })).not.toBeInTheDocument();
+
+      // 名前・宛先・更新ボタンは引き続き表示（39.10）
+      expect(screen.getByLabelText(/名前/)).toBeInTheDocument();
+      expect(screen.getByText('テスト取引先')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '更新' })).toBeInTheDocument();
+    });
+
+    it('内訳書未紐付けでも名前を更新して詳細画面に遷移できる (Requirements 39.10)', async () => {
+      vi.mocked(estimateRequestApi.getEstimateRequestDetail).mockResolvedValue({
+        ...mockEstimateRequest,
+        itemizedStatementId: null,
+        itemizedStatementName: null,
+      });
+
+      const user = userEvent.setup();
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-edit-page')).toBeInTheDocument();
+      });
+
+      const nameInput = screen.getByLabelText(/名前/);
+      await user.clear(nameInput);
+      await user.type(nameInput, '更新後の見積依頼');
+
+      await user.click(screen.getByRole('button', { name: '更新' }));
+
+      await waitFor(() => {
+        expect(estimateRequestApi.updateEstimateRequest).toHaveBeenCalledWith(
+          'er-1',
+          { name: '更新後の見積依頼' },
+          mockEstimateRequest.updatedAt
+        );
+      });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/estimate-requests/er-1');
+    });
   });
 
   describe('フォーム入力', () => {

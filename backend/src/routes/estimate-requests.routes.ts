@@ -89,7 +89,6 @@ const estimateRequestTextService = new EstimateRequestTextService({ prisma });
  *             required:
  *               - name
  *               - tradingPartnerId
- *               - itemizedStatementId
  *             properties:
  *               name:
  *                 type: string
@@ -102,7 +101,8 @@ const estimateRequestTextService = new EstimateRequestTextService({ prisma });
  *               itemizedStatementId:
  *                 type: string
  *                 format: uuid
- *                 description: 内訳書ID
+ *                 nullable: true
+ *                 description: 内訳書ID（任意）。省略時は内訳書未紐付けの見積依頼として作成される
  *               method:
  *                 type: string
  *                 enum: [EMAIL, FAX]
@@ -136,10 +136,12 @@ router.post(
     try {
       const { projectId } = req.validatedParams as { projectId: string };
       const actorId = req.user!.userId;
+      // Requirements: 39.1, 39.2 - itemizedStatementId は任意項目
+      // schema 側で空文字 → null 変換、未指定は undefined のまま。Service へは ?? null で正規化して渡す。
       const validatedBody = req.validatedBody as {
         name: string;
         tradingPartnerId: string;
-        itemizedStatementId: string;
+        itemizedStatementId?: string | null;
         method?: 'EMAIL' | 'FAX';
         includeBreakdownInBody?: boolean;
       };
@@ -148,7 +150,7 @@ router.post(
         name: validatedBody.name,
         projectId,
         tradingPartnerId: validatedBody.tradingPartnerId,
-        itemizedStatementId: validatedBody.itemizedStatementId,
+        itemizedStatementId: validatedBody.itemizedStatementId ?? null,
         method: validatedBody.method,
         includeBreakdownInBody: validatedBody.includeBreakdownInBody,
       };

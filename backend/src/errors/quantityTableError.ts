@@ -79,6 +79,27 @@ export class QuantityGroupConflictError extends ApiError {
 }
 
 /**
+ * 楽観ロック失敗エラー（並行制御競合）
+ * 409 Conflict
+ *
+ * Requirements: 38.10
+ *
+ * 数量グループのコピー処理など、`SELECT ... FOR UPDATE` による行ロックを
+ * 用いる並行制御パスで、ロック取得失敗・タイムアウト、またはロック取得後に
+ * 対象行（親数量表・元グループ）が削除済みであることを検出した場合に投げる。
+ * API 層では 409 Conflict にマップする。
+ */
+export class OptimisticLockError extends ApiError {
+  constructor(
+    message = '並行操作との競合が発生しました。再試行してください。',
+    details?: Record<string, unknown>
+  ) {
+    super(409, message, 'OPTIMISTIC_LOCK_ERROR', details, PROBLEM_TYPES.CONFLICT);
+    this.name = 'OptimisticLockError';
+  }
+}
+
+/**
  * 数量項目競合エラー（楽観的排他制御エラー）
  * 409 Conflict
  */
