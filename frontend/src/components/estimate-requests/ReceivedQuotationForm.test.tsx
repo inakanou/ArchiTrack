@@ -2239,16 +2239,19 @@ describe('ReceivedQuotationForm', () => {
   // ==========================================================================
   // OCRセクション折りたたみ機能のテスト（Task 86.2）
   //
-  // Requirements:
-  // - 40.1, 40.2: 登録/編集の両ダイアログでセクションヘッダ表示
-  // - 40.4, 40.5: ヘッダクリックで OCR セクション本体をトグル（展開↔折りたたみ）
-  // - 40.6, 40.7: キーボード（Enter / Space）でトグル発火
-  // - 40.8, 40.9: ダイアログ初期表示時は展開状態（aria-expanded="true"）
-  // - 40.10: 永続化なし。unmount → remount でデフォルト展開状態に戻る
-  // - 40.11, 40.12: 折りたたみ中も OcrDataExtractor は unmount されず DOM に保持
-  // - 40.13: aria-expanded / aria-controls を付与
-  // - 40.14: 表示条件未成立時はヘッダを描画しない
-  // - 40.16: フォーカス時の視覚的明示（outline / boxShadow）
+  // Requirements coverage (estimate-request):
+  // @requirement estimate-request/REQ-40.1 登録ダイアログでセクションヘッダ表示
+  // @requirement estimate-request/REQ-40.2 編集ダイアログでセクションヘッダ表示
+  // @requirement estimate-request/REQ-40.3 セクションヘッダにラベルと展開/折りたたみ状態の視覚指示子（aria-expanded で担保）
+  // @requirement estimate-request/REQ-40.4 ヘッダクリックで本体をトグル
+  // @requirement estimate-request/REQ-40.5 キーボード（Enter / Space）でトグル発火
+  // @requirement estimate-request/REQ-40.6 展開時にアクションエリアを表示
+  // @requirement estimate-request/REQ-40.7 折りたたみ時にアクションエリアを非表示
+  // @requirement estimate-request/REQ-40.8 登録ダイアログ初期は展開状態
+  // @requirement estimate-request/REQ-40.9 編集ダイアログ初期は展開状態
+  // @requirement estimate-request/REQ-40.13 aria-expanded / aria-controls 属性
+  // @requirement estimate-request/REQ-40.14 表示条件未成立時はヘッダ非描画
+  // @requirement estimate-request/REQ-40.16 フォーカス時の視覚的明示（outline / boxShadow）
   // ==========================================================================
   describe('OCRセクション折りたたみ機能 (Req 40 / Task 86.2)', () => {
     /** create モードでファイルアップロード済みの状態を作るヘルパー */
@@ -2491,6 +2494,79 @@ describe('ReceivedQuotationForm', () => {
       fireEvent.blur(header);
       expect(header.style.outline).not.toContain('2px solid');
       expect(header.style.boxShadow).not.toContain('rgba(37, 99, 235, 0.2)');
+    });
+
+    // (11) ファイル種別非依存: PDF 以外（画像 / Excel）でも OCR セクションヘッダが
+    //      描画され、折りたたみ操作が同一に機能すること（Req 40.15）
+    /**
+     * @requirement estimate-request/REQ-40.15 ファイル種別（PDF/画像/Excel）にかかわらず OCR セクションが折りたたみ可能
+     */
+    it.each([
+      { mime: 'image/jpeg', fileName: 'test.jpg', label: '画像（JPEG）' },
+      { mime: 'image/png', fileName: 'test.png', label: '画像（PNG）' },
+      {
+        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        fileName: 'test.xlsx',
+        label: 'Excel',
+      },
+    ])(
+      '$label アップロード時も OCR セクションヘッダが描画され折りたたみが機能する (Req 40.15)',
+      async ({ mime, fileName }) => {
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            estimateRequestId={estimateRequestId}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const validFile = new File(['content'], fileName, { type: mime });
+        const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', {
+          value: [validFile],
+          writable: false,
+        });
+        fireEvent.change(fileInput);
+
+        // ヘッダ描画 + 初期展開
+        const header = await screen.findByTestId('ocr-section-header');
+        expect(header).toHaveAttribute('aria-expanded', 'true');
+
+        // クリックで折りたたみが機能する
+        fireEvent.click(header);
+        expect(header).toHaveAttribute('aria-expanded', 'false');
+      }
+    );
+
+    // (12) 既存機能との非干渉: OCR セクションを折りたたんでも
+    //      ファイル名・ファイルプレビュー・明細行エディタなどの既存 UI は
+    //      引き続き DOM に存在し可視であること（Req 40.17）
+    /**
+     * @requirement estimate-request/REQ-40.17 折りたたみ機能は受領見積書ダイアログの既存機能（ファイルアップロード/PDFプレビュー/明細行エディタ等）と干渉しない
+     */
+    it('OCR セクションを折りたたんでも既存機能（ファイル選択 input / 明細行エディタ）の DOM が保持される (Req 40.17)', async () => {
+      await renderWithUploadedFile();
+
+      // 折りたたみ前: file-input と明細テーブルが DOM に存在
+      const fileInputBefore = screen.getByTestId('file-input') as HTMLInputElement;
+      expect(fileInputBefore).toBeInTheDocument();
+      const lineItemsTableBefore = screen.queryByRole('table');
+      expect(lineItemsTableBefore).toBeInTheDocument();
+
+      // OCR セクションを折りたたむ
+      const header = screen.getByTestId('ocr-section-header');
+      fireEvent.click(header);
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+
+      // 折りたたみ後: file-input が依然として DOM に存在し disabled でないこと
+      const fileInputAfter = screen.getByTestId('file-input') as HTMLInputElement;
+      expect(fileInputAfter).toBeInTheDocument();
+      expect(fileInputAfter.disabled).toBe(false);
+
+      // 明細行エディタ（テーブル）も依然として DOM に存在
+      const lineItemsTableAfter = screen.queryByRole('table');
+      expect(lineItemsTableAfter).toBeInTheDocument();
     });
   });
 });

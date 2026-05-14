@@ -360,10 +360,9 @@ describe('QuantityGroupsRoutes', () => {
   /**
    * POST /api/quantity-groups/:id/copy
    *
-   * Requirements:
-   * - 38.2: 数量グループのコピーボタンクリックで同一数量表内に複製する
-   * - 38.9: 処理中であることを示すインジケーター表示（フロント要件だが API レイヤから 201 が返ることを担保）
-   * - 38.10: エラー時は ROLLBACK し不完全なコピーデータを残さない（API 層では 404/409/500 の正しいマッピングで担保）
+   * @requirement quantity-table-generation/REQ-38.2 数量グループのコピーボタンクリックで同一数量表内に複製する
+   * @requirement quantity-table-generation/REQ-38.9 処理中であることを示すインジケーター表示（フロント要件だが API レイヤから 201 が返ることを担保）
+   * @requirement quantity-table-generation/REQ-38.10 エラー時は ROLLBACK し不完全なコピーデータを残さない（API 層では 404/409/500 の正しいマッピングで担保）
    */
   describe('POST /api/quantity-groups/:id/copy', () => {
     const groupId = '123e4567-e89b-12d3-a456-426614174001';

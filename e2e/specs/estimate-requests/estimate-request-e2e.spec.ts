@@ -3358,8 +3358,10 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement estimate-request/REQ-39.2
+     * @requirement estimate-request/REQ-39.4 データモデルで参照内訳書を任意（NULL 許容）として扱う（API レスポンスの itemizedStatementId === null で担保）
      * @requirement estimate-request/REQ-39.7
      * @requirement estimate-request/REQ-39.8
+     * @requirement estimate-request/REQ-39.9 内訳書未紐付け時の見積依頼文表示（「内訳書を本文に含める」非表示で担保）
      * @requirement estimate-request/REQ-39.10
      * @requirement estimate-request/REQ-39.11
      * シナリオ 1: クイック作成→詳細
@@ -3557,6 +3559,7 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
+     * @requirement estimate-request/REQ-39.3 内訳書を選択して保存した場合に従来通り内訳書を紐付ける（itemizedStatementId が選択値と一致）
      * @requirement estimate-request/REQ-39.12
      * シナリオ 4: 内訳書ありの回帰
      * 既存の内訳書ありの見積依頼を作成し、詳細・一覧・編集すべての画面で

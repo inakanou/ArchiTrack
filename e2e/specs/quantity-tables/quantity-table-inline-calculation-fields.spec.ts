@@ -6,11 +6,16 @@
  * Requirements coverage (quantity-table-generation):
  * - @requirement quantity-table-generation/REQ-37.1: 計算用フィールド群をメイン行の操作列右側に同一行で水平配置
  * - @requirement quantity-table-generation/REQ-37.2: ラベルとテキストボックスを交互配置
+ * - @requirement quantity-table-generation/REQ-37.3: 行高さを増加させない（inner role="row" === 1 で担保）
+ * - @requirement quantity-table-generation/REQ-37.4: 面積・体積モードのラベル順序（幅→奥行き→高さ→重量→調整係数→丸め設定）
+ * - @requirement quantity-table-generation/REQ-37.5: ピッチモードのラベル順序（範囲長→端長1→端長2→ピッチ長→長さ→重量→調整係数→丸め設定）
  * - @requirement quantity-table-generation/REQ-37.6: ビューポート右端を超えた場合のページ全体水平スクロール閲覧
  * - @requirement quantity-table-generation/REQ-37.7: 計算方法「標準」では計算用フィールド非表示
  * - @requirement quantity-table-generation/REQ-37.8: 標準・面積体積・ピッチ混在時の独立描画
+ * - @requirement quantity-table-generation/REQ-37.9: バリデーション・自動計算・デフォルト値・小数桁挙動を維持（CalculationFields 配下の既存ユニット/コンポーネントテストでカバー、行内配置でも同一の入力 element として動作することを本 spec で確認）
  * - @requirement quantity-table-generation/REQ-37.10: 標準→面積体積／ピッチ切替時の即時表示
  * - @requirement quantity-table-generation/REQ-37.11: 面積体積／ピッチ→標準切替時の即時非表示
+ * - @requirement quantity-table-generation/REQ-37.12: 計算用フィールド群の専用タイトル行を表示しない（inner role="row" === 1 で担保）
  *
  * 設計参照:
  * - design.md L1979-1985: REQ-37 の E2E テスト視点

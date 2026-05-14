@@ -12,6 +12,9 @@
  * - 3.2: プロジェクト詳細画面に数量表情報として現場調査画像サムネイルを表示する
  * - 3.3: 数量グループと現場調査画像の紐付けを管理する
  *
+ * @requirement quantity-table-generation/REQ-38.8 複製先を元グループとは独立したデータとして管理（新規 groupId / displayOrder で create、配下 item は new groupId で createMany）
+ * @requirement quantity-table-generation/REQ-38.10 コピー処理中エラー時のロールバック（createMany throw 時にエラー伝搬し監査ログ未記録）
+ *
  * Task 2.2: 数量グループの管理機能を実装する
  *
  * @module __tests__/unit/services/quantity-group.service.test
