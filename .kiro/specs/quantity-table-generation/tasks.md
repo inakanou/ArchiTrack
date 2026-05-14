@@ -1283,7 +1283,7 @@
   - _Requirements: 37.12, 18.3, 18.4_
   - _Boundary: QuantityGroupTitleRow_
 
-- [ ] 52. 数量グループのコピー機能（バックエンド）
+- [x] 52. 数量グループのコピー機能（バックエンド）
 - [x] 52.1 グループ名切り詰めユーティリティを実装する
   - QuantityValidationService に名前 + サフィックスが最大文字数（全角25/半角50）を超える場合に元名を切り詰めて末尾にサフィックスを付与するユーティリティを追加する
   - 全角・半角混在時の文字数カウントは既存の QuantityValidationService の文字数カウントロジックに合わせる
@@ -1337,7 +1337,7 @@
   - _Requirements: 38.2, 38.9, 38.10_
   - _Boundary: quantity-groups.routes.ts_
 
-- [ ] 53. 数量グループのコピー機能（フロントエンド統合）
+- [x] 53. 数量グループのコピー機能（フロントエンド統合）
 - [x] 53.1 コピー API クライアントを追加する
   - copyQuantityGroup(groupId) を新規実装し POST /api/quantity-groups/:id/copy を呼び出す
   - レスポンスを QuantityGroupInfo 型として受け取る
@@ -1368,7 +1368,7 @@
   - _Boundary: QuantityTableEditPage_
   - _Depends: 53.1, 53.2_
 
-- [ ] 54. 数量グループのコピー機能（テスト）
+- [x] 54. 数量グループのコピー機能（テスト）
 - [x] 54.1 (P) コピー機能のフロントエンド単体テストを実装する
   - QuantityGroupCard のコピーボタン表示の単体テスト
   - isCopying=true 時にボタンが disabled かつスピナー表示されることの単体テスト
@@ -1380,7 +1380,7 @@
   - _Requirements: 38.1, 38.7, 38.9, 38.10, 38.11_
   - _Boundary: QuantityGroupCard, api/quantity-groups.ts, QuantityTableEditPage_
 
-- [ ] 54.2 数量グループコピーの E2E テストを実装する
+- [x] 54.2 数量グループコピーの E2E テストを実装する
   - グループ表題部のコピーボタン押下で複製先グループが元グループの直下に出現する
   - 複製先グループ名が「{元名}のコピー」となり、文字数超過時は元名が切り詰められた名前で複製される
   - 複製先に元グループの全数量項目（フィールド値・並び順）が含まれる
