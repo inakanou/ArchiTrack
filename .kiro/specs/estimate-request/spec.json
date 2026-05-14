@@ -1,10 +1,10 @@
 {
   "feature_name": "estimate-request",
   "created_at": "2026-01-23T00:00:00Z",
-  "updated_at": "2026-04-27T03:00:00Z",
+  "updated_at": "2026-05-11T04:00:00Z",
   "language": "ja",
   "phase": "tasks-generated",
-  "description": "見積依頼画面の項目選択セクションについて、チェックボックスを押すたびにリクエストが発生する仕様を、クライアントサイドでチェックボックスやラジオボタンを設定し最後に保存ボタンを押す事で入力が反映される実装に変更する。「カテゴリ」列を「任意分類」列に名称変更する。受領見積書の登録について、項目選択セクションで選択した項目の内容を一括転記できる機能を追加する（転記対象：任意分類、工種、名称、規格、単位、数量、備考）。受領見積書の登録画面の明細行に任意分類、工種列が存在しないバグを修正する。受領見積書の編集画面で既存アップロード済みPDFに対してOCR処理を再実行できるようにし、OCR失敗時のリトライ機能を追加する。PDFのみアップロードして保存し、後から編集画面でOCRを実行して明細行に転記するワークフローを実現する。PDFテキスト抽出をpdfjs-distのgetTextContent() APIベースのハイブリッドアプローチ（テキストPDF: pdfjs-dist直接抽出、スキャンPDF: Canvas→Tesseract OCRフォールバック）に改善し、全ページ対応とPDFプレビューのページナビゲーション機能を追加する。受領見積書の数値表示形式と丸め規則を統一する（数量: 小数2桁常時表示、単価: 整数表示、金額: 整数表示）。スキャンPDFフォールバック時のOCR精度を改善する: Canvas描画スケールを2.0→4.0に引き上げ、Canvas ImageDataに対するグレースケール変換→大津の二値化→水平線除去→垂直線除去の画像前処理パイプラインを追加し、表の罫線によるTesseract.jsの誤認識（ゴミ漢字生成）を防止する。OCRテキストからの構造化データ変換ロジック（convertOcrTextToLineItems）にゴミ行フィルタ、集計行除外（合計/小計/直接工事費/諸経費）、カンマ区切り数値正規化を追加する。Claude Vision APIを活用したOCR精度の大幅改善: フロントエンドでPDFページをCanvas画像化し、バックエンドのClaude API（Haiku 4.5モデル）のVision機能に送信して表データをJSON形式で構造化抽出する。Tesseract.jsの日本語認識精度の限界（空セルのゴミ漢字誤認識、文字分離）を根本的に解決し、建設見積書の表構造を視覚的に正確に理解・抽出する。バックエンドにClaude API連携エンドポイントを追加し、フロントエンドのOcrDataExtractorにClaude Vision抽出パスを追加する。Tesseract.jsフォールバックは維持し、API利用不可時のグレースフルデグラデーションを実現する。見積依頼詳細画面のレイアウトを変更し、選択状況セクションと受領見積書セクションを右サイドバーから項目選択セクションの下に移動して、各セクションが横に広くスペースをとれるフルワイドレイアウトにする。受領見積書の登録・編集画面にNET金額入力欄を追加する（受領見積書1件につき1フィールド、明細行の外側に配置）。見積依頼関連画面（一覧・新規作成・詳細）のパンくずナビゲーションをダッシュボード起点の正確な階層構造に改善し、戻るリンクを削除する。見積依頼新規作成画面の宛先選択フィールドを素のselectタグからTradingPartnerSelectコンポーネント（検索可能なオートコンプリート）に変更し、プロジェクト新規作成画面の顧客名選択と同様のUIを実現する。受領見積書の登録・編集ダイアログについて、PDFプレビュー部分に拡大縮小機能を追加する。ダイアログの横幅を拡大して表示領域を広くする。明細行のテキストボックスを数量表画面の対応する列と同じサイズ・文字サイズ・パディングに統一する。NET金額欄が空欄の場合、一括取り込みボタン押下時に明細行の合計金額をNET金額欄に自動入力する。見積依頼詳細画面のアクションセクションに現場調査報告書出力機能を追加し、指定した現場調査の調査報告書を見積依頼タイミングでも出力可能にする（出力対象項目の設定は現場調査画面で設定済みの前提、現場調査を指定するのみ）。受領見積書登録/編集ダイアログのインラインプレビューエリアに縦幅リサイズハンドルを追加し、リサイズ後の縦幅をlocalStorageに永続化する。受領見積書の明細行に並び順（sortOrder）を保持し、各行のアクションメニュー内に「上に移動」「下に移動」「削除」ボタンを統合して上下並び替えを可能にする（quantity-table と同方針）。受領見積書登録/編集ダイアログ編集中のセッション切れ時に、ダイアログ上に再認証モーダルを表示して編集状態（受領見積書名、提出日、ファイル、PDFプレビュー位置・倍率・縦幅、明細行と並び順、NET金額）を完全保持し、再認証成功で保存処理を自動リトライする。未保存変更がある状態でのダイアログクローズ/ページ離脱時には確認ダイアログを表示する。",
+  "description": "見積依頼画面の項目選択セクションについて、チェックボックスを押すたびにリクエストが発生する仕様を、クライアントサイドでチェックボックスやラジオボタンを設定し最後に保存ボタンを押す事で入力が反映される実装に変更する。「カテゴリ」列を「任意分類」列に名称変更する。受領見積書の登録について、項目選択セクションで選択した項目の内容を一括転記できる機能を追加する（転記対象：任意分類、工種、名称、規格、単位、数量、備考）。受領見積書の登録画面の明細行に任意分類、工種列が存在しないバグを修正する。受領見積書の編集画面で既存アップロード済みPDFに対してOCR処理を再実行できるようにし、OCR失敗時のリトライ機能を追加する。PDFのみアップロードして保存し、後から編集画面でOCRを実行して明細行に転記するワークフローを実現する。PDFテキスト抽出をpdfjs-distのgetTextContent() APIベースのハイブリッドアプローチ（テキストPDF: pdfjs-dist直接抽出、スキャンPDF: Canvas→Tesseract OCRフォールバック）に改善し、全ページ対応とPDFプレビューのページナビゲーション機能を追加する。受領見積書の数値表示形式と丸め規則を統一する（数量: 小数2桁常時表示、単価: 整数表示、金額: 整数表示）。スキャンPDFフォールバック時のOCR精度を改善する: Canvas描画スケールを2.0→4.0に引き上げ、Canvas ImageDataに対するグレースケール変換→大津の二値化→水平線除去→垂直線除去の画像前処理パイプラインを追加し、表の罫線によるTesseract.jsの誤認識（ゴミ漢字生成）を防止する。OCRテキストからの構造化データ変換ロジック（convertOcrTextToLineItems）にゴミ行フィルタ、集計行除外（合計/小計/直接工事費/諸経費）、カンマ区切り数値正規化を追加する。Claude Vision APIを活用したOCR精度の大幅改善: フロントエンドでPDFページをCanvas画像化し、バックエンドのClaude API（Haiku 4.5モデル）のVision機能に送信して表データをJSON形式で構造化抽出する。Tesseract.jsの日本語認識精度の限界（空セルのゴミ漢字誤認識、文字分離）を根本的に解決し、建設見積書の表構造を視覚的に正確に理解・抽出する。バックエンドにClaude API連携エンドポイントを追加し、フロントエンドのOcrDataExtractorにClaude Vision抽出パスを追加する。Tesseract.jsフォールバックは維持し、API利用不可時のグレースフルデグラデーションを実現する。見積依頼詳細画面のレイアウトを変更し、選択状況セクションと受領見積書セクションを右サイドバーから項目選択セクションの下に移動して、各セクションが横に広くスペースをとれるフルワイドレイアウトにする。受領見積書の登録・編集画面にNET金額入力欄を追加する（受領見積書1件につき1フィールド、明細行の外側に配置）。見積依頼関連画面（一覧・新規作成・詳細）のパンくずナビゲーションをダッシュボード起点の正確な階層構造に改善し、戻るリンクを削除する。見積依頼新規作成画面の宛先選択フィールドを素のselectタグからTradingPartnerSelectコンポーネント（検索可能なオートコンプリート）に変更し、プロジェクト新規作成画面の顧客名選択と同様のUIを実現する。受領見積書の登録・編集ダイアログについて、PDFプレビュー部分に拡大縮小機能を追加する。ダイアログの横幅を拡大して表示領域を広くする。明細行のテキストボックスを数量表画面の対応する列と同じサイズ・文字サイズ・パディングに統一する。NET金額欄が空欄の場合、一括取り込みボタン押下時に明細行の合計金額をNET金額欄に自動入力する。見積依頼詳細画面のアクションセクションに現場調査報告書出力機能を追加し、指定した現場調査の調査報告書を見積依頼タイミングでも出力可能にする（出力対象項目の設定は現場調査画面で設定済みの前提、現場調査を指定するのみ）。受領見積書登録/編集ダイアログのインラインプレビューエリアに縦幅リサイズハンドルを追加し、リサイズ後の縦幅をlocalStorageに永続化する。受領見積書の明細行に並び順（sortOrder）を保持し、各行のアクションメニュー内に「上に移動」「下に移動」「削除」ボタンを統合して上下並び替えを可能にする（quantity-table と同方針）。受領見積書登録/編集ダイアログ編集中のセッション切れ時に、ダイアログ上に再認証モーダルを表示して編集状態（受領見積書名、提出日、ファイル、PDFプレビュー位置・倍率・縦幅、明細行と並び順、NET金額）を完全保持し、再認証成功で保存処理を自動リトライする。未保存変更がある状態でのダイアログクローズ/ページ離脱時には確認ダイアログを表示する。受領見積書登録/編集ダイアログのOCRセクション（OCR/データパースのアクションエリア）を折りたたみ可能とし、明細行編集に集中したい場面で画面の縦方向のスペースを節約できるようにする（デフォルト展開、永続化なし、登録・編集両方が対象、OCR処理は折りたたみ中も継続）。",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -19,6 +19,7 @@
       "approved": true
     }
   },
+  "phase": "tasks-generated",
   "ready_for_implementation": true,
   "update_history": [
     {
@@ -88,6 +89,46 @@
     {
       "date": "2026-04-27T03:00:00Z",
       "changes": "Requirement 36-38タスク追記: 受領見積書ダイアログ改善2の実装タスク（Task 76-81）を追加。Foundation（76: DB sort_order NULL調査・OcrDataExtractor経路確認）、Core（77: FileInlinePreview縦幅リサイズ、78: LineItemEditor並び順保持＋LineItemActionMenu、79: ReceivedQuotationFormセッション保護＋未保存変更ガード）、Integration（80: OcrDataExtractorセッション連携）、Validation（81: ユニット4本＋E2E1本）の4-phase構成。-y指定により requirements/design/tasks を全自動承認、ready_for_implementationをtrueに更新。task-graph sanity reviewで指摘された3点（Req 38.2/3/8/14のコバレッジ追加、Task 76.1の条件付き化、Task 79.3のRESIZE_MAX_HEIGHT記述リフレーズ）を反映済み"
+    },
+    {
+      "date": "2026-05-08T00:00:00Z",
+      "changes": "Requirement 39追加: 見積依頼作成時の内訳書選択を必須から任意に変更。数量表作成前に電話等で業者へ取り急ぎ見積依頼を行うユースケースに対応。データモデルでitemizedStatementIdをNULL許容に変更、内訳書未紐付け時のUI挙動（項目選択セクション/Excel出力ボタン/「内訳書を本文に含める」非表示、見積依頼文の【内容】は「添付内訳書の通り」固定、見積依頼一覧の参照内訳書名列に「-」表示）を定義。受領見積書セクションは従来通り利用可。後段の見積書作成機能で受領見積書の内訳を活用するフローを想定。既存ACのうち影響を受ける Requirement 3 AC 3/7/9 にaudit trailコメントを追記。要件追加に伴いapprovals全体（requirements/design/tasks）を未承認に戻し、ready_for_implementationをfalseに戻した。design/tasksの追記が必要"
+    },
+    {
+      "date": "2026-05-08T01:00:00Z",
+      "changes": "kiro-validate-gap実施: research.mdに『Requirement 39 — 見積依頼における内訳書の任意化』Gap Analysisセクションをappend追記。Requirement-to-Asset Map（DB/BE/FE/テストの変更対象15箇所）、Option A（既存拡張、推奨）/B（モード分離）/C（仮想内訳書、却下）の比較、Effort=M（3-5日）/Risk=Low-Medium、Research Items R-39-1〜R-39-7（特に R-39-1: Req 6 AC 9 vs 現行実装の文言挙動差異／R-39-2: itemizedStatementId/Name の null セーフ化網羅／R-39-3: includeBreakdownInBody の制約方針／R-39-4: 編集画面で後付け禁止確認／R-39-5: EstimateRequestItem 自動初期化スキップ／R-39-6: 監査ログ nullable 化／R-39-7: Status 遷移影響）を起票。次フェーズは /kiro-spec-design でR-39-1〜7 を確定後、Option Aで設計"
+    },
+    {
+      "date": "2026-05-08T02:00:00Z",
+      "changes": "Requirement 39設計追記7: 内訳書任意化の技術設計をdesign.mdにappend追記。Light Discoveryで既存パターン（nullable Prisma column、Zod optional、条件レンダリング）の再利用可否を確認し、新規ライブラリ・新規コンポーネント・新規APIエンドポイントなしのOption A設計に決定。Boundary Commitments / Out of Boundary / Allowed Dependencies / Revalidation Triggers を明示。Research Items R-39-1〜R-39-7 を全て確定（R-39-1: Req 6 AC 9 ドリフトはスコープ外、R-39-2: itemizedStatementId/Name を string|null に伝搬、R-39-3: 内訳書なしは includeBreakdownInBody=false 強制、R-39-4: 編集画面で内訳書後付けなし、R-39-5: EstimateRequestItem 自動初期化スキップ、R-39-6: 監査ログ itemCount=0 で記録、R-39-7: Status 遷移は内訳書非依存）。File Structure Plan に 16 ファイル（DB/BE 6 + FE 7 + テスト 3 + 新規 migration 1）を具体パスで列挙。design review gate（mechanical + judgment 両方）パス。-y 指定により approvals.requirements.approved を true に自動承認、approvals.design.approved を false に戻し承認待ち状態とした。phase を design-generated に更新"
+    },
+    {
+      "date": "2026-05-08T03:00:00Z",
+      "changes": "kiro-validate-design (Req 39 設計追記7) 実施: GO 判断。Critical Issue 1 (EstimateRequestService.update() の includeBreakdownInBody 強制 false ガード未明示) を design.md に追記。R-39-3 制約を create と update で一貫適用するため、update() の updateData 構築箇所で対象レコードの itemizedStatementId === null を確認のうえ input.includeBreakdownInBody を false に正規化する設計を明記。Requirements Traceability の Req 39.9 行に EstimateRequestService.update を追加、Testing Strategy の Backend Unit Tests に「update() で内訳書なし対象に includeBreakdownInBody=true を渡すと永続化値が false に正規化される」テストを追加。Design Strengths として Boundary Commitments の明確性と File Structure Plan の具体性を確認。approvals.design.approved は引き続き false（ユーザーレビュー待ち）"
+    },
+    {
+      "date": "2026-05-08T04:00:00Z",
+      "changes": "Requirement 39タスク追記: 内訳書任意化の実装タスク（Task 82-85）を追加。Foundation（82: DB マイグレーション・BE/FE 型定義 nullable 化）、Core BE（83: Zod schema/routes 改訂、create 分岐、update 正規化、TextService null セーフ）、Core FE（84: Form 必須化解除、List「-」フォールバック、Detail 条件レンダリング＋TextPanel props、Edit 条件表示）、Validation（85: BE service.test/routes.test/text.service.test、FE Form.test、E2E 4 シナリオ）の 4-phase 構成、計 17 サブタスク。task-plan review gate（coverage + executability）パス。task-graph sanity review（hidden prerequisites / ordering / boundary / size / contradictions）パス。-y 指定により approvals.design.approved を true に自動承認、approvals.tasks.approved を true に自動承認、ready_for_implementation を true に更新、phase を tasks-generated に更新"
+    },
+    {
+      "date": "2026-05-11T00:00:00Z",
+      "changes": "Requirement 40追加: 受領見積書登録/編集ダイアログのOCRセクション折りたたみ機能。kiro-discoveryでPath A（estimate-request既存スペックの拡張）と判定。スコープ確定（登録・編集両方／デフォルト展開／永続化なし／OCR処理は折りたたみ中も継続）。AC 1-17 を EARS 形式で記述（セクションヘッダ表示・クリック/キーボード操作トグル・展開状態の本体表示・折りたたみ状態の本体非表示・初期展開・非永続化・OCR処理継続・抽出結果の内部保持・処理中/完了/失敗いずれの状態でも操作許可・表示条件未成立時の非表示・全ファイル種別対応・フォーカス時の視覚的明示・既存機能（Req 13-23/31-38）への非影響）。要件追加に伴い approvals 全体（requirements/design/tasks）を未承認に戻し、ready_for_implementation を false に戻した。design/tasks の追記が必要。requirements review gate（mechanical: 数値ID/EARS/実装言語非混入、judgment: coverage/testability/boundary clarity）パス"
+    },
+    {
+      "date": "2026-05-11T01:00:00Z",
+      "changes": "kiro-validate-gap (Req 40) 実施: research.md に『Requirement 40 — 受領見積書OCRセクション折りたたみ機能 Gap Analysis』セクションを append 追記。Requirement-to-Asset Map（§2 表）で AC 1-17 を実装アセットへマップし Missing/Constraint タグ付け。Option A（ReceivedQuotationForm ローカル state + インライン UI、推奨）/B（共通 CollapsibleSection 新規）/C（HTML <details>）の3案を比較し Option A を推奨。Effort=S（1〜2日）/Risk=Low と評価。重要技術制約として OcrDataExtractor は内部 state でしか OCR 進行・結果を保持しないため折りたたみ時 unmount 不可（display: none で隠す）を §1 で明示。Research Items R-40-1〜R-40-6（折りたたみ実装方式／a11y 実装方式／ChevronIcon 共通化判断／ヘッダ文言／Req 38 AC 5 との影響確認／テスト戦略）を起票。既存パターン（EstimateItemTable.tsx の ChevronIcon、aria-expanded 使用箇所）の再利用候補を確認"
+    },
+    {
+      "date": "2026-05-11T02:00:00Z",
+      "changes": "Requirement 40設計追記8: OCRセクション折りたたみ機能の技術設計を design.md に append 追記。Light Discovery で既存パターン（EstimateItemTable.tsx の ChevronIcon、aria-expanded 規約）の再利用可否を確認し、新規ライブラリ・新規共通コンポーネント・新規 API なしの Option A 設計に決定。Boundary Commitments / Out of Boundary / Allowed Dependencies / Revalidation Triggers を明示。Research Items R-40-1〜R-40-6 を全て確定（R-40-1: hidden HTML 属性採用、R-40-2: <button type=\"button\"> 採用、R-40-3: ChevronIcon ローカル定義、R-40-4: ラベル「OCR / データパース」、R-40-5: Req 38 AC 5 保持対象に含めず、R-40-6: Unit 9 / E2E 2 戦略）。File Structure Plan に 3 ファイル（ReceivedQuotationForm.tsx 実装 + .test.tsx + e2e spec）を具体パスで列挙。design review gate（mechanical: 全 AC traceability/boundary populated/file structure populated/alignment/no orphan、judgment: coverage/architecture readiness/boundary/executability）パス。synthesis outcomes（Generalization 見送り・Build vs Adopt・Simplification）を research.md に append。-y 指定により approvals.requirements.approved を true に自動承認、approvals.design.approved を false に戻し承認待ち状態とした。phase を design-generated に更新"
+    },
+    {
+      "date": "2026-05-11T03:00:00Z",
+      "changes": "kiro-validate-design (Req 40 設計追記8) 実施: GO 判断。Critical Issue 1 (Req 40 AC 16 のフォーカス時の視覚的明示が OS デフォルトのフォーカスリング依存で環境依存・テスト検証困難) を確認。ユーザー選択 (a) により useState<boolean> isOcrHeaderFocused + onFocus/onBlur ハンドラ + styles.ocrSectionHeaderFocus (明示的な outline / boxShadow) の inline style マージ方式に確定。design.md の「Design Review Outcomes」セクションを新設し、State Management / Handlers / JSX 変更例 / Styles 追加 / Requirements Traceability (40.16 行) / Testing Strategy (テストケース 10 追加) / File Structure Plan (責務記述更新) / Open Questions (focus-visible 表現を strikethrough で更新) / アクセシビリティ実装 R-40-2 の各箇所を更新。Unit テストケースは 9 → 10 に増加（フォーカス時の視覚的明示検証を追加）。Design Strengths として Boundary Commitments の徹底と OcrDataExtractor unmount 不可制約の多重確認を確認。research.md に Design Review Outcomes セクションを append。approvals.design.approved は引き続き false（ユーザーレビュー待ち）"
+    },
+    {
+      "date": "2026-05-11T04:00:00Z",
+      "changes": "Requirement 40タスク追記: OCRセクション折りたたみ機能の実装タスク（Task 86）を追加。Core 実装（86.1: ReceivedQuotationForm に state/handlers/ChevronIcon/styles/JSX 変更、登録/編集両分岐に同一ヘッダ構造、OcrDataExtractor props 不変・hidden 属性で unmount 回避）、Validation（86.2: Unit 10 ケース・86.3: E2E 2 シナリオ）の 3 サブタスク構成。86.2/86.3 は別ファイルで (P) 並列実行可、共通先行は 86.1。task-plan review gate（coverage: 全 AC 17 件カバー / executability: 観察可能完了・Boundary 単一・依存明示）パス。task-graph sanity review で指摘された Req 40.15 の 86.1 _Requirements 漏れと removeFile ガード言及不足を反映済み。-y 指定により approvals.design.approved を true に自動承認、approvals.tasks.approved を true に自動承認、ready_for_implementation を true に更新、phase を tasks-generated に更新"
     }
   ]
 }

@@ -274,7 +274,9 @@ export class EstimateRequestTextService {
     lines.push('');
 
     // 内訳書を本文に含める場合
-    if (request.includeBreakdownInBody) {
+    // Requirements 39.9: 二重ガード（includeBreakdownInBody=false 強制保存 + selectedItems.length=0）で
+    // 内訳書未紐付けの見積依頼では【見積対象項目】セクションを確実に省略する
+    if (request.includeBreakdownInBody && selectedItems.length > 0) {
       lines.push('【見積対象項目】');
       lines.push('');
       for (const item of selectedItems) {
@@ -338,7 +340,9 @@ export class EstimateRequestTextService {
     lines.push('');
 
     // 内訳書を本文に含める場合
-    if (request.includeBreakdownInBody) {
+    // Requirements 39.9: 二重ガード（includeBreakdownInBody=false 強制保存 + selectedItems.length=0）で
+    // 内訳書未紐付けの見積依頼では【見積対象項目】セクションを確実に省略する
+    if (request.includeBreakdownInBody && selectedItems.length > 0) {
       lines.push('【見積対象項目】');
       lines.push('');
       for (const item of selectedItems) {

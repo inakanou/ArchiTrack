@@ -83,6 +83,7 @@ const meta = {
     onSelectImage: fn(),
     onUpdateItem: fn(),
     onDeleteItem: fn(),
+    onCopyGroup: fn(),
   },
   decorators: [
     (Story) => (
@@ -181,6 +182,43 @@ export const NoName: Story = {
     },
     groupDisplayName: 'グループ 1',
     initialExpanded: true,
+  },
+};
+
+/**
+ * コピーボタン表示
+ * 編集モードかつ onCopyGroup 指定時、表題部の並替↑↓ボタンと削除ボタンの間に
+ * コピーボタンが表示される（Task 53.2: REQ-38.1, 38.12）
+ */
+export const WithCopyButton: Story = {
+  args: {
+    group: sampleGroup,
+    groupDisplayName: '基礎工事',
+    initialExpanded: true,
+    isEditable: true,
+    groupIndex: 1,
+    groupTotalCount: 3,
+    onMoveGroupUp: fn(),
+    onMoveGroupDown: fn(),
+  },
+};
+
+/**
+ * コピー処理中
+ * isCopying=true の状態。コピーボタンは disabled になりスピナーが表示される
+ * （Task 53.2: REQ-38.9）
+ */
+export const Copying: Story = {
+  args: {
+    group: sampleGroup,
+    groupDisplayName: '基礎工事',
+    initialExpanded: true,
+    isEditable: true,
+    groupIndex: 1,
+    groupTotalCount: 3,
+    onMoveGroupUp: fn(),
+    onMoveGroupDown: fn(),
+    isCopying: true,
   },
 };
 

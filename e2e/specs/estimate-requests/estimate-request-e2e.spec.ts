@@ -1523,10 +1523,16 @@ test.describe('見積依頼機能', () => {
   test.describe('Requirement 3: 見積依頼新規作成（追加テスト）', () => {
     /**
      * @requirement estimate-request/REQ-3.9
-     * プロジェクトに内訳書が存在しない場合、「内訳書が登録されていません」というメッセージを表示する
-     * 注意: このテストは新しいプロジェクトを使用して検証
+     * @requirement estimate-request/REQ-39.5
+     * @requirement estimate-request/REQ-39.1
+     * Task 85.5: 内訳書任意化に伴うメッセージ更新
+     * - メッセージ文言が「内訳書が登録されていません（任意）。」に変更されたことを確認
+     * - 内訳書任意化により「作成」ボタンが活性であることを確認
+     * - 必須マーカー `*` が内訳書フィールドに表示されないことを確認
      */
-    test('REQ-3.9: 内訳書がない場合にメッセージが表示される', async ({ page }) => {
+    test('REQ-3.9 / REQ-39.5: 内訳書がない場合に（任意）付きメッセージが表示され作成ボタンが活性である', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 内訳書のない新しいプロジェクトを作成
@@ -1574,10 +1580,20 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 内訳書がない場合のメッセージが表示される
-      await expect(page.getByText(/内訳書が登録されていません/i)).toBeVisible({
+      // Task 85.5: 「内訳書が登録されていません（任意）。」メッセージが表示される（Req 39.5）
+      await expect(page.getByText(/内訳書が登録されていません（任意）。/)).toBeVisible({
         timeout: getTimeout(10000),
       });
+
+      // Task 85.5: 内訳書フィールドの必須マーカー `*` が表示されないこと（Req 39.1）
+      const itemizedLabel = page.locator('label[for="itemizedStatementId"]');
+      await expect(itemizedLabel).toBeVisible({ timeout: getTimeout(5000) });
+      // ラベル内に「（任意）」が含まれていることを確認
+      await expect(itemizedLabel).toContainText('（任意）');
+
+      // Task 85.5: 内訳書未登録でも「作成」ボタンが活性であることを確認（Req 39.5）
+      const createButton = page.getByRole('button', { name: /^作成$/ });
+      await expect(createButton).toBeEnabled({ timeout: getTimeout(5000) });
     });
   });
 
@@ -3318,6 +3334,326 @@ test.describe('見積依頼機能', () => {
 
       // beforeunloadダイアログが表示されたことを確認
       expect(dialogShown).toBe(true);
+    });
+  });
+
+  // ============================================================================
+  // Requirement 39: 内訳書任意化（Task 85.5: 4 シナリオ）
+  // ============================================================================
+  //
+  // - シナリオ 1（クイック作成→詳細）: 内訳書空欄で作成し、詳細画面で項目選択
+  //   セクション・Excel 出力・「本文に含める」チェックボックス・参照内訳書「-」・
+  //   受領見積書セクションが期待通り表示されることの確認（Req 39.2, 39.7, 39.8, 39.10, 39.11）
+  // - シナリオ 2（一覧表示）: 一覧で参照内訳書名列に「-」が表示されること（Req 39.6）
+  // - シナリオ 3（編集挙動）: 編集画面で内訳書（読み取り専用）ブロックが非表示で、
+  //   name 更新が可能であること（Req 39.10, 39.12）。method 更新は詳細画面の
+  //   ItemSelectionPanel 内ラジオで行うため、内訳書なしでは UI が出ない実装現状を
+  //   反映し、name 更新のみを観察（CONCERNS 参照）
+  // - シナリオ 4（内訳書ありの回帰）: 既存挙動が維持されていることの確認（Req 39.12）
+  // ============================================================================
+
+  test.describe('Requirement 39: 内訳書任意化', () => {
+    let quickEstimateRequestId: string | null = null;
+    let regressionEstimateRequestId: string | null = null;
+
+    /**
+     * @requirement estimate-request/REQ-39.2
+     * @requirement estimate-request/REQ-39.4 データモデルで参照内訳書を任意（NULL 許容）として扱う（API レスポンスの itemizedStatementId === null で担保）
+     * @requirement estimate-request/REQ-39.7
+     * @requirement estimate-request/REQ-39.8
+     * @requirement estimate-request/REQ-39.9 内訳書未紐付け時の見積依頼文表示（「内訳書を本文に含める」非表示で担保）
+     * @requirement estimate-request/REQ-39.10
+     * @requirement estimate-request/REQ-39.11
+     * シナリオ 1: クイック作成→詳細
+     * 内訳書空欄でクイック作成 → 詳細画面で：
+     *   - 項目選択セクション（table[aria-label="内訳書項目一覧"]）が非表示
+     *   - Excel 出力ボタンが非表示
+     *   - 「内訳書を本文に含める」チェックボックスが非表示
+     *   - 参照内訳書表示が「-」
+     *   - 受領見積書セクション（受領見積書 ReceivedQuotationList）が利用可能
+     */
+    test('REQ-39.2 / 39.7 / 39.8 / 39.10 / 39.11: クイック作成（内訳書空欄）後の詳細画面で必要な非表示・表示が反映される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // プロジェクト詳細経由ではなく作成画面へ直接遷移（Req 39.2）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 名前を入力
+      const nameInput = page.locator('input#name');
+      await nameInput.fill('Task85.5 クイック作成テスト');
+
+      // 宛先を選択（協力業者）
+      await selectTradingPartnerByName(page, tradingPartnerName);
+
+      // 内訳書は意図的に空欄のまま（クイック作成 / Req 39.2）
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      // デフォルトの空文字 value のままであることを確認（第3原則: 前提条件で無効化せず明示）
+      const initialValue = await itemizedStatementSelect.inputValue();
+      expect(initialValue).toBe('');
+
+      // 作成 API を待機
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /^作成$/ }).click();
+      const createResponse = await createPromise;
+      const createBody = await createResponse.json();
+      // itemizedStatementId が null（内訳書未紐付け）であることを確認（Req 39.2）
+      expect(createBody.itemizedStatementId).toBeNull();
+      quickEstimateRequestId = createBody.id;
+
+      // 詳細画面に遷移を確認
+      await expect(page).toHaveURL(/\/estimate-requests\/[0-9a-f-]+$/, {
+        timeout: getTimeout(10000),
+      });
+
+      // 項目選択セクション（内訳書項目一覧テーブル）が非表示（Req 39.7）
+      await expect(page.locator('table[aria-label="内訳書項目一覧"]')).not.toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // Excel 出力ボタンが非表示（Req 39.8）
+      await expect(page.locator('button:has-text("Excelでエクスポート")')).not.toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 「内訳書を本文に含める」チェックボックスが非表示（Req 39.8）
+      // 見積依頼文パネルを開いてもチェックボックスが現れないことを確認
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      if (await showTextButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+        await showTextButton.click();
+        // パネル展開後も「内訳書を本文に含める」は非表示
+        await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
+          timeout: getTimeout(5000),
+        });
+      } else {
+        // 「見積依頼文を表示」ボタンが存在しない場合でも、最低限のチェックは行う
+        await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
+          timeout: getTimeout(3000),
+        });
+      }
+
+      // 参照内訳書表示が「-」（Req 39.7 関連 / 一覧含む全体方針）
+      // 基本情報カード内の「参照内訳書」ラベルに対応する値が「-」
+      const detailReferenceText = page
+        .locator('text=参照内訳書')
+        .locator('..')
+        .locator('span')
+        .last();
+      await expect(detailReferenceText).toHaveText('-', { timeout: getTimeout(5000) });
+
+      // 受領見積書セクションが利用可能（Req 39.11）
+      // ReceivedQuotationList コンポーネントの可視性を確認
+      // セクションタイトル等のテキストで判定（実装の data-testid 不在のため文言で判定）
+      await expect(page.getByText(/受領見積書/).first()).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-39.6
+     * シナリオ 2: 一覧表示
+     * 内訳書なしの見積依頼が一覧で参照内訳書名列に「-」と表示されることの確認
+     */
+    test('REQ-39.6: 内訳書なしの見積依頼が一覧で参照内訳書名「-」と表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(quickEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 一覧画面に遷移
+      await page.goto(`/projects/${createdProjectId}/estimate-requests`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i)).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // クイック作成した見積依頼カードを取得
+      const card = page.getByTestId(`request-card-${quickEstimateRequestId}`);
+      await expect(card).toBeVisible({ timeout: getTimeout(10000) });
+
+      // カード内のメタ情報に「-」が含まれる（参照内訳書名フォールバック）
+      // 実装: `${formatDate(...)} / ${tradingPartnerName} / ${formatMethod(method)} / ${itemizedStatementName ?? '-'}`
+      const meta = card.locator('p').first();
+      await expect(meta).toContainText(' / -', { timeout: getTimeout(5000) });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-39.10
+     * @requirement estimate-request/REQ-39.12
+     * シナリオ 3: 編集挙動
+     * 内訳書なしの見積依頼の編集画面で内訳書（読み取り専用）ブロックが非表示、
+     * name の更新が通常通り可能であることの確認。
+     *
+     * 注: method 更新の UI は詳細画面の ItemSelectionPanel 内ラジオで提供されており、
+     *     内訳書なし時は ItemSelectionPanel 自体が非表示になる現実装に合わせ、
+     *     編集画面では name 更新のみを E2E で観察する。method API 更新は backend
+     *     unit/integration テスト（Task 85.1, 85.2）でカバー。
+     */
+    test('REQ-39.10 / 39.12: 編集画面で内訳書ブロックが非表示、name 更新が可能', async ({
+      page,
+    }) => {
+      expect(quickEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 編集画面に遷移
+      await page.goto(`/estimate-requests/${quickEstimateRequestId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 内訳書（読み取り専用）ブロックが非表示（Req 39.12）
+      // 「内訳書は変更できません」ヘルパーテキストが表示されないことで判定
+      await expect(page.getByText(/内訳書は変更できません/)).not.toBeVisible({
+        timeout: getTimeout(3000),
+      });
+
+      // 「内訳書」ラベル（読み取り専用ブロック内のもの）も表示されない
+      // 注: 「参照内訳書」など他のラベルとの競合を避けるため exact 比較は厳格化しない
+      const readOnlyItemizedLabel = page.locator('label', { hasText: /^内訳書$/ });
+      await expect(readOnlyItemizedLabel).toHaveCount(0, { timeout: getTimeout(3000) });
+
+      // name の更新が可能（Req 39.10）
+      const nameInput = page.locator('input#name');
+      await expect(nameInput).toBeEnabled({ timeout: getTimeout(5000) });
+
+      const updatedName = `Task85.5 編集後_${Date.now()}`;
+      await nameInput.fill(updatedName);
+
+      const updatePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'PUT' &&
+          response.status() === 200,
+        { timeout: getTimeout(30000) }
+      );
+
+      // 更新ボタンをクリック
+      await page.getByRole('button', { name: /^更新$/ }).click();
+      const updateResponse = await updatePromise;
+      const updateBody = await updateResponse.json();
+      expect(updateBody.name).toBe(updatedName);
+      // 内訳書未紐付けが維持されていることを確認（Req 39.12）
+      expect(updateBody.itemizedStatementId).toBeNull();
+    });
+
+    /**
+     * @requirement estimate-request/REQ-39.3 内訳書を選択して保存した場合に従来通り内訳書を紐付ける（itemizedStatementId が選択値と一致）
+     * @requirement estimate-request/REQ-39.12
+     * シナリオ 4: 内訳書ありの回帰
+     * 既存の内訳書ありの見積依頼を作成し、詳細・一覧・編集すべての画面で
+     * 従来通りの表示・挙動であることの確認。
+     */
+    test('REQ-39.12: 内訳書ありの見積依頼で従来挙動が維持される（回帰）', async ({ page }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 内訳書ありの見積依頼を新規作成
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      const requestName = 'Task85.5 内訳書あり回帰テスト';
+      await page.locator('input#name').fill(requestName);
+      await selectTradingPartnerByName(page, tradingPartnerName);
+
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^作成$/ }).click();
+      const createResponse = await createPromise;
+      const createBody = await createResponse.json();
+      // 内訳書 ID が紐付いていることを確認（Req 39.12: 既存挙動維持）
+      expect(createBody.itemizedStatementId).toBe(createdItemizedStatementId);
+      regressionEstimateRequestId = createBody.id;
+
+      // 詳細画面に遷移を確認
+      await expect(page).toHaveURL(/\/estimate-requests\/[0-9a-f-]+$/, {
+        timeout: getTimeout(10000),
+      });
+
+      // 詳細: 項目選択セクション（内訳書項目一覧テーブル）が表示される
+      await expect(page.locator('table[aria-label="内訳書項目一覧"]')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 詳細: Excel 出力ボタンが表示される
+      await expect(page.locator('button:has-text("Excelでエクスポート")')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 詳細: 参照内訳書には内訳書名（「-」ではない）が表示される
+      const detailReferenceText = page
+        .locator('text=参照内訳書')
+        .locator('..')
+        .locator('span')
+        .last();
+      await expect(detailReferenceText).not.toHaveText('-', { timeout: getTimeout(5000) });
+      await expect(detailReferenceText).toContainText('見積依頼テスト用内訳書');
+
+      // 一覧: 参照内訳書名列に内訳書名が表示される（「-」ではない）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i)).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      const card = page.getByTestId(`request-card-${regressionEstimateRequestId}`);
+      await expect(card).toBeVisible({ timeout: getTimeout(10000) });
+      const meta = card.locator('p').first();
+      await expect(meta).toContainText('見積依頼テスト用内訳書', { timeout: getTimeout(5000) });
+
+      // 編集画面: 内訳書（読み取り専用）ブロックが表示される
+      await page.goto(`/estimate-requests/${regressionEstimateRequestId}/edit`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 「内訳書は変更できません」ヘルパーテキストが表示される
+      await expect(page.getByText(/内訳書は変更できません/)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      // 内訳書名がそのまま読み取り専用フィールドに表示される
+      await expect(page.getByText('見積依頼テスト用内訳書').first()).toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
   });
 });
