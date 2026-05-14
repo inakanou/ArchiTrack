@@ -26,9 +26,16 @@ import {
   QuantityGroupNotFoundError,
   QuantityGroupConflictError,
   QuantityTableValidationError,
+  OptimisticLockError,
 } from '../errors/quantityTableError.js';
 import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
 import { QUANTITY_GROUP_TARGET_TYPE } from '../types/audit-log.types.js';
+import { QuantityValidationService } from './quantity-validation.service.js';
+
+/**
+ * 数量グループのコピー時に元名へ付与するサフィックス（Requirements: 38.5）
+ */
+const GROUP_COPY_SUFFIX = 'のコピー';
 
 /**
  * QuantityGroupService依存関係
@@ -36,6 +43,12 @@ import { QUANTITY_GROUP_TARGET_TYPE } from '../types/audit-log.types.js';
 export interface QuantityGroupServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
+  /**
+   * 数量項目バリデーションサービス（任意）。
+   * グループ名切り詰めユーティリティ `truncateForCopy` を利用するため使用する。
+   * 未指定の場合は内部で {@link QuantityValidationService} を生成する。
+   */
+  quantityValidationService?: QuantityValidationService;
 }
 
 /**
@@ -107,10 +120,13 @@ type PrismaTransactionClient = Omit<
 export class QuantityGroupService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
+  private readonly quantityValidationService: QuantityValidationService;
 
   constructor(deps: QuantityGroupServiceDependencies) {
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
+    this.quantityValidationService =
+      deps.quantityValidationService ?? new QuantityValidationService();
   }
 
   /**
@@ -521,6 +537,183 @@ export class QuantityGroupService {
           itemCount,
         },
         after: null,
+      });
+    });
+  }
+
+  /**
+   * 数量グループを同一数量表内に複製する
+   *
+   * トランザクション内で以下を実行:
+   * 1. 元グループから親数量表IDを取得（未取得時は QuantityGroupNotFoundError）
+   * 2. 親 QuantityTable 行へ `SELECT ... FOR UPDATE` で行ロックを取得
+   *    （並行 displayOrder 操作を serialize / 不在検出時は OptimisticLockError）
+   * 3. ロック取得後、元グループと配下の全数量項目を再取得
+   *    （未取得時は OptimisticLockError、論理削除済み数量表は QuantityGroupNotFoundError）
+   * 4. 元グループの displayOrder より大きい後続グループの displayOrder を +1 シフト
+   * 5. 複製グループを displayOrder = 元 + 1、surveyImageId 同値、
+   *    name = `truncateForCopy('{元名}', 'のコピー')` で挿入
+   * 6. 配下の全数量項目を全フィールド値・displayOrder を保持して複製
+   * 7. 監査ログに QUANTITY_GROUP_COPIED アクションを記録
+   *
+   * Requirements:
+   * - 38.2: 数量グループのコピーボタンクリックで同一数量表内に複製する
+   * - 38.3: 配下の全数量項目（各フィールド・並び順）を複製する
+   * - 38.4: 元の写真紐づけ（surveyImageId）を複製先でも維持する
+   * - 38.5: 複製先のグループ名は「{元のグループ名}のコピー」
+   * - 38.6: 上限超過時は元名を切り詰めてサフィックスを末尾に付与
+   * - 38.7: 元グループの直下（displayOrder = 元 + 1）に挿入する
+   * - 38.8: 複製先を元グループとは独立したデータとして管理する
+   * - 38.10: エラー時は ROLLBACK し不完全なコピーデータを残さない
+   *
+   * @param groupId - 複製元の数量グループID
+   * @param actorId - 操作ユーザーID（監査ログ用）
+   * @returns 複製先グループの情報
+   * @throws QuantityGroupNotFoundError 元グループが存在しない／論理削除済み数量表に属する場合
+   * @throws OptimisticLockError 親数量表ロック取得失敗、ロック後の元グループ削除検出時
+   */
+  async copy(groupId: string, actorId: string): Promise<QuantityGroupInfo> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. 元グループから親数量表IDを取得（ロック取得対象の確定）
+      const sourceGroupPreLock = await tx.quantityGroup.findUnique({
+        where: { id: groupId },
+        select: {
+          id: true,
+          quantityTableId: true,
+        },
+      });
+
+      if (!sourceGroupPreLock) {
+        throw new QuantityGroupNotFoundError(groupId);
+      }
+
+      const quantityTableId = sourceGroupPreLock.quantityTableId;
+
+      // 2. 親 QuantityTable 行に SELECT FOR UPDATE で排他ロックを取得
+      //    同一数量表内の並行 displayOrder 操作を serialize する
+      const lockedTables = await tx.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`
+          SELECT id FROM "quantity_tables"
+          WHERE id = ${quantityTableId} AND "deletedAt" IS NULL
+          FOR UPDATE
+        `
+      );
+
+      if (!Array.isArray(lockedTables) || lockedTables.length === 0) {
+        throw new OptimisticLockError('並行操作との競合が発生しました。再試行してください。', {
+          quantityTableId,
+        });
+      }
+
+      // 3. ロック取得後、元グループと配下の全数量項目を再取得
+      const sourceGroup = await tx.quantityGroup.findUnique({
+        where: { id: groupId },
+        include: {
+          quantityTable: {
+            select: { id: true, deletedAt: true },
+          },
+          items: {
+            orderBy: { displayOrder: 'asc' },
+          },
+        },
+      });
+
+      // ロック取得後に元グループが消失している場合は並行操作との競合
+      if (!sourceGroup) {
+        throw new OptimisticLockError(
+          'コピー処理中に元グループが削除されたため、処理を中止しました。',
+          { groupId }
+        );
+      }
+
+      // 親数量表が論理削除済みの場合は存在しない扱い
+      if (sourceGroup.quantityTable.deletedAt !== null) {
+        throw new QuantityGroupNotFoundError(groupId);
+      }
+
+      // 4. 後続グループの displayOrder を +1 シフト
+      await tx.quantityGroup.updateMany({
+        where: {
+          quantityTableId,
+          displayOrder: { gt: sourceGroup.displayOrder },
+        },
+        data: { displayOrder: { increment: 1 } },
+      });
+
+      // 5. 複製グループの名前を生成（上限超過時は元名を切り詰めてサフィックスを末尾に付与）
+      const baseName = sourceGroup.name ?? '';
+      const copiedName = this.quantityValidationService.truncateForCopy(
+        baseName,
+        GROUP_COPY_SUFFIX
+      );
+
+      // 6. 複製グループの挿入
+      const copiedGroup = await tx.quantityGroup.create({
+        data: {
+          quantityTableId,
+          name: copiedName,
+          surveyImageId: sourceGroup.surveyImageId,
+          displayOrder: sourceGroup.displayOrder + 1,
+        },
+        include: {
+          _count: {
+            select: { items: true },
+          },
+        },
+      });
+
+      // 7. 配下の全数量項目を複製（全フィールド値・displayOrder を保持）
+      if (sourceGroup.items.length > 0) {
+        const itemsData: Prisma.QuantityItemCreateManyInput[] = sourceGroup.items.map((item) => ({
+          quantityGroupId: copiedGroup.id,
+          majorCategory: item.majorCategory,
+          middleCategory: item.middleCategory,
+          minorCategory: item.minorCategory,
+          customCategory: item.customCategory,
+          workType: item.workType,
+          name: item.name,
+          specification: item.specification,
+          unit: item.unit,
+          calculationMethod: item.calculationMethod,
+          calculationParams:
+            item.calculationParams === null
+              ? Prisma.JsonNull
+              : (item.calculationParams as Prisma.InputJsonValue),
+          adjustmentFactor: item.adjustmentFactor,
+          roundingUnit: item.roundingUnit,
+          quantity: item.quantity,
+          remarks: item.remarks,
+          displayOrder: item.displayOrder,
+        }));
+
+        await tx.quantityItem.createMany({
+          data: itemsData,
+        });
+      }
+
+      // 8. 監査ログに QUANTITY_GROUP_COPIED を記録
+      await this.auditLogService.createLog({
+        action: 'QUANTITY_GROUP_COPIED',
+        actorId,
+        targetType: QUANTITY_GROUP_TARGET_TYPE,
+        targetId: copiedGroup.id,
+        before: {
+          sourceGroupId: sourceGroup.id,
+          sourceName: sourceGroup.name,
+          sourceDisplayOrder: sourceGroup.displayOrder,
+        },
+        after: {
+          quantityTableId,
+          name: copiedGroup.name,
+          surveyImageId: copiedGroup.surveyImageId,
+          displayOrder: copiedGroup.displayOrder,
+          itemCount: sourceGroup.items.length,
+        },
+      });
+
+      return this.toQuantityGroupInfo({
+        ...copiedGroup,
+        _count: { items: sourceGroup.items.length },
       });
     });
   }

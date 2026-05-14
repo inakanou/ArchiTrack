@@ -271,6 +271,281 @@ describe('EstimateRequestService', () => {
       await expect(service.create(input, actorId)).rejects.toThrow(ItemizedStatementNotFoundError);
     });
 
+    it('内訳書未指定（undefined）の場合、内訳書なしで保存され EstimateRequestItem は生成されない（Requirements: 39.2, 39.3, 39.4）', async () => {
+      // Arrange
+      const actorId = 'user-001';
+      const input = {
+        name: '内訳書なし見積依頼',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        method: 'EMAIL' as const,
+        // itemizedStatementId 未指定
+      };
+
+      const mockTradingPartner = {
+        id: 'tp-001',
+        name: 'テスト協力業者',
+        deletedAt: null,
+      };
+
+      const mockTypeMapping = {
+        id: 'tpm-001',
+        tradingPartnerId: 'tp-001',
+        type: 'SUBCONTRACTOR',
+      };
+
+      const mockCreatedRequest = {
+        id: 'er-no-is-001',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: null,
+        name: '内訳書なし見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        createdAt: new Date('2026-05-08T00:00:00Z'),
+        updatedAt: new Date('2026-05-08T00:00:00Z'),
+        deletedAt: null,
+        tradingPartner: { id: 'tp-001', name: 'テスト協力業者' },
+        itemizedStatement: null,
+      };
+
+      const itemizedStatementFindUnique = vi.fn();
+      const estimateRequestItemCreateMany = vi.fn();
+      const estimateRequestCreate = vi.fn().mockResolvedValue(mockCreatedRequest);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(mockTradingPartner),
+          },
+          tradingPartnerTypeMapping: {
+            findFirst: vi.fn().mockResolvedValue(mockTypeMapping),
+          },
+          itemizedStatement: {
+            findUnique: itemizedStatementFindUnique,
+          },
+          estimateRequest: {
+            create: estimateRequestCreate,
+          },
+          estimateRequestItem: {
+            createMany: estimateRequestItemCreateMany,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.create(input, actorId);
+
+      // Assert: 結果（itemizedStatementId が null で永続化）
+      expect(result.id).toBe('er-no-is-001');
+      expect(result.itemizedStatementId).toBeNull();
+      expect(result.itemizedStatementName).toBeNull();
+      expect(result.includeBreakdownInBody).toBe(false);
+
+      // Assert: 内訳書検証はスキップされている
+      expect(itemizedStatementFindUnique).not.toHaveBeenCalled();
+
+      // Assert: EstimateRequestItem は生成されない
+      expect(estimateRequestItemCreateMany).not.toHaveBeenCalled();
+
+      // Assert: estimateRequest.create に itemizedStatementId: null が渡る
+      expect(estimateRequestCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemizedStatementId: null,
+            includeBreakdownInBody: false,
+          }),
+        })
+      );
+
+      // Assert: 監査ログ after.itemCount=0, itemizedStatementId=null
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ESTIMATE_REQUEST_CREATED',
+          after: expect.objectContaining({
+            itemizedStatementId: null,
+            itemCount: 0,
+          }),
+        })
+      );
+    });
+
+    it('内訳書なし（itemizedStatementId=null 明示・includeBreakdownInBody=false）でも内訳書検証はスキップされ、通常通り保存される（Requirements: 39.2, 39.4）', async () => {
+      // Arrange
+      const actorId = 'user-001';
+      const input = {
+        name: '内訳書なし見積依頼（明示 null）',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: null,
+        includeBreakdownInBody: false,
+        method: 'EMAIL' as const,
+      };
+
+      const mockTradingPartner = {
+        id: 'tp-001',
+        name: 'テスト協力業者',
+        deletedAt: null,
+      };
+
+      const mockTypeMapping = {
+        id: 'tpm-001',
+        tradingPartnerId: 'tp-001',
+        type: 'SUBCONTRACTOR',
+      };
+
+      const mockCreatedRequest = {
+        id: 'er-no-is-explicit-null',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: null,
+        name: '内訳書なし見積依頼（明示 null）',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        createdAt: new Date('2026-05-08T00:00:00Z'),
+        updatedAt: new Date('2026-05-08T00:00:00Z'),
+        deletedAt: null,
+        tradingPartner: { id: 'tp-001', name: 'テスト協力業者' },
+        itemizedStatement: null,
+      };
+
+      const itemizedStatementFindUnique = vi.fn();
+      const estimateRequestItemCreateMany = vi.fn();
+      const estimateRequestCreate = vi.fn().mockResolvedValue(mockCreatedRequest);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(mockTradingPartner),
+          },
+          tradingPartnerTypeMapping: {
+            findFirst: vi.fn().mockResolvedValue(mockTypeMapping),
+          },
+          itemizedStatement: {
+            findUnique: itemizedStatementFindUnique,
+          },
+          estimateRequest: {
+            create: estimateRequestCreate,
+          },
+          estimateRequestItem: {
+            createMany: estimateRequestItemCreateMany,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.create(input, actorId);
+
+      // Assert: 戻り値が内訳書なしで構成されている
+      expect(result.itemizedStatementId).toBeNull();
+      expect(result.itemizedStatementName).toBeNull();
+      expect(result.includeBreakdownInBody).toBe(false);
+
+      // Assert: 内訳書 ID 明示 null 指定時も内訳書検証スキップ
+      expect(itemizedStatementFindUnique).not.toHaveBeenCalled();
+
+      // Assert: EstimateRequestItem.createMany が呼ばれない（R-39-5）
+      expect(estimateRequestItemCreateMany).not.toHaveBeenCalled();
+
+      // Assert: 永続化値が itemizedStatementId=null / includeBreakdownInBody=false
+      expect(estimateRequestCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemizedStatementId: null,
+            includeBreakdownInBody: false,
+          }),
+        })
+      );
+
+      // Assert: 監査ログ after.itemizedStatementId=null / itemCount=0（R-39-6）
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ESTIMATE_REQUEST_CREATED',
+          after: expect.objectContaining({
+            itemizedStatementId: null,
+            itemCount: 0,
+          }),
+        })
+      );
+    });
+
+    it('内訳書なしで includeBreakdownInBody=true を渡しても false が強制保存される（Requirements: 39.3）', async () => {
+      // Arrange
+      const actorId = 'user-001';
+      const input = {
+        name: '内訳書なし見積依頼',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: null,
+        includeBreakdownInBody: true, // ユーザーが true を指定
+      };
+
+      const mockTradingPartner = {
+        id: 'tp-001',
+        name: 'テスト協力業者',
+        deletedAt: null,
+      };
+
+      const mockTypeMapping = {
+        id: 'tpm-001',
+        tradingPartnerId: 'tp-001',
+        type: 'SUBCONTRACTOR',
+      };
+
+      const mockCreatedRequest = {
+        id: 'er-no-is-002',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: null,
+        name: '内訳書なし見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        createdAt: new Date('2026-05-08T00:00:00Z'),
+        updatedAt: new Date('2026-05-08T00:00:00Z'),
+        deletedAt: null,
+        tradingPartner: { id: 'tp-001', name: 'テスト協力業者' },
+        itemizedStatement: null,
+      };
+
+      const estimateRequestCreate = vi.fn().mockResolvedValue(mockCreatedRequest);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(mockTradingPartner),
+          },
+          tradingPartnerTypeMapping: {
+            findFirst: vi.fn().mockResolvedValue(mockTypeMapping),
+          },
+          itemizedStatement: {
+            findUnique: vi.fn(),
+          },
+          estimateRequest: {
+            create: estimateRequestCreate,
+          },
+          estimateRequestItem: {
+            createMany: vi.fn(),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      await service.create(input, actorId);
+
+      // Assert: includeBreakdownInBody=false が強制される
+      expect(estimateRequestCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemizedStatementId: null,
+            includeBreakdownInBody: false,
+          }),
+        })
+      );
+    });
+
     it('内訳書に項目がない場合、エラーを発生させる（Requirements: 4.13）', async () => {
       // Arrange
       const actorId = 'user-001';
@@ -541,6 +816,131 @@ describe('EstimateRequestService', () => {
       await expect(
         service.update('er-001', { name: '新しい名前' }, 'user-001', expectedUpdatedAt)
       ).rejects.toThrow(EstimateRequestConflictError);
+    });
+
+    it('内訳書なしの見積依頼に includeBreakdownInBody=true を渡しても false に正規化される（Requirements: 39.9）', async () => {
+      // Arrange
+      const requestId = 'er-002';
+      const actorId = 'user-001';
+      const expectedUpdatedAt = new Date('2026-05-08T00:00:00Z');
+      const input = {
+        includeBreakdownInBody: true, // ユーザーが true を指定
+      };
+
+      // 対象レコードは itemizedStatementId === null（内訳書なし）
+      const mockRequest = {
+        id: 'er-002',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: null,
+        name: '内訳書なし見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        createdAt: new Date('2026-05-07T00:00:00Z'),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+        tradingPartner: { id: 'tp-001', name: 'テスト協力業者' },
+        itemizedStatement: null,
+      };
+
+      const mockUpdatedRequest = {
+        ...mockRequest,
+        includeBreakdownInBody: false, // 永続化値は false
+        updatedAt: new Date('2026-05-08T01:00:00Z'),
+      };
+
+      const updateSpy = vi.fn().mockResolvedValue(mockUpdatedRequest);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateRequest: {
+            findUnique: vi.fn().mockResolvedValue(mockRequest),
+            update: updateSpy,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.update(requestId, input, actorId, expectedUpdatedAt);
+
+      // Assert: 永続化値は false に正規化されている
+      expect(updateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: requestId },
+          data: expect.objectContaining({
+            includeBreakdownInBody: false,
+          }),
+        })
+      );
+      expect(result.includeBreakdownInBody).toBe(false);
+
+      // Assert: 監査ログ after も正規化後の値（false）
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ESTIMATE_REQUEST_UPDATED',
+          after: expect.objectContaining({
+            includeBreakdownInBody: false,
+          }),
+        })
+      );
+    });
+
+    it('内訳書ありの見積依頼に includeBreakdownInBody=true を渡したときは true がそのまま反映される（Requirements: 39.12）', async () => {
+      // Arrange: 既存挙動が保たれることを確認
+      const requestId = 'er-003';
+      const actorId = 'user-001';
+      const expectedUpdatedAt = new Date('2026-05-08T00:00:00Z');
+      const input = {
+        includeBreakdownInBody: true,
+      };
+
+      const mockRequest = {
+        id: 'er-003',
+        projectId: 'proj-001',
+        tradingPartnerId: 'tp-001',
+        itemizedStatementId: 'is-001',
+        name: '内訳書あり見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        createdAt: new Date('2026-05-07T00:00:00Z'),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+        tradingPartner: { id: 'tp-001', name: 'テスト協力業者' },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+      };
+
+      const mockUpdatedRequest = {
+        ...mockRequest,
+        includeBreakdownInBody: true,
+        updatedAt: new Date('2026-05-08T01:00:00Z'),
+      };
+
+      const updateSpy = vi.fn().mockResolvedValue(mockUpdatedRequest);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimateRequest: {
+            findUnique: vi.fn().mockResolvedValue(mockRequest),
+            update: updateSpy,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.update(requestId, input, actorId, expectedUpdatedAt);
+
+      // Assert: 内訳書ありなので true がそのまま反映される
+      expect(updateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: requestId },
+          data: expect.objectContaining({
+            includeBreakdownInBody: true,
+          }),
+        })
+      );
+      expect(result.includeBreakdownInBody).toBe(true);
     });
   });
 

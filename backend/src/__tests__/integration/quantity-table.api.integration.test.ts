@@ -800,6 +800,301 @@ describe('Quantity Table API Integration Tests', () => {
         expect(deleted).toBeNull();
       });
     });
+
+    /**
+     * Task 52.5: 数量グループコピーAPIの統合テスト
+     *
+     * Requirements:
+     * - 38.2: 数量グループのコピーボタン押下時、当該数量グループを同じ数量表内に複製する
+     * - 38.9: コピー処理中の重複コピー操作防止（権限・認証・存在チェック含むエラー応答）
+     * - 38.10: コピー処理中のエラー時に不完全データを残さない（ロールバック）
+     */
+    describe('POST /api/quantity-groups/:id/copy', () => {
+      // 権限なしユーザー（quantity_table:create を持たない）の認証情報
+      // 注: 既存テストファイルの基盤に共通の権限なしヘルパーが無いため、
+      // この describe 内で専用ユーザーを作成し、afterAll で確実にクリーンアップする。
+      const NO_PERMISSION_EMAIL = 'test-quantity-group-copy-no-permission@example.com';
+      let noPermissionAccessToken: string;
+      // ローカルに作成した複製グループの ID を追跡し、各テスト後に確実にクリーンアップ
+      const createdGroupIdsToCleanup: string[] = [];
+
+      beforeAll(async () => {
+        // 権限なしユーザーを作成（ロール未割り当て = quantity_table:create 権限なし）
+        const passwordHash = await (
+          await import('@node-rs/argon2')
+        ).hash('TestPassword123!', {
+          memoryCost: 65536,
+          timeCost: 3,
+          parallelism: 4,
+        });
+
+        await prisma.user.create({
+          data: {
+            email: NO_PERMISSION_EMAIL,
+            displayName: 'No Permission User (Group Copy Test)',
+            passwordHash,
+          },
+        });
+
+        const loginResponse = await request(app).post('/api/v1/auth/login').send({
+          email: NO_PERMISSION_EMAIL,
+          password: 'TestPassword123!',
+        });
+
+        noPermissionAccessToken = loginResponse.body.accessToken;
+      });
+
+      afterAll(async () => {
+        // 権限なしユーザーをクリーンアップ
+        await prisma.user.deleteMany({
+          where: { email: NO_PERMISSION_EMAIL },
+        });
+      });
+
+      afterEach(async () => {
+        // テスト内で作成された複製グループを物理削除（カスケードで配下項目も削除）
+        if (createdGroupIdsToCleanup.length > 0) {
+          await prisma.quantityGroup.deleteMany({
+            where: { id: { in: createdGroupIdsToCleanup } },
+          });
+          createdGroupIdsToCleanup.length = 0;
+        }
+      });
+
+      it('成功時に 201 と QuantityGroupInfo が返り、配下項目を含む複製データが DB に永続化される (Req 38.2)', async () => {
+        // Arrange: 複製元グループ + 配下に 2 項目を作成
+        const sourceGroup = await prisma.quantityGroup.create({
+          data: {
+            quantityTableId: testQuantityTableId,
+            name: 'コピーAPI統合テスト元グループ',
+            surveyImageId: null,
+            displayOrder: 50,
+          },
+        });
+        createdGroupIdsToCleanup.push(sourceGroup.id);
+
+        await prisma.quantityItem.createMany({
+          data: [
+            {
+              quantityGroupId: sourceGroup.id,
+              majorCategory: '建築工事',
+              middleCategory: '仮設工事',
+              minorCategory: '足場',
+              customCategory: 'カスタム分類A',
+              workType: '足場工事',
+              name: '外部足場',
+              specification: '規格A',
+              unit: 'm2',
+              calculationMethod: 'STANDARD',
+              adjustmentFactor: 1.0,
+              roundingUnit: 0.01,
+              quantity: 150.5,
+              remarks: '統合テスト備考',
+              displayOrder: 0,
+            },
+            {
+              quantityGroupId: sourceGroup.id,
+              majorCategory: '建築工事',
+              workType: '型枠工事',
+              name: '型枠',
+              unit: 'm2',
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 5.0, depth: 3.0, height: 2.5 },
+              adjustmentFactor: 1.1,
+              roundingUnit: 0.25,
+              quantity: 41.25,
+              displayOrder: 1,
+            },
+          ],
+        });
+
+        // Act
+        const response = await request(app)
+          .post(`/api/quantity-groups/${sourceGroup.id}/copy`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send();
+
+        // Assert: レスポンス本体
+        expect(response.status).toBe(201);
+        expect(response.body.id).toBeDefined();
+        expect(response.body.id).not.toBe(sourceGroup.id);
+        expect(response.body.quantityTableId).toBe(testQuantityTableId);
+        expect(response.body.displayOrder).toBe(sourceGroup.displayOrder + 1);
+        expect(response.body.name).toBe(`${sourceGroup.name}のコピー`);
+        expect(response.body.surveyImageId).toBe(sourceGroup.surveyImageId);
+        expect(response.body.itemCount).toBe(2);
+
+        const copiedGroupId = response.body.id as string;
+        createdGroupIdsToCleanup.push(copiedGroupId);
+
+        // Assert: DB 永続化検証（配下項目の全フィールドが複製されていること）
+        const persistedCopiedGroup = await prisma.quantityGroup.findUnique({
+          where: { id: copiedGroupId },
+          include: {
+            items: {
+              orderBy: { displayOrder: 'asc' },
+            },
+          },
+        });
+        expect(persistedCopiedGroup).not.toBeNull();
+        expect(persistedCopiedGroup!.quantityTableId).toBe(testQuantityTableId);
+        expect(persistedCopiedGroup!.name).toBe(`${sourceGroup.name}のコピー`);
+        expect(persistedCopiedGroup!.displayOrder).toBe(sourceGroup.displayOrder + 1);
+        expect(persistedCopiedGroup!.items).toHaveLength(2);
+
+        const persistedItem1 = persistedCopiedGroup!.items[0]!;
+        expect(persistedItem1.majorCategory).toBe('建築工事');
+        expect(persistedItem1.middleCategory).toBe('仮設工事');
+        expect(persistedItem1.minorCategory).toBe('足場');
+        expect(persistedItem1.customCategory).toBe('カスタム分類A');
+        expect(persistedItem1.workType).toBe('足場工事');
+        expect(persistedItem1.name).toBe('外部足場');
+        expect(persistedItem1.specification).toBe('規格A');
+        expect(persistedItem1.unit).toBe('m2');
+        expect(persistedItem1.calculationMethod).toBe('STANDARD');
+        expect(persistedItem1.remarks).toBe('統合テスト備考');
+        expect(persistedItem1.displayOrder).toBe(0);
+
+        const persistedItem2 = persistedCopiedGroup!.items[1]!;
+        expect(persistedItem2.calculationMethod).toBe('AREA_VOLUME');
+        expect(persistedItem2.workType).toBe('型枠工事');
+        expect(persistedItem2.displayOrder).toBe(1);
+      });
+
+      it('認証なしリクエストは 401 で拒否される (Req 38.9)', async () => {
+        // Arrange
+        const sourceGroup = await prisma.quantityGroup.create({
+          data: {
+            quantityTableId: testQuantityTableId,
+            name: '認証なしテスト元グループ',
+            displayOrder: 60,
+          },
+        });
+        createdGroupIdsToCleanup.push(sourceGroup.id);
+
+        // Act: Authorization ヘッダーを付けない
+        const response = await request(app)
+          .post(`/api/quantity-groups/${sourceGroup.id}/copy`)
+          .send();
+
+        // Assert
+        expect(response.status).toBe(401);
+      });
+
+      it('権限なしユーザー（quantity_table:create 権限なし）では 403 が返る (Req 38.9)', async () => {
+        // Arrange: 認証済みだが quantity_table:create を持たないユーザーで実行
+        const sourceGroup = await prisma.quantityGroup.create({
+          data: {
+            quantityTableId: testQuantityTableId,
+            name: '権限なしテスト元グループ',
+            displayOrder: 61,
+          },
+        });
+        createdGroupIdsToCleanup.push(sourceGroup.id);
+
+        expect(noPermissionAccessToken).toBeDefined();
+
+        // Act
+        const response = await request(app)
+          .post(`/api/quantity-groups/${sourceGroup.id}/copy`)
+          .set('Authorization', `Bearer ${noPermissionAccessToken}`)
+          .send();
+
+        // Assert
+        expect(response.status).toBe(403);
+      });
+
+      it('存在しないグループ ID で 404 が返る (Req 38.9)', async () => {
+        // Arrange: 実在しない UUID
+        const nonExistentGroupId = '12345678-1234-4234-a234-123456789012';
+
+        // Act
+        const response = await request(app)
+          .post(`/api/quantity-groups/${nonExistentGroupId}/copy`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send();
+
+        // Assert
+        expect(response.status).toBe(404);
+        expect(response.body).toHaveProperty('code', 'QUANTITY_GROUP_NOT_FOUND');
+      });
+
+      it('同一グループへの並行コピー操作で、両方 201（displayOrder が連続シフト）または片方 409 となり、データ不整合が発生しない (Req 38.10)', async () => {
+        // Arrange: 複製元グループ
+        const sourceGroup = await prisma.quantityGroup.create({
+          data: {
+            quantityTableId: testQuantityTableId,
+            name: '並行コピーテスト元グループ',
+            displayOrder: 70,
+          },
+        });
+        createdGroupIdsToCleanup.push(sourceGroup.id);
+
+        // Act: 同一グループに対して 2 リクエスト同時実行
+        const [response1, response2] = await Promise.all([
+          request(app)
+            .post(`/api/quantity-groups/${sourceGroup.id}/copy`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send(),
+          request(app)
+            .post(`/api/quantity-groups/${sourceGroup.id}/copy`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send(),
+        ]);
+
+        // 後始末用に成功したコピー先をクリーンアップ対象に登録
+        for (const res of [response1, response2]) {
+          if (res.status === 201 && res.body?.id) {
+            createdGroupIdsToCleanup.push(res.body.id as string);
+          }
+        }
+
+        // Assert: 受容される結果は以下のいずれか
+        //   (A) 両方 201（SELECT FOR UPDATE による直列化で displayOrder が連続シフトされる）
+        //   (B) 片方 201, 片方 409（並行制御競合で片方が中止される）
+        const statuses = [response1.status, response2.status].sort((a, b) => a - b);
+        const isCaseA = statuses[0] === 201 && statuses[1] === 201;
+        const isCaseB = statuses[0] === 201 && statuses[1] === 409;
+        expect(isCaseA || isCaseB).toBe(true);
+
+        // Assert: データ不整合が発生していないこと
+        // 同一数量表内の displayOrder は一意に並んでいる必要がある
+        const groupsInTable = await prisma.quantityGroup.findMany({
+          where: { quantityTableId: testQuantityTableId },
+          select: { id: true, displayOrder: true },
+          orderBy: { displayOrder: 'asc' },
+        });
+        const displayOrders = groupsInTable.map((g) => g.displayOrder);
+        const uniqueDisplayOrders = new Set(displayOrders);
+        expect(uniqueDisplayOrders.size).toBe(displayOrders.length);
+
+        if (isCaseA) {
+          // 両方成功時: 2 件のコピー先が DB 上に永続化されている
+          // 注: レスポンス本体の displayOrder はそのリクエスト処理時点での値であり、
+          //     後続リクエストによるシフトは反映されないため、ここでは DB の最終状態を検証する。
+          const copyIds = [response1.body.id as string, response2.body.id as string];
+          const copiedGroupsInDb = await prisma.quantityGroup.findMany({
+            where: { id: { in: copyIds } },
+            select: { id: true, displayOrder: true },
+            orderBy: { displayOrder: 'asc' },
+          });
+          expect(copiedGroupsInDb).toHaveLength(2);
+          // 2 件のコピー先 displayOrder は互いに異なり、いずれも元グループの直後（+1, +2）に配置される
+          const copiedDisplayOrders = copiedGroupsInDb
+            .map((g) => g.displayOrder)
+            .sort((a, b) => a - b);
+          expect(copiedDisplayOrders[0]).not.toBe(copiedDisplayOrders[1]);
+          expect(copiedDisplayOrders).toEqual([
+            sourceGroup.displayOrder + 1,
+            sourceGroup.displayOrder + 2,
+          ]);
+        } else {
+          // 片方 409 時: 409 レスポンスのエラーコードは OPTIMISTIC_LOCK_ERROR
+          const conflictResponse = response1.status === 409 ? response1 : response2;
+          expect(conflictResponse.body).toHaveProperty('code', 'OPTIMISTIC_LOCK_ERROR');
+        }
+      });
+    });
   });
 
   describe('数量項目API', () => {

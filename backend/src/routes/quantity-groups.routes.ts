@@ -30,8 +30,10 @@ import {
   QuantityGroupNotFoundError,
   QuantityGroupConflictError,
   QuantityTableValidationError,
+  OptimisticLockError,
 } from '../errors/quantityTableError.js';
 import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
+import { ForbiddenError } from '../errors/apiError.js';
 
 // mergeParams: true を設定してネストされたルートからquantityTableIdを取得できるようにする
 const router = Router({ mergeParams: true });
@@ -581,6 +583,107 @@ router.delete(
           status: 404,
           detail: error.message,
           code: 'QUANTITY_GROUP_NOT_FOUND',
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/quantity-groups/{id}/copy:
+ *   post:
+ *     summary: 数量グループのコピー
+ *     description: |
+ *       指定された数量グループを同一数量表内に複製し、元グループの直下に挿入する。
+ *       配下の全数量項目と現場調査写真の紐づけも複製される。
+ *     tags:
+ *       - Quantity Groups
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 複製元の数量グループID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: 複製成功（複製先グループ情報を返却）
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 元の数量グループが見つからない
+ *       409:
+ *         description: 並行制御競合（OptimisticLockError）
+ *       500:
+ *         description: サーバー内部エラー
+ */
+router.post(
+  '/:id/copy',
+  authenticate,
+  requirePermission('quantity_table:create'),
+  validate(quantityGroupIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const actorId = req.user!.userId;
+
+      const copiedGroup = await quantityGroupService.copy(id, actorId);
+
+      logger.info(
+        {
+          userId: actorId,
+          sourceGroupId: id,
+          copiedGroupId: copiedGroup.id,
+          quantityTableId: copiedGroup.quantityTableId,
+        },
+        'Quantity group copied successfully'
+      );
+
+      res.status(201).json(copiedGroup);
+    } catch (error) {
+      if (error instanceof QuantityGroupNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/quantity-group-not-found',
+          title: 'Quantity Group Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'QUANTITY_GROUP_NOT_FOUND',
+        });
+        return;
+      }
+      if (error instanceof OptimisticLockError) {
+        const lockDetails = error.details as Record<string, unknown> | undefined;
+        res.status(409).json({
+          type: 'https://architrack.example.com/problems/optimistic-lock-error',
+          title: 'Conflict',
+          status: 409,
+          detail: error.message,
+          code: 'OPTIMISTIC_LOCK_ERROR',
+          ...(lockDetails ?? {}),
+        });
+        return;
+      }
+      if (error instanceof ForbiddenError) {
+        res.status(403).json({
+          type: 'https://architrack.example.com/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          detail: error.message,
+          code: 'FORBIDDEN',
         });
         return;
       }
