@@ -1783,3 +1783,201 @@
   - 観察可能完了: 上記 7 シナリオの Playwright E2E テストが全て pass する
   - _Boundary: e2e/specs_
   - _Requirements: 36.1, 36.4, 36.9, 36.10, 37.7, 37.13, 38.2, 38.3, 38.6, 38.7, 38.8, 38.12, 38.13, 38.14_
+
+- [x] 82. 内訳書任意化の Foundation - DB スキーマと型定義（Requirement 39）
+- [x] 82.1 EstimateRequest.itemizedStatementId の nullable 化（Prisma スキーマ＋マイグレーション）
+  - backend/prisma/schema.prisma の EstimateRequest model で itemizedStatementId を String? に変更し、リレーション itemizedStatement も optional に変更
+  - npx prisma migrate dev --name make_estimate_request_itemized_statement_optional でマイグレーションファイルを生成
+  - 生成された migration.sql が `ALTER TABLE estimate_requests ALTER COLUMN itemized_statement_id DROP NOT NULL` のみであることを確認（不要な ALTER が含まれる場合は手動で削除）
+  - npx prisma generate で生成された型 (EstimateRequest) で itemizedStatementId が string | null になることを確認
+  - 観察可能完了: マイグレーション実行後 psql で `\d estimate_requests` を確認すると itemized_statement_id が NOT NULL 制約を持たず、既存行の値が保持されている
+  - _Boundary: backend/prisma_
+  - _Requirements: 39.4_
+
+- [x] 82.2 (P) Backend サービス型定義の nullable 化
+  - backend/src/services/estimate-request.service.ts の CreateEstimateRequestInput.itemizedStatementId を `string | null | undefined` に変更
+  - EstimateRequestInfo.itemizedStatementId と itemizedStatementName を `string | null` に変更
+  - toEstimateRequestInfo() の戻り値で `request.itemizedStatement?.name ?? null`、`request.itemizedStatementId ?? null` の null セーフ化
+  - delete() 内 select の `itemizedStatementId` が nullable に伴い、型整合する形で監査ログの before に渡す
+  - 観察可能完了: tsc --noEmit が backend ディレクトリで成功し、EstimateRequestInfo を返す各メソッド（findById/findByProjectId/findLatestByProjectId/update）の戻り値型が string | null を含む
+  - _Boundary: EstimateRequestService_
+  - _Depends: 82.1_
+  - _Requirements: 39.4, 39.12_
+
+- [x] 82.3 (P) Frontend 型定義の nullable 化
+  - frontend/src/types/estimate-request.types.ts の EstimateRequestInfo.itemizedStatementId と itemizedStatementName を `string | null` に変更
+  - CreateEstimateRequestInput.itemizedStatementId を optional（`string | undefined`）に変更
+  - 観察可能完了: tsc --noEmit が frontend ディレクトリで成功し、EstimateRequestInfo を参照する各画面コンポーネントが新しい型と整合する（後続タスク 84.x で利用箇所を null セーフ化する）
+  - _Boundary: frontend/src/types_
+  - _Requirements: 39.4, 39.12_
+
+- [x] 83. Backend Service / Schema / Route の改訂（Requirement 39）
+- [x] 83.1 createEstimateRequestSchema の optional 化と routes OpenAPI 更新
+  - backend/src/schemas/estimate-request.schema.ts の itemizedStatementId フィールドを `.regex(UUID_REGEX, ...).optional().nullable().or(z.literal('').transform(() => null))` に変更
+  - ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_REQUIRED 定数を撤去（参照元なしを grep で確認後）
+  - backend/src/routes/estimate-requests.routes.ts の OpenAPI required リストから itemizedStatementId を削除し、説明欄に「省略時は内訳書未紐付けの見積依頼として作成される」を追記
+  - routes 内の req.body から CreateEstimateRequestInput への詰め替え箇所で `itemizedStatementId: validatedBody.itemizedStatementId ?? null` のハンドリングを追加
+  - 観察可能完了: itemizedStatementId 未指定／null／空文字／UUID で createEstimateRequestSchema.parse() が valid result を返し、空文字は null に変換される
+  - _Boundary: estimate-request.schema, estimate-requests.routes_
+  - _Depends: 82.2_
+  - _Requirements: 39.1, 39.2_
+
+- [x] 83.2 EstimateRequestService.create() の内訳書なし分岐
+  - create() メソッドに `const hasItemizedStatement = input.itemizedStatementId !== undefined && input.itemizedStatementId !== null` を導入
+  - 内訳書なしブランチで ItemizedStatement 検証・items 0件チェック・EstimateRequestItem.createMany をスキップ
+  - 内訳書なし保存時に includeBreakdownInBody を false 強制
+  - 監査ログの after.itemizedStatementId と after.itemCount を nullable / 0 で記録
+  - 観察可能完了: itemizedStatementId 未指定で create() を呼び出すと EstimateRequest が itemizedStatementId=null で永続化され、対応する EstimateRequestItem が 0 件、監査ログ after.itemCount=0
+  - _Boundary: EstimateRequestService_
+  - _Depends: 82.1, 82.2, 83.1_
+  - _Requirements: 39.2, 39.3, 39.4_
+
+- [x] 83.3 EstimateRequestService.update() の includeBreakdownInBody 正規化
+  - update() の updateData 構築箇所で対象レコードの itemizedStatementId === null のとき input.includeBreakdownInBody を false に正規化（design.md「update() でのガード追加」セクション参照）
+  - 監査ログ before/after も正規化後の値で記録
+  - 観察可能完了: 内訳書なしの見積依頼に対し includeBreakdownInBody=true を update() に渡しても永続化値が false で、監査ログ after.includeBreakdownInBody も false
+  - _Boundary: EstimateRequestService_
+  - _Depends: 83.2_
+  - _Requirements: 39.9_
+
+- [x] 83.4 EstimateRequestTextService の null セーフガード
+  - backend/src/services/estimate-request-text.service.ts の generateEmailBody/generateFaxBody 内 `if (request.includeBreakdownInBody)` 条件を `if (request.includeBreakdownInBody && selectedItems.length > 0)` に変更
+  - getEstimateRequestWithDetails の include 句は変更不要（Prisma の optional relation で自動的に null 許容）
+  - 観察可能完了: 内訳書なしの見積依頼で generateText() を呼び出すと、本文に【見積対象項目】セクションが含まれない（メール本文・FAX本文どちらも）
+  - _Boundary: EstimateRequestTextService_
+  - _Depends: 82.1_
+  - _Requirements: 39.9_
+
+- [x] 84. Frontend 各画面の条件レンダリング（Requirement 39）
+- [x] 84.1 (P) EstimateRequestForm の必須化解除
+  - frontend/src/components/estimate-request/EstimateRequestForm.tsx の内訳書フィールド `*` 必須マーカーを `<span style={styles.helperText}>（任意）</span>` に置換
+  - select の disabled を `isSubmitting` のみに変更（`hasNoItemizedStatements` 連動を削除）、aria-required="false"
+  - 内訳書未登録時のメッセージを「内訳書が登録されていません（任意）」に変更し、新規 infoMessage スタイル（`#eff6ff/#1e40af` 系の情報トーン）を追加
+  - validate() から itemizedStatementId 必須チェックを削除（内訳書選択時の項目0件エラーは残す）
+  - 提出ボタンの disabled 条件から hasNoItemizedStatements を削除
+  - handleSubmit 内で `itemizedStatementId: itemizedStatementId || undefined` の変換を追加
+  - 観察可能完了: 内訳書を選択せずに「作成」ボタンが活性のままで、name と tradingPartnerId のみで送信成功する。プロジェクトに内訳書がない場合でも「作成」ボタンが活性で、メッセージに「（任意）」が含まれる
+  - _Boundary: EstimateRequestForm_
+  - _Depends: 82.3_
+  - _Requirements: 39.1, 39.2, 39.5_
+
+- [x] 84.2 (P) EstimateRequestListPage の「-」フォールバック
+  - frontend/src/pages/EstimateRequestListPage.tsx の参照内訳書名表示箇所（`{request.itemizedStatementName}`）を `{request.itemizedStatementName ?? '-'}` に変更
+  - 観察可能完了: 内訳書未紐付けの見積依頼が一覧で参照内訳書名列に「-」と表示される（ハイフン文字、半角）
+  - _Boundary: EstimateRequestListPage_
+  - _Depends: 82.3_
+  - _Requirements: 39.6, 39.12_
+
+- [x] 84.3 (P) EstimateRequestDetailPage の条件レンダリング＋EstimateRequestTextPanel props 追加
+  - frontend/src/pages/EstimateRequestDetailPage.tsx で `const hasItemizedStatement = request.itemizedStatementId !== null` ガードを導入
+  - !hasItemizedStatement のとき ItemSelectionPanel と ExcelExportButton セクション全体を非表示
+  - 「参照内訳書」表示行（line 1071-1072 付近）を `request.itemizedStatementName ?? '-'` に変更
+  - frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx に `showIncludeBreakdownToggle?: boolean`（デフォルト true）props を追加し、内部で `{showIncludeBreakdownToggle && <Checkbox ... />}` のガードを実装
+  - DetailPage から `<EstimateRequestTextPanel ... showIncludeBreakdownToggle={hasItemizedStatement} />` を渡す
+  - 見積依頼方法ラジオボタン・保存ボタン・受領見積書セクション・ステータス遷移ボタンの表示は無変更
+  - 観察可能完了: 内訳書未紐付けの見積依頼の詳細画面で、項目選択セクション・Excel 出力ボタン・「内訳書を本文に含める」チェックボックスが非表示で、見積依頼方法ラジオボタン／保存ボタン／受領見積書セクション／参照内訳書「-」表示が見える
+  - _Boundary: EstimateRequestDetailPage, EstimateRequestTextPanel_
+  - _Depends: 82.3_
+  - _Requirements: 39.7, 39.8, 39.10, 39.11, 39.12_
+
+- [x] 84.4 (P) EstimateRequestEditPage の条件表示
+  - frontend/src/pages/EstimateRequestEditPage.tsx の内訳書（読み取り専用）ブロック（line 410-414 付近）を `{request.itemizedStatementName !== null && (<div>...</div>)}` で条件レンダリング
+  - 観察可能完了: 内訳書未紐付けの見積依頼の編集画面で、内訳書読み取り専用ブロックが非表示で、name・method の更新は通常通り可能（保存成功で詳細画面に戻る）
+  - _Boundary: EstimateRequestEditPage_
+  - _Depends: 82.3_
+  - _Requirements: 39.10, 39.12_
+
+- [x] 85. 内訳書任意化のテスト（Requirement 39）
+- [x] 85.1 (P) Backend service.test.ts の create/update カバレッジ追加
+  - backend/src/__tests__/unit/services/estimate-request.service.test.ts に追加テスト
+  - create() 内訳書なしケース 3 件: itemizedStatementId=null/includeBreakdownInBody=false で永続化されることの確認、EstimateRequestItem.createMany が呼ばれないことの mock 確認、監査ログ after.itemizedStatementId=null/itemCount=0 の確認
+  - update() 内訳書なし対象に includeBreakdownInBody=true を渡すと永続化値が false に正規化されることの確認 1 件
+  - 既存の「内訳書なしでエラー」前提テストを「内訳書なしで成功」に書き換え（または削除して上記新規テストで置換）
+  - 観察可能完了: estimate-request.service.test.ts が全 pass で、新規追加テスト 4 件が含まれる（npm --prefix backend run test -- estimate-request.service の出力ログで確認）
+  - _Boundary: backend service.test_
+  - _Depends: 83.2, 83.3_
+  - _Requirements: 39.2, 39.3, 39.4, 39.9_
+
+- [x] 85.2 (P) Backend routes.test.ts integration カバレッジ更新
+  - backend/src/__tests__/integration/routes/estimate-requests.routes.test.ts に追加テスト
+  - POST /estimate-requests で itemizedStatementId 省略 → 201 + itemizedStatementId=null レスポンスの確認
+  - 空文字送信 → 201 + null 化の確認
+  - 不正 UUID（`'invalid-uuid'`）のみ 422 となることの確認
+  - 既存の「itemizedStatementId 必須」前提の 422 テストを削除
+  - 観察可能完了: estimate-requests.routes.test.ts が全 pass で、内訳書なしでの作成成功テストが新規追加されている（npm --prefix backend run test:integration の出力ログで確認）
+  - _Boundary: backend routes.test_
+  - _Depends: 83.1, 83.2_
+  - _Requirements: 39.1, 39.2, 39.4_
+
+- [x] 85.3 (P) Backend estimate-request-text.service.test.ts カバレッジ更新
+  - backend/src/__tests__/unit/services/estimate-request-text.service.test.ts に追加テスト（ファイル未存在の場合は新規作成）
+  - 内訳書なし＋ includeBreakdownInBody=false のケースで本文に【見積対象項目】セクションが含まれないことの確認（メール本文／FAX本文両方）
+  - 既存の内訳書あり＋ includeBreakdownInBody=true で【見積対象項目】セクションが含まれるケース（既存 or 新規）も確認
+  - 観察可能完了: estimate-request-text.service.test.ts が全 pass で、内訳書なしのケースで本文セクションが省略されることが新規 2 ケース以上で確認される
+  - _Boundary: backend estimate-request-text.service.test_
+  - _Depends: 83.4_
+  - _Requirements: 39.9_
+
+- [x] 85.4 (P) Frontend EstimateRequestForm.test.tsx カバレッジ更新
+  - frontend/src/components/estimate-request/EstimateRequestForm.test.tsx に追加テスト
+  - 内訳書未選択での送信が `itemizedStatementId: undefined` で onSubmit へ届くことの確認
+  - 内訳書未登録時にも「作成」ボタンが活性であることの確認
+  - 必須マーカー `*` が表示されないことの確認（「（任意）」表記の確認）
+  - 内訳書未登録時のメッセージが「内訳書が登録されていません（任意）」であることの確認
+  - 内訳書を選択 → 解除（空文字に戻す）して送信成功することの確認
+  - 既存の「内訳書必須」前提テスト（line 282-301, 324-333 付近）を削除または書き換え
+  - 観察可能完了: EstimateRequestForm.test.tsx が全 pass で、内訳書任意化に関する新規 5 ケース以上が追加されている（npm --prefix frontend run test -- EstimateRequestForm の出力ログで確認）
+  - _Boundary: EstimateRequestForm test_
+  - _Depends: 84.1_
+  - _Requirements: 39.1, 39.2, 39.5_
+
+- [x] 85.5 内訳書任意化の E2E テスト
+  - e2e/specs/estimate-requests/estimate-request-e2e.spec.ts に追加スペック 4 シナリオ
+  - シナリオ 1（クイック作成→詳細）: プロジェクト詳細から見積依頼新規作成 → 内訳書空欄で送信 → 詳細画面で項目選択セクション・Excel 出力・「本文に含める」非表示、参照内訳書「-」、見積依頼方法ラジオ・保存ボタン・受領見積書セクションが利用可能であることの確認
+  - シナリオ 2（一覧表示）: 内訳書なしの見積依頼が一覧で参照内訳書名列に「-」と表示されることの確認
+  - シナリオ 3（編集挙動）: 内訳書なしの見積依頼の編集画面で内訳書読み取り専用ブロックが非表示、name・method 更新が通常通り可能であることの確認
+  - シナリオ 4（内訳書ありの回帰）: 内訳書ありの見積依頼の作成・詳細・編集・一覧で従来通りの表示・挙動であることの確認
+  - 既存の「内訳書未登録時のメッセージ」spec（line 1529-1578 付近）を「（任意）」表記＋「作成」ボタン活性に更新
+  - 観察可能完了: estimate-request-e2e.spec.ts を CI=true で実行し全 pass、Playwright HTML レポートで上記 4 シナリオが新規追加され既存回帰確認も含まれる
+  - _Boundary: e2e/specs_
+  - _Depends: 83.1, 83.2, 83.3, 83.4, 84.1, 84.2, 84.3, 84.4_
+  - _Requirements: 39.2, 39.6, 39.7, 39.8, 39.10, 39.11, 39.12_
+
+- [x] 86. 受領見積書 OCR セクション折りたたみ機能の実装（Requirement 40）
+
+- [x] 86.1 ReceivedQuotationForm に OCR セクション折りたたみ機能を実装
+  - frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx を編集
+  - ローカル state `isOcrSectionExpanded`（初期値 true）と `isOcrHeaderFocused`（初期値 false）を追加（design.md「State Management（追記）」参照）
+  - ハンドラ `handleToggleOcrSection`（state トグル）、`handleOcrHeaderFocus` / `handleOcrHeaderBlur`（フォーカス state 切替）を `useCallback` で追加
+  - ローカル関数 `OcrChevronIcon`（`▶` 文字 + transform: rotate ベース、aria-hidden="true"）を追加
+  - styles に `ocrSectionHeader` / `ocrSectionTitle` / `ocrSectionChevron` / `ocrSectionHeaderFocus`（outline: 2px solid #2563eb、boxShadow、outlineOffset）を追加
+  - 既存の OCR セクションラッパー（登録時: `selectedFile` 存在条件、編集時: `mode === 'edit' && existingFileName && !removeFile && existingFilePreviewUrl` 条件）を `<button type="button">` ヘッダ + `<div id="received-quotation-ocr-section-body" hidden={!isOcrSectionExpanded}>` 構造に変更。OCR セクションが表示される条件が成立しないとき（ファイル未アップロード／編集モードでファイル削除済み）はヘッダごと非表示（Req 40.14）
+  - `<button>` には onClick / onFocus / onBlur / aria-expanded / aria-controls 属性を付与し、style はインライン展開で `{...styles.ocrSectionHeader, ...(isOcrHeaderFocused ? styles.ocrSectionHeaderFocus : {})}` をマージ
+  - 登録分岐と編集分岐の両方に同じヘッダ構造を適用し、PDF/画像/Excel の全ファイル種別で同等に動作させる（Req 40.15）
+  - `OcrDataExtractor` の props（`file` / `fileUrl` / `fileMimeType` / `autoStart` / `onImportLineItems`）は変更しない（Req 40.17）。`hidden` 属性で隠すことで unmount を回避し、OCR 処理進行と抽出結果の内部 state を保持する（Req 40.11, 40.12）
+  - 観察可能完了: `npm --prefix frontend run typecheck` と `npm --prefix frontend run lint` が pass する。`npm --prefix frontend run dev` で受領見積書登録ダイアログを開きファイルアップロードすると「OCR / データパース」ヘッダが表示され、クリックで OCR セクション本体が表示/非表示にトグルする
+  - _Boundary: ReceivedQuotationForm_
+  - _Requirements: 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13, 40.14, 40.15, 40.16, 40.17_
+
+- [x] 86.2 (P) ReceivedQuotationForm.test.tsx に折りたたみ機能の Unit テスト 10 ケースを追加
+  - frontend/src/components/estimate-requests/ReceivedQuotationForm.test.tsx を編集
+  - 以下のテストケースを追加: (1) 初期表示時に OCR セクション本体が表示され `aria-expanded="true"` であること、(2) ヘッダクリックで本体が `hidden` 属性を持ち `aria-expanded="false"` になること、(3) 再クリックで再展開すること、(4) Enter キー押下でトグル発火すること、(5) Space キー押下でトグル発火すること、(6) 折りたたみ状態でも `OcrDataExtractor` の DOM ノードが残存（unmount されない）すること、(7) `mode="create"` と `mode="edit"` の両方でヘッダ要素が描画されること、(8) ファイル未存在時（`selectedFile === null` かつ `existingFileName === null`）はヘッダ要素が DOM に存在しないこと、(9) コンポーネントを unmount → remount するとデフォルト展開状態に戻ること、(10) ヘッダに `focus()` 発火後に要素の `style.outline` に `styles.ocrSectionHeaderFocus` のスタイル値が反映され、`blur()` 後に解除されること
+  - 既存テストの実行構成（vitest + React Testing Library）を踏襲し、テスト前提条件で機能を自動的に無効化しない
+  - 観察可能完了: `npm --prefix frontend run test -- ReceivedQuotationForm` を実行し全 pass、新規追加 10 ケースが含まれる（テストランナー出力で確認）
+  - _Boundary: ReceivedQuotationForm test_
+  - _Depends: 86.1_
+  - _Requirements: 40.1, 40.2, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13, 40.14, 40.16_
+
+- [x] 86.3 (P) received-quotation-dialog-improvements-e2e.spec.ts に折りたたみ機能の E2E シナリオ 2 件を追加
+  - e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts を編集
+  - シナリオ 1（抽出結果保持、Req 40.11/40.12）: 受領見積書登録ダイアログを開く → PDF をアップロード → OCR 完了を待機 → 抽出結果テキストが表示されることを確認 → セクションヘッダをクリックして折りたたみ → 抽出結果テキストが視覚的に非表示であることを確認 → 再度クリックして展開 → 抽出結果テキストが再表示されることを検証
+  - シナリオ 2（再オープン時のデフォルト復帰、Req 40.10）: 折りたたみ状態でダイアログを閉じる → 同じ受領見積書を再度開く → OCR セクションが展開状態（`aria-expanded="true"`）であることを検証
+  - 既存テストの実行構成（Playwright）を踏襲し、テスト前提条件で機能を自動的に無効化しない
+  - 観察可能完了: `CI=true npx playwright test e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts` を実行し全 pass、Playwright HTML レポート（playwright-report/index.html）で新規 2 シナリオが含まれる
+  - _Boundary: e2e/specs/estimate-requests_
+  - _Depends: 86.1_
+  - _Requirements: 40.8, 40.9, 40.10, 40.11, 40.12_
+
+## Implementation Notes
+
+- フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。

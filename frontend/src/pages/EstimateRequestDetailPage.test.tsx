@@ -1005,4 +1005,141 @@ describe('EstimateRequestDetailPage', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Task 84.3: 内訳書未紐付け時の条件レンダリング (Requirements: 39.7, 39.8, 39.10, 39.11, 39.12)
+  // ==========================================================================
+  describe('内訳書未紐付け時の条件レンダリング (Task 84.3)', () => {
+    /**
+     * 内訳書未紐付けの見積依頼を mock するヘルパー（itemizedStatementId / Name を null に上書き）
+     */
+    const mockNoItemizedStatement = async () => {
+      const { getEstimateRequestDetail, getEstimateRequestItems } =
+        await import('../api/estimate-requests');
+      (getEstimateRequestDetail as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'er-456',
+        projectId: 'project-123',
+        tradingPartnerId: 'tp-1',
+        tradingPartnerName: '協力業者A',
+        itemizedStatementId: null,
+        itemizedStatementName: null,
+        name: '内訳書なし見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        status: 'BEFORE_REQUEST',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      });
+      // 内訳書未紐付けの場合、項目は空配列で返ってくる想定
+      (getEstimateRequestItems as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    };
+
+    const renderPage = () => {
+      return render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-456']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    };
+
+    it('内訳書未紐付け時に「項目選択」セクションが非表示になる (Requirements: 39.7)', async () => {
+      await mockNoItemizedStatement();
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '内訳書なし見積依頼' })).toBeInTheDocument();
+      });
+
+      // 「項目選択」セクションの h2 見出しが表示されないこと
+      expect(screen.queryByRole('heading', { name: '項目選択' })).not.toBeInTheDocument();
+      // ItemSelectionPanel 内のテーブルヘッダー「任意分類」が表示されないこと
+      expect(screen.queryByText('任意分類')).not.toBeInTheDocument();
+    });
+
+    it('内訳書未紐付け時に Excel 出力ボタンが非表示になる (Requirements: 39.8)', async () => {
+      await mockNoItemizedStatement();
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '内訳書なし見積依頼' })).toBeInTheDocument();
+      });
+
+      // ExcelExportButton はボタンテキストが "Excelでエクスポート"。aria-label は項目数で変動するため
+      // ボタンテキストで非表示を確認する。
+      expect(screen.queryByText('Excelでエクスポート')).not.toBeInTheDocument();
+    });
+
+    it('内訳書未紐付け時に「参照内訳書」が "-" として表示される (Requirements: 39.7)', async () => {
+      await mockNoItemizedStatement();
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '内訳書なし見積依頼' })).toBeInTheDocument();
+      });
+
+      // 「参照内訳書」ラベルが表示され、その値として "-" が表示される
+      const label = screen.getByText('参照内訳書');
+      // ラベル要素の親 (.infoItem) に "-" が含まれる
+      const parent = label.parentElement!;
+      expect(parent.textContent).toContain('-');
+    });
+
+    it('内訳書未紐付け時にも「見積依頼方法」ラジオボタン相当の表示は維持される (Requirements: 39.10)', async () => {
+      await mockNoItemizedStatement();
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '内訳書なし見積依頼' })).toBeInTheDocument();
+      });
+
+      // 基本情報セクション内に「見積依頼方法」表示が残っていること
+      expect(screen.getByText('見積依頼方法')).toBeInTheDocument();
+    });
+
+    it('内訳書未紐付け時にも受領見積書セクションが表示される (Requirements: 39.11)', async () => {
+      await mockNoItemizedStatement();
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '内訳書なし見積依頼' })).toBeInTheDocument();
+      });
+
+      // 受領見積書セクションの見出しが表示される
+      expect(screen.getByText('受領見積書')).toBeInTheDocument();
+    });
+
+    it('内訳書未紐付け時にもステータス遷移ボタン（既存挙動）は表示される (Requirements: 39.12)', async () => {
+      await mockNoItemizedStatement();
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: '内訳書なし見積依頼' })).toBeInTheDocument();
+      });
+
+      // ステータスセクションの見出しは表示される（StatusBadge 等を含む）
+      expect(screen.getByRole('heading', { name: 'ステータス' })).toBeInTheDocument();
+    });
+
+    it('内訳書紐付けあり（既存）の挙動は維持される (Requirements: 39.12)', async () => {
+      // mock は上書きしない（既存のデフォルトモック: itemizedStatementId='is-1'）
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト見積依頼' })).toBeInTheDocument();
+      });
+
+      // 項目選択セクション、Excel ボタン、参照内訳書名（'内訳書1'）が従来通り表示される
+      expect(screen.getByRole('heading', { name: '項目選択' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Excelでエクスポート/i })).toBeInTheDocument();
+      expect(screen.getByText('内訳書1')).toBeInTheDocument();
+    });
+  });
 });
