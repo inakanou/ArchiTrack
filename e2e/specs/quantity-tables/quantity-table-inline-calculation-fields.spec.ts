@@ -234,9 +234,13 @@ test.describe('REQ-37: 計算用フィールドの行内水平配置', () => {
 
       // ラベル → 入力の交互配置: 各ラベルテキストの直後の sibling に input が存在する
       // CalculationFields の fieldWrapper（label + input ペア）内で label が input の左に配置されている
-      // ことを DOM 構造で確認する
-      const wrapperHasLabelBeforeInput = await itemRow.evaluate((row) => {
-        const inputs = Array.from(row.querySelectorAll('input[inputmode="decimal"]'));
+      // ことを DOM 構造で確認する。検証対象は計算用フィールド領域（action-cell-inline-wrapper）内に
+      // 限定し、メイン行の数量入力など別構造の input は除外する。
+      const inlineWrapper = itemRow.locator('[data-testid="action-cell-inline-wrapper"]');
+      await expect(inlineWrapper).toBeVisible({ timeout: getTimeout(5000) });
+      const wrapperHasLabelBeforeInput = await inlineWrapper.evaluate((wrapperEl) => {
+        const inputs = Array.from(wrapperEl.querySelectorAll('input[inputmode="decimal"]'));
+        if (inputs.length === 0) return false;
         return inputs.every((input) => {
           const wrapper = input.parentElement;
           if (!wrapper) return false;
