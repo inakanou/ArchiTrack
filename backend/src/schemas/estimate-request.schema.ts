@@ -33,7 +33,7 @@ export const ESTIMATE_REQUEST_VALIDATION_MESSAGES = {
   TRADING_PARTNER_ID_INVALID_UUID: '取引先IDの形式が不正です',
 
   // 内訳書ID
-  ITEMIZED_STATEMENT_ID_REQUIRED: '内訳書IDは必須です',
+  // Requirements: 39.1, 39.2 - 内訳書 ID は任意項目に変更されたため REQUIRED メッセージは撤去
   ITEMIZED_STATEMENT_ID_INVALID_UUID: '内訳書IDの形式が不正です',
 
   // 見積依頼方法
@@ -80,10 +80,14 @@ export const createEstimateRequestSchema = z.object({
     .min(1, ESTIMATE_REQUEST_VALIDATION_MESSAGES.TRADING_PARTNER_ID_REQUIRED)
     .regex(UUID_REGEX, ESTIMATE_REQUEST_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID_UUID),
 
+  // Requirements: 39.1, 39.2 - itemizedStatementId は任意項目（optional + nullable + 空文字許容）
+  // 値が指定された場合のみ UUID 形式チェックを適用。空文字は null に変換し、未指定は undefined のまま。
   itemizedStatementId: z
     .string()
-    .min(1, ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_REQUIRED)
-    .regex(UUID_REGEX, ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_INVALID_UUID),
+    .regex(UUID_REGEX, ESTIMATE_REQUEST_VALIDATION_MESSAGES.ITEMIZED_STATEMENT_ID_INVALID_UUID)
+    .optional()
+    .nullable()
+    .or(z.literal('').transform(() => null)),
 
   method: z
     .enum(ESTIMATE_REQUEST_METHODS, ESTIMATE_REQUEST_VALIDATION_MESSAGES.METHOD_INVALID)

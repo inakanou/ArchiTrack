@@ -26,6 +26,7 @@ import {
   deleteQuantityItem,
   copyQuantityItem,
   copyQuantityTable,
+  copyQuantityGroup,
 } from '../../api/quantity-tables';
 import type {
   ProjectQuantityTableSummary,
@@ -34,6 +35,7 @@ import type {
   QuantityTableDetail,
   QuantityTableFilter,
   QuantityGroupDetail,
+  QuantityGroupInfo,
   QuantityItemDetail,
 } from '../../types/quantity-table.types';
 
@@ -1217,6 +1219,113 @@ describe('quantity-tables API client', () => {
       await expect(copyQuantityTable('qt-1', { name: 'コピー' })).rejects.toMatchObject({
         statusCode: 403,
       });
+    });
+  });
+
+  // ==========================================================================
+  // copyQuantityGroup - 数量グループコピー
+  // Task 53.1: コピー API クライアントを追加する
+  // Requirements: 38.2
+  // ==========================================================================
+  describe('copyQuantityGroup', () => {
+    const mockCopiedGroup: QuantityGroupInfo = {
+      id: 'group-copied',
+      quantityTableId: 'qt-1',
+      name: '元グループ名のコピー',
+      surveyImageId: 'img-1',
+      displayOrder: 2,
+      itemCount: 5,
+      createdAt: '2025-01-05T00:00:00.000Z',
+      updatedAt: '2025-01-05T00:00:00.000Z',
+    };
+
+    it('数量グループをコピーできること（POST /api/quantity-groups/:id/copy が呼び出される）', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockCopiedGroup);
+
+      const result = await copyQuantityGroup('group-1');
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/quantity-groups/group-1/copy');
+      expect(result).toEqual(mockCopiedGroup);
+    });
+
+    it('異なるグループ ID を指定した際に URL が正しく構築されること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockCopiedGroup);
+
+      await copyQuantityGroup('another-group-id');
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/quantity-groups/another-group-id/copy');
+    });
+
+    it('レスポンスに QuantityGroupInfo の各フィールドが型安全に含まれること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockCopiedGroup);
+
+      const result = await copyQuantityGroup('group-1');
+
+      expect(result.id).toBe('group-copied');
+      expect(result.quantityTableId).toBe('qt-1');
+      expect(result.name).toBe('元グループ名のコピー');
+      expect(result.surveyImageId).toBe('img-1');
+      expect(result.displayOrder).toBe(2);
+      expect(result.itemCount).toBe(5);
+      expect(typeof result.createdAt).toBe('string');
+      expect(typeof result.updatedAt).toBe('string');
+    });
+
+    it('グループ名が未設定（null）のレスポンスも受け取れること', async () => {
+      const groupWithNullName: QuantityGroupInfo = {
+        ...mockCopiedGroup,
+        name: null,
+        surveyImageId: null,
+      };
+      vi.mocked(apiClient.post).mockResolvedValueOnce(groupWithNullName);
+
+      const result = await copyQuantityGroup('group-1');
+
+      expect(result.name).toBeNull();
+      expect(result.surveyImageId).toBeNull();
+    });
+
+    it('コピー元グループが見つからない場合、404 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(404, 'グループが見つかりません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityGroup('non-existent')).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('認証エラーの場合、401 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(401, '認証が必要です');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityGroup('group-1')).rejects.toMatchObject({
+        statusCode: 401,
+      });
+    });
+
+    it('権限不足の場合、403 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(403, 'アクセス権限がありません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityGroup('group-1')).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
+
+    it('楽観的排他制御競合の場合、409 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(409, '他のユーザーが操作中です');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(copyQuantityGroup('group-1')).rejects.toMatchObject({
+        statusCode: 409,
+      });
+    });
+
+    it('ApiError 以外の例外もそのまま伝搬されること', async () => {
+      const originalError = new Error('予期しないエラー');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(originalError);
+
+      await expect(copyQuantityGroup('group-1')).rejects.toThrow('予期しないエラー');
     });
   });
 });

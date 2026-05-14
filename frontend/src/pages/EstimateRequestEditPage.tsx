@@ -407,12 +407,14 @@ export default function EstimateRequestEditPage() {
             <p style={styles.helperText}>宛先は変更できません</p>
           </div>
 
-          {/* 内訳書（読み取り専用） */}
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>内訳書</label>
-            <div style={styles.readOnlyField}>{request.itemizedStatementName}</div>
-            <p style={styles.helperText}>内訳書は変更できません</p>
-          </div>
+          {/* 内訳書（読み取り専用） - 内訳書ありのときのみ表示（Requirements 39.10, 39.12） */}
+          {request.itemizedStatementName !== null && (
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>内訳書</label>
+              <div style={styles.readOnlyField}>{request.itemizedStatementName}</div>
+              <p style={styles.helperText}>内訳書は変更できません</p>
+            </div>
+          )}
 
           {/* ボタングループ */}
           <div style={styles.buttonGroup}>
