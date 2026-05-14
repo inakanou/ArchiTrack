@@ -116,9 +116,13 @@ describe('estimate-request.schema', () => {
     });
 
     describe('itemizedStatementId field', () => {
+      // Requirements: 39.1, 39.2 - 内訳書 ID を任意（optional/nullable/空文字許容）に変更
       it('should accept valid UUID', () => {
         const result = createEstimateRequestSchema.safeParse(validInput);
         expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.itemizedStatementId).toBe(validInput.itemizedStatementId);
+        }
       });
 
       it('should reject invalid UUID format', () => {
@@ -134,10 +138,35 @@ describe('estimate-request.schema', () => {
         }
       });
 
-      it('should reject missing itemizedStatementId', () => {
+      it('should accept missing itemizedStatementId (optional)', () => {
         const { itemizedStatementId: _unused, ...withoutItemizedStatementId } = validInput;
         const result = createEstimateRequestSchema.safeParse(withoutItemizedStatementId);
-        expect(result.success).toBe(false);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.itemizedStatementId).toBeUndefined();
+        }
+      });
+
+      it('should accept null itemizedStatementId (nullable)', () => {
+        const result = createEstimateRequestSchema.safeParse({
+          ...validInput,
+          itemizedStatementId: null,
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.itemizedStatementId).toBeNull();
+        }
+      });
+
+      it('should transform empty string itemizedStatementId to null', () => {
+        const result = createEstimateRequestSchema.safeParse({
+          ...validInput,
+          itemizedStatementId: '',
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.itemizedStatementId).toBeNull();
+        }
       });
     });
 
