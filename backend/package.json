@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@aws-sdk/client-s3": "^3.995.0",
+    "@aws-sdk/client-s3": "^3.1048.0",
     "@aws-sdk/client-sesv2": "^3.1004.0",
     "@aws-sdk/s3-request-presigner": "^3.1048.0",
     "@holiday-jp/holiday_jp": "^2.5.1",
