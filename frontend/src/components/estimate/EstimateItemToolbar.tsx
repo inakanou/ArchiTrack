@@ -13,6 +13,7 @@
  * - REQ-23.8: 未選択時は選択必須ボタンをdisabled状態で表示する
  * - REQ-23.9: 「上の階層へ移動」ボタンを提供する
  * - REQ-23.10: 「下の階層へ移動」ボタンを提供する
+ * - REQ-12.2: 「↑移動」「↓移動」ボタンで同一階層内の表示順序を入れ替える
  *
  * @module components/estimate/EstimateItemToolbar
  */
@@ -45,6 +46,14 @@ export interface EstimateItemToolbarProps {
   onMoveUp: (itemId: string) => void;
   /** 下の階層へ移動（直前の兄弟項目の子に移動） */
   onMoveDown: (itemId: string) => void;
+  /** 同一階層内で表示順序を1つ上へ入れ替える（REQ-12.2） */
+  onReorderUp: (itemId: string) => void;
+  /** 同一階層内で表示順序を1つ下へ入れ替える（REQ-12.2） */
+  onReorderDown: (itemId: string) => void;
+  /** 直前に兄弟項目が存在するか（↑移動ボタン制御用） */
+  canReorderUp: boolean;
+  /** 直後に兄弟項目が存在するか（↓移動ボタン制御用） */
+  canReorderDown: boolean;
 }
 
 // ============================================================================
@@ -116,10 +125,16 @@ export function EstimateItemToolbar({
   onDuplicateItem,
   onMoveUp,
   onMoveDown,
+  onReorderUp,
+  onReorderDown,
+  canReorderUp,
+  canReorderDown,
 }: EstimateItemToolbarProps) {
   const isSelected = selectedItemId !== null;
   const canMoveUp = isSelected && selectedItem !== null && selectedItem.parentId !== null;
   const canMoveDown = isSelected && hasPreviousSibling;
+  const reorderUpEnabled = isSelected && canReorderUp;
+  const reorderDownEnabled = isSelected && canReorderDown;
 
   return (
     <div data-testid="estimate-item-toolbar" style={styles.toolbar}>
@@ -196,6 +211,41 @@ export function EstimateItemToolbar({
         }}
       >
         下の階層へ
+      </button>
+
+      {/* セパレータ */}
+      <div style={styles.separator} />
+
+      {/* ↑移動 - 同一階層内で表示順序を1つ上へ (REQ-12.2) */}
+      <button
+        type="button"
+        data-testid="reorder-up-button"
+        aria-label="上へ移動"
+        title="同じ階層内で1つ上へ移動"
+        onClick={() => selectedItemId && onReorderUp(selectedItemId)}
+        disabled={!reorderUpEnabled}
+        style={{
+          ...styles.button,
+          ...(!reorderUpEnabled ? styles.buttonDisabled : {}),
+        }}
+      >
+        ↑ 上へ
+      </button>
+
+      {/* ↓移動 - 同一階層内で表示順序を1つ下へ (REQ-12.2) */}
+      <button
+        type="button"
+        data-testid="reorder-down-button"
+        aria-label="下へ移動"
+        title="同じ階層内で1つ下へ移動"
+        onClick={() => selectedItemId && onReorderDown(selectedItemId)}
+        disabled={!reorderDownEnabled}
+        style={{
+          ...styles.button,
+          ...(!reorderDownEnabled ? styles.buttonDisabled : {}),
+        }}
+      >
+        ↓ 下へ
       </button>
     </div>
   );

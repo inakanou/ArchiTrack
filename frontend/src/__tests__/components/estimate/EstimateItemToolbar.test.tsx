@@ -94,6 +94,10 @@ describe('EstimateItemToolbar', () => {
     onDuplicateItem: vi.fn(),
     onMoveUp: vi.fn(),
     onMoveDown: vi.fn(),
+    onReorderUp: vi.fn(),
+    onReorderDown: vi.fn(),
+    canReorderUp: false,
+    canReorderDown: false,
   };
 
   beforeEach(() => {
@@ -337,6 +341,82 @@ describe('EstimateItemToolbar', () => {
       await user.click(screen.getByRole('button', { name: /下の階層へ/ }));
 
       expect(defaultProps.onMoveDown).toHaveBeenCalledWith('item-1');
+    });
+  });
+
+  // REQ-12.2: 表示順序の並び替え（↑/↓ボタン）
+  describe('表示順序の並び替え（↑/↓ボタン）', () => {
+    it('未選択時は↑移動・↓移動ボタンがdisabledであること', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      expect(screen.getByTestId('reorder-up-button')).toBeDisabled();
+      expect(screen.getByTestId('reorder-down-button')).toBeDisabled();
+    });
+
+    it('canReorderUpがtrueの場合に↑移動ボタンが有効になること', () => {
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderUp={true}
+          canReorderDown={false}
+        />
+      );
+
+      expect(screen.getByTestId('reorder-up-button')).toBeEnabled();
+      expect(screen.getByTestId('reorder-down-button')).toBeDisabled();
+    });
+
+    it('canReorderDownがtrueの場合に↓移動ボタンが有効になること', () => {
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderUp={false}
+          canReorderDown={true}
+        />
+      );
+
+      expect(screen.getByTestId('reorder-down-button')).toBeEnabled();
+      expect(screen.getByTestId('reorder-up-button')).toBeDisabled();
+    });
+
+    it('↑移動ボタンクリックでonReorderUpが呼ばれること', async () => {
+      const user = userEvent.setup();
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderUp={true}
+        />
+      );
+
+      await user.click(screen.getByTestId('reorder-up-button'));
+
+      expect(defaultProps.onReorderUp).toHaveBeenCalledWith('item-1');
+    });
+
+    it('↓移動ボタンクリックでonReorderDownが呼ばれること', async () => {
+      const user = userEvent.setup();
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderDown={true}
+        />
+      );
+
+      await user.click(screen.getByTestId('reorder-down-button'));
+
+      expect(defaultProps.onReorderDown).toHaveBeenCalledWith('item-1');
     });
   });
 });

@@ -115,12 +115,21 @@ describe('OverheadCostPanel', () => {
         expect(screen.getByLabelText('工期')).toBeInTheDocument();
       });
 
-      it('共通仮設費選択時に改修工事フラグが表示される', async () => {
+      it('改修工事フラグ（新営/改修パターン）が全費目で表示される', async () => {
         render(<OverheadCostPanel estimateId="estimate-1" onItemAdded={vi.fn()} />);
 
         const costTypeSelect = screen.getByLabelText('諸経費種別');
-        await userEvent.selectOptions(costTypeSelect, 'COMMON_TEMPORARY');
 
+        // 共通仮設費
+        await userEvent.selectOptions(costTypeSelect, 'COMMON_TEMPORARY');
+        expect(screen.getByLabelText('改修工事')).toBeInTheDocument();
+
+        // 現場管理費でも表示される（新営/改修パターン対応）
+        await userEvent.selectOptions(costTypeSelect, 'SITE_MANAGEMENT');
+        expect(screen.getByLabelText('改修工事')).toBeInTheDocument();
+
+        // 一般管理費でも表示される
+        await userEvent.selectOptions(costTypeSelect, 'GENERAL_ADMIN');
         expect(screen.getByLabelText('改修工事')).toBeInTheDocument();
       });
 

@@ -38,6 +38,10 @@ const meta = {
     onDuplicateItem: fn(),
     onMoveUp: fn(),
     onMoveDown: fn(),
+    onReorderUp: fn(),
+    onReorderDown: fn(),
+    canReorderUp: false,
+    canReorderDown: false,
   },
 } satisfies Meta<typeof EstimateItemToolbar>;
 
