@@ -931,7 +931,7 @@
   - _Depends: 51.1_
   - _Boundary: EstimateItemService_
 
-- [ ] 51.3 バックエンド: 値引き行追加エンドポイントとバリデーション
+- [x] 51.3 バックエンド: 値引き行追加エンドポイントとバリデーション
   - 値引き行追加エンドポイントを追加し、種別=DISCOUNT・見積金額行のみのプリセット項目をルート末尾の表示順序で作成する
   - リクエストスキーマで単価を任意・負数許容として受け付け、見積項目作成・バッチ保存スキーマに項目種別を追加する
   - エンドポイント呼び出しで201応答とともに種別=DISCOUNT・見積金額行1行の項目が返り、見積書未存在時は404を返すことを確認できる
@@ -997,3 +997,7 @@
   - 統合・E2Eテストがパスし、REQ-41の受入基準を満たすことを確認できる
   - _Requirements: 41.1, 41.2, 41.3, 41.5, 41.6, 41.8, 41.9, 41.10_
   - _Depends: 51.3, 51.7, 51.8_
+
+## Implementation Notes
+
+- 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。

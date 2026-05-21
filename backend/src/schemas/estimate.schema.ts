@@ -145,6 +145,16 @@ export const estimateListQuerySchema = z.object({
 export const lineTypeSchema = z.enum(['ESTIMATE', 'EXECUTION', 'VENDOR']);
 
 /**
+ * 見積項目種別
+ *
+ * - STANDARD: 通常項目（見積・実行・業者の3行1セット）
+ * - DISCOUNT: 値引き行（見積金額行のみ。実行・業者行を持たない、REQ-41.3）
+ *
+ * Requirements: REQ-41.1, REQ-41.3
+ */
+export const itemTypeSchema = z.enum(['STANDARD', 'DISCOUNT']);
+
+/**
  * 見積項目行入力スキーマ
  *
  * Requirements: REQ-13.1, REQ-13.2
@@ -172,6 +182,8 @@ export const estimateItemLineSchema = z.object({
 export const createEstimateItemSchema = z.object({
   parentId: uuidSchema.nullable().optional(),
   displayOrder: z.number().int().min(0),
+  // 項目種別（任意、省略時 STANDARD 相当）。REQ-41.1
+  itemType: itemTypeSchema.optional(),
   lines: z.array(estimateItemLineSchema).min(1).max(3),
 });
 
@@ -217,6 +229,8 @@ export const batchUpdateItemsSchema = z.object({
   items: z.array(
     z.object({
       id: uuidSchema,
+      // 項目種別（任意、省略時 STANDARD 相当）。REQ-41.1
+      itemType: itemTypeSchema.optional(),
       lines: z.array(
         z.object({
           id: uuidSchema,
@@ -353,6 +367,19 @@ export const addOverheadItemSchema = z.object({
 });
 
 /**
+ * 値引き行追加スキーマ
+ *
+ * 値引きプリセット行（種別=DISCOUNT・見積金額行のみ）を追加する際のリクエストボディ。
+ * 単価は手入力前提（REQ-41.4）で任意、かつマイナス値（負数）を許容する（REQ-41.5）。
+ * z.number() は範囲制限を付けないため、デフォルトで負数を受理する。
+ *
+ * Requirements: REQ-41.1, REQ-41.2, REQ-41.4, REQ-41.5
+ */
+export const addDiscountItemSchema = z.object({
+  unitPrice: z.number().nullable().optional(),
+});
+
+/**
  * 見積書出力クエリスキーマ
  *
  * Requirements: REQ-10.1, REQ-10.2, REQ-32.4
@@ -410,5 +437,6 @@ export type CalculateNetInput = z.infer<typeof calculateNetSchema>;
 export type ApplyProfitRateInput = z.infer<typeof applyProfitRateSchema>;
 export type CalculateOverheadInput = z.infer<typeof calculateOverheadSchema>;
 export type AddOverheadItemInput = z.infer<typeof addOverheadItemSchema>;
+export type AddDiscountItemInput = z.infer<typeof addDiscountItemSchema>;
 export type ExportEstimateQuery = z.infer<typeof exportEstimateQuerySchema>;
 export type GetItemsQuery = z.infer<typeof getItemsQuerySchema>;

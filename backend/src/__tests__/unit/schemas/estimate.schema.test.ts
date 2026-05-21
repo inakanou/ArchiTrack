@@ -26,6 +26,7 @@ import {
   batchUpdateItemsSchema,
   calculateOverheadSchema,
   exportEstimateQuerySchema,
+  addDiscountItemSchema,
   ESTIMATE_VALIDATION_MESSAGES,
 } from '../../../schemas/estimate.schema.js';
 
@@ -465,6 +466,44 @@ describe('estimate.schema', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('itemTypeにDISCOUNTを指定した入力を受け入れる (REQ-41.1)', () => {
+      const result = createEstimateItemSchema.safeParse({
+        displayOrder: 0,
+        itemType: 'DISCOUNT',
+        lines: [{ lineType: 'ESTIMATE', name: '値引き' }],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.itemType).toBe('DISCOUNT');
+      }
+    });
+
+    it('itemTypeにSTANDARDを指定した入力を受け入れる', () => {
+      const result = createEstimateItemSchema.safeParse({
+        displayOrder: 0,
+        itemType: 'STANDARD',
+        lines: [{ lineType: 'ESTIMATE' }],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('itemTypeを省略した入力を受け入れる（任意）', () => {
+      const result = createEstimateItemSchema.safeParse({
+        displayOrder: 0,
+        lines: [{ lineType: 'ESTIMATE' }],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('itemTypeに不正な値を指定した入力を拒否する', () => {
+      const result = createEstimateItemSchema.safeParse({
+        displayOrder: 0,
+        itemType: 'INVALID',
+        lines: [{ lineType: 'ESTIMATE' }],
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('batchUpdateItemsSchema', () => {
@@ -505,6 +544,59 @@ describe('estimate.schema', () => {
           },
         ],
       });
+      expect(result.success).toBe(false);
+    });
+
+    it('item要素にitemTypeを指定した入力を受け入れる (REQ-41.1)', () => {
+      const result = batchUpdateItemsSchema.safeParse({
+        ...validInput,
+        items: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            itemType: 'DISCOUNT' as const,
+            lines: [
+              {
+                id: '550e8400-e29b-41d4-a716-446655440001',
+                lineType: 'ESTIMATE' as const,
+                name: '値引き',
+              },
+            ],
+          },
+        ],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.items[0]?.itemType).toBe('DISCOUNT');
+      }
+    });
+  });
+
+  describe('addDiscountItemSchema (REQ-41.5)', () => {
+    it('単価を省略した入力を受け入れる（任意）', () => {
+      const result = addDiscountItemSchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('負数の単価を受け入れる (REQ-41.5)', () => {
+      const result = addDiscountItemSchema.safeParse({ unitPrice: -100000 });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.unitPrice).toBe(-100000);
+      }
+    });
+
+    it('null の単価を受け入れる', () => {
+      const result = addDiscountItemSchema.safeParse({ unitPrice: null });
+      expect(result.success).toBe(true);
+    });
+
+    it('正数の単価を受け入れる', () => {
+      const result = addDiscountItemSchema.safeParse({ unitPrice: 5000 });
+      expect(result.success).toBe(true);
+    });
+
+    it('数値以外の単価を拒否する', () => {
+      const result = addDiscountItemSchema.safeParse({ unitPrice: 'abc' });
       expect(result.success).toBe(false);
     });
   });

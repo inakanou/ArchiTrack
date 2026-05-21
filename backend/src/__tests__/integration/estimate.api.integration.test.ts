@@ -975,6 +975,51 @@ describe('Estimate API Integration Tests', () => {
       });
     });
 
+    describe('値引き行追加 POST /api/estimates/:id/discount-items', () => {
+      it('種別DISCOUNT・見積金額行1行の値引き行を作成できる (REQ-41.1, 41.2)', async () => {
+        const response = await request(app)
+          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ unitPrice: -50000 });
+
+        expect(response.status).toBe(201);
+        expect(response.body.id).toBeDefined();
+        expect(response.body.itemType).toBe('DISCOUNT');
+        expect(response.body.lines).toBeInstanceOf(Array);
+        // 値引き行は見積金額行（ESTIMATE）のみ（REQ-41.3）
+        expect(response.body.lines.length).toBe(1);
+        expect(response.body.lines[0].lineType).toBe('ESTIMATE');
+        // プリセット値（名称=値引き、規格=空、単位=式、数量=1）
+        expect(response.body.lines[0].name).toBe('値引き');
+        expect(response.body.lines[0].unit).toBe('式');
+        expect(response.body.lines[0].quantity).toBe(1);
+        // 負数の単価を許容（REQ-41.5）
+        expect(response.body.lines[0].unitPrice).toBe(-50000);
+      });
+
+      it('単価を省略しても値引き行を作成できる', async () => {
+        const response = await request(app)
+          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({});
+
+        expect(response.status).toBe(201);
+        expect(response.body.itemType).toBe('DISCOUNT');
+        expect(response.body.lines.length).toBe(1);
+        expect(response.body.lines[0].unitPrice).toBeNull();
+      });
+
+      it('存在しない見積書に値引き行を追加しようとすると404エラー', async () => {
+        const response = await request(app)
+          .post('/api/estimates/12345678-1234-4234-a234-123456789012/discount-items')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ unitPrice: -1000 });
+
+        expect(response.status).toBe(404);
+        expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      });
+    });
+
     describe('見積項目複製 POST /api/estimates/:id/items/:itemId/duplicate', () => {
       let sourceItemId: string;
 
