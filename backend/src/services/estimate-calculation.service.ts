@@ -33,6 +33,13 @@ import Decimal from 'decimal.js';
 export interface VendorLineInfo {
   id: string;
   amount: Decimal | null;
+  /**
+   * 見積項目の種別（任意）。
+   * REQ-41.9: 値引き行（DISCOUNT）はNET案分の対象外。
+   * 値引き行は構造上VENDOR行を持たないため通常は混入しないが、防御的に除外する。
+   * 未指定は STANDARD として従来通り扱う。
+   */
+  itemType?: 'STANDARD' | 'DISCOUNT';
 }
 
 /**
@@ -41,6 +48,13 @@ export interface VendorLineInfo {
 export interface ExecutionLineInfo {
   lineId: string;
   unitPrice: Decimal | null;
+  /**
+   * 見積項目の種別（任意）。
+   * REQ-41.9: 値引き行（DISCOUNT）は利益率適用の対象外。
+   * 値引き行は構造上EXECUTION行を持たないため通常は混入しないが、防御的に除外する。
+   * 未指定は STANDARD として従来通り扱う。
+   */
+  itemType?: 'STANDARD' | 'DISCOUNT';
 }
 
 /**
@@ -204,8 +218,12 @@ export class EstimateCalculationService {
   ): AllocationPreview[] {
     const net = new Decimal(netAmount);
 
-    // 除外行を除いた対象行を抽出
-    const targetLines = vendorLines.filter((line) => !excludeIds.includes(line.id));
+    // 除外行および値引き行（REQ-41.9: itemType=DISCOUNT）を除いた対象行を抽出
+    // 値引き行は構造上VENDOR行を持たないため通常は混入しないが、防御的に除外する。
+    // 除外後の合計・案分率にDISCOUNT行の金額が一切影響しない。
+    const targetLines = vendorLines.filter(
+      (line) => !excludeIds.includes(line.id) && line.itemType !== 'DISCOUNT'
+    );
 
     // 対象行の金額合計を計算
     const totalAmount = targetLines.reduce((sum, line) => {
@@ -252,7 +270,12 @@ export class EstimateCalculationService {
   previewProfitRate(executionLines: ExecutionLineInfo[], profitRate: string): ProfitRatePreview[] {
     const rate = new Decimal(profitRate).div(100).add(1); // 例: 10% → 1.10
 
-    return executionLines.map((line) => {
+    // 値引き行（REQ-41.9: itemType=DISCOUNT）を対象から除外する。
+    // 値引き行は構造上EXECUTION行を持たないため通常は混入しないが、防御的に除外する。
+    // 結果配列にDISCOUNT行を含めない（＝単価が変化しない＝対象外）。
+    const targetLines = executionLines.filter((line) => line.itemType !== 'DISCOUNT');
+
+    return targetLines.map((line) => {
       if (line.unitPrice === null) {
         return {
           lineId: line.lineId,
