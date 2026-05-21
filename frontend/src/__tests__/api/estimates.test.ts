@@ -26,6 +26,7 @@ import {
   exportEstimate,
   downloadEstimate,
   moveEstimateItem,
+  addDiscountItem,
 } from '../../api/estimates';
 import type {
   EstimatesResponse,
@@ -33,6 +34,7 @@ import type {
   EstimateDetail,
   EstimateInfo,
   EstimateItemHierarchy,
+  EstimateItemLine,
 } from '../../api/estimates';
 
 // モック設定
@@ -246,6 +248,7 @@ describe('estimates API client', () => {
           estimateId: 'est-1',
           parentId: null,
           displayOrder: 1,
+          itemType: 'STANDARD',
           lines: [
             {
               id: 'line-1',
@@ -508,6 +511,7 @@ describe('estimates API client', () => {
         estimateId: 'est-1',
         parentId: null,
         displayOrder: 1,
+        itemType: 'STANDARD',
         lines: [
           {
             id: 'line-new',
@@ -839,6 +843,106 @@ describe('estimates API client', () => {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(400);
       }
+    });
+  });
+
+  // ============================================================================
+  // 値引き行追加API (Task 51.5, REQ-41.2)
+  // ============================================================================
+
+  describe('addDiscountItem', () => {
+    const mockDiscountLine: EstimateItemLine = {
+      id: 'discount-line-1',
+      estimateItemId: 'discount-item-1',
+      lineType: 'ESTIMATE',
+      name: '値引き',
+      specification: '',
+      unit: '式',
+      quantity: '1',
+      unitPrice: '-50000',
+      amount: '-50000',
+      remarks: null,
+      sourceReceivedQuotationLineItemId: null,
+      sourceVendorName: null,
+      createdAt: '2025-01-05T00:00:00.000Z',
+      updatedAt: '2025-01-05T00:00:00.000Z',
+    };
+
+    const mockDiscountItem: EstimateItemHierarchy = {
+      id: 'discount-item-1',
+      estimateId: 'est-1',
+      parentId: null,
+      displayOrder: 3,
+      itemType: 'DISCOUNT',
+      lines: [mockDiscountLine],
+      children: [],
+      createdAt: '2025-01-05T00:00:00.000Z',
+      updatedAt: '2025-01-05T00:00:00.000Z',
+    };
+
+    it('単価を指定して値引き行を追加できること（itemType=DISCOUNTの項目を取得）', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
+
+      const result = await addDiscountItem('est-1', -50000);
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
+        unitPrice: -50000,
+      });
+      expect(result).toEqual(mockDiscountItem);
+      expect(result.itemType).toBe('DISCOUNT');
+    });
+
+    it('負数の単価を許容して値引き行を追加できること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
+
+      await addDiscountItem('est-1', -123456);
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
+        unitPrice: -123456,
+      });
+    });
+
+    it('単価を省略した場合、unitPriceにnullを送信すること', async () => {
+      const mockEmptyDiscountItem: EstimateItemHierarchy = {
+        ...mockDiscountItem,
+        lines: [{ ...mockDiscountLine, unitPrice: null, amount: null }],
+      };
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockEmptyDiscountItem);
+
+      const result = await addDiscountItem('est-1');
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
+        unitPrice: null,
+      });
+      expect(result).toEqual(mockEmptyDiscountItem);
+    });
+
+    it('単価にnullを明示指定した場合、unitPriceにnullを送信すること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
+
+      await addDiscountItem('est-1', null);
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
+        unitPrice: null,
+      });
+    });
+
+    it('見積書が見つからない場合、404エラーがスローされること', async () => {
+      const mockError = new ApiError(404, '見積書が見つかりません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(addDiscountItem('non-existent', -1000)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('認証エラーの場合、401エラーがスローされること', async () => {
+      const mockError = new ApiError(401, '認証が必要です');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(addDiscountItem('est-1', -1000)).rejects.toMatchObject({
+        statusCode: 401,
+      });
     });
   });
 });
