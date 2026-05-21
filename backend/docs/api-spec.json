@@ -4672,6 +4672,65 @@
         }
       }
     },
+    "/api/estimates/{id}/discount-items": {
+      "post": {
+        "summary": "値引き行追加",
+        "description": "種別=DISCOUNT・見積金額行（ESTIMATE）のみのプリセット値引き項目を\nルート末尾の表示順序で作成する（REQ-41.1, REQ-41.2, REQ-41.3）。\n単価は手入力前提（任意）かつマイナス値を許容する（REQ-41.4, REQ-41.5）。\n",
+        "tags": [
+          "Estimate Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "見積書ID"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "unitPrice": {
+                    "type": "number",
+                    "nullable": true,
+                    "description": "単価（任意、負数許容。省略時はnull）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "値引き行追加成功"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          }
+        }
+      }
+    },
     "/api/estimates/{id}/export": {
       "get": {
         "summary": "見積書出力",
