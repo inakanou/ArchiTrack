@@ -25,6 +25,7 @@ import {
   moveEstimateItem,
   batchUpdateEstimateItems,
   createEstimateItem,
+  addDiscountItem,
   deleteEstimateItem,
   reorderEstimateItems,
   calculateOverhead,
@@ -477,6 +478,17 @@ export default function EstimateDetailPage() {
       // 2. 追加処理
       for (const [, change] of changes) {
         if (change.type === 'add' && change.data) {
+          // 値引き行（itemType=DISCOUNT）は専用エンドポイントで ESTIMATE 1行のみ作成する。
+          // 汎用 createEstimateItem は STANDARD 時に3行を再合成するため使用しない（REQ-41.1, REQ-41.3）。
+          if (change.data.itemType === 'DISCOUNT') {
+            const estimateLine = change.data.lines.find((line) => line.lineType === 'ESTIMATE');
+            const unitPrice =
+              estimateLine?.unitPrice != null && estimateLine.unitPrice !== ''
+                ? parseFloat(estimateLine.unitPrice)
+                : null;
+            await addDiscountItem(id, Number.isNaN(unitPrice as number) ? null : unitPrice);
+            continue;
+          }
           await createEstimateItem(id, {
             parentId: change.data.parentId,
             displayOrder: change.data.displayOrder,
@@ -1151,6 +1163,7 @@ export default function EstimateDetailPage() {
             hasPreviousSibling={hasPreviousSibling}
             onAddItem={() => editor.addItem()}
             onAddChildItem={(parentId) => editor.addItem(parentId)}
+            onAddDiscountItem={() => editor.addDiscountItem()}
             onDeleteItem={(itemId) => editor.deleteItem(itemId)}
             onDuplicateItem={(itemId) => editor.duplicateItem(itemId)}
             onMoveUp={handleMoveUp}

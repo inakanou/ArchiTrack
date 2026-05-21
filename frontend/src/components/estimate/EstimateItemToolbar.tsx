@@ -14,6 +14,8 @@
  * - REQ-23.9: 「上の階層へ移動」ボタンを提供する
  * - REQ-23.10: 「下の階層へ移動」ボタンを提供する
  * - REQ-12.2: 「↑移動」「↓移動」ボタンで同一階層内の表示順序を入れ替える
+ * - REQ-41.1: 見積項目操作ツールバーに「値引き行追加」ボタンを提供する（常に有効）
+ * - REQ-41.7: 値引き行は自動計算を持たず、押下で直接ルート末尾に追加する（専用ダイアログなし）
  *
  * @module components/estimate/EstimateItemToolbar
  */
@@ -38,6 +40,8 @@ export interface EstimateItemToolbarProps {
   onAddItem: () => void;
   /** 子項目追加（選択中項目の子として） */
   onAddChildItem: (parentId: string) => void;
+  /** 値引き行追加（ルートレベル末尾、常に有効）（REQ-41.1, REQ-41.7） */
+  onAddDiscountItem: () => void;
   /** 項目削除 */
   onDeleteItem: (itemId: string) => void;
   /** 項目複製 */
@@ -121,6 +125,7 @@ export function EstimateItemToolbar({
   hasPreviousSibling,
   onAddItem,
   onAddChildItem,
+  onAddDiscountItem,
   onDeleteItem,
   onDuplicateItem,
   onMoveUp,
@@ -155,6 +160,16 @@ export function EstimateItemToolbar({
         }}
       >
         +↳ 子項目追加
+      </button>
+
+      {/* 値引き行追加 - 常に有効 (REQ-41.1, REQ-41.7) */}
+      <button
+        type="button"
+        data-testid="add-discount-button"
+        onClick={onAddDiscountItem}
+        style={{ ...styles.button, ...styles.addButton }}
+      >
+        値引き行追加
       </button>
 
       {/* 複製 - 項目選択中のみ有効 (REQ-23.6) */}

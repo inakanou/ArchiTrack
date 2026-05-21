@@ -34,6 +34,7 @@ const meta = {
   args: {
     onAddItem: fn(),
     onAddChildItem: fn(),
+    onAddDiscountItem: fn(),
     onDeleteItem: fn(),
     onDuplicateItem: fn(),
     onMoveUp: fn(),

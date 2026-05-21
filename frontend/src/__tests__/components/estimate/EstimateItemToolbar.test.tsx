@@ -13,6 +13,8 @@
  * - REQ-23.8: 未選択時は選択必須ボタンをdisabled状態で表示する
  * - REQ-23.9: 「上の階層へ移動」ボタンを提供する
  * - REQ-23.10: 「下の階層へ移動」ボタンを提供する
+ * - REQ-41.1: 見積項目操作ツールバーに「値引き行追加」ボタンを提供する
+ * - REQ-41.7: 値引き行は自動計算を持たず、手入力のみ（専用ダイアログなし）
  *
  * @module __tests__/components/estimate/EstimateItemToolbar
  */
@@ -96,6 +98,7 @@ describe('EstimateItemToolbar', () => {
     onMoveDown: vi.fn(),
     onReorderUp: vi.fn(),
     onReorderDown: vi.fn(),
+    onAddDiscountItem: vi.fn(),
     canReorderUp: false,
     canReorderDown: false,
   };
@@ -417,6 +420,44 @@ describe('EstimateItemToolbar', () => {
       await user.click(screen.getByTestId('reorder-down-button'));
 
       expect(defaultProps.onReorderDown).toHaveBeenCalledWith('item-1');
+    });
+  });
+
+  // REQ-41.1 / REQ-41.7: 値引き行追加ボタン
+  describe('値引き行追加ボタン（REQ-41.1, REQ-41.7）', () => {
+    it('値引き行追加ボタンがレンダリングされること', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      expect(screen.getByTestId('add-discount-button')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /値引き行追加/ })).toBeInTheDocument();
+    });
+
+    it('未選択時でも値引き行追加ボタンは常に有効であること', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      expect(screen.getByTestId('add-discount-button')).toBeEnabled();
+    });
+
+    it('項目選択中でも値引き行追加ボタンは有効であること', () => {
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+        />
+      );
+
+      expect(screen.getByTestId('add-discount-button')).toBeEnabled();
+    });
+
+    it('値引き行追加ボタンクリックでonAddDiscountItemが呼ばれること', async () => {
+      const user = userEvent.setup();
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      await user.click(screen.getByTestId('add-discount-button'));
+
+      expect(defaultProps.onAddDiscountItem).toHaveBeenCalledTimes(1);
     });
   });
 });
