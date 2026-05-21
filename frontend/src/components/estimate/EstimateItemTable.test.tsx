@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EstimateItemTable } from './EstimateItemTable';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
@@ -667,6 +667,67 @@ describe('EstimateItemTable', () => {
         const table = screen.getByLabelText('見積項目テーブル');
         const headerSection = table.querySelector('[aria-hidden="true"]');
         expect(headerSection).toBeInTheDocument();
+      });
+    });
+
+    // ====================================================================
+    // Task 51.8: 値引き行（itemType=DISCOUNT, children なし）の描画
+    // Requirements (estimate-creation): REQ-41.3, 41.4, 41.6
+    // ====================================================================
+    describe('Task 51.8: 値引き行（itemType=DISCOUNT）の描画', () => {
+      const createDiscountItems = (): EstimateItemHierarchyEdit[] => [
+        {
+          id: 'discount-1',
+          estimateId: 'estimate-1',
+          parentId: null,
+          displayOrder: 0,
+          itemType: 'DISCOUNT',
+          isExpanded: true,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          lines: [
+            {
+              id: 'line-discount-est',
+              estimateItemId: 'discount-1',
+              lineType: 'ESTIMATE',
+              name: '値引き',
+              specification: null,
+              unit: '式',
+              quantity: '1',
+              unitPrice: '-3000',
+              amount: '-3000',
+              remarks: null,
+            },
+          ],
+          children: [],
+        },
+      ];
+
+      it('値引き行は見積行のみ描画し、実行・業者行を持たない (REQ-41.3)', () => {
+        render(<EstimateItemTable items={createDiscountItems()} />);
+
+        const itemWrapper = screen.getByTestId('estimate-item-discount-1');
+        expect(within(itemWrapper).getByTestId('line-type-ESTIMATE')).toBeInTheDocument();
+        expect(within(itemWrapper).queryByTestId('line-type-EXECUTION')).not.toBeInTheDocument();
+        expect(within(itemWrapper).queryByTestId('line-type-VENDOR')).not.toBeInTheDocument();
+      });
+
+      it('children なし（hasChildren=false）のため単価が編集可能な input である (REQ-41.4)', () => {
+        render(<EstimateItemTable items={createDiscountItems()} />);
+
+        const itemWrapper = screen.getByTestId('estimate-item-discount-1');
+        const priceInput = within(itemWrapper).getByLabelText('単価');
+        // 自動計算の読み取り専用 div ではなく編集可能な input
+        expect(priceInput.tagName.toLowerCase()).toBe('input');
+        expect(priceInput).toHaveValue('-3000');
+      });
+
+      it('負数金額が "-3,000" として表示される (REQ-41.6)', () => {
+        render(<EstimateItemTable items={createDiscountItems()} />);
+
+        const itemWrapper = screen.getByTestId('estimate-item-discount-1');
+        const amountField = within(itemWrapper).getByTestId('amount-field');
+        expect(amountField).toHaveTextContent('-3,000');
       });
     });
 
