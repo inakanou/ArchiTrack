@@ -953,7 +953,7 @@
   - _Depends: 51.3_
   - _Boundary: frontend api/estimates_
 
-- [ ] 51.6 フロントエンド: 見積エディタの値引き行追加と単一行・集計対応
+- [x] 51.6 フロントエンド: 見積エディタの値引き行追加と単一行・集計対応
   - エディタに値引き行追加アクションを実装し、種別=DISCOUNT・見積金額行のみ・プリセット値（単価空）のルート項目をクライアント状態に追加する
   - 階層再計算・編集処理が値引き行へ実行金額行・業者金額行を再合成しない不変条件を守る
   - バッチ保存の新規作成データに項目種別を含め、再読込後も値引き行が見積金額行のみのまま維持される
@@ -1001,3 +1001,4 @@
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
+- 51.6: useEstimateEditor は `addDiscountItem` を提供し、pendingChanges の 'add' 変更 data に `itemType='DISCOUNT'` を含める。**重要（永続化）**: EstimateDetailPage の onSave の 'add' 処理は現状 `createEstimateItem({parentId,displayOrder,lines})` を呼ぶのみで itemType を渡していない。バックエンド createItem は STANDARD 時に常に3行生成するため、値引き行を round-trip 保存するには onSave の 'add' で `change.data.itemType==='DISCOUNT'` の場合に専用 `addDiscountItem(id, unitPrice)` API を呼ぶ（または createEstimateItem に itemType を転送する）必要がある。このページ結線はツールバー結線（値引き行追加ボタン→editor.addDiscountItem の受け渡し）と併せて対応すること。

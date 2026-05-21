@@ -33,6 +33,17 @@ import Decimal from 'decimal.js';
 export type EstimateItemLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
 
 /**
+ * 見積項目種別
+ *
+ * - STANDARD: 通常の見積項目（見積・実行・業者の3行構成）。未指定時もSTANDARD扱い
+ * - DISCOUNT: 値引き行（見積金額行のみ・マイナス単価許容）
+ *
+ * Requirements (estimate-creation):
+ * - REQ-41.2, REQ-41.3: 値引きプリセット行
+ */
+export type EstimateItemType = 'STANDARD' | 'DISCOUNT';
+
+/**
  * 見積項目行（編集用）
  */
 export interface EstimateItemLineEdit {
@@ -58,6 +69,13 @@ export interface EstimateItemHierarchyEdit {
   estimateId: string;
   parentId: string | null;
   displayOrder: number;
+  /**
+   * 見積項目種別（任意。未指定はSTANDARD扱い）
+   *
+   * Requirements (estimate-creation):
+   * - REQ-41.2, REQ-41.3: 値引き行は 'DISCOUNT'
+   */
+  itemType?: EstimateItemType;
   lines: EstimateItemLineEdit[];
   children: EstimateItemHierarchyEdit[];
   isExpanded: boolean;
@@ -152,6 +170,15 @@ export interface UseEstimateEditorResult {
    * 項目を追加（ローカル操作）
    */
   addItem: (parentId?: string) => void;
+
+  /**
+   * 値引き行を追加（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - REQ-41.2: 名称：値引き、規格：空白、単位：式、数量：1のプリセット値でルートレベルに追加
+   * - REQ-41.3: 見積金額行（ESTIMATE）のみで構成し、実行・業者金額行を持たない
+   */
+  addDiscountItem: () => void;
 
   /**
    * 項目を削除（ローカル操作）
@@ -249,6 +276,49 @@ const createNewItem = (
         specification: null,
         unit: null,
         quantity: null,
+        unitPrice: null,
+        amount: null,
+        remarks: null,
+      },
+    ],
+    children: [],
+    isExpanded: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+/**
+ * 新しい値引き項目を作成
+ *
+ * Requirements (estimate-creation):
+ * - REQ-41.2: 名称：値引き、規格：空白、単位：式、数量：1をプリセット値とする
+ * - REQ-41.3: 見積金額行（ESTIMATE）のみで構成し、実行・業者金額行を持たない
+ *
+ * 単価・金額は手入力前提のため null（quantity は文字列 '1'）。
+ */
+const createDiscountItem = (
+  estimateId: string,
+  displayOrder: number
+): EstimateItemHierarchyEdit => {
+  const itemId = generateId();
+  const now = new Date().toISOString();
+
+  return {
+    id: itemId,
+    estimateId,
+    parentId: null,
+    displayOrder,
+    itemType: 'DISCOUNT',
+    lines: [
+      {
+        id: generateId(),
+        estimateItemId: itemId,
+        lineType: 'ESTIMATE',
+        name: '値引き',
+        specification: '',
+        unit: '式',
+        quantity: '1',
         unitPrice: null,
         amount: null,
         remarks: null,
@@ -584,6 +654,25 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   );
 
   /**
+   * 値引き行を追加（REQ-41.2, REQ-41.3, REQ-41.8）
+   *
+   * 常にルートレベル末尾に itemType='DISCOUNT'・ESTIMATE 1行のみの
+   * プリセット項目を追加する。recordChange に itemType を含む item を
+   * そのまま渡すことで、バッチ保存の 'add' 差分に itemType が含まれる。
+   */
+  const addDiscountItem = useCallback((): void => {
+    setItems((prevItems) => {
+      const newDisplayOrder = prevItems.length;
+      const newItem = createDiscountItem(estimateId, newDisplayOrder);
+
+      // 新規追加を記録（itemType を含む item をそのまま記録）
+      recordChange(newItem.id, 'add', newItem);
+
+      return [...prevItems, newItem];
+    });
+  }, [estimateId, recordChange]);
+
+  /**
    * 項目を削除（REQ-12.3）
    */
   const deleteItem = useCallback(
@@ -768,6 +857,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     updateLine,
     reorderItems,
     addItem,
+    addDiscountItem,
     deleteItem,
     duplicateItem,
     save,
