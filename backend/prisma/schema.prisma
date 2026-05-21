@@ -1116,6 +1116,18 @@ enum EstimateItemLineType {
 }
 
 /**
+ * 見積項目種別
+ * 見積項目が通常項目（3行1セット）か値引き行（見積金額行のみ）かを判別する。
+ * Requirements (estimate-creation):
+ * - REQ-41.2: 値引き行をルートレベルに追加する
+ * - REQ-41.3: 値引き行を見積金額行のみで構成し、実行金額行・業者金額行を持たない構造とする
+ */
+enum EstimateItemType {
+  STANDARD // 通常項目（3行1セット）
+  DISCOUNT // 値引き行（見積金額行のみ）
+}
+
+/**
  * 見積書モデル
  * プロジェクトに紐付く見積書のマスターデータを管理する。
  * 見積書は内訳書を参照して初期作成できるが、作成後はスナップショットとして独立して保持される。
@@ -1167,6 +1179,7 @@ model Estimate {
  * - id: 見積項目の一意ID（UUID）
  * - estimateId: 所属する見積書ID（外部キー、カスケード削除）
  * - parentId: 親項目ID（自己参照外部キー、ルート項目はnull、カスケード削除）
+ * - itemType: 項目種別（STANDARD=通常項目/DISCOUNT=値引き行、デフォルトSTANDARD）
  * - displayOrder: 表示順序
  * - createdAt: 作成日時
  * - updatedAt: 更新日時
@@ -1180,14 +1193,17 @@ model Estimate {
  * - REQ-2.3: 親項目の金額として子項目の金額合計を自動計算して表示する
  * - REQ-2.4: 複数階層のネスト（例：建築工事 > 直接仮設工事 > 遣り方）をサポートする
  * - REQ-12.2: ドラッグ&ドロップで順序を変更可能とする
+ * - REQ-41.2: 値引き行をルートレベルに追加する
+ * - REQ-41.3: 値引き行を見積金額行のみで構成し、実行金額行・業者金額行を持たない構造とする
  */
 model EstimateItem {
-  id           String   @id @default(uuid())
+  id           String           @id @default(uuid())
   estimateId   String
   parentId     String? // 親項目ID（ルート項目はnull）
+  itemType     EstimateItemType @default(STANDARD) // 項目種別（STANDARD=通常項目/DISCOUNT=値引き行）
   displayOrder Int // 表示順序
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
   estimate Estimate           @relation(fields: [estimateId], references: [id], onDelete: Cascade)
   parent   EstimateItem?      @relation("EstimateItemHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
