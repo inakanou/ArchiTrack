@@ -106,6 +106,23 @@ describe('EstimateCalculator', () => {
         expect(result).not.toBeNull();
         expect(result?.toString()).toBe('-500');
       });
+
+      it('REQ-41.6: 負数の計算結果を符号を保持したまま整数に丸めること', () => {
+        // -3333.0 → -3333（符号保持・小数を整数に丸める）
+        const result = EstimateCalculator.calculateAmount('1', '-3333.3');
+
+        expect(result).not.toBeNull();
+        // ROUND_HALF_UP は絶対値方向ではなく数値として丸めるため -3333.3 → -3333
+        expect(result?.toString()).toBe('-3333');
+      });
+
+      it('REQ-41.6: 負数の.5丸めで符号を保持し絶対値を四捨五入すること', () => {
+        // -2.5 → -3（Decimal.js の ROUND_HALF_UP は 0 から離れる方向へ丸める）
+        const result = EstimateCalculator.calculateAmount('1', '-2.5');
+
+        expect(result).not.toBeNull();
+        expect(result?.toString()).toBe('-3');
+      });
     });
 
     describe('境界値', () => {
@@ -144,6 +161,40 @@ describe('EstimateCalculator', () => {
 
         expect(result).toBeNull();
       });
+    });
+  });
+
+  // ============================================================================
+  // roundUnitPrice - 単価丸め（値引き行の負数単価表示を含む）
+  // REQ-41.5, REQ-41.6: 負数単価の整数丸め表示
+  // ============================================================================
+  describe('roundUnitPrice', () => {
+    it('REQ-41.5: 負数の単価をそのまま受理し符号付き整数文字列で返すこと', () => {
+      const result = EstimateCalculator.roundUnitPrice('-100000');
+
+      expect(result).toBe('-100000');
+    });
+
+    it('REQ-41.6: 負数の小数単価を符号を保持したまま整数に丸めること', () => {
+      // -1234.4 → -1234
+      const result = EstimateCalculator.roundUnitPrice('-1234.4');
+
+      expect(result).toBe('-1234');
+    });
+
+    it('REQ-41.6: 負数の.5単価を ROUND_HALF_UP で丸めること', () => {
+      // -1234.5 → -1235（Decimal.js の ROUND_HALF_UP は 0 から離れる方向へ丸め）
+      const result = EstimateCalculator.roundUnitPrice('-1234.5');
+
+      expect(result).toBe('-1235');
+    });
+
+    it('単価がnullの場合はnullを返すこと', () => {
+      expect(EstimateCalculator.roundUnitPrice(null)).toBeNull();
+    });
+
+    it('単価が空文字の場合はnullを返すこと', () => {
+      expect(EstimateCalculator.roundUnitPrice('')).toBeNull();
     });
   });
 
@@ -256,6 +307,25 @@ describe('EstimateCalculator', () => {
         const result = EstimateCalculator.calculateSubtotal(items);
 
         expect(result.toString()).toBe('5000');
+      });
+
+      it('REQ-41.8: 値引き行（負数の見積金額行）を合計から減算すること', () => {
+        const items: EstimateItemWithLines[] = [
+          {
+            id: '1',
+            lines: [{ lineType: 'ESTIMATE', amount: '10000' }],
+          },
+          {
+            // 値引き行: 見積金額行のみで負数 amount を持つ
+            id: 'discount-1',
+            lines: [{ lineType: 'ESTIMATE', amount: '-3000' }],
+          },
+        ];
+
+        const result = EstimateCalculator.calculateSubtotal(items);
+
+        // 10000 + (-3000) = 7000
+        expect(result.toString()).toBe('7000');
       });
     });
   });
