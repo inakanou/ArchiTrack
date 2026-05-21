@@ -29,6 +29,17 @@ import { apiClient } from './client';
 export type EstimateItemLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
 
 /**
+ * 見積項目種別
+ *
+ * - STANDARD: 通常の見積項目（見積・実行・業者の3行構成）
+ * - DISCOUNT: 値引き行（見積金額行のみ・マイナス単価許容）
+ *
+ * Requirements (estimate-creation):
+ * - REQ-41.2, REQ-41.3: 値引きプリセット行
+ */
+export type EstimateItemType = 'STANDARD' | 'DISCOUNT';
+
+/**
  * 見積項目行情報
  */
 export interface EstimateItemLine {
@@ -56,6 +67,13 @@ export interface EstimateItemHierarchy {
   estimateId: string;
   parentId: string | null;
   displayOrder: number;
+  /**
+   * 見積項目種別（バックエンドが返却。既定は 'STANDARD'、未指定時も 'STANDARD' とみなす）
+   *
+   * Requirements (estimate-creation):
+   * - REQ-41.2, REQ-41.3: 値引き行は 'DISCOUNT'
+   */
+  itemType?: EstimateItemType;
   lines: EstimateItemLine[];
   children: EstimateItemHierarchy[];
   createdAt: string;
@@ -368,6 +386,126 @@ export async function moveEstimateItem(
 ): Promise<void> {
   await apiClient.patch(`/api/estimates/${estimateId}/items/${itemId}/move`, {
     newParentId,
+  });
+}
+
+/**
+ * 見積項目の表示順序を変更
+ *
+ * Requirements (estimate-creation):
+ * - REQ-12.2: 見積項目の表示順序を変更可能とする
+ *
+ * 兄弟グループ内で↑/↓ボタンによる並び替えを行う際に使用する。
+ * 指定した項目のdisplayOrderを即時にDBへ反映する。
+ *
+ * @param estimateId - 見積書ID
+ * @param itemOrders - 表示順序の配列（id と displayOrder のペア）
+ */
+export async function reorderEstimateItems(
+  estimateId: string,
+  itemOrders: Array<{ id: string; displayOrder: number }>
+): Promise<void> {
+  await apiClient.put(`/api/estimates/${estimateId}/items/reorder`, { itemOrders });
+}
+
+/**
+ * 諸経費計算パラメータ
+ */
+export interface CalculateOverheadInput {
+  costType: 'COMMON_TEMPORARY' | 'SITE_MANAGEMENT' | 'GENERAL_ADMIN';
+  /** 直接工事費（千円単位、文字列） */
+  directCost: string;
+  /** 工期（月、共通仮設費で使用） */
+  constructionPeriod?: number;
+  /** 純工事費（千円単位、現場管理費で使用） */
+  pureConstructionCost?: string;
+  /** 工事原価（千円単位、一般管理費で使用） */
+  constructionCost?: string;
+  /** 改修工事フラグ（true: 建築改修 / false: 建築新営） */
+  isRenovation: boolean;
+}
+
+/**
+ * 諸経費計算結果
+ */
+export interface CalculateOverheadResult {
+  costType: 'COMMON_TEMPORARY' | 'SITE_MANAGEMENT' | 'GENERAL_ADMIN';
+  /** 算定率（%） */
+  rate: string;
+  /** 計算金額（千円単位） */
+  amount: string;
+  /** 計算式（トレーサビリティ用） */
+  formula: string;
+}
+
+/**
+ * 諸経費（共通仮設費・現場管理費・一般管理費）を自動計算
+ *
+ * Requirements (estimate-creation):
+ * - REQ-7.3, REQ-8.3, REQ-9.3: 国土交通省の公共建築工事共通費積算基準に準じて単価を自動計算する
+ *
+ * @param estimateId - 見積書ID
+ * @param input - 計算パラメータ
+ * @returns 計算結果（率・金額・計算式）
+ */
+export async function calculateOverhead(
+  estimateId: string,
+  input: CalculateOverheadInput
+): Promise<CalculateOverheadResult> {
+  return apiClient.post<CalculateOverheadResult>(
+    `/api/estimates/${estimateId}/calculate-overhead`,
+    input
+  );
+}
+
+/**
+ * 諸経費行を見積項目として追加
+ *
+ * Requirements (estimate-creation):
+ * - REQ-7.1, REQ-8.1, REQ-9.1: プリセット値を使用して諸経費行を追加する
+ *
+ * バックエンドがプリセット値（名称・規格・単位・数量）を設定し、unitPrice のみ受け取る。
+ *
+ * @param estimateId - 見積書ID
+ * @param input - 諸経費種別と単価
+ * @returns 追加された見積項目
+ */
+export async function addOverheadItem(
+  estimateId: string,
+  input: {
+    costType: 'COMMON_TEMPORARY' | 'SITE_MANAGEMENT' | 'GENERAL_ADMIN';
+    unitPrice?: number;
+  }
+): Promise<EstimateItemHierarchy> {
+  return apiClient.post<EstimateItemHierarchy>(
+    `/api/estimates/${estimateId}/overhead-items`,
+    input
+  );
+}
+
+/**
+ * 値引き行を見積項目として追加
+ *
+ * Requirements (estimate-creation):
+ * - REQ-41.2: 名称：値引き、規格：空白、単位：式、数量：1をプリセット値とする値引き行をルートレベルに追加する
+ * - REQ-41.5: 単価にマイナス値（負数）の入力を許容する
+ *
+ * バックエンドがプリセット値（名称・規格・単位・数量）を設定し、unitPrice のみ受け取る。
+ * 作成される項目は itemType='DISCOUNT'・見積金額行（ESTIMATE）1行のみで構成される。
+ * unitPrice 省略時は null を送信する（手入力前提）。
+ *
+ * エンドポイント: POST /api/estimates/:id/discount-items
+ *
+ * @param estimateId - 見積書ID
+ * @param unitPrice - 単価（任意・負数許容・null許容）。省略時は null
+ * @returns 追加された値引き項目（itemType='DISCOUNT'）
+ */
+export async function addDiscountItem(
+  estimateId: string,
+  unitPrice?: number | null
+): Promise<EstimateItemHierarchy> {
+  return apiClient.post<EstimateItemHierarchy>(`/api/estimates/${estimateId}/discount-items`, {
+    unitPrice: unitPrice ?? null,
   });
 }
 

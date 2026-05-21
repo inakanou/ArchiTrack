@@ -292,6 +292,31 @@ describe('EstimateCalculationService', () => {
       const total = result.reduce((sum, r) => sum.add(r.allocatedAmount), new Decimal(0));
       expect(total.toNumber()).toBe(9999);
     });
+
+    it('REQ-41.9: itemType=DISCOUNTの行はNET案分の対象から除外され、合計・案分率に影響しない', () => {
+      const vendorLines = [
+        { id: 'line-1', amount: new Decimal('30000'), itemType: 'STANDARD' as const },
+        { id: 'line-2', amount: new Decimal('50000'), itemType: 'STANDARD' as const },
+        // 値引き行（防御的ガード対象）。本来構造上VENDOR行を持たないが、混入しても除外されること
+        { id: 'discount-1', amount: new Decimal('-100000'), itemType: 'DISCOUNT' as const },
+      ];
+      const netAmount = '80000';
+
+      const result = service.previewNetAllocation(vendorLines, [], netAmount);
+
+      // DISCOUNT行は結果に含まれない
+      expect(result).toHaveLength(2);
+      expect(result.find((r) => r.lineId === 'discount-1')).toBeUndefined();
+
+      // DISCOUNT行の-100000が合計に影響していれば案分結果が変わるが、
+      // 除外されるため STANDARD 行のみ（合計80000）で按分される
+      // line-1: 30000 / 80000 * 80000 = 30000
+      // line-2: 50000 / 80000 * 80000 = 50000
+      expect(result[0]!.lineId).toBe('line-1');
+      expect(result[0]!.allocatedAmount.toString()).toBe('30000');
+      expect(result[1]!.lineId).toBe('line-2');
+      expect(result[1]!.allocatedAmount.toString()).toBe('50000');
+    });
   });
 
   describe('previewProfitRate (利益率適用プレビュー)', () => {
@@ -355,6 +380,28 @@ describe('EstimateCalculationService', () => {
       const result = service.previewProfitRate(executionLines, profitRate);
 
       expect(result[0]!.newUnitPrice).toBeNull();
+    });
+
+    it('REQ-41.9: itemType=DISCOUNTの行は利益率適用の対象から除外される', () => {
+      const executionLines = [
+        { lineId: 'line-1', unitPrice: new Decimal('1000'), itemType: 'STANDARD' as const },
+        // 値引き行（防御的ガード対象）。本来構造上EXECUTION行を持たないが、混入しても除外されること
+        { lineId: 'discount-1', unitPrice: new Decimal('-5000'), itemType: 'DISCOUNT' as const },
+        { lineId: 'line-2', unitPrice: new Decimal('2000'), itemType: 'STANDARD' as const },
+      ];
+      const profitRate = '10'; // 10%
+
+      const result = service.previewProfitRate(executionLines, profitRate);
+
+      // DISCOUNT行は結果に含まれない（そもそも対象外＝単価が変化しない）
+      expect(result).toHaveLength(2);
+      expect(result.find((r) => r.lineId === 'discount-1')).toBeUndefined();
+
+      // STANDARD行のみ利益率適用される
+      expect(result[0]!.lineId).toBe('line-1');
+      expect(result[0]!.newUnitPrice!.toString()).toBe('1100');
+      expect(result[1]!.lineId).toBe('line-2');
+      expect(result[1]!.newUnitPrice!.toString()).toBe('2200');
     });
   });
 

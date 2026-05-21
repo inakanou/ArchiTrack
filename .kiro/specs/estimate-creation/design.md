@@ -3270,3 +3270,236 @@ const compactLabelStyle: React.CSSProperties = {
 | 38.2-38.3 | 空欄行詰め出力 | EstimateExportService | GET /api/estimates/:id/export | 出力フロー |
 | 39.1-39.9 | サマリー表示項目・順序変更 | EstimateDetailPage | - | 表示 |
 | 40.1-40.4 | テキストフィールドコンパクト化 | EstimateItemRow, EstimateItemTable | - | 表示 |
+
+## 追加設計（REQ-41対応）
+
+### 概要
+
+値引きプリセット行（REQ-41）は、最終見積金額の端数調整・出精値引きをマイナス金額として手入力で反映するための見積項目である。共通仮設費・現場管理費・一般管理費のプリセット（REQ-7〜9）が「見積・実行・業者の3行1セット（実行/業者は空行）」を生成するのに対し、値引き行は **見積金額行（ESTIMATE）のみ** で構成し、実行金額行・業者金額行を持たない（REQ-41.3）。自動計算機能は持たず、単価は手入力のみ（REQ-41.7）で、負数を許容する（REQ-41.5）。
+
+### 設計上の判断（research.md の申し送りに対する決定）
+
+| 論点 | 決定 | 根拠 |
+|------|------|------|
+| 種別識別方式 | `EstimateItem` に `itemType`（enum `EstimateItemType { STANDARD, DISCOUNT }`、default `STANDARD`）を追加 | 「見積のみ1行」という構造例外（REQ-41.3）をフロント描画・集計除外・出力で堅牢に判別するため。`STANDARD` デフォルトで既存行は無影響 |
+| 行構造 | 値引き行は ESTIMATE 行のみを生成（EXECUTION/VENDOR 行を作らない） | REQ-41.3 を文言通り満たす。ユニーク制約 `(estimateItemId, lineType)` にも適合 |
+| 追加UI | ツールバーのボタン押下で直接ルートレベルに値引き行を追加（専用ダイアログなし）。単価はインライン手入力 | 自動計算がない（REQ-41.7）ため諸経費のようなパラメータ入力パネルは不要。REQ-27 のクライアントサイド編集方式に整合 |
+| マイナス値 | 単価フィールドは負数入力を許容。フォーカスアウト時の整数フォーマット（REQ-22.8）は符号を保持 | REQ-41.5/41.6 |
+| 集計 | 見積金額行の負数 amount を既存の合計・見積金額合計に加算（ロジック変更なし、Decimal 加算で減算が成立） | REQ-41.8。サマリー（REQ-39）の見積金額合計・利益額にも自動反映 |
+| NET案分・利益率 | 値引き行は EXECUTION/VENDOR 行が無いため構造的に対象外。加えて `itemType === 'DISCOUNT'` を防御的に除外 | REQ-41.9 |
+| 出力 | 新規の出力分岐は設けず、REQ-38 の「選択行タイプにデータが存在する行のみ出力／空欄行を詰める」で自然に処理（値引きは見積行のみデータを持つ） | REQ-41 は出力要件を新設しない |
+
+### 境界（Boundary）
+
+**Boundary Commitments（本設計が所有する範囲）**
+- `EstimateItem.itemType`（`STANDARD`/`DISCOUNT`）の追加と既存データへのデフォルト適用
+- 値引き行追加エンドポイント（`POST /:id/discount-items`）と見積金額行のみを生成するサービス経路
+- ツールバーの「値引き行追加」ボタンと、見積のみ1行項目のフロント描画・インライン編集・バッチ保存対応
+- 値引き行のマイナス単価許容と負数金額の集計反映
+
+**Out of Boundary（所有しない範囲）**
+- 値引き額の自動計算ロジック（出精値引き額の自動算出等は行わない／手入力のみ）
+- NET案分・利益率適用の計算式そのものの変更（除外判定の追加のみ）
+- サマリー（REQ-39）の項目・順序の変更（見積金額合計への反映は既存式で成立するため新規項目は追加しない）
+- 出力フォーマット（REQ-10/32/38）の新規仕様
+
+**Allowed Dependencies**
+- `EstimateItemService.createItem`（既存）、`EstimateCalculationService`（既存）、`EstimateItemToolbar`/`useEstimateEditor`/`EstimateItemRow`/`EstimateItemTable`（既存）への拡張のみ
+- 新規外部ライブラリ依存なし
+
+**Revalidation Triggers（下流再検証が必要になる変更）**
+- `EstimateItemType` への種別追加（将来の別プリセット）
+- 3行1セット前提に依存する処理（表示行フィルタ REQ-28、出力 REQ-32/38、バッチ保存 REQ-34）の仕様変更
+- マイナス値許容範囲・丸め規則（REQ-22）の変更
+
+### Data Models
+
+#### EstimateItem 拡張
+
+```prisma
+enum EstimateItemType {
+  STANDARD // 通常項目（3行1セット）
+  DISCOUNT // 値引き行（見積金額行のみ）
+}
+
+model EstimateItem {
+  // 既存フィールドに追加
+  itemType EstimateItemType @default(STANDARD)
+  // ...
+}
+```
+
+```typescript
+// TypeScript 型（backend/frontend 共通の概念）
+enum EstimateItemType {
+  STANDARD = 'STANDARD',
+  DISCOUNT = 'DISCOUNT',
+}
+
+interface EstimateItem {
+  id: string;
+  estimateId: string;
+  parentId: string | null;
+  displayOrder: number;
+  itemType: EstimateItemType; // 追加（既存項目は STANDARD）
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+**マイグレーション**: `itemType` は `@default(STANDARD)` の非NULL列として追加するため、既存の見積項目は自動的に `STANDARD` となり後方互換性を保つ。`npm --prefix backend run prisma:migrate` で生成・適用する。
+
+### Backend
+
+#### 値引きプリセット定数
+
+```typescript
+// EstimateItemService 内、もしくは定数モジュール
+const DISCOUNT_PRESET = {
+  name: '値引き',
+  specification: '',
+  unit: '式',
+  quantity: 1,
+} as const;
+```
+
+#### EstimateItemService 変更（`createItem` 拡張）
+
+```typescript
+interface CreateItemInput {
+  parentId?: string;
+  displayOrder: number;
+  itemType?: EstimateItemType; // 追加（省略時 STANDARD）
+  lines: CreateLineInput[];     // 値引き行は ESTIMATE 1行のみ
+}
+```
+
+- `itemType` を受け取り、`EstimateItem.itemType` に保存する
+- `lines` 配列が ESTIMATE 1行のみのケース（値引き行）を許容する（既存は3行前提だが配列長制約は緩和し、渡された行のみ作成）
+
+#### 新規エンドポイント
+
+```
+POST /api/projects/:projectId/estimates/:id/discount-items
+```
+
+```typescript
+// addDiscountItemSchema（zod）
+{
+  unitPrice: z.number().optional(), // 負数許容（下限なし）。省略時は null（手入力前提）
+}
+```
+
+処理フロー（`/overhead-items` を踏襲）:
+1. `getHierarchy(id)` で既存項目数から `displayOrder` を決定（末尾に追加）
+2. `createItem(id, { displayOrder, itemType: 'DISCOUNT', lines: [{ lineType: 'ESTIMATE', name: '値引き', specification: '', unit: '式', quantity: 1, unitPrice: body.unitPrice ?? null }] })`
+3. `201` で作成項目を返却（`EstimateNotFoundError` は 404）
+
+#### EstimateCalculationService 変更（防御的除外）
+
+- `calculateNetAllocation` / `applyProfitRate` の対象選定で `itemType === 'DISCOUNT'` の項目をスキップする（EXECUTION/VENDOR 行を持たないため通常は対象にならないが、明示ガードを追加）
+
+#### スキーマ（estimate.schema.ts）
+
+- 見積項目の作成・バッチ保存スキーマに `itemType` を追加（任意、enum）
+- 単価 `unitPrice` は既存どおり `z.number()`（下限なし）で負数を許容することを明示（コメント追記）
+
+### Frontend
+
+#### EstimateItemToolbar 変更（REQ-41.1）
+
+- 「値引き行追加」ボタンを追加（選択状態に依存せず常に有効）
+- クリック時に `useEstimateEditor` の値引き行追加アクションを呼び出す
+
+#### useEstimateEditor 拡張（REQ-41.2, 41.8）
+
+- `addDiscountItem()` アクションを追加：クライアント状態にルートレベルの値引き項目（`itemType: 'DISCOUNT'`、ESTIMATE 行のみ、プリセット値、`unitPrice` 空）を追加
+- バッチ保存（REQ-34）で `itemType` と単一行項目を差分として正しく送信
+- 集計（subtotal/階層）は既存ロジックを使用し、負数 amount を減算として反映（変更最小）
+
+#### EstimateItemRow / EstimateItemTable 変更（REQ-41.3, 41.5, 41.6, 41.10）
+
+- `itemType === 'DISCOUNT'` の項目は **見積金額行のみ** を描画する（実行/業者行を描画しない）
+- 表示行フィルタ（REQ-28）の「実行」「業者」チェックは値引き行に影響しない（該当行が存在しない）。「見積」OFF 時は値引き行も非表示
+- 単価フィールドは負数入力を許容し、金額（単価×数量）を負数のまま表示（REQ-22 の整数フォーマットで符号維持）
+- 名称・規格・単位・数量・備考はインライン編集可能（REQ-41.10）。値引き行は子項目を持たないルートのリーフ項目として扱う
+
+#### API 関数（frontend/src/api/estimates.ts）
+
+```typescript
+async function addDiscountItem(
+  projectId: string,
+  estimateId: string,
+  body?: { unitPrice?: number }
+): Promise<EstimateItem>;
+```
+
+### File Structure Plan
+
+| ファイル | 区分 | 責務 |
+|----------|------|------|
+| `backend/prisma/schema.prisma` | 変更 | `EstimateItemType` enum 追加、`EstimateItem.itemType` 列追加 |
+| `backend/prisma/migrations/<timestamp>_add_estimate_item_type/migration.sql` | 新規（生成） | itemType 列・enum のマイグレーション |
+| `backend/src/schemas/estimate.schema.ts` | 変更 | `addDiscountItemSchema` 追加、item/batch スキーマに `itemType` 追加、unitPrice 負数許容明記 |
+| `backend/src/services/estimate-item.service.ts` | 変更 | `createItem` の `itemType` 対応・単一行許容、`DISCOUNT_PRESET` 定数 |
+| `backend/src/services/estimate-calculation.service.ts` | 変更 | NET案分・利益率適用で `DISCOUNT` 項目を防御的に除外 |
+| `backend/src/routes/estimates.routes.ts` | 変更 | `POST /:id/discount-items` エンドポイント追加 |
+| `frontend/src/api/estimates.ts` | 変更 | `addDiscountItem()` 追加、`EstimateItem` 型に `itemType` 追加 |
+| `frontend/src/hooks/useEstimateEditor.ts` | 変更 | `addDiscountItem` アクション、単一行・itemType のクライアント状態/バッチ保存対応 |
+| `frontend/src/components/estimate/EstimateItemToolbar.tsx` | 変更 | 「値引き行追加」ボタン |
+| `frontend/src/components/estimate/EstimateItemRow.tsx` | 変更 | 値引き行を見積行のみ描画、負数単価入力 |
+| `frontend/src/components/estimate/EstimateItemTable.tsx` | 変更 | 値引き行の描画分岐・表示フィルタ整合 |
+| `e2e/specs/estimate/estimate-discount-preset-e2e.spec.ts` | 新規 | 値引き行のE2E（追加・マイナス入力・合計減算・案分/利益率除外） |
+
+### Testing Strategy
+
+#### Unit Tests
+- `estimate-item.service`: `itemType=DISCOUNT` かつ ESTIMATE 1行のみで項目が作成されること（EXECUTION/VENDOR 行が作られない）
+- `estimate-calculation.service`: 値引き行（負数 amount）が見積金額合計から減算されること／NET案分・利益率適用で `DISCOUNT` 項目が除外されること
+- フロント `estimate-calculation`（EstimateCalculator）: 負数 amount を含む subtotal が正しく減算されること、負数の整数丸め表示
+- `estimate.schema`: `addDiscountItemSchema` が負数 unitPrice を受理すること
+
+#### Integration Tests
+- `POST /:id/discount-items` が `itemType=DISCOUNT`・ESTIMATE 1行の項目を 201 で作成すること
+- バッチ保存（`/items/batch`）で値引き行の追加・単価更新・削除が再読込後も保持されること（REQ-34 整合）
+
+#### E2E Tests（`e2e/specs/estimate/estimate-discount-preset-e2e.spec.ts`）
+- 「値引き行追加」ボタン押下でルート末尾に値引き行（名称=値引き、単位=式、数量=1）が見積行のみで追加される（REQ-41.1〜41.3）
+- 単価にマイナス値を入力し、金額が負数で表示され、合計・見積金額合計が減算される（REQ-41.5, 41.6, 41.8）
+- 値引き行が NET案分ダイアログ・利益率適用ダイアログの対象に現れない／影響を受けない（REQ-41.9）
+- 名称等のインライン編集と保存後の再読込整合（REQ-41.10, REQ-34）
+
+### Requirements Traceability（REQ-41追加分）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 41.1 | 「値引き行追加」ボタン | EstimateItemToolbar | - | 項目追加 |
+| 41.2 | プリセット値でルート追加 | useEstimateEditor, EstimateItemService, estimate.routes | POST /:id/discount-items | 項目追加 |
+| 41.3 | 見積金額行のみ構成 | EstimateItem(itemType), EstimateItemService, EstimateItemRow/Table | - | 項目追加・表示 |
+| 41.4-41.5 | 単価手入力・マイナス許容 | EstimateItemRow, estimate.schema | POST /:id/discount-items | 編集 |
+| 41.6 | 金額=単価×数量、負数表示 | EstimateCalculator, EstimateItemRow | - | 表示 |
+| 41.7 | 自動計算なし | EstimateItemToolbar(直接追加) | - | 項目追加 |
+| 41.8 | 合計・見積金額合計に負数加算 | EstimateCalculator, EstimateCalculationService | - | 集計 |
+| 41.9 | NET案分・利益率の対象外 | EstimateCalculationService | calculate-net, apply-profit-rate | NET計算・利益率適用 |
+| 41.10 | 名称等の手入力変更可 | EstimateItemRow, useEstimateEditor | /items/batch | 編集 |
+
+### 実装上の不変条件・補足（設計レビュー反映）
+
+設計レビュー（/kiro-validate-design）で特定した3点の精緻化事項を以下に確定する。
+
+#### 1. 単一行項目の不変条件（REQ-41.3）
+
+- **不変条件**: `itemType === 'DISCOUNT'` の `EstimateItem` は **ESTIMATE 行をちょうど1行のみ** 保持し、EXECUTION/VENDOR 行を持たない。
+- **全行走査コードは行欠落を許容する**: `EstimateItemRow` の `LINE_TYPE_ORDER.map(type => lines.find(...))`（現行 379-383行付近）は `undefined` を生むため、フィルタ前に `undefined` を除外する（`sortedLines.filter((line): line is EstimateItemLineEdit => line !== undefined)`）。値引き行は ESTIMATE 行のみを描画する。
+- **再計算時の行再合成を禁止**: `useEstimateEditor` の階層再計算（現行 356-390行付近で3行を再構築する処理）および編集・保存処理は、`DISCOUNT` 項目に対して EXECUTION/VENDOR 行を新規生成してはならない。階層再計算は親項目（子を持つ STANDARD 項目）のみを対象とし、値引き行はルートのリーフ項目として行構成を維持する。
+- **保存往復の保証**: 追加→保存→再読込の往復後も DISCOUNT 項目が ESTIMATE 1行のままであること（REQ-34 整合）を Integration/E2E で検証する。
+
+#### 2. バッチ保存での itemType 伝播（REQ-41.2, REQ-34.3）
+
+- バッチ差分（`/items/batch`）の **新規項目作成 payload に `itemType` を含める**。`estimate.schema.ts` のバッチ作成スキーマと `useEstimateEditor` の差分生成（`batchUpdate` 呼び出し）の双方で `itemType` を保持・送信する。
+- バックエンドのバッチ処理は受領した `itemType`（省略時 `STANDARD`）を `EstimateItem.itemType` に永続化する。これにより新規値引き項目が再読込で `STANDARD` に退行しないことを保証する。
+
+#### 3. 負数の丸め方向（REQ-41.6, REQ-22）
+
+- 値引き行の金額（単価×数量）の丸めは、既存 REQ-22 の丸め規則を負数にも一貫適用する。**負数は絶対値で小数第1位を四捨五入（ROUND_HALF_UP、ゼロから離れる方向）** とし、符号を保持する（例: -566.5 → -567）。
+- 単価フィールドのフォーカスアウト整数化（REQ-22.8）も同じ規則・符号保持で適用する。実運用は千円単位以下の整数値が主だが、丸め方向を本項で確定しておく。

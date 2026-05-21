@@ -58,11 +58,35 @@ export interface CreateLineInput {
 }
 
 /**
+ * 見積項目種別
+ *
+ * - STANDARD: 通常項目（見積・実行・業者の3行1セット）
+ * - DISCOUNT: 値引き行（見積金額行のみ。実行・業者行を持たない、REQ-41.3）
+ */
+export type EstimateItemTypeValue = 'STANDARD' | 'DISCOUNT';
+
+/**
+ * 値引きプリセット行（REQ-41.2）
+ *
+ * 値引き行追加時の見積金額行（ESTIMATE）の初期値。
+ * 名称＝値引き、規格＝空文字、単位＝式、数量＝1。
+ * 単価は手入力前提（REQ-41.4）かつ負数を許容（REQ-41.5）するため含めない。
+ */
+export const DISCOUNT_PRESET_LINE = {
+  name: '値引き',
+  specification: '',
+  unit: '式',
+  quantity: 1,
+} as const;
+
+/**
  * 見積項目作成入力
  */
 export interface CreateItemInput {
   parentId?: string | null;
   displayOrder: number;
+  /** 項目種別（省略時 STANDARD）。DISCOUNT の場合は見積金額行のみ生成（REQ-41.3） */
+  itemType?: EstimateItemTypeValue;
   lines: CreateLineInput[];
 }
 
@@ -92,6 +116,8 @@ export interface EstimateItemWithLines {
   estimateId: string;
   parentId: string | null;
   displayOrder: number;
+  /** 項目種別（STANDARD=通常項目/DISCOUNT=値引き行） */
+  itemType: EstimateItemTypeValue;
   lines: EstimateItemLineInfo[];
   createdAt: Date;
   updatedAt: Date;
@@ -193,14 +219,18 @@ export class EstimateItemService {
         }
       }
 
-      // 3. 見積項目を作成（3行のラインデータを含む）
-      const linesData = this.prepareLinesToCreate(input.lines);
+      // 3. 見積項目を作成（種別に応じた行データを含む）
+      //    - STANDARD: 見積・実行・業者の3行1セット（REQ-1.2）
+      //    - DISCOUNT: 見積金額行のみ（実行・業者行を生成しない、REQ-41.3）
+      const itemType: EstimateItemTypeValue = input.itemType ?? 'STANDARD';
+      const linesData = this.prepareLinesToCreate(input.lines, itemType);
 
       const createdItem = await tx.estimateItem.create({
         data: {
           estimateId,
           parentId: input.parentId ?? null,
           displayOrder: input.displayOrder,
+          itemType,
           lines: {
             create: linesData,
           },
@@ -218,8 +248,17 @@ export class EstimateItemService {
 
   /**
    * 行データを作成用に準備する
+   *
+   * - STANDARD: ESTIMATE/EXECUTION/VENDOR の3行を生成（REQ-1.2）
+   * - DISCOUNT: ESTIMATE 行のみを生成（実行・業者行を作らない、REQ-41.3）
+   *
+   * 単価は省略可能（手入力前提）かつ負数を許容する。負の単価は
+   * calculateAmount により負の金額として計算される（符号保持、REQ-41.5/41.6）。
    */
-  private prepareLinesToCreate(lines: CreateLineInput[]): Array<{
+  private prepareLinesToCreate(
+    lines: CreateLineInput[],
+    itemType: EstimateItemTypeValue = 'STANDARD'
+  ): Array<{
     lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
     name: string | null;
     specification: string | null;
@@ -229,11 +268,8 @@ export class EstimateItemService {
     amount: number | null;
     remarks: string | null;
   }> {
-    const lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'> = [
-      'ESTIMATE',
-      'EXECUTION',
-      'VENDOR',
-    ];
+    const lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'> =
+      itemType === 'DISCOUNT' ? ['ESTIMATE'] : ['ESTIMATE', 'EXECUTION', 'VENDOR'];
     const result: Array<{
       lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
       name: string | null;
@@ -298,6 +334,7 @@ export class EstimateItemService {
       estimateId: string;
       parentId: string | null;
       displayOrder: number;
+      itemType?: string;
       createdAt: Date;
       updatedAt: Date;
       lines: Array<{
@@ -803,6 +840,7 @@ export class EstimateItemService {
     estimateId: string;
     parentId: string | null;
     displayOrder: number;
+    itemType?: string;
     createdAt: Date;
     updatedAt: Date;
     lines: Array<{
@@ -825,6 +863,7 @@ export class EstimateItemService {
       estimateId: item.estimateId,
       parentId: item.parentId,
       displayOrder: item.displayOrder,
+      itemType: (item.itemType as EstimateItemTypeValue | undefined) ?? 'STANDARD',
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       lines: item.lines.map((line) => ({

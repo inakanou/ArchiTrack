@@ -1129,4 +1129,127 @@ describe('useEstimateEditor', () => {
       expect(estimateLine?.amount).toBe('50000');
     });
   });
+
+  describe('addDiscountItem - 値引き行追加（REQ-41.2, 41.3, 41.6, 41.8, 41.10）', () => {
+    it('ルート末尾にitemType=DISCOUNT・ESTIMATE1行のみ・プリセット値の項目が追加されること (REQ-41.2, 41.3)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+
+      // ルート末尾に追加されること
+      expect(result.current.items).toHaveLength(3);
+      const discountItem = result.current.items[2]!;
+
+      // itemTypeがDISCOUNT
+      expect(discountItem.itemType).toBe('DISCOUNT');
+      // ルートレベル
+      expect(discountItem.parentId).toBeNull();
+      // 子を持たないリーフ
+      expect(discountItem.children).toHaveLength(0);
+      // ESTIMATE行のみ
+      expect(discountItem.lines).toHaveLength(1);
+      const estimateLine = discountItem.lines[0]!;
+      expect(estimateLine.lineType).toBe('ESTIMATE');
+      // プリセット値
+      expect(estimateLine.name).toBe('値引き');
+      expect(estimateLine.specification).toBe('');
+      expect(estimateLine.unit).toBe('式');
+      expect(estimateLine.quantity).toBe('1');
+      expect(estimateLine.unitPrice).toBeNull();
+      expect(estimateLine.amount).toBeNull();
+      expect(estimateLine.remarks).toBeNull();
+      // displayOrderは末尾
+      expect(discountItem.displayOrder).toBe(2);
+    });
+
+    it('pendingChangesにaddとして記録され、data.itemTypeがDISCOUNTかつlines長1であること (REQ-41.8)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+
+      const discountItem = result.current.items[2]!;
+      const change = result.current.pendingChanges.get(discountItem.id);
+      expect(change?.type).toBe('add');
+      expect(change?.data?.itemType).toBe('DISCOUNT');
+      expect(change?.data?.lines).toHaveLength(1);
+      expect(change?.data?.lines[0]!.lineType).toBe('ESTIMATE');
+    });
+
+    it('値引き行の単価を負数に更新すると金額が負数になり、getTotalAmountが減算されること (REQ-41.6, 41.8)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      // 初期合計: item-1(10000) + item-2(10000) = 20000
+      expect(result.current.getTotalAmount()).toBe('20000');
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+
+      const discountItem = result.current.items[2]!;
+      const estimateLineId = discountItem.lines[0]!.id;
+
+      // 単価を負数に更新（数量=1）
+      act(() => {
+        result.current.updateLine(discountItem.id, estimateLineId, 'unitPrice', '-3000');
+      });
+
+      const updatedDiscount = result.current.items[2]!;
+      const updatedLine = updatedDiscount.lines[0]!;
+      // 金額が負数（1 * -3000 = -3000）
+      expect(updatedLine.amount).toBe('-3000');
+
+      // 合計が減算される: 20000 + (-3000) = 17000
+      expect(result.current.getTotalAmount()).toBe('17000');
+    });
+
+    it('値引き行はupdateLine・階層再計算を経てもEXECUTION/VENDOR行が再合成されないこと (REQ-41.3 不変条件)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+
+      const discountItem = result.current.items[2]!;
+      const estimateLineId = discountItem.lines[0]!.id;
+
+      // 単価更新（recalculateParentAmounts経由のstate更新を誘発）
+      act(() => {
+        result.current.updateLine(discountItem.id, estimateLineId, 'unitPrice', '-1000');
+      });
+      // 名称更新でも再合成されないこと
+      act(() => {
+        result.current.updateLine(discountItem.id, estimateLineId, 'name', '出精値引き');
+      });
+
+      const finalDiscount = result.current.items[2]!;
+      expect(finalDiscount.lines).toHaveLength(1);
+      expect(finalDiscount.lines.some((l) => l.lineType === 'EXECUTION')).toBe(false);
+      expect(finalDiscount.lines.some((l) => l.lineType === 'VENDOR')).toBe(false);
+      expect(finalDiscount.itemType).toBe('DISCOUNT');
+    });
+  });
 });

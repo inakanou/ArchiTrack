@@ -25,9 +25,19 @@ import {
   moveEstimateItem,
   batchUpdateEstimateItems,
   createEstimateItem,
+  addDiscountItem,
   deleteEstimateItem,
+  reorderEstimateItems,
+  calculateOverhead,
+  addOverheadItem,
 } from '../api/estimates';
 import type { EstimateDetail, EstimateItemHierarchy } from '../api/estimates';
+import { OverheadCostPanel } from '../components/estimate/OverheadCostPanel';
+import type {
+  CalculateOverheadParams,
+  AddOverheadItemParams,
+  OverheadCostResult,
+} from '../components/estimate/OverheadCostPanel';
 import { Breadcrumb } from '../components/common';
 import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
@@ -249,6 +259,42 @@ const styles = {
     justifyContent: 'flex-end',
     gap: '8px',
   } as React.CSSProperties,
+  overheadOverlay: {
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  } as React.CSSProperties,
+  overheadDialog: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    padding: '24px',
+    maxWidth: '720px',
+    width: '95%',
+    maxHeight: '90vh',
+    overflow: 'auto',
+  } as React.CSSProperties,
+  overheadDialogHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  overheadCloseButton: {
+    border: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '24px',
+    lineHeight: 1,
+    color: '#6b7280',
+    cursor: 'pointer',
+    padding: '0 4px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -399,6 +445,7 @@ export default function EstimateDetailPage() {
   const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
   const [isNetDialogOpen, setIsNetDialogOpen] = useState(false);
   const [isProfitDialogOpen, setIsProfitDialogOpen] = useState(false);
+  const [isOverheadDialogOpen, setIsOverheadDialogOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   // 表示行フィルター（デフォルト: すべてON）
@@ -431,6 +478,17 @@ export default function EstimateDetailPage() {
       // 2. 追加処理
       for (const [, change] of changes) {
         if (change.type === 'add' && change.data) {
+          // 値引き行（itemType=DISCOUNT）は専用エンドポイントで ESTIMATE 1行のみ作成する。
+          // 汎用 createEstimateItem は STANDARD 時に3行を再合成するため使用しない（REQ-41.1, REQ-41.3）。
+          if (change.data.itemType === 'DISCOUNT') {
+            const estimateLine = change.data.lines.find((line) => line.lineType === 'ESTIMATE');
+            const unitPrice =
+              estimateLine?.unitPrice != null && estimateLine.unitPrice !== ''
+                ? parseFloat(estimateLine.unitPrice)
+                : null;
+            await addDiscountItem(id, Number.isNaN(unitPrice as number) ? null : unitPrice);
+            continue;
+          }
           await createEstimateItem(id, {
             parentId: change.data.parentId,
             displayOrder: change.data.displayOrder,
@@ -534,6 +592,33 @@ export default function EstimateDetailPage() {
     const siblings = getSiblings(editor.items, selectedItem.parentId);
     const currentIndex = siblings.findIndex((s) => s.id === selectedItemId);
     return currentIndex > 0;
+  }, [editor.items, selectedItemId, selectedItem]);
+
+  // 同一階層内での並び替え可否を計算（REQ-12.2: ↑/↓ボタン）
+  const reorderSiblingInfo = useMemo(() => {
+    if (!selectedItemId || !selectedItem) {
+      return { canReorderUp: false, canReorderDown: false };
+    }
+    const getSiblings = (
+      items: EstimateItemHierarchyEdit[],
+      targetParentId: string | null
+    ): EstimateItemHierarchyEdit[] => {
+      if (targetParentId === null) return items;
+      for (const item of items) {
+        if (item.id === targetParentId) return item.children;
+        if (item.children.length > 0) {
+          const found = getSiblings(item.children, targetParentId);
+          if (found.length > 0) return found;
+        }
+      }
+      return [];
+    };
+    const siblings = getSiblings(editor.items, selectedItem.parentId);
+    const currentIndex = siblings.findIndex((s) => s.id === selectedItemId);
+    return {
+      canReorderUp: currentIndex > 0,
+      canReorderDown: currentIndex >= 0 && currentIndex < siblings.length - 1,
+    };
   }, [editor.items, selectedItemId, selectedItem]);
 
   /**
@@ -645,6 +730,72 @@ export default function EstimateDetailPage() {
   );
 
   /**
+   * 同一階層内で表示順序を入れ替える（REQ-12.2: ↑/↓ボタン）
+   *
+   * 対象項目を兄弟グループ内で direction 方向の隣接項目と入れ替え、
+   * displayOrder を 0 起点で振り直して reorder API へ即時反映する。
+   */
+  const handleReorder = useCallback(
+    async (itemId: string, direction: 'up' | 'down') => {
+      if (!estimate) return;
+
+      const findItem = (
+        items: EstimateItemHierarchyEdit[],
+        targetId: string
+      ): EstimateItemHierarchyEdit | null => {
+        for (const item of items) {
+          if (item.id === targetId) return item;
+          if (item.children.length > 0) {
+            const found = findItem(item.children, targetId);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const getSiblings = (
+        items: EstimateItemHierarchyEdit[],
+        targetParentId: string | null
+      ): EstimateItemHierarchyEdit[] => {
+        if (targetParentId === null) return items;
+        for (const it of items) {
+          if (it.id === targetParentId) return it.children;
+          if (it.children.length > 0) {
+            const found = getSiblings(it.children, targetParentId);
+            if (found.length > 0) return found;
+          }
+        }
+        return [];
+      };
+
+      const item = findItem(editor.items, itemId);
+      if (!item) return;
+
+      const siblings = getSiblings(editor.items, item.parentId);
+      const currentIndex = siblings.findIndex((s) => s.id === itemId);
+      if (currentIndex === -1) return;
+
+      const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      if (swapIndex < 0 || swapIndex >= siblings.length) return;
+
+      // 兄弟グループ内で対象項目と隣接項目を入れ替える
+      const reordered = [...siblings];
+      const [moved] = reordered.splice(currentIndex, 1);
+      reordered.splice(swapIndex, 0, moved!);
+
+      // displayOrder を 0 起点で振り直す（DB値が連番でなくても安全）
+      const itemOrders = reordered.map((s, idx) => ({ id: s.id, displayOrder: idx }));
+
+      try {
+        await reorderEstimateItems(estimate.id, itemOrders);
+        await fetchData();
+      } catch {
+        setError('項目の並び替えに失敗しました');
+      }
+    },
+    [editor.items, estimate, fetchData]
+  );
+
+  /**
    * 保存処理
    */
   const handleSave = useCallback(async () => {
@@ -652,6 +803,48 @@ export default function EstimateDetailPage() {
     // データを再取得
     await fetchData();
   }, [editor, fetchData]);
+
+  /**
+   * 諸経費の自動計算（REQ-7.3, REQ-8.3, REQ-9.3）
+   *
+   * パネルから受け取ったパラメータをAPI形式へ変換して計算APIを呼ぶ。
+   */
+  const handleCalculateOverhead = useCallback(
+    async (params: CalculateOverheadParams): Promise<OverheadCostResult> => {
+      if (!estimate) throw new Error('見積書が読み込まれていません');
+      const result = await calculateOverhead(estimate.id, {
+        costType: params.costType,
+        directCost: params.directCost,
+        constructionPeriod: params.constructionPeriod
+          ? parseInt(params.constructionPeriod, 10)
+          : undefined,
+        pureConstructionCost: params.pureConstructionCost,
+        constructionCost: params.constructionCost,
+        isRenovation: params.isRenovation,
+      });
+      return { rate: result.rate, amount: result.amount, formula: result.formula };
+    },
+    [estimate]
+  );
+
+  /**
+   * 諸経費行の追加（REQ-7.1, REQ-8.1, REQ-9.1）
+   *
+   * 計算金額（または手入力値）を単価として諸経費行を追加し、最新状態を再取得する。
+   */
+  const handleAddOverheadItem = useCallback(
+    async (params: AddOverheadItemParams): Promise<void> => {
+      if (!estimate) return;
+      const unitPrice = parseFloat(params.unitPrice);
+      await addOverheadItem(estimate.id, {
+        costType: params.costType,
+        unitPrice: Number.isNaN(unitPrice) ? undefined : unitPrice,
+      });
+      setIsOverheadDialogOpen(false);
+      await fetchData();
+    },
+    [estimate, fetchData]
+  );
 
   /**
    * 表示行フィルター切替
@@ -876,6 +1069,13 @@ export default function EstimateDetailPage() {
           </button>
           <button
             type="button"
+            onClick={() => setIsOverheadDialogOpen(true)}
+            style={{ ...styles.actionButton, ...styles.secondaryButton }}
+          >
+            諸経費を計算して追加
+          </button>
+          <button
+            type="button"
             onClick={() => setIsExportDialogOpen(true)}
             style={{ ...styles.actionButton, ...styles.secondaryButton }}
           >
@@ -963,10 +1163,15 @@ export default function EstimateDetailPage() {
             hasPreviousSibling={hasPreviousSibling}
             onAddItem={() => editor.addItem()}
             onAddChildItem={(parentId) => editor.addItem(parentId)}
+            onAddDiscountItem={() => editor.addDiscountItem()}
             onDeleteItem={(itemId) => editor.deleteItem(itemId)}
             onDuplicateItem={(itemId) => editor.duplicateItem(itemId)}
             onMoveUp={handleMoveUp}
             onMoveDown={handleMoveDown}
+            onReorderUp={(itemId) => handleReorder(itemId, 'up')}
+            onReorderDown={(itemId) => handleReorder(itemId, 'down')}
+            canReorderUp={reorderSiblingInfo.canReorderUp}
+            canReorderDown={reorderSiblingInfo.canReorderDown}
           />
           <EstimateItemTable
             items={editor.items}
@@ -1025,6 +1230,36 @@ export default function EstimateDetailPage() {
         onClose={() => setIsProfitDialogOpen(false)}
         onComplete={handleTransferComplete}
       />
+
+      {/* 諸経費計算ダイアログ (REQ-7, REQ-8, REQ-9) */}
+      {isOverheadDialogOpen && (
+        <div
+          style={styles.overheadOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="諸経費計算"
+          data-testid="overhead-cost-dialog"
+        >
+          <div style={styles.overheadDialog}>
+            <div style={styles.overheadDialogHeader}>
+              <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>諸経費を計算して追加</h2>
+              <button
+                type="button"
+                aria-label="閉じる"
+                onClick={() => setIsOverheadDialogOpen(false)}
+                style={styles.overheadCloseButton}
+              >
+                ×
+              </button>
+            </div>
+            <OverheadCostPanel
+              estimateId={estimate.id}
+              onCalculate={handleCalculateOverhead}
+              onItemAdded={handleAddOverheadItem}
+            />
+          </div>
+        </div>
+      )}
     </main>
   );
 }

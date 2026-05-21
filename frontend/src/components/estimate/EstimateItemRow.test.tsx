@@ -685,6 +685,160 @@ describe('EstimateItemRow', () => {
       });
     });
 
+    // ====================================================================
+    // Task 51.8: 値引き行（itemType=DISCOUNT）の単一行描画とマイナス単価入力
+    // Requirements (estimate-creation): REQ-41.3, 41.4, 41.5, 41.6, 41.10
+    // ====================================================================
+    describe('Task 51.8: 値引き行の単一行描画とマイナス単価入力', () => {
+      /**
+       * 値引き行のテストデータ（ESTIMATE 行のみ、実行/業者行なし）
+       */
+      const createDiscountLines = (
+        overrides: Partial<EstimateItemLineEdit> = {}
+      ): EstimateItemLineEdit[] => [
+        {
+          id: 'line-discount-est',
+          estimateItemId: 'discount-1',
+          lineType: 'ESTIMATE',
+          name: '値引き',
+          specification: null,
+          unit: '式',
+          quantity: '1',
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+          ...overrides,
+        },
+      ];
+
+      describe('REQ-41.3: 見積金額行のみ描画（実行・業者行なし）', () => {
+        it('ESTIMATE行のみ描画され、EXECUTION/VENDOR行は描画されない', () => {
+          render(<EstimateItemRow itemId="discount-1" lines={createDiscountLines()} />);
+
+          expect(screen.getByTestId('line-type-ESTIMATE')).toBeInTheDocument();
+          expect(screen.queryByTestId('line-type-EXECUTION')).not.toBeInTheDocument();
+          expect(screen.queryByTestId('line-type-VENDOR')).not.toBeInTheDocument();
+
+          // 描画される行は見積行 1 行のみ
+          expect(screen.getAllByTestId(/^line-type-/)).toHaveLength(1);
+        });
+      });
+
+      describe('REQ-41.4, 41.5, 41.6: マイナス単価入力と負数金額表示', () => {
+        it('値引き行（hasChildrenなし）の単価フィールドが編集可能', () => {
+          render(<EstimateItemRow itemId="discount-1" lines={createDiscountLines()} />);
+
+          const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+          const priceInput = within(estimateRow).getByLabelText('単価');
+          // input 要素であり読み取り専用ではない
+          expect(priceInput.tagName.toLowerCase()).toBe('input');
+        });
+
+        it('単価に "-3000" を入力すると onLineChange に負数文字列が渡る (REQ-41.5)', async () => {
+          const onLineChange = vi.fn();
+          render(
+            <EstimateItemRow
+              itemId="discount-1"
+              lines={createDiscountLines()}
+              onLineChange={onLineChange}
+            />
+          );
+
+          const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+          const priceInput = within(estimateRow).getByLabelText('単価');
+
+          await userEvent.type(priceInput, '-3000');
+
+          expect(onLineChange).toHaveBeenCalled();
+          const lastCall = onLineChange.mock.calls[onLineChange.mock.calls.length - 1]!;
+          expect(lastCall[0]).toBe('discount-1');
+          expect(lastCall[1]).toBe('line-discount-est');
+          expect(lastCall[2]).toBe('unitPrice');
+          // 最後の入力文字 '0' が onChange で渡る（type は1文字ずつ発火）
+          expect(lastCall[3]).toBe('0');
+        });
+
+        it('金額が負数（amount="-3000"）の場合、"-3,000" と表示される (REQ-41.6)', () => {
+          render(
+            <EstimateItemRow
+              itemId="discount-1"
+              lines={createDiscountLines({ unitPrice: '-3000', amount: '-3000' })}
+            />
+          );
+
+          const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+          const amountField = within(estimateRow).getByTestId('amount-field');
+          expect(amountField).toHaveTextContent('-3,000');
+        });
+
+        it('単価フィールドに負数文字列をそのまま表示できる (REQ-41.5)', () => {
+          render(
+            <EstimateItemRow
+              itemId="discount-1"
+              lines={createDiscountLines({ unitPrice: '-3000' })}
+            />
+          );
+
+          const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+          const priceInput = within(estimateRow).getByLabelText('単価');
+          expect(priceInput).toHaveValue('-3000');
+        });
+
+        it('フォーカスアウト時、負数単価は符号保持・絶対値で四捨五入される ("-3000.5" → "-3001") (REQ-41.4)', () => {
+          const onLineChange = vi.fn();
+          render(
+            <EstimateItemRow
+              itemId="discount-1"
+              lines={createDiscountLines({ unitPrice: '-3000.5' })}
+              onLineChange={onLineChange}
+            />
+          );
+
+          const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+          const priceInput = within(estimateRow).getByLabelText('単価');
+
+          priceInput.focus();
+          priceInput.blur();
+
+          expect(onLineChange).toHaveBeenCalledWith(
+            'discount-1',
+            'line-discount-est',
+            'unitPrice',
+            '-3001'
+          );
+        });
+      });
+
+      describe('REQ-41.10: 表示行フィルターの整合', () => {
+        it('「見積」OFF（visibleLineTypes に ESTIMATE を含まない）時は値引き行が何も描画されない', () => {
+          render(
+            <EstimateItemRow
+              itemId="discount-1"
+              lines={createDiscountLines()}
+              visibleLineTypes={new Set(['EXECUTION', 'VENDOR'])}
+            />
+          );
+
+          expect(screen.queryByTestId('line-type-ESTIMATE')).not.toBeInTheDocument();
+          expect(screen.queryAllByTestId(/^line-type-/)).toHaveLength(0);
+        });
+
+        it('「実行」「業者」フィルター（ESTIMATE を含む）は値引き行に影響せず見積行が描画される', () => {
+          render(
+            <EstimateItemRow
+              itemId="discount-1"
+              lines={createDiscountLines()}
+              visibleLineTypes={new Set(['ESTIMATE'])}
+            />
+          );
+
+          expect(screen.getByTestId('line-type-ESTIMATE')).toBeInTheDocument();
+          expect(screen.queryByTestId('line-type-EXECUTION')).not.toBeInTheDocument();
+          expect(screen.queryByTestId('line-type-VENDOR')).not.toBeInTheDocument();
+        });
+      });
+    });
+
     describe('onLineChange未指定時', () => {
       it('onLineChangeなしでもフィールド変更がエラーにならない', async () => {
         const lines = createMockLines();

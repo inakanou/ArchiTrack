@@ -27,7 +27,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { EstimateService } from '../services/estimate.service.js';
-import { EstimateItemService } from '../services/estimate-item.service.js';
+import { EstimateItemService, DISCOUNT_PRESET_LINE } from '../services/estimate-item.service.js';
 import { EstimateCalculationService } from '../services/estimate-calculation.service.js';
 import { OverheadCostService, OverheadCostType } from '../services/overhead-cost.service.js';
 import {
@@ -57,6 +57,7 @@ import {
   applyProfitRateSchema,
   calculateOverheadSchema,
   addOverheadItemSchema,
+  addDiscountItemSchema,
   getItemsQuerySchema,
   exportEstimateQuerySchema,
   moveEstimateItemSchema,
@@ -757,6 +758,7 @@ router.post(
       const validatedBody = req.validatedBody as {
         parentId?: string | null;
         displayOrder: number;
+        itemType?: 'STANDARD' | 'DISCOUNT';
         lines: Array<{
           lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
           name?: string | null;
@@ -1894,6 +1896,103 @@ router.post(
       logger.info(
         { userId: req.user?.userId, estimateId: id, costType: validatedBody.costType },
         'Overhead item added'
+      );
+
+      res.status(201).json(item);
+    } catch (error) {
+      if (error instanceof EstimateNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/estimate-not-found',
+          title: 'Estimate Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'ESTIMATE_NOT_FOUND',
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/estimates/{id}/discount-items:
+ *   post:
+ *     summary: 値引き行追加
+ *     description: |
+ *       種別=DISCOUNT・見積金額行（ESTIMATE）のみのプリセット値引き項目を
+ *       ルート末尾の表示順序で作成する（REQ-41.1, REQ-41.2, REQ-41.3）。
+ *       単価は手入力前提（任意）かつマイナス値を許容する（REQ-41.4, REQ-41.5）。
+ *     tags:
+ *       - Estimate Items
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 見積書ID
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               unitPrice:
+ *                 type: number
+ *                 nullable: true
+ *                 description: 単価（任意、負数許容。省略時はnull）
+ *     responses:
+ *       201:
+ *         description: 値引き行追加成功
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない
+ */
+router.post(
+  '/:id/discount-items',
+  authenticate,
+  requirePermission('estimate:update'),
+  validate(estimateIdParamSchema, 'params'),
+  validate(addDiscountItemSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const validatedBody = req.validatedBody as {
+        unitPrice?: number | null;
+      };
+
+      // 既存の項目数を取得して表示順序を決定（ルート末尾に追加）
+      const existingItems = await estimateItemService.getHierarchy(id);
+      const displayOrder = existingItems.length;
+
+      const item = await estimateItemService.createItem(id, {
+        displayOrder,
+        itemType: 'DISCOUNT',
+        lines: [
+          {
+            lineType: 'ESTIMATE',
+            name: DISCOUNT_PRESET_LINE.name,
+            specification: DISCOUNT_PRESET_LINE.specification,
+            unit: DISCOUNT_PRESET_LINE.unit,
+            quantity: DISCOUNT_PRESET_LINE.quantity,
+            unitPrice: validatedBody.unitPrice ?? null,
+          },
+        ],
+      });
+
+      logger.info(
+        { userId: req.user?.userId, estimateId: id, itemId: item.id },
+        'Discount item added'
       );
 
       res.status(201).json(item);

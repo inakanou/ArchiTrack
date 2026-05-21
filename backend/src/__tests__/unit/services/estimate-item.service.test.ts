@@ -326,6 +326,139 @@ describe('EstimateItemService', () => {
       // Assert
       expect(result.parentId).toBe('ei-parent');
     });
+
+    it('種別=DISCOUNT・ESTIMATE行1行のみ指定で値引き項目を作成する（実行/業者行なし、Requirements: REQ-41.2, REQ-41.3）', async () => {
+      // Arrange
+      const estimateId = 'est-001';
+      const input = {
+        parentId: null,
+        displayOrder: 5,
+        itemType: 'DISCOUNT' as const,
+        lines: [
+          {
+            lineType: 'ESTIMATE' as const,
+            name: '値引き',
+            specification: '',
+            unit: '式',
+            quantity: 1,
+            unitPrice: -50000,
+          },
+        ],
+      };
+
+      const mockEstimate = { id: 'est-001', deletedAt: null };
+
+      const createSpy = vi.fn().mockResolvedValue({
+        id: 'ei-discount',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 5,
+        itemType: 'DISCOUNT',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lines: [
+          {
+            id: 'eil-d-001',
+            estimateItemId: 'ei-discount',
+            lineType: 'ESTIMATE',
+            name: '値引き',
+            specification: '',
+            unit: '式',
+            quantity: { toString: () => '1' },
+            unitPrice: { toString: () => '-50000' },
+            amount: { toString: () => '-50000' },
+            remarks: null,
+          },
+        ],
+      });
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: { findUnique: vi.fn().mockResolvedValue(mockEstimate) },
+          estimateItem: { create: createSpy },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      const result = await service.createItem(estimateId, input);
+
+      // Assert: create に渡された data を検証（ESTIMATE 1行のみ・itemType=DISCOUNT）
+      const createArg = createSpy.mock.calls[0]![0] as {
+        data: {
+          itemType: string;
+          lines: { create: Array<{ lineType: string; amount: number | null }> };
+        };
+      };
+      expect(createArg.data.itemType).toBe('DISCOUNT');
+      const createdLines = createArg.data.lines.create;
+      expect(createdLines).toHaveLength(1);
+      expect(createdLines[0]!.lineType).toBe('ESTIMATE');
+      expect(createdLines.some((l) => l.lineType === 'EXECUTION')).toBe(false);
+      expect(createdLines.some((l) => l.lineType === 'VENDOR')).toBe(false);
+      // 負の単価が負の金額として計算される
+      expect(createdLines[0]!.amount).toBe(-50000);
+
+      // 戻り値も ESTIMATE 1行のみ・itemType=DISCOUNT
+      expect(result.itemType).toBe('DISCOUNT');
+      expect(result.lines).toHaveLength(1);
+      expect(result.lines[0]!.lineType).toBe('ESTIMATE');
+      expect(result.lines[0]!.amount).toBe(-50000);
+    });
+
+    it('種別未指定（STANDARD）の場合は従来通り3行1セットを作成する（Requirements: REQ-1.2）', async () => {
+      // Arrange
+      const estimateId = 'est-001';
+      const input = {
+        parentId: null,
+        displayOrder: 0,
+        lines: [
+          {
+            lineType: 'ESTIMATE' as const,
+            name: '項目名',
+            quantity: 2,
+            unitPrice: 1000,
+          },
+        ],
+      };
+
+      const mockEstimate = { id: 'est-001', deletedAt: null };
+
+      const createSpy = vi.fn().mockResolvedValue({
+        id: 'ei-std',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        itemType: 'STANDARD',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lines: [],
+      });
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          estimate: { findUnique: vi.fn().mockResolvedValue(mockEstimate) },
+          estimateItem: { create: createSpy },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      await service.createItem(estimateId, input);
+
+      // Assert: STANDARD は ESTIMATE/EXECUTION/VENDOR の3行
+      const createArg = createSpy.mock.calls[0]![0] as {
+        data: { itemType: string; lines: { create: Array<{ lineType: string }> } };
+      };
+      expect(createArg.data.itemType).toBe('STANDARD');
+      const createdLines = createArg.data.lines.create;
+      expect(createdLines).toHaveLength(3);
+      expect(createdLines.map((l) => l.lineType).sort()).toEqual([
+        'ESTIMATE',
+        'EXECUTION',
+        'VENDOR',
+      ]);
+    });
   });
 
   describe('getHierarchy', () => {

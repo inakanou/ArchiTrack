@@ -975,6 +975,170 @@ describe('Estimate API Integration Tests', () => {
       });
     });
 
+    describe('値引き行追加 POST /api/estimates/:id/discount-items', () => {
+      it('種別DISCOUNT・見積金額行1行の値引き行を作成できる (REQ-41.1, 41.2)', async () => {
+        const response = await request(app)
+          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ unitPrice: -50000 });
+
+        expect(response.status).toBe(201);
+        expect(response.body.id).toBeDefined();
+        expect(response.body.itemType).toBe('DISCOUNT');
+        expect(response.body.lines).toBeInstanceOf(Array);
+        // 値引き行は見積金額行（ESTIMATE）のみ（REQ-41.3）
+        expect(response.body.lines.length).toBe(1);
+        expect(response.body.lines[0].lineType).toBe('ESTIMATE');
+        // プリセット値（名称=値引き、規格=空、単位=式、数量=1）
+        expect(response.body.lines[0].name).toBe('値引き');
+        expect(response.body.lines[0].unit).toBe('式');
+        expect(response.body.lines[0].quantity).toBe(1);
+        // 負数の単価を許容（REQ-41.5）
+        expect(response.body.lines[0].unitPrice).toBe(-50000);
+      });
+
+      it('単価を省略しても値引き行を作成できる', async () => {
+        const response = await request(app)
+          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({});
+
+        expect(response.status).toBe(201);
+        expect(response.body.itemType).toBe('DISCOUNT');
+        expect(response.body.lines.length).toBe(1);
+        expect(response.body.lines[0].unitPrice).toBeNull();
+      });
+
+      it('存在しない見積書に値引き行を追加しようとすると404エラー', async () => {
+        const response = await request(app)
+          .post('/api/estimates/12345678-1234-4234-a234-123456789012/discount-items')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ unitPrice: -1000 });
+
+        expect(response.status).toBe(404);
+        expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      });
+    });
+
+    describe('値引き行 バッチ保存ラウンドトリップ (REQ-41.2, 41.3, 41.5, 41.6, 41.8, 41.10, REQ-34)', () => {
+      it('値引き行の追加が再読込後も種別DISCOUNT・ESTIMATE 1行で保持される (REQ-41.2, 41.3)', async () => {
+        // 値引き行を追加
+        const createResponse = await request(app)
+          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ unitPrice: -10000 });
+
+        expect(createResponse.status).toBe(201);
+        const discountItemId = createResponse.body.id as string;
+
+        // 再読込（GET）で保持されていることを確認
+        const getResponse = await request(app)
+          .get(`/api/estimates/${itemTestEstimateId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(getResponse.status).toBe(200);
+        const reloadedItem = getResponse.body.items.find(
+          (item: { id: string }) => item.id === discountItemId
+        );
+        expect(reloadedItem).toBeDefined();
+        // 値引き行は ESTIMATE 行のみ（EXECUTION/VENDOR 行を持たない）構造で保持される（REQ-41.3）。
+        // ※GET詳細レスポンスは itemType を含まないため、単一 ESTIMATE 行という構造で DISCOUNT 構造の保持を検証する。
+        expect(reloadedItem.lines.length).toBe(1);
+        expect(reloadedItem.lines[0].lineType).toBe('ESTIMATE');
+        expect(reloadedItem.lines[0].name).toBe('値引き');
+        expect(reloadedItem.lines[0].unit).toBe('式');
+        expect(Number(reloadedItem.lines[0].quantity)).toBe(1);
+      });
+
+      it('バッチ保存で値引き行の単価を負数に更新すると単価・金額（負数）が再読込後も保持される (REQ-41.5, 41.6, 41.8, 41.10, REQ-34)', async () => {
+        // 値引き行を追加（単価未設定）
+        const createResponse = await request(app)
+          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({});
+
+        expect(createResponse.status).toBe(201);
+        const discountItemId = createResponse.body.id as string;
+        const estimateLineId = createResponse.body.lines[0].id as string;
+
+        // バッチ保存で負数単価・名称を更新
+        const batchResponse = await request(app)
+          .put(`/api/estimates/${itemTestEstimateId}/items/batch`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            items: [
+              {
+                id: discountItemId,
+                itemType: 'DISCOUNT',
+                lines: [
+                  {
+                    id: estimateLineId,
+                    lineType: 'ESTIMATE',
+                    name: '出精値引き',
+                    specification: null,
+                    unit: '式',
+                    quantity: 1,
+                    unitPrice: -3000,
+                    remarks: null,
+                  },
+                ],
+              },
+            ],
+            updatedAt: new Date().toISOString(),
+          });
+
+        expect(batchResponse.status).toBe(200);
+
+        // 再読込で負数単価・金額・名称が保持されていることを確認
+        const getResponse = await request(app)
+          .get(`/api/estimates/${itemTestEstimateId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(getResponse.status).toBe(200);
+        const reloadedItem = getResponse.body.items.find(
+          (item: { id: string }) => item.id === discountItemId
+        );
+        expect(reloadedItem).toBeDefined();
+        // 値引き行は ESTIMATE 行のみで保持される（REQ-41.3）
+        expect(reloadedItem.lines.length).toBe(1);
+        const reloadedLine = reloadedItem.lines[0];
+        expect(reloadedLine.lineType).toBe('ESTIMATE');
+        expect(reloadedLine.name).toBe('出精値引き');
+        expect(reloadedLine.unitPrice).toBe(-3000);
+        // 金額=単価×数量=負数（REQ-41.6, 41.8）
+        expect(reloadedLine.amount).toBe(-3000);
+      });
+
+      it('値引き行を削除すると再読込後に消えている (REQ-34)', async () => {
+        // 値引き行を追加
+        const createResponse = await request(app)
+          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ unitPrice: -5000 });
+
+        expect(createResponse.status).toBe(201);
+        const discountItemId = createResponse.body.id as string;
+
+        // 削除（forceDelete=true）
+        const deleteResponse = await request(app)
+          .delete(`/api/estimates/${itemTestEstimateId}/items/${discountItemId}?forceDelete=true`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(deleteResponse.status).toBe(204);
+
+        // 再読込で消えていることを確認
+        const getResponse = await request(app)
+          .get(`/api/estimates/${itemTestEstimateId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(getResponse.status).toBe(200);
+        const deletedItem = getResponse.body.items.find(
+          (item: { id: string }) => item.id === discountItemId
+        );
+        expect(deletedItem).toBeUndefined();
+      });
+    });
+
     describe('見積項目複製 POST /api/estimates/:id/items/:itemId/duplicate', () => {
       let sourceItemId: string;
 

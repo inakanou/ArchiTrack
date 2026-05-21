@@ -13,6 +13,8 @@
  * - REQ-23.8: 未選択時は選択必須ボタンをdisabled状態で表示する
  * - REQ-23.9: 「上の階層へ移動」ボタンを提供する
  * - REQ-23.10: 「下の階層へ移動」ボタンを提供する
+ * - REQ-41.1: 見積項目操作ツールバーに「値引き行追加」ボタンを提供する
+ * - REQ-41.7: 値引き行は自動計算を持たず、手入力のみ（専用ダイアログなし）
  *
  * @module __tests__/components/estimate/EstimateItemToolbar
  */
@@ -94,6 +96,11 @@ describe('EstimateItemToolbar', () => {
     onDuplicateItem: vi.fn(),
     onMoveUp: vi.fn(),
     onMoveDown: vi.fn(),
+    onReorderUp: vi.fn(),
+    onReorderDown: vi.fn(),
+    onAddDiscountItem: vi.fn(),
+    canReorderUp: false,
+    canReorderDown: false,
   };
 
   beforeEach(() => {
@@ -337,6 +344,120 @@ describe('EstimateItemToolbar', () => {
       await user.click(screen.getByRole('button', { name: /下の階層へ/ }));
 
       expect(defaultProps.onMoveDown).toHaveBeenCalledWith('item-1');
+    });
+  });
+
+  // REQ-12.2: 表示順序の並び替え（↑/↓ボタン）
+  describe('表示順序の並び替え（↑/↓ボタン）', () => {
+    it('未選択時は↑移動・↓移動ボタンがdisabledであること', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      expect(screen.getByTestId('reorder-up-button')).toBeDisabled();
+      expect(screen.getByTestId('reorder-down-button')).toBeDisabled();
+    });
+
+    it('canReorderUpがtrueの場合に↑移動ボタンが有効になること', () => {
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderUp={true}
+          canReorderDown={false}
+        />
+      );
+
+      expect(screen.getByTestId('reorder-up-button')).toBeEnabled();
+      expect(screen.getByTestId('reorder-down-button')).toBeDisabled();
+    });
+
+    it('canReorderDownがtrueの場合に↓移動ボタンが有効になること', () => {
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderUp={false}
+          canReorderDown={true}
+        />
+      );
+
+      expect(screen.getByTestId('reorder-down-button')).toBeEnabled();
+      expect(screen.getByTestId('reorder-up-button')).toBeDisabled();
+    });
+
+    it('↑移動ボタンクリックでonReorderUpが呼ばれること', async () => {
+      const user = userEvent.setup();
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderUp={true}
+        />
+      );
+
+      await user.click(screen.getByTestId('reorder-up-button'));
+
+      expect(defaultProps.onReorderUp).toHaveBeenCalledWith('item-1');
+    });
+
+    it('↓移動ボタンクリックでonReorderDownが呼ばれること', async () => {
+      const user = userEvent.setup();
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+          canReorderDown={true}
+        />
+      );
+
+      await user.click(screen.getByTestId('reorder-down-button'));
+
+      expect(defaultProps.onReorderDown).toHaveBeenCalledWith('item-1');
+    });
+  });
+
+  // REQ-41.1 / REQ-41.7: 値引き行追加ボタン
+  describe('値引き行追加ボタン（REQ-41.1, REQ-41.7）', () => {
+    it('値引き行追加ボタンがレンダリングされること', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      expect(screen.getByTestId('add-discount-button')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /値引き行追加/ })).toBeInTheDocument();
+    });
+
+    it('未選択時でも値引き行追加ボタンは常に有効であること', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      expect(screen.getByTestId('add-discount-button')).toBeEnabled();
+    });
+
+    it('項目選択中でも値引き行追加ボタンは有効であること', () => {
+      const selectedItem = createMockItem();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="item-1"
+          selectedItem={selectedItem}
+        />
+      );
+
+      expect(screen.getByTestId('add-discount-button')).toBeEnabled();
+    });
+
+    it('値引き行追加ボタンクリックでonAddDiscountItemが呼ばれること', async () => {
+      const user = userEvent.setup();
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      await user.click(screen.getByTestId('add-discount-button'));
+
+      expect(defaultProps.onAddDiscountItem).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -34,10 +34,15 @@ const meta = {
   args: {
     onAddItem: fn(),
     onAddChildItem: fn(),
+    onAddDiscountItem: fn(),
     onDeleteItem: fn(),
     onDuplicateItem: fn(),
     onMoveUp: fn(),
     onMoveDown: fn(),
+    onReorderUp: fn(),
+    onReorderDown: fn(),
+    canReorderUp: false,
+    canReorderDown: false,
   },
 } satisfies Meta<typeof EstimateItemToolbar>;
 

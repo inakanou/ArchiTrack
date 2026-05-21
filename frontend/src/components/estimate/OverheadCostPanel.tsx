@@ -578,21 +578,19 @@ export function OverheadCostPanel({
         )}
       </div>
 
-      {/* 共通仮設費: 改修工事フラグ */}
-      {costType === 'COMMON_TEMPORARY' && (
-        <div style={{ marginBottom: '16px' }}>
-          <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              style={styles.checkbox}
-              checked={isRenovation}
-              onChange={(e) => setIsRenovation(e.target.checked)}
-              aria-label="改修工事"
-            />
-            改修工事
-          </label>
-        </div>
-      )}
+      {/* 工種パターン: 建築新営 / 建築改修（全費目共通、REQ-7.3/8.3/9.3） */}
+      <div style={{ marginBottom: '16px' }}>
+        <label style={styles.checkboxLabel}>
+          <input
+            type="checkbox"
+            style={styles.checkbox}
+            checked={isRenovation}
+            onChange={(e) => setIsRenovation(e.target.checked)}
+            aria-label="改修工事"
+          />
+          改修工事（未チェック時は新営工事）
+        </label>
+      </div>
 
       {/* 計算結果表示 */}
       {calculationResult && (
