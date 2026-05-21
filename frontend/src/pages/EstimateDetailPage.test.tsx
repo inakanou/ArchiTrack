@@ -20,6 +20,12 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import EstimateDetailPage from './EstimateDetailPage';
 import * as estimatesApi from '../api/estimates';
+import type {
+  ItemChange,
+  EstimateItemHierarchyEdit,
+  EstimateItemLineEdit,
+  UseEstimateEditorOptions,
+} from '../hooks/useEstimateEditor';
 
 // モック
 vi.mock('../api/estimates');
@@ -40,9 +46,15 @@ const mockEditor = {
   setItems: vi.fn(),
   toggleExpanded: vi.fn(),
   getTotalAmount: vi.fn().mockReturnValue('0'),
+  addDiscountItem: vi.fn(),
 };
+// editorに渡される設定（onSaveなど）をキャプチャし、コールバック単体を直接検証する
+let capturedEditorConfig: UseEstimateEditorOptions | null = null;
 vi.mock('../hooks/useEstimateEditor', () => ({
-  useEstimateEditor: () => mockEditor,
+  useEstimateEditor: (options: UseEstimateEditorOptions) => {
+    capturedEditorConfig = options;
+    return mockEditor;
+  },
 }));
 
 // 子コンポーネントのモック
@@ -96,6 +108,24 @@ vi.mock('../components/estimate', () => ({
           onClick={() => (props.onMoveDown as (id: string) => void)('item-child')}
         >
           MoveDown
+        </button>
+        <button
+          data-testid="toolbar-add-discount"
+          onClick={() => (props.onAddDiscountItem as () => void)()}
+        >
+          AddDiscount
+        </button>
+        <button
+          data-testid="toolbar-reorder-up"
+          onClick={() => (props.onReorderUp as (id: string) => void)('item-sibling')}
+        >
+          ReorderUp
+        </button>
+        <button
+          data-testid="toolbar-reorder-down"
+          onClick={() => (props.onReorderDown as (id: string) => void)('item-parent')}
+        >
+          ReorderDown
         </button>
       </div>
     );
@@ -157,6 +187,43 @@ vi.mock('../components/estimate/ProfitRateDialog', () => ({
         </button>
       </div>
     ) : null,
+}));
+
+vi.mock('../components/estimate/OverheadCostPanel', () => ({
+  OverheadCostPanel: (props: Record<string, unknown>) => (
+    <div data-testid="mock-overhead-panel">
+      <button
+        data-testid="overhead-calculate"
+        onClick={() =>
+          (props.onCalculate as (p: Record<string, unknown>) => void)({
+            costType: 'COMMON_TEMPORARY',
+            directCost: '1000000',
+            constructionPeriod: '6',
+            pureConstructionCost: '900000',
+            constructionCost: '1100000',
+            isRenovation: false,
+          })
+        }
+      >
+        Calculate
+      </button>
+      <button
+        data-testid="overhead-add"
+        onClick={() =>
+          (props.onItemAdded as (p: Record<string, unknown>) => void)({
+            costType: 'COMMON_TEMPORARY',
+            name: '共通仮設費',
+            specification: '',
+            unit: '式',
+            quantity: '1',
+            unitPrice: '50000',
+          })
+        }
+      >
+        AddOverhead
+      </button>
+    </div>
+  ),
 }));
 
 const mockNavigate = vi.fn();
@@ -323,7 +390,9 @@ describe('EstimateDetailPage', () => {
     mockEditor.deleteItem.mockReset();
     mockEditor.duplicateItem.mockReset();
     mockEditor.setItems.mockReset();
+    mockEditor.addDiscountItem.mockReset();
     capturedToolbarProps = {};
+    capturedEditorConfig = null;
   });
 
   /**
@@ -1804,13 +1873,273 @@ describe('EstimateDetailPage', () => {
   // =========================================================================
 
   /** @requirement estimate-creation/REQ-34.4 */
-  it('onSaveコールバックがadd/delete/updateの全変更タイプを処理すること (REQ-34.4)', async () => {
-    // useEstimateEditorのモックを解除してonSaveの引数を検証するため
-    // ここではmockEditor.saveが呼ばれることと、
-    // estimatesApiのcreateEstimateItem/deleteEstimateItemがimportされていることを確認
+  // onSaveコールバックの保存フロー検証用ヘルパー
+  const makeLine = (overrides: Partial<EstimateItemLineEdit>): EstimateItemLineEdit => ({
+    id: 'line-x',
+    estimateItemId: 'item-x',
+    lineType: 'ESTIMATE',
+    name: null,
+    specification: null,
+    unit: null,
+    quantity: null,
+    unitPrice: null,
+    amount: null,
+    remarks: null,
+    ...overrides,
+  });
+  const makeItem = (overrides: Partial<EstimateItemHierarchyEdit>): EstimateItemHierarchyEdit => ({
+    id: 'item-x',
+    estimateId: 'est-001',
+    parentId: null,
+    displayOrder: 0,
+    lines: [],
+    children: [],
+    isExpanded: true,
+    createdAt: '2024-01-15T10:00:00.000Z',
+    updatedAt: '2024-01-15T10:00:00.000Z',
+    ...overrides,
+  });
 
-    // estimates APIのcreateEstimateItemとdeleteEstimateItemが存在すること
-    expect(estimatesApi.createEstimateItem).toBeDefined();
-    expect(estimatesApi.deleteEstimateItem).toBeDefined();
+  const renderPage = () =>
+    render(
+      <MemoryRouter initialEntries={['/estimates/est-001']}>
+        <Routes>
+          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+  it('onSaveが削除→通常追加→値引き追加→更新を正しいAPIで処理する (REQ-34.4, REQ-41.1, REQ-41.3)', async () => {
+    vi.mocked(estimatesApi.deleteEstimateItem).mockResolvedValue(undefined);
+    vi.mocked(estimatesApi.createEstimateItem).mockResolvedValue(undefined as never);
+    vi.mocked(estimatesApi.addDiscountItem).mockResolvedValue(undefined as never);
+    vi.mocked(estimatesApi.batchUpdateEstimateItems).mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => {
+      expect(capturedEditorConfig).not.toBeNull();
+      expect(capturedEditorConfig?.onSave).toBeTypeOf('function');
+    });
+
+    const changes = new Map<string, ItemChange>([
+      // 削除: サーバーIDは削除APIを呼ぶ
+      ['c1', { type: 'delete', itemId: 'srv-del' }],
+      // 削除: temp-IDはスキップ
+      ['c2', { type: 'delete', itemId: 'temp-del' }],
+      // 通常追加: createEstimateItem
+      [
+        'c3',
+        {
+          type: 'add',
+          itemId: 'temp-add',
+          data: makeItem({
+            id: 'temp-add',
+            displayOrder: 2,
+            itemType: 'STANDARD',
+            lines: [
+              makeLine({ lineType: 'ESTIMATE', name: '追加項目', quantity: '2', unitPrice: '100' }),
+            ],
+          }),
+        },
+      ],
+      // 値引き追加（単価あり・負数）: 専用APIへ -500
+      [
+        'c4',
+        {
+          type: 'add',
+          itemId: 'temp-disc',
+          data: makeItem({
+            id: 'temp-disc',
+            itemType: 'DISCOUNT',
+            lines: [makeLine({ lineType: 'ESTIMATE', unitPrice: '-500' })],
+          }),
+        },
+      ],
+      // 値引き追加（単価未入力）: 専用APIへ null
+      [
+        'c5',
+        {
+          type: 'add',
+          itemId: 'temp-disc2',
+          data: makeItem({
+            id: 'temp-disc2',
+            itemType: 'DISCOUNT',
+            lines: [makeLine({ lineType: 'ESTIMATE', unitPrice: '' })],
+          }),
+        },
+      ],
+      // 更新: temp-IDはスキップ
+      ['c6', { type: 'update', itemId: 'temp-upd', data: makeItem({ id: 'temp-upd' }) }],
+      // 更新: サーバーIDはbatch更新へ。temp-行は除外される
+      [
+        'c7',
+        {
+          type: 'update',
+          itemId: 'srv-upd',
+          data: makeItem({
+            id: 'srv-upd',
+            lines: [
+              makeLine({
+                id: 'l1',
+                lineType: 'ESTIMATE',
+                name: '更新行',
+                quantity: '1',
+                unitPrice: '10',
+              }),
+              makeLine({ id: 'temp-l', lineType: 'EXECUTION' }),
+            ],
+          }),
+        },
+      ],
+    ]);
+
+    await capturedEditorConfig!.onSave!(changes);
+
+    // 削除: サーバーIDのみ、temp-はスキップ
+    expect(estimatesApi.deleteEstimateItem).toHaveBeenCalledWith('est-001', 'srv-del', true);
+    expect(estimatesApi.deleteEstimateItem).toHaveBeenCalledTimes(1);
+
+    // 通常追加: createEstimateItemへ
+    expect(estimatesApi.createEstimateItem).toHaveBeenCalledWith(
+      'est-001',
+      expect.objectContaining({ parentId: null, displayOrder: 2 })
+    );
+
+    // 値引き追加: 専用エンドポイント。負数と null の両方が送られる
+    expect(estimatesApi.addDiscountItem).toHaveBeenCalledWith('est-001', -500);
+    expect(estimatesApi.addDiscountItem).toHaveBeenCalledWith('est-001', null);
+    // 値引き行はcreateEstimateItemを使わない（DISCOUNT 2件は除外され通常追加は1件のみ）
+    expect(estimatesApi.createEstimateItem).toHaveBeenCalledTimes(1);
+
+    // 更新: サーバーIDのみ・temp-行除外
+    expect(estimatesApi.batchUpdateEstimateItems).toHaveBeenCalledWith(
+      'est-001',
+      [
+        expect.objectContaining({
+          id: 'srv-upd',
+          lines: [expect.objectContaining({ id: 'l1' })],
+        }),
+      ],
+      expect.any(String)
+    );
+  });
+
+  it('ツールバーの値引き行追加がeditor.addDiscountItemを呼ぶ (REQ-41.1)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('toolbar-add-discount'));
+    expect(mockEditor.addDiscountItem).toHaveBeenCalled();
+  });
+
+  it('handleReorderが兄弟順序を入れ替えてreorder APIを呼ぶ (REQ-12.2)', async () => {
+    const user = userEvent.setup();
+    mockEditor.items = mockEditorItemsWithHierarchy;
+    vi.mocked(estimatesApi.reorderEstimateItems).mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
+    });
+
+    // item-sibling(index=1)を上へ → item-parentと入れ替え、displayOrderを0起点で振り直す
+    await user.click(screen.getByTestId('toolbar-reorder-up'));
+
+    await waitFor(() => {
+      expect(estimatesApi.reorderEstimateItems).toHaveBeenCalledWith('est-001', [
+        { id: 'item-sibling', displayOrder: 0 },
+        { id: 'item-parent', displayOrder: 1 },
+      ]);
+    });
+  });
+
+  it('handleReorder: 並び替えAPI失敗時にエラーメッセージを表示する', async () => {
+    const user = userEvent.setup();
+    mockEditor.items = mockEditorItemsWithHierarchy;
+    vi.mocked(estimatesApi.reorderEstimateItems).mockRejectedValue(new Error('fail'));
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('toolbar-reorder-up'));
+
+    await waitFor(() => {
+      expect(screen.getByText('項目の並び替えに失敗しました')).toBeInTheDocument();
+    });
+  });
+
+  it('諸経費ダイアログを開閉できる (REQ-7.1)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('諸経費を計算して追加'));
+    expect(screen.getByTestId('overhead-cost-dialog')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '閉じる' }));
+    await waitFor(() => {
+      expect(screen.queryByTestId('overhead-cost-dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('handleCalculateOverheadが計算APIを呼ぶ (REQ-7.3)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(estimatesApi.calculateOverhead).mockResolvedValue({
+      rate: '0.1',
+      amount: '100000',
+      formula: 'directCost * 0.1',
+    } as never);
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('諸経費を計算して追加'));
+    await user.click(screen.getByTestId('overhead-calculate'));
+
+    await waitFor(() => {
+      expect(estimatesApi.calculateOverhead).toHaveBeenCalledWith(
+        'est-001',
+        expect.objectContaining({
+          costType: 'COMMON_TEMPORARY',
+          directCost: '1000000',
+          constructionPeriod: 6,
+          isRenovation: false,
+        })
+      );
+    });
+  });
+
+  it('handleAddOverheadItemが諸経費追加APIを呼びダイアログを閉じる (REQ-7.1)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('諸経費を計算して追加'));
+    await user.click(screen.getByTestId('overhead-add'));
+
+    await waitFor(() => {
+      expect(estimatesApi.addOverheadItem).toHaveBeenCalledWith('est-001', {
+        costType: 'COMMON_TEMPORARY',
+        unitPrice: 50000,
+      });
+    });
+
+    // 追加後はダイアログが閉じる
+    await waitFor(() => {
+      expect(screen.queryByTestId('overhead-cost-dialog')).not.toBeInTheDocument();
+    });
   });
 });
