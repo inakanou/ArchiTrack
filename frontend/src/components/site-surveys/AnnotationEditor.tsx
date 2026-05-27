@@ -355,6 +355,9 @@ function AnnotationEditor({
   const [guideVisible, setGuideVisible] = useState(false);
   const guideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 保存成功メッセージを 3 秒後に消すための timer 参照（unmount 後の setState を防止）
+  const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
   const undoManagerRef = useRef<UndoManager | null>(null);
   if (!undoManagerRef.current) {
@@ -1415,6 +1418,12 @@ function AnnotationEditor({
         guideTimerRef.current = null;
       }
 
+      // 保存成功メッセージ用のタイマも破棄（unmount 後の setState を防止）
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+        saveSuccessTimerRef.current = null;
+      }
+
       // Task 72.1: touchGestureManager を detach（canvas dispose 前にリスナーを解除）
       if (touchGestureDetachRef.current) {
         try {
@@ -1643,8 +1652,13 @@ function AnnotationEditor({
       // 保存成功
       setState((prev) => ({ ...prev, isSaving: false, saveSuccess: true }));
 
-      // 3秒後に成功メッセージを消す
-      setTimeout(() => {
+      // 3秒後に成功メッセージを消す（unmount 後の setState を防ぐため timer 参照を保持）
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+      }
+      saveSuccessTimerRef.current = setTimeout(() => {
+        saveSuccessTimerRef.current = null;
+        if (isDisposedRef.current) return;
         setState((prev) => ({ ...prev, saveSuccess: false }));
       }, 3000);
     } catch (err) {
