@@ -2008,7 +2008,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 32.11, 32.13_
   - _Boundary: annotation-style-tokens_
 
-- [ ] 76. jszip 導入と ZIP 命名規則ユーティリティ
+- [x] 76. jszip 導入と ZIP 命名規則ユーティリティ
 - [x] 76.1 jszip 依存追加とビルド検証
   - `frontend/package.json` の `dependencies` に `jszip` を追加し、ロックファイルを更新する
   - `tech.md` に jszip の追加とバージョンを反映する
@@ -2020,7 +2020,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - パス区切り・コロン等のサニタイズと 80 文字制限を内包する
   - 観測可能な完了状態: ユニットテストで命名規則が決定論的に生成され、重複入力に対し連番サフィックスが付くことを確認する
   - _Requirements: 31.8, 31.9_
-- [ ] 76.3 命名ユーティリティの単体テスト
+- [x] 76.3 命名ユーティリティの単体テスト
   - 重複名で `_2`, `_3` サフィックス付与、サニタイズ規則、長さ制限、ZIP ファイル名フォーマットの 4 観点を検証する
   - 観測可能な完了状態: `zip-naming.test.ts` の全テストが合格する
   - _Requirements: 31.8, 31.9_
