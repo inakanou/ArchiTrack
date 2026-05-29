@@ -22,7 +22,8 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
   };
 });
 
-// Fabric.jsのモック - Polygonクラスを継承可能にする
+// Fabric.jsのモック
+// Task 79.1: PolygonShape は Group ベースへ再設計されたため MockGroup を追加。
 vi.mock('fabric', () => {
   // 多角形モック
   class MockPolygon {
@@ -32,6 +33,9 @@ vi.mock('fabric', () => {
     fill?: string;
     stroke?: string;
     strokeWidth?: number;
+    opacity?: number;
+    strokeLineCap?: string;
+    strokeLineJoin?: string;
     originX?: string;
     originY?: string;
     selectable?: boolean;
@@ -40,12 +44,14 @@ vi.mock('fabric', () => {
     hasBorders?: boolean;
     lockMovementX?: boolean;
     lockMovementY?: boolean;
+    objectCaching?: boolean;
 
     constructor(points?: Array<{ x: number; y: number }>, options?: Record<string, unknown>) {
-      this.points = points || [];
+      this.points = points ? points.map((p) => ({ ...p })) : [];
       this.fill = 'transparent';
       this.stroke = '#000000';
       this.strokeWidth = 2;
+      this.opacity = 1;
       this.originX = 'left';
       this.originY = 'top';
       this.hasControls = true;
@@ -81,8 +87,67 @@ vi.mock('fabric', () => {
     }
   }
 
+  // Group モック（Task 79.1: PolygonShape extends Group の最小サポート）
+  class MockGroup {
+    _objects: unknown[];
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    hasControls: boolean;
+    hasBorders: boolean;
+    lockMovementX: boolean;
+    lockMovementY: boolean;
+    subTargetCheck: boolean;
+
+    constructor(objects?: unknown[], options?: Record<string, unknown>) {
+      this._objects = objects ? [...objects] : [];
+      this.hasControls = true;
+      this.hasBorders = true;
+      this.lockMovementX = false;
+      this.lockMovementY = false;
+      this.subTargetCheck = false;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {
+      mockSetCoords();
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+
+    toObject(): Record<string, unknown> {
+      return {};
+    }
+
+    add(object: unknown): void {
+      this._objects.push(object);
+    }
+
+    remove(object: unknown): void {
+      const index = this._objects.indexOf(object);
+      if (index > -1) {
+        this._objects.splice(index, 1);
+      }
+    }
+  }
+
   return {
     Polygon: MockPolygon,
+    Group: MockGroup,
   };
 });
 

@@ -2,21 +2,30 @@
  * @fileoverview 多角形ツール
  *
  * Task 15.4: 多角形ツールを実装する
+ * Task 79.1: Polygon クラスを Group ベースへ再設計（白縁取りダブルストローク）
  *
  * クリックによる頂点追加、ダブルクリックで閉じる、
- * カスタムFabric.jsオブジェクト実装を行うモジュールです。
+ * 白縁取り付き Group 構造のカスタム Fabric.js オブジェクト実装を行うモジュールです。
  *
  * Requirements:
  * - 7.4: 多角形ツールを選択して頂点をクリックすると多角形を描画する
+ * - 32.1: 矢印以外の形状にも白色の縁取り線を付与する
+ * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上に設定する
+ * - 32.3: 本体色を変更しても白縁取りは白のまま維持する
+ * - 32.4: 移動・リサイズ・回転・形状変形（端点移動・頂点追加/削除等）時に本体と同期して白縁取りを変形する
  *
  * @requirement site-survey/REQ-26.1
  * @requirement site-survey/REQ-26.2
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-32.1
+ * @requirement site-survey/REQ-32.2
+ * @requirement site-survey/REQ-32.3
+ * @requirement site-survey/REQ-32.4
  */
 
-import { Polygon } from 'fabric';
+import { Group, Polygon } from 'fabric';
 
-import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -95,20 +104,35 @@ const MIN_VERTEX_COUNT = 3;
 /**
  * 多角形クラス
  *
- * Fabric.js Polygonを拡張した多角形オブジェクト。
- * クリック操作で頂点を追加し、多角形を構築する。
+ * Fabric.js Group を拡張した多角形オブジェクト。
+ * - outlinePolygon: 白い縁取り（本体線幅 + 縁取り幅×2）
+ * - bodyPolygon: 本体色の細い線
+ * の 2 つの子 Polygon を持つ。
+ *
+ * `type === 'polygonShape'` は維持（classRegistry 後方互換）。
+ *
+ * Task 79.1 で `Polygon` 直接継承から `Group` ベースへ再設計。
  */
-export class PolygonShape extends Polygon {
-  /** 頂点配列 */
+export class PolygonShape extends Group {
+  /** 頂点配列（内部状態） */
   private _vertices: Point[];
 
-  /** 線色 */
+  /** 白縁取り属性 */
+  private _outline: ShapeOutlineAttribute;
+
+  /** 外側の白縁取り Polygon */
+  private _outlinePolygon: Polygon;
+
+  /** 本体色の Polygon */
+  private _bodyPolygon: Polygon;
+
+  /** 線色（後方互換: Group 自体にもミラー設定） */
   declare stroke: string;
 
-  /** 線の太さ */
+  /** 線の太さ（後方互換: Group 自体にもミラー設定） */
   declare strokeWidth: number;
 
-  /** 塗りつぶし色 */
+  /** 塗りつぶし色（後方互換: Group 自体にもミラー設定） */
   declare fill: string;
 
   /** コントロール表示フラグ */
@@ -133,21 +157,71 @@ export class PolygonShape extends Polygon {
     // 設定をマージ
     const mergedOptions = { ...DEFAULT_POLYGON_OPTIONS, ...options };
 
-    // Polygonを初期化
-    super(points, {
+    // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
+    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.polygonOutline };
+
+    // 頂点配列のコピー
+    const verticesCopy = points.map((p) => ({ ...p }));
+
+    // 外側 Polygon（白縁取り）を生成
+    // 子の left/top は Group 原点（0,0）からの相対座標。
+    // 親 Group が位置決めし、子は points で形状を保持することで
+    // 移動・リサイズ・回転・頂点編集時に同期する（Req 32.4）。
+    const outlinePolygon = new Polygon(verticesCopy, {
+      stroke: outline.color,
+      strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
+      fill: 'transparent',
+      strokeLineCap: 'round',
+      strokeLineJoin: 'round',
+      opacity: outline.enabled ? 1 : 0,
+      originX: 'left',
+      originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // 本体 Polygon を生成
+    const bodyPolygon = new Polygon(verticesCopy, {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
       fill: mergedOptions.fill,
       originX: 'left',
       originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // Group を初期化（outline → body の順で重ね、body が上に描画される）
+    // 本体色/本体線幅/塗りつぶしは Group 自体にもミラー設定して、既存 consumer の
+    // `polygon.stroke` / `polygon.strokeWidth` / `polygon.fill` 参照との
+    // 後方互換を維持する。
+    super([outlinePolygon, bodyPolygon], {
+      originX: 'left',
+      originY: 'top',
+      selectable: true,
+      evented: true,
       hasControls: true,
       hasBorders: true,
       lockMovementX: false,
       lockMovementY: false,
+      subTargetCheck: false,
+      objectCaching: false,
+      stroke: mergedOptions.stroke,
+      strokeWidth: mergedOptions.strokeWidth,
+      fill: mergedOptions.fill,
     });
 
     // プロパティを設定
-    this._vertices = points.map((p) => ({ ...p }));
+    this._vertices = verticesCopy;
+    this._outline = outline;
+    this._outlinePolygon = outlinePolygon;
+    this._bodyPolygon = bodyPolygon;
     this.stroke = mergedOptions.stroke;
     this.strokeWidth = mergedOptions.strokeWidth;
     this.fill = mergedOptions.fill;
@@ -201,32 +275,46 @@ export class PolygonShape extends Polygon {
 
   /**
    * 指定されたインデックスの頂点を更新
+   *
+   * Task 79.1 (Req 32.4): outlinePolygon と bodyPolygon の双方を同期更新する。
    */
   setVertex(index: number, point: Point): void {
     if (index < 0 || index >= this._vertices.length) {
       return;
     }
     this._vertices[index] = { ...point };
-    this._updatePoints();
+    this._syncChildPoints();
     this.setCoords();
   }
 
   /**
    * 全頂点を一括で更新
+   *
+   * Task 79.1 (Req 32.4): outlinePolygon と bodyPolygon の双方を同期更新する。
+   * 頂点配列の長さが変化（追加・削除）した場合も両子に伝搬する。
    */
   setVertices(points: Point[]): void {
     this._vertices = points.map((p) => ({ ...p }));
-    this._updatePoints();
+    this._syncChildPoints();
     this.setCoords();
   }
 
   /**
-   * Fabric.js Polygonのpointsプロパティを更新
+   * 子 Polygon（outline + body）の points を同期更新するヘルパー
+   *
+   * Task 79.1 (Req 32.4): 頂点追加・削除・移動時に両 Polygon を同期更新する。
+   * Fabric.js Polygon の points は配列参照で管理されるため、新しい配列コピーを
+   * 渡して setter 経由で更新する。
    */
-  private _updatePoints(): void {
-    this.set(
+  private _syncChildPoints(): void {
+    const pointsCopy = this._vertices.map((p) => ({ ...p }));
+    this._outlinePolygon.set(
       'points',
-      this._vertices.map((p) => ({ ...p }))
+      pointsCopy.map((p) => ({ ...p }))
+    );
+    this._bodyPolygon.set(
+      'points',
+      pointsCopy.map((p) => ({ ...p }))
     );
   }
 
@@ -268,26 +356,38 @@ export class PolygonShape extends Polygon {
   // ==========================================================================
 
   /**
-   * 線色を更新
+   * 線色（本体色）を更新
+   *
+   * Task 79.1 (Req 32.3): 白縁取り（outlinePolygon）の色は常に白のまま維持する。
+   * `polygon.stroke` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStroke(color: string): void {
     this.stroke = color;
+    this._bodyPolygon.set('stroke', color);
     this.set('stroke', color);
   }
 
   /**
-   * 線の太さを更新
+   * 線の太さ（本体線幅）を更新
+   *
+   * Task 79.1 (Req 32.2): 白縁取り Polygon の線幅も `width + outline.width * 2` に同期更新する。
+   * `polygon.strokeWidth` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
+    this._bodyPolygon.set('strokeWidth', width);
+    this._outlinePolygon.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
 
   /**
    * 塗りつぶし色を更新
+   *
+   * Task 79.1: 本体 Polygon の fill のみ更新する。外側 Polygon は常に `transparent` を維持。
    */
   setFill(color: string): void {
     this.fill = color;
+    this._bodyPolygon.set('fill', color);
     this.set('fill', color);
   }
 
@@ -318,11 +418,57 @@ export class PolygonShape extends Polygon {
   }
 
   // ==========================================================================
+  // 白縁取り属性の更新
+  // ==========================================================================
+
+  /**
+   * 白縁取り属性を部分更新
+   *
+   * Task 79.1 (Req 32.1, 32.2):
+   * - enabled=false のときは outlinePolygon.opacity=0（構造は保持）
+   * - enabled=true のときは outlinePolygon.opacity=1 かつ stroke/width を再適用
+   *
+   * @param next 部分更新する属性
+   */
+  setOutline(next: Partial<ShapeOutlineAttribute>): void {
+    this._outline = { ...this._outline, ...next };
+
+    if (this._outline.enabled) {
+      const bodyStrokeWidth = (this._bodyPolygon.strokeWidth as number) ?? 0;
+      this._outlinePolygon.set({
+        opacity: 1,
+        stroke: this._outline.color,
+        strokeWidth: bodyStrokeWidth + this._outline.width * 2,
+      });
+    } else {
+      this._outlinePolygon.set({ opacity: 0 });
+    }
+
+    // Req 24.10 (Arrow と同方針): canvas にアタッチ済みなら object:modified を発火する。
+    // canvas 未アタッチ時は安全に no-op。
+    const attachedCanvas = (
+      this as unknown as { canvas?: { fire?: (event: string, options?: unknown) => void } }
+    ).canvas;
+    attachedCanvas?.fire?.('object:modified', { target: this });
+  }
+
+  /**
+   * 現在の白縁取り属性を取得
+   *
+   * @returns 現在の outline 属性のコピー
+   */
+  getOutline(): ShapeOutlineAttribute | undefined {
+    return { ...this._outline };
+  }
+
+  // ==========================================================================
   // シリアライズ
   // ==========================================================================
 
   /**
    * オブジェクトをJSON形式にシリアライズ
+   *
+   * Task 79.1: 79.2 で outline 属性永続化を拡張する予定。本タスクでは既存 JSON 構造を維持。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): PolygonJSON {

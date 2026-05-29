@@ -2068,7 +2068,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: CircleTool_
 
 - [ ] 79. (P) Polygon の Group 化と白縁取り
-- [ ] 79.1 Polygon クラスを Group ベースへ再設計
+- [x] 79.1 Polygon クラスを Group ベースへ再設計
   - Fabric `Polygon` 単体から `extends Group` 化し、内部に `outlinePolygon` + `bodyPolygon` を保持する
   - 頂点追加・削除・移動時に両 Polygon の `points` を同期更新する
   - 観測可能な完了状態: 多角形ツールで描画した Polygon が Group となり、頂点編集後も白縁取りが追従する
