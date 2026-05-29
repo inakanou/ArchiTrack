@@ -1995,7 +1995,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Foundation
 
 - [ ] 75. annotation-style-tokens に 6 形状の白縁取り既定値を追加
-- [ ] 75.1 `ShapeOutlineAttribute` 共通型と 6 形状向け既定値の追加
+- [x] 75.1 `ShapeOutlineAttribute` 共通型と 6 形状向け既定値の追加
   - `annotation-style-tokens.ts` に `ShapeOutlineAttribute = { enabled, color, width }` を追加し、`ANNOTATION_DEFAULTS` に `rectangleOutline` / `circleOutline` / `polygonOutline` / `polylineOutline` / `freehandOutline` / `dimensionOutline` を `enabled: true` で定義する
   - Dimension のラベル白アウトライン用に `dimensionLabelOutline: TextOutlineAttribute = { enabled: true, widthRatio: 0.12 }` を追加する
   - 既存 Arrow の `ArrowOutlineAttribute` との型整合（エイリアス化検討）に関する判断を実装時に行い、コード変更が破壊変更を含まないことを担保する

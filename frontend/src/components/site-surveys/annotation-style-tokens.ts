@@ -6,6 +6,9 @@
  * - 26.2: 初期本体色を赤系またはオレンジ系の有彩色に設定する
  * - 26.3: 初回選択時に白縁取り/白アウトラインが有効な初期状態で起動する
  * - 26.5: 各ツールの既定色・既定線幅・既定白縁取り有無を一元管理する
+ * - 32.11: 寸法線・円・四角形・多角形・折れ線・フリーハンドの各ツール初回起動時に
+ *          白縁取りが有効な初期状態でツールを起動する
+ * - 32.13: 各対象ツールの既定白縁取り有無を Req 26 の設定資材一元管理の枠組みで管理する
  *
  * 既定本体色には `#e53935`（赤系）を採用。白縁取りと組み合わせたとき暗/明双方の
  * 背景で視認性が確保でき、既存の `DEFAULT_STYLE_OPTIONS.strokeColor = '#ff0000'`
@@ -15,6 +18,8 @@
  * @requirement site-survey/REQ-26.2
  * @requirement site-survey/REQ-26.3
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-32.11
+ * @requirement site-survey/REQ-32.13
  */
 
 import type { ToolType } from './annotation-toolbar.constants';
@@ -24,11 +29,13 @@ import type { ToolType } from './annotation-toolbar.constants';
 // ============================================================================
 
 /**
- * 矢印の白縁取り属性
+ * 形状（矢印を含む）の白縁取り属性
  *
- * design.md `ArrowOutlineAttribute` に対応。
+ * design.md `ShapeOutlineAttribute` に対応。
+ * Task 75.1: 寸法線・円・四角形・多角形・折れ線・フリーハンドにも適用するため、
+ * 共通型として導入。
  */
-export interface ArrowOutlineAttribute {
+export interface ShapeOutlineAttribute {
   /** 白縁取りを描画するか */
   enabled: boolean;
   /** 白縁取りの色（将来拡張のためプロパティとして保持） */
@@ -36,6 +43,15 @@ export interface ArrowOutlineAttribute {
   /** 白縁取りの片側幅。本体 strokeWidth * 0.75 を推奨既定 */
   width: number;
 }
+
+/**
+ * 矢印の白縁取り属性
+ *
+ * design.md 5485 行の指針に従い、`ShapeOutlineAttribute` の型エイリアスとして定義。
+ * 既存 `ArrowTool` の import 元は `ShapeOutlineAttribute` と同一の構造を受け取るため
+ * 破壊変更にはならない。
+ */
+export type ArrowOutlineAttribute = ShapeOutlineAttribute;
 
 /**
  * テキストの白アウトライン属性
@@ -52,7 +68,7 @@ export interface TextOutlineAttribute {
 /**
  * ツール横断の既定スタイル値
  *
- * design.md `AnnotationToolDefaults` に対応。
+ * design.md `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合。
  */
 export interface AnnotationToolDefaults {
   /** 既定本体色（赤系または橙系） */
@@ -67,6 +83,20 @@ export interface AnnotationToolDefaults {
   arrowOutline: ArrowOutlineAttribute;
   /** テキストの既定白アウトライン（enabled: true） */
   textOutline: TextOutlineAttribute;
+  /** 四角形の既定白縁取り（Req 32.11, 32.13） */
+  rectangleOutline: ShapeOutlineAttribute;
+  /** 円の既定白縁取り（Req 32.11, 32.13） */
+  circleOutline: ShapeOutlineAttribute;
+  /** 多角形の既定白縁取り（Req 32.11, 32.13） */
+  polygonOutline: ShapeOutlineAttribute;
+  /** 折れ線の既定白縁取り（Req 32.11, 32.13） */
+  polylineOutline: ShapeOutlineAttribute;
+  /** フリーハンドの既定白縁取り（Req 32.11, 32.13） */
+  freehandOutline: ShapeOutlineAttribute;
+  /** 寸法線の既定白縁取り（線部、Req 32.11, 32.13） */
+  dimensionOutline: ShapeOutlineAttribute;
+  /** 寸法値ラベルの既定白アウトライン（Req 32.12, 32.13） */
+  dimensionLabelOutline: TextOutlineAttribute;
 }
 
 // ============================================================================
@@ -100,7 +130,29 @@ const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_FILL = '';
 
 /**
- * ツール横断の既定スタイル値（Req 26.5: 一元管理）
+ * 形状白縁取りの既定幅
+ *
+ * design.md: 本体 strokeWidth * 0.75 を推奨既定（最低 2px を保証）。
+ * 既存 arrowOutline と同パターンで、本体線幅 3 に対し ceil(3 * 0.75) = 3 を最低 2px と合わせて 3px。
+ * 注釈: タスク指示では「2.25 切り上げで最低 2px」と明記されているため Math.ceil を採用し最低 2 を保証。
+ */
+const DEFAULT_SHAPE_OUTLINE_WIDTH = Math.max(2, Math.ceil(DEFAULT_STROKE_WIDTH * 0.75));
+
+/**
+ * 形状白縁取りの既定オブジェクトを生成するファクトリ
+ *
+ * Req 32.11 / 32.13: 6 形状すべてで同一の既定値を共有する。
+ */
+function makeDefaultShapeOutline(): ShapeOutlineAttribute {
+  return {
+    enabled: true,
+    color: '#ffffff',
+    width: DEFAULT_SHAPE_OUTLINE_WIDTH,
+  };
+}
+
+/**
+ * ツール横断の既定スタイル値（Req 26.5 / Req 32.13: 一元管理）
  */
 export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
   stroke: DEFAULT_STROKE,
@@ -116,6 +168,18 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
   textOutline: {
     enabled: true,
     // design.md: 既定 widthRatio = 0.12（0.10〜0.20 の範囲内）
+    widthRatio: 0.12,
+  },
+  // Req 32.11: 6 形状の白縁取りはすべて enabled: true で起動する
+  rectangleOutline: makeDefaultShapeOutline(),
+  circleOutline: makeDefaultShapeOutline(),
+  polygonOutline: makeDefaultShapeOutline(),
+  polylineOutline: makeDefaultShapeOutline(),
+  freehandOutline: makeDefaultShapeOutline(),
+  dimensionOutline: makeDefaultShapeOutline(),
+  // Req 32.12: 寸法値ラベルは Req 25 のテキスト白アウトラインと同形（widthRatio: 0.12）
+  dimensionLabelOutline: {
+    enabled: true,
     widthRatio: 0.12,
   },
 };
@@ -141,5 +205,12 @@ export function getToolDefaults(_tool: ToolType): AnnotationToolDefaults {
     fill: ANNOTATION_DEFAULTS.fill,
     arrowOutline: { ...ANNOTATION_DEFAULTS.arrowOutline },
     textOutline: { ...ANNOTATION_DEFAULTS.textOutline },
+    rectangleOutline: { ...ANNOTATION_DEFAULTS.rectangleOutline },
+    circleOutline: { ...ANNOTATION_DEFAULTS.circleOutline },
+    polygonOutline: { ...ANNOTATION_DEFAULTS.polygonOutline },
+    polylineOutline: { ...ANNOTATION_DEFAULTS.polylineOutline },
+    freehandOutline: { ...ANNOTATION_DEFAULTS.freehandOutline },
+    dimensionOutline: { ...ANNOTATION_DEFAULTS.dimensionOutline },
+    dimensionLabelOutline: { ...ANNOTATION_DEFAULTS.dimensionLabelOutline },
   };
 }
