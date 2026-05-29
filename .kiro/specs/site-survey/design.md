@@ -4821,3 +4821,797 @@ flowchart LR
 - `paintFirst: 'stroke'` で既存マルチバイトテキストの表示崩れが発生（research.md R3 が失敗）
 
 上記いずれかが発覚した場合、`outline`/`textOutline` の `enabled=false` を既定にし、UIトグルで opt-in 方式にする。
+
+---
+
+## Requirements 31-32: 画像一括ZIPエクスポート・白縁取り対象の全形状拡張
+
+### Overview
+
+**Purpose**: 現場調査画像の一括 ZIP エクスポート（Req 31）と、白縁取り対象を矢印・テキスト以外の 6 形状（寸法線・円・四角形・多角形・折れ線・フリーハンド）へ拡張する（Req 32）。両者は独立したスコープだが、Req 31 の「注釈含む」設定時のレンダリングが Req 32 の対象 6 形状に依存するため、同一スペック内で整合させる。
+
+**Users**: 数十枚規模の現場写真を 1 件ずつでなくまとめて配布したい現場調査担当者と、屋外現場写真の任意背景で全形状の注釈を確実に視認したい現場調査担当者。
+
+**Impact**: 既存の個別画像エクスポート基盤（`ImageExportDialog`, `ExportService`, `AnnotationRendererService.renderImages()`）と、Requirements 24-30 で確立された Group ベース白縁取りパターン（Arrow）を踏襲して拡張する。バックエンド DB スキーマと API は無変更。フロントエンドに `jszip` を新規依存として追加する。
+
+#### Goals
+- 現場調査配下の全画像または選択画像を、Req 12 と同一の設定（形式・解像度・注釈含む/含まない・元画像そのまま）でまとめて単一 ZIP としてダウンロードできる
+- 進捗可視化とキャンセル可能なフロー、部分失敗時のユーザー選択肢を提供する
+- 寸法線・円・四角形・多角形・折れ線・フリーハンドの 6 形状に Arrow と同等仕様の白縁取りを適用する
+- 白縁取りなし既存データの後方互換を維持する
+- 既存 Requirement 12（個別エクスポート）と Requirement 24/25 の責務境界・コードは破壊しない
+
+#### Non-Goals
+- 一括エクスポートにおける PDF 単一ファイル出力（Req 11 のスコープ）
+- バック側 ZIP ジョブ化・非同期化・中断レジューム
+- 形状別の白縁取りカスタマイズパラメータ（縁取り幅倍率の形状別調整等）
+- 番号付きマーカー・ハイライター・トリミング等の新ツール種別（既存 Out of Scope 継承）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- `bulkExportService` の実装と所有（複数画像のレンダリング→ZIP 化→ダウンロード制御、進捗 callback、`AbortController` 対応）
+- `BulkExportDialog`・`BulkExportProgressDialog`・`ExportSettingsForm`（個別/一括で共有する設定フォーム部）の実装と所有
+- `SurveyImageGrid` への複数選択 UI（チェックボックス）と選択 state の追加
+- 現場調査詳細画面ツールバー上の「全件一括エクスポート」「選択画像エクスポート」エントリポイント
+- 6 形状（Rectangle/Circle/Polygon/Polyline/Freehand/Dimension）のカスタムクラスを Group 化し、`outline: ShapeOutlineAttribute` 属性をシリアライズ可能にする
+- `annotation-style-tokens.ts` への `ShapeOutlineAttribute` 共通型と 6 形状向け既定値の追加
+- Dimension の寸法値ラベルに対する `paintFirst: 'stroke'` 白アウトライン（Req 25 の TextTool パターンを Dimension 内部 `FabricText` に適用）
+- ZIP 内ファイル命名規則ユーティリティ（個別エクスポートと整合）
+
+#### Out of Boundary
+- バックエンド DB スキーマ・API の変更（注釈 JSON の任意属性追加で完結）
+- `ImageExportDialog`（Req 12）本体の挙動変更（共有フォーム抽出のみで個別エクスポート挙動は不変）
+- Requirements 11 の PDF 報告書出力経路（バッチ注釈取得・PDF レイアウト）
+- Requirements 22 の画像回転、Req 23 のサムネイル再生成パイプライン本体（新属性が透過的に流れることのみ確認）
+- 白縁取りの全画像一括マイグレーション（既存データへの遡及付与）
+
+#### Allowed Dependencies
+- 新規外部依存: `jszip`（最新メジャー、MIT、actively maintained）。フロント `package.json` に追加
+- 既存内部依存: `AnnotationRendererService.renderImages()`、`ExportService.downloadFile()` / `exportImage()` / `downloadOriginal()`、`useFabricUndoIntegration`、`UndoManager`、`annotation-style-tokens.ts`（Req 24-30 で確立）
+- Fabric.js 7.3.1 標準 API（`Group`, `Path`, `Polygon`, `Polyline`, `Ellipse`, `Rect`, `classRegistry`、`paintFirst: 'stroke'`、`strokeUniform: true`）
+- ブラウザ標準 `AbortController`, `Blob`, `URL.createObjectURL`
+
+#### Revalidation Triggers
+- `AnnotationRendererService` のレンダリング契約（入出力型、非同期挙動）変更
+- 注釈 JSON スキーマに必須属性を追加する場合（任意属性のみのため通常該当しない）
+- 個別エクスポートの設定構造（`ExportSettings` 型）変更
+- Fabric.js のメジャーバージョン更新（Group 子要素の `toObject`/`fromObject` 互換性）
+- 6 形状の `classRegistry` type ID（`'rectangle'`, `'circle'`, `'polygon'`, `'polyline'`, `'freehand'`, `'dimension'`）の変更
+
+### Architecture
+
+#### Existing Architecture Analysis
+
+- フロント完結スコープ。バックエンドは既存 `survey-images.routes.ts`（署名付き URL 発行）と `survey-annotations.routes.ts`（注釈 JSON 読取）をそのまま利用。Prisma スキーマ無変更
+- 個別エクスポートの 3 層（ダイアログ UI / `ExportService` / `AnnotationRendererService`）が確立済み。一括化は最下層 `renderImages()` を呼ぶ薄い coordinator を追加する形で吸収可能
+- 6 形状の現行ツールは `extends Rect | Ellipse | Polygon | Polyline | Path` の単一クラス。白縁取りには Arrow が確立した Group 化パターン（`outlineShape + bodyShape`）を踏襲する
+- `annotation-style-tokens.ts` には既に `ArrowOutlineAttribute` / `TextOutlineAttribute` と `ANNOTATION_DEFAULTS` の枠組みが整備済み（Req 26 の成果）
+
+#### Architecture Pattern & Boundary Map
+
+```mermaid
+graph TB
+    subgraph DetailPage
+        SurveyDetail
+        SurveyImageGrid
+        BulkExportButton
+    end
+
+    subgraph ExportUI
+        BulkExportDialog
+        BulkExportProgressDialog
+        ExportSettingsForm
+        ImageExportDialog
+    end
+
+    subgraph Services
+        bulkExportService
+        ExportService
+        AnnotationRendererService
+        ZipNaming
+    end
+
+    subgraph Tools
+        ShapeOutlineMixin
+        RectangleTool
+        CircleTool
+        PolygonTool
+        PolylineTool
+        FreehandTool
+        DimensionTool
+    end
+
+    subgraph Infra
+        StyleTokens
+        JSZip
+    end
+
+    SurveyDetail --> SurveyImageGrid
+    SurveyDetail --> BulkExportButton
+    BulkExportButton --> BulkExportDialog
+    BulkExportDialog --> ExportSettingsForm
+    ImageExportDialog --> ExportSettingsForm
+    BulkExportDialog --> bulkExportService
+    BulkExportProgressDialog --> bulkExportService
+    bulkExportService --> AnnotationRendererService
+    bulkExportService --> ExportService
+    bulkExportService --> JSZip
+    bulkExportService --> ZipNaming
+    AnnotationRendererService --> Tools
+    Tools --> StyleTokens
+```
+
+**Architecture Integration**:
+- Pattern: 既存 3 層エクスポート構造（Dialog → Service → Renderer）に、coordinator `bulkExportService` と進捗 UI を追加。`ExportSettingsForm` を個別/一括で共有することで設定 UI の二重実装を回避
+- 6 形状の白縁取りは Tool 層のみで吸収。Renderer / Editor は無変更（既存 `enlivenObjects` 経路で属性が自動復元）
+- Dependency direction: `Infra (StyleTokens, JSZip) → Tools → Services → ExportUI → DetailPage`。下位レイヤから上位への依存は禁止
+- Steering compliance: TypeScript strict、ESLint、既存 `services/XxxService.ts` パターン、React 19 標準 API、テスト構成
+
+#### Technology Stack
+
+| Layer | Choice / Version | Role in Feature | Notes |
+|-------|------------------|-----------------|-------|
+| ZIP Library | `jszip` ^3 系（最新） | クライアントサイド ZIP 生成（Blob 出力、`generateAsync` のストリーム書き込み） | フロント `package.json` 新規追加。`tech.md` 更新対象 |
+| Canvas Library | Fabric.js 7.3.1 | 6 形状の Group 化、`paintFirst: 'stroke'`（Dimension ラベル） | 既存。新規 API 利用なし |
+| Frontend Framework | React 19.2.0 + TypeScript 5.9.3 | BulkExportDialog / ProgressDialog / SurveyImageGrid 拡張 | 既存スタック |
+| Cancellation | ブラウザ標準 `AbortController` | 一括処理中断 | 追加依存なし |
+
+選定理由概要は本表で十分。詳細トレードオフ（jszip 採用根拠、メモリ上限の推定、archiver との比較）は `research.md` の R6/R7 を参照。
+
+### File Structure Plan
+
+#### Directory Structure
+
+```
+frontend/src/services/export/
+├── bulkExportService.ts                  # 新規: 複数画像レンダ → JSZip → ダウンロード coordinator
+├── zip-naming.ts                         # 新規: ZIP 内ファイル名規則ユーティリティ
+├── ExportService.ts                      # 変更: 個別エクスポート共有ユーティリティを bulk からも参照
+└── AnnotationRendererService.ts          # 変更（検証中心）: 6形状 Group 版が toDataURL で正しく出るかテスト追加
+
+frontend/src/components/site-surveys/
+├── BulkExportDialog.tsx                  # 新規: 全件/選択の起動 + ExportSettingsForm + 開始ボタン
+├── BulkExportProgressDialog.tsx          # 新規: 件数/割合プログレス + キャンセルボタン + 部分失敗時の選択肢
+├── ExportSettingsForm.tsx                # 新規: 形式/解像度/注釈含む/原本出力 のフォーム本体（個別/一括で共有）
+├── ImageExportDialog.tsx                 # 変更: 設定フォーム部を ExportSettingsForm に置換、ロジックは維持
+├── SurveyImageGrid.tsx                   # 変更: 各サムネイルへチェックボックス追加、選択 state 連携、選択件数表示
+├── SurveyDetailPage.tsx                  # 変更: 「全件一括エクスポート」「選択画像エクスポート」ボタンを追加（後者は選択 1 件以上時のみ活性）
+├── annotation-style-tokens.ts            # 変更: ShapeOutlineAttribute 共通型と 6 形状向け既定値追加（rectangleOutline 等）
+├── registerCustomShapes.ts               # 変更: 6 形状の Group 版を再登録（type ID は維持）
+└── tools/
+    ├── RectangleTool.ts                  # 変更: Rectangle extends Group（outlineRect + bodyRect）
+    ├── CircleTool.ts                     # 変更: Circle extends Group（outlineEllipse + bodyEllipse）
+    ├── PolygonTool.ts                    # 変更: Polygon extends Group（outlinePolygon + bodyPolygon）
+    ├── PolylineTool.ts                   # 変更: Polyline extends Group（outlinePolyline + bodyPolyline）
+    ├── FreehandTool.ts                   # 変更: Freehand extends Group（outlinePath + bodyPath）
+    └── DimensionTool.ts                  # 変更: Dimension extends Group（outlineLine + bodyLine + labelText with paintFirst）
+
+frontend/src/__tests__/site-surveys/
+├── services/
+│   ├── bulkExportService.test.ts         # 新規: 順次レンダ・ZIP 構築・進捗 callback・キャンセル・部分失敗の各経路
+│   └── zip-naming.test.ts                # 新規: 命名規則の決定論性、重複時のサフィックス
+├── components/
+│   ├── BulkExportDialog.test.tsx         # 新規: 起動・設定確定・対象 0 件の非活性表示
+│   ├── BulkExportProgressDialog.test.tsx # 新規: 進捗表示・キャンセル・部分失敗ユーザー選択
+│   └── ExportSettingsForm.test.tsx       # 新規: フォーム単体の挙動・既定値
+└── tools/
+    ├── RectangleTool.outline.test.ts     # 新規: Group化・toObject/fromObject・後方互換
+    ├── CircleTool.outline.test.ts        # 新規（同上）
+    ├── PolygonTool.outline.test.ts       # 新規（同上）
+    ├── PolylineTool.outline.test.ts      # 新規（同上）
+    ├── FreehandTool.outline.test.ts      # 新規（同上）
+    └── DimensionTool.outline.test.ts     # 新規: 寸法線 Group化 + ラベル paintFirst・寸法値変更時の追従
+
+e2e/specs/
+├── site-survey-bulk-export.spec.ts       # 新規: 全件/選択 ZIP、設定反映、進捗、キャンセル、部分失敗
+└── site-survey-all-shape-outline.spec.ts # 新規: 6 形状すべて白縁取り保存→リロード→復元
+```
+
+#### Modified Files（主要変更点サマリー）
+
+- `services/export/AnnotationRendererService.ts` — 既存 `renderImages()` を `bulkExportService` から呼ぶため、`onProgress(index, total)` callback と `signal: AbortSignal` 引数を追加する後方互換拡張（既存呼び出し箇所は引数省略で従来挙動）。Group 化 6 形状の `enlivenObjects` 復元・`toDataURL` 出力をテストで検証
+- `services/export/ExportService.ts` — `getExportSettings()` 型を `ExportSettings` インターフェースとして export し、個別/一括双方が同型を受領できるよう公開
+- `components/site-surveys/ImageExportDialog.tsx` — `ExportSettingsForm` を埋め込む形にリファクタ。ロジックは維持
+- `components/site-surveys/SurveyImageGrid.tsx` — 各サムネイル左上にチェックボックスを追加。`selectedImageIds: Set<string>` を親（SurveyDetailPage）から受け、`onSelectionChange` で同期
+- `components/site-surveys/SurveyDetailPage.tsx` — 詳細画面アクション領域に「全件一括エクスポート」「選択画像エクスポート（N 件）」ボタンを追加。後者は選択 0 件で disabled
+- `components/site-surveys/annotation-style-tokens.ts` — `ShapeOutlineAttribute = { enabled, color, width }` を export。`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）。`ANNOTATION_DEFAULTS` に `rectangleOutline`/`circleOutline`/`polygonOutline`/`polylineOutline`/`freehandOutline`/`dimensionOutline` を追加、いずれも `enabled: true` 既定
+- `components/site-surveys/registerCustomShapes.ts` — `classRegistry.setClass('rectangle', Rectangle)` 等を Group 版で再登録（type ID 不変）
+- `tools/{Rectangle,Circle,Polygon,Polyline,Freehand}Tool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
+- `tools/DimensionTool.ts` — 寸法線部を Group 化（`outlineLine + bodyLine`）、寸法値ラベルの `FabricText` に `paintFirst: 'stroke'` + `stroke: '#ffffff'` + `strokeWidth = fontSize * 0.12` + `strokeUniform: true` を適用（Req 32 #12）
+- `frontend/package.json` — `dependencies` に `jszip` を追加
+
+### System Flows
+
+#### 一括エクスポートフロー（Req 31）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Detail as SurveyDetailPage
+    participant Dialog as BulkExportDialog
+    participant Progress as BulkExportProgressDialog
+    participant Bulk as bulkExportService
+    participant Renderer as AnnotationRendererService
+    participant Zip as JSZip
+    participant Export as ExportService
+
+    User->>Detail: 全件 or 選択件 エクスポート押下
+    Detail->>Dialog: open(targetImageIds, mode)
+    User->>Dialog: 形式 解像度 注釈含む 原本 を選択 開始
+    Dialog->>Bulk: execute(targetImageIds, settings, onProgress, abortSignal)
+    Bulk->>Progress: open
+    loop for each image
+        Bulk->>Renderer: renderImage(imageId, settings)
+        alt 元画像そのまま
+            Bulk->>Export: downloadOriginal blob only
+        end
+        Bulk->>Zip: file(name, blob)
+        Bulk->>Progress: onProgress(done, total)
+        opt abort signal
+            Bulk-->>Progress: cancelled
+        end
+    end
+    Bulk->>Zip: generateAsync
+    Bulk->>Export: downloadFile(zipBlob, zipFileName)
+    Bulk->>Progress: done
+    Progress->>User: 閉じる
+```
+
+**Key decisions**:
+- `bulkExportService.execute()` が `AbortSignal` を受領し、ループ中で `signal.aborted` を毎回確認して即時中断（Req 31 #11-12）
+- 各画像の処理失敗は配列にエラー集約し、最後にユーザーに「成功分のみで ZIP を取得 / 中止」のいずれかを選ばせる（Req 31 #14）
+- 「元画像そのまま出力」（Req 31 #18）は `renderImage()` を経由せず `ExportService.downloadOriginal()` 相当の R2 fetch を行い、注釈・回転・サムネイル再生成を反映しない
+- 対象 0 件時（Req 31 #15）は `execute()` 開始前に `BulkExportDialog` 側でガード
+
+#### 6 形状の白縁取りレンダリング構造（Req 32）
+
+```mermaid
+graph TB
+    subgraph RectangleGroup
+        OutlineRect[outlineRect<br/>stroke=white<br/>strokeWidth=body*1.5<br/>fill=transparent]
+        BodyRect[bodyRect<br/>stroke=bodyColor<br/>strokeWidth=body<br/>fill=bodyFill]
+    end
+
+    subgraph DimensionGroup
+        OutlineLine[outlineLine<br/>stroke=white wider]
+        BodyLine[bodyLine<br/>stroke=bodyColor]
+        LabelText[labelText IText<br/>paintFirst=stroke<br/>stroke=white]
+    end
+
+    OutlineRect -.below.-> BodyRect
+    OutlineLine -.below.-> BodyLine
+    BodyLine -.> LabelText
+```
+
+**Key decisions**:
+- Group 内の描画順序は `outline → body` の順。Arrow と同一規約
+- 塗りつぶしあり 3 形状（Rectangle/Circle/Polygon）の `outlineShape` は `fill: 'transparent'`、本体側で `fill` を担当（塗りの二重描画を回避）
+- 開放形状 2 種（Polyline/Freehand）の `outlineShape` は同一頂点列の Polyline/Path コピー、`strokeLineCap: 'round'` で線端を揃える
+- Dimension の `labelText` は `TextOutlineAttribute` を共有せず、Dimension 全体の `outline.enabled` に連動する（実装簡素化、Req 32 #12 は満たす）
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 31.1, 31.2, 31.3 | 全件/選択の起動、0 件時非活性 | SurveyDetailPage, SurveyImageGrid, BulkExportDialog | `BulkExportDialogProps` | 一括エクスポートフロー |
+| 31.4, 31.5, 31.6 | 設定 UI 共有・設定一括適用・レンダリング仕様継承 | ExportSettingsForm, bulkExportService, AnnotationRendererService | `ExportSettings`, `BulkExportInput` | 一括エクスポートフロー |
+| 31.7, 31.8, 31.9 | ZIP 単一ファイル化・命名規則・ZIP ファイル名 | bulkExportService, zip-naming | `ZipNamingStrategy` | 一括エクスポートフロー |
+| 31.10, 31.11, 31.12 | 進捗可視化・キャンセル可能・中断時 ZIP 非生成 | BulkExportProgressDialog, bulkExportService | `BulkExportProgress`, AbortSignal | 一括エクスポートフロー |
+| 31.13, 31.14 | 部分失敗エラー集約・ユーザー選択 | bulkExportService, BulkExportProgressDialog | `BulkExportFailure`, `PartialFailureChoice` | 一括エクスポートフロー |
+| 31.15 | 対象 0 件時の通知 | BulkExportDialog | dialog precondition | - |
+| 31.16 | アクセス制御適用 | bulkExportService（既存 API 経由） | 既存 Req 14 経路 | - |
+| 31.17 | 注釈含む時の白縁取り適用 | AnnotationRendererService（既存 enlivenObjects 経路） | - | - |
+| 31.18 | 原本出力時の注釈・回転・サムネイル非反映 | bulkExportService, ExportService.downloadOriginal | original branch | 一括エクスポートフロー |
+| 31.19 | 中間生成物の非残存 | bulkExportService finalize | finalize hook | - |
+| 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools, StyleTokens | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
+| 32.8 | 出力経路（サムネイル/PDF/個別/一括）の整合 | AnnotationRendererService, PdfReportService, bulkExportService | 既存 enlivenObjects 経路 | - |
+| 32.11, 32.13 | 既定値・既定スタイル一元管理 | annotation-style-tokens, AnnotationToolbar | `ANNOTATION_DEFAULTS` 拡張 | - |
+| 32.12 | 寸法値ラベルの白アウトライン | DimensionTool（labelText paintFirst） | Dimension Group 内部 | 6 形状レンダリング構造 |
+| 32.14 | サムネイル再生成連動 | 既存 Req 23 パイプライン（変更不要） | - | - |
+
+### Components and Interfaces
+
+#### Component Summary
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| bulkExportService | Services | 複数画像レンダ→ZIP→DL の coordinator、進捗・キャンセル・部分失敗 | 31.4-31.19 | AnnotationRendererService (P0), ExportService (P0), JSZip (P0) | Service, State |
+| zip-naming | Services | ZIP 内ファイル名規則 | 31.8, 31.9 | - | Pure utility |
+| ExportSettingsForm | UI | 形式・解像度・注釈含む・原本のフォーム本体 | 31.4 | StyleTokens (P1) | UI props |
+| BulkExportDialog | UI | 起動 + 設定確定 | 31.1-31.5, 31.15 | ExportSettingsForm (P0), bulkExportService (P0) | UI props |
+| BulkExportProgressDialog | UI | 進捗・キャンセル・部分失敗時の選択肢 | 31.10-31.14 | bulkExportService (P0) | UI props |
+| SurveyImageGrid (ext) | UI | チェックボックス・選択 state 連携 | 31.2, 31.3 | SurveyDetailPage (P0) | UI props |
+| Rectangle (Group) | Tools | 白縁取り付き矩形 | 32.* (Rect分) | Fabric Group/Rect (P0), StyleTokens (P1) | State, Serialization |
+| Circle (Group) | Tools | 白縁取り付き円/楕円 | 32.* (Ellipse分) | Fabric Group/Ellipse (P0), StyleTokens (P1) | State, Serialization |
+| Polygon (Group) | Tools | 白縁取り付き多角形 | 32.* (Polygon分) | Fabric Group/Polygon (P0), StyleTokens (P1) | State, Serialization |
+| Polyline (Group) | Tools | 白縁取り付き折れ線 | 32.* (Polyline分) | Fabric Group/Polyline (P0), StyleTokens (P1) | State, Serialization |
+| Freehand (Group) | Tools | 白縁取り付きフリーハンド | 32.* (Path分) | Fabric Group/Path (P0), StyleTokens (P1) | State, Serialization |
+| Dimension (Group) | Tools | 白縁取り付き寸法線 + ラベル白アウトライン | 32.* + 32.12 | Fabric Group/Path/IText (P0), StyleTokens (P1) | State, Serialization |
+| AnnotationStyleTokens (ext) | Infra | `ShapeOutlineAttribute` 共通型と 6 形状向け既定値 | 32.11, 32.13 | - | Config module |
+
+#### Services Layer
+
+##### bulkExportService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 複数画像を Req 12 と同一の単一画像レンダリングを順次適用して JSZip に格納、進捗 callback とキャンセルを提供する coordinator |
+| Requirements | 31.4, 31.5, 31.6, 31.7, 31.10, 31.11, 31.12, 31.13, 31.14, 31.16, 31.17, 31.18, 31.19 |
+
+**Responsibilities & Constraints**
+- 入力: `images: SurveyImageMetadata[]`、`settings: ExportSettings`、`onProgress: (done, total, failedSoFar) => void`、`signal: AbortSignal`
+- 出力: `Promise<BulkExportResult>` = `{ status: 'success' | 'partial' | 'cancelled', zipBlob?: Blob, failures: BulkExportFailure[] }`
+- 各画像で `AnnotationRendererService.renderImage(image, settings)` を呼び、戻り Blob を `zip.file(name, blob)` に追加
+- 「元画像そのまま」時は `ExportService.downloadOriginal(image)` 相当の R2 fetch のみ実行（注釈・回転・サムネイル非反映）
+- `signal.aborted` を各反復で確認、true なら ZIP 生成せず `status: 'cancelled'` で resolve
+- 失敗画像は `failures` 配列に集約し、ループ継続。最終的に `BulkExportProgressDialog` 側でユーザー選択（成功分のみ ZIP 生成 / 中止）に委ねる
+- 完了またはキャンセル時、内部で保持した一時 Blob / Promise を解放（Req 31 #19）
+- アクセス制御は既存の画像取得 API 経路が担保（Req 14、Req 31 #16）
+
+**Dependencies**
+- Inbound: BulkExportDialog（execute 呼出）、BulkExportProgressDialog（進捗購読・キャンセル）
+- Outbound: AnnotationRendererService.renderImage (P0)、ExportService.downloadOriginal/downloadFile (P0)
+- External: JSZip (P0)
+
+**Contracts**: Service [x], State [x]
+
+##### Service Interface
+
+```typescript
+type ExportFormat = 'jpeg' | 'png';
+type ExportResolution = 'low' | 'medium' | 'high';
+type AnnotationMode = 'include' | 'exclude' | 'original-only';
+
+interface ExportSettings {
+  format: ExportFormat;
+  resolution: ExportResolution;
+  annotationMode: AnnotationMode;
+}
+
+interface BulkExportInput {
+  surveyId: string;
+  surveyName: string;
+  images: SurveyImageMetadata[];
+  settings: ExportSettings;
+}
+
+interface BulkExportProgress {
+  done: number;
+  total: number;
+  failedSoFar: number;
+}
+
+interface BulkExportFailure {
+  imageId: string;
+  imageName: string;
+  reason: 'render' | 'fetch' | 'unknown';
+  message: string;
+}
+
+interface BulkExportResult {
+  status: 'success' | 'partial' | 'cancelled';
+  zipBlob?: Blob;
+  zipFileName?: string;
+  failures: BulkExportFailure[];
+}
+
+interface BulkExportService {
+  execute(
+    input: BulkExportInput,
+    onProgress: (progress: BulkExportProgress) => void,
+    signal: AbortSignal
+  ): Promise<BulkExportResult>;
+}
+```
+
+- Preconditions: `images.length >= 1`、`signal` は abort 前
+- Postconditions: `status === 'success'` のとき `zipBlob` および `zipFileName` 必須。`status === 'cancelled'` のとき `zipBlob` 未設定
+- Invariants: 進捗 callback の `done <= total` を常時満たす
+
+**Implementation Notes**
+- Integration: `BulkExportDialog` が `AbortController` を作成し `signal` を渡す。キャンセルボタン押下で `controller.abort()`
+- Validation: ZIP 内ファイル名重複時のサフィックス付与は `zip-naming` ユーティリティに委ねる。`settings.annotationMode === 'original-only'` のときは `renderImage` をスキップして `downloadOriginal` で blob 取得
+- Risks: クライアントメモリ上限（research.md R6）。Phase 1 では 100 枚を超える対象を `BulkExportDialog` 側で警告するだけのソフトガード。100 枚超で OOM が観測されれば Phase 2 でバック側 ZIP 化を別 Spec として検討（Out of Boundary）
+
+##### zip-naming
+
+| Field | Detail |
+|-------|--------|
+| Intent | ZIP 内ファイル名規則および ZIP ファイル名の決定論的生成 |
+| Requirements | 31.8, 31.9 |
+
+**Service Interface**
+
+```typescript
+interface ZipNamingInput {
+  surveyName: string;
+  exportedAt: Date;
+  image: SurveyImageMetadata;
+  index: number;
+  format: ExportFormat;
+}
+
+interface ZipNamingStrategy {
+  buildEntryName(input: ZipNamingInput, existingNames: Set<string>): string;
+  buildZipFileName(surveyName: string, exportedAt: Date): string;
+}
+```
+
+**Implementation Notes**
+- ZIP 内エントリ名: `{index 3桁ゼロパディング}_{画像表示名サニタイズ}.{拡張子}`。既存個別エクスポート命名（`ExportService.exportImage()` の名前生成）と整合
+- 重複検出時は `_2`, `_3` のようなサフィックスを付与
+- ZIP ファイル名: `{現場調査名サニタイズ}_{YYYYMMDD_HHmmss}.zip`
+- サニタイズ規則: パス区切り文字とコロンを `_` に置換、長さ 80 文字制限
+
+#### UI Layer
+
+##### ExportSettingsForm
+
+| Field | Detail |
+|-------|--------|
+| Intent | 形式・解像度・注釈含む/含まない・原本出力の選択フォーム本体（個別/一括で共有） |
+| Requirements | 31.4 |
+
+**Shared Props Base**
+
+```typescript
+interface ExportSettingsFormProps {
+  value: ExportSettings;
+  onChange(next: ExportSettings): void;
+  disabled?: boolean;
+}
+```
+
+**Implementation Notes**
+- 既存 `ImageExportDialog.tsx` 内の選択 UI ロジックを抽出
+- 「注釈含む」と「元画像そのまま」は択一として `annotationMode: 'include' | 'exclude' | 'original-only'` で表現（research.md R8 を反映）
+- 個別エクスポートは `annotationMode === 'exclude'` 時に「注釈なし」、`'original-only'` 時に「元画像そのまま」と同等
+
+##### BulkExportDialog
+
+| Field | Detail |
+|-------|--------|
+| Intent | 「全件」「選択」起動を受け、ExportSettingsForm で設定を確定して bulkExportService を起動 |
+| Requirements | 31.1, 31.2, 31.3, 31.4, 31.5, 31.15 |
+
+**Shared Props Base**
+
+```typescript
+interface BulkExportDialogProps {
+  open: boolean;
+  mode: 'all' | 'selected';
+  targetImageIds: string[];
+  surveyId: string;
+  surveyName: string;
+  onClose(): void;
+  onStart(controller: AbortController): void;  // ProgressDialog へ移譲
+}
+```
+
+**Implementation Notes**
+- 対象 0 件時は dialog を閉じてユーザーに通知（Req 31 #15）
+- 「開始」押下時に `AbortController` を作成、`bulkExportService.execute(...)` を呼び、`BulkExportProgressDialog` に処理を引き継ぐ
+
+##### BulkExportProgressDialog
+
+| Field | Detail |
+|-------|--------|
+| Intent | 進捗の可視化、キャンセル、部分失敗時のユーザー選択 |
+| Requirements | 31.10, 31.11, 31.12, 31.13, 31.14 |
+
+**Shared Props Base**
+
+```typescript
+interface BulkExportProgressDialogProps {
+  open: boolean;
+  promise: Promise<BulkExportResult>;
+  controller: AbortController;
+  onClose(result: BulkExportResult | null): void;
+}
+
+type PartialFailureChoice = 'download-partial' | 'cancel';
+```
+
+**Implementation Notes**
+- `promise` の進捗購読は `bulkExportService` 内で外部にイベントを発する設計とし、本ダイアログは `useEffect` で subscribe
+- 部分失敗発生時は「N 件失敗。成功分（M 件）のみダウンロードしますか？」のサブダイアログで `PartialFailureChoice` を取得
+- キャンセル時は確認サブダイアログを挟まず即時中断（誤操作影響は小、再実行容易）
+
+##### SurveyImageGrid (ext)
+
+| Field | Detail |
+|-------|--------|
+| Intent | 各サムネイル左上のチェックボックスと選択 state を提供 |
+| Requirements | 31.2, 31.3 |
+
+**Implementation Notes**
+- `selectedImageIds: Set<string>` を親（SurveyDetailPage）から受領、変更は `onSelectionChange` で親に通知
+- 既存のドラッグ順序変更・個別アクションメニューは無変更
+- チェックボックスはデフォルト表示（モード切替は実装しない）
+
+#### Tools Layer
+
+##### Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 各形状を `outlineShape + bodyShape` の Group で表現し、白縁取りを提供 |
+| Requirements | 32.1, 32.2, 32.3, 32.4, 32.5, 32.6, 32.7, 32.9, 32.10, 32.11 |
+
+**Responsibilities & Constraints（5 ツール共通）**
+- 基底クラスを各形状の Fabric 標準クラス → `Group` へ変更
+- Group 子: `outlineShape`（白・幅広）+ `bodyShape`（本体色・本体幅）
+- `outlineShape.strokeWidth = bodyStrokeWidth + outlineWidth * 2`、`outlineShape.stroke = '#ffffff'`、`strokeLineCap: 'round'`、`strokeLineJoin: 'round'`
+- 塗りつぶしあり 3 形状（Rectangle/Circle/Polygon）の `outlineShape.fill = 'transparent'`、`bodyShape.fill = bodyFill`
+- 開放形状 2 種（Polyline/Freehand）は両 path とも `fill` 未使用
+- `outline: ShapeOutlineAttribute` を保持。`enabled=false` のときは `outlineShape.opacity = 0`（Arrow と同方式）
+- `type` ID（`'rectangle'` / `'circle'` / `'polygon'` / `'polyline'` / `'freehand'`）は維持（classRegistry 後方互換）
+- 形状変形（端点移動・頂点追加/削除等）時、両 path を同期更新するヘルパーを各 Tool 内に実装
+
+**Dependencies**（5 ツール共通）
+- Inbound: AnnotationEditor — ツール選択→新規形状作成、選択ツールでの編集
+- Outbound: Fabric Group + 各基底（Rect/Ellipse/Polygon/Polyline/Path）(P0)、StyleTokens (P1)
+- External: Fabric.js 7.3.1 (P0)
+
+**Contracts**: State [x], Serialization [x]
+
+##### Service Interface（5 ツール共通形）
+
+```typescript
+interface ShapeOutlineAttribute {
+  enabled: boolean;
+  color: string;   // '#ffffff' 固定（将来拡張のためプロパティ保持）
+  width: number;   // 片側幅。本体 strokeWidth * 0.75 を推奨既定
+}
+
+interface ShapeOutlineMethods<TJSON> {
+  setOutline(next: Partial<ShapeOutlineAttribute>): void;
+  getOutline(): ShapeOutlineAttribute | undefined;
+  toObject(propertiesToInclude?: string[]): TJSON;
+}
+
+// 例: Rectangle
+interface RectangleJSON {
+  type: 'rectangle';
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  stroke: string;
+  strokeWidth: number;
+  fill: string;
+  outline?: ShapeOutlineAttribute;  // 未設定は従来表現（Req 32.9）
+}
+
+class Rectangle extends Group implements ShapeOutlineMethods<RectangleJSON> {
+  setOutline(next: Partial<ShapeOutlineAttribute>): void;
+  getOutline(): ShapeOutlineAttribute | undefined;
+  override toObject(propertiesToInclude?: string[]): RectangleJSON;
+  static override fromObject(object: RectangleJSON): Promise<Rectangle>;
+}
+// Circle / Polygon / Polyline / Freehand も同型パターン（基底プロパティのみ差替）
+```
+
+- Preconditions: 各形状のジオメトリパラメータが有効、`outline.width > 0`（enabled 時）
+- Postconditions: `toObject` は `outline` 未設定なら当該フィールドを省略
+- Invariants: `outlineShape.strokeWidth > bodyShape.strokeWidth`（enabled 時）、`type` 保持
+
+**Implementation Notes**
+- Integration: `registerCustomShapes.ts` での再登録。type ID 不変のため復元経路に影響なし
+- Validation: 旧データ（標準クラスシリアライズ）は `type: 'rectangle'` 等を持ち、新 `fromObject` で復元される。`outline` 未定義は白縁取り無し（Req 32.9）
+- Risks: Group 化による `objectCaching` のパフォーマンス（research.md R10）。Arrow と同方針で Group `objectCaching: false`、子 path `objectCaching: true` を初期値とし、100 オブジェクト配置時の FPS を計測。特に Freehand は path segment 数が多いため早期検証
+- Migration 安全性: 各ツールの既存実装は標準 Fabric クラスへの直接 extends で、保存 JSON は Fabric 標準シリアライズ。`type` ID 不変のため `classRegistry` 経由で新 Group 版が透過的に復元する。`fromObject` 内で必須フィールドの型検証を行い、不正なら標準クラスへフォールバック + warning ログ
+
+##### Dimension（Group + ラベル paintFirst）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 寸法線部を Group 化して白縁取り、寸法値ラベルに Req 25 の paintFirst を適用 |
+| Requirements | 32.1-32.7, 32.9-32.11, 32.12, 32.13 |
+
+**Responsibilities & Constraints**
+- Group 子: `outlineLine`（白・幅広）+ `bodyLine`（本体色）+ `labelText`（FabricText with paintFirst）
+- `labelText.paintFirst = 'stroke'`、`labelText.stroke = '#ffffff'`、`labelText.strokeWidth = labelText.fontSize * 0.12`、`labelText.strokeUniform = true`
+- `outline.enabled = false` のときは `outlineLine.opacity = 0` かつ `labelText.stroke = ''` の両方を同期
+- 寸法値変更時 `labelText` の `set('text', newValue)` 後、`strokeWidth = fontSize * 0.12` を再計算
+
+**Dependencies**
+- Inbound: AnnotationEditor — 寸法線ツール選択→2 点クリックで作成
+- Outbound: Fabric Group/Path/IText (P0)、StyleTokens (P1)
+- External: Fabric.js 7.3.1 (P0)
+
+**Contracts**: State [x], Serialization [x]
+
+##### Service Interface (Dimension)
+
+```typescript
+interface DimensionJSON {
+  type: 'dimension';
+  startPoint: Point;
+  endPoint: Point;
+  value: string;
+  unit?: string;
+  fontSize: number;
+  stroke: string;
+  strokeWidth: number;
+  outline?: ShapeOutlineAttribute;  // ラベル白アウトラインは outline.enabled に追従
+}
+
+class Dimension extends Group {
+  setOutline(next: Partial<ShapeOutlineAttribute>): void;
+  getOutline(): ShapeOutlineAttribute | undefined;
+  setValue(value: string, unit?: string): void;
+  override toObject(propertiesToInclude?: string[]): DimensionJSON;
+  static override fromObject(object: DimensionJSON): Promise<Dimension>;
+}
+```
+
+- Preconditions: `startPoint`/`endPoint` 有限値、`fontSize > 0`
+- Postconditions: `outline.enabled` のとき `outlineLine` と `labelText.stroke` の両方が同期
+- Invariants: 寸法値ラベルは `paintFirst === 'stroke'` を outline 有効時に維持
+
+**Implementation Notes**
+- Integration: 既存 DimensionTool の Path + FabricText 生成箇所を Group 内構築に変更
+- Validation: 旧データ復元時、`outline` 未定義なら従来表現（白縁取り無し・ラベル paintFirst なし）。後方互換成立（Req 32.9）
+- Risks: 寸法値ラベルの `paintFirst` 適用と既存背景色（Req 8 由来、Dimension では未使用）の重畳。Dimension では背景色非対応のため競合なし。research.md R11 の懸念は限定的
+
+#### Infra Layer
+
+##### AnnotationStyleTokens (ext)
+
+| Field | Detail |
+|-------|--------|
+| Intent | `ShapeOutlineAttribute` 共通型と 6 形状向け既定値を追加 |
+| Requirements | 32.11, 32.13 |
+
+**Service Interface**
+
+```typescript
+// 既存 ArrowOutlineAttribute / TextOutlineAttribute と並列
+export interface ShapeOutlineAttribute {
+  enabled: boolean;
+  color: string;
+  width: number;
+}
+
+// 型エイリアス整理（任意、実装で判断）
+// export type ArrowOutlineAttribute = ShapeOutlineAttribute;
+
+// ANNOTATION_DEFAULTS への追加
+interface AnnotationToolDefaultsExt extends AnnotationToolDefaults {
+  rectangleOutline: ShapeOutlineAttribute;   // enabled: true
+  circleOutline: ShapeOutlineAttribute;      // enabled: true
+  polygonOutline: ShapeOutlineAttribute;     // enabled: true
+  polylineOutline: ShapeOutlineAttribute;    // enabled: true
+  freehandOutline: ShapeOutlineAttribute;    // enabled: true
+  dimensionOutline: ShapeOutlineAttribute;   // enabled: true
+}
+```
+
+**Implementation Notes**
+- Integration: 6 ツールが `ANNOTATION_DEFAULTS.{shape}Outline` を初期値として参照
+- Validation: 単体テストで全 6 既定値が `enabled === true` かつ `width >= bodyStrokeWidth * 0.75` を確認（Req 32.2 / 32.11）
+- Risks: 既存 Arrow の `ArrowOutlineAttribute` と共通型の重複。型エイリアス化は破壊変更なしで実施可能だが、本 Spec ではエイリアス化を任意とし実装判断に委ねる
+
+### Data Models
+
+本拡張はバックエンド DB スキーマを変更しない。注釈 JSON の任意属性追加と、ZIP 内ファイル構造（永続化されない一時データ）のみ。
+
+#### 注釈 JSON スキーマ拡張（後方互換）
+
+```typescript
+// 6 形状（拡張後）共通パターン
+interface ShapeJSONExt {
+  type: 'rectangle' | 'circle' | 'polygon' | 'polyline' | 'freehand';
+  // ... 既存の形状固有フィールド
+  outline?: ShapeOutlineAttribute;  // optional: 未設定は従来表現（Req 32.9）
+}
+
+interface DimensionJSON {
+  type: 'dimension';
+  startPoint: Point;
+  endPoint: Point;
+  value: string;
+  unit?: string;
+  fontSize: number;
+  stroke: string;
+  strokeWidth: number;
+  outline?: ShapeOutlineAttribute;  // ラベル白アウトラインも本フィールドに連動
+}
+```
+
+**後方互換ルール**:
+- 任意フィールド未設定のデータは従来表現で復元（Req 32.9、Req 24/25 と同方針）
+- 新規保存時は `enabled` 明示（false でも保存）
+- バックエンド `survey-annotations.routes.ts` は JSON をそのまま受け流すため変更不要
+
+#### ZIP 内構造（参考、永続化なし）
+
+```
+{現場調査名}_{YYYYMMDD_HHmmss}.zip
+├── 001_{画像名1}.{ext}
+├── 002_{画像名2}.{ext}
+└── ...
+```
+
+### Error Handling
+
+#### エラー戦略
+
+- **画像レンダリング失敗（Req 31.13）**: `bulkExportService` が個別画像の Promise reject を捕捉、`failures` 配列へ集約。ループは継続
+- **取得失敗（R2 fetch 失敗）**: 同上の集約経路。`reason: 'fetch'` で区別
+- **部分失敗時のユーザー選択（Req 31.14）**: 全件完了後 `failures.length > 0` なら `BulkExportProgressDialog` でサブダイアログを開き、`download-partial` / `cancel` を取得
+- **キャンセル（Req 31.11-12）**: `AbortSignal.aborted` を各反復で確認、true なら ZIP 生成せず `status: 'cancelled'` で resolve。中間生成物は finalize で破棄（Req 31.19）
+- **対象 0 件（Req 31.15）**: `BulkExportDialog` が `execute()` 呼出前にガード、ユーザーへ通知
+- **権限エラー（Req 31.16）**: 既存画像 API が 401/403 を返した場合、`failures.reason: 'fetch'` として集約後にダイアログで通知
+- **ZIP 生成例外**: `JSZip.generateAsync` の reject 時、`status: 'partial'` または `'cancelled'` で resolve せず reject せず、フォールバックメッセージで通知して `failures` に system エラーとして 1 件追加
+- **白縁取りレンダリング失敗（Req 32）**: Fabric Group の `add`/`remove` が例外を投げた場合、Sentry にログ送出 + `outline.enabled = false` でフォールバック
+- **シリアライズ/復元失敗（Req 32）**: `fromObject` で `outline` が不正値なら警告ログ + 属性を drop して従来表現へフォールバック（Arrow/Text と同挙動）
+
+### Testing Strategy
+
+#### Unit Tests
+
+- **bulkExportService**
+  - 全件成功時に `status: 'success'` で ZIP が返る
+  - 一部失敗時に `failures` が集約され、最終的に `download-partial` の選択を待つ
+  - `signal.abort()` で即時中断、ZIP 未生成、`status: 'cancelled'`
+  - 進捗 callback の `done` が単調増加
+  - `annotationMode: 'original-only'` 時に `renderImage` ではなく `downloadOriginal` 系の経路が呼ばれる
+- **zip-naming**
+  - 重複ファイル名で `_2`, `_3` サフィックス付与
+  - ZIP ファイル名がサニタイズ規則に従う
+- **6 形状の Tool（各 3-5 項目）**
+  - 白縁取り有効時に Group の子が 2 つ（outline + body）
+  - `setOutline({ enabled: false })` で `outline.opacity === 0`
+  - `toObject` → `fromObject` ラウンドトリップで `outline` が保持される
+  - `outline` 未定義の旧データ復元で従来表現（Req 32.9）
+- **DimensionTool（追加項目）**
+  - `outline.enabled` 切替で `labelText.stroke` が `'#ffffff'` / `''` 同期
+  - `setValue()` 後に `labelText.strokeWidth === fontSize * 0.12` 再計算
+
+#### Integration Tests
+
+- **bulkExportService + AnnotationRendererService**: 5 画像 × 「注釈含む」設定でレンダリング → ZIP に 5 ファイル含まれる → 各ファイル名が重複なく命名規則どおり
+- **bulkExportService + ExportService.downloadOriginal**: 「元画像そのまま」設定で R2 fetch のみ走り、注釈なし原本が ZIP に含まれる
+- **6 形状 + AnnotationRendererService**: Group 版各形状を `toDataURL` で書き出し、dataURL 内に白縁取り相当のピクセル（白）が含まれる（色サンプリング検証）
+- **6 形状 + Save/Load**: `outline` 設定後 → 保存 → 再取得 → 復元
+- **Dimension + ラベル paintFirst**: 寸法値ラベルが `paintFirst='stroke'` で描画される
+
+#### E2E Tests（Playwright、スマホ + デスクトップ Viewport 両方）
+
+- 現場調査詳細で「全件一括エクスポート」→ 設定 → 開始 → 進捗表示 → ZIP がダウンロード
+- 画像 3 件をチェックボックス選択 →「選択画像エクスポート」→ ZIP 内に 3 件のみ
+- 進捗中にキャンセル → ZIP がダウンロードされない
+- 6 形状を 1 つずつ描画 → 保存 → リロード → 全形状に白縁取りが復元
+- 寸法線を描画 → 寸法値入力 → ラベルに白アウトラインが乗る
+- 既存 Req 12 個別エクスポート（ExportSettingsForm リファクタ後）の挙動が従来通り
+
+#### Performance / Compat
+
+- Group 化 6 形状で 100 オブジェクト配置時の FPS（要件: 60fps、Req 16.2 維持）を計測（research.md R10）。特に Freehand 重点
+- 一括エクスポート: 30 枚 × 高解像度の処理時間とブラウザメモリピーク値計測（research.md R6）
+- `toDataURL` 高解像度（multiplier=2）で Group 化 6 形状が破綻しないかの視覚回帰テスト
+
+### Migration Strategy
+
+バックエンド DB マイグレーションは**不要**。注釈 JSON の任意属性のみで後方互換が成立する。
+
+```mermaid
+flowchart LR
+    Old[既存6形状データ<br/>outline未定義] -->|fromObject| Render[従来表現で描画]
+    New[新規保存6形状<br/>outline必須] -->|fromObject| RenderOutline[白縁取り付きで描画]
+    Render -->|ユーザーが編集| UpdateUI[ツールバーで白縁取り有効化]
+    UpdateUI -->|toObject/保存| MigratedData[outline: enabled=true で保存]
+```
+
+**Phase breakdown**:
+- **Phase 1**（リリース直後）: 新規 6 形状注釈は白縁取り有効で保存。既存注釈は従来表現のまま、ユーザー編集時のみ新属性が乗る。一括エクスポートは初期から GA
+- **Phase 2**（任意・別 Spec）: 100 枚超の一括エクスポートでメモリ問題が観測されればバック側 ZIP ジョブ化を別 Spec として検討
+
+**Rollback triggers**:
+- 6 形状 Group 化の描画パフォーマンスが 60fps を切る（research.md R10 が失敗）
+- 一括エクスポートが想定運用枚数（数十枚規模）でブラウザクラッシュを起こす（research.md R6 が失敗）
+
+上記が発覚した場合、Req 32 は形状別に `outline.enabled = false` 既定へ切替（Arrow/Text と同方針）、Req 31 は一括対象枚数の上限をハードガード（例: 20 枚）に下げる。
