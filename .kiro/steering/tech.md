@@ -38,6 +38,7 @@ ArchiTrack/
 - `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS）
+- `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像の一括エクスポート、型定義同梱）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）

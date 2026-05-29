@@ -2009,7 +2009,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: annotation-style-tokens_
 
 - [ ] 76. jszip 導入と ZIP 命名規則ユーティリティ
-- [ ] 76.1 jszip 依存追加とビルド検証
+- [x] 76.1 jszip 依存追加とビルド検証
   - `frontend/package.json` の `dependencies` に `jszip` を追加し、ロックファイルを更新する
   - `tech.md` に jszip の追加とバージョンを反映する
   - 観測可能な完了状態: `import JSZip from 'jszip'` が型補完つきで成立し、ビルドが通る
