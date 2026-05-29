@@ -2036,7 +2036,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: 矩形ツールで新規描画した Rectangle が Group となり、白縁取りが本体の周囲に均一に描画される
   - _Requirements: 32.1, 32.2, 32.3, 32.4_
   - _Boundary: RectangleTool_
-- [ ] 77.2 Rectangle の outline 属性のシリアライズと後方互換
+- [x] 77.2 Rectangle の outline 属性のシリアライズと後方互換
   - `toObject`/`fromObject` で `outline?: ShapeOutlineAttribute` を保持・復元する
   - `outline` 未定義の旧データは標準 Rect 形式で復元しても従来表現を維持する（防御的フォールバック含む）
   - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、`outline` 欠落の JSON 復元時に従来表現で描画される
