@@ -4856,7 +4856,7 @@ flowchart LR
 - 現場調査詳細画面ツールバー上の「全件一括エクスポート」「選択画像エクスポート」エントリポイント
 - 6 形状（Rectangle/Circle/Polygon/Polyline/Freehand/Dimension）のカスタムクラスを Group 化し、`outline: ShapeOutlineAttribute` 属性をシリアライズ可能にする
 - `annotation-style-tokens.ts` への `ShapeOutlineAttribute` 共通型と 6 形状向け既定値の追加
-- Dimension の寸法値ラベルに対する `paintFirst: 'stroke'` 白アウトライン（Req 25 の TextTool パターンを Dimension 内部 `FabricText` に適用）
+- Dimension の寸法値ラベルに対する `paintFirst: 'stroke'` 白アウトライン（Req 25 の TextTool パターンを Dimension 内部 `FabricText` に適用）。線部の `outline` とラベル部の `labelOutline` は独立した 2 属性として保持し、UI は当面 1 トグルで両者を同期する設計
 - ZIP 内ファイル命名規則ユーティリティ（個別エクスポートと整合）
 
 #### Out of Boundary
@@ -5107,7 +5107,7 @@ graph TB
 | 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools, StyleTokens | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
 | 32.8 | 出力経路（サムネイル/PDF/個別/一括）の整合 | AnnotationRendererService, PdfReportService, bulkExportService | 既存 enlivenObjects 経路 | - |
 | 32.11, 32.13 | 既定値・既定スタイル一元管理 | annotation-style-tokens, AnnotationToolbar | `ANNOTATION_DEFAULTS` 拡張 | - |
-| 32.12 | 寸法値ラベルの白アウトライン | DimensionTool（labelText paintFirst） | Dimension Group 内部 | 6 形状レンダリング構造 |
+| 32.12 | 寸法値ラベルの白アウトライン（Req 25 同形の `TextOutlineAttribute` を独立属性で保持） | DimensionTool（labelText paintFirst, labelOutline 属性） | `TextOutlineAttribute`, `Dimension.setLabelOutline/getLabelOutline` | 6 形状レンダリング構造 |
 | 32.14 | サムネイル再生成連動 | 既存 Req 23 パイプライン（変更不要） | - | - |
 
 ### Components and Interfaces
@@ -5127,8 +5127,8 @@ graph TB
 | Polygon (Group) | Tools | 白縁取り付き多角形 | 32.* (Polygon分) | Fabric Group/Polygon (P0), StyleTokens (P1) | State, Serialization |
 | Polyline (Group) | Tools | 白縁取り付き折れ線 | 32.* (Polyline分) | Fabric Group/Polyline (P0), StyleTokens (P1) | State, Serialization |
 | Freehand (Group) | Tools | 白縁取り付きフリーハンド | 32.* (Path分) | Fabric Group/Path (P0), StyleTokens (P1) | State, Serialization |
-| Dimension (Group) | Tools | 白縁取り付き寸法線 + ラベル白アウトライン | 32.* + 32.12 | Fabric Group/Path/IText (P0), StyleTokens (P1) | State, Serialization |
-| AnnotationStyleTokens (ext) | Infra | `ShapeOutlineAttribute` 共通型と 6 形状向け既定値 | 32.11, 32.13 | - | Config module |
+| Dimension (Group) | Tools | 線部に `outline`、ラベル部に `labelOutline` の独立2属性。UI は 1 トグルで同期 | 32.* + 32.12 | Fabric Group/Path/IText (P0), StyleTokens (P1) | State, Serialization |
+| AnnotationStyleTokens (ext) | Infra | `ShapeOutlineAttribute` 共通型と 6 形状向け既定値（Dimension は label 用 `TextOutlineAttribute` も追加） | 32.11, 32.13 | - | Config module |
 
 #### Services Layer
 
@@ -5403,18 +5403,20 @@ class Rectangle extends Group implements ShapeOutlineMethods<RectangleJSON> {
 - Risks: Group 化による `objectCaching` のパフォーマンス（research.md R10）。Arrow と同方針で Group `objectCaching: false`、子 path `objectCaching: true` を初期値とし、100 オブジェクト配置時の FPS を計測。特に Freehand は path segment 数が多いため早期検証
 - Migration 安全性: 各ツールの既存実装は標準 Fabric クラスへの直接 extends で、保存 JSON は Fabric 標準シリアライズ。`type` ID 不変のため `classRegistry` 経由で新 Group 版が透過的に復元する。`fromObject` 内で必須フィールドの型検証を行い、不正なら標準クラスへフォールバック + warning ログ
 
-##### Dimension（Group + ラベル paintFirst）
+##### Dimension（Group + ラベル paintFirst、独立 2 属性）
 
 | Field | Detail |
 |-------|--------|
-| Intent | 寸法線部を Group 化して白縁取り、寸法値ラベルに Req 25 の paintFirst を適用 |
+| Intent | 寸法線部に `ShapeOutlineAttribute`、寸法値ラベルに Req 25 と同等の `TextOutlineAttribute` を**独立して保持**する。UI は当面 1 トグルで両者を同期するが、データモデル上は分離する |
 | Requirements | 32.1-32.7, 32.9-32.11, 32.12, 32.13 |
 
 **Responsibilities & Constraints**
 - Group 子: `outlineLine`（白・幅広）+ `bodyLine`（本体色）+ `labelText`（FabricText with paintFirst）
-- `labelText.paintFirst = 'stroke'`、`labelText.stroke = '#ffffff'`、`labelText.strokeWidth = labelText.fontSize * 0.12`、`labelText.strokeUniform = true`
-- `outline.enabled = false` のときは `outlineLine.opacity = 0` かつ `labelText.stroke = ''` の両方を同期
-- 寸法値変更時 `labelText` の `set('text', newValue)` 後、`strokeWidth = fontSize * 0.12` を再計算
+- 線の白縁取り: 5 ツール共通仕様と同形。`outline: ShapeOutlineAttribute` を保持し、`outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2`、`outlineLine.stroke = '#ffffff'`
+- ラベルの白アウトライン: `labelOutline: TextOutlineAttribute` を**独立属性として保持**（Req 25 と同形）。`labelText.paintFirst = 'stroke'`、`labelText.stroke = '#ffffff'`、`labelText.strokeWidth = labelText.fontSize * labelOutline.widthRatio`、`labelText.strokeUniform = true`
+- `outline.enabled = false` のとき: `outlineLine.opacity = 0`。`labelText` には影響しない
+- `labelOutline.enabled = false` のとき: `labelText.stroke = ''`。`outlineLine` には影響しない
+- 寸法値変更時 `labelText` の `set('text', newValue)` 後、`strokeWidth = fontSize * labelOutline.widthRatio` を再計算
 
 **Dependencies**
 - Inbound: AnnotationEditor — 寸法線ツール選択→2 点クリックで作成
@@ -5435,26 +5437,30 @@ interface DimensionJSON {
   fontSize: number;
   stroke: string;
   strokeWidth: number;
-  outline?: ShapeOutlineAttribute;  // ラベル白アウトラインは outline.enabled に追従
+  outline?: ShapeOutlineAttribute;       // 寸法線部の白縁取り（未設定は従来表現、Req 32.9）
+  labelOutline?: TextOutlineAttribute;   // 寸法値ラベルの白アウトライン（未設定は従来表現、Req 32.12 を Req 25 と同形で実現）
 }
 
 class Dimension extends Group {
   setOutline(next: Partial<ShapeOutlineAttribute>): void;
   getOutline(): ShapeOutlineAttribute | undefined;
+  setLabelOutline(next: Partial<TextOutlineAttribute>): void;
+  getLabelOutline(): TextOutlineAttribute | undefined;
   setValue(value: string, unit?: string): void;
   override toObject(propertiesToInclude?: string[]): DimensionJSON;
   static override fromObject(object: DimensionJSON): Promise<Dimension>;
 }
 ```
 
-- Preconditions: `startPoint`/`endPoint` 有限値、`fontSize > 0`
-- Postconditions: `outline.enabled` のとき `outlineLine` と `labelText.stroke` の両方が同期
-- Invariants: 寸法値ラベルは `paintFirst === 'stroke'` を outline 有効時に維持
+- Preconditions: `startPoint`/`endPoint` 有限値、`fontSize > 0`、`labelOutline.widthRatio ∈ [0, 1]`（enabled 時）
+- Postconditions: `outline` と `labelOutline` は互いに独立に状態遷移する。`toObject` は未設定の任意属性をフィールドごと省略
+- Invariants: `outlineLine.strokeWidth > bodyLine.strokeWidth`（outline 有効時）、`labelText.paintFirst === 'stroke'`（labelOutline 有効時）
 
 **Implementation Notes**
 - Integration: 既存 DimensionTool の Path + FabricText 生成箇所を Group 内構築に変更
-- Validation: 旧データ復元時、`outline` 未定義なら従来表現（白縁取り無し・ラベル paintFirst なし）。後方互換成立（Req 32.9）
-- Risks: 寸法値ラベルの `paintFirst` 適用と既存背景色（Req 8 由来、Dimension では未使用）の重畳。Dimension では背景色非対応のため競合なし。research.md R11 の懸念は限定的
+- UI 同期方針: AnnotationToolbar の Dimension スタイルパネルでは**当面 1 つのトグル**で `setOutline({ enabled })` と `setLabelOutline({ enabled })` を同時に呼び、両者を一括 ON/OFF する。データモデルは独立だが UX は単純（将来「ラベルだけ ON」のニーズが出た場合は UI に 2 つ目のトグルを追加するのみで、スキーマ migration 不要）
+- Validation: 旧データ復元時、`outline`/`labelOutline` いずれも未定義なら従来表現（白縁取り無し・ラベル paintFirst なし）。後方互換成立（Req 32.9）
+- Risks: 独立 2 属性化により Dimension 内部 state の保持が増えるが、Arrow の `outline` + Text の `textOutline` という既存 2 系統と整合する形であり、認知負荷の増加は最小
 
 #### Infra Layer
 
@@ -5480,12 +5486,13 @@ export interface ShapeOutlineAttribute {
 
 // ANNOTATION_DEFAULTS への追加
 interface AnnotationToolDefaultsExt extends AnnotationToolDefaults {
-  rectangleOutline: ShapeOutlineAttribute;   // enabled: true
-  circleOutline: ShapeOutlineAttribute;      // enabled: true
-  polygonOutline: ShapeOutlineAttribute;     // enabled: true
-  polylineOutline: ShapeOutlineAttribute;    // enabled: true
-  freehandOutline: ShapeOutlineAttribute;    // enabled: true
-  dimensionOutline: ShapeOutlineAttribute;   // enabled: true
+  rectangleOutline: ShapeOutlineAttribute;        // enabled: true
+  circleOutline: ShapeOutlineAttribute;           // enabled: true
+  polygonOutline: ShapeOutlineAttribute;          // enabled: true
+  polylineOutline: ShapeOutlineAttribute;         // enabled: true
+  freehandOutline: ShapeOutlineAttribute;         // enabled: true
+  dimensionOutline: ShapeOutlineAttribute;        // enabled: true（寸法線部）
+  dimensionLabelOutline: TextOutlineAttribute;    // enabled: true, widthRatio: 0.12（寸法値ラベル、Req 25 と同形）
 }
 ```
 
@@ -5517,7 +5524,8 @@ interface DimensionJSON {
   fontSize: number;
   stroke: string;
   strokeWidth: number;
-  outline?: ShapeOutlineAttribute;  // ラベル白アウトラインも本フィールドに連動
+  outline?: ShapeOutlineAttribute;       // 寸法線部の白縁取り
+  labelOutline?: TextOutlineAttribute;   // 寸法値ラベルの白アウトライン（独立属性、UI は当面 outline と同期）
 }
 ```
 
@@ -5525,6 +5533,7 @@ interface DimensionJSON {
 - 任意フィールド未設定のデータは従来表現で復元（Req 32.9、Req 24/25 と同方針）
 - 新規保存時は `enabled` 明示（false でも保存）
 - バックエンド `survey-annotations.routes.ts` は JSON をそのまま受け流すため変更不要
+- Dimension の独立 2 属性は UI 上 1 トグルで同期するが、将来 UI に 2 つ目のトグルを追加してもスキーマ migration 不要（独立属性化の効用）
 
 #### ZIP 内構造（参考、永続化なし）
 
@@ -5568,8 +5577,12 @@ interface DimensionJSON {
   - `toObject` → `fromObject` ラウンドトリップで `outline` が保持される
   - `outline` 未定義の旧データ復元で従来表現（Req 32.9）
 - **DimensionTool（追加項目）**
-  - `outline.enabled` 切替で `labelText.stroke` が `'#ffffff'` / `''` 同期
-  - `setValue()` 後に `labelText.strokeWidth === fontSize * 0.12` 再計算
+  - `setOutline({ enabled: false })` で `outlineLine.opacity === 0` になるが、`labelText.stroke` は影響を受けない（独立属性の検証）
+  - `setLabelOutline({ enabled: false })` で `labelText.stroke === ''` になるが、`outlineLine.opacity` は影響を受けない（独立属性の検証）
+  - `setLabelOutline({ enabled: true, widthRatio: 0.15 })` で `labelText.strokeWidth === fontSize * 0.15`
+  - `setValue()` 後に `labelText.strokeWidth === fontSize * labelOutline.widthRatio` 再計算
+  - `toObject` → `fromObject` ラウンドトリップで `outline` と `labelOutline` がそれぞれ独立に保持される
+  - 旧データ（`outline`/`labelOutline` ともに未定義）の復元で従来表現（Req 32.9）
 
 #### Integration Tests
 
