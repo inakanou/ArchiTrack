@@ -1988,6 +1988,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **73.1**: モバイル Viewport E2E（5 シナリオ: 白縁取り矢印/白アウトラインテキスト/長押し contextmenu 削除/ダブルタップ編集/全ツールタップ到達）は `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` に skeleton 実装済み。実行には `npm run test:docker` + `npx playwright test --project=mobile` が必要で、個別ランタイム検証は CI/手動で行う。
 - **73.2**: スケール非等倍書き出しは 72.6 の `AnnotationRendererService.group-arrow.test.ts`（9 テスト）で既に検証済み。マルチタッチ誤発火 Undo 復旧の契約は 65.2 / 67.2 / 67.3 のテストで基盤動作が保証されている。`frontend/src/__tests__/integration/annotation-scale-and-multitouch.test.ts` に契約再確認テストを新設。
 - **77.3**: Rectangle 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 77.1 の `RectangleTool.outline.test.ts`（21 テスト）と 77.2 の `RectangleTool.serialization.test.ts`（17 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
+- **78.3**: Circle 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 78.1 の `CircleTool.outline.test.ts`（21 テスト）と 78.2 の `CircleTool.serialization.test.ts`（17 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 
 ---
 
@@ -2049,19 +2050,19 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 32.1, 32.5, 32.9_
   - _Boundary: RectangleTool_
 
-- [ ] 78. (P) Circle の Group 化と白縁取り
+- [x] 78. (P) Circle の Group 化と白縁取り
 - [x] 78.1 Circle クラスを Group ベースへ再設計
   - Fabric `Ellipse` 単体から `extends Group` 化し、内部に `outlineEllipse` + `bodyEllipse` を保持する
   - 半径・中心の変更時に両 Ellipse を同期更新する
   - 観測可能な完了状態: 円ツールで新規描画した Circle が Group となり、白縁取りが描画される
   - _Requirements: 32.1, 32.2, 32.3, 32.4_
   - _Boundary: CircleTool_
-- [ ] 78.2 Circle の outline 属性のシリアライズと後方互換
+- [x] 78.2 Circle の outline 属性のシリアライズと後方互換
   - `toObject`/`fromObject` で `outline?: ShapeOutlineAttribute` を保持・復元する
   - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、旧形式 JSON で従来表現に復元される
   - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
   - _Boundary: CircleTool_
-- [ ] 78.3 Circle 単体テスト
+- [x] 78.3 Circle 単体テスト
   - 観測可能な完了状態: `CircleTool.outline.test.ts` がすべて合格する
   - _Requirements: 32.1, 32.5, 32.9_
   - _Boundary: CircleTool_

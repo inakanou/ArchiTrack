@@ -64,7 +64,8 @@ export interface CircleOptions {
 /**
  * 円・楕円のシリアライズ形式
  *
- * Task 78.1 では従来フィールドのみを維持（outline 属性のシリアライズは Task 78.2 で対応）。
+ * Task 78.2: `outline?: ShapeOutlineAttribute` を追加（Req 32.6, 32.7）。
+ * `outline` が未定義のデータは白縁取り無しの従来表現で復元される（Req 32.9 後方互換）。
  */
 export interface CircleJSON {
   type: 'circleShape';
@@ -75,6 +76,8 @@ export interface CircleJSON {
   stroke: string;
   strokeWidth: number;
   fill: string;
+  /** 白縁取り属性（未設定は従来表現フォールバック） */
+  outline?: ShapeOutlineAttribute;
 }
 
 // ============================================================================
@@ -510,7 +513,9 @@ export class CircleShape extends Group {
   /**
    * オブジェクトをJSON形式にシリアライズ
    *
-   * Task 78.1 では従来フィールドのみを出力する（outline 属性のシリアライズは Task 78.2 で対応）。
+   * Task 78.2 (Req 32.6):
+   * - `outline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   *   design.md §Circle (Group) Postconditions「新規保存時は必ず outline を含める」に従う。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): CircleJSON {
@@ -525,6 +530,7 @@ export class CircleShape extends Group {
       stroke: this.stroke,
       strokeWidth: this.strokeWidth,
       fill: this.fill,
+      outline: { ...this._outline },
     };
   }
 
@@ -533,17 +539,87 @@ export class CircleShape extends Group {
    *
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
    *
-   * Task 78.1 では従来 JSON のみを復元する（outline 属性の復元は Task 78.2 で対応）。
+   * Task 78.2 (Req 32.7, 32.9, design.md Migration 安全性):
+   * - `object.outline` 定義時は setOutline で復元（Req 32.7）
+   * - `object.outline` 未定義の旧データは「白縁取り無し」の従来表現で復元する（Req 32.9 後方互換）
+   * - 必須フィールド（centerX/centerY/rx/ry/stroke/strokeWidth/fill）欠落や
+   *   null/undefined 受領時は安全な既定値（中心 (0,0)、stroke 黒、strokeWidth 2、fill ''、
+   *   rx/ry 0）で復元し、console.warn を送出する（防御的フォールバック）。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたCircleShapeインスタンス
    */
   static override fromObject(object: CircleJSON): Promise<CircleShape> {
-    const circle = new CircleShape(object.centerX, object.centerY, object.rx, object.ry, {
-      stroke: object.stroke,
-      strokeWidth: object.strokeWidth,
-      fill: object.fill,
+    // 防御的バリデーション: 必須フィールドの存在確認
+    const safeDefaults = {
+      centerX: 0,
+      centerY: 0,
+      rx: 0,
+      ry: 0,
+      stroke: '#000000',
+      strokeWidth: 2,
+      fill: '',
+    };
+
+    const hasValidRequiredFields =
+      object != null &&
+      typeof object === 'object' &&
+      typeof object.centerX === 'number' &&
+      typeof object.centerY === 'number' &&
+      typeof object.rx === 'number' &&
+      typeof object.ry === 'number' &&
+      typeof object.stroke === 'string' &&
+      typeof object.strokeWidth === 'number' &&
+      typeof object.fill === 'string';
+
+    let centerX: number;
+    let centerY: number;
+    let rx: number;
+    let ry: number;
+    let stroke: string;
+    let strokeWidth: number;
+    let fill: string;
+
+    if (!hasValidRequiredFields) {
+      // 不正データ: 警告ログ + 安全な既定値で復元
+
+      console.warn('[CircleTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      centerX = safeDefaults.centerX;
+      centerY = safeDefaults.centerY;
+      rx = safeDefaults.rx;
+      ry = safeDefaults.ry;
+      stroke = safeDefaults.stroke;
+      strokeWidth = safeDefaults.strokeWidth;
+      fill = safeDefaults.fill;
+    } else {
+      centerX = object.centerX;
+      centerY = object.centerY;
+      rx = object.rx;
+      ry = object.ry;
+      stroke = object.stroke;
+      strokeWidth = object.strokeWidth;
+      fill = object.fill;
+    }
+
+    const circle = new CircleShape(centerX, centerY, rx, ry, {
+      stroke,
+      strokeWidth,
+      fill,
     });
+
+    // outline 属性の復元
+    if (hasValidRequiredFields && object.outline !== undefined) {
+      // Req 32.7: 保存された outline を復元
+      circle.setOutline(object.outline);
+    } else {
+      // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.circleOutline（enabled=true）を無効化し、
+      //   outlineEllipse.opacity=0 + width=0 で「白縁取り無し」状態にする。
+      circle.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+    }
+
     return Promise.resolve(circle);
   }
 }
