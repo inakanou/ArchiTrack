@@ -2014,7 +2014,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - `tech.md` に jszip の追加とバージョンを反映する
   - 観測可能な完了状態: `import JSZip from 'jszip'` が型補完つきで成立し、ビルドが通る
   - _Requirements: 31.7_
-- [ ] 76.2 ZIP 内ファイル名規則および ZIP ファイル名生成ユーティリティ
+- [x] 76.2 ZIP 内ファイル名規則および ZIP ファイル名生成ユーティリティ
   - 既存個別エクスポート命名と整合する `buildEntryName(input, existingNames)`（連番プレフィックス・サニタイズ・重複時 `_2`/`_3` 付与）を実装する
   - `buildZipFileName(surveyName, exportedAt)` で `{現場調査名サニタイズ}_{YYYYMMDD_HHmmss}.zip` を生成する
   - パス区切り・コロン等のサニタイズと 80 文字制限を内包する
