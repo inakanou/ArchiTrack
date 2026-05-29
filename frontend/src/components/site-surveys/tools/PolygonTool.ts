@@ -63,6 +63,9 @@ export interface PolygonOptions {
 
 /**
  * 多角形のシリアライズ形式
+ *
+ * Task 79.2: `outline?: ShapeOutlineAttribute` を追加（Req 32.6, 32.7）。
+ * `outline` が未定義のデータは白縁取り無しの従来表現で復元される（Req 32.9 後方互換）。
  */
 export interface PolygonJSON {
   type: 'polygonShape';
@@ -74,6 +77,8 @@ export interface PolygonJSON {
   left?: number;
   /** 移動後の位置Y（オプション、後方互換性のため） */
   top?: number;
+  /** 白縁取り属性（未設定は従来表現フォールバック） */
+  outline?: ShapeOutlineAttribute;
 }
 
 // ============================================================================
@@ -468,7 +473,9 @@ export class PolygonShape extends Group {
   /**
    * オブジェクトをJSON形式にシリアライズ
    *
-   * Task 79.1: 79.2 で outline 属性永続化を拡張する予定。本タスクでは既存 JSON 構造を維持。
+   * Task 79.2 (Req 32.6):
+   * - `outline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   *   design.md §Polygon (Group) Postconditions「新規保存時は必ず outline を含める」に従う。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): PolygonJSON {
@@ -480,6 +487,7 @@ export class PolygonShape extends Group {
       fill: this.fill,
       left: this.left,
       top: this.top,
+      outline: { ...this._outline },
     };
   }
 
@@ -488,24 +496,93 @@ export class PolygonShape extends Group {
    *
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * Task 79.2 (Req 32.7, 32.9, design.md Migration 安全性):
+   * - `object.outline` 定義時は setOutline で復元（Req 32.7）
+   * - `object.outline` 未定義の旧データは「白縁取り無し」の従来表現で復元する（Req 32.9 後方互換）
+   * - 必須フィールド（points 配列・各点の x/y・stroke/strokeWidth/fill）欠落や
+   *   null/undefined 受領時は安全な既定値（空配列でも生成可能な三角形デフォルト、
+   *   stroke 黒、strokeWidth 2、fill ''）で復元し、console.warn を送出する（防御的フォールバック）。
+   *
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたPolygonShapeインスタンス
    */
   static override fromObject(object: PolygonJSON): Promise<PolygonShape> {
-    const polygon = new PolygonShape(object.points, {
-      stroke: object.stroke,
-      strokeWidth: object.strokeWidth,
-      fill: object.fill,
+    // 防御的バリデーション: 必須フィールドの存在確認
+    // points 欠落時は最低限の三角形（原点付近）でフォールバック（PolygonShape は最低 1 頂点必要）。
+    const safeDefaults = {
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 0, y: 1 },
+      ] as Point[],
+      stroke: '#000000',
+      strokeWidth: 2,
+      fill: '',
+    };
+
+    const isValidPointsArray =
+      object != null &&
+      typeof object === 'object' &&
+      Array.isArray(object.points) &&
+      object.points.every(
+        (p): p is Point =>
+          p != null && typeof p === 'object' && typeof p.x === 'number' && typeof p.y === 'number'
+      );
+
+    const hasValidRequiredFields =
+      object != null &&
+      typeof object === 'object' &&
+      isValidPointsArray &&
+      typeof object.stroke === 'string' &&
+      typeof object.strokeWidth === 'number' &&
+      typeof object.fill === 'string';
+
+    let points: Point[];
+    let stroke: string;
+    let strokeWidth: number;
+    let fill: string;
+
+    if (!hasValidRequiredFields) {
+      // 不正データ: 警告ログ + 安全な既定値で復元
+      console.warn('[PolygonTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      points = safeDefaults.points;
+      stroke = safeDefaults.stroke;
+      strokeWidth = safeDefaults.strokeWidth;
+      fill = safeDefaults.fill;
+    } else {
+      points = object.points;
+      stroke = object.stroke;
+      strokeWidth = object.strokeWidth;
+      fill = object.fill;
+    }
+
+    const polygon = new PolygonShape(points, {
+      stroke,
+      strokeWidth,
+      fill,
     });
 
     // 移動後の位置を復元（後方互換性のためオプション）
-    if (object.left !== undefined) {
+    if (hasValidRequiredFields && object.left !== undefined) {
       polygon.set('left', object.left);
     }
-    if (object.top !== undefined) {
+    if (hasValidRequiredFields && object.top !== undefined) {
       polygon.set('top', object.top);
     }
     polygon.setCoords();
+
+    // outline 属性の復元
+    if (hasValidRequiredFields && object.outline !== undefined) {
+      // Req 32.7: 保存された outline を復元
+      polygon.setOutline(object.outline);
+    } else {
+      // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.polygonOutline（enabled=true）を無効化し、
+      //   outlinePolygon.opacity=0 + width=0 で「白縁取り無し」状態にする。
+      polygon.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+    }
 
     return Promise.resolve(polygon);
   }

@@ -1989,6 +1989,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **73.2**: スケール非等倍書き出しは 72.6 の `AnnotationRendererService.group-arrow.test.ts`（9 テスト）で既に検証済み。マルチタッチ誤発火 Undo 復旧の契約は 65.2 / 67.2 / 67.3 のテストで基盤動作が保証されている。`frontend/src/__tests__/integration/annotation-scale-and-multitouch.test.ts` に契約再確認テストを新設。
 - **77.3**: Rectangle 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 77.1 の `RectangleTool.outline.test.ts`（21 テスト）と 77.2 の `RectangleTool.serialization.test.ts`（17 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **78.3**: Circle 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 78.1 の `CircleTool.outline.test.ts`（21 テスト）と 78.2 の `CircleTool.serialization.test.ts`（17 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
+- **79.3**: Polygon 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 79.1 の `PolygonTool.outline.test.ts`（24 テスト）と 79.2 の `PolygonTool.serialization.test.ts`（21 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 
 ---
 
@@ -2067,18 +2068,18 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 32.1, 32.5, 32.9_
   - _Boundary: CircleTool_
 
-- [ ] 79. (P) Polygon の Group 化と白縁取り
+- [x] 79. (P) Polygon の Group 化と白縁取り
 - [x] 79.1 Polygon クラスを Group ベースへ再設計
   - Fabric `Polygon` 単体から `extends Group` 化し、内部に `outlinePolygon` + `bodyPolygon` を保持する
   - 頂点追加・削除・移動時に両 Polygon の `points` を同期更新する
   - 観測可能な完了状態: 多角形ツールで描画した Polygon が Group となり、頂点編集後も白縁取りが追従する
   - _Requirements: 32.1, 32.2, 32.3, 32.4_
   - _Boundary: PolygonTool_
-- [ ] 79.2 Polygon の outline 属性のシリアライズと後方互換
+- [x] 79.2 Polygon の outline 属性のシリアライズと後方互換
   - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、旧形式 JSON で従来表現に復元される
   - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
   - _Boundary: PolygonTool_
-- [ ] 79.3 Polygon 単体テスト
+- [x] 79.3 Polygon 単体テスト
   - 観測可能な完了状態: `PolygonTool.outline.test.ts` がすべて合格する
   - _Requirements: 32.1, 32.5, 32.9_
   - _Boundary: PolygonTool_
