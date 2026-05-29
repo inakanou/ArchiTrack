@@ -2029,7 +2029,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Core - 6 形状の Group 化
 
 - [ ] 77. (P) Rectangle の Group 化と白縁取り
-- [ ] 77.1 Rectangle クラスを Group ベースへ再設計
+- [x] 77.1 Rectangle クラスを Group ベースへ再設計
   - Fabric `Rect` 単体から `extends Group` 化し、内部に `outlineRect`（白・幅広・fill=transparent）+ `bodyRect`（本体色・本体 fill）を保持する
   - `outlineRect.strokeWidth = bodyStrokeWidth + outline.width * 2`、`outlineRect.stroke = '#ffffff'`、`strokeLineCap: 'round'`、`strokeLineJoin: 'round'` を適用する
   - サイズ変更時に両 Rect を同期更新するヘルパーを実装する
