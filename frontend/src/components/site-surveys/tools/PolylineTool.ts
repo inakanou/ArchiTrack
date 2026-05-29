@@ -64,8 +64,8 @@ export interface PolylineOptions {
 /**
  * 折れ線のシリアライズ形式
  *
- * Task 80.2 で `outline?: ShapeOutlineAttribute` を追加予定（Req 32.6, 32.7）。
- * 現時点（Task 80.1）は Group 化のみで、outline 属性のシリアライズは未対応。
+ * Task 80.2: `outline?: ShapeOutlineAttribute` を追加（Req 32.6, 32.7）。
+ * `outline` が未定義のデータは白縁取り無しの従来表現で復元される（Req 32.9 後方互換）。
  */
 export interface PolylineJSON {
   type: 'polylineShape';
@@ -77,6 +77,8 @@ export interface PolylineJSON {
   left?: number;
   /** 移動後の位置Y（オプション、後方互換性のため） */
   top?: number;
+  /** 白縁取り属性（未設定は従来表現フォールバック） */
+  outline?: ShapeOutlineAttribute;
 }
 
 // ============================================================================
@@ -474,7 +476,9 @@ export class PolylineShape extends Group {
   /**
    * オブジェクトをJSON形式にシリアライズ
    *
-   * Task 80.1: Group 化のみ対応。outline 属性のシリアライズは Task 80.2 で実装。
+   * Task 80.2 (Req 32.6):
+   * - `outline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   *   design.md §Polyline (Group) Postconditions「新規保存時は必ず outline を含める」に従う。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): PolylineJSON {
@@ -486,6 +490,7 @@ export class PolylineShape extends Group {
       fill: this.fill,
       left: this.left,
       top: this.top,
+      outline: { ...this._outline },
     };
   }
 
@@ -493,26 +498,94 @@ export class PolylineShape extends Group {
    * JSONオブジェクトからPolylineShapeを復元する
    *
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
-   * Task 80.1: Group 化のみ対応。outline 属性の復元は Task 80.2 で実装。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * Task 80.2 (Req 32.7, 32.9, design.md Migration 安全性):
+   * - `object.outline` 定義時は setOutline で復元（Req 32.7）
+   * - `object.outline` 未定義の旧データは「白縁取り無し」の従来表現で復元する（Req 32.9 後方互換）
+   * - 必須フィールド（points 配列・各点の x/y・stroke/strokeWidth/fill）欠落や
+   *   null/undefined 受領時は安全な既定値（最低 2 点の水平線、stroke 黒、strokeWidth 2、
+   *   fill 'transparent'）で復元し、console.warn を送出する（防御的フォールバック）。
+   *   折れ線は開放形状のため fill 既定は 'transparent' を採用（design.md 5347 行）。
+   *
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたPolylineShapeインスタンス
    */
   static override fromObject(object: PolylineJSON): Promise<PolylineShape> {
-    const polyline = new PolylineShape(object.points, {
-      stroke: object.stroke,
-      strokeWidth: object.strokeWidth,
-      fill: object.fill,
+    // 防御的バリデーション: 必須フィールドの存在確認
+    // points 欠落時は最低限の 2 点直線（原点付近）でフォールバック（PolylineShape は最低 2 点必要）。
+    const safeDefaults = {
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+      ] as Point[],
+      stroke: '#000000',
+      strokeWidth: 2,
+      fill: 'transparent',
+    };
+
+    const isValidPointsArray =
+      object != null &&
+      typeof object === 'object' &&
+      Array.isArray(object.points) &&
+      object.points.every(
+        (p): p is Point =>
+          p != null && typeof p === 'object' && typeof p.x === 'number' && typeof p.y === 'number'
+      );
+
+    const hasValidRequiredFields =
+      object != null &&
+      typeof object === 'object' &&
+      isValidPointsArray &&
+      typeof object.stroke === 'string' &&
+      typeof object.strokeWidth === 'number' &&
+      typeof object.fill === 'string';
+
+    let points: Point[];
+    let stroke: string;
+    let strokeWidth: number;
+    let fill: string;
+
+    if (!hasValidRequiredFields) {
+      // 不正データ: 警告ログ + 安全な既定値で復元
+      console.warn('[PolylineTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      points = safeDefaults.points;
+      stroke = safeDefaults.stroke;
+      strokeWidth = safeDefaults.strokeWidth;
+      fill = safeDefaults.fill;
+    } else {
+      points = object.points;
+      stroke = object.stroke;
+      strokeWidth = object.strokeWidth;
+      fill = object.fill;
+    }
+
+    const polyline = new PolylineShape(points, {
+      stroke,
+      strokeWidth,
+      fill,
     });
 
     // 移動後の位置を復元（後方互換性のためオプション）
-    if (object.left !== undefined) {
+    if (hasValidRequiredFields && object.left !== undefined) {
       polyline.set('left', object.left);
     }
-    if (object.top !== undefined) {
+    if (hasValidRequiredFields && object.top !== undefined) {
       polyline.set('top', object.top);
     }
     polyline.setCoords();
+
+    // outline 属性の復元
+    if (hasValidRequiredFields && object.outline !== undefined) {
+      // Req 32.7: 保存された outline を復元
+      polyline.setOutline(object.outline);
+    } else {
+      // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.polylineOutline（enabled=true）を無効化し、
+      //   outlinePolyline.opacity=0 + width=0 で「白縁取り無し」状態にする。
+      polyline.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+    }
 
     return Promise.resolve(polyline);
   }
