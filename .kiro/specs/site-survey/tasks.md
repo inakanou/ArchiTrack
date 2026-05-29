@@ -1987,4 +1987,325 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **68.2**: AnnotationContextMenu 単体テスト 3 ケース（visible トグル、edit/duplicate/delete アクション、外タップ close）は 68.1 の `AnnotationContextMenu.test.tsx`（16 テスト）で既にカバー済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **73.1**: モバイル Viewport E2E（5 シナリオ: 白縁取り矢印/白アウトラインテキスト/長押し contextmenu 削除/ダブルタップ編集/全ツールタップ到達）は `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` に skeleton 実装済み。実行には `npm run test:docker` + `npx playwright test --project=mobile` が必要で、個別ランタイム検証は CI/手動で行う。
 - **73.2**: スケール非等倍書き出しは 72.6 の `AnnotationRendererService.group-arrow.test.ts`（9 テスト）で既に検証済み。マルチタッチ誤発火 Undo 復旧の契約は 65.2 / 67.2 / 67.3 のテストで基盤動作が保証されている。`frontend/src/__tests__/integration/annotation-scale-and-multitouch.test.ts` に契約再確認テストを新設。
+
+---
+
+## Implementation Tasks（Requirements 31-32: 画像一括ZIPエクスポート・白縁取り対象の全形状拡張）
+
+### Foundation
+
+- [ ] 75. annotation-style-tokens に 6 形状の白縁取り既定値を追加
+- [ ] 75.1 `ShapeOutlineAttribute` 共通型と 6 形状向け既定値の追加
+  - `annotation-style-tokens.ts` に `ShapeOutlineAttribute = { enabled, color, width }` を追加し、`ANNOTATION_DEFAULTS` に `rectangleOutline` / `circleOutline` / `polygonOutline` / `polylineOutline` / `freehandOutline` / `dimensionOutline` を `enabled: true` で定義する
+  - Dimension のラベル白アウトライン用に `dimensionLabelOutline: TextOutlineAttribute = { enabled: true, widthRatio: 0.12 }` を追加する
+  - 既存 Arrow の `ArrowOutlineAttribute` との型整合（エイリアス化検討）に関する判断を実装時に行い、コード変更が破壊変更を含まないことを担保する
+  - 観測可能な完了状態: `ANNOTATION_DEFAULTS` から 6 形状の outline と `dimensionLabelOutline` がエクスポートされ、各 `enabled === true` かつ `width > 0`／`widthRatio > 0` を満たす
+  - _Requirements: 32.11, 32.13_
+- [ ] 75.2 既定値モジュールの単体テスト
+  - 全 6 形状の `enabled === true` および `width >= bodyStrokeWidth * 0.75` を検証する
+  - `dimensionLabelOutline.enabled === true` かつ `widthRatio` が Req 25 の `[0.10, 0.20]` レンジ内にあることを検証する
+  - 観測可能な完了状態: `annotation-style-tokens.test.ts` に追加した新テストがすべて合格する
+  - _Requirements: 32.11, 32.13_
+  - _Boundary: annotation-style-tokens_
+
+- [ ] 76. jszip 導入と ZIP 命名規則ユーティリティ
+- [ ] 76.1 jszip 依存追加とビルド検証
+  - `frontend/package.json` の `dependencies` に `jszip` を追加し、ロックファイルを更新する
+  - `tech.md` に jszip の追加とバージョンを反映する
+  - 観測可能な完了状態: `import JSZip from 'jszip'` が型補完つきで成立し、ビルドが通る
+  - _Requirements: 31.7_
+- [ ] 76.2 ZIP 内ファイル名規則および ZIP ファイル名生成ユーティリティ
+  - 既存個別エクスポート命名と整合する `buildEntryName(input, existingNames)`（連番プレフィックス・サニタイズ・重複時 `_2`/`_3` 付与）を実装する
+  - `buildZipFileName(surveyName, exportedAt)` で `{現場調査名サニタイズ}_{YYYYMMDD_HHmmss}.zip` を生成する
+  - パス区切り・コロン等のサニタイズと 80 文字制限を内包する
+  - 観測可能な完了状態: ユニットテストで命名規則が決定論的に生成され、重複入力に対し連番サフィックスが付くことを確認する
+  - _Requirements: 31.8, 31.9_
+- [ ] 76.3 命名ユーティリティの単体テスト
+  - 重複名で `_2`, `_3` サフィックス付与、サニタイズ規則、長さ制限、ZIP ファイル名フォーマットの 4 観点を検証する
+  - 観測可能な完了状態: `zip-naming.test.ts` の全テストが合格する
+  - _Requirements: 31.8, 31.9_
+  - _Boundary: zip-naming_
+
+### Core - 6 形状の Group 化
+
+- [ ] 77. (P) Rectangle の Group 化と白縁取り
+- [ ] 77.1 Rectangle クラスを Group ベースへ再設計
+  - Fabric `Rect` 単体から `extends Group` 化し、内部に `outlineRect`（白・幅広・fill=transparent）+ `bodyRect`（本体色・本体 fill）を保持する
+  - `outlineRect.strokeWidth = bodyStrokeWidth + outline.width * 2`、`outlineRect.stroke = '#ffffff'`、`strokeLineCap: 'round'`、`strokeLineJoin: 'round'` を適用する
+  - サイズ変更時に両 Rect を同期更新するヘルパーを実装する
+  - 観測可能な完了状態: 矩形ツールで新規描画した Rectangle が Group となり、白縁取りが本体の周囲に均一に描画される
+  - _Requirements: 32.1, 32.2, 32.3, 32.4_
+  - _Boundary: RectangleTool_
+- [ ] 77.2 Rectangle の outline 属性のシリアライズと後方互換
+  - `toObject`/`fromObject` で `outline?: ShapeOutlineAttribute` を保持・復元する
+  - `outline` 未定義の旧データは標準 Rect 形式で復元しても従来表現を維持する（防御的フォールバック含む）
+  - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、`outline` 欠落の JSON 復元時に従来表現で描画される
+  - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
+  - _Boundary: RectangleTool_
+- [ ] 77.3 Rectangle 単体テスト
+  - Group 子 2 つ、`setOutline({enabled:false})` で `outlineRect.opacity === 0`、ラウンドトリップ保持、旧形式 JSON 後方互換の 4 ケースを検証する
+  - 観測可能な完了状態: `RectangleTool.outline.test.ts` がすべて合格する
+  - _Requirements: 32.1, 32.5, 32.9_
+  - _Boundary: RectangleTool_
+
+- [ ] 78. (P) Circle の Group 化と白縁取り
+- [ ] 78.1 Circle クラスを Group ベースへ再設計
+  - Fabric `Ellipse` 単体から `extends Group` 化し、内部に `outlineEllipse` + `bodyEllipse` を保持する
+  - 半径・中心の変更時に両 Ellipse を同期更新する
+  - 観測可能な完了状態: 円ツールで新規描画した Circle が Group となり、白縁取りが描画される
+  - _Requirements: 32.1, 32.2, 32.3, 32.4_
+  - _Boundary: CircleTool_
+- [ ] 78.2 Circle の outline 属性のシリアライズと後方互換
+  - `toObject`/`fromObject` で `outline?: ShapeOutlineAttribute` を保持・復元する
+  - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、旧形式 JSON で従来表現に復元される
+  - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
+  - _Boundary: CircleTool_
+- [ ] 78.3 Circle 単体テスト
+  - 観測可能な完了状態: `CircleTool.outline.test.ts` がすべて合格する
+  - _Requirements: 32.1, 32.5, 32.9_
+  - _Boundary: CircleTool_
+
+- [ ] 79. (P) Polygon の Group 化と白縁取り
+- [ ] 79.1 Polygon クラスを Group ベースへ再設計
+  - Fabric `Polygon` 単体から `extends Group` 化し、内部に `outlinePolygon` + `bodyPolygon` を保持する
+  - 頂点追加・削除・移動時に両 Polygon の `points` を同期更新する
+  - 観測可能な完了状態: 多角形ツールで描画した Polygon が Group となり、頂点編集後も白縁取りが追従する
+  - _Requirements: 32.1, 32.2, 32.3, 32.4_
+  - _Boundary: PolygonTool_
+- [ ] 79.2 Polygon の outline 属性のシリアライズと後方互換
+  - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、旧形式 JSON で従来表現に復元される
+  - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
+  - _Boundary: PolygonTool_
+- [ ] 79.3 Polygon 単体テスト
+  - 観測可能な完了状態: `PolygonTool.outline.test.ts` がすべて合格する
+  - _Requirements: 32.1, 32.5, 32.9_
+  - _Boundary: PolygonTool_
+
+- [ ] 80. (P) Polyline の Group 化と白縁取り
+- [ ] 80.1 Polyline クラスを Group ベースへ再設計
+  - Fabric `Polyline` 単体から `extends Group` 化し、内部に `outlinePolyline` + `bodyPolyline` を保持する
+  - 頂点列の変更時に両 Polyline を同期更新する
+  - 観測可能な完了状態: 折れ線ツールで描画した Polyline が Group となり、白縁取りが描画される
+  - _Requirements: 32.1, 32.2, 32.3, 32.4_
+  - _Boundary: PolylineTool_
+- [ ] 80.2 Polyline の outline 属性のシリアライズと後方互換
+  - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、旧形式 JSON で従来表現に復元される
+  - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
+  - _Boundary: PolylineTool_
+- [ ] 80.3 Polyline 単体テスト
+  - 観測可能な完了状態: `PolylineTool.outline.test.ts` がすべて合格する
+  - _Requirements: 32.1, 32.5, 32.9_
+  - _Boundary: PolylineTool_
+
+- [ ] 81. (P) Freehand の Group 化と白縁取り
+- [ ] 81.1 Freehand クラスを Group ベースへ再設計
+  - Fabric `Path` 単体から `extends Group` 化し、内部に `outlinePath` + `bodyPath` を保持する
+  - 描画完了時に同一 path data を両 Path に適用する
+  - 観測可能な完了状態: フリーハンドツールで描画した Freehand が Group となり、白縁取りが描画される
+  - _Requirements: 32.1, 32.2, 32.3, 32.4_
+  - _Boundary: FreehandTool_
+- [ ] 81.2 Freehand の outline 属性のシリアライズと後方互換
+  - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、旧形式 JSON で従来表現に復元される
+  - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
+  - _Boundary: FreehandTool_
+- [ ] 81.3 Freehand 単体テスト
+  - path segment 数が多い場合でも Group 化が成立し、後方互換が保たれることを検証する
+  - 観測可能な完了状態: `FreehandTool.outline.test.ts` がすべて合格する
+  - _Requirements: 32.1, 32.5, 32.9_
+  - _Boundary: FreehandTool_
+
+- [ ] 82. (P) Dimension の Group 化と独立 2 属性（outline + labelOutline）
+- [ ] 82.1 Dimension クラスを Group ベースへ再設計
+  - 寸法線部を `outlineLine` + `bodyLine`、ラベル部を `labelText` の 3 子で構成する Group へ再設計する
+  - `outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2` および `outlineLine.stroke = '#ffffff'` を設定する
+  - 観測可能な完了状態: 寸法線ツールで描画した Dimension が Group（3 子）となり、線部に白縁取りが描画される
+  - _Requirements: 32.1, 32.2, 32.3, 32.4_
+  - _Boundary: DimensionTool_
+- [ ] 82.2 寸法値ラベルの白アウトライン適用と labelOutline 属性の独立保持
+  - `labelText.paintFirst = 'stroke'`、`labelText.stroke = '#ffffff'`、`labelText.strokeWidth = fontSize * labelOutline.widthRatio`、`labelText.strokeUniform = true` を適用する
+  - `Dimension` に `setLabelOutline / getLabelOutline` を追加し、`outline`（線部）と `labelOutline`（ラベル部）が互いに独立に状態遷移する
+  - 寸法値変更時に `labelText.strokeWidth` を `fontSize * labelOutline.widthRatio` で再計算する
+  - 観測可能な完了状態: `setOutline({enabled:false})` で線白縁取りのみ消え、`setLabelOutline({enabled:false})` でラベル白アウトラインのみ消えることを目視と単体テストで確認できる
+  - _Requirements: 32.12_
+  - _Boundary: DimensionTool_
+- [ ] 82.3 Dimension の outline / labelOutline のシリアライズと後方互換
+  - `toObject`/`fromObject` で `outline?: ShapeOutlineAttribute` と `labelOutline?: TextOutlineAttribute` をそれぞれ独立に保持・復元する
+  - いずれも未設定の旧データは従来表現で復元する（白縁取り無し・ラベル paintFirst なし）
+  - 観測可能な完了状態: ラウンドトリップで `outline` と `labelOutline` がそれぞれ独立に保持され、旧 JSON 復元で従来表現に戻る
+  - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
+  - _Boundary: DimensionTool_
+- [ ] 82.4 Dimension 単体テスト
+  - 独立 2 属性の挙動（線のみ OFF / ラベルのみ OFF）、`setValue()` 後の `strokeWidth` 再計算、ラウンドトリップでの独立保持、旧形式の後方互換の 4 観点を検証する
+  - 観測可能な完了状態: `DimensionTool.outline.test.ts` がすべて合格する
+  - _Requirements: 32.1, 32.5, 32.9, 32.12_
+  - _Boundary: DimensionTool_
+
+### Core - 一括エクスポート UI / Service
+
+- [ ] 83. (P) ExportSettingsForm 抽出と ImageExportDialog リファクタ
+- [ ] 83.1 ExportSettingsForm の切り出し
+  - 既存 `ImageExportDialog.tsx` 内の形式（JPEG/PNG）・解像度・注釈含む/含まない・元画像そのまま選択ロジックを `ExportSettingsForm.tsx` として独立化する
+  - `ExportSettings = { format, resolution, annotationMode }` 型と `value`/`onChange`/`disabled` プロパティを公開する
+  - 観測可能な完了状態: `ExportSettingsForm` 単体で `npm run test:frontend` のレンダリング・選択イベントが通る
+  - _Requirements: 31.4_
+  - _Boundary: ExportSettingsForm_
+- [ ] 83.2 ImageExportDialog の ExportSettingsForm への置換
+  - 既存 `ImageExportDialog` の設定UIを `ExportSettingsForm` に差し替え、外部から見える設定値・ダウンロード経路（個別エクスポート）の挙動を維持する
+  - 観測可能な完了状態: 個別エクスポートの既存テストが従来通り合格し、形式・解像度・注釈・原本の各選択肢が UI で操作可能
+  - _Requirements: 31.4_
+  - _Boundary: ImageExportDialog_
+- [ ] 83.3 ExportSettingsForm および リファクタ後 ImageExportDialog の単体テスト
+  - 既定値の表示、選択操作によるコールバック呼び出し、`disabled` 時の非活性挙動を検証する
+  - 観測可能な完了状態: `ExportSettingsForm.test.tsx` と更新後の `ImageExportDialog.test.tsx` の全テストが合格する
+  - _Requirements: 31.4_
+  - _Boundary: ExportSettingsForm, ImageExportDialog_
+
+- [ ] 84. (P) bulkExportService コア実装
+- [ ] 84.1 順次レンダリングと JSZip パッケージング
+  - `execute(input, onProgress, signal)` で `AnnotationRendererService.renderImage()` を順次呼び、戻りの Blob を JSZip インスタンスに `zip.file(name, blob)` で追加する
+  - 完了時に `JSZip.generateAsync({ type: 'blob' })` で単一 ZIP Blob を生成する
+  - ZIP 内ファイル名は `zip-naming.buildEntryName()` を用いて命名する
+  - 観測可能な完了状態: 単体テストで 3 画像入力に対し 3 エントリの ZIP Blob が返り、命名が `zip-naming` 規則どおりであることを確認する
+  - _Requirements: 31.5, 31.6, 31.7, 31.8_
+  - _Boundary: bulkExportService_
+- [ ] 84.2 AbortSignal によるキャンセル経路
+  - 各ループ反復で `signal.aborted` を確認し、true なら ZIP 生成せず `status: 'cancelled'` で resolve する
+  - 完了またはキャンセル時に内部の一時生成物（中間 Blob、Promise 参照）を解放する
+  - 観測可能な完了状態: 5 画像処理中に `controller.abort()` を呼ぶと `status: 'cancelled'` で resolve し、ZIP Blob が undefined であることを単体テストで確認する
+  - _Requirements: 31.11, 31.12, 31.19_
+  - _Boundary: bulkExportService_
+- [ ] 84.3 部分失敗集約と原本そのまま分岐
+  - 個別画像の reject を捕捉して `failures: BulkExportFailure[]` に集約し、ループ継続する
+  - `annotationMode === 'original-only'` のときは `renderImage` ではなく `ExportService.downloadOriginal()` 経由の R2 fetch のみで blob を取得する
+  - 観測可能な完了状態: 1 件失敗 + 4 件成功の入力で `status: 'partial'`、`failures.length === 1`、`zipBlob` に 4 件含まれる結果を単体テストで確認する
+  - _Requirements: 31.13, 31.18_
+  - _Boundary: bulkExportService_
+- [ ] 84.4 bulkExportService の単体テスト
+  - 全件成功・全件失敗・部分失敗・キャンセル・原本そのままの各ケース、および進捗 callback の単調増加性を検証する
+  - 観測可能な完了状態: `bulkExportService.test.ts` の全テストが合格する
+  - _Requirements: 31.5, 31.11, 31.13, 31.18_
+  - _Boundary: bulkExportService_
+
+- [ ] 85. BulkExportProgressDialog 実装
+  - `bulkExportService.execute(...)` の進捗 callback を購読して件数/割合を表示する
+  - キャンセルボタン押下で `controller.abort()` を呼ぶ
+  - 部分失敗発生時にサブダイアログで `'download-partial' | 'cancel'` のユーザー選択を取得し、選択結果に応じて ZIP ダウンロードを実行または中止する
+  - 観測可能な完了状態: コンポーネントテストで進捗更新の反映、キャンセルボタンの abort 発火、部分失敗時のサブダイアログ表示と選択結果反映が確認できる
+  - _Requirements: 31.10, 31.11, 31.13, 31.14_
+  - _Depends: 84_
+
+### Integration
+
+- [ ] 86. registerCustomShapes での 6 形状 Group 版再登録
+  - `registerCustomShapes.ts` で 6 形状（rectangle/circle/polygon/polyline/freehand/dimension）の Group 版クラスを `classRegistry.setClass(typeId, ClassName)` で再登録する
+  - type ID は既存（`'rectangle'` 等）を維持し、旧データの復元経路を破壊しない
+  - 観測可能な完了状態: 統合テストで旧形式 JSON（標準 Fabric シリアライズ）が新 Group 版で復元され、白縁取り無しの従来表現を維持できる
+  - _Requirements: 32.7, 32.9_
+  - _Depends: 77, 78, 79, 80, 81, 82_
+  - _Boundary: registerCustomShapes_
+
+- [ ] 87. BulkExportDialog + 一括エクスポート起動経路の結線
+- [ ] 87.1 BulkExportDialog 本体実装
+  - 「全件」または「選択画像」モードを起動時に受け、`ExportSettingsForm` をマウントして設定を確定する
+  - 対象 0 件時はダイアログを閉じて通知する
+  - 「開始」押下時に `AbortController` を生成し、`bulkExportService.execute(input, onProgress, signal)` を起動して `BulkExportProgressDialog` に `promise` と `controller` を引き継ぐ
+  - 観測可能な完了状態: コンポーネントテストで開始 → 進捗ダイアログ表示、対象 0 件で即時クローズ、`AbortController` がダイアログ間で共有されることが確認できる
+  - _Requirements: 31.1, 31.2, 31.4, 31.5, 31.15_
+  - _Depends: 83, 84, 85_
+- [ ] 87.2 SurveyImageGrid への複数選択 UI 追加
+  - 各サムネイル左上にチェックボックスを表示し、`selectedImageIds: Set<string>` を親から受領、`onSelectionChange` で同期する
+  - 既存のドラッグ順序変更・個別アクションメニュー挙動を維持する
+  - 観測可能な完了状態: コンポーネントテストでチェック ON/OFF が `onSelectionChange` を発火し、既存挙動が回帰しないことが確認できる
+  - _Requirements: 31.2, 31.3_
+  - _Boundary: SurveyImageGrid_
+- [ ] 87.3 SurveyDetailPage の起動ボタンと選択状態管理
+  - 詳細画面に「全件一括エクスポート」「選択画像エクスポート（N 件）」の 2 ボタンを追加し、後者は選択 0 件で非活性にする
+  - 選択状態を `useState<Set<string>>` で保持し、`SurveyImageGrid` と双方向同期する
+  - 各ボタン押下で `BulkExportDialog` を `mode: 'all' | 'selected'` で起動する
+  - 観測可能な完了状態: 詳細画面で「全件」「選択」両ボタンが描画され、選択件数表示と非活性切替が UI 上で確認できる
+  - _Requirements: 31.1, 31.2, 31.3_
+  - _Boundary: SurveyDetailPage_
+
+- [ ] 88. AnnotationRendererService の 6 形状 Group 対応と既存 caller 後方互換確認
+- [ ] 88.1 Group 6 形状の `enlivenObjects` 復元と toDataURL 出力検証
+  - `AnnotationRendererService.renderImage()` 経由で Group 化 6 形状が正しく復元され、`toDataURL` 出力で白縁取りが含まれることを検証する（色サンプリング）
+  - Dimension の `labelText.paintFirst` 適用後のラベルレンダリングも同経路で検証する
+  - 観測可能な完了状態: 統合テスト `AnnotationRendererService.group-shapes.test.ts` で 6 形状すべての白縁取り画素確認と Dimension ラベル白アウトラインの画素確認が合格する
+  - _Requirements: 32.8, 32.12_
+  - _Depends: 77, 78, 79, 80, 81, 82, 86_
+- [ ] 88.2 既存 caller への後方互換確認（PDF 報告書・個別エクスポート）
+  - 既存 `PdfReportService` と `ExportService.exportImage` の経路が Group 6 形状を含む注釈データを従来どおり処理できることを統合テストで確認する
+  - 既存呼出点が `onProgress` / `signal` を渡さない場合の挙動が変化していないことを明示的に検証する
+  - 観測可能な完了状態: 既存の `PdfReportService` 系テストと `ExportService` 系テストがすべて合格し、Group 6 形状を含む画像で PDF・個別エクスポートが従来どおり生成される
+  - _Requirements: 31.6, 32.8_
+  - _Depends: 88.1_
+
+### Validation
+
+- [ ] 89. E2E 検証
+- [ ] 89.1 (P) 一括エクスポート E2E
+  - 詳細画面で「全件一括エクスポート」→ 設定 → 開始 → 進捗 → ZIP ダウンロードの一連の流れを検証する
+  - 画像 3 件選択 →「選択画像エクスポート」で ZIP 内が 3 件のみであることを検証する
+  - 進捗中にキャンセル → ZIP がダウンロードされないことを検証する
+  - 観測可能な完了状態: `e2e/specs/site-surveys/site-survey-bulk-export.spec.ts` の全シナリオが Playwright で合格する
+  - _Requirements: 31.1, 31.2, 31.7, 31.10, 31.11, 31.12_
+  - _Boundary: E2E Test_
+- [ ] 89.2 (P) 6 形状白縁取り保存・復元 E2E
+  - 6 形状（Rectangle/Circle/Polygon/Polyline/Freehand/Dimension）をひとつずつ描画 → 保存 → リロード → 全形状で白縁取りが復元されることを検証する
+  - Dimension の寸法値ラベルにも白アウトラインが乗ることを検証する
+  - 観測可能な完了状態: `e2e/specs/site-surveys/site-survey-all-shape-outline.spec.ts` の全シナリオが Playwright で合格する
+  - _Requirements: 32.1, 32.6, 32.7, 32.8, 32.12, 32.14_
+  - _Boundary: E2E Test_
+
+- [ ] 90. パフォーマンス検証
+- [ ] 90.1 (P) Group 化 6 形状の高頻度描画 FPS 検証
+  - 6 形状をそれぞれ 100 オブジェクト配置時の描画 FPS を計測し、`objectCaching` 設定（Group: false、子: true）が機能して 60fps を維持することを確認する
+  - 特に Freehand（path segment 数が多い）と Polygon（頂点が多い）を重点計測する
+  - 観測可能な完了状態: パフォーマンスベンチマークの計測ログで全 6 形状が 60fps を維持する数値が得られる
+  - _Requirements: 32.1_
+  - _Boundary: Performance Test_
+- [ ] 90.2 (P) 一括エクスポートのメモリ・処理時間計測
+  - 30 枚 × 高解像度（multiplier=2）で一括エクスポートを実施し、処理時間とブラウザのピークメモリ使用量を計測する
+  - 想定運用枚数（数十枚）でクラッシュせず ZIP が生成されることを確認する
+  - 観測可能な完了状態: 計測結果として処理時間・ピークメモリのログがあり、想定枚数で完走する
+  - _Requirements: 31.7, 31.10_
+  - _Boundary: Performance Test_
+
+### Requirements Traceability（Requirements 31-32）
+
+| Req   | 対応タスク                                                                       |
+|-------|----------------------------------------------------------------------------------|
+| 31.1  | 87.1, 87.3, 89.1                                                                 |
+| 31.2  | 87.1, 87.2, 87.3, 89.1                                                           |
+| 31.3  | 87.2, 87.3                                                                       |
+| 31.4  | 83.1, 83.2, 83.3, 87.1                                                           |
+| 31.5  | 84.1, 84.4, 87.1                                                                 |
+| 31.6  | 84.1, 88.2                                                                       |
+| 31.7  | 76.1, 76.2, 84.1, 89.1, 90.2                                                     |
+| 31.8  | 76.2, 76.3, 84.1                                                                 |
+| 31.9  | 76.2, 76.3                                                                       |
+| 31.10 | 85, 89.1, 90.2                                                                   |
+| 31.11 | 84.2, 84.4, 85, 89.1                                                             |
+| 31.12 | 84.2, 89.1                                                                       |
+| 31.13 | 84.3, 84.4, 85                                                                   |
+| 31.14 | 85                                                                               |
+| 31.15 | 87.1                                                                             |
+| 31.16 | 既存画像 API のアクセス制御を流用（追加実装なし）                                |
+| 31.17 | 88.1（既存 enlivenObjects 経路で自動適用される）                                 |
+| 31.18 | 84.3, 84.4                                                                       |
+| 31.19 | 84.2                                                                             |
+| 32.1  | 77.1, 78.1, 79.1, 80.1, 81.1, 82.1, 89.2, 90.1                                   |
+| 32.2  | 77.1, 78.1, 79.1, 80.1, 81.1, 82.1                                               |
+| 32.3  | 77.1, 78.1, 79.1, 80.1, 81.1, 82.1                                               |
+| 32.4  | 77.1, 78.1, 79.1, 80.1, 81.1, 82.1                                               |
+| 32.5  | 77.2, 77.3, 78.2, 78.3, 79.2, 79.3, 80.2, 80.3, 81.2, 81.3, 82.3, 82.4           |
+| 32.6  | 77.2, 78.2, 79.2, 80.2, 81.2, 82.3, 89.2                                         |
+| 32.7  | 77.2, 78.2, 79.2, 80.2, 81.2, 82.3, 86, 89.2                                     |
+| 32.8  | 88.1, 88.2, 89.2                                                                 |
+| 32.9  | 77.2, 77.3, 78.2, 78.3, 79.2, 79.3, 80.2, 80.3, 81.2, 81.3, 82.3, 82.4, 86       |
+| 32.10 | 77.2, 78.2, 79.2, 80.2, 81.2, 82.3                                               |
+| 32.11 | 75.1, 75.2                                                                       |
+| 32.12 | 82.2, 82.4, 88.1, 89.2                                                           |
+| 32.13 | 75.1, 75.2                                                                       |
+| 32.14 | 89.2（既存 Requirement 23 のサムネイル再生成パイプラインに乗る）                 |
 - **74.1**: Arrow Group 100 個の FPS ベンチマークは JSDOM では実時間計測が困難なため、設計契約（構造・メモリフットプリント）を `frontend/src/__tests__/performance/arrow-group-fps.perf.test.ts` で検証。実 FPS 計測は DevTools Performance タブでの手動ベンチ or 将来の Playwright 計測に委ねる。
