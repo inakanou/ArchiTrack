@@ -155,5 +155,58 @@ describe('annotation-style-tokens', () => {
       expect(defaults.dimensionLabelOutline.enabled).toBe(true);
       expect(defaults.dimensionLabelOutline.widthRatio).toBeGreaterThan(0);
     });
+
+    /**
+     * Task 75.2: 既定値モジュールの単体テスト（追加検証）
+     *
+     * design.md 5501 行に基づく追加境界検証:
+     * - 全 6 形状の `enabled === true` および `width >= bodyStrokeWidth * 0.75`
+     * - `dimensionLabelOutline.enabled === true` かつ `widthRatio` が Req 25 の
+     *   `[0.10, 0.20]` レンジ内にあること
+     *
+     * 既存テスト（75.1）が「正の数値」「> 0」までしか検証していなかったため、
+     * 本タスクで境界条件（下限・上限）を厳密に検証する差分テストを追加。
+     *
+     * @requirement site-survey/REQ-32.11
+     * @requirement site-survey/REQ-32.13
+     */
+    describe('Task 75.2: 既定値の境界条件検証', () => {
+      // bodyStrokeWidth は ANNOTATION_DEFAULTS.strokeWidth（= 3）を意味する
+      // 閾値 = bodyStrokeWidth * 0.75 = 2.25
+      const bodyStrokeWidth = ANNOTATION_DEFAULTS.strokeWidth;
+      const minOutlineWidth = bodyStrokeWidth * 0.75;
+
+      it.each(shapeOutlineKeys)('%s は enabled === true である（境界検証）(Req 32.11)', (key) => {
+        const outline = ANNOTATION_DEFAULTS[key] as ShapeOutlineAttribute;
+        // 厳密一致で検証し truthy 値（1, "true" など）を弾く
+        expect(outline.enabled).toStrictEqual(true);
+      });
+
+      it.each(shapeOutlineKeys)(
+        '%s の width は bodyStrokeWidth * 0.75 (= 2.25) 以上である (Req 32.11, design.md 5501)',
+        (key) => {
+          const outline = ANNOTATION_DEFAULTS[key] as ShapeOutlineAttribute;
+          expect(outline.width).toBeGreaterThanOrEqual(minOutlineWidth);
+        }
+      );
+
+      it('dimensionLabelOutline.enabled は厳密に true である (Req 32.11, 32.12)', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabelOutline.enabled).toStrictEqual(true);
+      });
+
+      it('dimensionLabelOutline.widthRatio は 0.10 以上である（Req 25 下限）', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio).toBeGreaterThanOrEqual(0.1);
+      });
+
+      it('dimensionLabelOutline.widthRatio は 0.20 以下である（Req 25 上限）', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio).toBeLessThanOrEqual(0.2);
+      });
+
+      it('閾値計算の前提（bodyStrokeWidth = ANNOTATION_DEFAULTS.strokeWidth = 3）が保たれている', () => {
+        // 将来 strokeWidth が変更された場合に上記境界テストの基準も再評価すべきことを明示
+        expect(bodyStrokeWidth).toBe(3);
+        expect(minOutlineWidth).toBeCloseTo(2.25, 10);
+      });
+    });
   });
 });
