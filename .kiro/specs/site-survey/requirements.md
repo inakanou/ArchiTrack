@@ -409,3 +409,58 @@ Requirements 24 以降は、画像注釈の視認性向上（白縁取り表現�
 6. While マルチタッチ入力中, the Site Survey Service shall Requirement 5 のピンチズーム・パン操作の従来挙動を阻害しない
 7. When マルチタッチから1本指に戻り描画再開が許可される, the Site Survey Service shall 直前のピンチ/パンによるビュー状態（ズーム倍率・表示位置）を維持したまま描画を再開する
 8. The Site Survey Service shall マルチタッチ中に誤って描画確定されないよう、描画コミット条件（単一指のドラッグ継続）を内部判定基準として維持する
+
+### 追加範囲の境界補足（Requirements 31 以降）
+
+Requirements 31 以降は、現場調査画像の一括エクスポートと、白縁取り対象形状の全形状拡張を対象とする。既存 Requirements 1〜30 の責務境界は維持する。
+
+- **In scope**: 1 現場調査配下の全画像または選択画像をまとめて単一の ZIP ファイルとしてエクスポートする機能、寸法線・円・四角形・多角形・折れ線・フリーハンド注釈に対する白縁取り表現の拡張（Requirement 24 の矢印・Requirement 25 のテキストと同等仕様）
+- **Out of scope**: 一括エクスポートにおける PDF 単一ファイル出力（既存 Requirement 11 のスコープを維持）、ブラウザの個別ダウンロードを連続発火する疑似一括方式、白縁取り対象形状ごとの個別カスタマイズパラメータ化（縁取り幅倍率の形状別調整等）、一括エクスポート進捗の永続化・中断レジューム
+- **Adjacent expectations**: 既存の Requirement 12（個別画像エクスポート）の設定仕様と単一画像レンダリング基盤を再利用する前提で成立する。Requirement 24（矢印の白縁取り）および Requirement 25（テキストの白アウトライン）の振る舞いを参照仕様として、白縁取り対象を 6 形状に拡張する形で成立する。Requirement 13（Undo/Redo）、Requirement 14（アクセス制御）、Requirement 20（注釈サムネイル・プレビュー）、Requirement 23（サムネイル再生成）、Requirement 26（既定スタイル一元管理）の挙動は維持する
+
+### Requirement 31: 現場調査画像の一括エクスポート
+
+**Objective:** As a 現場調査担当者, I want 現場調査内の全画像または選択した複数画像を一括でエクスポートできること, so that 数十枚規模の現場写真を 1 枚ずつ操作することなく報告書以外の用途にも配布・保存できる
+
+#### Acceptance Criteria
+
+1. When ユーザーが現場調査詳細画面で「全件一括エクスポート」操作を実行する, the Site Survey Service shall 当該現場調査配下の全画像を対象として一括エクスポートを開始する
+2. When ユーザーが画像一覧で 1 件以上の画像を選択した状態で「選択画像エクスポート」操作を実行する, the Site Survey Service shall 選択された画像のみを対象として一括エクスポートを開始する
+3. While ユーザーが画像を 1 件も選択していない, the Site Survey Service shall 「選択画像エクスポート」操作を非活性として表示する
+4. When ユーザーが一括エクスポートを開始する, the Site Survey Service shall Requirement 12 と同一のエクスポート設定（画像形式（JPEG/PNG）、解像度（品質）、注釈含む/含まない、元画像そのまま出力）をユーザーに選択させる
+5. When ユーザーが一括エクスポート設定を確定する, the Site Survey Service shall 選択された設定を対象画像すべてに一括適用してエクスポート処理を実行する
+6. The Site Survey Service shall 一括エクスポートにおける個別画像レンダリング（注釈描画、形式変換、解像度変換）に Requirement 12 と同一のレンダリング仕様を適用する
+7. When 一括エクスポート処理が完了する, the Site Survey Service shall 対象画像群を単一の ZIP ファイルにまとめてダウンロード可能にする
+8. The Site Survey Service shall ZIP 内に含まれる各画像ファイル名規則を Requirement 12 の個別画像エクスポートと整合する命名規則に統一する
+9. The Site Survey Service shall ZIP ファイル名を、現場調査名と一括エクスポート実行日時を識別可能な形式で生成する
+10. While 一括エクスポート処理が進行中, the Site Survey Service shall 処理の進捗状況（処理中の件数または全体に対する割合）をユーザーに可視化する
+11. While 一括エクスポート処理が進行中, the Site Survey Service shall ユーザーが当該処理をキャンセル可能にする
+12. If ユーザーが一括エクスポートをキャンセルする, then the Site Survey Service shall 進行中の処理を中断し ZIP ファイルを生成しない
+13. If 一括エクスポート対象に含まれる一部の画像のレンダリングまたは取得が失敗する, then the Site Survey Service shall どの画像がどの理由で失敗したかを明示するエラー情報をユーザーに通知する
+14. When 一括エクスポート対象に一部失敗が発生する, the Site Survey Service shall 成功した画像分のみを含む ZIP を取得するか処理を中止するかをユーザーが選択可能にする
+15. If 一括エクスポート対象画像が 0 件である, then the Site Survey Service shall 対象画像が存在しない旨を通知し ZIP を生成しない
+16. When ユーザーが一括エクスポートを実行する, the Site Survey Service shall Requirement 14 のアクセス制御を適用し、当該現場調査へのアクセス権限を検証する
+17. The Site Survey Service shall 一括エクスポートにおいて「注釈含む」設定時に、Requirement 24・Requirement 25 および Requirement 32 の白縁取り表現を編集画面と同一に適用する
+18. The Site Survey Service shall 一括エクスポートにおいて「元画像そのまま出力」設定時に、注釈・回転・サムネイル再生成結果を反映せず、アップロード時の原本画像を出力する
+19. When 一括エクスポートが完了またはキャンセルされる, the Site Survey Service shall 当該処理のために生成した一時ファイル等の中間生成物を残存させない
+
+### Requirement 32: マーキング図形・寸法線・フリーハンド注釈の白縁取り表示
+
+**Objective:** As a 現場調査担当者, I want 矢印・テキスト以外の注釈（寸法線・円・四角形・多角形・折れ線・フリーハンド）についても白縁取りで視認可能にできること, so that 任意背景の現場写真上で全ての注釈が背景に埋もれず判読できる
+
+#### Acceptance Criteria
+
+1. When ユーザーが寸法線・円・四角形・多角形・折れ線・フリーハンドの各ツールで注釈を描画する, the Site Survey Service shall 当該注釈本体線の外側に白色の縁取り線を付与して表示する
+2. The Site Survey Service shall 寸法線・円・四角形・多角形・折れ線・フリーハンドの白縁取り線幅を本体線幅の 1.5 倍以上の太さで付与し、本体色との境界を背景色に依らず視認可能にする
+3. When ユーザーがいずれかの対象注釈の本体色を変更する, the Site Survey Service shall 白縁取り部分の色は常に白のまま維持する
+4. When ユーザーがいずれかの対象注釈を移動・リサイズ・回転・形状変形（端点移動・頂点追加/削除等）する, the Site Survey Service shall 白縁取りを本体と同期して変形する
+5. When ユーザーが対象注釈の描画設定を切り替える, the Site Survey Service shall 白縁取りの有効/無効をユーザーが任意に切替可能にする
+6. When ユーザーが対象注釈を保存する, the Site Survey Service shall 白縁取り属性（有効/無効・縁取り幅）を注釈データに含めて永続化する
+7. When ユーザーが保存済みの対象注釈を再表示する, the Site Survey Service shall 保存された白縁取り属性を復元して表示する
+8. When 注釈付き画像をサムネイル・プレビュー・PDF・個別エクスポート・一括エクスポート（Requirement 31）でレンダリングする, the Site Survey Service shall 編集画面と同一の白縁取り表現を対象注釈に対しても適用する
+9. If ユーザーが過去に白縁取り属性を持たずに保存した対象注釈を表示する, then the Site Survey Service shall 当該注釈を白縁取りなしの従来表現のまま表示する（後方互換維持）
+10. When ユーザーが白縁取りの有効化/無効化を切替える, the Site Survey Service shall その操作を Undo/Redo 履歴に記録する
+11. When ユーザーが初回に対象ツール（寸法線・円・四角形・多角形・折れ線・フリーハンドのいずれか）を選択する, the Site Survey Service shall 白縁取りが有効な初期状態でツールを起動する
+12. The Site Survey Service shall 寸法線注釈の寸法値ラベルに対しても、Requirement 25 のテキスト白アウトラインと同等の白アウトライン表現を適用する
+13. The Site Survey Service shall 各対象ツールの既定白縁取り有無を、Requirement 26 の設定資材一元管理の枠組みで管理する
+14. When ユーザーが画像編集画面で対象注釈を編集して保存する, the Site Survey Service shall Requirement 23 に従って白縁取りを含む最終状態を反映したサムネイルを再生成する
