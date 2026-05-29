@@ -1987,6 +1987,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **68.2**: AnnotationContextMenu 単体テスト 3 ケース（visible トグル、edit/duplicate/delete アクション、外タップ close）は 68.1 の `AnnotationContextMenu.test.tsx`（16 テスト）で既にカバー済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **73.1**: モバイル Viewport E2E（5 シナリオ: 白縁取り矢印/白アウトラインテキスト/長押し contextmenu 削除/ダブルタップ編集/全ツールタップ到達）は `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` に skeleton 実装済み。実行には `npm run test:docker` + `npx playwright test --project=mobile` が必要で、個別ランタイム検証は CI/手動で行う。
 - **73.2**: スケール非等倍書き出しは 72.6 の `AnnotationRendererService.group-arrow.test.ts`（9 テスト）で既に検証済み。マルチタッチ誤発火 Undo 復旧の契約は 65.2 / 67.2 / 67.3 のテストで基盤動作が保証されている。`frontend/src/__tests__/integration/annotation-scale-and-multitouch.test.ts` に契約再確認テストを新設。
+- **77.3**: Rectangle 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 77.1 の `RectangleTool.outline.test.ts`（21 テスト）と 77.2 の `RectangleTool.serialization.test.ts`（17 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 
 ---
 
@@ -2028,7 +2029,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Core - 6 形状の Group 化
 
-- [ ] 77. (P) Rectangle の Group 化と白縁取り
+- [x] 77. (P) Rectangle の Group 化と白縁取り
 - [x] 77.1 Rectangle クラスを Group ベースへ再設計
   - Fabric `Rect` 単体から `extends Group` 化し、内部に `outlineRect`（白・幅広・fill=transparent）+ `bodyRect`（本体色・本体 fill）を保持する
   - `outlineRect.strokeWidth = bodyStrokeWidth + outline.width * 2`、`outlineRect.stroke = '#ffffff'`、`strokeLineCap: 'round'`、`strokeLineJoin: 'round'` を適用する
@@ -2042,7 +2043,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: ラウンドトリップで `outline` が保持され、`outline` 欠落の JSON 復元時に従来表現で描画される
   - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
   - _Boundary: RectangleTool_
-- [ ] 77.3 Rectangle 単体テスト
+- [x] 77.3 Rectangle 単体テスト
   - Group 子 2 つ、`setOutline({enabled:false})` で `outlineRect.opacity === 0`、ラウンドトリップ保持、旧形式 JSON 後方互換の 4 ケースを検証する
   - 観測可能な完了状態: `RectangleTool.outline.test.ts` がすべて合格する
   - _Requirements: 32.1, 32.5, 32.9_
