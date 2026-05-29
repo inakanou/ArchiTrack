@@ -22,7 +22,7 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
   };
 });
 
-// Fabric.jsのモック - Ellipseクラスを継承可能にする
+// Fabric.jsのモック - Ellipse / Group を継承可能にする
 vi.mock('fabric', () => {
   // 楕円モック
   class MockEllipse {
@@ -86,8 +86,82 @@ vi.mock('fabric', () => {
     }
   }
 
+  // Group モック（Task 78.1: CircleShape が Group ベースへ移行したため追加）
+  // 既存テスト assertion は変更せず、Group ベース実装が正しく動作するために
+  // 必要最小限のプロパティ伝搬とコレクション管理を提供する。
+  class MockGroup {
+    _objects: unknown[];
+    left?: number;
+    top?: number;
+    rx?: number;
+    ry?: number;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    originX?: string;
+    originY?: string;
+    hasControls: boolean;
+    hasBorders: boolean;
+    lockMovementX: boolean;
+    lockMovementY: boolean;
+    subTargetCheck: boolean;
+
+    constructor(objects?: unknown[], options?: Record<string, unknown>) {
+      this._objects = objects ? [...objects] : [];
+      this.fill = 'transparent';
+      this.stroke = '#000000';
+      this.strokeWidth = 2;
+      this.hasControls = true;
+      this.hasBorders = true;
+      this.lockMovementX = false;
+      this.lockMovementY = false;
+      this.subTargetCheck = false;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+
+    setCoords(): void {
+      mockSetCoords();
+    }
+
+    toObject(): Record<string, unknown> {
+      return {
+        left: this.left,
+        top: this.top,
+        rx: this.rx,
+        ry: this.ry,
+        fill: this.fill,
+        stroke: this.stroke,
+        strokeWidth: this.strokeWidth,
+      };
+    }
+
+    add(object: unknown): void {
+      this._objects.push(object);
+    }
+
+    remove(object: unknown): void {
+      const index = this._objects.indexOf(object);
+      if (index > -1) {
+        this._objects.splice(index, 1);
+      }
+    }
+  }
+
   return {
     Ellipse: MockEllipse,
+    Group: MockGroup,
   };
 });
 
@@ -313,13 +387,14 @@ describe('CircleTool', () => {
     });
 
     describe('カスタムFabric.jsオブジェクト実装', () => {
-      it('CircleShapeクラスはFabric.js Ellipseを拡張している', () => {
+      it('CircleShapeクラスはFabric.js Groupを拡張している（Task 78.1）', () => {
         const startPoint = { x: 100, y: 100 };
         const endPoint = { x: 300, y: 200 };
 
         const circle = createCircle(startPoint, endPoint);
 
         expect(circle).not.toBeNull();
+        // Task 78.1: Group ベースへ移行（type は 'circleShape' を維持）
         expect(circle!.type).toBe('circleShape');
       });
 

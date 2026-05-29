@@ -2050,7 +2050,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: RectangleTool_
 
 - [ ] 78. (P) Circle の Group 化と白縁取り
-- [ ] 78.1 Circle クラスを Group ベースへ再設計
+- [x] 78.1 Circle クラスを Group ベースへ再設計
   - Fabric `Ellipse` 単体から `extends Group` 化し、内部に `outlineEllipse` + `bodyEllipse` を保持する
   - 半径・中心の変更時に両 Ellipse を同期更新する
   - 観測可能な完了状態: 円ツールで新規描画した Circle が Group となり、白縁取りが描画される
