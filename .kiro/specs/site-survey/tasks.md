@@ -2085,7 +2085,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: PolygonTool_
 
 - [ ] 80. (P) Polyline の Group 化と白縁取り
-- [ ] 80.1 Polyline クラスを Group ベースへ再設計
+- [x] 80.1 Polyline クラスを Group ベースへ再設計
   - Fabric `Polyline` 単体から `extends Group` 化し、内部に `outlinePolyline` + `bodyPolyline` を保持する
   - 頂点列の変更時に両 Polyline を同期更新する
   - 観測可能な完了状態: 折れ線ツールで描画した Polyline が Group となり、白縁取りが描画される
