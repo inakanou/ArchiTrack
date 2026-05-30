@@ -6,6 +6,8 @@
  * Task 14.3: 寸法線編集機能を実装する
  * Task 82.1: Dimension クラスを Group ベースへ再設計
  *            （outlineLine + bodyLine + labelText の 3 子構成、線部白縁取り）
+ * Task 82.2: 寸法値ラベルへの白アウトライン適用と labelOutline 属性の独立保持
+ *            （outline と labelOutline は互いに独立した 2 属性として状態遷移する）
  *
  * 2点クリックによる寸法線描画、端点間の直線と垂直線（エンドキャップ）、
  * 白縁取り付き Group 構造のカスタム Fabric.js オブジェクト実装、
@@ -26,7 +28,13 @@
  * Task 82.1 設計メモ:
  * - 子 3 構成: `outlineLine`（白・幅広 Path） + `bodyLine`（本体色 Path） + `labelText`（FabricText）
  * - `outline.enabled = false` のときは `outlineLine.opacity = 0`（構造は維持）。labelText には影響しない
- * - labelText の白アウトライン（paintFirst）は **Task 82.2** で `labelOutline` 属性として独立適用
+ *
+ * Task 82.2 設計メモ:
+ * - `labelText` に `paintFirst='stroke'`, `stroke='#ffffff'`,
+ *   `strokeWidth = fontSize * labelOutline.widthRatio`, `strokeUniform=true` を適用
+ * - `_labelOutline` 内部状態 + `setLabelOutline()` / `getLabelOutline()` API を追加
+ * - `outline`（線部）と `labelOutline`（ラベル部）は互いに独立に状態遷移する
+ * - 寸法値変更 / フォントサイズ変更時に `labelText.strokeWidth` を再計算する
  * - toObject/fromObject の outline/labelOutline 拡張は **Task 82.3** で実装する
  *
  * @requirement site-survey/REQ-26.1
@@ -39,7 +47,11 @@
 
 import { Path, FabricText, Group, type Canvas } from 'fabric';
 
-import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  type ShapeOutlineAttribute,
+  type TextOutlineAttribute,
+} from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -287,6 +299,9 @@ export class DimensionLine extends Group {
   /** 白縁取り属性（線部、Task 82.1） */
   private _outline: ShapeOutlineAttribute;
 
+  /** ラベル白アウトライン属性（Task 82.2 / Req 32.12） */
+  private _labelOutline: TextOutlineAttribute;
+
   /** 外側の白縁取り Path */
   private _outlineLine: Path;
 
@@ -347,6 +362,9 @@ export class DimensionLine extends Group {
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
     const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.dimensionOutline };
 
+    // ラベル白アウトライン属性（Task 82.2 / Req 32.12）
+    const labelOutline: TextOutlineAttribute = { ...ANNOTATION_DEFAULTS.dimensionLabelOutline };
+
     // 外側 Path（白縁取り）を生成
     // Task 82.1 (Req 32.1, 32.2): outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2
     //   outlineLine.stroke = '#ffffff'
@@ -381,12 +399,13 @@ export class DimensionLine extends Group {
     });
 
     // 寸法値ラベル（FabricText）を生成
-    // Task 82.1 では空テキストで初期化。Task 82.2 で labelOutline (paintFirst) を適用する。
+    // Task 82.2 (Req 32.12): labelOutline 有効時に paintFirst/stroke/strokeWidth/strokeUniform を初期適用
     const centerPos: Point = {
       x: (startPoint.x + endPoint.x) / 2,
       y: (startPoint.y + endPoint.y) / 2,
     };
-    const labelText = new FabricText('', {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const labelTextOptions: any = {
       fontSize: DEFAULT_LABEL_STYLE.fontSize,
       fill: DEFAULT_LABEL_STYLE.fontColor,
       fontFamily: 'Arial, sans-serif',
@@ -396,7 +415,14 @@ export class DimensionLine extends Group {
       originY: 'center',
       selectable: false,
       evented: false,
-    });
+    };
+    if (labelOutline.enabled) {
+      labelTextOptions.paintFirst = 'stroke';
+      labelTextOptions.stroke = '#ffffff';
+      labelTextOptions.strokeWidth = DEFAULT_LABEL_STYLE.fontSize * labelOutline.widthRatio;
+      labelTextOptions.strokeUniform = true;
+    }
+    const labelText = new FabricText('', labelTextOptions);
 
     // Group を初期化（outline → body → label の順で重ね、label が最上位に描画される）
     // 本体色/本体線幅は Group 自体にもミラー設定して、既存 consumer の `dim.stroke` /
@@ -424,6 +450,7 @@ export class DimensionLine extends Group {
     this._length = length;
     this._dimensionAngle = normalizeAngle(dimensionAngle);
     this._outline = outline;
+    this._labelOutline = labelOutline;
     this._outlineLine = outlineLine;
     this._bodyLine = bodyLine;
     this._labelText = labelText;
@@ -689,6 +716,70 @@ export class DimensionLine extends Group {
   }
 
   // ==========================================================================
+  // ラベル白アウトライン属性の更新（Task 82.2 / Req 32.12）
+  // ==========================================================================
+
+  /**
+   * ラベル白アウトライン属性を部分更新
+   *
+   * Task 82.2 (Req 32.12):
+   * - enabled=true のとき labelText に `paintFirst='stroke'`, `stroke='#ffffff'`,
+   *   `strokeWidth = fontSize * widthRatio`, `strokeUniform=true` を適用する
+   * - enabled=false のとき labelText の `stroke=''`, `strokeWidth=0` で無効化する
+   * - 線部の `outline` 属性とは独立に状態遷移する（互いに影響しない）
+   *
+   * canvas にアタッチ済みなら `object:modified` イベントを発火する
+   * （Undo/Redo 履歴記録のため、Polyline/Arrow/Text と同方針）。
+   *
+   * @param next 部分更新する属性
+   */
+  setLabelOutline(next: Partial<TextOutlineAttribute>): void {
+    this._labelOutline = { ...this._labelOutline, ...next };
+
+    this._applyLabelOutlineToText();
+
+    // canvas にアタッチ済みなら object:modified を発火する。canvas 未アタッチ時は no-op。
+    const attachedCanvas = (
+      this as unknown as { canvas?: { fire?: (event: string, options?: unknown) => void } }
+    ).canvas;
+    attachedCanvas?.fire?.('object:modified', { target: this });
+  }
+
+  /**
+   * 現在のラベル白アウトライン属性を取得
+   *
+   * @returns 現在の labelOutline 属性のコピー
+   */
+  getLabelOutline(): TextOutlineAttribute | undefined {
+    return { ...this._labelOutline };
+  }
+
+  /**
+   * 現在の `_labelOutline` 状態と labelText.fontSize を元に labelText の描画属性を再適用する
+   *
+   * Task 82.2 (Req 32.12): `setLabelOutline` および フォントサイズ/寸法値変更時に呼び出される集約処理。
+   * - enabled=true: paintFirst='stroke', stroke='#ffffff',
+   *   strokeWidth = fontSize * widthRatio, strokeUniform=true
+   * - enabled=false: stroke='', strokeWidth=0
+   */
+  private _applyLabelOutlineToText(): void {
+    const fontSize = (this._labelText.fontSize as number) ?? DEFAULT_LABEL_STYLE.fontSize;
+    if (this._labelOutline.enabled) {
+      this._labelText.set({
+        paintFirst: 'stroke',
+        stroke: '#ffffff',
+        strokeWidth: fontSize * this._labelOutline.widthRatio,
+        strokeUniform: true,
+      });
+    } else {
+      this._labelText.set({
+        stroke: '',
+        strokeWidth: 0,
+      });
+    }
+  }
+
+  // ==========================================================================
   // 寸法値の管理
   // ==========================================================================
 
@@ -772,6 +863,10 @@ export class DimensionLine extends Group {
     const centerPos = this._calculateCenterPosition();
     this._labelText.set({ left: centerPos.x, top: centerPos.y });
 
+    // Task 82.2 (Req 32.12): フォントサイズが変わった可能性があるため
+    // labelOutline.strokeWidth を fontSize * widthRatio で再計算する。
+    this._applyLabelOutlineToText();
+
     // 値が空ならラベル無し扱い、それ以外は有り扱い
     this._hasLabel = labelText.length > 0;
 
@@ -828,6 +923,8 @@ export class DimensionLine extends Group {
 
   /**
    * ラベルスタイルを個別に更新（Task 14.3）
+   *
+   * Task 82.2 (Req 32.12): fontSize 変更時は labelOutline.strokeWidth を再計算する。
    */
   setLabelStyle(style: Partial<DimensionLabelStyle>): void {
     this._labelStyle = { ...this._labelStyle, ...style };
@@ -836,6 +933,8 @@ export class DimensionLine extends Group {
     // 背景色は本実装（82.1）では描画しないが、シリアライズに含めるため保持する。
     if (style.fontSize !== undefined) {
       this._labelText.set('fontSize', style.fontSize);
+      // Task 82.2: fontSize 変更時に labelOutline.strokeWidth を再計算
+      this._applyLabelOutlineToText();
     }
     if (style.fontColor !== undefined) {
       this._labelText.set('fill', style.fontColor);

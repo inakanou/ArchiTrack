@@ -2126,7 +2126,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: 寸法線ツールで描画した Dimension が Group（3 子）となり、線部に白縁取りが描画される
   - _Requirements: 32.1, 32.2, 32.3, 32.4_
   - _Boundary: DimensionTool_
-- [ ] 82.2 寸法値ラベルの白アウトライン適用と labelOutline 属性の独立保持
+- [x] 82.2 寸法値ラベルの白アウトライン適用と labelOutline 属性の独立保持
   - `labelText.paintFirst = 'stroke'`、`labelText.stroke = '#ffffff'`、`labelText.strokeWidth = fontSize * labelOutline.widthRatio`、`labelText.strokeUniform = true` を適用する
   - `Dimension` に `setLabelOutline / getLabelOutline` を追加し、`outline`（線部）と `labelOutline`（ラベル部）が互いに独立に状態遷移する
   - 寸法値変更時に `labelText.strokeWidth` を `fontSize * labelOutline.widthRatio` で再計算する
