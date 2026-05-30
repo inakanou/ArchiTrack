@@ -275,4 +275,82 @@ describe('bulkExportService - 順次レンダリング + JSZip パッケージ�
     expect(result.failures).toEqual([]);
     expect(mockRenderImage).not.toHaveBeenCalled();
   });
+
+  // ==========================================================================
+  // Task 84.2: AbortSignal によるキャンセル経路
+  // ==========================================================================
+
+  it('5 画像処理中に abort すると status: cancelled で resolve し zipBlob が undefined になる', async () => {
+    // 5 画像のうち 2 件処理完了後に abort を発火させ、
+    // 残り 3 件は処理されず、ZIP も生成されないことを観測する。
+    const images = [
+      makeImage({ id: 'img-1', fileName: 'a.jpg', displayOrder: 0 }),
+      makeImage({ id: 'img-2', fileName: 'b.jpg', displayOrder: 1 }),
+      makeImage({ id: 'img-3', fileName: 'c.jpg', displayOrder: 2 }),
+      makeImage({ id: 'img-4', fileName: 'd.jpg', displayOrder: 3 }),
+      makeImage({ id: 'img-5', fileName: 'e.jpg', displayOrder: 4 }),
+    ];
+
+    const controller = new AbortController();
+
+    // 2 件処理完了したタイミングで abort を呼ぶ
+    let processedCount = 0;
+    mockRenderImage.mockImplementation(async (imageInfo: SurveyImageInfo) => {
+      processedCount += 1;
+      if (processedCount === 2) {
+        // 2 件目の renderImage 解決後に abort をスケジュール
+        // （次反復先頭または当該反復内の post-render チェックで cancelled になる）
+        controller.abort();
+      }
+      return { imageInfo, dataUrl: dummyDataUrl };
+    });
+
+    const service = createBulkExportService();
+    const progressLog: BulkExportProgress[] = [];
+
+    const result = await service.execute(
+      makeInput({ images }),
+      (p) => progressLog.push(p),
+      controller.signal
+    );
+
+    expect(result.status).toBe('cancelled');
+    expect(result.zipBlob).toBeUndefined();
+    expect(result.zipFileName).toBeUndefined();
+    expect(result.failures).toEqual([]);
+
+    // 残り 3 件（img-3, img-4, img-5）は render が呼ばれないこと
+    expect(mockRenderImage).toHaveBeenCalledTimes(2);
+    // 最終 progress.done は 2 を超えない（abort により ZIP 追加・進捗通知が止まる）
+    expect(progressLog.length).toBeLessThanOrEqual(2);
+  });
+
+  it('renderImage 完了直後に abort された場合も ZIP に追加せず cancelled で resolve する', async () => {
+    // 1 画像入力で renderImage 進行中に abort を発火させ、
+    // renderImage 完了後・zip.file 追加前の abort 検知で cancelled になることを観測する。
+    const image = makeImage({ id: 'img-1', fileName: 'only.jpg', displayOrder: 0 });
+    const controller = new AbortController();
+
+    mockRenderImage.mockImplementation(async (imageInfo: SurveyImageInfo) => {
+      // renderImage 自体の進行中に abort を発火させる
+      controller.abort();
+      return { imageInfo, dataUrl: dummyDataUrl };
+    });
+
+    const service = createBulkExportService();
+    const progressLog: BulkExportProgress[] = [];
+
+    const result = await service.execute(
+      makeInput({ images: [image] }),
+      (p) => progressLog.push(p),
+      controller.signal
+    );
+
+    expect(result.status).toBe('cancelled');
+    expect(result.zipBlob).toBeUndefined();
+    expect(result.zipFileName).toBeUndefined();
+    expect(result.failures).toEqual([]);
+    // 進捗 callback は呼ばれない（abort 検知後に通知されない）
+    expect(progressLog).toEqual([]);
+  });
 });

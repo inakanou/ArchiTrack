@@ -2175,7 +2175,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: 単体テストで 3 画像入力に対し 3 エントリの ZIP Blob が返り、命名が `zip-naming` 規則どおりであることを確認する
   - _Requirements: 31.5, 31.6, 31.7, 31.8_
   - _Boundary: bulkExportService_
-- [ ] 84.2 AbortSignal によるキャンセル経路
+- [x] 84.2 AbortSignal によるキャンセル経路
   - 各ループ反復で `signal.aborted` を確認し、true なら ZIP 生成せず `status: 'cancelled'` で resolve する
   - 完了またはキャンセル時に内部の一時生成物（中間 Blob、Promise 参照）を解放する
   - 観測可能な完了状態: 5 画像処理中に `controller.abort()` を呼ぶと `status: 'cancelled'` で resolve し、ZIP Blob が undefined であることを単体テストで確認する
