@@ -2235,7 +2235,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: SurveyDetailPage_
 
 - [ ] 88. AnnotationRendererService の 6 形状 Group 対応と既存 caller 後方互換確認
-- [ ] 88.1 Group 6 形状の `enlivenObjects` 復元と toDataURL 出力検証
+- [x] 88.1 Group 6 形状の `enlivenObjects` 復元と toDataURL 出力検証
   - `AnnotationRendererService.renderImage()` 経由で Group 化 6 形状が正しく復元され、`toDataURL` 出力で白縁取りが含まれることを検証する（色サンプリング）
   - Dimension の `labelText.paintFirst` 適用後のラベルレンダリングも同経路で検証する
   - 観測可能な完了状態: 統合テスト `AnnotationRendererService.group-shapes.test.ts` で 6 形状すべての白縁取り画素確認と Dimension ラベル白アウトラインの画素確認が合格する
