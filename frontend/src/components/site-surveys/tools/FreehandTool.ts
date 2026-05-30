@@ -60,6 +60,9 @@ export interface FreehandOptions {
 
 /**
  * フリーハンドのシリアライズ形式
+ *
+ * Task 81.2: `outline?: ShapeOutlineAttribute` を追加（Req 32.6, 32.7）。
+ * `outline` が未定義のデータは白縁取り無しの従来表現で復元される（Req 32.9 後方互換）。
  */
 export interface FreehandJSON {
   type: 'freehand';
@@ -73,6 +76,8 @@ export interface FreehandJSON {
   left?: number;
   /** 移動後の位置Y（オプション、後方互換性のため） */
   top?: number;
+  /** 白縁取り属性（未設定は従来表現フォールバック） */
+  outline?: ShapeOutlineAttribute;
 }
 
 // ============================================================================
@@ -375,7 +380,9 @@ export class FreehandPath extends Group {
   /**
    * オブジェクトをJSON形式にシリアライズ
    *
-   * Task 81.1: outline 属性は 81.2 で追加予定。本タスクでは従来形式（白縁取り情報なし）を維持。
+   * Task 81.2 (Req 32.6):
+   * - `outline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   *   design.md §Freehand (Group) Postconditions「新規保存時は必ず outline を含める」に従う。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): FreehandJSON {
@@ -389,6 +396,7 @@ export class FreehandPath extends Group {
       strokeLineJoin: this.strokeLineJoin,
       left: this.left,
       top: this.top,
+      outline: { ...this._outline },
     };
   }
 
@@ -397,28 +405,103 @@ export class FreehandPath extends Group {
    *
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
    *
-   * Task 81.1: outline 属性は 81.2 で追加予定。本タスクでは従来形式の復元のみ実装。
+   * Task 81.2 (Req 32.7, 32.9, design.md Migration 安全性):
+   * - `object.outline` 定義時は setOutline で復元（Req 32.7）
+   * - `object.outline` 未定義の旧データは「白縁取り無し」の従来表現で復元する（Req 32.9 後方互換）
+   * - 必須フィールド（pathData 文字列・stroke/strokeWidth/fill）欠落や
+   *   null/undefined 受領時は安全な既定値（最小限の水平線パス、stroke 黒、strokeWidth 2、
+   *   fill 'transparent'）で復元し、console.warn を送出する（防御的フォールバック）。
+   *   フリーハンドは開放形状のため fill 既定は 'transparent' を採用（design.md 5347 行）。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたFreehandPathインスタンス
    */
   static override fromObject(object: FreehandJSON): Promise<FreehandPath> {
-    const freehand = new FreehandPath(object.pathData, {
-      stroke: object.stroke,
-      strokeWidth: object.strokeWidth,
-      fill: object.fill,
-      strokeLineCap: object.strokeLineCap as 'butt' | 'round' | 'square',
-      strokeLineJoin: object.strokeLineJoin as 'bevel' | 'round' | 'miter',
+    // 防御的バリデーション: 必須フィールドの存在確認
+    // pathData 欠落時は最低限の 2 点直線（原点付近）でフォールバック。
+    const safeDefaults = {
+      pathData: 'M 0 0 L 1 0',
+      stroke: '#000000',
+      strokeWidth: 2,
+      fill: 'transparent',
+      strokeLineCap: 'round' as const,
+      strokeLineJoin: 'round' as const,
+    };
+
+    const isValidPathData =
+      object != null &&
+      typeof object === 'object' &&
+      typeof object.pathData === 'string' &&
+      object.pathData.length > 0;
+
+    const hasValidRequiredFields =
+      object != null &&
+      typeof object === 'object' &&
+      isValidPathData &&
+      typeof object.stroke === 'string' &&
+      typeof object.strokeWidth === 'number' &&
+      typeof object.fill === 'string';
+
+    let pathData: string;
+    let stroke: string;
+    let strokeWidth: number;
+    let fill: string;
+    let strokeLineCap: 'butt' | 'round' | 'square';
+    let strokeLineJoin: 'bevel' | 'round' | 'miter';
+
+    if (!hasValidRequiredFields) {
+      // 不正データ: 警告ログ + 安全な既定値で復元
+      console.warn('[FreehandTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      pathData = safeDefaults.pathData;
+      stroke = safeDefaults.stroke;
+      strokeWidth = safeDefaults.strokeWidth;
+      fill = safeDefaults.fill;
+      strokeLineCap = safeDefaults.strokeLineCap;
+      strokeLineJoin = safeDefaults.strokeLineJoin;
+    } else {
+      pathData = object.pathData;
+      stroke = object.stroke;
+      strokeWidth = object.strokeWidth;
+      fill = object.fill;
+      strokeLineCap =
+        typeof object.strokeLineCap === 'string'
+          ? (object.strokeLineCap as 'butt' | 'round' | 'square')
+          : safeDefaults.strokeLineCap;
+      strokeLineJoin =
+        typeof object.strokeLineJoin === 'string'
+          ? (object.strokeLineJoin as 'bevel' | 'round' | 'miter')
+          : safeDefaults.strokeLineJoin;
+    }
+
+    const freehand = new FreehandPath(pathData, {
+      stroke,
+      strokeWidth,
+      fill,
+      strokeLineCap,
+      strokeLineJoin,
     });
 
     // 移動後の位置を復元（後方互換性のためオプション）
-    if (object.left !== undefined) {
+    if (hasValidRequiredFields && object.left !== undefined) {
       freehand.set('left', object.left);
     }
-    if (object.top !== undefined) {
+    if (hasValidRequiredFields && object.top !== undefined) {
       freehand.set('top', object.top);
     }
     freehand.setCoords();
+
+    // outline 属性の復元
+    if (hasValidRequiredFields && object.outline !== undefined) {
+      // Req 32.7: 保存された outline を復元
+      freehand.setOutline(object.outline);
+    } else {
+      // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.freehandOutline（enabled=true）を無効化し、
+      //   outlinePath.opacity=0 + width=0 で「白縁取り無し」状態にする。
+      freehand.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+    }
 
     return Promise.resolve(freehand);
   }
