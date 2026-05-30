@@ -2168,7 +2168,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: ExportSettingsForm, ImageExportDialog_
 
 - [ ] 84. (P) bulkExportService コア実装
-- [ ] 84.1 順次レンダリングと JSZip パッケージング
+- [x] 84.1 順次レンダリングと JSZip パッケージング
   - `execute(input, onProgress, signal)` で `AnnotationRendererService.renderImage()` を順次呼び、戻りの Blob を JSZip インスタンスに `zip.file(name, blob)` で追加する
   - 完了時に `JSZip.generateAsync({ type: 'blob' })` で単一 ZIP Blob を生成する
   - ZIP 内ファイル名は `zip-naming.buildEntryName()` を用いて命名する
