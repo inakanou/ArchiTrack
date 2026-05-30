@@ -607,4 +607,245 @@ describe('SurveyImageGrid', () => {
       expect(gridContainer).toBeInTheDocument();
     });
   });
+
+  // ========================================================================
+  // 複数選択 UI テスト (Task 87.2 / Requirement 31.2, 31.3)
+  // ========================================================================
+
+  describe('複数選択 UI', () => {
+    it('selectedImageIds と onSelectionChange の両方を指定するとチェックボックスが表示される', () => {
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      // 各画像にチェックボックスが表示される
+      expect(screen.getByTestId('image-checkbox-image-1')).toBeInTheDocument();
+      expect(screen.getByTestId('image-checkbox-image-2')).toBeInTheDocument();
+      expect(screen.getByTestId('image-checkbox-image-3')).toBeInTheDocument();
+    });
+
+    it('selectedImageIds 未指定時はチェックボックスが表示されない（後方互換）', () => {
+      render(
+        <SurveyImageGrid images={mockImages} onImageClick={vi.fn()} onOrderChange={vi.fn()} />
+      );
+
+      expect(screen.queryByTestId('image-checkbox-image-1')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('image-checkbox-image-2')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('image-checkbox-image-3')).not.toBeInTheDocument();
+    });
+
+    it('onSelectionChange 未指定時もチェックボックスが表示されない（後方互換）', () => {
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>(['image-1'])}
+        />
+      );
+
+      expect(screen.queryByTestId('image-checkbox-image-1')).not.toBeInTheDocument();
+    });
+
+    it('selectedImageIds に含まれる画像のチェックボックスが ON になる', () => {
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>(['image-1', 'image-3'])}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('image-checkbox-image-1')).toBeChecked();
+      expect(screen.getByTestId('image-checkbox-image-2')).not.toBeChecked();
+      expect(screen.getByTestId('image-checkbox-image-3')).toBeChecked();
+    });
+
+    it('未選択のチェックボックスを ON にすると onSelectionChange が追加後の Set で発火する', () => {
+      const onSelectionChange = vi.fn();
+
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>(['image-1'])}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('image-checkbox-image-2'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      const nextSet = onSelectionChange.mock.calls[0]?.[0] as Set<string>;
+      expect(nextSet).toBeInstanceOf(Set);
+      expect(Array.from(nextSet).sort()).toEqual(['image-1', 'image-2']);
+    });
+
+    it('選択済みのチェックボックスを OFF にすると onSelectionChange が削除後の Set で発火する', () => {
+      const onSelectionChange = vi.fn();
+
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>(['image-1', 'image-2'])}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('image-checkbox-image-1'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      const nextSet = onSelectionChange.mock.calls[0]?.[0] as Set<string>;
+      expect(nextSet).toBeInstanceOf(Set);
+      expect(Array.from(nextSet)).toEqual(['image-2']);
+    });
+
+    it('呼び出し元の selectedImageIds Set を直接ミューテートせず、新しい Set を渡す（不変性）', () => {
+      const original = new Set<string>(['image-1']);
+      const onSelectionChange = vi.fn();
+
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={original}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('image-checkbox-image-2'));
+
+      const nextSet = onSelectionChange.mock.calls[0]?.[0] as Set<string>;
+      expect(nextSet).not.toBe(original);
+      expect(Array.from(original)).toEqual(['image-1']);
+    });
+
+    it('チェックボックスをクリックしても画像クリック（ビューア起動）は発火しない', () => {
+      const onImageClick = vi.fn();
+      const onSelectionChange = vi.fn();
+
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={onImageClick}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('image-checkbox-image-1'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      expect(onImageClick).not.toHaveBeenCalled();
+    });
+
+    it('チェックボックスに aria-label が付与される（アクセシビリティ）', () => {
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('image-checkbox-image-1')).toHaveAttribute(
+        'aria-label',
+        '画像を選択: image-1.jpg'
+      );
+    });
+
+    it('選択 UI 有効時もドラッグ可能属性は維持される（既存挙動の回帰防止）', () => {
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      const imageContainers = screen.getAllByRole('button');
+      imageContainers.forEach((container) => {
+        expect(container).toHaveAttribute('draggable', 'true');
+      });
+    });
+
+    it('選択 UI 有効時もドロップによる順序変更が動作する（既存挙動の回帰防止）', () => {
+      const onOrderChange = vi.fn();
+
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={vi.fn()}
+          onOrderChange={onOrderChange}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      const imageContainers = screen.getAllByRole('button');
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue('image-1'),
+        dropEffect: 'move',
+        effectAllowed: 'move',
+      } as unknown as DataTransfer;
+
+      const firstContainer = imageContainers[0];
+      const thirdContainer = imageContainers[2];
+
+      if (firstContainer && thirdContainer) {
+        fireEvent.dragStart(firstContainer, { dataTransfer });
+        fireEvent.dragOver(thirdContainer, { dataTransfer });
+        fireEvent.drop(thirdContainer, { dataTransfer });
+      }
+
+      expect(onOrderChange).toHaveBeenCalledTimes(1);
+      expect(onOrderChange).toHaveBeenCalledWith([
+        { id: 'image-2', order: 1 },
+        { id: 'image-3', order: 2 },
+        { id: 'image-1', order: 3 },
+      ]);
+    });
+
+    it('選択 UI 有効時も画像本体クリックでビューアが起動する（既存挙動の回帰防止）', async () => {
+      const user = userEvent.setup();
+      const onImageClick = vi.fn();
+
+      render(
+        <SurveyImageGrid
+          images={mockImages}
+          onImageClick={onImageClick}
+          onOrderChange={vi.fn()}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      const imageElements = screen.getAllByRole('img');
+      const firstImage = imageElements[0];
+      if (firstImage) {
+        await user.click(firstImage);
+      }
+
+      expect(onImageClick).toHaveBeenCalledTimes(1);
+      expect(onImageClick).toHaveBeenCalledWith(mockImages[0]);
+    });
+  });
 });

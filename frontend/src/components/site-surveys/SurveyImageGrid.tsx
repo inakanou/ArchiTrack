@@ -39,6 +39,18 @@ export interface SurveyImageGridProps {
   showOrderNumbers?: boolean;
   /** グリッドカラム数（デフォルト: 自動） */
   columns?: number;
+  /**
+   * 選択中の画像 ID 集合（Requirement 31.2, 31.3）
+   *
+   * 未指定時は選択機能を表示しない（後方互換）。
+   */
+  selectedImageIds?: Set<string>;
+  /**
+   * 選択変更時のコールバック（Requirement 31.2, 31.3）
+   *
+   * 未指定時は選択機能を表示しない（後方互換）。
+   */
+  onSelectionChange?: (next: Set<string>) => void;
 }
 
 // ============================================================================
@@ -111,6 +123,29 @@ const styles = {
     fontSize: '12px',
     fontWeight: 'bold',
   } as React.CSSProperties,
+  cellWrapper: {
+    position: 'relative' as const,
+  } as React.CSSProperties,
+  selectionCheckboxWrapper: {
+    position: 'absolute' as const,
+    top: '6px',
+    left: '6px',
+    width: '28px',
+    height: '28px',
+    borderRadius: '6px',
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
+  } as React.CSSProperties,
+  selectionCheckbox: {
+    width: '18px',
+    height: '18px',
+    margin: 0,
+    cursor: 'pointer',
+  } as React.CSSProperties,
   emptyState: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -161,7 +196,13 @@ export function SurveyImageGrid({
   isLoading = false,
   showOrderNumbers = false,
   columns,
+  selectedImageIds,
+  onSelectionChange,
 }: SurveyImageGridProps) {
+  // 選択 UI の有効化条件:
+  //   - selectedImageIds と onSelectionChange の両方が指定されている場合に有効
+  //   - 後方互換: 未指定時はチェックボックスを描画しない（既存呼び出し元を破壊しない）
+  const isSelectionEnabled = selectedImageIds !== undefined && onSelectionChange !== undefined;
   // ドラッグ状態の管理
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -285,6 +326,21 @@ export function SurveyImageGrid({
     [onImageClick]
   );
 
+  // 選択トグルハンドラ（Requirement 31.2, 31.3）
+  const handleSelectionToggle = useCallback(
+    (imageId: string, checked: boolean) => {
+      if (!onSelectionChange) return;
+      const next = new Set<string>(selectedImageIds ?? []);
+      if (checked) {
+        next.add(imageId);
+      } else {
+        next.delete(imageId);
+      }
+      onSelectionChange(next);
+    },
+    [onSelectionChange, selectedImageIds]
+  );
+
   // ローディング中でデータがない場合のスケルトン表示
   if (isLoading && images.length === 0) {
     return (
@@ -338,40 +394,74 @@ export function SurveyImageGrid({
           };
 
           return (
-            <button
-              key={image.id}
-              type="button"
-              style={containerStyle}
-              draggable={!readOnly}
-              onClick={() => handleImageClick(image)}
-              onKeyDown={(e) => handleKeyDown(e, image)}
-              onDragStart={(e) => handleDragStart(e, image.id)}
-              onDragOver={handleDragOver}
-              onDragEnter={(e) => handleDragEnter(e, image.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, image.id)}
-              onDragEnd={handleDragEnd}
-              onMouseEnter={() => setHoveredId(image.id)}
-              onMouseLeave={() => setHoveredId(null)}
-              data-dragging={isDragging ? 'true' : undefined}
-              data-drag-over={isDragOver ? 'true' : undefined}
-              aria-label={`画像: ${image.fileName}`}
-            >
-              <img
-                src={image.thumbnailUrl || image.thumbnailPath}
-                alt={image.fileName}
-                style={styles.image}
-                loading="lazy"
-              />
+            <div key={image.id} style={styles.cellWrapper}>
+              <button
+                type="button"
+                style={containerStyle}
+                draggable={!readOnly}
+                onClick={() => handleImageClick(image)}
+                onKeyDown={(e) => handleKeyDown(e, image)}
+                onDragStart={(e) => handleDragStart(e, image.id)}
+                onDragOver={handleDragOver}
+                onDragEnter={(e) => handleDragEnter(e, image.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, image.id)}
+                onDragEnd={handleDragEnd}
+                onMouseEnter={() => setHoveredId(image.id)}
+                onMouseLeave={() => setHoveredId(null)}
+                data-dragging={isDragging ? 'true' : undefined}
+                data-drag-over={isDragOver ? 'true' : undefined}
+                aria-label={`画像: ${image.fileName}`}
+              >
+                <img
+                  src={image.thumbnailUrl || image.thumbnailPath}
+                  alt={image.fileName}
+                  style={styles.image}
+                  loading="lazy"
+                />
 
-              {/* 順序番号 */}
-              {showOrderNumbers && <div style={styles.orderNumber}>{index + 1}</div>}
+                {/* 順序番号 */}
+                {showOrderNumbers && <div style={styles.orderNumber}>{index + 1}</div>}
 
-              {/* ホバー時のファイル情報 */}
-              <div style={infoStyle}>
-                <div>{image.fileName}</div>
-              </div>
-            </button>
+                {/* ホバー時のファイル情報 */}
+                <div style={infoStyle}>
+                  <div>{image.fileName}</div>
+                </div>
+              </button>
+
+              {/* 選択チェックボックス（Requirement 31.2, 31.3）
+                  button の外側、絶対配置で左上に重ねる。これにより:
+                  - button 内に対話的要素をネストしない（HTML 仕様準拠）
+                  - 既存のドラッグ・クリック挙動は無変更
+                  - stopPropagation で親 div のイベント伝播時の競合も防ぐ */}
+              {isSelectionEnabled && (
+                // biome-ignore lint/a11y/useKeyWithClickEvents: クリック伝播停止のための span。フォーカス可能要素は内部の input
+                <span
+                  style={styles.selectionCheckboxWrapper}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  data-testid={`image-checkbox-wrapper-${image.id}`}
+                >
+                  <input
+                    type="checkbox"
+                    style={styles.selectionCheckbox}
+                    checked={selectedImageIds?.has(image.id) ?? false}
+                    onChange={(e) => {
+                      handleSelectionToggle(image.id, e.target.checked);
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    aria-label={`画像を選択: ${image.fileName}`}
+                    data-testid={`image-checkbox-${image.id}`}
+                  />
+                </span>
+              )}
+            </div>
           );
         })}
       </div>

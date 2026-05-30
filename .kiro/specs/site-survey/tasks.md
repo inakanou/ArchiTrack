@@ -2220,7 +2220,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: コンポーネントテストで開始 → 進捗ダイアログ表示、対象 0 件で即時クローズ、`AbortController` がダイアログ間で共有されることが確認できる
   - _Requirements: 31.1, 31.2, 31.4, 31.5, 31.15_
   - _Depends: 83, 84, 85_
-- [ ] 87.2 SurveyImageGrid への複数選択 UI 追加
+- [x] 87.2 SurveyImageGrid への複数選択 UI 追加
   - 各サムネイル左上にチェックボックスを表示し、`selectedImageIds: Set<string>` を親から受領、`onSelectionChange` で同期する
   - 既存のドラッグ順序変更・個別アクションメニュー挙動を維持する
   - 観測可能な完了状態: コンポーネントテストでチェック ON/OFF が `onSelectionChange` を発火し、既存挙動が回帰しないことが確認できる
