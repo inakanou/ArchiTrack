@@ -4,9 +4,12 @@
  * Task 14.1: 寸法線描画機能を実装する
  * Task 14.2: 寸法値入力機能を実装する
  * Task 14.3: 寸法線編集機能を実装する
+ * Task 82.1: Dimension クラスを Group ベースへ再設計
+ *            （outlineLine + bodyLine + labelText の 3 子構成、線部白縁取り）
  *
  * 2点クリックによる寸法線描画、端点間の直線と垂直線（エンドキャップ）、
- * カスタムFabric.jsオブジェクト実装、寸法値ラベル表示を行うモジュールです。
+ * 白縁取り付き Group 構造のカスタム Fabric.js オブジェクト実装、
+ * 寸法値ラベル表示を行うモジュールです。
  *
  * Requirements:
  * - 6.1: 寸法線ツールを選択して2点をクリックすると2点間に寸法線を描画する
@@ -15,14 +18,28 @@
  * - 6.4: 既存の寸法線をクリックすると寸法線を選択状態にして編集可能にする
  * - 6.5: 寸法線の端点をドラッグすると寸法線の位置を調整する
  * - 6.7: 寸法線の色・線の太さをカスタマイズ可能にする
+ * - 32.1: 寸法線部に白色の縁取り線を付与する
+ * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上に設定する
+ * - 32.3: 本体色を変更しても白縁取りは白のまま維持する
+ * - 32.4: 移動・リサイズ・回転・形状変形（端点移動）時に本体と同期して白縁取りを変形する
+ *
+ * Task 82.1 設計メモ:
+ * - 子 3 構成: `outlineLine`（白・幅広 Path） + `bodyLine`（本体色 Path） + `labelText`（FabricText）
+ * - `outline.enabled = false` のときは `outlineLine.opacity = 0`（構造は維持）。labelText には影響しない
+ * - labelText の白アウトライン（paintFirst）は **Task 82.2** で `labelOutline` 属性として独立適用
+ * - toObject/fromObject の outline/labelOutline 拡張は **Task 82.3** で実装する
  *
  * @requirement site-survey/REQ-26.1
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-32.1
+ * @requirement site-survey/REQ-32.2
+ * @requirement site-survey/REQ-32.3
+ * @requirement site-survey/REQ-32.4
  */
 
-import { Path, FabricText, Rect, type Canvas } from 'fabric';
+import { Path, FabricText, Group, type Canvas } from 'fabric';
 
-import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -76,7 +93,7 @@ export interface DimensionLabelStyle {
   fontSize: number;
   /** フォント色 */
   fontColor: string;
-  /** 背景色 */
+  /** 背景色（Task 82.1 以降は子 labelText の背景描画なし。Task 82.3 のシリアライズ互換のため保持） */
   backgroundColor: string;
 }
 
@@ -238,13 +255,17 @@ function generateDimensionLinePath(startPoint: Point, endPoint: Point, capLength
 /**
  * 寸法線クラス
  *
- * Fabric.js Pathを拡張した寸法線オブジェクト。
- * メインライン（端点間の直線）と2つのエンドキャップ（垂直線）で構成される。
+ * Fabric.js Group を拡張した寸法線オブジェクト。
+ * - outlineLine: 白い縁取り Path（本体線幅 + outline.width × 2）
+ * - bodyLine: 本体色の Path
+ * - labelText: 寸法値表示 FabricText（白アウトラインは Task 82.2 で適用）
+ * の 3 子から構成される。
  *
- * Note: ラベル機能は外部のCanvas上で別オブジェクトとして管理する。
- * addLabelToCanvas() / removeLabelFromCanvas() を使用。
+ * `type === 'dimensionLine'` は維持（classRegistry 後方互換）。
+ *
+ * Task 82.1 で `Path` 直接継承から `Group` ベースへ再設計。
  */
-export class DimensionLine extends Path {
+export class DimensionLine extends Group {
   /** 始点 */
   private _startPoint: Point;
 
@@ -263,11 +284,20 @@ export class DimensionLine extends Path {
   /** カスタムデータ */
   customData: DimensionCustomData;
 
-  /** ラベルテキスト（Canvas上に別途追加される） */
-  private _labelText: FabricText | null = null;
+  /** 白縁取り属性（線部、Task 82.1） */
+  private _outline: ShapeOutlineAttribute;
 
-  /** ラベル背景（Canvas上に別途追加される） */
-  private _labelBackground: Rect | null = null;
+  /** 外側の白縁取り Path */
+  private _outlineLine: Path;
+
+  /** 本体色の Path */
+  private _bodyLine: Path;
+
+  /** Group 内の寸法値ラベル（FabricText） */
+  private _labelText: FabricText;
+
+  /** ラベルが描画中かどうか（labelText.text が非空のとき true） */
+  private _hasLabel = false;
 
   /** ラベルスタイル */
   private _labelStyle: DimensionLabelStyle = { ...DEFAULT_LABEL_STYLE };
@@ -277,6 +307,24 @@ export class DimensionLine extends Path {
 
   /** 選択状態フラグ（Task 14.3） */
   private _isSelected = false;
+
+  /** 線色（後方互換: Group 自体にもミラー設定） */
+  declare stroke: string;
+
+  /** 線の太さ（後方互換: Group 自体にもミラー設定） */
+  declare strokeWidth: number;
+
+  /** コントロール表示フラグ */
+  declare hasControls: boolean;
+
+  /** ボーダー表示フラグ */
+  declare hasBorders: boolean;
+
+  /** X軸移動ロック */
+  declare lockMovementX: boolean;
+
+  /** Y軸移動ロック */
+  declare lockMovementY: boolean;
 
   /**
    * DimensionLineコンストラクタ
@@ -293,14 +341,67 @@ export class DimensionLine extends Path {
     const dimensionAngle = calculateAngle(startPoint, endPoint);
     const length = calculateDistance(startPoint, endPoint);
 
-    // SVGパスデータを生成
+    // SVGパスデータを生成（outlineLine と bodyLine で共有）
     const pathData = generateDimensionLinePath(startPoint, endPoint, mergedOptions.capLength);
 
-    // Pathを初期化
-    super(pathData, {
+    // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
+    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.dimensionOutline };
+
+    // 外側 Path（白縁取り）を生成
+    // Task 82.1 (Req 32.1, 32.2): outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2
+    //   outlineLine.stroke = '#ffffff'
+    const outlineLine = new Path(pathData, {
+      stroke: outline.color,
+      strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
+      fill: '',
+      strokeLineCap: 'round',
+      strokeLineJoin: 'round',
+      opacity: outline.enabled ? 1 : 0,
+      originX: 'left',
+      originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // 本体 Path を生成
+    const bodyLine = new Path(pathData, {
       stroke: mergedOptions.stroke,
       strokeWidth: mergedOptions.strokeWidth,
       fill: '',
+      originX: 'left',
+      originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // 寸法値ラベル（FabricText）を生成
+    // Task 82.1 では空テキストで初期化。Task 82.2 で labelOutline (paintFirst) を適用する。
+    const centerPos: Point = {
+      x: (startPoint.x + endPoint.x) / 2,
+      y: (startPoint.y + endPoint.y) / 2,
+    };
+    const labelText = new FabricText('', {
+      fontSize: DEFAULT_LABEL_STYLE.fontSize,
+      fill: DEFAULT_LABEL_STYLE.fontColor,
+      fontFamily: 'Arial, sans-serif',
+      left: centerPos.x,
+      top: centerPos.y,
+      originX: 'center',
+      originY: 'center',
+      selectable: false,
+      evented: false,
+    });
+
+    // Group を初期化（outline → body → label の順で重ね、label が最上位に描画される）
+    // 本体色/本体線幅は Group 自体にもミラー設定して、既存 consumer の `dim.stroke` /
+    // `dim.strokeWidth` 参照（Task 82.1 以前の API）との後方互換を維持する。
+    super([outlineLine, bodyLine, labelText], {
       originX: 'left',
       originY: 'top',
       selectable: true,
@@ -309,6 +410,11 @@ export class DimensionLine extends Path {
       hasBorders: true,
       lockMovementX: false,
       lockMovementY: false,
+      subTargetCheck: false,
+      objectCaching: false,
+      stroke: mergedOptions.stroke,
+      strokeWidth: mergedOptions.strokeWidth,
+      fill: '',
     });
 
     // プロパティを設定
@@ -317,6 +423,12 @@ export class DimensionLine extends Path {
     this._capLength = mergedOptions.capLength;
     this._length = length;
     this._dimensionAngle = normalizeAngle(dimensionAngle);
+    this._outline = outline;
+    this._outlineLine = outlineLine;
+    this._bodyLine = bodyLine;
+    this._labelText = labelText;
+    this.stroke = mergedOptions.stroke;
+    this.strokeWidth = mergedOptions.strokeWidth;
 
     // カスタムデータを初期化
     this.customData = {
@@ -439,6 +551,9 @@ export class DimensionLine extends Path {
 
   /**
    * ジオメトリを更新（端点変更時）
+   *
+   * Task 82.1 (Req 32.4): outlineLine と bodyLine の双方に同一 path data を適用する。
+   * labelText 位置も中央に追従する。
    */
   private _updateGeometry(): void {
     // 角度と距離を再計算
@@ -448,8 +563,13 @@ export class DimensionLine extends Path {
     // 新しいパスデータを生成
     const pathData = generateDimensionLinePath(this._startPoint, this._endPoint, this._capLength);
 
-    // パスを更新（Fabric.js v6のAPIを使用）
-    this._setPath(pathData);
+    // 両方の子 Path を更新（Fabric.js v6/v7 の内部 API）
+    this._outlineLine._setPath(pathData);
+    this._bodyLine._setPath(pathData);
+
+    // labelText の中央位置を更新
+    const centerPos = this._calculateCenterPosition();
+    this._labelText.set({ left: centerPos.x, top: centerPos.y });
 
     // 座標を更新
     this.setCoords();
@@ -470,16 +590,27 @@ export class DimensionLine extends Path {
   // ==========================================================================
 
   /**
-   * 線色を更新
+   * 線色（本体色）を更新
+   *
+   * Task 82.1 (Req 32.3): 白縁取り（outlineLine）の色は常に白のまま維持する。
+   * `dim.stroke` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStroke(color: string): void {
+    this.stroke = color;
+    this._bodyLine.set('stroke', color);
     this.set('stroke', color);
   }
 
   /**
-   * 線の太さを更新
+   * 線の太さ（本体線幅）を更新
+   *
+   * Task 82.1 (Req 32.2): outlineLine の線幅も `width + outline.width * 2` に同期更新する。
+   * `dim.strokeWidth` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStrokeWidth(width: number): void {
+    this.strokeWidth = width;
+    this._bodyLine.set('strokeWidth', width);
+    this._outlineLine.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
 
@@ -505,10 +636,56 @@ export class DimensionLine extends Path {
    */
   getStyle(): DimensionLineOptions {
     return {
-      stroke: this.stroke as string,
-      strokeWidth: this.strokeWidth as number,
+      stroke: (this._bodyLine.stroke as string) ?? this.stroke,
+      strokeWidth: (this._bodyLine.strokeWidth as number) ?? this.strokeWidth,
       capLength: this._capLength,
     };
+  }
+
+  // ==========================================================================
+  // 白縁取り属性の更新（Task 82.1）
+  // ==========================================================================
+
+  /**
+   * 白縁取り属性を部分更新
+   *
+   * Task 82.1 (Req 32.1, 32.2, 32.3):
+   * - enabled=false のときは outlineLine.opacity=0（構造は保持、labelText は影響を受けない）
+   * - enabled=true のときは outlineLine.opacity=1 かつ stroke/width を再適用
+   *
+   * Polyline/Arrow と同方針で canvas にアタッチ済みなら `object:modified` イベントを発火する。
+   *
+   * @param next 部分更新する属性
+   */
+  setOutline(next: Partial<ShapeOutlineAttribute>): void {
+    this._outline = { ...this._outline, ...next };
+
+    if (this._outline.enabled) {
+      const bodyStrokeWidth = (this._bodyLine.strokeWidth as number) ?? 0;
+      this._outlineLine.set({
+        opacity: 1,
+        stroke: this._outline.color,
+        strokeWidth: bodyStrokeWidth + this._outline.width * 2,
+      });
+    } else {
+      this._outlineLine.set({ opacity: 0 });
+    }
+
+    // Arrow/Polyline と同方針: canvas にアタッチ済みなら object:modified を発火する。
+    // canvas 未アタッチ時は安全に no-op。
+    const attachedCanvas = (
+      this as unknown as { canvas?: { fire?: (event: string, options?: unknown) => void } }
+    ).canvas;
+    attachedCanvas?.fire?.('object:modified', { target: this });
+  }
+
+  /**
+   * 現在の白縁取り属性を取得
+   *
+   * @returns 現在の outline 属性のコピー
+   */
+  getOutline(): ShapeOutlineAttribute | undefined {
+    return { ...this._outline };
   }
 
   // ==========================================================================
@@ -551,13 +728,17 @@ export class DimensionLine extends Path {
   }
 
   // ==========================================================================
-  // ラベル機能（Task 14.2）- 外部Canvas管理方式
+  // ラベル機能（Task 14.2 / 82.1）
+  //
+  // Task 82.1 以降、labelText は Group の子として管理する。
+  // 既存 API シグネチャ（Canvas を受け取る形）は維持し、内部実装を Group 子更新に
+  // 切り替える。Canvas 引数は描画フラッシュ用に renderAll を呼ぶためだけに使用する。
   // ==========================================================================
 
   /**
-   * 寸法値とラベルを設定してCanvasに追加
+   * 寸法値とラベルを設定して Group 内の labelText を更新
    *
-   * @param canvas Fabric.js Canvas
+   * @param canvas Fabric.js Canvas（renderAll 呼び出しに使用）
    * @param value 寸法値
    * @param unit 単位
    * @param style ラベルスタイル（オプション）
@@ -577,149 +758,51 @@ export class DimensionLine extends Path {
       this._labelStyle = { ...this._labelStyle, ...style };
     }
 
-    // 空の値の場合はラベルを削除
-    if (!value) {
-      this.removeLabelFromCanvas(canvas);
-      return;
-    }
-
     // ラベルテキストを生成
     const labelText = unit ? `${value} ${unit}` : value;
 
-    // 既存のラベルがある場合は更新、なければ作成
-    if (this._labelText) {
-      this._updateLabelText(labelText);
-      canvas.renderAll();
-    } else {
-      this._createLabelOnCanvas(canvas, labelText);
-    }
-  }
-
-  /**
-   * ラベルをCanvasに作成
-   */
-  private _createLabelOnCanvas(canvas: Canvas, text: string): void {
-    const centerPos = this._calculateCenterPosition();
-    const padding = 4;
-
-    // テキストを作成
-    this._labelText = new FabricText(text, {
+    // labelText を更新
+    this._labelText.set({
+      text: labelText,
       fontSize: this._labelStyle.fontSize,
       fill: this._labelStyle.fontColor,
-      fontFamily: 'Arial, sans-serif',
-      selectable: false,
-      evented: false,
     });
 
-    // テキストサイズを取得
-    const textWidth = this._labelText.width || 0;
-    const textHeight = this._labelText.height || 0;
+    // 中央位置を更新
+    const centerPos = this._calculateCenterPosition();
+    this._labelText.set({ left: centerPos.x, top: centerPos.y });
 
-    // テキストを中央に配置
-    this._labelText.set({
-      left: centerPos.x - textWidth / 2,
-      top: centerPos.y - textHeight / 2,
-    });
+    // 値が空ならラベル無し扱い、それ以外は有り扱い
+    this._hasLabel = labelText.length > 0;
 
-    // 背景を作成
-    this._labelBackground = new Rect({
-      left: centerPos.x - textWidth / 2 - padding,
-      top: centerPos.y - textHeight / 2 - padding,
-      width: textWidth + padding * 2,
-      height: textHeight + padding * 2,
-      fill: this._labelStyle.backgroundColor,
-      selectable: false,
-      evented: false,
-    });
-
-    // Canvasに追加（背景を先に追加）
-    canvas.add(this._labelBackground);
-    canvas.add(this._labelText);
     canvas.renderAll();
   }
 
   /**
-   * ラベルテキストを更新
-   */
-  private _updateLabelText(text: string): void {
-    if (this._labelText && this._labelBackground) {
-      const centerPos = this._calculateCenterPosition();
-      const padding = 4;
-
-      // テキストを更新
-      this._labelText.set({
-        text: text,
-        fontSize: this._labelStyle.fontSize,
-        fill: this._labelStyle.fontColor,
-      });
-
-      // テキストサイズを再取得
-      const textWidth = this._labelText.width || 0;
-      const textHeight = this._labelText.height || 0;
-
-      // テキストを中央に配置
-      this._labelText.set({
-        left: centerPos.x - textWidth / 2,
-        top: centerPos.y - textHeight / 2,
-      });
-
-      // 背景を更新
-      this._labelBackground.set({
-        left: centerPos.x - textWidth / 2 - padding,
-        top: centerPos.y - textHeight / 2 - padding,
-        width: textWidth + padding * 2,
-        height: textHeight + padding * 2,
-        fill: this._labelStyle.backgroundColor,
-      });
-    }
-  }
-
-  /**
-   * ラベルをCanvasから削除
+   * ラベルを削除（テキストを空にする）
+   *
+   * Task 82.1 以降、labelText は Group の子として常駐するため、
+   * 外部 Canvas からの remove ではなく labelText.text を空にする。
    */
   removeLabelFromCanvas(canvas: Canvas): void {
-    if (this._labelText) {
-      canvas.remove(this._labelText);
-      this._labelText = null;
-    }
-    if (this._labelBackground) {
-      canvas.remove(this._labelBackground);
-      this._labelBackground = null;
-    }
+    this._labelText.set({ text: '' });
+    this._hasLabel = false;
     canvas.renderAll();
   }
 
   /**
-   * ラベル位置を更新（DimensionLine移動時に呼び出す）
+   * ラベル位置を更新（DimensionLine 移動時に呼び出す）
    */
   updateLabelPosition(): void {
-    if (this._labelText && this._labelBackground) {
-      const centerPos = this._calculateCenterPosition();
-      const textWidth = this._labelText.width || 0;
-      const textHeight = this._labelText.height || 0;
-      const padding = 4;
-
-      // ラベルテキストを中央に配置
-      this._labelText.set({
-        left: centerPos.x - textWidth / 2,
-        top: centerPos.y - textHeight / 2,
-      });
-
-      // 背景も更新
-      this._labelBackground.set({
-        left: centerPos.x - textWidth / 2 - padding,
-        top: centerPos.y - textHeight / 2 - padding,
-        width: textWidth + padding * 2,
-        height: textHeight + padding * 2,
-      });
-    }
+    const centerPos = this._calculateCenterPosition();
+    this._labelText.set({ left: centerPos.x, top: centerPos.y });
   }
 
   /**
    * ラベルが存在するかどうか
    */
   hasLabel(): boolean {
-    return this._labelText !== null;
+    return this._hasLabel;
   }
 
   /**
@@ -749,17 +832,13 @@ export class DimensionLine extends Path {
   setLabelStyle(style: Partial<DimensionLabelStyle>): void {
     this._labelStyle = { ...this._labelStyle, ...style };
 
-    // ラベルが存在する場合は更新を反映
-    if (this._labelText) {
-      if (style.fontSize !== undefined) {
-        this._labelText.set('fontSize', style.fontSize);
-      }
-      if (style.fontColor !== undefined) {
-        this._labelText.set('fill', style.fontColor);
-      }
+    // ラベル中の FabricText に対しても fontSize / fontColor を反映する。
+    // 背景色は本実装（82.1）では描画しないが、シリアライズに含めるため保持する。
+    if (style.fontSize !== undefined) {
+      this._labelText.set('fontSize', style.fontSize);
     }
-    if (this._labelBackground && style.backgroundColor !== undefined) {
-      this._labelBackground.set('fill', style.backgroundColor);
+    if (style.fontColor !== undefined) {
+      this._labelText.set('fill', style.fontColor);
     }
   }
 
@@ -808,6 +887,9 @@ export class DimensionLine extends Path {
 
   // ==========================================================================
   // シリアライズ
+  //
+  // Note: Task 82.3 で outline / labelOutline を含む拡張シリアライズへ拡張する。
+  // 本 82.1 では既存の DimensionLineJSON 形を維持する。
   // ==========================================================================
 
   /**
@@ -819,8 +901,8 @@ export class DimensionLine extends Path {
       type: 'dimensionLine' as const,
       startPoint: this.startPoint,
       endPoint: this.endPoint,
-      stroke: this.stroke as string,
-      strokeWidth: this.strokeWidth as number,
+      stroke: (this._bodyLine.stroke as string) ?? this.stroke,
+      strokeWidth: (this._bodyLine.strokeWidth as number) ?? this.strokeWidth,
       capLength: this._capLength,
       customData: { ...this.customData },
     };

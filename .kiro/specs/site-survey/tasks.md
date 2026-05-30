@@ -2120,7 +2120,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: FreehandTool_
 
 - [ ] 82. (P) Dimension の Group 化と独立 2 属性（outline + labelOutline）
-- [ ] 82.1 Dimension クラスを Group ベースへ再設計
+- [x] 82.1 Dimension クラスを Group ベースへ再設計
   - 寸法線部を `outlineLine` + `bodyLine`、ラベル部を `labelText` の 3 子で構成する Group へ再設計する
   - `outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2` および `outlineLine.stroke = '#ffffff'` を設定する
   - 観測可能な完了状態: 寸法線ツールで描画した Dimension が Group（3 子）となり、線部に白縁取りが描画される

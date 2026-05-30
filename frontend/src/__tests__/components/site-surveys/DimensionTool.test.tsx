@@ -153,10 +153,58 @@ vi.mock('fabric', () => {
     }
   }
 
+  // Groupモック - Task 82.1 で DimensionLine が Group 継承に変更
+  class MockGroup {
+    _objects: unknown[];
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    hasControls: boolean;
+    hasBorders: boolean;
+    lockMovementX: boolean;
+    lockMovementY: boolean;
+    subTargetCheck: boolean;
+
+    constructor(objects?: unknown[], options?: Record<string, unknown>) {
+      this._objects = objects ? [...objects] : [];
+      this.hasControls = true;
+      this.hasBorders = true;
+      this.lockMovementX = false;
+      this.lockMovementY = false;
+      this.subTargetCheck = false;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {
+      mockSetCoords();
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+
+    toObject(): Record<string, unknown> {
+      return {};
+    }
+  }
+
   return {
     Path: MockPath,
     FabricText: MockFabricText,
     Rect: MockRect,
+    Group: MockGroup,
     Canvas: MockCanvas,
   };
 });
