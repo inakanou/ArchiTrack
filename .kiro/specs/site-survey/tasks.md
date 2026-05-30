@@ -1994,6 +1994,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **81.3**: Freehand 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 81.1 の `FreehandTool.outline.test.ts`（19 テスト）と 81.2 の `FreehandTool.serialization.test.ts`（23 テスト）に既に実装・合格済み。path segment 数 50 のラウンドトリップも含む。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **82.4**: Dimension 単体テスト 4 観点（独立 2 属性の挙動・`setValue()` 後の strokeWidth 再計算・ラウンドトリップでの独立保持・旧形式の後方互換）は 82.1 の `DimensionTool.outline.test.ts`（22 テスト）、82.2 の `DimensionTool.label-outline.test.ts`（19 テスト、setValue 後の再計算含む）、82.3 の `DimensionTool.serialization.test.ts`（30 テスト、独立復元と防御的フォールバック）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **83.3**: ExportSettingsForm の単体テスト 12 件（基本レンダリング・onChange・disabled）は 83.1 の `ExportSettingsForm.test.tsx` に実装済み。リファクタ後 ImageExportDialog の単体テスト 58 件は 83.2 で DOM 構造追随済みで全合格を確認。観測可能完了状態を満たすため追加実装なしでクローズ。
+- **84.4**: bulkExportService の単体テスト（全件成功・全件失敗・部分失敗・キャンセル・原本そのまま・進捗 callback 単調増加）は 84.1 の `bulkExportService.test.ts` 基本 5 件 + 84.2 の AbortSignal 2 件 + 84.3 の部分失敗/original-only 4 件で計 11 件に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 
 ---
 
@@ -2167,7 +2168,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 31.4_
   - _Boundary: ExportSettingsForm, ImageExportDialog_
 
-- [ ] 84. (P) bulkExportService コア実装
+- [x] 84. (P) bulkExportService コア実装
 - [x] 84.1 順次レンダリングと JSZip パッケージング
   - `execute(input, onProgress, signal)` で `AnnotationRendererService.renderImage()` を順次呼び、戻りの Blob を JSZip インスタンスに `zip.file(name, blob)` で追加する
   - 完了時に `JSZip.generateAsync({ type: 'blob' })` で単一 ZIP Blob を生成する
@@ -2181,13 +2182,13 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: 5 画像処理中に `controller.abort()` を呼ぶと `status: 'cancelled'` で resolve し、ZIP Blob が undefined であることを単体テストで確認する
   - _Requirements: 31.11, 31.12, 31.19_
   - _Boundary: bulkExportService_
-- [ ] 84.3 部分失敗集約と原本そのまま分岐
+- [x] 84.3 部分失敗集約と原本そのまま分岐
   - 個別画像の reject を捕捉して `failures: BulkExportFailure[]` に集約し、ループ継続する
   - `annotationMode === 'original-only'` のときは `renderImage` ではなく `ExportService.downloadOriginal()` 経由の R2 fetch のみで blob を取得する
   - 観測可能な完了状態: 1 件失敗 + 4 件成功の入力で `status: 'partial'`、`failures.length === 1`、`zipBlob` に 4 件含まれる結果を単体テストで確認する
   - _Requirements: 31.13, 31.18_
   - _Boundary: bulkExportService_
-- [ ] 84.4 bulkExportService の単体テスト
+- [x] 84.4 bulkExportService の単体テスト
   - 全件成功・全件失敗・部分失敗・キャンセル・原本そのままの各ケース、および進捗 callback の単調増加性を検証する
   - 観測可能な完了状態: `bulkExportService.test.ts` の全テストが合格する
   - _Requirements: 31.5, 31.11, 31.13, 31.18_

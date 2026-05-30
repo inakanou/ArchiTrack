@@ -12,10 +12,17 @@
  *   - 3 画像入力 → 3 エントリの ZIP Blob が返る
  *   - 各エントリ名が `NNN_<sanitized>.<ext>` 形式
  *
+ * Task 84.3: 部分失敗集約と原本そのまま分岐
+ *   - 個別画像 reject を `failures: BulkExportFailure[]` に集約しループ継続
+ *   - `annotationMode === 'original-only'` のとき renderImage をスキップし
+ *     R2 fetch（`image.originalUrl`）で Blob を取得
+ *
  * @requirement site-survey/REQ-31.5 順次レンダリング
  * @requirement site-survey/REQ-31.6 JSZip パッケージング
  * @requirement site-survey/REQ-31.7 進捗 callback
  * @requirement site-survey/REQ-31.8 ZIP 内ファイル名規則の統一
+ * @requirement site-survey/REQ-31.13 部分失敗集約
+ * @requirement site-survey/REQ-31.18 原本そのまま分岐
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -323,6 +330,234 @@ describe('bulkExportService - 順次レンダリング + JSZip パッケージ�
     expect(mockRenderImage).toHaveBeenCalledTimes(2);
     // 最終 progress.done は 2 を超えない（abort により ZIP 追加・進捗通知が止まる）
     expect(progressLog.length).toBeLessThanOrEqual(2);
+  });
+
+  // ==========================================================================
+  // Task 84.3: 部分失敗集約と原本そのまま分岐
+  // ==========================================================================
+
+  it('1 件失敗 + 4 件成功で status: partial、failures.length === 1、zipBlob に 4 件含まれる', async () => {
+    const images = [
+      makeImage({ id: 'img-1', fileName: 'a.jpg', displayOrder: 0 }),
+      makeImage({ id: 'img-2', fileName: 'b.jpg', displayOrder: 1 }),
+      makeImage({ id: 'img-3', fileName: 'c.jpg', displayOrder: 2 }),
+      makeImage({ id: 'img-4', fileName: 'd.jpg', displayOrder: 3 }),
+      makeImage({ id: 'img-5', fileName: 'e.jpg', displayOrder: 4 }),
+    ];
+
+    // img-3 のみ renderImage が reject
+    mockRenderImage.mockImplementation(async (imageInfo: SurveyImageInfo) => {
+      if (imageInfo.id === 'img-3') {
+        throw new Error('render failure: simulated');
+      }
+      return { imageInfo, dataUrl: dummyDataUrl };
+    });
+
+    const service = createBulkExportService();
+    const controller = new AbortController();
+    const progressLog: BulkExportProgress[] = [];
+
+    const result = await service.execute(
+      makeInput({ images }),
+      (p) => progressLog.push(p),
+      controller.signal
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatchObject({
+      imageId: 'img-3',
+      imageName: 'c.jpg',
+      reason: 'render',
+    });
+    expect(result.failures[0]?.message).toContain('render failure');
+
+    // zipBlob は成功した 4 件分を含む
+    expect(result.zipBlob).toBeInstanceOf(Blob);
+    expect(result.zipFileName).toMatch(/^.+_\d{8}_\d{6}\.zip$/);
+
+    const reopened = await JSZip.loadAsync(result.zipBlob!);
+    const fileNames = Object.keys(reopened.files);
+    expect(fileNames).toHaveLength(4);
+
+    // 進捗 callback は 5 回呼ばれ、最終で failedSoFar === 1
+    expect(progressLog).toHaveLength(5);
+    expect(progressLog[progressLog.length - 1]).toEqual({
+      done: 5,
+      total: 5,
+      failedSoFar: 1,
+    });
+    // 失敗発生時点（img-3 完了相当）で failedSoFar が 1 に増えている
+    expect(progressLog[2]).toEqual({ done: 3, total: 5, failedSoFar: 1 });
+    expect(progressLog[1]).toEqual({ done: 2, total: 5, failedSoFar: 0 });
+  });
+
+  it('annotationMode === "original-only" のとき renderImage は呼ばれず R2 fetch で blob を取得する', async () => {
+    const images = [
+      makeImage({
+        id: 'img-1',
+        fileName: 'photo.jpg',
+        displayOrder: 0,
+        originalUrl: 'https://r2.example.com/original/img-1.jpg',
+      }),
+      makeImage({
+        id: 'img-2',
+        fileName: 'photo.png',
+        displayOrder: 1,
+        originalUrl: 'https://r2.example.com/original/img-2.png',
+      }),
+    ];
+
+    // renderImage が誤って呼ばれたらテスト失敗するように throw
+    mockRenderImage.mockImplementation(async () => {
+      throw new Error('renderImage MUST NOT be called for original-only');
+    });
+
+    // fetch 呼び出しを記録
+    const fetchedUrls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        fetchedUrls.push(url);
+        const mime = url.endsWith('.png') ? 'image/png' : 'image/jpeg';
+        const blob = makeBlobFromDataUrl(url, mime);
+        return {
+          ok: true,
+          status: 200,
+          blob: async () => blob,
+          arrayBuffer: async () => blob.arrayBuffer(),
+        };
+      })
+    );
+
+    const service = createBulkExportService();
+    const controller = new AbortController();
+
+    const result = await service.execute(
+      makeInput({
+        images,
+        settings: { ...defaultSettings, annotationMode: 'original-only' },
+      }),
+      () => {
+        /* noop */
+      },
+      controller.signal
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.failures).toEqual([]);
+    expect(mockRenderImage).not.toHaveBeenCalled();
+
+    // R2 fetch が 2 回、それぞれ originalUrl 宛に行われている
+    expect(fetchedUrls).toEqual([
+      'https://r2.example.com/original/img-1.jpg',
+      'https://r2.example.com/original/img-2.png',
+    ]);
+
+    // ZIP に 2 件含まれている
+    const reopened = await JSZip.loadAsync(result.zipBlob!);
+    expect(Object.keys(reopened.files)).toHaveLength(2);
+  });
+
+  it('annotationMode === "original-only" で R2 fetch が失敗すると reason: "fetch" の failure が記録される', async () => {
+    const images = [
+      makeImage({
+        id: 'img-1',
+        fileName: 'ok.jpg',
+        displayOrder: 0,
+        originalUrl: 'https://r2.example.com/original/img-1.jpg',
+      }),
+      makeImage({
+        id: 'img-2',
+        fileName: 'broken.jpg',
+        displayOrder: 1,
+        originalUrl: 'https://r2.example.com/original/img-2.jpg',
+      }),
+    ];
+
+    mockRenderImage.mockImplementation(async () => {
+      throw new Error('renderImage MUST NOT be called for original-only');
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('img-2')) {
+          return {
+            ok: false,
+            status: 503,
+            statusText: 'Service Unavailable',
+            blob: async () => new Blob([], { type: 'image/jpeg' }),
+            arrayBuffer: async () => new ArrayBuffer(0),
+          };
+        }
+        const blob = makeBlobFromDataUrl(url, 'image/jpeg');
+        return {
+          ok: true,
+          status: 200,
+          blob: async () => blob,
+          arrayBuffer: async () => blob.arrayBuffer(),
+        };
+      })
+    );
+
+    const service = createBulkExportService();
+    const controller = new AbortController();
+
+    const result = await service.execute(
+      makeInput({
+        images,
+        settings: { ...defaultSettings, annotationMode: 'original-only' },
+      }),
+      () => {
+        /* noop */
+      },
+      controller.signal
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatchObject({
+      imageId: 'img-2',
+      imageName: 'broken.jpg',
+      reason: 'fetch',
+    });
+
+    const reopened = await JSZip.loadAsync(result.zipBlob!);
+    expect(Object.keys(reopened.files)).toHaveLength(1);
+  });
+
+  it('全件失敗で status: partial、failures.length === total、zipBlob は空 ZIP', async () => {
+    const images = [
+      makeImage({ id: 'img-1', fileName: 'a.jpg', displayOrder: 0 }),
+      makeImage({ id: 'img-2', fileName: 'b.jpg', displayOrder: 1 }),
+    ];
+    mockRenderImage.mockImplementation(async () => {
+      throw new Error('always fails');
+    });
+
+    const service = createBulkExportService();
+    const controller = new AbortController();
+
+    const result = await service.execute(
+      makeInput({ images }),
+      () => {
+        /* noop */
+      },
+      controller.signal
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.failures).toHaveLength(2);
+    expect(result.failures.map((f) => f.imageId)).toEqual(['img-1', 'img-2']);
+    expect(result.failures.every((f) => f.reason === 'render')).toBe(true);
+
+    // 成功分のみの ZIP（= 空 ZIP）を生成する
+    expect(result.zipBlob).toBeInstanceOf(Blob);
+    const reopened = await JSZip.loadAsync(result.zipBlob!);
+    expect(Object.keys(reopened.files)).toHaveLength(0);
   });
 
   it('renderImage 完了直後に abort された場合も ZIP に追加せず cancelled で resolve する', async () => {
