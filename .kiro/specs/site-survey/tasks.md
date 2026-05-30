@@ -2149,7 +2149,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Core - 一括エクスポート UI / Service
 
 - [ ] 83. (P) ExportSettingsForm 抽出と ImageExportDialog リファクタ
-- [ ] 83.1 ExportSettingsForm の切り出し
+- [x] 83.1 ExportSettingsForm の切り出し
   - 既存 `ImageExportDialog.tsx` 内の形式（JPEG/PNG）・解像度・注釈含む/含まない・元画像そのまま選択ロジックを `ExportSettingsForm.tsx` として独立化する
   - `ExportSettings = { format, resolution, annotationMode }` 型と `value`/`onChange`/`disabled` プロパティを公開する
   - 観測可能な完了状態: `ExportSettingsForm` 単体で `npm run test:frontend` のレンダリング・選択イベントが通る
