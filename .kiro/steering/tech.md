@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-04-27（Steering Sync: Vite 8 / TypeScript 6（frontend）/ fabric 7 / Prisma 7.7 へのバージョン追従を反映）_
+_最終更新: 2026-05-30（Steering Sync: Prisma 7.8 / vitest 4.1（frontend）追従、E2E Excel検証用 exceljs と xlsx の SheetJS CDN 配布元を反映）_
 
 ## アーキテクチャ
 
@@ -37,7 +37,7 @@ ArchiTrack/
 - `react-router-dom` ^7.13.0 - React Router v7（ルーティング）
 - `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
-- `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS）
+- `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
 - `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像の一括エクスポート、型定義同梱）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
@@ -132,7 +132,7 @@ ArchiTrack/
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
 - `@anthropic-ai/sdk` ^0.74.0 - Anthropic Claude Vision API（OCR精度向上）
-- `@prisma/client` ^7.7.0 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/client` ^7.8.0 - Prisma ORM クライアント（型安全なデータアクセス）
 - `@prisma/adapter-pg` ^7.6.0 - Prisma Driver Adapter for PostgreSQL
 - `decimal.js` ^10.6.0 - 高精度10進数計算（数量計算）
 - `pg` ^8.18.0 - PostgreSQL クライアント
@@ -383,6 +383,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - `@prisma/client` ^7.0.1 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
 - `prisma` ^7.1.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
 - `cross-env` ^10.1.0 - クロスプラットフォーム環境変数設定
+- `exceljs` ^4.4.0 - E2Eでエクスポート済み.xlsxを読み取り検証（内訳書CRUD等のExcel出力アサーション用。生成側はfrontendのxlsx/SheetJS）
 - Chromium - Playwright経由で自動インストール
 
 ### 設定ファイル
