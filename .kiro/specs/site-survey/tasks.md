@@ -2204,7 +2204,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Integration
 
-- [ ] 86. registerCustomShapes での 6 形状 Group 版再登録
+- [x] 86. registerCustomShapes での 6 形状 Group 版再登録
   - `registerCustomShapes.ts` で 6 形状（rectangle/circle/polygon/polyline/freehand/dimension）の Group 版クラスを `classRegistry.setClass(typeId, ClassName)` で再登録する
   - type ID は既存（`'rectangle'` 等）を維持し、旧データの復元経路を破壊しない
   - 観測可能な完了状態: 統合テストで旧形式 JSON（標準 Fabric シリアライズ）が新 Group 版で復元され、白縁取り無しの従来表現を維持できる
