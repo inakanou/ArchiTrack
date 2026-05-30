@@ -284,8 +284,8 @@ describe('ImageExportDialog', () => {
         />
       );
 
-      const checkbox = screen.getByLabelText(/注釈を含める/i) as HTMLInputElement;
-      expect(checkbox.checked).toBe(true);
+      const includeRadio = screen.getByLabelText(/注釈を含める/i) as HTMLInputElement;
+      expect(includeRadio.checked).toBe(true);
     });
 
     it('注釈オプションをオフにできる', async () => {
@@ -299,10 +299,14 @@ describe('ImageExportDialog', () => {
         />
       );
 
-      const checkbox = screen.getByLabelText(/注釈を含める/i);
-      await user.click(checkbox);
+      // Task 83.2: 注釈オプションがチェックボックスから3択ラジオに変更されたため、
+      // 「注釈を含めない」ラジオを選択することで「注釈なし」状態にする
+      const excludeRadio = screen.getByLabelText(/注釈を含めない/i) as HTMLInputElement;
+      await user.click(excludeRadio);
 
-      expect((checkbox as HTMLInputElement).checked).toBe(false);
+      expect(excludeRadio.checked).toBe(true);
+      const includeRadio = screen.getByLabelText(/注釈を含める/i) as HTMLInputElement;
+      expect(includeRadio.checked).toBe(false);
     });
   });
 
@@ -406,8 +410,8 @@ describe('ImageExportDialog', () => {
       // 高品質を選択
       await user.click(screen.getByLabelText(/高/i));
 
-      // 注釈をオフに
-      await user.click(screen.getByLabelText(/注釈を含める/i));
+      // 注釈なし（Task 83.2: ラジオで「注釈を含めない」を選択）
+      await user.click(screen.getByLabelText(/注釈を含めない/i));
 
       // エクスポート
       await user.click(screen.getByRole('button', { name: /エクスポート/i }));
@@ -852,16 +856,17 @@ describe('ImageExportDialog', () => {
         />
       );
 
-      // export-qualityのラジオボタンを直接取得
+      // Task 83.2: ExportSettingsForm では name 属性が export-resolution に変更された
       const qualityRadios = screen.getAllByRole('radio');
       const lowRadio = qualityRadios.find(
-        (r) => r.getAttribute('value') === 'low' && r.getAttribute('name') === 'export-quality'
+        (r) => r.getAttribute('value') === 'low' && r.getAttribute('name') === 'export-resolution'
       );
       const mediumRadio = qualityRadios.find(
-        (r) => r.getAttribute('value') === 'medium' && r.getAttribute('name') === 'export-quality'
+        (r) =>
+          r.getAttribute('value') === 'medium' && r.getAttribute('name') === 'export-resolution'
       );
       const highRadio = qualityRadios.find(
-        (r) => r.getAttribute('value') === 'high' && r.getAttribute('name') === 'export-quality'
+        (r) => r.getAttribute('value') === 'high' && r.getAttribute('name') === 'export-resolution'
       );
 
       expect(lowRadio).toBeDisabled();
@@ -880,7 +885,10 @@ describe('ImageExportDialog', () => {
         />
       );
 
+      // Task 83.2: 注釈オプションは3択ラジオに変更
       expect(screen.getByLabelText(/注釈を含める/i)).toBeDisabled();
+      expect(screen.getByLabelText(/注釈を含めない/i)).toBeDisabled();
+      expect(screen.getByLabelText(/元画像そのまま/i)).toBeDisabled();
     });
   });
 
@@ -962,7 +970,8 @@ describe('ImageExportDialog', () => {
 
       await user.click(screen.getByLabelText(/PNG/i));
       await user.click(screen.getByLabelText(/低/i));
-      await user.click(screen.getByLabelText(/注釈を含める/i));
+      // Task 83.2: 「注釈を含めない」ラジオを選択
+      await user.click(screen.getByLabelText(/注釈を含めない/i));
       await user.click(screen.getByRole('button', { name: /エクスポート/i }));
 
       expect(mockOnExport).toHaveBeenCalledWith({
@@ -1038,9 +1047,9 @@ describe('ImageExportDialog', () => {
       await user.click(screen.getByLabelText(/低/i));
       await user.click(screen.getByLabelText(/高/i));
 
-      // 注釈を複数回変更
-      await user.click(screen.getByLabelText(/注釈を含める/i)); // オフ
-      await user.click(screen.getByLabelText(/注釈を含める/i)); // オン
+      // 注釈モードを複数回変更（Task 83.2: 3択ラジオに変更）
+      await user.click(screen.getByLabelText(/注釈を含めない/i)); // exclude
+      await user.click(screen.getByLabelText(/注釈を含める/i)); // include
 
       await user.click(screen.getByRole('button', { name: /エクスポート/i }));
 

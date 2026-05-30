@@ -1993,6 +1993,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **80.3**: Polyline 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 80.1 の `PolylineTool.outline.test.ts`（23 テスト）と 80.2 の `PolylineTool.serialization.test.ts`（21 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **81.3**: Freehand 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 81.1 の `FreehandTool.outline.test.ts`（19 テスト）と 81.2 の `FreehandTool.serialization.test.ts`（23 テスト）に既に実装・合格済み。path segment 数 50 のラウンドトリップも含む。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **82.4**: Dimension 単体テスト 4 観点（独立 2 属性の挙動・`setValue()` 後の strokeWidth 再計算・ラウンドトリップでの独立保持・旧形式の後方互換）は 82.1 の `DimensionTool.outline.test.ts`（22 テスト）、82.2 の `DimensionTool.label-outline.test.ts`（19 テスト、setValue 後の再計算含む）、82.3 の `DimensionTool.serialization.test.ts`（30 テスト、独立復元と防御的フォールバック）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
+- **83.3**: ExportSettingsForm の単体テスト 12 件（基本レンダリング・onChange・disabled）は 83.1 の `ExportSettingsForm.test.tsx` に実装済み。リファクタ後 ImageExportDialog の単体テスト 58 件は 83.2 で DOM 構造追随済みで全合格を確認。観測可能完了状態を満たすため追加実装なしでクローズ。
 
 ---
 
@@ -2148,19 +2149,19 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Core - 一括エクスポート UI / Service
 
-- [ ] 83. (P) ExportSettingsForm 抽出と ImageExportDialog リファクタ
+- [x] 83. (P) ExportSettingsForm 抽出と ImageExportDialog リファクタ
 - [x] 83.1 ExportSettingsForm の切り出し
   - 既存 `ImageExportDialog.tsx` 内の形式（JPEG/PNG）・解像度・注釈含む/含まない・元画像そのまま選択ロジックを `ExportSettingsForm.tsx` として独立化する
   - `ExportSettings = { format, resolution, annotationMode }` 型と `value`/`onChange`/`disabled` プロパティを公開する
   - 観測可能な完了状態: `ExportSettingsForm` 単体で `npm run test:frontend` のレンダリング・選択イベントが通る
   - _Requirements: 31.4_
   - _Boundary: ExportSettingsForm_
-- [ ] 83.2 ImageExportDialog の ExportSettingsForm への置換
+- [x] 83.2 ImageExportDialog の ExportSettingsForm への置換
   - 既存 `ImageExportDialog` の設定UIを `ExportSettingsForm` に差し替え、外部から見える設定値・ダウンロード経路（個別エクスポート）の挙動を維持する
   - 観測可能な完了状態: 個別エクスポートの既存テストが従来通り合格し、形式・解像度・注釈・原本の各選択肢が UI で操作可能
   - _Requirements: 31.4_
   - _Boundary: ImageExportDialog_
-- [ ] 83.3 ExportSettingsForm および リファクタ後 ImageExportDialog の単体テスト
+- [x] 83.3 ExportSettingsForm および リファクタ後 ImageExportDialog の単体テスト
   - 既定値の表示、選択操作によるコールバック呼び出し、`disabled` 時の非活性挙動を検証する
   - 観測可能な完了状態: `ExportSettingsForm.test.tsx` と更新後の `ImageExportDialog.test.tsx` の全テストが合格する
   - _Requirements: 31.4_
