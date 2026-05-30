@@ -2213,7 +2213,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: registerCustomShapes_
 
 - [ ] 87. BulkExportDialog + 一括エクスポート起動経路の結線
-- [ ] 87.1 BulkExportDialog 本体実装
+- [x] 87.1 BulkExportDialog 本体実装
   - 「全件」または「選択画像」モードを起動時に受け、`ExportSettingsForm` をマウントして設定を確定する
   - 対象 0 件時はダイアログを閉じて通知する
   - 「開始」押下時に `AbortController` を生成し、`bulkExportService.execute(input, onProgress, signal)` を起動して `BulkExportProgressDialog` に `promise` と `controller` を引き継ぐ
