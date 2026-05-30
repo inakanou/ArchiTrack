@@ -26,10 +26,13 @@
  *
  * Requirements:
  * - 31.6: 一括エクスポート機能の追加が既存個別ダウンロード経路の挙動を変更しない
+ * - 31.17: 一括エクスポートの「注釈含む」設定時に、Requirement 24・25・32 の白縁取り
+ *   表現を編集画面と同一に適用する（6 形状 Group が enlivenObjects 経路で復元・描画される）
  * - 32.8: 注釈付き画像をサムネイル・プレビュー・PDF・個別エクスポート・一括
  *   エクスポートでレンダリングする際、編集画面と同一の白縁取り表現を 6 形状に適用する
  *
  * @requirement site-survey/REQ-31.6
+ * @requirement site-survey/REQ-31.17
  * @requirement site-survey/REQ-32.8
  */
 

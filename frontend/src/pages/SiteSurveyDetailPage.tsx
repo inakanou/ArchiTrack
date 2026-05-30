@@ -651,6 +651,11 @@ export default function SiteSurveyDetailPage() {
    * `bulkExportMode === 'all'` → 現場調査配下の全画像
    * `bulkExportMode === 'selected'` → selectedImageIds に含まれる画像のみ
    */
+  // アクセス制御の継承 (Requirement 14): 一括エクスポート対象は、バックエンドの
+  // アクセス権限検証を通過した getSiteSurvey の結果 (survey) からのみ導出される。
+  // 権限が無い場合は survey 取得自体が 403 となり画像が存在しないため、
+  // 一括エクスポートにも当該現場調査へのアクセス権限検証が適用される。
+  // @requirement site-survey/REQ-31.16
   const bulkExportImages = useMemo<SurveyImageInfo[]>(() => {
     if (!survey) return [];
     if (bulkExportMode === 'all') {
@@ -808,6 +813,12 @@ export default function SiteSurveyDetailPage() {
           >
             全件一括エクスポート
           </button>
+          {/*
+            選択画像エクスポートボタン。
+            画像を 1 件も選択していない間は disabled / aria-disabled とし、
+            「選択画像エクスポート」操作を非活性として表示する。
+            @requirement site-survey/REQ-31.3
+          */}
           <button
             type="button"
             onClick={handleBulkExportSelected}
