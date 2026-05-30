@@ -4,6 +4,7 @@
  * Task 10.3: 現場調査詳細から画像ビューアへの導線を実装する
  * Task 22.3: アクセス権限によるUI制御を実装する
  * Task 27.6: 現場調査詳細画面への写真一覧管理パネル統合
+ * Task 87.3: 一括エクスポート起動ボタンと選択状態管理
  *
  * 現場調査の詳細情報と画像一覧を表示するページコンポーネントです。
  * 画像グリッドから画像ビューア/エディタへの遷移機能を提供します。
@@ -17,9 +18,12 @@
  * - 10.1: 報告書出力対象写真の選択
  * - 10.5: ドラッグアンドドロップによる写真順序変更
  * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 31.1: 全件一括エクスポート起動
+ * - 31.2: 選択画像エクスポート起動
+ * - 31.3: 選択件数の UI 反映
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Breadcrumb } from '../components/common';
 import { buildSiteSurveyDetailBreadcrumb } from '../utils/siteSurveyBreadcrumb';
@@ -39,6 +43,14 @@ import {
   type UploadProgress,
   type ValidationError,
 } from '../components/site-surveys/ImageUploader';
+import BulkExportDialog, {
+  type BulkExportDialogMode,
+  type BulkExportStartArgs,
+} from '../components/site-surveys/BulkExportDialog';
+import BulkExportProgressDialog, {
+  type PartialFailureChoice,
+} from '../components/site-surveys/BulkExportProgressDialog';
+import type { BulkExportProgress, BulkExportResult } from '../services/export/bulkExportService';
 import type {
   SiteSurveyDetail,
   SurveyImageInfo,
@@ -162,6 +174,29 @@ const STYLES = {
     color: '#ffffff',
     border: 'none',
   } as React.CSSProperties,
+  // Task 87.3: 一括エクスポート起動ボタン用スタイル
+  bulkExportActions: {
+    display: 'flex',
+    gap: '12px',
+    marginBottom: '16px',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  bulkExportButton: {
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: '#1d4ed8',
+    color: '#ffffff',
+    border: '1px solid #1d4ed8',
+    transition: 'all 0.2s ease',
+  } as React.CSSProperties,
+  bulkExportButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    borderColor: '#9ca3af',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -262,6 +297,21 @@ export default function SiteSurveyDetailPage() {
     message: '保存されていない変更があります。このページを離れますか？',
     enabled: canEdit,
   });
+
+  // 一括エクスポート関連 state (Task 87.3, Requirements 31.1, 31.2, 31.3)
+  // 選択中の画像 ID 集合。SurveyImageGrid と双方向同期する想定だが、
+  // 本ページの実 UI は PhotoManagementPanel のため、選択 UI の組み込みは
+  // 別タスクの責務とし、本タスクではページ側の state と Props 受け渡し経路を確立する。
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
+  // 起動中の BulkExportDialog モード（null は閉）
+  const [bulkExportMode, setBulkExportMode] = useState<BulkExportDialogMode | null>(null);
+  // 実行中の bulkExportService.execute promise と controller
+  const [bulkExportPromise, setBulkExportPromise] = useState<Promise<BulkExportResult> | null>(
+    null
+  );
+  const [bulkExportController, setBulkExportController] = useState<AbortController | null>(null);
+  // 進捗（onProgress で更新）
+  const [bulkExportProgress, setBulkExportProgress] = useState<BulkExportProgress | null>(null);
 
   /**
    * 現場調査詳細データを取得
@@ -496,6 +546,14 @@ export default function SiteSurveyDetailPage() {
           order: index + 1,
         }));
       }
+
+      // 一括エクスポート選択集合からも該当 ID を除去 (Task 87.3, Requirement 31.3)
+      setSelectedImageIds((prev) => {
+        if (!prev.has(imageId)) return prev;
+        const next = new Set(prev);
+        next.delete(imageId);
+        return next;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : '画像の削除に失敗しました');
       throw err; // PhotoManagementPanelにエラーを伝播
@@ -583,6 +641,95 @@ export default function SiteSurveyDetailPage() {
     // ここでは追加の処理は不要
   }, []);
 
+  // ===========================================================================
+  // 一括エクスポート関連ハンドラ (Task 87.3, Requirements 31.1, 31.2, 31.3, 31.15)
+  // ===========================================================================
+
+  /**
+   * 選択画像エクスポート対象の解決
+   *
+   * `bulkExportMode === 'all'` → 現場調査配下の全画像
+   * `bulkExportMode === 'selected'` → selectedImageIds に含まれる画像のみ
+   */
+  const bulkExportImages = useMemo<SurveyImageInfo[]>(() => {
+    if (!survey) return [];
+    if (bulkExportMode === 'all') {
+      return survey.images;
+    }
+    if (bulkExportMode === 'selected') {
+      return survey.images.filter((img) => selectedImageIds.has(img.id));
+    }
+    return [];
+  }, [survey, bulkExportMode, selectedImageIds]);
+
+  /** 「全件一括エクスポート」ボタン押下 (Requirement 31.1) */
+  const handleBulkExportAll = useCallback(() => {
+    setBulkExportMode('all');
+  }, []);
+
+  /** 「選択画像エクスポート」ボタン押下 (Requirement 31.2) */
+  const handleBulkExportSelected = useCallback(() => {
+    setBulkExportMode('selected');
+  }, []);
+
+  /** BulkExportDialog の close（キャンセル / 開始時の自動 close） */
+  const handleBulkExportDialogClose = useCallback(() => {
+    setBulkExportMode(null);
+  }, []);
+
+  /** BulkExportDialog の onStart: 親で promise / controller を保持 */
+  const handleBulkExportStart = useCallback((args: BulkExportStartArgs) => {
+    setBulkExportPromise(args.promise);
+    setBulkExportController(args.controller);
+    setBulkExportProgress(null);
+  }, []);
+
+  /** BulkExportDialog の onProgress: 進捗 state を更新 */
+  const handleBulkExportProgress = useCallback((progress: BulkExportProgress) => {
+    setBulkExportProgress(progress);
+  }, []);
+
+  /** BulkExportDialog の onEmptyTarget: 対象 0 件時の通知 (Requirement 31.15) */
+  const handleBulkExportEmptyTarget = useCallback(() => {
+    // 現時点では alert() で簡易通知する。
+    // ※将来的に snackbar 等に置き換える余地あり
+    if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+      window.alert('エクスポート対象の画像がありません。');
+    }
+  }, []);
+
+  /**
+   * BulkExportProgressDialog の onComplete: result.status に応じて
+   * ZIP ダウンロード or 中止を実行し、関連 state をリセットする。
+   */
+  const handleBulkExportComplete = useCallback(
+    (result: BulkExportResult, decision?: PartialFailureChoice) => {
+      try {
+        const shouldDownload =
+          result.status === 'success' ||
+          (result.status === 'partial' && decision === 'download-partial');
+
+        if (shouldDownload && result.zipBlob && result.zipFileName) {
+          // Blob → a タグ download で ZIP をダウンロード
+          const url = URL.createObjectURL(result.zipBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = result.zipFileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      } finally {
+        // 進捗ダイアログ関連 state を必ずリセット
+        setBulkExportPromise(null);
+        setBulkExportController(null);
+        setBulkExportProgress(null);
+      }
+    },
+    []
+  );
+
   // ローディング表示
   if (isLoading && !survey) {
     return (
@@ -651,6 +798,31 @@ export default function SiteSurveyDetailPage() {
       <div style={STYLES.imageSection}>
         <h3 style={STYLES.sectionTitle}>画像一覧</h3>
 
+        {/* 一括エクスポート起動ボタン群 (Task 87.3, Requirements 31.1, 31.2, 31.3) */}
+        <div style={STYLES.bulkExportActions} data-testid="bulk-export-actions">
+          <button
+            type="button"
+            onClick={handleBulkExportAll}
+            style={STYLES.bulkExportButton}
+            data-testid="bulk-export-all-button"
+          >
+            全件一括エクスポート
+          </button>
+          <button
+            type="button"
+            onClick={handleBulkExportSelected}
+            disabled={selectedImageIds.size === 0}
+            style={{
+              ...STYLES.bulkExportButton,
+              ...(selectedImageIds.size === 0 ? STYLES.bulkExportButtonDisabled : {}),
+            }}
+            data-testid="bulk-export-selected-button"
+            aria-disabled={selectedImageIds.size === 0}
+          >
+            選択画像エクスポート（{selectedImageIds.size} 件）
+          </button>
+        </div>
+
         {/* 画像アップロードUI (Requirement 4.1) */}
         {canEdit && (
           <div style={{ marginBottom: '24px' }}>
@@ -707,6 +879,33 @@ export default function SiteSurveyDetailPage() {
         onCancel={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
       />
+
+      {/* 一括エクスポート設定ダイアログ (Task 87.3, Requirements 31.1, 31.2, 31.4, 31.5, 31.15) */}
+      {bulkExportMode !== null && (
+        <BulkExportDialog
+          open={true}
+          mode={bulkExportMode}
+          surveyId={survey.id}
+          surveyName={survey.name}
+          images={bulkExportImages}
+          onClose={handleBulkExportDialogClose}
+          onStart={handleBulkExportStart}
+          onProgress={handleBulkExportProgress}
+          onEmptyTarget={handleBulkExportEmptyTarget}
+        />
+      )}
+
+      {/* 一括エクスポート進捗ダイアログ (Task 87.3, Requirements 31.10, 31.11, 31.13, 31.14) */}
+      {bulkExportPromise !== null && bulkExportController !== null && (
+        <BulkExportProgressDialog
+          open={true}
+          surveyName={survey.name}
+          progress={bulkExportProgress}
+          promise={bulkExportPromise}
+          controller={bulkExportController}
+          onComplete={handleBulkExportComplete}
+        />
+      )}
 
       <style>
         {`

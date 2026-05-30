@@ -2212,7 +2212,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Depends: 77, 78, 79, 80, 81, 82_
   - _Boundary: registerCustomShapes_
 
-- [ ] 87. BulkExportDialog + 一括エクスポート起動経路の結線
+- [x] 87. BulkExportDialog + 一括エクスポート起動経路の結線
 - [x] 87.1 BulkExportDialog 本体実装
   - 「全件」または「選択画像」モードを起動時に受け、`ExportSettingsForm` をマウントして設定を確定する
   - 対象 0 件時はダイアログを閉じて通知する
@@ -2226,7 +2226,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: コンポーネントテストでチェック ON/OFF が `onSelectionChange` を発火し、既存挙動が回帰しないことが確認できる
   - _Requirements: 31.2, 31.3_
   - _Boundary: SurveyImageGrid_
-- [ ] 87.3 SurveyDetailPage の起動ボタンと選択状態管理
+- [x] 87.3 SurveyDetailPage の起動ボタンと選択状態管理
   - 詳細画面に「全件一括エクスポート」「選択画像エクスポート（N 件）」の 2 ボタンを追加し、後者は選択 0 件で非活性にする
   - 選択状態を `useState<Set<string>>` で保持し、`SurveyImageGrid` と双方向同期する
   - 各ボタン押下で `BulkExportDialog` を `mode: 'all' | 'selected'` で起動する
