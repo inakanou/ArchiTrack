@@ -2102,7 +2102,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: PolylineTool_
 
 - [ ] 81. (P) Freehand の Group 化と白縁取り
-- [ ] 81.1 Freehand クラスを Group ベースへ再設計
+- [x] 81.1 Freehand クラスを Group ベースへ再設計
   - Fabric `Path` 単体から `extends Group` 化し、内部に `outlinePath` + `bodyPath` を保持する
   - 描画完了時に同一 path data を両 Path に適用する
   - 観測可能な完了状態: フリーハンドツールで描画した Freehand が Group となり、白縁取りが描画される

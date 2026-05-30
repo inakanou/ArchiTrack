@@ -28,6 +28,7 @@ const { mockSetCoords, mockSet, mockOnMouseDown, mockOnMouseMove, mockOnMouseUp 
 );
 
 // Fabric.jsのモック
+// Task 81.1: FreehandPath は Group ベースへ再設計されたため MockGroup を追加。
 vi.mock('fabric', () => {
   // PencilBrushモック
   class MockPencilBrush {
@@ -67,6 +68,7 @@ vi.mock('fabric', () => {
     fill?: string;
     stroke?: string;
     strokeWidth?: number;
+    opacity?: number;
     strokeLineCap?: string;
     strokeLineJoin?: string;
     selectable?: boolean;
@@ -77,12 +79,14 @@ vi.mock('fabric', () => {
     lockMovementY?: boolean;
     originX?: string;
     originY?: string;
+    objectCaching?: boolean;
 
     constructor(pathData?: string | Array<unknown>, options?: Record<string, unknown>) {
       this.path = pathData || '';
       this.fill = 'transparent';
       this.stroke = '#000000';
       this.strokeWidth = 2;
+      this.opacity = 1;
       this.strokeLineCap = 'round';
       this.strokeLineJoin = 'round';
       this.hasControls = true;
@@ -110,6 +114,10 @@ vi.mock('fabric', () => {
       mockSetCoords();
     }
 
+    _setPath(pathData: string | Array<unknown>): void {
+      this.path = pathData;
+    }
+
     toObject(): Record<string, unknown> {
       return {
         path: this.path,
@@ -122,9 +130,70 @@ vi.mock('fabric', () => {
     }
   }
 
+  // Group モック（Task 81.1: FreehandPath extends Group の最小サポート）
+  class MockGroup {
+    _objects: unknown[];
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    strokeLineCap?: string;
+    strokeLineJoin?: string;
+    hasControls: boolean;
+    hasBorders: boolean;
+    lockMovementX: boolean;
+    lockMovementY: boolean;
+    subTargetCheck: boolean;
+
+    constructor(objects?: unknown[], options?: Record<string, unknown>) {
+      this._objects = objects ? [...objects] : [];
+      this.hasControls = true;
+      this.hasBorders = true;
+      this.lockMovementX = false;
+      this.lockMovementY = false;
+      this.subTargetCheck = false;
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+
+    setCoords(): void {
+      mockSetCoords();
+    }
+
+    set(options: Record<string, unknown> | string, value?: unknown): this {
+      if (typeof options === 'string') {
+        (this as Record<string, unknown>)[options] = value;
+      } else {
+        Object.assign(this, options);
+      }
+      mockSet(options, value);
+      return this;
+    }
+
+    toObject(): Record<string, unknown> {
+      return {};
+    }
+
+    add(object: unknown): void {
+      this._objects.push(object);
+    }
+
+    remove(object: unknown): void {
+      const index = this._objects.indexOf(object);
+      if (index > -1) {
+        this._objects.splice(index, 1);
+      }
+    }
+  }
+
   return {
     PencilBrush: MockPencilBrush,
     Path: MockPath,
+    Group: MockGroup,
   };
 });
 
