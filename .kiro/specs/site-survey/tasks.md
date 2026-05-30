@@ -2194,7 +2194,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 31.5, 31.11, 31.13, 31.18_
   - _Boundary: bulkExportService_
 
-- [ ] 85. BulkExportProgressDialog 実装
+- [x] 85. BulkExportProgressDialog 実装
   - `bulkExportService.execute(...)` の進捗 callback を購読して件数/割合を表示する
   - キャンセルボタン押下で `controller.abort()` を呼ぶ
   - 部分失敗発生時にサブダイアログで `'download-partial' | 'cancel'` のユーザー選択を取得し、選択結果に応じて ZIP ダウンロードを実行または中止する
