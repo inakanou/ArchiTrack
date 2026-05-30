@@ -1992,6 +1992,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **79.3**: Polygon 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 79.1 の `PolygonTool.outline.test.ts`（24 テスト）と 79.2 の `PolygonTool.serialization.test.ts`（21 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **80.3**: Polyline 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 80.1 の `PolylineTool.outline.test.ts`（23 テスト）と 80.2 の `PolylineTool.serialization.test.ts`（21 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **81.3**: Freehand 単体テスト 4 ケース（Group 子 2 つ、`setOutline({enabled:false})` で opacity=0、ラウンドトリップ保持、旧形式 JSON 後方互換）は 81.1 の `FreehandTool.outline.test.ts`（19 テスト）と 81.2 の `FreehandTool.serialization.test.ts`（23 テスト）に既に実装・合格済み。path segment 数 50 のラウンドトリップも含む。観測可能完了状態を満たすため追加実装なしでクローズ。
+- **82.4**: Dimension 単体テスト 4 観点（独立 2 属性の挙動・`setValue()` 後の strokeWidth 再計算・ラウンドトリップでの独立保持・旧形式の後方互換）は 82.1 の `DimensionTool.outline.test.ts`（22 テスト）、82.2 の `DimensionTool.label-outline.test.ts`（19 テスト、setValue 後の再計算含む）、82.3 の `DimensionTool.serialization.test.ts`（30 テスト、独立復元と防御的フォールバック）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 
 ---
 
@@ -2119,7 +2120,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 32.1, 32.5, 32.9_
   - _Boundary: FreehandTool_
 
-- [ ] 82. (P) Dimension の Group 化と独立 2 属性（outline + labelOutline）
+- [x] 82. (P) Dimension の Group 化と独立 2 属性（outline + labelOutline）
 - [x] 82.1 Dimension クラスを Group ベースへ再設計
   - 寸法線部を `outlineLine` + `bodyLine`、ラベル部を `labelText` の 3 子で構成する Group へ再設計する
   - `outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2` および `outlineLine.stroke = '#ffffff'` を設定する
@@ -2133,13 +2134,13 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: `setOutline({enabled:false})` で線白縁取りのみ消え、`setLabelOutline({enabled:false})` でラベル白アウトラインのみ消えることを目視と単体テストで確認できる
   - _Requirements: 32.12_
   - _Boundary: DimensionTool_
-- [ ] 82.3 Dimension の outline / labelOutline のシリアライズと後方互換
+- [x] 82.3 Dimension の outline / labelOutline のシリアライズと後方互換
   - `toObject`/`fromObject` で `outline?: ShapeOutlineAttribute` と `labelOutline?: TextOutlineAttribute` をそれぞれ独立に保持・復元する
   - いずれも未設定の旧データは従来表現で復元する（白縁取り無し・ラベル paintFirst なし）
   - 観測可能な完了状態: ラウンドトリップで `outline` と `labelOutline` がそれぞれ独立に保持され、旧 JSON 復元で従来表現に戻る
   - _Requirements: 32.5, 32.6, 32.7, 32.9, 32.10_
   - _Boundary: DimensionTool_
-- [ ] 82.4 Dimension 単体テスト
+- [x] 82.4 Dimension 単体テスト
   - 独立 2 属性の挙動（線のみ OFF / ラベルのみ OFF）、`setValue()` 後の `strokeWidth` 再計算、ラウンドトリップでの独立保持、旧形式の後方互換の 4 観点を検証する
   - 観測可能な完了状態: `DimensionTool.outline.test.ts` がすべて合格する
   - _Requirements: 32.1, 32.5, 32.9, 32.12_

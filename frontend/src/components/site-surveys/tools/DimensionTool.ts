@@ -111,6 +111,14 @@ export interface DimensionLabelStyle {
 
 /**
  * 寸法線のシリアライズ形式
+ *
+ * Task 82.3 (Req 32.5, 32.6, 32.7, 32.9, 32.10):
+ * - `outline?: ShapeOutlineAttribute` を追加（寸法線部の白縁取り）
+ * - `labelOutline?: TextOutlineAttribute` を追加（寸法値ラベルの白アウトライン）
+ * - 両者は互いに独立に保持・復元される（design.md §Dimension Postconditions）
+ * - 未定義の旧データは従来表現（線部白縁取り無し / ラベル paintFirst なし）で復元する（Req 32.9）
+ *
+ * type ID は `'dimensionLine'` を維持（classRegistry 後方互換）。
  */
 export interface DimensionLineJSON {
   type: 'dimensionLine';
@@ -121,6 +129,10 @@ export interface DimensionLineJSON {
   capLength: number;
   customData: DimensionCustomData;
   labelStyle?: DimensionLabelStyle;
+  /** 寸法線部の白縁取り属性（Task 82.3 / Req 32.6） */
+  outline?: ShapeOutlineAttribute;
+  /** 寸法値ラベルの白アウトライン属性（Task 82.3 / Req 32.6） */
+  labelOutline?: TextOutlineAttribute;
 }
 
 // ============================================================================
@@ -987,12 +999,19 @@ export class DimensionLine extends Group {
   // ==========================================================================
   // シリアライズ
   //
-  // Note: Task 82.3 で outline / labelOutline を含む拡張シリアライズへ拡張する。
-  // 本 82.1 では既存の DimensionLineJSON 形を維持する。
+  // Task 82.3 (Req 32.5, 32.6, 32.7, 32.9, 32.10):
+  // - `outline` と `labelOutline` を含めて出力し、復元時はそれぞれ独立に保持・復元する
+  // - 未定義の旧データは従来表現（線部白縁取り無し・ラベル paintFirst なし）で復元する
+  // - 必須フィールド欠落時は安全な既定値 + console.warn で防御的に復元する
   // ==========================================================================
 
   /**
    * オブジェクトをJSON形式にシリアライズ
+   *
+   * Task 82.3 (Req 32.6):
+   * - `outline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   * - `labelOutline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   * - design.md §Dimension Postconditions「outline と labelOutline は互いに独立に状態遷移する」に従う。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): DimensionLineJSON {
@@ -1004,6 +1023,9 @@ export class DimensionLine extends Group {
       strokeWidth: (this._bodyLine.strokeWidth as number) ?? this.strokeWidth,
       capLength: this._capLength,
       customData: { ...this.customData },
+      // Task 82.3 (Req 32.6): outline / labelOutline は独立属性として常に出力する
+      outline: { ...this._outline },
+      labelOutline: { ...this._labelOutline },
     };
 
     // ラベルがある場合はスタイルも含める
@@ -1019,24 +1041,107 @@ export class DimensionLine extends Group {
    *
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * Task 82.3 (Req 32.7, 32.9, design.md Migration 安全性):
+   * - `object.outline` 定義時は setOutline で復元（Req 32.7）
+   * - `object.outline` 未定義の旧データは「白縁取り無し」の従来表現で復元する（Req 32.9 後方互換）
+   * - `object.labelOutline` 定義時は setLabelOutline で復元（Req 32.7）
+   * - `object.labelOutline` 未定義の旧データは「ラベル paintFirst なし」の従来表現で復元する（Req 32.9 後方互換）
+   * - `outline` と `labelOutline` は独立に判定・復元する
+   * - 必須フィールド（startPoint/endPoint/stroke/strokeWidth）欠落や null/undefined 受領時は
+   *   安全な既定値で復元し console.warn を送出する（防御的フォールバック）。
+   *   不正データ時は outline / labelOutline ともに従来表現で復元する。
+   *
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたDimensionLineインスタンス
    */
   static override fromObject(object: DimensionLineJSON): Promise<DimensionLine> {
-    const dimensionLine = new DimensionLine(object.startPoint, object.endPoint, {
-      stroke: object.stroke,
-      strokeWidth: object.strokeWidth,
-      capLength: object.capLength,
-    });
+    // 防御的バリデーション: 必須フィールド確認
+    const safeDefaults = {
+      startPoint: { x: 0, y: 0 } as Point,
+      endPoint: { x: 100, y: 0 } as Point,
+      stroke: '#000000',
+      strokeWidth: 2,
+      capLength: DEFAULT_DIMENSION_OPTIONS.capLength,
+    };
 
-    // カスタムデータを復元
-    if (object.customData) {
-      dimensionLine.customData = { ...object.customData };
+    const isValidInput = object != null && typeof object === 'object';
+
+    const isValidPoint = (p: unknown): p is Point =>
+      p != null &&
+      typeof p === 'object' &&
+      typeof (p as Point).x === 'number' &&
+      typeof (p as Point).y === 'number';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = object as any;
+    const hasValidRequiredFields =
+      isValidInput &&
+      isValidPoint(raw.startPoint) &&
+      isValidPoint(raw.endPoint) &&
+      typeof raw.stroke === 'string' &&
+      typeof raw.strokeWidth === 'number';
+
+    let startPoint: Point;
+    let endPoint: Point;
+    let stroke: string;
+    let strokeWidth: number;
+    let capLength: number;
+
+    if (!hasValidRequiredFields) {
+      console.warn('[DimensionTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      startPoint = safeDefaults.startPoint;
+      endPoint = safeDefaults.endPoint;
+      stroke = safeDefaults.stroke;
+      strokeWidth = safeDefaults.strokeWidth;
+      capLength = safeDefaults.capLength;
+    } else {
+      startPoint = raw.startPoint;
+      endPoint = raw.endPoint;
+      stroke = raw.stroke;
+      strokeWidth = raw.strokeWidth;
+      capLength = typeof raw.capLength === 'number' ? raw.capLength : safeDefaults.capLength;
     }
 
-    // ラベルスタイルを復元
-    if (object.labelStyle) {
-      dimensionLine.setLabelStyle(object.labelStyle);
+    const dimensionLine = new DimensionLine(startPoint, endPoint, {
+      stroke,
+      strokeWidth,
+      capLength,
+    });
+
+    // カスタムデータを復元（有効入力時のみ）
+    if (isValidInput && raw.customData) {
+      dimensionLine.customData = { ...raw.customData };
+    }
+
+    // ラベルスタイルを復元（有効入力時のみ）
+    if (isValidInput && raw.labelStyle) {
+      dimensionLine.setLabelStyle(raw.labelStyle);
+    }
+
+    // outline 属性の復元（Task 82.3 / Req 32.7, 32.9）
+    // 不正データ時 / 未定義時は従来表現（enabled=false）で復元する
+    if (hasValidRequiredFields && raw.outline !== undefined) {
+      // Req 32.7: 保存された outline を復元
+      dimensionLine.setOutline(raw.outline);
+    } else {
+      // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.dimensionOutline（enabled=true）を無効化し、
+      //   outlineLine.opacity=0 で「白縁取り無し」状態にする。
+      dimensionLine.setOutline({ enabled: false });
+    }
+
+    // labelOutline 属性の復元（Task 82.3 / Req 32.7, 32.9）
+    // outline とは独立に判定・復元する
+    if (hasValidRequiredFields && raw.labelOutline !== undefined) {
+      // Req 32.7: 保存された labelOutline を復元
+      dimensionLine.setLabelOutline(raw.labelOutline);
+    } else {
+      // Req 32.9: labelOutline 未定義の旧データはラベル paintFirst なしの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.dimensionLabelOutline（enabled=true）を無効化し、
+      //   labelText.stroke='' / strokeWidth=0 で「白アウトライン無し」状態にする。
+      dimensionLine.setLabelOutline({ enabled: false });
     }
 
     return Promise.resolve(dimensionLine);
