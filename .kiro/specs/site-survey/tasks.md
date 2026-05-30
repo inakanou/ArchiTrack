@@ -2234,14 +2234,14 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 31.1, 31.2, 31.3_
   - _Boundary: SurveyDetailPage_
 
-- [ ] 88. AnnotationRendererService の 6 形状 Group 対応と既存 caller 後方互換確認
+- [x] 88. AnnotationRendererService の 6 形状 Group 対応と既存 caller 後方互換確認
 - [x] 88.1 Group 6 形状の `enlivenObjects` 復元と toDataURL 出力検証
   - `AnnotationRendererService.renderImage()` 経由で Group 化 6 形状が正しく復元され、`toDataURL` 出力で白縁取りが含まれることを検証する（色サンプリング）
   - Dimension の `labelText.paintFirst` 適用後のラベルレンダリングも同経路で検証する
   - 観測可能な完了状態: 統合テスト `AnnotationRendererService.group-shapes.test.ts` で 6 形状すべての白縁取り画素確認と Dimension ラベル白アウトラインの画素確認が合格する
   - _Requirements: 32.8, 32.12_
   - _Depends: 77, 78, 79, 80, 81, 82, 86_
-- [ ] 88.2 既存 caller への後方互換確認（PDF 報告書・個別エクスポート）
+- [x] 88.2 既存 caller への後方互換確認（PDF 報告書・個別エクスポート）
   - 既存 `PdfReportService` と `ExportService.exportImage` の経路が Group 6 形状を含む注釈データを従来どおり処理できることを統合テストで確認する
   - 既存呼出点が `onProgress` / `signal` を渡さない場合の挙動が変化していないことを明示的に検証する
   - 観測可能な完了状態: 既存の `PdfReportService` 系テストと `ExportService` 系テストがすべて合格し、Group 6 形状を含む画像で PDF・個別エクスポートが従来どおり生成される
