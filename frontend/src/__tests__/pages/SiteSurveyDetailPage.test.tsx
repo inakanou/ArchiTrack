@@ -61,6 +61,14 @@ vi.mock('../../services/export', () => ({
 
 vi.mock('../../services/export/AnnotationRendererService', () => ({
   renderImagesWithAnnotations: vi.fn().mockResolvedValue([]),
+  // Task 87.3: bulkExportService が AnnotationRendererService クラスを参照するため、
+  // ダミーの class を提供してモジュール初期化エラーを避ける。
+  AnnotationRendererService: class {
+    async renderImage() {
+      return { dataUrl: 'data:image/jpeg;base64,', width: 0, height: 0 };
+    }
+    dispose() {}
+  },
 }));
 
 // デフォルトの権限モック
@@ -1753,6 +1761,125 @@ describe('SiteSurveyDetailPage', () => {
         el.textContent?.includes('アップロードに失敗しました')
       );
       expect(uploadErrorAlert).toBeUndefined();
+    });
+  });
+
+  // ============================================================================
+  // Task 87.3: 一括エクスポート起動ボタンと選択状態管理
+  // Requirements: 31.1, 31.2, 31.3
+  // ============================================================================
+  describe('一括エクスポート起動ボタン (Task 87.3, Requirements 31.1, 31.2, 31.3)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    });
+
+    it('「全件一括エクスポート」ボタンが描画される (Requirement 31.1)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const allButton = screen.getByTestId('bulk-export-all-button');
+      expect(allButton).toBeInTheDocument();
+      expect(allButton).toHaveTextContent('全件一括エクスポート');
+      expect(allButton).not.toBeDisabled();
+    });
+
+    it('「選択画像エクスポート」ボタンが描画され、初期は 0 件で非活性 (Requirement 31.2, 31.3)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      expect(selectedButton).toBeInTheDocument();
+      // 選択件数（0 件）が表示される
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（0 件）');
+      // 0 件のため disabled
+      expect(selectedButton).toBeDisabled();
+      expect(selectedButton).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('「全件一括エクスポート」ボタン押下で BulkExportDialog が表示される (Requirement 31.1, 31.4)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const allButton = screen.getByTestId('bulk-export-all-button');
+      fireEvent.click(allButton);
+
+      // BulkExportDialog のタイトル文言が表示される（mode='all' 時）
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByText('全件一括エクスポート', { selector: 'h2' })).toBeInTheDocument();
+      });
+    });
+
+    it('「全件一括エクスポート」ボタン押下後、キャンセルでダイアログが閉じる', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('bulk-export-all-button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      });
+
+      // ダイアログ内のキャンセルボタンを押下
+      // 削除ダイアログとの取り違えを避けるため、開いているダイアログ内に絞り込む
+      const dialog = screen.getByRole('dialog');
+      const cancelButton = Array.from(dialog.querySelectorAll('button')).find(
+        (b) => b.textContent === 'キャンセル'
+      );
+      expect(cancelButton).toBeDefined();
+      fireEvent.click(cancelButton as HTMLElement);
+
+      await waitFor(() => {
+        // BulkExportDialog のヘッダ「全件一括エクスポート」が消える
+        expect(
+          screen.queryByText('全件一括エクスポート', { selector: 'h2' })
+        ).not.toBeInTheDocument();
+      });
+    });
+
+    it('画像 0 件の現場調査では全件ボタン押下時に対象 0 件通知が出る (Requirement 31.15)', async () => {
+      const surveyNoImages: SiteSurveyDetail = {
+        ...mockSurveyDetail,
+        images: [],
+        imageCount: 0,
+      };
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyNoImages);
+      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const allButton = screen.getByTestId('bulk-export-all-button');
+      fireEvent.click(allButton);
+
+      // 対象 0 件のため onEmptyTarget が呼ばれて alert で通知される
+      await waitFor(() => {
+        expect(alertSpy).toHaveBeenCalledWith('エクスポート対象の画像がありません。');
+      });
+
+      // ダイアログは即座に閉じられる（BulkExportDialog の useEffect で onClose）
+      await waitFor(() => {
+        expect(
+          screen.queryByText('全件一括エクスポート', { selector: 'h2' })
+        ).not.toBeInTheDocument();
+      });
+
+      alertSpy.mockRestore();
     });
   });
 });

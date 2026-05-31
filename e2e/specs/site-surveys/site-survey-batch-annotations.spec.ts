@@ -184,8 +184,10 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     }
 
     // PDF報告書出力ボタンをクリック
+    // 注: 一括エクスポートボタン（bulk-export-*）はバッチ注釈取得（REQ-18）の対象外のため、
+    // 調査報告書出力ボタンに限定して特定する
     const exportButton = sharedPage.getByRole('button', {
-      name: /報告書|PDF|エクスポート|出力/i,
+      name: '調査報告書出力',
     });
 
     if (await exportButton.isVisible({ timeout: getTimeout(5000) })) {

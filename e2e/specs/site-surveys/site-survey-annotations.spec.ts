@@ -307,8 +307,10 @@ test.describe('現場調査注釈エディタ', () => {
     await page.waitForLoadState('networkidle');
 
     // PDF出力ボタンを探す
-    const pdfButton = page.getByRole('button', { name: /PDF|報告書|エクスポート/i });
-    const pdfLink = page.getByRole('link', { name: /PDF|報告書|エクスポート/i });
+    // 一括エクスポート機能の追加により同一正規表現が複数ボタンに一致するため、
+    // strict mode violation を避けて先頭要素（調査報告書出力ボタン）を対象とする
+    const pdfButton = page.getByRole('button', { name: /PDF|報告書|エクスポート/i }).first();
+    const pdfLink = page.getByRole('link', { name: /PDF|報告書|エクスポート/i }).first();
 
     const hasPdfButton = await pdfButton.isVisible({ timeout: 5000 });
     const hasPdfLink = await pdfLink.isVisible({ timeout: 2000 });

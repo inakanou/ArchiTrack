@@ -265,3 +265,229 @@
 1. 本 research.md を入力として `/kiro-spec-design site-survey` を実行し、Boundary Commitments・データモデル・インターフェース・非機能方針を確定
 2. 設計フェーズで R1-R5 の実測/調査を完了
 3. その後 `/kiro-spec-tasks site-survey` でタスクを再生成（Req 24-30 を Requirement 1-23 と重複しないタスクID範囲で追加）
+
+---
+
+# Gap Analysis: site-survey Requirements 31-32（画像一括ZIPエクスポート・白縁取り対象の全形状拡張）
+
+- **作成日**: 2026-05-29
+- **対象要件**: `requirements.md` Requirement 31, 32
+- **出典**:
+  - Exploreサブエージェントによる既存実装の詳細調査（個別エクスポート、ZIPライブラリ有無、画像選択UI、白縁取り実装パターン）
+  - 先行ギャップ分析（本ファイル前半: Req 24-30）の前提継承
+
+## 1. Current State Investigation（現状把握）
+
+### 1.1 個別画像エクスポート（Req 12）の現状アーキテクチャ
+
+| レイヤ | 主要ファイル | 役割 |
+|---|---|---|
+| 設定UI | `frontend/src/components/site-surveys/ImageExportDialog.tsx` | 形式（JPEG/PNG）・解像度（低/中/高）・注釈含む/含まない・元画像そのままの選択ダイアログ |
+| エクスポートサービス | `frontend/src/services/ExportService.ts:95-230` | `exportImage()`（Canvas → dataURL）、`downloadFile()`（Blob → createObjectURL → a.download）、`downloadOriginal()`（R2署名付きURLから fetch して blob 化）|
+| 注釈レンダラ | `frontend/src/services/export/AnnotationRendererService.ts:86-216` | `renderImage()` 単一画像、`renderImages()` 複数画像順次レンダリング |
+| PDF出力前例 | `frontend/src/services/export/PdfReportService.ts:402-813` | 複数画像を chunk して jsPDF に埋め込み（複数画像取り回しの参考実装）|
+
+### 1.2 画像一覧の選択UI現状
+
+- `frontend/src/components/site-surveys/SurveyImageGrid.tsx:1-180`
+  - サムネイルグリッド表示と「上へ/下へ移動」「ドラッグ順序変更」「削除」「個別エクスポート」を実装
+  - **チェックボックス／複数選択 UI は未実装**
+- ストア層に画像複数選択用 state は存在しない
+
+### 1.3 ZIP生成基盤の現状
+
+- フロント `frontend/package.json:28-95`: ZIP関連ライブラリ未導入（jsPDF/xlsx はあり）
+- バック `backend/package.json:48-92`: ZIP関連ライブラリ未導入
+- 既存コードベースに ZIP 生成パスなし → 新規ライブラリ導入が必須
+
+### 1.4 ダウンロード/進捗UIパターン
+
+- ダウンロード: `ExportService.downloadFile()` の Blob + createObjectURL + a.download パターンが確立済み（一括ZIP も同関数を流用可）
+- 進捗表示: `ImageExportDialog.tsx:183-195` の `isProcessing` フラグによる単純スピナーのみ。汎用トースト/プログレスバー実装は不在
+
+### 1.5 既存の白縁取り実装（Req 24/25）パターン詳細
+
+| ツール | 所在 | 属性名 | 実装パターン |
+|---|---|---|---|
+| Arrow | `frontend/src/components/site-surveys/tools/ArrowTool.ts:195-558` | `outline: ArrowOutlineAttribute { enabled, color, width }` | **Group 構造**: outlinePath（白・太）+ bodyPath（本体）の 2 つの Path を保持 |
+| Text | `frontend/src/components/site-surveys/tools/TextTool.ts:233-354` | `textOutline: TextOutlineAttribute { enabled, widthRatio }` | **paintFirst='stroke'** + `stroke='#ffffff'` + `strokeWidth = fontSize × widthRatio` |
+| トークン定義 | `frontend/src/components/site-surveys/annotation-style-tokens.ts:31-50, 105-121` | `ArrowOutlineAttribute`, `TextOutlineAttribute`, `ANNOTATION_DEFAULTS.arrowOutline/textOutline (enabled=true)` | 一元管理（Req 26 の成果として整備済み）|
+| 復元機構 | `frontend/src/services/export/AnnotationRendererService.ts:156-193` | — | `enlivenObjects()` 経由で `toObject/fromObject` が自動的に outline 属性も復元 |
+
+### 1.6 拡張対象 6 形状の現状
+
+| ツール | 所在 | 現在の基底クラス | 白縁取り |
+|---|---|---|---|
+| Rectangle | `tools/RectangleTool.ts:1-100` | 標準 `Rect` | 未実装 |
+| Circle | `tools/CircleTool.ts:100-300` | 標準 `Ellipse` | 未実装 |
+| Polygon | `tools/PolygonTool.ts:101-378` | 標準 `Polygon` | 未実装 |
+| Polyline | `tools/PolylineTool.ts:101-468` | 標準 `Polyline` | 未実装 |
+| Freehand | `tools/FreehandTool.ts:103-520` | 標準 `Path` | 未実装 |
+| Dimension | `tools/DimensionTool.ts:1-350` | `Path`（寸法線） + `FabricText`（寸法値ラベル）の複合 | 未実装 |
+
+## 2. Requirements Feasibility Analysis（要件実現性評価）
+
+### 2.1 Requirement-to-Asset Map
+
+| Req | 必要資産 | 既存資産 | Gap 種別 | 備考 |
+|---|---|---|---|---|
+| **Req 31 #1-3, 16（起動・選択UI）** | 詳細画面の「全件/選択」エントリ、画像複数選択UI、選択状態管理、権限検証 | 詳細画面のグリッド・個別アクション、Req 14 のアクセス制御は既存 | **Missing**（UI・state 新規） | チェックボックス導入とストア拡張が必要 |
+| **Req 31 #4-6, 17-18（設定UI・レンダリング）** | 既存設定UI・単一画像レンダリングを 1 つの設定で N 画像へ一括適用 | `ImageExportDialog`、`AnnotationRendererService.renderImages()` | **Constraint**（流用可） | ダイアログを「個別」「一括」両モード対応に拡張、または専用ダイアログを新設 |
+| **Req 31 #7-9, 19（ZIPパッケージング）** | ZIPストリーム生成、ファイル名規則、中間生成物の破棄 | ZIPライブラリ未導入、命名規則の共通化なし | **Missing**（ライブラリ＋実装） | jszip 等の導入、命名規則の共通ユーティリティ化 |
+| **Req 31 #10-12（進捗・キャンセル）** | 進捗UI（件数または割合）、キャンセル可能な処理制御 | 単純スピナーのみ、AbortController 系の前例も限定的 | **Missing**（UI・制御新規） | プログレスインジケータと中断可能な async ループ |
+| **Req 31 #13-15（エラー・部分失敗・0件）** | 部分失敗時のユーザー選択フロー、0件時の中断、エラー集約 | 個別失敗のみハンドル | **Missing**（フロー新規） | 失敗集計→選択ダイアログ→再開/中止の状態機械 |
+| **Req 32 #1-7, 9-10（6形状の白縁取り共通仕様）** | 各ツールへの outline 属性追加・描画ロジック・toObject/fromObject 拡張・Undo連携・後方互換 | Arrow が Group パターン、Text が paintFirst パターンの 2 系統を確立済み | **Missing**（6 ツールへ展開） | Group パターン優先（描画一貫性）。各ツールのカスタムクラス化・シリアライズ拡張が必要 |
+| **Req 32 #8（出力経路の整合）** | サムネイル・プレビュー・PDF・個別/一括エクスポートで同一表現 | レンダラは `enlivenObjects` 経由のため、各ツールの `toObject/fromObject` を拡張すれば自動的に整合する | **Constraint** | 各ツールの拡張が完了すれば追加対応は最小 |
+| **Req 32 #11, 13（既定値）** | 各ツール初期化時に outline 有効、`ANNOTATION_DEFAULTS` への追加 | `annotation-style-tokens.ts` のトークン枠組みは整備済み | **Constraint** | `rectangleOutline`/`circleOutline`/... トークン追加 + 統一型の検討 |
+| **Req 32 #12（寸法値ラベル白アウトライン）** | 寸法値の `FabricText` に Req 25 と同等の `paintFirst='stroke'` 適用 | TextTool の paintFirst パターンが流用可 | **Constraint** | DimensionTool 内の `FabricText` 構築箇所への TextTool パターン適用 |
+| **Req 32 #14（サムネイル再生成連動）** | 白縁取り変更を含む保存時にサムネイル再生成 | Req 23 のサムネイル再生成基盤が完成済み | **Constraint** | 追加配線不要（既存パイプラインに乗る）|
+
+### 2.2 複雑度シグナル
+
+- **新規ライブラリ導入＋パッケージング（中）**: Req 31 の jszip 導入と ZIP 生成サービス新設
+- **複数選択UIと状態管理（中）**: Req 31 のチェックボックス UI、ストア拡張、全件/選択切替
+- **6 ツールへの構造拡張（中〜重）**: Req 32 の Group 化または描画拡張を 6 ツール × 一貫した属性体系で実装
+- **進捗・キャンセル・部分失敗フロー（中）**: Req 31 の async 制御と UX 設計
+
+### 2.3 Research Needed（設計フェーズに持ち越す調査事項）
+
+- **R6**: `jszip` 等のフロント側 ZIP ライブラリ採否と、画像枚数増（例: 100 枚 × 高解像度）時のクライアントメモリ上限。バック側 ZIP 生成（archiver + streaming）への切り替え閾値が必要か
+- **R7**: 一括エクスポート中の Fabric Canvas 共有問題。`renderImages()` は単一の隠し Canvas を使い回す可能性があり、並列化不可・順次処理時の所要時間想定が必要
+- **R8**: 「元画像そのまま出力」と「注釈含む」を同一 ZIP 内で混在させる要否（Req 31 #4 の「元画像そのまま」は択一設定の想定で要件化）。混在不要であれば実装単純化
+- **R9**: ZIP 内ファイル名規則の確定（既存 `ExportService.ts` の個別出力命名 + 重複時のサフィックス規則）
+- **R10**: 6 形状の白縁取りを Group パターン（Arrow と同様）と `_render` オーバーライドのいずれで実装するか。特に Freehand の高頻度 path 生成や Polygon/Polyline の頂点編集中のパフォーマンス
+- **R11**: Dimension の寸法線と寸法値ラベル両方の白縁取り適用時のレイアウト（ラベル背景と白アウトラインの可読性、既存 Req 8/25 の background との競合）
+- **R12**: 一括エクスポート中の中断可能性 — `renderImages()` ループに AbortController を組み込む粒度（画像単位/設定変換単位）
+
+## 3. Implementation Approach Options
+
+### 3.1 Req 31（一括ZIPエクスポート）
+
+#### Option A: フロント完結（jszip でブラウザ側 ZIP 生成）（**推奨**）
+- 構成: `bulkExportService.ts` 新設 → 対象画像を `renderImages()` で順次レンダリング → `JSZip` インスタンスに追加 → `generateAsync()` → 既存 `downloadFile()` で DL
+- ✅ 既存レンダリング基盤・ダウンロード基盤の最大流用、バック側変更不要、サーバ負荷ゼロ
+- ✅ Req 14（アクセス制御）は既存の画像取得 API が担保
+- ❌ 大量画像時のクライアントメモリ消費（R6）。100 枚 × 高解像度で問題が出れば後段で Option C へ移行
+- ❌ ブラウザを閉じると中断（要件で明示的に許容されている範囲）
+
+#### Option B: バック完結（Fastify + archiver でストリーミング）
+- 構成: 新規 API `POST /surveys/:id/images/export/bulk` → archiver で R2 から fetch して ZIP ストリーミング → ブラウザは a.download
+- ✅ メモリ問題なし、巨大ファイル対応、複数ユーザーの並列実行に強い
+- ❌ サーバ側で注釈レンダリング基盤（Canvas / 画像合成）を新規構築する必要があり、フロントの Fabric.js 依存ロジックを再実装することになる（コード重複・整合性リスク）
+- ❌ R2 → サーバ → ブラウザの帯域経路を経由するため転送効率がフロント完結より劣る
+
+#### Option C: ハイブリッド（閾値以下はフロント、閾値超はバックジョブ + 通知）
+- 50 枚以下: Option A、50 枚超: バック非同期ジョブ + 完了通知 + 署名付きURL
+- ✅ 規模に応じた最適化
+- ❌ 実装複雑度大、本要件のスコープを超える
+
+**推奨**: **Option A（フロント完結 jszip）**。R6 で枚数上限を確認し、想定運用（数十枚規模）に収まれば本方式で完結。閾値超ケースは Option C を将来拡張として保留。
+
+### 3.2 Req 31 の画像選択 UI
+
+#### Option A: `SurveyImageGrid` にチェックボックスを追加（**推奨**）
+- 既存グリッドの各サムネイル左上にチェックボックスを表示、選択件数表示と「選択画像エクスポート」ボタンをツールバーへ追加
+- ✅ 既存コンポーネントの自然な拡張
+- ❌ 既存の「個別エクスポート」アクションとの UI 競合に注意（個別アクションメニューを維持）
+
+#### Option B: 「選択モード」のトグル切替
+- 明示的に選択モードに入ったときのみチェックボックスを表示
+- ✅ デフォルト UI を変えない
+- ❌ 操作ステップが 1 増える
+
+**推奨**: **Option A**。チェックボックスをデフォルト表示し、「全件一括エクスポート」と「選択画像エクスポート」を併置するシンプルなフロー。
+
+### 3.3 Req 31 の進捗・キャンセルUX
+
+#### Option A: モーダル + プログレスバー + キャンセルボタン（**推奨**）
+- `BulkExportProgressDialog`（新規）を `bulkExportService` の進捗 callback と連動
+- 件数表示「3 / 12 件処理中」+ 割合バー + キャンセルボタン
+- ✅ ユーザーに明示的なフィードバック、誤操作（タブ閉じ等）の抑止効果
+
+#### Option B: トースト型の小型インジケータ
+- 画面右下に小さく表示、バックグラウンド処理感を強調
+- ❌ 汎用トースト実装が不在のため、結局 UI 部品を新設する必要がある
+
+**推奨**: **Option A**。汎用トースト基盤がない現状ではモーダルが最短実装。
+
+### 3.4 Req 32（6 形状の白縁取り）
+
+#### Option A: Group パターン（Arrow と同じ方式を 6 ツールへ展開）（**推奨**）
+- 各ツール = `outlinePath/outlineShape`（白・幅 × 1.5+）+ `bodyShape`（既存）を含む Group
+- ✅ Arrow と統一的なアーキテクチャ、塗りつぶしあり形状（Rectangle/Circle/Polygon）でも自然
+- ✅ `toObject/fromObject` の拡張パターンを Arrow から踏襲可能
+- ❌ 6 ツール × 構造リファクタの工数大。リサイズ/形状変形ハンドル、Req 17（描画ツール使用中の選択防止）、Req 30（マルチタッチ）等の既存挙動の回帰確認が広範に必要
+
+#### Option B: Fabric `_render` オーバーライド（描画時に stroke 2 回描画）
+- 各ツールの `_render(ctx)` をオーバーライドし、`ctx.lineWidth = bodyWidth × 1.5; ctx.strokeStyle = 'white'; super._render(ctx);` を本体描画前に 1 回追加
+- ✅ オブジェクト構造は単一のまま、シリアライズ拡張が最小
+- ✅ ハンドル/ヒットテスト/既存挙動への影響が小さい
+- ❌ Fabric 内部 API（`_render`）への依存、Fabric v8 以降のメジャー更新時の壊れやすさ
+- ❌ Freehand の多数 segment、Polygon/Polyline の多頂点でのパフォーマンス再評価が必要（R10）
+- ❌ Arrow が Group 方式である現状と実装パターンが分岐し、保守の認知負荷が増える
+
+#### Option C: paintFirst による単一 stroke 切替
+- ✅ 最小変更
+- ❌ paintFirst は fill/stroke の順序切替のみで「二重 stroke」は実現不可。本要件には不適合
+
+**推奨**: **Option A**（Group パターン統一）。短期的工数は B より大きいが、Arrow との実装一貫性、長期保守性、Fabric API 依存度の低さで優位。Dimension は Group 化の特殊ケースとして、寸法線部分に outline、寸法値ラベル部分に Req 25 と同等の paintFirst を適用するハイブリッド構造とする（Req 32 #12）。
+
+### 3.5 Req 32 の属性体系
+
+#### Option A: 共通型 `ShapeOutlineAttribute { enabled, color, width }` を annotation-style-tokens に追加（**推奨**）
+- Arrow の `ArrowOutlineAttribute` と互換、各ツールは同型を保持
+- `ANNOTATION_DEFAULTS` に `rectangleOutline`/`circleOutline`/... を追加（または `shapeOutline` 共通既定）
+- ✅ Arrow との型整合、`enabled=true` 既定の Req 32 #11/13 を一箇所で管理
+
+**推奨**: **Option A**。
+
+## 4. 実装複雑度・リスク
+
+| Req | Effort | Risk | 根拠 |
+|---|---|---|---|
+| Req 31: 一括ZIPエクスポート（フロント完結） | **M** (4-6d) | **Medium** | jszip 導入、`bulkExportService` 新設、`SurveyImageGrid` 選択UI、`BulkExportProgressDialog` 新規、Req 12 設定ダイアログの一括対応拡張、部分失敗・キャンセル・0件・権限の各フロー |
+| Req 32: 6 形状の白縁取り（Group パターン展開） | **M-L** (5-9d) | **Medium** | 6 ツール × Group 化リファクタ、`toObject/fromObject` 拡張、`annotation-style-tokens` 拡張、Dimension の寸法値ラベル白アウトライン、Req 17/20/23/26/30 への回帰確認、後方互換（白縁取り属性欠落時の従来表現） |
+| **合計目安** | **L** (約 2 週間) | **Medium** | Req 31/32 を一連の PR / 関連 PR で実施する場合 |
+
+## 5. 設計フェーズへの引き継ぎ（Recommendations for Design）
+
+### 5.1 Preferred Approach（総論）
+
+- **Req 31**: フロント完結 jszip 方式（3.1 Option A）+ チェックボックスをデフォルト表示する選択UI（3.2 Option A）+ モーダル進捗（3.3 Option A）
+- **Req 32**: Group パターン統一（3.4 Option A）+ 共通型 `ShapeOutlineAttribute`（3.5 Option A）。Dimension は Group + 寸法値ラベルの paintFirst のハイブリッド
+- 既存 Req 12 の `ImageExportDialog` は「個別/一括」両モード対応へ拡張するか、`BulkExportDialog` を分離するかは設計で決定（再利用率とコード分離のトレードオフ）
+
+### 5.2 Key Decisions（設計で確定すべき論点）
+
+1. **ZIP ライブラリ選定**: `jszip` の最新版を採用するか。バンドルサイズ・gzip 対応・ストリーミング書込みの可否を確認（R6）
+2. **クライアントメモリ閾値**: 一括処理可能な最大画像数の上限ガード（例: 100 枚で警告、200 枚で拒否）の方針
+3. **ZIP 内ファイル名規則**: 画像順序番号プレフィックス、現場調査名、注釈含む/原本の区別を含めるか（R9）
+4. **設定 UI の構造**: `ImageExportDialog` を「単一/一括」両対応に拡張 vs `BulkExportDialog` 新設
+5. **進捗 UX の具体形**: 件数表示・割合バー・推定残り時間・キャンセル時の確認ダイアログの要否
+6. **Group 化対象 6 ツールの toObject/fromObject 形式**: Arrow の踏襲方針（Group 子は内部 Path として書き出し、復元時に再構築）の確定
+7. **`ShapeOutlineAttribute` 既定値**: `width` を本体線幅の何倍にするか（Req 32 #2 の「1.5 倍以上」の具体値）。Arrow の実値（`ANNOTATION_DEFAULTS.arrowOutline.width`）と整合
+8. **Dimension の寸法値ラベル**: 既存背景色（Req 8 由来）との重畳順序、白アウトラインと背景色の併用可否
+9. **既存白縁取り属性欠落時の挙動**: Arrow の後方互換実装（Req 24 #9）を 6 形状にも踏襲（Req 32 #9）
+
+### 5.3 Research Items to Carry Forward
+
+- R6: ZIP ライブラリの選定とクライアントメモリ上限実測
+- R7: `renderImages()` の Canvas 共有制約とシリアル処理時間
+- R8: 「元画像そのまま」と「注釈含む」の混在可否（要件解釈の確認）
+- R9: ZIP 内ファイル名規則の確定
+- R10: Group パターンでの 6 形状描画パフォーマンス（特に Freehand/Polygon）
+- R11: Dimension の白縁取り + 寸法値ラベル白アウトラインのレイアウト/可読性
+- R12: 一括エクスポートのキャンセル粒度（AbortController 適用箇所）
+
+### 5.4 Out-of-Scope（本ギャップ分析では扱わない）
+
+- 一括 PDF 単一ファイル出力（Req 11 の PDF 報告書スコープ維持、Req 31 では明示的に Out of Scope）
+- バック側 ZIP ジョブ化・非同期化（R6 の実測結果次第で別スコープ）
+- 白縁取り対象形状ごとの個別カスタマイズパラメータ化（Req 32 で明示的に Out of Scope）
+
+## 6. 次のステップ
+
+1. 本 research.md の Req 31/32 セクションを入力として `/kiro-spec-design site-survey` を実行し、Boundary Commitments・データモデル・インターフェース・非機能方針を追記
+2. 設計フェーズで R6-R12 の実測/調査を完了（特に R6 メモリ上限、R10 描画パフォーマンスは早期に確認）
+3. その後 `/kiro-spec-tasks site-survey` でタスクを再生成（Req 31/32 を Req 1-30 と重複しないタスクID範囲で追加）
+

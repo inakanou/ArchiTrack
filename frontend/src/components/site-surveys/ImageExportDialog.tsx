@@ -2,37 +2,51 @@
  * ImageExportDialogコンポーネント
  *
  * 個別画像のエクスポートダイアログ
- * - エクスポート形式選択UI（JPEG/PNG）
- * - 品質（解像度）選択UI（低/中/高の3段階）
- * - 注釈あり/なし選択オプション
+ * - エクスポート形式選択UI（JPEG/PNG） - ExportSettingsForm に委譲
+ * - 解像度選択UI（低/中/高の3段階） - ExportSettingsForm に委譲
+ * - 注釈モード選択UI（含める/含めない/元画像そのまま） - ExportSettingsForm に委譲
  * - エクスポート実行ボタンとキャンセルボタン
- * - 元画像ダウンロードボタン（注釈なし）
+ * - 元画像ダウンロードボタン（後方互換性のため維持）
  *
  * Task 29.1: ImageExportDialogコンポーネントを実装する
  * Task 29.2: 元画像ダウンロード機能を実装する
+ * Task 83.2: ExportSettingsForm への置換（UI を共通フォームに統一）
  *
- * @see requirements.md - 要件12.1, 12.2, 12.3, 12.4
+ * 外部 Props (`onExport`/`onDownloadOriginal` 等) は変更せず、
+ * 内部 state は新しい ExportSettings 型で管理し、
+ * onExport 呼び出し時に旧 ExportOptions 型へ変換する。
+ *
+ * @see requirements.md - 要件12.1, 12.2, 12.3, 12.4, 31.4
  */
 
 import React, { useState, useId, useEffect, useCallback } from 'react';
 import type { SurveyImageInfo } from '../../types/site-survey.types';
+import ExportSettingsForm, {
+  type ExportSettings,
+  type ExportFormat,
+  type ExportResolution,
+  type AnnotationMode,
+} from './ExportSettingsForm';
 
 // ============================================================================
 // 型定義
 // ============================================================================
 
 /**
- * エクスポート形式
+ * エクスポート品質（解像度）
+ * 後方互換性のため `ExportResolution` の別名として保持
  */
-export type ExportFormat = 'jpeg' | 'png';
+export type ExportQuality = ExportResolution;
 
 /**
- * エクスポート品質（解像度）
+ * エクスポート形式（再エクスポート）
  */
-export type ExportQuality = 'low' | 'medium' | 'high';
+export type { ExportFormat };
 
 /**
  * エクスポートオプション
+ *
+ * 後方互換性維持のため、onExport コールバックに渡される従来型を維持する。
  */
 export interface ExportOptions {
   /** 出力形式 */
@@ -120,65 +134,6 @@ const styles = {
     height: '1px',
     backgroundColor: '#e5e7eb',
     margin: '20px 0',
-  },
-  fieldset: {
-    border: 'none',
-    margin: 0,
-    padding: 0,
-    marginBottom: '20px',
-  },
-  legend: {
-    fontSize: '14px',
-    fontWeight: 500,
-    color: '#374151',
-    marginBottom: '8px',
-    display: 'block',
-  },
-  radioGroup: {
-    display: 'flex',
-    gap: '16px',
-  },
-  radioLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    color: '#374151',
-  },
-  radioLabelDisabled: {
-    cursor: 'not-allowed',
-    color: '#6b7280', // WCAG 2.1 AA準拠 (5.0:1 on #fff)
-  },
-  radio: {
-    width: '16px',
-    height: '16px',
-    cursor: 'pointer',
-  },
-  radioDisabled: {
-    cursor: 'not-allowed',
-  },
-  checkboxContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  checkbox: {
-    width: '18px',
-    height: '18px',
-    cursor: 'pointer',
-  },
-  checkboxDisabled: {
-    cursor: 'not-allowed',
-  },
-  checkboxLabel: {
-    fontSize: '14px',
-    color: '#374151',
-    cursor: 'pointer',
-  },
-  checkboxLabelDisabled: {
-    cursor: 'not-allowed',
-    color: '#6b7280', // WCAG 2.1 AA準拠 (5.0:1 on #fff)
   },
   loadingContainer: {
     display: 'flex',
@@ -270,6 +225,18 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+/**
+ * 新型 ExportSettings → 旧型 ExportOptions の変換
+ *
+ * `annotationMode === 'original-only'` の場合は別経路で扱う（onDownloadOriginal）。
+ * include / exclude のみがこの変換の対象。
+ */
+const toExportOptions = (settings: ExportSettings): ExportOptions => ({
+  format: settings.format,
+  quality: settings.resolution,
+  includeAnnotations: settings.annotationMode === 'include',
+});
+
 // ============================================================================
 // コンポーネント
 // ============================================================================
@@ -286,10 +253,12 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
   onDownloadOriginal,
   downloading = false,
 }) => {
-  // フォーム状態
-  const [format, setFormat] = useState<ExportFormat>('jpeg');
-  const [quality, setQuality] = useState<ExportQuality>('medium');
-  const [includeAnnotations, setIncludeAnnotations] = useState(true);
+  // フォーム状態（新型 ExportSettings で一元管理）
+  const [settings, setSettings] = useState<ExportSettings>({
+    format: 'jpeg',
+    resolution: 'medium',
+    annotationMode: 'include',
+  });
 
   // ホバー状態
   const [cancelHovered, setCancelHovered] = useState(false);
@@ -301,9 +270,6 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
 
   // アクセシビリティ用ID
   const titleId = useId();
-  const formatLabelId = useId();
-  const qualityLabelId = useId();
-  const annotationsId = useId();
 
   /**
    * Escapeキーでダイアログを閉じる
@@ -329,13 +295,18 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
 
   /**
    * エクスポート実行ハンドラ
+   *
+   * - annotationMode === 'original-only' の場合は onDownloadOriginal を呼び出す
+   * - それ以外は onExport へ旧型 ExportOptions を渡す
    */
   const handleExport = () => {
-    onExport({
-      format,
-      quality,
-      includeAnnotations,
-    });
+    if (settings.annotationMode === 'original-only') {
+      if (onDownloadOriginal) {
+        onDownloadOriginal();
+      }
+      return;
+    }
+    onExport(toExportOptions(settings));
   };
 
   /**
@@ -348,7 +319,7 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
   };
 
   /**
-   * 元画像ダウンロードハンドラ（Task 29.2）
+   * 元画像ダウンロードハンドラ（Task 29.2 後方互換）
    */
   const handleDownloadOriginal = () => {
     if (onDownloadOriginal) {
@@ -402,155 +373,10 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
 
             <div style={styles.divider} />
 
-            {/* エクスポート形式 */}
-            <fieldset style={styles.fieldset}>
-              <legend id={formatLabelId} style={styles.legend}>
-                エクスポート形式
-              </legend>
-              <div style={styles.radioGroup} role="radiogroup" aria-labelledby={formatLabelId}>
-                <label
-                  style={{
-                    ...styles.radioLabel,
-                    ...(exporting ? styles.radioLabelDisabled : {}),
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="export-format"
-                    value="jpeg"
-                    checked={format === 'jpeg'}
-                    onChange={() => setFormat('jpeg')}
-                    disabled={exporting}
-                    style={{
-                      ...styles.radio,
-                      ...(exporting ? styles.radioDisabled : {}),
-                    }}
-                    aria-label="JPEG"
-                  />
-                  JPEG
-                </label>
-                <label
-                  style={{
-                    ...styles.radioLabel,
-                    ...(exporting ? styles.radioLabelDisabled : {}),
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="export-format"
-                    value="png"
-                    checked={format === 'png'}
-                    onChange={() => setFormat('png')}
-                    disabled={exporting}
-                    style={{
-                      ...styles.radio,
-                      ...(exporting ? styles.radioDisabled : {}),
-                    }}
-                    aria-label="PNG"
-                  />
-                  PNG
-                </label>
-              </div>
-            </fieldset>
+            {/* エクスポート設定フォーム（形式 / 解像度 / 注釈モード） */}
+            <ExportSettingsForm value={settings} onChange={setSettings} disabled={isProcessing} />
 
-            {/* 品質選択 */}
-            <fieldset style={styles.fieldset}>
-              <legend id={qualityLabelId} style={styles.legend}>
-                品質（解像度）
-              </legend>
-              <div style={styles.radioGroup} role="radiogroup" aria-labelledby={qualityLabelId}>
-                <label
-                  style={{
-                    ...styles.radioLabel,
-                    ...(exporting ? styles.radioLabelDisabled : {}),
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="export-quality"
-                    value="low"
-                    checked={quality === 'low'}
-                    onChange={() => setQuality('low')}
-                    disabled={exporting}
-                    style={{
-                      ...styles.radio,
-                      ...(exporting ? styles.radioDisabled : {}),
-                    }}
-                    aria-label="低"
-                  />
-                  低
-                </label>
-                <label
-                  style={{
-                    ...styles.radioLabel,
-                    ...(exporting ? styles.radioLabelDisabled : {}),
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="export-quality"
-                    value="medium"
-                    checked={quality === 'medium'}
-                    onChange={() => setQuality('medium')}
-                    disabled={exporting}
-                    style={{
-                      ...styles.radio,
-                      ...(exporting ? styles.radioDisabled : {}),
-                    }}
-                    aria-label="中"
-                  />
-                  中
-                </label>
-                <label
-                  style={{
-                    ...styles.radioLabel,
-                    ...(exporting ? styles.radioLabelDisabled : {}),
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="export-quality"
-                    value="high"
-                    checked={quality === 'high'}
-                    onChange={() => setQuality('high')}
-                    disabled={exporting}
-                    style={{
-                      ...styles.radio,
-                      ...(exporting ? styles.radioDisabled : {}),
-                    }}
-                    aria-label="高"
-                  />
-                  高
-                </label>
-              </div>
-            </fieldset>
-
-            {/* 注釈オプション */}
-            <div style={styles.checkboxContainer}>
-              <input
-                type="checkbox"
-                id={annotationsId}
-                checked={includeAnnotations}
-                onChange={(e) => setIncludeAnnotations(e.target.checked)}
-                disabled={exporting}
-                style={{
-                  ...styles.checkbox,
-                  ...(exporting ? styles.checkboxDisabled : {}),
-                }}
-                aria-label="注釈を含める"
-              />
-              <label
-                htmlFor={annotationsId}
-                style={{
-                  ...styles.checkboxLabel,
-                  ...(exporting ? styles.checkboxLabelDisabled : {}),
-                }}
-              >
-                注釈を含める
-              </label>
-            </div>
-
-            {/* 元画像ダウンロードセクション（Task 29.2） */}
+            {/* 元画像ダウンロードセクション（Task 29.2 後方互換） */}
             {onDownloadOriginal && (
               <div style={styles.downloadSection}>
                 <button
@@ -632,3 +458,5 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
 };
 
 export default ImageExportDialog;
+// AnnotationMode は ExportSettingsForm から再エクスポート（参照されることがあるため）
+export type { AnnotationMode };

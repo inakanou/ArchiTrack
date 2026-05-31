@@ -2,21 +2,30 @@
  * @fileoverview 折れ線ツール
  *
  * Task 15.5: 折れ線ツールを実装する
+ * Task 80.1: Polyline クラスを Group ベースへ再設計（白縁取りダブルストローク）
  *
  * クリックによる点追加、ダブルクリックで終了、
- * カスタムFabric.jsオブジェクト実装を行うモジュールです。
+ * 白縁取り付き Group 構造のカスタム Fabric.js オブジェクト実装を行うモジュールです。
  *
  * Requirements:
  * - 7.5: 折れ線ツールを選択して点をクリックすると折れ線を描画する
+ * - 32.1: 矢印以外の形状にも白色の縁取り線を付与する
+ * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上に設定する
+ * - 32.3: 本体色を変更しても白縁取りは白のまま維持する
+ * - 32.4: 移動・リサイズ・回転・形状変形（端点移動・頂点追加/削除等）時に本体と同期して白縁取りを変形する
  *
  * @requirement site-survey/REQ-26.1
  * @requirement site-survey/REQ-26.2
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-32.1
+ * @requirement site-survey/REQ-32.2
+ * @requirement site-survey/REQ-32.3
+ * @requirement site-survey/REQ-32.4
  */
 
-import { Polyline } from 'fabric';
+import { Group, Polyline } from 'fabric';
 
-import { ANNOTATION_DEFAULTS } from '../annotation-style-tokens';
+import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -54,6 +63,9 @@ export interface PolylineOptions {
 
 /**
  * 折れ線のシリアライズ形式
+ *
+ * Task 80.2: `outline?: ShapeOutlineAttribute` を追加（Req 32.6, 32.7）。
+ * `outline` が未定義のデータは白縁取り無しの従来表現で復元される（Req 32.9 後方互換）。
  */
 export interface PolylineJSON {
   type: 'polylineShape';
@@ -65,6 +77,8 @@ export interface PolylineJSON {
   left?: number;
   /** 移動後の位置Y（オプション、後方互換性のため） */
   top?: number;
+  /** 白縁取り属性（未設定は従来表現フォールバック） */
+  outline?: ShapeOutlineAttribute;
 }
 
 // ============================================================================
@@ -95,20 +109,38 @@ const MIN_POINT_COUNT = 2;
 /**
  * 折れ線クラス
  *
- * Fabric.js Polylineを拡張した折れ線オブジェクト。
- * クリック操作で点を追加し、折れ線を構築する。
+ * Fabric.js Group を拡張した折れ線オブジェクト。
+ * - outlinePolyline: 白い縁取り（本体線幅 + 縁取り幅×2）
+ * - bodyPolyline: 本体色の細い線
+ * の 2 つの子 Polyline を持つ。
+ *
+ * 開放形状のため両 Polyline の `fill` は `'transparent'` を維持する
+ * （design.md 5347 行: 「開放形状 2 種（Polyline/Freehand）は両 path とも fill 未使用」）。
+ *
+ * `type === 'polylineShape'` は維持（classRegistry 後方互換）。
+ *
+ * Task 80.1 で `Polyline` 直接継承から `Group` ベースへ再設計。
  */
-export class PolylineShape extends Polyline {
-  /** 点配列 */
+export class PolylineShape extends Group {
+  /** 点配列（内部状態） */
   private _points: Point[];
 
-  /** 線色 */
+  /** 白縁取り属性 */
+  private _outline: ShapeOutlineAttribute;
+
+  /** 外側の白縁取り Polyline */
+  private _outlinePolyline: Polyline;
+
+  /** 本体色の Polyline */
+  private _bodyPolyline: Polyline;
+
+  /** 線色（後方互換: Group 自体にもミラー設定） */
   declare stroke: string;
 
-  /** 線の太さ */
+  /** 線の太さ（後方互換: Group 自体にもミラー設定） */
   declare strokeWidth: number;
 
-  /** 塗りつぶし色 */
+  /** 塗りつぶし色（後方互換: Group 自体にもミラー設定） */
   declare fill: string;
 
   /** コントロール表示フラグ */
@@ -133,21 +165,75 @@ export class PolylineShape extends Polyline {
     // 設定をマージ
     const mergedOptions = { ...DEFAULT_POLYLINE_OPTIONS, ...options };
 
-    // Polylineを初期化
-    super(points, {
-      stroke: mergedOptions.stroke,
-      strokeWidth: mergedOptions.strokeWidth,
-      fill: mergedOptions.fill,
+    // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
+    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.polylineOutline };
+
+    // 点配列のコピー
+    const pointsCopy = points.map((p) => ({ ...p }));
+
+    // 外側 Polyline（白縁取り）を生成
+    // 子の left/top は Group 原点（0,0）からの相対座標。
+    // 親 Group が位置決めし、子は points で形状を保持することで
+    // 移動・リサイズ・回転・頂点編集時に同期する（Req 32.4）。
+    //
+    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    const outlinePolyline = new Polyline(pointsCopy, {
+      stroke: outline.color,
+      strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
+      fill: 'transparent',
+      strokeLineCap: 'round',
+      strokeLineJoin: 'round',
+      opacity: outline.enabled ? 1 : 0,
       originX: 'left',
       originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // 本体 Polyline を生成
+    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 既存 PolylineOptions の `fill` は API 上維持するが、実描画では使用しない。
+    const bodyPolyline = new Polyline(pointsCopy, {
+      stroke: mergedOptions.stroke,
+      strokeWidth: mergedOptions.strokeWidth,
+      fill: 'transparent',
+      originX: 'left',
+      originY: 'top',
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      objectCaching: true,
+    });
+
+    // Group を初期化（outline → body の順で重ね、body が上に描画される）
+    // 本体色/本体線幅/塗りつぶしは Group 自体にもミラー設定して、既存 consumer の
+    // `polyline.stroke` / `polyline.strokeWidth` / `polyline.fill` 参照との
+    // 後方互換を維持する。
+    super([outlinePolyline, bodyPolyline], {
+      originX: 'left',
+      originY: 'top',
+      selectable: true,
+      evented: true,
       hasControls: true,
       hasBorders: true,
       lockMovementX: false,
       lockMovementY: false,
+      subTargetCheck: false,
+      objectCaching: false,
+      stroke: mergedOptions.stroke,
+      strokeWidth: mergedOptions.strokeWidth,
+      fill: mergedOptions.fill,
     });
 
     // プロパティを設定
-    this._points = points.map((p) => ({ ...p }));
+    this._points = pointsCopy;
+    this._outline = outline;
+    this._outlinePolyline = outlinePolyline;
+    this._bodyPolyline = bodyPolyline;
     this.stroke = mergedOptions.stroke;
     this.strokeWidth = mergedOptions.strokeWidth;
     this.fill = mergedOptions.fill;
@@ -196,32 +282,46 @@ export class PolylineShape extends Polyline {
 
   /**
    * 指定されたインデックスの点を更新
+   *
+   * Task 80.1 (Req 32.4): outlinePolyline と bodyPolyline の双方を同期更新する。
    */
   setPoint(index: number, point: Point): void {
     if (index < 0 || index >= this._points.length) {
       return;
     }
     this._points[index] = { ...point };
-    this._updatePoints();
+    this._syncChildPoints();
     this.setCoords();
   }
 
   /**
    * 全点を一括で更新
+   *
+   * Task 80.1 (Req 32.4): outlinePolyline と bodyPolyline の双方を同期更新する。
+   * 点配列の長さが変化（追加・削除）した場合も両子に伝搬する。
    */
   setPoints(points: Point[]): void {
     this._points = points.map((p) => ({ ...p }));
-    this._updatePoints();
+    this._syncChildPoints();
     this.setCoords();
   }
 
   /**
-   * Fabric.js Polylineのpointsプロパティを更新
+   * 子 Polyline（outline + body）の points を同期更新するヘルパー
+   *
+   * Task 80.1 (Req 32.4): 点追加・削除・移動時に両 Polyline を同期更新する。
+   * Fabric.js Polyline の points は配列参照で管理されるため、新しい配列コピーを
+   * 渡して setter 経由で更新する。
    */
-  private _updatePoints(): void {
-    this.set(
+  private _syncChildPoints(): void {
+    const pointsCopy = this._points.map((p) => ({ ...p }));
+    this._outlinePolyline.set(
       'points',
-      this._points.map((p) => ({ ...p }))
+      pointsCopy.map((p) => ({ ...p }))
+    );
+    this._bodyPolyline.set(
+      'points',
+      pointsCopy.map((p) => ({ ...p }))
     );
   }
 
@@ -263,23 +363,36 @@ export class PolylineShape extends Polyline {
   // ==========================================================================
 
   /**
-   * 線色を更新
+   * 線色（本体色）を更新
+   *
+   * Task 80.1 (Req 32.3): 白縁取り（outlinePolyline）の色は常に白のまま維持する。
+   * `polyline.stroke` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStroke(color: string): void {
     this.stroke = color;
+    this._bodyPolyline.set('stroke', color);
     this.set('stroke', color);
   }
 
   /**
-   * 線の太さを更新
+   * 線の太さ（本体線幅）を更新
+   *
+   * Task 80.1 (Req 32.2): 白縁取り Polyline の線幅も `width + outline.width * 2` に同期更新する。
+   * `polyline.strokeWidth` は Group 自身のプロパティも同期更新し、既存 consumer の参照互換を保つ。
    */
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
+    this._bodyPolyline.set('strokeWidth', width);
+    this._outlinePolyline.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
 
   /**
    * 塗りつぶし色を更新
+   *
+   * Task 80.1: 折れ線は開放形状のため実描画では fill は使用しないが、
+   * 既存 API 互換のために Group プロパティのみ更新する。
+   * 両子 Polyline の fill は 'transparent' のまま維持する（design.md 5347 行）。
    */
   setFill(color: string): void {
     this.fill = color;
@@ -313,11 +426,59 @@ export class PolylineShape extends Polyline {
   }
 
   // ==========================================================================
+  // 白縁取り属性の更新
+  // ==========================================================================
+
+  /**
+   * 白縁取り属性を部分更新
+   *
+   * Task 80.1 (Req 32.1, 32.2):
+   * - enabled=false のときは outlinePolyline.opacity=0（構造は保持）
+   * - enabled=true のときは outlinePolyline.opacity=1 かつ stroke/width を再適用
+   *
+   * @param next 部分更新する属性
+   */
+  setOutline(next: Partial<ShapeOutlineAttribute>): void {
+    this._outline = { ...this._outline, ...next };
+
+    if (this._outline.enabled) {
+      const bodyStrokeWidth = (this._bodyPolyline.strokeWidth as number) ?? 0;
+      this._outlinePolyline.set({
+        opacity: 1,
+        stroke: this._outline.color,
+        strokeWidth: bodyStrokeWidth + this._outline.width * 2,
+      });
+    } else {
+      this._outlinePolyline.set({ opacity: 0 });
+    }
+
+    // Req 24.10 (Arrow と同方針): canvas にアタッチ済みなら object:modified を発火する。
+    // canvas 未アタッチ時は安全に no-op。
+    const attachedCanvas = (
+      this as unknown as { canvas?: { fire?: (event: string, options?: unknown) => void } }
+    ).canvas;
+    attachedCanvas?.fire?.('object:modified', { target: this });
+  }
+
+  /**
+   * 現在の白縁取り属性を取得
+   *
+   * @returns 現在の outline 属性のコピー
+   */
+  getOutline(): ShapeOutlineAttribute | undefined {
+    return { ...this._outline };
+  }
+
+  // ==========================================================================
   // シリアライズ
   // ==========================================================================
 
   /**
    * オブジェクトをJSON形式にシリアライズ
+   *
+   * Task 80.2 (Req 32.6):
+   * - `outline` 現状を常に含めて出力する（新規保存時は enabled=false の場合も含める）。
+   *   design.md §Polyline (Group) Postconditions「新規保存時は必ず outline を含める」に従う。
    */
   // @ts-expect-error - Fabric.js v6のtoObjectシグネチャとの互換性のため型を簡略化
   override toObject(): PolylineJSON {
@@ -329,6 +490,7 @@ export class PolylineShape extends Polyline {
       fill: this.fill,
       left: this.left,
       top: this.top,
+      outline: { ...this._outline },
     };
   }
 
@@ -337,24 +499,93 @@ export class PolylineShape extends Polyline {
    *
    * Fabric.js v6のenlivenObjectsで使用される静的メソッド。
    *
-   * @param object シリアライズされたJSONオブジェクト
+   * Task 80.2 (Req 32.7, 32.9, design.md Migration 安全性):
+   * - `object.outline` 定義時は setOutline で復元（Req 32.7）
+   * - `object.outline` 未定義の旧データは「白縁取り無し」の従来表現で復元する（Req 32.9 後方互換）
+   * - 必須フィールド（points 配列・各点の x/y・stroke/strokeWidth/fill）欠落や
+   *   null/undefined 受領時は安全な既定値（最低 2 点の水平線、stroke 黒、strokeWidth 2、
+   *   fill 'transparent'）で復元し、console.warn を送出する（防御的フォールバック）。
+   *   折れ線は開放形状のため fill 既定は 'transparent' を採用（design.md 5347 行）。
+   *
+   * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたPolylineShapeインスタンス
    */
   static override fromObject(object: PolylineJSON): Promise<PolylineShape> {
-    const polyline = new PolylineShape(object.points, {
-      stroke: object.stroke,
-      strokeWidth: object.strokeWidth,
-      fill: object.fill,
+    // 防御的バリデーション: 必須フィールドの存在確認
+    // points 欠落時は最低限の 2 点直線（原点付近）でフォールバック（PolylineShape は最低 2 点必要）。
+    const safeDefaults = {
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+      ] as Point[],
+      stroke: '#000000',
+      strokeWidth: 2,
+      fill: 'transparent',
+    };
+
+    const isValidPointsArray =
+      object != null &&
+      typeof object === 'object' &&
+      Array.isArray(object.points) &&
+      object.points.every(
+        (p): p is Point =>
+          p != null && typeof p === 'object' && typeof p.x === 'number' && typeof p.y === 'number'
+      );
+
+    const hasValidRequiredFields =
+      object != null &&
+      typeof object === 'object' &&
+      isValidPointsArray &&
+      typeof object.stroke === 'string' &&
+      typeof object.strokeWidth === 'number' &&
+      typeof object.fill === 'string';
+
+    let points: Point[];
+    let stroke: string;
+    let strokeWidth: number;
+    let fill: string;
+
+    if (!hasValidRequiredFields) {
+      // 不正データ: 警告ログ + 安全な既定値で復元
+      console.warn('[PolylineTool] fromObject: missing required fields, using safe defaults', {
+        received: object,
+      });
+      points = safeDefaults.points;
+      stroke = safeDefaults.stroke;
+      strokeWidth = safeDefaults.strokeWidth;
+      fill = safeDefaults.fill;
+    } else {
+      points = object.points;
+      stroke = object.stroke;
+      strokeWidth = object.strokeWidth;
+      fill = object.fill;
+    }
+
+    const polyline = new PolylineShape(points, {
+      stroke,
+      strokeWidth,
+      fill,
     });
 
     // 移動後の位置を復元（後方互換性のためオプション）
-    if (object.left !== undefined) {
+    if (hasValidRequiredFields && object.left !== undefined) {
       polyline.set('left', object.left);
     }
-    if (object.top !== undefined) {
+    if (hasValidRequiredFields && object.top !== undefined) {
       polyline.set('top', object.top);
     }
     polyline.setCoords();
+
+    // outline 属性の復元
+    if (hasValidRequiredFields && object.outline !== undefined) {
+      // Req 32.7: 保存された outline を復元
+      polyline.setOutline(object.outline);
+    } else {
+      // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
+      //   既存の ANNOTATION_DEFAULTS.polylineOutline（enabled=true）を無効化し、
+      //   outlinePolyline.opacity=0 + width=0 で「白縁取り無し」状態にする。
+      polyline.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+    }
 
     return Promise.resolve(polyline);
   }
