@@ -181,6 +181,29 @@ describe('QuantityGroupCard', () => {
       });
     });
 
+    describe('計算用フィールドの水平スクロール', () => {
+      it('カードが overflow-x: auto で水平スクロール可能（計算用フィールド閲覧のため）', () => {
+        // 計算方法（面積・体積/ピッチ）選択時に操作列の右へ展開する計算用フィールドを
+        // 閲覧できるよう、カードが水平スクロール可能であること。
+        // 従来は overflow: hidden でクリップされ追加フィールドへ到達できなかった。
+        renderWithRouter(
+          <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
+        );
+
+        const card = screen.getByTestId('quantity-group-card');
+        expect(card).toHaveStyle({ overflowX: 'auto' });
+      });
+
+      it('カードの縦方向はクリップされ、角丸クリップとレイアウトを維持する', () => {
+        renderWithRouter(
+          <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
+        );
+
+        const card = screen.getByTestId('quantity-group-card');
+        expect(card).toHaveStyle({ overflowY: 'hidden' });
+      });
+    });
+
     describe('REQ 3.3: 該当写真の注釈付きサムネイル表示', () => {
       it('紐付き画像があるグループにサムネイルが表示される', () => {
         renderWithRouter(

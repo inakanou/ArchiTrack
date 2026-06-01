@@ -291,6 +291,25 @@ describe('AutocompleteInput', () => {
       expect(input).toHaveAttribute('aria-invalid', 'true');
       expect(screen.getByText('入力してください')).toBeInTheDocument();
     });
+
+    it('エラーメッセージは吹き出し方式で表示され、フィールド下にブロック挿入されない', () => {
+      // テキストフィールド下にメッセージを挿入するとフィールド間スペースが広がり
+      // 表示が崩れるため、警告アイコン＋ホバー吹き出し（オーバーレイ）で表示する。
+      render(<AutocompleteInput {...defaultProps} id="field-x" error="入力してください" />);
+
+      const input = screen.getByRole('combobox');
+      // 入力欄がアクセシブルな説明（alert）を参照する
+      expect(input).toHaveAttribute('aria-describedby', 'field-x-error');
+
+      // 警告アイコン（アクセシブル名＝メッセージ）が入力欄内に表示される
+      expect(screen.getByRole('img', { name: '入力してください' })).toBeInTheDocument();
+
+      // メッセージは role="alert" 要素として DOM に存在する（スクリーンリーダー対応）
+      const alert = document.getElementById('field-x-error');
+      expect(alert).not.toBeNull();
+      expect(alert).toHaveAttribute('role', 'alert');
+      expect(alert).toHaveTextContent('入力してください');
+    });
   });
 
   describe('必須フィールド', () => {

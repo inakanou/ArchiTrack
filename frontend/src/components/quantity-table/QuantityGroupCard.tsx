@@ -105,7 +105,12 @@ const styles = {
     backgroundColor: '#ffffff',
     borderRadius: '8px',
     border: '1px solid #e5e7eb',
-    overflow: 'hidden',
+    // 計算方法（面積・体積/ピッチ）選択時に操作列の右へ展開する計算用フィールドを
+    // 閲覧できるよう、カードに水平スクロールを付与する（従来は overflow:hidden で
+    // クリップされ追加フィールドへ到達できなかった）。
+    // 縦方向は従来どおりクリップし、角丸クリップとレイアウトを維持する。
+    overflowX: 'auto' as const,
+    overflowY: 'hidden' as const,
   } as React.CSSProperties,
   header: {
     display: 'flex',

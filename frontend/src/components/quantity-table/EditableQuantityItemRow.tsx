@@ -18,6 +18,7 @@ import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidate
 import CalculationMethodSelect from './CalculationMethodSelect';
 import CalculationFields from './CalculationFields';
 import QuantityItemActionMenu from './QuantityItemActionMenu';
+import FieldValidationTooltip from './FieldValidationTooltip';
 import { calculate } from '../../utils/calculation-engine';
 import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
@@ -148,11 +149,8 @@ const styles = {
   inputWarning: {
     borderColor: '#f59e0b',
     backgroundColor: '#fffbeb',
-  } as React.CSSProperties,
-  warningMessage: {
-    color: '#b45309',
-    fontSize: '11px',
-    marginTop: '2px',
+    // 入力欄右端の警告アイコンと入力文字が重ならないよう余白を確保
+    paddingRight: '22px',
   } as React.CSSProperties,
   quantityInput: {
     textAlign: 'right' as const,
@@ -563,15 +561,21 @@ export default function EditableQuantityItemRow({
                 }}
                 aria-required
                 aria-invalid={negativeQuantityWarning}
+                aria-describedby={
+                  negativeQuantityWarning ? `${item.id}-quantity-warning` : undefined
+                }
                 aria-label={showFieldLabels ? undefined : '数量'}
               />
+              {/* REQ-8.3: 負の値警告（黄枠＋アイコン＋ホバー吹き出し）。
+                  通常フローにメッセージを挿入しないため行の高さが変わらない。 */}
+              {negativeQuantityWarning && (
+                <FieldValidationTooltip
+                  message="負の値が入力されています。確認してください。"
+                  id={`${item.id}-quantity-warning`}
+                  severity="warning"
+                />
+              )}
             </div>
-            {/* REQ-8.3: 負の値警告メッセージ */}
-            {negativeQuantityWarning && (
-              <span style={styles.warningMessage} role="alert">
-                負の値が入力されています。確認してください。
-              </span>
-            )}
           </div>
         </div>
 
