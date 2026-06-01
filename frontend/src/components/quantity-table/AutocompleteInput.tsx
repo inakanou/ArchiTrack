@@ -18,6 +18,7 @@
 
 import { useState, useRef, useCallback, useId, useEffect, useMemo } from 'react';
 import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
+import FieldValidationTooltip from './FieldValidationTooltip';
 
 // ============================================================================
 // 型定義
@@ -102,6 +103,8 @@ const styles = {
   inputError: {
     borderColor: '#dc2626',
     boxShadow: '0 0 0 3px rgba(220, 38, 38, 0.1)',
+    // 入力欄右端の警告アイコンと入力文字が重ならないよう余白を確保
+    paddingRight: '22px',
   } as React.CSSProperties,
   inputDisabled: {
     backgroundColor: '#f9fafb',
@@ -139,11 +142,6 @@ const styles = {
   } as React.CSSProperties,
   optionHover: {
     backgroundColor: '#f3f4f6',
-  } as React.CSSProperties,
-  errorMessage: {
-    marginTop: '4px',
-    fontSize: '12px',
-    color: '#dc2626',
   } as React.CSSProperties,
 };
 
@@ -384,6 +382,11 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
         />
+        {/* バリデーションエラー（赤枠＋アイコン＋ホバー吹き出し）。
+            通常フローにメッセージを挿入しないためフィールド間スペースが崩れない。 */}
+        {error && (
+          <FieldValidationTooltip message={error} id={`${inputId}-error`} severity="error" />
+        )}
       </div>
 
       {/* ドロップダウン候補リスト */}
@@ -422,13 +425,6 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
             );
           })}
         </ul>
-      )}
-
-      {/* エラーメッセージ */}
-      {error && (
-        <div id={`${inputId}-error`} style={styles.errorMessage} role="alert">
-          {error}
-        </div>
       )}
     </div>
   );
