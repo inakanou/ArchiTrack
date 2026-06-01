@@ -48,6 +48,7 @@ function FieldWrapper({ children }: { children: React.ReactNode }) {
     <div style={{ position: 'relative', display: 'inline-block', maxWidth: '240px' }}>
       <input
         type="text"
+        aria-label="サンプル入力"
         defaultValue="入力値"
         style={{
           width: '100%',
