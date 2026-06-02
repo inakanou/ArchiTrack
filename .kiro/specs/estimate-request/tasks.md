@@ -2012,7 +2012,7 @@
   - _Boundary: EstimateRequestDetailPage_
 
 - [ ] 90. メーラー転記機能のテスト（Requirement 41）
-- [ ] 90.1 (P) URL ビルダーのユニットテスト
+- [x] 90.1 (P) URL ビルダーのユニットテスト
   - frontend/src/utils/mail-launcher.test.ts を新規作成
   - テストケース: (1) mailto 基本形式、(2) mailto 本文改行が `%0D%0A`、(3) mailto スペースが `%20`、(4) mailto 全角・特殊文字エンコード、(5) Gmail compose 基本形式（`view=cm&fs=1` と to/su/body）、(6) Gmail 本文改行・全角の保持
   - 既存の実行構成（vitest）を踏襲し、テスト前提条件で機能を自動的に無効化しない
