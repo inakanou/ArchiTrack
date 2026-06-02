@@ -1990,7 +1990,7 @@
   - _Requirements: 41.2, 41.3, 41.6_
   - _Boundary: utils/mail-launcher_
 
-- [ ] 88. 見積依頼文パネルにメーラー起動 UI を追加（Requirement 41）
+- [x] 88. 見積依頼文パネルにメーラー起動 UI を追加（Requirement 41）
   - frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx を編集
   - props に `method?: EstimateRequestMethod` を追加し、活性判定の派生値 `canLaunchMail`（method が EMAIL かつ `recipientError` なしかつ `recipient` 非空）と `mailDisabledReason`、活性時の `mailtoUrl` を算出
   - 宛先セクション直下に「メールで開く」と「Gmailで開く」を配置。「メールで開く」は活性時 `<a href={mailtoUrl}>`（ボタン風スタイル）、無効時は `<button disabled>`。「Gmailで開く」は `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')`
