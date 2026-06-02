@@ -15,7 +15,7 @@
  * - 6.7: 各項目にクリップボードコピーボタンを表示する
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { EstimateRequestTextPanel } from './EstimateRequestTextPanel';
 import type { EstimateRequestText } from '../../types/estimate-request.types';
@@ -226,6 +226,99 @@ describe('EstimateRequestTextPanel', () => {
       // prop 未指定でも従来通り表示されることを確認（後方互換）
       render(<EstimateRequestTextPanel text={mockText} />);
       expect(screen.getByText(/見積依頼文/)).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 90.2: メーラー起動ボタン（method props / mailto / Gmail）
+  // Requirements: 41.1, 41.2, 41.3, 41.8, 41.9, 41.10, 41.11
+  // ==========================================================================
+  describe('メーラー起動ボタン（Task 90.2, Requirements: 41）', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('メール方法かつアドレスありで両ボタンが活性、「メールで開く」が mailto アンカーになる（Requirements: 41.1, 41.2, 41.8）', () => {
+      render(<EstimateRequestTextPanel text={mockText} method="EMAIL" />);
+
+      // 「メールで開く」は活性時アンカー（<a href="mailto:...">）として描画される
+      const mailLink = screen.getByRole('link', { name: 'メールで開く' });
+      expect(mailLink).toBeInTheDocument();
+      const href = mailLink.getAttribute('href');
+      expect(href).toBeTruthy();
+      expect(href!.startsWith('mailto:')).toBe(true);
+      // 宛先メールアドレスが mailto URL に含まれること（転記対象, Req 41.4）
+      expect(href).toContain(encodeURIComponent('test@example.com'));
+
+      // 「Gmailで開く」は活性（disabled でない button）であること
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      expect(gmailButton).not.toBeDisabled();
+
+      // disabled な「メールで開く」button は存在しない（アンカー描画のため）
+      expect(screen.queryByRole('button', { name: 'メールで開く' })).not.toBeInTheDocument();
+    });
+
+    it('メールアドレス未登録（recipientError あり）で両ボタンが無効化され理由を表示する（Requirements: 41.9）', () => {
+      render(<EstimateRequestTextPanel text={mockTextWithError} method="EMAIL" />);
+
+      // 無効化時は「メールで開く」も button（disabled）として描画される
+      const mailButton = screen.getByRole('button', { name: 'メールで開く' });
+      expect(mailButton).toBeDisabled();
+
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      expect(gmailButton).toBeDisabled();
+
+      // 活性アンカーは存在しない
+      expect(screen.queryByRole('link', { name: 'メールで開く' })).not.toBeInTheDocument();
+
+      // 理由表示（アクション行の理由文言）
+      // recipientError と同一文言のため複数一致する。理由要素が少なくとも 1 つ存在することを確認。
+      expect(
+        screen.getAllByText('メールアドレスが登録されていません').length
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('FAX 方法で両ボタンが無効化され対象外である理由を表示する（Requirements: 41.10）', () => {
+      render(<EstimateRequestTextPanel text={mockText} method="FAX" />);
+
+      const mailButton = screen.getByRole('button', { name: 'メールで開く' });
+      expect(mailButton).toBeDisabled();
+
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      expect(gmailButton).toBeDisabled();
+
+      expect(screen.queryByRole('link', { name: 'メールで開く' })).not.toBeInTheDocument();
+
+      expect(screen.getByText('FAX依頼のためメール起動の対象外です')).toBeInTheDocument();
+    });
+
+    it('「Gmailで開く」クリックで window.open が Gmail compose URL と noopener,noreferrer で呼ばれる（Requirements: 41.3）', () => {
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      render(<EstimateRequestTextPanel text={mockText} method="EMAIL" />);
+
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      fireEvent.click(gmailButton);
+
+      expect(openSpy).toHaveBeenCalledTimes(1);
+      const [url, target, features] = openSpy.mock.calls[0]!;
+      expect(typeof url === 'string' ? url : String(url)).toContain('mail.google.com');
+      expect(target).toBe('_blank');
+      expect(features).toBe('noopener,noreferrer');
+    });
+
+    it('既存の宛先・表題・本文コピーボタンは従来通り存在・動作する（非影響）（Requirements: 41.11）', async () => {
+      render(<EstimateRequestTextPanel text={mockText} method="EMAIL" />);
+
+      // メーラー起動ボタン追加後も InlineCopyButton（コピー）が 3 つ存在する
+      const copyButtons = screen.getAllByRole('button', { name: /コピー/ });
+      expect(copyButtons.length).toBeGreaterThanOrEqual(3);
+
+      // 宛先コピーが従来通り動作する
+      fireEvent.click(copyButtons[0]!);
+      await waitFor(() => {
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('test@example.com');
+      });
     });
   });
 });

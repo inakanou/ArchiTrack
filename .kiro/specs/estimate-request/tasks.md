@@ -2021,7 +2021,7 @@
   - _Depends: 87_
   - _Boundary: utils/mail-launcher test_
 
-- [ ] 90.2 (P) 見積依頼文パネルのユニットテスト
+- [x] 90.2 (P) 見積依頼文パネルのユニットテスト
   - frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx を編集
   - テストケース: (1) メール方法かつアドレスありで両ボタン活性かつ「メールで開く」アンカーの href が mailto URL、(2) メールアドレス未登録（`recipientError` あり）で両ボタンが無効化され「メールアドレスが登録されていません」表示、(3) FAX 方法で両ボタンが無効化され「FAX依頼のためメール起動の対象外です」表示、(4)「Gmailで開く」クリックで `window.open` が Gmail compose URL と `'_blank','noopener,noreferrer'` で呼ばれる（`vi.spyOn(window,'open')` を使用）、(5) 既存の宛先・表題・本文コピーボタンが従来通り動作（非影響）
   - 既存の実行構成（vitest + React Testing Library）を踏襲し、テスト前提条件で機能を自動的に無効化しない
