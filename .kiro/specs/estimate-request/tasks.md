@@ -2030,7 +2030,7 @@
   - _Depends: 88_
   - _Boundary: EstimateRequestTextPanel test_
 
-- [ ] 90.3 (P) メーラー転記の E2E テスト
+- [x] 90.3 (P) メーラー転記の E2E テスト
   - e2e/specs/estimate-requests/estimate-request-e2e.spec.ts を編集
   - シナリオ 1（メール方法・アドレスあり、Req 41.1/41.3/41.8）: メールアドレス登録済み取引先のメール方法見積依頼で見積依頼文を表示 → 「メールで開く」「Gmailで開く」が活性であることを確認 → 「Gmailで開く」クリックで Gmail compose URL（`mail.google.com/mail/?...view=cm`、to/su/body を含む）の新規タブ/ポップアップが開くことを検証
   - シナリオ 2（未登録/FAX で無効化、Req 41.9/41.10）: メールアドレス未登録の取引先（または FAX 方法）の見積依頼で、両ボタンが無効化され理由が表示されることを検証
@@ -2043,3 +2043,4 @@
 ## Implementation Notes
 
 - フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
+- Task 90.3（Requirement 41 メーラー転記 E2E）は本実装セッションのサンドボックスに docker テストDB（postgres:5433）が無いため **E2E 実行（グリーン確認）が未実施**。lint + type-check は PASS、スペックのロジック/セレクタ/アサーションはレビューで妥当性確認済み（テスト skip/無効化なし＝第3原則準拠）。MEMORY「見積要件はE2Eで検証必須」に従い、docker テスト環境（`npm run test:docker` 起動 + frontend 再ビルド）で `npm run test:e2e -- estimate-request-e2e` を実行しグリーンを確認する作業が**残タスク**として必要。

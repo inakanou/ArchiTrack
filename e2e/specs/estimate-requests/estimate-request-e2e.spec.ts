@@ -3656,4 +3656,203 @@ test.describe('見積依頼機能', () => {
       });
     });
   });
+
+  // ============================================================================
+  // Requirement 41: 見積依頼文 - メーラーへのワンクリック転記
+  // ============================================================================
+
+  test.describe('Requirement 41: メーラーへのワンクリック転記', () => {
+    /**
+     * 見積依頼を新規作成し、項目を選択して見積依頼文パネルを開くまでを行う共通ヘルパー。
+     * 既存スペックのデータ準備パターン（取引先選択・内訳書選択・項目選択・保存ボタン）を踏襲する。
+     *
+     * @param page Playwright Page
+     * @param partnerName 宛先取引先名（メールあり／なしを呼び出し側で指定）
+     * @param requestName 見積依頼名
+     * @param method 'EMAIL' | 'FAX'（FAX の場合は FAX ラジオを選択して保存）
+     */
+    async function setupEstimateRequestAndOpenTextPanel(
+      page: import('@playwright/test').Page,
+      partnerName: string,
+      requestName: string,
+      method: 'EMAIL' | 'FAX'
+    ) {
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      const nameInput = page.locator('input#name');
+      await nameInput.fill(requestName);
+
+      await selectTradingPartnerByName(page, partnerName);
+
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      await createPromise;
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+
+      // 少なくとも1つの項目を選択（見積依頼文生成に必要）
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await checkboxes.first().click();
+
+      // FAX 方法の場合は FAX ラジオを選択
+      if (method === 'FAX') {
+        const faxRadio = page.getByRole('radio', { name: /FAX/i });
+        await faxRadio.click();
+        await expect(faxRadio).toBeChecked({ timeout: getTimeout(5000) });
+      } else {
+        // メール方法（デフォルト）の確認
+        await expect(page.getByRole('radio', { name: /メール/i })).toBeChecked({
+          timeout: getTimeout(10000),
+        });
+      }
+
+      // 保存ボタンで項目選択・見積依頼方法をサーバーに永続化（Task 30改修）
+      await clickSaveSelectionButton(page);
+
+      // 見積依頼文表示ボタンをクリックしてパネルを開く
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      await showTextButton.click();
+
+      const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
+      await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+
+      return panel;
+    }
+
+    /**
+     * @requirement estimate-request/REQ-41.1
+     * @requirement estimate-request/REQ-41.3
+     * @requirement estimate-request/REQ-41.8
+     * メール方法・メールアドレス登録済み取引先で、「メールで開く」「Gmailで開く」が活性であり、
+     * 「Gmailで開く」クリックで Gmail compose URL の新規タブ／ポップアップが開かれる
+     */
+    test('REQ-41.1/41.3/41.8: メール方法でボタンが活性化し、Gmailで開くで compose URL のポップアップが開く', async ({
+      page,
+      context,
+    }) => {
+      // 第3原則: テストは前提条件で自動的に無効化せず、欠落時は失敗させる
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      // 実際の Gmail への外部ナビゲーション／ネットワークアクセスを遮断する。
+      // popup の URL 検証のみが目的のため、mail.google.com へのリクエストは中断する。
+      await context.route(/mail\.google\.com/, (route) => route.abort());
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const panel = await setupEstimateRequestAndOpenTextPanel(
+        page,
+        tradingPartnerName,
+        'REQ-41メール転記テスト見積依頼',
+        'EMAIL'
+      );
+
+      // 「メールで開く」は活性時にアンカー（mailto）として描画される（Req 41 AC 1/2）
+      const mailOpenAnchor = panel.getByRole('link', { name: 'メールで開く' });
+      await expect(mailOpenAnchor).toBeVisible({ timeout: getTimeout(10000) });
+      // mailto アンカーの href を検証（OS ハンドラ起動のため E2E ではクリックせず href 検証に留める）
+      await expect(mailOpenAnchor).toHaveAttribute('href', /^mailto:/);
+
+      // 「Gmailで開く」ボタンは活性（disabled でない）（Req 41 AC 1/8）
+      const gmailOpenButton = panel.getByRole('button', { name: 'Gmailで開く' });
+      await expect(gmailOpenButton).toBeVisible();
+      await expect(gmailOpenButton).toBeEnabled();
+
+      // 「Gmailで開く」クリックで新規タブ／ポップアップが開かれることを検証（Req 41 AC 3/4/5/6）
+      const popupPromise = context.waitForEvent('page', { timeout: getTimeout(10000) });
+      await gmailOpenButton.click();
+      const popup = await popupPromise;
+
+      // 開いた page の URL に Gmail compose URL の要素が含まれることをアサート
+      const popupUrl = popup.url();
+      expect(popupUrl).toContain('mail.google.com/mail/');
+      expect(popupUrl).toContain('view=cm');
+      expect(popupUrl).toContain('to=');
+      expect(popupUrl).toContain('su=');
+      expect(popupUrl).toContain('body=');
+
+      // 実際の Gmail へ遷移・ネットワークアクセスさせないため即時 close する
+      await popup.close();
+    });
+
+    /**
+     * @requirement estimate-request/REQ-41.9
+     * @requirement estimate-request/REQ-41.10
+     * メールアドレス未登録の取引先（メール方法）／FAX 方法の見積依頼で、
+     * 両ボタンが無効化され、無効化理由が表示される
+     */
+    test('REQ-41.9/41.10: メールアドレス未登録・FAX方法で両ボタンが無効化され理由が表示される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerWithoutEmailId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // --- ケース1: メール方法・メールアドレス未登録（Req 41 AC 9） ---
+      const panelNoEmail = await setupEstimateRequestAndOpenTextPanel(
+        page,
+        tradingPartnerWithoutEmailName,
+        'REQ-41メールなし転記テスト見積依頼',
+        'EMAIL'
+      );
+
+      // 無効化時「メールで開く」はアンカーではなく disabled button として描画される
+      await expect(panelNoEmail.getByRole('link', { name: 'メールで開く' })).toHaveCount(0);
+      const mailOpenButtonDisabled = panelNoEmail.getByRole('button', { name: 'メールで開く' });
+      await expect(mailOpenButtonDisabled).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(mailOpenButtonDisabled).toBeDisabled();
+
+      // 「Gmailで開く」ボタンも無効化される
+      await expect(panelNoEmail.getByRole('button', { name: 'Gmailで開く' })).toBeDisabled();
+
+      // 無効化理由が表示される。
+      // 注: 「メールアドレスが登録されていません」は宛先欄(recipientError)とボタン横(mailDisabledReason)の
+      // 両方に出るため strict mode 違反を避けて first() を用いる。
+      await expect(
+        panelNoEmail.getByText('メールアドレスが登録されていません').first()
+      ).toBeVisible({ timeout: getTimeout(10000) });
+
+      // --- ケース2: FAX 方法（Req 41 AC 10） ---
+      // FAX 方法では宛先メールの有無に関わらずメール起動の対象外となる。
+      // メールアドレス登録済み取引先で FAX 方法を選択し、両ボタンが無効化されることを検証する。
+      const panelFax = await setupEstimateRequestAndOpenTextPanel(
+        page,
+        tradingPartnerName,
+        'REQ-41FAX方法転記テスト見積依頼',
+        'FAX'
+      );
+
+      // FAX 方法時「メールで開く」は disabled button として描画される
+      await expect(panelFax.getByRole('link', { name: 'メールで開く' })).toHaveCount(0);
+      await expect(panelFax.getByRole('button', { name: 'メールで開く' })).toBeDisabled();
+
+      // 「Gmailで開く」ボタンも無効化される
+      await expect(panelFax.getByRole('button', { name: 'Gmailで開く' })).toBeDisabled();
+
+      // FAX 方法のためメール起動対象外である理由が表示される
+      await expect(panelFax.getByText('FAX依頼のためメール起動の対象外です')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    });
+  });
 });
