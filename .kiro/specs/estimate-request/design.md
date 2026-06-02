@@ -6123,7 +6123,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 - `EstimateRequestTextPanel` の props 拡張（`method?: EstimateRequestMethod` を追加）
 - ボタン用の新規 styles（`mailActionRow`, `mailButton`, `mailButtonDisabled`, `mailDisabledReason`）
 - `EstimateRequestDetailPage.tsx` から `EstimateRequestTextPanel` への `method={request.method}` 伝搬（1 行追加）
-- メーラー起動の副作用（`window.location.href` / `window.open`）はボタンの onClick ハンドラ内に閉じる
+- メーラー起動は mailto をアンカー `<a href>`（副作用なし）、Gmail を `window.open`（onClick ハンドラ内）で行い、副作用を最小化する
 
 #### スコープ外（Out of Boundary）
 
@@ -6190,13 +6190,14 @@ const mailDisabledReason = (() => {
 - `method !== 'EMAIL'`（FAX）のとき両ボタンを `disabled` 化し理由を表示（Req 41 AC 10）
 - メールアドレス未登録（`recipientError` あり、または `recipient` 空）のとき両ボタンを `disabled` 化し理由を表示（Req 41 AC 9）
 
-#### メーラー起動方式（R-41-4 確定）
+#### メーラー起動方式（R-41-4 確定 / design review 2026-06-02 改訂）
 
-- **「メールで開く」（mailto）**: `window.location.href = buildMailtoUrl(...)` を採用
-  - 理由: `mailto:` はブラウザが OS 既定メールハンドラへ委譲するため、`location.href` 設定では SPA のページ遷移は発生せず現在画面を維持する（標準挙動）。`window.open(mailto)` は空タブが残る環境があるため不採用
+- **「メールで開く」（mailto）**: **アンカー要素**（`<a href={mailtoUrl}>`、ボタン風スタイル）を採用（design review 2026-06-02 Critical Issue 1 対応）
+  - 理由: `mailto:` はブラウザが OS 既定メールハンドラへ委譲する。アンカーの `href` にビルド済み URL を設定することで、クリック時にブラウザ標準挙動でハンドラが起動し SPA のページ遷移は発生しない。`window.location.href` 代入方式は jsdom で `Not implemented: navigation` ノイズや location 置換が必要でユニットテストが脆弱なため不採用。アンカー方式は `href` 属性を assert するだけで検証でき、ナビゲーション副作用を伴わない
   - ブラウザ版 Gmail を OS/ブラウザの既定メールハンドラに設定済みの環境では、この経路でも Gmail が開く（Req 41 の「ブラウザの Gmail も含む」を `mailto` 経路でも満たす）
+  - **無効化時の扱い**: アンカーは `disabled` 属性を持てないため、`canLaunchMail === false` のときは `<a>` を描画せず `<button disabled>`（同一スタイル）を描画する条件分岐とする。これにより Req 41 AC 9/10 の無効化表示を実現
 - **「Gmail で開く」（compose）**: `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')` を採用
-  - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx:884` の既存 `window.open` 方針と整合）
+  - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx:884` の既存 `window.open` 方針と整合）。`vi.spyOn(window, 'open')` でユニットテスト容易（`EstimateRequestDetailPage.test.tsx:809` の既存パターン）
 
 #### URL ビルダー契約（R-41-2 確定 / build-vs-adopt: RFC 6068 mailto + Gmail compose URL を採用）
 
@@ -6234,7 +6235,7 @@ export function buildGmailComposeUrl(composition: MailComposition): string;
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
 | 41.1 | 見積依頼文表示領域に 2 ボタン表示 | `EstimateRequestTextPanel` | `MailActionRow` JSX（「メールで開く」「Gmail で開く」） | 見積依頼文パネル描画 |
-| 41.2 | mailto で OS 既定メーラー起動（入力済み） | `EstimateRequestTextPanel`, `mail-launcher` | `handleOpenMailto` → `window.location.href = buildMailtoUrl(...)` | ボタンクリック |
+| 41.2 | mailto で OS 既定メーラー起動（入力済み） | `EstimateRequestTextPanel`, `mail-launcher` | `<a href={buildMailtoUrl(...)}>`（活性時）／無効時は `<button disabled>` | アンカークリック |
 | 41.3 | Gmail compose で起動（入力済み） | `EstimateRequestTextPanel`, `mail-launcher` | `handleOpenGmail` → `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')` | ボタンクリック |
 | 41.4 | 宛先 = 取引先メールアドレス | `EstimateRequestTextPanel` | `text.recipient`（メール時=メールアドレス） | — |
 | 41.5 | 表題 = 見積依頼文の表題 | `EstimateRequestTextPanel` | `text.subject` | — |
@@ -6310,14 +6311,11 @@ export interface EstimateRequestTextPanelProps {
 ##### Handlers（追記）
 
 ```typescript
-const handleOpenMailto = useCallback(() => {
-  if (!text || !canLaunchMail) return;
-  window.location.href = buildMailtoUrl({
-    to: text.recipient,
-    subject: text.subject,
-    body: text.body,
-  });
-}, [text, canLaunchMail]);
+// mailto はアンカー（href）で起動するためハンドラ不要（design review 2026-06-02 Critical Issue 1 対応）。
+// mailtoUrl は活性時のみ算出する（無効化時は <a> を描画しないため未使用）。
+const mailtoUrl = canLaunchMail && text
+  ? buildMailtoUrl({ to: text.recipient, subject: text.subject, body: text.body })
+  : null;
 
 const handleOpenGmail = useCallback(() => {
   if (!text || !canLaunchMail) return;
@@ -6335,14 +6333,20 @@ const handleOpenGmail = useCallback(() => {
 ```tsx
 {/* メーラー起動アクション（Req 41） */}
 <div style={styles.mailActionRow}>
-  <button
-    type="button"
-    onClick={handleOpenMailto}
-    disabled={!canLaunchMail}
-    style={{ ...styles.mailButton, ...(canLaunchMail ? {} : styles.mailButtonDisabled) }}
-  >
-    メールで開く
-  </button>
+  {/* 「メールで開く」: 活性時はアンカー（href で OS 既定メーラー起動）、無効時は disabled button */}
+  {canLaunchMail && mailtoUrl ? (
+    <a href={mailtoUrl} style={styles.mailButton}>
+      メールで開く
+    </a>
+  ) : (
+    <button
+      type="button"
+      disabled
+      style={{ ...styles.mailButton, ...styles.mailButtonDisabled }}
+    >
+      メールで開く
+    </button>
+  )}
   <button
     type="button"
     onClick={handleOpenGmail}
@@ -6358,10 +6362,14 @@ const handleOpenGmail = useCallback(() => {
 ```
 
 **Notes**:
-- ボタンは見積依頼文表示の表示領域内（宛先セクション付近）に配置し、Req 41 AC 1 の「見積依頼文表示の表示領域」を満たす（R-41-3 確定: TextPanel 内配置を採用。`method` は親 DetailPage から伝搬）
-- `disabled` 属性とスタイル両方で無効化を表現し、`mailDisabledReason` を併記（Req 41 AC 9/10）
+- 「メールで開く」は活性時に `<a href={mailtoUrl}>`（ボタン風スタイル）として描画し、クリックで OS 既定メーラーを起動（Req 41 AC 2）。`href` 属性をテストで assert でき、ナビゲーション副作用・location モックを伴わない（design review 2026-06-02 Critical Issue 1 対応）
+- アンカーは `disabled` を持てないため、無効化時は `<button disabled>`（同一スタイル）に切り替える（Req 41 AC 9/10）
+- 「Gmailで開く」は `window.open(..., '_blank', 'noopener,noreferrer')` で起動（Req 41 AC 3）
+- ボタン群は見積依頼文表示の表示領域内（宛先セクション付近）に配置し、Req 41 AC 1 を満たす（R-41-3 確定: TextPanel 内配置。`method` は親 DetailPage から伝搬）
+- 無効化はスタイル＋（button の）`disabled` 属性で表現し、`mailDisabledReason` を併記（Req 41 AC 9/10）
 - 既存の `InlineCopyButton` 3 か所（宛先・表題・本文）には一切手を加えない（Req 41 AC 11）
 - 本パネルには新規 state を追加しない（活性条件は props からの派生値で算出）
+- スタイル `mailButton` はアンカー・ボタン双方に適用するため、`textDecoration: 'none'` と `display: 'inline-flex'` を含めてリンクの下線を抑止し外観を統一する
 
 ##### Styles 追加
 
@@ -6384,6 +6392,7 @@ mailButton: {
   border: '1px solid #2563eb',
   backgroundColor: '#2563eb',
   color: '#ffffff',
+  textDecoration: 'none', // アンカー描画時の下線抑止（button/anchor 外観統一）
 },
 mailButtonDisabled: {
   cursor: 'not-allowed',
@@ -6438,7 +6447,7 @@ mailDisabledReason: {
 7. **メール方法かつアドレスありで活性**: `method="EMAIL"` かつ `recipientError` なしのとき、「メールで開く」「Gmailで開く」両ボタンが活性（`disabled` でない）であることを検証（Req 41 AC 8）
 8. **アドレス未登録で無効化＋理由**: `method="EMAIL"` かつ `text.recipientError` ありのとき、両ボタンが `disabled` で「メールアドレスが登録されていません」が表示されることを検証（Req 41 AC 9）
 9. **FAX 方法で無効化＋理由**: `method="FAX"` のとき、両ボタンが `disabled` で「FAX依頼のためメール起動の対象外です」が表示されることを検証（Req 41 AC 10）
-10. **mailto クリック起動**: 「メールで開く」クリックで `window.location.href` に `buildMailtoUrl` 相当の値が設定されることを検証（`window.location` をモック）（Req 41 AC 2）
+10. **mailto アンカー href**: 活性時、「メールで開く」アンカー（`<a>`）の `href` 属性が `buildMailtoUrl(...)` 相当の値（`mailto:` で始まり `subject`/`body` を含む）であることを検証。ナビゲーションや `window.location` モックは不要（design review 2026-06-02 Critical Issue 1 対応、Req 41 AC 2）。無効化時は `<a>` が存在せず `<button disabled>` が描画されることを検証
 11. **Gmail クリック起動**: 「Gmailで開く」クリックで `window.open` が Gmail compose URL と `'_blank', 'noopener,noreferrer'` で呼ばれることを検証（`window.open` をモック）（Req 41 AC 3）
 12. **既存コピー機能の非影響**: 宛先・表題・本文の `InlineCopyButton` が従来通り存在し、コピー動作に変化がないことを検証（Req 41 AC 11）
 
@@ -6476,7 +6485,7 @@ mailDisabledReason: {
 |------|--------|----------------|
 | `frontend/src/utils/mail-launcher.ts` | New | `MailComposition` 型、`buildMailtoUrl` / `buildGmailComposeUrl` 純粋関数、`normalizeBody`（CRLF 正規化）。副作用なし（Req 41.2/41.3/41.6） |
 | `frontend/src/utils/mail-launcher.test.ts` | New | Testing Strategy §Unit 1-6（mailto/Gmail の URL 形式・改行・スペース・全角/特殊文字エンコード） |
-| `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx` | Modified | (1) props に `method?: EstimateRequestMethod` 追加、(2) 派生値 `canLaunchMail` / `mailDisabledReason` 算出、(3) `handleOpenMailto` / `handleOpenGmail` ハンドラ追加、(4) 宛先セクション直下に `mailActionRow`（2 ボタン+理由）追加、(5) styles に `mailActionRow`/`mailButton`/`mailButtonDisabled`/`mailDisabledReason` 追加。`InlineCopyButton` は変更しない（Req 41.1/41.4-41.11） |
+| `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx` | Modified | (1) props に `method?: EstimateRequestMethod` 追加、(2) 派生値 `canLaunchMail` / `mailDisabledReason` / `mailtoUrl` 算出、(3) `handleOpenGmail` ハンドラ追加（mailto はアンカー href で起動するためハンドラ不要）、(4) 宛先セクション直下に `mailActionRow`（mailto アンカー＋Gmail ボタン＋理由、無効時は mailto も disabled button）追加、(5) styles に `mailActionRow`/`mailButton`（`textDecoration:'none'`）/`mailButtonDisabled`/`mailDisabledReason` 追加。`InlineCopyButton` は変更しない（design review 2026-06-02 Critical Issue 1 対応でアンカー方式に変更、Req 41.1/41.4-41.11） |
 | `frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx` | Modified | Testing Strategy §Unit 7-12（活性条件・無効化理由・mailto/Gmail 起動・既存コピー非影響） |
 | `frontend/src/pages/EstimateRequestDetailPage.tsx` | Modified | `EstimateRequestTextPanel` 呼び出しに `method={request.method}` を追加（1 行、Req 41.8-41.10） |
 | `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` | Modified | Testing Strategy §E2E 1-2（メール方法でのボタン活性・Gmail 起動、未登録/FAX での無効化） |
@@ -6486,6 +6495,7 @@ mailDisabledReason: {
 - **R-41-1（本文 URL 長制約）確定**: 本文全体の転記（AC 6）を優先し切り詰めは行わない。長大な本文で `mailto`/Gmail compose URL が環境上限を超える場合は欠落の可能性があるが、フォールバックとして既存のクリップボードコピー（Req 6 / AC 11 で維持）で本文全文を手動転記できる。常態化する場合は Revalidation Triggers に従い UX を再設計
 - **R-41-2（改行エンコード）確定**: CRLF 正規化 + `encodeURIComponent`/`URLSearchParams` で `%0D%0A` を生成。mailto はスペースを `%20` に置換、Gmail は標準エンコードのまま
 - **R-41-3（ボタン配置）確定**: `EstimateRequestTextPanel` 内（宛先セクション直下）に配置。`method` は親 `EstimateRequestDetailPage` から伝搬
-- **R-41-4（起動方式）確定**: mailto は `window.location.href`、Gmail は `window.open(..., '_blank', 'noopener,noreferrer')`
+- **R-41-4（起動方式）確定**: ~~mailto は `window.location.href`~~ → design review 2026-06-02 Critical Issue 1 対応により **mailto はアンカー `<a href={mailtoUrl}>`（活性時）／無効時は `<button disabled>`** に変更。jsdom のナビゲーションノイズ・location モックを回避し `href` 属性で検証可能。Gmail は `window.open(..., '_blank', 'noopener,noreferrer')`
+- **Design Review Outcomes（2026-06-02, kiro-validate-design）**: GO 判断。Critical Issue 1（mailto を `window.location.href` 代入で起動する設計のユニットテスト脆弱性）に対し、ユーザー選択により「メールで開く」をアンカー方式に変更。起動方式 / Handlers / JSX / Styles（`textDecoration:'none'`）/ Requirements Traceability 41.2 / Testing Strategy §Unit 10 / File Structure Plan を更新。無効化理由は `mailDisabledReason` のロジックを維持（FAX 方法かつ有効な FAX 番号ありのケースは `recipientError` が空のため、`recipientError` 再利用では表現できず本ロジックが必要）。approvals.design.approved は引き続き false（ユーザーレビュー待ち）
 - **R-41-5（自動送信なし / AC 7）確定**: 実装に送信 API 呼び出し・フォーム自動 submit を一切含めない。mailto/compose はメールクライアントの作成画面までを開くのみ。E2E では Gmail compose URL が開かれること（=作成画面まで）を検証し、送信は対象外
 - **依存性のリスク**: なし。新規ライブラリ・新規 API・新規 DB マイグレーションは一切なし

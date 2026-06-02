@@ -728,7 +728,14 @@ Light Discovery（Extension）を適用。design.md「見積依頼文のメー�
 - **R-41-1**: 本文全体転記を優先し切り詰めなし。URL 長超過時のフォールバックは既存クリップボードコピー（Req 6 / AC 11 維持）。
 - **R-41-2**: 本文を CRLF 正規化 → `encodeURIComponent`/`URLSearchParams` で `%0D%0A`。mailto はスペースを `%20` に置換、Gmail は標準エンコード。
 - **R-41-3**: ボタンは `EstimateRequestTextPanel` 内（宛先セクション直下）に配置。`method` は親 `EstimateRequestDetailPage` から伝搬（`method={request.method}` 1 行追加）。
-- **R-41-4**: mailto は `window.location.href`（SPA 遷移なし・空タブ回避）、Gmail は `window.open(composeUrl, '_blank', 'noopener,noreferrer')`。
+- **R-41-4**: ~~mailto は `window.location.href`~~ → design review 2026-06-02 でアンカー `<a href={mailtoUrl}>`（活性時）／無効時 `<button disabled>` に変更。Gmail は `window.open(composeUrl, '_blank', 'noopener,noreferrer')`。
+
+### Design Review Outcomes（2026-06-02, kiro-validate-design）
+- **判断**: GO。
+- **Critical Issue 1**: mailto を `window.location.href` 代入で起動する設計は jsdom でナビゲーションノイズ・location 置換が必要でユニットテストが脆弱。Gmail 側の `window.open` は `vi.spyOn` の既存パターンで容易（`EstimateRequestDetailPage.test.tsx:809`）。
+- **対応（ユーザー選択: アンカー方式）**: 「メールで開く」を `<a href={mailtoUrl}>`（活性時）／無効時 `<button disabled>` に変更。`href` 属性で検証でき副作用・location モック不要。design.md の起動方式 / Handlers / JSX / Styles（`textDecoration:'none'`）/ Traceability 41.2 / Testing §Unit 10 / File Structure Plan を更新。
+- **データフロー検証**: メールアドレス未登録時は `/text` が 422（`MISSING_CONTACT_INFO`）を返し、`EstimateRequestDetailPage` が `{recipient:'', subject:'', body:'', recipientError:'メールアドレスが登録されていません'}` を合成（DetailPage.tsx:556-561）。設計の `canLaunchMail`（`!recipientError`）/ `mailDisabledReason` は AC 9/10 を正しく満たすことを確認。AC 4 の `recipient`=生メールアドレスは backend route:851 で確認。
+- **無効化理由ロジック**: `mailDisabledReason` を維持（FAX 方法かつ有効 FAX 番号ありのケースは `recipientError` が空のため `recipientError` 再利用では表現不可）。
 - **R-41-5**: 実装に送信 API・自動 submit を一切含めない。E2E は compose 画面が開くことのみ検証（送信は対象外）。
 - **R-41-6**: Unit（mail-launcher 6 ケース + TextPanel 6 ケース）+ E2E 2 シナリオで確定。
 
