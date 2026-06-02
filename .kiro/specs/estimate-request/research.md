@@ -622,3 +622,120 @@ kiro-validate-design 実施結果: **GO**
 #### R-40-6 更新
 
 - テスト戦略確定: Unit **10** ケース（初期展開・クリック/Enter/Space トグル・DOM 保持・登録&編集両モード・ファイル未存在時の非表示・再オープン時のデフォルト復帰・**フォーカス時の視覚的明示**）+ E2E 2 シナリオ
+
+---
+
+# Requirement 41 — 見積依頼文のメーラーへのワンクリック転記 Gap Analysis
+
+実施日: 2026-06-02 / 対象: Requirement 41（AC 1-11）/ 種別: 実装着手前ギャップ分析（brownfield、既存 estimate-request スペックの拡張）
+
+## 1. Current State Investigation（現状調査）
+
+### 1.1 見積依頼文データの取得経路（フロントエンド）— すべて整備済み
+
+| アセット | パス | 内容 |
+|---|---|---|
+| 表示コンポーネント | `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx` | 宛先(`text.recipient`) / 表題(`text.subject`) / 本文(`text.body`) を表示。各項目に `InlineCopyButton`（既存コピー機能 = Req 6 AC 1/7） |
+| 型定義 | `frontend/src/types/estimate-request.types.ts:129-138` | `EstimateRequestText { recipient; subject; body; recipientError? }` |
+| API クライアント | `frontend/src/api/estimate-requests.ts:251-253` | `getEstimateRequestText(id): Promise<EstimateRequestText>`（`GET /api/estimate-requests/{id}/text`） |
+| 親ページ | `frontend/src/pages/EstimateRequestDetailPage.tsx` | `estimateText` state（`getEstimateRequestText(id)` 取得）を TextPanel へ受け渡し |
+| BE 生成 | `backend/src/services/estimate-request-text.service.ts:91-117` | `generateEmailText()` が `{ type:'email', to, subject, body }` を生成。件名 `【お見積りご依頼】{プロジェクト名}` |
+| BE ルート変換 | `backend/src/routes/estimate-requests.routes.ts` | `method` に応じ email/fax テキストを選択し `{ recipient, subject, body, recipientError? }` 形へ変換 |
+
+**重要な含意**: 見積依頼方法がメールのとき `text.recipient` は**そのまま宛先メールアドレス**である。よってメーラー起動に必要な宛先・表題・本文は **既に `EstimateRequestText` 1 オブジェクトに揃っており、追加 API・追加データ取得は不要**。
+
+### 1.2 見積依頼方法・宛先有無の判定 — 整備済み
+
+- `EstimateRequestInfo.method`（`frontend/src/types/estimate-request.types.ts:69`）= `EstimateRequestMethod`（`'EMAIL' | 'FAX'`）。DetailPage が `request` state で保持済み → AC 8/10 の活性条件判定に利用可。
+- メールアドレス未登録時は BE が `MissingContactInfoError` を返し、フロントで `text.recipientError`（「メールアドレスが登録されていません」相当）が設定される（`...service.ts:96-97`）→ AC 9 の判定に利用可。
+
+### 1.3 アクションボタン／コピーボタンの実装パターン — 再利用可
+
+- 既存ボタン群は `EstimateRequestDetailPage.tsx` のアクションセクション（`styles.actionButtons` 付近、L1088-1193）に集約: 見積依頼文表示 / `ExcelExportButton` / `ClipboardCopyButton` / 現場調査報告書出力。
+- 共通スタイル `styles.actionButton`、`disabled` 時のスタイルパターン（`ClipboardCopyButton` の `styles.buttonDisabled`）あり → AC 9/10 の無効化表示に流用可。
+- ただし「メーラー起動ボタン」は見積依頼文表示（Requirement 6 = TextPanel）の**表示領域**に置く要件（AC 1）。TextPanel 内に置くか、TextPanel を開いた状態の近傍（アクションセクション）に置くかは design で確定する論点。
+
+### 1.4 外部 URL / ウィンドウオープンの既存実装
+
+- `window.open(url, '_blank')` の使用例あり（`EstimateRequestDetailPage.tsx:884` 受領見積書プレビュー）。
+- URL 組み立ては標準 `URLSearchParams` / `encodeURIComponent` を使用（`api/estimate-requests.ts:67-75`）。
+- **`mailto:` URI スキーム、Gmail compose URL ビルダーは未実装**（プロジェクト内に前例なし）。
+
+### 1.5 テスト配置 — 体系整備済み
+
+- Unit: `EstimateRequestTextPanel.test.tsx`（vitest + testing-library、宛先/表題/本文コピーのテスト例あり）、`ClipboardCopyButton.test.tsx`。
+- Page: `frontend/src/__tests__/pages/EstimateRequestDetailPage.test.tsx`。
+- E2E: `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`（Playwright、見積依頼詳細をカバー）。
+
+## 2. Requirement-to-Asset Map（AC → 実装アセット、ギャップタグ）
+
+| AC | 必要能力 | 既存アセット | ギャップ |
+|---|---|---|---|
+| 1 | 「メールで開く」「Gmailで開く」2 ボタンを見積依頼文表示領域に表示 | TextPanel / actionButton スタイル | Missing（ボタン UI 新規） |
+| 2 | mailto: で OS 既定メーラーを起動（to/subject/body 入力済み） | window.open / encodeURIComponent | **Missing（mailto ビルダー）** |
+| 3 | Gmail compose URL でブラウザ Gmail を起動（to/su/body 入力済み） | window.open | **Missing（Gmail compose URL ビルダー）** |
+| 4 | 宛先 = 宛先取引先メールアドレス（Req 6 AC 2） | `text.recipient`（メール時=メールアドレス） | なし（再利用） |
+| 5 | 表題 = 見積依頼文の表題（Req 6 AC 6） | `text.subject` | なし（再利用） |
+| 6 | 本文 = 見積依頼文の本文、改行/整形保持（Req 6 AC 7-10） | `text.body` | Constraint（改行のエンコード、URL 長制約） |
+| 7 | 自動送信しない | mailto/compose は本質的に作成画面まで | なし（仕様上自動満たす、要検証） |
+| 8 | メール方法かつメールアドレス登録時に両ボタン活性 | `request.method` / `text.recipientError` 不在 | なし（再利用） |
+| 9 | メールアドレス未登録時は無効化＋理由表示 | `text.recipientError` / buttonDisabled スタイル | Missing（無効化表示の結線） |
+| 10 | FAX 時は無効化＋理由表示 | `request.method === 'FAX'` | Missing（無効化表示の結線） |
+| 11 | 既存コピー機能の挙動不変 | TextPanel `InlineCopyButton` | なし（非影響を維持） |
+
+## 3. Implementation Approach Options
+
+### Option A: 既存コンポーネント拡張 ＋ 小さな純粋ユーティリティ追加（推奨）
+- `EstimateRequestTextPanel.tsx`（または DetailPage のアクション領域）に 2 ボタンを追加し、`frontend/src/utils/` 配下に `mailtoUrl()` / `gmailComposeUrl()` の純粋関数（引数: `{to, subject, body}`）を新規追加。クリック時に `window.open`（Gmail）/ `window.location.href` 設定 or `window.open`（mailto）で起動。
+- 活性条件は `request.method === 'EMAIL'` かつ `!text.recipientError`。
+- **Trade-offs**: ✅ 既存パターン（window.open / URLSearchParams / TextPanel props）に乗る、最小ファイル追加、テスト容易（純粋関数を単体テスト） / ❌ TextPanel に method 等の追加 props 伝搬が必要になる可能性。
+- **境界**: 見積依頼文の生成内容（Req 6）には不介入。URL ビルダーは副作用なしの純粋関数として隔離。
+
+### Option B: 新規 MailLauncher コンポーネント
+- 2 ボタン＋起動ロジックを `MailLauncherButtons` として新規コンポーネント化し、`{text, method}` を受け取る。
+- **Trade-offs**: ✅ 関心の分離・単体テスト容易 / ❌ ファイル増、TextPanel との配置調整が必要。Option A のユーティリティ分離で十分なら過剰。
+
+### Option C: ハイブリッド
+- URL ビルダーは純粋ユーティリティ（Option A）、UI は新規小コンポーネント（Option B）に分離。
+- **Trade-offs**: ✅ 責務分離が最も明確 / ❌ 規模（AC 11 件・S 規模）に対して計画コスト過大。
+
+**推奨**: **Option A**（ユーティリティ関数は隔離し、UI は TextPanel/アクション領域に最小拡張）。UI の単体テスト容易性を重視するなら design 段階で Option B への寄せも検討余地あり。
+
+## 4. Effort & Risk
+
+- **Effort: S（1-3 日）** — データは取得済み、UI/window.open/エンコードの既存パターンを流用。新規は純粋 URL ビルダー 2 本＋ボタン UI＋活性制御＋テスト。
+- **Risk: Low-Medium** — Low 寄り。唯一の不確実性は本文長に対する mailto/Gmail compose URL の長さ・改行エンコードの実挙動（ブラウザ/OS 依存）。
+
+## 5. Research Items（design へ持ち越し）
+
+- **R-41-1（本文 URL 長制約）**: 内訳明細を含む長い `body` が mailto / Gmail compose URL の実用長（mailto は環境依存で ~2000 字前後で切れる例あり、Gmail compose も上限あり）を超えた場合の挙動と、欠落時のフォールバック（例: 既存コピー機能への誘導）を design で定義。AC 6（本文全体の転記）との整合。
+- **R-41-2（改行エンコード）**: `body` の改行を mailto（`%0D%0A` / `%0A`）と Gmail compose（`&body=` の改行）で正しく保持するエンコード方式の確定。`encodeURIComponent` で十分か検証。
+- **R-41-3（ボタン配置）**: 2 ボタンを TextPanel 内に置くか、DetailPage のアクションセクションに置くか。AC 1「見積依頼文表示の表示領域」を満たす配置と props 伝搬（`method` / `recipientError` の供給元）を確定。
+- **R-41-4（mailto 起動方式）**: `window.location.href = mailto:` と `window.open(mailto:)` のどちらが OS 既定メーラー起動として安定か（ポップアップブロッカー影響含む）を design で確定。Gmail は `window.open(composeUrl, '_blank')`。
+- **R-41-5（自動送信なしの検証 / AC 7）**: mailto / Gmail compose がいずれも「作成画面まで」で送信は手動である前提を E2E/手動で確認可能な形にする（送信トリガを一切含めない実装制約として明記）。
+- **R-41-6（テスト戦略）**: URL ビルダー純粋関数の Unit（to/subject/body のエンコード・改行・特殊文字）、ボタン活性制御の Unit（method=EMAIL/FAX × recipientError 有無）、E2E（メール方法の見積依頼で 2 ボタンが活性、クリックで起動 URL が期待値、FAX/未登録で無効化）を design の Testing Strategy で確定。
+
+## Requirement 41 — Design Decisions / Synthesis Outcomes（2026-06-02, kiro-spec-design 設計追記9）
+
+Light Discovery（Extension）を適用。design.md「見積依頼文のメーラーワンクリック転記 - 設計追記（Requirement 41）」に詳細を記載。要点:
+
+### Synthesis（3レンズ）
+- **Generalization**: 2 種のメーラー起動を共通入力 `MailComposition`（to/subject/body）の 2 URL ビルダーへ一般化。UI は同一の活性条件・無効化理由を共有し起動関数のみ差し替え。
+- **Build vs Adopt**: 独自送信機構は作らず Web 標準 `mailto:`（RFC 6068）とブラウザ版 Gmail compose URL を採用。バックエンド送信は Non-Goals。
+- **Simplification**: 副作用付きランチャーコンポーネントは新設せず、純粋 URL ビルダー（`utils/mail-launcher.ts`）＋ `EstimateRequestTextPanel` への最小ボタン追加に留める。`MailLauncherButtons` 新規化は単一配置のため見送り（将来複数配置・他 Web メール対応時に Revalidation）。
+
+### Research Items 確定（design 反映済み）
+- **R-41-1**: 本文全体転記を優先し切り詰めなし。URL 長超過時のフォールバックは既存クリップボードコピー（Req 6 / AC 11 維持）。
+- **R-41-2**: 本文を CRLF 正規化 → `encodeURIComponent`/`URLSearchParams` で `%0D%0A`。mailto はスペースを `%20` に置換、Gmail は標準エンコード。
+- **R-41-3**: ボタンは `EstimateRequestTextPanel` 内（宛先セクション直下）に配置。`method` は親 `EstimateRequestDetailPage` から伝搬（`method={request.method}` 1 行追加）。
+- **R-41-4**: mailto は `window.location.href`（SPA 遷移なし・空タブ回避）、Gmail は `window.open(composeUrl, '_blank', 'noopener,noreferrer')`。
+- **R-41-5**: 実装に送信 API・自動 submit を一切含めない。E2E は compose 画面が開くことのみ検証（送信は対象外）。
+- **R-41-6**: Unit（mail-launcher 6 ケース + TextPanel 6 ケース）+ E2E 2 シナリオで確定。
+
+### File Structure（6 ファイル）
+- New: `frontend/src/utils/mail-launcher.ts`, `frontend/src/utils/mail-launcher.test.ts`
+- Modified: `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx`(+.test.tsx), `frontend/src/pages/EstimateRequestDetailPage.tsx`, `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`
+
+### Design Review Gate
+- mechanical（全 AC 41.1-41.11 traceability / boundary 4 セクション populated / File Structure Plan 具体パス / boundary↔file 整合 / orphan なし）パス
+- judgment（coverage / architecture readiness / boundary / executability）パス
