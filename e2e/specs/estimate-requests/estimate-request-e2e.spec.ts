@@ -3738,12 +3738,18 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement estimate-request/REQ-41.1
+     * @requirement estimate-request/REQ-41.2
      * @requirement estimate-request/REQ-41.3
+     * @requirement estimate-request/REQ-41.4
+     * @requirement estimate-request/REQ-41.5
+     * @requirement estimate-request/REQ-41.6
+     * @requirement estimate-request/REQ-41.7
      * @requirement estimate-request/REQ-41.8
      * メール方法・メールアドレス登録済み取引先で、「メールで開く」「Gmailで開く」が活性であり、
-     * 「Gmailで開く」クリックで Gmail compose URL の新規タブ／ポップアップが開かれる
+     * mailto / Gmail compose URL のいずれにも表示中の宛先・表題・本文が転記され、
+     * いずれも新規作成（compose）の起動にとどまり自動送信しないことを検証する。
      */
-    test('REQ-41.1/41.3/41.8: メール方法でボタンが活性化し、Gmailで開くで compose URL のポップアップが開く', async ({
+    test('REQ-41.1/41.2/41.3/41.4/41.5/41.6/41.7/41.8: メール方法でボタンが活性化し、mailto/Gmail compose URLへ宛先・表題・本文が転記される', async ({
       page,
       context,
     }) => {
@@ -3765,29 +3771,48 @@ test.describe('見積依頼機能', () => {
         'EMAIL'
       );
 
-      // 「メールで開く」は活性時にアンカー（mailto）として描画される（Req 41 AC 1/2）
+      // 「メールで開く」は活性時にアンカー（mailto）として描画される（Req 41 AC 1）。
+      // OS ハンドラ起動を伴うため E2E ではクリックせず、href の転記内容を検証する。
       const mailOpenAnchor = panel.getByRole('link', { name: 'メールで開く' });
       await expect(mailOpenAnchor).toBeVisible({ timeout: getTimeout(10000) });
-      // mailto アンカーの href を検証（OS ハンドラ起動のため E2E ではクリックせず href 検証に留める）
-      await expect(mailOpenAnchor).toHaveAttribute('href', /^mailto:/);
+      const mailtoHref = await mailOpenAnchor.getAttribute('href');
+      expect(mailtoHref).toBeTruthy();
+      // mailto スキーム = OS 既定メーラーの新規作成画面を起動する。送信パラメータは持たない (REQ-41.2/41.7)
+      expect(mailtoHref!).toMatch(/^mailto:/);
+      const mailtoParsed = new URL(mailtoHref!);
+      // 宛先＝宛先取引先のメールアドレス (REQ-41.4)
+      expect(decodeURIComponent(mailtoParsed.pathname)).toBe('test-subcontractor@example.com');
+      // 表題・本文が入力済み（空でない）であること (REQ-41.2/41.5/41.6)
+      const mailtoSubject = mailtoParsed.searchParams.get('subject');
+      const mailtoBody = mailtoParsed.searchParams.get('body');
+      expect(mailtoSubject).toBeTruthy();
+      expect(mailtoBody).toBeTruthy();
+      // 転記元が「表示中の見積依頼文」であること（表題・本文が画面表示と一致）(REQ-41.5/41.6)
+      await expect(panel.getByText(mailtoSubject!, { exact: false }).first()).toBeVisible();
+      const bodyFirstLine = mailtoBody!.replace(/\r\n/g, '\n').split('\n')[0] ?? '';
+      expect(bodyFirstLine.length).toBeGreaterThan(0);
+      await expect(panel.locator('pre', { hasText: bodyFirstLine })).toBeVisible();
 
       // 「Gmailで開く」ボタンは活性（disabled でない）（Req 41 AC 1/8）
       const gmailOpenButton = panel.getByRole('button', { name: 'Gmailで開く' });
       await expect(gmailOpenButton).toBeVisible();
       await expect(gmailOpenButton).toBeEnabled();
 
-      // 「Gmailで開く」クリックで新規タブ／ポップアップが開かれることを検証（Req 41 AC 3/4/5/6）
+      // 「Gmailで開く」クリックで Gmail 新規作成画面（compose）のポップアップが開かれることを検証（Req 41 AC 3）
       const popupPromise = context.waitForEvent('page', { timeout: getTimeout(10000) });
       await gmailOpenButton.click();
       const popup = await popupPromise;
 
-      // 開いた page の URL に Gmail compose URL の要素が含まれることをアサート
+      // 開いた page の URL が Gmail compose URL であり、宛先・表題・本文が転記済みであることをアサート
       const popupUrl = popup.url();
-      expect(popupUrl).toContain('mail.google.com/mail/');
-      expect(popupUrl).toContain('view=cm');
-      expect(popupUrl).toContain('to=');
-      expect(popupUrl).toContain('su=');
-      expect(popupUrl).toContain('body=');
+      const gmailParsed = new URL(popupUrl);
+      expect(gmailParsed.hostname).toBe('mail.google.com');
+      // view=cm は「新規作成（compose）」モード。自動送信は行わない (REQ-41.3/41.7)
+      expect(gmailParsed.searchParams.get('view')).toBe('cm');
+      // 宛先・表題・本文が mailto と同一内容で転記される (REQ-41.4/41.5/41.6)
+      expect(gmailParsed.searchParams.get('to')).toBe('test-subcontractor@example.com');
+      expect(gmailParsed.searchParams.get('su')).toBe(mailtoSubject);
+      expect(gmailParsed.searchParams.get('body')).toBe(mailtoBody);
 
       // 実際の Gmail へ遷移・ネットワークアクセスさせないため即時 close する
       await popup.close();
@@ -3853,6 +3878,46 @@ test.describe('見積依頼機能', () => {
       await expect(panelFax.getByText('FAX依頼のためメール起動の対象外です')).toBeVisible({
         timeout: getTimeout(10000),
       });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-41.11
+     * メーラー起動ボタン（メールで開く／Gmailで開く）の追加後も、見積依頼文の
+     * 宛先・表題・本文の既存クリップボードコピー機能が従来どおり動作し、挙動が変わらないことを検証する。
+     */
+    test('REQ-41.11: メーラー起動ボタン追加後も宛先・表題・本文のクリップボードコピーの挙動が変わらない', async ({
+      page,
+      context,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const panel = await setupEstimateRequestAndOpenTextPanel(
+        page,
+        tradingPartnerName,
+        'REQ-41クリップボード非変更テスト見積依頼',
+        'EMAIL'
+      );
+
+      // メーラー起動ボタンが活性で表示されている状態であることを確認（コピー機能と併存する）
+      await expect(panel.getByRole('link', { name: 'メールで開く' })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(panel.getByRole('button', { name: 'Gmailで開く' })).toBeEnabled();
+
+      // 宛先・表題・本文の3つのコピーボタンが従来どおり存在する
+      const copyButtons = panel.getByRole('button', { name: /^コピー$/ });
+      await expect(copyButtons).toHaveCount(3);
+
+      // 宛先コピーボタン（1番目）押下で宛先メールアドレスがクリップボードへコピーされる（挙動不変）
+      await copyButtons.first().click();
+      const clipboardRecipient = await page.evaluate(() => navigator.clipboard.readText());
+      expect(clipboardRecipient).toBe('test-subcontractor@example.com');
     });
   });
 });
