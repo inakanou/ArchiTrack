@@ -1978,6 +1978,68 @@
   - _Depends: 86.1_
   - _Requirements: 40.8, 40.9, 40.10, 40.11, 40.12_
 
+## 見積依頼文のメーラーワンクリック転記（Requirement 41）
+
+- [ ] 87. メール起動 URL ビルダーユーティリティを実装（Requirement 41）
+  - frontend/src/utils/mail-launcher.ts を新規作成
+  - `MailComposition` 型（to / subject / body）と純粋関数 `buildMailtoUrl` / `buildGmailComposeUrl` / `normalizeBody` を実装（副作用なし）
+  - `buildMailtoUrl`: `mailto:<to>?subject=...&body=...` を生成。subject/body を百分率エンコードし、本文の改行を CRLF に正規化して `%0D%0A`、スペースを `%20`（`+` ではない）に置換
+  - `buildGmailComposeUrl`: `https://mail.google.com/mail/?view=cm&fs=1&to=...&su=...&body=...` を生成
+  - 型は明示し `any` を使用しない（design.md の型契約に準拠）
+  - 観察可能完了: 任意の {to, subject, body} 入力に対し mailto / Gmail compose の URL 文字列を返し、改行・全角文字・`&`/`?`/`#` 等の特殊文字が正しくエンコードされる（後続 87 系テストで検証可能な純粋関数として完成）
+  - _Requirements: 41.2, 41.3, 41.6_
+  - _Boundary: utils/mail-launcher_
+
+- [ ] 88. 見積依頼文パネルにメーラー起動 UI を追加（Requirement 41）
+  - frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx を編集
+  - props に `method?: EstimateRequestMethod` を追加し、活性判定の派生値 `canLaunchMail`（method が EMAIL かつ `recipientError` なしかつ `recipient` 非空）と `mailDisabledReason`、活性時の `mailtoUrl` を算出
+  - 宛先セクション直下に「メールで開く」と「Gmailで開く」を配置。「メールで開く」は活性時 `<a href={mailtoUrl}>`（ボタン風スタイル）、無効時は `<button disabled>`。「Gmailで開く」は `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')`
+  - 無効化時は理由（FAX 方法時「FAX依頼のためメール起動の対象外です」／メールアドレス未登録時「メールアドレスが登録されていません」）を併記
+  - styles に `mailActionRow` / `mailButton`（`textDecoration:'none'`）/ `mailButtonDisabled` / `mailDisabledReason` を追加
+  - 既存の `InlineCopyButton`（宛先・表題・本文）は一切変更しない（Req 41.11）
+  - いずれのボタンでもメール送信は行わず、メールクライアントの新規作成画面を開くのみとする（送信トリガを実装に含めない、Req 41.7）
+  - 観察可能完了: メール方法かつメールアドレスありのとき2ボタンが活性で「メールで開く」アンカーの href が mailto URL になり、メールアドレス未登録時および FAX 方法時は両ボタンが無効化され理由テキストが表示される
+  - _Requirements: 41.1, 41.2, 41.3, 41.4, 41.5, 41.7, 41.8, 41.9, 41.10, 41.11_
+  - _Depends: 87_
+  - _Boundary: EstimateRequestTextPanel_
+
+- [ ] 89. 見積依頼詳細画面から見積依頼方法を伝搬（Requirement 41）
+  - frontend/src/pages/EstimateRequestDetailPage.tsx を編集
+  - `EstimateRequestTextPanel` の呼び出しに `method={request.method}` を追加（既存の text / loading / showIncludeBreakdownToggle に加える）
+  - 観察可能完了: 詳細画面で見積依頼文を表示すると、見積依頼方法（EMAIL/FAX）とメールアドレス登録状況に応じてメーラー起動ボタンの活性/無効が正しく切り替わる
+  - _Requirements: 41.8, 41.9, 41.10_
+  - _Depends: 88_
+  - _Boundary: EstimateRequestDetailPage_
+
+- [ ] 90. メーラー転記機能のテスト（Requirement 41）
+- [ ] 90.1 (P) URL ビルダーのユニットテスト
+  - frontend/src/utils/mail-launcher.test.ts を新規作成
+  - テストケース: (1) mailto 基本形式、(2) mailto 本文改行が `%0D%0A`、(3) mailto スペースが `%20`、(4) mailto 全角・特殊文字エンコード、(5) Gmail compose 基本形式（`view=cm&fs=1` と to/su/body）、(6) Gmail 本文改行・全角の保持
+  - 既存の実行構成（vitest）を踏襲し、テスト前提条件で機能を自動的に無効化しない
+  - 観察可能完了: `npm --prefix frontend run test -- mail-launcher` を実行し全 pass、6 ケースが含まれる
+  - _Requirements: 41.2, 41.3, 41.6_
+  - _Depends: 87_
+  - _Boundary: utils/mail-launcher test_
+
+- [ ] 90.2 (P) 見積依頼文パネルのユニットテスト
+  - frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx を編集
+  - テストケース: (1) メール方法かつアドレスありで両ボタン活性かつ「メールで開く」アンカーの href が mailto URL、(2) メールアドレス未登録（`recipientError` あり）で両ボタンが無効化され「メールアドレスが登録されていません」表示、(3) FAX 方法で両ボタンが無効化され「FAX依頼のためメール起動の対象外です」表示、(4)「Gmailで開く」クリックで `window.open` が Gmail compose URL と `'_blank','noopener,noreferrer'` で呼ばれる（`vi.spyOn(window,'open')` を使用）、(5) 既存の宛先・表題・本文コピーボタンが従来通り動作（非影響）
+  - 既存の実行構成（vitest + React Testing Library）を踏襲し、テスト前提条件で機能を自動的に無効化しない
+  - 観察可能完了: `npm --prefix frontend run test -- EstimateRequestTextPanel` を実行し全 pass、活性/無効化/href/window.open/コピー非影響の各ケースが含まれる
+  - _Requirements: 41.1, 41.2, 41.3, 41.8, 41.9, 41.10, 41.11_
+  - _Depends: 88_
+  - _Boundary: EstimateRequestTextPanel test_
+
+- [ ] 90.3 (P) メーラー転記の E2E テスト
+  - e2e/specs/estimate-requests/estimate-request-e2e.spec.ts を編集
+  - シナリオ 1（メール方法・アドレスあり、Req 41.1/41.3/41.8）: メールアドレス登録済み取引先のメール方法見積依頼で見積依頼文を表示 → 「メールで開く」「Gmailで開く」が活性であることを確認 → 「Gmailで開く」クリックで Gmail compose URL（`mail.google.com/mail/?...view=cm`、to/su/body を含む）の新規タブ/ポップアップが開くことを検証
+  - シナリオ 2（未登録/FAX で無効化、Req 41.9/41.10）: メールアドレス未登録の取引先（または FAX 方法）の見積依頼で、両ボタンが無効化され理由が表示されることを検証
+  - 既存の実行構成（Playwright）を踏襲し、テスト前提条件で機能を自動的に無効化しない
+  - 観察可能完了: `CI=true npx playwright test e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` を実行し全 pass、Playwright HTML レポートに新規 2 シナリオが含まれる
+  - _Requirements: 41.1, 41.3, 41.8, 41.9, 41.10_
+  - _Depends: 88, 89_
+  - _Boundary: e2e/specs/estimate-requests_
+
 ## Implementation Notes
 
 - フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
