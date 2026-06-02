@@ -1201,6 +1201,7 @@ export default function EstimateRequestDetailPage() {
             text={estimateText}
             loading={isTextLoading}
             showIncludeBreakdownToggle={hasItemizedStatement}
+            method={request.method}
           />
         )}
 

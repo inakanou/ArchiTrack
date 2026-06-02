@@ -2003,7 +2003,7 @@
   - _Depends: 87_
   - _Boundary: EstimateRequestTextPanel_
 
-- [ ] 89. 見積依頼詳細画面から見積依頼方法を伝搬（Requirement 41）
+- [x] 89. 見積依頼詳細画面から見積依頼方法を伝搬（Requirement 41）
   - frontend/src/pages/EstimateRequestDetailPage.tsx を編集
   - `EstimateRequestTextPanel` の呼び出しに `method={request.method}` を追加（既存の text / loading / showIncludeBreakdownToggle に加える）
   - 観察可能完了: 詳細画面で見積依頼文を表示すると、見積依頼方法（EMAIL/FAX）とメールアドレス登録状況に応じてメーラー起動ボタンの活性/無効が正しく切り替わる
