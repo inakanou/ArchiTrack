@@ -1980,7 +1980,7 @@
 
 ## 見積依頼文のメーラーワンクリック転記（Requirement 41）
 
-- [ ] 87. メール起動 URL ビルダーユーティリティを実装（Requirement 41）
+- [x] 87. メール起動 URL ビルダーユーティリティを実装（Requirement 41）
   - frontend/src/utils/mail-launcher.ts を新規作成
   - `MailComposition` 型（to / subject / body）と純粋関数 `buildMailtoUrl` / `buildGmailComposeUrl` / `normalizeBody` を実装（副作用なし）
   - `buildMailtoUrl`: `mailto:<to>?subject=...&body=...` を生成。subject/body を百分率エンコードし、本文の改行を CRLF に正規化して `%0D%0A`、スペースを `%20`（`+` ではない）に置換
