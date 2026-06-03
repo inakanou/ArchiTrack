@@ -16,6 +16,7 @@ import type {
   QuantityTableDetail,
   QuantityGroupDetail,
   QuantityGroupInfo,
+  CreateGroupsFromSurveyResult,
   QuantityItemDetail,
   CreateQuantityTableInput,
   UpdateQuantityTableInput,
@@ -386,6 +387,35 @@ export async function deleteQuantityGroup(id: string): Promise<void> {
  */
 export async function copyQuantityGroup(groupId: string): Promise<QuantityGroupInfo> {
   return apiClient.post<QuantityGroupInfo>(`/api/quantity-groups/${groupId}/copy`);
+}
+
+/**
+ * 現場調査から数量グループを一括生成する
+ *
+ * 指定した現場調査に属する写真の枚数分の数量グループを生成し、
+ * 各グループに写真を写真順に1枚ずつ紐づけた状態で数量表末尾に追加します。
+ * 写真が0枚の場合は `created: 0`, `groups: []` を返します。
+ *
+ * Task 57.1
+ * Requirements: 40.1
+ *
+ * @param tableId - 生成先の数量表ID（UUID）
+ * @param siteSurveyId - 対象現場調査ID（UUID）
+ * @returns 生成件数と生成された数量グループ情報の配列
+ * @throws ApiError 数量表・現場調査が見つからない（404）、バリデーションエラー（400）、認証エラー（401）、権限不足（403）、サーバーエラー（500）
+ *
+ * @example
+ * const result = await createGroupsFromSurvey('table-id', 'survey-id');
+ * // result.created で生成件数、result.groups で生成された数量グループ配列を取得
+ */
+export async function createGroupsFromSurvey(
+  tableId: string,
+  siteSurveyId: string
+): Promise<CreateGroupsFromSurveyResult> {
+  return apiClient.post<CreateGroupsFromSurveyResult>(
+    `/api/quantity-tables/${tableId}/groups/from-survey`,
+    { siteSurveyId }
+  );
 }
 
 // ============================================================================

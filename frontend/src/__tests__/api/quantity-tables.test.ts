@@ -27,6 +27,7 @@ import {
   copyQuantityItem,
   copyQuantityTable,
   copyQuantityGroup,
+  createGroupsFromSurvey,
 } from '../../api/quantity-tables';
 import type {
   ProjectQuantityTableSummary,
@@ -36,6 +37,7 @@ import type {
   QuantityTableFilter,
   QuantityGroupDetail,
   QuantityGroupInfo,
+  CreateGroupsFromSurveyResult,
   QuantityItemDetail,
 } from '../../types/quantity-table.types';
 
@@ -1326,6 +1328,110 @@ describe('quantity-tables API client', () => {
       vi.mocked(apiClient.post).mockRejectedValueOnce(originalError);
 
       await expect(copyQuantityGroup('group-1')).rejects.toThrow('予期しないエラー');
+    });
+  });
+
+  // ==========================================================================
+  // createGroupsFromSurvey - 現場調査から数量グループを一括生成
+  // ==========================================================================
+  describe('createGroupsFromSurvey', () => {
+    const mockGroups: QuantityGroupInfo[] = [
+      {
+        id: 'group-gen-1',
+        quantityTableId: 'qt-1',
+        name: '現場調査A 1',
+        surveyImageId: 'img-1',
+        displayOrder: 0,
+        itemCount: 0,
+        createdAt: '2026-06-04T00:00:00.000Z',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+      },
+      {
+        id: 'group-gen-2',
+        quantityTableId: 'qt-1',
+        name: '現場調査A 2',
+        surveyImageId: 'img-2',
+        displayOrder: 1,
+        itemCount: 0,
+        createdAt: '2026-06-04T00:00:00.000Z',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+      },
+    ];
+    const mockResult: CreateGroupsFromSurveyResult = {
+      created: 2,
+      groups: mockGroups,
+    };
+
+    it('現場調査から一括生成できること（POST /api/quantity-tables/:tableId/groups/from-survey が正しいボディで呼び出される）', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResult);
+
+      const result = await createGroupsFromSurvey('qt-1', 'survey-1');
+
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/api/quantity-tables/qt-1/groups/from-survey',
+        { siteSurveyId: 'survey-1' }
+      );
+      expect(result).toEqual(mockResult);
+    });
+
+    it('異なる数量表ID・現場調査IDを指定した際に URL とボディが正しく構築されること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResult);
+
+      await createGroupsFromSurvey('another-table', 'another-survey');
+
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/api/quantity-tables/another-table/groups/from-survey',
+        { siteSurveyId: 'another-survey' }
+      );
+    });
+
+    it('レスポンスに生成件数と数量グループ配列が型安全に含まれること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResult);
+
+      const result = await createGroupsFromSurvey('qt-1', 'survey-1');
+
+      expect(result.created).toBe(2);
+      expect(result.groups).toHaveLength(2);
+      expect(result.groups[0]?.id).toBe('group-gen-1');
+      expect(result.groups[0]?.surveyImageId).toBe('img-1');
+      expect(result.groups[1]?.displayOrder).toBe(1);
+    });
+
+    it('写真0枚の場合、created:0・groups:[] を受け取れること', async () => {
+      const emptyResult: CreateGroupsFromSurveyResult = { created: 0, groups: [] };
+      vi.mocked(apiClient.post).mockResolvedValueOnce(emptyResult);
+
+      const result = await createGroupsFromSurvey('qt-1', 'survey-empty');
+
+      expect(result.created).toBe(0);
+      expect(result.groups).toEqual([]);
+    });
+
+    it('数量表または現場調査が見つからない場合、404 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(404, '現場調査が見つかりません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(createGroupsFromSurvey('qt-1', 'non-existent')).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('認証エラーの場合、401 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(401, '認証が必要です');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(createGroupsFromSurvey('qt-1', 'survey-1')).rejects.toMatchObject({
+        statusCode: 401,
+      });
+    });
+
+    it('権限不足の場合、403 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(403, 'アクセス権限がありません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(createGroupsFromSurvey('qt-1', 'survey-1')).rejects.toMatchObject({
+        statusCode: 403,
+      });
     });
   });
 });
