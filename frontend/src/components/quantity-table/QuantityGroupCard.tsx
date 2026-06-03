@@ -105,11 +105,11 @@ const styles = {
     backgroundColor: '#ffffff',
     borderRadius: '8px',
     border: '1px solid #e5e7eb',
-    // 計算方法（面積・体積/ピッチ）選択時に操作列の右へ展開する計算用フィールドを
-    // 閲覧できるよう、カードに水平スクロールを付与する（従来は overflow:hidden で
-    // クリップされ追加フィールドへ到達できなかった）。
+    // Task 58.1 (REQ-41): 水平スクロールはカード全体ではなく数量項目テーブル部分の
+    // ラッパー（itemTableWrapper）に限定する。カード全体に overflowX を掛けると
+    // 画像・コメント（photoArea）もテーブルと同じスクロールコンテナに入り、右へ
+    // スクロールすると一緒に左へ流れて消えてしまうため撤去した。
     // 縦方向は従来どおりクリップし、角丸クリップとレイアウトを維持する。
-    overflowX: 'auto' as const,
     overflowY: 'hidden' as const,
   } as React.CSSProperties,
   header: {
@@ -260,6 +260,16 @@ const styles = {
     maxHeight: '2000px',
     opacity: 1,
     overflow: 'visible',
+    // Task 58.1 (REQ-41): photoArea（固定）と itemTableWrapper（水平スクロール）を
+    // 縦並びに配置するため flex column に再構成する。
+    display: 'flex',
+    flexDirection: 'column' as const,
+  } as React.CSSProperties,
+  // Task 58.1 (REQ-41): 数量項目テーブル部分のみを水平スクロール対象にするラッパー。
+  // 列幅合計（QUANTITY_ITEM_GRID_COLUMNS、REQ-37 計算用フィールド含む）がビューポートを
+  // 超えてもテーブルだけが水平スクロールし、画像・コメントは固定表示される。
+  itemTableWrapper: {
+    overflowX: 'auto' as const,
   } as React.CSSProperties,
   itemList: {
     display: 'flex',
@@ -888,41 +898,45 @@ export default function QuantityGroupCard({
           />
         )}
 
-        {items.length === 0 ? (
-          <div style={styles.emptyState}>項目がありません</div>
-        ) : (
-          <div style={styles.itemList} role="table" aria-label="数量項目一覧">
-            {/* REQ-18.1: メインタイトル行をグループ先頭にのみ表示 */}
-            <QuantityGroupTitleRow isEditable={isEditable} />
-            <div role="rowgroup">
-              {items.map((item, index) =>
-                isEditable ? (
-                  <EditableQuantityItemRow
-                    key={item.id}
-                    item={item}
-                    onUpdate={onUpdateItem}
-                    onDelete={onDeleteItem}
-                    onCopy={onCopyItem}
-                    onMoveUp={(itemId) => onMoveItem?.(itemId, 'up')}
-                    onMoveDown={(itemId) => onMoveItem?.(itemId, 'down')}
-                    canMoveUp={index > 0}
-                    canMoveDown={index < items.length - 1}
-                    getSuggestions={getSuggestions || defaultGetSuggestions}
-                    onBlurAddCandidate={onBlurAddCandidate || defaultOnBlurAddCandidate}
-                    showFieldLabels={false}
-                  />
-                ) : (
-                  <QuantityItemRow
-                    key={item.id}
-                    item={item}
-                    onUpdate={onUpdateItem}
-                    onDelete={onDeleteItem}
-                  />
-                )
-              )}
+        {/* Task 58.1 (REQ-41): 数量項目テーブルのみを水平スクロール対象にするラッパー。
+            画像・コメント（photoArea）はこのラッパー外に配置され固定表示される。 */}
+        <div style={styles.itemTableWrapper} data-testid={`item-table-scroll-${group.id}`}>
+          {items.length === 0 ? (
+            <div style={styles.emptyState}>項目がありません</div>
+          ) : (
+            <div style={styles.itemList} role="table" aria-label="数量項目一覧">
+              {/* REQ-18.1: メインタイトル行をグループ先頭にのみ表示 */}
+              <QuantityGroupTitleRow isEditable={isEditable} />
+              <div role="rowgroup">
+                {items.map((item, index) =>
+                  isEditable ? (
+                    <EditableQuantityItemRow
+                      key={item.id}
+                      item={item}
+                      onUpdate={onUpdateItem}
+                      onDelete={onDeleteItem}
+                      onCopy={onCopyItem}
+                      onMoveUp={(itemId) => onMoveItem?.(itemId, 'up')}
+                      onMoveDown={(itemId) => onMoveItem?.(itemId, 'down')}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < items.length - 1}
+                      getSuggestions={getSuggestions || defaultGetSuggestions}
+                      onBlurAddCandidate={onBlurAddCandidate || defaultOnBlurAddCandidate}
+                      showFieldLabels={false}
+                    />
+                  ) : (
+                    <QuantityItemRow
+                      key={item.id}
+                      item={item}
+                      onUpdate={onUpdateItem}
+                      onDelete={onDeleteItem}
+                    />
+                  )
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* 項目追加ボタン（グループコンテンツ内の最終行） */}
         <div style={styles.addItemButtonWrapper}>
