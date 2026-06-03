@@ -1444,7 +1444,7 @@
   - _Boundary: QuantityGroupService_
   - _Depends: 56.1_
 
-- [ ] 56.3 一括生成 API ルートを実装する
+- [x] 56.3 一括生成 API ルートを実装する
   - POST /api/quantity-tables/:tableId/groups/from-survey ルートを既存 quantity-groups.routes.ts に追加する（`/api/quantity-tables/:quantityTableId/groups` にマウント済み、copy/reorder と同一ファイル）
   - 既存 JWT 認証ミドルウェアと requirePermission('quantity_table:create') を適用する
   - リクエストボディ { siteSurveyId } を Zod で検証する
