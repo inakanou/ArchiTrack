@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
 import type { QuantityItemDetail } from '../../types/quantity-table.types';
@@ -286,6 +286,20 @@ describe('EditableQuantityItemRow', () => {
           quantity: 0,
         })
       );
+    });
+
+    it('数量入力フォーカス時に既存の入力値が全選択される', () => {
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      const input = screen.getByLabelText(/数量/) as HTMLInputElement;
+      // フォーカス時にselectメソッドが呼ばれることを検証
+      const selectSpy = vi.spyOn(input, 'select');
+
+      fireEvent.focus(input);
+
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+
+      selectSpy.mockRestore();
     });
   });
 

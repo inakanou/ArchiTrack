@@ -501,8 +501,10 @@ describe('EstimateRequestDetailPage', () => {
 
       await user.click(screen.getByRole('button', { name: /見積依頼文を表示/ }));
 
+      // Requirement 41: メール方法かつメールアドレス未登録時は、宛先欄の recipientError に加え
+      // メーラー起動ボタン横の mailDisabledReason にも同一文言が表示されるため複数一致する。
       await waitFor(() => {
-        expect(screen.getByText('メールアドレスが登録されていません')).toBeInTheDocument();
+        expect(screen.getAllByText('メールアドレスが登録されていません').length).toBeGreaterThan(0);
       });
     });
 

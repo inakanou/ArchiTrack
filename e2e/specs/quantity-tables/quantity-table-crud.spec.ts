@@ -2674,28 +2674,37 @@ test.describe('数量表CRUD操作', () => {
       // 面積・体積モードに変更
       await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
 
-      // 幅フィールドに10を入力
+      // 幅フィールドに10を入力してコミット（blurで計算をトリガー）
       const widthField = page.getByLabel(/幅|W/i).first();
       await expect(widthField).toBeVisible({ timeout: 3000 });
       await widthField.fill('10');
+      await page.keyboard.press('Tab');
 
       // 数量フィールドを確認
       const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
 
+      // 幅=10での再計算が反映され、数量が確定する（10 × 1 × 1 = 10）まで待機（必須）
+      // 再計算は非同期のため、確定値を待たずに読むとflakyになる
+      await expect
+        .poll(async () => parseFloat((await quantityField.inputValue()) || '0'), {
+          timeout: getTimeout(5000),
+        })
+        .toBeGreaterThan(0);
       const initialQuantity = await quantityField.inputValue();
 
       // 幅を変更
       await widthField.fill('20');
       await page.keyboard.press('Tab');
 
-      // 数量が再計算されることを確認（必須）
-      const updatedQuantity = await quantityField.inputValue();
+      // 数量が再計算され、初期値（幅=10）と異なる値（幅=20）になるまで待機（必須）
+      await expect
+        .poll(async () => await quantityField.inputValue(), { timeout: getTimeout(5000) })
+        .not.toBe(initialQuantity);
 
       // 値が変わっていること（10 → 20 で倍になる）
-      if (initialQuantity && updatedQuantity) {
-        expect(parseFloat(updatedQuantity)).not.toBe(parseFloat(initialQuantity));
-      }
+      const updatedQuantity = await quantityField.inputValue();
+      expect(parseFloat(updatedQuantity)).not.toBe(parseFloat(initialQuantity));
     });
   });
 

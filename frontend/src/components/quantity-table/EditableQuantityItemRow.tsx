@@ -278,6 +278,14 @@ export default function EditableQuantityItemRow({
   }, [localQuantity, item.id, onUpdate]);
 
   /**
+   * 数量フィールドフォーカスハンドラ
+   * フォーカス時に既存の入力値を全選択し、上書き入力しやすくする
+   */
+  const handleQuantityFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  }, []);
+
+  /**
    * 計算方法変更ハンドラ
    * REQ-8.1: 計算方法を変更時、既存のパラメータで再計算を実行
    */
@@ -552,6 +560,7 @@ export default function EditableQuantityItemRow({
                 value={localQuantity}
                 onChange={handleQuantityChange}
                 onBlur={handleQuantityBlur}
+                onFocus={handleQuantityFocus}
                 className="hide-spinner"
                 style={{
                   ...styles.input,

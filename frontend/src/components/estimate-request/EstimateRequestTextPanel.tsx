@@ -14,7 +14,11 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { EstimateRequestText } from '../../types/estimate-request.types';
+import type {
+  EstimateRequestText,
+  EstimateRequestMethod,
+} from '../../types/estimate-request.types';
+import { buildMailtoUrl, buildGmailComposeUrl } from '../../utils/mail-launcher';
 
 // ============================================================================
 // 型定義
@@ -41,6 +45,12 @@ export interface EstimateRequestTextPanelProps {
    *   ガード経路として props 契約を提供する（design.md 5576-5586）
    */
   showIncludeBreakdownToggle?: boolean;
+  /**
+   * 見積依頼方法（Req 41）。メーラー起動ボタンの活性条件判定に使用。
+   * 'EMAIL' かつ宛先メールアドレスありのとき両ボタンを活性化する。
+   * 未指定時は安全側に倒し非活性（理由表示）とする。
+   */
+  method?: EstimateRequestMethod;
 }
 
 // ============================================================================
@@ -140,6 +150,36 @@ const styles = {
     gap: '8px',
     color: '#6b7280',
     fontSize: '14px',
+  },
+  mailActionRow: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap' as const,
+    gap: '8px',
+  },
+  mailButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '8px 16px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid #2563eb',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    textDecoration: 'none', // アンカー描画時の下線抑止（button/anchor 外観統一）
+  },
+  mailButtonDisabled: {
+    cursor: 'not-allowed',
+    backgroundColor: '#e5e7eb',
+    borderColor: '#d1d5db',
+    color: '#9ca3af',
+  },
+  mailDisabledReason: {
+    fontSize: '12px',
+    color: '#6b7280',
   },
 };
 
@@ -285,7 +325,39 @@ export function EstimateRequestTextPanel({
   // 現状はパネル内に該当要素が存在しないため runtime での gating 対象はないが、
   // 親（EstimateRequestDetailPage）の `hasItemizedStatement` 値の伝搬契約として保持する。
   showIncludeBreakdownToggle: _showIncludeBreakdownToggle = true,
+  method,
 }: EstimateRequestTextPanelProps) {
+  // ============================================================================
+  // メーラー起動の派生値（Req 41）— props からの算出のみ。追加 state は持たない。
+  // ============================================================================
+  // method は親（DetailPage）から伝搬。text は既存 props。
+  const isEmailMethod = method === 'EMAIL';
+  const hasRecipientEmail = !!text && !text.recipientError && text.recipient.trim().length > 0;
+  const canLaunchMail = isEmailMethod && hasRecipientEmail;
+
+  const mailDisabledReason = (() => {
+    if (!isEmailMethod) return 'FAX依頼のためメール起動の対象外です';
+    if (!hasRecipientEmail) return 'メールアドレスが登録されていません';
+    return null;
+  })();
+
+  // mailto はアンカー（href）で起動するためハンドラ不要（design review 2026-06-02 Critical Issue 1 対応）。
+  // mailtoUrl は活性時のみ算出する（無効化時は <a> を描画しないため未使用）。
+  const mailtoUrl =
+    canLaunchMail && text
+      ? buildMailtoUrl({ to: text.recipient, subject: text.subject, body: text.body })
+      : null;
+
+  const handleOpenGmail = useCallback(() => {
+    if (!text || !canLaunchMail) return;
+    const url = buildGmailComposeUrl({
+      to: text.recipient,
+      subject: text.subject,
+      body: text.body,
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, [text, canLaunchMail]);
+
   // ローディング中
   if (loading) {
     return (
@@ -329,6 +401,33 @@ export function EstimateRequestTextPanel({
             <span>{text.recipient}</span>
           )}
         </div>
+      </div>
+
+      {/* メーラー起動アクション（Req 41） */}
+      <div style={styles.mailActionRow}>
+        {/* 「メールで開く」: 活性時はアンカー（href で OS 既定メーラー起動）、無効時は disabled button */}
+        {canLaunchMail && mailtoUrl ? (
+          <a href={mailtoUrl} style={styles.mailButton}>
+            メールで開く
+          </a>
+        ) : (
+          <button
+            type="button"
+            disabled
+            style={{ ...styles.mailButton, ...styles.mailButtonDisabled }}
+          >
+            メールで開く
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleOpenGmail}
+          disabled={!canLaunchMail}
+          style={{ ...styles.mailButton, ...(canLaunchMail ? {} : styles.mailButtonDisabled) }}
+        >
+          Gmailで開く
+        </button>
+        {mailDisabledReason && <span style={styles.mailDisabledReason}>{mailDisabledReason}</span>}
       </div>
 
       {/* 表題セクション */}
