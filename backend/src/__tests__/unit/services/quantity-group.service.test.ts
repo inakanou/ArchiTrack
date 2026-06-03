@@ -1626,5 +1626,128 @@ describe('QuantityGroupService', () => {
       ).rejects.toThrow(OptimisticLockError);
       expect(mockPrisma.quantityGroup.createManyAndReturn).not.toHaveBeenCalled();
     });
+
+    // ========================================================================
+    // Task 56.4 追加テスト群（不足分の補完）
+    // Requirements:
+    // - 40.6 名前が最大文字数（全角25/半角50）超過時に現場調査名部分を切り詰めて連番付与
+    // - 40.12 エラー時に部分生成が残らない（$transaction によるロールバック）
+    // ========================================================================
+
+    it('40.6: 現場調査名が最大文字幅を超える場合、現場調査名を切り詰めて連番を末尾に付与する', async () => {
+      // Arrange: 全角30文字（幅60）の現場調査名。連番サフィックスは ' 1' / ' 2'（半角2幅）。
+      // 切り詰めアルゴリズム: maxWidth=50, suffixWidth=2 → 元名は (50 - 2 = 48) 幅 = 全角24文字まで。
+      // 期待値: 'あ'×24 + ' {連番}' = 幅 48 + 2 = 50。
+      const longSurveyName = 'あ'.repeat(30);
+      const truncatedBase = 'あ'.repeat(24);
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: siteSurveyId,
+        name: longSurveyName,
+        deletedAt: null,
+        projectId,
+      });
+      // 写真2枚（連番 1/2 を検証）
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: 'img-1', displayOrder: 0 },
+        { id: 'img-2', displayOrder: 1 },
+      ]);
+      mockPrisma.quantityGroup.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
+      mockPrisma.quantityGroup.createManyAndReturn.mockResolvedValue([
+        {
+          id: 'grp-1',
+          quantityTableId,
+          name: `${truncatedBase} 1`,
+          surveyImageId: 'img-1',
+          displayOrder: 0,
+          createdAt: new Date('2026-06-04T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-04T00:00:00.000Z'),
+        },
+        {
+          id: 'grp-2',
+          quantityTableId,
+          name: `${truncatedBase} 2`,
+          surveyImageId: 'img-2',
+          displayOrder: 1,
+          createdAt: new Date('2026-06-04T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-04T00:00:00.000Z'),
+        },
+      ]);
+
+      // Act
+      await service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId);
+
+      // Assert: createManyAndReturn に渡された name が切り詰め＋連番付与されている
+      const createArg = mockPrisma.quantityGroup.createManyAndReturn.mock.calls[0]?.[0] as {
+        data: Array<{ name: string }>;
+      };
+      const names = createArg.data.map((d) => d.name);
+      // 切り詰め後の現場調査名 + 半角スペース + 連番（1始まり）
+      expect(names).toEqual([`${truncatedBase} 1`, `${truncatedBase} 2`]);
+
+      // 各グループ名は末尾に連番が付与され、文字幅（全角=2/半角=1）が 50 を超えない
+      const calculateWidth = (value: string): number => {
+        let width = 0;
+        for (const ch of value) {
+          const cp = ch.codePointAt(0) ?? 0;
+          const isHalfWidth = (cp >= 0x0000 && cp <= 0x007f) || (cp >= 0xff61 && cp <= 0xff9f);
+          width += isHalfWidth ? 1 : 2;
+        }
+        return width;
+      };
+      names.forEach((name, index) => {
+        // 末尾に連番（1始まり）が付与されている
+        expect(name.endsWith(` ${index + 1}`)).toBe(true);
+        // 切り詰めにより元の現場調査名そのものは含まれない（短縮されている）
+        expect(name.length).toBeLessThan(longSurveyName.length + ` ${index + 1}`.length);
+        // 半角換算幅が上限 50 以内
+        expect(calculateWidth(name)).toBeLessThanOrEqual(50);
+      });
+    });
+
+    it('40.12: トランザクション内処理がエラーを投げた場合は ROLLBACK され、部分生成が永続化されない', async () => {
+      // Arrange: createManyAndReturn 直前まで正常に進むが、一括生成が DB エラーで失敗するシナリオ。
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: siteSurveyId,
+        name: '現場A',
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: 'img-1', displayOrder: 0 },
+        { id: 'img-2', displayOrder: 1 },
+      ]);
+      mockPrisma.quantityGroup.aggregate.mockResolvedValue({ _max: { displayOrder: 4 } });
+
+      // $transaction が callback の例外をそのまま伝播する（＝ ROLLBACK 相当）ことを表現する
+      const transactionSpy = vi.fn(async (callback: (tx: typeof mockPrisma) => unknown) => {
+        return await callback(mockPrisma);
+      });
+      mockPrisma.$transaction = transactionSpy as unknown as Mock;
+
+      // 一括生成（createManyAndReturn）が DB エラーで失敗
+      const dbError = new Error('createManyAndReturn failed');
+      mockPrisma.quantityGroup.createManyAndReturn.mockRejectedValue(dbError);
+
+      // Act & Assert: エラーが $transaction を貫通して伝播する（コミットされない）
+      await expect(
+        service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId)
+      ).rejects.toThrow('createManyAndReturn failed');
+
+      // $transaction の callback 内でエラーが発生 → ROLLBACK されるため、
+      // 失敗後に続く監査ログ記録には到達しない（部分的な副作用が残らない）
+      expect(transactionSpy).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityGroup.createManyAndReturn).toHaveBeenCalledTimes(1);
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
   });
 });
