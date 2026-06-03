@@ -24,6 +24,7 @@ import {
   bulkSaveQuantityTable,
   updateGroupDisplayOrder,
   updateItemDisplayOrder,
+  createGroupsFromSurvey,
 } from '../api/quantity-tables';
 import { ApiError } from '../api/client';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
@@ -43,6 +44,9 @@ import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExp
 import { downloadPdf } from '../services/export/PdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
+import SurveySelectDialog, {
+  type SiteSurveySummary,
+} from '../components/quantity-table/SurveySelectDialog';
 
 // ============================================================================
 // スタイル定義
@@ -490,6 +494,10 @@ export default function QuantityTableEditPage() {
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   // インポートダイアログ用state（REQ-27.1）
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  // 現場調査選択ダイアログ用state（Task 57.3: REQ-40.1, 40.2, 40.11, 40.13）
+  const [isSurveySelectDialogOpen, setIsSurveySelectDialogOpen] = useState(false);
+  const [surveyOptions, setSurveyOptions] = useState<SiteSurveySummary[]>([]);
+  const [isCreatingFromSurvey, setIsCreatingFromSurvey] = useState(false);
 
   /**
    * 数量表詳細を取得
@@ -1514,6 +1522,103 @@ export default function QuantityTableEditPage() {
   );
 
   /**
+   * 「現場調査から一括追加」ボタン押下ハンドラ
+   *
+   * Task 57.3
+   * Requirements: 40.1, 40.2
+   *
+   * 当該プロジェクトの現場調査一覧を取得し、`imageCount` を `photoCount` に
+   * マッピングして現場調査選択ダイアログを開く。
+   */
+  const handleOpenSurveySelect = useCallback(async () => {
+    if (!quantityTable || isCreatingFromSurvey) return;
+
+    setOperationError(null);
+    setIsSurveySelectDialogOpen(true);
+    setSurveyOptions([]);
+
+    try {
+      const result = await getSiteSurveys(quantityTable.projectId, { limit: 100 });
+      const options: SiteSurveySummary[] = result.data.map((survey) => ({
+        id: survey.id,
+        name: survey.name,
+        photoCount: survey.imageCount,
+      }));
+      setSurveyOptions(options);
+    } catch {
+      setOperationError('現場調査一覧の読み込みに失敗しました');
+      setIsSurveySelectDialogOpen(false);
+    }
+  }, [quantityTable, isCreatingFromSurvey]);
+
+  /**
+   * 現場調査選択ダイアログを閉じる
+   *
+   * Task 57.3
+   */
+  const handleCloseSurveySelect = useCallback(() => {
+    // 生成中はロック（重複実行防止のため閉じない）
+    if (isCreatingFromSurvey) return;
+    setIsSurveySelectDialogOpen(false);
+    setSurveyOptions([]);
+  }, [isCreatingFromSurvey]);
+
+  /**
+   * 現場調査からの一括生成を確定するハンドラ
+   *
+   * Task 57.3
+   * Requirements: 40.8, 40.11, 40.13
+   *
+   * - 実行中インジケーター表示・重複実行防止（REQ-40.11、isCreatingFromSurvey）
+   * - 写真0枚（created: 0）の場合は「写真が存在しません」メッセージを表示する（REQ-40.10）
+   * - 成功時は生成グループ数を含む完了メッセージを表示する（REQ-40.13）
+   * - 生成グループをローカルステート末尾に反映する。`QuantityGroupInfo` は
+   *   items / surveyImage を含まないため、写真・コメントを既存の表示経路
+   *   （REQ-21/35 のコメント表示ロジック、REQ-40.8）に正しく乗せるべく
+   *   数量表詳細を再取得して反映する（handleCopyGroup と同一方針）
+   * - 失敗時はエラーメッセージ、409（楽観的排他競合）時は再試行案内を表示する（REQ-40.12）
+   */
+  const handleConfirmCreateFromSurvey = useCallback(
+    async (siteSurveyId: string) => {
+      if (!id || isCreatingFromSurvey) return;
+
+      setIsCreatingFromSurvey(true);
+      setOperationError(null);
+
+      try {
+        const result = await createGroupsFromSurvey(id, siteSurveyId);
+
+        if (result.created === 0) {
+          // 写真0枚: グループは生成されない（REQ-40.10）
+          setOperationError('写真が存在しません');
+          return;
+        }
+
+        // 生成グループを末尾に反映するため数量表詳細を再取得する
+        // （surveyImage・コメントを既存の表示経路に乗せる、REQ-40.8）
+        const refreshed = await getQuantityTableDetail(id);
+        setQuantityTable(refreshed);
+
+        setIsSurveySelectDialogOpen(false);
+        setSurveyOptions([]);
+
+        setSaveMessage(`${result.created}件のグループを生成しました`);
+        setTimeout(() => setSaveMessage(null), 3000);
+      } catch (error) {
+        // 409 は楽観的排他競合（他ユーザー操作中）
+        if (error instanceof ApiError && error.statusCode === 409) {
+          setOperationError('他のユーザーが操作中です。再試行してください');
+        } else {
+          setOperationError('現場調査からの一括生成に失敗しました');
+        }
+      } finally {
+        setIsCreatingFromSurvey(false);
+      }
+    },
+    [id, isCreatingFromSurvey]
+  );
+
+  /**
    * 保存ハンドラ
    *
    * Requirements: 11.1, 11.2
@@ -1741,6 +1846,23 @@ export default function QuantityTableEditPage() {
           >
             <PlusIcon />
             {isAddingGroup ? '追加中...' : 'グループを追加'}
+          </button>
+          {/* 現場調査から一括追加ボタン (Task 57.3: REQ-40.1) */}
+          <button
+            type="button"
+            style={{
+              ...styles.addGroupButton,
+              backgroundColor: '#0d9488',
+              opacity: isCreatingFromSurvey ? 0.7 : 1,
+              cursor: isCreatingFromSurvey ? 'wait' : 'pointer',
+            }}
+            onClick={handleOpenSurveySelect}
+            disabled={isCreatingFromSurvey}
+            aria-busy={isCreatingFromSurvey}
+            data-testid="bulk-create-from-survey-button"
+          >
+            <PlusIcon />
+            現場調査から一括追加
           </button>
         </div>
       </div>
@@ -2008,6 +2130,15 @@ export default function QuantityTableEditPage() {
         onClose={() => setIsImportDialogOpen(false)}
         onImport={handleImport}
         groups={groups}
+      />
+
+      {/* 現場調査選択ダイアログ (Task 57.3: REQ-40.1, 40.2, 40.11, 40.13) */}
+      <SurveySelectDialog
+        isOpen={isSurveySelectDialogOpen}
+        siteSurveys={surveyOptions}
+        isCreating={isCreatingFromSurvey}
+        onConfirm={handleConfirmCreateFromSurvey}
+        onClose={handleCloseSurveySelect}
       />
     </main>
   );
