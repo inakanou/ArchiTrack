@@ -386,3 +386,21 @@ _作成日: 2026-06-03 / 対象: 写真選択ダイアログの重なり修正�
 | Req39 | A: インラインダイアログCSS修正 | S | Low | `QuantityTableEditPage` photoGrid/photoItem |
 | Req40 | B: 一括生成API新設＋選択UI | M | Medium | `QuantityGroupService.copy()`、`getSiteSurvey(s)` |
 | Req41 | A: 水平スクロールをテーブルへ限定 | M | Medium | `QuantityGroupCard` photoArea/content 構造 |
+
+## 5. 設計シンセシス結果（design 反映済み・2026-06-03）
+
+- **採用アプローチ**: Req39=A（インラインダイアログCSS修正）、Req40=B（バックエンド一括生成API新設＋SurveySelectDialog）、Req41=A（水平スクロールをテーブルラッパーへ限定）。
+- **一般化（共有化）**: グループ連番命名 `buildGroupNameFromSurvey` は REQ-38 のコピー命名（`truncateForCopy`、REQ-22 AC4 の文字数規則）を汎用化して共有する（重複ロジックを作らない）。
+- **Build-vs-Adopt**: Req40 のトランザクション一括生成は新規実装だが、`QuantityGroupService.copy()` の「トランザクション＋createMany＋displayOrderシフト」パターンを踏襲（新パターンを発明しない）。
+- **簡素化**: Req41 は `position: sticky` ではなくスクロールコンテナ分割で実現（z-index/背景重なりの複雑性を回避）。Req39 は専用コンポーネント新設せずインライン修正に限定（未使用 `PhotoChangeDialog.tsx` は残置）。
+
+### Boundary Commitments（REQ-39〜41）
+
+- **Owns**: 写真選択インラインダイアログのレイアウト（Req39）、現場調査からの数量グループ一括生成のフロント/API/Service（Req40）、QuantityGroupCard の水平スクロール構造と画像・コメント固定表示（Req41）。
+- **Out of Boundary**: 写真取得方式の変更・仮想スクロール化（Req39）、一括生成時の数量項目自動生成（Req40）、縦方向固定/テーブルヘッダー固定（Req41）、`PhotoChangeDialog.tsx` の改修・削除。
+- **Allowed Dependencies**: 既存 `getSiteSurveys`/`getSiteSurvey`（写真・displayOrder）、`QuantityGroupService`（copy パターン）、`auditLogService`、`requirePermission('quantity_table:create')`、既存 PhotoCommentDisplay/REQ-21・35 のコメント表示ロジック。
+- **Revalidation Triggers**:
+  - 写真一覧の取得方式（`handleSelectImage` のバッチ取得）が変更された場合（Req39）。
+  - 現場調査写真の順序（`displayOrder`）やモデルが変更された場合（Req40）。
+  - グループ名の最大文字数仕様（REQ-22 AC4）や REQ-38 命名ロジックが変更された場合（Req40）。
+  - `QuantityGroupCard` の折りたたみ（content `maxHeight`）や REQ-37 計算用フィールドの水平展開仕様が変更された場合（Req41）。

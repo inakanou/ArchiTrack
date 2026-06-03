@@ -36,6 +36,9 @@
 - リアルタイム共同編集（WebSocket同期は対象外）
 - 数量表のExcel出力（将来対応、PDF出力は本機能で対応）
 - インポート時の単価・金額フィールドの取り込み（数量項目フィールドのみ対象）
+- 写真選択ダイアログの仮想スクロール化・ページング（REQ-39 はレイアウトの重なり解消のみで、写真取得方式は既存のまま）
+- 現場調査からの一括生成時の数量項目の自動生成（REQ-40 はグループ生成と写真1枚紐づけのみ。各グループは数量項目0件の初期状態）
+- 写真・コメントの縦方向固定（sticky-top）やテーブルヘッダー固定（REQ-41 は水平スクロール時の画像・コメント固定のみが対象）
 
 ## Architecture
 
@@ -73,6 +76,7 @@ graph TB
         IMPEXT[ImportDataExtractor]
         IMPPRV[ImportPreviewTable]
         IMPMAP[ImportFieldMapping]
+        SSD[SurveySelectDialog]
     end
 
     subgraph Backend
@@ -100,6 +104,8 @@ graph TB
     QTE --> QGC
     QTE --> ACS
     QTE --> IMP
+    QTE --> SSD
+    SSD --> QTR
     QGC --> QIC
     QIC --> CE
     QIC --> FV
@@ -149,6 +155,9 @@ graph TB
 - 変更コンポーネント（REQ-36）: EditableQuantityItemRow内のアクションセルを再構成。SortOrderButtonsと削除ボタンを個別表示から削除し、アクションメニュー内に「上へ移動」「下へ移動」「削除」を統合。QuantityItemActionMenuを新設
 - 変更コンポーネント（REQ-37）: EditableQuantityItemRow および CalculationFields のレイアウト変更。計算用フィールド群（面積・体積／ピッチ）を「メイン行の下に別行表示」から「メイン行の操作列の右側に同一行で水平配置（ラベル+テキストボックス交互、行高さ不変）」へ変更。`calculationFieldsRow` 別行 div を削除し、`CalculationFields` を inline 配置に書き換え
 - 追加コンポーネント（REQ-38）: QuantityGroupCard表題部にコピーボタンを追加（ダイアログ無し、押下即実行）、QuantityGroupService.copy（同一数量表内へグループ複製、数量項目・写真紐づけを保持）、`POST /api/quantity-groups/:id/copy` ルートを新設
+- 修正コンポーネント（REQ-39）: QuantityTableEditPage 内のインライン写真選択ダイアログ（`photoGrid`/`photoItem` スタイル）のCSSを修正し、写真枚数増加時の重なりを解消。選択・変更とも同一インラインダイアログのため1箇所で両対応。未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置）
+- 追加コンポーネント（REQ-40）: QuantityTableEditPage に「現場調査から一括追加」ボタンと現場調査選択ダイアログ（SurveySelectDialog）を新設、QuantityGroupService.createGroupsFromSurvey（現場調査の全写真の枚数分グループを原子的に生成・写真紐づけ・連番命名）、`POST /api/quantity-tables/:tableId/groups/from-survey` ルートを新設。命名・切り詰めは REQ-38 のグループ名生成ロジックを汎用化して共有
+- 変更コンポーネント（REQ-41）: QuantityGroupCard のレイアウトを再構成。カード全体に掛かっていた `overflowX:'auto'` を数量項目テーブルのラッパーへ限定し、画像・コメント（photoArea）を水平スクロール対象外（カード直下のflex列）へ移動して常時固定表示。折りたたみ・垂直スクロール・REQ-37 の水平展開と両立
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -272,6 +281,52 @@ sequenceDiagram
         QGSV-->>API: エラー
         API-->>QGC: エラーレスポンス
         QGC->>QGC: エラーメッセージ表示・インジケーター解除
+    end
+```
+
+### 現場調査からの数量グループ一括生成フロー（REQ-40）
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant QTE as QuantityTableEditPage
+    participant Dialog as SurveySelectDialog
+    participant SAPI as SiteSurvey API
+    participant API
+    participant QGSV as QuantityGroupService
+    participant DB as PostgreSQL
+
+    User->>QTE: 「現場調査から一括追加」ボタンをクリック
+    QTE->>SAPI: getSiteSurveys(projectId)
+    SAPI-->>QTE: 現場調査一覧
+    QTE->>Dialog: 現場調査選択ダイアログ表示
+    User->>Dialog: 対象現場調査を選択して実行を確定
+    Dialog->>Dialog: 処理中インジケーター表示・重複実行防止
+    Dialog->>API: POST /api/quantity-tables/:tableId/groups/from-survey { siteSurveyId }
+    API->>QGSV: createGroupsFromSurvey(tableId, siteSurveyId, actorId)
+    QGSV->>DB: BEGIN TRANSACTION
+    QGSV->>DB: 現場調査の全写真を写真順（displayOrder）で取得
+    alt 写真0枚
+        QGSV->>DB: ROLLBACK
+        QGSV-->>API: 写真なし（生成0件）
+        API-->>Dialog: 200 + { created: 0 }
+        Dialog->>Dialog: 「写真が存在しません」メッセージ表示
+    else 写真あり
+        QGSV->>DB: 既存グループの max(displayOrder) を取得
+        QGSV->>DB: 写真枚数分のグループを末尾に連番命名で作成（name="{現場調査名} {n}"、surveyImageId紐づけ）
+        QGSV->>DB: 監査ログ記録（QUANTITY_GROUPS_CREATED_FROM_SURVEY）
+        QGSV->>DB: COMMIT
+        QGSV-->>API: 生成された QuantityGroupInfo[]
+        API-->>Dialog: 201 Created + QuantityGroupInfo[]
+        Dialog->>QTE: 生成グループをローカルステートに反映（末尾追加）
+        QTE->>QTE: 生成グループ数を含む完了メッセージ表示
+    end
+
+    alt エラー発生時
+        QGSV->>DB: ROLLBACK
+        QGSV-->>API: エラー
+        API-->>Dialog: エラーレスポンス
+        Dialog->>Dialog: エラーメッセージ表示・インジケーター解除
     end
 ```
 
@@ -444,6 +499,9 @@ sequenceDiagram
 | 36.1-36.9 | 数量項目のアクションボタン統合 | QuantityItemActionMenu, EditableQuantityItemRow | - | - |
 | 37.1-37.12 | 計算用フィールドの行内水平配置（面積・体積／ピッチ） | EditableQuantityItemRow, CalculationFields, gridConstants | - | - |
 | 38.1-38.12 | 数量グループのコピー機能（同一数量表内） | QuantityGroupCard, QuantityGroupService.copy | POST /api/quantity-groups/:id/copy | 数量グループコピーフロー |
+| 39.1-39.6 | 写真選択・変更ダイアログの写真一覧レイアウト改善（重なり解消） | QuantityTableEditPage（インライン写真選択ダイアログ photoGrid/photoItem） | - | - |
+| 40.1-40.13 | 現場調査からの数量グループ一括生成 | QuantityTableEditPage, SurveySelectDialog, QuantityGroupService.createGroupsFromSurvey | POST /api/quantity-tables/:tableId/groups/from-survey, GET /api/projects/:projectId/site-surveys | 現場調査からの数量グループ一括生成フロー |
+| 41.1-41.6 | 水平スクロール時の画像・コメント固定表示 | QuantityGroupCard, PhotoCommentDisplay | - | - |
 
 ## Field Specifications
 
@@ -631,8 +689,8 @@ interface ProjectQuantityTableSummary {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 数量グループのCRUD操作と現場調査画像との紐付け管理、名前変更、並び順管理を担当 |
-| Requirements | 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 4.5, 22.1, 22.2, 22.3, 22.4, 22.5, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8 |
+| Intent | 数量グループのCRUD操作と現場調査画像との紐付け管理、名前変更、並び順管理、現場調査からの一括生成を担当 |
+| Requirements | 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 4.5, 22.1, 22.2, 22.3, 22.4, 22.5, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 40.3, 40.4, 40.5, 40.6, 40.7, 40.9, 40.10, 40.12 |
 
 **Responsibilities & Constraints**
 
@@ -665,6 +723,28 @@ interface QuantityGroupService {
   linkSurveyImage(id: string, surveyImageId: string): Promise<QuantityGroupInfo>;
   unlinkSurveyImage(id: string): Promise<QuantityGroupInfo>;
   reorder(quantityTableId: string, orderedIds: string[]): Promise<QuantityGroupInfo[]>;
+  /**
+   * 現場調査からの数量グループ一括生成（REQ-40）
+   * 対象現場調査の全写真（注釈有無問わず）を写真順に取得し、写真枚数分のグループを
+   * 既存グループの末尾に連番命名で原子的に生成する。各グループに写真を1枚ずつ紐づける。
+   * 写真0枚の場合は何も生成せず created: 0 を返す。エラー時はトランザクションをロールバックする。
+   */
+  createGroupsFromSurvey(
+    input: CreateGroupsFromSurveyInput,
+    actorId: string
+  ): Promise<CreateGroupsFromSurveyResult>;
+}
+
+interface CreateGroupsFromSurveyInput {
+  quantityTableId: string;
+  siteSurveyId: string;
+}
+
+interface CreateGroupsFromSurveyResult {
+  /** 生成された数量グループ（末尾追加、写真順） */
+  groups: QuantityGroupInfo[];
+  /** 生成件数（写真0枚の場合は 0） */
+  created: number;
 }
 
 interface CreateQuantityGroupInput {
@@ -716,6 +796,7 @@ interface SurveyImageSummary {
 | PUT | /api/quantity-groups/:id/survey-image | { surveyImageId: string } | QuantityGroupInfo | 400, 404 |
 | DELETE | /api/quantity-groups/:id/survey-image | - | QuantityGroupInfo | 404 |
 | PUT | /api/quantity-tables/:tableId/groups/reorder | { orderedIds: string[] } | QuantityGroupInfo[] | 400, 404 |
+| POST | /api/quantity-tables/:tableId/groups/from-survey | { siteSurveyId: string } | CreateGroupsFromSurveyResult | 400, 404 |
 
 ---
 
@@ -1689,6 +1770,155 @@ interface QuantityGroupCardProps {
 
 ---
 
+#### 写真選択・変更ダイアログのレイアウト修正（REQ-39）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 写真選択ダイアログの写真一覧で、写真枚数が増加した際に写真同士が重なる不具合を解消し、各写真を重なりなく表示・選択可能にする |
+| Requirements | 39.1, 39.2, 39.3, 39.4, 39.5, 39.6 |
+
+**不具合分析**
+
+写真一覧は専用コンポーネント `PhotoChangeDialog.tsx` ではなく、`QuantityTableEditPage.tsx` 内のインライン実装（`styles.photoGrid` / `styles.photoItem`、描画は `availablePhotos.map`）で表示される。写真選択（グループ追加時）・写真変更（「別の写真を選択」）とも同一の `handleSelectImage` を経由するため、本インラインダイアログ1箇所の修正で両ダイアログに対応できる。現状 `photoGrid` は `gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))'`、`photoItem` は `aspectRatio: '1'` のみで `grid-auto-rows` が未指定。`overflowY:'auto'` + `flex:1` のコンテナ内で行高さが `aspect-ratio` から正しく確定せず、枚数増加時に行が潰れて写真が重なる。
+
+**修正対象コンポーネントと変更内容**
+
+| コンポーネント | 修正内容 |
+|---------------|---------|
+| QuantityTableEditPage（インライン写真選択ダイアログ） | `photoGrid` に `gridAutoRows` を明示（各セルの高さを列幅に追従させる、またはサムネイル固定高を設定）し、行が潰れて写真が重なる事象を解消する。`gap` による間隔を維持し、隣接写真と重複しないことを保証する。写真枚数がコンテナを超える場合は既存の `overflowY:'auto'` で縦スクロール表示する |
+
+**Responsibilities & Constraints**
+
+- 修正対象はレイアウト（CSS）のみ。写真取得方式（`handleSelectImage` の `getSiteSurveys`→`getSiteSurvey` バッチ取得）・注釈付き写真の表示内容・注釈バッジ（REQ-3.3）は変更しない
+- 未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置・削除しない）
+- ビューポート幅が狭い場合も写真が重ならないこと（狭幅でも最低1列で潰れず表示）
+
+**Implementation Notes**
+
+- Integration: `styles.photoGrid` / `styles.photoItem` の調整に限定。`gridAutoRows`（例: `minmax(0, 1fr)` ではなく明示高、またはセルに `minHeight`）でロウ高さを確定させる
+- Validation: 重なりゼロの確認は実機（複数ビューポート幅・多数枚）で行う。Storybook（`PhotoChangeDialog.stories.tsx` ではなく実画面）またはE2Eのスクリーンショット/要素重なり判定で検証
+- Risks: `aspect-ratio` とグリッド行高さの相互作用はブラウザ実装差があるため、固定高フォールバックを併用する
+
+---
+
+#### 現場調査からの数量グループ一括生成（REQ-40）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 対象現場調査を指定し、その現場調査の全写真（注釈有無問わず）の枚数分の数量グループを既存グループ末尾に連番命名で原子的に生成し、各グループに写真を1枚ずつ紐づける |
+| Requirements | 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13 |
+
+**Responsibilities & Constraints**
+
+- バックエンド: `QuantityGroupService.createGroupsFromSurvey` が現場調査の全写真を写真順（`displayOrder`）に取得し、既存グループの `max(displayOrder)+1` から連番でグループを末尾追加する。全処理を単一トランザクションで実行し、エラー時はロールバックする（AC12）
+- グループ名は「{現場調査名} {連番}」（連番1始まり）。最大文字数（全角25/半角50、REQ-22 AC4）超過時は現場調査名部分を切り詰めて連番を付与する（REQ-38 の `truncateForCopy` を汎用化した命名ヘルパーを共有）
+- 各グループは数量項目0件の初期状態で作成する（AC9）。数量項目の自動生成は行わない
+- 写真0枚の場合はグループを生成せず `created: 0` を返し、フロントで「写真が存在しません」メッセージを表示する（AC10）
+- 写真コメント表示は既存の REQ-21・REQ-35 のコメント取得・表示ロジックに委譲する（本コンポーネントはコメントを生成・保持しない、AC8）
+- フロントエンド: `QuantityTableEditPage` の「グループを追加」ボタン近傍に「現場調査から一括追加」ボタンを追加し、`SurveySelectDialog`（プロジェクトの現場調査一覧から1件選択）を表示する。実行中はインジケーター表示・重複実行防止（AC11）、完了時は生成グループ数を含むメッセージを表示（AC13）
+
+**Dependencies**
+
+- Inbound: QuantityTableEditPage (P0), SurveySelectDialog (P0)
+- Outbound: 現場調査API（`getSiteSurveys` / `getSiteSurvey`、写真と `displayOrder` 取得）(P0)、PrismaClient (P0)、auditLogService (P1)
+
+**Contracts**: Service [x] / API [x] / State [x]
+
+##### Service Interface（命名ヘルパー）
+
+```typescript
+/**
+ * グループ連番命名ヘルパー（REQ-40）。REQ-38 のコピー命名（truncateForCopy）と
+ * 同一の文字数規則（全角25/半角50、REQ-22 AC4）に従って生成する。
+ * @param surveyName 現場調査名
+ * @param sequence 連番（1始まり）
+ * @returns 「{切り詰めた現場調査名} {連番}」
+ */
+function buildGroupNameFromSurvey(surveyName: string, sequence: number): string;
+```
+
+##### State Management（SurveySelectDialog）
+
+```typescript
+interface SurveySelectDialogProps {
+  /** ダイアログ開閉状態 */
+  isOpen: boolean;
+  /** 選択肢となる現場調査一覧（当該プロジェクト） */
+  siteSurveys: SiteSurveySummary[];
+  /** 生成中フラグ（true でボタンdisabled・インジケーター表示） */
+  isCreating: boolean;
+  /** 実行確定コールバック（選択された現場調査ID） */
+  onConfirm: (siteSurveyId: string) => void;
+  /** 閉じるコールバック */
+  onClose: () => void;
+}
+
+interface SiteSurveySummary {
+  id: string;
+  name: string;
+  photoCount: number;
+}
+```
+
+**Implementation Notes**
+
+- Integration: バックエンドは `QuantityGroupService.copy` のトランザクション + `createMany` パターンを流用し、写真枚数分のグループ生成 + 写真紐づけを一括実行する
+- Integration: フロントは生成後 `CreateGroupsFromSurveyResult.groups` をローカルステート末尾に追加し、再フェッチを最小化する
+- Validation: 現場調査が当該数量表の属するプロジェクトに属することをバックエンドで検証（403/404）。`siteSurveyId` は Zod で検証
+- Risks: 写真枚数が多い場合の生成件数。トランザクション内 `createMany` で1リクエスト・1コミットとし、N回API呼び出しを避ける
+
+---
+
+#### 水平スクロール時の画像・コメント固定表示（REQ-41）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 数量グループ内の水平スクロール時に、画像と現場調査コメントが左へスクロールアウトして消える不具合を解消し、画像・コメントを水平スクロール対象から外して常時固定表示する |
+| Requirements | 41.1, 41.2, 41.3, 41.4, 41.5, 41.6 |
+
+**不具合分析**
+
+`QuantityGroupCard` ではカード全体（`styles.card`）に `overflowX:'auto'` が掛かっており、`photoArea`（画像 + コメント、`display:flex`）と数量項目テーブル行群が同一の水平スクロールコンテナ内に存在する。数量項目テーブルはグリッド列幅合計（`QUANTITY_ITEM_GRID_COLUMNS` ≈ 1264px、REQ-37 でさらに拡大）が常にビューポートを超えるため水平スクロールが発生し、右へスクロールすると `photoArea` も一緒に左へ流れて消える。
+
+**修正対象コンポーネントと変更内容**
+
+| コンポーネント | 修正内容 |
+|---------------|---------|
+| QuantityGroupCard | カード全体の `overflowX:'auto'` を撤去し、`content` 内を縦flex（`flex-direction: column`）に再構成。`photoArea`（画像・コメント・写真変更ボタン）はスクロール外に配置して固定表示する。数量項目テーブル部分のみを `overflowX:'auto'` のラッパー div で囲み、水平スクロールをテーブルに限定する |
+| PhotoCommentDisplay | スクロールコンテナ外に配置されるため水平方向の追加対応は不要（既存の `overflowY:'auto'` を維持）。コメントは画像の右側に固定表示される |
+
+**Responsibilities & Constraints**
+
+- 水平スクロール対象は数量項目テーブル（メイン行 + REQ-37 計算用フィールド群）のみに限定する（AC3）
+- 画像・コメントの固定表示は折りたたみ（REQ-3 AC4 / REQ-21 AC5、`content` の `maxHeight` 制御）と両立する。折りたたみ時は画像・コメントも非表示、再展開時は固定表示で再表示する（AC5, AC6）
+- 垂直スクロール（REQ-25 AC2）・テーブルの水平スクロール機能（REQ-25 / REQ-37 AC6）を阻害しない（AC4）
+- sticky ではなくスクロールコンテナの分割で実現する（背景の重なり・z-index 問題を回避）
+
+**Implementation Notes**
+
+- Integration: `QuantityGroupCard` の DOM 構造を「ヘッダー / photoArea（固定） / itemTableWrapper（`overflowX:'auto'`）」の縦並びに再構成する
+- Validation: 右端までスクロールしても画像・コメントが見え続けること、テーブルの右端フィールドが閲覧できることを実機・E2Eで確認
+- Risks: 既存の `QuantityGroupCard.stories.tsx` および関連単体テストへの影響。DOM再構成後に回帰確認が必要
+
+---
+
+#### 影響ファイル一覧（REQ-39〜41）
+
+| 区分 | ファイル | 変更種別 | 責務 |
+|------|---------|---------|------|
+| FE | `frontend/src/pages/QuantityTableEditPage.tsx` | 変更 | REQ-39: 写真選択ダイアログ `photoGrid`/`photoItem` CSS修正 / REQ-40: 「現場調査から一括追加」ボタン・ハンドラ・SurveySelectDialog 統合 |
+| FE | `frontend/src/components/quantity-table/SurveySelectDialog.tsx` | 新規 | REQ-40: 現場調査選択ダイアログ |
+| FE | `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 変更 | REQ-41: 水平スクロールをテーブルへ限定し画像・コメントを固定表示 |
+| FE | `frontend/src/api/quantity-tables.ts` | 変更 | REQ-40: `createGroupsFromSurvey` クライアント関数追加 |
+| FE | `frontend/src/utils/`（命名ヘルパー、既存の命名ロジックがある箇所） | 変更/新規 | REQ-40: `buildGroupNameFromSurvey`（REQ-38 命名規則の汎用化・共有） |
+| BE | `backend/src/services/quantity-group.service.ts` | 変更 | REQ-40: `createGroupsFromSurvey`（トランザクション一括生成） |
+| BE | `backend/src/routes/`（数量表/グループのルート定義ファイル） | 変更 | REQ-40: `POST /api/quantity-tables/:tableId/groups/from-survey` |
+| TEST | `e2e/specs/quantity-tables/` 配下 | 新規 | REQ-39/40/41 の E2E（重なり・一括生成・スクロール固定） |
+
+未使用の `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は本スコープでは変更しない（残置）。
+
+---
+
 ### Backend Extension（インポート機能用）
 
 #### ClaudeVisionService拡張
@@ -1931,6 +2161,11 @@ enum CalculationMethod {
 - QuantityValidationService.truncateForCopy (REQ-38): 文字数超過時の元名切り詰めとサフィックス付与
 - QuantityGroupService.copy (REQ-38): グループと配下項目の複製、surveyImageId保持、displayOrderの +1 シフト、監査ログ記録、エラー時のロールバック
 - QuantityGroupCard (REQ-38): コピーボタンの表示、isCopying中のdisabled・スピナー表示、onCopyGroupコールバック呼び出し
+- QuantityTableEditPage 写真選択ダイアログ (REQ-39): 多数枚（例: 30枚以上）レンダリング時に各 `photoItem` が重ならず（隣接要素の矩形が重複しない）グリッド表示されること、狭幅ビューポートでも潰れないこと
+- buildGroupNameFromSurvey (REQ-40): 「{現場調査名} {連番}」生成、文字数超過時の現場調査名切り詰め＋連番付与（REQ-22 AC4 と整合）
+- QuantityGroupService.createGroupsFromSurvey (REQ-40): 写真枚数分のグループ生成、写真順（displayOrder）紐づけ、末尾追加（max+1起点の連番）、写真0枚時 created:0、エラー時ロールバック、監査ログ記録
+- SurveySelectDialog (REQ-40): 現場調査一覧表示、isCreating中のdisabled・インジケーター表示、onConfirm（選択ID）コールバック呼び出し
+- QuantityGroupCard (REQ-41): 画像・コメント（photoArea）が水平スクロールラッパーの外に配置されること、数量項目テーブルのみが overflowX コンテナ内にあること、折りたたみ時に photoArea も非表示・再展開時に再表示されること
 
 ### Integration Tests
 
@@ -1943,6 +2178,7 @@ enum CalculationMethod {
 - 数量グループコピーAPI (REQ-38): 元グループの全項目・写真紐づけが複製されること、displayOrderが元グループ+1の位置に挿入されること、後続グループのdisplayOrderが+1シフトされること、監査ログが記録されること
 - 数量グループコピー並行制御 (REQ-38): 同一数量表に対する copy/add/reorder 操作が並行実行された場合、`SELECT FOR UPDATE` ロックにより serialize されること（先発操作完了まで後発操作はブロックされる）、ロック取得タイムアウト時に `OptimisticLockError` が返却され API 層で 409 にマップされること
 - Claude Vision API（数量表モード）: 数量表用プロンプトで正しい列マッピングが返却されること
+- 現場調査一括生成API (REQ-40): POST /api/quantity-tables/:tableId/groups/from-survey が現場調査の写真枚数分のグループを末尾に連番命名で生成し、各グループに写真が写真順で1枚ずつ紐づくこと、写真0枚時に created:0 を返すこと、他プロジェクトの現場調査指定時に 403/404 となること、トランザクションでエラー時に部分生成が残らないこと
 
 ### E2E Tests
 
@@ -1995,6 +2231,19 @@ enum CalculationMethod {
   - サポート対象外ファイル形式のエラー表示
   - OCR処理失敗時のリトライ動作確認
   - 別ファイルアップロードによる前回結果のクリア確認
+- 写真選択ダイアログのレイアウト（REQ-39）
+  - 写真枚数が多い現場調査で写真選択ダイアログを開いた際、写真同士が重ならずに一覧表示されること
+  - 写真変更（「別の写真を選択」）からも同じく重なりのない一覧が表示されること
+- 現場調査からの数量グループ一括生成（REQ-40）
+  - 「現場調査から一括追加」→現場調査選択→実行で、選択した現場調査の写真枚数分の数量グループが既存グループの末尾に生成されること
+  - 各生成グループに写真が写真順で1枚ずつ紐づき、グループ名が「{現場調査名} 連番」となること
+  - 紐づいた写真にコメントがある場合、写真の右側にコメントが表示されること（REQ-21/35 と整合）
+  - 写真が0枚の現場調査を選択した場合、グループが生成されず「写真が存在しません」メッセージが表示されること
+  - 生成完了時に生成グループ数を含む完了メッセージが表示されること
+- 水平スクロール時の画像・コメント固定表示（REQ-41）
+  - 数量グループ内の数量項目テーブルを右端まで水平スクロールしても、画像と現場調査コメントが常に表示され続けること
+  - 水平スクロールで右側のはみ出したフィールド（REQ-37 計算用フィールド含む）が閲覧できること
+  - 数量グループを折りたたむと画像・コメントも非表示になり、再展開で固定表示が復帰すること
 
 ### Performance Tests
 
