@@ -301,6 +301,7 @@ const styles = {
   photoGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+    gridAutoRows: '150px',
     gap: '12px',
     overflowY: 'auto' as const,
     flex: 1,
@@ -308,6 +309,7 @@ const styles = {
   } as React.CSSProperties,
   photoItem: {
     aspectRatio: '1',
+    minHeight: '150px',
     borderRadius: '8px',
     overflow: 'hidden',
     cursor: 'pointer',
