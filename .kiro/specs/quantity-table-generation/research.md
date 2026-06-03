@@ -404,3 +404,10 @@ _作成日: 2026-06-03 / 対象: 写真選択ダイアログの重なり修正�
   - 現場調査写真の順序（`displayOrder`）やモデルが変更された場合（Req40）。
   - グループ名の最大文字数仕様（REQ-22 AC4）や REQ-38 命名ロジックが変更された場合（Req40）。
   - `QuantityGroupCard` の折りたたみ（content `maxHeight`）や REQ-37 計算用フィールドの水平展開仕様が変更された場合（Req41）。
+
+## 6. デザインレビュー反映（2026-06-03 / kiro-validate-design）
+
+GO（条件付き）。指摘3点を design.md に反映済み：
+- **[Req40]** 一括生成に REQ-38 と同一の `SELECT FOR UPDATE` 直列化を明記（コンポーネント・フロー・統合テストに追加）。displayOrder 衝突を防止。
+- **[Req39]** 実装の最初のステップを「実機での重なり再現＋DevTools 原因特定（root-cause-first）」とし、CSS確定はその結果に従う旨を明記。
+- **[Req39]** 重なりの矩形判定（`getBoundingClientRect`）は jsdom 非対応のため E2E（Playwright）へ移動。単体は描画件数・スタイル適用の検証に限定（第3原則: 前提による無効化を回避）。
