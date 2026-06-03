@@ -308,3 +308,81 @@ model QuantityGroup {
   - グループ名の最大文字数仕様（REQ-22 AC4）が変更された場合
   - 別数量表へのグループ移動／コピーがスコープに加わった場合
   - 行高さ仕様（37px）が他要件で変更された場合
+
+---
+
+# ギャップ分析: Requirement 39〜41（数量表画面の機能追加・不具合修正）
+
+_作成日: 2026-06-03 / 対象: 写真選択ダイアログの重なり修正（Req39）、現場調査からの数量グループ一括生成（Req40）、水平スクロール時の画像・コメント固定表示（Req41）_
+
+## 0. 現状調査サマリ
+
+- フロントは React 19 + TypeScript 6 + Vite。状態管理は各ページ内 `useState`/`useCallback`、APIは `frontend/src/api/*.ts` の薄いクライアント（`apiClient`）。
+- バックは Express 5 + Prisma 7（Driver Adapter）。数量グループは `QuantityGroupService`（`backend/src/services/quantity-group.service.ts`）。
+- スタイルはインラインの `React.CSSProperties` オブジェクト（数量表画面は Tailwind ではなくインラインstyle主体）。
+- 既存E2E: `e2e/specs/quantity-tables/`（photo-comment / photo-preview / quantity-group-copy / group-sort 等）。新規3要件に対応するE2Eは未整備。
+
+## 1. Requirement-to-Asset マップ
+
+### Req 39: 写真選択・変更ダイアログの重なり修正
+- **重要発見（Constraint）**: 実際に表示される「写真選択ダイアログ」は **`frontend/src/pages/QuantityTableEditPage.tsx` 内のインライン実装**（styles定義 283-339、描画 1830-1918、`availablePhotos.map` 1866）。写真変更（「別の写真を選択」1985-1988）も同じ `handleSelectImage` を経由し、**選択・変更とも同一のインラインダイアログ**を使う。よって Req39 の両ダイアログ対応はこのインライン1箇所の修正で満たせる。
+- **Constraint（要確認）**: `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` というコンポーネントは存在するが、**本番コードからは未import（参照は単体テストのみ）**。レガシー/未使用の可能性が高い。Req39の修正対象は本体（インライン）であり、PhotoChangeDialog.tsx を残す/直す/削除するかは設計判断事項。
+- 現状レイアウト: `photoGrid = { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(150px,1fr))', gap:'12px', overflowY:'auto', flex:1 }`、`photoItem = { aspectRatio:'1', overflow:'hidden' }`、`photoImage = { width:'100%', height:'100%', objectFit:'cover' }`。
+- **Gap（Missing）**: 枚数増加時の「重なり」を確実に防ぐ行高さ制御（`gridAutoRows` 未指定で `aspectRatio` 由来の高さがロウに正しく伝わらないケース）。重なり根本原因の特定は設計/実装フェーズで実機確認が必要（Research Needed）。
+- データ取得は実装済（`handleSelectImage` 746-792: `getSiteSurveys()` → 各 `getSiteSurvey()` をバッチ取得 → `setAvailablePhotos`）。レイアウトのみが論点。
+
+### Req 40: 現場調査からの数量グループ一括生成（新規）
+- **データモデル（Asset）**: `backend/prisma/schema.prisma` の `QuantityGroup` … `name?`、`surveyImageId?`、`displayOrder`（`@@index([quantityTableId, displayOrder])`）。1グループ＝写真1枚（`surveyImageId` 単一）で Req40 と整合。
+- **既存API（Asset）**:
+  - 単一作成: `createQuantityGroup(tableId, {name, surveyImageId?, displayOrder})`（`api/quantity-tables.ts` 288、`CreateQuantityGroupInput` 261）。
+  - 一括複製の参考: `copyQuantityGroup` / `QuantityGroupService.copy()`（トランザクション＋`displayOrder`シフト＋`createMany`）→ Req40 の**原子的な複数作成＋ロールバック（Req40 AC12）**の実装パターンとして流用可能。
+  - 一括保存: `bulkSaveQuantityTable`（`/api/quantity-tables/{id}/bulk-save`）も複数グループ同時更新の参考。
+- **現場調査側（Asset）**: `getSiteSurveys()`（プロジェクトの現場調査一覧）、`getSiteSurvey()`（`images` 配列、`displayOrder` 付き）。「全写真（注釈有無問わず）」を写真順に取得可能。
+- **UI追加先（Asset）**: `QuantityTableEditPage.tsx` の「グループを追加」ボタン近辺（427 / 1729-1734）。隣に「現場調査から一括追加」ボタン＋現場調査選択ダイアログを新設。
+- **Gap（Missing）**:
+  - グループ名「{現場調査名} 連番」生成＋最大文字数切り詰め（Req22 AC4）ロジック。
+  - 既存末尾追加（`max(displayOrder)+1` 起点）の連番採番。
+  - 写真0枚時のメッセージ（AC10）、進捗インジケーター・重複防止（AC11）、エラーロールバック（AC12）。
+
+### Req 41: 水平スクロール時の画像・コメント固定表示
+- **DOM/CSS（Constraint）**: `frontend/src/components/quantity-table/QuantityGroupCard.tsx` … カード（`styles.card`、103-114付近）に `overflowX:'auto'` が掛かり、`photoArea`（画像＋コメント、`display:flex`、292-298 / 793-856）と数量項目テーブル行群が**同一の水平スクロールコンテナ内**にある。これが「右スクロールで画像・コメントが左へ消える」根本原因。
+- `PhotoCommentDisplay.tsx`（画像右に表示、25-36 は `overflowY:auto` のみ、水平固定なし）。
+- グリッド: `gridConstants.ts` の `QUANTITY_ITEM_GRID_COLUMNS`（合計≈1264px、常に横はみ出し→水平スクロール必須。Req37 計算用フィールドで更に拡大）。
+- **Gap（Missing）**: 水平スクロール対象を「数量項目テーブルのみ」に限定し、`photoArea`（画像＋コメント＋写真変更ボタン）をスクロール外へ。折りたたみ（Req3 AC4 / Req21 AC5、content の `maxHeight` 制御 248-263）との両立が必要。
+
+## 2. 実装アプローチ（A/B/C）
+
+### Req 39
+- **Option A（推奨・Extend）**: インライン `photoGrid`/`photoItem` のCSSを修正し重なり解消（`gridAutoRows` 明示、行高さ固定 or `minmax` 見直し）。最小変更・既存パターン踏襲。
+  - ✅ 低コスト/低リスク ❌ 実機での重なり再現・原因特定が前提。
+- Option B（New）: 写真一覧を専用コンポーネント化（未使用 `PhotoChangeDialog.tsx` を整理して採用）。再利用性向上だが本要件にはオーバースペック。
+- **Effort: S / Risk: Low**（CSS修正＋実機確認）。
+
+### Req 40
+- **Option B（推奨・New backend endpoint + New frontend UI）**: バックに「現場調査から一括生成」エンドポイント（`POST /api/quantity-tables/{id}/groups/from-survey` 等）を新設し、`copy()` 同様のトランザクションで N グループ＋写真紐づけ＋連番命名を原子的に作成（AC12 ロールバック満たす）。フロントは選択ダイアログ＋一覧再取得。
+  - ✅ 原子性・ロールバック・性能（1リクエスト） ❌ 新規API設計・テスト。
+- Option A（Extend/フロント主導）: フロントから `createQuantityGroup` を N 回ループ。実装は軽いが**部分失敗時のロールバック（AC12）が困難**で非推奨。
+- **Effort: M / Risk: Medium**（新規API＋UI＋トランザクション、既存 `copy()` を流用できるためMedium）。
+
+### Req 41
+- **Option A（推奨・Extend）**: `QuantityGroupCard` の構造を分割し、`overflowX:'auto'` を**数量項目テーブルのラッパーへ移動**、`photoArea` はスクロール外（カード直下のflex列）に配置。
+  - ✅ 構造が素直・折りたたみと両立しやすい ❌ DOM再構成の影響範囲（ストーリー/テスト）確認要。
+- Option B（Extend/sticky）: `photoArea` に `position:sticky; left:0`。変更は小さいが、スクロールコンテナと背景の重なり・z-index調整が必要で崩れやすい。
+- **Effort: M / Risk: Medium**（レイアウト再構成＋実機での横スクロール挙動確認）。
+
+## 3. 設計フェーズへの引き継ぎ（Research Needed）
+
+- **[Req39]** 写真「重なり」の実機再現と根本原因の確定（grid行高さ/aspect-ratio/コンテナ高さの相互作用）。修正後はビューポート幅（狭幅含む）で重なりゼロを確認。
+- **[Req39]** `PhotoChangeDialog.tsx`（未使用疑い）の扱い（残置/修正/削除）を決定。
+- **[Req40]** 一括生成APIの形（エンドポイント・入出力・トランザクション境界・既存 `copy()` ロジック再利用範囲）。現場調査写真の「全写真（注釈有無問わず）」取得経路と写真順序（`displayOrder`）の確定。
+- **[Req40]** 連番命名と最大文字数切り詰め規則（Req22 AC4 / Req38 AC6 と整合）。
+- **[Req41]** スクロールコンテナ分割後の折りたたみ（content `maxHeight`）・垂直スクロール・Req37 計算用フィールド水平展開との同時成立。
+- **共通**: 3要件すべて Req に対応するE2E（`e2e/specs/quantity-tables/`）の新規追加が必要（要件はE2E動作確認まで完了としない方針）。
+
+## 4. 推奨まとめ
+
+| 要件 | 推奨アプローチ | Effort | Risk | 主な再利用資産 |
+|------|----------------|--------|------|----------------|
+| Req39 | A: インラインダイアログCSS修正 | S | Low | `QuantityTableEditPage` photoGrid/photoItem |
+| Req40 | B: 一括生成API新設＋選択UI | M | Medium | `QuantityGroupService.copy()`、`getSiteSurvey(s)` |
+| Req41 | A: 水平スクロールをテーブルへ限定 | M | Medium | `QuantityGroupCard` photoArea/content 構造 |
