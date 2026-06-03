@@ -489,3 +489,11 @@ Option A の保存API拡張を軸に、フロントは `useReducer` で編集状
 - **採用 vs 構築（Build vs Adopt）**: 離脱ガード・dirty 追跡は既存 `useUnsavedChanges` フックと React Router v7 `useBlocker` を採用（CompanyInfoPage/ItemizedStatementDetailPage/SiteSurveyDetailPage で実績）。固定ヘッダーは EstimateDetailPage/SiteSurveyDetailPage の sticky/fixed パターンを採用。新規構築は saveDraft の差分同期ロジックとドラフト reducer のみ。
 - **単純化（Simplification）**: 二重書き込みパス（即時API＋bulk-save）を解消し、編集画面の書き込みを saveDraft 一本へ統一。tempId→実IDの idMap は持たず、保存レスポンスの全状態でドラフトを置換して解決（状態の単純化）。グループコピー/一括生成のサーバー側ロジックはクライアントのドラフト複製/生成へ移し、写真は surveyImageId 参照のみ（blob複製なし）。
 - **設計決定**: saveDraft は `SELECT FOR UPDATE`＋`expectedUpdatedAt` 楽観ロック＋単一 `$transaction` で REQ-38/40 と同一の直列化方針を維持。保存失敗時はドラフト保持で再保存（REQ-42 AC9）。
+
+### デザインレビュー反映（2026-06-04 / kiro-validate-design）
+
+GO（条件付き・指摘は反映済み）。実コード検証（useUnsavedChanges/useBlocker/bulkSave/sticky祖先overflow/権限）の結果、設計の前提は概ね正確だったが2点の事実不一致を検出し design.md を修正：
+- **[REQ-42 権限]** 書き込み系の権限は実コードでは `requirePermission('quantity_table:update')`。saveDraft の記載を `quantity_table:write` から `quantity_table:update` へ修正。
+- **[REQ-42 並行制御]** 既存 `bulkSave` は FOR UPDATE なし・楽観ロックのみ。REQ-42 で copy/from-survey がクライアント化し saveDraft が唯一の書き込み手段になるため、楽観ロック（`expectedUpdatedAt`）を主とし FOR UPDATE は任意と明記（フロー・サービス・統合テストを整合）。
+- **[未対応・申し送り]** 既存 Security セクションの `quantity_table:write` 表記（インポートClaude Vision／オートコンプリートは `:read`）は本変更スコープ外の既存不整合。タスク化時に実権限名と突合すること。
+- 検証で確定: useUnsavedChanges は beforeunload のみ（useBlocker 非呼び出し）→ `useBlocker(isDirty)` との二重登録なし。sticky の祖先に overflow コンテナなし（main は padding のみ）。

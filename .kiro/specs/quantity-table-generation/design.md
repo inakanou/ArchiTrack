@@ -489,8 +489,8 @@ sequenceDiagram
     QTE->>QTE: クライアント検証（必須/計算整合 REQ-11.2/11.3）
     QTE->>API: PUT /api/quantity-tables/:id/save (expectedUpdatedAt, name, groups[全状態])
     API->>SV: saveDraft(input)
-    SV->>DB: BEGIN; SELECT ... FOR UPDATE（テーブル行ロック）
-    SV->>SV: updatedAt 照合（不一致→409）, 全状態検証
+    SV->>DB: BEGIN（任意で SELECT ... FOR UPDATE）
+    SV->>SV: updatedAt 照合（楽観ロック・不一致→409）, 全状態検証
     SV->>DB: 差分適用（無い行=削除 / id無=作成 / 既存=更新, displayOrder/name/surveyImageId）
     SV->>DB: 数量表 updatedAt 更新; COMMIT; 監査ログ
     SV-->>API: QuantityTableDetail（採番済みID）
@@ -2070,8 +2070,7 @@ interface SiteSurveySummary {
 **Responsibilities & Constraints**
 
 - 受領した「数量表の全グループ・全項目の最終状態」と DB 現状を差分比較し、作成（id=null/tempId）／更新（既存id）／削除（payloadに存在しないDB行）／並び替え（displayOrder）／グループ名・数量表名・写真紐づけ（surveyImageId）を適用
-- `SELECT ... FOR UPDATE` でテーブル行をロックし、REQ-38/40 と同一方針で並行操作を直列化
-- `expectedUpdatedAt` による楽観的排他制御（不一致は 409 `QuantityTableConflictError`）
+- 並行制御は `expectedUpdatedAt` による楽観的排他制御を主とする（不一致は 409 `QuantityTableConflictError`。既存 `bulkSave` と同一方針）。REQ-42 適用後は saveDraft が編集画面の唯一の書き込み手段となり、並行 save は後発が 409 となるため整合は楽観ロックで担保される。`SELECT ... FOR UPDATE` によるテーブル行ロックは追加の防御として任意（必須ではない）
 - 全フィールドを `QuantityValidationService` で検証（文字数・数値範囲・計算整合）。不整合時は保存中断（REQ-11.2/11.3）
 - 単一 `$transaction`。失敗時 ROLLBACK で部分反映を残さない。完了後 `updatedAt` 更新・監査ログ記録・最新 `QuantityTableDetail` を返却
 
@@ -2125,7 +2124,7 @@ interface SaveDraftItemInput {
 - 差分アルゴリズム: グループ→DB id 集合と payload id 集合の差分で delete/create/update を決定。項目も各グループ内で同様に処理。`displayOrder` は payload の配列順を正とする
 - 既存 `bulk-save`（項目更新のみ）は本エンドポイントへ統合・置換。編集画面はこのエンドポイントのみを書き込みに使用
 - グループコピー（REQ-38）・現場調査一括生成（REQ-40）のサーバー側ロジックは編集フローからは不要化（クライアントがドラフトで複製/生成し、`saveDraft` で確定）。既存の `POST .../copy`・`POST .../from-survey` は編集フロー未使用となるが、本spec では削除を必須とせず、二重書き込みパス回避のため編集画面からの呼び出しを停止する（クリーンアップはタスクで扱う）
-- 権限: `quantity_table:write` を要求（既存RBAC）
+- 権限: 既存の書き込み系ルートと同一の `requirePermission('quantity_table:update')` を要求（既存RBAC。`bulk-save` ルートと同一）
 
 #### UnsavedChangesBadge / 離脱ガード / 固定ヘッダー（REQ-43, 44, 45）
 
@@ -2414,7 +2413,7 @@ enum CalculationMethod {
 ### Integration Tests
 
 - 数量表作成 → グループ追加 → 項目追加 → 保存の一連フロー
-- saveDraft フル状態同期 (REQ-42): 新規グループ・新規項目の作成、削除されたグループ・項目のDB削除、並び替え（displayOrder）、グループ名・数量表名・写真紐づけの反映が単一 PUT /save で原子的に行われること、`expectedUpdatedAt` 競合で 409・編集状態保持を確認できること、他プロジェクト/権限不足で 403/404、FOR UPDATE 直列化で並行 save の displayOrder 衝突が起きないこと
+- saveDraft フル状態同期 (REQ-42): 新規グループ・新規項目の作成、削除されたグループ・項目のDB削除、並び替え（displayOrder）、グループ名・数量表名・写真紐づけの反映が単一 PUT /save で原子的に行われること、`expectedUpdatedAt` 競合で 409・編集状態保持を確認できること、他プロジェクト/権限不足で 403/404、並行 save で後発が 409 となり displayOrder 衝突・部分反映が起きないこと（楽観ロック）
 - 計算方法の切り替えと数量再計算の正確性テスト
 - 楽観的排他制御の競合シナリオ
 - フィールドバリデーションエラー時の保存阻止（saveDraft で全状態検証・保存中断）
