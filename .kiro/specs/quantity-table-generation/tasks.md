@@ -1394,7 +1394,7 @@
   - _Depends: 53.3, 52.3_
 
 - [ ] 55. 写真選択・変更ダイアログのレイアウト重なり修正（REQ-39）
-- [ ] 55.1 写真重なりの根本原因を実機再現・特定する
+- [x] 55.1 写真重なりの根本原因を実機再現・特定する
   - 写真多数枚（30枚以上）の現場調査を用意し、開発環境の数量表編集画面で写真選択ダイアログを開いて重なりを実機再現する
   - 複数のビューポート幅（広幅・狭幅）で再現状況を確認する
   - DevTools で原因要素・原因プロパティ（グリッド行高さ／aspect-ratio／コンテナ高さの相互作用等）を特定する
@@ -1549,3 +1549,7 @@
   - _Requirements: 41.1, 41.2, 41.3, 41.4, 41.5, 41.6_
   - _Boundary: QuantityGroupCard, quantity-tables E2E_
   - _Depends: 58.2_
+
+## Implementation Notes
+
+- 55.1 (REQ-39 根本原因): 写真一覧は `QuantityTableEditPage.tsx` 内インライン実装（`styles.photoGrid`/`styles.photoItem`、`availablePhotos.map`）。`photoGrid` は `display:grid` + `gridTemplateColumns: repeat(auto-fill, minmax(150px,1fr))` + `flex:1` + `overflowY:auto` だが `gridAutoRows` 未指定（既定 `auto`）。各セル高さは `photoItem` の `aspectRatio:'1'` のみに依存。flex(`flex:1`)+overflow 制約下で implicit grid row が aspect-ratio から高さを確定できず、複数行折り返し時に行が潰れて写真が重なる。修正方針: `photoGrid` に `gridAutoRows`（列幅に追従する固定高）を明示し、`photoItem` に `minHeight` フォールバックを併用。重なりゼロの矩形判定は jsdom 不可のため E2E（getBoundingClientRect）で検証する。写真取得方式・注釈バッジ（REQ-3.3）は不変。選択・変更とも同一 `handleSelectImage` 経由のため当該1箇所の修正で両対応。
