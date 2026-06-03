@@ -482,3 +482,10 @@ Option A の保存API拡張を軸に、フロントは `useReducer` で編集状
 
 - **保存API**: Option A（bulk-save のフル状態同期化）を軸に、フロントは Option C のドラフト集中管理を採用。Req 42 の原子性・楽観ロック・「保存時のみ永続化」を最も忠実に満たす。
 - **Req 43/44/45** は既存パターン流用で低リスク・小工数。先行実装も可能だが、Req 42 のフロント状態再設計（dirty 管理）と密結合のため、design で 42 と一体設計するのが望ましい。
+
+### 設計シンセシス結果（2026-06-04 / kiro-spec-design）
+
+- **一般化（Generalization）**: グループ/項目の add/delete/copy/reorder・名称・写真紐づけ・一括生成・取り込みという多数の編集操作を、「数量表の全状態をドラフトで保持し保存時に1回同期する」単一の書き込みパス（`QuantityTableService.saveDraft`／`PUT /api/quantity-tables/:id/save`）へ一般化。個別ミューテーションAPIは編集フローから不要化。
+- **採用 vs 構築（Build vs Adopt）**: 離脱ガード・dirty 追跡は既存 `useUnsavedChanges` フックと React Router v7 `useBlocker` を採用（CompanyInfoPage/ItemizedStatementDetailPage/SiteSurveyDetailPage で実績）。固定ヘッダーは EstimateDetailPage/SiteSurveyDetailPage の sticky/fixed パターンを採用。新規構築は saveDraft の差分同期ロジックとドラフト reducer のみ。
+- **単純化（Simplification）**: 二重書き込みパス（即時API＋bulk-save）を解消し、編集画面の書き込みを saveDraft 一本へ統一。tempId→実IDの idMap は持たず、保存レスポンスの全状態でドラフトを置換して解決（状態の単純化）。グループコピー/一括生成のサーバー側ロジックはクライアントのドラフト複製/生成へ移し、写真は surveyImageId 参照のみ（blob複製なし）。
+- **設計決定**: saveDraft は `SELECT FOR UPDATE`＋`expectedUpdatedAt` 楽観ロック＋単一 `$transaction` で REQ-38/40 と同一の直列化方針を維持。保存失敗時はドラフト保持で再保存（REQ-42 AC9）。
