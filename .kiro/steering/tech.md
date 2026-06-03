@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-05-30（Steering Sync: Prisma 7.8 / vitest 4.1（frontend）追従、E2E Excel検証用 exceljs と xlsx の SheetJS CDN 配布元を反映）_
+_最終更新: 2026-06-04（Steering Sync: backend Prisma 7.8.0 / @prisma/adapter-pg 7.3.0 へバージョン整合、ルートワークスペースのみ ESLint 10 系へ追従（frontend/backend は plugin 非互換のため 9 系維持）を反映）_
 
 ## アーキテクチャ
 
@@ -101,8 +101,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.2.0
-- **ORM**: Prisma 7.7.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
-- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.7.0、@prisma/adapter-pg 7.6.0
+- **ORM**: Prisma 7.8.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
+- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.8.0、@prisma/adapter-pg 7.3.0
 - **キャッシュクライアント**: ioredis 5.10.1
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
@@ -175,7 +175,7 @@ ArchiTrack/
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
-- `prisma` ^7.7.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `prisma` ^7.8.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
@@ -382,6 +382,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - `@typescript-eslint/parser` ^8.48.1 - TypeScript ESLintパーサー
 - `@prisma/client` ^7.0.1 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
 - `prisma` ^7.1.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
+- `eslint` ^10.4.1 - ルートワークスペースのコード品質チェック。**注**: frontend/backend は eslint-plugin-react 系の ESLint 10 非互換のため意図的に ESLint 9 系（Flat Config）を維持しており、ルートのみ ESLint 10 系へ追従している
 - `cross-env` ^10.1.0 - クロスプラットフォーム環境変数設定
 - `exceljs` ^4.4.0 - E2Eでエクスポート済み.xlsxを読み取り検証（内訳書CRUD等のExcel出力アサーション用。生成側はfrontendのxlsx/SheetJS）
 - Chromium - Playwright経由で自動インストール
