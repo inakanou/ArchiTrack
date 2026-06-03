@@ -411,3 +411,74 @@ GO（条件付き）。指摘3点を design.md に反映済み：
 - **[Req40]** 一括生成に REQ-38 と同一の `SELECT FOR UPDATE` 直列化を明記（コンポーネント・フロー・統合テストに追加）。displayOrder 衝突を防止。
 - **[Req39]** 実装の最初のステップを「実機での重なり再現＋DevTools 原因特定（root-cause-first）」とし、CSS確定はその結果に従う旨を明記。
 - **[Req39]** 重なりの矩形判定（`getBoundingClientRect`）は jsdom 非対応のため E2E（Playwright）へ移動。単体は描画件数・スタイル適用の検証に限定（第3原則: 前提による無効化を回避）。
+
+---
+
+## ギャップ分析: Requirement 42〜45（クライアントサイド編集・離脱ガード・未保存インジケーター・固定ヘッダー）
+
+_実施日: 2026-06-04 / 対象: Requirement 42・43・44・45（数量表編集画面の編集モデル変更とUI改善）_
+
+### 現状サマリー
+
+数量表編集画面の現行アーキテクチャは「**操作即サーバー反映 ＋ 項目フィールドのみ保存ボタンで bulk-save**」というハイブリッド構成。要望は「すべての編集をクライアントサイドで行い、保存ボタン押下時のみサーバー反映」への転換。
+
+- **最重要ブロッカー**: 既存 `PUT /api/quantity-tables/{id}/bulk-save` は**既存項目（item）の更新のみ**対応。グループ/項目の作成・削除、グループ並び替え・名称変更・写真紐づけは非対応。Req 42 実現にはバックエンドの保存エンドポイント拡張（フル状態同期）が必須。
+- **離脱ガード/未保存追跡**: 再利用可能な実装が既存（`useUnsavedChanges` フック、`useBlocker`）。Req 43・44 は低リスク。
+- **固定ヘッダー**: 既存に `position: fixed/sticky` パターンあり。Req 45 は低リスク。
+- **E2E**: 数量表系 E2E が約25本存在。多くが「操作即時反映」を前提としており、編集モデル変更で広範に改修が必要。
+
+### Requirement → 資産マップ（ギャップタグ: Missing / Unknown / Constraint）
+
+| 要件 | 必要な技術要素 | 既存資産 | ギャップ |
+|------|----------------|----------|----------|
+| Req 42（クライアント編集・明示保存） | フル状態を一括永続化する保存API（グループ/項目の作成・削除・並び替え・名称・写真紐づけ・項目値を差分適用） | `bulk-save`（項目更新のみ）、`prisma.$transaction`、`expectedUpdatedAt` 楽観ロック | **Missing**: グループ作成/削除/並び替え/名称/写真、項目作成/削除を bulk-save が未サポート（`backend/src/services/quantity-table.service.ts` 689–820、`routes/quantity-tables.routes.ts` 663–697、zod schema 81–114） |
+| Req 42（フロント） | 全編集をクライアント状態にのみ反映 → 保存時に一括送信。新規行のクライアント仮ID | `QuantityTableEditPage.tsx`（`useState` 中心、`quantityTable` 単一オブジェクト state） | **Missing**: 即時API呼び出しが約11ハンドラ（rename/add item/delete item/copy item/move group/photo select/import/from-survey 等）。**仮ID未導入**（新規行は常にサーバー採番UUID） |
+| Req 43（離脱ガード） | 画面遷移/タブクローズ/リロード時の警告 | `useUnsavedChanges`（`hooks/useUnsavedChanges.ts`、beforeunload対応）、`useBlocker(isDirty)`（CompanyInfoPage・ItemizedStatementDetailPage・SiteSurveyDetailPage で実績） | **なし**（パターン流用で実装可能） |
+| Req 44（未保存インジケーター） | dirty 状態の可視化 | 同上 `isDirty`/`markAsChanged`/`markAsSaved` | **なし**（インジケーターUIの追加のみ） |
+| Req 45（固定ヘッダー） | ヘッダー操作ボタン群の sticky 表示 | `EstimateDetailPage`/`ScheduleListPage`/`SiteSurveyDetailPage` の `position: fixed/sticky` 実績。`QuantityTableEditPage` ヘッダーは inline style（64–117, 1773–1865） | **Constraint**: 祖先に `overflow` を持つスクロールコンテナがあると sticky が効かない点を design で確認（現状 main は padding のみで scroll wrapper なし＝直接 sticky 可） |
+
+### 実装アプローチ（バックエンド保存API — Req 42 の核心）
+
+#### Option A: 既存 bulk-save を「フル状態同期」に拡張（推奨）
+`bulk-save` のペイロードを「数量表の全グループ・全項目の最終状態」に拡張し、サーバー側で DB 現状とのdiffを取り、作成/更新/削除/並び替え/名称/写真紐づけをトランザクション内で適用。クライアント仮ID（`temp-` 接頭辞等）を新規行のマーカーとして受理し、レスポンスで採番済みIDを返却。
+- ✅ 単一エンドポイント・単一トランザクションで原子性・楽観ロック（`expectedUpdatedAt`）を維持。ネットワーク往復が保存1回に集約され Req 42 の意図に最も忠実
+- ✅ 既存の個別エンドポイント（create/delete/copy/reorder）は移行期に温存可能
+- ❌ サーバー側 diff/upsert/削除ロジックとスキーマ拡張が必要（zod 全面改訂）。コピー時のサーバー採番ロジック（写真複製等）をクライアント or 保存APIへ移設
+- **Effort: L（1〜2週間）／Risk: Medium**（トランザクション境界・楽観ロック・displayOrder衝突・写真複製の移設が要設計）
+
+#### Option B: 既存個別エンドポイントをクライアントがバッチ順次呼び出し（保存時にまとめて）
+保存ボタン押下時にクライアントが差分を計算し、既存の create/update/delete/reorder/copy API を順次（または並列）呼び出す。
+- ✅ バックエンド改修最小
+- ❌ 複数リクエストで原子性・整合性が崩れやすい（途中失敗で部分反映）。Req 42 AC9（失敗時に編集状態を保持して再保存）や AC5（一括永続化）の担保が困難。楽観ロックも分散
+- **Effort: M／Risk: High**（部分失敗・整合性が要件と衝突）
+
+#### Option C: ハイブリッド（保存API拡張 ＋ フロント仮ID ＋ 段階移行）
+Option A の保存API拡張を軸に、フロントは `useReducer` で編集状態（draft）と dirty を集中管理。仮ID導入。Req 43/44 は `useUnsavedChanges`+`useBlocker` を流用、Req 45 は sticky 追加。E2E は段階的に「保存押下後に検証」へ移行。
+- ✅ 要件全体（42〜45）を一貫実装。フロント状態の集中管理でテスト容易性も向上
+- ❌ 計画・調整が最も大きい
+- **Effort: XL（2週間+）／Risk: Medium**
+
+### Effort / Risk まとめ
+
+| 項目 | Effort | Risk | 一言根拠 |
+|------|--------|------|----------|
+| 保存API拡張（フル状態同期） | L | Medium | diff/削除/並び替え/写真複製の移設と楽観ロック維持 |
+| フロント編集状態のドラフト化＋仮ID | L | Medium | 約11ハンドラの即時API除去＋単一 state を draft/dirty へ再設計 |
+| 離脱ガード（Req43） | S | Low | `useBlocker(isDirty)` 流用 |
+| 未保存インジケーター（Req44） | S | Low | `useUnsavedChanges` 流用＋UI追加 |
+| 固定ヘッダー（Req45） | S | Low | sticky 付与（祖先 overflow のみ確認） |
+| E2E 改修（約25本） | M〜L | High | 「即時反映」前提の検証を「保存後反映」へ全面見直し |
+
+### 設計フェーズへの申し送り（Research Needed）
+
+1. **保存ペイロード契約の確定**（Option A 前提）: グループ/項目の作成・更新・削除・並び替え・名称・写真紐づけを表現するスキーマ。新規行の仮ID表現とレスポンスでのID解決方式。
+2. **コピー/一括生成のサーバー処理移設**: 現行サーバー側のグループコピー（写真複製含む）・現場調査一括生成のロジックを、クライアント仮ID生成＋保存API側の確定処理へどう分割するか（写真の参照は surveyImageId 紐づけのみで複製不要か要確認）。
+3. **楽観ロック整合**: 編集中の長時間化で `expectedUpdatedAt` 競合が増える。保存失敗時の編集状態保持（Req42 AC9）と再取得・マージ方針。
+4. **dirty 判定の粒度**: フィールド単位の deep compare か、操作発生フラグか（`useUnsavedChanges` の `markAsChanged` 流用範囲）。
+5. **固定ヘッダーと既存スクロール領域（Req41 の水平スクロール固定、Req25 のスクロールバー）との干渉確認**。
+6. **E2E 移行方針**: 既存約25本のうち編集モデル変更の影響範囲を design で列挙し、「保存後に検証」へ統一（第3原則: 前提無効化を避け、失敗で顕在化させる）。
+
+### 推奨
+
+- **保存API**: Option A（bulk-save のフル状態同期化）を軸に、フロントは Option C のドラフト集中管理を採用。Req 42 の原子性・楽観ロック・「保存時のみ永続化」を最も忠実に満たす。
+- **Req 43/44/45** は既存パターン流用で低リスク・小工数。先行実装も可能だが、Req 42 のフロント状態再設計（dirty 管理）と密結合のため、design で 42 と一体設計するのが望ましい。
