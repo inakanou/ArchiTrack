@@ -52,6 +52,7 @@ const mockGroupWithImage: QuantityGroupDetail = {
     thumbnailUrl: '/images/thumb-1.jpg',
     originalUrl: '/images/original-1.jpg',
     fileName: 'photo1.jpg',
+    comment: '現場調査コメント',
   },
   displayOrder: 0,
   itemCount: 2,
@@ -213,6 +214,83 @@ describe('QuantityGroupCard', () => {
 
         const card = screen.getByTestId('quantity-group-card');
         expect(card).toHaveStyle({ overflowY: 'hidden' });
+      });
+
+      it('テーブルラッパーは縦方向のネストスクロールを発生させない（overflow-y を明示クリップ）', () => {
+        // Task 58.2 (REQ-41.4): itemTableWrapper に overflow-x:auto のみを指定すると、
+        // CSS 仕様上 overflow-y(visible) が暗黙的に auto へ昇格し、テーブル内に
+        // ネストした縦スクロールバーが発生して垂直スクロール（REQ-25）を阻害しうる。
+        // overflow-y を明示的に hidden 宣言してネスト縦スクロールを防止し、縦スクロールは
+        // ページ側のコンテナへ委譲する。
+        renderWithRouter(
+          <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
+        );
+
+        const tableWrapper = screen.getByTestId(`item-table-scroll-${mockGroupWithImage.id}`);
+        // overflow-y は visible/auto/scroll ではなく hidden（クリップ宣言、ネスト縦スクロール無）
+        expect(tableWrapper).toHaveStyle({ overflowY: 'hidden' });
+      });
+    });
+
+    describe('Task 58.2: 折りたたみと固定表示・縦横スクロールの両立（REQ-41.4, 41.5, 41.6）', () => {
+      it('折りたたみ時に画像・コメントも数量項目とともに非表示になる（REQ-41.5）', async () => {
+        renderWithRouter(
+          <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
+        );
+
+        // 初期（展開）状態では画像・コメントが表示されている
+        expect(screen.getByAltText('photo1.jpg')).toBeVisible();
+        expect(screen.getByText('現場調査コメント')).toBeVisible();
+
+        // 折りたたむ
+        await userEvent.click(
+          screen.getByRole('button', { name: /グループを折りたたむ/ })
+        );
+
+        // 固定表示対象の画像・コメントも併せて非表示になる（content の visibility:hidden）
+        expect(screen.getByAltText('photo1.jpg')).not.toBeVisible();
+        expect(screen.getByText('現場調査コメント')).not.toBeVisible();
+      });
+
+      it('再展開時に画像・コメントが固定表示状態で再表示される（REQ-41.6）', async () => {
+        renderWithRouter(
+          <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
+        );
+
+        // 折りたたみ → 再展開
+        await userEvent.click(
+          screen.getByRole('button', { name: /グループを折りたたむ/ })
+        );
+        expect(screen.getByAltText('photo1.jpg')).not.toBeVisible();
+
+        await userEvent.click(
+          screen.getByRole('button', { name: /グループを展開/ })
+        );
+
+        // 画像・コメントが再表示され、photoArea はスクロールラッパー外（固定表示）にある
+        expect(screen.getByAltText('photo1.jpg')).toBeVisible();
+        expect(screen.getByText('現場調査コメント')).toBeVisible();
+
+        // 固定表示の担保: 画像・コメントは水平スクロールラッパー（item-table-scroll-*）の
+        // 外側に配置されており、テーブルの水平スクロールの影響を受けない（REQ-41.1, 41.2）
+        const tableWrapper = screen.getByTestId(`item-table-scroll-${mockGroupWithImage.id}`);
+        const thumbnail = screen.getByAltText('photo1.jpg');
+        const comment = screen.getByText('現場調査コメント');
+        expect(tableWrapper.contains(thumbnail)).toBe(false);
+        expect(tableWrapper.contains(comment)).toBe(false);
+      });
+
+      it('画像・コメント（photoArea）はテーブル水平スクロールラッパーの外に固定配置される（REQ-41.1, 41.2, 41.3）', () => {
+        renderWithRouter(
+          <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
+        );
+
+        const tableWrapper = screen.getByTestId(`item-table-scroll-${mockGroupWithImage.id}`);
+        // 水平スクロール対象は数量項目テーブルのみ。画像・コメントは含まれない。
+        expect(tableWrapper.contains(screen.getByAltText('photo1.jpg'))).toBe(false);
+        expect(tableWrapper.contains(screen.getByText('現場調査コメント'))).toBe(false);
+        // テーブル本体（数量項目）はラッパー内にある
+        expect(tableWrapper.contains(screen.getByText('足場'))).toBe(true);
       });
     });
 

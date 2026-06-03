@@ -270,6 +270,14 @@ const styles = {
   // 超えてもテーブルだけが水平スクロールし、画像・コメントは固定表示される。
   itemTableWrapper: {
     overflowX: 'auto' as const,
+    // Task 58.2 (REQ-41.4): 垂直スクロール（REQ-25）をページ側のスクロールコンテナに
+    // 委ね、テーブルラッパー内でネストした縦スクロールバーが発生しないようにする。
+    // CSS 仕様上、片軸が overflow-x:'auto' で他軸が visible（既定）の場合は overflow-y が
+    // 暗黙的に 'auto' へ昇格しネストした縦スクロールが生じうるため、明示的に縦方向を
+    // クリップ宣言する。テーブル行に固定高さはなく内容がそのまま伸長するため、縦方向に
+    // クリップされるコンテンツはなく（縦の伸長はカード高さを押し広げてページ側へ委譲）、
+    // 水平スクロールのみを itemTableWrapper に限定できる。
+    overflowY: 'hidden' as const,
   } as React.CSSProperties,
   itemList: {
     display: 'flex',
