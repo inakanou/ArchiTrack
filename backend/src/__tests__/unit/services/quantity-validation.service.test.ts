@@ -753,6 +753,58 @@ describe('QuantityValidationService', () => {
     });
   });
 
+  describe('buildGroupNameFromSurvey', () => {
+    it('上限以下なら「{現場調査名} {連番}」をそのまま返す（Requirements: 40.5）', () => {
+      // Arrange
+      const surveyName = '北棟外壁調査';
+
+      // Act
+      const result = service.buildGroupNameFromSurvey(surveyName, 1);
+
+      // Assert
+      expect(result).toBe('北棟外壁調査 1');
+    });
+
+    it('連番は1始まりの通し番号として末尾に付与される（Requirements: 40.5）', () => {
+      // Arrange
+      const surveyName = '調査A';
+
+      // Act & Assert
+      expect(service.buildGroupNameFromSurvey(surveyName, 1)).toBe('調査A 1');
+      expect(service.buildGroupNameFromSurvey(surveyName, 12)).toBe('調査A 12');
+    });
+
+    it('上限超過時は現場調査名部分を切り詰め、連番を必ず末尾に付与する（Requirements: 40.6）', () => {
+      // Arrange: 全角25文字 = width50。連番付与で確実に超過する
+      const surveyName = 'あ'.repeat(25);
+      const sequence = 3;
+      const suffix = ` ${sequence}`;
+
+      // Act
+      const result = service.buildGroupNameFromSurvey(surveyName, sequence);
+
+      // Assert: 連番が末尾に保持され、全体が上限（半角50）以内に収まる
+      expect(result.endsWith(suffix)).toBe(true);
+      expect(service.calculateStringWidth(result)).toBeLessThanOrEqual(50);
+      // 現場調査名部分が切り詰められていること
+      expect(result.length).toBeLessThan(surveyName.length + suffix.length);
+    });
+
+    it('全角半角混在カウントを truncateForCopy と同一規則で処理する（Requirements: 40.6, REQ-22 AC4）', () => {
+      // Arrange: 全角20文字(width40) + 半角10文字(width10) = width50。連番付与で超過
+      const surveyName = 'あ'.repeat(20) + 'a'.repeat(10);
+      const sequence = 5;
+      const suffix = ` ${sequence}`;
+
+      // Act
+      const result = service.buildGroupNameFromSurvey(surveyName, sequence);
+
+      // Assert: 全角=2/半角=1 換算で上限以内・連番保持
+      expect(result.endsWith(suffix)).toBe(true);
+      expect(service.calculateStringWidth(result)).toBeLessThanOrEqual(50);
+    });
+  });
+
   describe('calculateStringWidth', () => {
     it('既存仕様：全角=2, 半角=1, 半角カナ=1', () => {
       expect(service.calculateStringWidth('')).toBe(0);

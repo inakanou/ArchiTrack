@@ -553,4 +553,29 @@ export class QuantityValidationService {
       QuantityValidationService.GROUP_NAME_MAX_WIDTH
     );
   }
+
+  /**
+   * 現場調査からの一括グループ生成時の連番命名ヘルパー（design.md 準拠 API, Task 56.1）。
+   *
+   * Requirements:
+   * - 40.5: 各生成グループのグループ名を「{現場調査名} {連番}」（連番は1始まりの通し番号）とする
+   * - 40.6: 最大文字数（全角25/半角50, REQ-22 AC4）超過時は現場調査名部分を切り詰めて連番を付与する
+   *
+   * REQ-38 のコピー命名（{@link truncateForCopy}）と同一の文字数規則（全角=2/半角=1,
+   * 上限 {@link GROUP_NAME_MAX_WIDTH}=半角50）を共有する。連番をサフィックス
+   * ` ${sequence}`（半角スペース + 連番）として {@link truncateNameWithSuffix} に委譲する
+   * ことで、超過時は現場調査名部分のみ切り詰めて連番を末尾に必ず付与する（独自の文字幅
+   * カウントは再実装しない）。
+   *
+   * @param surveyName - 現場調査名
+   * @param sequence - 連番（1始まり）
+   * @returns 「{切り詰めた現場調査名} {連番}」
+   */
+  buildGroupNameFromSurvey(surveyName: string, sequence: number): string {
+    return this.truncateNameWithSuffix(
+      surveyName,
+      ` ${sequence}`,
+      QuantityValidationService.GROUP_NAME_MAX_WIDTH
+    );
+  }
 }
