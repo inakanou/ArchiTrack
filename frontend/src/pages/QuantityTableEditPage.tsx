@@ -301,6 +301,11 @@ const styles = {
   photoGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+    // REQ-39: 行高を固定（150px）し、各アイテムにも同じ definite height を与えることで
+    // 行トラックとアイテム高さを一致させ重なりを解消する。
+    // aspect-ratio による高さは列幅（1fr で 150px 超に伸びる）に追従して行トラックを
+    // 超過するうえ、auto 行トラックは aspect-ratio 由来の高さを最小値（150px）でしか
+    // 解決しないため重なりが残る（実機 E2E で確認）。definite height で確定させる。
     gridAutoRows: '150px',
     gap: '12px',
     overflowY: 'auto' as const,
@@ -308,7 +313,9 @@ const styles = {
     padding: '4px',
   } as React.CSSProperties,
   photoItem: {
-    aspectRatio: '1',
+    // REQ-39: 行トラック（gridAutoRows:150px）と一致する definite height を与え、
+    // aspect-ratio 由来の不定高による行超過・重なりを防ぐ。
+    height: '150px',
     minHeight: '150px',
     borderRadius: '8px',
     overflow: 'hidden',

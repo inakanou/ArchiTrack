@@ -1393,7 +1393,7 @@
   - _Boundary: QuantityTableEditPage E2E_
   - _Depends: 53.3, 52.3_
 
-- [ ] 55. 写真選択・変更ダイアログのレイアウト重なり修正（REQ-39）
+- [x] 55. 写真選択・変更ダイアログのレイアウト重なり修正（REQ-39）
 - [x] 55.1 写真重なりの根本原因を実機再現・特定する
   - 写真多数枚（30枚以上）の現場調査を用意し、開発環境の数量表編集画面で写真選択ダイアログを開いて重なりを実機再現する
   - 複数のビューポート幅（広幅・狭幅）で再現状況を確認する
@@ -1413,7 +1413,7 @@
   - _Boundary: QuantityTableEditPage（インライン写真選択ダイアログ）_
   - _Depends: 55.1_
 
-- [ ] 55.3 写真選択ダイアログレイアウトのテストを実装する
+- [x] 55.3 写真選択ダイアログレイアウトのテストを実装する
   - 単体: 多数枚（30枚以上）が全件レンダリングされ、修正後のグリッドスタイルが適用されることを検証する（重なり矩形判定は jsdom 非対応のため単体には含めない）
   - E2E: 写真選択ダイアログを開いた際、隣接サムネイルの `getBoundingClientRect` 矩形が重複しないことを検証する
   - E2E: 写真変更（別の写真を選択）からも重なりのない一覧が表示されることを検証する
@@ -1553,3 +1553,5 @@
 ## Implementation Notes
 
 - 55.1 (REQ-39 根本原因): 写真一覧は `QuantityTableEditPage.tsx` 内インライン実装（`styles.photoGrid`/`styles.photoItem`、`availablePhotos.map`）。`photoGrid` は `display:grid` + `gridTemplateColumns: repeat(auto-fill, minmax(150px,1fr))` + `flex:1` + `overflowY:auto` だが `gridAutoRows` 未指定（既定 `auto`）。各セル高さは `photoItem` の `aspectRatio:'1'` のみに依存。flex(`flex:1`)+overflow 制約下で implicit grid row が aspect-ratio から高さを確定できず、複数行折り返し時に行が潰れて写真が重なる。修正方針: `photoGrid` に `gridAutoRows`（列幅に追従する固定高）を明示し、`photoItem` に `minHeight` フォールバックを併用。重なりゼロの矩形判定は jsdom 不可のため E2E（getBoundingClientRect）で検証する。写真取得方式・注釈バッジ（REQ-3.3）は不変。選択・変更とも同一 `handleSelectImage` 経由のため当該1箇所の修正で両対応。
+- 55.3 (REQ-39 E2Eが実バグ検出): `gridAutoRows:'150px'` のみでは重なりが残った。`gridTemplateColumns: minmax(150px,1fr)` で列幅が150px超に伸びると `photoItem` の `aspectRatio:'1'` 由来の高さ(=列幅)が固定行トラック150pxを超過し次行へ食い込み重なる。`photoItem` を `aspectRatio:'1'`→`height:'150px'`（definite height、minHeight:'150px'維持）に是正して解消。img は `objectFit:'cover'` 維持のため視認性不変。重なりゼロは E2E（getBoundingClientRect 全ペア判定）でのみ検証可能。
+- E2E環境の注意: frontend テストコンテナは nginx 静的ビルド（5174→80、ソース未マウント）。フロントの CSS/コード変更を E2E に反映するには `npm run test:docker:build`（frontend `--build`）でのリビルドが必須。
