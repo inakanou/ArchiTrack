@@ -6458,6 +6458,75 @@
         }
       }
     },
+    "/api/quantity-tables/{quantityTableId}/groups/from-survey": {
+      "post": {
+        "summary": "現場調査からの数量グループ一括生成",
+        "description": "指定された現場調査に属する全写真（注釈の有無を問わない）の枚数分の数量グループを\n既存グループの末尾に写真順で一括生成し、各グループに写真を1枚ずつ紐づける。\n各グループは数量項目0件の初期状態で作成される。\n現場調査に写真が1枚も存在しない場合はグループを生成せず created:0 を返す。\n",
+        "tags": [
+          "Quantity Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quantityTableId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "数量表ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "siteSurveyId"
+                ],
+                "properties": {
+                  "siteSurveyId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "一括生成の対象となる現場調査ID"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "一括生成成功（生成件数と生成グループ配列を返却。写真0枚時は created:0）"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足、または対象現場調査が当該数量表のプロジェクトに属さない"
+          },
+          "404": {
+            "description": "数量表または現場調査が見つからない"
+          },
+          "409": {
+            "description": "並行制御競合（OptimisticLockError）"
+          },
+          "500": {
+            "description": "サーバー内部エラー"
+          }
+        }
+      }
+    },
     "/api/quantity-groups/{groupId}/items": {
       "post": {
         "summary": "数量項目作成",
