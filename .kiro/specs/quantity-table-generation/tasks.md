@@ -1550,6 +1550,158 @@
   - _Boundary: QuantityGroupCard, quantity-tables E2E_
   - _Depends: 58.2_
 
+- [ ] 59. クライアントサイド編集と明示保存（バックエンド: saveDraft）（REQ-42）
+- [ ] 59.1 数量表のフル状態同期保存サービスを実装する
+  - 受領した数量表の全状態（数量表名・全グループ・全項目、表示順）と DB 現状を差分比較し、payload に無い行を削除、id 無し（新規）を作成、既存 id を更新する
+  - グループの名称・写真紐づけ（surveyImageId）・displayOrder、項目の全フィールド・displayOrder を反映する（displayOrder は payload の配列順を正とする）
+  - 全フィールドを既存の検証サービスで検証し（文字数・数値範囲・計算整合）、不整合時は保存を中断する
+  - expectedUpdatedAt による楽観的排他制御を行い、不一致時は競合エラー（409）を返す。単一トランザクションで適用し、失敗時は ROLLBACK して部分反映を残さない
+  - 成功時に updatedAt を更新し監査ログを記録、最新の数量表詳細を返す。既存 bulkSave（項目更新のみ）を本サービスへ統合・置換する
+  - 観測可能完了条件: 新規グループ・項目の作成、削除、並び替え、名称・写真紐づけ・数量表名の変更が単一呼び出しで永続化され、最新詳細が返る
+  - _Requirements: 42.5, 42.8, 42.9, 11.1, 11.2, 11.3, 11.4_
+  - _Boundary: QuantityTableService_
+
+- [ ] 59.2 フル状態同期保存 API ルートを実装する
+  - PUT /api/quantity-tables/:id/save ルートを追加し、既存の書き込み系と同一の requirePermission('quantity_table:update') を適用する
+  - リクエストボディ（expectedUpdatedAt・name・groups[全状態]）を Zod で検証する
+  - サービスを呼び出し、例外を 400 / 403 / 404 / 409 に正しくマッピングし、成功時に最新詳細を返す。既存 PUT /:id/bulk-save を本ルートへ置換する
+  - 観測可能完了条件: 当該エンドポイントへ全状態を PUT すると差分が永続化され 200 と最新詳細が返り、競合時 409 が返る
+  - _Requirements: 42.5, 42.8, 42.9_
+  - _Boundary: quantity-tables.routes.ts_
+  - _Depends: 59.1_
+
+- [ ] 59.3 (P) フル状態同期保存サービスの単体テストを実装する
+  - 新規作成（id 無し）・更新（既存 id）・削除（payload 不在）・並び替え（displayOrder）・名称/写真紐づけ/数量表名反映を検証する
+  - 検証エラー時に保存中断、expectedUpdatedAt 不一致時に 409 相当エラー、エラー時ロールバックを検証する
+  - 観測可能完了条件: 上記単体テストがすべて緑になり、差分同期・楽観ロック・ロールバックが回帰防止される
+  - _Requirements: 42.5, 42.9, 11.1, 11.2, 11.3, 11.4_
+  - _Boundary: QuantityTableService_
+  - _Depends: 59.1_
+
+- [ ] 59.4 (P) フル状態同期保存 API の統合テストを実装する
+  - 認証なし401・権限なし403・存在しない数量表404・他プロジェクト403/404 を検証する
+  - 全状態 PUT で新規/更新/削除/並び替えが原子的に永続化され、再取得で反映が保持されることを検証する
+  - expectedUpdatedAt 競合で 409 が返り、並行 save で後発が 409 となり部分反映・displayOrder 衝突が起きないことを検証する
+  - 観測可能完了条件: supertest 等の統合テストで上記シナリオがすべて緑
+  - _Requirements: 42.5, 42.8, 42.9_
+  - _Boundary: quantity-tables.routes.ts_
+  - _Depends: 59.2_
+
+- [ ] 60. クライアントサイド編集と明示保存（フロントエンド: ドラフト状態基盤）（REQ-42）
+- [ ] 60.1 (P) 数量表編集ドラフトの reducer と仮ID採番を実装する
+  - サーバースナップショットと編集ドラフトを分離保持する reducer を新設し、編集アクション（グループ/項目の add/delete/copy/reorder、グループ名・数量表名変更、写真紐づけ、現場調査一括生成、インポート取り込み）でドラフトのみ更新し isDirty=true とする
+  - 新規グループ/項目に crypto.randomUUID() ベースの仮ID（temp- 接頭辞）を採番し、React key・ドラフト内参照に用いる
+  - 保存同期アクションでサーバーレスポンスの最新詳細によりドラフト/スナップショットを置換し isDirty=false とする
+  - 観測可能完了条件: 単体テストで各編集アクションがドラフトのみ更新し isDirty が遷移、保存同期でスナップショット置換・isDirty=false になることが緑になる
+  - _Requirements: 42.1, 42.2, 42.3, 42.4, 42.6, 42.8_
+  - _Boundary: quantityTableEditReducer_
+
+- [ ] 60.2 (P) フル状態同期保存の API クライアントを追加する
+  - PUT /api/quantity-tables/:id/save を呼び出し最新詳細を受け取るクライアント関数を実装し、既存 fetcher の認証・エラーハンドリング規約に従う。既存 bulkSaveQuantityTable 呼び出しを本関数へ置換する
+  - 観測可能完了条件: API クライアントから関数を呼ぶと当該エンドポイントへ全状態が PUT され、最新詳細が返る
+  - _Requirements: 42.5_
+  - _Boundary: api/quantity-tables.ts_
+  - _Depends: 59.2_
+
+- [ ] 61. 編集画面の書き込みパス再設計（フロントエンド統合）（REQ-42）
+- [ ] 61.1 編集ハンドラ（グループ・項目）をドラフト dispatch へ移行し即時API呼び出しを撤去する（書き込みパス統合）
+  - グループの add/delete/reorder・名称変更・写真紐づけ、項目の add/delete/copy/reorder・各フィールド編集の各ハンドラを reducer dispatch（ドラフト更新）へ移行し、操作ごとの永続化API呼び出しを撤去する（QuantityGroupCard・EditableQuantityItemRow・編集画面の各コールバックを含む）
+  - 編集画面での数量表名変更もドラフト更新へ移行する（一覧画面の即時 PUT は対象外）
+  - 参照系のデータ取得（初回表示・オートコンプリート候補・写真コメント・現場調査写真一覧・インポートOCR/パース）は従来どおり随時実行で維持する
+  - 観測可能完了条件: 開発環境のネットワーク監視で、グループ・項目の各編集操作を行っても保存まで永続化リクエストが発生せず、参照系GETのみが発生する
+  - _Requirements: 42.1, 42.2, 42.3, 42.6, 42.10_
+  - _Boundary: QuantityTableEditPage, EditableQuantityItemRow, QuantityGroupCard_
+  - _Depends: 60.1_
+
+- [ ] 61.2 数量グループコピーをクライアントサイドドラフト化する
+  - グループコピー（REQ-38）を、サーバー POST ではなくドラフト内の複製（仮ID採番・同一 surveyImageId 参照・直下挿入・後続 displayOrder シフト・「のコピー」命名/切り詰め）として実装する
+  - 編集画面からサーバーの copy エンドポイント呼び出しを停止する（命名・切り詰めロジックは既存ユーティリティを再利用）
+  - 観測可能完了条件: コピーを行うとドラフトに複製グループが直下に即時出現し未保存状態となり、保存まで永続化リクエストが発生しない
+  - _Requirements: 42.4, 38.13_
+  - _Boundary: quantityTableEditReducer, QuantityGroupCard, QuantityTableEditPage_
+  - _Depends: 61.1_
+
+- [ ] 61.3 現場調査からの数量グループ一括生成をクライアントサイドドラフト化する
+  - 現場調査一括生成（REQ-40）を、対象現場調査の写真一覧の参照取得＋ドラフトへのグループ生成（仮ID・連番命名/切り詰め・写真順 surveyImageId 紐づけ・末尾追加・数量項目0件初期）として実装する
+  - 編集画面からサーバーの from-survey エンドポイント呼び出しを停止する。写真0枚時メッセージ・完了メッセージは従来どおり表示する
+  - 観測可能完了条件: 一括生成を行うとドラフト末尾に写真枚数分のグループが即時生成され未保存状態となり、保存まで永続化リクエストが発生しない
+  - _Requirements: 42.4, 40.1, 40.3, 40.4, 40.5, 40.7, 40.9, 40.13_
+  - _Boundary: quantityTableEditReducer, QuantityTableEditPage, SurveySelectDialog_
+  - _Depends: 61.1_
+
+- [ ] 61.4 保存ハンドラを saveDraft へ移行し保存後同期・失敗時保持を実装する
+  - 保存ボタン押下で、クライアント検証後にドラフト全状態を saveDraft で一括送信し、成功時に最新詳細でドラフト/スナップショットを同期し「保存しました」を表示する
+  - 失敗（409/400/500）時はエラーを表示し、ドラフト（未保存変更）を保持して再保存可能にする。従来の自動保存（useAutoSave・1500msデバウンス）を撤去する
+  - 観測可能完了条件: 編集→保存で全変更が1回の PUT /save で永続化されリロード後も保持され、保存前リロードでは未保存変更が破棄される
+  - _Requirements: 42.5, 42.7, 42.8, 42.9, 11.1_
+  - _Boundary: QuantityTableEditPage_
+  - _Depends: 60.2, 61.1_
+
+- [ ] 61.5 ドラフト編集・保存統合の単体テストを実装する
+  - 編集ハンドラ（グループ・項目）がドラフトのみ更新し isDirty 遷移すること、グループコピー/一括生成のクライアント複製・生成、保存ハンドラの saveDraft 呼び出し・保存後同期・失敗時のドラフト保持を検証する
+  - 観測可能完了条件: 上記単体テストがすべて緑になり、書き込みパスの集約が回帰防止される
+  - _Requirements: 42.1, 42.4, 42.5, 42.9_
+  - _Boundary: QuantityTableEditPage, quantityTableEditReducer_
+  - _Depends: 61.4, 61.2, 61.3_
+
+- [ ] 62. 離脱ガード・未保存インジケーター・固定ヘッダー（REQ-43, 44, 45）
+  - 注: 62.1〜62.3 はいずれも QuantityTableEditPage を編集する共有ファイルのため (P) 不可（直列）
+- [ ] 62.1 未保存変更時の離脱ガードを実装する
+  - useBlocker(isDirty) でアプリ内遷移をブロックし、blocked 時に確認ダイアログ（既存 UnsavedChangesDialog パターン）を表示、承認で proceed・取消で reset する
+  - 既存 useUnsavedChanges の beforeunload（enabled=isDirty）でタブクローズ/リロード時に標準確認を表示する。isDirty=false 時はガードせず、保存成功後はガードを解除する
+  - 観測可能完了条件: 未保存変更時の画面遷移で確認が出て取消で留まり承認で遷移、リロード/タブクローズで標準確認が出る。保存後は確認が出ない
+  - _Requirements: 43.1, 43.2, 43.3, 43.4, 43.5, 43.6_
+  - _Boundary: QuantityTableEditPage_
+  - _Depends: 61.4_
+
+- [ ] 62.2 未保存変更インジケーターを実装する
+  - isDirty が true の間、保存ボタン付近に未保存状態を示すインジケーター（未保存表示/ボタン強調）を表示し、編集で表示・保存成功で非表示に更新する
+  - 観測可能完了条件: 編集を行うとインジケーターが表示され、保存後に消える
+  - _Requirements: 44.1, 44.2, 44.3, 44.4_
+  - _Boundary: UnsavedChangesBadge, QuantityTableEditPage_
+  - _Depends: 61.4_
+
+- [ ] 62.3 ヘッダー操作ボタンの固定表示を実装する
+  - 編集画面ヘッダーを position: sticky; top:0; zIndex 付きへ変更し、操作ボタン群（インポート/PDF出力/保存/＋グループを追加/現場調査から一括追加）を垂直スクロール時も固定表示する
+  - 未保存インジケーターを固定ヘッダー内に配置する。既存の編集領域スクロール（REQ-25/37/41）を阻害しないことを確認する
+  - 観測可能完了条件: 開発環境で下方向スクロールしても操作ボタン群が常に画面内に表示され続ける
+  - _Requirements: 45.1, 45.2, 45.3, 45.4_
+  - _Boundary: QuantityTableEditPage_
+  - _Depends: 62.2_
+
+- [ ] 62.4 離脱ガード・インジケーター・固定ヘッダーの単体テストを実装する
+  - isDirty で useBlocker がブロックし proceed/reset が動作すること、isDirty=false でブロックしないこと、保存後解除を検証する
+  - インジケーターが isDirty で表示/非表示になること、ヘッダーに sticky スタイルが適用されインジケーターがヘッダー内にあることを検証する
+  - 観測可能完了条件: 上記単体テストがすべて緑になる（実スクロール固定の追従は E2E で検証）
+  - _Requirements: 43.1, 43.5, 43.6, 44.1, 44.2, 45.2, 45.4_
+  - _Boundary: QuantityTableEditPage, UnsavedChangesBadge_
+  - _Depends: 62.1, 62.2, 62.3_
+
+- [ ] 63. E2E（クライアントサイド編集・明示保存／離脱ガード／固定ヘッダー、既存E2E移行）（REQ-42〜45）
+- [ ] 63.1 既存の数量表 E2E を明示保存モデルへ移行する
+  - 「操作即時反映」を前提とする既存 spec（CRUD/グループコピー/グループ・項目並び替え/グループ名変更/写真紐づけ/現場調査一括生成/インポート）を「編集→保存ボタン→保存後にサーバー反映を検証」へ更新する
+  - 前提による無効化（skip/前提スキップ）は行わず、未更新で失敗する状態を許容して顕在化させる（第3原則）
+  - 観測可能完了条件: 移行後の既存 E2E が保存ボタン経由の反映で緑になり、保存前は未反映であることを確認する
+  - _Requirements: 42.1, 42.5_
+  - _Boundary: quantity-tables E2E_
+  - _Depends: 61.4, 61.2, 61.3_
+
+- [ ] 63.2 クライアントサイド編集・明示保存の E2E を実装する
+  - グループ/項目の追加・削除・コピー・並び替え・名称変更・写真紐づけ・一括生成・取り込みを行っても保存まで永続化リクエストが飛ばないこと（ネットワーク監視）を検証する
+  - 保存で全変更が永続化されリロード後も保持されること、保存前リロードで破棄されることを検証する
+  - 観測可能完了条件: Playwright E2E で上記シナリオが緑になる
+  - _Requirements: 42.1, 42.5, 42.6, 42.8_
+  - _Boundary: quantity-tables E2E_
+  - _Depends: 61.4_
+
+- [ ] 63.3 離脱ガード・未保存インジケーター・固定ヘッダーの E2E を実装する
+  - 未保存変更時のアプリ内遷移で確認が出て取消/承認が動作、保存後は確認が出ないことを検証する
+  - 編集で未保存インジケーターが表示され保存後に消えること、下方向スクロールで操作ボタン群が常に表示され続けることを検証する
+  - 観測可能完了条件: Playwright E2E で離脱ガード・インジケーター・固定ヘッダーの各シナリオが緑になる
+  - _Requirements: 43.1, 43.3, 43.4, 43.6, 44.1, 44.4, 45.1_
+  - _Boundary: quantity-tables E2E_
+  - _Depends: 62.1, 62.2, 62.3_
+
 ## Implementation Notes
 
 - 55.1 (REQ-39 根本原因): 写真一覧は `QuantityTableEditPage.tsx` 内インライン実装（`styles.photoGrid`/`styles.photoItem`、`availablePhotos.map`）。`photoGrid` は `display:grid` + `gridTemplateColumns: repeat(auto-fill, minmax(150px,1fr))` + `flex:1` + `overflowY:auto` だが `gridAutoRows` 未指定（既定 `auto`）。各セル高さは `photoItem` の `aspectRatio:'1'` のみに依存。flex(`flex:1`)+overflow 制約下で implicit grid row が aspect-ratio から高さを確定できず、複数行折り返し時に行が潰れて写真が重なる。修正方針: `photoGrid` に `gridAutoRows`（列幅に追従する固定高）を明示し、`photoItem` に `minHeight` フォールバックを併用。重なりゼロの矩形判定は jsdom 不可のため E2E（getBoundingClientRect）で検証する。写真取得方式・注釈バッジ（REQ-3.3）は不変。選択・変更とも同一 `handleSelectImage` 経由のため当該1箇所の修正で両対応。
