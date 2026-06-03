@@ -2396,7 +2396,10 @@ test.describe('見積依頼機能', () => {
       await page.waitForTimeout(500);
 
       // メールアドレス未登録エラーが表示される（パネル内またはページ内）
-      await expect(page.getByText(/メールアドレスが登録されていません/i)).toBeVisible({
+      // 注: REQ-41 メーラー転記機能の追加により、同メッセージは宛先欄(recipientError)と
+      // メーラーボタン横(mailDisabledReason)の2箇所に描画されるため、strict mode 違反を
+      // 避けて first() で一意化する（REQ-41.9 と同じ対応）。要件は表示されていれば充足。
+      await expect(page.getByText(/メールアドレスが登録されていません/i).first()).toBeVisible({
         timeout: getTimeout(10000),
       });
     });
@@ -3759,8 +3762,16 @@ test.describe('見積依頼機能', () => {
       expect(createdItemizedStatementId).toBeTruthy();
 
       // 実際の Gmail への外部ナビゲーション／ネットワークアクセスを遮断する。
-      // popup の URL 検証のみが目的のため、mail.google.com へのリクエストは中断する。
-      await context.route(/mail\.google\.com/, (route) => route.abort());
+      // mail.google.com へのリクエストは中断するが、中断するとポップアップは
+      // エラーページ(chromewebdata)に遷移し popup.url() では compose URL を取得できない。
+      // そのため window.open が要求した URL を route ハンドラ内で確実に捕捉する。
+      let gmailRequestUrl: string | null = null;
+      await context.route(/mail\.google\.com/, (route) => {
+        if (!gmailRequestUrl) {
+          gmailRequestUrl = route.request().url();
+        }
+        return route.abort();
+      });
 
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -3803,9 +3814,11 @@ test.describe('見積依頼機能', () => {
       await gmailOpenButton.click();
       const popup = await popupPromise;
 
-      // 開いた page の URL が Gmail compose URL であり、宛先・表題・本文が転記済みであることをアサート
-      const popupUrl = popup.url();
-      const gmailParsed = new URL(popupUrl);
+      // window.open が要求した Gmail compose URL（route ハンドラで捕捉）が
+      // Gmail compose URL であり、宛先・表題・本文が転記済みであることをアサート。
+      // abort によりポップアップ自体は chromewebdata に遷移するため popup.url() は使わない。
+      await expect.poll(() => gmailRequestUrl, { timeout: getTimeout(10000) }).toBeTruthy();
+      const gmailParsed = new URL(gmailRequestUrl!);
       expect(gmailParsed.hostname).toBe('mail.google.com');
       // view=cm は「新規作成（compose）」モード。自動送信は行わない (REQ-41.3/41.7)
       expect(gmailParsed.searchParams.get('view')).toBe('cm');
