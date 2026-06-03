@@ -28,7 +28,8 @@ import {
   QuantityTableValidationError,
   OptimisticLockError,
 } from '../errors/quantityTableError.js';
-import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
+import { SurveyImageNotFoundError, SiteSurveyNotFoundError } from '../errors/siteSurveyError.js';
+import { ForbiddenError } from '../errors/apiError.js';
 import { QUANTITY_GROUP_TARGET_TYPE } from '../types/audit-log.types.js';
 import { QuantityValidationService } from './quantity-validation.service.js';
 
@@ -63,6 +64,16 @@ export interface QuantityGroupInfo {
   itemCount: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * 現場調査からの数量グループ一括生成結果（Requirements: 40.3, 40.13）
+ */
+export interface CreateGroupsFromSurveyResult {
+  /** 生成された数量グループ数（写真0枚時は 0） */
+  created: number;
+  /** 生成された数量グループ情報（末尾追加・写真順） */
+  groups: QuantityGroupInfo[];
 }
 
 /**
@@ -715,6 +726,146 @@ export class QuantityGroupService {
         ...copiedGroup,
         _count: { items: sourceGroup.items.length },
       });
+    });
+  }
+
+  /**
+   * 現場調査の全写真（注釈有無問わず）の枚数分の数量グループを既存グループ末尾に
+   * 連番命名で一括生成し、各グループに写真を写真順（displayOrder）で1枚ずつ紐づける。
+   *
+   * トランザクション内で以下を実行する（REQ-38 `copy()` と同一の並行制御方針）:
+   * 1. 数量表の存在確認（論理削除済みは存在しない扱い、QuantityTableNotFoundError）
+   * 2. 対象現場調査の存在確認（SiteSurveyNotFoundError）と、当該数量表のプロジェクト
+   *    所属検証（不一致時は SurveyImageAccessDeniedError = ForbiddenError）
+   * 3. 当該数量表の数量グループ群を `SELECT ... FOR UPDATE` で行ロックし、同一数量表への
+   *    並行 displayOrder 操作（add/copy/reorder/一括生成）を直列化する。ロック対象が
+   *    検出できない場合は OptimisticLockError を送出する（API 層で 409 にマップ）
+   * 4. 現場調査の全写真を写真順（displayOrder）で取得する。写真0枚なら ROLLBACK 不要で
+   *    `{ created: 0, groups: [] }` を返す（グループ生成・監査ログ記録は行わない）
+   * 5. 既存グループの `max(displayOrder)+1` を起点に、写真枚数分のグループを末尾へ連番命名
+   *    （`buildGroupNameFromSurvey(surveyName, 1..N)`）で createManyAndReturn により一括生成。
+   *    各グループは数量項目0件の初期状態（数量項目の自動生成は行わない）
+   * 6. 監査ログに QUANTITY_GROUPS_CREATED_FROM_SURVEY を記録する
+   *
+   * エラー時は $transaction により ROLLBACK され、部分生成データは残らない。
+   *
+   * Requirements:
+   * - 40.3: 当該現場調査の全写真（注釈有無問わず）の枚数と同数の数量グループを生成
+   * - 40.4: 各数量グループに写真を写真順に1枚ずつ紐づける
+   * - 40.5: グループ名を「{現場調査名} {連番}」（連番1始まり）とする
+   * - 40.6: 最大文字数超過時は現場調査名部分を切り詰めて連番を付与（命名ヘルパーに委譲）
+   * - 40.7: 生成グループを既存グループの末尾に写真順で追加する
+   * - 40.9: 各グループを数量項目0件の初期状態で作成する
+   * - 40.10: 写真0枚時はグループを生成せず生成0件を返す
+   * - 40.12: エラー時は ROLLBACK し不完全な生成データを残さない
+   *
+   * @param quantityTableId - 対象数量表ID
+   * @param siteSurveyId - 対象現場調査ID
+   * @param actorId - 操作ユーザーID（監査ログ用）
+   * @returns 生成件数と生成グループ情報
+   * @throws QuantityTableNotFoundError 数量表が存在しない／論理削除済みの場合
+   * @throws SiteSurveyNotFoundError 現場調査が存在しない／論理削除済みの場合
+   * @throws ForbiddenError 現場調査が当該数量表のプロジェクトに属さない場合
+   * @throws OptimisticLockError 親数量表ロック取得失敗（並行操作との競合）時
+   */
+  async createGroupsFromSurvey(
+    quantityTableId: string,
+    siteSurveyId: string,
+    actorId: string
+  ): Promise<CreateGroupsFromSurveyResult> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. 数量表存在確認（論理削除済みは存在しない扱い）
+      const quantityTable = await this.validateQuantityTableExists(tx, quantityTableId);
+
+      // 2. 当該数量表の数量グループ群を SELECT FOR UPDATE で行ロック（並行制御）
+      //    トランザクション開始直後に取得し、同一数量表への並行 displayOrder 操作を直列化する
+      const lockedTables = await tx.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`
+          SELECT id FROM "quantity_tables"
+          WHERE id = ${quantityTableId} AND "deletedAt" IS NULL
+          FOR UPDATE
+        `
+      );
+
+      if (!Array.isArray(lockedTables) || lockedTables.length === 0) {
+        throw new OptimisticLockError('並行操作との競合が発生しました。再試行してください。', {
+          quantityTableId,
+        });
+      }
+
+      // 3. 対象現場調査の存在確認とプロジェクト所属検証
+      const siteSurvey = await tx.siteSurvey.findUnique({
+        where: { id: siteSurveyId },
+        select: { id: true, name: true, deletedAt: true, projectId: true },
+      });
+
+      if (!siteSurvey || siteSurvey.deletedAt !== null) {
+        throw new SiteSurveyNotFoundError(siteSurveyId);
+      }
+
+      if (siteSurvey.projectId !== quantityTable.projectId) {
+        throw new ForbiddenError(
+          '対象の現場調査が当該数量表のプロジェクトに属していません。',
+          'SITE_SURVEY_PROJECT_MISMATCH'
+        );
+      }
+
+      // 4. 現場調査の全写真（注釈有無問わず）を写真順（displayOrder）で取得
+      const surveyImages = await tx.surveyImage.findMany({
+        where: { surveyId: siteSurveyId },
+        orderBy: { displayOrder: 'asc' },
+        select: { id: true },
+      });
+
+      // 写真0枚なら生成せず created:0 を返す（監査ログも記録しない）
+      if (surveyImages.length === 0) {
+        return { created: 0, groups: [] };
+      }
+
+      // 5. 既存グループの max(displayOrder)+1 を起点に末尾追加
+      const maxAggregate = await tx.quantityGroup.aggregate({
+        where: { quantityTableId },
+        _max: { displayOrder: true },
+      });
+      const startDisplayOrder = (maxAggregate._max.displayOrder ?? -1) + 1;
+
+      // 6. 写真枚数分のグループを連番命名・写真順で一括生成（各グループ数量項目0件）
+      const groupsData: Prisma.QuantityGroupCreateManyInput[] = surveyImages.map(
+        (image, index) => ({
+          quantityTableId,
+          name: this.quantityValidationService.buildGroupNameFromSurvey(siteSurvey.name, index + 1),
+          surveyImageId: image.id,
+          displayOrder: startDisplayOrder + index,
+        })
+      );
+
+      const createdGroups = await tx.quantityGroup.createManyAndReturn({
+        data: groupsData,
+      });
+
+      // 写真順（displayOrder 昇順）を保証して返却
+      const sortedGroups = [...createdGroups].sort((a, b) => a.displayOrder - b.displayOrder);
+      const groups = sortedGroups.map((group) =>
+        this.toQuantityGroupInfo({ ...group, _count: { items: 0 } })
+      );
+
+      // 7. 監査ログに一括生成アクションを記録
+      await this.auditLogService.createLog({
+        action: 'QUANTITY_GROUPS_CREATED_FROM_SURVEY',
+        actorId,
+        targetType: QUANTITY_GROUP_TARGET_TYPE,
+        targetId: quantityTableId,
+        before: null,
+        after: {
+          quantityTableId,
+          siteSurveyId,
+          siteSurveyName: siteSurvey.name,
+          created: groups.length,
+          groupIds: groups.map((g) => g.id),
+        },
+      });
+
+      return { created: groups.length, groups };
     });
   }
 

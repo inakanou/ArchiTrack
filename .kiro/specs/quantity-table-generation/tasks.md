@@ -1431,7 +1431,7 @@
   - _Requirements: 40.5, 40.6_
   - _Boundary: QuantityValidationService（命名ヘルパー）_
 
-- [ ] 56.2 現場調査からの一括生成サービスを実装する
+- [x] 56.2 現場調査からの一括生成サービスを実装する
   - $transaction 開始直後に当該数量表の数量グループ群へ SELECT FOR UPDATE で行ロックを取得し、同一数量表への並行 displayOrder 操作を serialize する（REQ-38 と同一方針）
   - 対象現場調査の全写真（注釈有無問わず）を写真順（displayOrder）で取得する
   - 既存グループの max(displayOrder)+1 を起点に、写真枚数分のグループを末尾に連番命名で生成し、各グループに写真を写真順で1枚ずつ紐づける

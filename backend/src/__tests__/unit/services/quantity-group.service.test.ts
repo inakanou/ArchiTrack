@@ -26,6 +26,8 @@ import {
   QuantityGroupNotFoundError,
   OptimisticLockError,
 } from '../../../errors/quantityTableError.js';
+import { SiteSurveyNotFoundError } from '../../../errors/siteSurveyError.js';
+import { ForbiddenError } from '../../../errors/apiError.js';
 import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 
@@ -33,12 +35,14 @@ import type { IAuditLogService } from '../../../types/audit-log.types.js';
 type MockPrismaClient = {
   quantityGroup: {
     create: Mock;
+    createManyAndReturn: Mock;
     findUnique: Mock;
     findMany: Mock;
     update: Mock;
     updateMany: Mock;
     delete: Mock;
     count: Mock;
+    aggregate: Mock;
   };
   quantityItem: {
     createMany: Mock;
@@ -47,6 +51,10 @@ type MockPrismaClient = {
     findUnique: Mock;
   };
   surveyImage: {
+    findUnique: Mock;
+    findMany: Mock;
+  };
+  siteSurvey: {
     findUnique: Mock;
   };
   $queryRaw: Mock;
@@ -63,12 +71,14 @@ describe('QuantityGroupService', () => {
     mockPrisma = {
       quantityGroup: {
         create: vi.fn(),
+        createManyAndReturn: vi.fn(),
         findUnique: vi.fn(),
         findMany: vi.fn(),
         update: vi.fn(),
         updateMany: vi.fn(),
         delete: vi.fn(),
         count: vi.fn(),
+        aggregate: vi.fn(),
       },
       quantityItem: {
         createMany: vi.fn(),
@@ -77,6 +87,10 @@ describe('QuantityGroupService', () => {
         findUnique: vi.fn(),
       },
       surveyImage: {
+        findUnique: vi.fn(),
+        findMany: vi.fn(),
+      },
+      siteSurvey: {
         findUnique: vi.fn(),
       },
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked-table' }]),
@@ -1430,6 +1444,187 @@ describe('QuantityGroupService', () => {
       expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
       expect(mockPrisma.quantityItem.createMany).not.toHaveBeenCalled();
       expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // Task 56.2: 現場調査からの一括生成サービス（REQ-40）
+  // Requirements: 40.3, 40.4, 40.5, 40.6, 40.7, 40.9, 40.10, 40.12
+  // ※ 網羅的なテストは Task 56.4 が担当。本ブロックは主要シナリオの最低限検証。
+  // ==========================================================================
+  describe('createGroupsFromSurvey', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174050';
+    const siteSurveyId = '123e4567-e89b-12d3-a456-426614174051';
+    const actorId = '123e4567-e89b-12d3-a456-426614174052';
+    const projectId = '123e4567-e89b-12d3-a456-426614174053';
+
+    it('正常系: 写真枚数分のグループが末尾に連番命名・写真順・項目0件で生成される', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: siteSurveyId,
+        name: '現場A',
+        deletedAt: null,
+        projectId,
+      });
+      // 写真3枚（写真順 displayOrder 0/1/2）
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: 'img-1', displayOrder: 0 },
+        { id: 'img-2', displayOrder: 1 },
+        { id: 'img-3', displayOrder: 2 },
+      ]);
+      // 既存グループの max(displayOrder) = 4 → 起点 5
+      mockPrisma.quantityGroup.aggregate.mockResolvedValue({ _max: { displayOrder: 4 } });
+      mockPrisma.quantityGroup.createManyAndReturn.mockResolvedValue([
+        {
+          id: 'grp-1',
+          quantityTableId,
+          name: '現場A 1',
+          surveyImageId: 'img-1',
+          displayOrder: 5,
+          createdAt: new Date('2026-06-04T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-04T00:00:00.000Z'),
+        },
+        {
+          id: 'grp-2',
+          quantityTableId,
+          name: '現場A 2',
+          surveyImageId: 'img-2',
+          displayOrder: 6,
+          createdAt: new Date('2026-06-04T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-04T00:00:00.000Z'),
+        },
+        {
+          id: 'grp-3',
+          quantityTableId,
+          name: '現場A 3',
+          surveyImageId: 'img-3',
+          displayOrder: 7,
+          createdAt: new Date('2026-06-04T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-04T00:00:00.000Z'),
+        },
+      ]);
+
+      // Act
+      const result = await service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId);
+
+      // Assert: 件数とグループ配列
+      expect(result.created).toBe(3);
+      expect(result.groups).toHaveLength(3);
+      // SELECT FOR UPDATE が呼ばれている（並行制御）
+      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+      // createManyAndReturn に渡されたデータの検証
+      const createArg = mockPrisma.quantityGroup.createManyAndReturn.mock.calls[0]?.[0] as {
+        data: Array<{ name: string; surveyImageId: string; displayOrder: number }>;
+      };
+      const createdData = createArg.data;
+      expect(createdData).toHaveLength(3);
+      // 写真順に1枚ずつ紐づけ
+      expect(createdData.map((d) => d.surveyImageId)).toEqual(['img-1', 'img-2', 'img-3']);
+      // 連番命名（1始まり）
+      expect(createdData.map((d) => d.name)).toEqual(['現場A 1', '現場A 2', '現場A 3']);
+      // 末尾追加（max+1 から連番）
+      expect(createdData.map((d) => d.displayOrder)).toEqual([5, 6, 7]);
+      // 各グループは項目0件
+      expect(result.groups.every((g) => g.itemCount === 0)).toBe(true);
+      // 数量項目の自動生成は行わない
+      expect(mockPrisma.quantityItem.createMany).not.toHaveBeenCalled();
+      // 監査ログ記録
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'QUANTITY_GROUPS_CREATED_FROM_SURVEY',
+          actorId,
+        })
+      );
+    });
+
+    it('写真0枚の場合はグループを生成せず created:0 を返す（AC10）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: siteSurveyId,
+        name: '現場A',
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+
+      // Act
+      const result = await service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId);
+
+      // Assert
+      expect(result.created).toBe(0);
+      expect(result.groups).toEqual([]);
+      expect(mockPrisma.quantityGroup.createManyAndReturn).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('対象現場調査が存在しない場合は SiteSurveyNotFoundError', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(
+        service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId)
+      ).rejects.toThrow(SiteSurveyNotFoundError);
+      expect(mockPrisma.quantityGroup.createManyAndReturn).not.toHaveBeenCalled();
+    });
+
+    it('現場調査が当該数量表のプロジェクトに属さない場合は ForbiddenError (403)', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: siteSurveyId,
+        name: '現場A',
+        deletedAt: null,
+        projectId: 'other-project',
+      });
+
+      // Act & Assert
+      await expect(
+        service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId)
+      ).rejects.toThrow(ForbiddenError);
+      expect(mockPrisma.quantityGroup.createManyAndReturn).not.toHaveBeenCalled();
+    });
+
+    it('SELECT FOR UPDATE が対象数量表を検出できない場合は OptimisticLockError', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: siteSurveyId,
+        name: '現場A',
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.surveyImage.findMany.mockResolvedValue([{ id: 'img-1', displayOrder: 0 }]);
+      mockPrisma.$queryRaw.mockResolvedValue([]);
+
+      // Act & Assert
+      await expect(
+        service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId)
+      ).rejects.toThrow(OptimisticLockError);
+      expect(mockPrisma.quantityGroup.createManyAndReturn).not.toHaveBeenCalled();
     });
   });
 });
