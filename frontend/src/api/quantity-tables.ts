@@ -615,6 +615,10 @@ export interface BulkSaveResult {
 /**
  * 数量表のバルク保存
  *
+ * @deprecated このエンドポイント（PUT /:id/bulk-save）は廃止予定です。
+ * フル状態同期保存 `saveQuantityTableDraft`（PUT /:id/save）へ移行してください。
+ * 呼び出し元（QuantityTableEditPage）の移行と本関数の削除は Task 61.4 で行います。
+ *
  * 数量表内の全項目を1回のリクエストで一括保存する。
  * 楽観的排他制御は数量表レベルで実施される。
  *
@@ -641,6 +645,122 @@ export async function bulkSaveQuantityTable(
   input: BulkSaveInput
 ): Promise<BulkSaveResult> {
   return apiClient.put<BulkSaveResult>(`/api/quantity-tables/${quantityTableId}/bulk-save`, input);
+}
+
+// ============================================================================
+// フル状態同期保存API（saveDraft）
+// Task 60.2: フル状態同期保存の API クライアント
+// Requirements: 42.5
+// ============================================================================
+
+/**
+ * フル状態同期保存用の数量項目入力型
+ *
+ * バックエンドの `saveDraftItemSchema`（quantity-tables.routes.ts）に完全準拠する。
+ * Field Specifications 準拠の全フィールド（大項目〜備考、計算用フィールド、
+ * 調整係数、丸め設定）と表示順を保持する。
+ * 既存項目は `id`=UUID、新規項目は `id`=null（任意でクライアント仮ID `tempId` を付与）。
+ */
+export interface SaveDraftItemInput {
+  /** 項目ID（既存=UUID / 新規=null） */
+  id: string | null;
+  /** 新規項目のクライアント仮ID（任意・トレース用） */
+  tempId?: string;
+  majorCategory: string | null;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  calculationMethod: CalculationMethod;
+  calculationParams: CalculationParams | null;
+  adjustmentFactor: number;
+  roundingUnit: number;
+  quantity: number;
+  remarks: string | null;
+  displayOrder: number;
+}
+
+/**
+ * フル状態同期保存用の数量グループ入力型
+ *
+ * バックエンドの `saveDraftGroupSchema`（quantity-tables.routes.ts）に完全準拠する。
+ * 既存グループは `id`=UUID、新規グループは `id`=null（任意で仮ID `tempId` を付与）。
+ * 写真紐づけ（surveyImageId）は参照のみ。
+ */
+export interface SaveDraftGroupInput {
+  /** グループID（既存=UUID / 新規=null） */
+  id: string | null;
+  /** 新規グループのクライアント仮ID（任意・トレース用） */
+  tempId?: string;
+  name: string;
+  /** 現場調査画像ID（未紐付けの場合は null） */
+  surveyImageId: string | null;
+  displayOrder: number;
+  items: SaveDraftItemInput[];
+}
+
+/**
+ * フル状態同期保存リクエストボディ型
+ *
+ * バックエンドの `saveQuantityTableDraftSchema`（quantity-tables.routes.ts）に完全準拠する。
+ * 数量表名・全グループ・全項目の最終状態（表示順）と、楽観ロック用の
+ * `expectedUpdatedAt` を保持する。
+ *
+ * Requirements: 42.5, 42.8
+ */
+export interface SaveQuantityTableDraftInput {
+  /** 楽観的排他制御用の期待される更新日時（ISO8601形式） */
+  expectedUpdatedAt: string;
+  /** 数量表名（編集画面での変更を含む、最大200文字） */
+  name: string;
+  /** 数量表の全グループ最終状態（表示順） */
+  groups: SaveDraftGroupInput[];
+}
+
+/**
+ * 数量表をフル状態同期保存する（saveDraft）
+ *
+ * 編集画面で構築したドラフト（数量表名・全グループ・全項目の最終状態）を
+ * 1回のリクエストで確定する。サーバー側はグループ／項目の差分を算出して
+ * 作成・更新・削除を行い、表示順はペイロードの配列順を正とする。
+ * 楽観的排他制御は数量表レベルで `expectedUpdatedAt` により実施される。
+ *
+ * Task 60.2
+ * Requirements: 42.5
+ *
+ * @param id - 数量表ID（UUID）
+ * @param input - フル状態同期保存データ
+ * @returns 保存後の数量表詳細（グループ・項目を含む）
+ * @throws ApiError バリデーションエラー（400）、権限不足（403）、数量表が見つからない（404）、競合（409）
+ *
+ * @example
+ * const detail = await saveQuantityTableDraft('table-id', {
+ *   expectedUpdatedAt: '2025-01-02T00:00:00.000Z',
+ *   name: '第1回見積数量表',
+ *   groups: [
+ *     {
+ *       id: 'group-id',
+ *       name: 'グループ1',
+ *       surveyImageId: null,
+ *       displayOrder: 0,
+ *       items: [
+ *         { id: 'item-id', majorCategory: '土工', middleCategory: null, minorCategory: null,
+ *           customCategory: null, workType: '掘削', name: '掘削工', specification: null,
+ *           unit: 'm3', calculationMethod: 'STANDARD', calculationParams: null,
+ *           adjustmentFactor: 1, roundingUnit: 1, quantity: 100, remarks: null, displayOrder: 0 },
+ *       ],
+ *     },
+ *   ],
+ * });
+ */
+export async function saveQuantityTableDraft(
+  id: string,
+  input: SaveQuantityTableDraftInput
+): Promise<QuantityTableDetail> {
+  return apiClient.put<QuantityTableDetail>(`/api/quantity-tables/${id}/save`, input);
 }
 
 // ============================================================================

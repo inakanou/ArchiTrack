@@ -1587,7 +1587,7 @@
   - _Boundary: quantity-tables.routes.ts_
   - _Depends: 59.2_
 
-- [ ] 60. クライアントサイド編集と明示保存（フロントエンド: ドラフト状態基盤）（REQ-42）
+- [x] 60. クライアントサイド編集と明示保存（フロントエンド: ドラフト状態基盤）（REQ-42）
 - [x] 60.1 (P) 数量表編集ドラフトの reducer と仮ID採番を実装する
   - サーバースナップショットと編集ドラフトを分離保持する reducer を新設し、編集アクション（グループ/項目の add/delete/copy/reorder、グループ名・数量表名変更、写真紐づけ、現場調査一括生成、インポート取り込み）でドラフトのみ更新し isDirty=true とする
   - 新規グループ/項目に crypto.randomUUID() ベースの仮ID（temp- 接頭辞）を採番し、React key・ドラフト内参照に用いる
@@ -1596,7 +1596,7 @@
   - _Requirements: 42.1, 42.2, 42.3, 42.4, 42.6, 42.8_
   - _Boundary: quantityTableEditReducer_
 
-- [ ] 60.2 (P) フル状態同期保存の API クライアントを追加する
+- [x] 60.2 (P) フル状態同期保存の API クライアントを追加する
   - PUT /api/quantity-tables/:id/save を呼び出し最新詳細を受け取るクライアント関数を実装し、既存 fetcher の認証・エラーハンドリング規約に従う。既存 bulkSaveQuantityTable 呼び出しを本関数へ置換する
   - 観測可能完了条件: API クライアントから関数を呼ぶと当該エンドポイントへ全状態が PUT され、最新詳細が返る
   - _Requirements: 42.5_
