@@ -368,21 +368,10 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 4.1: グループ追加機能', () => {
-    it('グループを追加ボタンをクリックするとグループが追加される', async () => {
+    // Task 61.1: グループ追加はドラフトへ反映され、永続化APIは呼ばれない（REQ-42.1, 42.6）
+    it('グループを追加ボタンをクリックするとドラフトにグループが追加され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockCreateQuantityGroup.mockResolvedValue({
-        id: 'group-new',
-        quantityTableId: 'qt-123',
-        name: null,
-        surveyImageId: null,
-        surveyImage: null,
-        displayOrder: 2,
-        itemCount: 0,
-        items: [],
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-      });
 
       renderWithRouter();
 
@@ -390,58 +379,22 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const addButton = screen.getByRole('button', { name: /グループを追加/ });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        expect(mockCreateQuantityGroup).toHaveBeenCalledWith('qt-123', {
-          name: null,
-          displayOrder: 2,
-        });
-      });
-    });
-
-    it('グループ追加中はボタンが無効化される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockCreateQuantityGroup.mockImplementation(
-        () => new Promise(() => {}) // 永続的なpending
-      );
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
+      // 初期は2グループ
+      expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(2);
 
       const addButton = screen.getByRole('button', { name: /グループを追加/ });
       await user.click(addButton);
 
+      // ドラフトへ即時反映（3グループ）
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /追加中/ })).toBeDisabled();
+        expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(3);
       });
+
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockCreateQuantityGroup).not.toHaveBeenCalled();
     });
 
-    it('グループ追加に失敗した場合はエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockCreateQuantityGroup.mockRejectedValue(new Error('Create failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      const addButton = screen.getByRole('button', { name: /グループを追加/ });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/グループの追加に失敗しました/)).toBeInTheDocument();
-      });
-    });
-
-    it('空状態からグループを追加できる', async () => {
+    it('空状態からグループを追加できる（ドラフトへ反映され永続化APIは呼ばれない）', async () => {
       const user = userEvent.setup();
       const emptyTable: QuantityTableDetail = {
         ...mockQuantityTableDetail,
@@ -450,18 +403,6 @@ describe('QuantityTableEditPage', () => {
         groups: [],
       };
       mockGetQuantityTableDetail.mockResolvedValue(emptyTable);
-      mockCreateQuantityGroup.mockResolvedValue({
-        id: 'group-new',
-        quantityTableId: 'qt-123',
-        name: null,
-        surveyImageId: null,
-        surveyImage: null,
-        displayOrder: 0,
-        itemCount: 0,
-        items: [],
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-      });
 
       renderWithRouter();
 
@@ -476,8 +417,9 @@ describe('QuantityTableEditPage', () => {
       await user.click(addButton!);
 
       await waitFor(() => {
-        expect(mockCreateQuantityGroup).toHaveBeenCalled();
+        expect(screen.getByTestId('quantity-group-card')).toBeInTheDocument();
       });
+      expect(mockCreateQuantityGroup).not.toHaveBeenCalled();
     });
   });
 
@@ -534,16 +476,18 @@ describe('QuantityTableEditPage', () => {
       });
     });
 
-    it('確認ダイアログで削除を実行するとグループが削除される', async () => {
+    // Task 61.1: グループ削除はドラフトへ反映され、永続化APIは呼ばれない（REQ-42.1, 42.6）
+    it('確認ダイアログで削除を実行するとドラフトからグループが削除され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockDeleteQuantityGroup.mockResolvedValue();
 
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
+
+      expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(2);
 
       const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
       const deleteButton = deleteButtons[0];
@@ -557,38 +501,14 @@ describe('QuantityTableEditPage', () => {
       const confirmButton = screen.getByRole('button', { name: '削除する' });
       await user.click(confirmButton);
 
+      // ドラフトから削除（1グループへ）・ダイアログは閉じる
       await waitFor(() => {
-        expect(mockDeleteQuantityGroup).toHaveBeenCalledWith('group-1');
+        expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(1);
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       });
-    });
 
-    it('グループ削除に失敗した場合はエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockDeleteQuantityGroup.mockRejectedValue(new Error('Delete failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      const deleteButtons = screen.getAllByRole('button', { name: /削除/ });
-      const deleteButton = deleteButtons[0];
-      expect(deleteButton).toBeDefined();
-      await user.click(deleteButton!);
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-      });
-
-      const confirmButton = screen.getByRole('button', { name: '削除する' });
-      await user.click(confirmButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/グループの削除に失敗しました/)).toBeInTheDocument();
-      });
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockDeleteQuantityGroup).not.toHaveBeenCalled();
     });
 
     it('ダイアログのオーバーレイをクリックするとダイアログが閉じる', async () => {
@@ -625,31 +545,10 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 5.1: 項目追加機能', () => {
-    it('項目追加ボタンをクリックすると項目が追加される', async () => {
+    // Task 61.1: 項目追加はドラフトへ反映され、永続化APIは呼ばれない（REQ-42.1, 42.6）
+    it('項目追加ボタンをクリックするとドラフトに項目が追加され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      // REQ-5.1: デフォルト値は空白
-      mockCreateQuantityItem.mockResolvedValue({
-        id: 'item-new',
-        quantityGroupId: 'group-1',
-        majorCategory: '',
-        middleCategory: null,
-        minorCategory: null,
-        customCategory: null,
-        workType: '',
-        name: '',
-        specification: null,
-        unit: '',
-        calculationMethod: 'STANDARD',
-        calculationParams: null,
-        adjustmentFactor: 1.0,
-        roundingUnit: 0.01,
-        quantity: 0,
-        remarks: null,
-        displayOrder: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-      });
 
       renderWithRouter();
 
@@ -657,43 +556,21 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      const addItemButtons = screen.getAllByRole('button', { name: /項目を追加/ });
-      const addItemButton = addItemButtons[0];
-      expect(addItemButton).toBeDefined();
-      await user.click(addItemButton!);
-
-      // REQ-5.1: デフォルト値は空白
-      await waitFor(() => {
-        expect(mockCreateQuantityItem).toHaveBeenCalledWith('group-1', {
-          majorCategory: '',
-          workType: '',
-          name: '',
-          unit: '',
-          quantity: 0,
-          displayOrder: 2,
-        });
-      });
-    });
-
-    it('項目追加に失敗した場合はエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockCreateQuantityItem.mockRejectedValue(new Error('Create failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
+      // 初期は3項目（group-1: 2, group-2: 1）
+      expect(screen.getAllByTestId('quantity-item-row')).toHaveLength(3);
 
       const addItemButtons = screen.getAllByRole('button', { name: /項目を追加/ });
       const addItemButton = addItemButtons[0];
       expect(addItemButton).toBeDefined();
       await user.click(addItemButton!);
 
+      // ドラフトへ即時反映（4項目）
       await waitFor(() => {
-        expect(screen.getByText(/項目の追加に失敗しました/)).toBeInTheDocument();
+        expect(screen.getAllByTestId('quantity-item-row')).toHaveLength(4);
       });
+
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockCreateQuantityItem).not.toHaveBeenCalled();
     });
   });
 
@@ -798,10 +675,10 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 5.3: 項目削除機能', () => {
-    it('項目削除ボタンをクリックすると削除APIが呼ばれる', async () => {
+    // Task 61.1: 項目削除はドラフトへ反映され、永続化APIは呼ばれない（REQ-42.1, 42.6）
+    it('項目削除でドラフトから項目が削除され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockDeleteQuantityItem.mockResolvedValue();
 
       renderWithRouter();
 
@@ -819,35 +696,13 @@ describe('QuantityTableEditPage', () => {
       });
       await user.click(screen.getByRole('menuitem', { name: /削除/ }));
 
+      // ドラフトから削除（「足場」が消える）
       await waitFor(() => {
-        expect(mockDeleteQuantityItem).toHaveBeenCalledWith('item-1');
-      });
-    });
-
-    it('項目削除に失敗した場合はエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockDeleteQuantityItem.mockRejectedValue(new Error('Delete failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+        expect(screen.queryByDisplayValue('足場')).not.toBeInTheDocument();
       });
 
-      // アクションメニューを開いて削除を実行
-      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
-      expect(menuButtons.length).toBeGreaterThan(0);
-      await user.click(menuButtons[0]!);
-
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /削除/ })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('menuitem', { name: /削除/ }));
-
-      await waitFor(() => {
-        expect(screen.getByText(/項目の削除に失敗しました/)).toBeInTheDocument();
-      });
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockDeleteQuantityItem).not.toHaveBeenCalled();
     });
   });
 
@@ -856,22 +711,19 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 5.4: 項目コピー機能', () => {
-    it('項目コピーボタンをクリックするとコピーAPIが呼ばれる', async () => {
+    // Task 61.1: 項目コピーはドラフト内で複製され、永続化APIは呼ばれない（REQ-42.1, 42.6）
+    it('項目コピーでドラフト内に複製され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      const copiedItem = {
-        ...mockQuantityTableDetail.groups[0]!.items[0]!,
-        id: 'item-copy',
-        name: '足場（コピー）',
-        displayOrder: 3,
-      };
-      mockCopyQuantityItem.mockResolvedValue(copiedItem);
 
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
+
+      // 初期は3項目
+      expect(screen.getAllByTestId('quantity-item-row')).toHaveLength(3);
 
       // アクションメニューを開く
       const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
@@ -886,45 +738,13 @@ describe('QuantityTableEditPage', () => {
       const copyButton = screen.getByRole('menuitem', { name: /コピー/ });
       await user.click(copyButton);
 
-      // APIが呼ばれることを確認
+      // ドラフト内で複製され項目数が増える（4項目）
       await waitFor(() => {
-        expect(mockCopyQuantityItem).toHaveBeenCalledWith('item-1');
+        expect(screen.getAllByTestId('quantity-item-row')).toHaveLength(4);
       });
 
-      // コピーされた項目がUIに追加されることを確認
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('足場（コピー）')).toBeInTheDocument();
-      });
-    });
-
-    it('項目コピーに失敗した場合はエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockCopyQuantityItem.mockRejectedValue(new Error('Copy failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
-      });
-
-      // アクションメニューを開く
-      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
-      expect(menuButtons.length).toBeGreaterThan(0);
-      await user.click(menuButtons[0]!);
-
-      // コピーボタンが表示されるのを待つ
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /コピー/ })).toBeInTheDocument();
-      });
-
-      const copyButton = screen.getByRole('menuitem', { name: /コピー/ });
-      await user.click(copyButton);
-
-      // エラーメッセージが表示されることを確認
-      await waitFor(() => {
-        expect(screen.getByText(/項目のコピーに失敗しました/)).toBeInTheDocument();
-      });
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockCopyQuantityItem).not.toHaveBeenCalled();
     });
   });
 
@@ -989,19 +809,11 @@ describe('QuantityTableEditPage', () => {
       });
     });
 
-    it('数量表名を変更してフォーカスを外すと保存される', async () => {
+    // Task 61.1: 数量表名変更はドラフトへ反映され、永続化APIは呼ばれない（REQ-42.2, 42.6）
+    it('数量表名を変更してフォーカスを外すとドラフトへ反映され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       const mockUpdateQuantityTable = vi.mocked(quantityTablesApi.updateQuantityTable);
-      mockUpdateQuantityTable.mockResolvedValue({
-        id: 'qt-123',
-        projectId: 'proj-456',
-        name: '更新された数量表',
-        groupCount: 2,
-        itemCount: 3,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-02T00:00:00Z',
-      });
 
       renderWithRouter();
 
@@ -1014,13 +826,13 @@ describe('QuantityTableEditPage', () => {
       await user.type(nameInput, '更新された数量表');
       await user.tab();
 
+      // ドラフトへ反映（入力値が保持される）
       await waitFor(() => {
-        expect(mockUpdateQuantityTable).toHaveBeenCalledWith(
-          'qt-123',
-          { name: '更新された数量表' },
-          '2025-01-01T00:00:00Z'
-        );
+        expect(nameInput).toHaveValue('更新された数量表');
       });
+
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockUpdateQuantityTable).not.toHaveBeenCalled();
     });
 
     it('空の名前は保存されず元に戻る', async () => {
@@ -1046,19 +858,10 @@ describe('QuantityTableEditPage', () => {
       });
     });
 
-    it('Enterキーで確定する', async () => {
+    it('Enterキーで確定するとドラフトへ反映され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       const mockUpdateQuantityTable = vi.mocked(quantityTablesApi.updateQuantityTable);
-      mockUpdateQuantityTable.mockResolvedValue({
-        id: 'qt-123',
-        projectId: 'proj-456',
-        name: '新しい名前',
-        groupCount: 2,
-        itemCount: 3,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-02T00:00:00Z',
-      });
 
       renderWithRouter();
 
@@ -1072,30 +875,9 @@ describe('QuantityTableEditPage', () => {
       await user.keyboard('{Enter}');
 
       await waitFor(() => {
-        expect(mockUpdateQuantityTable).toHaveBeenCalled();
+        expect(nameInput).toHaveValue('新しい名前');
       });
-    });
-
-    it('数量表名の保存に失敗した場合はエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      const mockUpdateQuantityTable = vi.mocked(quantityTablesApi.updateQuantityTable);
-      mockUpdateQuantityTable.mockRejectedValue(new Error('Update failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('数量表名')).toBeInTheDocument();
-      });
-
-      const nameInput = screen.getByLabelText('数量表名');
-      await user.clear(nameInput);
-      await user.type(nameInput, '新しい名前');
-      await user.tab();
-
-      await waitFor(() => {
-        expect(screen.getByText(/数量表名の保存に失敗しました/)).toBeInTheDocument();
-      });
+      expect(mockUpdateQuantityTable).not.toHaveBeenCalled();
     });
   });
 
@@ -1176,8 +958,17 @@ describe('QuantityTableEditPage', () => {
   describe('操作エラーの閉じる機能', () => {
     it('エラーを閉じるボタンをクリックするとエラーが消える', async () => {
       const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockCreateQuantityGroup.mockRejectedValue(new Error('Create failed'));
+      // 項目名が空のデータをロードし、保存時の整合性エラーで operationError を発生させる
+      const tableWithEmptyItemName: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            items: [{ ...mockQuantityTableDetail.groups[0]!.items[0]!, name: '' }],
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithEmptyItemName);
 
       renderWithRouter();
 
@@ -1185,12 +976,12 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // グループ追加でエラーを発生させる
-      const addButton = screen.getByRole('button', { name: /グループを追加/ });
-      await user.click(addButton);
+      // 保存時の整合性チェックでエラーを発生させる（REQ-11.2）
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      await user.click(saveButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/グループの追加に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/項目名が空の項目があります/)).toBeInTheDocument();
       });
 
       // エラーを閉じる
@@ -1198,7 +989,7 @@ describe('QuantityTableEditPage', () => {
       await user.click(dismissButton);
 
       await waitFor(() => {
-        expect(screen.queryByText(/グループの追加に失敗しました/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/項目名が空の項目があります/)).not.toBeInTheDocument();
       });
     });
   });
@@ -1261,14 +1052,11 @@ describe('QuantityTableEditPage', () => {
   // 数量表名保存中の状態
   // ====================================================================
 
-  describe('数量表名保存中の状態', () => {
-    it('保存中は入力フィールドが無効化される', async () => {
+  describe('数量表名編集の状態', () => {
+    // Task 61.1: 数量表名はドラフト編集（永続化なし）のため、入力欄は常に編集可能
+    it('数量表名はドラフト編集のため入力欄は無効化されない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      const mockUpdateQuantityTable = vi.mocked(quantityTablesApi.updateQuantityTable);
-      mockUpdateQuantityTable.mockImplementation(
-        () => new Promise(() => {}) // 永続的なpending
-      );
 
       renderWithRouter();
 
@@ -1278,12 +1066,13 @@ describe('QuantityTableEditPage', () => {
 
       const nameInput = screen.getByLabelText('数量表名');
       await user.clear(nameInput);
-      await user.type(nameInput, '保存中のテスト');
+      await user.type(nameInput, 'ドラフト編集テスト');
       await user.tab();
 
-      // 保存中は入力フィールドが無効化される
+      // 入力欄は無効化されない（ドラフトへ反映済み）
+      expect(nameInput).not.toBeDisabled();
       await waitFor(() => {
-        expect(nameInput).toBeDisabled();
+        expect(nameInput).toHaveValue('ドラフト編集テスト');
       });
     });
   });
@@ -1309,13 +1098,11 @@ describe('QuantityTableEditPage', () => {
   // グループ削除中の状態
   // ====================================================================
 
-  describe('グループ削除中の状態', () => {
-    it('削除中はボタンが無効化される', async () => {
+  describe('グループ削除の確定', () => {
+    // Task 61.1: 削除はドラフト操作（同期）のため、確定でダイアログが即座に閉じる
+    it('削除確定でダイアログが閉じ永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockDeleteQuantityGroup.mockImplementation(
-        () => new Promise(() => {}) // 永続的なpending
-      );
 
       renderWithRouter();
 
@@ -1336,8 +1123,9 @@ describe('QuantityTableEditPage', () => {
       await user.click(confirmButton);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: '削除中...' })).toBeDisabled();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       });
+      expect(mockDeleteQuantityGroup).not.toHaveBeenCalled();
     });
   });
 
@@ -1550,7 +1338,7 @@ describe('QuantityTableEditPage', () => {
       });
     });
 
-    it('写真を選択するとグループに紐付けるAPIが呼ばれる', async () => {
+    it('写真を選択するとドラフトに紐付けられ永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       mockGetSiteSurveys.mockResolvedValue({
@@ -1582,17 +1370,6 @@ describe('QuantityTableEditPage', () => {
         project: { id: 'proj-456', name: 'テストプロジェクト' },
         images: mockPhotosWithAnnotations,
       });
-      mockUpdateQuantityGroup.mockResolvedValue({
-        id: 'group-2',
-        quantityTableId: 'qt-123',
-        name: null,
-        surveyImageId: 'photo-1',
-        displayOrder: 1,
-        itemCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-02T00:00:00Z',
-      });
-
       renderWithRouter();
 
       await waitFor(() => {
@@ -1616,14 +1393,11 @@ describe('QuantityTableEditPage', () => {
       const photo = screen.getByTestId('photo-item-photo-1');
       await user.click(photo);
 
-      // グループに紐付けるAPIが呼ばれることを確認
+      // Task 61.1: ドラフトへ反映され、プレースホルダーが消える（永続化APIは呼ばれない）
       await waitFor(() => {
-        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
-          'group-2',
-          { surveyImageId: 'photo-1' },
-          expect.any(String)
-        );
+        expect(screen.queryByTestId('image-placeholder-group-2')).not.toBeInTheDocument();
       });
+      expect(mockUpdateQuantityGroup).not.toHaveBeenCalled();
     });
 
     it('写真選択後、グループのサムネイルが更新される', async () => {
@@ -1833,19 +1607,10 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 22: グループ名変更', () => {
-    it('グループ名を変更するとAPIが呼ばれてローカル状態が更新される', async () => {
+    // Task 61.1: グループ名変更はドラフトへ反映され、永続化APIは呼ばれない（REQ-42.2, 42.6）
+    it('グループ名を変更するとドラフトへ反映され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockUpdateQuantityGroup.mockResolvedValue({
-        id: 'group-1',
-        quantityTableId: 'qt-123',
-        name: '新しいグループ名',
-        surveyImageId: 'img-1',
-        displayOrder: 0,
-        itemCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-02T00:00:00Z',
-      });
 
       renderWithRouter();
 
@@ -1867,45 +1632,16 @@ describe('QuantityTableEditPage', () => {
       await user.clear(nameInput);
       await user.type(nameInput, '新しいグループ名');
 
-      // Enterで確定（またはblur）
+      // Enterで確定
       await user.keyboard('{Enter}');
 
-      // APIが呼ばれることを確認
+      // ドラフトへ反映（新しい名前が表示される）
       await waitFor(() => {
-        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
-          'group-1',
-          { name: '新しいグループ名' },
-          expect.any(String)
-        );
-      });
-    });
-
-    it('グループ名変更に失敗した場合はエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockUpdateQuantityGroup.mockRejectedValue(new Error('Rename failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        expect(screen.getByText('新しいグループ名')).toBeInTheDocument();
       });
 
-      const groupName = screen.getByText('グループ1');
-      await user.click(groupName);
-
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('グループ1')).toBeInTheDocument();
-      });
-
-      const nameInput = screen.getByDisplayValue('グループ1');
-      await user.clear(nameInput);
-      await user.type(nameInput, '失敗グループ名');
-      await user.keyboard('{Enter}');
-
-      await waitFor(() => {
-        expect(screen.getByText(/グループ名の変更に失敗しました/)).toBeInTheDocument();
-      });
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockUpdateQuantityGroup).not.toHaveBeenCalled();
     });
   });
 
@@ -1914,11 +1650,11 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 23: グループ並び順変更', () => {
-    it('グループを上に移動するとAPIが呼ばれる', async () => {
+    // Task 61.1: グループ並び替えはドラフトへ反映され、永続化APIは呼ばれない（REQ-42.1, 42.6）
+    it('グループを下に移動するとドラフト内で順序が変わり永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       const mockUpdateGroupOrder = vi.mocked(quantityTablesApi.updateGroupDisplayOrder);
-      mockUpdateGroupOrder.mockResolvedValue(undefined as never);
 
       renderWithRouter();
 
@@ -1926,57 +1662,22 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
       });
 
-      // SortOrderButtonsは「上へ移動」「下へ移動」aria-labelを使用
-      // グループ・項目両方にボタンがあるので、有効なものをフィルタして最後（グループ用）をクリック
-      const moveUpButtons = screen.getAllByRole('button', { name: /上へ移動/ });
-      const enabledUpButtons = moveUpButtons.filter((btn) => !btn.hasAttribute('disabled'));
-      // 最後の有効な「上へ移動」ボタンがグループ-1のもの
-      await user.click(enabledUpButtons[enabledUpButtons.length - 1]!);
+      // 初期順序: [グループ1, グループ 2]
+      const cardsBefore = screen.getAllByTestId('quantity-group-card');
+      expect(cardsBefore[0]!).toHaveTextContent('グループ1');
 
-      await waitFor(() => {
-        expect(mockUpdateGroupOrder).toHaveBeenCalled();
-      });
-    });
-
-    it('グループを下に移動するとAPIが呼ばれる', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      const mockUpdateGroupOrder = vi.mocked(quantityTablesApi.updateGroupDisplayOrder);
-      mockUpdateGroupOrder.mockResolvedValue(undefined as never);
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-      });
-
-      // 最初の「下へ移動」ボタンは1番目のグループのもの
+      // 1番目のグループの「下へ移動」をクリック
       const moveDownButtons = screen.getAllByRole('button', { name: /下へ移動/ });
       await user.click(moveDownButtons[0]!);
 
+      // ドラフト内で順序が入れ替わる（グループ1 が2番目へ）
       await waitFor(() => {
-        expect(mockUpdateGroupOrder).toHaveBeenCalled();
-      });
-    });
-
-    it('グループ移動APIが失敗すると元の順序に戻りエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      const mockUpdateGroupOrder = vi.mocked(quantityTablesApi.updateGroupDisplayOrder);
-      mockUpdateGroupOrder.mockRejectedValue(new Error('Order update failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        const cardsAfter = screen.getAllByTestId('quantity-group-card');
+        expect(cardsAfter[1]!).toHaveTextContent('グループ1');
       });
 
-      const moveDownButtons = screen.getAllByRole('button', { name: /下へ移動/ });
-      await user.click(moveDownButtons[0]!);
-
-      await waitFor(() => {
-        expect(screen.getByText(/グループの並び順変更に失敗しました/)).toBeInTheDocument();
-      });
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockUpdateGroupOrder).not.toHaveBeenCalled();
     });
   });
 
@@ -1984,12 +1685,12 @@ describe('QuantityTableEditPage', () => {
   // 追加カバレッジテスト: 項目移動API連携 (REQ 24)
   // ====================================================================
 
-  describe('REQ 24: 項目並び順変更（API連携）', () => {
-    it('項目を上に移動するとAPIが呼ばれる', async () => {
+  describe('REQ 24: 項目並び順変更', () => {
+    // Task 61.1: 項目並び替えはドラフトへ反映され、永続化APIは呼ばれない（REQ-42.1, 42.6）
+    it('項目を上に移動するとドラフト内で順序が変わり永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       const mockUpdateItemOrder = vi.mocked(quantityTablesApi.updateItemDisplayOrder);
-      mockUpdateItemOrder.mockResolvedValue(undefined as never);
 
       renderWithRouter();
 
@@ -1997,7 +1698,13 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
-      // 2番目の項目のアクションメニューを開く
+      // 初期順序: group-1 は [足場, ネット]
+      const namesBefore = screen
+        .getAllByDisplayValue(/足場|ネット/)
+        .map((el) => (el as HTMLInputElement).value);
+      expect(namesBefore[0]).toBe('足場');
+
+      // 2番目の項目（ネット）のアクションメニューを開く
       const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
       await user.click(menuButtons[1]!);
 
@@ -2007,40 +1714,16 @@ describe('QuantityTableEditPage', () => {
       });
       await user.click(screen.getByRole('menuitem', { name: /上へ移動/ }));
 
+      // ドラフト内で順序が入れ替わる（ネットが先頭へ）
       await waitFor(() => {
-        expect(mockUpdateItemOrder).toHaveBeenCalledWith(
-          'group-1',
-          expect.arrayContaining([
-            expect.objectContaining({ id: 'item-2' }),
-            expect.objectContaining({ id: 'item-1' }),
-          ])
-        );
-      });
-    });
-
-    it('項目移動APIが失敗すると元の順序に戻りエラーが表示される', async () => {
-      const user = userEvent.setup();
-      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      const mockUpdateItemOrder = vi.mocked(quantityTablesApi.updateItemDisplayOrder);
-      mockUpdateItemOrder.mockRejectedValue(new Error('Item order update failed'));
-
-      renderWithRouter();
-
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+        const namesAfter = screen
+          .getAllByDisplayValue(/足場|ネット/)
+          .map((el) => (el as HTMLInputElement).value);
+        expect(namesAfter[0]).toBe('ネット');
       });
 
-      const menuButtons = screen.getAllByRole('button', { name: /アクション/ });
-      await user.click(menuButtons[1]!);
-
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /上へ移動/ })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('menuitem', { name: /上へ移動/ }));
-
-      await waitFor(() => {
-        expect(screen.getByText(/項目の並び順変更に失敗しました/)).toBeInTheDocument();
-      });
+      // 永続化APIは呼ばれない（REQ-42.6）
+      expect(mockUpdateItemOrder).not.toHaveBeenCalled();
     });
   });
 
@@ -2241,8 +1924,9 @@ describe('QuantityTableEditPage', () => {
   // 追加カバレッジテスト: 写真紐付け失敗 (REQ 4.3)
   // ====================================================================
 
-  describe('REQ 4.3 追加: 写真紐付け失敗', () => {
-    it('写真紐付けに失敗した場合はエラーが表示される', async () => {
+  describe('REQ 4.3 追加: 写真紐付け（ドラフト反映）', () => {
+    // Task 61.1: 写真紐付けはドラフトへ反映され、永続化APIは呼ばれない（REQ-42.3, 42.6）
+    it('写真紐付けはドラフトへ反映され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       mockGetSiteSurveys.mockResolvedValue({
@@ -2289,8 +1973,6 @@ describe('QuantityTableEditPage', () => {
           },
         ],
       });
-      mockUpdateQuantityGroup.mockRejectedValue(new Error('Photo link failed'));
-
       renderWithRouter();
 
       await waitFor(() => {
@@ -2313,10 +1995,11 @@ describe('QuantityTableEditPage', () => {
       const photo = screen.getByTestId('photo-item-photo-1');
       await user.click(photo);
 
-      // エラーが表示される
+      // ドラフトへ反映され、プレースホルダーが消える（永続化APIは呼ばれない）
       await waitFor(() => {
-        expect(screen.getByText(/写真の紐付けに失敗しました/)).toBeInTheDocument();
+        expect(screen.queryByTestId('image-placeholder-group-2')).not.toBeInTheDocument();
       });
+      expect(mockUpdateQuantityGroup).not.toHaveBeenCalled();
     });
   });
 
@@ -2413,17 +2096,6 @@ describe('QuantityTableEditPage', () => {
           },
         ],
       });
-      mockUpdateQuantityGroup.mockResolvedValue({
-        id: 'group-2',
-        quantityTableId: 'qt-123',
-        name: null,
-        surveyImageId: 'photo-1',
-        displayOrder: 1,
-        itemCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-02T00:00:00Z',
-      });
-
       renderWithRouter();
 
       await waitFor(() => {
@@ -2443,18 +2115,15 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByTestId('photo-item-photo-1')).toBeInTheDocument();
       });
 
-      // 写真にフォーカスしてEnterキーで選択
+      // 写真にフォーカスしてクリックで選択
       const photoButton = screen.getByRole('button', { name: /photo1.jpgを選択/ });
       await user.click(photoButton);
 
-      // APIが呼ばれることを確認
+      // Task 61.1: ドラフトへ反映され、永続化APIは呼ばれない
       await waitFor(() => {
-        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
-          'group-2',
-          { surveyImageId: 'photo-1' },
-          expect.any(String)
-        );
+        expect(screen.queryByTestId('image-placeholder-group-2')).not.toBeInTheDocument();
       });
+      expect(mockUpdateQuantityGroup).not.toHaveBeenCalled();
     });
   });
 
@@ -2567,14 +2236,11 @@ describe('QuantityTableEditPage', () => {
       photoButton.focus();
       await user.keyboard('{Enter}');
 
-      // APIが呼ばれることを確認
+      // Task 61.1: ドラフトへ反映され、永続化APIは呼ばれない
       await waitFor(() => {
-        expect(mockUpdateQuantityGroup).toHaveBeenCalledWith(
-          'group-2',
-          { surveyImageId: 'photo-1' },
-          expect.any(String)
-        );
+        expect(screen.queryByTestId('image-placeholder-group-2')).not.toBeInTheDocument();
       });
+      expect(mockUpdateQuantityGroup).not.toHaveBeenCalled();
     });
   });
 });
