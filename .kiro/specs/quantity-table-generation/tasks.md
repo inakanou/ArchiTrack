@@ -1550,7 +1550,7 @@
   - _Boundary: QuantityGroupCard, quantity-tables E2E_
   - _Depends: 58.2_
 
-- [ ] 59. クライアントサイド編集と明示保存（バックエンド: saveDraft）（REQ-42）
+- [x] 59. クライアントサイド編集と明示保存（バックエンド: saveDraft）（REQ-42）
 - [x] 59.1 数量表のフル状態同期保存サービスを実装する
   - 受領した数量表の全状態（数量表名・全グループ・全項目、表示順）と DB 現状を差分比較し、payload に無い行を削除、id 無し（新規）を作成、既存 id を更新する
   - グループの名称・写真紐づけ（surveyImageId）・displayOrder、項目の全フィールド・displayOrder を反映する（displayOrder は payload の配列順を正とする）
@@ -1578,7 +1578,7 @@
   - _Boundary: QuantityTableService_
   - _Depends: 59.1_
 
-- [ ] 59.4 (P) フル状態同期保存 API の統合テストを実装する
+- [x] 59.4 (P) フル状態同期保存 API の統合テストを実装する
   - 認証なし401・権限なし403・存在しない数量表404・他プロジェクト403/404 を検証する
   - 全状態 PUT で新規/更新/削除/並び替えが原子的に永続化され、再取得で反映が保持されることを検証する
   - expectedUpdatedAt 競合で 409 が返り、並行 save で後発が 409 となり部分反映・displayOrder 衝突が起きないことを検証する
@@ -1707,4 +1707,5 @@
 - 55.1 (REQ-39 根本原因): 写真一覧は `QuantityTableEditPage.tsx` 内インライン実装（`styles.photoGrid`/`styles.photoItem`、`availablePhotos.map`）。`photoGrid` は `display:grid` + `gridTemplateColumns: repeat(auto-fill, minmax(150px,1fr))` + `flex:1` + `overflowY:auto` だが `gridAutoRows` 未指定（既定 `auto`）。各セル高さは `photoItem` の `aspectRatio:'1'` のみに依存。flex(`flex:1`)+overflow 制約下で implicit grid row が aspect-ratio から高さを確定できず、複数行折り返し時に行が潰れて写真が重なる。修正方針: `photoGrid` に `gridAutoRows`（列幅に追従する固定高）を明示し、`photoItem` に `minHeight` フォールバックを併用。重なりゼロの矩形判定は jsdom 不可のため E2E（getBoundingClientRect）で検証する。写真取得方式・注釈バッジ（REQ-3.3）は不変。選択・変更とも同一 `handleSelectImage` 経由のため当該1箇所の修正で両対応。
 - 55.3 (REQ-39 E2Eが実バグ検出): `gridAutoRows:'150px'` のみでは重なりが残った。`gridTemplateColumns: minmax(150px,1fr)` で列幅が150px超に伸びると `photoItem` の `aspectRatio:'1'` 由来の高さ(=列幅)が固定行トラック150pxを超過し次行へ食い込み重なる。`photoItem` を `aspectRatio:'1'`→`height:'150px'`（definite height、minHeight:'150px'維持）に是正して解消。img は `objectFit:'cover'` 維持のため視認性不変。重なりゼロは E2E（getBoundingClientRect 全ペア判定）でのみ検証可能。
 - E2E環境の注意: frontend テストコンテナは nginx 静的ビルド（5174→80、ソース未マウント）。フロントの CSS/コード変更を E2E に反映するには `npm run test:docker:build`（frontend `--build`）でのリビルドが必須。
+- 59.4 (REQ-42 saveDraft 並行制御の実態): saveDraft は design.md L2073 のとおり `expectedUpdatedAt` 楽観ロックのみ（FOR UPDATE 行ロックは任意・不採用）。検証の結果、真の同時並行 save（Promise.all）は READ COMMITTED 下で非決定的（両 tx が読取段階を通過し、後発が削除済み行の更新/削除に当たり 500 になり得る）であり、design L2073 が述べる「並行 save は後発が 409」は厳密には stale-token（逐次）競合でのみ決定的に成立する。統合テストは design 準拠で stale-token 逐次競合（後発409・部分反映なし・displayOrder 衝突なし）を決定的に検証する方針に統一した。真の同時並行での 409 保証が必要なら saveDraft への FOR UPDATE 行ロック導入が別途必要（Note 56.5 と同系の並行制御課題）。なお中断した初回実装が service へ FOR UPDATE を追加して単体テストを破壊したため、承認済み設計（楽観ロック主）に従い service を HEAD へ復元した。
 - 56.5 (REQ-40 並行制御ギャップ・要エスカレーション): from-survey 自体は設計どおり `quantity_tables` 行へ `SELECT FOR UPDATE` を取得し直列化する（copy も同様）。ただし design.md L1816 が主張する「add/copy/reorder/from-survey の4種完全直列化」は現状の実装では未達。`create`(add) と `updateDisplayOrder`(reorder) はロック非取得＋呼び出し側 displayOrder リテラルをそのまま書き込み、`(quantityTableId, displayOrder)` のDB一意制約も無いため、4種混在の並行実行では displayOrder 衝突・欠番が起こり得る。これは REQ-40 が作り込んだ不具合ではなく、add/reorder に元から存在する並行制御の限界。56.5（テスト専用・実装変更禁止）はロックが実際に保証する from-survey×2 + copy に並行テストを限定し衝突/欠番ゼロを検証、ギャップを開示した。**上位対応の選択肢**: (1) design L1816 の記述を実態（copy/from-survey のみ直列化）に合わせて修正する / (2) create()・updateDisplayOrder() にも `quantity_tables` 行ロックを導入し、併せて displayOrder のDB一意制約追加を検討して4種完全直列化を実装する。並行制御の設計/実装課題として別途判断が必要。
