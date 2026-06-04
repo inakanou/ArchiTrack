@@ -25,17 +25,30 @@ import type {
 import {
   QuantityTableNotFoundError,
   QuantityTableConflictError,
+  QuantityTableValidationError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
 import { QUANTITY_TABLE_TARGET_TYPE } from '../types/audit-log.types.js';
+import {
+  QuantityValidationService,
+  type CalculationMethodType,
+  type CalculationParamsType,
+} from './quantity-validation.service.js';
+import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
 import Decimal from 'decimal.js';
 
 /**
  * QuantityTableService依存関係
+ *
+ * 検証系サービスは副作用のない純粋ロジックのため、未指定時は既定インスタンスを生成する。
  */
 export interface QuantityTableServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
+  /** 計算整合性・数値範囲検証サービス（REQ-11.2, 11.3） */
+  quantityValidationService?: QuantityValidationService;
+  /** 文字数・数値範囲（フィールド仕様）検証サービス（REQ-11.2, 11.4） */
+  quantityFieldValidationService?: QuantityFieldValidationService;
 }
 
 /**
@@ -245,6 +258,71 @@ export interface BulkSaveResult {
 }
 
 /**
+ * フル状態同期保存（saveDraft）用の項目入力
+ *
+ * Field Specifications 準拠の全フィールド（大項目〜備考、計算用フィールド、
+ * 調整係数、丸め設定）と表示順を保持する。
+ *
+ * Requirements: 42.5, 11.1
+ */
+export interface SaveDraftItemInput {
+  /** 既存=UUID / 新規=null */
+  id: string | null;
+  /** 新規項目のクライアント仮ID（任意・トレース用） */
+  tempId?: string;
+  majorCategory: string | null;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  calculationMethod: 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+  calculationParams: Record<string, number> | null;
+  adjustmentFactor: number;
+  roundingUnit: number;
+  quantity: number;
+  remarks: string | null;
+  /** 表示順（配列順を正とするが、明示値も保持する） */
+  displayOrder: number;
+}
+
+/**
+ * フル状態同期保存（saveDraft）用のグループ入力
+ *
+ * Requirements: 42.5, 11.1
+ */
+export interface SaveDraftGroupInput {
+  /** 既存=UUID / 新規=null */
+  id: string | null;
+  /** 新規グループのクライアント仮ID（任意・トレース用） */
+  tempId?: string;
+  name: string;
+  /** 写真紐づけ（参照のみ） */
+  surveyImageId: string | null;
+  displayOrder: number;
+  /** 当該グループの全項目最終状態（表示順） */
+  items: SaveDraftItemInput[];
+}
+
+/**
+ * フル状態同期保存（saveDraft）入力
+ *
+ * 数量表の全グループ・全項目の最終状態（表示順）を表す。
+ *
+ * Requirements: 42.5, 42.8, 11.1
+ */
+export interface SaveQuantityTableDraftInput {
+  /** ISO8601。楽観ロック */
+  expectedUpdatedAt: string;
+  /** 数量表名（編集画面での変更を含む） */
+  name: string;
+  /** 数量表の全グループ最終状態（表示順） */
+  groups: SaveDraftGroupInput[];
+}
+
+/**
  * Prismaトランザクションクライアント型
  */
 type PrismaTransactionClient = Omit<
@@ -260,10 +338,17 @@ type PrismaTransactionClient = Omit<
 export class QuantityTableService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
+  private readonly quantityValidationService: QuantityValidationService;
+  private readonly quantityFieldValidationService: QuantityFieldValidationService;
 
   constructor(deps: QuantityTableServiceDependencies) {
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
+    // 検証系は副作用のない純粋ロジックのため、未指定時は既定インスタンスを生成する
+    this.quantityValidationService =
+      deps.quantityValidationService ?? new QuantityValidationService();
+    this.quantityFieldValidationService =
+      deps.quantityFieldValidationService ?? new QuantityFieldValidationService();
   }
 
   /**
@@ -806,6 +891,329 @@ export class QuantityTableService {
         updatedAt: updatedQuantityTable.updatedAt,
       };
     });
+  }
+
+  /**
+   * 数量表のフル状態同期保存（saveDraft）
+   *
+   * 編集画面のクライアントサイド編集状態（数量表名・全グループ・全項目の最終状態）を
+   * 受領し、DB現状と差分比較して単一トランザクションで同期保存する。REQ-42 適用後は
+   * 本メソッドが編集画面の唯一の書き込み手段となり、既存 bulkSave（項目更新のみ）の
+   * 役割を包含・置換する。
+   *
+   * トランザクション内で以下を実行:
+   * 1. 数量表の存在確認・楽観的排他制御（expectedUpdatedAt 不一致は 409）
+   * 2. 全フィールドの整合性検証（文字数・数値範囲・計算整合）。違反時は保存中断
+   * 3. DB現状と payload の差分適用:
+   *    - グループ: 削除（payload にない既存）→ 更新（id一致）→ 作成（id=null）
+   *    - 項目: グループ単位で同様に削除→更新→作成
+   *    - displayOrder は payload の配列順を正とする
+   *    - グループ名・写真紐づけ（surveyImageId）・数量表名を反映
+   * 4. 数量表の updatedAt 更新・監査ログ記録
+   * 5. 最新の数量表詳細（項目を含む）を返却（画面・編集状態の同期用）
+   *
+   * 失敗時は $transaction により ROLLBACK され、部分反映を残さない。
+   *
+   * Requirements:
+   * - 42.5: 保存操作時に全変更を一括永続化する
+   * - 42.8: 保存正常完了時に最新データを返却し画面・編集状態を同期する
+   * - 42.9: 整合性/サーバーエラー時はエラーを返し未保存状態を保持可能とする（保存中断）
+   * - 11.1: 全グループ・全項目を一括でDBに保存する
+   * - 11.2: 整合性チェックエラー時は保存を中断する
+   * - 11.3: 計算方法と入力値の不整合検出時は保存を中断する
+   * - 11.4: 不整合がある場合は問題箇所を明示する
+   *
+   * @param id - 数量表ID
+   * @param input - フル状態同期保存入力
+   * @param actorId - 実行者ID
+   * @returns 最新の数量表詳細（項目を含む）
+   * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
+   * @throws QuantityTableConflictError 楽観的排他制御エラー（他ユーザーによる更新との競合, 409）
+   * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合, 400）
+   */
+  async saveDraft(
+    id: string,
+    input: SaveQuantityTableDraftInput,
+    actorId: string
+  ): Promise<QuantityTableDetailWithItems> {
+    // トランザクション開始前に全フィールドを検証し、不整合があれば保存を中断する
+    // （REQ-11.2/11.3/11.4, 42.9）。書き込みは一切行わない。
+    this.validateDraft(input);
+
+    const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. 数量表の存在確認・現状取得（差分元となるグループ/項目IDを含む）
+      const current = await tx.quantityTable.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          projectId: true,
+          updatedAt: true,
+          deletedAt: true,
+          groups: {
+            select: {
+              id: true,
+              items: { select: { id: true } },
+            },
+          },
+        },
+      });
+
+      if (!current || current.deletedAt !== null) {
+        throw new QuantityTableNotFoundError(id);
+      }
+
+      // 楽観的排他制御: updatedAt の比較（不一致は 409）
+      if (current.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+        throw new QuantityTableConflictError(
+          '数量表は他のユーザーによって更新されました。最新データを確認してください。',
+          {
+            expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+            actualUpdatedAt: current.updatedAt.toISOString(),
+          }
+        );
+      }
+
+      // 2. グループの差分適用
+      const payloadGroupIds = new Set(
+        input.groups.map((g) => g.id).filter((gid): gid is string => gid !== null)
+      );
+      const dbGroupIds = current.groups.map((g) => g.id);
+
+      // 2-1. 削除: payload に存在しない既存グループ（項目は onDelete: Cascade で連鎖削除）
+      const groupIdsToDelete = dbGroupIds.filter((gid) => !payloadGroupIds.has(gid));
+      if (groupIdsToDelete.length > 0) {
+        await tx.quantityGroup.deleteMany({
+          where: { id: { in: groupIdsToDelete } },
+        });
+      }
+
+      // 残存グループ（削除されなかった既存グループ）の項目ID集合
+      const dbItemIdsByGroup = new Map<string, string[]>();
+      for (const g of current.groups) {
+        dbItemIdsByGroup.set(
+          g.id,
+          g.items.map((it) => it.id)
+        );
+      }
+
+      // 2-2. グループを payload 配列順に処理（displayOrder は配列順を正とする）
+      for (const [groupIndex, group] of input.groups.entries()) {
+        const groupName = group.name.trim() === '' ? null : group.name.trim();
+
+        let persistedGroupId: string;
+
+        if (group.id === null) {
+          // 新規グループ作成
+          const created = await tx.quantityGroup.create({
+            data: {
+              quantityTableId: id,
+              name: groupName,
+              surveyImageId: group.surveyImageId,
+              displayOrder: groupIndex,
+            },
+          });
+          persistedGroupId = created.id;
+        } else {
+          // 既存グループ更新（名称・写真紐づけ・displayOrder）
+          await tx.quantityGroup.update({
+            where: { id: group.id },
+            data: {
+              name: groupName,
+              surveyImageId: group.surveyImageId,
+              displayOrder: groupIndex,
+            },
+          });
+          persistedGroupId = group.id;
+        }
+
+        // 3. 項目の差分適用（グループ単位）
+        const payloadItemIds = new Set(
+          group.items.map((it) => it.id).filter((iid): iid is string => iid !== null)
+        );
+
+        // 3-1. 削除: payload に存在しない既存項目（既存グループのみ対象）
+        if (group.id !== null) {
+          const dbItemIds = dbItemIdsByGroup.get(group.id) ?? [];
+          const itemIdsToDelete = dbItemIds.filter((iid) => !payloadItemIds.has(iid));
+          if (itemIdsToDelete.length > 0) {
+            await tx.quantityItem.deleteMany({
+              where: { id: { in: itemIdsToDelete } },
+            });
+          }
+        }
+
+        // 3-2. 項目を payload 配列順に処理（displayOrder は配列順を正とする）
+        for (const [itemIndex, item] of group.items.entries()) {
+          const itemData = this.buildItemPersistData(item, itemIndex);
+
+          if (item.id === null) {
+            await tx.quantityItem.create({
+              data: {
+                quantityGroupId: persistedGroupId,
+                ...itemData,
+              },
+            });
+          } else {
+            await tx.quantityItem.update({
+              where: { id: item.id },
+              data: itemData,
+            });
+          }
+        }
+      }
+
+      // 4. 数量表名・updatedAt を更新
+      await tx.quantityTable.update({
+        where: { id },
+        data: {
+          name: input.name.trim(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 5. 監査ログ記録
+      await this.auditLogService.createLog({
+        action: 'QUANTITY_TABLE_BULK_SAVED',
+        actorId,
+        targetType: QUANTITY_TABLE_TARGET_TYPE,
+        targetId: id,
+        before: null,
+        after: {
+          name: input.name.trim(),
+          groupCount: input.groups.length,
+          itemCount: input.groups.reduce((sum, g) => sum + g.items.length, 0),
+        },
+      });
+    });
+
+    // 6. 最新の数量表詳細（項目を含む）を返却（REQ-42.8 同期用）
+    const detail = await this.findById(id);
+    if (!detail) {
+      // トランザクション直後に消える状況は通常発生しないが、防御的に処理
+      throw new QuantityTableNotFoundError(id);
+    }
+    return detail;
+  }
+
+  /**
+   * フル状態同期保存（saveDraft）の全フィールド検証
+   *
+   * 文字数（フィールド仕様）・数値範囲・計算整合を検証し、1件でも違反があれば
+   * QuantityTableValidationError をスローして保存を中断する（REQ-11.2/11.3/11.4, 42.9）。
+   *
+   * @param input - フル状態同期保存入力
+   * @throws QuantityTableValidationError 検証違反が1件以上存在する場合
+   */
+  private validateDraft(input: SaveQuantityTableDraftInput): void {
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      for (const [itemIndex, item] of group.items.entries()) {
+        const prefix = `groups[${groupIndex}].items[${itemIndex}]`;
+
+        // 文字数・数値範囲（フィールド仕様）検証
+        const fieldResult = this.quantityFieldValidationService.validateItemFieldSpecs({
+          majorCategory: item.majorCategory,
+          middleCategory: item.middleCategory,
+          minorCategory: item.minorCategory,
+          customCategory: item.customCategory,
+          workType: item.workType,
+          name: item.name,
+          specification: item.specification,
+          unit: item.unit,
+          remarks: item.remarks,
+          adjustmentFactor: item.adjustmentFactor,
+          roundingUnit: item.roundingUnit,
+          quantity: item.quantity,
+        });
+        for (const err of fieldResult.errors) {
+          validationErrors[`${prefix}.${err.field}`] = err.message;
+        }
+
+        // 計算整合性検証（計算方法と入力値の不整合, REQ-11.3）
+        const calcResult = this.quantityValidationService.validateQuantityItem({
+          calculationMethod: item.calculationMethod as CalculationMethodType,
+          calculationParams: (item.calculationParams ?? {}) as CalculationParamsType,
+          quantity: item.quantity,
+          adjustmentFactor: item.adjustmentFactor,
+          roundingUnit: item.roundingUnit,
+        });
+        for (const err of calcResult.errors) {
+          // 同一フィールドで重複した場合は計算整合エラーを優先しない（上書きしない）
+          const key = `${prefix}.${err.field}`;
+          if (validationErrors[key] === undefined) {
+            validationErrors[key] = err.message;
+          }
+        }
+      }
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      throw new QuantityTableValidationError(
+        '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+        validationErrors
+      );
+    }
+  }
+
+  /**
+   * saveDraft 用の項目永続化データを構築する
+   *
+   * 文字列フィールドはトリムし、空文字は任意項目では null に正規化する。
+   * Decimal フィールドは decimal.js で生成する。displayOrder は配列順を正とする。
+   *
+   * @param item - 項目入力
+   * @param displayOrder - 配列順に基づく表示順
+   * @returns Prisma の create/update 双方で利用可能な項目データ
+   */
+  private buildItemPersistData(
+    item: SaveDraftItemInput,
+    displayOrder: number
+  ): {
+    majorCategory: string | null;
+    middleCategory: string | null;
+    minorCategory: string | null;
+    customCategory: string | null;
+    workType: string;
+    name: string;
+    specification: string | null;
+    unit: string;
+    calculationMethod: 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+    calculationParams: Record<string, number> | undefined;
+    adjustmentFactor: Decimal;
+    roundingUnit: Decimal;
+    quantity: Decimal;
+    remarks: string | null;
+    displayOrder: number;
+  } {
+    const normalizeOptional = (value: string | null): string | null => {
+      if (value === null) {
+        return null;
+      }
+      const trimmed = value.trim();
+      return trimmed === '' ? null : trimmed;
+    };
+
+    return {
+      majorCategory: normalizeOptional(item.majorCategory),
+      middleCategory: normalizeOptional(item.middleCategory),
+      minorCategory: normalizeOptional(item.minorCategory),
+      customCategory: normalizeOptional(item.customCategory),
+      workType: item.workType.trim(),
+      name: item.name.trim(),
+      specification: normalizeOptional(item.specification),
+      unit: item.unit.trim(),
+      calculationMethod: item.calculationMethod,
+      // Prisma の Json? には null を直接渡さず undefined で「未設定」を表現する
+      calculationParams: item.calculationParams ?? undefined,
+      adjustmentFactor: new Decimal(item.adjustmentFactor),
+      roundingUnit: new Decimal(item.roundingUnit),
+      quantity: new Decimal(item.quantity),
+      remarks: normalizeOptional(item.remarks),
+      displayOrder,
+    };
   }
 
   /**
