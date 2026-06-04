@@ -2,6 +2,10 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# package.json の "packageManager" で指定した npm を corepack で固定し、
+# 同梱 npm との版差による package-lock.json 不整合（npm ci の EUSAGE）を防ぐ
+RUN corepack enable npm
+
 # ヘルスチェック用にcurlをインストール
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
