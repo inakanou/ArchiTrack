@@ -2436,4 +2436,76 @@ describe('QuantityTableEditPage', () => {
       expect(mockUpdateQuantityGroup).not.toHaveBeenCalled();
     });
   });
+
+  // ====================================================================
+  // Task 62.2: 未保存変更インジケーター（REQ-44）
+  // ====================================================================
+
+  describe('REQ 44: 未保存変更インジケーター', () => {
+    // REQ-44.2: 初期ロード時は未保存の変更がないためインジケーターは非表示
+    it('初期ロード時は未保存インジケーターを表示しない', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+    });
+
+    // REQ-44.1, 44.3: 編集操作で isDirty=true になると未保存インジケーターを表示する
+    it('編集操作で未保存変更が発生すると未保存インジケーターを表示する', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 編集操作（グループ追加）で isDirty=true
+      const addButton = screen.getByRole('button', { name: 'グループを追加' });
+      await user.click(addButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+      });
+    });
+
+    // REQ-44.4: 保存が正常に完了すると（isDirty=false）未保存インジケーターを非表示にする
+    it('保存が正常に完了すると未保存インジケーターを非表示にする', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...mockQuantityTableDetail,
+        updatedAt: '2025-02-02T00:00:00Z',
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 編集してインジケーターを表示状態にする
+      const addButton = screen.getByRole('button', { name: 'グループを追加' });
+      await user.click(addButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+      });
+
+      // 保存
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      await user.click(saveButton);
+
+      // 保存成功後はインジケーター非表示
+      await waitFor(() => {
+        expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+      });
+    });
+  });
 });

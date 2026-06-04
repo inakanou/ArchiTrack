@@ -38,6 +38,7 @@ import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
+import UnsavedChangesBadge from '../components/quantity-table/UnsavedChangesBadge';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
 import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExportService';
@@ -1533,6 +1534,8 @@ export default function QuantityTableEditPage() {
           </p>
         </div>
         <div style={styles.headerActions}>
+          {/* Task 62.2: 未保存変更インジケーター（REQ-44）。isDirty の間のみ保存ボタン付近に表示 */}
+          <UnsavedChangesBadge isUnsaved={isDirty} />
           {saveMessage && (
             <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: 500 }}>
               {saveMessage}
