@@ -708,6 +708,7 @@ describe('QuantityTableEditPage', () => {
       expect(mockUpdateQuantityItem).not.toHaveBeenCalled();
     });
 
+    // @requirement quantity-table-generation/REQ-42.9: 保存エラー時はエラー表示し未保存ドラフトを保持して再保存可能とする
     it('保存に失敗した場合はエラーが表示され、ドラフト（未保存変更）は保持される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);

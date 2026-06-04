@@ -3274,6 +3274,45 @@
         "description": "AnnotationToolbar.test.tsx でツールボタンの title / aria-label 属性が付与されていることを確認",
         "threshold": "a11y_attributes: present"
       }
+    },
+    {
+      "id": "quantity-table-generation/REQ-40.11",
+      "requirement": "REQ-40: 現場調査からの数量グループ一括生成",
+      "title": "一括生成処理の実行中インジケーター表示・重複実行防止",
+      "reason": "実行中状態(isCreatingFromSurvey)の表示・重複実行防止は実装済み。生成処理は短時間で完了するため実行中状態のE2E検証は不安定。専用E2Eテストは未作成",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest / React Testing Library",
+        "description": "QuantityTableEditPage の isCreatingFromSurvey による実行中インジケーター表示・確定操作の重複防止を保留中Promiseで検証する",
+        "threshold": "in_progress_indicator: displayed"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-43.2",
+      "requirement": "REQ-43: 未保存変更の離脱ガード",
+      "title": "ブラウザのタブ/ウィンドウクローズ・リロードに対する標準離脱確認(beforeunload)",
+      "reason": "ブラウザ標準の beforeunload ネイティブダイアログは Playwright で安定して検証できない。アプリ内ナビゲーションの離脱ガード(REQ-43.1/43.3/43.4/43.5/43.6)は edit-guard-indicator-sticky-header-e2e でE2E検証済み",
+      "category": "integration-test",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest / React Testing Library",
+        "description": "未保存変更がある間 beforeunload ハンドラが登録され既定動作を抑止することをユニットテストで確認する",
+        "threshold": "beforeunload_handler: registered"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-42.10",
+      "requirement": "REQ-42: クライアントサイド編集と明示保存モデル",
+      "title": "参照系データ取得(初回表示・オートコンプリート・写真コメント・現場調査写真一覧・インポート読込)を永続化制約の対象外とする",
+      "reason": "本受入基準は永続化制約の適用範囲外を定義するスコープ規定であり、単独で観測可能な振る舞いを持たない。参照系アクセスが許容されることは client-side-edit-explicit-save-e2e のネットワーク監視(永続化書き込みのみ禁止し参照系GETは許可)で間接的に担保される",
+      "category": "integration-test",
+      "alternativeVerification": {
+        "method": "e2e-network-monitor",
+        "tool": "Playwright",
+        "description": "client-side-edit-explicit-save-e2e.spec.ts で参照系GETを許可しつつ永続化書き込み(POST/PUT/PATCH/DELETE)のみ禁止することをリクエスト監視で確認",
+        "threshold": "reference_reads: allowed"
+      }
     }
   ],
   "categories": {

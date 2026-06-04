@@ -306,6 +306,7 @@ describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 61.
     expect(screen.queryAllByTestId('quantity-item-row')).toHaveLength(0);
   });
 
+  // @requirement quantity-table-generation/REQ-40.12: 一括生成処理中にエラーが発生したらエラーメッセージを表示し不完全な生成データを残さない
   it('写真一覧の取得（参照系GET）に失敗した場合は失敗メッセージを表示する', async () => {
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
     mockGetSiteSurveys.mockResolvedValue(buildSurveyList());

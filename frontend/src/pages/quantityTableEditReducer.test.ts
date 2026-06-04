@@ -415,6 +415,26 @@ describe('generateGroupsFromSurvey', () => {
     expect(state.isDirty).toBe(true);
   });
 
+  // @requirement quantity-table-generation/REQ-40.6: 「{現場調査名} {連番}」が最大文字数を超える場合は調査名側を切り詰める
+  it('生成グループ名が最大文字数を超える場合は調査名を切り詰めて連番を付与する（REQ-40.6）', () => {
+    const longSurveyName = 'あ'.repeat(30); // 全角30 = 幅60 > 50（GROUP_NAME_MAX_WIDTH）
+    const state = quantityTableEditReducer(loadedState(), {
+      type: 'generateGroupsFromSurvey',
+      surveyName: longSurveyName,
+      surveyImageIds: ['img-a'],
+    });
+    const generated = state.draft!.groups.slice(1);
+    expect(generated).toHaveLength(1);
+    const name = generated[0]!.name ?? '';
+    // 連番サフィックス（' 1'）が末尾に必ず付与される
+    expect(name.endsWith(' 1')).toBe(true);
+    // 幅計算（全角=2, 半角=1）で 50 以内に切り詰められている
+    const width = [...name].reduce((w, c) => w + ((c.codePointAt(0) ?? 0) <= 0x7f ? 1 : 2), 0);
+    expect(width).toBeLessThanOrEqual(50);
+    // 実際に切り詰めが発生している（元の調査名がそのまま先頭に残っていない）
+    expect(name.startsWith(longSurveyName)).toBe(false);
+  });
+
   it('写真0枚なら何も追加せず isDirty は変化しない', () => {
     const base = loadedState();
     const state = quantityTableEditReducer(base, {
