@@ -2184,6 +2184,152 @@ describe('QuantityTableEditPage', () => {
   });
 
   // ===========================================================================
+  // Task 61.5: グループコピーのクライアントサイド複製（REQ-42.4, 42.6）
+  // ===========================================================================
+
+  describe('Task 61.5: グループコピー（クライアント複製）', () => {
+    // 61.5: グループコピーはドラフト内で複製され、サーバー複製API（copyQuantityGroup）は呼ばれない
+    it('グループをコピーするとドラフトに複製グループが追加され永続化APIは呼ばれない', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockCopyQuantityGroup = vi.mocked(quantityTablesApi.copyQuantityGroup);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 初期は2グループ
+      expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(2);
+
+      // 「グループ1」のコピーボタンをクリック（元グループの直下に複製される）
+      const copyButtons = screen.getAllByRole('button', { name: 'グループをコピー' });
+      expect(copyButtons.length).toBeGreaterThan(0);
+      await user.click(copyButtons[0]!);
+
+      // ドラフトへ即時反映（3グループ）。複製名「グループ1のコピー」が元の直下に挿入される
+      await waitFor(() => {
+        expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(3);
+      });
+      expect(screen.getByText('グループ1のコピー')).toBeInTheDocument();
+
+      // サーバー複製API・個別ミューテーション・再取得は呼ばれない（REQ-42.4, 42.6）
+      expect(mockCopyQuantityGroup).not.toHaveBeenCalled();
+      expect(mockCreateQuantityGroup).not.toHaveBeenCalled();
+      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ===========================================================================
+  // Task 61.5: 現場調査からの一括生成（クライアントサイド生成、REQ-42.4, 42.6）
+  // ===========================================================================
+
+  describe('Task 61.5: 現場調査から一括生成（クライアント生成）', () => {
+    // 61.5: 現場調査の写真枚数分グループをドラフトへ生成し、永続化API（POST /from-survey）は呼ばれない
+    it('現場調査を選択して一括生成するとドラフトへ写真枚数分のグループが生成され永続化APIは呼ばれない', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      const mockCreateGroupsFromSurvey = vi.mocked(quantityTablesApi.createGroupsFromSurvey);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: '現場調査A',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 2,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: '現場調査A',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 2,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: [
+          {
+            id: 'photo-1',
+            surveyId: 'survey-1',
+            originalPath: '/original/photo1.jpg',
+            thumbnailPath: '/thumb/photo1.jpg',
+            originalUrl: '/images/original-1.jpg',
+            thumbnailUrl: '/images/thumb-1.jpg',
+            fileName: 'photo1.jpg',
+            fileSize: 1024,
+            width: 800,
+            height: 600,
+            displayOrder: 0,
+            createdAt: '2025-01-01T00:00:00Z',
+          },
+          {
+            id: 'photo-2',
+            surveyId: 'survey-1',
+            originalPath: '/original/photo2.jpg',
+            thumbnailPath: '/thumb/photo2.jpg',
+            originalUrl: '/images/original-2.jpg',
+            thumbnailUrl: '/images/thumb-2.jpg',
+            fileName: 'photo2.jpg',
+            fileSize: 2048,
+            width: 800,
+            height: 600,
+            displayOrder: 1,
+            createdAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 初期は2グループ
+      expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(2);
+
+      // 「現場調査から一括追加」ボタンをクリックし、現場調査選択ダイアログを開く
+      await user.click(screen.getByTestId('bulk-create-from-survey-button'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('survey-select-dialog')).toBeInTheDocument();
+      });
+
+      // 現場調査を選択
+      await waitFor(() => {
+        expect(screen.getByTestId('survey-select-option-survey-1')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('survey-select-option-survey-1'));
+
+      // 生成を確定
+      await user.click(screen.getByTestId('survey-select-dialog-confirm'));
+
+      // ドラフトへ写真2枚分のグループが生成される（既存2 + 生成2 = 4）
+      await waitFor(() => {
+        expect(screen.getAllByTestId('quantity-group-card')).toHaveLength(4);
+      });
+      // 連番命名「{現場調査名} {連番}」で生成される
+      expect(screen.getByText('現場調査A 1')).toBeInTheDocument();
+      expect(screen.getByText('現場調査A 2')).toBeInTheDocument();
+
+      // 永続化API（POST /from-survey）・再取得は呼ばれない（REQ-42.4, 42.6）
+      expect(mockCreateGroupsFromSurvey).not.toHaveBeenCalled();
+      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ===========================================================================
   // 写真選択のキーボード操作
   // ===========================================================================
 
