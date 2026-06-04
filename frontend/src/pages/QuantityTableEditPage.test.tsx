@@ -2622,9 +2622,7 @@ describe('QuantityTableEditPage', () => {
       expect(header).toContainElement(screen.getByRole('button', { name: 'PDF出力' }));
       expect(header).toContainElement(screen.getByRole('button', { name: '保存' }));
       expect(header).toContainElement(screen.getByRole('button', { name: 'グループを追加' }));
-      expect(header).toContainElement(
-        screen.getByTestId('bulk-create-from-survey-button')
-      );
+      expect(header).toContainElement(screen.getByTestId('bulk-create-from-survey-button'));
     });
 
     // REQ-45.4: 未保存バッジが固定ヘッダー内に表示される

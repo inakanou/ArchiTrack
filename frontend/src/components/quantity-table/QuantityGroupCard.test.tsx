@@ -243,9 +243,7 @@ describe('QuantityGroupCard', () => {
         expect(screen.getByText('現場調査コメント')).toBeVisible();
 
         // 折りたたむ
-        await userEvent.click(
-          screen.getByRole('button', { name: /グループを折りたたむ/ })
-        );
+        await userEvent.click(screen.getByRole('button', { name: /グループを折りたたむ/ }));
 
         // 固定表示対象の画像・コメントも併せて非表示になる（content の visibility:hidden）
         expect(screen.getByAltText('photo1.jpg')).not.toBeVisible();
@@ -258,14 +256,10 @@ describe('QuantityGroupCard', () => {
         );
 
         // 折りたたみ → 再展開
-        await userEvent.click(
-          screen.getByRole('button', { name: /グループを折りたたむ/ })
-        );
+        await userEvent.click(screen.getByRole('button', { name: /グループを折りたたむ/ }));
         expect(screen.getByAltText('photo1.jpg')).not.toBeVisible();
 
-        await userEvent.click(
-          screen.getByRole('button', { name: /グループを展開/ })
-        );
+        await userEvent.click(screen.getByRole('button', { name: /グループを展開/ }));
 
         // 画像・コメントが再表示され、photoArea はスクロールラッパー外（固定表示）にある
         expect(screen.getByAltText('photo1.jpg')).toBeVisible();

@@ -165,9 +165,7 @@ describe('数量表編集画面 写真選択ダイアログのレイアウト (R
 
     // 先頭・末尾が確かに存在すること（部分的なレンダリング/仮想化で件数だけ合う事故を防ぐ）
     expect(within(photoList).getByTestId('photo-item-img-1')).toBeInTheDocument();
-    expect(
-      within(photoList).getByTestId(`photo-item-img-${PHOTO_COUNT}`)
-    ).toBeInTheDocument();
+    expect(within(photoList).getByTestId(`photo-item-img-${PHOTO_COUNT}`)).toBeInTheDocument();
   });
 
   it('写真グリッドに重なり解消用スタイル（gridAutoRows・gap・折り返し列・スクロール）が適用される (REQ-39.1, 39.3, 39.5)', async () => {

@@ -11,10 +11,7 @@
 
 import { useState, useEffect, useCallback, useReducer, useMemo, useRef } from 'react';
 import { useParams, Link, useBlocker } from 'react-router-dom';
-import {
-  getQuantityTableDetail,
-  saveQuantityTableDraft,
-} from '../api/quantity-tables';
+import { getQuantityTableDetail, saveQuantityTableDraft } from '../api/quantity-tables';
 import { ApiError } from '../api/client';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import { getAnnotation } from '../api/survey-annotations';
@@ -473,10 +470,7 @@ export default function QuantityTableEditPage() {
   // 呼び出さない（REQ-42.6）。初期ロードや候補取得などの参照系GETは従来どおり
   // オンデマンドで実行する（REQ-42.10）。
   // ==========================================================================
-  const [editState, dispatch] = useReducer(
-    quantityTableEditReducer,
-    initialQuantityTableEditState
-  );
+  const [editState, dispatch] = useReducer(quantityTableEditReducer, initialQuantityTableEditState);
   const draft = editState.draft;
 
   // ==========================================================================
@@ -1552,11 +1546,7 @@ export default function QuantityTableEditPage() {
           <button type="button" style={styles.saveButton} onClick={handleSave} aria-label="保存">
             保存
           </button>
-          <button
-            type="button"
-            style={styles.addGroupButton}
-            onClick={handleAddGroup}
-          >
+          <button type="button" style={styles.addGroupButton} onClick={handleAddGroup}>
             <PlusIcon />
             グループを追加
           </button>
@@ -1648,11 +1638,7 @@ export default function QuantityTableEditPage() {
               <button type="button" style={styles.cancelButton} onClick={handleCancelDelete}>
                 キャンセル
               </button>
-              <button
-                type="button"
-                style={styles.deleteButton}
-                onClick={handleConfirmDeleteGroup}
-              >
+              <button type="button" style={styles.deleteButton} onClick={handleConfirmDeleteGroup}>
                 削除する
               </button>
             </div>

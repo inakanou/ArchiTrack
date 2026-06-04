@@ -229,10 +229,7 @@ describe('group: copyGroup', () => {
     // 「のコピー」(幅8)が末尾に必ず付与され、全体は幅50以内
     expect(copyName.endsWith('のコピー')).toBe(true);
     // 幅計算（全角=2）で50以内
-    const width = [...copyName].reduce(
-      (w, c) => w + ((c.codePointAt(0) ?? 0) <= 0x7f ? 1 : 2),
-      0
-    );
+    const width = [...copyName].reduce((w, c) => w + ((c.codePointAt(0) ?? 0) <= 0x7f ? 1 : 2), 0);
     expect(width).toBeLessThanOrEqual(50);
   });
 });
@@ -407,11 +404,7 @@ describe('generateGroupsFromSurvey', () => {
     // 既存1 + 生成3
     expect(groups).toHaveLength(4);
     const generated = groups.slice(1);
-    expect(generated.map((g) => g.name)).toEqual([
-      '現場調査X 1',
-      '現場調査X 2',
-      '現場調査X 3',
-    ]);
+    expect(generated.map((g) => g.name)).toEqual(['現場調査X 1', '現場調査X 2', '現場調査X 3']);
     expect(generated.map((g) => g.surveyImageId)).toEqual(['img-a', 'img-b', 'img-c']);
     generated.forEach((g) => {
       expect(g.id).toBeNull();

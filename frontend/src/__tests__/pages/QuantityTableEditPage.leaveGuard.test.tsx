@@ -48,13 +48,11 @@ vi.mock('../../hooks/useAutocompleteCandidateStore', () => ({
 // 各テストで返り値（state/proceed/reset）と isDirty 引数を制御・検証する。
 const mockProceed = vi.fn();
 const mockReset = vi.fn();
-const mockUseBlocker = vi.fn(
-  (_shouldBlock?: boolean) => ({
-    state: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
-    proceed: mockProceed,
-    reset: mockReset,
-  })
-);
+const mockUseBlocker = vi.fn((_shouldBlock?: boolean) => ({
+  state: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
+  proceed: mockProceed,
+  reset: mockReset,
+}));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
@@ -64,16 +62,14 @@ vi.mock('react-router-dom', async () => {
 });
 
 // useUnsavedChanges をモックし、beforeunload 連携の enabled フラグ（isDirty）を検証する。
-const mockUseUnsavedChanges = vi.fn(
-  (_options?: { enabled?: boolean; initialDirty?: boolean }) => ({
-    isDirty: false,
-    setDirty: vi.fn(),
-    markAsChanged: vi.fn(),
-    markAsSaved: vi.fn(),
-    reset: vi.fn(),
-    confirmNavigation: vi.fn().mockReturnValue(true),
-  })
-);
+const mockUseUnsavedChanges = vi.fn((_options?: { enabled?: boolean; initialDirty?: boolean }) => ({
+  isDirty: false,
+  setDirty: vi.fn(),
+  markAsChanged: vi.fn(),
+  markAsSaved: vi.fn(),
+  reset: vi.fn(),
+  confirmNavigation: vi.fn().mockReturnValue(true),
+}));
 vi.mock('../../hooks/useUnsavedChanges', () => ({
   useUnsavedChanges: (options?: { enabled?: boolean; initialDirty?: boolean }) =>
     mockUseUnsavedChanges(options),

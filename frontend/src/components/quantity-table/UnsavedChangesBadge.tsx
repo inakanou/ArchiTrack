@@ -74,12 +74,7 @@ export function UnsavedChangesBadge({ isUnsaved }: UnsavedChangesBadgeProps): Re
 
   // REQ-44.1: 未保存の変更がある間、未保存状態を示すインジケーターを表示する
   return (
-    <span
-      data-testid="unsaved-changes-badge"
-      role="status"
-      aria-live="polite"
-      style={badgeStyle}
-    >
+    <span data-testid="unsaved-changes-badge" role="status" aria-live="polite" style={badgeStyle}>
       <span aria-hidden="true" style={dotStyle} />
       未保存の変更があります
     </span>

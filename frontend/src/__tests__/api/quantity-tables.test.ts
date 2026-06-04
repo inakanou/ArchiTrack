@@ -1369,10 +1369,9 @@ describe('quantity-tables API client', () => {
 
       const result = await createGroupsFromSurvey('qt-1', 'survey-1');
 
-      expect(apiClient.post).toHaveBeenCalledWith(
-        '/api/quantity-tables/qt-1/groups/from-survey',
-        { siteSurveyId: 'survey-1' }
-      );
+      expect(apiClient.post).toHaveBeenCalledWith('/api/quantity-tables/qt-1/groups/from-survey', {
+        siteSurveyId: 'survey-1',
+      });
       expect(result).toEqual(mockResult);
     });
 
