@@ -14,7 +14,6 @@ import { useParams, Link } from 'react-router-dom';
 import {
   getQuantityTableDetail,
   createQuantityItem,
-  copyQuantityGroup,
   bulkSaveQuantityTable,
   createGroupsFromSurvey,
 } from '../api/quantity-tables';
@@ -491,9 +490,6 @@ export default function QuantityTableEditPage() {
   const [operationError, setOperationError] = useState<string | null>(null); // 操作エラー（インライン表示）
   // 削除確認ダイアログ用state（REQ-4.5）。対象行キー（id または tempId）を保持する。
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
-  // グループコピー処理中のグループID集合（Task 53.3: REQ-38.9）
-  // 同一グループの重複コピー操作を防止し、ボタンの disabled 状態を制御する
-  const [copyingGroupIds, setCopyingGroupIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   // 数量表名編集用state（REQ-2.5）
   const [editingName, setEditingName] = useState<string>('');
@@ -666,58 +662,24 @@ export default function QuantityTableEditPage() {
   /**
    * グループコピーハンドラ
    *
-   * Task 53.3
-   * Requirements: 38.7, 38.9, 38.10, 38.11
+   * Task 61.2: 数量グループコピーをクライアントサイドドラフト化する
+   * Requirements: 42.4, 38.13
    *
-   * - 同一グループに対する重複コピー操作を防止する（REQ-38.9）
-   * - API 成功時は数量表詳細を再取得して、複製先グループの直下挿入と後続グループの
-   *   displayOrder シフトを画面に正しく反映する（REQ-38.7, 38.11）
-   *   ※ バックエンドの copyQuantityGroup レスポンス（QuantityGroupInfo）は items / surveyImage
-   *     を含まないため、ローカル差分更新ではなく再取得を採用する
-   * - API 失敗時はエラーメッセージを表示し、ボタンを再有効化する（REQ-38.10）
-   * - 409（楽観的排他競合）時は「他のユーザーが操作中です。再試行してください」を表示する
+   * - コピーはサーバー POST（copyQuantityGroup）ではなく reducer の `copyGroup`
+   *   アクションによるクライアントサイドのドラフト複製として行う（REQ-42.4）。
+   * - reducer 側で複製先を元グループの直下へ挿入し、後続グループの displayOrder を
+   *   シフトし、名前は「{元名}のコピー」（バックエンドと同一の幅切り詰め）として
+   *   配下項目を新規 tempId で複製する。surveyImageId は参照のみ引き継ぐ（REQ-38.13）。
+   * - 純粋なクライアント操作のため API 呼び出し・再取得・エラー処理は不要。
+   *   永続化は保存操作（Task 61.4）で行う。
+   * - 複製先グループ名は即座にインライン編集可能（REQ-22, rename ハンドラ対応済み）。
+   *
+   * @param groupKey - 対象グループの識別子（既存は id、新規は tempId）
    */
-  const handleCopyGroup = useCallback(
-    async (groupId: string) => {
-      // 重複押下防止（REQ-38.9）
-      if (copyingGroupIds.has(groupId)) return;
-
-      setOperationError(null);
-      setCopyingGroupIds((prev) => {
-        const next = new Set(prev);
-        next.add(groupId);
-        return next;
-      });
-
-      try {
-        await copyQuantityGroup(groupId);
-
-        // 数量表詳細を再取得して、複製先グループ・displayOrder シフト・全項目を反映
-        // （Task 61.2 でクライアント側ドラフト複製へ移行予定。現時点では既存API+再取得を維持し、
-        //  再取得結果でドラフトを再シードする）
-        if (id) {
-          const refreshed = await getQuantityTableDetail(id);
-          setSnapshot(refreshed);
-          setLinkedPhotoSummaries({});
-          dispatch({ type: 'load', detail: refreshed });
-        }
-      } catch (error) {
-        // 409 は楽観的排他競合（他ユーザー操作中）
-        if (error instanceof ApiError && error.statusCode === 409) {
-          setOperationError('他のユーザーが操作中です。再試行してください');
-        } else {
-          setOperationError('グループのコピーに失敗しました');
-        }
-      } finally {
-        setCopyingGroupIds((prev) => {
-          const next = new Set(prev);
-          next.delete(groupId);
-          return next;
-        });
-      }
-    },
-    [id, copyingGroupIds]
-  );
+  const handleCopyGroup = useCallback((groupKey: string) => {
+    setOperationError(null);
+    dispatch({ type: 'copyGroup', groupKey });
+  }, []);
 
   /**
    * 写真選択ダイアログを開く
@@ -1643,7 +1605,6 @@ export default function QuantityTableEditPage() {
                 onMoveGroupUp={handleMoveGroupUp}
                 onMoveGroupDown={handleMoveGroupDown}
                 onCopyGroup={handleCopyGroup}
-                isCopying={copyingGroupIds.has(group.id)}
               />
             </div>
           ))}
