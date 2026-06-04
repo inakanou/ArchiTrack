@@ -1646,7 +1646,7 @@
 
 - [ ] 62. 離脱ガード・未保存インジケーター・固定ヘッダー（REQ-43, 44, 45）
   - 注: 62.1〜62.3 はいずれも QuantityTableEditPage を編集する共有ファイルのため (P) 不可（直列）
-- [ ] 62.1 未保存変更時の離脱ガードを実装する
+- [x] 62.1 未保存変更時の離脱ガードを実装する
   - useBlocker(isDirty) でアプリ内遷移をブロックし、blocked 時に確認ダイアログ（既存 UnsavedChangesDialog パターン）を表示、承認で proceed・取消で reset する
   - 既存 useUnsavedChanges の beforeunload（enabled=isDirty）でタブクローズ/リロード時に標準確認を表示する。isDirty=false 時はガードせず、保存成功後はガードを解除する
   - 観測可能完了条件: 未保存変更時の画面遷移で確認が出て取消で留まり承認で遷移、リロード/タブクローズで標準確認が出る。保存後は確認が出ない

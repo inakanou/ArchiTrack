@@ -27,6 +27,19 @@ vi.mock('../api/survey-annotations');
 vi.mock('../services/export/QuantityTablePdfExportService');
 vi.mock('../services/export/PdfExportService');
 
+// useBlocker をモック（データルーターなしでテストするため。Task 62.1 離脱ガード対応）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
+
 // useAutocompleteCandidateStoreフックのモック
 const mockGetSuggestions = vi.fn().mockReturnValue([]);
 const mockAddCandidateOnBlur = vi.fn();

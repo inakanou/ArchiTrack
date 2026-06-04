@@ -22,6 +22,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+
+// useBlocker をモック（データルーターなしでテストするため。Task 62.1 離脱ガード対応）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
 // 30枚以上の写真を用意（全件レンダリング検証のため）
 // 注: vi.mock ファクトリはホイストされるため、生成ロジックはファクトリ内に持つ。
 //     テスト側で件数を参照できるよう PHOTO_COUNT は定数（リテラル）として共有する。

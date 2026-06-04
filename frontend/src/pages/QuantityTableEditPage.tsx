@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useReducer, useMemo, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useBlocker } from 'react-router-dom';
 import {
   getQuantityTableDetail,
   createQuantityItem,
@@ -35,6 +35,8 @@ import {
   type DraftItem,
 } from './quantityTableEditReducer';
 import { Breadcrumb } from '../components/common';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
@@ -468,6 +470,25 @@ export default function QuantityTableEditPage() {
     initialQuantityTableEditState
   );
   const draft = editState.draft;
+
+  // ==========================================================================
+  // Task 62.1: 未保存変更時の離脱ガード（REQ-43.1〜43.6）
+  // editState.isDirty が true の間のみガードする（REQ-43.5/43.6）。
+  // - アプリ内ナビゲーション: useBlocker(isDirty) でブロックし、blocked のとき
+  //   既存の UnsavedChangesDialog を表示。離脱→ proceed()、とどまる→ reset()
+  //   （REQ-43.1/43.3/43.4）。
+  // - タブクローズ/リロード: 既存 useUnsavedChanges の beforeunload ハンドラを
+  //   enabled: isDirty で有効化し標準確認を表示する（REQ-43.2）。
+  // 既存 CompanyInfoPage / ItemizedStatementDetailPage / SiteSurveyDetailPage の
+  // 確立済みパターンに準拠（design.md L166, L2129-2140）。
+  // ==========================================================================
+  const isDirty = editState.isDirty;
+
+  // タブクローズ/リロード時の beforeunload 標準確認（REQ-43.2）
+  useUnsavedChanges({ enabled: isDirty });
+
+  // アプリ内ナビゲーションのブロック（REQ-43.1）
+  const blocker = useBlocker(isDirty);
 
   // 数量表メタ情報（projectId / project / updatedAt 等、編集対象外の参照情報）と
   // 写真サマリ（surveyImage）の供給元として、最後にロード/保存したサーバースナップショットを保持する。
@@ -1833,6 +1854,13 @@ export default function QuantityTableEditPage() {
         isCreating={isCreatingFromSurvey}
         onConfirm={handleConfirmCreateFromSurvey}
         onClose={handleCloseSurveySelect}
+      />
+
+      {/* 未保存変更時の離脱確認ダイアログ (Task 62.1: REQ-43.1, 43.3, 43.4) */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={() => blocker.proceed?.()}
+        onStay={() => blocker.reset?.()}
       />
     </main>
   );
