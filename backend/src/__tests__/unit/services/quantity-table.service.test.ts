@@ -2182,5 +2182,129 @@ describe('QuantityTableService', () => {
       );
       expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
+
+    /**
+     * Task 59.3 で追加するカバレッジ補強テスト群。
+     *
+     * 59.1 の既存テストは「検証エラーで update/create が呼ばれない」ことまでは確認するが、
+     * 以下の 59.3 要件（保存中断の厳密さ・問題箇所の明示）は未検証のため補強する。
+     */
+
+    it('検証エラー時はトランザクション自体を開始しない（DB読み書きを一切行わない / REQ-42.9, 11.2）', async () => {
+      // Arrange: ロック判定に到達する前（=トランザクション開始前）に検証で中断されることを確認する。
+      // validateDraft は $transaction の外（トランザクション開始前）で実行される設計（design.md L939-941）。
+      // findUnique も含め DB アクセスは一切発生してはならない。
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: null,
+            name: 'グループ',
+            surveyImageId: null,
+            displayOrder: 0,
+            // 計算用列が空の AREA_VOLUME → 計算整合性エラー（REQ-11.3）
+            items: [
+              validItem({ id: null, calculationMethod: 'AREA_VOLUME', calculationParams: {} }),
+            ],
+          },
+        ],
+      };
+
+      // Act & Assert
+      await expect(service.saveDraft(quantityTableId, input, actorId)).rejects.toThrow(
+        QuantityTableValidationError
+      );
+      // トランザクションを開始していない（=部分反映の余地が一切ない）
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      // DB 読み取り（ロック判定の findUnique）も行われない
+      expect(mockPrisma.quantityTable.findUnique).not.toHaveBeenCalled();
+      // 監査ログも記録されない
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('検証エラーは問題箇所をフィールドパス付きで明示する（REQ-11.4）', async () => {
+      // Arrange: groups[0].items[0] の name が文字数上限超過
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: null,
+            name: 'グループ',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [validItem({ id: null, name: 'あ'.repeat(201) })],
+          },
+        ],
+      };
+
+      // Act & Assert: スローされた例外の validationErrors に問題箇所のパスが含まれる
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      const validationError = caught as QuantityTableValidationError;
+      // REQ-11.4: 問題箇所（どのグループのどの項目のどのフィールドか）を明示する
+      expect(validationError.validationErrors).toBeDefined();
+      expect(validationError.validationErrors).toHaveProperty('groups[0].items[0].name');
+      expect(validationError.validationErrors!['groups[0].items[0].name']).toEqual(
+        expect.any(String)
+      );
+    });
+
+    it('複数項目・複数フィールドの違反を集約して全て明示する（REQ-11.4 問題箇所の網羅明示）', async () => {
+      // Arrange: 異なるグループ・異なる項目で別種の違反を同時に発生させる
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: null,
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            // items[0]: 名称が上限超過（文字数違反）
+            items: [validItem({ id: null, name: 'あ'.repeat(201), displayOrder: 0 })],
+          },
+          {
+            id: null,
+            name: 'グループ2',
+            surveyImageId: null,
+            displayOrder: 1,
+            // items[0]: AREA_VOLUME だが計算用列が空（計算整合違反）
+            items: [
+              validItem({
+                id: null,
+                calculationMethod: 'AREA_VOLUME',
+                calculationParams: {},
+                displayOrder: 0,
+              }),
+            ],
+          },
+        ],
+      };
+
+      // Act & Assert
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      const validationError = caught as QuantityTableValidationError;
+      const keys = Object.keys(validationError.validationErrors ?? {});
+      // 1件目で打ち切らず、両グループの違反を集約して明示する
+      expect(keys).toEqual(expect.arrayContaining([expect.stringContaining('groups[0].items[0]')]));
+      expect(keys).toEqual(expect.arrayContaining([expect.stringContaining('groups[1].items[0]')]));
+      // いずれの場合も書き込みは行われない
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
   });
 });
