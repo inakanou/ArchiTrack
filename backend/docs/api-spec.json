@@ -7438,10 +7438,10 @@
         }
       }
     },
-    "/api/quantity-tables/{id}/bulk-save": {
+    "/api/quantity-tables/{id}/save": {
       "put": {
-        "summary": "数量表バルク保存",
-        "description": "数量表内の全項目を1回のリクエストで一括保存（楽観的排他制御は数量表レベルで実施）",
+        "summary": "数量表フル状態同期保存",
+        "description": "編集画面のクライアントサイド編集状態（数量表名・全グループ・全項目の最終状態）を 受領し、DB現状と差分比較して単一トランザクションで同期保存する（作成/更新/削除/並び替え）。 楽観的排他制御は expectedUpdatedAt で実施する。既存 bulk-save を統合・置換した 編集画面唯一の書き込みエンドポイント。",
         "tags": [
           "Quantity Tables"
         ],
@@ -7470,6 +7470,7 @@
                 "type": "object",
                 "required": [
                   "expectedUpdatedAt",
+                  "name",
                   "groups"
                 ],
                 "properties": {
@@ -7477,43 +7478,45 @@
                     "type": "string",
                     "format": "date-time"
                   },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
                   "groups": {
                     "type": "array",
                     "items": {
                       "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "surveyImageId",
+                        "displayOrder",
+                        "items"
+                      ],
                       "properties": {
                         "id": {
                           "type": "string",
-                          "format": "uuid"
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "tempId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "surveyImageId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "displayOrder": {
+                          "type": "integer"
                         },
                         "items": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "format": "uuid"
-                              },
-                              "majorCategory": {
-                                "type": "string"
-                              },
-                              "workType": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "unit": {
-                                "type": "string"
-                              },
-                              "quantity": {
-                                "type": "number"
-                              },
-                              "displayOrder": {
-                                "type": "integer"
-                              }
-                            }
+                            "type": "object"
                           }
                         }
                       }
@@ -7526,26 +7529,10 @@
         },
         "responses": {
           "200": {
-            "description": "バルク保存成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "updatedItemCount": {
-                      "type": "integer"
-                    },
-                    "updatedAt": {
-                      "type": "string",
-                      "format": "date-time"
-                    }
-                  }
-                }
-              }
-            }
+            "description": "フル状態同期保存成功（最新のQuantityTableDetailを返却）"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（リクエスト形式または整合性検証）"
           },
           "401": {
             "description": "認証エラー"
