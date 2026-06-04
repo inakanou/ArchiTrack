@@ -914,9 +914,9 @@ test.describe('REQ-42.4/42.6: 一括取り込みのクライアントサイド�
     await groupButton.click();
 
     // 取り込み完了メッセージ（クライアント反映済み）
-    await expect(
-      page.getByText(/件の数量項目を取り込みました/).first()
-    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page.getByText(/件の数量項目を取り込みました/).first()).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
     // ダイアログを閉じる
     const closeBtn = dialog.getByRole('button', { name: /閉じる|キャンセル/ }).last();
