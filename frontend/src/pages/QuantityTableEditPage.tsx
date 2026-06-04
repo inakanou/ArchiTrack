@@ -68,6 +68,14 @@ const styles = {
     alignItems: 'flex-start',
     marginBottom: '24px',
     gap: '16px',
+    // Task 62.3: ヘッダー操作ボタン群を垂直スクロール時も固定表示する（REQ-45.1, 45.2）。
+    // 祖先に overflow スクロールコンテナを持たない（main は padding のみ）前提で sticky を成立させ、
+    // 既存 EstimateDetailPage/SiteSurveyDetailPage の固定ヘッダーパターンに準拠する。
+    // 背景色は下層コンテンツが透けないよう付与し、zIndex で前面に固定する。
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 50,
+    backgroundColor: '#ffffff',
   } as React.CSSProperties,
   headerLeft: {
     display: 'flex',
@@ -1504,8 +1512,8 @@ export default function QuantityTableEditPage() {
         />
       </div>
 
-      {/* ヘッダー */}
-      <div style={styles.header}>
+      {/* ヘッダー（Task 62.3: sticky 固定。REQ-45.1, 45.2, 45.4） */}
+      <div style={styles.header} data-testid="quantity-table-edit-header">
         <div style={styles.headerLeft}>
           <Link
             to={`/projects/${renderTable.projectId}/quantity-tables`}

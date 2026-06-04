@@ -2508,4 +2508,74 @@ describe('QuantityTableEditPage', () => {
       });
     });
   });
+
+  // ====================================================================
+  // Task 62.3: ヘッダー操作ボタンの固定表示（REQ-45）
+  // jsdom は実スクロール固定を検証できないため、固定スタイルの付与と
+  // 操作ボタン群・未保存バッジがヘッダー内に存在することを検証する
+  // （実際のスクロール固定は E2E タスク 63.3 で検証する）。
+  // ====================================================================
+  describe('REQ 45: ヘッダー操作ボタンの固定表示', () => {
+    // REQ-45.1, 45.2: ヘッダーに position: sticky / top: 0 / zIndex / 背景を付与する
+    it('ヘッダーに sticky 固定スタイル（position/top/zIndex/背景）を付与する', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const header = screen.getByTestId('quantity-table-edit-header');
+      expect(header.style.position).toBe('sticky');
+      expect(header.style.top).toBe('0px');
+      // zIndex は他要素より前面に来るよう正の値を持つ
+      expect(Number(header.style.zIndex)).toBeGreaterThan(0);
+      // スクロール時に下層コンテンツが透けないよう背景色を持つ
+      expect(header.style.backgroundColor).not.toBe('');
+    });
+
+    // REQ-45.1, 45.2: 操作ボタン群が固定ヘッダー内に含まれる
+    it('操作ボタン群（インポート/PDF出力/保存/グループ追加/現場調査から一括追加）が固定ヘッダー内にある', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const header = screen.getByTestId('quantity-table-edit-header');
+      expect(header).toContainElement(screen.getByRole('button', { name: 'インポート' }));
+      expect(header).toContainElement(screen.getByRole('button', { name: 'PDF出力' }));
+      expect(header).toContainElement(screen.getByRole('button', { name: '保存' }));
+      expect(header).toContainElement(screen.getByRole('button', { name: 'グループを追加' }));
+      expect(header).toContainElement(
+        screen.getByTestId('bulk-create-from-survey-button')
+      );
+    });
+
+    // REQ-45.4: 未保存バッジが固定ヘッダー内に表示される
+    it('未保存バッジが固定ヘッダー内に表示される', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // 編集操作で未保存バッジを表示状態にする
+      const addButton = screen.getByRole('button', { name: 'グループを追加' });
+      await user.click(addButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+      });
+
+      const header = screen.getByTestId('quantity-table-edit-header');
+      expect(header).toContainElement(screen.getByText('未保存の変更があります'));
+    });
+  });
 });
