@@ -1,13 +1,22 @@
 /**
- * @fileoverview 数量表編集画面の「現場調査から一括追加」配線テスト
+ * @fileoverview 数量表編集画面の「現場調査から一括追加」配線テスト（クライアントサイドドラフト生成）
  *
- * Task 57.3: 数量表編集画面に一括生成ボタンとハンドラを配線する
+ * Task 61.3: 現場調査からの数量グループ一括生成をクライアントサイドドラフト化する
+ *
+ * REQ-42 適用後の動作:
+ * - 対象現場調査の写真一覧を参照系GET（getSiteSurvey）で取得する（REQ-42.10）
+ * - 写真枚数分の数量グループをクライアントサイドのドラフトへ生成する
+ *   （仮ID・連番命名「{現場調査名} {連番}」・写真順 surveyImageId 紐づけ・項目0件・末尾追加）
+ * - サーバー側 createGroupsFromSurvey（POST /from-survey）および詳細再取得は本フローで呼ばない（REQ-42.4）
  *
  * Requirements:
+ * - 42.4: 現場調査一括生成はクライアントサイドの編集状態にのみ反映し永続化APIを発行しない
  * - 40.1: 「現場調査から一括追加」操作で現場調査選択ダイアログを表示する
- * - 40.2: 当該プロジェクトの現場調査一覧（名前・写真件数）を選択肢として表示する
- * - 40.8: 紐づけた写真コメントは既存表示経路（REQ-21/35）に委譲する
- * - 40.11: 実行中インジケーター表示・重複実行防止
+ * - 40.3: 写真枚数と同数の数量グループを生成する
+ * - 40.4: 各グループに写真を写真順に1枚ずつ紐づける
+ * - 40.5: グループ名は「{現場調査名} {連番}」（連番は1から）
+ * - 40.7: 生成グループは既存グループの末尾に追加する
+ * - 40.9: 生成された数量グループは数量項目を持たない初期状態とする
  * - 40.13: 完了時に生成グループ数を含む完了メッセージを表示する
  */
 
@@ -18,12 +27,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
 import * as quantityTablesApi from '../../api/quantity-tables';
 import * as siteSurveysApi from '../../api/site-surveys';
-import { ApiError } from '../../api/client';
+import type { QuantityTableDetail } from '../../types/quantity-table.types';
 import type {
-  QuantityTableDetail,
-  CreateGroupsFromSurveyResult,
-} from '../../types/quantity-table.types';
-import type { PaginatedSiteSurveys } from '../../types/site-survey.types';
+  PaginatedSiteSurveys,
+  SiteSurveyDetail,
+  SurveyImageInfo,
+} from '../../types/site-survey.types';
 
 vi.mock('../../api/quantity-tables');
 vi.mock('../../api/site-surveys');
@@ -43,6 +52,7 @@ vi.mock('../../hooks/useAutocompleteCandidateStore', () => ({
 const mockGetQuantityTableDetail = vi.mocked(quantityTablesApi.getQuantityTableDetail);
 const mockCreateGroupsFromSurvey = vi.mocked(quantityTablesApi.createGroupsFromSurvey);
 const mockGetSiteSurveys = vi.mocked(siteSurveysApi.getSiteSurveys);
+const mockGetSiteSurvey = vi.mocked(siteSurveysApi.getSiteSurvey);
 
 // ============================================================================
 // テストフィクスチャ
@@ -101,93 +111,54 @@ const buildSurveyList = (): PaginatedSiteSurveys => ({
   pagination: { page: 1, limit: 100, total: 2, totalPages: 1 },
 });
 
-const buildCreateResult = (): CreateGroupsFromSurveyResult => ({
-  created: 2,
-  groups: [
-    {
-      id: 'group-s1-1',
-      quantityTableId: 'qt-123',
-      name: '現場調査1 1',
-      surveyImageId: 'img-1',
-      displayOrder: 1,
-      itemCount: 0,
-      createdAt: '2026-01-03T00:00:00Z',
-      updatedAt: '2026-01-03T00:00:00Z',
-    },
-    {
-      id: 'group-s1-2',
-      quantityTableId: 'qt-123',
-      name: '現場調査1 2',
-      surveyImageId: 'img-2',
-      displayOrder: 2,
-      itemCount: 0,
-      createdAt: '2026-01-03T00:00:00Z',
-      updatedAt: '2026-01-03T00:00:00Z',
-    },
+/** 現場調査画像（写真順は displayOrder 昇順で確定する） */
+const buildSurveyImage = (
+  overrides: Partial<SurveyImageInfo> & Pick<SurveyImageInfo, 'id' | 'displayOrder'>
+): SurveyImageInfo => ({
+  surveyId: 'survey-1',
+  originalPath: `orig/${overrides.id}.jpg`,
+  thumbnailPath: `thumb/${overrides.id}.jpg`,
+  originalUrl: `http://example.com/orig-${overrides.id}.jpg`,
+  thumbnailUrl: `http://example.com/thumb-${overrides.id}.jpg`,
+  fileName: `${overrides.id}.jpg`,
+  fileSize: 1000,
+  width: 800,
+  height: 600,
+  createdAt: '2026-01-01T00:00:00Z',
+  comment: null,
+  ...overrides,
+});
+
+const buildSurveyDetailWithPhotos = (): SiteSurveyDetail => ({
+  id: 'survey-1',
+  projectId: 'proj-456',
+  name: '現場調査1',
+  surveyDate: '2026-01-01',
+  memo: null,
+  thumbnailUrl: null,
+  imageCount: 2,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  project: { id: 'proj-456', name: 'テストプロジェクト' },
+  // 意図的に displayOrder の昇順と配列順をずらし、写真順（displayOrder）で紐づくことを検証する
+  images: [
+    buildSurveyImage({ id: 'img-2', displayOrder: 1, comment: null }),
+    buildSurveyImage({ id: 'img-1', displayOrder: 0, comment: 'コメント1' }),
   ],
 });
 
-const buildAfterCreateDetail = (): QuantityTableDetail => ({
-  id: 'qt-123',
+const buildSurveyDetailNoPhotos = (): SiteSurveyDetail => ({
+  id: 'survey-2',
   projectId: 'proj-456',
+  name: '写真なし調査',
+  surveyDate: '2026-01-02',
+  memo: null,
+  thumbnailUrl: null,
+  imageCount: 0,
+  createdAt: '2026-01-02T00:00:00Z',
+  updatedAt: '2026-01-02T00:00:00Z',
   project: { id: 'proj-456', name: 'テストプロジェクト' },
-  name: 'テスト数量表',
-  groupCount: 3,
-  itemCount: 0,
-  groups: [
-    {
-      id: 'group-a',
-      quantityTableId: 'qt-123',
-      name: '既存グループA',
-      surveyImageId: null,
-      surveyImage: null,
-      displayOrder: 0,
-      itemCount: 0,
-      items: [],
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-01T00:00:00Z',
-    },
-    {
-      id: 'group-s1-1',
-      quantityTableId: 'qt-123',
-      name: '現場調査1 1',
-      surveyImageId: 'img-1',
-      surveyImage: {
-        id: 'img-1',
-        thumbnailUrl: 'http://example.com/thumb1.jpg',
-        originalUrl: 'http://example.com/orig1.jpg',
-        fileName: 'photo1.jpg',
-        hasAnnotations: false,
-        comment: 'コメント1',
-      },
-      displayOrder: 1,
-      itemCount: 0,
-      items: [],
-      createdAt: '2026-01-03T00:00:00Z',
-      updatedAt: '2026-01-03T00:00:00Z',
-    },
-    {
-      id: 'group-s1-2',
-      quantityTableId: 'qt-123',
-      name: '現場調査1 2',
-      surveyImageId: 'img-2',
-      surveyImage: {
-        id: 'img-2',
-        thumbnailUrl: 'http://example.com/thumb2.jpg',
-        originalUrl: 'http://example.com/orig2.jpg',
-        fileName: 'photo2.jpg',
-        hasAnnotations: false,
-        comment: null,
-      },
-      displayOrder: 2,
-      itemCount: 0,
-      items: [],
-      createdAt: '2026-01-03T00:00:00Z',
-      updatedAt: '2026-01-03T00:00:00Z',
-    },
-  ],
-  createdAt: '2026-01-01T00:00:00Z',
-  updatedAt: '2026-01-03T00:00:00Z',
+  images: [],
 });
 
 function renderWithRouter() {
@@ -210,7 +181,7 @@ async function waitForLoaded() {
 // テストケース
 // ============================================================================
 
-describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 57.3)', () => {
+describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 61.3 クライアントサイドドラフト)', () => {
   const user = userEvent.setup();
 
   beforeEach(() => {
@@ -234,11 +205,10 @@ describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 57.
     expect(screen.getByText('写真 0 件')).toBeInTheDocument();
   });
 
-  it('現場調査を選択して実行すると生成APIが呼ばれ、生成グループが末尾に表示され完了メッセージが出る', async () => {
+  it('現場調査を選択して実行すると参照系GETで写真一覧を取得し、写真順に末尾へグループをドラフト生成する（サーバー生成APIは呼ばない）', async () => {
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
     mockGetSiteSurveys.mockResolvedValue(buildSurveyList());
-    mockCreateGroupsFromSurvey.mockResolvedValue(buildCreateResult());
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildAfterCreateDetail());
+    mockGetSiteSurvey.mockResolvedValue(buildSurveyDetailWithPhotos());
     renderWithRouter();
     await waitForLoaded();
 
@@ -248,27 +218,46 @@ describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 57.
     await user.click(await screen.findByTestId('survey-select-option-survey-1'));
     await user.click(screen.getByTestId('survey-select-dialog-confirm'));
 
+    // 参照系GETで対象現場調査の写真一覧を取得する（REQ-42.10）
     await waitFor(() => {
-      expect(mockCreateGroupsFromSurvey).toHaveBeenCalledWith('qt-123', 'survey-1');
+      expect(mockGetSiteSurvey).toHaveBeenCalledWith('survey-1');
     });
 
-    // 再取得が走り、生成グループ（写真・コメント付き）が末尾に表示される（REQ-40.8 既存表示経路）
-    await waitFor(() => {
-      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(2);
-    });
+    // 生成グループ（写真枚数分）が既存グループの末尾に表示される（REQ-40.3, 40.7）
     const groupSections = await screen.findAllByTestId('quantity-group');
     expect(groupSections).toHaveLength(3);
+    // 連番命名「{現場調査名} {連番}」（REQ-40.5）
     expect(screen.getByText('現場調査1 1')).toBeInTheDocument();
     expect(screen.getByText('現場調査1 2')).toBeInTheDocument();
 
     // 完了メッセージ（生成グループ数を含む）（REQ-40.13）
     expect(await screen.findByText('2件のグループを生成しました')).toBeInTheDocument();
+
+    // サーバー側生成API・詳細再取得は本フローで呼ばれない（REQ-42.4）
+    expect(mockCreateGroupsFromSurvey).not.toHaveBeenCalled();
+    expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
   });
 
-  it('写真0枚（created:0）の場合は「写真が存在しません」メッセージを表示する', async () => {
+  it('紐づけ写真のコメントが既存表示経路で表示される（REQ-40.8 / 21/35）', async () => {
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
     mockGetSiteSurveys.mockResolvedValue(buildSurveyList());
-    mockCreateGroupsFromSurvey.mockResolvedValue({ created: 0, groups: [] });
+    mockGetSiteSurvey.mockResolvedValue(buildSurveyDetailWithPhotos());
+    renderWithRouter();
+    await waitForLoaded();
+
+    await user.click(screen.getByTestId('bulk-create-from-survey-button'));
+    await screen.findByTestId('survey-select-dialog');
+    await user.click(await screen.findByTestId('survey-select-option-survey-1'));
+    await user.click(screen.getByTestId('survey-select-dialog-confirm'));
+
+    // img-1（displayOrder 0、写真順で先頭）のコメントが表示される
+    expect(await screen.findByText('コメント1')).toBeInTheDocument();
+  });
+
+  it('写真0枚の場合は「写真が存在しません」を表示しグループを生成しない', async () => {
+    mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
+    mockGetSiteSurveys.mockResolvedValue(buildSurveyList());
+    mockGetSiteSurvey.mockResolvedValue(buildSurveyDetailNoPhotos());
     renderWithRouter();
     await waitForLoaded();
 
@@ -280,20 +269,17 @@ describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 57.
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('写真が存在しません');
     });
-    // グループは生成されない（再取得は走らない）
-    expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
+    // グループは生成されない（既存1件のまま）
+    const groupSections = await screen.findAllByTestId('quantity-group');
+    expect(groupSections).toHaveLength(1);
+    // サーバー生成APIは呼ばれない
+    expect(mockCreateGroupsFromSurvey).not.toHaveBeenCalled();
   });
 
-  it('生成中はボタンが disabled になり、重複実行が防止される', async () => {
+  it('生成された数量グループは数量項目を持たない初期状態である（REQ-40.9）', async () => {
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
     mockGetSiteSurveys.mockResolvedValue(buildSurveyList());
-    let resolveCreate: ((value: CreateGroupsFromSurveyResult) => void) | null = null;
-    mockCreateGroupsFromSurvey.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveCreate = resolve;
-        })
-    );
+    mockGetSiteSurvey.mockResolvedValue(buildSurveyDetailWithPhotos());
     renderWithRouter();
     await waitForLoaded();
 
@@ -302,46 +288,15 @@ describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 57.
     await user.click(await screen.findByTestId('survey-select-option-survey-1'));
     await user.click(screen.getByTestId('survey-select-dialog-confirm'));
 
-    // 生成中: 確定ボタンが disabled（インジケーター表示）
-    await waitFor(() => {
-      expect(screen.getByTestId('survey-select-dialog-confirm')).toBeDisabled();
-    });
-
-    // 重複実行を試みても API は1回のみ
-    await user.click(screen.getByTestId('survey-select-dialog-confirm'));
-    expect(mockCreateGroupsFromSurvey).toHaveBeenCalledTimes(1);
-
-    // Cleanup
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildAfterCreateDetail());
-    resolveCreate!(buildCreateResult());
-    await waitFor(() => {
-      expect(screen.getByText('現場調査1 1')).toBeInTheDocument();
-    });
+    await screen.findByText('現場調査1 1');
+    // 既存グループA（項目0件）＋生成2グループ（いずれも項目0件）→ 数量項目行は0件
+    expect(screen.queryAllByTestId('quantity-item-row')).toHaveLength(0);
   });
 
-  it('409 レスポンス時に再試行案内メッセージを表示する', async () => {
+  it('写真一覧の取得（参照系GET）に失敗した場合は失敗メッセージを表示する', async () => {
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
     mockGetSiteSurveys.mockResolvedValue(buildSurveyList());
-    mockCreateGroupsFromSurvey.mockRejectedValue(new ApiError(409, 'Conflict'));
-    renderWithRouter();
-    await waitForLoaded();
-
-    await user.click(screen.getByTestId('bulk-create-from-survey-button'));
-    await screen.findByTestId('survey-select-dialog');
-    await user.click(await screen.findByTestId('survey-select-option-survey-1'));
-    await user.click(screen.getByTestId('survey-select-dialog-confirm'));
-
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        '他のユーザーが操作中です。再試行してください'
-      );
-    });
-  });
-
-  it('一般エラー時に失敗メッセージを表示する', async () => {
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    mockGetSiteSurveys.mockResolvedValue(buildSurveyList());
-    mockCreateGroupsFromSurvey.mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+    mockGetSiteSurvey.mockRejectedValue(new Error('network error'));
     renderWithRouter();
     await waitForLoaded();
 
@@ -353,5 +308,8 @@ describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 57.
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('現場調査からの一括生成に失敗しました');
     });
+    // 不完全な生成データを残さない（既存1件のまま）（REQ-40.12）
+    const groupSections = await screen.findAllByTestId('quantity-group');
+    expect(groupSections).toHaveLength(1);
   });
 });

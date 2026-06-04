@@ -15,9 +15,7 @@ import {
   getQuantityTableDetail,
   createQuantityItem,
   bulkSaveQuantityTable,
-  createGroupsFromSurvey,
 } from '../api/quantity-tables';
-import { ApiError } from '../api/client';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import { getAnnotation } from '../api/survey-annotations';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
@@ -1261,19 +1259,24 @@ export default function QuantityTableEditPage() {
   }, [isCreatingFromSurvey]);
 
   /**
-   * 現場調査からの一括生成を確定するハンドラ
+   * 現場調査からの一括生成を確定するハンドラ（クライアントサイドドラフト生成）
    *
-   * Task 57.3
-   * Requirements: 40.8, 40.11, 40.13
+   * Task 61.3
+   * Requirements: 42.4, 40.3, 40.4, 40.5, 40.7, 40.9, 40.13
    *
-   * - 実行中インジケーター表示・重複実行防止（REQ-40.11、isCreatingFromSurvey）
-   * - 写真0枚（created: 0）の場合は「写真が存在しません」メッセージを表示する（REQ-40.10）
-   * - 成功時は生成グループ数を含む完了メッセージを表示する（REQ-40.13）
-   * - 生成グループをローカルステート末尾に反映する。`QuantityGroupInfo` は
-   *   items / surveyImage を含まないため、写真・コメントを既存の表示経路
-   *   （REQ-21/35 のコメント表示ロジック、REQ-40.8）に正しく乗せるべく
-   *   数量表詳細を再取得して反映する（handleCopyGroup と同一方針）
-   * - 失敗時はエラーメッセージ、409（楽観的排他競合）時は再試行案内を表示する（REQ-40.12）
+   * REQ-42 適用後の動作:
+   * - 対象現場調査の写真一覧を参照系GET（getSiteSurvey）で取得する（REQ-42.10 の制約対象外）。
+   * - 写真枚数分の数量グループをクライアントサイドのドラフトへ生成する。
+   *   採番・連番命名「{現場調査名} {連番}」・写真順 surveyImageId 紐づけ・項目0件・末尾追加は
+   *   reducer の `generateGroupsFromSurvey` が担当する（REQ-40.3/40.4/40.5/40.7/40.9）。
+   * - 永続化を目的とするサーバーAPI（POST /from-survey）および詳細再取得は本フローで呼ばない（REQ-42.4）。
+   * - 写真の表示順は `displayOrder` 昇順を正とし、その順序で surveyImageId を渡す。
+   * - 紐づけ写真のコメント・サムネイルを既存の表示経路（renderTable の linkedPhotoSummaries 経由、
+   *   REQ-21/35、REQ-40.8）に乗せるため、写真サマリを linkedPhotoSummaries へ登録する。
+   * - 実行中インジケーター表示・重複実行防止（REQ-40.11、isCreatingFromSurvey）。
+   * - 写真0枚の場合は「写真が存在しません」メッセージを表示しグループを生成しない（REQ-40.10）。
+   * - 成功時は生成グループ数を含む完了メッセージを表示する（REQ-40.13）。
+   * - 失敗時はエラーメッセージを表示し、不完全な生成データを残さない（REQ-40.12）。
    */
   const handleConfirmCreateFromSurvey = useCallback(
     async (siteSurveyId: string) => {
@@ -1283,35 +1286,52 @@ export default function QuantityTableEditPage() {
       setOperationError(null);
 
       try {
-        const result = await createGroupsFromSurvey(id, siteSurveyId);
+        // 参照系GETで対象現場調査の写真一覧を取得する（REQ-42.10、永続化を伴わない）
+        const surveyDetail = await getSiteSurvey(siteSurveyId);
+        // 写真順は displayOrder 昇順を正とする（REQ-40.4）
+        const orderedImages = [...surveyDetail.images].sort(
+          (a, b) => a.displayOrder - b.displayOrder
+        );
 
-        if (result.created === 0) {
-          // 写真0枚: グループは生成されない（REQ-40.10）
+        if (orderedImages.length === 0) {
+          // 写真0枚: グループは生成しない（REQ-40.10）
           setOperationError('写真が存在しません');
           return;
         }
 
-        // 生成グループを末尾に反映するため数量表詳細を再取得する
-        // （surveyImage・コメントを既存の表示経路に乗せる、REQ-40.8）
-        // Task 61.3 でクライアント側ドラフト生成へ移行予定。現時点では既存API+再取得を維持し、
-        // 再取得結果でドラフトを再シードする。
-        const refreshed = await getQuantityTableDetail(id);
-        setSnapshot(refreshed);
-        setLinkedPhotoSummaries({});
-        dispatch({ type: 'load', detail: refreshed });
+        // 紐づけ写真のサマリ（サムネイル・コメント等）を既存表示経路へ供給する（REQ-40.8）
+        setLinkedPhotoSummaries((prev) => {
+          const next = { ...prev };
+          for (const img of orderedImages) {
+            next[img.id] = {
+              id: img.id,
+              thumbnailUrl: img.thumbnailUrl || img.originalUrl || '',
+              originalUrl: img.originalUrl || '',
+              fileName: img.fileName,
+              hasAnnotations: !!img.annotatedThumbnailUrl,
+              annotatedThumbnailUrl: img.annotatedThumbnailUrl ?? null,
+              comment: img.comment ?? null,
+            };
+          }
+          return next;
+        });
+
+        // クライアントサイドのドラフトへ写真枚数分のグループを生成する（REQ-42.4）
+        const surveyImageIds = orderedImages.map((img) => img.id);
+        dispatch({
+          type: 'generateGroupsFromSurvey',
+          surveyName: surveyDetail.name,
+          surveyImageIds,
+        });
 
         setIsSurveySelectDialogOpen(false);
         setSurveyOptions([]);
 
-        setSaveMessage(`${result.created}件のグループを生成しました`);
+        setSaveMessage(`${surveyImageIds.length}件のグループを生成しました`);
         setTimeout(() => setSaveMessage(null), 3000);
-      } catch (error) {
-        // 409 は楽観的排他競合（他ユーザー操作中）
-        if (error instanceof ApiError && error.statusCode === 409) {
-          setOperationError('他のユーザーが操作中です。再試行してください');
-        } else {
-          setOperationError('現場調査からの一括生成に失敗しました');
-        }
+      } catch {
+        // 写真一覧取得失敗等。ドラフトは未変更のままで不完全データを残さない（REQ-40.12）
+        setOperationError('現場調査からの一括生成に失敗しました');
       } finally {
         setIsCreatingFromSurvey(false);
       }
