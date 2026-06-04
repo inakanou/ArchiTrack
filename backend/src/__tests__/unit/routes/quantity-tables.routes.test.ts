@@ -55,6 +55,7 @@ describe('QuantityTablesRoutes', () => {
     update: Mock;
     delete: Mock;
     copy: Mock;
+    saveDraft: Mock;
   };
 
   beforeEach(async () => {
@@ -69,6 +70,7 @@ describe('QuantityTablesRoutes', () => {
       update: vi.fn(),
       delete: vi.fn(),
       copy: vi.fn(),
+      saveDraft: vi.fn(),
     };
 
     MockQuantityTableService.mockImplementation(() => mockService);
@@ -106,6 +108,7 @@ describe('QuantityTablesRoutes', () => {
         update = mockService.update;
         delete = mockService.delete;
         copy = mockService.copy;
+        saveDraft = mockService.saveDraft;
       },
     }));
 
@@ -452,6 +455,244 @@ describe('QuantityTablesRoutes', () => {
         .post(`/api/quantity-tables/invalid-id/copy`)
         .send({ name: 'コピー名' })
         .expect(400);
+    });
+  });
+
+  /**
+   * Task 59.2: フル状態同期保存APIエンドポイントテスト（PUT /:id/save）
+   *
+   * 既存 bulk-save ルートを統合・置換した新エンドポイント。
+   *
+   * Requirements:
+   * - 42.5: 保存操作時に全変更を一括永続化する
+   * - 42.8: 保存正常完了時に最新データを返却し画面・編集状態を同期する
+   * - 42.9: 整合性/サーバーエラー時はエラーを返し未保存状態を保持可能とする
+   */
+  describe('PUT /api/quantity-tables/:id/save', () => {
+    const tableId = '123e4567-e89b-12d3-a456-426614174001';
+
+    /** 妥当なフル状態同期保存リクエストボディを生成する */
+    const buildSaveBody = () => ({
+      expectedUpdatedAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+      name: '編集後の数量表名',
+      groups: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174010',
+          name: 'グループA',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [
+            {
+              id: '123e4567-e89b-12d3-a456-426614174020',
+              majorCategory: '大項目',
+              middleCategory: null,
+              minorCategory: null,
+              customCategory: null,
+              workType: '工種',
+              name: '項目名',
+              specification: null,
+              unit: 'm2',
+              calculationMethod: 'STANDARD',
+              calculationParams: null,
+              adjustmentFactor: 1,
+              roundingUnit: 1,
+              quantity: 10,
+              remarks: null,
+              displayOrder: 0,
+            },
+          ],
+        },
+        {
+          // 新規グループ（id=null / tempId 付き）に新規項目を含む
+          id: null,
+          tempId: 'tmp-group-1',
+          name: '新規グループ',
+          surveyImageId: null,
+          displayOrder: 1,
+          items: [
+            {
+              id: null,
+              tempId: 'tmp-item-1',
+              majorCategory: null,
+              middleCategory: null,
+              minorCategory: null,
+              customCategory: null,
+              workType: '工種2',
+              name: '新規項目',
+              specification: null,
+              unit: 'm',
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 2, height: 3 },
+              adjustmentFactor: 1.1,
+              roundingUnit: 0.1,
+              quantity: 6,
+              remarks: null,
+              displayOrder: 0,
+            },
+          ],
+        },
+      ],
+    });
+
+    it('正常時に200で最新のQuantityTableDetailを返却する（Req 42.5, 42.8）', async () => {
+      const body = buildSaveBody();
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      mockService.saveDraft.mockResolvedValue(latestDetail);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(body)
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        id: tableId,
+        name: '編集後の数量表名',
+      });
+      // saveDraft(id, input, actorId) のシグネチャで呼び出される
+      expect(mockService.saveDraft).toHaveBeenCalledWith(
+        tableId,
+        expect.objectContaining({
+          expectedUpdatedAt: body.expectedUpdatedAt,
+          name: '編集後の数量表名',
+          groups: expect.any(Array),
+        }),
+        'test-user-id'
+      );
+    });
+
+    it('バリデーションエラー（整合性検証）時に400を返却する（Req 42.9）', async () => {
+      const { QuantityTableValidationError } =
+        await import('../../../errors/quantityTableError.js');
+      mockService.saveDraft.mockRejectedValue(
+        new QuantityTableValidationError('整合性エラー', { 'groups.0.items.0.quantity': '不正' })
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(400);
+
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+    });
+
+    it('リクエストボディが不正な場合（Zod検証失敗）400を返却する', async () => {
+      // expectedUpdatedAt 欠落
+      await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send({ name: 'x', groups: [] })
+        .expect(400);
+    });
+
+    it('数量表が存在しない場合404を返却する（Req 42.9）', async () => {
+      const { QuantityTableNotFoundError } = await import('../../../errors/quantityTableError.js');
+      mockService.saveDraft.mockRejectedValue(new QuantityTableNotFoundError(tableId));
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(404);
+
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+    });
+
+    it('expectedUpdatedAt競合時に409を返却する（Req 42.9）', async () => {
+      const { QuantityTableConflictError } = await import('../../../errors/quantityTableError.js');
+      mockService.saveDraft.mockRejectedValue(
+        new QuantityTableConflictError('競合エラー', { detail: 'test' })
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(409);
+
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
+    });
+
+    it('認証なしの場合401を返却する', async () => {
+      // authenticate ミドルウェアが401で応答する
+      mockAuthenticate.mockImplementationOnce((_req, res) => {
+        res.status(401).json({ status: 401, code: 'UNAUTHORIZED' });
+      });
+
+      await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(401);
+
+      expect(mockService.saveDraft).not.toHaveBeenCalled();
+    });
+
+    it('権限がない場合403を返却する', async () => {
+      // requirePermission はルート登録時（モジュール読み込み時）に評価されるため、
+      // 既定実装を403応答に差し替えてからルートを再構築する
+      mockRequirePermission.mockImplementation(
+        () => (_req: unknown, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
+          res.status(403).json({ status: 403, code: 'FORBIDDEN' });
+        }
+      );
+
+      // requirePermission はモジュール読み込み時に評価されるためルートを再構築する
+      vi.resetModules();
+      vi.doMock('../../../db.js', () => ({ default: vi.fn(() => ({})) }));
+      vi.doMock('../../../services/audit-log.service.js', () => ({
+        AuditLogService: class MockAuditLogService {
+          createLog = vi.fn().mockResolvedValue(undefined);
+        },
+      }));
+      vi.doMock('../../../services/quantity-table.service.js', () => ({
+        QuantityTableService: class MockQuantityTableService {
+          create = mockService.create;
+          findById = mockService.findById;
+          findByProjectId = mockService.findByProjectId;
+          findLatestByProjectId = mockService.findLatestByProjectId;
+          update = mockService.update;
+          delete = mockService.delete;
+          copy = mockService.copy;
+          saveDraft = mockService.saveDraft;
+        },
+      }));
+      vi.doMock('../../../middleware/authenticate.middleware.js', () => ({
+        authenticate: mockAuthenticate,
+      }));
+      vi.doMock('../../../middleware/authorize.middleware.js', () => ({
+        requirePermission: mockRequirePermission,
+      }));
+
+      const { default: freshRoutes } = await import('../../../routes/quantity-tables.routes.js');
+      const freshApp = express();
+      freshApp.use(express.json());
+      freshApp.use('/api/quantity-tables', freshRoutes);
+
+      await request(freshApp)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(403);
+
+      expect(mockService.saveDraft).not.toHaveBeenCalled();
+    });
+
+    it('IDがUUID形式でない場合400を返却する', async () => {
+      await request(app)
+        .put(`/api/quantity-tables/invalid-id/save`)
+        .send(buildSaveBody())
+        .expect(400);
+    });
+
+    it('bulk-save ルートは廃止され存在しない（統合・置換）', async () => {
+      // 旧 /:id/bulk-save は本エンドポイントへ統合・置換されたため到達不能（404）
+      await request(app)
+        .put(`/api/quantity-tables/${tableId}/bulk-save`)
+        .send({ expectedUpdatedAt: new Date().toISOString(), groups: [] })
+        .expect(404);
     });
   });
 });

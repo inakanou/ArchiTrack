@@ -1561,7 +1561,7 @@
   - _Requirements: 42.5, 42.8, 42.9, 11.1, 11.2, 11.3, 11.4_
   - _Boundary: QuantityTableService_
 
-- [ ] 59.2 フル状態同期保存 API ルートを実装する
+- [x] 59.2 フル状態同期保存 API ルートを実装する
   - PUT /api/quantity-tables/:id/save ルートを追加し、既存の書き込み系と同一の requirePermission('quantity_table:update') を適用する
   - リクエストボディ（expectedUpdatedAt・name・groups[全状態]）を Zod で検証する
   - サービスを呼び出し、例外を 400 / 403 / 404 / 409 に正しくマッピングし、成功時に最新詳細を返す。既存 PUT /:id/bulk-save を本ルートへ置換する

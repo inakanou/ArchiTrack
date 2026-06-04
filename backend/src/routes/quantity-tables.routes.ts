@@ -32,8 +32,10 @@ import {
 import {
   QuantityTableNotFoundError,
   QuantityTableConflictError,
+  QuantityTableValidationError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
+import type { SaveQuantityTableDraftInput } from '../services/quantity-table.service.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
@@ -76,41 +78,63 @@ const updateQuantityTableRequestSchema = updateQuantityTableSchema.extend({
 });
 
 /**
- * バルク保存用の項目スキーマ
+ * フル状態同期保存（saveDraft）用の項目スキーマ
+ *
+ * Field Specifications 準拠の全フィールド（大項目〜備考、計算用フィールド、
+ * 調整係数、丸め設定）と表示順を保持する。既存=UUID / 新規=null。
+ * 新規項目はクライアント仮ID（tempId）を任意で付与できる。
+ *
+ * Requirements: 42.5
  */
-const bulkSaveItemSchema = z.object({
-  id: z.string().uuid('項目IDの形式が不正です'),
-  majorCategory: z.string().max(100).nullable().optional(),
-  middleCategory: z.string().max(100).nullable().optional(),
-  minorCategory: z.string().max(100).nullable().optional(),
-  customCategory: z.string().max(100).nullable().optional(),
-  workType: z.string().max(100).optional(),
-  name: z.string().max(200).optional(),
-  specification: z.string().max(500).nullable().optional(),
-  unit: z.string().max(50).optional(),
-  calculationMethod: z.enum(['STANDARD', 'AREA_VOLUME', 'PITCH']).optional(),
-  calculationParams: z.record(z.string(), z.number()).nullable().optional(),
-  adjustmentFactor: z.number().positive().optional(),
-  roundingUnit: z.number().positive().optional(),
-  quantity: z.number().optional(),
-  remarks: z.string().nullable().optional(),
-  displayOrder: z.number().int().min(0).optional(),
+const saveDraftItemSchema = z.object({
+  id: z.string().uuid('項目IDの形式が不正です').nullable(),
+  tempId: z.string().optional(),
+  majorCategory: z.string().max(100).nullable(),
+  middleCategory: z.string().max(100).nullable(),
+  minorCategory: z.string().max(100).nullable(),
+  customCategory: z.string().max(100).nullable(),
+  workType: z.string().max(100),
+  name: z.string().max(200),
+  specification: z.string().max(500).nullable(),
+  unit: z.string().max(50),
+  calculationMethod: z.enum(['STANDARD', 'AREA_VOLUME', 'PITCH']),
+  calculationParams: z.record(z.string(), z.number()).nullable(),
+  adjustmentFactor: z.number().positive(),
+  roundingUnit: z.number().positive(),
+  quantity: z.number(),
+  remarks: z.string().nullable(),
+  displayOrder: z.number().int().min(0),
 });
 
 /**
- * バルク保存用のグループスキーマ
+ * フル状態同期保存（saveDraft）用のグループスキーマ
+ *
+ * 既存=UUID / 新規=null。新規グループはクライアント仮ID（tempId）を任意で付与できる。
+ * 写真紐づけ（surveyImageId）は参照のみ。
+ *
+ * Requirements: 42.5
  */
-const bulkSaveGroupSchema = z.object({
-  id: z.string().uuid('グループIDの形式が不正です'),
-  items: z.array(bulkSaveItemSchema),
+const saveDraftGroupSchema = z.object({
+  id: z.string().uuid('グループIDの形式が不正です').nullable(),
+  tempId: z.string().optional(),
+  name: z.string().max(200),
+  surveyImageId: z.string().uuid('写真IDの形式が不正です').nullable(),
+  displayOrder: z.number().int().min(0),
+  items: z.array(saveDraftItemSchema),
 });
 
 /**
- * バルク保存リクエストボディスキーマ
+ * フル状態同期保存（saveDraft）リクエストボディスキーマ
+ *
+ * 数量表名・全グループ・全項目の最終状態（表示順）と楽観ロック用の
+ * expectedUpdatedAt を保持する。既存 bulk-save スキーマを統合・置換する。
+ *
+ * Requirements: 42.5, 42.8
  */
-const bulkSaveRequestSchema = z.object({
+const saveQuantityTableDraftSchema = z.object({
   expectedUpdatedAt: z.string().datetime({ message: '日時の形式が不正です' }),
-  groups: z.array(bulkSaveGroupSchema),
+  name: z.string().max(200),
+  groups: z.array(saveDraftGroupSchema),
 });
 
 /**
@@ -578,10 +602,14 @@ router.put(
 
 /**
  * @swagger
- * /api/quantity-tables/{id}/bulk-save:
+ * /api/quantity-tables/{id}/save:
  *   put:
- *     summary: 数量表バルク保存
- *     description: 数量表内の全項目を1回のリクエストで一括保存（楽観的排他制御は数量表レベルで実施）
+ *     summary: 数量表フル状態同期保存
+ *     description: >-
+ *       編集画面のクライアントサイド編集状態（数量表名・全グループ・全項目の最終状態）を
+ *       受領し、DB現状と差分比較して単一トランザクションで同期保存する（作成/更新/削除/並び替え）。
+ *       楽観的排他制御は expectedUpdatedAt で実施する。既存 bulk-save を統合・置換した
+ *       編集画面唯一の書き込みエンドポイント。
  *     tags:
  *       - Quantity Tables
  *     security:
@@ -602,54 +630,49 @@ router.put(
  *             type: object
  *             required:
  *               - expectedUpdatedAt
+ *               - name
  *               - groups
  *             properties:
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
+ *               name:
+ *                 type: string
+ *                 maxLength: 200
  *               groups:
  *                 type: array
  *                 items:
  *                   type: object
+ *                   required:
+ *                     - id
+ *                     - name
+ *                     - surveyImageId
+ *                     - displayOrder
+ *                     - items
  *                   properties:
  *                     id:
  *                       type: string
  *                       format: uuid
+ *                       nullable: true
+ *                     tempId:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     surveyImageId:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                     displayOrder:
+ *                       type: integer
  *                     items:
  *                       type: array
  *                       items:
  *                         type: object
- *                         properties:
- *                           id:
- *                             type: string
- *                             format: uuid
- *                           majorCategory:
- *                             type: string
- *                           workType:
- *                             type: string
- *                           name:
- *                             type: string
- *                           unit:
- *                             type: string
- *                           quantity:
- *                             type: number
- *                           displayOrder:
- *                             type: integer
  *     responses:
  *       200:
- *         description: バルク保存成功
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 updatedItemCount:
- *                   type: integer
- *                 updatedAt:
- *                   type: string
- *                   format: date-time
+ *         description: フル状態同期保存成功（最新のQuantityTableDetailを返却）
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（リクエスト形式または整合性検証）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -660,53 +683,30 @@ router.put(
  *         description: 楽観的排他制御エラー（競合）
  */
 router.put(
-  '/:id/bulk-save',
+  '/:id/save',
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityTableIdParamSchema, 'params'),
-  validate(bulkSaveRequestSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  validate(saveQuantityTableDraftSchema, 'body'),
+  async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
-      const { expectedUpdatedAt, groups } = req.validatedBody as {
-        expectedUpdatedAt: string;
-        groups: Array<{
-          id: string;
-          items: Array<{
-            id: string;
-            majorCategory?: string | null;
-            middleCategory?: string | null;
-            minorCategory?: string | null;
-            customCategory?: string | null;
-            workType?: string;
-            name?: string;
-            specification?: string | null;
-            unit?: string;
-            calculationMethod?: 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
-            calculationParams?: Record<string, number> | null;
-            adjustmentFactor?: number;
-            roundingUnit?: number;
-            quantity?: number;
-            remarks?: string | null;
-            displayOrder?: number;
-          }>;
-        }>;
-      };
+      // Zod 検証済みボディは SaveQuantityTableDraftInput と構造一致する
+      const input = req.validatedBody as SaveQuantityTableDraftInput;
 
-      const result = await quantityTableService.bulkSave(
-        id,
-        { groups },
-        actorId,
-        new Date(expectedUpdatedAt)
-      );
+      const quantityTable = await quantityTableService.saveDraft(id, input, actorId);
 
       logger.info(
-        { userId: actorId, quantityTableId: id, updatedItemCount: result.updatedItemCount },
-        'Quantity table bulk saved successfully'
+        {
+          userId: actorId,
+          quantityTableId: id,
+          groupCount: input.groups.length,
+        },
+        'Quantity table draft saved successfully'
       );
 
-      res.json(result);
+      res.json(quantityTable);
     } catch (error) {
       if (error instanceof QuantityTableNotFoundError) {
         res.status(404).json({
@@ -730,7 +730,31 @@ router.put(
         });
         return;
       }
-      next(error);
+      if (error instanceof QuantityTableValidationError) {
+        // 整合性検証エラー（文字数・数値範囲・計算整合）。問題箇所を明示する（REQ-11.4, 42.9）
+        const validationDetails = error.details as Record<string, unknown> | undefined;
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/quantity-table-validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+          ...(validationDetails ?? {}),
+        });
+        return;
+      }
+      // 予期しないエラー（トランザクションエラー含む）は500として返却（REQ-42.9）
+      logger.error(
+        { error, quantityTableId: (req.validatedParams as { id?: string })?.id },
+        'Failed to save quantity table draft'
+      );
+      res.status(500).json({
+        type: 'https://architrack.example.com/problems/internal-server-error',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: '保存処理中にエラーが発生しました',
+        code: 'QUANTITY_TABLE_SAVE_ERROR',
+      });
     }
   }
 );
