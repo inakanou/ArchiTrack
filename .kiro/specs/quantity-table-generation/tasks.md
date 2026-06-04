@@ -1644,7 +1644,7 @@
   - _Boundary: QuantityTableEditPage, quantityTableEditReducer_
   - _Depends: 61.4, 61.2, 61.3_
 
-- [ ] 62. 離脱ガード・未保存インジケーター・固定ヘッダー（REQ-43, 44, 45）
+- [x] 62. 離脱ガード・未保存インジケーター・固定ヘッダー（REQ-43, 44, 45）
   - 注: 62.1〜62.3 はいずれも QuantityTableEditPage を編集する共有ファイルのため (P) 不可（直列）
 - [x] 62.1 未保存変更時の離脱ガードを実装する
   - useBlocker(isDirty) でアプリ内遷移をブロックし、blocked 時に確認ダイアログ（既存 UnsavedChangesDialog パターン）を表示、承認で proceed・取消で reset する
@@ -1669,7 +1669,7 @@
   - _Boundary: QuantityTableEditPage_
   - _Depends: 62.2_
 
-- [ ] 62.4 離脱ガード・インジケーター・固定ヘッダーの単体テストを実装する
+- [x] 62.4 離脱ガード・インジケーター・固定ヘッダーの単体テストを実装する
   - isDirty で useBlocker がブロックし proceed/reset が動作すること、isDirty=false でブロックしないこと、保存後解除を検証する
   - インジケーターが isDirty で表示/非表示になること、ヘッダーに sticky スタイルが適用されインジケーターがヘッダー内にあることを検証する
   - 観測可能完了条件: 上記単体テストがすべて緑になる（実スクロール固定の追従は E2E で検証）
