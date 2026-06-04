@@ -19,6 +19,17 @@ ArchiTrack/
 └── .kiro/        # ステアリング・スペック管理
 ```
 
+### 編集・保存パターン（数量表編集）
+
+数量表編集画面はサーバー即時反映ではなく、**クライアントサイドドラフト + 明示保存モデル**を採用しています。
+
+- 編集操作は `useReducer`（`frontend/src/pages/quantityTableEditReducer.ts`）でクライアント状態（ドラフト）に反映し、サーバーへは送らない
+- 保存ボタン押下時に `saveQuantityTableDraft`（`frontend/src/api/quantity-tables.ts`）でグループ・項目の全状態を一括同期（バックエンド `PUT /api/quantity-tables/:id/save` → `saveDraft` サービス、`expectedUpdatedAt` で楽観的排他制御）
+- 未保存変更の離脱ガード・未保存インジケーターバッジ・操作ヘッダー固定表示でUX担保
+- インポートや現場調査からのグループ生成・グループコピーもドラフト更新として扱い、保存ボタンで確定する
+
+他機能で用いるフィールド単位の即時保存・楽観的排他制御とは異なる明示保存方針である点に注意。
+
 ## フロントエンド
 
 ### 技術スタック

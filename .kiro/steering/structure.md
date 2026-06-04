@@ -609,7 +609,8 @@ frontend/
 │   │   ├── SiteSurveyImageViewerPage.tsx # 画像ビューア/注釈エディタページ
 │   │   ├── QuantityTableListPage.tsx # 数量表一覧ページ
 │   │   ├── QuantityTableCreatePage.tsx # 数量表作成ページ
-│   │   ├── QuantityTableEditPage.tsx # 数量表編集ページ
+│   │   ├── QuantityTableEditPage.tsx # 数量表編集ページ（クライアント側ドラフト編集・明示保存）
+│   │   ├── quantityTableEditReducer.ts # 数量表編集ドラフトの useReducer 状態管理（保存ボタンで saveQuantityTableDraft により一括同期）
 │   │   ├── QuantityTableRedirectPage.tsx # 数量表リダイレクトページ
 │   │   ├── ItemizedStatementListPage.tsx # 内訳書一覧ページ
 │   │   ├── ItemizedStatementDetailPage.tsx # 内訳書詳細ページ
@@ -955,7 +956,7 @@ backend/
 │   │   ├── signed-url.service.ts # 署名付きURL生成（R2）
 │   │   ├── annotation.service.ts # 注釈管理（Fabric.js JSON保存）
 │   │   ├── annotated-thumbnail.service.ts # 注釈付きサムネイル生成
-│   │   ├── quantity-table.service.ts # 数量表管理（CRUD、楽観的排他制御）
+│   │   ├── quantity-table.service.ts # 数量表管理（CRUD、saveDraft によるフル状態同期、楽観的排他制御）
 │   │   ├── quantity-group.service.ts # 数量グループ管理（CRUD、写真紐づけ）
 │   │   ├── quantity-item.service.ts # 数量項目管理（CRUD、移動、コピー）
 │   │   ├── quantity-validation.service.ts # 数量バリデーション（必須項目、計算方法別検証）
@@ -1155,7 +1156,8 @@ backend/src/
 - `GET /api/projects/:projectId/quantity-tables`: 数量表一覧取得
 - `GET /api/quantity-tables/:id`: 数量表詳細取得
 - `POST /api/projects/:projectId/quantity-tables`: 数量表作成
-- `PUT /api/quantity-tables/:id`: 数量表更新（楽観的排他制御）
+- `PUT /api/quantity-tables/:id`: 数量表更新（名前等のメタ更新、楽観的排他制御）
+- `PUT /api/quantity-tables/:id/save`: フル状態同期保存（saveDraft）。クライアント側ドラフトのグループ・項目全体を一括確定。expectedUpdatedAt による楽観的排他制御。旧 bulk-save を統合・置換
 - `DELETE /api/quantity-tables/:id`: 数量表削除
 
 **数量グループAPI（quantity-groups.routes.ts）:**
