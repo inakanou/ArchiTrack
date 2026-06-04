@@ -13,7 +13,6 @@ import { useState, useEffect, useCallback, useReducer, useMemo, useRef } from 'r
 import { useParams, Link, useBlocker } from 'react-router-dom';
 import {
   getQuantityTableDetail,
-  createQuantityItem,
   saveQuantityTableDraft,
 } from '../api/quantity-tables';
 import { ApiError } from '../api/client';
@@ -1201,51 +1200,28 @@ export default function QuantityTableEditPage() {
   /**
    * インポートハンドラ
    *
-   * Requirements: 27.1, 31.3, 31.8
+   * Requirements: 27.1, 31.3, 31.8, 42.4, 42.6
    *
-   * ImportDialogから受け取った数量項目をグループに一括追加する。
+   * ImportDialogから受け取った数量項目をクライアントサイドの編集状態（ドラフト）の
+   * 対象グループ末尾へ一括追加する。永続化を目的とするサーバーAPIは発行せず、
+   * 取り込んだ項目は未保存のドラフト項目として保持され、保存操作時にのみ永続化する
+   * （REQ-42.4 / REQ-42.6 / REQ-31 注記）。
+   *
+   * `groupId` は ImportDialog の取り込み先選択UIから渡される描画モデル上のグループ
+   * 識別子で、既存グループは実 id、新規グループは tempId に等しい（reducer の groupKey と同一）。
    */
   const handleImport = useCallback(
     async (groupId: string, items: ImportQuantityItem[]) => {
       setOperationError(null);
 
       try {
-        const targetGroup = (renderTable?.groups ?? []).find((g) => g.id === groupId);
-        const currentItems = targetGroup?.items ?? [];
-        const maxDisplayOrder = currentItems.reduce(
-          (max, item) => Math.max(max, item.displayOrder),
-          -1
-        );
-
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i]!;
-          await createQuantityItem(groupId, {
-            majorCategory: item.majorCategory,
-            middleCategory: item.middleCategory || null,
-            minorCategory: item.minorCategory || null,
-            customCategory: item.customCategory || null,
-            workType: item.workType,
-            name: item.name,
-            specification: item.specification || null,
-            unit: item.unit,
-            quantity: item.quantity,
-            calculationMethod: item.calculationMethod,
-            adjustmentFactor: item.adjustmentFactor,
-            roundingUnit: item.roundingUnit,
-            remarks: item.remarks || null,
-            displayOrder: maxDisplayOrder + 1 + i,
-          });
-        }
-
-        // 取り込み結果でドラフトを再シードする（インポートは REQ-42.4 / Task 61.3 で
-        // クライアント側ドラフト反映へ移行予定。現時点では既存API+再取得を維持する）
-        await fetchQuantityTableDetail();
+        dispatch({ type: 'importItems', groupKey: groupId, items });
       } catch {
         setOperationError('インポートに失敗しました');
         throw new Error('インポートに失敗しました');
       }
     },
-    [renderTable, fetchQuantityTableDetail]
+    [dispatch]
   );
 
   /**

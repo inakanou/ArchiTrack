@@ -27,6 +27,52 @@ vi.mock('../api/survey-annotations');
 vi.mock('../services/export/QuantityTablePdfExportService');
 vi.mock('../services/export/PdfExportService');
 
+// ImportDialog をモック（OCR/ファイル読み込みは参照系処理で本テスト対象外。REQ-42.10）。
+// onImport の結線（handleImport がドラフトへ反映し永続化APIを呼ばないこと）を検証するため、
+// ダイアログが開いている間だけ固定アイテムで onImport を発火する取り込みボタンを描画する。
+vi.mock('../components/quantity-table-import/ImportDialog', () => ({
+  ImportDialog: ({
+    isOpen,
+    onImport,
+    groups,
+  }: {
+    isOpen: boolean;
+    onImport: (groupId: string, items: unknown[]) => Promise<void>;
+    groups: Array<{ id: string }>;
+  }) => {
+    if (!isOpen) return null;
+    return (
+      <div>
+        <span>数量表インポート</span>
+        <button
+          type="button"
+          onClick={() =>
+            onImport(groups[0]!.id, [
+              {
+                majorCategory: '取込大',
+                middleCategory: '',
+                minorCategory: '',
+                customCategory: '',
+                workType: '取込工',
+                name: 'インポート項目X',
+                specification: '',
+                quantity: 7,
+                unit: '式',
+                remarks: '',
+                calculationMethod: 'STANDARD',
+                adjustmentFactor: 1.0,
+                roundingUnit: 0.01,
+              },
+            ])
+          }
+        >
+          テスト一括取り込み
+        </button>
+      </div>
+    );
+  },
+}));
+
 // useBlocker をモック（データルーターなしでテストするため。Task 62.1 離脱ガード対応）
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -2193,6 +2239,32 @@ describe('QuantityTableEditPage', () => {
       await user.click(importButton);
 
       expect(screen.getByText('数量表インポート')).toBeInTheDocument();
+    });
+
+    // remediation REQ-42.4/42.6: インポートはドラフトへ反映し永続化APIを呼ばない
+    it('一括取り込みは対象グループのドラフト末尾へ項目を追加し createQuantityItem・再取得を呼ばない', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      // インポートダイアログを開いてモックの取り込みボタンで onImport を発火
+      await user.click(screen.getByRole('button', { name: 'インポート' }));
+      await user.click(screen.getByRole('button', { name: 'テスト一括取り込み' }));
+
+      // ドラフトへ即時反映：取り込んだ項目が画面に表示される
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('インポート項目X')).toBeInTheDocument();
+      });
+
+      // 永続化を目的とするサーバーAPI（項目作成POST）は呼ばれない（REQ-42.4）
+      expect(mockCreateQuantityItem).not.toHaveBeenCalled();
+      // 再取得（fetchQuantityTableDetail）も発生しない：初回ロードの1回のみ（REQ-42.6）
+      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
     });
   });
 
