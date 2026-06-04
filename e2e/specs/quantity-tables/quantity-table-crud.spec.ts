@@ -28,6 +28,7 @@ import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -410,11 +411,13 @@ test.describe('数量表CRUD操作', () => {
 
     /**
      * @requirement quantity-table-generation/REQ-2.5
+     * @requirement quantity-table-generation/REQ-42.5
      *
-     * 数量表名のインライン編集機能をテスト
-     * 数量表編集画面で数量表名を編集すると即座に保存される
+     * 数量表名のインライン編集機能をテスト。
+     * REQ-42 移行: 名称編集はクライアントドラフトのみを更新し、フォーカスを外しても
+     * 即時保存はされない。永続化は「保存」ボタン押下時の PUT /:id/save でのみ行う。
      */
-    test('数量表名を編集すると即座に保存される (quantity-table-generation/REQ-2.5)', async ({
+    test('数量表名を編集し保存するとサーバーに永続化される (quantity-table-generation/REQ-2.5, REQ-42.5)', async ({
       page,
     }) => {
       if (!testProjectId || !createdQuantityTableId) {
@@ -439,12 +442,11 @@ test.describe('数量表CRUD操作', () => {
       await nameInput.clear();
       await nameInput.fill(newValue);
 
-      // フォーカスを外して保存をトリガー
+      // フォーカスを外してドラフトへ反映（この時点ではまだ永続化されない。REQ-42.6）
       await nameInput.blur();
 
-      // 保存メッセージの確認
-      const saveMessage = page.getByText(/保存しました/);
-      await expect(saveMessage).toBeVisible({ timeout: getTimeout(10000) });
+      // REQ-42.5: 「保存」ボタンを押下して永続化する。
+      await saveQuantityTableDraft(page);
 
       // ページをリロードして永続化を確認
       await page.reload();
@@ -454,13 +456,11 @@ test.describe('数量表CRUD操作', () => {
       const reloadedNameInput = page.getByLabel('数量表名');
       await expect(reloadedNameInput).toHaveValue(newValue, { timeout: getTimeout(10000) });
 
-      // 元の値に戻す（クリーンアップ）
+      // 元の値に戻す（クリーンアップ）。編集→保存で永続化する。
       await reloadedNameInput.clear();
       await reloadedNameInput.fill(originalValue);
       await reloadedNameInput.blur();
-      await page
-        .getByText(/保存しました/)
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+      await saveQuantityTableDraft(page);
     });
   });
 
@@ -695,24 +695,9 @@ test.describe('数量表CRUD操作', () => {
       // 現在のグループ数を記録（空状態も可能）
       const initialGroupCount = await page.getByTestId('quantity-group').count();
 
-      // APIレスポンス用のPromiseを設定
-      const apiResponsePromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/quantity-tables/') &&
-          response.url().includes('/groups') &&
-          response.request().method() === 'POST',
-        { timeout: getTimeout(20000) }
-      );
-
-      // グループ追加ボタンをクリック
+      // REQ-42 移行: グループ追加はクライアントドラフトのみを更新するため、
+      // 永続化 API（POST /groups）は発火しない。クリック後はドラフトへ即時反映される。
       await addGroupButton.click();
-
-      // APIレスポンスを待機し、ステータスを検証
-      const apiResponse = await apiResponsePromise;
-      const responseStatus = apiResponse.status();
-
-      // APIが201（作成成功）を返すことを確認（必須）
-      expect(responseStatus).toBe(201);
 
       // 新しいグループがUIに追加されたことを確認（必須）
       const groups = page.getByTestId('quantity-group');
@@ -721,6 +706,14 @@ test.describe('数量表CRUD操作', () => {
       // 追加されたグループが表示されていることを確認（必須）
       const newGroup = groups.last();
       await expect(newGroup).toBeVisible({ timeout: getTimeout(5000) });
+
+      // REQ-42.5: 追加を保存して永続化し、リロード後も維持されることを確認する。
+      await saveQuantityTableDraft(page);
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByTestId('quantity-group')).toHaveCount(initialGroupCount + 1, {
+        timeout: getTimeout(10000),
+      });
     });
 
     test('数量グループ削除時に確認ダイアログが表示される (quantity-table-generation/REQ-4.5)', async ({
@@ -1256,6 +1249,32 @@ test.describe('数量表CRUD操作', () => {
       await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount + 1, {
         timeout: 5000,
       });
+
+      // REQ-42.5 移行: 追加はドラフトのため、後続テスト（同 REQ-5.1 のフィールド構成検証や、
+      // 計算方法・調整係数・丸め設定の各テストが nth(1) で 2 番目の項目を参照する等）が
+      // 再ナビゲートで項目行を参照できるよう、十分な数の項目を名称付きで永続化する。
+      // 旧モデルでは各操作が即時永続化され項目が累積していたため、本ステップでその前提を再現する。
+      const targetRowCount = Math.max(initialRowCount + 1, 2);
+      while ((await page.getByTestId('quantity-item-row').count()) < targetRowCount) {
+        const before = await page.getByTestId('quantity-item-row').count();
+        await addItemButton.click();
+        await expect(page.getByTestId('quantity-item-row')).toHaveCount(before + 1, {
+          timeout: getTimeout(5000),
+        });
+      }
+
+      // 名称（保存の整合性チェック必須）を各行に入力して永続化する。
+      const allRows = page.getByTestId('quantity-item-row');
+      const rowCount = await allRows.count();
+      for (let i = 0; i < rowCount; i++) {
+        const nameInput = allRows.nth(i).locator('input[id$="-name"]').first();
+        await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
+        if (!(await nameInput.inputValue())) {
+          await nameInput.fill(`REQ5_1テスト項目${i + 1}`);
+          await nameInput.blur();
+        }
+      }
+      await saveQuantityTableDraft(page);
     });
 
     test('数量項目が要件通りのフィールド構成を持つ (quantity-table-generation/REQ-5.1)', async ({

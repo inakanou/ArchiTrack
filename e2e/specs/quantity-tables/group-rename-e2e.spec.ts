@@ -14,6 +14,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -156,25 +157,20 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
       createdQuantityTableId = tableMatch?.[1] ?? null;
       expect(createdQuantityTableId).toBeTruthy();
 
-      // グループを1つ追加（REQ-22 のテストはグループの存在を前提）
-      const addGroupApiPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/quantity-tables/') &&
-          response.url().includes('/groups') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(20000) }
-      );
-
+      // グループを1つ追加（REQ-22 のテストはグループの存在を前提）。
+      // REQ-42 移行: グループ追加はクライアントドラフトのみを更新するため、
+      // 永続化 API（POST /groups）は発火しない。カードの出現のみを待機する。
       const addGroupButton = page
         .getByRole('button', { name: /グループ追加|グループを追加/i })
         .first();
       await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
       await addGroupButton.click();
-      await addGroupApiPromise;
 
       const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
       await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-42.5: 後続テストが別ナビゲーションでグループを参照できるよう明示保存して永続化する。
+      await saveQuantityTableDraft(page);
     });
   });
 

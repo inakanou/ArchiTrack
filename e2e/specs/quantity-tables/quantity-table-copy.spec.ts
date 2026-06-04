@@ -18,6 +18,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 /**
  * 数量表コピー機能のE2Eテスト
@@ -125,7 +126,10 @@ test.describe('数量表コピー機能', () => {
       sourceQuantityTableId = tableMatch?.[1] ?? null;
       expect(sourceQuantityTableId).toBeTruthy();
 
-      // 数量グループを追加（ヘッダーと空状態の2箇所にボタンがあるため.first()で最初のものを選択）
+      // 数量グループを追加（ヘッダーと空状態の2箇所にボタンがあるため.first()で最初のものを選択）。
+      // REQ-42 移行: グループ/項目追加・フィールド編集はクライアントドラフトのみを更新するため、
+      // 永続化 API は発火しない（旧モデルの自動保存は廃止）。数量表コピー（REQ-17）は
+      // コピー元がサーバー側にグループ・項目を持つことを前提とするため、編集後に明示保存する。
       const addGroupButton = page
         .getByRole('button', { name: /グループ追加|グループを追加/i })
         .first();
@@ -133,37 +137,39 @@ test.describe('数量表コピー機能', () => {
       await addGroupButton.click();
 
       // グループが追加されるのを待つ
-      await page.waitForTimeout(1000);
+      await expect(page.getByTestId('quantity-group')).toHaveCount(1, {
+        timeout: getTimeout(10000),
+      });
 
       // 数量項目を追加
       const addItemButton = page
         .getByRole('button', { name: /行追加|項目追加|項目を追加/i })
         .first();
-      if (await addItemButton.isVisible({ timeout: 5000 })) {
-        await addItemButton.click();
-        await page.waitForTimeout(1000);
+      await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
+      await addItemButton.click();
+      const itemRow = page.getByTestId('quantity-item-row').first();
+      await expect(itemRow).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 工種を入力（AutocompleteInput: placeholderで特定）
-        const workTypeInput = page.getByPlaceholder('工種を入力').first();
-        if (await workTypeInput.isVisible({ timeout: 3000 })) {
-          await workTypeInput.fill('テスト工種');
-        }
+      // 行スコープの id 属性 suffix セレクタで入力欄を安定的に特定する
+      // （placeholder はコンポーネントごとに揺れるため）。保存の整合性チェック・
+      // バックエンド検証（名称・単位必須）を満たすため、工種・名称・単位を入力する。
+      const workTypeInput = itemRow.locator('input[id$="-workType"]').first();
+      await expect(workTypeInput).toBeVisible({ timeout: getTimeout(5000) });
+      await workTypeInput.fill('テスト工種');
+      await workTypeInput.blur();
 
-        // 名称を入力（直接input: placeholderで特定）
-        const nameFieldInput = page.getByPlaceholder('名称を入力').first();
-        if (await nameFieldInput.isVisible({ timeout: 3000 })) {
-          await nameFieldInput.fill('テスト名称');
-        }
+      const nameFieldInput = itemRow.locator('input[id$="-name"]').first();
+      await expect(nameFieldInput).toBeVisible({ timeout: getTimeout(5000) });
+      await nameFieldInput.fill('テスト名称');
+      await nameFieldInput.blur();
 
-        // 単位を入力（AutocompleteInput: placeholderで特定）
-        const unitInput = page.getByPlaceholder('単位を入力').first();
-        if (await unitInput.isVisible({ timeout: 3000 })) {
-          await unitInput.fill('m2');
-        }
+      const unitInput = itemRow.locator('input[id$="-unit"]').first();
+      await expect(unitInput).toBeVisible({ timeout: getTimeout(5000) });
+      await unitInput.fill('m2');
+      await unitInput.blur();
 
-        // 自動保存を待つ
-        await page.waitForTimeout(2000);
-      }
+      // REQ-42.5: コピー元のグループ・項目を永続化する（後続のコピーテストが参照するため）。
+      await saveQuantityTableDraft(page);
     });
   });
 
@@ -458,10 +464,12 @@ test.describe('数量表コピー機能', () => {
         const lastNameInput = page.getByPlaceholder('名称を入力').last();
         if (await lastNameInput.isVisible({ timeout: 3000 })) {
           await lastNameInput.fill('独立性テスト名称');
+          await lastNameInput.blur();
         }
 
-        // 項目作成のAPIレスポンスを待つ
-        await page.waitForTimeout(3000);
+        // REQ-42.5 移行: 編集はドラフトのため、明示保存してコピー先へ実際に永続化する。
+        // これにより「コピー先への永続的変更が元に影響しない（REQ-17.4 独立性）」を実検証する。
+        await saveQuantityTableDraft(page);
       }
 
       // 元の数量表のデータが変更されていないことをAPI経由で確認

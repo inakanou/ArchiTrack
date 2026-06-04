@@ -48,6 +48,7 @@ import { fileURLToPath } from 'url';
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -197,25 +198,22 @@ test.beforeAll(async ({ browser }) => {
     createdQuantityTableId = tableMatch?.[1] ?? null;
     expect(createdQuantityTableId).toBeTruthy();
 
-    // REQ-31.2 の取り込み先グループ選択UI検証のため、グループを1つ追加
-    const addGroupApiPromise = page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/quantity-tables/') &&
-        response.url().includes('/groups') &&
-        response.request().method() === 'POST' &&
-        response.status() === 201,
-      { timeout: getTimeout(20000) }
-    );
-
+    // REQ-31.2 の取り込み先グループ選択UI検証のため、グループを1つ追加。
+    // REQ-42 移行: グループ追加はクライアントドラフトのみを更新するため、
+    // 永続化 API（POST /groups）は発火しない。一括取り込み（REQ-31）は取り込み先
+    // グループが「サーバー側に存在する」ことを前提とする（createQuantityItem が
+    // group.id に対して即時永続化する）ため、追加後に明示保存して永続化する。
     const addGroupButton = page
       .getByRole('button', { name: /グループ追加|グループを追加/i })
       .first();
     await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
     await addGroupButton.click();
-    await addGroupApiPromise;
 
     const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
     await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
+
+    // REQ-42.5: 取り込み先グループを永続化する（後続の一括取り込みが参照するため）。
+    await saveQuantityTableDraft(page);
   } finally {
     await context.close();
   }

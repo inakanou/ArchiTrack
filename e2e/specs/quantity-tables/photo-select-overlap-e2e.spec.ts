@@ -24,6 +24,7 @@ import { fileURLToPath } from 'url';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -264,24 +265,21 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
       expect(createdQuantityTableId).toBeTruthy();
 
       // --- グループを1件追加（写真選択ダイアログを開く起点）---
-      const addGroupApiPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/quantity-tables/') &&
-          response.url().includes('/groups') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(20000) }
-      );
+      // REQ-42 移行: グループ追加はクライアントドラフトのみを更新するため、
+      // 永続化 API（POST /groups）は発火しない。後続テストは編集画面へ再ナビゲートして
+      // グループの存在を前提とするため、追加後に明示保存して永続化する。
       const addGroupButton = page
         .getByRole('button', { name: /グループ追加|グループを追加/i })
         .first();
       await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
       await addGroupButton.click();
-      await addGroupApiPromise;
 
       await expect(page.locator('[data-testid="quantity-group-card"]').first()).toBeVisible({
         timeout: getTimeout(10000),
       });
+
+      // REQ-42.5: 後続テストが再ナビゲートで参照できるよう明示保存して永続化する。
+      await saveQuantityTableDraft(page);
     });
   });
 

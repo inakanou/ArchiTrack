@@ -25,6 +25,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 /** GROUP_NAME_MAX_WIDTH = 50 半角単位（全角=2, 半角=1） — REQ-22.4 / REQ-38.6 */
 const GROUP_NAME_MAX_WIDTH = 50;
@@ -136,7 +137,11 @@ async function createTestProject(page: Page, projectName: string): Promise<strin
 
 /**
  * 数量表編集画面で、現在表示中の指定インデックスのグループに対し、
- * UI 経由で名前を変更し、API 完了を待つ。
+ * UI 経由で名前を変更する。
+ *
+ * REQ-42 移行: グループ名変更はクライアントドラフトのみを更新するため、
+ * 永続化 API（PUT /api/quantity-groups/:id）は発火しない。ここではドラフト反映
+ * （見出しテキストの更新）のみを待機し、永続化は呼び出し側の保存操作で行う。
  */
 async function renameGroupAt(page: Page, groupIndex: number, newName: string): Promise<void> {
   const groupCard = page.locator('[data-testid="quantity-group-card"]').nth(groupIndex);
@@ -147,16 +152,8 @@ async function renameGroupAt(page: Page, groupIndex: number, newName: string): P
   const editInput = groupCard.getByLabel('グループ名を編集');
   await expect(editInput).toBeVisible({ timeout: getTimeout(5000) });
 
-  const renamePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/quantity-groups/') &&
-      response.request().method() === 'PUT' &&
-      response.status() === 200,
-    { timeout: getTimeout(15000) }
-  );
   await editInput.fill(newName);
   await editInput.press('Enter');
-  await renamePromise;
 
   await expect(groupCard.locator('h3').filter({ hasText: newName }).first()).toBeVisible({
     timeout: getTimeout(8000),
@@ -171,19 +168,12 @@ async function addAndNameGroup(
   expectedIndexAfter: number,
   name: string
 ): Promise<void> {
-  const addGroupApiPromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/quantity-tables/') &&
-      response.url().includes('/groups') &&
-      response.request().method() === 'POST' &&
-      response.status() === 201,
-    { timeout: getTimeout(20000) }
-  );
-
+  // REQ-42 移行: グループ追加はクライアントドラフトのみを更新するため、
+  // 永続化 API（POST /api/quantity-tables/:id/groups）は発火しない。
+  // ドラフト反映（カード数の増加）のみを待機する。
   const addGroupButton = page.getByRole('button', { name: /グループ追加|グループを追加/i }).first();
   await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
   await addGroupButton.click();
-  await addGroupApiPromise;
 
   await expect(page.locator('[data-testid="quantity-group-card"]')).toHaveCount(
     expectedIndexAfter + 1,
@@ -205,28 +195,19 @@ async function addItemToGroupAt(
 ): Promise<void> {
   const groupCard = page.locator('[data-testid="quantity-group-card"]').nth(groupIndex);
 
-  const addItemApiPromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/quantity-groups/') &&
-      response.url().includes('/items') &&
-      response.request().method() === 'POST' &&
-      response.status() === 201,
-    { timeout: getTimeout(20000) }
-  );
-
+  // REQ-42 移行: 項目追加・フィールド編集はクライアントドラフトのみを更新するため、
+  // 永続化 API（POST /items, PATCH/PUT）は発火しない。ドラフト反映（行数の増加・
+  // 入力値の反映）のみを待機し、永続化は呼び出し側の保存操作で行う。
   const addItemButton = groupCard.getByRole('button', { name: '項目を追加' });
   await expect(addItemButton).toBeVisible({ timeout: getTimeout(10000) });
   await addItemButton.click();
-  await addItemApiPromise;
 
   await expect(groupCard.locator('[data-testid="quantity-item-row"]')).toHaveCount(
     expectedItemCountAfter,
     { timeout: getTimeout(10000) }
   );
 
-  // 追加された行（最下行）に値を入力。
-  // 自動保存 API（PATCH/PUT）の完了をフィールドごとに待機して、永続化を保証する。
-  // 入力フィールドは id 属性 suffix で安定的に特定する
+  // 追加された行（最下行）に値を入力。入力フィールドは id 属性 suffix で安定的に特定する
   // （placeholder はコンポーネントごとに揺れるため）。
   const lastRow = groupCard.locator('[data-testid="quantity-item-row"]').last();
 
@@ -234,19 +215,16 @@ async function addItemToGroupAt(
   await expect(workTypeInput).toBeVisible({ timeout: getTimeout(5000) });
   await workTypeInput.fill(fields.workType);
   await workTypeInput.blur();
-  await page.waitForLoadState('networkidle');
 
   const nameInput = lastRow.locator('input[id$="-name"]').first();
   await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
   await nameInput.fill(fields.name);
   await nameInput.blur();
-  await page.waitForLoadState('networkidle');
 
   const unitInput = lastRow.locator('input[id$="-unit"]').first();
   await expect(unitInput).toBeVisible({ timeout: getTimeout(5000) });
   await unitInput.fill(fields.unit);
   await unitInput.blur();
-  await page.waitForLoadState('networkidle');
 }
 
 test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
@@ -323,6 +301,10 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
       await expect(groupCards).toHaveCount(2);
       await expect(groupCards.nth(0).locator('h3').first()).toHaveText('元グループA');
       await expect(groupCards.nth(1).locator('h3').first()).toHaveText('別グループB');
+
+      // REQ-42.5: ここまでの編集（グループ/項目の追加・名称）はドラフトのため、
+      // 後続テストがリロードで参照できるよう明示保存して永続化する。
+      await saveQuantityTableDraft(page);
     });
   });
 
@@ -347,22 +329,24 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
     const copyButton = groupACard.getByRole('button', { name: 'グループをコピー' });
     await expect(copyButton).toBeVisible({ timeout: getTimeout(5000) });
 
-    // コピー API のレスポンスと、その後の再取得 API を待機（REQ-38.2）
-    const copyApiPromise = page.waitForResponse(
-      (response) =>
-        /\/api\/quantity-groups\/[^/]+\/copy$/.test(response.url()) &&
-        response.request().method() === 'POST' &&
-        response.status() === 201,
-      { timeout: getTimeout(30000) }
-    );
-
+    // REQ-42.4 移行: コピーはクライアントサイドのドラフト複製となり、サーバー
+    // POST /copy は発火しない。クリック後はドラフトへ即時反映される（REQ-38.2/38.7）。
     await copyButton.click();
-    await copyApiPromise;
 
-    // 再取得後にグループ数が 3 になる（REQ-38.7: 直下挿入）
+    // ドラフト反映後にグループ数が 3 になる（REQ-38.7: 直下挿入）
     await expect(groupCards).toHaveCount(3, { timeout: getTimeout(15000) });
 
     // DOM 順: [元グループA, 元グループAのコピー, 別グループB]
+    await expect(groupCards.nth(0).locator('h3').first()).toHaveText('元グループA');
+    await expect(groupCards.nth(1).locator('h3').first()).toHaveText('元グループAのコピー');
+    await expect(groupCards.nth(2).locator('h3').first()).toHaveText('別グループB');
+
+    // REQ-42.5: コピー結果を後続テスト（リロードで参照）のため明示保存して永続化する。
+    await saveQuantityTableDraft(page);
+
+    // 保存後にリロードしてもサーバー反映が維持されることを確認する（REQ-42.5/42.8）。
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(groupCards).toHaveCount(3, { timeout: getTimeout(15000) });
     await expect(groupCards.nth(0).locator('h3').first()).toHaveText('元グループA');
     await expect(groupCards.nth(1).locator('h3').first()).toHaveText('元グループAのコピー');
     await expect(groupCards.nth(2).locator('h3').first()).toHaveText('別グループB');
@@ -460,9 +444,15 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
   });
 
   // ==========================================================================
-  // REQ-38.9: コピー処理中はボタンが disabled でスピナーが表示される
+  // REQ-38.9: 1 回のコピー操作で複製は 1 件のみ作成される（重複コピー防止）
+  //
+  // REQ-42.4/38.13 移行: コピーはクライアントサイドの同期的なドラフト複製となり、
+  // サーバー POST /copy を発行しない。よって従来の「処理中スピナー / aria-busy /
+  // API 遅延での in-progress 観測」は同期処理では成立しない（design L1748 の indicator は
+  // 同期化により観測不能）。本テストは、要件の本質である「重複コピー操作の防止」を
+  // クライアントモデルで検証する: 1 回のクリックで複製が 1 件のみ追加されること。
   // ==========================================================================
-  test('コピー処理中はボタンが disabled でスピナーが表示される (REQ-38.9)', async ({ page }) => {
+  test('1 回のコピー操作で複製は 1 件のみ作成される (REQ-38.9)', async ({ page }) => {
     if (!createdQuantityTableId) {
       throw new Error('createdQuantityTableId が未設定です。');
     }
@@ -473,41 +463,23 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
     const groupCards = page.locator('[data-testid="quantity-group-card"]');
     await expect(groupCards.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-    // ローカル環境では copy API が高速なため、人工的に遅延させてコピー中状態を観測する
-    await page.route('**/api/quantity-groups/*/copy', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await route.continue();
-    });
+    const beforeCount = await groupCards.count();
 
-    try {
-      const groupACard = groupCards.first();
-      const copyButton = groupACard.getByRole('button', { name: 'グループをコピー' });
-      await expect(copyButton).toBeVisible({ timeout: getTimeout(5000) });
+    const groupACard = groupCards.first();
+    const copyButton = groupACard.getByRole('button', { name: 'グループをコピー' });
+    await expect(copyButton).toBeVisible({ timeout: getTimeout(5000) });
 
-      // クリック（処理が遅延しているのでまだ完了しない）
-      const copyApiPromise = page.waitForResponse(
-        (response) =>
-          /\/api\/quantity-groups\/[^/]+\/copy$/.test(response.url()) &&
-          response.request().method() === 'POST',
-        { timeout: getTimeout(30000) }
-      );
-      await copyButton.click();
+    // 1 回クリック → 複製は 1 件のみ（重複なし。REQ-38.9）
+    await copyButton.click();
+    await expect(groupCards).toHaveCount(beforeCount + 1, { timeout: getTimeout(10000) });
 
-      // 処理中: ボタンが disabled + aria-busy="true"
-      await expect(copyButton).toBeDisabled({ timeout: getTimeout(3000) });
-      await expect(copyButton).toHaveAttribute('aria-busy', 'true', { timeout: getTimeout(3000) });
+    // 元グループ直下に「のコピー」が 1 件だけ挿入されている（REQ-38.7）
+    await expect(groupCards.nth(1).locator('h3').first()).toHaveText('元グループAのコピー');
 
-      // スピナー（data-testid="copy-group-spinner"）が表示
-      const spinner = groupACard.locator('[data-testid="copy-group-spinner"]');
-      await expect(spinner).toBeVisible({ timeout: getTimeout(3000) });
-
-      // 完了を待ち、ボタンが復帰
-      await copyApiPromise;
-      // 再取得後の状態反映を待つ
-      await expect(spinner).toHaveCount(0, { timeout: getTimeout(15000) });
-    } finally {
-      await page.unroute('**/api/quantity-groups/*/copy');
-    }
+    // 本テストはドラフト状態の重複防止のみを検証するため、永続化は行わず
+    // （後続テストの前提状態を変えないよう）リロードで破棄する。
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(groupCards).toHaveCount(beforeCount, { timeout: getTimeout(10000) });
   });
 
   // ==========================================================================
@@ -551,19 +523,11 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
     const longGroupCard = groupCards.nth(longGroupIndex);
     await expect(longGroupCard.locator('h3').first()).toHaveText(longSourceName);
 
-    // コピー実行
+    // コピー実行（REQ-42.4: クライアントサイドのドラフト複製。サーバー POST /copy は発火しない）
     const copyButton = longGroupCard.getByRole('button', { name: 'グループをコピー' });
     await expect(copyButton).toBeVisible({ timeout: getTimeout(5000) });
 
-    const copyApiPromise = page.waitForResponse(
-      (response) =>
-        /\/api\/quantity-groups\/[^/]+\/copy$/.test(response.url()) &&
-        response.request().method() === 'POST' &&
-        response.status() === 201,
-      { timeout: getTimeout(30000) }
-    );
     await copyButton.click();
-    await copyApiPromise;
 
     // 複製先は元グループC の直下（index = longGroupIndex + 1）に挿入される
     await expect(groupCards).toHaveCount(beforeCount + 2, { timeout: getTimeout(15000) });

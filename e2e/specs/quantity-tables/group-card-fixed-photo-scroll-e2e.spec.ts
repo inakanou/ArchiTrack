@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -249,15 +250,9 @@ test.describe('REQ-41: 数量グループカードの画像・コメント固定
       await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
       await page.getByTestId(`survey-select-option-${surveyWithPhotoId}`).click();
 
-      const fromSurveyPromise = page.waitForResponse(
-        (response) =>
-          /\/api\/quantity-tables\/[^/]+\/groups\/from-survey$/.test(response.url()) &&
-          response.request().method() === 'POST',
-        { timeout: getTimeout(30000) }
-      );
+      // REQ-42.4 移行: 一括生成はクライアントサイドのドラフト生成となり、
+      // 永続化 API（POST /groups/from-survey）は発火しない。確定でドラフトへ即時反映される。
       await page.getByTestId('survey-select-dialog-confirm').click();
-      const fromSurveyResponse = await fromSurveyPromise;
-      expect(fromSurveyResponse.status(), 'from-survey は成功（2xx）する').toBeLessThan(300);
 
       // 写真1枚分のグループが生成され、写真+コメントが紐づく
       const groupCards = page.locator('[data-testid="quantity-group-card"]');
@@ -268,6 +263,9 @@ test.describe('REQ-41: 数量グループカードの画像・コメント固定
       await expect(
         groupCards.first().locator('[data-testid="photo-comment-display"]').first()
       ).toHaveText(PHOTO_COMMENT, { timeout: getTimeout(10000) });
+
+      // REQ-42.5: 生成したグループは後続テストが再ナビゲートで参照するため明示保存して永続化する。
+      await saveQuantityTableDraft(page);
     });
   });
 

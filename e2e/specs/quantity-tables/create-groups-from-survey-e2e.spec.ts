@@ -27,6 +27,7 @@ import { fileURLToPath } from 'url';
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -282,25 +283,21 @@ test.describe('REQ-40: 現場調査からの数量グループ一括生成 E2E',
       createdQuantityTableId = tableMatch?.[1] ?? null;
       expect(createdQuantityTableId).toBeTruthy();
 
-      // 既存グループを 1 件追加（一括生成が「末尾」に追加されることの検証用）
-      const addGroupApiPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/quantity-tables/') &&
-          response.url().includes('/groups') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(20000) }
-      );
+      // 既存グループを 1 件追加（一括生成が「末尾」に追加されることの検証用）。
+      // REQ-42 移行: グループ追加はクライアントドラフトのみを更新するため、
+      // 永続化 API（POST /groups）は発火しない。カードの出現を待機後に明示保存する。
       const addGroupButton = page
         .getByRole('button', { name: /グループ追加|グループを追加/i })
         .first();
       await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
       await addGroupButton.click();
-      await addGroupApiPromise;
 
       await expect(page.locator('[data-testid="quantity-group-card"]')).toHaveCount(1, {
         timeout: getTimeout(10000),
       });
+
+      // REQ-42.5: 後続テスト（リロードで末尾追加・件数を検証）の前提として明示保存する。
+      await saveQuantityTableDraft(page);
     });
   });
 
@@ -369,17 +366,9 @@ test.describe('REQ-40: 現場調査からの数量グループ一括生成 E2E',
 
     await page.getByTestId(`survey-select-option-${surveyWithPhotosId}`).click();
 
-    // 実行 API（from-survey）と再取得 API を待機
-    const fromSurveyPromise = page.waitForResponse(
-      (response) =>
-        /\/api\/quantity-tables\/[^/]+\/groups\/from-survey$/.test(response.url()) &&
-        response.request().method() === 'POST',
-      { timeout: getTimeout(30000) }
-    );
-
+    // REQ-42.4 移行: 一括生成はクライアントサイドのドラフト生成となり、
+    // 永続化 API（POST /groups/from-survey）は発火しない。確定でドラフトへ即時反映される。
     await page.getByTestId('survey-select-dialog-confirm').click();
-    const fromSurveyResponse = await fromSurveyPromise;
-    expect(fromSurveyResponse.status(), 'from-survey は成功（2xx）する').toBeLessThan(300);
 
     // 完了メッセージ「2件のグループを生成しました」（REQ-40.13）
     await expect(page.getByText('2件のグループを生成しました')).toBeVisible({
@@ -433,6 +422,9 @@ test.describe('REQ-40: 現場調査からの数量グループ一括生成 E2E',
     const comment2 = generated2.locator('[data-testid="photo-comment-display"]').first();
     await expect(comment2).toHaveText('');
 
+    // REQ-42.5: 生成結果は保存操作まで永続化されない。リロード前に明示保存する。
+    await saveQuantityTableDraft(page);
+
     // リロードしても末尾追加・名前・写真が永続化されている（DB 反映の回帰防止）
     await page.reload({ waitUntil: 'networkidle' });
     await expect(groupCards).toHaveCount(3, { timeout: getTimeout(15000) });
@@ -472,14 +464,9 @@ test.describe('REQ-40: 現場調査からの数量グループ一括生成 E2E',
 
     await page.getByTestId(`survey-select-option-${surveyWithoutPhotosId}`).click();
 
-    const fromSurveyPromise = page.waitForResponse(
-      (response) =>
-        /\/api\/quantity-tables\/[^/]+\/groups\/from-survey$/.test(response.url()) &&
-        response.request().method() === 'POST',
-      { timeout: getTimeout(30000) }
-    );
+    // REQ-42.4 移行: 一括生成はクライアントサイドのドラフト生成となり、
+    // 写真0枚の場合は写真一覧取得（GET）後に早期終了し、永続化 API は発行しない。
     await page.getByTestId('survey-select-dialog-confirm').click();
-    await fromSurveyPromise;
 
     // 「写真が存在しません」メッセージ（REQ-40.10）
     await expect(page.getByText('写真が存在しません')).toBeVisible({
