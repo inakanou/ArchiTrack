@@ -16,6 +16,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
 import * as quantityTablesApi from '../api/quantity-tables';
 import * as siteSurveysApi from '../api/site-surveys';
+import { ApiError } from '../api/client';
 import type { QuantityTableDetail } from '../types/quantity-table.types';
 import type { SurveyImageInfo } from '../types/site-survey.types';
 
@@ -49,7 +50,7 @@ const mockUpdateQuantityItem = vi.mocked(quantityTablesApi.updateQuantityItem);
 const mockDeleteQuantityItem = vi.mocked(quantityTablesApi.deleteQuantityItem);
 const mockCopyQuantityItem = vi.mocked(quantityTablesApi.copyQuantityItem);
 const mockUpdateQuantityGroup = vi.mocked(quantityTablesApi.updateQuantityGroup);
-const mockBulkSaveQuantityTable = vi.mocked(quantityTablesApi.bulkSaveQuantityTable);
+const mockSaveQuantityTableDraft = vi.mocked(quantityTablesApi.saveQuantityTableDraft);
 
 const mockGetSiteSurveys = vi.mocked(siteSurveysApi.getSiteSurveys);
 const mockGetSiteSurvey = vi.mocked(siteSurveysApi.getSiteSurvey);
@@ -607,13 +608,11 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 5.2: 項目更新機能', () => {
-    it('項目のフィールドを編集して保存ボタンをクリックすると更新APIが呼ばれる', async () => {
+    // Task 61.4: 保存は saveQuantityTableDraft（フル状態同期保存）を1回呼ぶ（REQ-42.5）
+    it('項目のフィールドを編集して保存ボタンをクリックするとフル状態同期保存APIが1回呼ばれる', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockBulkSaveQuantityTable.mockResolvedValue({
-        updatedItemCount: 3,
-        updatedAt: '2025-01-02T00:00:00Z',
-      });
+      mockSaveQuantityTableDraft.mockResolvedValue(mockQuantityTableDetail);
 
       renderWithRouter();
 
@@ -631,20 +630,40 @@ describe('QuantityTableEditPage', () => {
       await user.click(saveButton);
 
       await waitFor(() => {
-        expect(mockBulkSaveQuantityTable).toHaveBeenCalled();
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
       });
+
+      // expectedUpdatedAt はサーバースナップショットの updatedAt、name と groups[全状態] を含む（REQ-42.5）
+      const [calledId, calledInput] = mockSaveQuantityTableDraft.mock.calls[0]!;
+      expect(calledId).toBe('qt-123');
+      expect(calledInput.expectedUpdatedAt).toBe(mockQuantityTableDetail.updatedAt);
+      expect(calledInput.name).toBe('テスト数量表');
+      expect(calledInput.groups).toHaveLength(2);
+      // displayOrder は配列順
+      expect(calledInput.groups.map((g) => g.displayOrder)).toEqual([0, 1]);
+      // 既存グループは id=UUID、編集後の項目名が反映されている
+      const firstGroup = calledInput.groups[0]!;
+      expect(firstGroup.id).toBe('group-1');
+      expect(firstGroup.items[0]!.name).toBe('足場（更新）');
+      // 個別ミューテーションAPIは呼ばれない（REQ-42.6）
+      expect(mockUpdateQuantityItem).not.toHaveBeenCalled();
     });
 
-    it('保存に失敗した場合はエラーが表示される', async () => {
+    it('保存に失敗した場合はエラーが表示され、ドラフト（未保存変更）は保持される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockBulkSaveQuantityTable.mockRejectedValue(new Error('Update failed'));
+      mockSaveQuantityTableDraft.mockRejectedValue(new ApiError(500, 'Server error'));
 
       renderWithRouter();
 
       await waitFor(() => {
         expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
+
+      // 項目名を編集してドラフトを dirty にする
+      const nameInput = screen.getByDisplayValue('足場');
+      await user.clear(nameInput);
+      await user.type(nameInput, '足場（編集中）');
 
       // 保存ボタンをクリック
       const saveButton = screen.getByRole('button', { name: '保存' });
@@ -653,6 +672,10 @@ describe('QuantityTableEditPage', () => {
       await waitFor(() => {
         expect(screen.getByText(/保存に失敗しました/)).toBeInTheDocument();
       });
+
+      // 失敗後も再取得は行わず、編集中の値（ドラフト）が保持されている（REQ-42.9）
+      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
+      expect(screen.getByDisplayValue('足場（編集中）')).toBeInTheDocument();
     });
 
     it('項目が見つからない場合はエラーが表示される', async () => {
@@ -753,13 +776,16 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 11.1: 保存機能', () => {
-    it('保存ボタンをクリックすると保存メッセージが表示される', async () => {
+    // Task 61.4: 保存成功時はサーバー最新データで同期し「保存しました」を表示する（REQ-42.8）
+    it('保存ボタンをクリックすると保存され、サーバー最新データで同期して保存メッセージが表示される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockBulkSaveQuantityTable.mockResolvedValue({
-        updatedItemCount: 3,
-        updatedAt: '2025-01-02T00:00:00Z',
-      });
+      // 保存後の最新詳細（updatedAt が進む）を返す
+      const savedDetail: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        updatedAt: '2025-02-02T00:00:00Z',
+      };
+      mockSaveQuantityTableDraft.mockResolvedValue(savedDetail);
 
       renderWithRouter();
 
@@ -773,6 +799,9 @@ describe('QuantityTableEditPage', () => {
       await waitFor(() => {
         expect(screen.getByText(/保存しました/)).toBeInTheDocument();
       });
+
+      // saveDraft レスポンスで同期するため、保存後の再取得（getQuantityTableDetail）は行わない（REQ-42.8）
+      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1880,15 +1909,16 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 11 追加: 保存の競合エラー', () => {
-    it('保存時に競合エラーが発生した場合、競合メッセージが表示される', async () => {
+    // Task 61.4: 409 競合は競合専用メッセージを表示し、ドラフトは保持する（REQ-42.9）
+    it('保存時に409競合エラーが発生した場合、競合メッセージが表示されドラフトは保持される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockBulkSaveQuantityTable.mockRejectedValue(new Error('競合が発生しました'));
+      mockSaveQuantityTableDraft.mockRejectedValue(new ApiError(409, 'Conflict'));
 
       renderWithRouter();
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
       });
 
       // 保存ボタンをクリック
@@ -1898,12 +1928,16 @@ describe('QuantityTableEditPage', () => {
       await waitFor(() => {
         expect(screen.getByText(/他のユーザーによって更新されました/)).toBeInTheDocument();
       });
+
+      // 競合後もドラフトは保持され、再取得は行わない（REQ-42.9）
+      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
+      expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
     });
 
-    it('保存時に一般エラーが発生した場合、一般エラーメッセージが表示される', async () => {
+    it('保存時に400検証エラーが発生した場合、一般エラーメッセージが表示される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockBulkSaveQuantityTable.mockRejectedValue(new Error('Network error'));
+      mockSaveQuantityTableDraft.mockRejectedValue(new ApiError(400, 'Validation error'));
 
       renderWithRouter();
 

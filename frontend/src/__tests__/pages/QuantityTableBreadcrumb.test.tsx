@@ -40,7 +40,7 @@ vi.mock('../../api/quantity-tables', () => ({
   deleteQuantityItem: vi.fn(),
   copyQuantityItem: vi.fn(),
   updateQuantityTable: vi.fn(),
-  bulkSaveQuantityTable: vi.fn(),
+  saveQuantityTableDraft: vi.fn(),
 }));
 
 vi.mock('../../api/site-surveys', () => ({

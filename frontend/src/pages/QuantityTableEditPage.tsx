@@ -14,8 +14,9 @@ import { useParams, Link } from 'react-router-dom';
 import {
   getQuantityTableDetail,
   createQuantityItem,
-  bulkSaveQuantityTable,
+  saveQuantityTableDraft,
 } from '../api/quantity-tables';
+import { ApiError } from '../api/client';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import { getAnnotation } from '../api/survey-annotations';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
@@ -29,6 +30,7 @@ import type { SurveyImageInfo } from '../types/site-survey.types';
 import {
   quantityTableEditReducer,
   initialQuantityTableEditState,
+  buildSaveQuantityTableDraftInput,
   type DraftGroup,
   type DraftItem,
 } from './quantityTableEditReducer';
@@ -1342,30 +1344,37 @@ export default function QuantityTableEditPage() {
   /**
    * 保存ハンドラ
    *
-   * Requirements: 11.1, 11.2
+   * Task 61.4: 保存ハンドラを saveDraft へ移行し保存後同期・失敗時保持を実装する
+   * Requirements: 42.5, 42.7, 42.8, 42.9, 11.1, 11.2
    *
-   * ドラフト（描画モデル）の最終状態をまとめてAPIに保存する。
-   * 注: Task 61.4 で saveQuantityTableDraft への移行・保存後同期（saveSync）を実装予定。
-   * 本タスク（61.1）では既存の bulkSaveQuantityTable パスを暫定的に維持しつつ、
-   * 保存対象データをドラフト由来の renderTable から構築する。
+   * - クライアント検証（必須・丸め設定）後、編集ドラフトの全状態を
+   *   {@link buildSaveQuantityTableDraftInput} でフル状態同期保存ペイロードへ構築し、
+   *   {@link saveQuantityTableDraft}（PUT /:id/save）を1回だけ呼び出す（REQ-42.5）。
+   *   楽観ロック用 expectedUpdatedAt はサーバースナップショットの updatedAt を渡す。
+   * - 成功時: レスポンスの最新 QuantityTableDetail でスナップショット（参照情報・写真サマリ供給元）と
+   *   ドラフト（reducer saveSync → isDirty=false）を同期し、「保存しました」を表示する（REQ-42.8）。
+   *   saveDraft レスポンスで同期するため保存後の再取得（GET）は行わない。
+   * - 失敗時: 409 は競合専用メッセージ、それ以外（400/500等）は一般エラーメッセージを表示し、
+   *   ドラフト（未保存の変更）を保持したまま再保存可能とする（REQ-42.9）。
+   * - 自動保存は持たず、永続化は本保存操作時にのみ実行する（REQ-42.7）。
    */
   const handleSave = useCallback(async () => {
-    if (!renderTable || !snapshot || !id) return;
+    const draftToSave = editState.draft;
+    if (!draftToSave || !snapshot || !id) return;
 
-    // REQ-11.2: 整合性チェック
+    // REQ-11.2: 整合性チェック（ドラフトの最終状態を検証する）
     const validationErrors: string[] = [];
-    const groups = renderTable.groups ?? [];
-
-    for (const group of groups) {
-      for (const item of group.items ?? []) {
+    for (const group of draftToSave.groups) {
+      const groupLabel = group.name ?? '';
+      for (const item of group.items) {
         // 項目名が空の場合はエラー
         if (!item.name || item.name.trim() === '') {
-          validationErrors.push(`グループ「${group.name}」に項目名が空の項目があります`);
+          validationErrors.push(`グループ「${groupLabel}」に項目名が空の項目があります`);
         }
         // 丸め設定が0以下の場合はエラー
-        if (item.roundingUnit <= 0) {
+        if (Number(item.roundingUnit) <= 0) {
           validationErrors.push(
-            `グループ「${group.name}」の項目「${item.name || '(名称未設定)'}」の丸め設定が無効です`
+            `グループ「${groupLabel}」の項目「${item.name || '(名称未設定)'}」の丸め設定が無効です`
           );
         }
       }
@@ -1377,50 +1386,30 @@ export default function QuantityTableEditPage() {
       return;
     }
 
-    // バルク保存APIを使用して1回のリクエストで全項目を保存
+    // フル状態同期保存（REQ-42.5）。1回の PUT で全状態を確定する。
     setSaveMessage('保存中...');
     setOperationError(null);
 
     try {
-      // バルク保存用のデータを構築
-      const bulkSaveData = {
-        expectedUpdatedAt: snapshot.updatedAt,
-        groups: groups.map((group) => ({
-          id: group.id,
-          items: (group.items ?? []).map((item) => ({
-            id: item.id,
-            majorCategory: item.majorCategory,
-            middleCategory: item.middleCategory,
-            minorCategory: item.minorCategory,
-            customCategory: item.customCategory,
-            workType: item.workType,
-            name: item.name,
-            specification: item.specification,
-            unit: item.unit,
-            calculationMethod: item.calculationMethod,
-            calculationParams: item.calculationParams,
-            adjustmentFactor: item.adjustmentFactor,
-            roundingUnit: item.roundingUnit,
-            quantity: item.quantity,
-            remarks: item.remarks,
-            displayOrder: item.displayOrder,
-          })),
-        })),
-      };
+      // ドラフトの全状態をペイロードへ構築（displayOrder は配列順、新規行は tempId 保持）
+      const input = buildSaveQuantityTableDraftInput(draftToSave, snapshot.updatedAt);
 
-      // 1回のAPIリクエストで全項目を保存
-      await bulkSaveQuantityTable(id, bulkSaveData);
+      // 1回のAPIリクエストでフル状態を保存し、採番済みの最新詳細を取得する
+      const savedDetail = await saveQuantityTableDraft(id, input);
 
-      // 保存後にデータを再取得して最新のupdatedAtを反映
-      await fetchQuantityTableDetail();
+      // REQ-42.8: サーバー最新データでスナップショット/ドラフトを同期し isDirty=false
+      setSnapshot(savedDetail);
+      setLinkedPhotoSummaries({});
+      dispatch({ type: 'saveSync', detail: savedDetail });
 
       setSaveMessage('保存しました');
       setTimeout(() => {
         setSaveMessage(null);
       }, 3000);
     } catch (error) {
-      // 競合エラーの場合は特別なメッセージを表示
-      if (error instanceof Error && error.message.includes('競合')) {
+      // REQ-42.9: 失敗時はエラー表示し、ドラフト（未保存変更）を保持して再保存可能とする
+      if (error instanceof ApiError && error.statusCode === 409) {
+        // 楽観ロック競合（409）は競合専用メッセージを表示する
         setOperationError(
           '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
         );
@@ -1429,7 +1418,7 @@ export default function QuantityTableEditPage() {
       }
       setSaveMessage(null);
     }
-  }, [id, renderTable, snapshot, fetchQuantityTableDetail]);
+  }, [id, editState.draft, snapshot]);
 
   // ローディング表示
   if (isLoading) {

@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { QuantityTableDetail } from '../types/quantity-table.types';
 import {
+  buildSaveQuantityTableDraftInput,
   createTempId,
   initialQuantityTableEditState,
   quantityTableEditReducer,
@@ -525,6 +526,77 @@ describe('saveSync', () => {
       expect('tempId' in g).toBe(false);
     });
     expect(synced.isDirty).toBe(false);
+  });
+});
+
+// ============================================================================
+// フル状態同期保存ペイロード構築（buildSaveQuantityTableDraftInput）
+// Task 61.4 / REQ-42.5
+// ============================================================================
+
+describe('buildSaveQuantityTableDraftInput', () => {
+  it('ドラフト全状態を expectedUpdatedAt・name・groups[全状態] のペイロードへ構築する', () => {
+    // ロード→新規グループ追加→新規項目追加→数量表名変更で混在状態を作る
+    let state = loadedState();
+    state = quantityTableEditReducer(state, { type: 'renameTable', name: '改訂版数量表' });
+    state = quantityTableEditReducer(state, { type: 'addGroup' });
+    // 既存グループ（group-1）へ新規項目を追加
+    state = quantityTableEditReducer(state, { type: 'addItem', groupKey: 'group-1' });
+
+    const input = buildSaveQuantityTableDraftInput(state.draft!, '2026-01-01T00:00:00.000Z');
+
+    // 楽観ロック用 expectedUpdatedAt と数量表名
+    expect(input.expectedUpdatedAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(input.name).toBe('改訂版数量表');
+
+    // グループは2件（既存＋新規）。displayOrder は配列順
+    expect(input.groups).toHaveLength(2);
+    expect(input.groups.map((g) => g.displayOrder)).toEqual([0, 1]);
+
+    // 既存グループは id=UUID（tempId なし）
+    const existingGroup = input.groups[0]!;
+    expect(existingGroup.id).toBe('group-1');
+    expect('tempId' in existingGroup).toBe(false);
+
+    // 新規グループは id=null＋tempId、name は null→空文字へ正規化
+    const newGroup = input.groups[1]!;
+    expect(newGroup.id).toBeNull();
+    expect(newGroup.tempId).toMatch(/^temp-/);
+    expect(newGroup.name).toBe('');
+
+    // 既存グループ配下: 既存項目＋新規項目、displayOrder は配列順
+    expect(existingGroup.items.map((i) => i.displayOrder)).toEqual([0, 1]);
+    const existingItem = existingGroup.items[0]!;
+    expect(existingItem.id).toBe('item-1');
+    expect('tempId' in existingItem).toBe(false);
+    // 文字列保持の数値フィールドは数値へ変換される
+    expect(existingItem.quantity).toBe(12.5);
+    expect(existingItem.adjustmentFactor).toBe(1);
+    expect(existingItem.roundingUnit).toBe(0.01);
+
+    const newItem = existingGroup.items[1]!;
+    expect(newItem.id).toBeNull();
+    expect(newItem.tempId).toMatch(/^temp-/);
+    expect(typeof newItem.quantity).toBe('number');
+  });
+
+  it('並び替え後の配列順を displayOrder として採用する', () => {
+    let state = loadedState();
+    state = quantityTableEditReducer(state, { type: 'addGroup' }); // displayOrder 1 の新規グループ
+    // 新規グループを先頭へ移動
+    const newKey = state.draft!.groups[1]!.tempId!;
+    state = quantityTableEditReducer(state, {
+      type: 'reorderGroup',
+      groupKey: newKey,
+      direction: 'up',
+    });
+
+    const input = buildSaveQuantityTableDraftInput(state.draft!, 'x');
+    // 先頭が新規グループ（id=null）、displayOrder=0
+    expect(input.groups[0]!.id).toBeNull();
+    expect(input.groups[0]!.displayOrder).toBe(0);
+    expect(input.groups[1]!.id).toBe('group-1');
+    expect(input.groups[1]!.displayOrder).toBe(1);
   });
 });
 

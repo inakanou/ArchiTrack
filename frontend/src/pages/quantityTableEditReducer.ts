@@ -25,6 +25,11 @@
  * @module pages/quantityTableEditReducer
  */
 
+import type {
+  SaveDraftGroupInput,
+  SaveDraftItemInput,
+  SaveQuantityTableDraftInput,
+} from '../api/quantity-tables';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
 import type {
   CalculationMethod,
@@ -675,4 +680,89 @@ export function quantityTableEditReducer(
     default:
       return state;
   }
+}
+
+// ============================================================================
+// フル状態同期保存ペイロード構築（saveDraft）
+// ============================================================================
+
+/**
+ * ドラフト項目をフル状態同期保存用の項目入力へ変換する。
+ *
+ * - 既存行は `id`=UUID、新規行は `id`=null＋`tempId`（トレース用）を保持する（REQ-42.5）。
+ * - 文字列入力で保持している数値フィールド（quantity/adjustmentFactor/roundingUnit）は
+ *   `Number` へ変換してサーバースキーマ（数値型）へ合わせる。
+ * - `displayOrder` は配列順（引数 index）を正とする。
+ *
+ * @param item - ドラフト項目
+ * @param displayOrder - 配列順（0始まり）
+ */
+function draftItemToSaveInput(item: DraftItem, displayOrder: number): SaveDraftItemInput {
+  return {
+    id: item.id,
+    ...(item.id === null && item.tempId !== undefined ? { tempId: item.tempId } : {}),
+    majorCategory: item.majorCategory,
+    middleCategory: item.middleCategory,
+    minorCategory: item.minorCategory,
+    customCategory: item.customCategory,
+    workType: item.workType,
+    name: item.name,
+    specification: item.specification,
+    unit: item.unit,
+    calculationMethod: item.calculationMethod,
+    calculationParams: item.calculationParams,
+    adjustmentFactor: Number(item.adjustmentFactor),
+    roundingUnit: Number(item.roundingUnit),
+    quantity: Number(item.quantity),
+    remarks: item.remarks,
+    displayOrder,
+  };
+}
+
+/**
+ * ドラフトグループをフル状態同期保存用のグループ入力へ変換する。
+ *
+ * - 既存行は `id`=UUID、新規行は `id`=null＋`tempId` を保持する（REQ-42.5）。
+ * - グループ名は未設定（null）を空文字へ正規化してサーバースキーマ（string）へ合わせる。
+ * - 配下項目・自身の `displayOrder` はいずれも配列順を正とする。
+ *
+ * @param group - ドラフトグループ
+ * @param displayOrder - 配列順（0始まり）
+ */
+function draftGroupToSaveInput(group: DraftGroup, displayOrder: number): SaveDraftGroupInput {
+  return {
+    id: group.id,
+    ...(group.id === null && group.tempId !== undefined ? { tempId: group.tempId } : {}),
+    name: group.name ?? '',
+    surveyImageId: group.surveyImageId,
+    displayOrder,
+    items: group.items.map((item, index) => draftItemToSaveInput(item, index)),
+  };
+}
+
+/**
+ * 編集ドラフトの全状態をフル状態同期保存リクエストボディへ構築する（純粋関数）。
+ *
+ * 保存ボタン押下時に、クライアントサイドの編集状態（数量表名・全グループ・全項目の
+ * 最終状態）を1回の `saveQuantityTableDraft`（PUT /:id/save）で確定するための
+ * ペイロードを組み立てる（REQ-42.5）。`displayOrder` はグループ・項目とも配列順を正とし、
+ * 新規行は `id`=null＋`tempId`、既存行は `id`=UUID を保持する。楽観ロック用の
+ * `expectedUpdatedAt` は呼び出し側がサーバースナップショットの `updatedAt` を渡す。
+ *
+ * Task 61.4
+ * Requirements: 42.5
+ *
+ * @param draft - 編集ドラフト
+ * @param expectedUpdatedAt - 楽観的排他制御用の期待される更新日時（serverSnapshot.updatedAt）
+ * @returns フル状態同期保存リクエストボディ
+ */
+export function buildSaveQuantityTableDraftInput(
+  draft: QuantityTableDraft,
+  expectedUpdatedAt: string
+): SaveQuantityTableDraftInput {
+  return {
+    expectedUpdatedAt,
+    name: draft.name,
+    groups: draft.groups.map((group, index) => draftGroupToSaveInput(group, index)),
+  };
 }
