@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-06-04（Steering Sync: frontend react-router-dom を脆弱性対応で ^7.16.0 へ更新、backend Prisma 7.8.0 / @prisma/adapter-pg 7.3.0 へバージョン整合、ルートワークスペースのみ ESLint 10 系へ追従（frontend/backend は plugin 非互換のため 9 系維持）を反映）_
+_最終更新: 2026-06-05（Steering Sync: 全Dockerfileでcorepackによるnpm版固定（packageManager `npm@11.6.2`）でnpm ci決定性を確保するパターン、backend entrypointでのsharpネイティブバイナリ自己修復パターンを反映）_
+
+_2026-06-04（Steering Sync: frontend react-router-dom を脆弱性対応で ^7.16.0 へ更新、backend Prisma 7.8.0 / @prisma/adapter-pg 7.3.0 へバージョン整合、ルートワークスペースのみ ESLint 10 系へ追従（frontend/backend は plugin 非互換のため 9 系維持）を反映）_
 
 ## アーキテクチャ
 
@@ -540,6 +542,15 @@ docker-compose.ci.yml    # CI環境オーバーライド（nginx本番イメー�
 **バックエンド (`backend/docker-entrypoint.sh`):**
 - `node_modules/.bin`の存在確認
 - 不足している場合のみ依存関係をインストール
+- **sharpネイティブバイナリの自己修復**: 依存チェックは`package.json`/`package-lock.json`のハッシュ一致で`npm ci`をスキップするが、ハッシュは`node_modules`実体の健全性までは検証しない。永続ボリューム上の`node_modules`が陳腐化し実行プラットフォーム向けの`libvips`（musl）を欠くとsharpロードが失敗し、ストレージサービス初期化失敗→画像アップロードが503となる。そのため起動毎にロード可否を検証し、不可なら`npm install --no-save sharp`で現在のプラットフォーム向けに再解決して修復する（lockfileは変更しない）
+
+#### npm版固定パターン（ビルド決定性）
+
+全Dockerfile（backend/frontend、build/dev）は`corepack enable npm`で`package.json`の`packageManager`フィールドに宣言したnpmへ固定する：
+
+- **背景**: `node:22-alpine`同梱npm（10.9.7）はoptional依存（`canvas`等）の解決ロジックがnpm版で異なり、別版npmで生成した`package-lock.json`を不整合（EUSAGE）として拒否し`npm ci`が失敗する
+- **方針**: lockfileを生成したnpmと同一版をビルドでも使うことで`npm ci`を決定的にする（現在は`npm@11.6.2`を両プロジェクトで固定）
+- **適用範囲**: ローカルDocker / CI / Railwayデプロイ全てで同一挙動を保証
 
 #### デバッグサポート
 
