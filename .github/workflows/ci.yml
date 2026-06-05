@@ -39,6 +39,10 @@ jobs:
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
             npm ci
+          elif [ "${{ matrix.workspace }}" = "frontend" ]; then
+            # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+            # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+            npx -y npm@11.6.2 --prefix frontend ci
           else
             npm --prefix ${{ matrix.workspace }} ci
           fi
@@ -114,6 +118,10 @@ jobs:
         run: |
           if [ "${{ matrix.workspace }}" = "e2e" ]; then
             npm ci
+          elif [ "${{ matrix.workspace }}" = "frontend" ]; then
+            # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+            # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+            npx -y npm@11.6.2 --prefix frontend ci
           else
             npm --prefix ${{ matrix.workspace }} ci
           fi
@@ -153,7 +161,14 @@ jobs:
             prisma-binaries-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm --prefix ${{ matrix.workspace }} ci
+        run: |
+          if [ "${{ matrix.workspace }}" = "frontend" ]; then
+            # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+            # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+            npx -y npm@11.6.2 --prefix frontend ci
+          else
+            npm --prefix ${{ matrix.workspace }} ci
+          fi
       - name: Generate Prisma Client (backend only)
         if: matrix.workspace == 'backend'
         run: npm --prefix backend run prisma:generate
@@ -225,7 +240,14 @@ jobs:
             prisma-binaries-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm --prefix ${{ matrix.workspace }} ci
+        run: |
+          if [ "${{ matrix.workspace }}" = "frontend" ]; then
+            # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+            # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+            npx -y npm@11.6.2 --prefix frontend ci
+          else
+            npm --prefix ${{ matrix.workspace }} ci
+          fi
       - name: Build
         run: npm --prefix ${{ matrix.workspace }} run build
         env:
@@ -283,7 +305,9 @@ jobs:
             prisma-binaries-${{ runner.os }}-
 
       - name: Install frontend dependencies
-        run: npm --prefix frontend ci
+        # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+        # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+        run: npx -y npm@11.6.2 --prefix frontend ci
       - name: Install Playwright browsers
         run: npx --prefix frontend playwright install chromium --with-deps
       - name: Run Storybook tests
@@ -482,7 +506,9 @@ jobs:
       - name: Install backend dependencies
         run: npm --prefix backend ci --ignore-scripts
       - name: Install frontend dependencies
-        run: npm --prefix frontend ci --ignore-scripts
+        # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+        # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+        run: npx -y npm@11.6.2 --prefix frontend ci --ignore-scripts
       - name: Run security audit
         # Uses unified security audit script with allowlist support
         # - Production deps with high+ severity: block (unless in allowlist)
