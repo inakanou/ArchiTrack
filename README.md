@@ -8,8 +8,6 @@
 [![codecov](https://codecov.io/gh/inakanou/ArchiTrack/branch/main/graph/badge.svg)](https://codecov.io/gh/inakanou/ArchiTrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-[English](README.md) | [日本語](README.ja.md)
-
 </div>
 
 ---
