@@ -3,6 +3,10 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 
+# Pin npm via package.json's "packageManager" field (corepack) so the lockfile is
+# validated by the same npm that generated it, regardless of the image's bundled npm
+RUN corepack enable npm
+
 # Copy package files
 COPY package*.json ./
 
@@ -33,6 +37,9 @@ FROM node:22-alpine
 RUN apk add --no-cache bash
 
 WORKDIR /app
+
+# Pin npm via package.json's "packageManager" field (corepack), matching the build stage
+RUN corepack enable npm
 
 # Copy package files
 COPY package*.json ./

@@ -1,23 +1,38 @@
 /**
- * @fileoverview 数量表編集画面のグループコピー配線テスト
+ * @fileoverview 数量表編集画面のグループコピー配線テスト（クライアントサイドドラフト）
  *
- * Task 53.3: 数量表編集画面にコピーハンドラを配線する
+ * Task 61.2: 数量グループコピーをクライアントサイドドラフト化する
+ *
+ * コピーはサーバー POST（copyQuantityGroup）ではなく reducer の `copyGroup` アクションに
+ * よるクライアントサイドのドラフト複製として行う。複製先は元グループの直下に挿入され、
+ * 後続グループの displayOrder はシフトし、名前は「{元名}のコピー」、未保存（isDirty）となる。
+ * 永続化は保存操作（Task 61.4）で行うため、コピー操作ではサーバーアクセスを発生させない。
  *
  * Requirements:
- * - 38.7: 複製先グループを元グループの直下に挿入
- * - 38.9: コピー処理中インジケーター表示・重複操作防止
- * - 38.10: エラー時のメッセージ表示とロールバック
- * - 38.11: コピー成功後に複製先を画面に表示し編集可能状態にする
+ * - 42.4: グループ追加・削除・コピー・並び替えはクライアント編集状態にのみ反映（保存前はサーバー非送信）
+ * - 38.13: コピーは保存操作まで永続化せずクライアント編集状態に反映（直下挿入・名称・項目複製）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+
+// useBlocker をモック（データルーターなしでテストするため。Task 62.1 離脱ガード対応）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
 import * as quantityTablesApi from '../../api/quantity-tables';
-import { ApiError } from '../../api/client';
-import type { QuantityTableDetail, QuantityGroupInfo } from '../../types/quantity-table.types';
+import type { QuantityTableDetail } from '../../types/quantity-table.types';
 
 // APIモック
 vi.mock('../../api/quantity-tables');
@@ -44,7 +59,8 @@ const mockCopyQuantityGroup = vi.mocked(quantityTablesApi.copyQuantityGroup);
 
 /**
  * テスト用の数量表詳細
- * 2つのグループを持ち、後続グループの displayOrder シフトを検証できる構造
+ * 2つのグループを持ち、後続グループの displayOrder シフトを検証できる構造。
+ * 元グループには項目を 1 件持たせ、項目複製を検証できるようにする。
  */
 const buildInitialDetail = (): QuantityTableDetail => ({
   id: 'qt-123',
@@ -52,17 +68,39 @@ const buildInitialDetail = (): QuantityTableDetail => ({
   project: { id: 'proj-456', name: 'テストプロジェクト' },
   name: 'テスト数量表',
   groupCount: 2,
-  itemCount: 0,
+  itemCount: 1,
   groups: [
     {
       id: 'group-a',
       quantityTableId: 'qt-123',
       name: '元グループA',
-      surveyImageId: null,
+      surveyImageId: 'image-1',
       surveyImage: null,
       displayOrder: 0,
-      itemCount: 0,
-      items: [],
+      itemCount: 1,
+      items: [
+        {
+          id: 'item-1',
+          quantityGroupId: 'group-a',
+          majorCategory: '土工',
+          middleCategory: null,
+          minorCategory: null,
+          customCategory: null,
+          workType: '掘削',
+          name: '根切り',
+          specification: null,
+          calculationMethod: 'STANDARD',
+          calculationParams: null,
+          adjustmentFactor: 1,
+          roundingUnit: 0.01,
+          quantity: 10,
+          unit: 'm3',
+          remarks: null,
+          displayOrder: 0,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
     },
@@ -83,76 +121,6 @@ const buildInitialDetail = (): QuantityTableDetail => ({
   updatedAt: '2026-01-01T00:00:00Z',
 });
 
-/**
- * コピー成功時のレスポンス（QuantityGroupInfo）
- * バックエンドは元グループの直下（displayOrder = 元 + 1）に複製先を挿入する
- */
-const buildCopyResponse = (): QuantityGroupInfo => ({
-  id: 'group-a-copy',
-  quantityTableId: 'qt-123',
-  name: '元グループAのコピー',
-  surveyImageId: null,
-  displayOrder: 1,
-  itemCount: 0,
-  createdAt: '2026-01-02T00:00:00Z',
-  updatedAt: '2026-01-02T00:00:00Z',
-});
-
-/**
- * コピー成功後の再取得用詳細
- * - group-a (displayOrder: 0)
- * - group-a-copy (displayOrder: 1)  ← 元グループ直下
- * - group-b (displayOrder: 2)        ← +1 シフト
- */
-const buildAfterCopyDetail = (): QuantityTableDetail => ({
-  id: 'qt-123',
-  projectId: 'proj-456',
-  project: { id: 'proj-456', name: 'テストプロジェクト' },
-  name: 'テスト数量表',
-  groupCount: 3,
-  itemCount: 0,
-  groups: [
-    {
-      id: 'group-a',
-      quantityTableId: 'qt-123',
-      name: '元グループA',
-      surveyImageId: null,
-      surveyImage: null,
-      displayOrder: 0,
-      itemCount: 0,
-      items: [],
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-01T00:00:00Z',
-    },
-    {
-      id: 'group-a-copy',
-      quantityTableId: 'qt-123',
-      name: '元グループAのコピー',
-      surveyImageId: null,
-      surveyImage: null,
-      displayOrder: 1,
-      itemCount: 0,
-      items: [],
-      createdAt: '2026-01-02T00:00:00Z',
-      updatedAt: '2026-01-02T00:00:00Z',
-    },
-    {
-      id: 'group-b',
-      quantityTableId: 'qt-123',
-      name: '別グループB',
-      surveyImageId: null,
-      surveyImage: null,
-      displayOrder: 2,
-      itemCount: 0,
-      items: [],
-      createdAt: '2026-01-01T00:00:00Z',
-      updatedAt: '2026-01-02T00:00:00Z',
-    },
-  ],
-  createdAt: '2026-01-01T00:00:00Z',
-  updatedAt: '2026-01-02T00:00:00Z',
-});
-
 function renderWithRouter() {
   return render(
     <MemoryRouter initialEntries={['/quantity-tables/qt-123/edit']}>
@@ -164,11 +132,7 @@ function renderWithRouter() {
 }
 
 /**
- * 指定グループ ID のコピーボタンを取得する
- *
- * QuantityGroupCard は `data-testid="quantity-group"` の div に包まれていないため、
- * `aria-label="グループをコピー"` のボタンを「対象グループのカード内」から探す。
- * 簡易にコピーボタン群を取得して順序で特定する。
+ * グループのコピーボタン群を取得する（aria-label="グループをコピー"）。
  */
 function getCopyButtons(): HTMLElement[] {
   return screen.getAllByRole('button', { name: /グループをコピー/ });
@@ -178,18 +142,16 @@ function getCopyButtons(): HTMLElement[] {
 // テストケース
 // ============================================================================
 
-describe('QuantityTableEditPage - グループコピー配線 (Task 53.3)', () => {
+describe('QuantityTableEditPage - グループコピー（クライアントサイドドラフト, Task 61.2）', () => {
   const user = userEvent.setup();
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('コピーボタン押下で copyQuantityGroup API が対象グループ ID で呼び出される', async () => {
+  it('コピー押下でサーバー copyQuantityGroup API を呼び出さない（クライアント完結・保存前は非送信）', async () => {
     // Arrange
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    mockCopyQuantityGroup.mockResolvedValue(buildCopyResponse());
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildAfterCopyDetail());
     renderWithRouter();
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
@@ -200,18 +162,18 @@ describe('QuantityTableEditPage - グループコピー配線 (Task 53.3)', () =
     expect(copyButtons.length).toBeGreaterThanOrEqual(2);
     await user.click(copyButtons[0]!);
 
-    // Assert
+    // Assert: 複製先が画面に現れた後でも、サーバーコピー API は一度も呼ばれない
     await waitFor(() => {
-      expect(mockCopyQuantityGroup).toHaveBeenCalledWith('group-a');
+      expect(screen.getByText('元グループAのコピー')).toBeInTheDocument();
     });
-    expect(mockCopyQuantityGroup).toHaveBeenCalledTimes(1);
+    expect(mockCopyQuantityGroup).not.toHaveBeenCalled();
+    // 再取得（getQuantityTableDetail）も初回ロードの 1 回のみ（コピーで再取得しない）
+    expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
   });
 
-  it('コピー成功時に再取得が走り、複製先が元グループの直下に表示される', async () => {
+  it('複製先が元グループの直下に表示され、後続グループはシフトする（直下挿入・displayOrder シフト）', async () => {
     // Arrange
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    mockCopyQuantityGroup.mockResolvedValue(buildCopyResponse());
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildAfterCopyDetail());
     renderWithRouter();
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
@@ -220,12 +182,7 @@ describe('QuantityTableEditPage - グループコピー配線 (Task 53.3)', () =
     // Act
     await user.click(getCopyButtons()[0]!);
 
-    // Assert: 再取得が複製成功後に走る
-    await waitFor(() => {
-      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(2);
-    });
-
-    // 再取得後、複製先グループが画面に表示される（h3 ヘッダーとして表示）
+    // Assert: 複製先グループが画面に表示される
     await waitFor(() => {
       expect(screen.getByText('元グループAのコピー')).toBeInTheDocument();
     });
@@ -233,19 +190,14 @@ describe('QuantityTableEditPage - グループコピー配線 (Task 53.3)', () =
     // 並び順: 元グループA → 元グループAのコピー → 別グループB
     const groupSections = screen.getAllByTestId('quantity-group');
     expect(groupSections).toHaveLength(3);
-    // 1番目のカードに元グループAのヘッダー
     expect(within(groupSections[0]!).getByText('元グループA')).toBeInTheDocument();
-    // 2番目のカードに複製先（直下挿入）
     expect(within(groupSections[1]!).getByText('元グループAのコピー')).toBeInTheDocument();
-    // 3番目のカードは displayOrder シフト後の別グループB
     expect(within(groupSections[2]!).getByText('別グループB')).toBeInTheDocument();
   });
 
-  it('複製先グループ名がクリックでインライン編集可能なヘッダーとして表示される（Req 22 整合）', async () => {
+  it('複製先に元グループの項目が複製される（配下項目の複製）', async () => {
     // Arrange
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    mockCopyQuantityGroup.mockResolvedValue(buildCopyResponse());
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildAfterCopyDetail());
     renderWithRouter();
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
@@ -254,111 +206,52 @@ describe('QuantityTableEditPage - グループコピー配線 (Task 53.3)', () =
     // Act
     await user.click(getCopyButtons()[0]!);
 
-    // Assert: 複製先グループ名のヘッダーが button role を持ち、クリック可能（編集 UI 起動可能）
+    // Assert: 複製先カード内に元グループの項目名「根切り」が複製されて表示される
+    await waitFor(() => {
+      expect(screen.getByText('元グループAのコピー')).toBeInTheDocument();
+    });
+    const groupSections = screen.getAllByTestId('quantity-group');
+    const copiedItemNameInputs = within(groupSections[1]!).getAllByDisplayValue('根切り');
+    expect(copiedItemNameInputs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('複製先グループ名がクリックでインライン編集可能なヘッダーとして表示される（Req 22 整合）', async () => {
+    // Arrange
+    mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
+    renderWithRouter();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    });
+
+    // Act
+    await user.click(getCopyButtons()[0]!);
+
+    // Assert: 複製先グループ名ヘッダーが button role を持ち、クリックで編集 input にスワップ
     const copiedHeader = await screen.findByText('元グループAのコピー');
-    // Requirement 22: 編集可能状態 — Card は isEditable + onRenameGroup を受け取っているため
-    // h3 が role="button" として振る舞い、クリックで input にスワップされる
     expect(copiedHeader).toHaveAttribute('role', 'button');
 
-    // クリックすると input にスワップされ、編集状態に入る
     await user.click(copiedHeader);
     const editingInput = await screen.findByRole('textbox', { name: 'グループ名を編集' });
     expect(editingInput).toHaveValue('元グループAのコピー');
     expect(editingInput).not.toBeDisabled();
   });
 
-  it('コピー中はボタンが disabled になり、重複押下で API が再呼び出しされない', async () => {
-    // Arrange: copyQuantityGroup を解決を遅延させて「コピー中」状態を観測
+  it('コピー操作ではエラーメッセージを表示しない（純粋なクライアント操作）', async () => {
+    // Arrange
     mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    let resolveCopy: ((value: QuantityGroupInfo) => void) | null = null;
-    mockCopyQuantityGroup.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveCopy = resolve;
-        })
-    );
     renderWithRouter();
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
     });
 
-    // Act 1: 1回目クリック → ボタンがコピー中（disabled）に
+    // Act
     await user.click(getCopyButtons()[0]!);
-    await waitFor(() => {
-      const buttons = getCopyButtons();
-      expect(buttons[0]).toBeDisabled();
-    });
 
-    // Act 2: 2回目クリック → disabled のため副作用なし
-    await user.click(getCopyButtons()[0]!);
-    expect(mockCopyQuantityGroup).toHaveBeenCalledTimes(1);
-
-    // Cleanup: pending promise を解決して finally を走らせる
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildAfterCopyDetail());
-    resolveCopy!(buildCopyResponse());
+    // Assert: 複製先が反映され、エラー alert は出ない
     await waitFor(() => {
       expect(screen.getByText('元グループAのコピー')).toBeInTheDocument();
     });
-  });
-
-  it('API 失敗時（500 系）に "グループのコピーに失敗しました" エラーメッセージが表示される', async () => {
-    // Arrange
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    mockCopyQuantityGroup.mockRejectedValue(new ApiError(500, 'Internal Server Error'));
-    renderWithRouter();
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-    });
-
-    // Act
-    await user.click(getCopyButtons()[0]!);
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('グループのコピーに失敗しました');
-    });
-    // 再取得は走らない
-    expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
-  });
-
-  it('409 レスポンス時に "他のユーザーが操作中です。再試行してください" メッセージが表示される', async () => {
-    // Arrange
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    mockCopyQuantityGroup.mockRejectedValue(new ApiError(409, 'Conflict'));
-    renderWithRouter();
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-    });
-
-    // Act
-    await user.click(getCopyButtons()[0]!);
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        '他のユーザーが操作中です。再試行してください'
-      );
-    });
-  });
-
-  it('エラー後にコピーボタンが再有効化される（リトライ可能状態）', async () => {
-    // Arrange
-    mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
-    mockCopyQuantityGroup.mockRejectedValue(new ApiError(409, 'Conflict'));
-    renderWithRouter();
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-    });
-
-    // Act
-    await user.click(getCopyButtons()[0]!);
-
-    // Assert: エラーメッセージ表示後、ボタンは再度有効
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(getCopyButtons()[0]).not.toBeDisabled();
-    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mockCopyQuantityGroup).not.toHaveBeenCalled();
   });
 });

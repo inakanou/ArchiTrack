@@ -10,6 +10,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
+// useBlocker をモック（データルーターなしでテストするため。Task 62.1 離脱ガード対応）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
+
 // ============================================================================
 // モック設定
 // ============================================================================
@@ -40,7 +53,7 @@ vi.mock('../../api/quantity-tables', () => ({
   deleteQuantityItem: vi.fn(),
   copyQuantityItem: vi.fn(),
   updateQuantityTable: vi.fn(),
-  bulkSaveQuantityTable: vi.fn(),
+  saveQuantityTableDraft: vi.fn(),
 }));
 
 vi.mock('../../api/site-surveys', () => ({

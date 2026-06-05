@@ -32,7 +32,7 @@ import {
   QuantityTableValidationError,
   OptimisticLockError,
 } from '../errors/quantityTableError.js';
-import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
+import { SurveyImageNotFoundError, SiteSurveyNotFoundError } from '../errors/siteSurveyError.js';
 import { ForbiddenError } from '../errors/apiError.js';
 
 // mergeParams: true を設定してネストされたルートからquantityTableIdを取得できるようにする
@@ -79,6 +79,13 @@ const updateDisplayOrderSchema = z.object({
       displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
     })
   ),
+});
+
+/**
+ * 現場調査からの数量グループ一括生成リクエストボディ用スキーマ（REQ-40）
+ */
+const createGroupsFromSurveyBodySchema = z.object({
+  siteSurveyId: z.string().uuid('現場調査IDの形式が不正です'),
 });
 
 /**
@@ -684,6 +691,134 @@ router.post(
           status: 403,
           detail: error.message,
           code: 'FORBIDDEN',
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/quantity-tables/{quantityTableId}/groups/from-survey:
+ *   post:
+ *     summary: 現場調査からの数量グループ一括生成
+ *     description: |
+ *       指定された現場調査に属する全写真（注釈の有無を問わない）の枚数分の数量グループを
+ *       既存グループの末尾に写真順で一括生成し、各グループに写真を1枚ずつ紐づける。
+ *       各グループは数量項目0件の初期状態で作成される。
+ *       現場調査に写真が1枚も存在しない場合はグループを生成せず created:0 を返す。
+ *     tags:
+ *       - Quantity Groups
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: quantityTableId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 数量表ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - siteSurveyId
+ *             properties:
+ *               siteSurveyId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: 一括生成の対象となる現場調査ID
+ *     responses:
+ *       201:
+ *         description: 一括生成成功（生成件数と生成グループ配列を返却。写真0枚時は created:0）
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足、または対象現場調査が当該数量表のプロジェクトに属さない
+ *       404:
+ *         description: 数量表または現場調査が見つからない
+ *       409:
+ *         description: 並行制御競合（OptimisticLockError）
+ *       500:
+ *         description: サーバー内部エラー
+ */
+router.post(
+  '/from-survey',
+  authenticate,
+  requirePermission('quantity_table:create'),
+  validate(quantityTableIdUrlParamSchema, 'params'),
+  validate(createGroupsFromSurveyBodySchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { quantityTableId } = req.validatedParams as { quantityTableId: string };
+      const { siteSurveyId } = req.validatedBody as { siteSurveyId: string };
+      const actorId = req.user!.userId;
+
+      const result = await quantityGroupService.createGroupsFromSurvey(
+        quantityTableId,
+        siteSurveyId,
+        actorId
+      );
+
+      logger.info(
+        {
+          userId: actorId,
+          quantityTableId,
+          siteSurveyId,
+          created: result.created,
+        },
+        'Quantity groups created from survey successfully'
+      );
+
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof QuantityTableNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/quantity-table-not-found',
+          title: 'Quantity Table Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_NOT_FOUND',
+        });
+        return;
+      }
+      if (error instanceof SiteSurveyNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/site-survey-not-found',
+          title: 'Site Survey Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'SITE_SURVEY_NOT_FOUND',
+        });
+        return;
+      }
+      if (error instanceof OptimisticLockError) {
+        const lockDetails = error.details as Record<string, unknown> | undefined;
+        res.status(409).json({
+          type: 'https://architrack.example.com/problems/optimistic-lock-error',
+          title: 'Conflict',
+          status: 409,
+          detail: error.message,
+          code: 'OPTIMISTIC_LOCK_ERROR',
+          ...(lockDetails ?? {}),
+        });
+        return;
+      }
+      if (error instanceof ForbiddenError) {
+        res.status(403).json({
+          type: 'https://architrack.example.com/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          detail: error.message,
+          code: error.code ?? 'FORBIDDEN',
         });
         return;
       }

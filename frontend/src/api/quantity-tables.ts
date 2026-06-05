@@ -16,6 +16,7 @@ import type {
   QuantityTableDetail,
   QuantityGroupDetail,
   QuantityGroupInfo,
+  CreateGroupsFromSurveyResult,
   QuantityItemDetail,
   CreateQuantityTableInput,
   UpdateQuantityTableInput,
@@ -388,6 +389,35 @@ export async function copyQuantityGroup(groupId: string): Promise<QuantityGroupI
   return apiClient.post<QuantityGroupInfo>(`/api/quantity-groups/${groupId}/copy`);
 }
 
+/**
+ * 現場調査から数量グループを一括生成する
+ *
+ * 指定した現場調査に属する写真の枚数分の数量グループを生成し、
+ * 各グループに写真を写真順に1枚ずつ紐づけた状態で数量表末尾に追加します。
+ * 写真が0枚の場合は `created: 0`, `groups: []` を返します。
+ *
+ * Task 57.1
+ * Requirements: 40.1
+ *
+ * @param tableId - 生成先の数量表ID（UUID）
+ * @param siteSurveyId - 対象現場調査ID（UUID）
+ * @returns 生成件数と生成された数量グループ情報の配列
+ * @throws ApiError 数量表・現場調査が見つからない（404）、バリデーションエラー（400）、認証エラー（401）、権限不足（403）、サーバーエラー（500）
+ *
+ * @example
+ * const result = await createGroupsFromSurvey('table-id', 'survey-id');
+ * // result.created で生成件数、result.groups で生成された数量グループ配列を取得
+ */
+export async function createGroupsFromSurvey(
+  tableId: string,
+  siteSurveyId: string
+): Promise<CreateGroupsFromSurveyResult> {
+  return apiClient.post<CreateGroupsFromSurveyResult>(
+    `/api/quantity-tables/${tableId}/groups/from-survey`,
+    { siteSurveyId }
+  );
+}
+
 // ============================================================================
 // 数量項目API
 // ============================================================================
@@ -533,84 +563,119 @@ export async function copyQuantityTable(
 }
 
 // ============================================================================
-// バルク保存API
+// フル状態同期保存API（saveDraft）
+// Task 60.2: フル状態同期保存の API クライアント
+// Requirements: 42.5
 // ============================================================================
 
 /**
- * バルク保存用の項目入力型
+ * フル状態同期保存用の数量項目入力型
+ *
+ * バックエンドの `saveDraftItemSchema`（quantity-tables.routes.ts）に完全準拠する。
+ * Field Specifications 準拠の全フィールド（大項目〜備考、計算用フィールド、
+ * 調整係数、丸め設定）と表示順を保持する。
+ * 既存項目は `id`=UUID、新規項目は `id`=null（任意でクライアント仮ID `tempId` を付与）。
  */
-export interface BulkSaveItemInput {
-  id: string;
-  majorCategory?: string | null;
-  middleCategory?: string | null;
-  minorCategory?: string | null;
-  customCategory?: string | null;
-  workType?: string;
-  name?: string;
-  specification?: string | null;
-  unit?: string;
-  calculationMethod?: CalculationMethod;
-  calculationParams?: CalculationParams | null;
-  adjustmentFactor?: number;
-  roundingUnit?: number;
-  quantity?: number;
-  remarks?: string | null;
-  displayOrder?: number;
+export interface SaveDraftItemInput {
+  /** 項目ID（既存=UUID / 新規=null） */
+  id: string | null;
+  /** 新規項目のクライアント仮ID（任意・トレース用） */
+  tempId?: string;
+  majorCategory: string | null;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  calculationMethod: CalculationMethod;
+  calculationParams: CalculationParams | null;
+  adjustmentFactor: number;
+  roundingUnit: number;
+  quantity: number;
+  remarks: string | null;
+  displayOrder: number;
 }
 
 /**
- * バルク保存用のグループ入力型
+ * フル状態同期保存用の数量グループ入力型
+ *
+ * バックエンドの `saveDraftGroupSchema`（quantity-tables.routes.ts）に完全準拠する。
+ * 既存グループは `id`=UUID、新規グループは `id`=null（任意で仮ID `tempId` を付与）。
+ * 写真紐づけ（surveyImageId）は参照のみ。
  */
-export interface BulkSaveGroupInput {
-  id: string;
-  items: BulkSaveItemInput[];
+export interface SaveDraftGroupInput {
+  /** グループID（既存=UUID / 新規=null） */
+  id: string | null;
+  /** 新規グループのクライアント仮ID（任意・トレース用） */
+  tempId?: string;
+  name: string;
+  /** 現場調査画像ID（未紐付けの場合は null） */
+  surveyImageId: string | null;
+  displayOrder: number;
+  items: SaveDraftItemInput[];
 }
 
 /**
- * バルク保存入力型
+ * フル状態同期保存リクエストボディ型
+ *
+ * バックエンドの `saveQuantityTableDraftSchema`（quantity-tables.routes.ts）に完全準拠する。
+ * 数量表名・全グループ・全項目の最終状態（表示順）と、楽観ロック用の
+ * `expectedUpdatedAt` を保持する。
+ *
+ * Requirements: 42.5, 42.8
  */
-export interface BulkSaveInput {
+export interface SaveQuantityTableDraftInput {
+  /** 楽観的排他制御用の期待される更新日時（ISO8601形式） */
   expectedUpdatedAt: string;
-  groups: BulkSaveGroupInput[];
+  /** 数量表名（編集画面での変更を含む、最大200文字） */
+  name: string;
+  /** 数量表の全グループ最終状態（表示順） */
+  groups: SaveDraftGroupInput[];
 }
 
 /**
- * バルク保存結果型
- */
-export interface BulkSaveResult {
-  updatedItemCount: number;
-  updatedAt: string;
-}
-
-/**
- * 数量表のバルク保存
+ * 数量表をフル状態同期保存する（saveDraft）
  *
- * 数量表内の全項目を1回のリクエストで一括保存する。
- * 楽観的排他制御は数量表レベルで実施される。
+ * 編集画面で構築したドラフト（数量表名・全グループ・全項目の最終状態）を
+ * 1回のリクエストで確定する。サーバー側はグループ／項目の差分を算出して
+ * 作成・更新・削除を行い、表示順はペイロードの配列順を正とする。
+ * 楽観的排他制御は数量表レベルで `expectedUpdatedAt` により実施される。
  *
- * @param quantityTableId - 数量表ID（UUID）
- * @param input - バルク保存データ
- * @returns バルク保存結果
- * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）、数量表が見つからない（404）、競合（409）
+ * Task 60.2
+ * Requirements: 42.5
+ *
+ * @param id - 数量表ID（UUID）
+ * @param input - フル状態同期保存データ
+ * @returns 保存後の数量表詳細（グループ・項目を含む）
+ * @throws ApiError バリデーションエラー（400）、権限不足（403）、数量表が見つからない（404）、競合（409）
  *
  * @example
- * const result = await bulkSaveQuantityTable('table-id', {
+ * const detail = await saveQuantityTableDraft('table-id', {
  *   expectedUpdatedAt: '2025-01-02T00:00:00.000Z',
+ *   name: '第1回見積数量表',
  *   groups: [
  *     {
  *       id: 'group-id',
+ *       name: 'グループ1',
+ *       surveyImageId: null,
+ *       displayOrder: 0,
  *       items: [
- *         { id: 'item-id', name: '更新された名前', displayOrder: 0 }
- *       ]
- *     }
- *   ]
+ *         { id: 'item-id', majorCategory: '土工', middleCategory: null, minorCategory: null,
+ *           customCategory: null, workType: '掘削', name: '掘削工', specification: null,
+ *           unit: 'm3', calculationMethod: 'STANDARD', calculationParams: null,
+ *           adjustmentFactor: 1, roundingUnit: 1, quantity: 100, remarks: null, displayOrder: 0 },
+ *       ],
+ *     },
+ *   ],
  * });
  */
-export async function bulkSaveQuantityTable(
-  quantityTableId: string,
-  input: BulkSaveInput
-): Promise<BulkSaveResult> {
-  return apiClient.put<BulkSaveResult>(`/api/quantity-tables/${quantityTableId}/bulk-save`, input);
+export async function saveQuantityTableDraft(
+  id: string,
+  input: SaveQuantityTableDraftInput
+): Promise<QuantityTableDetail> {
+  return apiClient.put<QuantityTableDetail>(`/api/quantity-tables/${id}/save`, input);
 }
 
 // ============================================================================

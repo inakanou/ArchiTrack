@@ -777,9 +777,6 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
         })
         .expect(201);
 
-      // 少し待ってから2つ目を作成（DBタイムスタンプ精度を考慮して十分な間隔を確保）
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-
       await request(app)
         .post('/api/projects')
         .set('Authorization', `Bearer ${accessToken}`)
@@ -788,6 +785,19 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
           salesPersonId: salesPerson1Id,
         })
         .expect(201);
+
+      // 作成日時を決定論的な固定値に設定する。
+      // 実時間（CURRENT_TIMESTAMP）に依存すると、WSL2等での実時間の逆行や
+      // 並列負荷下での近接により sort-1/sort-2 の createdAt 順序が不定となり
+      // ソート結果が揺らぐため、sort-1 を古く・sort-2 を新しく明示的に固定する。
+      await prisma.project.updateMany({
+        where: { name: 'test-diff-regression-sort-1' },
+        data: { createdAt: new Date('2025-01-01T00:00:00.000Z') },
+      });
+      await prisma.project.updateMany({
+        where: { name: 'test-diff-regression-sort-2' },
+        data: { createdAt: new Date('2025-01-02T00:00:00.000Z') },
+      });
 
       // 作成日時の昇順ソート
       const ascResponse = await request(app)

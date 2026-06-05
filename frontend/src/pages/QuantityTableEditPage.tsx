@@ -9,22 +9,9 @@
  * - 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import {
-  getQuantityTableDetail,
-  createQuantityGroup,
-  deleteQuantityGroup,
-  updateQuantityGroup,
-  createQuantityItem,
-  deleteQuantityItem,
-  copyQuantityItem,
-  copyQuantityGroup,
-  updateQuantityTable,
-  bulkSaveQuantityTable,
-  updateGroupDisplayOrder,
-  updateItemDisplayOrder,
-} from '../api/quantity-tables';
+import { useState, useEffect, useCallback, useReducer, useMemo, useRef } from 'react';
+import { useParams, Link, useBlocker } from 'react-router-dom';
+import { getQuantityTableDetail, saveQuantityTableDraft } from '../api/quantity-tables';
 import { ApiError } from '../api/client';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import { getAnnotation } from '../api/survey-annotations';
@@ -33,16 +20,30 @@ import type {
   QuantityTableDetail,
   QuantityGroupDetail,
   QuantityItemDetail,
+  SurveyImageSummary,
 } from '../types/quantity-table.types';
 import type { SurveyImageInfo } from '../types/site-survey.types';
+import {
+  quantityTableEditReducer,
+  initialQuantityTableEditState,
+  buildSaveQuantityTableDraftInput,
+  type DraftGroup,
+  type DraftItem,
+} from './quantityTableEditReducer';
 import { Breadcrumb } from '../components/common';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
+import UnsavedChangesBadge from '../components/quantity-table/UnsavedChangesBadge';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
 import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExportService';
 import { downloadPdf } from '../services/export/PdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
+import SurveySelectDialog, {
+  type SiteSurveySummary,
+} from '../components/quantity-table/SurveySelectDialog';
 
 // ============================================================================
 // スタイル定義
@@ -63,6 +64,14 @@ const styles = {
     alignItems: 'flex-start',
     marginBottom: '24px',
     gap: '16px',
+    // Task 62.3: ヘッダー操作ボタン群を垂直スクロール時も固定表示する（REQ-45.1, 45.2）。
+    // 祖先に overflow スクロールコンテナを持たない（main は padding のみ）前提で sticky を成立させ、
+    // 既存 EstimateDetailPage/SiteSurveyDetailPage の固定ヘッダーパターンに準拠する。
+    // 背景色は下層コンテンツが透けないよう付与し、zIndex で前面に固定する。
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 50,
+    backgroundColor: '#ffffff',
   } as React.CSSProperties,
   headerLeft: {
     display: 'flex',
@@ -301,13 +310,22 @@ const styles = {
   photoGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+    // REQ-39: 行高を固定（150px）し、各アイテムにも同じ definite height を与えることで
+    // 行トラックとアイテム高さを一致させ重なりを解消する。
+    // aspect-ratio による高さは列幅（1fr で 150px 超に伸びる）に追従して行トラックを
+    // 超過するうえ、auto 行トラックは aspect-ratio 由来の高さを最小値（150px）でしか
+    // 解決しないため重なりが残る（実機 E2E で確認）。definite height で確定させる。
+    gridAutoRows: '150px',
     gap: '12px',
     overflowY: 'auto' as const,
     flex: 1,
     padding: '4px',
   } as React.CSSProperties,
   photoItem: {
-    aspectRatio: '1',
+    // REQ-39: 行トラック（gridAutoRows:150px）と一致する definite height を与え、
+    // aspect-ratio 由来の不定高による行超過・重なりを防ぐ。
+    height: '150px',
+    minHeight: '150px',
     borderRadius: '8px',
     overflow: 'hidden',
     cursor: 'pointer',
@@ -445,45 +463,81 @@ function EmptyState({ onAddGroup }: { onAddGroup: () => void }) {
 export default function QuantityTableEditPage() {
   const { id } = useParams<{ id: string }>();
 
-  // データ状態
-  const [quantityTable, setQuantityTable] = useState<QuantityTableDetail | null>(null);
+  // ==========================================================================
+  // Task 61.1: 編集ドラフトを単一の useReducer で一元管理する（REQ-42.1〜42.3, 42.6）
+  // すべての編集操作（グループ/項目の追加・削除・コピー・並び替え・名称・写真紐づけ・
+  // フィールド編集）は dispatch でドラフトのみを更新し、保存操作まで永続化APIを
+  // 呼び出さない（REQ-42.6）。初期ロードや候補取得などの参照系GETは従来どおり
+  // オンデマンドで実行する（REQ-42.10）。
+  // ==========================================================================
+  const [editState, dispatch] = useReducer(quantityTableEditReducer, initialQuantityTableEditState);
+  const draft = editState.draft;
+
+  // ==========================================================================
+  // Task 62.1: 未保存変更時の離脱ガード（REQ-43.1〜43.6）
+  // editState.isDirty が true の間のみガードする（REQ-43.5/43.6）。
+  // - アプリ内ナビゲーション: useBlocker(isDirty) でブロックし、blocked のとき
+  //   既存の UnsavedChangesDialog を表示。離脱→ proceed()、とどまる→ reset()
+  //   （REQ-43.1/43.3/43.4）。
+  // - タブクローズ/リロード: 既存 useUnsavedChanges の beforeunload ハンドラを
+  //   enabled: isDirty で有効化し標準確認を表示する（REQ-43.2）。
+  // 既存 CompanyInfoPage / ItemizedStatementDetailPage / SiteSurveyDetailPage の
+  // 確立済みパターンに準拠（design.md L166, L2129-2140）。
+  // ==========================================================================
+  const isDirty = editState.isDirty;
+
+  // タブクローズ/リロード時の beforeunload 標準確認（REQ-43.2）
+  useUnsavedChanges({ enabled: isDirty });
+
+  // アプリ内ナビゲーションのブロック（REQ-43.1）
+  const blocker = useBlocker(isDirty);
+
+  // 数量表メタ情報（projectId / project / updatedAt 等、編集対象外の参照情報）と
+  // 写真サマリ（surveyImage）の供給元として、最後にロード/保存したサーバースナップショットを保持する。
+  const [snapshot, setSnapshot] = useState<QuantityTableDetail | null>(null);
+
+  // セッション中に紐づけた写真のサマリ（スナップショットに存在しない新規紐づけ写真の
+  // サムネイル・コメントを描画へ供給する。REQ-4.3 表示反映用）。surveyImageId -> サマリ。
+  const [linkedPhotoSummaries, setLinkedPhotoSummaries] = useState<
+    Record<string, SurveyImageSummary>
+  >({});
 
   // オートコンプリート候補ストア（Task 17.2: Req 7.1）
   const { getSuggestions, addCandidateOnBlur } = useAutocompleteCandidateStore({
-    projectId: quantityTable?.projectId || '',
+    projectId: snapshot?.projectId || '',
   });
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null); // 読み込みエラー（全画面表示）
   const [operationError, setOperationError] = useState<string | null>(null); // 操作エラー（インライン表示）
-  const [isAddingGroup, setIsAddingGroup] = useState(false);
-  // 削除確認ダイアログ用state（REQ-4.5）
+  // 削除確認ダイアログ用state（REQ-4.5）。対象行キー（id または tempId）を保持する。
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
-  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
-  // グループコピー処理中のグループID集合（Task 53.3: REQ-38.9）
-  // 同一グループの重複コピー操作を防止し、ボタンの disabled 状態を制御する
-  const [copyingGroupIds, setCopyingGroupIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   // 数量表名編集用state（REQ-2.5）
   const [editingName, setEditingName] = useState<string>('');
   const [isNameFocused, setIsNameFocused] = useState(false);
-  const [isSavingName, setIsSavingName] = useState(false);
+  // Escキャンセル時に直後の blur によるドラフト反映を抑止するフラグ（REQ-2.5）
+  const suppressNameCommitRef = useRef(false);
   // 写真選択ダイアログ用state（REQ-4.3）
   const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
   const [selectedGroupIdForPhoto, setSelectedGroupIdForPhoto] = useState<string | null>(null);
   const [availablePhotos, setAvailablePhotos] = useState<SurveyImageInfo[]>([]);
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
-  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
   // 注釈ビューアモーダル用state（REQ-4.4）
   const [annotationViewerGroupId, setAnnotationViewerGroupId] = useState<string | null>(null);
   // PDF出力用state（REQ-26.1, 26.9）
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   // インポートダイアログ用state（REQ-27.1）
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  // 現場調査選択ダイアログ用state（Task 57.3: REQ-40.1, 40.2, 40.11, 40.13）
+  const [isSurveySelectDialogOpen, setIsSurveySelectDialogOpen] = useState(false);
+  const [surveyOptions, setSurveyOptions] = useState<SiteSurveySummary[]>([]);
+  const [isCreatingFromSurvey, setIsCreatingFromSurvey] = useState(false);
 
   /**
-   * 数量表詳細を取得
+   * 数量表詳細を取得（参照系GET。REQ-42.10）。
+   * 取得結果でスナップショットを更新し、ドラフトを `load` で再シードする。
    */
   const fetchQuantityTableDetail = useCallback(async () => {
     if (!id) return;
@@ -494,7 +548,14 @@ export default function QuantityTableEditPage() {
 
     try {
       const result = await getQuantityTableDetail(id);
-      setQuantityTable(result);
+      // result が null/undefined の場合は「見つかりません」表示へ（ドラフトは未シードのまま）
+      if (!result) {
+        setSnapshot(null);
+        return;
+      }
+      setSnapshot(result);
+      setLinkedPhotoSummaries({});
+      dispatch({ type: 'load', detail: result });
     } catch {
       setLoadError('読み込みに失敗しました');
     } finally {
@@ -507,13 +568,13 @@ export default function QuantityTableEditPage() {
     fetchQuantityTableDetail();
   }, [fetchQuantityTableDetail]);
 
-  // 数量表名を編集用stateに初期化（REQ-2.5）
+  // 数量表名を編集用stateに初期化（REQ-2.5）。ドラフト名の変更に追従する。
   useEffect(() => {
-    if (quantityTable) {
-      setEditingName(quantityTable.name);
+    if (draft) {
+      setEditingName(draft.name);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 名前の変更のみに依存
-  }, [quantityTable?.name]);
+  }, [draft?.name]);
 
   /**
    * 数量表名変更ハンドラ（REQ-2.5）
@@ -523,50 +584,33 @@ export default function QuantityTableEditPage() {
   }, []);
 
   /**
-   * 数量表名保存ハンドラ（REQ-2.5）
-   * フォーカスを外したときに自動保存
+   * 数量表名確定ハンドラ（REQ-2.5, REQ-42.2）
+   * フォーカスを外したときにドラフトへ反映する（永続化APIは呼ばない）。
    */
-  const handleNameBlur = useCallback(async () => {
+  const handleNameBlur = useCallback(() => {
     setIsNameFocused(false);
 
-    if (!quantityTable || !id) return;
-
-    // 変更がない場合は何もしない
-    if (editingName === quantityTable.name) return;
-
-    // 空の場合は元に戻す
-    if (!editingName.trim()) {
-      setEditingName(quantityTable.name);
+    // Escキャンセル直後の blur はドラフト反映をスキップする（編集破棄）
+    if (suppressNameCommitRef.current) {
+      suppressNameCommitRef.current = false;
+      if (draft) setEditingName(draft.name);
       return;
     }
 
-    setIsSavingName(true);
-    try {
-      const updatedTable = await updateQuantityTable(
-        id,
-        { name: editingName.trim() },
-        quantityTable.updatedAt
-      );
+    if (!draft) return;
 
-      // ローカル状態を更新
-      setQuantityTable((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          name: updatedTable.name,
-          updatedAt: updatedTable.updatedAt,
-        };
-      });
+    // 変更がない場合は何もしない
+    if (editingName === draft.name) return;
 
-      setSaveMessage('保存しました');
-      setTimeout(() => setSaveMessage(null), 2000);
-    } catch {
-      setOperationError('数量表名の保存に失敗しました');
-      setEditingName(quantityTable.name); // エラー時は元に戻す
-    } finally {
-      setIsSavingName(false);
+    // 空の場合は元に戻す
+    if (!editingName.trim()) {
+      setEditingName(draft.name);
+      return;
     }
-  }, [id, quantityTable, editingName]);
+
+    // ドラフトのみ更新（REQ-42.2: クライアント編集状態にのみ反映）
+    dispatch({ type: 'renameTable', name: editingName.trim() });
+  }, [draft, editingName]);
 
   /**
    * 数量表名フォーカスハンドラ（REQ-2.5）
@@ -584,51 +628,25 @@ export default function QuantityTableEditPage() {
       if (e.key === 'Enter') {
         e.currentTarget.blur(); // blurでhandleNameBlurが呼ばれる
       } else if (e.key === 'Escape') {
-        if (quantityTable) {
-          setEditingName(quantityTable.name);
+        // 編集破棄: 直後の blur によるドラフト反映を抑止する
+        suppressNameCommitRef.current = true;
+        if (draft) {
+          setEditingName(draft.name);
         }
         e.currentTarget.blur();
       }
     },
-    [quantityTable]
+    [draft]
   );
 
   /**
-   * グループ追加ハンドラ
-   *
-   * Requirements: 4.1
+   * グループ追加ハンドラ（REQ-4.1, REQ-42.1）
+   * ドラフトに空グループを追加する（永続化APIは呼ばない）。
    */
-  const handleAddGroup = useCallback(async () => {
-    if (!id || !quantityTable || isAddingGroup) return;
-
-    setIsAddingGroup(true);
+  const handleAddGroup = useCallback(() => {
     setOperationError(null);
-
-    try {
-      // 現在のグループ数に基づいて表示順序を設定
-      const currentGroups = quantityTable.groups ?? [];
-      const maxDisplayOrder = currentGroups.reduce((max, g) => Math.max(max, g.displayOrder), -1);
-
-      const newGroup = await createQuantityGroup(id, {
-        name: null, // グループ名は任意
-        displayOrder: maxDisplayOrder + 1,
-      });
-
-      // ローカル状態を更新（再取得せずに即時反映）
-      setQuantityTable((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          groupCount: prev.groupCount + 1,
-          groups: [...(prev.groups ?? []), { ...newGroup, items: [] }],
-        };
-      });
-    } catch {
-      setOperationError('グループの追加に失敗しました');
-    } finally {
-      setIsAddingGroup(false);
-    }
-  }, [id, quantityTable, isAddingGroup]);
+    dispatch({ type: 'addGroup' });
+  }, []);
 
   /**
    * グループ名取得（名前がない場合はデフォルト表示）
@@ -642,8 +660,8 @@ export default function QuantityTableEditPage() {
    *
    * Requirements: 4.5
    */
-  const handleDeleteGroup = useCallback((groupId: string) => {
-    setGroupToDelete(groupId);
+  const handleDeleteGroup = useCallback((groupKey: string) => {
+    setGroupToDelete(groupKey);
   }, []);
 
   /**
@@ -654,89 +672,37 @@ export default function QuantityTableEditPage() {
   }, []);
 
   /**
-   * グループ削除を実行
-   *
-   * Requirements: 4.5
+   * グループ削除を実行（REQ-4.5, REQ-42.1）
+   * ドラフトから対象グループを削除する（永続化APIは呼ばない）。
    */
-  const handleConfirmDeleteGroup = useCallback(async () => {
-    if (!groupToDelete || isDeletingGroup) return;
-
-    setIsDeletingGroup(true);
+  const handleConfirmDeleteGroup = useCallback(() => {
+    if (!groupToDelete) return;
     setOperationError(null);
-
-    try {
-      await deleteQuantityGroup(groupToDelete);
-
-      // ローカル状態を更新（再取得せずに即時反映）
-      setQuantityTable((prev) => {
-        if (!prev) return prev;
-        const updatedGroups = (prev.groups ?? []).filter((g) => g.id !== groupToDelete);
-        return {
-          ...prev,
-          groupCount: updatedGroups.length,
-          groups: updatedGroups,
-        };
-      });
-
-      setGroupToDelete(null);
-    } catch {
-      setOperationError('グループの削除に失敗しました');
-    } finally {
-      setIsDeletingGroup(false);
-    }
-  }, [groupToDelete, isDeletingGroup]);
+    dispatch({ type: 'removeGroup', groupKey: groupToDelete });
+    setGroupToDelete(null);
+  }, [groupToDelete]);
 
   /**
    * グループコピーハンドラ
    *
-   * Task 53.3
-   * Requirements: 38.7, 38.9, 38.10, 38.11
+   * Task 61.2: 数量グループコピーをクライアントサイドドラフト化する
+   * Requirements: 42.4, 38.13
    *
-   * - 同一グループに対する重複コピー操作を防止する（REQ-38.9）
-   * - API 成功時は数量表詳細を再取得して、複製先グループの直下挿入と後続グループの
-   *   displayOrder シフトを画面に正しく反映する（REQ-38.7, 38.11）
-   *   ※ バックエンドの copyQuantityGroup レスポンス（QuantityGroupInfo）は items / surveyImage
-   *     を含まないため、ローカル差分更新ではなく再取得を採用する
-   * - API 失敗時はエラーメッセージを表示し、ボタンを再有効化する（REQ-38.10）
-   * - 409（楽観的排他競合）時は「他のユーザーが操作中です。再試行してください」を表示する
+   * - コピーはサーバー POST（copyQuantityGroup）ではなく reducer の `copyGroup`
+   *   アクションによるクライアントサイドのドラフト複製として行う（REQ-42.4）。
+   * - reducer 側で複製先を元グループの直下へ挿入し、後続グループの displayOrder を
+   *   シフトし、名前は「{元名}のコピー」（バックエンドと同一の幅切り詰め）として
+   *   配下項目を新規 tempId で複製する。surveyImageId は参照のみ引き継ぐ（REQ-38.13）。
+   * - 純粋なクライアント操作のため API 呼び出し・再取得・エラー処理は不要。
+   *   永続化は保存操作（Task 61.4）で行う。
+   * - 複製先グループ名は即座にインライン編集可能（REQ-22, rename ハンドラ対応済み）。
+   *
+   * @param groupKey - 対象グループの識別子（既存は id、新規は tempId）
    */
-  const handleCopyGroup = useCallback(
-    async (groupId: string) => {
-      // 重複押下防止（REQ-38.9）
-      if (copyingGroupIds.has(groupId)) return;
-
-      setOperationError(null);
-      setCopyingGroupIds((prev) => {
-        const next = new Set(prev);
-        next.add(groupId);
-        return next;
-      });
-
-      try {
-        await copyQuantityGroup(groupId);
-
-        // 数量表詳細を再取得して、複製先グループ・displayOrder シフト・全項目を反映
-        if (id) {
-          const refreshed = await getQuantityTableDetail(id);
-          setQuantityTable(refreshed);
-        }
-      } catch (error) {
-        // 409 は楽観的排他競合（他ユーザー操作中）
-        if (error instanceof ApiError && error.statusCode === 409) {
-          setOperationError('他のユーザーが操作中です。再試行してください');
-        } else {
-          setOperationError('グループのコピーに失敗しました');
-        }
-      } finally {
-        setCopyingGroupIds((prev) => {
-          const next = new Set(prev);
-          next.delete(groupId);
-          return next;
-        });
-      }
-    },
-    [id, copyingGroupIds]
-  );
+  const handleCopyGroup = useCallback((groupKey: string) => {
+    setOperationError(null);
+    dispatch({ type: 'copyGroup', groupKey });
+  }, []);
 
   /**
    * 写真選択ダイアログを開く
@@ -745,7 +711,7 @@ export default function QuantityTableEditPage() {
    */
   const handleSelectImage = useCallback(
     async (groupId: string) => {
-      if (!quantityTable) return;
+      if (!snapshot) return;
 
       setSelectedGroupIdForPhoto(groupId);
       setIsPhotoDialogOpen(true);
@@ -754,7 +720,7 @@ export default function QuantityTableEditPage() {
 
       try {
         // プロジェクト内の現場調査を取得
-        const surveysResult = await getSiteSurveys(quantityTable.projectId, { limit: 100 });
+        const surveysResult = await getSiteSurveys(snapshot.projectId, { limit: 100 });
         const allPhotos: SurveyImageInfo[] = [];
 
         // バッチサイズ（レートリミット回避のため一度に処理する件数を制限）
@@ -788,7 +754,7 @@ export default function QuantityTableEditPage() {
         setIsLoadingPhotos(false);
       }
     },
-    [quantityTable]
+    [snapshot]
   );
 
   /**
@@ -803,73 +769,41 @@ export default function QuantityTableEditPage() {
   }, []);
 
   /**
-   * 写真を選択して適用
-   *
-   * Requirements: 4.3
+   * 写真を選択して適用（REQ-4.3, REQ-42.3）
+   * ドラフトのグループへ surveyImageId を反映する（永続化APIは呼ばない）。
+   * 描画用に選択写真のサマリ（サムネイル・コメント等）をセッションマップへ保持する。
    */
   const handlePhotoSelect = useCallback(
-    async (imageId: string) => {
-      if (!selectedGroupIdForPhoto || isSavingPhoto) return;
-
-      setIsSavingPhoto(true);
+    (imageId: string) => {
+      if (!selectedGroupIdForPhoto) return;
       setOperationError(null);
 
-      try {
-        // 対象グループを取得
-        const targetGroup = (quantityTable?.groups ?? []).find(
-          (g) => g.id === selectedGroupIdForPhoto
-        );
-        if (!targetGroup) {
-          throw new Error('グループが見つかりません');
-        }
-
-        // グループに画像を紐付けるAPIを呼び出す
-        const updatedGroup = await updateQuantityGroup(
-          selectedGroupIdForPhoto,
-          { surveyImageId: imageId },
-          targetGroup.updatedAt
-        );
-
-        // 選択した写真情報を取得
-        const selectedPhoto = availablePhotos.find((p) => p.id === imageId);
-
-        // ローカル状態を更新（APIから返されたupdatedAtを使用）
-        setQuantityTable((prev) => {
-          if (!prev) return prev;
-          const updatedGroups = (prev.groups ?? []).map((g) => {
-            if (g.id === selectedGroupIdForPhoto) {
-              return {
-                ...g,
-                surveyImageId: imageId,
-                surveyImage: selectedPhoto
-                  ? {
-                      id: selectedPhoto.id,
-                      thumbnailUrl: selectedPhoto.thumbnailUrl || selectedPhoto.originalUrl || '',
-                      originalUrl: selectedPhoto.originalUrl || '',
-                      fileName: selectedPhoto.fileName,
-                      hasAnnotations: selectedPhoto.hasAnnotations,
-                      comment: selectedPhoto.comment ?? null,
-                    }
-                  : null,
-                updatedAt: updatedGroup.updatedAt,
-              };
-            }
-            return g;
-          });
-          return {
-            ...prev,
-            groups: updatedGroups,
-          };
-        });
-
-        handleClosePhotoDialog();
-      } catch {
-        setOperationError('写真の紐付けに失敗しました');
-      } finally {
-        setIsSavingPhoto(false);
+      // 選択した写真情報を取得し、描画用サマリとして保持
+      const selectedPhoto = availablePhotos.find((p) => p.id === imageId);
+      if (selectedPhoto) {
+        setLinkedPhotoSummaries((prev) => ({
+          ...prev,
+          [imageId]: {
+            id: selectedPhoto.id,
+            thumbnailUrl: selectedPhoto.thumbnailUrl || selectedPhoto.originalUrl || '',
+            originalUrl: selectedPhoto.originalUrl || '',
+            fileName: selectedPhoto.fileName,
+            hasAnnotations: selectedPhoto.hasAnnotations,
+            comment: selectedPhoto.comment ?? null,
+          },
+        }));
       }
+
+      // ドラフトのみ更新（REQ-42.3: クライアント編集状態にのみ反映）
+      dispatch({
+        type: 'linkGroupImage',
+        groupKey: selectedGroupIdForPhoto,
+        surveyImageId: imageId,
+      });
+
+      handleClosePhotoDialog();
     },
-    [selectedGroupIdForPhoto, isSavingPhoto, quantityTable, availablePhotos, handleClosePhotoDialog]
+    [selectedGroupIdForPhoto, availablePhotos, handleClosePhotoDialog]
   );
 
   /**
@@ -891,384 +825,205 @@ export default function QuantityTableEditPage() {
   }, []);
 
   /**
-   * 項目追加ハンドラ
-   *
-   * Requirements: 5.1
+   * 項目が属するグループのキー（id または tempId）を解決する。
+   * 項目編集系の各ハンドラは項目キーのみを受け取るため、ドラフトから親グループを引く。
    */
-  const handleAddItem = useCallback(
-    async (groupId: string) => {
-      setOperationError(null);
-
-      try {
-        // 対象グループの現在の項目数を取得
-        const targetGroup = (quantityTable?.groups ?? []).find((g) => g.id === groupId);
-        const currentItems = targetGroup?.items ?? [];
-        const maxDisplayOrder = currentItems.reduce(
-          (max, item) => Math.max(max, item.displayOrder),
-          -1
-        );
-
-        // デフォルト値で新規項目を作成（REQ-5.1: 大項目・工種・名称・単位は空白）
-        const newItem = await createQuantityItem(groupId, {
-          majorCategory: '',
-          workType: '',
-          name: '',
-          unit: '',
-          quantity: 0,
-          displayOrder: maxDisplayOrder + 1,
-        });
-
-        // ローカル状態を更新（再取得せずに即時反映）
-        setQuantityTable((prev) => {
-          if (!prev) return prev;
-          const updatedGroups = (prev.groups ?? []).map((g) => {
-            if (g.id === groupId) {
-              return {
-                ...g,
-                items: [...(g.items ?? []), newItem],
-              };
-            }
-            return g;
-          });
-          return {
-            ...prev,
-            itemCount: prev.itemCount + 1,
-            groups: updatedGroups,
-          };
-        });
-      } catch {
-        setOperationError('項目の追加に失敗しました');
+  const findGroupKeyByItemKey = useCallback(
+    (itemKey: string): string | null => {
+      if (!draft) return null;
+      for (const group of draft.groups) {
+        const groupKey = group.id ?? group.tempId ?? '';
+        if (group.items.some((item) => (item.id ?? item.tempId ?? '') === itemKey)) {
+          return groupKey;
+        }
       }
+      return null;
     },
-    [quantityTable]
+    [draft]
   );
 
   /**
-   * 項目更新ハンドラ（ローカル状態のみ更新、APIは呼ばない）
-   *
-   * Requirements: 5.2
-   *
-   * 自動保存は行わず、ローカル状態のみ更新する。
-   * 保存ボタンを押したときにまとめて保存される。
+   * 項目追加ハンドラ（REQ-5.1, REQ-42.1）
+   * ドラフトの対象グループへ空項目を追加する（永続化APIは呼ばない）。
    */
-  const handleUpdateItem = useCallback((itemId: string, updates: Partial<QuantityItemDetail>) => {
+  const handleAddItem = useCallback((groupKey: string) => {
     setOperationError(null);
-
-    // ローカル状態のみを更新（APIは呼ばない）
-    setQuantityTable((prev) => {
-      if (!prev) return prev;
-      const updatedGroups = (prev.groups ?? []).map((g) => ({
-        ...g,
-        items: (g.items ?? []).map((item) => (item.id === itemId ? { ...item, ...updates } : item)),
-      }));
-      return {
-        ...prev,
-        groups: updatedGroups,
-      };
-    });
+    dispatch({ type: 'addItem', groupKey });
   }, []);
 
   /**
-   * 項目削除ハンドラ
-   *
-   * Requirements: 5.3
+   * 項目更新ハンドラ（REQ-5.2, REQ-42.1）
+   * ドラフトの項目フィールドを更新する（永続化APIは呼ばない）。
+   * 数値フィールド（quantity/adjustmentFactor/roundingUnit）は文字列入力として保持する。
    */
-  const handleDeleteItem = useCallback(async (itemId: string) => {
-    setOperationError(null);
-
-    try {
-      await deleteQuantityItem(itemId);
-
-      // ローカル状態を更新
-      setQuantityTable((prev) => {
-        if (!prev) return prev;
-        const updatedGroups = (prev.groups ?? []).map((g) => ({
-          ...g,
-          items: (g.items ?? []).filter((item) => item.id !== itemId),
-        }));
-        return {
-          ...prev,
-          itemCount: prev.itemCount - 1,
-          groups: updatedGroups,
-        };
-      });
-    } catch {
-      setOperationError('項目の削除に失敗しました');
-    }
-  }, []);
-
-  /**
-   * 項目コピーハンドラ
-   *
-   * Requirements: 5.4
-   */
-  const handleCopyItem = useCallback(async (itemId: string) => {
-    setOperationError(null);
-
-    try {
-      const copiedItem = await copyQuantityItem(itemId);
-
-      // コピー元の項目が属するグループを探す
-      setQuantityTable((prev) => {
-        if (!prev) return prev;
-        const updatedGroups = (prev.groups ?? []).map((g) => {
-          const hasItem = (g.items ?? []).some((item) => item.id === itemId);
-          if (hasItem) {
-            return {
-              ...g,
-              items: [...(g.items ?? []), copiedItem],
-            };
-          }
-          return g;
-        });
-        return {
-          ...prev,
-          itemCount: prev.itemCount + 1,
-          groups: updatedGroups,
-        };
-      });
-    } catch {
-      setOperationError('項目のコピーに失敗しました');
-    }
-  }, []);
-
-  /**
-   * 項目移動ハンドラ
-   *
-   * Requirements: REQ-6.3 同一数量グループ内で項目の位置を移動できる
-   */
-  const handleMoveItem = useCallback((itemId: string, direction: 'up' | 'down') => {
-    setQuantityTable((prev) => {
-      if (!prev) return prev;
-
-      const updatedGroups = (prev.groups ?? []).map((group) => {
-        const items = group.items ?? [];
-        const itemIndex = items.findIndex((item) => item.id === itemId);
-
-        // この項目がこのグループにない場合は変更なし
-        if (itemIndex === -1) return group;
-
-        // 移動先インデックスを計算
-        const targetIndex = direction === 'up' ? itemIndex - 1 : itemIndex + 1;
-
-        // 範囲外の場合は変更なし
-        if (targetIndex < 0 || targetIndex >= items.length) return group;
-
-        // 項目を入れ替え
-        const newItems = [...items];
-        const itemToMove = newItems[itemIndex];
-        const targetItem = newItems[targetIndex];
-        if (!itemToMove || !targetItem) return group;
-        newItems[itemIndex] = targetItem;
-        newItems[targetIndex] = itemToMove;
-
-        // displayOrderを更新
-        const updatedItems = newItems.map((item, idx) => ({
-          ...item,
-          displayOrder: idx,
-        }));
-
-        return {
-          ...group,
-          items: updatedItems,
-        };
-      });
-
-      return {
-        ...prev,
-        groups: updatedGroups,
-      };
-    });
-  }, []);
-
-  /**
-   * グループ名変更ハンドラ
-   *
-   * Requirements: 22.1, 22.2
-   *
-   * グループ名をインラインで変更し、APIに保存する。
-   */
-  const handleRenameGroup = useCallback(
-    async (groupId: string, newName: string) => {
+  const handleUpdateItem = useCallback(
+    (itemKey: string, updates: Partial<QuantityItemDetail>) => {
       setOperationError(null);
 
-      // 対象グループのupdatedAtを取得
-      const targetGroup = quantityTable?.groups?.find((g) => g.id === groupId);
-      if (!targetGroup) return;
+      const groupKey = findGroupKeyByItemKey(itemKey);
+      if (groupKey === null) return;
 
-      try {
-        await updateQuantityGroup(groupId, { name: newName }, targetGroup.updatedAt);
-
-        // ローカル状態を即時更新
-        setQuantityTable((prev) => {
-          if (!prev) return prev;
-          const updatedGroups = (prev.groups ?? []).map((g) =>
-            g.id === groupId ? { ...g, name: newName } : g
-          );
-          return { ...prev, groups: updatedGroups };
-        });
-      } catch {
-        setOperationError('グループ名の変更に失敗しました');
-      }
-    },
-    [quantityTable]
-  );
-
-  /**
-   * グループを上に移動するハンドラ
-   *
-   * Requirements: 23.3, 23.7
-   *
-   * 隣接する2つのグループのdisplayOrderを入れ替えてAPIで保存する。
-   */
-  const handleMoveGroupUp = useCallback(
-    async (groupId: string) => {
-      if (!quantityTable) return;
-      setOperationError(null);
-
-      const groups = quantityTable.groups ?? [];
-      const currentIndex = groups.findIndex((g) => g.id === groupId);
-      if (currentIndex <= 0) return;
-
-      // 隣接する2つのグループのdisplayOrderを入れ替え
-      const currentGroup = groups[currentIndex]!;
-      const targetGroup = groups[currentIndex - 1]!;
-
-      const orderUpdates = [
-        { id: currentGroup.id, displayOrder: targetGroup.displayOrder },
-        { id: targetGroup.id, displayOrder: currentGroup.displayOrder },
-      ];
-
-      // ローカル状態を即時更新
-      setQuantityTable((prev) => {
-        if (!prev) return prev;
-        const newGroups = [...(prev.groups ?? [])];
-        newGroups[currentIndex] = { ...targetGroup, displayOrder: currentGroup.displayOrder };
-        newGroups[currentIndex - 1] = { ...currentGroup, displayOrder: targetGroup.displayOrder };
-        return { ...prev, groups: newGroups };
-      });
-
-      try {
-        await updateGroupDisplayOrder(quantityTable.id, orderUpdates);
-      } catch {
-        // API失敗時は元に戻す
-        setQuantityTable((prev) => {
-          if (!prev) return prev;
-          const newGroups = [...(prev.groups ?? [])];
-          newGroups[currentIndex - 1] = targetGroup;
-          newGroups[currentIndex] = currentGroup;
-          return { ...prev, groups: newGroups };
-        });
-        setOperationError('グループの並び順変更に失敗しました');
-      }
-    },
-    [quantityTable]
-  );
-
-  /**
-   * グループを下に移動するハンドラ
-   *
-   * Requirements: 23.4, 23.7
-   *
-   * 隣接する2つのグループのdisplayOrderを入れ替えてAPIで保存する。
-   */
-  const handleMoveGroupDown = useCallback(
-    async (groupId: string) => {
-      if (!quantityTable) return;
-      setOperationError(null);
-
-      const groups = quantityTable.groups ?? [];
-      const currentIndex = groups.findIndex((g) => g.id === groupId);
-      if (currentIndex < 0 || currentIndex >= groups.length - 1) return;
-
-      // 隣接する2つのグループのdisplayOrderを入れ替え
-      const currentGroup = groups[currentIndex]!;
-      const targetGroup = groups[currentIndex + 1]!;
-
-      const orderUpdates = [
-        { id: currentGroup.id, displayOrder: targetGroup.displayOrder },
-        { id: targetGroup.id, displayOrder: currentGroup.displayOrder },
-      ];
-
-      // ローカル状態を即時更新
-      setQuantityTable((prev) => {
-        if (!prev) return prev;
-        const newGroups = [...(prev.groups ?? [])];
-        newGroups[currentIndex] = { ...targetGroup, displayOrder: currentGroup.displayOrder };
-        newGroups[currentIndex + 1] = { ...currentGroup, displayOrder: targetGroup.displayOrder };
-        return { ...prev, groups: newGroups };
-      });
-
-      try {
-        await updateGroupDisplayOrder(quantityTable.id, orderUpdates);
-      } catch {
-        // API失敗時は元に戻す
-        setQuantityTable((prev) => {
-          if (!prev) return prev;
-          const newGroups = [...(prev.groups ?? [])];
-          newGroups[currentIndex + 1] = targetGroup;
-          newGroups[currentIndex] = currentGroup;
-          return { ...prev, groups: newGroups };
-        });
-        setOperationError('グループの並び順変更に失敗しました');
-      }
-    },
-    [quantityTable]
-  );
-
-  /**
-   * 項目を上に移動するハンドラ（API連携版）
-   *
-   * Requirements: 24.3, 24.7
-   *
-   * 隣接する2つの項目のdisplayOrderを入れ替えてAPIで保存する。
-   */
-  const handleMoveItemWithApi = useCallback(
-    async (itemId: string, direction: 'up' | 'down') => {
-      if (!quantityTable) return;
-      setOperationError(null);
-
-      const groups = quantityTable.groups ?? [];
-      let targetGroup: (typeof groups)[0] | undefined;
-      let itemIndex = -1;
-
-      for (const group of groups) {
-        const items = group.items ?? [];
-        const idx = items.findIndex((item) => item.id === itemId);
-        if (idx !== -1) {
-          targetGroup = group;
-          itemIndex = idx;
-          break;
+      // QuantityItemDetail（数値型）→ DraftItem（文字列型）へ変換する
+      const draftUpdates: Partial<DraftItem> = {};
+      for (const [key, value] of Object.entries(updates)) {
+        if (key === 'quantity' || key === 'adjustmentFactor' || key === 'roundingUnit') {
+          draftUpdates[key as 'quantity' | 'adjustmentFactor' | 'roundingUnit'] = String(value);
+        } else {
+          // それ以外のフィールドはそのまま反映（型は DraftItem と互換）
+          (draftUpdates as Record<string, unknown>)[key] = value;
         }
       }
 
-      if (!targetGroup || itemIndex === -1) return;
-
-      const items = targetGroup.items ?? [];
-      const targetIndex = direction === 'up' ? itemIndex - 1 : itemIndex + 1;
-      if (targetIndex < 0 || targetIndex >= items.length) return;
-
-      const currentItem = items[itemIndex]!;
-      const adjacentItem = items[targetIndex]!;
-
-      const orderUpdates = [
-        { id: currentItem.id, displayOrder: adjacentItem.displayOrder },
-        { id: adjacentItem.id, displayOrder: currentItem.displayOrder },
-      ];
-
-      // ローカル状態を即時更新（handleMoveItemの既存ロジック再利用）
-      handleMoveItem(itemId, direction);
-
-      try {
-        await updateItemDisplayOrder(targetGroup.id, orderUpdates);
-      } catch {
-        // API失敗時は元に戻す（逆方向に移動）
-        handleMoveItem(itemId, direction === 'up' ? 'down' : 'up');
-        setOperationError('項目の並び順変更に失敗しました');
-      }
+      dispatch({ type: 'updateItemField', groupKey, itemKey, updates: draftUpdates });
     },
-    [quantityTable, handleMoveItem]
+    [findGroupKeyByItemKey]
   );
+
+  /**
+   * 項目削除ハンドラ（REQ-5.3, REQ-42.1）
+   * ドラフトから項目を削除する（永続化APIは呼ばない）。
+   */
+  const handleDeleteItem = useCallback(
+    (itemKey: string) => {
+      setOperationError(null);
+      const groupKey = findGroupKeyByItemKey(itemKey);
+      if (groupKey === null) return;
+      dispatch({ type: 'removeItem', groupKey, itemKey });
+    },
+    [findGroupKeyByItemKey]
+  );
+
+  /**
+   * 項目コピーハンドラ（REQ-5.4, REQ-42.1）
+   * ドラフト内で項目を複製する（永続化APIは呼ばない）。
+   */
+  const handleCopyItem = useCallback(
+    (itemKey: string) => {
+      setOperationError(null);
+      const groupKey = findGroupKeyByItemKey(itemKey);
+      if (groupKey === null) return;
+      dispatch({ type: 'copyItem', groupKey, itemKey });
+    },
+    [findGroupKeyByItemKey]
+  );
+
+  /**
+   * 項目移動ハンドラ（REQ-6.3, REQ-24.3, REQ-24.4, REQ-42.1）
+   * ドラフト内で項目を上下移動する（永続化APIは呼ばない）。
+   */
+  const handleMoveItem = useCallback(
+    (itemKey: string, direction: 'up' | 'down') => {
+      setOperationError(null);
+      const groupKey = findGroupKeyByItemKey(itemKey);
+      if (groupKey === null) return;
+      dispatch({ type: 'reorderItem', groupKey, itemKey, direction });
+    },
+    [findGroupKeyByItemKey]
+  );
+
+  /**
+   * グループ名変更ハンドラ（REQ-22.1, REQ-22.2, REQ-42.2）
+   * ドラフトのグループ名を更新する（永続化APIは呼ばない）。
+   */
+  const handleRenameGroup = useCallback((groupKey: string, newName: string) => {
+    setOperationError(null);
+    dispatch({ type: 'renameGroup', groupKey, name: newName });
+  }, []);
+
+  /**
+   * グループを上に移動するハンドラ（REQ-23.3, REQ-23.7, REQ-42.1）
+   * ドラフト内でグループを上へ移動する（永続化APIは呼ばない）。
+   */
+  const handleMoveGroupUp = useCallback((groupKey: string) => {
+    setOperationError(null);
+    dispatch({ type: 'reorderGroup', groupKey, direction: 'up' });
+  }, []);
+
+  /**
+   * グループを下に移動するハンドラ（REQ-23.4, REQ-23.7, REQ-42.1）
+   * ドラフト内でグループを下へ移動する（永続化APIは呼ばない）。
+   */
+  const handleMoveGroupDown = useCallback((groupKey: string) => {
+    setOperationError(null);
+    dispatch({ type: 'reorderGroup', groupKey, direction: 'down' });
+  }, []);
+
+  // ==========================================================================
+  // 描画モデル（renderTable）
+  // ドラフト（編集の単一の真実）を、子コンポーネント（QuantityGroupCard /
+  // EditableQuantityItemRow）が期待する QuantityTableDetail 形状へ変換する。
+  // 各行の id には reducer のキー（既存は id、新規は tempId）を割り当て、
+  // 子からのコールバックがそのままドラフト操作のキーとして使えるようにする。
+  // surveyImage サマリはスナップショット＋セッション中の紐づけ写真から解決する。
+  // ==========================================================================
+  const renderTable = useMemo<QuantityTableDetail | null>(() => {
+    if (!draft || !snapshot) return null;
+
+    // スナップショット側の surveyImage サマリを surveyImageId で索引化
+    const snapshotImages: Record<string, SurveyImageSummary> = {};
+    for (const g of snapshot.groups) {
+      if (g.surveyImageId && g.surveyImage) {
+        snapshotImages[g.surveyImageId] = g.surveyImage;
+      }
+    }
+
+    const draftItemToDetail = (item: DraftItem, groupKey: string): QuantityItemDetail => ({
+      // reducer キーを id として供給（既存は id、新規は tempId）
+      id: item.id ?? item.tempId ?? '',
+      quantityGroupId: groupKey,
+      majorCategory: item.majorCategory ?? '',
+      middleCategory: item.middleCategory,
+      minorCategory: item.minorCategory,
+      customCategory: item.customCategory,
+      workType: item.workType,
+      name: item.name,
+      specification: item.specification,
+      unit: item.unit,
+      calculationMethod: item.calculationMethod,
+      calculationParams: item.calculationParams,
+      adjustmentFactor: Number(item.adjustmentFactor),
+      roundingUnit: Number(item.roundingUnit),
+      quantity: Number(item.quantity),
+      remarks: item.remarks,
+      displayOrder: item.displayOrder,
+      createdAt: '',
+      updatedAt: '',
+    });
+
+    const draftGroupToDetail = (group: DraftGroup): QuantityGroupDetail => {
+      const groupKey = group.id ?? group.tempId ?? '';
+      const summary =
+        group.surveyImageId !== null
+          ? (linkedPhotoSummaries[group.surveyImageId] ??
+            snapshotImages[group.surveyImageId] ??
+            null)
+          : null;
+      return {
+        id: groupKey,
+        quantityTableId: draft.id,
+        name: group.name,
+        surveyImageId: group.surveyImageId,
+        surveyImage: summary,
+        displayOrder: group.displayOrder,
+        itemCount: group.items.length,
+        items: group.items.map((item) => draftItemToDetail(item, groupKey)),
+        createdAt: '',
+        updatedAt: '',
+      };
+    };
+
+    const groups = draft.groups.map(draftGroupToDetail);
+    const itemCount = groups.reduce((sum, g) => sum + g.items.length, 0);
+
+    return {
+      ...snapshot,
+      id: draft.id,
+      name: draft.name,
+      groupCount: groups.length,
+      itemCount,
+      groups,
+    };
+  }, [draft, snapshot, linkedPhotoSummaries]);
 
   /**
    * PDF出力ハンドラ
@@ -1278,13 +1033,13 @@ export default function QuantityTableEditPage() {
    * 数量表データをQuantityTablePdfInput形式に変換し、PDFを生成・ダウンロードする。
    */
   const handlePdfExport = useCallback(async () => {
-    if (isPdfGenerating || !quantityTable) return; // 重複操作防止（REQ-26.9）
+    if (isPdfGenerating || !renderTable) return; // 重複操作防止（REQ-26.9）
 
     setIsPdfGenerating(true);
     setOperationError(null);
 
     try {
-      const groups = quantityTable.groups ?? [];
+      const groups = renderTable.groups ?? [];
 
       // 画像を注釈付きでdata URLに変換するヘルパー（REQ-26.5）
       const renderAnnotatedImageToDataUrl = async (
@@ -1420,115 +1175,206 @@ export default function QuantityTableEditPage() {
       const now = new Date();
       const createdDate = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
       const blob = await generateQuantityTablePdf({
-        quantityTableName: quantityTable.name,
-        projectName: quantityTable.project.name,
+        quantityTableName: renderTable.name,
+        projectName: renderTable.project.name,
         createdDate,
         groups: pdfGroups,
       });
 
       // ダウンロード
-      downloadPdf(blob, `${quantityTable.name}.pdf`);
+      downloadPdf(blob, `${renderTable.name}.pdf`);
     } catch {
       // REQ-26.10: エラーメッセージ表示
       setOperationError('PDF生成中にエラーが発生しました。再度お試しください。');
     } finally {
       setIsPdfGenerating(false);
     }
-  }, [isPdfGenerating, quantityTable]);
+  }, [isPdfGenerating, renderTable]);
 
   /**
    * インポートハンドラ
    *
-   * Requirements: 27.1, 31.3, 31.8
+   * Requirements: 27.1, 31.3, 31.8, 42.4, 42.6
    *
-   * ImportDialogから受け取った数量項目をグループに一括追加する。
+   * ImportDialogから受け取った数量項目をクライアントサイドの編集状態（ドラフト）の
+   * 対象グループ末尾へ一括追加する。永続化を目的とするサーバーAPIは発行せず、
+   * 取り込んだ項目は未保存のドラフト項目として保持され、保存操作時にのみ永続化する
+   * （REQ-42.4 / REQ-42.6 / REQ-31 注記）。
+   *
+   * `groupId` は ImportDialog の取り込み先選択UIから渡される描画モデル上のグループ
+   * 識別子で、既存グループは実 id、新規グループは tempId に等しい（reducer の groupKey と同一）。
    */
   const handleImport = useCallback(
     async (groupId: string, items: ImportQuantityItem[]) => {
       setOperationError(null);
 
       try {
-        const targetGroup = (quantityTable?.groups ?? []).find((g) => g.id === groupId);
-        const currentItems = targetGroup?.items ?? [];
-        const maxDisplayOrder = currentItems.reduce(
-          (max, item) => Math.max(max, item.displayOrder),
-          -1
-        );
-
-        const createdItems: Awaited<ReturnType<typeof createQuantityItem>>[] = [];
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i]!;
-          const newItem = await createQuantityItem(groupId, {
-            majorCategory: item.majorCategory,
-            middleCategory: item.middleCategory || null,
-            minorCategory: item.minorCategory || null,
-            customCategory: item.customCategory || null,
-            workType: item.workType,
-            name: item.name,
-            specification: item.specification || null,
-            unit: item.unit,
-            quantity: item.quantity,
-            calculationMethod: item.calculationMethod,
-            adjustmentFactor: item.adjustmentFactor,
-            roundingUnit: item.roundingUnit,
-            remarks: item.remarks || null,
-            displayOrder: maxDisplayOrder + 1 + i,
-          });
-          createdItems.push(newItem);
-        }
-
-        // ローカル状態を更新
-        setQuantityTable((prev) => {
-          if (!prev) return prev;
-          const updatedGroups = (prev.groups ?? []).map((g) => {
-            if (g.id === groupId) {
-              return {
-                ...g,
-                items: [...(g.items ?? []), ...createdItems],
-                itemCount: (g.itemCount ?? 0) + createdItems.length,
-              };
-            }
-            return g;
-          });
-          return {
-            ...prev,
-            itemCount: prev.itemCount + createdItems.length,
-            groups: updatedGroups,
-          };
-        });
+        dispatch({ type: 'importItems', groupKey: groupId, items });
       } catch {
         setOperationError('インポートに失敗しました');
         throw new Error('インポートに失敗しました');
       }
     },
-    [quantityTable]
+    [dispatch]
+  );
+
+  /**
+   * 「現場調査から一括追加」ボタン押下ハンドラ
+   *
+   * Task 57.3
+   * Requirements: 40.1, 40.2
+   *
+   * 当該プロジェクトの現場調査一覧を取得し、`imageCount` を `photoCount` に
+   * マッピングして現場調査選択ダイアログを開く。
+   */
+  const handleOpenSurveySelect = useCallback(async () => {
+    if (!snapshot || isCreatingFromSurvey) return;
+
+    setOperationError(null);
+    setIsSurveySelectDialogOpen(true);
+    setSurveyOptions([]);
+
+    try {
+      const result = await getSiteSurveys(snapshot.projectId, { limit: 100 });
+      const options: SiteSurveySummary[] = result.data.map((survey) => ({
+        id: survey.id,
+        name: survey.name,
+        photoCount: survey.imageCount,
+      }));
+      setSurveyOptions(options);
+    } catch {
+      setOperationError('現場調査一覧の読み込みに失敗しました');
+      setIsSurveySelectDialogOpen(false);
+    }
+  }, [snapshot, isCreatingFromSurvey]);
+
+  /**
+   * 現場調査選択ダイアログを閉じる
+   *
+   * Task 57.3
+   */
+  const handleCloseSurveySelect = useCallback(() => {
+    // 生成中はロック（重複実行防止のため閉じない）
+    if (isCreatingFromSurvey) return;
+    setIsSurveySelectDialogOpen(false);
+    setSurveyOptions([]);
+  }, [isCreatingFromSurvey]);
+
+  /**
+   * 現場調査からの一括生成を確定するハンドラ（クライアントサイドドラフト生成）
+   *
+   * Task 61.3
+   * Requirements: 42.4, 40.3, 40.4, 40.5, 40.7, 40.9, 40.13
+   *
+   * REQ-42 適用後の動作:
+   * - 対象現場調査の写真一覧を参照系GET（getSiteSurvey）で取得する（REQ-42.10 の制約対象外）。
+   * - 写真枚数分の数量グループをクライアントサイドのドラフトへ生成する。
+   *   採番・連番命名「{現場調査名} {連番}」・写真順 surveyImageId 紐づけ・項目0件・末尾追加は
+   *   reducer の `generateGroupsFromSurvey` が担当する（REQ-40.3/40.4/40.5/40.7/40.9）。
+   * - 永続化を目的とするサーバーAPI（POST /from-survey）および詳細再取得は本フローで呼ばない（REQ-42.4）。
+   * - 写真の表示順は `displayOrder` 昇順を正とし、その順序で surveyImageId を渡す。
+   * - 紐づけ写真のコメント・サムネイルを既存の表示経路（renderTable の linkedPhotoSummaries 経由、
+   *   REQ-21/35、REQ-40.8）に乗せるため、写真サマリを linkedPhotoSummaries へ登録する。
+   * - 実行中インジケーター表示・重複実行防止（REQ-40.11、isCreatingFromSurvey）。
+   * - 写真0枚の場合は「写真が存在しません」メッセージを表示しグループを生成しない（REQ-40.10）。
+   * - 成功時は生成グループ数を含む完了メッセージを表示する（REQ-40.13）。
+   * - 失敗時はエラーメッセージを表示し、不完全な生成データを残さない（REQ-40.12）。
+   */
+  const handleConfirmCreateFromSurvey = useCallback(
+    async (siteSurveyId: string) => {
+      if (!id || isCreatingFromSurvey) return;
+
+      setIsCreatingFromSurvey(true);
+      setOperationError(null);
+
+      try {
+        // 参照系GETで対象現場調査の写真一覧を取得する（REQ-42.10、永続化を伴わない）
+        const surveyDetail = await getSiteSurvey(siteSurveyId);
+        // 写真順は displayOrder 昇順を正とする（REQ-40.4）
+        const orderedImages = [...surveyDetail.images].sort(
+          (a, b) => a.displayOrder - b.displayOrder
+        );
+
+        if (orderedImages.length === 0) {
+          // 写真0枚: グループは生成しない（REQ-40.10）
+          setOperationError('写真が存在しません');
+          return;
+        }
+
+        // 紐づけ写真のサマリ（サムネイル・コメント等）を既存表示経路へ供給する（REQ-40.8）
+        setLinkedPhotoSummaries((prev) => {
+          const next = { ...prev };
+          for (const img of orderedImages) {
+            next[img.id] = {
+              id: img.id,
+              thumbnailUrl: img.thumbnailUrl || img.originalUrl || '',
+              originalUrl: img.originalUrl || '',
+              fileName: img.fileName,
+              hasAnnotations: !!img.annotatedThumbnailUrl,
+              annotatedThumbnailUrl: img.annotatedThumbnailUrl ?? null,
+              comment: img.comment ?? null,
+            };
+          }
+          return next;
+        });
+
+        // クライアントサイドのドラフトへ写真枚数分のグループを生成する（REQ-42.4）
+        const surveyImageIds = orderedImages.map((img) => img.id);
+        dispatch({
+          type: 'generateGroupsFromSurvey',
+          surveyName: surveyDetail.name,
+          surveyImageIds,
+        });
+
+        setIsSurveySelectDialogOpen(false);
+        setSurveyOptions([]);
+
+        setSaveMessage(`${surveyImageIds.length}件のグループを生成しました`);
+        setTimeout(() => setSaveMessage(null), 3000);
+      } catch {
+        // 写真一覧取得失敗等。ドラフトは未変更のままで不完全データを残さない（REQ-40.12）
+        setOperationError('現場調査からの一括生成に失敗しました');
+      } finally {
+        setIsCreatingFromSurvey(false);
+      }
+    },
+    [id, isCreatingFromSurvey]
   );
 
   /**
    * 保存ハンドラ
    *
-   * Requirements: 11.1, 11.2
+   * Task 61.4: 保存ハンドラを saveDraft へ移行し保存後同期・失敗時保持を実装する
+   * Requirements: 42.5, 42.7, 42.8, 42.9, 11.1, 11.2
    *
-   * ローカル状態の変更をまとめてAPIに保存する。
-   * バルク保存APIを使用して1回のリクエストで全ての変更を保存する。
+   * - クライアント検証（必須・丸め設定）後、編集ドラフトの全状態を
+   *   {@link buildSaveQuantityTableDraftInput} でフル状態同期保存ペイロードへ構築し、
+   *   {@link saveQuantityTableDraft}（PUT /:id/save）を1回だけ呼び出す（REQ-42.5）。
+   *   楽観ロック用 expectedUpdatedAt はサーバースナップショットの updatedAt を渡す。
+   * - 成功時: レスポンスの最新 QuantityTableDetail でスナップショット（参照情報・写真サマリ供給元）と
+   *   ドラフト（reducer saveSync → isDirty=false）を同期し、「保存しました」を表示する（REQ-42.8）。
+   *   saveDraft レスポンスで同期するため保存後の再取得（GET）は行わない。
+   * - 失敗時: 409 は競合専用メッセージ、それ以外（400/500等）は一般エラーメッセージを表示し、
+   *   ドラフト（未保存の変更）を保持したまま再保存可能とする（REQ-42.9）。
+   * - 自動保存は持たず、永続化は本保存操作時にのみ実行する（REQ-42.7）。
    */
   const handleSave = useCallback(async () => {
-    if (!quantityTable || !id) return;
+    const draftToSave = editState.draft;
+    if (!draftToSave || !snapshot || !id) return;
 
-    // REQ-11.2: 整合性チェック
+    // REQ-11.2: 整合性チェック（ドラフトの最終状態を検証する）
     const validationErrors: string[] = [];
-    const groups = quantityTable.groups ?? [];
-
-    for (const group of groups) {
-      for (const item of group.items ?? []) {
+    for (const group of draftToSave.groups) {
+      const groupLabel = group.name ?? '';
+      for (const item of group.items) {
         // 項目名が空の場合はエラー
         if (!item.name || item.name.trim() === '') {
-          validationErrors.push(`グループ「${group.name}」に項目名が空の項目があります`);
+          validationErrors.push(`グループ「${groupLabel}」に項目名が空の項目があります`);
         }
         // 丸め設定が0以下の場合はエラー
-        if (item.roundingUnit <= 0) {
+        if (Number(item.roundingUnit) <= 0) {
           validationErrors.push(
-            `グループ「${group.name}」の項目「${item.name || '(名称未設定)'}」の丸め設定が無効です`
+            `グループ「${groupLabel}」の項目「${item.name || '(名称未設定)'}」の丸め設定が無効です`
           );
         }
       }
@@ -1540,50 +1386,30 @@ export default function QuantityTableEditPage() {
       return;
     }
 
-    // バルク保存APIを使用して1回のリクエストで全項目を保存
+    // フル状態同期保存（REQ-42.5）。1回の PUT で全状態を確定する。
     setSaveMessage('保存中...');
     setOperationError(null);
 
     try {
-      // バルク保存用のデータを構築
-      const bulkSaveData = {
-        expectedUpdatedAt: quantityTable.updatedAt,
-        groups: groups.map((group) => ({
-          id: group.id,
-          items: (group.items ?? []).map((item) => ({
-            id: item.id,
-            majorCategory: item.majorCategory,
-            middleCategory: item.middleCategory,
-            minorCategory: item.minorCategory,
-            customCategory: item.customCategory,
-            workType: item.workType,
-            name: item.name,
-            specification: item.specification,
-            unit: item.unit,
-            calculationMethod: item.calculationMethod,
-            calculationParams: item.calculationParams,
-            adjustmentFactor: item.adjustmentFactor,
-            roundingUnit: item.roundingUnit,
-            quantity: item.quantity,
-            remarks: item.remarks,
-            displayOrder: item.displayOrder,
-          })),
-        })),
-      };
+      // ドラフトの全状態をペイロードへ構築（displayOrder は配列順、新規行は tempId 保持）
+      const input = buildSaveQuantityTableDraftInput(draftToSave, snapshot.updatedAt);
 
-      // 1回のAPIリクエストで全項目を保存
-      await bulkSaveQuantityTable(id, bulkSaveData);
+      // 1回のAPIリクエストでフル状態を保存し、採番済みの最新詳細を取得する
+      const savedDetail = await saveQuantityTableDraft(id, input);
 
-      // 保存後にデータを再取得して最新のupdatedAtを反映
-      await fetchQuantityTableDetail();
+      // REQ-42.8: サーバー最新データでスナップショット/ドラフトを同期し isDirty=false
+      setSnapshot(savedDetail);
+      setLinkedPhotoSummaries({});
+      dispatch({ type: 'saveSync', detail: savedDetail });
 
       setSaveMessage('保存しました');
       setTimeout(() => {
         setSaveMessage(null);
       }, 3000);
     } catch (error) {
-      // 競合エラーの場合は特別なメッセージを表示
-      if (error instanceof Error && error.message.includes('競合')) {
+      // REQ-42.9: 失敗時はエラー表示し、ドラフト（未保存変更）を保持して再保存可能とする
+      if (error instanceof ApiError && error.statusCode === 409) {
+        // 楽観ロック競合（409）は競合専用メッセージを表示する
         setOperationError(
           '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
         );
@@ -1592,7 +1418,7 @@ export default function QuantityTableEditPage() {
       }
       setSaveMessage(null);
     }
-  }, [id, quantityTable, fetchQuantityTableDetail]);
+  }, [id, editState.draft, snapshot]);
 
   // ローディング表示
   if (isLoading) {
@@ -1629,7 +1455,7 @@ export default function QuantityTableEditPage() {
   }
 
   // データがない場合
-  if (!quantityTable) {
+  if (!renderTable) {
     return (
       <main role="main" style={styles.container}>
         <div role="alert" style={styles.errorContainer}>
@@ -1639,7 +1465,7 @@ export default function QuantityTableEditPage() {
     );
   }
 
-  const groups = quantityTable.groups ?? [];
+  const groups = renderTable.groups ?? [];
 
   return (
     <main role="main" style={styles.container} data-testid="quantity-table-edit-area">
@@ -1649,18 +1475,18 @@ export default function QuantityTableEditPage() {
           items={[
             { label: 'ダッシュボード', path: '/' },
             { label: 'プロジェクト一覧', path: '/projects' },
-            { label: quantityTable.project.name, path: `/projects/${quantityTable.projectId}` },
-            { label: '数量表一覧', path: `/projects/${quantityTable.projectId}/quantity-tables` },
-            { label: quantityTable.name },
+            { label: renderTable.project.name, path: `/projects/${renderTable.projectId}` },
+            { label: '数量表一覧', path: `/projects/${renderTable.projectId}/quantity-tables` },
+            { label: renderTable.name },
           ]}
         />
       </div>
 
-      {/* ヘッダー */}
-      <div style={styles.header}>
+      {/* ヘッダー（Task 62.3: sticky 固定。REQ-45.1, 45.2, 45.4） */}
+      <div style={styles.header} data-testid="quantity-table-edit-header">
         <div style={styles.headerLeft}>
           <Link
-            to={`/projects/${quantityTable.projectId}/quantity-tables`}
+            to={`/projects/${renderTable.projectId}/quantity-tables`}
             style={styles.backLink}
             aria-label="数量表一覧に戻る"
           >
@@ -1679,14 +1505,15 @@ export default function QuantityTableEditPage() {
                 ...(isNameFocused ? styles.titleInputFocused : {}),
               }}
               aria-label="数量表名"
-              disabled={isSavingName}
             />
           </h1>
           <p style={styles.subtitle}>
-            {quantityTable.groupCount}グループ / {quantityTable.itemCount}項目
+            {renderTable.groupCount}グループ / {renderTable.itemCount}項目
           </p>
         </div>
         <div style={styles.headerActions}>
+          {/* Task 62.2: 未保存変更インジケーター（REQ-44）。isDirty の間のみ保存ボタン付近に表示 */}
+          <UnsavedChangesBadge isUnsaved={isDirty} />
           {saveMessage && (
             <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: 500 }}>
               {saveMessage}
@@ -1719,19 +1546,26 @@ export default function QuantityTableEditPage() {
           <button type="button" style={styles.saveButton} onClick={handleSave} aria-label="保存">
             保存
           </button>
+          <button type="button" style={styles.addGroupButton} onClick={handleAddGroup}>
+            <PlusIcon />
+            グループを追加
+          </button>
+          {/* 現場調査から一括追加ボタン (Task 57.3: REQ-40.1) */}
           <button
             type="button"
             style={{
               ...styles.addGroupButton,
-              opacity: isAddingGroup ? 0.7 : 1,
-              cursor: isAddingGroup ? 'wait' : 'pointer',
+              backgroundColor: '#0d9488',
+              opacity: isCreatingFromSurvey ? 0.7 : 1,
+              cursor: isCreatingFromSurvey ? 'wait' : 'pointer',
             }}
-            onClick={handleAddGroup}
-            disabled={isAddingGroup}
-            aria-busy={isAddingGroup}
+            onClick={handleOpenSurveySelect}
+            disabled={isCreatingFromSurvey}
+            aria-busy={isCreatingFromSurvey}
+            data-testid="bulk-create-from-survey-button"
           >
             <PlusIcon />
-            {isAddingGroup ? '追加中...' : 'グループを追加'}
+            現場調査から一括追加
           </button>
         </div>
       </div>
@@ -1768,7 +1602,7 @@ export default function QuantityTableEditPage() {
                 onUpdateItem={handleUpdateItem}
                 onDeleteItem={handleDeleteItem}
                 onCopyItem={handleCopyItem}
-                onMoveItem={handleMoveItemWithApi}
+                onMoveItem={handleMoveItem}
                 onOpenAnnotationViewer={handleOpenAnnotationViewer}
                 getSuggestions={getSuggestions}
                 onBlurAddCandidate={addCandidateOnBlur}
@@ -1778,7 +1612,6 @@ export default function QuantityTableEditPage() {
                 onMoveGroupUp={handleMoveGroupUp}
                 onMoveGroupDown={handleMoveGroupDown}
                 onCopyGroup={handleCopyGroup}
-                isCopying={copyingGroupIds.has(group.id)}
               />
             </div>
           ))}
@@ -1802,25 +1635,11 @@ export default function QuantityTableEditPage() {
               このグループとその中のすべての項目が削除されます。この操作は元に戻せません。
             </p>
             <div style={styles.dialogActions}>
-              <button
-                type="button"
-                style={styles.cancelButton}
-                onClick={handleCancelDelete}
-                disabled={isDeletingGroup}
-              >
+              <button type="button" style={styles.cancelButton} onClick={handleCancelDelete}>
                 キャンセル
               </button>
-              <button
-                type="button"
-                style={{
-                  ...styles.deleteButton,
-                  opacity: isDeletingGroup ? 0.7 : 1,
-                  cursor: isDeletingGroup ? 'wait' : 'pointer',
-                }}
-                onClick={handleConfirmDeleteGroup}
-                disabled={isDeletingGroup}
-              >
-                {isDeletingGroup ? '削除中...' : '削除する'}
+              <button type="button" style={styles.deleteButton} onClick={handleConfirmDeleteGroup}>
+                削除する
               </button>
             </div>
           </div>
@@ -1999,6 +1818,22 @@ export default function QuantityTableEditPage() {
         onClose={() => setIsImportDialogOpen(false)}
         onImport={handleImport}
         groups={groups}
+      />
+
+      {/* 現場調査選択ダイアログ (Task 57.3: REQ-40.1, 40.2, 40.11, 40.13) */}
+      <SurveySelectDialog
+        isOpen={isSurveySelectDialogOpen}
+        siteSurveys={surveyOptions}
+        isCreating={isCreatingFromSurvey}
+        onConfirm={handleConfirmCreateFromSurvey}
+        onClose={handleCloseSurveySelect}
+      />
+
+      {/* 未保存変更時の離脱確認ダイアログ (Task 62.1: REQ-43.1, 43.3, 43.4) */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={() => blocker.proceed?.()}
+        onStay={() => blocker.reset?.()}
       />
     </main>
   );

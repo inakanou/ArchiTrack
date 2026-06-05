@@ -27,7 +27,10 @@ import {
   copyQuantityItem,
   copyQuantityTable,
   copyQuantityGroup,
+  createGroupsFromSurvey,
+  saveQuantityTableDraft,
 } from '../../api/quantity-tables';
+import type { SaveQuantityTableDraftInput } from '../../api/quantity-tables';
 import type {
   ProjectQuantityTableSummary,
   PaginatedQuantityTables,
@@ -36,6 +39,7 @@ import type {
   QuantityTableFilter,
   QuantityGroupDetail,
   QuantityGroupInfo,
+  CreateGroupsFromSurveyResult,
   QuantityItemDetail,
 } from '../../types/quantity-table.types';
 
@@ -1326,6 +1330,238 @@ describe('quantity-tables API client', () => {
       vi.mocked(apiClient.post).mockRejectedValueOnce(originalError);
 
       await expect(copyQuantityGroup('group-1')).rejects.toThrow('予期しないエラー');
+    });
+  });
+
+  // ==========================================================================
+  // createGroupsFromSurvey - 現場調査から数量グループを一括生成
+  // ==========================================================================
+  describe('createGroupsFromSurvey', () => {
+    const mockGroups: QuantityGroupInfo[] = [
+      {
+        id: 'group-gen-1',
+        quantityTableId: 'qt-1',
+        name: '現場調査A 1',
+        surveyImageId: 'img-1',
+        displayOrder: 0,
+        itemCount: 0,
+        createdAt: '2026-06-04T00:00:00.000Z',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+      },
+      {
+        id: 'group-gen-2',
+        quantityTableId: 'qt-1',
+        name: '現場調査A 2',
+        surveyImageId: 'img-2',
+        displayOrder: 1,
+        itemCount: 0,
+        createdAt: '2026-06-04T00:00:00.000Z',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+      },
+    ];
+    const mockResult: CreateGroupsFromSurveyResult = {
+      created: 2,
+      groups: mockGroups,
+    };
+
+    it('現場調査から一括生成できること（POST /api/quantity-tables/:tableId/groups/from-survey が正しいボディで呼び出される）', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResult);
+
+      const result = await createGroupsFromSurvey('qt-1', 'survey-1');
+
+      expect(apiClient.post).toHaveBeenCalledWith('/api/quantity-tables/qt-1/groups/from-survey', {
+        siteSurveyId: 'survey-1',
+      });
+      expect(result).toEqual(mockResult);
+    });
+
+    it('異なる数量表ID・現場調査IDを指定した際に URL とボディが正しく構築されること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResult);
+
+      await createGroupsFromSurvey('another-table', 'another-survey');
+
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/api/quantity-tables/another-table/groups/from-survey',
+        { siteSurveyId: 'another-survey' }
+      );
+    });
+
+    it('レスポンスに生成件数と数量グループ配列が型安全に含まれること', async () => {
+      vi.mocked(apiClient.post).mockResolvedValueOnce(mockResult);
+
+      const result = await createGroupsFromSurvey('qt-1', 'survey-1');
+
+      expect(result.created).toBe(2);
+      expect(result.groups).toHaveLength(2);
+      expect(result.groups[0]?.id).toBe('group-gen-1');
+      expect(result.groups[0]?.surveyImageId).toBe('img-1');
+      expect(result.groups[1]?.displayOrder).toBe(1);
+    });
+
+    it('写真0枚の場合、created:0・groups:[] を受け取れること', async () => {
+      const emptyResult: CreateGroupsFromSurveyResult = { created: 0, groups: [] };
+      vi.mocked(apiClient.post).mockResolvedValueOnce(emptyResult);
+
+      const result = await createGroupsFromSurvey('qt-1', 'survey-empty');
+
+      expect(result.created).toBe(0);
+      expect(result.groups).toEqual([]);
+    });
+
+    it('数量表または現場調査が見つからない場合、404 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(404, '現場調査が見つかりません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(createGroupsFromSurvey('qt-1', 'non-existent')).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('認証エラーの場合、401 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(401, '認証が必要です');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(createGroupsFromSurvey('qt-1', 'survey-1')).rejects.toMatchObject({
+        statusCode: 401,
+      });
+    });
+
+    it('権限不足の場合、403 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(403, 'アクセス権限がありません');
+      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
+
+      await expect(createGroupsFromSurvey('qt-1', 'survey-1')).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
+  });
+
+  // ==========================================================================
+  // saveQuantityTableDraft - フル状態同期保存（PUT /api/quantity-tables/:id/save）
+  // Task 60.2 / Requirements: 42.5
+  // ==========================================================================
+  describe('saveQuantityTableDraft', () => {
+    // バックエンド saveQuantityTableDraftSchema に完全準拠した入力
+    const mockInput: SaveQuantityTableDraftInput = {
+      expectedUpdatedAt: '2025-01-02T00:00:00.000Z',
+      name: '更新された数量表名',
+      groups: [
+        {
+          // 既存グループ
+          id: 'group-1',
+          name: 'グループ1',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [
+            {
+              // 既存項目（全フィールド）
+              id: 'item-1',
+              majorCategory: '土工',
+              middleCategory: null,
+              minorCategory: null,
+              customCategory: null,
+              workType: '掘削',
+              name: '掘削工',
+              specification: null,
+              unit: 'm3',
+              calculationMethod: 'STANDARD',
+              calculationParams: null,
+              adjustmentFactor: 1,
+              roundingUnit: 1,
+              quantity: 100,
+              remarks: null,
+              displayOrder: 0,
+            },
+          ],
+        },
+        {
+          // 新規グループ（id=null, tempId 付与）
+          id: null,
+          tempId: 'tmp-group-1',
+          name: '新規グループ',
+          surveyImageId: 'image-1',
+          displayOrder: 1,
+          items: [
+            {
+              // 新規項目（id=null, tempId 付与, AREA_VOLUME）
+              id: null,
+              tempId: 'tmp-item-1',
+              majorCategory: '土工',
+              middleCategory: '盛土',
+              minorCategory: null,
+              customCategory: null,
+              workType: '盛土工',
+              name: '盛土',
+              specification: '良質土',
+              unit: 'm3',
+              calculationMethod: 'AREA_VOLUME',
+              calculationParams: { width: 10, depth: 5, height: 2 },
+              adjustmentFactor: 1.1,
+              roundingUnit: 0.1,
+              quantity: 110,
+              remarks: '備考テスト',
+              displayOrder: 0,
+            },
+          ],
+        },
+      ],
+    };
+
+    const mockDetail: QuantityTableDetail = {
+      id: 'qt-1',
+      projectId: 'project-1',
+      project: { id: 'project-1', name: 'テストプロジェクト' },
+      name: '更新された数量表名',
+      groupCount: 2,
+      itemCount: 2,
+      groups: [],
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-03T00:00:00.000Z',
+    };
+
+    it('PUT /api/quantity-tables/:id/save に入力ボディを送信し、QuantityTableDetail を返すこと', async () => {
+      vi.mocked(apiClient.put).mockResolvedValueOnce(mockDetail);
+
+      const result = await saveQuantityTableDraft('qt-1', mockInput);
+
+      expect(apiClient.put).toHaveBeenCalledWith('/api/quantity-tables/qt-1/save', mockInput);
+      expect(result).toEqual(mockDetail);
+    });
+
+    it('バリデーションエラーの場合、400 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(400, 'バリデーションエラー');
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
+
+      await expect(saveQuantityTableDraft('qt-1', mockInput)).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it('楽観的排他競合の場合、409 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(409, '競合が発生しました');
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
+
+      await expect(saveQuantityTableDraft('qt-1', mockInput)).rejects.toMatchObject({
+        statusCode: 409,
+      });
+    });
+
+    it('数量表が見つからない場合、404 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(404, '数量表が見つかりません');
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
+
+      await expect(saveQuantityTableDraft('non-existent', mockInput)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('権限不足の場合、403 エラーが伝搬されること', async () => {
+      const mockError = new ApiError(403, 'アクセス権限がありません');
+      vi.mocked(apiClient.put).mockRejectedValueOnce(mockError);
+
+      await expect(saveQuantityTableDraft('qt-1', mockInput)).rejects.toMatchObject({
+        statusCode: 403,
+      });
     });
   });
 });

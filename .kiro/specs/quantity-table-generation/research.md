@@ -308,3 +308,192 @@ model QuantityGroup {
   - グループ名の最大文字数仕様（REQ-22 AC4）が変更された場合
   - 別数量表へのグループ移動／コピーがスコープに加わった場合
   - 行高さ仕様（37px）が他要件で変更された場合
+
+---
+
+# ギャップ分析: Requirement 39〜41（数量表画面の機能追加・不具合修正）
+
+_作成日: 2026-06-03 / 対象: 写真選択ダイアログの重なり修正（Req39）、現場調査からの数量グループ一括生成（Req40）、水平スクロール時の画像・コメント固定表示（Req41）_
+
+## 0. 現状調査サマリ
+
+- フロントは React 19 + TypeScript 6 + Vite。状態管理は各ページ内 `useState`/`useCallback`、APIは `frontend/src/api/*.ts` の薄いクライアント（`apiClient`）。
+- バックは Express 5 + Prisma 7（Driver Adapter）。数量グループは `QuantityGroupService`（`backend/src/services/quantity-group.service.ts`）。
+- スタイルはインラインの `React.CSSProperties` オブジェクト（数量表画面は Tailwind ではなくインラインstyle主体）。
+- 既存E2E: `e2e/specs/quantity-tables/`（photo-comment / photo-preview / quantity-group-copy / group-sort 等）。新規3要件に対応するE2Eは未整備。
+
+## 1. Requirement-to-Asset マップ
+
+### Req 39: 写真選択・変更ダイアログの重なり修正
+- **重要発見（Constraint）**: 実際に表示される「写真選択ダイアログ」は **`frontend/src/pages/QuantityTableEditPage.tsx` 内のインライン実装**（styles定義 283-339、描画 1830-1918、`availablePhotos.map` 1866）。写真変更（「別の写真を選択」1985-1988）も同じ `handleSelectImage` を経由し、**選択・変更とも同一のインラインダイアログ**を使う。よって Req39 の両ダイアログ対応はこのインライン1箇所の修正で満たせる。
+- **Constraint（要確認）**: `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` というコンポーネントは存在するが、**本番コードからは未import（参照は単体テストのみ）**。レガシー/未使用の可能性が高い。Req39の修正対象は本体（インライン）であり、PhotoChangeDialog.tsx を残す/直す/削除するかは設計判断事項。
+- 現状レイアウト: `photoGrid = { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(150px,1fr))', gap:'12px', overflowY:'auto', flex:1 }`、`photoItem = { aspectRatio:'1', overflow:'hidden' }`、`photoImage = { width:'100%', height:'100%', objectFit:'cover' }`。
+- **Gap（Missing）**: 枚数増加時の「重なり」を確実に防ぐ行高さ制御（`gridAutoRows` 未指定で `aspectRatio` 由来の高さがロウに正しく伝わらないケース）。重なり根本原因の特定は設計/実装フェーズで実機確認が必要（Research Needed）。
+- データ取得は実装済（`handleSelectImage` 746-792: `getSiteSurveys()` → 各 `getSiteSurvey()` をバッチ取得 → `setAvailablePhotos`）。レイアウトのみが論点。
+
+### Req 40: 現場調査からの数量グループ一括生成（新規）
+- **データモデル（Asset）**: `backend/prisma/schema.prisma` の `QuantityGroup` … `name?`、`surveyImageId?`、`displayOrder`（`@@index([quantityTableId, displayOrder])`）。1グループ＝写真1枚（`surveyImageId` 単一）で Req40 と整合。
+- **既存API（Asset）**:
+  - 単一作成: `createQuantityGroup(tableId, {name, surveyImageId?, displayOrder})`（`api/quantity-tables.ts` 288、`CreateQuantityGroupInput` 261）。
+  - 一括複製の参考: `copyQuantityGroup` / `QuantityGroupService.copy()`（トランザクション＋`displayOrder`シフト＋`createMany`）→ Req40 の**原子的な複数作成＋ロールバック（Req40 AC12）**の実装パターンとして流用可能。
+  - 一括保存: `bulkSaveQuantityTable`（`/api/quantity-tables/{id}/bulk-save`）も複数グループ同時更新の参考。
+- **現場調査側（Asset）**: `getSiteSurveys()`（プロジェクトの現場調査一覧）、`getSiteSurvey()`（`images` 配列、`displayOrder` 付き）。「全写真（注釈有無問わず）」を写真順に取得可能。
+- **UI追加先（Asset）**: `QuantityTableEditPage.tsx` の「グループを追加」ボタン近辺（427 / 1729-1734）。隣に「現場調査から一括追加」ボタン＋現場調査選択ダイアログを新設。
+- **Gap（Missing）**:
+  - グループ名「{現場調査名} 連番」生成＋最大文字数切り詰め（Req22 AC4）ロジック。
+  - 既存末尾追加（`max(displayOrder)+1` 起点）の連番採番。
+  - 写真0枚時のメッセージ（AC10）、進捗インジケーター・重複防止（AC11）、エラーロールバック（AC12）。
+
+### Req 41: 水平スクロール時の画像・コメント固定表示
+- **DOM/CSS（Constraint）**: `frontend/src/components/quantity-table/QuantityGroupCard.tsx` … カード（`styles.card`、103-114付近）に `overflowX:'auto'` が掛かり、`photoArea`（画像＋コメント、`display:flex`、292-298 / 793-856）と数量項目テーブル行群が**同一の水平スクロールコンテナ内**にある。これが「右スクロールで画像・コメントが左へ消える」根本原因。
+- `PhotoCommentDisplay.tsx`（画像右に表示、25-36 は `overflowY:auto` のみ、水平固定なし）。
+- グリッド: `gridConstants.ts` の `QUANTITY_ITEM_GRID_COLUMNS`（合計≈1264px、常に横はみ出し→水平スクロール必須。Req37 計算用フィールドで更に拡大）。
+- **Gap（Missing）**: 水平スクロール対象を「数量項目テーブルのみ」に限定し、`photoArea`（画像＋コメント＋写真変更ボタン）をスクロール外へ。折りたたみ（Req3 AC4 / Req21 AC5、content の `maxHeight` 制御 248-263）との両立が必要。
+
+## 2. 実装アプローチ（A/B/C）
+
+### Req 39
+- **Option A（推奨・Extend）**: インライン `photoGrid`/`photoItem` のCSSを修正し重なり解消（`gridAutoRows` 明示、行高さ固定 or `minmax` 見直し）。最小変更・既存パターン踏襲。
+  - ✅ 低コスト/低リスク ❌ 実機での重なり再現・原因特定が前提。
+- Option B（New）: 写真一覧を専用コンポーネント化（未使用 `PhotoChangeDialog.tsx` を整理して採用）。再利用性向上だが本要件にはオーバースペック。
+- **Effort: S / Risk: Low**（CSS修正＋実機確認）。
+
+### Req 40
+- **Option B（推奨・New backend endpoint + New frontend UI）**: バックに「現場調査から一括生成」エンドポイント（`POST /api/quantity-tables/{id}/groups/from-survey` 等）を新設し、`copy()` 同様のトランザクションで N グループ＋写真紐づけ＋連番命名を原子的に作成（AC12 ロールバック満たす）。フロントは選択ダイアログ＋一覧再取得。
+  - ✅ 原子性・ロールバック・性能（1リクエスト） ❌ 新規API設計・テスト。
+- Option A（Extend/フロント主導）: フロントから `createQuantityGroup` を N 回ループ。実装は軽いが**部分失敗時のロールバック（AC12）が困難**で非推奨。
+- **Effort: M / Risk: Medium**（新規API＋UI＋トランザクション、既存 `copy()` を流用できるためMedium）。
+
+### Req 41
+- **Option A（推奨・Extend）**: `QuantityGroupCard` の構造を分割し、`overflowX:'auto'` を**数量項目テーブルのラッパーへ移動**、`photoArea` はスクロール外（カード直下のflex列）に配置。
+  - ✅ 構造が素直・折りたたみと両立しやすい ❌ DOM再構成の影響範囲（ストーリー/テスト）確認要。
+- Option B（Extend/sticky）: `photoArea` に `position:sticky; left:0`。変更は小さいが、スクロールコンテナと背景の重なり・z-index調整が必要で崩れやすい。
+- **Effort: M / Risk: Medium**（レイアウト再構成＋実機での横スクロール挙動確認）。
+
+## 3. 設計フェーズへの引き継ぎ（Research Needed）
+
+- **[Req39]** 写真「重なり」の実機再現と根本原因の確定（grid行高さ/aspect-ratio/コンテナ高さの相互作用）。修正後はビューポート幅（狭幅含む）で重なりゼロを確認。
+- **[Req39]** `PhotoChangeDialog.tsx`（未使用疑い）の扱い（残置/修正/削除）を決定。
+- **[Req40]** 一括生成APIの形（エンドポイント・入出力・トランザクション境界・既存 `copy()` ロジック再利用範囲）。現場調査写真の「全写真（注釈有無問わず）」取得経路と写真順序（`displayOrder`）の確定。
+- **[Req40]** 連番命名と最大文字数切り詰め規則（Req22 AC4 / Req38 AC6 と整合）。
+- **[Req41]** スクロールコンテナ分割後の折りたたみ（content `maxHeight`）・垂直スクロール・Req37 計算用フィールド水平展開との同時成立。
+- **共通**: 3要件すべて Req に対応するE2E（`e2e/specs/quantity-tables/`）の新規追加が必要（要件はE2E動作確認まで完了としない方針）。
+
+## 4. 推奨まとめ
+
+| 要件 | 推奨アプローチ | Effort | Risk | 主な再利用資産 |
+|------|----------------|--------|------|----------------|
+| Req39 | A: インラインダイアログCSS修正 | S | Low | `QuantityTableEditPage` photoGrid/photoItem |
+| Req40 | B: 一括生成API新設＋選択UI | M | Medium | `QuantityGroupService.copy()`、`getSiteSurvey(s)` |
+| Req41 | A: 水平スクロールをテーブルへ限定 | M | Medium | `QuantityGroupCard` photoArea/content 構造 |
+
+## 5. 設計シンセシス結果（design 反映済み・2026-06-03）
+
+- **採用アプローチ**: Req39=A（インラインダイアログCSS修正）、Req40=B（バックエンド一括生成API新設＋SurveySelectDialog）、Req41=A（水平スクロールをテーブルラッパーへ限定）。
+- **一般化（共有化）**: グループ連番命名 `buildGroupNameFromSurvey` は REQ-38 のコピー命名（`truncateForCopy`、REQ-22 AC4 の文字数規則）を汎用化して共有する（重複ロジックを作らない）。
+- **Build-vs-Adopt**: Req40 のトランザクション一括生成は新規実装だが、`QuantityGroupService.copy()` の「トランザクション＋createMany＋displayOrderシフト」パターンを踏襲（新パターンを発明しない）。
+- **簡素化**: Req41 は `position: sticky` ではなくスクロールコンテナ分割で実現（z-index/背景重なりの複雑性を回避）。Req39 は専用コンポーネント新設せずインライン修正に限定（未使用 `PhotoChangeDialog.tsx` は残置）。
+
+### Boundary Commitments（REQ-39〜41）
+
+- **Owns**: 写真選択インラインダイアログのレイアウト（Req39）、現場調査からの数量グループ一括生成のフロント/API/Service（Req40）、QuantityGroupCard の水平スクロール構造と画像・コメント固定表示（Req41）。
+- **Out of Boundary**: 写真取得方式の変更・仮想スクロール化（Req39）、一括生成時の数量項目自動生成（Req40）、縦方向固定/テーブルヘッダー固定（Req41）、`PhotoChangeDialog.tsx` の改修・削除。
+- **Allowed Dependencies**: 既存 `getSiteSurveys`/`getSiteSurvey`（写真・displayOrder）、`QuantityGroupService`（copy パターン）、`auditLogService`、`requirePermission('quantity_table:create')`、既存 PhotoCommentDisplay/REQ-21・35 のコメント表示ロジック。
+- **Revalidation Triggers**:
+  - 写真一覧の取得方式（`handleSelectImage` のバッチ取得）が変更された場合（Req39）。
+  - 現場調査写真の順序（`displayOrder`）やモデルが変更された場合（Req40）。
+  - グループ名の最大文字数仕様（REQ-22 AC4）や REQ-38 命名ロジックが変更された場合（Req40）。
+  - `QuantityGroupCard` の折りたたみ（content `maxHeight`）や REQ-37 計算用フィールドの水平展開仕様が変更された場合（Req41）。
+
+## 6. デザインレビュー反映（2026-06-03 / kiro-validate-design）
+
+GO（条件付き）。指摘3点を design.md に反映済み：
+- **[Req40]** 一括生成に REQ-38 と同一の `SELECT FOR UPDATE` 直列化を明記（コンポーネント・フロー・統合テストに追加）。displayOrder 衝突を防止。
+- **[Req39]** 実装の最初のステップを「実機での重なり再現＋DevTools 原因特定（root-cause-first）」とし、CSS確定はその結果に従う旨を明記。
+- **[Req39]** 重なりの矩形判定（`getBoundingClientRect`）は jsdom 非対応のため E2E（Playwright）へ移動。単体は描画件数・スタイル適用の検証に限定（第3原則: 前提による無効化を回避）。
+
+---
+
+## ギャップ分析: Requirement 42〜45（クライアントサイド編集・離脱ガード・未保存インジケーター・固定ヘッダー）
+
+_実施日: 2026-06-04 / 対象: Requirement 42・43・44・45（数量表編集画面の編集モデル変更とUI改善）_
+
+### 現状サマリー
+
+数量表編集画面の現行アーキテクチャは「**操作即サーバー反映 ＋ 項目フィールドのみ保存ボタンで bulk-save**」というハイブリッド構成。要望は「すべての編集をクライアントサイドで行い、保存ボタン押下時のみサーバー反映」への転換。
+
+- **最重要ブロッカー**: 既存 `PUT /api/quantity-tables/{id}/bulk-save` は**既存項目（item）の更新のみ**対応。グループ/項目の作成・削除、グループ並び替え・名称変更・写真紐づけは非対応。Req 42 実現にはバックエンドの保存エンドポイント拡張（フル状態同期）が必須。
+- **離脱ガード/未保存追跡**: 再利用可能な実装が既存（`useUnsavedChanges` フック、`useBlocker`）。Req 43・44 は低リスク。
+- **固定ヘッダー**: 既存に `position: fixed/sticky` パターンあり。Req 45 は低リスク。
+- **E2E**: 数量表系 E2E が約25本存在。多くが「操作即時反映」を前提としており、編集モデル変更で広範に改修が必要。
+
+### Requirement → 資産マップ（ギャップタグ: Missing / Unknown / Constraint）
+
+| 要件 | 必要な技術要素 | 既存資産 | ギャップ |
+|------|----------------|----------|----------|
+| Req 42（クライアント編集・明示保存） | フル状態を一括永続化する保存API（グループ/項目の作成・削除・並び替え・名称・写真紐づけ・項目値を差分適用） | `bulk-save`（項目更新のみ）、`prisma.$transaction`、`expectedUpdatedAt` 楽観ロック | **Missing**: グループ作成/削除/並び替え/名称/写真、項目作成/削除を bulk-save が未サポート（`backend/src/services/quantity-table.service.ts` 689–820、`routes/quantity-tables.routes.ts` 663–697、zod schema 81–114） |
+| Req 42（フロント） | 全編集をクライアント状態にのみ反映 → 保存時に一括送信。新規行のクライアント仮ID | `QuantityTableEditPage.tsx`（`useState` 中心、`quantityTable` 単一オブジェクト state） | **Missing**: 即時API呼び出しが約11ハンドラ（rename/add item/delete item/copy item/move group/photo select/import/from-survey 等）。**仮ID未導入**（新規行は常にサーバー採番UUID） |
+| Req 43（離脱ガード） | 画面遷移/タブクローズ/リロード時の警告 | `useUnsavedChanges`（`hooks/useUnsavedChanges.ts`、beforeunload対応）、`useBlocker(isDirty)`（CompanyInfoPage・ItemizedStatementDetailPage・SiteSurveyDetailPage で実績） | **なし**（パターン流用で実装可能） |
+| Req 44（未保存インジケーター） | dirty 状態の可視化 | 同上 `isDirty`/`markAsChanged`/`markAsSaved` | **なし**（インジケーターUIの追加のみ） |
+| Req 45（固定ヘッダー） | ヘッダー操作ボタン群の sticky 表示 | `EstimateDetailPage`/`ScheduleListPage`/`SiteSurveyDetailPage` の `position: fixed/sticky` 実績。`QuantityTableEditPage` ヘッダーは inline style（64–117, 1773–1865） | **Constraint**: 祖先に `overflow` を持つスクロールコンテナがあると sticky が効かない点を design で確認（現状 main は padding のみで scroll wrapper なし＝直接 sticky 可） |
+
+### 実装アプローチ（バックエンド保存API — Req 42 の核心）
+
+#### Option A: 既存 bulk-save を「フル状態同期」に拡張（推奨）
+`bulk-save` のペイロードを「数量表の全グループ・全項目の最終状態」に拡張し、サーバー側で DB 現状とのdiffを取り、作成/更新/削除/並び替え/名称/写真紐づけをトランザクション内で適用。クライアント仮ID（`temp-` 接頭辞等）を新規行のマーカーとして受理し、レスポンスで採番済みIDを返却。
+- ✅ 単一エンドポイント・単一トランザクションで原子性・楽観ロック（`expectedUpdatedAt`）を維持。ネットワーク往復が保存1回に集約され Req 42 の意図に最も忠実
+- ✅ 既存の個別エンドポイント（create/delete/copy/reorder）は移行期に温存可能
+- ❌ サーバー側 diff/upsert/削除ロジックとスキーマ拡張が必要（zod 全面改訂）。コピー時のサーバー採番ロジック（写真複製等）をクライアント or 保存APIへ移設
+- **Effort: L（1〜2週間）／Risk: Medium**（トランザクション境界・楽観ロック・displayOrder衝突・写真複製の移設が要設計）
+
+#### Option B: 既存個別エンドポイントをクライアントがバッチ順次呼び出し（保存時にまとめて）
+保存ボタン押下時にクライアントが差分を計算し、既存の create/update/delete/reorder/copy API を順次（または並列）呼び出す。
+- ✅ バックエンド改修最小
+- ❌ 複数リクエストで原子性・整合性が崩れやすい（途中失敗で部分反映）。Req 42 AC9（失敗時に編集状態を保持して再保存）や AC5（一括永続化）の担保が困難。楽観ロックも分散
+- **Effort: M／Risk: High**（部分失敗・整合性が要件と衝突）
+
+#### Option C: ハイブリッド（保存API拡張 ＋ フロント仮ID ＋ 段階移行）
+Option A の保存API拡張を軸に、フロントは `useReducer` で編集状態（draft）と dirty を集中管理。仮ID導入。Req 43/44 は `useUnsavedChanges`+`useBlocker` を流用、Req 45 は sticky 追加。E2E は段階的に「保存押下後に検証」へ移行。
+- ✅ 要件全体（42〜45）を一貫実装。フロント状態の集中管理でテスト容易性も向上
+- ❌ 計画・調整が最も大きい
+- **Effort: XL（2週間+）／Risk: Medium**
+
+### Effort / Risk まとめ
+
+| 項目 | Effort | Risk | 一言根拠 |
+|------|--------|------|----------|
+| 保存API拡張（フル状態同期） | L | Medium | diff/削除/並び替え/写真複製の移設と楽観ロック維持 |
+| フロント編集状態のドラフト化＋仮ID | L | Medium | 約11ハンドラの即時API除去＋単一 state を draft/dirty へ再設計 |
+| 離脱ガード（Req43） | S | Low | `useBlocker(isDirty)` 流用 |
+| 未保存インジケーター（Req44） | S | Low | `useUnsavedChanges` 流用＋UI追加 |
+| 固定ヘッダー（Req45） | S | Low | sticky 付与（祖先 overflow のみ確認） |
+| E2E 改修（約25本） | M〜L | High | 「即時反映」前提の検証を「保存後反映」へ全面見直し |
+
+### 設計フェーズへの申し送り（Research Needed）
+
+1. **保存ペイロード契約の確定**（Option A 前提）: グループ/項目の作成・更新・削除・並び替え・名称・写真紐づけを表現するスキーマ。新規行の仮ID表現とレスポンスでのID解決方式。
+2. **コピー/一括生成のサーバー処理移設**: 現行サーバー側のグループコピー（写真複製含む）・現場調査一括生成のロジックを、クライアント仮ID生成＋保存API側の確定処理へどう分割するか（写真の参照は surveyImageId 紐づけのみで複製不要か要確認）。
+3. **楽観ロック整合**: 編集中の長時間化で `expectedUpdatedAt` 競合が増える。保存失敗時の編集状態保持（Req42 AC9）と再取得・マージ方針。
+4. **dirty 判定の粒度**: フィールド単位の deep compare か、操作発生フラグか（`useUnsavedChanges` の `markAsChanged` 流用範囲）。
+5. **固定ヘッダーと既存スクロール領域（Req41 の水平スクロール固定、Req25 のスクロールバー）との干渉確認**。
+6. **E2E 移行方針**: 既存約25本のうち編集モデル変更の影響範囲を design で列挙し、「保存後に検証」へ統一（第3原則: 前提無効化を避け、失敗で顕在化させる）。
+
+### 推奨
+
+- **保存API**: Option A（bulk-save のフル状態同期化）を軸に、フロントは Option C のドラフト集中管理を採用。Req 42 の原子性・楽観ロック・「保存時のみ永続化」を最も忠実に満たす。
+- **Req 43/44/45** は既存パターン流用で低リスク・小工数。先行実装も可能だが、Req 42 のフロント状態再設計（dirty 管理）と密結合のため、design で 42 と一体設計するのが望ましい。
+
+### 設計シンセシス結果（2026-06-04 / kiro-spec-design）
+
+- **一般化（Generalization）**: グループ/項目の add/delete/copy/reorder・名称・写真紐づけ・一括生成・取り込みという多数の編集操作を、「数量表の全状態をドラフトで保持し保存時に1回同期する」単一の書き込みパス（`QuantityTableService.saveDraft`／`PUT /api/quantity-tables/:id/save`）へ一般化。個別ミューテーションAPIは編集フローから不要化。
+- **採用 vs 構築（Build vs Adopt）**: 離脱ガード・dirty 追跡は既存 `useUnsavedChanges` フックと React Router v7 `useBlocker` を採用（CompanyInfoPage/ItemizedStatementDetailPage/SiteSurveyDetailPage で実績）。固定ヘッダーは EstimateDetailPage/SiteSurveyDetailPage の sticky/fixed パターンを採用。新規構築は saveDraft の差分同期ロジックとドラフト reducer のみ。
+- **単純化（Simplification）**: 二重書き込みパス（即時API＋bulk-save）を解消し、編集画面の書き込みを saveDraft 一本へ統一。tempId→実IDの idMap は持たず、保存レスポンスの全状態でドラフトを置換して解決（状態の単純化）。グループコピー/一括生成のサーバー側ロジックはクライアントのドラフト複製/生成へ移し、写真は surveyImageId 参照のみ（blob複製なし）。
+- **設計決定**: saveDraft は `SELECT FOR UPDATE`＋`expectedUpdatedAt` 楽観ロック＋単一 `$transaction` で REQ-38/40 と同一の直列化方針を維持。保存失敗時はドラフト保持で再保存（REQ-42 AC9）。
+
+### デザインレビュー反映（2026-06-04 / kiro-validate-design）
+
+GO（条件付き・指摘は反映済み）。実コード検証（useUnsavedChanges/useBlocker/bulkSave/sticky祖先overflow/権限）の結果、設計の前提は概ね正確だったが2点の事実不一致を検出し design.md を修正：
+- **[REQ-42 権限]** 書き込み系の権限は実コードでは `requirePermission('quantity_table:update')`。saveDraft の記載を `quantity_table:write` から `quantity_table:update` へ修正。
+- **[REQ-42 並行制御]** 既存 `bulkSave` は FOR UPDATE なし・楽観ロックのみ。REQ-42 で copy/from-survey がクライアント化し saveDraft が唯一の書き込み手段になるため、楽観ロック（`expectedUpdatedAt`）を主とし FOR UPDATE は任意と明記（フロー・サービス・統合テストを整合）。
+- **[未対応・申し送り]** 既存 Security セクションの `quantity_table:write` 表記（インポートClaude Vision／オートコンプリートは `:read`）は本変更スコープ外の既存不整合。タスク化時に実権限名と突合すること。
+- 検証で確定: useUnsavedChanges は beforeunload のみ（useBlocker 非呼び出し）→ `useBlocker(isDirty)` との二重登録なし。sticky の祖先に overflow コンテナなし（main は padding のみ）。

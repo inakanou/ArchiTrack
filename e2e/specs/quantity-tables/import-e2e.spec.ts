@@ -45,9 +45,10 @@
 
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Request } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,6 +56,67 @@ const FIXTURES_DIR = path.resolve(__dirname, '..', '..', 'fixtures');
 
 const TEST_PDF = path.join(FIXTURES_DIR, 'test-text-pdf.pdf');
 const TEST_TXT = path.join(FIXTURES_DIR, 'test-document.txt');
+// クライアントサイド（SheetJS）でパースされる Excel フィクスチャ。
+// OCR（ANTHROPIC_API_KEY 依存）を経由せず決定論的に抽出行を得られるため、
+// REQ-42.4/42.6 の「取り込みは保存まで永続化しない」挙動を環境非依存で検証できる。
+const TEST_XLSX = path.join(FIXTURES_DIR, 'import-items.xlsx');
+
+// ----------------------------------------------------------------------------
+// ネットワーク監視（REQ-42.6: 保存前は数量表サブリソースへの書き込みが一切ない）
+// client-side-edit-explicit-save-e2e.spec.ts と同一パターン。
+// ----------------------------------------------------------------------------
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * 数量表サブリソースへの「永続化書き込み」かを判定する。
+ * 唯一許可される書き込みは明示保存（PUT /api/quantity-tables/:id/save）なので除外する。
+ */
+function isQuantityPersistenceWrite(url: string, method: string): boolean {
+  if (!WRITE_METHODS.has(method)) return false;
+  if (/\/api\/quantity-tables\/[^/]+\/save$/.test(url)) return false;
+  return (
+    /\/api\/quantity-tables(\/|$|\?)/.test(url) ||
+    /\/api\/quantity-groups(\/|$|\?)/.test(url) ||
+    /\/api\/quantity-items(\/|$|\?)/.test(url)
+  );
+}
+
+/** 永続化書き込みリクエストを記録するリスナーを設置する。 */
+function attachPersistenceMonitor(page: Page): {
+  writes: Array<{ method: string; url: string }>;
+  detach: () => void;
+} {
+  const writes: Array<{ method: string; url: string }> = [];
+  const listener = (request: Request) => {
+    const method = request.method();
+    const url = request.url();
+    if (isQuantityPersistenceWrite(url, method)) {
+      writes.push({ method, url });
+    }
+  };
+  page.on('request', listener);
+  return { writes, detach: () => page.off('request', listener) };
+}
+
+/**
+ * 名称フィールド（AutocompleteInput = role="combobox"）のいずれかが指定値を持つことを待機検証する。
+ * React の制御コンポーネントは value 属性へ反映されないため、各 combobox の inputValue を走査する。
+ */
+async function expectNameValuePresent(page: Page, value: string): Promise<void> {
+  const nameInputs = page.getByRole('combobox', { name: /名称/i });
+  await expect
+    .poll(
+      async () => {
+        const count = await nameInputs.count();
+        for (let i = 0; i < count; i++) {
+          if ((await nameInputs.nth(i).inputValue()) === value) return true;
+        }
+        return false;
+      },
+      { timeout: getTimeout(10000) }
+    )
+    .toBe(true);
+}
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -197,25 +259,22 @@ test.beforeAll(async ({ browser }) => {
     createdQuantityTableId = tableMatch?.[1] ?? null;
     expect(createdQuantityTableId).toBeTruthy();
 
-    // REQ-31.2 の取り込み先グループ選択UI検証のため、グループを1つ追加
-    const addGroupApiPromise = page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/quantity-tables/') &&
-        response.url().includes('/groups') &&
-        response.request().method() === 'POST' &&
-        response.status() === 201,
-      { timeout: getTimeout(20000) }
-    );
-
+    // REQ-31.2 の取り込み先グループ選択UI検証のため、グループを1つ追加して永続化する。
+    // これは「取り込み先となるグループが存在する」状態を用意するための前提準備であり、
+    // 取り込み自体の永続化挙動とは独立している（取り込みは REQ-42.4 によりドラフトへ
+    // 反映され、保存操作時にのみ永続化される）。後続のOCR系テストはこのテーブルへ
+    // ナビゲートし直すため、選択対象グループはサーバー側に存在している必要がある。
     const addGroupButton = page
       .getByRole('button', { name: /グループ追加|グループを追加/i })
       .first();
     await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
     await addGroupButton.click();
-    await addGroupApiPromise;
 
     const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
     await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
+
+    // REQ-42.5: 取り込み先グループを永続化する（後続テストがナビゲート後に参照するため）。
+    await saveQuantityTableDraft(page);
   } finally {
     await context.close();
   }
@@ -786,6 +845,103 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     ]);
 
     expect(result, '完了メッセージまたは失敗メッセージのいずれかが表示される').not.toBeNull();
+  });
+});
+
+test.describe('REQ-42.4/42.6: 一括取り込みのクライアントサイド反映と明示保存', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-42.4: 一括取り込みはクライアントサイドの編集状態にのみ反映する
+   * @requirement quantity-table-generation/REQ-42.6: 保存前は永続化目的のサーバーアクセスを一切発生させない
+   * @requirement quantity-table-generation/REQ-31.3: 各行を数量項目として追加（保存で永続化）
+   *
+   * クライアントサイド（SheetJS）でパースされる Excel を取り込み、取り込み完了から
+   * 保存ボタン押下までの間に数量表サブリソースへの永続化書き込み（POST /quantity-items 等）が
+   * 一切飛ばないことをネットワーク監視で検証する。保存後にリロードしても取り込み項目が
+   * 残存することで、保存（PUT /:id/save）によってのみ永続化されることを確認する。
+   *
+   * 注: 本テストは OCR（ANTHROPIC_API_KEY 依存）を使用せず Excel パースのみで成立する。
+   */
+  test('Excel一括取り込みは保存まで永続化APIを発行せず、保存後はリロードしても残存する (REQ-42.4, REQ-42.6, REQ-31.3)', async ({
+    page,
+  }) => {
+    expect(createdQuantityTableId, '事前準備で数量表が作成済み').toBeTruthy();
+
+    await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+    await page.waitForLoadState('networkidle');
+    const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
+    await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 取り込み先グループが存在することを確認（beforeAll で永続化済み）
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+    await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
+
+    // ネットワーク監視を設置（以降、保存まで永続化書き込みが飛んではならない）
+    const monitor = attachPersistenceMonitor(page);
+
+    // インポートダイアログを開く
+    const importButton = page.getByRole('button', { name: 'インポート' }).first();
+    await expect(importButton).toBeVisible({ timeout: getTimeout(5000) });
+    await importButton.click();
+    await expect(page.getByRole('heading', { name: '数量表インポート' })).toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // Excel をアップロード（クライアントサイドでパースされる）
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_XLSX);
+
+    // 抽出完了 → 「一括取り込み」ボタンが表示される
+    const dialog = page.getByRole('dialog');
+    const importBtn = dialog.getByRole('button', { name: '一括取り込み' });
+    await expect(importBtn).toBeVisible({ timeout: getTimeout(20000) });
+    await importBtn.click();
+
+    // 取り込み先グループを選択
+    await expect(page.getByRole('heading', { name: '取り込み先グループを選択' })).toBeVisible({
+      timeout: getTimeout(5000),
+    });
+    const groupButton = dialog
+      .locator('button')
+      .filter({ hasText: /\(\d+項目\)/ })
+      .first();
+    await expect(groupButton).toBeVisible({ timeout: getTimeout(5000) });
+    await groupButton.click();
+
+    // 取り込み完了メッセージ（クライアント反映済み）
+    await expect(page.getByText(/件の数量項目を取り込みました/).first()).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    // ダイアログを閉じる
+    const closeBtn = dialog.getByRole('button', { name: /閉じる|キャンセル/ }).last();
+    if (await closeBtn.isVisible({ timeout: getTimeout(2000) }).catch(() => false)) {
+      await closeBtn.click();
+    }
+
+    // 取り込み項目が編集画面のドラフトに反映されている（名称フィールドの value として表示）
+    await expectNameValuePresent(page, 'E2E取込項目');
+
+    // 検証(REQ-42.4/42.6): 取り込みから保存前までに永続化書き込みは1件も飛んでいない
+    expect(
+      monitor.writes,
+      `取り込み後・保存前に永続化書き込みが発生した: ${JSON.stringify(monitor.writes, null, 2)}`
+    ).toHaveLength(0);
+
+    // 保存（PUT /:id/save）でのみ永続化される
+    await saveQuantityTableDraft(page);
+    monitor.detach();
+
+    // リロード後も取り込み項目が残存する（= 保存で永続化された）
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
+    await expectNameValuePresent(page, 'E2E取込項目');
   });
 });
 

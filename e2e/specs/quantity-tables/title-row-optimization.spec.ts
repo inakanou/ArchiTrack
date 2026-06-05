@@ -16,6 +16,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 /**
  * タイトル行表示最適化のE2Eテスト
@@ -116,19 +117,13 @@ test.describe('タイトル行表示最適化', () => {
       const editArea = page.getByTestId('quantity-table-edit-area');
       await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
 
-      // グループを追加する（デフォルトではグループが存在しない）
+      // グループを追加する（デフォルトではグループが存在しない）。
+      // REQ-42 移行: グループ/項目追加はクライアントドラフトのみを更新するため、
+      // 永続化 API（POST /groups, POST /items）は発火しない。後続テストは編集画面へ
+      // 再ナビゲートして 2 項目の存在を前提とするため、追加後に明示保存して永続化する。
       const addGroupButton = page.getByRole('button', { name: /グループを追加/ }).first();
       await expect(addGroupButton).toBeVisible({ timeout: getTimeout(5000) });
-
-      const groupApiPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/quantity-tables/') &&
-          response.url().includes('/groups') &&
-          response.request().method() === 'POST',
-        { timeout: getTimeout(20000) }
-      );
       await addGroupButton.click();
-      await groupApiPromise;
 
       // グループが追加されたことを確認
       await expect(page.getByTestId('quantity-group')).toHaveCount(1, {
@@ -150,6 +145,19 @@ test.describe('タイトル行表示最適化', () => {
       await expect(page.getByTestId('quantity-item-row')).toHaveCount(2, {
         timeout: getTimeout(5000),
       });
+
+      // 保存時の整合性チェック（項目名必須）を満たすため、各項目に名称を付与する。
+      const itemRows = page.getByTestId('quantity-item-row');
+      const itemCount = await itemRows.count();
+      for (let i = 0; i < itemCount; i++) {
+        const nameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
+        await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
+        await nameInput.fill(`タイトル行テスト項目${i + 1}`);
+        await nameInput.blur();
+      }
+
+      // REQ-42.5: 後続テストが再ナビゲートで参照できるよう明示保存して永続化する。
+      await saveQuantityTableDraft(page);
     });
   });
 

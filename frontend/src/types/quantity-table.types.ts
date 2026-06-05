@@ -362,6 +362,22 @@ export interface QuantityGroupInfo {
 }
 
 /**
+ * 現場調査からの数量グループ一括生成結果
+ *
+ * `POST /api/quantity-tables/:tableId/groups/from-survey` のレスポンス型。
+ * 生成した数量グループの件数と、生成された数量グループ情報の配列を保持する。
+ * 写真0枚の場合は `created: 0`, `groups: []` を返す。
+ *
+ * Requirements: 40.1
+ */
+export interface CreateGroupsFromSurveyResult {
+  /** 生成された数量グループの件数 */
+  created: number;
+  /** 生成された数量グループ情報の配列（写真順） */
+  groups: QuantityGroupInfo[];
+}
+
+/**
  * 数量グループ情報（詳細取得用）
  */
 export interface QuantityGroupDetail {

@@ -14,7 +14,9 @@
 - 数量グループと現場調査写真の紐づけによるトレーサビリティ確保
 - 計算方法（標準・面積体積・ピッチ）による効率的な数量算出
 - オートコンプリートによる入力支援と一貫性確保
-- 自動保存による作業継続性の保証
+- クライアントサイド編集と明示保存モデルによる操作応答性の向上とサーバー負荷・ネットワーク往復の削減（REQ-42）
+- 未保存変更の離脱ガード（REQ-43）と未保存インジケーター（REQ-44）による編集内容の意図しない消失防止
+- ヘッダー操作ボタンの固定表示（REQ-45）による主要操作への常時アクセス確保
 - 厳密なフィールド仕様に基づく入力制御と統一された表示書式
 - 数量表コピーによる類似案件での作業効率化
 - タイトル行表示最適化による画面の視認性向上
@@ -34,8 +36,13 @@
 - 見積書・請求書の自動生成（別機能として計画）
 - 単価マスタとの連携（将来の拡張）
 - リアルタイム共同編集（WebSocket同期は対象外）
+- 編集内容の自動保存（一定間隔での保存）。REQ-42 により永続化は保存操作時のみとし、従来の useAutoSave（1500msデバウンス自動保存）は廃止する
+- 編集中のサーバーへの差分逐次反映。REQ-42 により編集はクライアントサイドのドラフト状態に対して行い、保存操作時に一括同期する（参照系のデータ取得は対象外＝許可）
 - 数量表のExcel出力（将来対応、PDF出力は本機能で対応）
 - インポート時の単価・金額フィールドの取り込み（数量項目フィールドのみ対象）
+- 写真選択ダイアログの仮想スクロール化・ページング（REQ-39 はレイアウトの重なり解消のみで、写真取得方式は既存のまま）
+- 現場調査からの一括生成時の数量項目の自動生成（REQ-40 はグループ生成と写真1枚紐づけのみ。各グループは数量項目0件の初期状態）
+- 写真・コメントの縦方向固定（sticky-top）やテーブルヘッダー固定（REQ-41 は水平スクロール時の画像・コメント固定のみが対象）
 
 ## Architecture
 
@@ -73,6 +80,7 @@ graph TB
         IMPEXT[ImportDataExtractor]
         IMPPRV[ImportPreviewTable]
         IMPMAP[ImportFieldMapping]
+        SSD[SurveySelectDialog]
     end
 
     subgraph Backend
@@ -100,6 +108,8 @@ graph TB
     QTE --> QGC
     QTE --> ACS
     QTE --> IMP
+    QTE --> SSD
+    SSD --> QTR
     QGC --> QIC
     QIC --> CE
     QIC --> FV
@@ -149,6 +159,12 @@ graph TB
 - 変更コンポーネント（REQ-36）: EditableQuantityItemRow内のアクションセルを再構成。SortOrderButtonsと削除ボタンを個別表示から削除し、アクションメニュー内に「上へ移動」「下へ移動」「削除」を統合。QuantityItemActionMenuを新設
 - 変更コンポーネント（REQ-37）: EditableQuantityItemRow および CalculationFields のレイアウト変更。計算用フィールド群（面積・体積／ピッチ）を「メイン行の下に別行表示」から「メイン行の操作列の右側に同一行で水平配置（ラベル+テキストボックス交互、行高さ不変）」へ変更。`calculationFieldsRow` 別行 div を削除し、`CalculationFields` を inline 配置に書き換え
 - 追加コンポーネント（REQ-38）: QuantityGroupCard表題部にコピーボタンを追加（ダイアログ無し、押下即実行）、QuantityGroupService.copy（同一数量表内へグループ複製、数量項目・写真紐づけを保持）、`POST /api/quantity-groups/:id/copy` ルートを新設
+- 修正コンポーネント（REQ-39）: QuantityTableEditPage 内のインライン写真選択ダイアログ（`photoGrid`/`photoItem` スタイル）のCSSを修正し、写真枚数増加時の重なりを解消。選択・変更とも同一インラインダイアログのため1箇所で両対応。未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置）
+- 追加コンポーネント（REQ-40）: QuantityTableEditPage に「現場調査から一括追加」ボタンと現場調査選択ダイアログ（SurveySelectDialog）を新設、QuantityGroupService.createGroupsFromSurvey（現場調査の全写真の枚数分グループを原子的に生成・写真紐づけ・連番命名）、`POST /api/quantity-tables/:tableId/groups/from-survey` ルートを新設。命名・切り詰めは REQ-38 のグループ名生成ロジックを汎用化して共有
+- 変更コンポーネント（REQ-41）: QuantityGroupCard のレイアウトを再構成。カード全体に掛かっていた `overflowX:'auto'` を数量項目テーブルのラッパーへ限定し、画像・コメント（photoArea）を水平スクロール対象外（カード直下のflex列）へ移動して常時固定表示。折りたたみ・垂直スクロール・REQ-37 の水平展開と両立
+- アーキテクチャ変更（REQ-42）: 編集画面の書き込みパスを「操作即サーバー反映」から「クライアントサイドのドラフト編集 ＋ 保存操作時のフル状態同期」へ転換。バックエンドは `QuantityTableService.saveDraft`（既存 `bulk-save` を全状態同期へ拡張：グループ/項目の作成・更新・削除・並び替え・グループ名・写真紐づけ・数量表名を単一トランザクション＋楽観ロックで差分適用）を新設。フロントは `QuantityTableEditPage` の state を単一 `useReducer` のドラフトモデル（仮IDによる新規行管理、dirty 追跡）へ再設計。従来の useAutoSave および編集画面からの個別ミューテーションAPI呼び出し（group/item の create/update/delete/copy/reorder、from-survey、編集画面での数量表名 PUT）は廃止し、保存操作時の `saveDraft` 一本に集約（個別エンドポイントは一覧画面の数量表名変更 PUT 等を除き編集フローから未使用化）。グループコピー（REQ-38）・現場調査一括生成（REQ-40）はクライアントサイドのドラフト複製/生成（仮ID・同一 surveyImageId 参照）へ移し、保存時に確定。現場調査写真一覧の取得は参照系GETとして許可
+- 追加コンポーネント（REQ-43, 44）: `useUnsavedChanges` フック（既存 `frontend/src/hooks/useUnsavedChanges.ts`）と `useBlocker(isDirty)`（React Router v7、既存 CompanyInfoPage/ItemizedStatementDetailPage/SiteSurveyDetailPage で実績）を流用し、未保存変更時の画面遷移・タブクローズ・リロードに離脱ガードを適用。未保存インジケーター（UnsavedChangesBadge）をヘッダーの保存ボタン付近に表示
+- 変更コンポーネント（REQ-45）: `QuantityTableEditPage` の `styles.header` を `position: sticky; top: 0; zIndex` 付きへ変更し、ヘッダー操作ボタン群（インポート/PDF出力/保存/＋グループを追加/現場調査から一括追加）を垂直スクロール時も固定表示。祖先に overflow スクロールコンテナが無いこと（現状 main は padding のみ）を前提とし、既存 EstimateDetailPage/SiteSurveyDetailPage の固定ヘッダーパターンに準拠
 - Steering準拠: 型安全性、テスト駆動、コンポーネント分離原則を維持
 
 ### Technology Stack
@@ -196,11 +212,8 @@ sequenceDiagram
         CalculationEngine->>CalculationEngine: 丸め設定適用
         CalculationEngine-->>QuantityItemComponent: 計算結果
         QuantityItemComponent->>QuantityItemComponent: 数量フィールド更新（小数2桁表示）
-        Note over QuantityItemComponent: 1500msデバウンス後
-        QuantityItemComponent->>API: 自動保存
-        API->>QuantityItemService: 検証・保存
-        QuantityItemService-->>API: 保存結果
-        API-->>QuantityItemComponent: 保存完了通知
+        Note over QuantityItemComponent: ドラフト更新のみ・isDirty=true（REQ-42、自動保存なし）
+        QuantityItemComponent->>QuantityItemComponent: 計算結果をドラフトへ反映（永続化は保存操作時）
     end
 ```
 
@@ -242,6 +255,8 @@ sequenceDiagram
 
 ### 数量グループコピーフロー（REQ-38）
 
+> **REQ-42 による更新**: 以下は当初の「コピー押下即サーバー実行（POST /copy）」フロー。REQ-42 適用後、編集画面ではグループコピーをクライアントサイドのドラフト複製（仮ID採番・同一 surveyImageId 参照・直下挿入・displayOrder シフト）として実行し、永続化は保存操作時の `saveDraft` で確定する。サーバー側 `POST /copy` は編集フローから未使用化（命名・切り詰めロジックはクライアントの複製処理で再利用）。
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -272,6 +287,55 @@ sequenceDiagram
         QGSV-->>API: エラー
         API-->>QGC: エラーレスポンス
         QGC->>QGC: エラーメッセージ表示・インジケーター解除
+    end
+```
+
+### 現場調査からの数量グループ一括生成フロー（REQ-40）
+
+> **REQ-42 による更新**: 以下は当初の「実行即サーバー生成（POST /from-survey）」フロー。REQ-42 適用後、編集画面では対象現場調査の写真一覧を参照系GETで取得し、写真枚数分の数量グループをクライアントサイドのドラフトに生成（仮ID・連番命名・写真順 surveyImageId 紐づけ・末尾追加）する。永続化は保存操作時の `saveDraft` で確定し、サーバー側 `POST /from-survey` は編集フローから未使用化。命名・切り詰めロジックはクライアント生成処理で再利用する。
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant QTE as QuantityTableEditPage
+    participant Dialog as SurveySelectDialog
+    participant SAPI as SiteSurvey API
+    participant API
+    participant QGSV as QuantityGroupService
+    participant DB as PostgreSQL
+
+    User->>QTE: 「現場調査から一括追加」ボタンをクリック
+    QTE->>SAPI: getSiteSurveys(projectId)
+    SAPI-->>QTE: 現場調査一覧
+    QTE->>Dialog: 現場調査選択ダイアログ表示
+    User->>Dialog: 対象現場調査を選択して実行を確定
+    Dialog->>Dialog: 処理中インジケーター表示・重複実行防止
+    Dialog->>API: POST /api/quantity-tables/:tableId/groups/from-survey { siteSurveyId }
+    API->>QGSV: createGroupsFromSurvey(tableId, siteSurveyId, actorId)
+    QGSV->>DB: BEGIN TRANSACTION
+    QGSV->>DB: 現場調査の全写真を写真順（displayOrder）で取得
+    alt 写真0枚
+        QGSV->>DB: ROLLBACK
+        QGSV-->>API: 写真なし（生成0件）
+        API-->>Dialog: 200 + { created: 0 }
+        Dialog->>Dialog: 「写真が存在しません」メッセージ表示
+    else 写真あり
+        QGSV->>DB: 当該数量表の数量グループ群を SELECT FOR UPDATE でロック（REQ-38と同一直列化）
+        QGSV->>DB: 既存グループの max(displayOrder) を取得
+        QGSV->>DB: 写真枚数分のグループを末尾に連番命名で作成（name="{現場調査名} {n}"、surveyImageId紐づけ）
+        QGSV->>DB: 監査ログ記録（QUANTITY_GROUPS_CREATED_FROM_SURVEY）
+        QGSV->>DB: COMMIT
+        QGSV-->>API: 生成された QuantityGroupInfo[]
+        API-->>Dialog: 201 Created + QuantityGroupInfo[]
+        Dialog->>QTE: 生成グループをローカルステートに反映（末尾追加）
+        QTE->>QTE: 生成グループ数を含む完了メッセージ表示
+    end
+
+    alt エラー発生時
+        QGSV->>DB: ROLLBACK
+        QGSV-->>API: エラー
+        API-->>Dialog: エラーレスポンス
+        Dialog->>Dialog: エラーメッセージ表示・インジケーター解除
     end
 ```
 
@@ -402,6 +466,68 @@ sequenceDiagram
     QTE->>QTE: 完了メッセージ表示
 ```
 
+### クライアントサイド編集・明示保存フロー（REQ-42）
+
+```mermaid
+sequenceDiagram
+    participant U as 積算担当者
+    participant QTE as QuantityTableEditPage(draft reducer)
+    participant API as QuantityTableRoutes
+    participant SV as QuantityTableService.saveDraft
+    participant DB as PostgreSQL
+
+    Note over QTE: 初回表示（参照系GET=許可）
+    QTE->>API: GET /api/quantity-tables/:id
+    API-->>QTE: QuantityTableDetail
+    QTE->>QTE: serverSnapshot/draft 初期化, isDirty=false
+
+    Note over U,QTE: 以降の編集はクライアントのみ（サーバー永続化アクセスなし）
+    U->>QTE: グループ/項目 追加・削除・コピー・並び替え・名称・写真紐づけ・一括生成・取り込み
+    QTE->>QTE: draft 更新（新規行は仮ID付与）, isDirty=true, 未保存インジケーター表示
+
+    U->>QTE: 保存ボタン押下
+    QTE->>QTE: クライアント検証（必須/計算整合 REQ-11.2/11.3）
+    QTE->>API: PUT /api/quantity-tables/:id/save (expectedUpdatedAt, name, groups[全状態])
+    API->>SV: saveDraft(input)
+    SV->>DB: BEGIN（任意で SELECT ... FOR UPDATE）
+    SV->>SV: updatedAt 照合（楽観ロック・不一致→409）, 全状態検証
+    SV->>DB: 差分適用（無い行=削除 / id無=作成 / 既存=更新, displayOrder/name/surveyImageId）
+    SV->>DB: 数量表 updatedAt 更新; COMMIT; 監査ログ
+    SV-->>API: QuantityTableDetail（採番済みID）
+    API-->>QTE: 200 QuantityTableDetail
+    QTE->>QTE: draft/serverSnapshot を再同期, isDirty=false, 「保存しました」表示
+
+    alt 保存失敗（409 競合 / 検証 / サーバーエラー）
+        API-->>QTE: 409 / 400 / 500
+        QTE->>QTE: エラー表示, draft（未保存変更）を保持し再保存可能（REQ-42 AC9）
+    end
+```
+
+### 未保存変更の離脱ガードフロー（REQ-43）
+
+```mermaid
+sequenceDiagram
+    participant U as 積算担当者
+    participant QTE as QuantityTableEditPage
+    participant BLK as useBlocker(isDirty)
+    participant BRW as Browser(beforeunload)
+
+    alt アプリ内遷移（パンくず/戻る等）
+        U->>QTE: 別画面へ遷移操作
+        QTE->>BLK: isDirty=true の場合 blocker.state='blocked'
+        BLK-->>U: 離脱確認ダイアログ
+        alt 取消
+            U->>BLK: blocker.reset() → 編集画面・draft 維持
+        else 承認
+            U->>BLK: blocker.proceed() → 遷移実行, draft 破棄
+        end
+    else タブクローズ/リロード
+        U->>BRW: タブを閉じる/リロード
+        BRW->>BRW: isDirty=true の場合 beforeunload で標準確認表示
+    end
+    Note over QTE: 保存成功で isDirty=false → 以降ガード解除（REQ-43 AC6）
+```
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -416,7 +542,7 @@ sequenceDiagram
 | 8.1-8.11 | 計算方法の選択 | CalculationMethodSelector, CalculationFields | CalculationEngine | 数量計算フロー |
 | 9.1-9.8 | 調整係数 | AdjustmentFactorInput | CalculationEngine, FieldValidator | - |
 | 10.1-10.8 | 丸め設定 | RoundingSettingInput | CalculationEngine, FieldValidator | - |
-| 11.1-11.5 | 数量表の保存 | useAutoSave Hook, SaveIndicator | QuantityTableService | - |
+| 11.1-11.5 | 数量表の保存（明示保存・自動保存廃止） | QuantityTableEditPage(draft reducer), SaveButton, QuantityTableService.saveDraft | PUT /api/quantity-tables/:id/save | クライアントサイド編集・明示保存フロー |
 | 12.1-12.5 | パンくずナビゲーション | Breadcrumb, QuantityTableListPage, QuantityTableEditPage | - | - |
 | 13.1-13.4 | テキストフィールドの入力制御 | FieldValidator, TextFieldConstraints | QuantityValidationService | - |
 | 14.1-14.5 | 数値フィールドの表示書式 | NumericFormatter, QuantityItemRow | - | - |
@@ -444,6 +570,13 @@ sequenceDiagram
 | 36.1-36.9 | 数量項目のアクションボタン統合 | QuantityItemActionMenu, EditableQuantityItemRow | - | - |
 | 37.1-37.12 | 計算用フィールドの行内水平配置（面積・体積／ピッチ） | EditableQuantityItemRow, CalculationFields, gridConstants | - | - |
 | 38.1-38.12 | 数量グループのコピー機能（同一数量表内） | QuantityGroupCard, QuantityGroupService.copy | POST /api/quantity-groups/:id/copy | 数量グループコピーフロー |
+| 39.1-39.6 | 写真選択・変更ダイアログの写真一覧レイアウト改善（重なり解消） | QuantityTableEditPage（インライン写真選択ダイアログ photoGrid/photoItem） | - | - |
+| 40.1-40.13 | 現場調査からの数量グループ一括生成 | QuantityTableEditPage, SurveySelectDialog, QuantityGroupService.createGroupsFromSurvey | POST /api/quantity-tables/:tableId/groups/from-survey, GET /api/projects/:projectId/site-surveys | 現場調査からの数量グループ一括生成フロー |
+| 41.1-41.6 | 水平スクロール時の画像・コメント固定表示 | QuantityGroupCard, PhotoCommentDisplay | - | - |
+| 42.1-42.10 | クライアントサイド編集と明示保存モデル | QuantityTableEditPage(draft reducer), QuantityTableService.saveDraft | PUT /api/quantity-tables/:id/save | クライアントサイド編集・明示保存フロー |
+| 43.1-43.6 | 未保存変更の離脱ガード | QuantityTableEditPage, useUnsavedChanges, useBlocker | - | 未保存変更の離脱ガードフロー |
+| 44.1-44.4 | 未保存変更インジケーター | UnsavedChangesBadge, QuantityTableEditPage | - | - |
+| 45.1-45.4 | ヘッダー操作ボタンの固定表示 | QuantityTableEditPage（styles.header sticky） | - | - |
 
 ## Field Specifications
 
@@ -631,8 +764,8 @@ interface ProjectQuantityTableSummary {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 数量グループのCRUD操作と現場調査画像との紐付け管理、名前変更、並び順管理を担当 |
-| Requirements | 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 4.5, 22.1, 22.2, 22.3, 22.4, 22.5, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8 |
+| Intent | 数量グループのCRUD操作と現場調査画像との紐付け管理、名前変更、並び順管理、現場調査からの一括生成を担当 |
+| Requirements | 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 4.4, 4.5, 22.1, 22.2, 22.3, 22.4, 22.5, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 40.3, 40.4, 40.5, 40.6, 40.7, 40.9, 40.10, 40.12 |
 
 **Responsibilities & Constraints**
 
@@ -665,6 +798,28 @@ interface QuantityGroupService {
   linkSurveyImage(id: string, surveyImageId: string): Promise<QuantityGroupInfo>;
   unlinkSurveyImage(id: string): Promise<QuantityGroupInfo>;
   reorder(quantityTableId: string, orderedIds: string[]): Promise<QuantityGroupInfo[]>;
+  /**
+   * 現場調査からの数量グループ一括生成（REQ-40）
+   * 対象現場調査の全写真（注釈有無問わず）を写真順に取得し、写真枚数分のグループを
+   * 既存グループの末尾に連番命名で原子的に生成する。各グループに写真を1枚ずつ紐づける。
+   * 写真0枚の場合は何も生成せず created: 0 を返す。エラー時はトランザクションをロールバックする。
+   */
+  createGroupsFromSurvey(
+    input: CreateGroupsFromSurveyInput,
+    actorId: string
+  ): Promise<CreateGroupsFromSurveyResult>;
+}
+
+interface CreateGroupsFromSurveyInput {
+  quantityTableId: string;
+  siteSurveyId: string;
+}
+
+interface CreateGroupsFromSurveyResult {
+  /** 生成された数量グループ（末尾追加、写真順） */
+  groups: QuantityGroupInfo[];
+  /** 生成件数（写真0枚の場合は 0） */
+  created: number;
 }
 
 interface CreateQuantityGroupInput {
@@ -716,6 +871,7 @@ interface SurveyImageSummary {
 | PUT | /api/quantity-groups/:id/survey-image | { surveyImageId: string } | QuantityGroupInfo | 400, 404 |
 | DELETE | /api/quantity-groups/:id/survey-image | - | QuantityGroupInfo | 404 |
 | PUT | /api/quantity-tables/:tableId/groups/reorder | { orderedIds: string[] } | QuantityGroupInfo[] | 400, 404 |
+| POST | /api/quantity-tables/:tableId/groups/from-survey | { siteSurveyId: string } | CreateGroupsFromSurveyResult | 400, 404 |
 
 ---
 
@@ -900,36 +1056,78 @@ interface PitchParams {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 数量表の編集画面を提供 |
-| Requirements | 3.1-3.4, 7.1, 25.1-25.6, 27.1 |
+| Intent | 数量表の編集画面を提供。編集はクライアントサイドのドラフト状態に対して行い、保存操作時にのみサーバーへ同期（REQ-42） |
+| Requirements | 3.1-3.4, 7.1, 25.1-25.6, 27.1, 42.1-42.10, 43.1-43.6, 44.1-44.4, 45.1-45.4 |
 
 **Contracts**: State [x]
 
 ##### State Management
 
+編集対象データは単一の `useReducer` で「サーバースナップショット」と「編集ドラフト」を分離管理する。すべての編集アクション（グループ/項目の add/delete/copy/reorder、グループ名・数量表名変更、写真紐づけ、現場調査一括生成、インポート取り込み）は `dispatch` でドラフトのみを更新し、`isDirty=true` とする。永続化APIは保存操作時の `saveDraft` のみ（REQ-42 AC1〜7）。
+
 ```typescript
+/** 新規行はサーバー採番前のため null id + クライアント仮ID（tempId）で管理 */
+type DraftId = { id: string } | { id: null; tempId: string };
+
+interface DraftItem extends DraftId {
+  majorCategory: string | null;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  calculationMethod: CalculationMethod;
+  // 計算用フィールド（面積・体積／ピッチ）、数量・単位・備考・調整係数・丸め設定 等
+  quantity: string;
+  unit: string;
+  remarks: string | null;
+  displayOrder: number;
+  // ...（Field Specifications 準拠の全フィールド）
+}
+
+interface DraftGroup extends DraftId {
+  name: string;
+  surveyImageId: string | null; // 写真紐づけ（参照のみ、blob複製なし）
+  displayOrder: number;
+  items: DraftItem[];
+}
+
+interface QuantityTableDraft {
+  id: string;
+  name: string;
+  groups: DraftGroup[];
+}
+
 interface QuantityTableEditState {
-  quantityTable: QuantityTableDetail | null;
+  /** 最後にロード/保存したサーバー状態（差分計算・リセット用の基準） */
+  serverSnapshot: QuantityTableDetail | null;
+  /** 編集中のドラフト（画面表示・編集対象） */
+  draft: QuantityTableDraft | null;
   isLoading: boolean;
   isSaving: boolean;
   saveStatus: 'idle' | 'saving' | 'saved' | 'error';
-  lastSavedAt: Date | null;
-  hasUnsavedChanges: boolean;
+  saveError: string | null;
+  /** 未保存変更フラグ（REQ-43 離脱ガード／REQ-44 インジケーターの起点） */
+  isDirty: boolean;
   validationErrors: ValidationError[];
   selectedItems: string[];
   expandedGroups: string[];
   autocompleteCandidates: Record<AutocompleteFieldName, string[]>;
   isAutocompleteCandidatesLoading: boolean;
-  /** インポートダイアログの表示状態 */
   isImportDialogOpen: boolean;
 }
 ```
 
 **Implementation Notes**
 
-- Integration: useAutoSaveフックで1500msデバウンス自動保存。インポートダイアログはモーダルとして表示
-- Scroll: CSS `overflow: auto`による水平・垂直スクロールバー表示
-- Risks: 大量項目での再レンダリングパフォーマンス（react-windowで対応）
+- 仮ID生成: 新規グループ/項目は `crypto.randomUUID()` を `temp-` 接頭辞付きで採番し、React key およびドラフト内参照に使用。保存レスポンス（採番済み `QuantityTableDetail`）でドラフト/スナップショットを置換して解決（REQ-42 AC8、idMap不要）
+- dirty 追跡: 既存 `useUnsavedChanges`（`markAsChanged`/`markAsSaved`）を編集 dispatch と保存成功にフックし、`isDirty` を駆動。`useBlocker(isDirty)` で離脱ガード（REQ-43）、保存ボタン付近に `UnsavedChangesBadge`（REQ-44）を表示
+- 保存: `saveDraft` 1回でフル状態を同期。失敗時はドラフトを保持し再保存可能（REQ-42 AC9）
+- 廃止: useAutoSave（1500msデバウンス）および編集画面からの個別ミューテーションAPI呼び出しを削除
+- Header: `styles.header` を `position: sticky; top: 0` 化（REQ-45）。`UnsavedChangesBadge` は固定ヘッダー内に配置（REQ-45 AC4）
+- Scroll: CSS `overflow: auto`による水平・垂直スクロールバー表示（REQ-25）。ヘッダー sticky の祖先に overflow コンテナを作らないこと
+- Risks: 大量項目での再レンダリングパフォーマンス（react-windowで対応）。ドラフト更新は対象グループ/項目のみの不変更新で再描画範囲を限定
 
 ---
 
@@ -1689,6 +1887,276 @@ interface QuantityGroupCardProps {
 
 ---
 
+#### 写真選択・変更ダイアログのレイアウト修正（REQ-39）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 写真選択ダイアログの写真一覧で、写真枚数が増加した際に写真同士が重なる不具合を解消し、各写真を重なりなく表示・選択可能にする |
+| Requirements | 39.1, 39.2, 39.3, 39.4, 39.5, 39.6 |
+
+**不具合分析**
+
+写真一覧は専用コンポーネント `PhotoChangeDialog.tsx` ではなく、`QuantityTableEditPage.tsx` 内のインライン実装（`styles.photoGrid` / `styles.photoItem`、描画は `availablePhotos.map`）で表示される。写真選択（グループ追加時）・写真変更（「別の写真を選択」）とも同一の `handleSelectImage` を経由するため、本インラインダイアログ1箇所の修正で両ダイアログに対応できる。現状 `photoGrid` は `gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))'`、`photoItem` は `aspectRatio: '1'` のみで `grid-auto-rows` が未指定。`overflowY:'auto'` + `flex:1` のコンテナ内で行高さが `aspect-ratio` から正しく確定せず、枚数増加時に行が潰れて写真が重なる。
+
+**修正対象コンポーネントと変更内容**
+
+| コンポーネント | 修正内容 |
+|---------------|---------|
+| QuantityTableEditPage（インライン写真選択ダイアログ） | `photoGrid` に `gridAutoRows` を明示（各セルの高さを列幅に追従させる、またはサムネイル固定高を設定）し、行が潰れて写真が重なる事象を解消する。`gap` による間隔を維持し、隣接写真と重複しないことを保証する。写真枚数がコンテナを超える場合は既存の `overflowY:'auto'` で縦スクロール表示する |
+
+**Responsibilities & Constraints**
+
+- 修正対象はレイアウト（CSS）のみ。写真取得方式（`handleSelectImage` の `getSiteSurveys`→`getSiteSurvey` バッチ取得）・注釈付き写真の表示内容・注釈バッジ（REQ-3.3）は変更しない
+- 未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置・削除しない）
+- ビューポート幅が狭い場合も写真が重ならないこと（狭幅でも最低1列で潰れず表示）
+
+**Implementation Notes**
+
+- **根本原因先行（必須・最初のステップ）**: CSS を変更する前に、写真多数枚・複数ビューポート幅で**重なりを実機再現し、DevTools で原因要素・原因プロパティを特定する**（root-cause-first）。下記の `gridAutoRows` 欠如は有力仮説だが確定ではないため、特定結果に基づいて修正内容を確定する。誤った箇所の修正による重なり残存を防ぐ
+- Integration: 原因特定後、`styles.photoGrid` / `styles.photoItem` の調整に限定。仮説どおりであれば `gridAutoRows`（明示高、またはセルに `minHeight`）でロウ高さを確定させる
+- Validation: 重なりゼロの確認は実機（複数ビューポート幅・多数枚）で行う。重なりの矩形判定（`getBoundingClientRect`）は実レイアウトが必要なため **E2E（Playwright）** で実施する（jsdom 単体テストでは検証不可）
+- Risks: `aspect-ratio` とグリッド行高さの相互作用はブラウザ実装差があるため、固定高フォールバックを併用する
+
+---
+
+#### 現場調査からの数量グループ一括生成（REQ-40）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 対象現場調査を指定し、その現場調査の全写真（注釈有無問わず）の枚数分の数量グループを既存グループ末尾に連番命名で原子的に生成し、各グループに写真を1枚ずつ紐づける |
+| Requirements | 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7, 40.8, 40.9, 40.10, 40.11, 40.12, 40.13 |
+
+**Responsibilities & Constraints**
+
+- バックエンド: `QuantityGroupService.createGroupsFromSurvey` が現場調査の全写真を写真順（`displayOrder`）に取得し、既存グループの `max(displayOrder)+1` から連番でグループを末尾追加する。全処理を単一トランザクションで実行し、エラー時はロールバックする（AC12）
+- 並行制御: REQ-38 `copy()` と同一の方針を採用する。当該数量表の数量グループ群に対して `SELECT FOR UPDATE`（行ロック）を取得してから `max(displayOrder)` 算出・末尾追加を行い、同一数量表への add/copy/reorder/一括生成が並行しても displayOrder 衝突・順序破綻が起きないよう直列化する。ロック取得タイムアウト時は `OptimisticLockError` を送出し、API 層で 409 にマップする（design.md「数量グループのコピー機能（REQ-38）」`##### Concurrency Control` と整合）
+- グループ名は「{現場調査名} {連番}」（連番1始まり）。最大文字数（全角25/半角50、REQ-22 AC4）超過時は現場調査名部分を切り詰めて連番を付与する（REQ-38 の `truncateForCopy` を汎用化した命名ヘルパーを共有）
+- 各グループは数量項目0件の初期状態で作成する（AC9）。数量項目の自動生成は行わない
+- 写真0枚の場合はグループを生成せず `created: 0` を返し、フロントで「写真が存在しません」メッセージを表示する（AC10）
+- 写真コメント表示は既存の REQ-21・REQ-35 のコメント取得・表示ロジックに委譲する（本コンポーネントはコメントを生成・保持しない、AC8）
+- フロントエンド: `QuantityTableEditPage` の「グループを追加」ボタン近傍に「現場調査から一括追加」ボタンを追加し、`SurveySelectDialog`（プロジェクトの現場調査一覧から1件選択）を表示する。実行中はインジケーター表示・重複実行防止（AC11）、完了時は生成グループ数を含むメッセージを表示（AC13）
+
+**Dependencies**
+
+- Inbound: QuantityTableEditPage (P0), SurveySelectDialog (P0)
+- Outbound: 現場調査API（`getSiteSurveys` / `getSiteSurvey`、写真と `displayOrder` 取得）(P0)、PrismaClient (P0)、auditLogService (P1)
+
+**Contracts**: Service [x] / API [x] / State [x]
+
+##### Service Interface（命名ヘルパー）
+
+```typescript
+/**
+ * グループ連番命名ヘルパー（REQ-40）。REQ-38 のコピー命名（truncateForCopy）と
+ * 同一の文字数規則（全角25/半角50、REQ-22 AC4）に従って生成する。
+ * @param surveyName 現場調査名
+ * @param sequence 連番（1始まり）
+ * @returns 「{切り詰めた現場調査名} {連番}」
+ */
+function buildGroupNameFromSurvey(surveyName: string, sequence: number): string;
+```
+
+##### State Management（SurveySelectDialog）
+
+```typescript
+interface SurveySelectDialogProps {
+  /** ダイアログ開閉状態 */
+  isOpen: boolean;
+  /** 選択肢となる現場調査一覧（当該プロジェクト） */
+  siteSurveys: SiteSurveySummary[];
+  /** 生成中フラグ（true でボタンdisabled・インジケーター表示） */
+  isCreating: boolean;
+  /** 実行確定コールバック（選択された現場調査ID） */
+  onConfirm: (siteSurveyId: string) => void;
+  /** 閉じるコールバック */
+  onClose: () => void;
+}
+
+interface SiteSurveySummary {
+  id: string;
+  name: string;
+  photoCount: number;
+}
+```
+
+**Implementation Notes**
+
+- Integration: バックエンドは `QuantityGroupService.copy` のトランザクション + `createMany` パターンを流用し、写真枚数分のグループ生成 + 写真紐づけを一括実行する
+- Integration: フロントは生成後 `CreateGroupsFromSurveyResult.groups` をローカルステート末尾に追加し、再フェッチを最小化する
+- Validation: 現場調査が当該数量表の属するプロジェクトに属することをバックエンドで検証（403/404）。`siteSurveyId` は Zod で検証
+- Risks: 写真枚数が多い場合の生成件数。トランザクション内 `createMany` で1リクエスト・1コミットとし、N回API呼び出しを避ける
+
+---
+
+#### 水平スクロール時の画像・コメント固定表示（REQ-41）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 数量グループ内の水平スクロール時に、画像と現場調査コメントが左へスクロールアウトして消える不具合を解消し、画像・コメントを水平スクロール対象から外して常時固定表示する |
+| Requirements | 41.1, 41.2, 41.3, 41.4, 41.5, 41.6 |
+
+**不具合分析**
+
+`QuantityGroupCard` ではカード全体（`styles.card`）に `overflowX:'auto'` が掛かっており、`photoArea`（画像 + コメント、`display:flex`）と数量項目テーブル行群が同一の水平スクロールコンテナ内に存在する。数量項目テーブルはグリッド列幅合計（`QUANTITY_ITEM_GRID_COLUMNS` ≈ 1264px、REQ-37 でさらに拡大）が常にビューポートを超えるため水平スクロールが発生し、右へスクロールすると `photoArea` も一緒に左へ流れて消える。
+
+**修正対象コンポーネントと変更内容**
+
+| コンポーネント | 修正内容 |
+|---------------|---------|
+| QuantityGroupCard | カード全体の `overflowX:'auto'` を撤去し、`content` 内を縦flex（`flex-direction: column`）に再構成。`photoArea`（画像・コメント・写真変更ボタン）はスクロール外に配置して固定表示する。数量項目テーブル部分のみを `overflowX:'auto'` のラッパー div で囲み、水平スクロールをテーブルに限定する |
+| PhotoCommentDisplay | スクロールコンテナ外に配置されるため水平方向の追加対応は不要（既存の `overflowY:'auto'` を維持）。コメントは画像の右側に固定表示される |
+
+**Responsibilities & Constraints**
+
+- 水平スクロール対象は数量項目テーブル（メイン行 + REQ-37 計算用フィールド群）のみに限定する（AC3）
+- 画像・コメントの固定表示は折りたたみ（REQ-3 AC4 / REQ-21 AC5、`content` の `maxHeight` 制御）と両立する。折りたたみ時は画像・コメントも非表示、再展開時は固定表示で再表示する（AC5, AC6）
+- 垂直スクロール（REQ-25 AC2）・テーブルの水平スクロール機能（REQ-25 / REQ-37 AC6）を阻害しない（AC4）
+- sticky ではなくスクロールコンテナの分割で実現する（背景の重なり・z-index 問題を回避）
+
+**Implementation Notes**
+
+- Integration: `QuantityGroupCard` の DOM 構造を「ヘッダー / photoArea（固定） / itemTableWrapper（`overflowX:'auto'`）」の縦並びに再構成する
+- Validation: 右端までスクロールしても画像・コメントが見え続けること、テーブルの右端フィールドが閲覧できることを実機・E2Eで確認
+- Risks: 既存の `QuantityGroupCard.stories.tsx` および関連単体テストへの影響。DOM再構成後に回帰確認が必要
+
+---
+
+#### 影響ファイル一覧（REQ-39〜41）
+
+| 区分 | ファイル | 変更種別 | 責務 |
+|------|---------|---------|------|
+| FE | `frontend/src/pages/QuantityTableEditPage.tsx` | 変更 | REQ-39: 写真選択ダイアログ `photoGrid`/`photoItem` CSS修正 / REQ-40: 「現場調査から一括追加」ボタン・ハンドラ・SurveySelectDialog 統合 |
+| FE | `frontend/src/components/quantity-table/SurveySelectDialog.tsx` | 新規 | REQ-40: 現場調査選択ダイアログ |
+| FE | `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 変更 | REQ-41: 水平スクロールをテーブルへ限定し画像・コメントを固定表示 |
+| FE | `frontend/src/api/quantity-tables.ts` | 変更 | REQ-40: `createGroupsFromSurvey` クライアント関数追加 |
+| FE | `frontend/src/utils/`（命名ヘルパー、既存の命名ロジックがある箇所） | 変更/新規 | REQ-40: `buildGroupNameFromSurvey`（REQ-38 命名規則の汎用化・共有） |
+| BE | `backend/src/services/quantity-group.service.ts` | 変更 | REQ-40: `createGroupsFromSurvey`（トランザクション一括生成） |
+| BE | `backend/src/routes/`（数量表/グループのルート定義ファイル） | 変更 | REQ-40: `POST /api/quantity-tables/:tableId/groups/from-survey` |
+| TEST | `e2e/specs/quantity-tables/` 配下 | 新規 | REQ-39/40/41 の E2E（重なり・一括生成・スクロール固定） |
+
+未使用の `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は本スコープでは変更しない（残置）。
+
+---
+
+### クライアントサイド編集・明示保存・離脱ガード・固定ヘッダー（REQ-42〜45）
+
+#### Boundary Commitments（REQ-42〜45）
+
+- **本spec が所有する範囲**:
+  - 数量表編集画面（`QuantityTableEditPage`）の書き込みパスをドラフト編集＋明示保存（フル状態同期）へ再設計すること
+  - フル状態同期の保存エンドポイント `PUT /api/quantity-tables/:id/save`（`QuantityTableService.saveDraft`）の新設（既存 `bulk-save` を全状態同期へ拡張・置換）
+  - 編集画面の離脱ガード（REQ-43）・未保存インジケーター（REQ-44）・ヘッダー固定表示（REQ-45）
+- **Out of Boundary（所有しない）**:
+  - 数量表一覧画面の数量表名変更（REQ-2 AC5）は従来どおり即時 PUT を維持（編集画面の明示保存対象外）
+  - 参照系API（数量表取得、オートコンプリート候補、写真コメント、現場調査写真一覧、インポートOCR/パース）の挙動変更（REQ-42 AC10 によりスコープ外＝従来どおり随時実行）
+  - リアルタイム共同編集・WebSocket同期（Non-Goals）
+  - 数量計算ロジック・フィールド仕様・PDF出力・インポート抽出の挙動（REQ-8〜10/26〜34 は不変、配置・保存タイミングのみ整合）
+- **Allowed Dependencies**:
+  - フロント: `frontend/src/hooks/useUnsavedChanges.ts`、React Router v7 `useBlocker`、`crypto.randomUUID()`、既存 API クライアント `frontend/src/api/quantity-tables.ts`
+  - バックエンド: `QuantityTableService`/`QuantityGroupService`/`QuantityItemService`/`QuantityValidationService`、Prisma `$transaction` ＋ `SELECT FOR UPDATE`（REQ-38/40 と同一の直列化方針）、Zod、`AuditLogService`
+- **Revalidation Triggers（下流再検証が必要になる変更）**:
+  - `saveDraft` のペイロード契約（グループ/項目の作成・削除・並び替え・名称・写真紐づけ・仮ID表現）の変更
+  - 楽観ロック方式（`expectedUpdatedAt`）や競合時の挙動の変更
+  - `useUnsavedChanges`/`useBlocker` の共有実装の変更
+  - REQ-37（計算用フィールド水平展開）・REQ-41（画像・コメント固定）・REQ-25（スクロール）のレイアウト前提が変わり、ヘッダー sticky の祖先 overflow 条件に影響する場合
+
+#### QuantityTableService.saveDraft（フル状態同期保存）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 数量表のドラフト全状態を単一トランザクションで差分適用して永続化（REQ-42, 11.1-11.4） |
+| Requirements | 11.1, 11.2, 11.3, 11.4, 42.5, 42.8, 42.9 |
+
+**Responsibilities & Constraints**
+
+- 受領した「数量表の全グループ・全項目の最終状態」と DB 現状を差分比較し、作成（id=null/tempId）／更新（既存id）／削除（payloadに存在しないDB行）／並び替え（displayOrder）／グループ名・数量表名・写真紐づけ（surveyImageId）を適用
+- 並行制御は `expectedUpdatedAt` による楽観的排他制御を主とする（不一致は 409 `QuantityTableConflictError`。既存 `bulkSave` と同一方針）。REQ-42 適用後は saveDraft が編集画面の唯一の書き込み手段となり、並行 save は後発が 409 となるため整合は楽観ロックで担保される。`SELECT ... FOR UPDATE` によるテーブル行ロックは追加の防御として任意（必須ではない）
+- 全フィールドを `QuantityValidationService` で検証（文字数・数値範囲・計算整合）。不整合時は保存中断（REQ-11.2/11.3）
+- 単一 `$transaction`。失敗時 ROLLBACK で部分反映を残さない。完了後 `updatedAt` 更新・監査ログ記録・最新 `QuantityTableDetail` を返却
+
+**Dependencies**: Inbound: QuantityTableRoutes (P0) / Outbound: QuantityGroupService, QuantityItemService, QuantityValidationService (P1) / External: PrismaClient (P0), AuditLogService (P1)
+
+**Contracts**: Service [x] / API [x]
+
+##### Service Interface
+
+```typescript
+interface QuantityTableService {
+  // ... 既存メソッド（create/findById/update/delete/copy 等）に追加 ...
+  saveDraft(
+    id: string,
+    input: SaveQuantityTableDraftInput,
+    actorId: string
+  ): Promise<QuantityTableDetail>;
+}
+
+interface SaveQuantityTableDraftInput {
+  expectedUpdatedAt: string;          // ISO8601。楽観ロック
+  name: string;                       // 数量表名（編集画面での変更を含む）
+  groups: SaveDraftGroupInput[];      // 数量表の全グループ最終状態（表示順）
+}
+
+interface SaveDraftGroupInput {
+  id: string | null;                  // 既存=UUID / 新規=null
+  tempId?: string;                    // 新規グループのクライアント仮ID（任意・トレース用）
+  name: string;
+  surveyImageId: string | null;       // 写真紐づけ（参照のみ）
+  displayOrder: number;
+  items: SaveDraftItemInput[];        // 当該グループの全項目最終状態（表示順）
+}
+
+interface SaveDraftItemInput {
+  id: string | null;                  // 既存=UUID / 新規=null
+  tempId?: string;
+  // Field Specifications 準拠の全フィールド（大項目〜備考、計算用フィールド、調整係数、丸め設定）
+  displayOrder: number;
+}
+```
+
+##### API Contract
+
+| Method | Endpoint | Request | Response | Errors |
+|--------|----------|---------|----------|--------|
+| PUT | /api/quantity-tables/:id/save | SaveQuantityTableDraftInput | QuantityTableDetail | 400, 403, 404, 409 |
+
+**Implementation Notes**
+
+- 差分アルゴリズム: グループ→DB id 集合と payload id 集合の差分で delete/create/update を決定。項目も各グループ内で同様に処理。`displayOrder` は payload の配列順を正とする
+- 既存 `bulk-save`（項目更新のみ）は本エンドポイントへ統合・置換。編集画面はこのエンドポイントのみを書き込みに使用
+- グループコピー（REQ-38）・現場調査一括生成（REQ-40）のサーバー側ロジックは編集フローからは不要化（クライアントがドラフトで複製/生成し、`saveDraft` で確定）。既存の `POST .../copy`・`POST .../from-survey` は編集フロー未使用となるが、本spec では削除を必須とせず、二重書き込みパス回避のため編集画面からの呼び出しを停止する（クリーンアップはタスクで扱う）
+- 権限: 既存の書き込み系ルートと同一の `requirePermission('quantity_table:update')` を要求（既存RBAC。`bulk-save` ルートと同一）
+
+#### UnsavedChangesBadge / 離脱ガード / 固定ヘッダー（REQ-43, 44, 45）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 未保存状態の可視化（REQ-44）・離脱ガード（REQ-43）・ヘッダー固定表示（REQ-45）を提供 |
+| Requirements | 43.1-43.6, 44.1-44.4, 45.1-45.4 |
+
+**Implementation Notes**
+
+- 離脱ガード: `const blocker = useBlocker(isDirty)`。`blocker.state==='blocked'` で確認UIを表示し、`blocker.proceed()`/`blocker.reset()` で遷移/取消（REQ-43 AC1,3,4）。タブクローズ/リロードは `useUnsavedChanges` の beforeunload ハンドラ（`enabled: isDirty`）で標準確認（REQ-43 AC2）。`isDirty=false` 時はガードしない（AC5,6）
+- インジケーター: `isDirty` true の間、保存ボタン付近に `UnsavedChangesBadge`（「未保存の変更があります」/ボタン強調）を表示。編集で表示、保存成功で非表示（REQ-44 AC1-4）
+- 固定ヘッダー: `styles.header` に `position: 'sticky' as const, top: 0, zIndex: 50, background` を付与。`UnsavedChangesBadge` を `headerActions` 内に配置（REQ-45 AC4）。既存 `EstimateDetailPage`/`SiteSurveyDetailPage` の固定ヘッダーに準拠
+
+#### File Structure Plan（REQ-42〜45）
+
+| ファイル | 区分 | 責務 |
+|---------|------|------|
+| `backend/src/services/quantity-table.service.ts` | 変更 | `saveDraft` 追加（フル状態差分同期、FOR UPDATE 直列化、楽観ロック、検証、監査ログ）。既存 `bulkSave` を統合・置換 |
+| `backend/src/routes/quantity-tables.routes.ts` | 変更 | `PUT /:id/save` ルート追加＋Zodスキーマ（`saveQuantityTableDraftSchema`）。既存 `/bulk-save` を置換 |
+| `frontend/src/api/quantity-tables.ts` | 変更 | `saveQuantityTableDraft(id, input)` 追加（PUT /:id/save）。`bulkSaveQuantityTable` を置換 |
+| `frontend/src/pages/QuantityTableEditPage.tsx` | 変更 | state を `useReducer` ドラフトモデルへ再設計。全編集ハンドラをドラフト更新に変更（即時API呼び出し除去）。`useUnsavedChanges`+`useBlocker` 結線、保存ハンドラを `saveDraft` 化。`styles.header` を sticky 化 |
+| `frontend/src/pages/quantityTableEditReducer.ts` | 新規 | ドラフト reducer（add/delete/copy/reorder group・item、rename、photo link、from-survey 生成、import 取り込み、save 同期、仮ID採番）と型定義 |
+| `frontend/src/components/quantity-table/UnsavedChangesBadge.tsx` | 新規 | 未保存インジケーター（REQ-44） |
+| `frontend/src/hooks/useUnsavedChanges.ts` | 流用 | 既存フックを変更なしで利用（isDirty/markAsChanged/markAsSaved/beforeunload） |
+| `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 変更 | グループ操作コールバックをドラフト dispatch 経由へ（即時API呼び出し撤去）。コピー（REQ-38）をクライアント複製に変更 |
+| `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` | 変更 | 項目操作（add/delete/copy/reorder/フィールド編集）をドラフト dispatch 経由へ |
+
+#### 影響を受ける既存E2E（REQ-42 移行）
+
+編集モデル変更により「操作即時反映」を前提とする既存 約25本のうち、CRUD/コピー/並び替え/名称変更/写真紐づけ/一括生成/インポートを検証する spec（`quantity-table-crud`/`quantity-group-copy`/`group-rename-e2e`/`group-sort-e2e`/`create-groups-from-survey-e2e`/`import-e2e` 等）を「編集→保存ボタン→保存後にサーバー反映を検証」へ更新する。前提による無効化（skip）は行わず、未更新で失敗する状態を許容して顕在化させる（第3原則）。
+
 ### Backend Extension（インポート機能用）
 
 #### ClaudeVisionService拡張
@@ -1866,9 +2334,9 @@ enum CalculationMethod {
 
 - `400 BAD_REQUEST`: 入力バリデーションエラー（必須フィールド未入力、計算方法と入力値の不整合、範囲外入力、文字数超過、サポート対象外ファイル形式）
 - `404 NOT_FOUND`: 数量表・グループ・項目が存在しない、プロジェクトが存在しない
-- `409 CONFLICT`: 楽観的排他制御エラー（他ユーザーによる更新との競合）
+- `409 CONFLICT`: 楽観的排他制御エラー（他ユーザーによる更新との競合）。saveDraft では `expectedUpdatedAt` 不一致時に返却し、フロントはエラー表示のうえドラフト（未保存変更）を保持して再保存を可能にする（REQ-42 AC9）
 - `422 UNPROCESSABLE_ENTITY`: ビジネスロジックエラー
-- `500 INTERNAL_SERVER_ERROR`: コピー処理中の予期しないエラー
+- `500 INTERNAL_SERVER_ERROR`: コピー処理・保存処理中の予期しないエラー。saveDraft 失敗時もドラフトは保持され、編集内容は失われない（REQ-42 AC9）
 
 **Business Logic Errors**:
 
@@ -1893,8 +2361,8 @@ enum CalculationMethod {
 
 ### Monitoring
 
-- 保存エラー率の監視
-- 自動保存の成功率
+- 保存エラー率の監視（saveDraft の失敗率・409競合率）
+- saveDraft の成功率・保存所要時間
 - 計算エラー発生頻度
 - バリデーションエラー分布
 - オートコンプリート候補取得APIのレスポンスタイム
@@ -1931,18 +2399,31 @@ enum CalculationMethod {
 - QuantityValidationService.truncateForCopy (REQ-38): 文字数超過時の元名切り詰めとサフィックス付与
 - QuantityGroupService.copy (REQ-38): グループと配下項目の複製、surveyImageId保持、displayOrderの +1 シフト、監査ログ記録、エラー時のロールバック
 - QuantityGroupCard (REQ-38): コピーボタンの表示、isCopying中のdisabled・スピナー表示、onCopyGroupコールバック呼び出し
+- QuantityTableEditPage 写真選択ダイアログ (REQ-39): 多数枚（例: 30枚以上）が全件レンダリングされること、グリッドレイアウト用スタイル（`gridAutoRows` 等の修正後プロパティ）が適用されること。※写真同士の「重なりゼロ」の矩形判定は実レイアウトを要し jsdom では検証不可のため E2E（Playwright）で実施する（前提による無効化を避ける）
+- buildGroupNameFromSurvey (REQ-40): 「{現場調査名} {連番}」生成、文字数超過時の現場調査名切り詰め＋連番付与（REQ-22 AC4 と整合）
+- QuantityGroupService.createGroupsFromSurvey (REQ-40): 写真枚数分のグループ生成、写真順（displayOrder）紐づけ、末尾追加（max+1起点の連番）、写真0枚時 created:0、エラー時ロールバック、監査ログ記録
+- SurveySelectDialog (REQ-40): 現場調査一覧表示、isCreating中のdisabled・インジケーター表示、onConfirm（選択ID）コールバック呼び出し
+- QuantityGroupCard (REQ-41): 画像・コメント（photoArea）が水平スクロールラッパーの外に配置されること、数量項目テーブルのみが overflowX コンテナ内にあること、折りたたみ時に photoArea も非表示・再展開時に再表示されること
+- quantityTableEditReducer (REQ-42): 各編集アクション（group/item の add/delete/copy/reorder、rename、photo link、from-survey 生成、import 取り込み）がドラフトのみを更新し `isDirty=true` になること、新規行に仮ID（`temp-`）が採番されること、save 同期アクションでサーバーレスポンスからドラフト/スナップショットが置換され `isDirty=false` になること
+- QuantityTableService.saveDraft (REQ-42/11): payload に無いDB行の削除・id=nullの作成・既存idの更新・displayOrder反映・グループ名/数量表名/surveyImageId 反映、検証エラー時の中断、`expectedUpdatedAt` 不一致時の 409、エラー時ロールバック、監査ログ記録
+- QuantityTableEditPage 離脱ガード (REQ-43): `isDirty=true` で `useBlocker` がブロック状態となり確認UIが出ること、proceed/reset の挙動、`isDirty=false` ではブロックしないこと、保存成功後にガード解除されること
+- UnsavedChangesBadge (REQ-44): `isDirty` true で表示・false で非表示、編集で表示・保存成功で非表示に更新されること
+- QuantityTableEditPage ヘッダー (REQ-45): `styles.header` に `position: sticky`/`top:0`/`zIndex` が適用されること、未保存インジケーターがヘッダー内に配置されること（実スクロールでの固定追従は E2E で検証）
 
 ### Integration Tests
 
 - 数量表作成 → グループ追加 → 項目追加 → 保存の一連フロー
+- saveDraft フル状態同期 (REQ-42): 新規グループ・新規項目の作成、削除されたグループ・項目のDB削除、並び替え（displayOrder）、グループ名・数量表名・写真紐づけの反映が単一 PUT /save で原子的に行われること、`expectedUpdatedAt` 競合で 409・編集状態保持を確認できること、他プロジェクト/権限不足で 403/404、並行 save で後発が 409 となり displayOrder 衝突・部分反映が起きないこと（楽観ロック）
 - 計算方法の切り替えと数量再計算の正確性テスト
 - 楽観的排他制御の競合シナリオ
-- フィールドバリデーションエラー時の保存阻止
+- フィールドバリデーションエラー時の保存阻止（saveDraft で全状態検証・保存中断）
 - オートコンプリート候補一括取得API: GROUP BYで重複排除された候補値の返却
 - 数量表コピーAPI: 全データが正しく複製されること
 - 数量グループコピーAPI (REQ-38): 元グループの全項目・写真紐づけが複製されること、displayOrderが元グループ+1の位置に挿入されること、後続グループのdisplayOrderが+1シフトされること、監査ログが記録されること
 - 数量グループコピー並行制御 (REQ-38): 同一数量表に対する copy/add/reorder 操作が並行実行された場合、`SELECT FOR UPDATE` ロックにより serialize されること（先発操作完了まで後発操作はブロックされる）、ロック取得タイムアウト時に `OptimisticLockError` が返却され API 層で 409 にマップされること
 - Claude Vision API（数量表モード）: 数量表用プロンプトで正しい列マッピングが返却されること
+- 現場調査一括生成API (REQ-40): POST /api/quantity-tables/:tableId/groups/from-survey が現場調査の写真枚数分のグループを末尾に連番命名で生成し、各グループに写真が写真順で1枚ずつ紐づくこと、写真0枚時に created:0 を返すこと、他プロジェクトの現場調査指定時に 403/404 となること、トランザクションでエラー時に部分生成が残らないこと
+- 現場調査一括生成 並行制御 (REQ-40): 同一数量表に対する from-survey/copy/add/reorder が並行実行された場合、`SELECT FOR UPDATE` ロックにより直列化され displayOrder の衝突・欠番・重複が発生しないこと、ロック取得タイムアウト時に 409 が返却されること（REQ-38 並行制御と同一方針）
 
 ### E2E Tests
 
@@ -1995,11 +2476,38 @@ enum CalculationMethod {
   - サポート対象外ファイル形式のエラー表示
   - OCR処理失敗時のリトライ動作確認
   - 別ファイルアップロードによる前回結果のクリア確認
+- 写真選択ダイアログのレイアウト（REQ-39）
+  - 写真枚数が多い現場調査で写真選択ダイアログを開いた際、写真同士が重ならずに一覧表示されること（隣接サムネイルの `getBoundingClientRect` 矩形が重複しないことを検証）
+  - 狭幅ビューポートでも写真が潰れず重ならないこと
+  - 写真変更（「別の写真を選択」）からも同じく重なりのない一覧が表示されること
+- 現場調査からの数量グループ一括生成（REQ-40）
+  - 「現場調査から一括追加」→現場調査選択→実行で、選択した現場調査の写真枚数分の数量グループが既存グループの末尾に生成されること
+  - 各生成グループに写真が写真順で1枚ずつ紐づき、グループ名が「{現場調査名} 連番」となること
+  - 紐づいた写真にコメントがある場合、写真の右側にコメントが表示されること（REQ-21/35 と整合）
+  - 写真が0枚の現場調査を選択した場合、グループが生成されず「写真が存在しません」メッセージが表示されること
+  - 生成完了時に生成グループ数を含む完了メッセージが表示されること
+- 水平スクロール時の画像・コメント固定表示（REQ-41）
+  - 数量グループ内の数量項目テーブルを右端まで水平スクロールしても、画像と現場調査コメントが常に表示され続けること
+  - 水平スクロールで右側のはみ出したフィールド（REQ-37 計算用フィールド含む）が閲覧できること
+  - 数量グループを折りたたむと画像・コメントも非表示になり、再展開で固定表示が復帰すること
+- クライアントサイド編集・明示保存（REQ-42）
+  - グループ/項目の追加・削除・コピー・並び替え・グループ名変更・写真紐づけ・現場調査一括生成・インポート取り込みを行っても、保存ボタンを押すまでサーバーへ永続化リクエストが飛ばないこと（ネットワーク監視で確認）
+  - 保存ボタン押下で全変更が1回の PUT /save で永続化され、リロード後も反映が保持されること
+  - 保存前にリロードすると未保存変更が破棄され、保存後はサーバー状態に一致すること
+- 未保存変更の離脱ガード（REQ-43）
+  - 未保存変更がある状態でパンくず等の画面遷移を行うと確認ダイアログが表示され、取消で留まり・承認で遷移すること
+  - 未保存変更がある状態のリロード/タブクローズでブラウザ標準の離脱確認が出ること
+  - 保存後は離脱確認が出ないこと
+- 未保存インジケーター（REQ-44）
+  - 編集を行うと保存ボタン付近に未保存インジケーターが表示され、保存後に消えること
+- ヘッダー固定表示（REQ-45）
+  - 編集画面を下方向にスクロールしても、インポート/PDF出力/保存/＋グループを追加ボタンが画面内に常に表示され続けること
+  - 固定ヘッダー内に未保存インジケーターが表示されること
 
 ### Performance Tests
 
-- 100項目以上の数量表での操作レスポンス
-- 自動保存のデバウンス動作
+- 100項目以上の数量表での操作レスポンス（クライアントサイド編集の応答性）
+- saveDraft フル状態同期の保存レスポンスタイム（100項目以上の一括同期）
 - オートコンプリート候補一括取得APIのレスポンスタイム
 - クライアントサイドフィルタリングの応答時間
 - 計算エンジンの大量項目での処理時間
@@ -2022,8 +2530,8 @@ enum CalculationMethod {
 - 仮想スクロール: react-windowで100項目以上の数量表に対応
 - 遅延読み込み: 数量グループの展開時にのみ項目をフェッチ
 - メモ化: 計算結果のキャッシュ（useMemo）
-- デバウンス: 自動保存は1500msデバウンス
-- バッチ処理: 複数項目の一括操作をトランザクションで実行
+- 明示保存: 編集はクライアントサイドのドラフトで完結し、保存操作時に saveDraft で全状態を1回同期（操作ごとのAPI往復を排除、REQ-42）
+- バッチ処理: 保存はフル状態を単一トランザクションで適用
 - 入力制御の最適化: 文字幅計算のキャッシュ
 - オートコンプリート最適化: 初回一括取得によりテキスト入力中のAPIリクエストを完全排除
 - 並び順変更: 隣接2要素のdisplayOrderのみを更新（最小限の更新件数）

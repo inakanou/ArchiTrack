@@ -3,6 +3,13 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 
+# Pin npm to the version declared in package.json's "packageManager" field via
+# corepack. The image bundles npm 10.9.7, but npm's optional-dependency resolution
+# for `canvas` differs across npm versions, so a mismatched npm rejects the committed
+# package-lock.json as out of sync (EUSAGE). corepack guarantees the same npm that
+# generated the lockfile is used here, keeping `npm ci` deterministic.
+RUN corepack enable npm
+
 # Copy package files
 COPY package*.json ./
 

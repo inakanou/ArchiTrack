@@ -25,6 +25,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -160,23 +161,17 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       // 各グループに固有の名前を付与する：REQ-23.7 でグループ並び順変更を検証する際、
       // 名前が空だと表示名が位置ベースの「グループ N」にフォールバックするため、
       // 入れ替えを判定できなくなる。
+      // REQ-42 移行: グループ追加・名称変更・項目追加はクライアントドラフトのみを
+      // 更新するため、永続化 API（POST /groups, PUT /quantity-groups, POST /items）は
+      // 発火しない。ドラフト反映（カード数・見出し・行数）のみを待機し、
+      // すべての編集後にまとめて明示保存する。
       const groupNameSuffix = Date.now();
       for (let i = 0; i < 2; i++) {
-        const addGroupApiPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/quantity-tables/') &&
-            response.url().includes('/groups') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(20000) }
-        );
-
         const addGroupButton = page
           .getByRole('button', { name: /グループ追加|グループを追加/i })
           .first();
         await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
         await addGroupButton.click();
-        await addGroupApiPromise;
 
         // 追加完了の同期：グループ数が i+1 件に達するのを待機
         await expect(page.locator('[data-testid="quantity-group-card"]')).toHaveCount(i + 1, {
@@ -192,17 +187,9 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
         const editInput = targetGroupCard.getByLabel('グループ名を編集');
         await expect(editInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        const renameApiPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/quantity-groups/') &&
-            response.request().method() === 'PUT' &&
-            response.status() === 200,
-          { timeout: getTimeout(15000) }
-        );
         const uniqueName = `REQ23_24_G${i + 1}_${groupNameSuffix}`;
         await editInput.fill(uniqueName);
         await editInput.press('Enter');
-        await renameApiPromise;
 
         // h3 に固有の名前が反映されるのを待機
         await expect(
@@ -215,25 +202,29 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       // 1つ目のグループに項目を2つ追加（REQ-24 のテストは2項目以上を前提）
       const firstGroupCard = page.locator('[data-testid="quantity-group-card"]').first();
       for (let i = 0; i < 2; i++) {
-        const addItemApiPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/quantity-groups/') &&
-            response.url().includes('/items') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(20000) }
-        );
-
         const addItemButton = firstGroupCard.getByRole('button', { name: '項目を追加' });
         await expect(addItemButton).toBeVisible({ timeout: getTimeout(10000) });
         await addItemButton.click();
-        await addItemApiPromise;
 
         await expect(firstGroupCard.locator('[data-testid="quantity-item-row"]')).toHaveCount(
           i + 1,
           { timeout: getTimeout(10000) }
         );
       }
+
+      // REQ-42.5: 後続テスト（リロードで並び順の永続化を検証）の前提として、
+      // ここまでのドラフト編集を明示保存して永続化する。
+      // 項目名が空のままだと保存時の整合性チェックで弾かれるため、各項目に名称を付与する。
+      const itemRows = firstGroupCard.locator('[data-testid="quantity-item-row"]');
+      const itemCount = await itemRows.count();
+      for (let i = 0; i < itemCount; i++) {
+        const nameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
+        await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
+        await nameInput.fill(`REQ24_item_${i + 1}_${groupNameSuffix}`);
+        await nameInput.blur();
+      }
+
+      await saveQuantityTableDraft(page);
     });
   });
 

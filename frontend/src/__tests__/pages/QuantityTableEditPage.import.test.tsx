@@ -3,12 +3,27 @@
  *
  * Requirements:
  * - 27.1: インポートダイアログからの一括取り込み
+ * - 42.4: インポートによる一括取り込みはクライアント編集状態にのみ反映し永続化APIを発行しない
+ * - 42.6: 保存操作を行っていない状態で永続化目的のサーバーアクセスを発生させない
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+
+// useBlocker をモック（データルーターなしでテストするため。Task 62.1 離脱ガード対応）
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useBlocker: vi.fn(() => ({
+      state: 'unblocked',
+      proceed: vi.fn(),
+      reset: vi.fn(),
+    })),
+  };
+});
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
 import * as quantityTablesApi from '../../api/quantity-tables';
 import type { QuantityTableDetail } from '../../types/quantity-table.types';
@@ -142,29 +157,8 @@ describe('QuantityTableEditPage - インポート機能', () => {
     capturedOnImport = null;
   });
 
-  it('インポートボタンをクリックするとダイアログが開き、取り込みを実行できる', async () => {
+  it('インポートはクライアントドラフトにのみ反映し永続化APIを呼ばない (REQ-42.4, REQ-42.6)', async () => {
     mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-    mockCreateQuantityItem.mockResolvedValue({
-      id: 'new-item-1',
-      quantityGroupId: 'group-1',
-      majorCategory: '共通仮設',
-      middleCategory: null,
-      minorCategory: null,
-      customCategory: null,
-      workType: '仮設工',
-      name: 'テスト足場',
-      specification: null,
-      unit: 'm2',
-      calculationMethod: 'STANDARD',
-      calculationParams: null,
-      adjustmentFactor: 1.0,
-      roundingUnit: 0.01,
-      quantity: 50,
-      remarks: null,
-      displayOrder: 1,
-      createdAt: '2025-01-01T00:00:00Z',
-      updatedAt: '2025-01-01T00:00:00Z',
-    });
 
     renderWithRouter();
 
@@ -185,23 +179,22 @@ describe('QuantityTableEditPage - インポート機能', () => {
     const triggerButton = screen.getByTestId('trigger-import');
     await user.click(triggerButton);
 
-    // createQuantityItemが呼ばれることを確認
+    // 取り込んだ項目が対象グループのドラフトへ反映される（名称が編集入力に表示される）
     await waitFor(() => {
-      expect(mockCreateQuantityItem).toHaveBeenCalledWith(
-        'group-1',
-        expect.objectContaining({
-          workType: '仮設工',
-          name: 'テスト足場',
-          quantity: 50,
-          unit: 'm2',
-        })
-      );
+      expect(screen.getByDisplayValue('テスト足場')).toBeInTheDocument();
     });
+
+    // REQ-42.4 / REQ-42.6: 永続化API(createQuantityItem)は発行されず、再取得も発生しない
+    // （getQuantityTableDetail は編集画面初回表示の1回のみ）
+    expect(mockCreateQuantityItem).not.toHaveBeenCalled();
+    expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
   });
 
-  it('インポート失敗時にエラーがスローされる', async () => {
+  it('取り込みハンドラはサーバー永続化を行わずドラフト反映のみで正常終了する (REQ-42.4, REQ-42.6)', async () => {
+    // 旧モデルでは操作ごとに createQuantityItem を呼び、失敗時に handleImport が throw した。
+    // 新モデルでは取り込みはクライアントドラフトへの同期 dispatch のみで、永続化は保存操作時に
+    // 限定されるため、取り込み自体は reject せず、サーバーAPIも発行しない（REQ-42.4 / REQ-42.6）。
     mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-    mockCreateQuantityItem.mockRejectedValue(new Error('Create failed'));
 
     renderWithRouter();
 
@@ -216,7 +209,7 @@ describe('QuantityTableEditPage - インポート機能', () => {
       expect(screen.getByTestId('mock-import-dialog')).toBeInTheDocument();
     });
 
-    // capturedOnImportを直接呼んでエラーを確認
+    // capturedOnImport を直接呼び、reject せず resolve することを確認
     expect(capturedOnImport).not.toBeNull();
     await expect(
       capturedOnImport!('group-1', [
@@ -226,7 +219,7 @@ describe('QuantityTableEditPage - インポート機能', () => {
           minorCategory: '',
           customCategory: '',
           workType: '仮設工',
-          name: 'テスト',
+          name: '直接取込項目',
           specification: '',
           quantity: 1,
           unit: 'm',
@@ -236,6 +229,13 @@ describe('QuantityTableEditPage - インポート機能', () => {
           roundingUnit: 0.01,
         },
       ])
-    ).rejects.toThrow('インポートに失敗しました');
+    ).resolves.toBeUndefined();
+
+    // ドラフトへ反映される一方、永続化API・再取得は発生しない
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('直接取込項目')).toBeInTheDocument();
+    });
+    expect(mockCreateQuantityItem).not.toHaveBeenCalled();
+    expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
   });
 });

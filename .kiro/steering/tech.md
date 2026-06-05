@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-05-30（Steering Sync: Prisma 7.8 / vitest 4.1（frontend）追従、E2E Excel検証用 exceljs と xlsx の SheetJS CDN 配布元を反映）_
+_最終更新: 2026-06-05（Steering Sync: 全Dockerfileでcorepackによるnpm版固定（packageManager `npm@11.6.2`）でnpm ci決定性を確保するパターン、backend entrypointでのsharpネイティブバイナリ自己修復パターンを反映）_
+
+_2026-06-04（Steering Sync: frontend react-router-dom を脆弱性対応で ^7.16.0 へ更新、backend Prisma 7.8.0 / @prisma/adapter-pg 7.3.0 へバージョン整合、ルートワークスペースのみ ESLint 10 系へ追従（frontend/backend は plugin 非互換のため 9 系維持）を反映）_
 
 ## アーキテクチャ
 
@@ -19,6 +21,17 @@ ArchiTrack/
 └── .kiro/        # ステアリング・スペック管理
 ```
 
+### 編集・保存パターン（数量表編集）
+
+数量表編集画面はサーバー即時反映ではなく、**クライアントサイドドラフト + 明示保存モデル**を採用しています。
+
+- 編集操作は `useReducer`（`frontend/src/pages/quantityTableEditReducer.ts`）でクライアント状態（ドラフト）に反映し、サーバーへは送らない
+- 保存ボタン押下時に `saveQuantityTableDraft`（`frontend/src/api/quantity-tables.ts`）でグループ・項目の全状態を一括同期（バックエンド `PUT /api/quantity-tables/:id/save` → `saveDraft` サービス、`expectedUpdatedAt` で楽観的排他制御）
+- 未保存変更の離脱ガード・未保存インジケーターバッジ・操作ヘッダー固定表示でUX担保
+- インポートや現場調査からのグループ生成・グループコピーもドラフト更新として扱い、保存ボタンで確定する
+
+他機能で用いるフィールド単位の即時保存・楽観的排他制御とは異なる明示保存方針である点に注意。
+
 ## フロントエンド
 
 ### 技術スタック
@@ -34,7 +47,7 @@ ArchiTrack/
 
 - `react` ^19.2.3 - UIライブラリ
 - `react-dom` ^19.2.4 - React DOM操作
-- `react-router-dom` ^7.13.0 - React Router v7（ルーティング）
+- `react-router-dom` ^7.16.0 - React Router v7（ルーティング、7.14.2以下のDoS脆弱性 GHSA-8x6r-g9mw-2r78 対応で7.16.0へ更新）
 - `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
@@ -101,8 +114,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.2.0
-- **ORM**: Prisma 7.7.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
-- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.7.0、@prisma/adapter-pg 7.6.0
+- **ORM**: Prisma 7.8.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
+- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.8.0、@prisma/adapter-pg 7.3.0
 - **キャッシュクライアント**: ioredis 5.10.1
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
@@ -175,7 +188,7 @@ ArchiTrack/
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
-- `prisma` ^7.7.0 - Prisma CLI（マイグレーション、スキーマ管理）
+- `prisma` ^7.8.0 - Prisma CLI（マイグレーション、スキーマ管理）
 - `ts-node` ^10.9.2 - TypeScript実行環境（Prisma用）
 
 ### 設定ファイル
@@ -382,6 +395,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - `@typescript-eslint/parser` ^8.48.1 - TypeScript ESLintパーサー
 - `@prisma/client` ^7.0.1 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
 - `prisma` ^7.1.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
+- `eslint` ^10.4.1 - ルートワークスペースのコード品質チェック。**注**: frontend/backend は eslint-plugin-react 系の ESLint 10 非互換のため意図的に ESLint 9 系（Flat Config）を維持しており、ルートのみ ESLint 10 系へ追従している
 - `cross-env` ^10.1.0 - クロスプラットフォーム環境変数設定
 - `exceljs` ^4.4.0 - E2Eでエクスポート済み.xlsxを読み取り検証（内訳書CRUD等のExcel出力アサーション用。生成側はfrontendのxlsx/SheetJS）
 - Chromium - Playwright経由で自動インストール
@@ -528,6 +542,15 @@ docker-compose.ci.yml    # CI環境オーバーライド（nginx本番イメー�
 **バックエンド (`backend/docker-entrypoint.sh`):**
 - `node_modules/.bin`の存在確認
 - 不足している場合のみ依存関係をインストール
+- **sharpネイティブバイナリの自己修復**: 依存チェックは`package.json`/`package-lock.json`のハッシュ一致で`npm ci`をスキップするが、ハッシュは`node_modules`実体の健全性までは検証しない。永続ボリューム上の`node_modules`が陳腐化し実行プラットフォーム向けの`libvips`（musl）を欠くとsharpロードが失敗し、ストレージサービス初期化失敗→画像アップロードが503となる。そのため起動毎にロード可否を検証し、不可なら`npm install --no-save sharp`で現在のプラットフォーム向けに再解決して修復する（lockfileは変更しない）
+
+#### npm版固定パターン（ビルド決定性）
+
+全Dockerfile（backend/frontend、build/dev）は`corepack enable npm`で`package.json`の`packageManager`フィールドに宣言したnpmへ固定する：
+
+- **背景**: `node:22-alpine`同梱npm（10.9.7）はoptional依存（`canvas`等）の解決ロジックがnpm版で異なり、別版npmで生成した`package-lock.json`を不整合（EUSAGE）として拒否し`npm ci`が失敗する
+- **方針**: lockfileを生成したnpmと同一版をビルドでも使うことで`npm ci`を決定的にする（現在は`npm@11.6.2`を両プロジェクトで固定）
+- **適用範囲**: ローカルDocker / CI / Railwayデプロイ全てで同一挙動を保証
 
 #### デバッグサポート
 

@@ -52,6 +52,20 @@ if [ "$needs_install" = true ]; then
   echo "Dependencies installed successfully"
 fi
 
+# sharp ネイティブバイナリの健全性検証と自己修復
+# 上の依存チェックは package.json/package-lock.json のハッシュ一致で npm ci をスキップするが、
+# ハッシュは node_modules 実体の健全性までは見ない。永続ボリューム上の node_modules が陳腐化し
+# 実行プラットフォーム向けの libvips（例: libvips-cpp.so）を欠くと、sharp のロードが失敗し
+# ストレージサービス初期化が失敗 → 画像アップロードが 503 になる。
+# クリーンな npm ci なら正しく入るため、needs_install に依らず毎回ロード可否を検証し、
+# 不可なら現在のプラットフォーム向けに再解決して修復する
+# （--no-save により package.json / package-lock.json は変更しない）。
+if ! node -e "import('sharp').then(() => process.exit(0)).catch(() => process.exit(1))" >/dev/null 2>&1; then
+  echo "sharp native binary is missing or unloadable; repairing for current platform..."
+  npm install --no-save sharp
+  echo "sharp repaired successfully"
+fi
+
 echo "Generating Prisma Client..."
 npm run prisma:generate
 
