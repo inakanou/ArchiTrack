@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-06-05（Steering Sync: 全Dockerfileでcorepackによるnpm版固定（packageManager `npm@11.6.2`）でnpm ci決定性を確保するパターン、backend entrypointでのsharpネイティブバイナリ自己修復パターンを反映）_
+_最終更新: 2026-06-08（Steering Sync: backend entrypointの実行時`npm ci`をdev/test限定化し本番はイメージ同梱依存を信頼するパターン（Railway永続ボリュームのroot所有node_modulesでのEACCESクラッシュループ対策）、sharp自己修復の非致命化を反映）_
+
+_2026-06-05（Steering Sync: 全Dockerfileでcorepackによるnpm版固定（packageManager `npm@11.6.2`）でnpm ci決定性を確保するパターン、backend entrypointでのsharpネイティブバイナリ自己修復パターンを反映）_
 
 _2026-06-04（Steering Sync: frontend react-router-dom を脆弱性対応で ^7.16.0 へ更新、backend Prisma 7.8.0 / @prisma/adapter-pg 7.3.0 へバージョン整合、ルートワークスペースのみ ESLint 10 系へ追従（frontend/backend は plugin 非互換のため 9 系維持）を反映）_
 
@@ -540,9 +542,9 @@ docker-compose.ci.yml    # CI環境オーバーライド（nginx本番イメー�
 - 起動時間の最適化（45-60秒 → 10-15秒）
 
 **バックエンド (`backend/docker-entrypoint.sh`):**
-- `node_modules/.bin`の存在確認
-- 不足している場合のみ依存関係をインストール
-- **sharpネイティブバイナリの自己修復**: 依存チェックは`package.json`/`package-lock.json`のハッシュ一致で`npm ci`をスキップするが、ハッシュは`node_modules`実体の健全性までは検証しない。永続ボリューム上の`node_modules`が陳腐化し実行プラットフォーム向けの`libvips`（musl）を欠くとsharpロードが失敗し、ストレージサービス初期化失敗→画像アップロードが503となる。そのため起動毎にロード可否を検証し、不可なら`npm install --no-save sharp`で現在のプラットフォーム向けに再解決して修復する（lockfileは変更しない）
+- **実行時の依存再インストール（ハッシュゲート付き`npm ci`）は dev/test 環境限定**（`NODE_ENV`で分岐）: dev/testはソースと`node_modules`をボリュームマウントするためホスト側`package*.json`変更の起動時取り込みが必要。本番はDockerfileで`npm ci --omit=dev`し`node_modules`を`node`ユーザー所有で焼き込み済みのため、起動時再インストールは行わずイメージ同梱依存を信頼する
+  - **背景**: 本番でハッシュゲートが`npm ci`を起動すると、Railway永続ボリューム上のroot所有`node_modules`を`node`ユーザーが置換できずEACCES（unlink拒否）で失敗→`set -e`によりentrypointがexec前に終了→サーバが待受せずHealthcheck失敗のクラッシュループに陥る。依存bumpで`package-lock.json`が変わった瞬間のみ顕在化していた
+- **sharpネイティブバイナリの自己修復**: 上記ハッシュゲートは`node_modules`実体の健全性までは検証しないため、永続ボリューム上の`node_modules`が陳腐化し実行プラットフォーム向けの`libvips`（musl）を欠くとsharpロードが失敗し、ストレージサービス初期化失敗→画像アップロードが503となる。そのため**全環境で**起動毎にロード可否を検証し、不可なら`npm install --no-save sharp`で現在のプラットフォーム向けに再解決して修復する（lockfileは変更しない）。**修復失敗は非致命扱い**とし、修復不能時もアプリ起動を継続する（アプリは`index.ts`でstorage/sharp初期化失敗時も起動継続する設計のため、ここでクラッシュさせるとHealthcheck失敗・クラッシュループの原因になる）
 
 #### npm版固定パターン（ビルド決定性）
 
