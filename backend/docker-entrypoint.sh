@@ -25,31 +25,47 @@ wait_for_database() {
 
 echo "Checking dependencies..."
 
-# package.jsonのハッシュを計算
-CURRENT_HASH=$(sha256sum package.json package-lock.json 2>/dev/null | sha256sum | cut -d' ' -f1)
-STORED_HASH=""
+# 実行時の依存再インストール（ハッシュゲート付き npm ci）は dev/test 専用とする。
+#
+# dev/test は docker-compose でソースと node_modules をボリュームマウントするため、
+# ホスト側の package*.json 変更を起動時に取り込む必要がある。一方、本番イメージは
+# Dockerfile で `npm ci --omit=dev` を実行し node_modules を node ユーザー所有で
+# 焼き込み済みであり、実行時の再インストールは不要かつ有害である。
+#
+# 本番でこのハッシュゲートが npm ci を起動すると、Railway 永続ボリューム上の
+# root 所有 node_modules を node ユーザーが置換できず EACCES（unlink 拒否）で失敗し、
+# `set -e` により entrypoint が exec 前に終了 → サーバが listen せず Healthcheck 失敗 →
+# クラッシュループに陥る。依存 bump で package-lock.json が変わった瞬間に顕在化する。
+# そのため本番ではイメージ同梱の node_modules を信頼し、実行時 npm ci を行わない。
+if [ "$NODE_ENV" = "development" ] || [ "$NODE_ENV" = "test" ]; then
+  # package.jsonのハッシュを計算
+  CURRENT_HASH=$(sha256sum package.json package-lock.json 2>/dev/null | sha256sum | cut -d' ' -f1)
+  STORED_HASH=""
 
-if [ -f "node_modules/.package-hash" ]; then
-  STORED_HASH=$(cat node_modules/.package-hash)
-fi
+  if [ -f "node_modules/.package-hash" ]; then
+    STORED_HASH=$(cat node_modules/.package-hash)
+  fi
 
-needs_install=false
+  needs_install=false
 
-if [ ! -d "node_modules/.bin" ]; then
-  echo "node_modules is empty, installing dependencies..."
-  needs_install=true
-elif [ "$CURRENT_HASH" != "$STORED_HASH" ]; then
-  echo "package.json or package-lock.json has changed, updating dependencies..."
-  needs_install=true
+  if [ ! -d "node_modules/.bin" ]; then
+    echo "node_modules is empty, installing dependencies..."
+    needs_install=true
+  elif [ "$CURRENT_HASH" != "$STORED_HASH" ]; then
+    echo "package.json or package-lock.json has changed, updating dependencies..."
+    needs_install=true
+  else
+    echo "Dependencies are up to date"
+  fi
+
+  if [ "$needs_install" = true ]; then
+    npm ci
+    # ハッシュを保存
+    echo "$CURRENT_HASH" > node_modules/.package-hash
+    echo "Dependencies installed successfully"
+  fi
 else
-  echo "Dependencies are up to date"
-fi
-
-if [ "$needs_install" = true ]; then
-  npm ci
-  # ハッシュを保存
-  echo "$CURRENT_HASH" > node_modules/.package-hash
-  echo "Dependencies installed successfully"
+  echo "Production environment: using dependencies baked into the image (skipping runtime npm ci)"
 fi
 
 # sharp ネイティブバイナリの健全性検証と自己修復
@@ -61,9 +77,15 @@ fi
 # 不可なら現在のプラットフォーム向けに再解決して修復する
 # （--no-save により package.json / package-lock.json は変更しない）。
 if ! node -e "import('sharp').then(() => process.exit(0)).catch(() => process.exit(1))" >/dev/null 2>&1; then
-  echo "sharp native binary is missing or unloadable; repairing for current platform..."
-  npm install --no-save sharp
-  echo "sharp repaired successfully"
+  echo "sharp native binary is missing or unloadable; attempting repair for current platform..."
+  # 修復失敗で起動全体を止めない（set -e 配下でも非致命扱いにする）。
+  # アプリは storage/sharp 初期化失敗時も起動継続する設計（index.ts）であり、
+  # ここでクラッシュさせると Healthcheck 失敗・クラッシュループの原因になるため。
+  if npm install --no-save sharp; then
+    echo "sharp repaired successfully"
+  else
+    echo "⚠️  sharp repair failed; continuing startup (image features may be degraded)"
+  fi
 fi
 
 echo "Generating Prisma Client..."

@@ -315,6 +315,49 @@ curl: (7) Failed to connect to <backend-url> port 443: Connection refused
 
 ---
 
+## ヘルスチェックが5分間 service unavailable で失敗する（起動時 npm ci の EACCES）
+
+**症状:**
+```
+Starting Container
+Checking dependencies...
+package.json or package-lock.json has changed, updating dependencies...
+npm error code EACCES
+npm error syscall unlink
+npm error path /app/node_modules/@emnapi/core/LICENSE
+...
+1/1 replicas never became healthy!
+Healthcheck failed!
+```
+- Docker イメージの build / push は成功するが、起動後 `/health` が応答せず Healthcheck が
+  タイムアウトする。直前にデプロイログで上記の `npm ci` EACCES が繰り返し出る。
+
+**原因:**
+- backend は `node` ユーザーで起動する（`Dockerfile` の `USER node`）。
+- `docker-entrypoint.sh` の依存チェックが `package-lock.json` のハッシュ変化を検知すると
+  起動時に `npm ci` を実行する。
+- `/app/node_modules` が **Railway 永続ボリューム**で、その中身が **root 所有**（過去に root
+  実行だったイメージが作成）の場合、`node` ユーザーは既存ファイルを置換できず EACCES で失敗する。
+- entrypoint は `set -e` のためサーバ起動（`exec`）に到達せず終了し、クラッシュループになる。
+- 依存 bump で `package-lock.json` が変わった瞬間に顕在化する（不変の間はハッシュ一致で
+  `npm ci` がスキップされ表面化しない）。
+
+**解決方法:**
+
+1. **`/app/node_modules` の永続ボリュームを外す（推奨・恒久対処）:**
+   - node_modules は Dockerfile の `npm ci --omit=dev` でイメージに焼き込み済みのため、
+     本番で永続化する必要はない。
+   - Railway Dashboard > Service（backend）> **Settings > Volumes** で `/app/node_modules`
+     にマウントされたボリュームを削除（Detach / Delete）し、再デプロイする。
+   - entrypoint は本番（`NODE_ENV=production`）では実行時 `npm ci` を行わず、イメージ同梱の
+     node_modules を使用する。
+
+2. **ボリュームを残す運用の場合:**
+   - ボリュームを一度削除して作り直し、`node` ユーザーが書き込める状態にする
+     （root 所有の古い node_modules を残さない）。
+
+---
+
 ## パフォーマンス関連
 
 ### アプリケーションが遅い
