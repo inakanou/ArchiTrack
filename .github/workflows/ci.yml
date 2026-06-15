@@ -44,7 +44,10 @@ jobs:
             # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
             npx -y npm@11.6.2 --prefix frontend ci
           else
-            npm --prefix ${{ matrix.workspace }} ci
+            # Pin npm to backend/package.json "packageManager" (npm@11.6.2) so npm's optional-dependency
+            # resolution matches the committed lockfile. Dependabot regenerates the backend lockfile with
+            # npm 11 (dropping nested @emnapi optional deps); default npm 10.x then rejects it with EUSAGE.
+            npx -y npm@11.6.2 --prefix ${{ matrix.workspace }} ci
           fi
       - name: Run format check
         run: |
@@ -123,7 +126,10 @@ jobs:
             # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
             npx -y npm@11.6.2 --prefix frontend ci
           else
-            npm --prefix ${{ matrix.workspace }} ci
+            # Pin npm to backend/package.json "packageManager" (npm@11.6.2) so npm's optional-dependency
+            # resolution matches the committed lockfile. Dependabot regenerates the backend lockfile with
+            # npm 11 (dropping nested @emnapi optional deps); default npm 10.x then rejects it with EUSAGE.
+            npx -y npm@11.6.2 --prefix ${{ matrix.workspace }} ci
           fi
       - name: Run type check
         run: |
@@ -167,7 +173,10 @@ jobs:
             # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
             npx -y npm@11.6.2 --prefix frontend ci
           else
-            npm --prefix ${{ matrix.workspace }} ci
+            # Pin npm to backend/package.json "packageManager" (npm@11.6.2) so npm's optional-dependency
+            # resolution matches the committed lockfile. Dependabot regenerates the backend lockfile with
+            # npm 11 (dropping nested @emnapi optional deps); default npm 10.x then rejects it with EUSAGE.
+            npx -y npm@11.6.2 --prefix ${{ matrix.workspace }} ci
           fi
       - name: Generate Prisma Client (backend only)
         if: matrix.workspace == 'backend'
@@ -246,7 +255,10 @@ jobs:
             # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
             npx -y npm@11.6.2 --prefix frontend ci
           else
-            npm --prefix ${{ matrix.workspace }} ci
+            # Pin npm to backend/package.json "packageManager" (npm@11.6.2) so npm's optional-dependency
+            # resolution matches the committed lockfile. Dependabot regenerates the backend lockfile with
+            # npm 11 (dropping nested @emnapi optional deps); default npm 10.x then rejects it with EUSAGE.
+            npx -y npm@11.6.2 --prefix ${{ matrix.workspace }} ci
           fi
       - name: Build
         run: npm --prefix ${{ matrix.workspace }} run build
@@ -364,7 +376,7 @@ jobs:
         run: npm ci
 
       - name: Install backend dependencies
-        run: npm --prefix backend ci
+        run: npx -y npm@11.6.2 --prefix backend ci
 
       - name: Generate Prisma Client
         run: npm --prefix backend run prisma:generate
@@ -504,7 +516,7 @@ jobs:
       - name: Install root dependencies
         run: npm ci --ignore-scripts
       - name: Install backend dependencies
-        run: npm --prefix backend ci --ignore-scripts
+        run: npx -y npm@11.6.2 --prefix backend ci --ignore-scripts
       - name: Install frontend dependencies
         # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
         # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
@@ -581,7 +593,7 @@ jobs:
             prisma-binaries-${{ runner.os }}-
 
       - name: Install backend dependencies
-        run: npm --prefix backend ci
+        run: npx -y npm@11.6.2 --prefix backend ci
 
       - name: Check environment variables
         run: npm --prefix backend run check:env
@@ -763,7 +775,7 @@ jobs:
             prisma-binaries-${{ runner.os }}-
 
       - name: Install backend dependencies
-        run: npm --prefix backend ci
+        run: npx -y npm@11.6.2 --prefix backend ci
 
       - name: Check environment variables
         run: npm --prefix backend run check:env
