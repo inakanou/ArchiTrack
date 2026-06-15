@@ -836,6 +836,7 @@ export default function QuantityGroupCard({
                   }}
                   alt={group.surveyImage.fileName}
                   style={styles.thumbnail}
+                  hasAnnotations={hasAnnotations}
                 />
                 {/* 注釈バッジ（REQ-3.3） */}
                 {hasAnnotations && (

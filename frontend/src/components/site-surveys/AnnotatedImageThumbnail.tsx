@@ -48,6 +48,13 @@ export interface AnnotatedImageThumbnailProps {
   onClick?: () => void;
   /** ローディングモード */
   loading?: 'lazy' | 'eager';
+  /**
+   * 注釈データの有無が呼び出し側で既知の場合に指定する。
+   * - `false`: 注釈が存在しないことが確定しているため、注釈取得API（getAnnotation）の
+   *   呼び出しを省略し、元画像をそのまま表示する（一覧表示でのN+1リクエスト抑止）。
+   * - `true` / `undefined`: 従来通り注釈データを取得してレンダリングする。
+   */
+  hasAnnotations?: boolean;
 }
 
 // ============================================================================
@@ -66,6 +73,7 @@ export function AnnotatedImageThumbnail({
   style,
   onClick,
   loading = 'lazy',
+  hasAnnotations,
 }: AnnotatedImageThumbnailProps) {
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -102,6 +110,14 @@ export function AnnotatedImageThumbnail({
     try {
       setIsLoading(true);
       setError(null);
+
+      // 注釈が存在しないことが呼び出し側で確定している場合は、
+      // 注釈取得API（getAnnotation）を呼ばずに元画像を表示する（一覧表示でのN+1リクエスト抑止）。
+      if (hasAnnotations === false) {
+        setRenderedUrl(originalImageUrl);
+        setIsLoading(false);
+        return;
+      }
 
       // 1. 注釈データを取得
       let annotationData: AnnotationInfo | null = null;
@@ -234,7 +250,7 @@ export function AnnotatedImageThumbnail({
         setIsLoading(false);
       }
     }
-  }, [image.id, originalImageUrl, loadImageElement]);
+  }, [image.id, originalImageUrl, loadImageElement, hasAnnotations]);
 
   // コンポーネントのマウント/アンマウント管理
   useEffect(() => {
