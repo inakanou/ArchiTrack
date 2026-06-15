@@ -19,6 +19,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { PhotoManagementPanel } from '../../../components/site-surveys/PhotoManagementPanel';
 import type { SurveyImageInfo } from '../../../types/site-survey.types';
+import * as surveyAnnotationsApi from '../../../api/survey-annotations';
+
+// 注釈取得APIをモック化（画面オープン時のN+1抑止の配線検証用）
+vi.mock('../../../api/survey-annotations', () => ({
+  getAnnotation: vi.fn(),
+}));
 
 // ============================================================================
 // テストデータ
@@ -1101,6 +1107,43 @@ describe('PhotoManagementPanel', () => {
       // 各画像がmediumUrlで表示されていること（AnnotatedImageThumbnailの動作）
       images.forEach((img, index) => {
         expect(img).toHaveAttribute('src', `https://example.com/medium/img-${index + 1}.jpg`);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 画面オープン時の注釈リクエストN+1抑止
+  // ==========================================================================
+
+  describe('注釈リクエストのN+1抑止', () => {
+    it('hasAnnotations=false の画像では注釈取得APIを呼ばないこと', async () => {
+      const getAnnotationMock = vi.mocked(surveyAnnotationsApi.getAnnotation);
+      getAnnotationMock.mockResolvedValue(null);
+
+      const images = [
+        createMockImage('no-annot-1', 1, { hasAnnotations: false }),
+        createMockImage('no-annot-2', 2, { hasAnnotations: false }),
+      ];
+
+      render(<PhotoManagementPanel {...defaultProps} images={images} />);
+
+      // サムネイルが描画されても、注釈なし確定の画像では一切リクエストしない
+      await waitFor(() => {
+        expect(screen.getAllByRole('img')).toHaveLength(images.length);
+      });
+      expect(getAnnotationMock).not.toHaveBeenCalled();
+    });
+
+    it('hasAnnotations=true の画像では従来通り注釈取得APIを呼ぶこと', async () => {
+      const getAnnotationMock = vi.mocked(surveyAnnotationsApi.getAnnotation);
+      getAnnotationMock.mockResolvedValue(null);
+
+      const images = [createMockImage('annot-1', 1, { hasAnnotations: true })];
+
+      render(<PhotoManagementPanel {...defaultProps} images={images} />);
+
+      await waitFor(() => {
+        expect(getAnnotationMock).toHaveBeenCalledWith('annot-1');
       });
     });
   });

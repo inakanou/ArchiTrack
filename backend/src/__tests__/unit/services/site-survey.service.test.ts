@@ -755,6 +755,8 @@ describe('SiteSurveyService', () => {
         height: 1080,
         displayOrder: 1,
         createdAt: new Date('2024-01-10'),
+        // 注釈ありの画像（findByのincludeで存在判定のみ取得される想定）
+        annotation: { id: 'annotation-001' },
       },
       {
         id: 'image-002',
@@ -767,6 +769,8 @@ describe('SiteSurveyService', () => {
         height: 1080,
         displayOrder: 2,
         createdAt: new Date('2024-01-11'),
+        // 注釈なしの画像
+        annotation: null,
       },
     ];
 
@@ -831,7 +835,7 @@ describe('SiteSurveyService', () => {
       // Act
       await service.findById('survey-123');
 
-      // Assert - orderByが正しく指定されていることを確認
+      // Assert - orderByと注釈存在判定includeが正しく指定されていることを確認
       expect(mockPrisma.siteSurvey.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({
           include: expect.objectContaining({
@@ -839,10 +843,28 @@ describe('SiteSurveyService', () => {
               orderBy: {
                 displayOrder: 'asc',
               },
+              // 注釈の有無のみを軽量取得する（N+1抑止のためのフラグ供給）
+              include: {
+                annotation: {
+                  select: { id: true },
+                },
+              },
             },
           }),
         })
       );
+    });
+
+    it('画像ごとに注釈の有無(hasAnnotations)を返す（画面オープン時のN+1抑止）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(mockSurveyWithProjectAndImages);
+
+      // Act
+      const result = await service.findById('survey-123');
+
+      // Assert - 注釈リレーションの有無がhasAnnotationsに反映される
+      expect(result!.images[0]!.hasAnnotations).toBe(true);
+      expect(result!.images[1]!.hasAnnotations).toBe(false);
     });
 
     it('画像が存在しない場合も正常に取得する', async () => {
@@ -905,6 +927,11 @@ describe('SiteSurveyService', () => {
           images: {
             orderBy: {
               displayOrder: 'asc',
+            },
+            include: {
+              annotation: {
+                select: { id: true },
+              },
             },
           },
         },

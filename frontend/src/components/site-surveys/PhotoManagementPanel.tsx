@@ -689,6 +689,7 @@ function PhotoItem({
             alt={image.fileName}
             style={styles.image}
             loading="lazy"
+            hasAnnotations={image.hasAnnotations}
           />
         </button>
       </div>
