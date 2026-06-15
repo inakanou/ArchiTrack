@@ -2,7 +2,7 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2026-06-02",
+  "lastUpdated": "2026-06-15",
   "allowlist": {
     "backend": [
       {
@@ -13,10 +13,120 @@
         "expires": "2026-09-01",
         "addedBy": "claude",
         "addedDate": "2026-02-04"
+      },
+      {
+        "package": "esbuild",
+        "severity": "high",
+        "reason": "開発専用バンドラ。esbuildのdevサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。devサーバはローカル開発時のみ起動し、CIビルド・本番ランタイムには到達しないため影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。それまで暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-07-15",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "tsx",
+        "severity": "high",
+        "reason": "開発専用のTypeScript実行ツール。内包するesbuild経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。ローカル開発時のみ使用し本番・CIランタイムに影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-07-15",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
       }
     ],
-    "frontend": [],
-    "root": []
+    "frontend": [
+      {
+        "package": "storybook",
+        "severity": "high",
+        "reason": "開発専用UIカタログ。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。Storybookはローカル開発・Storybookテスト時のみ使用し本番バンドルに含まれない。修正には storybook v8.6.18 系への破壊的ダウングレード (現行v10) が必要なため、メジャー更新まで暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "@storybook/builder-vite",
+        "severity": "high",
+        "reason": "開発専用Storybookビルダ。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "@storybook/csf-plugin",
+        "severity": "high",
+        "reason": "開発専用Storybookプラグイン。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "@storybook/react",
+        "severity": "high",
+        "reason": "開発専用StorybookのReactレンダラ。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "@storybook/react-dom-shim",
+        "severity": "high",
+        "reason": "開発専用StorybookのReact DOM shim。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook 系メジャー更新が必要なため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "@storybook/react-vite",
+        "severity": "high",
+        "reason": "開発専用StorybookのVite統合。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "esbuild",
+        "severity": "high",
+        "reason": "開発専用バンドラ (Vite/Storybook経由)。devサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。devサーバはローカル開発時のみ起動し本番バンドル・CIには到達しない。frontendでの修正は storybook 系メジャー更新に連動するため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "concurrently",
+        "severity": "critical",
+        "reason": "開発専用のnpmスクリプト並列実行ツール。内包する shell-quote 経由の脆弱性 (GHSA-w7jw-789q-3m8p)。ローカル開発スクリプトでのみ使用し本番・CIランタイムに影響なし。修正には concurrently v10 系への破壊的更新が必要なため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-w7jw-789q-3m8p",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "shell-quote",
+        "severity": "critical",
+        "reason": "開発専用 (concurrently経由)。quote() が改行を未エスケープ (GHSA-w7jw-789q-3m8p)。ローカル開発スクリプトでのみ使用し本番・CIランタイムに影響なし。修正は concurrently v10 系への破壊的更新に連動するため暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-w7jw-789q-3m8p",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      }
+    ],
+    "root": [
+      {
+        "package": "esbuild",
+        "severity": "high",
+        "reason": "開発専用バンドラ (vitest/playwright等のツールチェーン経由)。devサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。ローカル開発時のみ起動し本番・CIランタイムに到達しない。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
+        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "expires": "2026-07-15",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      }
+    ]
   },
   "policy": {
     "production": {
