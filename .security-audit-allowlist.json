@@ -31,9 +31,45 @@
         "expires": "2026-07-15",
         "addedBy": "claude",
         "addedDate": "2026-06-15"
+      },
+      {
+        "package": "form-data",
+        "severity": "high",
+        "reason": "開発・テスト依存経由のみ (本番依存ツリーには非該当、npm audit --omit=dev で検出されない)。multipart境界の未エスケープによるCRLFインジェクション (GHSA-hmw2-7cc7-3qxx)。本番ランタイムに影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
+        "reference": "https://github.com/advisories/GHSA-hmw2-7cc7-3qxx",
+        "expires": "2026-07-15",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "vite",
+        "severity": "high",
+        "reason": "開発専用ビルドツール (devDependency)。launch-editorのNTLMv2ハッシュ漏洩 (GHSA-v6wh-96g9-6wx3) と server.fs.deny バイパス (GHSA-fx2h-pf6j-xcff)。いずれもWindowsのdevサーバ限定で、CIビルド・本番ランタイムには到達しない。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
+        "reference": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+        "expires": "2026-07-15",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
       }
     ],
     "frontend": [
+      {
+        "package": "form-data",
+        "severity": "high",
+        "reason": "開発・テスト依存経由のみ (本番バンドル非対象)。multipart境界の未エスケープによるCRLFインジェクション (GHSA-hmw2-7cc7-3qxx)。本番ランタイムに影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
+        "reference": "https://github.com/advisories/GHSA-hmw2-7cc7-3qxx",
+        "expires": "2026-07-15",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
+      {
+        "package": "vite",
+        "severity": "high",
+        "reason": "開発専用ビルドツール (devDependency)。launch-editorのNTLMv2ハッシュ漏洩 (GHSA-v6wh-96g9-6wx3) と server.fs.deny バイパス (GHSA-fx2h-pf6j-xcff)。いずれもWindowsのdevサーバ限定で、本番バンドル・CIには到達しない。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
+        "reference": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+        "expires": "2026-07-15",
+        "addedBy": "claude",
+        "addedDate": "2026-06-15"
+      },
       {
         "package": "storybook",
         "severity": "high",
