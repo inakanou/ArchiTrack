@@ -187,9 +187,7 @@ describe('AnnotatedImageThumbnail', () => {
 
   describe('hasAnnotations プロップによる注釈取得の制御（一覧表示N+1抑止）', () => {
     it('hasAnnotations=false のときは getAnnotation を呼ばず元画像を表示する', async () => {
-      render(
-        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={false} />
-      );
+      render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={false} />);
 
       await waitFor(() => {
         const img = screen.getByRole('img');
