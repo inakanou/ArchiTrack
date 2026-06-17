@@ -35,7 +35,10 @@ import {
   QuantityTableValidationError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
-import type { SaveQuantityTableDraftInput } from '../services/quantity-table.service.js';
+import type {
+  SaveQuantityTableDraftInput,
+  QuantityTableDetailWithItems,
+} from '../services/quantity-table.service.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
@@ -46,6 +49,77 @@ const quantityTableService = new QuantityTableService({
   prisma,
   auditLogService,
 });
+
+/**
+ * 数量グループに紐づく surveyImage の URL を署名付きURLへ変換する。
+ *
+ * findById が返す surveyImage の thumbnailUrl/originalUrl は `/api/storage/<path>` 形式の
+ * 内部パスである。ストレージ設定時はこれを署名付きURLへ変換しないと、フロントの <img> から
+ * 直接参照できずリンク切れになる。詳細取得（GET /:id）と保存（PUT /:id/save）で表示経路を
+ * 一致させるため、両エンドポイントでこの変換を共通適用する。
+ */
+async function enrichQuantityTableSignedUrls(
+  quantityTable: QuantityTableDetailWithItems
+): Promise<QuantityTableDetailWithItems> {
+  if (!isStorageConfigured() || !quantityTable.groups) {
+    return quantityTable;
+  }
+
+  const storageProvider = getStorageProvider();
+  if (!storageProvider) {
+    return quantityTable;
+  }
+
+  const enrichedGroups = await Promise.all(
+    quantityTable.groups.map(async (group) => {
+      if (!group.surveyImage) {
+        return group;
+      }
+
+      // 元のURLを保持（署名付きURL生成失敗時のフォールバック）
+      let thumbnailUrl: string = group.surveyImage.thumbnailUrl;
+      let originalUrl: string = group.surveyImage.originalUrl;
+
+      // サムネイルURLを署名付きURLに変換
+      try {
+        // /api/storage/ プレフィックスを除去してパスのみを取得
+        const thumbnailPath = group.surveyImage.thumbnailUrl.replace(/^\/api\/storage\//, '');
+        thumbnailUrl = await storageProvider.getSignedUrl(thumbnailPath);
+      } catch (error) {
+        logger.warn(
+          { groupId: group.id, thumbnailUrl: group.surveyImage.thumbnailUrl, error },
+          'Failed to generate signed URL for thumbnail'
+        );
+      }
+
+      // オリジナル画像URLを署名付きURLに変換
+      try {
+        // /api/storage/ プレフィックスを除去してパスのみを取得
+        const originalPath = group.surveyImage.originalUrl.replace(/^\/api\/storage\//, '');
+        originalUrl = await storageProvider.getSignedUrl(originalPath);
+      } catch (error) {
+        logger.warn(
+          { groupId: group.id, originalUrl: group.surveyImage.originalUrl, error },
+          'Failed to generate signed URL for original image'
+        );
+      }
+
+      return {
+        ...group,
+        surveyImage: {
+          ...group.surveyImage,
+          thumbnailUrl,
+          originalUrl,
+        },
+      };
+    })
+  );
+
+  return {
+    ...quantityTable,
+    groups: enrichedGroups,
+  };
+}
 
 /**
  * 数量表一覧取得クエリスキーマ
@@ -428,64 +502,7 @@ router.get(
       }
 
       // グループ内のsurveyImageのURLを署名付きURLに変換
-      let enrichedQuantityTable = quantityTable;
-      if (isStorageConfigured() && quantityTable.groups) {
-        const storageProvider = getStorageProvider();
-        if (storageProvider) {
-          const enrichedGroups = await Promise.all(
-            quantityTable.groups.map(async (group) => {
-              if (!group.surveyImage) {
-                return group;
-              }
-
-              // 元のURLを保持（署名付きURL生成失敗時のフォールバック）
-              let thumbnailUrl: string = group.surveyImage.thumbnailUrl;
-              let originalUrl: string = group.surveyImage.originalUrl;
-
-              // サムネイルURLを署名付きURLに変換
-              try {
-                // /api/storage/ プレフィックスを除去してパスのみを取得
-                const thumbnailPath = group.surveyImage.thumbnailUrl.replace(
-                  /^\/api\/storage\//,
-                  ''
-                );
-                thumbnailUrl = await storageProvider.getSignedUrl(thumbnailPath);
-              } catch (error) {
-                logger.warn(
-                  { groupId: group.id, thumbnailUrl: group.surveyImage.thumbnailUrl, error },
-                  'Failed to generate signed URL for thumbnail'
-                );
-              }
-
-              // オリジナル画像URLを署名付きURLに変換
-              try {
-                // /api/storage/ プレフィックスを除去してパスのみを取得
-                const originalPath = group.surveyImage.originalUrl.replace(/^\/api\/storage\//, '');
-                originalUrl = await storageProvider.getSignedUrl(originalPath);
-              } catch (error) {
-                logger.warn(
-                  { groupId: group.id, originalUrl: group.surveyImage.originalUrl, error },
-                  'Failed to generate signed URL for original image'
-                );
-              }
-
-              return {
-                ...group,
-                surveyImage: {
-                  ...group.surveyImage,
-                  thumbnailUrl,
-                  originalUrl,
-                },
-              };
-            })
-          );
-
-          enrichedQuantityTable = {
-            ...quantityTable,
-            groups: enrichedGroups,
-          };
-        }
-      }
+      const enrichedQuantityTable = await enrichQuantityTableSignedUrls(quantityTable);
 
       logger.debug(
         { userId: req.user?.userId, quantityTableId: id },
@@ -697,6 +714,10 @@ router.put(
 
       const quantityTable = await quantityTableService.saveDraft(id, input, actorId);
 
+      // 保存直後の応答でも詳細取得（GET /:id）と同様に surveyImage を署名付きURLへ変換し、
+      // 保存後にグループ画像がリンク切れになる事象を防ぐ。
+      const enrichedQuantityTable = await enrichQuantityTableSignedUrls(quantityTable);
+
       logger.info(
         {
           userId: actorId,
@@ -706,7 +727,7 @@ router.put(
         'Quantity table draft saved successfully'
       );
 
-      res.json(quantityTable);
+      res.json(enrichedQuantityTable);
     } catch (error) {
       if (error instanceof QuantityTableNotFoundError) {
         res.status(404).json({

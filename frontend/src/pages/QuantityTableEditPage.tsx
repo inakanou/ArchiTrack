@@ -1046,14 +1046,26 @@ export default function QuantityTableEditPage() {
         imageId: string,
         imageUrl: string
       ): Promise<string | null> => {
+        let objectUrl: string | null = null;
         try {
-          // 画像をロード
+          // 画像をロード（REQ-26.5）。
+          // 画面表示の <img> は crossOrigin 無しで同じURLを読み込むため、ブラウザが非CORSの
+          // レスポンスをキャッシュする。これを crossOrigin='anonymous' で再取得すると、表示済み
+          // （＝可視）グループの画像だけCORSキャッシュ不整合でロード失敗し、PDFに写真が欠ける。
+          // fetch でバイト列を取得し object URL 経由でロードすることで、表示側キャッシュと独立に
+          // CORSクリーンな画像を得て、全グループの写真を確実にレンダリングする。
+          const response = await fetch(imageUrl, { mode: 'cors', cache: 'reload' });
+          if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.status}`);
+          }
+          const blob = await response.blob();
+          objectUrl = URL.createObjectURL(blob);
+
           const htmlImage = await new Promise<HTMLImageElement>((resolve, reject) => {
             const img = new Image();
-            img.crossOrigin = 'anonymous';
             img.onload = () => resolve(img);
             img.onerror = () => reject(new Error('Failed to load image'));
-            img.src = imageUrl;
+            img.src = objectUrl as string;
           });
 
           // 注釈データを取得
@@ -1132,6 +1144,11 @@ export default function QuantityTableEditPage() {
           return dataUrl;
         } catch {
           return null;
+        } finally {
+          // object URL を解放（メモリリーク防止）
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+          }
         }
       };
 

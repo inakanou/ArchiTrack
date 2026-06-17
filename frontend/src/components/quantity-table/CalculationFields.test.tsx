@@ -753,4 +753,76 @@ describe('CalculationFields', () => {
       expect(screen.getByLabelText(/重量/i)).toHaveAttribute('type', 'text');
     });
   });
+
+  // ============================================================================
+  // フォーカス時の全選択（上書き入力の効率化。他の数量項目フィールドと挙動を統一）
+  // ============================================================================
+
+  describe('フォーカス時の全選択', () => {
+    /** input にフォーカスし、中身全体が選択状態になっていることを検証する */
+    const expectSelectAllOnFocus = (input: HTMLInputElement) => {
+      fireEvent.focus(input);
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(input.value.length);
+      // 値が空でないこと（全選択の意味があること）を担保
+      expect(input.value.length).toBeGreaterThan(0);
+    };
+
+    it('面積・体積モードの計算パラメータ（幅・奥行き・高さ・重量）はフォーカスで全選択される', () => {
+      render(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{ width: 10, depth: 20, height: 5, weight: 2.5 } as AreaVolumeParams}
+          onChange={vi.fn()}
+          disabled={false}
+        />
+      );
+
+      expectSelectAllOnFocus(screen.getByLabelText(/幅/i) as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText(/奥行き/i) as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText(/高さ/i) as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText(/重量/i) as HTMLInputElement);
+    });
+
+    it('ピッチモードの計算パラメータ（範囲長・端長1・端長2・ピッチ長・長さ）はフォーカスで全選択される', () => {
+      render(
+        <CalculationFields
+          method="PITCH"
+          params={
+            {
+              rangeLength: 100,
+              endLength1: 10,
+              endLength2: 10,
+              pitchLength: 5,
+              length: 50,
+            } as PitchParams
+          }
+          onChange={vi.fn()}
+          disabled={false}
+        />
+      );
+
+      expectSelectAllOnFocus(screen.getByLabelText(/範囲長/i) as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText(/端長1/i) as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText(/端長2/i) as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText(/ピッチ長/i) as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText('長さ') as HTMLInputElement);
+    });
+
+    it('調整係数・丸め設定フィールドはフォーカスで全選択される', () => {
+      render(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{} as AreaVolumeParams}
+          onChange={vi.fn()}
+          disabled={false}
+          adjustmentFactor={1.25}
+          roundingUnit={0.5}
+        />
+      );
+
+      expectSelectAllOnFocus(screen.getByLabelText('調整係数') as HTMLInputElement);
+      expectSelectAllOnFocus(screen.getByLabelText('丸め設定') as HTMLInputElement);
+    });
+  });
 });

@@ -36,6 +36,15 @@ vi.mock('../../../services/quantity-table.service.js', () => ({
 vi.mock('../../../middleware/authenticate.middleware.js');
 vi.mock('../../../middleware/authorize.middleware.js');
 
+// ストレージプロバイダをモックし、署名付きURL変換を決定論的に検証可能にする。
+// getSignedUrl は `/api/storage/` プレフィックス除去後のパスから署名付きURLを生成する。
+vi.mock('../../../storage/index.js', () => ({
+  isStorageConfigured: vi.fn(() => true),
+  getStorageProvider: vi.fn(() => ({
+    getSignedUrl: vi.fn(async (key: string) => `https://signed.example.com/${key}?sig=test`),
+  })),
+}));
+
 import { authenticate } from '../../../middleware/authenticate.middleware.js';
 import { requirePermission } from '../../../middleware/authorize.middleware.js';
 import { QuantityTableService } from '../../../services/quantity-table.service.js';
@@ -118,6 +127,13 @@ describe('QuantityTablesRoutes', () => {
 
     vi.doMock('../../../middleware/authorize.middleware.js', () => ({
       requirePermission: mockRequirePermission,
+    }));
+
+    vi.doMock('../../../storage/index.js', () => ({
+      isStorageConfigured: vi.fn(() => true),
+      getStorageProvider: vi.fn(() => ({
+        getSignedUrl: vi.fn(async (key: string) => `https://signed.example.com/${key}?sig=test`),
+      })),
     }));
 
     // Import route after mocks are setup
@@ -565,6 +581,56 @@ describe('QuantityTablesRoutes', () => {
           groups: expect.any(Array),
         }),
         'test-user-id'
+      );
+    });
+
+    it('保存レスポンスのsurveyImage URLを署名付きURLに変換して返却する（保存後リンク切れ防止）', async () => {
+      // 保存直後の応答でも詳細取得（GET /:id）と同様に署名付きURL変換を適用することで、
+      // 保存後にグループ画像がリンク切れになる事象を防ぐ。
+      const body = buildSaveBody();
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            quantityTableId: tableId,
+            name: 'グループA',
+            surveyImageId: 'img-1',
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/api/storage/thumbnails/img-1.jpg',
+              originalUrl: '/api/storage/originals/img-1.jpg',
+              fileName: 'img-1.jpg',
+              hasAnnotations: false,
+              annotatedThumbnailUrl: null,
+              comment: null,
+            },
+            displayOrder: 0,
+            itemCount: 0,
+            items: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      mockService.saveDraft.mockResolvedValue(latestDetail);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(body)
+        .expect(200);
+
+      // `/api/storage/` プレフィックスを除去したパスから署名付きURLが生成されること
+      expect(response.body.groups[0].surveyImage.thumbnailUrl).toBe(
+        'https://signed.example.com/thumbnails/img-1.jpg?sig=test'
+      );
+      expect(response.body.groups[0].surveyImage.originalUrl).toBe(
+        'https://signed.example.com/originals/img-1.jpg?sig=test'
       );
     });
 

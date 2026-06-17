@@ -210,6 +210,11 @@ function NumberInputField({
     setLocalValue(e.target.value);
   }, []);
 
+  // フォーカス時に既存値を全選択（上書き入力の効率化。他の数量項目フィールドと挙動を統一）
+  const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  }, []);
+
   // blur時に小数2桁でフォーマットして親に通知
   const handleBlur = useCallback(() => {
     const trimmedValue = localValue.trim();
@@ -242,6 +247,7 @@ function NumberInputField({
         inputMode="decimal"
         value={localValue}
         onChange={handleChange}
+        onFocus={handleFocus}
         onBlur={handleBlur}
         disabled={disabled}
         className="hide-spinner"
@@ -314,6 +320,11 @@ function AdjustmentField({
     setLocalValue(e.target.value);
   }, []);
 
+  // フォーカス時に既存値を全選択（上書き入力の効率化。他の数量項目フィールドと挙動を統一）
+  const handleFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  }, []);
+
   // blur時に小数2桁でフォーマットして親に通知
   const handleBlur = useCallback(() => {
     const trimmedValue = localValue.trim();
@@ -344,6 +355,7 @@ function AdjustmentField({
         inputMode="decimal"
         value={localValue}
         onChange={handleChange}
+        onFocus={handleFocus}
         onBlur={handleBlur}
         disabled={disabled}
         className="hide-spinner"
