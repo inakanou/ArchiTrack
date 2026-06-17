@@ -69,6 +69,6 @@
     "@prisma/client": "^7.5.0"
   },
   "overrides": {
-    "hono": "^4.11.4"
+    "hono": "^4.12.25"
   }
 }

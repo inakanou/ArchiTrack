@@ -93,6 +93,12 @@ export interface SurveyImageSummary {
   thumbnailUrl: string;
   originalUrl: string;
   fileName: string;
+  /**
+   * 注釈データの有無。
+   * 数量表詳細取得時に注釈リレーションの存在のみを判定して返す。
+   * フロントは false の場合に注釈取得APIの呼び出しを省略できる（画面オープン時のN+1抑止）。
+   */
+  hasAnnotations: boolean;
   /** 注釈付きサムネイルURL（REQ-3.3, 4.2, 19.2, 20.2） */
   annotatedThumbnailUrl: string | null;
   /** 写真コメント（REQ-21.1, 21.2） */
@@ -457,6 +463,11 @@ export class QuantityTableService {
                 annotatedThumbnailPath: true,
                 fileName: true,
                 comment: true,
+                // 注釈の有無のみ判定する（重いdataは取得しない）。
+                // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
+                annotation: {
+                  select: { id: true },
+                },
               },
             },
             items: {
@@ -1470,6 +1481,7 @@ export class QuantityTableService {
         annotatedThumbnailPath: string | null;
         fileName: string;
         comment: string | null;
+        annotation: { id: string } | null;
       } | null;
       items: Array<{
         id: string;
@@ -1507,6 +1519,7 @@ export class QuantityTableService {
             thumbnailUrl: `/api/storage/${g.surveyImage.thumbnailPath}`,
             originalUrl: `/api/storage/${g.surveyImage.originalPath}`,
             fileName: g.surveyImage.fileName,
+            hasAnnotations: g.surveyImage.annotation !== null,
             annotatedThumbnailUrl: g.surveyImage.annotatedThumbnailPath
               ? `/api/storage/${g.surveyImage.annotatedThumbnailPath}`
               : null,

@@ -185,6 +185,38 @@ describe('AnnotatedImageThumbnail', () => {
     });
   });
 
+  describe('hasAnnotations プロップによる注釈取得の制御（一覧表示N+1抑止）', () => {
+    it('hasAnnotations=false のときは getAnnotation を呼ばず元画像を表示する', async () => {
+      render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={false} />);
+
+      await waitFor(() => {
+        const img = screen.getByRole('img');
+        expect(img).toHaveAttribute('src', mockImage.mediumUrl);
+      });
+      expect(surveyAnnotationsApi.getAnnotation).not.toHaveBeenCalled();
+    });
+
+    it('hasAnnotations=true のときは従来通り getAnnotation を呼ぶ', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={true} />);
+
+      await waitFor(() => {
+        expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalledWith(mockImage.id);
+      });
+    });
+
+    it('hasAnnotations 未指定のときは従来通り getAnnotation を呼ぶ（後方互換）', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      await waitFor(() => {
+        expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalledWith(mockImage.id);
+      });
+    });
+  });
+
   describe('注釈がある場合', () => {
     it('注釈付き画像がレンダリングされる', async () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({

@@ -209,6 +209,63 @@ describe('QuantityTableService', () => {
       // Assert
       expect(result).toBeNull();
     });
+
+    // 画面オープン時の注釈N+1リクエスト抑止のため、
+    // surveyImage.hasAnnotations を注釈リレーションの有無から導出して返すことを検証する。
+    const buildGroupWithImage = (annotation: { id: string } | null) => ({
+      id: '123e4567-e89b-12d3-a456-426614174010',
+      quantityTableId,
+      name: null,
+      surveyImageId: 'img-1',
+      displayOrder: 0,
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      surveyImage: {
+        id: 'img-1',
+        thumbnailPath: 'surveys/s/thumb.jpg',
+        originalPath: 'surveys/s/orig.jpg',
+        annotatedThumbnailPath: null,
+        fileName: 'orig.jpg',
+        comment: null,
+        annotation,
+      },
+      items: [],
+      _count: { items: 0 },
+    });
+
+    const buildTableWithGroup = (annotation: { id: string } | null) => ({
+      id: quantityTableId,
+      projectId: '123e4567-e89b-12d3-a456-426614174000',
+      name: 'テスト数量表',
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      deletedAt: null,
+      project: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'テストプロジェクト' },
+      groups: [buildGroupWithImage(annotation)],
+      _count: { groups: 1 },
+    });
+
+    it('注釈リレーションが存在する場合は surveyImage.hasAnnotations が true になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithGroup({ id: 'ann-1' }));
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasAnnotations).toBe(true);
+    });
+
+    it('注釈リレーションが存在しない場合は surveyImage.hasAnnotations が false になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithGroup(null));
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasAnnotations).toBe(false);
+    });
   });
 
   describe('findByProjectId', () => {

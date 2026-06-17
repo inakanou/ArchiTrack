@@ -82,6 +82,12 @@ export interface SurveyImageInfo {
   comment: string | null;
   includeInReport: boolean;
   createdAt: Date;
+  /**
+   * 注釈データの有無。
+   * 現場調査詳細取得時に注釈リレーションの存在のみを判定して返す。
+   * フロントは false の場合に注釈取得APIの呼び出しを省略できる（画面オープン時のN+1抑止）。
+   */
+  hasAnnotations: boolean;
 }
 
 /**
@@ -394,6 +400,13 @@ export class SiteSurveyService {
           orderBy: {
             displayOrder: 'asc',
           },
+          // 注釈の有無のみ判定する（重いdataは取得しない）。
+          // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
+          include: {
+            annotation: {
+              select: { id: true },
+            },
+          },
         },
       },
     });
@@ -539,6 +552,7 @@ export class SiteSurveyService {
       comment: string | null;
       includeInReport: boolean;
       createdAt: Date;
+      annotation: { id: string } | null;
     }>;
   }): SiteSurveyDetail {
     const images: SurveyImageInfo[] = siteSurvey.images.map((img) => ({
@@ -555,6 +569,7 @@ export class SiteSurveyService {
       comment: img.comment,
       includeInReport: img.includeInReport,
       createdAt: img.createdAt,
+      hasAnnotations: img.annotation !== null,
     }));
 
     return {
