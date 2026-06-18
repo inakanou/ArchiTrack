@@ -84,6 +84,30 @@ describe('AutocompleteInput', () => {
       expect(screen.getByRole('option', { name: '建設工事' })).toBeInTheDocument();
     });
 
+    // REQ-41回帰対応: 数量項目テーブルの水平スクロールラッパー（itemTableWrapper の
+    // overflow）に絶対配置ドロップダウンがクリップされ、候補が一切表示されなくなった
+    // 不具合を防止する。ドロップダウンは Portal で document.body 直下に描画し、
+    // 祖先の overflow クリップ枠の外へ逃がす。
+    it('ドロップダウンはPortalでdocument.body直下に描画され祖先のoverflowにクリップされない', async () => {
+      getSuggestions.mockReturnValue(['建築工事', '建設工事']);
+
+      render(
+        <div data-testid="overflow-wrapper" style={{ overflowX: 'auto', overflowY: 'hidden' }}>
+          <AutocompleteInput {...defaultProps} value="建" />
+        </div>
+      );
+
+      const input = screen.getByRole('combobox');
+      await userEvent.click(input);
+
+      const listbox = screen.getByRole('listbox');
+      const wrapper = screen.getByTestId('overflow-wrapper');
+      // overflow を持つ祖先ラッパーの内側には描画されない（クリップ回避）
+      expect(wrapper).not.toContainElement(listbox);
+      // Portal により document.body 直下へ描画される
+      expect(listbox.parentElement).toBe(document.body);
+    });
+
     it('候補がない場合はドロップダウンが表示されない', () => {
       getSuggestions.mockReturnValue([]);
 
