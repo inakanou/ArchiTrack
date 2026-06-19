@@ -16,7 +16,8 @@
  * - 7.7: 候補を50音順に表示
  */
 
-import { useState, useRef, useCallback, useId, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useId, useEffect, useLayoutEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
 import FieldValidationTooltip from './FieldValidationTooltip';
 
@@ -112,11 +113,11 @@ const styles = {
     cursor: 'not-allowed',
   } as React.CSSProperties,
   dropdown: {
-    position: 'absolute' as const,
-    top: '100%',
-    left: 0,
-    minWidth: '100%',
-    marginTop: '2px',
+    // Portal で document.body 直下に描画するため fixed 配置とする。
+    // 旧来は absolute だったが、数量項目テーブルの水平スクロールラッパー
+    // (itemTableWrapper の overflow) にクリップされ候補が表示されなかった（REQ-41 回帰）。
+    // 入力欄の getBoundingClientRect から top/left/width を動的に与える。
+    position: 'fixed' as const,
     maxHeight: '200px',
     overflowY: 'auto' as const,
     overflowX: 'hidden' as const,
@@ -124,7 +125,8 @@ const styles = {
     border: '1px solid #e5e7eb',
     borderRadius: '0px',
     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-    zIndex: 50,
+    // body 直下に出すため、モーダル等より前面に来るよう十分高い z-index を設定。
+    zIndex: 1000,
   } as React.CSSProperties,
   option: {
     padding: '4px 8px',
@@ -181,6 +183,12 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [hoveredIndex, setHoveredIndex] = useState(-1);
+  // Portal 描画するドロップダウンの fixed 配置座標（入力欄の位置から算出）
+  const [dropdownRect, setDropdownRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
@@ -192,6 +200,36 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
 
   // 候補があり、フォーカス中の場合にドロップダウンを開く
   const shouldShowDropdown = isOpen && suggestions.length > 0;
+
+  /**
+   * 入力欄の現在位置から Portal ドロップダウンの fixed 座標を再計算する。
+   * 入力欄直下（2px ギャップ）に左端・幅を揃えて配置する。
+   */
+  const updateDropdownRect = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setDropdownRect({ top: rect.bottom + 2, left: rect.left, width: rect.width });
+  }, []);
+
+  /**
+   * ドロップダウン表示中は、祖先要素のスクロール（水平スクロールラッパー含む）や
+   * ウィンドウリサイズに追従して配置を更新する。capture: true で祖先のスクロールも捕捉。
+   */
+  useLayoutEffect(() => {
+    if (!shouldShowDropdown) {
+      setDropdownRect(null);
+      return;
+    }
+    updateDropdownRect();
+    const handleReposition = () => updateDropdownRect();
+    window.addEventListener('scroll', handleReposition, true);
+    window.addEventListener('resize', handleReposition);
+    return () => {
+      window.removeEventListener('scroll', handleReposition, true);
+      window.removeEventListener('resize', handleReposition);
+    };
+  }, [shouldShowDropdown, updateDropdownRect]);
 
   /**
    * 候補を選択してドロップダウンを閉じる
@@ -389,43 +427,56 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
         )}
       </div>
 
-      {/* ドロップダウン候補リスト */}
-      {shouldShowDropdown && (
-        <ul
-          ref={listboxRef}
-          id={listboxId}
-          role="listbox"
-          aria-label={`${label || ariaLabel || ''}の候補`}
-          style={styles.dropdown}
-        >
-          {suggestions.map((suggestion, index) => {
-            const isSelected = index === selectedIndex;
-            const isHovered = index === hoveredIndex;
-            const optionId = `${listboxId}-option-${index}`;
+      {/* ドロップダウン候補リスト。
+          水平スクロールラッパー（itemTableWrapper の overflow）にクリップされないよう、
+          Portal で document.body 直下に fixed 配置で描画する（REQ-41 回帰対応）。 */}
+      {shouldShowDropdown &&
+        dropdownRect &&
+        createPortal(
+          <ul
+            ref={listboxRef}
+            id={listboxId}
+            role="listbox"
+            aria-label={`${label || ariaLabel || ''}の候補`}
+            style={{
+              ...styles.dropdown,
+              top: dropdownRect.top,
+              left: dropdownRect.left,
+              width: dropdownRect.width,
+            }}
+          >
+            {suggestions.map((suggestion, index) => {
+              const isSelected = index === selectedIndex;
+              const isHovered = index === hoveredIndex;
+              const optionId = `${listboxId}-option-${index}`;
 
-            const optionStyles = {
-              ...styles.option,
-              ...(isSelected ? styles.optionSelected : {}),
-              ...(isHovered && !isSelected ? styles.optionHover : {}),
-            };
+              const optionStyles = {
+                ...styles.option,
+                ...(isSelected ? styles.optionSelected : {}),
+                ...(isHovered && !isSelected ? styles.optionHover : {}),
+              };
 
-            return (
-              <li
-                key={suggestion}
-                id={optionId}
-                role="option"
-                aria-selected={isSelected}
-                style={optionStyles}
-                onClick={() => handleOptionClick(suggestion)}
-                onMouseEnter={() => setHoveredIndex(index)}
-                onMouseLeave={() => setHoveredIndex(-1)}
-              >
-                {suggestion}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+              return (
+                <li
+                  key={suggestion}
+                  id={optionId}
+                  role="option"
+                  aria-selected={isSelected}
+                  style={optionStyles}
+                  // Portal 先でのクリックでも入力欄の blur が先に閉じないよう、
+                  // mousedown の既定動作（フォーカス移動）を抑止する。
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleOptionClick(suggestion)}
+                  onMouseEnter={() => setHoveredIndex(index)}
+                  onMouseLeave={() => setHoveredIndex(-1)}
+                >
+                  {suggestion}
+                </li>
+              );
+            })}
+          </ul>,
+          document.body
+        )}
     </div>
   );
 }
