@@ -31,6 +31,8 @@ export interface AnnotatedImageInput {
   originalUrl?: string | null;
   /** 中解像度画像URL（署名付きURL、優先使用） */
   mediumUrl?: string | null;
+  /** サムネイル画像URL（署名付きURL、preferThumbnail指定時に最優先で使用） */
+  thumbnailUrl?: string | null;
   /** オリジナル画像パス（フォールバック用） */
   originalPath?: string;
   /** ファイル名 */
@@ -55,6 +57,13 @@ export interface AnnotatedImageThumbnailProps {
    * - `true` / `undefined`: 従来通り注釈データを取得してレンダリングする。
    */
   hasAnnotations?: boolean;
+  /**
+   * サムネイルURLを最優先で使用するか。
+   * 一覧グリッドのような縮小表示で、フル解像度の原画像を読み込む代わりに
+   * サムネイル画像を表示し、通信量と再描画コストを削減する。
+   * 既定は `false`（従来通り mediumUrl > originalUrl の順でフォールバック）。
+   */
+  preferThumbnail?: boolean;
 }
 
 // ============================================================================
@@ -74,6 +83,7 @@ export function AnnotatedImageThumbnail({
   onClick,
   loading = 'lazy',
   hasAnnotations,
+  preferThumbnail = false,
 }: AnnotatedImageThumbnailProps) {
   const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -81,8 +91,12 @@ export function AnnotatedImageThumbnail({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mountedRef = useRef(true);
 
-  // 元画像のURL（中解像度画像 > オリジナル画像の順でフォールバック）
-  const originalImageUrl = image.mediumUrl ?? image.originalUrl ?? image.originalPath;
+  // 表示に使用する画像URL。
+  // preferThumbnail=true のときはサムネイルを最優先（縮小表示で通信量を削減）。
+  // それ以外は従来通り 中解像度画像 > オリジナル画像 の順でフォールバック。
+  const originalImageUrl = preferThumbnail
+    ? (image.thumbnailUrl ?? image.mediumUrl ?? image.originalUrl ?? image.originalPath)
+    : (image.mediumUrl ?? image.originalUrl ?? image.originalPath);
 
   /**
    * 画像をロードする

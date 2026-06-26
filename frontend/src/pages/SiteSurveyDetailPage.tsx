@@ -588,14 +588,23 @@ export default function SiteSurveyDetailPage() {
           },
         });
 
-        // 成功した画像がある場合、データを再取得して画像一覧を更新
-        // fetchData内でsetError(null)が呼ばれるため、エラーメッセージ設定前に実行する
+        // 成功した画像がある場合、詳細データ全体を再取得せず、返却された画像を
+        // ローカル状態へ追記する。アップロード応答には署名付きURL（originalUrl/
+        // thumbnailUrl）が含まれるため、再取得なしで即座に一覧へ表示できる。
+        // 1枚追加するたびに全画像を再取得・再描画する遅延を回避する目的。
         if (results.length > 0) {
-          await fetchData();
+          setSurvey((prev) => {
+            if (!prev) return prev;
+            // 表示順序（サーバ採番済み）でソートして一覧の整合性を保つ
+            const mergedImages = [...prev.images, ...results].sort(
+              (a, b) => a.displayOrder - b.displayOrder
+            );
+            return { ...prev, images: mergedImages };
+          });
         }
 
         // エラーがある場合、ユーザーに通知 (Requirement 19.11)
-        // fetchDataの後に設定することで、fetchData内のsetError(null)で上書きされることを防ぐ
+        // 冒頭で setError(null) 済みのため、成功時はエラー表示が残らない
         if (errors.length > 0) {
           const successCount = results.length;
           const errorCount = errors.length;
@@ -630,7 +639,7 @@ export default function SiteSurveyDetailPage() {
         setUploadProgress(undefined);
       }
     },
-    [id, fetchData]
+    [id]
   );
 
   /**

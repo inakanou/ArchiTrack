@@ -141,26 +141,39 @@ describe('PhotoManagementPanel', () => {
   });
 
   // ==========================================================================
-  // 中解像度画像表示テスト
+  // サムネイル画像表示テスト（一覧表示の高速化: preferThumbnail）
   // ==========================================================================
 
-  describe('中解像度画像表示', () => {
-    it('サムネイルURLではなく中解像度画像URLを使用すること', () => {
+  describe('サムネイル画像表示', () => {
+    it('一覧ではサムネイル画像URLを優先使用すること', () => {
       render(<PhotoManagementPanel {...defaultProps} />);
 
       const images = screen.getAllByRole('img');
-      expect(images[0]).toHaveAttribute('src', 'https://example.com/medium/img-1.jpg');
-      expect(images[1]).toHaveAttribute('src', 'https://example.com/medium/img-2.jpg');
-      expect(images[2]).toHaveAttribute('src', 'https://example.com/medium/img-3.jpg');
+      expect(images[0]).toHaveAttribute('src', 'https://example.com/thumbnail/img-1.jpg');
+      expect(images[1]).toHaveAttribute('src', 'https://example.com/thumbnail/img-2.jpg');
+      expect(images[2]).toHaveAttribute('src', 'https://example.com/thumbnail/img-3.jpg');
     });
 
-    it('中解像度画像URLがない場合はオリジナル画像URLにフォールバックすること', () => {
-      const imagesWithoutMedium = mockImages.map((img) => ({
+    it('サムネイルURLがない場合は中解像度画像URLにフォールバックすること', () => {
+      const imagesWithoutThumbnail = mockImages.map((img) => ({
         ...img,
+        thumbnailUrl: undefined,
+      }));
+
+      render(<PhotoManagementPanel {...defaultProps} images={imagesWithoutThumbnail} />);
+
+      const images = screen.getAllByRole('img');
+      expect(images[0]).toHaveAttribute('src', 'https://example.com/medium/img-1.jpg');
+    });
+
+    it('サムネイル・中解像度URLがない場合はオリジナル画像URLにフォールバックすること', () => {
+      const imagesWithoutThumbAndMedium = mockImages.map((img) => ({
+        ...img,
+        thumbnailUrl: undefined,
         mediumUrl: undefined,
       }));
 
-      render(<PhotoManagementPanel {...defaultProps} images={imagesWithoutMedium} />);
+      render(<PhotoManagementPanel {...defaultProps} images={imagesWithoutThumbAndMedium} />);
 
       const images = screen.getAllByRole('img');
       expect(images[0]).toHaveAttribute('src', 'https://example.com/original/img-1.jpg');
@@ -1100,13 +1113,13 @@ describe('PhotoManagementPanel', () => {
       render(<PhotoManagementPanel {...defaultProps} />);
 
       // AnnotatedImageThumbnailが各画像に対してレンダリングされていること
-      // (AnnotatedImageThumbnailは内部でmediumUrl > originalUrlの順でフォールバックする)
+      // (preferThumbnail指定によりthumbnailUrlを最優先で使用する)
       const images = screen.getAllByRole('img');
       expect(images).toHaveLength(mockImages.length);
 
-      // 各画像がmediumUrlで表示されていること（AnnotatedImageThumbnailの動作）
+      // 各画像がthumbnailUrlで表示されていること（preferThumbnailの動作）
       images.forEach((img, index) => {
-        expect(img).toHaveAttribute('src', `https://example.com/medium/img-${index + 1}.jpg`);
+        expect(img).toHaveAttribute('src', `https://example.com/thumbnail/img-${index + 1}.jpg`);
       });
     });
   });
