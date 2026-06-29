@@ -50,7 +50,7 @@ import {
 import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
 import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
 import { AnnotationGuide } from './AnnotationGuide';
-import { GUIDE_IDLE_MS } from './gestures/gesture-thresholds';
+import { GUIDE_IDLE_MS, COOLDOWN_MS } from './gestures/gesture-thresholds';
 import { createArrow } from './tools/ArrowTool';
 import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
@@ -188,6 +188,9 @@ const STYLES = {
   },
   canvasWrapper: {
     position: 'relative' as const,
+    // Task 96.2 (Req 33.5, 30.1): ブラウザ既定のタッチジェスチャー（スクロール/ピンチズーム等）を
+    // 抑止し、touchGestureManager の PointerEvent ベース調停にジェスチャーを一本化する。
+    touchAction: 'none' as const,
   },
   loadingOverlay: {
     position: 'absolute' as const,
@@ -403,6 +406,15 @@ function AnnotationEditor({
 
   // Task 96.1: initialZoom/initialPan を canvas ごとに一度だけ適用するためのガード参照。
   const initialViewAppliedRef = useRef(false);
+
+  // Task 96.2 (Req 33.5, 30.1): 2本指ジェスチャー突入時に退避する描画モード（isDrawingMode）。
+  // cooldown→idle 復帰時に、退避値と選択中ツールに応じて isDrawingMode を復元する。
+  const prevDrawingModeRef = useRef(false);
+
+  // Task 96.2 (Req 33.7): ジェスチャー終了（cooldown→idle）を検出して描画モードを復元するための
+  // ポーリングタイマ参照。touchGestureManager は終了コールバックを持たないため、
+  // getTouchState() をポーリングして idle 復帰を捉える。
+  const gestureRestoreTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fabric.js と UndoManager の連携フック
   // fabricCanvasRef.currentを使用（Canvasがない場合はnull）
@@ -1502,14 +1514,90 @@ function AnnotationEditor({
       return;
     }
     const gestureManager = createTouchGestureManager();
+
+    /**
+     * Task 96.2 (Req 33.7): ジェスチャー終了（cooldown→idle、全指離脱後の復帰タイミング）を
+     * getTouchState() のポーリングで検出し、退避していた描画モードを復元する。
+     * touchGestureManager は終了コールバックを公開しないため（境界外・変更不可）、
+     * 状態ゲッターをポーリングして idle 復帰を捉える。復元値は「退避した描画モード」と
+     * 「現在の選択中ツール」の両方を考慮する（ジェスチャー中にツールが変わった場合の安全策）。
+     */
+    const stopRestorePolling = (): void => {
+      if (gestureRestoreTimerRef.current !== null) {
+        clearInterval(gestureRestoreTimerRef.current);
+        gestureRestoreTimerRef.current = null;
+      }
+    };
+    const startRestorePolling = (): void => {
+      stopRestorePolling();
+      gestureRestoreTimerRef.current = setInterval(() => {
+        if (gestureManager.getTouchState() !== 'idle') {
+          return;
+        }
+        const currentCanvas = fabricCanvasRef.current;
+        if (currentCanvas) {
+          // 退避した描画モードかつ現在もフリーハンド選択中の場合のみ描画モードへ復帰する。
+          currentCanvas.isDrawingMode =
+            prevDrawingModeRef.current && activeToolRef.current === 'freehand';
+        }
+        stopRestorePolling();
+      }, COOLDOWN_MS);
+    };
+
+    /**
+     * Task 96.2 (Req 33.5, 30.1): 2本目の指が追加され two-finger-pinch-pan へ遷移する瞬間に
+     * touchGestureManager から発火されるコールバック。進行中の描画を確定せず中断する:
+     *   1. 現在の isDrawingMode を退避し、即座に false 化して以後の描画入力を止める
+     *   2. 進行中のフリーハンド・ブラシストロークを破棄（中途半端なパスを残さない）
+     *   3. シェイプツールの進行中ドラッグ／プレビューも中断・除去する
+     *   4. cooldown→idle 復帰で描画モードを戻すためのポーリングを開始する
+     */
+    const handleGestureStart = (): void => {
+      const currentCanvas = fabricCanvasRef.current;
+      if (!currentCanvas) {
+        return;
+      }
+
+      // 1) 描画モードを退避して即時停止
+      prevDrawingModeRef.current = currentCanvas.isDrawingMode;
+      currentCanvas.isDrawingMode = false;
+
+      // 2) 進行中のブラシストロークを破棄（Fabric PencilBrush の内部点列・トップコンテキスト）
+      const brush = currentCanvas.freeDrawingBrush as { _reset?: () => void } | null | undefined;
+      brush?._reset?.();
+      const drawingSurface = currentCanvas as unknown as {
+        _isCurrentlyDrawing?: boolean;
+        contextTop?: CanvasRenderingContext2D | null;
+        clearContext?: (ctx: CanvasRenderingContext2D) => void;
+      };
+      drawingSurface._isCurrentlyDrawing = false;
+      if (drawingSurface.contextTop && typeof drawingSurface.clearContext === 'function') {
+        drawingSurface.clearContext(drawingSurface.contextTop);
+      }
+
+      // 3) シェイプツールの進行中ドラッグ／プレビューを中断（誤コミット防止）
+      dragStateRef.current = { isDragging: false, startPoint: null };
+      if (previewShapeRef.current) {
+        setProgrammaticRef.current(true);
+        currentCanvas.remove(previewShapeRef.current);
+        setProgrammaticRef.current(false);
+        previewShapeRef.current = null;
+      }
+      currentCanvas.requestRenderAll?.();
+
+      // 4) ジェスチャー終了（cooldown→idle）での描画モード復帰ポーリングを開始
+      startRestorePolling();
+    };
+
     const detach = gestureManager.attach(
       canvas as unknown as import('./gestures/touchGestureManager').FabricCanvasLike,
       () => activeToolRef.current,
-      { viewportController }
+      { viewportController, onGestureStart: handleGestureStart }
     );
     touchGestureDetachRef.current = detach;
 
     return () => {
+      stopRestorePolling();
       try {
         detach();
       } catch (err) {
@@ -2014,7 +2102,12 @@ function AnnotationEditor({
           onKeyDown={readOnly ? undefined : handleKeyDown}
         >
           {/* Canvas - 動的に生成されるCanvas要素のコンテナ */}
-          <div ref={canvasWrapperRef} style={STYLES.canvasWrapper} />
+          {/* Task 96.2 (Req 33.5, 30.1): touch-action:none でブラウザ既定ジェスチャーを抑止 */}
+          <div
+            ref={canvasWrapperRef}
+            style={STYLES.canvasWrapper}
+            data-testid="annotation-canvas-wrapper"
+          />
 
           {/* ローディング表示 */}
           {state.isLoading && (

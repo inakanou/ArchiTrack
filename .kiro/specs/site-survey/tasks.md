@@ -2401,7 +2401,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Depends: 92, 93.1, 94.1_
   - _Requirements: 33.9, 34.1, 34.2, 34.8_
   - _Boundary: AnnotationEditor_
-- [ ] 96.2 2本指検出時の描画中断（isDrawingMode 退避/ブラシ破棄）と座標整合
+- [x] 96.2 2本指検出時の描画中断（isDrawingMode 退避/ブラシ破棄）と座標整合
   - `touchGestureManager` の `onGestureStart` を受けて `isDrawingMode=false` 化と進行中ブラシパスの破棄を行い、cooldown→idle で元ツールの描画モードを復帰する。canvas ラッパに `touch-action: none` を付与する
   - 拡大中の1本指描画が `options.scenePoint`（viewport 考慮）により正しい位置へ落ちることを確認する
   - 観測可能な完了状態: 描画途中に2本指を置くとゴミ線が残らずズーム/パンへ移行し、拡大状態でも描画が指位置に一致する
@@ -2478,3 +2478,4 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 | 34.7  | 91.1, 93.1, 98.1                    |
 | 34.8  | 94.1, 94.2, 96.1                    |
 - **90.2**: 一括エクスポートのメモリ・処理時間も JSDOM では `performance.memory` および Canvas Blob 経路が利用不可のため、`frontend/src/__tests__/performance/bulk-export-memory.perf.test.ts` で 30 枚 × multiplier=2 のタスク構造的フットプリント、処理時間上限（30 秒）、ピークメモリ上限（250MB）を契約として宣言。実機計測手順を docstring に再現可能な形で記録し、`design.md` L5628 の Rollback trigger と整合させた。
+- **96.2**: 描画中断後の描画モード復帰は、touchGestureManager が終了コールバックを公開していないため `getTouchState()` の COOLDOWN_MS ポーリングで idle 復帰を検出する方式とした（境界内で唯一の手段）。リーク無し・誤復帰防止済みだが、cooldown 中に連続再ピンチが入ると稀に未復帰となるエッジが残る。本質解決は touchGestureManager に `onGestureEnd` コールバックを追加すること（将来の touchGestureManager 改修・97 と併せて検討可）。
