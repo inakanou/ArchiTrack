@@ -2431,7 +2431,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Validation - E2E
 
-- [ ] 98. E2E 検証（編集モードのモバイルUX）
+- [x] 98. E2E 検証（編集モードのモバイルUX）
 - [x] 98.1 (P) ピンチズーム後の正確描画・2本指パン・等倍時パン抑止 E2E
   - 編集モードで2本指ピンチ→拡大→1本指描画が拡大後の正しい位置に落ちることを検証する
   - 2本指ドラッグでパンし、等倍時はパンしないことを検証する
@@ -2442,7 +2442,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Depends: 96.1, 96.2_
   - _Requirements: 33.1, 33.2, 33.4, 33.5, 33.6, 33.13, 34.7_
   - _Boundary: E2E Test_
-- [ ] 98.2 (P) ダブルタップズーム・ズームUI・拡大中の選択移動・44px a11y E2E
+- [x] 98.2 (P) ダブルタップズーム・ズームUI・拡大中の選択移動・44px a11y E2E
   - 空き領域ダブルタップで拡大トグル、テキスト注釈上は編集に入ることを検証する
   - ズームUIのイン/アウト/フィットと倍率バッジ更新、拡大中の注釈タップ選択→ドラッグ移動の追従を検証する
   - axe-playwright でズームUI・選択ハンドルの44pxタッチターゲットを検証する
@@ -2483,3 +2483,5 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **98.1（E2Eで本番バグ検出→修正）**: ジェスチャー検出器が実機で発火しなかった本番バグを E2E が検出。真因は `touchGestureManager.attach` が `canvas.getElement()`（Fabric 7.x では lower-canvas）にリスナを張っていたこと。実イベントは upper-canvas に届くため commit 052a0a2 で `upperCanvasEl ?? getElement()` に是正。CDPマルチタッチは2本指 PointerEvent を正しく合成し、PointerEvent 一本化方針は実機でも成立する。
 - **E2E実行の必須運用（再発防止）**: `npm run test:docker` / playwright webServer は frontend イメージを再ビルドせず（`up -d`・`reuseExistingServer:true`）、ソース変更が反映されず**陳腐化イメージで偽陰性**を起こす。E2E は必ず `docker compose -p architrack-test ... up -d --build frontend`（または `test:docker:build`）で再ビルドしてから実行すること。恒久対策として webServer/スクリプトを `--build` 前提に変更するのが望ましい（test-infra 改善・別途）。
 - **将来改善（非ブロッカー）**: ピンチのズーム基準点は `event.clientX/Y`（ページ座標）を controller.zoomToPoint に渡しており、Fabric 期待のキャンバス相対座標とズーム中心がずれ得る。Task 98.1 は viewportTransform 基準の自己整合検証で PASS。ズーム中心の厳密一致を要件化する場合のみキャンバス相対へ変換する改善余地あり。
+- **98.2（E2Eで本番バグ2件検出→修正）**: ①**ZoomControls 画面外バグ**＝パンくず(`Breadcrumb` の折返し不可 flex 行)が device 幅(390)を超えて水平 overflow しレイアウトビューポートを 572x1238 へ拡張、`position:fixed; bottom:16px` が画面外(y≈1162)へ。`SiteSurveyImageViewerPage.tsx` の breadcrumbContainer に `overflowX:auto` を付与して 390x844 に復帰、ZoomControls を下部右端縦並びに再配置（キャンバス中央を空け 34.8 充足）。実機(実スマホ)で再現する実バグ。②**Fabric `_offset` 陳腐化バグ**＝Fabric v7 は `calcOffset` を window resize にのみ自動登録し scroll 非対応。テキスト編集の隠し textarea フォーカスでページが scroll し `_offset` が陳腐化→`findTarget`(ダブルタップ調停/選択)が誤判定。`AnnotationEditor` で scroll/resize/visualViewport/touchstart・pointerdown(capture) 時に `calcOffset()` 再計算する effect を追加。E2E は `force:true` を撤去し到達性(boundingBox が viewport 内)を実アサーション化、計装回避も撤去。
+- **E2E偽陰性の教訓**: 98.1 の初回赤は陳腐化 Docker イメージ、98.2 の force:true は偽緑、と E2E まわりで偽陰性/偽緑が連続した。E2E は必ず `--build` 再ビルド＋実到達性検証で運用すること。

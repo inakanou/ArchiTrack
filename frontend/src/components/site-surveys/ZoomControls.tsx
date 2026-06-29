@@ -46,13 +46,18 @@ export interface ZoomControlsProps {
 
 const STYLES = {
   // Req 34.6: 画面下部の片手到達領域に固定配置する。
+  // Task 98.2: モバイルでは注釈キャンバスが小画面の下部いっぱいを占めるため、横並びの
+  // 下部中央バーだと描画/編集の主作業領域（キャンバス中央）を覆ってしまう。Req 34.8
+  // （ズーム操作を背景画像の描画ヒット領域外に置く）と両立させるため、下部「右端」に
+  // 縦並びのコンパクトなスタックとして配置し、キャンバス中央の操作領域を空ける
+  // （右手親指での片手到達も満たす）。position:fixed は維持（レイアウトビューポート＝
+  // デバイス幅である前提。ホスト画面側でページ水平 overflow を抑止すること）。
   container: {
     position: 'fixed' as const,
     bottom: '16px',
-    left: '50%',
-    transform: 'translateX(-50%)',
+    right: '16px',
     display: 'flex',
-    flexDirection: 'row' as const,
+    flexDirection: 'column' as const,
     alignItems: 'center',
     gap: '8px',
     padding: '8px',

@@ -33,12 +33,24 @@
  * @requirement site-survey/REQ-33.6
  * @requirement site-survey/REQ-33.13
  * @requirement site-survey/REQ-34.7
+ *
+ * Task 98.2: ダブルタップズーム調停・ズームUI・拡大中の選択移動・44px a11y を
+ *   実タッチ（CDP）/ 実DOM計測 / axe で検証する。
+ * @requirement site-survey/REQ-33.8
+ * @requirement site-survey/REQ-33.11
+ * @requirement site-survey/REQ-33.12
+ * @requirement site-survey/REQ-34.1
+ * @requirement site-survey/REQ-34.4
+ * @requirement site-survey/REQ-34.5
+ * @requirement site-survey/REQ-34.6
+ * @requirement site-survey/REQ-29.4
  */
 
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type BrowserContext, type CDPSession } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -770,5 +782,605 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     if (!firstObjAfter) return;
     expect(Math.abs(firstObjAfter.left - firstObj.left)).toBeLessThan(1);
     expect(Math.abs(firstObjAfter.top - firstObj.top)).toBeLessThan(1);
+  });
+});
+
+// ============================================================================
+// Task 98.2: ダブルタップズーム調停 / ズームUI / 拡大中の選択移動 / 44px a11y
+// ============================================================================
+//
+// Requirements coverage（design.md「Requirements 29.4, 33-34」/ E2E 必須カバレッジ）:
+//   - 33.8 / 27.1: 空き領域ダブルタップで拡大⇄全体トグル、テキスト注釈上ダブルタップは
+//     編集に入りズームしない（findTarget 用途調停の実機検証）
+//   - 34.1 / 34.4: ZoomControls のズームイン/アウト/フィットで倍率が変化し、フィットで
+//     等倍復帰。倍率バッジ表示が更新される
+//   - 33.11 / 33.12: 拡大状態で既存注釈をタップ選択→1本指ドラッグで移動し、座標が指に追従
+//     （選択ツール時、ズーム倍率を考慮した追従）
+//   - 29.4 / 34.5: ズームUIボタンの実寸 44px 以上、選択ハンドル touchCornerSize 44px、
+//     ズームUI 領域の axe a11y 検証
+//
+// Task 98.1 と同様、CDP `Input.dispatchTouchEvent` で実タッチを模擬し、実装が公開する
+// `window.__fabricCanvas`（getZoom / viewportTransform / getObjects / getActiveObject）で
+// 状態を検証する。前提条件でのサイレントskipは行わない（満たさなければ失敗させる＝第3原則）。
+
+const EDIT_MOBILE_VIEWPORT_2 = { width: 390, height: 844 };
+
+test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択移動/44px a11y（Task 98.2）', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  let sharedContext: BrowserContext;
+  let sharedPage: Page;
+  let cdp: CDPSession;
+  let createdProjectId: string | null = null;
+  let createdSurveyId: string | null = null;
+  let createdImageId: string | null = null;
+
+  async function dispatchTouch(
+    type: 'touchStart' | 'touchMove' | 'touchEnd',
+    points: Array<{ x: number; y: number; id: number }>
+  ): Promise<void> {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map((p) => ({ x: p.x, y: p.y, id: p.id })),
+    });
+  }
+
+  /** 単一タップ（touchStart → touchEnd）。座標は client 座標。 */
+  async function tapAt(x: number, y: number): Promise<void> {
+    await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+    await sharedPage.waitForTimeout(40);
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(40);
+  }
+
+  /**
+   * ダブルタップ（DOUBLE_TAP_MS=300ms 以内に同一点を2回タップ）。
+   * touchGestureManager は2回目の pointerdown で `custom:dbltap` を発火する。
+   */
+  async function doubleTapAt(x: number, y: number): Promise<void> {
+    await tapAt(x, y);
+    await sharedPage.waitForTimeout(90);
+    await tapAt(x, y);
+    await sharedPage.waitForTimeout(80);
+  }
+
+  /** 1本指ドラッグ（タッチ）。選択ツールでの注釈移動・描画に用いる。 */
+  async function oneFingerDrag(
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    steps = 8
+  ): Promise<void> {
+    await dispatchTouch('touchStart', [{ x: from.x, y: from.y, id: 0 }]);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      await dispatchTouch('touchMove', [
+        { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, id: 0 },
+      ]);
+      await sharedPage.waitForTimeout(16);
+    }
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(50);
+  }
+
+  async function readProbe(): Promise<ViewportProbe> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) {
+        return { zoom: -1, panX: 0, panY: 0, objectCount: -1, activeType: null };
+      }
+      const vpt = c.viewportTransform;
+      const active = c.getActiveObject();
+      return {
+        zoom: c.getZoom(),
+        panX: vpt[4] ?? 0,
+        panY: vpt[5] ?? 0,
+        objectCount: c.getObjects().length,
+        activeType: active ? (active.type ?? 'unknown') : null,
+      };
+    });
+  }
+
+  /** index 番目のオブジェクトの保存座標（scene 座標 left/top）を読む。 */
+  async function readObjectLeftTop(index: number): Promise<{ left: number; top: number } | null> {
+    return await sharedPage.evaluate((i) => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return null;
+      const obj = c.getObjects()[i];
+      if (!obj) return null;
+      return { left: obj.left ?? 0, top: obj.top ?? 0 };
+    }, index);
+  }
+
+  /** textAnnotation オブジェクトの編集状態（isEditing）を読む。 */
+  async function readTextEditing(): Promise<boolean | null> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return null;
+      const objs = c.getObjects() as unknown as Array<{ type?: string; isEditing?: boolean }>;
+      const textObj = objs.find((o) => o.type === 'textAnnotation');
+      return textObj ? textObj.isEditing === true : null;
+    });
+  }
+
+  /** アクティブオブジェクトの touchCornerSize（選択ハンドルのタッチターゲット）を読む。 */
+  async function readActiveTouchCornerSize(): Promise<number | null> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return null;
+      const active = c.getActiveObject() as unknown as { touchCornerSize?: number } | null;
+      return active && typeof active.touchCornerSize === 'number' ? active.touchCornerSize : null;
+    });
+  }
+
+  /** ビューポートを等倍（zoom=1, pan=0）にリセットする（テストセットアップ）。 */
+  async function resetViewport(): Promise<void> {
+    await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (c) {
+        c.setViewportTransform([1, 0, 0, 1, 0, 0]);
+        c.requestRenderAll();
+      }
+    });
+    await sharedPage.waitForTimeout(50);
+  }
+
+  /**
+   * ズーム操作ボタンを通常の actionability（可視・安定・イベント到達可能）でタップする。
+   * Task 98.2 是正: 以前は ZoomControls が画面外（ページ水平 overflow による
+   * レイアウトビューポート拡張で position:fixed が拡張ビューポート下端へアンカー）に出ており
+   * force:true で覆い隠していた。ホスト画面側の overflow 抑止により ZoomControls は
+   * 可視画面下部の片手到達領域に配置されるため、force を使わず実到達性で操作する（Req 34.6）。
+   */
+  async function tapZoomButton(name: string): Promise<void> {
+    const button = sharedPage.getByTestId('zoom-controls').getByRole('button', { name });
+    // Req 34.6: ボタンが可視ビューポート高さ内（片手到達領域）に収まることを観測可能に検証する。
+    const bb = await button.boundingBox();
+    expect(bb).not.toBeNull();
+    expect(bb!.y + bb!.height).toBeLessThanOrEqual(EDIT_MOBILE_VIEWPORT_2.height);
+    await button.tap();
+  }
+
+  /**
+   * ページスクロールを先頭へ戻す（テスト座標の決定性確保）。
+   * Task 98.2 是正: 以前はここで Fabric の `calcOffset()` を直接呼んで `_offset` 陳腐化を
+   * 回避していた（実経路を迂回する偽の安定化）。実アプリ側で scroll / visualViewport の
+   * resize・scroll・編集突入時に `calcOffset()` を呼ぶよう修正したため、ここでは
+   * scrollTo のみ行い、アプリ側のスクロールハンドラ経由でオフセットが再計算される
+   * 実経路を検証する（Fabric 内部 API への直接介入はしない）。
+   */
+  async function recalcOffset(): Promise<void> {
+    await sharedPage.evaluate(() => {
+      window.scrollTo(0, 0);
+    });
+    await sharedPage.waitForTimeout(120);
+  }
+
+  /**
+   * index 番目のオブジェクト中心の client 座標を、scene 座標と viewportTransform、
+   * upper-canvas の boundingBox から算出する（ズーム/パン/配置に依存しない確実な指当て）。
+   * `recalcOffset()` 後に呼ぶこと（box と Fabric `_offset` を一致させるため）。
+   */
+  async function objectCenterClient(index: number): Promise<{ x: number; y: number } | null> {
+    const box = await getCanvasBox();
+    const info = await sharedPage.evaluate((i) => {
+      const c = globalThis.__fabricCanvas as unknown as {
+        getObjects: () => Array<{ getCenterPoint?: () => { x: number; y: number } }>;
+        viewportTransform: number[];
+      } | null;
+      if (!c) return null;
+      const obj = c.getObjects()[i];
+      if (!obj || typeof obj.getCenterPoint !== 'function') return null;
+      const ctr = obj.getCenterPoint();
+      return { sx: ctr.x, sy: ctr.y, vpt: c.viewportTransform };
+    }, index);
+    if (!info) return null;
+    return {
+      x: box.x + info.sx * (info.vpt[0] ?? 1) + (info.vpt[4] ?? 0),
+      y: box.y + info.sy * (info.vpt[3] ?? 1) + (info.vpt[5] ?? 0),
+    };
+  }
+
+  async function getCanvasBox(): Promise<CanvasBox> {
+    const upper = sharedPage.locator('.upper-canvas');
+    for (let i = 0; i < 20; i++) {
+      const box = await upper.boundingBox();
+      const ready = await sharedPage.evaluate(() => !!globalThis.__fabricCanvas);
+      if (box && box.width > 10 && box.height > 10 && ready) {
+        return box;
+      }
+      await sharedPage.waitForTimeout(200);
+    }
+    throw new Error('upper-canvas が初期化されませんでした');
+  }
+
+  async function enterEditMode(): Promise<void> {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}/images/${createdImageId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    const editModeButton = sharedPage.getByRole('button', { name: /編集モード/i });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(10000) });
+    await editModeButton.tap();
+
+    await sharedPage
+      .locator('[data-testid="annotation-toolbar"]')
+      .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+    await getCanvasBox();
+  }
+
+  async function selectTool(name: RegExp): Promise<void> {
+    const tool = sharedPage.getByRole('button', { name });
+    await expect(tool).toBeVisible({ timeout: getTimeout(5000) });
+    await tool.tap();
+    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  test.beforeAll(async ({ browser }) => {
+    sharedContext = await browser.newContext({
+      viewport: EDIT_MOBILE_VIEWPORT_2,
+      hasTouch: true,
+      isMobile: true,
+    });
+    sharedPage = await sharedContext.newPage();
+    cdp = await sharedContext.newCDPSession(sharedPage);
+
+    await loginAsUser(sharedPage, 'REGULAR_USER');
+
+    // プロジェクト作成
+    await sharedPage.goto('/projects');
+    await sharedPage.waitForLoadState('networkidle');
+    await sharedPage.getByRole('button', { name: /新規作成/i }).click();
+    await expect(sharedPage).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+    await expect(sharedPage.getByText(/読み込み中/i).first()).not.toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    const projectName = `ズームUI_E2E用PJ_${Date.now()}`;
+    await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
+    const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
+    const salesPersonValue = await salesPersonSelect.inputValue();
+    if (!salesPersonValue) {
+      const options = await salesPersonSelect.locator('option').all();
+      if (options.length > 1 && options[1]) {
+        const firstUserOption = await options[1].getAttribute('value');
+        if (firstUserOption) {
+          await salesPersonSelect.selectOption(firstUserOption);
+        }
+      }
+    }
+
+    const createProjectPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/projects') &&
+        response.request().method() === 'POST' &&
+        response.status() === 201,
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createProjectPromise;
+
+    await sharedPage.waitForURL(/\/projects\/[0-9a-f-]+$/);
+    createdProjectId = sharedPage.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdProjectId).toBeTruthy();
+
+    // 現場調査作成
+    await sharedPage.goto(`/projects/${createdProjectId}/site-surveys/new`);
+    await sharedPage.waitForLoadState('networkidle');
+    await expect(sharedPage.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+    const surveyName = `ズームUI_E2E用調査_${Date.now()}`;
+    await sharedPage.getByLabel(/調査名/i).fill(surveyName);
+    await sharedPage.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+
+    const createSurveyPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/') &&
+        response.url().includes('site-surveys') &&
+        response.request().method() === 'POST',
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createSurveyPromise;
+
+    await sharedPage.waitForURL(/\/site-surveys\/[0-9a-f-]+$/);
+    createdSurveyId = sharedPage.url().match(/\/site-surveys\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdSurveyId).toBeTruthy();
+
+    // 画像を API で直接アップロード（拡大の余地を確保するため大きめ画像を使用）
+    const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
+    expect(fs.existsSync(testImagePath)).toBeTruthy();
+    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const uploadResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        multipart: {
+          images: {
+            name: 'test-image-large.jpg',
+            mimeType: 'image/jpeg',
+            buffer: fs.readFileSync(testImagePath),
+          },
+        },
+      }
+    );
+    expect(uploadResponse.ok()).toBeTruthy();
+
+    const uploadBody = (await uploadResponse.json()) as {
+      successful?: Array<{ id?: string }>;
+    };
+    createdImageId = uploadBody.successful?.[0]?.id ?? null;
+    expect(createdImageId).toBeTruthy();
+  });
+
+  test.afterAll(async ({ browser }) => {
+    const cleanupContext = await browser.newContext();
+    const cleanupPage = await cleanupContext.newPage();
+    try {
+      await loginAsUser(cleanupPage, 'ADMIN_USER');
+      if (createdSurveyId) {
+        await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
+        await cleanupPage.waitForLoadState('networkidle');
+        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+          await deleteButton.click();
+          const confirmButton = cleanupPage
+            .getByTestId('focus-manager-overlay')
+            .or(cleanupPage.getByRole('dialog'))
+            .getByRole('button', { name: /^削除する$/i });
+          await confirmButton.click();
+          await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
+        }
+      }
+      if (createdProjectId) {
+        await cleanupPage.goto(`/projects/${createdProjectId}`);
+        await cleanupPage.waitForLoadState('networkidle');
+        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+          await deleteButton.click();
+          const confirmButton = cleanupPage
+            .getByTestId('focus-manager-overlay')
+            .getByRole('button', { name: /^削除$/i });
+          await confirmButton.click();
+          await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
+        }
+      }
+    } finally {
+      await cleanupPage.close();
+      await cleanupContext.close();
+      await sharedContext?.close();
+    }
+  });
+
+  /**
+   * (5) 空き領域ダブルタップで拡大⇄全体表示がトグルする（Req 33.8 / 27.1 調停）
+   */
+  test('(5) 空き領域ダブルタップで拡大/全体表示をトグルする (REQ-33.8)', async () => {
+    await enterEditMode();
+    await recalcOffset();
+    // ダブルタップ調停は対象有無で分岐するため、選択ツールで空き領域を確実化する
+    await selectTool(/選択/i);
+
+    // 等倍（zoom=1, pan=0）を確定させる（自動フィットの揺らぎを排除）
+    await resetViewport();
+
+    const box = await getCanvasBox();
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+
+    const atFit = await readProbe();
+    expect(atFit.zoom).toBeCloseTo(1, 1);
+    expect(atFit.objectCount).toBe(0); // 空き領域（注釈なし）
+
+    // 1回目: 等倍 → 拡大
+    await doubleTapAt(cx, cy);
+    const zoomedIn = await readProbe();
+    expect(zoomedIn.zoom).toBeGreaterThan(1.5);
+    // ダブルタップズームは新規注釈を作らない（描画誤発火しない）
+    expect(zoomedIn.objectCount).toBe(0);
+
+    // 2回目: 拡大中 → 全体表示（fit）へ戻る
+    await doubleTapAt(cx, cy);
+    const backToFit = await readProbe();
+    expect(backToFit.zoom).toBeLessThan(zoomedIn.zoom);
+    expect(backToFit.zoom).toBeCloseTo(1, 1);
+  });
+
+  /**
+   * (6) テキスト注釈上のダブルタップは編集に入りズームしない（Req 27.1 と 33.8 の調停）
+   */
+  test('(6) テキスト注釈上のダブルタップは編集に入りズームしない (REQ-27.1/33.8)', async () => {
+    await enterEditMode();
+    await recalcOffset();
+
+    const box = await getCanvasBox();
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+
+    // テキスト注釈を中央付近に作成（テキストツールで1タップ＝配置＋編集突入）
+    await selectTool(/テキスト/i);
+    await tapAt(cx, cy);
+    await sharedPage.waitForTimeout(200);
+    expect((await readProbe()).objectCount).toBe(1);
+
+    // 選択ツールへ切替え、空き隅をタップして編集を抜け選択も解除する。
+    // テキスト編集突入時の隠し textarea フォーカスでページがスクロールするため
+    // （キャンバスが可視下部にあり、ブラウザが入力欄を表示領域へスクロールする）、
+    // recalcOffset() でスクロールを先頭へ戻し、キャッシュ済み box 座標と実レイアウトを
+    // 一致させてから空き隅をタップする。アプリは scroll/touchstart で calcOffset を
+    // 呼び直すため、ヒットテスト基準も同期される（実経路の検証）。
+    await selectTool(/選択/i);
+    await recalcOffset();
+    await tapAt(box.x + 20, box.y + 20);
+    await sharedPage.waitForTimeout(150);
+    expect(await readTextEditing()).toBe(false);
+
+    // テキスト編集の隠し textarea フォーカスで Fabric の内部オフセットが陳腐化し、
+    // findTarget が誤判定するため再計算してからテキストの実位置を指す。
+    await recalcOffset();
+    const textClient = await objectCenterClient(0);
+    expect(textClient).not.toBeNull();
+    if (!textClient) return;
+
+    const zoomBefore = (await readProbe()).zoom;
+
+    // テキスト注釈本体をダブルタップ
+    await doubleTapAt(textClient.x, textClient.y);
+    await sharedPage.waitForTimeout(200);
+
+    // Req 27.1: 編集モードへ入る
+    expect(await readTextEditing()).toBe(true);
+    // Req 33.8 調停: テキスト上ではズームトグルしない（倍率不変）
+    const zoomAfter = (await readProbe()).zoom;
+    expect(Math.abs(zoomAfter - zoomBefore)).toBeLessThan(0.05);
+  });
+
+  /**
+   * (7) ZoomControls のズームイン/アウト/フィットで倍率が変化し、倍率バッジが更新される
+   *     Req 34.1 / 34.4
+   */
+  test('(7) ズームUIで倍率が変化しフィットで等倍復帰・倍率バッジ更新 (REQ-34.1/34.4)', async () => {
+    await enterEditMode();
+
+    const zoomControls = sharedPage.getByTestId('zoom-controls');
+    await expect(zoomControls).toBeVisible({ timeout: getTimeout(10000) });
+    const badge = sharedPage.getByTestId('zoom-badge');
+
+    // 既知状態（等倍）へ: フィットボタンで zoom=1, バッジ=100%
+    await tapZoomButton('全体表示');
+    await sharedPage.waitForTimeout(100);
+    expect((await readProbe()).zoom).toBeCloseTo(1, 1);
+    expect((await badge.textContent())?.trim()).toBe('100%');
+
+    // ズームイン3回 → 倍率増加・バッジ更新（Req 34.1/34.3）
+    await tapZoomButton('ズームイン');
+    await tapZoomButton('ズームイン');
+    await tapZoomButton('ズームイン');
+    await sharedPage.waitForTimeout(100);
+    const zoomedIn = (await readProbe()).zoom;
+    expect(zoomedIn).toBeGreaterThan(1.0);
+    const badgeIn = (await badge.textContent())?.trim();
+    expect(badgeIn).not.toBe('100%');
+    expect(badgeIn).toBe(`${Math.round(zoomedIn * 100)}%`);
+
+    // ズームアウト1回 → 倍率減少（Req 34.1）
+    await tapZoomButton('ズームアウト');
+    await sharedPage.waitForTimeout(100);
+    const zoomedOut = (await readProbe()).zoom;
+    expect(zoomedOut).toBeLessThan(zoomedIn);
+
+    // フィット → 等倍復帰・バッジ100%（Req 34.4）
+    await tapZoomButton('全体表示');
+    await sharedPage.waitForTimeout(100);
+    expect((await readProbe()).zoom).toBeCloseTo(1, 1);
+    expect((await badge.textContent())?.trim()).toBe('100%');
+  });
+
+  /**
+   * (8) 拡大状態で既存注釈をタップ選択→1本指ドラッグで移動し、座標が指に追従する
+   *     Req 33.11 / 33.12（選択ツール、ズーム倍率を考慮した追従）
+   */
+  test('(8) 拡大中に既存注釈をタップ選択しドラッグ移動・指に追従する (REQ-33.11/33.12)', async () => {
+    await enterEditMode();
+    await recalcOffset();
+
+    const box = await getCanvasBox();
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+
+    // 中央付近に四角形を1つ配置（描画ツールで1本指ドラッグ）
+    await selectTool(/四角形/i);
+    await oneFingerDrag({ x: cx - 30, y: cy - 25 }, { x: cx + 30, y: cy + 25 });
+    expect((await readProbe()).objectCount).toBe(1);
+    const before = await readObjectLeftTop(0);
+    expect(before).not.toBeNull();
+    if (!before) return;
+
+    // 選択ツールへ切替え、ズームUIで拡大する（Req 33.12: 拡大状態での選択/移動）
+    await selectTool(/選択/i);
+    for (let i = 0; i < 6; i++) {
+      await tapZoomButton('ズームイン');
+    }
+    await sharedPage.waitForTimeout(100);
+    const zoom = (await readProbe()).zoom;
+    expect(zoom).toBeGreaterThan(1.2);
+
+    // 拡大後の四角形の実画面位置を算出してタップ選択する（Req 33.11）
+    await recalcOffset();
+    const rectClient = await objectCenterClient(0);
+    expect(rectClient).not.toBeNull();
+    if (!rectClient) return;
+
+    await tapAt(rectClient.x, rectClient.y);
+    await sharedPage.waitForTimeout(100);
+    expect((await readProbe()).activeType).not.toBeNull();
+
+    // 選択ハンドルのタッチターゲットが 44px（Req 29.4）
+    const cornerSize = await readActiveTouchCornerSize();
+    expect(cornerSize).not.toBeNull();
+    expect(cornerSize ?? 0).toBeGreaterThanOrEqual(44);
+
+    // ダブルタップ誤検出を避けるため lastTap を失効させてから移動ドラッグを行う
+    await sharedPage.waitForTimeout(400);
+
+    // 1本指ドラッグで移動（Req 33.12: 拡大中も指に追従）
+    const screenDx = 40;
+    const screenDy = 30;
+    await oneFingerDrag(
+      { x: rectClient.x, y: rectClient.y },
+      { x: rectClient.x + screenDx, y: rectClient.y + screenDy }
+    );
+    await sharedPage.waitForTimeout(100);
+
+    const after = await readObjectLeftTop(0);
+    expect(after).not.toBeNull();
+    if (!after) return;
+
+    // 画面移動量(px) は scene 移動量 × zoom。指の移動に追従し、かつ倍率を考慮した
+    // 移動量になる（拡大中は scene 上の移動量が screen/zoom に縮む）。
+    const expectedSceneDx = screenDx / zoom;
+    const expectedSceneDy = screenDy / zoom;
+    const actualDx = after.left - before.left;
+    const actualDy = after.top - before.top;
+    // 実際に移動している（誤発火・未移動ではない）
+    expect(Math.abs(actualDx) + Math.abs(actualDy)).toBeGreaterThan(5);
+    // 倍率を考慮した追従（タッチ模擬の丸め・ヒット余白を許容）
+    expect(Math.abs(actualDx - expectedSceneDx)).toBeLessThan(15);
+    expect(Math.abs(actualDy - expectedSceneDy)).toBeLessThan(15);
+  });
+
+  /**
+   * (9) ズームUIボタンの実寸 44px 以上 + 片手到達領域配置 + ズームUI 領域の axe a11y 検証
+   *     Req 34.5 / 34.6 / 29.4
+   */
+  test('(9) ズームUIボタンが44px以上で片手到達領域に収まりa11y違反がない (REQ-34.5/34.6/29.4)', async () => {
+    await enterEditMode();
+
+    const zoomControls = sharedPage.getByTestId('zoom-controls');
+    await expect(zoomControls).toBeVisible({ timeout: getTimeout(10000) });
+
+    // Req 34.6: ズームUI 全体が可視ビューポート高さ内（画面下端の片手到達領域）に収まる。
+    // ページ水平 overflow によるレイアウトビューポート拡張で画面外へ出る回帰を検出する。
+    const groupBox = await zoomControls.boundingBox();
+    expect(groupBox).not.toBeNull();
+    expect(groupBox!.y).toBeGreaterThanOrEqual(0);
+    expect(groupBox!.y + groupBox!.height).toBeLessThanOrEqual(EDIT_MOBILE_VIEWPORT_2.height);
+
+    // Req 34.5 / 34.6: 各ズーム操作ボタンが 44x44 以上、かつ可視ビューポート高さ内に収まる
+    for (const name of ['ズームアウト', 'ズームイン', '全体表示']) {
+      const btn = zoomControls.getByRole('button', { name });
+      await expect(btn).toBeVisible();
+      const bb = await btn.boundingBox();
+      expect(bb).not.toBeNull();
+      expect(bb?.width ?? 0).toBeGreaterThanOrEqual(44);
+      expect(bb?.height ?? 0).toBeGreaterThanOrEqual(44);
+      // Req 34.6: ボタン下端が可視ビューポート内（force:true で覆い隠さず実到達性を検証）
+      expect((bb?.y ?? 0) + (bb?.height ?? 0)).toBeLessThanOrEqual(EDIT_MOBILE_VIEWPORT_2.height);
+    }
+
+    // Req 29.4 / 34.5: ズームUI 領域に WCAG a11y 違反がないこと（axe-core）
+    const results = await new AxeBuilder({ page: sharedPage })
+      .include('[data-testid="zoom-controls"]')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
   });
 });

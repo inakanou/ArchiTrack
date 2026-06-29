@@ -1678,6 +1678,57 @@ function AnnotationEditor({
   }, [fabricCanvas, viewportController]);
 
   /**
+   * Task 98.2 (Req 27.1, 33.8, 33.11): Fabric の内部オフセット（_offset）をスクロール時にも
+   * 再計算する。
+   *
+   * Fabric v7 は `calcOffset` を window の "resize" にのみ自動アタッチし、"scroll" には
+   * アタッチしない。一方モバイルでは、テキスト注釈編集の隠し textarea フォーカスや
+   * アドレスバー伸縮などでページ/ビジュアルビューポートがスクロールすると、canvas 要素の
+   * 画面オフセットが変化する。`_offset` が陳腐化したままだと `findTarget`（ダブルタップ調停・
+   * タッチ選択のヒットテスト基準）が誤判定し、テキスト上ダブルタップで編集に入れない／
+   * 拡大中の注釈をタップ選択できない等の実バグになる。
+   *
+   * そこで scroll / visualViewport の resize・scroll で `calcOffset()` を呼び直し、
+   * 併せて編集突入（canvas 準備完了）時にも一度再計算して、ヒットテスト基準を実レイアウトに
+   * 追従させる。E2E ではこの実経路を検証する（テスト側の calcOffset 直接呼び出しの回避を撤去）。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas) {
+      return;
+    }
+    const recalc = (): void => {
+      // dispose 済み canvas への呼び出しを防ぐ。calcOffset 非対応（テストのモック等）も防御。
+      if (fabricCanvasRef.current === canvas && typeof canvas.calcOffset === 'function') {
+        canvas.calcOffset();
+      }
+    };
+    // 編集突入（canvas 準備完了）時の初回再計算
+    recalc();
+    // scroll / resize / visualViewport 変化での再計算（遅延的な追従）
+    window.addEventListener('scroll', recalc, { passive: true });
+    window.addEventListener('resize', recalc);
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    vv?.addEventListener('resize', recalc);
+    vv?.addEventListener('scroll', recalc);
+    // 操作直前（touchstart / pointerdown）の capture フェーズで必ず再計算する。
+    // scroll イベントはスクロール途中の中間値で発火することがあり、findTarget が参照する
+    // 直前の `_offset` が陳腐化したままになり得る。Fabric のハンドラ（bubble フェーズ）より
+    // 前に capture で calcOffset を呼ぶことで、各タッチ/ポインタ操作のヒットテスト基準を
+    // その瞬間の実レイアウトへ確実に同期する（findTarget 誤判定の根治）。
+    window.addEventListener('touchstart', recalc, { capture: true, passive: true });
+    window.addEventListener('pointerdown', recalc, { capture: true });
+    return () => {
+      window.removeEventListener('scroll', recalc);
+      window.removeEventListener('resize', recalc);
+      vv?.removeEventListener('resize', recalc);
+      vv?.removeEventListener('scroll', recalc);
+      window.removeEventListener('touchstart', recalc, { capture: true });
+      window.removeEventListener('pointerdown', recalc, { capture: true });
+    };
+  }, [fabricCanvas]);
+
+  /**
    * Task 96.1 (Req 33.9): props の initialZoom / initialPan を初期ビュー状態として
    * canvas 初期化後に viewportController 経由で一度だけ適用する（REQ-5.6 のビュー状態共有）。
    * ズーム範囲は controller.clampZoom（ZOOM_CONSTANTS）に準拠し、パンは等倍時抑止
@@ -2225,6 +2276,9 @@ function AnnotationEditor({
           - 編集モードでのみ表示（readOnly では非表示）。canvas/画像準備中（isLoading）は非表示。
           - position: fixed の下部オーバーレイで、背景 canvas の描画ヒット領域外に配置し、
             stopPropagation/preventDefault により描画の誤発火を防ぐ（ZoomControls 内で実装）。
+          - 片手到達（Req 34.6）はレイアウトビューポート＝デバイス幅であることが前提。
+            ホスト画面側でページ水平 overflow を抑止すること（SiteSurveyImageViewerPage の
+            breadcrumbContainer.overflowX を参照）。
           - controller 未生成（canvas 初期化前）は disabled とする。 */}
       {!readOnly && !state.isLoading && (
         <ZoomControls
