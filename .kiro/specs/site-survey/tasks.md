@@ -2350,7 +2350,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: useCanvasViewport_
 
 - [ ] 93. (P) touchGestureManager の2本指ズーム/パン駆動と描画調停
-- [ ] 93.1 two-finger-pinch-pan 状態でのコントローラ駆動（中点ズーム/パン）
+- [x] 93.1 two-finger-pinch-pan 状態でのコントローラ駆動（中点ズーム/パン）
   - 既存 FSM の `two-finger-pinch-pan` 状態で、活性ポインタ2点から距離比・中点を算出し `controller.zoomToPoint(midpoint, clampZoom(z))`（中点基準）と `controller.pan(dx, dy)` を呼ぶ
   - 等倍時は `isPanEnabled()` によりパンを抑止する
   - ピンチ/ズーム関連の閾値（ピンチ開始距離・ズーム感度等）を `gesture-thresholds.ts` に集約・参照する
