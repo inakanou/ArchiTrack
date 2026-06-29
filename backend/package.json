@@ -60,7 +60,7 @@
     "@types/bull": "^4.10.4",
     "@types/handlebars": "^4.1.0",
     "@types/multer": "^2.1.0",
-    "@types/nodemailer": "^7.0.4",
+    "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
     "@types/xlsx": "^0.0.35",
     "bloom-filters": "^3.0.4",
