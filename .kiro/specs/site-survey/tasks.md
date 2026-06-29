@@ -2349,7 +2349,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 34.2, 34.3, 34.4_
   - _Boundary: useCanvasViewport_
 
-- [ ] 93. (P) touchGestureManager の2本指ズーム/パン駆動と描画調停
+- [x] 93. (P) touchGestureManager の2本指ズーム/パン駆動と描画調停
 - [x] 93.1 two-finger-pinch-pan 状態でのコントローラ駆動（中点ズーム/パン）
   - 既存 FSM の `two-finger-pinch-pan` 状態で、活性ポインタ2点から距離比・中点を算出し `controller.zoomToPoint(midpoint, clampZoom(z))`（中点基準）と `controller.pan(dx, dy)` を呼ぶ
   - 等倍時は `isPanEnabled()` によりパンを抑止する
@@ -2364,7 +2364,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: 単体テストで描画中の2本目追加が `onGestureStart` を発火し、選択ツール時は drawing へ遷移しないことを確認する
   - _Requirements: 33.1, 33.5, 33.13_
   - _Boundary: touchGestureManager_
-- [ ] 93.3 touchGestureManager 拡張の単体テスト
+- [x] 93.3 touchGestureManager 拡張の単体テスト
   - 2本指→ズーム/パン駆動、2本目追加での描画中断、cooldown 経由のビュー状態維持（zoom/pan 不変）を検証する
   - 観測可能な完了状態: `touchGestureManager.viewport.test.ts` の全テストが合格する
   - _Requirements: 33.2, 33.4, 33.5, 33.7_
