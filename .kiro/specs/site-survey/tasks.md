@@ -2358,7 +2358,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Depends: 91.1_
   - _Requirements: 33.2, 33.3, 33.4, 34.7_
   - _Boundary: touchGestureManager, gesture-thresholds_
-- [ ] 93.2 描画中断コールバックと選択ツール時の委譲（getCurrentTool 分岐）
+- [x] 93.2 描画中断コールバックと選択ツール時の委譲（getCurrentTool 分岐）
   - 2本目のポインタ追加で `onGestureStart` を発火し、進行中描画の中断を呼び出し側へ通知する
   - `getCurrentTool()` を参照し、選択ツール時は `drawing` 状態へ遷移せず Fabric の選択/移動へ委譲、描画ツール時は1本指ドラッグを描画として扱い既存注釈の選択/移動を発火させない
   - 観測可能な完了状態: 単体テストで描画中の2本目追加が `onGestureStart` を発火し、選択ツール時は drawing へ遷移しないことを確認する

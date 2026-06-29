@@ -29,9 +29,12 @@
  * @requirement site-survey/REQ-30.6
  * @requirement site-survey/REQ-30.7
  * @requirement site-survey/REQ-30.8
+ * @requirement site-survey/REQ-33.1
  * @requirement site-survey/REQ-33.2
  * @requirement site-survey/REQ-33.3
  * @requirement site-survey/REQ-33.4
+ * @requirement site-survey/REQ-33.5
+ * @requirement site-survey/REQ-33.13
  * @requirement site-survey/REQ-34.7
  */
 import {
@@ -86,6 +89,13 @@ export type TouchState =
 export interface TouchGestureAttachOptions {
   /** 2本指ピンチ→中点ズーム / 2本指ドラッグ→パン を駆動するコントローラ（Req 33.2-33.4, 34.7） */
   viewportController?: CanvasViewportController;
+  /**
+   * 描画中断通知コールバック（Req 33.5）。
+   * 描画中（または one-finger-down）に2本目のポインタが追加され
+   * `two-finger-pinch-pan` へ遷移する瞬間に1回発火する。呼び出し側
+   * （AnnotationEditor）は進行中描画の中断（isDrawingMode 退避・ブラシ破棄）に用いる。
+   */
+  onGestureStart?: () => void;
 }
 
 export interface TouchGestureManager {
@@ -226,6 +236,7 @@ export const createTouchGestureManager = (): TouchGestureManager => {
   ): (() => void) => {
     const element = canvas.getElement();
     const viewportController = options?.viewportController;
+    const onGestureStart = options?.onGestureStart;
 
     /**
      * two-finger-pinch-pan 状態で activePointers の 2 点から距離比と中点を算出し、
@@ -290,9 +301,17 @@ export const createTouchGestureManager = (): TouchGestureManager => {
       }
 
       if (count === 2) {
-        // Req 30.1: 2 本指は進行中の描画を中止しピンチ/パンモードへ
+        // Req 30.1 / 33.5: 2 本指は進行中の描画を中止しピンチ/パンモードへ。
+        // 描画中（drawing）または one-finger-down からの遷移時のみ、描画中断を
+        // 呼び出し側へ通知する（onGestureStart）。idle からの 2 本指接地では
+        // 中断対象の描画が無いため発火しない。
+        const wasInteractingWithOneFinger =
+          touchState === 'drawing' || touchState === 'one-finger-down';
         clearLongPressTimer();
         touchState = 'two-finger-pinch-pan';
+        if (wasInteractingWithOneFinger && onGestureStart !== undefined) {
+          onGestureStart();
+        }
         // Req 33.2-33.4: ピンチ/パンの基準（距離・倍率・中点）を確定する
         beginPinchSession(viewportController);
         return;
@@ -347,9 +366,15 @@ export const createTouchGestureManager = (): TouchGestureManager => {
         const dx = event.clientX - pointer.startX;
         const dy = event.clientY - pointer.startY;
         if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
-          // Req 30.8: 単一指のドラッグ継続で drawing 状態へ
+          // Req 27.2: 閾値を超える移動（ドラッグ）は、ツール種別に依らず長押し判定を解除する
           clearLongPressTimer();
-          touchState = 'drawing';
+          // Req 33.1 / 33.13: 選択ツール時は drawing 状態へ遷移させず、
+          // 1本指の選択/移動を Fabric（selection / object:moving）へ委譲する
+          // （FSM は描画コミットを行わず one-finger-down のまま）。
+          // 描画ツール時のみ Req 30.8 どおり drawing 状態へ遷移する。
+          if (getCurrentTool() !== 'select') {
+            touchState = 'drawing';
+          }
         }
       }
     };

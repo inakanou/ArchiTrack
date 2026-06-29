@@ -275,7 +275,9 @@ describe('touchGestureManager', () => {
       detach();
     });
 
-    it('8px を超える移動が発生した場合、長押しタイマは解除される', () => {
+    it('8px を超える移動が発生した場合、長押しタイマは解除される（描画ツール時）', () => {
+      // Req 33.1/33.13: drawing への遷移は描画ツール選択中のみ。長押し解除はツール非依存。
+      getCurrentTool.mockReturnValue('rectangle');
       const manager = createTouchGestureManager();
       const detach = manager.attach(canvas as unknown as never, getCurrentTool);
 
@@ -324,7 +326,9 @@ describe('touchGestureManager', () => {
       detach();
     });
 
-    it('一本指 pointerdown 後に 8px を超える pointermove で drawing に遷移する', () => {
+    it('一本指 pointerdown 後に 8px を超える pointermove で drawing に遷移する（描画ツール時, Req 30.8/33.1）', () => {
+      // Req 33.1/33.13: drawing への遷移は描画ツール選択中のみ。選択ツール時は委譲。
+      getCurrentTool.mockReturnValue('rectangle');
       const manager = createTouchGestureManager();
       const detach = manager.attach(canvas as unknown as never, getCurrentTool);
 
