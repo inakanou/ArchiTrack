@@ -47,7 +47,7 @@
     "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.105.0",
+    "@anthropic-ai/sdk": "^0.106.0",
     "@aws-sdk/client-s3": "^3.1053.0",
     "@aws-sdk/client-sesv2": "^3.1004.0",
     "@aws-sdk/s3-request-presigner": "^3.1048.0",
