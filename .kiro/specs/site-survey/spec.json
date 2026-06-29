@@ -1,9 +1,9 @@
 {
   "feature_name": "site-survey",
   "created_at": "2025-12-16T00:00:00Z",
-  "updated_at": "2026-06-29T12:00:00Z",
+  "updated_at": "2026-06-29T18:00:00Z",
   "language": "ja",
-  "phase": "design-generated",
+  "phase": "tasks-generated",
   "description": "現場調査機能の更新: 画像アップロードバリデーション修正（拡張子と画像形式が不一致でも画像形式がサポート対象であればアップロード許可）、画像編集での画像回転機能追加（描画済み注釈は回転非追従）、画像編集画面での変更（回転・注釈編集）に伴うサムネイル再生成の確実化、画像注釈の視認性向上（白縁取り表現）、スマートフォン現場運用向けの描画操作性強化、現場調査画像の一括ZIPエクスポート、白縁取り対象の全形状拡張（寸法線・円・四角形・多角形・折れ線・フリーハンド）、スマートフォン注釈編集UXの業界標準準拠による抜本改善（編集モードでの1本指描画・2本指ピンチズーム/パンの両立、中点基準ズーム、編集モードのズーム操作手段と倍率表示、ダブルタップ拡大、選択ハンドルのタッチターゲット標準準拠）",
   "approvals": {
     "requirements": {
@@ -12,12 +12,12 @@
     },
     "design": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
-  "ready_for_implementation": false
+  "ready_for_implementation": true
 }

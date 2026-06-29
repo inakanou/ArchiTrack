@@ -2320,4 +2320,161 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **89.1**: 一括エクスポート（全件 / 選択 / 進捗中キャンセル）の E2E は実機 Playwright runner 上での運用を要するため、`e2e/specs/site-surveys/site-survey-bulk-export.spec.ts` を skeleton として作成。`E2E_SURVEY_ID` / `E2E_IMAGE_IDS` 未設定時は `test.skip` で安全にスキップする構成（テスト自動無効化ではなく、環境変数による意図明示）。実行は `npm run test:docker` の architrack-test 環境で `npx playwright test site-survey-bulk-export` を回す。ZIP 内枚数の厳密検証は TODO コメントで明示し、ヘルパ `assertZipImageCount` の追加余地を残した。
 - **89.2**: 6 形状白縁取り保存・復元 E2E も同様に `e2e/specs/site-surveys/site-survey-all-shape-outline.spec.ts` を skeleton として作成。`page.evaluate` 経由で Fabric Canvas の `getObjects().outline.enabled` を直接検証する設計とし、Dimension の labelText `paintFirst` / `strokeWidth` / `stroke` を別シナリオで個別検証する構成にした。実装側で `window.__architrack_fabricCanvas__` 経路を expose する想定。
 - **90.1**: 6 形状 Group の FPS ベンチも JSDOM 制約下では実時間計測不可のため、74.1 と同方針で `frontend/src/__tests__/performance/bulk-shape-fps.perf.test.ts` を作成。`it.each` で 6 形状すべての `objectCaching` 戦略契約（Group=false, 子=true）と 100 オブジェクト構造的フットプリントを検証し、Freehand / Polygon を重点計測対象として docstring で明示。実 FPS 計測は手動 DevTools ベンチに委ねる。
+
+## Requirements 29.4, 33-34: スマホ注釈編集UXの業界標準準拠（編集モードのズーム/パン・ジェスチャー調停・ズームUI）
+
+### Foundation - ビューポート制御コントローラ
+
+- [ ] 91. ビューポート制御コントローラの抽出・実装
+- [ ] 91.1 canvasViewportController の実装（中点ズーム/パン/フィット/クランプ/状態保持）
+  - `ImageViewer.tsx` で実証済みの中点ピンチ算術・`clampZoom`・`isPanEnabled` を `gestures/canvasViewportController.ts` へ抽出し、`FabricCanvasLike` 最小サーフェスのみに依存する React 非依存モジュールとして実装する
+  - `zoomToPoint(point, zoom)`・`pan(dx, dy)`・`fit()`・`clampZoom()`・`clampPan()`・`getState()`（zoom/pan 保持）を公開し、ズーム範囲は既存 `ZOOM_CONSTANTS`、パン有効化は `PAN_CONSTANTS.MIN_PAN_ZOOM` を用いる
+  - ズームは `viewportTransform` のみを変更し、注釈オブジェクトの保存座標には一切影響させない
+  - 観測可能な完了状態: コントローラ単体で `zoomToPoint` 後に中点が画面上で保持され、`fit()` で等倍＋パン初期化、`getState()` がズーム/パンを返す
+  - _Requirements: 33.3, 33.7, 33.9, 34.4, 34.7_
+  - _Boundary: canvasViewportController_
+- [ ] 91.2 canvasViewportController の単体テスト
+  - `clampZoom` 上下限、`zoomToPoint` の中点基準変換、`clampPan` の範囲制限、`fit` の収まり倍率＋パン初期化、`getState` のズーム/パン保持を検証する
+  - 前提条件でテストを自動無効化せず、満たさない場合は失敗させる構成にする
+  - 観測可能な完了状態: `canvasViewportController.test.ts` の全テストが合格する
+  - _Requirements: 33.3, 33.9, 34.4, 34.7_
+  - _Boundary: canvasViewportController_
+
+### Core - フック / ジェスチャー / ズームUI / ハンドル
+
+- [ ] 92. (P) useCanvasViewport フック（倍率状態と UI ハンドラの橋渡し）
+  - `frontend/src/hooks/useCanvasViewport.ts` を新設し、コントローラと React 状態（現在倍率）を橋渡しする。`onZoomChange` で倍率を state 反映し、`zoomIn`/`zoomOut`/`fit` ハンドラを公開する
+  - 観測可能な完了状態: フックテストでズーム操作により倍率 state が更新され、`fit` でリセットされる
+  - _Depends: 91.1_
+  - _Requirements: 34.2, 34.3, 34.4_
+  - _Boundary: useCanvasViewport_
+
+- [ ] 93. (P) touchGestureManager の2本指ズーム/パン駆動と描画調停
+- [ ] 93.1 two-finger-pinch-pan 状態でのコントローラ駆動（中点ズーム/パン）
+  - 既存 FSM の `two-finger-pinch-pan` 状態で、活性ポインタ2点から距離比・中点を算出し `controller.zoomToPoint(midpoint, clampZoom(z))`（中点基準）と `controller.pan(dx, dy)` を呼ぶ
+  - 等倍時は `isPanEnabled()` によりパンを抑止する
+  - ピンチ/ズーム関連の閾値（ピンチ開始距離・ズーム感度等）を `gesture-thresholds.ts` に集約・参照する
+  - 観測可能な完了状態: 単体テストで2本指 move により `zoomToPoint`/`pan` が中点・移動量どおり呼ばれ、等倍時はパンが呼ばれない
+  - _Depends: 91.1_
+  - _Requirements: 33.2, 33.3, 33.4, 34.7_
+  - _Boundary: touchGestureManager, gesture-thresholds_
+- [ ] 93.2 描画中断コールバックと選択ツール時の委譲（getCurrentTool 分岐）
+  - 2本目のポインタ追加で `onGestureStart` を発火し、進行中描画の中断を呼び出し側へ通知する
+  - `getCurrentTool()` を参照し、選択ツール時は `drawing` 状態へ遷移せず Fabric の選択/移動へ委譲、描画ツール時は1本指ドラッグを描画として扱い既存注釈の選択/移動を発火させない
+  - 観測可能な完了状態: 単体テストで描画中の2本目追加が `onGestureStart` を発火し、選択ツール時は drawing へ遷移しないことを確認する
+  - _Requirements: 33.1, 33.5, 33.13_
+  - _Boundary: touchGestureManager_
+- [ ] 93.3 touchGestureManager 拡張の単体テスト
+  - 2本指→ズーム/パン駆動、2本目追加での描画中断、cooldown 経由のビュー状態維持（zoom/pan 不変）を検証する
+  - 観測可能な完了状態: `touchGestureManager.viewport.test.ts` の全テストが合格する
+  - _Requirements: 33.2, 33.4, 33.5, 33.7_
+  - _Boundary: touchGestureManager_
+
+- [ ] 94. (P) ZoomControls コンポーネント（ボタン/倍率バッジ/下部配置/44px）
+- [ ] 94.1 ZoomControls の実装
+  - `ZoomControls.tsx` を新設し、ズームイン/アウト/全体表示（フィット）ボタンと現在倍率バッジを表示する。各ボタンのタップ領域を44px以上とし、画面下部の片手到達領域に配置する
+  - `useCanvasViewport` のハンドラ/倍率 state を購読して動作する
+  - ボタンのポインタ/クリックイベントが背景 canvas へ伝播せず、描画として誤発火しないよう抑止する
+  - 観測可能な完了状態: モバイル幅でズームUIが下部に描画され、各ボタンが44px以上、倍率バッジが現在倍率を表示する
+  - _Depends: 92_
+  - _Requirements: 34.1, 34.2, 34.5, 34.6, 34.8_
+  - _Boundary: ZoomControls_
+- [ ] 94.2 ZoomControls のコンポーネントテスト
+  - 倍率バッジのズーム変化更新、フィットでの等倍復帰、ボタンのタップ領域44px、ボタン操作が canvas 描画イベントを誘発しないことを検証する
+  - 観測可能な完了状態: `ZoomControls.test.tsx` の全テストが合格する
+  - _Requirements: 34.3, 34.4, 34.5, 34.8_
+  - _Boundary: ZoomControls_
+
+- [ ] 95. (P) 選択ハンドルのタッチターゲット44px化
+  - `annotation-visual-feedback.ts` のタッチ時 `touchCornerSize` を 40→44px 以上へ引き上げ、標準タッチターゲット（WCAG 2.5.5）に準拠させる。`cornerSize`（描画サイズ）はマウス/タッチで切替える既存挙動を維持する
+  - 観測可能な完了状態: タッチ環境（`pointer: coarse`）で選択ハンドルのヒット領域が44px以上になることをテストで確認する
+  - _Requirements: 29.4_
+  - _Boundary: annotation-visual-feedback_
+
+### Integration - AnnotationEditor 結線・閲覧モード統一
+
+- [ ] 96. AnnotationEditor へのビューポート/ジェスチャー/ズームUI 結線
+- [ ] 96.1 useCanvasViewport 配線・initialZoom/Pan 適用・ZoomControls マウント
+  - `AnnotationEditor` で `useCanvasViewport` を配線し、現在未使用の `initialZoom`/`initialPan` を初期ビュー状態として適用する。`ZoomControls` をマウントして倍率/操作を結線する
+  - `ZoomControls` を背景 canvas の描画ヒット領域外（オーバーレイ）にマウントし、操作が描画として誤発火しないようにする
+  - 観測可能な完了状態: 編集モードでズームUIが表示され、ボタン/ピンチでズーム/パン/フィットが動作し倍率バッジが更新される
+  - _Depends: 92, 93.1, 94.1_
+  - _Requirements: 33.9, 34.1, 34.2, 34.8_
+  - _Boundary: AnnotationEditor_
+- [ ] 96.2 2本指検出時の描画中断（isDrawingMode 退避/ブラシ破棄）と座標整合
+  - `touchGestureManager` の `onGestureStart` を受けて `isDrawingMode=false` 化と進行中ブラシパスの破棄を行い、cooldown→idle で元ツールの描画モードを復帰する。canvas ラッパに `touch-action: none` を付与する
+  - 拡大中の1本指描画が `options.scenePoint`（viewport 考慮）により正しい位置へ落ちることを確認する
+  - 観測可能な完了状態: 描画途中に2本指を置くとゴミ線が残らずズーム/パンへ移行し、拡大状態でも描画が指位置に一致する
+  - _Depends: 93.2_
+  - _Requirements: 33.5, 33.6, 33.7, 30.1_
+  - _Boundary: AnnotationEditor_
+- [ ] 96.3 ダブルタップ用途調停（テキスト編集 vs ズームトグル）
+  - ダブルタップ時に対象をヒットテストし、テキスト注釈上なら従来の編集（Req 27.1）、空き領域ならズーム/全体表示トグルを実行する
+  - 観測可能な完了状態: テキスト注釈上のダブルタップで編集に入り、空き領域のダブルタップで拡大⇄全体表示が切り替わる
+  - _Depends: 96.1_
+  - _Requirements: 33.8, 27.1_
+  - _Boundary: AnnotationEditor_
+- [ ] 96.4 選択ツール時のタッチ選択・移動の確実化（拡大中追従）
+  - 選択ツール時の1本指タップで注釈を選択、ドラッグで移動し、拡大表示中も指の移動に追従させる（責務分岐表に準拠、パンは2本指専用）
+  - 観測可能な完了状態: 拡大状態で既存注釈をタップ選択→ドラッグ移動が指に追従し、描画として誤発火しない
+  - _Depends: 93.2, 95_
+  - _Requirements: 33.11, 33.12_
+  - _Boundary: AnnotationEditor_
+
+- [ ] 97. (P) ImageViewer の共通コントローラ移行（二重実装解消）
+  - 閲覧モード `ImageViewer.tsx` のズーム/パンを `canvasViewportController` 経由へ移行し、編集モードとジェスチャー操作体系を一貫させる（閲覧モードの1本指パン等の既存挙動は閲覧側設定として維持）
+  - 本タスクは Req 33.10（閲覧/編集の一貫性）の唯一の担保であり必須・延期不可とする
+  - 観測可能な完了状態: 閲覧モードのズーム/パンがコントローラ経由で動作し、既存の画像ビューア E2E が回帰しない
+  - _Depends: 91.1_
+  - _Requirements: 33.10_
+  - _Boundary: ImageViewer_
+
+### Validation - E2E
+
+- [ ] 98. E2E 検証（編集モードのモバイルUX）
+- [ ] 98.1 (P) ピンチズーム後の正確描画・2本指パン・等倍時パン抑止 E2E
+  - 編集モードで2本指ピンチ→拡大→1本指描画が拡大後の正しい位置に落ちることを検証する
+  - 2本指ドラッグでパンし、等倍時はパンしないことを検証する
+  - 描画途中に2本目を置くと描画が中断しゴミ線が残らないことを検証する
+  - 描画ツール時の1本指ドラッグが既存注釈を誤って選択/移動しないことを検証する
+  - 前提条件でテストを自動無効化せず、満たさない場合は失敗させる構成にする
+  - 観測可能な完了状態: `site-survey-annotation-mobile.spec.ts` の該当シナリオが Playwright で合格する
+  - _Depends: 96.1, 96.2_
+  - _Requirements: 33.1, 33.2, 33.4, 33.5, 33.6, 33.13, 34.7_
+  - _Boundary: E2E Test_
+- [ ] 98.2 (P) ダブルタップズーム・ズームUI・拡大中の選択移動・44px a11y E2E
+  - 空き領域ダブルタップで拡大トグル、テキスト注釈上は編集に入ることを検証する
+  - ズームUIのイン/アウト/フィットと倍率バッジ更新、拡大中の注釈タップ選択→ドラッグ移動の追従を検証する
+  - axe-playwright でズームUI・選択ハンドルの44pxタッチターゲットを検証する
+  - 観測可能な完了状態: `site-survey-annotation-mobile.spec.ts` の該当シナリオと a11y チェックが Playwright で合格する
+  - _Depends: 96.3, 96.4, 94.1, 95_
+  - _Requirements: 33.8, 33.11, 33.12, 34.1, 34.4, 34.5, 29.4_
+  - _Boundary: E2E Test_
+
+### Requirements Traceability（Requirements 29.4, 33-34）
+
+| Req   | 対応タスク                          |
+|-------|-------------------------------------|
+| 29.4  | 95, 98.2                            |
+| 33.1  | 93.2, 98.1                          |
+| 33.2  | 93.1, 98.1                          |
+| 33.3  | 91.1, 93.1                          |
+| 33.4  | 93.1, 98.1                          |
+| 33.5  | 93.2, 93.3, 96.2, 98.1              |
+| 33.6  | 96.2, 98.1                          |
+| 33.7  | 91.1, 93.3, 96.2                    |
+| 33.8  | 96.3, 98.2                          |
+| 33.9  | 91.1, 96.1                          |
+| 33.10 | 97                                  |
+| 33.11 | 96.4, 98.2                          |
+| 33.12 | 96.4, 98.2                          |
+| 33.13 | 93.2, 98.1                          |
+| 34.1  | 94.1, 96.1, 98.2                    |
+| 34.2  | 92, 94.1, 96.1                      |
+| 34.3  | 92, 94.2                            |
+| 34.4  | 91.1, 92, 94.2, 98.2               |
+| 34.5  | 94.1, 94.2, 98.2                    |
+| 34.6  | 94.1                                |
+| 34.7  | 91.1, 93.1, 98.1                    |
+| 34.8  | 94.1, 94.2, 96.1                    |
 - **90.2**: 一括エクスポートのメモリ・処理時間も JSDOM では `performance.memory` および Canvas Blob 経路が利用不可のため、`frontend/src/__tests__/performance/bulk-export-memory.perf.test.ts` で 30 枚 × multiplier=2 のタスク構造的フットプリント、処理時間上限（30 秒）、ピークメモリ上限（250MB）を契約として宣言。実機計測手順を docstring に再現可能な形で記録し、`design.md` L5628 の Rollback trigger と整合させた。
