@@ -5737,20 +5737,26 @@ frontend/src/components/site-surveys/
 ├── AnnotationEditor.tsx                # 変更: useCanvasViewport 配線、initialZoom/Pan 適用、ZoomControls マウント、
 │                                       #        2本指検出時の描画中断（isDrawingMode 退避/復帰）、dbltap 用途調停
 ├── ZoomControls.tsx                    # 新規: ズームイン/アウト/フィット + 現在倍率バッジ（下部・44px）
-├── annotation-visual-feedback.ts       # 変更: 選択ハンドル touchCornerSize/cornerSize を 44px 準拠へ（Req 29.4）
+├── annotation-visual-feedback.ts       # 変更: タッチ時の選択ハンドル touchCornerSize を 40→44px 以上へ（Req 29.4。
+│                                       #        touchCornerSize=ヒット領域=標準タッチターゲット。cornerSize=描画サイズは現状維持可）
 ├── ImageViewer.tsx                     # 変更（任意/フェーズ4）: canvasViewportController へ移行し二重実装解消
 ├── gestures/
 │   ├── canvasViewportController.ts     # 新規: zoom/pan/zoomToPoint/fit/clamp の単一実装（ImageViewer算術を抽出）
 │   ├── touchGestureManager.ts          # 変更: two-finger-pinch-pan 状態でコントローラ駆動、描画中断コールバック追加
 │   └── gesture-thresholds.ts           # 変更（軽微）: ピンチ/ズーム関連閾値の参照集約
-└── hooks/
-    └── useCanvasViewport.ts            # 新規: コントローラと React 状態（現在倍率）の橋渡し、ズームUIハンドラ提供
+└── annotation-visual-feedback.ts       # （上記再掲）
+
+frontend/src/hooks/                     # 既存フック配置規約（useFabricUndoIntegration.ts と同階層）
+└── useCanvasViewport.ts                # 新規: コントローラと React 状態（現在倍率）の橋渡し、ズームUIハンドラ提供
 
 frontend/src/__tests__/site-surveys/
 ├── gestures/
 │   ├── canvasViewportController.test.ts  # 新規: clampZoom/zoomToPoint中点/pan clamp/fit 算術
 │   └── touchGestureManager.viewport.test.ts # 新規: 2本指→zoom/pan駆動、2本目追加で描画中断、復帰でビュー維持
-├── hooks/useCanvasViewport.test.ts       # 新規: 倍率状態更新・fit リセット
+└── (useCanvasViewport.test.ts は frontend/src/__tests__/hooks/ 配下)
+
+frontend/src/__tests__/hooks/
+└── useCanvasViewport.test.ts             # 新規: 倍率状態更新・fit リセット
 └── ZoomControls.test.tsx                 # 新規: 44px・倍率表示更新・fit 挙動・描画誤発火しない
 
 e2e/specs/site-surveys/
@@ -5782,8 +5788,27 @@ stateDiagram-v2
 - `two-finger-pinch-pan` 突入時、`touchGestureManager` は `onGestureStart` を発火し `AnnotationEditor` が `isDrawingMode=false` 化＋進行中ブラシパスを破棄（Req 33.5、RN1 解消）。`Cooldown→Idle` で元ツールの `isDrawingMode` を復帰。
 - ピンチ: 2本指距離比から目標 zoom を算出し `controller.zoomToPoint(midpoint, clamp(zoom))`（中点基準, Req 33.3）。
 - パン: 中点移動量を `controller.pan(dx,dy)`。`isPanEnabled()`（`getZoom() >= MIN_PAN_ZOOM`）で等倍時は抑止（Req 34.7）。
-- 拡大中の描画座標は Fabric `getScenePoint(e)` が `viewportTransform` を考慮するため、追加変換なしで正しい位置に落ちる（Req 33.6、RN3）。コントローラはビュー状態（zoom/pan）を保持し、描画再開後も維持（Req 33.7）。
+- 拡大中の描画座標は Fabric v7 のイベント `options.scenePoint`（既存 `AnnotationEditor.tsx:810/887/1054` で使用中）が `viewportTransform` を考慮するため、追加変換なしで正しい位置に落ちる（Req 33.6、RN3）。コントローラはビュー状態（zoom/pan）を保持し、描画再開後も維持（Req 33.7）。
 - canvas ラッパに `touch-action: none` を付与しブラウザ既定ジェスチャーを抑止（RN1）。
+
+#### 1本指ジェスチャーの責務分岐表（Req 33.1/33.11/33.12 の一意化・Critical Issue 2 対応）
+
+編集モードでは **パンを2本指専用**とし（1本指パンは採用しない）、1本指の意味をツール種別で一意化する。これにより Fabric の `object:moving` と `touchGestureManager` FSM の競合・二重発火を排除する。
+
+| ツール状態 | 入力 | 対象（ヒットテスト） | 振る舞い | 担当 | 根拠 |
+|---|---|---|---|---|---|
+| 描画ツール選択中 | 1本ドラッグ | 任意（背景/既存注釈問わず） | 新規描画。既存注釈の選択/移動は発火させない | FSM=drawing / Fabric selection 抑止 | 33.1, 33.13, 17 |
+| 選択ツール選択中 | 1本タップ | 既存注釈 | 当該注釈を選択 | Fabric selection | 33.11 |
+| 選択ツール選択中 | 1本ドラッグ | 選択中注釈/ハンドル上 | 移動・リサイズ（拡大中も追従） | Fabric `object:moving` | 33.12 |
+| 選択ツール選択中 | 1本ドラッグ | 空き領域（対象なし） | 選択解除のみ（パンしない） | - | 33.4方針 |
+| 任意 | 2本ピンチ/ドラッグ | — | ズーム（中点）/パン。進行中の描画・移動は中断 | FSM=two-finger → controller | 33.2-33.5 |
+| 任意 | 1本ダブルタップ | テキスト注釈上 | テキスト編集 | AnnotationEditor（findTarget） | 27.1 |
+| 任意 | 1本ダブルタップ | 空き領域 | ズーム/全体表示トグル | controller.toggleZoom | 33.8 |
+| 任意 | 3本指以上 | — | サスペンド（全指離脱までコミット抑止）→cooldown | FSM=three-plus-suspend | 30.2, 30.3 |
+
+**Key decisions**:
+- `touchGestureManager` は `getCurrentTool()` を参照し、**選択ツール時は `drawing` 状態へ遷移せず**、1本指の選択/移動を Fabric（`selection`/`object:moving`）へ委譲する（FSM は描画コミットを行わない）。描画ツール時は既存どおり `selectable=false`（`AnnotationEditor.tsx:516-523`）で誤選択を防止（Req 17）。
+- **既存 `ImageViewer`（閲覧モード）との差異**: ImageViewer は拡大時に1本指パンを許可していたが、編集モードでは1本指を描画/移動に充てるため**1本指パンを採らない**（2本指パンで代替）。これは描画アプリのデファクト標準（1本指=描画）に整合する意図的な差異であり、`canvasViewportController` 共通化後も入力割当はモード（編集/閲覧）側で決定する。
 
 #### 中点ズームフロー（Req 33.3, 34）
 
@@ -5811,7 +5836,7 @@ sequenceDiagram
 | 33.2, 33.3 | 2本指ピンチ・中点ズーム | touchGestureManager, canvasViewportController | zoomToPoint | 中点ズームフロー |
 | 33.4, 34.7 | 2本指パン/等倍時抑止 | canvasViewportController | pan/isPanEnabled | 調停フロー |
 | 33.5 | 2本目で描画中断 | touchGestureManager, AnnotationEditor | onGestureStart | 調停フロー |
-| 33.6 | 拡大中の正確描画 | AnnotationEditor (Fabric getScenePoint) | - | 調停フロー |
+| 33.6 | 拡大中の正確描画 | AnnotationEditor (Fabric options.scenePoint) | - | 調停フロー |
 | 33.7 | 再開時ビュー維持 | canvasViewportController | getState | 調停フロー |
 | 33.8 | ダブルタップズームトグル | AnnotationEditor, canvasViewportController | findTarget/toggleZoom | - |
 | 33.9 | ズーム範囲一貫 | canvasViewportController, ZOOM_CONSTANTS | clampZoom | - |
