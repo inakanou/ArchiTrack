@@ -2371,7 +2371,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Boundary: touchGestureManager_
 
 - [ ] 94. (P) ZoomControls コンポーネント（ボタン/倍率バッジ/下部配置/44px）
-- [ ] 94.1 ZoomControls の実装
+- [x] 94.1 ZoomControls の実装
   - `ZoomControls.tsx` を新設し、ズームイン/アウト/全体表示（フィット）ボタンと現在倍率バッジを表示する。各ボタンのタップ領域を44px以上とし、画面下部の片手到達領域に配置する
   - `useCanvasViewport` のハンドラ/倍率 state を購読して動作する
   - ボタンのポインタ/クリックイベントが背景 canvas へ伝播せず、描画として誤発火しないよう抑止する
