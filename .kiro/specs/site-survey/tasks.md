@@ -2342,7 +2342,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Core - フック / ジェスチャー / ズームUI / ハンドル
 
-- [ ] 92. (P) useCanvasViewport フック（倍率状態と UI ハンドラの橋渡し）
+- [x] 92. (P) useCanvasViewport フック（倍率状態と UI ハンドラの橋渡し）
   - `frontend/src/hooks/useCanvasViewport.ts` を新設し、コントローラと React 状態（現在倍率）を橋渡しする。`onZoomChange` で倍率を state 反映し、`zoomIn`/`zoomOut`/`fit` ハンドラを公開する
   - 観測可能な完了状態: フックテストでズーム操作により倍率 state が更新され、`fit` でリセットされる
   - _Depends: 91.1_
