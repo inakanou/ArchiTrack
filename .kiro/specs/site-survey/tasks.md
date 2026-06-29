@@ -2394,7 +2394,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Integration - AnnotationEditor 結線・閲覧モード統一
 
 - [ ] 96. AnnotationEditor へのビューポート/ジェスチャー/ズームUI 結線
-- [ ] 96.1 useCanvasViewport 配線・initialZoom/Pan 適用・ZoomControls マウント
+- [x] 96.1 useCanvasViewport 配線・initialZoom/Pan 適用・ZoomControls マウント
   - `AnnotationEditor` で `useCanvasViewport` を配線し、現在未使用の `initialZoom`/`initialPan` を初期ビュー状態として適用する。`ZoomControls` をマウントして倍率/操作を結線する
   - `ZoomControls` を背景 canvas の描画ヒット領域外（オーバーレイ）にマウントし、操作が描画として誤発火しないようにする
   - 観測可能な完了状態: 編集モードでズームUIが表示され、ボタン/ピンチでズーム/パン/フィットが動作し倍率バッジが更新される

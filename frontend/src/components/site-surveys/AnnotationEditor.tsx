@@ -75,6 +75,10 @@ import './tools/registerCustomShapes';
 import { createTouchGestureManager } from './gestures/touchGestureManager';
 import type { GesturePayload } from './gestures/touchGestureManager';
 import { configureHandleSizes, applyToolCursor } from './annotation-visual-feedback';
+// Task 96.1: ビューポート制御（ズーム/パン）の React 橋渡しフックとズーム操作UI (Req 33.9, 34.1, 34.2, 34.8)
+import { useCanvasViewport } from '../../hooks/useCanvasViewport';
+import type { FabricCanvasLike } from './gestures/canvasViewportController';
+import ZoomControls from './ZoomControls';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -296,6 +300,8 @@ function AnnotationEditor({
   imageUrl,
   imageId,
   surveyId,
+  initialZoom,
+  initialPan,
   readOnly = false,
   imageInfo,
   onAnnotationSaved,
@@ -395,9 +401,25 @@ function AnnotationEditor({
   // Task 72.1: touchGestureManager の detach 関数参照（unmount 時に detach するため）
   const touchGestureDetachRef = useRef<(() => void) | null>(null);
 
+  // Task 96.1: initialZoom/initialPan を canvas ごとに一度だけ適用するためのガード参照。
+  const initialViewAppliedRef = useRef(false);
+
   // Fabric.js と UndoManager の連携フック
   // fabricCanvasRef.currentを使用（Canvasがない場合はnull）
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
+
+  // Task 96.1 (Req 33.9, 34.1-34.4): canvasViewportController と React 状態（現在倍率）を
+  // 橋渡しするフック。生成される単一の controller を touchGestureManager（attach の
+  // viewportController）と ZoomControls（zoom/zoomIn/zoomOut/fit）で共有する。
+  const {
+    zoom,
+    zoomIn,
+    zoomOut,
+    fit,
+    controller: viewportController,
+  } = useCanvasViewport({
+    canvas: fabricCanvas as unknown as FabricCanvasLike | null,
+  });
   const { setProgrammaticOperation } = useFabricUndoIntegration({
     canvas: fabricCanvas,
     undoManager,
@@ -1356,17 +1378,10 @@ function AnnotationEditor({
       // Task 72.1 (Req 29.4, 29.5): タッチ/マウス環境に応じたハンドルサイズを設定
       configureHandleSizes();
 
-      // Task 72.1 (Req 27.1, 27.2, 30.1): touchGestureManager を canvas にアタッチ
-      // getCurrentTool は activeToolRef.current を返し、ハンドラ側で Req 17 調停に使う。
-      // touchGestureManager は FabricCanvasLike（fire/getElement の最小サーフェス）を要求する。
-      // Fabric の Canvas.fire はイベント名に union 型を要求するため、
-      // custom:dbltap / custom:longpress など拡張イベントを扱う本 manager へは構造的に
-      // 満たされる形でキャストして渡す。
-      const gestureManager = createTouchGestureManager();
-      touchGestureDetachRef.current = gestureManager.attach(
-        canvas as unknown as import('./gestures/touchGestureManager').FabricCanvasLike,
-        () => activeToolRef.current
-      );
+      // Task 96.1: 新しい canvas を生成したため、initialZoom/initialPan の適用ガードを解除する。
+      // 実際の touchGestureManager アタッチと初期ビュー適用は viewportController が
+      // 生成された後（setFabricCanvas による再レンダー後）の専用 effect で行う。
+      initialViewAppliedRef.current = false;
 
       // Task 72.2 (Req 27.1, 27.9, 27.10): touchGestureManager が fire する
       // custom:dbltap / custom:longpress に React 側ハンドラを配線する。
@@ -1424,15 +1439,8 @@ function AnnotationEditor({
         saveSuccessTimerRef.current = null;
       }
 
-      // Task 72.1: touchGestureManager を detach（canvas dispose 前にリスナーを解除）
-      if (touchGestureDetachRef.current) {
-        try {
-          touchGestureDetachRef.current();
-        } catch (err) {
-          console.warn('Error during touch gesture manager detach:', err);
-        }
-        touchGestureDetachRef.current = null;
-      }
+      // Task 96.1: touchGestureManager の detach は専用 effect（viewportController 依存）の
+      // クリーンアップで行うため、ここでは扱わない。
 
       if (canvas) {
         try {
@@ -1476,6 +1484,72 @@ function AnnotationEditor({
     handleDoubleTap,
     handleLongPress,
   ]);
+
+  /**
+   * Task 96.1 (Req 27.1, 27.2, 30.1, 33.2-33.5, 34.7): touchGestureManager を canvas に
+   * アタッチする。useCanvasViewport が生成した単一の viewportController を
+   * options.viewportController として注入し、2本指ピンチ→中点ズーム / 2本指ドラッグ→パンを
+   * 同一コントローラ経由で駆動する（ZoomControls とコントローラを共有）。
+   *
+   * canvas 初期化（setFabricCanvas）後の再レンダーで viewportController が生成されてから
+   * 実行する必要があるため、Canvas 生成 effect とは分離する。
+   * touchGestureManager は FabricCanvasLike（最小サーフェス）を要求するため構造的に
+   * 満たされる形でキャストして渡す。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas || !viewportController) {
+      return;
+    }
+    const gestureManager = createTouchGestureManager();
+    const detach = gestureManager.attach(
+      canvas as unknown as import('./gestures/touchGestureManager').FabricCanvasLike,
+      () => activeToolRef.current,
+      { viewportController }
+    );
+    touchGestureDetachRef.current = detach;
+
+    return () => {
+      try {
+        detach();
+      } catch (err) {
+        console.warn('Error during touch gesture manager detach:', err);
+      }
+      touchGestureDetachRef.current = null;
+    };
+  }, [fabricCanvas, viewportController]);
+
+  /**
+   * Task 96.1 (Req 33.9): props の initialZoom / initialPan を初期ビュー状態として
+   * canvas 初期化後に viewportController 経由で一度だけ適用する（REQ-5.6 のビュー状態共有）。
+   * ズーム範囲は controller.clampZoom（ZOOM_CONSTANTS）に準拠し、パンは等倍時抑止
+   * （isPanEnabled, Req 34.7）に従う。initialZoom/initialPan が未指定の場合は何もしない。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas || !viewportController) {
+      return;
+    }
+    if (initialViewAppliedRef.current) {
+      return;
+    }
+    if (initialZoom === undefined && initialPan === undefined) {
+      return;
+    }
+    initialViewAppliedRef.current = true;
+
+    if (initialZoom !== undefined) {
+      // 表示領域中央を基準に初期倍率を適用（clampZoom はコントローラ内で担保）。
+      const center = { x: canvas.getWidth() / 2, y: canvas.getHeight() / 2 };
+      viewportController.zoomToPoint(center, initialZoom);
+    }
+    if (initialPan) {
+      // 原点（等倍時 translate=0）からの平行移動量として適用（等倍時は内部で抑止）。
+      viewportController.pan(initialPan.x, initialPan.y);
+    }
+    // initialZoom/initialPan は「初期」値のため、canvas/controller の確定時のみ適用する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fabricCanvas, viewportController]);
 
   /**
    * 画像URLが変更された場合の再読み込み
@@ -1983,6 +2057,21 @@ function AnnotationEditor({
           />
         </div>
       </div>
+
+      {/* Task 96.1 (Req 34.1, 34.2, 34.6, 34.8): ズーム操作コントロール。
+          - 編集モードでのみ表示（readOnly では非表示）。canvas/画像準備中（isLoading）は非表示。
+          - position: fixed の下部オーバーレイで、背景 canvas の描画ヒット領域外に配置し、
+            stopPropagation/preventDefault により描画の誤発火を防ぐ（ZoomControls 内で実装）。
+          - controller 未生成（canvas 初期化前）は disabled とする。 */}
+      {!readOnly && !state.isLoading && (
+        <ZoomControls
+          zoom={zoom}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onFit={fit}
+          disabled={!viewportController}
+        />
+      )}
 
       {/* エクスポートダイアログ（REQ-12.2, 12.3, 12.4） */}
       {imageInfo && (
