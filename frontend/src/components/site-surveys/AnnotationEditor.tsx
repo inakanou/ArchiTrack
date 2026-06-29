@@ -714,6 +714,13 @@ function AnnotationEditor({
         // 背景画像の参照を保存
         backgroundImageRef.current = img;
 
+        // Task 96.4 (Req 33.11, 33.12): 選択ツールでの初回ロード時もタッチ/クリックで
+        // 既存注釈を選択・移動できるよう、canvas.selection を現在のツール状態へ同期する。
+        // canvas 生成時は selection:false 固定のため、ここで activeTool/readOnly に基づき是正する
+        // （以後のツール切替時は handleToolChange が同期する）。これにより拡大表示中でも
+        // Fabric の選択（マーキー）/ object:moving（scenePoint=viewport 考慮）への委譲が成立する。
+        canvas.selection = !readOnly && activeToolRef.current === 'select';
+
         canvas.renderAll();
 
         // REQ-9.2: 保存された注釈データを復元

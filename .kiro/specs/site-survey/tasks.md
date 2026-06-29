@@ -2393,7 +2393,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Integration - AnnotationEditor 結線・閲覧モード統一
 
-- [ ] 96. AnnotationEditor へのビューポート/ジェスチャー/ズームUI 結線
+- [x] 96. AnnotationEditor へのビューポート/ジェスチャー/ズームUI 結線
 - [x] 96.1 useCanvasViewport 配線・initialZoom/Pan 適用・ZoomControls マウント
   - `AnnotationEditor` で `useCanvasViewport` を配線し、現在未使用の `initialZoom`/`initialPan` を初期ビュー状態として適用する。`ZoomControls` をマウントして倍率/操作を結線する
   - `ZoomControls` を背景 canvas の描画ヒット領域外（オーバーレイ）にマウントし、操作が描画として誤発火しないようにする
@@ -2414,7 +2414,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Depends: 96.1_
   - _Requirements: 33.8, 27.1_
   - _Boundary: AnnotationEditor_
-- [ ] 96.4 選択ツール時のタッチ選択・移動の確実化（拡大中追従）
+- [x] 96.4 選択ツール時のタッチ選択・移動の確実化（拡大中追従）
   - 選択ツール時の1本指タップで注釈を選択、ドラッグで移動し、拡大表示中も指の移動に追従させる（責務分岐表に準拠、パンは2本指専用）
   - 観測可能な完了状態: 拡大状態で既存注釈をタップ選択→ドラッグ移動が指に追従し、描画として誤発火しない
   - _Depends: 93.2, 95_
