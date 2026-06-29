@@ -64,6 +64,22 @@ describe('ZoomControls', () => {
     });
   });
 
+  // Req 34.3: ズーム変化に追従して倍率バッジが更新される
+  describe('倍率バッジのズーム変化更新 (Req 34.3)', () => {
+    it('zoom prop の変更で再レンダリングし、バッジが新しい倍率へ更新される', () => {
+      const { rerender } = render(<ZoomControls {...makeProps({ zoom: 1 })} />);
+      expect(screen.getByTestId('zoom-badge')).toHaveTextContent('100%');
+
+      // ズームイン相当: zoom が増加
+      rerender(<ZoomControls {...makeProps({ zoom: 2 })} />);
+      expect(screen.getByTestId('zoom-badge')).toHaveTextContent('200%');
+
+      // ズームアウト相当: zoom が減少
+      rerender(<ZoomControls {...makeProps({ zoom: 0.5 })} />);
+      expect(screen.getByTestId('zoom-badge')).toHaveTextContent('50%');
+    });
+  });
+
   // Req 34.1: ハンドラ結線
   describe('ハンドラ結線 (Req 34.1)', () => {
     it('ズームインボタンクリックで onZoomIn が呼ばれる', async () => {
