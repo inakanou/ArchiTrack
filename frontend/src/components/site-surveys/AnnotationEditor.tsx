@@ -110,6 +110,18 @@ const DEFAULT_STYLE_OPTIONS: StyleOptions = {
 };
 
 /**
+ * Task 96.3 (Req 33.8): 空き領域ダブルタップによるズームトグルの拡大倍率。
+ * 等倍（フィット）状態でダブルタップした際に当該タップ点を中心へこの倍率で拡大する。
+ */
+const DOUBLE_TAP_ZOOM_SCALE = 2;
+
+/**
+ * Task 96.3 (Req 33.8): ダブルタップズームトグルで「等倍（フィット）相当」とみなす許容差。
+ * 現在ズームが `1 + この値` 以下なら拡大、超えていれば fit() で全体表示へ戻す。
+ */
+const DOUBLE_TAP_ZOOM_EPSILON = 0.01;
+
+/**
  * AnnotationEditorの状態
  */
 interface AnnotationEditorState {
@@ -432,6 +444,10 @@ function AnnotationEditor({
   } = useCanvasViewport({
     canvas: fabricCanvas as unknown as FabricCanvasLike | null,
   });
+  // Task 96.3 (Req 33.8): handleDoubleTap から最新の viewportController を参照するための ref。
+  // handleDoubleTap の依存を空に保ち、canvas 初期化 effect の再実行（dispose/再生成）を避ける。
+  const viewportControllerRef = useRef(viewportController);
+  viewportControllerRef.current = viewportController;
   const { setProgrammaticOperation } = useFabricUndoIntegration({
     canvas: fabricCanvas,
     undoManager,
@@ -1242,20 +1258,67 @@ function AnnotationEditor({
   }, []);
 
   /**
-   * Task 72.2 (Req 27.1): ダブルタップハンドラ
+   * Task 72.2 / 96.3 (Req 27.1, 33.8): ダブルタップ用途調停ハンドラ
    *
-   * touchGestureManager が発火する `custom:dbltap` を受け、target が TextAnnotation 系
-   * (`textAnnotation` / `i-text` / `text`) であれば `enterEditing()` を呼んで編集モードに
-   * 遷移させる。マウス環境の `mouse:dblclick` は既存のセットアップで維持されている
-   * （Req 27.8 後方互換）。
+   * touchGestureManager が発火する `custom:dbltap` を受け、ダブルタップ位置の対象によって
+   * 用途を排他的に切り替える（design.md「ダブルタップ用途調停」）。
+   *   - テキスト注釈上 (`textAnnotation` / `i-text` / `text`) → `enterEditing()` で編集モード
+   *     へ遷移（Req 27.1, 27.8 後方互換）。ズームトグルは行わない。
+   *   - 空き領域（対象なし）または背景画像 (`image`) 上 → ズーム/全体表示トグル（Req 33.8）。
+   *     現在ズームが等倍（≒1）なら当該タップ点を中心に拡大し、拡大中なら fit() で全体表示へ戻す。
+   *   - テキスト以外の注釈（rectangle 等）上では編集もズームも行わない（責務分岐表）。
+   *
+   * controller には新メソッドを足さず、AnnotationEditor 内で `getState().zoom` を見て
+   * `zoomToPoint`/`fit` を呼び分ける（境界維持）。マウス環境の `mouse:dblclick` は既存の
+   * セットアップで維持される（Req 27.8）。
    */
   const handleDoubleTap = useCallback((payload: GesturePayload) => {
-    const target = payload.target as { type?: string; enterEditing?: () => void } | undefined;
-    if (!target) {
+    const canvas = fabricCanvasRef.current;
+    if (canvas === null) {
       return;
     }
-    if (target.type === 'textAnnotation' || target.type === 'i-text' || target.type === 'text') {
+
+    // Task 96.3 (round 1 修正): payload.target には依存しない。
+    // touchGestureManager の buildPayload は target を設定せず、Fabric の canvas.fire は
+    // カスタムイベントに target を付与しないため、本番タッチ dbltap では payload.target が
+    // 常に undefined になる。ここでタップ点のクライアント座標から実ヒットテストを行い対象を得る。
+    // Fabric v7 の findTarget は clientX/clientY を持つイベント様オブジェクトから
+    // getScenePoint 経由で対象を解決し、{ target?, subTargets, ... } を返す。
+    const eventLike = {
+      clientX: payload.clientX,
+      clientY: payload.clientY,
+    } as unknown as TPointerEvent;
+    const hit = canvas.findTarget(eventLike);
+    const target = hit.target as { type?: string; enterEditing?: () => void } | undefined;
+
+    // Req 27.1: テキスト注釈上は従来どおり編集モードへ（後方互換）。ズームはしない。
+    // これにより、従来 payload.target=undefined→no-op で実質壊れていたタッチのテキスト編集も
+    // 正しく enterEditing へ到達する。
+    if (target?.type === 'textAnnotation' || target?.type === 'i-text' || target?.type === 'text') {
       target.enterEditing?.();
+      return;
+    }
+
+    // Req 33.8: 空き領域（対象なし）または背景画像上のみズームトグルの対象とする。
+    // 背景画像は canvas.backgroundImage でありヒットテスト対象外（findTarget は undefined を返す）
+    // だが、万一 image オブジェクトがヒットした場合も空き領域扱いとする（防御的）。
+    // テキスト以外の注釈の上では編集もズームも行わない。
+    const isEmptyArea = target === undefined || target.type === 'image';
+    if (!isEmptyArea) {
+      return;
+    }
+
+    const controller = viewportControllerRef.current;
+    if (controller === null) {
+      return;
+    }
+
+    // controller に新メソッドを足さず、現在ズームを見て拡大↔全体表示を排他に切り替える。
+    const tapPoint = { x: payload.clientX, y: payload.clientY };
+    if (controller.getState().zoom <= 1 + DOUBLE_TAP_ZOOM_EPSILON) {
+      controller.zoomToPoint(tapPoint, DOUBLE_TAP_ZOOM_SCALE);
+    } else {
+      controller.fit();
     }
   }, []);
 

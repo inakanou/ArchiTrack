@@ -2408,7 +2408,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Depends: 93.2_
   - _Requirements: 33.5, 33.6, 33.7, 30.1_
   - _Boundary: AnnotationEditor_
-- [ ] 96.3 ダブルタップ用途調停（テキスト編集 vs ズームトグル）
+- [x] 96.3 ダブルタップ用途調停（テキスト編集 vs ズームトグル）
   - ダブルタップ時に対象をヒットテストし、テキスト注釈上なら従来の編集（Req 27.1）、空き領域ならズーム/全体表示トグルを実行する
   - 観測可能な完了状態: テキスト注釈上のダブルタップで編集に入り、空き領域のダブルタップで拡大⇄全体表示が切り替わる
   - _Depends: 96.1_
@@ -2479,3 +2479,4 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 | 34.8  | 94.1, 94.2, 96.1                    |
 - **90.2**: 一括エクスポートのメモリ・処理時間も JSDOM では `performance.memory` および Canvas Blob 経路が利用不可のため、`frontend/src/__tests__/performance/bulk-export-memory.perf.test.ts` で 30 枚 × multiplier=2 のタスク構造的フットプリント、処理時間上限（30 秒）、ピークメモリ上限（250MB）を契約として宣言。実機計測手順を docstring に再現可能な形で記録し、`design.md` L5628 の Rollback trigger と整合させた。
 - **96.2**: 描画中断後の描画モード復帰は、touchGestureManager が終了コールバックを公開していないため `getTouchState()` の COOLDOWN_MS ポーリングで idle 復帰を検出する方式とした（境界内で唯一の手段）。リーク無し・誤復帰防止済みだが、cooldown 中に連続再ピンチが入ると稀に未復帰となるエッジが残る。本質解決は touchGestureManager に `onGestureEnd` コールバックを追加すること（将来の touchGestureManager 改修・97 と併せて検討可）。
+- **96.3 派生（要フォロー・本Spec外の既存バグ）**: `touchGestureManager.buildPayload` は `custom:dbltap`/`custom:longpress` の payload に `target` をセットしない（Fabric の `fire` もカスタムイベントに target を付与しない）。96.3 では `handleDoubleTap` を `canvas.findTarget` の実ヒットテストへ移行して解消したが、**`handleLongPress`（REQ-27.9 コンテキストメニュー）は同じ `payload.target` 依存のままで、本番タッチ長押しでメニューが開かない可能性が高い**。96系の境界外のため未修正。別タスク（handleLongPress も findTarget 化、または buildPayload で target 付与）での対応を推奨。
