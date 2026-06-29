@@ -2326,7 +2326,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Foundation - ビューポート制御コントローラ
 
 - [ ] 91. ビューポート制御コントローラの抽出・実装
-- [ ] 91.1 canvasViewportController の実装（中点ズーム/パン/フィット/クランプ/状態保持）
+- [x] 91.1 canvasViewportController の実装（中点ズーム/パン/フィット/クランプ/状態保持）
   - `ImageViewer.tsx` で実証済みの中点ピンチ算術・`clampZoom`・`isPanEnabled` を `gestures/canvasViewportController.ts` へ抽出し、`FabricCanvasLike` 最小サーフェスのみに依存する React 非依存モジュールとして実装する
   - `zoomToPoint(point, zoom)`・`pan(dx, dy)`・`fit()`・`clampZoom()`・`clampPan()`・`getState()`（zoom/pan 保持）を公開し、ズーム範囲は既存 `ZOOM_CONSTANTS`、パン有効化は `PAN_CONSTANTS.MIN_PAN_ZOOM` を用いる
   - ズームは `viewportTransform` のみを変更し、注釈オブジェクトの保存座標には一切影響させない
