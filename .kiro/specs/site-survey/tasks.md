@@ -2421,7 +2421,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 33.11, 33.12_
   - _Boundary: AnnotationEditor_
 
-- [ ] 97. (P) ImageViewer の共通コントローラ移行（二重実装解消）
+- [x] 97. (P) ImageViewer の共通コントローラ移行（二重実装解消）
   - 閲覧モード `ImageViewer.tsx` のズーム/パンを `canvasViewportController` 経由へ移行し、編集モードとジェスチャー操作体系を一貫させる（閲覧モードの1本指パン等の既存挙動は閲覧側設定として維持）
   - 本タスクは Req 33.10（閲覧/編集の一貫性）の唯一の担保であり必須・延期不可とする
   - 観測可能な完了状態: 閲覧モードのズーム/パンがコントローラ経由で動作し、既存の画像ビューア E2E が回帰しない
