@@ -2325,7 +2325,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Foundation - ビューポート制御コントローラ
 
-- [ ] 91. ビューポート制御コントローラの抽出・実装
+- [x] 91. ビューポート制御コントローラの抽出・実装
 - [x] 91.1 canvasViewportController の実装（中点ズーム/パン/フィット/クランプ/状態保持）
   - `ImageViewer.tsx` で実証済みの中点ピンチ算術・`clampZoom`・`isPanEnabled` を `gestures/canvasViewportController.ts` へ抽出し、`FabricCanvasLike` 最小サーフェスのみに依存する React 非依存モジュールとして実装する
   - `zoomToPoint(point, zoom)`・`pan(dx, dy)`・`fit()`・`clampZoom()`・`clampPan()`・`getState()`（zoom/pan 保持）を公開し、ズーム範囲は既存 `ZOOM_CONSTANTS`、パン有効化は `PAN_CONSTANTS.MIN_PAN_ZOOM` を用いる
@@ -2333,7 +2333,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能な完了状態: コントローラ単体で `zoomToPoint` 後に中点が画面上で保持され、`fit()` で等倍＋パン初期化、`getState()` がズーム/パンを返す
   - _Requirements: 33.3, 33.7, 33.9, 34.4, 34.7_
   - _Boundary: canvasViewportController_
-- [ ] 91.2 canvasViewportController の単体テスト
+- [x] 91.2 canvasViewportController の単体テスト
   - `clampZoom` 上下限、`zoomToPoint` の中点基準変換、`clampPan` の範囲制限、`fit` の収まり倍率＋パン初期化、`getState` のズーム/パン保持を検証する
   - 前提条件でテストを自動無効化せず、満たさない場合は失敗させる構成にする
   - 観測可能な完了状態: `canvasViewportController.test.ts` の全テストが合格する

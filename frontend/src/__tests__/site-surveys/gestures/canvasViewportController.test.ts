@@ -82,6 +82,13 @@ describe('canvasViewportController', () => {
       const ctl = createCanvasViewportController(canvas);
       expect(ctl.clampZoom(2.5)).toBe(2.5);
     });
+
+    it('境界値ちょうど（MIN_ZOOM / MAX_ZOOM）はその値を保持する', () => {
+      // 「未満/超過」だけでなく境界そのものを通すことを保証する（off-by-one 防止）
+      const ctl = createCanvasViewportController(canvas);
+      expect(ctl.clampZoom(ZOOM_CONSTANTS.MIN_ZOOM)).toBe(ZOOM_CONSTANTS.MIN_ZOOM);
+      expect(ctl.clampZoom(ZOOM_CONSTANTS.MAX_ZOOM)).toBe(ZOOM_CONSTANTS.MAX_ZOOM);
+    });
   });
 
   describe('zoomToPoint 中点保持 (Req 33.3)', () => {
@@ -128,6 +135,39 @@ describe('canvasViewportController', () => {
       const ctl = createCanvasViewportController(canvas);
       ctl.zoomToPoint({ x: 400, y: 300 }, ZOOM_CONSTANTS.MAX_ZOOM + 50);
       expect(ctl.getState().zoom).toBe(ZOOM_CONSTANTS.MAX_ZOOM);
+    });
+
+    it('縮小方向（zoom 4→2）でも指定中点が画面上で保持される', () => {
+      // 拡大方向だけでなく縮小方向でも中点基準変換が成立することを保証する。
+      // 開始 vpt=[4,0,0,4,-800,-600]（zoom4 のパン有効範囲内）、中点(400,300) を zoom 2 へ縮小。
+      const START_ZOOM = 4;
+      const canvas = makeCanvas(800, 600, [START_ZOOM, 0, 0, START_ZOOM, -800, -600]);
+      const ctl = createCanvasViewportController(canvas);
+      const midpoint = { x: 400, y: 300 };
+
+      const before = canvas.viewportTransform;
+      const sceneX = (midpoint.x - before[4]) / before[0]; // (400+800)/4 = 300
+      const sceneY = (midpoint.y - before[5]) / before[0]; // (300+600)/4 = 225
+
+      ctl.zoomToPoint(midpoint, 2);
+      const after = canvas.viewportTransform;
+
+      // 独立期待値（手計算）: newPanX = 400 - 300*2 = -200, newPanY = 300 - 225*2 = -150
+      // zoom2 のパン範囲 X[-800,0] / Y[-600,0] 内のため clampPan は不変。
+      const EXPECTED_ZOOM = 2;
+      const EXPECTED_PAN_X = midpoint.x - sceneX * EXPECTED_ZOOM;
+      const EXPECTED_PAN_Y = midpoint.y - sceneY * EXPECTED_ZOOM;
+      expect(EXPECTED_PAN_X).toBe(-200);
+      expect(EXPECTED_PAN_Y).toBe(-150);
+      expect(after[0]).toBeCloseTo(EXPECTED_ZOOM, 5);
+      expect(after[4]).toBeCloseTo(EXPECTED_PAN_X, 5);
+      expect(after[5]).toBeCloseTo(EXPECTED_PAN_Y, 5);
+
+      // 縮小後も指定中点は画面上の同じ位置に保持される
+      const screenX = sceneX * after[0] + after[4];
+      const screenY = sceneY * after[3] + after[5];
+      expect(screenX).toBeCloseTo(midpoint.x, 5);
+      expect(screenY).toBeCloseTo(midpoint.y, 5);
     });
   });
 
@@ -180,6 +220,25 @@ describe('canvasViewportController', () => {
       expect(state2.panX).toBeGreaterThanOrEqual(800 - 800 * 2);
       expect(state2.panY).toBeGreaterThanOrEqual(600 - 600 * 2);
     });
+
+    it('クランプ下限はズーム倍率に比例して拡がる（zoom=4 で width-width*zoom）', () => {
+      // zoom=2 だけでなく別倍率でも下限が w-w*zoom / h-h*zoom に追従することを保証する。
+      const ZOOM = 4;
+      const canvas = makeCanvas(800, 600, [ZOOM, 0, 0, ZOOM, 0, 0]);
+      const ctl = createCanvasViewportController(canvas);
+
+      // 左上方向へ極端にパン → 下限 [-2400, -1800] ちょうどへ補正される
+      ctl.pan(-100000, -100000);
+      const lower = ctl.getState();
+      expect(lower.panX).toBe(800 - 800 * ZOOM); // -2400
+      expect(lower.panY).toBe(600 - 600 * ZOOM); // -1800
+
+      // 右下方向へ極端にパン → 上限 0 へ補正される
+      ctl.pan(100000, 100000);
+      const upper = ctl.getState();
+      expect(upper.panX).toBe(0);
+      expect(upper.panY).toBe(0);
+    });
   });
 
   describe('fit (Req 34.4)', () => {
@@ -191,6 +250,19 @@ describe('canvasViewportController', () => {
       expect(state.zoom).toBe(1);
       expect(state.panX).toBe(0);
       expect(state.panY).toBe(0);
+    });
+
+    it('既に等倍の状態から呼んでも等倍を保持し onZoomChange(1) と再描画を行う', () => {
+      // 変化が無い場合でもフィットは確定的に等倍へ揃え、購読側へ 1 を通知する。
+      const canvas = makeCanvas(800, 600, [1, 0, 0, 1, 0, 0]);
+      const onZoomChange = vi.fn();
+      const ctl = createCanvasViewportController(canvas, { onZoomChange });
+
+      ctl.fit();
+
+      expect(ctl.getState()).toEqual({ zoom: 1, panX: 0, panY: 0 });
+      expect(onZoomChange).toHaveBeenLastCalledWith(1);
+      expect(canvas.requestRenderAll).toHaveBeenCalled();
     });
   });
 
