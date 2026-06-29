@@ -2432,7 +2432,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Validation - E2E
 
 - [ ] 98. E2E 検証（編集モードのモバイルUX）
-- [ ] 98.1 (P) ピンチズーム後の正確描画・2本指パン・等倍時パン抑止 E2E
+- [x] 98.1 (P) ピンチズーム後の正確描画・2本指パン・等倍時パン抑止 E2E
   - 編集モードで2本指ピンチ→拡大→1本指描画が拡大後の正しい位置に落ちることを検証する
   - 2本指ドラッグでパンし、等倍時はパンしないことを検証する
   - 描画途中に2本目を置くと描画が中断しゴミ線が残らないことを検証する
@@ -2480,3 +2480,6 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **90.2**: 一括エクスポートのメモリ・処理時間も JSDOM では `performance.memory` および Canvas Blob 経路が利用不可のため、`frontend/src/__tests__/performance/bulk-export-memory.perf.test.ts` で 30 枚 × multiplier=2 のタスク構造的フットプリント、処理時間上限（30 秒）、ピークメモリ上限（250MB）を契約として宣言。実機計測手順を docstring に再現可能な形で記録し、`design.md` L5628 の Rollback trigger と整合させた。
 - **96.2**: 描画中断後の描画モード復帰は、touchGestureManager が終了コールバックを公開していないため `getTouchState()` の COOLDOWN_MS ポーリングで idle 復帰を検出する方式とした（境界内で唯一の手段）。リーク無し・誤復帰防止済みだが、cooldown 中に連続再ピンチが入ると稀に未復帰となるエッジが残る。本質解決は touchGestureManager に `onGestureEnd` コールバックを追加すること（将来の touchGestureManager 改修・97 と併せて検討可）。
 - **96.3 派生（要フォロー・本Spec外の既存バグ）**: `touchGestureManager.buildPayload` は `custom:dbltap`/`custom:longpress` の payload に `target` をセットしない（Fabric の `fire` もカスタムイベントに target を付与しない）。96.3 では `handleDoubleTap` を `canvas.findTarget` の実ヒットテストへ移行して解消したが、**`handleLongPress`（REQ-27.9 コンテキストメニュー）は同じ `payload.target` 依存のままで、本番タッチ長押しでメニューが開かない可能性が高い**。96系の境界外のため未修正。別タスク（handleLongPress も findTarget 化、または buildPayload で target 付与）での対応を推奨。
+- **98.1（E2Eで本番バグ検出→修正）**: ジェスチャー検出器が実機で発火しなかった本番バグを E2E が検出。真因は `touchGestureManager.attach` が `canvas.getElement()`（Fabric 7.x では lower-canvas）にリスナを張っていたこと。実イベントは upper-canvas に届くため commit 052a0a2 で `upperCanvasEl ?? getElement()` に是正。CDPマルチタッチは2本指 PointerEvent を正しく合成し、PointerEvent 一本化方針は実機でも成立する。
+- **E2E実行の必須運用（再発防止）**: `npm run test:docker` / playwright webServer は frontend イメージを再ビルドせず（`up -d`・`reuseExistingServer:true`）、ソース変更が反映されず**陳腐化イメージで偽陰性**を起こす。E2E は必ず `docker compose -p architrack-test ... up -d --build frontend`（または `test:docker:build`）で再ビルドしてから実行すること。恒久対策として webServer/スクリプトを `--build` 前提に変更するのが望ましい（test-infra 改善・別途）。
+- **将来改善（非ブロッカー）**: ピンチのズーム基準点は `event.clientX/Y`（ページ座標）を controller.zoomToPoint に渡しており、Fabric 期待のキャンバス相対座標とズーム中心がずれ得る。Task 98.1 は viewportTransform 基準の自己整合検証で PASS。ズーム中心の厳密一致を要件化する場合のみキャンバス相対へ変換する改善余地あり。
