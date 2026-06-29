@@ -2385,7 +2385,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 34.3, 34.4, 34.5, 34.8_
   - _Boundary: ZoomControls_
 
-- [ ] 95. (P) 選択ハンドルのタッチターゲット44px化
+- [x] 95. (P) 選択ハンドルのタッチターゲット44px化
   - `annotation-visual-feedback.ts` のタッチ時 `touchCornerSize` を 40→44px 以上へ引き上げ、標準タッチターゲット（WCAG 2.5.5）に準拠させる。`cornerSize`（描画サイズ）はマウス/タッチで切替える既存挙動を維持する
   - 観測可能な完了状態: タッチ環境（`pointer: coarse`）で選択ハンドルのヒット領域が44px以上になることをテストで確認する
   - _Requirements: 29.4_
