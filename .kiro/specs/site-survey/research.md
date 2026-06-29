@@ -587,3 +587,11 @@ ImageViewer のズーム/パン/タッチ処理を AnnotationEditor 内へ移植
 2. RN1-RN4 を設計フェーズで確認（特に RN1/RN3 は早期に技術検証）
 3. その後 `/kiro-spec-tasks site-survey` でタスクを再生成（Req33/34 を既存タスクID範囲と重複しない範囲で追加、Option C のフェーズ順を反映）
 
+## 13. 設計合成の結論（2026-06-29 設計フェーズ）
+
+- **Generalization**: ズーム/パン/中点ズームは閲覧/編集共通の「ビューポート制御」能力 → `gestures/canvasViewportController.ts` に単一実装として一般化。閲覧/編集の両方が同コントローラを利用し二重実装を解消（Req 33.10）。
+- **Build vs Adopt**: 新規ライブラリは採用せず、`ImageViewer.tsx` の実証済み算術（中点ピンチ・clampZoom・isPanEnabled）を抽出再利用＋Fabric標準 `zoomToPoint` を採用（tech.md「追加依存なし」に整合）。
+- **Simplification**: 既存 `touchGestureManager` の FSM を流用し `two-finger-pinch-pan` に振る舞いを追加するのみ（新規状態機械を作らない）。React 状態は `useCanvasViewport` 1フックに集約。
+- **重要決定**: ①ズームは `viewportTransform` 表示専用とし保存座標は不変（Req 9 後方互換）。②ダブルタップは対象がテキスト注釈なら編集（Req 27.1）、空き領域ならズームトグル（Req 33.8）で排他調停。③`ImageViewer` のコントローラ移行はフェーズ4（Req 33.10 最終担保、回帰時は保留可能）。
+- **RN 解消方針**: RN1=canvasに`touch-action:none`＋2本目検出で`isDrawingMode`退避/ブラシ破棄。RN2=`zoomToPoint`後に`clampPan`。RN3=`getScenePoint`がviewport考慮のため追加変換不要（E2Eで担保）。RN4=Playwrightタッチ模擬手法はタスク着手時に確定。
+
