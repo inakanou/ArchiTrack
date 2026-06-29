@@ -53,6 +53,16 @@ import type { CanvasViewportController, ViewportPoint } from './canvasViewportCo
 export interface FabricCanvasLike {
   fire(eventName: string, options: GesturePayload): void;
   getElement(): HTMLCanvasElement;
+  /**
+   * 最前面の upper-canvas（Fabric `SelectableCanvas.upperCanvasEl`）。
+   *
+   * Fabric 7.x では `getElement()` は **lower-canvas** を返すが、実ブラウザの
+   * タッチ/ポインタイベントは最前面の upper-canvas に配送される。したがって
+   * ジェスチャーの pointer リスナは upper-canvas に張らなければ実機で発火しない
+   * （Req 33.2-33.5, 34.7）。後方互換のため optional とし、attach は
+   * `upperCanvasEl ?? getElement()` の順で要素を選択する。
+   */
+  upperCanvasEl?: HTMLCanvasElement;
 }
 
 /**
@@ -234,7 +244,10 @@ export const createTouchGestureManager = (): TouchGestureManager => {
     getCurrentTool: () => string,
     options?: TouchGestureAttachOptions
   ): (() => void) => {
-    const element = canvas.getElement();
+    // Fabric 7.x: getElement() は lower-canvas を返すが、実ブラウザの pointer/touch
+    // イベントは最前面の upper-canvas に配送される。upper があれば upper を、無ければ
+    // 従来どおり getElement() にフォールバックする（後方互換・既存モック対応, Req 33.2-33.5, 34.7）。
+    const element = canvas.upperCanvasEl ?? canvas.getElement();
     const viewportController = options?.viewportController;
     const onGestureStart = options?.onGestureStart;
 

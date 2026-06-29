@@ -520,6 +520,92 @@ describe('touchGestureManager', () => {
     });
   });
 
+  describe('イベントターゲットは upper-canvas (Req 33.2, 33.3, 33.4, 33.5, 34.7)', () => {
+    /**
+     * Fabric 7.x の Canvas は getElement() が lower-canvas を返す一方、
+     * 実ブラウザのタッチ/ポインタイベントは最前面の upper-canvas に配送される。
+     * attach() は upperCanvasEl（存在する場合）にリスナを張らなければ、
+     * 実機でジェスチャーが一切発火しない（lower=0 / upper=2 の本番バグ）。
+     */
+    interface UpperLowerMockCanvas {
+      fire: ReturnType<typeof vi.fn>;
+      upperCanvasEl: HTMLCanvasElement;
+      getElement: () => HTMLCanvasElement;
+    }
+
+    let lowerElement: HTMLCanvasElement;
+    let upperElement: HTMLCanvasElement;
+    let dualCanvas: UpperLowerMockCanvas;
+
+    beforeEach(() => {
+      lowerElement = document.createElement('canvas');
+      upperElement = document.createElement('canvas');
+      document.body.appendChild(lowerElement);
+      document.body.appendChild(upperElement);
+      dualCanvas = {
+        fire: vi.fn(),
+        upperCanvasEl: upperElement,
+        getElement: () => lowerElement,
+      };
+    });
+
+    afterEach(() => {
+      if (lowerElement.parentNode) lowerElement.parentNode.removeChild(lowerElement);
+      if (upperElement.parentNode) upperElement.parentNode.removeChild(upperElement);
+    });
+
+    it('upper-canvas へ dispatch した pointer イベントで custom:dbltap が発火する', () => {
+      const manager = createTouchGestureManager();
+      const detach = manager.attach(dualCanvas as unknown as never, getCurrentTool);
+
+      dispatchPointer(upperElement, 'pointerdown', { pointerId: 1, clientX: 100, clientY: 100 });
+      dispatchPointer(upperElement, 'pointerup', { pointerId: 1, clientX: 100, clientY: 100 });
+      vi.advanceTimersByTime(100);
+      dispatchPointer(upperElement, 'pointerdown', { pointerId: 2, clientX: 101, clientY: 100 });
+
+      const dbltapCalls = dualCanvas.fire.mock.calls.filter((call) => call[0] === 'custom:dbltap');
+      expect(dbltapCalls).toHaveLength(1);
+
+      detach();
+    });
+
+    it('upper-canvas への 2 本指 pointerdown で two-finger-pinch-pan に遷移する', () => {
+      const manager = createTouchGestureManager();
+      const detach = manager.attach(dualCanvas as unknown as never, getCurrentTool);
+
+      dispatchPointer(upperElement, 'pointerdown', { pointerId: 1, clientX: 100, clientY: 100 });
+      dispatchPointer(upperElement, 'pointerdown', { pointerId: 2, clientX: 200, clientY: 200 });
+
+      expect(manager.getTouchState()).toBe('two-finger-pinch-pan');
+
+      detach();
+    });
+
+    it('lower-canvas（getElement()）への pointer イベントは無視される', () => {
+      const manager = createTouchGestureManager();
+      const detach = manager.attach(dualCanvas as unknown as never, getCurrentTool);
+
+      dispatchPointer(lowerElement, 'pointerdown', { pointerId: 1, clientX: 100, clientY: 100 });
+
+      // upper にアタッチしているため lower への入力では状態遷移しない
+      expect(manager.getTouchState()).toBe('idle');
+
+      detach();
+    });
+
+    it('detach() は upper-canvas のリスナを除去する', () => {
+      const manager = createTouchGestureManager();
+      const detach = manager.attach(dualCanvas as unknown as never, getCurrentTool);
+
+      detach();
+
+      dispatchPointer(upperElement, 'pointerdown', { pointerId: 1, clientX: 100, clientY: 100 });
+
+      expect(manager.getTouchState()).toBe('idle');
+      expect(dualCanvas.fire).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getCurrentTool 連携 (Req 27 payload)', () => {
     it('custom:longpress の payload には getCurrentTool() の返却値が含まれる', () => {
       const manager = createTouchGestureManager();
