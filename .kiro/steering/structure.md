@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-04-08（Steering Sync: テストファイル数・Storybookカウント・contracts/コンポーネント追加を反映）_
+_最終更新: 2026-06-30（Steering Sync: 現場調査の`gestures/`（canvasViewportController/touchGestureManager/gesture-thresholds）・`ZoomControls.tsx`・`useCanvasViewport`フック・`utils/image-compression.ts`を反映）_
+
+_2026-04-08（Steering Sync: テストファイル数・Storybookカウント・contracts/コンポーネント追加を反映）_
 
 ## ルートディレクトリ構成
 
@@ -481,19 +483,24 @@ frontend/
 │   │       ├── AnnotatedImageThumbnail.tsx # 注釈付き画像サムネイル
 │   │       ├── ImageExportDialog.tsx # 画像エクスポートダイアログ
 │   │       ├── StorageWarningBanner.tsx # ストレージ警告バナー
-│   │       └── tools/               # 注釈ツール（12ファイル）
-│   │           ├── ArrowTool.ts     # 矢印ツール
-│   │           ├── CircleTool.ts    # 円・楕円ツール
-│   │           ├── DimensionTool.ts # 寸法線ツール
-│   │           ├── DimensionValueInput.tsx # 寸法値入力コンポーネント
-│   │           ├── DimensionValueInput.stories.tsx # 寸法値入力Storybook
-│   │           ├── FreehandTool.ts  # フリーハンドツール
-│   │           ├── PolygonTool.ts   # 多角形ツール
-│   │           ├── PolylineTool.ts  # 折れ線ツール
-│   │           ├── RectangleTool.ts # 四角形ツール
-│   │           ├── TextTool.ts      # テキストツール
-│   │           ├── registerCustomShapes.ts # カスタムシェイプ登録
-│   │           └── index.ts         # エクスポート集約
+│   │       ├── ZoomControls.tsx     # ズーム操作UI（ズームイン/アウト/全体表示・倍率バッジ、44px下部配置の表示専用）
+│   │       ├── tools/               # 注釈ツール（12ファイル）
+│   │       │   ├── ArrowTool.ts     # 矢印ツール
+│   │       │   ├── CircleTool.ts    # 円・楕円ツール
+│   │       │   ├── DimensionTool.ts # 寸法線ツール
+│   │       │   ├── DimensionValueInput.tsx # 寸法値入力コンポーネント
+│   │       │   ├── DimensionValueInput.stories.tsx # 寸法値入力Storybook
+│   │       │   ├── FreehandTool.ts  # フリーハンドツール
+│   │       │   ├── PolygonTool.ts   # 多角形ツール
+│   │       │   ├── PolylineTool.ts  # 折れ線ツール
+│   │       │   ├── RectangleTool.ts # 四角形ツール
+│   │       │   ├── TextTool.ts      # テキストツール
+│   │       │   ├── registerCustomShapes.ts # カスタムシェイプ登録
+│   │       │   └── index.ts         # エクスポート集約
+│   │       └── gestures/            # タッチジェスチャー・ビューポート制御（3ファイル）
+│   │           ├── canvasViewportController.ts # 中点ズーム/パン/フィットの状態制御（純粋ロジック、UI非依存）
+│   │           ├── touchGestureManager.ts # マルチタッチ調停（2本指ピンチ/3本指以上の描画抑止/cooldown）
+│   │           └── gesture-thresholds.ts # ジェスチャー判定閾値の定義
 │   │   ├── quantity-table-import/    # 数量表インポートコンポーネント（8ファイル）
 │   │       ├── ImportDialog.tsx    # インポートダイアログ（Excel/PDFファイル選択、プレビュー、確定）
 │   │       ├── ImportPreviewTable.tsx # インポートプレビューテーブル
@@ -634,8 +641,9 @@ frontend/
 │   │   ├── OrderDetailPage.tsx # 発注詳細ページ
 │   │   └── ProgressInputPage.tsx # 出来高入力ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
-│   ├── utils/             # ユーティリティ関数（20ファイル）
+│   ├── utils/             # ユーティリティ関数（21ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
+│   │   ├── image-compression.ts # 送信前の画像縮小・再エンコード（長辺2048px/JPEG0.85、非対応時は元ファイルへフォールバック）
 │   │   ├── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
 │   │   ├── accessibility.ts # アクセシビリティユーティリティ
 │   │   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
@@ -778,7 +786,7 @@ frontend/src/
 │   ├── execution-budget.ts # 実行予算API
 │   ├── order-detail.ts # 発注詳細API
 │   └── progress.ts # 出来高API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor、useScheduleState、useHolidayCalendar等 29ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）等 29ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
 ├── utils/             # ユーティリティ関数

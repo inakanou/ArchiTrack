@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-06-08（Steering Sync: backend entrypointの実行時`npm ci`をdev/test限定化し本番はイメージ同梱依存を信頼するパターン（Railway永続ボリュームのroot所有node_modulesでのEACCESクラッシュループ対策）、sharp自己修復の非致命化を反映）_
+_最終更新: 2026-06-30（Steering Sync: 注釈Canvasのビューポート制御パターン（canvasViewportController→useCanvasViewport→ZoomControlsの一方向依存、2本指ピンチ中点ズーム/パン）、スマホ写真追加の二段構え高速化（フロント送信前圧縮＋応答の署名付きURLによる即時反映）を反映）_
+
+_2026-06-08（Steering Sync: backend entrypointの実行時`npm ci`をdev/test限定化し本番はイメージ同梱依存を信頼するパターン（Railway永続ボリュームのroot所有node_modulesでのEACCESクラッシュループ対策）、sharp自己修復の非致命化を反映）_
 
 _2026-06-05（Steering Sync: 全Dockerfileでcorepackによるnpm版固定（packageManager `npm@11.6.2`）でnpm ci決定性を確保するパターン、backend entrypointでのsharpネイティブバイナリ自己修復パターンを反映）_
 
@@ -50,7 +52,7 @@ ArchiTrack/
 - `react` ^19.2.3 - UIライブラリ
 - `react-dom` ^19.2.4 - React DOM操作
 - `react-router-dom` ^7.16.0 - React Router v7（ルーティング、7.14.2以下のDoS脆弱性 GHSA-8x6r-g9mw-2r78 対応で7.16.0へ更新）
-- `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応）
+- `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`ImageViewer`/`AnnotationEditor` が共有する）
 - `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
 - `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像の一括エクスポート、型定義同梱）
@@ -129,7 +131,7 @@ ArchiTrack/
 - **バリデーション**: zod 4.3.6
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
-- **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）
+- **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
 - **AI/OCR精度向上**: @anthropic-ai/sdk 0.74.0（Claude Vision APIによる見積書OCR構造化データ抽出）
 - **祝日データ**: @holiday-jp/holiday_jp ^2.5.1（日本の祝日判定、工程表エクスポート用）
 - **ストレージ抽象化**: StorageProvider インターフェースによる環境別バックエンド切り替え
