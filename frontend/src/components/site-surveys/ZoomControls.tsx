@@ -148,12 +148,7 @@ function ZoomControls({
   });
 
   return (
-    <div
-      data-testid="zoom-controls"
-      role="group"
-      aria-label="ズーム操作"
-      style={STYLES.container}
-    >
+    <div data-testid="zoom-controls" role="group" aria-label="ズーム操作" style={STYLES.container}>
       <button
         type="button"
         style={buttonStyle(!disabled)}

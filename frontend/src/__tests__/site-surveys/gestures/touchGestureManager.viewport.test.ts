@@ -58,9 +58,7 @@ const createMockController = (options: {
     zoomToPoint: vi.fn<(point: ViewportPoint, zoom: number) => void>(),
     pan: vi.fn<(dx: number, dy: number) => void>(),
     fit: vi.fn<() => void>(),
-    clampZoom: vi.fn<(zoom: number) => number>((zoom: number) =>
-      Math.max(0.1, Math.min(10, zoom))
-    ),
+    clampZoom: vi.fn<(zoom: number) => number>((zoom: number) => Math.max(0.1, Math.min(10, zoom))),
     clampPan: vi.fn<() => void>(),
     isPanEnabled: vi.fn<() => boolean>(() => options.panEnabled),
     getState: vi.fn<() => ViewportState>((): ViewportState => state),
@@ -101,10 +99,7 @@ describe('touchGestureManager - viewport 駆動 (Req 33.2, 33.3, 33.4, 34.7)', (
   });
 
   /** 2本指を接地して two-finger-pinch-pan を開始する補助 */
-  const startTwoFinger = (
-    p0: { x: number; y: number },
-    p1: { x: number; y: number }
-  ): void => {
+  const startTwoFinger = (p0: { x: number; y: number }, p1: { x: number; y: number }): void => {
     dispatchPointer(canvasElement, 'pointerdown', { pointerId: 1, clientX: p0.x, clientY: p0.y });
     dispatchPointer(canvasElement, 'pointerdown', { pointerId: 2, clientX: p1.x, clientY: p1.y });
   };

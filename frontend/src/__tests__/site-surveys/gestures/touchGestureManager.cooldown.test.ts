@@ -65,9 +65,7 @@ const createStatefulController = (startZoom: number): StatefulMockController => 
       state.panX = 0;
       state.panY = 0;
     }),
-    clampZoom: vi.fn<(zoom: number) => number>((zoom: number) =>
-      Math.max(0.1, Math.min(10, zoom))
-    ),
+    clampZoom: vi.fn<(zoom: number) => number>((zoom: number) => Math.max(0.1, Math.min(10, zoom))),
     clampPan: vi.fn<() => void>(),
     // 実コントローラ同様、拡大時（MIN_PAN_ZOOM=1.01 以上）のみパンを有効とする。
     isPanEnabled: vi.fn<() => boolean>(() => state.zoom >= 1.01),

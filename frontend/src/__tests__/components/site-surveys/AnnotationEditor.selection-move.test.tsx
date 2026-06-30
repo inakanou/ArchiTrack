@@ -351,9 +351,7 @@ type HandlerAccess = {
   __resetObjects: () => void;
 };
 
-const getRegisteredHandler = (
-  eventName: string
-): ((...args: unknown[]) => void) | undefined => {
+const getRegisteredHandler = (eventName: string): ((...args: unknown[]) => void) | undefined => {
   return (mockCanvasInstance as unknown as HandlerAccess).__getHandler(eventName);
 };
 

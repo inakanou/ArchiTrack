@@ -53,86 +53,86 @@ afterAll(() => {
 
 const { mockCanvasInstance, mockFromURL, attachSpy, createTouchGestureManagerSpy, resetZoom } =
   vi.hoisted(() => {
-  // 中点ズームのために getZoom / viewportTransform を zoomToPoint と連動させる
-  // （実コントローラの onZoomChange は canvas.getZoom() を読むため、ステートフルにする）
-  const state = { zoom: 1 };
+    // 中点ズームのために getZoom / viewportTransform を zoomToPoint と連動させる
+    // （実コントローラの onZoomChange は canvas.getZoom() を読むため、ステートフルにする）
+    const state = { zoom: 1 };
 
-  const mockCanvasInstance = {
-    setDimensions: vi.fn(),
-    backgroundImage: null as unknown,
-    renderAll: vi.fn(),
-    dispose: vi.fn(),
-    getZoom: vi.fn(() => state.zoom),
-    setZoom: vi.fn(),
-    getWidth: vi.fn(() => 800),
-    getHeight: vi.fn(() => 600),
-    add: vi.fn(),
-    remove: vi.fn(),
-    clear: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-    setViewportTransform: vi.fn((vpt: number[]) => {
-      mockCanvasInstance.viewportTransform = vpt;
-      state.zoom = vpt[0]!;
-    }),
-    zoomToPoint: vi.fn((_point: { x: number; y: number }, z: number) => {
-      state.zoom = z;
-      mockCanvasInstance.viewportTransform = [z, 0, 0, z, 0, 0];
-    }),
-    getObjects: vi.fn(() => []),
-    requestRenderAll: vi.fn(),
-    getActiveObject: vi.fn((): unknown => null),
-    discardActiveObject: vi.fn(),
-    setActiveObject: vi.fn(),
-    toJSON: vi.fn(() => ({ version: '6.0.0', objects: [] })),
-    loadFromJSON: vi.fn(),
-    viewportTransform: [1, 0, 0, 1, 0, 0] as number[],
-    selection: false,
-    toDataURL: vi.fn(() => 'data:image/png;base64,test'),
-    isDrawingMode: false,
-    freeDrawingBrush: null as unknown,
-  };
+    const mockCanvasInstance = {
+      setDimensions: vi.fn(),
+      backgroundImage: null as unknown,
+      renderAll: vi.fn(),
+      dispose: vi.fn(),
+      getZoom: vi.fn(() => state.zoom),
+      setZoom: vi.fn(),
+      getWidth: vi.fn(() => 800),
+      getHeight: vi.fn(() => 600),
+      add: vi.fn(),
+      remove: vi.fn(),
+      clear: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      setViewportTransform: vi.fn((vpt: number[]) => {
+        mockCanvasInstance.viewportTransform = vpt;
+        state.zoom = vpt[0]!;
+      }),
+      zoomToPoint: vi.fn((_point: { x: number; y: number }, z: number) => {
+        state.zoom = z;
+        mockCanvasInstance.viewportTransform = [z, 0, 0, z, 0, 0];
+      }),
+      getObjects: vi.fn(() => []),
+      requestRenderAll: vi.fn(),
+      getActiveObject: vi.fn((): unknown => null),
+      discardActiveObject: vi.fn(),
+      setActiveObject: vi.fn(),
+      toJSON: vi.fn(() => ({ version: '6.0.0', objects: [] })),
+      loadFromJSON: vi.fn(),
+      viewportTransform: [1, 0, 0, 1, 0, 0] as number[],
+      selection: false,
+      toDataURL: vi.fn(() => 'data:image/png;base64,test'),
+      isDrawingMode: false,
+      freeDrawingBrush: null as unknown,
+    };
 
-  const resetZoom = (): void => {
-    state.zoom = 1;
-    mockCanvasInstance.viewportTransform = [1, 0, 0, 1, 0, 0];
-  };
+    const resetZoom = (): void => {
+      state.zoom = 1;
+      mockCanvasInstance.viewportTransform = [1, 0, 0, 1, 0, 0];
+    };
 
-  const mockFabricImageInstance = {
-    scaleToWidth: vi.fn(),
-    scaleToHeight: vi.fn(),
-    set: vi.fn(),
-    scale: vi.fn(),
-    getScaledWidth: vi.fn(() => 800),
-    getScaledHeight: vi.fn(() => 600),
-    width: 1000,
-    height: 800,
-    scaleX: 0.8,
-    scaleY: 0.75,
-  };
+    const mockFabricImageInstance = {
+      scaleToWidth: vi.fn(),
+      scaleToHeight: vi.fn(),
+      set: vi.fn(),
+      scale: vi.fn(),
+      getScaledWidth: vi.fn(() => 800),
+      getScaledHeight: vi.fn(() => 600),
+      width: 1000,
+      height: 800,
+      scaleX: 0.8,
+      scaleY: 0.75,
+    };
 
-  const mockFromURL = vi.fn(() => Promise.resolve(mockFabricImageInstance));
+    const mockFromURL = vi.fn(() => Promise.resolve(mockFabricImageInstance));
 
-  const detachSpy = vi.fn();
-  // attach は (canvas, getCurrentTool, options?) の 3 引数。options を捕捉する。
-  const attachSpy = vi.fn(
-    (_canvas: unknown, _getCurrentTool: () => string, _options?: unknown) => detachSpy
-  );
-  const createTouchGestureManagerSpy = vi.fn(() => ({
-    attach: attachSpy,
-    getTouchState: vi.fn(() => 'idle'),
-  }));
+    const detachSpy = vi.fn();
+    // attach は (canvas, getCurrentTool, options?) の 3 引数。options を捕捉する。
+    const attachSpy = vi.fn(
+      (_canvas: unknown, _getCurrentTool: () => string, _options?: unknown) => detachSpy
+    );
+    const createTouchGestureManagerSpy = vi.fn(() => ({
+      attach: attachSpy,
+      getTouchState: vi.fn(() => 'idle'),
+    }));
 
-  return {
-    mockCanvasInstance,
-    mockFabricImageInstance,
-    mockFromURL,
-    detachSpy,
-    attachSpy,
-    createTouchGestureManagerSpy,
-    resetZoom,
-  };
-});
+    return {
+      mockCanvasInstance,
+      mockFabricImageInstance,
+      mockFromURL,
+      detachSpy,
+      attachSpy,
+      createTouchGestureManagerSpy,
+      resetZoom,
+    };
+  });
 
 // survey-annotations APIのモック
 vi.mock('../../../api/survey-annotations', () => ({

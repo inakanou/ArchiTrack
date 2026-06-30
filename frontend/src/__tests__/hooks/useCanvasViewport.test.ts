@@ -86,14 +86,7 @@ describe('useCanvasViewport', () => {
   it('zoomIn は MAX_ZOOM を超えない（Req 33.9 のクランプを尊重）', () => {
     const canvas = createMockCanvas();
     // 倍率を上限近くへ進める
-    canvas.setViewportTransform([
-      ZOOM_CONSTANTS.MAX_ZOOM,
-      0,
-      0,
-      ZOOM_CONSTANTS.MAX_ZOOM,
-      0,
-      0,
-    ]);
+    canvas.setViewportTransform([ZOOM_CONSTANTS.MAX_ZOOM, 0, 0, ZOOM_CONSTANTS.MAX_ZOOM, 0, 0]);
     const { result } = renderHook(() => useCanvasViewport({ canvas }));
 
     act(() => {
