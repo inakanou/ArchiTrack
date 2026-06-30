@@ -11,6 +11,7 @@
  * - 33.9: ズーム可能範囲を画像ビューア（Req 5）と一貫した範囲で提供する（clampZoom 経由）
  * - 34.1: ズームイン・ズームアウト・全体表示（フィット）の操作手段を提供する
  * - 34.2: 現在のズーム倍率を示す視覚的表示（倍率バッジ）を提供する
+ * - 34.3: ズームイン/ズームアウト操作で倍率表示を最新のズーム倍率に更新する
  * - 34.8: ズーム操作手段の操作が背景画像への描画として誤発火しないようにする
  *
  * Boundary: AnnotationEditor (ext)
@@ -18,6 +19,7 @@
  * @requirement site-survey/REQ-33.9
  * @requirement site-survey/REQ-34.1
  * @requirement site-survey/REQ-34.2
+ * @requirement site-survey/REQ-34.3
  * @requirement site-survey/REQ-34.8
  */
 

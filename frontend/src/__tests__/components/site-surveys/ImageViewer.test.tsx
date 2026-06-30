@@ -26,6 +26,8 @@
  * - ドラッグによる表示領域移動
  * - 拡大時のスクロール対応
  * - 表示状態の共有（onViewStateChange, initialViewState, ref）
+ * - 閲覧モードのズーム/パンを編集モードと同一の canvasViewportController へ委譲し、
+ *   両モードでジェスチャー操作体系を一貫させる（Task 97 / Req 33.10）
  *
  * @requirement site-survey/REQ-30.1
  * @requirement site-survey/REQ-30.2
@@ -33,6 +35,7 @@
  * @requirement site-survey/REQ-30.5
  * @requirement site-survey/REQ-30.6
  * @requirement site-survey/REQ-30.8
+ * @requirement site-survey/REQ-33.10
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
