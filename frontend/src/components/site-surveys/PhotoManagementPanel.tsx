@@ -690,6 +690,7 @@ function PhotoItem({
             style={styles.image}
             loading="lazy"
             hasAnnotations={image.hasAnnotations}
+            preferThumbnail
           />
         </button>
       </div>

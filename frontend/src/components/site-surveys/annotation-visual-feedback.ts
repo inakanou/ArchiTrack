@@ -26,12 +26,13 @@ import type { ToolType } from './annotation-toolbar.constants';
 /**
  * タッチ環境用ハンドルサイズ（論理ピクセル）。
  *
- * - `cornerSize`: ハンドル本体の描画サイズ
- * - `touchCornerSize`: ヒット判定用拡張サイズ（Req 29.4: 概ね32x32論理ピクセル以上）
+ * - `cornerSize`: ハンドル本体の描画サイズ（現状維持）
+ * - `touchCornerSize`: ヒット判定用拡張サイズ。Req 29.4 / 28.3 に従い、
+ *   WCAG 2.5.5・標準タッチターゲット（最小44x44論理ピクセル）に準拠する。
  */
 const TOUCH_HANDLE = {
   cornerSize: 20,
-  touchCornerSize: 40,
+  touchCornerSize: 44,
 } as const;
 
 /**
@@ -71,7 +72,7 @@ function isCoarsePointer(): boolean {
  * 経由で受け取る。
  *
  * - タッチ環境 (`matchMedia('(pointer: coarse)').matches === true`):
- *   - `cornerSize = 20`, `touchCornerSize = 40`
+ *   - `cornerSize = 20`, `touchCornerSize = 44`（標準タッチターゲット準拠）
  * - マウス環境（上記以外、または matchMedia 不在）:
  *   - `cornerSize = 13`, `touchCornerSize = 24`
  *

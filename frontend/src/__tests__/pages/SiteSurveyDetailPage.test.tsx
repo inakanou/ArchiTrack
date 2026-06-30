@@ -1249,8 +1249,14 @@ describe('SiteSurveyDetailPage', () => {
       expect(screen.getByTestId('image-uploader')).toBeInTheDocument();
     });
 
-    it('画像アップロード成功時にデータが再取得され進捗が更新される', async () => {
-      const uploadedImage = { ...(mockImages[0] as SurveyImageInfo) };
+    it('画像アップロード成功時に再取得せず一覧へ追記され進捗が更新される', async () => {
+      // アップロード応答には署名付きURL込みの新規画像が返る想定（既存画像と別ID）
+      const uploadedImage: SurveyImageInfo = {
+        ...(mockImages[0] as SurveyImageInfo),
+        id: 'img-uploaded-1',
+        fileName: 'uploaded-photo.jpg',
+        displayOrder: 999,
+      };
       vi.mocked(surveyImagesApi.uploadSurveyImages).mockImplementation(
         async (_id, _files, options) => {
           // プログレスコールバックをシミュレート
@@ -1293,10 +1299,13 @@ describe('SiteSurveyDetailPage', () => {
         );
       });
 
-      // データが再取得される
+      // 返却された画像が詳細データの再取得なしで一覧へ追記される
       await waitFor(() => {
-        expect(siteSurveysApi.getSiteSurvey).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('uploaded-photo.jpg')).toBeInTheDocument();
       });
+
+      // 詳細データ全体の再取得（getSiteSurvey）は行われない（初回ロードの1回のみ）
+      expect(siteSurveysApi.getSiteSurvey).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1749,9 +1758,9 @@ describe('SiteSurveyDetailPage', () => {
         { timeout: 3000 }
       );
 
-      // データ再取得が完了するのを待つ
+      // 詳細データ全体の再取得は行わない（初回ロードの1回のみ）
       await waitFor(() => {
-        expect(siteSurveysApi.getSiteSurvey).toHaveBeenCalledTimes(2);
+        expect(siteSurveysApi.getSiteSurvey).toHaveBeenCalledTimes(1);
       });
 
       // エラーメッセージが表示されていないことを確認

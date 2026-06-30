@@ -50,7 +50,7 @@ import {
 import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
 import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
 import { AnnotationGuide } from './AnnotationGuide';
-import { GUIDE_IDLE_MS } from './gestures/gesture-thresholds';
+import { GUIDE_IDLE_MS, COOLDOWN_MS } from './gestures/gesture-thresholds';
 import { createArrow } from './tools/ArrowTool';
 import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
@@ -75,6 +75,10 @@ import './tools/registerCustomShapes';
 import { createTouchGestureManager } from './gestures/touchGestureManager';
 import type { GesturePayload } from './gestures/touchGestureManager';
 import { configureHandleSizes, applyToolCursor } from './annotation-visual-feedback';
+// Task 96.1: ビューポート制御（ズーム/パン）の React 橋渡しフックとズーム操作UI (Req 33.9, 34.1, 34.2, 34.8)
+import { useCanvasViewport } from '../../hooks/useCanvasViewport';
+import type { FabricCanvasLike } from './gestures/canvasViewportController';
+import ZoomControls from './ZoomControls';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -104,6 +108,18 @@ const DEFAULT_STYLE_OPTIONS: StyleOptions = {
   fillColor: '',
   fontSize: 16,
 };
+
+/**
+ * Task 96.3 (Req 33.8): 空き領域ダブルタップによるズームトグルの拡大倍率。
+ * 等倍（フィット）状態でダブルタップした際に当該タップ点を中心へこの倍率で拡大する。
+ */
+const DOUBLE_TAP_ZOOM_SCALE = 2;
+
+/**
+ * Task 96.3 (Req 33.8): ダブルタップズームトグルで「等倍（フィット）相当」とみなす許容差。
+ * 現在ズームが `1 + この値` 以下なら拡大、超えていれば fit() で全体表示へ戻す。
+ */
+const DOUBLE_TAP_ZOOM_EPSILON = 0.01;
 
 /**
  * AnnotationEditorの状態
@@ -184,6 +200,9 @@ const STYLES = {
   },
   canvasWrapper: {
     position: 'relative' as const,
+    // Task 96.2 (Req 33.5, 30.1): ブラウザ既定のタッチジェスチャー（スクロール/ピンチズーム等）を
+    // 抑止し、touchGestureManager の PointerEvent ベース調停にジェスチャーを一本化する。
+    touchAction: 'none' as const,
   },
   loadingOverlay: {
     position: 'absolute' as const,
@@ -296,6 +315,8 @@ function AnnotationEditor({
   imageUrl,
   imageId,
   surveyId,
+  initialZoom,
+  initialPan,
   readOnly = false,
   imageInfo,
   onAnnotationSaved,
@@ -395,9 +416,38 @@ function AnnotationEditor({
   // Task 72.1: touchGestureManager の detach 関数参照（unmount 時に detach するため）
   const touchGestureDetachRef = useRef<(() => void) | null>(null);
 
+  // Task 96.1: initialZoom/initialPan を canvas ごとに一度だけ適用するためのガード参照。
+  const initialViewAppliedRef = useRef(false);
+
+  // Task 96.2 (Req 33.5, 30.1): 2本指ジェスチャー突入時に退避する描画モード（isDrawingMode）。
+  // cooldown→idle 復帰時に、退避値と選択中ツールに応じて isDrawingMode を復元する。
+  const prevDrawingModeRef = useRef(false);
+
+  // Task 96.2 (Req 33.7): ジェスチャー終了（cooldown→idle）を検出して描画モードを復元するための
+  // ポーリングタイマ参照。touchGestureManager は終了コールバックを持たないため、
+  // getTouchState() をポーリングして idle 復帰を捉える。
+  const gestureRestoreTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Fabric.js と UndoManager の連携フック
   // fabricCanvasRef.currentを使用（Canvasがない場合はnull）
   const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
+
+  // Task 96.1 (Req 33.9, 34.1-34.4): canvasViewportController と React 状態（現在倍率）を
+  // 橋渡しするフック。生成される単一の controller を touchGestureManager（attach の
+  // viewportController）と ZoomControls（zoom/zoomIn/zoomOut/fit）で共有する。
+  const {
+    zoom,
+    zoomIn,
+    zoomOut,
+    fit,
+    controller: viewportController,
+  } = useCanvasViewport({
+    canvas: fabricCanvas as unknown as FabricCanvasLike | null,
+  });
+  // Task 96.3 (Req 33.8): handleDoubleTap から最新の viewportController を参照するための ref。
+  // handleDoubleTap の依存を空に保ち、canvas 初期化 effect の再実行（dispose/再生成）を避ける。
+  const viewportControllerRef = useRef(viewportController);
+  viewportControllerRef.current = viewportController;
   const { setProgrammaticOperation } = useFabricUndoIntegration({
     canvas: fabricCanvas,
     undoManager,
@@ -663,6 +713,13 @@ function AnnotationEditor({
         canvas.backgroundImage = img;
         // 背景画像の参照を保存
         backgroundImageRef.current = img;
+
+        // Task 96.4 (Req 33.11, 33.12): 選択ツールでの初回ロード時もタッチ/クリックで
+        // 既存注釈を選択・移動できるよう、canvas.selection を現在のツール状態へ同期する。
+        // canvas 生成時は selection:false 固定のため、ここで activeTool/readOnly に基づき是正する
+        // （以後のツール切替時は handleToolChange が同期する）。これにより拡大表示中でも
+        // Fabric の選択（マーキー）/ object:moving（scenePoint=viewport 考慮）への委譲が成立する。
+        canvas.selection = !readOnly && activeToolRef.current === 'select';
 
         canvas.renderAll();
 
@@ -1208,20 +1265,67 @@ function AnnotationEditor({
   }, []);
 
   /**
-   * Task 72.2 (Req 27.1): ダブルタップハンドラ
+   * Task 72.2 / 96.3 (Req 27.1, 33.8): ダブルタップ用途調停ハンドラ
    *
-   * touchGestureManager が発火する `custom:dbltap` を受け、target が TextAnnotation 系
-   * (`textAnnotation` / `i-text` / `text`) であれば `enterEditing()` を呼んで編集モードに
-   * 遷移させる。マウス環境の `mouse:dblclick` は既存のセットアップで維持されている
-   * （Req 27.8 後方互換）。
+   * touchGestureManager が発火する `custom:dbltap` を受け、ダブルタップ位置の対象によって
+   * 用途を排他的に切り替える（design.md「ダブルタップ用途調停」）。
+   *   - テキスト注釈上 (`textAnnotation` / `i-text` / `text`) → `enterEditing()` で編集モード
+   *     へ遷移（Req 27.1, 27.8 後方互換）。ズームトグルは行わない。
+   *   - 空き領域（対象なし）または背景画像 (`image`) 上 → ズーム/全体表示トグル（Req 33.8）。
+   *     現在ズームが等倍（≒1）なら当該タップ点を中心に拡大し、拡大中なら fit() で全体表示へ戻す。
+   *   - テキスト以外の注釈（rectangle 等）上では編集もズームも行わない（責務分岐表）。
+   *
+   * controller には新メソッドを足さず、AnnotationEditor 内で `getState().zoom` を見て
+   * `zoomToPoint`/`fit` を呼び分ける（境界維持）。マウス環境の `mouse:dblclick` は既存の
+   * セットアップで維持される（Req 27.8）。
    */
   const handleDoubleTap = useCallback((payload: GesturePayload) => {
-    const target = payload.target as { type?: string; enterEditing?: () => void } | undefined;
-    if (!target) {
+    const canvas = fabricCanvasRef.current;
+    if (canvas === null) {
       return;
     }
-    if (target.type === 'textAnnotation' || target.type === 'i-text' || target.type === 'text') {
+
+    // Task 96.3 (round 1 修正): payload.target には依存しない。
+    // touchGestureManager の buildPayload は target を設定せず、Fabric の canvas.fire は
+    // カスタムイベントに target を付与しないため、本番タッチ dbltap では payload.target が
+    // 常に undefined になる。ここでタップ点のクライアント座標から実ヒットテストを行い対象を得る。
+    // Fabric v7 の findTarget は clientX/clientY を持つイベント様オブジェクトから
+    // getScenePoint 経由で対象を解決し、{ target?, subTargets, ... } を返す。
+    const eventLike = {
+      clientX: payload.clientX,
+      clientY: payload.clientY,
+    } as unknown as TPointerEvent;
+    const hit = canvas.findTarget(eventLike);
+    const target = hit.target as { type?: string; enterEditing?: () => void } | undefined;
+
+    // Req 27.1: テキスト注釈上は従来どおり編集モードへ（後方互換）。ズームはしない。
+    // これにより、従来 payload.target=undefined→no-op で実質壊れていたタッチのテキスト編集も
+    // 正しく enterEditing へ到達する。
+    if (target?.type === 'textAnnotation' || target?.type === 'i-text' || target?.type === 'text') {
       target.enterEditing?.();
+      return;
+    }
+
+    // Req 33.8: 空き領域（対象なし）または背景画像上のみズームトグルの対象とする。
+    // 背景画像は canvas.backgroundImage でありヒットテスト対象外（findTarget は undefined を返す）
+    // だが、万一 image オブジェクトがヒットした場合も空き領域扱いとする（防御的）。
+    // テキスト以外の注釈の上では編集もズームも行わない。
+    const isEmptyArea = target === undefined || target.type === 'image';
+    if (!isEmptyArea) {
+      return;
+    }
+
+    const controller = viewportControllerRef.current;
+    if (controller === null) {
+      return;
+    }
+
+    // controller に新メソッドを足さず、現在ズームを見て拡大↔全体表示を排他に切り替える。
+    const tapPoint = { x: payload.clientX, y: payload.clientY };
+    if (controller.getState().zoom <= 1 + DOUBLE_TAP_ZOOM_EPSILON) {
+      controller.zoomToPoint(tapPoint, DOUBLE_TAP_ZOOM_SCALE);
+    } else {
+      controller.fit();
     }
   }, []);
 
@@ -1356,17 +1460,10 @@ function AnnotationEditor({
       // Task 72.1 (Req 29.4, 29.5): タッチ/マウス環境に応じたハンドルサイズを設定
       configureHandleSizes();
 
-      // Task 72.1 (Req 27.1, 27.2, 30.1): touchGestureManager を canvas にアタッチ
-      // getCurrentTool は activeToolRef.current を返し、ハンドラ側で Req 17 調停に使う。
-      // touchGestureManager は FabricCanvasLike（fire/getElement の最小サーフェス）を要求する。
-      // Fabric の Canvas.fire はイベント名に union 型を要求するため、
-      // custom:dbltap / custom:longpress など拡張イベントを扱う本 manager へは構造的に
-      // 満たされる形でキャストして渡す。
-      const gestureManager = createTouchGestureManager();
-      touchGestureDetachRef.current = gestureManager.attach(
-        canvas as unknown as import('./gestures/touchGestureManager').FabricCanvasLike,
-        () => activeToolRef.current
-      );
+      // Task 96.1: 新しい canvas を生成したため、initialZoom/initialPan の適用ガードを解除する。
+      // 実際の touchGestureManager アタッチと初期ビュー適用は viewportController が
+      // 生成された後（setFabricCanvas による再レンダー後）の専用 effect で行う。
+      initialViewAppliedRef.current = false;
 
       // Task 72.2 (Req 27.1, 27.9, 27.10): touchGestureManager が fire する
       // custom:dbltap / custom:longpress に React 側ハンドラを配線する。
@@ -1424,15 +1521,8 @@ function AnnotationEditor({
         saveSuccessTimerRef.current = null;
       }
 
-      // Task 72.1: touchGestureManager を detach（canvas dispose 前にリスナーを解除）
-      if (touchGestureDetachRef.current) {
-        try {
-          touchGestureDetachRef.current();
-        } catch (err) {
-          console.warn('Error during touch gesture manager detach:', err);
-        }
-        touchGestureDetachRef.current = null;
-      }
+      // Task 96.1: touchGestureManager の detach は専用 effect（viewportController 依存）の
+      // クリーンアップで行うため、ここでは扱わない。
 
       if (canvas) {
         try {
@@ -1476,6 +1566,199 @@ function AnnotationEditor({
     handleDoubleTap,
     handleLongPress,
   ]);
+
+  /**
+   * Task 96.1 (Req 27.1, 27.2, 30.1, 33.2-33.5, 34.7): touchGestureManager を canvas に
+   * アタッチする。useCanvasViewport が生成した単一の viewportController を
+   * options.viewportController として注入し、2本指ピンチ→中点ズーム / 2本指ドラッグ→パンを
+   * 同一コントローラ経由で駆動する（ZoomControls とコントローラを共有）。
+   *
+   * canvas 初期化（setFabricCanvas）後の再レンダーで viewportController が生成されてから
+   * 実行する必要があるため、Canvas 生成 effect とは分離する。
+   * touchGestureManager は FabricCanvasLike（最小サーフェス）を要求するため構造的に
+   * 満たされる形でキャストして渡す。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas || !viewportController) {
+      return;
+    }
+    const gestureManager = createTouchGestureManager();
+
+    /**
+     * Task 96.2 (Req 33.7): ジェスチャー終了（cooldown→idle、全指離脱後の復帰タイミング）を
+     * getTouchState() のポーリングで検出し、退避していた描画モードを復元する。
+     * touchGestureManager は終了コールバックを公開しないため（境界外・変更不可）、
+     * 状態ゲッターをポーリングして idle 復帰を捉える。復元値は「退避した描画モード」と
+     * 「現在の選択中ツール」の両方を考慮する（ジェスチャー中にツールが変わった場合の安全策）。
+     */
+    const stopRestorePolling = (): void => {
+      if (gestureRestoreTimerRef.current !== null) {
+        clearInterval(gestureRestoreTimerRef.current);
+        gestureRestoreTimerRef.current = null;
+      }
+    };
+    const startRestorePolling = (): void => {
+      stopRestorePolling();
+      gestureRestoreTimerRef.current = setInterval(() => {
+        if (gestureManager.getTouchState() !== 'idle') {
+          return;
+        }
+        const currentCanvas = fabricCanvasRef.current;
+        if (currentCanvas) {
+          // 退避した描画モードかつ現在もフリーハンド選択中の場合のみ描画モードへ復帰する。
+          currentCanvas.isDrawingMode =
+            prevDrawingModeRef.current && activeToolRef.current === 'freehand';
+        }
+        stopRestorePolling();
+      }, COOLDOWN_MS);
+    };
+
+    /**
+     * Task 96.2 (Req 33.5, 30.1): 2本目の指が追加され two-finger-pinch-pan へ遷移する瞬間に
+     * touchGestureManager から発火されるコールバック。進行中の描画を確定せず中断する:
+     *   1. 現在の isDrawingMode を退避し、即座に false 化して以後の描画入力を止める
+     *   2. 進行中のフリーハンド・ブラシストロークを破棄（中途半端なパスを残さない）
+     *   3. シェイプツールの進行中ドラッグ／プレビューも中断・除去する
+     *   4. cooldown→idle 復帰で描画モードを戻すためのポーリングを開始する
+     */
+    const handleGestureStart = (): void => {
+      const currentCanvas = fabricCanvasRef.current;
+      if (!currentCanvas) {
+        return;
+      }
+
+      // 1) 描画モードを退避して即時停止
+      prevDrawingModeRef.current = currentCanvas.isDrawingMode;
+      currentCanvas.isDrawingMode = false;
+
+      // 2) 進行中のブラシストロークを破棄（Fabric PencilBrush の内部点列・トップコンテキスト）
+      const brush = currentCanvas.freeDrawingBrush as { _reset?: () => void } | null | undefined;
+      brush?._reset?.();
+      const drawingSurface = currentCanvas as unknown as {
+        _isCurrentlyDrawing?: boolean;
+        contextTop?: CanvasRenderingContext2D | null;
+        clearContext?: (ctx: CanvasRenderingContext2D) => void;
+      };
+      drawingSurface._isCurrentlyDrawing = false;
+      if (drawingSurface.contextTop && typeof drawingSurface.clearContext === 'function') {
+        drawingSurface.clearContext(drawingSurface.contextTop);
+      }
+
+      // 3) シェイプツールの進行中ドラッグ／プレビューを中断（誤コミット防止）
+      dragStateRef.current = { isDragging: false, startPoint: null };
+      if (previewShapeRef.current) {
+        setProgrammaticRef.current(true);
+        currentCanvas.remove(previewShapeRef.current);
+        setProgrammaticRef.current(false);
+        previewShapeRef.current = null;
+      }
+      currentCanvas.requestRenderAll?.();
+
+      // 4) ジェスチャー終了（cooldown→idle）での描画モード復帰ポーリングを開始
+      startRestorePolling();
+    };
+
+    const detach = gestureManager.attach(
+      canvas as unknown as import('./gestures/touchGestureManager').FabricCanvasLike,
+      () => activeToolRef.current,
+      { viewportController, onGestureStart: handleGestureStart }
+    );
+    touchGestureDetachRef.current = detach;
+
+    return () => {
+      stopRestorePolling();
+      try {
+        detach();
+      } catch (err) {
+        console.warn('Error during touch gesture manager detach:', err);
+      }
+      touchGestureDetachRef.current = null;
+    };
+  }, [fabricCanvas, viewportController]);
+
+  /**
+   * Task 98.2 (Req 27.1, 33.8, 33.11): Fabric の内部オフセット（_offset）をスクロール時にも
+   * 再計算する。
+   *
+   * Fabric v7 は `calcOffset` を window の "resize" にのみ自動アタッチし、"scroll" には
+   * アタッチしない。一方モバイルでは、テキスト注釈編集の隠し textarea フォーカスや
+   * アドレスバー伸縮などでページ/ビジュアルビューポートがスクロールすると、canvas 要素の
+   * 画面オフセットが変化する。`_offset` が陳腐化したままだと `findTarget`（ダブルタップ調停・
+   * タッチ選択のヒットテスト基準）が誤判定し、テキスト上ダブルタップで編集に入れない／
+   * 拡大中の注釈をタップ選択できない等の実バグになる。
+   *
+   * そこで scroll / visualViewport の resize・scroll で `calcOffset()` を呼び直し、
+   * 併せて編集突入（canvas 準備完了）時にも一度再計算して、ヒットテスト基準を実レイアウトに
+   * 追従させる。E2E ではこの実経路を検証する（テスト側の calcOffset 直接呼び出しの回避を撤去）。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas) {
+      return;
+    }
+    const recalc = (): void => {
+      // dispose 済み canvas への呼び出しを防ぐ。calcOffset 非対応（テストのモック等）も防御。
+      if (fabricCanvasRef.current === canvas && typeof canvas.calcOffset === 'function') {
+        canvas.calcOffset();
+      }
+    };
+    // 編集突入（canvas 準備完了）時の初回再計算
+    recalc();
+    // scroll / resize / visualViewport 変化での再計算（遅延的な追従）
+    window.addEventListener('scroll', recalc, { passive: true });
+    window.addEventListener('resize', recalc);
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    vv?.addEventListener('resize', recalc);
+    vv?.addEventListener('scroll', recalc);
+    // 操作直前（touchstart / pointerdown）の capture フェーズで必ず再計算する。
+    // scroll イベントはスクロール途中の中間値で発火することがあり、findTarget が参照する
+    // 直前の `_offset` が陳腐化したままになり得る。Fabric のハンドラ（bubble フェーズ）より
+    // 前に capture で calcOffset を呼ぶことで、各タッチ/ポインタ操作のヒットテスト基準を
+    // その瞬間の実レイアウトへ確実に同期する（findTarget 誤判定の根治）。
+    window.addEventListener('touchstart', recalc, { capture: true, passive: true });
+    window.addEventListener('pointerdown', recalc, { capture: true });
+    return () => {
+      window.removeEventListener('scroll', recalc);
+      window.removeEventListener('resize', recalc);
+      vv?.removeEventListener('resize', recalc);
+      vv?.removeEventListener('scroll', recalc);
+      window.removeEventListener('touchstart', recalc, { capture: true });
+      window.removeEventListener('pointerdown', recalc, { capture: true });
+    };
+  }, [fabricCanvas]);
+
+  /**
+   * Task 96.1 (Req 33.9): props の initialZoom / initialPan を初期ビュー状態として
+   * canvas 初期化後に viewportController 経由で一度だけ適用する（REQ-5.6 のビュー状態共有）。
+   * ズーム範囲は controller.clampZoom（ZOOM_CONSTANTS）に準拠し、パンは等倍時抑止
+   * （isPanEnabled, Req 34.7）に従う。initialZoom/initialPan が未指定の場合は何もしない。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas || !viewportController) {
+      return;
+    }
+    if (initialViewAppliedRef.current) {
+      return;
+    }
+    if (initialZoom === undefined && initialPan === undefined) {
+      return;
+    }
+    initialViewAppliedRef.current = true;
+
+    if (initialZoom !== undefined) {
+      // 表示領域中央を基準に初期倍率を適用（clampZoom はコントローラ内で担保）。
+      const center = { x: canvas.getWidth() / 2, y: canvas.getHeight() / 2 };
+      viewportController.zoomToPoint(center, initialZoom);
+    }
+    if (initialPan) {
+      // 原点（等倍時 translate=0）からの平行移動量として適用（等倍時は内部で抑止）。
+      viewportController.pan(initialPan.x, initialPan.y);
+    }
+    // initialZoom/initialPan は「初期」値のため、canvas/controller の確定時のみ適用する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fabricCanvas, viewportController]);
 
   /**
    * 画像URLが変更された場合の再読み込み
@@ -1940,7 +2223,12 @@ function AnnotationEditor({
           onKeyDown={readOnly ? undefined : handleKeyDown}
         >
           {/* Canvas - 動的に生成されるCanvas要素のコンテナ */}
-          <div ref={canvasWrapperRef} style={STYLES.canvasWrapper} />
+          {/* Task 96.2 (Req 33.5, 30.1): touch-action:none でブラウザ既定ジェスチャーを抑止 */}
+          <div
+            ref={canvasWrapperRef}
+            style={STYLES.canvasWrapper}
+            data-testid="annotation-canvas-wrapper"
+          />
 
           {/* ローディング表示 */}
           {state.isLoading && (
@@ -1983,6 +2271,24 @@ function AnnotationEditor({
           />
         </div>
       </div>
+
+      {/* Task 96.1 (Req 34.1, 34.2, 34.6, 34.8): ズーム操作コントロール。
+          - 編集モードでのみ表示（readOnly では非表示）。canvas/画像準備中（isLoading）は非表示。
+          - position: fixed の下部オーバーレイで、背景 canvas の描画ヒット領域外に配置し、
+            stopPropagation/preventDefault により描画の誤発火を防ぐ（ZoomControls 内で実装）。
+          - 片手到達（Req 34.6）はレイアウトビューポート＝デバイス幅であることが前提。
+            ホスト画面側でページ水平 overflow を抑止すること（SiteSurveyImageViewerPage の
+            breadcrumbContainer.overflowX を参照）。
+          - controller 未生成（canvas 初期化前）は disabled とする。 */}
+      {!readOnly && !state.isLoading && (
+        <ZoomControls
+          zoom={zoom}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onFit={fit}
+          disabled={!viewportController}
+        />
+      )}
 
       {/* エクスポートダイアログ（REQ-12.2, 12.3, 12.4） */}
       {imageInfo && (

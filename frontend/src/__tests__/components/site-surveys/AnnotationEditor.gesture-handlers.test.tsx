@@ -82,6 +82,11 @@ const { mockCanvasInstance, mockFromURL, createTouchGestureManagerSpy, configure
         registeredHandlers.delete(eventName);
       }),
       setViewportTransform: vi.fn(),
+      // Task 96.3: 空き領域ダブルタップのズームトグルが viewportController 経由で呼ぶ。
+      zoomToPoint: vi.fn(),
+      // Task 96.3: handleDoubleTap は payload.target ではなく canvas.findTarget による
+      // 実ヒットテストで対象を判定する（Fabric v7 形状: { target?, subTargets, ... }）。
+      findTarget: vi.fn(() => ({ target: undefined, subTargets: [], currentSubTargets: [] })),
       getObjects: vi.fn(() => []),
       requestRenderAll: vi.fn(),
       getActiveObject: vi.fn((): unknown => null),
@@ -308,6 +313,18 @@ const getRegisteredHandler = (eventName: string): ((payload: unknown) => void) |
   return (mockCanvasInstance as unknown as HandlerAccess).__getHandler(eventName);
 };
 
+/**
+ * Task 96.3: handleDoubleTap はタップ点クライアント座標から canvas.findTarget で対象を
+ * ヒットテストする。テストでは「タップ点に居る対象」をここでモックする。
+ */
+const setHitTarget = (target: unknown): void => {
+  (mockCanvasInstance.findTarget as ReturnType<typeof vi.fn>).mockReturnValue({
+    target,
+    subTargets: [],
+    currentSubTargets: [],
+  });
+};
+
 // ============================================================================
 // テストスイート
 // ============================================================================
@@ -321,6 +338,8 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
         (fn as ReturnType<typeof vi.fn>).mockClear();
       }
     });
+    // Task 96.3: 既定は空き領域（ヒットなし）。各テストが必要に応じて setHitTarget で上書きする。
+    setHitTarget(undefined);
   });
 
   afterEach(() => {
@@ -380,16 +399,14 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
       const dbltapHandler = getRegisteredHandler('custom:dbltap')!;
 
       const enterEditingSpy = vi.fn();
-      const target = {
-        type: 'textAnnotation',
-        enterEditing: enterEditingSpy,
-      };
+      // ヒットテストでタップ点に textAnnotation が居る
+      setHitTarget({ type: 'textAnnotation', enterEditing: enterEditingSpy });
 
+      // 実 payload 形状（target なし）
       dbltapHandler({
         pointerType: 'touch',
         clientX: 100,
         clientY: 200,
-        target,
         currentTool: 'select',
       });
 
@@ -406,16 +423,13 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
       const dbltapHandler = getRegisteredHandler('custom:dbltap')!;
 
       const enterEditingSpy = vi.fn();
-      const target = {
-        type: 'i-text',
-        enterEditing: enterEditingSpy,
-      };
+      // ヒットテストでタップ点に i-text が居る
+      setHitTarget({ type: 'i-text', enterEditing: enterEditingSpy });
 
       dbltapHandler({
         pointerType: 'touch',
         clientX: 100,
         clientY: 200,
-        target,
         currentTool: 'select',
       });
 
@@ -432,16 +446,13 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
       const dbltapHandler = getRegisteredHandler('custom:dbltap')!;
 
       const enterEditingSpy = vi.fn();
-      const target = {
-        type: 'rectangle',
-        enterEditing: enterEditingSpy,
-      };
+      // ヒットテストでタップ点に rectangle が居る
+      setHitTarget({ type: 'rectangle', enterEditing: enterEditingSpy });
 
       dbltapHandler({
         pointerType: 'touch',
         clientX: 100,
         clientY: 200,
-        target,
         currentTool: 'select',
       });
 

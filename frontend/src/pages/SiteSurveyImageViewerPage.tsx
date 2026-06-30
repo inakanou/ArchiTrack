@@ -35,6 +35,12 @@ const styles = {
   } as React.CSSProperties,
   breadcrumbContainer: {
     marginBottom: '16px',
+    // Task 98.2 root-cause fix (Req 34.6): モバイル幅で長いパンくず（非折返しの flex 行）が
+    // device-width を超えて水平 overflow すると、モバイルブラウザの shrink-to-fit により
+    // レイアウトビューポートが拡張され、編集領域や position:fixed の ZoomControls が
+    // 可視画面下端より下へ押し出されて片手で到達できなくなる。パンくずを水平スクロール内に
+    // 収め（overflowX:auto）レイアウトビューポート拡張を防ぐ。
+    overflowX: 'auto',
   } as React.CSSProperties,
   header: {
     display: 'flex',

@@ -367,6 +367,28 @@ router.post(
       // バッチアップロード実行
       const result = await imageUploadService.uploadBatch(surveyId, uploadFiles);
 
+      // アップロード直後の画像に署名付きURLを付与する。
+      // これによりフロントエンドは詳細データを再取得せずに、返却された画像を
+      // 一覧へ追記して即座に表示できる（追加のたびに全画像を再取得する遅延を回避）。
+      // 新規アップロード画像には注釈が存在しないため hasAnnotations は常に false。
+      const enrichedSuccessful = await Promise.all(
+        result.successful.map(async (image) => {
+          const [originalUrl, thumbnailUrl] = await Promise.all([
+            signedUrlService.generateSignedUrl(image.id, 'original').catch(() => null),
+            signedUrlService.generateSignedUrl(image.id, 'thumbnail').catch(() => null),
+          ]);
+
+          return {
+            ...image,
+            originalUrl,
+            thumbnailUrl,
+            hasAnnotations: false,
+          };
+        })
+      );
+
+      const responseBody = { successful: enrichedSuccessful, failed: result.failed };
+
       const statusCode = result.failed.length === 0 ? 201 : 207; // 207: Multi-Status
 
       logger.info(
@@ -379,7 +401,7 @@ router.post(
         'Images uploaded'
       );
 
-      res.status(statusCode).json(result);
+      res.status(statusCode).json(responseBody);
     } catch (error) {
       if (error instanceof SurveyNotFoundError) {
         res.status(404).json({

@@ -26,6 +26,8 @@
  * - ドラッグによる表示領域移動
  * - 拡大時のスクロール対応
  * - 表示状態の共有（onViewStateChange, initialViewState, ref）
+ * - 閲覧モードのズーム/パンを編集モードと同一の canvasViewportController へ委譲し、
+ *   両モードでジェスチャー操作体系を一貫させる（Task 97 / Req 33.10）
  *
  * @requirement site-survey/REQ-30.1
  * @requirement site-survey/REQ-30.2
@@ -33,6 +35,7 @@
  * @requirement site-survey/REQ-30.5
  * @requirement site-survey/REQ-30.6
  * @requirement site-survey/REQ-30.8
+ * @requirement site-survey/REQ-33.10
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -48,10 +51,14 @@ import type { SurveyImageInfo } from '../../../types/site-survey.types';
 
 // vi.hoistedでモックインスタンスを定義（ホイスティング対応）
 const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(() => {
+  // Fabric Canvas の最小モック。
+  // canvasViewportController（Task 97 で ImageViewer が委譲）が依存する
+  // viewportTransform / zoomToPoint / requestRenderAll を実 Fabric API 準拠で再現する。
   const mockCanvasInstance = {
     setDimensions: vi.fn(),
     backgroundImage: null as unknown, // Fabric.js v7 API
     renderAll: vi.fn(),
+    requestRenderAll: vi.fn(),
     dispose: vi.fn(),
     getZoom: vi.fn(() => 1),
     setZoom: vi.fn(),
@@ -63,7 +70,33 @@ const { mockCanvasInstance, mockFabricImageInstance, mockFromURL } = vi.hoisted(
     clear: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
-    setViewportTransform: vi.fn(),
+    // viewportTransform は実 Fabric 同様の可変配列とし、setViewportTransform/zoomToPoint で更新する。
+    viewportTransform: [1, 0, 0, 1, 0, 0] as [number, number, number, number, number, number],
+    setViewportTransform: vi.fn((vpt: [number, number, number, number, number, number]) => {
+      mockCanvasInstance.viewportTransform = [...vpt] as [
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+      ];
+    }),
+    // Fabric v7 zoomToPoint と同等の「指定点を画面上で固定したままズーム」算術を再現する。
+    zoomToPoint: vi.fn((point: { x: number; y: number }, value: number) => {
+      const vpt = mockCanvasInstance.viewportTransform;
+      const oldZoom = vpt[0];
+      const sceneX = (point.x - vpt[4]) / oldZoom;
+      const sceneY = (point.y - vpt[5]) / oldZoom;
+      mockCanvasInstance.viewportTransform = [
+        value,
+        0,
+        0,
+        value,
+        point.x - sceneX * value,
+        point.y - sceneY * value,
+      ];
+    }),
     getObjects: vi.fn(() => []),
   };
 
@@ -176,6 +209,8 @@ describe('ImageViewer', () => {
         (fn as ReturnType<typeof vi.fn>).mockClear();
       }
     });
+    // viewportTransform を各テストで初期状態へ戻す（mockClear は配列をリセットしないため）
+    mockCanvasInstance.viewportTransform = [1, 0, 0, 1, 0, 0];
   });
 
   afterEach(async () => {
@@ -1588,9 +1623,9 @@ describe('ImageViewer', () => {
         const touchEndEvent = createTouchEvent('touchend', []);
         await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
-        // ズームが変更されることを確認
+        // ズームが canvasViewportController（canvas.zoomToPoint）経由で変更されることを確認（Task 97）
         await waitFor(() => {
-          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+          expect(mockCanvasInstance.zoomToPoint).toHaveBeenCalled();
         });
       });
 
@@ -1625,9 +1660,9 @@ describe('ImageViewer', () => {
         const touchEndEvent = createTouchEvent('touchend', []);
         await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
-        // ズームが変更されることを確認
+        // ズームが canvasViewportController（canvas.zoomToPoint）経由で変更されることを確認（Task 97）
         await waitFor(() => {
-          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+          expect(mockCanvasInstance.zoomToPoint).toHaveBeenCalled();
         });
       });
 
@@ -1660,15 +1695,14 @@ describe('ImageViewer', () => {
         const touchEndEvent = createTouchEvent('touchend', []);
         await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
-        // setViewportTransformが呼ばれた場合、その値のスケールが範囲内であることを確認
-        const calls = mockCanvasInstance.setViewportTransform.mock.calls;
+        // canvas.zoomToPoint へ渡される倍率は controller.clampZoom 後の値であり範囲内であることを確認（Task 97）
+        const calls = mockCanvasInstance.zoomToPoint.mock.calls;
         if (calls.length > 0) {
           const lastCallArgs = calls[calls.length - 1];
           if (lastCallArgs) {
-            const lastCall = lastCallArgs[0] as number[];
-            const scaleX = lastCall[0];
-            expect(scaleX).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
-            expect(scaleX).toBeGreaterThanOrEqual(ZOOM_CONSTANTS.MIN_ZOOM);
+            const value = lastCallArgs[1] as number;
+            expect(value).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
+            expect(value).toBeGreaterThanOrEqual(ZOOM_CONSTANTS.MIN_ZOOM);
           }
         }
       });
@@ -1921,10 +1955,17 @@ describe('ImageViewer', () => {
         const touchEndEvent = createTouchEvent('touchend', []);
         await dispatchTouchEvent(canvasContainer, touchEndEvent);
 
-        // setViewportTransformが呼ばれることを確認
+        // 中点を基準に canvasViewportController（canvas.zoomToPoint）が呼ばれることを確認（Task 97）
         await waitFor(() => {
-          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+          expect(mockCanvasInstance.zoomToPoint).toHaveBeenCalled();
         });
+        // 中点(150,150)を基準点として渡していることを確認
+        const zoomCalls = mockCanvasInstance.zoomToPoint.mock.calls;
+        const lastZoomCall = zoomCalls[zoomCalls.length - 1];
+        expect(lastZoomCall).toBeDefined();
+        const point = lastZoomCall![0] as { x: number; y: number };
+        expect(point.x).toBeCloseTo(150, 5);
+        expect(point.y).toBeCloseTo(150, 5);
       });
     });
 
@@ -2061,8 +2102,9 @@ describe('ImageViewer', () => {
         ]);
         await dispatchTouchEvent(canvasContainer, threeFingerStart);
 
-        // この時点でsetViewportTransform呼び出し履歴をクリア
+        // この時点でsetViewportTransform/zoomToPoint呼び出し履歴をクリア
         mockCanvasInstance.setViewportTransform.mockClear();
+        mockCanvasInstance.zoomToPoint.mockClear();
 
         // 3本指のまま移動してもズーム/パンが発動しないこと
         const threeFingerMove = createTouchEvent('touchmove', [
@@ -2082,6 +2124,7 @@ describe('ImageViewer', () => {
 
         await new Promise((resolve) => setTimeout(resolve, 20));
         expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+        expect(mockCanvasInstance.zoomToPoint).not.toHaveBeenCalled();
       });
 
       it('3本指から全指離脱後 150ms 以内の1本指パンは抑止される', async () => {
@@ -2234,8 +2277,9 @@ describe('ImageViewer', () => {
 
         await dispatchTouchEvent(canvasContainer, createTouchEvent('touchend', []));
 
+        // ピンチズームは canvasViewportController（canvas.zoomToPoint）経由（Task 97）
         await waitFor(() => {
-          expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
+          expect(mockCanvasInstance.zoomToPoint).toHaveBeenCalled();
         });
       });
     });
@@ -2906,6 +2950,148 @@ describe('ImageViewer', () => {
           const exportButton = screen.getByRole('button', { name: /エクスポート/i });
           expect(exportButton).toBeInTheDocument();
         });
+      });
+    });
+  });
+
+  // ============================================================================
+  // Task 97: canvasViewportController への委譲（二重実装解消, Req 33.10）
+  // 閲覧モード ImageViewer のビューポート算術（ズーム/パン/中点ピンチ/clamp）が
+  // 編集モードと同一の canvasViewportController（= 実 Fabric API zoomToPoint/
+  // setViewportTransform）経由で行われることを検証する。
+  // RED: 委譲を旧経路（独自 setViewportTransform 算術）へ戻すと zoomToPoint が
+  //      呼ばれなくなり以下が失敗する。
+  // ============================================================================
+  describe('canvasViewportController への委譲 (Req 33.10)', () => {
+    const createTouchEvent = (
+      type: string,
+      touches: Array<{ clientX: number; clientY: number; identifier: number }>
+    ) => {
+      const touchList = touches.map(
+        (t) =>
+          ({
+            clientX: t.clientX,
+            clientY: t.clientY,
+            identifier: t.identifier,
+            target: document.body,
+            screenX: t.clientX,
+            screenY: t.clientY,
+            pageX: t.clientX,
+            pageY: t.clientY,
+            radiusX: 1,
+            radiusY: 1,
+            rotationAngle: 0,
+            force: 1,
+          }) as Touch
+      );
+      return new TouchEvent(type, {
+        touches: touchList,
+        targetTouches: touchList,
+        changedTouches: touchList,
+        bubbles: true,
+        cancelable: true,
+      });
+    };
+
+    it('2本指ピンチズームは controller.zoomToPoint（canvas.zoomToPoint）経由で適用される', async () => {
+      mockCanvasInstance.getZoom.mockReturnValue(1.0);
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalled();
+      });
+
+      const canvasContainer = screen.getByTestId('canvas-container');
+
+      await dispatchTouchEvent(
+        canvasContainer,
+        createTouchEvent('touchstart', [
+          { clientX: 100, clientY: 100, identifier: 0 },
+          { clientX: 120, clientY: 120, identifier: 1 },
+        ])
+      );
+      await dispatchTouchEvent(
+        canvasContainer,
+        createTouchEvent('touchmove', [
+          { clientX: 50, clientY: 50, identifier: 0 },
+          { clientX: 170, clientY: 170, identifier: 1 },
+        ])
+      );
+      await dispatchTouchEvent(canvasContainer, createTouchEvent('touchend', []));
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.zoomToPoint).toHaveBeenCalled();
+      });
+    });
+
+    it('ボタンによるズームインも controller.zoomToPoint 経由で適用される', async () => {
+      const user = userEvent.setup();
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalled();
+      });
+
+      mockCanvasInstance.zoomToPoint.mockClear();
+      const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+      await user.click(zoomInButton);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.zoomToPoint).toHaveBeenCalled();
+      });
+      // controller.clampZoom により MIN/MAX 範囲内の倍率が渡される
+      const calls = mockCanvasInstance.zoomToPoint.mock.calls;
+      const value = calls[calls.length - 1]![1] as number;
+      expect(value).toBeGreaterThanOrEqual(ZOOM_CONSTANTS.MIN_ZOOM);
+      expect(value).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
+    });
+
+    it('ズーム倍率は controller.clampZoom 経由で MAX_ZOOM 以下に制限される', async () => {
+      // getZoom を MAX 相当に固定し、ズームインしても clampZoom により MAX を超えないこと
+      mockCanvasInstance.getZoom.mockReturnValue(ZOOM_CONSTANTS.MAX_ZOOM);
+      const user = userEvent.setup();
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalled();
+      });
+
+      mockCanvasInstance.zoomToPoint.mockClear();
+      const zoomInButton = screen.getByRole('button', { name: /ズームイン/i });
+      await user.click(zoomInButton);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.zoomToPoint).toHaveBeenCalled();
+      });
+      const calls = mockCanvasInstance.zoomToPoint.mock.calls;
+      calls.forEach((call) => {
+        expect(call[1] as number).toBeLessThanOrEqual(ZOOM_CONSTANTS.MAX_ZOOM);
+      });
+    });
+
+    it('パンは controller.pan 経由（等倍時は controller.isPanEnabled で抑止）される', async () => {
+      // 等倍（getZoom=1.0）では controller.isPanEnabled() が false でパン抑止
+      mockCanvasInstance.getZoom.mockReturnValue(1.0);
+      render(<ImageViewer {...defaultProps} />);
+      await flushPromises();
+
+      await waitFor(() => {
+        expect(mockFromURL).toHaveBeenCalled();
+      });
+
+      mockCanvasInstance.setViewportTransform.mockClear();
+      fireEvent.keyDown(window, { key: 'ArrowUp' });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(mockCanvasInstance.setViewportTransform).not.toHaveBeenCalled();
+
+      // 拡大時（getZoom=2.0）は controller.pan が setViewportTransform を適用
+      mockCanvasInstance.getZoom.mockReturnValue(2.0);
+      fireEvent.keyDown(window, { key: 'ArrowUp' });
+      await waitFor(() => {
+        expect(mockCanvasInstance.setViewportTransform).toHaveBeenCalled();
       });
     });
   });

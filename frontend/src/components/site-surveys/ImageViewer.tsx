@@ -39,6 +39,10 @@ import {
   type ImageViewerRef,
 } from './image-viewer.constants';
 import { COOLDOWN_MS } from './gestures/gesture-thresholds';
+import {
+  createCanvasViewportController,
+  type CanvasViewportController,
+} from './gestures/canvasViewportController';
 
 // 定数と型の再エクスポート（後方互換性のため）
 
@@ -342,13 +346,6 @@ const STYLES = {
 // ============================================================================
 
 /**
- * ズーム倍率を範囲内に制限する
- */
-function clampZoom(zoom: number): number {
-  return Math.max(ZOOM_CONSTANTS.MIN_ZOOM, Math.min(ZOOM_CONSTANTS.MAX_ZOOM, zoom));
-}
-
-/**
  * ズーム倍率をパーセント表示に変換
  */
 function formatZoomPercent(zoom: number): string {
@@ -413,6 +410,11 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   // Fabric.js Canvas参照
   const fabricCanvasRef = useRef<FabricCanvas | null>(null);
+
+  // ビューポート制御コントローラ参照（Task 97: ズーム/パン算術を編集モードと共通化, Req 33.10）
+  // 入力検出（TouchEvent/wheel/keyboard）は ImageViewer が担い、実際のズーム/パン適用
+  // （zoomToPoint/pan/clampZoom）は canvasViewportController へ委譲して二重実装を解消する。
+  const viewportControllerRef = useRef<CanvasViewportController | null>(null);
 
   // 初期状態の決定（initialViewStateがあれば使用、なければデフォルト）
   const getInitialState = (): ImageViewerState => ({
@@ -494,11 +496,16 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
   const setViewState = useCallback(
     (newState: Partial<ImageViewerViewState>) => {
       const canvas = fabricCanvasRef.current;
+      const controller = viewportControllerRef.current;
       const img = backgroundImageRef.current;
+
+      // Task 97（Req 33.10）: ズーム範囲クランプを canvasViewportController へ委譲する。
+      const clampZoomValue = (zoom: number): number =>
+        controller ? controller.clampZoom(zoom) : zoom;
 
       // ズームとパン位置を設定
       if (canvas) {
-        const newZoom = newState.zoom !== undefined ? clampZoom(newState.zoom) : state.zoom;
+        const newZoom = newState.zoom !== undefined ? clampZoomValue(newState.zoom) : state.zoom;
         const newPanX = newState.panX ?? state.panX;
         const newPanY = newState.panY ?? state.panY;
 
@@ -529,7 +536,7 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
       // 状態を更新
       setState((prev) => ({
         ...prev,
-        zoom: newState.zoom !== undefined ? clampZoom(newState.zoom) : prev.zoom,
+        zoom: newState.zoom !== undefined ? clampZoomValue(newState.zoom) : prev.zoom,
         rotation:
           newState.rotation !== undefined ? normalizeRotation(newState.rotation) : prev.rotation,
         panX: newState.panX ?? prev.panX,
@@ -570,26 +577,20 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
    */
   const setZoom = useCallback(
     (newZoom: number) => {
-      const canvas = fabricCanvasRef.current;
-      if (!canvas) return;
+      const controller = viewportControllerRef.current;
+      if (!controller) return;
 
-      const clampedZoom = clampZoom(newZoom);
+      // Task 97（Req 33.10）: ズーム倍率変更を canvasViewportController へ委譲する。
+      // 現在のパン位置（= viewportTransform の translate）を基準点に渡すことで、
+      // ズーム>1 では translate を維持（従来挙動）、ズーム<=1 では clampPan により
+      // パン位置が 0 へ補正される（従来の「等倍以下でパンリセット」挙動と一致）。
+      const { panX, panY } = controller.getState();
+      controller.zoomToPoint({ x: panX, y: panY }, newZoom);
 
-      // ズームが1.0以下になったらパン位置もリセット
-      if (clampedZoom <= 1) {
-        canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, 0, 0]);
-        lastPanPositionRef.current = { x: 0, y: 0 };
-        setState((prev) => ({ ...prev, zoom: clampedZoom, panX: 0, panY: 0 }));
-        notifyViewStateChange({ zoom: clampedZoom, panX: 0, panY: 0 });
-      } else {
-        // ズームが1より大きい場合、現在のパン位置を維持
-        const currentPanX = lastPanPositionRef.current.x;
-        const currentPanY = lastPanPositionRef.current.y;
-        canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, currentPanX, currentPanY]);
-        setState((prev) => ({ ...prev, zoom: clampedZoom }));
-        notifyViewStateChange({ zoom: clampedZoom });
-      }
-      canvas.renderAll();
+      const next = controller.getState();
+      lastPanPositionRef.current = { x: next.panX, y: next.panY };
+      setState((prev) => ({ ...prev, zoom: next.zoom, panX: next.panX, panY: next.panY }));
+      notifyViewStateChange({ zoom: next.zoom, panX: next.panX, panY: next.panY });
     },
     [notifyViewStateChange]
   );
@@ -682,35 +683,28 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   /**
    * パン操作が有効かどうかをチェック
+   * Task 97（Req 33.10/34.7）: 等倍時抑止判定を canvasViewportController へ委譲する。
    */
   const isPanEnabled = useCallback(() => {
-    const canvas = fabricCanvasRef.current;
-    if (!canvas) return false;
-    return canvas.getZoom() >= PAN_CONSTANTS.MIN_PAN_ZOOM;
+    const controller = viewportControllerRef.current;
+    return controller ? controller.isPanEnabled() : false;
   }, []);
 
   /**
-   * ビューポートトランスフォームを適用
+   * 表示領域を平行移動する
+   * Task 97（Req 33.10）: パン適用を canvasViewportController.pan へ委譲する。
+   * controller.pan は等倍時抑止（isPanEnabled）と範囲補正（clampPan）を内包する。
    */
-  const applyPan = useCallback(
-    (deltaX: number, deltaY: number) => {
-      const canvas = fabricCanvasRef.current;
-      if (!canvas || !isPanEnabled()) return;
+  const applyPan = useCallback((deltaX: number, deltaY: number) => {
+    const controller = viewportControllerRef.current;
+    if (!controller) return;
 
-      const newPanX = lastPanPositionRef.current.x + deltaX;
-      const newPanY = lastPanPositionRef.current.y + deltaY;
+    controller.pan(deltaX, deltaY);
 
-      // ビューポートトランスフォームを更新
-      // [scaleX, skewY, skewX, scaleY, translateX, translateY]
-      const zoom = canvas.getZoom();
-      canvas.setViewportTransform([zoom, 0, 0, zoom, newPanX, newPanY]);
-      canvas.renderAll();
-
-      lastPanPositionRef.current = { x: newPanX, y: newPanY };
-      setState((prev) => ({ ...prev, panX: newPanX, panY: newPanY }));
-    },
-    [isPanEnabled]
-  );
+    const next = controller.getState();
+    lastPanPositionRef.current = { x: next.panX, y: next.panY };
+    setState((prev) => ({ ...prev, panX: next.panX, panY: next.panY }));
+  }, []);
 
   /**
    * ドラッグによるパン操作開始
@@ -729,54 +723,47 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   /**
    * ドラッグによるパン操作中
+   * Task 97（Req 33.10）: 直前フレームからの差分を controller.pan へ渡し、
+   * panStartRef を毎フレーム現在位置へ更新する（フレーム差分方式）。
    */
   const handlePanMove = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       if (!state.isPanning || !panStartRef.current) return;
+      const controller = viewportControllerRef.current;
+      if (!controller) return;
 
       const deltaX = event.clientX - panStartRef.current.x;
       const deltaY = event.clientY - panStartRef.current.y;
 
-      // 一時的なパン位置を計算（ドラッグ開始時からの差分 + 保存済みの位置）
-      const canvas = fabricCanvasRef.current;
-      if (!canvas) return;
-
-      const tempPanX = lastPanPositionRef.current.x + deltaX;
-      const tempPanY = lastPanPositionRef.current.y + deltaY;
-
-      const zoom = canvas.getZoom();
-      canvas.setViewportTransform([zoom, 0, 0, zoom, tempPanX, tempPanY]);
-      canvas.renderAll();
+      controller.pan(deltaX, deltaY);
+      panStartRef.current = { x: event.clientX, y: event.clientY };
     },
     [state.isPanning]
   );
 
   /**
    * ドラッグによるパン操作終了
+   * Task 97（Req 33.10）: 最終パン位置を controller.getState から確定する。
    */
-  const handlePanEnd = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!state.isPanning || !panStartRef.current) {
-        panStartRef.current = null;
-        setState((prev) => ({ ...prev, isPanning: false }));
-        return;
-      }
+  const handlePanEnd = useCallback(() => {
+    const wasPanning = state.isPanning && panStartRef.current !== null;
+    panStartRef.current = null;
 
-      const deltaX = event.clientX - panStartRef.current.x;
-      const deltaY = event.clientY - panStartRef.current.y;
+    if (!wasPanning) {
+      setState((prev) => ({ ...prev, isPanning: false }));
+      return;
+    }
 
-      // 最終的なパン位置を保存
-      const newPanX = lastPanPositionRef.current.x + deltaX;
-      const newPanY = lastPanPositionRef.current.y + deltaY;
-
-      lastPanPositionRef.current = { x: newPanX, y: newPanY };
-      panStartRef.current = null;
-
-      setState((prev) => ({ ...prev, isPanning: false, panX: newPanX, panY: newPanY }));
-      notifyViewStateChange({ panX: newPanX, panY: newPanY });
-    },
-    [state.isPanning, notifyViewStateChange]
-  );
+    const controller = viewportControllerRef.current;
+    const next = controller ? controller.getState() : null;
+    if (next) {
+      lastPanPositionRef.current = { x: next.panX, y: next.panY };
+      setState((prev) => ({ ...prev, isPanning: false, panX: next.panX, panY: next.panY }));
+      notifyViewStateChange({ panX: next.panX, panY: next.panY });
+    } else {
+      setState((prev) => ({ ...prev, isPanning: false }));
+    }
+  }, [state.isPanning, notifyViewStateChange]);
 
   /**
    * マウスホイールによるズーム
@@ -899,29 +886,18 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
   /**
    * ピンチズームを適用
+   * Task 97（Req 33.10/33.3）: 2本指中点を基準としたズームを canvasViewportController.zoomToPoint
+   * へ委譲する。clampZoom/clampPan は controller が内包する。
    */
   const applyPinchZoom = useCallback((newZoom: number, centerX: number, centerY: number) => {
-    const canvas = fabricCanvasRef.current;
-    if (!canvas) return;
+    const controller = viewportControllerRef.current;
+    if (!controller) return;
 
-    // ズーム範囲を制限
-    const clampedZoom = clampZoom(newZoom);
+    controller.zoomToPoint({ x: centerX, y: centerY }, newZoom);
 
-    // ズームの中心点を基準にビューポートトランスフォームを計算
-    const currentPanX = lastPanPositionRef.current.x;
-    const currentPanY = lastPanPositionRef.current.y;
-
-    // 新しいパン位置を計算（ズーム中心点を維持）
-    const zoomRatio = clampedZoom / initialZoomRef.current;
-    const newPanX = centerX - (centerX - currentPanX) * zoomRatio;
-    const newPanY = centerY - (centerY - currentPanY) * zoomRatio;
-
-    // ビューポートトランスフォームを適用
-    canvas.setViewportTransform([clampedZoom, 0, 0, clampedZoom, newPanX, newPanY]);
-    canvas.renderAll();
-
-    lastPanPositionRef.current = { x: newPanX, y: newPanY };
-    setState((prev) => ({ ...prev, zoom: clampedZoom, panX: newPanX, panY: newPanY }));
+    const next = controller.getState();
+    lastPanPositionRef.current = { x: next.panX, y: next.panY };
+    setState((prev) => ({ ...prev, zoom: next.zoom, panX: next.panX, panY: next.panY }));
   }, []);
 
   /**
@@ -1018,40 +994,26 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
           }
 
           // 2本指パン操作（ズーム状態の時）
+          // Task 97（Req 33.10）: フレーム差分を controller.pan へ委譲し、基準点を更新する。
           if (isPanEnabled() && touchPanStartRef.current) {
             const currentMidpoint = getMidpoint(touch0, touch1);
             const deltaX = currentMidpoint.x - touchPanStartRef.current.x;
             const deltaY = currentMidpoint.y - touchPanStartRef.current.y;
 
-            const canvas = fabricCanvasRef.current;
-            if (canvas) {
-              const zoom = canvas.getZoom();
-              const newPanX = lastPanPositionRef.current.x + deltaX;
-              const newPanY = lastPanPositionRef.current.y + deltaY;
-
-              canvas.setViewportTransform([zoom, 0, 0, zoom, newPanX, newPanY]);
-              canvas.renderAll();
-
-              // 一時的なパン位置（touchendで確定）
-            }
+            viewportControllerRef.current?.pan(deltaX, deltaY);
+            touchPanStartRef.current = currentMidpoint;
           }
         }
       } else if (touches.length === 1 && isPanEnabled() && touchPanStartRef.current) {
         // 1本指パン操作（ズーム状態の時のみ）
+        // Task 97（Req 33.10）: フレーム差分を controller.pan へ委譲し、基準点を更新する。
         const touch0 = touches[0];
         if (touch0) {
           const deltaX = touch0.x - touchPanStartRef.current.x;
           const deltaY = touch0.y - touchPanStartRef.current.y;
 
-          const canvas = fabricCanvasRef.current;
-          if (canvas) {
-            const zoom = canvas.getZoom();
-            const newPanX = lastPanPositionRef.current.x + deltaX;
-            const newPanY = lastPanPositionRef.current.y + deltaY;
-
-            canvas.setViewportTransform([zoom, 0, 0, zoom, newPanX, newPanY]);
-            canvas.renderAll();
-          }
+          viewportControllerRef.current?.pan(deltaX, deltaY);
+          touchPanStartRef.current = { x: touch0.x, y: touch0.y };
         }
       }
     },
@@ -1071,19 +1033,18 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
       const wasThreePlusSuspend = threePlusSuspendRef.current;
 
       // suspend または cooldown 中はパン位置確定（誤発火扱い）をスキップ
+      // Task 97（Req 33.10）: 最終パン位置を controller.getState から確定する。
       if (
         touchPanStartRef.current &&
         touchStartPointsRef.current.length >= 1 &&
         !wasThreePlusSuspend &&
         !cooldownActiveRef.current
       ) {
-        const canvas = fabricCanvasRef.current;
-        if (canvas) {
-          const vpt = canvas.viewportTransform;
-          if (vpt) {
-            lastPanPositionRef.current = { x: vpt[4], y: vpt[5] };
-            setState((prev) => ({ ...prev, panX: vpt[4], panY: vpt[5] }));
-          }
+        const controller = viewportControllerRef.current;
+        if (controller) {
+          const next = controller.getState();
+          lastPanPositionRef.current = { x: next.panX, y: next.panY };
+          setState((prev) => ({ ...prev, panX: next.panX, panY: next.panY }));
         }
       }
 
@@ -1334,6 +1295,10 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
     fabricCanvasRef.current = canvas;
 
+    // ビューポート制御コントローラを生成（Task 97, Req 33.10）。
+    // canvas は FabricCanvasLike 最小サーフェスを構造的に満たす。
+    viewportControllerRef.current = createCanvasViewportController(canvas);
+
     // 初期サイズを設定
     const containerWidth = containerRef.current?.clientWidth || 800;
     const containerHeight = containerRef.current?.clientHeight || 600;
@@ -1349,6 +1314,7 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
     return () => {
       canvas.dispose();
       fabricCanvasRef.current = null;
+      viewportControllerRef.current = null;
       backgroundImageRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- imageUrlの変更は別のuseEffectで対応

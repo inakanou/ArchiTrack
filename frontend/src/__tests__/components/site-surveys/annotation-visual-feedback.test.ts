@@ -79,13 +79,15 @@ afterEach(() => {
 // ============================================================================
 
 describe('configureHandleSizes (Task 71.1, Req 29.4/29.5)', () => {
-  it('タッチデバイス判定時は FabricObject.ownDefaults.cornerSize = 20, touchCornerSize = 40 を設定する', () => {
+  it('タッチデバイス判定時は touchCornerSize を標準タッチターゲット (44px 以上) に設定する (Req 29.4 / 28.3)', () => {
     mockPointerCoarse(true);
 
     configureHandleSizes();
 
+    // 描画サイズ (cornerSize) は現状維持。ヒット領域 (touchCornerSize) は
+    // WCAG 2.5.5 / 標準タッチターゲット (最小44x44論理ピクセル) に準拠する。
     expect(FabricObject.ownDefaults.cornerSize).toBe(20);
-    expect(FabricObject.ownDefaults.touchCornerSize).toBe(40);
+    expect(FabricObject.ownDefaults.touchCornerSize).toBeGreaterThanOrEqual(44);
   });
 
   it('マウス環境判定時は FabricObject.ownDefaults.cornerSize = 13, touchCornerSize = 24 を設定する', () => {
@@ -115,7 +117,7 @@ describe('configureHandleSizes (Task 71.1, Req 29.4/29.5)', () => {
     // FabricObject.getDefaults() は ownDefaults を返す（Fabric v6+）
     const defaults = FabricObject.getDefaults() as Record<string, unknown>;
     expect(defaults.cornerSize).toBe(20);
-    expect(defaults.touchCornerSize).toBe(40);
+    expect(defaults.touchCornerSize as number).toBeGreaterThanOrEqual(44);
   });
 });
 

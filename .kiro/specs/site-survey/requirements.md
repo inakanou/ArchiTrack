@@ -391,7 +391,7 @@ Requirements 24 以降は、画像注釈の視認性向上（白縁取り表現�
 1. When ユーザーが注釈ツールを選択する, the Site Survey Service shall 選択中ツールをツールバー上で視覚的にハイライト表示する
 2. While ユーザーが特定の注釈ツールを選択中, the Site Survey Service shall 当該ツール用のカーソル表現（マウス環境）またはタッチ時のガイド表示（タッチデバイス）を画像領域上で提供する
 3. When ユーザーが描画操作を開始する, the Site Survey Service shall 描画中の仮表示（プレビュー）を画像上に表示する
-4. When ユーザーがタッチデバイスで注釈オブジェクトを選択する, the Site Survey Service shall 選択中オブジェクトのハンドルを、タップで操作可能な最小サイズ（概ね32x32論理ピクセル以上）で表示する
+4. When ユーザーがタッチデバイスで注釈オブジェクトを選択する, the Site Survey Service shall 選択中オブジェクトのハンドルを、タップで操作可能な標準タッチターゲットサイズ（最小44x44論理ピクセル以上。Requirement 28.3 と整合）で表示する
 5. The Site Survey Service shall 選択中オブジェクトのハンドルサイズを、タッチ操作時（拡大）とマウス操作時（通常）で切替える
 6. Where 初見で用途が分かりにくいツール項目がある, the Site Survey Service shall ツールバー項目のツールヒント（名称・短い説明）をマウスホバーまたは長押しで表示する
 7. When ユーザーがツールを選択後、一定時間内に描画操作を開始しない, the Site Survey Service shall 選択中ツールに対する簡易ガイド（例: 「ドラッグで描画」「タップでテキスト入力」等）を画像領域に非侵襲的に提示する
@@ -464,3 +464,44 @@ Requirements 31 以降は、現場調査画像の一括エクスポートと、�
 12. The Site Survey Service shall 寸法線注釈の寸法値ラベルに対しても、Requirement 25 のテキスト白アウトラインと同等の白アウトライン表現を適用する
 13. The Site Survey Service shall 各対象ツールの既定白縁取り有無を、Requirement 26 の設定資材一元管理の枠組みで管理する
 14. When ユーザーが画像編集画面で対象注釈を編集して保存する, the Site Survey Service shall Requirement 23 に従って白縁取りを含む最終状態を反映したサムネイルを再生成する
+
+### 追加範囲の境界補足（Requirements 33 以降）
+
+Requirements 33 以降は、スマートフォンでの注釈編集操作性を業界標準に準拠させる抜本改善を対象とする。準拠する参照標準は、Apple Human Interface Guidelines（標準ジェスチャー・ダブルタップ拡大・直接操作）、Material Design（direct manipulation・タッチターゲット）、WCAG 2.5.5 / プラットフォーム標準（タッチターゲット最小44論理ピクセル）、および描画アプリのデファクト操作モデル（1本指=描画・2本指=ズーム&パン）である。既存 Requirements 1〜32 の責務境界は維持する。本範囲は、Requirement 5（画像ビューア）・Requirement 27（タッチジェスチャー）・Requirement 30（マルチタッチ安全性）が前提としていた「注釈編集モードでのピンチズーム/パン」を、編集モード自体の一級機能として明示し検証可能（testable）にするものである。
+
+- **In scope**: 注釈編集モードにおける2本指ピンチズーム・2本指パンと1本指描画の同時両立、ピンチ中点を基準とした拡大/縮小、編集モード上のズーム操作手段（ズームイン/アウト・全体表示・現在倍率表示）、ダブルタップによる拡大/全体表示トグル、タッチ時の注釈選択・移動の確実性向上、選択ハンドルのタッチターゲット標準準拠（Requirement 29.4 の改訂を含む）
+- **Out of scope**: 注釈の自由角度回転（既存の90度単位画像回転＝Requirement 22 を維持）、無限キャンバス化、キャンバスの自由回転ジェスチャー、スタイラス筆圧対応、編集モードのビュー状態のサーバー永続化（Requirement 5.6 のクライアント内共有を維持）、ジェスチャー入力処理の内部実装統合方針（設計フェーズで扱う）
+- **Adjacent expectations**: Requirement 5（画像ビューアの拡大・縮小・回転・パン・ピンチ仕様）、Requirement 5.6（表示状態の編集モード共有）、Requirement 15（レスポンシブ）、Requirement 27（タッチジェスチャー編集）、Requirement 30（マルチタッチ安全性）を前提・参照仕様として成立する。Requirement 13（Undo/Redo）、Requirement 17（描画ツール使用中の選択防止）、Requirement 28（モバイル向けツールバー）、Requirement 29（視覚フィードバック）の挙動は維持する
+
+### Requirement 33: 注釈編集モードでのピンチズーム・パンと描画ジェスチャーの両立
+
+**Objective:** As a 現場担当者, I want スマートフォンの注釈編集モードでも画像を拡大したまま正確に描画でき、指の本数で描画とズーム/パンを直感的に切り替えられること, so that 細部への注釈付けを現場のスマホ操作だけで完結できる
+
+#### Acceptance Criteria
+1. When ユーザーが注釈編集モードで描画ツール選択中に画像領域を1本指でドラッグする, the Site Survey Service shall 選択中の描画ツールによる描画操作として扱う
+2. When ユーザーが注釈編集モードで画像領域を2本指でピンチする, the Site Survey Service shall 画像のズーム倍率を変更する
+3. When ユーザーが注釈編集モードで2本指ピンチによりズームする, the Site Survey Service shall 2本指の中点位置を基準に拡大/縮小する
+4. When ユーザーが注釈編集モードで2本指をドラッグする, the Site Survey Service shall 表示領域をパン（移動）する
+5. When ユーザーが描画操作の途中で2本目の指を追加する, the Site Survey Service shall 進行中の描画を確定せず中断し、ピンチズーム/パン操作へ遷移する（Requirement 30.1 と整合）
+6. While 画像が拡大表示されている, the Site Survey Service shall 1本指ドラッグによる描画を、拡大後の座標系に正しく対応した位置へ反映する
+7. When ユーザーがマルチタッチによるズーム/パン後に1本指描画へ戻る, the Site Survey Service shall 直前のズーム倍率・表示位置を維持したまま描画を再開する（Requirement 30.7 と整合）
+8. When ユーザーが注釈編集モードで画像領域をダブルタップする, the Site Survey Service shall 拡大表示と全体表示（フィット）をトグルで切り替える
+9. The Site Survey Service shall 注釈編集モードのズーム可能範囲を画像ビューア（Requirement 5）と一貫した範囲で提供する
+10. The Site Survey Service shall 注釈編集モードと閲覧モードとの間でズーム・パンのタッチジェスチャー操作体系を一貫させる
+11. When ユーザーが選択ツール選択中にタッチで既存注釈をタップする, the Site Survey Service shall 当該注釈を選択状態にする
+12. When ユーザーが選択ツール選択中にタッチで選択中注釈をドラッグする, the Site Survey Service shall 当該注釈を移動し、拡大表示中も指の移動に追従させる
+13. While 描画ツールを選択中, the Site Survey Service shall 1本指ドラッグを描画として扱い、既存注釈の移動・選択として誤発火させない（Requirement 17 と整合）
+
+### Requirement 34: 注釈編集モードのズーム操作手段と倍率フィードバック
+
+**Objective:** As a 現場担当者, I want 注釈編集モード上で現在の倍率を確認し、ボタン操作でも拡大・縮小・全体表示できること, so that ピンチが難しい場面でも確実にズームを制御でき、現在の拡大状態を把握できる
+
+#### Acceptance Criteria
+1. The Site Survey Service shall 注釈編集モードに、ズームイン・ズームアウト・全体表示（フィット）の操作手段を提供する
+2. The Site Survey Service shall 注釈編集モードに、現在のズーム倍率を示す視覚的表示を提供する
+3. When ユーザーがズームイン/ズームアウト操作を行う, the Site Survey Service shall 倍率表示を最新のズーム倍率に更新する
+4. When ユーザーが全体表示（フィット）操作を行う, the Site Survey Service shall 画像全体が表示領域に収まる倍率に戻し、パン位置を初期化する
+5. The Site Survey Service shall ズーム操作手段の各タップ領域を最小44x44論理ピクセル以上で提供する（Requirement 28.3 と整合）
+6. When ユーザーがモバイル幅で注釈編集モードを表示する, the Site Survey Service shall ズーム操作手段を画面下部など片手のタッチで届きやすい領域に配置する
+7. While 画像が等倍（フィット）で表示されている, the Site Survey Service shall パン操作を抑止し、ズーム時のみパンを有効として扱う（Requirement 5.4 と整合）
+8. When ユーザーがズーム操作手段を操作する, the Site Survey Service shall 当該操作が背景画像への描画として誤って発火しないようにする（Requirement 28.6 と整合）

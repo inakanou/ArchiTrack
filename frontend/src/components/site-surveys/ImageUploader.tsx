@@ -26,6 +26,7 @@ import {
   MAX_FILE_SIZE_MB,
   MAX_FILE_SIZE_BYTES,
 } from './image-uploader.constants';
+import { compressImagesForUpload } from '../../utils/image-compression';
 
 // 定数の再エクスポート（後方互換性のため）
 
@@ -313,7 +314,10 @@ export function ImageUploader({
       if (validFiles.length > 0) {
         setUploadError(null);
         try {
-          await onUpload(validFiles);
+          // 送信前にブラウザ側で縮小・再エンコードして通信量とサーバ負荷を削減する。
+          // 非対応環境や圧縮不要な画像は元ファイルがそのまま返るため安全。
+          const filesToUpload = await compressImagesForUpload(validFiles);
+          await onUpload(filesToUpload);
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : 'アップロードに失敗しました。';
