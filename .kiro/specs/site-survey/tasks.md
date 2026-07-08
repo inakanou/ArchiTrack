@@ -2497,7 +2497,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能: 単体テストが green（律速切替・allowUpscale on/off・padding・maxUpscale 上限）
   - _Requirements: 36.1, 36.2_
   - _Boundary: imageFitScale_
-- [ ] 99.2 (P) useElementSize フック（ResizeObserver 購読）の実装と単体テスト
+- [x] 99.2 (P) useElementSize フック（ResizeObserver 購読）の実装と単体テスト
   - コンテナ要素の実寸 width/height を購読し、resize 時に更新するフックを実装
   - 観測可能: ResizeObserver 発火で寸法が更新される単体テストが green
   - _Requirements: 36.4_
