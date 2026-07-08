@@ -22,6 +22,7 @@ import SiteSurveyDetailPage from '../../pages/SiteSurveyDetailPage';
 import * as siteSurveysApi from '../../api/site-surveys';
 import * as surveyImagesApi from '../../api/survey-images';
 import * as useSiteSurveyPermissionModule from '../../hooks/useSiteSurveyPermission';
+import useMediaQuery from '../../hooks/useMediaQuery';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.types';
 
 // モックナビゲート
@@ -40,6 +41,12 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../../api/site-surveys');
 vi.mock('../../api/survey-images');
 vi.mock('../../hooks/useSiteSurveyPermission');
+// useMediaQueryのモック（デフォルトはデスクトップ幅=false）
+// Task 100.2: モバイル幅時のコンテナ余白/幅調整を検証するため、
+// isMobile 判定をテストごとに切り替えられるようにする。
+vi.mock('../../hooks/useMediaQuery', () => ({
+  default: vi.fn(() => false),
+}));
 // useUnsavedChangesのモック
 const mockUseUnsavedChanges = {
   isDirty: false,
@@ -151,6 +158,8 @@ describe('SiteSurveyDetailPage', () => {
     vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(
       mockPermission
     );
+    // 既定はデスクトップ幅（isMobile=false）に戻す
+    vi.mocked(useMediaQuery).mockReturnValue(false);
   });
 
   describe('表示', () => {
@@ -221,6 +230,47 @@ describe('SiteSurveyDetailPage', () => {
       await waitFor(() => {
         expect(screen.getByText('画像がありません')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ============================================================================
+  // Task 100.2: モバイル余白/幅調整
+  // Requirement 35.2: モバイル幅で詳細画面全体に水平はみ出しを発生させない
+  //   （内側の固定幅の支配を解消するため、ページコンテナを画面幅にフィットさせる）
+  // Requirement 35.7: デスクトップ幅の既存レイアウトを維持する
+  // ============================================================================
+  describe('モバイル余白/幅調整 (Task 100.2, Requirement 35.2)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    });
+
+    it('モバイル幅ではページコンテナが固定maxWidth:1200pxに縛られず画面幅にフィットする', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(true);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const main = screen.getByRole('main');
+      // 固定幅 1200px の支配を解消し、画面幅にフィットする
+      expect(main.style.maxWidth).not.toBe('1200px');
+      expect(main.style.maxWidth).toBe('100%');
+    });
+
+    it('デスクトップ幅では既存のmaxWidth:1200pxレイアウトを維持する (Requirement 35.7)', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(false);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const main = screen.getByRole('main');
+      expect(main.style.maxWidth).toBe('1200px');
+      expect(main.style.margin).toBe('0px auto');
     });
   });
 

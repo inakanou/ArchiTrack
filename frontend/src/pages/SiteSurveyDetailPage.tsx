@@ -36,6 +36,8 @@ import {
 } from '../api/survey-images';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import useMediaQuery from '../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../utils/responsive';
 import SiteSurveyDetailInfo from '../components/site-surveys/SiteSurveyDetailInfo';
 import { PhotoManagementPanel } from '../components/site-surveys/PhotoManagementPanel';
 import {
@@ -68,6 +70,14 @@ const STYLES = {
     maxWidth: '1200px',
     margin: '0 auto',
     padding: '24px 16px',
+  } as React.CSSProperties,
+  // Task 100.2 (Requirement 35.2): モバイル幅では固定 maxWidth:1200px の支配を解消し、
+  // ページコンテナを画面幅にフィットさせて詳細画面全体の水平はみ出しを防ぐ。
+  // padding を切り詰め、内側コンテンツの利用可能幅を確保する。
+  containerMobile: {
+    maxWidth: '100%',
+    margin: '0',
+    padding: '16px 12px',
   } as React.CSSProperties,
   breadcrumbWrapper: {
     marginBottom: '16px',
@@ -271,6 +281,16 @@ export default function SiteSurveyDetailPage() {
 
   // 権限チェック (Requirement 12.2)
   const { canEdit, canDelete } = useSiteSurveyPermission();
+
+  // モバイル幅判定 (Task 100.2, Requirement 35.2): 固定幅の支配を解消するため、
+  // ページコンテナの maxWidth/padding をモバイル幅で切り替える。
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
+  // ページコンテナスタイル。モバイル幅では containerMobile を spread 合成して
+  // 画面幅にフィットさせる（デスクトップ幅は既存レイアウトを維持: Requirement 35.7）。
+  const containerStyle: React.CSSProperties = {
+    ...STYLES.container,
+    ...(isMobile ? STYLES.containerMobile : {}),
+  };
 
   // データ状態
   const [survey, setSurvey] = useState<SiteSurveyDetail | null>(null);
@@ -747,7 +767,7 @@ export default function SiteSurveyDetailPage() {
   // ローディング表示
   if (isLoading && !survey) {
     return (
-      <main role="main" style={STYLES.container}>
+      <main role="main" style={containerStyle}>
         <div style={STYLES.loadingContainer}>
           <div role="status" style={STYLES.loadingSpinner} aria-label="読み込み中" />
           <p>読み込み中...</p>
@@ -767,7 +787,7 @@ export default function SiteSurveyDetailPage() {
   // エラー表示
   if (error && !survey) {
     return (
-      <main role="main" style={STYLES.container}>
+      <main role="main" style={containerStyle}>
         <div role="alert" style={STYLES.errorContainer}>
           <p style={STYLES.errorText}>{error}</p>
           <button type="button" onClick={fetchData} style={STYLES.retryButton}>
@@ -792,7 +812,7 @@ export default function SiteSurveyDetailPage() {
   );
 
   return (
-    <main role="main" aria-busy={isLoading} style={STYLES.container}>
+    <main role="main" aria-busy={isLoading} style={containerStyle}>
       {/* ブレッドクラムナビゲーション (Requirements 2.5, 2.6, 2.7) */}
       <div style={STYLES.breadcrumbWrapper}>
         <Breadcrumb items={breadcrumbItems} />

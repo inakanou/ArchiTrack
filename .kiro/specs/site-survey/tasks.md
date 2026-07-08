@@ -2513,7 +2513,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能: コンポーネントテストで 375 幅時に縦積み・入力 font-size>=16px・操作要素 boundingBox>=44px、デスクトップは現行スナップショット維持
   - _Requirements: 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7_
   - _Boundary: PhotoManagementPanel_
-- [ ] 100.2 (P) SiteSurveyDetailPage のモバイル余白/幅調整
+- [x] 100.2 (P) SiteSurveyDetailPage のモバイル余白/幅調整
   - モバイル幅で padding/maxWidth を調整し、内側固定幅の支配を解消。詳細画面全体で水平はみ出しを発生させない
   - 観測可能: 375 幅でページ `scrollWidth <= innerWidth`
   - _Requirements: 35.2_
