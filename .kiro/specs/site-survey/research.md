@@ -664,3 +664,11 @@ ImageViewer のズーム/パン/タッチ処理を AnnotationEditor 内へ移植
 - RN-c: `Math.min(...,1)` 緩和のスコープ（モバイル限定か全幅共通か）。デスクトップ挙動維持(35.7相当)との切り分け。
 - RN-d: E2E方式 — `playwright.config.ts` は現状 `chromium` 単一で **mobileプロジェクト無し**。既存慣習（各testで`newContext({viewport})`/`setViewportSize`）を踏襲しつつ、**`scrollWidth<=innerWidth`（横はみ出し）・作業領域短辺・入力`font-size>=16`・44pxタッチ** の直接アサートを追加（現状は下端チェックのみ）。`site-survey-responsive.spec.ts`・`site-survey-annotation-mobile.spec.ts` を拡張。
 
+## 設計合成の結論（Req 35-36 / design.md 反映済み）
+
+- **Generalization**: 再フィット検知(`useElementSize`=ResizeObserverラッパ)とフィット倍率算出(`imageFitScale.ts`純関数)を汎化し、`AnnotationEditor`/`ImageViewer` が採用（同一 `Math.min(...,1)` 二重実装と ResizeObserver 不在を同時解消）。
+- **Build vs Adopt**: レスポンシブ判定=既存 `useMediaQuery`/`MEDIA_QUERIES.isMobile` を採用、全画面高=CSS `svh`(vhフォールバック) を採用、再フィット=標準 `ResizeObserver`。新規外部依存なし。
+- **Simplification**: 詳細画面はモバイル専用コンポーネントを新設せず、既存 spread 合成に `isMobile` 分岐を追加（Option A）。
+- **フィット上限是正**: `imageFitScale` の `allowUpscale`/`maxUpscale` でモバイルのみ拡大許容（Req 36.2）、デスクトップは `allowUpscale=false` で現行維持。フィット/ズームは表示専用で保存座標不変（Req 9 後方互換）。
+- **境界**: 本節は「フィット倍率算出・再フィット発火・コンテナ寸法(svh)」を所有し、ズーム適用・`fit`意味論は Req 33-34 の `canvasViewportController` へ委譲（二重所有回避）。再フィットは等倍/初期化時のみ適用しユーザーのズーム中は保持（Req 33.7 整合）。
+
