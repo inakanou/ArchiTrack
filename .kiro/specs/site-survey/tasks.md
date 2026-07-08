@@ -2522,7 +2522,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Core - 画像編集/閲覧のフィット移行（Req 36 基盤）
 
 - [ ] 101. フィット算術の imageFitScale 移行と再フィット
-- [ ] 101.1 AnnotationEditor のフィット計算移行・再フィット・モバイル拡大許容
+- [x] 101.1 AnnotationEditor のフィット計算移行・再フィット・モバイル拡大許容
   - 既存の原寸頭打ちフィット計算を `imageFitScale` へ置換し、`allowUpscale=isMobile` を適用（モバイルで小画像もフィット倍率まで拡大）。デスクトップは `allowUpscale=false` で現行維持
   - `useElementSize` でコンテナ resize 時にキャンバス寸法を再計算。等倍/初期化時のみ `controller.fit()`、ズーム中は `controller.getState()` で表示保持。`canvasViewportController` は呼ぶのみで変更しない
   - 観測可能: コンテナサイズ変更で再フィット、ズーム中は表示保持、デスクトップ表示不変（テスト green）

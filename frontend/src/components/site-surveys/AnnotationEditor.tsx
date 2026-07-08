@@ -79,6 +79,13 @@ import { configureHandleSizes, applyToolCursor } from './annotation-visual-feedb
 import { useCanvasViewport } from '../../hooks/useCanvasViewport';
 import type { FabricCanvasLike } from './gestures/canvasViewportController';
 import ZoomControls from './ZoomControls';
+// Task 101.1 (Req 36.1, 36.2, 36.4): フィット倍率算出の一元化・コンテナ実寸購読・モバイル判定。
+// フィット計算は computeFitScale（原寸頭打ち/拡大許容を allowUpscale で制御）へ移行し、
+// useElementSize でコンテナ実寸の変化に追従して再フィットする。
+import { computeFitScale } from '../../utils/imageFitScale';
+import useElementSize from '../../hooks/useElementSize';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
 
 // windowオブジェクトにFabricキャンバスを公開するための型拡張（E2Eテスト用）
 declare global {
@@ -120,6 +127,13 @@ const DOUBLE_TAP_ZOOM_SCALE = 2;
  * 現在ズームが `1 + この値` 以下なら拡大、超えていれば fit() で全体表示へ戻す。
  */
 const DOUBLE_TAP_ZOOM_EPSILON = 0.01;
+
+/**
+ * Task 101.1 (Req 33.7, 36.8): 再フィット時に「等倍表示中（＝初期化状態）」とみなすズーム許容誤差。
+ * これを超えるズーム/パン中はユーザーの表示状態を保持し、再フィット（キャンバス寸法の再計算・
+ * viewport の恒等リセット）を適用しない。design.md「再フィットフロー」Key decisions を参照。
+ */
+const REFIT_IDENTITY_ZOOM_EPSILON = 0.01;
 
 /**
  * AnnotationEditorの状態
@@ -342,6 +356,17 @@ function AnnotationEditor({
 
   // Canvas要素参照（動的に生成）
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Task 101.1 (Req 36.1, 36.2, 35.7): モバイル幅ではフィット倍率まで拡大許容（allowUpscale=true）、
+  // デスクトップは原寸頭打ち（allowUpscale=false）で現行挙動を維持する。
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
+  // loadImage（useCallback）と再フィット effect の依存を安定させるため、最新値は ref 経由で参照する。
+  const isMobileRef = useRef(isMobile);
+  isMobileRef.current = isMobile;
+
+  // Task 101.1 (Req 36.4): コンテナ実寸を購読し、アドレスバー伸縮・端末回転・レイアウト変化などの
+  // resize に追従して再フィットを発火する（フィット適用は下部の専用 effect が担う）。
+  const containerSize = useElementSize(containerRef);
 
   // 状態管理
   const [state, setState] = useState<AnnotationEditorState>({
@@ -669,13 +694,23 @@ function AnnotationEditor({
 
         // パディングを考慮
         const padding = 48;
-        const maxWidth = containerWidth - padding;
-        const maxHeight = containerHeight - padding;
 
         // 画像サイズを計算
         const imgWidth = img.width || 1;
         const imgHeight = img.height || 1;
-        const scale = Math.min(maxWidth / imgWidth, maxHeight / imgHeight, 1);
+
+        // Task 101.1 (Req 36.1, 36.2, 35.7): フィット倍率算出を computeFitScale へ移行。
+        // 従来の Math.min(maxW/imgW, maxH/imgH, 1) を一般化し、原寸頭打ち（末尾の 1）を
+        // allowUpscale で制御する。モバイル幅では allowUpscale=true とし小画像もフィット倍率まで
+        // 拡大（Req 36.2）、デスクトップは allowUpscale=false で原寸頭打ちの現行挙動を維持（Req 35.7）。
+        const scale = computeFitScale({
+          imageWidth: imgWidth,
+          imageHeight: imgHeight,
+          containerWidth,
+          containerHeight,
+          padding,
+          allowUpscale: isMobileRef.current,
+        });
 
         // スケールを設定
         img.scale(scale);
@@ -1833,6 +1868,77 @@ function AnnotationEditor({
     },
     []
   );
+
+  /**
+   * Task 101.1 (Req 36.1, 36.2, 36.4, 36.8): コンテナ実寸の変化（モバイルブラウザの
+   * アドレスバー伸縮・端末回転・レイアウト変化）に追従してキャンバス寸法を再フィットする。
+   *
+   * design.md「## Requirements 35-36」の「fitの二重性の分離」に従い、本 effect が所有するのは
+   * 「画像→コンテナのフィット」＝キャンバス寸法計算（computeFitScale→setDimensions）のみ。
+   * viewport の恒等リセット（controller.fit()＝ズーム/パンのリセット）は Req 33-34 が所有し、
+   * ここでは呼ぶのみで canvasViewportController の内部実装は変更しない。
+   *
+   * 再フィットは「等倍表示中または初期化時のみ」適用する。ユーザーがズーム/パン中
+   * （controller.getState().zoom が等倍から乖離）は表示状態を保持し再フィットしない
+   * （Req 33.7 整合・Req 36.8 非回帰）。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvasRef.current;
+    const bgImage = backgroundImageRef.current;
+    // 画像未ロード時（初期化前・dispose 後）は何もしない。
+    if (!canvas || !bgImage) {
+      return;
+    }
+    // 実寸未計測（ResizeObserver 非対応環境・初期 0）では再フィットしない。
+    const containerWidth = containerSize.width;
+    const containerHeight = containerSize.height;
+    if (containerWidth <= 0 || containerHeight <= 0) {
+      return;
+    }
+
+    // ズーム/パン中（等倍でない）はユーザーの表示状態を保持し、再フィットしない（Req 33.7, 36.8）。
+    const controller = viewportControllerRef.current;
+    const currentZoom = controller ? controller.getState().zoom : 1;
+    if (Math.abs(currentZoom - 1) > REFIT_IDENTITY_ZOOM_EPSILON) {
+      return;
+    }
+
+    // フィット倍率を再算出する（loadImage と同一の padding / allowUpscale 方針）。
+    const padding = 48;
+    const naturalWidth = bgImage.width || 1;
+    const naturalHeight = bgImage.height || 1;
+    const scale = computeFitScale({
+      imageWidth: naturalWidth,
+      imageHeight: naturalHeight,
+      containerWidth,
+      containerHeight,
+      padding,
+      allowUpscale: isMobileRef.current,
+    });
+
+    // 背景画像のスケールを更新（保存座標は不変。表示のみに作用＝Req 9 後方互換）。
+    bgImage.scale(scale);
+
+    // 回転状態を考慮してキャンバス寸法・画像配置を更新する（Req 22 の回転挙動を非回帰）。
+    const rotation = imageRotationRef.current;
+    if (rotation !== 0) {
+      applyImageRotation(canvas, bgImage, rotation);
+    } else {
+      const scaledWidth = naturalWidth * scale;
+      const scaledHeight = naturalHeight * scale;
+      bgImage.set({
+        originX: 'center',
+        originY: 'center',
+        left: scaledWidth / 2,
+        top: scaledHeight / 2,
+      });
+      canvas.setDimensions({ width: scaledWidth, height: scaledHeight });
+      canvas.renderAll();
+    }
+
+    // 等倍/初期化時のみ viewport を恒等へリセットする（Req 33-34 所有の controller.fit を呼ぶのみ）。
+    controller?.fit();
+  }, [containerSize.width, containerSize.height, applyImageRotation]);
 
   /**
    * 背景画像を90度時計回りに回転する
