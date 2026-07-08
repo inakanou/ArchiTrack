@@ -2491,7 +2491,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Foundation - 共有ユーティリティ/フック
 
 - [ ] 99. 共有フィット/寸法ユーティリティの実装
-- [ ] 99.1 imageFitScale 純関数の実装と単体テスト
+- [x] 99.1 imageFitScale 純関数の実装と単体テスト
   - フィット倍率を算出する純関数を実装（幅律速/高さ律速の切替、padding 考慮）。`allowUpscale`/`maxUpscale` 引数で拡大可否と上限を制御
   - `allowUpscale=false` で原寸頭打ち（デスクトップ現行維持）、`allowUpscale=true` でフィット倍率まで拡大
   - 観測可能: 単体テストが green（律速切替・allowUpscale on/off・padding・maxUpscale 上限）
