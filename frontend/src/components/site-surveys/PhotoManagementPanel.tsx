@@ -25,6 +25,8 @@ import type {
   ImageOrderItem,
 } from '../../types/site-survey.types';
 import { AnnotatedImageThumbnail } from './AnnotatedImageThumbnail';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
 
 // ============================================================================
 // 型定義
@@ -412,6 +414,43 @@ const styles = {
     color: '#ffffff',
     border: 'none',
   } as React.CSSProperties,
+  // ==========================================================================
+  // モバイル表示最適化スタイル（Requirement 35 / Task 100.1）
+  // 既存の spread 合成パターンに isMobile 分岐として合成する
+  // ==========================================================================
+  /** Req35.1: 写真＋コメント行を縦積み（column）化 */
+  panelItemMobile: {
+    flexDirection: 'column' as const,
+  } as React.CSSProperties,
+  /** Req35.3: 写真列の固定320pxを解除し可変幅（100%）にする */
+  imageSectionMobile: {
+    width: '100%',
+  } as React.CSSProperties,
+  /** Req35.2: フレックス子要素の水平はみ出しを解消（min-width:auto→0） */
+  metadataSectionMobile: {
+    minWidth: 0,
+  } as React.CSSProperties,
+  /** Req35.4: 入力欄フォントを16px以上にしフォーカス時自動ズームを抑止 */
+  textareaMobile: {
+    fontSize: '16px',
+  } as React.CSSProperties,
+  /** Req35.5: 操作系コントロールのタップ領域を44px以上に拡大 */
+  checkboxMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
+  orderButtonMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
+  deleteButtonMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
+  dragHandleMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -424,6 +463,8 @@ interface PhotoItemProps {
   totalImages: number;
   showOrderNumber: boolean;
   readOnly: boolean;
+  /** モバイル幅かどうか（Requirement 35 / Task 100.1） */
+  isMobile: boolean;
   onMetadataChange: (imageId: string, metadata: UpdateImageMetadataInput) => void;
   onImageClick?: (image: SurveyImageInfo) => void;
   // ドラッグアンドドロップ用props（Task 27.5）
@@ -449,6 +490,7 @@ function PhotoItem({
   totalImages,
   showOrderNumber,
   readOnly,
+  isMobile,
   onMetadataChange,
   onImageClick,
   enableDrag,
@@ -573,6 +615,7 @@ function PhotoItem({
   // パネルアイテムのスタイル計算
   const panelItemStyle: React.CSSProperties = {
     ...styles.panelItem,
+    ...(isMobile ? styles.panelItemMobile : {}),
     ...(isDragging ? styles.panelItemDragging : {}),
     ...(isDragOver ? styles.panelItemDragOver : {}),
   };
@@ -598,7 +641,10 @@ function PhotoItem({
           draggable
           onDragStart={(e) => onDragStart(e, image.id)}
           onDragEnd={onDragEnd}
-          style={styles.dragHandle}
+          style={{
+            ...styles.dragHandle,
+            ...(isMobile ? styles.dragHandleMobile : {}),
+          }}
           data-testid="photo-drag-handle"
           aria-label="ドラッグして順序を変更"
         >
@@ -617,6 +663,7 @@ function PhotoItem({
             disabled={index === 0}
             style={{
               ...styles.orderButton,
+              ...(isMobile ? styles.orderButtonMobile : {}),
               ...(index === 0 ? styles.orderButtonDisabled : {}),
             }}
             aria-label="上へ移動"
@@ -644,6 +691,7 @@ function PhotoItem({
             disabled={index === totalImages - 1}
             style={{
               ...styles.orderButton,
+              ...(isMobile ? styles.orderButtonMobile : {}),
               ...(index === totalImages - 1 ? styles.orderButtonDisabled : {}),
             }}
             aria-label="下へ移動"
@@ -669,7 +717,12 @@ function PhotoItem({
       )}
 
       {/* 画像セクション */}
-      <div style={styles.imageSection}>
+      <div
+        style={{
+          ...styles.imageSection,
+          ...(isMobile ? styles.imageSectionMobile : {}),
+        }}
+      >
         {showOrderNumber && (
           <div style={styles.orderNumber} data-testid="photo-order-number">
             {index + 1}
@@ -696,7 +749,12 @@ function PhotoItem({
       </div>
 
       {/* メタデータセクション */}
-      <div style={styles.metadataSection}>
+      <div
+        style={{
+          ...styles.metadataSection,
+          ...(isMobile ? styles.metadataSectionMobile : {}),
+        }}
+      >
         {/* ファイル名 */}
         <h3 id={fileNameId} style={styles.fileName}>
           {image.fileName}
@@ -710,7 +768,10 @@ function PhotoItem({
             checked={image.includeInReport ?? false}
             onChange={handleIncludeInReportChange}
             disabled={readOnly}
-            style={styles.checkbox}
+            style={{
+              ...styles.checkbox,
+              ...(isMobile ? styles.checkboxMobile : {}),
+            }}
             aria-label="報告書に含める"
           />
           <label htmlFor={checkboxId} style={styles.checkboxLabel}>
@@ -731,6 +792,7 @@ function PhotoItem({
             placeholder="コメントを入力..."
             style={{
               ...styles.textarea,
+              ...(isMobile ? styles.textareaMobile : {}),
               ...(commentError ? styles.textareaError : {}),
             }}
             readOnly={readOnly}
@@ -750,7 +812,10 @@ function PhotoItem({
           <button
             type="button"
             onClick={() => onDeleteClick(image.id)}
-            style={styles.deleteButton}
+            style={{
+              ...styles.deleteButton,
+              ...(isMobile ? styles.deleteButtonMobile : {}),
+            }}
             aria-label={`画像を削除: ${image.fileName}`}
           >
             <svg
@@ -810,6 +875,8 @@ export function PhotoManagementPanel({
   onDelete,
   showOrderButtons = true,
 }: PhotoManagementPanelProps) {
+  // モバイル幅判定（Requirement 35 / Task 100.1）
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   // 削除確認ダイアログの状態（Task 34）
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -1138,6 +1205,7 @@ export function PhotoManagementPanel({
             totalImages={sortedImages.length}
             showOrderNumber={showOrderNumbers}
             readOnly={readOnly}
+            isMobile={isMobile}
             onMetadataChange={onImageMetadataChange}
             onImageClick={onImageClick}
             // ドラッグアンドドロップ用props（Task 27.5）
