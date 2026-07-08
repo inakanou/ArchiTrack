@@ -396,7 +396,9 @@ describe('AnnotationEditor - フィット計算の computeFitScale 移行 (Task 
 
       // ズーム中は再フィットしない → setDimensions も controller.fit も追加で呼ばれない（Req 33.7, 36.8）。
       expect(mockCanvasInstance.setDimensions.mock.calls.length).toBe(setDimensionsCallsBefore);
-      expect(mockCanvasInstance.setViewportTransform.mock.calls.length).toBe(setViewportCallsBefore);
+      expect(mockCanvasInstance.setViewportTransform.mock.calls.length).toBe(
+        setViewportCallsBefore
+      );
     });
   });
 });

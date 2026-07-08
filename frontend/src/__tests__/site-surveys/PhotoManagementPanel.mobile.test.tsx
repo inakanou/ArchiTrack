@@ -158,9 +158,7 @@ describe('PhotoManagementPanel モバイル表示最適化 (Task 100.1)', () => 
 
     it('Req35.6: モバイル幅でも報告書出力フラグ操作が Req10 挙動（メタデータ変更通知）を維持すること', () => {
       const onImageMetadataChange = vi.fn();
-      render(
-        <PhotoManagementPanel {...baseProps} onImageMetadataChange={onImageMetadataChange} />
-      );
+      render(<PhotoManagementPanel {...baseProps} onImageMetadataChange={onImageMetadataChange} />);
 
       const checkbox = screen.getAllByRole('checkbox')[1] as HTMLElement; // img-2 (未選択)
       checkbox.click();
