@@ -2529,7 +2529,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 36.1, 36.2, 36.4, 36.8, 35.7_
   - _Boundary: AnnotationEditor_
   - _Depends: 99.1, 99.2_
-- [ ] 101.2 (P) ImageViewer のフィット計算移行・再フィット・モバイル拡大許容
+- [x] 101.2 (P) ImageViewer のフィット計算移行・再フィット・モバイル拡大許容
   - 同様に原寸頭打ちフィット計算を `imageFitScale` へ置換、`allowUpscale=isMobile`、`useElementSize` で再フィット
   - 観測可能: 閲覧モードでコンテナ変化に再フィット、デスクトップ不変（テスト green）
   - _Requirements: 36.1, 36.2, 36.4, 36.8, 35.7_
