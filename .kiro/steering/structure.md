@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-06-30（Steering Sync: 現場調査の`gestures/`（canvasViewportController/touchGestureManager/gesture-thresholds）・`ZoomControls.tsx`・`useCanvasViewport`フック・`utils/image-compression.ts`を反映）_
+_最終更新: 2026-07-09（Steering Sync: `utils/imageFitScale.ts`・`hooks/useElementSize.ts`・`pages/SiteSurveyImageViewerPage.css`（`svh`二段宣言）を反映、hooks件数を実測値27に是正）_
+
+_2026-06-30（Steering Sync: 現場調査の`gestures/`（canvasViewportController/touchGestureManager/gesture-thresholds）・`ZoomControls.tsx`・`useCanvasViewport`フック・`utils/image-compression.ts`を反映）_
 
 _2026-04-08（Steering Sync: テストファイル数・Storybookカウント・contracts/コンポーネント追加を反映）_
 
@@ -477,7 +479,7 @@ frontend/
 │   │       ├── ImageViewer.tsx      # 画像ビューア（Fabric.js）
 │   │       ├── LazyImage.tsx        # 遅延読み込み画像
 │   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
-│   │       ├── AnnotationToolbar.tsx # 注釈ツールバー
+│   │       ├── AnnotationToolbar.tsx # 注釈ツールバー（モバイル幅は単段横スクロール（nowrap）で縦占有を抑制）
 │   │       ├── StylePanel.tsx       # スタイル設定パネル
 │   │       ├── PhotoManagementPanel.tsx # 写真管理パネル
 │   │       ├── AnnotatedImageThumbnail.tsx # 注釈付き画像サムネイル
@@ -614,6 +616,7 @@ frontend/
 │   │   ├── SiteSurveyCreatePage.tsx # 現場調査作成ページ
 │   │   ├── SiteSurveyEditPage.tsx # 現場調査編集ページ
 │   │   ├── SiteSurveyImageViewerPage.tsx # 画像ビューア/注釈エディタページ
+│   │   ├── SiteSurveyImageViewerPage.css # 表示領域高さ（`vh`→`svh`二段宣言でアドレスバー伸縮に追従。インラインstyleで表現不可のため併置）
 │   │   ├── QuantityTableListPage.tsx # 数量表一覧ページ
 │   │   ├── QuantityTableCreatePage.tsx # 数量表作成ページ
 │   │   ├── QuantityTableEditPage.tsx # 数量表編集ページ（クライアント側ドラフト編集・明示保存）
@@ -641,9 +644,11 @@ frontend/
 │   │   ├── OrderDetailPage.tsx # 発注詳細ページ
 │   │   └── ProgressInputPage.tsx # 出来高入力ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
-│   ├── utils/             # ユーティリティ関数（21ファイル）
+│   ├── utils/             # ユーティリティ関数（22ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   │   ├── image-compression.ts # 送信前の画像縮小・再エンコード（長辺2048px/JPEG0.85、非対応時は元ファイルへフォールバック）
+│   │   ├── imageFitScale.ts # 画像フィット倍率算出の純関数（computeFitScale、allowUpscale/maxUpscaleで原寸頭打ちを制御）
+│   │   ├── responsive.ts  # ブレークポイント・メディアクエリの単一情報源（BREAKPOINTS/MEDIA_QUERIES）
 │   │   ├── react.ts       # Reactカスタムフック（useDebounce、usePrevious等）
 │   │   ├── accessibility.ts # アクセシビリティユーティリティ
 │   │   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
@@ -786,7 +791,7 @@ frontend/src/
 │   ├── execution-budget.ts # 実行予算API
 │   ├── order-detail.ts # 発注詳細API
 │   └── progress.ts # 出来高API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useImportDataExtractor、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）等 29ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等 27ファイル）
 ├── services/          # サービス層（TokenRefreshManager.ts）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
 ├── utils/             # ユーティリティ関数

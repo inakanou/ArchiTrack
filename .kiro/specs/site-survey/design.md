@@ -5882,3 +5882,245 @@ sequenceDiagram
 **Rollback triggers**:
 - 拡大中の描画座標ずれが解消できない（RN3 が失敗）→ フェーズ1を「ズーム/パンのみ・描画はフィット時限定」へ縮退
 - `ImageViewer` 移行で閲覧モードに回帰が出る → フェーズ4を保留し編集モード単独適用に留める（二重実装は一時許容）
+
+## Requirements 35-36: スマートフォン表示崩れ是正（現場調査詳細のレスポンシブ・画像編集の表示領域最適化）
+
+### Overview
+
+**Purpose**: スマートフォン実機（狭幅ビューポート）で発生している「現場調査詳細画面（写真＋コメント）の水平はみ出し」と「画像編集（注釈エディタ）の作業領域が過小になる問題」を、既存のレスポンシブ基盤と実証済みフィット算術を活用して是正する。実ブラウザ（iPhone SE 相当 375×667）で `scrollWidth=565`（横190pxはみ出し）・編集 canvas 実寸 `100×100` を確認済み（`research.md` ギャップ分析）。
+
+**Users**: スマートフォンで現場調査の写真整理・コメント入力・注釈編集を行う現場担当者。デスクトップ利用者には現行挙動を維持。
+
+**Impact（既存前提の是正）**: 既存 Requirement 15（レスポンシブ）は「各画面サイズに対応」と規定するが、`PhotoManagementPanel.tsx`（写真列 320px 固定・`useMediaQuery` 未使用）と画像編集のフィット計算（`Math.min(..., 1)` 拡大頭打ち・`ResizeObserver` 不在・`svh` 未使用）が未達だった。本節はこのギャップを、既存 Requirement 10（写真一覧管理）・Requirement 33-34（編集モードのズーム/パン・`fit`）の挙動を維持したまま解消する。
+
+#### Goals
+- モバイル幅で現場調査詳細画面を縦積み化し、ページ水平スクロール（はみ出し）を発生させない
+- コメント入力欄等の入力系フォントを 16px 以上とし、フォーカス時の自動ズームを抑止する
+- 画像編集/閲覧の初期表示を利用可能領域にフィットさせ、小画像も原寸で頭打ちにせず拡大する
+- 画像作業領域の短辺を画面短辺の概ね 50% 以上確保し、ツールバーの縦占有を抑制する
+- 表示領域の高さを動的ビューポート（`svh`）基準とし、アドレスバー伸縮に追従する
+
+#### Non-Goals
+- デスクトップ幅レイアウトの変更（現行維持）
+- 注釈エディタのズーム/パン操作体系そのもの（Requirement 33-34 の `canvasViewportController` を維持・流用）
+- 新規タッチジェスチャーの追加、PDF報告書の出力レイアウト（Req 11）、カメラ直接撮影（Req 15.3）
+- 保存データ座標系の変更（フィット/ズームは表示専用、保存JSONは不変）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- `PhotoManagementPanel.tsx` / `SiteSurveyDetailPage.tsx` のモバイル幅レイアウト分岐（縦積み・写真幅可変・`metadataSection` の `minWidth:0`・入力欄 16px・操作要素 44px）
+- **画像→コンテナのフィット＝キャンバス寸法計算**（`AnnotationEditor.tsx:678` / `ImageViewer.tsx:1194` の `Math.min(..., 1)` → `setDimensions`）の一元化（新規 `imageFitScale.ts`）とモバイルでの拡大許容。これは `controller.fit()`（ズーム/パンのリセット）とは**別物**
+- 新規 `useElementSize`（`ResizeObserver` ラッパ）による、コンテナ実寸変化時の再フィット・トリガ
+- `SiteSurveyImageViewerPage.tsx` の表示領域高さの `svh` 基準化（`vh` フォールバック付き）
+- `AnnotationToolbar.tsx` のモバイル幅での縦占有抑制レイアウト（単段横スクロール等）
+- 画像編集画面のヘッダー/パンくずと作業領域の重なり解消
+
+#### Out of Boundary
+- バックエンド・Prisma スキーマ（DB変更なし）
+- 注釈ツール本体の描画ロジック（Req 6-8, 24-32）とズーム/パンの入力調停・座標変換（Req 33-34 の `touchGestureManager`/`canvasViewportController` が所有）
+- **ビューポートのズーム/パン適用**（`canvasViewportController` の `zoomToPoint`/`pan`/`fit`。`fit()`＝viewportを恒等変換 `[1,0,0,1,0,0]` に戻すズーム/パンのリセット, `canvasViewportController.ts:174`）は Req 33-34 が所有。本節は呼ぶのみで内部実装を変更しない。本節が所有するのは「フィット倍率の算出（`imageFitScale`）＝キャンバス寸法」「再フィットの発火（`useElementSize`）」「コンテナ高さ（`svh`）」
+- PDF/サムネイル/エクスポートのレンダリング（表示専用のため不変）
+
+#### Allowed Dependencies
+- 既存 `hooks/useMediaQuery.ts` と `utils/responsive.ts`（`MEDIA_QUERIES.isMobile = (max-width:767px)`）を流用
+- ブラウザ標準 `ResizeObserver`、CSS 動的ビューポート単位 `svh`（`vh` フォールバック）
+- 既存フィット算術（`AnnotationEditor.tsx:667-710` / `ImageViewer.tsx:1183-1202`）を `imageFitScale.ts` へ抽出して再利用
+- Req 33-34 の `canvasViewportController.fit()` / `useCanvasViewport`（存在時はそこへ再フィットを委譲）
+- 新規外部依存は**追加しない**（`tech.md`「追加外部依存なし」に整合）
+
+#### Revalidation Triggers
+- Requirement 10（写真一覧管理）/Requirement 15（レスポンシブ）/Requirement 33-34（ズーム/パン・fit）の挙動変更
+- `MEDIA_QUERIES.isMobile` のブレークポイント定義変更
+- フィットを表示専用から保存座標連動へ変更する場合（現設計は表示専用で不連動）
+- `svh` を廃し JS の `visualViewport` 計測へ切替える場合
+
+### 設計合成（Design Decisions）
+
+- **Generalization**: 「コンテナ実寸に追従した再フィット」と「フィット倍率算出」は編集(`AnnotationEditor`)・閲覧(`ImageViewer`)双方が必要とする同一能力。フィット算術を単一の `imageFitScale.ts`、寸法購読を単一の `useElementSize` に汎化し、両者が採用する（`research.md`: ResizeObserver 不在・同一 `Math.min(...,1)` の二重実装を解消）。
+- **Build vs Adopt**: レスポンシブ判定は既存 `useMediaQuery`/`MEDIA_QUERIES.isMobile` を**採用**（新規構築しない）。全画面高はプラットフォーム標準の CSS `svh` を**採用**（JS計測を作らない）。再フィット検知はブラウザ標準 `ResizeObserver` を薄くラップするのみ。
+- **Simplification**: 詳細画面はモバイル専用コンポーネントを新設せず（写真パネルの並替/保存/未保存管理の二重実装を避ける）、既存の spread 合成パターン（`{...styles.panelItem, ...(isMobile ? styles.panelItemMobile : {})}`）でインラインスタイルに分岐を足すだけにする。
+- **フィット上限の是正（重要決定）**: 現行 `Math.min(maxW/imgW, maxH/imgH, 1)` の `1`（原寸頭打ち）を、`imageFitScale.ts` の `allowUpscale`/`maxUpscale` 引数で制御する。モバイルでは `allowUpscale=true` としフィット倍率まで拡大（小画像も過小表示にしない, Req 36.2）。デスクトップ既定は現行（`allowUpscale=false`）を維持し回帰させない。
+- **fitの二重性の分離（重要・Issue 1 対応）**: 「画像→コンテナのフィット」＝**キャンバス寸法計算**（`imageFitScale`→`canvas.setDimensions`。`AnnotationEditor.tsx:678`/`ImageViewer.tsx:1194` を改修, 本節所有）と、`controller.fit()`＝**viewportを恒等変換に戻すズーム/パンのリセット**（`canvasViewportController.ts:174`, Req 33-34 所有）は別物。実装は両者を混同せず、再フィット時はまず `setDimensions` でキャンバス寸法を更新し、**等倍/初期化時のみ** `controller.fit()` を呼ぶ。
+- **座標系の分離**: フィット/再フィットは表示（canvas 寸法・`viewportTransform`）のみに作用し、注釈の保存座標は不変（Req 9 後方互換）。再フィット時は Req 33-34 の現在ズーム/パン状態を保持する（等倍時のみ再適用し、ユーザーがズーム中は表示を壊さない）。ズーム中か否かは `controller.getState()`/`getZoom()`（`canvasViewportController.ts:61,102`）で判定する。
+
+### Architecture
+
+#### Architecture Integration
+
+```mermaid
+graph TB
+    subgraph Pages
+        DetailPage
+        ImageViewerPage
+    end
+    subgraph SiteSurveyComponents
+        PhotoManagementPanel
+        AnnotationEditor
+        ImageViewer
+        AnnotationToolbar
+    end
+    subgraph SharedResponsive
+        useMediaQuery
+        useElementSize
+        imageFitScale
+    end
+    subgraph ViewportReq33
+        canvasViewportController
+    end
+    DetailPage --> PhotoManagementPanel
+    PhotoManagementPanel --> useMediaQuery
+    ImageViewerPage --> AnnotationEditor
+    AnnotationEditor --> useElementSize
+    AnnotationEditor --> imageFitScale
+    AnnotationEditor --> canvasViewportController
+    ImageViewer --> useElementSize
+    ImageViewer --> imageFitScale
+    AnnotationEditor --> AnnotationToolbar
+    AnnotationToolbar --> useMediaQuery
+```
+
+**Integration**:
+- Dependency direction: `utils/hooks（imageFitScale, useElementSize, useMediaQuery）→ components（PhotoManagementPanel, AnnotationEditor, ImageViewer, AnnotationToolbar）→ pages（DetailPage, ImageViewerPage）`。逆向き依存は禁止。
+- `imageFitScale` は純関数（React 非依存・単体テスト容易）。`useElementSize` は `ResizeObserver` を購読し実寸を返すのみで、フィット適用は呼び出し側（コンポーネント／`canvasViewportController.fit`）が行う。
+- Steering compliance: TypeScript strict（`any` 禁止）、`hooks/useXxx.ts` / `utils/*.ts` の既存配置規約に従う。
+
+#### Technology Stack（新規依存なし）
+
+| Layer | Choice | Role |
+|-------|--------|------|
+| レスポンシブ判定 | 既存 `useMediaQuery` + `MEDIA_QUERIES.isMobile` | 幅768px未満の分岐 |
+| 実寸監視 | ブラウザ標準 `ResizeObserver`（`useElementSize` でラップ） | コンテナ寸法変化→再フィット |
+| フィット算術 | 新規 `imageFitScale.ts`（純関数） | フィット倍率算出・モバイル拡大許容 |
+| 全画面高 | CSS `svh`（`vh` フォールバック） | アドレスバー伸縮追従 |
+| レイアウト | React 19 + inline style spread 分岐 / flexbox | 縦積み・単段ツールバー・16px・44px |
+
+### File Structure Plan
+
+```
+frontend/src/utils/
+├── imageFitScale.ts                   # 新規: computeFitScale(純関数)。フィット倍率算出＋allowUpscale/maxUpscale
+└── responsive.ts                      # 参照のみ（MEDIA_QUERIES.isMobile を流用、変更なし）
+
+frontend/src/hooks/
+├── useElementSize.ts                  # 新規: ResizeObserver で要素実寸{width,height}を購読
+└── useMediaQuery.ts                   # 参照のみ（変更なし）
+
+frontend/src/components/site-surveys/
+├── PhotoManagementPanel.tsx           # 変更: useMediaQuery導入、panelItem→縦積み(column)、imageSection width100%、
+│                                       #        metadataSection minWidth:0、textarea等 fontSize16px、操作要素44px
+├── AnnotationEditor.tsx               # 変更: fit計算を imageFitScale へ置換(モバイルallowUpscale=true)、
+│                                       #        useElementSizeで再フィット、現在ズーム保持(等倍時のみfit再適用)
+├── ImageViewer.tsx                    # 変更: 同上(fit計算 imageFitScale化・再フィット)
+└── AnnotationToolbar.tsx              # 変更: モバイル幅で flexWrap:nowrap+overflowX:auto の単段化(縦占有抑制)
+
+frontend/src/pages/
+├── SiteSurveyDetailPage.tsx           # 変更: モバイル幅のpadding/幅調整(内側320px固定の支配を解消)
+└── SiteSurveyImageViewerPage.tsx      # 変更: editorContainer高さを Tailwind supports-[height:100svh]: バリアント
+                                       #        (h-[calc(100vh-Xpx)]+svhフォールバック。インラインstyleの単一heightは不可)へ、
+                                       #        minHeight のモバイル調整、breadcrumb重なり(sticky/z-index)解消
+
+frontend/src/__tests__/
+├── utils/imageFitScale.test.ts        # 新規: フィット倍率・allowUpscale・maxUpscale・padding
+├── hooks/useElementSize.test.ts       # 新規: ResizeObserver購読で寸法更新
+└── site-surveys/PhotoManagementPanel.mobile.test.tsx # 新規: モバイルで縦積み・16px・44px
+
+e2e/specs/site-surveys/
+├── site-survey-responsive.spec.ts     # 変更: 詳細画面(375)で横はみ出し無し・入力16px・操作44px を追加
+└── site-survey-annotation-mobile.spec.ts # 変更: 編集で作業領域短辺≥画面短辺50%・横はみ出し無し・
+                                          #        ヘッダー非重畳・svh追従 を追加
+```
+
+### System Flows
+
+#### 再フィットフロー（Req 36.1-36.4）
+
+```mermaid
+sequenceDiagram
+    participant Page as ImageViewerPage
+    participant Cmp as AnnotationEditor
+    participant Sz as useElementSize
+    participant Fit as imageFitScale
+    participant Ctl as canvasViewportController
+    Page->>Cmp: svh基準のコンテナ高さを付与
+    Sz-->>Cmp: コンテナ実寸{w,h}（初期・resize時）
+    Cmp->>Fit: computeFitScale(imgW,imgH,w,h,padding,allowUpscale=isMobile)
+    Fit-->>Cmp: fitScale
+    Cmp->>Cmp: canvas.setDimensions で fitScale 基準にキャンバス寸法を更新
+    alt 等倍表示中 または 初期化
+        Cmp->>Ctl: controller.fit で viewport を恒等へリセット
+    else ユーザーがズーム中
+        Cmp->>Cmp: 現在ズーム/パンを保持（再フィットしない, Req 33.7整合）
+    end
+```
+
+**Key decisions**:
+- **2種の「fit」を分離**（Issue 1）: (1) `imageFitScale`→`canvas.setDimensions` によるキャンバス寸法フィット（本節所有）を毎回実行、(2) `controller.fit()`（ズーム/パンの恒等リセット, Req 33-34 所有）は等倍/初期化時のみ呼ぶ。
+- `useElementSize` はコンテナ（`svh` で高さが変わる要素）の実寸を購読し、アドレスバー伸縮・回転・レイアウト変化で発火。現状の「画像ロード/回転時のみ再計算」（`research.md`: resize は `calcOffset` のみ）を解消。
+- 再フィットは**等倍表示中または初期化時のみ** `controller.fit()` を適用し、ユーザーがズーム/パン中は表示状態を保持する（`controller.getState()` で判定, Req 33-34 との非干渉）。
+- `svh` は**インラインstyleではなく Tailwind の `supports-[height:100svh]:` バリアント（または CSSクラスの二段宣言 `height: calc(100vh - Xpx); height: calc(100svh - Xpx);`）**で提供し、非対応ブラウザは `vh` にフォールバックする（インラインJSオブジェクトは同一プロパティ二重指定＝フォールバックを表現できないため, Issue 2）。
+
+#### 詳細画面レイアウト分岐（Req 35.1-35.5）
+
+```mermaid
+graph LR
+    Panel[PhotoManagementPanel] --> Q{isMobile}
+    Q -->|Yes| M[縦積み column: 写真100%幅 → コメント minWidth0 → 操作44px, 入力16px]
+    Q -->|No| D[現行 横並び row: 写真320px固定]
+```
+
+**Key decisions**:
+- 既存の条件スタイル合成パターン（`AnnotationEditor`/`PhotoManagementPanel` の spread 合成）に `isMobile` 分岐を足すのみ。`imageSection` は `flexShrink:0, width:320px` を `width:100%` へ、`metadataSection` に `minWidth:0` を付与して水平はみ出し（Req 35.2）を解消。
+- `textarea` 他入力系は `fontSize` を 14→16px 以上（Req 35.4）。チェックボックス/並替/削除ボタンのタップ領域を 44px 以上（Req 35.5）。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 35.1, 35.3 | モバイル縦積み・写真幅可変 | PhotoManagementPanel | useMediaQuery | 詳細レイアウト分岐 |
+| 35.2 | 詳細画面 水平はみ出し不発生 | PhotoManagementPanel, SiteSurveyDetailPage | - | 詳細レイアウト分岐 |
+| 35.4 | 入力欄16px以上 | PhotoManagementPanel | - | - |
+| 35.5 | 操作要素44px | PhotoManagementPanel | - | - |
+| 35.6, 35.7 | 既存挙動・DT幅維持 | PhotoManagementPanel | - | - |
+| 36.1 | 初期フィット表示 | AnnotationEditor, ImageViewer, imageFitScale | computeFitScale | 再フィットフロー |
+| 36.2 | 小画像も拡大 | imageFitScale | computeFitScale allowUpscale | 再フィットフロー |
+| 36.3 | 作業領域短辺≥画面短辺50% | AnnotationToolbar, SiteSurveyImageViewerPage | - | - |
+| 36.4 | 高さ動的VP追従 | SiteSurveyImageViewerPage, useElementSize | ResizeObserver | 再フィットフロー |
+| 36.5 | ツールバー占有抑制 | AnnotationToolbar | useMediaQuery | - |
+| 36.6 | 編集 水平はみ出し不発生 | AnnotationEditor, SiteSurveyImageViewerPage | - | - |
+| 36.7 | ヘッダー/パンくず非重畳 | SiteSurveyImageViewerPage | - | - |
+| 36.8 | Req 33-34 挙動維持 | AnnotationEditor, canvasViewportController | fit/getState | 再フィットフロー |
+
+### Testing Strategy
+
+#### Unit Tests
+- `imageFitScale`: フィット倍率（幅/高さ律速の切替）、`allowUpscale=false` で原寸頭打ち（デスクトップ現行維持）、`allowUpscale=true` でフィット倍率まで拡大、`padding`/`maxUpscale` 反映（Req 36.1/36.2）
+- `useElementSize`: `ResizeObserver` 発火で `{width,height}` が更新される（Req 36.4）
+
+#### Component Tests
+- `PhotoManagementPanel`（モバイル）: `panelItem` が縦積み（column）、`imageSection` が可変幅、入力欄 `fontSize>=16px`、操作要素の実寸 `>=44px`（Req 35.1/35.3/35.4/35.5）
+- `AnnotationToolbar`（モバイル）: 単段（`flexWrap:nowrap`）で高さが多段化しない（Req 36.5）
+
+#### E2E Tests（モバイルViewport・`site-survey-responsive.spec.ts` / `site-survey-annotation-mobile.spec.ts`）
+要件はE2Eで動作確認するまで完了としない方針に従い、以下を必須カバレッジとする:
+- 現場調査詳細（375幅）で `document.documentElement.scrollWidth <= window.innerWidth`（横はみ出し無し, Req 35.2）
+- コメント入力欄の computed `font-size >= 16px`（Req 35.4）、操作要素の boundingBox が 44px 以上（Req 35.5）
+- 画像編集（375幅）で作業領域の短辺が画面短辺の概ね50%以上（Req 36.3）、初期表示が過小でない（Req 36.1/36.2）
+- 画像編集（375幅）で**ツールバー除外後の画像作業領域の高さ**が編集ビュー高の一定割合以上であること（Issue 3 補強・Req 36.3/36.5 の実効確認。短辺基準だけでは縦圧迫を見逃すため、縦方向の可視作業高も測定する）
+- 画像編集でページ水平はみ出し無し（Req 36.6）、ヘッダー/パンくずが作業領域と重ならない（Req 36.7）
+- ズーム/パン・ダブルタップ等 Req 33-34 の既存E2Eが引き続き成功（Req 36.8 回帰確認）
+
+> テスト構成は前提条件でテストを自動無効化しない（満たさない場合は失敗させる）。Playwright に mobile プロジェクトは未定義のため、既存慣習（`newContext({viewport})` / `setViewportSize`）を踏襲する（`research.md` RN-d）。
+
+### Migration Strategy
+
+- DBマイグレーション**不要**（保存形式・座標系ともに不変）。
+- 段階導入（`research.md` 35=Option A / 36=Option C）:
+  - **フェーズ1（Req 35, 低リスク）**: `PhotoManagementPanel`/`SiteSurveyDetailPage` のモバイル分岐＋入力16px＋44px。E2Eで横はみ出し解消を担保。
+  - **フェーズ2（Req 36 基盤）**: `imageFitScale.ts`/`useElementSize.ts` 抽出、`AnnotationEditor`/`ImageViewer` を移行（デスクトップは `allowUpscale=false` で現行維持）。
+  - **フェーズ3（Req 36 モバイル最適化）**: モバイル `allowUpscale=true`、`svh` 高さ、`AnnotationToolbar` 単段化、ヘッダー重なり解消。作業領域短辺≥50%をE2Eで検証。
+
+**Rollback triggers**:
+- 再フィットが Req 33-34 のズーム/パンに回帰を生む → 再フィットを「初期化時のみ」に縮退（resize追従を一時停止）。
+- `svh` 採用でレイアウト不整合 → 当該コンテナを `vh` フォールバックのみへ戻す。
+- モバイル `allowUpscale` で画質/ぼやけが問題化 → `maxUpscale` 上限を厳格化、または等倍上限へ一時復帰。

@@ -1,0 +1,43 @@
+/**
+ * 現場調査画像ビューア/エディタページ 表示領域高さスタイル
+ *
+ * @requirement site-survey/REQ-36.4
+ * @requirement site-survey/REQ-36.7
+ *
+ * 表示領域の高さをモバイルブラウザのアドレスバー等の可変UIに追従させるため、
+ * 動的ビューポート単位 `svh` を基準にする。`svh` 非対応ブラウザ向けに `vh` を
+ * 先に宣言し、対応ブラウザは後続の `svh` 宣言で上書きする「二段宣言」でフォールバックする。
+ * （インラインstyleオブジェクトは同一プロパティを二重指定できず、このフォールバックを
+ *   表現できないため、CSSクラスで提供する。）
+ */
+
+/* ページ全体のコンテナ高さ（アドレスバー伸縮に追従。svh 対応ブラウザで実可視高に一致） */
+.survey-image-viewer {
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+/* 編集/閲覧の表示領域高さ（ツールバー等を除いた作業領域を含むコンテナ） */
+.survey-image-viewer__editor {
+  height: calc(100vh - 200px);
+  height: calc(100svh - 200px);
+  min-height: 500px;
+}
+
+/* モバイル幅（MEDIA_QUERIES.isMobile = (max-width: 767px) と一致） */
+@media (max-width: 767px) {
+  .survey-image-viewer__editor {
+    /* オフセット 220px の内訳（REQ-36.7: sticky なアプリヘッダーが作業領域へ重畳しないよう
+       ページ全体を実可視高に収め、縦スクロールを発生させない）:
+         - sticky アプリヘッダー(.app-header モバイル高): 56px
+         - コンテナ上下 padding: 24 + 24 = 48px
+         - パンくずブロック（内容＋marginBottom16）: 約 40px
+         - タイトル/ボタン行（高さ＋marginBottom24）: 約 60px
+         合計 約 204px を安全側に丸めて 220px を予約（デスクトップ 200px より大きく取る）。
+       デスクトップの 500px 固定は短い可視高で画面を超過するため撤廃し、
+       過小な潰れを防ぐ最小限のフロア(200px)のみを残す。 */
+    height: calc(100vh - 220px);
+    height: calc(100svh - 220px);
+    min-height: 200px;
+  }
+}

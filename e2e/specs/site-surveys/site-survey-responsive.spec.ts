@@ -14,7 +14,7 @@
  * - REQ-15.10: クロスブラウザ対応のlocalStorageエラー検出
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import path from 'path';
@@ -711,6 +711,253 @@ test.describe('現場調査レスポンシブ対応', () => {
       expect(crossBrowserErrorDetection.detectsFirefox).toBeTruthy();
       expect(crossBrowserErrorDetection.detectsSafari).toBeTruthy();
       expect(crossBrowserErrorDetection.detectsEdge).toBeTruthy();
+    });
+  });
+
+  /**
+   * Requirement 35: 現場調査詳細画面のスマートフォン表示最適化
+   * （Requirement 10 の写真一覧管理: 未保存状態管理・一括保存・離脱警告の挙動維持を含む）
+   * @requirement site-survey/REQ-35.1
+   * @requirement site-survey/REQ-35.2
+   * @requirement site-survey/REQ-35.3
+   * @requirement site-survey/REQ-35.4
+   * @requirement site-survey/REQ-35.5
+   * @requirement site-survey/REQ-35.6
+   * @requirement site-survey/REQ-35.7
+   */
+  test.describe('現場調査詳細のスマホ表示・機能回帰', () => {
+    const MOBILE = { width: 375, height: 667 } as const;
+    const DESKTOP = { width: 1920, height: 1080 } as const;
+
+    test('モバイル幅で詳細画面が横あふれせず写真が縦積み・可変幅で表示される (site-survey/REQ-35.1) (site-survey/REQ-35.2) (site-survey/REQ-35.3)', async ({
+      page,
+    }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.setViewportSize(MOBILE);
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      const panelItem = page.locator('[data-testid="photo-panel-item"]').first();
+      await expect(panelItem).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-35.1: 写真アイテムが縦積み（flex-direction: column）で表示される
+      const flexDirection = await panelItem.evaluate((el) => getComputedStyle(el).flexDirection);
+      expect(flexDirection).toBe('column');
+
+      // REQ-35.3: 写真セクションが固定320px列ではなくコンテナ幅に追従し、画面幅に収まる
+      const sizes = await panelItem.evaluate((el) => {
+        const imageSection = el.querySelector('[data-testid="photo-image-button"]')
+          ?.parentElement as HTMLElement | null;
+        const cs = getComputedStyle(el);
+        const contentWidth =
+          el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        return {
+          imageWidth: imageSection ? imageSection.getBoundingClientRect().width : 0,
+          contentWidth,
+        };
+      });
+      expect(sizes.imageWidth).toBeGreaterThan(0);
+      // 画面幅に収まる（見切れ・はみ出し無し）
+      expect(sizes.imageWidth).toBeLessThanOrEqual(MOBILE.width);
+      // 固定320pxではなくコンテナ幅に追従する（差はごくわずか）
+      expect(Math.abs(sizes.imageWidth - sizes.contentWidth)).toBeLessThanOrEqual(12);
+
+      // REQ-35.2: ページ全体で水平スクロール（はみ出し）が発生しない
+      const overflow = await page.evaluate(() => {
+        const innerWidth = window.innerWidth;
+        const scrollWidth = document.documentElement.scrollWidth;
+        const offenders: { tag: string; testid: string; cls: string; right: number; w: number }[] =
+          [];
+        document.querySelectorAll('*').forEach((node) => {
+          const el = node as HTMLElement;
+          const rect = el.getBoundingClientRect();
+          if (rect.right > innerWidth + 1) {
+            offenders.push({
+              tag: el.tagName.toLowerCase(),
+              testid: el.getAttribute('data-testid') ?? '',
+              cls: (el.className || '').toString().slice(0, 40),
+              right: Math.round(rect.right),
+              w: Math.round(rect.width),
+            });
+          }
+        });
+        offenders.sort((a, b) => b.right - a.right);
+        return { innerWidth, scrollWidth, offenders: offenders.slice(0, 8) };
+      });
+      expect(
+        overflow.scrollWidth <= overflow.innerWidth,
+        `水平スクロールが発生: scrollWidth=${overflow.scrollWidth} innerWidth=${overflow.innerWidth} offenders=${JSON.stringify(overflow.offenders)}`
+      ).toBe(true);
+    });
+
+    test('モバイル幅でコメント入力欄のフォントサイズが16px以上である (site-survey/REQ-35.4)', async ({
+      page,
+    }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.setViewportSize(MOBILE);
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      const textarea = page
+        .locator('[data-testid="photo-panel-item"]')
+        .first()
+        .getByPlaceholder('コメントを入力...');
+      await expect(textarea).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-35.4: フォーカス時の自動ズームを回避するため computed font-size が16px以上
+      const fontSize = await textarea.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(fontSize).toBeGreaterThanOrEqual(16);
+    });
+
+    test('モバイル幅で操作系コントロールのタップ領域が44px以上である (site-survey/REQ-35.5)', async ({
+      page,
+    }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+
+      // 削除ボタンは削除権限（canDelete = isAdmin）を持つユーザーのみに描画されるため、
+      // 全ての操作系コントロール（チェックボックス・並び替え・削除）を確実に評価できる
+      // ADMIN_USER でログインする（REGULAR_USER では削除ボタンが描画されない）
+      await loginAsUser(page, 'ADMIN_USER');
+      await page.setViewportSize(MOBILE);
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      const panelItem = page.locator('[data-testid="photo-panel-item"]').first();
+      await expect(panelItem).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-35.5: 各操作要素のタップ領域が最小44x44論理ピクセル以上
+      const assertTapTarget = async (locator: Locator, name: string): Promise<void> => {
+        const box = await locator.boundingBox();
+        expect(box, `${name}のboundingBoxが取得できること`).not.toBeNull();
+        expect(box!.width, `${name}の幅が44px以上であること`).toBeGreaterThanOrEqual(44);
+        expect(box!.height, `${name}の高さが44px以上であること`).toBeGreaterThanOrEqual(44);
+      };
+
+      await assertTapTarget(
+        panelItem.getByLabel('報告書に含める'),
+        '報告書出力フラグのチェックボックス'
+      );
+      await assertTapTarget(panelItem.getByRole('button', { name: '上へ移動' }), '上へ移動ボタン');
+      await assertTapTarget(panelItem.getByRole('button', { name: '下へ移動' }), '下へ移動ボタン');
+      await assertTapTarget(panelItem.getByRole('button', { name: /画像を削除:/ }), '削除ボタン');
+    });
+
+    test('モバイル幅でコメント編集→未保存表示→一括保存→永続化と離脱警告が維持される (site-survey/REQ-35.6)', async ({
+      page,
+    }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.setViewportSize(MOBILE);
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      const panelItem = page.locator('[data-testid="photo-panel-item"]').first();
+      await expect(panelItem).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 未保存変更が無い状態では離脱警告（beforeunload の既定動作抑止）が発火しない
+      const warnBeforeEdit = await page.evaluate(() => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(warnBeforeEdit).toBe(false);
+
+      // コメント編集（blur で未保存状態を即時確定）
+      const uniqueComment = `モバイル回帰コメント_${Date.now()}`;
+      const textarea = panelItem.getByPlaceholder('コメントを入力...');
+      await textarea.click();
+      await textarea.fill(uniqueComment);
+      await textarea.blur();
+
+      // REQ-10.4: 入力により未保存状態になり、未保存インジケーターが表示される
+      await expect(page.getByTestId('dirty-indicator')).toBeVisible({ timeout: getTimeout(5000) });
+
+      // REQ-10.10: 未保存変更がある間はページ離脱で警告（beforeunload が既定動作を抑止）
+      const warnWhileDirty = await page.evaluate(() => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(warnWhileDirty).toBe(true);
+
+      // REQ-10.9: 一括保存（PATCH /api/site-surveys/images/batch）
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/images/batch') &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(30000) }
+      );
+      const saveButton = page.getByRole('button', { name: /^保存$/ });
+      await expect(saveButton).toBeEnabled();
+      await saveButton.click();
+      const saveResponse = await savePromise;
+      expect([200, 204]).toContain(saveResponse.status());
+
+      // 保存完了後は未保存インジケーターが消える
+      await expect(page.getByTestId('dirty-indicator')).not.toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 保存後は離脱警告が解除される
+      const warnAfterSave = await page.evaluate(() => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(warnAfterSave).toBe(false);
+
+      // リロード後も入力値が永続化されている
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      const reloadedTextarea = page
+        .locator('[data-testid="photo-panel-item"]')
+        .first()
+        .getByPlaceholder('コメントを入力...');
+      await expect(reloadedTextarea).toHaveValue(uniqueComment, { timeout: getTimeout(10000) });
+    });
+
+    test('デスクトップ幅では詳細画面の横並びレイアウトが維持される (site-survey/REQ-35.7)', async ({
+      page,
+    }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.setViewportSize(DESKTOP);
+
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      const panelItem = page.locator('[data-testid="photo-panel-item"]').first();
+      await expect(panelItem).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-35.7: デスクトップ幅では従来どおり横並び（flex-direction: row）を維持
+      const flexDirection = await panelItem.evaluate((el) => getComputedStyle(el).flexDirection);
+      expect(flexDirection).toBe('row');
+
+      // デスクトップ幅でも水平スクロール（はみ出し）は発生しない
+      const noHorizontalOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      );
+      expect(noHorizontalOverflow).toBe(true);
     });
   });
 

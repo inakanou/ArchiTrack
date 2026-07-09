@@ -10,11 +10,18 @@
  * - 5.3: 画像の回転
  * - 5.4: パン操作（表示領域移動）
  * - 5.6: 表示状態を注釈編集モードと共有
+ *
+ * @requirement site-survey/REQ-36.4
+ * @requirement site-survey/REQ-36.6
+ * @requirement site-survey/REQ-36.7
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
+import useMediaQuery from '../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../utils/responsive';
 import { getSiteSurvey } from '../api/site-surveys';
+import './SiteSurveyImageViewerPage.css';
 import { ApiError } from '../api/client';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
@@ -30,7 +37,7 @@ const styles = {
     maxWidth: '1400px',
     margin: '0 auto',
     padding: '24px 16px',
-    minHeight: '100vh',
+    // minHeight は svh 二段宣言のため CSS クラス .survey-image-viewer へ移設（REQ-36.4）
     backgroundColor: '#f9fafb',
   } as React.CSSProperties,
   breadcrumbContainer: {
@@ -47,12 +54,32 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: '24px',
+    // 長いタイトルとボタンが同一行に共存できるよう、行の折返しは禁じつつ
+    // 子（タイトル側）を縮小させて水平はみ出しを防ぐ（REQ-36.6）
+    gap: '12px',
+  } as React.CSSProperties,
+  // タイトルラッパ: flex 行内で縮小可能にする。min-width:0 が無いと flex アイテムの
+  // 既定 min-width:auto によりコンテンツ幅未満に縮まず、長いファイル名がボタンを
+  // ビューポート外へ押し出して水平 overflow を招く（REQ-36.6）
+  titleContainer: {
+    flex: '1 1 auto',
+    minWidth: 0,
   } as React.CSSProperties,
   title: {
     fontSize: '1.5rem',
     fontWeight: 600,
     color: '#111827',
     margin: 0,
+    // ラッパと同様に flex コンテキストで縮小できるようにする（REQ-36.6）
+    minWidth: 0,
+  } as React.CSSProperties,
+  // モバイル幅: 単一行 + 省略記号で頭打ちにする。折返し（overflow-wrap）だと
+  // 長いファイル名でヘッダー行が縦に伸び、sticky なアプリヘッダーが作業領域へ
+  // 重畳する余地を生むため、省略記号で高さを一定に保つ（REQ-36.7）
+  titleMobile: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   } as React.CSSProperties,
   imageContainer: {
     backgroundColor: '#ffffff',
@@ -130,6 +157,9 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '8px',
+    // ボタンは潰さずタイトル側を優先的に縮小させる（REQ-36.6）
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
   } as React.CSSProperties,
   editButtonActive: {
     backgroundColor: '#16a34a',
@@ -139,8 +169,8 @@ const styles = {
     borderRadius: '8px',
     boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
     overflow: 'hidden',
-    height: 'calc(100vh - 200px)',
-    minHeight: '500px',
+    // height/minHeight は svh 二段宣言のため CSS クラス .survey-image-viewer__editor へ移設（REQ-36.4）
+    // インラインstyleはCSSクラスを上書きするため、ここに height/minHeight を残してはならない
   } as React.CSSProperties,
 };
 
@@ -156,6 +186,9 @@ const styles = {
  */
 export default function SiteSurveyImageViewerPage() {
   const { id, imageId } = useParams<{ id: string; imageId: string }>();
+  // モバイル幅判定（MEDIA_QUERIES.isMobile = (max-width: 767px)）
+  // 早期 return より前で無条件に呼び、Hooks の呼び出し順序を安定させる（REQ-36.7）
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   // データ状態
   const [survey, setSurvey] = useState<SiteSurveyDetail | null>(null);
   const [image, setImage] = useState<SurveyImageInfo | null>(null);
@@ -228,7 +261,7 @@ export default function SiteSurveyImageViewerPage() {
   // 存在しないリソースの表示
   if (isNotFound) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" className="survey-image-viewer" style={styles.container}>
         <ResourceNotFound
           resourceType="画像"
           returnPath={id ? `/site-surveys/${id}` : '/projects'}
@@ -241,7 +274,7 @@ export default function SiteSurveyImageViewerPage() {
   // ローディング表示
   if (isLoading) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" className="survey-image-viewer" style={styles.container}>
         <div style={styles.loadingContainer}>
           <div role="status" style={styles.loadingSpinner} />
           <p>読み込み中...</p>
@@ -261,7 +294,7 @@ export default function SiteSurveyImageViewerPage() {
   // エラー表示
   if (error && !survey) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" className="survey-image-viewer" style={styles.container}>
         <div role="alert" style={styles.errorContainer}>
           <p style={styles.errorText}>{error}</p>
           <button type="button" onClick={fetchData} style={styles.retryButton}>
@@ -287,7 +320,7 @@ export default function SiteSurveyImageViewerPage() {
   );
 
   return (
-    <main role="main" style={styles.container}>
+    <main role="main" className="survey-image-viewer" style={styles.container}>
       {/* パンくずナビゲーション */}
       <div style={styles.breadcrumbContainer}>
         <Breadcrumb items={breadcrumbItems} />
@@ -295,8 +328,10 @@ export default function SiteSurveyImageViewerPage() {
 
       {/* ヘッダー */}
       <div style={styles.header}>
-        <div>
-          <h1 style={styles.title}>{image.fileName || '画像'}</h1>
+        <div style={styles.titleContainer}>
+          <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>
+            {image.fileName || '画像'}
+          </h1>
         </div>
         <button
           type="button"
@@ -313,7 +348,7 @@ export default function SiteSurveyImageViewerPage() {
 
       {/* 画像表示 / 注釈エディタ（REQ-9.2: 閲覧モードでも注釈を表示） */}
       {image.originalUrl ? (
-        <div style={styles.editorContainer}>
+        <div className="survey-image-viewer__editor" style={styles.editorContainer}>
           <AnnotationEditor
             imageUrl={image.originalUrl}
             imageId={image.id}

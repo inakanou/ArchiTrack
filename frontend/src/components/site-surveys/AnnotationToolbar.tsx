@@ -17,9 +17,13 @@
  * @requirement site-survey/REQ-28.4
  * @requirement site-survey/REQ-28.5
  * @requirement site-survey/REQ-28.6
+ * @requirement site-survey/REQ-36.3
+ * @requirement site-survey/REQ-36.5
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
 import {
   type ToolType,
   type ToolDefinition,
@@ -90,6 +94,12 @@ const STYLES = {
     // 誤発火しないよう、明示的なポインタ境界を確立する
     pointerEvents: 'auto' as const,
   },
+  // Req 36.3 / 36.5: モバイル幅ではツールバーを単段化し、縦方向の占有を抑えて
+  // 画像作業領域の縦高を確保する。折返し（wrap）による多段化を止め、
+  // 既存の overflowX: 'auto' による横スクロールで全項目へ到達させる。
+  toolbarMobile: {
+    flexWrap: 'nowrap' as const,
+  },
   separator: {
     width: '1px',
     height: '32px',
@@ -105,6 +115,12 @@ const STYLES = {
     backgroundColor: '#f9fafb',
     borderRadius: '6px',
     marginLeft: '8px',
+  },
+  // Req 36.5: 単段（nowrap）では flex アイテムが既定で縮む（flex-shrink:1）。
+  // スタイルパネルは最小幅の floor を持たないため潰れてしまう。潰さずに
+  // 横スクロールへあふれさせるため flexShrink: 0 を付与する。
+  stylePanelMobile: {
+    flexShrink: 0,
   },
   styleItem: {
     display: 'flex',
@@ -165,6 +181,13 @@ const STYLES = {
     gap: '8px',
     marginLeft: 'auto',
     paddingLeft: '16px',
+  },
+  // Req 36.5: 単段（nowrap）横スクロール前提では、末尾要素の marginLeft:'auto' は
+  // 余白の押し出しが不定になり、かつ最小幅の floor を持たないため潰れる。
+  // marginLeft を解除しつつ flexShrink: 0 で潰さず横スクロールへあふれさせる。
+  actionButtonsContainerMobile: {
+    flexShrink: 0,
+    marginLeft: 0,
   },
   actionIcon: {
     width: '16px',
@@ -284,6 +307,8 @@ interface StylePanelProps {
   styleOptions: StyleOptions;
   onStyleChange: (options: Partial<StyleOptions>) => void;
   disabled: boolean;
+  /** モバイル幅か（単段化時の flexShrink 抑止に使用, Req 36.5） */
+  isMobile: boolean;
 }
 
 function StylePanel({
@@ -291,6 +316,7 @@ function StylePanel({
   styleOptions,
   onStyleChange,
   disabled,
+  isMobile,
 }: StylePanelProps): React.JSX.Element | null {
   // スタイル変更ハンドラ（Hooksは条件分岐の前に呼び出す必要がある）
   const handleStrokeColorChange = useCallback(
@@ -331,7 +357,10 @@ function StylePanel({
       <div style={STYLES.separator} />
 
       {/* スタイルパネル */}
-      <div style={STYLES.stylePanel} data-testid="style-options">
+      <div
+        style={{ ...STYLES.stylePanel, ...(isMobile ? STYLES.stylePanelMobile : {}) }}
+        data-testid="style-options"
+      >
         {/* 線の色 */}
         {showLineOptions && (
           <div style={STYLES.styleItem}>
@@ -457,6 +486,13 @@ function AnnotationToolbar({
     typeof window !== 'undefined' ? window.innerWidth : 0
   );
 
+  /**
+   * Req 36.3 / 36.5: モバイル幅判定。
+   * モバイル幅ではツールバーを単段（nowrap）横スクロールに切替え、
+   * 縦方向の占有を抑えて画像作業領域の縦高を確保する。
+   */
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -504,7 +540,7 @@ function AnnotationToolbar({
       data-testid="annotation-toolbar"
       role="toolbar"
       aria-label="注釈ツール"
-      style={STYLES.toolbar}
+      style={{ ...STYLES.toolbar, ...(isMobile ? STYLES.toolbarMobile : {}) }}
     >
       {TOOL_ORDER.map((toolId) => {
         const tool = TOOL_DEFINITIONS[toolId];
@@ -527,10 +563,17 @@ function AnnotationToolbar({
         styleOptions={styleOptions}
         onStyleChange={handleStyleChange}
         disabled={disabled}
+        isMobile={isMobile}
       />
 
       {/* アクションボタン */}
-      <div style={STYLES.actionButtonsContainer}>
+      <div
+        data-testid="action-buttons-container"
+        style={{
+          ...STYLES.actionButtonsContainer,
+          ...(isMobile ? STYLES.actionButtonsContainerMobile : {}),
+        }}
+      >
         {/* 回転ボタン (Req 22.1, 22.7) */}
         {onRotate && (
           <button
