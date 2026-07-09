@@ -1384,3 +1384,316 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     expect(results.violations).toEqual([]);
   });
 });
+
+// ============================================================================
+// Task 103.2: 画像編集のスマホ作業領域・回帰 E2E（Requirement 36）
+// ============================================================================
+//
+// Requirements coverage（design.md「Requirements 35-36」Testing Strategy → E2E Tests）:
+//   - 36.1 / 36.2: モバイル幅の画像編集で背景画像が利用可能領域にフィットし、原寸より
+//     小さい画像はフィット倍率まで拡大される（原寸頭打ちにしない・過小表示にしない）。
+//     背景画像スケール（`window.__fabricCanvas.backgroundImage.scaleX`）と、レンダリング
+//     された canvas 実寸が作業領域を十分に満たすことで検証する。
+//   - 36.3: ツールバー等を除いた画像作業領域（`annotation-editor-container`）の短辺が
+//     画面短辺の概ね 50% 以上。
+//   - 36.3 / 36.5（Issue-3 補強）: ツールバー除外後の作業領域の縦高が編集ビュー高の一定割合
+//     以上（短辺基準だけでは縦圧迫を見逃すため縦方向の可視作業高も測定する）。かつ
+//     ツールバーが単段（多段化＝縦占有していない）。
+//   - 36.6: 編集ページで水平はみ出しが無い（`scrollWidth <= innerWidth`）。
+//   - 36.7: sticky なアプリヘッダー・パンくずが作業領域や操作要素（ZoomControls）と重ならない。
+//   - 36.8: 上記の表示領域最適化が Req 33-34 の挙動を維持する（本ファイルの Task 98.1/98.2 の
+//     ピンチズーム/パン・ダブルタップ等の編集 E2E が引き続き green であることで回帰確認する）。
+//
+// 前提条件でのサイレント skip は行わない（満たさなければ失敗させる＝第3原則）。
+// design.md の注記どおり Playwright に mobile プロジェクトは未定義のため、
+// `browser.newContext({ viewport })` でモバイル幅（375x667）を再現する。
+// 小画像でフィット拡大（Req 36.2）を検証するため、原寸 100x100 の PNG を使用する。
+//
+// @requirement site-survey/REQ-36.1
+// @requirement site-survey/REQ-36.2
+// @requirement site-survey/REQ-36.3
+// @requirement site-survey/REQ-36.5
+// @requirement site-survey/REQ-36.6
+// @requirement site-survey/REQ-36.7
+// @requirement site-survey/REQ-36.8
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** 2つの矩形が重なる（交差する）かどうかを判定する。境界の接触は重なりとみなさない。 */
+function rectsIntersect(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+test.describe('画像編集モバイル表示領域の最適化・回帰（Task 103.2, Req 36）', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  let sharedContext: BrowserContext;
+  let sharedPage: Page;
+  let createdProjectId: string | null = null;
+  let createdSurveyId: string | null = null;
+  let createdImageId: string | null = null;
+
+  /**
+   * 詳細画面 → 画像ビューア → 編集モードへ遷移し、注釈ツールバーと canvas の
+   * 初期化（背景画像フィット完了）を待つ。
+   */
+  async function enterEditMode(): Promise<void> {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}/images/${createdImageId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    const editModeButton = sharedPage.getByRole('button', { name: /編集モード/i });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(10000) });
+    await editModeButton.click();
+
+    await sharedPage
+      .locator('[data-testid="annotation-toolbar"]')
+      .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+
+    // 背景画像のフィット（scaleX 設定・setDimensions）完了まで待つ。
+    await sharedPage.waitForFunction(
+      () => {
+        const c = globalThis.__fabricCanvas as unknown as {
+          backgroundImage?: { scaleX?: number } | null;
+        } | null;
+        return !!c && !!c.backgroundImage && typeof c.backgroundImage.scaleX === 'number';
+      },
+      undefined,
+      { timeout: getTimeout(10000) }
+    );
+    // upper-canvas がレイアウトされる（実寸 > 0）まで待つ。
+    await expect(sharedPage.locator('.upper-canvas')).toBeVisible({ timeout: getTimeout(10000) });
+  }
+
+  /** 必須の矩形を返す（null の場合は失敗させる＝サイレント skip しない）。 */
+  async function requireBox(selector: string): Promise<Rect> {
+    const box = await sharedPage.locator(selector).first().boundingBox();
+    expect(box, `${selector} の boundingBox が取得できませんでした`).not.toBeNull();
+    return box as Rect;
+  }
+
+  test.beforeAll(async ({ browser }) => {
+    sharedContext = await browser.newContext({ viewport: MOBILE_VIEWPORT });
+    sharedPage = await sharedContext.newPage();
+
+    await loginAsUser(sharedPage, 'REGULAR_USER');
+
+    // プロジェクト作成
+    await sharedPage.goto('/projects');
+    await sharedPage.waitForLoadState('networkidle');
+    await sharedPage.getByRole('button', { name: /新規作成/i }).click();
+    await expect(sharedPage).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+    await expect(sharedPage.getByText(/読み込み中/i).first()).not.toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    const projectName = `画像編集領域E2E用PJ_${Date.now()}`;
+    await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
+    const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
+    const salesPersonValue = await salesPersonSelect.inputValue();
+    if (!salesPersonValue) {
+      const options = await salesPersonSelect.locator('option').all();
+      if (options.length > 1 && options[1]) {
+        const firstUserOption = await options[1].getAttribute('value');
+        if (firstUserOption) {
+          await salesPersonSelect.selectOption(firstUserOption);
+        }
+      }
+    }
+
+    const createProjectPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/projects') &&
+        response.request().method() === 'POST' &&
+        response.status() === 201,
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createProjectPromise;
+
+    await sharedPage.waitForURL(/\/projects\/[0-9a-f-]+$/);
+    createdProjectId = sharedPage.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdProjectId).toBeTruthy();
+
+    // 現場調査作成
+    await sharedPage.goto(`/projects/${createdProjectId}/site-surveys/new`);
+    await sharedPage.waitForLoadState('networkidle');
+    await expect(sharedPage.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+    const surveyName = `画像編集領域E2E用調査_${Date.now()}`;
+    await sharedPage.getByLabel(/調査名/i).fill(surveyName);
+    await sharedPage.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+
+    const createSurveyPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/') &&
+        response.url().includes('site-surveys') &&
+        response.request().method() === 'POST',
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createSurveyPromise;
+
+    await sharedPage.waitForURL(/\/site-surveys\/[0-9a-f-]+$/);
+    createdSurveyId = sharedPage.url().match(/\/site-surveys\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdSurveyId).toBeTruthy();
+
+    // 小画像（原寸 100x100 PNG）を API で直接アップロードする。
+    // Req 36.2（原寸が表示領域より小さい場合はフィット倍率まで拡大）を検証するため、
+    // モバイル幅の作業領域より小さい原寸の画像を用いる。
+    const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
+    expect(fs.existsSync(testImagePath)).toBeTruthy();
+    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const uploadResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        multipart: {
+          images: {
+            name: 'test-image.png',
+            mimeType: 'image/png',
+            buffer: fs.readFileSync(testImagePath),
+          },
+        },
+      }
+    );
+    expect(uploadResponse.ok()).toBeTruthy();
+
+    const uploadBody = (await uploadResponse.json()) as {
+      successful?: Array<{ id?: string }>;
+    };
+    createdImageId = uploadBody.successful?.[0]?.id ?? null;
+    expect(createdImageId).toBeTruthy();
+  });
+
+  test.afterAll(async ({ browser }) => {
+    const cleanupContext = await browser.newContext();
+    const cleanupPage = await cleanupContext.newPage();
+    try {
+      await loginAsUser(cleanupPage, 'ADMIN_USER');
+      if (createdSurveyId) {
+        await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
+        await cleanupPage.waitForLoadState('networkidle');
+        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+          await deleteButton.click();
+          const confirmButton = cleanupPage
+            .getByTestId('focus-manager-overlay')
+            .or(cleanupPage.getByRole('dialog'))
+            .getByRole('button', { name: /^削除する$/i });
+          await confirmButton.click();
+          await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
+        }
+      }
+      if (createdProjectId) {
+        await cleanupPage.goto(`/projects/${createdProjectId}`);
+        await cleanupPage.waitForLoadState('networkidle');
+        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+          await deleteButton.click();
+          const confirmButton = cleanupPage
+            .getByTestId('focus-manager-overlay')
+            .getByRole('button', { name: /^削除$/i });
+          await confirmButton.click();
+          await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
+        }
+      }
+    } finally {
+      await cleanupPage.close();
+      await cleanupContext.close();
+      await sharedContext?.close();
+    }
+  });
+
+  /**
+   * (10) モバイル幅の画像編集で作業領域の短辺が画面短辺の 50% 以上・ツールバー除外後の
+   *      縦高が編集ビュー高の一定割合以上・ツールバーが単段、かつ初期フィットが過小でない。
+   *      Req 36.1 / 36.2 / 36.3 / 36.5
+   */
+  test('(10) 画像作業領域の短辺≥画面短辺50%・縦高確保・単段ツールバー・過小でないフィット (site-survey/REQ-36.1/36.2/36.3/36.5)', async () => {
+    await enterEditMode();
+
+    const viewport = sharedPage.viewportSize();
+    expect(viewport).not.toBeNull();
+    if (!viewport) return;
+    const screenShort = Math.min(viewport.width, viewport.height);
+
+    const workArea = await requireBox('[data-testid="annotation-editor-container"]');
+    const editorBox = await requireBox('.survey-image-viewer__editor');
+    const toolbar = await requireBox('[data-testid="annotation-toolbar"]');
+
+    // Req 36.3: 画像作業領域（ツールバー等を除く）の短辺が画面短辺の概ね 50% 以上。
+    const workAreaShort = Math.min(workArea.width, workArea.height);
+    expect(workAreaShort).toBeGreaterThanOrEqual(0.5 * screenShort);
+
+    // Req 36.5（Issue-3 補強）: ツールバー除外後の作業領域の縦高が、編集ビュー高の
+    // 一定割合以上であること。短辺（横幅律速）だけでは縦圧迫を見逃すため縦方向を測定する。
+    expect(workArea.height).toBeGreaterThanOrEqual(0.55 * editorBox.height);
+
+    // Req 36.5: ツールバーが単段（多段化して縦方向を過度に占有していない）。
+    // ボタンの実寸は 44px（Req 28.3）。単段なら概ね 1 行分（44px + 上下 padding）に収まる。
+    // 2 段以上に折り返すとこの上限（88px = 2 行分未満）を超える。
+    expect(toolbar.height).toBeGreaterThanOrEqual(44);
+    expect(toolbar.height).toBeLessThan(88);
+
+    // Req 36.2: 原寸 100x100 の小画像がフィット倍率まで拡大されている（原寸頭打ちにしない）。
+    const bgScale = await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas as unknown as {
+        backgroundImage?: { scaleX?: number } | null;
+      } | null;
+      return c?.backgroundImage?.scaleX ?? null;
+    });
+    expect(bgScale).not.toBeNull();
+    expect(bgScale as number).toBeGreaterThan(1);
+
+    // Req 36.1: レンダリングされた canvas が利用可能領域（作業領域からフィット余白 48px を
+    // 差し引いた領域）を幅または高さいっぱいに満たす（初期表示が過小でない）。
+    const canvasBox = await requireBox('.upper-canvas');
+    const padding = 48;
+    const availWidth = workArea.width - padding;
+    const availHeight = workArea.height - padding;
+    expect(availWidth).toBeGreaterThan(0);
+    expect(availHeight).toBeGreaterThan(0);
+    const fillRatio = Math.max(canvasBox.width / availWidth, canvasBox.height / availHeight);
+    expect(fillRatio).toBeGreaterThanOrEqual(0.85);
+  });
+
+  /**
+   * (11) モバイル幅の画像編集ページで水平はみ出しが無く、sticky ヘッダー/パンくずが
+   *      作業領域・操作要素（ZoomControls）と重ならない。
+   *      Req 36.6 / 36.7
+   */
+  test('(11) 編集ページの水平はみ出し無し・ヘッダー/パンくずが作業領域と非重畳 (site-survey/REQ-36.6/36.7)', async () => {
+    await enterEditMode();
+
+    // Req 36.6: ページ全体で水平スクロール（コンテンツ幅がビューポート幅を超える状態）が無い。
+    const overflow = await sharedPage.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
+
+    // Req 36.7: 固定/重畳する要素（sticky アプリヘッダー・パンくず）が、画像作業領域および
+    // 操作要素（ZoomControls）と初期（未スクロール）状態で視覚的に重ならない。
+    const header = await requireBox('.app-header');
+    const breadcrumb = await requireBox('nav.breadcrumb');
+    const workArea = await requireBox('[data-testid="annotation-editor-container"]');
+    const zoomControls = await requireBox('[data-testid="zoom-controls"]');
+
+    expect(
+      rectsIntersect(header, workArea),
+      'sticky アプリヘッダーが画像作業領域と重なっています'
+    ).toBe(false);
+    expect(
+      rectsIntersect(header, zoomControls),
+      'sticky アプリヘッダーが ZoomControls と重なっています'
+    ).toBe(false);
+    expect(rectsIntersect(breadcrumb, workArea), 'パンくずが画像作業領域と重なっています').toBe(
+      false
+    );
+  });
+});

@@ -2490,7 +2490,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Foundation - 共有ユーティリティ/フック
 
-- [ ] 99. 共有フィット/寸法ユーティリティの実装
+- [x] 99. 共有フィット/寸法ユーティリティの実装
 - [x] 99.1 imageFitScale 純関数の実装と単体テスト
   - フィット倍率を算出する純関数を実装（幅律速/高さ律速の切替、padding 考慮）。`allowUpscale`/`maxUpscale` 引数で拡大可否と上限を制御
   - `allowUpscale=false` で原寸頭打ち（デスクトップ現行維持）、`allowUpscale=true` でフィット倍率まで拡大
@@ -2505,7 +2505,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Core - 現場調査詳細画面のレスポンシブ化（Req 35）
 
-- [ ] 100. 現場調査詳細画面のモバイル表示最適化
+- [x] 100. 現場調査詳細画面のモバイル表示最適化
 - [x] 100.1 (P) PhotoManagementPanel のモバイル縦積み・入力/タッチ最適化
   - `useMediaQuery(isMobile)` を導入。既存の spread 合成で写真＋コメント行を縦積み（column）化、写真列を可変幅（`width:100%`）、コメント側に `minWidth:0` を付与して水平はみ出しを解消
   - コメント入力欄等の入力系フォントを 16px 以上、操作要素（報告書フラグのチェックボックス/並替/削除ボタン）のタップ領域を 44px 以上に
@@ -2521,7 +2521,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Core - 画像編集/閲覧のフィット移行（Req 36 基盤）
 
-- [ ] 101. フィット算術の imageFitScale 移行と再フィット
+- [x] 101. フィット算術の imageFitScale 移行と再フィット
 - [x] 101.1 AnnotationEditor のフィット計算移行・再フィット・モバイル拡大許容
   - 既存の原寸頭打ちフィット計算を `imageFitScale` へ置換し、`allowUpscale=isMobile` を適用（モバイルで小画像もフィット倍率まで拡大）。デスクトップは `allowUpscale=false` で現行維持
   - `useElementSize` でコンテナ resize 時にキャンバス寸法を再計算。等倍/初期化時のみ `controller.fit()`、ズーム中は `controller.getState()` で表示保持。`canvasViewportController` は呼ぶのみで変更しない
@@ -2538,7 +2538,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Core - 画像編集画面のモバイルレイアウト（Req 36 最適化）
 
-- [ ] 102. 画像編集画面のモバイル表示領域最適化
+- [x] 102. 画像編集画面のモバイル表示領域最適化
 - [x] 102.1 (P) 表示領域高さの svh 化
   - SiteSurveyImageViewerPage の編集/閲覧領域高さを Tailwind `supports-[height:100svh]:` バリアント（`vh` フォールバック付き）へ移設。minHeight のモバイル調整
   - 観測可能: モバイルでアドレスバー伸縮に追従し、実可視高を超える縦方向のはみ出し・ガタつきが無い
@@ -2558,7 +2558,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ### Validation - E2E
 
-- [ ] 103. E2E 検証（スマホ表示）
+- [x] 103. E2E 検証（スマホ表示）
 - [x] 103.1 (P) 現場調査詳細のスマホ表示・機能回帰 E2E
   - `site-survey-responsive.spec.ts` を拡張。375 幅で `document.documentElement.scrollWidth <= window.innerWidth`、コメント入力の computed `font-size>=16px`、操作要素 boundingBox>=44px を検証
   - モバイル幅でコメント編集→未保存表示→一括保存→保存後状態、離脱警告が既存どおり動作する回帰アサーション（Req10 の機能挙動維持, 35.6）
@@ -2568,7 +2568,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 35.1, 35.2, 35.3, 35.4, 35.5, 35.6, 35.7_
   - _Boundary: e2e site-survey-responsive_
   - _Depends: 100.1, 100.2_
-- [ ] 103.2 (P) 画像編集のスマホ作業領域・回帰 E2E
+- [x] 103.2 (P) 画像編集のスマホ作業領域・回帰 E2E
   - `site-survey-annotation-mobile.spec.ts` を拡張。作業領域短辺≥画面短辺の概ね50%＋ツールバー除外後の画像作業領域の縦高、初期表示が過小でない、編集ページの水平はみ出し無し、ヘッダー/パンくず非重畳を検証
   - 既存 Req33-34 の編集モード E2E が緑維持（ズーム/パン・ダブルタップ等の回帰確認, 36.8）
   - 必ず `--build` 再ビルドで実行。前提条件でテストを自動無効化しない
@@ -2602,3 +2602,4 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 - **102.1 / 102.3**: `.survey-image-viewer` の `min-height:100svh` と sticky な AppHeader（モバイル 56px）が併存するため、ドキュメント高さは可視領域より約 56px 高くなり得る。編集領域の予約高さ（モバイル `calc(100svh - 220px)`）自体は sticky ヘッダー分を織り込み済みだが、`min-height` 由来の縦スクロールが残る場合、sticky ヘッダーが作業領域上端に重なる可能性がある。103.2 の 375x667 実測（矩形非交差・`scrollWidth <= innerWidth`）で必ず検証し、失敗した場合は `.survey-image-viewer` のモバイル `min-height` を `calc(100svh - 56px)` 相当へ是正すること。
 - **102.2**: 既存の `AnnotationToolbar.mobile.test.tsx`（Task 70.1）は `matchMedia` を stub していないため `useMediaQuery` が false を返し、実際にはデスクトップ（wrap）分岐を検証している。モバイル単段化の検証は `AnnotationToolbar.mobile-single-row.test.tsx` が担う。
 - **103.1 / 100.2**: 100.2 は 375px 実ビューポート未検証のまま完了扱いになっており、共有 Breadcrumb の折返し不可 flex 行が `scrollWidth=417 > innerWidth=375` を招いていた。E2E で初めて検出。修正は兄弟ページ（Task 98.2）と同じく `breadcrumbWrapper` に `overflowX:'auto'` を付与（共有 `Breadcrumb.tsx` は境界外のため不変更）。教訓: レイアウト要件は実ビューポート E2E を通すまで完了としない。
+- **103.2**: 追加 E2E は 100x100 の小画像 fixture を使い `backgroundImage.scaleX > 1`（モバイル拡大許容）を実証する。修正前の実測値（`scrollWidth=565` / canvas `100x100`）に対して各アサーションが確実に落ちることを確認済み。なお同ファイル先頭の Task 73.1 スケルトン 5 件は `test.skip(!surveyId || !imageId, ...)` による env ゲートで自動スキップされており、AI運用7原則 第3原則（前提条件でテストを自動無効化しない）に反する。本タスクの境界外のため未修正。別タスクで実データ生成に置き換えるか失敗させる構成へ是正すること。
