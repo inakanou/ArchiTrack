@@ -10,11 +10,14 @@
  * - 5.3: 画像の回転
  * - 5.4: パン操作（表示領域移動）
  * - 5.6: 表示状態を注釈編集モードと共有
+ *
+ * @requirement site-survey/REQ-36.4
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { getSiteSurvey } from '../api/site-surveys';
+import './SiteSurveyImageViewerPage.css';
 import { ApiError } from '../api/client';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../types/site-survey.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
@@ -30,7 +33,7 @@ const styles = {
     maxWidth: '1400px',
     margin: '0 auto',
     padding: '24px 16px',
-    minHeight: '100vh',
+    // minHeight は svh 二段宣言のため CSS クラス .survey-image-viewer へ移設（REQ-36.4）
     backgroundColor: '#f9fafb',
   } as React.CSSProperties,
   breadcrumbContainer: {
@@ -139,8 +142,8 @@ const styles = {
     borderRadius: '8px',
     boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
     overflow: 'hidden',
-    height: 'calc(100vh - 200px)',
-    minHeight: '500px',
+    // height/minHeight は svh 二段宣言のため CSS クラス .survey-image-viewer__editor へ移設（REQ-36.4）
+    // インラインstyleはCSSクラスを上書きするため、ここに height/minHeight を残してはならない
   } as React.CSSProperties,
 };
 
@@ -228,7 +231,7 @@ export default function SiteSurveyImageViewerPage() {
   // 存在しないリソースの表示
   if (isNotFound) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" className="survey-image-viewer" style={styles.container}>
         <ResourceNotFound
           resourceType="画像"
           returnPath={id ? `/site-surveys/${id}` : '/projects'}
@@ -241,7 +244,7 @@ export default function SiteSurveyImageViewerPage() {
   // ローディング表示
   if (isLoading) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" className="survey-image-viewer" style={styles.container}>
         <div style={styles.loadingContainer}>
           <div role="status" style={styles.loadingSpinner} />
           <p>読み込み中...</p>
@@ -261,7 +264,7 @@ export default function SiteSurveyImageViewerPage() {
   // エラー表示
   if (error && !survey) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" className="survey-image-viewer" style={styles.container}>
         <div role="alert" style={styles.errorContainer}>
           <p style={styles.errorText}>{error}</p>
           <button type="button" onClick={fetchData} style={styles.retryButton}>
@@ -287,7 +290,7 @@ export default function SiteSurveyImageViewerPage() {
   );
 
   return (
-    <main role="main" style={styles.container}>
+    <main role="main" className="survey-image-viewer" style={styles.container}>
       {/* パンくずナビゲーション */}
       <div style={styles.breadcrumbContainer}>
         <Breadcrumb items={breadcrumbItems} />
@@ -313,7 +316,7 @@ export default function SiteSurveyImageViewerPage() {
 
       {/* 画像表示 / 注釈エディタ（REQ-9.2: 閲覧モードでも注釈を表示） */}
       {image.originalUrl ? (
-        <div style={styles.editorContainer}>
+        <div className="survey-image-viewer__editor" style={styles.editorContainer}>
           <AnnotationEditor
             imageUrl={image.originalUrl}
             imageId={image.id}

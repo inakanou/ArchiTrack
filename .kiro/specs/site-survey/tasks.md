@@ -2539,7 +2539,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Core - 画像編集画面のモバイルレイアウト（Req 36 最適化）
 
 - [ ] 102. 画像編集画面のモバイル表示領域最適化
-- [ ] 102.1 (P) 表示領域高さの svh 化
+- [x] 102.1 (P) 表示領域高さの svh 化
   - SiteSurveyImageViewerPage の編集/閲覧領域高さを Tailwind `supports-[height:100svh]:` バリアント（`vh` フォールバック付き）へ移設。minHeight のモバイル調整
   - 観測可能: モバイルでアドレスバー伸縮に追従し、実可視高を超える縦方向のはみ出し・ガタつきが無い
   - _Requirements: 36.4_
