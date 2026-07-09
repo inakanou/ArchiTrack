@@ -272,6 +272,31 @@ describe('SiteSurveyDetailPage', () => {
       expect(main.style.maxWidth).toBe('1200px');
       expect(main.style.margin).toBe('0px auto');
     });
+
+    /**
+     * パンくずラッパは折返し不可の flex 行（長い現場調査名を含む）を内包するため、
+     * overflow-x:auto を欠くと 375px 幅で祖先を超えて水平 overflow し、
+     * documentElement.scrollWidth がビューポート幅を超えて REQ-35.2 に違反する。
+     * ラッパ自身の overflow-x:auto は祖先の scrollWidth に寄与せずはみ出しを収容するため、
+     * この属性が常時付与されていることをガードする（デスクトップ幅でも回帰しない）。
+     * @requirement site-survey/REQ-35.2
+     */
+    it('パンくずラッパは水平あふれを収容するためoverflow-x:autoを付与する (Requirement 35.2)', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(true);
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      // パンくずナビゲーションを内包するラッパ div（STYLES.breadcrumbWrapper）を取得
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const breadcrumbWrapper = breadcrumbNav.parentElement;
+      expect(breadcrumbWrapper).not.toBeNull();
+      // 長いパンくず行を水平スクロール内に収め、祖先の水平 overflow を防ぐ
+      expect(breadcrumbWrapper!.style.overflowX).toBe('auto');
+    });
   });
 
   describe('エラーハンドリング', () => {

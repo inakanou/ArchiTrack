@@ -81,6 +81,12 @@ const STYLES = {
   } as React.CSSProperties,
   breadcrumbWrapper: {
     marginBottom: '16px',
+    // Task 100.2 root-cause fix (Requirement 35.2): モバイル幅で長いパンくず（非折返しの
+    // flex 行 = 長い現場調査名を含む）が device-width を超えて水平 overflow すると、
+    // documentElement.scrollWidth がビューポート幅を超え、詳細画面全体に水平スクロールが
+    // 発生する。パンくずを水平スクロール内に収め（overflowX:auto）祖先の scrollWidth への
+    // 寄与を断つ。overflowX:auto は常時付与でデスクトップ幅も回帰しない。
+    overflowX: 'auto',
   } as React.CSSProperties,
   loadingContainer: {
     display: 'flex',

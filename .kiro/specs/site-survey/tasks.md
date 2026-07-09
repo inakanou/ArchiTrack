@@ -2559,7 +2559,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 ### Validation - E2E
 
 - [ ] 103. E2E 検証（スマホ表示）
-- [ ] 103.1 (P) 現場調査詳細のスマホ表示・機能回帰 E2E
+- [x] 103.1 (P) 現場調査詳細のスマホ表示・機能回帰 E2E
   - `site-survey-responsive.spec.ts` を拡張。375 幅で `document.documentElement.scrollWidth <= window.innerWidth`、コメント入力の computed `font-size>=16px`、操作要素 boundingBox>=44px を検証
   - モバイル幅でコメント編集→未保存表示→一括保存→保存後状態、離脱警告が既存どおり動作する回帰アサーション（Req10 の機能挙動維持, 35.6）
   - デスクトップ幅の詳細画面/PhotoManagementPanel の既存単体・E2E が緑維持（35.7）
@@ -2601,3 +2601,4 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 - **102.1 / 102.3**: `.survey-image-viewer` の `min-height:100svh` と sticky な AppHeader（モバイル 56px）が併存するため、ドキュメント高さは可視領域より約 56px 高くなり得る。編集領域の予約高さ（モバイル `calc(100svh - 220px)`）自体は sticky ヘッダー分を織り込み済みだが、`min-height` 由来の縦スクロールが残る場合、sticky ヘッダーが作業領域上端に重なる可能性がある。103.2 の 375x667 実測（矩形非交差・`scrollWidth <= innerWidth`）で必ず検証し、失敗した場合は `.survey-image-viewer` のモバイル `min-height` を `calc(100svh - 56px)` 相当へ是正すること。
 - **102.2**: 既存の `AnnotationToolbar.mobile.test.tsx`（Task 70.1）は `matchMedia` を stub していないため `useMediaQuery` が false を返し、実際にはデスクトップ（wrap）分岐を検証している。モバイル単段化の検証は `AnnotationToolbar.mobile-single-row.test.tsx` が担う。
+- **103.1 / 100.2**: 100.2 は 375px 実ビューポート未検証のまま完了扱いになっており、共有 Breadcrumb の折返し不可 flex 行が `scrollWidth=417 > innerWidth=375` を招いていた。E2E で初めて検出。修正は兄弟ページ（Task 98.2）と同じく `breadcrumbWrapper` に `overflowX:'auto'` を付与（共有 `Breadcrumb.tsx` は境界外のため不変更）。教訓: レイアウト要件は実ビューポート E2E を通すまで完了としない。
