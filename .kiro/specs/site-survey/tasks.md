@@ -2544,7 +2544,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能: モバイルでアドレスバー伸縮に追従し、実可視高を超える縦方向のはみ出し・ガタつきが無い
   - _Requirements: 36.4_
   - _Boundary: SiteSurveyImageViewerPage_
-- [ ] 102.2 (P) AnnotationToolbar のモバイル単段化
+- [x] 102.2 (P) AnnotationToolbar のモバイル単段化
   - モバイル幅で `flexWrap:nowrap` + `overflowX:auto` の単段レイアウトへ。ボタンの 44px は維持
   - 観測可能: モバイルでツールバーが多段化せず、除外後の画像作業領域の縦高が確保される（コンポーネントテスト）
   - _Requirements: 36.3, 36.5_
