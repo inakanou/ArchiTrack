@@ -2549,7 +2549,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - 観測可能: モバイルでツールバーが多段化せず、除外後の画像作業領域の縦高が確保される（コンポーネントテスト）
   - _Requirements: 36.3, 36.5_
   - _Boundary: AnnotationToolbar_
-- [ ] 102.3 ヘッダー/パンくずと作業領域の重なり・水平はみ出し解消
+- [x] 102.3 ヘッダー/パンくずと作業領域の重なり・水平はみ出し解消
   - SiteSurveyImageViewerPage の sticky/z-index/overflow を調整（既存 breadcrumbContainer の `overflowX:auto` を踏襲）。ヘッダー/パンくずが作業領域・操作要素と重ならないよう配置し、編集ページ全体で水平はみ出し（`scrollWidth > innerWidth`）を発生させない
   - 観測可能: 375 幅でヘッダー/パンくずの矩形が作業領域・操作要素と重ならず、ページ `scrollWidth <= innerWidth`
   - _Requirements: 36.6, 36.7_
@@ -2596,3 +2596,8 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 | 36.6 | 102.3, 103.2                        |
 | 36.7 | 102.3, 103.2                        |
 | 36.8 | 101.1, 101.2, 103.2                 |
+
+## Implementation Notes（Requirements 35-36）
+
+- **102.1 / 102.3**: `.survey-image-viewer` の `min-height:100svh` と sticky な AppHeader（モバイル 56px）が併存するため、ドキュメント高さは可視領域より約 56px 高くなり得る。編集領域の予約高さ（モバイル `calc(100svh - 220px)`）自体は sticky ヘッダー分を織り込み済みだが、`min-height` 由来の縦スクロールが残る場合、sticky ヘッダーが作業領域上端に重なる可能性がある。103.2 の 375x667 実測（矩形非交差・`scrollWidth <= innerWidth`）で必ず検証し、失敗した場合は `.survey-image-viewer` のモバイル `min-height` を `calc(100svh - 56px)` 相当へ是正すること。
+- **102.2**: 既存の `AnnotationToolbar.mobile.test.tsx`（Task 70.1）は `matchMedia` を stub していないため `useMediaQuery` が false を返し、実際にはデスクトップ（wrap）分岐を検証している。モバイル単段化の検証は `AnnotationToolbar.mobile-single-row.test.tsx` が担う。
