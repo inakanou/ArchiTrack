@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-06-30（Steering Sync: 注釈Canvasのビューポート制御パターン（canvasViewportController→useCanvasViewport→ZoomControlsの一方向依存、2本指ピンチ中点ズーム/パン）、スマホ写真追加の二段構え高速化（フロント送信前圧縮＋応答の署名付きURLによる即時反映）を反映）_
+_最終更新: 2026-07-09（Steering Sync: レスポンシブ・ビューポート方針（ブレークポイントの単一情報源とMobileサフィックスのspread合成、入力16px/タップ44pxの下限、`vh`→`svh`二段宣言による動的ビューポート高、フィット倍率の純関数化 computeFitScale＋useElementSize による再フィット）を追加）_
+
+_2026-06-30（Steering Sync: 注釈Canvasのビューポート制御パターン（canvasViewportController→useCanvasViewport→ZoomControlsの一方向依存、2本指ピンチ中点ズーム/パン）、スマホ写真追加の二段構え高速化（フロント送信前圧縮＋応答の署名付きURLによる即時反映）を反映）_
 
 _2026-06-08（Steering Sync: backend entrypointの実行時`npm ci`をdev/test限定化し本番はイメージ同梱依存を信頼するパターン（Railway永続ボリュームのroot所有node_modulesでのEACCESクラッシュループ対策）、sharp自己修復の非致命化を反映）_
 
@@ -109,6 +111,17 @@ ArchiTrack/
 - `frontend/Dockerfile.dev` - 開発環境用Dockerイメージ
 - `frontend/docker-entrypoint.sh` - Docker起動時の依存関係チェックスクリプト
 - `frontend/railway.toml` - Railway デプロイ設定
+
+### レスポンシブ・ビューポート方針
+
+モバイル幅（実機スマートフォン）での表示崩れを防ぐための横断ルール。新規画面・コンポーネントも同じ方針に従う。
+
+- **ブレークポイントの単一情報源**: `utils/responsive.ts` の `BREAKPOINTS` / `MEDIA_QUERIES` に集約する。JS 側は `useMediaQuery(MEDIA_QUERIES.isMobile)`（`max-width: 767px`）で判定し、CSS の `@media` を書く場合も同じ境界値に揃える。コンポーネント内にブレークポイント値をハードコードしない
+- **モバイルスタイルの合成パターン**: 基底の `STYLES` に `...Mobile` サフィックスのオーバーライドを併置し、`{ ...styles.base, ...(isMobile ? styles.baseMobile : {}) }` の spread 合成で適用する（例: `PhotoManagementPanel`、`AnnotationToolbar`）。デスクトップの既存レイアウトは基底側を変更せずに維持する
+- **モバイルの下限値**: 入力系コントロールは `fontSize: 16px` 以上（フォーカス時のモバイルブラウザ自動ズームを抑止）、操作系コントロールのタップ領域は最小 44×44 論理ピクセル（WCAG 2.2 SC 2.5.5 Target Size (Enhanced)）
+- **動的ビューポート高**: モバイルのアドレスバー伸縮に追従させるため `svh` を基準にし、非対応ブラウザ向けに `vh` を先に宣言して `svh` で上書きする「二段宣言」でフォールバックする。React のインライン style オブジェクトは同一プロパティを二重宣言できずこのフォールバックを表現できないため、**この用途に限り** CSS ファイルを併置する（例: `pages/SiteSurveyImageViewerPage.css`）
+- **画像フィット倍率**: `utils/imageFitScale` の `computeFitScale`（純関数・React 非依存）に一元化する。`allowUpscale=false`（既定）は原寸頭打ちでデスクトップの現行挙動を維持し、`allowUpscale=true` は `maxUpscale`（既定 3）までフィット拡大して小画像の過小表示を防ぐ。表示領域の実寸は `hooks/useElementSize`（ResizeObserver、非対応環境では購読せず例外も出さない）で購読し、コンテナ寸法の変化に追従して再フィットする
+- **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`ImageViewer` / `AnnotationEditor` はこの two-layer 構成を共有する
 
 ## バックエンド
 
