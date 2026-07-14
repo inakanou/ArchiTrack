@@ -895,6 +895,71 @@ describe('QuantityTablesRoutes', () => {
 
         expect(mockService.saveDraft).not.toHaveBeenCalled();
       });
+
+      /**
+       * Task 70.3: 一括保存経路における判別子ベースのパラメータ検証の回帰テスト
+       *
+       * REQ-48 の不具合は「クライアント編集状態の一括保存」（REQ-42）で発現する。
+       * 計算方法を「ピッチ」から切り替えても切替前のピッチ固有パラメータが数量項目に
+       * 残留したまま送信されるため、`saveDraftItemSchema` が計算パラメータを素通し
+       * （`z.record(z.string(), z.number())`）していると、残留したピッチのキーが
+       * そのまま永続化され、形状推測により新しく入力した値（箇所数・幅）が破棄される。
+       *
+       * したがって混在パラメータを一括保存経路に流し、計算方法（判別子）に対応する
+       * キーのみがサービスへ引き渡されることを検証する。
+       *
+       * Requirements: 48.3, 48.4, 48.5, 48.6
+       */
+      describe('混在した計算パラメータの判別子ベース検証（Req 48.3, 48.4, 48.5, 48.6）', () => {
+        /** ピッチから他方式へ切り替えた直後に数量項目へ残留する混在パラメータ */
+        const mixedParams = {
+          rangeLength: 100,
+          endLength1: 10,
+          endLength2: 10,
+          pitchLength: 5,
+          count: 5,
+          width: 3,
+          length: 2,
+          weight: 1.5,
+        };
+
+        /** 一括保存でサービスへ引き渡された数量項目1件を取り出す */
+        const getSavedItem = (): Record<string, unknown> => {
+          const [, payload] = mockService.saveDraft.mock.calls[0] as [
+            string,
+            { groups: { items: Record<string, unknown>[] }[] },
+          ];
+          const item = payload.groups[0]?.items[0];
+          if (item === undefined) {
+            throw new Error('保存対象の数量項目がサービスへ引き渡されていません');
+          }
+          return item;
+        };
+
+        it('COUNT: 混在パラメータのうち箇所数が保持されピッチのキーが破棄される（Req 48.3, 48.6）', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+
+          await request(app)
+            .put(`/api/quantity-tables/${tableId}/save`)
+            .send(buildSaveBodyWithMethod('COUNT', { ...mixedParams }))
+            .expect(200);
+
+          // 箇所数・長さ・重量のみが残り、ピッチの4キーと幅は破棄される
+          expect(getSavedItem().calculationParams).toEqual({ count: 5, length: 2, weight: 1.5 });
+        });
+
+        it('AREA_VOLUME: 混在パラメータのうち幅が保持される（Req 48.4, 48.6・既存不具合の回帰）', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+
+          await request(app)
+            .put(`/api/quantity-tables/${tableId}/save`)
+            .send(buildSaveBodyWithMethod('AREA_VOLUME', { ...mixedParams }))
+            .expect(200);
+
+          // 幅・重量のみが残り、ピッチの4キーと箇所数は破棄される
+          expect(getSavedItem().calculationParams).toEqual({ width: 3, weight: 1.5 });
+        });
+      });
     });
   });
 });
