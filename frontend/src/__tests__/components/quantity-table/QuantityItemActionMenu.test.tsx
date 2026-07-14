@@ -117,6 +117,51 @@ describe('QuantityItemActionMenu (Task 50.1, 50.3)', () => {
     });
   });
 
+  // ==========================================================================
+  // Task 70.1: 「操作を実行したうえでメニューを閉じる」（REQ-46.9）を全項目で検証する
+  //
+  // 69.x では「コピー」のみが操作実行 + onClose を検証しており、上へ移動・下へ移動・削除は
+  // コールバック発火しか見ていなかった。閉じ処理は各ハンドラに個別実装されている
+  // （handleMoveUp / handleMoveDown / handleCopy / handleDelete）ため、1項目だけの検証では
+  // 他項目の閉じ漏れを検出できない。4項目すべてで「操作 → 閉じる」の対を検証する。
+  // ==========================================================================
+  describe('REQ-46.9: 項目選択で操作を実行したうえでメニューを閉じる (Task 70.1)', () => {
+    it.each([
+      ['上へ移動', 'onMoveUp'],
+      ['下へ移動', 'onMoveDown'],
+      ['コピー', 'onCopy'],
+      ['削除', 'onDelete'],
+    ] as const)('「%s」選択で %s が呼ばれ、続けて onClose が呼ばれること', async (label, handler) => {
+      const user = userEvent.setup();
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+      await user.click(screen.getByText(label));
+
+      expect(defaultProps[handler]).toHaveBeenCalledTimes(1);
+      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('disabled の「上へ移動」を選択しても操作は実行されずメニューも閉じないこと', async () => {
+      const user = userEvent.setup();
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} canMoveUp={false} />);
+
+      await user.click(screen.getByText('上へ移動'));
+
+      expect(defaultProps.onMoveUp).not.toHaveBeenCalled();
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+    });
+
+    it('disabled の「下へ移動」を選択しても操作は実行されずメニューも閉じないこと', async () => {
+      const user = userEvent.setup();
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} canMoveDown={false} />);
+
+      await user.click(screen.getByText('下へ移動'));
+
+      expect(defaultProps.onMoveDown).not.toHaveBeenCalled();
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+    });
+  });
+
   describe('REQ-36.6: 最上位項目で「上へ移動」がdisabled', () => {
     it('canMoveUp=falseの場合、「上へ移動」がdisabledであること', () => {
       render(<QuantityItemActionMenu {...defaultProps} isOpen={true} canMoveUp={false} />);
