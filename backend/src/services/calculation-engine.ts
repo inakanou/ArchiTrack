@@ -12,6 +12,9 @@
  * - 8.9: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）に値が入力される場合、ピッチ計算式に基づいて本数を算出する
  * - 9.2: 調整係数列に数値を入力する場合、計算結果に調整係数を乗算した値を数量として設定する
  * - 10.2: 丸め設定列に数値を入力する場合、調整係数適用後の値を指定された単位で切り上げた値を最終数量として設定する
+ * - 47.3-47.7: 「箇所数」モードで手入力の箇所数を起点に、ピッチと同一の後段処理（長さ・重量の乗算、
+ *   調整係数の適用、丸め処理）で最終数量を算出する
+ * - 47.8: 「箇所数」は1〜9999999の整数
  *
  * @module services/calculation-engine
  */
@@ -28,7 +31,15 @@ export enum CalculationMethod {
   AREA_VOLUME = 'AREA_VOLUME',
   /** ピッチ */
   PITCH = 'PITCH',
+  /** 箇所数（REQ-47） */
+  COUNT = 'COUNT',
 }
+
+/** 箇所数の最小値（REQ-47 AC8） */
+export const COUNT_MIN = 1;
+
+/** 箇所数の最大値（REQ-47 AC8） */
+export const COUNT_MAX = 9999999;
 
 /**
  * 面積・体積計算パラメータ
@@ -53,11 +64,23 @@ export interface PitchParams {
 }
 
 /**
+ * 箇所数計算パラメータ（REQ-47）
+ */
+export interface CountParams {
+  /** 箇所数（必須・1〜9999999の整数） */
+  count: Decimal;
+  /** 長さ（任意） */
+  length?: Decimal;
+  /** 重量（任意） */
+  weight?: Decimal;
+}
+
+/**
  * 計算入力
  */
 export interface CalculationInput {
   method: CalculationMethod;
-  params: AreaVolumeParams | PitchParams | Record<string, never>;
+  params: AreaVolumeParams | PitchParams | CountParams | Record<string, never>;
   quantity?: Decimal;
   adjustmentFactor: Decimal;
   roundingUnit: Decimal;
@@ -159,6 +182,44 @@ export class CalculationEngine {
   }
 
   /**
+   * 箇所数計算（REQ-47）
+   *
+   * ピッチ計算（calculatePitch）との唯一の差分は箇所数の求め方のみ。
+   * - ピッチ: 箇所数 = floor((範囲長 - 端長1 - 端長2) / ピッチ長) + 1
+   * - 箇所数: 箇所数 = params.count（手入力値。自動算出は行わない）
+   *
+   * 結果 = 箇所数 * 長さ * 重量（任意項目は入力されている場合のみ乗算）
+   * 箇所数確定後の調整係数の適用・丸め処理は calculate() の共通経路を通るため、
+   * ピッチと完全に同一である（REQ-47 AC7）。
+   *
+   * @param params - 箇所数計算パラメータ
+   * @returns 計算結果
+   * @throws Error 箇所数が整数でない場合、または1〜9999999の範囲外の場合
+   */
+  calculateCount(params: CountParams): Decimal {
+    if (!params.count.isInteger()) {
+      throw new Error('count must be an integer');
+    }
+
+    if (params.count.lt(COUNT_MIN) || params.count.gt(COUNT_MAX)) {
+      throw new Error(`count must be between ${COUNT_MIN} and ${COUNT_MAX}`);
+    }
+
+    // 結果 = 箇所数 * 長さ * 重量
+    let result = params.count;
+
+    if (params.length !== undefined) {
+      result = result.mul(params.length);
+    }
+
+    if (params.weight !== undefined) {
+      result = result.mul(params.weight);
+    }
+
+    return result;
+  }
+
+  /**
    * 調整係数を適用
    *
    * @param value - 元の値
@@ -214,6 +275,13 @@ export class CalculationEngine {
       case CalculationMethod.PITCH:
         rawValue = this.calculatePitch(input.params as PitchParams);
         formula = this.generatePitchFormula(input.params as PitchParams);
+        break;
+
+      case CalculationMethod.COUNT:
+        // 箇所数（REQ-47）: ピッチとの差分は rawValue の算出方法のみ。
+        // 以降の調整係数・丸め処理は下記の共通経路を通るためピッチと同一（REQ-47 AC7）。
+        rawValue = this.calculateCount(input.params as CountParams);
+        formula = this.generateCountFormula(input.params as CountParams);
         break;
 
       default:
@@ -302,5 +370,31 @@ export class CalculationEngine {
     formula += ` = ${result.toString()}`;
 
     return formula;
+  }
+
+  /**
+   * 箇所数モードの計算式を生成（REQ-47）
+   *
+   * 書式は generatePitchFormula() の箇所数確定後の部分と同一（toFixed は使わず素の値を埋め込む）。
+   * 例: 箇所数=5, 長さ=2.5, 重量=1.5 → `5 x 2.5 x 1.5 = 18.75`
+   *
+   * @param params - 箇所数計算パラメータ
+   * @returns 計算式文字列
+   * @throws Error 箇所数が整数でない場合、または1〜9999999の範囲外の場合
+   */
+  generateCountFormula(params: CountParams): string {
+    const parts: string[] = [params.count.toString()];
+
+    if (params.length !== undefined) {
+      parts.push(params.length.toString());
+    }
+
+    if (params.weight !== undefined) {
+      parts.push(params.weight.toString());
+    }
+
+    const result = this.calculateCount(params);
+
+    return `${parts.join(' x ')} = ${result.toString()}`;
   }
 }
