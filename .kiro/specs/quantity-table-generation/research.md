@@ -610,3 +610,53 @@ GO（条件付き・指摘は反映済み）。実コード検証（useUnsavedCh
   3. 整数フィールドの実装方式と `numeric-range-validation.ts` の `RangeConfig` 拡張
   4. `CalculationFields` / PDF ラベルの `Record` 化スコープ
 - **検証上の制約（重要）**: pre-push フックは E2E 全件（約1.6時間）と「E2E 対象受入基準100%カバレッジチェック」を強制する。REQ-46・REQ-47 の各 AC に対応する E2E を用意しないと push が通らない。また Storybook ストーリー併置（インタラクション＋a11y＋カバレッジ80%）も pre-push で強制される。
+
+---
+
+# 設計ディスカバリ・設計判断: Requirement 46・47（2026-07-14）
+
+Discovery Type: **Light（Extension）**。既存システムへの追補であり、新規の外部依存・アーキテクチャ変更を伴わないため。
+
+## 実測による検証（Research Needed #1 の解消）
+
+ギャップ分析で「設計前に潰すべき最大の未知数」とした `ALTER TYPE ... ADD VALUE` を、本番と同一イメージ（`postgres:15-alpine` / PostgreSQL 15.17）の使い捨てコンテナ上で実測した。
+
+| 検証ケース | 結果 |
+|---|---|
+| `BEGIN; ALTER TYPE "CalculationMethod" ADD VALUE 'COUNT'; COMMIT;` → コミット後に新値を INSERT | **成功**。PostgreSQL 12 以降 `ADD VALUE` はトランザクション内で実行可能 |
+| **同一トランザクション内**で `ADD VALUE` した値を直後に INSERT | **失敗**: `ERROR: unsafe use of new value "BOGUS" of enum type "CalculationMethod"` / `HINT: New enum values must be committed before they can be used.` |
+
+**結論**: マイグレーションを `ALTER TYPE ... ADD VALUE 'COUNT';` の1文のみに限定し、同一マイグレーション内で `COUNT` を参照する DEFAULT 変更・UPDATE・INSERT を含めなければ、`prisma migrate deploy`（Docker entrypoint／Railway 自動適用）で安全に適用できる。既存29マイグレーションに前例が無かったリスクは解消した。
+
+## 設計判断（Design Decisions）
+
+| # | 決定 | 根拠 | 却下した代替案 |
+|---|---|---|---|
+| 1 | `QuantityItemActionMenu` を単体で Portal 化する（共通フック抽出はしない） | 同一画面の `AutocompleteInput` が**まったく同一の根本原因**を Portal 化で解決済み（PR #647）。検証済みパターンをそのまま踏襲でき、影響範囲が閉じる | 共通 `usePortalDropdown` フックの新設: 動作中の `AutocompleteInput`（過去に一度回帰した箇所）を再度触ることになり、REQ-46 のスコープ（表示不具合修正のみ）を超える。Portal ドロップダウンの3例目が現れた時点で行う |
+| 2 | 閉じ判定を `onBlur`/`relatedTarget` から document レベルの outside-click + Escape へ変更し、`EditableQuantityItemRow` の二重 `onBlur` を撤去 | Portal 化で DOM ツリーが分離するため `relatedTarget` の内外判定は**必ず壊れる**。放置すると REQ-36 AC9 がデグレする | 現行の二重 onBlur 維持: Portal 化と両立しない |
+| 3 | CSS（`overflow: visible` 化）ではなく Portal で解く | 祖先の `itemTableWrapper` の `overflow` は REQ-41（水平スクロール）の実装そのもの。`visible` へ戻すと REQ-41 が壊れる。祖先に overflow がある限り子孫の absolute 要素は必ずクリップされる | CSS による回避: 構造的に不可能 |
+| 4 | 計算方法の表示ラベルを `utils/calculation-method.ts` の `Record<CalculationMethod, string>` へ集約する | ラベルが2箇所（`CalculationMethodSelect` の配列、`QuantityTableEditPage` のネスト三項）に散在し、**いずれも型エラーを出さずに壊れる**。特に PDF 側は最終 else が `'ピッチ'` 固定のため箇所数が誤表示される。Record 化すればユニオン型への値追加が両方をコンパイルエラーにする | 各所に `'COUNT'` を手で足す: サイレント破綻を防げない |
+| 5 | `CalculationFields.tsx:440` の三項演算子を `Record<Exclude<CalculationMethod,'STANDARD'>, FieldDefinition[]>` へ置換 | 二値の三項演算子のため、第4の方式は**無言でピッチのフィールド群にフォールバックする**。「足すだけでは直らない」箇所 | switch 文: Record の方が網羅性を型で強制できる |
+| 6 | `countParamsSchema` を zod union の `areaVolumeParamsSchema` **より前**に挿入 | `calculationParamsSchema` は `discriminatedUnion` ではなく素の `z.union` で評価順序に依存する。areaVolume は全フィールド optional の catch-all であり、後ろに置くと `count` が silently strip され、保存・再読込で箇所数が消える（REQ-47 AC15 違反）。既存コードも同じ理由で pitch を先頭に置いている | union 末尾への追加: 箇所数が保存されない |
+| 7 | `quantity-tables.routes.ts:173` のハードコード enum を `CALCULATION_METHODS` 参照へ置換 | 一括保存スキーマが定数を参照せずリテラルを直書きしており、更新漏れが保存時400に直結する。参照へ置換して再発を防ぐ | `'COUNT'` をリテラルに足すだけ: 次の追加でまた漏れる |
+| 8 | `quantity-validation.service.ts` の switch に `default` 節を追加し未知モードを fail-fast にする | 現状 `default` が無く、未知の計算方法は**無検証で `isValid: true`** を返す。4方式すべてに case がある状態なら既存挙動に影響しない | 現状維持: 将来の追加漏れが無言で通る |
+| 9 | 整数入力は `FieldDefinition` / `NumberInputField` に `integer?: boolean` を追加して実現する | 数量表内に整数専用フィールドの前例がゼロ。既存 `NumberInputField` は blur 時に `toFixed(2)` を無条件適用している。フラグ分岐なら既存の小数フィールドの挙動を一切変えずに済む | 整数専用コンポーネントの新設: 行内水平配置（REQ-37）のレイアウトを二重管理することになる |
+| 10 | backend `CalculationEngine` にも `calculateCount` を追加する | プロダクション経路からは未 import（数量確定はフロントのみ）だが、ユニットテスト資産と FE/BE の実装対称性を維持する。追加コストは小さい | 追加しない: backend のテストだけ COUNT を欠く非対称な状態になる |
+| 11 | `useMemoizedCalculation.ts` は据え置く（COUNT 対応も削除もしない） | import 元ゼロのデッドコードであり、PITCH ロジックが `calculation-engine.ts` と乖離しているが**参照されないため実害がない**。触れば変更範囲が広がる | 削除する: 本スペックのスコープ（表示不具合修正＋計算方法追加）を超える |
+
+## 設計統合（Synthesis）
+
+**Generalization**: REQ-47 は「計算方法という可変点に4つ目の値を足す」問題である。個別の分岐追加ではなく、**計算方法を単一情報源（`Record<CalculationMethod, ...>`）から引く形へ寄せる**ことで、値の追加漏れがコンパイルエラーとして現れる構造にした。ただし一般化するのはインターフェース（ラベル・フィールド定義の引き方）に留め、計算ロジックそのものは既存の switch を維持している（現要件が求める以上の抽象化はしない）。
+
+**Build vs. Adopt**: Portal ドロップダウンは自作せず、**同一リポジトリ内の検証済み実装（`AutocompleteInput`）を踏襲**する。外部ライブラリ（floating-ui 等）の導入は、依存追加のコストに見合う機能差がないため却下した。`createPortal` は既存依存（`react-dom`）で賄える。
+
+**Simplification**: 当初検討した「共通 Portal ドロップダウンフックの抽出」と「デッドコードの削除」はいずれも見送った。前者は動作中の実装を触るリスク、後者はスコープ外であり、どちらも現要件を満たすために必要ではない。**最小の設計は「1コンポーネントの描画先を変える」＋「可変点を Record へ寄せる」の2点に尽きる。**
+
+## 残存リスク
+
+| リスク | 影響 | 緩和策 |
+|---|---|---|
+| Portal 化に伴う閉じ挙動のデグレ（REQ-36 AC9） | 高 | 単体テストで outside-click / Escape / 項目選択後クローズの3経路を固定。E2E でも既存 REQ-36 の回帰を確認 |
+| `toFixed(2)` の分岐ミスによる既存書式の破壊 | 中 | `CalculationFields.test.tsx` に面積・体積／ピッチの小数2桁書式の回帰テストを追加 |
+| E2E がクリップを検出できないまま「修正済み」と誤判定する | 高 | `boundingBox()` による幾何検証と `parentElement === document.body` の直接確認を必須とする。`toBeVisible()` のみのアサーションは REQ-46 の証明として認めない |
+| pre-push の E2E 全件実行（約1.6時間）と受入基準100%カバレッジチェック | 中 | REQ-46（11 AC）・REQ-47（18 AC）の全 AC に対応する E2E を用意する。push はバックグラウンド実行する |
