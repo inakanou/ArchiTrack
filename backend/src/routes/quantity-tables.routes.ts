@@ -28,6 +28,7 @@ import {
   copyQuantityTableSchema,
   quantityTableIdParamSchema,
   projectIdParamSchema,
+  withCalculationParams,
 } from '../schemas/quantity-table.schema.js';
 import {
   QuantityTableNotFoundError,
@@ -158,27 +159,33 @@ const updateQuantityTableRequestSchema = updateQuantityTableSchema.extend({
  * 調整係数、丸め設定）と表示順を保持する。既存=UUID / 新規=null。
  * 新規項目はクライアント仮ID（tempId）を任意で付与できる。
  *
- * Requirements: 42.5
+ * 計算パラメータは `withCalculationParams` により計算方法（判別子）に対応するスキーマで
+ * 検証し、当該計算方法で使用しないキーは破棄したうえで永続化する（REQ-48 AC5, AC6）。
+ * パラメータの形状から計算方法を推測することはしない。
+ *
+ * Requirements: 42.5, 48.5, 48.6
  */
-const saveDraftItemSchema = z.object({
-  id: z.string().uuid('項目IDの形式が不正です').nullable(),
-  tempId: z.string().optional(),
-  majorCategory: z.string().max(100).nullable(),
-  middleCategory: z.string().max(100).nullable(),
-  minorCategory: z.string().max(100).nullable(),
-  customCategory: z.string().max(100).nullable(),
-  workType: z.string().max(100),
-  name: z.string().max(200),
-  specification: z.string().max(500).nullable(),
-  unit: z.string().max(50),
-  calculationMethod: z.enum(['STANDARD', 'AREA_VOLUME', 'PITCH']),
-  calculationParams: z.record(z.string(), z.number()).nullable(),
-  adjustmentFactor: z.number().positive(),
-  roundingUnit: z.number().positive(),
-  quantity: z.number(),
-  remarks: z.string().nullable(),
-  displayOrder: z.number().int().min(0),
-});
+const saveDraftItemSchema = withCalculationParams(
+  z.object({
+    id: z.string().uuid('項目IDの形式が不正です').nullable(),
+    tempId: z.string().optional(),
+    majorCategory: z.string().max(100).nullable(),
+    middleCategory: z.string().max(100).nullable(),
+    minorCategory: z.string().max(100).nullable(),
+    customCategory: z.string().max(100).nullable(),
+    workType: z.string().max(100),
+    name: z.string().max(200),
+    specification: z.string().max(500).nullable(),
+    unit: z.string().max(50),
+    calculationMethod: z.enum(['STANDARD', 'AREA_VOLUME', 'PITCH']),
+    calculationParams: z.record(z.string(), z.number()).nullable(),
+    adjustmentFactor: z.number().positive(),
+    roundingUnit: z.number().positive(),
+    quantity: z.number(),
+    remarks: z.string().nullable(),
+    displayOrder: z.number().int().min(0),
+  })
+);
 
 /**
  * フル状態同期保存（saveDraft）用のグループスキーマ

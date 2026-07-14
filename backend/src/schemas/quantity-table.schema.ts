@@ -14,11 +14,20 @@
  * - 5.3: 必須フィールド（工種・名称・単位・計算方法・調整係数・丸め設定・数量）が未入力で保存を試行する
  * - 5.4: 数量項目を選択して削除操作を行う
  * - 8.1: 計算方法列に「標準」をデフォルト値として設定する
+ * - 47.8: 「箇所数」フィールドを必須項目とし、入力可能範囲を1〜9999999の整数とする
+ * - 47.15: 計算方法が「箇所数」の数量項目を保存・再読み込みしても各値が完全復元される
+ * - 48.3-48.6: 計算パラメータの検証を計算方法（判別子）に対応する規則で行い、
+ *   パラメータの形状から計算方法を推測しない。指定された計算方法で使用しないキーは破棄する
  *
  * @module schemas/quantity-table
  */
 
 import { z } from 'zod';
+
+// 箇所数の入力可能範囲（REQ-47 AC8, AC11）の唯一の定義元は calculation-engine.ts。
+// 範囲の二重定義を避けるため、ここでは再定義せず import して参照する
+// （calculation-engine.ts は decimal.js のみに依存するため循環参照は生じない）。
+import { COUNT_MAX, COUNT_MIN } from '../services/calculation-engine.js';
 
 /**
  * バリデーションエラーメッセージ定数
@@ -93,6 +102,22 @@ export const QUANTITY_TABLE_VALIDATION_MESSAGES = {
 
   // 表示順序
   DISPLAY_ORDER_INVALID: '表示順序は0以上の整数を入力してください',
+
+  // 箇所数（REQ-47）
+  COUNT_REQUIRED: '箇所数は必須です',
+  COUNT_NOT_INTEGER: '箇所数は整数で入力してください',
+  COUNT_OUT_OF_RANGE: `箇所数は${COUNT_MIN}〜${COUNT_MAX}の範囲で入力してください`,
+
+  // ピッチ（文言は QuantityValidationService.validatePitchMode と一致させること）
+  RANGE_LENGTH_REQUIRED: '範囲長は必須です',
+  END_LENGTH1_REQUIRED: '端長1は必須です',
+  END_LENGTH2_REQUIRED: '端長2は必須です',
+  PITCH_LENGTH_REQUIRED: 'ピッチ長は必須です',
+
+  // 計算パラメータ（REQ-48）
+  CALCULATION_PARAMS_REQUIRED: '選択された計算方法に対応する計算パラメータを入力してください',
+  CALCULATION_METHOD_REQUIRED_FOR_PARAMS:
+    '計算パラメータを指定する場合は計算方法も指定してください',
 } as const;
 
 /**
@@ -294,30 +319,160 @@ export const areaVolumeParamsSchema = z.object({
  * Requirements: 8.8, 8.9
  */
 export const pitchParamsSchema = z.object({
-  rangeLength: z.number().positive(),
-  endLength1: z.number().nonnegative(),
-  endLength2: z.number().nonnegative(),
-  pitchLength: z.number().positive(),
+  rangeLength: z
+    .number({ error: QUANTITY_TABLE_VALIDATION_MESSAGES.RANGE_LENGTH_REQUIRED })
+    .positive(),
+  endLength1: z
+    .number({ error: QUANTITY_TABLE_VALIDATION_MESSAGES.END_LENGTH1_REQUIRED })
+    .nonnegative(),
+  endLength2: z
+    .number({ error: QUANTITY_TABLE_VALIDATION_MESSAGES.END_LENGTH2_REQUIRED })
+    .nonnegative(),
+  pitchLength: z
+    .number({ error: QUANTITY_TABLE_VALIDATION_MESSAGES.PITCH_LENGTH_REQUIRED })
+    .positive(),
   length: z.number().positive().optional(),
   weight: z.number().positive().optional(),
 });
 
 /**
- * 計算パラメータスキーマ（共用体）
+ * 箇所数計算パラメータスキーマ（REQ-47）
  *
- * 重要: pitchParamsSchemaを先に評価する必要がある。
- * areaVolumeParamsSchemaは全フィールドがオプショナルのため、
- * 先に評価されると任意のオブジェクトを受け入れて未知のキーを削除してしまう。
- * pitchParamsSchemaは必須フィールドがあるため、ピッチ計算パラメータがある場合のみマッチする。
+ * 箇所数（count）は必須・整数・1〜9999999（範囲は calculation-engine.ts が単一情報源）。
+ * 長さ（length）・重量（weight）は任意で、ピッチ計算と同一仕様の乗算に用いる。
+ *
+ * Requirements: 47.8, 47.10, 47.11
  */
-export const calculationParamsSchema = z.union([
-  pitchParamsSchema,
-  areaVolumeParamsSchema,
-  z.null(),
-]);
+export const countParamsSchema = z.object({
+  count: z
+    .number({ error: QUANTITY_TABLE_VALIDATION_MESSAGES.COUNT_REQUIRED })
+    .int(QUANTITY_TABLE_VALIDATION_MESSAGES.COUNT_NOT_INTEGER)
+    .min(COUNT_MIN, QUANTITY_TABLE_VALIDATION_MESSAGES.COUNT_OUT_OF_RANGE)
+    .max(COUNT_MAX, QUANTITY_TABLE_VALIDATION_MESSAGES.COUNT_OUT_OF_RANGE),
+  length: z.number().positive().optional(),
+  weight: z.number().positive().optional(),
+});
 
 /**
- * 数量項目作成用スキーマ
+ * 標準計算パラメータスキーマ（REQ-48）
+ *
+ * 計算方法「標準」は計算パラメータを持たない。空オブジェクト（または未指定）のみを
+ * 意味のある入力として扱い、他の計算方法のキーが残留していても zod の既定の strip 挙動で
+ * 破棄する（REQ-48 AC6）。
+ */
+export const standardParamsSchema = z.object({});
+
+/**
+ * 計算方法ごとの計算パラメータスキーマ対応表（REQ-48 AC5）
+ *
+ * 計算パラメータの検証は「パラメータの形状から計算方法を推測する」のではなく、
+ * 数量項目に設定された計算方法（判別子）に対応するスキーマを引いて行う。
+ * `Record<CalculationMethodType, ...>` としているため、`CALCULATION_METHODS` に
+ * 計算方法を追加した際にここへの追加漏れは型エラーになる。
+ */
+export const PARAMS_SCHEMA_BY_METHOD: Record<CalculationMethodType, z.ZodType> = {
+  STANDARD: standardParamsSchema,
+  AREA_VOLUME: areaVolumeParamsSchema,
+  PITCH: pitchParamsSchema,
+  COUNT: countParamsSchema,
+};
+
+/**
+ * 数量項目スキーマのうち、計算パラメータの判別に必要な最小形状
+ *
+ * `calculationParams` を単体で見ても計算方法は判別できないため、
+ * `z.discriminatedUnion` ではなく数量項目オブジェクト全体に検証を掛ける。
+ */
+interface CalculationParamsCarrier {
+  calculationMethod?: CalculationMethodType;
+  calculationParams?: unknown;
+}
+
+/**
+ * 計算パラメータの入力スキーマ（数値のみのレコード）
+ *
+ * 個々のキーの妥当性は `withCalculationParams` が計算方法に応じて検証・整形する。
+ * ここでは JSON として保存可能な「数値のみのレコード」であることのみを保証する。
+ */
+const calculationParamsInputSchema = z.record(z.string(), z.number()).nullable().optional();
+
+/**
+ * 数量項目スキーマに「計算方法を判別子とした計算パラメータ検証」を付与する（REQ-48）
+ *
+ * - 検証: `calculationMethod` に対応するスキーマ（{@link PARAMS_SCHEMA_BY_METHOD}）で
+ *   `calculationParams` を検証する。パラメータの形状から計算方法を推測しない（AC5）
+ * - 整形: 指定された計算方法で使用しないキーは zod の strip 挙動により破棄したうえで
+ *   永続化用の値に置き換える（AC6）。これにより「ピッチ→箇所数」「ピッチ→面積・体積」の
+ *   切替時に、残留した旧パラメータが新しい入力値を追い出す不具合（AC3, AC4）が解消される
+ *
+ * 部分更新（`updateQuantityItemSchema`）で `calculationMethod` も `calculationParams` も
+ * 指定されない場合は何もしない（既存の計算パラメータを不用意に null で上書きしないため）。
+ * `calculationParams` のみが指定され `calculationMethod` が無い場合は、形状推測を行わずに
+ * エラーとする（AC5）。
+ *
+ * @param itemSchema - 数量項目のオブジェクトスキーマ
+ * @returns 計算パラメータ検証を付与したスキーマ（元のスキーマ型を保つ）
+ */
+export function withCalculationParams<T extends z.ZodObject<z.ZodRawShape>>(itemSchema: T): T {
+  return itemSchema.superRefine((value, ctx) => {
+    const item = value as CalculationParamsCarrier;
+    const method = item.calculationMethod;
+    const hasParamsKey = item.calculationParams !== undefined;
+
+    // 計算方法が指定されていない部分更新
+    if (method === undefined) {
+      if (hasParamsKey && item.calculationParams !== null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['calculationParams'],
+          message: QUANTITY_TABLE_VALIDATION_MESSAGES.CALCULATION_METHOD_REQUIRED_FOR_PARAMS,
+        });
+      }
+      return;
+    }
+
+    const rawParams = item.calculationParams ?? null;
+
+    // 計算パラメータ未指定（null / 未設定）
+    if (rawParams === null) {
+      if (method === 'STANDARD') {
+        if (hasParamsKey) {
+          item.calculationParams = null;
+        }
+        return;
+      }
+      ctx.addIssue({
+        code: 'custom',
+        path: ['calculationParams'],
+        message: QUANTITY_TABLE_VALIDATION_MESSAGES.CALCULATION_PARAMS_REQUIRED,
+      });
+      return;
+    }
+
+    const result = PARAMS_SCHEMA_BY_METHOD[method].safeParse(rawParams);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['calculationParams', ...issue.path],
+          message: issue.message,
+        });
+      }
+      return;
+    }
+
+    // 指定された計算方法で使用しないキーを破棄した結果で置き換える（REQ-48 AC6）
+    item.calculationParams = result.data;
+  });
+}
+
+/**
+ * 数量項目作成用スキーマ（計算パラメータ検証を付与する前の素のオブジェクトスキーマ）
+ *
+ * zod v4 では refinement を持つオブジェクトスキーマに対して `.omit()` が使用できないため、
+ * `.omit()` / `.pick()` が必要な呼び出し元（例: `quantity-items.routes.ts` の
+ * リクエストボディスキーマ）はこの素のスキーマを加工したうえで
+ * {@link withCalculationParams} を適用すること。
  *
  * Requirements:
  * - 5.1: 数量グループ内で行追加操作を行う
@@ -325,7 +480,7 @@ export const calculationParamsSchema = z.union([
  * - 5.3: 必須フィールド（工種・名称・単位・計算方法・調整係数・丸め設定・数量）が未入力で保存を試行する
  * - 8.1: 計算方法列に「標準」をデフォルト値として設定する
  */
-export const createQuantityItemSchema = z.object({
+export const createQuantityItemBaseSchema = z.object({
   quantityGroupId: z
     .string()
     .min(1, QUANTITY_TABLE_VALIDATION_MESSAGES.GROUP_ID_REQUIRED)
@@ -369,7 +524,7 @@ export const createQuantityItemSchema = z.object({
 
   calculationMethod: z.enum(CALCULATION_METHODS).default('STANDARD'),
 
-  calculationParams: calculationParamsSchema.nullable().optional(),
+  calculationParams: calculationParamsInputSchema,
 
   adjustmentFactor: z
     .number()
@@ -393,14 +548,25 @@ export const createQuantityItemSchema = z.object({
 });
 
 /**
+ * 数量項目作成用スキーマ（計算方法を判別子とした計算パラメータ検証つき）
+ *
+ * Requirements: 48.3-48.6
+ */
+export const createQuantityItemSchema = withCalculationParams(createQuantityItemBaseSchema);
+
+/**
  * 数量項目作成入力の型
  */
 export type CreateQuantityItemInput = z.infer<typeof createQuantityItemSchema>;
 
 /**
- * 数量項目更新用スキーマ
+ * 数量項目更新用スキーマ（計算パラメータ検証を付与する前の素のオブジェクトスキーマ）
+ *
+ * `.omit()` / `.pick()` が必要な呼び出し元はこの素のスキーマを加工したうえで
+ * {@link withCalculationParams} を適用すること（zod v4 の制約。詳細は
+ * {@link createQuantityItemBaseSchema} のコメントを参照）。
  */
-export const updateQuantityItemSchema = z.object({
+export const updateQuantityItemBaseSchema = z.object({
   majorCategory: z
     .string()
     .max(100, QUANTITY_TABLE_VALIDATION_MESSAGES.MAJOR_CATEGORY_TOO_LONG)
@@ -460,7 +626,7 @@ export const updateQuantityItemSchema = z.object({
 
   calculationMethod: z.enum(CALCULATION_METHODS).optional(),
 
-  calculationParams: calculationParamsSchema.nullable().optional(),
+  calculationParams: calculationParamsInputSchema,
 
   adjustmentFactor: z
     .number()
@@ -482,6 +648,13 @@ export const updateQuantityItemSchema = z.object({
     .min(0, QUANTITY_TABLE_VALIDATION_MESSAGES.DISPLAY_ORDER_INVALID)
     .optional(),
 });
+
+/**
+ * 数量項目更新用スキーマ（計算方法を判別子とした計算パラメータ検証つき）
+ *
+ * Requirements: 48.3-48.6
+ */
+export const updateQuantityItemSchema = withCalculationParams(updateQuantityItemBaseSchema);
 
 /**
  * 数量項目更新入力の型

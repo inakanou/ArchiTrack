@@ -1773,7 +1773,7 @@
   - _Depends: 64.2_
 
 - [ ] 67. 判別子ベースの計算パラメータ検証（REQ-48 バックエンド）
-- [ ] 67.1 計算パラメータの検証を計算方法の判別子ベースへ変更する
+- [x] 67.1 計算パラメータの検証を計算方法の判別子ベースへ変更する
   - 計算パラメータの検証を「パラメータの形状から計算方法を推測する方式」から「数量項目の計算方法に対応するスキーマを選ぶ方式」へ変更する
   - 箇所数の計算パラメータスキーマ（箇所数は必須・1〜9999999の整数、長さ・重量は任意）を新設する
   - 指定された計算方法で使用しないキーは破棄したうえで永続化する
@@ -1952,3 +1952,4 @@
 - 64.3 (`useMemoizedCalculation.ts` の扱い): 実装者とレビュアーの双方が「COUNT が default 分岐で数量0になる」と指摘したが、**import 元ゼロのデッドコードであり実行時影響はない**（grep で確認済み）。design.md が Out of Boundary として明示的に据え置くと決定しているため、**COUNT 対応も削除も行わないこと**。
 - 65.1 (後続タスクへの申し送り): (a) 計算式文字列の書式は `generatePitchFormula()` に合わせ `toFixed` を使わない素の値（`5 x 2.5 x 1.5 = 18.75`）。design.md の例示が小数2桁になっていた誤りを訂正済み。小数2桁は入力フィールドの表示整形（68.2）の話で計算式文字列とは別物。 (b) `calculateCount()` は箇所数が未入力・整数以外・範囲外だと**例外を投げる**（既存の `calculatePitch()` と同じ流儀）。68.3 の UI 結線では、既存の面積・体積／ピッチと同様に **`calculate()` 呼び出しを try/catch でガードし、例外時は数量を更新しない**こと。 (c) `calculation-engine.ts` に `COUNT_MIN`(1) / `COUNT_MAX`(9999999) を定義済み。66.1 の整数範囲バリデーションはこれを参照し、範囲の二重定義を避けること。
 - 66.2 (後続タスクへの申し送り): (a) `quantity-validation.service.ts` の `CalculationMethodType` は独自リテラル union をやめ、`quantity-table.schema.ts` の `CALCULATION_METHODS` から `import type` で派生させた（循環 import なし。schema 側は zod のみに依存）。**計算方法の列挙を新たに書き足す場面では、必ず `CALCULATION_METHODS` を単一情報源として参照すること**（67.2 のルート側ハードコード解消も同じ方針）。 (b) `validateQuantityItem` の switch に `default` 節を追加し、未知の計算方法を `field: 'calculationMethod'` の検証エラーにした（従来は無検証で `isValid: true` を返していた）。 (c) COUNT モードでは `length` / `weight` を検証しない。これは既存 `validatePitchMode` が任意項目を検証していないのと同一の流儀で、REQ-47 の「ピッチと同一挙動」と整合する。
+- 67.1 (後続タスクへの申し送り・重要): (a) 旧 `calculationParamsSchema`（形状推測の `z.union`）は**削除済み**。計算パラメータの検証は `PARAMS_SCHEMA_BY_METHOD`（`Record<CalculationMethodType, z.ZodType>`）＋ `withCalculationParams()` に一本化した。新規に計算パラメータを検証する箇所を書く場合は必ずこれを使うこと。 (b) `withCalculationParams()` は `superRefine` 内で出力オブジェクトの `calculationParams` を破棄後の値に差し替える。zod v4 の ZodObject が入力とは別の出力オブジェクトを生成するため `req.body` は汚染されない（レビューで実測確認済み）。 (c) **地雷**: refinement を持つスキーマに `.omit()` / `.partial()` を掛けると zod v4 は実行時例外を投げる。派生が必要な場合は素の `createQuantityItemBaseSchema` / `updateQuantityItemBaseSchema` から派生させ、最後に `withCalculationParams()` を再付与すること（`.extend()` は refinement を保持するので可）。 (d) 検証層の前倒しにより、必須パラメータ欠落は service 層ではなく zod 段階で 400 になる。セル単位エラー表示（REQ-11.4 / 42.9）の文言が英文へ劣化しないよう、ピッチの必須4キーにも `QuantityValidationService.validatePitchMode` と同一の日本語メッセージを付与済み。**計算パラメータのスキーマに必須項目を足す際は日本語メッセージを必ず添えること**。 (e) 一括保存の `saveDraftItemSchema` の計算方法 enum は `['STANDARD','AREA_VOLUME','PITCH']` のままで COUNT は 400 になる。**67.2 で解消すること**。
