@@ -38,6 +38,7 @@ import UnsavedChangesBadge from '../components/quantity-table/UnsavedChangesBadg
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
 import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExportService';
+import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
 import { downloadPdf } from '../services/export/PdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
@@ -1174,12 +1175,7 @@ export default function QuantityTableEditPage() {
               workType: item.workType || '',
               name: item.name || '',
               specification: item.specification || '',
-              calculationMethod:
-                item.calculationMethod === 'STANDARD'
-                  ? '標準'
-                  : item.calculationMethod === 'AREA_VOLUME'
-                    ? '面積・体積'
-                    : 'ピッチ',
+              calculationMethod: CALCULATION_METHOD_LABELS[item.calculationMethod],
               quantity: String(item.quantity),
               unit: item.unit || '',
               remarks: item.remarks || '',
