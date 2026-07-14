@@ -9,11 +9,19 @@
  * - 8.8: 「ピッチ」モードで計算用列として「範囲長」「端長1」「端長2」「ピッチ長」「長さ」「重量」入力フィールドを表示する
  * - 8.9: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）に値が入力される場合、ピッチ計算式に基づいて本数を算出する
  * - 8.11: 計算用列の値変更時に数量を自動再計算する
+ * - 8.13: 「箇所数」モードで計算用列として「箇所数」「長さ」「重量」「調整係数」「丸め設定」をこの順序で表示する
+ * - 37.13: 「箇所数」モードの計算用フィールドをメイン行の操作列の右側に水平配置する
+ * - 47.2 / 47.12-47.14: 計算方法「箇所数」のフィールド群を表示し、ピッチ固有フィールドを非表示にする
+ * - 9.1 / 10.1: 標準以外の計算方法で調整係数・丸め設定を計算用フィールドの末尾に表示する
+ *
+ * Task 68.1: 計算用フィールド定義を計算方法ごとの Record（FIELDS_BY_METHOD）へ置換する。
+ * 二値の三項演算子（`method === 'AREA_VOLUME' ? AREA_VOLUME_FIELDS : PITCH_FIELDS`）は、
+ * 第4の計算方法（COUNT）を無言でピッチのフィールド群にフォールバックさせるため廃止した。
  */
 
 import { useCallback, useId, useState } from 'react';
 import type { CalculationMethod, CalculationParams } from '../../types/quantity-edit.types';
-import type { AreaVolumeParams, PitchParams } from '../../utils/calculation-engine';
+import type { AreaVolumeParams, PitchParams, CountParams } from '../../utils/calculation-engine';
 
 // ============================================================================
 // 型定義
@@ -44,11 +52,18 @@ export interface CalculationFieldsProps {
 /**
  * フィールド定義
  */
-interface FieldDefinition {
+export interface FieldDefinition {
   key: string;
   label: string;
   required?: boolean;
   step?: number;
+  /**
+   * 真の場合、整数のみを受け付け、小数桁を付与せずに表示する（REQ-47 AC8, REQ-14 AC6）
+   *
+   * 注: 表示整形（`toFixed(2)` の整数分岐）と入力制御は Task 68.2 で実装する。
+   * 本タスク（68.1）ではフィールド定義のメタ情報として保持するに留める。
+   */
+  integer?: boolean;
 }
 
 // ============================================================================
@@ -76,6 +91,34 @@ const PITCH_FIELDS: FieldDefinition[] = [
   { key: 'length', label: '長さ', step: 0.01 },
   { key: 'weight', label: '重量', step: 0.01 },
 ];
+
+/**
+ * 箇所数モードのフィールド定義（REQ-47 AC2, AC8）
+ *
+ * 表示順序: 箇所数 → 長さ → 重量（この後に調整係数 → 丸め設定が続く）
+ */
+const COUNT_FIELDS: FieldDefinition[] = [
+  { key: 'count', label: '箇所数', required: true, integer: true },
+  { key: 'length', label: '長さ', step: 0.01 },
+  { key: 'weight', label: '重量', step: 0.01 },
+];
+
+/**
+ * 計算方法ごとのフィールド定義（REQ-47 AC13, AC14）
+ *
+ * 「標準」は計算用フィールドを持たないため Record から除外する。
+ * `Record<Exclude<CalculationMethod, 'STANDARD'>, ...>` としているため、
+ * `CalculationMethod` に計算方法を追加するとキーの定義漏れがコンパイルエラーになる。
+ * 三項演算子と異なり、未定義の計算方法が他方式のフィールド群へ無言でフォールバックすることはない。
+ *
+ * `utils/calculation-method.ts` の `PARAM_KEYS_BY_METHOD` は本定義のキー集合と一致する
+ * 必要がある（CalculationFields.test.tsx の整合性テストで担保する）。
+ */
+export const FIELDS_BY_METHOD: Record<Exclude<CalculationMethod, 'STANDARD'>, FieldDefinition[]> = {
+  AREA_VOLUME: AREA_VOLUME_FIELDS,
+  PITCH: PITCH_FIELDS,
+  COUNT: COUNT_FIELDS,
+};
 
 // ============================================================================
 // スタイル定義
@@ -383,6 +426,7 @@ function AdjustmentField({
  * - 標準モード: メッセージのみ表示
  * - 面積・体積モード: 幅、奥行き、高さ、重量、調整係数、丸め設定
  * - ピッチモード: 範囲長、端長1、端長2、ピッチ長、長さ、重量、調整係数、丸め設定
+ * - 箇所数モード: 箇所数、長さ、重量、調整係数、丸め設定（REQ-47 AC2）
  */
 export default function CalculationFields({
   method,
@@ -436,11 +480,11 @@ export default function CalculationFields({
     );
   }
 
-  // 計算方法に応じたフィールド定義を取得
-  const fields = method === 'AREA_VOLUME' ? AREA_VOLUME_FIELDS : PITCH_FIELDS;
+  // 計算方法に応じたフィールド定義を取得（REQ-47 AC13, AC14: フォールバックしない）
+  const fields = FIELDS_BY_METHOD[method];
 
   // パラメータを取得（型アサーション）
-  const currentParams = (params ?? {}) as AreaVolumeParams | PitchParams;
+  const currentParams = (params ?? {}) as AreaVolumeParams | PitchParams | CountParams;
 
   return (
     <div style={styles.container}>

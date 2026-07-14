@@ -14,9 +14,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import CalculationFields from './CalculationFields';
-import type { AreaVolumeParams, PitchParams } from '../../utils/calculation-engine';
-import type { CalculationParams } from '../../types/quantity-edit.types';
+import CalculationFields, { FIELDS_BY_METHOD } from './CalculationFields';
+import type { AreaVolumeParams, PitchParams, CountParams } from '../../utils/calculation-engine';
+import { CALCULATION_METHOD_ORDER, PARAM_KEYS_BY_METHOD } from '../../utils/calculation-method';
+import type { CalculationMethod, CalculationParams } from '../../types/quantity-edit.types';
 
 describe('CalculationFields', () => {
   afterEach(() => {
@@ -318,6 +319,132 @@ describe('CalculationFields', () => {
       fireEvent.blur(input);
 
       expect(onChange).toHaveBeenCalledWith({ rangeLength: 1000, endLength1: 50 });
+    });
+  });
+
+  // ============================================================================
+  // 箇所数モード表示テスト（Task 68.1 / REQ-47 AC2, AC13, REQ-37 AC13, REQ-8 AC13）
+  //
+  // 現行実装は `method === 'AREA_VOLUME' ? AREA_VOLUME_FIELDS : PITCH_FIELDS` という
+  // 二値の三項演算子であり、COUNT は無言でピッチのフィールド群へフォールバックする。
+  // 以下のテストはその欠陥を直接検出する。
+  // ============================================================================
+
+  describe('箇所数モード - 表示', () => {
+    it('箇所数・長さ・重量・調整係数・丸め設定がこの順序で表示される（REQ-47 AC2）', () => {
+      const { container } = render(
+        <CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />
+      );
+
+      const inputs = Array.from(container.querySelectorAll('input')) as HTMLInputElement[];
+      const labelTexts = inputs.map((input) => {
+        const wrapper = input.parentElement as HTMLElement;
+        const labelEl = wrapper.querySelector('label');
+        return (labelEl?.textContent ?? '').replace('*', '').trim();
+      });
+
+      expect(labelTexts).toEqual(['箇所数', '長さ', '重量', '調整係数', '丸め設定']);
+    });
+
+    it('ピッチ固有のフィールド（範囲長・端長1・端長2・ピッチ長）が表示されない（REQ-47 AC13）', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />);
+
+      expect(screen.queryByLabelText(/範囲長/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/端長1/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/端長2/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/ピッチ長/i)).not.toBeInTheDocument();
+    });
+
+    it('面積・体積固有のフィールド（幅・奥行き・高さ）が表示されない', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />);
+
+      expect(screen.queryByLabelText(/幅/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/奥行き/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/高さ/i)).not.toBeInTheDocument();
+    });
+
+    it('箇所数フィールドが必須マーク付きで表示される（REQ-47 AC8）', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />);
+
+      const countInput = screen.getByLabelText(/箇所数/i);
+      expect(countInput).toBeInTheDocument();
+      expect(countInput).toHaveAttribute('aria-required', 'true');
+      expect(screen.getByText(/箇所数/i).textContent).toContain('*');
+    });
+
+    it('長さ・重量は任意項目として必須マークなしで表示される', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />);
+
+      // 任意項目は required 未指定のため aria-required 属性を持たない（既存のピッチ「長さ」と同一の挙動）
+      expect(screen.getByLabelText('長さ')).not.toHaveAttribute('aria-required');
+      expect(screen.getByLabelText(/重量/i)).not.toHaveAttribute('aria-required');
+      expect(screen.getByText('長さ').textContent).not.toContain('*');
+      expect(screen.getByText('重量').textContent).not.toContain('*');
+    });
+
+    it('各フィールドの wrapper が flex-direction: row で label が input の左に水平配置される（REQ-37 AC13）', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />);
+
+      const labels = [/箇所数/i, '長さ', /重量/i, /調整係数/i, /丸め設定/i] as Array<
+        string | RegExp
+      >;
+      for (const labelText of labels) {
+        const input = screen.getByLabelText(labelText) as HTMLInputElement;
+        const wrapper = input.parentElement as HTMLElement;
+        expect(wrapper.style.display).toBe('flex');
+        expect(wrapper.style.flexDirection).toBe('row');
+        const labelEl = wrapper.querySelector('label') as HTMLLabelElement;
+        expect(labelEl.htmlFor).toBe(input.id);
+        expect(labelEl.style.height).toBe('14px');
+        expect(input.style.height).toBe('22px');
+      }
+    });
+
+    it('disabledがtrueの場合、全てのフィールドが無効化される', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={true} />);
+
+      expect(screen.getByLabelText(/箇所数/i)).toBeDisabled();
+      expect(screen.getByLabelText('長さ')).toBeDisabled();
+      expect(screen.getByLabelText(/重量/i)).toBeDisabled();
+    });
+  });
+
+  // ============================================================================
+  // 箇所数モード入力テスト（Task 68.1 / REQ-47 AC3, AC12）
+  // ============================================================================
+
+  describe('箇所数モード - 入力', () => {
+    let onChange: Mock<(params: CalculationParams) => void>;
+
+    beforeEach(() => {
+      onChange = vi.fn();
+    });
+
+    it('箇所数を入力するとonChangeが呼ばれる', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);
+
+      const input = screen.getByLabelText(/箇所数/i);
+      fireEvent.change(input, { target: { value: '5' } });
+      fireEvent.blur(input);
+
+      expect(onChange).toHaveBeenCalledWith({ count: 5 });
+    });
+
+    it('既存の箇所数がある場合、長さの入力とマージされる', () => {
+      render(
+        <CalculationFields
+          method="COUNT"
+          params={{ count: 5 } as CountParams}
+          onChange={onChange}
+          disabled={false}
+        />
+      );
+
+      const input = screen.getByLabelText('長さ');
+      fireEvent.change(input, { target: { value: '6' } });
+      fireEvent.blur(input);
+
+      expect(onChange).toHaveBeenCalledWith({ count: 5, length: 6 });
     });
   });
 
@@ -719,6 +846,62 @@ describe('CalculationFields', () => {
           expect(totalVerticalHeight).toBe(36);
         }
       });
+    });
+  });
+
+  // ============================================================================
+  // フィールド定義 Record の網羅性・単一情報源テスト（Task 68.1 / REQ-47 AC13, AC14）
+  //
+  // FIELDS_BY_METHOD は `Record<Exclude<CalculationMethod, 'STANDARD'>, FieldDefinition[]>`
+  // であり、計算方法の追加時にキーの定義漏れがコンパイルエラーになる。
+  // 実行時にも「全計算方法が網羅されていること」「PARAM_KEYS_BY_METHOD とキーが
+  // 二重管理でずれていないこと」を検証し、無言のフォールバックを構造的に防ぐ。
+  // ============================================================================
+
+  describe('FIELDS_BY_METHOD（フィールド定義の対応表）', () => {
+    it('「標準」を除く全計算方法をキーとして網羅している', () => {
+      const expectedMethods = CALCULATION_METHOD_ORDER.filter((m) => m !== 'STANDARD');
+
+      expect(Object.keys(FIELDS_BY_METHOD).sort()).toEqual([...expectedMethods].sort());
+    });
+
+    it('各計算方法のフィールドキーが PARAM_KEYS_BY_METHOD と一致する（キーの二重管理を防ぐ）', () => {
+      for (const method of CALCULATION_METHOD_ORDER) {
+        const fieldKeys =
+          method === 'STANDARD'
+            ? []
+            : FIELDS_BY_METHOD[method as Exclude<CalculationMethod, 'STANDARD'>].map((f) => f.key);
+
+        expect(fieldKeys).toEqual([...PARAM_KEYS_BY_METHOD[method]]);
+      }
+    });
+
+    it('箇所数モードのフィールドが「箇所数（必須・整数）→ 長さ → 重量」で定義されている', () => {
+      expect(FIELDS_BY_METHOD.COUNT).toEqual([
+        { key: 'count', label: '箇所数', required: true, integer: true },
+        { key: 'length', label: '長さ', step: 0.01 },
+        { key: 'weight', label: '重量', step: 0.01 },
+      ]);
+    });
+
+    it('既存2方式（面積・体積／ピッチ）のフィールド定義が変わっていない（回帰防止）', () => {
+      expect(FIELDS_BY_METHOD.AREA_VOLUME.map((f) => f.key)).toEqual([
+        'width',
+        'depth',
+        'height',
+        'weight',
+      ]);
+      expect(FIELDS_BY_METHOD.PITCH.map((f) => f.key)).toEqual([
+        'rangeLength',
+        'endLength1',
+        'endLength2',
+        'pitchLength',
+        'length',
+        'weight',
+      ]);
+      // 整数フィールドは箇所数のみ（既存フィールドの表示書式は不変）
+      expect(FIELDS_BY_METHOD.AREA_VOLUME.some((f) => f.integer)).toBe(false);
+      expect(FIELDS_BY_METHOD.PITCH.some((f) => f.integer)).toBe(false);
     });
   });
 
