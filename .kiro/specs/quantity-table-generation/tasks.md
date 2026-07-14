@@ -1738,7 +1738,7 @@
   - _Depends: 64.3_
 
 - [ ] 65. 計算ロジック: 箇所数計算（REQ-47）
-- [ ] 65.1 (P) フロントエンドの計算エンジンに箇所数計算を追加する
+- [x] 65.1 (P) フロントエンドの計算エンジンに箇所数計算を追加する
   - 手入力された箇所数を起点に、長さ・重量が入力されている場合のみ乗算して計算結果を求める
   - 調整係数の適用と丸め処理は既存の共通経路をそのまま通し、ピッチと同一の後段処理になることを構造的に保証する
   - 計算式文字列の生成をピッチと同じ書式で行う
@@ -1950,3 +1950,4 @@
 - 64.1 (既存スキーマドリフト・要注意): `prisma migrate dev` は本スペックと無関係な `ALTER INDEX "progress_record_items_progressRecordId_executionBudgetItemId_ke" RENAME TO "..._I_key"` を自動混入させる。真因は `20260318100000_add_execution_budget_models/migration.sql:152` が64文字のインデックス名を宣言し、PostgreSQL の63バイト上限で切り詰められること。マイグレーションから構築した全DB（本番含む）に存在する恒久的ドリフトで、Prisma のデータモデル期待名と食い違い続ける。**今後 `prisma migrate dev` を実行する際は、生成SQLからこの RenameIndex を必ず削除すること**（気付かず commit すると本番スキーマを意図せず変更する）。スクラッチDBでのゼロからの deploy とdev DBのインデックス名が一致することを実測確認済み。別タスクでの是正を推奨。
 - 64.3 (タスク定義の誤りを訂正): 「型に値を足せば網羅漏れが型エラーで顕在化する」は**誤り**。フォールバック箇所（`CalculationFields.tsx:440` の三項演算子、`QuantityTableEditPage.tsx:1177-1182` のネスト三項、`CalculationMethodSelect.tsx:45-49` の配列リテラル、`calculation-engine.ts:222-241` の default 付き switch、`useQuantityTableSave.ts:298-316` の if 連鎖）はいずれも網羅性チェックを持たず、`'COUNT'` を追加しても型チェックは0エラーで通過する。**コンパイラに頼って漏れを見つけることはできない**ため、後続の対応表化（64.4・68.1・68.3・68.5）を明示的に完遂すること。
 - 64.3 (`useMemoizedCalculation.ts` の扱い): 実装者とレビュアーの双方が「COUNT が default 分岐で数量0になる」と指摘したが、**import 元ゼロのデッドコードであり実行時影響はない**（grep で確認済み）。design.md が Out of Boundary として明示的に据え置くと決定しているため、**COUNT 対応も削除も行わないこと**。
+- 65.1 (後続タスクへの申し送り): (a) 計算式文字列の書式は `generatePitchFormula()` に合わせ `toFixed` を使わない素の値（`5 x 2.5 x 1.5 = 18.75`）。design.md の例示が小数2桁になっていた誤りを訂正済み。小数2桁は入力フィールドの表示整形（68.2）の話で計算式文字列とは別物。 (b) `calculateCount()` は箇所数が未入力・整数以外・範囲外だと**例外を投げる**（既存の `calculatePitch()` と同じ流儀）。68.3 の UI 結線では、既存の面積・体積／ピッチと同様に **`calculate()` 呼び出しを try/catch でガードし、例外時は数量を更新しない**こと。 (c) `calculation-engine.ts` に `COUNT_MIN`(1) / `COUNT_MAX`(9999999) を定義済み。66.1 の整数範囲バリデーションはこれを参照し、範囲の二重定義を避けること。

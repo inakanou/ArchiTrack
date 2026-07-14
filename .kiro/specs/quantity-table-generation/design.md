@@ -2526,7 +2526,7 @@ export function calculateCount(params: CountParams): {
 
 **Implementation Notes**
 
-- 計算式文字列: `generateCountFormula()` は `5 x 2.50 x 1.50 = 18.75` の形式で生成する（既存 `generatePitchFormula()` の書式に揃える）
+- 計算式文字列: `generateCountFormula()` は `5 x 2.5 x 1.5 = 18.75` の形式で生成する（既存 `generatePitchFormula()` の書式に揃える。同関数は `toFixed` を使わず素の値を埋め込むため、小数2桁で揃えない。小数2桁は入力フィールドの**表示整形**の話であり、計算式文字列とは別物）
 - switch 分岐: `frontend/src/utils/calculation-engine.ts:222-241` と `backend/src/services/calculation-engine.ts:203-221` の双方に `case COUNT` を追加する
 
 #### CalculationFields（フィールド定義の Record 化と整数入力）
