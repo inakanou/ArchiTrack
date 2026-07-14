@@ -560,6 +560,7 @@ enum CalculationMethod {
   STANDARD // 標準（直接入力）
   AREA_VOLUME // 面積・体積
   PITCH // ピッチ
+  COUNT // 箇所数
 }
 
 /**
