@@ -23,6 +23,7 @@ import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
 import {
+  CALCULATION_METHODS,
   createQuantityTableSchema,
   updateQuantityTableSchema,
   copyQuantityTableSchema,
@@ -159,11 +160,15 @@ const updateQuantityTableRequestSchema = updateQuantityTableSchema.extend({
  * 調整係数、丸め設定）と表示順を保持する。既存=UUID / 新規=null。
  * 新規項目はクライアント仮ID（tempId）を任意で付与できる。
  *
+ * 計算方法は `CALCULATION_METHODS`（quantity-table.schema.ts）を単一情報源として参照する。
+ * リテラルを直書きすると計算方法の追加時にここへの追随漏れが起き、当該計算方法の数量項目を
+ * 含む数量表の保存が 400 で弾かれる（「箇所数」で実際に発生した不具合。REQ-47 AC15, AC18）。
+ *
  * 計算パラメータは `withCalculationParams` により計算方法（判別子）に対応するスキーマで
  * 検証し、当該計算方法で使用しないキーは破棄したうえで永続化する（REQ-48 AC5, AC6）。
  * パラメータの形状から計算方法を推測することはしない。
  *
- * Requirements: 42.5, 48.5, 48.6
+ * Requirements: 42.5, 47.15, 47.18, 48.5, 48.6
  */
 const saveDraftItemSchema = withCalculationParams(
   z.object({
@@ -177,7 +182,7 @@ const saveDraftItemSchema = withCalculationParams(
     name: z.string().max(200),
     specification: z.string().max(500).nullable(),
     unit: z.string().max(50),
-    calculationMethod: z.enum(['STANDARD', 'AREA_VOLUME', 'PITCH']),
+    calculationMethod: z.enum(CALCULATION_METHODS),
     calculationParams: z.record(z.string(), z.number()).nullable(),
     adjustmentFactor: z.number().positive(),
     roundingUnit: z.number().positive(),
