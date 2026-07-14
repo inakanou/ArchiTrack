@@ -1816,7 +1816,7 @@
   - _Boundary: CalculationFields_
   - _Depends: 68.1, 66.1_
 
-- [ ] 68.3 計算方法セレクトと数量計算の配線を箇所数へ対応させる
+- [x] 68.3 計算方法セレクトと数量計算の配線を箇所数へ対応させる
   - セレクトボックスの選択肢をレジストリ参照へ切り替え、「箇所数」を選択可能にする
   - 箇所数モードで計算用フィールドの値が変わるたびに数量が自動再計算されるようにする
   - 観測可能完了条件: セレクトで「箇所数」を選び、箇所数=5・長さ=2.00・重量=1.50 を入力すると数量が 15.00 と表示される
@@ -1955,5 +1955,6 @@
 - 67.1 (後続タスクへの申し送り・重要): (a) 旧 `calculationParamsSchema`（形状推測の `z.union`）は**削除済み**。計算パラメータの検証は `PARAMS_SCHEMA_BY_METHOD`（`Record<CalculationMethodType, z.ZodType>`）＋ `withCalculationParams()` に一本化した。新規に計算パラメータを検証する箇所を書く場合は必ずこれを使うこと。 (b) `withCalculationParams()` は `superRefine` 内で出力オブジェクトの `calculationParams` を破棄後の値に差し替える。zod v4 の ZodObject が入力とは別の出力オブジェクトを生成するため `req.body` は汚染されない（レビューで実測確認済み）。 (c) **地雷**: refinement を持つスキーマに `.omit()` / `.partial()` を掛けると zod v4 は実行時例外を投げる。派生が必要な場合は素の `createQuantityItemBaseSchema` / `updateQuantityItemBaseSchema` から派生させ、最後に `withCalculationParams()` を再付与すること（`.extend()` は refinement を保持するので可）。 (d) 検証層の前倒しにより、必須パラメータ欠落は service 層ではなく zod 段階で 400 になる。セル単位エラー表示（REQ-11.4 / 42.9）の文言が英文へ劣化しないよう、ピッチの必須4キーにも `QuantityValidationService.validatePitchMode` と同一の日本語メッセージを付与済み。**計算パラメータのスキーマに必須項目を足す際は日本語メッセージを必ず添えること**。 (e) 一括保存の `saveDraftItemSchema` の計算方法 enum は `['STANDARD','AREA_VOLUME','PITCH']` のままで COUNT は 400 になる。**67.2 で解消すること**。
 - 68.1 (後続タスクへの申し送り): (a) `CalculationFields.tsx` に `FIELDS_BY_METHOD: Record<Exclude<CalculationMethod,'STANDARD'>, FieldDefinition[]>` を新設・export した。`STANDARD` を除外できるのは本体冒頭の `if (method === 'STANDARD') return ...` 早期リターンで型が絞り込まれるため（危険なキャストは不使用）。**この早期リターンを外すとコンパイルエラーになる（fail-loud）**。 (b) `FieldDefinition` に `integer?: boolean` を追加し `COUNT_FIELDS.count` に付与済み。ただし**メタ情報を持たせただけで `NumberInputField` へは渡していない**。整数の表示整形・入力制御は 68.2 の担当（現状 COUNT の箇所数は「5.00」と表示される）。 (c) `FIELDS_BY_METHOD` と `calculation-method.ts` の `PARAM_KEYS_BY_METHOD` はキーが二重管理になるが、**片方だけ変更すると落ちる整合性テスト**で束縛済み。どちらかを変更する場合は必ず両方を揃えること。
 - 68.2 (後続タスクへの申し送り): (a) 3経路の書式分岐は `formatFieldValue(value, integer)` の1関数に集約した（`useState` 初期値 / props 同期 / blur）。**新たに整形経路を足す場合は必ずこの関数を経由させること**。分岐が散ると「blur だけ整数化して props 同期で 5.00 に戻る」不整合が再発する。 (b) 整数・範囲の判定は 66.1 の `validateNumericRange(value, 'count')` に**完全委譲**した。`CalculationFields.tsx` 側にリテラル（`Number.isInteger` / `1` / `9999999`）を直書きしないこと。 (c) **REQ-47 AC10/AC11 の「拒否」を、blur 時に onChange を呼ばない実装で表現した**。結果として、不正値を入れて blur するとエラー表示のまま入力欄には不正テキストが残り、親の `calculationParams` は直前の正当値を保持する。**68.6（保存前整合性チェック）で「エラー表示中の保存」の扱いを検討すること**（画面のテキストと保存値が一時的に食い違う）。既存 `AdjustmentField` は「既定値へ強制＋警告」で流儀が異なるが、これは AdjustmentField に拒否要件が無いための差。
-- フロント単体テストのベースライン: **425 files / 9704 tests passed**（68.2 完了時点）。
+- 68.3 (調査結果・後続タスクへの申し送り): **`EditableQuantityItemRow.tsx` は最初から COUNT を取りこぼしていなかった**。4つの再計算ハンドラはいずれも計算方法を列挙せず `!== 'STANDARD'` で分岐し、`calculate()` に `calculationParams` を丸ごと渡すため、`case 'COUNT'`（65.1）があれば `count` は素通しで届く。調整係数・丸めも同じ共通後段を通るのでピッチと同一の挙動が構造的に保証される（レビューで grep 実測確認）。無言のフォールバックは `CalculationMethodSelect.tsx:45-49` の配列リテラルのみで、実コード変更もそこだけ。**この「計算方法を列挙しない」構造を壊さないこと**（列挙を書いた瞬間に第5の計算方法で同じ不具合が再発する）。
+- フロント単体テストのベースライン: **425 files / 9717 tests passed**（68.3 完了時点）。
 - 67.3 (統合テストの実行環境): 統合テストは `.env.test` を前提とする `npm run test:docker` が標準だが、当該ファイルはローカルに存在しない。CI と同等構成（postgres:5433 / redis:6380。`vitest.global-setup.ts` の既定ポート）を素の `docker run` で用意すれば `npm --prefix backend run test:integration` が動く。統合テストのベースラインは **35 files / 710 tests passed**。

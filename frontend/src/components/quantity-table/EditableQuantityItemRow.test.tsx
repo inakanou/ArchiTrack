@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
@@ -1738,6 +1739,305 @@ describe('EditableQuantityItemRow', () => {
           expect(mainRow.contains(input)).toBe(true);
         }
       });
+    });
+  });
+
+  // ============================================================================
+  // Task 68.3: 計算方法「箇所数」（COUNT）のセレクト配線と数量自動再計算
+  //
+  // Requirements:
+  // - 47.1: 計算方法の選択肢に「箇所数」を含める
+  // - 47.2: 「箇所数」選択時に「箇所数」「長さ」「重量」「調整係数」「丸め設定」を表示する
+  // - 47.12: 箇所数・長さ・重量・調整係数・丸め設定のいずれかの変更時に最終数量を自動再計算する
+  // - 8.12: 計算方法の選択肢として「標準」「面積・体積」「ピッチ」「箇所数」を提供する
+  // - 8.14: 「箇所数」モードで箇所数が入力されると、任意項目を乗算した結果を数量として自動設定する
+  // ============================================================================
+  describe('Task 68.3: 計算方法「箇所数」（REQ-47.1, 47.2, 47.12 / REQ-8.12, 8.14）', () => {
+    /**
+     * 数量の「表示」を検証するためのステートフルなラッパー。
+     * onUpdate を item へ反映することで、実画面と同じ再計算 → 再描画の経路を通す。
+     */
+    function StatefulRow({ initialItem }: { initialItem: QuantityItemDetail }) {
+      const [item, setItem] = useState<QuantityItemDetail>(initialItem);
+      return (
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={item}
+          onUpdate={(_itemId, updates) => {
+            setItem((prev) => ({ ...prev, ...updates }));
+          }}
+        />
+      );
+    }
+
+    it('計算方法セレクトで「箇所数」を選択でき、計算用フィールド（箇所数・長さ・重量・調整係数・丸め設定）が表示される（REQ-47.1 / REQ-47.2）', async () => {
+      const user = userEvent.setup();
+      render(<StatefulRow initialItem={{ ...mockItem, calculationMethod: 'STANDARD' }} />);
+
+      const select = screen.getByRole('combobox', { name: /計算方法/ }) as HTMLSelectElement;
+      await user.selectOptions(select, 'COUNT');
+
+      expect(select.value).toBe('COUNT');
+      for (const labelText of [/^箇所数/, '長さ', /^重量/, /^調整係数/, /^丸め設定/] as Array<
+        string | RegExp
+      >) {
+        expect(screen.getByLabelText(labelText)).toBeInstanceOf(HTMLInputElement);
+      }
+      // ピッチ固有のフィールドは表示されない（REQ-47.13）
+      expect(screen.queryByLabelText(/^範囲長/)).toBeNull();
+      expect(screen.queryByLabelText(/^ピッチ長/)).toBeNull();
+    });
+
+    it('観測可能完了条件: 「箇所数」を選び 箇所数=5・長さ=2.00・重量=1.50 を入力すると数量が 15.00 と表示される（REQ-8.14 / REQ-47.12）', async () => {
+      const user = userEvent.setup();
+      render(
+        <StatefulRow
+          initialItem={{
+            ...mockItem,
+            calculationMethod: 'STANDARD',
+            calculationParams: null,
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+            quantity: 0,
+          }}
+        />
+      );
+
+      await user.selectOptions(screen.getByRole('combobox', { name: /計算方法/ }), 'COUNT');
+
+      const countInput = screen.getByLabelText(/^箇所数/);
+      await user.clear(countInput);
+      await user.type(countInput, '5');
+      await user.tab();
+
+      const lengthInput = screen.getByLabelText('長さ');
+      await user.clear(lengthInput);
+      await user.type(lengthInput, '2.00');
+      await user.tab();
+
+      const weightInput = screen.getByLabelText(/^重量/);
+      await user.clear(weightInput);
+      await user.type(weightInput, '1.50');
+      await user.tab();
+
+      // 5 × 2.00 × 1.50 = 15.00
+      expect(screen.getByLabelText(/^数量/)).toHaveValue('15.00');
+      // REQ-14.6: 箇所数は整数表示（小数桁を付与しない）
+      expect(countInput).toHaveValue('5');
+    });
+
+    it('箇所数の値変更時、onUpdate に再計算後の quantity が含まれる（REQ-47.12 自動再計算）', async () => {
+      const user = userEvent.setup();
+      const onUpdate = vi.fn();
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'COUNT',
+            calculationParams: { count: 3, length: 2, weight: 1.5 },
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+          }}
+          onUpdate={onUpdate}
+        />
+      );
+
+      const countInput = screen.getByLabelText(/^箇所数/);
+      await user.clear(countInput);
+      await user.type(countInput, '5');
+      await user.tab();
+
+      const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+      expect(lastCall?.[0]).toBe('item-1');
+      expect(lastCall?.[1]).toEqual(
+        expect.objectContaining({
+          calculationParams: expect.objectContaining({ count: 5, length: 2, weight: 1.5 }),
+          // 5 * 2 * 1.5 = 15
+          quantity: 15,
+        })
+      );
+    });
+
+    it('調整係数を変更すると quantity が再計算される（REQ-47.12 / REQ-9.2 ピッチと同一挙動）', async () => {
+      const user = userEvent.setup();
+      const onUpdate = vi.fn();
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'COUNT',
+            calculationParams: { count: 5, length: 2, weight: 1.5 },
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+          }}
+          onUpdate={onUpdate}
+        />
+      );
+
+      const factorInput = screen.getByLabelText(/^調整係数/);
+      await user.clear(factorInput);
+      await user.type(factorInput, '1.5');
+      await user.tab();
+
+      const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+      expect(lastCall?.[1]).toEqual(
+        expect.objectContaining({
+          adjustmentFactor: 1.5,
+          // 5 * 2 * 1.5 * 1.5 = 22.5
+          quantity: 22.5,
+        })
+      );
+    });
+
+    it('丸め設定を変更すると quantity が切り上げ再計算される（REQ-47.12 / REQ-10.2 ピッチと同一挙動）', async () => {
+      const user = userEvent.setup();
+      const onUpdate = vi.fn();
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'COUNT',
+            calculationParams: { count: 3, length: 1.234 },
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+          }}
+          onUpdate={onUpdate}
+        />
+      );
+
+      const roundingInput = screen.getByLabelText(/^丸め設定/);
+      await user.clear(roundingInput);
+      await user.type(roundingInput, '0.1');
+      await user.tab();
+
+      const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+      expect(lastCall?.[1].roundingUnit).toBe(0.1);
+      // 3 * 1.234 = 3.702 → 0.1 単位で切り上げ → 3.8
+      expect(lastCall?.[1].quantity).toBeCloseTo(3.8, 5);
+    });
+
+    it('同一の箇所数・長さ・重量・調整係数・丸め設定では「ピッチ」と同一の数量になる（REQ-47.7 挙動同一性）', async () => {
+      const user = userEvent.setup();
+      const onUpdateCount = vi.fn();
+      const onUpdatePitch = vi.fn();
+
+      const { unmount } = render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'COUNT',
+            // 箇所数 = 5（手入力）
+            calculationParams: { count: 5, length: 2, weight: 1.5 },
+            adjustmentFactor: 1,
+            roundingUnit: 0.1,
+          }}
+          onUpdate={onUpdateCount}
+        />
+      );
+      const countFactor = screen.getByLabelText(/^調整係数/);
+      await user.clear(countFactor);
+      await user.type(countFactor, '1.5');
+      await user.tab();
+      const countQuantity =
+        onUpdateCount.mock.calls[onUpdateCount.mock.calls.length - 1]?.[1].quantity;
+      unmount();
+
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'PITCH',
+            // 箇所数 = floor((10 - 0 - 0) / 2.5) + 1 = 5（自動算出）
+            calculationParams: {
+              rangeLength: 10,
+              endLength1: 0,
+              endLength2: 0,
+              pitchLength: 2.5,
+              length: 2,
+              weight: 1.5,
+            },
+            adjustmentFactor: 1,
+            roundingUnit: 0.1,
+          }}
+          onUpdate={onUpdatePitch}
+        />
+      );
+      const pitchFactor = screen.getByLabelText(/^調整係数/);
+      await user.clear(pitchFactor);
+      await user.type(pitchFactor, '1.5');
+      await user.tab();
+      const pitchQuantity =
+        onUpdatePitch.mock.calls[onUpdatePitch.mock.calls.length - 1]?.[1].quantity;
+
+      // 5 * 2 * 1.5 * 1.5 = 22.5 → 0.1 単位で切り上げ → 22.5
+      expect(countQuantity).toBeCloseTo(22.5, 5);
+      expect(pitchQuantity).toBeCloseTo(countQuantity, 5);
+    });
+
+    it('箇所数が未入力の場合、計算例外で画面がクラッシュせず数量を更新しない（REQ-47.9 前提のガード）', async () => {
+      const user = userEvent.setup();
+      const onUpdate = vi.fn();
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'COUNT',
+            calculationParams: {},
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+            quantity: 100,
+          }}
+          onUpdate={onUpdate}
+        />
+      );
+
+      const lengthInput = screen.getByLabelText('長さ');
+      await user.clear(lengthInput);
+      await user.type(lengthInput, '2');
+      await user.tab();
+
+      const lastCall = onUpdate.mock.calls[onUpdate.mock.calls.length - 1];
+      // calculationParams は更新されるが、quantity は更新されない（例外時は数量据え置き）
+      expect(lastCall?.[1]).toEqual(
+        expect.objectContaining({ calculationParams: expect.objectContaining({ length: 2 }) })
+      );
+      expect(lastCall?.[1]).not.toHaveProperty('quantity');
+      // 行が描画され続けている（クラッシュしない）
+      expect(screen.getByTestId('quantity-item-row')).toBeInTheDocument();
+      expect(screen.getByLabelText(/^数量/)).toHaveValue('100.00');
+    });
+
+    it('箇所数が範囲外（0）の場合、入力が拒否され数量が更新されない（REQ-47.11）', async () => {
+      const user = userEvent.setup();
+      const onUpdate = vi.fn();
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'COUNT',
+            calculationParams: { count: 5 },
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+            quantity: 5,
+          }}
+          onUpdate={onUpdate}
+        />
+      );
+
+      const countInput = screen.getByLabelText(/^箇所数/);
+      await user.clear(countInput);
+      await user.type(countInput, '0');
+      await user.tab();
+
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(screen.getByLabelText(/^数量/)).toHaveValue('5.00');
     });
   });
 });

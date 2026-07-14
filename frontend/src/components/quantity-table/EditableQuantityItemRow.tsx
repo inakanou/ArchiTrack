@@ -317,13 +317,17 @@ export default function EditableQuantityItemRow({
    * 計算パラメータ変更ハンドラ
    * REQ-8.6: 面積・体積モードで計算用列に値が入力されると数量を自動計算
    * REQ-8.9: ピッチモードで必須項目が入力されると本数を自動計算
+   * REQ-8.14 / REQ-47.12: 箇所数モードで箇所数・長さ・重量の変更時に数量を自動再計算
+   *
+   * Task 68.3: 分岐条件は「標準以外」であり計算方法を列挙しないため、箇所数（COUNT）も
+   * 追加の分岐なしに本経路を通る。計算方法ごとの差分は calculate() の単一の switch に閉じている。
    */
   const handleCalculationParamsChange = useCallback(
     (params: CalculationParams) => {
       // 計算パラメータを更新
       const updates: Partial<QuantityItemDetail> = { calculationParams: params };
 
-      // 面積・体積またはピッチモードの場合、計算を実行して数量を自動更新
+      // 標準以外（面積・体積／ピッチ／箇所数）の場合、計算を実行して数量を自動更新
       if (item.calculationMethod !== 'STANDARD') {
         try {
           const result = calculate({
@@ -334,7 +338,8 @@ export default function EditableQuantityItemRow({
           });
           updates.quantity = result.finalValue;
         } catch {
-          // 計算エラーの場合は数量を更新しない（例：ピッチ長が0の場合）
+          // 計算エラーの場合は数量を更新しない
+          // 例: ピッチ長が0 / 箇所数が未入力・整数以外・範囲外（calculateCount が送出）
         }
       }
 
@@ -346,6 +351,7 @@ export default function EditableQuantityItemRow({
   /**
    * 調整係数更新ハンドラ（CalculationFieldsから呼ばれる）
    * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
+   * REQ-47.12: 箇所数モードでも同一（ピッチと同じ後段処理）
    */
   const handleAdjustmentFactorUpdate = useCallback(
     (value: number) => {
@@ -374,6 +380,7 @@ export default function EditableQuantityItemRow({
   /**
    * 丸め設定更新ハンドラ（CalculationFieldsから呼ばれる）
    * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
+   * REQ-47.12: 箇所数モードでも同一（ピッチと同じ後段処理）
    */
   const handleRoundingUnitUpdate = useCallback(
     (value: number) => {

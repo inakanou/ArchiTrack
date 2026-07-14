@@ -7,6 +7,8 @@
  * - 8.1: 計算方法列に「標準」をデフォルト値として設定する
  * - 8.5: 「面積・体積」が選択された場合、計算用列として「幅（W）」「奥行き（D）」「高さ（H）」「重量」入力フィールドを表示する
  * - 8.8: 「ピッチ」が選択された場合、計算用列として「範囲長」「端長1」「端長2」「ピッチ長」「長さ」「重量」入力フィールドを表示する
+ * - 8.12: 計算方法の選択肢として「標準」「面積・体積」「ピッチ」「箇所数」を提供する（Task 68.3）
+ * - 47.1: 計算方法の選択肢に「箇所数」を含める（Task 68.3）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -14,6 +16,11 @@ import type { Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import CalculationMethodSelect from './CalculationMethodSelect';
 import type { CalculationMethod } from '../../types/quantity-edit.types';
+import {
+  CALCULATION_METHOD_OPTIONS,
+  CALCULATION_METHOD_ORDER,
+  CALCULATION_METHOD_LABELS,
+} from '../../utils/calculation-method';
 
 describe('CalculationMethodSelect', () => {
   afterEach(() => {
@@ -32,14 +39,36 @@ describe('CalculationMethodSelect', () => {
       expect(select).toBeInTheDocument();
     });
 
-    it('3つの計算方法オプションが存在する（標準/面積・体積/ピッチ）', () => {
+    it('4つの計算方法オプションがこの順序で存在する（標準/面積・体積/ピッチ/箇所数）（REQ-8.12 / REQ-47.1）', () => {
       render(<CalculationMethodSelect value="STANDARD" onChange={vi.fn()} />);
 
       const options = screen.getAllByRole('option');
-      expect(options).toHaveLength(3);
+      expect(options).toHaveLength(4);
       expect(options[0]).toHaveTextContent('標準');
       expect(options[1]).toHaveTextContent('面積・体積');
       expect(options[2]).toHaveTextContent('ピッチ');
+      expect(options[3]).toHaveTextContent('箇所数');
+    });
+
+    it('選択肢はレジストリ（CALCULATION_METHOD_OPTIONS）と value・label・順序が一致する（単一情報源）', () => {
+      render(<CalculationMethodSelect value="STANDARD" onChange={vi.fn()} />);
+
+      const options = screen.getAllByRole('option') as HTMLOptionElement[];
+      expect(options.map((option) => option.value)).toEqual([...CALCULATION_METHOD_ORDER]);
+      expect(options.map((option) => option.textContent)).toEqual(
+        CALCULATION_METHOD_OPTIONS.map((option) => option.label)
+      );
+      // ラベルもレジストリの単一情報源から供給されること
+      expect(options.map((option) => option.textContent)).toEqual(
+        CALCULATION_METHOD_ORDER.map((method) => CALCULATION_METHOD_LABELS[method])
+      );
+    });
+
+    it('valueプロパティに応じた選択状態が反映される（COUNT）', () => {
+      render(<CalculationMethodSelect value="COUNT" onChange={vi.fn()} />);
+
+      const select = screen.getByRole('combobox', { name: /計算方法/i }) as HTMLSelectElement;
+      expect(select.value).toBe('COUNT');
     });
 
     it('valueプロパティに応じた選択状態が反映される（STANDARD）', () => {
@@ -114,6 +143,33 @@ describe('CalculationMethodSelect', () => {
       fireEvent.change(select, { target: { value: 'PITCH' } });
 
       expect(onChange).toHaveBeenCalledWith('PITCH');
+    });
+
+    it('標準から箇所数に変更できる（REQ-47.1）', () => {
+      render(<CalculationMethodSelect value="STANDARD" onChange={onChange} />);
+
+      const select = screen.getByRole('combobox', { name: /計算方法/i });
+      fireEvent.change(select, { target: { value: 'COUNT' } });
+
+      expect(onChange).toHaveBeenCalledWith('COUNT');
+    });
+
+    it('ピッチから箇所数に変更できる（REQ-47.13）', () => {
+      render(<CalculationMethodSelect value="PITCH" onChange={onChange} />);
+
+      const select = screen.getByRole('combobox', { name: /計算方法/i });
+      fireEvent.change(select, { target: { value: 'COUNT' } });
+
+      expect(onChange).toHaveBeenCalledWith('COUNT');
+    });
+
+    it('箇所数から標準に変更できる（REQ-47.14）', () => {
+      render(<CalculationMethodSelect value="COUNT" onChange={onChange} />);
+
+      const select = screen.getByRole('combobox', { name: /計算方法/i });
+      fireEvent.change(select, { target: { value: 'STANDARD' } });
+
+      expect(onChange).toHaveBeenCalledWith('STANDARD');
     });
 
     it('面積・体積から標準に変更できる', () => {
