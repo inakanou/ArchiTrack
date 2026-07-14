@@ -660,3 +660,48 @@ Discovery Type: **Light（Extension）**。既存システムへの追補であ�
 | `toFixed(2)` の分岐ミスによる既存書式の破壊 | 中 | `CalculationFields.test.tsx` に面積・体積／ピッチの小数2桁書式の回帰テストを追加 |
 | E2E がクリップを検出できないまま「修正済み」と誤判定する | 高 | `boundingBox()` による幾何検証と `parentElement === document.body` の直接確認を必須とする。`toBeVisible()` のみのアサーションは REQ-46 の証明として認めない |
 | pre-push の E2E 全件実行（約1.6時間）と受入基準100%カバレッジチェック | 中 | REQ-46（11 AC）・REQ-47（18 AC）の全 AC に対応する E2E を用意する。push はバックグラウンド実行する |
+
+---
+
+# 設計レビューでの重大欠陥の発見と修正（2026-07-14）
+
+判定: **NO-GO → 修正後 GO**
+
+## 発見: 「形状推測」による計算パラメータの silent strip（→ REQ-48 を新設）
+
+初版の設計は「`countParamsSchema` を zod union の `areaVolumeParamsSchema` より前に置けば `count` の strip を防げる」としていたが、**これは誤りだった**。反証調査で以下の連鎖が判明した。
+
+1. `EditableQuantityItemRow.tsx:292-312` の `handleCalculationMethodChange` は `calculationParams` を**クリアしない**
+2. `CalculationFields.tsx:402-408` の `handleFieldChange` は `{ ...params, [fieldKey]: value }` と**既存キーを spread する**
+3. よって「ピッチ」→「箇所数」への切替後は `{rangeLength, endLength1, endLength2, pitchLength, count}` という**混合状態**になる
+4. `z.union` は形状から計算方法を推測するため、`pitchParamsSchema` が**正当にマッチし `count` を strip する**
+
+union への挿入位置の調整では防げない（pitch は count より前で正当にマッチする）。
+
+**実測（プロジェクトの zod で再現）**:
+
+| 保存時の calculationParams | 永続化される値 |
+|---|---|
+| `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5, count:5}` | `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5}`（`count` 消失） |
+| `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5, width:3}` | `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5}`（`width` 消失） |
+
+2行目は **REQ-8 に対する既存の不具合**である（ピッチ→面積・体積に切り替えて幅を入力すると保存時に消える）。今回の依頼には含まれていなかったが、根本原因が同一であり追加コストがほぼゼロのため、ユーザー判断により**今回のスコープに含めることとし、REQ-48 として要件化した**。
+
+## 修正内容
+
+| 対処 | 内容 |
+|---|---|
+| (A) backend | 形状推測の `z.union` を廃止し、**`calculationMethod` を判別子としてパラメータスキーマを選ぶ**（`PARAMS_SCHEMA_BY_METHOD` + `superRefine`）。指定された計算方法で使わないキーは破棄される。これで既存バグも根本解決する |
+| (B) frontend | `handleCalculationMethodChange` で `resetParamsForMethod()` を適用し、切替後の方式で使うキーのみを残す（共通の「長さ」「重量」は引き継ぐ） |
+
+## 併せて修正した設計上の不備
+
+- **File Structure Plan の誤り**: Storybook ストーリー（`CalculationFields` / `CalculationMethodSelect` / `QuantityItemActionMenu` / `EditableQuantityItemRow`）を「新規作成」と記載していたが、**4件とも既に実在する**（変更対象）。特に `QuantityItemActionMenu.stories.tsx` は Portal 化で更新必須。`quantityTableEditReducer.ts` も未記載だった
+- **デッドコードの扱いの未宣言**: `FieldValidatedItemRow.tsx` は本体以外からの import がゼロだが、計算方法の分岐を多数持つため実装者が誤って対応してしまう恐れがある。`useMemoizedCalculation` と同様に Out of Boundary へ明記した
+
+## 網羅漏れではなかったことを確認した項目
+
+- `backend/src/routes/quantity-items.routes.ts` — `createQuantityItemSchema` / `updateQuantityItemSchema` を参照しており、スキーマ側の判別子化が自動的に適用される（統合テストで確認する）
+- `backend/src/services/quantity-item.service.ts` / `quantity-group.service.ts` — `calculationMethod` は `string` 型の passthrough とキャストのみで、計算方法による分岐を持たない
+- `backend/src/services/quantity-field-validation.service.ts` — `validateCalculationMethodText` は文字数検証のみ
+- 下流機能（内訳書生成・工程表）— 計算方法による分岐を持たない

@@ -65,6 +65,7 @@
 - `AutocompleteInput` の Portal 実装（動作中のため変更しない。参照実装として踏襲するのみ）
 - `estimate-requests/LineItemEditor.tsx` の `LineItemActionMenu`（同種のクリップ問題を抱える可能性があるが、本スペックの対象外）
 - `frontend/src/hooks/useMemoizedCalculation.ts`（import 元ゼロのデッドコード。PITCH ロジックが `calculation-engine.ts` と乖離しているが、参照されないため実害なし。COUNT 対応も削除も行わない）
+- `frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`（**本体以外からの import がゼロのデッドコード**。`CalculationMethodSelect` / `CalculationFields` の呼び出しと `!== 'STANDARD'` ガードを多数持つため一見 COUNT 対応が必要に見えるが、実際にレンダリングされる行コンポーネントは `EditableQuantityItemRow`（編集）と `QuantityItemRow`（閲覧）のみである。**COUNT 対応は行わない**）
 - 数量表インポート（REQ-27〜34）への「箇所数」マッピング
 - `field-validation.ts:191,218` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合
 - REQ-36 で定義したメニュー項目の構成・活性制御・各操作の動作（REQ-46 は表示のみを扱う）
@@ -235,12 +236,11 @@ graph TB
 
 ```
 frontend/src/
-├── utils/
-│   └── calculation-method.ts          # 計算方法の単一情報源: 表示順・表示ラベル・選択肢。
-│                                      # Record<CalculationMethod, string> により、
-│                                      # 型に値を足すとラベル未定義が型エラーになる
-└── components/quantity-table/
-    └── CalculationFields.stories.tsx  # 既存に無ければ新規（pre-push の Storybook テスト要件）
+└── utils/
+    └── calculation-method.ts          # 計算方法の単一情報源: 表示順・表示ラベル・選択肢・
+                                       # 有効パラメータキー（PARAM_KEYS_BY_METHOD）。
+                                       # Record<CalculationMethod, ...> により、
+                                       # 型に値を足すと定義漏れが型エラーになる
 
 backend/prisma/migrations/
 └── <timestamp>_add_calculation_method_count/
@@ -248,8 +248,11 @@ backend/prisma/migrations/
 
 e2e/specs/quantity-tables/
 ├── quantity-item-action-menu-clipping.spec.ts  # REQ-46: boundingBox ベースのクリップ検証
-└── calculation-method-count.spec.ts            # REQ-47: 箇所数の計算・検証・保存復元
+├── calculation-method-count.spec.ts            # REQ-47: 箇所数の計算・検証・保存復元
+└── calculation-method-switch.spec.ts           # REQ-48: 切替後に入力した値が保存で失われないこと
 ```
+
+**注記**: Storybook ストーリーは `CalculationFields` / `CalculationMethodSelect` / `QuantityItemActionMenu` / `EditableQuantityItemRow` の**4件とも既に実在する**（新規作成ではなく変更対象）。下表に記載する。
 
 ### 変更（REQ-46: アクションメニュー）
 
@@ -257,6 +260,7 @@ e2e/specs/quantity-tables/
 |---|---|
 | `frontend/src/components/quantity-table/QuantityItemActionMenu.tsx` | ドロップダウンを `createPortal(document.body)` + `position: fixed` へ変更。`getBoundingClientRect` による座標算出、capture フェーズの `scroll` / `resize` 追従、`zIndex: 1000`。閉じ判定を `onBlur`/`relatedTarget` から document レベルの outside-click（`mousedown`）+ Escape へ変更 |
 | `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` | 行ラッパーに張られた二重の `onBlur` → `handleCloseMenu` を撤去（Portal 化で DOM ツリーが分離し `relatedTarget` の内外判定が成立しなくなるため） |
+| `frontend/src/components/quantity-table/QuantityItemActionMenu.stories.tsx` | **既存**。Portal 描画に追随（メニューが `document.body` 直下へ出るため、ストーリーのデコレータ・アサーションの見直しが必要） |
 | `frontend/src/__tests__/components/quantity-table/QuantityItemActionMenu.test.tsx` | Portal 描画（`document.body` 直下）と outside-click / Escape の閉じ挙動を検証。**クリップ検証は jsdom では不可能なため E2E に委譲する** |
 | `frontend/src/__tests__/components/quantity-table/EditableQuantityItemRow.actionMenu.test.tsx` | 二重 onBlur 撤去に伴う既存テストの追随 |
 
@@ -268,7 +272,8 @@ e2e/specs/quantity-tables/
 |---|---|
 | `backend/prisma/schema.prisma:559-563` | enum `CalculationMethod` に `COUNT` を追加 |
 | `backend/src/schemas/quantity-table.schema.ts:106` | `CALCULATION_METHODS` に `'COUNT'` を追加 |
-| `backend/src/schemas/quantity-table.schema.ts:284-317` | `countParamsSchema` を新設し、union の **`areaVolumeParamsSchema` より前**へ挿入（後述の評価順序制約） |
+| `backend/src/schemas/quantity-table.schema.ts:284-317` | `countParamsSchema` を新設。**形状推測の `z.union` を廃止し、`calculationMethod` を判別子としてスキーマを選ぶ方式へ変更**（REQ-48。詳細は「計算方法切替時のパラメータ整合」節） |
+| `backend/src/routes/quantity-items.routes.ts:26-27,62,67` | 直接の変更は不要（`createQuantityItemSchema` / `updateQuantityItemSchema` を参照しているため、スキーマ側の判別子化が自動的に適用される）。**適用されていることを統合テストで確認する** |
 | `backend/src/routes/quantity-tables.routes.ts:173` | ハードコードされた `z.enum([...])` を `CALCULATION_METHODS` 参照へ置換（再発防止）。値の追加漏れで保存が 400 になるのを防ぐ |
 | `backend/src/services/quantity-validation.service.ts:24,121-133` | `CalculationMethodType` に `'COUNT'` を追加。switch に `case 'COUNT'` と `validateCountMode()` を追加。**未知モードを素通りさせないよう `default` 節を追加** |
 | `backend/src/services/calculation-engine.ts:24-31,203-221` | enum に `COUNT`、`CountParams` 型、`calculateCount()`、`generateCountFormula()`、switch case を追加 |
@@ -285,8 +290,13 @@ e2e/specs/quantity-tables/
 | `frontend/src/utils/numeric-range-validation.ts:24,29-36,55-76,89-103` | `NumericRangeFieldType` に `'count'` を追加。`RangeConfig` を `integer?: boolean` で拡張。`validateNumericRange` に整数チェックを追加 |
 | `frontend/src/components/quantity-table/CalculationFields.tsx:44-52,58-78,178-272,440` | `FieldDefinition` に `integer?: boolean` を追加。`COUNT_FIELDS` を新設。**三項演算子を `Record<Exclude<CalculationMethod,'STANDARD'>, FieldDefinition[]>` へ置換**。`NumberInputField` の blur 整形を `toFixed(2)` 固定から整数分岐へ |
 | `frontend/src/components/quantity-table/CalculationMethodSelect.tsx:45-49` | ローカルの `CALCULATION_METHOD_OPTIONS` を撤去し、新設の `utils/calculation-method.ts` から import |
+| `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx:292-312` | **`handleCalculationMethodChange` で `resetParamsForMethod()` を適用**し、切替後の計算方法で使用しないパラメータキーを破棄する（REQ-48 AC1, AC2, AC7） |
+| `frontend/src/pages/quantityTableEditReducer.ts:84,272,319,364,712` | `CalculationMethod` 型に追随。新規項目のデフォルトは `STANDARD` のまま。計算方法変更のドラフト反映は既存の `onUpdate` 経路をそのまま使う |
 | `frontend/src/pages/QuantityTableEditPage.tsx:1177-1182` | **ネスト三項のラベル変換を `CALCULATION_METHOD_LABELS` 参照へ置換**（放置すると PDF に「ピッチ」と誤表示される） |
 | `frontend/src/hooks/useQuantityTableSave.ts:298-316` | `checkIntegrity` に COUNT の分岐を追加（計算パラメータ未設定の警告） |
+| `frontend/src/components/quantity-table/CalculationFields.stories.tsx` | **既存**。COUNT のストーリーを追加 |
+| `frontend/src/components/quantity-table/CalculationMethodSelect.stories.tsx` | **既存**。選択肢に「箇所数」が増えることへの追随 |
+| `frontend/src/components/quantity-table/EditableQuantityItemRow.stories.tsx` | **既存**。COUNT の行ストーリーを追加 |
 
 **テスト**
 
@@ -758,6 +768,8 @@ sequenceDiagram
 | 47.16 | 数量グループコピーでの箇所数の複製 | QuantityGroupCard（クライアントサイド複製） | - | 数量グループコピーフロー |
 | 47.17 | PDF出力での「箇所数」表示 | QuantityTableEditPage（ラベル変換）, QuantityTablePdfExportService | CALCULATION_METHOD_LABELS | 数量表PDF出力フロー |
 | 47.18 | 箇所数の編集もドラフト状態に対して行う | QuantityTableEditPage(draft reducer) | PUT /api/quantity-tables/:id/save | クライアントサイド編集・明示保存フロー |
+| 48.1-48.2, 48.7 | 計算方法切替時に旧方式のパラメータを破棄し、共通フィールドは引き継ぐ | EditableQuantityItemRow.handleCalculationMethodChange, calculation-method.ts (PARAM_KEYS_BY_METHOD) | resetParamsForMethod() | 計算方法切替時のパラメータ整合 |
+| 48.3-48.6 | 計算方法を判別子としたパラメータ検証（形状推測の廃止） | quantity-table.schema.ts (PARAMS_SCHEMA_BY_METHOD), quantity-items.routes.ts, quantity-tables.routes.ts | withCalculationParams() superRefine | 計算方法切替時のパラメータ整合 |
 
 ## Field Specifications
 
@@ -2557,44 +2569,108 @@ const FIELDS_BY_METHOD: Record<Exclude<CalculationMethod, 'STANDARD'>, FieldDefi
 - Validation: 整数以外・範囲外は入力を拒否しエラー表示（REQ-47 AC10, AC11）
 - Risks: `toFixed(2)` の分岐を誤ると既存の面積・体積／ピッチの表示書式が壊れる。`CalculationFields.test.tsx` で既存2方式の書式を回帰テストとして固定する
 
-#### countParamsSchema（backend zod）と union 評価順序
+### 計算方法切替時のパラメータ整合（REQ-48）
 
-| Field | Detail |
-|-------|--------|
-| Intent | 「箇所数」の計算パラメータを、保存経路で欠落させずに検証・永続化する |
-| Requirements | 47.8-47.11, 47.15 |
+#### 根本原因: 「形状推測」による計算パラメータの silent strip
 
-**Responsibilities & Constraints（重大な制約）**
+本節は REQ-47 の**前提条件**である。設計レビューで発見し、実測で確認した欠陥を扱う。
 
-`backend/src/schemas/quantity-table.schema.ts:305-317` の `calculationParamsSchema` は `discriminatedUnion` ではなく**素の `z.union`** であり、**評価順序に依存する**。`areaVolumeParamsSchema`（`:284-289`）は全フィールドが `.optional()` であるため、任意のオブジェクトにマッチして**未知のキーを silently strip する catch-all** として機能する。したがって `countParamsSchema` を union の**末尾に置くと `count` が無言で削除され、保存・再読み込み後に箇所数が消える**（REQ-47 AC15 違反）。
+**問題の連鎖**:
 
-既存コードは同じ理由で `pitchParamsSchema` を先頭に置いており（該当箇所にコメントで明記）、本設計もこの制約に従う。
+1. `EditableQuantityItemRow.tsx:292-312` の `handleCalculationMethodChange` は `calculationMethod` を差し替えるだけで、**`calculationParams` をクリアしない**
+2. `CalculationFields.tsx:402-408` の `handleFieldChange` は `{ ...params, [fieldKey]: value }` と**既存キーを spread する**
+3. 結果、「ピッチ」→「箇所数」へ切り替えて箇所数を入力すると、`calculationParams` は `{rangeLength, endLength1, endLength2, pitchLength, count}` という**混合状態**になる
+4. `quantity-table.schema.ts:305-317` の `calculationParamsSchema` は素の `z.union` であり、**パラメータの形状から計算方法を推測する**。`pitchParamsSchema` は必須4キーが揃っているため**正当にマッチし、`count` を strip する**
 
-##### Service Interface
+**実測結果**（プロジェクトの zod で再現）:
+
+| 保存時に送られる `calculationParams` | 永続化される値 |
+|---|---|
+| `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5, count:5}` | `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5}` — **`count` が消失** |
+| `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5, width:3}` | `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5}` — **`width` が消失（既存バグ）** |
+
+**重要**: union への挿入位置を調整するだけでは解決しない。`pitchParamsSchema` は `countParamsSchema` より前で**正当にマッチする**ため、順序を入れ替えても混合状態では誤判定が残る。**形状推測そのものを廃止する必要がある。**
+
+#### 対処: 判別子ベースの検証 ＋ 切替時のパラメータリセット
+
+**(A) backend: `calculationMethod` を判別子としてスキーマを選ぶ**
+
+`calculationParams` を単独で `union` に通すのをやめ、**数量項目単位で `calculationMethod` に対応するスキーマを適用する**。これにより形状推測が原理的に消え、既存バグ（REQ-48 AC4）も同時に解消する。
 
 ```typescript
+/** 計算方法ごとのパラメータスキーマ。値の追加漏れは型エラーになる */
+const PARAMS_SCHEMA_BY_METHOD: Record<CalculationMethod, z.ZodTypeAny> = {
+  STANDARD: z.null(),
+  AREA_VOLUME: areaVolumeParamsSchema,
+  PITCH: pitchParamsSchema,
+  COUNT: countParamsSchema,
+};
+
 export const countParamsSchema = z.object({
   count: z.number().int().min(1).max(9999999),
   length: z.number().positive().optional(),
   weight: z.number().positive().optional(),
 });
 
-// 必須フィールドを持つスキーマを、catch-all である areaVolume より前に置く
-export const calculationParamsSchema = z.union([
-  pitchParamsSchema,   // rangeLength/endLength1/endLength2/pitchLength が必須
-  countParamsSchema,   // count が必須 ← 追加位置はここ（areaVolume より前）
-  areaVolumeParamsSchema, // 全フィールド optional の catch-all
-  z.null(),
-]);
+/**
+ * 数量項目の calculationParams を calculationMethod に基づいて検証・整形する。
+ * 形状からの推測は行わない（REQ-48 AC5）。
+ * 指定された計算方法で使用しないキーは zod の既定挙動により破棄される（REQ-48 AC6）。
+ */
+const withCalculationParams = <T extends z.ZodTypeAny>(itemSchema: T) =>
+  itemSchema.superRefine((item, ctx) => {
+    const schema = PARAMS_SCHEMA_BY_METHOD[item.calculationMethod];
+    const result = schema.safeParse(item.calculationParams ?? null);
+    if (!result.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['calculationParams'],
+        message: `計算方法「${item.calculationMethod}」の計算パラメータが不正です`,
+      });
+      return;
+    }
+    item.calculationParams = result.data; // 使用しないキーを除去した結果で置換
+  });
 ```
 
-- Invariants: `countParamsSchema` は `count` を必須とするため、ピッチ・面積体積のパラメータオブジェクトとは相互に排他となり、誤マッチは起きない
+- 適用先: `createQuantityItemSchema` / `updateQuantityItemSchema`（`quantity-items.routes.ts` が参照）および `saveDraftItemSchema`（`quantity-tables.routes.ts:162-180`）
+- Invariants: 永続化される `calculationParams` は、必ずその行の `calculationMethod` に対応するキーのみを持つ
+
+**(B) frontend: 計算方法切替時に有効キーのみを残す**
+
+`handleCalculationMethodChange` で、切替後の計算方法で使用するキーのみを残した新しい `calculationParams` を構築する。共通フィールド（「長さ」「重量」）の入力値は引き継ぐ（REQ-48 AC2）。
+
+```typescript
+/** 計算方法ごとの有効なパラメータキー。CalculationFields の FIELDS_BY_METHOD から導出する */
+const PARAM_KEYS_BY_METHOD: Record<CalculationMethod, readonly string[]> = {
+  STANDARD: [],
+  AREA_VOLUME: ['width', 'depth', 'height', 'weight'],
+  PITCH: ['rangeLength', 'endLength1', 'endLength2', 'pitchLength', 'length', 'weight'],
+  COUNT: ['count', 'length', 'weight'],
+};
+
+/** 切替後の計算方法で使用するキーのみを残す（共通キーの値は引き継ぐ） */
+function resetParamsForMethod(
+  params: CalculationParams | null,
+  method: CalculationMethod
+): CalculationParams | null {
+  if (method === 'STANDARD' || !params) return null;
+  const allowed = PARAM_KEYS_BY_METHOD[method];
+  return Object.fromEntries(
+    Object.entries(params).filter(([key]) => allowed.includes(key))
+  ) as CalculationParams;
+}
+```
+
+- 切替直後は新方式の必須パラメータが未入力になるため、`calculate()` は例外を投げ、既存の `catch` により数量は更新されない（REQ-48 AC7）。旧パラメータを流用した誤った数量が表示されることはない
+- リセット処理の置き場: `handleCalculationMethodChange`（`EditableQuantityItemRow.tsx:292-312`）。ドラフト状態への反映は既存の `onUpdate` 経路（`quantityTableEditReducer.ts`）を通る
 
 **Implementation Notes**
 
-- **回帰テスト必須**: `quantity-table.schema.test.ts` に `expect(result.data).toEqual(countParams)` 形式のテストを追加する（既存のピッチのテスト `:174-189` が同じ strip 事故を検知する目的で存在する）
+- **回帰テスト必須**: `quantity-table.schema.test.ts` に、混合状態のパラメータ（ピッチ4キー＋`count`）を `calculationMethod: 'COUNT'` で検証すると `count` が保持され、ピッチのキーが破棄されることを確認するテストを追加する。同様に `calculationMethod: 'AREA_VOLUME'` で `width` が保持されることも確認する（既存バグの回帰テスト）
 - `quantity-tables.routes.ts:173` の一括保存スキーマは `CALCULATION_METHODS` を参照せず `z.enum(['STANDARD','AREA_VOLUME','PITCH'])` を**ハードコード**している。ここを更新しないと「箇所数」の保存が 400 で失敗する。再発防止のため `CALCULATION_METHODS` 参照へ置換する
 - `quantity-validation.service.ts:121-133` の switch には **`default` 節が無く、未知モードが無検証で `isValid: true` を返す**。`case 'COUNT'` と `validateCountMode()` を追加すると同時に、`default` 節で明示的にバリデーションエラーを返すよう変更し、将来の追加漏れを fail-fast にする
+- 既存の `calculationParamsSchema`（形状推測の union）は、(A) の導入後は**参照元が無くなる**。削除するか、後方互換のためにエクスポートを残す場合は「新規コードでは使用しない」旨をコメントで明記する
 
 ## Data Models
 
@@ -2810,7 +2886,9 @@ enum CalculationMethod {
 
 - CalculationEngine: 各計算方法（標準、面積・体積、ピッチ、箇所数）のテスト
 - CalculationEngine.calculateCount（REQ-47）: 長さ・重量なしで箇所数がそのまま rawValue になること、長さ・重量ありで乗算されること、箇所数が同一のときピッチ計算と最終数量が一致すること、整数以外・範囲外で例外となること
-- countParamsSchema（REQ-47）: `count` を含むパラメータが union 評価で strip されずに保持されること（`expect(result.data).toEqual(countParams)`。areaVolume の catch-all による欠落を検出する回帰テスト）
+- countParamsSchema（REQ-47）: `calculationMethod: 'COUNT'` の数量項目で `count` / `length` / `weight` が保持されること
+- 判別子ベースのパラメータ検証（REQ-48）: **混合状態のパラメータ**（ピッチの4キー＋`count`）を `calculationMethod: 'COUNT'` で検証すると、`count` が保持されピッチのキーが破棄されること。同じ混合状態を `calculationMethod: 'AREA_VOLUME'` ＋ `width` で検証すると `width` が保持されること（既存バグの回帰テスト）。**形状推測の union では両方とも失敗する**ため、判別子化の有無を直接検出する
+- resetParamsForMethod（REQ-48）: 「ピッチ」→「箇所数」で `rangeLength` 等が破棄され `length` / `weight` が引き継がれること。「面積・体積」→「ピッチ」で `width` / `depth` / `height` が破棄され `weight` が引き継がれること。`STANDARD` への切替で `null` になること
 - QuantityValidationService.validateCountMode（REQ-47）: 箇所数の必須・整数・範囲（1〜9999999）検証。あわせて switch の `default` 節が未知モードをエラーにすること
 - CalculationMethodRegistry（REQ-47）: `CALCULATION_METHOD_LABELS` が全計算方法を網羅し、`CALCULATION_METHOD_OPTIONS` が表示順どおりに生成されること
 - CalculationFields（REQ-47）: COUNT 選択時に COUNT_FIELDS が描画されること（PITCH_FIELDS へフォールバックしないこと）、箇所数が整数表示され小数桁が付与されないこと、既存の面積・体積／ピッチの小数2桁書式が変わらないこと
@@ -2969,6 +3047,12 @@ enum CalculationMethod {
   - **保存 → リロード後に計算方法・箇所数・長さ・重量・調整係数・丸め設定・数量がすべて復元されること**（REQ-47 AC15。zod union の strip 事故を E2E レベルでも検出する）
   - 「箇所数」の数量項目を含むグループをコピーすると、計算方法と全パラメータが複製されること（REQ-47 AC16）
   - 「箇所数」の数量項目を含む数量表を PDF 出力すると、計算方法欄が「ピッチ」ではなく**「箇所数」**と表示されること（REQ-47 AC17。ラベル変換のフォールバック回帰の検出）
+- 計算方法切替時のパラメータ整合（REQ-48）— `e2e/specs/quantity-tables/calculation-method-switch.spec.ts`
+  - **「ピッチ」で範囲長・端長1・端長2・ピッチ長を入力 →「箇所数」へ切替 → 箇所数を入力 → 保存 → リロード**した後、箇所数が保持されていること（REQ-48 AC3。これが今回の欠陥の直接の再現手順）
+  - **「ピッチ」で全パラメータを入力 →「面積・体積」へ切替 → 幅を入力 → 保存 → リロード**した後、幅が保持されていること（REQ-48 AC4。既存バグの回帰テスト）
+  - 計算方法を切り替えると、切替前の方式に固有のフィールド（範囲長等）が画面から消え、値も保持されないこと（REQ-48 AC1）
+  - 「ピッチ」→「箇所数」の切替で、共通フィールドである「長さ」「重量」の入力値が引き継がれること（REQ-48 AC2）
+  - 切替直後（新方式の必須パラメータが未入力）に、旧パラメータを流用した数量が表示されないこと（REQ-48 AC7）
 
 ### Performance Tests
 
