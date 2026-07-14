@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from '../../../components/quantity-table/EditableQuantityItemRow';
 import type { QuantityItemDetail } from '../../../types/quantity-table.types';
@@ -136,6 +136,86 @@ describe('EditableQuantityItemRow アクションメニュー統合 (Task 50.2, 
       await user.click(screen.getByText('削除'));
 
       expect(defaultProps.onDelete).toHaveBeenCalledWith('item-1');
+    });
+  });
+
+  // ==========================================================================
+  // Task 69.2: 行側の二重の閉じ処理（onBlur）の撤去（REQ-46.8, 46.9）
+  //
+  // 69.1 の Portal 化でドロップダウンは document.body 直下へ移り、行（quantity-item-row）
+  // の DOM ツリー外になった。行に張られていた onBlur（relatedTarget が行の内側かで判定）は
+  // Portal 先のメニュー項目を常に「外側」と誤判定するため、キーボード Tab でメニュー項目へ
+  // フォーカスを移すだけでメニューが閉じてしまう。閉じ判定は QuantityItemActionMenu の
+  // outside-click（mousedown）+ Escape に一本化し、行側の二重処理は撤去する。
+  // ==========================================================================
+  describe('REQ-46.8: 閉じ判定の一本化（行側の二重 onBlur 撤去）(Task 69.2)', () => {
+    it('Portal 先のメニュー項目へフォーカスが移ってもメニューが閉じないこと', async () => {
+      const user = userEvent.setup();
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: 'アクション' }));
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      // キーボード Tab 相当: アクションボタン → Portal 先のメニュー項目へフォーカス移動
+      const copyItem = screen.getByText('コピー').closest('button')!;
+      await act(async () => {
+        copyItem.focus();
+      });
+
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+    });
+
+    it('行の内側の入力欄へフォーカスが移ってもメニューが閉じないこと（blur 方式の撤去）', async () => {
+      const user = userEvent.setup();
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: 'アクション' }));
+
+      const row = screen.getByTestId('quantity-item-row');
+      // 行の外側の要素への blur でも、閉じ判定は mousedown / Escape に一本化されている
+      fireEvent.blur(row, { relatedTarget: null });
+
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+    });
+
+    it('メニュー外を mousedown するとメニューが閉じること', async () => {
+      const user = userEvent.setup();
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: 'アクション' }));
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      fireEvent.mouseDown(document.body);
+
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+
+    it('Escape キーでメニューが閉じること', async () => {
+      const user = userEvent.setup();
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: 'アクション' }));
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+
+    it('アクションボタンの再クリックでメニューが閉じること（outside-click との二重発火がない）', async () => {
+      const user = userEvent.setup();
+      render(<EditableQuantityItemRow {...defaultProps} />);
+
+      const actionButton = screen.getByRole('button', { name: 'アクション' });
+      await user.click(actionButton);
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      await user.click(actionButton);
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+      // 再度開けること（outside-click で閉じてからトグルで開き直す二重発火が起きていない）
+      await user.click(actionButton);
+      expect(screen.getByRole('menu')).toBeInTheDocument();
     });
   });
 

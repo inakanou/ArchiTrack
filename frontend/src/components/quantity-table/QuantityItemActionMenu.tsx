@@ -3,6 +3,7 @@
  *
  * Task 50.1: アクションメニューコンポーネントを実装する
  * Task 69.1: ドロップダウンを Portal 描画へ変更しスクロール追従を実装する
+ * Task 69.2: メニューの閉じ判定を outside-click + Escape へ移行する
  *
  * 数量項目の行アクション（上へ移動・下へ移動・コピー・削除）を
  * 単一のドロップダウンメニューに統合する。
@@ -15,10 +16,12 @@
  * - 46.1-46.4: メニューを表示領域の境界で切り取らず全項目を表示する
  * - 46.5, 46.6: 水平・垂直スクロール時にメニューをボタン位置へ追従させる
  * - 46.7: 固定ヘッダー等の他要素より前面に表示する
+ * - 46.8: メニュー外のクリック（および Escape）でドロップダウンを閉じる
+ * - 46.9: メニュー項目を選択すると操作を実行したうえでドロップダウンを閉じる
  * - 46.10: メニュー項目の構成・活性制御・各操作の動作（REQ-36）は変更しない
  */
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 // ============================================================================
@@ -178,6 +181,7 @@ export default function QuantityItemActionMenu({
   canMoveUp,
   canMoveDown,
 }: QuantityItemActionMenuProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Portal 描画するドロップダウンの fixed 配置座標（アクションボタンの位置から算出）
@@ -215,6 +219,59 @@ export default function QuantityItemActionMenu({
     };
   }, [isOpen, updateDropdownRect]);
 
+  /**
+   * 外側クリックによるクローズ（REQ-36.9, REQ-46.8）。
+   *
+   * Portal 化（Task 69.1）でドロップダウンは document.body 直下へ移り、DOM ツリー上は
+   * この wrapper の外側になった。そのため「フォーカスの relatedTarget が自要素の内側か」で
+   * 判定する旧来の onBlur 方式は、Portal 先のメニュー項目を常に「外側」と誤判定する。
+   * 判定を document レベルの mousedown に一本化し、内外判定は
+   * 「wrapper（トリガーボタンを含む）」と「Portal 先のドロップダウン」の両方の
+   * contains() で行う（design.md「アクションメニューの描画・追従フロー（REQ-46）」、
+   * 参照実装: estimate-requests/LineItemEditor.tsx のアクションメニュー）。
+   *
+   * トリガーボタン上の mousedown は wrapper の内側と判定されるため、ここでは閉じない。
+   * 閉じるのは後続の click → onToggle であり、outside-click とトグルの二重発火は起きない。
+   */
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const isInside =
+        (containerRef.current?.contains(target) ?? false) ||
+        (dropdownRef.current?.contains(target) ?? false);
+      if (!isInside) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
+    };
+  }, [isOpen, onClose]);
+
+  /**
+   * Escape キーによるクローズ（REQ-46.8）。
+   * メニューが開いている間だけ document で購読し、閉じたら必ず解除する（リスナのリーク防止）。
+   */
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleDocumentKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleDocumentKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   const handleMoveUp = useCallback(() => {
     if (canMoveUp) {
       onMoveUp();
@@ -240,25 +297,10 @@ export default function QuantityItemActionMenu({
   }, [onDelete, onClose]);
 
   return (
-    <div
-      style={styles.wrapper}
-      onBlur={(e) => {
-        // Portal 描画によりドロップダウンは DOM ツリー上この wrapper の外側（document.body 直下）
-        // にあるため、wrapper だけの内外判定ではメニュー項目へのフォーカス移動を「外側」と
-        // 誤判定してしまう。ドロップダウン側の包含判定を併せて行い、REQ-36.9 の閉じ挙動を維持する。
-        // NOTE: 閉じ判定そのもの（outside-click + Escape への移行、および
-        //       EditableQuantityItemRow 側の二重 onBlur の撤去）は Task 69.2 の担当であり、
-        //       本タスク（69.1）では現行の blur 方式を Portal 構成のまま成立させるに留める。
-        const nextTarget = e.relatedTarget as Node | null;
-        const stayedInside =
-          nextTarget !== null &&
-          (e.currentTarget.contains(nextTarget) ||
-            (dropdownRef.current?.contains(nextTarget) ?? false));
-        if (!stayedInside) {
-          onClose();
-        }
-      }}
-    >
+    // 閉じ判定は onBlur ではなく document レベルの outside-click（mousedown）+ Escape で行う
+    // （Task 69.2）。blur 方式は Portal 先を「外側」と誤判定し、キーボードでメニュー項目へ
+    // フォーカスを移しただけでメニューが閉じてしまうため撤去した。
+    <div ref={containerRef} style={styles.wrapper}>
       <button
         ref={buttonRef}
         type="button"

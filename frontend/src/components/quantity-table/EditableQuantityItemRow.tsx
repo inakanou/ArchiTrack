@@ -436,15 +436,13 @@ export default function EditableQuantityItemRow({
   }, []);
 
   return (
-    <div
-      style={styles.wrapper}
-      data-testid="quantity-item-row"
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          handleCloseMenu();
-        }
-      }}
-    >
+    // Task 69.2: アクションメニューの閉じ処理をここに二重で張らない。
+    // 旧来は行の onBlur でも handleCloseMenu を呼んでいたが、Task 69.1 の Portal 化により
+    // ドロップダウンは document.body 直下（= この行の DOM ツリーの外側）へ描画されるため、
+    // キーボード Tab でメニュー項目へフォーカスを移すと relatedTarget が行の外側と判定され、
+    // メニューが即座に閉じてしまっていた。閉じ判定は QuantityItemActionMenu 側の
+    // outside-click（document の mousedown）+ Escape に一本化する（REQ-46.8, 46.9）。
+    <div style={styles.wrapper} data-testid="quantity-item-row">
       <div style={styles.row} role="row">
         {/* 大項目 */}
         <div style={styles.fieldGroup} role="cell">

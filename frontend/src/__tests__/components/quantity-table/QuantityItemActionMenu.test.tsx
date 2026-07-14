@@ -135,8 +135,19 @@ describe('QuantityItemActionMenu (Task 50.1, 50.3)', () => {
     });
   });
 
-  describe('REQ-36.9: メニュー外クリックでドロップダウン閉じる', () => {
-    it('メニューラッパーからフォーカスが外れるとonCloseが呼ばれること', () => {
+  // ==========================================================================
+  // Task 69.2: 閉じ判定を outside-click + Escape へ移行し、二重の閉じ処理を撤去する
+  //
+  // Portal 化（69.1）でドロップダウンは document.body 直下へ移り、DOM ツリー上は
+  // wrapper の外側になった。フォーカスの relatedTarget が「自要素の内側か」で閉じる
+  // 旧方式（onBlur）は DOM ベースの内外判定が成立せず（Portal 先を常に外側と誤判定する）、
+  // かつ EditableQuantityItemRow 側にも同種の onBlur が二重に張られていたため、
+  // キーボードでメニュー項目へフォーカス移動しただけでメニューが閉じてしまう。
+  // 本タスクで document レベルの outside-click（mousedown）+ Escape へ移行し、
+  // onBlur 方式（コンポーネント側・行側の双方）を撤去する。
+  // ==========================================================================
+  describe('REQ-36.9 / REQ-46.8: 外側クリックと Escape で閉じる (Task 69.2)', () => {
+    it('REQ-46.8: メニュー外の要素を mousedown すると onClose が呼ばれること', () => {
       render(
         <div>
           <QuantityItemActionMenu {...defaultProps} isOpen={true} />
@@ -144,28 +155,145 @@ describe('QuantityItemActionMenu (Task 50.1, 50.3)', () => {
         </div>
       );
 
-      // メニューラッパー要素を取得
-      const menuButton = screen.getByRole('button', { name: 'アクション' });
-      const wrapper = menuButton.parentElement!;
+      fireEvent.mouseDown(screen.getByTestId('outside-button'));
 
-      // relatedTargetがメニュー外の要素を指すblurイベントを発火
-      const outsideButton = screen.getByTestId('outside-button');
-      fireEvent.blur(wrapper, { relatedTarget: outsideButton });
-
-      expect(defaultProps.onClose).toHaveBeenCalled();
+      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
     });
 
-    it('メニュー内の要素間のフォーカス移動ではonCloseが呼ばれないこと', () => {
+    it('REQ-46.8: 画面の何もない領域（document.body）を mousedown しても onClose が呼ばれること', () => {
       render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
 
-      const menuButton = screen.getByRole('button', { name: 'アクション' });
-      const wrapper = menuButton.parentElement!;
-      const copyButton = screen.getByText('コピー').closest('button')!;
+      fireEvent.mouseDown(document.body);
 
-      // relatedTargetがメニュー内の要素を指すblurイベント
-      fireEvent.blur(wrapper, { relatedTarget: copyButton });
+      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('REQ-46.8: メニューが閉じている場合は外側 mousedown で onClose が呼ばれないこと', () => {
+      render(
+        <div>
+          <QuantityItemActionMenu {...defaultProps} isOpen={false} />
+          <button data-testid="outside-button">外部ボタン</button>
+        </div>
+      );
+
+      fireEvent.mouseDown(screen.getByTestId('outside-button'));
 
       expect(defaultProps.onClose).not.toHaveBeenCalled();
+    });
+
+    it('REQ-46.8: Portal 先のドロップダウン内を mousedown しても onClose が呼ばれないこと（内側判定）', () => {
+      render(
+        <div data-testid="overflow-wrapper" style={{ overflowX: 'auto', overflowY: 'hidden' }}>
+          <QuantityItemActionMenu {...defaultProps} isOpen={true} />
+        </div>
+      );
+
+      // Portal 先（document.body 直下）のメニュー要素は「内側」として扱われること
+      fireEvent.mouseDown(screen.getByRole('menu'));
+      fireEvent.mouseDown(screen.getByText('コピー').closest('button')!);
+
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+    });
+
+    it('REQ-46.8: トリガーボタンの mousedown では onClose が呼ばれず、クリックでトグルが1回だけ発火すること', async () => {
+      const user = userEvent.setup();
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+      // outside-click が先に発火して閉じ、その後トグルで開き直す二重発火が起きないこと
+      await user.click(screen.getByRole('button', { name: 'アクション' }));
+
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+      expect(defaultProps.onToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('REQ-46.8: Escape キーで onClose が呼ばれること', () => {
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('REQ-46.8: Escape 以外のキーでは onClose が呼ばれないこと', () => {
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+      fireEvent.keyDown(document, { key: 'Enter' });
+      fireEvent.keyDown(document, { key: 'a' });
+
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+    });
+
+    it('REQ-46.8: メニューが閉じている場合は Escape で onClose が呼ばれないこと', () => {
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={false} />);
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+    });
+
+    it('REQ-46.8: フォーカス移動（blur）ではメニューを閉じないこと（onBlur 方式の撤去）', () => {
+      render(
+        <div>
+          <QuantityItemActionMenu {...defaultProps} isOpen={true} />
+          <button data-testid="outside-button">外部ボタン</button>
+        </div>
+      );
+
+      const wrapper = screen.getByRole('button', { name: 'アクション' }).parentElement!;
+      const menuItem = screen.getByText('コピー').closest('button')!;
+
+      // Portal 先のメニュー項目へフォーカスが移る（Tab キー相当）
+      fireEvent.blur(wrapper, { relatedTarget: menuItem });
+      // relatedTarget を取得できないブラウザ挙動
+      fireEvent.blur(wrapper, { relatedTarget: null });
+      // 外側要素へのフォーカス移動でも、閉じ判定は mousedown / Escape に一本化されている
+      fireEvent.blur(wrapper, { relatedTarget: screen.getByTestId('outside-button') });
+
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+    });
+
+    it('REQ-46.8: メニューが閉じているとき document にリスナが残らないこと（リーク防止）', () => {
+      const addSpy = vi.spyOn(document, 'addEventListener');
+      const removeSpy = vi.spyOn(document, 'removeEventListener');
+
+      const { rerender, unmount } = render(
+        <QuantityItemActionMenu {...defaultProps} isOpen={false} />
+      );
+
+      const added = (type: string) => addSpy.mock.calls.filter((call) => call[0] === type);
+      const removed = (type: string) => removeSpy.mock.calls.filter((call) => call[0] === type);
+
+      // 閉じている間は document にリスナを張らない
+      expect(added('mousedown')).toHaveLength(0);
+      expect(added('keydown')).toHaveLength(0);
+
+      rerender(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+      expect(added('mousedown')).toHaveLength(1);
+      expect(added('keydown')).toHaveLength(1);
+
+      // 閉じたら、追加したものと同一のハンドラで removeEventListener される
+      rerender(<QuantityItemActionMenu {...defaultProps} isOpen={false} />);
+
+      expect(removed('mousedown')).toHaveLength(1);
+      expect(removed('keydown')).toHaveLength(1);
+      expect(removed('mousedown')[0]![1]).toBe(added('mousedown')[0]![1]);
+      expect(removed('keydown')[0]![1]).toBe(added('keydown')[0]![1]);
+
+      // 閉じた状態ではイベントが発火しても onClose は呼ばれない（リスナが残っていない）
+      fireEvent.mouseDown(document.body);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+
+      // 開いたままアンマウントしてもリスナは解除される
+      rerender(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+      unmount();
+
+      expect(removed('mousedown')).toHaveLength(2);
+      expect(removed('keydown')).toHaveLength(2);
+
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
     });
   });
 
