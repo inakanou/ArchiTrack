@@ -247,10 +247,13 @@ backend/prisma/migrations/
     └── migration.sql                  # ALTER TYPE "CalculationMethod" ADD VALUE 'COUNT'; の1文のみ
 
 e2e/specs/quantity-tables/
-├── quantity-item-action-menu-clipping.spec.ts  # REQ-46: boundingBox ベースのクリップ検証
-├── calculation-method-count.spec.ts            # REQ-47: 箇所数の計算・検証・保存復元
-└── calculation-method-switch.spec.ts           # REQ-48: 切替後に入力した値が保存で失われないこと
+├── quantity-item-action-menu-clipping.spec.ts       # REQ-46: boundingBox ベースのクリップ検証
+├── calculation-method-count.spec.ts                 # REQ-47: 箇所数の計算・フィールド表示・入力検証
+├── calculation-method-count-persistence.spec.ts     # REQ-47: 保存復元・グループコピー・PDF出力
+└── calculation-method-switch.spec.ts                # REQ-48: 切替後に入力した値が保存で失われないこと
 ```
+
+**注記**: REQ-47 の E2E を2ファイルに分けるのは、前段（計算・表示・入力検証）と後段（永続化・コピー・PDF出力）で依存する実装タスクが異なり、別ファイルにすることで並行実行可能になるためである。
 
 **注記**: Storybook ストーリーは `CalculationFields` / `CalculationMethodSelect` / `QuantityItemActionMenu` / `EditableQuantityItemRow` の**4件とも既に実在する**（新規作成ではなく変更対象）。下表に記載する。
 
@@ -2565,7 +2568,8 @@ const FIELDS_BY_METHOD: Record<Exclude<CalculationMethod, 'STANDARD'>, FieldDefi
 
 **Implementation Notes**
 
-- `NumberInputField`（同ファイル内のローカルサブコンポーネント、`:178-272`）に `integer?: boolean` を追加する。現行は blur 時に `numValue.toFixed(2)` を**無条件で適用**しているため、`integer` が真のときのみ `String(parseInt(raw, 10))` で整形し、`inputMode` を `"numeric"` にする。既存の小数フィールドの挙動は変更しない
+- `NumberInputField`（同ファイル内のローカルサブコンポーネント、`:178-272`）に `integer?: boolean` を追加する。**`toFixed(2)` は blur 時だけでなく、`useState` の初期値（`:197`）と props 同期時（`:205`）の計3箇所で無条件に適用されている**。3箇所すべてを整数分岐にしないと、保存・再読み込み後に箇所数が「5.00」と表示され REQ-47 AC15 / REQ-14 AC6 を満たさない。`integer` が真のときのみ `String(parseInt(raw, 10))` で整形し、`inputMode` を `"numeric"` にする。既存の小数フィールドの挙動は変更しない
+- `resetParamsForMethod()` と `PARAM_KEYS_BY_METHOD` はいずれも `utils/calculation-method.ts`（CalculationMethodRegistry）に置き、`EditableQuantityItemRow` は消費するのみとする（単体テストの対象を1箇所に定める）
 - Validation: 整数以外・範囲外は入力を拒否しエラー表示（REQ-47 AC10, AC11）
 - Risks: `toFixed(2)` の分岐を誤ると既存の面積・体積／ピッチの表示書式が壊れる。`CalculationFields.test.tsx` で既存2方式の書式を回帰テストとして固定する
 
