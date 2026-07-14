@@ -8,20 +8,39 @@
  * - 8.4: 計算方法が「標準」で数量フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
  * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーメッセージを表示する
  * - 8.10: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）のいずれかが未入力で保存を試行する場合、エラーメッセージを表示する
+ * - 8.15: 「箇所数」モードで必須項目（箇所数）が未入力で保存を試行する場合、エラーメッセージを表示し箇所数の入力を求める
  * - 9.3: 調整係数列に0以下の値が入力される場合、警告メッセージを表示し確認を求める
  * - 9.4: 調整係数列に数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
  * - 10.3: 丸め設定列に0以下の値が入力される場合、エラーメッセージを表示し、正の値の入力を求める
  * - 10.4: 丸め設定列に数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
+ * - 47.8: 「箇所数」フィールドを必須項目とし、入力可能範囲を1〜9999999の整数とする
+ * - 47.9: 「箇所数」が未入力のまま保存を試行する場合、エラーメッセージを表示し箇所数の入力を求める
+ * - 47.10: 「箇所数」に小数を含む値が入力される場合、入力を拒否しエラーメッセージを表示する
+ * - 47.11: 「箇所数」に入力可能範囲（1〜9999999）外の値が入力される場合、エラーメッセージを表示する
  *
  * Task 2.5: 計算検証とバリデーションを実装する
+ * Task 66.2: 計算方法「箇所数」の検証と未知の計算方法の fail-fast を追加する
  *
  * @module services/quantity-validation
  */
 
+// 計算方法の唯一の定義元は quantity-table.schema.ts の CALCULATION_METHODS。
+// 型のみを import（`import type`）しているためスキーマモジュールの実行時 import は発生せず、
+// 循環参照も生じない（schema 側は zod のみに依存する）。
+import type { CalculationMethodType as SchemaCalculationMethodType } from '../schemas/quantity-table.schema.js';
+
+// 箇所数の入力可能範囲（REQ-47 AC8, AC11）の唯一の定義元は calculation-engine.ts。
+// 範囲の二重定義を避けるため、ここでは再定義せず import して参照する。
+// calculation-engine.ts は decimal.js のみに依存するため循環参照は生じない。
+import { COUNT_MAX, COUNT_MIN } from './calculation-engine.js';
+
 /**
  * 計算方法の型
+ *
+ * `quantity-table.schema.ts` の `CALCULATION_METHODS` から派生させ、
+ * 計算方法の二重管理（値の追加漏れ）を防ぐ。
  */
-export type CalculationMethodType = 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+export type CalculationMethodType = SchemaCalculationMethodType;
 
 /**
  * 面積・体積計算パラメータ
@@ -46,11 +65,25 @@ export interface PitchValidationParams {
 }
 
 /**
+ * 箇所数計算パラメータ（REQ-47）
+ *
+ * ピッチ計算が範囲長・端長1・端長2・ピッチ長から自動算出する箇所数を、
+ * 手入力の `count` に置き換えたもの。箇所数確定後の長さ・重量の乗算は
+ * ピッチと同一仕様。
+ */
+export interface CountValidationParams {
+  count?: number;
+  length?: number;
+  weight?: number;
+}
+
+/**
  * 計算パラメータの型
  */
 export type CalculationParamsType =
   | AreaVolumeValidationParams
   | PitchValidationParams
+  | CountValidationParams
   | Record<string, number | undefined>;
 
 /**
@@ -130,6 +163,22 @@ export class QuantityValidationService {
       case 'PITCH':
         this.validatePitchMode(input, errors, warnings);
         break;
+
+      case 'COUNT':
+        this.validateCountMode(input, errors);
+        break;
+
+      // 未知の計算方法を無検証で素通りさせない（fail-fast）。
+      // CALCULATION_METHODS への値追加時に case を書き忘れても、
+      // 保存が無検証で成功してしまう事故を防ぐ。
+      default: {
+        const unknownMethod: string = input.calculationMethod;
+        errors.push({
+          field: 'calculationMethod',
+          message: `未知の計算方法です: ${unknownMethod}`,
+        });
+        break;
+      }
     }
 
     return {
@@ -294,6 +343,58 @@ export class QuantityValidationService {
       warnings.push({
         field: 'calculationParams.endLength2',
         message: '端長2に負の値が入力されています。確認してください。',
+      });
+    }
+  }
+
+  /**
+   * 箇所数モードの検証（REQ-47）
+   *
+   * 箇所数は必須・整数・1〜9999999 の範囲。長さ・重量は任意。
+   * いずれも入力を拒否する（エラー）仕様であり、警告は発生しない
+   * （負の値は範囲チェックでエラーになるため）。
+   *
+   * Requirements:
+   * - 8.15 / 47.9: 箇所数が未入力の場合はエラー
+   * - 47.10: 箇所数が小数の場合はエラー
+   * - 47.11: 箇所数が範囲（1〜9999999）外の場合はエラー
+   *
+   * @param input - 検証対象の入力
+   * @param errors - エラーリスト
+   */
+  private validateCountMode(input: QuantityItemValidationInput, errors: ValidationError[]): void {
+    const params = input.calculationParams as CountValidationParams;
+
+    // 必須項目の存在確認（REQ-8 AC15 / REQ-47 AC9）
+    if (params.count === undefined || params.count === null) {
+      errors.push({
+        field: 'calculationParams.count',
+        message: '箇所数は必須です',
+      });
+      return;
+    }
+
+    // 数値検証（NaN・Infinity・数値以外を拒否）
+    const numericResult = this.validateNumericInput(params.count, 'calculationParams.count');
+    if (!numericResult.isValid) {
+      errors.push(...numericResult.errors);
+      return;
+    }
+
+    // 整数検証（REQ-47 AC10）
+    if (!Number.isInteger(params.count)) {
+      errors.push({
+        field: 'calculationParams.count',
+        message: '箇所数は整数で入力してください',
+      });
+      return;
+    }
+
+    // 範囲検証（REQ-47 AC11）
+    if (params.count < COUNT_MIN || params.count > COUNT_MAX) {
+      errors.push({
+        field: 'calculationParams.count',
+        message: `箇所数は${COUNT_MIN}〜${COUNT_MAX}の範囲で入力してください`,
       });
     }
   }

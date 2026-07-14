@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   QuantityValidationService,
+  type CalculationMethodType,
   type QuantityItemValidationInput,
 } from '../../../services/quantity-validation.service.js';
 
@@ -351,6 +352,194 @@ describe('QuantityValidationService', () => {
 
         // Assert
         expect(result.isValid).toBe(true);
+      });
+    });
+
+    describe('箇所数モード（COUNT）', () => {
+      it('必須項目（箇所数）が入力されていれば有効（Requirements: 47.8）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: {
+            count: 5,
+          },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+      });
+
+      it('箇所数が未入力の場合はエラーを返す（Requirements: 47.9, 8.15）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: {
+            length: 2,
+            weight: 3,
+          },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContainEqual(
+          expect.objectContaining({
+            field: 'calculationParams.count',
+            message: expect.stringContaining('必須'),
+          })
+        );
+      });
+
+      it('箇所数が小数の場合はエラーを返す（Requirements: 47.10）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: {
+            count: 2.5,
+          },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContainEqual(
+          expect.objectContaining({
+            field: 'calculationParams.count',
+            message: expect.stringContaining('整数'),
+          })
+        );
+      });
+
+      it('箇所数が範囲下限未満（0）の場合はエラーを返す（Requirements: 47.11）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: {
+            count: 0,
+          },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContainEqual(
+          expect.objectContaining({
+            field: 'calculationParams.count',
+            message: expect.stringContaining('1〜9999999'),
+          })
+        );
+      });
+
+      it('箇所数が範囲上限超過（10000000）の場合はエラーを返す（Requirements: 47.11）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: {
+            count: 10000000,
+          },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContainEqual(
+          expect.objectContaining({
+            field: 'calculationParams.count',
+            message: expect.stringContaining('1〜9999999'),
+          })
+        );
+      });
+
+      it('箇所数が範囲の境界値（1・9999999）の場合は有効（Requirements: 47.11）', () => {
+        // Arrange
+        const lowerBound: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: { count: 1 },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+        const upperBound: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: { count: 9999999 },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const lowerResult = service.validateQuantityItem(lowerBound);
+        const upperResult = service.validateQuantityItem(upperBound);
+
+        // Assert
+        expect(lowerResult.isValid).toBe(true);
+        expect(lowerResult.errors).toHaveLength(0);
+        expect(upperResult.isValid).toBe(true);
+        expect(upperResult.errors).toHaveLength(0);
+      });
+
+      it('任意項目（長さ・重量）が入力されていても有効（Requirements: 47.4）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'COUNT',
+          calculationParams: {
+            count: 5,
+            length: 2.5,
+            weight: 3.2,
+          },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+      });
+    });
+
+    describe('未知の計算方法', () => {
+      it('未知の計算方法はエラーを返す（Requirements: 47.1）', () => {
+        // Arrange: 型システムを迂回した未知の計算方法（将来の追加漏れ・不正リクエストを模擬）
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'UNKNOWN_METHOD' as unknown as CalculationMethodType,
+          calculationParams: {},
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContainEqual(
+          expect.objectContaining({
+            field: 'calculationMethod',
+          })
+        );
       });
     });
 
