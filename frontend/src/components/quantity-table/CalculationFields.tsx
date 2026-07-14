@@ -14,14 +14,26 @@
  * - 47.2 / 47.12-47.14: 計算方法「箇所数」のフィールド群を表示し、ピッチ固有フィールドを非表示にする
  * - 9.1 / 10.1: 標準以外の計算方法で調整係数・丸め設定を計算用フィールドの末尾に表示する
  *
+ * - 14.6 / 14.7: 「箇所数」フィールドは小数桁を付与せず整数表示し、空白時は空白のまま表示する
+ * - 47.8 / 47.10 / 47.11: 「箇所数」は 1〜9999999 の整数のみ受け付け、小数・数値以外・範囲外は入力を拒否する
+ *
  * Task 68.1: 計算用フィールド定義を計算方法ごとの Record（FIELDS_BY_METHOD）へ置換する。
  * 二値の三項演算子（`method === 'AREA_VOLUME' ? AREA_VOLUME_FIELDS : PITCH_FIELDS`）は、
  * 第4の計算方法（COUNT）を無言でピッチのフィールド群にフォールバックさせるため廃止した。
+ *
+ * Task 68.2: NumberInputField の表示整形（useState 初期値・props 同期・blur の計3経路）を
+ * 整数分岐に対応させる。3経路すべてを `formatFieldValue` に集約したため、blur だけ整数化して
+ * 保存・再読み込み（props 同期）で「5.00」に戻る不整合が構造的に起こらない。
+ * 整数・範囲の判定は `utils/numeric-range-validation.ts` に委譲する（二重管理の防止）。
  */
 
 import { useCallback, useId, useState } from 'react';
 import type { CalculationMethod, CalculationParams } from '../../types/quantity-edit.types';
 import type { AreaVolumeParams, PitchParams, CountParams } from '../../utils/calculation-engine';
+import {
+  validateNumericRange,
+  type NumericRangeFieldType,
+} from '../../utils/numeric-range-validation';
 
 // ============================================================================
 // 型定義
@@ -60,10 +72,18 @@ export interface FieldDefinition {
   /**
    * 真の場合、整数のみを受け付け、小数桁を付与せずに表示する（REQ-47 AC8, REQ-14 AC6）
    *
-   * 注: 表示整形（`toFixed(2)` の整数分岐）と入力制御は Task 68.2 で実装する。
-   * 本タスク（68.1）ではフィールド定義のメタ情報として保持するに留める。
+   * Task 68.2: `NumberInputField` の表示整形（初期表示・props 同期・blur の3経路）で消費する。
+   * 未指定（既存の面積・体積／ピッチのフィールド）は従来どおり小数2桁で表示する。
    */
   integer?: boolean;
+  /**
+   * 入力値の検証に用いる数値範囲設定のキー（REQ-47 AC10, AC11）
+   *
+   * 指定した場合のみ blur 時に `validateNumericRange` で検証し、拒否とエラー表示を行う。
+   * 整数判定・範囲判定は `utils/numeric-range-validation.ts` の単一定義に委譲し、
+   * 本コンポーネント側では条件を再実装しない（二重管理の防止）。
+   */
+  rangeFieldType?: NumericRangeFieldType;
 }
 
 // ============================================================================
@@ -98,7 +118,7 @@ const PITCH_FIELDS: FieldDefinition[] = [
  * 表示順序: 箇所数 → 長さ → 重量（この後に調整係数 → 丸め設定が続く）
  */
 const COUNT_FIELDS: FieldDefinition[] = [
-  { key: 'count', label: '箇所数', required: true, integer: true },
+  { key: 'count', label: '箇所数', required: true, integer: true, rangeFieldType: 'count' },
   { key: 'length', label: '長さ', step: 0.01 },
   { key: 'weight', label: '重量', step: 0.01 },
 ];
@@ -214,9 +234,29 @@ const styles = {
 // ============================================================================
 
 /**
+ * 表示値の整形（Task 68.2）
+ *
+ * NumberInputField は「useState 初期値」「props 同期」「blur 整形」の計3経路で表示値を作る。
+ * 3経路すべてが本関数を通ることで、整数フィールド（箇所数）の書式が経路によってぶれない。
+ * 例: blur だけ整数化すると、保存・再読み込み（= props 同期）で「5.00」に戻る（REQ-47 AC15 違反）。
+ *
+ * - REQ-14.6: 整数指定フィールド（箇所数）は小数桁を付与しない
+ * - REQ-14.3: それ以外（寸法・ピッチ・長さ・重量）は従来どおり小数2桁
+ * - REQ-14.4 / 14.7: 値が未設定の場合は空白
+ */
+function formatFieldValue(value: number | undefined, integer: boolean | undefined): string {
+  if (value === undefined) {
+    return '';
+  }
+  return integer === true ? String(value) : value.toFixed(2);
+}
+
+/**
  * 数値入力フィールド
  * REQ-14.3: 数値入力時は小数2桁で表示
  * REQ-14.4: 空白時は空白のまま表示
+ * REQ-14.6/14.7: 整数指定フィールド（箇所数）は整数表示・空白時は空白（Task 68.2）
+ * REQ-47.10/47.11: 整数指定フィールドは小数・数値以外・範囲外の入力を拒否しエラーを表示（Task 68.2）
  */
 interface NumberInputFieldProps {
   id: string;
@@ -225,7 +265,10 @@ interface NumberInputFieldProps {
   onChange: (value: number | undefined) => void;
   disabled: boolean;
   required?: boolean;
-  step?: number;
+  /** 整数として整形・入力するか（REQ-47 AC8, REQ-14 AC6） */
+  integer?: boolean;
+  /** 入力値検証に使う数値範囲設定のキー。指定時のみ blur で検証する（REQ-47 AC10, AC11） */
+  rangeFieldType?: NumericRangeFieldType;
 }
 
 function NumberInputField({
@@ -235,17 +278,23 @@ function NumberInputField({
   onChange,
   disabled,
   required,
+  integer,
+  rangeFieldType,
 }: NumberInputFieldProps) {
-  // REQ-14.3/14.4: ローカル状態で表示値を管理
-  const [localValue, setLocalValue] = useState<string>(value !== undefined ? value.toFixed(2) : '');
+  // REQ-14.3/14.4/14.6: ローカル状態で表示値を管理（整形経路 1/3: useState 初期値）
+  const [localValue, setLocalValue] = useState<string>(() => formatFieldValue(value, integer));
   // 前回のprops値を追跡（公式ドキュメント推奨パターン）
   const [prevValue, setPrevValue] = useState(value);
+  // 入力拒否時のエラーメッセージ（REQ-47 AC10, AC11）
+  const [error, setError] = useState<string | undefined>(undefined);
 
-  // 親の値が変更された場合、レンダリング中にローカル状態を同期
+  // 親の値が変更された場合、レンダリング中にローカル状態を同期（整形経路 2/3: props 同期）
+  // 保存・再読み込み後の復元はこの経路を通る（REQ-47 AC15）
   // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
   if (value !== prevValue) {
     setPrevValue(value);
-    setLocalValue(value !== undefined ? value.toFixed(2) : '');
+    setLocalValue(formatFieldValue(value, integer));
+    setError(undefined);
   }
 
   // 入力中はそのままの値を保持
@@ -258,25 +307,47 @@ function NumberInputField({
     e.target.select();
   }, []);
 
-  // blur時に小数2桁でフォーマットして親に通知
+  // blur時にフォーマットして親に通知（整形経路 3/3: blur 整形）
   const handleBlur = useCallback(() => {
     const trimmedValue = localValue.trim();
     if (trimmedValue === '') {
-      // REQ-14.4: 空白時は空白のまま
+      // REQ-14.4/14.7: 空白時は空白のまま
+      setError(undefined);
       onChange(undefined);
-    } else {
-      const numValue = parseFloat(trimmedValue);
-      if (!isNaN(numValue)) {
-        // REQ-14.3: 数値入力時は小数2桁で表示
-        setLocalValue(numValue.toFixed(2));
-        onChange(numValue);
-      } else {
-        // 無効な値の場合はクリア
-        setLocalValue('');
-        onChange(undefined);
-      }
+      return;
     }
-  }, [localValue, onChange]);
+
+    // 検証対象フィールド（箇所数）: 小数・数値以外・範囲外は入力を拒否しエラーを表示する
+    // （REQ-47 AC10, AC11 / REQ-15 AC5）。整数・範囲の判定は numeric-range-validation に委譲する
+    if (rangeFieldType !== undefined) {
+      const numValue = Number(trimmedValue);
+      if (!Number.isFinite(numValue)) {
+        setError(`${label}は数値で入力してください`);
+        return;
+      }
+      const result = validateNumericRange(numValue, rangeFieldType);
+      if (!result.isValid) {
+        setError(result.error);
+        return;
+      }
+      setError(undefined);
+      setLocalValue(formatFieldValue(numValue, integer));
+      onChange(numValue);
+      return;
+    }
+
+    // 既存の小数フィールド（面積・体積／ピッチ／長さ／重量）: 従来どおりの挙動を維持する
+    const numValue = parseFloat(trimmedValue);
+    if (!isNaN(numValue)) {
+      // REQ-14.3: 数値入力時は小数2桁で表示
+      setLocalValue(formatFieldValue(numValue, integer));
+      onChange(numValue);
+    } else {
+      // 無効な値の場合はクリア
+      setLocalValue('');
+      onChange(undefined);
+    }
+  }, [localValue, onChange, integer, rangeFieldType, label]);
 
   return (
     <div style={styles.fieldWrapper}>
@@ -287,7 +358,7 @@ function NumberInputField({
       <input
         id={id}
         type="text"
-        inputMode="decimal"
+        inputMode={integer === true ? 'numeric' : 'decimal'}
         value={localValue}
         onChange={handleChange}
         onFocus={handleFocus}
@@ -298,9 +369,16 @@ function NumberInputField({
           ...styles.input,
           textAlign: 'right',
           ...(disabled ? styles.inputDisabled : {}),
+          ...(error !== undefined ? styles.inputWarning : {}),
         }}
         aria-required={required}
+        aria-invalid={error !== undefined}
       />
+      {error !== undefined && (
+        <span style={styles.warningMessage} role="alert">
+          {error}
+        </span>
+      )}
       <style>
         {`
           .hide-spinner::-webkit-outer-spin-button,
@@ -499,7 +577,8 @@ export default function CalculationFields({
             onChange={(value) => handleFieldChange(field.key, value)}
             disabled={disabled}
             required={field.required}
-            step={field.step}
+            integer={field.integer}
+            rangeFieldType={field.rangeFieldType}
           />
         ))}
         {/* REQ-9: 調整係数（面積・体積/ピッチ選択時のみ表示） */}

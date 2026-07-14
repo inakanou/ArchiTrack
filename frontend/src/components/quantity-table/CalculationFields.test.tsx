@@ -17,6 +17,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import CalculationFields, { FIELDS_BY_METHOD } from './CalculationFields';
 import type { AreaVolumeParams, PitchParams, CountParams } from '../../utils/calculation-engine';
 import { CALCULATION_METHOD_ORDER, PARAM_KEYS_BY_METHOD } from '../../utils/calculation-method';
+import { FIELD_RANGE_CONFIG } from '../../utils/numeric-range-validation';
 import type { CalculationMethod, CalculationParams } from '../../types/quantity-edit.types';
 
 describe('CalculationFields', () => {
@@ -449,6 +450,291 @@ describe('CalculationFields', () => {
   });
 
   // ============================================================================
+  // 箇所数モード 整数入力テスト（Task 68.2 / REQ-47 AC8, AC10, REQ-14 AC6, AC7）
+  //
+  // NumberInputField は `toFixed(2)` を「useState 初期値」「props 同期」「blur 整形」の
+  // 計3経路で無条件に適用している。3経路すべてを整数分岐にしないと、保存・再読み込み
+  // （= 親からの props 同期）で箇所数が「5.00」に戻る。以下は3経路を個別に検証する。
+  // ============================================================================
+
+  describe('箇所数モード - 整数表示（3経路）', () => {
+    it('【blur 経路】箇所数に 5 を入力してフォーカスアウトすると「5」と表示される（REQ-14 AC6）', () => {
+      const onChange = vi.fn();
+      render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);
+
+      const countInput = screen.getByLabelText(/箇所数/i);
+      fireEvent.change(countInput, { target: { value: '5' } });
+      fireEvent.blur(countInput);
+
+      expect(countInput).toHaveValue('5');
+      expect(onChange).toHaveBeenCalledWith({ count: 5 });
+    });
+
+    it('【useState 初期値経路】params に count=5 を渡してマウントすると初回描画から「5」と表示される（REQ-14 AC6）', () => {
+      render(
+        <CalculationFields
+          method="COUNT"
+          params={{ count: 5 } as CountParams}
+          onChange={vi.fn()}
+          disabled={false}
+        />
+      );
+
+      expect(screen.getByLabelText(/箇所数/i)).toHaveValue('5');
+    });
+
+    it('【props 同期経路】マウント後に親が count を 7 へ更新すると「7」と表示される（REQ-47 AC15: 保存・再読み込み後の復元）', () => {
+      const { rerender } = render(
+        <CalculationFields
+          method="COUNT"
+          params={{ count: 5 } as CountParams}
+          onChange={vi.fn()}
+          disabled={false}
+        />
+      );
+
+      rerender(
+        <CalculationFields
+          method="COUNT"
+          params={{ count: 7 } as CountParams}
+          onChange={vi.fn()}
+          disabled={false}
+        />
+      );
+
+      expect(screen.getByLabelText(/箇所数/i)).toHaveValue('7');
+    });
+
+    it('箇所数が未設定の場合は空白のまま表示される（REQ-14 AC7）', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />);
+
+      expect(screen.getByLabelText(/箇所数/i)).toHaveValue('');
+    });
+
+    it('箇所数を空文字にしてフォーカスアウトすると空白表示のまま undefined が通知される（REQ-14 AC7）', () => {
+      const onChange = vi.fn();
+      render(
+        <CalculationFields
+          method="COUNT"
+          params={{ count: 5 } as CountParams}
+          onChange={onChange}
+          disabled={false}
+        />
+      );
+
+      const countInput = screen.getByLabelText(/箇所数/i);
+      fireEvent.change(countInput, { target: { value: '' } });
+      fireEvent.blur(countInput);
+
+      expect(countInput).toHaveValue('');
+      expect(onChange).toHaveBeenCalledWith({ count: undefined });
+    });
+
+    it('箇所数モードの「長さ」「重量」は従来どおり小数2桁で表示される（REQ-14 AC3）', () => {
+      const { rerender } = render(
+        <CalculationFields
+          method="COUNT"
+          params={{ count: 5, length: 2, weight: 1.5 } as CountParams}
+          onChange={vi.fn()}
+          disabled={false}
+        />
+      );
+
+      // useState 初期値経路
+      expect(screen.getByLabelText('長さ')).toHaveValue('2.00');
+      expect(screen.getByLabelText(/重量/i)).toHaveValue('1.50');
+
+      // props 同期経路
+      rerender(
+        <CalculationFields
+          method="COUNT"
+          params={{ count: 5, length: 3, weight: 2 } as CountParams}
+          onChange={vi.fn()}
+          disabled={false}
+        />
+      );
+      expect(screen.getByLabelText('長さ')).toHaveValue('3.00');
+      expect(screen.getByLabelText(/重量/i)).toHaveValue('2.00');
+
+      // blur 経路
+      const lengthInput = screen.getByLabelText('長さ');
+      fireEvent.change(lengthInput, { target: { value: '4' } });
+      fireEvent.blur(lengthInput);
+      expect(lengthInput).toHaveValue('4.00');
+    });
+
+    it('箇所数フィールドは inputMode="numeric"（整数入力）である', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={vi.fn()} disabled={false} />);
+
+      expect(screen.getByLabelText(/箇所数/i)).toHaveAttribute('inputMode', 'numeric');
+      // 小数フィールドは従来どおり decimal
+      expect(screen.getByLabelText('長さ')).toHaveAttribute('inputMode', 'decimal');
+      expect(screen.getByLabelText(/重量/i)).toHaveAttribute('inputMode', 'decimal');
+    });
+  });
+
+  // ============================================================================
+  // 箇所数モード 小数・範囲外・非数値の入力拒否（Task 68.2 / REQ-47 AC10, AC11, REQ-15 AC5）
+  // ============================================================================
+
+  describe('箇所数モード - 入力拒否とエラー表示', () => {
+    let onChange: Mock<(params: CalculationParams) => void>;
+
+    beforeEach(() => {
+      onChange = vi.fn();
+    });
+
+    it('小数を入力するとエラーメッセージを表示し、値を親へ通知しない（REQ-47 AC10）', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);
+
+      const countInput = screen.getByLabelText(/箇所数/i);
+      fireEvent.change(countInput, { target: { value: '2.5' } });
+      fireEvent.blur(countInput);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('箇所数は整数で入力してください');
+      expect(countInput).toHaveAttribute('aria-invalid', 'true');
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('数値以外の文字を入力するとエラーメッセージを表示し、値を親へ通知しない（REQ-47 AC10）', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);
+
+      const countInput = screen.getByLabelText(/箇所数/i);
+      fireEvent.change(countInput, { target: { value: 'abc' } });
+      fireEvent.blur(countInput);
+
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(countInput).toHaveAttribute('aria-invalid', 'true');
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['0', '下限未満'],
+      ['10000000', '上限超過'],
+    ])('範囲外の値 %s を入力するとエラーメッセージを表示し、値を親へ通知しない（REQ-47 AC11）', (value) => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);
+
+      const countInput = screen.getByLabelText(/箇所数/i);
+      fireEvent.change(countInput, { target: { value } });
+      fireEvent.blur(countInput);
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '箇所数は1〜9999999の範囲で入力してください'
+      );
+      expect(countInput).toHaveAttribute('aria-invalid', 'true');
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('エラー表示後に正しい整数を入力し直すとエラーが解消され値が通知される', () => {
+      render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);
+
+      const countInput = screen.getByLabelText(/箇所数/i);
+      fireEvent.change(countInput, { target: { value: '2.5' } });
+      fireEvent.blur(countInput);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+
+      fireEvent.change(countInput, { target: { value: '3' } });
+      fireEvent.blur(countInput);
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(countInput).toHaveValue('3');
+      expect(countInput).toHaveAttribute('aria-invalid', 'false');
+      expect(onChange).toHaveBeenCalledWith({ count: 3 });
+    });
+
+    it('小数フィールド（面積・体積の幅）は小数を入力してもエラーにならない（既存挙動の維持）', () => {
+      render(
+        <CalculationFields method="AREA_VOLUME" params={{}} onChange={onChange} disabled={false} />
+      );
+
+      const widthInput = screen.getByLabelText(/幅/i);
+      fireEvent.change(widthInput, { target: { value: '2.5' } });
+      fireEvent.blur(widthInput);
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(widthInput).toHaveValue('2.50');
+      expect(onChange).toHaveBeenCalledWith({ width: 2.5 });
+    });
+
+    it('箇所数フィールドの整数制約は numeric-range-validation の設定と一致する（二重管理の防止）', () => {
+      const countField = FIELDS_BY_METHOD.COUNT.find((field) => field.key === 'count');
+      expect(countField?.integer).toBe(true);
+      expect(FIELD_RANGE_CONFIG.count.integer).toBe(true);
+      expect(countField?.rangeFieldType).toBe('count');
+    });
+  });
+
+  // ============================================================================
+  // 既存の小数2桁書式の回帰防止（Task 68.2: 3経路すべて）
+  // ============================================================================
+
+  describe('既存フィールドの小数2桁書式（3経路の回帰防止・REQ-14 AC3）', () => {
+    it('面積・体積の幅は初期表示・props同期・blur のいずれでも小数2桁で表示される', () => {
+      const onChange = vi.fn();
+      // useState 初期値経路
+      const { rerender } = render(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{ width: 3 } as AreaVolumeParams}
+          onChange={onChange}
+          disabled={false}
+        />
+      );
+      expect(screen.getByLabelText(/幅/i)).toHaveValue('3.00');
+
+      // props 同期経路
+      rerender(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{ width: 8 } as AreaVolumeParams}
+          onChange={onChange}
+          disabled={false}
+        />
+      );
+      expect(screen.getByLabelText(/幅/i)).toHaveValue('8.00');
+
+      // blur 経路
+      const widthInput = screen.getByLabelText(/幅/i);
+      fireEvent.change(widthInput, { target: { value: '3' } });
+      fireEvent.blur(widthInput);
+      expect(widthInput).toHaveValue('3.00');
+      expect(onChange).toHaveBeenCalledWith({ width: 3 });
+    });
+
+    it('ピッチの範囲長は初期表示・props同期・blur のいずれでも小数2桁で表示される', () => {
+      const onChange = vi.fn();
+      // useState 初期値経路
+      const { rerender } = render(
+        <CalculationFields
+          method="PITCH"
+          params={{ rangeLength: 100 } as PitchParams}
+          onChange={onChange}
+          disabled={false}
+        />
+      );
+      expect(screen.getByLabelText(/範囲長/i)).toHaveValue('100.00');
+
+      // props 同期経路
+      rerender(
+        <CalculationFields
+          method="PITCH"
+          params={{ rangeLength: 250 } as PitchParams}
+          onChange={onChange}
+          disabled={false}
+        />
+      );
+      expect(screen.getByLabelText(/範囲長/i)).toHaveValue('250.00');
+
+      // blur 経路
+      const rangeLengthInput = screen.getByLabelText(/範囲長/i);
+      fireEvent.change(rangeLengthInput, { target: { value: '100' } });
+      fireEvent.blur(rangeLengthInput);
+      expect(rangeLengthInput).toHaveValue('100.00');
+      expect(onChange).toHaveBeenCalledWith({ rangeLength: 100 });
+    });
+  });
+
+  // ============================================================================
   // 標準モード表示テスト
   // ============================================================================
 
@@ -877,8 +1163,9 @@ describe('CalculationFields', () => {
     });
 
     it('箇所数モードのフィールドが「箇所数（必須・整数）→ 長さ → 重量」で定義されている', () => {
+      // Task 68.2: 箇所数は整数表示（integer）と入力検証（rangeFieldType）の両方を宣言する
       expect(FIELDS_BY_METHOD.COUNT).toEqual([
-        { key: 'count', label: '箇所数', required: true, integer: true },
+        { key: 'count', label: '箇所数', required: true, integer: true, rangeFieldType: 'count' },
         { key: 'length', label: '長さ', step: 0.01 },
         { key: 'weight', label: '重量', step: 0.01 },
       ]);
