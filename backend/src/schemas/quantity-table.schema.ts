@@ -103,7 +103,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 /**
  * 計算方法の列挙
  */
-export const CALCULATION_METHODS = ['STANDARD', 'AREA_VOLUME', 'PITCH'] as const;
+export const CALCULATION_METHODS = ['STANDARD', 'AREA_VOLUME', 'PITCH', 'COUNT'] as const;
 export type CalculationMethodType = (typeof CALCULATION_METHODS)[number];
 
 // ===== 数量表スキーマ =====
