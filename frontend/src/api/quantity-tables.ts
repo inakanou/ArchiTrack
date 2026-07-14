@@ -434,7 +434,7 @@ export interface CreateQuantityItemInput {
   name: string;
   specification?: string | null;
   unit: string;
-  calculationMethod?: 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+  calculationMethod?: 'STANDARD' | 'AREA_VOLUME' | 'PITCH' | 'COUNT';
   calculationParams?: Record<string, number> | null;
   adjustmentFactor?: number;
   roundingUnit?: number;

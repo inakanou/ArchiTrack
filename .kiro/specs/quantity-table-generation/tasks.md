@@ -1719,11 +1719,12 @@
   - _Boundary: backend types, schemas 定数_
   - _Depends: 64.1_
 
-- [ ] 64.3 (P) フロントエンドの計算方法の型と計算パラメータ型を拡張する
+- [x] 64.3 (P) フロントエンドの計算方法の型と計算パラメータ型を拡張する
   - 計算方法のユニオン型（3箇所に重複定義）に「箇所数」を追加し、箇所数の計算パラメータ型（箇所数・長さ・重量）を新設する
-  - 編集画面のドラフト状態を管理するリデューサー側の計算方法の型も追随させる
-  - 型の起点となる定義に値を追加することで、後続タスクで対応表化する箇所の網羅漏れがコンパイルエラーとして検出される状態にする
-  - 観測可能完了条件: 型を追加した時点で、対応表化前のフォールバック箇所が型エラーとして顕在化する
+  - 編集画面のドラフト状態を管理するリデューサー側の計算方法の型も追随させる（型を import しているため自動追随する場合はその確認をもって足りる）
+  - 後続タスクで対応表化を行うための型の起点を確立する
+  - 観測可能完了条件: 計算方法「箇所数」と箇所数の計算パラメータ型がフロントエンド全体で型として成立し、型チェックと既存の全単体テストが通る
+  - **注記（実装時に判明・重要）**: 当初この完了条件を「型を追加した時点でフォールバック箇所が型エラーとして顕在化する」としていたが、これは**誤りだった**。フォールバック箇所は三項演算子・default 付き switch・配列リテラルで書かれており、ユニオン型に値を足しても型エラーは1件も出ない（型チェックは0エラーで通過）。**コンパイラは網羅漏れを検出しない**ため、後続タスク（64.4・68.1・68.3・68.5）の対応表化を明示的に完遂して初めて網羅性保証が効き始める。「型エラーが出た箇所を潰す」方式で漏れを見つけることはできない
   - _Requirements: 47.1_
   - _Boundary: frontend types, quantityTableEditReducer(型追随)_
 
@@ -1947,3 +1948,5 @@
 - 56.5 (REQ-40 並行制御ギャップ・要エスカレーション): from-survey 自体は設計どおり `quantity_tables` 行へ `SELECT FOR UPDATE` を取得し直列化する（copy も同様）。ただし design.md L1816 が主張する「add/copy/reorder/from-survey の4種完全直列化」は現状の実装では未達。`create`(add) と `updateDisplayOrder`(reorder) はロック非取得＋呼び出し側 displayOrder リテラルをそのまま書き込み、`(quantityTableId, displayOrder)` のDB一意制約も無いため、4種混在の並行実行では displayOrder 衝突・欠番が起こり得る。これは REQ-40 が作り込んだ不具合ではなく、add/reorder に元から存在する並行制御の限界。56.5（テスト専用・実装変更禁止）はロックが実際に保証する from-survey×2 + copy に並行テストを限定し衝突/欠番ゼロを検証、ギャップを開示した。**上位対応の選択肢**: (1) design L1816 の記述を実態（copy/from-survey のみ直列化）に合わせて修正する / (2) create()・updateDisplayOrder() にも `quantity_tables` 行ロックを導入し、併せて displayOrder のDB一意制約追加を検討して4種完全直列化を実装する。並行制御の設計/実装課題として別途判断が必要。
 - 検証是正 (REQ-42.4/42.6 インポートのドラフト化漏れ): 全タスク `[x]` だが `/kiro-validate-impl` で REQ-42.4/42.6 違反を検出。`importItems` reducer（60.1）は実装・単体テスト済みだったが `QuantityTableEditPage.tsx` の `handleImport` が page へ未配線で、`createQuantityItem` ループ＋再取得のままサーバー即時永続化していた（61.x の配線タスクにインポート分の明示サブタスクが欠落していたのが根本原因）。`handleImport` を `dispatch({type:'importItems', groupKey, items})` のドラフト反映へ置換し、`createQuantityItem`/`fetchQuantityTableDetail` を撤去。`import-e2e.spec.ts` の事前保存マスキングを是正し、取り込み→保存まで `POST .../items` が飛ばない（ネットワーク監視）＋保存後リロード反映の no-persist アサーションを復元（実 .xlsx fixture で OCR 非依存）。教訓: reducer アクション実装と page 配線は別タスクに分割せず、配線・E2E まで一気通貫で REQ 充足を検証すること（[[feedback_estimate_e2e_coverage]] と同根）。
 - 64.1 (既存スキーマドリフト・要注意): `prisma migrate dev` は本スペックと無関係な `ALTER INDEX "progress_record_items_progressRecordId_executionBudgetItemId_ke" RENAME TO "..._I_key"` を自動混入させる。真因は `20260318100000_add_execution_budget_models/migration.sql:152` が64文字のインデックス名を宣言し、PostgreSQL の63バイト上限で切り詰められること。マイグレーションから構築した全DB（本番含む）に存在する恒久的ドリフトで、Prisma のデータモデル期待名と食い違い続ける。**今後 `prisma migrate dev` を実行する際は、生成SQLからこの RenameIndex を必ず削除すること**（気付かず commit すると本番スキーマを意図せず変更する）。スクラッチDBでのゼロからの deploy とdev DBのインデックス名が一致することを実測確認済み。別タスクでの是正を推奨。
+- 64.3 (タスク定義の誤りを訂正): 「型に値を足せば網羅漏れが型エラーで顕在化する」は**誤り**。フォールバック箇所（`CalculationFields.tsx:440` の三項演算子、`QuantityTableEditPage.tsx:1177-1182` のネスト三項、`CalculationMethodSelect.tsx:45-49` の配列リテラル、`calculation-engine.ts:222-241` の default 付き switch、`useQuantityTableSave.ts:298-316` の if 連鎖）はいずれも網羅性チェックを持たず、`'COUNT'` を追加しても型チェックは0エラーで通過する。**コンパイラに頼って漏れを見つけることはできない**ため、後続の対応表化（64.4・68.1・68.3・68.5）を明示的に完遂すること。
+- 64.3 (`useMemoizedCalculation.ts` の扱い): 実装者とレビュアーの双方が「COUNT が default 分岐で数量0になる」と指摘したが、**import 元ゼロのデッドコードであり実行時影響はない**（grep で確認済み）。design.md が Out of Boundary として明示的に据え置くと決定しているため、**COUNT 対応も削除も行わないこと**。

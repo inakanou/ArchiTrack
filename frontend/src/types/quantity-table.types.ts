@@ -272,11 +272,17 @@ export function isQuantityTableSortableField(value: unknown): value is QuantityT
 
 /**
  * 計算方法
+ *
+ * Requirements:
+ * - 47.1: 計算方法の選択肢に「箇所数」（COUNT）を含める
  */
-export type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+export type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH' | 'COUNT';
 
 /**
  * 計算パラメータ
+ *
+ * Requirements:
+ * - 47.3: 箇所数モードでは手入力の箇所数（count）を保持する
  */
 export interface CalculationParams {
   width?: number;
@@ -288,6 +294,8 @@ export interface CalculationParams {
   endLength2?: number;
   pitchLength?: number;
   length?: number;
+  /** 箇所数（計算方法が COUNT の場合に必須・1〜9999999の整数） */
+  count?: number;
 }
 
 /**
