@@ -3,6 +3,8 @@
  *
  * Task 8.2: 手動保存と整合性チェックを実装する
  * Task 68.6: 保存前の整合性チェックに箇所数を追加する
+ * Task 68.7: 計算パラメータ検証を `utils/calculation-params-validation` へ移設し、
+ *   数量表編集画面の保存処理（QuantityTableEditPage.handleSave）と共有する
  *
  * Requirements:
  * - 11.1: 数量表の各フィールドの変更内容を保存する
@@ -22,15 +24,18 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type {
-  QuantityTableEdit,
-  ValidationError,
-  SaveStatus,
-  CalculationMethod,
-  CalculationParams,
-} from '../types/quantity-edit.types';
-import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
-import { validateNumericRange } from '../utils/numeric-range-validation';
+import type { QuantityTableEdit, ValidationError, SaveStatus } from '../types/quantity-edit.types';
+import {
+  validateCalculationParams,
+  type CalculationParamsIssueSeverity,
+} from '../utils/calculation-params-validation';
+
+// 計算方法ごとの計算パラメータ検証は utils/calculation-params-validation を単一情報源とする
+// （Task 68.7: 数量表編集画面の保存処理と本フックの双方が同じ検証を参照する）。
+export {
+  CALCULATION_PARAMS_INTEGRITY_CHECKS,
+  validateCalculationParams,
+} from '../utils/calculation-params-validation';
 
 /**
  * 競合解決の方法
@@ -106,123 +111,8 @@ export interface IntegrityIssue {
   /**
    * 警告レベル
    */
-  severity: 'warning' | 'error';
+  severity: CalculationParamsIssueSeverity;
 }
-
-/**
- * 計算パラメータの整合性問題（数量項目のパスを付与する前の本体）
- */
-interface CalculationParamsIssue {
-  /** 数量項目のパス（basePath）からの相対パス */
-  pathSuffix: string;
-  message: string;
-  severity: IntegrityIssue['severity'];
-}
-
-/**
- * 計算方法ごとの計算パラメータ整合性チェック
- */
-type CalculationParamsIntegrityCheck = (params: CalculationParams) => CalculationParamsIssue[];
-
-/**
- * 箇所数が未入力である場合のメッセージ
- *
- * バックエンド（`quantity-table.schema.ts` の `COUNT_REQUIRED` /
- * `quantity-validation.service.ts` の箇所数モード検証）と同一文言にそろえる。
- * 整数・範囲の各メッセージは `validateNumericRange` が返すものをそのまま用いるため、
- * 3種すべてがバックエンドの検証結果と一致する。
- */
-const COUNT_REQUIRED_MESSAGE = '箇所数は必須です';
-
-/**
- * 計算パラメータそのものが未設定であることの警告を返す
- *
- * 「標準」以外の計算方法で共通の文言。ラベルは計算方法レジストリを単一情報源とする。
- */
-function requireCalculationParams(
-  params: CalculationParams,
-  method: CalculationMethod
-): CalculationParamsIssue[] {
-  if (params) return [];
-
-  return [
-    {
-      pathSuffix: 'calculationParams',
-      message: `${CALCULATION_METHOD_LABELS[method]}計算方法が選択されていますが、計算パラメータが設定されていません`,
-      severity: 'warning',
-    },
-  ];
-}
-
-/**
- * 「箇所数」の計算パラメータ整合性チェック（REQ-47 AC9/AC10/AC11）
- *
- * 箇所数は必須項目のため、計算パラメータの有無だけでなく `count` の値まで検証する。
- * 必須・整数・範囲の判定は `validateNumericRange(count, 'count')` へ委譲し、
- * しきい値（1〜9999999）や整数判定をこのモジュールに再実装しない。
- */
-function checkCountParams(params: CalculationParams): CalculationParamsIssue[] {
-  if (!params) return requireCalculationParams(params, 'COUNT');
-
-  // 計算方法の切替直後などに CountParams 以外の形状が残っていても安全に読む
-  const count: unknown = 'count' in params ? params.count : undefined;
-
-  // 未入力（キー欠落・数値でない）: 保存前にユーザーへ知らせるための警告
-  if (typeof count !== 'number' || !Number.isFinite(count)) {
-    return [
-      {
-        pathSuffix: 'calculationParams.count',
-        message: COUNT_REQUIRED_MESSAGE,
-        severity: 'warning',
-      },
-    ];
-  }
-
-  // 値は入っているが不正（小数・範囲外）: データとして明確に不正なため error
-  const rangeResult = validateNumericRange(count, 'count');
-  if (!rangeResult.isValid) {
-    return [
-      {
-        pathSuffix: 'calculationParams.count',
-        message: rangeResult.error ?? '箇所数の値が不正です',
-        severity: 'error',
-      },
-    ];
-  }
-
-  return [];
-}
-
-/**
- * 計算方法ごとの計算パラメータ整合性チェック対応表
- *
- * `Record<CalculationMethod, ...>` で定義しているため、`CalculationMethod` に
- * 計算方法を追加するとキーの定義漏れがコンパイルエラーになる。
- * if 連鎖・switch・三項演算子は網羅性チェックを持たず、新しい計算方法が
- * 無言でチェック対象外へ落ちるため使用しない（Task 64.3 の申し送り）。
- */
-export const CALCULATION_PARAMS_INTEGRITY_CHECKS: Record<
-  CalculationMethod,
-  CalculationParamsIntegrityCheck
-> = {
-  // 「標準」は計算パラメータを持たない
-  STANDARD: () => [],
-  AREA_VOLUME: (params) => requireCalculationParams(params, 'AREA_VOLUME'),
-  PITCH: (params) => requireCalculationParams(params, 'PITCH'),
-  COUNT: checkCountParams,
-};
-
-/**
- * 未知の計算方法（型に存在しない値がデータとして届いた場合）の fail-fast
- *
- * バックエンドの `validateQuantityItem` が未知の計算方法を検証エラーにするのと同じ流儀。
- * 無言で検証をすり抜けさせない。
- */
-const UNKNOWN_CALCULATION_METHOD_ISSUE: CalculationParamsIssue = {
-  pathSuffix: 'calculationMethod',
-  message: '未知の計算方法が設定されています',
-  severity: 'error',
-};
 
 /**
  * useQuantityTableSaveフックの戻り値
@@ -420,13 +310,8 @@ export function useQuantityTableSave(
       group.items.forEach((item, itemIndex) => {
         const basePath = `groups[${groupIndex}].items[${itemIndex}]`;
 
-        // 計算方法と計算パラメータの整合性（計算方法を列挙しない対応表引き）
-        const check = CALCULATION_PARAMS_INTEGRITY_CHECKS[item.calculationMethod];
-        const paramsIssues = check
-          ? check(item.calculationParams)
-          : [UNKNOWN_CALCULATION_METHOD_ISSUE];
-
-        paramsIssues.forEach(({ pathSuffix, message, severity }) => {
+        // 計算方法と計算パラメータの整合性（検証は共有ユーティリティが単一情報源）
+        validateCalculationParams(item).forEach(({ pathSuffix, message, severity }) => {
           issues.push({
             path: `${basePath}.${pathSuffix}`,
             message,

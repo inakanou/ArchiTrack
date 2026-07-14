@@ -39,6 +39,7 @@ import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedIma
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
 import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExportService';
 import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
+import { validateCalculationParams } from '../utils/calculation-params-validation';
 import { downloadPdf } from '../services/export/PdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
@@ -1358,9 +1359,10 @@ export default function QuantityTableEditPage() {
    * 保存ハンドラ
    *
    * Task 61.4: 保存ハンドラを saveDraft へ移行し保存後同期・失敗時保持を実装する
-   * Requirements: 42.5, 42.7, 42.8, 42.9, 11.1, 11.2
+   * Task 68.7: 保存前の計算パラメータ検証（箇所数・ピッチ・面積体積）を配線する
+   * Requirements: 42.5, 42.7, 42.8, 42.9, 11.1, 11.2, 8.7, 8.10, 8.15, 47.9
    *
-   * - クライアント検証（必須・丸め設定）後、編集ドラフトの全状態を
+   * - クライアント検証（必須・丸め設定・計算パラメータ）後、編集ドラフトの全状態を
    *   {@link buildSaveQuantityTableDraftInput} でフル状態同期保存ペイロードへ構築し、
    *   {@link saveQuantityTableDraft}（PUT /:id/save）を1回だけ呼び出す（REQ-42.5）。
    *   楽観ロック用 expectedUpdatedAt はサーバースナップショットの updatedAt を渡す。
@@ -1380,6 +1382,8 @@ export default function QuantityTableEditPage() {
     for (const group of draftToSave.groups) {
       const groupLabel = group.name ?? '';
       for (const item of group.items) {
+        const itemLabel = item.name || '(名称未設定)';
+
         // 項目名が空の場合はエラー
         if (!item.name || item.name.trim() === '') {
           validationErrors.push(`グループ「${groupLabel}」に項目名が空の項目があります`);
@@ -1387,7 +1391,16 @@ export default function QuantityTableEditPage() {
         // 丸め設定が0以下の場合はエラー
         if (Number(item.roundingUnit) <= 0) {
           validationErrors.push(
-            `グループ「${groupLabel}」の項目「${item.name || '(名称未設定)'}」の丸め設定が無効です`
+            `グループ「${groupLabel}」の項目「${itemLabel}」の丸め設定が無効です`
+          );
+        }
+        // 計算方法ごとの必須パラメータ（箇所数・ピッチ必須項目・面積体積の1項目以上）を検証する。
+        // 検証は utils/calculation-params-validation を単一情報源とし、バックエンドの
+        // 保存時検証（400）と同じ必須条件・同じ文言をサーバー送信前に画面へ提示する
+        // （REQ-8.7/8.10/8.15, REQ-47.9/47.10/47.11）。
+        for (const issue of validateCalculationParams(item)) {
+          validationErrors.push(
+            `グループ「${groupLabel}」の項目「${itemLabel}」: ${issue.message}`
           );
         }
       }

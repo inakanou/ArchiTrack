@@ -432,11 +432,16 @@ describe('useQuantityTableSave', () => {
         ]);
       });
 
+      // Task 68.7: 計算パラメータ検証は utils/calculation-params-validation へ移設され、
+      // 「ピッチ」の必須項目（範囲長・端長1・端長2・ピッチ長）と「面積・体積」の
+      // 「1項目以上の入力」（REQ-8 AC7/AC10。いずれもバックエンドが既に 400 で弾く条件）も
+      // 検証対象になった。ここでは必須項目が揃っていれば問題が記録されないことを確認する。
+      // 個別キー欠落時の検証内容は utils/calculation-params-validation.test.ts が網羅する。
       it.each<[string, CalculationMethod, CalculationParams]>([
         ['面積・体積', 'AREA_VOLUME', { width: 2 }],
-        ['ピッチ', 'PITCH', { rangeLength: 10 }],
+        ['ピッチ', 'PITCH', { rangeLength: 10, endLength1: 1, endLength2: 1, pitchLength: 2 }],
       ])(
-        '「%s」は計算パラメータが存在すれば個別キーの欠落を検証しないこと（既存挙動の維持）',
+        '「%s」は必須項目が揃っていれば問題が記録されないこと',
         (_label, method, params) => {
           expect(checkIntegrityFor(method, params)).toEqual([]);
         }
