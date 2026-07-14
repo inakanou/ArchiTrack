@@ -20,6 +20,7 @@ import CalculationFields from './CalculationFields';
 import QuantityItemActionMenu from './QuantityItemActionMenu';
 import FieldValidationTooltip from './FieldValidationTooltip';
 import { calculate } from '../../utils/calculation-engine';
+import { resetParamsForMethod } from '../../utils/calculation-method';
 import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
 // ============================================================================
@@ -288,23 +289,37 @@ export default function EditableQuantityItemRow({
   /**
    * 計算方法変更ハンドラ
    * REQ-8.1: 計算方法を変更時、既存のパラメータで再計算を実行
+   *
+   * Task 68.4 / REQ-48: 切替前の計算方法に固有のパラメータは残留させない。
+   * レジストリの resetParamsForMethod() で切替後の計算方法が使うキーのみを残し、
+   * 共通フィールド（長さ・重量）の入力値は引き継ぐ（REQ-48.1 / REQ-48.2）。
+   * 再計算もリセット後のパラメータで行うため、切替後の必須パラメータが未入力の場合は
+   * calculate() が例外を送出し、旧パラメータを流用した数量は算出されない（REQ-48.7）。
+   * その場合の数量は直前の値のまま据え置かれ、必須パラメータの入力を待つ。
    */
   const handleCalculationMethodChange = useCallback(
     (method: CalculationMethod) => {
-      const updates: Partial<QuantityItemDetail> = { calculationMethod: method };
+      // 切替後の計算方法で使用するキーのみを残す（「標準」は null）
+      const params = resetParamsForMethod(item.calculationParams, method);
 
-      // 面積・体積またはピッチモードに変更し、既存パラメータがある場合は再計算
-      if (method !== 'STANDARD' && item.calculationParams) {
+      const updates: Partial<QuantityItemDetail> = {
+        calculationMethod: method,
+        calculationParams: params,
+      };
+
+      // 標準以外（面積・体積／ピッチ／箇所数）でパラメータが残っている場合は再計算
+      if (method !== 'STANDARD' && params) {
         try {
           const result = calculate({
             method,
-            params: item.calculationParams,
+            params,
             adjustmentFactor: item.adjustmentFactor,
             roundingUnit: item.roundingUnit,
           });
           updates.quantity = result.finalValue;
         } catch {
           // 計算エラーの場合は数量を更新しない
+          // 例: 切替直後で新方式の必須パラメータ（ピッチ長・箇所数）が未入力（REQ-48.7）
         }
       }
 
