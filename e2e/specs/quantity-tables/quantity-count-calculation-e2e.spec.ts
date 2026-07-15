@@ -18,6 +18,15 @@
  * - @requirement quantity-table-generation/REQ-47.12: 箇所数・長さ・重量・調整係数・丸め設定の変更で最終数量を自動再計算する
  * - @requirement quantity-table-generation/REQ-47.13: ピッチ→箇所数の切替でピッチ固有フィールドを非表示にする
  * - @requirement quantity-table-generation/REQ-47.14: 箇所数→他方式の切替で「箇所数」フィールドを非表示にする
+ * - @requirement quantity-table-generation/REQ-8.12: 計算方法の選択肢に「標準」「面積・体積」「ピッチ」「箇所数」を提供する
+ * - @requirement quantity-table-generation/REQ-8.13: 「箇所数」選択で計算用列を箇所数→長さ→重量→調整係数→丸め設定の順に表示する
+ * - @requirement quantity-table-generation/REQ-8.14: 箇所数×任意項目（長さ・重量）の乗算で数量を自動設定する
+ * - @requirement quantity-table-generation/REQ-8.15: 箇所数未入力での保存試行時にエラーを表示する
+ * - @requirement quantity-table-generation/REQ-14.6: 「箇所数」フィールドを小数桁付与せず整数表示する
+ * - @requirement quantity-table-generation/REQ-14.7: 「箇所数」フィールド空白時は空白のまま表示する
+ * - @requirement quantity-table-generation/REQ-15.4: 「箇所数」範囲（1〜9999999）外入力でエラーを表示する
+ * - @requirement quantity-table-generation/REQ-15.5: 「箇所数」に小数を含む入力を拒否しエラーを表示する
+ * - @requirement quantity-table-generation/REQ-37.13: 「箇所数」計算用フィールドを操作列右側に箇所数→長さ→重量→調整係数→丸め設定の順で水平配置する
  *
  * 設計参照:
  * - design.md「数量計算フロー（箇所数モード・REQ-47）」: 箇所数 → 長さ/重量の乗算 → 調整係数 → 切り上げ

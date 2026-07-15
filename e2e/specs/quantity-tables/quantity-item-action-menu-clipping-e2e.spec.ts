@@ -14,6 +14,7 @@
  * - @requirement quantity-table-generation/REQ-46.8: メニュー外クリックでドロップダウンを閉じる
  * - @requirement quantity-table-generation/REQ-46.9: メニュー項目選択で操作実行後に閉じる
  * - @requirement quantity-table-generation/REQ-46.11: REQ-37/REQ-41 の水平スクロール動作を阻害しない
+ * - @requirement quantity-table-generation/REQ-46.10: 表示修正によって Requirement 36 のメニュー項目構成・活性/非活性制御・各操作の動作を変更しない
  *
  * 検証方針（requirements.md REQ-46「検証方針」/ design.md「アクションメニューの描画・追従フロー」）:
  *   本不具合は祖先要素（itemTableWrapper: overflowX:auto / overflowY:hidden）の
@@ -457,7 +458,7 @@ test.describe('REQ-46: 数量項目アクションメニューが表示領域に
   // --------------------------------------------------------------------------
   // REQ-46.4: 数量項目が1件のみのグループ
   // --------------------------------------------------------------------------
-  test('数量項目が1件のみのグループでもメニュー全体が切り取られず表示される (REQ-46.1, 46.4)', async ({
+  test('数量項目が1件のみのグループでもメニュー全体が切り取られず表示され、活性/非活性制御が維持される (REQ-46.1, 46.4, 46.10)', async ({
     page,
   }) => {
     await gotoEditPage(page);
@@ -477,6 +478,27 @@ test.describe('REQ-46: 数量項目アクションメニューが表示領域に
     const menuBox = await expectMenuWithinViewport(page, context);
     await expectMenuOverflowsWrapper(groupCard, menuBox, context);
     await expectMenuItemsFullyRendered(page, context);
+
+    // REQ-46.10: 表示修正（Portal 化）後も Requirement 36 の活性/非活性制御を変更しない。
+    // 単一項目グループでは当該項目が最上位かつ最下位のため「上へ移動」「下へ移動」は
+    // ともに非活性、「コピー」「削除」は活性である（REQ-36.6/36.7 と整合）。
+    const menu = openMenu(page);
+    await expect(
+      menu.getByRole('menuitem', { name: '上へ移動' }),
+      '単一項目グループでは最上位のため「上へ移動」が非活性である必要がある（REQ-46.10）'
+    ).toBeDisabled();
+    await expect(
+      menu.getByRole('menuitem', { name: '下へ移動' }),
+      '単一項目グループでは最下位のため「下へ移動」が非活性である必要がある（REQ-46.10）'
+    ).toBeDisabled();
+    await expect(
+      menu.getByRole('menuitem', { name: 'コピー' }),
+      '「コピー」は活性のまま維持される必要がある（REQ-46.10）'
+    ).toBeEnabled();
+    await expect(
+      menu.getByRole('menuitem', { name: '削除' }),
+      '「削除」は活性のまま維持される必要がある（REQ-46.10）'
+    ).toBeEnabled();
   });
 
   // --------------------------------------------------------------------------
