@@ -205,7 +205,9 @@ async function exportPdfAndCaptureItems(): Promise<QuantityTablePdfItem[]> {
     expect(mockGenerateQuantityTablePdf).toHaveBeenCalledTimes(1);
   });
 
-  const input = mockGenerateQuantityTablePdf.mock.calls[0]?.[0] as QuantityTablePdfInput | undefined;
+  const input = mockGenerateQuantityTablePdf.mock.calls[0]?.[0] as
+    | QuantityTablePdfInput
+    | undefined;
   const group = input?.groups[0];
 
   expect(group).toBeDefined();

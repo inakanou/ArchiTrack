@@ -35,9 +35,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
 import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
-import QuantityItemActionMenu, {
-  type QuantityItemActionMenuProps,
-} from './QuantityItemActionMenu';
+import QuantityItemActionMenu, { type QuantityItemActionMenuProps } from './QuantityItemActionMenu';
 
 /**
  * 実画面の切り取り元を再現するラッパー。

@@ -178,13 +178,13 @@ function checkPitchParams(params: CalculationParams): CalculationParamsIssue[] {
   const missingParams = requireCalculationParams(params, 'PITCH');
   if (missingParams.length > 0) return missingParams;
 
-  return PITCH_REQUIRED_KEYS.filter(
-    ({ key }) => readNumericParam(params, key) === undefined
-  ).map(({ key, message }) => ({
-    pathSuffix: `calculationParams.${key}`,
-    message,
-    severity: 'warning' as const,
-  }));
+  return PITCH_REQUIRED_KEYS.filter(({ key }) => readNumericParam(params, key) === undefined).map(
+    ({ key, message }) => ({
+      pathSuffix: `calculationParams.${key}`,
+      message,
+      severity: 'warning' as const,
+    })
+  );
 }
 
 /**
@@ -268,7 +268,9 @@ export const UNKNOWN_CALCULATION_METHOD_ISSUE: CalculationParamsIssue = {
  * @param item 検証対象の数量項目（計算方法と計算パラメータのみ参照する）
  * @returns 検出された整合性問題（問題がなければ空配列）
  */
-export function validateCalculationParams(item: CalculationParamsCarrier): CalculationParamsIssue[] {
+export function validateCalculationParams(
+  item: CalculationParamsCarrier
+): CalculationParamsIssue[] {
   const check = CALCULATION_PARAMS_INTEGRITY_CHECKS[item.calculationMethod];
   if (!check) return [UNKNOWN_CALCULATION_METHOD_ISSUE];
 

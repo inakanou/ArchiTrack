@@ -611,19 +611,24 @@ describe('CalculationFields', () => {
     it.each([
       ['0', '下限未満'],
       ['10000000', '上限超過'],
-    ])('範囲外の値 %s を入力するとエラーメッセージを表示し、値を親へ通知しない（REQ-47 AC11）', (value) => {
-      render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);
+    ])(
+      '範囲外の値 %s を入力するとエラーメッセージを表示し、値を親へ通知しない（REQ-47 AC11）',
+      (value) => {
+        render(
+          <CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />
+        );
 
-      const countInput = screen.getByLabelText(/箇所数/i);
-      fireEvent.change(countInput, { target: { value } });
-      fireEvent.blur(countInput);
+        const countInput = screen.getByLabelText(/箇所数/i);
+        fireEvent.change(countInput, { target: { value } });
+        fireEvent.blur(countInput);
 
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        '箇所数は1〜9999999の範囲で入力してください'
-      );
-      expect(countInput).toHaveAttribute('aria-invalid', 'true');
-      expect(onChange).not.toHaveBeenCalled();
-    });
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          '箇所数は1〜9999999の範囲で入力してください'
+        );
+        expect(countInput).toHaveAttribute('aria-invalid', 'true');
+        expect(onChange).not.toHaveBeenCalled();
+      }
+    );
 
     it('エラー表示後に正しい整数を入力し直すとエラーが解消され値が通知される', () => {
       render(<CalculationFields method="COUNT" params={{}} onChange={onChange} disabled={false} />);

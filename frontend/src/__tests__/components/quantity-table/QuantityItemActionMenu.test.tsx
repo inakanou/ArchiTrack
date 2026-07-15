@@ -131,15 +131,18 @@ describe('QuantityItemActionMenu (Task 50.1, 50.3)', () => {
       ['下へ移動', 'onMoveDown'],
       ['コピー', 'onCopy'],
       ['削除', 'onDelete'],
-    ] as const)('「%s」選択で %s が呼ばれ、続けて onClose が呼ばれること', async (label, handler) => {
-      const user = userEvent.setup();
-      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+    ] as const)(
+      '「%s」選択で %s が呼ばれ、続けて onClose が呼ばれること',
+      async (label, handler) => {
+        const user = userEvent.setup();
+        render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
 
-      await user.click(screen.getByText(label));
+        await user.click(screen.getByText(label));
 
-      expect(defaultProps[handler]).toHaveBeenCalledTimes(1);
-      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
-    });
+        expect(defaultProps[handler]).toHaveBeenCalledTimes(1);
+        expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+      }
+    );
 
     it('disabled の「上へ移動」を選択しても操作は実行されずメニューも閉じないこと', async () => {
       const user = userEvent.setup();
@@ -370,7 +373,12 @@ describe('QuantityItemActionMenu (Task 50.1, 50.3)', () => {
   // ==========================================================================
   describe('REQ-46: Portal 描画とスクロール追従 (Task 69.1)', () => {
     /** 指定した矩形を返す DOMRect を生成する */
-    const makeRect = (rect: { top: number; left: number; bottom: number; right: number }): DOMRect =>
+    const makeRect = (rect: {
+      top: number;
+      left: number;
+      bottom: number;
+      right: number;
+    }): DOMRect =>
       ({
         top: rect.top,
         left: rect.left,

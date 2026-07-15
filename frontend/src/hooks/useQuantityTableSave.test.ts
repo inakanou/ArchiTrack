@@ -391,17 +391,20 @@ describe('useQuantityTableSave', () => {
       it.each([
         ['下限未満', 0],
         ['上限超過', 10000000],
-      ])('箇所数が範囲外（%s）の場合に範囲の問題が記録されること（REQ-47 AC11）', (_label, count) => {
-        const issues = checkIntegrityFor('COUNT', { count });
+      ])(
+        '箇所数が範囲外（%s）の場合に範囲の問題が記録されること（REQ-47 AC11）',
+        (_label, count) => {
+          const issues = checkIntegrityFor('COUNT', { count });
 
-        expect(issues).toEqual([
-          {
-            path: 'groups[0].items[0].calculationParams.count',
-            message: '箇所数は1〜9999999の範囲で入力してください',
-            severity: 'error',
-          },
-        ]);
-      });
+          expect(issues).toEqual([
+            {
+              path: 'groups[0].items[0].calculationParams.count',
+              message: '箇所数は1〜9999999の範囲で入力してください',
+              severity: 'error',
+            },
+          ]);
+        }
+      );
 
       it('箇所数が有効な整数の場合は問題が記録されないこと', () => {
         const issues = checkIntegrityFor('COUNT', { count: 5, length: 2, weight: 1.5 });
@@ -443,12 +446,9 @@ describe('useQuantityTableSave', () => {
       it.each<[string, CalculationMethod, CalculationParams]>([
         ['面積・体積', 'AREA_VOLUME', { width: 2 }],
         ['ピッチ', 'PITCH', { rangeLength: 10, endLength1: 1, endLength2: 1, pitchLength: 2 }],
-      ])(
-        '「%s」は必須項目が揃っていれば問題が記録されないこと',
-        (_label, method, params) => {
-          expect(checkIntegrityFor(method, params)).toEqual([]);
-        }
-      );
+      ])('「%s」は必須項目が揃っていれば問題が記録されないこと', (_label, method, params) => {
+        expect(checkIntegrityFor(method, params)).toEqual([]);
+      });
     });
 
     describe('対応表の網羅性', () => {
