@@ -193,11 +193,13 @@ function checkPitchParams(params: CalculationParams): CalculationParamsIssue[] {
  * 箇所数は必須項目のため、計算パラメータの有無だけでなく `count` の値まで検証する。
  * 必須・整数・範囲の判定は `validateNumericRange(count, 'count')` へ委譲し、
  * しきい値（1〜9999999）や整数判定をこのモジュールに再実装しない。
+ *
+ * 他方式と異なり `requireCalculationParams` を使わない。計算方法を「箇所数」へ切り替えた
+ * 直後は計算パラメータ自体が未設定になるため、汎用の「計算パラメータが設定されていません」
+ * ではユーザーに箇所数の入力を求められず REQ-47 AC9 を満たさない。パラメータ未設定は
+ * 箇所数の未入力として扱う。
  */
 function checkCountParams(params: CalculationParams): CalculationParamsIssue[] {
-  const missingParams = requireCalculationParams(params, 'COUNT');
-  if (missingParams.length > 0) return missingParams;
-
   const count = readNumericParam(params, 'count');
 
   // 未入力（キー欠落・数値でない）: 保存前にユーザーへ知らせるための警告

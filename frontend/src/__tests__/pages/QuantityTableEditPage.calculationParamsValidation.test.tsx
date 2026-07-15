@@ -166,7 +166,10 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
       expect(screen.getByText(/箇所数は必須です/)).toBeInTheDocument();
     });
 
-    it('計算パラメータ自体が未設定の場合も、サーバーへ送信されずにエラーが表示される', async () => {
+    // 計算方法を「箇所数」へ切り替えた直後は計算パラメータ自体が未設定になる。
+    // 汎用の「計算パラメータが設定されていません」ではユーザーに箇所数の入力を求められず
+    // REQ-47 AC9 を満たさないため、パラメータ未設定も箇所数の未入力として扱う。
+    it('計算パラメータ自体が未設定の場合も、箇所数の入力を求めるエラーが表示され保存されない（REQ-47 AC9）', async () => {
       await loadAndSave(
         buildDetail([
           {
@@ -178,7 +181,7 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/計算パラメータが設定されていません/)).toBeInTheDocument();
+        expect(screen.getByText(/箇所数は必須です/)).toBeInTheDocument();
       });
       expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
     });

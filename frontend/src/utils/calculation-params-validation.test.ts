@@ -38,11 +38,14 @@ describe('calculation-params-validation', () => {
   });
 
   describe('計算方法「箇所数」（REQ-47）', () => {
-    it('計算パラメータが未設定の場合に警告が記録されること', () => {
+    // 計算方法を「箇所数」へ切り替えた直後は計算パラメータ自体が未設定になる。
+    // 汎用の「計算パラメータが設定されていません」ではユーザーに箇所数の入力を求められず
+    // REQ-47 AC9 を満たさないため、箇所数の未入力として扱う。
+    it('計算パラメータが未設定の場合に箇所数の必須エラーが記録されること（REQ-47 AC9）', () => {
       expect(check('COUNT', null)).toEqual([
         {
-          pathSuffix: 'calculationParams',
-          message: '箇所数計算方法が選択されていますが、計算パラメータが設定されていません',
+          pathSuffix: 'calculationParams.count',
+          message: '箇所数は必須です',
           severity: 'warning',
         },
       ]);

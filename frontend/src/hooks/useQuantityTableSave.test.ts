@@ -348,13 +348,16 @@ describe('useQuantityTableSave', () => {
     };
 
     describe('計算方法「箇所数」（REQ-47）', () => {
-      it('計算パラメータが未設定の場合に警告が記録されること（68.6 観測可能完了条件）', () => {
+      // 計算方法を「箇所数」へ切り替えた直後は計算パラメータ自体が未設定になる。
+      // 汎用の「計算パラメータが設定されていません」ではユーザーに箇所数の入力を求められず
+      // REQ-47 AC9 を満たさないため、パラメータ未設定も箇所数の未入力として扱う。
+      it('計算パラメータが未設定の場合に箇所数の必須警告が記録されること（68.6 観測可能完了条件 / REQ-47 AC9）', () => {
         const issues = checkIntegrityFor('COUNT', null);
 
         expect(issues).toEqual([
           {
-            path: 'groups[0].items[0].calculationParams',
-            message: '箇所数計算方法が選択されていますが、計算パラメータが設定されていません',
+            path: 'groups[0].items[0].calculationParams.count',
+            message: '箇所数は必須です',
             severity: 'warning',
           },
         ]);
