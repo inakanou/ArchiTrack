@@ -11,11 +11,14 @@ set -o pipefail
 # WSL2メモリ最適化設定
 # ============================================================================
 # ベストプラクティス: 制限されたメモリ環境（6GB WSL2）でのOOMクラッシュ防止
-# - Node.jsヒープサイズを1GBに制限（デフォルトは無制限で肥大化）
+# - Node.jsヒープサイズを2GBに制限（デフォルトは無制限で肥大化）
 # - 各コマンドのメモリ使用量を予測可能に維持
+# - lintは backend→frontend と逐次実行のため、2GB上限でもピークは約2.5GBに収まり
+#   6GB環境に十分な余裕がある。1GBではフロントエンドeslintがコードベース成長により
+#   上限ちょうどでOOMクラッシュしていた（.logs/pre-push-latest.log 参照）。
 # 参考: https://nodejs.org/api/cli.html#--max-old-space-sizesize-in-megabytes
 # ============================================================================
-export NODE_OPTIONS="--max-old-space-size=1024"
+export NODE_OPTIONS="--max-old-space-size=2048"
 
 # メモリ解放用関数: Dockerビルドキャッシュとシステムキャッシュをクリア
 release_memory() {
