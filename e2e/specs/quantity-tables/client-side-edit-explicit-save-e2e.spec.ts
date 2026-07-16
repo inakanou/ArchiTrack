@@ -350,7 +350,10 @@ async function runItemMenuAction(
   const menuButton = row.getByRole('button', { name: 'アクション' });
   await expect(menuButton).toBeVisible({ timeout: getTimeout(5000) });
   await menuButton.click();
-  const menuItem = row.getByRole('menuitem', { name: actionLabel });
+  // アクションメニューのドロップダウンは Portal で document.body 直下に描画される
+  // （QuantityItemActionMenu の Task 69.1）。行の DOM サブツリー外に出るため、
+  // menuitem は row スコープではなくページ（開いている role="menu"）スコープで参照する。
+  const menuItem = groupCard.page().getByRole('menu').getByRole('menuitem', { name: actionLabel });
   await expect(menuItem).toBeVisible({ timeout: getTimeout(5000) });
   await menuItem.click();
 }
