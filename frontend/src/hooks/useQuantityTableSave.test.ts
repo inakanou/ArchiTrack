@@ -11,11 +11,15 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useQuantityTableSave } from './useQuantityTableSave';
+import { useQuantityTableSave, CALCULATION_PARAMS_INTEGRITY_CHECKS } from './useQuantityTableSave';
+import type { IntegrityIssue } from './useQuantityTableSave';
+import { CALCULATION_METHOD_ORDER } from '../utils/calculation-method';
 import type {
   QuantityTableEdit,
   QuantityGroupEdit,
   QuantityItemEdit,
+  CalculationMethod,
+  CalculationParams,
 } from '../types/quantity-edit.types';
 
 // localStorageのモック
@@ -303,6 +307,158 @@ describe('useQuantityTableSave', () => {
       // quantity=100なので0の警告もなし
       // adjustmentFactor=1.0なので問題なし
       expect(integrityIssues).toHaveLength(0);
+    });
+  });
+
+  describe('整合性チェック: 計算方法と計算パラメータ（Task 68.6）', () => {
+    /**
+     * 指定した計算方法・計算パラメータを持つ数量項目1件の数量表を組み立てる
+     *
+     * 基準データ（mockQuantityTable）は quantity=100 / adjustmentFactor=1.0 のため、
+     * 計算パラメータ以外の整合性警告（数量0・調整係数）は発生しない。
+     */
+    const checkIntegrityFor = (
+      calculationMethod: CalculationMethod,
+      calculationParams: CalculationParams
+    ): IntegrityIssue[] => {
+      const baseGroup = mockQuantityTable.groups[0]!;
+      const baseItem = baseGroup.items[0]!;
+      const table: QuantityTableEdit = {
+        ...mockQuantityTable,
+        groups: [
+          {
+            ...baseGroup,
+            items: [{ ...baseItem, calculationMethod, calculationParams }],
+          },
+        ],
+      };
+
+      const { result } = renderHook(() =>
+        useQuantityTableSave({
+          quantityTable: table,
+          enabled: true,
+          autoSaveEnabled: false,
+        })
+      );
+
+      // 計算パラメータ由来の整合性問題のみを対象にする
+      return result.current
+        .checkIntegrity()
+        .filter((issue) => issue.path.includes('.calculationParams'));
+    };
+
+    describe('計算方法「箇所数」（REQ-47）', () => {
+      // 計算方法を「箇所数」へ切り替えた直後は計算パラメータ自体が未設定になる。
+      // 汎用の「計算パラメータが設定されていません」ではユーザーに箇所数の入力を求められず
+      // REQ-47 AC9 を満たさないため、パラメータ未設定も箇所数の未入力として扱う。
+      it('計算パラメータが未設定の場合に箇所数の必須警告が記録されること（68.6 観測可能完了条件 / REQ-47 AC9）', () => {
+        const issues = checkIntegrityFor('COUNT', null);
+
+        expect(issues).toEqual([
+          {
+            path: 'groups[0].items[0].calculationParams.count',
+            message: '箇所数は必須です',
+            severity: 'warning',
+          },
+        ]);
+      });
+
+      it('箇所数が未入力の場合に必須の問題が記録されること（REQ-47 AC9）', () => {
+        // 長さのみ入力済みで箇所数が欠落している状態
+        const issues = checkIntegrityFor('COUNT', { length: 2 });
+
+        expect(issues).toEqual([
+          {
+            path: 'groups[0].items[0].calculationParams.count',
+            message: '箇所数は必須です',
+            severity: 'warning',
+          },
+        ]);
+      });
+
+      it('箇所数が小数の場合に整数の問題が記録されること（REQ-47 AC10）', () => {
+        const issues = checkIntegrityFor('COUNT', { count: 5.5 });
+
+        expect(issues).toEqual([
+          {
+            path: 'groups[0].items[0].calculationParams.count',
+            message: '箇所数は整数で入力してください',
+            severity: 'error',
+          },
+        ]);
+      });
+
+      it.each([
+        ['下限未満', 0],
+        ['上限超過', 10000000],
+      ])(
+        '箇所数が範囲外（%s）の場合に範囲の問題が記録されること（REQ-47 AC11）',
+        (_label, count) => {
+          const issues = checkIntegrityFor('COUNT', { count });
+
+          expect(issues).toEqual([
+            {
+              path: 'groups[0].items[0].calculationParams.count',
+              message: '箇所数は1〜9999999の範囲で入力してください',
+              severity: 'error',
+            },
+          ]);
+        }
+      );
+
+      it('箇所数が有効な整数の場合は問題が記録されないこと', () => {
+        const issues = checkIntegrityFor('COUNT', { count: 5, length: 2, weight: 1.5 });
+
+        expect(issues).toEqual([]);
+      });
+    });
+
+    describe('既存の計算方法の挙動が変わらないこと（回帰防止）', () => {
+      it('「標準」は計算パラメータが未設定でも問題が記録されないこと', () => {
+        expect(checkIntegrityFor('STANDARD', null)).toEqual([]);
+      });
+
+      it('「面積・体積」は計算パラメータが未設定の場合に既存の警告が記録されること', () => {
+        expect(checkIntegrityFor('AREA_VOLUME', null)).toEqual([
+          {
+            path: 'groups[0].items[0].calculationParams',
+            message: '面積・体積計算方法が選択されていますが、計算パラメータが設定されていません',
+            severity: 'warning',
+          },
+        ]);
+      });
+
+      it('「ピッチ」は計算パラメータが未設定の場合に既存の警告が記録されること', () => {
+        expect(checkIntegrityFor('PITCH', null)).toEqual([
+          {
+            path: 'groups[0].items[0].calculationParams',
+            message: 'ピッチ計算方法が選択されていますが、計算パラメータが設定されていません',
+            severity: 'warning',
+          },
+        ]);
+      });
+
+      // Task 68.7: 計算パラメータ検証は utils/calculation-params-validation へ移設され、
+      // 「ピッチ」の必須項目（範囲長・端長1・端長2・ピッチ長）と「面積・体積」の
+      // 「1項目以上の入力」（REQ-8 AC7/AC10。いずれもバックエンドが既に 400 で弾く条件）も
+      // 検証対象になった。ここでは必須項目が揃っていれば問題が記録されないことを確認する。
+      // 個別キー欠落時の検証内容は utils/calculation-params-validation.test.ts が網羅する。
+      it.each<[string, CalculationMethod, CalculationParams]>([
+        ['面積・体積', 'AREA_VOLUME', { width: 2 }],
+        ['ピッチ', 'PITCH', { rangeLength: 10, endLength1: 1, endLength2: 1, pitchLength: 2 }],
+      ])('「%s」は必須項目が揃っていれば問題が記録されないこと', (_label, method, params) => {
+        expect(checkIntegrityFor(method, params)).toEqual([]);
+      });
+    });
+
+    describe('対応表の網羅性', () => {
+      it('すべての計算方法がチェック対象になっていること（無言のフォールバック防止）', () => {
+        // Record<CalculationMethod, ...> によりキーの欠落はコンパイルエラーになるが、
+        // 計算方法レジストリとの一致は実行時にも束縛する（Task 64.3 の申し送り）。
+        expect(Object.keys(CALCULATION_PARAMS_INTEGRITY_CHECKS).sort()).toEqual(
+          [...CALCULATION_METHOD_ORDER].sort()
+        );
+      });
     });
   });
 

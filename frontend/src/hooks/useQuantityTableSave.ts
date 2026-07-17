@@ -2,11 +2,16 @@
  * @fileoverview 数量表保存フック
  *
  * Task 8.2: 手動保存と整合性チェックを実装する
+ * Task 68.6: 保存前の整合性チェックに箇所数を追加する
+ * Task 68.7: 計算パラメータ検証を `utils/calculation-params-validation` へ移設し、
+ *   数量表編集画面の保存処理（QuantityTableEditPage.handleSave）と共有する
  *
  * Requirements:
  * - 11.1: 数量表の各フィールドの変更内容を保存する
  * - 11.4: 楽観的排他制御エラー（競合）が発生した場合、再読み込みを促すダイアログを表示する
  * - 11.5: 自動保存が有効な状態で、一定間隔で数量表を自動保存する
+ * - 47.9: 計算方法が「箇所数」で箇所数が未入力のまま保存を試行する場合、箇所数の入力を求める
+ * - 47.18: 「箇所数」の数量項目の編集はクライアントサイドの編集状態に対して行い、永続化は保存操作時に行う
  *
  * Features:
  * - 自動保存（デバウンス付き）
@@ -20,6 +25,17 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { QuantityTableEdit, ValidationError, SaveStatus } from '../types/quantity-edit.types';
+import {
+  validateCalculationParams,
+  type CalculationParamsIssueSeverity,
+} from '../utils/calculation-params-validation';
+
+// 計算方法ごとの計算パラメータ検証は utils/calculation-params-validation を単一情報源とする
+// （Task 68.7: 数量表編集画面の保存処理と本フックの双方が同じ検証を参照する）。
+export {
+  CALCULATION_PARAMS_INTEGRITY_CHECKS,
+  validateCalculationParams,
+} from '../utils/calculation-params-validation';
 
 /**
  * 競合解決の方法
@@ -95,7 +111,7 @@ export interface IntegrityIssue {
   /**
    * 警告レベル
    */
-  severity: 'warning' | 'error';
+  severity: CalculationParamsIssueSeverity;
 }
 
 /**
@@ -294,26 +310,14 @@ export function useQuantityTableSave(
       group.items.forEach((item, itemIndex) => {
         const basePath = `groups[${groupIndex}].items[${itemIndex}]`;
 
-        // 計算方法と計算パラメータの整合性
-        if (item.calculationMethod === 'AREA_VOLUME') {
-          if (!item.calculationParams) {
-            issues.push({
-              path: `${basePath}.calculationParams`,
-              message: '面積・体積計算方法が選択されていますが、計算パラメータが設定されていません',
-              severity: 'warning',
-            });
-          }
-        }
-
-        if (item.calculationMethod === 'PITCH') {
-          if (!item.calculationParams) {
-            issues.push({
-              path: `${basePath}.calculationParams`,
-              message: 'ピッチ計算方法が選択されていますが、計算パラメータが設定されていません',
-              severity: 'warning',
-            });
-          }
-        }
+        // 計算方法と計算パラメータの整合性（検証は共有ユーティリティが単一情報源）
+        validateCalculationParams(item).forEach(({ pathSuffix, message, severity }) => {
+          issues.push({
+            path: `${basePath}.${pathSuffix}`,
+            message,
+            severity,
+          });
+        });
 
         // 数量が0の場合の警告
         if (item.quantity === 0) {

@@ -7,10 +7,19 @@
  * - 8.1: 計算方法列に「標準」をデフォルト値として設定する
  * - 8.5: 「面積・体積」が選択された場合、計算用列表示切り替え
  * - 8.8: 「ピッチ」が選択された場合、計算用列表示切り替え
+ * - 8.12: 計算方法の選択肢として「標準」「面積・体積」「ピッチ」「箇所数」を提供する
+ * - 47.1: 計算方法の選択肢に「箇所数」を含める
+ *
+ * Task 68.3: ローカルの配列リテラル定義（`{ value, label }[]`）を撤去し、選択肢を
+ * `utils/calculation-method.ts` の `CALCULATION_METHOD_OPTIONS`（表示順・ラベルの単一情報源）から供給する。
+ * 配列リテラルは網羅性チェックを持たないため、`CalculationMethod` に計算方法を追加しても
+ * 型エラーにならず、選択肢から無言で欠落していた（COUNT が選べない状態）。
+ * レジストリは `Record<CalculationMethod, string>` を基に生成されるため、以後は定義漏れがコンパイルエラーになる。
  */
 
 import { useCallback, useId } from 'react';
 import type { CalculationMethod } from '../../types/quantity-edit.types';
+import { CALCULATION_METHOD_OPTIONS } from '../../utils/calculation-method';
 
 // ============================================================================
 // 型定義
@@ -34,19 +43,6 @@ export interface CalculationMethodSelectProps {
    */
   showLabel?: boolean;
 }
-
-// ============================================================================
-// 定数
-// ============================================================================
-
-/**
- * 計算方法オプション
- */
-const CALCULATION_METHOD_OPTIONS: { value: CalculationMethod; label: string }[] = [
-  { value: 'STANDARD', label: '標準' },
-  { value: 'AREA_VOLUME', label: '面積・体積' },
-  { value: 'PITCH', label: 'ピッチ' },
-];
 
 // ============================================================================
 // スタイル定義
@@ -103,7 +99,8 @@ const styles = {
  * 計算方法選択コンポーネント
  *
  * 数量項目の計算方法を選択するドロップダウン。
- * 標準/面積・体積/ピッチの3種類から選択可能。
+ * 選択肢・表示順・ラベルは `CALCULATION_METHOD_OPTIONS`（単一情報源）に従う。
+ * 現在は 標準 / 面積・体積 / ピッチ / 箇所数（REQ-8.12, REQ-47.1）。
  */
 export default function CalculationMethodSelect({
   value,

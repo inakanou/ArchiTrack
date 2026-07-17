@@ -9,8 +9,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CALCULATION_METHODS,
+  PARAMS_SCHEMA_BY_METHOD,
+  countParamsSchema,
+  createQuantityItemSchema,
   updateQuantityItemSchema,
-  calculationParamsSchema,
   copyQuantityTableSchema,
   QUANTITY_TABLE_VALIDATION_MESSAGES,
 } from '../../../schemas/quantity-table.schema.js';
@@ -169,9 +172,123 @@ describe('quantity-table.schema', () => {
     });
   });
 
-  describe('calculationParamsSchema', () => {
-    describe('ピッチ計算パラメータ', () => {
-      it('全てのピッチ計算パラメータを保持する', () => {
+  /**
+   * Task 67.1: 計算パラメータの検証を計算方法の判別子ベースへ変更する
+   *
+   * Requirements:
+   * - 48.3: ピッチ→箇所数へ切り替えて保存した箇所数を欠落させない
+   * - 48.4: ピッチ→面積・体積へ切り替えて保存した寸法を欠落させない
+   * - 48.5: 計算パラメータの検証は計算方法に対応する規則で行い、形状から推測しない
+   * - 48.6: 指定された計算方法で使用しないフィールドは破棄したうえで保存する
+   * - 47.15: 箇所数の数量項目は保存・再読み込みで値が完全復元される
+   */
+  describe('計算方法を判別子とした計算パラメータ検証（REQ-48）', () => {
+    const VALID_GROUP_ID = '123e4567-e89b-12d3-a456-426614174000';
+
+    const baseCreateItem = {
+      quantityGroupId: VALID_GROUP_ID,
+      workType: '土工',
+      name: '掘削',
+      unit: 'm3',
+      quantity: 10,
+    };
+
+    /** ピッチ→他方式へ切り替えた直後に残留する混在パラメータ */
+    const mixedParams = {
+      rangeLength: 100,
+      endLength1: 10,
+      endLength2: 10,
+      pitchLength: 5,
+      count: 5,
+      width: 3,
+      length: 2,
+      weight: 1.5,
+    };
+
+    describe('作成スキーマ（createQuantityItemSchema）', () => {
+      it('COUNT: 混在パラメータから箇所数系のみを保持しピッチ系を破棄する（REQ-48 AC3/AC5/AC6, REQ-47 AC15）', () => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'COUNT',
+          calculationParams: { ...mixedParams },
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.calculationParams).toEqual({ count: 5, length: 2, weight: 1.5 });
+        }
+      });
+
+      it('AREA_VOLUME: 混在パラメータから寸法系のみを保持しピッチ系を破棄する（REQ-48 AC4/AC6・既存不具合の回帰）', () => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: { ...mixedParams },
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.calculationParams).toEqual({ width: 3, weight: 1.5 });
+        }
+      });
+
+      it('PITCH: 混在パラメータからピッチ系のみを保持し箇所数・幅を破棄する（REQ-48 AC6）', () => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'PITCH',
+          calculationParams: { ...mixedParams },
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.calculationParams).toEqual({
+            rangeLength: 100,
+            endLength1: 10,
+            endLength2: 10,
+            pitchLength: 5,
+            length: 2,
+            weight: 1.5,
+          });
+        }
+      });
+
+      it('STANDARD: 他方式のキーを全て破棄する（REQ-48 AC6）', () => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'STANDARD',
+          calculationParams: { ...mixedParams },
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.calculationParams ?? {}).toEqual({});
+        }
+      });
+
+      it('STANDARD: 計算パラメータ未指定を受け入れる', () => {
+        const result = createQuantityItemSchema.safeParse({ ...baseCreateItem });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.calculationParams ?? null).toBeNull();
+        }
+      });
+
+      it('AREA_VOLUME: 寸法のみのパラメータをそのまま保持する（既存正常系）', () => {
+        const areaVolumeParams = { width: 10, depth: 5, height: 2, weight: 1.5 };
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: areaVolumeParams,
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.calculationParams).toEqual(areaVolumeParams);
+        }
+      });
+
+      it('PITCH: ピッチのみのパラメータをそのまま保持する（既存正常系）', () => {
         const pitchParams = {
           rangeLength: 100,
           endLength1: 10,
@@ -180,78 +297,182 @@ describe('quantity-table.schema', () => {
           length: 2.5,
           weight: 1.5,
         };
-        const result = calculationParamsSchema.safeParse(pitchParams);
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'PITCH',
+          calculationParams: pitchParams,
+        });
+
         expect(result.success).toBe(true);
         if (result.success) {
-          // 重要: 全てのピッチ計算パラメータが保持されること
-          expect(result.data).toEqual(pitchParams);
+          expect(result.data.calculationParams).toEqual(pitchParams);
         }
       });
 
-      it('必須フィールドのみでも成功する', () => {
-        const pitchParams = {
-          rangeLength: 100,
-          endLength1: 0,
-          endLength2: 0,
-          pitchLength: 5,
-        };
-        const result = calculationParamsSchema.safeParse(pitchParams);
-        expect(result.success).toBe(true);
-        if (result.success) {
-          expect(result.data).toEqual(pitchParams);
-        }
+      it('PITCH: 必須パラメータが欠けている場合はエラーになる（形状推測をしない）', () => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'PITCH',
+          calculationParams: { rangeLength: 100 },
+        });
+
+        expect(result.success).toBe(false);
       });
 
-      it('必須フィールドが欠けている場合はエラーになる', () => {
-        const incompleteParams = {
-          rangeLength: 100,
-          // endLength1, endLength2, pitchLength が欠けている
-        };
-        const result = calculationParamsSchema.safeParse(incompleteParams);
-        // areaVolumeParamsSchemaとしてパースされる可能性があるが、
-        // 未知のキー(rangeLength)は削除される
+      it('COUNT: 箇所数が未指定の場合はエラーになる（REQ-47 AC9）', () => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'COUNT',
+          calculationParams: { length: 2 },
+        });
+
+        expect(result.success).toBe(false);
+      });
+
+      it('COUNT: 計算パラメータ自体が未指定の場合はエラーになる（REQ-47 AC9）', () => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'COUNT',
+        });
+
+        expect(result.success).toBe(false);
+      });
+
+      it.each([
+        ['小数', 2.5],
+        ['下限未満', 0],
+        ['上限超過', 10000000],
+      ])('COUNT: 箇所数が%s（%s）の場合はエラーになる（REQ-47 AC10/AC11）', (_label, count) => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'COUNT',
+          calculationParams: { count },
+        });
+
+        expect(result.success).toBe(false);
+      });
+
+      it.each([
+        ['下限', 1],
+        ['上限', 9999999],
+      ])('COUNT: 箇所数が%s（%s）の場合は受け入れる（REQ-47 AC8）', (_label, count) => {
+        const result = createQuantityItemSchema.safeParse({
+          ...baseCreateItem,
+          calculationMethod: 'COUNT',
+          calculationParams: { count },
+        });
+
         expect(result.success).toBe(true);
         if (result.success) {
-          // rangeLength は areaVolumeParams の有効なキーではないため削除される
-          expect(result.data).not.toHaveProperty('rangeLength');
+          expect(result.data.calculationParams).toEqual({ count });
         }
       });
     });
 
-    describe('面積・体積計算パラメータ', () => {
-      it('全ての面積・体積計算パラメータを保持する', () => {
-        const areaVolumeParams = {
-          width: 10,
-          depth: 5,
-          height: 2,
-          weight: 1.5,
-        };
-        const result = calculationParamsSchema.safeParse(areaVolumeParams);
+    describe('更新スキーマ（updateQuantityItemSchema）', () => {
+      it('COUNT: 混在パラメータから箇所数系のみを保持しピッチ系を破棄する（REQ-48 AC3）', () => {
+        const result = updateQuantityItemSchema.safeParse({
+          calculationMethod: 'COUNT',
+          calculationParams: { ...mixedParams },
+        });
+
         expect(result.success).toBe(true);
         if (result.success) {
-          expect(result.data).toEqual(areaVolumeParams);
+          expect(result.data.calculationParams).toEqual({ count: 5, length: 2, weight: 1.5 });
         }
       });
 
-      it('一部のフィールドのみでも成功する', () => {
-        const partialParams = {
-          width: 10,
-          weight: 1.5,
-        };
-        const result = calculationParamsSchema.safeParse(partialParams);
+      it('AREA_VOLUME: 混在パラメータから幅を保持しピッチ系を破棄する（REQ-48 AC4）', () => {
+        const result = updateQuantityItemSchema.safeParse({
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: { ...mixedParams },
+        });
+
         expect(result.success).toBe(true);
         if (result.success) {
-          expect(result.data).toEqual(partialParams);
+          expect(result.data.calculationParams).toEqual({ width: 3, weight: 1.5 });
         }
+      });
+
+      it('計算方法・計算パラメータを含まない部分更新では calculationParams を追加しない', () => {
+        const result = updateQuantityItemSchema.safeParse({ name: '掘削（変更後）' });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect('calculationParams' in result.data).toBe(false);
+        }
+      });
+
+      it('計算方法を伴わない計算パラメータのみの更新は拒否する（形状推測をしない・REQ-48 AC5）', () => {
+        const result = updateQuantityItemSchema.safeParse({
+          calculationParams: { count: 5 },
+        });
+
+        expect(result.success).toBe(false);
       });
     });
 
-    describe('null値', () => {
-      it('nullを受け入れる', () => {
-        const result = calculationParamsSchema.safeParse(null);
+    describe('PARAMS_SCHEMA_BY_METHOD', () => {
+      it('全ての計算方法に対応するスキーマを持つ（追加漏れ防止・REQ-48 AC5）', () => {
+        for (const method of CALCULATION_METHODS) {
+          expect(PARAMS_SCHEMA_BY_METHOD[method]).toBeDefined();
+        }
+        expect(Object.keys(PARAMS_SCHEMA_BY_METHOD).sort()).toEqual(
+          [...CALCULATION_METHODS].sort()
+        );
+      });
+    });
+
+    describe('countParamsSchema（箇所数計算フィールド仕様・REQ-47）', () => {
+      it('箇所数・長さ・重量を保持する', () => {
+        const countParams = { count: 12, length: 2.5, weight: 1.5 };
+        const result = countParamsSchema.safeParse(countParams);
+
         expect(result.success).toBe(true);
         if (result.success) {
-          expect(result.data).toBeNull();
+          expect(result.data).toEqual(countParams);
+        }
+      });
+
+      it('箇所数のみでも成功する（長さ・重量は任意）', () => {
+        const result = countParamsSchema.safeParse({ count: 3 });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data).toEqual({ count: 3 });
+        }
+      });
+
+      it('箇所数が未入力の場合はエラーメッセージを返す（REQ-47 AC9）', () => {
+        const result = countParamsSchema.safeParse({});
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]?.message).toBe(
+            QUANTITY_TABLE_VALIDATION_MESSAGES.COUNT_REQUIRED
+          );
+        }
+      });
+
+      it('箇所数が小数の場合はエラーメッセージを返す（REQ-47 AC10）', () => {
+        const result = countParamsSchema.safeParse({ count: 2.5 });
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]?.message).toBe(
+            QUANTITY_TABLE_VALIDATION_MESSAGES.COUNT_NOT_INTEGER
+          );
+        }
+      });
+
+      it('箇所数が範囲外の場合はエラーメッセージを返す（REQ-47 AC11）', () => {
+        const result = countParamsSchema.safeParse({ count: 10000000 });
+
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues[0]?.message).toBe(
+            QUANTITY_TABLE_VALIDATION_MESSAGES.COUNT_OUT_OF_RANGE
+          );
         }
       });
     });

@@ -18,8 +18,11 @@
 
 /**
  * 計算方法
+ *
+ * Requirements:
+ * - 47.1: 計算方法の選択肢に「箇所数」（COUNT）を含める
  */
-export type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH';
+export type CalculationMethod = 'STANDARD' | 'AREA_VOLUME' | 'PITCH' | 'COUNT';
 
 /**
  * 計算パラメータ（面積・体積モード）
@@ -44,9 +47,25 @@ export interface PitchParams {
 }
 
 /**
+ * 計算パラメータ（箇所数モード）
+ *
+ * Requirements:
+ * - 47.3: 入力された箇所数をそのまま箇所数として用いる（自動算出は行わない）
+ * - 箇所数計算フィールド仕様: 箇所数は必須（1〜9999999の整数）、長さ・重量は任意
+ */
+export interface CountParams {
+  /** 箇所数（必須・1〜9999999の整数） */
+  count: number;
+  /** 長さ（任意） */
+  length?: number;
+  /** 重量（任意） */
+  weight?: number;
+}
+
+/**
  * 計算パラメータ統合型
  */
-export type CalculationParams = AreaVolumeParams | PitchParams | null;
+export type CalculationParams = AreaVolumeParams | PitchParams | CountParams | null;
 
 // ============================================================================
 // 数量項目関連

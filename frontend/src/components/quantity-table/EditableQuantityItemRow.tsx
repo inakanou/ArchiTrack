@@ -20,6 +20,7 @@ import CalculationFields from './CalculationFields';
 import QuantityItemActionMenu from './QuantityItemActionMenu';
 import FieldValidationTooltip from './FieldValidationTooltip';
 import { calculate } from '../../utils/calculation-engine';
+import { resetParamsForMethod } from '../../utils/calculation-method';
 import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
 // ============================================================================
@@ -288,23 +289,37 @@ export default function EditableQuantityItemRow({
   /**
    * 計算方法変更ハンドラ
    * REQ-8.1: 計算方法を変更時、既存のパラメータで再計算を実行
+   *
+   * Task 68.4 / REQ-48: 切替前の計算方法に固有のパラメータは残留させない。
+   * レジストリの resetParamsForMethod() で切替後の計算方法が使うキーのみを残し、
+   * 共通フィールド（長さ・重量）の入力値は引き継ぐ（REQ-48.1 / REQ-48.2）。
+   * 再計算もリセット後のパラメータで行うため、切替後の必須パラメータが未入力の場合は
+   * calculate() が例外を送出し、旧パラメータを流用した数量は算出されない（REQ-48.7）。
+   * その場合の数量は直前の値のまま据え置かれ、必須パラメータの入力を待つ。
    */
   const handleCalculationMethodChange = useCallback(
     (method: CalculationMethod) => {
-      const updates: Partial<QuantityItemDetail> = { calculationMethod: method };
+      // 切替後の計算方法で使用するキーのみを残す（「標準」は null）
+      const params = resetParamsForMethod(item.calculationParams, method);
 
-      // 面積・体積またはピッチモードに変更し、既存パラメータがある場合は再計算
-      if (method !== 'STANDARD' && item.calculationParams) {
+      const updates: Partial<QuantityItemDetail> = {
+        calculationMethod: method,
+        calculationParams: params,
+      };
+
+      // 標準以外（面積・体積／ピッチ／箇所数）でパラメータが残っている場合は再計算
+      if (method !== 'STANDARD' && params) {
         try {
           const result = calculate({
             method,
-            params: item.calculationParams,
+            params,
             adjustmentFactor: item.adjustmentFactor,
             roundingUnit: item.roundingUnit,
           });
           updates.quantity = result.finalValue;
         } catch {
           // 計算エラーの場合は数量を更新しない
+          // 例: 切替直後で新方式の必須パラメータ（ピッチ長・箇所数）が未入力（REQ-48.7）
         }
       }
 
@@ -317,13 +332,17 @@ export default function EditableQuantityItemRow({
    * 計算パラメータ変更ハンドラ
    * REQ-8.6: 面積・体積モードで計算用列に値が入力されると数量を自動計算
    * REQ-8.9: ピッチモードで必須項目が入力されると本数を自動計算
+   * REQ-8.14 / REQ-47.12: 箇所数モードで箇所数・長さ・重量の変更時に数量を自動再計算
+   *
+   * Task 68.3: 分岐条件は「標準以外」であり計算方法を列挙しないため、箇所数（COUNT）も
+   * 追加の分岐なしに本経路を通る。計算方法ごとの差分は calculate() の単一の switch に閉じている。
    */
   const handleCalculationParamsChange = useCallback(
     (params: CalculationParams) => {
       // 計算パラメータを更新
       const updates: Partial<QuantityItemDetail> = { calculationParams: params };
 
-      // 面積・体積またはピッチモードの場合、計算を実行して数量を自動更新
+      // 標準以外（面積・体積／ピッチ／箇所数）の場合、計算を実行して数量を自動更新
       if (item.calculationMethod !== 'STANDARD') {
         try {
           const result = calculate({
@@ -334,7 +353,8 @@ export default function EditableQuantityItemRow({
           });
           updates.quantity = result.finalValue;
         } catch {
-          // 計算エラーの場合は数量を更新しない（例：ピッチ長が0の場合）
+          // 計算エラーの場合は数量を更新しない
+          // 例: ピッチ長が0 / 箇所数が未入力・整数以外・範囲外（calculateCount が送出）
         }
       }
 
@@ -346,6 +366,7 @@ export default function EditableQuantityItemRow({
   /**
    * 調整係数更新ハンドラ（CalculationFieldsから呼ばれる）
    * REQ-9.2: 調整係数が変更されると計算結果に乗算した値を数量として設定
+   * REQ-47.12: 箇所数モードでも同一（ピッチと同じ後段処理）
    */
   const handleAdjustmentFactorUpdate = useCallback(
     (value: number) => {
@@ -374,6 +395,7 @@ export default function EditableQuantityItemRow({
   /**
    * 丸め設定更新ハンドラ（CalculationFieldsから呼ばれる）
    * REQ-10.2: 丸め設定が変更されると調整係数適用後の値を切り上げた値を最終数量として設定
+   * REQ-47.12: 箇所数モードでも同一（ピッチと同じ後段処理）
    */
   const handleRoundingUnitUpdate = useCallback(
     (value: number) => {
@@ -414,15 +436,13 @@ export default function EditableQuantityItemRow({
   }, []);
 
   return (
-    <div
-      style={styles.wrapper}
-      data-testid="quantity-item-row"
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          handleCloseMenu();
-        }
-      }}
-    >
+    // Task 69.2: アクションメニューの閉じ処理をここに二重で張らない。
+    // 旧来は行の onBlur でも handleCloseMenu を呼んでいたが、Task 69.1 の Portal 化により
+    // ドロップダウンは document.body 直下（= この行の DOM ツリーの外側）へ描画されるため、
+    // キーボード Tab でメニュー項目へフォーカスを移すと relatedTarget が行の外側と判定され、
+    // メニューが即座に閉じてしまっていた。閉じ判定は QuantityItemActionMenu 側の
+    // outside-click（document の mousedown）+ Escape に一本化する（REQ-46.8, 46.9）。
+    <div style={styles.wrapper} data-testid="quantity-item-row">
       <div style={styles.row} role="row">
         {/* 大項目 */}
         <div style={styles.fieldGroup} role="cell">

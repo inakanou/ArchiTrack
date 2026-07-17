@@ -760,5 +760,206 @@ describe('QuantityTablesRoutes', () => {
         .send({ expectedUpdatedAt: new Date().toISOString(), groups: [] })
         .expect(404);
     });
+
+    /**
+     * Task 67.2: 一括保存ルートの計算方法列挙のハードコード解消
+     *
+     * `saveDraftItemSchema` の `calculationMethod` は `CALCULATION_METHODS`
+     * （quantity-table.schema.ts）を単一情報源として参照する。リテラル直書きの
+     * `z.enum([...])` では計算方法「箇所数」（COUNT）の数量項目を含む数量表の
+     * 一括保存が 400 で弾かれてしまう。
+     *
+     * Requirements:
+     * - 47.15: 計算方法が「箇所数」の数量項目を含む数量表を保存して再読み込みすると値が復元される
+     * - 47.18: 「箇所数」の数量項目の編集はクライアント編集状態に対して行い、永続化は保存操作時に行う
+     */
+    describe('計算方法の検証（Req 47.15, 47.18）', () => {
+      /** 指定した計算方法・計算パラメータの数量項目1件を含む保存ボディを生成する */
+      const buildSaveBodyWithMethod = (
+        calculationMethod: string,
+        calculationParams: Record<string, number> | null
+      ) => ({
+        expectedUpdatedAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+        name: '編集後の数量表名',
+        groups: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            name: 'グループA',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [
+              {
+                id: '123e4567-e89b-12d3-a456-426614174020',
+                majorCategory: null,
+                middleCategory: null,
+                minorCategory: null,
+                customCategory: null,
+                workType: '工種',
+                name: '項目名',
+                specification: null,
+                unit: 'm',
+                calculationMethod,
+                calculationParams,
+                adjustmentFactor: 1,
+                roundingUnit: 1,
+                quantity: 15,
+                remarks: null,
+                displayOrder: 0,
+              },
+            ],
+          },
+        ],
+      });
+
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      it('計算方法「箇所数」（COUNT）の数量項目を含む保存が検証を通過する（Req 47.15, 47.18）', async () => {
+        mockService.saveDraft.mockResolvedValue(latestDetail);
+
+        await request(app)
+          .put(`/api/quantity-tables/${tableId}/save`)
+          .send(buildSaveBodyWithMethod('COUNT', { count: 5, length: 2, weight: 1.5 }))
+          .expect(200);
+
+        // 箇所数のパラメータが破棄されずサービスへ引き渡されること
+        expect(mockService.saveDraft).toHaveBeenCalledWith(
+          tableId,
+          expect.objectContaining({
+            groups: [
+              expect.objectContaining({
+                items: [
+                  expect.objectContaining({
+                    calculationMethod: 'COUNT',
+                    calculationParams: { count: 5, length: 2, weight: 1.5 },
+                  }),
+                ],
+              }),
+            ],
+          }),
+          'test-user-id'
+        );
+      });
+
+      it.each([
+        ['STANDARD', null],
+        ['AREA_VOLUME', { width: 2, depth: 3, height: 4 }],
+        [
+          'PITCH',
+          { rangeLength: 10, endLength1: 1, endLength2: 1, pitchLength: 2, length: 3, weight: 1.2 },
+        ],
+      ] as const)(
+        '既存の計算方法「%s」の一括保存が引き続き検証を通過する（回帰防止）',
+        async (calculationMethod, calculationParams) => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+
+          await request(app)
+            .put(`/api/quantity-tables/${tableId}/save`)
+            .send(buildSaveBodyWithMethod(calculationMethod, calculationParams))
+            .expect(200);
+
+          expect(mockService.saveDraft).toHaveBeenCalledWith(
+            tableId,
+            expect.objectContaining({
+              groups: [
+                expect.objectContaining({
+                  items: [expect.objectContaining({ calculationMethod })],
+                }),
+              ],
+            }),
+            'test-user-id'
+          );
+        }
+      );
+
+      it('未知の計算方法は検証エラー（400）となりサービスを呼び出さない', async () => {
+        await request(app)
+          .put(`/api/quantity-tables/${tableId}/save`)
+          .send(buildSaveBodyWithMethod('UNKNOWN', { count: 5 }))
+          .expect(400);
+
+        expect(mockService.saveDraft).not.toHaveBeenCalled();
+      });
+
+      it('計算方法「箇所数」で必須パラメータ（箇所数）が欠落する場合は400となる（Req 47.9）', async () => {
+        await request(app)
+          .put(`/api/quantity-tables/${tableId}/save`)
+          .send(buildSaveBodyWithMethod('COUNT', { length: 2 }))
+          .expect(400);
+
+        expect(mockService.saveDraft).not.toHaveBeenCalled();
+      });
+
+      /**
+       * Task 70.3: 一括保存経路における判別子ベースのパラメータ検証の回帰テスト
+       *
+       * REQ-48 の不具合は「クライアント編集状態の一括保存」（REQ-42）で発現する。
+       * 計算方法を「ピッチ」から切り替えても切替前のピッチ固有パラメータが数量項目に
+       * 残留したまま送信されるため、`saveDraftItemSchema` が計算パラメータを素通し
+       * （`z.record(z.string(), z.number())`）していると、残留したピッチのキーが
+       * そのまま永続化され、形状推測により新しく入力した値（箇所数・幅）が破棄される。
+       *
+       * したがって混在パラメータを一括保存経路に流し、計算方法（判別子）に対応する
+       * キーのみがサービスへ引き渡されることを検証する。
+       *
+       * Requirements: 48.3, 48.4, 48.5, 48.6
+       */
+      describe('混在した計算パラメータの判別子ベース検証（Req 48.3, 48.4, 48.5, 48.6）', () => {
+        /** ピッチから他方式へ切り替えた直後に数量項目へ残留する混在パラメータ */
+        const mixedParams = {
+          rangeLength: 100,
+          endLength1: 10,
+          endLength2: 10,
+          pitchLength: 5,
+          count: 5,
+          width: 3,
+          length: 2,
+          weight: 1.5,
+        };
+
+        /** 一括保存でサービスへ引き渡された数量項目1件を取り出す */
+        const getSavedItem = (): Record<string, unknown> => {
+          const [, payload] = mockService.saveDraft.mock.calls[0] as [
+            string,
+            { groups: { items: Record<string, unknown>[] }[] },
+          ];
+          const item = payload.groups[0]?.items[0];
+          if (item === undefined) {
+            throw new Error('保存対象の数量項目がサービスへ引き渡されていません');
+          }
+          return item;
+        };
+
+        it('COUNT: 混在パラメータのうち箇所数が保持されピッチのキーが破棄される（Req 48.3, 48.6）', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+
+          await request(app)
+            .put(`/api/quantity-tables/${tableId}/save`)
+            .send(buildSaveBodyWithMethod('COUNT', { ...mixedParams }))
+            .expect(200);
+
+          // 箇所数・長さ・重量のみが残り、ピッチの4キーと幅は破棄される
+          expect(getSavedItem().calculationParams).toEqual({ count: 5, length: 2, weight: 1.5 });
+        });
+
+        it('AREA_VOLUME: 混在パラメータのうち幅が保持される（Req 48.4, 48.6・既存不具合の回帰）', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+
+          await request(app)
+            .put(`/api/quantity-tables/${tableId}/save`)
+            .send(buildSaveBodyWithMethod('AREA_VOLUME', { ...mixedParams }))
+            .expect(200);
+
+          // 幅・重量のみが残り、ピッチの4キーと箇所数は破棄される
+          expect(getSavedItem().calculationParams).toEqual({ width: 3, weight: 1.5 });
+        });
+      });
+    });
   });
 });

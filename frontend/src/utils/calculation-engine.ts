@@ -14,13 +14,28 @@
  * - 8.9: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）に値が入力される場合、ピッチ計算式に基づいて本数を算出する
  * - 9.2: 調整係数列に数値を入力する場合、計算結果に調整係数を乗算した値を数量として設定する
  * - 10.2: 丸め設定列に数値を入力する場合、調整係数適用後の値を指定された単位で切り上げた値を最終数量として設定する
+ * - 47.3-47.7: 「箇所数」モードで手入力の箇所数を起点に、ピッチと同一の後段処理（長さ・重量の乗算、
+ *   調整係数の適用、丸め処理）で最終数量を算出する
+ * - 47.8/47.10/47.11: 「箇所数」は1〜9999999の整数
  */
 
-import type { CalculationMethod, CalculationParams } from '../types/quantity-edit.types';
+import type {
+  CalculationMethod,
+  CalculationParams,
+  CountParams,
+} from '../types/quantity-edit.types';
 
 // ============================================================================
 // 型定義
 // ============================================================================
+
+/**
+ * 箇所数計算パラメータ
+ *
+ * 型の単一情報源は `types/quantity-edit.types.ts`。
+ * 計算エンジンの利用者が型を1箇所からimportできるよう再エクスポートする。
+ */
+export type { CountParams };
 
 /**
  * 面積・体積計算パラメータ
@@ -90,6 +105,12 @@ export const DEFAULT_ROUNDING_UNIT = 0.01;
 
 /** デフォルト計算方法 */
 export const DEFAULT_CALCULATION_METHOD: CalculationMethod = 'STANDARD';
+
+/** 箇所数の最小値（REQ-47 AC8） */
+export const COUNT_MIN = 1;
+
+/** 箇所数の最大値（REQ-47 AC8） */
+export const COUNT_MAX = 9999999;
 
 // ============================================================================
 // 計算関数
@@ -175,6 +196,69 @@ export function calculatePitch(params: PitchParams): number {
 }
 
 /**
+ * 任意項目（長さ・重量）が有効な数値として入力されているか
+ *
+ * 既存の計算関数（calculateAreaVolume / calculatePitch）と同一の判定条件。
+ */
+function isProvidedNumber(value: number | undefined | null): value is number {
+  return value !== undefined && value !== null && !isNaN(value);
+}
+
+/**
+ * 箇所数の計算結果（調整係数・丸め適用前）を算出する
+ *
+ * 結果 = 箇所数 * 長さ * 重量（任意項目は入力されている場合のみ乗算）
+ */
+function computeCountRawValue(params: CountParams): number {
+  let result = isProvidedNumber(params.count) ? params.count : 0;
+
+  if (isProvidedNumber(params.length)) {
+    result = result * params.length;
+  }
+
+  if (isProvidedNumber(params.weight)) {
+    result = result * params.weight;
+  }
+
+  return result;
+}
+
+/**
+ * 箇所数計算（REQ-47）
+ *
+ * ピッチ計算（calculatePitch）との差分は箇所数の求め方のみ。
+ * - ピッチ: 箇所数 = floor((範囲長 - 端長1 - 端長2) / ピッチ長) + 1
+ * - 箇所数: 箇所数 = params.count（手入力値。自動算出は行わない）
+ *
+ * 箇所数確定後の処理（長さ・重量の乗算、調整係数の適用、丸め処理）は
+ * calculate() の共通経路を通るためピッチと完全に同一である（REQ-47 AC7）。
+ *
+ * Requirements:
+ * - 47.3: 入力された値をそのまま箇所数として用い、自動算出を行わない
+ * - 47.4: 入力されている任意項目（長さ・重量）のみを乗算する
+ * - 47.5: 任意項目がいずれも未入力の場合、箇所数そのものを計算結果とする
+ * - 47.8/47.10/47.11: 箇所数は1〜9999999の整数
+ *
+ * @param params - 箇所数計算パラメータ
+ * @returns 計算元の値と計算式
+ * @throws Error 箇所数が整数でない場合、または1〜9999999の範囲外の場合
+ */
+export function calculateCount(params: CountParams): { rawValue: number; formula: string } {
+  if (!Number.isInteger(params.count)) {
+    throw new Error('箇所数は整数で入力してください');
+  }
+
+  if (params.count < COUNT_MIN || params.count > COUNT_MAX) {
+    throw new Error(`箇所数は${COUNT_MIN}〜${COUNT_MAX}の範囲で入力してください`);
+  }
+
+  return {
+    rawValue: computeCountRawValue(params),
+    formula: generateCountFormula(params),
+  };
+}
+
+/**
  * 調整係数を適用
  *
  * @param value - 元の値
@@ -234,6 +318,15 @@ export function calculate(input: CalculationInput): CalculationResult {
       rawValue = calculatePitch(input.params as PitchParams);
       formula = generatePitchFormula(input.params as PitchParams);
       break;
+
+    case 'COUNT': {
+      // 箇所数（REQ-47）: 差分は rawValue の算出方法のみ。
+      // 以降の調整係数・丸め処理は下記の共通経路を通るためピッチと同一（REQ-47 AC7）。
+      const countResult = calculateCount(input.params as CountParams);
+      rawValue = countResult.rawValue;
+      formula = countResult.formula;
+      break;
+    }
 
     default:
       rawValue = 0;
@@ -326,6 +419,31 @@ export function generatePitchFormula(params: PitchParams): string {
   }
 
   return formula;
+}
+
+/**
+ * 箇所数モードの計算式を生成（REQ-47）
+ *
+ * 書式は generatePitchFormula() の箇所数確定後の部分と同一。
+ * 例: 箇所数=5, 長さ=2.5, 重量=1.5 → `5 x 2.5 x 1.5 = 18.75`
+ *
+ * @param params - 箇所数計算パラメータ
+ * @returns 計算式文字列
+ */
+export function generateCountFormula(params: CountParams): string {
+  const parts: string[] = [(isProvidedNumber(params.count) ? params.count : 0).toString()];
+
+  if (isProvidedNumber(params.length)) {
+    parts.push(params.length.toString());
+  }
+
+  if (isProvidedNumber(params.weight)) {
+    parts.push(params.weight.toString());
+  }
+
+  const result = computeCountRawValue(params);
+
+  return `${parts.join(' x ')} = ${result}`;
 }
 
 // ============================================================================

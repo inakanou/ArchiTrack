@@ -11,8 +11,14 @@
  * - 8.9: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）に値が入力される場合、ピッチ計算式に基づいて本数を算出する
  * - 9.2: 調整係数列に数値を入力する場合、計算結果に調整係数を乗算した値を数量として設定する
  * - 10.2: 丸め設定列に数値を入力する場合、調整係数適用後の値を指定された単位で切り上げた値を最終数量として設定する
+ * - 47.3: 「箇所数」モードで入力された値をそのまま箇所数として用い、自動算出を行わない
+ * - 47.4: 「箇所数」モードで入力されている任意項目（長さ・重量）のみを乗算した値を計算結果とする
+ * - 47.5: 「箇所数」モードで任意項目がいずれも未入力の場合、箇所数そのものを計算結果とする
+ * - 47.6: 計算結果に調整係数を乗算し、丸め設定の単位で切り上げた値を最終数量とする
+ * - 47.7: 「箇所数」モードの乗算・調整係数・丸め処理の挙動を「ピッチ」モードと同一にする
  *
  * Task 1.2: 計算エンジンの共有ロジックを実装する
+ * Task 65.2: バックエンドの計算エンジンに箇所数計算を追加する
  */
 
 import { describe, it, expect } from 'vitest';
@@ -21,6 +27,7 @@ import {
   CalculationEngine,
   type AreaVolumeParams,
   type PitchParams,
+  type CountParams,
   type CalculationInput,
   CalculationMethod,
 } from '../../../services/calculation-engine.js';
@@ -207,6 +214,128 @@ describe('CalculationEngine', () => {
     });
   });
 
+  describe('calculateCount', () => {
+    it('長さ・重量が未入力の場合、箇所数をそのまま返す（Requirements: 47.3, 47.5）', () => {
+      // Arrange
+      const params: CountParams = {
+        count: new Decimal(5),
+      };
+
+      // Act
+      const result = engine.calculateCount(params);
+
+      // Assert
+      expect(result.toString()).toBe('5');
+    });
+
+    it('長さが指定された場合、箇所数に長さを乗算する（Requirements: 47.4）', () => {
+      // Arrange
+      // 箇所数 = 5, 長さ = 1.5m → 5 * 1.5 = 7.5
+      const params: CountParams = {
+        count: new Decimal(5),
+        length: new Decimal('1.5'),
+      };
+
+      // Act
+      const result = engine.calculateCount(params);
+
+      // Assert
+      expect(result.toString()).toBe('7.5');
+    });
+
+    it('重量のみが指定された場合（長さなし）、箇所数に重量を乗算する（Requirements: 47.4）', () => {
+      // Arrange
+      // 箇所数 = 5, 重量 = 2.5kg → 5 * 2.5 = 12.5
+      const params: CountParams = {
+        count: new Decimal(5),
+        weight: new Decimal('2.5'),
+      };
+
+      // Act
+      const result = engine.calculateCount(params);
+
+      // Assert
+      expect(result.toString()).toBe('12.5');
+    });
+
+    it('長さと重量が指定された場合、全てを乗算する（Requirements: 47.4）', () => {
+      // Arrange
+      // 箇所数 = 5, 長さ = 1.5m, 重量 = 2kg/m → 5 * 1.5 * 2 = 15
+      const params: CountParams = {
+        count: new Decimal(5),
+        length: new Decimal('1.5'),
+        weight: new Decimal(2),
+      };
+
+      // Act
+      const result = engine.calculateCount(params);
+
+      // Assert
+      expect(result.toString()).toBe('15');
+    });
+
+    it('箇所数が同一のとき、ピッチ計算と同一の計算結果になる（Requirements: 47.7）', () => {
+      // Arrange
+      // ピッチ: floor((10 - 1 - 1) / 2) + 1 = 5 本
+      const pitchParams: PitchParams = {
+        rangeLength: new Decimal(10),
+        endLength1: new Decimal(1),
+        endLength2: new Decimal(1),
+        pitchLength: new Decimal(2),
+        length: new Decimal('1.5'),
+        weight: new Decimal('2.5'),
+      };
+      const countParams: CountParams = {
+        count: new Decimal(5),
+        length: new Decimal('1.5'),
+        weight: new Decimal('2.5'),
+      };
+
+      // Act
+      const pitchResult = engine.calculatePitch(pitchParams);
+      const countResult = engine.calculateCount(countParams);
+
+      // Assert
+      expect(countResult.toString()).toBe(pitchResult.toString());
+    });
+
+    it('箇所数が整数でない場合、エラーをスローする（Requirements: 47.8）', () => {
+      // Arrange
+      const params: CountParams = {
+        count: new Decimal('2.5'),
+      };
+
+      // Act & Assert
+      expect(() => engine.calculateCount(params)).toThrow('count must be an integer');
+    });
+
+    it('箇所数が最小値（1）未満の場合、エラーをスローする（Requirements: 47.8）', () => {
+      // Arrange
+      const params: CountParams = {
+        count: new Decimal(0),
+      };
+
+      // Act & Assert
+      expect(() => engine.calculateCount(params)).toThrow('count must be between 1 and 9999999');
+    });
+
+    it('箇所数が最大値（9999999）を超える場合、エラーをスローする（Requirements: 47.8）', () => {
+      // Arrange
+      const params: CountParams = {
+        count: new Decimal(10000000),
+      };
+
+      // Act & Assert
+      expect(() => engine.calculateCount(params)).toThrow('count must be between 1 and 9999999');
+    });
+
+    it('箇所数が境界値（1・9999999）の場合、エラーをスローしない（Requirements: 47.8）', () => {
+      // Act & Assert
+      expect(engine.calculateCount({ count: new Decimal(1) }).toString()).toBe('1');
+      expect(engine.calculateCount({ count: new Decimal(9999999) }).toString()).toBe('9999999');
+    });
+  });
+
   describe('applyAdjustmentFactor', () => {
     it('調整係数を適用する（Requirements: 9.2）', () => {
       // Arrange
@@ -381,6 +510,111 @@ describe('CalculationEngine', () => {
       expect(result.finalValue.toString()).toBe('9');
     });
 
+    it('箇所数モード: 箇所数計算、調整係数、丸めを適用する（Requirements: 47.6）', () => {
+      // Arrange
+      const input: CalculationInput = {
+        method: CalculationMethod.COUNT,
+        params: {
+          count: new Decimal(5),
+          length: new Decimal('1.5'),
+        },
+        adjustmentFactor: new Decimal('1.1'),
+        roundingUnit: new Decimal(1),
+      };
+
+      // Act
+      const result = engine.calculate(input);
+
+      // Assert
+      // 箇所数 = 5（手入力値をそのまま使用）
+      // 5 * 1.5 = 7.5
+      // 7.5 * 1.1 = 8.25
+      // 8.25を1単位で切り上げ = 9
+      expect(result.rawValue.toString()).toBe('7.5');
+      expect(result.adjustedValue.toString()).toBe('8.25');
+      expect(result.finalValue.toString()).toBe('9');
+      expect(result.formula).toBe('5 x 1.5 = 7.5');
+    });
+
+    it('箇所数モード: 長さ・重量が未入力の場合、箇所数がそのまま最終数量になる（Requirements: 47.5）', () => {
+      // Arrange
+      const input: CalculationInput = {
+        method: CalculationMethod.COUNT,
+        params: {
+          count: new Decimal(5),
+        },
+        adjustmentFactor: new Decimal(1),
+        roundingUnit: new Decimal('0.01'),
+      };
+
+      // Act
+      const result = engine.calculate(input);
+
+      // Assert
+      expect(result.rawValue.toString()).toBe('5');
+      expect(result.adjustedValue.toString()).toBe('5');
+      expect(result.finalValue.toString()).toBe('5');
+      expect(result.formula).toBe('5 = 5');
+    });
+
+    it('箇所数モード: 箇所数が同一のピッチモードと最終数量・調整後の値が一致する（Requirements: 47.7）', () => {
+      // Arrange
+      const adjustmentFactor = new Decimal('1.1');
+      const roundingUnit = new Decimal('0.25');
+
+      const pitchInput: CalculationInput = {
+        method: CalculationMethod.PITCH,
+        params: {
+          rangeLength: new Decimal(10),
+          endLength1: new Decimal(1),
+          endLength2: new Decimal(1),
+          pitchLength: new Decimal(2), // → 本数 5
+          length: new Decimal('1.5'),
+          weight: new Decimal('2.5'),
+        },
+        adjustmentFactor,
+        roundingUnit,
+      };
+      const countInput: CalculationInput = {
+        method: CalculationMethod.COUNT,
+        params: {
+          count: new Decimal(5),
+          length: new Decimal('1.5'),
+          weight: new Decimal('2.5'),
+        },
+        adjustmentFactor,
+        roundingUnit,
+      };
+
+      // Act
+      const pitchResult = engine.calculate(pitchInput);
+      const countResult = engine.calculate(countInput);
+
+      // Assert
+      expect(countResult.rawValue.toString()).toBe(pitchResult.rawValue.toString());
+      expect(countResult.adjustedValue.toString()).toBe(pitchResult.adjustedValue.toString());
+      expect(countResult.finalValue.toString()).toBe(pitchResult.finalValue.toString());
+    });
+
+    it('箇所数モード: default分岐（0）にフォールバックしない（Requirements: 47.3）', () => {
+      // Arrange
+      const input: CalculationInput = {
+        method: CalculationMethod.COUNT,
+        params: {
+          count: new Decimal(3),
+        },
+        adjustmentFactor: new Decimal(1),
+        roundingUnit: new Decimal('0.01'),
+      };
+
+      // Act
+      const result = engine.calculate(input);
+
+      // Assert
+      expect(result.rawValue.toString()).not.toBe('0');
+      expect(result.formula).not.toBe('0');
+    });
+
     it('調整係数・丸め設定のデフォルト値を使用する', () => {
       // Arrange
       const input: CalculationInput = {
@@ -497,6 +731,48 @@ describe('CalculationEngine', () => {
 
       // Assert
       expect(formula).toContain('= 1'); // 本数は最低1
+    });
+
+    it('箇所数モードの計算式を生成する（Requirements: 47.4）', () => {
+      // Arrange
+      const params: CountParams = {
+        count: new Decimal(5),
+        length: new Decimal('2.5'),
+        weight: new Decimal('1.5'),
+      };
+
+      // Act
+      const formula = engine.generateCountFormula(params);
+
+      // Assert
+      expect(formula).toBe('5 x 2.5 x 1.5 = 18.75');
+    });
+
+    it('箇所数モードで長さ・重量が未入力の場合の計算式を生成する（Requirements: 47.5）', () => {
+      // Arrange
+      const params: CountParams = {
+        count: new Decimal(5),
+      };
+
+      // Act
+      const formula = engine.generateCountFormula(params);
+
+      // Assert
+      expect(formula).toBe('5 = 5');
+    });
+
+    it('箇所数モードで重量のみ指定された場合の計算式を生成する（Requirements: 47.4）', () => {
+      // Arrange
+      const params: CountParams = {
+        count: new Decimal(4),
+        weight: new Decimal('2.5'),
+      };
+
+      // Act
+      const formula = engine.generateCountFormula(params);
+
+      // Assert
+      expect(formula).toBe('4 x 2.5 = 10');
     });
   });
 

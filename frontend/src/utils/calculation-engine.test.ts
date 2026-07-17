@@ -17,11 +17,13 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateAreaVolume,
   calculatePitch,
+  calculateCount,
   applyAdjustmentFactor,
   applyRounding,
   calculate,
   generateAreaVolumeFormula,
   generatePitchFormula,
+  generateCountFormula,
   isValidNumber,
   validateStandardQuantity,
   validateAdjustmentFactor,
@@ -33,6 +35,7 @@ import {
   DEFAULT_CALCULATION_METHOD,
   type AreaVolumeParams,
   type PitchParams,
+  type CountParams,
   type CalculationInput,
 } from './calculation-engine';
 
@@ -266,6 +269,94 @@ describe('calculatePitch', () => {
 });
 
 // ============================================================================
+// calculateCount のテスト（REQ-47）
+// ============================================================================
+
+describe('calculateCount', () => {
+  describe('REQ-47 AC3/AC5: 入力された箇所数をそのまま箇所数として用いる', () => {
+    it('長さ・重量がいずれも未入力の場合、箇所数そのものが計算結果になる', () => {
+      const params: CountParams = { count: 5 };
+      expect(calculateCount(params).rawValue).toBe(5);
+    });
+
+    it('箇所数の自動算出は行わない（手入力値をそのまま使う）', () => {
+      expect(calculateCount({ count: 1 }).rawValue).toBe(1);
+      expect(calculateCount({ count: 123 }).rawValue).toBe(123);
+      expect(calculateCount({ count: 9999999 }).rawValue).toBe(9999999);
+    });
+  });
+
+  describe('REQ-47 AC4: 入力されている任意項目のみを乗算する', () => {
+    it('長さのみ入力されている場合、箇所数 × 長さ', () => {
+      const params: CountParams = { count: 5, length: 2.5 };
+      expect(calculateCount(params).rawValue).toBe(12.5);
+    });
+
+    it('重量のみ入力されている場合、箇所数 × 重量', () => {
+      const params: CountParams = { count: 5, weight: 1.5 };
+      expect(calculateCount(params).rawValue).toBe(7.5);
+    });
+
+    it('長さ・重量ともに入力されている場合、箇所数 × 長さ × 重量', () => {
+      const params: CountParams = { count: 5, length: 2.5, weight: 1.5 };
+      expect(calculateCount(params).rawValue).toBe(18.75);
+    });
+  });
+
+  describe('NaN/null/undefined handling', () => {
+    it('長さがNaNの場合、無視される', () => {
+      const params: CountParams = { count: 5, length: NaN };
+      expect(calculateCount(params).rawValue).toBe(5);
+    });
+
+    it('重量がnullの場合、無視される', () => {
+      const params: CountParams = { count: 5, weight: null as unknown as number };
+      expect(calculateCount(params).rawValue).toBe(5);
+    });
+  });
+
+  describe('REQ-47 AC10: 整数以外は例外', () => {
+    it('小数を含む箇所数の場合、例外を投げる', () => {
+      expect(() => calculateCount({ count: 2.5 })).toThrow();
+    });
+
+    it('NaNの箇所数の場合、例外を投げる', () => {
+      expect(() => calculateCount({ count: NaN })).toThrow();
+    });
+
+    it('箇所数が未入力（undefined）の場合、例外を投げる', () => {
+      expect(() => calculateCount({ count: undefined as unknown as number })).toThrow();
+    });
+  });
+
+  describe('REQ-47 AC8/AC11: 入力可能範囲は1〜9999999', () => {
+    it('箇所数が0の場合、例外を投げる', () => {
+      expect(() => calculateCount({ count: 0 })).toThrow();
+    });
+
+    it('箇所数が負の場合、例外を投げる', () => {
+      expect(() => calculateCount({ count: -1 })).toThrow();
+    });
+
+    it('箇所数が10000000の場合、例外を投げる', () => {
+      expect(() => calculateCount({ count: 10000000 })).toThrow();
+    });
+
+    it('境界値（1・9999999）は例外を投げない', () => {
+      expect(() => calculateCount({ count: 1 })).not.toThrow();
+      expect(() => calculateCount({ count: 9999999 })).not.toThrow();
+    });
+  });
+
+  describe('計算式文字列', () => {
+    it('generateCountFormula と同一の計算式を返す', () => {
+      const params: CountParams = { count: 5, length: 2.5, weight: 1.5 };
+      expect(calculateCount(params).formula).toBe(generateCountFormula(params));
+    });
+  });
+});
+
+// ============================================================================
 // applyAdjustmentFactor のテスト
 // ============================================================================
 
@@ -451,6 +542,134 @@ describe('calculate', () => {
     });
   });
 
+  describe('箇所数モード（REQ-47）', () => {
+    it('COUNTがdefault分岐（数量0）に落ちない', () => {
+      const input: CalculationInput = {
+        method: 'COUNT',
+        params: { count: 5 },
+        adjustmentFactor: 1.0,
+        roundingUnit: 0.01,
+      };
+      const result = calculate(input);
+      expect(result.rawValue).toBe(5);
+      expect(result.finalValue).toBe(5);
+      expect(result.formula).not.toBe('0');
+    });
+
+    it('REQ-47 AC5: 長さ・重量が未入力の場合、箇所数がそのまま計算結果になる', () => {
+      const input: CalculationInput = {
+        method: 'COUNT',
+        params: { count: 7 },
+        adjustmentFactor: 1.0,
+        roundingUnit: 0.01,
+      };
+      const result = calculate(input);
+      expect(result.rawValue).toBe(7);
+      expect(result.adjustedValue).toBe(7);
+      expect(result.finalValue).toBe(7);
+    });
+
+    it('REQ-47 AC4: 長さ・重量が入力されている場合、乗算される', () => {
+      const input: CalculationInput = {
+        method: 'COUNT',
+        params: { count: 5, length: 2.5, weight: 1.5 },
+        adjustmentFactor: 1.0,
+        roundingUnit: 0.01,
+      };
+      const result = calculate(input);
+      expect(result.rawValue).toBe(18.75);
+      expect(result.finalValue).toBe(18.75);
+    });
+
+    it('REQ-47 AC6: 調整係数と丸め設定が適用される', () => {
+      const input: CalculationInput = {
+        method: 'COUNT',
+        params: { count: 5, length: 2.5, weight: 1.5 },
+        adjustmentFactor: 1.2,
+        roundingUnit: 0.05,
+      };
+      const result = calculate(input);
+      expect(result.rawValue).toBe(18.75);
+      expect(result.adjustedValue).toBe(22.5);
+      // 22.5 / 0.05 = 450（切り上げ後も450）→ 22.5
+      expect(result.finalValue).toBe(22.5);
+    });
+
+    it('REQ-47 AC6: 調整係数適用後の値が丸め単位で切り上げられる', () => {
+      const input: CalculationInput = {
+        method: 'COUNT',
+        params: { count: 3, length: 1.1 },
+        adjustmentFactor: 1.0,
+        roundingUnit: 0.5,
+      };
+      const result = calculate(input);
+      expect(result.rawValue).toBeCloseTo(3.3, 10);
+      // 3.3 → 0.5単位で切り上げ → 3.5
+      expect(result.finalValue).toBe(3.5);
+    });
+
+    it('REQ-47 AC8/AC10/AC11: 整数以外・範囲外は例外を投げる', () => {
+      const base = { adjustmentFactor: 1.0, roundingUnit: 0.01 };
+      expect(() => calculate({ method: 'COUNT', params: { count: 2.5 }, ...base })).toThrow();
+      expect(() => calculate({ method: 'COUNT', params: { count: 0 }, ...base })).toThrow();
+      expect(() => calculate({ method: 'COUNT', params: { count: 10000000 }, ...base })).toThrow();
+    });
+
+    describe('REQ-47 AC7: ピッチと同一の挙動', () => {
+      it('箇所数が同一になるピッチ計算と箇所数計算の最終数量が一致する', () => {
+        // floor((10 - 1 - 1) / 2) + 1 = 5
+        const pitchInput: CalculationInput = {
+          method: 'PITCH',
+          params: {
+            rangeLength: 10,
+            endLength1: 1,
+            endLength2: 1,
+            pitchLength: 2,
+            length: 2.5,
+            weight: 1.5,
+          },
+          adjustmentFactor: 1.2,
+          roundingUnit: 0.05,
+        };
+        const countInput: CalculationInput = {
+          method: 'COUNT',
+          params: { count: 5, length: 2.5, weight: 1.5 },
+          adjustmentFactor: 1.2,
+          roundingUnit: 0.05,
+        };
+
+        const pitchResult = calculate(pitchInput);
+        const countResult = calculate(countInput);
+
+        expect(calculatePitch(pitchInput.params as PitchParams)).toBe(
+          calculateCount(countInput.params as CountParams).rawValue
+        );
+        expect(countResult.rawValue).toBe(pitchResult.rawValue);
+        expect(countResult.adjustedValue).toBe(pitchResult.adjustedValue);
+        expect(countResult.finalValue).toBe(pitchResult.finalValue);
+      });
+
+      it('長さ・重量が未入力でも、箇所数が同一なら最終数量が一致する', () => {
+        // floor((20 - 0 - 0) / 5) + 1 = 5
+        const pitchResult = calculate({
+          method: 'PITCH',
+          params: { rangeLength: 20, endLength1: 0, endLength2: 0, pitchLength: 5 },
+          adjustmentFactor: 1.35,
+          roundingUnit: 0.1,
+        });
+        const countResult = calculate({
+          method: 'COUNT',
+          params: { count: 5 },
+          adjustmentFactor: 1.35,
+          roundingUnit: 0.1,
+        });
+
+        expect(pitchResult.rawValue).toBe(5);
+        expect(countResult.finalValue).toBe(pitchResult.finalValue);
+      });
+    });
+  });
+
   describe('未知の計算方法', () => {
     it('未知の計算方法の場合は0を返す', () => {
       const input: CalculationInput = {
@@ -564,6 +783,54 @@ describe('generatePitchFormula', () => {
     };
     const formula = generatePitchFormula(params);
     expect(formula).toContain('10 - 0 - 0');
+  });
+});
+
+// ============================================================================
+// generateCountFormula のテスト（REQ-47）
+// ============================================================================
+
+describe('generateCountFormula', () => {
+  it('長さ・重量が未入力の場合、箇所数のみの計算式を生成する', () => {
+    const params: CountParams = { count: 5 };
+    expect(generateCountFormula(params)).toBe('5 = 5');
+  });
+
+  it('長さと重量を含む場合、ピッチと同じ書式で乗算を連ねる', () => {
+    const params: CountParams = { count: 5, length: 2.5, weight: 1.5 };
+    const formula = generateCountFormula(params);
+    expect(formula).toContain('5');
+    expect(formula).toContain('x 2.5');
+    expect(formula).toContain('x 1.5');
+    expect(formula).toBe('5 x 2.5 x 1.5 = 18.75');
+  });
+
+  it('長さのみの場合', () => {
+    expect(generateCountFormula({ count: 3, length: 2 })).toBe('3 x 2 = 6');
+  });
+
+  it('NaN/null/undefinedの任意項目は無視される', () => {
+    const params: CountParams = {
+      count: 4,
+      length: NaN,
+      weight: null as unknown as number,
+    };
+    expect(generateCountFormula(params)).toBe('4 = 4');
+  });
+
+  it('ピッチの計算式と同じく「... = 結果」で終わる', () => {
+    const pitchFormula = generatePitchFormula({
+      rangeLength: 10,
+      endLength1: 1,
+      endLength2: 1,
+      pitchLength: 2,
+      length: 3,
+      weight: 2,
+    });
+    const countFormula = generateCountFormula({ count: 5, length: 3, weight: 2 });
+    // 双方とも「x 3 x 2 = 30」で終端する（箇所数確定後の書式が同一）
+    expect(pitchFormula.endsWith('x 3 x 2 = 30')).toBe(true);
+    expect(countFormula.endsWith('x 3 x 2 = 30')).toBe(true);
   });
 });
 

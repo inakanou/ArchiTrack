@@ -23,9 +23,11 @@ import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
 import {
+  createQuantityItemBaseSchema,
   createQuantityItemSchema,
   updateQuantityItemSchema,
   quantityItemIdParamSchema,
+  withCalculationParams,
 } from '../schemas/quantity-table.schema.js';
 import {
   QuantityGroupNotFoundError,
@@ -58,8 +60,14 @@ const groupIdUrlParamSchema = z.object({
 
 /**
  * 作成時のリクエストボディ用スキーマ（quantityGroupIdはURLパラメータから取得するため除外）
+ *
+ * zod v4 では refinement を持つオブジェクトスキーマに `.omit()` を適用できないため、
+ * 素の `createQuantityItemBaseSchema` から `.omit()` したうえで、計算方法を判別子とした
+ * 計算パラメータ検証（REQ-48）を `withCalculationParams` で再付与する。
  */
-const createQuantityItemBodySchema = createQuantityItemSchema.omit({ quantityGroupId: true });
+const createQuantityItemBodySchema = withCalculationParams(
+  createQuantityItemBaseSchema.omit({ quantityGroupId: true })
+);
 
 /**
  * 更新リクエストボディ用スキーマ（expectedUpdatedAt必須）

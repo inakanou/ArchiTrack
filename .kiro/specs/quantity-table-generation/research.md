@@ -497,3 +497,211 @@ GO（条件付き・指摘は反映済み）。実コード検証（useUnsavedCh
 - **[REQ-42 並行制御]** 既存 `bulkSave` は FOR UPDATE なし・楽観ロックのみ。REQ-42 で copy/from-survey がクライアント化し saveDraft が唯一の書き込み手段になるため、楽観ロック（`expectedUpdatedAt`）を主とし FOR UPDATE は任意と明記（フロー・サービス・統合テストを整合）。
 - **[未対応・申し送り]** 既存 Security セクションの `quantity_table:write` 表記（インポートClaude Vision／オートコンプリートは `:read`）は本変更スコープ外の既存不整合。タスク化時に実権限名と突合すること。
 - 検証で確定: useUnsavedChanges は beforeunload のみ（useBlocker 非呼び出し）→ `useBlocker(isDirty)` との二重登録なし。sticky の祖先に overflow コンテナなし（main は padding のみ）。
+
+---
+
+# ギャップ分析: Requirement 46・47（2026-07-14）
+
+対象: REQ-46（数量項目アクションメニューの表示不具合修正）／REQ-47（計算方法「箇所数」の追加）
+既存45要件・257タスクは実装完了済み。本分析は追加2要件と既存コードのギャップに限定する。
+
+## 1. 現状調査サマリ
+
+### アーキテクチャ上の前提（今回の設計に効く事実）
+
+| 事実 | 根拠 | 設計への含意 |
+|---|---|---|
+| 数量表画面のスタイリングは全てインライン style オブジェクト。CSSファイルは併置していない | `frontend/src/components/quantity-table/` 配下に `.css` なし | クリップ回避は CSS ではなく描画ツリー（Portal）で解く必要がある |
+| **数量の確定計算はフロントエンドのみが行う** | `backend/src/services/calculation-engine.ts` はプロダクションコードから未 import（参照はユニットテストのみ） | 「箇所数」の計算ロジック追加はフロント側が本命。backend engine は整合のため追随させるかを設計判断する |
+| `frontend/src/hooks/useMemoizedCalculation.ts` は**デッドコード**（import 元ゼロ） | 全 `.ts`/`.tsx` から参照なし。テストも無し | 既存の PITCH ロジック不整合は実害なし。COUNT 対応要否は設計判断（放置 or 削除） |
+| 保存は `PUT /api/quantity-tables/:id/save`（saveDraft）が唯一の書き込み経路 | `quantity-table.service.ts:945-`（旧 bulkSave を置換） | 「箇所数」の永続化経路は1本。ここを通ればよい |
+| `calculationParams` は JSON カラム。個別 DB カラムは無い | `backend/prisma/schema.prisma:685-689` | DB 変更は enum 値追加のみ。カラム追加は不要 |
+
+## 2. 要件 → 資産マップ（ギャップ付き）
+
+### REQ-46: アクションメニューの表示不具合修正
+
+| AC | 既存資産 | ギャップ |
+|---|---|---|
+| 46.1-46.4（クリップされず全項目表示） | `QuantityItemActionMenu.tsx:65-76` ドロップダウンが `position:absolute` / 包含ブロックは同 `:48-50` の `wrapper{position:relative}` | **Missing**: Portal 化が未適用。祖先 `QuantityGroupCard.tsx:271-281` `itemTableWrapper{overflowX:auto; overflowY:hidden}` と `:108-114` `card{overflowY:hidden}` が二重にクリップする |
+| 46.5-46.6（スクロール追従） | `AutocompleteInput.tsx:186-232` に完成した参照実装（`getBoundingClientRect` + `useLayoutEffect` + `scroll` を **capture:true** で購読 + `resize`） | **Missing**: アクションメニュー側に座標追従の仕組みが無い |
+| 46.7（他要素より前面） | ドロップダウン `zIndex:10`。`QuantityTableEditPage.tsx:70-73` の sticky ヘッダーが `zIndex:50` | **Constraint**: 現状 z 値が逆転。Portal 化に合わせ AutocompleteInput 同等（1000相当）へ引き上げが必要 |
+| 46.8-46.9（外側クリック・項目選択で閉じる） | `QuantityItemActionMenu.tsx:175-183` と `EditableQuantityItemRow.tsx:417-424` が**二重に `onBlur`→`onClose`** を張っている | **Constraint**: Portal 化すると DOM ツリーが分離し `relatedTarget` の内外判定が成立しなくなる。閉じ判定を document レベルの outside-click 方式へ切り替える必要あり。参照実装は `estimate-requests/LineItemEditor.tsx:1020-1041`（`document.addEventListener('mousedown')` + `containerRef.contains()` + Escape） |
+| 46 全体の検証 | E2E `e2e/specs/quantity-tables/quantity-item-action-menu.spec.ts`（383行、REQ-36.1〜36.9） | **Missing（重大）**: 既存E2Eは `page.getByRole('menu')` に対し `toBeVisible()` のみ。Playwright の `toBeVisible()` は「空でない bounding box かつ visibility!==hidden」の判定であり、**祖先の overflow によるクリップを検出できない**。よって現行E2Eは本不具合を素通りさせている。単体テスト（jsdom）も同様にレイアウト非再現で検出不能 |
+
+**クリップ検証の既存流儀**: `e2e/specs/quantity-tables/photo-select-overlap-e2e.spec.ts:66-95` に `boundingBox()` ベースで幾何学的な重なり／潰れを検証するヘルパーがある。ドロップダウンのクリップ検証はこのパターンを踏襲するのが本リポジトリの流儀。`toBeInViewport()` は現状どの spec でも未使用。
+
+### REQ-47: 計算方法「箇所数」の追加
+
+計算方法のユニオン型が **frontend 3箇所・backend 4箇所に独立してベタ書き**されており、単一の共有ソースが存在しない。以下は変更必須箇所と、放置すると**型エラーを出さずに壊れる**箇所の一覧。
+
+| 層 | 箇所 | ギャップ種別 |
+|---|---|---|
+| DB | `backend/prisma/schema.prisma:559-563` enum `CalculationMethod` | **Missing**: 値追加＋マイグレーション |
+| DB | 新規マイグレーション（`ALTER TYPE "CalculationMethod" ADD VALUE 'COUNT'`） | **Unknown**: 既存29マイグレーションに `ALTER TYPE`/`ADD VALUE` の**前例ゼロ**（全て `CREATE TYPE`）。PostgreSQL の `ADD VALUE` は同一トランザクション内で新値を参照できない制約があり、初めて踏む経路 |
+| BE zod | `quantity-table.schema.ts:106` `CALCULATION_METHODS` | Missing |
+| BE zod | `quantity-table.schema.ts:305-317` `calculationParamsSchema` | **Constraint（重大）**: `discriminatedUnion` ではなく素の `z.union` で、**評価順序に依存**。`areaVolumeParamsSchema`（:284-289）は全フィールド optional の catch-all のため、新スキーマを union 末尾に置くと areaVolume が先にマッチして **`count` を無言で strip する**。必須フィールドを持つ新スキーマは areaVolume より**前**に置く必要がある（既存コメントが同じ理由で pitch を先頭に置いている） |
+| BE route | `quantity-tables.routes.ts:173` | **Constraint**: 一括保存スキーマが `CALCULATION_METHODS` を参照せず `z.enum(['STANDARD','AREA_VOLUME','PITCH'])` を**ハードコード**。更新漏れ＝保存時400。なお `:174` の `calculationParams: z.record(z.string(), z.number())` は形状検証をしていない（緩い数値マップ） |
+| BE validation | `quantity-validation.service.ts:24`（型）、`:121-133`（switch） | **Constraint**: switch に **`default` 節が無い** → 未知モードは無検証で `isValid:true` を返し素通りする。`validateCountMode` の新設が必要 |
+| BE engine | `calculation-engine.ts:24-31`（独自 enum 再定義）、`:129-159`（calculatePitch）、`:203-221`（switch、default は 0 を返す） | Missing（プロダクション未使用だがテスト資産として整合維持が望ましい） |
+| BE service | `quantity-table.service.ts:234, 287, 1194` | Missing: ユニオン型のリテラル直書きが3箇所 |
+| FE 型 | `types/quantity-edit.types.ts:22`、`types/quantity-table.types.ts:276`、`api/quantity-tables.ts:437` | Missing: 3箇所に重複定義。**`quantity-edit.types.ts:22` に値を足すと他の網羅漏れが型エラーとして出る唯一の起点** |
+| FE UI | `CalculationMethodSelect.tsx:45-49` `CALCULATION_METHOD_OPTIONS` | Missing: 配列なので型的に追加を強制されない |
+| FE UI | `CalculationFields.tsx:440` `method === 'AREA_VOLUME' ? AREA_VOLUME_FIELDS : PITCH_FIELDS` | **Constraint（サイレント破綻）**: 二値の三項演算子。第4の計算方法は**無言でピッチのフィールド群にフォールバックする**。`Record<CalculationMethod, FieldDefinition[]>` へ置換が必要 |
+| FE PDF | `QuantityTableEditPage.tsx:1177-1182` | **Constraint（サイレント破綻）**: ネスト三項の最終 else が `'ピッチ'` 固定。新方式は **PDF 上で「ピッチ」と誤表示される**（`QuantityTablePdfExportService.ts:37` は `calculationMethod: string` を受けるだけで分岐を持たないため型エラーも出ない） |
+| FE 計算 | `utils/calculation-engine.ts:140-175`（calculatePitch）、`:222-241`（switch）、`:293-329`（generatePitchFormula） | Missing: `calculateCount` / `generateCountFormula` / switch case |
+| FE 保存 | `hooks/useQuantityTableSave.ts:298-316` `checkIntegrity` | **Constraint**: `if (method==='AREA_VOLUME')` / `if (method==='PITCH')` の個別 if。新方式は整合性チェック対象外に落ちる |
+| FE 検証 | `utils/numeric-range-validation.ts:24, 55-76` | **Missing**: `RangeConfig` は `{min,max,label}` のみで**整数制約を表現する仕組みが無い**（`Number.isInteger` 相当のチェックもゼロ）。REQ-47 AC8/AC10（1〜9999999の整数・小数拒否）を満たすには `RangeConfig` の拡張（例 `integer?: boolean`）と `validateNumericRange` の分岐追加が必要。なお `utils/field-validation.ts:191,218` に同名の重複定義あり |
+| FE 入力 | `CalculationFields.tsx:178-272` `NumberInputField`（非公開のローカルサブコンポーネント） | **Missing**: blur 時に `numValue.toFixed(2)` を**無条件で適用**（:228）。`step` props は受け取るが `<input>` に渡していない（:188-195 で無視）。**数量表内に整数専用フィールドは1つも存在しない**。整数表示には toFixed(2) の分岐化かフィールド分離が必要 |
+| FE インポート | `quantity-table-import/field-mapping.ts:110` | 対象外（REQ-47 でスコープ外と明記済み。`'STANDARD'` 固定を維持） |
+
+## 3. 実装アプローチの選択肢
+
+### REQ-46（アクションメニュー）
+
+**Option A: `QuantityItemActionMenu` を単体で Portal 化（AutocompleteInput のパターンを踏襲）**
+- 変更: `QuantityItemActionMenu.tsx` のみ（＋二重 onBlur の整理で `EditableQuantityItemRow.tsx`）。`createPortal(document.body)` + `position:fixed` + `getBoundingClientRect` + capture フェーズの scroll/resize 追従 + zIndex 1000。閉じ判定は document レベルの outside-click へ切替。
+- ✅ 同一画面内に検証済みの参照実装（PR #647 で回帰解決済み）があり、リスクが低い / 影響範囲が閉じている
+- ❌ Portal ドロップダウンのロジックが AutocompleteInput と重複する（3例目の重複予備軍）
+
+**Option B: 共通 Portal ドロップダウンフック（`usePortalDropdown`）を新設し、AutocompleteInput と ActionMenu で共有**
+- ✅ 座標追従ロジックの単一情報源化。今後 `LineItemEditor` の同種メニューにも展開できる
+- ❌ 動作中の AutocompleteInput に手を入れるため、**過去に一度回帰した箇所を再度触る**リスク。REQ-46 のスコープ（表示不具合修正）を超える
+
+**Option C（推奨）: ハイブリッド — 今回は A で修正し、共通フック抽出は別スコープに送る**
+- REQ-46 のスコープ宣言（「表示に関する不具合修正のみ」）と整合し、既存の正常動作に触れない。共通化は「Portal ドロップダウン3例目」が現れた時点で行う。
+
+**Effort: S（1〜3日）／Risk: Medium**
+- Low ではない理由: Portal 化により DOM ツリーが分離するため、既存の `relatedTarget` ベースの二重 onBlur 閉じ判定が壊れる。閉じ挙動（REQ-36 AC9）のデグレを起こしやすい。加えて**クリップ回帰を検出できるE2Eを新規に書かないと、直したことを証明できない**。
+
+### REQ-47（計算方法「箇所数」）
+
+**Option A: 既存の分岐にひたすら `COUNT` を足していく（最小変更）**
+- ✅ 変更が機械的。既存パターンから逸脱しない
+- ❌ **三項演算子2箇所（`CalculationFields.tsx:440`／`QuantityTableEditPage.tsx:1178`）はサイレント破綻するため、足すだけでは直らない**。型システムが漏れを検出しない箇所が多く、レビュー頼みになる
+
+**Option B: 計算方法を単一のレジストリ（`Record<CalculationMethod, MethodSpec>`）へ集約してから `COUNT` を追加**
+- ✅ 選択肢ラベル・フィールド定義・PDF ラベル・計算関数・バリデータを1箇所に集約でき、以後の追加漏れが型エラーになる
+- ❌ 7要件（REQ-8/9/10/14/15/18/37）の既存挙動に触れる範囲が広く、257タスク分の既存E2Eに対する回帰リスクが上がる
+
+**Option C（推奨）: ハイブリッド — サイレント破綻する箇所のみ `Record` 化し、残りは case 追加**
+- `CalculationFields.tsx:440` を `Record<CalculationMethod, FieldDefinition[]>` へ、`QuantityTableEditPage.tsx:1177-1182` のネスト三項を `Record<CalculationMethod, string>` のラベルマップへ置換する（この2つは「足すだけでは壊れる」ため不可避）
+- 型の起点は `types/quantity-edit.types.ts:22`。ここに `'COUNT'` を足せば `Record` 化した箇所が型エラーで漏れを教えてくれる
+- zod union は `countParamsSchema` を **areaVolume より前**に挿入。バリデーション switch には `case 'COUNT'` と、将来の漏れを検出する `default`（明示エラー）の追加を検討
+- 残り（enum、CALCULATION_METHODS、routes:173、engine の switch、checkIntegrity）は case/値の追加で対応
+
+**Effort: M（3〜7日）／Risk: Medium**
+- 17ファイル・4層（DB/zod/service/UI）縦断。DB マイグレーションは前例のない `ALTER TYPE ADD VALUE`。整数専用入力フィールドの前例が数量表内に存在しない。
+
+## 4. Research Needed（設計フェーズへ持ち越す調査項目）
+
+1. **`ALTER TYPE ... ADD VALUE` の適用可否検証**: `prisma migrate dev` が生成する SQL と、`prisma migrate deploy`（Docker entrypoint／Railway 自動適用）でのトランザクション制約。同一マイグレーション内で新値を DEFAULT/UPDATE に使わない限り安全か、実機で確認する。前例ゼロのため設計前に潰しておくべき最大の未知数。
+2. **整数入力フィールドの実装方式**: (a) `CalculationFields.tsx` の `NumberInputField` に `integer?: boolean` を足して `toFixed(2)` を分岐させる、(b) 整数専用の別コンポーネントを新設、(c) `ExecutionBudgetPage.tsx:515-546` の `type="text" + inputMode="numeric" + parseInt` パターン、(d) `ScheduleItemRow.tsx:216-231` の `type="number" min={1}` パターン。既存流儀との整合と REQ-14 AC6/AC7（整数表示・空白時非表示）の両立で選ぶ。
+3. **クリップ回帰を検出できる E2E アサーション手法**: `boundingBox()` による幾何比較（`photo-select-overlap-e2e.spec.ts:66-95` の流儀）＋ `evaluate(e => e.parentElement === document.body)` による Portal 描画の確認＋`toBeInViewport()` の採否。**これが無いと REQ-46 の充足を証明できない**（現行E2Eは不具合を素通りさせている実績がある）。
+4. **backend `CalculationEngine` と `useMemoizedCalculation` の扱い**: 前者はプロダクション未使用・後者は完全なデッドコード。COUNT を追随実装するか、スコープ外として据え置くか、削除するかを設計で明示的に決める（据え置く場合、backend engine のユニットテストが COUNT を欠く状態になる）。
+5. **`quantity-validation.service.ts` の switch に `default` を追加するか**: 現状は未知モードが無検証で通る。COUNT 追加を機に fail-fast にするかは既存挙動の変更にあたるため設計判断が要る。
+
+## 5. 設計フェーズへの推奨
+
+- **推奨アプローチ**: REQ-46 = Option C（単体 Portal 化、共通化は先送り）／REQ-47 = Option C（サイレント破綻箇所のみ Record 化）
+- **主要な設計決定**:
+  1. Portal 化に伴う閉じ判定方式の変更（`relatedTarget` → document レベル outside-click）と、REQ-36 AC9 のデグレ防止
+  2. `countParamsSchema` の zod union 挿入位置（areaVolume より前）
+  3. 整数フィールドの実装方式と `numeric-range-validation.ts` の `RangeConfig` 拡張
+  4. `CalculationFields` / PDF ラベルの `Record` 化スコープ
+- **検証上の制約（重要）**: pre-push フックは E2E 全件（約1.6時間）と「E2E 対象受入基準100%カバレッジチェック」を強制する。REQ-46・REQ-47 の各 AC に対応する E2E を用意しないと push が通らない。また Storybook ストーリー併置（インタラクション＋a11y＋カバレッジ80%）も pre-push で強制される。
+
+---
+
+# 設計ディスカバリ・設計判断: Requirement 46・47（2026-07-14）
+
+Discovery Type: **Light（Extension）**。既存システムへの追補であり、新規の外部依存・アーキテクチャ変更を伴わないため。
+
+## 実測による検証（Research Needed #1 の解消）
+
+ギャップ分析で「設計前に潰すべき最大の未知数」とした `ALTER TYPE ... ADD VALUE` を、本番と同一イメージ（`postgres:15-alpine` / PostgreSQL 15.17）の使い捨てコンテナ上で実測した。
+
+| 検証ケース | 結果 |
+|---|---|
+| `BEGIN; ALTER TYPE "CalculationMethod" ADD VALUE 'COUNT'; COMMIT;` → コミット後に新値を INSERT | **成功**。PostgreSQL 12 以降 `ADD VALUE` はトランザクション内で実行可能 |
+| **同一トランザクション内**で `ADD VALUE` した値を直後に INSERT | **失敗**: `ERROR: unsafe use of new value "BOGUS" of enum type "CalculationMethod"` / `HINT: New enum values must be committed before they can be used.` |
+
+**結論**: マイグレーションを `ALTER TYPE ... ADD VALUE 'COUNT';` の1文のみに限定し、同一マイグレーション内で `COUNT` を参照する DEFAULT 変更・UPDATE・INSERT を含めなければ、`prisma migrate deploy`（Docker entrypoint／Railway 自動適用）で安全に適用できる。既存29マイグレーションに前例が無かったリスクは解消した。
+
+## 設計判断（Design Decisions）
+
+| # | 決定 | 根拠 | 却下した代替案 |
+|---|---|---|---|
+| 1 | `QuantityItemActionMenu` を単体で Portal 化する（共通フック抽出はしない） | 同一画面の `AutocompleteInput` が**まったく同一の根本原因**を Portal 化で解決済み（PR #647）。検証済みパターンをそのまま踏襲でき、影響範囲が閉じる | 共通 `usePortalDropdown` フックの新設: 動作中の `AutocompleteInput`（過去に一度回帰した箇所）を再度触ることになり、REQ-46 のスコープ（表示不具合修正のみ）を超える。Portal ドロップダウンの3例目が現れた時点で行う |
+| 2 | 閉じ判定を `onBlur`/`relatedTarget` から document レベルの outside-click + Escape へ変更し、`EditableQuantityItemRow` の二重 `onBlur` を撤去 | Portal 化で DOM ツリーが分離するため `relatedTarget` の内外判定は**必ず壊れる**。放置すると REQ-36 AC9 がデグレする | 現行の二重 onBlur 維持: Portal 化と両立しない |
+| 3 | CSS（`overflow: visible` 化）ではなく Portal で解く | 祖先の `itemTableWrapper` の `overflow` は REQ-41（水平スクロール）の実装そのもの。`visible` へ戻すと REQ-41 が壊れる。祖先に overflow がある限り子孫の absolute 要素は必ずクリップされる | CSS による回避: 構造的に不可能 |
+| 4 | 計算方法の表示ラベルを `utils/calculation-method.ts` の `Record<CalculationMethod, string>` へ集約する | ラベルが2箇所（`CalculationMethodSelect` の配列、`QuantityTableEditPage` のネスト三項）に散在し、**いずれも型エラーを出さずに壊れる**。特に PDF 側は最終 else が `'ピッチ'` 固定のため箇所数が誤表示される。Record 化すればユニオン型への値追加が両方をコンパイルエラーにする | 各所に `'COUNT'` を手で足す: サイレント破綻を防げない |
+| 5 | `CalculationFields.tsx:440` の三項演算子を `Record<Exclude<CalculationMethod,'STANDARD'>, FieldDefinition[]>` へ置換 | 二値の三項演算子のため、第4の方式は**無言でピッチのフィールド群にフォールバックする**。「足すだけでは直らない」箇所 | switch 文: Record の方が網羅性を型で強制できる |
+| 6 | `countParamsSchema` を zod union の `areaVolumeParamsSchema` **より前**に挿入 | `calculationParamsSchema` は `discriminatedUnion` ではなく素の `z.union` で評価順序に依存する。areaVolume は全フィールド optional の catch-all であり、後ろに置くと `count` が silently strip され、保存・再読込で箇所数が消える（REQ-47 AC15 違反）。既存コードも同じ理由で pitch を先頭に置いている | union 末尾への追加: 箇所数が保存されない |
+| 7 | `quantity-tables.routes.ts:173` のハードコード enum を `CALCULATION_METHODS` 参照へ置換 | 一括保存スキーマが定数を参照せずリテラルを直書きしており、更新漏れが保存時400に直結する。参照へ置換して再発を防ぐ | `'COUNT'` をリテラルに足すだけ: 次の追加でまた漏れる |
+| 8 | `quantity-validation.service.ts` の switch に `default` 節を追加し未知モードを fail-fast にする | 現状 `default` が無く、未知の計算方法は**無検証で `isValid: true`** を返す。4方式すべてに case がある状態なら既存挙動に影響しない | 現状維持: 将来の追加漏れが無言で通る |
+| 9 | 整数入力は `FieldDefinition` / `NumberInputField` に `integer?: boolean` を追加して実現する | 数量表内に整数専用フィールドの前例がゼロ。既存 `NumberInputField` は blur 時に `toFixed(2)` を無条件適用している。フラグ分岐なら既存の小数フィールドの挙動を一切変えずに済む | 整数専用コンポーネントの新設: 行内水平配置（REQ-37）のレイアウトを二重管理することになる |
+| 10 | backend `CalculationEngine` にも `calculateCount` を追加する | プロダクション経路からは未 import（数量確定はフロントのみ）だが、ユニットテスト資産と FE/BE の実装対称性を維持する。追加コストは小さい | 追加しない: backend のテストだけ COUNT を欠く非対称な状態になる |
+| 11 | `useMemoizedCalculation.ts` は据え置く（COUNT 対応も削除もしない） | import 元ゼロのデッドコードであり、PITCH ロジックが `calculation-engine.ts` と乖離しているが**参照されないため実害がない**。触れば変更範囲が広がる | 削除する: 本スペックのスコープ（表示不具合修正＋計算方法追加）を超える |
+
+## 設計統合（Synthesis）
+
+**Generalization**: REQ-47 は「計算方法という可変点に4つ目の値を足す」問題である。個別の分岐追加ではなく、**計算方法を単一情報源（`Record<CalculationMethod, ...>`）から引く形へ寄せる**ことで、値の追加漏れがコンパイルエラーとして現れる構造にした。ただし一般化するのはインターフェース（ラベル・フィールド定義の引き方）に留め、計算ロジックそのものは既存の switch を維持している（現要件が求める以上の抽象化はしない）。
+
+**Build vs. Adopt**: Portal ドロップダウンは自作せず、**同一リポジトリ内の検証済み実装（`AutocompleteInput`）を踏襲**する。外部ライブラリ（floating-ui 等）の導入は、依存追加のコストに見合う機能差がないため却下した。`createPortal` は既存依存（`react-dom`）で賄える。
+
+**Simplification**: 当初検討した「共通 Portal ドロップダウンフックの抽出」と「デッドコードの削除」はいずれも見送った。前者は動作中の実装を触るリスク、後者はスコープ外であり、どちらも現要件を満たすために必要ではない。**最小の設計は「1コンポーネントの描画先を変える」＋「可変点を Record へ寄せる」の2点に尽きる。**
+
+## 残存リスク
+
+| リスク | 影響 | 緩和策 |
+|---|---|---|
+| Portal 化に伴う閉じ挙動のデグレ（REQ-36 AC9） | 高 | 単体テストで outside-click / Escape / 項目選択後クローズの3経路を固定。E2E でも既存 REQ-36 の回帰を確認 |
+| `toFixed(2)` の分岐ミスによる既存書式の破壊 | 中 | `CalculationFields.test.tsx` に面積・体積／ピッチの小数2桁書式の回帰テストを追加 |
+| E2E がクリップを検出できないまま「修正済み」と誤判定する | 高 | `boundingBox()` による幾何検証と `parentElement === document.body` の直接確認を必須とする。`toBeVisible()` のみのアサーションは REQ-46 の証明として認めない |
+| pre-push の E2E 全件実行（約1.6時間）と受入基準100%カバレッジチェック | 中 | REQ-46（11 AC）・REQ-47（18 AC）の全 AC に対応する E2E を用意する。push はバックグラウンド実行する |
+
+---
+
+# 設計レビューでの重大欠陥の発見と修正（2026-07-14）
+
+判定: **NO-GO → 修正後 GO**
+
+## 発見: 「形状推測」による計算パラメータの silent strip（→ REQ-48 を新設）
+
+初版の設計は「`countParamsSchema` を zod union の `areaVolumeParamsSchema` より前に置けば `count` の strip を防げる」としていたが、**これは誤りだった**。反証調査で以下の連鎖が判明した。
+
+1. `EditableQuantityItemRow.tsx:292-312` の `handleCalculationMethodChange` は `calculationParams` を**クリアしない**
+2. `CalculationFields.tsx:402-408` の `handleFieldChange` は `{ ...params, [fieldKey]: value }` と**既存キーを spread する**
+3. よって「ピッチ」→「箇所数」への切替後は `{rangeLength, endLength1, endLength2, pitchLength, count}` という**混合状態**になる
+4. `z.union` は形状から計算方法を推測するため、`pitchParamsSchema` が**正当にマッチし `count` を strip する**
+
+union への挿入位置の調整では防げない（pitch は count より前で正当にマッチする）。
+
+**実測（プロジェクトの zod で再現）**:
+
+| 保存時の calculationParams | 永続化される値 |
+|---|---|
+| `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5, count:5}` | `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5}`（`count` 消失） |
+| `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5, width:3}` | `{rangeLength:100, endLength1:10, endLength2:10, pitchLength:5}`（`width` 消失） |
+
+2行目は **REQ-8 に対する既存の不具合**である（ピッチ→面積・体積に切り替えて幅を入力すると保存時に消える）。今回の依頼には含まれていなかったが、根本原因が同一であり追加コストがほぼゼロのため、ユーザー判断により**今回のスコープに含めることとし、REQ-48 として要件化した**。
+
+## 修正内容
+
+| 対処 | 内容 |
+|---|---|
+| (A) backend | 形状推測の `z.union` を廃止し、**`calculationMethod` を判別子としてパラメータスキーマを選ぶ**（`PARAMS_SCHEMA_BY_METHOD` + `superRefine`）。指定された計算方法で使わないキーは破棄される。これで既存バグも根本解決する |
+| (B) frontend | `handleCalculationMethodChange` で `resetParamsForMethod()` を適用し、切替後の方式で使うキーのみを残す（共通の「長さ」「重量」は引き継ぐ） |
+
+## 併せて修正した設計上の不備
+
+- **File Structure Plan の誤り**: Storybook ストーリー（`CalculationFields` / `CalculationMethodSelect` / `QuantityItemActionMenu` / `EditableQuantityItemRow`）を「新規作成」と記載していたが、**4件とも既に実在する**（変更対象）。特に `QuantityItemActionMenu.stories.tsx` は Portal 化で更新必須。`quantityTableEditReducer.ts` も未記載だった
+- **デッドコードの扱いの未宣言**: `FieldValidatedItemRow.tsx` は本体以外からの import がゼロだが、計算方法の分岐を多数持つため実装者が誤って対応してしまう恐れがある。`useMemoizedCalculation` と同様に Out of Boundary へ明記した
+
+## 網羅漏れではなかったことを確認した項目
+
+- `backend/src/routes/quantity-items.routes.ts` — `createQuantityItemSchema` / `updateQuantityItemSchema` を参照しており、スキーマ側の判別子化が自動的に適用される（統合テストで確認する）
+- `backend/src/services/quantity-item.service.ts` / `quantity-group.service.ts` — `calculationMethod` は `string` 型の passthrough とキャストのみで、計算方法による分岐を持たない
+- `backend/src/services/quantity-field-validation.service.ts` — `validateCalculationMethodText` は文字数検証のみ
+- 下流機能（内訳書生成・工程表）— 計算方法による分岐を持たない
