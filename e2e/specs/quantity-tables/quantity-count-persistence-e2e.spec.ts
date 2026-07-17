@@ -37,16 +37,11 @@
  */
 
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { fileURLToPath } from 'url';
-import * as path from 'path';
 import * as fs from 'fs';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
-
-// ESM 環境での __dirname 代替
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const RUN_ID = Date.now();
 
@@ -77,28 +72,8 @@ let testProjectId: string | null = null;
 let testTableId: string | null = null;
 
 // ============================================================================
-// PDF テキスト抽出（pdfjs-dist の getTextContent。frontend の pdfjs-dist を参照）
+// PDF テキスト抽出（pdfjs-dist の getTextContent）
 // ============================================================================
-
-/** frontend にインストール済みの pdfjs-dist（legacy build）への絶対パス */
-const PDFJS_MODULE_PATH = path.resolve(
-  __dirname,
-  '../../../frontend/node_modules/pdfjs-dist/legacy/build/pdf.mjs'
-);
-
-interface PdfTextItem {
-  str?: string;
-}
-interface PdfPageLike {
-  getTextContent: () => Promise<{ items: PdfTextItem[] }>;
-}
-interface PdfDocumentLike {
-  numPages: number;
-  getPage: (pageNumber: number) => Promise<PdfPageLike>;
-}
-interface PdfjsLike {
-  getDocument: (src: { data: Uint8Array }) => { promise: Promise<PdfDocumentLike> };
-}
 
 /**
  * ダウンロード済み PDF ファイルから全ページのテキストを抽出して連結する。
@@ -109,16 +84,13 @@ interface PdfjsLike {
 async function extractPdfText(pdfFilePath: string): Promise<string> {
   const bytes = new Uint8Array(fs.readFileSync(pdfFilePath));
 
-  // tsc に静的解決させないよう specifier は変数で渡す（frontend の node_modules 参照のため）
-  const specifier: string = PDFJS_MODULE_PATH;
-  const pdfjs = (await import(specifier)) as unknown as PdfjsLike;
-
   const pdf = await pdfjs.getDocument({ data: bytes }).promise;
   let text = '';
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
-    text += content.items.map((item) => item.str ?? '').join('') + '\n';
+    // getTextContent() は TextItem（str を持つ）と TextMarkedContent を混在して返す
+    text += content.items.map((item) => ('str' in item ? item.str : '')).join('') + '\n';
   }
   return text;
 }
