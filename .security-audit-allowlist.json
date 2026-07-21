@@ -17,6 +17,15 @@
     ],
     "frontend": [
       {
+        "package": "vite",
+        "severity": "high",
+        "reason": "開発専用ビルドツール (devDependency)。server.fs.deny バイパス (GHSA-fx2h-pf6j-xcff) 等でいずれもWindowsのdevサーバ限定、本番バンドル・CIランタイムには到達しない。修正版 8.1.x への更新は rolldown/@emnapi の wasm binding ツリーを再構築し、musl 環境の npm ci を破壊する既知リスクがあるため、develop の 8.0.x を維持し暫定許容。次回 vite 系 dependabot bump 時に lockfile 全体で解消予定。",
+        "reference": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+        "expires": "2026-09-01",
+        "addedBy": "claude",
+        "addedDate": "2026-07-21"
+      },
+      {
         "package": "storybook",
         "severity": "high",
         "reason": "開発専用UIカタログ。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。Storybookはローカル開発・Storybookテスト時のみ使用し本番バンドルに含まれない。修正には storybook v8.6.18 系への破壊的ダウングレード (現行v10) が必要なため、メジャー更新まで暫定許容。",
