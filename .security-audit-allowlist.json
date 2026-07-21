@@ -2,7 +2,7 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2026-06-15",
+  "lastUpdated": "2026-07-21",
   "allowlist": {
     "backend": [
       {
@@ -13,62 +13,17 @@
         "expires": "2026-09-01",
         "addedBy": "claude",
         "addedDate": "2026-02-04"
-      },
-      {
-        "package": "esbuild",
-        "severity": "high",
-        "reason": "開発専用バンドラ。esbuildのdevサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。devサーバはローカル開発時のみ起動し、CIビルド・本番ランタイムには到達しないため影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。それまで暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-07-15",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "tsx",
-        "severity": "high",
-        "reason": "開発専用のTypeScript実行ツール。内包するesbuild経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。ローカル開発時のみ使用し本番・CIランタイムに影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-07-15",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "form-data",
-        "severity": "high",
-        "reason": "開発・テスト依存経由のみ (本番依存ツリーには非該当、npm audit --omit=dev で検出されない)。multipart境界の未エスケープによるCRLFインジェクション (GHSA-hmw2-7cc7-3qxx)。本番ランタイムに影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
-        "reference": "https://github.com/advisories/GHSA-hmw2-7cc7-3qxx",
-        "expires": "2026-07-15",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "vite",
-        "severity": "high",
-        "reason": "開発専用ビルドツール (devDependency)。launch-editorのNTLMv2ハッシュ漏洩 (GHSA-v6wh-96g9-6wx3) と server.fs.deny バイパス (GHSA-fx2h-pf6j-xcff)。いずれもWindowsのdevサーバ限定で、CIビルド・本番ランタイムには到達しない。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
-        "reference": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
-        "expires": "2026-07-15",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
       }
     ],
     "frontend": [
       {
-        "package": "form-data",
-        "severity": "high",
-        "reason": "開発・テスト依存経由のみ (本番バンドル非対象)。multipart境界の未エスケープによるCRLFインジェクション (GHSA-hmw2-7cc7-3qxx)。本番ランタイムに影響なし。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
-        "reference": "https://github.com/advisories/GHSA-hmw2-7cc7-3qxx",
-        "expires": "2026-07-15",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
         "package": "vite",
         "severity": "high",
-        "reason": "開発専用ビルドツール (devDependency)。launch-editorのNTLMv2ハッシュ漏洩 (GHSA-v6wh-96g9-6wx3) と server.fs.deny バイパス (GHSA-fx2h-pf6j-xcff)。いずれもWindowsのdevサーバ限定で、本番バンドル・CIには到達しない。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
+        "reason": "開発専用ビルドツール (devDependency)。server.fs.deny バイパス (GHSA-fx2h-pf6j-xcff) 等でいずれもWindowsのdevサーバ限定、本番バンドル・CIランタイムには到達しない。修正版 8.1.x への更新は rolldown/@emnapi の wasm binding ツリーを再構築し、musl 環境の npm ci を破壊する既知リスクがあるため、develop の 8.0.x を維持し暫定許容。次回 vite 系 dependabot bump 時に lockfile 全体で解消予定。",
         "reference": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
-        "expires": "2026-07-15",
+        "expires": "2026-09-01",
         "addedBy": "claude",
-        "addedDate": "2026-06-15"
+        "addedDate": "2026-07-21"
       },
       {
         "package": "storybook",
@@ -127,7 +82,7 @@
       {
         "package": "esbuild",
         "severity": "high",
-        "reason": "開発専用バンドラ (Vite/Storybook経由)。devサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。devサーバはローカル開発時のみ起動し本番バンドル・CIには到達しない。frontendでの修正は storybook 系メジャー更新に連動するため暫定許容。",
+        "reason": "開発専用バンドラ (Storybook経由のネスト版)。devサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。devサーバはローカル開発時のみ起動し本番バンドル・CIには到達しない。frontend直下のesbuildは0.28系へ更新済みで解消。残るはStorybook系にネストした旧版で、修正は storybook メジャー更新に連動するため暫定許容。",
         "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
         "expires": "2026-09-01",
         "addedBy": "claude",
@@ -152,17 +107,7 @@
         "addedDate": "2026-06-15"
       }
     ],
-    "root": [
-      {
-        "package": "esbuild",
-        "severity": "high",
-        "reason": "開発専用バンドラ (vitest/playwright等のツールチェーン経由)。devサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。ローカル開発時のみ起動し本番・CIランタイムに到達しない。非破壊の修正版あり (fixAvailable=true) のため次回dependabot bumpで解消予定。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-07-15",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      }
-    ]
+    "root": []
   },
   "policy": {
     "production": {
