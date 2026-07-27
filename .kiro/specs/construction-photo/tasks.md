@@ -7,7 +7,7 @@
   - `signboardPlacement Json?`、`sourceSurveyImageId String?`（FKにはしない）、`ConstructionSignboard` に `workName`/`workLocation`/`freeItems Json`/`footerText String?`
   - 完了: `prisma migrate` で3テーブルが作成され `prisma generate` が成功する
   - _Requirements: 1.1, 8.1, 9.1_
-- [ ] 1.2 RBAC 権限の定義とロール割当シード
+- [x] 1.2 RBAC 権限の定義とロール割当シード
   - `construction_photo:{create,read,update,delete}`、`construction_signboard:{create,read,update,delete}` を権限定義に追加
   - 既存ロールへ付与するシード/マイグレーションを用意
   - 完了: 付与ロールは操作でき、未付与ユーザーは403になる

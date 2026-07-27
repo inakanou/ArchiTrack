@@ -1026,3 +1026,207 @@ describe('seedRolePermissions - 契約書管理権限', () => {
     });
   });
 });
+
+/**
+ * 工事写真・工事看板権限のテスト（construction-photo/REQ-13.1, 13.3）
+ * Task 1.2: 工事写真・工事看板操作用の権限をシステムに定義し、既存ロールへ割り当てる
+ *   - construction_photo:{create,read,update,delete}
+ *   - construction_signboard:{create,read,update,delete}
+ * 権限モデルは現場調査（site_survey）と同等: 一般ユーザーは create/read/update、delete は管理者のみ。
+ */
+describe('seedPermissions - 工事写真・工事看板管理権限', () => {
+  let mockPrisma: Partial<PrismaClient>;
+  let createManyData: Array<{ resource: string; action: string; description: string }>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    createManyData = [];
+    mockPrisma = {
+      permission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
+        findFirst: vi.fn().mockResolvedValue(null),
+      } as unknown as PrismaClient['permission'],
+      role: {
+        upsert: vi.fn().mockResolvedValue({}),
+        findUnique: vi.fn().mockResolvedValue({ id: 'role-id', name: 'admin' }),
+      } as unknown as PrismaClient['role'],
+      rolePermission: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  });
+
+  describe('工事写真権限の定義（construction-photo/REQ-13.3）', () => {
+    it.each([
+      ['create', '工事写真の作成'],
+      ['read', '工事写真の閲覧'],
+      ['update', '工事写真の更新'],
+      ['delete', '工事写真の削除'],
+    ])('construction_photo:%s権限が定義されている', async (action, description) => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const perm = createManyData.find(
+        (p) => p.resource === 'construction_photo' && p.action === action
+      );
+
+      expect(perm).toBeDefined();
+      expect(perm!.description).toBe(description);
+    });
+
+    it('全4つの工事写真権限が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const perms = createManyData.filter((p) => p.resource === 'construction_photo');
+      expect(perms).toHaveLength(4);
+      const actions = perms.map((p) => p.action);
+      expect(actions).toContain('create');
+      expect(actions).toContain('read');
+      expect(actions).toContain('update');
+      expect(actions).toContain('delete');
+    });
+  });
+
+  describe('工事看板権限の定義（construction-photo/REQ-13.3）', () => {
+    it.each([
+      ['create', '工事看板の作成'],
+      ['read', '工事看板の閲覧'],
+      ['update', '工事看板の更新'],
+      ['delete', '工事看板の削除'],
+    ])('construction_signboard:%s権限が定義されている', async (action, description) => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const perm = createManyData.find(
+        (p) => p.resource === 'construction_signboard' && p.action === action
+      );
+
+      expect(perm).toBeDefined();
+      expect(perm!.description).toBe(description);
+    });
+
+    it('全4つの工事看板権限が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const perms = createManyData.filter((p) => p.resource === 'construction_signboard');
+      expect(perms).toHaveLength(4);
+      const actions = perms.map((p) => p.action);
+      expect(actions).toContain('create');
+      expect(actions).toContain('read');
+      expect(actions).toContain('update');
+      expect(actions).toContain('delete');
+    });
+  });
+});
+
+describe('seedRolePermissions - 工事写真・工事看板管理権限', () => {
+  let mockPrisma: Partial<PrismaClient>;
+  let rolePermissionData: Array<{ roleId: string; permissionId: string }>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    rolePermissionData = [];
+  });
+
+  const createMockPrisma = (
+    userRoleId: string,
+    permissions: Array<{ id: string; resource: string; action: string }>
+  ) => {
+    return {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: userRoleId, name: 'user' };
+          return null;
+        }),
+      } as unknown as PrismaClient['role'],
+      permission: {
+        findFirst: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.resource === '*' && where.action === '*') {
+            return { id: 'all-perm-id', resource: '*', action: '*' };
+          }
+          return null;
+        }),
+        findMany: vi.fn().mockResolvedValue(permissions),
+      } as unknown as PrismaClient['permission'],
+      rolePermission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          rolePermissionData = [...rolePermissionData, ...data];
+          return { count: data.length };
+        }),
+      } as unknown as PrismaClient['rolePermission'],
+    };
+  };
+
+  // 現場調査と同等の権限モデル: user は create/read/update を保有、delete は管理者のみ
+  const userGrantedPermissions = [
+    { id: 'construction_photo-create-perm-id', resource: 'construction_photo', action: 'create' },
+    { id: 'construction_photo-read-perm-id', resource: 'construction_photo', action: 'read' },
+    { id: 'construction_photo-update-perm-id', resource: 'construction_photo', action: 'update' },
+    {
+      id: 'construction_signboard-create-perm-id',
+      resource: 'construction_signboard',
+      action: 'create',
+    },
+    {
+      id: 'construction_signboard-read-perm-id',
+      resource: 'construction_signboard',
+      action: 'read',
+    },
+    {
+      id: 'construction_signboard-update-perm-id',
+      resource: 'construction_signboard',
+      action: 'update',
+    },
+    { id: 'adr-read-perm-id', resource: 'adr', action: 'read' },
+  ];
+
+  describe('一般ユーザーロールへの工事写真・工事看板権限割り当て（construction-photo/REQ-13.1, 13.3）', () => {
+    it.each([
+      ['construction_photo', 'create', 'construction_photo-create-perm-id'],
+      ['construction_photo', 'read', 'construction_photo-read-perm-id'],
+      ['construction_photo', 'update', 'construction_photo-update-perm-id'],
+      ['construction_signboard', 'create', 'construction_signboard-create-perm-id'],
+      ['construction_signboard', 'read', 'construction_signboard-read-perm-id'],
+      ['construction_signboard', 'update', 'construction_signboard-update-perm-id'],
+    ])('一般ユーザーに%s:%s権限が割り当てられる', async (_resource, _action, permissionId) => {
+      const userRoleId = 'user-role-id';
+      mockPrisma = createMockPrisma(userRoleId, userGrantedPermissions);
+
+      const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+      await seedRolePermissions(mockPrisma as PrismaClient);
+
+      const assignment = rolePermissionData.find(
+        (item) => item.roleId === userRoleId && item.permissionId === permissionId
+      );
+
+      expect(assignment).toBeDefined();
+    });
+
+    it.each([
+      ['construction_photo', 'construction_photo-delete-perm-id'],
+      ['construction_signboard', 'construction_signboard-delete-perm-id'],
+    ])(
+      '一般ユーザーに%s:delete権限は割り当てられない（管理者のみ）',
+      async (_resource, permissionId) => {
+        const userRoleId = 'user-role-id';
+        // findMany は delete 権限を返さない（seedRolePermissions が要求しないため）
+        mockPrisma = createMockPrisma(userRoleId, userGrantedPermissions);
+
+        const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+        await seedRolePermissions(mockPrisma as PrismaClient);
+
+        const assignment = rolePermissionData.find(
+          (item) => item.roleId === userRoleId && item.permissionId === permissionId
+        );
+
+        expect(assignment).toBeUndefined();
+      }
+    );
+  });
+});
