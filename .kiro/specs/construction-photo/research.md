@@ -108,3 +108,29 @@
 - **現調写真コピー**: 新ストレージキー命名規則、`copy()` 後の `width/height/fileSize` 再取得要否（バイト複製のみでmetadataは既存値流用可か）。
 - **表紙「工事施工者」**: `company-info`（会社名）→ プロジェクト → 表紙 の取得経路。「工事名」の出所（プロジェクト名 or アルバム名）。
 - **入力制限**: 看板下部固定テキストの最大長・改行、自由項目の最大行数。
+
+---
+
+# Design Discovery (light) & Synthesis — 2026-07-27
+
+## 追加調査で確定した具体インターフェース
+- **PDF寸法**: jsPDF A4縦・mm単位（`PdfExportService.ts:196-200`）。`renderImagesSection3PerPage`(L554) は既に「左写真(幅比0.45)＋右コメント欄(幅比0.45)、No.見出し＋下線＋点線8本(6.5mm間隔)、行高75mm」で参考台帳と一致。`renderComment`(L517) は最大5行。
+- **表紙**: 既存 `renderCoverPage`(L248) は枠線・施工者行なし → **新規カバーレンダラを実装**（外枠＋「工事写真」＋工事名＋工事施工者）。
+- **工事施工者/工事名の出所**: `Project` に会社FKなし。工事施工者=会社名は `CompanyInfoService.getCompanyInfo()`（シングルトン自社, `companyName`）。工事名=`Project.name`（またはアルバム名）。
+- **アップロード**: `ImageUploadService.upload({surveyId,file,displayOrder?})`→`UploadResult`。width/height/fileSize は `ImageProcessorService.processImage()`（Sharp metadata）由来。キー `surveys/${id}/${ts}_...` / `..._thumb_...`。→ 工事写真は `construction-photos/${albumId}/...`。
+- **メタ/並び替え**: `updateMetadataBatch(inputs)`（comment/includeInReport/displayOrder, MAX_COMMENT_LENGTH=2000, 正規化1..n, トランザクション）＋ `updateImageOrder(id, orders[])`。→ 保存は最大2リクエスト（R11.4）。
+- **署名URL**: `generateBatchSignedUrls(ids,userId,'original'|'thumbnail',expiresIn=900)`。
+- **看板SVG雛形**: `generateSvgFromAnnotation(data,w,h)`（画像ピクセル座標で `<rect .../>` 生成, viewBox=画像実寸）→ sharp `composite([{input:svgBuffer,top:0,left:0}])`。**看板SVGジェネレータはこの版組を流用**。
+- **配置座標**: fabric Rect は絶対 `left/top/width/height`（画像ピクセル空間, scale/angle は非永続）。→ `signboardPlacement = {left,top,width,height}` を画像ピクセル座標で保持。
+- **ストレージcopy**: `StorageProvider.copy(src,dst)`（local=`fs.copyFile`, 原本保持, dst自動作成）。現調コピーは copy(original)+copy(thumbnail)＋独立行insert。width/height/fileSize は複製元をそのまま流用可（バイト同一）。
+- **detail-summary**: `getProjectSections()` の `Promise.allSettled([...x7, executionBudget])` に `constructionPhotoService.findLatestByProjectId` を追加、返却に `constructionPhotos:{totalCount,latest...}` を同型で追加。
+- **認可**: `authenticate` + `requirePermission('<resource>:<action>')` + `validate()`。プロジェクトメンバーシップ専用ガードは**無い**（RBAC権限ベース）。→ `construction_photo:*` / `construction_signboard:*` 権限を定義。
+
+## シンセシス（3レンズ）
+1. **一般化**: (a) ローカル/カメラは同一アップロード経路（`ImageUploader` の file/camera input）で1経路に集約。現調コピーのみ別経路（`storage.copy`）。→ `ConstructionPhotoImageService` に `addFromUpload()` と `addFromSurveyImage()` の2メソッド。(b) 看板の描画版組は1箇所（SVGジェネレータ）に集約し、サムネ合成とPDF印字画像の双方が同一SVGを使う。
+2. **Build vs Adopt**: Adopt=jsPDF 3枚/ページ版組・PdfFontService・sharp composite・fabric primitives・multer・署名URL。Build=電子小黒板SVGジェネレータ（既製なし）、台帳カバーレンダラ（枠付）、看板配置エディタ（1枚の緑Rect限定）。
+3. **簡素化**: 汎用オーバーレイエンジンは作らない（写真1枚に看板0..1）。配置は full fabric JSON でなく `{left,top,width,height}` のみ。site-survey サービスは**拡張せず独立クローン**（安定性優先）。看板は写真1:0..1（`signboardId` nullable, `onDelete: SetNull`）。
+
+## 主要設計判断
+- **看板合成はサーバ権威**: 看板指定時、サーバが原本へSVGを sharp composite し「印字用画像(高解像度)」を生成（`annotated-thumbnail` 方式）。PDF(クライアント)は写真ごとに `printImageUrl`（看板あり=合成画像／なし=原本）を署名URLで取得して `addImage`。プレビューはクライアント fabric でライブ編集し、保存時にサーバ合成を再生成。SVG版組はサーバが権威、プレビューは近似表示。
+- **座標系**: プレビュー表示座標→画像ピクセル座標（scale=naturalWidth/renderedWidth）で保存。合成・PDFは画像ピクセル座標のまま（原本に焼込むためPDF側の追加変換不要）。
