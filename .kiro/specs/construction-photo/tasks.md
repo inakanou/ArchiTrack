@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Foundation: データモデル・権限・共有型
-- [ ] 1.1 Prisma に3モデルを追加しマイグレーションを作成
+- [x] 1.1 Prisma に3モデルを追加しマイグレーションを作成
   - `ConstructionPhotoAlbum` / `ConstructionPhoto` / `ConstructionSignboard` を既存規約（uuid・`@@map` snake_case・`@@index`）で定義
   - `signboardId` は nullable ＋ `onDelete: SetNull`、`albumId`/`projectId` は `onDelete: Cascade`、`displayOrder`/`comment`/`includeInReport`/`deletedAt` を配置
   - `signboardPlacement Json?`、`sourceSurveyImageId String?`（FKにはしない）、`ConstructionSignboard` に `workName`/`workLocation`/`freeItems Json`/`footerText String?`
@@ -153,3 +153,7 @@
   - 完了: 主要ユーザーフローのE2Eが緑になる
   - _Depends: 7.1, 7.2, 8.2_
   - _Requirements: 2.1, 2.2, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 10.13_
+
+## Implementation Notes
+- 環境: dev Docker の backend/frontend entrypoint が名前付き node_modules ボリュームへ `npm ci` を npm10.9.7 で実行し @emnapi ドリフトで起動失敗。対処＝ボリュームを `npx -y npm@11.6.2 ci` で seed＋`.package-hash` 記録＋frontend は `@rollup/rollup-linux-arm64-gnu` プレースホルダ作成で entrypoint 回避。BE/FE とも起動確認済み。
+- 検証コマンドはコンテナ内で実行: backend=`docker exec architrack-backend-dev npm run <test:unit|test:integration|type-check|prisma:migrate>`、frontend=`docker exec architrack-frontend-dev npm run <test|type-check|build>`。DB は architrack_dev(postgres:5432、既存30マイグレーション適用済み)。
