@@ -140,7 +140,7 @@
   - _Boundary: ConstructionPhotoLedgerService_
 
 - [ ] 9. Validation: テスト
-- [ ] 9.1 (P) バックエンド単体テスト
+- [x] 9.1 (P) バックエンド単体テスト
   - 現調コピーの複製・独立性、メタの `displayOrder` 正規化と合成非実行、SVG生成、看板使用中削除の件数返却、印字画像のオンデマンド合成
   - 完了: 対象サービスの単体テストが緑になる
   - _Requirements: 6.2, 6.3, 7.6, 8.5, 8.8, 9.5, 10.8_
