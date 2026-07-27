@@ -162,3 +162,4 @@
 - 追補(R3.5/11.3, 6.1レビュー由来・要最終検証前対応): アルバム一覧APIが代表サムネURLを返さないため一覧のサムネが常にプレースホルダ。バックエンド(2.1域)の ConstructionPhotoAlbumDto/toDto/list に代表画像(先頭ConstructionPhoto.thumbnailPath)のTTL900s署名URLを追加し、フロント ConstructionPhotoAlbum 型へ伝播する小改修が必要。6.1の描画パスは前方互換で対応済み。
 - 追補(R3.5/R8.8)対応済み: アルバム一覧に代表サムネ署名URL(TTL900s)、看板一覧に inUseCount(groupBy・N+1なし)を追加し、フロント型へ伝播。BE単体60/統合39・FE型緑、追加のみ非破壊(独立レビューAPPROVED)。6.5はこの inUseCount を用いて削除前確認を実装可能。
 - 結線ギャップ(9.3 E2E由来): SignboardPlacementEditor(6.4)が詳細画面に未結線で看板配置UI経路が不在(R9.1到達不能)。詳細画面の各写真項目に「看板を配置」導線(看板選択+SignboardPlacementEditor起動→signboardId/placementを未保存メタに記録→既存2リクエスト保存で確定)を追加する結線タスクを実施後、9.3にplacement/overlayフローを追加する。
+- 既知の軽微制限(R5.3, validate-impl由来): カメラ非対応端末でカメラ導線を非提示にするケイパビリティ検出が未実装。現状はHTML `capture` 属性により非対応端末ではファイル選択へグレースフル劣化する(機能的には阻害なし)。当該カメラ導線は設計で再利用指定の共有 ImageUploader(site-survey)由来のため、厳密対応は共有コンポーネント側の改修(境界外・site-surveyにも影響)を要する。推奨: 別途フォローで PhotoUploader 側にケイパビリティ検出を追加。
