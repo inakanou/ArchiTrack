@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   ConstructionPhotoImageService,
+  SurveyImageCopyNotAllowedError,
   type ConstructionPhotoImageServiceDependencies,
   type ConstructionPhotoUploadFile,
 } from '../../../services/construction-photo-image.service.js';
@@ -282,5 +283,283 @@ describe('ConstructionPhotoImageService.addFromUpload', () => {
 
     expect(result.successful).toHaveLength(1);
     expect(result.successful[0]!.thumbnailUrl).toBeNull();
+  });
+});
+
+// ============================================================================
+// Task 2.3: 現調写真コピー（addFromSurveyImage）
+//
+// Requirements:
+// - 6.1: 同一プロジェクトの現場調査写真を選択候補として扱う（サービスは受領した ID を検証）
+// - 6.2: 選択画像を独立した写真項目として複製（storage.copy で original+thumbnail）
+// - 6.3: 複製後はコピー元の変更・削除の影響を受けない（独立行、site-survey 非依存）
+// - 6.4: 参照対象を同一プロジェクトの現場調査写真に限定する（13.2）
+// ============================================================================
+
+const PROJECT_ID = '223e4567-e89b-12d3-a456-426614174000';
+const OTHER_PROJECT_ID = '323e4567-e89b-12d3-a456-426614174000';
+const SURVEY_IMAGE_ID_1 = '423e4567-e89b-12d3-a456-426614174001';
+const SURVEY_IMAGE_ID_2 = '423e4567-e89b-12d3-a456-426614174002';
+
+/** SurveyImage の読取形状（findMany の戻り値） */
+function surveyImageRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: SURVEY_IMAGE_ID_1,
+    originalPath: 'survey-images/survey-1/orig.jpg',
+    thumbnailPath: 'survey-images/survey-1/thumb.jpg',
+    fileName: 'survey.jpg',
+    fileSize: 111111,
+    width: 1024,
+    height: 768,
+    survey: { projectId: PROJECT_ID },
+    ...overrides,
+  };
+}
+
+function createSurveyMockPrisma() {
+  return {
+    constructionPhotoAlbum: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: ALBUM_ID,
+        deletedAt: null,
+        projectId: PROJECT_ID,
+      }),
+    },
+    constructionPhoto: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn(),
+    },
+    surveyImage: {
+      findMany: vi.fn(),
+      // 書込メソッドは呼ばれてはならない（site-survey 非依存の担保）
+      update: vi.fn(),
+      create: vi.fn(),
+      delete: vi.fn(),
+      deleteMany: vi.fn(),
+    },
+  } as unknown as PrismaClient;
+}
+
+/** create の戻り値（DBレコード形、addFromUpload と同型に sourceSurveyImageId を追加） */
+function copiedPhotoRow(overrides: Record<string, unknown> = {}) {
+  return photoRow({
+    fileName: 'survey.jpg',
+    fileSize: 111111,
+    width: 1024,
+    height: 768,
+    sourceSurveyImageId: SURVEY_IMAGE_ID_1,
+    ...overrides,
+  });
+}
+
+describe('ConstructionPhotoImageService.addFromSurveyImage', () => {
+  let service: ConstructionPhotoImageService;
+  let mockPrisma: ReturnType<typeof createSurveyMockPrisma>;
+  let mockStorage: ReturnType<typeof createMockStorage>;
+  let mockProcessor: ReturnType<typeof createMockProcessor>;
+  let surveyImageService: SurveyImageService;
+
+  beforeEach(() => {
+    mockPrisma = createSurveyMockPrisma();
+    mockStorage = createMockStorage();
+    mockProcessor = createMockProcessor();
+    surveyImageService = new SurveyImageService({
+      prisma: mockPrisma as never,
+      storageProvider: mockStorage as never,
+    });
+
+    const deps: ConstructionPhotoImageServiceDependencies = {
+      prisma: mockPrisma,
+      storageProvider: mockStorage as never,
+      surveyImageService,
+      imageProcessorService: mockProcessor as never,
+    };
+    service = new ConstructionPhotoImageService(deps);
+  });
+
+  it('存在しないアルバムへのコピーは NotFound を投げる', async () => {
+    (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      null
+    );
+    await expect(service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1])).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+  });
+
+  it('論理削除済みアルバムへのコピーは NotFound を投げる', async () => {
+    (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: ALBUM_ID,
+      deletedAt: new Date(),
+      projectId: PROJECT_ID,
+    });
+    await expect(service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1])).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+  });
+
+  it('(a) 現調写真をコピーすると独立写真項目が生成され original/thumbnail の2キーが複製される（Requirements: 6.2）', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+    ]);
+    (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+      copiedPhotoRow({ id: 'copied-1' })
+    );
+
+    const result = await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+
+    expect(result.successful).toHaveLength(1);
+    expect(result.failed).toHaveLength(0);
+
+    // original+thumbnail の2キーを storage.copy で複製
+    expect(mockStorage.copy).toHaveBeenCalledTimes(2);
+    const copyCalls = (mockStorage.copy as ReturnType<typeof vi.fn>).mock.calls;
+    // コピー元は SurveyImage の original/thumbnail
+    const sources = copyCalls.map((c) => c[0]);
+    expect(sources).toContain('survey-images/survey-1/orig.jpg');
+    expect(sources).toContain('survey-images/survey-1/thumb.jpg');
+    // コピー先は construction-photos/${albumId}/ 配下
+    const dsts = copyCalls.map((c) => c[1] as string);
+    for (const dst of dsts) {
+      expect(dst).toMatch(new RegExp(`^construction-photos/${ALBUM_ID}/`));
+    }
+    expect(dsts.some((d) => d.includes('_thumb_'))).toBe(true);
+    expect(dsts.some((d) => !d.includes('_thumb_'))).toBe(true);
+
+    // Sharp 再処理は行わない（バイト複製）
+    expect(mockProcessor.processImage).not.toHaveBeenCalled();
+  });
+
+  it('(b) width/height/fileSize は複製元 SurveyImage から流用される（Requirements: 6.2）', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1, width: 4032, height: 3024, fileSize: 987654 }),
+    ]);
+    const createMock = mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>;
+    createMock.mockResolvedValue(
+      copiedPhotoRow({ id: 'copied-1', width: 4032, height: 3024, fileSize: 987654 })
+    );
+
+    await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+
+    const data = (createMock.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(data.width).toBe(4032);
+    expect(data.height).toBe(3024);
+    expect(data.fileSize).toBe(987654);
+  });
+
+  it('(c) sourceSurveyImageId に複製元IDを記録する（Requirements: 6.3）', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+    ]);
+    const createMock = mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>;
+    createMock.mockResolvedValue(copiedPhotoRow({ id: 'copied-1' }));
+
+    await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+
+    const data = (createMock.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(data.sourceSurveyImageId).toBe(SURVEY_IMAGE_ID_1);
+  });
+
+  it('複数コピーは末尾表示順に連番配置される（Requirements: 6.2, 4.7）', async () => {
+    (mockPrisma.constructionPhoto.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      displayOrder: 3,
+    });
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+      surveyImageRow({ id: SURVEY_IMAGE_ID_2 }),
+    ]);
+    const createMock = mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>;
+    createMock
+      .mockResolvedValueOnce(copiedPhotoRow({ id: 'c1', displayOrder: 4 }))
+      .mockResolvedValueOnce(copiedPhotoRow({ id: 'c2', displayOrder: 5 }));
+
+    await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1, SURVEY_IMAGE_ID_2]);
+
+    const orders = createMock.mock.calls.map(
+      (c) => (c[0] as { data: { displayOrder: number } }).data.displayOrder
+    );
+    expect(orders).toEqual([4, 5]);
+  });
+
+  it('(e) 他プロジェクトの SurveyImage は拒否する（Requirements: 6.4, 13.2）', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1, survey: { projectId: OTHER_PROJECT_ID } }),
+    ]);
+
+    await expect(service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1])).rejects.toThrow(
+      SurveyImageCopyNotAllowedError
+    );
+
+    // 1件でも境界外なら複製・登録は一切行わない
+    expect(mockStorage.copy).not.toHaveBeenCalled();
+    expect(mockPrisma.constructionPhoto.create).not.toHaveBeenCalled();
+  });
+
+  it('存在しない SurveyImage を含む場合も拒否する（Requirements: 6.4）', async () => {
+    // 要求2件に対し1件しか返らない → 拒否
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+    ]);
+
+    await expect(
+      service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1, SURVEY_IMAGE_ID_2])
+    ).rejects.toThrow(SurveyImageCopyNotAllowedError);
+    expect(mockPrisma.constructionPhoto.create).not.toHaveBeenCalled();
+  });
+
+  it('(f) site-survey テーブルへは一切書込まない（Requirements: 6.3）', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+    ]);
+    (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+      copiedPhotoRow({ id: 'copied-1' })
+    );
+
+    await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+
+    expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
+    expect(mockPrisma.surveyImage.create).not.toHaveBeenCalled();
+    expect(mockPrisma.surveyImage.delete).not.toHaveBeenCalled();
+    expect(mockPrisma.surveyImage.deleteMany).not.toHaveBeenCalled();
+    // 削除メソッド（storage.delete）も現調側原本に対して呼ばない
+    expect(mockStorage.delete).not.toHaveBeenCalled();
+  });
+
+  it('コピーに失敗した項目は failed に入り成功分は維持される（Requirements: 12.5相当）', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+      surveyImageRow({ id: SURVEY_IMAGE_ID_2 }),
+    ]);
+    // 1件目の original コピーで失敗、以降は成功
+    (mockStorage.copy as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('copy failed'))
+      .mockResolvedValue(undefined);
+    (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+      copiedPhotoRow({ id: 'c2', sourceSurveyImageId: SURVEY_IMAGE_ID_2 })
+    );
+
+    const result = await service.addFromSurveyImage(ALBUM_ID, [
+      SURVEY_IMAGE_ID_1,
+      SURVEY_IMAGE_ID_2,
+    ]);
+
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0]!.surveyImageId).toBe(SURVEY_IMAGE_ID_1);
+    expect(result.successful).toHaveLength(1);
+  });
+
+  it('DTO に thumbnailUrl と印字画像エンドポイントURLを含む', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+    ]);
+    (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+      copiedPhotoRow({ id: 'copied-xyz' })
+    );
+
+    const result = await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+
+    const dto = result.successful[0]!;
+    expect(dto.thumbnailUrl).toBe('https://signed.example/thumb.jpg');
+    expect(dto.printImageUrl).toBe('/api/construction-photos/images/copied-xyz/print-image');
+    expect(dto.albumId).toBe(ALBUM_ID);
   });
 });

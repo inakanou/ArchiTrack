@@ -30,11 +30,29 @@ import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import type { ImageProcessorService } from './image-processor.service.js';
 import type { SurveyImageService, UploadFile } from './survey-image.service.js';
 import { ConstructionPhotoAlbumNotFoundError } from './construction-photo-album.service.js';
+import { NotFoundError } from '../errors/apiError.js';
 import type {
   ConstructionPhotoWithUrls,
   SignboardPlacement,
 } from '../types/construction-photo.types.js';
 import logger from '../utils/logger.js';
+
+/**
+ * 現調写真コピーで参照した SurveyImage が存在しない、または対象アルバムと
+ * 異なるプロジェクトの現場調査写真だった場合のエラー。
+ *
+ * 参照対象を同一プロジェクトの現場調査写真に限定する（Requirements: 6.4, 13.2）。
+ * 情報漏洩を避けるため他プロジェクトの存在有無は区別せず 404 として扱う。
+ */
+export class SurveyImageCopyNotAllowedError extends NotFoundError {
+  constructor(public readonly surveyImageIds: string[]) {
+    super(
+      `Survey image(s) not found in the album's project: ${surveyImageIds.join(', ')}`,
+      'SURVEY_IMAGE_NOT_ALLOWED'
+    );
+    this.name = 'SurveyImageCopyNotAllowedError';
+  }
+}
 
 /**
  * 署名付きURLの有効期限（秒）。Requirements: 11.6（15分程度）
@@ -58,6 +76,33 @@ export interface ConstructionPhotoUploadResult {
   successful: ConstructionPhotoWithUrls[];
   /** 登録に失敗したファイルとエラー内容 */
   failed: Array<{ fileName: string; error: string }>;
+}
+
+/**
+ * 現調写真コピー結果
+ *
+ * addFromUpload と同じく部分失敗を許容し、成功分は確定・失敗分のみ通知する。
+ * 失敗はコピー元の現場調査画像ID単位で通知する（R6.2）。
+ */
+export interface ConstructionPhotoCopyResult {
+  /** 複製に成功した写真項目（署名付きURL同梱） */
+  successful: ConstructionPhotoWithUrls[];
+  /** 複製に失敗した現場調査画像IDとエラー内容 */
+  failed: Array<{ surveyImageId: string; error: string }>;
+}
+
+/**
+ * 複製元 SurveyImage の読取形状（storage.copy と DTO 生成に必要な最小列）
+ */
+interface SurveyImageSource {
+  id: string;
+  originalPath: string;
+  thumbnailPath: string;
+  fileName: string;
+  fileSize: number;
+  width: number;
+  height: number;
+  survey: { projectId: string };
 }
 
 /**
@@ -165,6 +210,138 @@ export class ConstructionPhotoImageService {
     );
 
     return { successful, failed };
+  }
+
+  /**
+   * 同一プロジェクトの現場調査写真をコピー（独立複製）して写真項目を追加する。
+   *
+   * `storage.copy` で原本＋サムネの2キーを新キー（construction-photos/${albumId}/...）へ
+   * バイト複製し、寸法/サイズは複製元 `SurveyImage` からそのまま流用する（Sharp再処理なし）。
+   * 来歴として `sourceSurveyImageId` を記録するが FK にはせず、site-survey テーブルへは
+   * 一切書込まない。生成された写真項目は独立行のため、複製後にコピー元が変更・削除されても
+   * 影響を受けない（R6.3）。参照対象は対象アルバムと同一プロジェクトの現場調査写真に限定し、
+   * 1件でも存在しない/他プロジェクトの場合は複製を一切行わず拒否する（R6.4, 13.2）。
+   *
+   * 個々のコピー失敗は部分失敗として扱い、成功分の登録は維持する（R6.2）。
+   *
+   * Requirements: 6.1, 6.2, 6.3, 6.4
+   *
+   * @param albumId - 追加先アルバムID
+   * @param surveyImageIds - コピー元の現場調査画像ID配列
+   * @returns 成功/失敗を含むコピー結果
+   * @throws {ConstructionPhotoAlbumNotFoundError} アルバムが存在しない、または論理削除済みの場合
+   * @throws {SurveyImageCopyNotAllowedError} 参照が存在しない、または他プロジェクトの現調写真を含む場合
+   */
+  async addFromSurveyImage(
+    albumId: string,
+    surveyImageIds: string[]
+  ): Promise<ConstructionPhotoCopyResult> {
+    // アルバムの存在確認＋プロジェクト特定（論理削除済みは対象外）
+    const album = await this.prisma.constructionPhotoAlbum.findUnique({
+      where: { id: albumId },
+      select: { id: true, deletedAt: true, projectId: true },
+    });
+    if (!album || album.deletedAt !== null) {
+      throw new ConstructionPhotoAlbumNotFoundError(albumId);
+    }
+
+    // 参照候補を SurveyImage→survey→projectId で読取（同一プロジェクト検証用）
+    const sources = (await this.prisma.surveyImage.findMany({
+      where: { id: { in: surveyImageIds } },
+      select: {
+        id: true,
+        originalPath: true,
+        thumbnailPath: true,
+        fileName: true,
+        fileSize: true,
+        width: true,
+        height: true,
+        survey: { select: { projectId: true } },
+      },
+    })) as SurveyImageSource[];
+
+    // 存在しない/他プロジェクトの参照が1件でもあれば拒否（R6.4, 13.2）
+    const sourceById = new Map(sources.map((s) => [s.id, s]));
+    const rejected = surveyImageIds.filter((id) => {
+      const src = sourceById.get(id);
+      return !src || src.survey.projectId !== album.projectId;
+    });
+    if (rejected.length > 0) {
+      throw new SurveyImageCopyNotAllowedError(rejected);
+    }
+
+    // 末尾採番の起点（既存の最大 displayOrder + 1）（R6.2, 4.7）
+    let nextDisplayOrder = await this.getNextDisplayOrder(albumId);
+
+    const successful: ConstructionPhotoWithUrls[] = [];
+    const failed: Array<{ surveyImageId: string; error: string }> = [];
+
+    // 入力順を保ちつつ複製（部分失敗は継続）
+    for (const id of surveyImageIds) {
+      const source = sourceById.get(id)!;
+      try {
+        const dto = await this.copyOne(albumId, source, nextDisplayOrder);
+        successful.push(dto);
+        nextDisplayOrder += 1;
+      } catch (error) {
+        failed.push({
+          surveyImageId: id,
+          error: error instanceof Error ? error.message : '現調写真のコピーに失敗しました',
+        });
+      }
+    }
+
+    logger.info(
+      {
+        albumId,
+        totalSurveyImages: surveyImageIds.length,
+        successCount: successful.length,
+        failCount: failed.length,
+      },
+      'Construction photo copy from survey images completed'
+    );
+
+    return { successful, failed };
+  }
+
+  /**
+   * 1件の現場調査写真を新キーへ複製し ConstructionPhoto を作成、DTO を返す。
+   *
+   * 原本＋サムネを storage.copy でバイト複製し、寸法/サイズは複製元から流用する。
+   * ここで送出された例外は呼び出し側で failed として集約される（部分失敗継続）。
+   */
+  private async copyOne(
+    albumId: string,
+    source: SurveyImageSource,
+    displayOrder: number
+  ): Promise<ConstructionPhotoWithUrls> {
+    const sanitizedFileName = this.surveyImageService.sanitizeFileName(source.fileName);
+
+    // 新キー（design: construction-photos/${albumId}/...）。複製元IDで衝突回避
+    const uniquePrefix = `${Date.now()}_${source.id}`;
+    const originalPath = `construction-photos/${albumId}/${uniquePrefix}_${sanitizedFileName}`;
+    const thumbnailPath = `construction-photos/${albumId}/${uniquePrefix}_thumb_${sanitizedFileName}`;
+
+    // 原本＋サムネの2キーをバイト複製（Sharp再処理なし）（R6.2）
+    await this.storageProvider.copy(source.originalPath, originalPath);
+    await this.storageProvider.copy(source.thumbnailPath, thumbnailPath);
+
+    // 独立した写真項目を作成。寸法/サイズは複製元流用、来歴を記録（R6.2, 6.3）
+    const photo = await this.prisma.constructionPhoto.create({
+      data: {
+        albumId,
+        fileName: sanitizedFileName,
+        fileSize: source.fileSize,
+        width: source.width,
+        height: source.height,
+        displayOrder,
+        originalPath,
+        thumbnailPath,
+        sourceSurveyImageId: source.id,
+      },
+    });
+
+    return this.toDtoWithUrls(photo);
   }
 
   /**

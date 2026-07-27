@@ -29,7 +29,7 @@
   - 完了: multipart で複数画像を写真項目として登録・サムネ生成し、不正形式/超過を拒否する
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 12.3, 12.5_
   - _Boundary: ConstructionPhotoImageService_
-- [ ] 2.3 現調写真コピー機能
+- [x] 2.3 現調写真コピー機能
   - `storage.copy` で original＋thumbnail を複製、寸法/サイズは複製元 `SurveyImage` から流用、`sourceSurveyImageId` 記録、site-survey へは書込まない
   - 完了: 選択した同一プロジェクトの現調写真が独立写真項目として複製され、元の変更・削除の影響を受けない
   - _Requirements: 6.1, 6.2, 6.3, 6.4_

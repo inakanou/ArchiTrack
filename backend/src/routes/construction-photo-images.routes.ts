@@ -33,11 +33,14 @@ import { SurveyImageService } from '../services/survey-image.service.js';
 import { ImageProcessorService } from '../services/image-processor.service.js';
 import {
   ConstructionPhotoImageService,
+  SurveyImageCopyNotAllowedError,
   type ConstructionPhotoUploadFile,
 } from '../services/construction-photo-image.service.js';
 import { ConstructionPhotoAlbumNotFoundError } from '../services/construction-photo-album.service.js';
 import {
   constructionPhotoIdParamSchema,
+  addFromSurveyImagesSchema,
+  type AddFromSurveyImagesInput,
   MAX_UPLOAD_FILES,
   MAX_UPLOAD_FILE_SIZE,
   CONSTRUCTION_PHOTO_VALIDATION_MESSAGES,
@@ -265,6 +268,117 @@ router.post(
           detail: error.message,
           code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
           albumId: error.albumId,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/construction-photos/{id}/images/from-surveys:
+ *   post:
+ *     summary: 現場調査写真のコピー追加
+ *     description: 同一プロジェクトの現場調査写真を独立した写真項目として複製する（storage.copy）
+ *     tags:
+ *       - Construction Photo Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: アルバムID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               surveyImageIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *     responses:
+ *       201:
+ *         description: 全件コピー成功
+ *       207:
+ *         description: 一部成功（部分失敗）
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: アルバムが見つからない、または他プロジェクト/存在しない現調写真を含む
+ *       503:
+ *         description: ストレージ未設定
+ */
+router.post(
+  '/from-surveys',
+  authenticate,
+  requirePermission('construction_photo:update'),
+  validate(constructionPhotoIdParamSchema, 'params'),
+  validate(addFromSurveyImagesSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id: albumId } = req.validatedParams as { id: string };
+      const { surveyImageIds } = req.validatedBody as AddFromSurveyImagesInput;
+
+      if (!imageService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      const result = await imageService.addFromSurveyImage(albumId, surveyImageIds);
+
+      const statusCode = result.failed.length === 0 ? 201 : 207; // 207: Multi-Status（部分失敗）
+
+      logger.info(
+        {
+          userId: req.user?.userId,
+          albumId,
+          successCount: result.successful.length,
+          failCount: result.failed.length,
+        },
+        'Construction photos copied from survey images'
+      );
+
+      res.status(statusCode).json(result);
+    } catch (error) {
+      if (error instanceof ConstructionPhotoAlbumNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/construction-photo-album-not-found',
+          title: 'Construction Photo Album Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
+          albumId: error.albumId,
+        });
+        return;
+      }
+      if (error instanceof SurveyImageCopyNotAllowedError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/survey-image-not-allowed',
+          title: 'Survey Image Not Allowed',
+          status: 404,
+          detail: error.message,
+          code: 'SURVEY_IMAGE_NOT_ALLOWED',
+          surveyImageIds: error.surveyImageIds,
         });
         return;
       }
