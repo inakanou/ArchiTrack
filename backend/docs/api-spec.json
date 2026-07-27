@@ -8898,6 +8898,47 @@
       }
     },
     "/api/construction-photos/{id}/images": {
+      "get": {
+        "summary": "工事写真一覧取得（署名URL一括）",
+        "description": "アルバム配下の写真項目を displayOrder 昇順で、表示用の署名付きサムネURL同梱で 1リクエストにまとめて返す（写真項目ごとの個別リクエストは発生させない）。\n",
+        "tags": [
+          "Construction Photo Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "アルバムID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "写真項目一覧（署名付きURL同梱）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "アルバムが見つからない、またはアクセス権のないプロジェクト"
+          },
+          "503": {
+            "description": "ストレージ未設定"
+          }
+        }
+      },
       "post": {
         "summary": "工事写真アップロード",
         "description": "アルバムに画像をアップロードして写真項目を追加する（複数ファイル対応、最大10件/10MB）",
