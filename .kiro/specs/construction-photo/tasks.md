@@ -76,7 +76,7 @@
   - _Boundary: ConstructionPhotoSummaryService, projects.routes detail-summary_
 
 - [ ] 5. Core: フロントAPIクライアント
-- [ ] 5.1 API クライアントと型の実装
+- [x] 5.1 API クライアントと型の実装
   - 一覧/CRUD/アップロード/現調コピー/一覧取得/メタ更新/並び替え/看板CRUD/印字画像 の各呼び出しを型付きで用意
   - 完了: 各エンドポイントを型安全に呼び出せるクライアントが揃う
   - _Depends: 2.1, 2.5, 3.1, 3.3_
