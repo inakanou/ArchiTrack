@@ -9,7 +9,8 @@
  * - POST /api/construction-photos/:id/images（アップロード, 2.2, multipart images[] ≤10, ≤10MB）
  * - POST /api/construction-photos/:id/images/from-surveys（現調コピー, 2.3）
  * - GET  /api/construction-photos/:id/images（一覧取得＋署名URL一括, 2.4）
- * メタ更新(2.5)・並び替え・削除・印字画像(3.3) は後続タスクで追加する。
+ * - PATCH/PUT/DELETE（メタ更新・並び替え・削除, 2.5）
+ * - GET  /api/construction-photos/images/:imageId/print-image（印字画像＝オンデマンド看板合成, 3.3）
  *
  * Requirements:
  * - 4.1, 4.2, 4.3, 4.7: 複数画像を写真項目として登録しサムネ生成、末尾表示順
@@ -38,8 +39,10 @@ import { ImageProcessorService } from '../services/image-processor.service.js';
 import {
   ConstructionPhotoImageService,
   SurveyImageCopyNotAllowedError,
+  ConstructionPhotoNotFoundError,
   type ConstructionPhotoUploadFile,
 } from '../services/construction-photo-image.service.js';
+import { SignboardCompositeService } from '../services/signboard-composite.service.js';
 import {
   ConstructionPhotoMetadataService,
   type BatchUpdatePhotoMetadataInput,
@@ -111,11 +114,18 @@ export async function initializeConstructionPhotoImageServices(): Promise<void> 
     const imageProcessorService = new ImageProcessorService(((input: Buffer) =>
       sharp(input)) as import('../services/image-processor.service.js').SharpStatic);
 
+    // 看板合成（オンデマンド）: 印字画像エンドポイントで原本へ SVG を composite する
+    const signboardCompositeService = new SignboardCompositeService({
+      sharp: ((input: Buffer) =>
+        sharp(input)) as import('../services/signboard-composite.service.js').CompositeSharpStatic,
+    });
+
     imageService = new ConstructionPhotoImageService({
       prisma,
       storageProvider,
       surveyImageService,
       imageProcessorService,
+      signboardCompositeService,
     });
 
     metadataService = new ConstructionPhotoMetadataService({
@@ -699,6 +709,91 @@ router.delete(
 
       res.status(204).send();
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/construction-photos/images/{imageId}/print-image:
+ *   get:
+ *     summary: 印字用画像取得（オンデマンド看板合成）
+ *     description: >
+ *       PDF台帳用の印字画像を取得する。看板が指定されている写真は原本へ電子小黒板を
+ *       サーバでオンデマンド合成（保存しない）して返し、看板が未指定・または参照先の
+ *       看板が削除済みの写真は重畳なしで原本を返す。常に image/jpeg を返す。
+ *     tags:
+ *       - Construction Photo Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: imageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 写真項目ID
+ *     responses:
+ *       200:
+ *         description: 印字用画像（看板ありは合成後、なしは原本）
+ *         content:
+ *           image/jpeg:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *       503:
+ *         description: ストレージ未設定
+ */
+router.get(
+  '/:imageId/print-image',
+  authenticate,
+  requirePermission('construction_photo:read'),
+  validate(constructionPhotoImageIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageId } = req.validatedParams as { imageId: string };
+      const userId = req.user!.userId;
+
+      if (!imageService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      const buffer = await imageService.getPrintImage(imageId, userId);
+
+      logger.debug(
+        { userId, imageId, size: buffer.length },
+        'Construction photo print image served'
+      );
+
+      res.set('Content-Type', 'image/jpeg');
+      res.send(buffer);
+    } catch (error) {
+      if (error instanceof ConstructionPhotoNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/construction-photo-not-found',
+          title: 'Construction Photo Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'CONSTRUCTION_PHOTO_NOT_FOUND',
+          photoId: error.photoId,
+        });
+        return;
+      }
       next(error);
     }
   }

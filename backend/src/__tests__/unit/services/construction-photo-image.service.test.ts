@@ -28,6 +28,7 @@ import {
 } from '../../../services/construction-photo-image.service.js';
 import { ConstructionPhotoAlbumNotFoundError } from '../../../services/construction-photo-album.service.js';
 import { SurveyImageService } from '../../../services/survey-image.service.js';
+import { SignboardCompositeService } from '../../../services/signboard-composite.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 
 const ALBUM_ID = '123e4567-e89b-12d3-a456-426614174000';
@@ -910,5 +911,232 @@ describe('ConstructionPhotoImageService.delete', () => {
       ConstructionPhotoNotFoundError
     );
     expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// Task 3.3: 印字画像（getPrintImage）— 看板合成はオンデマンド・保存しない
+//
+// Requirements:
+// - 9.6: 看板ありは指定位置・大きさで写真へ重畳する（オンデマンド）
+// - 9.7: 参照先の看板が削除済みなら看板なしとして扱い原本を返す
+// - 10.8: 看板の登録内容を指定位置・大きさで重畳する
+// - 10.9: 看板なしの写真は重畳なしで原本を返す
+// - 13.2: アクセスできないプロジェクトの写真は 404
+// ============================================================================
+
+const PRINT_USER_ID = '523e4567-e89b-12d3-a456-426614174010';
+const PRINT_PHOTO_ID = '723e4567-e89b-12d3-a456-426614174099';
+const SIGNBOARD_ID = '823e4567-e89b-12d3-a456-426614174011';
+
+const ORIGINAL_BUFFER = Buffer.from('original-image-bytes');
+const COMPOSITED_BUFFER = Buffer.from('composited-jpeg-bytes');
+
+/** getPrintImage 対象写真の読取形状 */
+function printPhotoRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: PRINT_PHOTO_ID,
+    originalPath: `construction-photos/${ALBUM_ID}/1_photo.jpg`,
+    signboardId: null,
+    signboardPlacement: null,
+    album: { projectId: PROJECT_ID, deletedAt: null },
+    ...overrides,
+  };
+}
+
+/** signboard レコードの読取形状 */
+function signboardRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: SIGNBOARD_ID,
+    projectId: PROJECT_ID,
+    workName: '外壁改修工事',
+    workLocation: '東京都千代田区',
+    freeItems: [{ label: '施工者', value: '株式会社アークン' }],
+    footerText: '施工状況',
+    deletedAt: null,
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function createPrintMockPrisma() {
+  return {
+    constructionPhoto: {
+      findUnique: vi.fn().mockResolvedValue(printPhotoRow()),
+    },
+    constructionSignboard: {
+      findUnique: vi.fn().mockResolvedValue(signboardRow()),
+    },
+    project: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: PROJECT_ID,
+        deletedAt: null,
+        createdById: PRINT_USER_ID,
+        salesPersonId: 'someone-else',
+        constructionPersonId: null,
+      }),
+    },
+    userRole: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  } as unknown as PrismaClient;
+}
+
+describe('ConstructionPhotoImageService.getPrintImage', () => {
+  let service: ConstructionPhotoImageService;
+  let mockPrisma: ReturnType<typeof createPrintMockPrisma>;
+  let mockStorage: ReturnType<typeof createMockStorage>;
+  let mockProcessor: ReturnType<typeof createMockProcessor>;
+  let surveyImageService: SurveyImageService;
+  let compositeService: SignboardCompositeService;
+  let compositeSpy: ReturnType<typeof vi.fn>;
+
+  const PLACEMENT = { left: 10, top: 20, width: 300, height: 200 };
+
+  beforeEach(() => {
+    mockPrisma = createPrintMockPrisma();
+    mockStorage = createMockStorage();
+    mockProcessor = createMockProcessor();
+    (mockStorage.get as ReturnType<typeof vi.fn>).mockResolvedValue(ORIGINAL_BUFFER);
+    surveyImageService = new SurveyImageService({
+      prisma: mockPrisma as never,
+      storageProvider: mockStorage as never,
+    });
+
+    // 合成サービスはスパイ化（実 sharp を呼ばない）
+    compositeSpy = vi.fn().mockResolvedValue(COMPOSITED_BUFFER);
+    compositeService = new SignboardCompositeService({
+      sharp: (() => ({})) as never,
+    });
+    compositeService.composite = compositeSpy as never;
+
+    const deps: ConstructionPhotoImageServiceDependencies = {
+      prisma: mockPrisma,
+      storageProvider: mockStorage as never,
+      surveyImageService,
+      imageProcessorService: mockProcessor as never,
+      signboardCompositeService: compositeService,
+    };
+    service = new ConstructionPhotoImageService(deps);
+  });
+
+  it('(a) 看板あり写真は原本へ看板を重畳した画像を返す（Requirements: 9.6, 10.8）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: PLACEMENT })
+    );
+
+    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+
+    // 原本取得
+    expect(mockStorage.get).toHaveBeenCalledWith(`construction-photos/${ALBUM_ID}/1_photo.jpg`);
+    // 合成が原本バッファ＋看板DTO＋配置で呼ばれる
+    expect(compositeSpy).toHaveBeenCalledTimes(1);
+    const [buf, sb, placement] = compositeSpy.mock.calls[0]!;
+    expect(buf).toEqual(ORIGINAL_BUFFER);
+    expect(sb.workName).toBe('外壁改修工事');
+    expect(placement).toEqual(PLACEMENT);
+    // 合成結果を返す
+    expect(result).toEqual(COMPOSITED_BUFFER);
+    // 保存しない（オンデマンド）
+    expect(mockStorage.upload).not.toHaveBeenCalled();
+  });
+
+  it('(b) 看板なし写真は原本をそのまま返し合成を呼ばない（Requirements: 10.9）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: null, signboardPlacement: null })
+    );
+
+    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    expect(compositeSpy).not.toHaveBeenCalled();
+    expect(mockPrisma.constructionSignboard.findUnique).not.toHaveBeenCalled();
+    expect(mockStorage.upload).not.toHaveBeenCalled();
+  });
+
+  it('(c) 参照先の看板が削除済みなら看板なしとして原本を返す（Requirements: 9.7）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: PLACEMENT })
+    );
+    // 看板は論理削除済み
+    (mockPrisma.constructionSignboard.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      signboardRow({ deletedAt: new Date() })
+    );
+
+    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    expect(compositeSpy).not.toHaveBeenCalled();
+  });
+
+  it('参照先の看板が存在しない（onDelete/物理削除）場合も原本を返す（Requirements: 9.7）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: PLACEMENT })
+    );
+    (mockPrisma.constructionSignboard.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      null
+    );
+
+    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    expect(compositeSpy).not.toHaveBeenCalled();
+  });
+
+  it('看板IDはあるが配置が無い場合は原本を返す', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: null })
+    );
+
+    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    expect(compositeSpy).not.toHaveBeenCalled();
+  });
+
+  it('存在しない写真は 404 を投げる', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+  });
+
+  it('論理削除済みアルバム配下の写真は 404 を投げる', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ album: { projectId: PROJECT_ID, deletedAt: new Date() } })
+    );
+    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+  });
+
+  it('(e) アクセスできないプロジェクトの写真は 404 を投げる（Requirements: 13.2）', async () => {
+    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: PROJECT_ID,
+      deletedAt: null,
+      createdById: 'other-user',
+      salesPersonId: 'another-user',
+      constructionPersonId: null,
+    });
+    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    // 境界外は原本取得も合成も行わない
+    expect(mockStorage.get).not.toHaveBeenCalled();
+    expect(compositeSpy).not.toHaveBeenCalled();
+  });
+
+  it('原本がストレージに存在しない場合は 404 を投げる', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: null, signboardPlacement: null })
+    );
+    (mockStorage.get as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
   });
 });

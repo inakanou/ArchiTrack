@@ -4,8 +4,8 @@
  * 写真項目（ConstructionPhoto）を3系統（ローカル/カメラ/現調コピー）で追加する
  * ドメインサービス。本ファイルでは Task 2.2 の対象である `addFromUpload`
  * （ローカルアップロード＝カメラ撮影もサーバ側は同一経路）を実装する。
- * 現調コピー（addFromSurveyImage=2.3）・一覧（listWithUrls=2.4）を本ファイルで実装済み。
- * 印字画像（getPrintImage=3.3）・削除（delete=2.5系）は後続タスクで本ファイルへ追加する。
+ * 現調コピー（addFromSurveyImage=2.3）・一覧（listWithUrls=2.4）・削除（delete=2.5系）・
+ * 印字画像（getPrintImage=3.3、看板ありはオンデマンド合成・なしは原本）を本ファイルで実装済み。
  *
  * 既存の現場調査アップロード実装（image-upload.service.ts / survey-image.service.ts /
  * image-processor.service.ts）のパイプラインを踏襲する。site-survey テーブルへは書込まない。
@@ -32,10 +32,13 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import type { ImageProcessorService } from './image-processor.service.js';
 import type { SurveyImageService, UploadFile } from './survey-image.service.js';
+import type { SignboardCompositeService } from './signboard-composite.service.js';
 import { ConstructionPhotoAlbumNotFoundError } from './construction-photo-album.service.js';
 import { NotFoundError } from '../errors/apiError.js';
 import type {
   ConstructionPhotoWithUrls,
+  ConstructionSignboardDto,
+  SignboardFreeItem,
   SignboardPlacement,
 } from '../types/construction-photo.types.js';
 import logger from '../utils/logger.js';
@@ -133,6 +136,11 @@ export interface ConstructionPhotoImageServiceDependencies {
   surveyImageService: SurveyImageService;
   /** 圧縮・サムネ生成・寸法取得（sharp）を担う */
   imageProcessorService: ImageProcessorService;
+  /**
+   * 看板合成（SVG→sharp composite）を担う。印字画像（getPrintImage）でのみ使用。
+   * ストレージ未設定時は本サービス自体が初期化されないため任意（未設定時は合成不可）。
+   */
+  signboardCompositeService?: SignboardCompositeService;
 }
 
 /**
@@ -162,12 +170,14 @@ export class ConstructionPhotoImageService {
   private readonly storageProvider: StorageProvider;
   private readonly surveyImageService: SurveyImageService;
   private readonly imageProcessorService: ImageProcessorService;
+  private readonly signboardCompositeService?: SignboardCompositeService;
 
   constructor(deps: ConstructionPhotoImageServiceDependencies) {
     this.prisma = deps.prisma;
     this.storageProvider = deps.storageProvider;
     this.surveyImageService = deps.surveyImageService;
     this.imageProcessorService = deps.imageProcessorService;
+    this.signboardCompositeService = deps.signboardCompositeService;
   }
 
   /**
@@ -435,6 +445,106 @@ export class ConstructionPhotoImageService {
     }
 
     logger.info({ photoId, userId }, 'Construction photo deleted');
+  }
+
+  /**
+   * 印字用画像（PDF台帳用）をオンデマンドで取得する。
+   *
+   * 看板が指定されている写真は、原本へ電子小黒板SVGを sharp composite して重畳した
+   * 画像を返す（保存しない）。看板が未指定、または参照先の看板が削除済み（論理削除/
+   * 物理削除）・配置が未設定の場合は、重畳なしで原本をそのまま返す（R9.7, R10.9）。
+   * 合成はサーバ権威かつオンデマンドのため、看板マスタ編集・配置変更でも常に最新内容で
+   * 焼き込まれ、キャッシュ無効化が不要となる。
+   *
+   * 対象写真がアクセス可能なプロジェクト配下のアルバムに属することを検証する。
+   * 未存在・論理削除済みアルバム配下・アクセス不可のいずれも、存在有無を漏らさない
+   * ため 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。
+   *
+   * Requirements: 9.6, 9.7, 10.8, 10.9, 13.2
+   *
+   * @param photoId - 対象写真項目ID
+   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
+   * @returns 印字用画像バッファ（看板ありは合成後 JPEG、なしは原本）
+   * @throws {ConstructionPhotoNotFoundError} 未存在・論理削除済み・アクセス不可・原本欠損の場合
+   */
+  async getPrintImage(photoId: string, userId: string): Promise<Buffer> {
+    // 写真項目＋所属アルバムのプロジェクト/論理削除状態＋看板指定を取得
+    const photo = await this.prisma.constructionPhoto.findUnique({
+      where: { id: photoId },
+      select: {
+        id: true,
+        originalPath: true,
+        signboardId: true,
+        signboardPlacement: true,
+        album: { select: { projectId: true, deletedAt: true } },
+      },
+    });
+    if (!photo || photo.album.deletedAt !== null) {
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
+    const hasAccess = await this.canAccessProject(photo.album.projectId, userId);
+    if (!hasAccess) {
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    // 原本バッファを取得（オンデマンド合成の入力／看板なし時はこれをそのまま返す）
+    const originalBuffer = await this.storageProvider.get(photo.originalPath);
+    if (!originalBuffer) {
+      logger.warn(
+        { photoId, path: photo.originalPath },
+        'Print image: original not found in storage'
+      );
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    const placement = (photo.signboardPlacement as SignboardPlacement | null) ?? null;
+
+    // 看板未指定・配置未設定は重畳なしで原本を返す（R10.9）
+    if (!photo.signboardId || !placement) {
+      return originalBuffer;
+    }
+
+    // 看板を取得。削除済み（論理削除）／存在しない（物理削除）は看板なし扱い＝原本を返す（R9.7）
+    const signboard = await this.prisma.constructionSignboard.findUnique({
+      where: { id: photo.signboardId },
+      select: {
+        id: true,
+        projectId: true,
+        workName: true,
+        workLocation: true,
+        freeItems: true,
+        footerText: true,
+        deletedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!signboard || signboard.deletedAt !== null) {
+      return originalBuffer;
+    }
+
+    // 合成サービスが未設定なら合成不可のため原本を返す（ストレージ未設定時は本サービス自体が
+    // 生成されないため通常は発生しない防御的分岐）
+    if (!this.signboardCompositeService) {
+      logger.warn({ photoId }, 'Print image: composite service unavailable, returning original');
+      return originalBuffer;
+    }
+
+    // 原本へ看板SVGをオンデマンド合成して返す（保存しない）（R9.6, R10.8）
+    const signboardDto: ConstructionSignboardDto = {
+      id: signboard.id,
+      projectId: signboard.projectId,
+      workName: signboard.workName,
+      workLocation: signboard.workLocation,
+      freeItems: (signboard.freeItems ?? []) as unknown as SignboardFreeItem[],
+      footerText: signboard.footerText,
+      createdAt: signboard.createdAt.toISOString(),
+      updatedAt: signboard.updatedAt.toISOString(),
+    };
+
+    return this.signboardCompositeService.composite(originalBuffer, signboardDto, placement);
   }
 
   /**
