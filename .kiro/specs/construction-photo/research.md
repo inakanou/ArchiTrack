@@ -132,5 +132,5 @@
 3. **簡素化**: 汎用オーバーレイエンジンは作らない（写真1枚に看板0..1）。配置は full fabric JSON でなく `{left,top,width,height}` のみ。site-survey サービスは**拡張せず独立クローン**（安定性優先）。看板は写真1:0..1（`signboardId` nullable, `onDelete: SetNull`）。
 
 ## 主要設計判断
-- **看板合成はサーバ権威**: 看板指定時、サーバが原本へSVGを sharp composite し「印字用画像(高解像度)」を生成（`annotated-thumbnail` 方式）。PDF(クライアント)は写真ごとに `printImageUrl`（看板あり=合成画像／なし=原本）を署名URLで取得して `addImage`。プレビューはクライアント fabric でライブ編集し、保存時にサーバ合成を再生成。SVG版組はサーバが権威、プレビューは近似表示。
+- **看板合成はサーバ権威かつオンデマンド**（validate-design の Critical Issue 1 で確定）: `compositedPath` は保存しない。PDF出力時のみ、写真ごとに `GET images/:id/print-image` を呼び、サーバが原本へSVGを sharp composite（看板なしは原本）してストリーム返却。看板マスタ編集・配置変更でも常に最新、キャッシュ無効化不要。プレビューはクライアント fabric でライブ編集（近似表示）、SVG版組はサーバ権威。
 - **座標系**: プレビュー表示座標→画像ピクセル座標（scale=naturalWidth/renderedWidth）で保存。合成・PDFは画像ピクセル座標のまま（原本に焼込むためPDF側の追加変換不要）。

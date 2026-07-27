@@ -101,7 +101,7 @@ graph TB
 
     PhotoImgSvc --> Processor
     PhotoImgSvc --> Storage
-    MetaSvc --> CompositeSvc
+    PhotoImgSvc --> CompositeSvc
     CompositeSvc --> SvgSvc
     CompositeSvc --> Storage
     SvgSvc --> SignboardSvc
@@ -154,7 +154,7 @@ erDiagram
 - index: `@@index([projectId])`、`@@index([deletedAt])`、`@@index([name])`
 
 **ConstructionPhoto**（`@@map("construction_photos")`）
-- `id`、`albumId String`、`originalPath String`、`thumbnailPath String`、`compositedPath String?`（看板焼込済み印字用画像。看板なしは null）
+- `id`、`albumId String`、`originalPath String`、`thumbnailPath String`
 - `fileName String`、`fileSize Int`、`width Int`、`height Int`、`displayOrder Int`
 - `comment String?`（最大2000）、`includeInReport Boolean @default(false)`
 - `signboardId String?`、`signboardPlacement Json?`（`{left,top,width,height}` 画像ピクセル座標）
@@ -189,7 +189,7 @@ interface ConstructionPhotoWithUrls {
   comment: string | null; includeInReport: boolean;
   signboardId: string | null; signboardPlacement: SignboardPlacement | null;
   thumbnailUrl: string | null;   // 一覧・詳細のサムネ優先表示
-  printImageUrl: string | null;  // PDF用: 看板あり=compositedの署名URL, なし=originalの署名URL
+  printImageUrl: string;         // PDF用: 印字画像取得エンドポイント。看板ありはサーバでオンデマンド合成、なしは原本を返す
   createdAt: string;
 }
 ```
@@ -271,7 +271,7 @@ flowchart TD
 
 現調コピーはバイト複製のため `width/height/fileSize` を複製元 `SurveyImage` 行からそのまま流用し、Sharp再処理を行わない。site-survey へは書込まない。
 
-### 看板配置の保存とPDF出力
+### 看板配置の保存とPDF出力（オンデマンド合成）
 
 ```mermaid
 sequenceDiagram
@@ -283,17 +283,18 @@ sequenceDiagram
     participant Store as StorageProvider
     UI->>API: PATCH metadata batch (comment/includeInReport/signboardId/placement)
     API->>Meta: updateMetadataBatch(inputs)
-    Meta->>Comp: 看板指定ありの写真を合成要求
+    Meta-->>UI: 更新結果 (合成はここでは行わない)
+    UI->>API: PUT order (並び替え) ※メタ保存と合わせ最大2リクエスト
+    Note over UI: PDF出力時のみ (低頻度)
+    UI->>API: GET images/:id/print-image (印刷対象の写真ごと)
+    API->>Comp: 看板指定ありは合成要求
     Comp->>Svg: 電子小黒板SVG生成 (signboard, placement, w, h)
-    Comp->>Store: composite後の印字用画像を compositedPath へ保存
-    Meta-->>UI: 更新結果
-    UI->>API: PUT order (並び替え) ※看板保存と合わせ最大2リクエスト
-    Note over UI: PDF出力時
-    UI->>API: GET images (printImageUrl 同梱)
-    UI->>UI: jsPDF 表紙+3枠+No.連番で printImageUrl を addImage
+    Comp->>Store: 原本取得し sharp composite (保存せずストリーム返却)
+    Comp-->>UI: 印字用画像 (看板なしは原本)
+    UI->>UI: jsPDF 表紙+3枠+No.連番で addImage
 ```
 
-看板合成はサーバ権威（原本高解像度へ焼込）。プレビューはクライアント fabric でライブ編集し、保存時にサーバが `compositedPath` を再生成する。看板未指定の写真は `printImageUrl=original`。
+看板合成は**サーバ権威かつオンデマンド**（保存しない）。看板マスタ編集・配置変更でも常に最新内容で焼き込まれ、キャッシュ無効化が不要（Critical Issue 1 の解消）。プレビューはクライアント fabric でライブ編集。看板未指定の写真は原本をそのまま返す。
 
 ## Requirements Traceability
 
@@ -318,8 +319,8 @@ sequenceDiagram
 | Component | Layer | Intent | Req | Key Deps | Contracts |
 |-----------|-------|--------|-----|----------|-----------|
 | ConstructionPhotoAlbumService | Service | アルバムCRUD・ページング | 1,3 | Prisma (P0) | Service |
-| ConstructionPhotoImageService | Service | 3系統追加・list・delete | 4,5,6,12 | Processor(P0), Storage(P0), SignedUrl(P1) | Service, API |
-| ConstructionPhotoMetadataService | Service | コメント/印刷/配置 batch・並び替え | 7,9 | Composite(P1), Prisma(P0) | Service, Batch |
+| ConstructionPhotoImageService | Service | 3系統追加・list・delete・印字画像 | 4,5,6,10,12 | Processor(P0), Storage(P0), SignedUrl(P1), Composite(P1) | Service, API |
+| ConstructionPhotoMetadataService | Service | コメント/印刷/配置 batch・並び替え | 7,9 | Prisma(P0) | Service, Batch |
 | ConstructionSignboardService | Service | 看板マスタCRUD | 8 | Prisma(P0) | Service, API |
 | SignboardSvgService | Service | 電子小黒板SVG生成 | 8,9,10 | SignboardService(P1) | Service |
 | SignboardCompositeService | Service | 印字用画像合成 | 9,10 | Svg(P0), Storage(P0), sharp(P0) | Service |
@@ -342,14 +343,15 @@ interface ConstructionPhotoImageService {
   addFromUpload(albumId: string, files: UploadFile[]): Promise<ConstructionPhotoWithUrls[]>; // 末尾 displayOrder
   addFromSurveyImage(albumId: string, surveyImageIds: string[]): Promise<ConstructionPhotoWithUrls[]>; // storage.copy 独立複製
   listWithUrls(albumId: string, userId: string): Promise<ConstructionPhotoWithUrls[]>; // 一括署名URL, displayOrder asc
-  delete(photoId: string): Promise<void>; // 関連 compositedPath も削除
+  getPrintImage(photoId: string): Promise<Buffer>; // 看板ありはオンデマンド合成, なしは原本 (PDF用)
+  delete(photoId: string): Promise<void>; // 関連ストレージ(original/thumbnail)も削除
 }
 
 interface ConstructionPhotoMetadataService {
   updateMetadataBatch(inputs: Array<{
     id: string; comment?: string | null; includeInReport?: boolean;
     signboardId?: string | null; signboardPlacement?: SignboardPlacement | null; displayOrder?: number;
-  }>): Promise<ConstructionPhotoWithUrls[]>; // 看板指定変更時は composite 再生成
+  }>): Promise<ConstructionPhotoWithUrls[]>; // 配置情報を保持するのみ。合成はPDF出力時にオンデマンド
   updateOrder(albumId: string, orders: Array<{ id: string; order: number }>): Promise<void>;
 }
 
@@ -384,6 +386,7 @@ interface SignboardCompositeService {
 | PATCH | /api/construction-photos/:id | {name?,memo?,updatedAt} | AlbumDto | 400,401,403,404,409 |
 | DELETE | /api/construction-photos/:id | - | 204 | 401,403,404 |
 | GET | /api/construction-photos/:id/images | - | ConstructionPhotoWithUrls[] | 401,403,404 |
+| GET | /api/construction-photos/images/:imageId/print-image | - | image/jpeg（看板ありはオンデマンド合成） | 401,403,404 |
 | POST | /api/construction-photos/:id/images | multipart images[] (≤10, ≤10MB) | ConstructionPhotoWithUrls[] | 400,401,403,413 |
 | POST | /api/construction-photos/:id/images/from-surveys | {surveyImageIds[]} | ConstructionPhotoWithUrls[] | 400,401,403,404 |
 | PATCH | /api/construction-photos/images/batch | metadata batch | ConstructionPhotoWithUrls[] | 400,401,403 |
@@ -394,7 +397,7 @@ interface SignboardCompositeService {
 **Implementation Notes**
 - Integration: ルートは `authenticate` + `requirePermission('construction_photo:<action>')`（看板は `construction_signboard:*`）+ `validate()`。二重マウントで nested/flat を提供。
 - Validation: multer `array('images',10)` + `fileSize 10MB`、マジックバイト検証、コメント≤2000、`freeItems`/`footerText` 長制限（設計時定数化）。
-- Risks: 看板合成の再生成タイミング（配置変更のたびに全再生成せず、変更写真のみ）。PDF画像取得は署名URL経由（TTL 900s内に生成完了）。
+- Risks: PDF出力時の写真ごとオンデマンド合成のため、印刷対象が多いと export 時のサーバ処理が増える（低頻度操作のため許容、必要なら将来キャッシュ導入）。合成失敗は当該写真でエラー通知し export を中断。
 
 ### UI Components（Summary-only）
 `ConstructionPhotoResponsiveView/ListTable/ListCard/SearchFilter` は site-survey 同名部品のクローン。`PhotoItemPanel` は `PhotoManagementPanel`（コメント500msデバウンス＋フォーカス離脱flush、未保存→手動保存、HTML5ドラッグ並び替え）を踏襲。`SignboardPlacementEditor` は fabric キャンバスに写真背景＋1枚の緑Rectを可動・拡縮し、保存時に `{left,top,width,height}` を画像ピクセル座標へ換算。`ConstructionPhotoSectionCard` は `ProjectSurveySummary` 相当のサマリを受けて `ScheduleSectionCard` 直下に描画。
@@ -416,7 +419,8 @@ interface SignboardCompositeService {
 
 ### Unit Tests
 - `ConstructionPhotoImageService.addFromSurveyImage`: `storage.copy` が original/thumbnail の2キーを複製し、寸法を複製元から流用、`sourceSurveyImageId` を記録する（R6.2,R6.3）。
-- `ConstructionPhotoMetadataService.updateMetadataBatch`: displayOrderの1..n正規化と、看板指定変更時のみ composite 再生成が走る（R7.6,R9.5）。
+- `ConstructionPhotoMetadataService.updateMetadataBatch`: displayOrderの1..n正規化と、signboardId/placementが保持されること。この時点で合成は行わない（R7.6,R9.5）。
+- `ConstructionPhotoImageService.getPrintImage`: 看板ありは指定位置・サイズで合成した画像、看板なしは原本を返す（R9,R10.8,R10.9）。
 - `SignboardSvgService.generate`: 濃緑地・白罫線・工事件名/工事場所行・自由項目・下部固定テキストを画像ピクセル座標で出力（R8.5）。
 - `ConstructionSignboardService.delete`: 使用中の場合 `inUseCount>0` を返す（R8.8）。
 - `SignboardCompositeService.composite`: 指定 `placement` 位置・サイズで SVG が合成される（R9）。
@@ -445,4 +449,4 @@ interface SignboardCompositeService {
 
 ## Performance & Scalability
 - リクエスト効率（R11）は既存 site-survey 方針を踏襲: 一覧`limit=50`、詳細は写真一覧＋署名URLを一括取得（N+1回避）、サムネ優先・原本/印字画像は必要時、保存は最大2リクエスト、アップロード並列5、署名URL TTL 900s。
-- 看板合成は配置変更のあった写真のみ再生成し、無関係写真の再処理を避ける。
+- 看板合成はPDF出力時（低頻度）にオンデマンド実行し、通常の一覧・詳細・保存フローには合成処理を持ち込まない。
