@@ -5,17 +5,21 @@
  * flat `/api/construction-photos/images`）で提供する。既存の現場調査画像ルート
  * （survey-images.routes.ts）の実装パターンを踏襲する。
  *
- * 本タスク（2.2）ではアップロード POST のみを実装する:
- * - POST /api/construction-photos/:id/images（multipart/form-data, images[] ≤10, ≤10MB）
- * 一覧(2.4)・現調コピー(2.3)・メタ更新(2.5)・並び替え・削除・印字画像(3.3) は後続タスクで追加する。
+ * 実装済み:
+ * - POST /api/construction-photos/:id/images（アップロード, 2.2, multipart images[] ≤10, ≤10MB）
+ * - POST /api/construction-photos/:id/images/from-surveys（現調コピー, 2.3）
+ * - GET  /api/construction-photos/:id/images（一覧取得＋署名URL一括, 2.4）
+ * メタ更新(2.5)・並び替え・削除・印字画像(3.3) は後続タスクで追加する。
  *
  * Requirements:
  * - 4.1, 4.2, 4.3, 4.7: 複数画像を写真項目として登録しサムネ生成、末尾表示順
  * - 4.5, 12.4: 許可されない形式を拒否
  * - 5.1, 5.2: カメラ撮影もサーバ側は同一経路
+ * - 7.8, 11.2: 一覧は写真項目＋署名付きURLを1リクエストでまとめて返す（N+1回避）
+ * - 11.3: サムネ優先（一覧では原本URLを返さない）
  * - 12.1, 12.2, 12.3: 最大10件/10MBの制約と超過拒否
  * - 12.5: 部分失敗は成功分維持
- * - 13.1, 13.3: 認証・認可ミドルウェア適用
+ * - 13.1, 13.2, 13.3: 認証・認可・プロジェクト境界の検証
  *
  * @module routes/construction-photo-images
  */
@@ -155,6 +159,81 @@ function uploadImages(req: Request, res: Response, next: NextFunction): void {
     next();
   });
 }
+
+/**
+ * @swagger
+ * /api/construction-photos/{id}/images:
+ *   get:
+ *     summary: 工事写真一覧取得（署名URL一括）
+ *     description: >
+ *       アルバム配下の写真項目を displayOrder 昇順で、表示用の署名付きサムネURL同梱で
+ *       1リクエストにまとめて返す（写真項目ごとの個別リクエストは発生させない）。
+ *     tags:
+ *       - Construction Photo Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: アルバムID
+ *     responses:
+ *       200:
+ *         description: 写真項目一覧（署名付きURL同梱）
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: アルバムが見つからない、またはアクセス権のないプロジェクト
+ *       503:
+ *         description: ストレージ未設定
+ */
+router.get(
+  '/',
+  authenticate,
+  requirePermission('construction_photo:read'),
+  validate(constructionPhotoIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id: albumId } = req.validatedParams as { id: string };
+      const userId = req.user!.userId;
+
+      if (!imageService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      const images = await imageService.listWithUrls(albumId, userId);
+
+      logger.debug({ userId, albumId, imageCount: images.length }, 'Construction photos listed');
+
+      res.json(images);
+    } catch (error) {
+      if (error instanceof ConstructionPhotoAlbumNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/construction-photo-album-not-found',
+          title: 'Construction Photo Album Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
+          albumId: error.albumId,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
 
 /**
  * @swagger

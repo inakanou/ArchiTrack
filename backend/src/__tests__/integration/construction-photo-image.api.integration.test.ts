@@ -1,17 +1,20 @@
 /**
- * @fileoverview 工事写真アップロードAPI統合テスト
+ * @fileoverview 工事写真アップロード・一覧取得API統合テスト
  *
  * Task 2.2: 写真アップロード（ローカル/カメラ）サービス＋ルート
+ * Task 2.4: 写真一覧取得（署名URL一括）サービス＋ルート
  *
  * Requirements coverage:
  * - 4.1, 4.2, 4.3: multipart で複数画像を写真項目として登録しサムネ生成
  * - 4.7: 追加した写真項目は末尾の表示順に配置
  * - 5.1, 5.2: カメラ撮影もサーバ側は同一の multipart 経路
+ * - 7.8, 11.2: 一覧は写真項目＋署名付きURLを1リクエストでまとめて返す（N+1回避）
+ * - 11.3: 一覧はサムネ優先（原本URLを返さない）
  * - 12.1, 12.3: 件数上限（10件）超過を拒否
  * - 12.2, 12.3: サイズ上限（10MB）超過を拒否
  * - 12.4, 4.5: 不正な画像形式（マジックバイト不一致）を拒否
  * - 12.5: 部分失敗時、成功分は登録を維持
- * - 13.1, 13.3: 認証・認可（401）
+ * - 13.1, 13.2, 13.3: 認証・認可（401）・プロジェクト境界（404）
  *
  * Scope:
  * - 二重マウント（nested `/api/construction-photos/:id/images`）
@@ -276,6 +279,71 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
         .post('/api/construction-photos/99999999-9999-4999-8999-999999999999/images')
         .set('Authorization', `Bearer ${accessToken}`)
         .attach('images', validJpeg, { filename: 'a.jpg', contentType: 'image/jpeg' });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // 一覧取得（署名URL一括） Task 2.4（REQ 7.8, 11.2, 11.3, 13.2）
+  describe('一覧取得（署名URL一括, REQ 7.8, 11.2, 11.3, 13.2）', () => {
+    const OUTSIDER_EMAIL = 'test-construction-photo-image-outsider@example.com';
+    let outsiderToken: string;
+
+    beforeAll(async () => {
+      // 当該プロジェクトの関係者でなく admin でもないユーザー（プロジェクト境界検証用）
+      const outsider = await createAuthenticatedUser(
+        OUTSIDER_EMAIL,
+        'Construction Photo Image Outsider',
+        ['user']
+      );
+      outsiderToken = outsider.accessToken;
+    });
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({ where: { email: OUTSIDER_EMAIL } });
+    });
+
+    it('詳細1リクエストで全写真項目＋署名付きURLを displayOrder 昇順で返す（REQ 7.8, 11.2, 11.3）', async () => {
+      const res = await request(app)
+        .get(`/api/construction-photos/${albumId}/images`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+
+      // これまでのアップロードで登録済みの写真項目がすべて返る
+      const dbCount = await prisma.constructionPhoto.count({ where: { albumId } });
+      expect(res.body).toHaveLength(dbCount);
+      expect(dbCount).toBeGreaterThan(1);
+
+      // displayOrder 昇順
+      const orders = res.body.map((p: { displayOrder: number }) => p.displayOrder);
+      expect(orders).toEqual([...orders].sort((a, b) => a - b));
+
+      // サムネ優先: thumbnailUrl 同梱・印字画像URL・原本URLは含まない（REQ 11.3）
+      for (const photo of res.body) {
+        expect(photo.albumId).toBe(albumId);
+        expect(photo.thumbnailUrl).toBeTruthy();
+        expect(photo.printImageUrl).toBe(`/api/construction-photos/images/${photo.id}/print-image`);
+        expect(photo.originalUrl).toBeUndefined();
+      }
+    });
+
+    it('認証なしの一覧取得は401を返す（REQ 13.1）', async () => {
+      const res = await request(app).get(`/api/construction-photos/${albumId}/images`);
+      expect(res.status).toBe(401);
+    });
+
+    it('存在しないアルバムの一覧取得は404を返す', async () => {
+      const res = await request(app)
+        .get('/api/construction-photos/99999999-9999-4999-8999-999999999999/images')
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('アクセス権のないプロジェクトのアルバム一覧は404を返す（REQ 13.2, 13.3）', async () => {
+      const res = await request(app)
+        .get(`/api/construction-photos/${albumId}/images`)
+        .set('Authorization', `Bearer ${outsiderToken}`);
       expect(res.status).toBe(404);
     });
   });

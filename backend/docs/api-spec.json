@@ -8968,6 +8968,74 @@
         }
       }
     },
+    "/api/construction-photos/{id}/images/from-surveys": {
+      "post": {
+        "summary": "現場調査写真のコピー追加",
+        "description": "同一プロジェクトの現場調査写真を独立した写真項目として複製する（storage.copy）",
+        "tags": [
+          "Construction Photo Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "アルバムID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "surveyImageIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "全件コピー成功"
+          },
+          "207": {
+            "description": "一部成功（部分失敗）"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "アルバムが見つからない、または他プロジェクト/存在しない現調写真を含む"
+          },
+          "503": {
+            "description": "ストレージ未設定"
+          }
+        }
+      }
+    },
     "/api/company-info": {
       "get": {
         "summary": "自社情報取得",

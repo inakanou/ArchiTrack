@@ -563,3 +563,228 @@ describe('ConstructionPhotoImageService.addFromSurveyImage', () => {
     expect(dto.albumId).toBe(ALBUM_ID);
   });
 });
+
+// ============================================================================
+// Task 2.4: 写真一覧取得（署名URL一括）（listWithUrls）
+//
+// Requirements:
+// - 7.8: 写真項目一覧＋表示用署名付きURLを個別リクエストに分割せずまとめて取得する
+// - 11.2: 詳細は写真項目一覧＋署名URLを1リクエストで返し、写真ごとの個別取得を発生させない（N+1回避）
+// - 11.3: 一覧・詳細はサムネ優先。原本は必要時のみ（一覧では原本URLを返さない）
+// - 13.2: 取得対象がユーザーのアクセス可能なプロジェクト配下であることを検証（他プロジェクトは404）
+// ============================================================================
+
+const LIST_USER_ID = '523e4567-e89b-12d3-a456-426614174010';
+
+/** 工事写真一覧（findMany）の読取形状。原本パスは一覧では取得しない（サムネ優先） */
+function listPhotoRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'lp-1',
+    albumId: ALBUM_ID,
+    fileName: 'photo.jpg',
+    fileSize: 250 * 1024,
+    width: 800,
+    height: 600,
+    displayOrder: 1,
+    comment: null,
+    includeInReport: false,
+    signboardId: null,
+    signboardPlacement: null,
+    thumbnailPath: `construction-photos/${ALBUM_ID}/1_thumb_photo.jpg`,
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function createListMockPrisma() {
+  return {
+    constructionPhotoAlbum: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: ALBUM_ID,
+        deletedAt: null,
+        projectId: PROJECT_ID,
+      }),
+    },
+    constructionPhoto: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    // プロジェクト境界検証（13.2）用: 既定はリクエストユーザーが作成者 → アクセス可
+    project: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: PROJECT_ID,
+        deletedAt: null,
+        createdById: LIST_USER_ID,
+        salesPersonId: 'someone-else',
+        constructionPersonId: null,
+      }),
+    },
+    userRole: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  } as unknown as PrismaClient;
+}
+
+describe('ConstructionPhotoImageService.listWithUrls', () => {
+  let service: ConstructionPhotoImageService;
+  let mockPrisma: ReturnType<typeof createListMockPrisma>;
+  let mockStorage: ReturnType<typeof createMockStorage>;
+  let mockProcessor: ReturnType<typeof createMockProcessor>;
+  let surveyImageService: SurveyImageService;
+
+  beforeEach(() => {
+    mockPrisma = createListMockPrisma();
+    mockStorage = createMockStorage();
+    mockProcessor = createMockProcessor();
+    surveyImageService = new SurveyImageService({
+      prisma: mockPrisma as never,
+      storageProvider: mockStorage as never,
+    });
+
+    const deps: ConstructionPhotoImageServiceDependencies = {
+      prisma: mockPrisma,
+      storageProvider: mockStorage as never,
+      surveyImageService,
+      imageProcessorService: mockProcessor as never,
+    };
+    service = new ConstructionPhotoImageService(deps);
+  });
+
+  it('存在しないアルバムの一覧取得は NotFound を投げる', async () => {
+    (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      null
+    );
+    await expect(service.listWithUrls(ALBUM_ID, LIST_USER_ID)).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+  });
+
+  it('論理削除済みアルバムの一覧取得は NotFound を投げる', async () => {
+    (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: ALBUM_ID,
+      deletedAt: new Date(),
+      projectId: PROJECT_ID,
+    });
+    await expect(service.listWithUrls(ALBUM_ID, LIST_USER_ID)).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+  });
+
+  it('(a) displayOrder 昇順で全写真項目を返す（Requirements: 7.8）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({ id: 'p1', displayOrder: 1 }),
+      listPhotoRow({ id: 'p2', displayOrder: 2 }),
+      listPhotoRow({ id: 'p3', displayOrder: 3 }),
+    ]);
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    expect(result).toHaveLength(3);
+    expect(result.map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
+    // displayOrder 昇順で1クエリ取得している
+    const findManyArgs = (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { where: { albumId: string }; orderBy: { displayOrder: string } };
+    expect(findManyArgs.where.albumId).toBe(ALBUM_ID);
+    expect(findManyArgs.orderBy).toEqual({ displayOrder: 'asc' });
+  });
+
+  it('写真0件のアルバムは空配列を返し署名URL生成を行わない', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    expect(result).toEqual([]);
+    expect(mockStorage.getSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it('(b) 署名URLはまとめて生成され写真ごとの個別DB取得を発生させない（N+1回避, Requirements: 11.2）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({ id: 'p1', displayOrder: 1 }),
+      listPhotoRow({ id: 'p2', displayOrder: 2 }),
+      listPhotoRow({ id: 'p3', displayOrder: 3 }),
+    ]);
+
+    await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    // 写真件数に関わらず findMany は1回のみ（写真ごとの個別クエリを発生させない）
+    expect(mockPrisma.constructionPhoto.findMany).toHaveBeenCalledTimes(1);
+    // 署名URLは取得済みパスから写真ごとに1回だけ生成（追加のDBラウンドトリップなし）
+    expect(mockStorage.getSignedUrl).toHaveBeenCalledTimes(3);
+  });
+
+  it('(c) DTO にサムネ署名URLと印字画像エンドポイントURLを含み原本URLは含まない（Requirements: 11.3）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({
+        id: 'photo-xyz',
+        thumbnailPath: `construction-photos/${ALBUM_ID}/9_thumb_x.jpg`,
+      }),
+    ]);
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const dto = result[0]!;
+
+    expect(dto.thumbnailUrl).toBe('https://signed.example/thumb.jpg');
+    expect(dto.printImageUrl).toBe('/api/construction-photos/images/photo-xyz/print-image');
+    // 原本URLは一覧では返さない（サムネ優先, 11.3）
+    expect(Object.keys(dto)).not.toContain('originalUrl');
+    // 署名はサムネパスに対してのみ生成される（原本パスは取得すらしない）
+    expect(mockStorage.getSignedUrl).toHaveBeenCalledWith(
+      `construction-photos/${ALBUM_ID}/9_thumb_x.jpg`,
+      { expiresIn: 900 }
+    );
+    // 選択列に originalPath を含めない（サムネ優先の取得）
+    const findManyArgs = (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { select?: Record<string, boolean> };
+    expect(findManyArgs.select?.originalPath).toBeUndefined();
+  });
+
+  it('サムネURL生成に失敗した写真は thumbnailUrl=null で返す', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({ id: 'p1' }),
+    ]);
+    (mockStorage.getSignedUrl as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('sign fail')
+    );
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.thumbnailUrl).toBeNull();
+  });
+
+  it('(d) ユーザーがアクセスできないプロジェクト（他プロジェクト）のアルバムは 404 とする（Requirements: 13.2）', async () => {
+    // アルバムは存在するが、リクエストユーザーは当該プロジェクトの関係者でなく admin でもない
+    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: PROJECT_ID,
+      deletedAt: null,
+      createdById: 'other-user',
+      salesPersonId: 'another-user',
+      constructionPersonId: null,
+    });
+    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await expect(service.listWithUrls(ALBUM_ID, LIST_USER_ID)).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+    // 境界外は写真取得を一切行わない
+    expect(mockPrisma.constructionPhoto.findMany).not.toHaveBeenCalled();
+  });
+
+  it('admin ロールのユーザーは関係者でなくても一覧取得できる（Requirements: 13.2）', async () => {
+    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: PROJECT_ID,
+      deletedAt: null,
+      createdById: 'other-user',
+      salesPersonId: 'another-user',
+      constructionPersonId: null,
+    });
+    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { role: { name: 'admin' } },
+    ]);
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({ id: 'p1' }),
+    ]);
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    expect(result).toHaveLength(1);
+  });
+});

@@ -4,8 +4,8 @@
  * 写真項目（ConstructionPhoto）を3系統（ローカル/カメラ/現調コピー）で追加する
  * ドメインサービス。本ファイルでは Task 2.2 の対象である `addFromUpload`
  * （ローカルアップロード＝カメラ撮影もサーバ側は同一経路）を実装する。
- * 現調コピー（addFromSurveyImage=2.3）・一覧（listWithUrls=2.4）・印字画像
- * （getPrintImage=3.3）・削除（delete=2.5系）は後続タスクで本ファイルへ追加する。
+ * 現調コピー（addFromSurveyImage=2.3）・一覧（listWithUrls=2.4）を本ファイルで実装済み。
+ * 印字画像（getPrintImage=3.3）・削除（delete=2.5系）は後続タスクで本ファイルへ追加する。
  *
  * 既存の現場調査アップロード実装（image-upload.service.ts / survey-image.service.ts /
  * image-processor.service.ts）のパイプラインを踏襲する。site-survey テーブルへは書込まない。
@@ -21,6 +21,9 @@
  * - 5.1, 5.2: カメラ撮影もサーバ側は通常の multipart と同一経路
  * - 12.5: ストレージ保存失敗時、失敗分は未登録・成功分は維持
  * - 11.6: 表示用の署名付きURLに有効期限を設定する（TTL 900s）
+ * - 7.8, 11.2: 写真項目一覧＋署名付きURLを1リクエストでまとめて取得する（N+1回避, listWithUrls）
+ * - 11.3: 一覧・詳細はサムネ優先（一覧では原本URLを返さない）
+ * - 13.2: 取得対象がユーザーのアクセス可能なプロジェクト配下であることを検証する
  *
  * @module services/construction-photo-image
  */
@@ -302,6 +305,107 @@ export class ConstructionPhotoImageService {
     );
 
     return { successful, failed };
+  }
+
+  /**
+   * アルバム配下の写真項目一覧を署名付きURL同梱で取得する。
+   *
+   * 1回の `findMany` で全写真項目を displayOrder 昇順に取得し、取得済みの
+   * サムネパスから署名付きURLをまとめて生成して返す。写真項目ごとの個別クエリ・
+   * 個別リクエストを発生させない（N+1回避, R7.8/R11.2）。一覧では原本URLは返さず
+   * サムネイルを優先する（R11.3）。原本/印字画像は必要時にのみ別エンドポイントで取得する。
+   *
+   * 取得対象はリクエストユーザーがアクセス可能なプロジェクト配下のアルバムに限定する。
+   * アルバムが存在しない・論理削除済み・ユーザーがアクセスできないプロジェクトの場合は、
+   * 存在有無を漏らさないためいずれも NotFound(404) として扱う（R13.2, R13.3）。
+   *
+   * Requirements: 7.8, 11.2, 11.3, 13.2
+   *
+   * @param albumId - 対象アルバムID
+   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
+   * @returns displayOrder 昇順の写真項目（署名付きサムネURL同梱）
+   * @throws {ConstructionPhotoAlbumNotFoundError} 未存在・論理削除済み・アクセス不可の場合
+   */
+  async listWithUrls(albumId: string, userId: string): Promise<ConstructionPhotoWithUrls[]> {
+    // アルバムの存在確認＋プロジェクト特定（論理削除済みは対象外）
+    const album = await this.prisma.constructionPhotoAlbum.findUnique({
+      where: { id: albumId },
+      select: { id: true, deletedAt: true, projectId: true },
+    });
+    if (!album || album.deletedAt !== null) {
+      throw new ConstructionPhotoAlbumNotFoundError(albumId);
+    }
+
+    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
+    const hasAccess = await this.canAccessProject(album.projectId, userId);
+    if (!hasAccess) {
+      throw new ConstructionPhotoAlbumNotFoundError(albumId);
+    }
+
+    // 全写真項目を1クエリで displayOrder 昇順取得（N+1回避）。原本パスは取得しない（サムネ優先）
+    const photos = await this.prisma.constructionPhoto.findMany({
+      where: { albumId },
+      orderBy: { displayOrder: 'asc' },
+      select: {
+        id: true,
+        albumId: true,
+        fileName: true,
+        fileSize: true,
+        width: true,
+        height: true,
+        displayOrder: true,
+        comment: true,
+        includeInReport: true,
+        signboardId: true,
+        signboardPlacement: true,
+        thumbnailPath: true,
+        createdAt: true,
+      },
+    });
+
+    // 取得済みのサムネパスから署名付きURLをまとめて生成（追加のDBラウンドトリップなし）
+    return Promise.all(photos.map((photo) => this.toDtoWithUrls(photo)));
+  }
+
+  /**
+   * ユーザーが指定プロジェクトにアクセス可能かを判定する（R13.2, R13.3）。
+   *
+   * 以下のいずれかを満たす場合に true:
+   * 1. プロジェクトの作成者/営業担当者/工事担当者である
+   * 2. admin ロールを持つ
+   *
+   * 注: 現時点でプロジェクトアクセス判定の共有ヘルパーは存在せず、SignedUrlService が
+   * SurveyImage 固有の同等ロジックを持つのみのため、ここでは同一ポリシーをアルバムの
+   * プロジェクトに対して適用する。
+   */
+  private async canAccessProject(projectId: string, userId: string): Promise<boolean> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        id: true,
+        deletedAt: true,
+        createdById: true,
+        salesPersonId: true,
+        constructionPersonId: true,
+      },
+    });
+    if (!project || project.deletedAt !== null) {
+      return false;
+    }
+
+    if (
+      project.createdById === userId ||
+      project.salesPersonId === userId ||
+      project.constructionPersonId === userId
+    ) {
+      return true;
+    }
+
+    const userRoles = await this.prisma.userRole.findMany({
+      where: { userId },
+      select: { role: { select: { name: true } } },
+    });
+    return userRoles.some((ur) => ur.role.name === 'admin');
   }
 
   /**
