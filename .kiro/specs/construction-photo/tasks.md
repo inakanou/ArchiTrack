@@ -83,7 +83,7 @@
   - _Requirements: 1.1, 3.1, 4.1, 6.1, 7.1, 8.1_
 
 - [ ] 6. Core: 画面
-- [ ] 6.1 (P) 工事写真一覧画面
+- [x] 6.1 (P) 工事写真一覧画面
   - 他機能同様のレスポンシブUI（表/カード切替）、検索・ソート・ページング、タイトル「工事写真一覧」、代表サムネ優先表示
   - 完了: 一覧がデスクトップ表/モバイルカードで表示され、検索・ページングが動作する
   - _Depends: 5.1_
@@ -159,3 +159,4 @@
 - 検証コマンドはコンテナ内で実行: backend=`docker exec architrack-backend-dev npm run <test:unit|test:integration|type-check|prisma:migrate>`、frontend=`docker exec architrack-frontend-dev npm run <test|type-check|build>`。DB は architrack_dev(postgres:5432、既存30マイグレーション適用済み)。
 - 統合テスト: `npm run test:integration` は global-setup が `architrack_test`(password test)を強制するが当環境に無く全滅する。個別統合ファイルは `docker exec -e TEST_DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev architrack-backend-dev npx vitest run <file>` で architrack_dev に対し実行（テストは自己クリーンアップ前提）。
 - 設計リファイン(R8.8, 3.1レビュー由来): 看板の「削除前警告」を成立させるため、看板一覧DTO(findByProject)に各看板の使用件数(inUseCount)を露出する必要がある。現状 delete は即削除して inUseCount を後返しするのみ。task 6.5(看板管理UI)の前に、看板サービスの一覧に inUseCount を含める小改修を 6.5 と併せて実施する。
+- 追補(R3.5/11.3, 6.1レビュー由来・要最終検証前対応): アルバム一覧APIが代表サムネURLを返さないため一覧のサムネが常にプレースホルダ。バックエンド(2.1域)の ConstructionPhotoAlbumDto/toDto/list に代表画像(先頭ConstructionPhoto.thumbnailPath)のTTL900s署名URLを追加し、フロント ConstructionPhotoAlbum 型へ伝播する小改修が必要。6.1の描画パスは前方互換で対応済み。
