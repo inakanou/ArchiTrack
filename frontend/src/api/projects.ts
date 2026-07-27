@@ -95,6 +95,47 @@ export interface ScheduleSectionSummary {
 }
 
 // ============================================================================
+// 工事写真セクションサマリー型（detail-summary API用）
+// ============================================================================
+
+/**
+ * 工事写真セクションサマリーアイテム（1アルバム分）
+ *
+ * Task 7.2 (construction-photo): detail-summary API工事写真セクション統合
+ * バックエンド `ConstructionPhotoAlbumSummaryInfo` と同型（日時はJSON上文字列）。
+ *
+ * Requirements (construction-photo): 2.3
+ */
+export interface ConstructionPhotoSectionSummaryItem {
+  id: string;
+  projectId: string;
+  name: string;
+  memo: string | null;
+  /** 代表写真のサムネイル署名付きURL（未生成・ストレージ未設定・署名失敗時は null） */
+  thumbnailUrl: string | null;
+  /** 代表写真のID（写真がなければ null） */
+  representativeImageId: string | null;
+  /** アルバム配下の写真項目数 */
+  photoCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 工事写真セクションサマリー
+ *
+ * プロジェクト詳細画面の工事写真パネルで表示する直近のアルバム一覧と総数を含む。
+ * 既存セクション（`ScheduleSectionSummary` 等）と同型。
+ *
+ * Task 7.2 (construction-photo)
+ * Requirements (construction-photo): 2.3
+ */
+export interface ProjectConstructionPhotoSummary {
+  totalCount: number;
+  latestAlbums: ConstructionPhotoSectionSummaryItem[];
+}
+
+// ============================================================================
 // 型定義（クエリパラメータ用）
 // ============================================================================
 
@@ -410,6 +451,8 @@ export interface ProjectDetailSummary {
     contracts: ContractSectionSummary;
     schedules: ScheduleSectionSummary;
     executionBudget: ExecutionBudgetSectionInfo | null;
+    /** 工事写真セクションサマリー（Task 7.2, construction-photo, Requirements 2.3） */
+    constructionPhotos: ProjectConstructionPhotoSummary;
   };
 }
 

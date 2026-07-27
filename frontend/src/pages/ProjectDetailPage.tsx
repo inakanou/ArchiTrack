@@ -34,7 +34,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
-import type { ContractSectionSummary, ScheduleSectionSummary } from '../api/projects';
+import type {
+  ContractSectionSummary,
+  ScheduleSectionSummary,
+  ProjectConstructionPhotoSummary,
+} from '../api/projects';
 import { ApiError } from '../api/client';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
@@ -58,6 +62,7 @@ import { EstimateRequestSectionCard } from '../components/projects/EstimateReque
 import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
 import { ContractSectionCard } from '../components/projects/ContractSectionCard';
 import { ScheduleSectionCard } from '../components/projects/ScheduleSectionCard';
+import { ConstructionPhotoSectionCard } from '../components/projects/ConstructionPhotoSectionCard';
 import {
   ExecutionBudgetSectionCard,
   type ExecutionBudgetSectionInfo,
@@ -410,6 +415,8 @@ export default function ProjectDetailPage() {
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
   const [contractSummary, setContractSummary] = useState<ContractSectionSummary | null>(null);
   const [scheduleSummary, setScheduleSummary] = useState<ScheduleSectionSummary | null>(null);
+  const [constructionPhotoSummary, setConstructionPhotoSummary] =
+    useState<ProjectConstructionPhotoSummary | null>(null);
   const [executionBudgetInfo, setExecutionBudgetInfo] = useState<ExecutionBudgetSectionInfo | null>(
     null
   );
@@ -454,6 +461,10 @@ export default function ProjectDetailPage() {
       // Task 62.1: detail-summary APIから工程表サマリーを取得
       // Requirements: 39.1, 39.2
       setScheduleSummary(data.sections.schedules);
+
+      // Task 7.2 (construction-photo): detail-summary APIから工事写真サマリーを取得
+      // Requirements (construction-photo): 2.3
+      setConstructionPhotoSummary(data.sections.constructionPhotos);
 
       // Task 66.1: detail-summary APIから実行予算サマリーを取得（個別API呼び出しを置換）
       // Requirements: 40.1, 41.1
@@ -558,6 +569,7 @@ export default function ProjectDetailPage() {
         setEstimateSummary(data.sections.estimates);
         setContractSummary(data.sections.contracts);
         setScheduleSummary(data.sections.schedules);
+        setConstructionPhotoSummary(data.sections.constructionPhotos);
         setExecutionBudgetInfo(data.sections.executionBudget);
 
         // トースト通知で成功メッセージを表示
@@ -798,6 +810,15 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         totalCount={scheduleSummary?.totalCount ?? 0}
         latestSchedules={scheduleSummary?.latestSchedules ?? []}
+        isLoading={isLoading}
+      />
+
+      {/* 工事写真セクション (Task 7.2 construction-photo, Requirements 2.1, 2.2, 2.3) */}
+      {/* 工程表パネルの直下に配置（Requirements 2.1） */}
+      <ConstructionPhotoSectionCard
+        projectId={project.id}
+        totalCount={constructionPhotoSummary?.totalCount ?? 0}
+        latestAlbums={constructionPhotoSummary?.latestAlbums ?? []}
         isLoading={isLoading}
       />
 
