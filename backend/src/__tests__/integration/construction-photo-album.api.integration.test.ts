@@ -38,6 +38,11 @@ describe('Construction Photo Album API Integration Tests', () => {
   let projectAId: string;
   let projectBId: string;
   let accessToken: string;
+  // 認証済みだが construction_photo 権限を一切持たないユーザー（403検証用, REQ 13.3）
+  let noPermissionToken: string;
+
+  const TEST_EMAIL = 'test-construction-photo-integration@example.com';
+  const NO_PERMISSION_EMAIL = 'test-construction-photo-noperm@example.com';
 
   const createAuthenticatedUser = async (
     email: string,
@@ -118,13 +123,19 @@ describe('Construction Photo Album API Integration Tests', () => {
       }
     }
 
-    const testUserData = await createAuthenticatedUser(
-      'test-construction-photo-integration@example.com',
-      'Construction Photo Test User',
-      ['user']
-    );
+    const testUserData = await createAuthenticatedUser(TEST_EMAIL, 'Construction Photo Test User', [
+      'user',
+    ]);
     testUserId = testUserData.userId;
     accessToken = testUserData.accessToken;
+
+    // 認証は通るが construction_photo 権限を持たないユーザー（ロール未割当）
+    const noPermUser = await createAuthenticatedUser(
+      NO_PERMISSION_EMAIL,
+      'Construction Photo No Permission User',
+      []
+    );
+    noPermissionToken = noPermUser.accessToken;
 
     const projectA = await prisma.project.create({
       data: {
@@ -160,7 +171,7 @@ describe('Construction Photo Album API Integration Tests', () => {
       },
     });
     await prisma.user.deleteMany({
-      where: { email: 'test-construction-photo-integration@example.com' },
+      where: { email: { in: [TEST_EMAIL, NO_PERMISSION_EMAIL] } },
     });
 
     const client = redis.getClient();
@@ -221,6 +232,25 @@ describe('Construction Photo Album API Integration Tests', () => {
         '/api/construction-photos/00000000-0000-4000-8000-000000000000'
       );
       expect(res.status).toBe(401);
+    });
+  });
+
+  describe('Authorization - 権限なし403 (REQ 13.3)', () => {
+    it('認証済みだが construction_photo:read 権限なしの一覧取得は403を返す', async () => {
+      const res = await request(app)
+        .get(`/api/projects/${projectAId}/construction-photos`)
+        .set('Authorization', `Bearer ${noPermissionToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.required).toBe('construction_photo:read');
+    });
+
+    it('認証済みだが construction_photo:create 権限なしの作成は403を返す', async () => {
+      const res = await request(app)
+        .post(`/api/projects/${projectAId}/construction-photos`)
+        .set('Authorization', `Bearer ${noPermissionToken}`)
+        .send({ name: '権限なし作成' });
+      expect(res.status).toBe(403);
+      expect(res.body.required).toBe('construction_photo:create');
     });
   });
 

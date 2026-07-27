@@ -37,6 +37,11 @@ describe('Construction Signboard API Integration Tests', () => {
   let projectBId: string;
   let albumAId: string;
   let accessToken: string;
+  // 認証済みだが construction_signboard 権限を一切持たないユーザー（403検証用, REQ 13.3）
+  let noPermissionToken: string;
+
+  const TEST_EMAIL = 'test-construction-signboard-integration@example.com';
+  const NO_PERMISSION_EMAIL = 'test-construction-signboard-noperm@example.com';
 
   const createAuthenticatedUser = async (
     email: string,
@@ -118,12 +123,20 @@ describe('Construction Signboard API Integration Tests', () => {
     }
 
     const testUserData = await createAuthenticatedUser(
-      'test-construction-signboard-integration@example.com',
+      TEST_EMAIL,
       'Construction Signboard Test User',
       ['user']
     );
     testUserId = testUserData.userId;
     accessToken = testUserData.accessToken;
+
+    // 認証は通るが construction_signboard 権限を持たないユーザー（ロール未割当）
+    const noPermUser = await createAuthenticatedUser(
+      NO_PERMISSION_EMAIL,
+      'Construction Signboard No Permission User',
+      []
+    );
+    noPermissionToken = noPermUser.accessToken;
 
     const projectA = await prisma.project.create({
       data: {
@@ -169,7 +182,7 @@ describe('Construction Signboard API Integration Tests', () => {
       },
     });
     await prisma.user.deleteMany({
-      where: { email: 'test-construction-signboard-integration@example.com' },
+      where: { email: { in: [TEST_EMAIL, NO_PERMISSION_EMAIL] } },
     });
 
     const client = redis.getClient();
@@ -241,6 +254,25 @@ describe('Construction Signboard API Integration Tests', () => {
         '/api/construction-signboards/00000000-0000-4000-8000-000000000000'
       );
       expect(res.status).toBe(401);
+    });
+  });
+
+  describe('Authorization - 権限なし403 (REQ 13.3)', () => {
+    it('認証済みだが construction_signboard:read 権限なしの一覧取得は403を返す', async () => {
+      const res = await request(app)
+        .get(`/api/projects/${projectAId}/construction-signboards`)
+        .set('Authorization', `Bearer ${noPermissionToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.required).toBe('construction_signboard:read');
+    });
+
+    it('認証済みだが construction_signboard:create 権限なしの作成は403を返す', async () => {
+      const res = await request(app)
+        .post(`/api/projects/${projectAId}/construction-signboards`)
+        .set('Authorization', `Bearer ${noPermissionToken}`)
+        .send({ workName: '権限なし工事', workLocation: '権限なし場所' });
+      expect(res.status).toBe(403);
+      expect(res.body.required).toBe('construction_signboard:create');
     });
   });
 
