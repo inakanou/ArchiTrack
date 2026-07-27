@@ -30,6 +30,10 @@ import { EstimateService } from '../services/estimate.service.js';
 import { ContractService } from '../services/contract.service.js';
 import { ScheduleService } from '../services/schedule.service.js';
 import { ExecutionBudgetService } from '../services/execution-budget.service.js';
+import {
+  ConstructionPhotoSummaryService,
+  type ConstructionPhotoAlbumSummaryInfo,
+} from '../services/construction-photo-summary.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -83,6 +87,7 @@ const estimateService = new EstimateService({ prisma, auditLogService });
 const contractService = new ContractService({ prisma });
 const scheduleService = new ScheduleService({ prisma });
 const executionBudgetService = new ExecutionBudgetService({ prisma });
+const constructionPhotoSummaryService = new ConstructionPhotoSummaryService({ prisma });
 
 /**
  * 更新リクエストボディ用スキーマ（expectedUpdatedAt必須）
@@ -297,6 +302,7 @@ async function getProjectSections(projectId: string) {
     contractService.findLatestByProjectId(projectId),
     scheduleService.findLatestByProjectId(projectId),
     executionBudgetService.getSummaryByProjectId(projectId),
+    constructionPhotoSummaryService.findLatestByProjectId(projectId),
   ]);
 
   // 現場調査セクションの取得結果
@@ -354,6 +360,44 @@ async function getProjectSections(projectId: string) {
     }
   }
 
+  // 工事写真セクションの取得結果（allSettled 失敗時はフォールバック）
+  const constructionPhotosResult =
+    results[8].status === 'fulfilled' ? results[8].value : { totalCount: 0, latestAlbums: [] };
+
+  // 代表サムネのストレージパスを署名付きURLへ変換（site-surveys と同一パターン）
+  let enrichedAlbums = constructionPhotosResult.latestAlbums.map(
+    (album: ConstructionPhotoAlbumSummaryInfo) => ({
+      ...album,
+      thumbnailUrl: null as string | null,
+    })
+  );
+  if (isStorageConfigured()) {
+    const storageProvider = getStorageProvider();
+    if (storageProvider) {
+      enrichedAlbums = await Promise.all(
+        constructionPhotosResult.latestAlbums.map(
+          async (album: ConstructionPhotoAlbumSummaryInfo) => {
+            let thumbnailUrl: string | null = null;
+            if (album.thumbnailUrl) {
+              try {
+                thumbnailUrl = await storageProvider.getSignedUrl(album.thumbnailUrl);
+              } catch (error) {
+                logger.warn(
+                  { albumId: album.id, thumbnailPath: album.thumbnailUrl, error },
+                  'Failed to generate signed URL for construction photo thumbnail'
+                );
+              }
+            }
+            return {
+              ...album,
+              thumbnailUrl,
+            };
+          }
+        )
+      );
+    }
+  }
+
   return {
     siteSurveys: {
       totalCount: siteSurveysResult.totalCount,
@@ -379,6 +423,10 @@ async function getProjectSections(projectId: string) {
     schedules:
       results[6].status === 'fulfilled' ? results[6].value : { totalCount: 0, latestSchedules: [] },
     executionBudget: results[7].status === 'fulfilled' ? results[7].value : null,
+    constructionPhotos: {
+      totalCount: constructionPhotosResult.totalCount,
+      latestAlbums: enrichedAlbums,
+    },
   };
 }
 

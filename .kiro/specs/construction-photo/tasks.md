@@ -68,7 +68,7 @@
   - _Boundary: SignboardCompositeService, ConstructionPhotoImageService_
 
 - [ ] 4. Integration: プロジェクトサマリ
-- [ ] 4.1 (P) detail-summary に工事写真セクションを追加
+- [x] 4.1 (P) detail-summary に工事写真セクションを追加
   - `ConstructionPhotoSummaryService.findLatestByProjectId` を用意し、`constructionPhotos: {totalCount, latest...}` を既存セクションと同型で `allSettled` に組み込む
   - 完了: プロジェクト詳細サマリAPIに `constructionPhotos` が含まれる
   - _Depends: 2.1_
