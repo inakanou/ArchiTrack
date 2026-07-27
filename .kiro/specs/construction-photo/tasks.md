@@ -1,0 +1,155 @@
+# Implementation Plan
+
+- [ ] 1. Foundation: データモデル・権限・共有型
+- [ ] 1.1 Prisma に3モデルを追加しマイグレーションを作成
+  - `ConstructionPhotoAlbum` / `ConstructionPhoto` / `ConstructionSignboard` を既存規約（uuid・`@@map` snake_case・`@@index`）で定義
+  - `signboardId` は nullable ＋ `onDelete: SetNull`、`albumId`/`projectId` は `onDelete: Cascade`、`displayOrder`/`comment`/`includeInReport`/`deletedAt` を配置
+  - `signboardPlacement Json?`、`sourceSurveyImageId String?`（FKにはしない）、`ConstructionSignboard` に `workName`/`workLocation`/`freeItems Json`/`footerText String?`
+  - 完了: `prisma migrate` で3テーブルが作成され `prisma generate` が成功する
+  - _Requirements: 1.1, 8.1, 9.1_
+- [ ] 1.2 RBAC 権限の定義とロール割当シード
+  - `construction_photo:{create,read,update,delete}`、`construction_signboard:{create,read,update,delete}` を権限定義に追加
+  - 既存ロールへ付与するシード/マイグレーションを用意
+  - 完了: 付与ロールは操作でき、未付与ユーザーは403になる
+  - _Requirements: 13.1, 13.3_
+- [ ] 1.3 共有型とバリデーションスキーマ
+  - DTO・`SignboardPlacement`・`SignboardFreeItem`、アップロード制約（最大10件/10MB/許可形式）、コメント最大2000、`footerText`/`freeItems` の長さ制限を定義
+  - 完了: 不正形式・サイズ・件数・長さ超過を境界スキーマで拒否できる
+  - _Requirements: 7.2, 8.3, 12.1, 12.2, 12.4_
+
+- [ ] 2. Core: アルバム・写真バックエンド
+- [ ] 2.1 (P) アルバムCRUD・一覧サービス＋ルート
+  - 二重マウント、ページ最大50、名称検索・作成日/更新日ソート、楽観的排他（`updatedAt`）、論理削除
+  - 取得系は対象が要求プロジェクト配下であることをサービスで検証
+  - 完了: 一覧が50件ページングで返り、作成/更新/削除/取得が動作し、他プロジェクトのアルバムは取得できない
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 3.1, 3.3, 3.4, 11.1, 13.2_
+  - _Boundary: ConstructionPhotoAlbumService_
+- [ ] 2.2 写真アップロード（ローカル/カメラ）サービス＋ルート
+  - multer 最大10件/10MB、sharp で圧縮・寸法取得・サムネ生成、末尾 `displayOrder`、マジックバイト検証、部分失敗は成功分維持
+  - 完了: multipart で複数画像を写真項目として登録・サムネ生成し、不正形式/超過を拒否する
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 12.3, 12.5_
+  - _Boundary: ConstructionPhotoImageService_
+- [ ] 2.3 現調写真コピー機能
+  - `storage.copy` で original＋thumbnail を複製、寸法/サイズは複製元 `SurveyImage` から流用、`sourceSurveyImageId` 記録、site-survey へは書込まない
+  - 完了: 選択した同一プロジェクトの現調写真が独立写真項目として複製され、元の変更・削除の影響を受けない
+  - _Requirements: 6.1, 6.2, 6.3, 6.4_
+  - _Depends: 2.2_
+  - _Boundary: ConstructionPhotoImageService_
+- [ ] 2.4 写真一覧取得（署名URL一括）
+  - `displayOrder` 昇順で全写真＋サムネ/印字画像URLをまとめて返し、写真項目ごとの個別リクエストを発生させない
+  - 取得は対象アルバムが要求プロジェクト配下であることを検証
+  - 完了: 詳細1回のリクエストで全写真項目と署名付きURLを取得できる
+  - _Requirements: 7.8, 11.2, 11.3, 13.2_
+  - _Depends: 2.2_
+  - _Boundary: ConstructionPhotoImageService_
+- [ ] 2.5 メタ一括更新・並び替え・削除
+  - コメント/印刷対象/`signboardId`/`signboardPlacement` のバッチ更新（`displayOrder` 1..n正規化、合成は行わない）＋順序更新＋写真削除（関連ストレージも削除）
+  - 完了: コメント/印刷対象/配置のバッチ＋順序の最大2リクエストで確定し、削除で写真と関連データが消える
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 9.1, 9.5, 11.4, 13.2_
+  - _Depends: 2.4_
+  - _Boundary: ConstructionPhotoMetadataService_
+
+- [ ] 3. Core: 工事看板バックエンド
+- [ ] 3.1 (P) 看板マスタCRUD・一覧サービス＋ルート
+  - プロジェクト単位、工事件名/工事場所＋自由項目行＋固定テキスト、使用中削除は使用件数を返す、当該プロジェクト配下でのみ選択・参照可
+  - 完了: 看板の作成/編集/削除/一覧が動作し、使用中削除で件数>0を返し、他プロジェクトの看板は参照できない
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 8.8, 8.9, 8.10, 13.2_
+  - _Boundary: ConstructionSignboardService_
+- [ ] 3.2 (P) 電子小黒板SVGジェネレータ
+  - 濃緑地・白罫線、上部に工事件名/工事場所＋自由項目行、下部に固定テキスト欄を画像ピクセル座標で描画
+  - 完了: 看板データと配置から画像実寸のSVG文字列を生成する
+  - _Requirements: 8.5, 9.3, 9.4_
+  - _Boundary: SignboardSvgService_
+- [ ] 3.3 看板合成＋印字画像エンドポイント（オンデマンド）
+  - 看板ありは SVG を原本へ sharp composite（指定位置・大きさ）、なしは原本を返す。保存はしない
+  - 完了: 印字画像エンドポイントが看板あり写真に看板を重畳して返し、看板削除済み写真は看板なしとして返す
+  - _Requirements: 9.6, 9.7, 10.8, 10.9_
+  - _Depends: 3.2, 2.2_
+  - _Boundary: SignboardCompositeService, ConstructionPhotoImageService_
+
+- [ ] 4. Integration: プロジェクトサマリ
+- [ ] 4.1 (P) detail-summary に工事写真セクションを追加
+  - `ConstructionPhotoSummaryService.findLatestByProjectId` を用意し、`constructionPhotos: {totalCount, latest...}` を既存セクションと同型で `allSettled` に組み込む
+  - 完了: プロジェクト詳細サマリAPIに `constructionPhotos` が含まれる
+  - _Depends: 2.1_
+  - _Requirements: 2.3_
+  - _Boundary: ConstructionPhotoSummaryService, projects.routes detail-summary_
+
+- [ ] 5. Core: フロントAPIクライアント
+- [ ] 5.1 API クライアントと型の実装
+  - 一覧/CRUD/アップロード/現調コピー/一覧取得/メタ更新/並び替え/看板CRUD/印字画像 の各呼び出しを型付きで用意
+  - 完了: 各エンドポイントを型安全に呼び出せるクライアントが揃う
+  - _Depends: 2.1, 2.5, 3.1, 3.3_
+  - _Requirements: 1.1, 3.1, 4.1, 6.1, 7.1, 8.1_
+
+- [ ] 6. Core: 画面
+- [ ] 6.1 (P) 工事写真一覧画面
+  - 他機能同様のレスポンシブUI（表/カード切替）、検索・ソート・ページング、タイトル「工事写真一覧」、代表サムネ優先表示
+  - 完了: 一覧がデスクトップ表/モバイルカードで表示され、検索・ページングが動作する
+  - _Depends: 5.1_
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 2.4, 11.3_
+  - _Boundary: ConstructionPhotoListPage_
+- [ ] 6.2 (P) アルバム作成/編集画面
+  - 完了: 作成フォーム送信で新規アルバムが作成され一覧に反映される
+  - _Depends: 5.1_
+  - _Requirements: 1.1, 1.3_
+  - _Boundary: ConstructionPhotoCreatePage_
+- [ ] 6.3 詳細画面：写真項目管理＋3系統アップロード
+  - 写真項目パネル（コメント・並び替え・印刷対象チェック、未保存→保存で最大2リクエスト）、3系統アップローダ（ローカル/カメラ/現調選択モーダル）、アップロードは最大5並列・部分失敗継続、サムネ優先表示
+  - 完了: 3系統で写真項目を追加し、並び替え・印刷対象・コメントを1保存操作で確定できる
+  - _Depends: 5.1_
+  - _Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5_
+  - _Boundary: ConstructionPhotoDetailPage_
+- [ ] 6.4 (P) 看板配置エディタ
+  - fabric で写真背景に1枚の緑ボードRectをドラッグ・拡縮し、表示座標を画像ピクセル座標へ換算して保存、看板未指定を許容
+  - 完了: プレビュー上で看板の位置・大きさを指定して保存でき、未指定も可能
+  - _Depends: 5.1_
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
+  - _Boundary: SignboardPlacementEditor_
+- [ ] 6.5 (P) 看板マスタ管理画面
+  - 標準項目＋自由項目行＋固定テキストの登録・編集・削除・一覧、使用中削除は確認ダイアログ、当該プロジェクト配下のみ
+  - 完了: 看板の登録/編集/削除/一覧がUIで完結し、使用中削除時に確認が出る
+  - _Depends: 5.1_
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.8, 8.9, 8.10_
+  - _Boundary: ConstructionSignboardListPage_
+
+- [ ] 7. Integration: ナビ・パネル・ルート
+- [ ] 7.1 ルート登録とブレッドクラム
+  - `routes.tsx` に一覧/詳細/作成/看板の各ルートを site-survey 順序規約で追加、各画面のブレッドクラム表示
+  - 完了: 各URLへ遷移でき、ブレッドクラムが規定の階層表示になる
+  - _Depends: 6.1, 6.2, 6.3, 6.5_
+  - _Requirements: 2.5, 2.6, 2.7, 2.8, 2.9_
+- [ ] 7.2 プロジェクト詳細への工事写真パネル追加
+  - `ScheduleSectionCard`（工程表）の直下に工事写真パネルを挿入、サマリ件数表示と一覧への遷移
+  - 完了: プロジェクト詳細で工程表パネルの直下に工事写真パネルが表示され、一覧へ遷移できる
+  - _Depends: 4.1, 6.1_
+  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [ ] 8. Integration: 台帳PDF
+- [ ] 8.1 台帳版組・表紙・写真ページレンダラ
+  - A4寸法・写真枠/右カラム比率・点線本数・行高を定数化し参考書式に合わせる。表紙（外枠＋「工事写真」＋工事名＋工事施工者[company-info]）、写真ページ（1ページ3枠・左写真/右No.＋点線コメント欄）、No.通し番号、余白枠、日本語フォント
+  - 完了: 表紙付き・1ページ3枠・No.連番の台帳レイアウトが定数化されて描画される
+  - _Depends: 6.3_
+  - _Requirements: 10.2, 10.4, 10.5, 10.6, 10.7, 10.10, 10.11_
+  - _Boundary: ConstructionPhotoLedgerService_
+- [ ] 8.2 PDF出力結線（印字画像・看板重畳・0件通知）
+  - 印刷対象の写真のみを対象に印字画像をオンデマンド取得して重畳、保存順で出力、印刷対象0件は非実行で通知
+  - 完了: 印刷対象のみのPDFが出力され看板あり写真に看板が重畳、0件時は通知して出力しない
+  - _Depends: 3.3, 6.4, 8.1_
+  - _Requirements: 10.1, 10.3, 10.12, 10.13_
+  - _Boundary: ConstructionPhotoLedgerService_
+
+- [ ] 9. Validation: テスト
+- [ ] 9.1 (P) バックエンド単体テスト
+  - 現調コピーの複製・独立性、メタの `displayOrder` 正規化と合成非実行、SVG生成、看板使用中削除の件数返却、印字画像のオンデマンド合成
+  - 完了: 対象サービスの単体テストが緑になる
+  - _Requirements: 6.2, 6.3, 7.6, 8.5, 8.8, 9.5, 10.8_
+- [ ] 9.2 (P) 統合テスト
+  - 画像一覧の一括署名URL（N+1なし）、メタ＋順序が最大2リクエスト、アップロード制約、detail-summary、認可401/403、プロジェクト境界の取得検証
+  - 完了: 統合テストが緑で、リクエスト効率・制約・認可・データ分離を検証する
+  - _Requirements: 2.3, 11.1, 11.2, 11.4, 11.5, 11.6, 12.1, 12.2, 12.3, 12.4, 12.5, 13.1, 13.2, 13.3, 13.4_
+- [ ] 9.3 E2E テスト（Playwright）
+  - パネル遷移（工程表直下）→3系統追加→並び替え→印刷対象→保存、看板配置→PDF出力で表紙/No.連番/看板重畳、印刷対象0件の通知
+  - 完了: 主要ユーザーフローのE2Eが緑になる
+  - _Depends: 7.1, 7.2, 8.2_
+  - _Requirements: 2.1, 2.2, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 10.13_

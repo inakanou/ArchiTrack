@@ -373,7 +373,7 @@ interface SignboardCompositeService {
 }
 ```
 - Preconditions: `signboardPlacement` は画像内に収まる非負矩形。`updateMetadataBatch` は全idが同一アルバムに属すること。
-- Postconditions: `displayOrder` は1..nに正規化。看板指定ありの写真は `compositedPath` が最新化。
+- Postconditions: `displayOrder` は1..nに正規化。看板配置（`signboardId`/`signboardPlacement`）は保持のみ（合成はPDF出力時にオンデマンド）。
 - Invariants: site-survey テーブルへ書込まない。写真配信は署名付きURLのみ。
 
 ### API Contracts
