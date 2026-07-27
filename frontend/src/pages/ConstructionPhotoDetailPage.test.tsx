@@ -18,10 +18,13 @@ import * as albumsApi from '../api/construction-photos';
 import * as imagesApi from '../api/construction-photo-images';
 import * as projectsApi from '../api/projects';
 import * as siteSurveysApi from '../api/site-surveys';
+import * as signboardsApi from '../api/construction-signboards';
 import * as ledgerExportApi from '../services/export/ConstructionPhotoLedgerExportService';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
+  ConstructionSignboard,
+  SignboardPlacement,
 } from '../types/construction-photo.types';
 import type { ProjectDetail } from '../types/project.types';
 
@@ -39,7 +42,29 @@ vi.mock('../api/construction-photos');
 vi.mock('../api/construction-photo-images');
 vi.mock('../api/projects');
 vi.mock('../api/site-surveys');
+vi.mock('../api/construction-signboards');
 vi.mock('../services/export/ConstructionPhotoLedgerExportService');
+
+// fabric を含む配置エディタはスタブ化し、看板選択＋保存の結線契約のみを検証する。
+vi.mock('../components/construction-photos/SignboardPlacementEditor', () => ({
+  default: ({
+    signboard,
+    onSave,
+  }: {
+    signboard: ConstructionSignboard | null;
+    onSave?: (placement: SignboardPlacement | null) => void;
+  }) => (
+    <div data-testid="signboard-placement-editor">
+      <span data-testid="editor-signboard-id">{signboard ? signboard.id : 'none'}</span>
+      <button
+        type="button"
+        onClick={() => onSave?.(signboard ? { left: 1, top: 2, width: 3, height: 4 } : null)}
+      >
+        配置を保存
+      </button>
+    </div>
+  ),
+}));
 
 const mockAlbum: ConstructionPhotoAlbum = {
   id: 'album-1',
@@ -60,6 +85,18 @@ const mockProject: ProjectDetail = {
   tradingPartnerId: 'partner-1',
   tradingPartner: { id: 'partner-1', name: 'テスト取引先', nameKana: 'テスト' },
   salesPerson: { id: 'user-1', displayName: '担当' },
+  createdAt: '2025-01-01T00:00:00.000Z',
+  updatedAt: '2025-01-01T00:00:00.000Z',
+};
+
+const mockSignboard: ConstructionSignboard = {
+  id: 'sb-1',
+  projectId: 'project-1',
+  workName: '基礎配筋工事',
+  workLocation: '東京都渋谷区',
+  freeItems: [],
+  footerText: null,
+  inUseCount: 0,
   createdAt: '2025-01-01T00:00:00.000Z',
   updatedAt: '2025-01-01T00:00:00.000Z',
 };
@@ -101,6 +138,7 @@ describe('ConstructionPhotoDetailPage', () => {
       makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg' }),
       makePhoto({ id: 'photo-2', displayOrder: 2, fileName: 'b.jpg' }),
     ]);
+    vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([mockSignboard]);
   });
 
   it('詳細1リクエストで写真項目を取得しサムネイルを表示する (R7.8, R11.2, R11.3)', async () => {
@@ -274,5 +312,82 @@ describe('ConstructionPhotoDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
 
     expect(await screen.findByText(/印刷対象の写真がありません/)).toBeInTheDocument();
+  });
+
+  it('写真項目の「看板を配置」導線でダイアログが開き看板選択と配置エディタが表示される (R9.1)', async () => {
+    renderPage();
+    const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+    fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+    expect(within(dialog).getByTestId('signboard-placement-editor')).toBeInTheDocument();
+    // プロジェクトの看板一覧が選択肢として並ぶ（未指定を含む）
+    expect(within(dialog).getByRole('option', { name: '未指定' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('option', { name: /基礎配筋工事/ })).toBeInTheDocument();
+  });
+
+  it('看板を選択し配置を保存すると保存でメタバッチに signboardId と placement が含まれる (R9.1, R9.5)', async () => {
+    vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
+
+    renderPage();
+    const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+    fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+    fireEvent.change(within(dialog).getByLabelText('看板を選択'), { target: { value: 'sb-1' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '配置を保存' }));
+
+    // ダイアログが閉じ、未保存状態になる
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /看板を配置/ })).not.toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledTimes(1);
+    });
+    const batchArg = vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mock.calls[0]![0];
+    const update = batchArg.find((u) => u.id === 'photo-1');
+    expect(update).toMatchObject({
+      signboardId: 'sb-1',
+      signboardPlacement: { left: 1, top: 2, width: 3, height: 4 },
+    });
+  });
+
+  it('未指定(None)を選択して保存すると signboardId=null・placement=null で確定する (R9.2)', async () => {
+    vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
+    vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+      makePhoto({
+        id: 'photo-1',
+        displayOrder: 1,
+        fileName: 'a.jpg',
+        signboardId: 'sb-1',
+        signboardPlacement: { left: 10, top: 10, width: 20, height: 20 },
+      }),
+    ]);
+
+    renderPage();
+    const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+    fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+    // 割当済み→未指定へ変更
+    fireEvent.change(within(dialog).getByLabelText('看板を選択'), { target: { value: '' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '配置を保存' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /看板を配置/ })).not.toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledTimes(1);
+    });
+    const batchArg = vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mock.calls[0]![0];
+    const update = batchArg.find((u) => u.id === 'photo-1');
+    expect(update).toMatchObject({ signboardId: null, signboardPlacement: null });
   });
 });

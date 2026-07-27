@@ -30,6 +30,7 @@ import {
   deleteConstructionPhoto,
 } from '../api/construction-photo-images';
 import { getProject } from '../api/projects';
+import { getConstructionSignboards } from '../api/construction-signboards';
 import { ApiError } from '../api/client';
 import { exportConstructionPhotoLedger } from '../services/export/ConstructionPhotoLedgerExportService';
 import { Breadcrumb } from '../components/common';
@@ -39,9 +40,12 @@ import {
   PhotoItemPanel,
   type PhotoMetadataChange,
 } from '../components/construction-photos/PhotoItemPanel';
+import { SignboardAssignDialog } from '../components/construction-photos/SignboardAssignDialog';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
+  ConstructionSignboard,
+  SignboardPlacement,
   BatchUpdatePhotoMetadataItem,
   PhotoOrderItem,
 } from '../types/construction-photo.types';
@@ -173,6 +177,11 @@ export default function ConstructionPhotoDetailPage() {
   const [album, setAlbum] = useState<ConstructionPhotoAlbum | null>(null);
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [photos, setPhotos] = useState<ConstructionPhotoWithUrls[]>([]);
+  const [signboards, setSignboards] = useState<ConstructionSignboard[]>([]);
+
+  // 看板配置ダイアログの対象写真項目（null=閉）
+  const [assignTargetPhoto, setAssignTargetPhoto] =
+    useState<ConstructionPhotoWithUrls | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -201,9 +210,10 @@ export default function ConstructionPhotoDetailPage() {
       const albumData = await getConstructionPhotoAlbum(id);
       setAlbum(albumData);
 
-      const [photosResult, projectResult] = await Promise.allSettled([
+      const [photosResult, projectResult, signboardsResult] = await Promise.allSettled([
         getConstructionPhotos(id),
         getProject(albumData.projectId),
+        getConstructionSignboards(albumData.projectId),
       ]);
 
       if (photosResult.status === 'fulfilled') {
@@ -214,6 +224,9 @@ export default function ConstructionPhotoDetailPage() {
 
       // プロジェクト取得失敗はブレッドクラムのみに影響するため致命的ではない
       setProject(projectResult.status === 'fulfilled' ? projectResult.value : null);
+
+      // 看板一覧取得失敗は配置ダイアログの選択肢のみに影響するため致命的ではない
+      setSignboards(signboardsResult.status === 'fulfilled' ? signboardsResult.value : []);
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -259,6 +272,12 @@ export default function ConstructionPhotoDetailPage() {
                 ...(metadata.includeInReport !== undefined && {
                   includeInReport: metadata.includeInReport,
                 }),
+                ...(metadata.signboardId !== undefined && {
+                  signboardId: metadata.signboardId,
+                }),
+                ...(metadata.signboardPlacement !== undefined && {
+                  signboardPlacement: metadata.signboardPlacement,
+                }),
               }
             : p
         )
@@ -269,6 +288,30 @@ export default function ConstructionPhotoDetailPage() {
       setIsDirty(true);
     },
     []
+  );
+
+  /**
+   * 「看板を配置」導線ハンドラ（R9.1）。対象写真項目の配置ダイアログを開く。
+   */
+  const handleAssignSignboard = useCallback((photo: ConstructionPhotoWithUrls) => {
+    setAssignTargetPhoto(photo);
+  }, []);
+
+  /**
+   * 看板配置ダイアログの保存ハンドラ（R9.1, R9.2, R9.5）。
+   * 選択看板ID（未指定は null）と配置ジオメトリ（未指定は null）を、写真項目ごとの
+   * 未保存メタ変更として保持し、既存の保存フロー（メタバッチ）で確定する。
+   */
+  const handleSignboardSave = useCallback(
+    (signboardId: string | null, placement: SignboardPlacement | null) => {
+      if (!assignTargetPhoto) return;
+      handleMetadataChange(assignTargetPhoto.id, {
+        signboardId,
+        signboardPlacement: placement,
+      });
+      setAssignTargetPhoto(null);
+    },
+    [assignTargetPhoto, handleMetadataChange]
   );
 
   /**
@@ -454,12 +497,23 @@ export default function ConstructionPhotoDetailPage() {
           onOrderChange={handleOrderChange}
           onSave={handleSave}
           onDelete={handleDelete}
+          onAssignSignboard={handleAssignSignboard}
           isDirty={isDirty}
           isSaving={isSaving}
           isLoading={isLoading}
           showOrderNumbers
         />
       </div>
+
+      {/* 看板配置ダイアログ（R9.1, R9.2, R9.5） */}
+      {assignTargetPhoto && (
+        <SignboardAssignDialog
+          photo={assignTargetPhoto}
+          signboards={signboards}
+          onSave={handleSignboardSave}
+          onClose={() => setAssignTargetPhoto(null)}
+        />
+      )}
 
       <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
     </main>

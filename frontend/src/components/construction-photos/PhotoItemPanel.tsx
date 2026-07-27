@@ -20,16 +20,24 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ConstructionPhotoWithUrls, PhotoOrderItem } from '../../types/construction-photo.types';
+import type {
+  ConstructionPhotoWithUrls,
+  PhotoOrderItem,
+  SignboardPlacement,
+} from '../../types/construction-photo.types';
 
 // ============================================================================
 // 型定義
 // ============================================================================
 
-/** 写真項目メタデータの変更（コメント / 印刷対象） */
+/** 写真項目メタデータの変更（コメント / 印刷対象 / 看板配置） */
 export interface PhotoMetadataChange {
   comment?: string | null;
   includeInReport?: boolean;
+  /** 関連付ける工事看板ID（null で解除, R9.1, R9.2） */
+  signboardId?: string | null;
+  /** 看板配置ジオメトリ（null でクリア, R9.5） */
+  signboardPlacement?: SignboardPlacement | null;
 }
 
 export interface PhotoItemPanelProps {
@@ -57,6 +65,8 @@ export interface PhotoItemPanelProps {
   onDelete?: (photoId: string) => Promise<void>;
   /** 上下移動ボタンを表示するか */
   showOrderButtons?: boolean;
+  /** 「看板を配置」導線のハンドラ（対象写真項目を渡す, R9.1） */
+  onAssignSignboard?: (photo: ConstructionPhotoWithUrls) => void;
 }
 
 // ============================================================================
@@ -281,6 +291,22 @@ const styles = {
     fontSize: '12px',
     color: '#ef4444',
   } as React.CSSProperties,
+  actionRow: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  assignSignboardButton: {
+    alignSelf: 'flex-start',
+    padding: '4px 8px',
+    fontSize: '12px',
+    fontWeight: 500,
+    borderRadius: '4px',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#065f46',
+    border: '1px solid #065f46',
+  } as React.CSSProperties,
   deleteButton: {
     alignSelf: 'flex-start',
     padding: '4px 8px',
@@ -393,6 +419,7 @@ interface PhotoItemProps {
   onDeleteClick?: (photoId: string) => void;
   onMoveUp?: (photoId: string) => void;
   onMoveDown?: (photoId: string) => void;
+  onAssignSignboard?: (photo: ConstructionPhotoWithUrls) => void;
 }
 
 function PhotoItem({
@@ -415,6 +442,7 @@ function PhotoItem({
   onDeleteClick,
   onMoveUp,
   onMoveDown,
+  onAssignSignboard,
 }: PhotoItemProps) {
   const [comment, setComment] = useState(photo.comment ?? '');
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -642,16 +670,33 @@ function PhotoItem({
           )}
         </div>
 
-        {/* 削除ボタン（R7.7） */}
-        {onDeleteClick && !readOnly && (
-          <button
-            type="button"
-            onClick={() => onDeleteClick(photo.id)}
-            style={styles.deleteButton}
-            aria-label={`写真項目を削除: ${photo.fileName}`}
-          >
-            削除
-          </button>
+        {/* アクション（看板配置 / 削除） */}
+        {!readOnly && (onAssignSignboard || onDeleteClick) && (
+          <div style={styles.actionRow}>
+            {/* 看板を配置（R9.1, R9.5） */}
+            {onAssignSignboard && (
+              <button
+                type="button"
+                onClick={() => onAssignSignboard(photo)}
+                style={styles.assignSignboardButton}
+                aria-label={`看板を配置: ${photo.fileName}`}
+              >
+                {photo.signboardId ? '看板を変更' : '看板を配置'}
+              </button>
+            )}
+
+            {/* 削除ボタン（R7.7） */}
+            {onDeleteClick && (
+              <button
+                type="button"
+                onClick={() => onDeleteClick(photo.id)}
+                style={styles.deleteButton}
+                aria-label={`写真項目を削除: ${photo.fileName}`}
+              >
+                削除
+              </button>
+            )}
+          </div>
         )}
       </div>
     </article>
@@ -678,6 +723,7 @@ export function PhotoItemPanel({
   isSaving = false,
   onDelete,
   showOrderButtons = true,
+  onAssignSignboard,
 }: PhotoItemPanelProps) {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -887,6 +933,7 @@ export function PhotoItemPanel({
             onDeleteClick={onDelete ? handleDeleteClick : undefined}
             onMoveUp={showOrderButtons && onOrderChange ? handleMoveUp : undefined}
             onMoveDown={showOrderButtons && onOrderChange ? handleMoveDown : undefined}
+            onAssignSignboard={onAssignSignboard}
           />
         ))}
       </div>

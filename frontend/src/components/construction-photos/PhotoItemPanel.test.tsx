@@ -146,10 +146,23 @@ describe('PhotoItemPanel', () => {
     expect(items[1]).toHaveAttribute('data-photo-id', 'p2');
   });
 
-  it('看板が指定されている写真項目は識別可能に表示する (R9.6 プレースホルダ)', () => {
+  it('看板が指定されている写真項目は識別可能に表示する (R9.6)', () => {
     const photos = [makePhoto({ id: 'p1', signboardId: 'sb-1' })];
     render(<PhotoItemPanel photos={photos} onPhotoMetadataChange={vi.fn()} />);
     expect(screen.getByTestId('signboard-indicator')).toBeInTheDocument();
+  });
+
+  it('「看板を配置」ボタンで onAssignSignboard が対象写真とともに呼ばれる (R9.1)', () => {
+    const onAssign = vi.fn();
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onAssignSignboard={onAssign}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /看板を配置/ }));
+    expect(onAssign).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
   });
 
   afterEach(() => {
