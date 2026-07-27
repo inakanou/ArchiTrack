@@ -18,7 +18,7 @@
   - _Requirements: 7.2, 8.3, 12.1, 12.2, 12.4_
 
 - [ ] 2. Core: アルバム・写真バックエンド
-- [ ] 2.1 (P) アルバムCRUD・一覧サービス＋ルート
+- [x] 2.1 (P) アルバムCRUD・一覧サービス＋ルート
   - 二重マウント、ページ最大50、名称検索・作成日/更新日ソート、楽観的排他（`updatedAt`）、論理削除
   - 取得系は対象が要求プロジェクト配下であることをサービスで検証
   - 完了: 一覧が50件ページングで返り、作成/更新/削除/取得が動作し、他プロジェクトのアルバムは取得できない
@@ -157,3 +157,4 @@
 ## Implementation Notes
 - 環境: dev Docker の backend/frontend entrypoint が名前付き node_modules ボリュームへ `npm ci` を npm10.9.7 で実行し @emnapi ドリフトで起動失敗。対処＝ボリュームを `npx -y npm@11.6.2 ci` で seed＋`.package-hash` 記録＋frontend は `@rollup/rollup-linux-arm64-gnu` プレースホルダ作成で entrypoint 回避。BE/FE とも起動確認済み。
 - 検証コマンドはコンテナ内で実行: backend=`docker exec architrack-backend-dev npm run <test:unit|test:integration|type-check|prisma:migrate>`、frontend=`docker exec architrack-frontend-dev npm run <test|type-check|build>`。DB は architrack_dev(postgres:5432、既存30マイグレーション適用済み)。
+- 統合テスト: `npm run test:integration` は global-setup が `architrack_test`(password test)を強制するが当環境に無く全滅する。個別統合ファイルは `docker exec -e TEST_DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev architrack-backend-dev npx vitest run <file>` で architrack_dev に対し実行（テストは自己クリーンアップ前提）。
