@@ -10,10 +10,14 @@
  *   - コメント/印刷対象/並び替えを未保存状態で保持し、手動「保存」でメタデータ一括更新＋
  *     表示順序更新の最大2リクエストに束ねて確定（R7.6, R11.4）
  *
- * ルート登録（routes.tsx）・看板配置エディタ（Task 6.4）・PDF出力（Task 8.x）は本タスクの
- * 境界外。5.1 のAPIクライアントを使用する。
+ * ルート登録（routes.tsx）・看板配置エディタ（Task 6.4）は本タスクの境界外。5.1 のAPIクライアントを
+ * 使用する。
  *
- * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5
+ * Task 8.2 追加: 「PDF出力」ボタンを追加し、印刷対象のみ・保存表示順で印字画像をオンデマンド取得して
+ * 台帳PDFを出力する（看板重畳はサーバ委譲、印刷対象0件は非実行で通知）。
+ *
+ * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
+ *   10.1, 10.3, 10.12, 10.13
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -27,6 +31,7 @@ import {
 } from '../api/construction-photo-images';
 import { getProject } from '../api/projects';
 import { ApiError } from '../api/client';
+import { exportConstructionPhotoLedger } from '../services/export/ConstructionPhotoLedgerExportService';
 import { Breadcrumb } from '../components/common';
 import type { BreadcrumbItem } from '../components/common';
 import { PhotoUploader } from '../components/construction-photos/PhotoUploader';
@@ -75,11 +80,33 @@ const styles = {
     border: '1px solid #e5e7eb',
     padding: '24px',
   } as React.CSSProperties,
+  sectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+    gap: '12px',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
   sectionTitle: {
     fontSize: '18px',
     fontWeight: 600,
     color: '#1f2937',
-    marginBottom: '16px',
+    margin: 0,
+  } as React.CSSProperties,
+  exportButton: {
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    border: 'none',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  exportButtonDisabled: {
+    backgroundColor: '#93c5fd',
+    cursor: 'not-allowed',
   } as React.CSSProperties,
   uploaderWrapper: {
     marginBottom: '24px',
@@ -153,6 +180,7 @@ export default function ConstructionPhotoDetailPage() {
 
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // 未保存のメタデータ変更（photoId -> {comment?, includeInReport?}）
   const pendingChangesRef = useRef<Map<string, PhotoMetadataChange>>(new Map());
@@ -297,6 +325,31 @@ export default function ConstructionPhotoDetailPage() {
   }, [id]);
 
   /**
+   * PDF出力ハンドラ（R10.1, R10.3, R10.12, R10.13）
+   *
+   * 印刷対象のみ・保存表示順で印字画像をオンデマンド取得して台帳PDFを出力する。
+   * 看板重畳はサーバの印字画像エンドポイントに委譲する。印刷対象0件は非実行で通知する。
+   */
+  const handleExportPdf = useCallback(async () => {
+    if (!album) return;
+    setNotice(null);
+    setIsExporting(true);
+    try {
+      const result = await exportConstructionPhotoLedger({
+        photos,
+        workName: project?.name ?? album.name,
+      });
+      if (!result.generated) {
+        setNotice('印刷対象の写真がありません。印刷対象を選択してからPDF出力してください。');
+      }
+    } catch (err) {
+      setNotice(err instanceof ApiError ? err.message : 'PDF出力に失敗しました');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [album, project, photos]);
+
+  /**
    * 写真項目削除ハンドラ（R7.7）
    */
   const handleDelete = useCallback(async (photoId: string) => {
@@ -362,7 +415,20 @@ export default function ConstructionPhotoDetailPage() {
       </div>
 
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>写真項目</h2>
+        <div style={styles.sectionHeader}>
+          <h2 style={styles.sectionTitle}>写真項目</h2>
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={isExporting}
+            style={{
+              ...styles.exportButton,
+              ...(isExporting ? styles.exportButtonDisabled : {}),
+            }}
+          >
+            {isExporting ? 'PDF出力中...' : 'PDF出力'}
+          </button>
+        </div>
 
         {/* 通知（部分失敗・保存エラーなど） */}
         {(notice || error) && (

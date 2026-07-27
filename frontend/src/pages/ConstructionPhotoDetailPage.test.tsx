@@ -18,6 +18,7 @@ import * as albumsApi from '../api/construction-photos';
 import * as imagesApi from '../api/construction-photo-images';
 import * as projectsApi from '../api/projects';
 import * as siteSurveysApi from '../api/site-surveys';
+import * as ledgerExportApi from '../services/export/ConstructionPhotoLedgerExportService';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
@@ -38,6 +39,7 @@ vi.mock('../api/construction-photos');
 vi.mock('../api/construction-photo-images');
 vi.mock('../api/projects');
 vi.mock('../api/site-surveys');
+vi.mock('../services/export/ConstructionPhotoLedgerExportService');
 
 const mockAlbum: ConstructionPhotoAlbum = {
   id: 'album-1',
@@ -237,5 +239,40 @@ describe('ConstructionPhotoDetailPage', () => {
       { id: 'photo-2', order: 1 },
       { id: 'photo-1', order: 2 },
     ]);
+  });
+
+  it('PDF出力ボタン押下で台帳PDF出力オーケストレーションが写真項目・工事名で呼ばれる (R10.1)', async () => {
+    vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValue({
+      generated: true,
+      itemCount: 2,
+    });
+
+    renderPage();
+    await screen.findByRole('img', { name: /a\.jpg/ });
+
+    fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+    await waitFor(() => {
+      expect(ledgerExportApi.exportConstructionPhotoLedger).toHaveBeenCalledTimes(1);
+    });
+    const arg = vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mock.calls[0]![0];
+    // 工事名はプロジェクト名（なければアルバム名）
+    expect(arg.workName).toBe('テストプロジェクト');
+    // 全写真項目を渡す（印刷対象フィルタ・順序はサービス側で正規化）
+    expect(arg.photos).toHaveLength(2);
+  });
+
+  it('印刷対象0件のときは通知を表示しPDFを生成しない (R10.13)', async () => {
+    vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValue({
+      generated: false,
+      reason: 'no-printable',
+    });
+
+    renderPage();
+    await screen.findByRole('img', { name: /a\.jpg/ });
+
+    fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+    expect(await screen.findByText(/印刷対象の写真がありません/)).toBeInTheDocument();
   });
 });
