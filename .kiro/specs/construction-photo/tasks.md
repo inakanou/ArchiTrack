@@ -160,3 +160,4 @@
 - 統合テスト: `npm run test:integration` は global-setup が `architrack_test`(password test)を強制するが当環境に無く全滅する。個別統合ファイルは `docker exec -e TEST_DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev architrack-backend-dev npx vitest run <file>` で architrack_dev に対し実行（テストは自己クリーンアップ前提）。
 - 設計リファイン(R8.8, 3.1レビュー由来): 看板の「削除前警告」を成立させるため、看板一覧DTO(findByProject)に各看板の使用件数(inUseCount)を露出する必要がある。現状 delete は即削除して inUseCount を後返しするのみ。task 6.5(看板管理UI)の前に、看板サービスの一覧に inUseCount を含める小改修を 6.5 と併せて実施する。
 - 追補(R3.5/11.3, 6.1レビュー由来・要最終検証前対応): アルバム一覧APIが代表サムネURLを返さないため一覧のサムネが常にプレースホルダ。バックエンド(2.1域)の ConstructionPhotoAlbumDto/toDto/list に代表画像(先頭ConstructionPhoto.thumbnailPath)のTTL900s署名URLを追加し、フロント ConstructionPhotoAlbum 型へ伝播する小改修が必要。6.1の描画パスは前方互換で対応済み。
+- 追補(R3.5/R8.8)対応済み: アルバム一覧に代表サムネ署名URL(TTL900s)、看板一覧に inUseCount(groupBy・N+1なし)を追加し、フロント型へ伝播。BE単体60/統合39・FE型緑、追加のみ非破壊(独立レビューAPPROVED)。6.5はこの inUseCount を用いて削除前確認を実装可能。

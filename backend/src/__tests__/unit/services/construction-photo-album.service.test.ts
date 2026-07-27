@@ -456,5 +456,43 @@ describe('ConstructionPhotoAlbumService', () => {
       expect(result.data).toHaveLength(0);
       expect(result.pagination.total).toBe(0);
     });
+
+    it('代表写真（displayOrder昇順先頭）のサムネイルパスを thumbnailUrl として返す（Requirements: 3.5, 11.3）', async () => {
+      const albumsWithPhotos = [
+        {
+          ...mockAlbum,
+          id: 'album-with',
+          photos: [{ thumbnailPath: 'construction-photos/album-with/thumb-0.jpg' }],
+        },
+        { ...mockAlbum, id: 'album-empty', photos: [] },
+      ];
+      mockPrisma.constructionPhotoAlbum.findMany = vi.fn().mockResolvedValue(albumsWithPhotos);
+      mockPrisma.constructionPhotoAlbum.count = vi.fn().mockResolvedValue(2);
+
+      const result = await service.findByProject('project-123', {});
+
+      // 代表写真ありは代表サムネのストレージパス（ルートで署名付きURL化される）
+      expect(result.data[0]!.thumbnailUrl).toBe('construction-photos/album-with/thumb-0.jpg');
+      // 写真なしは null
+      expect(result.data[1]!.thumbnailUrl).toBeNull();
+    });
+
+    it('代表写真取得のため photos を displayOrder 昇順・先頭1件で include する（Requirements: 3.5）', async () => {
+      mockPrisma.constructionPhotoAlbum.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.constructionPhotoAlbum.count = vi.fn().mockResolvedValue(0);
+
+      await service.findByProject('project-123', {});
+
+      expect(mockPrisma.constructionPhotoAlbum.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            photos: expect.objectContaining({
+              orderBy: { displayOrder: 'asc' },
+              take: 1,
+            }),
+          }),
+        })
+      );
+    });
   });
 });

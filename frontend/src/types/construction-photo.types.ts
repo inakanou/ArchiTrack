@@ -57,6 +57,12 @@ export interface ConstructionPhotoAlbum {
   projectId: string;
   name: string;
   memo: string | null;
+  /**
+   * 代表サムネイルの表示用署名付きURL（一覧のサムネ優先表示）。
+   * 代表写真なし・ストレージ未設定・署名失敗時は null。
+   * Requirements: 3.5, 11.3
+   */
+  thumbnailUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -77,6 +83,11 @@ export interface ConstructionSignboard {
   freeItems: SignboardFreeItem[];
   /** 下部記入欄の固定テキスト（複数行可） */
   footerText: string | null;
+  /**
+   * 当該看板を参照している写真項目の件数（使用中削除の確認に用いる）。未使用=0。
+   * Requirements: 8.8
+   */
+  inUseCount: number;
   createdAt: string;
   updatedAt: string;
 }

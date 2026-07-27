@@ -169,6 +169,11 @@ interface AlbumRecord {
   memo: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * 代表サムネ用に include した先頭写真（displayOrder昇順・最大1件）。
+   * 一覧取得（findByProject）でのみ付与され、詳細/作成/更新では未指定（=代表なし扱い）。
+   */
+  photos?: { thumbnailPath: string }[];
 }
 
 /**
@@ -384,7 +389,20 @@ export class ConstructionPhotoAlbumService {
     const skip = (page - 1) * limit;
 
     const [albums, total] = await Promise.all([
-      this.prisma.constructionPhotoAlbum.findMany({ where, orderBy, skip, take: limit }),
+      this.prisma.constructionPhotoAlbum.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        // 代表サムネ用に先頭写真（displayOrder昇順の1件）のみ取得する（Requirements: 3.5, 11.3）
+        include: {
+          photos: {
+            orderBy: { displayOrder: 'asc' },
+            take: 1,
+            select: { thumbnailPath: true },
+          },
+        },
+      }),
       this.prisma.constructionPhotoAlbum.count({ where }),
     ]);
 
@@ -400,11 +418,15 @@ export class ConstructionPhotoAlbumService {
    * DBレコードをDTOへ変換する（createdAt/updatedAt を ISO 文字列化）
    */
   private toDto(album: AlbumRecord): ConstructionPhotoAlbumDto {
+    // 代表写真（displayOrder昇順の先頭）のサムネイルパス。ルート層で署名付きURL化される。
+    // 一覧以外（詳細/作成/更新）は photos 未指定のため null（Requirements: 3.5, 11.3）
+    const representative = album.photos?.[0];
     return {
       id: album.id,
       projectId: album.projectId,
       name: album.name,
       memo: album.memo,
+      thumbnailUrl: representative ? representative.thumbnailPath : null,
       createdAt: album.createdAt.toISOString(),
       updatedAt: album.updatedAt.toISOString(),
     };

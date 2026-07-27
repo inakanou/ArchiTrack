@@ -132,6 +132,7 @@ const signboard: ConstructionSignboard = {
   workLocation: '工事場所',
   freeItems: [],
   footerText: null,
+  inUseCount: 0,
   createdAt: '2026-07-27T00:00:00.000Z',
   updatedAt: '2026-07-27T00:00:00.000Z',
 };

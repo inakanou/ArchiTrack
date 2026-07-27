@@ -37,6 +37,7 @@ const baseSignboard: ConstructionSignboardDto = {
     { label: '工種', value: '内装仕上' },
   ],
   footerText: '一階ロビー\n天井ボード張替',
+  inUseCount: 0,
   createdAt: '2026-07-27T00:00:00.000Z',
   updatedAt: '2026-07-27T00:00:00.000Z',
 };

@@ -325,13 +325,32 @@ export class ConstructionSignboardService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return signboards.map((signboard) => this.toDto(signboard));
+    // 各看板の使用件数（当該看板を参照する写真項目の件数）を1クエリで集計する。
+    // 看板ごとに count するとN+1になるため groupBy で一括集計する（Requirements: 8.8）
+    const inUseCountMap = new Map<string, number>();
+    if (signboards.length > 0) {
+      const grouped = await this.prisma.constructionPhoto.groupBy({
+        by: ['signboardId'],
+        where: { signboardId: { in: signboards.map((s) => s.id) } },
+        _count: { _all: true },
+      });
+      for (const row of grouped) {
+        if (row.signboardId !== null) {
+          inUseCountMap.set(row.signboardId, row._count._all);
+        }
+      }
+    }
+
+    return signboards.map((signboard) => this.toDto(signboard, inUseCountMap.get(signboard.id) ?? 0));
   }
 
   /**
-   * DBレコードをDTOへ変換する（createdAt/updatedAt を ISO 文字列化、freeItems を型付け）
+   * DBレコードをDTOへ変換する（createdAt/updatedAt を ISO 文字列化、freeItems を型付け）。
+   *
+   * inUseCount は当該看板を参照する写真項目の件数。一覧（findByProject）が集計値を渡す。
+   * 作成・更新の応答では既定 0（新規は0、更新の使用件数はリスト/削除応答で取得する）。
    */
-  private toDto(signboard: SignboardRecord): ConstructionSignboardDto {
+  private toDto(signboard: SignboardRecord, inUseCount = 0): ConstructionSignboardDto {
     return {
       id: signboard.id,
       projectId: signboard.projectId,
@@ -339,6 +358,7 @@ export class ConstructionSignboardService {
       workLocation: signboard.workLocation,
       freeItems: (signboard.freeItems ?? []) as unknown as SignboardFreeItem[],
       footerText: signboard.footerText,
+      inUseCount,
       createdAt: signboard.createdAt.toISOString(),
       updatedAt: signboard.updatedAt.toISOString(),
     };

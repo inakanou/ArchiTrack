@@ -28,6 +28,7 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import logger from '../utils/logger.js';
 import {
   createConstructionPhotoAlbumSchema,
@@ -42,6 +43,11 @@ import {
 const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
 const albumService = new ConstructionPhotoAlbumService({ prisma });
+
+/**
+ * 代表サムネイルの署名付きURL有効期限（秒）。Requirements: 11.3, 11.6
+ */
+const SIGNED_URL_EXPIRES_IN = 900;
 
 /**
  * @swagger
@@ -191,6 +197,31 @@ router.get(
         sort,
         order,
       });
+
+      // 代表サムネのストレージパスをTTL900sの署名付きURLへ変換する（Requirements: 3.5, 11.3）。
+      // detail-summary（projects.routes.ts）の署名パターンに倣う。ストレージ未設定・署名失敗・
+      // 代表写真なしのときは null にし、原パスを露出しない。
+      const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
+      result.data = await Promise.all(
+        result.data.map(async (album) => {
+          const thumbnailPath = album.thumbnailUrl;
+          if (!thumbnailPath || !storageProvider) {
+            return { ...album, thumbnailUrl: null };
+          }
+          try {
+            const signedUrl = await storageProvider.getSignedUrl(thumbnailPath, {
+              expiresIn: SIGNED_URL_EXPIRES_IN,
+            });
+            return { ...album, thumbnailUrl: signedUrl };
+          } catch (error) {
+            logger.warn(
+              { albumId: album.id, thumbnailPath, error },
+              'Failed to generate signed URL for construction photo album thumbnail'
+            );
+            return { ...album, thumbnailUrl: null };
+          }
+        })
+      );
 
       logger.debug(
         { userId: req.user?.userId, projectId, page, limit, total: result.pagination.total },

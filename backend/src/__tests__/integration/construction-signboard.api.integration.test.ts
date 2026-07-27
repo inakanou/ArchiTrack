@@ -397,6 +397,31 @@ describe('Construction Signboard API Integration Tests', () => {
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body).toHaveLength(2);
     });
+
+    it('各看板の inUseCount を返す（未使用=0, 参照写真あり=件数）（REQ 8.8）', async () => {
+      const used = await request(app)
+        .post(`/api/projects/${projectAId}/construction-signboards`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ workName: '使用中看板', workLocation: '場所' });
+      const unused = await request(app)
+        .post(`/api/projects/${projectAId}/construction-signboards`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ workName: '未使用看板', workLocation: '場所' });
+
+      // used 看板を参照する写真項目を2件作成
+      await createPhotoUsingSignboard(used.body.id);
+      await createPhotoUsingSignboard(used.body.id);
+
+      const res = await request(app)
+        .get(`/api/projects/${projectAId}/construction-signboards`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(200);
+      const usedItem = res.body.find((s: { id: string }) => s.id === used.body.id);
+      const unusedItem = res.body.find((s: { id: string }) => s.id === unused.body.id);
+      expect(usedItem.inUseCount).toBe(2);
+      expect(unusedItem.inUseCount).toBe(0);
+    });
   });
 
   describe('プロジェクト境界・データ分離（REQ 8.9, 13.2）', () => {

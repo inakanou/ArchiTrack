@@ -55,6 +55,7 @@ describe('construction-signboards API client', () => {
     workLocation: '東京都千代田区',
     freeItems: [{ label: '天候', value: '晴' }],
     footerText: '施工者: 山田',
+    inUseCount: 0,
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-02T00:00:00.000Z',
   };

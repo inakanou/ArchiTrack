@@ -42,6 +42,7 @@ function createMockPrisma() {
     },
     constructionPhoto: {
       count: vi.fn(),
+      groupBy: vi.fn(),
     },
     $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) =>
       fn({
@@ -418,6 +419,7 @@ describe('ConstructionSignboardService', () => {
 
     it('当該プロジェクトの看板一覧を取得する（Requirements: 8.10）', async () => {
       mockPrisma.constructionSignboard.findMany = vi.fn().mockResolvedValue(mockSignboards);
+      mockPrisma.constructionPhoto.groupBy = vi.fn().mockResolvedValue([]);
 
       const result = await service.findByProject('project-123');
 
@@ -428,6 +430,7 @@ describe('ConstructionSignboardService', () => {
 
     it('論理削除済みを除外し、プロジェクトIDで絞り込む（Requirements: 8.9, 13.2）', async () => {
       mockPrisma.constructionSignboard.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.constructionPhoto.groupBy = vi.fn().mockResolvedValue([]);
 
       await service.findByProject('project-abc');
 
@@ -440,6 +443,7 @@ describe('ConstructionSignboardService', () => {
 
     it('他プロジェクトの看板は一覧に含まれない（Requirements: 8.9, 13.2）', async () => {
       mockPrisma.constructionSignboard.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.constructionPhoto.groupBy = vi.fn().mockResolvedValue([]);
 
       const result = await service.findByProject('project-other');
 
@@ -448,6 +452,7 @@ describe('ConstructionSignboardService', () => {
 
     it('freeItemsをDTOへそのまま反映する（Requirements: 8.3）', async () => {
       mockPrisma.constructionSignboard.findMany = vi.fn().mockResolvedValue([mockSignboard]);
+      mockPrisma.constructionPhoto.groupBy = vi.fn().mockResolvedValue([]);
 
       const result = await service.findByProject('project-123');
 
@@ -455,6 +460,48 @@ describe('ConstructionSignboardService', () => {
         { label: '天候', value: '晴れ' },
         { label: '施工者', value: '△△建設' },
       ]);
+    });
+
+    it('各看板の inUseCount を返す（未使用=0, 参照写真あり=件数）（Requirements: 8.8）', async () => {
+      mockPrisma.constructionSignboard.findMany = vi.fn().mockResolvedValue(mockSignboards);
+      // signboard-001 は写真3件参照、signboard-002 は未使用
+      mockPrisma.constructionPhoto.groupBy = vi
+        .fn()
+        .mockResolvedValue([{ signboardId: 'signboard-001', _count: { _all: 3 } }]);
+
+      const result = await service.findByProject('project-123');
+
+      expect(result[0]!.inUseCount).toBe(3);
+      expect(result[1]!.inUseCount).toBe(0);
+    });
+
+    it('inUseCount 集計は groupBy 1クエリで行う（N+1回避）（Requirements: 8.8）', async () => {
+      mockPrisma.constructionSignboard.findMany = vi.fn().mockResolvedValue(mockSignboards);
+      const groupByMock = vi.fn().mockResolvedValue([]);
+      mockPrisma.constructionPhoto.groupBy = groupByMock;
+
+      await service.findByProject('project-123');
+
+      expect(groupByMock).toHaveBeenCalledTimes(1);
+      expect(groupByMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          by: ['signboardId'],
+          where: expect.objectContaining({
+            signboardId: { in: ['signboard-001', 'signboard-002'] },
+          }),
+        })
+      );
+    });
+
+    it('看板が0件のときは inUseCount 集計クエリを発行しない（Requirements: 8.8）', async () => {
+      mockPrisma.constructionSignboard.findMany = vi.fn().mockResolvedValue([]);
+      const groupByMock = vi.fn().mockResolvedValue([]);
+      mockPrisma.constructionPhoto.groupBy = groupByMock;
+
+      const result = await service.findByProject('project-empty');
+
+      expect(result).toHaveLength(0);
+      expect(groupByMock).not.toHaveBeenCalled();
     });
   });
 });

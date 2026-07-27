@@ -540,6 +540,8 @@ export class ConstructionPhotoImageService {
       workLocation: signboard.workLocation,
       freeItems: (signboard.freeItems ?? []) as unknown as SignboardFreeItem[],
       footerText: signboard.footerText,
+      // 印字合成では未使用（DTO契約上の必須項目）。使用件数は一覧/削除でのみ意味を持つ
+      inUseCount: 0,
       createdAt: signboard.createdAt.toISOString(),
       updatedAt: signboard.updatedAt.toISOString(),
     };

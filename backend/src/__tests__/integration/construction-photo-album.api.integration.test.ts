@@ -391,6 +391,65 @@ describe('Construction Photo Album API Integration Tests', () => {
     });
   });
 
+  describe('代表サムネイル署名URL（REQ 3.5, 11.3）', () => {
+    it('代表写真ありのアルバムは thumbnailUrl に署名付きサムネURLを返す', async () => {
+      const album = await prisma.constructionPhotoAlbum.create({
+        data: { projectId: projectAId, name: '代表サムネあり' },
+      });
+      // displayOrder 0 が代表（昇順先頭）
+      await prisma.constructionPhoto.createMany({
+        data: [
+          {
+            albumId: album.id,
+            originalPath: 'construction-photos/rep/orig-0.jpg',
+            thumbnailPath: 'construction-photos/rep/thumb-0.jpg',
+            fileName: 'photo-0.jpg',
+            fileSize: 111,
+            width: 800,
+            height: 600,
+            displayOrder: 0,
+          },
+          {
+            albumId: album.id,
+            originalPath: 'construction-photos/rep/orig-1.jpg',
+            thumbnailPath: 'construction-photos/rep/thumb-1.jpg',
+            fileName: 'photo-1.jpg',
+            fileSize: 222,
+            width: 800,
+            height: 600,
+            displayOrder: 1,
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .get(`/api/projects/${projectAId}/construction-photos`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(200);
+      const item = res.body.data.find((a: { id: string }) => a.id === album.id);
+      expect(item).toBeDefined();
+      expect(typeof item.thumbnailUrl).toBe('string');
+      // 代表（displayOrder 0）のサムネパスが署名対象になっている
+      expect(item.thumbnailUrl).toContain('construction-photos/rep/thumb-0.jpg');
+    });
+
+    it('写真なしのアルバムは thumbnailUrl が null', async () => {
+      const album = await prisma.constructionPhotoAlbum.create({
+        data: { projectId: projectAId, name: '代表サムネなし' },
+      });
+
+      const res = await request(app)
+        .get(`/api/projects/${projectAId}/construction-photos`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(200);
+      const item = res.body.data.find((a: { id: string }) => a.id === album.id);
+      expect(item).toBeDefined();
+      expect(item.thumbnailUrl).toBeNull();
+    });
+  });
+
   describe('プロジェクト境界・データ分離（REQ 13.2）', () => {
     it('他プロジェクトのアルバムは一覧に含まれない', async () => {
       await prisma.constructionPhotoAlbum.create({

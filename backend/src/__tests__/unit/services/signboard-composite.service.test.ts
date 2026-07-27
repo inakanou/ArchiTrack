@@ -34,6 +34,7 @@ function signboard(overrides: Partial<ConstructionSignboardDto> = {}): Construct
     workLocation: '東京都千代田区',
     freeItems: [{ label: '施工者', value: '株式会社アークン' }],
     footerText: '施工状況',
+    inUseCount: 0,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
     ...overrides,
