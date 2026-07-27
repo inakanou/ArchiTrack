@@ -42,7 +42,7 @@
   - _Requirements: 7.8, 11.2, 11.3, 13.2_
   - _Depends: 2.2_
   - _Boundary: ConstructionPhotoImageService_
-- [ ] 2.5 メタ一括更新・並び替え・削除
+- [x] 2.5 メタ一括更新・並び替え・削除
   - コメント/印刷対象/`signboardId`/`signboardPlacement` のバッチ更新（`displayOrder` 1..n正規化、合成は行わない）＋順序更新＋写真削除（関連ストレージも削除）
   - 完了: コメント/印刷対象/配置のバッチ＋順序の最大2リクエストで確定し、削除で写真と関連データが消える
   - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 9.1, 9.5, 11.4, 13.2_

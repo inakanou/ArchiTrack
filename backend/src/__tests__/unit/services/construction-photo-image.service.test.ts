@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   ConstructionPhotoImageService,
   SurveyImageCopyNotAllowedError,
+  ConstructionPhotoNotFoundError,
   type ConstructionPhotoImageServiceDependencies,
   type ConstructionPhotoUploadFile,
 } from '../../../services/construction-photo-image.service.js';
@@ -76,7 +77,7 @@ function createMockStorage() {
     type: 'local' as const,
     upload: vi.fn().mockResolvedValue({ key: 'k', size: 1 }),
     get: vi.fn(),
-    delete: vi.fn(),
+    delete: vi.fn().mockResolvedValue(undefined),
     copy: vi.fn(),
     exists: vi.fn(),
     getSignedUrl: vi.fn().mockResolvedValue('https://signed.example/thumb.jpg'),
@@ -786,5 +787,128 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
 
     const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
     expect(result).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// Task 2.5: 写真項目の削除（delete）
+//
+// Requirements:
+// - 7.7: 写真項目と関連する看板配置データを削除する（配置は行のカラムのため行削除で消える）
+// - 9.5: 保持のみ（削除では合成物は存在しない=オンデマンドのため）
+// - 13.2: 対象アルバムがアクセス可能なプロジェクト配下であることを検証（他プロジェクトは404）
+// ============================================================================
+
+const DELETE_USER_ID = '523e4567-e89b-12d3-a456-426614174010';
+const PHOTO_ID = '623e4567-e89b-12d3-a456-426614174099';
+
+/** delete 対象写真の読取形状（album.projectId/deletedAt 同梱） */
+function deletePhotoRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: PHOTO_ID,
+    originalPath: `construction-photos/${ALBUM_ID}/1_photo.jpg`,
+    thumbnailPath: `construction-photos/${ALBUM_ID}/1_thumb_photo.jpg`,
+    album: { projectId: PROJECT_ID, deletedAt: null },
+    ...overrides,
+  };
+}
+
+function createDeleteMockPrisma() {
+  return {
+    constructionPhoto: {
+      findUnique: vi.fn().mockResolvedValue(deletePhotoRow()),
+      delete: vi.fn().mockResolvedValue(deletePhotoRow()),
+    },
+    project: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: PROJECT_ID,
+        deletedAt: null,
+        createdById: DELETE_USER_ID,
+        salesPersonId: 'someone-else',
+        constructionPersonId: null,
+      }),
+    },
+    userRole: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  } as unknown as PrismaClient;
+}
+
+describe('ConstructionPhotoImageService.delete', () => {
+  let service: ConstructionPhotoImageService;
+  let mockPrisma: ReturnType<typeof createDeleteMockPrisma>;
+  let mockStorage: ReturnType<typeof createMockStorage>;
+  let mockProcessor: ReturnType<typeof createMockProcessor>;
+  let surveyImageService: SurveyImageService;
+
+  beforeEach(() => {
+    mockPrisma = createDeleteMockPrisma();
+    mockStorage = createMockStorage();
+    mockProcessor = createMockProcessor();
+    surveyImageService = new SurveyImageService({
+      prisma: mockPrisma as never,
+      storageProvider: mockStorage as never,
+    });
+    const deps: ConstructionPhotoImageServiceDependencies = {
+      prisma: mockPrisma,
+      storageProvider: mockStorage as never,
+      surveyImageService,
+      imageProcessorService: mockProcessor as never,
+    };
+    service = new ConstructionPhotoImageService(deps);
+  });
+
+  it('存在しない写真項目の削除は NotFound を投げる', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
+  });
+
+  it('(d) 写真行を削除し original/thumbnail のストレージも削除する（Requirements: 7.7）', async () => {
+    await service.delete(PHOTO_ID, DELETE_USER_ID);
+
+    // DB 行削除
+    expect(mockPrisma.constructionPhoto.delete).toHaveBeenCalledWith({ where: { id: PHOTO_ID } });
+    // 原本＋サムネの2キーをストレージから削除
+    const deleted = (mockStorage.delete as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(deleted).toContain(`construction-photos/${ALBUM_ID}/1_photo.jpg`);
+    expect(deleted).toContain(`construction-photos/${ALBUM_ID}/1_thumb_photo.jpg`);
+    // オンデマンド合成のため保存済み合成物は無く、合成処理は呼ばれない
+    expect(mockProcessor.processImage).not.toHaveBeenCalled();
+  });
+
+  it('ストレージ削除が失敗しても DB 行削除は完了する（ベストエフォート）', async () => {
+    (mockStorage.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('storage down'));
+    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).resolves.toBeUndefined();
+    expect(mockPrisma.constructionPhoto.delete).toHaveBeenCalledWith({ where: { id: PHOTO_ID } });
+  });
+
+  it('(f) アクセスできないプロジェクトの写真は 404 とし削除しない（Requirements: 13.2）', async () => {
+    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: PROJECT_ID,
+      deletedAt: null,
+      createdById: 'other-user',
+      salesPersonId: 'another-user',
+      constructionPersonId: null,
+    });
+    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
+    expect(mockStorage.delete).not.toHaveBeenCalled();
+  });
+
+  it('論理削除済みアルバム配下の写真は 404 とする', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      deletePhotoRow({ album: { projectId: PROJECT_ID, deletedAt: new Date() } })
+    );
+    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
   });
 });

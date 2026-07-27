@@ -58,6 +58,20 @@ export class SurveyImageCopyNotAllowedError extends NotFoundError {
 }
 
 /**
+ * 写真項目（ConstructionPhoto）が存在しない、または論理削除済みアルバム配下・
+ * アクセス不可プロジェクト配下だった場合のエラー。
+ *
+ * 情報漏洩を避けるため、存在しない場合と権限がない場合を区別せず 404 として扱う
+ * （Requirements: 13.2, 13.3）。メタ更新・並び替え・削除で共有する。
+ */
+export class ConstructionPhotoNotFoundError extends NotFoundError {
+  constructor(public readonly photoId: string) {
+    super(`Construction photo not found: ${photoId}`, 'CONSTRUCTION_PHOTO_NOT_FOUND');
+    this.name = 'ConstructionPhotoNotFoundError';
+  }
+}
+
+/**
  * 署名付きURLの有効期限（秒）。Requirements: 11.6（15分程度）
  */
 const SIGNED_URL_EXPIRES_IN = 900;
@@ -365,6 +379,62 @@ export class ConstructionPhotoImageService {
 
     // 取得済みのサムネパスから署名付きURLをまとめて生成（追加のDBラウンドトリップなし）
     return Promise.all(photos.map((photo) => this.toDtoWithUrls(photo)));
+  }
+
+  /**
+   * 写真項目を削除する。関連する original/thumbnail のストレージも削除する。
+   *
+   * DB 行を削除すると、当該行が所有する看板配置情報（`signboardPlacement` カラム）も
+   * 併せて消える（R7.7）。看板合成はオンデマンド（保存しない）方式のため、削除すべき
+   * 保存済み合成物は存在せず、原本とサムネの2キーのみを削除する。ストレージ削除は
+   * ベストエフォートとし、失敗しても DB 行削除は確定させる（孤立オブジェクトは残るが
+   * データの整合性=行の消去を優先）。
+   *
+   * 対象写真がアクセス可能なプロジェクト配下のアルバムに属することを検証する。
+   * 未存在・論理削除済みアルバム配下・アクセス不可のいずれも、存在有無を漏らさない
+   * ため 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。
+   *
+   * Requirements: 7.7, 13.2
+   *
+   * @param photoId - 削除対象の写真項目ID
+   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
+   * @throws {ConstructionPhotoNotFoundError} 未存在・論理削除済み・アクセス不可の場合
+   */
+  async delete(photoId: string, userId: string): Promise<void> {
+    // 写真項目＋所属アルバムのプロジェクト/論理削除状態を取得
+    const photo = await this.prisma.constructionPhoto.findUnique({
+      where: { id: photoId },
+      select: {
+        id: true,
+        originalPath: true,
+        thumbnailPath: true,
+        album: { select: { projectId: true, deletedAt: true } },
+      },
+    });
+    if (!photo || photo.album.deletedAt !== null) {
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
+    const hasAccess = await this.canAccessProject(photo.album.projectId, userId);
+    if (!hasAccess) {
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    // DB 行を先に削除（看板配置カラムも同時に消える, R7.7）
+    await this.prisma.constructionPhoto.delete({ where: { id: photoId } });
+
+    // 関連ストレージ（原本＋サムネ）をベストエフォートで削除
+    for (const key of [photo.originalPath, photo.thumbnailPath]) {
+      await this.storageProvider.delete(key).catch((error: unknown) => {
+        logger.warn(
+          { photoId, key, error: error instanceof Error ? error.message : String(error) },
+          'Failed to delete construction photo storage object (row already deleted)'
+        );
+      });
+    }
+
+    logger.info({ photoId, userId }, 'Construction photo deleted');
   }
 
   /**

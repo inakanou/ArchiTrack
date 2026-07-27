@@ -40,11 +40,20 @@ import {
   SurveyImageCopyNotAllowedError,
   type ConstructionPhotoUploadFile,
 } from '../services/construction-photo-image.service.js';
+import {
+  ConstructionPhotoMetadataService,
+  type BatchUpdatePhotoMetadataInput,
+} from '../services/construction-photo-metadata.service.js';
 import { ConstructionPhotoAlbumNotFoundError } from '../services/construction-photo-album.service.js';
 import {
   constructionPhotoIdParamSchema,
+  constructionPhotoImageIdParamSchema,
   addFromSurveyImagesSchema,
+  updatePhotoMetadataBatchSchema,
+  updatePhotoOrderSchema,
   type AddFromSurveyImagesInput,
+  type UpdatePhotoMetadataBatchInput,
+  type UpdatePhotoOrderInput,
   MAX_UPLOAD_FILES,
   MAX_UPLOAD_FILE_SIZE,
   CONSTRUCTION_PHOTO_VALIDATION_MESSAGES,
@@ -66,6 +75,8 @@ const prisma = getPrismaClient();
 
 // ストレージ関連サービス（ストレージが設定されている場合のみ初期化）
 let imageService: ConstructionPhotoImageService | null = null;
+// メタ更新・並び替えサービス（DTO のサムネ署名付きURL生成にストレージを利用）
+let metadataService: ConstructionPhotoMetadataService | null = null;
 let servicesInitialized = false;
 
 /**
@@ -105,6 +116,11 @@ export async function initializeConstructionPhotoImageServices(): Promise<void> 
       storageProvider,
       surveyImageService,
       imageProcessorService,
+    });
+
+    metadataService = new ConstructionPhotoMetadataService({
+      prisma,
+      storageProvider,
     });
 
     logger.info(
@@ -461,6 +477,228 @@ router.post(
         });
         return;
       }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/construction-photos/images/batch:
+ *   patch:
+ *     summary: 写真項目メタデータの一括更新
+ *     description: >
+ *       コメント/印刷対象/看板ID/看板配置/表示順序を1リクエストで一括更新する。
+ *       全idは同一アルバムに属する必要がある。displayOrder は 1..n に正規化される。
+ *       看板合成は行わず、配置情報を保持するのみ（印字画像はPDF出力時にオンデマンド合成）。
+ *     tags:
+ *       - Construction Photo Images
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: 更新後の写真項目一覧（署名付きURL同梱）
+ *       400:
+ *         description: バリデーションエラー / 複数アルバムにまたがる指定
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 写真項目/看板が見つからない、またはアクセス権のないプロジェクト
+ *       503:
+ *         description: ストレージ未設定
+ */
+router.patch(
+  '/batch',
+  authenticate,
+  requirePermission('construction_photo:update'),
+  validate(updatePhotoMetadataBatchSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { items } = req.validatedBody as UpdatePhotoMetadataBatchInput;
+      const userId = req.user!.userId;
+
+      if (!metadataService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      const result = await metadataService.updateMetadataBatch(
+        items as BatchUpdatePhotoMetadataInput[],
+        userId
+      );
+
+      logger.info({ userId, itemCount: items.length }, 'Construction photo metadata batch updated');
+
+      res.json(result);
+    } catch (error) {
+      // ConstructionPhotoNotFoundError / BatchAlbumMismatch / SignboardNotAllowed /
+      // CommentTooLong はいずれも ApiError サブクラス（404/400）。グローバルエラー
+      // ハンドラが status/code/detail を整形するため、そのまま委譲する
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/construction-photos/{id}/images/order:
+ *   put:
+ *     summary: 写真項目の表示順序を一括更新
+ *     description: >
+ *       アルバム配下の写真項目の表示順序を1リクエストで一括更新する。
+ *       送信された相対順序は 1..n に正規化される。
+ *     tags:
+ *       - Construction Photo Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: アルバムID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               orders:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       204:
+ *         description: 順序更新成功
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *       503:
+ *         description: ストレージ未設定
+ */
+router.put(
+  '/order',
+  authenticate,
+  requirePermission('construction_photo:update'),
+  validate(constructionPhotoIdParamSchema, 'params'),
+  validate(updatePhotoOrderSchema, 'body'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id: albumId } = req.validatedParams as { id: string };
+      const { orders } = req.validatedBody as UpdatePhotoOrderInput;
+      const userId = req.user!.userId;
+
+      if (!metadataService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      await metadataService.updateOrder(albumId, orders, userId);
+
+      logger.info(
+        { userId, albumId, orderCount: orders.length },
+        'Construction photo order updated'
+      );
+
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/construction-photos/images/{imageId}:
+ *   delete:
+ *     summary: 写真項目の削除
+ *     description: >
+ *       写真項目を削除する。関連する看板配置データ（行のカラム）と original/thumbnail の
+ *       ストレージも併せて削除する。
+ *     tags:
+ *       - Construction Photo Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: imageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 写真項目ID
+ *     responses:
+ *       204:
+ *         description: 削除成功
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *       503:
+ *         description: ストレージ未設定
+ */
+router.delete(
+  '/:imageId',
+  authenticate,
+  requirePermission('construction_photo:delete'),
+  validate(constructionPhotoImageIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageId } = req.validatedParams as { imageId: string };
+      const userId = req.user!.userId;
+
+      if (!imageService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      await imageService.delete(imageId, userId);
+
+      logger.info({ userId, imageId }, 'Construction photo deleted');
+
+      res.status(204).send();
+    } catch (error) {
       next(error);
     }
   }
