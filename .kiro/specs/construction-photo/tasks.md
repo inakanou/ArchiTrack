@@ -114,7 +114,7 @@
   - _Boundary: ConstructionSignboardListPage_
 
 - [ ] 7. Integration: ナビ・パネル・ルート
-- [ ] 7.1 ルート登録とブレッドクラム
+- [x] 7.1 ルート登録とブレッドクラム
   - `routes.tsx` に一覧/詳細/作成/看板の各ルートを site-survey 順序規約で追加、各画面のブレッドクラム表示
   - 完了: 各URLへ遷移でき、ブレッドクラムが規定の階層表示になる
   - _Depends: 6.1, 6.2, 6.3, 6.5_

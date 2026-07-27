@@ -26,6 +26,11 @@ import SiteSurveyDetailPage from './pages/SiteSurveyDetailPage';
 import SiteSurveyCreatePage from './pages/SiteSurveyCreatePage';
 import SiteSurveyEditPage from './pages/SiteSurveyEditPage';
 import SiteSurveyImageViewerPage from './pages/SiteSurveyImageViewerPage';
+import ConstructionPhotoListPage from './pages/ConstructionPhotoListPage';
+import ConstructionPhotoCreatePage from './pages/ConstructionPhotoCreatePage';
+import ConstructionPhotoDetailPage from './pages/ConstructionPhotoDetailPage';
+import ConstructionPhotoEditPage from './pages/ConstructionPhotoEditPage';
+import ConstructionSignboardListPage from './pages/ConstructionSignboardListPage';
 import QuantityTableListPage from './pages/QuantityTableListPage';
 import QuantityTableCreatePage from './pages/QuantityTableCreatePage';
 import QuantityTableEditPage from './pages/QuantityTableEditPage';
@@ -195,6 +200,46 @@ export const routes: RouteObject[] = [
       {
         path: '/site-surveys/:id',
         element: <SiteSurveyDetailPage />,
+      },
+
+      // 工事写真アルバム新規作成（/construction-photos/:id より先に定義する必要あり）
+      // REQ-1.1: アルバム作成フォーム
+      // REQ-2.6: パンくず: ダッシュボード > プロジェクト一覧 > プロジェクト > 工事写真一覧 > 新規アルバム
+      // Task 7.1: ルート登録とブレッドクラム
+      {
+        path: '/projects/:projectId/construction-photos/new',
+        element: <ConstructionPhotoCreatePage />,
+      },
+      // 工事写真一覧
+      // REQ-2.6: パンくず: ダッシュボード > プロジェクト一覧 > プロジェクト > 工事写真一覧
+      // REQ-2.9: 画面タイトル「工事写真一覧」
+      // REQ-3.1: 工事写真一覧画面
+      // Task 7.1: ルート登録とブレッドクラム
+      {
+        path: '/projects/:projectId/construction-photos',
+        element: <ConstructionPhotoListPage />,
+      },
+      // 工事写真アルバム編集（/construction-photos/:id より先に定義する必要あり）
+      // REQ-1.3: アルバム情報編集
+      // Task 7.1: ルート登録とブレッドクラム
+      {
+        path: '/construction-photos/:id/edit',
+        element: <ConstructionPhotoEditPage />,
+      },
+      // 工事写真詳細（アルバム詳細: 写真項目管理）
+      // REQ-2.4: 一覧項目選択で詳細画面へ遷移
+      // REQ-2.7: パンくず: ... > 工事写真一覧 > 工事写真
+      // Task 7.1: ルート登録とブレッドクラム
+      {
+        path: '/construction-photos/:id',
+        element: <ConstructionPhotoDetailPage />,
+      },
+      // 工事看板マスタ管理
+      // REQ-8.1: 看板マスタの登録・編集・削除・一覧
+      // Task 7.1: ルート登録とブレッドクラム
+      {
+        path: '/projects/:projectId/construction-signboards',
+        element: <ConstructionSignboardListPage />,
       },
 
       // 数量表新規作成（/projects/:projectId/quantity-tables より先に定義する必要あり）
