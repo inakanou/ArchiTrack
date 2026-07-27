@@ -89,7 +89,7 @@
   - _Depends: 5.1_
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 2.4, 11.3_
   - _Boundary: ConstructionPhotoListPage_
-- [ ] 6.2 (P) アルバム作成/編集画面
+- [x] 6.2 (P) アルバム作成/編集画面
   - 完了: 作成フォーム送信で新規アルバムが作成され一覧に反映される
   - _Depends: 5.1_
   - _Requirements: 1.1, 1.3_
