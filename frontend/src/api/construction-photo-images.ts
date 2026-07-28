@@ -15,6 +15,8 @@
  * - 7.1, 7.5, 7.6, 9.1, 9.5, 11.4: メタデータ一括更新
  * - 7.3, 7.4, 11.4: 表示順序更新
  * - 10.x: 印字画像（image/jpeg Blob、看板ありはオンデマンド合成・なしは原本）
+ * - 14.6, 15.4: 非合成原本取得（Blob、看板配置有無に関わらず常に原本をそのまま返す。
+ *   画像ビューア・ZIPエクスポートの plain/original モードの取得元）
  *
  * @module api/construction-photo-images
  */
@@ -236,6 +238,42 @@ export async function deleteConstructionPhoto(imageId: string): Promise<void> {
 export async function getConstructionPhotoPrintImage(imageId: string): Promise<Blob> {
   const response = await fetch(
     `${getBaseUrl()}/api/construction-photos/images/${imageId}/print-image`,
+    {
+      method: 'GET',
+      headers: buildAuthHeaders(),
+      credentials: 'include',
+    }
+  );
+
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type');
+    const data: unknown = contentType?.includes('application/json')
+      ? await response.json()
+      : await response.text();
+    throw new ApiError(response.status, resolveErrorMessage(data, response.statusText), data);
+  }
+
+  return response.blob();
+}
+
+/**
+ * 非合成の原本画像を Blob として取得する
+ *
+ * 看板配置の有無に関わらず、看板を合成しない生原本を常に返す（`getConstructionPhotoPrintImage`
+ * とは別エンドポイント）。画像ビューアのフルスクリーン表示、ZIP一括エクスポートの
+ * plain/original モードの取得元として必要時にのみ呼び出す。
+ * 常に image/* を返すため、apiClient（JSON/text 前提）ではなく fetch で Blob を取得する。
+ *
+ * @param imageId - 写真項目ID（UUID）
+ * @returns 非合成の原本画像（image/*）の Blob
+ * @throws ApiError 認証エラー（401）、権限不足（403）、写真項目が見つからない（404）、
+ *   ストレージ未設定（503）
+ *
+ * Requirements: 14.6, 15.4
+ */
+export async function getConstructionPhotoOriginalImage(imageId: string): Promise<Blob> {
+  const response = await fetch(
+    `${getBaseUrl()}/api/construction-photos/images/${imageId}/original`,
     {
       method: 'GET',
       headers: buildAuthHeaders(),

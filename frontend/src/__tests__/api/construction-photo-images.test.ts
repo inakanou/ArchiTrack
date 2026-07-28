@@ -21,6 +21,7 @@ import {
   updateConstructionPhotoOrder,
   deleteConstructionPhoto,
   getConstructionPhotoPrintImage,
+  getConstructionPhotoOriginalImage,
 } from '../../api/construction-photo-images';
 import type {
   ConstructionPhotoWithUrls,
@@ -295,6 +296,71 @@ describe('construction-photo-images API client', () => {
       });
 
       await expect(getConstructionPhotoPrintImage('non-existent')).rejects.toThrow(ApiError);
+    });
+  });
+
+  // ==========================================================================
+  // getConstructionPhotoOriginalImage - Blob（非合成原本, task 10.2）
+  // ==========================================================================
+  describe('getConstructionPhotoOriginalImage', () => {
+    it('非合成原本をBlobとして取得すること', async () => {
+      const blob = new Blob([new Uint8Array([4, 5, 6])], { type: 'image/jpeg' });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'image/jpeg' }),
+        blob: async () => blob,
+      });
+
+      const result = await getConstructionPhotoOriginalImage('photo-1');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain('/api/construction-photos/images/photo-1/original');
+      expect(options.method).toBe('GET');
+      expect((options.headers as Record<string, string>)['Authorization']).toBe('Bearer test-token');
+      expect(result).toBeInstanceOf(Blob);
+      expect(result.type).toBe('image/jpeg');
+    });
+
+    it('看板配置済みでも非合成原本(print-imageとは別エンドポイント)を取得すること', async () => {
+      const blob = new Blob([new Uint8Array([7, 8, 9])], { type: 'image/png' });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'image/png' }),
+        blob: async () => blob,
+      });
+
+      await getConstructionPhotoOriginalImage('photo-with-signboard');
+
+      const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).not.toContain('print-image');
+      expect(url).toContain('/original');
+    });
+
+    it('403時にApiErrorをスローすること', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ detail: '権限がありません', code: 'FORBIDDEN' }),
+      });
+
+      await expect(getConstructionPhotoOriginalImage('photo-1')).rejects.toThrow(ApiError);
+    });
+
+    it('404時にApiErrorをスローすること', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ detail: '写真項目が見つかりません', code: 'CONSTRUCTION_PHOTO_NOT_FOUND' }),
+      });
+
+      await expect(getConstructionPhotoOriginalImage('non-existent')).rejects.toThrow(ApiError);
     });
   });
 });

@@ -162,7 +162,7 @@
   - 完了: 看板配置済み写真でも `/original` が非合成の原本をストリーム返却し、権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）、一覧DTOに `originalUrl` は現れない
   - _Requirements: 14.6, 15.4, 13.2, 13.4_
   - _Boundary: ConstructionPhotoImageService, construction-photo-images.routes_
-- [ ] 10.2 フロントAPIクライアント：原本取得
+- [x] 10.2 フロントAPIクライアント：原本取得
   - 非合成原本を取得する呼び出し（Blob返却）を型付きで追加
   - 完了: 画像IDから非合成原本Blobを型安全に取得できる
   - _Depends: 10.1_
