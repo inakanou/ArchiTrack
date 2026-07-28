@@ -30,6 +30,7 @@ import ConstructionPhotoListPage from './pages/ConstructionPhotoListPage';
 import ConstructionPhotoCreatePage from './pages/ConstructionPhotoCreatePage';
 import ConstructionPhotoDetailPage from './pages/ConstructionPhotoDetailPage';
 import ConstructionPhotoEditPage from './pages/ConstructionPhotoEditPage';
+import ConstructionPhotoImageViewerPage from './pages/ConstructionPhotoImageViewerPage';
 import ConstructionSignboardListPage from './pages/ConstructionSignboardListPage';
 import QuantityTableListPage from './pages/QuantityTableListPage';
 import QuantityTableCreatePage from './pages/QuantityTableCreatePage';
@@ -225,6 +226,14 @@ export const routes: RouteObject[] = [
       {
         path: '/construction-photos/:id/edit',
         element: <ConstructionPhotoEditPage />,
+      },
+      // 工事写真 画像ビューア（閲覧専用, /construction-photos/:id より先に定義する必要あり）
+      // REQ-14.1: 詳細画面のサムネイル選択でフルスクリーン画像ビューアへ遷移
+      // REQ-14.5: 閉じる操作で詳細画面へ戻る
+      // Task 11.2: 閲覧専用画像ビューア＋ビューアページ＋ルート
+      {
+        path: '/construction-photos/:albumId/photos/:photoId',
+        element: <ConstructionPhotoImageViewerPage />,
       },
       // 工事写真詳細（アルバム詳細: 写真項目管理）
       // REQ-2.4: 一覧項目選択で詳細画面へ遷移

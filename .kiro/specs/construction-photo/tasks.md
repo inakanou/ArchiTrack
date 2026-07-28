@@ -175,7 +175,7 @@
   - 完了: 権限保持で canEdit=true・非保持で false、`construction_photo:delete` 非保持で canDelete=false、ロード中は全 false を返す
   - _Requirements: 17.1, 17.2, 17.3, 17.5_
   - _Boundary: useConstructionPhotoPermission_
-- [ ] 11.2 (P) 閲覧専用画像ビューア＋ビューアページ＋ルート
+- [x] 11.2 (P) 閲覧専用画像ビューア＋ビューアページ＋ルート
   - 既存のビューポート/ズーム/ジェスチャ/フィット倍率の基盤と90度単位の回転状態を合成した閲覧専用ビューア（注釈編集は持たない）。表示元は非合成原本を必要時取得
   - ビューアページとルート `/construction-photos/:albumId/photos/:photoId` を追加し、閉じる操作で詳細へ戻る。回転ヘルパが未exportの場合はexportまたは小さく再実装する
   - 完了: 当該URLで原本がフルスクリーン表示され、ズームイン/アウト・90度回転・拡大時パンが機能し、閉じると詳細へ戻る

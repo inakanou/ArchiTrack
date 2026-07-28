@@ -15,6 +15,7 @@
  * - /projects/:projectId/construction-photos/new（アルバム作成）
  * - /construction-photos/:id（詳細）
  * - /construction-photos/:id/edit（アルバム編集）
+ * - /construction-photos/:albumId/photos/:photoId（画像ビューア, Task 11.2 / R14.1, 14.5）
  * - /projects/:projectId/construction-signboards（看板マスタ）
  */
 
@@ -42,9 +43,7 @@ vi.mock('../../contexts/AuthContext', () => ({
 
 // 工事写真ページコンポーネントモック
 vi.mock('../../pages/ConstructionPhotoListPage', () => ({
-  default: () => (
-    <div data-testid="construction-photo-list-page">Construction Photo List Page</div>
-  ),
+  default: () => <div data-testid="construction-photo-list-page">Construction Photo List Page</div>,
 }));
 
 vi.mock('../../pages/ConstructionPhotoCreatePage', () => ({
@@ -60,14 +59,20 @@ vi.mock('../../pages/ConstructionPhotoDetailPage', () => ({
 }));
 
 vi.mock('../../pages/ConstructionPhotoEditPage', () => ({
-  default: () => (
-    <div data-testid="construction-photo-edit-page">Construction Photo Edit Page</div>
-  ),
+  default: () => <div data-testid="construction-photo-edit-page">Construction Photo Edit Page</div>,
 }));
 
 vi.mock('../../pages/ConstructionSignboardListPage', () => ({
   default: () => (
     <div data-testid="construction-signboard-list-page">Construction Signboard List Page</div>
+  ),
+}));
+
+vi.mock('../../pages/ConstructionPhotoImageViewerPage', () => ({
+  default: () => (
+    <div data-testid="construction-photo-image-viewer-page">
+      Construction Photo Image Viewer Page
+    </div>
   ),
 }));
 
@@ -151,6 +156,28 @@ describe('Routes - Construction Photo Management', () => {
     });
   });
 
+  describe('/construction-photos/:albumId/photos/:photoId ルート (画像ビューア, R14.1)', () => {
+    it('画像ビューアページが表示される', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/construction-photos/test-album-id/photos/test-photo-id'],
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => {
+        expect(screen.getByTestId('construction-photo-image-viewer-page')).toBeInTheDocument();
+      });
+    });
+
+    it('ProtectedLayoutでラップされている', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/construction-photos/test-album-id/photos/test-photo-id'],
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => {
+        expect(screen.getByTestId('protected-layout')).toBeInTheDocument();
+      });
+    });
+  });
+
   describe('/projects/:projectId/construction-signboards ルート (看板マスタ, REQ-8)', () => {
     it('看板マスタページが表示される', async () => {
       const router = createMemoryRouter(routes, {
@@ -182,6 +209,17 @@ describe('Routes - Construction Photo Management', () => {
       render(<RouterProvider router={router} />);
       await waitFor(() => {
         expect(screen.getByTestId('construction-photo-edit-page')).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('construction-photo-detail-page')).not.toBeInTheDocument();
+    });
+
+    it('/construction-photos/:albumId/photos/:photoId は /construction-photos/:id より先にマッチする', async () => {
+      const router = createMemoryRouter(routes, {
+        initialEntries: ['/construction-photos/test-album-id/photos/test-photo-id'],
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => {
+        expect(screen.getByTestId('construction-photo-image-viewer-page')).toBeInTheDocument();
       });
       expect(screen.queryByTestId('construction-photo-detail-page')).not.toBeInTheDocument();
     });
