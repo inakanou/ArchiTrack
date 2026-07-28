@@ -1140,3 +1140,122 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
     );
   });
 });
+
+// ============================================================================
+// Task 10.1: 非合成原本（getOriginalImage）— 看板配置の有無に関わらず看板を
+// 合成しない生原本を返す（ビューア/ZIP用）
+//
+// Requirements:
+// - 14.6: ビューアで表示する原本画像を必要時にのみ取得する
+// - 15.4: 「アップロード原本そのまま」の看板重畳モードを成立させる
+// - 13.2: アクセスできないプロジェクトの写真は 404
+// - 13.4: 画像は署名付きURLではなく、この専用エンドポイント経由でのみ配信する
+// ============================================================================
+
+describe('ConstructionPhotoImageService.getOriginalImage', () => {
+  let service: ConstructionPhotoImageService;
+  let mockPrisma: ReturnType<typeof createPrintMockPrisma>;
+  let mockStorage: ReturnType<typeof createMockStorage>;
+  let mockProcessor: ReturnType<typeof createMockProcessor>;
+  let surveyImageService: SurveyImageService;
+  let compositeService: SignboardCompositeService;
+  let compositeSpy: ReturnType<typeof vi.fn>;
+
+  const PLACEMENT = { left: 10, top: 20, width: 300, height: 200 };
+
+  beforeEach(() => {
+    mockPrisma = createPrintMockPrisma();
+    mockStorage = createMockStorage();
+    mockProcessor = createMockProcessor();
+    (mockStorage.get as ReturnType<typeof vi.fn>).mockResolvedValue(ORIGINAL_BUFFER);
+    surveyImageService = new SurveyImageService({
+      prisma: mockPrisma as never,
+      storageProvider: mockStorage as never,
+    });
+
+    // 合成サービスはスパイ化（getOriginalImage からは一切呼ばれないはず）
+    compositeSpy = vi.fn().mockResolvedValue(COMPOSITED_BUFFER);
+    compositeService = new SignboardCompositeService({
+      sharp: (() => ({})) as never,
+    });
+    compositeService.composite = compositeSpy as never;
+
+    const deps: ConstructionPhotoImageServiceDependencies = {
+      prisma: mockPrisma,
+      storageProvider: mockStorage as never,
+      surveyImageService,
+      imageProcessorService: mockProcessor as never,
+      signboardCompositeService: compositeService,
+    };
+    service = new ConstructionPhotoImageService(deps);
+  });
+
+  it('(a) 看板未配置の写真は原本をそのまま返す（Requirements: 14.6, 15.4）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: null, signboardPlacement: null })
+    );
+
+    const result = await service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+
+    expect(mockStorage.get).toHaveBeenCalledWith(`construction-photos/${ALBUM_ID}/1_photo.jpg`);
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    expect(compositeSpy).not.toHaveBeenCalled();
+  });
+
+  it('(b) 看板配置済みの写真でも合成せず原本をそのまま返す（Requirements: 14.6, 15.4）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: PLACEMENT })
+    );
+
+    const result = await service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    // 看板配置があっても合成サービス・看板マスタ参照は一切行わない
+    expect(compositeSpy).not.toHaveBeenCalled();
+    expect(mockPrisma.constructionSignboard.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('存在しない写真は 404 を投げる', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+  });
+
+  it('論理削除済みアルバム配下の写真は 404 を投げる', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ album: { projectId: PROJECT_ID, deletedAt: new Date() } })
+    );
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+  });
+
+  it('(c) アクセスできないプロジェクトの写真は 404 を投げる（Requirements: 13.2）', async () => {
+    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: PROJECT_ID,
+      deletedAt: null,
+      createdById: 'other-user',
+      salesPersonId: 'another-user',
+      constructionPersonId: null,
+    });
+    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    // 境界外は原本取得を行わない
+    expect(mockStorage.get).not.toHaveBeenCalled();
+  });
+
+  it('原本がストレージに存在しない場合は 404 を投げる', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({ signboardId: null, signboardPlacement: null })
+    );
+    (mockStorage.get as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+  });
+});

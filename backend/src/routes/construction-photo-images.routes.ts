@@ -11,6 +11,7 @@
  * - GET  /api/construction-photos/:id/images（一覧取得＋署名URL一括, 2.4）
  * - PATCH/PUT/DELETE（メタ更新・並び替え・削除, 2.5）
  * - GET  /api/construction-photos/images/:imageId/print-image（印字画像＝オンデマンド看板合成, 3.3）
+ * - GET  /api/construction-photos/images/:imageId/original（非合成原本, 10.1）
  *
  * Requirements:
  * - 4.1, 4.2, 4.3, 4.7: 複数画像を写真項目として登録しサムネ生成、末尾表示順
@@ -80,6 +81,8 @@ const prisma = getPrismaClient();
 let imageService: ConstructionPhotoImageService | null = null;
 // メタ更新・並び替えサービス（DTO のサムネ署名付きURL生成にストレージを利用）
 let metadataService: ConstructionPhotoMetadataService | null = null;
+// マジックバイトからの実体形式判定（原本配信の Content-Type 決定に利用, 10.1）
+let surveyImageServiceForContentType: SurveyImageService | null = null;
 let servicesInitialized = false;
 
 /**
@@ -132,6 +135,8 @@ export async function initializeConstructionPhotoImageServices(): Promise<void> 
       prisma,
       storageProvider,
     });
+
+    surveyImageServiceForContentType = surveyImageService;
 
     logger.info(
       { storageType: storageProvider.type },
@@ -781,6 +786,103 @@ router.get(
       );
 
       res.set('Content-Type', 'image/jpeg');
+      res.send(buffer);
+    } catch (error) {
+      if (error instanceof ConstructionPhotoNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/construction-photo-not-found',
+          title: 'Construction Photo Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'CONSTRUCTION_PHOTO_NOT_FOUND',
+          photoId: error.photoId,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/construction-photos/images/{imageId}/original:
+ *   get:
+ *     summary: 非合成原本画像の取得（ビューア/ZIP用）
+ *     description: >
+ *       看板配置の有無に関わらず、SVG看板合成を一切行わない生の原本画像をストリームで
+ *       返す。一覧DTO（ConstructionPhotoWithUrls）には原本URLを含めず、本エンドポイント
+ *       経由でのみ必要時に取得する（署名付きURL方針の維持）。
+ *     tags:
+ *       - Construction Photo Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: imageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 写真項目ID
+ *     responses:
+ *       200:
+ *         description: 非合成の原本画像（保存時の実体形式）
+ *         content:
+ *           image/*:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *       503:
+ *         description: ストレージ未設定
+ */
+router.get(
+  '/:imageId/original',
+  authenticate,
+  requirePermission('construction_photo:read'),
+  validate(constructionPhotoImageIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageId } = req.validatedParams as { imageId: string };
+      const userId = req.user!.userId;
+
+      if (!imageService) {
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/storage-not-configured',
+          title: 'Storage Not Configured',
+          status: 503,
+          detail: 'ストレージが設定されていません',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+
+      const buffer = await imageService.getOriginalImage(imageId, userId);
+
+      // 保存時の実体形式をマジックバイトから判定して Content-Type に反映する
+      // （print-image と異なり原本は常に image/jpeg とは限らないため）。
+      // 判定不能（通常は発生しない）な場合は汎用バイナリとしてフォールバックする。
+      let contentType = 'application/octet-stream';
+      if (surveyImageServiceForContentType) {
+        try {
+          contentType = surveyImageServiceForContentType.detectMimeTypeByMagicBytes(buffer);
+        } catch {
+          contentType = 'application/octet-stream';
+        }
+      }
+
+      logger.debug(
+        { userId, imageId, size: buffer.length, contentType },
+        'Construction photo original image served'
+      );
+
+      res.set('Content-Type', contentType);
       res.send(buffer);
     } catch (error) {
       if (error instanceof ConstructionPhotoNotFoundError) {

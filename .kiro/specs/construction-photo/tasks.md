@@ -155,11 +155,11 @@
   - _Requirements: 2.1, 2.2, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 10.13_
 
 - [ ] 10. Foundation（追加機能）: 非合成原本の配信路
-- [ ] 10.1 非合成原本エンドポイント＋サービス
+- [x] 10.1 非合成原本エンドポイント＋サービス
   - `getOriginalImage(photoId)` を追加し、看板配置の有無に関わらず看板を合成しない生原本を返す
   - 配信ルート `GET /api/construction-photos/images/:imageId/original` を追加。`authenticate`＋`requirePermission('construction_photo:read')`＋対象が要求プロジェクト配下であることを検証
   - 一覧DTO（`ConstructionPhotoWithUrls`）には `originalUrl` を追加しない（既存の効率・非公開方針を維持）
-  - 完了: 看板配置済み写真でも `/original` が非合成の原本をストリーム返却し、権限なし/他プロジェクトは403、一覧DTOに `originalUrl` は現れない
+  - 完了: 看板配置済み写真でも `/original` が非合成の原本をストリーム返却し、権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）、一覧DTOに `originalUrl` は現れない
   - _Requirements: 14.6, 15.4, 13.2, 13.4_
   - _Boundary: ConstructionPhotoImageService, construction-photo-images.routes_
 - [ ] 10.2 フロントAPIクライアント：原本取得

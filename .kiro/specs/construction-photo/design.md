@@ -568,7 +568,7 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 - アップロードAPI: 10件/10MB制限、マジックバイト検証で不正形式を拒否（R12）。
 - サマリAPI: `detail-summary` に `constructionPhotos:{totalCount,latest...}` が同型で含まれる（R2.3）。
 - 認可: 未認証401・権限なし403（R13.1,R13.3）。
-- 非合成原本エンドポイント: 看板配置済み写真でも生原本（非合成）を返し、一覧DTOに `originalUrl` を含めない。権限なし403・他プロジェクト403（R14.6,R15.4,R13.2,R13.4）。
+- 非合成原本エンドポイント: 看板配置済み写真でも生原本（非合成）を返し、一覧DTOに `originalUrl` を含めない。権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）（R14.6,R15.4,R13.2,R13.4）。
 
 ### E2E/UI Tests（Playwright, 要件はE2Eで検証して完了）
 - プロジェクト詳細→工事写真パネル（工程表直下）→一覧→詳細への遷移（R2.1,R2.2,R2.4）。

@@ -5,7 +5,9 @@
  * ドメインサービス。本ファイルでは Task 2.2 の対象である `addFromUpload`
  * （ローカルアップロード＝カメラ撮影もサーバ側は同一経路）を実装する。
  * 現調コピー（addFromSurveyImage=2.3）・一覧（listWithUrls=2.4）・削除（delete=2.5系）・
- * 印字画像（getPrintImage=3.3、看板ありはオンデマンド合成・なしは原本）を本ファイルで実装済み。
+ * 印字画像（getPrintImage=3.3、看板ありはオンデマンド合成・なしは原本）・
+ * 非合成原本（getOriginalImage=10.1、看板配置の有無に関わらず常に非合成原本）を
+ * 本ファイルで実装済み。
  *
  * 既存の現場調査アップロード実装（image-upload.service.ts / survey-image.service.ts /
  * image-processor.service.ts）のパイプラインを踏襲する。site-survey テーブルへは書込まない。
@@ -24,6 +26,9 @@
  * - 7.8, 11.2: 写真項目一覧＋署名付きURLを1リクエストでまとめて取得する（N+1回避, listWithUrls）
  * - 11.3: 一覧・詳細はサムネ優先（一覧では原本URLを返さない）
  * - 13.2: 取得対象がユーザーのアクセス可能なプロジェクト配下であることを検証する
+ * - 13.4: 画像を公開パスではなく署名付きURL/専用エンドポイント経由でのみ配信する
+ * - 14.6: ビューアで表示する原本画像を必要時にのみ取得する（getOriginalImage）
+ * - 15.4: ZIPエクスポートの「アップロード原本そのまま」モードを成立させる（getOriginalImage）
  *
  * @module services/construction-photo-image
  */
@@ -547,6 +552,59 @@ export class ConstructionPhotoImageService {
     };
 
     return this.signboardCompositeService.composite(originalBuffer, signboardDto, placement);
+  }
+
+  /**
+   * 非合成の原本画像をオンデマンドで取得する（ビューア/ZIP用）。
+   *
+   * `getPrintImage` とは異なり、看板配置（`signboardId`/`signboardPlacement`）の
+   * 有無で分岐せず、SVG看板合成を一切行わずに保存済み原本バッファをそのまま返す
+   * （R14.6: ビューアは必要時にのみ原本を取得、R15.4: ZIPの「アップロード原本そのまま」
+   * モードを成立させる）。原本は一覧DTO（`ConstructionPhotoWithUrls`）には含めず、
+   * 本メソッド専用の配信エンドポイントを経由してのみ取得可能とする（R13.4）。
+   *
+   * 対象写真がアクセス可能なプロジェクト配下のアルバムに属することを検証する。
+   * 未存在・論理削除済みアルバム配下・アクセス不可・原本欠損のいずれも、存在有無を
+   * 漏らさないため 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。
+   *
+   * Requirements: 14.6, 15.4, 13.2, 13.4
+   *
+   * @param photoId - 対象写真項目ID
+   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
+   * @returns 非合成の原本画像バッファ
+   * @throws {ConstructionPhotoNotFoundError} 未存在・論理削除済み・アクセス不可・原本欠損の場合
+   */
+  async getOriginalImage(photoId: string, userId: string): Promise<Buffer> {
+    // 写真項目＋所属アルバムのプロジェクト/論理削除状態を取得（看板情報は不要）
+    const photo = await this.prisma.constructionPhoto.findUnique({
+      where: { id: photoId },
+      select: {
+        id: true,
+        originalPath: true,
+        album: { select: { projectId: true, deletedAt: true } },
+      },
+    });
+    if (!photo || photo.album.deletedAt !== null) {
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
+    const hasAccess = await this.canAccessProject(photo.album.projectId, userId);
+    if (!hasAccess) {
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    // 看板配置の有無に関わらず、常に非合成の原本バッファをそのまま返す
+    const originalBuffer = await this.storageProvider.get(photo.originalPath);
+    if (!originalBuffer) {
+      logger.warn(
+        { photoId, path: photo.originalPath },
+        'Original image: original not found in storage'
+      );
+      throw new ConstructionPhotoNotFoundError(photoId);
+    }
+
+    return originalBuffer;
   }
 
   /**
