@@ -13,12 +13,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import ConstructionPhotoListPage from './ConstructionPhotoListPage';
 import * as projectsApi from '../api/projects';
 import * as constructionPhotosApi from '../api/construction-photos';
+import { ApiError } from '../api/client';
 import type { PaginatedConstructionPhotoAlbums } from '../types/construction-photo.types';
 
 // react-router-dom のモック（useNavigate のみ差し替え）
@@ -228,6 +229,95 @@ describe('ConstructionPhotoListPage', () => {
       await user.click(row);
 
       expect(navigateMock).toHaveBeenCalledWith('/construction-photos/album-1');
+    });
+  });
+
+  // ==========================================================================
+  // Task 12.3: 一覧行にアルバム編集・削除導線を追加 (R16.6)
+  // ==========================================================================
+
+  describe('一覧行の編集・削除導線 (R16.6)', () => {
+    beforeEach(() => {
+      vi.mocked(constructionPhotosApi.deleteConstructionPhotoAlbum).mockResolvedValue(undefined);
+      setMatchMedia((query) => query === '(min-width: 1024px)');
+    });
+
+    it('行の編集ボタン押下でアルバム編集画面へ遷移し、行クリックの詳細遷移は発生しない', async () => {
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      fireEvent.click(within(row).getByRole('button', { name: /編集/ }));
+
+      expect(navigateMock).toHaveBeenCalledWith('/construction-photos/album-1/edit');
+      expect(navigateMock).not.toHaveBeenCalledWith('/construction-photos/album-1');
+    });
+
+    it('行の削除ボタン押下で確認ダイアログが表示され、承認すると削除APIが呼ばれ一覧が再取得される', async () => {
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      fireEvent.click(within(row).getByRole('button', { name: /削除/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/基礎工事アルバム/)).toBeInTheDocument();
+
+      vi.mocked(constructionPhotosApi.getConstructionPhotoAlbums).mockClear();
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+
+      await waitFor(() => {
+        expect(constructionPhotosApi.deleteConstructionPhotoAlbum).toHaveBeenCalledWith('album-1');
+      });
+      await waitFor(() => {
+        expect(constructionPhotosApi.getConstructionPhotoAlbums).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
+    it('行の削除確認ダイアログでキャンセルすると削除APIは呼ばれない', async () => {
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      fireEvent.click(within(row).getByRole('button', { name: /削除/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(constructionPhotosApi.deleteConstructionPhotoAlbum).not.toHaveBeenCalled();
+    });
+
+    it('削除APIが失敗するとエラーメッセージが表示され、ダイアログが閉じ、誤った画面遷移は発生しない', async () => {
+      vi.mocked(constructionPhotosApi.deleteConstructionPhotoAlbum).mockRejectedValue(
+        new ApiError(500, 'サーバー内部エラーによりアルバムを削除できませんでした')
+      );
+
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      fireEvent.click(within(row).getByRole('button', { name: /削除/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+
+      await waitFor(() => {
+        expect(constructionPhotosApi.deleteConstructionPhotoAlbum).toHaveBeenCalledWith('album-1');
+      });
+
+      // 失敗後はダイアログが閉じ、無言のまま再有効化されるのではなくエラーが提示される
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      const alertBanner = await screen.findByRole('alert');
+      expect(alertBanner).toHaveTextContent(
+        'サーバー内部エラーによりアルバムを削除できませんでした'
+      );
+
+      // 一覧画面に留まったままで、誤った画面遷移（詳細/編集など）は発生しない
+      expect(navigateMock).not.toHaveBeenCalled();
     });
   });
 });

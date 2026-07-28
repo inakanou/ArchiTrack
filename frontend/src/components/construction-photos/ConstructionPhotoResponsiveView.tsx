@@ -39,6 +39,10 @@ export interface ConstructionPhotoResponsiveViewProps {
   onSort: (field: ConstructionPhotoAlbumSortableField) => void;
   /** 行/カードクリックハンドラ */
   onRowClick: (albumId: string) => void;
+  /** 行/カードの編集導線ハンドラ（アルバム編集画面へ遷移, R16.6） */
+  onEditAlbum: (albumId: string) => void;
+  /** 行/カードの削除導線ハンドラ（削除確認ダイアログを開く, R16.6） */
+  onDeleteAlbum: (albumId: string, albumName: string) => void;
 }
 
 // ============================================================================
@@ -56,6 +60,8 @@ export default function ConstructionPhotoResponsiveView({
   sortOrder,
   onSort,
   onRowClick,
+  onEditAlbum,
+  onDeleteAlbum,
 }: ConstructionPhotoResponsiveViewProps) {
   const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
 
@@ -85,7 +91,14 @@ export default function ConstructionPhotoResponsiveView({
 
   // モバイル: カード表示
   if (isMobile) {
-    return <ConstructionPhotoListCard albums={albums} onCardClick={onRowClick} />;
+    return (
+      <ConstructionPhotoListCard
+        albums={albums}
+        onCardClick={onRowClick}
+        onEditAlbum={onEditAlbum}
+        onDeleteAlbum={onDeleteAlbum}
+      />
+    );
   }
 
   // デスクトップ/タブレット: テーブル表示
@@ -96,6 +109,8 @@ export default function ConstructionPhotoResponsiveView({
       sortOrder={sortOrder}
       onSort={onSort}
       onRowClick={onRowClick}
+      onEditAlbum={onEditAlbum}
+      onDeleteAlbum={onDeleteAlbum}
     />
   );
 }

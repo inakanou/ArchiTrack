@@ -52,6 +52,10 @@ export interface ConstructionPhotoListTableProps {
   onSort: (field: ConstructionPhotoAlbumSortableField) => void;
   /** 行クリックハンドラ */
   onRowClick: (albumId: string) => void;
+  /** 行の編集導線ハンドラ（アルバム編集画面へ遷移, R16.6） */
+  onEditAlbum: (albumId: string) => void;
+  /** 行の削除導線ハンドラ（削除確認ダイアログを開く, R16.6） */
+  onDeleteAlbum: (albumId: string, albumName: string) => void;
 }
 
 // ============================================================================
@@ -70,6 +74,7 @@ const COLUMNS: ColumnDefinition[] = [
   { key: 'name', label: 'アルバム名', sortable: false },
   { key: 'createdAt', label: '作成日', sortable: true, sortKey: 'createdAt' },
   { key: 'updatedAt', label: '更新日', sortable: true, sortKey: 'updatedAt' },
+  { key: 'actions', label: '操作', sortable: false },
 ];
 
 // ============================================================================
@@ -248,6 +253,8 @@ export default function ConstructionPhotoListTable({
   sortOrder,
   onSort,
   onRowClick,
+  onEditAlbum,
+  onDeleteAlbum,
 }: ConstructionPhotoListTableProps) {
   const handleRowClick = useCallback(
     (albumId: string) => {
@@ -352,6 +359,31 @@ export default function ConstructionPhotoListTable({
                     />
                   </svg>
                   {formatDate(album.updatedAt)}
+                </div>
+              </td>
+              {/* 行アクション（編集・削除, R16.6） */}
+              <td
+                className="px-6 py-4 whitespace-nowrap text-right"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onEditAlbum(album.id)}
+                    aria-label={`${album.name}を編集`}
+                    className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    編集
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteAlbum(album.id, album.name)}
+                    aria-label={`${album.name}を削除`}
+                    className="px-3 py-1.5 text-xs font-medium text-red-600 bg-white border border-red-300 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
+                    削除
+                  </button>
                 </div>
               </td>
             </tr>

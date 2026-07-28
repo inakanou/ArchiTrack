@@ -31,7 +31,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getConstructionPhotoAlbum } from '../api/construction-photos';
+import {
+  getConstructionPhotoAlbum,
+  deleteConstructionPhotoAlbum,
+} from '../api/construction-photos';
 import {
   getConstructionPhotos,
   updateConstructionPhotoMetadataBatch,
@@ -56,6 +59,7 @@ import {
   type PhotoMetadataChange,
 } from '../components/construction-photos/PhotoItemPanel';
 import { SignboardAssignDialog } from '../components/construction-photos/SignboardAssignDialog';
+import AlbumDeleteDialog from '../components/construction-photos/AlbumDeleteDialog';
 import {
   BulkExportDialog,
   type BulkExportDialogMode,
@@ -87,6 +91,38 @@ const styles = {
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',
+  } as React.CSSProperties,
+  headerTitleRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '12px',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  albumActionsRow: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  editAlbumButton: {
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    border: '1px solid #d1d5db',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  deleteAlbumButton: {
+    backgroundColor: '#ffffff',
+    color: '#dc2626',
+    border: '1px solid #fca5a5',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
   } as React.CSSProperties,
   title: {
     fontSize: '24px',
@@ -221,8 +257,9 @@ export default function ConstructionPhotoDetailPage() {
   const [signboards, setSignboards] = useState<ConstructionSignboard[]>([]);
 
   // 看板配置ダイアログの対象写真項目（null=閉）
-  const [assignTargetPhoto, setAssignTargetPhoto] =
-    useState<ConstructionPhotoWithUrls | null>(null);
+  const [assignTargetPhoto, setAssignTargetPhoto] = useState<ConstructionPhotoWithUrls | null>(
+    null
+  );
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -231,6 +268,10 @@ export default function ConstructionPhotoDetailPage() {
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // アルバム削除確認ダイアログの開閉状態（R16.3, R16.4）
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeletingAlbum, setIsDeletingAlbum] = useState(false);
 
   // ZIP一括エクスポート対象の選択集合（R15.6, R15.7）
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set());
@@ -305,9 +346,7 @@ export default function ConstructionPhotoDetailPage() {
   const handlePhotosAdded = useCallback((added: ConstructionPhotoWithUrls[]) => {
     if (added.length === 0) return;
     setNotice(null);
-    setPhotos((prev) =>
-      [...prev, ...added].sort((a, b) => a.displayOrder - b.displayOrder)
-    );
+    setPhotos((prev) => [...prev, ...added].sort((a, b) => a.displayOrder - b.displayOrder));
   }, []);
 
   const handleUploaderNotify = useCallback((message: string) => {
@@ -317,34 +356,31 @@ export default function ConstructionPhotoDetailPage() {
   /**
    * メタデータ（コメント/印刷対象）変更ハンドラ（未保存状態で保持, R7.1, R7.5）
    */
-  const handleMetadataChange = useCallback(
-    (photoId: string, metadata: PhotoMetadataChange) => {
-      setPhotos((prev) =>
-        prev.map((p) =>
-          p.id === photoId
-            ? {
-                ...p,
-                ...(metadata.comment !== undefined && { comment: metadata.comment }),
-                ...(metadata.includeInReport !== undefined && {
-                  includeInReport: metadata.includeInReport,
-                }),
-                ...(metadata.signboardId !== undefined && {
-                  signboardId: metadata.signboardId,
-                }),
-                ...(metadata.signboardPlacement !== undefined && {
-                  signboardPlacement: metadata.signboardPlacement,
-                }),
-              }
-            : p
-        )
-      );
+  const handleMetadataChange = useCallback((photoId: string, metadata: PhotoMetadataChange) => {
+    setPhotos((prev) =>
+      prev.map((p) =>
+        p.id === photoId
+          ? {
+              ...p,
+              ...(metadata.comment !== undefined && { comment: metadata.comment }),
+              ...(metadata.includeInReport !== undefined && {
+                includeInReport: metadata.includeInReport,
+              }),
+              ...(metadata.signboardId !== undefined && {
+                signboardId: metadata.signboardId,
+              }),
+              ...(metadata.signboardPlacement !== undefined && {
+                signboardPlacement: metadata.signboardPlacement,
+              }),
+            }
+          : p
+      )
+    );
 
-      const existing = pendingChangesRef.current.get(photoId) ?? {};
-      pendingChangesRef.current.set(photoId, { ...existing, ...metadata });
-      setIsDirty(true);
-    },
-    []
-  );
+    const existing = pendingChangesRef.current.get(photoId) ?? {};
+    pendingChangesRef.current.set(photoId, { ...existing, ...metadata });
+    setIsDirty(true);
+  }, []);
 
   /**
    * 写真項目クリックハンドラ（R14.1）。
@@ -357,6 +393,50 @@ export default function ConstructionPhotoDetailPage() {
     },
     [album, navigate]
   );
+
+  /**
+   * アルバム編集ボタンハンドラ（R16.1, R16.2）。アルバム編集画面へ遷移する。
+   */
+  const handleEditAlbum = useCallback(() => {
+    if (!album) return;
+    navigate(`/construction-photos/${album.id}/edit`);
+  }, [album, navigate]);
+
+  /**
+   * アルバム削除ボタンハンドラ（R16.3, R16.4）。削除確認ダイアログを開く。
+   */
+  const handleDeleteAlbumRequest = useCallback(() => {
+    setIsDeleteDialogOpen(true);
+  }, []);
+
+  /**
+   * アルバム削除確認ダイアログのキャンセルハンドラ
+   */
+  const handleDeleteAlbumCancel = useCallback(() => {
+    setIsDeleteDialogOpen(false);
+  }, []);
+
+  /**
+   * アルバム削除確認の承認ハンドラ（R16.5）。
+   * 削除APIを呼び出し、成功したら工事写真一覧画面へ遷移する。
+   */
+  const handleDeleteAlbumConfirm = useCallback(async () => {
+    if (!album) return;
+    setIsDeletingAlbum(true);
+    try {
+      await deleteConstructionPhotoAlbum(album.id);
+      navigate(`/projects/${album.projectId}/construction-photos`);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message || 'アルバムの削除に失敗しました'
+          : 'アルバムの削除に失敗しました'
+      );
+      setIsDeleteDialogOpen(false);
+    } finally {
+      setIsDeletingAlbum(false);
+    }
+  }, [album, navigate]);
 
   /**
    * 「看板を配置」導線ハンドラ（R9.1）。対象写真項目の配置ダイアログを開く。
@@ -639,7 +719,22 @@ export default function ConstructionPhotoDetailPage() {
       </div>
 
       <div style={styles.header}>
-        <h1 style={styles.title}>{album.name}</h1>
+        <div style={styles.headerTitleRow}>
+          <h1 style={styles.title}>{album.name}</h1>
+          {/* アルバム編集・削除導線（R16.1, R16.2, R16.3, R16.4） */}
+          <div style={styles.albumActionsRow}>
+            <button type="button" onClick={handleEditAlbum} style={styles.editAlbumButton}>
+              編集
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteAlbumRequest}
+              style={styles.deleteAlbumButton}
+            >
+              削除
+            </button>
+          </div>
+        </div>
         {album.memo && <p style={styles.memo}>{album.memo}</p>}
       </div>
 
@@ -745,6 +840,15 @@ export default function ConstructionPhotoDetailPage() {
           onClose={handleExportProgressClose}
         />
       )}
+
+      {/* アルバム削除確認ダイアログ（R16.3, R16.4, R16.5） */}
+      <AlbumDeleteDialog
+        isOpen={isDeleteDialogOpen}
+        albumName={album.name}
+        onConfirm={handleDeleteAlbumConfirm}
+        onClose={handleDeleteAlbumCancel}
+        isDeleting={isDeletingAlbum}
+      />
 
       <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
     </main>

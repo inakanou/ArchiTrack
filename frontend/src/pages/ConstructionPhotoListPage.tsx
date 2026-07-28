@@ -25,7 +25,10 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from '../components/common';
 import type { BreadcrumbItem } from '../components/common';
 import { getProject } from '../api/projects';
-import { getConstructionPhotoAlbums } from '../api/construction-photos';
+import {
+  getConstructionPhotoAlbums,
+  deleteConstructionPhotoAlbum,
+} from '../api/construction-photos';
 import type { ProjectDetail } from '../types/project.types';
 import type {
   PaginatedConstructionPhotoAlbums,
@@ -36,6 +39,8 @@ import ConstructionPhotoResponsiveView from '../components/construction-photos/C
 import ConstructionPhotoSearchFilter, {
   type ConstructionPhotoAlbumFilter,
 } from '../components/construction-photos/ConstructionPhotoSearchFilter';
+import AlbumDeleteDialog from '../components/construction-photos/AlbumDeleteDialog';
+import { ApiError } from '../api/client';
 
 // ============================================================================
 // 定数定義
@@ -104,6 +109,16 @@ const STYLES = {
     color: '#991b1b',
     fontSize: '14px',
     marginBottom: '16px',
+  } as React.CSSProperties,
+  notice: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px',
+    whiteSpace: 'pre-line' as const,
+    color: '#991b1b',
+    fontSize: '14px',
   } as React.CSSProperties,
   retryButton: {
     backgroundColor: '#dc2626',
@@ -194,6 +209,10 @@ export default function ConstructionPhotoListPage() {
   // ページング状態
   const [page, setPage] = useState(1);
 
+  // アルバム削除確認ダイアログの対象（null=閉, R16.6）
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeletingAlbum, setIsDeletingAlbum] = useState(false);
+
   /**
    * データ取得
    */
@@ -276,6 +295,56 @@ export default function ConstructionPhotoListPage() {
   );
 
   /**
+   * 行の編集導線ハンドラ（アルバム編集画面へ遷移, R16.6, R16.2）
+   */
+  const handleEditAlbum = useCallback(
+    (albumId: string) => {
+      navigate(`/construction-photos/${albumId}/edit`);
+    },
+    [navigate]
+  );
+
+  /**
+   * 行の削除導線ハンドラ（削除確認ダイアログを開く, R16.6, R16.4）
+   */
+  const handleDeleteAlbumRequest = useCallback((albumId: string, albumName: string) => {
+    setDeleteTarget({ id: albumId, name: albumName });
+  }, []);
+
+  /**
+   * 削除確認ダイアログのキャンセルハンドラ
+   */
+  const handleDeleteAlbumCancel = useCallback(() => {
+    setDeleteTarget(null);
+  }, []);
+
+  /**
+   * 削除確認の承認ハンドラ（削除API呼び出し後、一覧を再取得する, R16.6, R16.5）
+   */
+  const handleDeleteAlbumConfirm = useCallback(async () => {
+    if (!deleteTarget) return;
+
+    setIsDeletingAlbum(true);
+    setError(null);
+    try {
+      await deleteConstructionPhotoAlbum(deleteTarget.id);
+      setDeleteTarget(null);
+      await fetchData();
+    } catch (err) {
+      // 削除失敗時はダイアログを閉じ、通常表示ツリーのエラーバナーで理由を提示する
+      // （確認ダイアログが開いたままだと背後のバナーが視認できないため）
+      setDeleteTarget(null);
+      setError(
+        err instanceof ApiError
+          ? err.message || 'アルバムの削除に失敗しました'
+          : 'アルバムの削除に失敗しました'
+      );
+    } finally {
+      setIsDeletingAlbum(false);
+    }
+  }, [deleteTarget, fetchData]);
+
+  /**
    * ページ変更ハンドラ
    */
   const handlePrevPage = useCallback(() => {
@@ -354,6 +423,13 @@ export default function ConstructionPhotoListPage() {
         </Link>
       </div>
 
+      {/* 通知（アルバム削除失敗など, R16.5関連） */}
+      {error && (
+        <div role="alert" style={STYLES.notice}>
+          {error}
+        </div>
+      )}
+
       {/* 検索・ソート (Requirements 3.3, 3.4) */}
       <ConstructionPhotoSearchFilter
         filter={filter}
@@ -372,6 +448,8 @@ export default function ConstructionPhotoListPage() {
             sortOrder={sortOrder}
             onSort={handleSort}
             onRowClick={handleRowClick}
+            onEditAlbum={handleEditAlbum}
+            onDeleteAlbum={handleDeleteAlbumRequest}
           />
 
           {/* ページング (Requirement 3.1) */}
@@ -412,6 +490,15 @@ export default function ConstructionPhotoListPage() {
           </Link>
         </div>
       )}
+
+      {/* アルバム削除確認ダイアログ（R16.4, R16.5, R16.6） */}
+      <AlbumDeleteDialog
+        isOpen={deleteTarget !== null}
+        albumName={deleteTarget?.name ?? ''}
+        onConfirm={handleDeleteAlbumConfirm}
+        onClose={handleDeleteAlbumCancel}
+        isDeleting={isDeletingAlbum}
+      />
 
       <style>
         {`

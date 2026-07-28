@@ -566,4 +566,63 @@ describe('ConstructionPhotoDetailPage', () => {
       expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
     });
   });
+
+  // ==========================================================================
+  // Task 12.3: 詳細画面にアルバム編集・削除導線を結線 (R16.1, R16.2, R16.3, R16.4, R16.5)
+  // ==========================================================================
+
+  describe('アルバム編集・削除導線 (R16)', () => {
+    beforeEach(() => {
+      vi.mocked(albumsApi.deleteConstructionPhotoAlbum).mockResolvedValue(undefined);
+    });
+
+    it('編集ボタン押下でアルバム編集画面へ遷移する (R16.1, R16.2)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '編集' }));
+
+      expect(mockNavigate).toHaveBeenCalledWith('/construction-photos/album-1/edit');
+    });
+
+    it('削除ボタン押下で削除確認ダイアログが表示される (R16.3, R16.4)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/基礎工事アルバム/)).toBeInTheDocument();
+      expect(albumsApi.deleteConstructionPhotoAlbum).not.toHaveBeenCalled();
+    });
+
+    it('削除確認を承認するとAPIが呼ばれ工事写真一覧へ遷移する (R16.5)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+
+      await waitFor(() => {
+        expect(albumsApi.deleteConstructionPhotoAlbum).toHaveBeenCalledWith('album-1');
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1/construction-photos');
+    });
+
+    it('削除確認ダイアログでキャンセルすると削除APIは呼ばれずダイアログが閉じる (R16.4)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(albumsApi.deleteConstructionPhotoAlbum).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalledWith('/projects/project-1/construction-photos');
+    });
+  });
 });

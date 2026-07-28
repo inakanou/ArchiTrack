@@ -66,6 +66,8 @@ describe('ConstructionPhotoResponsiveView', () => {
         sortOrder="desc"
         onSort={vi.fn()}
         onRowClick={vi.fn()}
+        onEditAlbum={vi.fn()}
+        onDeleteAlbum={vi.fn()}
       />
     );
 
@@ -82,6 +84,8 @@ describe('ConstructionPhotoResponsiveView', () => {
         sortOrder="desc"
         onSort={vi.fn()}
         onRowClick={vi.fn()}
+        onEditAlbum={vi.fn()}
+        onDeleteAlbum={vi.fn()}
       />
     );
 
@@ -98,6 +102,8 @@ describe('ConstructionPhotoResponsiveView', () => {
         sortOrder="desc"
         onSort={vi.fn()}
         onRowClick={vi.fn()}
+        onEditAlbum={vi.fn()}
+        onDeleteAlbum={vi.fn()}
       />
     );
 
@@ -114,6 +120,8 @@ describe('ConstructionPhotoResponsiveView', () => {
         sortOrder="desc"
         onSort={vi.fn()}
         onRowClick={vi.fn()}
+        onEditAlbum={vi.fn()}
+        onDeleteAlbum={vi.fn()}
       />
     );
 
@@ -131,6 +139,8 @@ describe('ConstructionPhotoResponsiveView', () => {
         sortOrder="desc"
         onSort={vi.fn()}
         onRowClick={onRowClick}
+        onEditAlbum={vi.fn()}
+        onDeleteAlbum={vi.fn()}
       />
     );
 

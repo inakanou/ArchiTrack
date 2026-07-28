@@ -26,6 +26,10 @@ export interface ConstructionPhotoListCardProps {
   albums: ConstructionPhotoAlbumListItem[];
   /** カードクリックハンドラ */
   onCardClick: (albumId: string) => void;
+  /** カードの編集導線ハンドラ（アルバム編集画面へ遷移, R16.6） */
+  onEditAlbum: (albumId: string) => void;
+  /** カードの削除導線ハンドラ（削除確認ダイアログを開く, R16.6） */
+  onDeleteAlbum: (albumId: string, albumName: string) => void;
 }
 
 // ============================================================================
@@ -96,9 +100,13 @@ function ThumbnailImage({ album }: { album: ConstructionPhotoAlbumListItem }) {
 function AlbumCard({
   album,
   onClick,
+  onEdit,
+  onDelete,
 }: {
   album: ConstructionPhotoAlbumListItem;
   onClick: (albumId: string) => void;
+  onEdit: (albumId: string) => void;
+  onDelete: (albumId: string, albumName: string) => void;
 }) {
   const handleClick = useCallback(() => {
     onClick(album.id);
@@ -176,6 +184,30 @@ function AlbumCard({
           </svg>
         </div>
       </div>
+
+      {/* カードアクション（編集・削除, R16.6） */}
+      <div
+        className="flex justify-end gap-2 mt-3 pt-3 border-t border-gray-100"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => onEdit(album.id)}
+          aria-label={`${album.name}を編集`}
+          className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          編集
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(album.id, album.name)}
+          aria-label={`${album.name}を削除`}
+          className="px-3 py-1.5 text-xs font-medium text-red-600 bg-white border border-red-300 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+        >
+          削除
+        </button>
+      </div>
     </div>
   );
 }
@@ -190,11 +222,19 @@ function AlbumCard({
 export default function ConstructionPhotoListCard({
   albums,
   onCardClick,
+  onEditAlbum,
+  onDeleteAlbum,
 }: ConstructionPhotoListCardProps) {
   return (
     <div data-testid="album-card-list" className="space-y-3">
       {albums.map((album) => (
-        <AlbumCard key={album.id} album={album} onClick={onCardClick} />
+        <AlbumCard
+          key={album.id}
+          album={album}
+          onClick={onCardClick}
+          onEdit={onEditAlbum}
+          onDelete={onDeleteAlbum}
+        />
       ))}
     </div>
   );
