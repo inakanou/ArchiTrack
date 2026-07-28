@@ -19,7 +19,15 @@
  * 呼び出し元（ConstructionPhotoDetailPage）が担う。エクスポート対象の選択集合も
  * 呼び出し元（ConstructionPhotoDetailPage）が保持する。
  *
- * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.6, 11.3, 15.6, 15.7
+ * Task 12.6 追加: モバイルスタイル分岐（site-survey の PhotoManagementPanel Task 100.1 と
+ * 同一パターン）。`useMediaQuery(MEDIA_QUERIES.isMobile)` でモバイル幅を判定し、
+ *   - 写真＋メタデータ行を縦積み(column)化、写真列の固定320pxを解除（可変幅100%）(R19.2)
+ *   - コメント入力欄フォントを16px以上にしフォーカス時自動ズームを抑止 (R19.5)
+ *   - 操作系コントロール（印刷対象/エクスポート対象チェック・並替ボタン・削除ボタン・
+ *     ドラッグハンドル）のタップ領域を44px以上に拡大 (R19.3)
+ *
+ * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.6, 11.3, 15.6, 15.7,
+ *   19.2, 19.3, 19.5
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -28,6 +36,8 @@ import type {
   PhotoOrderItem,
   SignboardPlacement,
 } from '../../types/construction-photo.types';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
 
 // ============================================================================
 // 型定義
@@ -406,6 +416,40 @@ const styles = {
     color: '#ffffff',
     border: 'none',
   } as React.CSSProperties,
+  // ==========================================================================
+  // モバイル表示最適化スタイル（Requirement 19 / Task 12.6）
+  // site-survey PhotoManagementPanel（Task 100.1）と同一パターンで既存の
+  // spread 合成に isMobile 分岐として合成する
+  // ==========================================================================
+  /** R19.2: 写真＋メタデータ行を縦積み(column)化 */
+  panelItemMobile: {
+    flexDirection: 'column' as const,
+  } as React.CSSProperties,
+  /** R19.2: 写真列の固定320pxを解除し可変幅（100%）にする */
+  imageSectionMobile: {
+    width: '100%',
+  } as React.CSSProperties,
+  /** R19.5: コメント入力欄フォントを16px以上にしフォーカス時自動ズームを抑止 */
+  textareaMobile: {
+    fontSize: '16px',
+  } as React.CSSProperties,
+  /** R19.3: 操作系コントロールのタップ領域を44px以上に拡大 */
+  checkboxMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
+  orderButtonMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
+  deleteButtonMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
+  dragHandleMobile: {
+    minWidth: '44px',
+    minHeight: '44px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -418,6 +462,8 @@ interface PhotoItemProps {
   totalPhotos: number;
   showOrderNumber: boolean;
   readOnly: boolean;
+  /** モバイル幅かどうか（Requirement 19 / Task 12.6） */
+  isMobile: boolean;
   onMetadataChange: (photoId: string, metadata: PhotoMetadataChange) => void;
   onPhotoClick?: (photo: ConstructionPhotoWithUrls) => void;
   enableDrag: boolean;
@@ -445,6 +491,7 @@ function PhotoItem({
   totalPhotos,
   showOrderNumber,
   readOnly,
+  isMobile,
   onMetadataChange,
   onPhotoClick,
   enableDrag,
@@ -546,6 +593,7 @@ function PhotoItem({
 
   const panelItemStyle: React.CSSProperties = {
     ...styles.panelItem,
+    ...(isMobile ? styles.panelItemMobile : {}),
     ...(isDragging ? styles.panelItemDragging : {}),
     ...(isDragOver ? styles.panelItemDragOver : {}),
   };
@@ -569,7 +617,10 @@ function PhotoItem({
           draggable
           onDragStart={(e) => onDragStart(e, photo.id)}
           onDragEnd={onDragEnd}
-          style={styles.dragHandle}
+          style={{
+            ...styles.dragHandle,
+            ...(isMobile ? styles.dragHandleMobile : {}),
+          }}
           data-testid="construction-photo-drag-handle"
           aria-label="ドラッグして順序を変更"
         >
@@ -588,13 +639,26 @@ function PhotoItem({
             disabled={index === 0}
             style={{
               ...styles.orderButton,
+              ...(isMobile ? styles.orderButtonMobile : {}),
               ...(index === 0 ? styles.orderButtonDisabled : {}),
             }}
             aria-label="上へ移動"
             title="上へ移動"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 15l7-7 7 7"
+              />
             </svg>
           </button>
           <button
@@ -603,20 +667,38 @@ function PhotoItem({
             disabled={index === totalPhotos - 1}
             style={{
               ...styles.orderButton,
+              ...(isMobile ? styles.orderButtonMobile : {}),
               ...(index === totalPhotos - 1 ? styles.orderButtonDisabled : {}),
             }}
             aria-label="下へ移動"
             title="下へ移動"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
             </svg>
           </button>
         </div>
       )}
 
       {/* 画像セクション（サムネ優先, R11.3） */}
-      <div style={styles.imageSection}>
+      <div
+        style={{
+          ...styles.imageSection,
+          ...(isMobile ? styles.imageSectionMobile : {}),
+        }}
+      >
         {showOrderNumber && (
           <div style={styles.orderNumber} data-testid="construction-photo-order-number">
             {index + 1}
@@ -636,7 +718,12 @@ function PhotoItem({
           aria-label={`画像を拡大表示: ${photo.fileName}`}
         >
           {photo.thumbnailUrl ? (
-            <img src={photo.thumbnailUrl} alt={photo.fileName} style={styles.image} loading="lazy" />
+            <img
+              src={photo.thumbnailUrl}
+              alt={photo.fileName}
+              style={styles.image}
+              loading="lazy"
+            />
           ) : (
             <div style={styles.imagePlaceholder} role="img" aria-label={photo.fileName}>
               サムネイル生成中
@@ -660,7 +747,10 @@ function PhotoItem({
               id={exportSelectId}
               checked={isSelected}
               onChange={handleToggleSelectChange}
-              style={styles.checkbox}
+              style={{
+                ...styles.checkbox,
+                ...(isMobile ? styles.checkboxMobile : {}),
+              }}
               aria-label="エクスポート対象に含める"
               data-testid={`export-select-checkbox-${photo.id}`}
             />
@@ -678,7 +768,10 @@ function PhotoItem({
             checked={photo.includeInReport ?? false}
             onChange={handleIncludeInReportChange}
             disabled={readOnly}
-            style={styles.checkbox}
+            style={{
+              ...styles.checkbox,
+              ...(isMobile ? styles.checkboxMobile : {}),
+            }}
             aria-label="印刷対象に含める"
           />
           <label htmlFor={checkboxId} style={styles.checkboxLabel}>
@@ -699,6 +792,7 @@ function PhotoItem({
             placeholder="コメントを入力..."
             style={{
               ...styles.textarea,
+              ...(isMobile ? styles.textareaMobile : {}),
               ...(commentError ? styles.textareaError : {}),
             }}
             readOnly={readOnly}
@@ -733,7 +827,10 @@ function PhotoItem({
               <button
                 type="button"
                 onClick={() => onDeleteClick(photo.id)}
-                style={styles.deleteButton}
+                style={{
+                  ...styles.deleteButton,
+                  ...(isMobile ? styles.deleteButtonMobile : {}),
+                }}
                 aria-label={`写真項目を削除: ${photo.fileName}`}
               >
                 削除
@@ -770,6 +867,8 @@ export function PhotoItemPanel({
   selectedPhotoIds,
   onToggleSelect,
 }: PhotoItemPanelProps) {
+  // モバイル幅判定（Requirement 19 / Task 12.6）
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -898,17 +997,24 @@ export function PhotoItemPanel({
     }
   }, [deleteTargetId, onDelete]);
 
-  const deleteTargetPhoto = deleteTargetId
-    ? photos.find((p) => p.id === deleteTargetId)
-    : null;
+  const deleteTargetPhoto = deleteTargetId ? photos.find((p) => p.id === deleteTargetId) : null;
 
   // ローディング（スケルトン）
   if (isLoading && photos.length === 0) {
     return (
-      <section style={styles.container} role="region" aria-label="写真項目管理パネル" aria-busy="true">
+      <section
+        style={styles.container}
+        role="region"
+        aria-label="写真項目管理パネル"
+        aria-busy="true"
+      >
         <div style={styles.panelList}>
           {[0, 1, 2].map((i) => (
-            <div key={`skeleton-${i}`} style={styles.skeleton} data-testid="construction-photo-skeleton" />
+            <div
+              key={`skeleton-${i}`}
+              style={styles.skeleton}
+              data-testid="construction-photo-skeleton"
+            />
           ))}
         </div>
       </section>
@@ -964,6 +1070,7 @@ export function PhotoItemPanel({
             totalPhotos={sortedPhotos.length}
             showOrderNumber={showOrderNumbers}
             readOnly={readOnly}
+            isMobile={isMobile}
             onMetadataChange={onPhotoMetadataChange}
             onPhotoClick={onPhotoClick}
             enableDrag={enableDrag}
@@ -987,17 +1094,28 @@ export function PhotoItemPanel({
 
       {/* 削除確認ダイアログ（R7.7） */}
       {deleteTargetId && (
-        <div style={styles.deleteDialog} role="dialog" aria-modal="true" aria-labelledby="cp-delete-dialog-title">
+        <div
+          style={styles.deleteDialog}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cp-delete-dialog-title"
+        >
           <div style={styles.deleteDialogOverlay} onClick={handleDeleteCancel} aria-hidden="true" />
           <div style={styles.deleteDialogContent}>
             <h2 id="cp-delete-dialog-title" style={styles.deleteDialogTitle}>
               写真項目を削除
             </h2>
             <p style={styles.deleteDialogMessage}>
-              「{deleteTargetPhoto?.fileName}」を削除しますか？関連する看板配置データも削除されます。
+              「{deleteTargetPhoto?.fileName}
+              」を削除しますか？関連する看板配置データも削除されます。
             </p>
             <div style={styles.deleteDialogButtons}>
-              <button type="button" onClick={handleDeleteCancel} style={styles.cancelButton} disabled={isDeleting}>
+              <button
+                type="button"
+                onClick={handleDeleteCancel}
+                style={styles.cancelButton}
+                disabled={isDeleting}
+              >
                 キャンセル
               </button>
               <button

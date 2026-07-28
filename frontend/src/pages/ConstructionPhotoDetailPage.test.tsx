@@ -21,6 +21,7 @@ import * as siteSurveysApi from '../api/site-surveys';
 import * as signboardsApi from '../api/construction-signboards';
 import * as ledgerExportApi from '../services/export/ConstructionPhotoLedgerExportService';
 import { constructionPhotoBulkExportService } from '../services/export/ConstructionPhotoBulkExportService';
+import useMediaQuery from '../hooks/useMediaQuery';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
@@ -57,6 +58,11 @@ vi.mock('../api/construction-photo-images');
 vi.mock('../api/projects');
 vi.mock('../api/site-surveys');
 vi.mock('../api/construction-signboards');
+// useMediaQueryのモック（デフォルトはデスクトップ幅=false, Task 12.6, Requirement 19）
+// isMobile 判定をテストごとに切り替えられるようにする。
+vi.mock('../hooks/useMediaQuery', () => ({
+  default: vi.fn(() => false),
+}));
 vi.mock('../services/export/ConstructionPhotoLedgerExportService');
 vi.mock('../services/export/ConstructionPhotoBulkExportService', () => ({
   constructionPhotoBulkExportService: { export: vi.fn() },
@@ -221,6 +227,7 @@ describe('ConstructionPhotoDetailPage', () => {
     unsavedChangesRuntime.dirty = false;
     mockUseBlocker.mockReturnValue({ state: 'unblocked', proceed: mockProceed, reset: mockReset });
     mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
+    vi.mocked(useMediaQuery).mockReturnValue(false);
     vi.mocked(albumsApi.getConstructionPhotoAlbum).mockResolvedValue(mockAlbum);
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
     vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
@@ -987,6 +994,61 @@ describe('ConstructionPhotoDetailPage', () => {
 
       fireEvent.click(screen.getByRole('button', { name: '編集' }));
       expect(mockNavigate).toHaveBeenCalledWith('/construction-photos/album-1/edit');
+    });
+  });
+
+  // ==========================================================================
+  // Task 12.6: モバイルレイアウト対応（Requirement 19）
+  // site-survey SiteSurveyDetailPage（Task 100.2）と同一パターン
+  // ==========================================================================
+  describe('モバイルレイアウト対応 (Task 12.6, Requirement 19)', () => {
+    it('R19.1: モバイル幅ではページコンテナが固定maxWidth:1200pxに縛られず画面幅にフィットする', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(true);
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      const main = screen.getByRole('main');
+      expect(main.style.maxWidth).not.toBe('1200px');
+      expect(main.style.maxWidth).toBe('100%');
+    });
+
+    it('R19.1: デスクトップ幅では既存のmaxWidth:1200pxレイアウトを維持する（回帰）', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(false);
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      const main = screen.getByRole('main');
+      expect(main.style.maxWidth).toBe('1200px');
+      expect(main.style.margin).toBe('0px auto');
+    });
+
+    it('R19.4: ブレッドクラムラッパは水平あふれを収容するためoverflow-x:autoを付与する', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(true);
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      const breadcrumbNav = screen.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      const breadcrumbWrapper = breadcrumbNav.parentElement;
+      expect(breadcrumbWrapper).not.toBeNull();
+      expect(breadcrumbWrapper!.style.overflowX).toBe('auto');
+    });
+
+    it('R19.2/19.3/19.5: モバイル幅では写真項目パネルが縦積み・タップ領域確保・16px入力で描画される', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(true);
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      // PhotoItemPanel 自身が useMediaQuery を参照してモバイルスタイルへ分岐する
+      // （本ページ側は isMobile を PhotoItemPanel へ委譲する。DetailPage のモバイル対応は
+      //   コンテナ幅/パンくずの水平収めに閉じる）
+      expect(firstItem.style.flexDirection).toBe('column');
+
+      const textarea = within(firstItem).getByLabelText('コメント') as HTMLElement;
+      expect(parseFloat(textarea.style.fontSize)).toBeGreaterThanOrEqual(16);
     });
   });
 });

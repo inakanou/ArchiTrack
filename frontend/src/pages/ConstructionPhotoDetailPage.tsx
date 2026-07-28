@@ -86,6 +86,8 @@ import { BulkExportProgressDialog } from '../components/construction-photos/Bulk
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import useMediaQuery from '../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../utils/responsive';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
@@ -106,6 +108,15 @@ const styles = {
     margin: '0 auto',
     padding: '24px 16px',
   } as React.CSSProperties,
+  // モバイル幅では固定 maxWidth:1200px の支配を解消し、コンテナを画面幅にフィットさせて
+  // 横スクロールを防ぐ（site-survey SiteSurveyDetailPage Task 100.2 と同一パターン, R19.1）
+  containerMobile: {
+    maxWidth: '100%',
+    margin: '0',
+    padding: '16px 12px',
+  } as React.CSSProperties,
+  // overflowX:auto は常時付与し、長いパンくず行を水平スクロール内に収めて
+  // 祖先(コンテナ)の scrollWidth への寄与を断つ（デスクトップ幅でも回帰しない, R19.4）
   breadcrumbWrapper: {
     marginBottom: '16px',
     overflowX: 'auto' as const,
@@ -274,6 +285,14 @@ export default function ConstructionPhotoDetailPage() {
 
   // 権限（R17.1, R17.2, R17.3, R17.5: ロード中は canEdit/canDelete が安全側でfalseになる）
   const { canEdit, canDelete } = useConstructionPhotoPermission();
+
+  // モバイル幅判定（Requirement 19 / Task 12.6）。固定幅の支配を解消するため、
+  // ページコンテナの maxWidth/padding をモバイル幅で切り替える（R19.1）。
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
+  const containerStyle: React.CSSProperties = {
+    ...styles.container,
+    ...(isMobile ? styles.containerMobile : {}),
+  };
 
   // 未保存離脱警告（R18.1, R18.3, R18.4）。編集権限が無ければ未保存変更が生じないため無効化する。
   const uc = useUnsavedChanges({ enabled: canEdit });
@@ -712,7 +731,7 @@ export default function ConstructionPhotoDetailPage() {
   // ローディング
   if (isLoading && !album) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" style={containerStyle}>
         <div style={styles.loadingContainer}>
           <div role="status" style={styles.loadingSpinner} aria-label="読み込み中" />
           <p>読み込み中...</p>
@@ -725,7 +744,7 @@ export default function ConstructionPhotoDetailPage() {
   // エラー（データ未取得）
   if (error && !album) {
     return (
-      <main role="main" style={styles.container}>
+      <main role="main" style={containerStyle}>
         <div role="alert" style={styles.errorContainer}>
           <p style={styles.errorText}>{error}</p>
           <button type="button" onClick={fetchData} style={styles.retryButton}>
@@ -750,7 +769,7 @@ export default function ConstructionPhotoDetailPage() {
   ];
 
   return (
-    <main role="main" aria-busy={isLoading} style={styles.container}>
+    <main role="main" aria-busy={isLoading} style={containerStyle}>
       <div style={styles.breadcrumbWrapper}>
         <Breadcrumb items={breadcrumbItems} />
       </div>

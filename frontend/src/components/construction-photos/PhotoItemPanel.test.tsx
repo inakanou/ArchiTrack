@@ -11,9 +11,28 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { PhotoItemPanel } from './PhotoItemPanel';
 import type { ConstructionPhotoWithUrls } from '../../types/construction-photo.types';
+
+// useMediaQuery をモック化（isMobile 判定をテストから制御, Task 12.6, Requirement 19）
+vi.mock('../../hooks/useMediaQuery', () => ({
+  default: vi.fn(() => false),
+}));
+
+import useMediaQuery from '../../hooks/useMediaQuery';
+
+/** インラインスタイルの寸法値（px）を数値化する */
+const pxValue = (raw: string): number => {
+  const parsed = parseFloat(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+/** 要素の有効な最小タップ領域（min-width/width, min-height/height の大きい方）を返す */
+const tapWidth = (el: HTMLElement): number =>
+  Math.max(pxValue(el.style.minWidth), pxValue(el.style.width));
+const tapHeight = (el: HTMLElement): number =>
+  Math.max(pxValue(el.style.minHeight), pxValue(el.style.height));
 
 function makePhoto(overrides: Partial<ConstructionPhotoWithUrls> = {}): ConstructionPhotoWithUrls {
   return {
@@ -38,6 +57,7 @@ function makePhoto(overrides: Partial<ConstructionPhotoWithUrls> = {}): Construc
 describe('PhotoItemPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useMediaQuery).mockReturnValue(false);
   });
 
   it('サムネイル(thumbnailUrl)を優先表示する (R11.3)', () => {
@@ -285,6 +305,161 @@ describe('PhotoItemPanel', () => {
     expect(checkbox).not.toBeDisabled();
     fireEvent.click(checkbox);
     expect(onToggleSelect).toHaveBeenCalledWith('p1');
+  });
+
+  // ==========================================================================
+  // Task 12.6: モバイル表示最適化（Requirement 19）
+  // site-survey PhotoManagementPanel（Task 100.1）と同一パターン
+  // ==========================================================================
+  describe('モバイル表示最適化 (Task 12.6)', () => {
+    describe('モバイル幅（isMobile=true）', () => {
+      beforeEach(() => {
+        vi.mocked(useMediaQuery).mockReturnValue(true);
+      });
+
+      it('R19.2: 写真＋メタデータ行を縦積み(column)化し、写真列を可変幅(100%)にすること', () => {
+        const photos = [makePhoto({ id: 'p1' })];
+        render(<PhotoItemPanel photos={photos} onPhotoMetadataChange={vi.fn()} />);
+
+        const item = screen.getByTestId('construction-photo-item');
+        expect(item.style.flexDirection).toBe('column');
+
+        const imageButton = screen.getByTestId('construction-photo-image-button');
+        const imageSection = imageButton.parentElement as HTMLElement;
+        expect(imageSection.style.width).toBe('100%');
+      });
+
+      it('R19.5: コメント入力欄のフォントサイズを16px以上にすること', () => {
+        render(
+          <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={vi.fn()} />
+        );
+        const textarea = screen.getByLabelText('コメント') as HTMLElement;
+        expect(pxValue(textarea.style.fontSize)).toBeGreaterThanOrEqual(16);
+      });
+
+      it('R19.3: 印刷対象チェックボックスのタップ領域を44px以上にすること', () => {
+        render(
+          <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={vi.fn()} />
+        );
+        const checkbox = screen.getByLabelText('印刷対象に含める') as HTMLElement;
+        expect(tapWidth(checkbox)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(checkbox)).toBeGreaterThanOrEqual(44);
+      });
+
+      it('R19.3: エクスポート対象チェックボックスのタップ領域を44px以上にすること', () => {
+        render(
+          <PhotoItemPanel
+            photos={[makePhoto({ id: 'p1' })]}
+            onPhotoMetadataChange={vi.fn()}
+            selectedPhotoIds={new Set()}
+            onToggleSelect={vi.fn()}
+          />
+        );
+        const checkbox = screen.getByLabelText('エクスポート対象に含める') as HTMLElement;
+        expect(tapWidth(checkbox)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(checkbox)).toBeGreaterThanOrEqual(44);
+      });
+
+      it('R19.3: 並び替えボタン（上へ/下へ移動）のタップ領域を44px以上にすること', () => {
+        const photos = [
+          makePhoto({ id: 'p1', displayOrder: 1 }),
+          makePhoto({ id: 'p2', displayOrder: 2 }),
+        ];
+        render(
+          <PhotoItemPanel photos={photos} onPhotoMetadataChange={vi.fn()} onOrderChange={vi.fn()} />
+        );
+        const upButton = screen.getAllByRole('button', { name: '上へ移動' })[0] as HTMLElement;
+        const downButton = screen.getAllByRole('button', { name: '下へ移動' })[0] as HTMLElement;
+        expect(tapWidth(upButton)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(upButton)).toBeGreaterThanOrEqual(44);
+        expect(tapWidth(downButton)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(downButton)).toBeGreaterThanOrEqual(44);
+      });
+
+      it('R19.3: 削除ボタンのタップ領域を44px以上にすること', () => {
+        render(
+          <PhotoItemPanel
+            photos={[makePhoto({ id: 'p1' })]}
+            onPhotoMetadataChange={vi.fn()}
+            onDelete={vi.fn()}
+          />
+        );
+        const deleteButton = screen.getByRole('button', { name: /写真項目を削除/ }) as HTMLElement;
+        expect(tapWidth(deleteButton)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(deleteButton)).toBeGreaterThanOrEqual(44);
+      });
+
+      it('R19.3: ドラッグハンドルのタップ領域を44px以上にすること', () => {
+        const photos = [
+          makePhoto({ id: 'p1', displayOrder: 1 }),
+          makePhoto({ id: 'p2', displayOrder: 2 }),
+        ];
+        render(
+          <PhotoItemPanel photos={photos} onPhotoMetadataChange={vi.fn()} onOrderChange={vi.fn()} />
+        );
+        const dragHandle = screen.getAllByTestId(
+          'construction-photo-drag-handle'
+        )[0] as HTMLElement;
+        expect(tapWidth(dragHandle)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(dragHandle)).toBeGreaterThanOrEqual(44);
+      });
+
+      it('モバイル幅でも印刷対象操作は既存挙動（メタデータ変更通知）を維持すること（回帰）', () => {
+        const onChange = vi.fn();
+        render(
+          <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={onChange} />
+        );
+        fireEvent.click(screen.getByLabelText('印刷対象に含める'));
+        expect(onChange).toHaveBeenCalledWith('p1', { includeInReport: true });
+      });
+
+      it('モバイル幅でも並び替え操作は既存挙動（順序変更通知）を維持すること（回帰）', () => {
+        const onOrderChange = vi.fn();
+        const photos = [
+          makePhoto({ id: 'p1', displayOrder: 1 }),
+          makePhoto({ id: 'p2', displayOrder: 2 }),
+        ];
+        render(
+          <PhotoItemPanel
+            photos={photos}
+            onPhotoMetadataChange={vi.fn()}
+            onOrderChange={onOrderChange}
+          />
+        );
+        const items = screen.getAllByTestId('construction-photo-item');
+        fireEvent.click(within(items[0]!).getByRole('button', { name: '下へ移動' }));
+        expect(onOrderChange).toHaveBeenCalledWith([
+          { id: 'p2', order: 1 },
+          { id: 'p1', order: 2 },
+        ]);
+      });
+    });
+
+    describe('デスクトップ幅（isMobile=false）- 既存レイアウト維持', () => {
+      beforeEach(() => {
+        vi.mocked(useMediaQuery).mockReturnValue(false);
+      });
+
+      it('横並び（flexDirection未指定=row）で写真列は固定320pxを維持すること（回帰）', () => {
+        render(
+          <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={vi.fn()} />
+        );
+        const item = screen.getByTestId('construction-photo-item');
+        expect(item.style.flexDirection).not.toBe('column');
+
+        const imageButton = screen.getByTestId('construction-photo-image-button');
+        const imageSection = imageButton.parentElement as HTMLElement;
+        expect(imageSection.style.width).toBe('320px');
+      });
+
+      it('コメント入力欄のフォントサイズを現行(14px)のまま維持すること（回帰）', () => {
+        render(
+          <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={vi.fn()} />
+        );
+        const textarea = screen.getByLabelText('コメント') as HTMLElement;
+        expect(textarea.style.fontSize).toBe('14px');
+      });
+    });
   });
 
   afterEach(() => {
