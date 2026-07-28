@@ -14,7 +14,7 @@
  * - AbortSignal の abort（開始前・処理途中）で AbortError が throw され処理が中断する
  * - 1件の取得/変換失敗は failed[] に写真IDを積み、残りを継続する
  *
- * @requirement construction-photo/15.1〜15.6, 15.8, 15.9, 15.10
+ * @requirement construction-photo/15.1〜15.6, 15.8, 15.9, 15.10 (task 13.1: 15.2,15.3,15.4,15.9,15.10)
  * @see .kiro/specs/construction-photo/design.md
  *   - Frontend Interfaces（追加機能）: ConstructionPhotoBulkExportService.export
  *   - Testing Strategy: ConstructionPhotoBulkExportService.export のテスト観点
@@ -67,9 +67,8 @@ const defaultSettings: ConstructionPhotoExportSettings = {
 // canvas 再エンコードのモック（`utils/image-compression.ts` テストの規約に倣う）
 // ============================================================================
 
-const originalCreateImageBitmap = (
-  globalThis as { createImageBitmap?: typeof createImageBitmap }
-).createImageBitmap;
+const originalCreateImageBitmap = (globalThis as { createImageBitmap?: typeof createImageBitmap })
+  .createImageBitmap;
 const originalGetContext = HTMLCanvasElement.prototype.getContext;
 const originalToBlob = HTMLCanvasElement.prototype.toBlob;
 
@@ -222,6 +221,23 @@ describe('ConstructionPhotoBulkExportService', () => {
       );
 
       expect(toBlobCalls).toEqual([{ type: 'image/jpeg', quality: 0.6 }]);
+    });
+
+    it('resolution=medium は quality=0.9 で再エンコードされる', async () => {
+      vi.mocked(imagesApi.getConstructionPhotoOriginalImage).mockResolvedValue(
+        new Blob(['orig'], { type: 'image/jpeg' })
+      );
+
+      const service = createConstructionPhotoBulkExportService();
+      const controller = new AbortController();
+
+      await service.export(
+        [makePhoto({ id: 'photo-1' })],
+        { format: 'jpeg', resolution: 'medium', signboardMode: 'plain' },
+        { onProgress: () => {}, signal: controller.signal }
+      );
+
+      expect(toBlobCalls).toEqual([{ type: 'image/jpeg', quality: 0.9 }]);
     });
 
     it('signboardMode === "original" は canvas を通さず原本バイトをそのまま格納する', async () => {

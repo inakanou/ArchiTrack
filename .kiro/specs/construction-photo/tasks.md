@@ -237,7 +237,7 @@
   - _Boundary: ConstructionPhotoDetailPage, PhotoItemPanel_
 
 - [ ] 13. Validation（追加機能）: テスト
-- [ ] 13.1 (P) ZIPエクスポートサービス単体テスト
+- [x] 13.1 (P) ZIPエクスポートサービス単体テスト
   - 看板モード別の取得元切替、解像度/形式変換、original の原本バイト維持、進捗通知、AbortSignalでの中断（AbortError）、1件失敗時の継続と失敗集約を検証
   - 完了: 対象サービスの単体テストが緑になる
   - _Requirements: 15.2, 15.3, 15.4, 15.9, 15.10_
