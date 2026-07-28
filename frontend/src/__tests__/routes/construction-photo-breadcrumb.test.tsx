@@ -21,17 +21,31 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { routes } from '../../routes';
 
 // AuthContextモック（保護ルート通過）
-vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: () => ({
+// 画面は usePermission → hooks/useAuth → useContext(AuthContext) を経由するため、
+// useAuth だけでなく実体の AuthContext も返す必要がある。
+// usePermission に権限を付与するため permissions に '*:*'、isInitialized: true を設定する。
+vi.mock('../../contexts/AuthContext', async () => {
+  const { createContext } = await import('react');
+  const authValue = {
     isAuthenticated: true,
     isLoading: false,
-    user: { id: 'u1', email: 'test@example.com', displayName: 'Test User' },
+    isInitialized: true,
+    user: {
+      id: 'u1',
+      email: 'test@example.com',
+      displayName: 'Test User',
+      permissions: ['*:*'],
+    },
     hasRole: () => true,
     hasPermission: () => true,
     logout: vi.fn(),
-  }),
-  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
+  };
+  return {
+    AuthContext: createContext(authValue),
+    useAuth: () => authValue,
+    AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  };
+});
 
 vi.mock('../../components/ProtectedRoute', () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => <>{children}</>,
