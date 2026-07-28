@@ -31,6 +31,7 @@
 - プロジェクト詳細サマリへの `constructionPhotos` セクション寄与（自セクションのデータのみ）。
 - 工事写真詳細の画像ビューア（ズーム/回転/パン, 閲覧専用）と、写真項目画像のZIP一括エクスポート（クライアント生成, 形式/解像度/看板重畳モード/選択/進捗/中断）。
 - 工事写真詳細・一覧のアルバム編集/削除導線、権限（`construction_photo:*`）に応じたUI出し分け、未保存離脱警告、詳細画面のモバイルレイアウト。
+- 看板配置有無に関わらず**非合成の原本画像をオンデマンド配信するエンドポイント**（ビューア表示・ZIPの `plain`/`original` モード用）。一覧DTOには `originalUrl` を含めない（既存の効率・非公開方針を維持し、原本は専用エンドポイントで必要時のみ取得）。
 
 ### Out of Boundary
 - site-survey の `SiteSurvey`/`SurveyImage`/`ImageAnnotation`（読取のみ。書込・スキーマ変更は行わない）。
@@ -299,6 +300,9 @@ frontend/src/
 - `frontend/src/routes.tsx` — `/construction-photos` ルート群を site-survey 順序規約に倣い追加。
 - `frontend/src/pages/ProjectDetailPage.tsx` — `ConstructionPhotoSectionCard` を `ScheduleSectionCard` の直後に挿入。
 - `frontend/src/api/projects.ts` — `ProjectDetailSummary.sections` に `constructionPhotos` 型追加。
+- `backend/src/routes/construction-photo-images.routes.ts` — 非合成原本配信ルート `GET /images/:imageId/original` を追加（`construction_photo:read`＋プロジェクト境界検証＋原本ストリーム, 看板合成なし）。
+- `backend/src/services/construction-photo-image.service.ts` — `getOriginalImage(photoId): Promise<Buffer>`（看板を合成せず原本を返す）を追加。
+- `frontend/src/api/construction-photo-images.ts` — `getConstructionPhotoOriginalImage(imageId): Promise<Blob>` を追加（一覧DTOは不変, 原本は必要時のみ取得）。
 
 ## System Flows
 
@@ -367,7 +371,7 @@ flowchart TD
     More -->|No| Zip[ZIP Blob 生成→ダウンロード]
 ```
 
-ZIPは全てクライアント（JSZip）で生成し、バックエンド新規実装を伴わない。看板重畳モードのみ既存 `GET print-image`（サーバ合成）を取得元とし、`plain`/`original` は原本を取得する。解像度（低/中/高）と形式（JPEG/PNG）変換は canvas 再エンコードで一元化するため、`plain` に新規バックエンドパラメータは不要。1件の取得・加工失敗は当該項目のみ失敗として継続し、成功分での続行をユーザーが選べる（R15.10）。対象0件は非実行で通知（R15.11）。
+ZIP自体はクライアント（JSZip）で生成する。看板重畳モード（composited）は既存 `GET print-image`（サーバ合成）を、`plain`/`original` は**新設の非合成原本エンドポイント `GET .../original`** を取得元とする（看板配置済み写真でも生原本を取得できる）。解像度（低/中/高）と形式（JPEG/PNG）変換は canvas 再エンコードで一元化し、`original` は設定を適用せず原本バイトをそのまま格納、`plain` は看板なしのまま解像度/形式を適用する。1件の取得・加工失敗は当該項目のみ失敗として継続し、成功分での続行をユーザーが選べる（R15.10）。対象0件は非実行で通知（R15.11）。
 
 ### 画像ビューア（閲覧専用）
 
@@ -382,7 +386,7 @@ flowchart LR
     View --> Close[閉じる→詳細へ戻る]
 ```
 
-ビューアは注釈編集を持たない閲覧専用で、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転状態を合成する。原本画像は必要時にのみ取得する（R11.3, R14.6）。
+ビューアは注釈編集を持たない閲覧専用で、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転状態を合成する。表示する原本は**新設の `GET .../original`**（看板を焼き込まない生原本）を必要時にのみ取得する（R11.3, R14.6）。
 
 ## Requirements Traceability
 
@@ -401,8 +405,8 @@ flowchart LR
 | 11 | リクエスト効率 | AlbumService(ページ50), ImageService(一括署名URL), MetadataService(batch) | list/batch API | 保存フロー |
 | 12 | UP制約 | construction-photo-images.routes(multer), ImageService.validate | upload API | - |
 | 13 | アクセス制御 | authenticate/requirePermission, SignedUrlService | 全API | - |
-| 14 | 画像ビューア(ズーム/回転/パン) | ConstructionPhotoImageViewer(Page), useCanvasViewport, ZoomControls, gestures, routes.tsx, DetailPage(onPhotoClick) | 原本署名URL | ビューアフロー |
-| 15 | ZIP一括エクスポート | ConstructionPhotoBulkExportService, BulkExportDialog/ProgressDialog/ExportSettingsForm, PhotoItemPanel(選択) | print-image/原本, JSZip | エクスポートフロー |
+| 14 | 画像ビューア(ズーム/回転/パン) | ConstructionPhotoImageViewer(Page), useCanvasViewport, ZoomControls, gestures, routes.tsx, DetailPage(onPhotoClick), ImageService.getOriginalImage | GET .../original | ビューアフロー |
+| 15 | ZIP一括エクスポート | ConstructionPhotoBulkExportService, BulkExportDialog/BulkExportProgressDialog/ExportSettingsForm, PhotoItemPanel(選択), ImageService.getOriginalImage | print-image/original, JSZip | エクスポートフロー |
 | 16 | アルバム編集/削除導線 | DetailPage/ListPage/ListTable/ListCard, ConstructionPhotoEditPage(既存), AlbumDeleteDialog | PATCH/DELETE album API | - |
 | 17 | 権限UI出し分け | useConstructionPhotoPermission, usePermission, DetailPage/ListPage, PhotoItemPanel(readOnly) | construction_photo:* | - |
 | 18 | 未保存離脱警告 | useUnsavedChanges, UnsavedChangesDialog, DetailPage | - | - |
@@ -443,6 +447,7 @@ interface ConstructionPhotoImageService {
   addFromSurveyImage(albumId: string, surveyImageIds: string[]): Promise<ConstructionPhotoWithUrls[]>; // storage.copy 独立複製
   listWithUrls(albumId: string, userId: string): Promise<ConstructionPhotoWithUrls[]>; // 一括署名URL, displayOrder asc
   getPrintImage(photoId: string): Promise<Buffer>; // 看板ありはオンデマンド合成, なしは原本 (PDF用)
+  getOriginalImage(photoId: string): Promise<Buffer>; // 看板配置有無に関わらず非合成の原本 (ビューア/ZIP用)
   delete(photoId: string): Promise<void>; // 関連ストレージ(original/thumbnail)も削除
 }
 
@@ -489,8 +494,8 @@ interface ConstructionPhotoBulkExportService {
     },
   ): Promise<{ blob: Blob; failed: string[] }>;      // failed=取得/加工失敗の写真id (R15.10)
 }
-// signboardMode='composited' は GET print-image、'plain'/'original' は原本を取得元とし、
-// resolution/format は canvas 再エンコードで適用する（plain に新規バックエンドパラメータ不要）。
+// signboardMode='composited' は GET print-image、'plain'/'original' は GET .../original（非合成原本）を取得元とし、
+// resolution/format は canvas 再エンコードで適用する（original は設定を適用せず原本バイトをそのまま格納）。
 
 // 権限フック (R17)
 function useConstructionPhotoPermission(): ConstructionPhotoPermission;
@@ -515,6 +520,7 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 | DELETE | /api/construction-photos/:id | - | 204 | 401,403,404 |
 | GET | /api/construction-photos/:id/images | - | ConstructionPhotoWithUrls[] | 401,403,404 |
 | GET | /api/construction-photos/images/:imageId/print-image | - | image/jpeg（看板ありはオンデマンド合成） | 401,403,404 |
+| GET | /api/construction-photos/images/:imageId/original | - | image/*（看板配置有無に関わらず非合成の原本をストリーム。ビューア/ZIP用） | 401,403,404 |
 | POST | /api/construction-photos/:id/images | multipart images[] (≤10, ≤10MB) | ConstructionPhotoWithUrls[] | 400,401,403,413 |
 | POST | /api/construction-photos/:id/images/from-surveys | {surveyImageIds[]} | ConstructionPhotoWithUrls[] | 400,401,403,404 |
 | PATCH | /api/construction-photos/images/batch | metadata batch | ConstructionPhotoWithUrls[] | 400,401,403 |
@@ -562,6 +568,7 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 - アップロードAPI: 10件/10MB制限、マジックバイト検証で不正形式を拒否（R12）。
 - サマリAPI: `detail-summary` に `constructionPhotos:{totalCount,latest...}` が同型で含まれる（R2.3）。
 - 認可: 未認証401・権限なし403（R13.1,R13.3）。
+- 非合成原本エンドポイント: 看板配置済み写真でも生原本（非合成）を返し、一覧DTOに `originalUrl` を含めない。権限なし403・他プロジェクト403（R14.6,R15.4,R13.2,R13.4）。
 
 ### E2E/UI Tests（Playwright, 要件はE2Eで検証して完了）
 - プロジェクト詳細→工事写真パネル（工程表直下）→一覧→詳細への遷移（R2.1,R2.2,R2.4）。
