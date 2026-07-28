@@ -224,7 +224,7 @@
   - _Depends: 11.1, 12.2, 12.3_
   - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5_
   - _Boundary: ConstructionPhotoDetailPage, PhotoItemPanel, ConstructionPhotoListPage_
-- [ ] 12.5 未保存離脱警告を結線
+- [x] 12.5 未保存離脱警告を結線
   - 詳細画面の独自の未保存追跡を共有の未保存フックへ置換し、コメント/印刷対象/並び替え/看板配置の全変更点で未保存化・保存で解消。編集権限がある場合のみ有効
   - 完了: 未保存状態でリロード/アプリ内遷移時に警告が出て、保存後は警告が出ない
   - _Depends: 12.4_

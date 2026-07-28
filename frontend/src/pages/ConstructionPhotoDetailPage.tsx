@@ -32,13 +32,23 @@
  *     `readOnly` で保存/並び替え/コメント/印刷対象/看板配置を抑止（R17.1, R17.3）
  *   - canDelete=false: アルバム削除導線を非表示にし、写真項目削除ハンドラを渡さない（R17.2）
  *
+ * Task 12.5 追加: 未保存離脱警告を結線する（独自isDirty stateを共有フックへ置換）。
+ *   - `useUnsavedChanges({ enabled: canEdit })` を用い、コメント/印刷対象/並び替え/看板配置の
+ *     変更発生で `markAsChanged()`、保存成功で `markAsSaved()`（R18.1, R18.3）
+ *   - `enabled: canEdit` により編集権限が無い場合は未保存追跡自体を無効化する（R18.4）
+ *   - ブラウザのリロード/タブ・ウィンドウ閉じはフックの beforeunload が担う（R18.1）。
+ *     アプリ内遷移は `useBlocker(uc.isDirty)`（QuantityTableEditPage/CompanyInfoPage/
+ *     ItemizedStatementDetailPage の確立済みパターン）で `Breadcrumb` のリンククリックを含む
+ *     遷移全般を汎用的に捕捉し、`UnsavedChangesDialog` で確認、「離れる」選択時のみ
+ *     `blocker.proceed()` で遷移を継続する（R18.2）
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
- *   17.4, 17.5
+ *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useBlocker, useNavigate, useParams } from 'react-router-dom';
 import {
   getConstructionPhotoAlbum,
   deleteConstructionPhotoAlbum,
@@ -73,7 +83,9 @@ import {
   type BulkExportDialogMode,
 } from '../components/construction-photos/BulkExportDialog';
 import { BulkExportProgressDialog } from '../components/construction-photos/BulkExportProgressDialog';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
@@ -263,6 +275,12 @@ export default function ConstructionPhotoDetailPage() {
   // 権限（R17.1, R17.2, R17.3, R17.5: ロード中は canEdit/canDelete が安全側でfalseになる）
   const { canEdit, canDelete } = useConstructionPhotoPermission();
 
+  // 未保存離脱警告（R18.1, R18.3, R18.4）。編集権限が無ければ未保存変更が生じないため無効化する。
+  const uc = useUnsavedChanges({ enabled: canEdit });
+  // アプリ内遷移の汎用ガード（Breadcrumbのリンククリック含む全遷移を捕捉, R18.2）。
+  // QuantityTableEditPage/CompanyInfoPage/ItemizedStatementDetailPage の確立済みパターンに準拠。
+  const blocker = useBlocker(uc.isDirty);
+
   const [album, setAlbum] = useState<ConstructionPhotoAlbum | null>(null);
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [photos, setPhotos] = useState<ConstructionPhotoWithUrls[]>([]);
@@ -277,7 +295,6 @@ export default function ConstructionPhotoDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -368,35 +385,39 @@ export default function ConstructionPhotoDetailPage() {
   /**
    * メタデータ（コメント/印刷対象）変更ハンドラ（未保存状態で保持, R7.1, R7.5）
    */
-  const handleMetadataChange = useCallback((photoId: string, metadata: PhotoMetadataChange) => {
-    setPhotos((prev) =>
-      prev.map((p) =>
-        p.id === photoId
-          ? {
-              ...p,
-              ...(metadata.comment !== undefined && { comment: metadata.comment }),
-              ...(metadata.includeInReport !== undefined && {
-                includeInReport: metadata.includeInReport,
-              }),
-              ...(metadata.signboardId !== undefined && {
-                signboardId: metadata.signboardId,
-              }),
-              ...(metadata.signboardPlacement !== undefined && {
-                signboardPlacement: metadata.signboardPlacement,
-              }),
-            }
-          : p
-      )
-    );
+  const handleMetadataChange = useCallback(
+    (photoId: string, metadata: PhotoMetadataChange) => {
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? {
+                ...p,
+                ...(metadata.comment !== undefined && { comment: metadata.comment }),
+                ...(metadata.includeInReport !== undefined && {
+                  includeInReport: metadata.includeInReport,
+                }),
+                ...(metadata.signboardId !== undefined && {
+                  signboardId: metadata.signboardId,
+                }),
+                ...(metadata.signboardPlacement !== undefined && {
+                  signboardPlacement: metadata.signboardPlacement,
+                }),
+              }
+            : p
+        )
+      );
 
-    const existing = pendingChangesRef.current.get(photoId) ?? {};
-    pendingChangesRef.current.set(photoId, { ...existing, ...metadata });
-    setIsDirty(true);
-  }, []);
+      const existing = pendingChangesRef.current.get(photoId) ?? {};
+      pendingChangesRef.current.set(photoId, { ...existing, ...metadata });
+      uc.markAsChanged();
+    },
+    [uc]
+  );
 
   /**
    * 写真項目クリックハンドラ（R14.1）。
    * 当該写真項目のフルスクリーンビューアへ遷移する。
+   * 未保存変更時の確認は `useBlocker`（下記）がアプリ内遷移全般を汎用的にガードする（R18.2）。
    */
   const handlePhotoClick = useCallback(
     (photo: ConstructionPhotoWithUrls) => {
@@ -408,6 +429,7 @@ export default function ConstructionPhotoDetailPage() {
 
   /**
    * アルバム編集ボタンハンドラ（R16.1, R16.2）。アルバム編集画面へ遷移する。
+   * 未保存変更時の確認は `useBlocker`（下記）がアプリ内遷移全般を汎用的にガードする（R18.2）。
    */
   const handleEditAlbum = useCallback(() => {
     if (!album) return;
@@ -477,17 +499,20 @@ export default function ConstructionPhotoDetailPage() {
   /**
    * 順序変更ハンドラ（未保存状態で保持, R7.3, R7.4）
    */
-  const handleOrderChange = useCallback((newOrders: PhotoOrderItem[]) => {
-    setPhotos((prev) => {
-      const orderMap = new Map(newOrders.map((o) => [o.id, o.order]));
-      return prev.map((p) => ({
-        ...p,
-        displayOrder: orderMap.get(p.id) ?? p.displayOrder,
-      }));
-    });
-    pendingOrderRef.current = newOrders;
-    setIsDirty(true);
-  }, []);
+  const handleOrderChange = useCallback(
+    (newOrders: PhotoOrderItem[]) => {
+      setPhotos((prev) => {
+        const orderMap = new Map(newOrders.map((o) => [o.id, o.order]));
+        return prev.map((p) => ({
+          ...p,
+          displayOrder: orderMap.get(p.id) ?? p.displayOrder,
+        }));
+      });
+      pendingOrderRef.current = newOrders;
+      uc.markAsChanged();
+    },
+    [uc]
+  );
 
   /**
    * 手動保存（R7.6, R11.4）
@@ -519,13 +544,13 @@ export default function ConstructionPhotoDetailPage() {
 
       pendingChangesRef.current.clear();
       pendingOrderRef.current = null;
-      setIsDirty(false);
+      uc.markAsSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存に失敗しました');
     } finally {
       setIsSaving(false);
     }
-  }, [id]);
+  }, [id, uc]);
 
   /**
    * PDF出力ハンドラ（R10.1, R10.3, R10.12, R10.13）
@@ -818,7 +843,7 @@ export default function ConstructionPhotoDetailPage() {
           onSave={handleSave}
           onDelete={canDelete ? handleDelete : undefined}
           onAssignSignboard={handleAssignSignboard}
-          isDirty={isDirty}
+          isDirty={uc.isDirty}
           isSaving={isSaving}
           isLoading={isLoading}
           readOnly={!canEdit}
@@ -869,6 +894,13 @@ export default function ConstructionPhotoDetailPage() {
         onConfirm={handleDeleteAlbumConfirm}
         onClose={handleDeleteAlbumCancel}
         isDeleting={isDeletingAlbum}
+      />
+
+      {/* 未保存離脱確認ダイアログ（アプリ内遷移全般をuseBlockerで捕捉, R18.2） */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={() => blocker.proceed?.()}
+        onStay={() => blocker.reset?.()}
       />
 
       <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>

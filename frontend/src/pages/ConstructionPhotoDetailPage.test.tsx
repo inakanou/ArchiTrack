@@ -30,12 +30,25 @@ import type {
 import type { ProjectDetail } from '../types/project.types';
 
 const mockNavigate = vi.fn();
+
+// useBlocker のモック（Task 12.5: 未保存離脱警告の結線, R18.2）
+// QuantityTableEditPage/CompanyInfoPage/ItemizedStatementDetailPage の確立済みパターンに
+// 準拠。jsdomにはデータルーター連携の実遷移ブロックが無いため、useBlockerをモックして
+// 「isDirtyに応じた呼び出し引数」と「blocked状態でのダイアログ結線」を検証する。
+const mockProceed = vi.fn();
+const mockReset = vi.fn();
+const mockUseBlocker = vi.fn((_shouldBlock?: boolean) => ({
+  state: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
+  proceed: mockProceed,
+  reset: mockReset,
+}));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
     useParams: () => ({ id: 'album-1' }),
     useNavigate: () => mockNavigate,
+    useBlocker: (shouldBlock?: boolean) => mockUseBlocker(shouldBlock),
   };
 });
 
@@ -54,6 +67,59 @@ vi.mock('../services/export/ConstructionPhotoBulkExportService', () => ({
 const mockUseConstructionPhotoPermission = vi.fn();
 vi.mock('../hooks/useConstructionPhotoPermission', () => ({
   useConstructionPhotoPermission: () => mockUseConstructionPhotoPermission(),
+}));
+
+// 未保存離脱警告フックのモック（Task 12.5: 未保存離脱警告の結線, R18）
+// SiteSurveyDetailPage のテスト作法に倣い、markAsChanged/markAsSaved で
+// isDirty を書き換える簡易実装で結線（isDirty のトグル）のみ検証する
+// （beforeunload実登録の検証は useUnsavedChanges 自体の単体テストで担保済み）。
+// 既定はフル機能（isDirty=false から開始、markAsChanged/markAsSavedでトグル）で
+// 既存テスト（保存フロー等）の回帰を防ぐ。
+const unsavedChangesRuntime: { dirty: boolean } = { dirty: false };
+const mockMarkAsChanged = vi.fn(() => {
+  unsavedChangesRuntime.dirty = true;
+});
+const mockMarkAsSaved = vi.fn(() => {
+  unsavedChangesRuntime.dirty = false;
+});
+const mockUseUnsavedChanges = vi.fn((options: { enabled?: boolean } = {}) => ({
+  isDirty: unsavedChangesRuntime.dirty,
+  setDirty: (v: boolean) => {
+    unsavedChangesRuntime.dirty = v;
+  },
+  markAsChanged: mockMarkAsChanged,
+  markAsSaved: mockMarkAsSaved,
+  reset: () => {
+    unsavedChangesRuntime.dirty = false;
+  },
+  confirmNavigation: () => true,
+  __options: options,
+}));
+vi.mock('../hooks/useUnsavedChanges', () => ({
+  useUnsavedChanges: (options: { enabled?: boolean }) => mockUseUnsavedChanges(options),
+}));
+
+// UnsavedChangesDialog のモック（CompanyInfoPage のテスト作法を参考に簡易DOMへ差し替え）
+vi.mock('../components/common/UnsavedChangesDialog', () => ({
+  default: ({
+    isOpen,
+    onLeave,
+    onStay,
+  }: {
+    isOpen: boolean;
+    onLeave: () => void;
+    onStay: () => void;
+  }) =>
+    isOpen ? (
+      <div role="dialog" aria-label="変更が保存されていません" data-testid="unsaved-changes-dialog">
+        <button type="button" onClick={onLeave}>
+          ページを離れる
+        </button>
+        <button type="button" onClick={onStay}>
+          このページにとどまる
+        </button>
+      </div>
+    ) : null,
 }));
 
 const fullPermission = {
@@ -152,6 +218,8 @@ function renderPage() {
 describe('ConstructionPhotoDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    unsavedChangesRuntime.dirty = false;
+    mockUseBlocker.mockReturnValue({ state: 'unblocked', proceed: mockProceed, reset: mockReset });
     mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
     vi.mocked(albumsApi.getConstructionPhotoAlbum).mockResolvedValue(mockAlbum);
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
@@ -748,6 +816,177 @@ describe('ConstructionPhotoDetailPage', () => {
       const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
       expect(within(firstItem).getByRole('button', { name: /看板を配置/ })).toBeInTheDocument();
       expect(within(firstItem).getByRole('button', { name: /写真項目を削除/ })).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 12.5: 未保存離脱警告を結線（独自isDirty stateをuseUnsavedChangesへ置換, R18）
+  // ==========================================================================
+
+  describe('未保存離脱警告の結線 (R18)', () => {
+    it('編集権限がある場合、useUnsavedChangesがenabled:trueで呼ばれる (R18.4)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      expect(mockUseUnsavedChanges).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true })
+      );
+    });
+
+    it('編集権限が無い場合、useUnsavedChangesがenabled:falseで呼ばれ未保存追跡が無効化される (R18.4)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({ ...fullPermission, canEdit: false });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      expect(mockUseUnsavedChanges).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: false })
+      );
+    });
+
+    it('コメント変更でmarkAsChangedが呼ばれる (R18.1)', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      const textarea = within(firstItem).getByLabelText('コメント');
+      fireEvent.change(textarea, { target: { value: '配筋検査' } });
+      fireEvent.blur(textarea);
+
+      await waitFor(() => {
+        expect(mockMarkAsChanged).toHaveBeenCalled();
+      });
+    });
+
+    it('印刷対象トグルでmarkAsChangedが呼ばれる (R18.1)', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      await waitFor(() => {
+        expect(mockMarkAsChanged).toHaveBeenCalled();
+      });
+    });
+
+    it('並び替えでmarkAsChangedが呼ばれる (R18.1)', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+
+      await waitFor(() => {
+        expect(mockMarkAsChanged).toHaveBeenCalled();
+      });
+    });
+
+    it('看板配置の保存でmarkAsChangedが呼ばれる (R18.1)', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      fireEvent.change(within(dialog).getByLabelText('看板を選択'), { target: { value: 'sb-1' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: '配置を保存' }));
+
+      await waitFor(() => {
+        expect(mockMarkAsChanged).toHaveBeenCalled();
+      });
+    });
+
+    it('保存成功でmarkAsSavedが呼ばれ未保存状態が解消する (R18.3)', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockMarkAsSaved).toHaveBeenCalled();
+      });
+    });
+
+    // --------------------------------------------------------------------
+    // R18.2: アプリ内遷移全般（Breadcrumbのリンククリック含む）のガードは
+    // useBlocker(uc.isDirty) が担う。jsdom にはデータルーター連携の実遷移
+    // ブロックが無いため、QuantityTableEditPage/CompanyInfoPage/
+    // ItemizedStatementDetailPage の確立済みパターンに倣い useBlocker を
+    // モックし、(a) isDirtyに応じた呼び出し引数、(b) blocked状態でのダイアログ
+    // 結線（leave→proceed / stay→reset）を検証する。
+    // --------------------------------------------------------------------
+
+    it('未保存変更が無い場合、useBlockerがfalseで呼ばれガードしない (R18.2)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      const calls = mockUseBlocker.mock.calls;
+      expect(calls[calls.length - 1]?.[0]).toBe(false);
+    });
+
+    it('未保存変更（印刷対象トグル）があると、useBlockerがtrueで呼ばれる (R18.2)', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      await waitFor(() => {
+        const calls = mockUseBlocker.mock.calls;
+        expect(calls[calls.length - 1]?.[0]).toBe(true);
+      });
+    });
+
+    it('blocker.state==="blocked"のとき確認ダイアログ（UnsavedChangesDialog）が表示される (R18.2)', async () => {
+      mockUseBlocker.mockReturnValue({ state: 'blocked', proceed: mockProceed, reset: mockReset });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      expect(
+        await screen.findByRole('dialog', { name: '変更が保存されていません' })
+      ).toBeInTheDocument();
+    });
+
+    it('確認ダイアログで「ページを離れる」を選ぶとblocker.proceed()が呼ばれる (R18.2)', async () => {
+      mockUseBlocker.mockReturnValue({ state: 'blocked', proceed: mockProceed, reset: mockReset });
+
+      renderPage();
+      const dialog = await screen.findByRole('dialog', { name: '変更が保存されていません' });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'ページを離れる' }));
+
+      expect(mockProceed).toHaveBeenCalledTimes(1);
+      expect(mockReset).not.toHaveBeenCalled();
+    });
+
+    it('確認ダイアログで「このページにとどまる」を選ぶとblocker.reset()が呼ばれる (R18.2)', async () => {
+      mockUseBlocker.mockReturnValue({ state: 'blocked', proceed: mockProceed, reset: mockReset });
+
+      renderPage();
+      const dialog = await screen.findByRole('dialog', { name: '変更が保存されていません' });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'このページにとどまる' }));
+
+      expect(mockReset).toHaveBeenCalledTimes(1);
+      expect(mockProceed).not.toHaveBeenCalled();
+    });
+
+    it('blocker.state==="unblocked"では確認ダイアログが表示されない（回帰）', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      expect(
+        screen.queryByRole('dialog', { name: '変更が保存されていません' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('写真項目クリック・アルバム編集ボタンは素のnavigateを呼ぶ（useBlockerが遷移全般を汎用ガードするため, 回帰）', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      fireEvent.click(within(firstItem).getByTestId('construction-photo-image-button'));
+      expect(mockNavigate).toHaveBeenCalledWith('/construction-photos/album-1/photos/photo-1');
+
+      fireEvent.click(screen.getByRole('button', { name: '編集' }));
+      expect(mockNavigate).toHaveBeenCalledWith('/construction-photos/album-1/edit');
     });
   });
 });
