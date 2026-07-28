@@ -134,3 +134,66 @@
 ## 主要設計判断
 - **看板合成はサーバ権威かつオンデマンド**（validate-design の Critical Issue 1 で確定）: `compositedPath` は保存しない。PDF出力時のみ、写真ごとに `GET images/:id/print-image` を呼び、サーバが原本へSVGを sharp composite（看板なしは原本）してストリーム返却。看板マスタ編集・配置変更でも常に最新、キャッシュ無効化不要。プレビューはクライアント fabric でライブ編集（近似表示）、SVG版組はサーバ権威。
 - **座標系**: プレビュー表示座標→画像ピクセル座標（scale=naturalWidth/renderedWidth）で保存。合成・PDFは画像ピクセル座標のまま（原本に焼込むためPDF側の追加変換不要）。
+
+---
+
+# ギャップ分析: 追加7機能（Requirement 14〜19）
+
+_作成: 2026-07-28 / `/kiro-validate-gap` による。既存 construction-photo 実装（一巡済）に対し、要件追記分（Req14〜19＋Req1/16の導線）を対象とする。_
+
+## 1. 現状サマリ
+
+- バックエンドは CP の CRUD・print画像（看板重畳オンデマンド）・RBAC（`construction_photo:read/create/update/delete`）が整備済み。**新規バックエンド作業が原則不要**（機能2のみ後述の判断あり）。
+- site-survey に本7機能の**参照実装がほぼ完備**（ビューア・ZIP・権限フック・離脱警告・レスポンシブ）。
+- `PhotoItemPanel.tsx` は `readOnly` / `onPhotoClick` / `isDirty` を**プロップとして受理する設計**であり、多くが「ページ側の結線漏れを埋める」作業に帰着する。
+
+## 2. 要件↔資産マップ（ギャップタグ: Missing / Constraint / Research）
+
+| Req | 参照資産（既存パス） | CP側の現状 | ギャップ |
+|---|---|---|---|
+| 14 ビューア/ズーム/回転/パン | `pages/SiteSurveyImageViewerPage.tsx`, `components/site-surveys/ImageViewer.tsx`(90度回転内蔵), `ZoomControls.tsx`, `gestures/`, `hooks/useCanvasViewport.ts`, `utils/imageFitScale.ts` | `PhotoItemPanel` は `onPhotoClick` prop 保持済／DetailPage が未結線 | CPビューアルート無 **(Missing)**、onPhotoClick未結線 **(Missing)**、ImageViewerが注釈編集前提か＝閲覧専用流用可否 **(Constraint/Research)** |
+| 15 ZIP一括エクスポート | `services/export/bulkExportService.ts`(JSZip/形式/解像度/annotationMode/進捗/AbortController), `zip-naming.ts`, `BulkExportDialog.tsx`/`BulkExportProgressDialog.tsx`/`ExportSettingsForm.tsx` | UI/サービス無。`api/construction-photo-images.ts#getConstructionPhotoPrintImage`(看板重畳Blob)は有 | `bulkExportService`が`SurveyImageInfo`型依存 **(Constraint)**、看板重畳/非重畳/原本の3モードとCP画像APIの対応 **(Research)** |
+| 16 アルバム編集導線 | `pages/ConstructionPhotoEditPage.tsx`(実装済), route `/construction-photos/:id/edit`(定義済), `api#updateConstructionPhotoAlbum` | 一覧/詳細から編集画面への導線無 | 導線ボタン **(Missing／軽微)** |
+| 16 アルバム削除導線 | `api#deleteConstructionPhotoAlbum`(有), backend `construction_photo:delete`(有) | 一覧/詳細にアルバム削除UI無（既存 `handleDelete` は写真項目削除） | 削除UI+確認ダイアログ **(Missing)**、共通 `DeleteConfirmDialog` が `common/` に無く `contracts/DeleteConfirmDialog.tsx` 等の流用可否 **(Constraint)** |
+| 17 権限出し分け | `hooks/useSiteSurveyPermission.ts`(admin=全/ user=削除不可), `hooks/usePermission.ts`, backend RBAC 確立済 | CP用権限フック無・CPページで権限判定皆無。`PhotoItemPanel` は `readOnly` ガード実装済 | `useConstructionPhotoPermission` 新規 **(Missing)**、CPロール→権限の正確なマッピング **(Research)** |
+| 18 未保存離脱警告 | `hooks/useUnsavedChanges.ts`(beforeunload+enabled), `components/common/UnsavedChangesDialog.tsx`。`SiteSurveyDetailPage` で `enabled: canEdit` 利用 | DetailPage は独自 `useState` で `isDirty` 追跡、beforeunloadガード無 | 既存isDirtyを `useUnsavedChanges` へ置換 **(Missing／軽微)** |
+| 19 詳細画面モバイル | `utils/responsive.ts`(MEDIA_QUERIES), `hooks/useMediaQuery.ts`。一覧は `ConstructionPhotoResponsiveView.tsx` で対応済 | DetailPage/PhotoItemPanel は `useMediaQuery` 未使用（分岐無） | DetailPage/PhotoItemPanel にモバイル分岐 **(Missing)** |
+
+## 3. 実装アプローチ（A/B/C）
+
+### Option A: 既存資産へ結線・置換中心
+site-survey資産とCP側の未結線プロップ（`onPhotoClick`/`readOnly`/`isDirty`）を繋ぎ込む最小改修。
+- ✅ 最小差分・既存パターン踏襲・低リスク。導線(16)/離脱警告(18)/モバイル(19)/権限結線(17)に最適
+- ❌ ビューア(14)・ZIP(15)は survey サービスが survey型に密結合で「結線だけ」では届かない
+
+### Option B: CP専用に新規実装（独立クローン）
+ビューア・ZIP・権限を CP 用に新規作成（survey実装をクローンして型差し替え）。
+- ✅ survey側への影響ゼロ・CP要件に最適化。既存specの「site-surveyサービスは拡張せず独立クローン（安定性優先）」方針と整合
+- ❌ 重複コード増。ZIPサービスの二重メンテ
+
+### Option C: ハイブリッド（推奨）
+- **結線で足りるもの（A）**: 16編集/削除導線、17権限（`readOnly`結線）、18離脱警告（フック置換）、19モバイル（`useMediaQuery`導入）
+- **薄い新規＋汎用化（B）**: 14ビューア（`ImageViewer`を閲覧専用モードで流用し、CPビューアルート＋ページを新規）、15ZIP（`bulkExportService`の画像ソースをインターフェース抽象化 or CP専用サービスを新設し `zip-naming`/JSZip/進捗/中断は流用）、17は`useSiteSurveyPermission`を雛形に`useConstructionPhotoPermission`を新規
+- ✅ 流用最大化＋survey安定性維持のバランス。既存設計判断（独立クローン方針）と一致
+- ❌ ZIP画像ソース抽象化の設計判断が必要
+
+## 4. 工数・リスク
+
+| # | 機能 | 工数 | リスク | 根拠 |
+|---|---|---|---|---|
+| 14 | ビューア/ズーム/回転/パン | S〜M | 中 | ImageViewerがFabric注釈前提のため閲覧専用流用の切り分けが要検証。ルート/ページ追加は定型 |
+| 15 | ZIP一括エクスポート | M | 中 | 画像ソース抽象化＋看板3モードとCP画像API（print/原本/非重畳）の対応設計が必要。UI一式は流用可 |
+| 16 | 編集・削除導線 | S | 低 | EditPage/API/route完成済。導線ボタン＋削除確認のみ |
+| 17 | 権限出し分け | S | 低 | 雛形あり。backend RBAC完備。ロールマッピング確認のみ |
+| 18 | 未保存離脱警告 | S | 低 | 既存フック置換。survey で実績あるパターン |
+| 19 | 詳細画面モバイル | S〜M | 低 | `useMediaQuery`導入とスタイル分岐。survey詳細の手本あり |
+
+**全体感**: 集約で **M（3〜7日規模）**、主要リスクは 14/15 の2点に集中。
+
+## 5. 設計フェーズへの申し送り（Research Needed）
+
+1. **ZIP看板3モードのソース定義**: 「看板を重畳した画像」=`getConstructionPhotoPrintImage`（サーバ合成）／「原本そのまま」=原本Blob／「看板を重畳しない加工画像」=解像度変換した原本。**「非重畳の加工画像」に新規バックエンドパラメータが要るか、フロント再エンコードで足りるか**を設計で確定。
+2. **ZIPアーキ判断**: `bulkExportService`を汎用画像ソースIF（`{id,name,getBlob(mode,resolution)}`等）へ抽象化して共有するか、CP専用サービスを新設するか。既存spec方針（独立クローン）との整合を取る。
+3. **ビューア流用範囲**: `ImageViewer.tsx` を注釈非表示の閲覧専用モードで流用可能か、専用の軽量ビューアにするか。CPビューアのルート設計（例 `/construction-photos/:albumId/photos/:photoId`）。ビューアで看板重畳を表示するか（原本のみか）も要決定。
+4. **CP権限マッピング確定**: `construction_photo:delete` が admin限定か（site-survey は user=削除不可）。seed/RBAC定義で確認し `useConstructionPhotoPermission` に反映。
+5. **削除確認ダイアログの共通化**: `contracts/DeleteConfirmDialog.tsx` の流用可否、または `common/` へ汎用削除ダイアログを新設するか。
