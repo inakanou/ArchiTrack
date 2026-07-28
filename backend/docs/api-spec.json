@@ -9538,6 +9538,57 @@
         }
       }
     },
+    "/api/construction-photos/images/{imageId}/original": {
+      "get": {
+        "summary": "非合成原本画像の取得（ビューア/ZIP用）",
+        "description": "看板配置の有無に関わらず、SVG看板合成を一切行わない生の原本画像をストリームで 返す。一覧DTO（ConstructionPhotoWithUrls）には原本URLを含めず、本エンドポイント 経由でのみ必要時に取得する（署名付きURL方針の維持）。\n",
+        "tags": [
+          "Construction Photo Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "imageId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "写真項目ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "非合成の原本画像（保存時の実体形式）",
+            "content": {
+              "image/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "写真項目が見つからない、またはアクセス権のないプロジェクト"
+          },
+          "503": {
+            "description": "ストレージ未設定"
+          }
+        }
+      }
+    },
     "/api/company-info": {
       "get": {
         "summary": "自社情報取得",
