@@ -42,18 +42,14 @@ describe('PhotoItemPanel', () => {
 
   it('サムネイル(thumbnailUrl)を優先表示する (R11.3)', () => {
     const photos = [makePhoto({ id: 'p1', thumbnailUrl: 'https://example.com/thumb.jpg' })];
-    render(
-      <PhotoItemPanel photos={photos} onPhotoMetadataChange={vi.fn()} />
-    );
+    render(<PhotoItemPanel photos={photos} onPhotoMetadataChange={vi.fn()} />);
     const img = screen.getByRole('img', { name: /photo-1\.jpg/ });
     expect(img).toHaveAttribute('src', 'https://example.com/thumb.jpg');
   });
 
   it('印刷対象チェックを切り替えると includeInReport の変更が通知される (R7.5)', () => {
     const onChange = vi.fn();
-    render(
-      <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={onChange} />
-    );
+    render(<PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={onChange} />);
     const checkbox = screen.getByLabelText('印刷対象に含める');
     fireEvent.click(checkbox);
     expect(onChange).toHaveBeenCalledWith('p1', { includeInReport: true });
@@ -61,9 +57,7 @@ describe('PhotoItemPanel', () => {
 
   it('コメント入力後にフォーカスを外すと comment の変更が通知される (R7.1)', () => {
     const onChange = vi.fn();
-    render(
-      <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={onChange} />
-    );
+    render(<PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={onChange} />);
     const textarea = screen.getByLabelText('コメント');
     fireEvent.change(textarea, { target: { value: '基礎配筋' } });
     fireEvent.blur(textarea);
@@ -206,6 +200,74 @@ describe('PhotoItemPanel', () => {
     const p2Index = items.findIndex((el) => el.getAttribute('data-photo-id') === 'p2');
     expect(checkboxes[p1Index]).not.toBeChecked();
     expect(checkboxes[p2Index]).toBeChecked();
+  });
+
+  // ==========================================================================
+  // Task 12.4: readOnly結線の実効化（権限に基づくUI表示制御, R17.1, R17.3）
+  // ==========================================================================
+
+  it('readOnly時は上下移動ボタン・ドラッグハンドルが表示されない (R17.1, R17.3)', () => {
+    const photos = [
+      makePhoto({ id: 'p1', displayOrder: 1 }),
+      makePhoto({ id: 'p2', displayOrder: 2 }),
+    ];
+    render(
+      <PhotoItemPanel
+        photos={photos}
+        onPhotoMetadataChange={vi.fn()}
+        onOrderChange={vi.fn()}
+        readOnly
+      />
+    );
+    expect(screen.queryByRole('button', { name: '上へ移動' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '下へ移動' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-photo-drag-handle')).not.toBeInTheDocument();
+  });
+
+  it('readOnly時はコメントが読み取り専用になり印刷対象チェックが無効化される (R17.1, R17.3)', () => {
+    render(
+      <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={vi.fn()} readOnly />
+    );
+    expect(screen.getByLabelText('コメント')).toHaveAttribute('readonly');
+    expect(screen.getByLabelText('印刷対象に含める')).toBeDisabled();
+  });
+
+  it('readOnly時は保存ボタン・「看板を配置」導線が表示されない (R17.1, R17.3)', () => {
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onSave={vi.fn()}
+        onAssignSignboard={vi.fn()}
+        readOnly
+      />
+    );
+    expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /看板を配置/ })).not.toBeInTheDocument();
+  });
+
+  it('onDeleteが未指定（削除権限なし）のときは readOnly でなくても写真項目削除ボタンが表示されない (R17.2)', () => {
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole('button', { name: /写真項目を削除/ })).not.toBeInTheDocument();
+    // readOnly ではないため保存ボタンなど編集系は表示される
+    expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument();
+  });
+
+  it('onDeleteが指定され readOnly でないときは写真項目削除ボタンが表示される（回帰）', () => {
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('button', { name: /写真項目を削除/ })).toBeInTheDocument();
   });
 
   it('readOnly でもエクスポート対象の選択チェックは操作できる（選択は編集操作ではない）', () => {

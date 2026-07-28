@@ -39,10 +39,16 @@ export interface ConstructionPhotoResponsiveViewProps {
   onSort: (field: ConstructionPhotoAlbumSortableField) => void;
   /** 行/カードクリックハンドラ */
   onRowClick: (albumId: string) => void;
-  /** 行/カードの編集導線ハンドラ（アルバム編集画面へ遷移, R16.6） */
-  onEditAlbum: (albumId: string) => void;
-  /** 行/カードの削除導線ハンドラ（削除確認ダイアログを開く, R16.6） */
-  onDeleteAlbum: (albumId: string, albumName: string) => void;
+  /**
+   * 行/カードの編集導線ハンドラ（アルバム編集画面へ遷移, R16.6）。
+   * 未指定時は編集ボタンを表示しない（権限連動, R17.1）。
+   */
+  onEditAlbum?: (albumId: string) => void;
+  /**
+   * 行/カードの削除導線ハンドラ（削除確認ダイアログを開く, R16.6）。
+   * 未指定時は削除ボタンを表示しない（権限連動, R17.2）。
+   */
+  onDeleteAlbum?: (albumId: string, albumName: string) => void;
 }
 
 // ============================================================================

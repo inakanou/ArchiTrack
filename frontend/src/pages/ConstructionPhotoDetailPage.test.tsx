@@ -49,6 +49,22 @@ vi.mock('../services/export/ConstructionPhotoBulkExportService', () => ({
   constructionPhotoBulkExportService: { export: vi.fn() },
 }));
 
+// 工事写真権限フックのモック（Task 12.4: 権限に基づくUI表示制御, R17）
+// 既定はフル権限（既存テストの回帰なし）。個別テストで mockReturnValue を上書きする。
+const mockUseConstructionPhotoPermission = vi.fn();
+vi.mock('../hooks/useConstructionPhotoPermission', () => ({
+  useConstructionPhotoPermission: () => mockUseConstructionPhotoPermission(),
+}));
+
+const fullPermission = {
+  canView: true,
+  canCreate: true,
+  canEdit: true,
+  canDelete: true,
+  isLoading: false,
+  getPermissionError: () => null,
+};
+
 // fabric を含む配置エディタはスタブ化し、看板選択＋保存の結線契約のみを検証する。
 vi.mock('../components/construction-photos/SignboardPlacementEditor', () => ({
   default: ({
@@ -136,6 +152,7 @@ function renderPage() {
 describe('ConstructionPhotoDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
     vi.mocked(albumsApi.getConstructionPhotoAlbum).mockResolvedValue(mockAlbum);
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
     vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
@@ -623,6 +640,114 @@ describe('ConstructionPhotoDetailPage', () => {
       });
       expect(albumsApi.deleteConstructionPhotoAlbum).not.toHaveBeenCalled();
       expect(mockNavigate).not.toHaveBeenCalledWith('/projects/project-1/construction-photos');
+    });
+  });
+
+  // ==========================================================================
+  // Task 12.4: 権限に基づくUI表示制御を結線 (R17.1, R17.2, R17.3, R17.4, R17.5)
+  // ==========================================================================
+
+  describe('権限に基づくUI表示制御 (R17)', () => {
+    it('編集権限なし(user想定)ではアップローダ・アルバム編集・保存・並び替え・看板配置の導線が非表示になる (R17.1, R17.3)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canEdit: false,
+      });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      // アルバム編集導線が非表示（削除は権限ありのため表示のまま）
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
+
+      // 3系統アップローダが非表示
+      expect(screen.queryByTestId('file-input')).not.toBeInTheDocument();
+
+      // 写真項目パネルが読み取り専用: 保存ボタン・並び替えボタン・看板配置導線が非表示
+      expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '上へ移動' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '下へ移動' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /看板を配置/ })).not.toBeInTheDocument();
+
+      // コメント・印刷対象は読み取り専用として無効化される
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      expect(within(firstItem).getByLabelText('コメント')).toHaveAttribute('readonly');
+      expect(within(firstItem).getByLabelText('印刷対象に含める')).toBeDisabled();
+    });
+
+    it('編集権限なしでは写真項目削除の導線も非表示になる (R17.1)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canEdit: false,
+      });
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      expect(
+        within(firstItem).queryByRole('button', { name: /写真項目を削除/ })
+      ).not.toBeInTheDocument();
+    });
+
+    it('削除権限なし(user想定)ではアルバム削除・写真項目削除の導線が非表示になり、編集系導線は表示のまま (R17.2)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canDelete: false,
+      });
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      // アルバム削除導線が非表示（編集は権限ありのため表示のまま）
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
+
+      // 写真項目削除の導線が非表示
+      expect(
+        within(firstItem).queryByRole('button', { name: /写真項目を削除/ })
+      ).not.toBeInTheDocument();
+
+      // 編集系（保存・並び替え・アップローダ）は表示のまま
+      expect(screen.getByTestId('file-input')).toBeInTheDocument();
+      expect(within(firstItem).getByRole('button', { name: '下へ移動' })).toBeInTheDocument();
+    });
+
+    it('権限ロード中は安全側で編集系・削除系の操作手段をすべて非表示にする (R17.5)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        isLoading: true,
+        getPermissionError: () => null,
+      });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('file-input')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      expect(
+        within(firstItem).queryByRole('button', { name: /写真項目を削除/ })
+      ).not.toBeInTheDocument();
+      expect(
+        within(firstItem).queryByRole('button', { name: /看板を配置/ })
+      ).not.toBeInTheDocument();
+    });
+
+    it('編集権限がある場合はアップローダ・保存・並び替え・看板配置の導線が表示される（回帰）', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      expect(screen.getByTestId('file-input')).toBeInTheDocument();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      expect(within(firstItem).getByRole('button', { name: /看板を配置/ })).toBeInTheDocument();
+      expect(within(firstItem).getByRole('button', { name: /写真項目を削除/ })).toBeInTheDocument();
     });
   });
 });

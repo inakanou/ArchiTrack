@@ -26,10 +26,16 @@ export interface ConstructionPhotoListCardProps {
   albums: ConstructionPhotoAlbumListItem[];
   /** カードクリックハンドラ */
   onCardClick: (albumId: string) => void;
-  /** カードの編集導線ハンドラ（アルバム編集画面へ遷移, R16.6） */
-  onEditAlbum: (albumId: string) => void;
-  /** カードの削除導線ハンドラ（削除確認ダイアログを開く, R16.6） */
-  onDeleteAlbum: (albumId: string, albumName: string) => void;
+  /**
+   * カードの編集導線ハンドラ（アルバム編集画面へ遷移, R16.6）。
+   * 未指定時は編集ボタンを表示しない（権限連動, R17.1）。
+   */
+  onEditAlbum?: (albumId: string) => void;
+  /**
+   * カードの削除導線ハンドラ（削除確認ダイアログを開く, R16.6）。
+   * 未指定時は削除ボタンを表示しない（権限連動, R17.2）。
+   */
+  onDeleteAlbum?: (albumId: string, albumName: string) => void;
 }
 
 // ============================================================================
@@ -105,8 +111,8 @@ function AlbumCard({
 }: {
   album: ConstructionPhotoAlbumListItem;
   onClick: (albumId: string) => void;
-  onEdit: (albumId: string) => void;
-  onDelete: (albumId: string, albumName: string) => void;
+  onEdit?: (albumId: string) => void;
+  onDelete?: (albumId: string, albumName: string) => void;
 }) {
   const handleClick = useCallback(() => {
     onClick(album.id);
@@ -185,29 +191,35 @@ function AlbumCard({
         </div>
       </div>
 
-      {/* カードアクション（編集・削除, R16.6） */}
-      <div
-        className="flex justify-end gap-2 mt-3 pt-3 border-t border-gray-100"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={() => onEdit(album.id)}
-          aria-label={`${album.name}を編集`}
-          className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      {/* カードアクション（編集・削除, R16.6, 権限連動 R17.1, R17.2） */}
+      {(onEdit || onDelete) && (
+        <div
+          className="flex justify-end gap-2 mt-3 pt-3 border-t border-gray-100"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
         >
-          編集
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(album.id, album.name)}
-          aria-label={`${album.name}を削除`}
-          className="px-3 py-1.5 text-xs font-medium text-red-600 bg-white border border-red-300 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
-        >
-          削除
-        </button>
-      </div>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(album.id)}
+              aria-label={`${album.name}を編集`}
+              className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              編集
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(album.id, album.name)}
+              aria-label={`${album.name}を削除`}
+              className="px-3 py-1.5 text-xs font-medium text-red-600 bg-white border border-red-300 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+            >
+              削除
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

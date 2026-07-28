@@ -218,7 +218,7 @@
   - _Depends: 11.5_
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
   - _Boundary: ConstructionPhotoDetailPage, ConstructionPhotoListPage, ConstructionPhotoListTable, ConstructionPhotoListCard_
-- [ ] 12.4 権限に基づくUI表示制御を結線
+- [x] 12.4 権限に基づくUI表示制御を結線
   - 権限フックを用い、編集権限なしは詳細を読み取り専用（追加・コメント・並び替え・印刷対象・看板配置・保存・写真削除を非表示）、削除権限なしはアルバム/写真削除導線を非表示、権限ロード中は安全側で非表示
   - 完了: user（削除権限なし）で削除導線が消え、編集権限なしユーザーで編集系UIが非表示になる
   - _Depends: 11.1, 12.2, 12.3_

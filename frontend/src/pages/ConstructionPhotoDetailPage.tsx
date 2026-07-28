@@ -25,8 +25,16 @@
  *     `BulkExportProgressDialog` は疎結合なプレゼンテーション部品, R15.1, R15.8, R15.9）
  *   - 対象0件時は非実行のまま通知（`onEmptyTarget`, R15.11）
  *
+ * Task 12.4 追加: 権限に基づくUI表示制御を結線する。
+ *   - `useConstructionPhotoPermission` の canEdit/canDelete で編集系・削除系の操作手段を
+ *     出し分け（権限ロード中は当該フックが安全側でfalseを返すため追加のロード判定は不要, R17.5）
+ *   - canEdit=false: アップローダ・アルバム編集導線を非表示にし、`PhotoItemPanel` を
+ *     `readOnly` で保存/並び替え/コメント/印刷対象/看板配置を抑止（R17.1, R17.3）
+ *   - canDelete=false: アルバム削除導線を非表示にし、写真項目削除ハンドラを渡さない（R17.2）
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
- *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11
+ *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
+ *   17.4, 17.5
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -65,6 +73,7 @@ import {
   type BulkExportDialogMode,
 } from '../components/construction-photos/BulkExportDialog';
 import { BulkExportProgressDialog } from '../components/construction-photos/BulkExportProgressDialog';
+import { useConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
@@ -250,6 +259,9 @@ const styles = {
 export default function ConstructionPhotoDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+
+  // 権限（R17.1, R17.2, R17.3, R17.5: ロード中は canEdit/canDelete が安全側でfalseになる）
+  const { canEdit, canDelete } = useConstructionPhotoPermission();
 
   const [album, setAlbum] = useState<ConstructionPhotoAlbum | null>(null);
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -721,18 +733,22 @@ export default function ConstructionPhotoDetailPage() {
       <div style={styles.header}>
         <div style={styles.headerTitleRow}>
           <h1 style={styles.title}>{album.name}</h1>
-          {/* アルバム編集・削除導線（R16.1, R16.2, R16.3, R16.4） */}
+          {/* アルバム編集・削除導線（R16.1, R16.2, R16.3, R16.4、権限連動 R17.1, R17.2, R17.5） */}
           <div style={styles.albumActionsRow}>
-            <button type="button" onClick={handleEditAlbum} style={styles.editAlbumButton}>
-              編集
-            </button>
-            <button
-              type="button"
-              onClick={handleDeleteAlbumRequest}
-              style={styles.deleteAlbumButton}
-            >
-              削除
-            </button>
+            {canEdit && (
+              <button type="button" onClick={handleEditAlbum} style={styles.editAlbumButton}>
+                編集
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={handleDeleteAlbumRequest}
+                style={styles.deleteAlbumButton}
+              >
+                削除
+              </button>
+            )}
           </div>
         </div>
         {album.memo && <p style={styles.memo}>{album.memo}</p>}
@@ -779,28 +795,33 @@ export default function ConstructionPhotoDetailPage() {
           </div>
         )}
 
-        {/* 3系統アップローダ（R4, R5, R6, R11.5） */}
-        <div style={styles.uploaderWrapper}>
-          <PhotoUploader
-            albumId={album.id}
-            projectId={album.projectId}
-            onPhotosAdded={handlePhotosAdded}
-            onNotify={handleUploaderNotify}
-          />
-        </div>
+        {/* 3系統アップローダ（R4, R5, R6, R11.5、編集権限連動 R17.1, R17.5） */}
+        {canEdit && (
+          <div style={styles.uploaderWrapper}>
+            <PhotoUploader
+              albumId={album.id}
+              projectId={album.projectId}
+              onPhotosAdded={handlePhotosAdded}
+              onNotify={handleUploaderNotify}
+            />
+          </div>
+        )}
 
-        {/* 写真項目管理パネル（R7, R11.3） */}
+        {/* 写真項目管理パネル（R7, R11.3）
+            編集権限なしは readOnly で保存・並び替え・コメント・印刷対象・看板配置を抑止
+            （R17.1, R17.3, R17.5）。写真項目削除は削除権限がある場合のみハンドラを渡す（R17.2）。 */}
         <PhotoItemPanel
           photos={photos}
           onPhotoMetadataChange={handleMetadataChange}
           onPhotoClick={handlePhotoClick}
           onOrderChange={handleOrderChange}
           onSave={handleSave}
-          onDelete={handleDelete}
+          onDelete={canDelete ? handleDelete : undefined}
           onAssignSignboard={handleAssignSignboard}
           isDirty={isDirty}
           isSaving={isSaving}
           isLoading={isLoading}
+          readOnly={!canEdit}
           showOrderNumbers
           selectedPhotoIds={selectedPhotoIds}
           onToggleSelect={handleToggleSelectPhoto}

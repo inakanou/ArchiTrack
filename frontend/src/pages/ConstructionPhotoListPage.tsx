@@ -18,6 +18,11 @@
  *
  * 注: ルート登録・ブレッドクラム階層規約（2.5-2.9）は Task 7.1 で行う。
  * 本タスクでは画面単体で描画可能なよう共通 Breadcrumb をインラインで利用する。
+ *
+ * Task 12.4 追加: 行/カードの編集・削除導線を `useConstructionPhotoPermission` の
+ * canEdit/canDelete と連動させる。権限がない場合はハンドラ自体を渡さず、子部品
+ * （`ConstructionPhotoListTable`/`ConstructionPhotoListCard`）側でボタンを非表示にする
+ * （権限ロード中も当該フックが安全側でfalseを返すため非表示になる, R17.1, R17.2, R17.5）。
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -41,6 +46,7 @@ import ConstructionPhotoSearchFilter, {
 } from '../components/construction-photos/ConstructionPhotoSearchFilter';
 import AlbumDeleteDialog from '../components/construction-photos/AlbumDeleteDialog';
 import { ApiError } from '../api/client';
+import { useConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
 
 // ============================================================================
 // 定数定義
@@ -190,6 +196,9 @@ const STYLES = {
 export default function ConstructionPhotoListPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+
+  // 権限（R17.1, R17.2, R17.5: ロード中は canEdit/canDelete が安全側でfalseになる）
+  const { canEdit, canDelete } = useConstructionPhotoPermission();
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -448,8 +457,9 @@ export default function ConstructionPhotoListPage() {
             sortOrder={sortOrder}
             onSort={handleSort}
             onRowClick={handleRowClick}
-            onEditAlbum={handleEditAlbum}
-            onDeleteAlbum={handleDeleteAlbumRequest}
+            /* 編集/削除導線は権限連動で出し分け（R17.1, R17.2, R17.5） */
+            onEditAlbum={canEdit ? handleEditAlbum : undefined}
+            onDeleteAlbum={canDelete ? handleDeleteAlbumRequest : undefined}
           />
 
           {/* ページング (Requirement 3.1) */}

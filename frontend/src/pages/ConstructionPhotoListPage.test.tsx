@@ -36,6 +36,22 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../api/projects');
 vi.mock('../api/construction-photos');
 
+// 工事写真権限フックのモック（Task 12.4: 権限に基づくUI表示制御, R17）
+// 既定はフル権限（既存テストの回帰なし）。個別テストで mockReturnValue を上書きする。
+const mockUseConstructionPhotoPermission = vi.fn();
+vi.mock('../hooks/useConstructionPhotoPermission', () => ({
+  useConstructionPhotoPermission: () => mockUseConstructionPhotoPermission(),
+}));
+
+const fullPermission = {
+  canView: true,
+  canCreate: true,
+  canEdit: true,
+  canDelete: true,
+  isLoading: false,
+  getPermissionError: () => null,
+};
+
 // モックデータ
 const mockProject = {
   id: 'project-123',
@@ -109,6 +125,7 @@ describe('ConstructionPhotoListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     navigateMock.mockClear();
+    mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
     vi.mocked(constructionPhotosApi.getConstructionPhotoAlbums).mockResolvedValue(mockAlbums);
     // デフォルトはデスクトップ扱い（全メディアクエリ false → table）
@@ -318,6 +335,67 @@ describe('ConstructionPhotoListPage', () => {
 
       // 一覧画面に留まったままで、誤った画面遷移（詳細/編集など）は発生しない
       expect(navigateMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // Task 12.4: 権限に基づくUI表示制御を結線 (R17.1, R17.2, R17.5)
+  // ==========================================================================
+
+  describe('一覧行の権限連動UI表示制御 (R17)', () => {
+    beforeEach(() => {
+      setMatchMedia((query) => query === '(min-width: 1024px)');
+    });
+
+    it('編集権限なし(user想定)では行の編集ボタンが非表示になり、削除ボタンは表示のまま (R17.1)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canEdit: false,
+      });
+
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      expect(within(row).queryByRole('button', { name: /編集/ })).not.toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: /削除/ })).toBeInTheDocument();
+    });
+
+    it('削除権限なし(user想定)では行の削除ボタンが非表示になり、編集ボタンは表示のまま (R17.2)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canDelete: false,
+      });
+
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      expect(within(row).queryByRole('button', { name: /削除/ })).not.toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: /編集/ })).toBeInTheDocument();
+    });
+
+    it('権限ロード中は安全側で行の編集・削除ボタンをすべて非表示にする (R17.5)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        isLoading: true,
+        getPermissionError: () => null,
+      });
+
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      expect(within(row).queryByRole('button', { name: /編集/ })).not.toBeInTheDocument();
+      expect(within(row).queryByRole('button', { name: /削除/ })).not.toBeInTheDocument();
+    });
+
+    it('編集・削除権限がある場合は行の編集・削除ボタンが表示される（回帰）', async () => {
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const row = await screen.findByTestId('album-row-album-1');
+      expect(within(row).getByRole('button', { name: /編集/ })).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: /削除/ })).toBeInTheDocument();
     });
   });
 });
