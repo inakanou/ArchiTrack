@@ -247,7 +247,7 @@
   - 完了: 権限フックの単体テストが緑になる
   - _Requirements: 17.1, 17.2, 17.5_
   - _Boundary: useConstructionPhotoPermission_
-- [ ] 13.3 E2E テスト（追加機能）
+- [x] 13.3 E2E テスト（追加機能）
   - ビューアのズーム/回転/パン、ZIPの形式/解像度/看板モード/全件/選択/進捗/中断/0件、アルバム編集・削除導線、権限出し分け（user で削除導線非表示）、未保存離脱警告、モバイル縦積みを検証
   - 非合成原本エンドポイントが看板配置済み写真でも原本を返すことを併せて確認
   - 完了: 追加機能の主要ユーザーフローのE2Eが緑になる
@@ -273,3 +273,6 @@
 - 検証コマンドは既存注記と同様にコンテナ内で実行（frontend=`docker exec architrack-frontend-dev npm run <test|type-check|build>`）。要件はE2Eで動作確認するまで完了としない。
 - R15.10 UI残課題(12.2由来): 部分失敗時の「成功分のみでダウンロード継続をユーザーが選択」UIは未実装。現状は成功分を自動ダウンロードし失敗件数を通知する劣化対応。サービス層(11.3)の failed[] 返却は実装済。厳密なユーザー選択UIは BulkExportProgressDialog の拡張を要する(要フォロー、最終検証で要否判断)。
 - スペック訂正(10.1レビュー由来): /original の認可は「権限なし=403(requirePermission)・他プロジェクト=404(存在秘匿, print-image等と同一)」。tasks/design の該当記述を是正済み。
+- E2E(13.3): 新規 `e2e/specs/construction-photos/construction-photo-additional.spec.ts`(12テスト)＋`e2e/fixtures/seed-helpers.ts` に construction_photo/signboard 権限追加(userはdelete除外=R17.2)。**test環境は本番nginxビルド済みイメージ配信のため、フロント変更反映には `architrack-frontend-test` の再ビルド＋再作成が必須**(dev配信ではない)。
+- E2Eフレーク是正(13.3): モバイルテストは `useMediaQuery` ハイドレーション(初期false→true)のデスクトップ一瞬フラッシュを稀に測定し `<main>` overflow=25で赤化していた。閾値(≤1)は据え置き、測定を「flexDirection:column 適用後」にゲートして決定化(連続runで緑)。共通ヘッダ(app-header-nav)は375pxで約25px document 級はみ出しあり=工事写真範囲外・共有レイアウト側の別課題。
+- R18.1 E2E(13.3): ネイティブreload/close の beforeunload は synthetic `Event('beforeunload',{cancelable:true})` dispatch＋`defaultPrevented` false→true→false で非フレーク検証(site-survey-responsive.spec.ts:874-924 と同手法)。OSネイティブモーダル描画/操作のみ縮退。

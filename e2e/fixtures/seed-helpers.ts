@@ -368,6 +368,51 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'delete',
       description: '工程表の削除',
     },
+
+    // 工事写真関連権限（construction-photo/REQ-13.1, 13.3）
+    // backend/src/utils/seed-helpers.ts と同一定義（E2E DB を本番と同じ権限モデルに揃える）
+    {
+      resource: 'construction_photo',
+      action: 'create',
+      description: '工事写真の作成',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'read',
+      description: '工事写真の閲覧',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'update',
+      description: '工事写真の更新',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'delete',
+      description: '工事写真の削除',
+    },
+
+    // 工事看板関連権限（construction-photo/REQ-13.1, 13.3）
+    {
+      resource: 'construction_signboard',
+      action: 'create',
+      description: '工事看板の作成',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'read',
+      description: '工事看板の閲覧',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'update',
+      description: '工事看板の更新',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'delete',
+      description: '工事看板の削除',
+    },
   ];
 
   for (const permission of permissions) {
@@ -478,6 +523,15 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'schedule', action: 'read' },
     { resource: 'schedule', action: 'update' },
     { resource: 'schedule', action: 'delete' },
+    // 工事写真関連権限（construction-photo/REQ-13.1, 13.3）
+    // 現場調査と同等の権限モデル: 一般ユーザーは作成・閲覧・更新が可能（削除は管理者のみ, R17.2）
+    { resource: 'construction_photo', action: 'create' },
+    { resource: 'construction_photo', action: 'read' },
+    { resource: 'construction_photo', action: 'update' },
+    // 工事看板関連権限（construction-photo/REQ-13.1, 13.3）
+    { resource: 'construction_signboard', action: 'create' },
+    { resource: 'construction_signboard', action: 'read' },
+    { resource: 'construction_signboard', action: 'update' },
   ];
 
   for (const { resource, action } of basicPermissions) {
