@@ -193,7 +193,7 @@
   - 完了: ダイアログで条件を選んで開始でき、進捗表示・中断が機能し、0件時は通知して実行されない
   - _Requirements: 15.7, 15.11_
   - _Boundary: BulkExportDialog, BulkExportProgressDialog, ExportSettingsForm_
-- [ ] 11.5 (P) アルバム削除確認ダイアログ
+- [x] 11.5 (P) アルバム削除確認ダイアログ
   - フォーカストラップ（FocusManager）付きの削除確認ダイアログ部品。関連する写真項目・看板配置も削除される旨を明示
   - 完了: 開くと確認ダイアログが表示され、承認/キャンセルのコールバックがキーボード操作でも実行できる
   - _Requirements: 16.4_
