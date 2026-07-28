@@ -197,3 +197,13 @@ site-survey資産とCP側の未結線プロップ（`onPhotoClick`/`readOnly`/`i
 3. **ビューア流用範囲**: `ImageViewer.tsx` を注釈非表示の閲覧専用モードで流用可能か、専用の軽量ビューアにするか。CPビューアのルート設計（例 `/construction-photos/:albumId/photos/:photoId`）。ビューアで看板重畳を表示するか（原本のみか）も要決定。
 4. **CP権限マッピング確定**: `construction_photo:delete` が admin限定か（site-survey は user=削除不可）。seed/RBAC定義で確認し `useConstructionPhotoPermission` に反映。
 5. **削除確認ダイアログの共通化**: `contracts/DeleteConfirmDialog.tsx` の流用可否、または `common/` へ汎用削除ダイアログを新設するか。
+
+## 設計判断（追加7機能・Research項目の解決）
+
+_`/kiro-spec-design` シンセシスで確定。design.md に反映済み。_
+
+1. **ZIP看板3モードのソース定義**: `composited`=既存 `GET print-image`（サーバ合成）／`plain`=原本を解像度変換／`original`=原本そのまま。**解像度（低/中/高）・形式（JPEG/PNG）変換はフロント canvas 再エンコードで一元化** → 「非重畳の加工画像」に新規バックエンドパラメータは不要。**バックエンド変更ゼロ**を維持。
+2. **ZIPアーキ判断**: `bulkExportService` は汎用化せず **CP専用 `ConstructionPhotoBulkExportService` を新設（独立クローン）**。既存spec方針「site-surveyサービスは拡張せず独立クローン（安定性優先）」と整合。JSZip・進捗callback・AbortSignal・zip命名はパターン流用。
+3. **ビューア流用範囲**: `ImageViewer.tsx`（fabric注釈搭載・大型）はそのまま流用せず、**閲覧専用の薄い `ConstructionPhotoImageViewer` を新設**し、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転ヘルパ（`normalizeRotation`/`ROTATION_CONSTANTS`）を合成。ルートは `/construction-photos/:albumId/photos/:photoId`。ビューアは**原本のみ表示**（看板重畳は印字/エクスポート時の関心事）。
+4. **CP権限マッピング確定**: `useConstructionPhotoPermission` は**ロール直書きせず `usePermission('construction_photo:<action>')` で判定**（RBAC権限駆動）。canEdit=`:update`、canDelete=`:delete`。site-survey同様に user は削除不可となるが、判定はロールでなくバックエンド付与権限に従う。
+5. **削除確認ダイアログ**: `projects/DeleteConfirmationDialog`（survey/estimate件数依存）・`contracts/DeleteConfirmDialog`（契約特化命名）とも汎用性不足のため、**FocusManagerパターンを踏襲した薄い `AlbumDeleteDialog` を新設**。

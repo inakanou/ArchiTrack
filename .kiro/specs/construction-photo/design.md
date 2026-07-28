@@ -13,6 +13,7 @@
 - プロジェクト単位の工事看板（電子小黒板調・構造化テキスト）を写真項目へ任意で配置し、PDFに重畳する。
 - 参考書式（表紙＋1ページ3枠・No.通し番号）に準拠した台帳PDFを出力する。
 - 多数写真でもサーバーリクエストが過大にならない（一覧50件ページング・一括取得・保存最大2リクエスト・アップロード並列5）。
+- 詳細画面の運用機能を site-survey と同等に拡充する: 画像フルスクリーンビューア（ズーム・回転・パン）、ZIP一括エクスポート、アルバム編集・削除導線、権限に応じたUI出し分け、未保存離脱警告、モバイル対応（R14〜R19）。
 
 ### Non-Goals
 - site-survey 機能自体の仕様変更（読取・コピー元参照のみ）。
@@ -28,6 +29,8 @@
 - 電子小黒板SVGの版組と、看板を原本へ焼き込む合成（印字用画像生成）。
 - 台帳PDF（表紙レンダラ＋3枠版組＋No.通し番号）のクライアント生成ロジック。
 - プロジェクト詳細サマリへの `constructionPhotos` セクション寄与（自セクションのデータのみ）。
+- 工事写真詳細の画像ビューア（ズーム/回転/パン, 閲覧専用）と、写真項目画像のZIP一括エクスポート（クライアント生成, 形式/解像度/看板重畳モード/選択/進捗/中断）。
+- 工事写真詳細・一覧のアルバム編集/削除導線、権限（`construction_photo:*`）に応じたUI出し分け、未保存離脱警告、詳細画面のモバイルレイアウト。
 
 ### Out of Boundary
 - site-survey の `SiteSurvey`/`SurveyImage`/`ImageAnnotation`（読取のみ。書込・スキーマ変更は行わない）。
@@ -36,6 +39,7 @@
 
 ### Allowed Dependencies
 - 基盤（利用可）: `StorageProvider.copy/upload/getSignedUrl`、`ImageProcessorService.processImage`、`SignedUrlService.generateBatchSignedUrls`、`CompanyInfoService.getCompanyInfo`、`PdfFontService.initializePdfFonts`、fabric primitives、multer 設定、`authenticate`/`requirePermission`/`validate`。
+- フロント基盤（利用可・流用）: `hooks/useCanvasViewport`・`components/site-surveys/ZoomControls`・`components/site-surveys/gestures/*`・`utils/imageFitScale`・`ImageViewer` の回転定数/`normalizeRotation`（ビューアR14）、`hooks/useUnsavedChanges`＋`components/common/UnsavedChangesDialog`（離脱警告R18）、`hooks/useMediaQuery`＋`utils/responsive`（モバイルR19）、`hooks/usePermission`（権限R17）、JSZip（ZIP生成R15）。site-survey の `services/export/bulkExportService` は**流用せず独立クローン**（安定性優先）。
 - 依存方向: Types → Prisma → Storage/Infra → Service → Route → API(client) → UI。左方向のみ import 可、上方向禁止。
 - 制約: site-survey のサービス／モデルへ書込依存しない。現調写真は Prisma 読取＋`storage.copy` のみ。
 
@@ -45,6 +49,9 @@
 - `signboardPlacement` JSON形状・座標系の変更 → プレビュー・合成・PDFの再検証。
 - 署名付きURLの取得方式／TTL変更 → 一覧・詳細・PDFの表示再検証。
 - `SurveyImage` 読取形状に依存する現調コピーは、site-survey スキーマ変更時に再検証。
+- 画像ビューアのルート（`/construction-photos/:albumId/photos/:photoId`）／表示状態契約の変更 → 詳細画面の写真クリック導線を再検証。
+- ZIP エクスポートの看板モード（composited/plain/original）と画像取得元（print-image/原本）の対応変更 → エクスポート結果を再検証。
+- `construction_photo:*` 権限とUI出し分けのマッピング変更 → 詳細/一覧の操作導線・`readOnly` 挙動を再検証。
 
 ## Architecture
 
@@ -192,6 +199,31 @@ interface ConstructionPhotoWithUrls {
   printImageUrl: string;         // PDF用: 印字画像取得エンドポイント。看板ありはサーバでオンデマンド合成、なしは原本を返す
   createdAt: string;
 }
+
+// --- 追加機能 (Req 14-19) の型 ---
+
+// ZIP一括エクスポート設定 (R15)
+type ConstructionPhotoExportFormat = 'jpeg' | 'png';
+type ConstructionPhotoExportResolution = 'low' | 'medium' | 'high';
+// 看板重畳モード: composited=看板重畳(サーバ print-image), plain=看板なし加工(原本を解像度変換), original=原本そのまま
+type SignboardExportMode = 'composited' | 'plain' | 'original';
+interface ConstructionPhotoExportSettings {
+  format: ConstructionPhotoExportFormat;
+  resolution: ConstructionPhotoExportResolution;
+  signboardMode: SignboardExportMode;
+}
+interface ConstructionPhotoExportProgress { completed: number; total: number; failed: number; }
+
+// 権限UI (R17) — usePermission('construction_photo:*') を包む
+type ConstructionPhotoPermissionAction = 'view' | 'create' | 'edit' | 'delete';
+interface ConstructionPhotoPermission {
+  canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean;
+  isLoading: boolean;
+  getPermissionError: (action: ConstructionPhotoPermissionAction) => string | null;
+}
+
+// ビューア表示状態 (R14) — ImageViewer の RotationAngle を流用
+interface ConstructionPhotoViewerState { zoom: number; rotation: 0 | 90 | 180 | 270; panX: number; panY: number; }
 ```
 
 ## File Structure Plan
@@ -241,6 +273,23 @@ frontend/src/
 │   ├── construction-photos.ts / construction-photo-images.ts / construction-signboards.ts
 └── types/construction-photo.types.ts
 ```
+
+### 追加機能ファイル（Req 14〜19）
+
+**新規（frontend）**
+- `pages/ConstructionPhotoImageViewerPage.tsx` — 画像ビューアページ（ズーム/回転/パン, 閲覧専用）(R14)
+- `components/construction-photos/ConstructionPhotoImageViewer.tsx` — ビューア本体。`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転状態（`ImageViewer` の `normalizeRotation`/`ROTATION_CONSTANTS` 流用）を合成。注釈ツールは持たない (R14)
+- `components/construction-photos/BulkExportDialog.tsx` / `BulkExportProgressDialog.tsx` / `ExportSettingsForm.tsx` — ZIP設定（形式/解像度/看板モード）・進捗・中断UI（site-survey同名部品のクローン, CP型対応）(R15)
+- `services/export/ConstructionPhotoBulkExportService.ts` — JSZip束ね・解像度/形式変換（canvas再エンコード）・看板モード分岐（composited=print-image取得, plain/original=原本取得）・進捗callback/AbortSignal (R15)
+- `services/export/constructionPhotoZipNaming.ts` — ZIPエントリ命名（`zip-naming` 相当のクローン）(R15)
+- `components/construction-photos/AlbumDeleteDialog.tsx` — アルバム削除確認（FocusManagerパターン踏襲）(R16)
+- `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)
+
+**変更（frontend）**
+- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、独自 `isDirty` state を `useUnsavedChanges` へ置換(R18)、`useMediaQuery` でモバイル分岐(R19)
+- `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)
+- `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)
+- `routes.tsx` — CPビューアルート `/construction-photos/:albumId/photos/:photoId` を追加 (R14)
 
 ### Modified Files
 - `backend/prisma/schema.prisma` — 3モデル追加＋`Project`に逆リレーション追加（migration生成）。
@@ -296,6 +345,45 @@ sequenceDiagram
 
 看板合成は**サーバ権威かつオンデマンド**（保存しない）。看板マスタ編集・配置変更でも常に最新内容で焼き込まれ、キャッシュ無効化が不要（Critical Issue 1 の解消）。プレビューはクライアント fabric でライブ編集。看板未指定の写真は原本をそのまま返す。
 
+### ZIP一括エクスポート（クライアント生成・中断可能）
+
+```mermaid
+flowchart TD
+    Start[一括エクスポート実行] --> Scope{対象}
+    Scope -->|全件| All[アルバム全写真項目]
+    Scope -->|選択| Sel[選択済み写真項目]
+    All --> Loop[写真項目ごとに逐次処理]
+    Sel --> Loop
+    Loop --> Abort{AbortSignal?}
+    Abort -->|中断| Cancel[処理中断・通知]
+    Abort -->|継続| Mode{看板モード}
+    Mode -->|composited| Print[GET print-image 看板重畳画像Blob]
+    Mode -->|plain/original| Orig[原本Blob取得]
+    Print --> Enc[canvas で解像度スケール＋形式変換]
+    Orig --> Enc
+    Enc --> Add[JSZip にエントリ追加＋進捗通知]
+    Add --> More{残あり?}
+    More -->|Yes 部分失敗は継続| Loop
+    More -->|No| Zip[ZIP Blob 生成→ダウンロード]
+```
+
+ZIPは全てクライアント（JSZip）で生成し、バックエンド新規実装を伴わない。看板重畳モードのみ既存 `GET print-image`（サーバ合成）を取得元とし、`plain`/`original` は原本を取得する。解像度（低/中/高）と形式（JPEG/PNG）変換は canvas 再エンコードで一元化するため、`plain` に新規バックエンドパラメータは不要。1件の取得・加工失敗は当該項目のみ失敗として継続し、成功分での続行をユーザーが選べる（R15.10）。対象0件は非実行で通知（R15.11）。
+
+### 画像ビューア（閲覧専用）
+
+```mermaid
+flowchart LR
+    Thumb[詳細で写真サムネをクリック] --> Nav[/construction-photos/:albumId/photos/:photoId へ遷移/]
+    Nav --> Fetch[原本の署名付きURL取得]
+    Fetch --> View[ConstructionPhotoImageViewer]
+    View --> Z[ズームイン/アウト]
+    View --> R[90度回転]
+    View --> P[拡大時ドラッグでパン]
+    View --> Close[閉じる→詳細へ戻る]
+```
+
+ビューアは注釈編集を持たない閲覧専用で、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転状態を合成する。原本画像は必要時にのみ取得する（R11.3, R14.6）。
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -313,6 +401,12 @@ sequenceDiagram
 | 11 | リクエスト効率 | AlbumService(ページ50), ImageService(一括署名URL), MetadataService(batch) | list/batch API | 保存フロー |
 | 12 | UP制約 | construction-photo-images.routes(multer), ImageService.validate | upload API | - |
 | 13 | アクセス制御 | authenticate/requirePermission, SignedUrlService | 全API | - |
+| 14 | 画像ビューア(ズーム/回転/パン) | ConstructionPhotoImageViewer(Page), useCanvasViewport, ZoomControls, gestures, routes.tsx, DetailPage(onPhotoClick) | 原本署名URL | ビューアフロー |
+| 15 | ZIP一括エクスポート | ConstructionPhotoBulkExportService, BulkExportDialog/ProgressDialog/ExportSettingsForm, PhotoItemPanel(選択) | print-image/原本, JSZip | エクスポートフロー |
+| 16 | アルバム編集/削除導線 | DetailPage/ListPage/ListTable/ListCard, ConstructionPhotoEditPage(既存), AlbumDeleteDialog | PATCH/DELETE album API | - |
+| 17 | 権限UI出し分け | useConstructionPhotoPermission, usePermission, DetailPage/ListPage, PhotoItemPanel(readOnly) | construction_photo:* | - |
+| 18 | 未保存離脱警告 | useUnsavedChanges, UnsavedChangesDialog, DetailPage | - | - |
+| 19 | 詳細画面モバイル | useMediaQuery, responsive, DetailPage, PhotoItemPanel | - | - |
 
 ## Components and Interfaces
 
@@ -327,6 +421,11 @@ sequenceDiagram
 | ConstructionPhotoSummaryService | Service | サマリ寄与 | 2 | Prisma(P0), SignedUrl(P1) | Service |
 | ConstructionPhotoLedgerService | UI | 台帳PDF生成 | 10 | PdfFont(P0), Company(P1) | Service |
 | PhotoItemPanel / ResponsiveView 等 | UI | 表示・編集（clone） | 3,7 | api(P0) | State |
+| ConstructionPhotoImageViewer(Page) | UI | 閲覧専用ビューア(ズーム/回転/パン) | 14 | useCanvasViewport(P0), ZoomControls(P0), gestures(P1), imageFitScale(P1) | State |
+| ConstructionPhotoBulkExportService | UI | ZIP生成(形式/解像度/看板モード/進捗/中断) | 15 | ImageApi(P0), JSZip(P0), canvas(P0) | Service |
+| BulkExportDialog / ProgressDialog / ExportSettingsForm | UI | エクスポート設定・進捗・中断UI(clone) | 15 | ExportService(P0) | State |
+| useConstructionPhotoPermission | UI(hook) | 権限出し分け(canView/Create/Edit/Delete) | 17 | usePermission(P0) | Hook |
+| AlbumDeleteDialog | UI | アルバム削除確認 | 16 | album API(P0) | State |
 
 ### Backend Service Interfaces
 
@@ -376,6 +475,35 @@ interface SignboardCompositeService {
 - Postconditions: `displayOrder` は1..nに正規化。看板配置（`signboardId`/`signboardPlacement`）は保持のみ（合成はPDF出力時にオンデマンド）。
 - Invariants: site-survey テーブルへ書込まない。写真配信は署名付きURLのみ。
 
+### Frontend Interfaces（追加機能 R14〜R19）
+
+```typescript
+// ZIP一括エクスポート (R15) — CP専用サービス (site-survey bulkExportService は流用せず独立クローン)
+interface ConstructionPhotoBulkExportService {
+  export(
+    photos: ConstructionPhotoWithUrls[],           // 全件 or 選択済み
+    settings: ConstructionPhotoExportSettings,      // format/resolution/signboardMode
+    handlers: {
+      onProgress: (p: ConstructionPhotoExportProgress) => void;
+      signal: AbortSignal;                          // 中断 (R15.9)
+    },
+  ): Promise<{ blob: Blob; failed: string[] }>;      // failed=取得/加工失敗の写真id (R15.10)
+}
+// signboardMode='composited' は GET print-image、'plain'/'original' は原本を取得元とし、
+// resolution/format は canvas 再エンコードで適用する（plain に新規バックエンドパラメータ不要）。
+
+// 権限フック (R17)
+function useConstructionPhotoPermission(): ConstructionPhotoPermission;
+// canView=read, canCreate=create, canEdit=update, canDelete=delete を
+// usePermission('construction_photo:<action>') で判定（RBAC権限駆動）。
+
+// 未保存離脱警告 (R18) — 既存フックを利用（新規IFなし）
+// DetailPage で const uc = useUnsavedChanges({ enabled: canEdit }); を用い、
+// 変更発生で uc.markAsChanged()、保存成功で uc.markAsSaved()。
+```
+- Preconditions: `export()` は `photos.length>0`（0件は呼び出し側で非実行・通知 R15.11）。ビューアは対象写真が要求プロジェクト配下であること。
+- Postconditions: `export()` は ZIP Blob とダウンロードをもたらし、`failed` を通知に反映。`useConstructionPhotoPermission` は権限ロード完了まで全 `false`（安全側 R17.5）。
+
 ### API Contracts
 
 | Method | Endpoint | Request | Response | Errors |
@@ -424,6 +552,9 @@ interface SignboardCompositeService {
 - `SignboardSvgService.generate`: 濃緑地・白罫線・工事件名/工事場所行・自由項目・下部固定テキストを画像ピクセル座標で出力（R8.5）。
 - `ConstructionSignboardService.delete`: 使用中の場合 `inUseCount>0` を返す（R8.8）。
 - `SignboardCompositeService.composite`: 指定 `placement` 位置・サイズで SVG が合成される（R9）。
+- `ConstructionPhotoBulkExportService.export`: signboardMode 別に取得元を切替（composited=print-image, plain/original=原本）、resolution/format を canvas 再エンコードで適用、進捗通知、1件失敗は `failed` に積み継続（R15.2,R15.3,R15.4,R15.10）。
+- `ConstructionPhotoBulkExportService.export`: `AbortSignal` abort で AbortError により処理中断し途中生成を破棄する（R15.9）。
+- `useConstructionPhotoPermission`: `construction_photo:update` 保持で canEdit、`construction_photo:delete` 保持で canDelete、権限ロード中は全 false（R17.1,R17.2,R17.5）。
 
 ### Integration Tests
 - 画像一覧API: 1リクエストで全写真＋署名付きURLを返し、写真ごとの個別URL取得が発生しない（R11.2）。
@@ -437,6 +568,12 @@ interface SignboardCompositeService {
 - ローカル/カメラ/現調コピーで写真項目を追加→並び替え→印刷対象チェック→保存（R4,R5,R6,R7）。
 - 看板をプレビュー上で配置→保存→PDF出力で表紙＋No.連番＋看板重畳を確認（R8,R9,R10）。
 - 印刷対象0件時にPDFが実行されず通知される（R10.13）。
+- 写真サムネをクリックしてビューアへ遷移し、ズーム・90度回転・パンが機能し、閉じて詳細へ戻る（R14）。
+- ZIP一括エクスポート: 形式/解像度/看板モードを選択し、全件および選択でZIP生成、進捗表示・中断が機能し、0件時は非実行で通知（R15）。
+- アルバム編集導線→編集画面遷移、削除導線→確認→削除後に一覧へ遷移（R16）。
+- 削除権限を持たないユーザー（user）でアルバム削除・写真削除の導線が非表示、編集権限なしで詳細が読み取り専用（R17）。
+- 未保存変更ありでアプリ内遷移/リロード時に離脱警告が出て、保存後は警告が出ない（R18）。
+- モバイル幅で詳細画面が横スクロールせず縦積み表示になる（R19）。
 
 ### Performance
 - アルバム50件ページング・一括署名URL取得でリクエスト数が写真数に比例しないこと（R11.1,R11.2）。
@@ -446,6 +583,7 @@ interface SignboardCompositeService {
 - 認可: 新規 RBAC 権限 `construction_photo:{create,read,update,delete}`、`construction_signboard:{create,read,update,delete}`。全ルートで `authenticate`＋`requirePermission`。
 - データ分離: アルバム/写真/看板の取得時に対象が要求プロジェクト配下であることをサービスで検証（R13.2）。
 - 配信: 原本・サムネ・合成画像はすべて署名付きURL（TTL 900s）で配信し公開パスを用いない（R13.4）。
+- UI権限出し分け（R17）はフロントの体験向上であり権威ではない。実際の認可はバックエンド RBAC（`requirePermission`）が権威で、非表示化した操作もサーバ側で403となる（多重防御）。`useConstructionPhotoPermission` は権限ロード完了まで安全側（非表示）に倒す（R17.5）。
 
 ## Performance & Scalability
 - リクエスト効率（R11）は既存 site-survey 方針を踏襲: 一覧`limit=50`、詳細は写真一覧＋署名URLを一括取得（N+1回避）、サムネ優先・原本/印字画像は必要時、保存は最大2リクエスト、アップロード並列5、署名URL TTL 900s。
