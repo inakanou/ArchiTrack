@@ -170,7 +170,7 @@
   - _Boundary: construction-photo-images api_
 
 - [ ] 11. Core（追加機能）: フロント基盤・部品
-- [ ] 11.1 (P) 工事写真権限フック
+- [x] 11.1 (P) 工事写真権限フック
   - `construction_photo:{read,create,update,delete}` の保持状況から canView/canCreate/canEdit/canDelete と権限エラーメッセージ取得を提供、権限ロード中は全て false（安全側）
   - 完了: 権限保持で canEdit=true・非保持で false、`construction_photo:delete` 非保持で canDelete=false、ロード中は全 false を返す
   - _Requirements: 17.1, 17.2, 17.3, 17.5_
