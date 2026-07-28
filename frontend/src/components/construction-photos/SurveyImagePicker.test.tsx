@@ -83,9 +83,7 @@ describe('SurveyImagePicker', () => {
   });
 
   it('同一プロジェクトの現場調査を候補として読み込む (R6.1, R6.4)', async () => {
-    render(
-      <SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={vi.fn()} />
-    );
+    render(<SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={vi.fn()} />);
     await waitFor(() => {
       expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith('project-1', expect.any(Object));
     });
@@ -94,9 +92,7 @@ describe('SurveyImagePicker', () => {
 
   it('現場調査を選ぶと画像候補を読み込み、選択した画像IDを onSelect で返す (R6.1, R6.2)', async () => {
     const onSelect = vi.fn();
-    render(
-      <SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={onSelect} />
-    );
+    render(<SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={onSelect} />);
 
     fireEvent.click(await screen.findByText('一次調査'));
 

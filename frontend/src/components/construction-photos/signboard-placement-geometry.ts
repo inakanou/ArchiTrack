@@ -50,7 +50,12 @@ export function computeDisplaySize(
   imageHeight: number,
   maxDisplayWidth: number
 ): DisplaySize {
-  if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) {
+  if (
+    !Number.isFinite(imageWidth) ||
+    !Number.isFinite(imageHeight) ||
+    imageWidth <= 0 ||
+    imageHeight <= 0
+  ) {
     return { width: maxDisplayWidth, height: maxDisplayWidth, scale: 1 };
   }
   const scale = Math.min(1, maxDisplayWidth / imageWidth);
@@ -94,10 +99,7 @@ export function displayRectToPlacement(
  * 画像ピクセル座標系の配置を表示座標系の矩形へ復元する（初期配置の描画用）。
  * scaleX/scaleY は 1（幅高さに直接反映済み）とする。
  */
-export function placementToDisplayRect(
-  placement: SignboardPlacement,
-  scale: number
-): DisplayRect {
+export function placementToDisplayRect(placement: SignboardPlacement, scale: number): DisplayRect {
   const safeScale = scale > 0 ? scale : 1;
   return {
     left: placement.left * safeScale,

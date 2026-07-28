@@ -79,10 +79,7 @@ function renderPage() {
       <ToastProvider>
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
-          <Route
-            path="/projects/:id/construction-photos"
-            element={<div>工事写真一覧</div>}
-          />
+          <Route path="/projects/:id/construction-photos" element={<div>工事写真一覧</div>} />
         </Routes>
       </ToastProvider>
     </MemoryRouter>
@@ -104,7 +101,9 @@ describe('ProjectDetailPage 工事写真セクション配置（Task 7.2）', ()
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: 'テストプロジェクト' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'テストプロジェクト' })
+      ).toBeInTheDocument();
     });
 
     const scheduleSection = screen.getByTestId('schedule-section');

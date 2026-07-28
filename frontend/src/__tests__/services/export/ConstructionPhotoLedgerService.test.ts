@@ -121,9 +121,8 @@ describe('ConstructionPhotoLedgerService', () => {
   // ==========================================================================
   describe('版組定数 (要件10.3,10.4)', () => {
     it('CONSTRUCTION_PHOTO_LEDGER_LAYOUT が参考書式の値で定義されている', async () => {
-      const { CONSTRUCTION_PHOTO_LEDGER_LAYOUT } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { CONSTRUCTION_PHOTO_LEDGER_LAYOUT } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
 
       expect(CONSTRUCTION_PHOTO_LEDGER_LAYOUT).toBeDefined();
       // A4縦 mm
@@ -148,9 +147,8 @@ describe('ConstructionPhotoLedgerService', () => {
   // ==========================================================================
   describe('表紙ページ (要件10.2)', () => {
     it('外枠・「工事写真」・工事名・工事施工者を描画する', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       service.buildLedgerDocument(mockJsPDF as never, {
@@ -176,9 +174,8 @@ describe('ConstructionPhotoLedgerService', () => {
     });
 
     it('写真項目が0件でも表紙のみ描画し写真ページを追加しない', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       service.buildLedgerDocument(mockJsPDF as never, {
@@ -198,9 +195,8 @@ describe('ConstructionPhotoLedgerService', () => {
   // ==========================================================================
   describe('写真ページとNo.通し番号 (要件10.3,10.4,10.5,10.6)', () => {
     it('N件の写真項目で ceil(N/3) の写真ページを追加する', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       // 4件 -> 写真ページ2枚
@@ -217,9 +213,8 @@ describe('ConstructionPhotoLedgerService', () => {
     });
 
     it('No.をページをまたいで連番で付番する', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       service.buildLedgerDocument(mockJsPDF as never, {
@@ -238,9 +233,8 @@ describe('ConstructionPhotoLedgerService', () => {
     });
 
     it('各写真項目のコメントを描画する', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       service.buildLedgerDocument(mockJsPDF as never, {
@@ -262,9 +256,8 @@ describe('ConstructionPhotoLedgerService', () => {
   // ==========================================================================
   describe('余白枠 (要件10.10)', () => {
     it('最終ページで3枠に満たない枠は空欄（写真なし）になる', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       // 4件 -> 2ページ目は1枠のみ埋まり、2枠が空欄
@@ -283,9 +276,8 @@ describe('ConstructionPhotoLedgerService', () => {
     });
 
     it('renderEmptySlot で余白枠の枠線を描画する', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       service.renderEmptySlot(mockJsPDF as never, 30);
@@ -299,9 +291,8 @@ describe('ConstructionPhotoLedgerService', () => {
   // ==========================================================================
   describe('日本語フォント (要件10.11)', () => {
     it('buildLedgerDocument で日本語フォント初期化が呼ばれる', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       service.buildLedgerDocument(mockJsPDF as never, {
@@ -319,9 +310,8 @@ describe('ConstructionPhotoLedgerService', () => {
   // ==========================================================================
   describe('バリデーション', () => {
     it('jsPDFインスタンスが無い場合はエラーを投げる', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       expect(() =>

@@ -105,7 +105,10 @@ describe('construction-photo-images API client', () => {
         ok: true,
         status: 201,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ successful: [mockPhoto, { ...mockPhoto, id: 'photo-2' }], failed: [] }),
+        json: async () => ({
+          successful: [mockPhoto, { ...mockPhoto, id: 'photo-2' }],
+          failed: [],
+        }),
       });
 
       const result = await uploadConstructionPhotos('album-1', files);
@@ -158,7 +161,9 @@ describe('construction-photo-images API client', () => {
       await uploadConstructionPhotos('album-1', files);
 
       const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((options.headers as Record<string, string>)['Authorization']).toBe('Bearer test-token');
+      expect((options.headers as Record<string, string>)['Authorization']).toBe(
+        'Bearer test-token'
+      );
     });
 
     it('413(ファイルサイズ超過)でApiErrorをスローすること', async () => {
@@ -168,7 +173,10 @@ describe('construction-photo-images API client', () => {
         status: 413,
         statusText: 'Payload Too Large',
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ detail: 'ファイルサイズが上限を超えています', code: 'FILE_SIZE_EXCEEDED' }),
+        json: async () => ({
+          detail: 'ファイルサイズが上限を超えています',
+          code: 'FILE_SIZE_EXCEEDED',
+        }),
       });
 
       await expect(uploadConstructionPhotos('album-1', files)).rejects.toThrow(ApiError);
@@ -242,10 +250,9 @@ describe('construction-photo-images API client', () => {
       ];
       await updateConstructionPhotoOrder('album-1', orders);
 
-      expect(apiClient.put).toHaveBeenCalledWith(
-        '/api/construction-photos/album-1/images/order',
-        { orders }
-      );
+      expect(apiClient.put).toHaveBeenCalledWith('/api/construction-photos/album-1/images/order', {
+        orders,
+      });
     });
   });
 
@@ -281,7 +288,9 @@ describe('construction-photo-images API client', () => {
       const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toContain('/api/construction-photos/images/photo-1/print-image');
       expect(options.method).toBe('GET');
-      expect((options.headers as Record<string, string>)['Authorization']).toBe('Bearer test-token');
+      expect((options.headers as Record<string, string>)['Authorization']).toBe(
+        'Bearer test-token'
+      );
       expect(result).toBeInstanceOf(Blob);
       expect(result.type).toBe('image/jpeg');
     });
@@ -292,7 +301,10 @@ describe('construction-photo-images API client', () => {
         status: 404,
         statusText: 'Not Found',
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ detail: '写真項目が見つかりません', code: 'CONSTRUCTION_PHOTO_NOT_FOUND' }),
+        json: async () => ({
+          detail: '写真項目が見つかりません',
+          code: 'CONSTRUCTION_PHOTO_NOT_FOUND',
+        }),
       });
 
       await expect(getConstructionPhotoPrintImage('non-existent')).rejects.toThrow(ApiError);
@@ -318,7 +330,9 @@ describe('construction-photo-images API client', () => {
       const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toContain('/api/construction-photos/images/photo-1/original');
       expect(options.method).toBe('GET');
-      expect((options.headers as Record<string, string>)['Authorization']).toBe('Bearer test-token');
+      expect((options.headers as Record<string, string>)['Authorization']).toBe(
+        'Bearer test-token'
+      );
       expect(result).toBeInstanceOf(Blob);
       expect(result.type).toBe('image/jpeg');
     });
@@ -357,7 +371,10 @@ describe('construction-photo-images API client', () => {
         status: 404,
         statusText: 'Not Found',
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ detail: '写真項目が見つかりません', code: 'CONSTRUCTION_PHOTO_NOT_FOUND' }),
+        json: async () => ({
+          detail: '写真項目が見つかりません',
+          code: 'CONSTRUCTION_PHOTO_NOT_FOUND',
+        }),
       });
 
       await expect(getConstructionPhotoOriginalImage('non-existent')).rejects.toThrow(ApiError);

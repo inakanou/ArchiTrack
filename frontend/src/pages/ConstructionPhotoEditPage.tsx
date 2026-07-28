@@ -255,7 +255,9 @@ export default function ConstructionPhotoEditPage() {
         setIsNotFound(true);
         return;
       }
-      setError(err instanceof ApiError ? err.message || 'エラーが発生しました' : 'エラーが発生しました');
+      setError(
+        err instanceof ApiError ? err.message || 'エラーが発生しました' : 'エラーが発生しました'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -371,9 +373,7 @@ export default function ConstructionPhotoEditPage() {
   const breadcrumbItems: BreadcrumbItem[] = [
     { label: 'ダッシュボード', path: '/' },
     { label: 'プロジェクト一覧', path: '/projects' },
-    ...(project
-      ? [{ label: project.name, path: `/projects/${album.projectId}` }]
-      : []),
+    ...(project ? [{ label: project.name, path: `/projects/${album.projectId}` }] : []),
     { label: '工事写真一覧', path: `/projects/${album.projectId}/construction-photos` },
     { label: 'アルバムを編集' },
   ];

@@ -108,12 +108,8 @@ async function requestWithFormData<T>(url: string, formData: FormData): Promise<
  *
  * Requirements: 7.8, 11.2, 11.3
  */
-export async function getConstructionPhotos(
-  albumId: string
-): Promise<ConstructionPhotoWithUrls[]> {
-  return apiClient.get<ConstructionPhotoWithUrls[]>(
-    `/api/construction-photos/${albumId}/images`
-  );
+export async function getConstructionPhotos(albumId: string): Promise<ConstructionPhotoWithUrls[]> {
+  return apiClient.get<ConstructionPhotoWithUrls[]>(`/api/construction-photos/${albumId}/images`);
 }
 
 /**

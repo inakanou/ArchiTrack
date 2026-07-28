@@ -254,7 +254,9 @@ export function SignboardForm({
   const [freeItemErrors, setFreeItemErrors] = useState<FreeItemError[]>([]);
 
   const handleAddFreeItem = useCallback(() => {
-    setFreeItems((prev) => (prev.length >= FREE_ITEMS_MAX ? prev : [...prev, { label: '', value: '' }]));
+    setFreeItems((prev) =>
+      prev.length >= FREE_ITEMS_MAX ? prev : [...prev, { label: '', value: '' }]
+    );
   }, []);
 
   const handleRemoveFreeItem = useCallback((index: number) => {
@@ -385,7 +387,9 @@ export function SignboardForm({
                     placeholder="ラベル"
                     aria-label={`自由項目ラベル${index + 1}`}
                     aria-invalid={!!rowError.label}
-                    style={rowError.label ? { ...styles.input, ...styles.inputError } : styles.input}
+                    style={
+                      rowError.label ? { ...styles.input, ...styles.inputError } : styles.input
+                    }
                   />
                   {rowError.label && (
                     <p role="alert" style={styles.fieldError}>
@@ -402,7 +406,9 @@ export function SignboardForm({
                     placeholder="値"
                     aria-label={`自由項目値${index + 1}`}
                     aria-invalid={!!rowError.value}
-                    style={rowError.value ? { ...styles.input, ...styles.inputError } : styles.input}
+                    style={
+                      rowError.value ? { ...styles.input, ...styles.inputError } : styles.input
+                    }
                   />
                   {rowError.value && (
                     <p role="alert" style={styles.fieldError}>
@@ -460,14 +466,21 @@ export function SignboardForm({
 
       {/* アクション */}
       <div style={styles.actions}>
-        <button type="button" onClick={onCancel} disabled={isSubmitting} style={styles.cancelButton}>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSubmitting}
+          style={styles.cancelButton}
+        >
           キャンセル
         </button>
         <button
           type="submit"
           disabled={isSubmitting}
           style={
-            isSubmitting ? { ...styles.submitButton, ...styles.submitButtonDisabled } : styles.submitButton
+            isSubmitting
+              ? { ...styles.submitButton, ...styles.submitButtonDisabled }
+              : styles.submitButton
           }
         >
           {submitLabel}

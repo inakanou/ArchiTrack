@@ -235,7 +235,10 @@ const styles = {
 // コンポーネント
 // ============================================================================
 
-type FormMode = { type: 'closed' } | { type: 'create' } | { type: 'edit'; signboard: ConstructionSignboard };
+type FormMode =
+  | { type: 'closed' }
+  | { type: 'create' }
+  | { type: 'edit'; signboard: ConstructionSignboard };
 
 /**
  * 工事看板マスタ管理ページ
@@ -498,7 +501,12 @@ export default function ConstructionSignboardListPage() {
 
       {/* 削除確認ダイアログ（R8.8: 使用中は件数入り警告） */}
       {deleteTarget && (
-        <div style={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="signboard-delete-title">
+        <div
+          style={styles.overlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="signboard-delete-title"
+        >
           <div style={styles.dialog}>
             <h2 id="signboard-delete-title" style={styles.dialogTitle}>
               工事看板を削除しますか?

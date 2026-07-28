@@ -94,10 +94,7 @@ describe('ConstructionPhotoSectionCard', () => {
       renderComponent({ totalCount: 0, latestAlbums: [] });
       expect(screen.getByText(/工事写真.*まだありません/)).toBeInTheDocument();
       const createLink = screen.getByRole('link', { name: /新規作成/ });
-      expect(createLink).toHaveAttribute(
-        'href',
-        `/projects/${PROJECT_ID}/construction-photos/new`
-      );
+      expect(createLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/construction-photos/new`);
     });
 
     it('総数0件のとき「すべて見る」リンクを表示しない', () => {

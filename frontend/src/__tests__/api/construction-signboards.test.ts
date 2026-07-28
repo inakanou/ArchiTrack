@@ -67,9 +67,7 @@ describe('construction-signboards API client', () => {
 
       const result = await getConstructionSignboards('project-1');
 
-      expect(apiClient.get).toHaveBeenCalledWith(
-        '/api/projects/project-1/construction-signboards'
-      );
+      expect(apiClient.get).toHaveBeenCalledWith('/api/projects/project-1/construction-signboards');
       expect(result).toEqual(list);
     });
   });
@@ -120,7 +118,11 @@ describe('construction-signboards API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(new ApiError(409, response.detail, response));
 
       try {
-        await updateConstructionSignboard('signboard-1', { workName: 'x' }, '2025-01-02T00:00:00.000Z');
+        await updateConstructionSignboard(
+          'signboard-1',
+          { workName: 'x' },
+          '2025-01-02T00:00:00.000Z'
+        );
         expect.fail('エラーがスローされるべきです');
       } catch (error) {
         expect(error).toBeInstanceOf(ApiError);

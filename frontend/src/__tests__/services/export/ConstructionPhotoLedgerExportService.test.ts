@@ -84,8 +84,8 @@ describe('exportConstructionPhotoLedger', () => {
     vi.clearAllMocks();
     vi.mocked(companyApi.getCompanyInfo).mockResolvedValue(mockCompanyInfo);
     // 印字画像は id をボディに持つ image/jpeg Blob として返す（看板重畳済み前提）
-    vi.mocked(imagesApi.getConstructionPhotoPrintImage).mockImplementation(async (id: string) =>
-      new Blob([id], { type: 'image/jpeg' })
+    vi.mocked(imagesApi.getConstructionPhotoPrintImage).mockImplementation(
+      async (id: string) => new Blob([id], { type: 'image/jpeg' })
     );
   });
 
@@ -116,9 +116,9 @@ describe('exportConstructionPhotoLedger', () => {
 
     await exportConstructionPhotoLedger({ photos, workName: '工事A' });
 
-    const calledIds = vi.mocked(imagesApi.getConstructionPhotoPrintImage).mock.calls.map(
-      (c) => c[0]
-    );
+    const calledIds = vi
+      .mocked(imagesApi.getConstructionPhotoPrintImage)
+      .mock.calls.map((c) => c[0]);
     expect(calledIds).toEqual(['p1', 'p2', 'p3']);
   });
 

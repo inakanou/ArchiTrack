@@ -228,7 +228,15 @@ export class ConstructionPhotoLedgerService {
     const valueRightX = pageWidth - L.PAGE_MARGIN - 25;
 
     // 工事名
-    this.renderCoverField(doc, '工事名', workName, labelX, valueX, valueRightX, L.COVER_WORK_NAME_Y);
+    this.renderCoverField(
+      doc,
+      '工事名',
+      workName,
+      labelX,
+      valueX,
+      valueRightX,
+      L.COVER_WORK_NAME_Y
+    );
 
     // 工事施工者
     this.renderCoverField(

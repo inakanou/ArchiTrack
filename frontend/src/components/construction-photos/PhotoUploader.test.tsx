@@ -177,9 +177,7 @@ describe('PhotoUploader コンポーネント', () => {
       failed: [],
     });
     const onPhotosAdded = vi.fn();
-    render(
-      <PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />
-    );
+    render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />);
 
     const fileInput = screen.getByTestId('file-input');
     await act(async () => {
@@ -190,9 +188,7 @@ describe('PhotoUploader コンポーネント', () => {
       expect(imagesApi.uploadConstructionPhotos).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(onPhotosAdded).toHaveBeenCalledWith([
-        expect.objectContaining({ id: 'new-1' }),
-      ]);
+      expect(onPhotosAdded).toHaveBeenCalledWith([expect.objectContaining({ id: 'new-1' })]);
     });
   });
 
@@ -202,9 +198,7 @@ describe('PhotoUploader コンポーネント', () => {
       failed: [],
     });
     const onPhotosAdded = vi.fn();
-    render(
-      <PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />
-    );
+    render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />);
 
     const cameraInput = screen.getByTestId('camera-input');
     await act(async () => {
@@ -225,9 +219,7 @@ describe('PhotoUploader コンポーネント', () => {
       failed: [],
     });
     const onPhotosAdded = vi.fn();
-    render(
-      <PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />
-    );
+    render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />);
 
     fireEvent.click(screen.getByRole('button', { name: /現場調査写真から選択/ }));
 

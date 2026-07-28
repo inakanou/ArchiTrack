@@ -182,9 +182,9 @@ describe('construction-photos API client (アルバム)', () => {
 
   describe('isConstructionPhotoAlbumConflictErrorResponse', () => {
     it('code不一致でfalseを返すこと', () => {
-      expect(
-        isConstructionPhotoAlbumConflictErrorResponse({ code: 'OTHER', status: 409 })
-      ).toBe(false);
+      expect(isConstructionPhotoAlbumConflictErrorResponse({ code: 'OTHER', status: 409 })).toBe(
+        false
+      );
     });
 
     it('nullでfalseを返すこと', () => {

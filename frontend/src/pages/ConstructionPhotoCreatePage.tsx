@@ -269,9 +269,7 @@ export default function ConstructionPhotoCreatePage() {
         navigate(`/projects/${projectId}/construction-photos`);
       } catch (err) {
         const message =
-          err instanceof ApiError && err.message
-            ? err.message
-            : '作成中にエラーが発生しました';
+          err instanceof ApiError && err.message ? err.message : '作成中にエラーが発生しました';
         toast.error(message);
       } finally {
         setIsSubmitting(false);

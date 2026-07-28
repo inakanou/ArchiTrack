@@ -158,10 +158,7 @@ function extractErrorMessage(error: unknown): string {
  * - `composited`: `getConstructionPhotoPrintImage`（看板重畳済み印字画像）
  * - `plain` / `original`: `getConstructionPhotoOriginalImage`（非合成の生原本）
  */
-async function fetchSourceBlob(
-  photoId: string,
-  signboardMode: SignboardExportMode
-): Promise<Blob> {
+async function fetchSourceBlob(photoId: string, signboardMode: SignboardExportMode): Promise<Blob> {
   if (signboardMode === 'composited') {
     return getConstructionPhotoPrintImage(photoId);
   }
@@ -171,11 +168,7 @@ async function fetchSourceBlob(
 /**
  * canvas.toBlob を Promise 化する
  */
-function canvasToBlob(
-  canvas: HTMLCanvasElement,
-  mimeType: string,
-  quality: number
-): Promise<Blob> {
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
