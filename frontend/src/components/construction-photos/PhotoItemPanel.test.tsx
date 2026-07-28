@@ -462,6 +462,210 @@ describe('PhotoItemPanel', () => {
     });
   });
 
+  // ==========================================================================
+  // ローディング表示（スケルトン）
+  // ==========================================================================
+
+  it('isLoading かつ写真0件のときスケルトンを表示する', () => {
+    render(<PhotoItemPanel photos={[]} onPhotoMetadataChange={vi.fn()} isLoading />);
+    expect(screen.getAllByTestId('construction-photo-skeleton')).toHaveLength(3);
+  });
+
+  // ==========================================================================
+  // 写真項目削除フロー（R7.7）
+  // ==========================================================================
+
+  it('削除ボタンで確認ダイアログを開き「削除する」で onDelete が対象IDで呼ばれる (R7.7)', async () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1', fileName: 'target.jpg' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onDelete={onDelete}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /写真項目を削除/ }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText(/target\.jpg/)).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '削除する' }));
+    });
+
+    expect(onDelete).toHaveBeenCalledWith('p1');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('削除確認ダイアログのキャンセルで onDelete を呼ばずに閉じる (R7.7)', () => {
+    const onDelete = vi.fn();
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onDelete={onDelete}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /写真項目を削除/ }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // ==========================================================================
+  // 「上へ移動」（R7.4）
+  // ==========================================================================
+
+  it('「上へ移動」で正規化された新しい順序が通知される (R7.4)', () => {
+    const onOrderChange = vi.fn();
+    const photos = [
+      makePhoto({ id: 'p1', displayOrder: 1 }),
+      makePhoto({ id: 'p2', displayOrder: 2 }),
+    ];
+    render(
+      <PhotoItemPanel
+        photos={photos}
+        onPhotoMetadataChange={vi.fn()}
+        onOrderChange={onOrderChange}
+      />
+    );
+    const upButtons = screen.getAllByRole('button', { name: '上へ移動' });
+    // 先頭(p1)の上ボタンは無効、2番目(p2)の上ボタンで上へ移動
+    expect(upButtons[0]).toBeDisabled();
+    fireEvent.click(upButtons[1]!);
+    expect(onOrderChange).toHaveBeenCalledWith([
+      { id: 'p2', order: 1 },
+      { id: 'p1', order: 2 },
+    ]);
+  });
+
+  // ==========================================================================
+  // ドラッグ&ドロップ並び替え（R7.3）
+  // ==========================================================================
+
+  it('ドラッグ&ドロップで正規化された新しい順序が通知される (R7.3)', () => {
+    const onOrderChange = vi.fn();
+    const photos = [
+      makePhoto({ id: 'p1', displayOrder: 1 }),
+      makePhoto({ id: 'p2', displayOrder: 2 }),
+    ];
+    render(
+      <PhotoItemPanel
+        photos={photos}
+        onPhotoMetadataChange={vi.fn()}
+        onOrderChange={onOrderChange}
+      />
+    );
+    const handles = screen.getAllByTestId('construction-photo-drag-handle');
+    const items = screen.getAllByTestId('construction-photo-item');
+
+    const store: Record<string, string> = {};
+    const dataTransfer = {
+      setData: (key: string, value: string) => {
+        store[key] = value;
+      },
+      getData: (key: string) => store[key] ?? '',
+      effectAllowed: '',
+      dropEffect: '',
+    };
+
+    // p1 のハンドルからドラッグ開始
+    fireEvent.dragStart(handles[0]!, { dataTransfer });
+    // ドラッグ中スタイルが反映される
+    expect(items[0]!.style.border).toContain('dashed');
+
+    // p2 の上をドラッグオーバー→エンター
+    fireEvent.dragOver(items[1]!, { dataTransfer });
+    fireEvent.dragEnter(items[1]!, { dataTransfer });
+    // ドラッグオーバー先(p2)にスタイルが反映される
+    expect(items[1]!.style.border).toContain('solid');
+
+    // 外に出るとドラッグオーバー解除
+    fireEvent.dragLeave(items[1]!, { relatedTarget: document.body });
+    // 子要素へのリーブ（currentTarget内）は維持
+    fireEvent.dragLeave(items[1]!, { relatedTarget: handles[1]! });
+
+    // p2 の上にドロップ
+    fireEvent.drop(items[1]!, { dataTransfer });
+    expect(onOrderChange).toHaveBeenCalledWith([
+      { id: 'p2', order: 1 },
+      { id: 'p1', order: 2 },
+    ]);
+
+    // ドラッグ終了でドラッグ状態がリセットされる
+    fireEvent.dragEnd(handles[0]!);
+    expect(items[0]!.style.border).not.toContain('dashed');
+  });
+
+  it('同一項目へのドロップは順序変更を通知しない (R7.3)', () => {
+    const onOrderChange = vi.fn();
+    const photos = [
+      makePhoto({ id: 'p1', displayOrder: 1 }),
+      makePhoto({ id: 'p2', displayOrder: 2 }),
+    ];
+    render(
+      <PhotoItemPanel
+        photos={photos}
+        onPhotoMetadataChange={vi.fn()}
+        onOrderChange={onOrderChange}
+      />
+    );
+    const handles = screen.getAllByTestId('construction-photo-drag-handle');
+    const items = screen.getAllByTestId('construction-photo-item');
+
+    const store: Record<string, string> = {};
+    const dataTransfer = {
+      setData: (key: string, value: string) => {
+        store[key] = value;
+      },
+      getData: (key: string) => store[key] ?? '',
+      effectAllowed: '',
+      dropEffect: '',
+    };
+
+    fireEvent.dragStart(handles[0]!, { dataTransfer });
+    fireEvent.drop(items[0]!, { dataTransfer });
+    expect(onOrderChange).not.toHaveBeenCalled();
+  });
+
+  // ==========================================================================
+  // コメントバリデーション（R7.2）とデバウンス再設定
+  // ==========================================================================
+
+  it('2000文字を超えるコメントはエラー表示し変更を通知しない (R7.2)', () => {
+    const onChange = vi.fn();
+    render(<PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={onChange} />);
+    const textarea = screen.getByLabelText('コメント');
+    fireEvent.change(textarea, { target: { value: 'あ'.repeat(2001) } });
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    fireEvent.blur(textarea);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('連続入力ではデバウンスタイマーが再設定され最終値のみ通知される (R7.1)', () => {
+    vi.useFakeTimers();
+    try {
+      const onChange = vi.fn();
+      render(
+        <PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={onChange} />
+      );
+      const textarea = screen.getByLabelText('コメント');
+      fireEvent.change(textarea, { target: { value: 'あ' } });
+      fireEvent.change(textarea, { target: { value: 'あい' } });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith('p1', { comment: 'あい' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

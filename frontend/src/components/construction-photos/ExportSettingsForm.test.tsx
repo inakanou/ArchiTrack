@@ -37,6 +37,16 @@ describe('ExportSettingsForm', () => {
 
       expect(onChange).toHaveBeenCalledWith({ ...DEFAULT_VALUE, format: 'png' });
     });
+
+    it('JPEGを選択すると onChange に format=jpeg を含む設定が渡る', () => {
+      const onChange = vi.fn();
+      const pngValue: ConstructionPhotoExportSettings = { ...DEFAULT_VALUE, format: 'png' };
+      render(<ExportSettingsForm value={pngValue} onChange={onChange} />);
+
+      fireEvent.click(screen.getByRole('radio', { name: 'JPEG' }));
+
+      expect(onChange).toHaveBeenCalledWith({ ...pngValue, format: 'jpeg' });
+    });
   });
 
   describe('解像度選択 (Requirement 15.3)', () => {
@@ -56,6 +66,26 @@ describe('ExportSettingsForm', () => {
 
       expect(onChange).toHaveBeenCalledWith({ ...DEFAULT_VALUE, resolution: 'high' });
     });
+
+    it('低を選択すると onChange に resolution=low を含む設定が渡る', () => {
+      const onChange = vi.fn();
+      const highValue: ConstructionPhotoExportSettings = { ...DEFAULT_VALUE, resolution: 'high' };
+      render(<ExportSettingsForm value={highValue} onChange={onChange} />);
+
+      fireEvent.click(screen.getByRole('radio', { name: '低' }));
+
+      expect(onChange).toHaveBeenCalledWith({ ...highValue, resolution: 'low' });
+    });
+
+    it('中を選択すると onChange に resolution=medium を含む設定が渡る', () => {
+      const onChange = vi.fn();
+      const lowValue: ConstructionPhotoExportSettings = { ...DEFAULT_VALUE, resolution: 'low' };
+      render(<ExportSettingsForm value={lowValue} onChange={onChange} />);
+
+      fireEvent.click(screen.getByRole('radio', { name: '中' }));
+
+      expect(onChange).toHaveBeenCalledWith({ ...lowValue, resolution: 'medium' });
+    });
   });
 
   describe('看板重畳モード選択 (Requirement 15.4)', () => {
@@ -74,6 +104,28 @@ describe('ExportSettingsForm', () => {
       fireEvent.click(screen.getByRole('radio', { name: 'アップロード原本そのまま' }));
 
       expect(onChange).toHaveBeenCalledWith({ ...DEFAULT_VALUE, signboardMode: 'original' });
+    });
+
+    it('看板を重畳しない加工画像を選択すると onChange に signboardMode=plain を含む設定が渡る', () => {
+      const onChange = vi.fn();
+      render(<ExportSettingsForm value={DEFAULT_VALUE} onChange={onChange} />);
+
+      fireEvent.click(screen.getByRole('radio', { name: '看板を重畳しない加工画像' }));
+
+      expect(onChange).toHaveBeenCalledWith({ ...DEFAULT_VALUE, signboardMode: 'plain' });
+    });
+
+    it('看板を重畳した画像を選択すると onChange に signboardMode=composited を含む設定が渡る', () => {
+      const onChange = vi.fn();
+      const plainValue: ConstructionPhotoExportSettings = {
+        ...DEFAULT_VALUE,
+        signboardMode: 'plain',
+      };
+      render(<ExportSettingsForm value={plainValue} onChange={onChange} />);
+
+      fireEvent.click(screen.getByRole('radio', { name: '看板を重畳した画像' }));
+
+      expect(onChange).toHaveBeenCalledWith({ ...plainValue, signboardMode: 'composited' });
     });
   });
 

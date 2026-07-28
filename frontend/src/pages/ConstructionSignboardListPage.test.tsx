@@ -17,14 +17,16 @@ import { BrowserRouter } from 'react-router-dom';
 import ConstructionSignboardListPage from './ConstructionSignboardListPage';
 import * as projectsApi from '../api/projects';
 import * as signboardsApi from '../api/construction-signboards';
+import { ApiError } from '../api/client';
 import type { ProjectDetail } from '../types/project.types';
 import type { ConstructionSignboard } from '../types/construction-photo.types';
 
+const routerState = vi.hoisted(() => ({ projectId: 'project-123' as string | undefined }));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ projectId: 'project-123' }),
+    useParams: () => ({ projectId: routerState.projectId }),
   };
 });
 
@@ -90,6 +92,7 @@ function renderComponent() {
 describe('ConstructionSignboardListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    routerState.projectId = 'project-123';
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
     vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([
       signboardUnused,
@@ -231,6 +234,128 @@ describe('ConstructionSignboardListPage', () => {
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       });
       expect(signboardsApi.deleteConstructionSignboard).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('初期ロードのエラー処理 (Requirement 8.10)', () => {
+    it('ApiError 発生時はそのメッセージをエラー表示する', async () => {
+      vi.mocked(signboardsApi.getConstructionSignboards).mockRejectedValue(
+        new ApiError(500, 'サーバーエラーが発生しました')
+      );
+
+      renderComponent();
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('サーバーエラーが発生しました');
+    });
+
+    it('ApiError 以外の例外時は既定メッセージをエラー表示する', async () => {
+      vi.mocked(projectsApi.getProject).mockRejectedValue(new Error('network down'));
+
+      renderComponent();
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('看板一覧の取得に失敗しました');
+    });
+  });
+
+  describe('projectId が無い場合 (Requirement 8.9)', () => {
+    it('projectId 未指定時は API を呼ばず「プロジェクトが見つかりません」を表示する', async () => {
+      routerState.projectId = undefined;
+
+      renderComponent();
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('プロジェクトが見つかりません');
+      expect(projectsApi.getProject).not.toHaveBeenCalled();
+      expect(signboardsApi.getConstructionSignboards).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('フォームのキャンセル (Requirement 8.1, 8.6)', () => {
+    it('新規登録フォームのキャンセルでフォームを閉じる', async () => {
+      renderComponent();
+      await waitFor(() => expect(screen.getByText('基礎工事')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
+      expect(screen.getByText('工事看板を新規登録')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+      await waitFor(() => {
+        expect(screen.queryByText('工事看板を新規登録')).not.toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: '新規登録' })).toBeInTheDocument();
+    });
+
+    it('編集フォームのキャンセルでフォームを閉じる', async () => {
+      renderComponent();
+      await waitFor(() => expect(screen.getByText('鉄骨工事')).toBeInTheDocument());
+
+      const row = screen.getByText('鉄骨工事').closest('tr') as HTMLElement;
+      fireEvent.click(within(row).getByRole('button', { name: '編集' }));
+      expect(await screen.findByText('工事看板を編集')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+      await waitFor(() => {
+        expect(screen.queryByText('工事看板を編集')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('操作エラー時のトースト通知', () => {
+    it('新規登録失敗時に ApiError メッセージをトースト表示する', async () => {
+      vi.mocked(signboardsApi.createConstructionSignboard).mockRejectedValue(
+        new ApiError(400, '登録に失敗しました')
+      );
+
+      renderComponent();
+      await waitFor(() => expect(screen.getByText('基礎工事')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
+      fireEvent.change(screen.getByLabelText(/工事件名/), { target: { value: '内装工事' } });
+      fireEvent.change(screen.getByLabelText(/工事場所/), { target: { value: '港区' } });
+      fireEvent.click(screen.getByRole('button', { name: '登録' }));
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('登録に失敗しました');
+      });
+    });
+
+    it('更新失敗時（ApiError以外）は既定メッセージをトースト表示する', async () => {
+      vi.mocked(signboardsApi.updateConstructionSignboard).mockRejectedValue(new Error('boom'));
+
+      renderComponent();
+      await waitFor(() => expect(screen.getByText('鉄骨工事')).toBeInTheDocument());
+
+      const row = screen.getByText('鉄骨工事').closest('tr') as HTMLElement;
+      fireEvent.click(within(row).getByRole('button', { name: '編集' }));
+      await waitFor(() => {
+        expect(screen.getByLabelText(/工事件名/)).toHaveValue('鉄骨工事');
+      });
+      fireEvent.click(screen.getByRole('button', { name: '更新' }));
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('更新中にエラーが発生しました');
+      });
+    });
+
+    it('削除失敗時（ApiError以外）は既定メッセージをトースト表示する', async () => {
+      vi.mocked(signboardsApi.deleteConstructionSignboard).mockRejectedValue(new Error('boom'));
+
+      renderComponent();
+      await waitFor(() => expect(screen.getByText('基礎工事')).toBeInTheDocument());
+
+      const row = screen.getByText('基礎工事').closest('tr') as HTMLElement;
+      fireEvent.click(within(row).getByRole('button', { name: '削除' }));
+
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('削除中にエラーが発生しました');
+      });
     });
   });
 });

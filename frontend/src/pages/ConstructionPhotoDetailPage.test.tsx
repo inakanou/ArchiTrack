@@ -1051,4 +1051,204 @@ describe('ConstructionPhotoDetailPage', () => {
       expect(parseFloat(textarea.style.fontSize)).toBeGreaterThanOrEqual(16);
     });
   });
+
+  // ==========================================================================
+  // 例外系・削除・エクスポート補助導線のカバレッジ補完
+  // ==========================================================================
+  describe('例外系・補助導線のカバレッジ補完', () => {
+    it('アルバム取得失敗時はエラー画面を表示し再試行で再取得する', async () => {
+      vi.mocked(albumsApi.getConstructionPhotoAlbum)
+        .mockRejectedValueOnce(new Error('load fail'))
+        .mockResolvedValue(mockAlbum);
+
+      renderPage();
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('工事写真アルバムの取得に失敗しました');
+
+      // 再試行で再取得（2回目は成功しページ本体が描画される）
+      fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+      expect(await screen.findByRole('img', { name: /a\.jpg/ })).toBeInTheDocument();
+    });
+
+    it('写真項目一覧の取得失敗時は本体を描画しつつ取得失敗を通知する', async () => {
+      vi.mocked(imagesApi.getConstructionPhotos).mockRejectedValue(new Error('photos fail'));
+
+      renderPage();
+
+      // アルバムは取得済みのため本体は描画され、通知にエラーメッセージが出る
+      expect(await screen.findByText('工事写真アルバムの取得に失敗しました')).toBeInTheDocument();
+    });
+
+    it('ローカルアップロードが全件失敗すると失敗通知が表示される (R4.1)', async () => {
+      vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
+        successful: [],
+        failed: [{ fileName: 'ng.jpg', error: 'アップロード失敗' }],
+      });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      const fileInput = screen.getByTestId('file-input');
+      await act(async () => {
+        fireEvent.change(fileInput, {
+          target: { files: [new File(['x'], 'ng.jpg', { type: 'image/jpeg' })] },
+        });
+      });
+
+      expect(await screen.findByText(/全1件の追加に失敗しました/)).toBeInTheDocument();
+    });
+
+    it('写真項目削除フロー：選択・並び替え済みでも削除APIが呼ばれ一覧から除去される (R7.7)', async () => {
+      vi.mocked(imagesApi.deleteConstructionPhoto).mockResolvedValue(undefined);
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      // 選択集合に含める（削除時の選択集合更新分岐を通す）
+      fireEvent.click(within(firstItem).getByLabelText('エクスポート対象に含める'));
+      // 並び替え済みにする（削除時の未保存順序の再採番分岐を通す）
+      fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+
+      // 削除導線 → 確認ダイアログ → 削除する
+      fireEvent.click(screen.getByRole('button', { name: /写真項目を削除: a\.jpg/ }));
+      const deleteDialog = await screen.findByRole('dialog', { name: '写真項目を削除' });
+      fireEvent.click(within(deleteDialog).getByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(imagesApi.deleteConstructionPhoto).toHaveBeenCalledWith('photo-1');
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('img', { name: /a\.jpg/ })).not.toBeInTheDocument();
+      });
+    });
+
+    it('エクスポート対象の選択チェックを二度押しすると選択が解除される (R15.6)', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      const checkbox = within(firstItem).getByLabelText('エクスポート対象に含める');
+
+      // 選択 → 選択エクスポートが有効化
+      fireEvent.click(checkbox);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /選択エクスポート/ })).not.toBeDisabled()
+      );
+
+      // 再度押下で選択解除 → 選択エクスポートが無効化
+      fireEvent.click(checkbox);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /選択エクスポート/ })).toBeDisabled()
+      );
+    });
+
+    it('PDF出力が失敗すると失敗通知を表示する (R10.1)', async () => {
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockRejectedValue(new Error('boom'));
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      expect(await screen.findByText('PDF出力に失敗しました')).toBeInTheDocument();
+    });
+
+    it('保存APIが失敗するとエラー通知を表示する (R7.6)', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValue(
+        new Error('save boom')
+      );
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+      expect(await screen.findByText('保存に失敗しました')).toBeInTheDocument();
+    });
+
+    it('アルバム削除APIが失敗するとエラー通知を表示しダイアログを閉じる (R16.5)', async () => {
+      vi.mocked(albumsApi.deleteConstructionPhotoAlbum).mockRejectedValue(new Error('del fail'));
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+
+      expect(await screen.findByText('アルバムの削除に失敗しました')).toBeInTheDocument();
+    });
+
+    it('看板配置ダイアログをキャンセルすると閉じる (R9.1)', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: /看板を配置/ })).not.toBeInTheDocument()
+      );
+    });
+
+    it('エクスポート設定ダイアログをキャンセルすると閉じる (R15.5)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('dialog', { name: /全件一括エクスポート/ })
+        ).not.toBeInTheDocument()
+      );
+    });
+
+    it('一部失敗時は部分失敗を通知し完了後に進捗ダイアログを閉じられる (R15.8)', async () => {
+      vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+        blob: new Blob(['zip']),
+        failed: ['photo-2'],
+      });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+
+      // 部分失敗通知
+      expect(
+        await screen.findByText(/一部の写真項目（1件）のエクスポートに失敗しました/)
+      ).toBeInTheDocument();
+
+      // 完了後に進捗ダイアログを閉じる
+      const progressDialog = await screen.findByRole('dialog', {
+        name: /一括エクスポート完了/,
+      });
+      fireEvent.click(within(progressDialog).getByRole('button', { name: '閉じる' }));
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('dialog', { name: /一括エクスポート完了/ })
+        ).not.toBeInTheDocument()
+      );
+    });
+
+    it('エクスポート処理が失敗（非中断）すると失敗通知を表示する', async () => {
+      vi.mocked(constructionPhotoBulkExportService.export).mockRejectedValue(new Error('zip fail'));
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+
+      expect(await screen.findByText('エクスポートに失敗しました')).toBeInTheDocument();
+    });
+  });
 });

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ConstructionPhotoListCard from './ConstructionPhotoListCard';
 import type { ConstructionPhotoAlbumListItem } from './ConstructionPhotoListTable';
@@ -86,6 +86,47 @@ describe('ConstructionPhotoListCard', () => {
       await user.click(card);
 
       expect(onCardClick).toHaveBeenCalledWith('album-1');
+    });
+  });
+
+  describe('カードのキーボード操作 (R16.6)', () => {
+    it('カードにフォーカスしてEnterキーを押すとonCardClickが呼ばれる', () => {
+      const { onCardClick } = renderCard();
+
+      const card = screen.getByTestId('album-card-album-1');
+      fireEvent.keyDown(card, { key: 'Enter' });
+
+      expect(onCardClick).toHaveBeenCalledWith('album-1');
+    });
+
+    it('カードにフォーカスしてSpaceキーを押すとonCardClickが呼ばれる', () => {
+      const { onCardClick } = renderCard();
+
+      const card = screen.getByTestId('album-card-album-1');
+      fireEvent.keyDown(card, { key: ' ' });
+
+      expect(onCardClick).toHaveBeenCalledWith('album-1');
+    });
+
+    it('Enter/Space以外のキーではonCardClickは呼ばれない', () => {
+      const { onCardClick } = renderCard();
+
+      const card = screen.getByTestId('album-card-album-1');
+      fireEvent.keyDown(card, { key: 'Tab' });
+
+      expect(onCardClick).not.toHaveBeenCalled();
+    });
+
+    it('アクション領域でのキー操作はカードへ伝播せずonCardClickは呼ばれない', () => {
+      const { onCardClick } = renderCard();
+
+      const card = screen.getByTestId('album-card-album-1');
+      const editButton = within(card).getByRole('button', { name: /編集/ });
+      const actionArea = editButton.parentElement as HTMLElement;
+
+      fireEvent.keyDown(actionArea, { key: 'Enter' });
+
+      expect(onCardClick).not.toHaveBeenCalled();
     });
   });
 });

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ConstructionPhotoListTable from './ConstructionPhotoListTable';
 import type { ConstructionPhotoAlbumListItem } from './ConstructionPhotoListTable';
@@ -103,6 +103,112 @@ describe('ConstructionPhotoListTable', () => {
       await user.click(row);
 
       expect(onRowClick).toHaveBeenCalledWith('album-1');
+    });
+  });
+
+  describe('ソート導線 (R3.4)', () => {
+    it('昇順ソート時は現在ソート列に昇順アイコンが表示される', () => {
+      renderTable({ sortField: 'createdAt', sortOrder: 'asc' });
+
+      expect(screen.getByTestId('sort-icon-asc')).toBeInTheDocument();
+      expect(screen.queryByTestId('sort-icon-desc')).not.toBeInTheDocument();
+    });
+
+    it('降順ソート時は現在ソート列に降順アイコンが表示される', () => {
+      renderTable({ sortField: 'updatedAt', sortOrder: 'desc' });
+
+      expect(screen.getByTestId('sort-icon-desc')).toBeInTheDocument();
+      expect(screen.queryByTestId('sort-icon-asc')).not.toBeInTheDocument();
+    });
+
+    it('ソート可能なヘッダーをクリックするとonSortが呼ばれる', async () => {
+      const user = userEvent.setup({ delay: null });
+      const { onSort } = renderTable();
+
+      await user.click(screen.getByRole('button', { name: '作成日でソート' }));
+      expect(onSort).toHaveBeenCalledWith('createdAt');
+
+      await user.click(screen.getByRole('button', { name: '更新日でソート' }));
+      expect(onSort).toHaveBeenCalledWith('updatedAt');
+    });
+
+    it('ソート可能なヘッダーでEnter/Spaceキー押下時にonSortが呼ばれる', () => {
+      const { onSort } = renderTable();
+
+      const createdHeader = screen.getByRole('button', { name: '作成日でソート' });
+      fireEvent.keyDown(createdHeader, { key: 'Enter' });
+      expect(onSort).toHaveBeenCalledWith('createdAt');
+
+      fireEvent.keyDown(createdHeader, { key: ' ' });
+      expect(onSort).toHaveBeenCalledTimes(2);
+    });
+
+    it('ソート可能なヘッダーで無関係なキー押下時はonSortが呼ばれない', () => {
+      const { onSort } = renderTable();
+
+      const createdHeader = screen.getByRole('button', { name: '作成日でソート' });
+      fireEvent.keyDown(createdHeader, { key: 'Tab' });
+      expect(onSort).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('行のキーボード操作 (R3.1)', () => {
+    it('行でEnterキー押下時にonRowClickが呼ばれる', () => {
+      const { onRowClick } = renderTable();
+
+      const row = screen.getByTestId('album-row-album-1');
+      fireEvent.keyDown(row, { key: 'Enter' });
+
+      expect(onRowClick).toHaveBeenCalledWith('album-1');
+    });
+
+    it('行でSpaceキー押下時にonRowClickが呼ばれる', () => {
+      const { onRowClick } = renderTable();
+
+      const row = screen.getByTestId('album-row-album-2');
+      fireEvent.keyDown(row, { key: ' ' });
+
+      expect(onRowClick).toHaveBeenCalledWith('album-2');
+    });
+
+    it('行で無関係なキー押下時はonRowClickが呼ばれない', () => {
+      const { onRowClick } = renderTable();
+
+      const row = screen.getByTestId('album-row-album-1');
+      fireEvent.keyDown(row, { key: 'ArrowDown' });
+
+      expect(onRowClick).not.toHaveBeenCalled();
+    });
+
+    it('アクションセルでのキー操作は行のkeydownに伝播しない', () => {
+      const { onRowClick } = renderTable();
+
+      const row = screen.getByTestId('album-row-album-1');
+      const editButton = within(row).getByRole('button', { name: /編集/ });
+      fireEvent.keyDown(editButton, { key: 'Enter' });
+
+      expect(onRowClick).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('サムネイル表示 (R3.5, R11.3)', () => {
+    it('thumbnailUrlがある場合は画像を表示し、ない場合はプレースホルダーを表示する', () => {
+      renderTable();
+
+      const row1 = screen.getByTestId('album-row-album-1');
+      expect(within(row1).getByRole('img', { name: /のサムネイル/ })).toBeInTheDocument();
+
+      const row2 = screen.getByTestId('album-row-album-2');
+      expect(within(row2).getByTestId('thumbnail-placeholder')).toBeInTheDocument();
+    });
+  });
+
+  describe('権限連動の導線非表示 (R17.1, R17.2)', () => {
+    it('onEditAlbum/onDeleteAlbum未指定時は編集・削除ボタンを表示しない', () => {
+      renderTable({ onEditAlbum: undefined, onDeleteAlbum: undefined });
+
+      expect(screen.queryByRole('button', { name: /編集/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /削除/ })).not.toBeInTheDocument();
     });
   });
 });

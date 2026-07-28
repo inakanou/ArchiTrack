@@ -168,4 +168,137 @@ describe('ConstructionPhotoImageViewer', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('オーバーレイ余白のクリックでonCloseが呼ばれる (R14.5)', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    // オーバーレイ自身（target===currentTarget）をクリックすると閉じる
+    fireEvent.click(screen.getByTestId('construction-photo-viewer-overlay'));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('画像読み込み完了で原寸が確定しステージ寸法がフィット後サイズへ更新される (R14.1)', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    const img = screen.getByRole('img');
+    const wrapper = img.parentElement as HTMLElement;
+    const widthBefore = wrapper.style.width;
+
+    // onLoad を発火して原寸を確定させる（jsdom では naturalWidth=0 のためフォールバック寸法が使われる）
+    fireEvent.load(img);
+
+    // 原寸確定後はフィット倍率が反映され、ステージ幅がフォールバックのコンテナ幅から変化する
+    expect(wrapper.style.width).not.toBe(widthBefore);
+  });
+
+  it('全体表示ボタン操作で等倍へ戻りパン位置が初期化される (R14.2)', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    const zoomIn = screen.getByRole('button', { name: 'ズームイン' });
+    for (let i = 0; i < 5; i += 1) fireEvent.click(zoomIn);
+
+    // 拡大後にドラッグしてパンを発生させる
+    const stage = screen.getByTestId('construction-photo-viewer-stage');
+    fireEvent.mouseDown(stage, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(stage, { clientX: 160, clientY: 150 });
+    fireEvent.mouseUp(stage, { clientX: 160, clientY: 150 });
+
+    expect(screen.getByTestId('zoom-badge')).not.toHaveTextContent('100%');
+
+    fireEvent.click(screen.getByRole('button', { name: '全体表示' }));
+
+    const img = screen.getByRole('img');
+    expect(screen.getByTestId('zoom-badge')).toHaveTextContent('100%');
+    expect(img.style.transform).toContain('translate(0px, 0px)');
+  });
+
+  it('左マウスボタン以外のmousedownはパンを開始しない (R14.4)', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    const zoomIn = screen.getByRole('button', { name: 'ズームイン' });
+    for (let i = 0; i < 5; i += 1) fireEvent.click(zoomIn);
+
+    const stage = screen.getByTestId('construction-photo-viewer-stage');
+    const img = screen.getByRole('img');
+    const before = img.style.transform;
+
+    // 右ボタン(button=2)ではドラッグ開始しないため、後続のmousemoveでもパンしない
+    fireEvent.mouseDown(stage, { button: 2, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(stage, { clientX: 200, clientY: 200 });
+
+    expect(img.style.transform).toBe(before);
+  });
+
+  it('マウスホイールで中心基準にズームする', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    const stage = screen.getByTestId('construction-photo-viewer-stage');
+    fireEvent.wheel(stage, { deltaY: -100 });
+
+    // -deltaY*0.001 = +0.1 → 1.0 から 1.1 へ拡大
+    expect(screen.getByTestId('zoom-badge')).toHaveTextContent('110%');
+  });
+
+  it('マウスホイールを下方向に回すと縮小する', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    const stage = screen.getByTestId('construction-photo-viewer-stage');
+    fireEvent.wheel(stage, { deltaY: 100 });
+
+    // deltaY=100 → -0.1 → 0.9 倍
+    expect(screen.getByTestId('zoom-badge')).toHaveTextContent('90%');
+  });
+
+  it('2本指ピンチ操作でズーム倍率が変化する (R14.2)', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    const stage = screen.getByTestId('construction-photo-viewer-stage');
+
+    // 2本指: 開始時の指間距離100 → 移動後200（scaleFactor=2）
+    fireEvent.touchStart(stage, {
+      touches: [
+        { clientX: 0, clientY: 0 },
+        { clientX: 100, clientY: 0 },
+      ],
+    });
+    fireEvent.touchMove(stage, {
+      touches: [
+        { clientX: 0, clientY: 0 },
+        { clientX: 200, clientY: 0 },
+      ],
+    });
+
+    // zoom = 1 * 2 = 2 → 200%
+    expect(screen.getByTestId('zoom-badge')).toHaveTextContent('200%');
+
+    // 全指を離すとピンチ状態がリセットされる（例外なく完了する）
+    fireEvent.touchEnd(stage, { touches: [] });
+    expect(screen.getByTestId('zoom-badge')).toHaveTextContent('200%');
+  });
+
+  it('拡大時の1本指ドラッグで表示位置がパンする (R14.4)', () => {
+    render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+    // パンはズーム>1.01でのみ有効
+    const zoomIn = screen.getByRole('button', { name: 'ズームイン' });
+    for (let i = 0; i < 5; i += 1) fireEvent.click(zoomIn);
+
+    const stage = screen.getByTestId('construction-photo-viewer-stage');
+    const img = screen.getByRole('img');
+
+    const extractTranslate = (transform: string): { x: number; y: number } => {
+      const match = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+      return { x: parseFloat(match?.[1] ?? '0'), y: parseFloat(match?.[2] ?? '0') };
+    };
+    const before = extractTranslate(img.style.transform);
+
+    fireEvent.touchStart(stage, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(stage, { touches: [{ clientX: 150, clientY: 140 }] });
+    fireEvent.touchEnd(stage, { touches: [] });
+
+    const after = extractTranslate(img.style.transform);
+    expect(after.x).toBeGreaterThan(before.x);
+    expect(after.y).toBeGreaterThan(before.y);
+  });
 });
