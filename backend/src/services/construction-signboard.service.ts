@@ -341,7 +341,9 @@ export class ConstructionSignboardService {
       }
     }
 
-    return signboards.map((signboard) => this.toDto(signboard, inUseCountMap.get(signboard.id) ?? 0));
+    return signboards.map((signboard) =>
+      this.toDto(signboard, inUseCountMap.get(signboard.id) ?? 0)
+    );
   }
 
   /**
