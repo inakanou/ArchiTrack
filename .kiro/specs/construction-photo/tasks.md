@@ -182,7 +182,7 @@
   - _Depends: 10.2_
   - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6_
   - _Boundary: ConstructionPhotoImageViewer, ConstructionPhotoImageViewerPage, routes.tsx_
-- [ ] 11.3 (P) ZIP一括エクスポートサービス
+- [x] 11.3 (P) ZIP一括エクスポートサービス
   - JSZipで束ね、看板モード別に取得元を切替（composited=印字画像／plain・original=非合成原本）、解像度(低/中/高)・形式(JPEG/PNG)は canvas 再エンコードで適用（original は設定を適用せず原本バイトを格納）、進捗通知、AbortSignalで中断、1件失敗は継続し失敗IDを集約
   - 完了: 設定に応じたZIP Blobが生成され、中断で AbortError により停止、1件失敗時も残りを含むZIPと失敗一覧が得られる
   - _Depends: 10.2_
