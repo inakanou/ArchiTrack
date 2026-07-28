@@ -10,7 +10,7 @@
  * Requirements: 4.1, 4.2, 5.1, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import ConstructionPhotoDetailPage from './ConstructionPhotoDetailPage';
@@ -20,6 +20,7 @@ import * as projectsApi from '../api/projects';
 import * as siteSurveysApi from '../api/site-surveys';
 import * as signboardsApi from '../api/construction-signboards';
 import * as ledgerExportApi from '../services/export/ConstructionPhotoLedgerExportService';
+import { constructionPhotoBulkExportService } from '../services/export/ConstructionPhotoBulkExportService';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
@@ -44,6 +45,9 @@ vi.mock('../api/projects');
 vi.mock('../api/site-surveys');
 vi.mock('../api/construction-signboards');
 vi.mock('../services/export/ConstructionPhotoLedgerExportService');
+vi.mock('../services/export/ConstructionPhotoBulkExportService', () => ({
+  constructionPhotoBulkExportService: { export: vi.fn() },
+}));
 
 // fabric を含む配置エディタはスタブ化し、看板選択＋保存の結線契約のみを検証する。
 vi.mock('../components/construction-photos/SignboardPlacementEditor', () => ({
@@ -139,6 +143,17 @@ describe('ConstructionPhotoDetailPage', () => {
       makePhoto({ id: 'photo-2', displayOrder: 2, fileName: 'b.jpg' }),
     ]);
     vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([mockSignboard]);
+    // jsdom は URL.createObjectURL/revokeObjectURL 未実装のため、ダウンロード起動の
+    // 呼び出し検証のためにスタブする（R15.1）。
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:mock-url'),
+      revokeObjectURL: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('詳細1リクエストで写真項目を取得しサムネイルを表示する (R7.8, R11.2, R11.3)', async () => {
@@ -399,5 +414,156 @@ describe('ConstructionPhotoDetailPage', () => {
     const batchArg = vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mock.calls[0]![0];
     const update = batchArg.find((u) => u.id === 'photo-1');
     expect(update).toMatchObject({ signboardId: null, signboardPlacement: null });
+  });
+
+  // ==========================================================================
+  // Task 12.2: 詳細画面にZIP一括エクスポートを結線 (R15.1, R15.5, R15.6, R15.7, R15.8, R15.9, R15.11)
+  // ==========================================================================
+
+  describe('ZIP一括エクスポート結線 (R15)', () => {
+    it('全件エクスポート起動→設定選択→開始でservice.exportが全写真項目で呼ばれダウンロードされる (R15.1, R15.5)', async () => {
+      const blob = new Blob(['zip']);
+      vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+        blob,
+        failed: [],
+      });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+      await waitFor(() => {
+        expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
+      });
+      const [targets, settings] = vi.mocked(constructionPhotoBulkExportService.export).mock
+        .calls[0]!;
+      expect(targets).toHaveLength(2);
+      expect(settings).toMatchObject({
+        format: 'jpeg',
+        resolution: 'medium',
+        signboardMode: 'composited',
+      });
+
+      // ダウンロード確定（URL.createObjectURL経由でBlobを取得）
+      await waitFor(() => {
+        expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
+      });
+    });
+
+    it('写真項目を選択してから選択エクスポートすると選択済みのみが対象になる (R15.6)', async () => {
+      vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+        blob: new Blob(['zip']),
+        failed: [],
+      });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      const items = await screen.findAllByTestId('construction-photo-item');
+      const firstItem = items[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('エクスポート対象に含める'));
+
+      const selectedButton = screen.getByRole('button', { name: /選択エクスポート/ });
+      expect(selectedButton).not.toBeDisabled();
+      fireEvent.click(selectedButton);
+
+      const dialog = await screen.findByRole('dialog', { name: /選択画像エクスポート/ });
+      fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+      await waitFor(() => {
+        expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
+      });
+      const [targets] = vi.mocked(constructionPhotoBulkExportService.export).mock.calls[0]!;
+      expect(targets).toHaveLength(1);
+      expect(targets[0]).toMatchObject({ id: 'photo-1' });
+    });
+
+    it('写真項目を1件も選択していない間は選択エクスポートの実行手段が無効化される (R15.7)', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      const selectedButton = screen.getByRole('button', { name: /選択エクスポート/ });
+      expect(selectedButton).toBeDisabled();
+    });
+
+    it('エクスポート進行中は進捗（完了件数・総件数）が表示される (R15.8)', async () => {
+      let resolveExport: (value: { blob: Blob; failed: string[] }) => void = () => {};
+      vi.mocked(constructionPhotoBulkExportService.export).mockImplementation(
+        (_photos, _settings, handlers) =>
+          new Promise((resolve) => {
+            resolveExport = resolve;
+            handlers.onProgress({ completed: 1, total: 2, failed: 0 });
+          })
+      );
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+
+      const progressDialog = await screen.findByRole('dialog', {
+        name: /一括エクスポート処理中/,
+      });
+      expect(within(progressDialog).getByText('1 / 2 件')).toBeInTheDocument();
+
+      await act(async () => {
+        resolveExport({ blob: new Blob(['zip']), failed: [] });
+      });
+    });
+
+    it('中断ボタン押下でAbortされ処理が中断する (R15.9)', async () => {
+      let capturedSignal: AbortSignal | null = null;
+      vi.mocked(constructionPhotoBulkExportService.export).mockImplementation(
+        (_photos, _settings, handlers) => {
+          capturedSignal = handlers.signal;
+          return new Promise((_resolve, reject) => {
+            handlers.signal.addEventListener('abort', () => {
+              reject(new DOMException('The export was aborted', 'AbortError'));
+            });
+          });
+        }
+      );
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+
+      const progressDialog = await screen.findByRole('dialog', {
+        name: /一括エクスポート処理中/,
+      });
+      fireEvent.click(within(progressDialog).getByRole('button', { name: '中断' }));
+
+      await waitFor(() => {
+        expect(capturedSignal?.aborted).toBe(true);
+      });
+      // 中断確定後は「完了」表示（isRunning=false）へ遷移し、ダウンロードは実行されない
+      await screen.findByRole('dialog', { name: /一括エクスポート完了/ });
+      expect(URL.createObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('エクスポート対象の写真項目が0件のときは実行せず通知する (R15.11)', async () => {
+      vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([]);
+
+      renderPage();
+      await waitFor(() => {
+        expect(imagesApi.getConstructionPhotos).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+
+      const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      expect(within(dialog).getByRole('status')).toHaveTextContent(
+        'エクスポート対象の写真項目がありません。'
+      );
+      expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
+    });
   });
 });

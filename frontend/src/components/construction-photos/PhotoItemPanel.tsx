@@ -12,11 +12,14 @@
  *   - サムネイル優先表示（thumbnailUrl, R11.3）
  *   - 保存済みの表示順序で描画（R7.8）
  *   - 看板指定の識別表示（R9.6 プレースホルダ。看板配置エディタ自体は Task 6.4）
+ *   - エクスポート対象の選択チェック（`selectedPhotoIds`/`onToggleSelect` 指定時のみ表示。
+ *     選択は閲覧操作でありreadOnlyでも操作可能, R15.6, R15.7）
  *
  * 変更はローカル未保存状態として親へ通知し、確定（メタバッチ＋順序の最大2リクエスト）は
- * 呼び出し元（ConstructionPhotoDetailPage）が担う。
+ * 呼び出し元（ConstructionPhotoDetailPage）が担う。エクスポート対象の選択集合も
+ * 呼び出し元（ConstructionPhotoDetailPage）が保持する。
  *
- * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.6, 11.3
+ * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.6, 11.3, 15.6, 15.7
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -67,6 +70,16 @@ export interface PhotoItemPanelProps {
   showOrderButtons?: boolean;
   /** 「看板を配置」導線のハンドラ（対象写真項目を渡す, R9.1） */
   onAssignSignboard?: (photo: ConstructionPhotoWithUrls) => void;
+  /**
+   * エクスポート対象として選択済みの写真項目ID集合。
+   * `onToggleSelect` と併せて指定された場合のみ選択チェックUIを表示する（R15.6）。
+   */
+  selectedPhotoIds?: Set<string>;
+  /**
+   * エクスポート対象の選択チェックのトグルハンドラ。
+   * 選択は閲覧側の操作であり `readOnly` でも操作可能（R15.6, R15.7）。
+   */
+  onToggleSelect?: (photoId: string) => void;
 }
 
 // ============================================================================
@@ -420,6 +433,10 @@ interface PhotoItemProps {
   onMoveUp?: (photoId: string) => void;
   onMoveDown?: (photoId: string) => void;
   onAssignSignboard?: (photo: ConstructionPhotoWithUrls) => void;
+  /** エクスポート対象の選択チェック状態（`onToggleSelect` 指定時のみ意味を持つ, R15.6） */
+  isSelected: boolean;
+  /** エクスポート対象の選択チェックのトグルハンドラ（未指定時は選択UIを表示しない） */
+  onToggleSelect?: (photoId: string) => void;
 }
 
 function PhotoItem({
@@ -443,6 +460,8 @@ function PhotoItem({
   onMoveUp,
   onMoveDown,
   onAssignSignboard,
+  isSelected,
+  onToggleSelect,
 }: PhotoItemProps) {
   const [comment, setComment] = useState(photo.comment ?? '');
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -459,8 +478,13 @@ function PhotoItem({
   }
 
   const checkboxId = `include-in-report-${photo.id}`;
+  const exportSelectId = `export-select-${photo.id}`;
   const textareaId = `comment-${photo.id}`;
   const fileNameId = `filename-${photo.id}`;
+
+  const handleToggleSelectChange = useCallback(() => {
+    onToggleSelect?.(photo.id);
+  }, [photo.id, onToggleSelect]);
 
   const validateComment = useCallback((value: string): boolean => {
     if (value.length > MAX_COMMENT_LENGTH) {
@@ -627,6 +651,25 @@ function PhotoItem({
           {photo.fileName}
         </h3>
 
+        {/* エクスポート対象の選択チェック（onToggleSelect指定時のみ表示, R15.6, R15.7）
+            選択は閲覧側の操作のため readOnly でも操作可能とする */}
+        {onToggleSelect && (
+          <div style={styles.checkboxContainer}>
+            <input
+              type="checkbox"
+              id={exportSelectId}
+              checked={isSelected}
+              onChange={handleToggleSelectChange}
+              style={styles.checkbox}
+              aria-label="エクスポート対象に含める"
+              data-testid={`export-select-checkbox-${photo.id}`}
+            />
+            <label htmlFor={exportSelectId} style={styles.checkboxLabel}>
+              エクスポート対象に含める
+            </label>
+          </div>
+        )}
+
         {/* 印刷対象フラグ（R7.5） */}
         <div style={styles.checkboxContainer}>
           <input
@@ -724,6 +767,8 @@ export function PhotoItemPanel({
   onDelete,
   showOrderButtons = true,
   onAssignSignboard,
+  selectedPhotoIds,
+  onToggleSelect,
 }: PhotoItemPanelProps) {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -934,6 +979,8 @@ export function PhotoItemPanel({
             onMoveUp={showOrderButtons && onOrderChange ? handleMoveUp : undefined}
             onMoveDown={showOrderButtons && onOrderChange ? handleMoveDown : undefined}
             onAssignSignboard={onAssignSignboard}
+            isSelected={selectedPhotoIds?.has(photo.id) ?? false}
+            onToggleSelect={onToggleSelect}
           />
         ))}
       </div>

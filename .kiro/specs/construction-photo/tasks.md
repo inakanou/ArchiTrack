@@ -206,7 +206,7 @@
   - _Depends: 11.2_
   - _Requirements: 14.1_
   - _Boundary: ConstructionPhotoDetailPage_
-- [ ] 12.2 詳細画面にZIP一括エクスポートを結線
+- [x] 12.2 詳細画面にZIP一括エクスポートを結線
   - エクスポート起動導線、全件/選択の切替、写真項目パネルの選択チェック、進捗/中断表示・ダウンロード確定を結線
   - 完了: 全件および選択でZIPをダウンロードでき、進捗・中断が画面で機能する
   - _Depends: 11.3, 11.4_
@@ -271,3 +271,5 @@
 - 権限: `useConstructionPhotoPermission` はロール直書きせず `usePermission('construction_photo:<action>')` で判定（RBAC権限駆動）。UIは体験向上でありBE RBACが権威（多重防御）。
 - グループ12は全て `ConstructionPhotoDetailPage` 等の既存ファイルを共有改変するため非並列。10.x/11.x/13.x は境界非重複で並列可（routes.tsx を触るのは11.2のみ）。
 - 検証コマンドは既存注記と同様にコンテナ内で実行（frontend=`docker exec architrack-frontend-dev npm run <test|type-check|build>`）。要件はE2Eで動作確認するまで完了としない。
+- R15.10 UI残課題(12.2由来): 部分失敗時の「成功分のみでダウンロード継続をユーザーが選択」UIは未実装。現状は成功分を自動ダウンロードし失敗件数を通知する劣化対応。サービス層(11.3)の failed[] 返却は実装済。厳密なユーザー選択UIは BulkExportProgressDialog の拡張を要する(要フォロー、最終検証で要否判断)。
+- スペック訂正(10.1レビュー由来): /original の認可は「権限なし=403(requirePermission)・他プロジェクト=404(存在秘匿, print-image等と同一)」。tasks/design の該当記述を是正済み。

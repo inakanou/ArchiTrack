@@ -165,6 +165,66 @@ describe('PhotoItemPanel', () => {
     expect(onAssign).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
   });
 
+  // ==========================================================================
+  // Task 12.2: エクスポート対象の選択チェック (R15.6, R15.7)
+  // ==========================================================================
+
+  it('onToggleSelect未指定時はエクスポート対象の選択チェックを表示しない', () => {
+    render(<PhotoItemPanel photos={[makePhoto({ id: 'p1' })]} onPhotoMetadataChange={vi.fn()} />);
+    expect(screen.queryByLabelText('エクスポート対象に含める')).not.toBeInTheDocument();
+  });
+
+  it('エクスポート対象チェックをクリックすると onToggleSelect が対象写真IDで呼ばれる (R15.6)', () => {
+    const onToggleSelect = vi.fn();
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        selectedPhotoIds={new Set()}
+        onToggleSelect={onToggleSelect}
+      />
+    );
+    fireEvent.click(screen.getByLabelText('エクスポート対象に含める'));
+    expect(onToggleSelect).toHaveBeenCalledWith('p1');
+  });
+
+  it('selectedPhotoIds に含まれる写真項目はチェック済みで表示される (R15.6)', () => {
+    render(
+      <PhotoItemPanel
+        photos={[
+          makePhoto({ id: 'p1', fileName: 'a.jpg' }),
+          makePhoto({ id: 'p2', fileName: 'b.jpg' }),
+        ]}
+        onPhotoMetadataChange={vi.fn()}
+        selectedPhotoIds={new Set(['p2'])}
+        onToggleSelect={vi.fn()}
+      />
+    );
+    const checkboxes = screen.getAllByLabelText('エクスポート対象に含める');
+    const items = screen.getAllByTestId('construction-photo-item');
+    const p1Index = items.findIndex((el) => el.getAttribute('data-photo-id') === 'p1');
+    const p2Index = items.findIndex((el) => el.getAttribute('data-photo-id') === 'p2');
+    expect(checkboxes[p1Index]).not.toBeChecked();
+    expect(checkboxes[p2Index]).toBeChecked();
+  });
+
+  it('readOnly でもエクスポート対象の選択チェックは操作できる（選択は編集操作ではない）', () => {
+    const onToggleSelect = vi.fn();
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        selectedPhotoIds={new Set()}
+        onToggleSelect={onToggleSelect}
+        readOnly
+      />
+    );
+    const checkbox = screen.getByLabelText('エクスポート対象に含める');
+    expect(checkbox).not.toBeDisabled();
+    fireEvent.click(checkbox);
+    expect(onToggleSelect).toHaveBeenCalledWith('p1');
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

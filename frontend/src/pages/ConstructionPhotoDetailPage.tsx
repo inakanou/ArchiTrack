@@ -16,8 +16,17 @@
  * Task 8.2 追加: 「PDF出力」ボタンを追加し、印刷対象のみ・保存表示順で印字画像をオンデマンド取得して
  * 台帳PDFを出力する（看板重畳はサーバ委譲、印刷対象0件は非実行で通知）。
  *
+ * Task 12.2 追加: ZIP一括エクスポート（全件/選択）を結線する。
+ *   - エクスポート起動導線（全件/選択ボタン）、対象選択（`PhotoItemPanel` の選択チェックで
+ *     選択集合を本コンポーネントが保持, R15.6, R15.7）
+ *   - `AbortController` の生成・`ConstructionPhotoBulkExportService.export` の実行・
+ *     進捗（`onProgress`）反映・中断（`abort()`）・完了後の ZIP ダウンロード確定は
+ *     本コンポーネントが担うオーケストレーション（`BulkExportDialog`/
+ *     `BulkExportProgressDialog` は疎結合なプレゼンテーション部品, R15.1, R15.8, R15.9）
+ *   - 対象0件時は非実行のまま通知（`onEmptyTarget`, R15.11）
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
- *   10.1, 10.3, 10.12, 10.13
+ *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -33,6 +42,12 @@ import { getProject } from '../api/projects';
 import { getConstructionSignboards } from '../api/construction-signboards';
 import { ApiError } from '../api/client';
 import { exportConstructionPhotoLedger } from '../services/export/ConstructionPhotoLedgerExportService';
+import { constructionPhotoBulkExportService } from '../services/export/ConstructionPhotoBulkExportService';
+import type {
+  ConstructionPhotoExportProgress,
+  ConstructionPhotoExportSettings,
+} from '../services/export/ConstructionPhotoBulkExportService';
+import { buildConstructionPhotoZipFileName } from '../services/export/constructionPhotoZipNaming';
 import { Breadcrumb } from '../components/common';
 import type { BreadcrumbItem } from '../components/common';
 import { PhotoUploader } from '../components/construction-photos/PhotoUploader';
@@ -41,6 +56,11 @@ import {
   type PhotoMetadataChange,
 } from '../components/construction-photos/PhotoItemPanel';
 import { SignboardAssignDialog } from '../components/construction-photos/SignboardAssignDialog';
+import {
+  BulkExportDialog,
+  type BulkExportDialogMode,
+} from '../components/construction-photos/BulkExportDialog';
+import { BulkExportProgressDialog } from '../components/construction-photos/BulkExportProgressDialog';
 import type {
   ConstructionPhotoAlbum,
   ConstructionPhotoWithUrls,
@@ -110,6 +130,26 @@ const styles = {
   } as React.CSSProperties,
   exportButtonDisabled: {
     backgroundColor: '#93c5fd',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  headerButtonRow: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  zipExportButton: {
+    backgroundColor: '#ffffff',
+    color: '#1d4ed8',
+    border: '1px solid #1d4ed8',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  zipExportButtonDisabled: {
+    color: '#9ca3af',
+    border: '1px solid #d1d5db',
     cursor: 'not-allowed',
   } as React.CSSProperties,
   uploaderWrapper: {
@@ -191,6 +231,21 @@ export default function ConstructionPhotoDetailPage() {
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // ZIP一括エクスポート対象の選択集合（R15.6, R15.7）
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set());
+  // 起動中の BulkExportDialog モード（null は閉, R15.5, R15.6）
+  const [bulkExportMode, setBulkExportMode] = useState<BulkExportDialogMode | null>(null);
+  // 進捗ダイアログの開閉状態
+  const [exportProgressOpen, setExportProgressOpen] = useState(false);
+  // 直近の onProgress 通知（R15.8）
+  const [exportProgress, setExportProgress] = useState<ConstructionPhotoExportProgress | null>(
+    null
+  );
+  // エクスポート処理が実行中かどうか（false=完了/中断確定）
+  const [isExportRunning, setIsExportRunning] = useState(false);
+  // 実行中の AbortController（中断操作で abort() を呼ぶ, R15.9）
+  const exportControllerRef = useRef<AbortController | null>(null);
 
   // 未保存のメタデータ変更（photoId -> {comment?, includeInReport?}）
   const pendingChangesRef = useRef<Map<string, PhotoMetadataChange>>(new Map());
@@ -417,6 +472,124 @@ export default function ConstructionPhotoDetailPage() {
         .filter((o) => o.id !== photoId)
         .map((o, index) => ({ ...o, order: index + 1 }));
     }
+    setSelectedPhotoIds((prev) => {
+      if (!prev.has(photoId)) return prev;
+      const next = new Set(prev);
+      next.delete(photoId);
+      return next;
+    });
+  }, []);
+
+  /**
+   * エクスポート対象の選択チェックのトグルハンドラ（R15.6）
+   */
+  const handleToggleSelectPhoto = useCallback((photoId: string) => {
+    setSelectedPhotoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(photoId)) {
+        next.delete(photoId);
+      } else {
+        next.add(photoId);
+      }
+      return next;
+    });
+  }, []);
+
+  /** 「全件エクスポート」起動ボタン（R15.1, R15.5） */
+  const handleExportAll = useCallback(() => {
+    setBulkExportMode('all');
+  }, []);
+
+  /** 「選択エクスポート」起動ボタン（R15.1, R15.6, R15.7） */
+  const handleExportSelected = useCallback(() => {
+    setBulkExportMode('selected');
+  }, []);
+
+  /** BulkExportDialog のキャンセル close */
+  const handleExportDialogClose = useCallback(() => {
+    setBulkExportMode(null);
+  }, []);
+
+  /** 対象0件時の通知（R15.11） */
+  const handleExportEmptyTarget = useCallback(() => {
+    setNotice('エクスポート対象の写真項目がありません。');
+  }, []);
+
+  /**
+   * ZIP一括エクスポートの実行オーケストレーション（R15.1, R15.5, R15.6, R15.8, R15.9）
+   *
+   * `AbortController` を生成して `ConstructionPhotoBulkExportService.export` を呼び出し、
+   * `onProgress` で進捗 state を更新する。完了後は ZIP Blob を `a` タグでダウンロードし、
+   * 部分失敗（`failed`）はユーザーへ通知する。`AbortError` は中断として扱う。
+   */
+  const handleExportStart = useCallback(
+    (settings: ConstructionPhotoExportSettings) => {
+      if (!album) return;
+      const mode = bulkExportMode;
+      const targets =
+        mode === 'selected' ? photos.filter((p) => selectedPhotoIds.has(p.id)) : photos;
+
+      setBulkExportMode(null);
+
+      if (targets.length === 0) {
+        // BulkExportDialog 側で開始ボタン非活性により既に防止済みだが念のため二重防御する
+        setNotice('エクスポート対象の写真項目がありません。');
+        return;
+      }
+
+      const controller = new AbortController();
+      exportControllerRef.current = controller;
+      setNotice(null);
+      setExportProgress(null);
+      setIsExportRunning(true);
+      setExportProgressOpen(true);
+
+      constructionPhotoBulkExportService
+        .export(targets, settings, {
+          onProgress: (progress) => setExportProgress(progress),
+          signal: controller.signal,
+        })
+        .then((result) => {
+          const fileName = buildConstructionPhotoZipFileName(album.name, new Date());
+          const url = URL.createObjectURL(result.blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          if (result.failed.length > 0) {
+            setNotice(
+              `一部の写真項目（${result.failed.length}件）のエクスポートに失敗しました。成功した項目のみでZIPをダウンロードしました。`
+            );
+          }
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === 'AbortError') {
+            setNotice('エクスポートを中断しました。');
+          } else {
+            setNotice(err instanceof ApiError ? err.message : 'エクスポートに失敗しました');
+          }
+        })
+        .finally(() => {
+          setIsExportRunning(false);
+          exportControllerRef.current = null;
+        });
+    },
+    [album, bulkExportMode, photos, selectedPhotoIds]
+  );
+
+  /** 進捗ダイアログの中断ボタン（R15.9） */
+  const handleExportCancel = useCallback(() => {
+    exportControllerRef.current?.abort();
+  }, []);
+
+  /** 進捗ダイアログの「閉じる」（完了/中断確定後） */
+  const handleExportProgressClose = useCallback(() => {
+    setExportProgressOpen(false);
+    setExportProgress(null);
   }, []);
 
   // ローディング
@@ -473,17 +646,35 @@ export default function ConstructionPhotoDetailPage() {
       <div style={styles.section}>
         <div style={styles.sectionHeader}>
           <h2 style={styles.sectionTitle}>写真項目</h2>
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            disabled={isExporting}
-            style={{
-              ...styles.exportButton,
-              ...(isExporting ? styles.exportButtonDisabled : {}),
-            }}
-          >
-            {isExporting ? 'PDF出力中...' : 'PDF出力'}
-          </button>
+          <div style={styles.headerButtonRow}>
+            {/* ZIP一括エクスポート起動導線（R15.1, R15.5, R15.6, R15.7） */}
+            <button type="button" onClick={handleExportAll} style={styles.zipExportButton}>
+              全件エクスポート
+            </button>
+            <button
+              type="button"
+              onClick={handleExportSelected}
+              disabled={selectedPhotoIds.size === 0}
+              aria-disabled={selectedPhotoIds.size === 0}
+              style={{
+                ...styles.zipExportButton,
+                ...(selectedPhotoIds.size === 0 ? styles.zipExportButtonDisabled : {}),
+              }}
+            >
+              選択エクスポート（{selectedPhotoIds.size}件）
+            </button>
+            <button
+              type="button"
+              onClick={handleExportPdf}
+              disabled={isExporting}
+              style={{
+                ...styles.exportButton,
+                ...(isExporting ? styles.exportButtonDisabled : {}),
+              }}
+            >
+              {isExporting ? 'PDF出力中...' : 'PDF出力'}
+            </button>
+          </div>
         </div>
 
         {/* 通知（部分失敗・保存エラーなど） */}
@@ -516,6 +707,8 @@ export default function ConstructionPhotoDetailPage() {
           isSaving={isSaving}
           isLoading={isLoading}
           showOrderNumbers
+          selectedPhotoIds={selectedPhotoIds}
+          onToggleSelect={handleToggleSelectPhoto}
         />
       </div>
 
@@ -526,6 +719,30 @@ export default function ConstructionPhotoDetailPage() {
           signboards={signboards}
           onSave={handleSignboardSave}
           onClose={() => setAssignTargetPhoto(null)}
+        />
+      )}
+
+      {/* ZIP一括エクスポート設定ダイアログ（R15.1, R15.2, R15.3, R15.4, R15.5, R15.6, R15.7, R15.11） */}
+      {bulkExportMode !== null && (
+        <BulkExportDialog
+          open
+          mode={bulkExportMode}
+          totalCount={photos.length}
+          selectedCount={selectedPhotoIds.size}
+          onClose={handleExportDialogClose}
+          onStart={handleExportStart}
+          onEmptyTarget={handleExportEmptyTarget}
+        />
+      )}
+
+      {/* ZIP一括エクスポート進捗ダイアログ（R15.8, R15.9） */}
+      {exportProgressOpen && (
+        <BulkExportProgressDialog
+          open
+          progress={exportProgress}
+          isRunning={isExportRunning}
+          onCancel={handleExportCancel}
+          onClose={handleExportProgressClose}
         />
       )}
 
