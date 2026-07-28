@@ -153,6 +153,16 @@ describe('ConstructionPhotoDetailPage', () => {
     expect(img).toHaveAttribute('src', 'https://example.com/thumb-1.jpg');
   });
 
+  it('写真項目のサムネイルをクリックするとビューアへ遷移する (R14.1)', async () => {
+    renderPage();
+    await screen.findByRole('img', { name: /a\.jpg/ });
+
+    const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+    fireEvent.click(within(firstItem).getByTestId('construction-photo-image-button'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/construction-photos/album-1/photos/photo-1');
+  });
+
   it('ローカルアップロードで写真項目が追加される (R4.1)', async () => {
     vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
       successful: [makePhoto({ id: 'photo-3', displayOrder: 3, fileName: 'c.jpg' })],

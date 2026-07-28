@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { getConstructionPhotoAlbum } from '../api/construction-photos';
 import {
   getConstructionPhotos,
@@ -173,6 +173,7 @@ const styles = {
  */
 export default function ConstructionPhotoDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   const [album, setAlbum] = useState<ConstructionPhotoAlbum | null>(null);
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -288,6 +289,18 @@ export default function ConstructionPhotoDetailPage() {
       setIsDirty(true);
     },
     []
+  );
+
+  /**
+   * 写真項目クリックハンドラ（R14.1）。
+   * 当該写真項目のフルスクリーンビューアへ遷移する。
+   */
+  const handlePhotoClick = useCallback(
+    (photo: ConstructionPhotoWithUrls) => {
+      if (!album) return;
+      navigate(`/construction-photos/${album.id}/photos/${photo.id}`);
+    },
+    [album, navigate]
   );
 
   /**
@@ -494,6 +507,7 @@ export default function ConstructionPhotoDetailPage() {
         <PhotoItemPanel
           photos={photos}
           onPhotoMetadataChange={handleMetadataChange}
+          onPhotoClick={handlePhotoClick}
           onOrderChange={handleOrderChange}
           onSave={handleSave}
           onDelete={handleDelete}
