@@ -242,7 +242,7 @@
   - 完了: 対象サービスの単体テストが緑になる
   - _Requirements: 15.2, 15.3, 15.4, 15.9, 15.10_
   - _Boundary: ConstructionPhotoBulkExportService_
-- [ ] 13.2 (P) 権限フック単体テスト
+- [x] 13.2 (P) 権限フック単体テスト
   - 権限保持有無での canEdit/canDelete、権限ロード中の全 false を検証
   - 完了: 権限フックの単体テストが緑になる
   - _Requirements: 17.1, 17.2, 17.5_
