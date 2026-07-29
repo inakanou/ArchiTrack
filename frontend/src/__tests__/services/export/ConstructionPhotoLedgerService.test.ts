@@ -267,9 +267,8 @@ describe('ConstructionPhotoLedgerService', () => {
     }
 
     it('横長画像は縦横比を保ったまま写真枠幅に収める（引き伸ばさない）', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       // 16:9 の横長。枠幅81mmに対し高さ=81/(16/9)=45.56mm（<70）でクランプされない
@@ -289,9 +288,8 @@ describe('ConstructionPhotoLedgerService', () => {
     });
 
     it('縦長画像は高さ上限でクランプしつつ縦横比を保つ（枠内に収める）', async () => {
-      const { ConstructionPhotoLedgerService } = await import(
-        '../../../services/export/ConstructionPhotoLedgerService'
-      );
+      const { ConstructionPhotoLedgerService } =
+        await import('../../../services/export/ConstructionPhotoLedgerService');
       const service = new ConstructionPhotoLedgerService();
 
       // 9:16 の縦長。枠幅81mmだと高さ=81/(9/16)=144mm>70 のため高さ70でクランプされる
