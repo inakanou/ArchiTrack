@@ -327,7 +327,10 @@ describe('ErrorBoundary', () => {
       );
 
       const errorContainer = container.firstChild as HTMLElement;
-      expect(errorContainer).toHaveStyle({ padding: '2rem' });
+      // jsdom 30 以降は CSSOM で rem を px へ正規化するため、
+      // 2rem とルートフォントサイズ 16px 基準の等価値 32px の双方を許容する
+      const { padding } = getComputedStyle(errorContainer);
+      expect(['2rem', '32px']).toContain(padding);
     });
   });
 
