@@ -368,6 +368,79 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'delete',
       description: '工程表の削除',
     },
+
+    // 工事写真関連権限（construction-photo/REQ-13.1, 13.3）
+    // backend/src/utils/seed-helpers.ts と同一定義（E2E DB を本番と同じ権限モデルに揃える）
+    {
+      resource: 'construction_photo',
+      action: 'create',
+      description: '工事写真の作成',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'read',
+      description: '工事写真の閲覧',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'update',
+      description: '工事写真の更新',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'delete',
+      description: '工事写真の削除',
+    },
+
+    // 工事看板関連権限（construction-photo/REQ-13.1, 13.3）
+    {
+      resource: 'construction_signboard',
+      action: 'create',
+      description: '工事看板の作成',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'read',
+      description: '工事看板の閲覧',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'update',
+      description: '工事看板の更新',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'delete',
+      description: '工事看板の削除',
+    },
+
+    // 取引先関連権限（backend seed と同期）
+    { resource: 'trading-partner', action: 'create', description: '取引先の作成' },
+    { resource: 'trading-partner', action: 'read', description: '取引先の閲覧' },
+    { resource: 'trading-partner', action: 'update', description: '取引先の更新' },
+    { resource: 'trading-partner', action: 'delete', description: '取引先の削除' },
+
+    // 現場調査関連権限（backend seed と同期）
+    { resource: 'site_survey', action: 'create', description: '現場調査の作成' },
+    { resource: 'site_survey', action: 'read', description: '現場調査の閲覧' },
+    { resource: 'site_survey', action: 'update', description: '現場調査の更新' },
+    { resource: 'site_survey', action: 'delete', description: '現場調査の削除' },
+
+    // 契約書関連権限（backend seed と同期）
+    { resource: 'contract', action: 'create', description: '契約書の作成' },
+    { resource: 'contract', action: 'read', description: '契約書の閲覧' },
+    { resource: 'contract', action: 'update', description: '契約書の更新' },
+    { resource: 'contract', action: 'delete', description: '契約書の削除' },
+
+    // 実行予算関連権限（backend seed と同期）
+    { resource: 'execution_budget', action: 'read', description: '実行予算の閲覧' },
+    { resource: 'execution_budget', action: 'write', description: '実行予算の作成・編集・削除' },
+    { resource: 'order', action: 'read', description: '発注の閲覧' },
+    { resource: 'order', action: 'write', description: '発注の作成・編集・削除・ステータス変更' },
+    { resource: 'progress', action: 'read', description: '出来高の閲覧' },
+    { resource: 'progress', action: 'write', description: '出来高の入力・編集・削除' },
+    { resource: 'cost', action: 'write', description: '原価（支出実績）の入力' },
+    { resource: 'monthly_close', action: 'write', description: '月次締めの実行' },
   ];
 
   for (const permission of permissions) {
@@ -478,14 +551,47 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'schedule', action: 'read' },
     { resource: 'schedule', action: 'update' },
     { resource: 'schedule', action: 'delete' },
+    // 工事写真関連権限（construction-photo/REQ-13.1, 13.3）
+    // 現場調査と同等の権限モデル: 一般ユーザーは作成・閲覧・更新が可能（削除は管理者のみ, R17.2）
+    { resource: 'construction_photo', action: 'create' },
+    { resource: 'construction_photo', action: 'read' },
+    { resource: 'construction_photo', action: 'update' },
+    // 工事看板関連権限（construction-photo/REQ-13.1, 13.3）
+    { resource: 'construction_signboard', action: 'create' },
+    { resource: 'construction_signboard', action: 'read' },
+    { resource: 'construction_signboard', action: 'update' },
+    // 取引先関連権限（削除は管理者のみ, backend seed と同期）
+    { resource: 'trading-partner', action: 'create' },
+    { resource: 'trading-partner', action: 'read' },
+    { resource: 'trading-partner', action: 'update' },
+    // 現場調査関連権限（削除は管理者のみ, backend seed と同期）
+    { resource: 'site_survey', action: 'create' },
+    { resource: 'site_survey', action: 'read' },
+    { resource: 'site_survey', action: 'update' },
+    // 契約書関連権限（削除は管理者のみ, backend seed と同期）
+    { resource: 'contract', action: 'create' },
+    { resource: 'contract', action: 'read' },
+    { resource: 'contract', action: 'update' },
+    // 実行予算関連権限（EDITOR相当: read/write, backend seed と同期）
+    { resource: 'execution_budget', action: 'read' },
+    { resource: 'execution_budget', action: 'write' },
+    { resource: 'order', action: 'read' },
+    { resource: 'order', action: 'write' },
+    { resource: 'progress', action: 'read' },
+    { resource: 'progress', action: 'write' },
+    { resource: 'cost', action: 'write' },
+    { resource: 'monthly_close', action: 'write' },
   ];
 
+  // 意図した権限を付与しつつ、付与対象の permissionId を収集する。
+  const intendedUserPermissionIds: string[] = [];
   for (const { resource, action } of basicPermissions) {
     const permission = await prisma.permission.findFirst({
       where: { resource, action },
     });
 
     if (permission) {
+      intendedUserPermissionIds.push(permission.id);
       await prisma.rolePermission.upsert({
         where: {
           roleId_permissionId: {
@@ -500,6 +606,23 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
         },
       });
     }
+  }
+
+  // 一般ユーザーロールの権限を「意図した集合」に一致させる（権威的シード）。
+  // cleanDatabase はシステムロール（user/admin）の role_permissions をマスターとして
+  // 保持し、上の upsert は付与のみで削除を行わない。このため、過去に付与された
+  // 権限（例: 一時的な seed 版や手動操作で入り込んだ construction_photo:delete）が
+  // 永続テストDBに固着し、REQ-17.2（一般ユーザーは削除導線非表示）の検証が
+  // canDelete=true により破綻する。ここで意図集合に無い role_permission を除去し、
+  // 権限ドリフトを global-setup 実行ごとに是正する。
+  // 意図集合が空（＝権限マスター未シード等の異常）の場合は notIn:[] による全削除を避ける。
+  if (intendedUserPermissionIds.length > 0) {
+    await prisma.rolePermission.deleteMany({
+      where: {
+        roleId: userRole.id,
+        permissionId: { notIn: intendedUserPermissionIds },
+      },
+    });
   }
 
   console.log('    ✓ Role-permission assignments seeded successfully');

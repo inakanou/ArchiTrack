@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-07-09（Steering Sync: `utils/imageFitScale.ts`・`hooks/useElementSize.ts`・`pages/SiteSurveyImageViewerPage.css`（`svh`二段宣言）を反映、hooks件数を実測値27に是正）_
+_最終更新: 2026-07-29（Steering Sync: 新ドメイン construction-photo（工事写真台帳）を反映。spec カタログ・`ConstructionPhotoSectionCard`・`pages/ConstructionPhoto*`/`ConstructionSignboardListPage`・`components/construction-photos/`・`api/construction-photo*`/`construction-signboards`・backend `services/signboard-*`（SVG描画・sharp合成）・e2e `construction-photos/` を追加）_
+
+_2026-07-09（Steering Sync: `utils/imageFitScale.ts`・`hooks/useElementSize.ts`・`pages/SiteSurveyImageViewerPage.css`（`svh`二段宣言）を反映、hooks件数を実測値27に是正）_
 
 _2026-06-30（Steering Sync: 現場調査の`gestures/`（canvasViewportController/touchGestureManager/gesture-thresholds）・`ZoomControls.tsx`・`useCanvasViewport`フック・`utils/image-compression.ts`を反映）_
 
@@ -268,6 +270,10 @@ git config core.hooksPath .husky
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 実行予算CRUD（契約書・見積書連動）、実行予算項目管理、発注管理（ステータス遷移・金額案分）、出来高入力（パーセンテージボタン）、原価管理（月次締め処理）、変更契約適用履歴、Excel/PDFエクスポート（発注書・出来高）
 
+- `.kiro/specs/construction-photo/` - 工事写真台帳機能 ✅実装完了
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
+  - 内容: 工事写真アルバムCRUD、写真項目追加の3系統（ローカル/カメラ/現場調査写真のコピー参照=独立複製）、写真項目管理（コメント・並び替え・印刷対象）、工事看板マスタ（プロジェクト単位・構造化テキスト、電子黒板SVG描画）、写真項目への看板配置（位置・サイズ）とオンデマンド合成（サーバ sharp composite）、台帳PDF出力（クライアント jsPDF・印刷対象のみ・看板重畳）、フルスクリーン画像ビューア（ズーム/回転/パン）、画像一括ZIPエクスポート、権限ベースUI制御、未保存離脱ガード、詳細画面モバイルレスポンシブ。site-survey パターンを踏襲した新規スペック（site-survey 本体は改修せずコピー参照のみ）
+
 ### `e2e/`
 
 Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可能。
@@ -298,6 +304,8 @@ e2e/
 │   ├── trading-partners/ # 取引先管理テスト
 │   │   └── *.spec.ts
 │   ├── site-surveys/     # 現場調査テスト（12ファイル）
+│   │   └── *.spec.ts
+│   ├── construction-photos/ # 工事写真台帳テスト（workflow・additional）
 │   │   └── *.spec.ts
 │   ├── quantity-tables/  # 数量表テスト
 │   │   └── *.spec.ts
@@ -450,7 +458,8 @@ frontend/
 │   │       ├── EstimateRequestSectionCard.tsx # 見積依頼セクションカード
 │   │       ├── ContractSectionCard.tsx # 契約書セクションカード
 │   │       ├── ScheduleSectionCard.tsx # 工程表セクションカード
-│   │       └── ExecutionBudgetSectionCard.tsx # 実行予算セクションカード
+│   │       ├── ExecutionBudgetSectionCard.tsx # 実行予算セクションカード
+│   │       └── ConstructionPhotoSectionCard.tsx # 工事写真台帳セクションカード
 │   │   ├── trading-partners/        # 取引先管理コンポーネント
 │   │       ├── TradingPartnerForm.tsx # 取引先作成・編集フォーム
 │   │       ├── TradingPartnerFormContainer.tsx # フォームコンテナ（ロジック分離）
@@ -642,7 +651,13 @@ frontend/
 │   │   ├── ScheduleDetailPage.tsx # 工程表詳細ページ
 │   │   ├── ExecutionBudgetPage.tsx # 実行予算管理ページ（発注・出来高・原価統合）
 │   │   ├── OrderDetailPage.tsx # 発注詳細ページ
-│   │   └── ProgressInputPage.tsx # 出来高入力ページ
+│   │   ├── ProgressInputPage.tsx # 出来高入力ページ
+│   │   ├── ConstructionPhotoListPage.tsx # 工事写真台帳一覧ページ
+│   │   ├── ConstructionPhotoCreatePage.tsx # 工事写真台帳作成ページ
+│   │   ├── ConstructionPhotoDetailPage.tsx # 工事写真台帳詳細ページ（写真項目・看板配置・PDF出力）
+│   │   ├── ConstructionPhotoEditPage.tsx # 工事写真台帳編集ページ
+│   │   ├── ConstructionPhotoImageViewerPage.tsx # 工事写真フルスクリーンビューア（ズーム/回転/パン）
+│   │   └── ConstructionSignboardListPage.tsx # 工事看板マスタ管理ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
 │   ├── utils/             # ユーティリティ関数（22ファイル）
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
@@ -778,6 +793,9 @@ frontend/src/
 │   ├── site-surveys.ts # 現場調査API
 │   ├── survey-annotations.ts # 注釈API
 │   ├── survey-images.ts # 調査画像API
+│   ├── construction-photos.ts # 工事写真台帳API（アルバム・写真項目・看板配置）
+│   ├── construction-photo-images.ts # 工事写真画像API（アップロード・原本/印刷画像配信）
+│   ├── construction-signboards.ts # 工事看板マスタAPI
 │   ├── trading-partners.ts # 取引先API
 │   ├── itemized-statements.ts # 内訳書API
 │   ├── estimate-requests.ts # 見積依頼API

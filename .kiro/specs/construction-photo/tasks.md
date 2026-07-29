@@ -1,0 +1,278 @@
+# Implementation Plan
+
+- [ ] 1. Foundation: データモデル・権限・共有型
+- [x] 1.1 Prisma に3モデルを追加しマイグレーションを作成
+  - `ConstructionPhotoAlbum` / `ConstructionPhoto` / `ConstructionSignboard` を既存規約（uuid・`@@map` snake_case・`@@index`）で定義
+  - `signboardId` は nullable ＋ `onDelete: SetNull`、`albumId`/`projectId` は `onDelete: Cascade`、`displayOrder`/`comment`/`includeInReport`/`deletedAt` を配置
+  - `signboardPlacement Json?`、`sourceSurveyImageId String?`（FKにはしない）、`ConstructionSignboard` に `workName`/`workLocation`/`freeItems Json`/`footerText String?`
+  - 完了: `prisma migrate` で3テーブルが作成され `prisma generate` が成功する
+  - _Requirements: 1.1, 8.1, 9.1_
+- [x] 1.2 RBAC 権限の定義とロール割当シード
+  - `construction_photo:{create,read,update,delete}`、`construction_signboard:{create,read,update,delete}` を権限定義に追加
+  - 既存ロールへ付与するシード/マイグレーションを用意
+  - 完了: 付与ロールは操作でき、未付与ユーザーは403になる
+  - _Requirements: 13.1, 13.3_
+- [x] 1.3 共有型とバリデーションスキーマ
+  - DTO・`SignboardPlacement`・`SignboardFreeItem`、アップロード制約（最大10件/10MB/許可形式）、コメント最大2000、`footerText`/`freeItems` の長さ制限を定義
+  - 完了: 不正形式・サイズ・件数・長さ超過を境界スキーマで拒否できる
+  - _Requirements: 7.2, 8.3, 12.1, 12.2, 12.4_
+
+- [ ] 2. Core: アルバム・写真バックエンド
+- [x] 2.1 (P) アルバムCRUD・一覧サービス＋ルート
+  - 二重マウント、ページ最大50、名称検索・作成日/更新日ソート、楽観的排他（`updatedAt`）、論理削除
+  - 取得系は対象が要求プロジェクト配下であることをサービスで検証
+  - 完了: 一覧が50件ページングで返り、作成/更新/削除/取得が動作し、他プロジェクトのアルバムは取得できない
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 3.1, 3.3, 3.4, 11.1, 13.2_
+  - _Boundary: ConstructionPhotoAlbumService_
+- [x] 2.2 写真アップロード（ローカル/カメラ）サービス＋ルート
+  - multer 最大10件/10MB、sharp で圧縮・寸法取得・サムネ生成、末尾 `displayOrder`、マジックバイト検証、部分失敗は成功分維持
+  - 完了: multipart で複数画像を写真項目として登録・サムネ生成し、不正形式/超過を拒否する
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 12.3, 12.5_
+  - _Boundary: ConstructionPhotoImageService_
+- [x] 2.3 現調写真コピー機能
+  - `storage.copy` で original＋thumbnail を複製、寸法/サイズは複製元 `SurveyImage` から流用、`sourceSurveyImageId` 記録、site-survey へは書込まない
+  - 完了: 選択した同一プロジェクトの現調写真が独立写真項目として複製され、元の変更・削除の影響を受けない
+  - _Requirements: 6.1, 6.2, 6.3, 6.4_
+  - _Depends: 2.2_
+  - _Boundary: ConstructionPhotoImageService_
+- [x] 2.4 写真一覧取得（署名URL一括）
+  - `displayOrder` 昇順で全写真＋サムネ/印字画像URLをまとめて返し、写真項目ごとの個別リクエストを発生させない
+  - 取得は対象アルバムが要求プロジェクト配下であることを検証
+  - 完了: 詳細1回のリクエストで全写真項目と署名付きURLを取得できる
+  - _Requirements: 7.8, 11.2, 11.3, 13.2_
+  - _Depends: 2.2_
+  - _Boundary: ConstructionPhotoImageService_
+- [x] 2.5 メタ一括更新・並び替え・削除
+  - コメント/印刷対象/`signboardId`/`signboardPlacement` のバッチ更新（`displayOrder` 1..n正規化、合成は行わない）＋順序更新＋写真削除（関連ストレージも削除）
+  - 完了: コメント/印刷対象/配置のバッチ＋順序の最大2リクエストで確定し、削除で写真と関連データが消える
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 9.1, 9.5, 11.4, 13.2_
+  - _Depends: 2.4_
+  - _Boundary: ConstructionPhotoMetadataService_
+
+- [ ] 3. Core: 工事看板バックエンド
+- [x] 3.1 (P) 看板マスタCRUD・一覧サービス＋ルート
+  - プロジェクト単位、工事件名/工事場所＋自由項目行＋固定テキスト、使用中削除は使用件数を返す、当該プロジェクト配下でのみ選択・参照可
+  - 完了: 看板の作成/編集/削除/一覧が動作し、使用中削除で件数>0を返し、他プロジェクトの看板は参照できない
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 8.8, 8.9, 8.10, 13.2_
+  - _Boundary: ConstructionSignboardService_
+- [x] 3.2 (P) 電子小黒板SVGジェネレータ
+  - 濃緑地・白罫線、上部に工事件名/工事場所＋自由項目行、下部に固定テキスト欄を画像ピクセル座標で描画
+  - 完了: 看板データと配置から画像実寸のSVG文字列を生成する
+  - _Requirements: 8.5, 9.3, 9.4_
+  - _Boundary: SignboardSvgService_
+- [x] 3.3 看板合成＋印字画像エンドポイント（オンデマンド）
+  - 看板ありは SVG を原本へ sharp composite（指定位置・大きさ）、なしは原本を返す。保存はしない
+  - 完了: 印字画像エンドポイントが看板あり写真に看板を重畳して返し、看板削除済み写真は看板なしとして返す
+  - _Requirements: 9.6, 9.7, 10.8, 10.9_
+  - _Depends: 3.2, 2.2_
+  - _Boundary: SignboardCompositeService, ConstructionPhotoImageService_
+
+- [ ] 4. Integration: プロジェクトサマリ
+- [x] 4.1 (P) detail-summary に工事写真セクションを追加
+  - `ConstructionPhotoSummaryService.findLatestByProjectId` を用意し、`constructionPhotos: {totalCount, latest...}` を既存セクションと同型で `allSettled` に組み込む
+  - 完了: プロジェクト詳細サマリAPIに `constructionPhotos` が含まれる
+  - _Depends: 2.1_
+  - _Requirements: 2.3_
+  - _Boundary: ConstructionPhotoSummaryService, projects.routes detail-summary_
+
+- [ ] 5. Core: フロントAPIクライアント
+- [x] 5.1 API クライアントと型の実装
+  - 一覧/CRUD/アップロード/現調コピー/一覧取得/メタ更新/並び替え/看板CRUD/印字画像 の各呼び出しを型付きで用意
+  - 完了: 各エンドポイントを型安全に呼び出せるクライアントが揃う
+  - _Depends: 2.1, 2.5, 3.1, 3.3_
+  - _Requirements: 1.1, 3.1, 4.1, 6.1, 7.1, 8.1_
+
+- [ ] 6. Core: 画面
+- [x] 6.1 (P) 工事写真一覧画面
+  - 他機能同様のレスポンシブUI（表/カード切替）、検索・ソート・ページング、タイトル「工事写真一覧」、代表サムネ優先表示
+  - 完了: 一覧がデスクトップ表/モバイルカードで表示され、検索・ページングが動作する
+  - _Depends: 5.1_
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 2.4, 11.3_
+  - _Boundary: ConstructionPhotoListPage_
+- [x] 6.2 (P) アルバム作成/編集画面
+  - 完了: 作成フォーム送信で新規アルバムが作成され一覧に反映される
+  - _Depends: 5.1_
+  - _Requirements: 1.1, 1.3_
+  - _Boundary: ConstructionPhotoCreatePage_
+- [x] 6.3 詳細画面：写真項目管理＋3系統アップロード
+  - 写真項目パネル（コメント・並び替え・印刷対象チェック、未保存→保存で最大2リクエスト）、3系統アップローダ（ローカル/カメラ/現調選択モーダル）、アップロードは最大5並列・部分失敗継続、サムネ優先表示
+  - 完了: 3系統で写真項目を追加し、並び替え・印刷対象・コメントを1保存操作で確定できる
+  - _Depends: 5.1_
+  - _Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5_
+  - _Boundary: ConstructionPhotoDetailPage_
+- [x] 6.4 (P) 看板配置エディタ
+  - fabric で写真背景に1枚の緑ボードRectをドラッグ・拡縮し、表示座標を画像ピクセル座標へ換算して保存、看板未指定を許容
+  - 完了: プレビュー上で看板の位置・大きさを指定して保存でき、未指定も可能
+  - _Depends: 5.1_
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
+  - _Boundary: SignboardPlacementEditor_
+- [x] 6.5 (P) 看板マスタ管理画面
+  - 標準項目＋自由項目行＋固定テキストの登録・編集・削除・一覧、使用中削除は確認ダイアログ、当該プロジェクト配下のみ
+  - 完了: 看板の登録/編集/削除/一覧がUIで完結し、使用中削除時に確認が出る
+  - _Depends: 5.1_
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.8, 8.9, 8.10_
+  - _Boundary: ConstructionSignboardListPage_
+
+- [ ] 7. Integration: ナビ・パネル・ルート
+- [x] 7.1 ルート登録とブレッドクラム
+  - `routes.tsx` に一覧/詳細/作成/看板の各ルートを site-survey 順序規約で追加、各画面のブレッドクラム表示
+  - 完了: 各URLへ遷移でき、ブレッドクラムが規定の階層表示になる
+  - _Depends: 6.1, 6.2, 6.3, 6.5_
+  - _Requirements: 2.5, 2.6, 2.7, 2.8, 2.9_
+- [x] 7.2 プロジェクト詳細への工事写真パネル追加
+  - `ScheduleSectionCard`（工程表）の直下に工事写真パネルを挿入、サマリ件数表示と一覧への遷移
+  - 完了: プロジェクト詳細で工程表パネルの直下に工事写真パネルが表示され、一覧へ遷移できる
+  - _Depends: 4.1, 6.1_
+  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [ ] 8. Integration: 台帳PDF
+- [x] 8.1 台帳版組・表紙・写真ページレンダラ
+  - A4寸法・写真枠/右カラム比率・点線本数・行高を定数化し参考書式に合わせる。表紙（外枠＋「工事写真」＋工事名＋工事施工者[company-info]）、写真ページ（1ページ3枠・左写真/右No.＋点線コメント欄）、No.通し番号、余白枠、日本語フォント
+  - 完了: 表紙付き・1ページ3枠・No.連番の台帳レイアウトが定数化されて描画される
+  - _Depends: 6.3_
+  - _Requirements: 10.2, 10.4, 10.5, 10.6, 10.7, 10.10, 10.11_
+  - _Boundary: ConstructionPhotoLedgerService_
+- [x] 8.2 PDF出力結線（印字画像・看板重畳・0件通知）
+  - 印刷対象の写真のみを対象に印字画像をオンデマンド取得して重畳、保存順で出力、印刷対象0件は非実行で通知
+  - 完了: 印刷対象のみのPDFが出力され看板あり写真に看板が重畳、0件時は通知して出力しない
+  - _Depends: 3.3, 6.4, 8.1_
+  - _Requirements: 10.1, 10.3, 10.12, 10.13_
+  - _Boundary: ConstructionPhotoLedgerService_
+
+- [ ] 9. Validation: テスト
+- [x] 9.1 (P) バックエンド単体テスト
+  - 現調コピーの複製・独立性、メタの `displayOrder` 正規化と合成非実行、SVG生成、看板使用中削除の件数返却、印字画像のオンデマンド合成
+  - 完了: 対象サービスの単体テストが緑になる
+  - _Requirements: 6.2, 6.3, 7.6, 8.5, 8.8, 9.5, 10.8_
+- [x] 9.2 (P) 統合テスト
+  - 画像一覧の一括署名URL（N+1なし）、メタ＋順序が最大2リクエスト、アップロード制約、detail-summary、認可401/403、プロジェクト境界の取得検証
+  - 完了: 統合テストが緑で、リクエスト効率・制約・認可・データ分離を検証する
+  - _Requirements: 2.3, 11.1, 11.2, 11.4, 11.5, 11.6, 12.1, 12.2, 12.3, 12.4, 12.5, 13.1, 13.2, 13.3, 13.4_
+- [x] 9.3 E2E テスト（Playwright）
+  - パネル遷移（工程表直下）→3系統追加→並び替え→印刷対象→保存、看板配置→PDF出力で表紙/No.連番/看板重畳、印刷対象0件の通知
+  - 完了: 主要ユーザーフローのE2Eが緑になる
+  - _Depends: 7.1, 7.2, 8.2_
+  - _Requirements: 2.1, 2.2, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 10.13_
+
+- [ ] 10. Foundation（追加機能）: 非合成原本の配信路
+- [x] 10.1 非合成原本エンドポイント＋サービス
+  - `getOriginalImage(photoId)` を追加し、看板配置の有無に関わらず看板を合成しない生原本を返す
+  - 配信ルート `GET /api/construction-photos/images/:imageId/original` を追加。`authenticate`＋`requirePermission('construction_photo:read')`＋対象が要求プロジェクト配下であることを検証
+  - 一覧DTO（`ConstructionPhotoWithUrls`）には `originalUrl` を追加しない（既存の効率・非公開方針を維持）
+  - 完了: 看板配置済み写真でも `/original` が非合成の原本をストリーム返却し、権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）、一覧DTOに `originalUrl` は現れない
+  - _Requirements: 14.6, 15.4, 13.2, 13.4_
+  - _Boundary: ConstructionPhotoImageService, construction-photo-images.routes_
+- [x] 10.2 フロントAPIクライアント：原本取得
+  - 非合成原本を取得する呼び出し（Blob返却）を型付きで追加
+  - 完了: 画像IDから非合成原本Blobを型安全に取得できる
+  - _Depends: 10.1_
+  - _Requirements: 14.6, 15.4_
+  - _Boundary: construction-photo-images api_
+
+- [ ] 11. Core（追加機能）: フロント基盤・部品
+- [x] 11.1 (P) 工事写真権限フック
+  - `construction_photo:{read,create,update,delete}` の保持状況から canView/canCreate/canEdit/canDelete と権限エラーメッセージ取得を提供、権限ロード中は全て false（安全側）
+  - 完了: 権限保持で canEdit=true・非保持で false、`construction_photo:delete` 非保持で canDelete=false、ロード中は全 false を返す
+  - _Requirements: 17.1, 17.2, 17.3, 17.5_
+  - _Boundary: useConstructionPhotoPermission_
+- [x] 11.2 (P) 閲覧専用画像ビューア＋ビューアページ＋ルート
+  - 既存のビューポート/ズーム/ジェスチャ/フィット倍率の基盤と90度単位の回転状態を合成した閲覧専用ビューア（注釈編集は持たない）。表示元は非合成原本を必要時取得
+  - ビューアページとルート `/construction-photos/:albumId/photos/:photoId` を追加し、閉じる操作で詳細へ戻る。回転ヘルパが未exportの場合はexportまたは小さく再実装する
+  - 完了: 当該URLで原本がフルスクリーン表示され、ズームイン/アウト・90度回転・拡大時パンが機能し、閉じると詳細へ戻る
+  - _Depends: 10.2_
+  - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6_
+  - _Boundary: ConstructionPhotoImageViewer, ConstructionPhotoImageViewerPage, routes.tsx_
+- [x] 11.3 (P) ZIP一括エクスポートサービス
+  - JSZipで束ね、看板モード別に取得元を切替（composited=印字画像／plain・original=非合成原本）、解像度(低/中/高)・形式(JPEG/PNG)は canvas 再エンコードで適用（original は設定を適用せず原本バイトを格納）、進捗通知、AbortSignalで中断、1件失敗は継続し失敗IDを集約
+  - 完了: 設定に応じたZIP Blobが生成され、中断で AbortError により停止、1件失敗時も残りを含むZIPと失敗一覧が得られる
+  - _Depends: 10.2_
+  - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.8, 15.9, 15.10_
+  - _Boundary: ConstructionPhotoBulkExportService_
+- [x] 11.4 (P) エクスポート設定・進捗・中断UI
+  - 形式/解像度/看板モードの選択フォーム、進捗（完了/総数）ダイアログ、中断ボタン、対象0件は非実行で通知、写真未選択時は選択エクスポートを無効化
+  - 完了: ダイアログで条件を選んで開始でき、進捗表示・中断が機能し、0件時は通知して実行されない
+  - _Requirements: 15.7, 15.11_
+  - _Boundary: BulkExportDialog, BulkExportProgressDialog, ExportSettingsForm_
+- [x] 11.5 (P) アルバム削除確認ダイアログ
+  - フォーカストラップ（FocusManager）付きの削除確認ダイアログ部品。関連する写真項目・看板配置も削除される旨を明示
+  - 完了: 開くと確認ダイアログが表示され、承認/キャンセルのコールバックがキーボード操作でも実行できる
+  - _Requirements: 16.4_
+  - _Boundary: AlbumDeleteDialog_
+
+- [ ] 12. Integration（追加機能）: 詳細・一覧への結線
+- [x] 12.1 詳細画面に画像ビューア導線を結線
+  - 写真項目パネルの画像クリックからビューアページへ遷移する導線を結線
+  - 完了: 詳細画面で写真サムネをクリックするとビューアが開く
+  - _Depends: 11.2_
+  - _Requirements: 14.1_
+  - _Boundary: ConstructionPhotoDetailPage_
+- [x] 12.2 詳細画面にZIP一括エクスポートを結線
+  - エクスポート起動導線、全件/選択の切替、写真項目パネルの選択チェック、進捗/中断表示・ダウンロード確定を結線
+  - 完了: 全件および選択でZIPをダウンロードでき、進捗・中断が画面で機能する
+  - _Depends: 11.3, 11.4_
+  - _Requirements: 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11_
+  - _Boundary: ConstructionPhotoDetailPage, PhotoItemPanel_
+- [x] 12.3 アルバム編集・削除導線を結線
+  - 詳細画面に編集導線（編集画面へ遷移）と削除導線（確認ダイアログ→削除後に一覧へ遷移）を結線、一覧の各アルバム行にも権限連動の編集/削除導線を追加
+  - 完了: 詳細から編集画面へ遷移でき、削除は確認後に実行され一覧へ戻り、一覧行からも編集/削除できる
+  - _Depends: 11.5_
+  - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
+  - _Boundary: ConstructionPhotoDetailPage, ConstructionPhotoListPage, ConstructionPhotoListTable, ConstructionPhotoListCard_
+- [x] 12.4 権限に基づくUI表示制御を結線
+  - 権限フックを用い、編集権限なしは詳細を読み取り専用（追加・コメント・並び替え・印刷対象・看板配置・保存・写真削除を非表示）、削除権限なしはアルバム/写真削除導線を非表示、権限ロード中は安全側で非表示
+  - 完了: user（削除権限なし）で削除導線が消え、編集権限なしユーザーで編集系UIが非表示になる
+  - _Depends: 11.1, 12.2, 12.3_
+  - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5_
+  - _Boundary: ConstructionPhotoDetailPage, PhotoItemPanel, ConstructionPhotoListPage_
+- [x] 12.5 未保存離脱警告を結線
+  - 詳細画面の独自の未保存追跡を共有の未保存フックへ置換し、コメント/印刷対象/並び替え/看板配置の全変更点で未保存化・保存で解消。編集権限がある場合のみ有効
+  - 完了: 未保存状態でリロード/アプリ内遷移時に警告が出て、保存後は警告が出ない
+  - _Depends: 12.4_
+  - _Requirements: 18.1, 18.2, 18.3, 18.4_
+  - _Boundary: ConstructionPhotoDetailPage_
+- [x] 12.6 詳細画面のモバイルレイアウト対応
+  - 画面幅判定で写真とコメント/操作を縦積み、横スクロール抑止、操作コントロールのタップ領域確保、ブレッドクラム水平収め、入力欄フォント16px以上で自動ズーム抑止
+  - 完了: モバイル幅で詳細画面が横スクロールせず縦積み表示になり、操作コントロールがタップ可能サイズで表示される
+  - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5_
+  - _Boundary: ConstructionPhotoDetailPage, PhotoItemPanel_
+
+- [ ] 13. Validation（追加機能）: テスト
+- [x] 13.1 (P) ZIPエクスポートサービス単体テスト
+  - 看板モード別の取得元切替、解像度/形式変換、original の原本バイト維持、進捗通知、AbortSignalでの中断（AbortError）、1件失敗時の継続と失敗集約を検証
+  - 完了: 対象サービスの単体テストが緑になる
+  - _Requirements: 15.2, 15.3, 15.4, 15.9, 15.10_
+  - _Boundary: ConstructionPhotoBulkExportService_
+- [x] 13.2 (P) 権限フック単体テスト
+  - 権限保持有無での canEdit/canDelete、権限ロード中の全 false を検証
+  - 完了: 権限フックの単体テストが緑になる
+  - _Requirements: 17.1, 17.2, 17.5_
+  - _Boundary: useConstructionPhotoPermission_
+- [x] 13.3 E2E テスト（追加機能）
+  - ビューアのズーム/回転/パン、ZIPの形式/解像度/看板モード/全件/選択/進捗/中断/0件、アルバム編集・削除導線、権限出し分け（user で削除導線非表示）、未保存離脱警告、モバイル縦積みを検証
+  - 非合成原本エンドポイントが看板配置済み写真でも原本を返すことを併せて確認
+  - 完了: 追加機能の主要ユーザーフローのE2Eが緑になる
+  - _Depends: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
+  - _Requirements: 14.1, 15.1, 16.1, 16.5, 17.2, 18.1, 19.1_
+
+## Implementation Notes
+- 環境: dev Docker の backend/frontend entrypoint が名前付き node_modules ボリュームへ `npm ci` を npm10.9.7 で実行し @emnapi ドリフトで起動失敗。対処＝ボリュームを `npx -y npm@11.6.2 ci` で seed＋`.package-hash` 記録＋frontend は `@rollup/rollup-linux-arm64-gnu` プレースホルダ作成で entrypoint 回避。BE/FE とも起動確認済み。
+- 検証コマンドはコンテナ内で実行: backend=`docker exec architrack-backend-dev npm run <test:unit|test:integration|type-check|prisma:migrate>`、frontend=`docker exec architrack-frontend-dev npm run <test|type-check|build>`。DB は architrack_dev(postgres:5432、既存30マイグレーション適用済み)。
+- 統合テスト: `npm run test:integration` は global-setup が `architrack_test`(password test)を強制するが当環境に無く全滅する。個別統合ファイルは `docker exec -e TEST_DATABASE_URL=postgresql://postgres:dev@postgres:5432/architrack_dev architrack-backend-dev npx vitest run <file>` で architrack_dev に対し実行（テストは自己クリーンアップ前提）。
+- 設計リファイン(R8.8, 3.1レビュー由来): 看板の「削除前警告」を成立させるため、看板一覧DTO(findByProject)に各看板の使用件数(inUseCount)を露出する必要がある。現状 delete は即削除して inUseCount を後返しするのみ。task 6.5(看板管理UI)の前に、看板サービスの一覧に inUseCount を含める小改修を 6.5 と併せて実施する。
+- 追補(R3.5/11.3, 6.1レビュー由来・要最終検証前対応): アルバム一覧APIが代表サムネURLを返さないため一覧のサムネが常にプレースホルダ。バックエンド(2.1域)の ConstructionPhotoAlbumDto/toDto/list に代表画像(先頭ConstructionPhoto.thumbnailPath)のTTL900s署名URLを追加し、フロント ConstructionPhotoAlbum 型へ伝播する小改修が必要。6.1の描画パスは前方互換で対応済み。
+- 追補(R3.5/R8.8)対応済み: アルバム一覧に代表サムネ署名URL(TTL900s)、看板一覧に inUseCount(groupBy・N+1なし)を追加し、フロント型へ伝播。BE単体60/統合39・FE型緑、追加のみ非破壊(独立レビューAPPROVED)。6.5はこの inUseCount を用いて削除前確認を実装可能。
+- 結線ギャップ(9.3 E2E由来): SignboardPlacementEditor(6.4)が詳細画面に未結線で看板配置UI経路が不在(R9.1到達不能)。詳細画面の各写真項目に「看板を配置」導線(看板選択+SignboardPlacementEditor起動→signboardId/placementを未保存メタに記録→既存2リクエスト保存で確定)を追加する結線タスクを実施後、9.3にplacement/overlayフローを追加する。
+- 既知の軽微制限(R5.3, validate-impl由来): カメラ非対応端末でカメラ導線を非提示にするケイパビリティ検出が未実装。現状はHTML `capture` 属性により非対応端末ではファイル選択へグレースフル劣化する(機能的には阻害なし)。当該カメラ導線は設計で再利用指定の共有 ImageUploader(site-survey)由来のため、厳密対応は共有コンポーネント側の改修(境界外・site-surveyにも影響)を要する。推奨: 別途フォローで PhotoUploader 側にケイパビリティ検出を追加。
+
+## 追加機能（Req 14〜19, タスク10〜13）
+- 対象: 現場調査詳細画面との比較で判明した不足7機能。site-survey の実証済みパターン（ビューア基盤/JSZipエクスポート/権限フック/未保存フック/レスポンシブ）を独立クローン方針で流用。既存タスク1〜9（実装済）は変更しない。
+- 設計差し戻し対応(task-graphサニティレビュー由来): 当初「バックエンド変更ゼロ」としたが、看板配置済み写真の非合成原本を得る配信路が既存に無い（一覧DTOは thumbnailUrl/printImageUrl のみ・originalUrl は単体テストで明示禁止・print-image は看板ありだと必ず合成）ことが判明。R14（ビューア原本表示）・R15.4（plain/original）成立のため、非合成原本エンドポイント `GET .../original` を新設（task 10.1）。ユーザー承認済み方針。
+- ZIP看板モード定義: composited=印字画像(サーバ合成)／plain=非合成原本を解像度変換／original=原本バイトそのまま（解像度/形式設定は適用しない）。
+- 権限: `useConstructionPhotoPermission` はロール直書きせず `usePermission('construction_photo:<action>')` で判定（RBAC権限駆動）。UIは体験向上でありBE RBACが権威（多重防御）。
+- グループ12は全て `ConstructionPhotoDetailPage` 等の既存ファイルを共有改変するため非並列。10.x/11.x/13.x は境界非重複で並列可（routes.tsx を触るのは11.2のみ）。
+- 検証コマンドは既存注記と同様にコンテナ内で実行（frontend=`docker exec architrack-frontend-dev npm run <test|type-check|build>`）。要件はE2Eで動作確認するまで完了としない。
+- R15.10 UI残課題(12.2由来): 部分失敗時の「成功分のみでダウンロード継続をユーザーが選択」UIは未実装。現状は成功分を自動ダウンロードし失敗件数を通知する劣化対応。サービス層(11.3)の failed[] 返却は実装済。厳密なユーザー選択UIは BulkExportProgressDialog の拡張を要する(要フォロー、最終検証で要否判断)。
+- スペック訂正(10.1レビュー由来): /original の認可は「権限なし=403(requirePermission)・他プロジェクト=404(存在秘匿, print-image等と同一)」。tasks/design の該当記述を是正済み。
+- E2E(13.3): 新規 `e2e/specs/construction-photos/construction-photo-additional.spec.ts`(12テスト)＋`e2e/fixtures/seed-helpers.ts` に construction_photo/signboard 権限追加(userはdelete除外=R17.2)。**test環境は本番nginxビルド済みイメージ配信のため、フロント変更反映には `architrack-frontend-test` の再ビルド＋再作成が必須**(dev配信ではない)。
+- E2Eフレーク是正(13.3): モバイルテストは `useMediaQuery` ハイドレーション(初期false→true)のデスクトップ一瞬フラッシュを稀に測定し `<main>` overflow=25で赤化していた。閾値(≤1)は据え置き、測定を「flexDirection:column 適用後」にゲートして決定化(連続runで緑)。共通ヘッダ(app-header-nav)は375pxで約25px document 級はみ出しあり=工事写真範囲外・共有レイアウト側の別課題。
+- R18.1 E2E(13.3): ネイティブreload/close の beforeunload は synthetic `Event('beforeunload',{cancelable:true})` dispatch＋`defaultPrevented` false→true→false で非フレーク検証(site-survey-responsive.spec.ts:874-924 と同手法)。OSネイティブモーダル描画/操作のみ縮退。

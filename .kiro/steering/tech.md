@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-07-09（Steering Sync: レスポンシブ・ビューポート方針（ブレークポイントの単一情報源とMobileサフィックスのspread合成、入力16px/タップ44pxの下限、`vh`→`svh`二段宣言による動的ビューポート高、フィット倍率の純関数化 computeFitScale＋useElementSize による再フィット）を追加）_
+_最終更新: 2026-07-29（Steering Sync: 工事写真台帳（construction-photo）の技術要素を反映。jspdf/jszip の用途に工事写真台帳を追記、工事看板のサーバサイド合成パターン（構造化テキスト→SVG描画 `signboard-svg.service` → sharp composite `signboard-composite.service` によるオンデマンド看板重畳。クライアント fabric 合成とは別系統のサーバ側合成路）を追加）_
+
+_2026-07-09（Steering Sync: レスポンシブ・ビューポート方針（ブレークポイントの単一情報源とMobileサフィックスのspread合成、入力16px/タップ44pxの下限、`vh`→`svh`二段宣言による動的ビューポート高、フィット倍率の純関数化 computeFitScale＋useElementSize による再フィット）を追加）_
 
 _2026-06-30（Steering Sync: 注釈Canvasのビューポート制御パターン（canvasViewportController→useCanvasViewport→ZoomControlsの一方向依存、2本指ピンチ中点ズーム/パン）、スマホ写真追加の二段構え高速化（フロント送信前圧縮＋応答の署名付きURLによる即時反映）を反映）_
 
@@ -55,9 +57,9 @@ ArchiTrack/
 - `react-dom` ^19.2.4 - React DOM操作
 - `react-router-dom` ^7.16.0 - React Router v7（ルーティング、7.14.2以下のDoS脆弱性 GHSA-8x6r-g9mw-2r78 対応で7.16.0へ更新）
 - `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`ImageViewer`/`AnnotationEditor` が共有する）
-- `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力）
+- `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力、工事写真台帳の看板重畳PDF出力）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
-- `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像の一括エクスポート、型定義同梱）
+- `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像・工事写真の一括エクスポート、型定義同梱）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
@@ -145,6 +147,7 @@ ArchiTrack/
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
 - **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
+- **工事看板のサーバサイド合成**: 工事写真台帳の工事看板（電子黒板）は構造化テキストから `services/signboard-svg.service`（SVG描画）→ `services/signboard-composite.service`（sharp composite）で写真へオンデマンド重畳する。合成は保存せずリクエスト時に生成し、印刷用画像（/print）と非合成の原本画像（/original）を配信路として分離。現場調査のクライアント fabric 合成とは別系統のサーバ側合成パス
 - **AI/OCR精度向上**: @anthropic-ai/sdk 0.74.0（Claude Vision APIによる見積書OCR構造化データ抽出）
 - **祝日データ**: @holiday-jp/holiday_jp ^2.5.1（日本の祝日判定、工程表エクスポート用）
 - **ストレージ抽象化**: StorageProvider インターフェースによる環境別バックエンド切り替え

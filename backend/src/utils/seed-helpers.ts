@@ -32,6 +32,11 @@
  * Requirements (contracts):
  * - 契約書管理権限の定義
  *   - contract:create, contract:read, contract:update, contract:delete
+ *
+ * Requirements (construction-photo):
+ * - REQ-13.1, 13.3: 工事写真・工事看板管理権限の定義
+ *   - construction_photo:create, construction_photo:read, construction_photo:update, construction_photo:delete
+ *   - construction_signboard:create, construction_signboard:read, construction_signboard:update, construction_signboard:delete
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -491,6 +496,50 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'write',
       description: '月次締めの実行',
     },
+
+    // 工事写真関連権限（construction-photo/REQ-13.1, 13.3）
+    {
+      resource: 'construction_photo',
+      action: 'create',
+      description: '工事写真の作成',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'read',
+      description: '工事写真の閲覧',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'update',
+      description: '工事写真の更新',
+    },
+    {
+      resource: 'construction_photo',
+      action: 'delete',
+      description: '工事写真の削除',
+    },
+
+    // 工事看板関連権限（construction-photo/REQ-13.1, 13.3）
+    {
+      resource: 'construction_signboard',
+      action: 'create',
+      description: '工事看板の作成',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'read',
+      description: '工事看板の閲覧',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'update',
+      description: '工事看板の更新',
+    },
+    {
+      resource: 'construction_signboard',
+      action: 'delete',
+      description: '工事看板の削除',
+    },
   ];
 
   // createManyでskipDuplicatesを使用し、並列テスト実行時のレースコンディションを回避
@@ -623,6 +672,16 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'progress', action: 'write' },
     { resource: 'cost', action: 'write' },
     { resource: 'monthly_close', action: 'write' },
+    // 工事写真関連権限（construction-photo/REQ-13.1, 13.3）
+    // 現場調査と同等の権限モデル: 一般ユーザーは作成・閲覧・更新が可能（削除は管理者のみ）
+    { resource: 'construction_photo', action: 'create' },
+    { resource: 'construction_photo', action: 'read' },
+    { resource: 'construction_photo', action: 'update' },
+    // 工事看板関連権限（construction-photo/REQ-13.1, 13.3）
+    // 現場調査と同等の権限モデル: 一般ユーザーは作成・閲覧・更新が可能（削除は管理者のみ）
+    { resource: 'construction_signboard', action: 'create' },
+    { resource: 'construction_signboard', action: 'read' },
+    { resource: 'construction_signboard', action: 'update' },
   ];
 
   // 権限IDを一括取得

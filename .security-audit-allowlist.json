@@ -2,112 +2,71 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2026-07-21",
+  "lastUpdated": "2026-07-28",
   "allowlist": {
     "backend": [
       {
+        "package": "brace-expansion",
+        "advisory": "GHSA-mh99-v99m-4gvg",
+        "severity": "high",
+        "reason": "開発依存のみ (npm audit --omit=dev はクリーン=ブロック0)。GHSA-mh99-v99m-4gvg (DoS via unbounded expansion / OOM)。eslint 系ツールチェーンの推移的依存で本番バンドル非該当。npm audit は影響レンジを <=5.0.7 と過大報告し、バックポート修正版 1.1.16 や 5.0.8 まで一律フラグする既知の誤検知を含む。install 済みは 1.1.16 / 5.0.8 でいずれも修正取り込み済み。全 brace-expansion を 5.0.8 へ強制 override すると minimatch@3 が 1.x API 前提のため破壊 (eslint も TypeError)、fixAvailable も eslint@10 への破壊的メジャーで採用不可。2026-07-29 評価: dev-only の非ブロック警告として許容。",
+        "reference": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+        "expires": "2026-10-31",
+        "addedBy": "claude",
+        "addedDate": "2026-07-29"
+      },
+      {
         "package": "xlsx",
         "severity": "high",
-        "reason": "Excel file processing library. No fix available (npm版は非推奨)。Prototype Pollution (GHSA-4r6h-8v6p-xvw6) and ReDoS (GHSA-5pgg-2g8v-p4x9) vulnerabilities. Mitigated by server-side input validation and trusted file sources only. 2026-06-02 再評価: 依存ツリーに現存・fixAvailable=false を確認し延長。",
+        "reason": "Excel file processing library. No fix available (npm版は非推奨)。Prototype Pollution (GHSA-4r6h-8v6p-xvw6) and ReDoS (GHSA-5pgg-2g8v-p4x9) vulnerabilities. Mitigated by server-side input validation and trusted file sources only. 2026-06-02 再評価: 依存ツリーに現存・fixAvailable=false を確認し延長。2026-07-28 再評価: fixAvailable=false のまま現存を確認し延長。",
         "reference": "https://github.com/advisories/GHSA-4r6h-8v6p-xvw6",
-        "expires": "2026-09-01",
+        "expires": "2026-10-31",
         "addedBy": "claude",
         "addedDate": "2026-02-04"
       }
     ],
     "frontend": [
       {
-        "package": "vite",
+        "package": "brace-expansion",
+        "advisory": "GHSA-mh99-v99m-4gvg",
         "severity": "high",
-        "reason": "開発専用ビルドツール (devDependency)。server.fs.deny バイパス (GHSA-fx2h-pf6j-xcff) 等でいずれもWindowsのdevサーバ限定、本番バンドル・CIランタイムには到達しない。修正版 8.1.x への更新は rolldown/@emnapi の wasm binding ツリーを再構築し、musl 環境の npm ci を破壊する既知リスクがあるため、develop の 8.0.x を維持し暫定許容。次回 vite 系 dependabot bump 時に lockfile 全体で解消予定。",
-        "reference": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
-        "expires": "2026-09-01",
+        "reason": "開発依存のみ (npm audit --omit=dev はクリーン=ブロック0)。GHSA-mh99-v99m-4gvg (DoS via unbounded expansion / OOM)。jest / eslint / eslint-plugin-react / storybook 等テストツールチェーンの推移的依存で本番バンドル非該当。npm audit は影響レンジを <=5.0.7 と過大報告し旧メジャー線 1.1.14 / 2.1.0 まで一律フラグする。全 brace-expansion を 5.0.8 へ強制 override すると minimatch@3 (1.x API 前提) と eslint を TypeError で破壊、fixAvailable も eslint-plugin-react@7.22 への破壊的メジャーダウングレードで採用不可。frontend の 5.x 線 5.0.6 のみ真に範囲内だが dev-only の非ブロック警告のため許容。2026-07-29 評価。",
+        "reference": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+        "expires": "2026-10-31",
         "addedBy": "claude",
-        "addedDate": "2026-07-21"
+        "addedDate": "2026-07-29"
       },
       {
-        "package": "storybook",
+        "package": "react-router",
         "severity": "high",
-        "reason": "開発専用UIカタログ。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。Storybookはローカル開発・Storybookテスト時のみ使用し本番バンドルに含まれない。修正には storybook v8.6.18 系への破壊的ダウングレード (現行v10) が必要なため、メジャー更新まで暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-09-01",
+        "reason": "本番依存だが、残存する唯一の advisory は『RSC Mode CSRF Bypass Allows Action Execution Before 400 Response』(GHSA-qwww-vcr4-c8h2, 影響範囲 >=7.12.0 <8.3.0) で React Server Components / フレームワークモード専用の脆弱性。本アプリは Vite SPA で createBrowserRouter + RouterProvider によるクライアントサイドルーティングのみを使用し (@react-router/* フレームワークパッケージ非依存・RSC 未使用) 本 advisory は非該当。7.18.1 へ更新済みで実害のある 4 件 (open redirect / XSS / DoS / constructor injection, いずれも <7.18.0) は解消済み。RSC CSRF の修正は react-router v8.3.0 系への破壊的メジャー移行が必要なため v8 移行まで暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-qwww-vcr4-c8h2",
+        "expires": "2026-10-31",
         "addedBy": "claude",
-        "addedDate": "2026-06-15"
+        "addedDate": "2026-07-28"
       },
       {
-        "package": "@storybook/builder-vite",
+        "package": "react-router-dom",
         "severity": "high",
-        "reason": "開発専用Storybookビルダ。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-09-01",
+        "reason": "react-router に連動する wrapper。脆弱性の実体は react-router の『RSC Mode CSRF Bypass』(GHSA-qwww-vcr4-c8h2) で RSC / フレームワークモード専用。本アプリは Vite SPA のクライアントサイドルーティングのみで非該当。7.18.1 へ更新済み。修正は react-router v8.3.0 系への破壊的メジャー移行が必要なため v8 移行まで暫定許容。",
+        "reference": "https://github.com/advisories/GHSA-qwww-vcr4-c8h2",
+        "expires": "2026-10-31",
         "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "@storybook/csf-plugin",
-        "severity": "high",
-        "reason": "開発専用Storybookプラグイン。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-09-01",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "@storybook/react",
-        "severity": "high",
-        "reason": "開発専用StorybookのReactレンダラ。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-09-01",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "@storybook/react-dom-shim",
-        "severity": "high",
-        "reason": "開発専用StorybookのReact DOM shim。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook 系メジャー更新が必要なため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-09-01",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "@storybook/react-vite",
-        "severity": "high",
-        "reason": "開発専用StorybookのVite統合。esbuild devサーバ経由の脆弱性 (GHSA-g7r4-m6w7-qqqr)。本番バンドル非対象。修正は storybook v8.6.18 系への破壊的変更が必要なため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-09-01",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "esbuild",
-        "severity": "high",
-        "reason": "開発専用バンドラ (Storybook経由のネスト版)。devサーバが任意ファイル読取を許す (GHSA-g7r4-m6w7-qqqr)。devサーバはローカル開発時のみ起動し本番バンドル・CIには到達しない。frontend直下のesbuildは0.28系へ更新済みで解消。残るはStorybook系にネストした旧版で、修正は storybook メジャー更新に連動するため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
-        "expires": "2026-09-01",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "concurrently",
-        "severity": "critical",
-        "reason": "開発専用のnpmスクリプト並列実行ツール。内包する shell-quote 経由の脆弱性 (GHSA-w7jw-789q-3m8p)。ローカル開発スクリプトでのみ使用し本番・CIランタイムに影響なし。修正には concurrently v10 系への破壊的更新が必要なため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-w7jw-789q-3m8p",
-        "expires": "2026-09-01",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
-      },
-      {
-        "package": "shell-quote",
-        "severity": "critical",
-        "reason": "開発専用 (concurrently経由)。quote() が改行を未エスケープ (GHSA-w7jw-789q-3m8p)。ローカル開発スクリプトでのみ使用し本番・CIランタイムに影響なし。修正は concurrently v10 系への破壊的更新に連動するため暫定許容。",
-        "reference": "https://github.com/advisories/GHSA-w7jw-789q-3m8p",
-        "expires": "2026-09-01",
-        "addedBy": "claude",
-        "addedDate": "2026-06-15"
+        "addedDate": "2026-07-28"
       }
     ],
-    "root": []
+    "root": [
+      {
+        "package": "brace-expansion",
+        "advisory": "GHSA-mh99-v99m-4gvg",
+        "severity": "high",
+        "reason": "開発依存のみ (npm audit --omit=dev はクリーン=ブロック0)。GHSA-mh99-v99m-4gvg (DoS via unbounded expansion / OOM)。archiver / exceljs / glob / rimraf / readdir-glob / zip-stream 等ビルド・スクリプト用ツールの推移的依存で本番バンドル非該当。npm audit は影響レンジを <=5.0.7 と過大報告しバックポート修正版 1.1.16 / 2.1.3 / 5.0.8 まで一律フラグする既知の誤検知を含む。install 済みは 1.1.16 / 2.1.3 / 5.0.8 でいずれも修正取り込み済み。全 brace-expansion を強制 override すると minimatch@3 (1.x API 前提) を破壊するため採用不可。2026-07-29 評価: dev-only の非ブロック警告として許容。",
+        "reference": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+        "expires": "2026-10-31",
+        "addedBy": "claude",
+        "addedDate": "2026-07-29"
+      }
+    ]
   },
   "policy": {
     "production": {

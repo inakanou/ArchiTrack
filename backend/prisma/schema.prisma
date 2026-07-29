@@ -286,6 +286,8 @@ model Project {
   contracts             Contract[] // 契約書リレーション
   constructionSchedules ConstructionSchedule[] // 工程表リレーション
   executionBudgets      ExecutionBudget[] // 実行予算リレーション
+  constructionPhotoAlbums ConstructionPhotoAlbum[] // 工事写真アルバムリレーション
+  constructionSignboards  ConstructionSignboard[] // 工事看板リレーション
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -1778,4 +1780,141 @@ model MonthlyCloseHistory {
   @@unique([executionBudgetId, targetMonth])
   @@index([executionBudgetId])
   @@map("monthly_close_histories")
+}
+
+// ===== Construction Photo Management Data Models =====
+
+/**
+ * 工事写真アルバムモデル
+ * プロジェクトに紐付く工事写真アルバム（工事写真台帳の単位）を管理する。
+ * 配下に写真項目（ConstructionPhoto）を持つ集約ルート。論理削除で
+ * アルバムと写真項目を一括で無効化する。
+ * フィールド:
+ * - id: アルバムの一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - name: アルバム名（必須）
+ * - memo: メモ（任意）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位でのアルバム検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * - name: アルバム名による検索用
+ * Requirements:
+ * - 1.1: プロジェクトに紐付く新規アルバムレコードを作成する
+ */
+model ConstructionPhotoAlbum {
+  id        String    @id @default(uuid())
+  projectId String
+  name      String // アルバム名（必須）
+  memo      String? // メモ（任意）
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // 論理削除
+
+  project Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  photos  ConstructionPhoto[]
+
+  @@index([projectId])
+  @@index([deletedAt])
+  @@index([name])
+  @@map("construction_photo_albums")
+}
+
+/**
+ * 工事写真項目モデル
+ * アルバムに紐付く写真項目（写真＋コメント）を管理する。
+ * 原本・サムネイルはストレージに保存しパスのみ格納する。写真項目は
+ * ローカルアップロード／カメラ撮影／現場調査写真のコピーの3系統で追加される。
+ * 工事看板の配置情報（signboardPlacement）は参照側であるこのモデルが所有する。
+ * フィールド:
+ * - id: 写真項目の一意ID（UUID）
+ * - albumId: アルバムID（外部キー、カスケード削除）
+ * - originalPath: ストレージオブジェクトパス（原本）
+ * - thumbnailPath: ストレージオブジェクトパス（サムネイル）
+ * - fileName: 元ファイル名
+ * - fileSize: ファイルサイズ（バイト）
+ * - width: 画像幅
+ * - height: 画像高さ
+ * - displayOrder: 表示順序
+ * - comment: 写真コメント（最大2000文字）
+ * - includeInReport: 印刷対象フラグ
+ * - signboardId: 関連付けた工事看板ID（任意、看板削除時はSetNull）
+ * - signboardPlacement: 看板配置情報 {left,top,width,height}（画像ピクセル座標）
+ * - sourceSurveyImageId: 現調コピー由来の来歴（FKにはせず値のみ保持＝site-survey非依存）
+ * - createdAt: 作成日時
+ * インデックス:
+ * - albumId: アルバム単位での写真検索用
+ * - displayOrder: 表示順序によるソート用
+ * - includeInReport: 印刷対象写真のフィルタリング用
+ * - signboardId: 看板参照による検索用
+ * Requirements:
+ * - 9.1: 写真項目に選択した工事看板を関連付ける
+ */
+model ConstructionPhoto {
+  id                  String   @id @default(uuid())
+  albumId             String
+  originalPath        String // ストレージオブジェクトパス（原本）
+  thumbnailPath       String // ストレージオブジェクトパス（サムネイル）
+  fileName            String // 元ファイル名
+  fileSize            Int // ファイルサイズ（バイト）
+  width               Int // 画像幅
+  height              Int // 画像高さ
+  displayOrder        Int // 表示順序
+  comment             String? // 写真コメント（最大2000文字）
+  includeInReport     Boolean  @default(false) // 印刷対象フラグ
+  signboardId         String? // 関連付けた工事看板ID（任意）
+  signboardPlacement  Json? // 看板配置 {left,top,width,height}（画像ピクセル座標）
+  sourceSurveyImageId String? // 現調コピー由来の来歴（FKにしない）
+  createdAt           DateTime @default(now())
+
+  album     ConstructionPhotoAlbum @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  signboard ConstructionSignboard? @relation(fields: [signboardId], references: [id], onDelete: SetNull)
+
+  @@index([albumId])
+  @@index([displayOrder])
+  @@index([includeInReport])
+  @@index([signboardId])
+  @@map("construction_photos")
+}
+
+/**
+ * 工事看板モデル（電子小黒板調・プロジェクト単位マスタ）
+ * プロジェクト単位で登録する工事看板の構造化テキスト情報を管理する。
+ * 写真項目から signboardId で参照される集約ルート。看板本体は配置情報を
+ * 持たず、配置は参照側（ConstructionPhoto.signboardPlacement）が所有する。
+ * フィールド:
+ * - id: 看板の一意ID（UUID）
+ * - projectId: 対象プロジェクトID（外部キー、カスケード削除）
+ * - workName: 工事件名（標準項目の値）
+ * - workLocation: 工事場所（標準項目の値）
+ * - freeItems: 自由項目 Array<{label,value}>（既定 []）
+ * - footerText: 下部記入欄の固定テキスト（複数行可、任意）
+ * - createdAt: 作成日時
+ * - updatedAt: 更新日時（楽観的排他制御用）
+ * - deletedAt: 論理削除日時
+ * インデックス:
+ * - projectId: プロジェクト単位での看板検索用
+ * - deletedAt: 論理削除フィルタリング用
+ * Requirements:
+ * - 8.1: プロジェクトに紐付く工事看板レコードを作成する
+ */
+model ConstructionSignboard {
+  id           String    @id @default(uuid())
+  projectId    String
+  workName     String // 工事件名（標準項目の値）
+  workLocation String // 工事場所（標準項目の値）
+  freeItems    Json      @default("[]") // 自由項目 Array<{label,value}>
+  footerText   String? // 下部記入欄の固定テキスト（複数行可）
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime? // 論理削除
+
+  project Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  photos  ConstructionPhoto[]
+
+  @@index([projectId])
+  @@index([deletedAt])
+  @@map("construction_signboards")
 }

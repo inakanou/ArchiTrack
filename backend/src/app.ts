@@ -29,6 +29,9 @@ import usersRoutes from './routes/users.routes.js';
 import projectsRoutes from './routes/projects.routes.js';
 import tradingPartnersRoutes from './routes/trading-partners.routes.js';
 import siteSurveysRoutes from './routes/site-surveys.routes.js';
+import constructionPhotosRoutes from './routes/construction-photos.routes.js';
+import constructionPhotoImagesRoutes from './routes/construction-photo-images.routes.js';
+import constructionSignboardsRoutes from './routes/construction-signboards.routes.js';
 import surveyImagesRoutes from './routes/survey-images.routes.js';
 import annotationRoutes from './routes/annotation.routes.js';
 import quantityTablesRoutes from './routes/quantity-tables.routes.js';
@@ -339,6 +342,18 @@ app.use('/api/site-surveys/images', surveyImagesRoutes);
 app.use('/api/site-surveys/images', annotationRoutes);
 // Batch annotation routes (POST /api/site-surveys/annotations/batch)
 app.use('/api/site-surveys', annotationRoutes);
+
+// Construction photo album management routes (dual mount: nested + flat)
+app.use('/api/projects/:projectId/construction-photos', constructionPhotosRoutes);
+app.use('/api/construction-photos', constructionPhotosRoutes);
+
+// Construction photo image management routes (dual mount: nested + flat)
+app.use('/api/construction-photos/:id/images', constructionPhotoImagesRoutes);
+app.use('/api/construction-photos/images', constructionPhotoImagesRoutes);
+
+// Construction signboard master management routes (dual mount: nested + flat)
+app.use('/api/projects/:projectId/construction-signboards', constructionSignboardsRoutes);
+app.use('/api/construction-signboards', constructionSignboardsRoutes);
 
 // Quantity table management routes
 app.use('/api/projects/:projectId/quantity-tables', quantityTablesRoutes);

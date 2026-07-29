@@ -53,6 +53,10 @@ const mockEstimateService = vi.hoisted(() => ({
   findLatestByProjectId: vi.fn(),
 }));
 
+const mockConstructionPhotoSummaryService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
 const mockAuditLogService = vi.hoisted(() => ({
   createLog: vi.fn().mockResolvedValue(undefined),
 }));
@@ -137,6 +141,14 @@ vi.mock('../../../services/estimate.service', () => ({
   EstimateService: class {
     constructor() {
       return mockEstimateService;
+    }
+  },
+}));
+
+vi.mock('../../../services/construction-photo-summary.service', () => ({
+  ConstructionPhotoSummaryService: class {
+    constructor() {
+      return mockConstructionPhotoSummaryService;
     }
   },
 }));
@@ -255,6 +267,23 @@ const mockEstimateResult = {
   totalCount: 1,
 };
 
+const mockConstructionPhotoSummary = {
+  totalCount: 4,
+  latestAlbums: [
+    {
+      id: 'album-1',
+      projectId: TEST_PROJECT_ID,
+      name: '基礎工事アルバム',
+      memo: null,
+      thumbnailUrl: 'construction-photos/album-1/thumb.jpg',
+      representativeImageId: 'photo-1',
+      photoCount: 6,
+      createdAt: '2026-01-12T00:00:00.000Z',
+      updatedAt: '2026-01-12T00:00:00.000Z',
+    },
+  ],
+};
+
 // ============================================================================
 // テスト
 // ============================================================================
@@ -264,6 +293,12 @@ describe('GET /api/projects/:id/detail-summary', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // 工事写真サマリの既定値（各テストは必要に応じて上書き）
+    mockConstructionPhotoSummaryService.findLatestByProjectId.mockResolvedValue({
+      totalCount: 0,
+      latestAlbums: [],
+    });
 
     app = express();
     app.use(express.json());
@@ -456,6 +491,77 @@ describe('GET /api/projects/:id/detail-summary', () => {
       latestRequests: [],
     });
     expect(response.body.sections.estimates).toEqual({ totalCount: 0, latestEstimates: [] });
+  });
+
+  /**
+   * 4.1: 工事写真セクションが既存セクションと同型で含まれることを検証
+   * Requirements: 2.3
+   */
+  it('sections に constructionPhotos:{totalCount, latestAlbums} が同型で含まれる', async () => {
+    // Arrange
+    mockProjectService.getProject.mockResolvedValue(mockProjectData);
+    mockProjectStatusService.getStatusHistory.mockResolvedValue(mockStatusHistory);
+    mockSiteSurveyService.findLatestByProjectId.mockResolvedValue(mockSurveySummary);
+    mockQuantityTableService.findLatestByProjectId.mockResolvedValue(mockQuantityTableSummary);
+    mockItemizedStatementService.findLatestByProjectId.mockResolvedValue(
+      mockItemizedStatementSummary
+    );
+    mockEstimateRequestService.findLatestByProjectId.mockResolvedValue(mockEstimateRequestSummary);
+    mockEstimateService.findLatestByProjectId.mockResolvedValue(mockEstimateResult);
+    mockConstructionPhotoSummaryService.findLatestByProjectId.mockResolvedValue(
+      mockConstructionPhotoSummary
+    );
+
+    // Act
+    const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(response.body.sections).toHaveProperty('constructionPhotos');
+    expect(response.body.sections.constructionPhotos.totalCount).toBe(4);
+    expect(response.body.sections.constructionPhotos.latestAlbums).toHaveLength(1);
+    expect(response.body.sections.constructionPhotos.latestAlbums[0]).toMatchObject({
+      id: 'album-1',
+      name: '基礎工事アルバム',
+      photoCount: 6,
+    });
+    // 他セクションが壊れていないこと（回帰）
+    expect(response.body.sections.siteSurveys.totalCount).toBe(3);
+    expect(response.body.sections.estimates.totalCount).toBe(1);
+  });
+
+  /**
+   * 4.1: 工事写真サマリ失敗時もフォールバックで応答が壊れず他セクションに影響しない
+   * Requirements: 2.3
+   */
+  it('工事写真サマリ失敗時に constructionPhotos がフォールバックし他セクションは正常', async () => {
+    // Arrange
+    mockProjectService.getProject.mockResolvedValue(mockProjectData);
+    mockProjectStatusService.getStatusHistory.mockResolvedValue(mockStatusHistory);
+    mockSiteSurveyService.findLatestByProjectId.mockResolvedValue(mockSurveySummary);
+    mockQuantityTableService.findLatestByProjectId.mockResolvedValue(mockQuantityTableSummary);
+    mockItemizedStatementService.findLatestByProjectId.mockResolvedValue(
+      mockItemizedStatementSummary
+    );
+    mockEstimateRequestService.findLatestByProjectId.mockResolvedValue(mockEstimateRequestSummary);
+    mockEstimateService.findLatestByProjectId.mockResolvedValue(mockEstimateResult);
+    mockConstructionPhotoSummaryService.findLatestByProjectId.mockRejectedValue(
+      new Error('Database connection error')
+    );
+
+    // Act
+    const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(response.body.sections.constructionPhotos).toEqual({
+      totalCount: 0,
+      latestAlbums: [],
+    });
+    // 他セクションは正常
+    expect(response.body.sections.siteSurveys.totalCount).toBe(3);
+    expect(response.body.sections.quantityTables.totalCount).toBe(2);
+    expect(response.body.sections.estimates.totalCount).toBe(1);
   });
 
   /**

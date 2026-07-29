@@ -41,6 +41,7 @@ const CONFIG = {
     /Route\.tsx$/,
     // 複雑なCanvas/Fabric.js連携コンポーネント（E2Eテストでカバー）
     /AnnotationEditor\.tsx$/,
+    /SignboardPlacementEditor\.tsx$/,
   ],
 
   // 除外ディレクトリ
