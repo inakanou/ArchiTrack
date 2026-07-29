@@ -106,20 +106,99 @@ function runNpmAudit(workspacePath, omitDev = false) {
 }
 
 /**
- * 脆弱性が許容リストに含まれているかチェック
+ * GHSA URL / ID を GHSA-ID に正規化する
  */
-function isAllowed(pkg, severity, allowlist) {
+function normalizeAdvisoryId(value) {
+  if (!value) return null;
+  // URL の場合は末尾セグメント（GHSA-xxxx-...）を取り出す
+  return String(value).split('/').filter(Boolean).pop();
+}
+
+const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical'];
+
+/**
+ * 脆弱性 pkg の via チェーンを再帰的に辿り、根本 advisory を返す
+ *   Map<GHSA-ID, severity(最大)>
+ *
+ * npm audit の via は「他パッケージ名(string)」か「advisory オブジェクト」の混在配列。
+ * string は同一 vulnerabilities マップ内の別エントリを指すため再帰的に解決する。
+ */
+function resolveRootAdvisories(pkg, vulnerabilities, seen = new Set()) {
+  const result = new Map();
+  if (seen.has(pkg)) return result;
+  seen.add(pkg);
+
+  const merge = (id, severity) => {
+    if (!id) return;
+    const prev = result.get(id);
+    if (prev === undefined || SEVERITY_ORDER.indexOf(severity) > SEVERITY_ORDER.indexOf(prev)) {
+      result.set(id, severity);
+    }
+  };
+
+  const vuln = vulnerabilities[pkg];
+  if (!vuln || !Array.isArray(vuln.via)) return result;
+
+  for (const item of vuln.via) {
+    if (typeof item === 'string') {
+      for (const [id, sev] of resolveRootAdvisories(item, vulnerabilities, seen)) {
+        merge(id, sev);
+      }
+    } else if (item && typeof item === 'object') {
+      const id = normalizeAdvisoryId(item.url) || normalizeAdvisoryId(item.source) || item.title;
+      merge(id, item.severity);
+    }
+  }
+  return result;
+}
+
+/**
+ * 期限切れでない許容 advisory ID の集合を作る
+ */
+function activeAllowedAdvisories(allowlist, today) {
+  const set = new Set();
+  for (const entry of allowlist) {
+    if (entry.expires && entry.expires < today) continue;
+    if (entry.advisory) set.add(normalizeAdvisoryId(entry.advisory));
+  }
+  return set;
+}
+
+/**
+ * 脆弱性が許容リストに含まれているかチェック
+ *
+ * 2 方式をサポート:
+ *  - パッケージ名一致: entry.package === pkg（従来方式）
+ *  - advisory 一致: entry.advisory が指す GHSA を根本原因とする脆弱性を許容。
+ *    推移的依存（例: brace-expansion に起因する eslint / jest / minimatch 等）を
+ *    根本 advisory 1 件でまとめて許容でき、別 advisory は素通しさせない精密方式。
+ *    しきい値以上の根本 advisory がすべて許容されていれば許可する
+ *    （しきい値未満の root は単独では警告対象外のため判定から除外）。
+ */
+function isAllowed(pkg, allowlist, vulnerabilities, severityThreshold = 'high') {
   const today = new Date().toISOString().split('T')[0];
 
+  // 1) パッケージ名一致（advisory 指定のないエントリのみ）
   for (const entry of allowlist) {
+    if (entry.advisory) continue;
     if (entry.package === pkg) {
-      // 有効期限チェック
-      if (entry.expires && entry.expires < today) {
-        continue; // 期限切れは許容しない
-      }
+      if (entry.expires && entry.expires < today) continue; // 期限切れは許容しない
       return true;
     }
   }
+
+  // 2) advisory 根本原因一致: しきい値以上の根本 advisory がすべて許容集合に含まれるか
+  const allowedAdvisories = activeAllowedAdvisories(allowlist, today);
+  if (allowedAdvisories.size > 0) {
+    const thresholdIndex = SEVERITY_ORDER.indexOf(severityThreshold);
+    const relevantRoots = [...resolveRootAdvisories(pkg, vulnerabilities)].filter(
+      ([, sev]) => SEVERITY_ORDER.indexOf(sev) >= thresholdIndex
+    );
+    if (relevantRoots.length > 0 && relevantRoots.every(([id]) => allowedAdvisories.has(id))) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -131,8 +210,7 @@ function analyzeVulnerabilities(auditResult, workspaceAllowlist, severityThresho
     return { blocked: [], warned: [], allowed: [] };
   }
 
-  const severityOrder = ['info', 'low', 'moderate', 'high', 'critical'];
-  const thresholdIndex = severityOrder.indexOf(severityThreshold);
+  const thresholdIndex = SEVERITY_ORDER.indexOf(severityThreshold);
 
   const blocked = [];
   const warned = [];
@@ -140,10 +218,10 @@ function analyzeVulnerabilities(auditResult, workspaceAllowlist, severityThresho
 
   for (const [pkg, vuln] of Object.entries(auditResult.vulnerabilities)) {
     const severity = vuln.severity;
-    const severityIndex = severityOrder.indexOf(severity);
+    const severityIndex = SEVERITY_ORDER.indexOf(severity);
 
     if (severityIndex >= thresholdIndex) {
-      if (isAllowed(pkg, severity, workspaceAllowlist)) {
+      if (isAllowed(pkg, workspaceAllowlist, auditResult.vulnerabilities, severityThreshold)) {
         allowed.push({ package: pkg, severity, via: vuln.via });
       } else {
         blocked.push({ package: pkg, severity, via: vuln.via, fixAvailable: vuln.fixAvailable });
