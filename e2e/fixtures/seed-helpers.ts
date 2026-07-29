@@ -413,6 +413,34 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'delete',
       description: '工事看板の削除',
     },
+
+    // 取引先関連権限（backend seed と同期）
+    { resource: 'trading-partner', action: 'create', description: '取引先の作成' },
+    { resource: 'trading-partner', action: 'read', description: '取引先の閲覧' },
+    { resource: 'trading-partner', action: 'update', description: '取引先の更新' },
+    { resource: 'trading-partner', action: 'delete', description: '取引先の削除' },
+
+    // 現場調査関連権限（backend seed と同期）
+    { resource: 'site_survey', action: 'create', description: '現場調査の作成' },
+    { resource: 'site_survey', action: 'read', description: '現場調査の閲覧' },
+    { resource: 'site_survey', action: 'update', description: '現場調査の更新' },
+    { resource: 'site_survey', action: 'delete', description: '現場調査の削除' },
+
+    // 契約書関連権限（backend seed と同期）
+    { resource: 'contract', action: 'create', description: '契約書の作成' },
+    { resource: 'contract', action: 'read', description: '契約書の閲覧' },
+    { resource: 'contract', action: 'update', description: '契約書の更新' },
+    { resource: 'contract', action: 'delete', description: '契約書の削除' },
+
+    // 実行予算関連権限（backend seed と同期）
+    { resource: 'execution_budget', action: 'read', description: '実行予算の閲覧' },
+    { resource: 'execution_budget', action: 'write', description: '実行予算の作成・編集・削除' },
+    { resource: 'order', action: 'read', description: '発注の閲覧' },
+    { resource: 'order', action: 'write', description: '発注の作成・編集・削除・ステータス変更' },
+    { resource: 'progress', action: 'read', description: '出来高の閲覧' },
+    { resource: 'progress', action: 'write', description: '出来高の入力・編集・削除' },
+    { resource: 'cost', action: 'write', description: '原価（支出実績）の入力' },
+    { resource: 'monthly_close', action: 'write', description: '月次締めの実行' },
   ];
 
   for (const permission of permissions) {
@@ -532,6 +560,27 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'construction_signboard', action: 'create' },
     { resource: 'construction_signboard', action: 'read' },
     { resource: 'construction_signboard', action: 'update' },
+    // 取引先関連権限（削除は管理者のみ, backend seed と同期）
+    { resource: 'trading-partner', action: 'create' },
+    { resource: 'trading-partner', action: 'read' },
+    { resource: 'trading-partner', action: 'update' },
+    // 現場調査関連権限（削除は管理者のみ, backend seed と同期）
+    { resource: 'site_survey', action: 'create' },
+    { resource: 'site_survey', action: 'read' },
+    { resource: 'site_survey', action: 'update' },
+    // 契約書関連権限（削除は管理者のみ, backend seed と同期）
+    { resource: 'contract', action: 'create' },
+    { resource: 'contract', action: 'read' },
+    { resource: 'contract', action: 'update' },
+    // 実行予算関連権限（EDITOR相当: read/write, backend seed と同期）
+    { resource: 'execution_budget', action: 'read' },
+    { resource: 'execution_budget', action: 'write' },
+    { resource: 'order', action: 'read' },
+    { resource: 'order', action: 'write' },
+    { resource: 'progress', action: 'read' },
+    { resource: 'progress', action: 'write' },
+    { resource: 'cost', action: 'write' },
+    { resource: 'monthly_close', action: 'write' },
   ];
 
   // 意図した権限を付与しつつ、付与対象の permissionId を収集する。
