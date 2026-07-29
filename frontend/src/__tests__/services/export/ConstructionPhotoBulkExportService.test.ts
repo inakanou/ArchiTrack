@@ -457,3 +457,9 @@ describe('ConstructionPhotoBulkExportService', () => {
     });
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 部分失敗時に失敗項目を failed[] へ積み、成功項目のみで ZIP 継続する挙動を検証。
+ * @requirement construction-photo/REQ-15.10
+ */

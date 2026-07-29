@@ -192,6 +192,13 @@ test.describe('工事写真 追加機能フロー', () => {
    * R14.1/R14.2/R14.3/R14.4/R14.5/R14.6:
    * 詳細画面のサムネクリックでフルスクリーンビューアを開き（原本を必要時に取得）、
    * ズームイン・90度回転・拡大時パン・閉じる操作を検証する。
+   *
+   * @requirement construction-photo/REQ-14.1
+   * @requirement construction-photo/REQ-14.2
+   * @requirement construction-photo/REQ-14.3
+   * @requirement construction-photo/REQ-14.4
+   * @requirement construction-photo/REQ-14.5
+   * @requirement construction-photo/REQ-14.6
    */
   test('ビューアでズームイン・回転・パン・クローズできる（原本は必要時に取得）', async ({
     page,
@@ -364,6 +371,13 @@ test.describe('工事写真 追加機能フロー', () => {
    * R15.1/R15.2/R15.3/R15.4/R15.5/R15.8:
    * 全件エクスポートで形式(PNG)・解像度(高)・看板モード(plain)を選択→開始→進捗ダイアログ→
    * ZIPダウンロードを検証する。
+   *
+   * @requirement construction-photo/REQ-15.1
+   * @requirement construction-photo/REQ-15.2
+   * @requirement construction-photo/REQ-15.3
+   * @requirement construction-photo/REQ-15.4
+   * @requirement construction-photo/REQ-15.5
+   * @requirement construction-photo/REQ-15.8
    */
   test('ZIP全件エクスポート: 形式/解像度/看板モードを選択して進捗表示のうえダウンロードされる', async ({
     page,
@@ -407,6 +421,9 @@ test.describe('工事写真 追加機能フロー', () => {
   /**
    * R15.6/R15.7:
    * 選択エクスポートは未選択時に無効化され、写真項目を選択すると有効化されてダウンロードできる。
+   *
+   * @requirement construction-photo/REQ-15.6
+   * @requirement construction-photo/REQ-15.7
    */
   test('ZIP選択エクスポート: 未選択で無効、選択後に有効化されてダウンロードされる', async ({
     page,
@@ -441,6 +458,8 @@ test.describe('工事写真 追加機能フロー', () => {
    * R15.9:
    * エクスポート進行中に中断すると、処理が中断され中断通知が表示されダウンロードは発生しない。
    * 原本取得（/original）をネットワーク遅延させ、中断操作の時間窓を決定的に確保する。
+   *
+   * @requirement construction-photo/REQ-15.9
    */
   test('ZIPエクスポートを中断すると中断通知が表示されダウンロードされない', async ({ page }) => {
     expect(adminAlbumId).toBeTruthy();
@@ -486,6 +505,8 @@ test.describe('工事写真 追加機能フロー', () => {
   /**
    * R15.11:
    * 写真項目が0件のアルバムで全件エクスポートを実行すると、非実行で対象が無い旨を通知する。
+   *
+   * @requirement construction-photo/REQ-15.11
    */
   test('ZIP対象0件のアルバムではエクスポートが非実行で通知される', async ({ page }) => {
     expect(adminProjectId).toBeTruthy();
@@ -518,6 +539,13 @@ test.describe('工事写真 追加機能フロー', () => {
    * R16.1/R16.2/R16.3/R16.4/R16.5（＋R16.6）:
    * 詳細画面のアルバム編集導線→編集画面遷移、削除導線→確認→削除→一覧遷移を検証する。
    * 一覧の行アクション（編集/削除導線）の存在も併せて確認する。
+   *
+   * @requirement construction-photo/REQ-16.1
+   * @requirement construction-photo/REQ-16.2
+   * @requirement construction-photo/REQ-16.3
+   * @requirement construction-photo/REQ-16.4
+   * @requirement construction-photo/REQ-16.5
+   * @requirement construction-photo/REQ-16.6
    */
   test('アルバム編集・削除導線: 編集画面遷移／削除確認→削除→一覧遷移、一覧に行アクション導線', async ({
     page,
@@ -575,6 +603,9 @@ test.describe('工事写真 追加機能フロー', () => {
    * R17.2（＋R17.1）権限出し分け:
    * user は削除導線（アルバム削除・写真項目削除）が非表示、編集導線（アルバム編集・アップローダ）は表示。
    * user 自身が所有するプロジェクト/アルバムで検証する（プロジェクトアクセスは所有者/管理者に限定）。
+   *
+   * @requirement construction-photo/REQ-17.1
+   * @requirement construction-photo/REQ-17.2
    */
   test('権限出し分け: user は削除導線が非表示・編集導線は表示される', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
@@ -614,6 +645,9 @@ test.describe('工事写真 追加機能フロー', () => {
    * 保存後は未保存状態が解消され、以降の遷移では警告が出ない。
    * （R18.1 のブラウザreload/close は beforeunload 実装済みだが Playwright での検証はフレークのため
    *  同一の未保存状態を in-app 遷移ガードで観測する）
+   *
+   * @requirement construction-photo/REQ-18.2
+   * @requirement construction-photo/REQ-18.3
    */
   test('未保存離脱警告: 変更ありのアプリ内遷移で確認→とどまる、保存後は警告なし', async ({
     page,
@@ -672,6 +706,11 @@ test.describe('工事写真 追加機能フロー', () => {
    * ネイティブ離脱ダイアログの自動化はフレークのため、site-survey-responsive.spec.ts の確立済み
    * パターンに倣い、synthetic な `beforeunload` イベントを dispatch して `event.defaultPrevented`
    * を観測する（非フレーク）。OS ネイティブモーダルの描画・操作自体は対象外（縮退の趣旨を限定）。
+   *
+   * R7.1: コメント入力→blurで当該写真項目のコメントが未保存状態として保持される（dirty表示）。
+   *
+   * @requirement construction-photo/REQ-18.1
+   * @requirement construction-photo/REQ-7.1
    */
   test('未保存離脱警告(beforeunload): 変更ありで離脱警告が発火し、保存後は解除される', async ({
     page,
@@ -733,6 +772,10 @@ test.describe('工事写真 追加機能フロー', () => {
    * R19.1/R19.2（＋R19.4）モバイル縦積み:
    * 狭幅（375px）で詳細画面を表示し、横スクロールが発生せず、写真項目が縦積み（column）で
    * 配置されることを検証する。
+   *
+   * @requirement construction-photo/REQ-19.1
+   * @requirement construction-photo/REQ-19.2
+   * @requirement construction-photo/REQ-19.4
    */
   test('モバイル狭幅で横スクロールなし・写真項目が縦積みで表示される', async ({ page }) => {
     expect(adminAlbumId).toBeTruthy();

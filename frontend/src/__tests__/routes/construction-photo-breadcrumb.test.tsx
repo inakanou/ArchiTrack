@@ -207,3 +207,12 @@ describe('工事写真ブレッドクラム階層', () => {
     );
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-2.5
+ * @requirement construction-photo/REQ-2.6
+ * @requirement construction-photo/REQ-2.7
+ * @requirement construction-photo/REQ-2.8
+ */

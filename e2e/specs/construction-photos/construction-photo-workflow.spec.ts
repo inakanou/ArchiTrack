@@ -106,6 +106,9 @@ test.describe('工事写真 主要ユーザーフロー', () => {
   /**
    * R2.1: プロジェクト詳細に工事写真パネルが「工程表パネルの直下」に表示される。
    * R1.1 / 6.1導線: パネルの空状態からアルバムを新規作成して一覧に反映される。
+   *
+   * @requirement construction-photo/REQ-2.1
+   * @requirement construction-photo/REQ-1.1
    */
   test('工事写真パネルが工程表直下に表示され、空状態からアルバムを作成できる', async ({ page }) => {
     expect(projectId).toBeTruthy();
@@ -155,6 +158,11 @@ test.describe('工事写真 主要ユーザーフロー', () => {
   /**
    * R2.2: 工事写真パネル操作で一覧へ遷移する。
    * R2.4: 一覧項目選択で詳細画面へ遷移する。
+   * R2.9: 一覧画面の画面タイトルを「工事写真一覧」として表示する。
+   *
+   * @requirement construction-photo/REQ-2.2
+   * @requirement construction-photo/REQ-2.4
+   * @requirement construction-photo/REQ-2.9
    */
   test('パネル→一覧（すべて見る）→詳細（アルバム選択）へ遷移できる', async ({ page }) => {
     expect(projectId).toBeTruthy();
@@ -188,6 +196,10 @@ test.describe('工事写真 主要ユーザーフロー', () => {
   /**
    * R4.1: ローカルアップロードで写真項目を追加できる。
    * R5.1 / R6.1: カメラ入力・現調写真参照の導線が存在する（3系統アップローダ）。
+   *
+   * @requirement construction-photo/REQ-4.1
+   * @requirement construction-photo/REQ-5.1
+   * @requirement construction-photo/REQ-6.1
    */
   test('3系統アップローダ: ローカルアップロードで写真項目を追加でき、カメラ/現調導線が存在する', async ({
     page,
@@ -235,6 +247,8 @@ test.describe('工事写真 主要ユーザーフロー', () => {
    *
    * 直前のアップロード時点では印刷対象を未チェックのため0件。並び替え・印刷対象チェックの
    * テストより前に検証する。
+   *
+   * @requirement construction-photo/REQ-10.13
    */
   test('印刷対象0件でPDF出力すると非実行で通知される', async ({ page }) => {
     expect(albumId).toBeTruthy();
@@ -263,9 +277,16 @@ test.describe('工事写真 主要ユーザーフロー', () => {
   });
 
   /**
-   * R7.3, R7.4: 並び替え（上へ移動）。
+   * R7.4: 並び替え（上へ移動）。
    * R7.5: 印刷対象チェック。
-   * R7.1, R7.6, R11.4: 保存でメタ一括更新＋順序更新の最大2リクエストに束ねて確定し、永続化される。
+   * R7.6, R11.4: 保存でメタ一括更新＋順序更新の最大2リクエストに束ねて確定する。
+   * R7.8: 再読込で保存済みの表示順序が保持される（一覧の順序表示）。
+   *
+   * @requirement construction-photo/REQ-7.4
+   * @requirement construction-photo/REQ-7.5
+   * @requirement construction-photo/REQ-7.6
+   * @requirement construction-photo/REQ-11.4
+   * @requirement construction-photo/REQ-7.8
    */
   test('並び替え＋印刷対象を1保存操作（最大2リクエスト）で確定でき、永続化される', async ({
     page,
@@ -341,6 +362,8 @@ test.describe('工事写真 主要ユーザーフロー', () => {
    * R10.1: 印刷対象ありでPDF出力するとPDFがダウンロードされる。
    *
    * 前テストで先頭項目を印刷対象にしているため、ここでは印刷対象が1件以上ある。
+   *
+   * @requirement construction-photo/REQ-10.1
    */
   test('印刷対象ありでPDF出力するとPDFがダウンロードされる', async ({ page }) => {
     expect(albumId).toBeTruthy();
@@ -365,6 +388,14 @@ test.describe('工事写真 主要ユーザーフロー', () => {
 
   /**
    * R8.1: 工事看板マスタの登録／編集／削除ができる。
+   * R8.6: 編集して保存で工事看板レコードを更新する。
+   * R8.7: 削除で当該工事看板を削除する。
+   * R8.10: 一覧表示で当該プロジェクトに登録済みの工事看板を一覧表示する。
+   *
+   * @requirement construction-photo/REQ-8.1
+   * @requirement construction-photo/REQ-8.6
+   * @requirement construction-photo/REQ-8.7
+   * @requirement construction-photo/REQ-8.10
    */
   test('工事看板マスタを登録・編集・削除できる', async ({ page }) => {
     expect(projectId).toBeTruthy();
@@ -437,6 +468,10 @@ test.describe('工事写真 主要ユーザーフロー', () => {
    *
    * 直前の「並び替え＋印刷対象」テストで先頭（data-photo-id=idSecondBefore）が印刷対象。
    * ここでは先頭項目へ看板を配置し、続くPDFテストで「看板割当ありの印刷対象」を成立させる。
+   *
+   * @requirement construction-photo/REQ-9.1
+   * @requirement construction-photo/REQ-9.5
+   * @requirement construction-photo/REQ-9.6
    */
   test('看板を登録し、写真項目へ看板を配置して保存・永続化できる', async ({ page }) => {
     expect(projectId).toBeTruthy();

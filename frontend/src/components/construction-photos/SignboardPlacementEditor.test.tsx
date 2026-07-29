@@ -229,3 +229,11 @@ describe('SignboardPlacementEditor', () => {
     expect(rect.height).toBeCloseTo(90, 5);
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-9.2
+ * @requirement construction-photo/REQ-9.3
+ * @requirement construction-photo/REQ-9.4
+ */

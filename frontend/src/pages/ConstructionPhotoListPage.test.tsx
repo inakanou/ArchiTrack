@@ -399,3 +399,11 @@ describe('ConstructionPhotoListPage', () => {
     });
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-2.9
+ * @requirement construction-photo/REQ-3.1
+ * @requirement construction-photo/REQ-3.2
+ */

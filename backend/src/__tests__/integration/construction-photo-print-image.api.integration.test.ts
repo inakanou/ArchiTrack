@@ -294,3 +294,10 @@ describe('Construction Photo Print Image API Integration Tests', () => {
     expect(res.status).toBe(404);
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-9.7
+ * @requirement construction-photo/REQ-10.9
+ */

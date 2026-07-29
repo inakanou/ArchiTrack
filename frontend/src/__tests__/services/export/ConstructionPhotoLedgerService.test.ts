@@ -252,6 +252,67 @@ describe('ConstructionPhotoLedgerService', () => {
   });
 
   // ==========================================================================
+  // (b-2) 写真アスペクト比保持
+  // ==========================================================================
+  describe('写真アスペクト比保持 (要件10.7)', () => {
+    // レイアウト定数から導かれる写真枠の寸法（contentWidth=210-15*2=180, ratio=0.45）
+    const IMAGE_FRAME_WIDTH = (210 - 15 * 2) * 0.45; // = 81mm
+    const IMAGE_MAX_HEIGHT = 70; // CONSTRUCTION_PHOTO_LEDGER_LAYOUT.IMAGE_MAX_HEIGHT
+
+    /** addImage 呼び出しから (dataUrl, 'JPEG', x, y, width, height) の width/height を取得する */
+    function drawnImageSize(mock: MockJsPDF, dataUrl: string): { width: number; height: number } {
+      const call = mock.addImage.mock.calls.find((c) => c[0] === dataUrl);
+      if (!call) throw new Error(`addImage not called with dataUrl: ${dataUrl}`);
+      return { width: call[4] as number, height: call[5] as number };
+    }
+
+    it('横長画像は縦横比を保ったまま写真枠幅に収める（引き伸ばさない）', async () => {
+      const { ConstructionPhotoLedgerService } = await import(
+        '../../../services/export/ConstructionPhotoLedgerService'
+      );
+      const service = new ConstructionPhotoLedgerService();
+
+      // 16:9 の横長。枠幅81mmに対し高さ=81/(16/9)=45.56mm（<70）でクランプされない
+      const dataUrl = 'data:image/jpeg;base64,/9j/landscape';
+      service.buildLedgerDocument(mockJsPDF as never, {
+        workName: '工事名',
+        contractorName: '会社名',
+        items: [{ dataUrl, comment: null, width: 1600, height: 900 }],
+      });
+
+      const { width, height } = drawnImageSize(mockJsPDF, dataUrl);
+      // アスペクト比が原本(1600:900)と一致する（引き伸ばし・固定枠への歪みがない）
+      expect(width / height).toBeCloseTo(1600 / 900, 3);
+      // 写真枠内に収まる（幅は枠幅、超過なし）
+      expect(width).toBeCloseTo(IMAGE_FRAME_WIDTH, 3);
+      expect(height).toBeLessThanOrEqual(IMAGE_MAX_HEIGHT + 1e-6);
+    });
+
+    it('縦長画像は高さ上限でクランプしつつ縦横比を保つ（枠内に収める）', async () => {
+      const { ConstructionPhotoLedgerService } = await import(
+        '../../../services/export/ConstructionPhotoLedgerService'
+      );
+      const service = new ConstructionPhotoLedgerService();
+
+      // 9:16 の縦長。枠幅81mmだと高さ=81/(9/16)=144mm>70 のため高さ70でクランプされる
+      const dataUrl = 'data:image/jpeg;base64,/9j/portrait';
+      service.buildLedgerDocument(mockJsPDF as never, {
+        workName: '工事名',
+        contractorName: '会社名',
+        items: [{ dataUrl, comment: null, width: 900, height: 1600 }],
+      });
+
+      const { width, height } = drawnImageSize(mockJsPDF, dataUrl);
+      // 高さは枠の高さ上限でクランプされる
+      expect(height).toBeCloseTo(IMAGE_MAX_HEIGHT, 3);
+      // クランプ後も原本(900:1600)のアスペクト比を保持する
+      expect(width / height).toBeCloseTo(900 / 1600, 3);
+      // 幅は枠幅を超えない
+      expect(width).toBeLessThanOrEqual(IMAGE_FRAME_WIDTH + 1e-6);
+    });
+  });
+
+  // ==========================================================================
   // (c) 余白枠
   // ==========================================================================
   describe('余白枠 (要件10.10)', () => {
@@ -324,3 +385,16 @@ describe('ConstructionPhotoLedgerService', () => {
     });
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-10.2
+ * @requirement construction-photo/REQ-10.3
+ * @requirement construction-photo/REQ-10.4
+ * @requirement construction-photo/REQ-10.5
+ * @requirement construction-photo/REQ-10.6
+ * @requirement construction-photo/REQ-10.7
+ * @requirement construction-photo/REQ-10.10
+ * @requirement construction-photo/REQ-10.11
+ */

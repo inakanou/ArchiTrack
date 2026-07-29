@@ -1259,3 +1259,15 @@ describe('ConstructionPhotoImageService.getOriginalImage', () => {
     );
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-4.3
+ * @requirement construction-photo/REQ-4.5
+ * @requirement construction-photo/REQ-4.6
+ * @requirement construction-photo/REQ-4.7
+ * @requirement construction-photo/REQ-7.7
+ * @requirement construction-photo/REQ-11.6
+ * @requirement construction-photo/REQ-12.5
+ */

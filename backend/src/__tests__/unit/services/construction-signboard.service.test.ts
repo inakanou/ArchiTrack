@@ -505,3 +505,10 @@ describe('ConstructionSignboardService', () => {
     });
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-8.2
+ * @requirement construction-photo/REQ-8.3
+ */

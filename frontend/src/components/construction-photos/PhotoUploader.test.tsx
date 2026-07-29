@@ -213,6 +213,42 @@ describe('PhotoUploader コンポーネント', () => {
     });
   });
 
+  // @requirement construction-photo/REQ-5.3
+  it('カメラ手段はネイティブcapture属性への委譲で、非カメラ端末ではローカルアップロードに縮退する (R5.3)', async () => {
+    // R5.3: 「デバイスがカメラをサポートしない場合、カメラ撮影手段を提供せずローカルアップロード
+    // 手段のみを提示する」を、独自のライブカメラ実装（getUserMedia 等）を持たず、標準の
+    // file input + capture="environment" にキャプチャ可否の判定をブラウザへ委譲する設計で満たす。
+    // カメラ非対応端末では capture 属性が無視され同 input が通常のファイル選択（＝ローカル
+    // アップロード）として振る舞うため、追加手段はローカルアップロードのみに縮退する。
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
+      successful: [makePhoto('deg-1', 'picked.jpg')],
+      failed: [],
+    });
+    const onPhotosAdded = vi.fn();
+    render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />);
+
+    // カメラ入力は標準の file input（type=file / accept=image/*）であり、キャプチャは
+    // capture="environment" によりOSへ委譲される（独自のカメラUIを持たない）。
+    const cameraInput = screen.getByTestId('camera-input') as HTMLInputElement;
+    expect(cameraInput.tagName).toBe('INPUT');
+    expect(cameraInput.getAttribute('type')).toBe('file');
+    expect(cameraInput.getAttribute('capture')).toBe('environment');
+    expect(cameraInput.getAttribute('accept')).toBe('image/*');
+
+    // 非カメラ端末を想定し、capture が無視されて「ファイル選択（ローカルアップロード）」として
+    // 使われても、ローカルアップロードと同一の経路（uploadConstructionPhotos）へ合流する
+    // （＝カメラ専用の別経路が存在せず、追加手段がローカルアップロードのみに縮退する）。
+    await act(async () => {
+      fireEvent.change(cameraInput, { target: { files: [makeFile('picked.jpg')] } });
+    });
+    await waitFor(() => {
+      expect(imagesApi.uploadConstructionPhotos).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(onPhotosAdded).toHaveBeenCalledWith([expect.objectContaining({ id: 'deg-1' })]);
+    });
+  });
+
   it('現調写真選択で from-surveys API が呼ばれる (R6.1)', async () => {
     vi.mocked(imagesApi.addConstructionPhotosFromSurveys).mockResolvedValue({
       successful: [makePhoto('copy-1', 's1.jpg')],
@@ -237,3 +273,11 @@ describe('PhotoUploader コンポーネント', () => {
     });
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-5.2
+ * @requirement construction-photo/REQ-5.3
+ * @requirement construction-photo/REQ-11.5
+ */

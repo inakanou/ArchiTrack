@@ -348,3 +348,12 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
     });
   });
 });
+
+/**
+ * Requirements coverage (construction-photo) — requirement-coverage tags.
+ * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-4.2
+ * @requirement construction-photo/REQ-12.2
+ * @requirement construction-photo/REQ-12.3
+ * @requirement construction-photo/REQ-12.4
+ */
