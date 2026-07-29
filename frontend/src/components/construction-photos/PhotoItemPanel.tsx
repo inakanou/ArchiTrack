@@ -226,7 +226,9 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#9ca3af',
+    // WCAG 2 AA: 背景 #f3f4f6 に対し gray-400(#9ca3af) は約2:1で不足のため
+    // gray-600(#4b5563, 約6.9:1) を採用しコントラスト比4.5:1以上を満たす
+    color: '#4b5563',
     fontSize: '13px',
   } as React.CSSProperties,
   orderNumber: {

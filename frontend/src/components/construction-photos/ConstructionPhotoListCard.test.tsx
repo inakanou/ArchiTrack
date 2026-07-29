@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ConstructionPhotoListCard from './ConstructionPhotoListCard';
 import type { ConstructionPhotoAlbumListItem } from './ConstructionPhotoListTable';
@@ -82,50 +82,58 @@ describe('ConstructionPhotoListCard', () => {
       const user = userEvent.setup({ delay: null });
       const { onCardClick } = renderCard();
 
+      // 詳細表示はカード全面を覆う stretched button（編集/削除ボタンとは兄弟要素）
       const card = screen.getByTestId('album-card-album-1');
-      await user.click(card);
+      await user.click(within(card).getByRole('button', { name: /詳細を表示/ }));
 
       expect(onCardClick).toHaveBeenCalledWith('album-1');
     });
   });
 
   describe('カードのキーボード操作 (R16.6)', () => {
-    it('カードにフォーカスしてEnterキーを押すとonCardClickが呼ばれる', () => {
+    it('詳細表示ボタンにフォーカスしてEnterキーを押すとonCardClickが呼ばれる', async () => {
+      const user = userEvent.setup({ delay: null });
       const { onCardClick } = renderCard();
 
-      const card = screen.getByTestId('album-card-album-1');
-      fireEvent.keyDown(card, { key: 'Enter' });
+      const openButton = screen.getByTestId('album-card-open-album-1');
+      openButton.focus();
+      await user.keyboard('{Enter}');
 
       expect(onCardClick).toHaveBeenCalledWith('album-1');
     });
 
-    it('カードにフォーカスしてSpaceキーを押すとonCardClickが呼ばれる', () => {
+    it('詳細表示ボタンにフォーカスしてSpaceキーを押すとonCardClickが呼ばれる', async () => {
+      const user = userEvent.setup({ delay: null });
       const { onCardClick } = renderCard();
 
-      const card = screen.getByTestId('album-card-album-1');
-      fireEvent.keyDown(card, { key: ' ' });
+      const openButton = screen.getByTestId('album-card-open-album-1');
+      openButton.focus();
+      await user.keyboard(' ');
 
       expect(onCardClick).toHaveBeenCalledWith('album-1');
     });
 
-    it('Enter/Space以外のキーではonCardClickは呼ばれない', () => {
+    it('Enter/Space以外のキーではonCardClickは呼ばれない', async () => {
+      const user = userEvent.setup({ delay: null });
       const { onCardClick } = renderCard();
 
-      const card = screen.getByTestId('album-card-album-1');
-      fireEvent.keyDown(card, { key: 'Tab' });
+      const openButton = screen.getByTestId('album-card-open-album-1');
+      openButton.focus();
+      await user.keyboard('a');
 
       expect(onCardClick).not.toHaveBeenCalled();
     });
 
-    it('アクション領域でのキー操作はカードへ伝播せずonCardClickは呼ばれない', () => {
-      const { onCardClick } = renderCard();
+    it('編集ボタンのキーボード操作はカード詳細表示（onCardClick）を発火しない', async () => {
+      const user = userEvent.setup({ delay: null });
+      const { onCardClick, onEditAlbum } = renderCard();
 
       const card = screen.getByTestId('album-card-album-1');
       const editButton = within(card).getByRole('button', { name: /編集/ });
-      const actionArea = editButton.parentElement as HTMLElement;
+      editButton.focus();
+      await user.keyboard('{Enter}');
 
-      fireEvent.keyDown(actionArea, { key: 'Enter' });
-
+      expect(onEditAlbum).toHaveBeenCalledWith('album-1');
       expect(onCardClick).not.toHaveBeenCalled();
     });
   });

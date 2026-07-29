@@ -11,7 +11,7 @@
  * - 3.5, 11.3: 一覧画面で代表サムネイル画像を優先表示
  */
 
-import { useCallback, type KeyboardEvent } from 'react';
+import { useCallback } from 'react';
 import type { ConstructionPhotoAlbumListItem } from './ConstructionPhotoListTable';
 
 // ============================================================================
@@ -118,27 +118,26 @@ function AlbumCard({
     onClick(album.id);
   }, [album.id, onClick]);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onClick(album.id);
-      }
-    },
-    [album.id, onClick]
-  );
-
+  // アクセシビリティ: カード全体をクリック可能にしつつ、編集/削除ボタンを
+  // インタラクティブ要素の内側にネストさせない（axe nested-interactive 回避）。
+  // 詳細表示は「stretched button」でカード全面を覆い、編集/削除ボタンはその兄弟要素
+  // として z-index を上げて独立操作可能にする。
   return (
     <div
       data-testid={`album-card-${album.id}`}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
-      tabIndex={0}
-      role="button"
-      aria-label={`${album.name}の詳細を表示`}
-      className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 cursor-pointer hover:shadow-md hover:border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all"
+      className="relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 hover:shadow-md hover:border-blue-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 transition-all"
     >
-      <div className="flex gap-4">
+      {/* 主導線: 詳細表示（カード全面を覆う stretched button） */}
+      <button
+        type="button"
+        onClick={handleClick}
+        aria-label={`${album.name}の詳細を表示`}
+        data-testid={`album-card-open-${album.id}`}
+        className="absolute inset-0 z-0 rounded-xl cursor-pointer focus:outline-none"
+      />
+
+      {/* 表示コンテンツ（非インタラクティブ・クリックは背面の stretched button へ透過） */}
+      <div className="pointer-events-none relative z-10 flex gap-4">
         {/* サムネイル */}
         <div className="flex-shrink-0">
           <ThumbnailImage album={album} />
@@ -191,13 +190,10 @@ function AlbumCard({
         </div>
       </div>
 
-      {/* カードアクション（編集・削除, R16.6, 権限連動 R17.1, R17.2） */}
+      {/* カードアクション（編集・削除, R16.6, 権限連動 R17.1, R17.2）
+          stretched button の兄弟要素として z-index を上げ独立操作可能にする */}
       {(onEdit || onDelete) && (
-        <div
-          className="flex justify-end gap-2 mt-3 pt-3 border-t border-gray-100"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
+        <div className="relative z-10 flex justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
           {onEdit && (
             <button
               type="button"
