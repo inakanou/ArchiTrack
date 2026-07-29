@@ -534,12 +534,15 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'construction_signboard', action: 'update' },
   ];
 
+  // 意図した権限を付与しつつ、付与対象の permissionId を収集する。
+  const intendedUserPermissionIds: string[] = [];
   for (const { resource, action } of basicPermissions) {
     const permission = await prisma.permission.findFirst({
       where: { resource, action },
     });
 
     if (permission) {
+      intendedUserPermissionIds.push(permission.id);
       await prisma.rolePermission.upsert({
         where: {
           roleId_permissionId: {
@@ -554,6 +557,23 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
         },
       });
     }
+  }
+
+  // 一般ユーザーロールの権限を「意図した集合」に一致させる（権威的シード）。
+  // cleanDatabase はシステムロール（user/admin）の role_permissions をマスターとして
+  // 保持し、上の upsert は付与のみで削除を行わない。このため、過去に付与された
+  // 権限（例: 一時的な seed 版や手動操作で入り込んだ construction_photo:delete）が
+  // 永続テストDBに固着し、REQ-17.2（一般ユーザーは削除導線非表示）の検証が
+  // canDelete=true により破綻する。ここで意図集合に無い role_permission を除去し、
+  // 権限ドリフトを global-setup 実行ごとに是正する。
+  // 意図集合が空（＝権限マスター未シード等の異常）の場合は notIn:[] による全削除を避ける。
+  if (intendedUserPermissionIds.length > 0) {
+    await prisma.rolePermission.deleteMany({
+      where: {
+        roleId: userRole.id,
+        permissionId: { notIn: intendedUserPermissionIds },
+      },
+    });
   }
 
   console.log('    ✓ Role-permission assignments seeded successfully');
