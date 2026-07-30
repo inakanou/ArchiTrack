@@ -142,6 +142,28 @@ export class ItemizedStatementNotFoundForEstimateError extends NotFoundError {
 }
 
 /**
+ * 明細一括保存の検証エラー
+ * 422 Unprocessable Entity
+ *
+ * design.md「Error Handling」の「保存前の検証NG（必須項目・循環参照・孤児ノード・件数上限）」に
+ * 対応する。トランザクション開始前の全件検証で検出したため、書き込みは一切発生していない。
+ *
+ * Requirements (estimate-creation): 42.4, 42.8
+ */
+export class EstimateDraftValidationError extends ApiError {
+  constructor(public readonly issues: readonly { path: string; message: string }[]) {
+    super(
+      422,
+      '見積明細の入力内容に不備があるため保存できません',
+      'ESTIMATE_DRAFT_VALIDATION_ERROR',
+      { issues },
+      PROBLEM_TYPES.VALIDATION_ERROR
+    );
+    this.name = 'EstimateDraftValidationError';
+  }
+}
+
+/**
  * 循環参照エラー（見積項目の親子関係）
  * 400 Bad Request
  */

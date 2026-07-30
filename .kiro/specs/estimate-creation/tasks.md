@@ -1033,7 +1033,7 @@
   - _Requirements: 42.4, 42.8, 54.1_
   - _Depends: 52.1, 52.2_
 
-- [ ] 52.4 明細の差分適用と親子関係の解決
+- [x] 52.4 明細の差分適用と親子関係の解決
   - トランザクション開始前に全件検証を行い、検証失敗時は書き込みを一切発生させない
   - リクエストに含まれない既存項目を削除し、子孫は連鎖削除に委ねる
   - 既存項目は識別子を維持して更新し、実行予算項目からの参照を切らない
@@ -1553,3 +1553,4 @@
 - 環境（全タスク共通）: dev の backend/frontend コンテナは lockfile の `@emnapi/core` 欠落で起動失敗（npm 10.9.7 が lock を拒否）。postgres/redis/mailhog は healthy。単体テストと Prisma はホスト（node 22.21.1 / npm 11.6.2）で実行可能。**統合テストとE2Eはテスト用DB `127.0.0.1:5433` とアプリコンテナが必要なため、E2Eタスク（53.14 が最初）の着手前にコンテナ復旧が必要**。
 - 52.2: `Estimate` に `submission_date`(DATE,NULL可) / `validity_period`(VARCHAR(100),NULL可) / `separate_works`(TEXT[] NOT NULL DEFAULT `{}`) を追加。**注意**: Prisma はスカラー配列列に `NOT NULL` を出力しないため migration.sql を手編集した（空DBへの全履歴リプレイでドリフト無しを確認済み）。同種の配列列を追加する際は同じ手当てが要る。`prisma migrate diff` の正しいフラグは `--to-schema`（`--to-schema-datamodel` は Prisma 7.9.1 に存在しない）。型チェックは必ず `npm --prefix backend run type-check` を使うこと（`npm exec -- tsc --noEmit` はルートから走り backend の tsconfig を拾わない）。別途工事の5件上限は DB 制約を置かずアプリ側検証（52.3 / 53.5 / 56.8 が担当）。
 - 52.3: `saveEstimateDraftSchema` を追加（`saveEstimateItemNodeSchema` は zod4 の getter で再帰、`saveItemTypeSchema` は STANDARD/DISCOUNT/NOTE）。**ワイヤ契約は strict**: design.md 4295-4324 のとおり `reportFields`・ノードの `id`/`tempId`/`children`・明細行の9フィールドはすべて「null許容だが省略不可」。葉ノードも `children: []` を、空セルも `null` を明示送信する必要があり、部分ペイロードは 400 になる（53.5 のフロント `saveEstimateDraft` は全キーを埋めて送ること）。ツリー検証 `validateSaveEstimateItemTree` は再帰ではなく明示スタックのDFSで、循環参照・重複配置・識別子なし項目・総数上限・DISCOUNT/NOTE の構造制約をまとめて `superRefine` で報告する（issue path はノード単位、例 `items.0.children.0.id`）。**52.4 への申し送り3件**: (1) design.md 4376「`NOTE` 項目は `name` 以外は NULL とする」は正規化＝書き込み側の責務としてスキーマでは未実装、52.4 で担保すること。(2) `reportFields` の内側3フィールドは `.default()` のままなので `reportFields: {}` のような部分オブジェクトは既定値で空白化される。(3) `SAVE_ESTIMATE_MAX_ITEMS = 2000` は design.md の Risks が実測待ちとしている暫定値で、段階1リリース前に確定が必要。
+- 52.4: `EstimateDraftService.saveDraft(estimateId, input)` を新設（`backend/src/services/estimate-draft.service.ts`）。422用に `EstimateDraftValidationError` を `backend/src/errors/estimateError.ts` へ純追加（`ApiError` 継承なので errorHandler の汎用分岐でそのまま problem details 化される）。**設計図に無い補正を1つ入れている**: 削除の直前に `updateMany({parentId: null})` で「削除対象の親から別の親へ移動した存続項目」を切り離す。これが無いと 34.2＋42.1 の正当な操作（親を消しつつ子を移動）が cascade で子を巻き込み、直後の update が P2025 で全ロールバックする。一過性の `parentId=null` は同一トランザクション内の upsert で必ず最終値に復元される。行の差分は `@@unique([estimateItemId, lineType])` を鍵に `deleteMany notIn` ＋ `upsert`（`EstimateItemLine` を参照する外部キーは無いため 42.9 に影響しない）。ペイロードはDFS事前順に平坦化するので親が必ず先に永続化され、`tempId→生成ID` の対応表で多階層の新規サブツリーも解決できる。**52.5 への必須申し送り**: 新規項目には `displayOrder = 兄弟index` を付与するが既存項目は無変更なので、再採番は新規・既存の**双方**を受領配列順で行うこと（新規のみだと既存値と衝突する）。並行削除時に 500 になる点は design.md の Error Handling 準拠（409 は楽観ロック＝52.5 の担当）。
