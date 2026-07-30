@@ -3730,7 +3730,9 @@ frontend/src/
 │   └── {NetAllocation,ProfitRate,TransferQuotation}Dialog.tsx  # 改修: 行データ渡しへ
 └── services/export/
     ├── estimateReportLayout.ts           # 新規: 寸法・列幅・行高・フォントサイズ定数
-    ├── EstimatePdfExportService.ts        # 新規: 表紙/内訳書/明細書の描画
+    ├── EstimateCoverRenderer.ts           # 新規: 表紙1ページの描画（doc を受け取る純粋な描画関数）
+    ├── EstimateTableRenderer.ts           # 新規: 内訳書・明細書1ページの描画（同上）
+    ├── EstimatePdfExportService.ts        # 新規: フォント登録・ページ送り・逐次ダウンロードの統括
     └── EstimateExcelExportService.ts      # 新規: 同一構成の表計算出力（罫線なし）
 
 backend/src/
@@ -4247,6 +4249,8 @@ interface EstimatePdfExportService {
   - 罫線は `QuantityTablePdfExportService` と同じ `doc.rect` / `doc.line` 方式を用いる（コードは共有せず方式を踏襲）
   - ダウンロードは既存 `PdfExportService.downloadPdf` を**ファイル数分呼び出す**（逐次ダウンロード、32.3）。zip 化は行わない
   - 表紙の描画は `ReportFileSpec.hasCoverPage === true` のファイルのみで実行する。実行金額・業者金額のファイルでは表紙描画をスキップする（51.16, 50.12）
+  - **描画は `EstimateCoverRenderer` と `EstimateTableRenderer` に委譲する**。両レンダラは `doc` と1ページ分の `ReportPage` を受け取る純粋な描画関数とし、本サービスはフォント登録・ページ送り・ファイル生成・逐次ダウンロードの統括のみを担う。これにより表紙描画と表組み描画を別ファイルとして並行実装できる
+  - **動的 import で読み込む**。フォント資産（2.25MB）を含むため初期ロードから切り離す
   - 用紙は `orientation: 'landscape'`
 
 ##### EstimateExcelExportService
