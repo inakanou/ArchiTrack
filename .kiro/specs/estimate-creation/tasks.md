@@ -1015,7 +1015,7 @@
   - _Requirements: 55.1_
   - _Boundary: 見積項目の種別_
 
-- [ ] 52.2 見積書に帳票用の入力項目を追加するマイグレーション
+- [x] 52.2 見積書に帳票用の入力項目を追加するマイグレーション
   - 見積書に提出日・有効期限・別途工事の記載を保持する項目を追加する
   - 別途工事は順序を保持でき5件まで格納できる形とする
   - いずれも未入力を許容し、既定値で既存データに影響を与えない
@@ -1551,3 +1551,4 @@
 - 51.6: useEstimateEditor は `addDiscountItem` を提供し、pendingChanges の 'add' 変更 data に `itemType='DISCOUNT'` を含める。**重要（永続化）**: EstimateDetailPage の onSave の 'add' 処理は現状 `createEstimateItem({parentId,displayOrder,lines})` を呼ぶのみで itemType を渡していない。バックエンド createItem は STANDARD 時に常に3行生成するため、値引き行を round-trip 保存するには onSave の 'add' で `change.data.itemType==='DISCOUNT'` の場合に専用 `addDiscountItem(id, unitPrice)` API を呼ぶ（または createEstimateItem に itemType を転送する）必要がある。このページ結線はツールバー結線（値引き行追加ボタン→editor.addDiscountItem の受け渡し）と併せて対応すること。
 - 52.1: `EstimateItemType` に `NOTE` を追加。マイグレーションは `ALTER TYPE ... ADD VALUE` 1文のみでデータ無変更、`@default(STANDARD)` 維持。**環境**: ルート `prisma` は `backend/prisma` へのシンボリックリンク（実体1つ）。ホストからのDB接続は `DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_dev`（`.env.dev` のホスト名 `postgres` はコンテナ内向け）。`backend/src/generated/` は gitignore 済み。`backend/src/schemas/estimate.schema.ts` の `itemTypeSchema` は `NOTE` 未対応のままで 52.3 が担当。
 - 環境（全タスク共通）: dev の backend/frontend コンテナは lockfile の `@emnapi/core` 欠落で起動失敗（npm 10.9.7 が lock を拒否）。postgres/redis/mailhog は healthy。単体テストと Prisma はホスト（node 22.21.1 / npm 11.6.2）で実行可能。**統合テストとE2Eはテスト用DB `127.0.0.1:5433` とアプリコンテナが必要なため、E2Eタスク（53.14 が最初）の着手前にコンテナ復旧が必要**。
+- 52.2: `Estimate` に `submission_date`(DATE,NULL可) / `validity_period`(VARCHAR(100),NULL可) / `separate_works`(TEXT[] NOT NULL DEFAULT `{}`) を追加。**注意**: Prisma はスカラー配列列に `NOT NULL` を出力しないため migration.sql を手編集した（空DBへの全履歴リプレイでドリフト無しを確認済み）。同種の配列列を追加する際は同じ手当てが要る。`prisma migrate diff` の正しいフラグは `--to-schema`（`--to-schema-datamodel` は Prisma 7.9.1 に存在しない）。型チェックは必ず `npm --prefix backend run type-check` を使うこと（`npm exec -- tsc --noEmit` はルートから走り backend の tsconfig を拾わない）。別途工事の5件上限は DB 制約を置かずアプリ側検証（52.3 / 53.5 / 56.8 が担当）。

@@ -1143,6 +1143,9 @@ enum EstimateItemType {
  * - name: 見積書名（必須、最大200文字）
  * - sourceItemizedStatementId: 参照内訳書ID（任意、外部キー制約なし）
  * - sourceItemizedStatementName: 参照内訳書名（スナップショット、最大200文字）
+ * - submissionDate: 提出日（任意、DATE。未入力時は帳票の該当欄を空欄とする）
+ * - validityPeriod: 有効期限（任意、最大100文字の自由文。例「提出日より1ヶ月間」）
+ * - separateWorks: 別途工事の記載（順序を保持する文字列配列、既定値は空配列。最大5件はアプリ側で検証）
  * - createdAt: 作成日時
  * - updatedAt: 更新日時（楽観的排他制御用）
  * - deletedAt: 論理削除日時
@@ -1156,6 +1159,9 @@ enum EstimateItemType {
  * - REQ-11.5: 見積書に見積名称を設定可能とする
  * - REQ-11.6: 楽観的排他制御により競合を検出する
  * - REQ-3.2: 選択した内訳書の項目を見積金額行の初期値として設定する
+ * - REQ-54.1: 見積書に別途工事の記載を5件まで入力可能とする
+ * - REQ-54.2: 見積書に見積の有効期限を入力可能とする
+ * - REQ-54.3: 見積書に提出日を入力可能とする
  */
 model Estimate {
   id                          String    @id @default(uuid())
@@ -1163,6 +1169,9 @@ model Estimate {
   name                        String // 見積書名（必須、最大200文字）
   sourceItemizedStatementId   String? // 参照内訳書ID（任意、参照情報のみ）
   sourceItemizedStatementName String? // 参照内訳書名（スナップショット）
+  submissionDate              DateTime? @map("submission_date") @db.Date // 提出日（任意、未入力は帳票で空欄）
+  validityPeriod              String?   @map("validity_period") @db.VarChar(100) // 有効期限（任意、「提出日より1ヶ月間」等の自由文）
+  separateWorks               String[]  @default([]) @map("separate_works") // 別途工事（順序保持、最大5件はアプリ側で検証）
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
   deletedAt                   DateTime? // 論理削除
