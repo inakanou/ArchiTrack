@@ -1007,7 +1007,7 @@
 > **段階2（54）と段階3（55）は並行して進められるが、55.2 は取り消し実装 54.8 の完了後に着手する**。
 
 - [ ] 52. 段階1 基盤: データモデルと明細の一括保存
-- [ ] 52.1 見積項目の種別に注記行を追加するマイグレーション
+- [x] 52.1 見積項目の種別に注記行を追加するマイグレーション
   - 見積項目の種別に注記行を表す値を追加する
   - 既定値は通常項目のままとし、既存データを変更せずに適用できることを確認する
   - 注記行は見積金額行のみを持ち、名称以外の項目を持たない構造とする
@@ -1549,3 +1549,5 @@
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
 - 51.6: useEstimateEditor は `addDiscountItem` を提供し、pendingChanges の 'add' 変更 data に `itemType='DISCOUNT'` を含める。**重要（永続化）**: EstimateDetailPage の onSave の 'add' 処理は現状 `createEstimateItem({parentId,displayOrder,lines})` を呼ぶのみで itemType を渡していない。バックエンド createItem は STANDARD 時に常に3行生成するため、値引き行を round-trip 保存するには onSave の 'add' で `change.data.itemType==='DISCOUNT'` の場合に専用 `addDiscountItem(id, unitPrice)` API を呼ぶ（または createEstimateItem に itemType を転送する）必要がある。このページ結線はツールバー結線（値引き行追加ボタン→editor.addDiscountItem の受け渡し）と併せて対応すること。
+- 52.1: `EstimateItemType` に `NOTE` を追加。マイグレーションは `ALTER TYPE ... ADD VALUE` 1文のみでデータ無変更、`@default(STANDARD)` 維持。**環境**: ルート `prisma` は `backend/prisma` へのシンボリックリンク（実体1つ）。ホストからのDB接続は `DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_dev`（`.env.dev` のホスト名 `postgres` はコンテナ内向け）。`backend/src/generated/` は gitignore 済み。`backend/src/schemas/estimate.schema.ts` の `itemTypeSchema` は `NOTE` 未対応のままで 52.3 が担当。
+- 環境（全タスク共通）: dev の backend/frontend コンテナは lockfile の `@emnapi/core` 欠落で起動失敗（npm 10.9.7 が lock を拒否）。postgres/redis/mailhog は healthy。単体テストと Prisma はホスト（node 22.21.1 / npm 11.6.2）で実行可能。**統合テストとE2Eはテスト用DB `127.0.0.1:5433` とアプリコンテナが必要なため、E2Eタスク（53.14 が最初）の着手前にコンテナ復旧が必要**。
