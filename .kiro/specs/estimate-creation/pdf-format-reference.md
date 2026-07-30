@@ -231,13 +231,66 @@ y = 83.0 / 94.6 / 128.5 / 162.4 / 196.5 / 230.6 / 264.5 / 298.6 / 332.5 / 366.6 
 
 ---
 
-## 10. 現行実装とのギャップ
+## 10. 実装方式：フロントエンド生成へ移行する
 
-対象: `backend/src/services/estimate-export.service.ts`（jsPDF 4.1.0 使用）
+### 結論
+**現場調査報告書・数量表と同じ「フロントエンドで jsPDF を使う」構成を採用する。** 目標書式の実現に必要な部品はすべてフロントエンドに既に存在しており、新規ライブラリの導入もフォント資産の追加も不要。
+
+### 決定的な理由：日本語フォント資産はフロントエンドにしか無い
+
+| | フロントエンド | バックエンド |
+|---|---|---|
+| jsPDF | `^4.0.0` | `^4.1.0` |
+| **日本語フォント** | **Noto Sans JP を埋め込み済み** | **なし** |
+| フォント資産 | `frontend/src/services/export/fonts/noto-sans-jp-base64.ts`<br>base64 3,007,752文字 → バイナリ **2,255,812 bytes**<br>先頭 `\x00\x01\x00\x00` = 実体のある TrueType | 存在しない |
+| 登録処理 | `PdfFontService.initialize()` が `addFileToVFS` → `addFont` → `setFont`（`PdfFontService.ts:120-126`） | `addFont` / `addFileToVFS` の呼び出しなし |
+
+> ソース中のコメントは「サブセット化（約500KB）」と記載しているが、実測は 2.25 MB のフルセット。**記述と実体が食い違っている**ため、サブセット化の余地がある（`PdfFontService.ts:6, 17`）。
+
+現行の見積書PDFは**バックエンド生成**（`EstimateExportDialog.tsx:274` → `GET /api/estimates/:id/export`、`estimates.routes.ts:2068`）であり、日本語フォントを持たない側で生成している。これが日本語を出力できない直接の原因。
+
+### 再利用する既存サービス
+
+| サービス | 提供機能 | 転用内容 |
+|---|---|---|
+| `frontend/src/services/export/PdfFontService.ts` | Noto Sans JP の jsPDF 登録。`PDF_FONT_FAMILY = 'NotoSansJP'`、`PDF_FONT_NAME = 'NotoSansJP-Regular.ttf'`。シングルトン＋`FontLoadStatus` 管理 | **そのまま利用** |
+| `frontend/src/services/export/QuantityTablePdfExportService.ts` | `TABLE_COLUMNS` 定義（`:92`）、`TABLE_ROW_HEIGHT`（`:82`）、`doc.rect`（`:240, :302`）・`doc.line`（`:316, :368`）による**罫線描画**、改ページ判定（`:280-281`） | **罫線グリッドの実装前例**。列定義を本書 §4 の7列へ差し替える |
+| `frontend/src/services/export/PdfReportService.ts` | `renderCoverPage`（`:248`）/ `renderInfoSection`（`:347`）/ `renderImagesSection`（`:402`）によるページ単位レンダリング | **表紙ページの実装前例** |
+| `frontend/src/services/export/PdfExportService.ts` | `downloadPdf` / `generateDefaultFilename` / `PdfExportProgress` による進捗通知 | **ダウンロード共通処理として利用** |
+
+呼び出し元の前例: `SiteSurveyDetailInfo.tsx:323`（現場調査報告書）、`QuantityTableEditPage.tsx:40, 43`（数量表）、`EstimateRequestDetailPage.tsx:57`（見積依頼）。
+
+### 構成変更
+
+```
+変更前: EstimateExportDialog → GET /api/estimates/:id/export
+                              → backend estimate-export.service.ts（jsPDF、フォントなし）
+
+変更後: EstimateExportDialog → frontend EstimatePdfExportService（新規）
+                              → PdfFontService でフォント登録
+                              → QuantityTablePdfExportService と同方式で罫線描画
+                              → PdfExportService.downloadPdf でダウンロード
+```
+
+### 付随して得られる利点
+- フォント 2.25 MB をバックエンドへ複製する必要がない（フロントの増分はゼロ。既存3機能と同じチャンクに載る）
+- PDF生成がサーバーから外れる。本改訂全体の「サーバーリクエスト削減」方針と整合する
+- **未保存状態のプレビューが可能になる**。編集中のクライアント state から直接生成できる（バックエンド生成では保存済みデータしか出力できない）
+
+### 移行時の判断事項
+- **Excel出力の扱い**: `GET /:id/export` は `format=pdf|xlsx` の両対応。PDFのみ移すと出力経路が2系統に分かれる。Excelも移すかバックエンドに残すか決める。
+- **バックエンド側の後始末**: `estimate-export.service.ts` の PDF 生成部が不要になる — `exportToPdf`（`:165`）、`exportToPdfWithLineTypes`（`:406`）、`generateCoverPage`（`:444`）、`generateSummaryPage`（`:477`）、`generateDetailPages`（`:514`）、`drawTableHeader`（`:558`）、`drawTableRow`（`:583`）およびその単体テスト。
+- **フォント失敗時の挙動**: `PdfReportService` はフォント登録失敗時に helvetica へフォールバックする（`:725-728`, `:790-794`）。見積書は**日本語が文字化けしたPDFを出すべきではない**ため、フォールバックせずエラーとして中断する方針を検討する。
+
+---
+
+## 11. 現行実装とのギャップ
+
+対象: `backend/src/services/estimate-export.service.ts`（jsPDF 4.1.0 使用）。§10 の方針によりフロントエンドへ移行するため、以下は**移行先で満たすべき差分**として読む。
 
 | # | 項目 | 現行 | 目標 |
 |---|---|---|---|
-| 1 | **日本語フォント** | **未埋め込み**（`addFont` / `addFileToVFS` の呼び出しが無く、リポジトリにフォント資産も無い）。jsPDF 標準フォントは WinAnsi のみのため**日本語が出力できない** | 日本語フォントの埋め込みが必須 |
+| 1 | **日本語フォント** | **未埋め込み**（`addFont` / `addFileToVFS` の呼び出しが無く、リポジトリにフォント資産も無い）。jsPDF 標準フォントは WinAnsi のみのため**日本語が出力できない** | フロントエンドの `PdfFontService` を利用して解決（§10） |
 | 2 | 用紙向き | `portrait`（A4縦、`:173`） | **landscape**（A4横） |
 | 3 | 列構成 | 名称/規格/単位/数量/単価 の5列（`:100-105`）、備考・金額の幅定義なし | **7列**（名称/規格/単位/数量/単価/金額/備考） |
 | 4 | 罫線 | **描画なし**（`doc.text` のみ） | 縦7本・横21本の罫線グリッド、線幅2種 |
@@ -252,11 +305,17 @@ y = 83.0 / 94.6 / 128.5 / 162.4 / 196.5 / 230.6 / 264.5 / 298.6 / 332.5 / 366.6 
 | 13 | 注記行 | なし | 名称列のみを使う注記行 |
 | 14 | 文字切り詰め | `truncateText(name, 20)` / `(spec, 15)`（`:587-591`）で固定文字数切り詰め | 列幅に応じた折り返しまたは切り詰め |
 
+### 解決済みの論点
+- **日本語フォントの選定と配布方法** → フロントエンドに Noto Sans JP が埋め込み済み（`PdfFontService`）。新規調達・ライセンス検討は不要。
+- **PDF生成ライブラリの継続可否** → jsPDF を継続する。罫線グリッドは `QuantityTablePdfExportService` に実装前例があり、HTMLテンプレート＋ヘッドレスブラウザへの移行は不要。
+
 ### 要件定義で決める論点
-1. **日本語フォントの選定と配布方法**: 埋め込みフォント（IPAex / Noto Sans JP 等）のライセンス、リポジトリ同梱かビルド時取得か、PDFサイズへの影響。
-2. **PDF生成ライブラリの継続可否**: jsPDF で罫線グリッド＋日本語埋め込みを実現するか、サーバーサイド前提の別手段（HTMLテンプレート＋ヘッドレスブラウザ等）へ移行するか。
-3. **明細が17行を超える場合**の継続ページの扱い（合計行の出し方、`Page.N` の連番、フッタの親項目名）。
-4. **第3階層以降**の表現。参照PDFは2階層（第1階層＝内訳書の行、第2階層＝明細書の行）のみで実例が無い。
-5. **表紙の固定文言・自社情報のデータ供給元**（`company-info` spec との連携）。
-6. **別途工事①〜⑤・注記行・有効期限**の入力手段。現在の見積データモデルに対応するフィールドが無い。
-7. **既存の行タイプ選択機能（REQ-32）との整合**。参照PDFは見積金額行のみの単一表。実行金額行・業者金額行を出力する場合の書式。
+1. **明細が17行を超える場合**の継続ページの扱い（合計行の出し方、`Page.N` の連番、フッタの親項目名）。
+2. **第3階層以降**の表現。参照PDFは2階層（第1階層＝内訳書の行、第2階層＝明細書の行）のみで実例が無い。
+3. **表紙の固定文言・自社情報のデータ供給元**（`company-info` spec との連携）。
+4. **別途工事①〜⑤・注記行・有効期限**の入力手段。現在の見積データモデルに対応するフィールドが無い。
+5. **既存の行タイプ選択機能（REQ-32）との整合**。参照PDFは見積金額行のみの単一表。実行金額行・業者金額行を出力する場合の書式。
+6. **Excel出力を同時にフロントエンドへ移すか**、バックエンドに残して出力経路を2系統にするか。
+7. **フォント登録失敗時にフォールバックするか中断するか**（現行 `PdfReportService` は helvetica へフォールバックする）。
+8. **フォントのサブセット化**を行うか。コメント記載の 500KB に対し実体は 2.25 MB。既存3機能と共有する資産のため、変更は他機能へも影響する。
+9. **未保存状態でのプレビュー出力**を提供するか。フロントエンド生成なら技術的に可能になる。

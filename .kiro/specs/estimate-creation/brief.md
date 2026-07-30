@@ -81,8 +81,9 @@
 ### 反面教師
 実行予算機能は1セル1リクエスト方式（`backend/src/routes/execution-budget.routes.ts:189`、`frontend/src/api/execution-budget.ts:281`）。今回のモデルにはしない。
 
-### PDF出力（`backend/src/services/estimate-export.service.ts`、jsPDF 4.1.0）
-- **日本語フォントが未埋め込み**。`addFont` / `addFileToVFS` の呼び出しが無く、リポジトリにフォント資産も存在しない。jsPDF の標準フォントは WinAnsi のみのため、**現状の日本語PDF出力は文字化けまたは空白になる**。
+### PDF出力（現行は backend 生成: `backend/src/services/estimate-export.service.ts`、jsPDF 4.1.0）
+- **日本語フォントが未埋め込み**。`addFont` / `addFileToVFS` の呼び出しが無く、バックエンド側にフォント資産も存在しない。jsPDF の標準フォントは WinAnsi のみのため、**現状の日本語PDF出力は文字化けまたは空白になる**。
+- 一方で**フロントエンドには Noto Sans JP が埋め込み済み**（`frontend/src/services/export/fonts/noto-sans-jp-base64.ts`、バイナリ 2,255,812 bytes の TrueType）。`PdfFontService.ts:120-126` が `addFileToVFS` → `addFont` → `setFont` を実行する。**日本語PDFを出せる資産は既にフロントエンドだけにある。**
 - 用紙は `orientation: 'portrait'`（A4縦、`:173`）。目標書式は **A4横**。
 - 列は 名称60 / 規格40 / 単位15 / 数量20 / 単価25（mm、`:100-105`）の5列で、**金額・備考の幅定義が無い**。目標は7列。
 - **罫線を一切描画していない**（`doc.text` のみ）。
@@ -91,7 +92,16 @@
 - 数量は `toString()` そのまま（`:596`）、文字は固定文字数で切り詰め（`truncateText(name,20)` / `(spec,15)`、`:587-591`）。
 - 合計行・フッタ・値引行・注記行・単位の `〃` 置換はいずれも未実装。
 
-詳細な寸法・配置・現行とのギャップ一覧は `pdf-format-reference.md` を参照。
+### 参照すべき既存の理想形（PDF出力）
+現場調査報告書・数量表・見積依頼はいずれも**フロントエンドで jsPDF を使う構成**で、目標書式に必要な部品が揃っている。
+
+- `frontend/src/services/export/PdfFontService.ts` — Noto Sans JP の jsPDF 登録（`PDF_FONT_FAMILY = 'NotoSansJP'`）
+- `frontend/src/services/export/QuantityTablePdfExportService.ts` — `TABLE_COLUMNS`（`:92`）、`doc.rect`（`:240, :302`）・`doc.line`（`:316, :368`）による**罫線描画**、改ページ判定（`:280-281`）
+- `frontend/src/services/export/PdfReportService.ts` — `renderCoverPage`（`:248`）等のページ単位レンダリング
+- `frontend/src/services/export/PdfExportService.ts` — `downloadPdf` / `generateDefaultFilename` / 進捗通知
+- 呼び出し元の前例: `SiteSurveyDetailInfo.tsx:323`、`QuantityTableEditPage.tsx:40, 43`、`EstimateRequestDetailPage.tsx:57`
+
+詳細な寸法・配置・実装方式・現行とのギャップ一覧は `pdf-format-reference.md` を参照。
 
 ## Desired Outcome
 
@@ -177,7 +187,8 @@
   - 案分・利益率・諸経費の計算ロジックの単一実装化
   - 既存不具合の修正: DnD非永続化（`useEstimateEditor.ts:768`）、`batch` 楽観ロック不発（`estimates.routes.ts:1021`）、5経路による未保存編集の消失、親項目の集計金額がDBに反映されない問題、案分プレビューと実行結果の食い違い
   - リクエスト回数アサーションを含むE2E拡充
-  - **PDF出力書式の刷新**（`pdf-format-reference.md` に準拠）: 日本語フォントの埋め込み、A4横、7列の罫線グリッド（17明細行＋合計行の固定18行）、表紙／内訳書／明細書の3種ページ、合計行・フッタ・値引行・注記行、数量の小数点位置揃え、単位の `〃` 置換、全角金額表記
+  - **PDF出力書式の刷新**（`pdf-format-reference.md` に準拠）: A4横、7列の罫線グリッド（17明細行＋合計行の固定18行）、表紙／内訳書／明細書の3種ページ、合計行・フッタ・値引行・注記行、数量の小数点位置揃え、単位の `〃` 置換、全角金額表記
+  - **PDF生成をバックエンドからフロントエンドへ移行**: 現場調査報告書・数量表と同じ構成（`PdfFontService` / `QuantityTablePdfExportService` / `PdfExportService` の再利用）。バックエンドの PDF 生成部（`estimate-export.service.ts` の `exportToPdf` / `exportToPdfWithLineTypes` / `generateCoverPage` / `generateSummaryPage` / `generateDetailPages` / `drawTableHeader` / `drawTableRow`）とその単体テストを撤去
 
 - **Out**:
   - **行属性（小計・中計・大計・値引・経費・積上合計 等19種）の導入**
@@ -252,7 +263,7 @@
 | REQ-36 | NET金額の自動設定 | 入力元の変更に追従 |
 | REQ-37 | 利益率のデフォルト値設定 | 同上 |
 | REQ-41 | 値引きプリセット行 | 行追加をクライアント側へ。PDF出力の `【値引】` 行と対応付ける |
-| REQ-10 | 見積書出力 | **PDF書式を `pdf-format-reference.md` に準拠**。日本語フォント埋め込み・A4横・罫線グリッド・表紙/内訳書/明細書の3種ページ |
+| REQ-10 | 見積書出力 | **PDF書式を `pdf-format-reference.md` に準拠**。A4横・罫線グリッド・表紙/内訳書/明細書の3種ページ。**生成をバックエンドからフロントエンドへ移行** |
 | REQ-32 | 見積書出力の行タイプ選択 | 新書式との整合。実行金額行・業者金額行を出力する場合の表組みを規定 |
 | REQ-38 | 出力のデフォルト設定と空欄行処理 | 固定18行グリッドにおける空行の扱いを規定 |
 
@@ -268,7 +279,6 @@
 - キーボードショートカット体系
 - 複数行の範囲選択と範囲操作
 - Undo/Redo
-- PDF出力の日本語フォント埋め込み
 - 表紙の記載項目（宛先・工事件名/場所・別途工事欄・自社情報・有効期限・税注記）
 - 明細中の注記行
 
@@ -303,8 +313,12 @@ REQ-14（画面構成）、REQ-15（パンくずナビゲーション）、REQ-2
 5. **Undo/Redo の単位**: アクション単位かスナップショット単位か。
 6. **最大階層数**: 建設業向け積算ソフトの参照資料に明示なし（書式側の間接情報で階層6、ページ書式9）。本システムで上限を設けるか。
 7. **段階1と段階3のリリース単位**: 同一リリースで揃えるか、段階1のみ先行し暫定ガードで凌ぐか。
-8. **日本語フォントの選定と配布方法**: 埋め込みフォント（IPAex / Noto Sans JP 等）のライセンス、リポジトリ同梱かビルド時取得か、PDFサイズへの影響。
-9. **PDF生成ライブラリの継続可否**: jsPDF で罫線グリッド＋日本語埋め込みを実現するか、別手段（HTMLテンプレート＋ヘッドレスブラウザ等）へ移行するか。
-10. **明細が17行を超える場合**の継続ページの扱い（合計行の出し方、`Page.N` の連番、フッタの親項目名）。
-11. **第3階層以降のPDF表現**: 参照PDFは2階層のみで実例が無い。
-12. **表紙の固定文言・自社情報のデータ供給元**: `company-info` spec との連携。別途工事①〜⑤・有効期限・注記行に対応するフィールドが現在のデータモデルに無い。
+8. **明細が17行を超える場合**の継続ページの扱い（合計行の出し方、`Page.N` の連番、フッタの親項目名）。
+9. **第3階層以降のPDF表現**: 参照PDFは2階層のみで実例が無い。
+10. **表紙の固定文言・自社情報のデータ供給元**: `company-info` spec との連携。別途工事①〜⑤・有効期限・注記行に対応するフィールドが現在のデータモデルに無い。
+11. **Excel出力も同時にフロントエンドへ移すか**: `GET /:id/export` は `format=pdf|xlsx` の両対応。PDFのみ移すと出力経路が2系統に分かれる。
+12. **フォント登録失敗時の挙動**: 現行 `PdfReportService` は helvetica へフォールバックする（`:725-728`, `:790-794`）。見積書は文字化けPDFを出すべきでないため中断とするか。
+13. **フォントのサブセット化**: コメントは「約500KB」だが実体は 2.25 MB。既存3機能と共有する資産のため変更は他機能へ波及する。
+14. **未保存状態でのプレビュー出力**を提供するか。フロントエンド生成なら技術的に可能になる。
+
+> 日本語フォントの選定と PDF 生成ライブラリの継続可否は、フロントエンドに既存資産があることが判明したため**論点から除外した**（`pdf-format-reference.md` §10 参照）。
