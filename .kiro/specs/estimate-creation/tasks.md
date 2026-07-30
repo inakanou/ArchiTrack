@@ -1023,7 +1023,7 @@
   - スキーマ定義とマイグレーション履歴を共有するため 52.1 の後に直列で実施する
   - _Requirements: 54.1, 54.2, 54.3_
 
-- [ ] 52.3 明細の一括保存リクエストのスキーマとバリデーション
+- [x] 52.3 明細の一括保存リクエストのスキーマとバリデーション
   - 明細ツリー全体・楽観ロック用の基準時刻・帳票用入力項目を受け取る形を定義する
   - 新規項目は識別子を持たず一時識別子で親子関係を表現できるようにする
   - 明細総数の上限を設け、上限超過を検証で弾く
@@ -1552,3 +1552,4 @@
 - 52.1: `EstimateItemType` に `NOTE` を追加。マイグレーションは `ALTER TYPE ... ADD VALUE` 1文のみでデータ無変更、`@default(STANDARD)` 維持。**環境**: ルート `prisma` は `backend/prisma` へのシンボリックリンク（実体1つ）。ホストからのDB接続は `DATABASE_URL=postgresql://postgres:dev@localhost:5432/architrack_dev`（`.env.dev` のホスト名 `postgres` はコンテナ内向け）。`backend/src/generated/` は gitignore 済み。`backend/src/schemas/estimate.schema.ts` の `itemTypeSchema` は `NOTE` 未対応のままで 52.3 が担当。
 - 環境（全タスク共通）: dev の backend/frontend コンテナは lockfile の `@emnapi/core` 欠落で起動失敗（npm 10.9.7 が lock を拒否）。postgres/redis/mailhog は healthy。単体テストと Prisma はホスト（node 22.21.1 / npm 11.6.2）で実行可能。**統合テストとE2Eはテスト用DB `127.0.0.1:5433` とアプリコンテナが必要なため、E2Eタスク（53.14 が最初）の着手前にコンテナ復旧が必要**。
 - 52.2: `Estimate` に `submission_date`(DATE,NULL可) / `validity_period`(VARCHAR(100),NULL可) / `separate_works`(TEXT[] NOT NULL DEFAULT `{}`) を追加。**注意**: Prisma はスカラー配列列に `NOT NULL` を出力しないため migration.sql を手編集した（空DBへの全履歴リプレイでドリフト無しを確認済み）。同種の配列列を追加する際は同じ手当てが要る。`prisma migrate diff` の正しいフラグは `--to-schema`（`--to-schema-datamodel` は Prisma 7.9.1 に存在しない）。型チェックは必ず `npm --prefix backend run type-check` を使うこと（`npm exec -- tsc --noEmit` はルートから走り backend の tsconfig を拾わない）。別途工事の5件上限は DB 制約を置かずアプリ側検証（52.3 / 53.5 / 56.8 が担当）。
+- 52.3: `saveEstimateDraftSchema` を追加（`saveEstimateItemNodeSchema` は zod4 の getter で再帰、`saveItemTypeSchema` は STANDARD/DISCOUNT/NOTE）。**ワイヤ契約は strict**: design.md 4295-4324 のとおり `reportFields`・ノードの `id`/`tempId`/`children`・明細行の9フィールドはすべて「null許容だが省略不可」。葉ノードも `children: []` を、空セルも `null` を明示送信する必要があり、部分ペイロードは 400 になる（53.5 のフロント `saveEstimateDraft` は全キーを埋めて送ること）。ツリー検証 `validateSaveEstimateItemTree` は再帰ではなく明示スタックのDFSで、循環参照・重複配置・識別子なし項目・総数上限・DISCOUNT/NOTE の構造制約をまとめて `superRefine` で報告する（issue path はノード単位、例 `items.0.children.0.id`）。**52.4 への申し送り3件**: (1) design.md 4376「`NOTE` 項目は `name` 以外は NULL とする」は正規化＝書き込み側の責務としてスキーマでは未実装、52.4 で担保すること。(2) `reportFields` の内側3フィールドは `.default()` のままなので `reportFields: {}` のような部分オブジェクトは既定値で空白化される。(3) `SAVE_ESTIMATE_MAX_ITEMS = 2000` は design.md の Risks が実測待ちとしている暫定値で、段階1リリース前に確定が必要。
