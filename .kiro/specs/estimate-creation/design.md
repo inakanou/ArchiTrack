@@ -3752,7 +3752,14 @@ prisma/migrations/
 - `frontend/src/hooks/useEstimateEditor.ts` — `pendingChanges: Map` を廃止し reducer へ委譲。ドラッグ操作の非永続化（`:768-769`）を解消
 - `frontend/src/components/estimate/EstimateItemRow.tsx` — 注記行（`NOTE`）の描画分岐、範囲選択のハイライト
 - `frontend/src/api/estimates.ts` — `saveEstimateDraft` 追加、旧12関数の撤去
-- `backend/src/routes/estimates.routes.ts` — `PUT /:id/save` 追加。撤去対象: `POST /items`、`DELETE /items/:itemId`、`POST /items/:itemId/duplicate`、`PUT /items/batch`、`PUT /items/reorder`、`PATCH /items/:itemId/move`、`POST /transfer-quotation`、`POST /calculate-net`、`POST /apply-profit-rate`、`POST /overhead-items`、`POST /discount-items`、`GET /:id/export`
+- `backend/src/routes/estimates.routes.ts` — `PUT /:id/save` 追加。**撤去は段階ごとに分ける。代替実装が存在しないままエンドポイントを消してはならない**
+
+| 撤去する段階 | 対象エンドポイント | 代替 |
+|---|---|---|
+| **段階1** | `POST /items`、`DELETE /items/:itemId`、`POST /items/:itemId/duplicate`、`PUT /items/batch`、`PUT /items/reorder`、`PATCH /items/:itemId/move` | `PUT /:id/save`（段階1で追加） |
+| **段階3** | `POST /transfer-quotation`、`POST /calculate-net`、`POST /apply-profit-rate`、`POST /overhead-items`、`POST /discount-items` | `estimateCalculations` ＋ reducer アクション（段階3で追加） |
+| **段階4** | `GET /:id/export` | `EstimatePdfExportService` / `EstimateExcelExportService`（段階4で追加） |
+
 - `backend/src/routes/estimates.routes.ts` — 維持対象: `GET /:id/items`、`POST /:id/calculate-overhead`、見積書CRUD、`GET /api/projects/:projectId/quotations`
 - `e2e/specs/estimate/estimate-hierarchy-move-e2e.spec.ts` — 旧API直叩きをUI操作＋新API検証へ移行
 
@@ -3853,18 +3860,20 @@ flowchart TD
     B -- PDF --> C[PdfFontService で日本語登録]
     C --> D{登録成功?}
     D -- 失敗 --> E[出力中断・エラー表示<br/>10.8 フォールバックしない]
-    D -- 成功 --> F[行タイプごとにループ<br/>見積→実行→業者]
+    D -- 成功 --> F[行タイプごとに1ファイル<br/>見積→実行→業者 32.2/32.3]
     B -- Excel --> F
-    F --> G[表紙を描画 51]
-    G --> H[内訳書: 第1階層一覧 + 合計]
+    F --> G{見積金額?}
+    G -- はい --> G1[表紙を描画 51 / 50.2]
+    G -- いいえ --> H
+    G1 --> H[内訳書: 第1階層一覧 + 合計<br/>実行・業者は1ページ目 50.12]
     H --> I[明細書: 深さ優先で再帰<br/>子を持つ項目のみ 50.5-50.7]
     I --> J{17行超過?}
     J -- はい --> K[継続ページ<br/>合計は最終ページのみ 50.9-50.10]
     K --> I
-    J -- いいえ --> L{次の行タイプ?}
+    J -- いいえ --> M[ファイル内の通し番号を付与 32.9 / 50.8]
+    M --> L{次の行タイプ?}
     L -- あり --> F
-    L -- なし --> M[通し番号を付与 32.9 / 50.8]
-    M --> N[ダウンロード]
+    L -- なし --> N[全ファイル生成後に逐次ダウンロード 32.3]
 ```
 
 生成元は**編集中のツリー**であり、未保存の変更を含む（56.2）。保存操作は伴わない（56.3）。
@@ -3887,7 +3896,7 @@ flowchart TD
 | 23.10, 23.11 | ネスト化ルール・キーボード対応 | EstimateItemToolbar, estimateKeymap | — | — |
 | 27.3, 27.5〜27.7 | 1リクエスト保存・未保存表示・離脱ガード・自動保存なし | useEstimateEditor, EstimateDetailPage | `saveEstimateDraft` | 保存 |
 | 29.4 | 親集計をDBへ反映 | estimateTree, estimate-draft.service | 保存ペイロードに親金額を含む | 保存 |
-| 32.2〜32.9 | 行タイプごとに独立した一連のページ | EstimatePdfExportService, EstimateExcelExportService | `lineTypes: EstimateLineType[]` | 帳票生成 |
+| 32.2〜32.9 | 行タイプごとに独立したファイル・逐次ダウンロード | EstimatePdfExportService, EstimateExcelExportService, estimateReportLayout | `buildFiles(tree, lineTypes)` / `GeneratedReportFile[]` | 帳票生成 |
 | 34.5, 34.6 | 並び順・階層・転記結果の整合性 | estimate-draft.service | — | 保存 |
 | 38.2〜38.4 | 値のない項目を省く・空階層のページを出さない | estimateReportLayout, 両ExportService | — | 帳票生成 |
 | 39.10 | サマリーを編集中の内容で計算 | estimateCalculations | `summarize(tree)` | — |
@@ -3900,8 +3909,8 @@ flowchart TD
 | 47.1〜47.8 | キーボード操作・入力中の抑止 | estimateKeymap, EstimateKeymapHelp, isTextInputElement(参照) | `KeymapEntry[]` | — |
 | 48.1〜48.8 | 取り消し・やり直し（10回） | useEstimateUndo, UndoManager(参照) | `new UndoManager(10)` | — |
 | 49.1〜49.8 | 転記・計算結果の編集内容への反映 | estimateCalculations, estimateEditReducer | reducer actions | 転記・計算の反映 |
-| 50.1〜50.11 | 用紙・ページ構成・継続ページ・フッタ | EstimatePdfExportService, estimateReportLayout | `buildReportPages(tree, lineType)` | 帳票生成 |
-| 51.1〜51.15 | 表紙 | EstimatePdfExportService | `renderCoverPage(ctx)` | 帳票生成 |
+| 50.1〜50.12 | 用紙・ページ構成・継続ページ・フッタ・表紙の有無 | EstimatePdfExportService, estimateReportLayout | `buildFiles(tree, lineTypes)` / `ReportFileSpec.hasCoverPage` | 帳票生成 |
+| 51.1〜51.16 | 表紙（見積金額のファイルのみ） | EstimatePdfExportService | `renderCoverPage(ctx)`（`hasCoverPage` が true のときのみ） | 帳票生成 |
 | 52.1〜52.14 | 表組み・罫線・Excel例外 | estimateReportLayout, 両ExportService | `TABLE_COLUMNS` / `GRID` | 帳票生成 |
 | 53.1〜53.9 | 値の表記規則 | estimateReportLayout | `formatQuantity` / `formatMoney` / `toFullWidth` | 帳票生成 |
 | 54.1〜54.8 | 帳票用追加入力項目 | EstimateReportFieldsPanel, Estimate モデル | 保存ペイロードに含む | 保存 |
@@ -3984,7 +3993,8 @@ interface EstimateEditState {
 type EditError =
   | { readonly kind: 'CYCLIC_MOVE'; readonly key: NodeKey }
   | { readonly kind: 'CANNOT_OUTDENT_ROOT' }
-  | { readonly kind: 'NO_PRECEDING_SIBLING'; readonly key: NodeKey };
+  | { readonly kind: 'NO_PRECEDING_SIBLING'; readonly key: NodeKey }
+  | { readonly kind: 'INVALID_PARENT_TYPE'; readonly key: NodeKey; readonly itemType: 'DISCOUNT' | 'NOTE' };
 
 type EstimateEditAction =
   | { type: 'setItems'; items: readonly EditableItem[] }
@@ -4007,13 +4017,14 @@ type EstimateEditAction =
 function estimateEditReducer(state: EstimateEditState, action: EstimateEditAction): EstimateEditState;
 ```
 
-- Preconditions: `items` はツリー不変条件（循環なし・全ノード到達可能）を満たす
+- Preconditions: `items` はツリー不変条件（循環なし・全ノード到達可能）を満たす。`indentRange` は**選択範囲の先頭行の `itemType` が `STANDARD` であること**を要求する
 - Postconditions: 戻り値は新しいオブジェクト。入力 state を変更しない。祖先の金額合計は整合している
 - Invariants: `id` と `tempId` はいずれか一方のみ非 null。`itemType === 'DISCOUNT' | 'NOTE'` の項目は子を持たない
 
 **Implementation Notes**
 - Integration: `indentRange` は **選択範囲の先頭行を親へ昇格**させる（44.4）。先頭行を新しい親ノードとし、残りをその子に移す
 - Validation: `outdentRange` はルートレベルで no-op ＋ `lastError` を設定（44.6）
+- Validation: `indentRange` の先頭行が `DISCOUNT`（41.3）または `NOTE`（55.1）の場合、これらは子を持てないため state を変更せず `lastError` に `INVALID_PARENT_TYPE` を設定して no-op とする。UI は「値引き行・注記行は親項目にできません」を提示する
 - Risks: ツリーの再構築が毎ディスパッチで走る。行数の多い見積書では `estimateTree` 側のメモ化が必須
 
 ##### estimateTree
@@ -4162,16 +4173,24 @@ interface ReportGrid {
 interface ReportPage {
   readonly kind: 'cover' | 'summary' | 'detail';
   readonly lineType: EstimateLineType;
-  readonly pageNumber: number;
+  readonly pageNumber: number;           // 所属ファイル内の通し番号（32.9）
   readonly title: string;
   readonly parentLabel: string | null;   // 明細書フッタの親項目名
   readonly rows: readonly ReportRow[];
   readonly totalRow: ReportRow | null;   // 継続ページでは最終ページのみ非 null
 }
 
+/** 行タイプごとに1ファイル。見積のみ表紙を持つ（50.2, 50.12, 51.16） */
+interface ReportFileSpec {
+  readonly lineType: EstimateLineType;
+  readonly fileNameLabel: string;        // 「見積」「実行」「業者」（32.6）
+  readonly hasCoverPage: boolean;        // ESTIMATE のみ true
+  readonly pages: readonly ReportPage[];
+}
+
 interface ReportLayout {
   readonly grid: ReportGrid;
-  buildPages(tree: readonly EditableItem[], lineTypes: readonly EstimateLineType[]): readonly ReportPage[];
+  buildFiles(tree: readonly EditableItem[], lineTypes: readonly EstimateLineType[]): readonly ReportFileSpec[];
   formatQuantity(value: Decimal | null): string;
   formatMoney(value: Decimal | null): string;
   formatUnit(current: string | null, previous: string | null): string;
@@ -4185,14 +4204,15 @@ interface ReportLayout {
 - **階層記号は第1階層のみ**。`levelSymbol` は `depth === 0` のとき全角英大文字（`Ａ`〜）を返し、第2階層以降は空文字を返す（53.7）。第2階層以降の明細書ページ先頭行は親項目名のみを出力する（52.11）
 - **17行グリッドの行数カウント**に注記行（`NOTE`）と値引き行（`DISCOUNT`）を含める。要件に別扱いの記載がないため通常の明細行1行として数える（52.5）
 - **`〃` は直前の行に対して適用する**。継続ページの先頭行でも直前ページ最終行と同一単位なら `〃` とする（53.6 の文言どおり）
-- `buildPages` は深さ優先で再帰し、子を持つ項目の明細書ページの直後にその配下の明細書ページを続ける（50.6）。子を持たない項目のページは生成しない（50.7）。対象行タイプに値のない項目を省いた結果0件になった階層のページも生成しない（38.4）
-- 通し番号は行タイプをまたいでファイル全体で連番にする（32.9, 50.8）
+- `buildFiles` は深さ優先で再帰し、子を持つ項目の明細書ページの直後にその配下の明細書ページを続ける（50.6）。子を持たない項目のページは生成しない（50.7）。対象行タイプに値のない項目を省いた結果0件になった階層のページも生成しない（38.4）
+- **行タイプごとに1ファイルを生成する**（32.2）。表紙は見積金額のファイルのみに付け（50.2, 51.16）、実行金額・業者金額のファイルは**1ページ目が内訳書**となる（50.12）。内訳書は全行タイプに含める
+- 通し番号は**各ファイル内**で1から始まる連番とする（32.9, 50.8）
 
 ##### EstimatePdfExportService
 
 | Field | Detail |
 |-------|--------|
-| Intent | `ReportPage[]` を jsPDF で描画しダウンロードする |
+| Intent | `ReportFileSpec[]` を jsPDF で描画し、行タイプごとに1ファイルとして逐次ダウンロードする |
 | Requirements | 10.1, 10.3〜10.8, 32.2〜32.9, 50〜53, 56.1〜56.4 |
 
 **Contracts**: Service [x]
@@ -4207,29 +4227,39 @@ interface EstimatePdfExportInput {
   readonly company: CompanyInfoSnapshot;
   readonly onProgress?: (progress: PdfExportProgress) => void;
 }
+
+interface GeneratedReportFile {
+  readonly lineType: EstimateLineType;
+  readonly fileName: string;
+  readonly blob: Blob;
+}
+
 interface EstimatePdfExportService {
-  generate(input: EstimatePdfExportInput): Promise<Blob>;
+  /** 行タイプごとに1ファイル。「見積」「実行」「業者」の順で返す（32.3） */
+  generate(input: EstimatePdfExportInput): Promise<readonly GeneratedReportFile[]>;
 }
 ```
 
 - Preconditions: 日本語フォントの登録に成功していること
-- Postconditions: 生成失敗時は Blob を返さず例外を投げる
+- Postconditions: 生成失敗時はファイルを1つも返さず例外を投げる（**部分成功でダウンロードを始めない**）
 - Implementation Notes:
   - `PdfFontService.initialize(doc)` を用い、**失敗時は helvetica へフォールバックせず例外にする**（10.8）。既存 `PdfReportService` のフォールバック挙動（`:725-728`, `:790-794`）は踏襲しない
   - 罫線は `QuantityTablePdfExportService` と同じ `doc.rect` / `doc.line` 方式を用いる（コードは共有せず方式を踏襲）
-  - ダウンロードは既存 `PdfExportService.downloadPdf` を用いる
+  - ダウンロードは既存 `PdfExportService.downloadPdf` を**ファイル数分呼び出す**（逐次ダウンロード、32.3）。zip 化は行わない
+  - 表紙の描画は `ReportFileSpec.hasCoverPage === true` のファイルのみで実行する。実行金額・業者金額のファイルでは表紙描画をスキップする（51.16, 50.12）
   - 用紙は `orientation: 'landscape'`
 
 ##### EstimateExcelExportService
 
 | Field | Detail |
 |-------|--------|
-| Intent | `ReportPage[]` を同一構成の表計算として出力する |
+| Intent | `ReportFileSpec[]` を同一構成の表計算として行タイプごとに1ファイル出力する |
 | Requirements | 10.2, 10.9, 32.2〜32.9, 38.2〜38.4, 52.14, 53, 56 |
 
 - Implementation Notes:
   - `xlsx@0.20.3` は**セル単位の罫線を書き出せない**（書き込み経路が出力する `cellStyles` は既定の `Normal` 1件のみ）。52.14 により罫線は対象外とし、Excel標準のグリッド線に委ねる
   - ページ相当の区切りはシートではなく行方向の連続とし、表題行・見出し行・合計行を `ReportPage` の順に書き出す
+  - **行タイプごとに1ファイル**を生成し「見積」「実行」「業者」の順に逐次ダウンロードする（32.2, 32.3）。表紙は見積金額のファイルのみ（51.16）
   - 列幅は `ReportColumn.widthMm` から `!cols` の文字幅へ換算する
 
 #### Backend
@@ -4378,7 +4408,7 @@ erDiagram
 1. `estimateEditReducer` — `indentRange` が選択範囲の先頭行を親へ昇格し、残りを子に配置する（44.4）。入力 state を変更しない純粋性の検証
 2. `estimateTree.wouldCreateCycle` — 自身・子孫への移動を検出する（44.7）。`recalculateAncestorAmounts` が `NOTE` を集計除外する（55.2）
 3. `estimateCalculations.allocateNet` / `applyProfitRate` — **現行のクライアント実装とサーバー実装の出力に一致すること**を固定値で検証（丸め・ゼロ除算回避・数量ゼロ時の単価算出）
-4. `estimateReportLayout.buildPages` — 17行超過時に継続ページを作り合計行を最終ページのみに置く（50.9, 50.10）。子を持たない項目のページを作らない（50.7）
+4. `estimateReportLayout.buildFiles` — 17行超過時に継続ページを作り合計行を最終ページのみに置く（50.9, 50.10）。子を持たない項目のページを作らない（50.7）。行タイプごとに1ファイルを返し、見積のみ `hasCoverPage === true`、実行・業者は1ページ目が内訳書になる（32.2, 50.2, 50.12, 51.16）
 5. `estimate-draft.service` — ペイロード不在の既存項目のみ削除し、残る項目のIDが維持される（42.9）。配列順で `displayOrder` が 0 起点連番になる（42.6）
 
 #### Integration Tests
@@ -4397,7 +4427,7 @@ erDiagram
 4. **表示モード**: ツリー表示で折りたたみ、ドリルダウン表示で階層を下げて経路から戻る。切替で未保存編集が消えない（45.4, 45.8, 45.10）
 5. **キーボード操作**: セル入力中は行操作が発火せず、行選択中は範囲選択と階層上げ下げが動く（47.5, 47.6）
 6. **取り消し**: 行削除を取り消して復元し、保存後は取り消し履歴が空になる（48.1, 48.7）
-7. **帳票**: 未保存の変更を含む状態で出力し、生成されたファイルに編集中の値が反映される（56.2）。行タイプを2つ選ぶと行タイプごとに一連のページが出る（32.2）
+7. **帳票**: 未保存の変更を含む状態で出力し、生成されたファイルに編集中の値が反映される（56.2）。「見積」「実行」を選ぶと**2ファイル**が「見積」→「実行」の順にダウンロードされ、見積のファイルのみ表紙を持ち、実行のファイルは1ページ目が内訳書である（32.2, 32.3, 50.2, 50.12, 51.16）
 8. **競合検出**: 2セッションで同じ見積書を編集し、後の保存が409になり編集内容が保持される（42.5）
 
 #### Performance Tests
@@ -4419,11 +4449,11 @@ erDiagram
 flowchart TD
     S1[段階1: 編集基盤] --> S1a[マイグレーション: NOTE 追加 / 帳票用3列追加]
     S1a --> S1b[PUT /:id/save 追加 + estimate-draft.service]
-    S1b --> S1c[reducer 置換 + 旧12エンドポイント撤去]
+    S1b --> S1c[reducer 置換 + 明細CRUD系6本のみ撤去]
     S1c --> S1d[転記系に暫定ガード<br/>未保存時はダイアログ起動を抑止]
     S1d --> S3[段階3: 転記統合]
     S3 --> S3a[計算をクライアント単一実装へ]
-    S3a --> S3b[転記系5経路の書き込み撤去]
+    S3a --> S3b[転記系5経路の書き込み撤去<br/>＝転記系5本のエンドポイント撤去]
     S3b --> S3c[暫定ガード撤去]
     S1c --> S2[段階2: ナビゲーション]
     S2 --> S2a[表示状態フック + 2モード + 俯瞰パネル]
@@ -4431,11 +4461,13 @@ flowchart TD
     S3c --> S4[段階4: 帳票]
     S2b --> S4
     S4 --> S4a[estimateReportLayout + 2サービス]
-    S4a --> S4b[バックエンド出力部の撤去]
+    S4a --> S4b[GET /:id/export の撤去<br/>バックエンド出力部の撤去]
 ```
 
+- **エンドポイントの撤去は代替実装と同じ段階で行う**。段階1で撤去するのは明細CRUD系6本のみとし、転記系5本は段階3、`GET /:id/export` は段階4で撤去する（`Modified Files` の撤去段階表を参照）。代替が存在しないまま撤去すると本番機能が欠損する
 - **段階1と段階3は同一リリースで揃える**。分けて出す場合、段階1のみでは転記後の保存が必ず409になるため暫定ガード（`S1d`）を省略できない
 - **段階2は段階1完了後に独立して進められる**。既定モードを現行のツリー表示に固定することで既存E2Eのセレクタ影響を抑える
 - **段階4は段階1と段階3の完了後**。未保存プレビュー（56）が編集中ツリーを前提とするため
 - **ロールバック**: マイグレーションは加算のみ（列追加・enum値追加）で既存データを変更しないため、アプリのみの切り戻しが可能
 - **検証チェックポイント**: 各段階の完了時に、その段階が担当するE2E項目とバックエンド・フロントエンド双方の全単体スイートを実行する
+- **要件単位の完了判定の例外**: REQ-44（範囲選択と範囲操作）は reducer アクションが段階1、選択UIが段階2に分かれる。段階1の完了判定に REQ-44 のE2Eを含めず、単体テスト（reducer のアクション検証）のみを対象とする
