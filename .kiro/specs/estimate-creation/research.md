@@ -121,3 +121,177 @@ _本分析は Requirement 41 承認前のドラフト要件に基づく。要件
 ### 主要リスクと緩和
 - リスク（Medium）: 「3行1セット前提」への単一行例外導入。緩和: `itemType` を唯一の判別軸に集約し、表示フィルタ・出力・バッチ保存の回帰をUnit/Integration/E2Eで担保。
 - マイグレーション: `itemType @default(STANDARD)` で既存データ後方互換。
+
+---
+
+# ギャップ分析（第2回）: 行操作・ネスト構造・帳票書式の再設計
+
+対象要件: Requirement 42〜56（新設15件）および改訂19件（REQ-2 / 4〜10 / 12 / 17〜19 / 22 / 23 / 27 / 29〜34 / 38 / 39 / 41）、撤廃1件（REQ-24）。
+参照資料: `brief.md`、`estimation-software-reference.md`、`pdf-format-reference.md`。
+
+## 1. 現状調査サマリー（既存資産）
+
+### 再利用できる資産（想定以上に揃っている）
+
+| 資産 | 場所 | 提供機能 | 転用先 |
+|---|---|---|---|
+| **フル状態同期保存** | `backend/src/services/quantity-table.service.ts:945-1107` `saveDraft()` | 事前全件バリデーション（`:951`）→ `expectedUpdatedAt` 楽観ロック409（`:982-991`）→ ペイロードに無い既存の `deleteMany`（`:1000-1004`, `:1051-1057`）→ 既存 `update` ＋ `id:null` の `create` → **配列順を正とする並び順再採番**（`:1015`, `:1062`）→ 単一トランザクション（`:955`）→ 最新詳細を返却（`:1103`） | REQ-42 |
+| **純粋reducer** | `frontend/src/pages/quantityTableEditReducer.ts`（アクション定義 `:179-200`、`copyItem` `:343`、`duplicateDraftItem` `:607`） | 全行操作が0リクエスト | REQ-43 |
+| **明示保存の呼び出し規律** | `frontend/src/pages/QuantityTableEditPage.tsx:1367, 1424` | 保存を1回だけ呼ぶ | REQ-27, REQ-42 |
+| **Undoマネージャ** | `frontend/src/services/UndoManager.ts` | コマンドパターン（`UndoCommand` `:16`、`execute` `:115`、`pushWithoutExecute` `:147`、`undo` `:176`、`redo` `:206`、`canUndo/canRedo` `:232`、`clear` `:64`）。**履歴上限はコンストラクタ引数**（`:101` 既定50） | REQ-48（`maxHistorySize=10` で AC3 を充足） |
+| **Undo状態のReact連携** | `frontend/src/hooks/useUndoState.ts:76` | `canUndo`/`canRedo` の state 化、`clearOnSave` | REQ-48 AC4, AC7 |
+| **Undoのキー割当** | `frontend/src/hooks/useUndoKeyboardShortcuts.ts:104` | Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z、Ctrl+Y。**`isTextInputElement`（`:45`）で入力中は発火させない** | REQ-48, **REQ-47 AC5 をそのまま満たす判定ロジック** |
+| **キーボードナビゲーション基盤** | `frontend/src/hooks/useKeyboardNavigation.ts`、`frontend/src/utils/keyboard-navigation.ts` | リスト/メニュー/グリッドのフォーカス移動、`isActivationKey`/`isNavigationKey` | REQ-47 AC2（部分的） |
+| **帳票の日本語描画** | `frontend/src/services/export/PdfFontService.ts:120-126` | Noto Sans JP 登録（`addFileToVFS`→`addFont`→`setFont`）。資産は `fonts/noto-sans-jp-base64.ts`（バイナリ 2,255,812 bytes の TrueType） | REQ-10 AC8 |
+| **罫線付き表の描画** | `frontend/src/services/export/QuantityTablePdfExportService.ts` | 列定義（`:92`）、行高（`:82`）、`doc.rect`（`:240, :302`）・`doc.line`（`:316, :368`）、改ページ判定（`:280-281`） | REQ-52, REQ-50 AC9 |
+| **表紙ページ描画** | `frontend/src/services/export/PdfReportService.ts:248, 347, 402` | ページ単位のレンダリング分割 | REQ-51 |
+| **ダウンロード共通処理** | `frontend/src/services/export/PdfExportService.ts` | `downloadPdf` / `generateDefaultFilename` / `PdfExportProgress` | REQ-10 AC7, REQ-32 AC6 |
+| **フロントエンドのExcel生成** | `frontend/package.json:40` `xlsx@0.20.3`（SheetJS）、`frontend/src/utils/export-excel.ts:151` `exportToExcel()` | `XLSX.utils.json_to_sheet` → `book_append_sheet` → `writeFile` | REQ-10 AC2 |
+| **E2Eのリクエスト計測** | `e2e/specs/estimate/estimate-features-e2e.spec.ts` ほか（`page.route` 使用実績あり） | リクエスト回数アサーションの下地 | REQ-43 AC2 の検証 |
+
+### 変更対象となる既存実装
+
+| 場所 | 現状 |
+|---|---|
+| `frontend/src/hooks/useEstimateEditor.ts`（871行） | `useState` ＋ `pendingChanges: Map`。reducer 不使用。DnDが `recordChange` に `data` を渡さず永続化されない（`:768-769`） |
+| `frontend/src/pages/EstimateDetailPage.tsx`（1265行） | 即時API＋全件再取得が5経路（`:673`, `:723`, `:789`, `:843`, `:886`）。`fetchData()`（`:627-643`）が `setItems()`（`:637`）で未保存変更を全消去 |
+| `backend/src/routes/estimates.routes.ts`（2218行） | 明細系13エンドポイント。コントローラ層なしでルートに直書き。`batch` が `updatedAt` を読み捨て（`:1021`） |
+| `backend/src/services/estimate-item.service.ts`（885行） | ループUPDATE（`:584-588`, `:631-654`）、BFS `findMany`（`:541-560`）、転記ループ（`:717/735/755`, `:773-790`） |
+| `backend/src/services/estimate-export.service.ts`（32,625 bytes） | jsPDF、**日本語フォント未埋め込み**、A4縦（`:173`）、5列（`:100-105`）、罫線なし |
+| `frontend/src/components/estimate/EstimateItemTable.tsx`（385行） | 全階層インデント表示。展開/折りたたみなし |
+
+### データモデルの現状
+
+| モデル | 現状 | 参照 |
+|---|---|---|
+| `EstimateItem` | `parentId` 隣接リスト（`onDelete: Cascade`）＋ `displayOrder`（`@@unique` なし、重複・歯抜け許容）。`level`/`path` なし。物理削除 | `prisma/schema.prisma:1202-1226` |
+| `EstimateItemLine` | `@@unique([estimateItemId, lineType])`。STANDARD は3行、DISCOUNT は1行。**1項目=最大4レコード** | `:1257-1280` |
+| `Estimate` | `id/projectId/name/sourceItemizedStatementId/sourceItemizedStatementName/createdAt/updatedAt/deletedAt`。**`version` なし** | `:1157-1175` |
+| `EstimateItemType` | **`STANDARD` / `DISCOUNT` の2値のみ** | `:1128-1131` |
+| `ExecutionBudgetItem` | `estimateItemId` を `onDelete: SetNull` で参照 | `:1586-1635` |
+| `CompanyInfo` | `companyName/address/representative/phone/fax/email/invoiceRegistrationNumber`。**郵便番号フィールドなし** | — |
+| `Project` / `TradingPartner` | `Project.name`（工事件名）、`Project.siteAddress`（工事場所）、`TradingPartner.name`（宛先）、`TradingPartner.representativeName`（代表者名、任意） | — |
+
+マイグレーションは32件運用中（直近 `20260727042529_add_construction_photo_models`）。`20260521005902_add_estimate_item_type` が `itemType` 追加の先例。
+
+## 2. 要件→資産マッピングとギャップ
+
+タグ: **[充足]** 既存資産で満たせる / **[拡張]** 既存を改造 / **[新規]** 新規作成 / **[Missing]** データモデル不足 / **[Constraint]** 既存構造による制約 / **[Unknown]** 要調査
+
+### W1: 編集基盤（REQ-12 / 27 / 34 / 42 / 43 / 44）
+
+| 要件 | 資産 | タグ |
+|---|---|---|
+| REQ-42 一括保存・競合検出・並び順の権威 | `quantity-table.service.ts:945` `saveDraft()` が全ACの雛形 | **[新規]** 見積用の同等エンドポイントを新設 |
+| REQ-42 AC9 実行予算からの参照維持 | `ExecutionBudgetItem.estimateItemId` は `onDelete: SetNull` | **[Constraint]** 差分適用は既存IDを維持すること（削除→再作成は不可） |
+| REQ-42 AC5 楽観ロック | `Estimate` に `version` なし | **[Constraint]** `updatedAt` 比較方式を継続 |
+| REQ-43 行操作のローカル完結 | `quantityTableEditReducer.ts` が前例 | **[拡張]** `useEstimateEditor` を純粋reducerへ置換 |
+| REQ-43 AC5 親集計の即時再計算 | `useEstimateEditor.ts:418` `recalculateParentAmounts` が存在するが未メモ化（`:527`） | **[拡張]** |
+| REQ-44 範囲選択 | 該当資産なし（現行は単一選択前提） | **[新規]** |
+| REQ-44 AC7 循環参照の禁止 | サーバー側 `getDescendantIds`（`:541-560`）はBFSでN+1 | **[拡張]** クライアント側ツリーで判定し、サーバーは受領時検証のみ |
+| REQ-12 AC8 DnDの永続化 | `useEstimateEditor.ts:768-769` のバグ | **[拡張]** |
+| REQ-27 AC5〜7 未保存表示・離脱ガード | 数量表・工事写真台帳に離脱ガードの実績あり | **[充足]** パターン流用 |
+
+### W2: ナビゲーション（REQ-2 / 23 / 45 / 46 / 47 / 48）
+
+| 要件 | 資産 | タグ |
+|---|---|---|
+| REQ-48 取り消し/やり直し（10回） | `UndoManager`（`maxHistorySize` 引数）＋ `useUndoState` ＋ `useUndoKeyboardShortcuts` | **[充足]** `new UndoManager(10)` で AC3 を満たす |
+| REQ-47 AC5 文字入力中は行操作を実行しない | `useUndoKeyboardShortcuts.ts:45` `isTextInputElement` | **[充足]** 判定ロジックを共用 |
+| REQ-47 AC1/AC3/AC4 キー割当と一覧表示 | キーマップを集約する仕組みは存在しない | **[新規]** キーマップ定義とヘルプ表示 |
+| REQ-47 AC2 セル間移動 | `useKeyboardNavigation` / `utils/keyboard-navigation.ts` | **[拡張]** グリッド用の移動順定義が必要 |
+| REQ-45 表示モード切替・ドリルダウン | 該当資産なし | **[新規]** |
+| REQ-46 階層構造パネル | **ツリー表示コンポーネントの既存資産なし** | **[新規]** |
+| REQ-2 AC5 階層深さ無制限 | `EstimateItem` に `level`/`path` なし | **[Constraint]** 深さ・経路はクライアントで毎回走査。行数の多い見積書での再計算コストに配慮が必要 |
+
+### W3: 転記統合（REQ-4〜9 / 17〜19 / 30 / 31 / 33 / 39 / 49）
+
+| 要件 | 資産 | タグ |
+|---|---|---|
+| REQ-49 AC3 実行時にDB書き込みを行わない | `POST /:id/calculate-overhead`（`estimates.routes.ts:1701`）が**計算のみ・書き込みなし**の先例 | **[拡張]** 他4経路を同型へ |
+| REQ-49 AC5 競合エラーを起こさない | 現行3経路がサーバー側で `Estimate.updatedAt` を更新（`:1456-1459`, `:1618-1621`、転記も同トランザクション内） | **[拡張]** 更新を保存経路のみに限定 |
+| REQ-5 AC8 / REQ-6 AC8 プレビューと結果の一致 | 案分計算がクライアント（`NetAllocationDialog.tsx:234-259`）とサーバー（`:1403-1420`）に**二重実装** | **[拡張]** 単一実装化。丸め挙動（`ROUND_HALF_UP` / `toDecimalPlaces(0)` / ゼロ除算回避 / 数量ゼロ時の単価算出 `:1436-1441`）の完全一致が必須 |
+| REQ-5 AC9 / REQ-6 AC9 未保存の新規行を対象化 | ダイアログは `line.id`（DB UUID）を送信（`NetAllocationDialog.tsx:271-276`） | **[拡張]** 行データ渡しへ変更 |
+| REQ-6 AC7 「空の場合のみ上書き」を編集中の値で判定 | 現行はDBの値で判定（`estimates.routes.ts:1580-1620`） | **[拡張]** 挙動変更を伴う |
+| REQ-39 AC10 編集中の内容でサマリー計算 | サマリーは既存 | **[充足]** |
+
+### W4: 帳票（REQ-10 / 22 / 32 / 38 / 41 / 50〜56）
+
+| 要件 | 資産 | タグ |
+|---|---|---|
+| REQ-10 AC8 日本語描画失敗時の中断 | `PdfFontService` は成功、ただし `PdfReportService:725-728, 790-794` は helvetica へフォールバックする | **[拡張]** 見積書はフォールバックせず中断 |
+| REQ-50 用紙・ページ構成 | `QuantityTablePdfExportService` の改ページ判定 | **[新規]** 表紙/内訳書/明細書の3種を新設 |
+| REQ-50 AC5/AC6 深さ無制限の入れ子明細書 | 参照PDFは2階層のみ | **[新規]** 深さ優先での再帰出力 |
+| REQ-51 表紙 | `PdfReportService.renderCoverPage` が前例 | **[新規]** |
+| REQ-51 AC13 自社情報の取得 | `CompanyInfo`（会社名/住所/代表者/電話/FAX） | **[充足]** |
+| REQ-51 AC14 郵便番号を独立行にしない | `CompanyInfo` に郵便番号なし | **[充足]**（要件側で出力しないと決定済み） |
+| REQ-52 罫線グリッド（PDF） | `doc.rect` / `doc.line` の実績 | **[拡張]** 7列・18行グリッドへ |
+| REQ-52 罫線グリッド（Excel） | `export-excel.ts` は `json_to_sheet` のみ。**SheetJS 0.20.3 の書き込み経路が出力する `cellStyles` は既定の `Normal` 1件のみ**（セル単位の罫線・塗りを書き出さない） | **[Constraint]** Excelで罫線を再現する手段が現状ない |
+| REQ-53 値の表記規則 | `decimal.js` はクライアントでも使用中 | **[新規]** |
+| REQ-54 別途工事5件・有効期限・提出日 | `Estimate` に該当フィールドなし | **[Missing]** マイグレーション必須 |
+| REQ-55 注記行 | `EstimateItemType` は `STANDARD`/`DISCOUNT` の2値 | **[Missing]** enum 値追加のマイグレーション必須。`20260521005902_add_estimate_item_type` が先例 |
+| REQ-56 未保存プレビュー | フロントエンド生成に移せば技術的に可能 | **[新規]** |
+| REQ-32 行タイプごとに独立した一連のページ | 現行は「横1列に並べる」（`estimate-export.service.ts:317-336` `getHeadersForLineTypes`） | **[拡張]** 既存の出力書式とE2Eを置き換える |
+
+## 3. 実装アプローチ案
+
+### Option A: 既存コンポーネントを拡張する
+
+`useEstimateEditor` の `pendingChanges` 方式を保ちつつアクションを足し、`PUT /items/batch` を差分適用可能に拡張、`estimate-export.service.ts`（バックエンド）に日本語フォントを追加して書式を作り込む。
+
+- ✅ 新規ファイルが少なく、既存の呼び出し元をほぼ変えずに済む
+- ✅ 出力経路が1系統のまま（`GET /:id/export`）
+- ❌ `pendingChanges` は純粋関数でないため **REQ-48（取り消し）が成立しない**
+- ❌ 2.25MB のフォント資産をバックエンドへ複製する必要がある
+- ❌ `useEstimateEditor`(871行) / `EstimateDetailPage`(1265行) / `estimates.routes.ts`(2218行) がさらに肥大する
+- ❌ REQ-56（未保存プレビュー）はサーバー生成では実現できない
+
+### Option B: 新規コンポーネントで置き換える
+
+見積用の保存エンドポイントを新設し旧6本を撤去、`useEstimateEditor` を純粋reducerへ全面置換、帳票をフロントエンドの新規サービスへ移してバックエンドのPDF生成部を撤去する。
+
+- ✅ REQ-48 の前提（純粋関数）を最初から満たす
+- ✅ フォント資産・罫線描画・ダウンロード処理をフロントエンドの既存4サービスから再利用でき、追加調達が不要
+- ✅ REQ-56 が自然に成立する
+- ✅ 旧APIと旧PDF生成部を撤去でき、二重メンテを避けられる
+- ❌ 一度に変わる範囲が広く、E2E（`e2e/specs/estimate/` 約8,500行）の移行が同時に必要
+- ❌ 出力経路がPDF/Excelともフロントへ移るため、サーバー側の出力ダウンロードを前提とした運用があれば影響する
+
+### Option C: ハイブリッド＋段階リリース（推奨）
+
+境界ごとに A/B を選び分け、リリース単位を3段に分ける。
+
+- **段階1（編集基盤・W1）**: 保存エンドポイントは**新設**（B）。reducer は**全面置換**（B）。旧6エンドポイントはこの段階で撤去。転記系には未保存時の起動抑止を**暫定ガード**として入れる
+- **段階2（ナビゲーション・W2）**: `UndoManager` / `useUndoState` / `useUndoKeyboardShortcuts` / `useKeyboardNavigation` を**拡張再利用**（A）。表示モード・ツリーパネル・キーマップは**新規**（B）
+- **段階3（転記統合・W3）**: `calculate-overhead` の「計算のみ」型へ**拡張**（A）。段階1の暫定ガードを撤去
+- **段階4（帳票・W4）**: フロントエンドへ**新規**サービスを作成し、バックエンドPDF生成部を撤去（B）
+
+- ✅ 各段階が単独で検証可能。E2Eの移行も段階ごとに分割できる
+- ✅ `UndoManager` など再利用可能な資産は作り直さない
+- ❌ 段階1と段階3の間は暫定ガードが必要（**段階1のみを先行リリースすると転記後の保存が必ず競合エラーになるため、ガードは省略できない**）
+- ❌ 4段階の計画と整合性維持のコストがかかる
+
+## 4. 工数・リスク
+
+| 区分 | 工数 | 根拠 | リスク | 根拠 |
+|---|---|---|---|---|
+| W1 編集基盤 | **L**（1〜2週） | `saveDraft` の移植は型が定まっているが、reducer 全面置換と旧API撤去、E2Eの新API移行が伴う | **Medium** | 同一リポジトリに稼働実績パターンがあり技術的未知は少ない。既存IDの維持（実行予算参照）を外すと影響が広い |
+| W2 ナビゲーション | **L**（1〜2週） | Undo系3資産の再利用で軽減されるが、表示モード2種＋ツリーパネル＋キーマップは新規 | **Medium** | 表示モード導入で既存E2Eのセレクタが影響を受ける。既定をツリー表示に固定して緩和可能 |
+| W3 転記統合 | **M**（3〜7日） | 5経路の書き込み撤去と計算の単一化。`calculate-overhead` の前例あり | **Medium-High** | 丸め挙動を現行と完全一致させる検証が難しい。差分が金額の誤りとして顧客に出る |
+| W4 帳票 | **XL**（2週以上） | 表紙・内訳書・明細書の書式作り込み、Excel移行、マイグレーション2件（`Estimate` の3フィールド、`EstimateItemType` の `NOTE`）、行タイプごとの複数ページ化 | **High** | Excelの罫線に現状の手段がない。第2階層以降の階層記号規則が未定義。書式の作り込み量が大きい |
+| 全体 | **XL** | — | **High** | 4段階の同時整合が必要。W4のみでも単独XL |
+
+## 5. 設計フェーズへの申し送り（Research Needed）
+
+1. **Excelにおける罫線の実現手段**: SheetJS 0.20.3（Community）の書き込み経路はセル単位のスタイルを出力しない。(a) Excelは罫線なしで既定のグリッド線に委ねる（要件緩和）、(b) `exceljs` 等の書き込み時スタイル対応ライブラリを追加、(c) Excelは列構成と値の書式のみ揃える。**REQ-10 AC2 と REQ-52 AC3〜AC6 の解釈に影響するため要件側の確認が必要**。
+2. **第2階層以降の階層記号**: 参照PDFは第1階層に `Ａ`〜`Ｈ` を用いる例のみ。REQ-50 AC5 で深さ無制限の明細書ページを出すため、第2階層以降の記号体系（`Ａ-1` 形式か連番か無しか）が未定義。REQ-52 AC11 / REQ-53 AC7 に影響。
+3. **18行グリッドにおける行数カウント**: 注記行（REQ-55）と値引行（REQ-41）を明細17行の枠に含めるか。継続ページ（REQ-50 AC9）の分割位置にも影響。
+4. **単位の `〃` 置換とページ跨ぎ**: 継続ページの先頭行が直前ページ最終行と同一単位の場合、`〃` とするか実単位を出すか（REQ-53 AC6）。
+5. **キー割当表の確定**: 参照モデルのファンクションキー割当（F2/F3/F6/F7/F9 等）はブラウザ標準機能と衝突する。REQ-47 AC4 を満たす調整版の具体的な割当。`useUndoKeyboardShortcuts` の Ctrl+Z 系との共存も含める。
+6. **表示モードの引き継ぎ範囲**: REQ-45 AC11 の「次回の画面表示時にも引き継ぐ」を、ユーザー単位（サーバー保存）か端末単位（ブラウザ保存）のどちらとするか。
+7. **深さ無制限時の再計算コスト**: `level`/`path` を持たない隣接リストで、行数の多い見積書における親集計・経路算出・ツリーパネル再構築の実測が必要。マテリアライズド列の追加を設計で再検討する余地。
+8. **計算の単一化の方向**: 案分・利益率の計算を (a) クライアントへ寄せてサーバーの計算エンドポイントを廃止 / (b) サーバーを純粋計算エンドポイントとしプレビューと適用の両方で使う。`calculate-overhead` は (b) の前例、`NetAllocationDialog` は既に (a) の実装を持つ。
+9. **フォントのサブセット化**: `PdfFontService.ts:6, 17` のコメントは「約500KB」だが実体は 2.25MB。既存3機能と共有する資産のため、変更は他機能へ波及する。
+10. **リリース単位**: 段階1のみ先行する場合の暫定ガードの具体（転記ダイアログの起動抑止か、保存を促す確認ダイアログか）。
+
+_本分析は Requirement 42〜56 を含む改訂要件（未承認、`spec.json` の requirements.approved = false）に基づく。要件の確定または上記1・2の解消により結論が変わる箇所がある。_
