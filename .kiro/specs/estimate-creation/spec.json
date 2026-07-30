@@ -1,22 +1,22 @@
 {
   "feature_name": "estimate-creation",
   "created_at": "2026-02-02T14:44:24Z",
-  "updated_at": "2026-05-21T00:00:00Z",
+  "updated_at": "2026-07-30T00:00:00Z",
   "language": "ja",
-  "phase": "tasks-generated",
+  "phase": "requirements-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": true
+      "approved": false
     },
     "design": {
       "generated": true,
-      "approved": true
+      "approved": false
     },
     "tasks": {
       "generated": true,
-      "approved": true
+      "approved": false
     }
   },
-  "ready_for_implementation": true
+  "ready_for_implementation": false
 }
