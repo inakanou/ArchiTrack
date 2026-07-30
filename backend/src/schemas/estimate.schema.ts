@@ -562,6 +562,10 @@ export const saveEstimateItemNodeSchema = z.object({
 
 /**
  * 帳票用入力項目スキーマ（54.1, 54.2, 54.3）
+ *
+ * 3フィールドの `.default()` は意図的に残している。{@link saveEstimateDraftSchema} で
+ * `reportFields` 自体を省略不可としたため、トップレベルの省略は 400 で弾かれ、
+ * 「省略＝保存済みの値を静かに消す」経路は塞がっている。
  */
 export const saveEstimateReportFieldsSchema = z.object({
   submissionDate: z
