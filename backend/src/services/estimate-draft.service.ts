@@ -12,20 +12,27 @@
  * - 新規項目の親子関係は一時ID（`tempId`）から生成IDへの対応表で解決する
  *
  * Requirements (estimate-creation):
+ * - 29.4: 自動計算された親項目の金額をデータベースに反映し、再読み込み後も同じ金額を表示する
  * - 34.1: 追加された項目をデータベースに登録する
  * - 34.2: 削除された項目をデータベースから削除する
  * - 34.3: 編集された最新の内容をデータベースに反映する
  * - 34.4: 追加・削除・更新の全ての変更タイプを正しく処理する
+ * - 34.5: 変更後の並び順と階層をデータベースに反映する
+ * - 34.6: 転記・案分・利益率適用等の結果を反映し、再読み込み後も反映後の内容を表示する
  * - 42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+ * - 42.2: 保存成功時に保存後の最新の明細内容を返す
  * - 42.3: 一部に失敗した場合は変更をすべて破棄して保存前の状態を保つ
  * - 42.4: 入力内容に不備がある場合は保存を開始しない
+ * - 42.5: 保存開始後に他のユーザーが更新していた場合は保存を中止する（409）
+ * - 42.6: 明細の並び順を画面に表示されている順序どおりに確定する
+ * - 42.7: 保存成功時に未保存の変更がない状態へ戻せる（最新状態を返す）
  * - 42.9: 既存の見積項目と実行予算項目からの参照関係を維持する
+ * - 54.8: 帳票用入力項目の変更を保存操作で確定する
  *
  * Task 52.4: 明細の差分適用と親子関係の解決
+ * Task 52.5: 楽観ロックと並び順の再採番および最新状態の返却
  *
  * 本タスクの対象外（後続タスクが担当する）:
- * - 楽観ロック（`expectedUpdatedAt` の照合と `Estimate.updatedAt` の更新）、
- *   `displayOrder` の再採番、帳票用入力項目の保存、最新ツリーの返却 → 52.5
  * - 一括UPDATE化によるN+1解消 → 52.6
  *
  * 設計は `quantity-table.service.ts` の `saveDraft` を参照元とするが、
@@ -35,11 +42,16 @@
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { EstimateNotFoundError, EstimateDraftValidationError } from '../errors/estimateError.js';
+import {
+  EstimateNotFoundError,
+  EstimateDraftValidationError,
+  EstimateConflictError,
+} from '../errors/estimateError.js';
 import type {
   SaveEstimateDraftInput,
   SaveEstimateItemNodeInput,
   SaveEstimateLineInput,
+  SaveEstimateReportFieldsInput,
 } from '../schemas/estimate.schema.js';
 
 /**
@@ -68,8 +80,6 @@ export const ESTIMATE_DRAFT_VALIDATION_MESSAGES = {
 
 /**
  * 差分適用の結果
- *
- * 最新ツリーの返却は 52.5 が担当するため、本タスクでは適用した差分のみを返す。
  */
 export interface SaveEstimateDraftDiffResult {
   /** 新規作成した見積項目のID（ペイロードの走査順） */
@@ -82,10 +92,118 @@ export interface SaveEstimateDraftDiffResult {
   readonly tempIdMap: Readonly<Record<string, string>>;
 }
 
+/**
+ * 保存後の帳票用入力項目（54.1〜54.3, 54.8）
+ */
+export interface SavedEstimateReportFields {
+  /** 提出日（未入力は null） */
+  readonly submissionDate: Date | null;
+  /** 有効期限（未入力は null） */
+  readonly validityPeriod: string | null;
+  /** 別途工事（入力順を保持） */
+  readonly separateWorks: readonly string[];
+}
+
+/**
+ * 保存後の見積書サマリ
+ *
+ * `updatedAt` は次回保存の楽観ロック基準時刻として呼び出し元がそのまま用いる（42.5）。
+ */
+export interface SavedEstimateSummary {
+  readonly id: string;
+  readonly updatedAt: Date;
+  readonly reportFields: SavedEstimateReportFields;
+}
+
+/**
+ * 保存後の明細行
+ *
+ * `GET /api/estimates/:id/items`（`EstimateItemService.getHierarchy`）の返却形に合わせる。
+ * 呼び出し元が保存後に追加取得を行わずに済むよう、同じ形で返す（42.2）。
+ */
+export interface SavedEstimateItemLine {
+  readonly id: string;
+  readonly estimateItemId: string;
+  readonly lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
+  readonly name: string | null;
+  readonly specification: string | null;
+  readonly unit: string | null;
+  readonly quantity: number | null;
+  readonly unitPrice: number | null;
+  readonly amount: number | null;
+  readonly remarks: string | null;
+  readonly sourceReceivedQuotationLineItemId: string | null;
+  readonly sourceVendorName: string | null;
+}
+
+/**
+ * 保存後の見積項目（階層構造）
+ */
+export interface SavedEstimateItemNode {
+  readonly id: string;
+  readonly estimateId: string;
+  readonly parentId: string | null;
+  readonly displayOrder: number;
+  readonly itemType: SaveEstimateItemNodeInput['itemType'];
+  readonly lines: readonly SavedEstimateItemLine[];
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+  readonly children: readonly SavedEstimateItemNode[];
+}
+
+/**
+ * 一括保存の結果
+ *
+ * 保存後の最新状態（見積書サマリ＋明細ツリー）を含むため、呼び出し元は
+ * 追加の取得を必要としない（42.2, 42.7）。
+ */
+export interface SaveEstimateDraftResult extends SaveEstimateDraftDiffResult {
+  /** 保存後の見積書サマリ */
+  readonly estimate: SavedEstimateSummary;
+  /** 保存後の明細ツリー（ルート項目の配列） */
+  readonly items: readonly SavedEstimateItemNode[];
+}
+
+/** 保存後の最新状態（DBから読み直した結果） */
+interface SavedEstimateState {
+  readonly estimate: SavedEstimateSummary;
+  readonly items: readonly SavedEstimateItemNode[];
+}
+
 /** DB上の既存見積項目（差分計算に必要な最小限） */
 interface ExistingItemRow {
   readonly id: string;
   readonly parentId: string | null;
+}
+
+/**
+ * 保存後に読み直した見積項目の行（Prismaの返却形）
+ *
+ * 数量・単価・金額は Prisma の `Decimal` として返るため `unknown` で受け、
+ * 呼び出し元へ返す際に数値へ変換する。
+ */
+interface SavedItemRow {
+  readonly id: string;
+  readonly estimateId: string;
+  readonly parentId: string | null;
+  readonly displayOrder: number;
+  readonly itemType: SaveEstimateItemNodeInput['itemType'];
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+  readonly lines: readonly {
+    readonly id: string;
+    readonly estimateItemId: string;
+    readonly lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
+    readonly name: string | null;
+    readonly specification: string | null;
+    readonly unit: string | null;
+    readonly quantity: unknown;
+    readonly unitPrice: unknown;
+    readonly amount: unknown;
+    readonly remarks: string | null;
+    readonly sourceReceivedQuotationLineItemId: string | null;
+    readonly sourceVendorName: string | null;
+  }[];
 }
 
 /** 深さ優先走査の作業単位（親は解決済み） */
@@ -111,23 +229,26 @@ export class EstimateDraftService {
    *
    * 手順:
    * 1. トランザクション開始前の全件検証（読み取りのみ・書き込みゼロ）
-   * 2. トランザクション内で「切り離し → 削除 → 追加/更新」を実行
+   * 2. 楽観ロックの照合（不一致なら書き込みゼロで 409、42.5）
+   * 3. トランザクション内で「帳票用入力項目の更新 → 切り離し → 削除 → 追加/更新」を実行
+   * 4. 保存後の最新状態を同一トランザクション内で読み直して返す（42.2, 42.7）
    *
    * @param estimateId - 見積書ID
    * @param input - 一括保存入力（{@link SaveEstimateDraftInput} で検証済みの形）
-   * @returns 適用した差分
+   * @returns 適用した差分と保存後の最新状態
    * @throws EstimateNotFoundError 見積書が存在しない、または論理削除済みの場合（404）
    * @throws EstimateDraftValidationError 検証NGの場合（422・書き込みゼロ）
+   * @throws EstimateConflictError 楽観ロック競合の場合（409・データ変更なし）
    */
   async saveDraft(
     estimateId: string,
     input: SaveEstimateDraftInput
-  ): Promise<SaveEstimateDraftDiffResult> {
+  ): Promise<SaveEstimateDraftResult> {
     // ===== 1. トランザクション開始前の全件検証（42.4） =====
     // ここでの問い合わせは読み取りのみ。検証NGなら書き込みは一切発生しない。
     const estimate = await this.prisma.estimate.findUnique({
       where: { id: estimateId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, updatedAt: true },
     });
 
     if (!estimate || estimate.deletedAt !== null) {
@@ -142,8 +263,21 @@ export class EstimateDraftService {
     const frames = this.flattenPayload(input.items);
     this.validatePayloadItemOwnership(frames, existingItems);
 
-    // ===== 2. 差分適用（単一トランザクション、42.1, 42.3） =====
+    // ===== 2. 楽観ロックの照合（42.5） =====
+    // design.md「保存フロー（42.1〜42.9）」の順序に従い、検証（422）の後・
+    // トランザクション開始の前に照合する。競合時は書き込みが一切発生しない。
+    const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
+    if (estimate.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+      throw new EstimateConflictError({
+        expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+        actualUpdatedAt: estimate.updatedAt.toISOString(),
+      });
+    }
+
+    // ===== 3. 差分適用（単一トランザクション、42.1, 42.3） =====
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      await this.applyEstimateUpdate(tx, estimateId, input.reportFields, expectedUpdatedAt);
+
       const deletedItemIds = await this.applyDeletions(tx, frames, existingItems);
       const { createdItemIds, updatedItemIds, tempIdMap } = await this.applyUpserts(
         tx,
@@ -151,13 +285,156 @@ export class EstimateDraftService {
         frames
       );
 
+      // ===== 4. 保存後の最新状態を返す（42.2, 42.7, 34.6, 29.4） =====
+      const saved = await this.loadSavedState(tx, estimateId);
+
       return {
         createdItemIds,
         updatedItemIds,
         deletedItemIds,
         tempIdMap,
+        estimate: saved.estimate,
+        items: saved.items,
       };
     });
+  }
+
+  /**
+   * 帳票用入力項目を保存し、楽観ロックを確定させる（54.8, 42.5）
+   *
+   * `where` に基準時刻を含めた条件付きUPDATEとすることで、事前照合を通過した後に
+   * 他トランザクションがコミットした場合も検出できる（PostgreSQL の既定分離レベルは
+   * READ COMMITTED のため、事前照合だけでは同時保存を取りこぼす）。
+   * 更新件数が0なら競合として例外を投げ、トランザクション全体を巻き戻す。
+   *
+   * `Estimate.updatedAt` は Prisma の `@updatedAt` により本UPDATEで更新される
+   * （design.md「estimate-draft.service」Postconditions）。
+   */
+  private async applyEstimateUpdate(
+    tx: PrismaTransactionClient,
+    estimateId: string,
+    reportFields: SaveEstimateReportFieldsInput,
+    expectedUpdatedAt: Date
+  ): Promise<void> {
+    const result = await tx.estimate.updateMany({
+      where: { id: estimateId, updatedAt: expectedUpdatedAt },
+      data: {
+        submissionDate:
+          reportFields.submissionDate === null ? null : new Date(reportFields.submissionDate),
+        validityPeriod: reportFields.validityPeriod,
+        separateWorks: reportFields.separateWorks,
+      },
+    });
+
+    if (result.count === 0) {
+      throw new EstimateConflictError({
+        expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+      });
+    }
+  }
+
+  /**
+   * 保存後の最新状態を読み直す（42.2, 42.7）
+   *
+   * 同一トランザクション内で読むため、直前の書き込みを反映した一貫した断面になる。
+   * 明細は `GET /api/estimates/:id/items` と同じ並び（親スコープごとの `displayOrder` 昇順）
+   * ・同じ形の階層構造で返し、呼び出し元が追加取得を必要としないようにする。
+   */
+  private async loadSavedState(
+    tx: PrismaTransactionClient,
+    estimateId: string
+  ): Promise<SavedEstimateState> {
+    const estimate = await tx.estimate.findUnique({
+      where: { id: estimateId },
+      select: {
+        id: true,
+        updatedAt: true,
+        submissionDate: true,
+        validityPeriod: true,
+        separateWorks: true,
+      },
+    });
+
+    if (!estimate) {
+      // 同一トランザクション内で更新済みのため到達しない
+      throw new EstimateNotFoundError(estimateId);
+    }
+
+    const rows = await tx.estimateItem.findMany({
+      where: { estimateId },
+      include: {
+        lines: {
+          orderBy: { lineType: 'asc' },
+        },
+      },
+      orderBy: [{ parentId: 'asc' }, { displayOrder: 'asc' }],
+    });
+
+    return {
+      estimate: {
+        id: estimate.id,
+        updatedAt: estimate.updatedAt,
+        reportFields: {
+          submissionDate: estimate.submissionDate,
+          validityPeriod: estimate.validityPeriod,
+          separateWorks: estimate.separateWorks,
+        },
+      },
+      items: this.buildSavedItemTree(rows),
+    };
+  }
+
+  /**
+   * 平坦な見積項目配列から階層ツリーを組み立てる
+   *
+   * 入力は親スコープごとに `displayOrder` 昇順で並んでいるため、
+   * 出現順に押し込むだけで各スコープの並び順が保たれる。
+   */
+  private buildSavedItemTree(rows: readonly SavedItemRow[]): SavedEstimateItemNode[] {
+    const nodeMap = new Map<
+      string,
+      SavedEstimateItemNode & { children: SavedEstimateItemNode[] }
+    >();
+    const roots: SavedEstimateItemNode[] = [];
+
+    for (const row of rows) {
+      nodeMap.set(row.id, {
+        id: row.id,
+        estimateId: row.estimateId,
+        parentId: row.parentId,
+        displayOrder: row.displayOrder,
+        itemType: row.itemType,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        lines: row.lines.map((line) => ({
+          id: line.id,
+          estimateItemId: line.estimateItemId,
+          lineType: line.lineType,
+          name: line.name,
+          specification: line.specification,
+          unit: line.unit,
+          quantity: line.quantity === null ? null : Number(line.quantity),
+          unitPrice: line.unitPrice === null ? null : Number(line.unitPrice),
+          amount: line.amount === null ? null : Number(line.amount),
+          remarks: line.remarks,
+          sourceReceivedQuotationLineItemId: line.sourceReceivedQuotationLineItemId,
+          sourceVendorName: line.sourceVendorName,
+        })),
+        children: [],
+      });
+    }
+
+    for (const row of rows) {
+      const node = nodeMap.get(row.id)!;
+      if (row.parentId === null) {
+        roots.push(node);
+        continue;
+      }
+      // 親が見つからない孤児は 42.4 の検証で弾かれるため通常は発生しない
+      nodeMap.get(row.parentId)?.children.push(node);
+    }
+
+    return roots;
   }
 
   /**
@@ -303,8 +580,7 @@ export class EstimateDraftService {
       const parentId = this.resolveParentId(frame, tempIdMap);
 
       if (node.id === null) {
-        // 新規項目。displayOrder は兄弟内の配列位置を初期値とする
-        // （各兄弟スコープ0起点の再採番は 52.5 が担当）
+        // 新規項目。displayOrder は受領配列順の兄弟内位置（0起点連番）とする（42.6）
         const created = await tx.estimateItem.create({
           data: {
             estimateId,
@@ -326,11 +602,14 @@ export class EstimateDraftService {
       }
 
       // 既存項目。IDを維持して更新し、実行予算項目からの参照を切らない（42.9）
+      // displayOrder は新規・既存を問わず受領配列順で再採番する。既存項目を
+      // 据え置くと、新規項目に振った0起点の連番と衝突する（34.5, 42.6）
       await tx.estimateItem.update({
         where: { id: node.id },
         data: {
           parentId,
           itemType: node.itemType,
+          displayOrder: frame.siblingIndex,
         },
       });
       await this.applyLineDiff(tx, node.id, node);
