@@ -28,63 +28,32 @@
 
 import Decimal from 'decimal.js';
 
+import type {
+  EditableItem,
+  EditableLine,
+  EstimateEditItemType,
+  NodeKey,
+} from './estimateEditReducer.types';
+
 // ============================================================================
 // 型定義
 // ============================================================================
 
-/** 永続化済み見積項目の識別子 */
-export type EstimateItemId = string;
-
-/** 未保存の新規項目に付与する一時識別子 */
-export type TempId = `tmp-${string}`;
-
-/** ツリー上のノードを一意に指すキー */
-export type NodeKey = EstimateItemId | TempId;
-
 /**
- * 見積項目行の行タイプ
+ * 明細の構造に関する型は編集状態の型定義モジュールが単一の定義元。
  *
- * `api/estimates.ts` の `EstimateItemLineType` と構造互換。
- * ドメイン層を API 層から独立させるためここで定義する。
+ * 依存方向は `estimateEditReducer.types → estimateTree → estimateEditReducer` であり、
+ * ここでの再エクスポートは既存の import 経路を保つためのもの（定義は重複しない）。
  */
-export type EstimateLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
-
-/**
- * 見積項目の種別
- *
- * - STANDARD: 通常の見積項目
- * - DISCOUNT: 値引き行（見積金額行のみ・負数を許容し集計に加算される / 41.8）
- * - NOTE: 注記行（金額の集計対象から除外される / 55.2）
- */
-export type EstimateEditItemType = 'STANDARD' | 'DISCOUNT' | 'NOTE';
-
-/** 編集中の見積項目行 */
-export interface EditableLine {
-  readonly id: string | null;
-  readonly lineType: EstimateLineType;
-  readonly name: string | null;
-  readonly specification: string | null;
-  readonly unit: string | null;
-  readonly quantity: string | null;
-  readonly unitPrice: string | null;
-  readonly amount: string | null;
-  readonly remarks: string | null;
-  readonly sourceVendorName: string | null;
-}
-
-/**
- * 編集中の見積項目（ツリーノード）
- *
- * 不変条件: `id` と `tempId` はいずれか一方のみ非 null。
- * `itemType` が `DISCOUNT` / `NOTE` の項目は子を持たない。
- */
-export interface EditableItem {
-  readonly id: EstimateItemId | null;
-  readonly tempId: TempId | null;
-  readonly itemType: EstimateEditItemType;
-  readonly lines: readonly EditableLine[];
-  readonly children: readonly EditableItem[];
-}
+export type {
+  EstimateItemId,
+  TempId,
+  NodeKey,
+  EstimateLineType,
+  EstimateEditItemType,
+  EditableLine,
+  EditableItem,
+} from './estimateEditReducer.types';
 
 /** 俯瞰パネル（46.2）用のツリーノード */
 export interface HierarchyNode {
