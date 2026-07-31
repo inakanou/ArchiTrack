@@ -4019,14 +4019,15 @@ type EstimateEditAction =
 function estimateEditReducer(state: EstimateEditState, action: EstimateEditAction): EstimateEditState;
 ```
 
-- Preconditions: `items` はツリー不変条件（循環なし・全ノード到達可能）を満たす。`indentRange` は**選択範囲の先頭行の `itemType` が `STANDARD` であること**を要求する
+- Preconditions: `items` はツリー不変条件（循環なし・全ノード到達可能）を満たす。`indentRange` は**親になるノードの `itemType` が `STANDARD` であること**を要求する（複数行選択では先頭行、単一行選択では直前の兄弟が親になる）。`keys` は**表示順（先行順）で渡す**こと — reducer は重複と不存在キーを除くのみで並べ替えないため、順序が崩れると 44.4 の「先頭行」が変わる
 - Postconditions: 戻り値は新しいオブジェクト。入力 state を変更しない。祖先の金額合計は整合している
 - Invariants: `id` と `tempId` はいずれか一方のみ非 null。`itemType === 'DISCOUNT' | 'NOTE'` の項目は子を持たない
 
 **Implementation Notes**
-- Integration: `indentRange` は **選択範囲の先頭行を親へ昇格**させる（44.4）。先頭行を新しい親ノードとし、残りをその子に移す
-- Validation: `outdentRange` はルートレベルで no-op ＋ `lastError` を設定（44.6）
-- Validation: `indentRange` の先頭行が `DISCOUNT`（41.3）または `NOTE`（55.1）の場合、これらは子を持てないため state を変更せず `lastError` に `INVALID_PARENT_TYPE` を設定して no-op とする。UI は「値引き行・注記行は親項目にできません」を提示する
+- Integration: `indentRange` は **選択範囲の先頭行を親へ昇格**させる（44.4）。先頭行を新しい親ノードとして再利用し（新ノードは生成しない）、残りをその子に移す。先頭行が既に持つ子は保持し、選択行はその後ろに追加する。選択範囲より後ろの行と、既に先頭行の配下にある選択行は動かさない（後者を直子へ引き上げると部分木が平坦化するため）
+- Integration: **単一行選択には 44.4 が適用できない**（子に移す行が無く 23.10 の「階層を1段下げる」が達成できない）ため、直前の兄弟の子とする。直前の兄弟が無い場合は state を変更せず `lastError` に `NO_PRECEDING_SIBLING` を設定する。`EditError` の同種別はこの経路でのみ発生する
+- Validation: `outdentRange` はルートレベルで no-op ＋ `lastError` に `CANNOT_OUTDENT_ROOT` を設定（44.6 の「それ以上上げられないことを**示す**」は無言の no-op では充足しない）。選択にルートレベルの行が1つでも含まれる場合は**操作全体を実行しない**（原子的）
+- Validation: `indentRange` で**親になるノード**が `DISCOUNT`（41.3）または `NOTE`（55.1）の場合、これらは子を持てないため state を変更せず `lastError` に `INVALID_PARENT_TYPE` を設定して no-op とする。UI は「値引き行・注記行は親項目にできません」を提示する。判定対象を先頭行ではなく親になるノードとするのは、(a) 値引き行・注記行が**子になる**ことは `saveEstimateDraftSchema` が許可しており（`backend/src/schemas/estimate.schema.ts`）、先頭行だけで判定すると単一の注記行の階層移動を拒否して 55.3・55.6 と矛盾するため、(b) 逆に単一行選択で直前の兄弟が `DISCOUNT` / `NOTE` の場合に上記 Invariants「`DISCOUNT | NOTE` の項目は子を持たない」を破る穴が残るため
 - Risks: ツリーの再構築が毎ディスパッチで走る。行数の多い見積書では `estimateTree` 側のメモ化が必須
 
 ##### estimateTree
