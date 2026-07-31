@@ -7,13 +7,22 @@
  * - 12.3: 見積項目の削除で3行1セット全体を削除する
  * - 12.4: 親項目を削除した場合に子項目も含めて削除する
  * - 12.5: 見積項目の複製で3行1セット全体を複製する
+ * - 12.6: 見積項目の親項目を変更（移動）可能とする
  * - 12.7: すべての操作を編集セッション中にサーバーへ問い合わせずに行う
+ * - 23.9: 選択中の項目を現在の親の兄弟レベルに移動する（上の階層へ移動）
+ * - 23.10: 選択中の項目を Requirement 44 のネスト化ルールに従って階層を1段下げる
+ * - 44.3: 削除・複写・階層の上げ下げを選択範囲全体に対して適用する
+ * - 44.4: 選択範囲の先頭行を親とし、先頭行を除く選択行をその子項目として配置する
+ * - 44.5: 選択行を現在の親項目の兄弟レベルへ移動する
+ * - 44.6: ルートレベルでの「上の階層へ移動」は実行せず、上げられないことを示す
+ * - 44.7: 自身または自身の子孫の子になる移動は実行せずエラーを返す
  * - 43.1: 行操作をサーバーへの保存を伴わずに画面上の明細へ反映する（新規行は一時識別子）
  * - 43.5: 行の追加・削除で影響を受ける親項目の金額合計を即座に再計算する
  * - 43.6: 親項目を削除した場合に子孫項目もあわせて取り除く
  * - 54.6: 別途工事・有効期限・提出日を見積書画面から編集可能とする
  * - 41.2 / 41.3: 値引き行のプリセット値と見積金額行のみの構成
  * - 55.1 / 55.2: 注記行は名称のみを持ち金額の集計対象から除外される
+ * - 55.3: 注記行を任意の階層の任意の位置に配置可能とする
  * - 22.3 / 22.9: 金額（数量×単価の自動計算結果）を小数第1位で四捨五入した整数で保持する
  *
  * Design: design.md `#### Frontend Domain` > `##### estimateEditReducer`
@@ -176,6 +185,8 @@ describe('estimateEditReducer / 純粋性', () => {
     { type: 'duplicateRows', keys: ['A-1'] },
     { type: 'moveRow', key: 'B', direction: 'up' },
     { type: 'reorderByDnd', sourceKey: 'B', targetKey: 'A-1-1', position: 'after' },
+    { type: 'indentRange', keys: ['A-1-1', 'B'] },
+    { type: 'outdentRange', keys: ['A-1-1'] },
     {
       type: 'updateLineField',
       key: 'A-1-1-1',
@@ -235,6 +246,10 @@ describe('estimateEditReducer / 純粋性', () => {
     { type: 'moveRow', key: 'A', direction: 'up' },
     { type: 'moveRow', key: 'MISSING', direction: 'down' },
     { type: 'reorderByDnd', sourceKey: 'B', targetKey: 'B', position: 'after' },
+    { type: 'indentRange', keys: [] },
+    { type: 'indentRange', keys: ['MISSING'] },
+    { type: 'outdentRange', keys: [] },
+    { type: 'outdentRange', keys: ['MISSING'] },
     { type: 'insertRow', afterKey: null, parentKey: 'MISSING' },
     { type: 'updateLineField', key: 'MISSING', lineType: 'ESTIMATE', field: 'name', value: 'x' },
     { type: 'updateReportFields', fields: EMPTY_REPORT_FIELDS },
@@ -846,6 +861,282 @@ describe('estimateEditReducer / reorderByDnd', () => {
     });
 
     expect(after.items).toBe(before.items);
+  });
+});
+
+// ============================================================================
+// indentRange（12.6, 23.10, 44.3, 44.4, 44.7, 41.3, 55.3）
+// ============================================================================
+
+describe('estimateEditReducer / indentRange', () => {
+  it('選択範囲の先頭行を親へ昇格させ、残りをその子として配置する（44.4）', () => {
+    const before = stateOf([item('A'), item('B'), item('C')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['A', 'B', 'C'] });
+
+    expect(keysOf(after.items)).toEqual(['A']);
+    expect(keysOf(findItem(after.items, 'A').children)).toEqual(['B', 'C']);
+    expect(after.isDirty).toBe(true);
+    expect(after.lastError).toBeNull();
+  });
+
+  it('先頭行の既存の子は保持され、選択行はその後ろへ並ぶ（44.4）', () => {
+    const before = stateOf([item('P', { children: [item('X')] }), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['P', 'B'] });
+
+    expect(keysOf(findItem(after.items, 'P').children)).toEqual(['X', 'B']);
+  });
+
+  it('選択範囲より後ろの行は階層を変えない（44.4）', () => {
+    const before = stateOf([item('A'), item('B'), item('C'), item('D')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['A', 'B'] });
+
+    expect(keysOf(after.items)).toEqual(['A', 'C', 'D']);
+    expect(keysOf(findItem(after.items, 'A').children)).toEqual(['B']);
+  });
+
+  it('異なる親をまたぐ選択でも先頭行の子へ集約する（44.3, 44.4）', () => {
+    const before = stateOf([
+      item('P', { children: [item('C1')] }),
+      item('Q', { children: [item('C2')] }),
+    ]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['C1', 'C2'] });
+
+    expect(keysOf(findItem(after.items, 'C1').children)).toEqual(['C2']);
+    expect(findItem(after.items, 'Q').children).toEqual([]);
+  });
+
+  it('選択に祖先と子孫が混在する場合、子孫は部分木として一緒に移動する（44.3）', () => {
+    const before = stateOf([item('H'), item('B', { children: [item('B1')] })]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['H', 'B', 'B1'] });
+
+    expect(keysOf(after.items)).toEqual(['H']);
+    expect(keysOf(findItem(after.items, 'H').children)).toEqual(['B']);
+    expect(keysOf(findItem(after.items, 'B').children)).toEqual(['B1']);
+  });
+
+  it('選択が先頭行とその子孫のみの場合は既に配下にあるため明細を変更しない（44.4）', () => {
+    const before = stateOf(deepTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'indentRange',
+      keys: ['A', 'A-1', 'A-1-1'],
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toBeNull();
+  });
+
+  it('単一行の選択では直前の兄弟の子になる（12.6, 23.10）', () => {
+    const before = stateOf([item('A'), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['B'] });
+
+    expect(keysOf(after.items)).toEqual(['A']);
+    expect(keysOf(findItem(after.items, 'A').children)).toEqual(['B']);
+  });
+
+  it('単一行の選択では部分木ごと直前の兄弟の子になる（12.6, 23.10）', () => {
+    const before = stateOf([
+      item('P', { children: [item('C1'), item('C2', { children: [item('C2-1')] })] }),
+    ]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['C2'] });
+
+    expect(keysOf(findItem(after.items, 'P').children)).toEqual(['C1']);
+    expect(keysOf(findItem(after.items, 'C1').children)).toEqual(['C2']);
+    expect(keysOf(findItem(after.items, 'C2').children)).toEqual(['C2-1']);
+  });
+
+  it('直前の兄弟が無い行は状態を変更せずエラー情報を返す（23.10）', () => {
+    const before = stateOf([item('A'), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['A'] });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toEqual({ kind: 'NO_PRECEDING_SIBLING', key: 'A' });
+  });
+
+  it('先頭行が値引き行の場合は状態を変更せず操作を無効化する（41.3）', () => {
+    const before = stateOf([singleLineItem('D', 'DISCOUNT'), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['D', 'B'] });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toEqual({
+      kind: 'INVALID_PARENT_TYPE',
+      key: 'D',
+      itemType: 'DISCOUNT',
+    });
+  });
+
+  it('先頭行が注記行の場合は状態を変更せず操作を無効化する（55.1）', () => {
+    const before = stateOf([singleLineItem('N', 'NOTE'), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['N', 'B'] });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toEqual({ kind: 'INVALID_PARENT_TYPE', key: 'N', itemType: 'NOTE' });
+  });
+
+  it('単一行の選択でも直前の兄弟が注記行なら状態を変更せず無効化する（55.1）', () => {
+    const before = stateOf([singleLineItem('N', 'NOTE'), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['B'] });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toEqual({ kind: 'INVALID_PARENT_TYPE', key: 'N', itemType: 'NOTE' });
+  });
+
+  it('注記行自身は直前の兄弟の配下へ階層移動できる（55.3）', () => {
+    const before = stateOf([item('A'), singleLineItem('N', 'NOTE')]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['N'] });
+
+    expect(keysOf(findItem(after.items, 'A').children)).toEqual(['N']);
+    expect(after.lastError).toBeNull();
+  });
+
+  it('先頭行の祖先を先頭行の子にする指定は状態を変更せずエラー情報を返す（44.7）', () => {
+    const before = stateOf(deepTree());
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['A-1', 'A'] });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toEqual({ kind: 'CYCLIC_MOVE', key: 'A' });
+  });
+
+  it('階層を下げた後に祖先の集計金額を再計算する（43.5）', () => {
+    const before = stateOf([
+      item('A', { amounts: { ESTIMATE: '1000' } }),
+      item('B', { amounts: { ESTIMATE: '300' } }),
+      item('C', { amounts: { ESTIMATE: '200' } }),
+    ]);
+
+    const after = estimateEditReducer(before, { type: 'indentRange', keys: ['A', 'B', 'C'] });
+
+    expect(amountOf(findItem(after.items, 'A'))).toBe('500');
+  });
+});
+
+// ============================================================================
+// outdentRange（12.6, 23.9, 44.3, 44.5, 44.6, 55.3）
+// ============================================================================
+
+describe('estimateEditReducer / outdentRange', () => {
+  it('選択行を現在の親項目の兄弟レベルへ移動する（23.9, 44.5）', () => {
+    const before = stateOf([item('P', { children: [item('C1'), item('C2')] })]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['C2'] });
+
+    expect(keysOf(after.items)).toEqual(['P', 'C2']);
+    expect(keysOf(findItem(after.items, 'P').children)).toEqual(['C1']);
+    expect(after.isDirty).toBe(true);
+    expect(after.lastError).toBeNull();
+  });
+
+  it('複数行をまとめて親項目の直後へ順に配置する（44.3, 44.5）', () => {
+    const before = stateOf([item('P', { children: [item('C1'), item('C2'), item('C3')] })]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['C1', 'C2'] });
+
+    expect(keysOf(after.items)).toEqual(['P', 'C1', 'C2']);
+    expect(keysOf(findItem(after.items, 'P').children)).toEqual(['C3']);
+  });
+
+  it('深い階層では祖父項目の子として親項目の直後へ配置する（12.6, 44.5）', () => {
+    const before = stateOf(deepTree());
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['A-1-1'] });
+
+    expect(keysOf(findItem(after.items, 'A').children)).toEqual(['A-1', 'A-1-1']);
+    expect(findItem(after.items, 'A-1').children).toEqual([]);
+    expect(keysOf(findItem(after.items, 'A-1-1').children)).toEqual(['A-1-1-1']);
+  });
+
+  it('異なる親をまたぐ選択ではそれぞれの親項目の直後へ移動する（44.3, 44.5）', () => {
+    const before = stateOf([
+      item('R', {
+        children: [item('P', { children: [item('C1')] }), item('Q', { children: [item('C2')] })],
+      }),
+    ]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['C1', 'C2'] });
+
+    expect(keysOf(findItem(after.items, 'R').children)).toEqual(['P', 'C1', 'Q', 'C2']);
+  });
+
+  it('選択に祖先と子孫が混在する場合、子孫は部分木として一緒に移動する（44.3）', () => {
+    const before = stateOf([
+      item('R', { children: [item('P', { children: [item('B', { children: [item('B1')] })] })] }),
+    ]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['B', 'B1'] });
+
+    expect(keysOf(findItem(after.items, 'R').children)).toEqual(['P', 'B']);
+    expect(findItem(after.items, 'P').children).toEqual([]);
+    expect(keysOf(findItem(after.items, 'B').children)).toEqual(['B1']);
+  });
+
+  it('ルートレベルの行は状態を変更せず操作を無効化する（44.6）', () => {
+    const before = stateOf([item('A'), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['B'] });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toEqual({ kind: 'CANNOT_OUTDENT_ROOT' });
+  });
+
+  it('選択にルートレベルの行が混ざる場合は操作全体を実行しない（44.6）', () => {
+    const before = stateOf([item('P', { children: [item('C')] }), item('B')]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['C', 'B'] });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+    expect(after.lastError).toEqual({ kind: 'CANNOT_OUTDENT_ROOT' });
+  });
+
+  it('注記行も階層移動の対象とする（55.3）', () => {
+    const before = stateOf([item('P', { children: [item('C'), singleLineItem('N', 'NOTE')] })]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['N'] });
+
+    expect(keysOf(after.items)).toEqual(['P', 'N']);
+    expect(keysOf(findItem(after.items, 'P').children)).toEqual(['C']);
+  });
+
+  it('階層を上げた後に祖先の集計金額を再計算する（43.5）', () => {
+    const before = stateOf([
+      item('P', {
+        amounts: { ESTIMATE: '1500' },
+        children: [
+          item('Q', {
+            amounts: { ESTIMATE: '1500' },
+            children: [
+              item('C1', { amounts: { ESTIMATE: '1000' } }),
+              item('C2', { amounts: { ESTIMATE: '500' } }),
+            ],
+          }),
+        ],
+      }),
+    ]);
+
+    const after = estimateEditReducer(before, { type: 'outdentRange', keys: ['C2'] });
+
+    expect(amountOf(findItem(after.items, 'Q'))).toBe('1000');
+    expect(amountOf(findItem(after.items, 'P'))).toBe('1500');
   });
 });
 

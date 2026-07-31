@@ -154,8 +154,8 @@ export interface EstimateEditState {
  * 編集状態の遷移アクション
  *
  * design.md の `EstimateEditAction` のうち、行の挿入・削除・複写・並び替え・
- * セル値の更新・帳票用入力項目の更新（53.2）に対応する集合を定義する。
- * 階層の上げ下げ（`indentRange` / `outdentRange`）は 53.3、
+ * セル値の更新・帳票用入力項目の更新（53.2）と、階層の上げ下げ（53.3）に
+ * 対応する集合を定義する。
  * 転記・案分・利益率・諸経費（`apply*` / `addOverheadItem`）は段階3で追加する。
  */
 export type EstimateEditAction =
@@ -191,6 +191,20 @@ export type EstimateEditAction =
       targetKey: NodeKey;
       position: 'before' | 'after';
     }
+  /**
+   * 選択範囲の階層を1段下げる（12.6, 23.10, 44.3, 44.4）
+   *
+   * `keys` は表示順（先行順）で受け取り、`keys[0]` を「選択範囲の先頭行」とする（44.4）。
+   * 2行以上の選択では先頭行を親へ昇格させ、残りをその子として配置する。
+   * 1行のみの選択では直前の兄弟の子とする（23.10）。
+   */
+  | { type: 'indentRange'; keys: readonly NodeKey[] }
+  /**
+   * 選択範囲の階層を1段上げる（12.6, 23.9, 44.3, 44.5, 44.6）
+   *
+   * 各選択行を自身の親項目の直後（＝親の兄弟レベル）へ移動する。
+   */
+  | { type: 'outdentRange'; keys: readonly NodeKey[] }
   /** 明細セルの値を更新する（22.9 の金額自動計算を含む） */
   | {
       type: 'updateLineField';

@@ -12,7 +12,14 @@
  * - 12.3: 見積項目の削除で3行1セット全体を削除する
  * - 12.4: 親項目を削除した場合に子項目も含めて削除する（確認の提示はUIの責務）
  * - 12.5: 見積項目の複製で3行1セット全体を複製する
+ * - 12.6: 見積項目の親項目を変更（移動）可能とする
  * - 12.7: 上記すべての操作を編集セッション中にサーバーへ問い合わせずに行う
+ * - 23.9 / 23.10: 選択中の項目を親の兄弟レベルへ移動する／階層を1段下げる
+ * - 44.3: 削除・複写・階層の上げ下げを選択範囲全体に対して適用する
+ * - 44.4: 選択範囲の先頭行を親とし、先頭行を除く選択行をその子項目として配置する
+ * - 44.5: 選択行を現在の親項目の兄弟レベルへ移動する
+ * - 44.6: ルートレベルでの階層上げは実行せず、上げられないことを示す
+ * - 44.7: 自身または自身の子孫の子になる移動は実行せずエラーを返す
  * - 43.1: 行操作を保存を伴わずに反映する。新規行は識別子を持たず一時識別子で表現する
  * - 43.5: 行の追加・削除・階層変更で影響を受ける親項目の金額合計を即座に再計算する
  * - 43.6: 親項目を削除した場合にその子孫項目もあわせて取り除く
@@ -37,6 +44,7 @@
 import Decimal from 'decimal.js';
 
 import {
+  childrenOf,
   descendantKeys,
   nodeKeyOf,
   recalculateAncestorAmounts,
@@ -645,6 +653,202 @@ function applyReorderByDnd(
   return withItems(state, nextItems);
 }
 
+/**
+ * 範囲操作の対象キーを正規化する
+ *
+ * 表示順（先行順）で受け取った並びを保ったまま、重複とツリーに存在しないキーを取り除く。
+ * 先頭要素が「選択範囲の先頭行」（44.4）となるため並び替えは行わない。
+ */
+function normalizeRangeKeys(
+  tree: readonly EditableItem[],
+  keys: readonly NodeKey[]
+): readonly NodeKey[] {
+  const seen = new Set<NodeKey>();
+  const normalized: NodeKey[] = [];
+  for (const key of keys) {
+    if (seen.has(key) || findItem(tree, key) === null) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(key);
+  }
+  return normalized;
+}
+
+/**
+ * 単一行の階層を1段下げる（23.10）
+ *
+ * 選択が1行のときは 44.4 の「先頭行を親へ昇格させる」規則が適用できない（子に移す行が無い）ため、
+ * 直前の兄弟の子として部分木ごと移す。直前の兄弟が無い行はこれ以上下げられない。
+ */
+function indentSingleRow(state: EstimateEditState, key: NodeKey): EstimateEditState {
+  const parentKey = parentKeyOf(state.items, key);
+  if (parentKey === undefined) {
+    return unchanged(state);
+  }
+
+  const siblings = childrenOf(state.items, parentKey);
+  const at = siblings.findIndex((entry) => nodeKeyOf(entry) === key);
+  const moving = at < 0 ? undefined : siblings[at];
+  if (moving === undefined) {
+    return unchanged(state);
+  }
+
+  const newParent = at === 0 ? undefined : siblings[at - 1];
+  if (newParent === undefined) {
+    // 同一階層の先頭行は受け入れ先の兄弟が無いため階層を下げられない
+    return rejected(state, { kind: 'NO_PRECEDING_SIBLING', key });
+  }
+  if (newParent.itemType !== 'STANDARD') {
+    // 値引き行・注記行は子を持てないため親にできない（41.3, 55.1）
+    return rejected(state, {
+      kind: 'INVALID_PARENT_TYPE',
+      key: nodeKeyOf(newParent),
+      itemType: newParent.itemType,
+    });
+  }
+
+  const newParentKey = nodeKeyOf(newParent);
+  const nextItems = rebuildTree(state.items, (siblingsToRebuild, currentParentKey) => {
+    if (currentParentKey === newParentKey) {
+      return [...siblingsToRebuild, moving];
+    }
+    if (currentParentKey !== parentKey) {
+      return siblingsToRebuild;
+    }
+    return siblingsToRebuild.filter((entry) => nodeKeyOf(entry) !== key);
+  });
+
+  return withItems(state, nextItems);
+}
+
+/**
+ * 選択範囲の階層を1段下げる（44.3, 44.4）
+ *
+ * 2行以上の選択では先頭行を親へ昇格させ、先頭行を除く選択行をその子として末尾に並べる。
+ * 先頭行の既存の子はそのまま保持する。選択範囲より後ろの行は階層を変えない。
+ * 先頭行の子孫として既に配下にある選択行は、部分木の形を保つため移動しない。
+ */
+function applyIndentRange(state: EstimateEditState, keys: readonly NodeKey[]): EstimateEditState {
+  const targets = normalizeRangeKeys(state.items, keys);
+  const headKey = targets[0];
+  if (headKey === undefined) {
+    return unchanged(state);
+  }
+  const head = findItem(state.items, headKey);
+  if (head === null) {
+    return unchanged(state);
+  }
+
+  if (targets.length === 1) {
+    return indentSingleRow(state, headKey);
+  }
+
+  if (head.itemType !== 'STANDARD') {
+    // 先頭行が親になるため、子を持てない値引き行・注記行では実行しない（41.3, 55.1）
+    return rejected(state, {
+      kind: 'INVALID_PARENT_TYPE',
+      key: headKey,
+      itemType: head.itemType,
+    });
+  }
+
+  const headDescendants = new Set<NodeKey>(descendantKeys(state.items, headKey));
+  // 既に先頭行の配下にある行は移動しない。入れ子の選択行は祖先の部分木として一緒に動く
+  const movingKeys = outermostKeys(
+    state.items,
+    targets.slice(1).filter((key) => !headDescendants.has(key))
+  );
+
+  // 先頭行の祖先を先頭行の子にする指定は循環を生むため実行しない（44.7）
+  const cyclic = movingKeys.find((key) => wouldCreateCycle(state.items, [key], headKey));
+  if (cyclic !== undefined) {
+    return rejected(state, { kind: 'CYCLIC_MOVE', key: cyclic });
+  }
+
+  const movingSet = new Set<NodeKey>(movingKeys);
+  const movingNodes: EditableItem[] = [];
+  for (const key of movingKeys) {
+    const node = findItem(state.items, key);
+    if (node !== null) {
+      movingNodes.push(node);
+    }
+  }
+  if (movingNodes.length === 0) {
+    return unchanged(state);
+  }
+
+  const nextItems = rebuildTree(state.items, (siblings, currentParentKey) => {
+    const remaining = siblings.some((entry) => movingSet.has(nodeKeyOf(entry)))
+      ? siblings.filter((entry) => !movingSet.has(nodeKeyOf(entry)))
+      : siblings;
+    if (currentParentKey !== headKey) {
+      return remaining;
+    }
+    return [...remaining, ...movingNodes];
+  });
+
+  return withItems(state, nextItems);
+}
+
+/**
+ * 選択範囲の階層を1段上げる（44.3, 44.5, 44.6）
+ *
+ * 各選択行を自身の親項目の直後（＝親の兄弟レベル）へ移す。
+ * 選択にルートレベルの行が含まれる場合はこれ以上上げられないため操作全体を実行しない（44.6）。
+ * 入れ子の選択行は祖先の部分木として一緒に移動するため個別には移動しない。
+ */
+function applyOutdentRange(state: EstimateEditState, keys: readonly NodeKey[]): EstimateEditState {
+  const targets = outermostKeys(state.items, normalizeRangeKeys(state.items, keys));
+  if (targets.length === 0) {
+    return unchanged(state);
+  }
+
+  const targetSet = new Set<NodeKey>(targets);
+  const movingByParent = new Map<NodeKey, EditableItem[]>();
+  for (const key of targets) {
+    const parentKey = parentKeyOf(state.items, key);
+    const node = findItem(state.items, key);
+    if (parentKey === undefined || node === null) {
+      return unchanged(state);
+    }
+    if (parentKey === null) {
+      // ルートレベルの行はこれ以上階層を上げられない（44.6）
+      return rejected(state, { kind: 'CANNOT_OUTDENT_ROOT' });
+    }
+    const bucket = movingByParent.get(parentKey);
+    if (bucket === undefined) {
+      movingByParent.set(parentKey, [node]);
+    } else {
+      bucket.push(node);
+    }
+  }
+
+  const nextItems = rebuildTree(state.items, (siblings, currentParentKey) => {
+    // 旧親の子配列からは選択行を取り除く
+    const isSource = currentParentKey !== null && movingByParent.has(currentParentKey);
+    const remaining = isSource
+      ? siblings.filter((entry) => !targetSet.has(nodeKeyOf(entry)))
+      : siblings;
+
+    // 旧親を含む配列（＝祖父の子配列）では、旧親の直後へ選択行を並べる（44.5）
+    if (!remaining.some((entry) => movingByParent.has(nodeKeyOf(entry)))) {
+      return remaining;
+    }
+    const next: EditableItem[] = [];
+    for (const entry of remaining) {
+      next.push(entry);
+      const promoted = movingByParent.get(nodeKeyOf(entry));
+      if (promoted !== undefined) {
+        next.push(...promoted);
+      }
+    }
+    return next;
+  });
+
+  return withItems(state, nextItems);
+}
+
 function applyUpdateLineField(
   state: EstimateEditState,
   key: NodeKey,
@@ -753,6 +957,12 @@ export function createEstimateEditReducer(
 
       case 'reorderByDnd':
         return applyReorderByDnd(state, action.sourceKey, action.targetKey, action.position);
+
+      case 'indentRange':
+        return applyIndentRange(state, action.keys);
+
+      case 'outdentRange':
+        return applyOutdentRange(state, action.keys);
 
       case 'updateLineField':
         return applyUpdateLineField(state, action.key, action.lineType, action.field, action.value);
