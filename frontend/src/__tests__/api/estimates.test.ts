@@ -20,6 +20,7 @@ import {
   getEstimates,
   getEstimatesSummary,
   getEstimateDetail,
+  getEstimateItems,
   createEstimate,
   updateEstimate,
   deleteEstimate,
@@ -307,6 +308,62 @@ describe('estimates API client', () => {
       await expect(getEstimateDetail('est-1')).rejects.toMatchObject({
         statusCode: 401,
       });
+    });
+  });
+
+  // ==========================================================================
+  // getEstimateItems - 見積明細を階層構造で取得（Task 53.15）
+  // ==========================================================================
+  describe('getEstimateItems', () => {
+    /**
+     * `GET /api/estimates/:id` の `items` は実装上**平坦な配列**で、`children` も
+     * `itemType` も持たない（`estimate.service.ts` の `toEstimateDetailInfo`）。
+     * 親子関係が必要な場合は `GET /api/estimates/:id/items` を使う。
+     *
+     * Requirements (estimate-creation):
+     * - REQ-2.2: 親項目を持つ見積項目を親項目の子として階層表示する
+     * - REQ-34.5: 階層を変更して保存した場合、画面再読み込み後も変更後の構造で表示する
+     * - REQ-45.3: ツリー表示では全階層をインデント付きで一覧表示する
+     */
+    it('明細取得の経路が階層形のエンドポイントであること', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce([]);
+
+      await getEstimateItems('est-1');
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/estimates/est-1/items');
+    });
+
+    it('親子関係を組んだツリーをそのまま返すこと', async () => {
+      const child = {
+        id: 'item-child',
+        estimateId: 'est-1',
+        parentId: 'item-parent',
+        displayOrder: 0,
+        itemType: 'STANDARD' as const,
+        lines: [],
+        children: [],
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      };
+      const tree = [
+        {
+          id: 'item-parent',
+          estimateId: 'est-1',
+          parentId: null,
+          displayOrder: 0,
+          itemType: 'STANDARD' as const,
+          lines: [],
+          children: [child],
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-01T00:00:00.000Z',
+        },
+      ];
+      vi.mocked(apiClient.get).mockResolvedValueOnce(tree);
+
+      const result = await getEstimateItems('est-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.children.map((item) => item.id)).toEqual(['item-child']);
     });
   });
 
@@ -1041,6 +1098,7 @@ describe('estimates API client', () => {
     it.each([
       'saveEstimateDraft',
       'getEstimateDetail',
+      'getEstimateItems',
       'transferFromQuotation',
       'calculateOverhead',
       'addOverheadItem',

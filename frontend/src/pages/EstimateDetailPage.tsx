@@ -32,6 +32,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import {
   getEstimateDetail,
+  getEstimateItems,
   deleteEstimate,
   calculateOverhead,
   addOverheadItem,
@@ -870,7 +871,23 @@ export default function EstimateDetailPage() {
   }, [editor.items, selectedItemId, selectedItem]);
 
   /**
-   * データ取得
+   * データ取得（53.15）
+   *
+   * 見積書のスナップショット（`name` / `updatedAt` など）と明細を**別の経路**から取る。
+   * `GET /api/estimates/:id` が返す `items` は型宣言に反して**平坦な配列**であり、
+   * `parentId` は持つが `children` キーを持たない（`estimate.service.ts` の
+   * `toEstimateDetailInfo`）。これを `toEditFormat` に渡すと全項目が `children: []`
+   * となり、編集状態では全項目がルート扱いになる。一括保存は全件同期のため、
+   * そのまま保存すると DB 上の `parentId` が NULL 化されて既存の階層が失われる
+   * （保存は 200 で成功するため無言のデータ破壊になる）。
+   * 明細は階層形を返す `GET /api/estimates/:id/items` から取る（2.2, 2.6, 45.3, 34.5, 42.1）。
+   *
+   * 2本のリクエストは**この順序**で直列に発行する。楽観ロックの基準時刻
+   * （`estimate.updatedAt`、52.5）は明細を読むより**前**に取得しなければならない。
+   * 逆順（または並行）にすると、2本の間に他者の更新が入った場合に
+   * 「明細より新しい基準時刻」を持つことになり、陳腐化した明細での保存が
+   * 競合検出をすり抜けて通ってしまう。この順序なら基準時刻が古い側に倒れるため、
+   * 保存は 409 として検出される（42.5）。
    */
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -880,8 +897,9 @@ export default function EstimateDetailPage() {
 
     try {
       const data = await getEstimateDetail(id);
+      const items = await getEstimateItems(id);
       setEstimate(data);
-      editor.setItems(toEditFormat(data.items));
+      editor.setItems(toEditFormat(items));
     } catch {
       setError('見積書の取得に失敗しました');
     } finally {
@@ -956,6 +974,11 @@ export default function EstimateDetailPage() {
    * `updatedAt` を据え置くと、サーバー書き込みで進んだ版と食い違って次の保存が
    * 競合（409）になり 49.5 に反する。
    *
+   * 明細の取得経路は `fetchData` と揃える（53.15）。ここだけ平坦な
+   * `getEstimateDetail(...).items` を使うと、転記・案分・利益率適用・諸経費追加の
+   * 直後に階層が失われた状態が編集状態へ入り込み、次の保存で DB 上の親子関係が
+   * 消える（2.2, 34.5, 42.1）。
+   *
    * 段階3（55.5・55.6）で転記・案分・利益率適用・諸経費追加がクライアント計算へ
    * 移ると書き込み自体が消えるため、本再同期は 55.7 でガードごと撤去する。
    */
@@ -965,8 +988,9 @@ export default function EstimateDetailPage() {
     }
     try {
       const data = await getEstimateDetail(id);
+      const items = await getEstimateItems(id);
       setEstimate(data);
-      editor.setItems(toEditFormat(data.items));
+      editor.setItems(toEditFormat(items));
       setTransferGuardMessage(null);
     } catch {
       setTransferGuardMessage(TRANSFER_RESYNC_FAILED_MESSAGE);

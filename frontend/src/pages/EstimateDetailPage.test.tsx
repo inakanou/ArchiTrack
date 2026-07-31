@@ -406,11 +406,30 @@ const mockEditorItemsWithHierarchy = [
   },
 ];
 
+/**
+ * 見積書の読み込み2経路をまとめてモックする（53.15）
+ *
+ * 画面はスナップショット（`name` / `updatedAt` など）を `GET /api/estimates/:id`、
+ * 明細を階層形の `GET /api/estimates/:id/items` から取る。多くのテストの関心は
+ * 明細の内容にあるため、同じフィクスチャから両経路を揃える。
+ * 2経路で別々の内容を返す必要があるテストは個別にモックすること。
+ */
+const mockEstimateLoad = (detail: estimatesApi.EstimateDetail): void => {
+  vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(detail);
+  vi.mocked(estimatesApi.getEstimateItems).mockResolvedValue(detail.items);
+};
+
+/** {@link mockEstimateLoad} の「次の1回だけ」版（再同期で別の内容を返す場合に使う） */
+const mockEstimateLoadOnce = (detail: estimatesApi.EstimateDetail): void => {
+  vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValueOnce(detail);
+  vi.mocked(estimatesApi.getEstimateItems).mockResolvedValueOnce(detail.items);
+};
+
 describe('EstimateDetailPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockNavigate.mockReset();
-    vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(mockEstimateDetail);
+    mockEstimateLoad(mockEstimateDetail);
     // mockEditorの状態リセット
     mockEditor.items = [];
     mockEditor.isDirty = false;
@@ -1143,7 +1162,7 @@ describe('EstimateDetailPage', () => {
         },
       ],
     };
-    vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(detailWithNullAmount);
+    mockEstimateLoad(detailWithNullAmount);
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -1167,7 +1186,7 @@ describe('EstimateDetailPage', () => {
       ...mockEstimateDetail,
       items: undefined as unknown as typeof mockEstimateDetail.items,
     };
-    vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(detailWithNoItems);
+    mockEstimateLoad(detailWithNoItems);
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -1206,7 +1225,7 @@ describe('EstimateDetailPage', () => {
     });
 
     // 2回目は成功させる
-    vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(mockEstimateDetail);
+    mockEstimateLoad(mockEstimateDetail);
     await user.click(screen.getByRole('button', { name: '再試行' }));
 
     await waitFor(() => {
@@ -1745,7 +1764,7 @@ describe('EstimateDetailPage', () => {
      * 受け付けない。未編集セルの値をそのまま載せると 400 になるため、送出前に揃える。
      */
     it('サーバーが数値で返した数量・単価・金額を10進数文字列で送出すること', async () => {
-      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue({
+      mockEstimateLoad({
         ...mockEstimateDetail,
         items: [
           {
@@ -1820,7 +1839,7 @@ describe('EstimateDetailPage', () => {
      * （52.5）と結合した E2E（53.14）が担当する。
      */
     it('ドラッグによる並び替えが保存対象に含まれること (12.8, 34.5, 42.6)', async () => {
-      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue({
+      mockEstimateLoad({
         ...mockEstimateDetail,
         items: [
           mockEstimateDetail.items[0]!,
@@ -2301,7 +2320,7 @@ describe('EstimateDetailPage', () => {
 
     beforeEach(() => {
       editorMode.useReal = true;
-      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(hierarchyDetail);
+      mockEstimateLoad(hierarchyDetail);
     });
 
     /**
@@ -2597,7 +2616,7 @@ describe('EstimateDetailPage', () => {
 
     beforeEach(() => {
       editorMode.useReal = true;
-      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(baseDetail);
+      mockEstimateLoad(baseDetail);
     });
 
     /**
@@ -2713,9 +2732,8 @@ describe('EstimateDetailPage', () => {
      */
     it('諸経費追加で作られた行を取り込み、その後の編集を保存しても消えないこと (42.9)', async () => {
       vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
-      vi.mocked(estimatesApi.getEstimateDetail)
-        .mockResolvedValueOnce(baseDetail)
-        .mockResolvedValue(resyncedDetail);
+      mockEstimateLoadOnce(baseDetail);
+      mockEstimateLoad(resyncedDetail);
       vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
       const user = userEvent.setup();
       renderPage();
@@ -2757,9 +2775,8 @@ describe('EstimateDetailPage', () => {
      *   （書き込みで進んだ `Estimate.updatedAt` を取り込まないと次の保存が 409 になる）
      */
     it('転記完了で行を取り込み、次の保存が最新の基準時刻を送ること (49.5, 42.9)', async () => {
-      vi.mocked(estimatesApi.getEstimateDetail)
-        .mockResolvedValueOnce(baseDetail)
-        .mockResolvedValue(resyncedDetail);
+      mockEstimateLoadOnce(baseDetail);
+      mockEstimateLoad(resyncedDetail);
       vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
       const user = userEvent.setup();
       renderPage();
@@ -2792,9 +2809,8 @@ describe('EstimateDetailPage', () => {
 
     /** NET案分・利益率適用も同じ取り込み経路を通る */
     it('NET案分・利益率の完了でも行を取り込むこと (42.9)', async () => {
-      vi.mocked(estimatesApi.getEstimateDetail)
-        .mockResolvedValueOnce(baseDetail)
-        .mockResolvedValue(resyncedDetail);
+      mockEstimateLoadOnce(baseDetail);
+      mockEstimateLoad(resyncedDetail);
       const user = userEvent.setup();
       renderPage();
 
@@ -2818,9 +2834,9 @@ describe('EstimateDetailPage', () => {
 
     /** 取り込みに失敗したときは黙って続行させず再読み込みを促す */
     it('取り込みに失敗した場合は再読み込みを促すこと (42.9)', async () => {
-      vi.mocked(estimatesApi.getEstimateDetail)
-        .mockResolvedValueOnce(baseDetail)
-        .mockRejectedValue(new Error('network'));
+      mockEstimateLoadOnce(baseDetail);
+      vi.mocked(estimatesApi.getEstimateDetail).mockRejectedValue(new Error('network'));
+      vi.mocked(estimatesApi.getEstimateItems).mockRejectedValue(new Error('network'));
       const user = userEvent.setup();
       renderPage();
 
@@ -3206,6 +3222,294 @@ describe('EstimateDetailPage', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  // =========================================================================
+  // 明細の階層の読み込み（Task 53.15 / REQ-2.2, 2.6, 23.9, 34.5, 42.1, 45.3）
+  //
+  // 退行の機序:
+  // `GET /api/estimates/:id`（`estimate.service.ts` の `toEstimateDetailInfo`）は
+  // 明細を**平坦な配列**で返し、`parentId` は持つが `children` キーを持たない。
+  // これを `toEditFormat` に渡すと `item.children` が `undefined` になるため
+  // 全項目が `children: []` となり、編集状態では全項目がルート扱いになる。
+  // 一括保存は全件同期のため、この状態で保存すると DB 上の `parentId` が
+  // NULL 化され既存見積書の階層が無言で失われる（保存自体は 200 で成功する）。
+  //
+  // したがって明細は階層形を返す `GET /api/estimates/:id/items` から読み込む。
+  // 検証は**実物の `useEstimateEditor`** を通し、ページの結線ごと固定する
+  // （53.4 の教訓: フック単体テストではページ経路の退行を検出できない）。
+  // =========================================================================
+
+  describe('明細の階層の読み込み (Task 53.15)', () => {
+    const buildLine = (itemId: string, name: string) => ({
+      id: `line-${itemId}`,
+      estimateItemId: itemId,
+      lineType: 'ESTIMATE' as const,
+      name,
+      specification: null,
+      unit: '式',
+      quantity: '1',
+      unitPrice: '100000',
+      amount: '100000',
+      remarks: null,
+      sourceReceivedQuotationLineItemId: null,
+      sourceVendorName: null,
+    });
+
+    /**
+     * `GET /api/estimates/:id` の**実際の**応答形（稼働中バックエンドで実測）
+     *
+     * 明細は平坦な2件で、`children` キーも `itemType` も存在しない。
+     * 型宣言（`EstimateDetail.items: EstimateItemHierarchy[]`）はネスト形を
+     * 主張しているが実体は伴わないため、キャストで実体側に合わせる。
+     */
+    const flatDetail = {
+      id: 'est-001',
+      projectId: 'proj-001',
+      project: { id: 'proj-001', name: 'テストプロジェクト' },
+      name: 'テスト見積書',
+      sourceItemizedStatementId: null,
+      sourceItemizedStatementName: null,
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-20T12:00:00.000Z',
+      itemCount: 3,
+      totalAmount: '100000',
+      items: [
+        {
+          id: 'item-parent',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 0,
+          lines: [buildLine('item-parent', '親項目')],
+          createdAt: '2024-01-15T10:00:00.000Z',
+          updatedAt: '2024-01-15T10:00:00.000Z',
+        },
+        {
+          id: 'item-child',
+          estimateId: 'est-001',
+          parentId: 'item-parent',
+          displayOrder: 0,
+          lines: [buildLine('item-child', '子項目')],
+          createdAt: '2024-01-15T10:00:00.000Z',
+          updatedAt: '2024-01-15T10:00:00.000Z',
+        },
+        {
+          id: 'item-sibling',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 1,
+          lines: [buildLine('item-sibling', '兄弟項目')],
+          createdAt: '2024-01-15T10:00:00.000Z',
+          updatedAt: '2024-01-15T10:00:00.000Z',
+        },
+      ],
+    } as unknown as estimatesApi.EstimateDetail;
+
+    /**
+     * `GET /api/estimates/:id/items` の応答形（稼働中バックエンドで実測）
+     *
+     * `EstimateItemService.getHierarchy` が親子関係を組んだツリーを返し、
+     * `children` と `itemType` を持つ。行の形（数量・単価・金額が数値で返る点を含む）は
+     * `GET /api/estimates/:id` と同一のため、保存時の10進数文字列への正規化
+     * （`toDecimalPayloadValue`、53.5）はそのまま機能する。
+     */
+    const nestedItems = [
+      {
+        id: 'item-parent',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        itemType: 'STANDARD' as const,
+        lines: [buildLine('item-parent', '親項目')],
+        children: [
+          {
+            id: 'item-child',
+            estimateId: 'est-001',
+            parentId: 'item-parent',
+            displayOrder: 0,
+            itemType: 'STANDARD' as const,
+            lines: [buildLine('item-child', '子項目')],
+            children: [],
+            createdAt: '2024-01-15T10:00:00.000Z',
+            updatedAt: '2024-01-15T10:00:00.000Z',
+          },
+        ],
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+      {
+        id: 'item-sibling',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 1,
+        itemType: 'STANDARD' as const,
+        lines: [buildLine('item-sibling', '兄弟項目')],
+        children: [],
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ] as unknown as estimatesApi.EstimateItemHierarchy[];
+
+    /** 転記などサーバー側の書き込み後に取り直す階層（子はそのまま維持される） */
+    const resyncedNestedItems = [
+      ...nestedItems,
+      {
+        id: 'item-server',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 2,
+        itemType: 'STANDARD' as const,
+        lines: [buildLine('item-server', 'サーバー生成項目')],
+        children: [],
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ] as unknown as estimatesApi.EstimateItemHierarchy[];
+
+    const tableItems = () => (capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[];
+
+    const savePayload = (): estimatesApi.SaveEstimateDraftRequest =>
+      vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]![1];
+
+    const editItemName = async (itemId: string, value: string) => {
+      await act(async () => {
+        (
+          capturedTableProps.onLineChange as (
+            itemId: string,
+            lineId: string,
+            field: string,
+            value: string
+          ) => void
+        )(itemId, `line-${itemId}`, 'name', value);
+      });
+    };
+
+    beforeEach(() => {
+      editorMode.useReal = true;
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(flatDetail);
+      vi.mocked(estimatesApi.getEstimateItems).mockResolvedValue(nestedItems);
+    });
+
+    /**
+     * 読み込み直後の編集状態が実際の親子関係を保持する
+     *
+     * 2.2: 親項目を持つ見積項目を親項目の子として階層表示する
+     * 2.6: 項目の階層レベルをインデント表示で視覚的に区別する
+     *   （表のインデントは編集状態の入れ子から導出されるため、入れ子が正であることが前提）
+     * 45.3: ツリー表示では全階層をインデント付きで一覧表示する
+     */
+    it('読み込み直後の編集状態が既存の親子関係を保持すること (2.2, 2.6, 45.3)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      // ルートは親と兄弟の2件。子は親の配下に入る（平坦化されない）
+      expect(tableItems().map((item) => item.id)).toEqual(['item-parent', 'item-sibling']);
+      expect(tableItems()[0]?.children.map((child) => child.id)).toEqual(['item-child']);
+      // 全3項目が表示対象として残っている（読み込みで項目が失われない）
+      expect(tableItems()[1]?.children).toEqual([]);
+    });
+
+    /**
+     * 子項目が「上の階層へ」の対象になる
+     *
+     * 23.9: 選択中の項目を現在の親の兄弟レベルに移動する
+     *   ツールバーの活性判定は `selectedItem.parentId !== null` のため、
+     *   読み込みで親子関係が失われると子項目を選んでも無効のままになる。
+     */
+    it('読み込んだ子項目に親が設定され「上の階層へ」の対象になること (23.9)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      const child = tableItems()[0]?.children[0];
+      expect(child?.id).toBe('item-child');
+      expect(child?.parentId).toBe('item-parent');
+    });
+
+    /**
+     * 再読み込み後に編集して保存しても階層が壊れない（本タスクの中核）
+     *
+     * 34.5: 階層を変更して保存した場合、画面再読み込み後も変更後の構造で表示する
+     * 42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+     *   一括保存は全件同期のため、ペイロードの入れ子がそのまま DB の親子関係になる。
+     *   平坦な編集状態から保存すると既存の階層が NULL 化される。
+     */
+    it('読み込み後にセルを編集して保存しても階層がペイロードに保たれること (34.5, 42.1)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue({
+        ...flatDetail,
+        reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+        items: nestedItems,
+      } as unknown as estimatesApi.SaveEstimateDraftResponse);
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await editItemName('item-child', '編集済み子項目');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+
+      // 送信されるツリーはルート2件で、子は親の `children` に入ったまま
+      expect(savePayload().items.map((node) => node.id)).toEqual(['item-parent', 'item-sibling']);
+      expect(savePayload().items[0]!.children.map((node) => node.id)).toEqual(['item-child']);
+      expect(savePayload().items[0]!.children[0]!.lines[0]!.name).toBe('編集済み子項目');
+    });
+
+    /**
+     * 転記系操作後の再同期も階層形の経路を通る（53.9 の `resyncAfterServerSideMutation`）
+     *
+     * 再同期が平坦な明細を編集状態へ流し込むと、次の保存で同じ破壊が起きる。
+     *
+     * 34.5: 画面再読み込み後も変更後の構造で表示する
+     * 42.1: 変更を1回の保存操作でまとめて確定する
+     */
+    it('転記後の再同期でも階層が保たれ、次の保存で壊れないこと (34.5, 42.1)', async () => {
+      vi.mocked(estimatesApi.getEstimateItems)
+        .mockResolvedValueOnce(nestedItems)
+        .mockResolvedValue(resyncedNestedItems);
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue({
+        ...flatDetail,
+        reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+        items: resyncedNestedItems,
+      } as unknown as estimatesApi.SaveEstimateDraftResponse);
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
+      await user.click(screen.getByTestId('transfer-complete'));
+
+      // サーバー側で作られた行を取り込んでも既存の親子関係は保たれる
+      await waitFor(() => {
+        expect(tableItems().map((item) => item.id)).toEqual([
+          'item-parent',
+          'item-sibling',
+          'item-server',
+        ]);
+      });
+      expect(tableItems()[0]?.children.map((child) => child.id)).toEqual(['item-child']);
+
+      await editItemName('item-sibling', '編集済み兄弟項目');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+      expect(savePayload().items[0]!.children.map((node) => node.id)).toEqual(['item-child']);
     });
   });
 });

@@ -219,6 +219,28 @@ export async function getEstimateDetail(id: string): Promise<EstimateDetail> {
 }
 
 /**
+ * 見積明細を階層構造で取得
+ *
+ * `GET /api/estimates/:id` が返す {@link EstimateDetail.items} は
+ * バックエンド（`estimate.service.ts` の `toEstimateDetailInfo`）の実装上
+ * **平坦な配列**であり、`parentId` は持つが `children` も `itemType` も持たない。
+ * 明細の親子関係が必要な場合はこちらを使う。`GET /api/estimates/:id/items` は
+ * `EstimateItemService.getHierarchy` によって親子関係を組んだツリーを返す。
+ *
+ * Requirements (estimate-creation):
+ * - REQ-2.2: 親項目を持つ見積項目を親項目の子として階層表示する
+ * - REQ-2.6: 項目の階層レベルをインデント表示で視覚的に区別する
+ * - REQ-34.5: 階層を変更して保存した場合、画面再読み込み後も変更後の構造で表示する
+ * - REQ-45.3: ツリー表示では全階層をインデント付きで一覧表示する
+ *
+ * @param id - 見積書ID
+ * @returns 階層構造の見積明細（ルート項目の配列）
+ */
+export async function getEstimateItems(id: string): Promise<EstimateItemHierarchy[]> {
+  return apiClient.get<EstimateItemHierarchy[]>(`/api/estimates/${id}/items`);
+}
+
+/**
  * 見積書を作成
  * Requirements: REQ-3.1-3.5
  *
