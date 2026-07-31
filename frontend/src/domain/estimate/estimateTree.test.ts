@@ -24,6 +24,7 @@ import {
   descendantKeys,
   wouldCreateCycle,
   childrenOf,
+  isAggregatableChild,
   recalculateAncestorAmounts,
   toHierarchyNodes,
   flattenForGrid,
@@ -279,6 +280,45 @@ describe('wouldCreateCycle', () => {
     const deep = buildChain(2000);
     expect(wouldCreateCycle(deep, ['n-0'], 'n-1999')).toBe(true);
   });
+});
+
+// ============================================================================
+// isAggregatableChild（55.2, 41.8）
+// ============================================================================
+
+describe('isAggregatableChild', () => {
+  it('注記行を集計対象から除外する（55.2）', () => {
+    expect(isAggregatableChild({ itemType: 'NOTE' })).toBe(false);
+  });
+
+  it('見積項目と値引き行を集計対象に含める（41.8, 55.2）', () => {
+    expect(isAggregatableChild({ itemType: 'STANDARD' })).toBe(true);
+    expect(isAggregatableChild({ itemType: 'DISCOUNT' })).toBe(true);
+  });
+
+  /**
+   * 集計規則は単一定義であり、`recalculateAncestorAmounts` の集計と
+   * 明細表（`EstimateItemTable` の単価編集ロック判定）が同じ判定を共有する。
+   * 片方だけを変えると「集計は葉扱いなのに単価だけ編集不可」というどの要件も
+   * 記述していない状態に分岐しうるため、両者の一致を固定する。
+   */
+  const itemTypes: readonly EstimateEditItemType[] = ['STANDARD', 'DISCOUNT', 'NOTE'];
+
+  it.each(itemTypes)(
+    '%s の子の金額が親に加算されるかは isAggregatableChild の判定と一致する（55.2）',
+    (itemType) => {
+      const tree = [
+        item('parent', {
+          lines: [line('ESTIMATE', null)],
+          children: [item('child', { itemType, lines: [line('ESTIMATE', '700')] })],
+        }),
+      ];
+
+      const aggregated = estimateAmountOf(at(recalculateAncestorAmounts(tree), 0)) === '700';
+
+      expect(aggregated).toBe(isAggregatableChild({ itemType }));
+    }
+  );
 });
 
 // ============================================================================
