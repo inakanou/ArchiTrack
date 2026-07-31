@@ -19,6 +19,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { buildNewEstimateItemNode, saveEstimateDraft } from '../../helpers/estimate-draft';
 
 /**
  * 見積書 - 数値表示形式と丸め規則のE2Eテスト
@@ -181,43 +182,21 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       expect(createdEstimateId).toBeTruthy();
 
       // 見積項目を作成（3行1セット: ESTIMATE, EXECUTION, VENDOR）
-      const itemResponse = await request.post(
-        `${baseUrl}/api/estimates/${createdEstimateId}/items`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: {
-            parentId: null,
-            displayOrder: 0,
-            lines: [
-              {
-                lineType: 'ESTIMATE',
-                name: '数値フォーマットテスト項目',
-                specification: '規格A',
-                unit: '式',
-                quantity: 1,
-                unitPrice: 1000,
-              },
-              {
-                lineType: 'EXECUTION',
-                name: '数値フォーマットテスト項目',
-                specification: '規格A',
-                unit: '式',
-                quantity: 1,
-                unitPrice: 1000,
-              },
-              {
-                lineType: 'VENDOR',
-                name: '数値フォーマットテスト項目',
-                specification: '規格A',
-                unit: '式',
-                quantity: 1,
-                unitPrice: 1000,
-              },
-            ],
-          },
-        }
-      );
-      expect(itemResponse.status()).toBe(201);
+      // 撤去済みの `POST /:id/items` ではなく一括保存（`PUT /:id/save`）で作成する
+      // （estimate-creation REQ-42.1、Task 53.13）
+      const savedItems = await saveEstimateDraft(request, accessToken, createdEstimateId!, [
+        buildNewEstimateItemNode({
+          name: '数値フォーマットテスト項目',
+          specification: '規格A',
+          unit: '式',
+          quantity: 1,
+          estimateUnitPrice: 1000,
+          executionUnitPrice: 1000,
+          vendorUnitPrice: 1000,
+        }),
+      ]);
+      expect(savedItems.length).toBe(1);
+      expect(savedItems[0]!.lines.length).toBe(3);
     });
   });
 

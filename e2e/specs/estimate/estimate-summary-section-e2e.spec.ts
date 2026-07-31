@@ -21,6 +21,7 @@ import type { APIRequestContext } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { appendEstimateItem, buildNewEstimateItemNode } from '../../helpers/estimate-draft';
 
 // ============================================================================
 // テストデータの金額設定
@@ -51,48 +52,32 @@ const PROFIT_AMOUNT = ESTIMATE_TOTAL - EXECUTION_TOTAL; // 90000
  * 見積項目（3行1セット）を金額付きで作成するヘルパー。
  *
  * 各行の金額は単価×数量で算出されるため、quantityを1.00、unitPriceを目標金額とする。
- * createEstimateItemSchema (parentId, displayOrder, lines) に従う。
+ * 撤去済みの `POST /:id/items` ではなく一括保存（`PUT /:id/save`）で作成する（REQ-42.1、Task 53.13）。
  */
 async function createItemWithAmounts(
   request: APIRequestContext,
-  baseUrl: string,
   accessToken: string,
   estimateId: string,
   displayOrder: number,
   amounts: { estimate: number; execution: number; vendor: number }
 ): Promise<string> {
-  const buildLine = (
-    lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR',
-    unitPrice: number,
-    name: string
-  ) => ({
-    lineType,
-    name,
+  const label = displayOrder + 1;
+  const node = buildNewEstimateItemNode({
+    name: `見積項目${label}`,
     specification: null,
     unit: '式',
     quantity: 1,
-    unitPrice,
-    remarks: null,
+    estimateUnitPrice: amounts.estimate,
+    executionUnitPrice: amounts.execution,
+    vendorUnitPrice: amounts.vendor,
   });
-
-  const response = await request.post(`${baseUrl}/api/estimates/${estimateId}/items`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    data: {
-      parentId: null,
-      displayOrder,
-      lines: [
-        buildLine('ESTIMATE', amounts.estimate, `見積項目${displayOrder + 1}`),
-        buildLine('EXECUTION', amounts.execution, `実行項目${displayOrder + 1}`),
-        buildLine('VENDOR', amounts.vendor, `業者項目${displayOrder + 1}`),
-      ],
-    },
-  });
-  if (!response.ok()) {
-    const body = await response.text();
-    throw new Error(`Failed to create item: ${response.status()} ${body}`);
+  // 行タイプごとに名称を分ける（旧 `POST /:id/items` と同じテストデータ）
+  for (const line of node.lines) {
+    if (line.lineType === 'EXECUTION') line.name = `実行項目${label}`;
+    if (line.lineType === 'VENDOR') line.name = `業者項目${label}`;
   }
-  const body = await response.json();
-  return body.id as string;
+
+  return await appendEstimateItem(request, accessToken, estimateId, node, { displayOrder });
 }
 
 /**
@@ -207,34 +192,19 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
 
     test('準備3：見積項目を2件、3行1セットの金額付きで作成する', async ({ request }) => {
       expect(createdEstimateId).toBeTruthy();
-      const baseUrl = API_BASE_URL;
 
-      const item1Id = await createItemWithAmounts(
-        request,
-        baseUrl,
-        accessToken,
-        createdEstimateId!,
-        0,
-        {
-          estimate: ESTIMATE_AMOUNT_1,
-          execution: EXECUTION_AMOUNT_1,
-          vendor: VENDOR_AMOUNT_1,
-        }
-      );
+      const item1Id = await createItemWithAmounts(request, accessToken, createdEstimateId!, 0, {
+        estimate: ESTIMATE_AMOUNT_1,
+        execution: EXECUTION_AMOUNT_1,
+        vendor: VENDOR_AMOUNT_1,
+      });
       createdItemIds.push(item1Id);
 
-      const item2Id = await createItemWithAmounts(
-        request,
-        baseUrl,
-        accessToken,
-        createdEstimateId!,
-        1,
-        {
-          estimate: ESTIMATE_AMOUNT_2,
-          execution: EXECUTION_AMOUNT_2,
-          vendor: VENDOR_AMOUNT_2,
-        }
-      );
+      const item2Id = await createItemWithAmounts(request, accessToken, createdEstimateId!, 1, {
+        estimate: ESTIMATE_AMOUNT_2,
+        execution: EXECUTION_AMOUNT_2,
+        vendor: VENDOR_AMOUNT_2,
+      });
       createdItemIds.push(item2Id);
     });
   });

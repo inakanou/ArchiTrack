@@ -13,6 +13,11 @@
  * - REQ-41.8: 合計・見積金額合計に値引き行の金額（負数を含む）を加算（減算）して集計する
  * - REQ-41.9: 値引き行をNET金額案分（REQ-18）・利益率適用（REQ-19）の対象外とする
  * - REQ-41.10: 値引き行の名称等を手入力で変更可能とし、保存後の再読込で維持される（REQ-34整合）
+ * - REQ-41.11: 値引き行の追加を未保存の変更として扱い、保存操作で確定する
+ * - REQ-42.1: 追加・更新を1回の保存操作（PUT /:id/save）でまとめて確定する
+ *
+ * Task 53.13: 旧経路（`PUT /:id/items/batch` および保存時の `POST /discount-items`）への
+ * 依存を一括保存（`PUT /:id/save`）の検証へ移行した。
  *
  * @module e2e/specs/estimate/estimate-discount-preset-e2e.spec
  */
@@ -188,16 +193,33 @@ test.describe('値引きプリセット行', () => {
         .locator('xpath=following-sibling::span[1]');
       await expect(estimateTotalValue).toHaveText('-3,000円');
 
-      // 保存（新規値引き行は専用エンドポイント POST /discount-items で永続化される）(REQ-41.8, REQ-34)
-      const discountPostPromise = page.waitForResponse(
+      // 保存（値引き行の追加は未保存の変更として扱われ、一括保存で確定する）
+      // (REQ-41.8, REQ-41.11, REQ-34, REQ-42.1)
+      // Task 53.6 で画面からの即時リクエストを撤去したため、追加時点では
+      // `POST /discount-items` を呼ばず、保存の `PUT /:id/save` 1回で確定する
+      const savePromise = page.waitForResponse(
         (response) =>
-          response.url().includes(`/api/estimates/${createdEstimateId}/discount-items`) &&
-          response.request().method() === 'POST',
+          response.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+          response.request().method() === 'PUT',
         { timeout: getTimeout(30000) }
       );
       await page.getByRole('button', { name: /^保存$/ }).click();
-      const discountPostResponse = await discountPostPromise;
-      expect(discountPostResponse.status()).toBe(201);
+      const saveResponse = await savePromise;
+      expect(saveResponse.status()).toBe(200);
+
+      // 再読込後も値引き行が種別DISCOUNT（見積金額行1件のみ）で保持される (REQ-41.3, REQ-34)
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByTestId('estimate-detail-page')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      const reloadedRow = page.locator('[data-testid="estimate-item-row"]');
+      await expect(reloadedRow).toHaveCount(1, { timeout: getTimeout(5000) });
+      await expect(reloadedRow.locator('[data-testid="line-type-EXECUTION"]')).toHaveCount(0);
+      await expect(reloadedRow.locator('[data-testid="line-type-VENDOR"]')).toHaveCount(0);
+      await expect(
+        reloadedRow.locator('[data-testid="line-type-ESTIMATE"] input[aria-label="単価"]')
+      ).toHaveValue('-3000');
     });
   });
 
@@ -275,16 +297,17 @@ test.describe('値引きプリセット行', () => {
       await nameInput.fill('出精値引き');
       await nameInput.blur();
 
-      // 保存（バッチAPIレスポンスを待つ）(REQ-34)
-      const batchPromise = page.waitForResponse(
+      // 保存（一括保存APIレスポンスを待つ）(REQ-34, REQ-42.1)
+      // 旧 `PUT /:id/items/batch` は Task 53.12 で撤去され `PUT /:id/save` へ統合された
+      const savePromise = page.waitForResponse(
         (response) =>
-          response.url().includes(`/api/estimates/${createdEstimateId}/items/batch`) &&
+          response.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
           response.request().method() === 'PUT',
         { timeout: getTimeout(30000) }
       );
       await page.getByRole('button', { name: /^保存$/ }).click();
-      const batchResponse = await batchPromise;
-      expect(batchResponse.status()).toBe(200);
+      const saveResponse = await savePromise;
+      expect(saveResponse.status()).toBe(200);
 
       // ページを再読込して編集が維持されていることを確認 (REQ-41.10, REQ-34)
       await page.reload();

@@ -10,6 +10,7 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { API_BASE_URL } from '../../config';
 import { getPrismaClient } from '../../fixtures/database';
+import { appendEstimateItem, buildNewEstimateItemNode } from '../../helpers/estimate-draft';
 
 /**
  * APIアクセストークンを取得する
@@ -132,6 +133,12 @@ export async function createTestEstimate(
 
 /**
  * 見積項目（ESTIMATE/EXECUTION/VENDOR の3行）を1件作成する
+ *
+ * 明細操作系6経路は estimate-creation Task 53.12 で撤去され、追加・削除・更新・
+ * 並び順の変更・階層の変更は `PUT /api/estimates/:id/save` 1回へ集約された
+ * （estimate-creation REQ-42.1）。一括保存は**フル状態同期**のため、
+ * 既存の明細を読み直して追加分を足した全件を送る。
+ * 呼び出し側から見た振る舞い（1件追加して新しいIDを返す）は従来どおり。
  */
 export async function createEstimateItem(
   request: APIRequestContext,
@@ -149,50 +156,32 @@ export async function createEstimateItem(
     parentId?: string | null;
   }
 ): Promise<{ id: string }> {
-  const lines: Array<Record<string, unknown>> = [
-    {
-      lineType: 'ESTIMATE',
-      name: options.name,
-      specification: options.specification ?? null,
-      unit: options.unit ?? '式',
-      quantity: options.quantity,
-      unitPrice: options.estimateUnitPrice,
-    },
-    {
-      lineType: 'EXECUTION',
-      name: options.name,
-      specification: options.specification ?? null,
-      unit: options.unit ?? '式',
-      quantity: options.quantity,
-      unitPrice: options.executionUnitPrice,
-    },
-    {
-      lineType: 'VENDOR',
-      name: options.vendorName ?? null,
-      quantity: options.quantity,
-      unitPrice: options.executionUnitPrice,
-    },
-  ];
-
-  const res = await request.post(`${API_BASE_URL}/api/estimates/${estimateId}/items`, {
-    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
-    data: {
-      parentId: options.parentId ?? null,
-      displayOrder: options.displayOrder,
-      lines,
-    },
+  const node = buildNewEstimateItemNode({
+    name: options.name,
+    specification: options.specification ?? null,
+    unit: options.unit ?? '式',
+    quantity: options.quantity,
+    estimateUnitPrice: options.estimateUnitPrice,
+    executionUnitPrice: options.executionUnitPrice,
+    vendorUnitPrice: options.executionUnitPrice,
+    vendorName: options.vendorName ?? null,
   });
-  if (res.status() !== 201) {
-    throw new Error(`estimate item create failed: ${res.status()} ${await res.text()}`);
-  }
-  const body = (await res.json()) as { id: string };
+  // 旧 `POST /:id/items` は業者金額行の名称に取引先名（未指定時は null）を入れていた
+  const vendorLine = node.lines.find((line) => line.lineType === 'VENDOR')!;
+  vendorLine.name = options.vendorName ?? null;
 
-  // VENDOR行のsourceVendorNameをDB直接更新で設定（API経由では設定できないため）
+  const createdId = await appendEstimateItem(request, token, estimateId, node, {
+    parentId: options.parentId ?? null,
+    displayOrder: options.displayOrder,
+  });
+
+  // VENDOR行のsourceVendorNameを念のためDB直接更新でも確定させる
+  // （行の名称も取引先名に揃える。従来の挙動を維持）
   if (options.vendorName) {
-    await setEstimateItemVendorName(body.id, options.vendorName);
+    await setEstimateItemVendorName(createdId, options.vendorName);
   }
 
-  return { id: body.id };
+  return { id: createdId };
 }
 
 /**
@@ -200,8 +189,8 @@ export async function createEstimateItem(
  *
  * 実行予算作成時、サービス層は VENDOR 行の sourceVendorName から取引先マスタを
  * 検索し、plannedVendorId を実行予算項目に設定する。
- * createEstimateItem API では sourceVendorName を渡せないため、E2E テストの
- * セットアップとして Prisma 直接更新で設定する。
+ * 一括保存（`PUT /api/estimates/:id/save`）は sourceVendorName を受け付けるが、
+ * 既存の呼び出し側が本関数を直接使う経路もあるため引き続き提供する。
  */
 export async function setEstimateItemVendorName(
   estimateItemId: string,

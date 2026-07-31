@@ -6,6 +6,10 @@
  *
  * Requirements coverage (estimate-creation):
  * - REQ-12.2: ユーザーが見積項目の表示順序を変更した場合、順序を変更可能とする（↑/↓ボタン）
+ * - REQ-12.7: 並び替えを編集セッション中にサーバーへ問い合わせずに行う
+ * - REQ-12.8: 順序を変更して保存した場合、画面再読み込み後も変更後の順序で表示する
+ * - REQ-42.1: 並び順の変更を1回の保存操作でまとめて確定する
+ * - REQ-43.1: 並び替えをサーバーへの保存を伴わずに画面上の明細へ反映する
  * - REQ-7.1: 共通仮設費行の追加を選択した場合、プリセット値を設定する
  * - REQ-7.3: 自動計算機能が有効な場合、国土交通省基準の共通仮設費計算式に準じて単価を自動計算する
  * - REQ-8.3: 自動計算機能が有効な場合、国土交通省基準の現場管理費計算式に準じて単価を自動計算する
@@ -18,6 +22,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { buildNewEstimateItemNode, saveEstimateDraft } from '../../helpers/estimate-draft';
 
 interface ApiLine {
   lineType: string;
@@ -121,44 +126,24 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       createdEstimateId = (await estimateResponse.json()).id;
       expect(createdEstimateId).toBeTruthy();
 
-      // ルートレベルに項目を3つ追加（並び替え検証用）
-      for (let i = 0; i < 3; i++) {
-        const itemResponse = await page.request.post(
-          `${API_BASE_URL}/api/estimates/${createdEstimateId}/items`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            data: {
-              parentId: null,
-              displayOrder: i,
-              lines: [
-                {
-                  lineType: 'ESTIMATE',
-                  name: `並び替え項目${i + 1}`,
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 1000,
-                },
-                {
-                  lineType: 'EXECUTION',
-                  name: `並び替え項目${i + 1}`,
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 1000,
-                },
-                {
-                  lineType: 'VENDOR',
-                  name: `並び替え項目${i + 1}`,
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 1000,
-                },
-              ],
-            },
-          }
-        );
-        expect(itemResponse.status()).toBe(201);
-        rootItemIds.push((await itemResponse.json()).id);
-      }
+      // ルートレベルに項目を3つ追加（並び替え検証用）。
+      // 撤去済みの `POST /:id/items` ではなく一括保存（`PUT /:id/save`）で作成する（REQ-42.1）
+      const savedItems = await saveEstimateDraft(
+        page.request,
+        accessToken,
+        createdEstimateId!,
+        [1, 2, 3].map((n) =>
+          buildNewEstimateItemNode({
+            name: `並び替え項目${n}`,
+            unit: '式',
+            quantity: 1,
+            estimateUnitPrice: 1000,
+            executionUnitPrice: 1000,
+            vendorUnitPrice: 1000,
+          })
+        )
+      );
+      rootItemIds.push(...savedItems.map((item) => item.id));
       expect(rootItemIds.length).toBe(3);
     });
   });
@@ -219,14 +204,36 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       // ↑ボタンが有効になっていること（直前に兄弟が存在する）
       await expect(page.getByTestId('reorder-up-button')).toBeEnabled();
 
-      // ↑ボタンクリック → reorder API が呼ばれる
-      const reorderPromise = page.waitForResponse(
-        (r) => r.url().includes('/items/reorder') && r.request().method() === 'PUT',
-        { timeout: getTimeout(15000) }
-      );
+      // ↑ボタンはサーバーへ問い合わせず画面上の並びだけを変える（REQ-12.7, 43.1）
+      const writeRequests: string[] = [];
+      const recordWrite = (request: { url: () => string; method: () => string }): void => {
+        const method = request.method();
+        if (
+          request.url().includes('/api/estimates') &&
+          (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE')
+        ) {
+          writeRequests.push(`${method} ${request.url()}`);
+        }
+      };
+      page.on('request', recordWrite);
+
       await page.getByTestId('reorder-up-button').click();
-      const reorderRes = await reorderPromise;
-      expect(reorderRes.status()).toBe(204);
+      expect(writeRequests).toEqual([]);
+
+      // 保存で並び順が1回の保存操作で確定する（REQ-12.8, 42.1）
+      const savePromise = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+          r.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^保存$/i }).click();
+      const saveRes = await savePromise;
+      expect(saveRes.status()).toBe(200);
+      page.off('request', recordWrite);
+      expect(writeRequests).toEqual([
+        `PUT ${API_BASE_URL}/api/estimates/${createdEstimateId}/save`,
+      ]);
 
       await page.waitForLoadState('networkidle');
 
@@ -274,13 +281,18 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
 
       await expect(page.getByTestId('reorder-down-button')).toBeEnabled();
 
-      const reorderPromise = page.waitForResponse(
-        (r) => r.url().includes('/items/reorder') && r.request().method() === 'PUT',
-        { timeout: getTimeout(15000) }
-      );
       await page.getByTestId('reorder-down-button').click();
-      const reorderRes = await reorderPromise;
-      expect(reorderRes.status()).toBe(204);
+
+      // 保存で並び順が確定する（REQ-12.8, 42.1）
+      const savePromise = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+          r.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^保存$/i }).click();
+      const saveRes = await savePromise;
+      expect(saveRes.status()).toBe(200);
 
       await page.waitForLoadState('networkidle');
 
