@@ -29,7 +29,7 @@
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { EstimateDraftService } from '../../../services/estimate-draft.service.js';
-import type { PrismaClient } from '../../../generated/prisma/client.js';
+import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import {
   EstimateNotFoundError,
   EstimateDraftValidationError,
@@ -49,6 +49,7 @@ type MockTxClient = {
   };
   estimateItem: {
     create: Mock;
+    createMany: Mock;
     update: Mock;
     updateMany: Mock;
     deleteMany: Mock;
@@ -58,6 +59,7 @@ type MockTxClient = {
     upsert: Mock;
     deleteMany: Mock;
   };
+  $executeRaw: Mock;
 };
 
 /** 読み取り系＋トランザクション起点のモック */
@@ -66,6 +68,65 @@ type MockPrismaClient = Omit<MockTxClient, 'estimate'> & {
   estimateItem: MockTxClient['estimateItem'];
   $transaction: Mock;
 };
+
+/**
+ * 見積項目の一括UPDATE文のパラメータ構成（サービス実装と対で維持する）
+ *
+ * `UPDATE "estimate_items" ... FROM (VALUES ...)` は
+ * 1行あたり `id / parentId / itemType / displayOrder` の4パラメータを取り、
+ * 末尾に `estimateId` を1つ持つ。
+ */
+const BULK_ITEM_UPDATE_PARAMS_PER_ROW = 4;
+const BULK_ITEM_UPDATE_TRAILING_PARAMS = 1;
+
+/**
+ * 明細行の一括UPSERT文のパラメータ構成（サービス実装と対で維持する）
+ *
+ * `INSERT INTO "estimate_item_lines" ... ON CONFLICT DO UPDATE` は1行あたり
+ * `id / estimateItemId / lineType / name / specification / unit /
+ *  quantity / unitPrice / amount / remarks / sourceVendorName` の11パラメータを取る。
+ */
+const BULK_LINE_UPSERT_PARAMS_PER_ROW = 11;
+
+/** 一括UPDATE文の VALUES 行数（＝更新対象件数）を求める */
+function countBulkUpdateRows(query: Prisma.Sql): number {
+  if (!isBulkItemUpdate(query)) {
+    return 0;
+  }
+  return (query.values.length - BULK_ITEM_UPDATE_TRAILING_PARAMS) / BULK_ITEM_UPDATE_PARAMS_PER_ROW;
+}
+
+/** 見積項目の一括UPDATE文か */
+function isBulkItemUpdate(query: Prisma.Sql): boolean {
+  return query.text.trimStart().startsWith('UPDATE "estimate_items"');
+}
+
+/** 明細行の一括UPSERT文か */
+function isBulkLineUpsert(query: Prisma.Sql): boolean {
+  return query.text.trimStart().startsWith('INSERT INTO "estimate_item_lines"');
+}
+
+/** 一括UPDATE文のパラメータから、確定される親子・種別・並び順を復元する */
+interface BulkItemUpdateRow {
+  id: unknown;
+  parentId: unknown;
+  itemType: unknown;
+  displayOrder: unknown;
+}
+
+/** 一括UPSERT文のパラメータから、確定される明細行の内容を復元する */
+interface BulkLineUpsertRow {
+  estimateItemId: unknown;
+  lineType: unknown;
+  name: unknown;
+  specification: unknown;
+  unit: unknown;
+  quantity: unknown;
+  unitPrice: unknown;
+  amount: unknown;
+  remarks: unknown;
+  sourceVendorName: unknown;
+}
 
 const ESTIMATE_ID = '11111111-1111-4111-8111-111111111111';
 const ITEM_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -164,11 +225,8 @@ describe('EstimateDraftService', () => {
   let service: EstimateDraftService;
   let mockPrisma: MockPrismaClient;
   let mockTx: MockTxClient;
-  let createdIdSequence: number;
 
   beforeEach(() => {
-    createdIdSequence = 0;
-
     mockTx = {
       estimate: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -181,10 +239,9 @@ describe('EstimateDraftService', () => {
         }),
       },
       estimateItem: {
-        create: vi.fn(async () => {
-          createdIdSequence += 1;
-          return { id: `generated-${createdIdSequence}` };
-        }),
+        // 一括化後は個別 create を発行しない。呼ばれたらテストで検出できるようモックを残す
+        create: vi.fn(),
+        createMany: vi.fn(async (args: { data: unknown[] }) => ({ count: args.data.length })),
         update: vi.fn().mockResolvedValue(undefined),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -194,6 +251,9 @@ describe('EstimateDraftService', () => {
         upsert: vi.fn().mockResolvedValue(undefined),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
+      // 実DBの代わりに「VALUES 句の行数＝更新件数」を返す。
+      // 一括UPDATEの件数照合（並行削除の検出）を素通りさせないための最小限の模擬。
+      $executeRaw: vi.fn(async (query: Prisma.Sql) => countBulkUpdateRows(query)),
     };
 
     mockPrisma = {
@@ -207,6 +267,7 @@ describe('EstimateDraftService', () => {
         // 書き込みはトランザクションクライアント側で行われる想定。
         // prisma 直下が呼ばれた場合はテストで検出できるようモックを分ける
         create: vi.fn(),
+        createMany: vi.fn(),
         update: vi.fn(),
         updateMany: vi.fn(),
         deleteMany: vi.fn(),
@@ -215,6 +276,7 @@ describe('EstimateDraftService', () => {
         upsert: vi.fn(),
         deleteMany: vi.fn(),
       },
+      $executeRaw: vi.fn(),
       $transaction: vi.fn(async (callback: (tx: MockTxClient) => Promise<unknown>) =>
         callback(mockTx)
       ),
@@ -230,14 +292,70 @@ describe('EstimateDraftService', () => {
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     expect(mockTx.estimate.updateMany).not.toHaveBeenCalled();
     expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
+    expect(mockTx.estimateItem.createMany).not.toHaveBeenCalled();
     expect(mockTx.estimateItem.update).not.toHaveBeenCalled();
     expect(mockTx.estimateItem.updateMany).not.toHaveBeenCalled();
     expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
     expect(mockTx.estimateItemLine.upsert).not.toHaveBeenCalled();
     expect(mockTx.estimateItemLine.deleteMany).not.toHaveBeenCalled();
+    expect(mockTx.$executeRaw).not.toHaveBeenCalled();
     expect(mockPrisma.estimateItem.create).not.toHaveBeenCalled();
+    expect(mockPrisma.estimateItem.createMany).not.toHaveBeenCalled();
     expect(mockPrisma.estimateItem.update).not.toHaveBeenCalled();
     expect(mockPrisma.estimateItem.deleteMany).not.toHaveBeenCalled();
+    expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
+  }
+
+  /** 発行された一括UPDATE文のパラメータから、確定される項目の状態を復元する */
+  function readBulkItemUpdateRows(): BulkItemUpdateRow[] {
+    const call = mockTx.$executeRaw.mock.calls.find((args) =>
+      isBulkItemUpdate(args[0] as Prisma.Sql)
+    );
+    if (call === undefined) {
+      return [];
+    }
+    const { values } = call[0] as Prisma.Sql;
+    const rowCount =
+      (values.length - BULK_ITEM_UPDATE_TRAILING_PARAMS) / BULK_ITEM_UPDATE_PARAMS_PER_ROW;
+
+    return Array.from({ length: rowCount }, (_, index) => {
+      const offset = index * BULK_ITEM_UPDATE_PARAMS_PER_ROW;
+      return {
+        id: values[offset],
+        parentId: values[offset + 1],
+        itemType: values[offset + 2],
+        displayOrder: values[offset + 3],
+      };
+    });
+  }
+
+  /** 発行された一括UPSERT文のパラメータから、確定される明細行の内容を復元する */
+  function readBulkLineUpsertRows(): BulkLineUpsertRow[] {
+    const call = mockTx.$executeRaw.mock.calls.find((args) =>
+      isBulkLineUpsert(args[0] as Prisma.Sql)
+    );
+    if (call === undefined) {
+      return [];
+    }
+    const { values } = call[0] as Prisma.Sql;
+    const rowCount = values.length / BULK_LINE_UPSERT_PARAMS_PER_ROW;
+
+    return Array.from({ length: rowCount }, (_, index) => {
+      // 先頭の id（アプリ採番のUUID）は照合対象にしないため読み飛ばす
+      const offset = index * BULK_LINE_UPSERT_PARAMS_PER_ROW + 1;
+      return {
+        estimateItemId: values[offset],
+        lineType: values[offset + 1],
+        name: values[offset + 2],
+        specification: values[offset + 3],
+        unit: values[offset + 4],
+        quantity: values[offset + 5],
+        unitPrice: values[offset + 6],
+        amount: values[offset + 7],
+        remarks: values[offset + 8],
+        sourceVendorName: values[offset + 9],
+      };
+    });
   }
 
   describe('saveDraft: 保存前検証（42.4）', () => {
@@ -337,6 +455,29 @@ describe('EstimateDraftService', () => {
         where: { id: { in: [ITEM_A] } },
       });
     });
+
+    it('切り離しで生じた一過性の parentId=null は同一トランザクション内で最終値へ戻る', async () => {
+      // DB: A(ルート) - B(Aの子) / C(ルート)。ペイロードは C とその子 B（A は削除）
+      mockPrisma.estimateItem.findMany.mockResolvedValue([
+        { id: ITEM_A, parentId: null },
+        { id: ITEM_B, parentId: ITEM_A },
+        { id: ITEM_C, parentId: null },
+      ]);
+
+      await service.saveDraft(
+        ESTIMATE_ID,
+        buildInput([buildNode({ id: ITEM_C, children: [buildNode({ id: ITEM_B })] })])
+      );
+
+      // 切り離しでいったん null にした B は、一括UPDATEで新しい親 C へ張り替えられる
+      expect(mockTx.estimateItem.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [ITEM_B] } },
+        data: { parentId: null },
+      });
+      expect(readBulkItemUpdateRows()).toContainEqual(
+        expect.objectContaining({ id: ITEM_B, parentId: ITEM_C })
+      );
+    });
   });
 
   describe('saveDraft: 既存項目の更新（34.3, 42.9）', () => {
@@ -352,15 +493,17 @@ describe('EstimateDraftService', () => {
 
       const result = await service.saveDraft(ESTIMATE_ID, input);
 
+      // 削除＋再作成を行わない（既存IDのまま一括UPDATEの対象になる）
       expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
+      expect(mockTx.estimateItem.createMany).not.toHaveBeenCalled();
       expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
-      expect(mockTx.estimateItem.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: ITEM_A } })
-      );
+      expect(readBulkItemUpdateRows()).toEqual([
+        { id: ITEM_A, parentId: null, itemType: 'STANDARD', displayOrder: 0 },
+      ]);
       expect(result.updatedItemIds).toEqual([ITEM_A]);
     });
 
-    it('既存項目の明細行は行タイプを鍵に upsert し、内容を反映する', async () => {
+    it('既存項目の明細行は行タイプを鍵に一括UPSERTし、内容を反映する', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
 
       const input = buildInput([
@@ -372,17 +515,26 @@ describe('EstimateDraftService', () => {
 
       await service.saveDraft(ESTIMATE_ID, input);
 
-      expect(mockTx.estimateItemLine.upsert).toHaveBeenCalledWith(
+      expect(readBulkLineUpsertRows()).toEqual([
         expect.objectContaining({
-          where: {
-            estimateItemId_lineType: { estimateItemId: ITEM_A, lineType: 'ESTIMATE' },
-          },
-          update: expect.objectContaining({ name: '更新後の名称', amount: '250000.00' }),
-        })
-      );
+          estimateItemId: ITEM_A,
+          lineType: 'ESTIMATE',
+          name: '更新後の名称',
+          amount: '250000.00',
+        }),
+      ]);
+
+      // 競合キーは @@unique([estimateItemId, lineType])。既存行はIDを維持して更新する
+      const upsertStatement = mockTx.$executeRaw.mock.calls.find((args) =>
+        isBulkLineUpsert(args[0] as Prisma.Sql)
+      )![0] as Prisma.Sql;
+      expect(upsertStatement.text).toContain('ON CONFLICT ("estimateItemId", "lineType")');
+      expect(upsertStatement.text).toContain('DO UPDATE SET');
+      // 転記元の参照は保存ペイロードに含まれないため更新対象から外す
+      expect(upsertStatement.text).not.toContain('sourceReceivedQuotationLineItemId');
     });
 
-    it('ペイロードから消えた行タイプの明細行を削除する', async () => {
+    it('ペイロードから消えた行タイプの明細行を行タイプ単位でまとめて削除する', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
 
       const input = buildInput([
@@ -392,11 +544,18 @@ describe('EstimateDraftService', () => {
       await service.saveDraft(ESTIMATE_ID, input);
 
       expect(mockTx.estimateItemLine.deleteMany).toHaveBeenCalledWith({
-        where: { estimateItemId: ITEM_A, lineType: { notIn: ['ESTIMATE'] } },
+        where: { estimateItemId: { in: [ITEM_A] }, lineType: 'EXECUTION' },
       });
+      expect(mockTx.estimateItemLine.deleteMany).toHaveBeenCalledWith({
+        where: { estimateItemId: { in: [ITEM_A] }, lineType: 'VENDOR' },
+      });
+      // ペイロードに残る行タイプは削除しない
+      expect(mockTx.estimateItemLine.deleteMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ lineType: 'ESTIMATE' }) })
+      );
     });
 
-    it('既存項目の階層移動は parentId の更新で反映する', async () => {
+    it('既存項目の階層移動は parentId の一括UPDATEで反映する', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([
         { id: ITEM_A, parentId: null },
         { id: ITEM_B, parentId: null },
@@ -406,11 +565,8 @@ describe('EstimateDraftService', () => {
 
       await service.saveDraft(ESTIMATE_ID, input);
 
-      expect(mockTx.estimateItem.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: ITEM_B },
-          data: expect.objectContaining({ parentId: ITEM_A }),
-        })
+      expect(readBulkItemUpdateRows()).toContainEqual(
+        expect.objectContaining({ id: ITEM_B, parentId: ITEM_A })
       );
     });
   });
@@ -431,19 +587,34 @@ describe('EstimateDraftService', () => {
 
       const result = await service.saveDraft(ESTIMATE_ID, input);
 
-      expect(mockTx.estimateItem.create).toHaveBeenCalledTimes(3);
+      // 個別 create は発行せず、1回の createMany でまとめて登録する
+      expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
+      expect(mockTx.estimateItem.createMany).toHaveBeenCalledTimes(1);
 
-      const [rootCall, childCall, grandchildCall] = mockTx.estimateItem.create.mock.calls;
-      expect(rootCall![0].data).toMatchObject({ estimateId: ESTIMATE_ID, parentId: null });
-      expect(childCall![0].data).toMatchObject({ parentId: 'generated-1' });
-      expect(grandchildCall![0].data).toMatchObject({ parentId: 'generated-2' });
+      const createRows = mockTx.estimateItem.createMany.mock.calls[0]![0].data as {
+        id: string;
+        estimateId: string;
+        parentId: null;
+      }[];
+      expect(createRows).toHaveLength(3);
+      // INSERT 時点では親を張らず、後続の一括UPDATEで確定する
+      expect(createRows.every((row) => row.parentId === null)).toBe(true);
+      expect(createRows.every((row) => row.estimateId === ESTIMATE_ID)).toBe(true);
 
+      const [rootId, childId, grandchildId] = createRows.map((row) => row.id);
       expect(result.tempIdMap).toEqual({
-        'tmp-root': 'generated-1',
-        'tmp-child': 'generated-2',
-        'tmp-grandchild': 'generated-3',
+        'tmp-root': rootId,
+        'tmp-child': childId,
+        'tmp-grandchild': grandchildId,
       });
-      expect(result.createdItemIds).toEqual(['generated-1', 'generated-2', 'generated-3']);
+      expect(result.createdItemIds).toEqual([rootId, childId, grandchildId]);
+
+      // 多階層の親子関係は一時IDから採番IDへの対応表で解決される
+      expect(readBulkItemUpdateRows()).toEqual([
+        expect.objectContaining({ id: rootId, parentId: null }),
+        expect.objectContaining({ id: childId, parentId: rootId }),
+        expect.objectContaining({ id: grandchildId, parentId: childId }),
+      ]);
     });
 
     it('新規項目を既存項目の子として作成する場合は既存IDを親に用いる', async () => {
@@ -453,16 +624,14 @@ describe('EstimateDraftService', () => {
         buildNode({ id: ITEM_A, children: [buildNode({ tempId: 'tmp-new' })] }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input);
 
-      expect(mockTx.estimateItem.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ parentId: ITEM_A }),
-        })
+      expect(readBulkItemUpdateRows()).toContainEqual(
+        expect.objectContaining({ id: result.createdItemIds[0], parentId: ITEM_A })
       );
     });
 
-    it('新規項目は明細行をまとめて作成する', async () => {
+    it('新規項目の明細行も一括UPSERTでまとめて登録する', async () => {
       const input = buildInput([
         buildNode({
           tempId: 'tmp-new',
@@ -473,18 +642,21 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const createdId = result.createdItemIds[0];
 
-      const createArg = mockTx.estimateItem.create.mock.calls[0]![0];
-      expect(createArg.data.lines.create).toHaveLength(2);
-      expect(createArg.data.lines.create[0]).toMatchObject({
-        lineType: 'ESTIMATE',
-        name: '基礎工事',
-      });
-      expect(createArg.data.lines.create[1]).toMatchObject({
-        lineType: 'EXECUTION',
-        name: '実行',
-      });
+      expect(readBulkLineUpsertRows()).toEqual([
+        expect.objectContaining({
+          estimateItemId: createdId,
+          lineType: 'ESTIMATE',
+          name: '基礎工事',
+        }),
+        expect.objectContaining({
+          estimateItemId: createdId,
+          lineType: 'EXECUTION',
+          name: '実行',
+        }),
+      ]);
     });
   });
 
@@ -498,21 +670,26 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input);
 
-      const createArg = mockTx.estimateItem.create.mock.calls[0]![0];
-      expect(createArg.data.itemType).toBe('NOTE');
-      expect(createArg.data.lines.create[0]).toEqual({
-        lineType: 'ESTIMATE',
-        name: '※別途工事あり',
-        specification: null,
-        unit: null,
-        quantity: null,
-        unitPrice: null,
-        amount: null,
-        remarks: null,
-        sourceVendorName: null,
-      });
+      const createRows = mockTx.estimateItem.createMany.mock.calls[0]![0].data as {
+        itemType: string;
+      }[];
+      expect(createRows[0]!.itemType).toBe('NOTE');
+      expect(readBulkLineUpsertRows()).toEqual([
+        {
+          estimateItemId: result.createdItemIds[0],
+          lineType: 'ESTIMATE',
+          name: '※別途工事あり',
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+          sourceVendorName: null,
+        },
+      ]);
     });
 
     it('既存項目を注記行へ変更した場合も名称以外を NULL に正規化する', async () => {
@@ -528,18 +705,23 @@ describe('EstimateDraftService', () => {
 
       await service.saveDraft(ESTIMATE_ID, input);
 
-      const upsertArg = mockTx.estimateItemLine.upsert.mock.calls[0]![0];
-      expect(upsertArg.update).toEqual({
-        lineType: 'ESTIMATE',
-        name: '※注記',
-        specification: null,
-        unit: null,
-        quantity: null,
-        unitPrice: null,
-        amount: null,
-        remarks: null,
-        sourceVendorName: null,
-      });
+      expect(readBulkLineUpsertRows()).toEqual([
+        {
+          estimateItemId: ITEM_A,
+          lineType: 'ESTIMATE',
+          name: '※注記',
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+          sourceVendorName: null,
+        },
+      ]);
+      expect(readBulkItemUpdateRows()).toEqual([
+        expect.objectContaining({ id: ITEM_A, itemType: 'NOTE' }),
+      ]);
     });
 
     it('通常項目の明細行は入力値をそのまま保持する', async () => {
@@ -547,8 +729,7 @@ describe('EstimateDraftService', () => {
 
       await service.saveDraft(ESTIMATE_ID, input);
 
-      const createArg = mockTx.estimateItem.create.mock.calls[0]![0];
-      expect(createArg.data.lines.create[0]).toMatchObject({
+      expect(readBulkLineUpsertRows()[0]).toMatchObject({
         specification: 'RC造',
         unit: '式',
         quantity: '1.0000',
@@ -575,9 +756,11 @@ describe('EstimateDraftService', () => {
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       // 書き込みはトランザクションクライアント経由のみ
       expect(mockPrisma.estimateItem.create).not.toHaveBeenCalled();
+      expect(mockPrisma.estimateItem.createMany).not.toHaveBeenCalled();
       expect(mockPrisma.estimateItem.update).not.toHaveBeenCalled();
       expect(mockPrisma.estimateItem.deleteMany).not.toHaveBeenCalled();
       expect(mockPrisma.estimateItemLine.upsert).not.toHaveBeenCalled();
+      expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
 
       expect(result.createdItemIds).toHaveLength(1);
       expect(result.updatedItemIds).toEqual([ITEM_A]);
@@ -587,7 +770,7 @@ describe('EstimateDraftService', () => {
     it('途中で失敗した場合はエラーを伝播し、以降の書き込みを行わない（全ロールバック）', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
       const failure = new Error('DB書き込み失敗');
-      mockTx.estimateItem.update.mockRejectedValue(failure);
+      mockTx.estimateItem.createMany.mockRejectedValue(failure);
 
       const input = buildInput([
         buildNode({ id: ITEM_A }),
@@ -597,8 +780,20 @@ describe('EstimateDraftService', () => {
       await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toThrow('DB書き込み失敗');
 
       // 失敗以降の書き込みは発行されない（ロールバックは $transaction に委ねる）
-      expect(mockTx.estimateItemLine.upsert).not.toHaveBeenCalled();
-      expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
+      expect(mockTx.$executeRaw).not.toHaveBeenCalled();
+      expect(mockTx.estimateItemLine.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('事前検証の通過後に他トランザクションが項目を削除した場合は中断して巻き戻す（42.3）', async () => {
+      mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+      // 一括UPDATEの更新件数が対象件数に満たない＝対象行が消えている
+      mockTx.$executeRaw.mockResolvedValue(0);
+
+      const input = buildInput([buildNode({ id: ITEM_A })]);
+
+      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toThrow(
+        /一括更新で対象件数が一致しませんでした/
+      );
     });
   });
 
@@ -655,9 +850,11 @@ describe('EstimateDraftService', () => {
 
       // 明細への書き込みは発行されない（トランザクションは巻き戻る）
       expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
+      expect(mockTx.estimateItem.createMany).not.toHaveBeenCalled();
       expect(mockTx.estimateItem.update).not.toHaveBeenCalled();
       expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
       expect(mockTx.estimateItemLine.upsert).not.toHaveBeenCalled();
+      expect(mockTx.$executeRaw).not.toHaveBeenCalled();
     });
   });
 
@@ -675,25 +872,14 @@ describe('EstimateDraftService', () => {
         buildNode({ id: ITEM_A }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input);
 
-      expect(mockTx.estimateItem.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: ITEM_C },
-          data: expect.objectContaining({ displayOrder: 0 }),
-        })
-      );
-      expect(mockTx.estimateItem.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ displayOrder: 1 }),
-        })
-      );
-      expect(mockTx.estimateItem.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: ITEM_A },
-          data: expect.objectContaining({ displayOrder: 2 }),
-        })
-      );
+      // 新規・既存を同じ一括UPDATEで確定するため、採番が衝突しない
+      expect(readBulkItemUpdateRows()).toEqual([
+        expect.objectContaining({ id: ITEM_C, displayOrder: 0 }),
+        expect.objectContaining({ id: result.createdItemIds[0], displayOrder: 1 }),
+        expect.objectContaining({ id: ITEM_A, displayOrder: 2 }),
+      ]);
     });
 
     it('子の並び順は兄弟スコープごとに0起点の連番になる', async () => {
@@ -713,24 +899,11 @@ describe('EstimateDraftService', () => {
       await service.saveDraft(ESTIMATE_ID, input);
 
       // ルートスコープは0起点、子スコープも親をまたいで通し番号にしない
-      expect(mockTx.estimateItem.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: ITEM_A },
-          data: expect.objectContaining({ parentId: null, displayOrder: 0 }),
-        })
-      );
-      expect(mockTx.estimateItem.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: ITEM_C },
-          data: expect.objectContaining({ parentId: ITEM_A, displayOrder: 0 }),
-        })
-      );
-      expect(mockTx.estimateItem.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: ITEM_B },
-          data: expect.objectContaining({ parentId: ITEM_A, displayOrder: 1 }),
-        })
-      );
+      expect(readBulkItemUpdateRows()).toEqual([
+        { id: ITEM_A, parentId: null, itemType: 'STANDARD', displayOrder: 0 },
+        { id: ITEM_C, parentId: ITEM_A, itemType: 'STANDARD', displayOrder: 0 },
+        { id: ITEM_B, parentId: ITEM_A, itemType: 'STANDARD', displayOrder: 1 },
+      ]);
     });
   });
 
@@ -857,12 +1030,11 @@ describe('EstimateDraftService', () => {
       const result = await service.saveDraft(ESTIMATE_ID, input);
 
       // 集計金額がそのまま永続化される
-      expect(mockTx.estimateItemLine.upsert).toHaveBeenCalledWith(
+      expect(readBulkLineUpsertRows()).toContainEqual(
         expect.objectContaining({
-          where: {
-            estimateItemId_lineType: { estimateItemId: ITEM_A, lineType: 'ESTIMATE' },
-          },
-          update: expect.objectContaining({ amount: '300000.00' }),
+          estimateItemId: ITEM_A,
+          lineType: 'ESTIMATE',
+          amount: '300000.00',
         })
       );
       // 保存後の状態にも同じ金額が現れる
@@ -888,6 +1060,152 @@ describe('EstimateDraftService', () => {
         amount: 100000,
         lineType: 'ESTIMATE',
       });
+    });
+  });
+
+  describe('saveDraft: 発行クエリ数の上限（42.1, design.md「Performance & Scalability」「クエリ削減」）', () => {
+    /**
+     * トランザクション内で発行されるクエリ数の上限
+     *
+     * 内訳（すべて明細件数に依存しない定数）:
+     * 1. `estimate.updateMany`（楽観ロック＋帳票用入力項目）
+     * 2. `estimateItem.updateMany`（削除前の切り離し）
+     * 3. `estimateItem.deleteMany`（削除対象の根）
+     * 4. `estimateItem.createMany`（新規項目の一括INSERT）
+     * 5. `$executeRaw`（見積項目の VALUES 一括UPDATE）
+     * 6-8. `estimateItemLine.deleteMany`（行タイプごと・最大3回）
+     * 9. `$executeRaw`（明細行の一括 INSERT ... ON CONFLICT）
+     * 10. `estimate.findUnique`（保存後の読み直し）
+     * 11. `estimateItem.findMany`（保存後の読み直し）
+     */
+    const MAX_TRANSACTION_QUERIES = 12;
+
+    /** トランザクションクライアントに対して発行された呼び出し回数の合計 */
+    function countTransactionQueries(): number {
+      const mocks: Mock[] = [
+        mockTx.estimate.updateMany,
+        mockTx.estimate.findUnique,
+        mockTx.estimateItem.create,
+        mockTx.estimateItem.createMany,
+        mockTx.estimateItem.update,
+        mockTx.estimateItem.updateMany,
+        mockTx.estimateItem.deleteMany,
+        mockTx.estimateItem.findMany,
+        mockTx.estimateItemLine.upsert,
+        mockTx.estimateItemLine.deleteMany,
+        mockTx.$executeRaw,
+      ];
+      return mocks.reduce((total, mock) => total + mock.mock.calls.length, 0);
+    }
+
+    /** 既存項目のDB行（`{ id, parentId }` のみ）を n 件生成する */
+    function buildExistingRows(count: number): { id: string; parentId: string | null }[] {
+      return Array.from({ length: count }, (_, index) => ({
+        id: `existing-${index}`,
+        parentId: null,
+      }));
+    }
+
+    /** `existing-{i}` を parentId で連結した n 段の鎖を生成する */
+    function buildExistingChain(depth: number): { id: string; parentId: string | null }[] {
+      return Array.from({ length: depth }, (_, index) => ({
+        id: `existing-${index}`,
+        parentId: index === 0 ? null : `existing-${index - 1}`,
+      }));
+    }
+
+    it('新規明細100件の保存で発行されるクエリ数が件数に比例しない', async () => {
+      const buildNewItems = (count: number): SaveEstimateItemNodeInput[] =>
+        Array.from({ length: count }, (_, index) => buildNode({ tempId: `tmp-${index}` }));
+
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildNewItems(10)));
+      const queriesFor10 = countTransactionQueries();
+
+      vi.clearAllMocks();
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildNewItems(100)));
+      const queriesFor100 = countTransactionQueries();
+
+      expect(queriesFor100).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
+      expect(queriesFor100).toBe(queriesFor10);
+    });
+
+    it('既存明細100件の更新で発行されるクエリ数が件数に比例しない', async () => {
+      const buildExistingItems = (count: number): SaveEstimateItemNodeInput[] =>
+        Array.from({ length: count }, (_, index) => buildNode({ id: `existing-${index}` }));
+
+      mockPrisma.estimateItem.findMany.mockResolvedValue(buildExistingRows(10));
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildExistingItems(10)));
+      const queriesFor10 = countTransactionQueries();
+
+      vi.clearAllMocks();
+      mockPrisma.estimateItem.findMany.mockResolvedValue(buildExistingRows(100));
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildExistingItems(100)));
+      const queriesFor100 = countTransactionQueries();
+
+      expect(queriesFor100).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
+      expect(queriesFor100).toBe(queriesFor10);
+    });
+
+    it('100段の階層をまとめて削除しても子孫の特定に深さ分の問い合わせを行わない', async () => {
+      // 100段の鎖をすべて削除する（ペイロードは空）。
+      // 子孫の特定は事前読み込み済みの1件のクエリ結果に対する単一走査で完結する
+      mockPrisma.estimateItem.findMany.mockResolvedValue(buildExistingChain(100));
+
+      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]));
+
+      expect(countTransactionQueries()).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
+      // 削除は根1件のみ。子孫99件は onDelete: Cascade に委ねる
+      expect(mockTx.estimateItem.deleteMany).toHaveBeenCalledTimes(1);
+      expect(mockTx.estimateItem.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['existing-0'] } },
+      });
+      expect(result.deletedItemIds).toHaveLength(100);
+    });
+
+    it('バインドパラメータ上限に達する規模でも文の分割数は定数にとどまる', async () => {
+      // 1000項目×3行＝3000行。1文あたり11パラメータのため2文に分割される
+      const items = Array.from({ length: 1000 }, (_, index) =>
+        buildNode({
+          tempId: `tmp-${index}`,
+          lines: [
+            buildLine({ lineType: 'ESTIMATE' }),
+            buildLine({ lineType: 'EXECUTION' }),
+            buildLine({ lineType: 'VENDOR' }),
+          ],
+        })
+      );
+
+      await service.saveDraft(ESTIMATE_ID, buildInput(items));
+
+      const lineStatements = mockTx.$executeRaw.mock.calls
+        .map((args) => args[0] as Prisma.Sql)
+        .filter(isBulkLineUpsert);
+
+      expect(lineStatements).toHaveLength(2);
+      // PostgreSQL の1文あたりバインドパラメータ上限（65535）を超えない
+      for (const statement of lineStatements) {
+        expect(statement.values.length).toBeLessThanOrEqual(30000);
+      }
+      expect(countTransactionQueries()).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
+    });
+
+    it('一括UPDATEはパラメータ化され、値をSQL文字列へ埋め込まない', async () => {
+      mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+
+      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_A })]));
+
+      const updateCall = mockTx.$executeRaw.mock.calls.find((call) =>
+        (call[0] as Prisma.Sql).text.trimStart().startsWith('UPDATE "estimate_items"')
+      );
+      expect(updateCall).toBeDefined();
+
+      const statement = updateCall![0] as Prisma.Sql;
+      expect(statement.values).toContain(ITEM_A);
+      expect(statement.values).toContain(ESTIMATE_ID);
+      // 値はプレースホルダ経由で渡す（SQL文字列に生の値が現れない）
+      expect(statement.text).not.toContain(ITEM_A);
+      expect(statement.text).not.toContain(ESTIMATE_ID);
+      expect(statement.text).toContain('$1');
     });
   });
 });

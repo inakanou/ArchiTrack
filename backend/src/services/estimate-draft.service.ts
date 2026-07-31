@@ -31,9 +31,19 @@
  *
  * Task 52.4: 明細の差分適用と親子関係の解決
  * Task 52.5: 楽観ロックと並び順の再採番および最新状態の返却
+ * Task 52.6: 明細更新の一括化とN+1クエリの解消
  *
- * 本タスクの対象外（後続タスクが担当する）:
- * - 一括UPDATE化によるN+1解消 → 52.6
+ * 一括化の方針（design.md「estimate-draft.service」Responsibilities & Constraints
+ * 「更新は `updateMany` または VALUES 一括UPDATEで行い、明細件数に比例した個別UPDATEを
+ * 発行しない」／「Performance & Scalability」の「クエリ削減」）:
+ * - 新規項目は `createMany` 1回でまとめてINSERTする。IDはアプリ側で採番するため
+ *   生成IDの取得を目的とした逐次INSERTは不要になる
+ * - 親子・種別・並び順の確定は `UPDATE ... FROM (VALUES ...)` 1回で行う
+ * - 明細行は `INSERT ... ON CONFLICT (estimateItemId, lineType) DO UPDATE` 1回で
+ *   まとめて確定する（行IDを維持するため削除＋再作成は行わない）
+ * - 消えた行タイプの削除は行タイプ単位の `deleteMany`（最大3回）に畳む
+ * - 子孫の特定は事前読み込み済みの項目一覧に対する**単一走査**で行い、
+ *   深さに比例した問い合わせ（`estimate-item.service.ts` の `getDescendantIds` 相当）を行わない
  *
  * 設計は `quantity-table.service.ts` の `saveDraft` を参照元とするが、
  * 数量表への波及を避けるためコードは共有せず見積書用に独立実装する。
@@ -41,7 +51,8 @@
  * @module services/estimate-draft
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import { randomUUID } from 'node:crypto';
+import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 import {
   EstimateNotFoundError,
   EstimateDraftValidationError,
@@ -77,6 +88,26 @@ export interface EstimateDraftServiceDependencies {
 export const ESTIMATE_DRAFT_VALIDATION_MESSAGES = {
   ITEM_NOT_IN_ESTIMATE: '指定された見積項目はこの見積書に存在しません',
 } as const;
+
+/**
+ * 明細行の行タイプ一覧（`EstimateItemLineType` の全値）
+ *
+ * ペイロードから消えた行タイプの削除を「項目ごと」ではなく「行タイプごと」に畳むために用いる。
+ * 明細件数に依らず最大3クエリで済む。
+ */
+const ESTIMATE_LINE_TYPES = ['ESTIMATE', 'EXECUTION', 'VENDOR'] as const;
+
+/**
+ * 1文あたりに渡すバインドパラメータ数の上限
+ *
+ * PostgreSQL の拡張問い合わせプロトコルは1文あたり65535個までしかパラメータを取れない。
+ * `SAVE_ESTIMATE_MAX_ITEMS`（2000件）の上限いっぱいの保存では明細行が最大6000行になり、
+ * 1行11パラメータでは66000個となって上限を超えるため、安全側の値で分割する。
+ *
+ * 分割数は「明細件数の上限」で決まる定数であり（最大でも明細行3文・見積項目1文）、
+ * ペイロードの件数に比例して増えるものではない。
+ */
+const MAX_BIND_PARAMETERS_PER_STATEMENT = 30000;
 
 /**
  * 差分適用の結果
@@ -204,6 +235,38 @@ interface SavedItemRow {
     readonly sourceReceivedQuotationLineItemId: string | null;
     readonly sourceVendorName: string | null;
   }[];
+}
+
+/**
+ * 見積項目の一括UPDATE 1行分（親子・種別・並び順の確定値）
+ *
+ * `UPDATE "estimate_items" ... FROM (VALUES ...)` の VALUES 1行に対応し、
+ * `id / parentId / itemType / displayOrder` の順で4パラメータを占める。
+ */
+interface ItemBulkUpdateRow {
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly itemType: SaveEstimateItemNodeInput['itemType'];
+  readonly displayOrder: number;
+}
+
+/**
+ * 明細行の一括UPSERT 1行分
+ *
+ * `INSERT INTO "estimate_item_lines" ... ON CONFLICT DO UPDATE` の VALUES 1行に対応する。
+ */
+interface LineBulkUpsertRow {
+  readonly id: string;
+  readonly estimateItemId: string;
+  readonly lineType: SaveEstimateLineInput['lineType'];
+  readonly name: string | null;
+  readonly specification: string | null;
+  readonly unit: string | null;
+  readonly quantity: string | null;
+  readonly unitPrice: string | null;
+  readonly amount: string | null;
+  readonly remarks: string | null;
+  readonly sourceVendorName: string | null;
 }
 
 /** 深さ優先走査の作業単位（親は解決済み） */
@@ -508,6 +571,13 @@ export class EstimateDraftService {
    *   巻き込まれないよう先に親から切り離す。切り離さずに削除すると、
    *   移動した項目が消えたうえで直後の更新が失敗しトランザクション全体が巻き戻る
    *
+   * 連鎖削除で消える子孫の特定は、トランザクション開始前に1回だけ読んだ
+   * `existingItems` から組んだ親→子の索引を**単一走査**して行う。
+   * `estimate-item.service.ts` の `getDescendantIds` のような深さ分の問い合わせは発行しない
+   * （design.md「Performance & Scalability」の「クエリ削減」）。
+   *
+   * 発行クエリ数は明細件数・階層の深さのいずれにも依存せず、切り離し1回＋削除1回が上限。
+   *
    * @returns 削除された項目のID（連鎖削除される子孫を含む）
    */
   private async applyDeletions(
@@ -518,20 +588,42 @@ export class EstimateDraftService {
     const payloadItemIds = new Set(
       frames.map((frame) => frame.node.id).filter((id): id is string => id !== null)
     );
-    const doomedIds = new Set(
-      existingItems.map((item) => item.id).filter((id) => !payloadItemIds.has(id))
-    );
+
+    // 索引の構築と削除対象の判定を既存項目一覧の1パスで済ませる
+    const childIdsByParentId = new Map<string, string[]>();
+    const doomedIds = new Set<string>();
+    for (const item of existingItems) {
+      if (!payloadItemIds.has(item.id)) {
+        doomedIds.add(item.id);
+      }
+      if (item.parentId !== null) {
+        const siblings = childIdsByParentId.get(item.parentId);
+        if (siblings === undefined) {
+          childIdsByParentId.set(item.parentId, [item.id]);
+        } else {
+          siblings.push(item.id);
+        }
+      }
+    }
 
     if (doomedIds.size === 0) {
       return [];
     }
 
-    // 削除対象を親に持つ存続項目を先に切り離す（連鎖削除の巻き込み回避）
-    const detachIds = existingItems
-      .filter(
-        (item) => !doomedIds.has(item.id) && item.parentId !== null && doomedIds.has(item.parentId)
-      )
-      .map((item) => item.id);
+    const detachIds: string[] = [];
+    const deletionRootIds: string[] = [];
+    for (const item of existingItems) {
+      const hasDoomedParent = item.parentId !== null && doomedIds.has(item.parentId);
+      if (doomedIds.has(item.id)) {
+        // 削除対象の根＝親が削除対象でないもの。子孫は連鎖削除に委ねる
+        if (!hasDoomedParent) {
+          deletionRootIds.push(item.id);
+        }
+      } else if (hasDoomedParent) {
+        // 削除対象を親に持つ存続項目（別の親へ移動した項目）
+        detachIds.push(item.id);
+      }
+    }
 
     if (detachIds.length > 0) {
       await tx.estimateItem.updateMany({
@@ -540,26 +632,59 @@ export class EstimateDraftService {
       });
     }
 
-    // 削除対象の根＝親が削除対象でないもの。子孫は連鎖削除に委ねる
-    const deletionRootIds = existingItems
-      .filter(
-        (item) =>
-          doomedIds.has(item.id) && (item.parentId === null || !doomedIds.has(item.parentId))
-      )
-      .map((item) => item.id);
-
     await tx.estimateItem.deleteMany({
       where: { id: { in: deletionRootIds } },
     });
 
-    return [...doomedIds];
+    return this.collectDeletedItemIds(deletionRootIds, doomedIds, childIdsByParentId);
   }
 
   /**
-   * 新規項目の作成と既存項目の更新を行う（34.1, 34.3, 34.4, 42.9）
+   * 連鎖削除で実際に消える項目IDを単一走査で列挙する
    *
-   * 事前順の走査で親から処理するため、子を処理する時点で親の生成IDが確定している。
-   * 既存項目はIDを維持したまま UPDATE し、削除＋再作成は行わない（42.9）。
+   * 削除の根から親→子の索引をたどり、削除対象である子孫のみを集める。
+   * 切り離し済みの存続項目（＝削除対象でない子）でたどりを打ち切るため、
+   * 移動して生き残る部分木を誤って削除済みとして報告しない。
+   * 追加の問い合わせは発行しない。
+   */
+  private collectDeletedItemIds(
+    deletionRootIds: readonly string[],
+    doomedIds: ReadonlySet<string>,
+    childIdsByParentId: ReadonlyMap<string, readonly string[]>
+  ): string[] {
+    const deletedItemIds: string[] = [];
+    // 再帰ではなく明示的なスタックとし、深い階層でもコールスタックを消費しない
+    const stack = [...deletionRootIds];
+
+    for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+      deletedItemIds.push(id);
+      for (const childId of childIdsByParentId.get(id) ?? []) {
+        if (doomedIds.has(childId)) {
+          stack.push(childId);
+        }
+      }
+    }
+
+    return deletedItemIds;
+  }
+
+  /**
+   * 新規項目の作成と既存項目の更新を行う（34.1, 34.3, 34.4, 42.9, 42.1）
+   *
+   * 明細件数に比例した個別UPDATEを発行しないため、走査ではDBへ書き込まずに
+   * 書き込み内容を組み立て、最後にまとめて発行する（design.md
+   * 「estimate-draft.service」Responsibilities & Constraints）。
+   *
+   * 発行順序と理由:
+   * 1. `createMany`: 新規項目を `parentId = null` でまとめてINSERTする。
+   *    親の生成IDは事前順走査時にアプリ側で採番済みのため、親を先に永続化する
+   *    必要がなく、単一INSERT内の自己参照（＝行の並びに依存するFK解決）も避けられる
+   * 2. VALUES 一括UPDATE: 新規・既存の**全項目**について親子・種別・並び順を確定する。
+   *    削除前の切り離しで生じた一過性の `parentId = null` もここで最終値へ戻る
+   * 3. 消えた行タイプの削除（行タイプ単位・最大3クエリ）
+   * 4. 明細行の一括UPSERT（`ON CONFLICT` により行IDを維持して更新する）
+   *
+   * 既存項目はIDを維持したまま更新し、削除＋再作成は行わない（42.9）。
    */
   private async applyUpserts(
     tx: PrismaTransactionClient,
@@ -575,48 +700,227 @@ export class EstimateDraftService {
     // 一時IDから生成IDへの対応表。子の親解決に用いる
     const tempIdMap: Record<string, string> = {};
 
+    const itemCreateRows: {
+      id: string;
+      estimateId: string;
+      parentId: null;
+      itemType: SaveEstimateItemNodeInput['itemType'];
+      displayOrder: number;
+    }[] = [];
+    const itemUpdateRows: ItemBulkUpdateRow[] = [];
+    const lineUpsertRows: LineBulkUpsertRow[] = [];
+
     for (const frame of frames) {
       const { node } = frame;
       const parentId = this.resolveParentId(frame, tempIdMap);
+      let itemId: string;
 
       if (node.id === null) {
-        // 新規項目。displayOrder は受領配列順の兄弟内位置（0起点連番）とする（42.6）
-        const created = await tx.estimateItem.create({
-          data: {
-            estimateId,
-            parentId,
-            itemType: node.itemType,
-            displayOrder: frame.siblingIndex,
-            lines: {
-              create: node.lines.map((line) => this.buildLinePersistData(line, node.itemType)),
-            },
-          },
-          select: { id: true },
-        });
-
-        createdItemIds.push(created.id);
-        if (node.tempId !== null) {
-          tempIdMap[node.tempId] = created.id;
-        }
-        continue;
-      }
-
-      // 既存項目。IDを維持して更新し、実行予算項目からの参照を切らない（42.9）
-      // displayOrder は新規・既存を問わず受領配列順で再採番する。既存項目を
-      // 据え置くと、新規項目に振った0起点の連番と衝突する（34.5, 42.6）
-      await tx.estimateItem.update({
-        where: { id: node.id },
-        data: {
-          parentId,
+        // 新規項目。IDをアプリ側で採番して以降の親解決に使う
+        itemId = randomUUID();
+        itemCreateRows.push({
+          id: itemId,
+          estimateId,
+          // 親はこの時点でまだINSERTされていない可能性があるため、一括UPDATEで確定する
+          parentId: null,
           itemType: node.itemType,
           displayOrder: frame.siblingIndex,
-        },
+        });
+        createdItemIds.push(itemId);
+        if (node.tempId !== null) {
+          tempIdMap[node.tempId] = itemId;
+        }
+      } else {
+        itemId = node.id;
+        updatedItemIds.push(itemId);
+      }
+
+      // displayOrder は新規・既存を問わず受領配列順で再採番する。既存項目を
+      // 据え置くと、新規項目に振った0起点の連番と衝突する（34.5, 42.6）
+      itemUpdateRows.push({
+        id: itemId,
+        parentId,
+        itemType: node.itemType,
+        displayOrder: frame.siblingIndex,
       });
-      await this.applyLineDiff(tx, node.id, node);
-      updatedItemIds.push(node.id);
+
+      for (const line of node.lines) {
+        lineUpsertRows.push({
+          id: randomUUID(),
+          estimateItemId: itemId,
+          ...this.buildLinePersistData(line, node.itemType),
+        });
+      }
     }
 
+    if (itemCreateRows.length > 0) {
+      await tx.estimateItem.createMany({ data: itemCreateRows });
+    }
+
+    await this.applyItemBulkUpdate(tx, estimateId, itemUpdateRows);
+    await this.deleteRemovedLines(tx, frames);
+    await this.applyLineBulkUpsert(tx, lineUpsertRows);
+
     return { createdItemIds, updatedItemIds, tempIdMap };
+  }
+
+  /**
+   * 見積項目の親子・種別・並び順を VALUES 一括UPDATEで確定する（34.5, 42.6, 42.9）
+   *
+   * 値はすべて `Prisma.sql` のプレースホルダ経由で渡し、SQL文字列へ埋め込まない。
+   * `updatedAt` は Prisma の `@updatedAt` が生SQLでは働かないため明示的に更新する
+   * （UTCで保持する `TIMESTAMP(3)` 列に合わせて `NOW() AT TIME ZONE 'UTC'` を用いる）。
+   *
+   * 更新件数が対象件数に満たない場合は、事前検証の通過後に他トランザクションが
+   * 項目を削除したことを意味する。個別UPDATE時の `P2025` と同様に中断し、
+   * トランザクション全体を巻き戻す（42.3）。
+   */
+  private async applyItemBulkUpdate(
+    tx: PrismaTransactionClient,
+    estimateId: string,
+    rows: readonly ItemBulkUpdateRow[]
+  ): Promise<void> {
+    // 1行4パラメータ＋末尾の estimateId 1個
+    const chunks = this.chunkByBindParameters(rows, 4, 1);
+    let affected = 0;
+
+    for (const chunk of chunks) {
+      const values = chunk.map(
+        (row) =>
+          Prisma.sql`(${row.id}::text, ${row.parentId}::text, ${row.itemType}::"EstimateItemType", ${row.displayOrder}::integer)`
+      );
+
+      affected += await tx.$executeRaw(Prisma.sql`UPDATE "estimate_items" AS target
+      SET "parentId" = source."parentId",
+          "itemType" = source."itemType",
+          "displayOrder" = source."displayOrder",
+          "updatedAt" = (NOW() AT TIME ZONE 'UTC')
+      FROM (VALUES ${Prisma.join(values)}) AS source("id", "parentId", "itemType", "displayOrder")
+      WHERE target."id" = source."id" AND target."estimateId" = ${estimateId}`);
+    }
+
+    if (affected !== rows.length) {
+      throw new Error(
+        `見積明細の一括更新で対象件数が一致しませんでした（期待 ${rows.length} 件 / 実際 ${affected} 件）`
+      );
+    }
+  }
+
+  /**
+   * バインドパラメータ数の上限に収まるように行を分割する
+   *
+   * @param rows - 分割対象の行
+   * @param parametersPerRow - 1行が占めるパラメータ数
+   * @param reservedParameters - 行以外で1文が消費するパラメータ数
+   */
+  private chunkByBindParameters<T>(
+    rows: readonly T[],
+    parametersPerRow: number,
+    reservedParameters: number
+  ): T[][] {
+    const rowsPerStatement = Math.floor(
+      (MAX_BIND_PARAMETERS_PER_STATEMENT - reservedParameters) / parametersPerRow
+    );
+    const chunks: T[][] = [];
+
+    for (let offset = 0; offset < rows.length; offset += rowsPerStatement) {
+      chunks.push(rows.slice(offset, offset + rowsPerStatement));
+    }
+
+    return chunks;
+  }
+
+  /**
+   * ペイロードから消えた行タイプの明細行を削除する（34.3）
+   *
+   * `EstimateItemLine` は `estimateItemId + lineType` が一意のため、行タイプを鍵に
+   * 突き合わせる。項目ごとに `notIn` を発行すると件数に比例するので、
+   * 「その行タイプを持たない既存項目ID」を行タイプ単位に集約して最大3クエリに畳む。
+   *
+   * 新規項目はDB上に明細行を持たないため対象外。
+   */
+  private async deleteRemovedLines(
+    tx: PrismaTransactionClient,
+    frames: readonly TraversalFrame[]
+  ): Promise<void> {
+    const itemIdsMissingLineType = new Map<(typeof ESTIMATE_LINE_TYPES)[number], string[]>(
+      ESTIMATE_LINE_TYPES.map((lineType) => [lineType, []])
+    );
+
+    for (const frame of frames) {
+      const { node } = frame;
+      if (node.id === null) {
+        continue;
+      }
+      const payloadLineTypes = new Set(node.lines.map((line) => line.lineType));
+      for (const lineType of ESTIMATE_LINE_TYPES) {
+        if (!payloadLineTypes.has(lineType)) {
+          itemIdsMissingLineType.get(lineType)!.push(node.id);
+        }
+      }
+    }
+
+    for (const [lineType, itemIds] of itemIdsMissingLineType) {
+      if (itemIds.length === 0) {
+        continue;
+      }
+      await tx.estimateItemLine.deleteMany({
+        where: { estimateItemId: { in: itemIds }, lineType },
+      });
+    }
+  }
+
+  /**
+   * 明細行を一括UPSERTする（34.3, 34.6, 29.4）
+   *
+   * `@@unique([estimateItemId, lineType])` を競合キーとする `ON CONFLICT DO UPDATE` で、
+   * 既存行はIDを維持したまま内容だけを更新する（削除＋再作成を行わないため、
+   * 保存のたびに明細行IDが変わることがない）。
+   *
+   * `sourceReceivedQuotationLineItemId` は保存ペイロードに含まれない転記元の参照であり、
+   * 既存行の値を保つため `DO UPDATE` の対象から外している。
+   *
+   * 同一ペイロード内に `estimateItemId + lineType` の重複が無いことは
+   * `saveEstimateDraftSchema`（52.3）の検証で保証される。
+   */
+  private async applyLineBulkUpsert(
+    tx: PrismaTransactionClient,
+    rows: readonly LineBulkUpsertRow[]
+  ): Promise<void> {
+    // 1行11パラメータ（createdAt/updatedAt は SQL 側で採るためパラメータを取らない）
+    for (const chunk of this.chunkByBindParameters(rows, 11, 0)) {
+      await this.executeLineUpsertStatement(tx, chunk);
+    }
+  }
+
+  /**
+   * 明細行の一括UPSERT文を1文発行する（{@link applyLineBulkUpsert} の分割単位）
+   */
+  private async executeLineUpsertStatement(
+    tx: PrismaTransactionClient,
+    rows: readonly LineBulkUpsertRow[]
+  ): Promise<void> {
+    const values = rows.map(
+      (row) =>
+        Prisma.sql`(${row.id}::text, ${row.estimateItemId}::text, ${row.lineType}::"EstimateItemLineType", ${row.name}::text, ${row.specification}::text, ${row.unit}::text, ${row.quantity}::decimal, ${row.unitPrice}::decimal, ${row.amount}::decimal, ${row.remarks}::text, ${row.sourceVendorName}::text, (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC'))`
+    );
+
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "estimate_item_lines" (
+        "id", "estimateItemId", "lineType", "name", "specification", "unit",
+        "quantity", "unitPrice", "amount", "remarks", "sourceVendorName",
+        "createdAt", "updatedAt"
+      )
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT ("estimateItemId", "lineType") DO UPDATE SET
+        "name" = EXCLUDED."name",
+        "specification" = EXCLUDED."specification",
+        "unit" = EXCLUDED."unit",
+        "quantity" = EXCLUDED."quantity",
+        "unitPrice" = EXCLUDED."unitPrice",
+        "amount" = EXCLUDED."amount",
+        "remarks" = EXCLUDED."remarks",
+        "sourceVendorName" = EXCLUDED."sourceVendorName",
+        "updatedAt" = (NOW() AT TIME ZONE 'UTC')`);
   }
 
   /**
@@ -646,44 +950,6 @@ export class EstimateDraftService {
       return resolved;
     }
     return null;
-  }
-
-  /**
-   * 既存項目の明細行を差分適用する（34.3）
-   *
-   * `EstimateItemLine` は `estimateItemId + lineType` が一意のため、行タイプを鍵に
-   * 突き合わせる。ペイロードから消えた行タイプは削除し、残る行は upsert する。
-   */
-  private async applyLineDiff(
-    tx: PrismaTransactionClient,
-    itemId: string,
-    node: SaveEstimateItemNodeInput
-  ): Promise<void> {
-    const payloadLineTypes = node.lines.map((line) => line.lineType);
-
-    await tx.estimateItemLine.deleteMany({
-      where: {
-        estimateItemId: itemId,
-        lineType: { notIn: payloadLineTypes },
-      },
-    });
-
-    for (const line of node.lines) {
-      const data = this.buildLinePersistData(line, node.itemType);
-      await tx.estimateItemLine.upsert({
-        where: {
-          estimateItemId_lineType: {
-            estimateItemId: itemId,
-            lineType: line.lineType,
-          },
-        },
-        create: {
-          estimateItemId: itemId,
-          ...data,
-        },
-        update: data,
-      });
-    }
   }
 
   /**
