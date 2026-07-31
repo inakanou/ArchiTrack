@@ -265,6 +265,40 @@ export interface UseEstimateEditorResult {
   reorderItems: (sourceId: string, targetId: string) => void;
 
   /**
+   * 同一階層内で1つ上/下へ移動（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 43.1: 並び替えをサーバーへの保存を伴わずに画面上の明細へ反映する
+   */
+  moveItem: (itemId: string, direction: 'up' | 'down') => void;
+
+  /**
+   * 階層を1段下げる（ローカル操作）
+   *
+   * 直前の兄弟の子として配置する。直前の兄弟が無い場合は `lastError` に
+   * `NO_PRECEDING_SIBLING` を設定して状態を変えない。
+   *
+   * Requirements (estimate-creation):
+   * - 12.6: 見積項目の親項目を変更（移動）可能とする
+   * - 23.10: 「下の階層へ移動」で選択中の項目の階層を1段下げる
+   * - 43.1: 階層の上げ下げをサーバーへの保存を伴わずに画面上の明細へ反映する
+   */
+  indentItem: (itemId: string) => void;
+
+  /**
+   * 階層を1段上げる（ローカル操作）
+   *
+   * 現在の親項目の直後（＝親の兄弟レベル）へ移す。ルートレベルの項目では
+   * `lastError` に `CANNOT_OUTDENT_ROOT` を設定して状態を変えない。
+   *
+   * Requirements (estimate-creation):
+   * - 12.6: 見積項目の親項目を変更（移動）可能とする
+   * - 23.9: 「上の階層へ移動」で選択中の項目を現在の親の兄弟レベルへ移動する
+   * - 43.1: 階層の上げ下げをサーバーへの保存を伴わずに画面上の明細へ反映する
+   */
+  outdentItem: (itemId: string) => void;
+
+  /**
    * 項目を追加（ローカル操作）
    */
   addItem: (parentId?: string) => void;
@@ -813,6 +847,33 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
+   * 同一階層内で1つ上/下へ移動（43.1）
+   */
+  const moveItem = useCallback((itemId: string, direction: 'up' | 'down'): void => {
+    dispatch({ type: 'moveRow', key: itemId, direction });
+  }, []);
+
+  /**
+   * 階層を1段下げる（12.6, 23.10, 43.1）
+   *
+   * 範囲選択UIは 54.10 のため、ここでは**単一行**の指示のみを扱う。
+   * `keys` は表示順（先行順）で渡す契約だが（design.md `##### estimateEditReducer` の
+   * Preconditions）、要素が1つのため順序は自明に満たされる。
+   */
+  const indentItem = useCallback((itemId: string): void => {
+    dispatch({ type: 'indentRange', keys: [itemId] });
+  }, []);
+
+  /**
+   * 階層を1段上げる（12.6, 23.9, 43.1）
+   *
+   * `indentItem` と同じく単一行の指示のみを扱う。
+   */
+  const outdentItem = useCallback((itemId: string): void => {
+    dispatch({ type: 'outdentRange', keys: [itemId] });
+  }, []);
+
+  /**
    * 直近のエラー表示を消す
    */
   const dismissError = useCallback((): void => {
@@ -934,6 +995,9 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     updateLine,
     updateReportFields,
     reorderItems,
+    moveItem,
+    indentItem,
+    outdentItem,
     addItem,
     addDiscountItem,
     deleteItem,

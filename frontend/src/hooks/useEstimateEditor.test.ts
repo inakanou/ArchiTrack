@@ -1459,6 +1459,140 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /**
+   * ツールバーの「上の階層へ移動」「下の階層へ移動」「↑」「↓」が使う遷移関数。
+   * 53.6 でページ側の移動API・並び替えAPIの即時呼び出しを置き換えるために公開した。
+   *
+   * 範囲選択UIは 54.10 のため、ここでは単一行の指示のみを扱う。
+   * `indentRange` / `outdentRange` は `keys` を表示順（先行順）で受け取る契約だが
+   * （design.md `##### estimateEditReducer` の Preconditions）、要素が1つのため自明に満たされる。
+   */
+  describe('moveItem / indentItem / outdentItem - 階層移動と並び替え（23.9, 23.10, 43.1）', () => {
+    it('moveItemが同一階層内で順序を入れ替えること (43.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.moveItem('item-2', 'up');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-2', 'item-1']);
+      expect(result.current.isDirty).toBe(true);
+
+      act(() => {
+        result.current.moveItem('item-2', 'down');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+    });
+
+    it('indentItemが直前の兄弟の子へ移すこと (23.10, 43.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.indentItem('item-2');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1']);
+      expect(result.current.items[0]?.children.map((child) => child.id)).toEqual(['item-2']);
+      expect(result.current.items[0]?.children[0]?.parentId).toBe('item-1');
+      expect(result.current.lastError).toBeNull();
+    });
+
+    it('outdentItemが親の兄弟レベルへ戻すこと (23.9, 43.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.indentItem('item-2');
+      });
+      act(() => {
+        result.current.outdentItem('item-2');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      expect(result.current.items[1]?.parentId).toBeNull();
+      expect(result.current.lastError).toBeNull();
+    });
+
+    it('直前の兄弟が無い行のindentItemは状態を変えず理由を残すこと', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.indentItem('item-1');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      expect(result.current.lastError?.kind).toBe('NO_PRECEDING_SIBLING');
+    });
+
+    it('ルート行のoutdentItemは状態を変えず理由を残すこと', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.outdentItem('item-1');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      expect(result.current.lastError?.kind).toBe('CANNOT_OUTDENT_ROOT');
+    });
+
+    it('階層移動と並び替えを連続で行ってもサーバーへのリクエストが発生しないこと (12.7, 43.2)', () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      try {
+        const { result } = renderHook(() =>
+          useEstimateEditor({
+            ...defaultOptions,
+            initialItems: createMockItems(),
+          })
+        );
+
+        act(() => {
+          result.current.indentItem('item-2');
+        });
+        act(() => {
+          result.current.outdentItem('item-2');
+        });
+        act(() => {
+          result.current.moveItem('item-2', 'up');
+        });
+        act(() => {
+          result.current.moveItem('item-2', 'down');
+        });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
   describe('lastError - 操作が無効だった理由の保持', () => {
     it('値引き行を親に指定した追加が拒否され理由が得られること (41.3)', () => {
       const { result } = renderHook(() =>

@@ -22,8 +22,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   getEstimateDetail,
   deleteEstimate,
-  moveEstimateItem,
-  reorderEstimateItems,
   calculateOverhead,
   addOverheadItem,
   saveEstimateDraft,
@@ -747,152 +745,44 @@ export default function EstimateDetailPage() {
     fetchData();
   }, [fetchData]);
 
-  // 上の階層へ移動（REQ-23.9, REQ-24）
+  /**
+   * 上の階層へ移動（23.9, 12.6, 12.7, 43.1, 43.3）
+   *
+   * 移動APIの即時呼び出しと明細の全件再取得を撤去し、編集状態の遷移へ置き換えた（53.6）。
+   * 再取得は `editor.setItems` 経由で未保存の編集を上書きしてしまう（43.3）。
+   * ルートレベルで実行された場合は遷移関数が `lastError` を設定して状態を変えない。
+   */
   const handleMoveUp = useCallback(
-    async (itemId: string) => {
-      if (!estimate) return;
-      const findItem = (
-        items: EstimateItemHierarchyEdit[],
-        targetId: string
-      ): EstimateItemHierarchyEdit | null => {
-        for (const item of items) {
-          if (item.id === targetId) return item;
-          if (item.children.length > 0) {
-            const found = findItem(item.children, targetId);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      const item = findItem(editor.items, itemId);
-      if (!item || !item.parentId) return;
-      const parent = findItem(editor.items, item.parentId);
-      if (!parent) return;
-
-      try {
-        await moveEstimateItem(estimate.id, itemId, parent.parentId);
-        await fetchData();
-      } catch {
-        setError('項目の移動に失敗しました');
-      }
+    (itemId: string) => {
+      editor.outdentItem(itemId);
     },
-    [editor.items, estimate, fetchData]
-  );
-
-  // 下の階層へ移動（REQ-23.10, REQ-24）
-  const handleMoveDown = useCallback(
-    async (itemId: string) => {
-      if (!estimate) return;
-      const findItem = (
-        items: EstimateItemHierarchyEdit[],
-        targetId: string
-      ): EstimateItemHierarchyEdit | null => {
-        for (const item of items) {
-          if (item.id === targetId) return item;
-          if (item.children.length > 0) {
-            const found = findItem(item.children, targetId);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      const item = findItem(editor.items, itemId);
-      if (!item) return;
-
-      const getSiblings = (
-        items: EstimateItemHierarchyEdit[],
-        targetParentId: string | null
-      ): EstimateItemHierarchyEdit[] => {
-        if (targetParentId === null) return items;
-        for (const it of items) {
-          if (it.id === targetParentId) return it.children;
-          if (it.children.length > 0) {
-            const found = getSiblings(it.children, targetParentId);
-            if (found.length > 0) return found;
-          }
-        }
-        return [];
-      };
-      const siblings = getSiblings(editor.items, item.parentId);
-      const currentIndex = siblings.findIndex((s) => s.id === itemId);
-      if (currentIndex <= 0) return;
-      const previousSibling = siblings[currentIndex - 1];
-      if (!previousSibling) return;
-
-      try {
-        await moveEstimateItem(estimate.id, itemId, previousSibling.id);
-        await fetchData();
-      } catch {
-        setError('項目の移動に失敗しました');
-      }
-    },
-    [editor.items, estimate, fetchData]
+    [editor]
   );
 
   /**
-   * 同一階層内で表示順序を入れ替える（REQ-12.2: ↑/↓ボタン）
+   * 下の階層へ移動（23.10, 12.6, 12.7, 43.1, 43.3）
    *
-   * 対象項目を兄弟グループ内で direction 方向の隣接項目と入れ替え、
-   * displayOrder を 0 起点で振り直して reorder API へ即時反映する。
+   * `handleMoveUp` と同じく編集状態の遷移のみで完結する（53.6）。
+   * 直前の兄弟が無い場合は遷移関数が `lastError` を設定して状態を変えない。
+   */
+  const handleMoveDown = useCallback(
+    (itemId: string) => {
+      editor.indentItem(itemId);
+    },
+    [editor]
+  );
+
+  /**
+   * 同一階層内で表示順序を入れ替える（ツールバーの ↑/↓ ボタン、12.7, 43.1, 43.3）
+   *
+   * 並び替えAPIの即時呼び出しと明細の全件再取得を撤去し、編集状態の遷移へ置き換えた（53.6）。
+   * 並び順は保存時に画面の配列順どおり送られ、サーバーが `displayOrder` を再採番する（42.6）。
    */
   const handleReorder = useCallback(
-    async (itemId: string, direction: 'up' | 'down') => {
-      if (!estimate) return;
-
-      const findItem = (
-        items: EstimateItemHierarchyEdit[],
-        targetId: string
-      ): EstimateItemHierarchyEdit | null => {
-        for (const item of items) {
-          if (item.id === targetId) return item;
-          if (item.children.length > 0) {
-            const found = findItem(item.children, targetId);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      const getSiblings = (
-        items: EstimateItemHierarchyEdit[],
-        targetParentId: string | null
-      ): EstimateItemHierarchyEdit[] => {
-        if (targetParentId === null) return items;
-        for (const it of items) {
-          if (it.id === targetParentId) return it.children;
-          if (it.children.length > 0) {
-            const found = getSiblings(it.children, targetParentId);
-            if (found.length > 0) return found;
-          }
-        }
-        return [];
-      };
-
-      const item = findItem(editor.items, itemId);
-      if (!item) return;
-
-      const siblings = getSiblings(editor.items, item.parentId);
-      const currentIndex = siblings.findIndex((s) => s.id === itemId);
-      if (currentIndex === -1) return;
-
-      const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-      if (swapIndex < 0 || swapIndex >= siblings.length) return;
-
-      // 兄弟グループ内で対象項目と隣接項目を入れ替える
-      const reordered = [...siblings];
-      const [moved] = reordered.splice(currentIndex, 1);
-      reordered.splice(swapIndex, 0, moved!);
-
-      // displayOrder を 0 起点で振り直す（DB値が連番でなくても安全）
-      const itemOrders = reordered.map((s, idx) => ({ id: s.id, displayOrder: idx }));
-
-      try {
-        await reorderEstimateItems(estimate.id, itemOrders);
-        await fetchData();
-      } catch {
-        setError('項目の並び替えに失敗しました');
-      }
+    (itemId: string, direction: 'up' | 'down') => {
+      editor.moveItem(itemId, direction);
     },
-    [editor.items, estimate, fetchData]
+    [editor]
   );
 
   /**
@@ -931,9 +821,17 @@ export default function EstimateDetailPage() {
   );
 
   /**
-   * 諸経費行の追加（REQ-7.1, REQ-8.1, REQ-9.1）
+   * 諸経費行の追加（REQ-7.1, REQ-8.1, REQ-9.1, 43.4）
    *
-   * 計算金額（または手入力値）を単価として諸経費行を追加し、最新状態を再取得する。
+   * 計算金額（または手入力値）を単価として諸経費行を追加する。
+   * 追加後の**明細の全件再取得を撤去**した（53.6）。再取得は `editor.setItems` 経由で
+   * それまでの未保存の編集内容を破棄してしまうため（43.4）。
+   *
+   * **段階1の暫定状態**: 行の作成そのものはサーバー書き込み（`POST /overhead-items`）のまま。
+   * クライアント側の編集状態への反映（reducer の `addOverheadItem` アクション）は段階3の
+   * 55.6 が担当し、エンドポイントの撤去は 55.7 が行う
+   * （design.md `#### Modified Files` の撤去段階表: 本経路は**段階3**）。
+   * それまでの間、追加した行は画面の再読み込み後に表示される。
    */
   const handleAddOverheadItem = useCallback(
     async (params: AddOverheadItemParams): Promise<void> => {
@@ -944,9 +842,8 @@ export default function EstimateDetailPage() {
         unitPrice: Number.isNaN(unitPrice) ? undefined : unitPrice,
       });
       setIsOverheadDialogOpen(false);
-      await fetchData();
     },
-    [estimate, fetchData]
+    [estimate]
   );
 
   /**
@@ -984,11 +881,22 @@ export default function EstimateDetailPage() {
   }, [id, estimate, navigate]);
 
   /**
-   * 転記完了時の処理
+   * 転記・案分・利益率適用の完了時の処理（43.4）
+   *
+   * 完了後の**明細の全件再取得を撤去**した（53.6）。再取得は `editor.setItems` 経由で
+   * それまでの未保存の編集内容を破棄してしまうため、43.4「転記・案分・利益率適用を
+   * 行った場合、それまでの未保存の編集内容を保持する」を満たせない。
+   *
+   * **段階1の暫定状態**: 各ダイアログは現在もサーバーへ書き込む。結果を編集状態へ
+   * 反映する経路（reducer の `applyQuotationTransfer` / `applyNetAllocation` /
+   * `applyProfitRate`）は段階3の 55.5・55.3・55.4 が追加し、エンドポイントの撤去は
+   * 55.7 が行う（design.md `#### Modified Files` の撤去段階表: 本経路は**段階3**）。
+   * それまでの間、転記結果は画面の再読み込み後に表示され、未保存の編集内容は失われない。
+   * 未保存状態でのダイアログ起動抑止は 53.9 が担当する。
    */
   const handleTransferComplete = useCallback(() => {
-    fetchData();
-  }, [fetchData]);
+    // 段階3（55.3〜55.5）で編集状態への反映に置き換える。ここでは再取得を行わない。
+  }, []);
 
   // ローディング表示
   if (isLoading) {

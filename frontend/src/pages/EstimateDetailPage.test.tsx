@@ -36,6 +36,9 @@ const mockEditor = {
   isSaving: false,
   updateLine: vi.fn(),
   reorderItems: vi.fn(),
+  moveItem: vi.fn(),
+  indentItem: vi.fn(),
+  outdentItem: vi.fn(),
   addItem: vi.fn(),
   deleteItem: vi.fn(),
   duplicateItem: vi.fn(),
@@ -935,40 +938,6 @@ describe('EstimateDetailPage', () => {
     });
   });
 
-  it('転記完了コールバックがデータ再取得を実行する', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
-    });
-
-    // 転記ダイアログを開いて完了ボタンを押す
-    const transferBtn = screen.getByRole('button', { name: /受領見積書を業者金額に転記/ });
-    await user.click(transferBtn);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-transfer-dialog')).toBeInTheDocument();
-    });
-
-    // 初回取得分をクリア
-    vi.mocked(estimatesApi.getEstimateDetail).mockClear();
-
-    await user.click(screen.getByTestId('transfer-complete'));
-
-    // onTransferComplete → fetchData が呼ばれる
-    await waitFor(() => {
-      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledWith('est-001');
-    });
-  });
-
   // =========================================================================
   // ツールバーコールバックのテスト
   // =========================================================================
@@ -1047,158 +1016,6 @@ describe('EstimateDetailPage', () => {
 
     await user.click(screen.getByTestId('toolbar-duplicate'));
     expect(mockEditor.duplicateItem).toHaveBeenCalledWith('item-1');
-  });
-
-  // =========================================================================
-  // 階層移動のテスト (handleMoveUp / handleMoveDown)
-  // =========================================================================
-
-  it('handleMoveUpが親項目の上位に移動APIを呼ぶ', async () => {
-    const user = userEvent.setup();
-    mockEditor.items = mockEditorItemsWithHierarchy;
-    vi.mocked(estimatesApi.moveEstimateItem).mockResolvedValue(undefined);
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByTestId('toolbar-move-up'));
-
-    await waitFor(() => {
-      expect(estimatesApi.moveEstimateItem).toHaveBeenCalledWith('est-001', 'item-child', null);
-    });
-  });
-
-  it('handleMoveDownが直前の兄弟の子に移動APIを呼ぶ', async () => {
-    const user = userEvent.setup();
-    // item-parentとitem-siblingがルートレベルの兄弟
-    // item-siblingはindex=1なのでpreviousSibling=item-parent
-    mockEditor.items = mockEditorItemsWithHierarchy;
-    vi.mocked(estimatesApi.moveEstimateItem).mockResolvedValue(undefined);
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    // handleMoveDownは'item-child'を使うが、item-childはparentIdがitem-parentでindex=0
-    // currentIndex <= 0 なのでreturn early. ルートの兄弟を使って検証する
-    // ツールバーモックはitem-childでhandleMoveDownを呼ぶので
-    // item-childは親item-parentの子でindex=0、previousSiblingがない → early return
-    await user.click(screen.getByTestId('toolbar-move-down'));
-
-    // item-childはindex=0なのでcurrentIndex <= 0でearly return
-    // moveEstimateItemは呼ばれない
-    await waitFor(() => {
-      expect(estimatesApi.moveEstimateItem).not.toHaveBeenCalled();
-    });
-  });
-
-  it('handleMoveUp: 親がないルートアイテムの場合はearly return', async () => {
-    // item-parentはparentId=null
-    mockEditor.items = mockEditorItemsWithHierarchy;
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    // handleMoveUpはcapturedToolbarProps経由で直接呼ぶ
-    const onMoveUp = capturedToolbarProps.onMoveUp as (id: string) => void;
-    onMoveUp('item-parent');
-
-    // item-parentはparentId=nullなのでearly return
-    expect(estimatesApi.moveEstimateItem).not.toHaveBeenCalled();
-  });
-
-  it('handleMoveUp: estimateがない場合はearly return', async () => {
-    vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(mockEstimateDetail);
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    // estimateは正常にロードされるのでこのテストではearly returnにならないが
-    // 存在しないアイテムIDで呼べばfindItemがnullを返す
-    const onMoveUp = capturedToolbarProps.onMoveUp as (id: string) => void;
-    onMoveUp('non-existent-item');
-
-    expect(estimatesApi.moveEstimateItem).not.toHaveBeenCalled();
-  });
-
-  it('handleMoveDown: 存在しないアイテムIDの場合はearly return', async () => {
-    mockEditor.items = mockEditorItemsWithHierarchy;
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    const onMoveDown = capturedToolbarProps.onMoveDown as (id: string) => void;
-    onMoveDown('non-existent-item');
-
-    expect(estimatesApi.moveEstimateItem).not.toHaveBeenCalled();
-  });
-
-  it('handleMoveUp: 移動API失敗時にエラーメッセージを表示', async () => {
-    const user = userEvent.setup();
-    mockEditor.items = mockEditorItemsWithHierarchy;
-    vi.mocked(estimatesApi.moveEstimateItem).mockRejectedValue(new Error('API Error'));
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByTestId('toolbar-move-up'));
-
-    await waitFor(() => {
-      expect(screen.getByText('項目の移動に失敗しました')).toBeInTheDocument();
-    });
   });
 
   // =========================================================================
@@ -1365,64 +1182,6 @@ describe('EstimateDetailPage', () => {
   });
 
   // =========================================================================
-  // handleMoveDown: 実際にAPI呼び出しが発生するケース
-  // =========================================================================
-
-  it('handleMoveDownが兄弟を持つアイテムで正しく移動APIを呼ぶ', async () => {
-    // item-siblingはindex=1でpreviousSibling=item-parentを持つ
-    mockEditor.items = mockEditorItemsWithHierarchy;
-    vi.mocked(estimatesApi.moveEstimateItem).mockResolvedValue(undefined);
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    // capturedToolbarPropsから直接onMoveDownを呼ぶ
-    const onMoveDown = capturedToolbarProps.onMoveDown as (id: string) => void;
-    onMoveDown('item-sibling');
-
-    await waitFor(() => {
-      expect(estimatesApi.moveEstimateItem).toHaveBeenCalledWith(
-        'est-001',
-        'item-sibling',
-        'item-parent'
-      );
-    });
-  });
-
-  it('handleMoveDown: 移動API失敗時にエラーメッセージを表示', async () => {
-    mockEditor.items = mockEditorItemsWithHierarchy;
-    vi.mocked(estimatesApi.moveEstimateItem).mockRejectedValue(new Error('Move failed'));
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    const onMoveDown = capturedToolbarProps.onMoveDown as (id: string) => void;
-    onMoveDown('item-sibling');
-
-    await waitFor(() => {
-      expect(screen.getByText('項目の移動に失敗しました')).toBeInTheDocument();
-    });
-  });
-
-  // =========================================================================
   // 追加カバレッジテスト
   // =========================================================================
 
@@ -1585,184 +1344,6 @@ describe('EstimateDetailPage', () => {
     // NaN金額は集計時にskipされ、0円と表示される
     const summaryPanel = screen.getByTestId('summary-panel');
     expect(summaryPanel).toBeInTheDocument();
-  });
-
-  it('handleMoveUp: parentが見つからない場合はearly return', async () => {
-    // 子のparentIdは存在するが、editorのitemsツリーではparentが見つからないケース
-    mockEditor.items = [
-      {
-        id: 'item-orphan',
-        estimateId: 'est-001',
-        parentId: 'non-existent-parent',
-        displayOrder: 0,
-        lines: [],
-        children: [],
-        isExpanded: true,
-        createdAt: '2024-01-15T10:00:00.000Z',
-        updatedAt: '2024-01-15T10:00:00.000Z',
-      },
-    ];
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    const onMoveUp = capturedToolbarProps.onMoveUp as (id: string) => void;
-    onMoveUp('item-orphan');
-
-    // parentが見つからないのでAPIは呼ばれない
-    expect(estimatesApi.moveEstimateItem).not.toHaveBeenCalled();
-  });
-
-  it('handleMoveDown: ネストされた階層でgetSiblingsが再帰的に兄弟を検索すること', async () => {
-    // 深い階層: root > parent > [child-a, child-b]
-    // child-bをmoveDownするとgetSiblingsが再帰してparentの子を見つける
-    mockEditor.items = [
-      {
-        id: 'root',
-        estimateId: 'est-001',
-        parentId: null,
-        displayOrder: 0,
-        lines: [],
-        children: [
-          {
-            id: 'nested-parent',
-            estimateId: 'est-001',
-            parentId: 'root',
-            displayOrder: 0,
-            lines: [],
-            children: [
-              {
-                id: 'nested-child-a',
-                estimateId: 'est-001',
-                parentId: 'nested-parent',
-                displayOrder: 0,
-                lines: [],
-                children: [],
-                isExpanded: true,
-                createdAt: '2024-01-15T10:00:00.000Z',
-                updatedAt: '2024-01-15T10:00:00.000Z',
-              },
-              {
-                id: 'nested-child-b',
-                estimateId: 'est-001',
-                parentId: 'nested-parent',
-                displayOrder: 1,
-                lines: [],
-                children: [],
-                isExpanded: true,
-                createdAt: '2024-01-15T10:00:00.000Z',
-                updatedAt: '2024-01-15T10:00:00.000Z',
-              },
-            ],
-            isExpanded: true,
-            createdAt: '2024-01-15T10:00:00.000Z',
-            updatedAt: '2024-01-15T10:00:00.000Z',
-          },
-        ],
-        isExpanded: true,
-        createdAt: '2024-01-15T10:00:00.000Z',
-        updatedAt: '2024-01-15T10:00:00.000Z',
-      },
-    ];
-    vi.mocked(estimatesApi.moveEstimateItem).mockResolvedValue(undefined);
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    const onMoveDown = capturedToolbarProps.onMoveDown as (id: string) => void;
-    // nested-child-bはindex=1でpreviousSibling=nested-child-a
-    // getSiblingsはroot.childrenからnested-parentを探し、その子を返す（再帰）
-    onMoveDown('nested-child-b');
-
-    await waitFor(() => {
-      expect(estimatesApi.moveEstimateItem).toHaveBeenCalledWith(
-        'est-001',
-        'nested-child-b',
-        'nested-child-a'
-      );
-    });
-  });
-
-  it('NET完了コールバックがデータ再取得を実行する', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
-    });
-
-    // NETダイアログを開いて完了ボタンを押す
-    const netBtn = screen.getByRole('button', { name: /業者金額を実行金額に転記/ });
-    await user.click(netBtn);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-net-dialog')).toBeInTheDocument();
-    });
-
-    vi.mocked(estimatesApi.getEstimateDetail).mockClear();
-
-    await user.click(screen.getByTestId('net-complete'));
-
-    await waitFor(() => {
-      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledWith('est-001');
-    });
-  });
-
-  it('利益率完了コールバックがデータ再取得を実行する', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MemoryRouter initialEntries={['/estimates/est-001']}>
-        <Routes>
-          <Route path="/estimates/:id" element={<EstimateDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
-    });
-
-    // 利益率ダイアログを開いて完了ボタンを押す
-    const profitBtn = screen.getByRole('button', { name: /実行金額を見積金額に転記/ });
-    await user.click(profitBtn);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-profit-dialog')).toBeInTheDocument();
-    });
-
-    vi.mocked(estimatesApi.getEstimateDetail).mockClear();
-
-    await user.click(screen.getByTestId('profit-complete'));
-
-    await waitFor(() => {
-      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledWith('est-001');
-    });
   });
 
   it('サマリーパネルで利益率・値引率が正しく計算されること', async () => {
@@ -2406,44 +1987,6 @@ describe('EstimateDetailPage', () => {
     expect(mockEditor.addDiscountItem).toHaveBeenCalled();
   });
 
-  it('handleReorderが兄弟順序を入れ替えてreorder APIを呼ぶ (REQ-12.2)', async () => {
-    const user = userEvent.setup();
-    mockEditor.items = mockEditorItemsWithHierarchy;
-    vi.mocked(estimatesApi.reorderEstimateItems).mockResolvedValue(undefined);
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    // item-sibling(index=1)を上へ → item-parentと入れ替え、displayOrderを0起点で振り直す
-    await user.click(screen.getByTestId('toolbar-reorder-up'));
-
-    await waitFor(() => {
-      expect(estimatesApi.reorderEstimateItems).toHaveBeenCalledWith('est-001', [
-        { id: 'item-sibling', displayOrder: 0 },
-        { id: 'item-parent', displayOrder: 1 },
-      ]);
-    });
-  });
-
-  it('handleReorder: 並び替えAPI失敗時にエラーメッセージを表示する', async () => {
-    const user = userEvent.setup();
-    mockEditor.items = mockEditorItemsWithHierarchy;
-    vi.mocked(estimatesApi.reorderEstimateItems).mockRejectedValue(new Error('fail'));
-
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByTestId('toolbar-reorder-up'));
-
-    await waitFor(() => {
-      expect(screen.getByText('項目の並び替えに失敗しました')).toBeInTheDocument();
-    });
-  });
-
   it('諸経費ダイアログを開閉できる (REQ-7.1)', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -2511,6 +2054,304 @@ describe('EstimateDetailPage', () => {
     // 追加後はダイアログが閉じる
     await waitFor(() => {
       expect(screen.queryByTestId('overhead-cost-dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  // =========================================================================
+  // 行操作のローカル完結（Task 53.6 / REQ-43）
+  // =========================================================================
+
+  describe('行操作のローカル完結 (REQ-43)', () => {
+    /**
+     * 書き込み系APIの呼び出し総数
+     *
+     * 「行操作では書き込みが1件も発生しない」（43.1, 43.2）を、個別の
+     * エンドポイント名ではなく**書き込み経路の総数**で数える。
+     */
+    const writeCallCount = (): number =>
+      [
+        estimatesApi.saveEstimateDraft,
+        estimatesApi.createEstimate,
+        estimatesApi.updateEstimate,
+        estimatesApi.deleteEstimate,
+        estimatesApi.createEstimateItem,
+        estimatesApi.deleteEstimateItem,
+        estimatesApi.moveEstimateItem,
+        estimatesApi.reorderEstimateItems,
+        estimatesApi.batchUpdateEstimateItems,
+        estimatesApi.transferFromQuotation,
+        estimatesApi.calculateOverhead,
+        estimatesApi.addOverheadItem,
+        estimatesApi.addDiscountItem,
+      ].reduce((total, fn) => total + vi.mocked(fn).mock.calls.length, 0);
+
+    const buildLine = (itemId: string, name: string) => ({
+      id: `line-${itemId}`,
+      estimateItemId: itemId,
+      lineType: 'ESTIMATE' as const,
+      name,
+      specification: null,
+      unit: '式',
+      quantity: '1',
+      unitPrice: '100000',
+      amount: '100000',
+      remarks: null,
+      sourceReceivedQuotationLineItemId: null,
+      sourceVendorName: null,
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+
+    const buildItem = (
+      id: string,
+      name: string,
+      parentId: string | null,
+      displayOrder: number,
+      children: unknown[] = []
+    ) => ({
+      id,
+      estimateId: 'est-001',
+      parentId,
+      displayOrder,
+      lines: [buildLine(id, name)],
+      children,
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+
+    /** ルート [item-a, item-b]、item-b は子 item-c を持つ */
+    const hierarchyDetail = {
+      ...mockEstimateDetail,
+      items: [
+        buildItem('item-a', 'A項目', null, 0),
+        buildItem('item-b', 'B項目', null, 1, [buildItem('item-c', 'C項目', 'item-b', 0)]),
+      ],
+    } as unknown as estimatesApi.EstimateDetail;
+
+    const tableItems = () => (capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[];
+
+    const itemNameOf = (item: EstimateItemHierarchyEdit | undefined) =>
+      item?.lines.find((line) => line.lineType === 'ESTIMATE')?.name;
+
+    /** ツールバーの操作をディスパッチする（画面の結線ごと検証する） */
+    const invokeToolbar = async (prop: string, ...args: unknown[]) => {
+      await act(async () => {
+        (capturedToolbarProps[prop] as (...values: unknown[]) => void)(...args);
+      });
+    };
+
+    const editItemName = async (itemId: string, value: string) => {
+      await act(async () => {
+        (
+          capturedTableProps.onLineChange as (
+            itemId: string,
+            lineId: string,
+            field: string,
+            value: string
+          ) => void
+        )(itemId, `line-${itemId}`, 'name', value);
+      });
+    };
+
+    beforeEach(() => {
+      editorMode.useReal = true;
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(hierarchyDetail);
+    });
+
+    /**
+     * 43.1: 階層の上げ下げ・並び替えをサーバーへの保存を伴わずに画面上の明細へ反映する
+     * 43.2: これらの操作を連続して行っても保存を発生させない
+     * 12.7: 見積項目の操作を編集セッション中にサーバーへ問い合わせずに行う
+     */
+    it('階層の上げ下げと並び替えを連続して行っても書き込みが発生しないこと (43.1, 43.2, 12.7)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+
+      // 下の階層へ: item-b が直前の兄弟 item-a の子になる（23.10）
+      await invokeToolbar('onMoveDown', 'item-b');
+      expect(tableItems().map((item) => item.id)).toEqual(['item-a']);
+      expect(tableItems()[0]?.children.map((child) => child.id)).toEqual(['item-b']);
+      // 部分木ごと移動する（子 item-c は item-b の配下に残る）
+      expect(tableItems()[0]?.children[0]?.children.map((child) => child.id)).toEqual(['item-c']);
+
+      // 上の階層へ: item-b が親 item-a の兄弟レベルへ戻る（23.9）
+      await invokeToolbar('onMoveUp', 'item-b');
+      expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
+
+      // 同一階層内の並び替え
+      await invokeToolbar('onReorderUp', 'item-b');
+      expect(tableItems().map((item) => item.id)).toEqual(['item-b', 'item-a']);
+
+      await invokeToolbar('onReorderDown', 'item-b');
+      expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
+
+      // 連続操作でも書き込みは1件も発生せず、明細の再取得も行われない
+      expect(writeCallCount()).toBe(0);
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * 実行できない階層移動でもサーバーへ問い合わせない
+     *
+     * 旧実装は移動可否をページ側で判定して API を呼ぶ/呼ばないを決めていた。
+     * 判定は遷移関数（53.3 の `outdentRange` / `indentRange`）へ移り、
+     * ルート行の「上の階層へ」は `CANNOT_OUTDENT_ROOT`、直前の兄弟が無い行の
+     * 「下の階層へ」は `NO_PRECEDING_SIBLING` で状態を変えない。
+     *
+     * 12.7: 見積項目の操作を編集セッション中にサーバーへ問い合わせずに行う
+     * 43.2: 操作の回数に関わらずサーバーへの保存を発生させない
+     */
+    it('実行できない階層移動では明細が変化せず書き込みも再取得も起きないこと (12.7, 43.2)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      // ルート行を「上の階層へ」: これ以上上げられない
+      await invokeToolbar('onMoveUp', 'item-a');
+      expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
+
+      // 先頭行を「下の階層へ」: 親になる直前の兄弟が無い
+      await invokeToolbar('onMoveDown', 'item-a');
+      expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
+
+      // 兄弟の端での並び替えも状態を変えない
+      await invokeToolbar('onReorderUp', 'item-a');
+      expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
+
+      expect(writeCallCount()).toBe(0);
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * 43.3: 階層の上げ下げまたは並び替えを行った場合、それまでの未保存の編集内容を保持する
+     */
+    it('階層の上げ下げの後も未保存の編集内容が保持されること (43.3)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await editItemName('item-a', '編集済みA項目');
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+
+      await invokeToolbar('onMoveDown', 'item-b');
+
+      // 階層が変わっても編集値は残り、未保存状態のまま保存できる
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+      expect(tableItems()[0]?.children.map((child) => child.id)).toEqual(['item-b']);
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+
+      await invokeToolbar('onMoveUp', 'item-b');
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+    });
+
+    /**
+     * 43.3: 並び替えを行った場合、それまでの未保存の編集内容を保持する
+     */
+    it('並び替えの後も未保存の編集内容が保持されること (43.3)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await editItemName('item-b', '編集済みB項目');
+      await invokeToolbar('onReorderUp', 'item-b');
+
+      expect(tableItems().map((item) => item.id)).toEqual(['item-b', 'item-a']);
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みB項目');
+      expect(writeCallCount()).toBe(0);
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * 43.4: 諸経費追加を行った場合、それまでの未保存の編集内容を保持する
+     *
+     * 諸経費行の追加そのものをクライアント側へ移すのは 55.6（段階3）。
+     * 53.6 では**明細の全件再取得**を撤去し、編集内容が失われないことを保証する。
+     */
+    it('諸経費追加で未保存の編集内容が保持され明細を再取得しないこと (43.4)', async () => {
+      vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      await editItemName('item-a', '編集済みA項目');
+
+      await user.click(screen.getByText('諸経費を計算して追加'));
+      await user.click(screen.getByTestId('overhead-add'));
+
+      await waitFor(() => {
+        expect(estimatesApi.addOverheadItem).toHaveBeenCalled();
+      });
+
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    });
+
+    /**
+     * 43.4: 転記を行った場合、それまでの未保存の編集内容を保持する
+     *
+     * 転記そのものをクライアント側へ移すのは 55.5（段階3）。
+     * 53.6 では**明細の全件再取得**を撤去し、編集内容が失われないことを保証する。
+     */
+    it('転記完了で未保存の編集内容が保持され明細を再取得しないこと (43.4)', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      await editItemName('item-a', '編集済みA項目');
+
+      await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-transfer-dialog')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('transfer-complete'));
+
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    });
+
+    /**
+     * 43.4: NET案分・利益率適用の後も未保存の編集内容を保持する
+     */
+    it('NET案分・利益率の完了で明細を再取得しないこと (43.4)', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      await editItemName('item-a', '編集済みA項目');
+
+      await user.click(screen.getByRole('button', { name: /業者金額を実行金額に転記/ }));
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-net-dialog')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('net-complete'));
+
+      await user.click(screen.getByRole('button', { name: /実行金額を見積金額に転記/ }));
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-profit-dialog')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('profit-complete'));
+
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
     });
   });
 });
