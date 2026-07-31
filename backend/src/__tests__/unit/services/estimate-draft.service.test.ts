@@ -23,6 +23,8 @@
  *
  * Task 52.4: 明細の差分適用と親子関係の解決
  * Task 52.5: 楽観ロックと並び順の再採番および最新状態の返却
+ * Task 52.6: 明細更新の一括化とN+1クエリの解消
+ * Task 52.7: 一括保存処理の単体テスト（42.3, 42.4, 42.5, 42.6, 42.9 の受入観点を網羅）
  *
  * @module __tests__/unit/services/estimate-draft.service.test
  */
@@ -132,6 +134,8 @@ const ESTIMATE_ID = '11111111-1111-4111-8111-111111111111';
 const ITEM_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ITEM_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ITEM_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const ITEM_D = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const ITEM_E = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const FOREIGN_ITEM = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 /** DB上の `Estimate.updatedAt`（楽観ロックの基準時刻） */
@@ -287,74 +291,104 @@ describe('EstimateDraftService', () => {
     });
   });
 
-  /** トランザクション内で書き込みが1件も発生していないことを確認する */
-  function expectNoWrites(): void {
-    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
-    expect(mockTx.estimate.updateMany).not.toHaveBeenCalled();
-    expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
-    expect(mockTx.estimateItem.createMany).not.toHaveBeenCalled();
-    expect(mockTx.estimateItem.update).not.toHaveBeenCalled();
-    expect(mockTx.estimateItem.updateMany).not.toHaveBeenCalled();
-    expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
-    expect(mockTx.estimateItemLine.upsert).not.toHaveBeenCalled();
-    expect(mockTx.estimateItemLine.deleteMany).not.toHaveBeenCalled();
-    expect(mockTx.$executeRaw).not.toHaveBeenCalled();
-    expect(mockPrisma.estimateItem.create).not.toHaveBeenCalled();
-    expect(mockPrisma.estimateItem.createMany).not.toHaveBeenCalled();
-    expect(mockPrisma.estimateItem.update).not.toHaveBeenCalled();
-    expect(mockPrisma.estimateItem.deleteMany).not.toHaveBeenCalled();
-    expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
+  /**
+   * データを変更しうるモックを**すべて**列挙する（42.4, 42.5）
+   *
+   * 「データが一切変更されていない」は、特定の経路だけを個別に確認しても示せない。
+   * トランザクションクライアント・prisma 直下の双方について、モック定義に存在する
+   * 書き込み系メソッドを漏れなく並べ、どれか1つでも呼ばれたら検出できるようにする。
+   * 読み取り専用の `findUnique` / `findMany` は対象外。
+   */
+  function listWriteChannels(): [string, Mock][] {
+    return [
+      ['tx.estimate.updateMany', mockTx.estimate.updateMany],
+      ['tx.estimateItem.create', mockTx.estimateItem.create],
+      ['tx.estimateItem.createMany', mockTx.estimateItem.createMany],
+      ['tx.estimateItem.update', mockTx.estimateItem.update],
+      ['tx.estimateItem.updateMany', mockTx.estimateItem.updateMany],
+      ['tx.estimateItem.deleteMany', mockTx.estimateItem.deleteMany],
+      ['tx.estimateItemLine.upsert', mockTx.estimateItemLine.upsert],
+      ['tx.estimateItemLine.deleteMany', mockTx.estimateItemLine.deleteMany],
+      ['tx.$executeRaw', mockTx.$executeRaw],
+      ['prisma.estimateItem.create', mockPrisma.estimateItem.create],
+      ['prisma.estimateItem.createMany', mockPrisma.estimateItem.createMany],
+      ['prisma.estimateItem.update', mockPrisma.estimateItem.update],
+      ['prisma.estimateItem.updateMany', mockPrisma.estimateItem.updateMany],
+      ['prisma.estimateItem.deleteMany', mockPrisma.estimateItem.deleteMany],
+      ['prisma.estimateItemLine.upsert', mockPrisma.estimateItemLine.upsert],
+      ['prisma.estimateItemLine.deleteMany', mockPrisma.estimateItemLine.deleteMany],
+      ['prisma.$executeRaw', mockPrisma.$executeRaw],
+    ];
   }
 
-  /** 発行された一括UPDATE文のパラメータから、確定される項目の状態を復元する */
-  function readBulkItemUpdateRows(): BulkItemUpdateRow[] {
-    const call = mockTx.$executeRaw.mock.calls.find((args) =>
-      isBulkItemUpdate(args[0] as Prisma.Sql)
-    );
-    if (call === undefined) {
-      return [];
-    }
-    const { values } = call[0] as Prisma.Sql;
-    const rowCount =
-      (values.length - BULK_ITEM_UPDATE_TRAILING_PARAMS) / BULK_ITEM_UPDATE_PARAMS_PER_ROW;
+  /** 実際に呼ばれた書き込み口の名前（失敗時にどの経路が漏れたか分かるようにする） */
+  function calledWriteChannels(): string[] {
+    return listWriteChannels()
+      .filter(([, mock]) => mock.mock.calls.length > 0)
+      .map(([name]) => name);
+  }
 
-    return Array.from({ length: rowCount }, (_, index) => {
-      const offset = index * BULK_ITEM_UPDATE_PARAMS_PER_ROW;
-      return {
-        id: values[offset],
-        parentId: values[offset + 1],
-        itemType: values[offset + 2],
-        displayOrder: values[offset + 3],
-      };
+  /** 書き込みが1件も発生していないことを確認する（トランザクションも開始されない） */
+  function expectNoWrites(): void {
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    expect(calledWriteChannels()).toEqual([]);
+  }
+
+  /** 発行された `$executeRaw` のうち、述語に合致する文をすべて発行順に返す */
+  function collectStatements(predicate: (query: Prisma.Sql) => boolean): Prisma.Sql[] {
+    return mockTx.$executeRaw.mock.calls
+      .map((args) => args[0] as Prisma.Sql)
+      .filter((query) => predicate(query));
+  }
+
+  /**
+   * 発行された一括UPDATE文のパラメータから、確定される項目の状態を復元する
+   *
+   * バインドパラメータ上限で文が分割された場合も**全文を発行順に連結**して返す。
+   * 先頭の1文だけを見ると、2文目以降の内容が誤っていても検出できない。
+   */
+  function readBulkItemUpdateRows(): BulkItemUpdateRow[] {
+    return collectStatements(isBulkItemUpdate).flatMap(({ values }) => {
+      const rowCount =
+        (values.length - BULK_ITEM_UPDATE_TRAILING_PARAMS) / BULK_ITEM_UPDATE_PARAMS_PER_ROW;
+
+      return Array.from({ length: rowCount }, (_, index) => {
+        const offset = index * BULK_ITEM_UPDATE_PARAMS_PER_ROW;
+        return {
+          id: values[offset],
+          parentId: values[offset + 1],
+          itemType: values[offset + 2],
+          displayOrder: values[offset + 3],
+        };
+      });
     });
   }
 
-  /** 発行された一括UPSERT文のパラメータから、確定される明細行の内容を復元する */
+  /**
+   * 発行された一括UPSERT文のパラメータから、確定される明細行の内容を復元する
+   *
+   * {@link readBulkItemUpdateRows} と同様、分割された全文を発行順に連結して返す。
+   */
   function readBulkLineUpsertRows(): BulkLineUpsertRow[] {
-    const call = mockTx.$executeRaw.mock.calls.find((args) =>
-      isBulkLineUpsert(args[0] as Prisma.Sql)
-    );
-    if (call === undefined) {
-      return [];
-    }
-    const { values } = call[0] as Prisma.Sql;
-    const rowCount = values.length / BULK_LINE_UPSERT_PARAMS_PER_ROW;
+    return collectStatements(isBulkLineUpsert).flatMap(({ values }) => {
+      const rowCount = values.length / BULK_LINE_UPSERT_PARAMS_PER_ROW;
 
-    return Array.from({ length: rowCount }, (_, index) => {
-      // 先頭の id（アプリ採番のUUID）は照合対象にしないため読み飛ばす
-      const offset = index * BULK_LINE_UPSERT_PARAMS_PER_ROW + 1;
-      return {
-        estimateItemId: values[offset],
-        lineType: values[offset + 1],
-        name: values[offset + 2],
-        specification: values[offset + 3],
-        unit: values[offset + 4],
-        quantity: values[offset + 5],
-        unitPrice: values[offset + 6],
-        amount: values[offset + 7],
-        remarks: values[offset + 8],
-        sourceVendorName: values[offset + 9],
-      };
+      return Array.from({ length: rowCount }, (_, index) => {
+        // 先頭の id（アプリ採番のUUID）は照合対象にしないため読み飛ばす
+        const offset = index * BULK_LINE_UPSERT_PARAMS_PER_ROW + 1;
+        return {
+          estimateItemId: values[offset],
+          lineType: values[offset + 1],
+          name: values[offset + 2],
+          specification: values[offset + 3],
+          unit: values[offset + 4],
+          quantity: values[offset + 5],
+          unitPrice: values[offset + 6],
+          amount: values[offset + 7],
+          remarks: values[offset + 8],
+          sourceVendorName: values[offset + 9],
+        };
+      });
     });
   }
 
@@ -403,6 +437,46 @@ describe('EstimateDraftService', () => {
         statusCode: 422,
         issues: [expect.objectContaining({ path: `items.${FOREIGN_ITEM}` })],
       });
+    });
+
+    it('検証NGと楽観ロック競合が同時に成立する場合も検証NG（422）で中断し、データを変更しない', async () => {
+      // 基準時刻もずれている（=競合）が、design.md の保存フローでは全件検証が先に走る
+      mockPrisma.estimate.findUnique.mockResolvedValue({
+        id: ESTIMATE_ID,
+        deletedAt: null,
+        updatedAt: new Date('2026-07-31T09:00:00.000Z'),
+      });
+      mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+
+      const input = buildInput([buildNode({ id: ITEM_A }), buildNode({ id: FOREIGN_ITEM })]);
+
+      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toMatchObject({
+        statusCode: 422,
+        issues: [expect.objectContaining({ path: `items.${FOREIGN_ITEM}` })],
+      });
+
+      expectNoWrites();
+    });
+
+    it('新規サブツリーに混ざった他見積書の項目IDも検証で弾き、データを変更しない', async () => {
+      // 子孫に紛れた不正IDを見落とすと、トランザクション内で他見積書の行を書き換える
+      mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+
+      const input = buildInput([
+        buildNode({
+          id: ITEM_A,
+          children: [
+            buildNode({ tempId: 'tmp-child', children: [buildNode({ id: FOREIGN_ITEM })] }),
+          ],
+        }),
+      ]);
+
+      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toMatchObject({
+        statusCode: 422,
+        issues: [expect.objectContaining({ path: `items.${FOREIGN_ITEM}` })],
+      });
+
+      expectNoWrites();
     });
   });
 
@@ -501,6 +575,41 @@ describe('EstimateDraftService', () => {
         { id: ITEM_A, parentId: null, itemType: 'STANDARD', displayOrder: 0 },
       ]);
       expect(result.updatedItemIds).toEqual([ITEM_A]);
+    });
+
+    it('同一リクエストで兄弟が削除されても、存続する既存項目はIDを維持したまま更新される', async () => {
+      // DB: A(ルート) - B(Aの子) / C(ルート)。ペイロードは C のみ（A と B は消える）
+      mockPrisma.estimateItem.findMany.mockResolvedValue([
+        { id: ITEM_A, parentId: null },
+        { id: ITEM_B, parentId: ITEM_A },
+        { id: ITEM_C, parentId: null },
+      ]);
+
+      const result = await service.saveDraft(
+        ESTIMATE_ID,
+        buildInput([buildNode({ id: ITEM_C, lines: [buildLine({ name: '存続する項目' })] })])
+      );
+
+      // 削除されるのはペイロードに含まれない A のみ（B は連鎖削除に委ねる）
+      expect(mockTx.estimateItem.deleteMany).toHaveBeenCalledTimes(1);
+      expect(mockTx.estimateItem.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [ITEM_A] } },
+      });
+      expect(result.deletedItemIds).toEqual(expect.arrayContaining([ITEM_A, ITEM_B]));
+      expect(result.deletedItemIds).not.toContain(ITEM_C);
+
+      // 存続項目は削除＋再作成されず既存IDのまま更新される（実行予算からの参照が切れない・42.9）
+      expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
+      expect(mockTx.estimateItem.createMany).not.toHaveBeenCalled();
+      expect(result.createdItemIds).toEqual([]);
+      expect(result.updatedItemIds).toEqual([ITEM_C]);
+      expect(readBulkItemUpdateRows()).toEqual([
+        { id: ITEM_C, parentId: null, itemType: 'STANDARD', displayOrder: 0 },
+      ]);
+      // 明細行も存続項目のIDに紐づけて更新される
+      expect(readBulkLineUpsertRows()).toEqual([
+        expect.objectContaining({ estimateItemId: ITEM_C, name: '存続する項目' }),
+      ]);
     });
 
     it('既存項目の明細行は行タイプを鍵に一括UPSERTし、内容を反映する', async () => {
@@ -629,6 +738,34 @@ describe('EstimateDraftService', () => {
       expect(readBulkItemUpdateRows()).toContainEqual(
         expect.objectContaining({ id: result.createdItemIds[0], parentId: ITEM_A })
       );
+    });
+
+    it('既存項目を新規項目の子へ移動する場合も一時IDから生成IDを解決して親に用いる', async () => {
+      mockPrisma.estimateItem.findMany.mockResolvedValue([
+        { id: ITEM_A, parentId: null },
+        { id: ITEM_B, parentId: null },
+      ]);
+
+      // 新規の親項目を先頭に挿し、既存 B をその子へ移す（階層下げ相当）
+      const input = buildInput([
+        buildNode({ tempId: 'tmp-parent', children: [buildNode({ id: ITEM_B })] }),
+        buildNode({ id: ITEM_A }),
+      ]);
+
+      const result = await service.saveDraft(ESTIMATE_ID, input);
+
+      expect(result.createdItemIds).toHaveLength(1);
+      const newParentId = result.createdItemIds[0]!;
+      expect(result.tempIdMap).toEqual({ 'tmp-parent': newParentId });
+      // 既存 B はIDを維持したまま新規項目の子になる（削除＋再作成しない・42.9）
+      expect(result.updatedItemIds).toEqual([ITEM_B, ITEM_A]);
+      expect(result.deletedItemIds).toEqual([]);
+      expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
+      expect(readBulkItemUpdateRows()).toEqual([
+        { id: newParentId, parentId: null, itemType: 'STANDARD', displayOrder: 0 },
+        { id: ITEM_B, parentId: newParentId, itemType: 'STANDARD', displayOrder: 0 },
+        { id: ITEM_A, parentId: null, itemType: 'STANDARD', displayOrder: 1 },
+      ]);
     });
 
     it('新規項目の明細行も一括UPSERTでまとめて登録する', async () => {
@@ -855,6 +992,8 @@ describe('EstimateDraftService', () => {
       expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
       expect(mockTx.estimateItemLine.upsert).not.toHaveBeenCalled();
       expect(mockTx.$executeRaw).not.toHaveBeenCalled();
+      // 発行された書き込みは競合検出を兼ねた条件付きUPDATEだけ（他の経路も一切使わない）
+      expect(calledWriteChannels()).toEqual(['tx.estimate.updateMany']);
     });
   });
 
@@ -904,6 +1043,42 @@ describe('EstimateDraftService', () => {
         { id: ITEM_C, parentId: ITEM_A, itemType: 'STANDARD', displayOrder: 0 },
         { id: ITEM_B, parentId: ITEM_A, itemType: 'STANDARD', displayOrder: 1 },
       ]);
+    });
+
+    it('別の親へ移動した項目は移動先スコープで再採番され、元スコープの残りも詰め直される', async () => {
+      // DB: A(ルート)[C, D] / B(ルート)[E]
+      mockPrisma.estimateItem.findMany.mockResolvedValue([
+        { id: ITEM_A, parentId: null },
+        { id: ITEM_B, parentId: null },
+        { id: ITEM_C, parentId: ITEM_A },
+        { id: ITEM_D, parentId: ITEM_A },
+        { id: ITEM_E, parentId: ITEM_B },
+      ]);
+
+      // C を A の先頭から B の末尾へ移動する
+      const input = buildInput([
+        buildNode({ id: ITEM_A, children: [buildNode({ id: ITEM_D })] }),
+        buildNode({
+          id: ITEM_B,
+          children: [buildNode({ id: ITEM_E }), buildNode({ id: ITEM_C })],
+        }),
+      ]);
+
+      await service.saveDraft(ESTIMATE_ID, input);
+
+      // 事前順（A → D → B → E → C）で、各兄弟スコープが0起点の連番になる
+      expect(readBulkItemUpdateRows()).toEqual([
+        { id: ITEM_A, parentId: null, itemType: 'STANDARD', displayOrder: 0 },
+        // 兄弟 C が抜けた分、D は 1 番目から 0 へ詰め直される
+        { id: ITEM_D, parentId: ITEM_A, itemType: 'STANDARD', displayOrder: 0 },
+        { id: ITEM_B, parentId: null, itemType: 'STANDARD', displayOrder: 1 },
+        { id: ITEM_E, parentId: ITEM_B, itemType: 'STANDARD', displayOrder: 0 },
+        // 移動した C は移動先スコープの末尾として 1 を得る
+        { id: ITEM_C, parentId: ITEM_B, itemType: 'STANDARD', displayOrder: 1 },
+      ]);
+      // 階層移動は親子の張り替えのみで、削除＋再作成を伴わない（42.9）
+      expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
+      expect(mockTx.estimateItem.createMany).not.toHaveBeenCalled();
     });
   });
 
@@ -1187,6 +1362,44 @@ describe('EstimateDraftService', () => {
         expect(statement.values.length).toBeLessThanOrEqual(30000);
       }
       expect(countTransactionQueries()).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
+    });
+
+    it('分割された2文目の明細行も対象項目と内容を保ったまま発行される', async () => {
+      // 1000項目×3行＝3000行。1文あたり最大2727行（30000÷11）のため2文に分かれ、
+      // 末尾の行は2文目に載る。分割で行が落ちたり項目を取り違えたりしないことを確かめる
+      const items = Array.from({ length: 1000 }, (_, index) =>
+        buildNode({
+          tempId: `tmp-${index}`,
+          lines: [
+            buildLine({ lineType: 'ESTIMATE', name: `estimate-${index}` }),
+            buildLine({ lineType: 'EXECUTION', name: `execution-${index}` }),
+            buildLine({ lineType: 'VENDOR', name: `vendor-${index}` }),
+          ],
+        })
+      );
+
+      const result = await service.saveDraft(ESTIMATE_ID, buildInput(items));
+
+      const upsertRows = readBulkLineUpsertRows();
+      expect(upsertRows).toHaveLength(3000);
+      // 1文目の先頭
+      expect(upsertRows[0]).toMatchObject({
+        estimateItemId: result.createdItemIds[0],
+        lineType: 'ESTIMATE',
+        name: 'estimate-0',
+      });
+      // 2文目に載る末尾（1文目の上限2727行を超える位置）
+      expect(upsertRows[2999]).toMatchObject({
+        estimateItemId: result.createdItemIds[999],
+        lineType: 'VENDOR',
+        name: 'vendor-999',
+      });
+      // 分割の境目（2文目の先頭＝通し2727行目）も対応する項目に紐づく
+      expect(upsertRows[2727]).toMatchObject({
+        estimateItemId: result.createdItemIds[909],
+        lineType: 'ESTIMATE',
+        name: 'estimate-909',
+      });
     });
 
     it('一括UPDATEはパラメータ化され、値をSQL文字列へ埋め込まない', async () => {
