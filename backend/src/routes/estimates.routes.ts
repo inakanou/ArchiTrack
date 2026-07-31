@@ -28,6 +28,10 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { EstimateService } from '../services/estimate.service.js';
 import { EstimateItemService, DISCOUNT_PRESET_LINE } from '../services/estimate-item.service.js';
+import {
+  EstimateDraftService,
+  type SavedEstimateItemNode,
+} from '../services/estimate-draft.service.js';
 import { EstimateCalculationService } from '../services/estimate-calculation.service.js';
 import { OverheadCostService, OverheadCostType } from '../services/overhead-cost.service.js';
 import {
@@ -62,10 +66,13 @@ import {
   exportEstimateQuerySchema,
   moveEstimateItemSchema,
   batchUpdateItemsSchema,
+  saveEstimateDraftSchema,
 } from '../schemas/estimate.schema.js';
+import { ValidationError } from '../errors/apiError.js';
 import {
   EstimateNotFoundError,
   EstimateConflictError,
+  EstimateDraftValidationError,
   DuplicateEstimateNameError,
   EstimateItemNotFoundError,
   EstimateItemHasChildrenError,
@@ -87,6 +94,7 @@ const estimateService = new EstimateService({
   auditLogService,
 });
 const estimateItemService = new EstimateItemService({ prisma });
+const estimateDraftService = new EstimateDraftService({ prisma });
 const estimateCalculationService = new EstimateCalculationService();
 const overheadCostService = new OverheadCostService();
 const estimateExportService = new EstimateExportService();
@@ -619,6 +627,239 @@ router.delete(
         });
         return;
       }
+      next(error);
+    }
+  }
+);
+
+// ==========================================
+// 見積明細の一括保存API (Task 52.8)
+// ==========================================
+
+/**
+ * 保存後の明細ツリーに含まれる見積項目の総数を数える
+ *
+ * `GET /api/estimates/:id` の `itemCount`（平坦な見積項目の件数）と同じ意味になるよう、
+ * 子孫を含めた総数を返す。
+ *
+ * @param nodes - 保存後の明細ツリー（ルート項目の配列）
+ * @returns 子孫を含む見積項目の総数
+ */
+function countSavedEstimateItems(nodes: readonly SavedEstimateItemNode[]): number {
+  let total = 0;
+  const stack: SavedEstimateItemNode[] = [...nodes];
+
+  for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
+    total += 1;
+    stack.push(...node.children);
+  }
+
+  return total;
+}
+
+/**
+ * 提出日をリクエストと同じ `YYYY-MM-DD` 形式へ整形する
+ *
+ * `Estimate.submissionDate` は `DATE` 型（UTC 0時）で保持しているため、
+ * ISO 日時のまま返すとクライアントが再送する際に形式変換を強いられる。
+ * 保存結果をそのまま次のリクエストへ載せられるよう、日付部分のみを返す（54.8）。
+ *
+ * @param submissionDate - 保存後の提出日（未入力は null）
+ * @returns `YYYY-MM-DD` 形式の文字列（未入力は null）
+ */
+function formatSubmissionDate(submissionDate: Date | null): string | null {
+  return submissionDate === null ? null : submissionDate.toISOString().slice(0, 10);
+}
+
+/**
+ * @swagger
+ * /api/estimates/{id}/save:
+ *   put:
+ *     summary: 見積明細の一括保存（フル状態同期）
+ *     description: >-
+ *       編集画面の状態（明細ツリー全体・帳票用の追加入力項目）を受領し、DB現状との差分を
+ *       単一トランザクションで確定する（追加・更新・削除・並び順・階層の変更を1回で確定）。
+ *       楽観的排他制御は expectedUpdatedAt で行う。応答は保存後の見積書情報と最新の明細ツリーを
+ *       含むため、呼び出し元は保存後の再取得を必要としない。
+ *     tags:
+ *       - Estimates
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 見積書ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - expectedUpdatedAt
+ *               - reportFields
+ *               - items
+ *             properties:
+ *               expectedUpdatedAt:
+ *                 type: string
+ *                 format: date-time
+ *               reportFields:
+ *                 type: object
+ *                 properties:
+ *                   submissionDate:
+ *                     type: string
+ *                     format: date
+ *                     nullable: true
+ *                   validityPeriod:
+ *                     type: string
+ *                     maxLength: 100
+ *                     nullable: true
+ *                   separateWorks:
+ *                     type: array
+ *                     maxItems: 5
+ *                     items:
+ *                       type: string
+ *               items:
+ *                 type: array
+ *                 description: 明細ツリー（各ノードは id/tempId/itemType/lines/children を省略なく指定する）
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: 保存成功（保存後の見積書情報と最新の明細ツリー）
+ *       400:
+ *         description: リクエスト形式が不正
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない
+ *       409:
+ *         description: 楽観的排他制御エラー（競合）
+ *       422:
+ *         description: 明細ツリーの検証エラー（書き込みゼロ）
+ *       500:
+ *         description: 保存処理エラー（全ロールバック）
+ */
+router.put(
+  '/:id/save',
+  authenticate,
+  requirePermission('estimate:update'),
+  validate(estimateIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const actorId = req.user!.userId;
+
+      // ボディ検証はミドルウェアに委ねず、ここで 400 と 422 を切り分ける。
+      // - 形式不正（キー欠落・型違い・長さ・書式・列挙値）は 400
+      // - ツリー構造の検証NG（循環参照・重複配置・識別子なし・種別ごとの構造制約・件数上限）は 422
+      //   これらは `saveEstimateDraftSchema` の superRefine が `code: 'custom'` で報告する唯一の集合で、
+      //   design.md「Error Handling」の「保存前の検証NG（必須項目・循環参照・孤児ノード・件数上限）」に対応する
+      const parsed = saveEstimateDraftSchema.safeParse(req.body);
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        }));
+
+        if (parsed.error.issues.every((issue) => issue.code === 'custom')) {
+          throw new EstimateDraftValidationError(issues);
+        }
+
+        throw new ValidationError(
+          parsed.error.issues[0]?.message ?? 'Validation failed',
+          parsed.error.issues.map((issue) => ({
+            path: issue.path.join('.'),
+            message: issue.message,
+            code: issue.code,
+          }))
+        );
+      }
+
+      const result = await estimateDraftService.saveDraft(id, parsed.data);
+
+      // `saveDraft` の戻り値は見積書サマリ（id / updatedAt / 帳票用入力項目）のため、
+      // `GET /api/estimates/:id` と同じ詳細レスポンスへ揃えるべく残りを合成する。
+      // 明細は `result.items`（保存後の最新ツリー）を用いるので、ここでは明細を読み直さない。
+      const estimate = await prisma.estimate.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          projectId: true,
+          name: true,
+          sourceItemizedStatementId: true,
+          sourceItemizedStatementName: true,
+          createdAt: true,
+          project: { select: { id: true, name: true } },
+        },
+      });
+
+      if (!estimate) {
+        throw new EstimateNotFoundError(id);
+      }
+
+      const itemCount = countSavedEstimateItems(result.items);
+
+      logger.info(
+        {
+          userId: actorId,
+          estimateId: id,
+          itemCount,
+          createdCount: result.createdItemIds.length,
+          updatedCount: result.updatedItemIds.length,
+          deletedCount: result.deletedItemIds.length,
+        },
+        'Estimate draft saved successfully'
+      );
+
+      res.json({
+        id: estimate.id,
+        projectId: estimate.projectId,
+        project: estimate.project,
+        name: estimate.name,
+        sourceItemizedStatementId: estimate.sourceItemizedStatementId,
+        sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+        createdAt: estimate.createdAt,
+        updatedAt: result.estimate.updatedAt,
+        itemCount,
+        reportFields: {
+          submissionDate: formatSubmissionDate(result.estimate.reportFields.submissionDate),
+          validityPeriod: result.estimate.reportFields.validityPeriod,
+          separateWorks: result.estimate.reportFields.separateWorks,
+        },
+        items: result.items,
+      });
+    } catch (error) {
+      if (error instanceof EstimateNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/estimate-not-found',
+          title: 'Estimate Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'ESTIMATE_NOT_FOUND',
+        });
+        return;
+      }
+      if (error instanceof EstimateConflictError) {
+        const conflictDetails = error.details as Record<string, unknown> | undefined;
+        res.status(409).json({
+          type: 'https://architrack.example.com/problems/estimate-conflict',
+          title: 'Conflict',
+          status: 409,
+          detail: error.message,
+          code: 'ESTIMATE_CONFLICT',
+          ...(conflictDetails ?? {}),
+        });
+        return;
+      }
+      // 検証NG（422）・形式不正（400）は ApiError としてエラーハンドラが problem details 化する。
+      // トランザクション途中の失敗（並行削除による中断を含む）は 500 のまま扱う（42.3）。
       next(error);
     }
   }
