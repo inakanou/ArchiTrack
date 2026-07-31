@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import EstimateDetailPage from './EstimateDetailPage';
@@ -234,11 +234,28 @@ vi.mock('../components/estimate/OverheadCostPanel', () => ({
 }));
 
 const mockNavigate = vi.fn();
+
+// useBlocker のモック（Task 53.7: 未保存の変更がある状態での離脱ガード, 27.6）
+//
+// jsdom のテストはデータルーターではなく MemoryRouter で描画するため、実物の
+// `useBlocker` は動作しない（ブロックはデータルーター側の遷移制御に依存する）。
+// ItemizedStatementDetailPage / QuantityTableEditPage / CompanyInfoPage /
+// ConstructionPhotoDetailPage の確立済みパターンに倣い `useBlocker` をモックし、
+// (a) 未保存状態に応じた呼び出し引数、(b) blocked のときの確認ダイアログ結線
+// （離れる→proceed / とどまる→reset）を検証する。
+const mockBlockerProceed = vi.fn();
+const mockBlockerReset = vi.fn();
+const mockUseBlocker = vi.fn((_shouldBlock?: boolean) => ({
+  state: 'unblocked' as 'unblocked' | 'blocked' | 'proceeding',
+  proceed: mockBlockerProceed,
+  reset: mockBlockerReset,
+}));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useBlocker: (shouldBlock?: boolean) => mockUseBlocker(shouldBlock),
   };
 });
 
@@ -401,6 +418,15 @@ describe('EstimateDetailPage', () => {
     capturedToolbarProps = {};
     capturedTableProps = {};
     editorMode.useReal = false;
+    // `vi.resetAllMocks()` が実装を落とすため、離脱ガードの既定（未ブロック）を戻す（27.6）
+    mockBlockerProceed.mockReset();
+    mockBlockerReset.mockReset();
+    mockUseBlocker.mockReset();
+    mockUseBlocker.mockImplementation(() => ({
+      state: 'unblocked' as const,
+      proceed: mockBlockerProceed,
+      reset: mockBlockerReset,
+    }));
   });
 
   /**
@@ -2352,6 +2378,349 @@ describe('EstimateDetailPage', () => {
 
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+    });
+  });
+
+  // =========================================================================
+  // 未保存状態の表示と離脱ガード（Task 53.7 / REQ-27.4〜27.7）
+  //
+  // 実物の `useEstimateEditor` と `estimateEditReducer` を通し、画面の未保存表示・
+  // 離脱ガード・保存ボタン活性が編集状態と一致することを検証する。
+  // =========================================================================
+
+  describe('未保存状態の表示と離脱ガード (REQ-27)', () => {
+    /**
+     * 書き込み系APIの呼び出し総数
+     *
+     * 「自動保存を行わない」（27.7）は否定の要件のため、特定エンドポイントの
+     * 未呼び出しではなく**書き込み経路の総数が0であること**で証明する。
+     */
+    const writeCallCount = (): number =>
+      [
+        estimatesApi.saveEstimateDraft,
+        estimatesApi.createEstimate,
+        estimatesApi.updateEstimate,
+        estimatesApi.deleteEstimate,
+        estimatesApi.createEstimateItem,
+        estimatesApi.deleteEstimateItem,
+        estimatesApi.moveEstimateItem,
+        estimatesApi.reorderEstimateItems,
+        estimatesApi.batchUpdateEstimateItems,
+        estimatesApi.transferFromQuotation,
+        estimatesApi.calculateOverhead,
+        estimatesApi.addOverheadItem,
+        estimatesApi.addDiscountItem,
+      ].reduce((total, fn) => total + vi.mocked(fn).mock.calls.length, 0);
+
+    /** 保存応答（`PUT /api/estimates/:id/save`）の最小形 */
+    const savedResponse = (): estimatesApi.SaveEstimateDraftResponse => ({
+      id: 'est-001',
+      projectId: 'proj-001',
+      project: { id: 'proj-001', name: 'テストプロジェクト' },
+      name: 'テスト見積書',
+      sourceItemizedStatementId: 'is-001',
+      sourceItemizedStatementName: '内訳書A',
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-20T12:00:00.000Z',
+      itemCount: 1,
+      reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+      items: [
+        {
+          id: 'item-001',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 0,
+          itemType: 'STANDARD',
+          lines: [
+            {
+              id: 'line-001',
+              estimateItemId: 'item-001',
+              lineType: 'ESTIMATE',
+              name: 'サーバー確定名称',
+              specification: null,
+              unit: '式',
+              quantity: '1',
+              unitPrice: '100000',
+              amount: '100000',
+              remarks: null,
+              sourceReceivedQuotationLineItemId: null,
+              sourceVendorName: null,
+            },
+          ],
+          children: [],
+          createdAt: '2024-01-15T10:00:00.000Z',
+          updatedAt: '2024-01-20T12:00:00.000Z',
+        },
+      ],
+    });
+
+    const tableItems = () => (capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[];
+
+    const editEstimateName = async (value: string) => {
+      await act(async () => {
+        (
+          capturedTableProps.onLineChange as (
+            itemId: string,
+            lineId: string,
+            field: string,
+            value: string
+          ) => void
+        )('item-001', 'line-001', 'name', value);
+      });
+    };
+
+    /** ブラウザの離脱（タブを閉じる/再読み込み）を模した beforeunload の発火 */
+    const dispatchBeforeUnload = (): Event => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event;
+    };
+
+    const lastBlockerArg = () => {
+      const calls = mockUseBlocker.mock.calls;
+      return calls[calls.length - 1]?.[0];
+    };
+
+    beforeEach(() => {
+      editorMode.useReal = true;
+    });
+
+    /**
+     * 27.4: 未保存の変更がない場合、保存ボタンを無効状態で表示する
+     * 27.5: 未保存の変更がある間はその旨を画面上に表示する
+     */
+    it('未保存の変更が無い間は未保存表示を出さず保存ボタンを無効にする (27.4, 27.5)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+
+      expect(screen.queryByTestId('estimate-unsaved-indicator')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    });
+
+    /**
+     * 27.5: 未保存の変更がある間はその旨を画面上に表示する
+     * 27.4: 未保存の変更がある場合は保存ボタンが有効になる（無効表示は未保存が無い場合のみ）
+     */
+    it('未保存の変更がある間はその旨を画面上に表示する (27.5, 27.4)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+
+      const indicator = screen.getByTestId('estimate-unsaved-indicator');
+      expect(indicator).toBeInTheDocument();
+      expect(indicator).toHaveTextContent('未保存の変更があります');
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    });
+
+    /**
+     * 27.5: 未保存の変更が無くなった後は未保存の表示を残さない
+     * 27.4: 未保存の変更がない場合、保存ボタンを無効状態で表示する
+     */
+    it('保存が成功して未保存の変更が無くなると未保存表示が消える (27.5, 27.4)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(savedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+      expect(screen.getByTestId('estimate-unsaved-indicator')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('estimate-unsaved-indicator')).not.toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    });
+
+    /**
+     * 27.6: 未保存の変更がある状態で画面を離れようとした場合、確認を求める
+     *
+     * アプリ内の画面遷移は React Router の遷移ブロックで捕捉する。
+     * 未保存の変更が無い間はガードしない（確認を求めない）。
+     */
+    it('未保存の変更に応じてアプリ内遷移のガードが切り替わる (27.6)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      expect(lastBlockerArg()).toBe(false);
+
+      await editEstimateName('編集済み名称');
+
+      await waitFor(() => {
+        expect(lastBlockerArg()).toBe(true);
+      });
+    });
+
+    /**
+     * 27.6: 未保存の変更がある状態で画面を離れようとした場合、確認を求める
+     */
+    it('離脱が捕捉されたとき確認ダイアログを表示する (27.6)', async () => {
+      mockUseBlocker.mockImplementation(() => ({
+        state: 'blocked' as const,
+        proceed: mockBlockerProceed,
+        reset: mockBlockerReset,
+      }));
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+
+      expect(
+        await screen.findByRole('dialog', { name: '変更が保存されていません' })
+      ).toBeInTheDocument();
+    });
+
+    /**
+     * 27.6: 確認の結果に従って離脱する
+     */
+    it('確認ダイアログで「ページを離れる」を選ぶと遷移を続行する (27.6)', async () => {
+      mockUseBlocker.mockImplementation(() => ({
+        state: 'blocked' as const,
+        proceed: mockBlockerProceed,
+        reset: mockBlockerReset,
+      }));
+      const user = userEvent.setup();
+      renderPage();
+
+      const dialog = await screen.findByRole('dialog', { name: '変更が保存されていません' });
+      await user.click(within(dialog).getByRole('button', { name: 'ページを離れる' }));
+
+      expect(mockBlockerProceed).toHaveBeenCalledTimes(1);
+      expect(mockBlockerReset).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 27.6: 確認の結果に従って離脱を取りやめる（編集内容は保持される）
+     */
+    it('確認ダイアログで「このページにとどまる」を選ぶと遷移を取り消す (27.6)', async () => {
+      mockUseBlocker.mockImplementation(() => ({
+        state: 'blocked' as const,
+        proceed: mockBlockerProceed,
+        reset: mockBlockerReset,
+      }));
+      const user = userEvent.setup();
+      renderPage();
+
+      const dialog = await screen.findByRole('dialog', { name: '変更が保存されていません' });
+      await user.click(within(dialog).getByRole('button', { name: 'このページにとどまる' }));
+
+      expect(mockBlockerReset).toHaveBeenCalledTimes(1);
+      expect(mockBlockerProceed).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 27.6: ブラウザ操作による離脱（タブを閉じる・再読み込み）でも確認を求める
+     *
+     * 標準の beforeunload を打ち消す（`preventDefault`）ことでブラウザが確認を表示する。
+     */
+    it('未保存の変更がある間はブラウザの離脱で確認を求める (27.6)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+
+      await waitFor(() => {
+        expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
+      });
+    });
+
+    /**
+     * 27.6: 未保存の変更が無い間は確認を求めない（離脱を妨げない）
+     */
+    it('未保存の変更が無い間はブラウザの離脱で確認を求めない (27.6)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+
+      expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
+    });
+
+    /**
+     * 27.6: 画面を離れた後に確認を残さない（リスナーを解除する）
+     */
+    it('画面のアンマウント後はブラウザの離脱で確認を求めない (27.6)', async () => {
+      const { unmount } = renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+      await waitFor(() => {
+        expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
+      });
+
+      unmount();
+
+      expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
+    });
+
+    /**
+     * 27.7: 自動保存を行わない
+     *
+     * 編集・行追加を行ったうえで時間を進め、書き込み経路の呼び出し総数が0のままで
+     * あることを確認する。書き込みが発生するのは利用者が保存ボタンを押した場合のみ。
+     *
+     * **偽の timer は描画前に導入する**。編集より後に `vi.useFakeTimers()` を
+     * 呼ぶと、それ以前に実タイマーで予約された自動保存が `advanceTimersByTime` の
+     * 対象外となり、自動保存があっても検出できない（変異検証で確認済み）。
+     * 偽の timer 下では `waitFor` / `userEvent` の内部待機が進まないため、
+     * `act` と `advanceTimersByTimeAsync` / `fireEvent` だけで駆動する。
+     */
+    it('編集後に時間が経過しても自動保存を行わない (27.7)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(savedResponse());
+      vi.useFakeTimers();
+
+      try {
+        renderPage();
+
+        // 初回読み込み（モックAPIの解決）はマイクロタスクのみで完了する
+        await act(async () => {
+          await Promise.resolve();
+        });
+        expect(tableItems()).toHaveLength(1);
+
+        await editEstimateName('編集1');
+        await editEstimateName('編集2');
+        await act(async () => {
+          (capturedToolbarProps.onAddItem as () => void)();
+        });
+        expect(writeCallCount()).toBe(0);
+
+        // 時間経過（デバウンス/インターバルによる自動保存があれば発火する）
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+        });
+
+        expect(writeCallCount()).toBe(0);
+        // 未保存のまま維持される（自動保存で解消されていない）
+        expect(screen.getByTestId('estimate-unsaved-indicator')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+
+        // 書き込みは利用者の明示的な保存操作でのみ発生する
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        });
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+        expect(writeCallCount()).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

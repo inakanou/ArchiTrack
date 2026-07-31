@@ -30,11 +30,24 @@ vi.mock('../../api/estimates');
 
 // useNavigateモック
 const mockNavigate = vi.fn();
+
+// useBlockerモック（Task 53.7: 未保存の変更がある状態での離脱ガード, 27.6）
+//
+// 本ファイルは MemoryRouter（非データルーター）で描画するため、実物の `useBlocker`
+// は利用できない。ここでは離脱ガードそのものは検証しないため、常に「未ブロック」を
+// 返す。ガードの挙動は `src/pages/EstimateDetailPage.test.tsx` で検証する。
+const mockBlockerProceed = vi.fn();
+const mockBlockerReset = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useBlocker: () => ({
+      state: 'unblocked' as const,
+      proceed: mockBlockerProceed,
+      reset: mockBlockerReset,
+    }),
   };
 });
 

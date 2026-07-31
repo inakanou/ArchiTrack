@@ -14,11 +14,17 @@
  * - REQ-23.1-23.10: 見積項目操作ツールバー
  * - REQ-24.1-24.5: 見積項目の階層移動
  *
+ * Task 53.7 追加: 未保存状態の表示と離脱ガード
+ * - 27.4: 未保存の変更がない場合、保存ボタンを無効状態で表示する
+ * - 27.5: 未保存の変更がある間はその旨を画面上に表示する
+ * - 27.6: 未保存の変更がある状態で画面を離れようとした場合、確認を求める
+ * - 27.7: 自動保存を行わない（書き込みは保存ボタンの操作だけを起点とする）
+ *
  * @module pages/EstimateDetailPage
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import {
   getEstimateDetail,
   deleteEstimate,
@@ -40,8 +46,10 @@ import type {
   OverheadCostResult,
 } from '../components/estimate/OverheadCostPanel';
 import { Breadcrumb } from '../components/common';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import type {
   EstimateEditorSavePayload,
   EstimateEditorSaveResult,
@@ -304,6 +312,20 @@ const styles = {
     marginBottom: '12px',
     color: '#92400e',
     fontSize: '14px',
+  } as React.CSSProperties,
+  /** 未保存の変更がある間の表示（27.5） */
+  unsavedIndicator: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    backgroundColor: '#fef3c7',
+    border: '1px solid #fcd34d',
+    borderRadius: '9999px',
+    padding: '4px 12px',
+    color: '#92400e',
+    fontSize: '13px',
+    fontWeight: 500,
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   saveErrorCloseButton: {
     border: 'none',
@@ -650,6 +672,31 @@ export default function EstimateDetailPage() {
     onSaveSuccess: handleSaveSuccess,
     onSaveError: handleSaveError,
   });
+
+  // ==========================================================================
+  // 未保存の変更がある状態での離脱ガード（27.6）
+  //
+  // 「画面を離れようとした場合」は2経路ある。どちらか一方だけでは編集内容が
+  // 無言で失われるため両方を塞ぐ。
+  // - アプリ内の画面遷移: `useBlocker(isDirty)` で遷移を保留し、共有の
+  //   `UnsavedChangesDialog` で確認する（離れる→`proceed()` / とどまる→`reset()`）。
+  //   本画面はデータルーター（`createBrowserRouter`、`App.tsx`）配下の
+  //   `routes.tsx` に登録されているため `useBlocker` が機能する。
+  // - ブラウザによる離脱（タブを閉じる・再読み込み）: 共有フック
+  //   `useUnsavedChanges` の `beforeunload` ハンドラでブラウザ標準の確認を出す。
+  //
+  // 未保存判定の正は `estimateEditReducer` 側の `editor.isDirty`（53.4）であり、
+  // `useUnsavedChanges` は自前の dirty state を持つため、`setDirty` で追従させる。
+  // `enabled` オプションだけを渡してもフック内部の dirty は false のままで
+  // `beforeunload` が登録されないことに注意（`useUnsavedChanges.ts:216-239`）。
+  // ==========================================================================
+  const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges();
+
+  useEffect(() => {
+    setUnsavedGuardDirty(editor.isDirty);
+  }, [editor.isDirty, setUnsavedGuardDirty]);
+
+  const blocker = useBlocker(editor.isDirty);
 
   // 選択中の項目データを取得（REQ-23）
   const selectedItem = useMemo(() => {
@@ -1151,7 +1198,17 @@ export default function EstimateDetailPage() {
                   <span style={{ color: '#b45309', fontWeight: 500 }}>業者</span>
                 </label>
               </div>
-              {/* 保存ボタン */}
+              {/* 未保存の変更がある間の表示（27.5） */}
+              {editor.isDirty && (
+                <span
+                  role="status"
+                  data-testid="estimate-unsaved-indicator"
+                  style={styles.unsavedIndicator}
+                >
+                  未保存の変更があります
+                </span>
+              )}
+              {/* 保存ボタン（27.4: 未保存の変更がない間は無効表示） */}
               <button
                 type="button"
                 onClick={handleSave}
@@ -1285,6 +1342,13 @@ export default function EstimateDetailPage() {
           </div>
         </div>
       )}
+
+      {/* 未保存の変更がある状態でのアプリ内遷移の確認（27.6） */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={() => blocker.proceed?.()}
+        onStay={() => blocker.reset?.()}
+      />
     </main>
   );
 }

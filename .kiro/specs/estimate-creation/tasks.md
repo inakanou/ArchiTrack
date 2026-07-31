@@ -1139,7 +1139,7 @@
   - _Requirements: 12.7, 43.1, 43.2, 43.3, 43.4_
   - _Depends: 53.5_
 
-- [ ] 53.7 未保存状態の表示と離脱ガード
+- [x] 53.7 未保存状態の表示と離脱ガード
   - 未保存の変更がある間はその旨を画面上に表示する
   - 未保存の変更がある状態で画面を離れようとした場合に確認を求める
   - 自動保存を行わない
@@ -1590,3 +1590,8 @@
 - **【段階1リリース前に必須・53.9 の範囲を拡大済み】諸経費追加・転記完了で作られた行が次の保存で消える**: 詳細は上記 53.9 の注記を参照。53.6 の受入基準が再取得の撤去を要求する一方、境界内に非破壊な取り込み手段が無い（ダイアログのコールバックは `() => void` で戻り値を持たず、`addOverheadItem` は行を返すもののフックの唯一の取り込み口 `setItems` が `baselineRef` を再設定して `isDirty` を消す＝53.4 で REJECT された破棄パターンになる）。恒久解消は 55.5／55.6。
 - **【54.10 への申し送り・計画の欠落】要件 44.6「それ以上上げられないことを示す」を表示する担当タスクが存在しない**: フックは `CANNOT_OUTDENT_ROOT`／`NO_PRECEDING_SIBLING` を保持するがページは何も表示しない。53.3／53.10 は 44.6 を引用するが reducer・単体テストの範囲にとどまり、**54.10 の `_Requirements`（23.1, 23.3, 23.7〜23.11, 44.8）に 44.6 が含まれていない**。退行ではない（従来のページも黙って return していた）が、このままでは計画から抜け落ちる。54.10 に追加すること。
 - **【53.10 への申し送り】`indentRange`／`outdentRange`／`moveRow` に未知キーのテストが無い**: 兄弟アクション（`deleteRows`／`duplicateRows`／`reorderByDnd`／`updateLineField`）には全てあるが、この3つだけ欠けている。`normalizeRangeKeys` が不存在キーを除去するため構造上安全で、ツールバーは描画済みツリーの `selectedItemId` しか渡さないので到達不能だが、テストの網羅性として 53.10 で補うこと。
+- 53.7: `EstimateDetailPage` に未保存インジケーター（`role="status"` / `data-testid="estimate-unsaved-indicator"`）と離脱ガードを実装。**27.6 は経路を限定していない**ため、アプリ内遷移（`useBlocker` ＋ 共有 `UnsavedChangesDialog`）とブラウザ離脱（共有 `useUnsavedChanges` の `beforeunload`）の**両方**を実装。本番は `createBrowserRouter` ＋ `RouterProvider`（`App.tsx`）のデータルーター配下なので `useBlocker` が機能する。単体テストは `MemoryRouter`（非データルーター）で実物の `useBlocker` が invariant で落ちるため、既存4画面と同じ確立済みパターンでモック（ただし**引数の false→true 遷移**と `proceed`/`reset` の結線を実アサートしており、変異検証で load-bearing を確認済み）。`beforeunload` はモックせず実ハンドラを通し `defaultPrevented` で検証、アンマウント後の解除も実証。
+- **【要件番号のずれに注意】27.4=保存ボタン無効 / 27.5=未保存表示 / 27.6=離脱ガード / 27.7=自動保存なし**（requirements.md:481-484）。53.7 のディスパッチ時に親が1つずれた番号（27.5=離脱ガード、27.6=自動保存）を実装者へ渡してしまったが、実装者が requirements.md を直接読んで訂正した。**指示の散文ではなく requirements.md 本文を正とすること。**
+- **【27.7 の負の要件をどう証明したか】**「自動保存を行わない」はコメントでは証明できない。13本の書き込み系APIの呼び出し総数を合算し、2回のセル編集＋行追加の後に**10分ぶんタイマーを進めても0件**であることを検証している。**初版は `vi.useFakeTimers()` を編集の後に呼んでいたため実タイマー予約の自動保存を検出できず、変異（3秒後に `save()` する useEffect の注入）が素通りしていた**。偽タイマーを描画前へ移し `advanceTimersByTimeAsync` / `fireEvent` 駆動へ書き換えて実効性を確保。**負の要件のテストは必ず変異で殺せることを確認すること。**
+- **【本機能の範囲外・別課題として要対応】他機能の2画面で離脱ガードが機能していない**: 共有 `useUnsavedChanges` の `beforeunload` 登録はフック**内部**の dirty state を条件とする（`useUnsavedChanges.ts:216-239` の `if (!enabled || !isDirty) return;`）。`QuantityTableEditPage.tsx:492` と `ConstructionPhotoDetailPage.tsx:298` は `{ enabled: isDirty }` を渡すだけで `markAsChanged()`／`setDirty()` を一度も呼ばないため**リスナーが一度も登録されない**。53.7 は同じ罠を避けて `setDirty(editor.isDirty)` で内部状態を追従させた（共有フックは無変更）。当該2画面は別途の課題として起票が必要。
+- **【53.9 への申し送り】未保存状態で見積書を削除すると、削除後の `navigate()` が離脱ガードに捕捉される**（`EstimateDetailPage.tsx:914-928` ＋ `:699`）。「このページにとどまる」を選ぶと削除済みレコードの詳細画面に取り残される。27.6 の文言には矛盾しない（実際に未保存のまま画面を離れようとしている）ため 53.7 では未対応としたが、削除前に編集状態をクリアするかバイパス用の ref を立てるのが適切。
