@@ -20,6 +20,11 @@
  * - 27.6: 未保存の変更がある状態で画面を離れようとした場合、確認を求める
  * - 27.7: 自動保存を行わない（書き込みは保存ボタンの操作だけを起点とする）
  *
+ * Task 53.9 追加: 転記系ダイアログの暫定ガード（段階3の 55.7 で撤去する暫定措置）
+ * - 43.4: 転記・案分・利益率適用・諸経費追加でそれまでの未保存の編集内容を保持する
+ * - 49.5: これらの操作の実行後の保存で競合エラーを発生させない
+ * - 42.9: 保存処理において既存の見積項目とその実行予算項目からの参照関係を維持する
+ *
  * @module pages/EstimateDetailPage
  */
 
@@ -327,6 +332,15 @@ const styles = {
     fontWeight: 500,
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
+  /** 転記系ダイアログの起動を抑止したときの案内（53.9 の暫定措置） */
+  transferGuardNotice: {
+    backgroundColor: '#fef3c7',
+    border: '1px solid #fcd34d',
+    borderRadius: '6px',
+    padding: '12px 16px',
+    color: '#92400e',
+    fontSize: '14px',
+  } as React.CSSProperties,
   saveErrorCloseButton: {
     border: 'none',
     backgroundColor: 'transparent',
@@ -346,6 +360,32 @@ const styles = {
     padding: '0 4px',
   } as React.CSSProperties,
 };
+
+// ============================================================================
+// 転記系ダイアログの暫定ガード（Task 53.9）
+// ============================================================================
+
+/**
+ * 未保存の変更がある間に転記系ダイアログの起動を抑止したときの案内（53.9）
+ *
+ * 段階1の転記・案分・利益率・諸経費追加は依然としてサーバーへ書き込むため、
+ * 未保存の編集を抱えたまま実行すると (a) 結果を取り込むための再同期が編集内容を
+ * 上書きし（43.4 違反）、(b) サーバー側で進んだ `Estimate.updatedAt` により
+ * 次の保存が競合（409）になる（49.5 違反）。実行前の保存を促して両方を塞ぐ。
+ */
+const TRANSFER_GUARD_MESSAGE =
+  '未保存の変更があります。転記・案分・利益率適用・諸経費の追加を行う前に保存してください。';
+
+/**
+ * 転記系の操作後の再同期に失敗したときの案内（53.9）
+ *
+ * 再同期できないとサーバー側で作られた行をクライアントが知らないままになり、
+ * 次の保存でその行がペイロードに現れず削除されてしまう
+ * （design.md `#### 保存ペイロードとDB状態の対応`: `id` あり・ペイロードに不在 → `deleteMany`）。
+ * 黙って続行させず、再読み込みを促す。
+ */
+const TRANSFER_RESYNC_FAILED_MESSAGE =
+  '転記結果の取り込みに失敗しました。保存する前に画面を再読み込みしてください。';
 
 // ============================================================================
 // ヘルパー関数
@@ -606,6 +646,9 @@ export default function EstimateDetailPage() {
   // 保存失敗に使うと編集中の明細ごと画面から消えてしまう。
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // 転記系ダイアログの暫定ガードの案内（53.9）
+  const [transferGuardMessage, setTransferGuardMessage] = useState<string | null>(null);
+
   /**
    * 明細の一括保存（27.3, 42.1, 42.2, 42.5, 42.6, 54.8）
    *
@@ -700,7 +743,63 @@ export default function EstimateDetailPage() {
     setUnsavedGuardDirty(editor.isDirty);
   }, [editor.isDirty, setUnsavedGuardDirty]);
 
-  const blocker = useBlocker(editor.isDirty);
+  // 削除完了後の遷移先（27.6 の離脱ガードの対象外とするため state で保持する）
+  //
+  // 未保存の変更がある状態で見積書を削除すると、削除後の `navigate()` まで離脱ガードに
+  // 捕捉され、「このページにとどまる」を選ぶと**削除済みレコードの詳細画面**に
+  // 取り残される（53.7 の申し送り）。27.6 のガードは「編集内容を失う遷移」を対象と
+  // するもので、編集対象そのものが消えた後の退避には当てはまらない。遷移先を state に
+  // 置いてガードを解除した描画で遷移させ、確認を挟まずに一覧へ戻す。
+  const [postDeleteRedirectPath, setPostDeleteRedirectPath] = useState<string | null>(null);
+
+  const blocker = useBlocker(editor.isDirty && postDeleteRedirectPath === null);
+
+  useEffect(() => {
+    if (postDeleteRedirectPath !== null) {
+      navigate(postDeleteRedirectPath);
+    }
+  }, [postDeleteRedirectPath, navigate]);
+
+  // ==========================================================================
+  // 転記系ダイアログの暫定ガード（53.9 / 43.4, 49.5, 42.9）
+  //
+  // 段階3（55.5・55.6）でこれらの操作がクライアント計算へ移り、55.7 でガードごと
+  // 撤去されるまでの**暫定措置**である。段階1の時点では転記・案分・利益率適用・
+  // 諸経費追加のいずれもサーバーへ書き込むため、次の2点を同時に塞ぐ必要がある。
+  //
+  // 1. 起動抑止: 未保存の編集を抱えたまま実行させない。実行を許すと、結果を取り込む
+  //    ための再同期（`editor.setItems`）が未保存の編集を上書きしてしまう（43.4）。
+  // 2. 操作直後の再同期: サーバー側で作られた行を編集状態へ取り込む。取り込まないと
+  //    次の保存ペイロードに当該行が現れず、design.md `#### 保存ペイロードとDB状態の対応`
+  //    の「`id` あり・ペイロードに不在 → `deleteMany`」規則でサーバー上の行が消える
+  //    （42.9 の参照関係も失われる）。あわせて `estimate.updatedAt` を最新へ進めるため、
+  //    サーバー書き込みで陳腐化した楽観ロックの基準時刻が原因の 409 も起きない（49.5）。
+  //
+  // 1 と 2 は対で成立する。ガードにより操作時点の編集状態は必ずクリーンなので、
+  // `setItems` が `baselineRef` を再設定しても失われる編集は存在しない。
+  // ==========================================================================
+
+  // 未保存が解消されたら起動抑止の案内を下げる（再同期失敗の案内は残す）
+  useEffect(() => {
+    if (!editor.isDirty) {
+      setTransferGuardMessage((current) => (current === TRANSFER_GUARD_MESSAGE ? null : current));
+    }
+  }, [editor.isDirty]);
+
+  /**
+   * 転記系ダイアログの起動（未保存の変更がある間は抑止して保存を促す）
+   */
+  const openGuardedTransferDialog = useCallback(
+    (open: () => void): void => {
+      if (editor.isDirty) {
+        setTransferGuardMessage(TRANSFER_GUARD_MESSAGE);
+        return;
+      }
+      setTransferGuardMessage(null);
+      open();
+    },
+    [editor.isDirty]
+  );
 
   // 選択中の項目データを取得（REQ-23）
   const selectedItem = useMemo(() => {
@@ -849,6 +948,32 @@ export default function EstimateDetailPage() {
   }, [editor]);
 
   /**
+   * サーバー側の書き込みを伴う操作の直後に編集状態を再同期する（53.9 / 42.9, 49.5）
+   *
+   * `openGuardedTransferDialog` により**操作時点の編集状態はクリーン**であることが
+   * 保証されるため、`editor.setItems` による差し替えで失われる未保存の編集は無い。
+   * 明細ツリーだけでなく `estimate`（`updatedAt` を含むスナップショット）も更新する。
+   * `updatedAt` を据え置くと、サーバー書き込みで進んだ版と食い違って次の保存が
+   * 競合（409）になり 49.5 に反する。
+   *
+   * 段階3（55.5・55.6）で転記・案分・利益率適用・諸経費追加がクライアント計算へ
+   * 移ると書き込み自体が消えるため、本再同期は 55.7 でガードごと撤去する。
+   */
+  const resyncAfterServerSideMutation = useCallback(async (): Promise<void> => {
+    if (!id) {
+      return;
+    }
+    try {
+      const data = await getEstimateDetail(id);
+      setEstimate(data);
+      editor.setItems(toEditFormat(data.items));
+      setTransferGuardMessage(null);
+    } catch {
+      setTransferGuardMessage(TRANSFER_RESYNC_FAILED_MESSAGE);
+    }
+  }, [id, editor]);
+
+  /**
    * 諸経費の自動計算（REQ-7.3, REQ-8.3, REQ-9.3）
    *
    * パネルから受け取ったパラメータをAPI形式へ変換して計算APIを呼ぶ。
@@ -882,7 +1007,8 @@ export default function EstimateDetailPage() {
    * クライアント側の編集状態への反映（reducer の `addOverheadItem` アクション）は段階3の
    * 55.6 が担当し、エンドポイントの撤去は 55.7 が行う
    * （design.md `#### Modified Files` の撤去段階表: 本経路は**段階3**）。
-   * それまでの間、追加した行は画面の再読み込み後に表示される。
+   * それまでの間は、追加された行を `resyncAfterServerSideMutation` で編集状態へ
+   * 取り込む（53.9）。取り込まないと次の保存でその行が削除される。
    */
   const handleAddOverheadItem = useCallback(
     async (params: AddOverheadItemParams): Promise<void> => {
@@ -893,8 +1019,9 @@ export default function EstimateDetailPage() {
         unitPrice: Number.isNaN(unitPrice) ? undefined : unitPrice,
       });
       setIsOverheadDialogOpen(false);
+      await resyncAfterServerSideMutation();
     },
-    [estimate]
+    [estimate, resyncAfterServerSideMutation]
   );
 
   /**
@@ -922,14 +1049,15 @@ export default function EstimateDetailPage() {
 
     try {
       await deleteEstimate(id, estimate.updatedAt);
-      navigate(`/projects/${estimate.projectId}/estimates`);
+      // 離脱ガードを解除した描画で遷移させる（削除済み画面への取り残しを防ぐ）
+      setPostDeleteRedirectPath(`/projects/${estimate.projectId}/estimates`);
     } catch {
       setError('見積書の削除に失敗しました');
       setIsDeleteDialogOpen(false);
     } finally {
       setIsDeleting(false);
     }
-  }, [id, estimate, navigate]);
+  }, [id, estimate]);
 
   /**
    * 転記・案分・利益率適用の完了時の処理（43.4）
@@ -942,12 +1070,13 @@ export default function EstimateDetailPage() {
    * 反映する経路（reducer の `applyQuotationTransfer` / `applyNetAllocation` /
    * `applyProfitRate`）は段階3の 55.5・55.3・55.4 が追加し、エンドポイントの撤去は
    * 55.7 が行う（design.md `#### Modified Files` の撤去段階表: 本経路は**段階3**）。
-   * それまでの間、転記結果は画面の再読み込み後に表示され、未保存の編集内容は失われない。
-   * 未保存状態でのダイアログ起動抑止は 53.9 が担当する。
+   * それまでの間は、`openGuardedTransferDialog` が未保存の編集を抱えたままの実行を
+   * 抑止したうえで、サーバー側で作られた行を `resyncAfterServerSideMutation` で
+   * 編集状態へ取り込む（53.9）。取り込まないと次の保存でその行が削除される。
    */
   const handleTransferComplete = useCallback(() => {
-    // 段階3（55.3〜55.5）で編集状態への反映に置き換える。ここでは再取得を行わない。
-  }, []);
+    void resyncAfterServerSideMutation();
+  }, [resyncAfterServerSideMutation]);
 
   // ローディング表示
   if (isLoading) {
@@ -1107,31 +1236,34 @@ export default function EstimateDetailPage() {
         </div>
 
         {/* アクションボタン */}
+        {/* 転記・案分・利益率適用・諸経費追加はサーバーへ書き込むため、未保存の
+            変更がある間は起動を抑止する（53.9 の暫定措置。55.7 で撤去）。
+            出力はサーバーへ書き込まないためガードの対象外。 */}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
           <button
             type="button"
-            onClick={() => setIsTransferDialogOpen(true)}
+            onClick={() => openGuardedTransferDialog(() => setIsTransferDialogOpen(true))}
             style={{ ...styles.actionButton, ...styles.secondaryButton }}
           >
             受領見積書を業者金額に転記
           </button>
           <button
             type="button"
-            onClick={() => setIsNetDialogOpen(true)}
+            onClick={() => openGuardedTransferDialog(() => setIsNetDialogOpen(true))}
             style={{ ...styles.actionButton, ...styles.secondaryButton }}
           >
             業者金額を実行金額に転記
           </button>
           <button
             type="button"
-            onClick={() => setIsProfitDialogOpen(true)}
+            onClick={() => openGuardedTransferDialog(() => setIsProfitDialogOpen(true))}
             style={{ ...styles.actionButton, ...styles.secondaryButton }}
           >
             実行金額を見積金額に転記
           </button>
           <button
             type="button"
-            onClick={() => setIsOverheadDialogOpen(true)}
+            onClick={() => openGuardedTransferDialog(() => setIsOverheadDialogOpen(true))}
             style={{ ...styles.actionButton, ...styles.secondaryButton }}
           >
             諸経費を計算して追加
@@ -1144,6 +1276,17 @@ export default function EstimateDetailPage() {
             出力
           </button>
         </div>
+
+        {/* 転記系ダイアログの暫定ガードの案内（53.9） */}
+        {transferGuardMessage && (
+          <div
+            role="alert"
+            data-testid="estimate-transfer-guard"
+            style={styles.transferGuardNotice}
+          >
+            {transferGuardMessage}
+          </div>
+        )}
 
         {/* 見積項目テーブル (REQ-14.9, REQ-23) */}
         <div style={styles.card}>

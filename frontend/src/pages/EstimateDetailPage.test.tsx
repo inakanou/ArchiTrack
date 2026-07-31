@@ -2433,10 +2433,12 @@ describe('EstimateDetailPage', () => {
     /**
      * 43.4: 諸経費追加を行った場合、それまでの未保存の編集内容を保持する
      *
-     * 諸経費行の追加そのものをクライアント側へ移すのは 55.6（段階3）。
-     * 53.6 では**明細の全件再取得**を撤去し、編集内容が失われないことを保証する。
+     * 諸経費行の追加そのものをクライアント側へ移すのは 55.6（段階3）。段階1では
+     * サーバー書き込みが残るため、53.9 の暫定ガードが**未保存の編集がある間の起動**を
+     * 抑止する。実行できない以上、未保存の編集が失われる余地も無い。
+     * ガード解除後（＝段階3）の 43.4 は 55.6 が担う。
      */
-    it('諸経費追加で未保存の編集内容が保持され明細を再取得しないこと (43.4)', async () => {
+    it('未保存の編集がある間は諸経費ダイアログが開かず編集内容が保持されること (43.4, 53.9)', async () => {
       vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
       const user = userEvent.setup();
       renderPage();
@@ -2447,12 +2449,9 @@ describe('EstimateDetailPage', () => {
       await editItemName('item-a', '編集済みA項目');
 
       await user.click(screen.getByText('諸経費を計算して追加'));
-      await user.click(screen.getByTestId('overhead-add'));
 
-      await waitFor(() => {
-        expect(estimatesApi.addOverheadItem).toHaveBeenCalled();
-      });
-
+      expect(screen.queryByTestId('overhead-cost-dialog')).not.toBeInTheDocument();
+      expect(estimatesApi.addOverheadItem).not.toHaveBeenCalled();
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
       expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
@@ -2461,10 +2460,10 @@ describe('EstimateDetailPage', () => {
     /**
      * 43.4: 転記を行った場合、それまでの未保存の編集内容を保持する
      *
-     * 転記そのものをクライアント側へ移すのは 55.5（段階3）。
-     * 53.6 では**明細の全件再取得**を撤去し、編集内容が失われないことを保証する。
+     * 転記そのものをクライアント側へ移すのは 55.5（段階3）。段階1では 53.9 の
+     * 暫定ガードが未保存の編集がある間の起動を抑止する。
      */
-    it('転記完了で未保存の編集内容が保持され明細を再取得しないこと (43.4)', async () => {
+    it('未保存の編集がある間は転記ダイアログが開かず編集内容が保持されること (43.4, 53.9)', async () => {
       const user = userEvent.setup();
       renderPage();
 
@@ -2474,11 +2473,8 @@ describe('EstimateDetailPage', () => {
       await editItemName('item-a', '編集済みA項目');
 
       await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
-      await waitFor(() => {
-        expect(screen.getByTestId('mock-transfer-dialog')).toBeInTheDocument();
-      });
-      await user.click(screen.getByTestId('transfer-complete'));
 
+      expect(screen.queryByTestId('mock-transfer-dialog')).not.toBeInTheDocument();
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
       expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
@@ -2486,8 +2482,10 @@ describe('EstimateDetailPage', () => {
 
     /**
      * 43.4: NET案分・利益率適用の後も未保存の編集内容を保持する
+     *
+     * 段階1では 53.9 の暫定ガードが未保存の編集がある間の起動を抑止する。
      */
-    it('NET案分・利益率の完了で明細を再取得しないこと (43.4)', async () => {
+    it('未保存の編集がある間はNET案分・利益率ダイアログが開かないこと (43.4, 53.9)', async () => {
       const user = userEvent.setup();
       renderPage();
 
@@ -2497,19 +2495,391 @@ describe('EstimateDetailPage', () => {
       await editItemName('item-a', '編集済みA項目');
 
       await user.click(screen.getByRole('button', { name: /業者金額を実行金額に転記/ }));
-      await waitFor(() => {
-        expect(screen.getByTestId('mock-net-dialog')).toBeInTheDocument();
-      });
-      await user.click(screen.getByTestId('net-complete'));
+      expect(screen.queryByTestId('mock-net-dialog')).not.toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: /実行金額を見積金額に転記/ }));
-      await waitFor(() => {
-        expect(screen.getByTestId('mock-profit-dialog')).toBeInTheDocument();
-      });
-      await user.click(screen.getByTestId('profit-complete'));
+      expect(screen.queryByTestId('mock-profit-dialog')).not.toBeInTheDocument();
 
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+    });
+  });
+
+  // =========================================================================
+  // 転記系ダイアログの暫定ガード（Task 53.9 / 43.4, 49.5, 42.9）
+  //
+  // 段階1では転記・案分・利益率適用・諸経費追加がサーバーへ書き込むため、
+  // (1) 未保存の編集がある間は起動を抑止し、(2) 操作直後にサーバー側で作られた行を
+  // 編集状態へ取り込む。(2) を欠くと、次の保存ペイロードに当該行が現れず
+  // design.md `#### 保存ペイロードとDB状態の対応`（`id` あり・ペイロードに不在 →
+  // `deleteMany`）でサーバー上の行が消える。55.7 でガードごと撤去する暫定措置。
+  // =========================================================================
+
+  describe('転記系ダイアログの暫定ガード (Task 53.9)', () => {
+    const buildLine = (itemId: string, name: string) => ({
+      id: `line-${itemId}`,
+      estimateItemId: itemId,
+      lineType: 'ESTIMATE' as const,
+      name,
+      specification: null,
+      unit: '式',
+      quantity: '1',
+      unitPrice: '100000',
+      amount: '100000',
+      remarks: null,
+      sourceReceivedQuotationLineItemId: null,
+      sourceVendorName: null,
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+
+    const buildItem = (id: string, name: string, displayOrder: number) => ({
+      id,
+      estimateId: 'est-001',
+      parentId: null,
+      displayOrder,
+      lines: [buildLine(id, name)],
+      children: [],
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+
+    /** 読み込み直後のサーバー状態（ルート2件） */
+    const baseDetail = {
+      ...mockEstimateDetail,
+      updatedAt: '2024-01-15T10:00:00.000Z',
+      items: [buildItem('item-a', 'A項目', 0), buildItem('item-b', 'B項目', 1)],
+    } as unknown as estimatesApi.EstimateDetail;
+
+    /**
+     * 転記系の操作でサーバー側に行が増えた状態
+     *
+     * 書き込みを伴うため `Estimate.updatedAt` も進む。クライアントが読み込み時の
+     * スナップショットを持ち続けると次の保存が 409 になる（49.5）。
+     */
+    const resyncedDetail = {
+      ...mockEstimateDetail,
+      updatedAt: '2024-02-01T09:00:00.000Z',
+      items: [
+        buildItem('item-a', 'A項目', 0),
+        buildItem('item-b', 'B項目', 1),
+        buildItem('item-server', '共通仮設費', 2),
+      ],
+    } as unknown as estimatesApi.EstimateDetail;
+
+    const buildSavedResponse = (): estimatesApi.SaveEstimateDraftResponse =>
+      ({
+        id: 'est-001',
+        projectId: 'proj-001',
+        project: { id: 'proj-001', name: 'テストプロジェクト' },
+        name: 'テスト見積書',
+        sourceItemizedStatementId: 'is-001',
+        sourceItemizedStatementName: '内訳書A',
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-03-01T00:00:00.000Z',
+        itemCount: 2,
+        reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+        items: [
+          { ...buildItem('item-a', 'A項目', 0), itemType: 'STANDARD' },
+          { ...buildItem('item-b', 'B項目', 1), itemType: 'STANDARD' },
+        ],
+      }) as unknown as estimatesApi.SaveEstimateDraftResponse;
+
+    const tableItems = () => (capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[];
+
+    const itemNameOf = (item: EstimateItemHierarchyEdit | undefined) =>
+      item?.lines.find((line) => line.lineType === 'ESTIMATE')?.name;
+
+    const editItemName = async (itemId: string, value: string) => {
+      await act(async () => {
+        (
+          capturedTableProps.onLineChange as (
+            itemId: string,
+            lineId: string,
+            field: string,
+            value: string
+          ) => void
+        )(itemId, `line-${itemId}`, 'name', value);
+      });
+    };
+
+    /** 保存ペイロード（`saveEstimateDraft` の第2引数） */
+    const savePayload = (): estimatesApi.SaveEstimateDraftRequest =>
+      vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]![1];
+
+    beforeEach(() => {
+      editorMode.useReal = true;
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue(baseDetail);
+    });
+
+    /**
+     * 未保存の変更がある間は4種のダイアログがいずれも開かず、保存を促す
+     *
+     * 43.4: 転記・案分・利益率適用・諸経費追加でそれまでの未保存の編集内容を保持する
+     * 49.5: これらの操作の実行後の保存で競合エラーを発生させない
+     */
+    it('未保存の変更がある間は転記系4ダイアログが開かず保存を促すこと (43.4, 49.5)', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      await editItemName('item-a', '編集済みA項目');
+
+      const guarded: [RegExp, string][] = [
+        [/受領見積書を業者金額に転記/, 'mock-transfer-dialog'],
+        [/業者金額を実行金額に転記/, 'mock-net-dialog'],
+        [/実行金額を見積金額に転記/, 'mock-profit-dialog'],
+        [/諸経費を計算して追加/, 'overhead-cost-dialog'],
+      ];
+
+      for (const [buttonName, dialogTestId] of guarded) {
+        await user.click(screen.getByRole('button', { name: buttonName }));
+        expect(screen.queryByTestId(dialogTestId)).not.toBeInTheDocument();
+        expect(screen.getByTestId('estimate-transfer-guard')).toHaveTextContent(
+          '転記・案分・利益率適用・諸経費の追加を行う前に保存してください'
+        );
+      }
+
+      // 抑止中はサーバーへの読み書きが一切起きず、編集内容もそのまま残る
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
+    });
+
+    /** ガードの対象は転記系4種のみ。出力はサーバーへ書き込まないため対象外 */
+    it('未保存の変更があっても出力ダイアログは開くこと (53.9)', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      await editItemName('item-a', '編集済みA項目');
+
+      await user.click(screen.getByRole('button', { name: '出力' }));
+      expect(screen.getByTestId('mock-export-dialog')).toBeInTheDocument();
+      expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
+    });
+
+    /** 未保存の変更が無ければ従来どおり開く */
+    it('未保存の変更が無い間は転記系4ダイアログが開くこと (53.9)', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
+      expect(screen.getByTestId('mock-transfer-dialog')).toBeInTheDocument();
+      await user.click(screen.getByTestId('transfer-close'));
+
+      await user.click(screen.getByRole('button', { name: /業者金額を実行金額に転記/ }));
+      expect(screen.getByTestId('mock-net-dialog')).toBeInTheDocument();
+      await user.click(screen.getByTestId('net-close'));
+
+      await user.click(screen.getByRole('button', { name: /実行金額を見積金額に転記/ }));
+      expect(screen.getByTestId('mock-profit-dialog')).toBeInTheDocument();
+      await user.click(screen.getByTestId('profit-close'));
+
+      await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
+      expect(screen.getByTestId('overhead-cost-dialog')).toBeInTheDocument();
+
+      expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
+    });
+
+    /** 保存して未保存が解消されれば起動できるようになる */
+    it('保存後は抑止していたダイアログが開くこと (43.4)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      await editItemName('item-a', '編集済みA項目');
+
+      await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
+      expect(screen.queryByTestId('mock-transfer-dialog')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+
+      // 保存で未保存が解消されると案内も下がる
+      await waitFor(() => {
+        expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
+      expect(screen.getByTestId('mock-transfer-dialog')).toBeInTheDocument();
+    });
+
+    /**
+     * 諸経費追加でサーバー側に作られた行を編集状態へ取り込み、次の保存で削除させない
+     *
+     * 42.9: 保存処理において既存の見積項目とその実行予算項目からの参照関係を維持する
+     *   （取り込まないと当該行がペイロードから欠落し `deleteMany` の対象になる）
+     */
+    it('諸経費追加で作られた行を取り込み、その後の編集を保存しても消えないこと (42.9)', async () => {
+      vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
+      vi.mocked(estimatesApi.getEstimateDetail)
+        .mockResolvedValueOnce(baseDetail)
+        .mockResolvedValue(resyncedDetail);
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      // 編集が無い状態で諸経費を追加する（ガードにより必ずこの状態で実行される）
+      await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
+      await user.click(screen.getByTestId('overhead-add'));
+
+      await waitFor(() => {
+        expect(estimatesApi.addOverheadItem).toHaveBeenCalledTimes(1);
+      });
+      // サーバー側で作られた行が編集状態へ取り込まれる
+      await waitFor(() => {
+        expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b', 'item-server']);
+      });
+
+      // 取り込み後にセルを編集して保存しても、当該行はペイロードに残る
+      await editItemName('item-a', '編集済みA項目');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+      expect(savePayload().items.map((node) => node.id)).toEqual([
+        'item-a',
+        'item-b',
+        'item-server',
+      ]);
+    });
+
+    /**
+     * 転記完了でサーバー側に作られた行を取り込み、基準時刻も最新へ進める
+     *
+     * 49.5: これらの操作の実行後に保存操作を行った場合、競合エラーを発生させない
+     *   （書き込みで進んだ `Estimate.updatedAt` を取り込まないと次の保存が 409 になる）
+     */
+    it('転記完了で行を取り込み、次の保存が最新の基準時刻を送ること (49.5, 42.9)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail)
+        .mockResolvedValueOnce(baseDetail)
+        .mockResolvedValue(resyncedDetail);
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
+      await user.click(screen.getByTestId('transfer-complete'));
+
+      await waitFor(() => {
+        expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b', 'item-server']);
+      });
+
+      await editItemName('item-a', '編集済みA項目');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+      // 読み込み時のスナップショットではなく、転記後に取り直した時刻を送る
+      expect(savePayload().expectedUpdatedAt).toBe('2024-02-01T09:00:00.000Z');
+      expect(savePayload().items.map((node) => node.id)).toEqual([
+        'item-a',
+        'item-b',
+        'item-server',
+      ]);
+    });
+
+    /** NET案分・利益率適用も同じ取り込み経路を通る */
+    it('NET案分・利益率の完了でも行を取り込むこと (42.9)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail)
+        .mockResolvedValueOnce(baseDetail)
+        .mockResolvedValue(resyncedDetail);
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await user.click(screen.getByRole('button', { name: /業者金額を実行金額に転記/ }));
+      await user.click(screen.getByTestId('net-complete'));
+      await waitFor(() => {
+        expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b', 'item-server']);
+      });
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(2);
+
+      await user.click(screen.getByRole('button', { name: /実行金額を見積金額に転記/ }));
+      await user.click(screen.getByTestId('profit-complete'));
+      await waitFor(() => {
+        expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(3);
+      });
+    });
+
+    /** 取り込みに失敗したときは黙って続行させず再読み込みを促す */
+    it('取り込みに失敗した場合は再読み込みを促すこと (42.9)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail)
+        .mockResolvedValueOnce(baseDetail)
+        .mockRejectedValue(new Error('network'));
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+
+      await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
+      await user.click(screen.getByTestId('transfer-complete'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-transfer-guard')).toHaveTextContent(
+          '転記結果の取り込みに失敗しました'
+        );
+      });
+      // 画面全体をエラー表示へ差し替えない（編集中の明細を消さない）
+      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
+    });
+
+    /**
+     * 未保存の変更がある状態で見積書を削除しても、削除後の遷移が離脱ガードに
+     * 捕捉されない（53.7 の申し送り）。捕捉されると「このページにとどまる」を
+     * 選んだユーザーが削除済みレコードの詳細画面に取り残される。
+     */
+    it('未保存の変更がある状態で削除しても遷移が離脱ガードに捕捉されないこと (27.6)', async () => {
+      vi.mocked(estimatesApi.deleteEstimate).mockResolvedValue();
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      await editItemName('item-a', '編集済みA項目');
+      expect(mockUseBlocker).toHaveBeenLastCalledWith(true);
+
+      const headerDeleteButton = screen
+        .getAllByRole('button', { name: /削除/ })
+        .find((button) => !(button as HTMLButtonElement).disabled)!;
+      await user.click(headerDeleteButton);
+
+      const confirmButtons = screen.getAllByRole('button', { name: /^削除$/ });
+      await user.click(confirmButtons[confirmButtons.length - 1]!);
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/proj-001/estimates');
+      });
+      expect(mockUseBlocker).toHaveBeenLastCalledWith(false);
     });
   });
 
