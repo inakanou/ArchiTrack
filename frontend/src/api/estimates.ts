@@ -538,6 +538,171 @@ export async function batchUpdateEstimateItems(
   await apiClient.put(`/api/estimates/${estimateId}/items/batch`, { items, updatedAt });
 }
 
+// ============================================================================
+// 明細の一括保存API (Task 53.5, REQ-42)
+// ============================================================================
+
+/**
+ * 一括保存で送出する見積項目の種別
+ *
+ * 既存の {@link EstimateItemType} は旧APIの返却値に合わせて `NOTE` を持たないため、
+ * 保存API専用に定義する（バックエンド `saveItemTypeSchema` と同一集合）。
+ *
+ * Requirements (estimate-creation):
+ * - 41.2, 41.3: 値引き行は 'DISCOUNT'
+ * - 55.1: 注記行は 'NOTE'
+ */
+export type SaveEstimateDraftItemType = 'STANDARD' | 'DISCOUNT' | 'NOTE';
+
+/**
+ * 一括保存リクエストの明細行
+ *
+ * design.md `##### estimate-draft.service` の `SaveEstimateLine`（4313-4323）と同一。
+ * 9フィールドはすべて **null 許容だが省略不可** で、空欄も `null` を明示送信する。
+ * キーを落としたペイロードはバックエンドで 400 になる。
+ */
+export interface SaveEstimateDraftLine {
+  readonly lineType: EstimateItemLineType;
+  readonly name: string | null;
+  readonly specification: string | null;
+  readonly unit: string | null;
+  /** 数量（10進数文字列。数値では送出できない） */
+  readonly quantity: string | null;
+  /** 単価（10進数文字列） */
+  readonly unitPrice: string | null;
+  /** 金額（10進数文字列） */
+  readonly amount: string | null;
+  readonly remarks: string | null;
+  readonly sourceVendorName: string | null;
+}
+
+/**
+ * 一括保存リクエストの見積項目（再帰）
+ *
+ * design.md `SaveEstimateItemNode`（4305-4311）と同一。
+ * 既存項目は `id` ＋ `tempId: null`、新規項目は `id: null` ＋ `tempId` を送る。
+ * `children` は省略不可で、子を持たない項目も空配列を明示送信する。
+ */
+export interface SaveEstimateDraftItemNode {
+  readonly id: string | null;
+  readonly tempId: string | null;
+  readonly itemType: SaveEstimateDraftItemType;
+  readonly lines: readonly SaveEstimateDraftLine[];
+  readonly children: readonly SaveEstimateDraftItemNode[];
+}
+
+/**
+ * 帳票用の追加入力項目（REQ-54.1〜54.3）
+ *
+ * 3フィールドとも省略不可。省略すると保存済みの値を空で上書きすることになる。
+ */
+export interface SaveEstimateDraftReportFields {
+  /** 提出日（`YYYY-MM-DD`） */
+  readonly submissionDate: string | null;
+  /** 有効期限（最大100文字） */
+  readonly validityPeriod: string | null;
+  /** 別途工事（最大5件・各最大200文字） */
+  readonly separateWorks: readonly string[];
+}
+
+/**
+ * 明細の一括保存リクエスト
+ *
+ * design.md `SaveEstimateDraftRequest`（4297-4303）と同一。
+ */
+export interface SaveEstimateDraftRequest {
+  /** 楽観ロックの基準時刻（ISO8601）。直前に取得した見積書の `updatedAt` */
+  readonly expectedUpdatedAt: string;
+  readonly reportFields: SaveEstimateDraftReportFields;
+  readonly items: readonly SaveEstimateDraftItemNode[];
+}
+
+/**
+ * 保存応答の明細行
+ *
+ * `GET /api/estimates/:id` の明細行と同形（行単位の `createdAt` / `updatedAt` は持たない）。
+ * 数量・単価・金額は他の見積書APIと同じく数値で返るが、本ファイルの既存型
+ * （{@link EstimateItemLine}）に合わせて文字列として宣言している。
+ * 保存ペイロードを組み立てる側は 10進数文字列へ正規化してから送出すること。
+ */
+export interface SavedEstimateItemLine {
+  id: string;
+  estimateItemId: string;
+  lineType: EstimateItemLineType;
+  name: string | null;
+  specification: string | null;
+  unit: string | null;
+  quantity: string | null;
+  unitPrice: string | null;
+  amount: string | null;
+  remarks: string | null;
+  /** 転記元の受領見積書明細行（保存ペイロードには含まれず、サーバーが既存値を維持する） */
+  sourceReceivedQuotationLineItemId: string | null;
+  sourceVendorName: string | null;
+}
+
+/**
+ * 保存応答の見積項目（階層構造）
+ *
+ * 保存後の最新ツリーであり、クライアントはこれを反映するだけでよい（REQ-42.2）。
+ */
+export interface SavedEstimateItemHierarchy {
+  id: string;
+  estimateId: string;
+  parentId: string | null;
+  displayOrder: number;
+  itemType: SaveEstimateDraftItemType;
+  lines: SavedEstimateItemLine[];
+  children: SavedEstimateItemHierarchy[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 明細の一括保存レスポンス
+ *
+ * `GET /api/estimates/:id` の詳細レスポンスの上位集合に `reportFields` を加えた形で、
+ * `items` は保存後の最新ツリー。`updatedAt` は次回保存の
+ * `expectedUpdatedAt` としてそのまま用いる（REQ-42.5）。
+ */
+export interface SaveEstimateDraftResponse {
+  id: string;
+  projectId: string;
+  project?: { id: string; name: string };
+  name: string;
+  sourceItemizedStatementId: string | null;
+  sourceItemizedStatementName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  itemCount: number;
+  reportFields: SaveEstimateDraftReportFields;
+  items: SavedEstimateItemHierarchy[];
+}
+
+/**
+ * 編集中の明細ツリーを1回のリクエストでまとめて保存する
+ *
+ * Requirements (estimate-creation):
+ * - 42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+ * - 42.2: 保存後の最新の明細内容を応答で受け取る（保存後の追加取得を不要にする）
+ * - 42.5: `expectedUpdatedAt` により競合を検出する（不一致は 409）
+ * - 42.6: 明細の並び順は受領配列の順序で確定する
+ * - 54.8: 帳票用入力項目の変更を同じ保存操作で確定する
+ *
+ * エラー: 400（形式不正）/ 403（権限）/ 404（見積書なし）/ 409（競合）/
+ * 422（検証NG）/ 500。いずれも `ApiError` として送出される。
+ *
+ * @param estimateId - 見積書ID
+ * @param input - 明細ツリー・基準時刻・帳票用入力項目
+ * @returns 保存後の最新状態（明細ツリーを含む）
+ */
+export async function saveEstimateDraft(
+  estimateId: string,
+  input: SaveEstimateDraftRequest
+): Promise<SaveEstimateDraftResponse> {
+  return apiClient.put<SaveEstimateDraftResponse>(`/api/estimates/${estimateId}/save`, input);
+}
+
 /**
  * 見積書出力ファイルをダウンロード
  *

@@ -24,6 +24,8 @@
  * - 27.2: 見積項目セクションの保存ボタン（`EstimateDetailPage`）が押下時に呼ぶ操作
  *   （`save`）を提供する。ボタン自体の描画・配置は `EstimateDetailPage` の責務
  * - 27.4: 未保存の変更がない場合に保存ボタンを無効表示するための判定（`isDirty`）を供給する
+ * - 42.2: 保存操作が成功した場合に保存後の最新の明細内容を画面へ反映する
+ *   （`onSave` が返した最新状態で差し替える）
  * - 42.7: 保存操作が成功した場合に未保存の変更がない状態へ戻す
  * - 54.6: 別途工事・有効期限・提出日を見積書画面から編集する経路（`updateReportFields`）を提供する
  * - 54.8: 帳票用入力項目の変更を未保存の変更として扱う
@@ -37,7 +39,9 @@
  *   `##### estimateEditReducer` > Preconditions）ため、**表示順（先行順）**の
  *   キー列を渡す責務を負う。順序は `estimateTree.flattenForGrid(items, collapsedKeys)`
  *   の並びから導出すること（本モジュールの `reorderByItemIds` と同じ導出）。
- * - 保存経路（`saveEstimateDraft` の1回呼び出し・応答反映・競合検出）は 53.5 が接続する。
+ * - 保存経路（`saveEstimateDraft` の1回呼び出し・応答反映・競合検出）は
+ *   `EstimateDetailPage` が `onSave` として注入する（53.5）。本モジュールは
+ *   API モジュールを import せず、応答の反映のみを担う。
  *   `onSave` 未指定の間、`save()` は編集内容を保持したまま何もしない。
  *
  * @module hooks/useEstimateEditor
@@ -141,6 +145,24 @@ export interface EstimateEditorSavePayload {
 }
 
 /**
+ * 保存応答から反映する最新状態（53.5）
+ *
+ * `onSave` がこれを返した場合、保存後の状態は**送信内容ではなく応答**で差し替える。
+ * 一括保存の応答は採番済みの項目ID・明細行ID・転記元行の参照を含むため、
+ * 差し替えないと新規行が一時IDのまま残り、次の保存で二重作成される。
+ *
+ * Requirements (estimate-creation):
+ * - 42.2: 保存操作が成功した場合、保存後の最新の明細内容を画面に反映する
+ *   （応答で差し替えるため、保存後の追加取得を必要としない）
+ */
+export interface EstimateEditorSaveResult {
+  /** 保存後の明細ツリー（表示用ビューモデル） */
+  readonly items: EstimateItemHierarchyEdit[];
+  /** 保存後の帳票用入力項目（54.1〜54.3）。省略時は直前の値を保つ */
+  readonly reportFields?: EstimateReportFields;
+}
+
+/**
  * useEstimateEditorフックのオプション
  */
 export interface UseEstimateEditorOptions {
@@ -162,9 +184,13 @@ export interface UseEstimateEditorOptions {
   /**
    * 保存処理（編集中のツリー全体を受け取って保存）
    *
-   * 未指定の場合 `save()` は何も行わず、未保存状態を維持する（53.5 で接続）。
+   * 保存後の最新状態（{@link EstimateEditorSaveResult}）を返すと、その内容で
+   * 明細と帳票用入力項目を差し替える（42.2）。`void` を返した場合は
+   * 送信した内容をそのまま確定済みとして扱う。
+   *
+   * 未指定の場合 `save()` は何も行わず、未保存状態を維持する。
    */
-  onSave?: (payload: EstimateEditorSavePayload) => Promise<void>;
+  onSave?: (payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult | void>;
 
   /**
    * 保存成功時のコールバック
@@ -794,46 +820,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
-   * 変更を保存
-   *
-   * 保存経路（一括保存API・応答反映・競合検出）の接続は 53.5 が担当する。
-   * `onSave` 未指定の間は保存を行わず、未保存の編集内容を保持する。
-   */
-  const save = useCallback(async (): Promise<void> => {
-    if (!state.isDirty || onSave === undefined) {
-      return;
-    }
-
-    const payload: EstimateEditorSavePayload = {
-      items: state.items,
-      reportFields: state.reportFields,
-    };
-
-    setIsSaving(true);
-    try {
-      await onSave(payload);
-      baselineRef.current = payload;
-      dispatch({ type: 'setItems', items: payload.items, reportFields: payload.reportFields });
-      onSaveSuccess?.();
-    } catch (error) {
-      if (error instanceof Error) {
-        onSaveError?.(error);
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  }, [state, onSave, onSaveSuccess, onSaveError]);
-
-  /**
-   * 変更を破棄
-   */
-  const discard = useCallback((): void => {
-    const baseline = baselineRef.current;
-    dispatch({ type: 'setItems', items: baseline.items, reportFields: baseline.reportFields });
-  }, []);
-
-  /**
-   * 外部から項目を設定（読み込み・再取得の反映）
+   * 外部から項目を設定（読み込み・保存応答の反映）
    */
   const setItems = useCallback(
     (newItems: EstimateItemHierarchyEdit[], reportFields?: EstimateReportFields): void => {
@@ -849,6 +836,58 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     },
     []
   );
+
+  /**
+   * 変更を保存（27.3, 42.2, 42.7）
+   *
+   * `onSave` を**1回だけ**呼び出し、応答が返した最新状態で明細と帳票用入力項目を
+   * 差し替える。差し替えは `setItems` と同一経路のため、採番済みの項目ID・明細行ID・
+   * 転記元行の参照（`sourceReceivedQuotationLineItemId`）もあわせて取り込まれ、
+   * 保存後の追加取得は不要になる（42.2）。
+   *
+   * 保存が失敗した場合は state を一切変更しない。未保存の編集内容と `isDirty` を
+   * 保ったままにして、競合（409）でも編集内容を失わせない（42.5）。
+   *
+   * `onSave` 未指定の間は保存を行わず、未保存の編集内容を保持する。
+   */
+  const save = useCallback(async (): Promise<void> => {
+    if (!state.isDirty || onSave === undefined) {
+      return;
+    }
+
+    const payload: EstimateEditorSavePayload = {
+      items: state.items,
+      reportFields: state.reportFields,
+    };
+
+    setIsSaving(true);
+    try {
+      const saved = await onSave(payload);
+      if (saved) {
+        // 応答の最新ツリーで差し替える（42.2）
+        setItems(saved.items, saved.reportFields);
+      } else {
+        // 応答を返さない呼び出し元は送信内容をそのまま確定済みとして扱う
+        baselineRef.current = payload;
+        dispatch({ type: 'setItems', items: payload.items, reportFields: payload.reportFields });
+      }
+      onSaveSuccess?.();
+    } catch (error) {
+      if (error instanceof Error) {
+        onSaveError?.(error);
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }, [state, onSave, onSaveSuccess, onSaveError, setItems]);
+
+  /**
+   * 変更を破棄
+   */
+  const discard = useCallback((): void => {
+    const baseline = baselineRef.current;
+    dispatch({ type: 'setItems', items: baseline.items, reportFields: baseline.reportFields });
+  }, []);
 
   /**
    * 展開/折りたたみを切り替え（表示状態のため未保存扱いにしない）

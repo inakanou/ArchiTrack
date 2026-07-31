@@ -26,8 +26,15 @@ import {
   reorderEstimateItems,
   calculateOverhead,
   addOverheadItem,
+  saveEstimateDraft,
 } from '../api/estimates';
-import type { EstimateDetail, EstimateItemHierarchy } from '../api/estimates';
+import type {
+  EstimateDetail,
+  EstimateItemHierarchy,
+  SaveEstimateDraftItemNode,
+  SavedEstimateItemHierarchy,
+} from '../api/estimates';
+import { ApiError } from '../api/client';
 import { OverheadCostPanel } from '../components/estimate/OverheadCostPanel';
 import type {
   CalculateOverheadParams,
@@ -37,7 +44,12 @@ import type {
 import { Breadcrumb } from '../components/common';
 import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
-import type { EstimateItemHierarchyEdit } from '../hooks/useEstimateEditor';
+import type {
+  EstimateEditorSavePayload,
+  EstimateEditorSaveResult,
+  EstimateItemHierarchyEdit,
+} from '../hooks/useEstimateEditor';
+import type { EditableItem } from '../domain/estimate/estimateEditReducer.types';
 import { EstimateExportDialog } from '../components/estimate/EstimateExportDialog';
 import { TransferQuotationDialog } from '../components/estimate/TransferQuotationDialog';
 import { NetAllocationDialog } from '../components/estimate/NetAllocationDialog';
@@ -282,6 +294,28 @@ const styles = {
     alignItems: 'center',
     marginBottom: '16px',
   } as React.CSSProperties,
+  saveErrorBanner: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '12px',
+    backgroundColor: '#fef3c7',
+    border: '1px solid #fcd34d',
+    borderRadius: '6px',
+    padding: '12px 16px',
+    marginBottom: '12px',
+    color: '#92400e',
+    fontSize: '14px',
+  } as React.CSSProperties,
+  saveErrorCloseButton: {
+    border: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '18px',
+    lineHeight: 1,
+    color: '#92400e',
+    cursor: 'pointer',
+    padding: '0 4px',
+  } as React.CSSProperties,
   overheadCloseButton: {
     border: 'none',
     backgroundColor: 'transparent',
@@ -347,13 +381,106 @@ function calculateTotalByLineType(
 /**
  * API形式の見積項目を編集用形式に変換
  */
-function toEditFormat(items: EstimateItemHierarchy[] | undefined): EstimateItemHierarchyEdit[] {
+function toEditFormat(
+  items: (EstimateItemHierarchy | SavedEstimateItemHierarchy)[] | undefined
+): EstimateItemHierarchyEdit[] {
   if (!items || !Array.isArray(items)) return [];
   return items.map((item) => ({
     ...item,
     isExpanded: true,
     children: toEditFormat(item.children),
   }));
+}
+
+/**
+ * 明細の10進数セルを保存ペイロードの10進数文字列へ正規化する
+ *
+ * 見積書APIは数量・単価・金額を**数値**で返す一方（`estimate-item.service.ts` の
+ * Decimal→number 変換）、`api/estimates.ts` の型は文字列として宣言しているため、
+ * 一度も編集していないセルには数値が残る。一括保存のスキーマ
+ * （backend `saveEstimateLineSchema`）は10進数**文字列**しか受け付けず、
+ * 数値のまま送ると 400 になるので、ワイヤへ載せる直前にここで揃える。
+ *
+ * 空欄は `null`（省略ではなく明示送信）とし、10進数として解釈できない入力は
+ * 加工せずそのまま送ってサーバー側の検証に委ねる（黙って値を捨てない）。
+ */
+function toDecimalPayloadValue(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const raw = value;
+  if (raw === '') {
+    return null;
+  }
+  try {
+    return new Decimal(raw).toFixed();
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * 編集中のツリーを一括保存のリクエスト形式へ変換する
+ *
+ * ワイヤ契約（design.md `SaveEstimateItemNode` / `SaveEstimateLine`、4305-4324）は
+ * **null 許容だが省略不可**のため、子を持たない項目も `children: []` を、
+ * 空欄のセルも `null` を明示的に載せる。キーを落とすと 400 になる。
+ *
+ * 既存項目は `id` ＋ `tempId: null`、新規項目は `id: null` ＋ `tempId` で送出され、
+ * サーバーが `tempId` から親子関係を解決する。
+ *
+ * Requirements (estimate-creation):
+ * - 42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+ * - 42.6: 明細の並び順を画面に表示されている順序どおりに確定する
+ *   （配列順がそのまま `displayOrder` の再採番に用いられる）
+ */
+function toSaveEstimateItemNodes(
+  items: readonly EditableItem[]
+): readonly SaveEstimateDraftItemNode[] {
+  return items.map((item) => ({
+    id: item.id,
+    tempId: item.tempId,
+    itemType: item.itemType,
+    lines: item.lines.map((line) => ({
+      lineType: line.lineType,
+      name: line.name,
+      specification: line.specification,
+      unit: line.unit,
+      quantity: toDecimalPayloadValue(line.quantity),
+      unitPrice: toDecimalPayloadValue(line.unitPrice),
+      amount: toDecimalPayloadValue(line.amount),
+      remarks: line.remarks,
+      sourceVendorName: line.sourceVendorName,
+    })),
+    children: toSaveEstimateItemNodes(item.children),
+  }));
+}
+
+/**
+ * 保存失敗の理由を画面表示用の文言へ変換する
+ *
+ * Requirements (estimate-creation):
+ * - 42.5: 競合が発生したことを表示する（409）。編集中の内容は呼び出し元が保持する
+ *
+ * 409 以外（400 / 403 / 404 / 422 / 500）はサーバーの応答内容を提示するのみで、
+ * 保存前のクライアント検証は行わない（それを求める 42.4 は本タスクの範囲外）。
+ */
+function toSaveErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.statusCode === 409) {
+      return '他のユーザーによって更新されました。編集中の内容は保持しています。再読み込みして最新の内容を確認してください。';
+    }
+    if (error.statusCode === 400 || error.statusCode === 422) {
+      return `保存できません: ${error.message}`;
+    }
+    if (error.statusCode === 403) {
+      return '見積書を保存する権限がありません。';
+    }
+    if (error.statusCode === 404) {
+      return '見積書が見つかりません。すでに削除された可能性があります。';
+    }
+  }
+  return '保存に失敗しました。再度お試しください。';
 }
 
 // ============================================================================
@@ -449,14 +576,81 @@ export default function EstimateDetailPage() {
     Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
   >(new Set(['ESTIMATE', 'EXECUTION', 'VENDOR']));
 
+  // 保存失敗の理由（42.5: 競合を提示しつつ編集内容は保持する）
+  //
+  // 読み込み失敗の `error` と分けている。`error` は画面全体をエラー表示へ差し替えるため、
+  // 保存失敗に使うと編集中の明細ごと画面から消えてしまう。
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  /**
+   * 明細の一括保存（27.3, 42.1, 42.2, 42.5, 42.6, 54.8）
+   *
+   * 編集中のツリー全体・楽観ロックの基準時刻・帳票用入力項目を
+   * `PUT /api/estimates/:id/save` へ**1回だけ**送る。応答は保存後の最新ツリーを
+   * 含むため、明細の追加取得（`GET`）は行わない（42.2）。
+   *
+   * 基準時刻はサーバー由来のスナップショット `estimate.updatedAt` を用い、
+   * 保存成功時に応答の `updatedAt` で更新する。これにより連続保存が
+   * 誤って競合（409）にならない（42.5）。
+   */
+  const handleEditorSave = useCallback(
+    async (payload: EstimateEditorSavePayload): Promise<EstimateEditorSaveResult> => {
+      if (!id || !estimate) {
+        throw new Error('見積書が読み込まれていません');
+      }
+
+      const response = await saveEstimateDraft(id, {
+        expectedUpdatedAt: estimate.updatedAt,
+        reportFields: {
+          submissionDate: payload.reportFields.submissionDate,
+          validityPeriod: payload.reportFields.validityPeriod,
+          separateWorks: [...payload.reportFields.separateWorks],
+        },
+        items: toSaveEstimateItemNodes(payload.items),
+      });
+
+      // 次回保存の基準時刻を応答で更新する（42.5）。
+      // 明細の正はエディタの state のため、スナップショットの明細は据え置く。
+      setEstimate((previous) =>
+        previous === null
+          ? previous
+          : {
+              ...previous,
+              name: response.name,
+              sourceItemizedStatementId: response.sourceItemizedStatementId,
+              sourceItemizedStatementName: response.sourceItemizedStatementName,
+              updatedAt: response.updatedAt,
+            }
+      );
+
+      return {
+        items: toEditFormat(response.items),
+        reportFields: response.reportFields,
+      };
+    },
+    [id, estimate]
+  );
+
+  /** 保存成功時（42.7 の未保存解消はフックが行う） */
+  const handleSaveSuccess = useCallback(() => {
+    setSaveError(null);
+  }, []);
+
+  /** 保存失敗時（42.5: 編集内容は破棄せず理由のみ提示する） */
+  const handleSaveError = useCallback((error: Error) => {
+    setSaveError(toSaveErrorMessage(error));
+  }, []);
+
   // 編集用フック（27.1: 常時編集 / 27.4: 未保存が無い間は保存ボタンを無効表示）
   //
   // 編集状態は `estimateEditReducer` へ委譲済み（53.4）。
-  // 保存経路（`saveEstimateDraft` の1回呼び出しと応答反映）の接続は 53.5 が担当するため、
-  // ここでは `onSave` を渡さない。未接続の間 `save()` は編集内容を保持したまま何もしない。
+  // 保存は `onSave` を通じて一括保存APIへ1回だけ委譲する（53.5）。
   const editor = useEstimateEditor({
     estimateId: id ?? '',
     initialItems: estimate ? toEditFormat(estimate.items) : [],
+    onSave: handleEditorSave,
+    onSaveSuccess: handleSaveSuccess,
+    onSaveError: handleSaveError,
   });
 
   // 選択中の項目データを取得（REQ-23）
@@ -702,12 +896,12 @@ export default function EstimateDetailPage() {
   );
 
   /**
-   * 保存処理
+   * 保存処理（27.3, 42.1）
    *
-   * 保存後の全件再取得は行わない（design.md `#### Modified Files`: 「保存は1回のみ、
-   * 保存後の `fetchData()` を撤去」）。再取得すると `editor.setItems` が
-   * サーバーデータで編集内容を上書きしてしまい、保存経路が未接続の間（53.5 まで）は
-   * 未保存の編集を黙って破棄することになる。最新状態は保存応答から反映する（53.5）。
+   * 一括保存を1回だけ呼び出す。保存後の全件再取得は行わない
+   * （design.md `#### Modified Files`: 「保存は1回のみ、保存後の `fetchData()` を撤去」）。
+   * 再取得すると書き込み1件・読み込み1件の2往復になるうえ、
+   * 応答が返した最新ツリーを別の取得で上書きすることになる。最新状態は保存応答から反映する。
    */
   const handleSave = useCallback(async () => {
     await editor.save();
@@ -1066,6 +1260,20 @@ export default function EstimateDetailPage() {
               </button>
             </div>
           </div>
+          {/* 保存失敗の提示（REQ-42.5: 競合を表示し編集中の内容は保持する） */}
+          {saveError && (
+            <div role="alert" data-testid="estimate-save-error" style={styles.saveErrorBanner}>
+              <span>{saveError}</span>
+              <button
+                type="button"
+                aria-label="保存エラーを閉じる"
+                onClick={() => setSaveError(null)}
+                style={styles.saveErrorCloseButton}
+              >
+                ×
+              </button>
+            </div>
+          )}
           <EstimateItemToolbar
             selectedItemId={selectedItemId}
             selectedItem={selectedItem}

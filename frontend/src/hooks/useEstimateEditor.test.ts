@@ -28,6 +28,7 @@ import { renderHook, act } from '@testing-library/react';
 import {
   useEstimateEditor,
   type EstimateEditorSavePayload,
+  type EstimateEditorSaveResult,
   type UseEstimateEditorOptions,
   type EstimateItemHierarchyEdit,
 } from './useEstimateEditor';
@@ -934,6 +935,203 @@ describe('useEstimateEditor', () => {
         validityPeriod: '提出日より1ヶ月間',
         separateWorks: ['外構工事'],
       });
+    });
+
+    /**
+     * 42.2: 保存操作が成功した場合、保存後の最新の明細内容を画面に反映する
+     *
+     * 一括保存の応答は採番済みの項目ID・明細行IDを含むため、送信内容ではなく
+     * 応答で差し替えないと新規行が一時IDのまま残り、次の保存で二重作成される。
+     */
+    it('onSaveが返した最新ツリーで状態を差し替えること (42.2)', async () => {
+      const onSave =
+        vi.fn<(payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult>>();
+      onSave.mockResolvedValue({
+        items: [
+          {
+            id: 'server-assigned-1',
+            estimateId: 'estimate-1',
+            parentId: null,
+            displayOrder: 0,
+            lines: [
+              {
+                id: 'server-line-1',
+                estimateItemId: 'server-assigned-1',
+                lineType: 'ESTIMATE',
+                name: 'サーバー確定名称',
+                specification: null,
+                unit: '式',
+                quantity: '1',
+                unitPrice: '5000',
+                amount: '5000',
+                remarks: null,
+                sourceReceivedQuotationLineItemId: 'quotation-line-9',
+                sourceVendorName: null,
+              },
+            ],
+            children: [],
+            isExpanded: true,
+            createdAt: '2025-02-01T00:00:00.000Z',
+            updatedAt: '2025-02-01T00:00:00.000Z',
+          },
+        ],
+        reportFields: {
+          submissionDate: '2026-07-31',
+          validityPeriod: '提出日より1ヶ月間',
+          separateWorks: ['外構工事'],
+        },
+      });
+
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.addItem();
+      });
+      expect(result.current.isDirty).toBe(true);
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+      // 送信内容（3項目・一時ID入り）ではなく応答の1項目で差し替わる
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.items[0]?.id).toBe('server-assigned-1');
+      expect(result.current.items[0]?.lines[0]?.name).toBe('サーバー確定名称');
+      // 転記元行の参照も応答から取り込まれる
+      expect(result.current.items[0]?.lines[0]?.sourceReceivedQuotationLineItemId).toBe(
+        'quotation-line-9'
+      );
+      expect(result.current.reportFields).toEqual({
+        submissionDate: '2026-07-31',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['外構工事'],
+      });
+      // 42.7: 未保存の変更がない状態へ戻る
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    /**
+     * 42.2: 応答を差し替えた後の再保存では、応答由来の確定IDが送られる
+     */
+    it('応答反映後の再保存で一時IDではなく確定IDが送られること (42.2)', async () => {
+      const onSave =
+        vi.fn<(payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult>>();
+      onSave.mockResolvedValue({
+        items: [
+          {
+            id: 'server-assigned-1',
+            estimateId: 'estimate-1',
+            parentId: null,
+            displayOrder: 0,
+            lines: [
+              {
+                id: 'server-line-1',
+                estimateItemId: 'server-assigned-1',
+                lineType: 'ESTIMATE',
+                name: 'サーバー確定名称',
+                specification: null,
+                unit: '式',
+                quantity: '1',
+                unitPrice: '5000',
+                amount: '5000',
+                remarks: null,
+                sourceReceivedQuotationLineItemId: null,
+                sourceVendorName: null,
+              },
+            ],
+            children: [],
+            isExpanded: true,
+            createdAt: '2025-02-01T00:00:00.000Z',
+            updatedAt: '2025-02-01T00:00:00.000Z',
+          },
+        ],
+      });
+
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: [],
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.addItem();
+      });
+      await act(async () => {
+        await result.current.save();
+      });
+
+      act(() => {
+        result.current.updateLine('server-assigned-1', 'server-line-1', 'name', '再編集');
+      });
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(onSave).toHaveBeenCalledTimes(2);
+      const secondPayload = onSave.mock.calls[1]![0];
+      expect(secondPayload.items).toHaveLength(1);
+      expect(secondPayload.items[0]?.id).toBe('server-assigned-1');
+      expect(secondPayload.items[0]?.tempId).toBeNull();
+    });
+
+    it('onSaveがvoidを返す場合は送信内容をそのまま確定済みとして扱うこと', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '新しい名称');
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.isDirty).toBe(false);
+      expect(result.current.items[0]?.lines[0]?.name).toBe('新しい名称');
+    });
+
+    /**
+     * 42.5: 競合（保存失敗）時に編集中の内容を失わせない
+     */
+    it('保存が失敗した場合に編集内容と未保存状態が保持されること (42.5)', async () => {
+      const onSave =
+        vi.fn<(payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult>>();
+      onSave.mockRejectedValue(new Error('conflict'));
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '編集済み名称');
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.items[0]?.lines[0]?.name).toBe('編集済み名称');
+      expect(result.current.isDirty).toBe(true);
+      expect(result.current.isSaving).toBe(false);
     });
 
     it('onSave未指定の場合は保存されず未保存状態が維持されること', async () => {

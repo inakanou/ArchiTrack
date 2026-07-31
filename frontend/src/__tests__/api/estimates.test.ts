@@ -27,6 +27,7 @@ import {
   downloadEstimate,
   moveEstimateItem,
   addDiscountItem,
+  saveEstimateDraft,
 } from '../../api/estimates';
 import type {
   EstimatesResponse,
@@ -35,6 +36,8 @@ import type {
   EstimateInfo,
   EstimateItemHierarchy,
   EstimateItemLine,
+  SaveEstimateDraftRequest,
+  SaveEstimateDraftResponse,
 } from '../../api/estimates';
 
 // モック設定
@@ -942,6 +945,107 @@ describe('estimates API client', () => {
 
       await expect(addDiscountItem('est-1', -1000)).rejects.toMatchObject({
         statusCode: 401,
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 明細の一括保存 (Task 53.5)
+  // ==========================================================================
+
+  describe('saveEstimateDraft', () => {
+    const savedResponse: SaveEstimateDraftResponse = {
+      id: 'est-1',
+      projectId: 'proj-1',
+      project: { id: 'proj-1', name: 'テストプロジェクト' },
+      name: 'テスト見積書',
+      sourceItemizedStatementId: null,
+      sourceItemizedStatementName: null,
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-16T09:00:00.000Z',
+      itemCount: 1,
+      reportFields: {
+        submissionDate: '2024-01-16',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['電気設備工事'],
+      },
+      items: [],
+    };
+
+    const request: SaveEstimateDraftRequest = {
+      expectedUpdatedAt: '2024-01-15T10:00:00.000Z',
+      reportFields: {
+        submissionDate: '2024-01-16',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['電気設備工事'],
+      },
+      items: [
+        {
+          id: 'item-1',
+          tempId: null,
+          itemType: 'STANDARD',
+          lines: [
+            {
+              lineType: 'ESTIMATE',
+              name: '仮設工事',
+              specification: null,
+              unit: '式',
+              quantity: '1',
+              unitPrice: '100000',
+              amount: '100000',
+              remarks: null,
+              sourceVendorName: null,
+            },
+          ],
+          children: [],
+        },
+      ],
+    };
+
+    /**
+     * 42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+     */
+    it('PUT /api/estimates/:id/save を1回だけ呼び出しペイロードをそのまま送出すること (42.1)', async () => {
+      vi.mocked(apiClient.put).mockResolvedValueOnce(savedResponse);
+
+      const result = await saveEstimateDraft('est-1', request);
+
+      expect(apiClient.put).toHaveBeenCalledTimes(1);
+      expect(apiClient.put).toHaveBeenCalledWith('/api/estimates/est-1/save', request);
+      expect(result).toEqual(savedResponse);
+    });
+
+    /**
+     * 42.2: 保存操作が成功した場合、保存後の最新の明細内容を返す
+     */
+    it('保存後の最新ツリーと帳票用入力項目を返すこと (42.2)', async () => {
+      vi.mocked(apiClient.put).mockResolvedValueOnce(savedResponse);
+
+      const result = await saveEstimateDraft('est-1', request);
+
+      expect(result.items).toBe(savedResponse.items);
+      expect(result.reportFields).toEqual(savedResponse.reportFields);
+      expect(result.updatedAt).toBe('2024-01-16T09:00:00.000Z');
+    });
+
+    /**
+     * 42.5: 保存開始後に他ユーザーが更新していた場合は保存を中止する（409）
+     */
+    it('競合時に409のApiErrorがスローされること (42.5)', async () => {
+      vi.mocked(apiClient.put).mockRejectedValueOnce(
+        new ApiError(409, '他のユーザーによって更新されています')
+      );
+
+      await expect(saveEstimateDraft('est-1', request)).rejects.toMatchObject({
+        statusCode: 409,
+      });
+    });
+
+    it('検証NG時に422のApiErrorがスローされること', async () => {
+      vi.mocked(apiClient.put).mockRejectedValueOnce(new ApiError(422, '見積項目の検証に失敗'));
+
+      await expect(saveEstimateDraft('est-1', request)).rejects.toMatchObject({
+        statusCode: 422,
       });
     });
   });

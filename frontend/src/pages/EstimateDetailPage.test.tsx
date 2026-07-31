@@ -20,6 +20,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import EstimateDetailPage from './EstimateDetailPage';
 import * as estimatesApi from '../api/estimates';
+import { ApiError } from '../api/client';
 import type {
   EstimateItemHierarchyEdit,
   UseEstimateEditorOptions,
@@ -1884,17 +1885,24 @@ describe('EstimateDetailPage', () => {
     );
 
   /**
-   * 退行防止（53.4）: 保存経路が未接続の間（53.5 まで）、保存操作が未保存の編集を破棄しないこと。
+   * 退行防止（53.4）: 保存が失敗した場合に未保存の編集を破棄しないこと。
    *
    * 保存後に全件再取得すると `editor.setItems` が編集内容をサーバーデータで上書きし、
    * `isDirty` も false に落ちるため、ユーザーの編集が無言で消える。
    * design.md `#### File Structure Plan` > `#### Modified Files` の
    * 「保存は1回のみ、保存後の `fetchData()` を撤去」に従い再取得を行わない。
    *
+   * 保存経路の接続（53.5）後は、保存が**成功した場合**に応答の最新ツリーで
+   * 差し替えて未保存状態を解消するため（42.2, 42.7）、破棄されないことを確認する
+   * 対象は保存失敗時となる。成功時の反映は後段の「明細の一括保存」で検証する。
+   *
    * ここでは**実物の `useEstimateEditor`** を用いて画面との結線ごと検証する。
    */
-  it('保存操作で未保存の編集が破棄されないこと', async () => {
+  it('保存が失敗しても未保存の編集が破棄されないこと (42.5)', async () => {
     editorMode.useReal = true;
+    vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValue(
+      new ApiError(409, '他のユーザーによって更新されています')
+    );
     const user = userEvent.setup();
     renderPage();
 
@@ -1930,6 +1938,461 @@ describe('EstimateDetailPage', () => {
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
     // 保存後の全件再取得を行わない
     expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+  });
+
+  // =========================================================================
+  // 明細の一括保存（Task 53.5 / REQ-42）
+  // =========================================================================
+
+  describe('明細の一括保存 (REQ-42)', () => {
+    /** 保存応答（`PUT /api/estimates/:id/save`）の既定形 */
+    const buildSavedResponse = (
+      overrides: Partial<estimatesApi.SaveEstimateDraftResponse> = {}
+    ): estimatesApi.SaveEstimateDraftResponse => ({
+      id: 'est-001',
+      projectId: 'proj-001',
+      project: { id: 'proj-001', name: 'テストプロジェクト' },
+      name: 'テスト見積書',
+      sourceItemizedStatementId: 'is-001',
+      sourceItemizedStatementName: '内訳書A',
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-20T12:00:00.000Z',
+      itemCount: 1,
+      reportFields: {
+        submissionDate: '2026-07-31',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['外構工事'],
+      },
+      items: [
+        {
+          id: 'item-001',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 0,
+          itemType: 'STANDARD',
+          lines: [
+            {
+              id: 'line-001',
+              estimateItemId: 'item-001',
+              lineType: 'ESTIMATE',
+              name: 'サーバー確定名称',
+              specification: null,
+              unit: '式',
+              quantity: '1',
+              unitPrice: '100000',
+              amount: '100000',
+              remarks: null,
+              sourceReceivedQuotationLineItemId: 'quotation-line-1',
+              sourceVendorName: null,
+            },
+          ],
+          children: [],
+          createdAt: '2024-01-15T10:00:00.000Z',
+          updatedAt: '2024-01-20T12:00:00.000Z',
+        },
+      ],
+      ...overrides,
+    });
+
+    /**
+     * 書き込み系APIの呼び出し総数
+     *
+     * 「保存で発行されるのは1件だけ」を、エンドポイントの到達確認ではなく
+     * **書き込み経路の総数**で数える（42.1, 27.3）。
+     */
+    const writeCallCount = (): number =>
+      [
+        estimatesApi.saveEstimateDraft,
+        estimatesApi.createEstimate,
+        estimatesApi.updateEstimate,
+        estimatesApi.deleteEstimate,
+        estimatesApi.createEstimateItem,
+        estimatesApi.deleteEstimateItem,
+        estimatesApi.moveEstimateItem,
+        estimatesApi.reorderEstimateItems,
+        estimatesApi.batchUpdateEstimateItems,
+        estimatesApi.transferFromQuotation,
+        estimatesApi.calculateOverhead,
+        estimatesApi.addOverheadItem,
+        estimatesApi.addDiscountItem,
+      ].reduce((total, fn) => total + vi.mocked(fn).mock.calls.length, 0);
+
+    const editEstimateName = async (value: string) => {
+      await act(async () => {
+        (
+          capturedTableProps.onLineChange as (
+            itemId: string,
+            lineId: string,
+            field: string,
+            value: string
+          ) => void
+        )('item-001', 'line-001', 'name', value);
+      });
+    };
+
+    const tableItems = () => (capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[];
+
+    beforeEach(() => {
+      editorMode.useReal = true;
+    });
+
+    /**
+     * 42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+     * 27.3: クライアントサイドの変更内容を1回の保存操作でまとめてDBへ反映する
+     */
+    it('保存操作1回で書き込みリクエストが1件のみ発生すること (42.1, 27.3)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+
+      // 行操作とセル編集を複数回行っても書き込みは発生しない（43.2 の前提）
+      await editEstimateName('編集1');
+      await editEstimateName('編集2');
+      await act(async () => {
+        (capturedToolbarProps.onAddItem as () => void)();
+      });
+      expect(writeCallCount()).toBe(0);
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+      expect(writeCallCount()).toBe(1);
+    });
+
+    /**
+     * 42.1 / 54.8: 明細ツリー・楽観ロックの基準時刻・帳票用入力項目を1リクエストに含める
+     *
+     * ワイヤ契約（design.md `SaveEstimateItemNode` / `SaveEstimateLine`）は
+     * 「null 許容だが省略不可」のため、全キーの存在も検証する。
+     */
+    it('保存リクエストに明細ツリー・基準時刻・帳票用入力項目を含めること (42.1, 54.8)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+
+      const [estimateId, request] = vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]!;
+      expect(estimateId).toBe('est-001');
+      // 基準時刻は読み込み時のサーバースナップショット
+      expect(request.expectedUpdatedAt).toBe('2024-01-15T10:00:00.000Z');
+      expect(request.reportFields).toEqual({
+        submissionDate: null,
+        validityPeriod: null,
+        separateWorks: [],
+      });
+
+      const node = request.items[0]!;
+      expect(Object.keys(node).sort()).toEqual(
+        ['children', 'id', 'itemType', 'lines', 'tempId'].sort()
+      );
+      // 既存行は id ＋ tempId: null
+      expect(node.id).toBe('item-001');
+      expect(node.tempId).toBeNull();
+      expect(node.itemType).toBe('STANDARD');
+      // 葉ノードも children を明示送信する
+      expect(node.children).toEqual([]);
+      expect(node.lines).toHaveLength(3);
+
+      const estimateLine = node.lines.find((line) => line.lineType === 'ESTIMATE')!;
+      expect(Object.keys(estimateLine).sort()).toEqual(
+        [
+          'lineType',
+          'name',
+          'specification',
+          'unit',
+          'quantity',
+          'unitPrice',
+          'amount',
+          'remarks',
+          'sourceVendorName',
+        ].sort()
+      );
+      expect(estimateLine.name).toBe('編集済み名称');
+      // 空欄は省略ではなく null を明示送信する
+      expect(estimateLine.specification).toBeNull();
+      expect(estimateLine.remarks).toBeNull();
+      expect(estimateLine.sourceVendorName).toBeNull();
+      expect(estimateLine.quantity).toBe('1');
+      expect(estimateLine.unitPrice).toBe('100000');
+    });
+
+    /**
+     * サーバーは数量・単価・金額を**数値**で返すが、一括保存スキーマは10進数文字列しか
+     * 受け付けない。未編集セルの値をそのまま載せると 400 になるため、送出前に揃える。
+     */
+    it('サーバーが数値で返した数量・単価・金額を10進数文字列で送出すること', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue({
+        ...mockEstimateDetail,
+        items: [
+          {
+            ...mockEstimateDetail.items[0]!,
+            lines: [
+              {
+                ...mockEstimateDetail.items[0]!.lines[0]!,
+                // サーバーの実際の返却形（Decimal→number 変換後）
+                quantity: 2 as unknown as string,
+                unitPrice: 1500.5 as unknown as string,
+                amount: 3001 as unknown as string,
+              },
+            ],
+          },
+        ],
+      } as estimatesApi.EstimateDetail);
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+
+      const line = vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]![1].items[0]!.lines[0]!;
+      expect(line.quantity).toBe('2');
+      expect(line.unitPrice).toBe('1500.5');
+      expect(line.amount).toBe('3001');
+    });
+
+    /**
+     * 42.1: 追加も同じ1リクエストで確定する。新規項目は `id: null` ＋ `tempId`。
+     */
+    it('新規に追加した項目がid=nullと一時IDで送られること (42.1)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await act(async () => {
+        (capturedToolbarProps.onAddItem as () => void)();
+      });
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+
+      const items = vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]![1].items;
+      expect(items).toHaveLength(2);
+      const added = items[1]!;
+      expect(added.id).toBeNull();
+      expect(added.tempId).toMatch(/^tmp-/);
+      expect(added.children).toEqual([]);
+      expect(estimatesApi.createEstimateItem).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 12.8: ドラッグ&ドロップで順序を変更して保存した場合、変更後の順序をDBへ反映する
+     * 34.5: 並び順の変更を保存し、画面再読み込み後も変更後の構造で表示する
+     * 42.6: 明細の並び順を画面に表示されている順序どおりに確定する
+     *
+     * この層で保証できるのは「画面の順序どおりの配列が1リクエストで送られること」まで。
+     * 再読み込み後の順序維持そのものは配列順で `displayOrder` を再採番するサーバー
+     * （52.5）と結合した E2E（53.14）が担当する。
+     */
+    it('ドラッグによる並び替えが保存対象に含まれること (12.8, 34.5, 42.6)', async () => {
+      vi.mocked(estimatesApi.getEstimateDetail).mockResolvedValue({
+        ...mockEstimateDetail,
+        items: [
+          mockEstimateDetail.items[0]!,
+          {
+            ...mockEstimateDetail.items[0]!,
+            id: 'item-002',
+            displayOrder: 1,
+            lines: mockEstimateDetail.items[0]!.lines.map((line) => ({
+              ...line,
+              id: `${line.id}-2`,
+              estimateItemId: 'item-002',
+            })),
+          },
+        ],
+      } as estimatesApi.EstimateDetail);
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(2);
+      });
+      expect(tableItems().map((item) => item.id)).toEqual(['item-001', 'item-002']);
+
+      // 表からのドロップ（editor.reorderItems）
+      await act(async () => {
+        (capturedTableProps.onDrop as (sourceId: string, targetId: string) => void)(
+          'item-002',
+          'item-001'
+        );
+      });
+      expect(tableItems().map((item) => item.id)).toEqual(['item-002', 'item-001']);
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+      const items = vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]![1].items;
+      expect(items.map((item) => item.id)).toEqual(['item-002', 'item-001']);
+      expect(estimatesApi.reorderEstimateItems).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 42.2: 保存後の最新の明細内容を画面に反映する
+     * 42.7: 保存成功時に未保存の変更がない状態へ戻す
+     * 27.4: 未保存の変更がない場合、保存ボタンを無効状態で表示する
+     * 27.3: 1回の保存操作でまとめて反映する（保存後の明細の追加取得を行わない）
+     */
+    it('保存応答の最新ツリーで状態を差し替え追加取得を行わないこと (42.2, 42.7, 27.3, 27.4)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+
+      await editEstimateName('編集済み名称');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+      });
+
+      // 応答のツリーで差し替わる（送信した編集内容ではなくサーバー確定値）
+      const estimateLine = tableItems()[0]?.lines.find((line) => line.lineType === 'ESTIMATE');
+      expect(estimateLine?.name).toBe('サーバー確定名称');
+      // 転記元行の参照も応答から取り込まれる
+      expect(estimateLine?.sourceReceivedQuotationLineItemId).toBe('quotation-line-1');
+      // 保存後の明細の追加取得は行わない
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * 42.5: 保存開始後に他ユーザーが更新していた場合、保存を中止して競合を表示し、
+     *       編集中の内容を失わせない
+     */
+    it('競合応答（409）で編集内容を保持し競合の発生を提示すること (42.5)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValue(
+        new ApiError(409, '他のユーザーによって更新されています')
+      );
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-save-error')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('estimate-save-error')).toHaveTextContent(
+        /他のユーザーによって更新されました/
+      );
+      // 編集内容は破棄されず、未保存状態のまま再保存できる
+      expect(tableItems()[0]?.lines.find((line) => line.lineType === 'ESTIMATE')?.name).toBe(
+        '編集済み名称'
+      );
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+      // 明細一覧は保持され、画面全体がエラー表示へ差し替わらない
+      expect(screen.getByTestId('mock-item-table')).toBeInTheDocument();
+    });
+
+    it('検証NG（422）でサーバーの応答内容を提示し編集内容を保持すること', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValue(
+        new ApiError(422, '見積項目が自身の子孫に含まれています（循環参照）')
+      );
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-save-error')).toHaveTextContent(
+          /保存できません: 見積項目が自身の子孫に含まれています/
+        );
+      });
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    });
+
+    /**
+     * 42.5: 連続保存で基準時刻を更新しないと、2回目が必ず競合になる。
+     */
+    it('2回目の保存で応答のupdatedAtを基準時刻として送ること (42.5)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+
+      await editEstimateName('1回目');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+      });
+
+      await editEstimateName('2回目');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(2);
+      });
+
+      const calls = vi.mocked(estimatesApi.saveEstimateDraft).mock.calls;
+      expect(calls[0]![1].expectedUpdatedAt).toBe('2024-01-15T10:00:00.000Z');
+      expect(calls[1]![1].expectedUpdatedAt).toBe('2024-01-20T12:00:00.000Z');
+    });
+
+    it('保存成功後に直前の保存エラー表示が消えること', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValueOnce(
+        new ApiError(409, '他のユーザーによって更新されています')
+      );
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(tableItems()).toHaveLength(1);
+      });
+      await editEstimateName('編集済み名称');
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-save-error')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(screen.queryByTestId('estimate-save-error')).not.toBeInTheDocument();
+      });
+    });
   });
 
   it('ツールバーの値引き行追加がeditor.addDiscountItemを呼ぶ (REQ-41.1)', async () => {
