@@ -14,6 +14,7 @@
 
 import { useEffect, useCallback } from 'react';
 import type { IUndoManager } from '../services/UndoManager';
+import { isTextInputElement } from '../utils/keyboard-input';
 
 // ============================================================================
 // 型定義
@@ -27,58 +28,6 @@ export interface UseUndoKeyboardShortcutsOptions {
   undoManager: IUndoManager;
   /** ショートカットを有効にするかどうか */
   enabled: boolean;
-}
-
-// ============================================================================
-// ユーティリティ関数
-// ============================================================================
-
-/**
- * 対象の要素がテキスト入力可能な要素かどうかを判定
- *
- * input, textarea, contenteditable要素ではブラウザ標準の
- * Undo/Redoを使用するため、カスタムショートカットを無効化する。
- *
- * @param element 判定対象の要素
- * @returns テキスト入力可能な要素の場合true
- */
-function isTextInputElement(element: EventTarget | null): boolean {
-  if (!(element instanceof HTMLElement)) {
-    return false;
-  }
-
-  // input要素
-  if (element instanceof HTMLInputElement) {
-    // type="button", type="submit" などは除外
-    const textInputTypes = [
-      'text',
-      'password',
-      'email',
-      'number',
-      'search',
-      'tel',
-      'url',
-      'date',
-      'datetime-local',
-      'month',
-      'time',
-      'week',
-    ];
-    return textInputTypes.includes(element.type);
-  }
-
-  // textarea要素
-  if (element instanceof HTMLTextAreaElement) {
-    return true;
-  }
-
-  // contenteditable要素
-  // isContentEditableプロパティに加え、属性もチェック（jsdom互換性）
-  if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
-    return true;
-  }
-
-  return false;
 }
 
 // ============================================================================
