@@ -15,15 +15,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import EstimateDetailPage from './EstimateDetailPage';
 import * as estimatesApi from '../api/estimates';
 import type {
-  ItemChange,
   EstimateItemHierarchyEdit,
-  EstimateItemLineEdit,
   UseEstimateEditorOptions,
 } from '../hooks/useEstimateEditor';
 
@@ -34,7 +32,6 @@ vi.mock('../api/estimates');
 const mockEditor = {
   items: [] as ReturnType<typeof import('../hooks/useEstimateEditor').useEstimateEditor>['items'],
   isDirty: false,
-  pendingChanges: new Map(),
   isSaving: false,
   updateLine: vi.fn(),
   reorderItems: vi.fn(),
@@ -48,30 +45,36 @@ const mockEditor = {
   getTotalAmount: vi.fn().mockReturnValue('0'),
   addDiscountItem: vi.fn(),
 };
-// editorに渡される設定（onSaveなど）をキャプチャし、コールバック単体を直接検証する
-let capturedEditorConfig: UseEstimateEditorOptions | null = null;
-vi.mock('../hooks/useEstimateEditor', () => ({
-  useEstimateEditor: (options: UseEstimateEditorOptions) => {
-    capturedEditorConfig = options;
-    return mockEditor;
-  },
-}));
+// 既定はモックだが、フックと画面の結線そのものを検証するテストでは実物へ切り替える
+const editorMode = vi.hoisted(() => ({ useReal: false }));
+vi.mock('../hooks/useEstimateEditor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/useEstimateEditor')>();
+  return {
+    ...actual,
+    useEstimateEditor: (options: UseEstimateEditorOptions) =>
+      editorMode.useReal ? actual.useEstimateEditor(options) : mockEditor,
+  };
+});
 
 // 子コンポーネントのモック
 let capturedToolbarProps: Record<string, unknown> = {};
+let capturedTableProps: Record<string, unknown> = {};
 vi.mock('../components/estimate', () => ({
-  EstimateItemTable: (props: Record<string, unknown>) => (
-    <div data-testid="mock-item-table" data-selected-item-id={String(props.selectedItemId ?? '')}>
-      {props.onItemSelect ? (
-        <button
-          data-testid="select-item-btn"
-          onClick={() => (props.onItemSelect as (id: string) => void)('item-001')}
-        >
-          SelectItem
-        </button>
-      ) : null}
-    </div>
-  ),
+  EstimateItemTable: (props: Record<string, unknown>) => {
+    capturedTableProps = props;
+    return (
+      <div data-testid="mock-item-table" data-selected-item-id={String(props.selectedItemId ?? '')}>
+        {props.onItemSelect ? (
+          <button
+            data-testid="select-item-btn"
+            onClick={() => (props.onItemSelect as (id: string) => void)('item-001')}
+          >
+            SelectItem
+          </button>
+        ) : null}
+      </div>
+    );
+  },
   EstimateItemToolbar: (props: Record<string, unknown>) => {
     capturedToolbarProps = props;
     return (
@@ -392,7 +395,8 @@ describe('EstimateDetailPage', () => {
     mockEditor.setItems.mockReset();
     mockEditor.addDiscountItem.mockReset();
     capturedToolbarProps = {};
-    capturedEditorConfig = null;
+    capturedTableProps = {};
+    editorMode.useReal = false;
   });
 
   /**
@@ -1200,7 +1204,11 @@ describe('EstimateDetailPage', () => {
   // REQ-27: 保存ボタンのテスト（編集モード廃止、常時インライン編集）
   // =========================================================================
 
-  it('保存ボタンクリックでeditor.saveが呼ばれデータ再取得される', async () => {
+  /**
+   * 保存後の全件再取得は design.md `#### Modified Files` の指示により撤去した（53.4）。
+   * 再取得は `editor.setItems` 経由で未保存の編集を上書きしてしまう。
+   */
+  it('保存ボタンクリックでeditor.saveが呼ばれ、保存後の全件再取得を行わない', async () => {
     const user = userEvent.setup();
     mockEditor.isDirty = true;
 
@@ -1224,9 +1232,7 @@ describe('EstimateDetailPage', () => {
       expect(mockEditor.save).toHaveBeenCalled();
     });
 
-    await waitFor(() => {
-      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledWith('est-001');
-    });
+    expect(estimatesApi.getEstimateDetail).not.toHaveBeenCalled();
   });
 
   // =========================================================================
@@ -1868,38 +1874,6 @@ describe('EstimateDetailPage', () => {
     expect(capturedToolbarProps.selectedItemId).toBe('item-001');
   });
 
-  // =========================================================================
-  // REQ-34: 見積項目の保存整合性テスト
-  // =========================================================================
-
-  /** @requirement estimate-creation/REQ-34.4 */
-  // onSaveコールバックの保存フロー検証用ヘルパー
-  const makeLine = (overrides: Partial<EstimateItemLineEdit>): EstimateItemLineEdit => ({
-    id: 'line-x',
-    estimateItemId: 'item-x',
-    lineType: 'ESTIMATE',
-    name: null,
-    specification: null,
-    unit: null,
-    quantity: null,
-    unitPrice: null,
-    amount: null,
-    remarks: null,
-    ...overrides,
-  });
-  const makeItem = (overrides: Partial<EstimateItemHierarchyEdit>): EstimateItemHierarchyEdit => ({
-    id: 'item-x',
-    estimateId: 'est-001',
-    parentId: null,
-    displayOrder: 0,
-    lines: [],
-    children: [],
-    isExpanded: true,
-    createdAt: '2024-01-15T10:00:00.000Z',
-    updatedAt: '2024-01-15T10:00:00.000Z',
-    ...overrides,
-  });
-
   const renderPage = () =>
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -1909,119 +1883,53 @@ describe('EstimateDetailPage', () => {
       </MemoryRouter>
     );
 
-  it('onSaveが削除→通常追加→値引き追加→更新を正しいAPIで処理する (REQ-34.4, REQ-41.1, REQ-41.3)', async () => {
-    vi.mocked(estimatesApi.deleteEstimateItem).mockResolvedValue(undefined);
-    vi.mocked(estimatesApi.createEstimateItem).mockResolvedValue(undefined as never);
-    vi.mocked(estimatesApi.addDiscountItem).mockResolvedValue(undefined as never);
-    vi.mocked(estimatesApi.batchUpdateEstimateItems).mockResolvedValue(undefined);
-
+  /**
+   * 退行防止（53.4）: 保存経路が未接続の間（53.5 まで）、保存操作が未保存の編集を破棄しないこと。
+   *
+   * 保存後に全件再取得すると `editor.setItems` が編集内容をサーバーデータで上書きし、
+   * `isDirty` も false に落ちるため、ユーザーの編集が無言で消える。
+   * design.md `#### File Structure Plan` > `#### Modified Files` の
+   * 「保存は1回のみ、保存後の `fetchData()` を撤去」に従い再取得を行わない。
+   *
+   * ここでは**実物の `useEstimateEditor`** を用いて画面との結線ごと検証する。
+   */
+  it('保存操作で未保存の編集が破棄されないこと', async () => {
+    editorMode.useReal = true;
+    const user = userEvent.setup();
     renderPage();
+
+    const tableItems = () => (capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[];
+    const estimateName = () =>
+      tableItems()[0]?.lines.find((line) => line.lineType === 'ESTIMATE')?.name;
+
     await waitFor(() => {
-      expect(capturedEditorConfig).not.toBeNull();
-      expect(capturedEditorConfig?.onSave).toBeTypeOf('function');
+      expect(tableItems()).toHaveLength(1);
+    });
+    expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+    expect(estimateName()).toBe('直接仮設工事');
+
+    // セル編集（表は onLineChange として editor.updateLine を受け取っている）
+    await act(async () => {
+      (
+        capturedTableProps.onLineChange as (
+          itemId: string,
+          lineId: string,
+          field: string,
+          value: string
+        ) => void
+      )('item-001', 'line-001', 'name', '編集済み名称');
     });
 
-    const changes = new Map<string, ItemChange>([
-      // 削除: サーバーIDは削除APIを呼ぶ
-      ['c1', { type: 'delete', itemId: 'srv-del' }],
-      // 削除: temp-IDはスキップ
-      ['c2', { type: 'delete', itemId: 'temp-del' }],
-      // 通常追加: createEstimateItem
-      [
-        'c3',
-        {
-          type: 'add',
-          itemId: 'temp-add',
-          data: makeItem({
-            id: 'temp-add',
-            displayOrder: 2,
-            itemType: 'STANDARD',
-            lines: [
-              makeLine({ lineType: 'ESTIMATE', name: '追加項目', quantity: '2', unitPrice: '100' }),
-            ],
-          }),
-        },
-      ],
-      // 値引き追加（単価あり・負数）: 専用APIへ -500
-      [
-        'c4',
-        {
-          type: 'add',
-          itemId: 'temp-disc',
-          data: makeItem({
-            id: 'temp-disc',
-            itemType: 'DISCOUNT',
-            lines: [makeLine({ lineType: 'ESTIMATE', unitPrice: '-500' })],
-          }),
-        },
-      ],
-      // 値引き追加（単価未入力）: 専用APIへ null
-      [
-        'c5',
-        {
-          type: 'add',
-          itemId: 'temp-disc2',
-          data: makeItem({
-            id: 'temp-disc2',
-            itemType: 'DISCOUNT',
-            lines: [makeLine({ lineType: 'ESTIMATE', unitPrice: '' })],
-          }),
-        },
-      ],
-      // 更新: temp-IDはスキップ
-      ['c6', { type: 'update', itemId: 'temp-upd', data: makeItem({ id: 'temp-upd' }) }],
-      // 更新: サーバーIDはbatch更新へ。temp-行は除外される
-      [
-        'c7',
-        {
-          type: 'update',
-          itemId: 'srv-upd',
-          data: makeItem({
-            id: 'srv-upd',
-            lines: [
-              makeLine({
-                id: 'l1',
-                lineType: 'ESTIMATE',
-                name: '更新行',
-                quantity: '1',
-                unitPrice: '10',
-              }),
-              makeLine({ id: 'temp-l', lineType: 'EXECUTION' }),
-            ],
-          }),
-        },
-      ],
-    ]);
+    expect(estimateName()).toBe('編集済み名称');
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
 
-    await capturedEditorConfig!.onSave!(changes);
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
-    // 削除: サーバーIDのみ、temp-はスキップ
-    expect(estimatesApi.deleteEstimateItem).toHaveBeenCalledWith('est-001', 'srv-del', true);
-    expect(estimatesApi.deleteEstimateItem).toHaveBeenCalledTimes(1);
-
-    // 通常追加: createEstimateItemへ
-    expect(estimatesApi.createEstimateItem).toHaveBeenCalledWith(
-      'est-001',
-      expect.objectContaining({ parentId: null, displayOrder: 2 })
-    );
-
-    // 値引き追加: 専用エンドポイント。負数と null の両方が送られる
-    expect(estimatesApi.addDiscountItem).toHaveBeenCalledWith('est-001', -500);
-    expect(estimatesApi.addDiscountItem).toHaveBeenCalledWith('est-001', null);
-    // 値引き行はcreateEstimateItemを使わない（DISCOUNT 2件は除外され通常追加は1件のみ）
-    expect(estimatesApi.createEstimateItem).toHaveBeenCalledTimes(1);
-
-    // 更新: サーバーIDのみ・temp-行除外
-    expect(estimatesApi.batchUpdateEstimateItems).toHaveBeenCalledWith(
-      'est-001',
-      [
-        expect.objectContaining({
-          id: 'srv-upd',
-          lines: [expect.objectContaining({ id: 'l1' })],
-        }),
-      ],
-      expect.any(String)
-    );
+    // (a) 編集したセルの値が消えない / (b) 未保存状態が維持される（ボタンが有効なまま）
+    expect(estimateName()).toBe('編集済み名称');
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    // 保存後の全件再取得を行わない
+    expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
   });
 
   it('ツールバーの値引き行追加がeditor.addDiscountItemを呼ぶ (REQ-41.1)', async () => {

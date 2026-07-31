@@ -23,10 +23,6 @@ import {
   getEstimateDetail,
   deleteEstimate,
   moveEstimateItem,
-  batchUpdateEstimateItems,
-  createEstimateItem,
-  addDiscountItem,
-  deleteEstimateItem,
   reorderEstimateItems,
   calculateOverhead,
   addOverheadItem,
@@ -453,104 +449,14 @@ export default function EstimateDetailPage() {
     Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
   >(new Set(['ESTIMATE', 'EXECUTION', 'VENDOR']));
 
-  // 編集用フック（REQ-27.3: 保存ボタンでDB一括反映）
+  // 編集用フック（27.1: 常時編集 / 27.4: 未保存が無い間は保存ボタンを無効表示）
+  //
+  // 編集状態は `estimateEditReducer` へ委譲済み（53.4）。
+  // 保存経路（`saveEstimateDraft` の1回呼び出しと応答反映）の接続は 53.5 が担当するため、
+  // ここでは `onSave` を渡さない。未接続の間 `save()` は編集内容を保持したまま何もしない。
   const editor = useEstimateEditor({
     estimateId: id ?? '',
     initialItems: estimate ? toEditFormat(estimate.items) : [],
-    onSave: async (changes) => {
-      if (!id) return;
-
-      // 処理順序: 削除→追加→更新 (REQ-34.4)
-
-      // 1. 削除処理
-      const deletePromises: Promise<void>[] = [];
-      for (const [, change] of changes) {
-        if (change.type === 'delete') {
-          // temp-IDはサーバーに存在しないのでスキップ
-          if (change.itemId.startsWith('temp-')) continue;
-          deletePromises.push(deleteEstimateItem(id, change.itemId, true));
-        }
-      }
-      if (deletePromises.length > 0) {
-        await Promise.all(deletePromises);
-      }
-
-      // 2. 追加処理
-      for (const [, change] of changes) {
-        if (change.type === 'add' && change.data) {
-          // 値引き行（itemType=DISCOUNT）は専用エンドポイントで ESTIMATE 1行のみ作成する。
-          // 汎用 createEstimateItem は STANDARD 時に3行を再合成するため使用しない（REQ-41.1, REQ-41.3）。
-          if (change.data.itemType === 'DISCOUNT') {
-            const estimateLine = change.data.lines.find((line) => line.lineType === 'ESTIMATE');
-            const unitPrice =
-              estimateLine?.unitPrice != null && estimateLine.unitPrice !== ''
-                ? parseFloat(estimateLine.unitPrice)
-                : null;
-            await addDiscountItem(id, Number.isNaN(unitPrice as number) ? null : unitPrice);
-            continue;
-          }
-          await createEstimateItem(id, {
-            parentId: change.data.parentId,
-            displayOrder: change.data.displayOrder,
-            lines: change.data.lines.map((line) => ({
-              lineType: line.lineType,
-              name: line.name,
-              specification: line.specification,
-              unit: line.unit,
-              quantity: line.quantity ? parseFloat(line.quantity) || null : null,
-              unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
-              remarks: line.remarks,
-            })),
-          });
-        }
-      }
-
-      // 3. 更新処理 - editor.itemsから最新データを取得
-      const updateItems: Array<{
-        id: string;
-        lines: Array<{
-          id: string;
-          lineType: string;
-          name?: string | null;
-          specification?: string | null;
-          unit?: string | null;
-          quantity?: number | null;
-          unitPrice?: number | null;
-          remarks?: string | null;
-        }>;
-      }> = [];
-
-      for (const [, change] of changes) {
-        if (change.type === 'update') {
-          // temp-IDはサーバーに存在しないのでスキップ（addで処理済み）
-          if (change.itemId.startsWith('temp-')) continue;
-
-          // editor.itemsから最新データを取得 (REQ-34.3)
-          const latestItem = change.data;
-          if (latestItem) {
-            updateItems.push({
-              id: latestItem.id,
-              lines: latestItem.lines
-                .filter((line) => !line.id.startsWith('temp-'))
-                .map((line) => ({
-                  id: line.id,
-                  lineType: line.lineType,
-                  name: line.name,
-                  specification: line.specification,
-                  unit: line.unit,
-                  quantity: line.quantity ? parseFloat(line.quantity) || null : null,
-                  unitPrice: line.unitPrice ? parseFloat(line.unitPrice) || null : null,
-                  remarks: line.remarks,
-                })),
-            });
-          }
-        }
-      }
-
-      if (updateItems.length > 0) {
-        await batchUpdateEstimateItems(id, updateItems, estimate?.updatedAt ?? '');
-      }
-    },
   });
 
   // 選択中の項目データを取得（REQ-23）
@@ -797,12 +703,15 @@ export default function EstimateDetailPage() {
 
   /**
    * 保存処理
+   *
+   * 保存後の全件再取得は行わない（design.md `#### Modified Files`: 「保存は1回のみ、
+   * 保存後の `fetchData()` を撤去」）。再取得すると `editor.setItems` が
+   * サーバーデータで編集内容を上書きしてしまい、保存経路が未接続の間（53.5 まで）は
+   * 未保存の編集を黙って破棄することになる。最新状態は保存応答から反映する（53.5）。
    */
   const handleSave = useCallback(async () => {
     await editor.save();
-    // データを再取得
-    await fetchData();
-  }, [editor, fetchData]);
+  }, [editor]);
 
   /**
    * 諸経費の自動計算（REQ-7.3, REQ-8.3, REQ-9.3）
