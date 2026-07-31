@@ -1,7 +1,13 @@
 /**
  * @fileoverview 見積書APIクライアント
  *
- * 見積書のCRUD操作、見積項目管理、計算・転記・出力機能のAPIクライアントを提供します。
+ * 見積書のCRUD操作、見積項目の参照、計算・転記・出力機能のAPIクライアントを提供します。
+ *
+ * 明細の追加・削除・複写・一括更新・並び替え・階層移動を個別に書き込む関数
+ * （`createEstimateItem` / `deleteEstimateItem` / `moveEstimateItem` /
+ * `reorderEstimateItems` / `batchUpdateEstimateItems`）は
+ * {@link saveEstimateDraft}（`PUT /api/estimates/:id/save`）へ統合したため撤去済み。
+ * 画面の行操作はローカル状態に閉じ、保存操作1回でまとめて確定する（REQ-42.1、Task 53.12）。
  *
  * Task 11: フロントエンドページの実装（API Client）
  *
@@ -29,15 +35,20 @@ import { apiClient } from './client';
 export type EstimateItemLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
 
 /**
- * 見積項目種別
+ * 見積項目種別（サーバーが返却する永続化済みの値）
  *
  * - STANDARD: 通常の見積項目（見積・実行・業者の3行構成）
  * - DISCOUNT: 値引き行（見積金額行のみ・マイナス単価許容）
+ * - NOTE: 注記行（名称のみ・金額集計の対象外）
+ *
+ * NOTE 行は一括保存（{@link saveEstimateDraft}）から生成されるため、
+ * `GET /api/estimates/:id` / `GET /api/estimates/:id/items` の返却値にも現れる。
  *
  * Requirements (estimate-creation):
  * - REQ-41.2, REQ-41.3: 値引きプリセット行
+ * - REQ-55.1, REQ-55.2: 注記行
  */
-export type EstimateItemType = 'STANDARD' | 'DISCOUNT';
+export type EstimateItemType = 'STANDARD' | 'DISCOUNT' | 'NOTE';
 
 /**
  * 見積項目行情報
@@ -311,103 +322,6 @@ export async function exportEstimate(
   return response.blob();
 }
 
-// ============================================================================
-// 見積項目 個別作成・削除 API (Task 40.1, REQ-34)
-// ============================================================================
-
-/**
- * 見積項目の行データ（作成時入力用）
- */
-export interface CreateEstimateItemLineInput {
-  lineType: EstimateItemLineType;
-  name?: string | null;
-  specification?: string | null;
-  unit?: string | null;
-  quantity?: number | null;
-  unitPrice?: number | null;
-  remarks?: string | null;
-}
-
-/**
- * 見積項目を個別作成
- * Requirements: REQ-34.1, REQ-34.4
- *
- * @param estimateId - 見積書ID
- * @param input - 作成入力（parentId, displayOrder, lines）
- * @returns 作成された見積項目
- */
-export async function createEstimateItem(
-  estimateId: string,
-  input: {
-    parentId?: string | null;
-    displayOrder?: number;
-    lines: CreateEstimateItemLineInput[];
-  }
-): Promise<EstimateItemHierarchy> {
-  return apiClient.post<EstimateItemHierarchy>(`/api/estimates/${estimateId}/items`, input);
-}
-
-/**
- * 見積項目を個別削除
- * Requirements: REQ-34.2, REQ-34.4
- *
- * バックエンドはreq.bodyからforceDeleteを読み取る
- *
- * @param estimateId - 見積書ID
- * @param itemId - 見積項目ID
- * @param forceDelete - 子項目も含めて強制削除するか
- */
-export async function deleteEstimateItem(
-  estimateId: string,
-  itemId: string,
-  forceDelete: boolean = true
-): Promise<void> {
-  await apiClient.delete(`/api/estimates/${estimateId}/items/${itemId}`, {
-    body: { forceDelete },
-  });
-}
-
-// ============================================================================
-// 階層移動API (Task 27.2, REQ-24)
-// ============================================================================
-
-/**
- * 見積項目を階層移動
- * Requirements: REQ-24.1-24.5
- *
- * @param estimateId - 見積書ID
- * @param itemId - 移動する見積項目ID
- * @param newParentId - 新しい親項目ID（nullでルートレベルに移動）
- */
-export async function moveEstimateItem(
-  estimateId: string,
-  itemId: string,
-  newParentId: string | null
-): Promise<void> {
-  await apiClient.patch(`/api/estimates/${estimateId}/items/${itemId}/move`, {
-    newParentId,
-  });
-}
-
-/**
- * 見積項目の表示順序を変更
- *
- * Requirements (estimate-creation):
- * - REQ-12.2: 見積項目の表示順序を変更可能とする
- *
- * 兄弟グループ内で↑/↓ボタンによる並び替えを行う際に使用する。
- * 指定した項目のdisplayOrderを即時にDBへ反映する。
- *
- * @param estimateId - 見積書ID
- * @param itemOrders - 表示順序の配列（id と displayOrder のペア）
- */
-export async function reorderEstimateItems(
-  estimateId: string,
-  itemOrders: Array<{ id: string; displayOrder: number }>
-): Promise<void> {
-  await apiClient.put(`/api/estimates/${estimateId}/items/reorder`, { itemOrders });
-}
-
 /**
  * 諸経費計算パラメータ
  */
@@ -509,35 +423,6 @@ export async function addDiscountItem(
   });
 }
 
-/**
- * 見積項目を一括更新
- *
- * Requirements (estimate-creation):
- * - REQ-27.3: 保存ボタンでDB一括反映
- *
- * @param estimateId - 見積書ID
- * @param items - 更新対象の項目配列
- */
-export async function batchUpdateEstimateItems(
-  estimateId: string,
-  items: Array<{
-    id: string;
-    lines: Array<{
-      id: string;
-      lineType: string;
-      name?: string | null;
-      specification?: string | null;
-      unit?: string | null;
-      quantity?: number | null;
-      unitPrice?: number | null;
-      remarks?: string | null;
-    }>;
-  }>,
-  updatedAt: string
-): Promise<void> {
-  await apiClient.put(`/api/estimates/${estimateId}/items/batch`, { items, updatedAt });
-}
-
 // ============================================================================
 // 明細の一括保存API (Task 53.5, REQ-42)
 // ============================================================================
@@ -545,8 +430,8 @@ export async function batchUpdateEstimateItems(
 /**
  * 一括保存で送出する見積項目の種別
  *
- * 既存の {@link EstimateItemType} は旧APIの返却値に合わせて `NOTE` を持たないため、
- * 保存API専用に定義する（バックエンド `saveItemTypeSchema` と同一集合）。
+ * バックエンド `saveItemTypeSchema` と同一集合。返却側の {@link EstimateItemType} と
+ * 同じ集合になるが、リクエストの契約は保存APIのスキーマに従うため別名で保持する。
  *
  * Requirements (estimate-creation):
  * - 41.2, 41.3: 値引き行は 'DISCOUNT'

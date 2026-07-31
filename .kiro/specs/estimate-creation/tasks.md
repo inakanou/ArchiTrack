@@ -1184,7 +1184,7 @@
   - _Requirements: 47.5_
   - _Boundary: キーボード共通ユーティリティ_
 
-- [ ] 53.12 明細操作系エンドポイントとAPI関数の撤去
+- [x] 53.12 明細操作系エンドポイントとAPI関数の撤去
   - 明細の作成・削除・複写・一括更新・並び替え・階層移動の6経路を撤去する
   - 対応するフロントエンドの呼び出し関数を撤去する
   - 転記系5経路と出力経路は撤去せず段階3・段階4に残すことを確認する
@@ -1197,10 +1197,13 @@
   - 明細作成・一括更新・並び替えを旧経路で行っていた見積E2Eのフィクスチャを一括保存経由へ移行する
   - **実行予算のE2Eヘルパーが見積項目作成に旧経路を使っているため、一括保存経由へ移行する**
   - 撤去対象を検証していたバックエンドの単体テストを撤去または一括保存の検証へ移行する
-  - 段階1完了時点でバックエンド・フロントエンド双方の全単体スイートと見積・実行予算のE2Eが緑になる
+  - **バックエンドの統合テストで撤去済み経路を直叩きしている6ブロックを移行または撤去する**（53.12 のレビュー指摘により追加。詳細は下記）
+  - 段階1完了時点でバックエンド・フロントエンド双方の全単体スイートと**バックエンドの統合テスト**、および見積・実行予算のE2Eが緑になる
   - 境界をまたぐ移行作業のため統合タスクとして扱う
   - _Requirements: 42.1_
   - _Depends: 53.12_
+  - _注記（53.12 のレビューで判明）: **統合テストの移行に所有者がいなかった**。`backend/src/__tests__/integration/estimate.api.integration.test.ts` の6ブロック（`:879` 見積項目作成／`:1023` 値引き行バッチ保存ラウンドトリップ／`:1142` 複製／`:1199` 並び替え／`:1253` 削除／`:1370` 階層移動）が撤去済み経路を直叩きしており、実DB接続時に必ず落ちる。53.12 が放置したのは妥当（`test:integration` は `RUN_INTEGRATION_TESTS=true` ゲートの別スクリプトで `test:unit` に含まれず緑のゲートを偽装していない／環境制約で実行できず盲目の編集になる／tasks.md:1005 が移行を 53.13 に割り当てている）だが、**53.13 の元の箇条書きは「単体テスト」とE2Eしか列挙しておらず統合テストに触れていなかった**ため、所有者不在の債務になるところだった。**`:1023`「値引き行 バッチ保存ラウンドトリップ (REQ-41.2, 41.3, 41.5, 41.6, 41.8, 41.10, REQ-34)」は単純削除してはならない** — 撤去された `PUT /items/batch`(`:1066`) と `DELETE /items/:itemId`(`:1124`) を使っているが、検証しているのは値引き行の仕様そのものなので `PUT /:id/save` 経由へ**移行**しないと REQ-41 系のカバレッジが純減する。あわせて design.md `#### Integration Tests` 5「撤去した旧エンドポイントが404を返す」の統合テスト版もここで追加すること（単体レベルは 53.12 の新規16件が担保済み）。_
+  - _前提: 統合テストとE2Eの実行にはテスト用DB（`127.0.0.1:5433`）とアプリコンテナが必要。dev コンテナは lockfile の `@emnapi/core` 欠落で起動不可なので、**着手前にコンテナ復旧が必要**。_
 
 - [ ] 53.14 E2E: リクエスト回数と未保存編集の保持
   - 行の挿入・削除・複写・並び替え・ドラッグ・階層の上げ下げを各3回行い、書き込みリクエストが0件であることを検証する
@@ -1598,6 +1601,12 @@
 - 53.8: 注記行のUI経路を新設。`EstimateItemRow.tsx` の `NoteLineRow`（名称 input のみ・他欄は `note-blank-*` の空セル・種別ラベル「注記」・`data-item-type` 属性）、`EstimateItemToolbar.tsx` の常時有効な `add-note-button`、`useEstimateEditor.addNoteItem(position?)`（`insertNoteRow` を dispatch）、`EstimateDetailPage` が「選択行の直後・同一階層／未選択ならルート末尾」へ解決する。**55.2 の集計除外は3層で塞いだ**: 親集計（53.1 の `estimateTree` が既に対応済み）に加え、ルート合計 `getTotalAmount` とサマリー `calculateTotalByLineType` が**行タイプを問わず全ルート項目を合算していた穴**を塞いだ。テストは注記行に金額を持たせた状態で除外を検証するので変異で殺せる（空振りしない）。
 - **【53.8 ラウンド1で REJECT された設計層の矛盾】単一の `hasChildren` フラグが2つの異なる問いに使われていた**: `EstimateItemTable.tsx` の `item.children.length > 0` は「展開するものがあるか」（表示）と「この行の金額は子から導出されるか」（29.1 の単価編集ロック）の両方を駆動していた。注記行は子として数えられる一方で集計からは除外される（55.2／53.1 の「子が注記行のみの項目は葉として自身の金額を保持する」判断）ため、**子が注記行のみの親は単価が編集不可になるのに金額は導出されない**という、どの要件も記述していない状態に落ちていた。数量だけ編集可能なのでロックされた古い単価との積で金額が更新され続ける。到達は3操作（項目作成→注記行追加→下の階層へ）。**是正**: 集計規則を `estimateTree.isAggregatableChild()` として export し単一定義化、`EstimateItemTable` で `hasChildren`（展開トグル・インデント用）と `hasAggregatableChildren`（`EstimateItemRow` の `hasChildren` prop へ渡す）を分離。**教訓: 行タイプが増えたとき「子の有無」を問う既存の判定は、集計・表示・編集可否のどの意味だったかを個別に確認すること。** 値引き行(DISCOUNT)は 41.8 で集計対象なのでこの矛盾は起きず、NOTE 固有だった。
 - **【53.14 への申し送り・53.8 は E2E 未検証】** dev コンテナが lockfile の `@emnapi/core` 欠落で起動不可のため、53.8 はフロントエンド単体テストのみで検証している。**「注記行追加 → 階層移動 → 保存 → 再読込」の E2E を 53.14 で必ず追加すること**（特に上記 REJECT された再現手順は E2E で固定する価値が高い）。保存往復のワイヤ契約自体は `toSaveEstimateItemNodes` とバックエンドの `estimate.schema.ts:694-706`（DISCOUNT/NOTE は `children` 空・`lines` は ESTIMATE 1件のみ）をコード照合済みで 400/422 経路は無い。
+- 53.12: バックエンド21→15ルート（撤去6本が撤去段階表と厳密一致することを HEAD との機械抽出比較で実証。過剰・過少ともゼロ）。サービスは `deleteItem`/`duplicateItem`/`moveItem`/`reorderItems`/`batchUpdateItems`/private `getDescendantIds` を撤去し、**`createItem` と `getHierarchy` は維持**（前者は overhead-items・discount-items が使う）。フロントは5関数を撤去（`createEstimateItem`/`deleteEstimateItem`/`moveEstimateItem`/`reorderEstimateItems`/`batchUpdateEstimateItems`）。**52.8 の 400/422 判別子は無傷**（`refine|superRefine|saveEstimateDraftSchema` 系の増減ゼロを確認）。テスト38件を削除し29件を追加。**削除は `.skip` ではなく実削除**、代替検証の実在を抜き取りで確認済み（循環参照＝`wouldCreateCycle`+保存時構造検証、配列長上限＝`SAVE_ESTIMATE_MAX_ITEMS`、子孫削除/並び替え/階層移動/複写＝reducer テスト）。
+- **【撤去タスクの検証方法として有効だったもの】** 追加テストに「**維持対象の経路が404を返さないこと**」を入れることで**過剰撤去を検出できる**。実際にレビューの変異（維持対象 `POST /discount-items` を削除／`GET /:id/items` を削除／フロント `addDiscountItem` を非公開化）がいずれも精密に着弾した。撤去タスクでは「消えたこと」だけでなく「**消えていないこと**」を固定すること。
+- **【`api/estimates.ts` の関数本数は設計文書と食い違う】** design.md `#### Directory Structure` は「旧12関数の撤去」と書くが、**6経路に対応するフロント関数は5本しかない**（複写に対応する関数が元から存在しない＝複写はフロントに呼び出し口が無かった）。段階3・4 の撤去分を足しても**エンドポイント**は12本になるが**関数**は12にならない。**後続タスクで関数の本数を根拠にしないこと。**
+- **【52.8 の申し送りの前提が誤っていた・訂正済み】** 「`GET /:id/items` の NOTE 誤ラベルは 53.12 が当該エンドポイントを撤去するので併せて解消」とあったが、**`GET /:id/items` は撤去段階表の維持対象**で撤去されない。実際に修正した: `EstimateItemTypeValue` に `NOTE` を追加（`toEstimateItemWithLines` の `?? 'STANDARD'` は `'NOTE'` が truthy のため**ランタイム挙動は不変**＝誤ラベルは型宣言だけの嘘だった）。あわせて `CreatableEstimateItemTypeValue = Exclude<…,'NOTE'>` を新設。これは過剰な作り込みではなく**必然の随伴**で、`prepareLinesToCreate` は `DISCOUNT` 以外に3行生成するため NOTE を許すと「NOTE は ESTIMATE 1行のみ」（design.md:4377）の不変条件を型レベルで破る穴が開く。フロント `api/estimates.ts` の `EstimateItemType` にも同じ嘘があり訂正済み。
+- **【53.1(b) の申し送りを解消】** legacy `EstimateCalculator.calculateHierarchyAmounts`（見積行のみ・再帰）と `estimateTree.recalculateAncestorAmounts`（全行タイプ・反復・NOTE除外）の併存を解消。**旧実装のプロダクション利用者はゼロ**（利用者は自身のテスト2ファイルのみ）だったため旧実装と専用型 `EstimateItemHierarchy` を撤去。`EstimateCalculator` の他7メソッドは5モジュールが利用中なのでクラスは維持。
+- **【非ブロッキング・後続の掃除候補】** (1) 撤去の副作用で `itemTypeSchema`(`estimate.schema.ts:147`) と `estimateItemLineSchema`(`:155`) がプロダクション未参照になった。後者は18件の文字数制限テストを持つため削除は見送りコメントで明記。(2) `deleteEstimateItemSchema`(`:193`) と `updateEstimateItemSchema`(`:186`) は **53.12 以前から**未参照の死にコード（HEAD で確認済み）。(3) `estimate-draft.service.ts:46` と `:576` のコメントが撤去済みの `getDescendantIds` を引き合いに出しており、読み手が探して見つからない。
 - 53.11: `frontend/src/utils/keyboard-input.ts` を新設し `isTextInputElement` を export（**import 0本**）。`useUndoKeyboardShortcuts.ts` はローカル定義52行を削除して import 1行に置換（呼び出し箇所は一字も変えていない）。**design.md:4116-4118 が本タスクを明示的に指示していた**（「`resolve` はセル文字入力中では行操作コマンドを返さない（47.5）。判定には既存 `isTextInputElement` と同じロジックを共通ユーティリティとして切り出して用いる」）ので勝手な抽象化ではない。**置き場所が `domain/` でなく `utils/` である根拠**: design.md:3628-3634 のアーキ図が `KeyGuard[isTextInputElement]` を `FE_Domain` ではなく `FE_Shared` に置いており、`#### Directory Structure`(:3713-3718) の `domain/estimate/` 一覧にも含まれない。`useUndoKeyboardShortcuts.ts` は `#### 変更してはならない共有ファイル`(:3768-3770) の6本に**含まれない**ので変更可。
 - **【リファクタの安全性をどう証明したか】** 切り出し**前**に特性テスト（characterization test）32件を先行させてベースラインを固定してから抽出した。「あるべき姿」ではなく**現行の実装事実をあるがまま**固定するのが要点で、非自明な挙動（`type` 属性なしの input と `type="unknown-type"` の input がいずれも true。DOM の `.type` ゲッターが未知 type を `'text'` へ正規化するため）まで捕捉している。レビューは HEAD 版と新モジュールを1行ずつ照合し、`type` 値12個の順序・比較方法(`includes`)・ガード順序・`=== 'true'` の厳密比較・フォールスルーまで完全一致を確認した（差分は配列の定数巻き上げ・型キャスト・export 化の3点のみで評価結果に非影響）。**切り出しの結線は「ユーティリティ側だけを常に false にする」変異で証明**（util 21件に加えフック側20件が落ちる＝フックが古いローカルコピーではなく新モジュールを実際に消費している）。呼び出し元経由のテストだけでは切り出し先が使われているかを証明できないので、この形の変異が有効。
 - **【54.6 への設計時確認事項・「47.5 の穴」ではない】`isTextInputElement` は要素ベースの判定で IME 合成状態（`isComposing` / `keyCode 229`）を参照しない。** ただし**現行の取り消しショートカット経路では 47.5 は充足されている**: 見積明細のセルは `EstimateItemRow` が `<input type="text">` として描画するため、日本語変換中に Ctrl+Z を押しても `event.target` はその `<input>` で判定は true を返し抑止が効く。合成入力は編集可能要素にフォーカスがある状態でしか発生せず「合成中なのに target が非入力要素」の経路が存在しない。**54.6 の `estimateKeymap.resolve` が、セルの `<input>` ではなくグリッド／行のコンテナ要素で keydown を受ける設計を採る場合に限り**、合成中の判定が別途必要になりうるので設計時に確認すること。この非自明な事実は「IME変換中（isComposing）でも判定は変わらない」というテストでコード上に明示的に固定済み。

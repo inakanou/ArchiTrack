@@ -1,7 +1,10 @@
 /**
  * @fileoverview 見積書APIルート
  *
- * 見積書のCRUD操作、見積項目管理、計算・転記機能のエンドポイントを提供します。
+ * 見積書のCRUD操作、見積項目の参照と一括保存、計算・転記機能のエンドポイントを提供します。
+ *
+ * 明細の追加・削除・複写・一括更新・並び替え・階層移動は `PUT /:id/save` へ統合済み
+ * （旧6経路は Task 53.12 で撤去、REQ-42.1）。
  *
  * Requirements (estimate-creation):
  * - REQ-11.1: プロジェクトに紐付く見積書の一覧を表示する
@@ -16,7 +19,7 @@
  * - REQ-5.1-5.7: NET金額計算と案分
  * - REQ-6.1-6.6: 利益率による見積金額反映
  * - REQ-7.1-9.6: 諸経費自動計算
- * - REQ-12.1-12.6: 見積項目操作
+ * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
  *
  * Task 4.1: 見積書CRUD APIエンドポイントの実装
  * Task 4.2: 見積項目CRUD APIエンドポイントの実装
@@ -49,13 +52,10 @@ import logger from '../utils/logger.js';
 import {
   projectIdParamSchema,
   estimateIdParamSchema,
-  estimateItemIdParamSchema,
   createEstimateSchema,
   updateEstimateSchema,
   deleteEstimateSchema,
   estimateListQuerySchema,
-  createEstimateItemSchema,
-  reorderItemsSchema,
   transferQuotationSchema,
   calculateNetSchema,
   applyProfitRateSchema,
@@ -64,8 +64,6 @@ import {
   addDiscountItemSchema,
   getItemsQuerySchema,
   exportEstimateQuerySchema,
-  moveEstimateItemSchema,
-  batchUpdateItemsSchema,
   saveEstimateDraftSchema,
 } from '../schemas/estimate.schema.js';
 import { ValidationError } from '../errors/apiError.js';
@@ -75,9 +73,7 @@ import {
   EstimateDraftValidationError,
   DuplicateEstimateNameError,
   EstimateItemNotFoundError,
-  EstimateItemHasChildrenError,
   EstimateItemNotBelongToEstimateError,
-  EstimateItemCircularReferenceError,
   ReceivedQuotationLineItemNotFoundError,
   ItemizedStatementNotFoundForEstimateError,
 } from '../errors/estimateError.js';
@@ -868,6 +864,16 @@ router.put(
 // ==========================================
 // 見積項目API (Task 4.2)
 // ==========================================
+//
+// 明細操作系の6経路（`POST /:id/items`、`DELETE /:id/items/:itemId`、
+// `POST /:id/items/:itemId/duplicate`、`PUT /:id/items/batch`、
+// `PUT /:id/items/reorder`、`PATCH /:id/items/:itemId/move`）は
+// `PUT /:id/save`（一括保存）へ統合したため撤去済み（REQ-42.1、Task 53.12）。
+// 追加・削除・更新・並び順の変更・階層の変更は保存1回でまとめて確定する。
+// 参照系の `GET /:id/items` は維持する。
+//
+// 転記系5経路（`POST /:id/transfer-quotation` ほか）は段階3、
+// `GET /:id/export` は段階4で撤去するため本ファイルに残している。
 
 /**
  * @swagger
@@ -917,518 +923,6 @@ router.get(
 
       res.json(items);
     } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/items:
- *   post:
- *     summary: 見積項目作成
- *     description: 見積書に新規見積項目（3行1セット）を追加
- *     tags:
- *       - Estimate Items
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - displayOrder
- *               - lines
- *             properties:
- *               parentId:
- *                 type: string
- *                 format: uuid
- *                 nullable: true
- *               displayOrder:
- *                 type: integer
- *               lines:
- *                 type: array
- *                 items:
- *                   type: object
- *                   properties:
- *                     lineType:
- *                       type: string
- *                       enum: [ESTIMATE, EXECUTION, VENDOR]
- *                     name:
- *                       type: string
- *                     specification:
- *                       type: string
- *                     unit:
- *                       type: string
- *                     quantity:
- *                       type: number
- *                     unitPrice:
- *                       type: number
- *                     remarks:
- *                       type: string
- *     responses:
- *       201:
- *         description: 見積項目作成成功
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積書が見つからない
- */
-router.post(
-  '/:id/items',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(createEstimateItemSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.validatedParams as { id: string };
-      const validatedBody = req.validatedBody as {
-        parentId?: string | null;
-        displayOrder: number;
-        itemType?: 'STANDARD' | 'DISCOUNT';
-        lines: Array<{
-          lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
-          name?: string | null;
-          specification?: string | null;
-          unit?: string | null;
-          quantity?: number | null;
-          unitPrice?: number | null;
-          remarks?: string | null;
-        }>;
-      };
-
-      const item = await estimateItemService.createItem(id, validatedBody);
-
-      logger.info(
-        { userId: req.user?.userId, estimateId: id, itemId: item.id },
-        'Estimate item created successfully'
-      );
-
-      res.status(201).json(item);
-    } catch (error) {
-      if (error instanceof EstimateNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-not-found',
-          title: 'Estimate Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_NOT_FOUND',
-        });
-        return;
-      }
-      if (error instanceof EstimateItemNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-item-not-found',
-          title: 'Estimate Item Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_NOT_FOUND',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/items/{itemId}:
- *   delete:
- *     summary: 見積項目削除
- *     description: 見積項目（3行1セット）を削除
- *     tags:
- *       - Estimate Items
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: path
- *         name: itemId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               forceDelete:
- *                 type: boolean
- *                 default: false
- *     responses:
- *       204:
- *         description: 見積項目削除成功
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積項目が見つからない
- *       422:
- *         description: 子項目が存在（forceDelete=falseの場合）
- */
-router.delete(
-  '/:id/items/:itemId',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateItemIdParamSchema, 'params'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { itemId } = req.validatedParams as { id: string; itemId: string };
-      const forceDelete = (req.body as { forceDelete?: boolean })?.forceDelete ?? false;
-
-      await estimateItemService.deleteItem(itemId, forceDelete);
-
-      logger.info({ userId: req.user?.userId, itemId }, 'Estimate item deleted successfully');
-
-      res.status(204).send();
-    } catch (error) {
-      if (error instanceof EstimateItemNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-item-not-found',
-          title: 'Estimate Item Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_NOT_FOUND',
-        });
-        return;
-      }
-      if (error instanceof EstimateItemHasChildrenError) {
-        res.status(422).json({
-          type: 'https://architrack.example.com/problems/estimate-item-has-children',
-          title: 'Estimate Item Has Children',
-          status: 422,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_HAS_CHILDREN',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/items/{itemId}/duplicate:
- *   post:
- *     summary: 見積項目複製
- *     description: 見積項目（3行1セット）を複製
- *     tags:
- *       - Estimate Items
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: path
- *         name: itemId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       201:
- *         description: 見積項目複製成功
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積項目が見つからない
- */
-router.post(
-  '/:id/items/:itemId/duplicate',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateItemIdParamSchema, 'params'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { itemId } = req.validatedParams as { id: string; itemId: string };
-
-      const duplicatedItem = await estimateItemService.duplicateItem(itemId);
-
-      logger.info(
-        { userId: req.user?.userId, sourceItemId: itemId, newItemId: duplicatedItem.id },
-        'Estimate item duplicated successfully'
-      );
-
-      res.status(201).json(duplicatedItem);
-    } catch (error) {
-      if (error instanceof EstimateItemNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-item-not-found',
-          title: 'Estimate Item Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_NOT_FOUND',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/items/reorder:
- *   put:
- *     summary: 見積項目並び替え
- *     description: 見積項目の表示順序を一括変更
- *     tags:
- *       - Estimate Items
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - itemOrders
- *             properties:
- *               itemOrders:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required:
- *                     - id
- *                     - displayOrder
- *                   properties:
- *                     id:
- *                       type: string
- *                       format: uuid
- *                     displayOrder:
- *                       type: integer
- *     responses:
- *       204:
- *         description: 並び替え成功
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積書が見つからない
- */
-// ==========================================
-// 見積項目バッチ更新API (REQ-27.3)
-// ==========================================
-
-router.put(
-  '/:id/items/batch',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(batchUpdateItemsSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.validatedParams as { id: string };
-      const { items } = req.validatedBody as {
-        items: Array<{
-          id: string;
-          lines: Array<{
-            id: string;
-            lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
-            name?: string | null;
-            specification?: string | null;
-            unit?: string | null;
-            quantity?: number | null;
-            unitPrice?: number | null;
-            remarks?: string | null;
-          }>;
-        }>;
-      };
-
-      await estimateItemService.batchUpdateItems(id, items);
-
-      logger.info(
-        { userId: req.user?.userId, estimateId: id, itemCount: items.length },
-        'Estimate items batch updated'
-      );
-
-      res.status(200).json({ success: true });
-    } catch (error) {
-      if (error instanceof EstimateNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-not-found',
-          title: 'Estimate Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_NOT_FOUND',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-router.put(
-  '/:id/items/reorder',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(reorderItemsSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.validatedParams as { id: string };
-      const { itemOrders } = req.validatedBody as {
-        itemOrders: Array<{ id: string; displayOrder: number }>;
-      };
-
-      await estimateItemService.reorderItems(id, itemOrders);
-
-      logger.info({ userId: req.user?.userId, estimateId: id }, 'Estimate items reordered');
-
-      res.status(204).send();
-    } catch (error) {
-      if (error instanceof EstimateNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-not-found',
-          title: 'Estimate Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_NOT_FOUND',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-// ==========================================
-// 階層移動API (Task 27.1, REQ-24)
-// ==========================================
-
-/**
- * @swagger
- * /api/estimates/{id}/items/{itemId}/move:
- *   patch:
- *     summary: 見積項目の階層移動
- *     description: 見積項目の親子関係を変更（階層移動）
- *     tags:
- *       - Estimate Items
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: 見積書ID
- *       - in: path
- *         name: itemId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: 移動する見積項目ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - newParentId
- *             properties:
- *               newParentId:
- *                 type: string
- *                 format: uuid
- *                 nullable: true
- *                 description: 新しい親項目ID（nullでルートレベルに移動）
- *     responses:
- *       200:
- *         description: 移動成功
- *       400:
- *         description: バリデーションエラーまたは循環参照
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積項目が見つからない
- */
-router.patch(
-  '/:id/items/:itemId/move',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateItemIdParamSchema, 'params'),
-  validate(moveEstimateItemSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { itemId } = req.validatedParams as { id: string; itemId: string };
-      const { newParentId } = req.validatedBody as { newParentId: string | null };
-
-      await estimateItemService.moveItem(itemId, newParentId);
-
-      logger.info(
-        { userId: req.user?.userId, itemId, newParentId },
-        'Estimate item moved successfully'
-      );
-
-      res.json({ success: true });
-    } catch (error) {
-      if (error instanceof EstimateItemCircularReferenceError) {
-        res.status(400).json({
-          type: 'https://architrack.example.com/problems/estimate-item-circular-reference',
-          title: 'Circular Reference',
-          status: 400,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_CIRCULAR_REFERENCE',
-        });
-        return;
-      }
-      if (error instanceof EstimateItemNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-item-not-found',
-          title: 'Estimate Item Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_NOT_FOUND',
-        });
-        return;
-      }
       next(error);
     }
   }

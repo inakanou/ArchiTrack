@@ -33,10 +33,6 @@ const {
   mockDelete,
   mockCreateItem,
   mockGetHierarchy,
-  mockDeleteItem,
-  mockDuplicateItem,
-  mockReorderItems,
-  mockMoveItem,
   mockTransferFromQuotation,
   mockPreviewNetAllocation,
   mockPreviewProfitRate,
@@ -58,10 +54,6 @@ const {
   mockDelete: vi.fn(),
   mockCreateItem: vi.fn(),
   mockGetHierarchy: vi.fn(),
-  mockDeleteItem: vi.fn(),
-  mockDuplicateItem: vi.fn(),
-  mockReorderItems: vi.fn(),
-  mockMoveItem: vi.fn(),
   mockTransferFromQuotation: vi.fn(),
   mockPreviewNetAllocation: vi.fn(),
   mockPreviewProfitRate: vi.fn(),
@@ -116,10 +108,6 @@ vi.mock('../../../services/estimate-item.service.js', () => ({
   EstimateItemService: class {
     createItem = mockCreateItem;
     getHierarchy = mockGetHierarchy;
-    deleteItem = mockDeleteItem;
-    duplicateItem = mockDuplicateItem;
-    reorderItems = mockReorderItems;
-    moveItem = mockMoveItem;
     transferFromQuotation = mockTransferFromQuotation;
   },
 }));
@@ -189,9 +177,6 @@ import {
   EstimateNotFoundError,
   EstimateConflictError,
   DuplicateEstimateNameError,
-  EstimateItemHasChildrenError,
-  EstimateItemNotFoundError,
-  EstimateItemCircularReferenceError,
 } from '../../../errors/estimateError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 import { ValidationError } from '../../../errors/apiError.js';
@@ -585,104 +570,6 @@ describe('estimates.routes', () => {
     });
   });
 
-  describe('POST /api/estimates/:id/items', () => {
-    const validCreateItemInput = {
-      displayOrder: 0,
-      lines: [
-        { lineType: 'ESTIMATE', name: 'テスト項目', unit: '式', quantity: 1, unitPrice: 10000 },
-        { lineType: 'EXECUTION' },
-        { lineType: 'VENDOR' },
-      ],
-    };
-
-    it('見積項目を作成できること', async () => {
-      mockCreateItem.mockResolvedValue(mockEstimateDetail.items[0]);
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/items`)
-        .send(validCreateItemInput);
-
-      expect(response.status).toBe(201);
-      expect(response.body).toHaveProperty('id');
-    });
-
-    it('見積書が存在しない場合は404を返すこと', async () => {
-      mockCreateItem.mockRejectedValue(new EstimateNotFoundError(validUUID));
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/items`)
-        .send(validCreateItemInput);
-
-      expect(response.status).toBe(404);
-    });
-  });
-
-  describe('DELETE /api/estimates/:id/items/:itemId', () => {
-    it('見積項目を削除できること', async () => {
-      mockDeleteItem.mockResolvedValue(undefined);
-
-      const response = await request(app).delete(
-        `/api/estimates/${validUUID}/items/${estimateItemId}`
-      );
-
-      expect(response.status).toBe(204);
-    });
-
-    it('子項目がある場合は422を返すこと', async () => {
-      mockDeleteItem.mockRejectedValue(new EstimateItemHasChildrenError(estimateItemId, 2));
-
-      const response = await request(app).delete(
-        `/api/estimates/${validUUID}/items/${estimateItemId}`
-      );
-
-      expect(response.status).toBe(422);
-      expect(response.body.code).toBe('ESTIMATE_ITEM_HAS_CHILDREN');
-    });
-
-    it('forceDeleteオプションで強制削除できること', async () => {
-      mockDeleteItem.mockResolvedValue(undefined);
-
-      const response = await request(app)
-        .delete(`/api/estimates/${validUUID}/items/${estimateItemId}`)
-        .send({ forceDelete: true });
-
-      expect(response.status).toBe(204);
-      expect(mockDeleteItem).toHaveBeenCalledWith(estimateItemId, true);
-    });
-  });
-
-  describe('POST /api/estimates/:id/items/:itemId/duplicate', () => {
-    it('見積項目を複製できること', async () => {
-      const duplicatedItem = { ...mockEstimateDetail.items[0], id: 'new-item-id' };
-      mockDuplicateItem.mockResolvedValue(duplicatedItem);
-
-      const response = await request(app).post(
-        `/api/estimates/${validUUID}/items/${estimateItemId}/duplicate`
-      );
-
-      expect(response.status).toBe(201);
-      expect(mockDuplicateItem).toHaveBeenCalledWith(estimateItemId);
-    });
-  });
-
-  describe('PUT /api/estimates/:id/items/reorder', () => {
-    it('見積項目の順序を変更できること', async () => {
-      mockReorderItems.mockResolvedValue(undefined);
-      const anotherItemId = '550e8400-e29b-41d4-a716-446655440009';
-
-      const response = await request(app)
-        .put(`/api/estimates/${validUUID}/items/reorder`)
-        .send({
-          itemOrders: [
-            { id: estimateItemId, displayOrder: 1 },
-            { id: anotherItemId, displayOrder: 0 },
-          ],
-        });
-
-      expect(response.status).toBe(204);
-    });
-  });
-
   describe('POST /api/estimates/:id/transfer-quotation', () => {
     const receivedQuotationId = '550e8400-e29b-41d4-a716-446655440007';
     const lineItemId = '550e8400-e29b-41d4-a716-446655440008';
@@ -877,76 +764,137 @@ describe('estimates.routes', () => {
   });
 
   // ==========================================
-  // 階層移動API (Task 27.1, REQ-24)
+  // 明細操作系エンドポイントの撤去（Task 53.12, REQ-42.1）
   // ==========================================
 
-  describe('PATCH /api/estimates/:id/items/:itemId/move', () => {
-    const newParentId = '550e8400-e29b-41d4-a716-446655440010';
+  /**
+   * 明細の追加・削除・複写・一括更新・並び替え・階層移動は
+   * `PUT /api/estimates/:id/save`（一括保存）へ統合したため、
+   * 旧6経路はルーターに存在しない。
+   *
+   * 「経路が無いこと」は個々のハンドラのテストでは表現できないため、
+   * ルーターへ要求を投げて**見つからない応答**になることで固定する。
+   * あわせて、段階3・段階4で撤去する経路と維持対象の経路が
+   * 巻き添えで消えていないこと（過剰撤去の検出）も同じ観点で固定する。
+   *
+   * Requirements (estimate-creation):
+   * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+   */
+  describe('撤去済みの明細操作系エンドポイント (REQ-42.1)', () => {
+    const anotherItemId = '550e8400-e29b-41d4-a716-446655440009';
 
-    it('項目を別の親に移動できること', async () => {
-      mockMoveItem.mockResolvedValue(undefined);
+    const removedRoutes: Array<{ name: string; send: () => request.Test }> = [
+      {
+        name: 'POST /api/estimates/:id/items',
+        send: () =>
+          request(app)
+            .post(`/api/estimates/${validUUID}/items`)
+            .send({ displayOrder: 0, lines: [{ lineType: 'ESTIMATE' }] }),
+      },
+      {
+        name: 'DELETE /api/estimates/:id/items/:itemId',
+        send: () =>
+          request(app)
+            .delete(`/api/estimates/${validUUID}/items/${estimateItemId}`)
+            .send({ forceDelete: true }),
+      },
+      {
+        name: 'POST /api/estimates/:id/items/:itemId/duplicate',
+        send: () =>
+          request(app).post(`/api/estimates/${validUUID}/items/${estimateItemId}/duplicate`),
+      },
+      {
+        name: 'PUT /api/estimates/:id/items/batch',
+        send: () =>
+          request(app)
+            .put(`/api/estimates/${validUUID}/items/batch`)
+            .send({ items: [], updatedAt: '2024-01-01T00:00:00.000Z' }),
+      },
+      {
+        name: 'PUT /api/estimates/:id/items/reorder',
+        send: () =>
+          request(app)
+            .put(`/api/estimates/${validUUID}/items/reorder`)
+            .send({ itemOrders: [{ id: estimateItemId, displayOrder: 0 }] }),
+      },
+      {
+        name: 'PATCH /api/estimates/:id/items/:itemId/move',
+        send: () =>
+          request(app)
+            .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+            .send({ newParentId: anotherItemId }),
+      },
+    ];
 
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId });
-
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual({ success: true });
-      expect(mockMoveItem).toHaveBeenCalledWith(estimateItemId, newParentId);
-    });
-
-    it('項目をルートレベルに移動できること（newParentId: null）', async () => {
-      mockMoveItem.mockResolvedValue(undefined);
-
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId: null });
-
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual({ success: true });
-      expect(mockMoveItem).toHaveBeenCalledWith(estimateItemId, null);
-    });
-
-    it('循環参照が発生する場合400を返すこと', async () => {
-      mockMoveItem.mockRejectedValue(
-        new EstimateItemCircularReferenceError(estimateItemId, newParentId)
-      );
-
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId });
-
-      expect(response.status).toBe(400);
-      expect(response.body.code).toBe('ESTIMATE_ITEM_CIRCULAR_REFERENCE');
-    });
-
-    it('存在しない項目の場合404を返すこと', async () => {
-      mockMoveItem.mockRejectedValue(new EstimateItemNotFoundError(estimateItemId));
-
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId });
+    it.each(removedRoutes)('$name が見つからない応答を返すこと', async ({ send }) => {
+      const response = await send();
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_ITEM_NOT_FOUND');
     });
 
-    it('不正なリクエストボディの場合400を返すこと', async () => {
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId: 'not-a-uuid' });
+    it('撤去した6経路がサービスの呼び出しに到達しないこと', async () => {
+      mockCreateItem.mockResolvedValue(mockEstimateDetail.items[0]);
 
-      expect(response.status).toBe(400);
+      for (const route of removedRoutes) {
+        await route.send();
+      }
+
+      expect(mockCreateItem).not.toHaveBeenCalled();
     });
 
-    it('estimate:update権限が必要であること', async () => {
-      mockMoveItem.mockResolvedValue(undefined);
+    /**
+     * 過剰撤去の検出。転記系5経路は段階3、`GET /:id/export` は段階4で撤去するため、
+     * 本段階では残っていなければならない。応答の中身ではなく
+     * 「経路が解決されること（＝見つからない応答ではないこと）」だけを見る。
+     */
+    const keptRoutes: Array<{ name: string; send: () => request.Test }> = [
+      {
+        name: 'POST /api/estimates/:id/transfer-quotation',
+        send: () => request(app).post(`/api/estimates/${validUUID}/transfer-quotation`).send({}),
+      },
+      {
+        name: 'POST /api/estimates/:id/calculate-net',
+        send: () => request(app).post(`/api/estimates/${validUUID}/calculate-net`).send({}),
+      },
+      {
+        name: 'POST /api/estimates/:id/apply-profit-rate',
+        send: () => request(app).post(`/api/estimates/${validUUID}/apply-profit-rate`).send({}),
+      },
+      {
+        name: 'POST /api/estimates/:id/overhead-items',
+        send: () => request(app).post(`/api/estimates/${validUUID}/overhead-items`).send({}),
+      },
+      {
+        name: 'POST /api/estimates/:id/discount-items',
+        send: () => request(app).post(`/api/estimates/${validUUID}/discount-items`).send({}),
+      },
+      {
+        name: 'GET /api/estimates/:id/export',
+        send: () => request(app).get(`/api/estimates/${validUUID}/export`),
+      },
+      {
+        name: 'POST /api/estimates/:id/calculate-overhead',
+        send: () => request(app).post(`/api/estimates/${validUUID}/calculate-overhead`).send({}),
+      },
+      {
+        name: 'PUT /api/estimates/:id/save',
+        send: () => request(app).put(`/api/estimates/${validUUID}/save`).send({}),
+      },
+    ];
 
-      await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId: null });
+    it.each(keptRoutes)('$name は撤去されていないこと', async ({ send }) => {
+      const response = await send();
 
-      expect(mockRequirePermission).toHaveBeenCalledWith('estimate:update');
+      expect(response.status).not.toBe(404);
+    });
+
+    it('見積項目の参照経路 GET /api/estimates/:id/items は維持されること', async () => {
+      mockGetHierarchy.mockResolvedValue(mockEstimateDetail.items);
+
+      const response = await request(app).get(`/api/estimates/${validUUID}/items`);
+
+      expect(response.status).toBe(200);
+      expect(mockGetHierarchy).toHaveBeenCalledWith(validUUID);
     });
   });
 });

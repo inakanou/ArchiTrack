@@ -1620,11 +1620,6 @@ describe('EstimateDetailPage', () => {
         estimatesApi.createEstimate,
         estimatesApi.updateEstimate,
         estimatesApi.deleteEstimate,
-        estimatesApi.createEstimateItem,
-        estimatesApi.deleteEstimateItem,
-        estimatesApi.moveEstimateItem,
-        estimatesApi.reorderEstimateItems,
-        estimatesApi.batchUpdateEstimateItems,
         estimatesApi.transferFromQuotation,
         estimatesApi.calculateOverhead,
         estimatesApi.addOverheadItem,
@@ -1813,7 +1808,6 @@ describe('EstimateDetailPage', () => {
       expect(added.id).toBeNull();
       expect(added.tempId).toMatch(/^tmp-/);
       expect(added.children).toEqual([]);
-      expect(estimatesApi.createEstimateItem).not.toHaveBeenCalled();
     });
 
     /**
@@ -1867,7 +1861,6 @@ describe('EstimateDetailPage', () => {
       });
       const items = vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]![1].items;
       expect(items.map((item) => item.id)).toEqual(['item-002', 'item-001']);
-      expect(estimatesApi.reorderEstimateItems).not.toHaveBeenCalled();
     });
 
     /**
@@ -2232,11 +2225,6 @@ describe('EstimateDetailPage', () => {
         estimatesApi.createEstimate,
         estimatesApi.updateEstimate,
         estimatesApi.deleteEstimate,
-        estimatesApi.createEstimateItem,
-        estimatesApi.deleteEstimateItem,
-        estimatesApi.moveEstimateItem,
-        estimatesApi.reorderEstimateItems,
-        estimatesApi.batchUpdateEstimateItems,
         estimatesApi.transferFromQuotation,
         estimatesApi.calculateOverhead,
         estimatesApi.addOverheadItem,
@@ -2903,11 +2891,6 @@ describe('EstimateDetailPage', () => {
         estimatesApi.createEstimate,
         estimatesApi.updateEstimate,
         estimatesApi.deleteEstimate,
-        estimatesApi.createEstimateItem,
-        estimatesApi.deleteEstimateItem,
-        estimatesApi.moveEstimateItem,
-        estimatesApi.reorderEstimateItems,
-        estimatesApi.batchUpdateEstimateItems,
         estimatesApi.transferFromQuotation,
         estimatesApi.calculateOverhead,
         estimatesApi.addOverheadItem,

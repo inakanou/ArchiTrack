@@ -1,7 +1,11 @@
 /**
  * @fileoverview 見積項目サービス
  *
- * 見積項目のCRUD操作、階層管理、受領見積書転記を担当します。
+ * 見積項目の参照・個別作成（諸経費行／値引き行）・受領見積書転記を担当します。
+ *
+ * 明細の削除・複写・並び替え・階層移動・一括更新は一括保存
+ * （`EstimateDraftService.saveDraft` ＝ `PUT /api/estimates/:id/save`）へ統合したため、
+ * 本サービスからは撤去済み（REQ-42.1、Task 53.12）。
  *
  * Requirements (estimate-creation):
  * - REQ-1.2: 見積項目行を「見積金額行」「実行金額行」「業者金額行」の3行1セットで構成する
@@ -13,14 +17,10 @@
  * - REQ-4.2: 見積項目行を指定せずに受領見積書の行を選択した場合、新規見積項目行を作成しその業者金額行に転記する
  * - REQ-4.3: 受領見積書から名称・規格・単位・数量・単価を転記対象とする
  * - REQ-12.1: 新規の3行1セット（見積・実行・業者金額行）を作成する
- * - REQ-12.2: ドラッグ&ドロップで順序を変更可能とする
- * - REQ-12.3: 3行1セット全体を削除する
- * - REQ-12.4: 親項目を削除した場合、子項目も含めて削除するか確認する
- * - REQ-12.5: 3行1セット全体を複製する
- * - REQ-12.6: 見積項目の親項目を変更（移動）可能とする
  *
  * Task 2.2: EstimateItemServiceの実装
  * Task 2.3: 受領見積書転記機能の実装
+ * Task 53.12: 明細操作系の撤去（一括保存へ統合）
  *
  * @module services/estimate-item
  */
@@ -29,9 +29,7 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import {
   EstimateNotFoundError,
   EstimateItemNotFoundError,
-  EstimateItemHasChildrenError,
   EstimateItemNotBelongToEstimateError,
-  EstimateItemCircularReferenceError,
   ReceivedQuotationLineItemNotFoundError,
 } from '../errors/estimateError.js';
 import { ReceivedQuotationNotFoundError } from '../errors/receivedQuotationError.js';
@@ -58,12 +56,25 @@ export interface CreateLineInput {
 }
 
 /**
- * 見積項目種別
+ * 見積項目種別（永続化された値。Prisma enum `EstimateItemType` と同一集合）
  *
  * - STANDARD: 通常項目（見積・実行・業者の3行1セット）
  * - DISCOUNT: 値引き行（見積金額行のみ。実行・業者行を持たない、REQ-41.3）
+ * - NOTE: 注記行（名称のみ。金額集計の対象外、REQ-55.1/55.2）
+ *
+ * NOTE 行は一括保存（`PUT /api/estimates/:id/save`）から生成されるため、
+ * `GET /api/estimates/:id/items` の返却値にも現れる。集合から NOTE を落とすと
+ * 返却値の型が実際の値を偽ることになるため含める。
  */
-export type EstimateItemTypeValue = 'STANDARD' | 'DISCOUNT';
+export type EstimateItemTypeValue = 'STANDARD' | 'DISCOUNT' | 'NOTE';
+
+/**
+ * 個別作成で指定できる見積項目種別
+ *
+ * NOTE 行の生成経路は一括保存のみで、本サービスの `createItem`
+ * （諸経費行・値引き行の追加で使用）からは作れない。
+ */
+export type CreatableEstimateItemTypeValue = Exclude<EstimateItemTypeValue, 'NOTE'>;
 
 /**
  * 値引きプリセット行（REQ-41.2）
@@ -86,7 +97,7 @@ export interface CreateItemInput {
   parentId?: string | null;
   displayOrder: number;
   /** 項目種別（省略時 STANDARD）。DISCOUNT の場合は見積金額行のみ生成（REQ-41.3） */
-  itemType?: EstimateItemTypeValue;
+  itemType?: CreatableEstimateItemTypeValue;
   lines: CreateLineInput[];
 }
 
@@ -116,7 +127,7 @@ export interface EstimateItemWithLines {
   estimateId: string;
   parentId: string | null;
   displayOrder: number;
-  /** 項目種別（STANDARD=通常項目/DISCOUNT=値引き行） */
+  /** 項目種別（STANDARD=通常項目/DISCOUNT=値引き行/NOTE=注記行） */
   itemType: EstimateItemTypeValue;
   lines: EstimateItemLineInfo[];
   createdAt: Date;
@@ -128,14 +139,6 @@ export interface EstimateItemWithLines {
  */
 export interface EstimateItemHierarchy extends EstimateItemWithLines {
   children: EstimateItemHierarchy[];
-}
-
-/**
- * 表示順序変更入力
- */
-export interface ItemOrder {
-  id: string;
-  displayOrder: number;
 }
 
 /**
@@ -159,7 +162,7 @@ type PrismaTransactionClient = Omit<
 /**
  * 見積項目サービス
  *
- * 見積項目のCRUD操作、階層管理、受領見積書転記を担当します。
+ * 見積項目の参照・個別作成（諸経費行／値引き行）・受領見積書転記を担当します。
  */
 export class EstimateItemService {
   private readonly prisma: PrismaClient;
@@ -222,7 +225,7 @@ export class EstimateItemService {
       // 3. 見積項目を作成（種別に応じた行データを含む）
       //    - STANDARD: 見積・実行・業者の3行1セット（REQ-1.2）
       //    - DISCOUNT: 見積金額行のみ（実行・業者行を生成しない、REQ-41.3）
-      const itemType: EstimateItemTypeValue = input.itemType ?? 'STANDARD';
+      const itemType: CreatableEstimateItemTypeValue = input.itemType ?? 'STANDARD';
       const linesData = this.prepareLinesToCreate(input.lines, itemType);
 
       const createdItem = await tx.estimateItem.create({
@@ -257,7 +260,7 @@ export class EstimateItemService {
    */
   private prepareLinesToCreate(
     lines: CreateLineInput[],
-    itemType: EstimateItemTypeValue = 'STANDARD'
+    itemType: CreatableEstimateItemTypeValue = 'STANDARD'
   ): Array<{
     lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
     name: string | null;
@@ -374,279 +377,6 @@ export class EstimateItemService {
     });
 
     return roots;
-  }
-
-  /**
-   * 見積項目を削除する
-   *
-   * Requirements: REQ-12.3, REQ-12.4
-   *
-   * @param itemId - 見積項目ID
-   * @param forceDelete - 子項目も含めて強制削除するか
-   * @throws EstimateItemNotFoundError 見積項目が存在しない場合
-   * @throws EstimateItemHasChildrenError 子項目がある場合（forceDeleteがfalseの場合）
-   */
-  async deleteItem(itemId: string, forceDelete: boolean = false): Promise<void> {
-    await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 1. 見積項目の存在確認（子項目数を含む）
-      const item = await tx.estimateItem.findUnique({
-        where: { id: itemId },
-        select: {
-          id: true,
-          estimateId: true,
-          parentId: true,
-          _count: {
-            select: { children: true },
-          },
-        },
-      });
-
-      if (!item) {
-        throw new EstimateItemNotFoundError(itemId);
-      }
-
-      // 2. 子項目がある場合のチェック
-      if (item._count.children > 0 && !forceDelete) {
-        throw new EstimateItemHasChildrenError(itemId, item._count.children);
-      }
-
-      // 3. 削除（カスケード削除により行と子項目も削除される）
-      await tx.estimateItem.delete({
-        where: { id: itemId },
-      });
-    });
-  }
-
-  /**
-   * 見積項目を複製する
-   *
-   * Requirements: REQ-12.5
-   *
-   * @param itemId - 複製元の見積項目ID
-   * @returns 複製された見積項目情報
-   * @throws EstimateItemNotFoundError 見積項目が存在しない場合
-   */
-  async duplicateItem(itemId: string): Promise<EstimateItemWithLines> {
-    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 1. 複製元の見積項目を取得
-      const sourceItem = await tx.estimateItem.findUnique({
-        where: { id: itemId },
-        include: {
-          lines: true,
-        },
-      });
-
-      if (!sourceItem) {
-        throw new EstimateItemNotFoundError(itemId);
-      }
-
-      // 2. 次の表示順序を取得
-      const maxOrder = await tx.estimateItem.count({
-        where: {
-          estimateId: sourceItem.estimateId,
-          parentId: sourceItem.parentId,
-        },
-      });
-
-      // 3. 新しい見積項目を作成
-      const duplicatedItem = await tx.estimateItem.create({
-        data: {
-          estimateId: sourceItem.estimateId,
-          parentId: sourceItem.parentId,
-          displayOrder: maxOrder,
-          lines: {
-            create: sourceItem.lines.map((line) => ({
-              lineType: line.lineType,
-              name: line.name,
-              specification: line.specification,
-              unit: line.unit,
-              quantity: line.quantity,
-              unitPrice: line.unitPrice,
-              amount: line.amount,
-              remarks: line.remarks,
-              // 転記元情報はコピーしない（新規扱い）
-              sourceReceivedQuotationLineItemId: null,
-              sourceVendorName: null,
-            })),
-          },
-        },
-        include: {
-          lines: {
-            orderBy: { lineType: 'asc' },
-          },
-        },
-      });
-
-      return this.toEstimateItemWithLines(duplicatedItem);
-    });
-  }
-
-  /**
-   * 見積項目の親を変更する
-   *
-   * Requirements: REQ-12.6
-   *
-   * @param itemId - 見積項目ID
-   * @param newParentId - 新しい親項目ID（nullでルートに移動）
-   * @throws EstimateItemNotFoundError 見積項目または親項目が存在しない場合
-   * @throws EstimateItemCircularReferenceError 循環参照が発生する場合
-   */
-  async moveItem(itemId: string, newParentId: string | null): Promise<void> {
-    await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 1. 見積項目の存在確認
-      const item = await tx.estimateItem.findUnique({
-        where: { id: itemId },
-        select: { id: true, estimateId: true, parentId: true },
-      });
-
-      if (!item) {
-        throw new EstimateItemNotFoundError(itemId);
-      }
-
-      // 2. 新しい親項目の存在確認（指定された場合）
-      if (newParentId) {
-        const newParent = await tx.estimateItem.findUnique({
-          where: { id: newParentId },
-          select: { id: true, estimateId: true, parentId: true },
-        });
-
-        if (!newParent) {
-          throw new EstimateItemNotFoundError(newParentId);
-        }
-
-        if (newParent.estimateId !== item.estimateId) {
-          throw new EstimateItemNotBelongToEstimateError(newParentId, item.estimateId);
-        }
-
-        // 3. 循環参照チェック（自分自身またはitemの子孫でないことを確認）
-        if (newParentId === itemId) {
-          throw new EstimateItemCircularReferenceError(itemId, newParentId);
-        }
-        const descendants = await this.getDescendantIds(tx, itemId);
-        if (descendants.includes(newParentId)) {
-          throw new EstimateItemCircularReferenceError(itemId, newParentId);
-        }
-      }
-
-      // 4. 親を更新
-      await tx.estimateItem.update({
-        where: { id: itemId },
-        data: { parentId: newParentId },
-      });
-    });
-  }
-
-  /**
-   * 項目の全子孫IDを取得する
-   */
-  private async getDescendantIds(tx: PrismaTransactionClient, itemId: string): Promise<string[]> {
-    const descendants: string[] = [];
-    const queue: string[] = [itemId];
-
-    while (queue.length > 0) {
-      const currentId = queue.shift()!;
-      const children = await tx.estimateItem.findMany({
-        where: { parentId: currentId },
-        select: { id: true },
-      });
-
-      for (const child of children) {
-        descendants.push(child.id);
-        queue.push(child.id);
-      }
-    }
-
-    return descendants;
-  }
-
-  /**
-   * 見積項目の表示順序を変更する
-   *
-   * Requirements: REQ-12.2
-   *
-   * @param estimateId - 見積書ID
-   * @param itemOrders - 表示順序の配列
-   * @throws EstimateNotFoundError 見積書が存在しない場合
-   */
-  async reorderItems(estimateId: string, itemOrders: ItemOrder[]): Promise<void> {
-    await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 1. 見積書の存在確認
-      const estimate = await tx.estimate.findUnique({
-        where: { id: estimateId },
-        select: { id: true, deletedAt: true },
-      });
-
-      if (!estimate || estimate.deletedAt !== null) {
-        throw new EstimateNotFoundError(estimateId);
-      }
-
-      // 2. 各項目の表示順序を更新
-      for (const order of itemOrders) {
-        await tx.estimateItem.update({
-          where: { id: order.id },
-          data: { displayOrder: order.displayOrder },
-        });
-      }
-    });
-  }
-
-  /**
-   * 見積項目の行データを一括更新する
-   *
-   * Requirements (estimate-creation):
-   * - REQ-27.3: 保存ボタンでDB一括反映
-   *
-   * @param estimateId - 見積書ID
-   * @param items - 更新対象の項目配列
-   * @throws EstimateNotFoundError 見積書が存在しない場合
-   */
-  async batchUpdateItems(
-    estimateId: string,
-    items: Array<{
-      id: string;
-      lines: Array<{
-        id: string;
-        lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
-        name?: string | null;
-        specification?: string | null;
-        unit?: string | null;
-        quantity?: number | null;
-        unitPrice?: number | null;
-        remarks?: string | null;
-      }>;
-    }>
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 1. 見積書の存在確認
-      const estimate = await tx.estimate.findUnique({
-        where: { id: estimateId },
-        select: { id: true, deletedAt: true },
-      });
-
-      if (!estimate || estimate.deletedAt !== null) {
-        throw new EstimateNotFoundError(estimateId);
-      }
-
-      // 2. 各項目の行データを更新
-      for (const item of items) {
-        for (const line of item.lines) {
-          const amount = this.calculateAmount(line.quantity ?? null, line.unitPrice ?? null);
-
-          await tx.estimateItemLine.update({
-            where: { id: line.id },
-            data: {
-              name: line.name ?? null,
-              specification: line.specification ?? null,
-              unit: line.unit ?? null,
-              quantity: line.quantity ?? null,
-              unitPrice: line.unitPrice ?? null,
-              amount,
-              remarks: line.remarks ?? null,
-            },
-          });
-        }
-      }
-    });
   }
 
   /**

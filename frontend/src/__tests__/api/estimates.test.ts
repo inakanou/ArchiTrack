@@ -15,6 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { apiClient, ApiError } from '../../api/client';
+import * as estimatesApi from '../../api/estimates';
 import {
   getEstimates,
   getEstimatesSummary,
@@ -25,7 +26,6 @@ import {
   transferFromQuotation,
   exportEstimate,
   downloadEstimate,
-  moveEstimateItem,
   addDiscountItem,
   saveEstimateDraft,
 } from '../../api/estimates';
@@ -811,45 +811,6 @@ describe('estimates API client', () => {
   });
 
   // ============================================================================
-  // 階層移動API (Task 27.2, REQ-24)
-  // ============================================================================
-
-  describe('moveEstimateItem', () => {
-    it('項目を別の親に移動できること', async () => {
-      vi.mocked(apiClient.patch).mockResolvedValueOnce({ success: true });
-
-      await moveEstimateItem('est-1', 'item-1', 'parent-1');
-
-      expect(apiClient.patch).toHaveBeenCalledWith('/api/estimates/est-1/items/item-1/move', {
-        newParentId: 'parent-1',
-      });
-    });
-
-    it('項目をルートレベルに移動できること（parentId: null）', async () => {
-      vi.mocked(apiClient.patch).mockResolvedValueOnce({ success: true });
-
-      await moveEstimateItem('est-1', 'item-1', null);
-
-      expect(apiClient.patch).toHaveBeenCalledWith('/api/estimates/est-1/items/item-1/move', {
-        newParentId: null,
-      });
-    });
-
-    it('APIエラーの場合エラーがスローされること', async () => {
-      const mockError = new ApiError(400, '循環参照が発生するため移動できません');
-      vi.mocked(apiClient.patch).mockRejectedValueOnce(mockError);
-
-      try {
-        await moveEstimateItem('est-1', 'item-1', 'parent-1');
-        expect.fail('エラーがスローされるべきです');
-      } catch (error) {
-        expect(error).toBeInstanceOf(ApiError);
-        expect((error as ApiError).statusCode).toBe(400);
-      }
-    });
-  });
-
-  // ============================================================================
   // 値引き行追加API (Task 51.5, REQ-41.2)
   // ============================================================================
 
@@ -1047,6 +1008,47 @@ describe('estimates API client', () => {
       await expect(saveEstimateDraft('est-1', request)).rejects.toMatchObject({
         statusCode: 422,
       });
+    });
+  });
+
+  // ============================================================================
+  // 明細操作系API関数の撤去 (Task 53.12, REQ-42.1)
+  // ============================================================================
+
+  /**
+   * 明細の追加・削除・複写・一括更新・並び替え・階層移動は
+   * {@link saveEstimateDraft}（`PUT /api/estimates/:id/save`）へ統合したため、
+   * 個別に書き込む旧関数はモジュールから撤去されている。
+   *
+   * 「関数が無いこと」は呼び出しでは表現できないため、モジュールの公開名で固定する。
+   * あわせて、段階3・段階4まで残す関数が巻き添えで消えていないことも固定する
+   * （過剰撤去の検出）。
+   *
+   * Requirements (estimate-creation):
+   * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+   */
+  describe('撤去済みの明細操作系API関数 (REQ-42.1)', () => {
+    it.each([
+      'createEstimateItem',
+      'deleteEstimateItem',
+      'moveEstimateItem',
+      'reorderEstimateItems',
+      'batchUpdateEstimateItems',
+    ])('%s が公開されていないこと', (name) => {
+      expect(Object.keys(estimatesApi)).not.toContain(name);
+    });
+
+    it.each([
+      'saveEstimateDraft',
+      'getEstimateDetail',
+      'transferFromQuotation',
+      'calculateOverhead',
+      'addOverheadItem',
+      'addDiscountItem',
+      'exportEstimate',
+      'downloadEstimate',
+    ])('%s は撤去されていないこと', (name) => {
+      expect(typeof (estimatesApi as Record<string, unknown>)[name]).toBe('function');
     });
   });
 });

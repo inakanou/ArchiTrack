@@ -84,14 +84,6 @@ export const estimateIdParamSchema = z.object({
 });
 
 /**
- * 見積項目IDパラメータスキーマ
- */
-export const estimateItemIdParamSchema = z.object({
-  id: uuidSchema,
-  itemId: uuidSchema,
-});
-
-/**
  * 見積書作成リクエストスキーマ
  *
  * Requirements: REQ-11.5, REQ-13.4
@@ -175,19 +167,6 @@ export const estimateItemLineSchema = z.object({
 });
 
 /**
- * 見積項目作成スキーマ
- *
- * Requirements: REQ-12.1
- */
-export const createEstimateItemSchema = z.object({
-  parentId: uuidSchema.nullable().optional(),
-  displayOrder: z.number().int().min(0),
-  // 項目種別（任意、省略時 STANDARD 相当）。REQ-41.1
-  itemType: itemTypeSchema.optional(),
-  lines: z.array(estimateItemLineSchema).min(1).max(3),
-});
-
-/**
  * 見積項目行更新スキーマ
  */
 export const updateEstimateItemLineSchema = z.object({
@@ -209,59 +188,10 @@ export const updateEstimateItemSchema = z.object({
 });
 
 /**
- * 見積項目並び替えスキーマ
- *
- * Requirements: REQ-12.2
- */
-export const reorderItemsSchema = z.object({
-  itemOrders: z.array(
-    z.object({
-      id: uuidSchema,
-      displayOrder: z.number().int().min(0),
-    })
-  ),
-});
-
-/**
- * 見積項目バッチ更新スキーマ
- */
-export const batchUpdateItemsSchema = z.object({
-  items: z.array(
-    z.object({
-      id: uuidSchema,
-      // 項目種別（任意、省略時 STANDARD 相当）。REQ-41.1
-      itemType: itemTypeSchema.optional(),
-      lines: z.array(
-        z.object({
-          id: uuidSchema,
-          lineType: lineTypeSchema,
-          name: z.string().max(200).nullable().optional(),
-          specification: z.string().max(500).nullable().optional(),
-          unit: z.string().max(50).nullable().optional(),
-          quantity: z.number().nullable().optional(),
-          unitPrice: z.number().nullable().optional(),
-          remarks: z.string().nullable().optional(),
-        })
-      ),
-    })
-  ),
-  updatedAt: isoDateTimeSchema,
-});
-
-/**
  * 見積項目削除スキーマ
  */
 export const deleteEstimateItemSchema = z.object({
   forceDelete: z.boolean().default(false),
-});
-
-/**
- * 見積項目移動スキーマ
- *
- * Requirements: REQ-12.6
- */
-export const moveEstimateItemSchema = z.object({
-  newParentId: uuidSchema.nullable(),
 });
 
 /**
@@ -432,8 +362,8 @@ export const getItemsQuerySchema = z.object({
  * 一括保存で受け付ける明細の総数上限（42.4）
  *
  * 子孫を含むツリー全体の節点数に対する上限。design.md「estimate-draft.service」の
- * Implementation Notes に従い、配列長上限を持たない `batchUpdateItemsSchema`
- * （本ファイル 228-249 行）の問題を再発させないために設ける。
+ * Implementation Notes に従い、撤去済みの旧バッチ更新スキーマ（Task 53.12 で撤去）が
+ * 配列長上限を持たなかった問題を再発させないために設ける。
  * 同 Notes の Risks にあるとおり実測に応じて調整できるよう定数として公開する。
  *
  * 2000 は暫定値。design.md の Risks に基づき段階1リリース前に実測で見直すこと。
@@ -491,7 +421,9 @@ export const SAVE_ESTIMATE_VALIDATION_MESSAGES = {
 /**
  * 一括保存で受け付ける見積項目の種別（55.1 で注記行を追加）
  *
- * 既存の {@link itemTypeSchema} は旧APIが用いるため変更せず、保存API専用に定義する。
+ * {@link itemTypeSchema} は NOTE を持たない旧APIの集合であり、Task 53.12 で
+ * その利用経路（明細操作系6経路）を撤去したため現在は参照されていない。
+ * 注記行を受け付けるのは本スキーマのみ。
  *
  * 申し送り: design.md 4376 の「`NOTE` 項目は `name` 以外は NULL とする」は本スキーマでは
  * 未検証。本スキーマが担保するのは「子を持たない」「見積金額行1件のみ」までであり、
@@ -756,12 +688,8 @@ export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
 export type UpdateEstimateInput = z.infer<typeof updateEstimateSchema>;
 export type DeleteEstimateInput = z.infer<typeof deleteEstimateSchema>;
 export type EstimateListQuery = z.infer<typeof estimateListQuerySchema>;
-export type CreateEstimateItemInput = z.infer<typeof createEstimateItemSchema>;
 export type UpdateEstimateItemInput = z.infer<typeof updateEstimateItemSchema>;
-export type ReorderItemsInput = z.infer<typeof reorderItemsSchema>;
-export type BatchUpdateItemsInput = z.infer<typeof batchUpdateItemsSchema>;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
-export type MoveEstimateItemInput = z.infer<typeof moveEstimateItemSchema>;
 export type TransferQuotationInput = z.infer<typeof transferQuotationSchema>;
 export type CalculateNetInput = z.infer<typeof calculateNetSchema>;
 export type ApplyProfitRateInput = z.infer<typeof applyProfitRateSchema>;
