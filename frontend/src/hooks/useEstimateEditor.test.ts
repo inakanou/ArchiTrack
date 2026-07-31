@@ -1823,4 +1823,303 @@ describe('useEstimateEditor', () => {
       expect(finalDiscount.itemType).toBe('DISCOUNT');
     });
   });
+
+  describe('addNoteItem - 注記行追加（55.1, 55.2, 55.3, 55.6）', () => {
+    /** 名称のみを持つ注記行（金額を持ってしまっている異常データを含む）を作る */
+    const createNoteHierarchyItem = (
+      id: string,
+      name: string,
+      amount: string | null = null
+    ): EstimateItemHierarchyEdit => ({
+      id,
+      estimateId: 'estimate-1',
+      parentId: null,
+      displayOrder: 0,
+      itemType: 'NOTE',
+      lines: [
+        {
+          id: `line-${id}-estimate`,
+          estimateItemId: id,
+          lineType: 'ESTIMATE',
+          name,
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount,
+          remarks: null,
+        },
+      ],
+      children: [],
+      isExpanded: true,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    });
+
+    it('位置未指定でルート末尾にitemType=NOTE・ESTIMATE1行のみ・名称以外NULLの項目が追加されること (55.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+
+      expect(result.current.items).toHaveLength(3);
+      const noteItem = result.current.items[2]!;
+
+      expect(noteItem.itemType).toBe('NOTE');
+      expect(noteItem.parentId).toBeNull();
+      expect(noteItem.children).toHaveLength(0);
+      expect(noteItem.lines).toHaveLength(1);
+
+      const line = noteItem.lines[0]!;
+      expect(line.lineType).toBe('ESTIMATE');
+      // 名称のみを持つ（初期値は空欄）。他の欄はすべてNULL
+      expect(line.name).toBeNull();
+      expect(line.specification).toBeNull();
+      expect(line.unit).toBeNull();
+      expect(line.quantity).toBeNull();
+      expect(line.unitPrice).toBeNull();
+      expect(line.amount).toBeNull();
+      expect(line.remarks).toBeNull();
+    });
+
+    it('parentId・afterId指定で任意の階層の任意の位置へ挿入されること (55.3)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockHierarchyItems(),
+        })
+      );
+
+      // parent-1 の子（child-1 と child-2 の間）へ挿入する
+      act(() => {
+        result.current.addNoteItem({ parentId: 'parent-1', afterId: 'child-1' });
+      });
+
+      const parent = result.current.items[0]!;
+      expect(parent.children).toHaveLength(3);
+      expect(parent.children.map((child) => child.id)[0]).toBe('child-1');
+      expect(parent.children[1]!.itemType).toBe('NOTE');
+      expect(parent.children[2]!.id).toBe('child-2');
+      // 親IDと表示順が挿入位置に合わせて解決されること
+      expect(parent.children[1]!.parentId).toBe('parent-1');
+      expect(parent.children[1]!.displayOrder).toBe(1);
+    });
+
+    it('ルート内の任意の位置（先頭項目の直後）へ挿入できること (55.3)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem({ afterId: 'item-1' });
+      });
+
+      expect(result.current.items.map((item) => item.id)[0]).toBe('item-1');
+      expect(result.current.items[1]!.itemType).toBe('NOTE');
+      expect(result.current.items[2]!.id).toBe('item-2');
+    });
+
+    it('注記行を親項目の集計対象から除外すること (55.2)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockHierarchyItems(),
+        })
+      );
+
+      // 子の合計 5000 + 3000 = 8000
+      const beforeAmount = result.current.items[0]!.lines.find(
+        (line) => line.lineType === 'ESTIMATE'
+      )!.amount;
+      expect(beforeAmount).toBe('8000');
+
+      act(() => {
+        result.current.addNoteItem({ parentId: 'parent-1' });
+      });
+
+      const afterAmount = result.current.items[0]!.lines.find(
+        (line) => line.lineType === 'ESTIMATE'
+      )!.amount;
+      // 注記行を足しても親の集計は変わらない
+      expect(afterAmount).toBe('8000');
+      expect(result.current.getTotalAmount()).toBe('8000');
+    });
+
+    it('ルートレベルの注記行が金額を持っていても合計金額に加算されないこと (55.2)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          // 注記行が金額を持つ異常データでも集計対象外であること
+          initialItems: [...createMockItems(), createNoteHierarchyItem('note-1', '注記', '5000')],
+        })
+      );
+
+      // item-1(10000) + item-2(10000) のみ。注記行の 5000 は加算しない
+      expect(result.current.getTotalAmount()).toBe('20000');
+    });
+
+    it('注記行の追加が未保存の変更として扱われ、保存対象に含まれること (55.1)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+
+      expect(result.current.isDirty).toBe(true);
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const payload = onSave.mock.calls[0]![0];
+      const note = payload.items[2]!;
+      expect(note.itemType).toBe('NOTE');
+      expect(note.id).toBeNull();
+      expect(note.tempId).not.toBeNull();
+      expect(note.lines).toHaveLength(1);
+      expect(note.lines[0]!.lineType).toBe('ESTIMATE');
+    });
+
+    it('注記行が削除の対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      act(() => {
+        result.current.deleteItem(noteId);
+      });
+
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items.some((item) => item.itemType === 'NOTE')).toBe(false);
+    });
+
+    it('注記行が複写の対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteItem = result.current.items[2]!;
+      act(() => {
+        result.current.updateLine(noteItem.id, noteItem.lines[0]!.id, 'name', '※支給材は別途');
+      });
+
+      act(() => {
+        result.current.duplicateItem(result.current.items[2]!.id);
+      });
+
+      expect(result.current.items).toHaveLength(4);
+      const copy = result.current.items[3]!;
+      expect(copy.itemType).toBe('NOTE');
+      expect(copy.lines).toHaveLength(1);
+      expect(copy.lines[0]!.name).toBe('※支給材は別途');
+    });
+
+    it('注記行が同一階層内の並び替えの対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      act(() => {
+        result.current.moveItem(noteId, 'up');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', noteId, 'item-2']);
+    });
+
+    it('注記行が階層移動の対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      // 直前の兄弟（item-2）の子へ下げる
+      act(() => {
+        result.current.indentItem(noteId);
+      });
+
+      expect(result.current.lastError).toBeNull();
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items[1]!.children.map((child) => child.id)).toEqual([noteId]);
+
+      // ルートレベルへ戻す
+      act(() => {
+        result.current.outdentItem(noteId);
+      });
+
+      expect(result.current.lastError).toBeNull();
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2', noteId]);
+    });
+
+    it('注記行を親に指定した挿入は拒否され、INVALID_PARENT_TYPEを設定すること (55.1 不変条件)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      act(() => {
+        result.current.addNoteItem({ parentId: noteId });
+      });
+
+      expect(result.current.items).toHaveLength(3);
+      expect(result.current.items[2]!.children).toHaveLength(0);
+      expect(result.current.lastError).toEqual({
+        kind: 'INVALID_PARENT_TYPE',
+        key: noteId,
+        itemType: 'NOTE',
+      });
+    });
+  });
 });

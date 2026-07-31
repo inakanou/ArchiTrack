@@ -344,16 +344,28 @@ export function wouldCreateCycle(
 // ----------------------------------------------------------------------------
 
 /**
- * 集計対象となる子を抽出する
+ * 子が親の金額の集計対象になるかを判定する
  *
  * 注記行（NOTE）は金額の集計対象から除外する（55.2）。
  * 値引き行（DISCOUNT）は負数のまま集計に加算する（41.8）。
+ *
+ * 「集計対象の子を持つか」は 29.1 の単価編集ロックの判定でもあるため、
+ * 明細を描画する側（`EstimateItemTable`）もこの判定を再利用する。
+ * 規則を2箇所に書くと、集計は葉扱いなのに単価だけ編集不可という
+ * どの要件も記述していない状態に分岐しうる。
+ */
+export function isAggregatableChild(item: { readonly itemType?: EstimateEditItemType }): boolean {
+  return item.itemType !== 'NOTE';
+}
+
+/**
+ * 集計対象となる子を抽出する
  */
 function aggregatableChildren(children: readonly EditableItem[]): readonly EditableItem[] {
-  if (children.every((child) => child.itemType !== 'NOTE')) {
+  if (children.every(isAggregatableChild)) {
     return children;
   }
-  return children.filter((child) => child.itemType !== 'NOTE');
+  return children.filter(isAggregatableChild);
 }
 
 function toDecimal(amount: string | null): Decimal {

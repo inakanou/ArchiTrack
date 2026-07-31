@@ -18,12 +18,15 @@
  * - REQ-2.5: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-2.6: 項目の階層レベルをインデント表示で視覚的に区別する
  * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
+ * - 29.1: 子項目を持つ項目の単価フィールドを編集不可とする（＝金額は導出値）
+ * - 55.2: 注記行を金額の集計対象から除外する（子が注記行だけの項目は葉として扱う）
  *
  * @module components/estimate/EstimateItemTable
  */
 
 import { useCallback } from 'react';
 import { EstimateItemRow } from './EstimateItemRow';
+import { isAggregatableChild } from '../../domain/estimate/estimateTree';
 import type {
   EstimateItemHierarchyEdit,
   EstimateItemLineEdit,
@@ -226,7 +229,14 @@ function ItemRenderer({
   onLineChange,
   visibleLineTypes,
 }: ItemRendererProps) {
+  // 表示上の子の有無（展開トグル・インデントの判定）
   const hasChildren = item.children.length > 0;
+  // 金額の集計対象になる子の有無（29.1 の単価編集ロックの判定）
+  //
+  // 注記行は集計対象外（55.2）で、子が注記行だけの項目は
+  // `estimateTree.recalculateAncestorAmounts` が葉として自身の金額を保持する。
+  // ここを `hasChildren` で判定すると、金額は導出されないのに単価だけ編集不可になる。
+  const hasAggregatableChildren = item.children.some(isAggregatableChild);
   const isSelected = selectedItemId === item.id;
 
   const handleClick = useCallback(
@@ -282,8 +292,9 @@ function ItemRenderer({
           indentLevel={hasChildren ? 1 : 0} // 展開ボタン分のスペース
           isSelected={isSelected}
           onLineChange={onLineChange}
-          hasChildren={hasChildren}
+          hasChildren={hasAggregatableChildren}
           visibleLineTypes={visibleLineTypes}
+          itemType={item.itemType}
         />
       </div>
 

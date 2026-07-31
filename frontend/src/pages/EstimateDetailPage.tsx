@@ -383,6 +383,10 @@ function calculateTotalByLineType(
 ): Decimal {
   let total = new Decimal(0);
   for (const item of items) {
+    // 注記行は金額の集計対象から除外する（55.2）
+    if (item.itemType === 'NOTE') {
+      continue;
+    }
     const line = item.lines.find((l) => l.lineType === lineType);
     if (line?.amount) {
       try {
@@ -1246,6 +1250,14 @@ export default function EstimateDetailPage() {
             onAddItem={() => editor.addItem()}
             onAddChildItem={(parentId) => editor.addItem(parentId)}
             onAddDiscountItem={() => editor.addDiscountItem()}
+            onAddNoteItem={() =>
+              // 選択中の行の直後・同一階層へ、未選択ならルート末尾へ挿入する（55.3）
+              editor.addNoteItem(
+                selectedItem !== null
+                  ? { parentId: selectedItem.parentId, afterId: selectedItem.id }
+                  : undefined
+              )
+            }
             onDeleteItem={(itemId) => editor.deleteItem(itemId)}
             onDuplicateItem={(itemId) => editor.duplicateItem(itemId)}
             onMoveUp={handleMoveUp}

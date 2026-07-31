@@ -16,6 +16,7 @@
  * - REQ-12.2: 「↑移動」「↓移動」ボタンで同一階層内の表示順序を入れ替える
  * - REQ-41.1: 見積項目操作ツールバーに「値引き行追加」ボタンを提供する（常に有効）
  * - REQ-41.7: 値引き行は自動計算を持たず、押下で直接ルート末尾に追加する（専用ダイアログなし）
+ * - 55.1, 55.3: 注記行を任意の階層の任意の位置に追加可能とする
  *
  * @module components/estimate/EstimateItemToolbar
  */
@@ -42,6 +43,13 @@ export interface EstimateItemToolbarProps {
   onAddChildItem: (parentId: string) => void;
   /** 値引き行追加（ルートレベル末尾、常に有効）（REQ-41.1, REQ-41.7） */
   onAddDiscountItem: () => void;
+  /**
+   * 注記行追加（常に有効）（55.1, 55.3）
+   *
+   * 選択中の項目がある場合はその直後・同一階層へ、未選択ならルート末尾へ追加する。
+   * 挿入位置の解決は呼び出し側が行う。
+   */
+  onAddNoteItem: () => void;
   /** 項目削除 */
   onDeleteItem: (itemId: string) => void;
   /** 項目複製 */
@@ -126,6 +134,7 @@ export function EstimateItemToolbar({
   onAddItem,
   onAddChildItem,
   onAddDiscountItem,
+  onAddNoteItem,
   onDeleteItem,
   onDuplicateItem,
   onMoveUp,
@@ -170,6 +179,16 @@ export function EstimateItemToolbar({
         style={{ ...styles.button, ...styles.addButton }}
       >
         値引き行追加
+      </button>
+
+      {/* 注記行追加 - 常に有効。選択中の行の直後・同一階層へ追加する (55.1, 55.3) */}
+      <button
+        type="button"
+        data-testid="add-note-button"
+        onClick={onAddNoteItem}
+        style={{ ...styles.button, ...styles.addButton }}
+      >
+        注記行追加
       </button>
 
       {/* 複製 - 項目選択中のみ有効 (REQ-23.6) */}

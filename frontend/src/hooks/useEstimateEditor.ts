@@ -134,6 +134,18 @@ export interface EstimateItemHierarchyEdit {
 }
 
 /**
+ * 注記行の挿入位置（55.3）
+ *
+ * いずれも省略時はルートレベルの末尾を意味する。
+ */
+export interface EstimateNoteInsertPosition {
+  /** 挿入先の親項目ID。`null` / 省略でルートレベル */
+  readonly parentId?: string | null;
+  /** この項目の直後へ挿入する。`null` / 省略で同一階層の末尾 */
+  readonly afterId?: string | null;
+}
+
+/**
  * 保存へ渡す編集内容
  *
  * 差分ではなく編集中のツリー全体と帳票用入力項目を渡す。
@@ -311,6 +323,18 @@ export interface UseEstimateEditorResult {
    * - 41.3: 見積金額行（ESTIMATE）のみで構成し、実行・業者金額行を持たない
    */
   addDiscountItem: () => void;
+
+  /**
+   * 注記行を追加（ローカル操作）
+   *
+   * 位置を省略した場合はルートレベルの末尾に追加する。
+   * `parentId` / `afterId` を指定すると任意の階層の任意の位置へ挿入できる。
+   *
+   * Requirements (estimate-creation):
+   * - 55.1: 名称のみを持ち規格・単位・数量・単価・金額を持たない注記行を追加する
+   * - 55.3: 注記行を任意の階層の任意の位置に配置可能とする
+   */
+  addNoteItem: (position?: EstimateNoteInsertPosition) => void;
 
   /**
    * 項目を削除（ローカル操作）
@@ -823,6 +847,17 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
+   * 注記行を追加（55.1, 55.3）
+   */
+  const addNoteItem = useCallback((position?: EstimateNoteInsertPosition): void => {
+    dispatch({
+      type: 'insertNoteRow',
+      parentKey: position?.parentId ?? null,
+      afterKey: position?.afterId ?? null,
+    });
+  }, []);
+
+  /**
    * 項目を削除（12.3, 12.4, 43.6: 子孫もあわせて取り除く）
    */
   const deleteItem = useCallback((itemId: string): void => {
@@ -970,6 +1005,10 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
    */
   const getTotalAmount = useCallback((): string => {
     const total = state.items.reduce((sum, item) => {
+      // 注記行は金額の集計対象から除外する（55.2）
+      if (item.itemType === 'NOTE') {
+        return sum;
+      }
       const estimateLine = item.lines.find((line) => line.lineType === 'ESTIMATE');
       if (estimateLine?.amount) {
         try {
@@ -1000,6 +1039,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     outdentItem,
     addItem,
     addDiscountItem,
+    addNoteItem,
     deleteItem,
     duplicateItem,
     save,

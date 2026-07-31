@@ -12,12 +12,17 @@
  * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
  * - REQ-1.4: 金額フィールドを入力不可として表示する
  * - REQ-1.6: 各見積項目行に名称・規格・単位・数量・単価・備考の入力フィールドを提供する
+ * - 55.1: 名称のみを持ち規格・単位・数量・単価・金額を持たない注記行を明細に追加可能とする
  *
  * @module components/estimate/EstimateItemRow
  */
 
 import { useCallback } from 'react';
-import type { EstimateItemLineEdit, EstimateItemLineType } from '../../hooks/useEstimateEditor';
+import type {
+  EstimateItemLineEdit,
+  EstimateItemLineType,
+  EstimateItemType,
+} from '../../hooks/useEstimateEditor';
 import { EstimateCalculator } from '../../utils/estimate-calculation';
 
 // ============================================================================
@@ -47,6 +52,12 @@ export interface EstimateItemRowProps {
   hasChildren?: boolean;
   /** 表示する行タイプのフィルター */
   visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
+  /**
+   * 見積項目種別（未指定は STANDARD 扱い）
+   *
+   * `NOTE` の場合は名称欄のみを表示し、他の欄は空欄で描画する（55.1）。
+   */
+  itemType?: EstimateItemType;
 }
 
 // ============================================================================
@@ -116,6 +127,10 @@ const styles = {
   lineTypeLabelVendor: {
     backgroundColor: '#fef3c7',
     color: '#b45309',
+  },
+  lineTypeLabelNote: {
+    backgroundColor: '#f3f4f6',
+    color: '#4b5563',
   },
   input: {
     width: '100%',
@@ -342,6 +357,58 @@ function LineRow({ itemId, line, onLineChange, hasChildren = false }: LineRowPro
   );
 }
 
+/**
+ * 注記行（名称欄のみ）
+ *
+ * 注記行は名称だけを持ち、規格・単位・数量・単価・金額・備考の欄は空欄で描画する。
+ * 空欄も列として描画するのは、通常の明細行と桁位置を揃えるため。
+ *
+ * Requirements (estimate-creation):
+ * - 55.1: 名称のみを持ち規格・単位・数量・単価・金額を持たない
+ */
+function NoteLineRow({ itemId, line, onLineChange }: Omit<LineRowProps, 'hasChildren'>) {
+  const handleNameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onLineChange?.(itemId, line.id, 'name', e.target.value || null);
+    },
+    [itemId, line.id, onLineChange]
+  );
+
+  return (
+    <div
+      style={styles.lineRow}
+      data-testid={`line-type-${line.lineType}`}
+      data-note-line-row="true"
+    >
+      {/* 行タイプラベル */}
+      <div style={{ ...styles.lineTypeLabel, ...styles.lineTypeLabelNote }}>注記</div>
+
+      {/* 見積業者（空欄） */}
+      <div />
+
+      {/* 名称（注記行が持つ唯一の欄） */}
+      <div>
+        <input
+          type="text"
+          value={line.name ?? ''}
+          onChange={handleNameChange}
+          style={styles.input}
+          aria-label="名称"
+          placeholder="注記を入力"
+        />
+      </div>
+
+      {/* 規格・単位・数量・単価・金額・備考はいずれも空欄（55.1） */}
+      <div data-testid="note-blank-specification" />
+      <div data-testid="note-blank-unit" />
+      <div data-testid="note-blank-quantity" />
+      <div data-testid="note-blank-unitPrice" />
+      <div data-testid="note-blank-amount" />
+      <div data-testid="note-blank-remarks" />
+    </div>
+  );
+}
+
 // ============================================================================
 // メインコンポーネント
 // ============================================================================
@@ -374,7 +441,10 @@ export function EstimateItemRow({
   onLineChange,
   hasChildren = false,
   visibleLineTypes,
+  itemType = 'STANDARD',
 }: EstimateItemRowProps) {
+  const isNote = itemType === 'NOTE';
+
   // 行タイプの順序で並び替え、フィルター適用
   const sortedLines = LINE_TYPE_ORDER.map((lineType) =>
     lines.find((line) => line.lineType === lineType)
@@ -396,16 +466,21 @@ export function EstimateItemRow({
       style={containerStyle}
       data-testid="estimate-item-row"
       data-selected={isSelected.toString()}
+      data-item-type={itemType}
     >
-      {sortedLines.map((line) => (
-        <LineRow
-          key={line.id}
-          itemId={itemId}
-          line={line}
-          onLineChange={onLineChange}
-          hasChildren={hasChildren}
-        />
-      ))}
+      {sortedLines.map((line) =>
+        isNote ? (
+          <NoteLineRow key={line.id} itemId={itemId} line={line} onLineChange={onLineChange} />
+        ) : (
+          <LineRow
+            key={line.id}
+            itemId={itemId}
+            line={line}
+            onLineChange={onLineChange}
+            hasChildren={hasChildren}
+          />
+        )
+      )}
     </div>
   );
 }

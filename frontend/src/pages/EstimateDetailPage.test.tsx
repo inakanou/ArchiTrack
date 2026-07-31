@@ -48,6 +48,7 @@ const mockEditor = {
   toggleExpanded: vi.fn(),
   getTotalAmount: vi.fn().mockReturnValue('0'),
   addDiscountItem: vi.fn(),
+  addNoteItem: vi.fn(),
 };
 // 既定はモックだが、フックと画面の結線そのものを検証するテストでは実物へ切り替える
 const editorMode = vi.hoisted(() => ({ useReal: false }));
@@ -121,6 +122,12 @@ vi.mock('../components/estimate', () => ({
           onClick={() => (props.onAddDiscountItem as () => void)()}
         >
           AddDiscount
+        </button>
+        <button
+          data-testid="toolbar-add-note"
+          onClick={() => (props.onAddNoteItem as () => void)()}
+        >
+          AddNote
         </button>
         <button
           data-testid="toolbar-reorder-up"
@@ -2011,6 +2018,131 @@ describe('EstimateDetailPage', () => {
 
     await user.click(screen.getByTestId('toolbar-add-discount'));
     expect(mockEditor.addDiscountItem).toHaveBeenCalled();
+  });
+
+  it('未選択時のツールバーの注記行追加が位置指定なしでeditor.addNoteItemを呼ぶ (55.1)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('toolbar-add-note'));
+
+    // 位置指定なし＝ルートレベル末尾
+    expect(mockEditor.addNoteItem).toHaveBeenCalledWith(undefined);
+  });
+
+  it('項目選択時のツールバーの注記行追加が選択行の直後・同一階層を指定して呼ぶ (55.3)', async () => {
+    const user = userEvent.setup();
+    mockEditor.items = [
+      {
+        id: 'item-parent',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        lines: [],
+        children: [
+          {
+            id: 'item-001',
+            estimateId: 'est-001',
+            parentId: 'item-parent',
+            displayOrder: 0,
+            lines: [],
+            children: [],
+            isExpanded: true,
+            createdAt: '2024-01-15T10:00:00.000Z',
+            updatedAt: '2024-01-15T10:00:00.000Z',
+          },
+        ],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ];
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
+    });
+
+    // 子階層の 'item-001' を選択する
+    await user.click(screen.getByTestId('select-item-btn'));
+    await waitFor(() => {
+      expect(capturedToolbarProps.selectedItemId).toBe('item-001');
+    });
+
+    await user.click(screen.getByTestId('toolbar-add-note'));
+
+    expect(mockEditor.addNoteItem).toHaveBeenCalledWith({
+      parentId: 'item-parent',
+      afterId: 'item-001',
+    });
+  });
+
+  it('サマリーの合計金額が注記行を集計対象から除外すること (55.2)', async () => {
+    mockEditor.items = [
+      {
+        id: 'item-001',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 0,
+        itemType: 'STANDARD',
+        lines: [
+          {
+            id: 'line-001',
+            estimateItemId: 'item-001',
+            lineType: 'ESTIMATE',
+            name: '項目',
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            amount: '120000',
+            remarks: null,
+          },
+        ],
+        children: [],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+      {
+        id: 'note-001',
+        estimateId: 'est-001',
+        parentId: null,
+        displayOrder: 1,
+        itemType: 'NOTE',
+        lines: [
+          {
+            id: 'line-note-001',
+            estimateItemId: 'note-001',
+            lineType: 'ESTIMATE',
+            name: '※支給材は別途',
+            specification: null,
+            unit: null,
+            quantity: null,
+            unitPrice: null,
+            // 注記行が金額を持っていても集計対象外であること
+            amount: '999999',
+            remarks: null,
+          },
+        ],
+        children: [],
+        isExpanded: true,
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+    ];
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('summary-panel')).toBeInTheDocument();
+    });
+
+    const summary = screen.getByTestId('summary-panel');
+    // 見積金額合計は通常項目の 120000 のみ。注記行の 999999 は加算されない
+    expect(within(summary).getByText('見積金額合計').parentElement).toHaveTextContent('120,000円');
+    expect(within(summary).queryByText('1,119,999円')).not.toBeInTheDocument();
   });
 
   it('諸経費ダイアログを開閉できる (REQ-7.1)', async () => {

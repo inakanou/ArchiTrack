@@ -15,6 +15,9 @@
  * - REQ-23.10: 「下の階層へ移動」ボタンを提供する
  * - REQ-41.1: 見積項目操作ツールバーに「値引き行追加」ボタンを提供する
  * - REQ-41.7: 値引き行は自動計算を持たず、手入力のみ（専用ダイアログなし）
+ * - 55.1: 名称のみを持つ注記行を明細に追加可能とする
+ * - 55.3: 注記行を任意の階層の任意の位置に配置可能とする
+ * - 55.6: 注記行を通常の明細行と同様に削除・複写・並び替え・階層移動の対象とする
  *
  * @module __tests__/components/estimate/EstimateItemToolbar
  */
@@ -99,6 +102,7 @@ describe('EstimateItemToolbar', () => {
     onReorderUp: vi.fn(),
     onReorderDown: vi.fn(),
     onAddDiscountItem: vi.fn(),
+    onAddNoteItem: vi.fn(),
     canReorderUp: false,
     canReorderDown: false,
   };
@@ -458,6 +462,65 @@ describe('EstimateItemToolbar', () => {
       await user.click(screen.getByTestId('add-discount-button'));
 
       expect(defaultProps.onAddDiscountItem).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // 55.1, 55.3, 55.6: 注記行（Task 53.8）
+  describe('注記行追加ボタン（55.1, 55.3）', () => {
+    it('「注記行追加」ボタンが未選択時も有効で表示されること (55.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      const button = screen.getByTestId('add-note-button');
+      expect(button).toHaveTextContent('注記行追加');
+      expect(button).toBeEnabled();
+    });
+
+    it('注記行追加ボタンクリックでonAddNoteItemが呼ばれること (55.1)', async () => {
+      const user = userEvent.setup();
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      await user.click(screen.getByTestId('add-note-button'));
+
+      expect(defaultProps.onAddNoteItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('注記行を選択中でも削除・複製・階層移動・並び替えのボタンが有効であること (55.6)', () => {
+      const noteItem = createMockItem({
+        id: 'note-1',
+        parentId: 'item-parent',
+        itemType: 'NOTE',
+      });
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedItemId="note-1"
+          selectedItem={noteItem}
+          hasPreviousSibling={true}
+          canReorderUp={true}
+          canReorderDown={true}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: '削除' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '複製' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '上の階層へ' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '下の階層へ' })).toBeEnabled();
+      expect(screen.getByTestId('reorder-up-button')).toBeEnabled();
+      expect(screen.getByTestId('reorder-down-button')).toBeEnabled();
+    });
+
+    it('注記行を選択中に削除・複製を押すと注記行のIDが渡されること (55.6)', async () => {
+      const user = userEvent.setup();
+      const noteItem = createMockItem({ id: 'note-1', itemType: 'NOTE' });
+      render(
+        <EstimateItemToolbar {...defaultProps} selectedItemId="note-1" selectedItem={noteItem} />
+      );
+
+      await user.click(screen.getByRole('button', { name: '複製' }));
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      expect(defaultProps.onDuplicateItem).toHaveBeenCalledWith('note-1');
+      expect(defaultProps.onDeleteItem).toHaveBeenCalledWith('note-1');
     });
   });
 });
