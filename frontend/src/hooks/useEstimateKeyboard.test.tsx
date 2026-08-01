@@ -8,6 +8,7 @@
  * 取り消しの実行・無効化）を固定します。
  *
  * Requirements (estimate-creation):
+ * - 45.9: 階層上げで親項目が属する階層の一覧へ切り替える（キー操作からの経路）
  * - 47.1: キーボード操作のみで行操作と階層移動を実行可能とする
  * - 47.4: ブラウザの標準操作と衝突しない（解決できないキーは `preventDefault` しない）
  * - 47.6: 範囲選択中に固有のキーボード操作を有効にする
@@ -66,7 +67,26 @@ const createTree = (): readonly EditableItem[] => [
   createItem('item-c', 'C'),
 ];
 
+/**
+ * 3階層のツリー（階層上げ・前後の階層が「親」を経由することの検証用）
+ *
+ * item-a > (item-a1 > item-a1x, item-a2), item-b（葉）
+ *
+ * `createTree` はルート直下までしか無いため、現在階層の親が常に「ルート（null）」に
+ * なり、親を求める処理が祖父や根へずれても結果が変わらない。第2階層を現在階層に
+ * できるこのツリーだけが 45.9 の「親項目が属する階層」を区別できる。
+ */
+const createDeepTree = (): readonly EditableItem[] => [
+  createItem('item-a', 'A', [
+    createItem('item-a1', 'A1', [createItem('item-a1x', 'A1X')]),
+    createItem('item-a2', 'A2'),
+  ]),
+  createItem('item-b', 'B'),
+];
+
 interface HarnessProps {
+  /** 明細ツリー（既定は `createTree()`） */
+  items?: readonly EditableItem[];
   viewMode?: EstimateViewMode;
   currentLevelKey?: NodeKey | null;
   visibleKeys?: readonly NodeKey[];
@@ -86,6 +106,7 @@ interface HarnessProps {
 }
 
 function Harness({
+  items = createTree(),
   viewMode = 'tree',
   currentLevelKey = null,
   visibleKeys = ['item-a', 'item-b', 'item-c'],
@@ -95,7 +116,7 @@ function Harness({
   ...handlers
 }: HarnessProps) {
   const keyboard = useEstimateKeyboard({
-    items: createTree(),
+    items,
     viewMode,
     currentLevelKey,
     visibleKeys,
@@ -167,6 +188,96 @@ describe('useEstimateKeyboard', () => {
     handlers.onCurrentLevelChange.mockClear();
     expect(pressOn(rowOf('item-a1'), { key: 'PageUp', altKey: true, shiftKey: true })).toBe(false);
     expect(handlers.onCurrentLevelChange).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 階層上げは「親項目が属する階層」＝一つ上の階層へ戻る（45.9）。
+   *
+   * ルート直下を現在階層にした場合は親がルート（null）になり、祖父・根のどちらへ
+   * ずれても結果が変わらないため、第2階層を現在階層にして親を一意に区別する。
+   *
+   * @requirement estimate-creation/REQ-47.1
+   * @requirement estimate-creation/REQ-45.9
+   */
+  it('入れ子の階層からの階層上げは祖父ではなく親の階層へ戻る (47.1, 45.9)', () => {
+    const handlers = createHandlers();
+    render(
+      <Harness
+        {...handlers}
+        items={createDeepTree()}
+        viewMode="drilldown"
+        currentLevelKey="item-a1"
+        visibleKeys={['item-a1x']}
+      />
+    );
+
+    expect(pressOn(rowOf('item-a1x'), { key: 'ArrowUp', altKey: true })).toBe(true);
+    expect(handlers.onCurrentLevelChange).toHaveBeenCalledTimes(1);
+    // 親は item-a。祖父（＝存在しない）へずれるとルート（null）になってしまう
+    expect(handlers.onCurrentLevelChange).toHaveBeenCalledWith('item-a');
+  });
+
+  /**
+   * @requirement estimate-creation/REQ-47.1
+   * @requirement estimate-creation/REQ-45.9
+   */
+  it('ルート階層ではこれ以上戻れないため階層上げが働かない (47.1, 45.9)', () => {
+    const handlers = createHandlers();
+    render(
+      <Harness
+        {...handlers}
+        items={createDeepTree()}
+        viewMode="drilldown"
+        currentLevelKey={null}
+        visibleKeys={['item-a', 'item-b']}
+      />
+    );
+
+    expect(pressOn(rowOf('item-a'), { key: 'ArrowUp', altKey: true })).toBe(false);
+    expect(handlers.onCurrentLevelChange).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 前の階層・次の階層は「同じ親を持つ兄弟の階層」を辿る（45.7 の経路上の移動）。
+   *
+   * 現在階層がルート直下の場合は親がルートになるため、親の求め方がずれても
+   * 兄弟の並びが変わらない。入れ子の階層でのみ差が出る。
+   *
+   * @requirement estimate-creation/REQ-47.1
+   */
+  it('入れ子の階層でも前後の階層は同じ親を持つ兄弟へ移動する (47.1)', () => {
+    const handlers = createHandlers();
+    const { unmount } = render(
+      <Harness
+        {...handlers}
+        items={createDeepTree()}
+        viewMode="drilldown"
+        currentLevelKey="item-a1"
+        visibleKeys={['item-a1x']}
+      />
+    );
+
+    expect(pressOn(rowOf('item-a1x'), { key: 'PageDown', altKey: true, shiftKey: true })).toBe(
+      true
+    );
+    expect(handlers.onCurrentLevelChange).toHaveBeenCalledWith('item-a2');
+
+    unmount();
+    handlers.onCurrentLevelChange.mockClear();
+    render(
+      <Harness
+        {...handlers}
+        items={createDeepTree()}
+        viewMode="drilldown"
+        currentLevelKey="item-a2"
+        visibleKeys={[]}
+      />
+    );
+
+    expect(
+      pressOn(screen.getByTestId('scope'), { key: 'PageUp', altKey: true, shiftKey: true })
+    ).toBe(true);
+    expect(handlers.onCurrentLevelChange).toHaveBeenCalledWith('item-a1');
   });
 
   /** @requirement estimate-creation/REQ-47.1 */
