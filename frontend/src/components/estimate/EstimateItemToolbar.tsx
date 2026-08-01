@@ -19,6 +19,7 @@
  * - 55.1, 55.3: 注記行を任意の階層の任意の位置に追加可能とする
  * - 45.1: 明細の階層表示モードとして「ツリー表示」と「ドリルダウン表示」を提供する（Task 54.4）
  * - 45.2: 階層表示モードのデフォルトを「ツリー表示」とする（Task 54.4）
+ * - 47.3: キーボード操作の割り当て一覧を画面上で参照可能とする（Task 54.7 / 入口を置く）
  *
  * design.md `#### File Structure Plan`:
  * `EstimateItemToolbar.tsx  # 改修: 範囲選択・モード切替・取り消しを追加`
@@ -30,6 +31,7 @@
  * @module components/estimate/EstimateItemToolbar
  */
 
+import { EstimateKeymapHelp } from './EstimateKeymapHelp';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 import type { EstimateViewMode } from '../../hooks/useEstimateNavigation';
 
@@ -358,6 +360,19 @@ export function EstimateItemToolbar({
           );
         })}
       </div>
+
+      {/* セパレータ */}
+      <div style={styles.separator} />
+
+      {/*
+        キー割当一覧の入口 (47.3)
+
+        キーボードで行える操作の一覧なので、同じ操作を行うボタンの並びの傍らに置く。
+        一覧の内容はキー割当の単一定義から生成されるため、ここは配置するだけで
+        受け渡す状態を持たない。明細領域（`Esc` を横取りするキー操作の受け口）の
+        外側にあたるので、一覧を開いている間の `Esc` は一覧を閉じる操作になる。
+      */}
+      <EstimateKeymapHelp />
     </div>
   );
 }

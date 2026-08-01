@@ -22,5 +22,7 @@ export type { EstimateCardProps } from './EstimateCard';
 export { EstimateItemToolbar } from './EstimateItemToolbar';
 export type { EstimateItemToolbarProps } from './EstimateItemToolbar';
 
+export { EstimateKeymapHelp } from './EstimateKeymapHelp';
+
 export { EstimateHierarchyPanel, ESTIMATE_HIERARCHY_PANEL_LABEL } from './EstimateHierarchyPanel';
 export type { EstimateHierarchyPanelProps } from './EstimateHierarchyPanel';
