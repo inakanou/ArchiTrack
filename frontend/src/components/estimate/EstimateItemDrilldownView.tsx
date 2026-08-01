@@ -27,6 +27,7 @@
  * - 45.7: 現在の階層の位置をルートからの経路として表示し、経路上の各階層へ戻る操作を提供する
  * - 45.8: 子項目を持つ項目に対する階層下げでその項目の子項目の一覧へ切り替える
  * - 45.9: 階層上げで親項目が属する階層の一覧へ切り替える
+ * - 12.2: 見積項目の表示順序をドラッグ&ドロップで変更可能とする（53.16 / {@link useEstimateRowDrag}）
  * - 29.1: 子項目を持つ項目の単価フィールドを編集不可とする（＝金額は導出値）
  * - 55.2: 注記行を金額の集計対象から除外する（子が注記行だけの項目は葉として扱う）
  *
@@ -37,6 +38,8 @@ import { useCallback, useMemo } from 'react';
 import { EstimateItemRow } from './EstimateItemRow';
 import { EstimateBreadcrumbPath, ESTIMATE_ROOT_LEVEL_LABEL } from './EstimateBreadcrumbPath';
 import type { EstimateBreadcrumbSegment } from './EstimateBreadcrumbPath';
+import { useEstimateRowDrag } from './useEstimateRowDrag';
+import type { EstimateRowDragProps } from './useEstimateRowDrag';
 import {
   flattenTreeForDisplay,
   isAggregatableChild,
@@ -68,6 +71,10 @@ export interface EstimateItemDrilldownViewProps {
   draggable?: boolean;
   /** 項目選択コールバック */
   onItemSelect?: (itemId: string) => void;
+  /** ドラッグ開始コールバック（12.2） */
+  onDragStart?: (itemId: string) => void;
+  /** ドロップコールバック（12.2 / ドラッグ元と対象の識別子） */
+  onDrop?: (sourceId: string, targetId: string) => void;
   /** 行フィールド変更コールバック */
   onLineChange?: EstimateLineChangeHandler;
   /** 表示する行タイプのフィルター */
@@ -196,7 +203,8 @@ function labelOf(item: EstimateItemHierarchyEdit): string {
 interface DrilldownRowProps {
   row: DisplayRow<EstimateItemHierarchyEdit>;
   selectedItemId?: string | null;
-  draggable?: boolean;
+  /** 行に付けるドラッグ関連の props（ドラッグ不可なら `draggable: false` のみ / 12.2） */
+  dragProps: EstimateRowDragProps;
   onItemSelect?: (itemId: string) => void;
   onDrillDown?: (key: NodeKey) => void;
   onLineChange?: EstimateLineChangeHandler;
@@ -212,7 +220,7 @@ interface DrilldownRowProps {
 function DrilldownRow({
   row,
   selectedItemId,
-  draggable = false,
+  dragProps,
   onItemSelect,
   onDrillDown,
   onLineChange,
@@ -251,7 +259,7 @@ function DrilldownRow({
       data-testid={`estimate-item-${item.id}`}
       data-selected={isSelected.toString()}
       onClick={handleClick}
-      draggable={draggable}
+      {...dragProps}
     >
       {/* 階層下げ（子を持つ項目のみ / 45.8） */}
       {hasChildren && (
@@ -298,6 +306,8 @@ export function EstimateItemDrilldownView({
   selectedItemId,
   draggable = false,
   onItemSelect,
+  onDragStart,
+  onDrop,
   onLineChange,
   visibleLineTypes,
 }: EstimateItemDrilldownViewProps) {
@@ -346,6 +356,9 @@ export function EstimateItemDrilldownView({
     [onCurrentLevelChange]
   );
 
+  // ドラッグ&ドロップの配線（12.2）。ツリー表示と同一の実装を用いる。
+  const getRowDragProps = useEstimateRowDrag({ draggable, onDragStart, onDrop });
+
   return (
     <>
       <div style={styles.levelBar}>
@@ -367,7 +380,7 @@ export function EstimateItemDrilldownView({
             key={row.key}
             row={row}
             selectedItemId={selectedItemId}
-            draggable={draggable}
+            dragProps={getRowDragProps(row.item.id)}
             onItemSelect={onItemSelect}
             onDrillDown={handleDrillDown}
             onLineChange={onLineChange}

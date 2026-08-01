@@ -19,6 +19,7 @@
  * Requirements (estimate-creation):
  * - 2.6: 項目の階層レベルをインデント表示で視覚的に区別する
  * - 2.7: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
+ * - 12.2: 見積項目の表示順序をドラッグ&ドロップで変更可能とする（53.16 / {@link useEstimateRowDrag}）
  * - 29.1: 子項目を持つ項目の単価フィールドを編集不可とする（＝金額は導出値）
  * - 45.3: ツリー表示では全階層をインデント付きで一覧表示する
  * - 45.4: ツリー表示では子項目を持つ項目に展開/折りたたみの操作を提供する
@@ -30,6 +31,8 @@
 
 import { useCallback, useMemo } from 'react';
 import { EstimateItemRow } from './EstimateItemRow';
+import { useEstimateRowDrag } from './useEstimateRowDrag';
+import type { EstimateRowDragProps } from './useEstimateRowDrag';
 import { flattenTreeForDisplay, isAggregatableChild } from '../../domain/estimate/estimateTree';
 import type { DisplayRow, NodeKey } from '../../domain/estimate/estimateTree';
 import type {
@@ -72,6 +75,10 @@ export interface EstimateItemTreeViewProps {
   draggable?: boolean;
   /** 項目選択コールバック */
   onItemSelect?: (itemId: string) => void;
+  /** ドラッグ開始コールバック（12.2） */
+  onDragStart?: (itemId: string) => void;
+  /** ドロップコールバック（12.2 / ドラッグ元と対象の識別子） */
+  onDrop?: (sourceId: string, targetId: string) => void;
   /** 行フィールド変更コールバック */
   onLineChange?: EstimateLineChangeHandler;
   /** 表示する行タイプのフィルター */
@@ -147,7 +154,8 @@ function ChevronIcon({ isExpanded }: { isExpanded: boolean }) {
 interface TreeRowProps {
   row: DisplayRow<EstimateItemHierarchyEdit>;
   selectedItemId?: string | null;
-  draggable?: boolean;
+  /** 行に付けるドラッグ関連の props（ドラッグ不可なら `draggable: false` のみ / 12.2） */
+  dragProps: EstimateRowDragProps;
   onItemSelect?: (itemId: string) => void;
   onToggleCollapsed?: (key: NodeKey) => void;
   onLineChange?: EstimateLineChangeHandler;
@@ -163,7 +171,7 @@ interface TreeRowProps {
 function TreeRow({
   row,
   selectedItemId,
-  draggable = false,
+  dragProps,
   onItemSelect,
   onToggleCollapsed,
   onLineChange,
@@ -206,7 +214,7 @@ function TreeRow({
       data-testid={`estimate-item-${item.id}`}
       data-selected={isSelected.toString()}
       onClick={handleClick}
-      draggable={draggable}
+      {...dragProps}
     >
       {/* 展開/折りたたみボタン（子を持つ項目のみ / 45.4） */}
       {hasChildren && (
@@ -257,6 +265,8 @@ export function EstimateItemTreeView({
   selectedItemId,
   draggable = false,
   onItemSelect,
+  onDragStart,
+  onDrop,
   onLineChange,
   visibleLineTypes,
 }: EstimateItemTreeViewProps) {
@@ -266,6 +276,9 @@ export function EstimateItemTreeView({
     [items, collapsedKeys]
   );
 
+  // ドラッグ&ドロップの配線（12.2）。ドリルダウン表示と同一の実装を用いる。
+  const getRowDragProps = useEstimateRowDrag({ draggable, onDragStart, onDrop });
+
   return (
     <>
       {rows.map((row) => (
@@ -273,7 +286,7 @@ export function EstimateItemTreeView({
           key={row.key}
           row={row}
           selectedItemId={selectedItemId}
-          draggable={draggable}
+          dragProps={getRowDragProps(row.item.id)}
           onItemSelect={onItemSelect}
           onToggleCollapsed={onToggleCollapsed}
           onLineChange={onLineChange}

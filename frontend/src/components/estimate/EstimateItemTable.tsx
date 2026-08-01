@@ -107,9 +107,19 @@ export interface EstimateItemTableProps {
   onItemSelect?: (itemId: string) => void;
   /** 行フィールド変更コールバック */
   onLineChange?: EstimateLineChangeHandler;
-  /** ドラッグ開始コールバック */
+  /**
+   * ドラッグ開始コールバック（12.2）
+   *
+   * 行への DOM ハンドラの配線は {@link useEstimateRowDrag} が持ち、モード別の
+   * サブコンポーネント双方へ同じ実装が渡る。
+   */
   onDragStart?: (itemId: string) => void;
-  /** ドロップコールバック */
+  /**
+   * ドロップコールバック（12.2）
+   *
+   * ドラッグ元と対象の識別子を渡す。並び替えの決定は
+   * `useEstimateEditor.reorderItems` 以降の責務で、本コンポーネントは通知のみ行う。
+   */
   onDrop?: (sourceId: string, targetId: string) => void;
   /** 表示する行タイプのフィルター */
   visibleLineTypes?: EstimateVisibleLineTypes;
@@ -231,6 +241,8 @@ export function EstimateItemTable({
   revealRequest = null,
   draggable = false,
   onItemSelect,
+  onDragStart,
+  onDrop,
   onLineChange,
   visibleLineTypes,
 }: EstimateItemTableProps) {
@@ -295,6 +307,8 @@ export function EstimateItemTable({
             selectedItemId={selectedItemId}
             draggable={draggable}
             onItemSelect={onItemSelect}
+            onDragStart={onDragStart}
+            onDrop={onDrop}
             onLineChange={onLineChange}
             visibleLineTypes={visibleLineTypes}
           />
@@ -306,6 +320,8 @@ export function EstimateItemTable({
             selectedItemId={selectedItemId}
             draggable={draggable}
             onItemSelect={onItemSelect}
+            onDragStart={onDragStart}
+            onDrop={onDrop}
             onLineChange={onLineChange}
             visibleLineTypes={visibleLineTypes}
           />
