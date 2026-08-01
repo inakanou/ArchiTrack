@@ -92,15 +92,15 @@ const createMockItem = (
 
 describe('EstimateItemToolbar', () => {
   const defaultProps = {
-    selectedItemId: null as string | null,
+    selectedKeys: [] as readonly string[],
     selectedItem: null as EstimateItemHierarchyEdit | null,
     hasPreviousSibling: false,
     onAddItem: vi.fn(),
     onAddChildItem: vi.fn(),
-    onDeleteItem: vi.fn(),
-    onDuplicateItem: vi.fn(),
-    onMoveUp: vi.fn(),
-    onMoveDown: vi.fn(),
+    onDeleteItems: vi.fn(),
+    onDuplicateItems: vi.fn(),
+    onMoveUpItems: vi.fn(),
+    onMoveDownItems: vi.fn(),
     onReorderUp: vi.fn(),
     onReorderDown: vi.fn(),
     onAddDiscountItem: vi.fn(),
@@ -185,7 +185,7 @@ describe('EstimateItemToolbar', () => {
     const selectedItem = createMockItem();
     const selectedProps = {
       ...defaultProps,
-      selectedItemId: 'item-1',
+      selectedKeys: ['item-1'],
       selectedItem,
     };
 
@@ -215,7 +215,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -228,7 +228,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -244,7 +244,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           hasPreviousSibling={false}
         />
@@ -258,7 +258,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           hasPreviousSibling={true}
         />
@@ -285,7 +285,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -295,61 +295,61 @@ describe('EstimateItemToolbar', () => {
       expect(defaultProps.onAddChildItem).toHaveBeenCalledWith('item-1');
     });
 
-    it('複製ボタンクリックでonDuplicateItemが呼ばれること', async () => {
+    it('複製ボタンクリックでonDuplicateItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem();
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
 
       await user.click(screen.getByRole('button', { name: /複製/ }));
 
-      expect(defaultProps.onDuplicateItem).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onDuplicateItems).toHaveBeenCalledWith(['item-1']);
     });
 
-    it('削除ボタンクリックでonDeleteItemが呼ばれること', async () => {
+    it('削除ボタンクリックでonDeleteItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem();
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
 
       await user.click(screen.getByRole('button', { name: /削除/ }));
 
-      expect(defaultProps.onDeleteItem).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onDeleteItems).toHaveBeenCalledWith(['item-1']);
     });
 
-    it('上の階層へボタンクリックでonMoveUpが呼ばれること', async () => {
+    it('上の階層へボタンクリックでonMoveUpItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem({ parentId: 'parent-1' });
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
 
       await user.click(screen.getByRole('button', { name: /上の階層へ/ }));
 
-      expect(defaultProps.onMoveUp).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onMoveUpItems).toHaveBeenCalledWith(['item-1']);
     });
 
-    it('下の階層へボタンクリックでonMoveDownが呼ばれること', async () => {
+    it('下の階層へボタンクリックでonMoveDownItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem();
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           hasPreviousSibling={true}
         />
@@ -357,7 +357,7 @@ describe('EstimateItemToolbar', () => {
 
       await user.click(screen.getByRole('button', { name: /下の階層へ/ }));
 
-      expect(defaultProps.onMoveDown).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onMoveDownItems).toHaveBeenCalledWith(['item-1']);
     });
   });
 
@@ -375,7 +375,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderUp={true}
           canReorderDown={false}
@@ -391,7 +391,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderUp={false}
           canReorderDown={true}
@@ -408,7 +408,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderUp={true}
         />
@@ -425,7 +425,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderDown={true}
         />
@@ -457,7 +457,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -503,7 +503,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="note-1"
+          selectedKeys={['note-1']}
           selectedItem={noteItem}
           hasPreviousSibling={true}
           canReorderUp={true}
@@ -523,14 +523,14 @@ describe('EstimateItemToolbar', () => {
       const user = userEvent.setup();
       const noteItem = createMockItem({ id: 'note-1', itemType: 'NOTE' });
       render(
-        <EstimateItemToolbar {...defaultProps} selectedItemId="note-1" selectedItem={noteItem} />
+        <EstimateItemToolbar {...defaultProps} selectedKeys={['note-1']} selectedItem={noteItem} />
       );
 
       await user.click(screen.getByRole('button', { name: '複製' }));
       await user.click(screen.getByRole('button', { name: '削除' }));
 
-      expect(defaultProps.onDuplicateItem).toHaveBeenCalledWith('note-1');
-      expect(defaultProps.onDeleteItem).toHaveBeenCalledWith('note-1');
+      expect(defaultProps.onDuplicateItems).toHaveBeenCalledWith(['note-1']);
+      expect(defaultProps.onDeleteItems).toHaveBeenCalledWith(['note-1']);
     });
   });
 
@@ -614,7 +614,7 @@ describe('EstimateItemToolbar', () => {
     });
 
     it('モード切替は項目の選択状態に関わらず操作できること (45.1)', () => {
-      render(<EstimateItemToolbar {...defaultProps} selectedItemId={null} selectedItem={null} />);
+      render(<EstimateItemToolbar {...defaultProps} selectedKeys={[]} selectedItem={null} />);
 
       expect(screen.getByRole('radio', { name: 'ツリー表示' })).toBeEnabled();
       expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toBeEnabled();

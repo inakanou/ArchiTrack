@@ -591,9 +591,9 @@ describe('EstimateItemTable', () => {
         expect(onItemSelect).toHaveBeenCalledWith('item-1');
       });
 
-      it('selectedItemIdで指定された項目がハイライトされる', () => {
+      it('selectedKeysで指定された項目がハイライトされる', () => {
         const items = createMockHierarchy();
-        render(<EstimateItemTable items={items} selectedItemId="item-1" />);
+        render(<EstimateItemTable items={items} selectedKeys={['item-1']} />);
 
         const selectedItem = screen.getByTestId('estimate-item-item-1');
         expect(selectedItem).toHaveAttribute('data-selected', 'true');

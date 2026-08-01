@@ -67,6 +67,17 @@ const mockEditor = {
   addItem: vi.fn(),
   deleteItem: vi.fn(),
   duplicateItem: vi.fn(),
+  addDiscountItem: vi.fn(),
+  addNoteItem: vi.fn(),
+  moveItem: vi.fn(),
+  insertRowAfter: vi.fn(),
+  deleteRows: vi.fn(),
+  duplicateRows: vi.fn(),
+  indentRange: vi.fn(),
+  outdentRange: vi.fn(),
+  // 無効化された階層操作の理由（44.6, 44.7 / 54.10）は描画中に読まれる
+  lastError: null,
+  dismissError: vi.fn(),
 };
 
 vi.mock('../../hooks/useEstimateEditor', () => ({

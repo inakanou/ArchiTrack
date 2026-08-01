@@ -70,11 +70,24 @@ function press(key: string, options: PressOptions = {}): KeyboardEvent {
   return event;
 }
 
-/** 行操作のコマンド（文字入力中に発火してはならない / 47.5） */
+/**
+ * 明細を書き換えるコマンド（文字入力中・階層構造パネルで発火してはならない / 47.5）
+ *
+ * 54.10 でツールバーの追加系と並び替えにも割当を与えた（23.11）。これらも明細を
+ * 書き換える操作なので、除外側の検証（`cellEditing` / `hierarchyPanel`）を
+ * 同じ集合で受けさせる。ここへ足し忘れると、パネル操作中の誤入力で明細が
+ * 増減しても誰も気づけない。
+ */
 const ROW_COMMANDS: readonly EstimateCommand[] = [
   'insertRow',
   'deleteRow',
   'duplicateCell',
+  'addRootItem',
+  'addChildItem',
+  'addDiscountRow',
+  'addNoteRow',
+  'reorderRowUp',
+  'reorderRowDown',
   'indent',
   'outdent',
 ];
@@ -84,6 +97,13 @@ const ALL_COMMANDS: readonly EstimateCommand[] = [
   'insertRow',
   'deleteRow',
   'duplicateCell',
+  // ツールバーの各操作に対応するキー割当（23.11 / Task 54.10）
+  'addRootItem',
+  'addChildItem',
+  'addDiscountRow',
+  'addNoteRow',
+  'reorderRowUp',
+  'reorderRowDown',
   'toggleRangeSelect',
   'clearSelection',
   'indent',
@@ -273,8 +293,9 @@ describe('ESTIMATE_KEYMAP.entries', () => {
     expect(
       ESTIMATE_KEYMAP.resolve(press('w', { modifiers: ['alt'], code: 'KeyC' }), 'rowSelected')
     ).toBeNull();
+    // `x` は割当を持たない英字（`a` は 54.10 で「項目追加」に割り当てた）
     expect(
-      ESTIMATE_KEYMAP.resolve(press('a', { modifiers: ['alt'], code: 'KeyM' }), 'rowSelected')
+      ESTIMATE_KEYMAP.resolve(press('x', { modifiers: ['alt'], code: 'KeyM' }), 'rowSelected')
     ).toBeNull();
   });
 
@@ -301,7 +322,7 @@ describe('ESTIMATE_KEYMAP.entries', () => {
 describe('ESTIMATE_KEYMAP.resolve', () => {
   /** 行選択中は行操作が解決される（47.5 の否定側と対になる肯定側） */
   /** @requirement estimate-creation/REQ-47.1 */
-  it('行選択中は行の挿入・削除・複写・階層の上げ下げを解決すること (47.1)', () => {
+  it('行選択中は明細を書き換えるコマンドを解決すること (47.1, 23.11)', () => {
     const resolved = ROW_COMMANDS.map((command) => {
       const entry = entriesOf(command)[0] as KeymapEntry;
       return ESTIMATE_KEYMAP.resolve(

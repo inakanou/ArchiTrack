@@ -103,7 +103,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     items: mockItems,
-    selectedItemId: null,
+    selectedKeys: [],
     draggable: false,
   },
 };
@@ -114,7 +114,7 @@ export const Default: Story = {
 export const WithSelectedItem: Story = {
   args: {
     items: mockItems,
-    selectedItemId: 'item-2',
+    selectedKeys: ['item-2'],
     draggable: false,
   },
 };
@@ -125,7 +125,7 @@ export const WithSelectedItem: Story = {
 export const DraggableEnabled: Story = {
   args: {
     items: mockItems,
-    selectedItemId: null,
+    selectedKeys: [],
     draggable: true,
   },
 };
@@ -136,7 +136,7 @@ export const DraggableEnabled: Story = {
 export const Empty: Story = {
   args: {
     items: [],
-    selectedItemId: null,
+    selectedKeys: [],
     draggable: false,
   },
 };

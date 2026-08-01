@@ -147,6 +147,12 @@ const createHandlers = () => ({
     duplicateRows: vi.fn(),
     indentRange: vi.fn(),
     outdentRange: vi.fn(),
+    // ツールバーの各操作に対応するキー操作（23.11 / Task 54.10）
+    addRootItem: vi.fn(),
+    addChildItem: vi.fn(),
+    addDiscountRow: vi.fn(),
+    addNoteRow: vi.fn(),
+    reorderRow: vi.fn(),
   },
   onSelectSingle: vi.fn(),
   onExtendSelectionTo: vi.fn(),

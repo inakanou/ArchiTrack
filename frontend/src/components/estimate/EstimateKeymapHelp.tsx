@@ -12,7 +12,8 @@
  * 「確定値は本設計の実装時に `entries` として固定し、`EstimateKeymapHelp` が
  * 同じ定義を表示する（47.3）」）。
  *
- * 表示は定義の各項目から次のように導きます。
+ * キー表記の整形規則は `estimateKeymapText` が持ち、ツールバーのボタン説明（23.11）と
+ * 共有します。表示は定義の各項目から次のように導きます。
  * - キー表記: `modifiers` + `key`（`ArrowUp` → `↑` のように読みやすい記号へ置換）
  * - 操作の説明: `label` の本文（`label` は「キー表記: 説明」の形で書かれている）
  * - 使える場面: `contexts`
@@ -35,35 +36,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ESTIMATE_KEYMAP } from '../../domain/estimate/estimateKeymap';
-import type {
-  FocusContext,
-  KeymapEntry,
-  KeymapModifier,
-} from '../../domain/estimate/estimateKeymap';
+import { formatKeymapKey } from './estimateKeymapText';
+import type { FocusContext, KeymapEntry } from '../../domain/estimate/estimateKeymap';
 
 // ============================================================================
 // 定義 → 表示の変換（表示の語彙だけを持ち、割当そのものは持たない）
 // ============================================================================
-
-/** 修飾キーの表記 */
-const MODIFIER_TEXT: Record<KeymapModifier, string> = {
-  ctrl: 'Ctrl',
-  meta: '⌘',
-  alt: 'Alt',
-  shift: 'Shift',
-};
-
-/** 修飾キーの表記順（押す順に近い並び） */
-const MODIFIER_SEQUENCE: readonly KeymapModifier[] = ['ctrl', 'meta', 'alt', 'shift'];
-
-/** 読みやすい記号へ置き換えるキー（未収載のキーは `key` をそのまま出す） */
-const KEY_TEXT: Readonly<Record<string, string>> = {
-  ArrowUp: '↑',
-  ArrowDown: '↓',
-  ArrowLeft: '←',
-  ArrowRight: '→',
-  Escape: 'Esc',
-};
 
 /** フォーカス文脈の表記（新しい文脈が増えたら型検査で漏れに気づける） */
 const CONTEXT_TEXT: Record<FocusContext, string> = {
@@ -72,15 +50,6 @@ const CONTEXT_TEXT: Record<FocusContext, string> = {
   rangeSelected: '範囲選択中',
   hierarchyPanel: '階層構造パネル',
 };
-
-/** 割当1件のキー表記（例: `Alt+Shift+→`） */
-function formatKeymapKey(entry: KeymapEntry): string {
-  const modifiers = MODIFIER_SEQUENCE.filter((modifier) => entry.modifiers.includes(modifier)).map(
-    (modifier) => MODIFIER_TEXT[modifier]
-  );
-  const key = KEY_TEXT[entry.key] ?? (entry.key.length === 1 ? entry.key.toUpperCase() : entry.key);
-  return [...modifiers, key].join('+');
-}
 
 /**
  * 割当1件の説明（`label` の本文）

@@ -15,6 +15,10 @@
  *
  * Requirements (estimate-creation):
  * - 23.11: ツールバーの各操作に対応するキーボードショートカットを提供する（割当の定義）
+ *   54.6 の時点では 47.1 が列挙する操作だけを定義していたため、ツールバーの追加系
+ *   （23.2, 23.4, 41.1, 55.1）と同一階層の並び替え（12.2）に対応する割当が欠けていた。
+ *   54.10 で `addRootItem` / `addChildItem` / `addDiscountRow` / `addNoteRow` /
+ *   `reorderRowUp` / `reorderRowDown` を追加して対応を閉じている。
  * - 47.1: キーボード操作のみで行の挿入・削除・複写・範囲選択・階層の上げ下げ・階層間の移動を実行可能とする
  * - 47.4: ブラウザの標準操作と衝突しないキー割り当てを用いる
  * - 47.5: セルの文字入力中は文字編集の操作を優先し、行操作を実行しない
@@ -37,9 +41,11 @@
  * 残った空きから、方向の意味が対応する組を選んでいる。
  * - `Alt+↑` / `Alt+↓`: 階層を出入りする（表示の移動）
  * - `Alt+Shift+←` / `Alt+Shift+→`: 階層を上げる・下げる（明細の編集）
+ * - `Alt+Shift+↑` / `Alt+Shift+↓`: 同じ階層内で並び順を入れ替える（明細の編集 / 12.2）
  * - `Shift+↑` / `Shift+↓`: 範囲選択を広げる
  * - `Alt+PageUp` / `Alt+PageDown`: 階層内の先頭行・末尾行へ
  * - `Alt+Shift+PageUp` / `Alt+Shift+PageDown`: 前の階層・次の階層へ
+ * - `Alt+A` / `Alt+Shift+A` / `Alt+Shift+D` / `Alt+Shift+N`: 項目・子項目・値引き行・注記行の追加
  *
  * 修飾キーを伴わない割当は `Esc`（選択解除）だけに限る。修飾キー無しのキーは
  * 文字入力・キャレット移動・スクロールを奪うため（47.4, 47.5）。
@@ -62,6 +68,12 @@ export type EstimateCommand =
   | 'insertRow'
   | 'deleteRow'
   | 'duplicateCell'
+  | 'addRootItem'
+  | 'addChildItem'
+  | 'addDiscountRow'
+  | 'addNoteRow'
+  | 'reorderRowUp'
+  | 'reorderRowDown'
   | 'toggleRangeSelect'
   | 'clearSelection'
   | 'indent'
@@ -147,6 +159,64 @@ const ENTRIES: readonly KeymapEntry[] = [
     modifiers: ['alt'],
     contexts: ROW_CONTEXTS,
     label: 'Alt+C: 選択行（範囲選択中は範囲全体）を複写',
+  },
+  // --- ツールバーの項目追加・並び替えに対応する割当（23.11 / Task 54.10） ----
+  //
+  // 23.11 は「ツールバーの**各**操作に対応するキーボード操作」を求める。54.6 の時点で
+  // 割当があったのは 47.1 が列挙する操作（挿入・削除・複写・範囲選択・階層の上げ下げ・
+  // 階層間の移動）だけで、ツールバーの追加系（23.2, 23.4, 41.1, 55.1）と同一階層の
+  // 並び替え（12.2）には対応するキーが無かった。ここで埋める。
+  //
+  // 選び方は 47.4 に従い、修飾キー付きで未使用の組から採る。英字は `Alt+D`（アドレスバー）
+  // `Alt+E`/`Alt+F`（メニュー）を避けて `a` / `n` を選び、「ルートへ追加」と「選択行を
+  // 起点に追加」を `Shift` の有無で対にした。並び替えは階層の上げ下げ（`Alt+Shift+←→`）と
+  // 直交する `Alt+Shift+↑↓` を用いる。
+  //
+  // 文脈はいずれも `ROW_CONTEXTS`。これらは明細を書き換える操作なので、階層構造パネルへ
+  // フォーカスがある間に発火してはならない（削除・複写・階層の上げ下げと同じ扱い。
+  // `NAVIGATION_CONTEXTS` は表示を動かすだけの操作のための集合）。未選択のときの文脈も
+  // `rowSelected` に落ちるため、選択が無くても「項目追加」「値引き行追加」は使える。
+  {
+    command: 'addRootItem',
+    key: 'a',
+    modifiers: ['alt'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+A: ルートレベルの末尾に項目を追加',
+  },
+  {
+    command: 'addChildItem',
+    key: 'a',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+A: 選択行の子として項目を追加',
+  },
+  {
+    command: 'addDiscountRow',
+    key: 'd',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+D: ルートレベルの末尾に値引き行を追加',
+  },
+  {
+    command: 'addNoteRow',
+    key: 'n',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+N: 選択行の直後（未選択ならルート末尾）に注記行を追加',
+  },
+  {
+    command: 'reorderRowUp',
+    key: 'ArrowUp',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+↑: 同じ階層内で1つ上へ移動',
+  },
+  {
+    command: 'reorderRowDown',
+    key: 'ArrowDown',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+↓: 同じ階層内で1つ下へ移動',
   },
   // --- 範囲選択（44.1, 44.2, 47.6, 47.7） -----------------------------------
   {

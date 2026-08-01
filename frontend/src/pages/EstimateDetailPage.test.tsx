@@ -55,6 +55,41 @@ const mockEditor = {
   getTotalAmount: vi.fn().mockReturnValue('0'),
   addDiscountItem: vi.fn(),
   addNoteItem: vi.fn(),
+  // 範囲操作（53.3 / 54.6）とその失敗理由（44.6, 44.7 / 54.10）。
+  // `lastError` は描画中に読まれるため、欠けているとモックが本物と乖離して落ちる。
+  insertRowAfter: vi.fn(),
+  deleteRows: vi.fn(),
+  duplicateRows: vi.fn(),
+  indentRange: vi.fn(),
+  outdentRange: vi.fn(),
+  lastError: null as import('../domain/estimate/estimateEditReducer.types').EditError | null,
+  dismissError: vi.fn(),
+};
+
+/**
+ * 表示ツリー（`mockEditor.items`）に対応する編集ツリーを作る
+ *
+ * 選択の所有者は `useEstimateNavigation` へ一本化され（54.10）、選択できる行は
+ * `editState.items` から導かれる表示対象に限られる。表示ツリーだけを差し替えると
+ * 本物では起こりえない「表には出ているが選択できない」状態になるため、両方を揃える。
+ */
+const toEditStateItems = (
+  items: readonly EstimateItemHierarchyEdit[]
+): { id: string; tempId: null; itemType: 'STANDARD'; lines: never[]; children: unknown[] }[] =>
+  items.map((item) => ({
+    id: item.id,
+    tempId: null,
+    itemType: 'STANDARD' as const,
+    lines: [],
+    children: toEditStateItems(item.children),
+  }));
+
+/** 表示ツリーと編集ツリーを同時に差し替える */
+const setEditorItems = (items: EstimateItemHierarchyEdit[]): void => {
+  mockEditor.items = items;
+  mockEditor.editState.items = toEditStateItems(
+    items
+  ) as unknown as typeof mockEditor.editState.items;
 };
 // 既定はモックだが、フックと画面の結線そのものを検証するテストでは実物へ切り替える
 const editorMode = vi.hoisted(() => ({ useReal: false }));
@@ -79,7 +114,12 @@ vi.mock('../components/estimate', () => ({
   EstimateItemTable: (props: Record<string, unknown>) => {
     capturedTableProps = props;
     return (
-      <div data-testid="mock-item-table" data-selected-item-id={String(props.selectedItemId ?? '')}>
+      <div
+        data-testid="mock-item-table"
+        data-selected-item-id={String(
+          (props.selectedKeys as readonly string[] | undefined)?.[0] ?? ''
+        )}
+      >
         {props.onItemSelect ? (
           <button
             data-testid="select-item-btn"
@@ -106,25 +146,27 @@ vi.mock('../components/estimate', () => ({
         </button>
         <button
           data-testid="toolbar-delete"
-          onClick={() => (props.onDeleteItem as (id: string) => void)('item-1')}
+          onClick={() => (props.onDeleteItems as (ids: readonly string[]) => void)(['item-1'])}
         >
           Delete
         </button>
         <button
           data-testid="toolbar-duplicate"
-          onClick={() => (props.onDuplicateItem as (id: string) => void)('item-1')}
+          onClick={() => (props.onDuplicateItems as (ids: readonly string[]) => void)(['item-1'])}
         >
           Duplicate
         </button>
         <button
           data-testid="toolbar-move-up"
-          onClick={() => (props.onMoveUp as (id: string) => void)('item-child')}
+          onClick={() => (props.onMoveUpItems as (ids: readonly string[]) => void)(['item-child'])}
         >
           MoveUp
         </button>
         <button
           data-testid="toolbar-move-down"
-          onClick={() => (props.onMoveDown as (id: string) => void)('item-child')}
+          onClick={() =>
+            (props.onMoveDownItems as (ids: readonly string[]) => void)(['item-child'])
+          }
         >
           MoveDown
         </button>
@@ -439,7 +481,7 @@ describe('EstimateDetailPage', () => {
     mockNavigate.mockReset();
     mockEstimateLoad(mockEstimateDetail);
     // mockEditorの状態リセット
-    mockEditor.items = [];
+    setEditorItems([]);
     mockEditor.isDirty = false;
     mockEditor.isSaving = false;
     mockEditor.save.mockResolvedValue(undefined);
@@ -527,7 +569,7 @@ describe('EstimateDetailPage', () => {
    */
   it('合計金額を表示する', async () => {
     // editor.itemsにデータを設定してサマリー計算が動くようにする
-    mockEditor.items = [
+    setEditorItems([
       {
         id: 'item-001',
         estimateId: 'est-001',
@@ -553,7 +595,7 @@ describe('EstimateDetailPage', () => {
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
-    ];
+    ]);
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -1039,7 +1081,7 @@ describe('EstimateDetailPage', () => {
     expect(mockEditor.addItem).toHaveBeenCalledWith('parent-1');
   });
 
-  it('ツールバーのdeleteItemがeditor.deleteItemを呼ぶ', async () => {
+  it('ツールバーの削除が選択範囲を editor.deleteRows へ渡すこと (44.3)', async () => {
     const user = userEvent.setup();
 
     render(
@@ -1055,10 +1097,10 @@ describe('EstimateDetailPage', () => {
     });
 
     await user.click(screen.getByTestId('toolbar-delete'));
-    expect(mockEditor.deleteItem).toHaveBeenCalledWith('item-1');
+    expect(mockEditor.deleteRows).toHaveBeenCalledWith(['item-1']);
   });
 
-  it('ツールバーのduplicateItemがeditor.duplicateItemを呼ぶ', async () => {
+  it('ツールバーの複製が選択範囲を editor.duplicateRows へ渡すこと (44.3)', async () => {
     const user = userEvent.setup();
 
     render(
@@ -1074,7 +1116,7 @@ describe('EstimateDetailPage', () => {
     });
 
     await user.click(screen.getByTestId('toolbar-duplicate'));
-    expect(mockEditor.duplicateItem).toHaveBeenCalledWith('item-1');
+    expect(mockEditor.duplicateRows).toHaveBeenCalledWith(['item-1']);
   });
 
   // =========================================================================
@@ -1305,7 +1347,7 @@ describe('EstimateDetailPage', () => {
   it('項目選択時にselectedItemとhasPreviousSiblingが計算されること', async () => {
     const user = userEvent.setup();
     // 2つの兄弟アイテムをセットして、2番目を選択すればhasPreviousSibling=trueになる
-    mockEditor.items = [
+    setEditorItems([
       {
         id: 'item-first',
         estimateId: 'est-001',
@@ -1326,7 +1368,7 @@ describe('EstimateDetailPage', () => {
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
-    ];
+    ]);
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -1351,13 +1393,13 @@ describe('EstimateDetailPage', () => {
       );
     });
 
-    // ツールバーにselectedItemとhasPreviousSiblingが渡されていることを確認
-    expect(capturedToolbarProps.selectedItemId).toBe('item-001');
+    // ツールバーには選択範囲（54.10 で所有者を一本化）と派生値が渡る
+    expect(capturedToolbarProps.selectedKeys).toEqual(['item-001']);
     expect(capturedToolbarProps.hasPreviousSibling).toBe(true);
   });
 
   it('NaN金額でサマリーが正しく表示されること', async () => {
-    mockEditor.items = [
+    setEditorItems([
       {
         id: 'item-nan',
         estimateId: 'est-001',
@@ -1383,7 +1425,7 @@ describe('EstimateDetailPage', () => {
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
-    ];
+    ]);
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -1404,7 +1446,7 @@ describe('EstimateDetailPage', () => {
 
   it('サマリーパネルで利益率・値引率が正しく計算されること', async () => {
     // ESTIMATE, EXECUTION, VENDORの全3行タイプを持つ項目を設定
-    mockEditor.items = [
+    setEditorItems([
       {
         id: 'item-summary',
         estimateId: 'est-001',
@@ -1458,7 +1500,7 @@ describe('EstimateDetailPage', () => {
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
-    ];
+    ]);
 
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
@@ -1479,11 +1521,11 @@ describe('EstimateDetailPage', () => {
   });
 
   it('selectedItemが子要素をもつ項目の子を選択した場合にfindItemが再帰的に検索すること', async () => {
-    const user = userEvent.setup();
-    mockEditor.items = mockEditorItemsWithHierarchy;
+    setEditorItems(mockEditorItemsWithHierarchy);
 
-    // select-item-btnは'item-001'をセットするが、ここではmockのonItemSelectを使って
-    // 子アイテムを選択する（capturedToolbarPropsで確認）
+    // `select-item-btn` は 'item-001' を選ぶが、このフィクスチャに 'item-001' は無い。
+    // 54.10 以降は明細に存在しないキーが選択状態にならないため、ここでは
+    // `onItemSelect` を直接呼んで実在する子項目（item-parent の子）を選ぶ。
     render(
       <MemoryRouter initialEntries={['/estimates/est-001']}>
         <Routes>
@@ -1496,19 +1538,21 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByTestId('mock-item-table')).toBeInTheDocument();
     });
 
-    // onItemSelectを直接呼んで子アイテムを選択
+    // onItemSelect を直接呼んで子アイテム（item-parent の子）を選択する。
+    // 54.10 で選択の所有者を `useEstimateNavigation` へ一本化したため、
+    // 明細ツリーに存在しないキーは選択状態にならない（＝ツールバーの操作対象にも
+    // ならない）。ここでは実在する子項目を選び、再帰探索の結果を検証する。
     const table = screen.getByTestId('mock-item-table');
-    // item-childはmockEditorItemsWithHierarchyのitem-parentの子
-    // selectedItemのfindItemが再帰的にitem-childを見つけるか確認
-    await user.click(screen.getByTestId('select-item-btn'));
-
-    // select-item-btnは'item-001'を選択する。mockEditorItemsWithHierarchyには'item-001'がないため
-    // selectedItem=nullとなりhasPreviousSibling=false
-    await waitFor(() => {
-      expect(table).toHaveAttribute('data-selected-item-id', 'item-001');
+    await act(async () => {
+      (capturedTableProps.onItemSelect as (id: string) => void)('item-child');
     });
-    // capturedToolbarProps.selectedItem is null because 'item-001' doesn't exist in hierarchy
-    expect(capturedToolbarProps.selectedItemId).toBe('item-001');
+
+    await waitFor(() => {
+      expect(table).toHaveAttribute('data-selected-item-id', 'item-child');
+    });
+    expect(capturedToolbarProps.selectedKeys).toEqual(['item-child']);
+    // 子階層の項目が再帰探索で見つかっている
+    expect((capturedToolbarProps.selectedItem as { id: string } | null)?.id).toBe('item-child');
   });
 
   const renderPage = () =>
@@ -2050,7 +2094,7 @@ describe('EstimateDetailPage', () => {
 
   it('項目選択時のツールバーの注記行追加が選択行の直後・同一階層を指定して呼ぶ (55.3)', async () => {
     const user = userEvent.setup();
-    mockEditor.items = [
+    setEditorItems([
       {
         id: 'item-parent',
         estimateId: 'est-001',
@@ -2072,7 +2116,7 @@ describe('EstimateDetailPage', () => {
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
-    ];
+    ]);
     renderPage();
     await waitFor(() => {
       expect(screen.getByTestId('mock-toolbar')).toBeInTheDocument();
@@ -2081,7 +2125,7 @@ describe('EstimateDetailPage', () => {
     // 子階層の 'item-001' を選択する
     await user.click(screen.getByTestId('select-item-btn'));
     await waitFor(() => {
-      expect(capturedToolbarProps.selectedItemId).toBe('item-001');
+      expect(capturedToolbarProps.selectedKeys).toEqual(['item-001']);
     });
 
     await user.click(screen.getByTestId('toolbar-add-note'));
@@ -2093,7 +2137,7 @@ describe('EstimateDetailPage', () => {
   });
 
   it('サマリーの合計金額が注記行を集計対象から除外すること (55.2)', async () => {
-    mockEditor.items = [
+    setEditorItems([
       {
         id: 'item-001',
         estimateId: 'est-001',
@@ -2143,7 +2187,7 @@ describe('EstimateDetailPage', () => {
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
-    ];
+    ]);
     renderPage();
 
     await waitFor(() => {
@@ -2336,14 +2380,14 @@ describe('EstimateDetailPage', () => {
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
 
       // 下の階層へ: item-b が直前の兄弟 item-a の子になる（23.10）
-      await invokeToolbar('onMoveDown', 'item-b');
+      await invokeToolbar('onMoveDownItems', ['item-b']);
       expect(tableItems().map((item) => item.id)).toEqual(['item-a']);
       expect(tableItems()[0]?.children.map((child) => child.id)).toEqual(['item-b']);
       // 部分木ごと移動する（子 item-c は item-b の配下に残る）
       expect(tableItems()[0]?.children[0]?.children.map((child) => child.id)).toEqual(['item-c']);
 
       // 上の階層へ: item-b が親 item-a の兄弟レベルへ戻る（23.9）
-      await invokeToolbar('onMoveUp', 'item-b');
+      await invokeToolbar('onMoveUpItems', ['item-b']);
       expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
 
       // 同一階層内の並び替え
@@ -2377,11 +2421,11 @@ describe('EstimateDetailPage', () => {
       });
 
       // ルート行を「上の階層へ」: これ以上上げられない
-      await invokeToolbar('onMoveUp', 'item-a');
+      await invokeToolbar('onMoveUpItems', ['item-a']);
       expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
 
       // 先頭行を「下の階層へ」: 親になる直前の兄弟が無い
-      await invokeToolbar('onMoveDown', 'item-a');
+      await invokeToolbar('onMoveDownItems', ['item-a']);
       expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
 
       // 兄弟の端での並び替えも状態を変えない
@@ -2405,7 +2449,7 @@ describe('EstimateDetailPage', () => {
       await editItemName('item-a', '編集済みA項目');
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
 
-      await invokeToolbar('onMoveDown', 'item-b');
+      await invokeToolbar('onMoveDownItems', ['item-b']);
 
       // 階層が変わっても編集値は残り、未保存状態のまま保存できる
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
@@ -2413,7 +2457,7 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
 
-      await invokeToolbar('onMoveUp', 'item-b');
+      await invokeToolbar('onMoveUpItems', ['item-b']);
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
     });
 

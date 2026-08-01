@@ -73,7 +73,7 @@ import type {
   EstimateEditorSaveResult,
   EstimateItemHierarchyEdit,
 } from '../hooks/useEstimateEditor';
-import type { EditableItem } from '../domain/estimate/estimateEditReducer.types';
+import type { EditableItem, EditError } from '../domain/estimate/estimateEditReducer.types';
 import { EstimateExportDialog } from '../components/estimate/EstimateExportDialog';
 import { TransferQuotationDialog } from '../components/estimate/TransferQuotationDialog';
 import { NetAllocationDialog } from '../components/estimate/NetAllocationDialog';
@@ -585,6 +585,54 @@ function toSaveErrorMessage(error: unknown): string {
   return '保存に失敗しました。再度お試しください。';
 }
 
+/**
+ * 明細ツリーから項目を探す（表示ツリー）
+ *
+ * 選択中の項目の解決とツールバーの制御に用いる。
+ */
+function findItemById(
+  items: readonly EstimateItemHierarchyEdit[],
+  id: string
+): EstimateItemHierarchyEdit | null {
+  for (const item of items) {
+    if (item.id === id) {
+      return item;
+    }
+    if (item.children.length > 0) {
+      const found = findItemById(item.children, id);
+      if (found !== null) {
+        return found;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 無効化された階層操作の理由を画面表示用の文言へ変換する（Task 54.10）
+ *
+ * Requirements (estimate-creation):
+ * - 44.6: ルートレベルで「上の階層へ移動」が実行された場合、操作を実行せず
+ *   それ以上上げられないことを示す
+ * - 44.7: 自身または子孫の子になる移動は実行せずエラーを表示する
+ *
+ * 遷移関数は `lastError` を返すだけで表示は行わない（純粋層のため）。
+ * tasks.md Implementation Notes の「44.6 を表示する担当タスクが存在しない」
+ * という申し送りに従い、本画面が唯一の表示先になる。
+ */
+function toEditErrorMessage(error: EditError): string {
+  switch (error.kind) {
+    case 'CANNOT_OUTDENT_ROOT':
+      return 'すでに最上位の階層のため、これ以上上げられません。';
+    case 'NO_PRECEDING_SIBLING':
+      return '同じ階層に直前の項目が無いため、階層を下げられません。';
+    case 'CYCLIC_MOVE':
+      return '自身の下の階層へは移動できません。';
+    case 'INVALID_PARENT_TYPE':
+      return '値引き行・注記行は子項目を持てないため、その下へは移動できません。';
+  }
+}
+
 // ============================================================================
 // サブコンポーネント
 // ============================================================================
@@ -671,12 +719,11 @@ export default function EstimateDetailPage() {
   const [isNetDialogOpen, setIsNetDialogOpen] = useState(false);
   const [isProfitDialogOpen, setIsProfitDialogOpen] = useState(false);
   const [isOverheadDialogOpen, setIsOverheadDialogOpen] = useState(false);
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   /**
    * 明細の表示を特定の項目まで移動する要求（46.5）
    *
-   * 選択状態（`selectedItemId`）とは別に持つ。選択は継続する状態、移動は一度きりの
+   * 選択状態とは別に持つ。選択は継続する状態、移動は一度きりの
    * 要求であり、同じ項目を選び直したときにも移動をやり直す必要があるため。
    */
   const [rowRevealRequest, setRowRevealRequest] = useState<EstimateRowRevealRequest | null>(null);
@@ -869,48 +916,83 @@ export default function EstimateDetailPage() {
   );
 
   /**
-   * キー操作による行選択（44.1, 47.1）
+   * 選択の所有者（44.1, 44.2, 23.7 / Task 54.10）
    *
-   * 明細行のハイライトとツールバーの操作対象は画面が持つ `selectedItemId` が
-   * 駆動しているため、表示状態フックの選択と併せて更新する。
-   * 選択の所有者を表示状態フックへ一本化するのは 54.10 の範囲。
+   * 54.9 までは画面が `selectedItemId` を、表示状態フックが `selectedKeys` を
+   * それぞれ持っており、行クリックは前者だけ・キー操作は両方を書いていた。
+   * 二重所有のままでは 23.7（クリックした行のハイライト）と 44.8（選択行数の表示）が
+   * 別々の真実を見ることになるため、**所有者を `useEstimateNavigation` へ一本化**する。
+   *
+   * 画面はここから派生値を読むだけで選択の state を持たない。
+   * 「主たる選択項目」は選択範囲の先頭行とする（44.4 が親へ昇格させる行と同じ基準）。
+   *
+   * 副次的な効果として、折りたたみや階層移動で一覧から消えた行が選択に残らない
+   * （`selectedKeys` は表示対象から導出されるため）。操作できない行がツールバーの
+   * 対象であり続ける状態がなくなる。
    */
-  const { selectSingle: selectSingleRow, clearSelection: clearRowSelection } = navigation;
-  const handleKeyboardSelect = useCallback(
-    (key: NodeKey): void => {
-      selectSingleRow(key);
-      setSelectedItemId(key);
-    },
-    [selectSingleRow]
-  );
+  const selectedKeys = navigation.selectedKeys;
+  const selectedItemId: string | null = selectedKeys[0] ?? null;
 
-  /** キー操作による選択解除（44.2, 47.7） */
-  const handleKeyboardClearSelection = useCallback((): void => {
-    clearRowSelection();
-    setSelectedItemId(null);
-  }, [clearRowSelection]);
+  const { selectSingle: selectSingleRow, clearSelection: clearRowSelection } = navigation;
 
   /**
-   * キー操作の配線（47.1〜47.8）
+   * 注記行の追加（55.1, 55.3）
+   *
+   * 基準行があればその直後・同一階層へ、無ければルート末尾へ挿入する。
+   * ツールバーのボタンとキー操作（23.11）の双方から同じ関数を通す。
+   */
+  const { items: editorItems, addNoteItem } = editor;
+  const handleAddNoteItem = useCallback(
+    (afterId: string | null): void => {
+      const anchor = afterId === null ? null : findItemById(editorItems, afterId);
+      addNoteItem(anchor === null ? undefined : { parentId: anchor.parentId, afterId: anchor.id });
+    },
+    [editorItems, addNoteItem]
+  );
+
+  /**
+   * キー操作の配線（47.1〜47.8, 23.11）
    *
    * キーの条件分岐は `estimateKeymap`（単一定義）が持ち、画面はコマンドの
    * 実行先を渡すだけ。行操作はいずれもローカル操作で、サーバーへの保存を
    * 伴わない（47.8）。
+   *
+   * 追加系と並び替えはツールバーのボタンと**同じ関数**へ配線する。別経路にすると
+   * 「ボタンとキーで結果が違う」状態が起こりうるため（23.11）。
    */
+  const {
+    insertRowAfter,
+    deleteRows,
+    duplicateRows,
+    indentRange,
+    outdentRange,
+    addItem,
+    addDiscountItem,
+    moveItem,
+  } = editor;
   const keyboardCommands = useMemo(
     () => ({
-      insertRowAfter: editor.insertRowAfter,
-      deleteRows: editor.deleteRows,
-      duplicateRows: editor.duplicateRows,
-      indentRange: editor.indentRange,
-      outdentRange: editor.outdentRange,
+      insertRowAfter,
+      deleteRows,
+      duplicateRows,
+      indentRange,
+      outdentRange,
+      addRootItem: () => addItem(),
+      addChildItem: (parentKey: NodeKey) => addItem(parentKey),
+      addDiscountRow: () => addDiscountItem(),
+      addNoteRow: handleAddNoteItem,
+      reorderRow: (key: NodeKey, direction: 'up' | 'down') => moveItem(key, direction),
     }),
     [
-      editor.insertRowAfter,
-      editor.deleteRows,
-      editor.duplicateRows,
-      editor.indentRange,
-      editor.outdentRange,
+      insertRowAfter,
+      deleteRows,
+      duplicateRows,
+      indentRange,
+      outdentRange,
+      addItem,
+      addDiscountItem,
+      moveItem,
+      handleAddNoteItem,
     ]
   );
 
@@ -922,9 +1004,9 @@ export default function EstimateDetailPage() {
     selectedKeys: navigation.selectedKeys,
     cursorKey: navigation.cursor?.key ?? null,
     commands: keyboardCommands,
-    onSelectSingle: handleKeyboardSelect,
+    onSelectSingle: selectSingleRow,
     onExtendSelectionTo: navigation.extendSelectionTo,
-    onClearSelection: handleKeyboardClearSelection,
+    onClearSelection: clearRowSelection,
     onViewModeChange: handleViewModeChange,
     onCurrentLevelChange: navigation.setCurrentLevelKey,
     onUndo: undo.undo,
@@ -945,16 +1027,15 @@ export default function EstimateDetailPage() {
    *    領域を当該行まで移動させる。行数の多い見積書では対象が一覧に含まれていても
    *    画面外にあるため、この段階がないと 46.5 の「移動」が観測できない。
    *
-   * 明細行のハイライトは画面が持つ `selectedItemId` が駆動しているため、
-   * 併せて更新する。行の識別子は編集状態と同じノードキーで、
-   * `EstimateItemHierarchyEdit.id` と一致する（`useEstimateEditor.toViewTree`）。
-   * 選択の所有者を表示状態フックへ一本化するのは 54.10 の範囲。
+   * 明細行のハイライトは `revealAndSelect` が書く選択状態から導かれる（54.10 で
+   * 所有者を一本化したため、画面側で選択を書き足す必要はない）。行の識別子は
+   * 編集状態と同じノードキーで、`EstimateItemHierarchyEdit.id` と一致する
+   * （`useEstimateEditor.toViewTree`）。
    */
   const { revealAndSelect: revealAndSelectItem } = navigation;
   const handleHierarchySelect = useCallback(
     (key: NodeKey): void => {
       revealAndSelectItem(key);
-      setSelectedItemId(key);
       setRowRevealRequest((previous) => ({
         key,
         requestId: previous === null ? 1 : previous.requestId + 1,
@@ -1044,24 +1125,11 @@ export default function EstimateDetailPage() {
     [editor.isDirty]
   );
 
-  // 選択中の項目データを取得（REQ-23）
-  const selectedItem = useMemo(() => {
-    if (!selectedItemId) return null;
-    const findItem = (
-      items: EstimateItemHierarchyEdit[],
-      id: string
-    ): EstimateItemHierarchyEdit | null => {
-      for (const item of items) {
-        if (item.id === id) return item;
-        if (item.children.length > 0) {
-          const found = findItem(item.children, id);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-    return findItem(editor.items, selectedItemId);
-  }, [editor.items, selectedItemId]);
+  // 選択範囲の先頭行の項目データを取得（REQ-23, 44.4）
+  const selectedItem = useMemo(
+    () => (selectedItemId === null ? null : findItemById(editor.items, selectedItemId)),
+    [editor.items, selectedItemId]
+  );
 
   // 直前の兄弟項目が存在するかを計算（REQ-23.10）
   const hasPreviousSibling = useMemo(() => {
@@ -1156,28 +1224,34 @@ export default function EstimateDetailPage() {
   }, [fetchData]);
 
   /**
-   * 上の階層へ移動（23.9, 12.6, 12.7, 43.1, 43.3）
+   * 上の階層へ移動（23.9, 12.6, 12.7, 43.1, 43.3, 44.3, 44.5, 44.6）
    *
    * 移動APIの即時呼び出しと明細の全件再取得を撤去し、編集状態の遷移へ置き換えた（53.6）。
    * 再取得は `editor.setItems` 経由で未保存の編集を上書きしてしまう（43.3）。
-   * ルートレベルで実行された場合は遷移関数が `lastError` を設定して状態を変えない。
+   *
+   * 54.10 で対象を**選択範囲全体**にした（44.3）。範囲版の遷移関数は表示順を
+   * 前提にしており、`useEstimateNavigation.selectedKeys` は表示順で導出されるため
+   * 並べ替えずにそのまま渡す。ルートレベルの行が含まれる場合は遷移関数が
+   * `lastError` に `CANNOT_OUTDENT_ROOT` を設定して状態を変えない（44.6）。
    */
   const handleMoveUp = useCallback(
-    (itemId: string) => {
-      editor.outdentItem(itemId);
+    (itemIds: readonly string[]) => {
+      editor.outdentRange(itemIds);
     },
     [editor]
   );
 
   /**
-   * 下の階層へ移動（23.10, 12.6, 12.7, 43.1, 43.3）
+   * 下の階層へ移動（23.10, 12.6, 12.7, 43.1, 43.3, 44.3, 44.4）
    *
    * `handleMoveUp` と同じく編集状態の遷移のみで完結する（53.6）。
-   * 直前の兄弟が無い場合は遷移関数が `lastError` を設定して状態を変えない。
+   * 単一選択なら直前の兄弟の子へ、複数選択なら先頭行を親として残りをその子へ
+   * 配置する（44.4）。規則の切り替えは遷移関数側が件数で行うため、画面は
+   * 選択範囲を表示順のまま渡すだけでよい。
    */
   const handleMoveDown = useCallback(
-    (itemId: string) => {
-      editor.indentItem(itemId);
+    (itemIds: readonly string[]) => {
+      editor.indentRange(itemIds);
     },
     [editor]
   );
@@ -1668,25 +1742,40 @@ export default function EstimateDetailPage() {
               {isHierarchyPanelVisible ? '階層パネルを隠す' : '階層パネルを表示'}
             </button>
           </div>
+          {/*
+            無効化された階層操作の理由の提示（44.6, 44.7）
+
+            遷移関数は状態を変えずに理由だけを返すため、画面が示さないと
+            「押しても何も起きない」操作になる。保存失敗（`saveError`）とは
+            別に持つ: あちらはサーバー応答、こちらは編集操作の即時の結果で、
+            解除の契機（次の成功操作 / `dismissError`）も異なる。
+          */}
+          {editor.lastError !== null && (
+            <div role="alert" data-testid="estimate-edit-error" style={styles.saveErrorBanner}>
+              <span>{toEditErrorMessage(editor.lastError)}</span>
+              <button
+                type="button"
+                aria-label="操作エラーを閉じる"
+                onClick={editor.dismissError}
+                style={styles.saveErrorCloseButton}
+              >
+                ×
+              </button>
+            </div>
+          )}
           <EstimateItemToolbar
-            selectedItemId={selectedItemId}
+            selectedKeys={selectedKeys}
             selectedItem={selectedItem}
             hasPreviousSibling={hasPreviousSibling}
             onAddItem={() => editor.addItem()}
             onAddChildItem={(parentId) => editor.addItem(parentId)}
             onAddDiscountItem={() => editor.addDiscountItem()}
-            onAddNoteItem={() =>
-              // 選択中の行の直後・同一階層へ、未選択ならルート末尾へ挿入する（55.3）
-              editor.addNoteItem(
-                selectedItem !== null
-                  ? { parentId: selectedItem.parentId, afterId: selectedItem.id }
-                  : undefined
-              )
-            }
-            onDeleteItem={(itemId) => editor.deleteItem(itemId)}
-            onDuplicateItem={(itemId) => editor.duplicateItem(itemId)}
-            onMoveUp={handleMoveUp}
-            onMoveDown={handleMoveDown}
+            // 選択中の行の直後・同一階層へ、未選択ならルート末尾へ挿入する（55.3）
+            onAddNoteItem={() => handleAddNoteItem(selectedItemId)}
+            onDeleteItems={(itemIds) => editor.deleteRows(itemIds)}
+            onDuplicateItems={(itemIds) => editor.duplicateRows(itemIds)}
+            onMoveUpItems={handleMoveUp}
+            onMoveDownItems={handleMoveDown}
             onReorderUp={(itemId) => handleReorder(itemId, 'up')}
             onReorderDown={(itemId) => handleReorder(itemId, 'down')}
             canReorderUp={reorderSiblingInfo.canReorderUp}
@@ -1731,10 +1820,9 @@ export default function EstimateDetailPage() {
                 currentLevelKey={navigation.currentLevelKey}
                 onCurrentLevelChange={navigation.setCurrentLevelKey}
                 onDrop={editor.reorderItems}
-                selectedItemId={selectedItemId}
-                selectedKeys={navigation.selectedKeys}
+                selectedKeys={selectedKeys}
                 revealRequest={rowRevealRequest}
-                onItemSelect={setSelectedItemId}
+                onItemSelect={selectSingleRow}
                 visibleLineTypes={visibleLineTypes}
               />
             </div>

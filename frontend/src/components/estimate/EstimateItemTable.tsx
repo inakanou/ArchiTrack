@@ -90,20 +90,19 @@ export interface EstimateItemTableProps {
   collapsedKeys?: ReadonlySet<NodeKey>;
   /** 展開/折りたたみの切り替え要求（45.4） */
   onToggleCollapsed?: (key: NodeKey) => void;
-  /** 選択中の項目ID */
-  selectedItemId?: string | null;
   /**
-   * 範囲選択中の行キー（44.1）
+   * 選択中の行キー（44.1, 23.7）
    *
-   * 所有者は `useEstimateNavigation`。キーボードの範囲選択（47.6）を
-   * 画面上のハイライトとして見せるためにモード別のサブコンポーネントへ渡す。
+   * 所有者は `useEstimateNavigation` ただ1つ。単一選択は要素1件、範囲選択は
+   * 表示順に並んだ複数件で表し、モード別のサブコンポーネントへそのまま渡す。
+   * 54.10 で画面ローカルの選択との二重所有を解消した。
    */
   selectedKeys?: readonly NodeKey[];
   /**
    * 明細の表示を当該項目まで移動する要求（46.5）
    *
    * 階層構造パネル（`EstimateHierarchyPanel`）で項目が選ばれたときに画面から渡る。
-   * 選択状態（`selectedItemId`）と分ける理由は、選択は「どれが選ばれているか」という
+   * 選択状態（`selectedKeys`）と分ける理由は、選択は「どれが選ばれているか」という
    * 継続する状態であるのに対し、移動は「いま動かせ」という一度きりの要求だから。
    * `null` / 未指定は移動要求なし。
    */
@@ -244,7 +243,6 @@ export function EstimateItemTable({
   onCurrentLevelChange,
   collapsedKeys,
   onToggleCollapsed,
-  selectedItemId,
   selectedKeys,
   revealRequest = null,
   draggable = false,
@@ -312,7 +310,6 @@ export function EstimateItemTable({
             items={items}
             currentLevelKey={currentLevelKey}
             onCurrentLevelChange={onCurrentLevelChange}
-            selectedItemId={selectedItemId}
             selectedKeys={selectedKeys}
             draggable={draggable}
             onItemSelect={onItemSelect}
@@ -326,7 +323,6 @@ export function EstimateItemTable({
             items={items}
             collapsedKeys={collapsedKeys}
             onToggleCollapsed={onToggleCollapsed}
-            selectedItemId={selectedItemId}
             selectedKeys={selectedKeys}
             draggable={draggable}
             onItemSelect={onItemSelect}

@@ -70,13 +70,13 @@ export interface EstimateItemTreeViewProps {
   collapsedKeys?: ReadonlySet<NodeKey>;
   /** 展開/折りたたみの切り替え要求（45.4） */
   onToggleCollapsed?: (key: NodeKey) => void;
-  /** 選択中の項目ID */
-  selectedItemId?: string | null;
   /**
-   * 範囲選択中の行キー（44.1）
+   * 選択中の行キー（44.1, 23.7）
    *
-   * 所有者は `useEstimateNavigation`。キーボードの範囲選択（47.6）が
-   * 画面上で見えるように、単一選択（`selectedItemId`）と併せてハイライトする。
+   * 所有者は `useEstimateNavigation` ただ1つ。単一選択は要素1件、範囲選択は
+   * 表示順に並んだ複数件で表す。54.10 で画面ローカルの選択との二重所有を解消し、
+   * クリックによる選択（23.7）もキーボードの範囲選択（47.6）も同じ配列から
+   * ハイライトを導く。
    */
   selectedKeys?: readonly NodeKey[];
   /** ドラッグ可能かどうか */
@@ -279,7 +279,6 @@ export function EstimateItemTreeView({
   items,
   collapsedKeys = NO_COLLAPSED_KEYS,
   onToggleCollapsed,
-  selectedItemId,
   selectedKeys = NO_SELECTED_KEYS,
   draggable = false,
   onItemSelect,
@@ -305,7 +304,7 @@ export function EstimateItemTreeView({
         <TreeRow
           key={row.key}
           row={row}
-          isSelected={selectedItemId === row.item.id || selectedKeySet.has(row.key)}
+          isSelected={selectedKeySet.has(row.key)}
           dragProps={getRowDragProps(row.item.id)}
           onItemSelect={onItemSelect}
           onToggleCollapsed={onToggleCollapsed}

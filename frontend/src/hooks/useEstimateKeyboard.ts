@@ -71,6 +71,21 @@ export interface EstimateKeyboardCommands {
   indentRange: (keys: readonly NodeKey[]) => void;
   /** 指定行の階層を1段上げる（表示順で渡す） */
   outdentRange: (keys: readonly NodeKey[]) => void;
+  /**
+   * ルートレベルの末尾に項目を追加する（23.2 / ツールバーの「項目追加」）
+   *
+   * 23.11 が求める「ツールバーの各操作に対応するキーボード操作」の実行先。
+   * 以下4つはいずれも省略不可にしてあり、画面側の結線漏れを `tsc` が捕まえる。
+   */
+  addRootItem: () => void;
+  /** 指定行の子として項目を追加する（23.4 / ツールバーの「子項目追加」） */
+  addChildItem: (parentKey: NodeKey) => void;
+  /** ルートレベルの末尾に値引き行を追加する（41.1 / ツールバーの「値引き行追加」） */
+  addDiscountRow: () => void;
+  /** 注記行を追加する（55.1, 55.3 / ツールバーの「注記行追加」）。`null` はルート末尾 */
+  addNoteRow: (afterKey: NodeKey | null) => void;
+  /** 同一階層内で並び順を入れ替える（12.2 / ツールバーの「↑上へ」「↓下へ」） */
+  reorderRow: (key: NodeKey, direction: 'up' | 'down') => void;
 }
 
 /** useEstimateKeyboard フックの引数 */
@@ -271,6 +286,41 @@ export function useEstimateKeyboard(
               return false;
             }
             commands.outdentRange(targetKeys);
+            return true;
+          }
+
+          // --- ツールバーの追加・並び替えに対応する操作（23.11 / Task 54.10） --
+          //
+          // 「選択中の項目」を要する操作は範囲選択中でも**先頭行**を対象にする。
+          // 44.3 が範囲全体への適用を定めるのは削除・複写・階層の上げ下げの3つで、
+          // 子項目追加や並び替えを範囲全体へ広げる規定はどの要件にも無い。
+          case 'addRootItem': {
+            commands.addRootItem();
+            return true;
+          }
+          case 'addChildItem': {
+            const parent = targetKeys[0];
+            if (parent === undefined) {
+              return false;
+            }
+            commands.addChildItem(parent);
+            return true;
+          }
+          case 'addDiscountRow': {
+            commands.addDiscountRow();
+            return true;
+          }
+          case 'addNoteRow': {
+            commands.addNoteRow(targetKeys[0] ?? null);
+            return true;
+          }
+          case 'reorderRowUp':
+          case 'reorderRowDown': {
+            const target = targetKeys[0];
+            if (target === undefined) {
+              return false;
+            }
+            commands.reorderRow(target, resolved === 'reorderRowUp' ? 'up' : 'down');
             return true;
           }
 
