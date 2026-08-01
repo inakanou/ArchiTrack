@@ -53,10 +53,16 @@ import type {
 } from '../components/estimate/OverheadCostPanel';
 import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
-import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
+import {
+  EstimateHierarchyPanel,
+  EstimateItemTable,
+  EstimateItemToolbar,
+} from '../components/estimate';
+import type { EstimateRowRevealRequest } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
 import { useEstimateNavigation } from '../hooks/useEstimateNavigation';
 import type { EstimateViewMode } from '../hooks/useEstimateNavigation';
+import type { NodeKey } from '../domain/estimate/estimateTree';
 import { useEstimateViewModePreference } from '../hooks/useEstimateViewModePreference';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import type {
@@ -321,6 +327,32 @@ const styles = {
     marginBottom: '12px',
     color: '#92400e',
     fontSize: '14px',
+  } as React.CSSProperties,
+  /** 階層構造パネルの表示/非表示の切替行（46.7） */
+  hierarchyPanelToggleRow: {
+    display: 'flex',
+    justifyContent: 'flex-start',
+    marginBottom: '8px',
+  } as React.CSSProperties,
+  hierarchyPanelToggleButton: {
+    padding: '4px 10px',
+    fontSize: '12px',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  /** 階層構造パネルと明細テーブルの横並び（46.1） */
+  itemsLayout: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '12px',
+  } as React.CSSProperties,
+  /** 明細テーブル側。パネルの幅に押し出されないよう縮小を許す */
+  itemsTableArea: {
+    flex: 1,
+    minWidth: 0,
   } as React.CSSProperties,
   /** 未保存の変更がある間の表示（27.5） */
   unsavedIndicator: {
@@ -638,6 +670,23 @@ export default function EstimateDetailPage() {
   const [isOverheadDialogOpen, setIsOverheadDialogOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
+  /**
+   * 明細の表示を特定の項目まで移動する要求（46.5）
+   *
+   * 選択状態（`selectedItemId`）とは別に持つ。選択は継続する状態、移動は一度きりの
+   * 要求であり、同じ項目を選び直したときにも移動をやり直す必要があるため。
+   */
+  const [rowRevealRequest, setRowRevealRequest] = useState<EstimateRowRevealRequest | null>(null);
+
+  /**
+   * 階層構造パネルの表示/非表示（46.7）
+   *
+   * 45.11 の階層表示モードと違い、46.7 は「次回の画面表示時にも引き継ぐ」と
+   * 述べていないため端末へ永続化しない。既定は表示（46.1 が画面に俯瞰パネルを
+   * 提供すると定めているため）。
+   */
+  const [isHierarchyPanelVisible, setIsHierarchyPanelVisible] = useState(true);
+
   // 表示行フィルター（デフォルト: すべてON）
   const [visibleLineTypes, setVisibleLineTypes] = useState<
     Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>
@@ -759,6 +808,38 @@ export default function EstimateDetailPage() {
       persistViewMode(mode);
     },
     [setNavigationViewMode, setNavigationLevelKey, persistViewMode]
+  );
+
+  /**
+   * 階層構造パネルで項目が選ばれたとき（46.5）
+   *
+   * 「明細の表示を当該項目へ移動する」は2段階で成立する。
+   *
+   * 1. 対象を一覧に**含める**: `revealAndSelect` が担う。ツリー表示なら折りたたまれた
+   *    祖先を展開し、ドリルダウン表示なら当該項目が属する階層へ現在階層を移す。
+   *    ただしツリー表示ではパネルに現れている項目の祖先は定義上すべて展開済み
+   *    （パネルと明細は同一の `collapsedKeys` を共有する）ため、この段階だけでは
+   *    画面上は何も動かない。
+   * 2. 対象まで表示を**動かす**: `rowRevealRequest` を明細テーブルへ渡し、スクロール
+   *    領域を当該行まで移動させる。行数の多い見積書では対象が一覧に含まれていても
+   *    画面外にあるため、この段階がないと 46.5 の「移動」が観測できない。
+   *
+   * 明細行のハイライトは画面が持つ `selectedItemId` が駆動しているため、
+   * 併せて更新する。行の識別子は編集状態と同じノードキーで、
+   * `EstimateItemHierarchyEdit.id` と一致する（`useEstimateEditor.toViewTree`）。
+   * 選択の所有者を表示状態フックへ一本化するのは 54.10 の範囲。
+   */
+  const { revealAndSelect: revealAndSelectItem } = navigation;
+  const handleHierarchySelect = useCallback(
+    (key: NodeKey): void => {
+      revealAndSelectItem(key);
+      setSelectedItemId(key);
+      setRowRevealRequest((previous) => ({
+        key,
+        requestId: previous === null ? 1 : previous.requestId + 1,
+      }));
+    },
+    [revealAndSelectItem]
   );
 
   // ==========================================================================
@@ -1450,6 +1531,22 @@ export default function EstimateDetailPage() {
               </button>
             </div>
           )}
+          {/*
+            階層構造パネルの表示/非表示（46.7）
+
+            非表示のときに再表示する入口が要るため、切替はパネルの外側に置く。
+          */}
+          <div style={styles.hierarchyPanelToggleRow}>
+            <button
+              type="button"
+              data-testid="toggle-hierarchy-panel"
+              aria-pressed={isHierarchyPanelVisible}
+              onClick={() => setIsHierarchyPanelVisible((visible) => !visible)}
+              style={styles.hierarchyPanelToggleButton}
+            >
+              {isHierarchyPanelVisible ? '階層パネルを隠す' : '階層パネルを表示'}
+            </button>
+          </div>
           <EstimateItemToolbar
             selectedItemId={selectedItemId}
             selectedItem={selectedItem}
@@ -1476,20 +1573,42 @@ export default function EstimateDetailPage() {
             viewMode={navigation.viewMode}
             onViewModeChange={handleViewModeChange}
           />
-          <EstimateItemTable
-            items={editor.items}
-            draggable={true}
-            onLineChange={editor.updateLine}
-            collapsedKeys={navigation.collapsedKeys}
-            onToggleCollapsed={navigation.toggleCollapsed}
-            viewMode={navigation.viewMode}
-            currentLevelKey={navigation.currentLevelKey}
-            onCurrentLevelChange={navigation.setCurrentLevelKey}
-            onDrop={editor.reorderItems}
-            selectedItemId={selectedItemId}
-            onItemSelect={setSelectedItemId}
-            visibleLineTypes={visibleLineTypes}
-          />
+          {/*
+            階層構造の俯瞰パネル（46.1〜46.6）と明細を横に並べる。
+
+            パネルの折りたたみ状態は明細テーブルと同じ `navigation.collapsedKeys`
+            を共有するため、両者の展開状態が食い違わない。
+          */}
+          <div style={styles.itemsLayout}>
+            {isHierarchyPanelVisible && (
+              <EstimateHierarchyPanel
+                items={editor.editState.items}
+                collapsedKeys={navigation.collapsedKeys}
+                selectedKey={selectedItemId}
+                onToggleCollapsed={navigation.toggleCollapsed}
+                onExpandAll={navigation.expandAll}
+                onCollapseAll={navigation.collapseAll}
+                onSelect={handleHierarchySelect}
+              />
+            )}
+            <div style={styles.itemsTableArea}>
+              <EstimateItemTable
+                items={editor.items}
+                draggable={true}
+                onLineChange={editor.updateLine}
+                collapsedKeys={navigation.collapsedKeys}
+                onToggleCollapsed={navigation.toggleCollapsed}
+                viewMode={navigation.viewMode}
+                currentLevelKey={navigation.currentLevelKey}
+                onCurrentLevelChange={navigation.setCurrentLevelKey}
+                onDrop={editor.reorderItems}
+                selectedItemId={selectedItemId}
+                revealRequest={rowRevealRequest}
+                onItemSelect={setSelectedItemId}
+                visibleLineTypes={visibleLineTypes}
+              />
+            </div>
+          </div>
         </div>
       </div>
 

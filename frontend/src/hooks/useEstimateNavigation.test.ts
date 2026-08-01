@@ -190,6 +190,178 @@ describe('useEstimateNavigation', () => {
   });
 
   // ==========================================================================
+  // 一括の展開・折りたたみ（46.4）と俯瞰パネルからの移動（46.5）
+  //
+  // 俯瞰パネル（Task 54.5）は折りたたみ状態を自前で持たず、本フックの
+  // `collapsedKeys` を明細テーブルと共有する。「すべて展開・すべて折りたたむ」も
+  // パネル側で集合を組み立てず、ここに置いた基本操作を通す。
+  // ==========================================================================
+
+  describe('一括の展開・折りたたみと俯瞰パネルからの移動', () => {
+    /**
+     * 表示順（先行順）は item-a, item-a1, item-a1x, item-a2, item-b, item-c
+     *
+     * item-a1 が子（item-a1x）を持つため、祖先が2段の折りたたみを検証できる。
+     */
+    const createDeepTree = (): readonly EditableItem[] => [
+      createItem('item-a', 'A', [
+        createItem('item-a1', 'A1', [createItem('item-a1x', 'A1X')]),
+        createItem('item-a2', 'A2'),
+      ]),
+      createItem('item-b', 'B'),
+      createItem('item-c', 'C'),
+    ];
+
+    /** @requirement estimate-creation/REQ-46.4 */
+    it('すべて折りたたむと子を持つ項目がすべて折りたたまれ、子孫が表示対象から外れる', () => {
+      const { result } = renderHook(() => useEstimateNavigation({ items: createDeepTree() }));
+
+      act(() => {
+        result.current.collapseAll();
+      });
+
+      expect([...result.current.collapsedKeys].sort()).toEqual(['item-a', 'item-a1']);
+      expect(result.current.visibleKeys).toEqual(['item-a', 'item-b', 'item-c']);
+    });
+
+    /** @requirement estimate-creation/REQ-46.4 */
+    it('すべて折りたたむは子を持たない項目を折りたたみ対象にしない', () => {
+      const { result } = renderHook(() => useEstimateNavigation({ items: createDeepTree() }));
+
+      act(() => {
+        result.current.collapseAll();
+      });
+
+      // 子を持つ項目は折りたたまれ、葉は対象外（no-op では前半が満たされない）
+      expect(result.current.isCollapsed('item-a')).toBe(true);
+      expect(result.current.isCollapsed('item-a1')).toBe(true);
+      expect(result.current.isCollapsed('item-b')).toBe(false);
+      expect(result.current.isCollapsed('item-a1x')).toBe(false);
+    });
+
+    /** @requirement estimate-creation/REQ-46.4 */
+    it('すべて展開すると折りたたみが解除され全階層が表示対象へ戻る', () => {
+      const { result } = renderHook(() => useEstimateNavigation({ items: createDeepTree() }));
+
+      act(() => {
+        result.current.collapseAll();
+      });
+      // 展開の前に確かに折りたたまれていること（両方 no-op でも通る形にしない）
+      expect(result.current.visibleKeys).toEqual(['item-a', 'item-b', 'item-c']);
+
+      act(() => {
+        result.current.expandAll();
+      });
+
+      expect(result.current.collapsedKeys.size).toBe(0);
+      expect(result.current.visibleKeys).toEqual([
+        'item-a',
+        'item-a1',
+        'item-a1x',
+        'item-a2',
+        'item-b',
+        'item-c',
+      ]);
+    });
+
+    /** @requirement estimate-creation/REQ-46.5 */
+    it('ツリー表示では折りたたまれた祖先を展開して対象項目を表示対象に含め選択する', () => {
+      const { result } = renderHook(() => useEstimateNavigation({ items: createDeepTree() }));
+
+      act(() => {
+        result.current.collapseAll();
+      });
+      expect(result.current.visibleKeys).not.toContain('item-a1x');
+
+      act(() => {
+        result.current.revealAndSelect('item-a1x');
+      });
+
+      expect(result.current.visibleKeys).toContain('item-a1x');
+      expect(result.current.selectedKeys).toEqual(['item-a1x']);
+      expect(result.current.isSelected('item-a1x')).toBe(true);
+    });
+
+    /** @requirement estimate-creation/REQ-46.5 */
+    it('ツリー表示では対象項目より下位の折りたたみは解除しない', () => {
+      const { result } = renderHook(() => useEstimateNavigation({ items: createDeepTree() }));
+
+      act(() => {
+        result.current.collapseAll();
+      });
+
+      act(() => {
+        result.current.revealAndSelect('item-a1');
+      });
+
+      // 祖先（item-a）だけが展開され、対象自身の折りたたみは保たれる
+      expect(result.current.isCollapsed('item-a')).toBe(false);
+      expect(result.current.isCollapsed('item-a1')).toBe(true);
+      expect(result.current.visibleKeys).toEqual([
+        'item-a',
+        'item-a1',
+        'item-a2',
+        'item-b',
+        'item-c',
+      ]);
+    });
+
+    /** @requirement estimate-creation/REQ-46.5 */
+    it('ドリルダウン表示では対象項目が属する階層へ現在階層を移し選択する', () => {
+      const { result } = renderHook(() =>
+        useEstimateNavigation({ items: createDeepTree(), initialViewMode: 'drilldown' })
+      );
+
+      expect(result.current.visibleKeys).toEqual(['item-a', 'item-b', 'item-c']);
+
+      act(() => {
+        result.current.revealAndSelect('item-a1x');
+      });
+
+      // item-a1x は item-a1 の子。現在階層は item-a1 へ移り、対象が一覧に現れる
+      expect(result.current.currentLevelKey).toBe('item-a1');
+      expect(result.current.visibleKeys).toContain('item-a1x');
+      expect(result.current.selectedKeys).toEqual(['item-a1x']);
+    });
+
+    /** @requirement estimate-creation/REQ-46.5 */
+    it('ドリルダウン表示でルート直下の項目を指定した場合は現在階層をルートへ戻す', () => {
+      const { result } = renderHook(() =>
+        useEstimateNavigation({ items: createDeepTree(), initialViewMode: 'drilldown' })
+      );
+
+      act(() => {
+        result.current.setCurrentLevelKey('item-a1');
+      });
+
+      act(() => {
+        result.current.revealAndSelect('item-b');
+      });
+
+      expect(result.current.currentLevelKey).toBeNull();
+      expect(result.current.selectedKeys).toEqual(['item-b']);
+    });
+
+    /** @requirement estimate-creation/REQ-46.5 */
+    it('ツリーに存在しないキーを指定しても表示状態を変更しない', () => {
+      const { result } = renderHook(() => useEstimateNavigation({ items: createDeepTree() }));
+
+      act(() => {
+        result.current.collapseAll();
+      });
+      const before = result.current.collapsedKeys;
+      expect(before.size).toBeGreaterThan(0);
+
+      act(() => {
+        result.current.revealAndSelect('item-unknown');
+      });
+
+      expect(result.current.collapsedKeys).toBe(before);
+      expect(result.current.selectedKeys).toEqual([]);
+    });
+  });
+
+  // ==========================================================================
   // 選択範囲（44.1, 44.2, 44.8）
   // ==========================================================================
 

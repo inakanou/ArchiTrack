@@ -30,10 +30,13 @@
  * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
  * - REQ-45.3, 45.4, 45.5: ツリー表示の一覧・展開/折りたたみ・子孫の非表示
  * - REQ-45.6, 45.7, 45.8, 45.9: ドリルダウン表示の現在階層一覧・経路表示・階層移動
+ * - REQ-46.5: 階層構造パネルで項目を選択した場合、明細の表示を当該項目へ移動する
+ *   （スクロール領域を所有するのが本コンポーネントのため、移動もここが担う）
  *
  * @module components/estimate/EstimateItemTable
  */
 
+import { useEffect, useRef } from 'react';
 import { EstimateItemTreeView } from './EstimateItemTreeView';
 import type { EstimateLineChangeHandler, EstimateVisibleLineTypes } from './EstimateItemTreeView';
 import { EstimateItemDrilldownView } from './EstimateItemDrilldownView';
@@ -44,6 +47,19 @@ import type { EstimateViewMode } from '../../hooks/useEstimateNavigation';
 // ============================================================================
 // 型定義
 // ============================================================================
+
+/**
+ * 明細の表示を特定の項目まで移動する要求（46.5）
+ *
+ * 「どの項目へ移動するか」だけでなく「何度目の要求か」を持つ。同じ項目を選び直した
+ * 場合も利用者にとっては移動要求であり、キーだけを渡す形では2回目以降が無反応になる。
+ */
+export interface EstimateRowRevealRequest {
+  /** 表示を移動する対象の項目キー（明細行の識別子と同一） */
+  key: NodeKey;
+  /** 移動要求の連番。同じキーでも値が変われば移動をやり直す */
+  requestId: number;
+}
 
 /**
  * EstimateItemTableコンポーネントのProps
@@ -76,6 +92,15 @@ export interface EstimateItemTableProps {
   onToggleCollapsed?: (key: NodeKey) => void;
   /** 選択中の項目ID */
   selectedItemId?: string | null;
+  /**
+   * 明細の表示を当該項目まで移動する要求（46.5）
+   *
+   * 階層構造パネル（`EstimateHierarchyPanel`）で項目が選ばれたときに画面から渡る。
+   * 選択状態（`selectedItemId`）と分ける理由は、選択は「どれが選ばれているか」という
+   * 継続する状態であるのに対し、移動は「いま動かせ」という一度きりの要求だから。
+   * `null` / 未指定は移動要求なし。
+   */
+  revealRequest?: EstimateRowRevealRequest | null;
   /** ドラッグ可能かどうか */
   draggable?: boolean;
   /** 項目選択コールバック */
@@ -203,11 +228,41 @@ export function EstimateItemTable({
   collapsedKeys,
   onToggleCollapsed,
   selectedItemId,
+  revealRequest = null,
   draggable = false,
   onItemSelect,
   onLineChange,
   visibleLineTypes,
 }: EstimateItemTableProps) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // 明細の表示を対象項目まで移動する（46.5）
+  //
+  // 折りたたまれた祖先の展開や現在階層の移動（`useEstimateNavigation.revealAndSelect`）は
+  // 「対象が一覧に**含まれる**」までしか保証しない。行数の多い見積書では対象がスクロール領域の
+  // 外にあるままなので、要求のたびにスクロール位置そのものを動かす。
+  //
+  // 対象行は展開・階層移動と同じコミットで描画済みのため、この副作用の時点で存在する。
+  const revealKey = revealRequest === null ? null : revealRequest.key;
+  const revealRequestId = revealRequest === null ? null : revealRequest.requestId;
+  useEffect(() => {
+    if (revealKey === null) {
+      return;
+    }
+    const body = bodyRef.current;
+    if (body === null) {
+      return;
+    }
+    // 属性セレクタのエスケープを持ち込まないため、走査して照合する
+    const targetTestId = `estimate-item-${revealKey}`;
+    for (const row of body.querySelectorAll<HTMLElement>('[data-testid]')) {
+      if (row.dataset.testid === targetTestId) {
+        row.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+    }
+  }, [revealKey, revealRequestId]);
+
   return (
     <div style={styles.table} aria-label="見積項目テーブル">
       {/* ヘッダー行 */}
@@ -225,8 +280,8 @@ export function EstimateItemTable({
         </div>
       </div>
 
-      {/* ボディ */}
-      <div style={styles.body}>
+      {/* ボディ（明細のスクロール領域。46.5 の「移動」はこの中で起こる） */}
+      <div style={styles.body} ref={bodyRef}>
         {items.length === 0 ? (
           <div style={styles.emptyState}>
             <EmptyIcon />

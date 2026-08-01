@@ -71,6 +71,11 @@ vi.mock('../hooks/useEstimateEditor', async (importOriginal) => {
 let capturedToolbarProps: Record<string, unknown> = {};
 let capturedTableProps: Record<string, unknown> = {};
 vi.mock('../components/estimate', () => ({
+  // 階層構造の俯瞰パネル（46.1〜46.6 / Task 54.5）。
+  // 本ファイルは props の受け渡しだけを見る構成のため置き換えるが、実際の
+  // 一気通貫（パネル操作 → 明細の追従）は `EstimateDetailPage.hierarchyPanel.test.tsx`
+  // が実物のコンポーネントで固定している。
+  EstimateHierarchyPanel: () => <div data-testid="mock-hierarchy-panel" />,
   EstimateItemTable: (props: Record<string, unknown>) => {
     capturedTableProps = props;
     return (

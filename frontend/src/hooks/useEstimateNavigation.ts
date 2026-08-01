@@ -23,6 +23,9 @@
  * - 45.5: 折りたたんだ項目の子孫を表示対象から外す
  * - 45.6: ドリルダウン表示では現在の階層に属する項目のみを表示対象とする
  * - 45.10: 表示状態の変更は編集状態に触れず、未保存の編集内容を保持する
+ * - 46.3: 階層構造パネルの展開/折りたたみも本フックの折りたたみ状態を共有する
+ * - 46.4: すべて展開・すべて折りたたむ（`expandAll` / `collapseAll`）
+ * - 46.5: 俯瞰パネルで選ばれた項目を表示対象に含めて選択する（`revealAndSelect`）
  *
  * Design: design.md `#### 階層表示モードの状態遷移（45.1〜45.11）`,
  * `**表示状態**: 階層表示モード・現在階層・選択範囲・展開状態・カーソル位置。
@@ -41,7 +44,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { childrenOf, flattenForGrid, nodeKeyOf } from '../domain/estimate/estimateTree';
+import { childrenOf, flattenForGrid, nodeKeyOf, pathTo } from '../domain/estimate/estimateTree';
 import type {
   EditableItem,
   EditableLineField,
@@ -122,6 +125,12 @@ export interface UseEstimateNavigationResult extends EstimateNavigationState {
   setCurrentLevelKey: (key: NodeKey | null) => void;
   /** 展開／折りたたみを切り替える（45.4, 45.5） */
   toggleCollapsed: (key: NodeKey) => void;
+  /** すべての項目を展開する（46.4） */
+  expandAll: () => void;
+  /** 子を持つすべての項目を折りたたむ（46.4） */
+  collapseAll: () => void;
+  /** 対象項目を表示対象に含めたうえで選択する（46.5） */
+  revealAndSelect: (key: NodeKey) => void;
   /** 単一の行を選択する（範囲選択中の場合は1行へ縮める / 44.2） */
   selectSingle: (key: NodeKey) => void;
   /** 選択範囲を指定行まで広げる（44.1） */
@@ -285,6 +294,77 @@ export function useEstimateNavigation(
     setSelectionRange(null);
   }, []);
 
+  /**
+   * すべての項目を展開する（46.4）
+   *
+   * 折りたたみ集合を空へ戻すだけで、対象の列挙は要らない。
+   * 既定と同じ共有インスタンスへ戻すことで `flattenForGrid` の
+   * 集合同一性キャッシュが効き続ける。
+   */
+  const expandAll = useCallback((): void => {
+    setCollapsedKeys((previous) => (previous.size === 0 ? previous : NO_COLLAPSED_KEYS));
+  }, []);
+
+  /**
+   * 子を持つすべての項目を折りたたむ（46.4）
+   *
+   * 折りたたみ対象は「子を持つ項目」に限る。葉を集合へ入れても表示は変わらないが、
+   * 「すべて展開」の判定や俯瞰パネルの `aria-expanded` が葉にも付いてしまう。
+   * 走査は `flattenForGrid`（＝表示順の唯一の導出元）を折りたたみなしで呼び、
+   * 独自のツリー走査を持ち込まない。
+   */
+  const collapseAll = useCallback((): void => {
+    const next = new Set<NodeKey>();
+    for (const row of flattenForGrid(items, NO_COLLAPSED_KEYS)) {
+      if (row.hasChildren) {
+        next.add(row.key);
+      }
+    }
+    setCollapsedKeys(next);
+  }, [items]);
+
+  /**
+   * 対象項目を表示対象に含めたうえで選択する（46.5）
+   *
+   * 「明細の表示を当該項目へ移動する」の意味は階層表示モードで異なり、
+   * どちらも「対象項目が一覧に現れる状態にする」ことへ帰着する。
+   * - ツリー表示: 折りたたまれた**祖先**を展開する（45.5 の裏返し）。
+   *   対象自身の折りたたみは保つ（対象は展開状態に関わらず一覧へ現れる）
+   * - ドリルダウン表示: 現在階層を対象の**親**へ移す。ドリルダウン表示は
+   *   現在の階層に属する項目のみを一覧するため（45.6）、対象が一覧に現れる
+   *   階層は対象の親であって対象自身ではない
+   *
+   * ツリーに存在しないキーは表示状態を一切変更しない。
+   */
+  const revealAndSelect = useCallback(
+    (key: NodeKey): void => {
+      const path = pathTo(items, key);
+      if (path.length === 0) {
+        return;
+      }
+
+      if (viewMode === 'drilldown') {
+        const parent = path[path.length - 2];
+        setCurrentLevelKey(parent === undefined ? null : nodeKeyOf(parent));
+      } else {
+        const ancestorKeys = path.slice(0, -1).map(nodeKeyOf);
+        setCollapsedKeys((previous) => {
+          if (!ancestorKeys.some((ancestorKey) => previous.has(ancestorKey))) {
+            return previous;
+          }
+          const next = new Set(previous);
+          for (const ancestorKey of ancestorKeys) {
+            next.delete(ancestorKey);
+          }
+          return next;
+        });
+      }
+
+      selectSingle(key);
+    },
+    [items, viewMode, selectSingle]
+  );
+
   return {
     viewMode,
     currentLevelKey,
@@ -298,6 +378,9 @@ export function useEstimateNavigation(
     setViewMode,
     setCurrentLevelKey,
     toggleCollapsed,
+    expandAll,
+    collapseAll,
+    revealAndSelect,
     selectSingle,
     extendSelectionTo,
     clearSelection,
