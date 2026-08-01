@@ -43,6 +43,9 @@ const meta = {
     onReorderDown: fn(),
     canReorderUp: false,
     canReorderDown: false,
+    // 階層表示モードの切替（45.1, 45.2）
+    viewMode: 'tree',
+    onViewModeChange: fn(),
   },
 } satisfies Meta<typeof EstimateItemToolbar>;
 
@@ -104,5 +107,18 @@ export const RootWithPreviousSibling: Story = {
     selectedItemId: 'item-1',
     selectedItem: createSelectedItem(null),
     hasPreviousSibling: true,
+  },
+};
+
+/**
+ * ドリルダウン表示を選択中（45.1）
+ * 階層表示モードの切替はいずれのボタンも項目の選択状態に依存せず常に操作できる
+ */
+export const DrilldownViewMode: Story = {
+  args: {
+    selectedItemId: null,
+    selectedItem: null,
+    hasPreviousSibling: false,
+    viewMode: 'drilldown',
   },
 };

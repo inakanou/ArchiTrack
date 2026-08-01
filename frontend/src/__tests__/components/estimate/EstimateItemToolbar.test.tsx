@@ -23,10 +23,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EstimateItemToolbar } from '../../../components/estimate/EstimateItemToolbar';
 import type { EstimateItemHierarchyEdit } from '../../../hooks/useEstimateEditor';
+import type { EstimateViewMode } from '../../../hooks/useEstimateNavigation';
 
 // ============================================================================
 // テストデータ
@@ -104,6 +105,9 @@ describe('EstimateItemToolbar', () => {
     onAddNoteItem: vi.fn(),
     canReorderUp: false,
     canReorderDown: false,
+    // 階層表示モードの切替（45.1, 45.2 / Task 54.4）
+    viewMode: 'tree' as EstimateViewMode,
+    onViewModeChange: vi.fn(),
   };
 
   beforeEach(() => {
@@ -520,6 +524,93 @@ describe('EstimateItemToolbar', () => {
 
       expect(defaultProps.onDuplicateItem).toHaveBeenCalledWith('note-1');
       expect(defaultProps.onDeleteItem).toHaveBeenCalledWith('note-1');
+    });
+  });
+
+  // ==========================================================================
+  // 階層表示モードの切替（Task 54.4 / 45.1, 45.2）
+  //
+  // design.md `#### File Structure Plan`:
+  // `EstimateItemToolbar.tsx  # 改修: 範囲選択・モード切替・取り消しを追加`
+  // に従い、切替操作はツールバー上に置く（範囲選択・取り消しの統合は 54.10 / 54.8）。
+  // モードの所有者は `useEstimateNavigation` であり、本コンポーネントは
+  // 表示中のモードを受け取って通知するだけで自前の state を持たない。
+  // ==========================================================================
+  describe('階層表示モードの切替 (45.1, 45.2)', () => {
+    it('ツリー表示とドリルダウン表示の2つの選択肢を提供すること (45.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      const group = screen.getByRole('radiogroup', { name: '階層表示モード' });
+      expect(group).toBeInTheDocument();
+      expect(within(group).getByRole('radio', { name: 'ツリー表示' })).toBeInTheDocument();
+      expect(within(group).getByRole('radio', { name: 'ドリルダウン表示' })).toBeInTheDocument();
+    });
+
+    it('ツリー表示のときはツリー表示が選択済みとして示されること (45.2)', () => {
+      render(<EstimateItemToolbar {...defaultProps} viewMode="tree" />);
+
+      expect(screen.getByRole('radio', { name: 'ツリー表示' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+      expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toHaveAttribute(
+        'aria-checked',
+        'false'
+      );
+    });
+
+    it('ドリルダウン表示のときはドリルダウン表示が選択済みとして示されること (45.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} viewMode="drilldown" />);
+
+      expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+      expect(screen.getByRole('radio', { name: 'ツリー表示' })).toHaveAttribute(
+        'aria-checked',
+        'false'
+      );
+    });
+
+    it('ドリルダウン表示を選ぶと切替が通知されること (45.1)', async () => {
+      const user = userEvent.setup();
+      const onViewModeChange = vi.fn();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          viewMode="tree"
+          onViewModeChange={onViewModeChange}
+        />
+      );
+
+      await user.click(screen.getByRole('radio', { name: 'ドリルダウン表示' }));
+
+      expect(onViewModeChange).toHaveBeenCalledTimes(1);
+      expect(onViewModeChange).toHaveBeenCalledWith('drilldown');
+    });
+
+    it('ツリー表示を選ぶと切替が通知されること (45.1)', async () => {
+      const user = userEvent.setup();
+      const onViewModeChange = vi.fn();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          viewMode="drilldown"
+          onViewModeChange={onViewModeChange}
+        />
+      );
+
+      await user.click(screen.getByRole('radio', { name: 'ツリー表示' }));
+
+      expect(onViewModeChange).toHaveBeenCalledTimes(1);
+      expect(onViewModeChange).toHaveBeenCalledWith('tree');
+    });
+
+    it('モード切替は項目の選択状態に関わらず操作できること (45.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} selectedItemId={null} selectedItem={null} />);
+
+      expect(screen.getByRole('radio', { name: 'ツリー表示' })).toBeEnabled();
+      expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toBeEnabled();
     });
   });
 });

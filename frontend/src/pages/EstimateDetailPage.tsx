@@ -56,6 +56,8 @@ import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
 import { useEstimateNavigation } from '../hooks/useEstimateNavigation';
+import type { EstimateViewMode } from '../hooks/useEstimateNavigation';
+import { useEstimateViewModePreference } from '../hooks/useEstimateViewModePreference';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import type {
   EstimateEditorSavePayload,
@@ -721,11 +723,43 @@ export default function EstimateDetailPage() {
     onSaveError: handleSaveError,
   });
 
+  // 階層表示モードの端末単位の引き継ぎ（45.11 / 54.4）
+  //
+  // 初期モードはマウント時に一度だけ読み出し、表示状態フックへ注入する。
+  // 保存値が無い・壊れている場合は既定のツリー表示へ縮退する（45.2）。
+  const viewModePreference = useEstimateViewModePreference();
+
   // 表示状態（階層表示モード・折りたたみ・選択範囲・カーソル）の単一の所有者（54.1）
   //
   // 編集状態とは独立した state のため、折りたたみ操作は未保存の編集内容へ影響しない
   // （45.10）。読み取り元は reducer の明細ツリーで、本フックはこれを書き換えない。
-  const navigation = useEstimateNavigation({ items: editor.editState.items });
+  const navigation = useEstimateNavigation({
+    items: editor.editState.items,
+    initialViewMode: viewModePreference.initialViewMode,
+  });
+
+  /**
+   * 階層表示モードの切替（45.1, 45.10, 45.11）
+   *
+   * 表示状態のみを更新し、編集状態（保存対象）には触れないため未保存の編集内容は
+   * 切替をまたいで保持される（45.10）。あわせて選択を端末へ保存し、次回の画面表示へ
+   * 引き継ぐ（45.11）。
+   *
+   * 現在階層はルートへ戻す。design.md `#### 階層表示モードの状態遷移（45.1〜45.11）`
+   * の状態遷移図でドリルダウン表示の入口が `[*] --> ルート階層` と定義されており、
+   * モード切替でドリルダウン表示へ入るときはルート階層から始まる。
+   */
+  const { setViewMode: setNavigationViewMode, setCurrentLevelKey: setNavigationLevelKey } =
+    navigation;
+  const { persist: persistViewMode } = viewModePreference;
+  const handleViewModeChange = useCallback(
+    (mode: EstimateViewMode): void => {
+      setNavigationViewMode(mode);
+      setNavigationLevelKey(null);
+      persistViewMode(mode);
+    },
+    [setNavigationViewMode, setNavigationLevelKey, persistViewMode]
+  );
 
   // ==========================================================================
   // 未保存の変更がある状態での離脱ガード（27.6）
@@ -1439,6 +1473,8 @@ export default function EstimateDetailPage() {
             onReorderDown={(itemId) => handleReorder(itemId, 'down')}
             canReorderUp={reorderSiblingInfo.canReorderUp}
             canReorderDown={reorderSiblingInfo.canReorderDown}
+            viewMode={navigation.viewMode}
+            onViewModeChange={handleViewModeChange}
           />
           <EstimateItemTable
             items={editor.items}

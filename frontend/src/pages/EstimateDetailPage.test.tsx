@@ -14,7 +14,7 @@
  * - REQ-34.4: 保存処理における全変更タイプの正しい処理
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -25,6 +25,7 @@ import type {
   EstimateItemHierarchyEdit,
   UseEstimateEditorOptions,
 } from '../hooks/useEstimateEditor';
+import { ESTIMATE_VIEW_MODE_STORAGE_KEY } from '../hooks/useEstimateViewModePreference';
 
 // モック
 vi.mock('../api/estimates');
@@ -3648,6 +3649,201 @@ describe('EstimateDetailPage', () => {
 
       expect(capturedTableProps.items).toBe(before);
       expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    });
+  });
+
+  // =========================================================================
+  // 階層表示モードの切替と引き継ぎ（Task 54.4）
+  // =========================================================================
+
+  /**
+   * 画面がツールバーの切替通知を表示状態フックへ渡し、その結果を表へ届けている
+   * ことを**往復**で検証する。
+   *
+   * 54.3 の時点では切替UIが無く、`viewMode` はフックの既定値を渡すだけだったため
+   * `viewMode="tree"` のリテラル直書きへ変異させてもテストが緑のままだった。
+   * 切替UIが入る本タスクでは「切替を通知する → 表へ届く `viewMode` が変わる」で
+   * 結線を固定し、53.14 の死んだ `onDragStart` / `onDrop` と同型の
+   * 沈黙する失敗を防ぐ。実物のコンポーネントを描画した経路は
+   * `EstimateDetailPage.viewMode.test.tsx` が担う。
+   *
+   * Requirements (estimate-creation):
+   * - 45.1: ツリー表示とドリルダウン表示を提供する
+   * - 45.2: 既定はツリー表示
+   * - 45.10: モード切替で未保存の編集内容を保持する
+   * - 45.11: 選択したモードを次回の画面表示時に引き継ぐ
+   */
+  describe('階層表示モードの切替と引き継ぎ (45.1, 45.2, 45.10, 45.11)', () => {
+    const savePayload = (): estimatesApi.SaveEstimateDraftRequest =>
+      vi.mocked(estimatesApi.saveEstimateDraft).mock.calls[0]![1];
+
+    const changeViewMode = async (mode: string): Promise<void> => {
+      const handler = capturedToolbarProps.onViewModeChange;
+      // 画面が渡し忘れていれば関数ではない（この時点で失敗させる）
+      expect(typeof handler).toBe('function');
+      await act(async () => {
+        (handler as (mode: string) => void)(mode);
+      });
+    };
+
+    const editEstimateName = async (value: string): Promise<void> => {
+      await act(async () => {
+        (
+          capturedTableProps.onLineChange as (
+            itemId: string,
+            lineId: string,
+            field: string,
+            value: string
+          ) => void
+        )('item-001', 'line-001', 'name', value);
+      });
+    };
+
+    beforeEach(() => {
+      editorMode.useReal = true;
+      window.localStorage.clear();
+    });
+
+    afterEach(() => {
+      // 端末単位の保存値が他のテストの初期表示モードへ漏れないようにする
+      window.localStorage.clear();
+    });
+
+    it('ツールバーの切替通知が表の表示モードへ往復すること (45.1)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+
+      // 既定はツリー表示（45.2）。ツールバーにも同じモードが届く
+      expect(capturedTableProps.viewMode).toBe('tree');
+      expect(capturedToolbarProps.viewMode).toBe('tree');
+
+      await changeViewMode('drilldown');
+      expect(capturedTableProps.viewMode).toBe('drilldown');
+      expect(capturedToolbarProps.viewMode).toBe('drilldown');
+
+      await changeViewMode('tree');
+      expect(capturedTableProps.viewMode).toBe('tree');
+      expect(capturedToolbarProps.viewMode).toBe('tree');
+    });
+
+    /**
+     * design.md の状態遷移図はドリルダウン表示の入口を `[*] --> ルート階層` と
+     * 定義している。モード切替でドリルダウン表示へ入る場合もルート階層から始める。
+     */
+    it('モード切替でドリルダウン表示へ入るとルート階層から始まること (45.1)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+
+      await changeViewMode('drilldown');
+      await act(async () => {
+        (capturedTableProps.onCurrentLevelChange as (key: string | null) => void)('item-001');
+      });
+      expect(capturedTableProps.currentLevelKey).toBe('item-001');
+
+      // ツリー表示へ戻し、再びドリルダウン表示にするとルート階層
+      await changeViewMode('tree');
+      await changeViewMode('drilldown');
+
+      expect(capturedTableProps.currentLevelKey).toBeNull();
+    });
+
+    it('モード切替が編集状態（保存対象のツリー）を変えないこと (45.10)', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+      const before = capturedTableProps.items as EstimateItemHierarchyEdit[];
+
+      await changeViewMode('drilldown');
+
+      expect(capturedTableProps.items).toBe(before);
+      expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    });
+
+    it('モードを切り替えても未保存の編集内容が保持され、保存ペイロードに表示状態が入らないこと (45.10)', async () => {
+      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue({
+        ...mockEstimateDetail,
+        project: { id: 'proj-001', name: 'テストプロジェクト' },
+        itemCount: 1,
+        reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+        items: mockEstimateDetail.items,
+      } as unknown as estimatesApi.SaveEstimateDraftResponse);
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+
+      await editEstimateName('切替前の編集');
+      await changeViewMode('drilldown');
+      await changeViewMode('tree');
+
+      // 未保存の編集内容が切替をまたいで残っている
+      const items = capturedTableProps.items as EstimateItemHierarchyEdit[];
+      expect(items[0]!.lines.find((line) => line.id === 'line-001')!.name).toBe('切替前の編集');
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
+      });
+
+      // 保存ペイロードは編集内容のみで、表示状態のキーを一切含まない
+      const payload = savePayload();
+      expect(Object.keys(payload).sort()).toEqual(['expectedUpdatedAt', 'items', 'reportFields']);
+      expect(payload).not.toHaveProperty('viewMode');
+      expect(payload).not.toHaveProperty('currentLevelKey');
+      expect(payload).not.toHaveProperty('collapsedKeys');
+      expect(payload.items[0]!.lines.find((line) => line.lineType === 'ESTIMATE')!.name).toBe(
+        '切替前の編集'
+      );
+      expect(Object.keys(payload.items[0]!).sort()).toEqual([
+        'children',
+        'id',
+        'itemType',
+        'lines',
+        'tempId',
+      ]);
+    });
+
+    it('切り替えたモードを端末に保持し、次回の画面表示で引き継ぐこと (45.11)', async () => {
+      const first = renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+      await changeViewMode('drilldown');
+      first.unmount();
+
+      capturedTableProps = {};
+      capturedToolbarProps = {};
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+      expect(capturedTableProps.viewMode).toBe('drilldown');
+      expect(capturedToolbarProps.viewMode).toBe('drilldown');
+    });
+
+    it('壊れた保存値が残っていても既定のツリー表示で開くこと (45.2)', async () => {
+      window.localStorage.setItem(ESTIMATE_VIEW_MODE_STORAGE_KEY, '{壊れた値');
+
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+      expect(capturedTableProps.viewMode).toBe('tree');
+      expect(capturedToolbarProps.viewMode).toBe('tree');
     });
   });
 });
