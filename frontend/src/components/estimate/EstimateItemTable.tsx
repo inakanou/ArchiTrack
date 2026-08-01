@@ -2,9 +2,19 @@
  * @fileoverview EstimateItemTableコンポーネント - 見積項目テーブル
  *
  * Task 9.1: EstimateItemTableコンポーネントの実装
+ * Task 54.2: 階層表示モード別のサブコンポーネントへ分離し、ツリー表示を接続
  *
- * 見積項目を階層ツリー形式で表示するテーブルコンポーネントです。
- * 展開/折りたたみ、項目選択、ドラッグ&ドロップ、自動金額計算表示などの機能を提供します。
+ * 見積項目の明細テーブルの**外枠**（ヘッダー行・スクロール領域・空状態）と、
+ * 階層表示モードごとの描画の振り分けを担います。行の描画はモード別の
+ * サブコンポーネントが持ちます。
+ *
+ * - ツリー表示（既定 / 45.2）: {@link EstimateItemTreeView}
+ * - ドリルダウン表示（45.6〜45.9）: 54.3 が兄弟コンポーネントとして追加する
+ *
+ * 折りたたみ・選択などの**表示状態は本コンポーネントも保持しません**。
+ * 単一の所有者は `useEstimateNavigation` であり、`collapsedKeys` /
+ * `onToggleCollapsed` として受け渡されます（design.md 「状態には保存対象のみを
+ * 保持する。表示状態（モード・選択・展開・カーソル）は保持しない」）。
  *
  * Requirements (estimate-creation):
  * - REQ-1.1: タイトル行に名称・規格・単位・数量・単価・金額・備考のラベルを表示する
@@ -15,22 +25,18 @@
  * - REQ-2.2: 親項目を持つ見積項目を作成した場合、その項目を親項目の子として階層表示する
  * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
  * - REQ-2.4: 複数階層のネストをサポートする
- * - REQ-2.5: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-2.6: 項目の階層レベルをインデント表示で視覚的に区別する
+ * - REQ-2.7: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
- * - 29.1: 子項目を持つ項目の単価フィールドを編集不可とする（＝金額は導出値）
- * - 55.2: 注記行を金額の集計対象から除外する（子が注記行だけの項目は葉として扱う）
+ * - REQ-45.3, 45.4, 45.5: ツリー表示の一覧・展開/折りたたみ・子孫の非表示
  *
  * @module components/estimate/EstimateItemTable
  */
 
-import { useCallback } from 'react';
-import { EstimateItemRow } from './EstimateItemRow';
-import { isAggregatableChild } from '../../domain/estimate/estimateTree';
-import type {
-  EstimateItemHierarchyEdit,
-  EstimateItemLineEdit,
-} from '../../hooks/useEstimateEditor';
+import { EstimateItemTreeView } from './EstimateItemTreeView';
+import type { EstimateLineChangeHandler, EstimateVisibleLineTypes } from './EstimateItemTreeView';
+import type { NodeKey } from '../../domain/estimate/estimateTree';
+import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 
 // ============================================================================
 // 型定義
@@ -42,27 +48,28 @@ import type {
 export interface EstimateItemTableProps {
   /** 見積項目の階層データ */
   items: EstimateItemHierarchyEdit[];
+  /**
+   * 折りたたみ中の項目キー（45.5）
+   *
+   * 所有者は `useEstimateNavigation`。未指定は「折りたたみなし」。
+   */
+  collapsedKeys?: ReadonlySet<NodeKey>;
+  /** 展開/折りたたみの切り替え要求（45.4） */
+  onToggleCollapsed?: (key: NodeKey) => void;
   /** 選択中の項目ID */
   selectedItemId?: string | null;
   /** ドラッグ可能かどうか */
   draggable?: boolean;
   /** 項目選択コールバック */
   onItemSelect?: (itemId: string) => void;
-  /** 展開/折りたたみコールバック */
-  onToggleExpand?: (itemId: string) => void;
   /** 行フィールド変更コールバック */
-  onLineChange?: (
-    itemId: string,
-    lineId: string,
-    field: keyof EstimateItemLineEdit,
-    value: string | null
-  ) => void;
+  onLineChange?: EstimateLineChangeHandler;
   /** ドラッグ開始コールバック */
   onDragStart?: (itemId: string) => void;
   /** ドロップコールバック */
   onDrop?: (sourceId: string, targetId: string) => void;
   /** 表示する行タイプのフィルター */
-  visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
+  visibleLineTypes?: EstimateVisibleLineTypes;
 }
 
 // ============================================================================
@@ -101,31 +108,6 @@ const styles = {
     maxHeight: '600px',
     overflowY: 'auto' as const,
   } as React.CSSProperties,
-  itemWrapper: {
-    position: 'relative' as const,
-    transition: 'background-color 0.2s',
-  } as React.CSSProperties,
-  itemWrapperSelected: {
-    backgroundColor: '#eff6ff',
-  },
-  expandButton: {
-    position: 'absolute' as const,
-    left: '4px',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    width: '24px',
-    height: '24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    border: 'none',
-    backgroundColor: 'transparent',
-    color: '#6b7280',
-    cursor: 'pointer',
-    borderRadius: '4px',
-    transition: 'background-color 0.2s, color 0.2s',
-    zIndex: 10,
-  } as React.CSSProperties,
   emptyState: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -146,31 +128,6 @@ const styles = {
 // ============================================================================
 // サブコンポーネント
 // ============================================================================
-
-/**
- * 展開/折りたたみアイコン
- */
-function ChevronIcon({ isExpanded }: { isExpanded: boolean }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{
-        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-        transition: 'transform 0.2s',
-      }}
-      aria-hidden="true"
-    >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
 
 /**
  * 空状態アイコン
@@ -197,126 +154,6 @@ function EmptyIcon() {
   );
 }
 
-/**
- * 階層項目レンダリングのProps
- */
-interface ItemRendererProps {
-  item: EstimateItemHierarchyEdit;
-  level: number;
-  selectedItemId?: string | null;
-  draggable?: boolean;
-  onItemSelect?: (itemId: string) => void;
-  onToggleExpand?: (itemId: string) => void;
-  onLineChange?: (
-    itemId: string,
-    lineId: string,
-    field: keyof EstimateItemLineEdit,
-    value: string | null
-  ) => void;
-  visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
-}
-
-/**
- * 階層項目レンダラー
- */
-function ItemRenderer({
-  item,
-  level,
-  selectedItemId,
-  draggable = false,
-  onItemSelect,
-  onToggleExpand,
-  onLineChange,
-  visibleLineTypes,
-}: ItemRendererProps) {
-  // 表示上の子の有無（展開トグル・インデントの判定）
-  const hasChildren = item.children.length > 0;
-  // 金額の集計対象になる子の有無（29.1 の単価編集ロックの判定）
-  //
-  // 注記行は集計対象外（55.2）で、子が注記行だけの項目は
-  // `estimateTree.recalculateAncestorAmounts` が葉として自身の金額を保持する。
-  // ここを `hasChildren` で判定すると、金額は導出されないのに単価だけ編集不可になる。
-  const hasAggregatableChildren = item.children.some(isAggregatableChild);
-  const isSelected = selectedItemId === item.id;
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      // 展開ボタンのクリックは項目選択しない
-      if ((e.target as HTMLElement).closest('[data-expand-button]')) {
-        return;
-      }
-      onItemSelect?.(item.id);
-    },
-    [item.id, onItemSelect]
-  );
-
-  const handleToggleExpand = useCallback(() => {
-    onToggleExpand?.(item.id);
-  }, [item.id, onToggleExpand]);
-
-  const wrapperStyle: React.CSSProperties = {
-    ...styles.itemWrapper,
-    ...(isSelected ? styles.itemWrapperSelected : {}),
-    paddingLeft: `${level * 16}px`,
-  };
-
-  return (
-    <>
-      <div
-        style={wrapperStyle}
-        data-testid={`estimate-item-${item.id}`}
-        data-selected={isSelected.toString()}
-        onClick={handleClick}
-        draggable={draggable}
-      >
-        {/* 展開/折りたたみボタン */}
-        {hasChildren && (
-          <button
-            type="button"
-            style={{
-              ...styles.expandButton,
-              left: `${level * 16 + 4}px`,
-            }}
-            onClick={handleToggleExpand}
-            aria-label={item.isExpanded ? '折りたたむ' : '展開する'}
-            data-expand-button
-          >
-            <ChevronIcon isExpanded={item.isExpanded} />
-          </button>
-        )}
-
-        {/* 項目行（3行1セット） */}
-        <EstimateItemRow
-          itemId={item.id}
-          lines={item.lines}
-          indentLevel={hasChildren ? 1 : 0} // 展開ボタン分のスペース
-          isSelected={isSelected}
-          onLineChange={onLineChange}
-          hasChildren={hasAggregatableChildren}
-          visibleLineTypes={visibleLineTypes}
-          itemType={item.itemType}
-        />
-      </div>
-
-      {/* 子項目（展開時のみ） */}
-      {item.isExpanded &&
-        item.children.map((child) => (
-          <ItemRenderer
-            key={child.id}
-            item={child}
-            level={level + 1}
-            selectedItemId={selectedItemId}
-            draggable={draggable}
-            onItemSelect={onItemSelect}
-            onToggleExpand={onToggleExpand}
-            onLineChange={onLineChange}
-            visibleLineTypes={visibleLineTypes}
-          />
-        ))}
-    </>
-  );
-}
-
 // ============================================================================
 // メインコンポーネント
 // ============================================================================
@@ -324,28 +161,29 @@ function ItemRenderer({
 /**
  * 見積項目テーブル
  *
- * 見積項目を階層ツリー形式で表示します。
- * 展開/折りたたみ、項目選択、インデント表示などの機能を提供します。
+ * ヘッダー行と本体の外枠を描画し、明細行の描画は階層表示モードごとの
+ * サブコンポーネントへ委譲します。
  *
  * @example
  * ```tsx
- * const { items, updateLine, toggleExpanded } = useEstimateEditor({ ... });
+ * const editor = useEstimateEditor({ ... });
+ * const navigation = useEstimateNavigation({ items: editor.editState.items });
  *
  * <EstimateItemTable
- *   items={items}
- *   selectedItemId={selectedId}
- *   onItemSelect={setSelectedId}
- *   onToggleExpand={toggleExpanded}
- *   onLineChange={updateLine}
+ *   items={editor.items}
+ *   collapsedKeys={navigation.collapsedKeys}
+ *   onToggleCollapsed={navigation.toggleCollapsed}
+ *   onLineChange={editor.updateLine}
  * />
  * ```
  */
 export function EstimateItemTable({
   items,
+  collapsedKeys,
+  onToggleCollapsed,
   selectedItemId,
   draggable = false,
   onItemSelect,
-  onToggleExpand,
   onLineChange,
   visibleLineTypes,
 }: EstimateItemTableProps) {
@@ -374,19 +212,16 @@ export function EstimateItemTable({
             <span>見積項目がありません</span>
           </div>
         ) : (
-          items.map((item) => (
-            <ItemRenderer
-              key={item.id}
-              item={item}
-              level={0}
-              selectedItemId={selectedItemId}
-              draggable={draggable}
-              onItemSelect={onItemSelect}
-              onToggleExpand={onToggleExpand}
-              onLineChange={onLineChange}
-              visibleLineTypes={visibleLineTypes}
-            />
-          ))
+          <EstimateItemTreeView
+            items={items}
+            collapsedKeys={collapsedKeys}
+            onToggleCollapsed={onToggleCollapsed}
+            selectedItemId={selectedItemId}
+            draggable={draggable}
+            onItemSelect={onItemSelect}
+            onLineChange={onLineChange}
+            visibleLineTypes={visibleLineTypes}
+          />
         )}
       </div>
     </div>

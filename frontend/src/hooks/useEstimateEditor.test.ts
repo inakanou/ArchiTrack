@@ -99,7 +99,6 @@ describe('useEstimateEditor', () => {
         },
       ],
       children: [],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     },
@@ -147,7 +146,6 @@ describe('useEstimateEditor', () => {
         },
       ],
       children: [],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     },
@@ -245,7 +243,6 @@ describe('useEstimateEditor', () => {
             },
           ],
           children: [],
-          isExpanded: true,
           createdAt: '2025-01-01T00:00:00.000Z',
           updatedAt: '2025-01-01T00:00:00.000Z',
         },
@@ -293,12 +290,10 @@ describe('useEstimateEditor', () => {
             },
           ],
           children: [],
-          isExpanded: true,
           createdAt: '2025-01-01T00:00:00.000Z',
           updatedAt: '2025-01-01T00:00:00.000Z',
         },
       ],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     },
@@ -970,7 +965,6 @@ describe('useEstimateEditor', () => {
               },
             ],
             children: [],
-            isExpanded: true,
             createdAt: '2025-02-01T00:00:00.000Z',
             updatedAt: '2025-02-01T00:00:00.000Z',
           },
@@ -1047,7 +1041,6 @@ describe('useEstimateEditor', () => {
               },
             ],
             children: [],
-            isExpanded: true,
             createdAt: '2025-02-01T00:00:00.000Z',
             updatedAt: '2025-02-01T00:00:00.000Z',
           },
@@ -1287,8 +1280,10 @@ describe('useEstimateEditor', () => {
     });
   });
 
-  describe('toggleExpanded - 展開/折りたたみ', () => {
-    it('項目の展開状態をトグルできること', () => {
+  // 折りたたみ状態は表示状態であり、単一の所有者は `useEstimateNavigation`（Task 54.2）。
+  // 本フックが再び表示状態を持つと俯瞰パネル（54.5）と明細テーブルの表示が食い違う。
+  describe('表示状態を保持しないこと（design.md「状態には保存対象のみを保持する」）', () => {
+    it('編集用ビューモデルが展開状態（isExpanded）を持たないこと', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -1296,16 +1291,10 @@ describe('useEstimateEditor', () => {
         })
       );
 
-      expect(result.current.items[0]?.isExpanded).toBe(true);
-
-      act(() => {
-        result.current.toggleExpanded('parent-1');
-      });
-
-      expect(result.current.items[0]?.isExpanded).toBe(false);
+      expect(result.current.items[0]).not.toHaveProperty('isExpanded');
     });
 
-    it('展開状態の変更はisDirtyに影響しないこと', () => {
+    it('展開/折りたたみの操作（toggleExpanded）を公開しないこと', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -1313,11 +1302,7 @@ describe('useEstimateEditor', () => {
         })
       );
 
-      act(() => {
-        result.current.toggleExpanded('parent-1');
-      });
-
-      expect(result.current.isDirty).toBe(false);
+      expect(result.current).not.toHaveProperty('toggleExpanded');
     });
   });
 
@@ -1851,7 +1836,6 @@ describe('useEstimateEditor', () => {
         },
       ],
       children: [],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     });

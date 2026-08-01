@@ -33,6 +33,11 @@
  * - 2.3: 子項目を持つ場合、親項目の金額を子項目の金額合計とする（reducer が毎遷移で再計算）
  * - 41.2, 41.3: 値引き行はプリセット値・見積金額行のみでルートレベルへ追加する
  *
+ * 表示状態は保持しない（design.md `##### estimateEditReducer`「状態には保存対象のみを
+ * 保持する。表示状態（モード・選択・展開・カーソル）は保持しない」）。折りたたみ状態の
+ * 単一の所有者は `useEstimateNavigation` であり、本フックは 54.2 で暫定保持していた
+ * `collapsedKeys` / `toggleExpanded` を撤去済み。
+ *
  * 後続タスクへの申し送り:
  * - 範囲操作（`indentRange` / `outdentRange`）は本フックが公開していない。
  *   これらを公開する 54.10 は、reducer が `keys` を並べ替えない（design.md
@@ -128,7 +133,6 @@ export interface EstimateItemHierarchyEdit {
   itemType?: EstimateItemType;
   lines: EstimateItemLineEdit[];
   children: EstimateItemHierarchyEdit[];
-  isExpanded: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -362,11 +366,6 @@ export interface UseEstimateEditorResult {
   setItems: (items: EstimateItemHierarchyEdit[], reportFields?: EstimateReportFields) => void;
 
   /**
-   * 展開/折りたたみを切り替え
-   */
-  toggleExpanded: (itemId: string) => void;
-
-  /**
    * 合計金額を取得
    */
   getTotalAmount: () => string;
@@ -523,28 +522,10 @@ function toEditableTree(
   );
 }
 
-/** 折りたたみ中の項目キーを収集する（表示状態は reducer の state に持たない） */
-function collectCollapsedKeys(items: readonly EstimateItemHierarchyEdit[]): Set<NodeKey> {
-  const collapsed = new Set<NodeKey>();
-  const stack: EstimateItemHierarchyEdit[] = items.slice();
-  let current = stack.pop();
-  while (current !== undefined) {
-    if (!current.isExpanded) {
-      collapsed.add(current.id);
-    }
-    for (const child of current.children) {
-      stack.push(child);
-    }
-    current = stack.pop();
-  }
-  return collapsed;
-}
-
 /** ドメイン表現を表示用ツリーへ変換する */
 function toViewTree(
   items: readonly EditableItem[],
   estimateId: string,
-  collapsedKeys: ReadonlySet<NodeKey>,
   meta: EstimateItemMetaMap
 ): EstimateItemHierarchyEdit[] {
   const roots = mapTreeBottomUp<EditableItem, EstimateItemHierarchyEdit>(
@@ -579,7 +560,6 @@ function toViewTree(
           sourceVendorName: line.sourceVendorName,
         })),
         children,
-        isExpanded: !collapsedKeys.has(key),
         createdAt: itemMeta?.createdAt ?? UNKNOWN_TIMESTAMP,
         updatedAt: itemMeta?.updatedAt ?? UNKNOWN_TIMESTAMP,
       };
@@ -783,11 +763,6 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     initEditorState
   );
 
-  // 表示状態（折りたたみ）は保存対象ではないため reducer の state に持たない
-  const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<NodeKey>>(() =>
-    collectCollapsedKeys(initialItems)
-  );
-
   const [isSaving, setIsSaving] = useState(false);
 
   // 破棄（discard）で戻す基準となる保存済み状態
@@ -797,8 +772,8 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   });
 
   const items = useMemo(
-    () => toViewTree(state.items, estimateId, collapsedKeys, metaRef.current),
-    [state.items, estimateId, collapsedKeys]
+    () => toViewTree(state.items, estimateId, metaRef.current),
+    [state.items, estimateId]
   );
 
   /**
@@ -923,7 +898,6 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
       const meta: EstimateItemMetaMap = new Map();
       const converted = toEditableTree(newItems, meta);
       metaRef.current = meta;
-      setCollapsedKeys(collectCollapsedKeys(newItems));
       baselineRef.current = {
         items: converted,
         reportFields: reportFields ?? baselineRef.current.reportFields,
@@ -986,21 +960,6 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
-   * 展開/折りたたみを切り替え（表示状態のため未保存扱いにしない）
-   */
-  const toggleExpanded = useCallback((itemId: string): void => {
-    setCollapsedKeys((previous) => {
-      const next = new Set(previous);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
-    });
-  }, []);
-
-  /**
    * 合計金額を取得（1.5, 41.8: 値引き行の負数も加算する）
    */
   const getTotalAmount = useCallback((): string => {
@@ -1045,7 +1004,6 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     save,
     discard,
     setItems,
-    toggleExpanded,
     getTotalAmount,
   };
 }

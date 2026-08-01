@@ -28,7 +28,6 @@ const createMockItems = (): EstimateItemHierarchyEdit[] => [
     estimateId: 'est-1',
     parentId: null,
     displayOrder: 0,
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
     lines: [
@@ -261,7 +260,6 @@ describe('ProfitRateDialog', () => {
         estimateId: 'est-1',
         parentId: null,
         displayOrder: 0,
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
         lines: [
@@ -296,7 +294,6 @@ describe('ProfitRateDialog', () => {
         estimateId: 'est-1',
         parentId: null,
         displayOrder: 0,
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
         lines: [],
@@ -306,7 +303,6 @@ describe('ProfitRateDialog', () => {
             estimateId: 'est-1',
             parentId: 'item-parent',
             displayOrder: 0,
-            isExpanded: true,
             createdAt: '2025-01-01T00:00:00Z',
             updatedAt: '2025-01-01T00:00:00Z',
             lines: [

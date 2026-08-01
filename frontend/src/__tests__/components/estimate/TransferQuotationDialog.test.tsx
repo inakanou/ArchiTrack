@@ -37,7 +37,6 @@ const createMockEstimateItems = (): EstimateItemHierarchyEdit[] => [
     estimateId: 'est-1',
     parentId: null,
     displayOrder: 0,
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
     lines: [
@@ -60,7 +59,6 @@ const createMockEstimateItems = (): EstimateItemHierarchyEdit[] => [
         estimateId: 'est-1',
         parentId: 'item-1',
         displayOrder: 0,
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
         lines: [
@@ -86,7 +84,6 @@ const createMockEstimateItems = (): EstimateItemHierarchyEdit[] => [
     estimateId: 'est-1',
     parentId: null,
     displayOrder: 1,
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
     lines: [

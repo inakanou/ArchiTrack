@@ -33,9 +33,9 @@
  *   tasks.md 54.4 の担当。本モジュールは受け口として `initialViewMode` のみを持ち、
  *   `localStorage` 等の永続化装置には触れない
  * - ドリルダウンの階層下げ／階層上げ／経路表示（45.7〜45.9）は 54.3、
- *   展開・折りたたみのUI（45.4）は 54.2、キー割当は 54.6 が担当する
- * - `useEstimateEditor` は暫定的に折りたたみ状態（`collapsedKeys`）を自前で
- *   保持している。54.2 でテーブルを本フックへ接続する際に一本化すること
+ *   キー割当は 54.6 が担当する
+ * - 展開・折りたたみのUI（45.4）は 54.2 で `EstimateItemTable` へ接続済み。
+ *   折りたたみ状態の所有者は本フックのみで、`useEstimateEditor` の暫定保持は撤去済み
  *
  * @module hooks/useEstimateNavigation
  */

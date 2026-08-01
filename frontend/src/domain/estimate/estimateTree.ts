@@ -65,10 +65,15 @@ export interface HierarchyNode {
   readonly children: readonly HierarchyNode[];
 }
 
-/** インデント表示（2.6）用に平坦化した明細行 */
-export interface GridRow {
+/**
+ * インデント表示（2.6）用に平坦化した1行
+ *
+ * ドメイン表現（{@link EditableItem}）と表示用ツリーのどちらにも同じ導出規則を
+ * 適用できるよう、ノードの型を型引数にとる。
+ */
+export interface DisplayRow<T> {
   readonly key: NodeKey;
-  readonly item: EditableItem;
+  readonly item: T;
   /** ルートを 0 とする階層の深さ（インデント段数） */
   readonly depth: number;
   readonly parentKey: NodeKey | null;
@@ -76,6 +81,9 @@ export interface GridRow {
   /** 子を持ちかつ折りたたまれている場合に true（45.5） */
   readonly isCollapsed: boolean;
 }
+
+/** インデント表示（2.6）用に平坦化した明細行 */
+export type GridRow = DisplayRow<EditableItem>;
 
 /** ツリー導出ユーティリティの契約 */
 export interface EstimateTreeUtil {
@@ -557,15 +565,46 @@ export function flattenForGrid(
     return cached;
   }
 
-  const rows: GridRow[] = [];
-  const stack: DfsFrame[] = [];
+  const rows = flattenTreeForDisplay(tree, nodeKeyOf, collapsedKeys);
+  index.gridRowsByCollapsed.set(collapsedKeys, rows);
+  return rows;
+}
+
+/** 平坦化の対象になるツリーノードの最小構造 */
+interface TreeNodeLike<T> {
+  readonly children: readonly T[];
+}
+
+/**
+ * 任意のツリー表現をインデント表示用に先行順で平坦化する
+ *
+ * 折りたたまれた項目の子孫は結果に含めない（45.5）。走査は明示スタックによる反復で
+ * 行い、階層の深さに上限を設けない（2.5）。
+ *
+ * ドメイン表現（{@link flattenForGrid}）と表示用ツリー（`EstimateItemTable` の
+ * ツリー表示）が**同一の導出規則**を共有するための唯一の実装であり、
+ * 表示順・インデント段数・折りたたみ判定を画面側で再実装しないための入り口。
+ *
+ * Requirements: 2.5, 2.6, 45.3, 45.5
+ *
+ * @param keyOf ノードからノードキーを取り出す関数
+ * @param collapsedKeys 折りたたみ中のノードキー集合
+ */
+export function flattenTreeForDisplay<T extends TreeNodeLike<T>>(
+  tree: readonly T[],
+  keyOf: (node: T) => NodeKey,
+  collapsedKeys: ReadonlySet<NodeKey>
+): readonly DisplayRow<T>[] {
+  const rows: DisplayRow<T>[] = [];
+  const stack: { readonly item: T; readonly parentKey: NodeKey | null; readonly depth: number }[] =
+    [];
   for (const root of reversedCopy(tree)) {
     stack.push({ item: root, parentKey: null, depth: 0 });
   }
 
   let frame = stack.pop();
   while (frame !== undefined) {
-    const key = nodeKeyOf(frame.item);
+    const key = keyOf(frame.item);
     const hasChildren = frame.item.children.length > 0;
     const isCollapsed = hasChildren && collapsedKeys.has(key);
 
@@ -587,7 +626,6 @@ export function flattenForGrid(
     frame = stack.pop();
   }
 
-  index.gridRowsByCollapsed.set(collapsedKeys, rows);
   return rows;
 }
 

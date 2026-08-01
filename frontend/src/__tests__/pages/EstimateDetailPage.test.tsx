@@ -54,13 +54,14 @@ vi.mock('react-router-dom', async () => {
 // useEstimateEditorモック
 const mockEditor = {
   items: [] as EstimateItemHierarchy[],
+  // 表示状態フック（useEstimateNavigation）が読み取る編集中ツリー（54.2）
+  editState: { items: [] },
   setItems: vi.fn(),
   isDirty: false,
   isSaving: false,
   save: vi.fn().mockResolvedValue(undefined),
   discard: vi.fn(),
   updateLine: vi.fn(),
-  toggleExpanded: vi.fn(),
   reorderItems: vi.fn(),
   getTotalAmount: vi.fn(() => '100000'),
   addItem: vi.fn(),

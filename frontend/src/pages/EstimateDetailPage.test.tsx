@@ -32,6 +32,12 @@ vi.mock('../api/estimates');
 // useEstimateEditorのモック
 const mockEditor = {
   items: [] as ReturnType<typeof import('../hooks/useEstimateEditor').useEstimateEditor>['items'],
+  // 表示状態フック（useEstimateNavigation）が読み取る編集中ツリー（54.2）
+  editState: {
+    items: [] as ReturnType<
+      typeof import('../hooks/useEstimateEditor').useEstimateEditor
+    >['editState']['items'],
+  },
   isDirty: false,
   isSaving: false,
   updateLine: vi.fn(),
@@ -45,7 +51,6 @@ const mockEditor = {
   save: vi.fn().mockResolvedValue(undefined),
   discard: vi.fn(),
   setItems: vi.fn(),
-  toggleExpanded: vi.fn(),
   getTotalAmount: vi.fn().mockReturnValue('0'),
   addDiscountItem: vi.fn(),
   addNoteItem: vi.fn(),
@@ -384,12 +389,10 @@ const mockEditorItemsWithHierarchy = [
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
     ],
-    isExpanded: true,
     createdAt: '2024-01-15T10:00:00.000Z',
     updatedAt: '2024-01-15T10:00:00.000Z',
   },
@@ -400,7 +403,6 @@ const mockEditorItemsWithHierarchy = [
     displayOrder: 1,
     lines: [],
     children: [],
-    isExpanded: true,
     createdAt: '2024-01-15T10:00:00.000Z',
     updatedAt: '2024-01-15T10:00:00.000Z',
   },
@@ -542,7 +544,6 @@ describe('EstimateDetailPage', () => {
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -1306,7 +1307,6 @@ describe('EstimateDetailPage', () => {
         displayOrder: 0,
         lines: [],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -1317,7 +1317,6 @@ describe('EstimateDetailPage', () => {
         displayOrder: 1,
         lines: [],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -1375,7 +1374,6 @@ describe('EstimateDetailPage', () => {
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -1451,7 +1449,6 @@ describe('EstimateDetailPage', () => {
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -2062,12 +2059,10 @@ describe('EstimateDetailPage', () => {
             displayOrder: 0,
             lines: [],
             children: [],
-            isExpanded: true,
             createdAt: '2024-01-15T10:00:00.000Z',
             updatedAt: '2024-01-15T10:00:00.000Z',
           },
         ],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -2114,7 +2109,6 @@ describe('EstimateDetailPage', () => {
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -2140,7 +2134,6 @@ describe('EstimateDetailPage', () => {
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2024-01-15T10:00:00.000Z',
         updatedAt: '2024-01-15T10:00:00.000Z',
       },
@@ -3510,6 +3503,75 @@ describe('EstimateDetailPage', () => {
         expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
       });
       expect(savePayload().items[0]!.children.map((node) => node.id)).toEqual(['item-child']);
+    });
+  });
+
+  // =========================================================================
+  // 折りたたみの表示状態と表の結線（Task 54.2）
+  // =========================================================================
+
+  /**
+   * 画面が `useEstimateNavigation` の折りたたみ状態と切替関数を
+   * **同一インスタンスとして**表へ渡していることを検証する。
+   *
+   * `collapsedKeys` / `onToggleCollapsed` のどちらか一方でも渡し忘れると、
+   * 型検査も既存テストも緑のまま実画面の展開・折りたたみだけが無反応になる
+   * （53.14 の死んだ `onDragStart` / `onDrop` と同じ沈黙する失敗）。
+   * そのため「切替関数を呼ぶ → 折りたたみキーが変わる」という往復で結線を固定する。
+   *
+   * Requirements (estimate-creation):
+   * - 2.7: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
+   * - 45.4: ツリー表示では子項目を持つ項目に展開/折りたたみの操作を提供する
+   * - 45.5: 項目を折りたたんだ場合、その子孫項目を非表示にする
+   */
+  describe('折りたたみの表示状態と表の結線 (2.7, 45.4, 45.5)', () => {
+    const collapsedKeys = (): ReadonlySet<string> =>
+      capturedTableProps.collapsedKeys as ReadonlySet<string>;
+
+    const toggleCollapsed = async (key: string): Promise<void> => {
+      const handler = capturedTableProps.onToggleCollapsed;
+      // 画面が渡し忘れていれば関数ではない（この時点で失敗させる）
+      expect(typeof handler).toBe('function');
+      await act(async () => {
+        (handler as (key: string) => void)(key);
+      });
+    };
+
+    it('表へ渡した onToggleCollapsed の呼び出しが同じ collapsedKeys に反映されること (2.7, 45.5)', async () => {
+      editorMode.useReal = true;
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+
+      // 初期状態は折りたたみなし（表示状態フックの既定）
+      expect(collapsedKeys()).toBeInstanceOf(Set);
+      expect([...collapsedKeys()]).toEqual([]);
+
+      // 表からの通知で折りたたまれる
+      await toggleCollapsed('item-001');
+      expect([...collapsedKeys()]).toEqual(['item-001']);
+
+      // 同じキーの再通知で展開へ戻る（同一インスタンスのトグルであることの裏付け）
+      await toggleCollapsed('item-001');
+      expect([...collapsedKeys()]).toEqual([]);
+    });
+
+    it('折りたたみ操作が編集状態（保存対象のツリー）を変えないこと (45.5)', async () => {
+      editorMode.useReal = true;
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+      const before = capturedTableProps.items as EstimateItemHierarchyEdit[];
+
+      await toggleCollapsed('item-001');
+
+      // 表示状態の変更なので、表へ渡す明細ツリーも未保存状態も動かない
+      expect(capturedTableProps.items).toBe(before);
+      expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
     });
   });
 });

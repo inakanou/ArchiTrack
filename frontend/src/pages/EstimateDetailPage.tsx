@@ -55,6 +55,7 @@ import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { EstimateItemTable, EstimateItemToolbar } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
+import { useEstimateNavigation } from '../hooks/useEstimateNavigation';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import type {
   EstimateEditorSavePayload,
@@ -452,7 +453,6 @@ function toEditFormat(
   if (!items || !Array.isArray(items)) return [];
   return items.map((item) => ({
     ...item,
-    isExpanded: true,
     children: toEditFormat(item.children),
   }));
 }
@@ -720,6 +720,12 @@ export default function EstimateDetailPage() {
     onSaveSuccess: handleSaveSuccess,
     onSaveError: handleSaveError,
   });
+
+  // 表示状態（階層表示モード・折りたたみ・選択範囲・カーソル）の単一の所有者（54.1）
+  //
+  // 編集状態とは独立した state のため、折りたたみ操作は未保存の編集内容へ影響しない
+  // （45.10）。読み取り元は reducer の明細ツリーで、本フックはこれを書き換えない。
+  const navigation = useEstimateNavigation({ items: editor.editState.items });
 
   // ==========================================================================
   // 未保存の変更がある状態での離脱ガード（27.6）
@@ -1438,7 +1444,8 @@ export default function EstimateDetailPage() {
             items={editor.items}
             draggable={true}
             onLineChange={editor.updateLine}
-            onToggleExpand={editor.toggleExpanded}
+            collapsedKeys={navigation.collapsedKeys}
+            onToggleCollapsed={navigation.toggleCollapsed}
             onDrop={editor.reorderItems}
             selectedItemId={selectedItemId}
             onItemSelect={setSelectedItemId}

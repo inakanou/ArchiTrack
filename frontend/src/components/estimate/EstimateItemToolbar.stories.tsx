@@ -14,7 +14,6 @@ const createSelectedItem = (parentId: string | null): EstimateItemHierarchyEdit 
   displayOrder: 1,
   lines: [],
   children: [],
-  isExpanded: true,
   createdAt: '2025-01-01T00:00:00Z',
   updatedAt: '2025-01-01T00:00:00Z',
 });

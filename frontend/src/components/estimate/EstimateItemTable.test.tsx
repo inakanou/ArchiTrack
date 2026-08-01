@@ -14,7 +14,7 @@
  * - REQ-2.2: 親項目を持つ見積項目を作成した場合、その項目を親項目の子として階層表示する
  * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
  * - REQ-2.4: 複数階層のネストをサポートする
- * - REQ-2.5: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
+ * - REQ-2.7: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-2.6: 項目の階層レベルをインデント表示で視覚的に区別する
  * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
  *
@@ -123,7 +123,6 @@ const createMockHierarchy = (): EstimateItemHierarchyEdit[] => [
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
       },
@@ -171,12 +170,10 @@ const createMockHierarchy = (): EstimateItemHierarchyEdit[] => [
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
       },
     ],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -224,7 +221,6 @@ const createMockHierarchy = (): EstimateItemHierarchyEdit[] => [
       },
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -399,17 +395,14 @@ describe('EstimateItemTable', () => {
                       },
                     ],
                     children: [],
-                    isExpanded: true,
                     createdAt: '2025-01-01T00:00:00Z',
                     updatedAt: '2025-01-01T00:00:00Z',
                   },
                 ],
-                isExpanded: true,
                 createdAt: '2025-01-01T00:00:00Z',
                 updatedAt: '2025-01-01T00:00:00Z',
               },
             ],
-            isExpanded: true,
             createdAt: '2025-01-01T00:00:00Z',
             updatedAt: '2025-01-01T00:00:00Z',
           },
@@ -426,7 +419,10 @@ describe('EstimateItemTable', () => {
       });
     });
 
-    describe('REQ-2.5: 展開/折りたたみ機能', () => {
+    // 折りたたみ状態は `useEstimateNavigation` が所有する表示状態のため、
+    // `collapsedKeys` / `onToggleCollapsed` として受け渡す（Task 54.2）。
+    // ツリー表示の網羅的な検証は EstimateItemTable.treeMode.test.tsx が担当する。
+    describe('REQ-2.7: 展開/折りたたみ機能', () => {
       it('展開ボタンが表示される（子項目がある場合）', () => {
         const items = createMockHierarchy();
         render(<EstimateItemTable items={items} />);
@@ -435,46 +431,39 @@ describe('EstimateItemTable', () => {
         expect(expandButtons.length).toBeGreaterThan(0);
       });
 
-      it('展開ボタンをクリックすると子項目が非表示になる', async () => {
+      it('展開ボタンをクリックすると折りたたみ要求が通知される', async () => {
         const items = createMockHierarchy();
-        const onToggleExpand = vi.fn();
-        render(<EstimateItemTable items={items} onToggleExpand={onToggleExpand} />);
+        const onToggleCollapsed = vi.fn();
+        render(<EstimateItemTable items={items} onToggleCollapsed={onToggleCollapsed} />);
 
         // 折りたたむボタンをクリック（最初の項目）
         const collapseButtons = screen.getAllByRole('button', { name: /折りたたむ/i });
         const collapseButton = collapseButtons[0]!;
         await userEvent.click(collapseButton);
 
-        expect(onToggleExpand).toHaveBeenCalledWith('item-1');
+        expect(onToggleCollapsed).toHaveBeenCalledWith('item-1');
       });
 
-      it('折りたたんだ状態で展開ボタンをクリックすると子項目が表示される', async () => {
-        const mockData = createMockHierarchy();
-        const items: EstimateItemHierarchyEdit[] = [
-          {
-            ...mockData[0]!,
-            isExpanded: false, // 折りたたみ状態
-          },
-        ];
-        const onToggleExpand = vi.fn();
-        render(<EstimateItemTable items={items} onToggleExpand={onToggleExpand} />);
+      it('折りたたんだ状態で展開ボタンをクリックすると展開要求が通知される', async () => {
+        const items = createMockHierarchy();
+        const onToggleCollapsed = vi.fn();
+        render(
+          <EstimateItemTable
+            items={items}
+            collapsedKeys={new Set(['item-1'])}
+            onToggleCollapsed={onToggleCollapsed}
+          />
+        );
 
         const expandButton = screen.getByRole('button', { name: /展開する/i });
         await userEvent.click(expandButton);
 
-        expect(onToggleExpand).toHaveBeenCalledWith('item-1');
+        expect(onToggleCollapsed).toHaveBeenCalledWith('item-1');
       });
 
       it('折りたたみ状態では子項目が非表示', () => {
-        const mockData = createMockHierarchy();
-        const items: EstimateItemHierarchyEdit[] = [
-          {
-            ...mockData[0]!,
-            isExpanded: false, // 折りたたみ状態
-          },
-          mockData[1]!,
-        ];
-        render(<EstimateItemTable items={items} />);
+        const items = createMockHierarchy();
+        render(<EstimateItemTable items={items} collapsedKeys={new Set(['item-1'])} />);
 
         // 子項目が表示されていないことを確認（入力フィールドの値として）
         const allNames = screen.getAllByLabelText('名称') as HTMLInputElement[];
@@ -565,17 +554,14 @@ describe('EstimateItemTable', () => {
                       },
                     ],
                     children: [],
-                    isExpanded: true,
                     createdAt: '2025-01-01T00:00:00Z',
                     updatedAt: '2025-01-01T00:00:00Z',
                   },
                 ],
-                isExpanded: true,
                 createdAt: '2025-01-01T00:00:00Z',
                 updatedAt: '2025-01-01T00:00:00Z',
               },
             ],
-            isExpanded: true,
             createdAt: '2025-01-01T00:00:00Z',
             updatedAt: '2025-01-01T00:00:00Z',
           },
@@ -682,7 +668,6 @@ describe('EstimateItemTable', () => {
           parentId: null,
           displayOrder: 0,
           itemType: 'DISCOUNT',
-          isExpanded: true,
           createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
           lines: [
@@ -804,12 +789,10 @@ describe('EstimateItemTable - 注記行（55.1, 55.3）', () => {
             },
           ],
           children: [],
-          isExpanded: true,
           createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00Z',
       updatedAt: '2025-01-01T00:00:00Z',
     },
@@ -864,7 +847,6 @@ describe('EstimateItemTable - 注記行（55.1, 55.3）', () => {
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
       },
