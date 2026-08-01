@@ -28,6 +28,7 @@ import {
   recalculateAncestorAmounts,
   toHierarchyNodes,
   flattenForGrid,
+  pathToDisplayRow,
 } from './estimateTree';
 import type {
   EditableItem,
@@ -620,6 +621,52 @@ describe('flattenForGrid', () => {
     const rows = flattenForGrid(buildChain(2000), new Set());
     expect(rows).toHaveLength(2000);
     expect(at(rows, 1999).depth).toBe(1999);
+  });
+});
+
+// ============================================================================
+// pathToDisplayRow（ドリルダウン表示の経路 / 45.7）
+// ============================================================================
+
+describe('pathToDisplayRow', () => {
+  it('ルートから対象までの経路を先頭がルートの順で返す（45.7）', () => {
+    const rows = flattenForGrid(sampleTree(), new Set());
+    expect(pathToDisplayRow(rows, 'a-1-2').map((r) => r.key)).toEqual(['root-a', 'a-1', 'a-1-2']);
+  });
+
+  it('ルート項目の経路は自身のみを含む', () => {
+    const rows = flattenForGrid(sampleTree(), new Set());
+    expect(pathToDisplayRow(rows, 'root-b').map((r) => r.key)).toEqual(['root-b']);
+  });
+
+  it('null（ルート階層）の経路は空である', () => {
+    const rows = flattenForGrid(sampleTree(), new Set());
+    expect(pathToDisplayRow(rows, null)).toEqual([]);
+  });
+
+  it('平坦化行に存在しないキーの経路は空である', () => {
+    const rows = flattenForGrid(sampleTree(), new Set());
+    expect(pathToDisplayRow(rows, 'unknown')).toEqual([]);
+  });
+
+  it('経路の各要素は元の平坦化行の参照をそのまま返す', () => {
+    const rows = flattenForGrid(sampleTree(), new Set());
+    const path = pathToDisplayRow(rows, 'a-1-1');
+    expect(at(path, 0)).toBe(rows.find((r) => r.key === 'root-a'));
+    expect(at(path, 2)).toBe(rows.find((r) => r.key === 'a-1-1'));
+  });
+
+  it('pathTo（ドメイン表現）と同じ経路を返す（導出規則の単一性）', () => {
+    const tree = sampleTree();
+    const rows = flattenForGrid(tree, new Set());
+    expect(pathToDisplayRow(rows, 'a-1-1').map((r) => r.key)).toEqual(
+      pathTo(tree, 'a-1-1').map(nodeKeyOf)
+    );
+  });
+
+  it('階層の深さに上限を設けない（2.5）', () => {
+    const rows = flattenForGrid(buildChain(2000), new Set());
+    expect(pathToDisplayRow(rows, 'n-1999')).toHaveLength(2000);
   });
 });
 

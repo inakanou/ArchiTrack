@@ -111,6 +111,7 @@ export interface EstimateTreeUtil {
 const EMPTY_ITEMS: readonly EditableItem[] = Object.freeze([]);
 const EMPTY_KEYS: readonly NodeKey[] = Object.freeze([]);
 const EMPTY_NODES: readonly HierarchyNode[] = Object.freeze([]);
+const EMPTY_DISPLAY_ROWS: readonly DisplayRow<never>[] = Object.freeze([]);
 
 /**
  * 項目のノードキーを取得する
@@ -627,6 +628,51 @@ export function flattenTreeForDisplay<T extends TreeNodeLike<T>>(
   }
 
   return rows;
+}
+
+/**
+ * 平坦化済みの表示行から、ルートから対象までの経路を返す（対象を含む）
+ *
+ * ドリルダウン表示の現在階層の経路表示（45.7）が用いる。経路の導出規則は
+ * {@link pathTo}（ドメイン表現 {@link EditableItem} 用 / 53.1）と同一で、
+ * こちらは表示用ツリー（`EstimateItemTable` が扱う型）へ同じ規則を適用するための
+ * 入り口。{@link flattenForGrid} と {@link flattenTreeForDisplay} の関係と同じく、
+ * 画面側で階層の遡りを再実装しないためにドメイン層へ置く。
+ *
+ * 既に平坦化された行（`parentKey` を持つ）を入力にとるため、ツリーを再走査しない。
+ * 遡りは反復で行い、階層の深さに上限を設けない（2.5）。
+ *
+ * Requirements: 2.5, 45.7
+ *
+ * @param rows {@link flattenTreeForDisplay} / {@link flattenForGrid} の結果
+ * @param key 対象のノードキー。`null`（ルート階層）と未知のキーは空配列を返す
+ */
+export function pathToDisplayRow<T>(
+  rows: readonly DisplayRow<T>[],
+  key: NodeKey | null
+): readonly DisplayRow<T>[] {
+  if (key === null) {
+    return EMPTY_DISPLAY_ROWS as readonly DisplayRow<T>[];
+  }
+  const rowByKey = new Map<NodeKey, DisplayRow<T>>();
+  for (const row of rows) {
+    rowByKey.set(row.key, row);
+  }
+  if (!rowByKey.has(key)) {
+    return EMPTY_DISPLAY_ROWS as readonly DisplayRow<T>[];
+  }
+
+  const reversed: DisplayRow<T>[] = [];
+  let current: NodeKey | null = key;
+  while (current !== null) {
+    const row = rowByKey.get(current);
+    if (row === undefined) {
+      break;
+    }
+    reversed.push(row);
+    current = row.parentKey;
+  }
+  return reversed.reverse();
 }
 
 // ============================================================================

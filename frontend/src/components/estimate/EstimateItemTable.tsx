@@ -9,7 +9,7 @@
  * サブコンポーネントが持ちます。
  *
  * - ツリー表示（既定 / 45.2）: {@link EstimateItemTreeView}
- * - ドリルダウン表示（45.6〜45.9）: 54.3 が兄弟コンポーネントとして追加する
+ * - ドリルダウン表示（45.6〜45.9）: {@link EstimateItemDrilldownView}
  *
  * 折りたたみ・選択などの**表示状態は本コンポーネントも保持しません**。
  * 単一の所有者は `useEstimateNavigation` であり、`collapsedKeys` /
@@ -29,14 +29,17 @@
  * - REQ-2.7: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
  * - REQ-45.3, 45.4, 45.5: ツリー表示の一覧・展開/折りたたみ・子孫の非表示
+ * - REQ-45.6, 45.7, 45.8, 45.9: ドリルダウン表示の現在階層一覧・経路表示・階層移動
  *
  * @module components/estimate/EstimateItemTable
  */
 
 import { EstimateItemTreeView } from './EstimateItemTreeView';
 import type { EstimateLineChangeHandler, EstimateVisibleLineTypes } from './EstimateItemTreeView';
+import { EstimateItemDrilldownView } from './EstimateItemDrilldownView';
 import type { NodeKey } from '../../domain/estimate/estimateTree';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
+import type { EstimateViewMode } from '../../hooks/useEstimateNavigation';
 
 // ============================================================================
 // 型定義
@@ -48,6 +51,21 @@ import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 export interface EstimateItemTableProps {
   /** 見積項目の階層データ */
   items: EstimateItemHierarchyEdit[];
+  /**
+   * 階層表示モード（45.1, 45.2）
+   *
+   * 所有者は `useEstimateNavigation`。未指定は既定のツリー表示。
+   */
+  viewMode?: EstimateViewMode;
+  /**
+   * ドリルダウン表示の現在階層（45.6）
+   *
+   * 所有者は `useEstimateNavigation`。`null` / 未指定はルート階層。
+   * ツリー表示では用いない。
+   */
+  currentLevelKey?: NodeKey | null;
+  /** ドリルダウン表示の現在階層の変更要求（45.7, 45.8, 45.9） */
+  onCurrentLevelChange?: (key: NodeKey | null) => void;
   /**
    * 折りたたみ中の項目キー（45.5）
    *
@@ -179,6 +197,9 @@ function EmptyIcon() {
  */
 export function EstimateItemTable({
   items,
+  viewMode = 'tree',
+  currentLevelKey = null,
+  onCurrentLevelChange,
   collapsedKeys,
   onToggleCollapsed,
   selectedItemId,
@@ -211,6 +232,17 @@ export function EstimateItemTable({
             <EmptyIcon />
             <span>見積項目がありません</span>
           </div>
+        ) : viewMode === 'drilldown' ? (
+          <EstimateItemDrilldownView
+            items={items}
+            currentLevelKey={currentLevelKey}
+            onCurrentLevelChange={onCurrentLevelChange}
+            selectedItemId={selectedItemId}
+            draggable={draggable}
+            onItemSelect={onItemSelect}
+            onLineChange={onLineChange}
+            visibleLineTypes={visibleLineTypes}
+          />
         ) : (
           <EstimateItemTreeView
             items={items}

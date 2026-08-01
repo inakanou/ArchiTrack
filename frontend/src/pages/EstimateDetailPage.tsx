@@ -1446,6 +1446,9 @@ export default function EstimateDetailPage() {
             onLineChange={editor.updateLine}
             collapsedKeys={navigation.collapsedKeys}
             onToggleCollapsed={navigation.toggleCollapsed}
+            viewMode={navigation.viewMode}
+            currentLevelKey={navigation.currentLevelKey}
+            onCurrentLevelChange={navigation.setCurrentLevelKey}
             onDrop={editor.reorderItems}
             selectedItemId={selectedItemId}
             onItemSelect={setSelectedItemId}

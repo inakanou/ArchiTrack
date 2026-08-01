@@ -1250,7 +1250,7 @@
   - _Boundary: ツリー表示_
   - _Depends: 54.1_
 
-- [ ] 54.3 (P) ドリルダウン表示と現在階層の経路表示
+- [x] 54.3 (P) ドリルダウン表示と現在階層の経路表示
   - 現在の階層に属する項目のみを一覧表示するモードを設ける
   - 現在の階層の位置をルートからの経路として表示し、経路上の各階層へ戻る操作を提供する
   - 子項目を持つ項目に対する階層下げで子項目の一覧へ切り替える
@@ -1268,6 +1268,7 @@
   - モード切替で未保存の編集内容が保持されることを確認できる
   - _Requirements: 45.1, 45.2, 45.10, 45.11_
   - _Depends: 54.2, 54.3_
+  - _申し送り（54.3 のレビューで確定）: **ページ→表の `viewMode` 結線に往復テストが無い**。54.3 時点では切替UIが存在せず `viewMode="tree"` のリテラル直書きへ変異させても全テストと tsc が緑のままであることを実測で確認済み（EstimateDetailPage.test.tsx 89/89 passed）。切替UIを入れる本タスクで、**モードを切り替えると表がドリルダウンで再描画されることをページレベルで検証するテストを必ず追加すること**。放置すると 53.14 と同型の死んだ prop になる。_
 
 - [ ] 54.5 (P) 階層構造の俯瞰パネル
   - 見積項目の階層構造をツリー形式で表示するパネルを設ける
@@ -1287,6 +1288,7 @@
   - キー操作のみで行操作と階層移動が完結することを確認できる
   - _Requirements: 47.1, 47.2, 47.4, 47.5, 47.6, 47.7, 47.8_
   - _Depends: 53.2, 53.3, 53.11, 54.1_
+  - _申し送り（54.3 のレビューで判明）: `EstimateItemDrilldownView.tsx:305-325` が `useEstimateNavigation.visibleKeys` を消費せず**自前で行リストを再導出している**。通常時は一致（テストで固定済み）だが、`currentLevelKey` が編集で消えた場合にビューはルートへフォールバックし、フックは `childrenOf(items, staleKey)` = `[]` を返して**乖離する**。現状は画面がページローカルの `selectedItemId` を使うため実害ゼロだが、**キーボード操作は `visibleKeys` を基準に動くため本タスクで乖離が顕在化する**。ビュー側を `visibleKeys` の消費へ寄せるか、フック側の陳腐キーのフォールバックを揃えること。_
 
 - [ ] 54.7 (P) キー割当一覧の表示
   - キー割当の一覧を画面上で参照できるようにする
@@ -1653,3 +1655,4 @@
 - **【53.14 で発覚・所有者不在の債務】** 見積項目テーブルのドラッグ&ドロップが**#292 の初出コミット以来一度も配線されていない**（`EstimateItemTable.tsx` は `onDragStart`/`onDrop` を props 宣言するだけで DOM ハンドラが0件。`EstimateDetailPage.tsx:1442` の `onDrop={editor.reorderItems}` は死んだ prop）。53.4〜53.6 の退行ではなく未実装スコープであり、53.6 の Note（:1605）が「D&D は `onDrop` 側が担う」と誤った前提を置いたことで REQ-12.2 の担い手が消失していた。53.14 の `_Blocked:_` 注記に根本原因・修正方針・E2E側は修正不要である検算結果を記録済み。**53.15 と同じく新規タスクを挿入して人間承認を得ること。** 構造的教訓: ページ単体テストが子コンポーネントを mock して prop を自分で呼ぶ形は、配線の有無を原理的に検証できない。
 - 54.1: `frontend/src/hooks/useEstimateNavigation.ts` を新設（表示モード/現在階層/選択範囲/展開状態/カーソル位置の5項目）。import は `estimateTree` と `estimateEditReducer.types` の**型のみ**で、reducer 本体・components・pages・api に依存しない（design.md :3683 の分離を機械的に担保）。選択範囲は anchor/focus の対で保持し**範囲は `visibleKeys` から導出**するため、逆向き指定の正規化・削除行の自動除外・ドリルダウン内での閉包が構造的に成立する（`indentRange`/`outdentRange` が要求する先行順にもなる）。**45.11「モードの端末単位の永続化」は 54.4 の所有**なので未実装で、`initialViewMode` の注入点のみ用意した。**【54.2 への申し送り・重要】** `useEstimateEditor.ts:787` が暫定の `collapsedKeys`（`toggleExpanded` :991 → `toViewTree` :800/:582 で `isExpanded` 生成）を保持しており折りたたみ状態が2箇所にある。54.2 でテーブルを本フックへ接続する際に **editor 側を必ず撤去**すること（両方生きると俯瞰パネルとテーブルで折りたたみが食い違う）。レビューは変異5種（既定モード/範囲正規化/解除no-op/非表示端点の保持/保存ペイロードへの表示状態混入）を注入して全検出を確認済み＝アサーションの実効性は実証されている。
 - 54.2: `EstimateItemTable.tsx` をモード振り分けのシェル（テーブル枠・ヘッダ・スクロール・空状態）に改修し、行描画を新規 `EstimateItemTreeView.tsx` へ分離＝54.3 のドリルダウンは兄弟コンポーネントとして追加できる。**折りたたみ状態の二重保持を解消**: `useEstimateEditor` から `collapsedKeys`/`toggleExpanded`/`collectCollapsedKeys` と `EstimateItemHierarchyEdit.isExpanded` を型ごと撤去し（design.md :3950 準拠）、`EstimateDetailPage` が `useEstimateNavigation` から `collapsedKeys`/`onToggleCollapsed` を渡す単一所有へ。`isExpanded` 撤去はテスト・ストーリー約28箇所の機械的なフィクスチャ削除を伴う（アサーション削除はゼロであることをレビューが全diff精読で確認）。`estimateTree.ts` に `flattenTreeForDisplay<T>` を切り出し `flattenForGrid` が委譲＝グリッドとツリー表示が同一の表示順・インデント・折りたたみ規則を共有（明示スタックの反復で深さ無制限）。**レビュー変異6件中2件が生存したため追補**: (1) ページ側の `onToggleCollapsed` を消しても全テストと tsc が緑のままだった（`EstimateDetailPage.test.tsx` が `../components/estimate` を丸ごと mock する既存構造。**53.14 の死んだ props を見逃したのと同一の沈黙型欠陥**）→ `capturedTableProps.onToggleCollapsed()` 呼び出しが同じ `collapsedKeys` に往復することを検証するテストを追加。(2) 保存ペイロードに `isExpanded` を注入しても構造的型付けが素通しした → `expectFreeOfViewState` で全深さのノードのキー集合を厳密検証。**教訓: 子コンポーネントを丸ごと mock してテスト自身が prop を呼ぶ構造では、prop の結線有無を原理的に検出できない。** design.md :763-800 の旧 `EstimateItemTableState { expandedIds }` は :3950 と矛盾しており、いずれ設計側の整理が必要（本タスクは新しい :3950 に従った）。
+- 54.3: 54.2 が作ったモード分岐の座に `EstimateItemDrilldownView.tsx` を追加し、`EstimateBreadcrumbPath.tsx` を design.md :3726 指定のパスへ新設。`estimateTree.ts` に `pathToDisplayRow<T>`（53.1 の `pathTo` の表示ツリー版。`flattenForGrid`↔`flattenTreeForDisplay` と同じ関係）を追加。**45.8/45.9 の画面表記は要件文言そのままにしていない**: 44.4/44.5 が「下の階層へ移動」「上の階層へ移動」という**データを壊す編集操作**のラベルを既に占有しているため、表示のみを切り替える操作は「〈名称〉 の子階層を表示」「一つ上の階層へ戻る」とした（レビューが要件文の対比で妥当と裁定）。設計名 `EstimateBreadcrumbPath` は画面遷移パンくず（43.x、`components/common/Breadcrumb.tsx` の `aria-label="パンくずナビゲーション"`）と紛らわしいため `aria-label="明細の階層経路"` で区別。仕様が沈黙する2ケースを実装判断で補填（現在階層の子が0件→経路を保って空表示／`currentLevelKey` が編集で消滅→ルートへ派生的にフォールバックし副作用で state を書き戻さない。後者は 54.1 の選択範囲プルーニングと同じ「派生で無害化する」方針）。**申し送りは 54.4（viewMode の往復テスト）と 54.6（ドリルダウンの行導出を `visibleKeys` へ寄せる）の各タスクに直接記載した。**

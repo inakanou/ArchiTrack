@@ -3574,4 +3574,80 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
     });
   });
+
+  // =========================================================================
+  // ドリルダウン表示の現在階層と表の結線（Task 54.3）
+  // =========================================================================
+
+  /**
+   * 画面が `useEstimateNavigation` の現在階層と設定関数を**同一インスタンスとして**
+   * 表へ渡していることを検証する。
+   *
+   * `currentLevelKey` / `onCurrentLevelChange` のどちらか一方でも渡し忘れると、
+   * 型検査も既存テストも緑のまま実画面の階層下げ・階層上げ・経路クリックだけが
+   * 無反応になる（53.14 の死んだ `onDragStart` / `onDrop` と同じ沈黙する失敗）。
+   * そのため「設定関数を呼ぶ → 現在階層が変わる」という往復で結線を固定する。
+   *
+   * Requirements (estimate-creation):
+   * - 45.6: ドリルダウン表示では現在の階層に属する項目のみを一覧表示する
+   * - 45.7: 経路上の各階層へ戻る操作を提供する
+   * - 45.8 / 45.9: 階層下げ・階層上げで表示する階層を切り替える
+   */
+  describe('ドリルダウン表示の現在階層と表の結線 (45.6, 45.7, 45.8, 45.9)', () => {
+    const changeLevel = async (key: string | null): Promise<void> => {
+      const handler = capturedTableProps.onCurrentLevelChange;
+      // 画面が渡し忘れていれば関数ではない（この時点で失敗させる）
+      expect(typeof handler).toBe('function');
+      await act(async () => {
+        (handler as (key: string | null) => void)(key);
+      });
+    };
+
+    it('表へ渡した onCurrentLevelChange の呼び出しが同じ currentLevelKey に反映されること', async () => {
+      editorMode.useReal = true;
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+
+      // 初期状態はルート階層（表示状態フックの既定）
+      expect(capturedTableProps.currentLevelKey).toBeNull();
+
+      // 階層下げ・経路クリックの通知が現在階層へ往復する
+      await changeLevel('item-001');
+      expect(capturedTableProps.currentLevelKey).toBe('item-001');
+
+      // 階層上げでルート階層へ戻る
+      await changeLevel(null);
+      expect(capturedTableProps.currentLevelKey).toBeNull();
+    });
+
+    it('表示モードを表示状態フックから表へ渡していること（既定はツリー表示 / 45.2）', async () => {
+      editorMode.useReal = true;
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+
+      // 切替UIは 54.4 の担当。ここでは表示状態フックの既定値が表へ届くことのみ固定する
+      expect(capturedTableProps.viewMode).toBe('tree');
+    });
+
+    it('階層移動が編集状態（保存対象のツリー）を変えないこと (45.6)', async () => {
+      editorMode.useReal = true;
+      renderPage();
+
+      await waitFor(() => {
+        expect((capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[]).toHaveLength(1);
+      });
+      const before = capturedTableProps.items as EstimateItemHierarchyEdit[];
+
+      await changeLevel('item-001');
+
+      expect(capturedTableProps.items).toBe(before);
+      expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+    });
+  });
 });
