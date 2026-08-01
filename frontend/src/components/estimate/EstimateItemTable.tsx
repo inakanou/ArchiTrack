@@ -93,6 +93,13 @@ export interface EstimateItemTableProps {
   /** 選択中の項目ID */
   selectedItemId?: string | null;
   /**
+   * 範囲選択中の行キー（44.1）
+   *
+   * 所有者は `useEstimateNavigation`。キーボードの範囲選択（47.6）を
+   * 画面上のハイライトとして見せるためにモード別のサブコンポーネントへ渡す。
+   */
+  selectedKeys?: readonly NodeKey[];
+  /**
    * 明細の表示を当該項目まで移動する要求（46.5）
    *
    * 階層構造パネル（`EstimateHierarchyPanel`）で項目が選ばれたときに画面から渡る。
@@ -238,6 +245,7 @@ export function EstimateItemTable({
   collapsedKeys,
   onToggleCollapsed,
   selectedItemId,
+  selectedKeys,
   revealRequest = null,
   draggable = false,
   onItemSelect,
@@ -305,6 +313,7 @@ export function EstimateItemTable({
             currentLevelKey={currentLevelKey}
             onCurrentLevelChange={onCurrentLevelChange}
             selectedItemId={selectedItemId}
+            selectedKeys={selectedKeys}
             draggable={draggable}
             onItemSelect={onItemSelect}
             onDragStart={onDragStart}
@@ -318,6 +327,7 @@ export function EstimateItemTable({
             collapsedKeys={collapsedKeys}
             onToggleCollapsed={onToggleCollapsed}
             selectedItemId={selectedItemId}
+            selectedKeys={selectedKeys}
             draggable={draggable}
             onItemSelect={onItemSelect}
             onDragStart={onDragStart}

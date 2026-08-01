@@ -675,6 +675,27 @@ export function pathToDisplayRow<T>(
   return reversed.reverse();
 }
 
+/**
+ * 現在階層のキーを「実際に一覧できる階層」へ縮退させる（45.6）
+ *
+ * 編集で現在階層の項目そのものが消えると、そのキーの子は一件も引けない。
+ * このとき一覧を空にするのではなくルート階層へ落とす、という規則を
+ * **ドリルダウン表示（`EstimateItemDrilldownView`）と表示状態フック
+ * （`useEstimateNavigation.visibleKeys`）の双方が共有する**。
+ * 別々に実装すると「画面に見えている行」と「キー操作の対象行」が食い違う
+ * （54.3 のレビュー申し送り）。
+ *
+ * @param path 現在階層までの経路（{@link pathTo} / {@link pathToDisplayRow} の結果）。
+ *   空配列は「そのキーがツリーに無い」ことを表す
+ * @param currentLevelKey 現在階層のキー。`null` はルート階層
+ */
+export function resolveLevelKey(
+  path: readonly unknown[],
+  currentLevelKey: NodeKey | null
+): NodeKey | null {
+  return path.length === 0 ? null : currentLevelKey;
+}
+
 // ============================================================================
 // 集約オブジェクト
 // ============================================================================

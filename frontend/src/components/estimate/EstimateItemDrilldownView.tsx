@@ -44,8 +44,10 @@ import {
   flattenTreeForDisplay,
   isAggregatableChild,
   pathToDisplayRow,
+  resolveLevelKey,
 } from '../../domain/estimate/estimateTree';
 import type { DisplayRow, NodeKey } from '../../domain/estimate/estimateTree';
+import { ESTIMATE_ROW_KEY_ATTRIBUTE } from '../../domain/estimate/estimateKeymap';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 import type { EstimateLineChangeHandler, EstimateVisibleLineTypes } from './EstimateItemTreeView';
 
@@ -67,6 +69,13 @@ export interface EstimateItemDrilldownViewProps {
   onCurrentLevelChange?: (key: NodeKey | null) => void;
   /** 選択中の項目ID */
   selectedItemId?: string | null;
+  /**
+   * 範囲選択中の行キー（44.1）
+   *
+   * 所有者は `useEstimateNavigation`。キーボードの範囲選択（47.6）が
+   * 画面上で見えるように、単一選択（`selectedItemId`）と併せてハイライトする。
+   */
+  selectedKeys?: readonly NodeKey[];
   /** ドラッグ可能かどうか */
   draggable?: boolean;
   /** 項目選択コールバック */
@@ -91,6 +100,9 @@ export interface EstimateItemDrilldownViewProps {
  * `flattenTreeForDisplay` が集合オブジェクトの同一性でキャッシュするため共有する。
  */
 const NO_COLLAPSED_KEYS: ReadonlySet<NodeKey> = new Set<NodeKey>();
+
+/** 範囲選択なしを表す共有インスタンス */
+const NO_SELECTED_KEYS: readonly NodeKey[] = Object.freeze([]);
 
 /** 名称が未入力の項目を経路に出すときの表記 */
 const UNNAMED_ITEM_LABEL = '（名称未設定）';
@@ -202,7 +214,8 @@ function labelOf(item: EstimateItemHierarchyEdit): string {
 
 interface DrilldownRowProps {
   row: DisplayRow<EstimateItemHierarchyEdit>;
-  selectedItemId?: string | null;
+  /** この行が選択されているか（単一選択または範囲選択） */
+  isSelected: boolean;
   /** 行に付けるドラッグ関連の props（ドラッグ不可なら `draggable: false` のみ / 12.2） */
   dragProps: EstimateRowDragProps;
   onItemSelect?: (itemId: string) => void;
@@ -219,7 +232,7 @@ interface DrilldownRowProps {
  */
 function DrilldownRow({
   row,
-  selectedItemId,
+  isSelected,
   dragProps,
   onItemSelect,
   onDrillDown,
@@ -230,7 +243,6 @@ function DrilldownRow({
 
   // 金額の集計対象になる子の有無（29.1 の単価編集ロックの判定 / 注記行は対象外 55.2）
   const hasAggregatableChildren = item.children.some(isAggregatableChild);
-  const isSelected = selectedItemId === item.id;
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -253,11 +265,16 @@ function DrilldownRow({
     paddingLeft: '0px',
   };
 
+  // キー操作の対象行はフォーカス位置から引く（54.6 / `estimateKeymap`）
+  const rowKeyProps = { [ESTIMATE_ROW_KEY_ATTRIBUTE]: key };
+
   return (
     <div
       style={wrapperStyle}
       data-testid={`estimate-item-${item.id}`}
       data-selected={isSelected.toString()}
+      {...rowKeyProps}
+      tabIndex={-1}
       onClick={handleClick}
       {...dragProps}
     >
@@ -304,6 +321,7 @@ export function EstimateItemDrilldownView({
   currentLevelKey = null,
   onCurrentLevelChange,
   selectedItemId,
+  selectedKeys = NO_SELECTED_KEYS,
   draggable = false,
   onItemSelect,
   onDragStart,
@@ -324,9 +342,12 @@ export function EstimateItemDrilldownView({
    * 実際に一覧する階層
    *
    * 現在階層のキーがツリーに存在しない（編集で削除された等）場合は
-   * 経路が空になるため、ルート階層へ落とす。
+   * 経路が空になるため、ルート階層へ落とす。この規則は
+   * `useEstimateNavigation.visibleKeys`（＝キー操作の対象行の導出元）と
+   * **同一の関数**を用いる。別実装にすると画面の一覧とキー操作の対象が
+   * 食い違う（54.3 のレビュー申し送り / 54.6 で解消）。
    */
-  const effectiveLevelKey = path.length === 0 ? null : currentLevelKey;
+  const effectiveLevelKey = resolveLevelKey(path, currentLevelKey);
 
   // 現在の階層に属する項目のみ（45.6）
   const levelRows = useMemo(
@@ -356,6 +377,8 @@ export function EstimateItemDrilldownView({
     [onCurrentLevelChange]
   );
 
+  const selectedKeySet = useMemo(() => new Set<NodeKey>(selectedKeys), [selectedKeys]);
+
   // ドラッグ&ドロップの配線（12.2）。ツリー表示と同一の実装を用いる。
   const getRowDragProps = useEstimateRowDrag({ draggable, onDragStart, onDrop });
 
@@ -379,7 +402,7 @@ export function EstimateItemDrilldownView({
           <DrilldownRow
             key={row.key}
             row={row}
-            selectedItemId={selectedItemId}
+            isSelected={selectedItemId === row.item.id || selectedKeySet.has(row.key)}
             dragProps={getRowDragProps(row.item.id)}
             onItemSelect={onItemSelect}
             onDrillDown={handleDrillDown}

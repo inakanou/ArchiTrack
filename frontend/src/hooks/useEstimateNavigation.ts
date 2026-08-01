@@ -44,7 +44,13 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { childrenOf, flattenForGrid, nodeKeyOf, pathTo } from '../domain/estimate/estimateTree';
+import {
+  childrenOf,
+  flattenForGrid,
+  nodeKeyOf,
+  pathTo,
+  resolveLevelKey,
+} from '../domain/estimate/estimateTree';
 import type {
   EditableItem,
   EditableLineField,
@@ -215,7 +221,14 @@ export function useEstimateNavigation(
    */
   const visibleKeys = useMemo<readonly NodeKey[]>(() => {
     if (viewMode === 'drilldown') {
-      return childrenOf(items, currentLevelKey).map(nodeKeyOf);
+      // 現在階層が編集で消えた場合はドリルダウン表示と同じくルート階層へ落とす。
+      // ここを `currentLevelKey` のままにすると画面はルート階層を一覧しているのに
+      // 表示対象が空になり、キー操作の対象行が画面と食い違う（54.3 申し送り）。
+      const effectiveLevelKey =
+        currentLevelKey === null
+          ? null
+          : resolveLevelKey(pathTo(items, currentLevelKey), currentLevelKey);
+      return childrenOf(items, effectiveLevelKey).map(nodeKeyOf);
     }
     return flattenForGrid(items, collapsedKeys).map((row) => row.key);
   }, [items, viewMode, currentLevelKey, collapsedKeys]);

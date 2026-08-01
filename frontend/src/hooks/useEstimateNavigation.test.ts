@@ -132,6 +132,32 @@ describe('useEstimateNavigation', () => {
       expect(result.current.visibleKeys).toEqual(['item-a1', 'item-a2']);
     });
 
+    /**
+     * 54.3 のレビュー申し送り: `EstimateItemDrilldownView` は現在階層のキーが
+     * ツリーに無い場合（編集で削除された等）ルート階層へ落として一覧する。
+     * 本フックの `visibleKeys` が空を返すと、画面に見えている行とキー操作の
+     * 対象行（54.6 は `visibleKeys` を基準に動く）が食い違う。
+     *
+     * @requirement estimate-creation/REQ-45.6
+     */
+    it('現在階層の項目が編集で消えた場合はビューと同じくルート階層を表示対象にする', () => {
+      const { result, rerender } = renderHook(
+        ({ items }) => useEstimateNavigation({ items, initialViewMode: 'drilldown' }),
+        { initialProps: { items: createTree() } }
+      );
+
+      act(() => {
+        result.current.setCurrentLevelKey('item-a');
+      });
+      expect(result.current.visibleKeys).toEqual(['item-a1', 'item-a2']);
+
+      // item-a を削除した編集結果を流し込む（現在階層のキーが陳腐化する）
+      rerender({ items: [createItem('item-b', 'B'), createItem('item-c', 'C')] });
+
+      expect(result.current.currentLevelKey).toBe('item-a');
+      expect(result.current.visibleKeys).toEqual(['item-b', 'item-c']);
+    });
+
     /** @requirement estimate-creation/REQ-45.3 */
     it('ツリー表示では現在階層に関わらず全階層が表示対象になる', () => {
       const { result } = renderHook(() => useEstimateNavigation({ items: createTree() }));

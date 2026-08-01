@@ -39,6 +39,8 @@
 
 import { useCallback, useMemo } from 'react';
 import { flattenTreeForDisplay, toHierarchyNodes } from '../../domain/estimate/estimateTree';
+// キー操作の文脈判定（`hierarchyPanel`）に使う目印（54.6 / `estimateKeymap`）
+import { ESTIMATE_HIERARCHY_PANEL_ATTRIBUTE } from '../../domain/estimate/estimateKeymap';
 import type {
   DisplayRow,
   EditableItem,
@@ -332,6 +334,7 @@ export function EstimateHierarchyPanel({
     <section
       aria-label={ESTIMATE_HIERARCHY_PANEL_LABEL}
       data-testid="estimate-hierarchy-panel"
+      {...{ [ESTIMATE_HIERARCHY_PANEL_ATTRIBUTE]: 'true' }}
       style={styles.panel}
     >
       <div style={styles.header}>

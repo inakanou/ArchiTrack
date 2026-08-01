@@ -61,6 +61,7 @@ import {
 import type { EstimateRowRevealRequest } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
 import { useEstimateNavigation } from '../hooks/useEstimateNavigation';
+import { useEstimateKeyboard } from '../hooks/useEstimateKeyboard';
 import type { EstimateViewMode } from '../hooks/useEstimateNavigation';
 import type { NodeKey } from '../domain/estimate/estimateTree';
 import { useEstimateViewModePreference } from '../hooks/useEstimateViewModePreference';
@@ -809,6 +810,67 @@ export default function EstimateDetailPage() {
     },
     [setNavigationViewMode, setNavigationLevelKey, persistViewMode]
   );
+
+  /**
+   * キー操作による行選択（44.1, 47.1）
+   *
+   * 明細行のハイライトとツールバーの操作対象は画面が持つ `selectedItemId` が
+   * 駆動しているため、表示状態フックの選択と併せて更新する。
+   * 選択の所有者を表示状態フックへ一本化するのは 54.10 の範囲。
+   */
+  const { selectSingle: selectSingleRow, clearSelection: clearRowSelection } = navigation;
+  const handleKeyboardSelect = useCallback(
+    (key: NodeKey): void => {
+      selectSingleRow(key);
+      setSelectedItemId(key);
+    },
+    [selectSingleRow]
+  );
+
+  /** キー操作による選択解除（44.2, 47.7） */
+  const handleKeyboardClearSelection = useCallback((): void => {
+    clearRowSelection();
+    setSelectedItemId(null);
+  }, [clearRowSelection]);
+
+  /**
+   * キー操作の配線（47.1〜47.8）
+   *
+   * キーの条件分岐は `estimateKeymap`（単一定義）が持ち、画面はコマンドの
+   * 実行先を渡すだけ。行操作はいずれもローカル操作で、サーバーへの保存を
+   * 伴わない（47.8）。
+   */
+  const keyboardCommands = useMemo(
+    () => ({
+      insertRowAfter: editor.insertRowAfter,
+      deleteRows: editor.deleteRows,
+      duplicateRows: editor.duplicateRows,
+      indentRange: editor.indentRange,
+      outdentRange: editor.outdentRange,
+    }),
+    [
+      editor.insertRowAfter,
+      editor.deleteRows,
+      editor.duplicateRows,
+      editor.indentRange,
+      editor.outdentRange,
+    ]
+  );
+
+  const keyboard = useEstimateKeyboard({
+    items: editor.editState.items,
+    viewMode: navigation.viewMode,
+    currentLevelKey: navigation.currentLevelKey,
+    visibleKeys: navigation.visibleKeys,
+    selectedKeys: navigation.selectedKeys,
+    cursorKey: navigation.cursor?.key ?? null,
+    commands: keyboardCommands,
+    onSelectSingle: handleKeyboardSelect,
+    onExtendSelectionTo: navigation.extendSelectionTo,
+    onClearSelection: handleKeyboardClearSelection,
+    onViewModeChange: handleViewModeChange,
+    onCurrentLevelChange: navigation.setCurrentLevelKey,
+  });
 
   /**
    * 階層構造パネルで項目が選ばれたとき（46.5）
@@ -1579,7 +1641,11 @@ export default function EstimateDetailPage() {
             パネルの折りたたみ状態は明細テーブルと同じ `navigation.collapsedKeys`
             を共有するため、両者の展開状態が食い違わない。
           */}
-          <div style={styles.itemsLayout}>
+          {/*
+            キー操作の受け口（47.1〜47.8）。階層構造パネルと明細テーブルの双方を
+            含む領域に置くことで、パネル上のキー操作も同じ割当で解決できる。
+          */}
+          <div style={styles.itemsLayout} {...keyboard.keyboardProps}>
             {isHierarchyPanelVisible && (
               <EstimateHierarchyPanel
                 items={editor.editState.items}
@@ -1603,6 +1669,7 @@ export default function EstimateDetailPage() {
                 onCurrentLevelChange={navigation.setCurrentLevelKey}
                 onDrop={editor.reorderItems}
                 selectedItemId={selectedItemId}
+                selectedKeys={navigation.selectedKeys}
                 revealRequest={rowRevealRequest}
                 onItemSelect={setSelectedItemId}
                 visibleLineTypes={visibleLineTypes}

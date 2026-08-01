@@ -34,6 +34,7 @@ import { EstimateItemRow } from './EstimateItemRow';
 import { useEstimateRowDrag } from './useEstimateRowDrag';
 import type { EstimateRowDragProps } from './useEstimateRowDrag';
 import { flattenTreeForDisplay, isAggregatableChild } from '../../domain/estimate/estimateTree';
+import { ESTIMATE_ROW_KEY_ATTRIBUTE } from '../../domain/estimate/estimateKeymap';
 import type { DisplayRow, NodeKey } from '../../domain/estimate/estimateTree';
 import type {
   EstimateItemHierarchyEdit,
@@ -71,6 +72,13 @@ export interface EstimateItemTreeViewProps {
   onToggleCollapsed?: (key: NodeKey) => void;
   /** 選択中の項目ID */
   selectedItemId?: string | null;
+  /**
+   * 範囲選択中の行キー（44.1）
+   *
+   * 所有者は `useEstimateNavigation`。キーボードの範囲選択（47.6）が
+   * 画面上で見えるように、単一選択（`selectedItemId`）と併せてハイライトする。
+   */
+  selectedKeys?: readonly NodeKey[];
   /** ドラッグ可能かどうか */
   draggable?: boolean;
   /** 項目選択コールバック */
@@ -94,6 +102,9 @@ const INDENT_WIDTH_PX = 16;
 
 /** 折りたたみなしを表す共有インスタンス（参照の同一性を保つため毎回生成しない） */
 const NO_COLLAPSED_KEYS: ReadonlySet<NodeKey> = new Set<NodeKey>();
+
+/** 範囲選択なしを表す共有インスタンス */
+const NO_SELECTED_KEYS: readonly NodeKey[] = Object.freeze([]);
 
 const styles = {
   itemWrapper: {
@@ -153,7 +164,8 @@ function ChevronIcon({ isExpanded }: { isExpanded: boolean }) {
 
 interface TreeRowProps {
   row: DisplayRow<EstimateItemHierarchyEdit>;
-  selectedItemId?: string | null;
+  /** この行が選択されているか（単一選択または範囲選択） */
+  isSelected: boolean;
   /** 行に付けるドラッグ関連の props（ドラッグ不可なら `draggable: false` のみ / 12.2） */
   dragProps: EstimateRowDragProps;
   onItemSelect?: (itemId: string) => void;
@@ -170,7 +182,7 @@ interface TreeRowProps {
  */
 function TreeRow({
   row,
-  selectedItemId,
+  isSelected,
   dragProps,
   onItemSelect,
   onToggleCollapsed,
@@ -185,7 +197,6 @@ function TreeRow({
   // `estimateTree.recalculateAncestorAmounts` が葉として自身の金額を保持する。
   // ここを `hasChildren` で判定すると、金額は導出されないのに単価だけ編集不可になる。
   const hasAggregatableChildren = item.children.some(isAggregatableChild);
-  const isSelected = selectedItemId === item.id;
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -208,11 +219,17 @@ function TreeRow({
     paddingLeft: `${depth * INDENT_WIDTH_PX}px`,
   };
 
+  // キー操作の対象行はフォーカス位置から引く（54.6 / `estimateKeymap`）。
+  // 行そのものへフォーカスできないと、セルを抜けた後のキー操作が行へ届かない。
+  const rowKeyProps = { [ESTIMATE_ROW_KEY_ATTRIBUTE]: key };
+
   return (
     <div
       style={wrapperStyle}
       data-testid={`estimate-item-${item.id}`}
       data-selected={isSelected.toString()}
+      {...rowKeyProps}
+      tabIndex={-1}
       onClick={handleClick}
       {...dragProps}
     >
@@ -263,6 +280,7 @@ export function EstimateItemTreeView({
   collapsedKeys = NO_COLLAPSED_KEYS,
   onToggleCollapsed,
   selectedItemId,
+  selectedKeys = NO_SELECTED_KEYS,
   draggable = false,
   onItemSelect,
   onDragStart,
@@ -276,6 +294,8 @@ export function EstimateItemTreeView({
     [items, collapsedKeys]
   );
 
+  const selectedKeySet = useMemo(() => new Set<NodeKey>(selectedKeys), [selectedKeys]);
+
   // ドラッグ&ドロップの配線（12.2）。ドリルダウン表示と同一の実装を用いる。
   const getRowDragProps = useEstimateRowDrag({ draggable, onDragStart, onDrop });
 
@@ -285,7 +305,7 @@ export function EstimateItemTreeView({
         <TreeRow
           key={row.key}
           row={row}
-          selectedItemId={selectedItemId}
+          isSelected={selectedItemId === row.item.id || selectedKeySet.has(row.key)}
           dragProps={getRowDragProps(row.item.id)}
           onItemSelect={onItemSelect}
           onToggleCollapsed={onToggleCollapsed}

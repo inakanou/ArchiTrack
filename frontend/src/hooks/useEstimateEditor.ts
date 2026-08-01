@@ -39,11 +39,12 @@
  * `collapsedKeys` / `toggleExpanded` を撤去済み。
  *
  * 後続タスクへの申し送り:
- * - 範囲操作（`indentRange` / `outdentRange`）は本フックが公開していない。
- *   これらを公開する 54.10 は、reducer が `keys` を並べ替えない（design.md
- *   `##### estimateEditReducer` > Preconditions）ため、**表示順（先行順）**の
- *   キー列を渡す責務を負う。順序は `estimateTree.flattenForGrid(items, collapsedKeys)`
- *   の並びから導出すること（本モジュールの `reorderByItemIds` と同じ導出）。
+ * - 範囲操作（`indentRange` / `outdentRange` / `deleteRows` / `duplicateRows`）は
+ *   54.6（キーボードの範囲操作 / 47.6）で公開済み。reducer は `keys` を並べ替えない
+ *   （design.md `##### estimateEditReducer` > Preconditions）ため、呼び出し側が
+ *   **表示順（先行順）**のキー列を渡す責務を負う。順序は
+ *   `useEstimateNavigation.selectedKeys`（＝`flattenForGrid` 由来の表示順）から得る。
+ *   ツールバーへ範囲操作を出す 54.10 も同じ関数を用いること。
  * - 保存経路（`saveEstimateDraft` の1回呼び出し・応答反映・競合検出）は
  *   `EstimateDetailPage` が `onSave` として注入する（53.5）。本モジュールは
  *   API モジュールを import せず、応答の反映のみを担う。
@@ -73,6 +74,7 @@ import type {
 import {
   flattenForGrid,
   nodeKeyOf,
+  pathTo,
   recalculateAncestorAmounts,
 } from '../domain/estimate/estimateTree';
 
@@ -341,14 +343,63 @@ export interface UseEstimateEditorResult {
   addNoteItem: (position?: EstimateNoteInsertPosition) => void;
 
   /**
+   * 指定した項目の直後へ同一階層の項目を挿入（ローカル操作）
+   *
+   * 親は基準行の親を引き継ぐ。キーボードの行挿入（47.1）が「いま居る行の次」へ
+   * 挿入するため、親の解決を画面側で再実装せずに済むよう本フックが担う。
+   * 基準行がツリーに無い場合はルート階層の末尾へ追加する。
+   *
+   * Requirements (estimate-creation):
+   * - 12.1: 見積項目の追加は3行1セットを作成する
+   * - 43.1: 行の挿入をサーバーへの保存を伴わずに画面上の明細へ反映する
+   * - 47.1: キーボード操作のみで行の挿入を実行可能とする
+   */
+  insertRowAfter: (afterItemId: string) => void;
+
+  /**
    * 項目を削除（ローカル操作）
    */
   deleteItem: (itemId: string) => void;
 
   /**
+   * 複数の項目をまとめて削除（ローカル操作）
+   *
+   * 範囲選択に対する削除（47.6）で用いる。単一行の削除は {@link deleteItem}。
+   */
+  deleteRows: (itemIds: readonly string[]) => void;
+
+  /**
    * 項目を複製（ローカル操作）
    */
   duplicateItem: (itemId: string) => void;
+
+  /**
+   * 複数の項目をまとめて複写（ローカル操作）
+   *
+   * 範囲選択に対する複写（44.3, 47.6）で用いる。単一行の複写は {@link duplicateItem}。
+   */
+  duplicateRows: (itemIds: readonly string[]) => void;
+
+  /**
+   * 選択範囲の階層を1段下げる（ローカル操作）
+   *
+   * `itemIds` は**表示順（先行順）**で渡す契約（design.md `##### estimateEditReducer`
+   * の Preconditions）。2行以上では先頭行が親になり、残りがその子として配置される（44.4）。
+   *
+   * Requirements (estimate-creation):
+   * - 44.3, 44.4: 範囲選択に対する階層操作
+   * - 47.6: 範囲選択中に範囲固有のキーボード操作を有効にする
+   */
+  indentRange: (itemIds: readonly string[]) => void;
+
+  /**
+   * 選択範囲の階層を1段上げる（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 44.3, 44.5, 44.6: 範囲選択に対する階層操作
+   * - 47.6: 範囲選択中に範囲固有のキーボード操作を有効にする
+   */
+  outdentRange: (itemIds: readonly string[]) => void;
 
   /**
    * 変更を保存
@@ -833,6 +884,29 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
+   * 指定行の直後へ同一階層の項目を挿入（12.1, 43.1, 47.1）
+   *
+   * 挿入先の親は基準行の親。経路の導出はドメイン層（`estimateTree.pathTo`）に任せ、
+   * 画面側が親子関係を再実装しないようにする。
+   */
+  const insertRowAfter = useCallback(
+    (afterItemId: string): void => {
+      const path = pathTo(state.items, afterItemId);
+      if (path.length === 0) {
+        dispatch({ type: 'insertRow', afterKey: null, parentKey: null });
+        return;
+      }
+      const parent = path[path.length - 2];
+      dispatch({
+        type: 'insertRow',
+        afterKey: afterItemId,
+        parentKey: parent === undefined ? null : nodeKeyOf(parent),
+      });
+    },
+    [state.items]
+  );
+
+  /**
    * 項目を削除（12.3, 12.4, 43.6: 子孫もあわせて取り除く）
    */
   const deleteItem = useCallback((itemId: string): void => {
@@ -840,10 +914,24 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
+   * 複数の項目をまとめて削除（44.3, 47.6）
+   */
+  const deleteRows = useCallback((itemIds: readonly string[]): void => {
+    dispatch({ type: 'deleteRows', keys: itemIds });
+  }, []);
+
+  /**
    * 項目を複製（12.5）
    */
   const duplicateItem = useCallback((itemId: string): void => {
     dispatch({ type: 'duplicateRows', keys: [itemId] });
+  }, []);
+
+  /**
+   * 複数の項目をまとめて複写（12.5, 44.3, 47.6）
+   */
+  const duplicateRows = useCallback((itemIds: readonly string[]): void => {
+    dispatch({ type: 'duplicateRows', keys: itemIds });
   }, []);
 
   /**
@@ -864,24 +952,45 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
+   * 選択範囲の階層を1段下げる（12.6, 23.10, 43.1, 44.3, 44.4, 47.6）
+   *
+   * `itemIds` は表示順（先行順）で渡す契約（design.md `##### estimateEditReducer` の
+   * Preconditions）。順序を作るのは表示順を知る側（`useEstimateNavigation.selectedKeys`）。
+   */
+  const indentRange = useCallback((itemIds: readonly string[]): void => {
+    dispatch({ type: 'indentRange', keys: itemIds });
+  }, []);
+
+  /**
+   * 選択範囲の階層を1段上げる（12.6, 23.9, 43.1, 44.3, 44.5, 47.6）
+   */
+  const outdentRange = useCallback((itemIds: readonly string[]): void => {
+    dispatch({ type: 'outdentRange', keys: itemIds });
+  }, []);
+
+  /**
    * 階層を1段下げる（12.6, 23.10, 43.1）
    *
-   * 範囲選択UIは 54.10 のため、ここでは**単一行**の指示のみを扱う。
-   * `keys` は表示順（先行順）で渡す契約だが（design.md `##### estimateEditReducer` の
-   * Preconditions）、要素が1つのため順序は自明に満たされる。
+   * 単一行の指示。`keys` は表示順で渡す契約だが要素が1つのため自明に満たされる。
    */
-  const indentItem = useCallback((itemId: string): void => {
-    dispatch({ type: 'indentRange', keys: [itemId] });
-  }, []);
+  const indentItem = useCallback(
+    (itemId: string): void => {
+      indentRange([itemId]);
+    },
+    [indentRange]
+  );
 
   /**
    * 階層を1段上げる（12.6, 23.9, 43.1）
    *
    * `indentItem` と同じく単一行の指示のみを扱う。
    */
-  const outdentItem = useCallback((itemId: string): void => {
-    dispatch({ type: 'outdentRange', keys: [itemId] });
-  }, []);
+  const outdentItem = useCallback(
+    (itemId: string): void => {
+      outdentRange([itemId]);
+    },
+    [outdentRange]
+  );
 
   /**
    * 直近のエラー表示を消す
@@ -996,11 +1105,16 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     moveItem,
     indentItem,
     outdentItem,
+    indentRange,
+    outdentRange,
     addItem,
     addDiscountItem,
     addNoteItem,
+    insertRowAfter,
     deleteItem,
+    deleteRows,
     duplicateItem,
+    duplicateRows,
     save,
     discard,
     setItems,
