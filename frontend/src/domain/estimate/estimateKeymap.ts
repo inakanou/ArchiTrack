@@ -280,17 +280,30 @@ const ENTRIES: readonly KeymapEntry[] = [
 // 解決
 // ============================================================================
 
+/** 英字1文字か（割当・入力文字の双方の判定に用いる） */
+const SINGLE_LETTER = /^[a-z]$/i;
+
 /**
  * 押されたキーが割当と一致するか
  *
  * macOS の Option+英字は `event.key` が別の文字になる（`Alt+C` → `ç`）ため、
- * 英字1文字の割当は `event.code` でも照合する。
+ * 英字1文字の割当は `event.code`（物理キー）でも照合する。
+ *
+ * ただし**入力文字として英字が取れている場合は物理キーを見ない**。キー配列が
+ * 異なると英字と物理キーの対応がずれるため（QWERTZ の `Y` は物理キー `KeyZ`、
+ * AZERTY の `M` は `Semicolon`）、物理キーを併用すると押していない操作に
+ * 解決される。実際、`Ctrl+Y`（やり直し）は QWERTZ で `key='y'` / `code='KeyZ'`
+ * となり、割当の並び順（undo が redo より前）により「取り消し」へ解決されていた。
  */
 function keyMatches(entryKey: string, event: KeyboardEvent): boolean {
   if (event.key.toLowerCase() === entryKey.toLowerCase()) {
     return true;
   }
-  if (entryKey.length === 1 && /^[a-z]$/i.test(entryKey)) {
+  if (entryKey.length === 1 && SINGLE_LETTER.test(entryKey)) {
+    if (SINGLE_LETTER.test(event.key)) {
+      // 英字が取れているので、それが割当と違う以上この割当ではない
+      return false;
+    }
     return event.code === `Key${entryKey.toUpperCase()}`;
   }
   return false;

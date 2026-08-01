@@ -29,6 +29,9 @@
  * - 42.7: 保存操作が成功した場合に未保存の変更がない状態へ戻す
  * - 54.6: 別途工事・有効期限・提出日を見積書画面から編集する経路（`updateReportFields`）を提供する
  * - 54.8: 帳票用入力項目の変更を未保存の変更として扱う
+ * - 48.1, 48.8: 明細・帳票用入力項目を変更するすべての操作を、変更の直前に
+ *   `onBeforeChange` で通知する（取り消し履歴のスナップショット地点）
+ * - 48.5: `restoreState` で編集状態を丸ごと復元する（サーバーへの問い合わせを伴わない）
  * - 1.5: 合計行に全見積項目の金額合計を自動計算して表示する（`getTotalAmount`）
  * - 2.3: 子項目を持つ場合、親項目の金額を子項目の金額合計とする（reducer が毎遷移で再計算）
  * - 41.2, 41.3: 値引き行はプリセット値・見積金額行のみでルートレベルへ追加する
@@ -53,7 +56,7 @@
  * @module hooks/useEstimateEditor
  */
 
-import { useCallback, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Decimal from 'decimal.js';
 import {
   EMPTY_REPORT_FIELDS,
@@ -219,6 +222,37 @@ export interface UseEstimateEditorOptions {
    * 保存エラー時のコールバック
    */
   onSaveError?: (error: Error) => void;
+
+  /**
+   * 明細・帳票用入力項目を**変更する直前**に呼ばれる通知（48.1, 48.8）
+   *
+   * 取り消しの単位は state スナップショット（design.md `##### useEstimateUndo`）で
+   * あり、スナップショットは「遷移の直前の state」でなければならない。呼び出し元が
+   * 操作ごとに記録すると経路の追加時に取りこぼしが起きるため、遷移を起こす
+   * 唯一の場所である本フックが通知の責務を持つ。
+   *
+   * `save` / `discard` / `setItems` は取り消しの対象外のため通知しない
+   * （保存・破棄・読み込みは編集の履歴ではなく基準そのものの入れ替え）。
+   *
+   * @param label 操作の説明（履歴のデバッグ・ログ用）
+   */
+  onBeforeChange?: (label: string) => void;
+
+  /**
+   * 編集の基準（`baselineRef` と明細ツリー）を**丸ごと入れ替えた直後**に呼ばれる通知
+   * （48.7）
+   *
+   * `setItems` は読み込み・保存応答の反映・サーバー側書き込み後の再同期で呼ばれ、
+   * それまでの編集状態とは無関係な新しいツリーへ差し替える。取り消し履歴は差し替え前の
+   * ツリーを前提としたスナップショットのため、入れ替え後も残すと**別のツリーの状態へ
+   * 復元できてしまう**。とくにサーバー側書き込み（転記・案分・利益率適用・諸経費追加）の
+   * 再同期後にやり直しが残っていると、サーバーが作った行を含まない古いツリーへ戻り、
+   * 次の保存でその行が削除される（design.md `#### 保存ペイロードとDB状態の対応`）。
+   *
+   * 通知は基準を入れ替える唯一の場所である本フックが担う。呼び出し元の各経路
+   * （読み込み・再同期）で個別に破棄すると、経路の追加時に取りこぼす。
+   */
+  onBaselineReplaced?: () => void;
 }
 
 /**
@@ -420,6 +454,15 @@ export interface UseEstimateEditorResult {
    * 合計金額を取得
    */
   getTotalAmount: () => string;
+
+  /**
+   * 編集状態を丸ごと復元する（48.1, 48.2, 48.5）
+   *
+   * 取り消し・やり直しが保持していたスナップショットを差し戻すための経路。
+   * `isDirty` を含めてそのまま置き換えるため、サーバーへの問い合わせを伴わない。
+   * `onBeforeChange` は通知しない（復元自体は取り消しの対象ではない）。
+   */
+  restoreState: (state: EstimateEditState) => void;
 }
 
 // ============================================================================
@@ -637,6 +680,8 @@ function toViewTree(
 type EstimateEditorAction =
   | EstimateEditAction
   | { type: 'dismissError' }
+  /** 取り消し・やり直しが保持していた state をそのまま復元する（48.1, 48.2） */
+  | { type: 'restoreState'; state: EstimateEditState }
   | {
       type: 'updateLineByLineId';
       itemKey: NodeKey;
@@ -669,7 +714,7 @@ function findItemByKey(items: readonly EditableItem[], key: NodeKey): EditableIt
  */
 function resolveEditAction(
   state: EstimateEditState,
-  action: Exclude<EstimateEditorAction, { type: 'dismissError' }>
+  action: Exclude<EstimateEditorAction, { type: 'dismissError' } | { type: 'restoreState' }>
 ): EstimateEditAction | null {
   if (action.type === 'updateLineByLineId') {
     const item = findItemByKey(state.items, action.itemKey);
@@ -735,6 +780,12 @@ function estimateEditorReducer(
     return state.lastError === null ? state : { ...state, lastError: null };
   }
 
+  if (action.type === 'restoreState') {
+    // スナップショットは遷移の結果そのもの（祖先の集計金額も再計算済み）のため、
+    // 再計算も未保存判定もやり直さずそのまま採用する（48.5, 48.6）
+    return action.state;
+  }
+
   const resolved = resolveEditAction(state, action);
   if (resolved === null) {
     // 存在しない項目・行への指示は状態も直前のエラーも変えない
@@ -798,8 +849,47 @@ function initEditorState(init: EditorInit): EstimateEditState {
  * ```
  */
 export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimateEditorResult {
-  const { estimateId, initialItems, initialReportFields, onSave, onSaveSuccess, onSaveError } =
-    options;
+  const {
+    estimateId,
+    initialItems,
+    initialReportFields,
+    onSave,
+    onSaveSuccess,
+    onSaveError,
+    onBeforeChange,
+    onBaselineReplaced,
+  } = options;
+
+  /**
+   * 変更前の通知先（48.1）
+   *
+   * 各操作の `useCallback` の依存に入れると、通知先が描画ごとに変わる呼び出し元で
+   * 全操作の同一性が壊れる。参照に載せて同一性を保つ。
+   */
+  const onBeforeChangeRef = useRef(onBeforeChange);
+  useEffect(() => {
+    onBeforeChangeRef.current = onBeforeChange;
+  });
+
+  /** 変更の直前に通知する（取り消し履歴へスナップショットを積ませる） */
+  const recordChange = useCallback((label: string): void => {
+    onBeforeChangeRef.current?.(label);
+  }, []);
+
+  /**
+   * 基準の入れ替え後の通知先（48.7）
+   *
+   * `onBeforeChangeRef` と同じ理由で参照に載せ、`setItems` の同一性を保つ。
+   */
+  const onBaselineReplacedRef = useRef(onBaselineReplaced);
+  useEffect(() => {
+    onBaselineReplacedRef.current = onBaselineReplaced;
+  });
+
+  /** 基準の入れ替え直後に通知する（取り消し履歴を破棄させる） */
+  const notifyBaselineReplaced = useCallback((): void => {
+    onBaselineReplacedRef.current?.();
+  }, []);
 
   // ドメイン層が保持しない付随情報（サーバー由来の日時・転記元行の参照）
   const metaRef = useRef<EstimateItemMetaMap>(new Map());
@@ -840,6 +930,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
       if (!EDITABLE_LINE_FIELDS.has(field)) {
         return;
       }
+      recordChange('セルの編集');
       dispatch({
         type: 'updateLineByLineId',
         itemKey: itemId,
@@ -848,40 +939,53 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
         value,
       });
     },
-    []
+    [recordChange]
   );
 
   /**
    * 帳票用入力項目を更新（54.6, 54.8）
    */
-  const updateReportFields = useCallback((fields: EstimateReportFields): void => {
-    dispatch({ type: 'updateReportFields', fields });
-  }, []);
+  const updateReportFields = useCallback(
+    (fields: EstimateReportFields): void => {
+      recordChange('帳票用入力項目の編集');
+      dispatch({ type: 'updateReportFields', fields });
+    },
+    [recordChange]
+  );
 
   /**
    * 項目を追加（12.1）
    */
-  const addItem = useCallback((parentId?: string): void => {
-    dispatch({ type: 'insertRow', afterKey: null, parentKey: parentId ?? null });
-  }, []);
+  const addItem = useCallback(
+    (parentId?: string): void => {
+      recordChange('項目の追加');
+      dispatch({ type: 'insertRow', afterKey: null, parentKey: parentId ?? null });
+    },
+    [recordChange]
+  );
 
   /**
    * 値引き行を追加（41.2, 41.3, 41.11）
    */
   const addDiscountItem = useCallback((): void => {
+    recordChange('値引き行の追加');
     dispatch({ type: 'insertDiscountRow' });
-  }, []);
+  }, [recordChange]);
 
   /**
    * 注記行を追加（55.1, 55.3）
    */
-  const addNoteItem = useCallback((position?: EstimateNoteInsertPosition): void => {
-    dispatch({
-      type: 'insertNoteRow',
-      parentKey: position?.parentId ?? null,
-      afterKey: position?.afterId ?? null,
-    });
-  }, []);
+  const addNoteItem = useCallback(
+    (position?: EstimateNoteInsertPosition): void => {
+      recordChange('注記行の追加');
+      dispatch({
+        type: 'insertNoteRow',
+        parentKey: position?.parentId ?? null,
+        afterKey: position?.afterId ?? null,
+      });
+    },
+    [recordChange]
+  );
 
   /**
    * 指定行の直後へ同一階層の項目を挿入（12.1, 43.1, 47.1）
@@ -891,6 +995,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
    */
   const insertRowAfter = useCallback(
     (afterItemId: string): void => {
+      recordChange('行の挿入');
       const path = pathTo(state.items, afterItemId);
       if (path.length === 0) {
         dispatch({ type: 'insertRow', afterKey: null, parentKey: null });
@@ -903,36 +1008,52 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
         parentKey: parent === undefined ? null : nodeKeyOf(parent),
       });
     },
-    [state.items]
+    [state.items, recordChange]
   );
 
   /**
    * 項目を削除（12.3, 12.4, 43.6: 子孫もあわせて取り除く）
    */
-  const deleteItem = useCallback((itemId: string): void => {
-    dispatch({ type: 'deleteRows', keys: [itemId] });
-  }, []);
+  const deleteItem = useCallback(
+    (itemId: string): void => {
+      recordChange('行の削除');
+      dispatch({ type: 'deleteRows', keys: [itemId] });
+    },
+    [recordChange]
+  );
 
   /**
    * 複数の項目をまとめて削除（44.3, 47.6）
    */
-  const deleteRows = useCallback((itemIds: readonly string[]): void => {
-    dispatch({ type: 'deleteRows', keys: itemIds });
-  }, []);
+  const deleteRows = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('行の削除');
+      dispatch({ type: 'deleteRows', keys: itemIds });
+    },
+    [recordChange]
+  );
 
   /**
    * 項目を複製（12.5）
    */
-  const duplicateItem = useCallback((itemId: string): void => {
-    dispatch({ type: 'duplicateRows', keys: [itemId] });
-  }, []);
+  const duplicateItem = useCallback(
+    (itemId: string): void => {
+      recordChange('行の複写');
+      dispatch({ type: 'duplicateRows', keys: [itemId] });
+    },
+    [recordChange]
+  );
 
   /**
    * 複数の項目をまとめて複写（12.5, 44.3, 47.6）
    */
-  const duplicateRows = useCallback((itemIds: readonly string[]): void => {
-    dispatch({ type: 'duplicateRows', keys: itemIds });
-  }, []);
+  const duplicateRows = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('行の複写');
+      dispatch({ type: 'duplicateRows', keys: itemIds });
+    },
+    [recordChange]
+  );
 
   /**
    * 項目を並び替え（12.2）
@@ -940,16 +1061,24 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
    * 並び替えは他の行操作と同じく state の遷移として記録されるため、
    * 保存対象に含まれる（旧実装のドラッグ操作は差分に本体を持たず永続化されなかった）。
    */
-  const reorderItems = useCallback((sourceId: string, targetId: string): void => {
-    dispatch({ type: 'reorderByItemIds', sourceKey: sourceId, targetKey: targetId });
-  }, []);
+  const reorderItems = useCallback(
+    (sourceId: string, targetId: string): void => {
+      recordChange('並び替え');
+      dispatch({ type: 'reorderByItemIds', sourceKey: sourceId, targetKey: targetId });
+    },
+    [recordChange]
+  );
 
   /**
    * 同一階層内で1つ上/下へ移動（43.1）
    */
-  const moveItem = useCallback((itemId: string, direction: 'up' | 'down'): void => {
-    dispatch({ type: 'moveRow', key: itemId, direction });
-  }, []);
+  const moveItem = useCallback(
+    (itemId: string, direction: 'up' | 'down'): void => {
+      recordChange('行の移動');
+      dispatch({ type: 'moveRow', key: itemId, direction });
+    },
+    [recordChange]
+  );
 
   /**
    * 選択範囲の階層を1段下げる（12.6, 23.10, 43.1, 44.3, 44.4, 47.6）
@@ -957,16 +1086,24 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
    * `itemIds` は表示順（先行順）で渡す契約（design.md `##### estimateEditReducer` の
    * Preconditions）。順序を作るのは表示順を知る側（`useEstimateNavigation.selectedKeys`）。
    */
-  const indentRange = useCallback((itemIds: readonly string[]): void => {
-    dispatch({ type: 'indentRange', keys: itemIds });
-  }, []);
+  const indentRange = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('階層を下げる');
+      dispatch({ type: 'indentRange', keys: itemIds });
+    },
+    [recordChange]
+  );
 
   /**
    * 選択範囲の階層を1段上げる（12.6, 23.9, 43.1, 44.3, 44.5, 47.6）
    */
-  const outdentRange = useCallback((itemIds: readonly string[]): void => {
-    dispatch({ type: 'outdentRange', keys: itemIds });
-  }, []);
+  const outdentRange = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('階層を上げる');
+      dispatch({ type: 'outdentRange', keys: itemIds });
+    },
+    [recordChange]
+  );
 
   /**
    * 階層を1段下げる（12.6, 23.10, 43.1）
@@ -1000,7 +1137,10 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   }, []);
 
   /**
-   * 外部から項目を設定（読み込み・保存応答の反映）
+   * 外部から項目を設定（読み込み・保存応答の反映・サーバー側書き込み後の再同期）
+   *
+   * 基準（`baselineRef`）ごと差し替えるため、差し替え前のツリーを前提とした取り消し履歴は
+   * この時点で無効になる。`onBaselineReplaced` で破棄を促す（48.7）。
    */
   const setItems = useCallback(
     (newItems: EstimateItemHierarchyEdit[], reportFields?: EstimateReportFields): void => {
@@ -1012,8 +1152,9 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
         reportFields: reportFields ?? baselineRef.current.reportFields,
       };
       dispatch({ type: 'setItems', items: converted, reportFields });
+      notifyBaselineReplaced();
     },
-    []
+    [notifyBaselineReplaced]
   );
 
   /**
@@ -1049,6 +1190,8 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
         // 応答を返さない呼び出し元は送信内容をそのまま確定済みとして扱う
         baselineRef.current = payload;
         dispatch({ type: 'setItems', items: payload.items, reportFields: payload.reportFields });
+        // `setItems` を通らない経路でも基準を入れ替えたことに変わりはない（48.7）
+        notifyBaselineReplaced();
       }
       onSaveSuccess?.();
     } catch (error) {
@@ -1058,7 +1201,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     } finally {
       setIsSaving(false);
     }
-  }, [state, onSave, onSaveSuccess, onSaveError, setItems]);
+  }, [state, onSave, onSaveSuccess, onSaveError, setItems, notifyBaselineReplaced]);
 
   /**
    * 変更を破棄
@@ -1066,6 +1209,13 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   const discard = useCallback((): void => {
     const baseline = baselineRef.current;
     dispatch({ type: 'setItems', items: baseline.items, reportFields: baseline.reportFields });
+  }, []);
+
+  /**
+   * 編集状態を丸ごと復元する（48.1, 48.2, 48.5）
+   */
+  const restoreState = useCallback((next: EstimateEditState): void => {
+    dispatch({ type: 'restoreState', state: next });
   }, []);
 
   /**
@@ -1119,6 +1269,7 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     discard,
     setItems,
     getTotalAmount,
+    restoreState,
   };
 }
 

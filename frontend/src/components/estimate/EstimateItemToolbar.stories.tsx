@@ -46,6 +46,11 @@ const meta = {
     // 階層表示モードの切替（45.1, 45.2）
     viewMode: 'tree',
     onViewModeChange: fn(),
+    // 取り消し・やり直し（48.1, 48.2, 48.4）
+    canUndo: false,
+    canRedo: false,
+    onUndo: fn(),
+    onRedo: fn(),
   },
 } satisfies Meta<typeof EstimateItemToolbar>;
 

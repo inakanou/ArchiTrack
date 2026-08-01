@@ -27,13 +27,14 @@
  * - 47.6: 範囲選択中に固有のキーボード操作を有効にする
  * - 47.7: 範囲選択解除の操作で範囲選択を解除する
  * - 47.8: キー操作による行操作はサーバーへの保存を伴わずに画面上の明細を更新する
+ * - 48.1, 48.2: 取り消し・やり直しをキー操作から実行する（Task 54.8）
  *
  * Design: design.md `##### estimateKeymap`（:4086-4120）
  *
- * 後続タスクへの申し送り:
- * - `undo` / `redo` は割当だけを定義し、**本フックでは実行しない**（54.8 が
- *   `useEstimateUndo` として配線する）。解決しても `preventDefault` せずに
- *   素通しするため、既存の取り消し経路と二重に発火しない。
+ * 取り消し・やり直し（48.1, 48.2 / Task 54.8）は `onUndo` / `onRedo` として
+ * 受け取り、解決できたキーは `preventDefault` する。画面にはこれ以外の取り消し
+ * 経路（`useUndoKeyboardShortcuts` などの window リスナ）を置かないため、
+ * 二重発火しない。
  *
  * @module hooks/useEstimateKeyboard
  */
@@ -98,6 +99,14 @@ export interface UseEstimateKeyboardOptions {
   onViewModeChange: (mode: EstimateViewMode) => void;
   /** ドリルダウン表示の現在階層の変更（45.8, 45.9） */
   onCurrentLevelChange: (key: NodeKey | null) => void;
+  /**
+   * 直前の編集を取り消す（48.1）
+   *
+   * 省略可能にすると配線漏れが型で検出できないため必須とする。
+   */
+  onUndo: () => void;
+  /** 取り消した編集をやり直す（48.2） */
+  onRedo: () => void;
   /** キー操作を有効にするか（既定は有効） */
   enabled?: boolean;
 }
@@ -176,6 +185,8 @@ export function useEstimateKeyboard(
     onClearSelection,
     onViewModeChange,
     onCurrentLevelChange,
+    onUndo,
+    onRedo,
     enabled = true,
   } = options;
 
@@ -347,10 +358,20 @@ export function useEstimateKeyboard(
             return true;
           }
 
-          // --- 取り消し・やり直しは 54.8 が配線する（ここでは横取りしない） ---
-          case 'undo':
-          case 'redo':
-            return false;
+          // --- 取り消し・やり直し（48.1, 48.2） -----------------------------
+          //
+          // 解決できた時点で `preventDefault` する（呼び出し元が `true` を受けて
+          // 止める）。止めないとブラウザ標準の取り消しが同じキーで重ねて働き、
+          // 明細の取り消しとセルの文字取り消しが同時に起きる。文字入力中は
+          // `cellEditing` に割当が無いためここへ来ない（47.5）。
+          case 'undo': {
+            onUndo();
+            return true;
+          }
+          case 'redo': {
+            onRedo();
+            return true;
+          }
         }
       };
 
@@ -374,6 +395,8 @@ export function useEstimateKeyboard(
       onClearSelection,
       onViewModeChange,
       onCurrentLevelChange,
+      onUndo,
+      onRedo,
     ]
   );
 

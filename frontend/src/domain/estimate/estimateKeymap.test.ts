@@ -242,6 +242,56 @@ describe('ESTIMATE_KEYMAP.entries', () => {
       'redo'
     );
   });
+
+  /**
+   * 物理キー（`event.code`）のフォールバックは**英字が取れないときだけ**使う。
+   *
+   * QWERTZ 配列では `Ctrl+Y` が `key='y'` / `code='KeyZ'` になる。`code` を無条件に
+   * 見ると、割当の並び順（undo が redo より前）により「やり直し」が「取り消し」へ
+   * 解決され、押していない操作が起きる（54.6 のレビュー指摘 / Task 54.8 で修正）。
+   * AZERTY・Dvorak でも同じ機序で `toggleViewMode` / `duplicateCell` が誤発火する。
+   *
+   * @requirement estimate-creation/REQ-47.4
+   */
+  it('英字キーは配列差の物理キーではなく入力文字で解決すること (47.4)', () => {
+    // QWERTZ: Ctrl+Y（物理キーは KeyZ）
+    expect(
+      ESTIMATE_KEYMAP.resolve(press('y', { modifiers: ['ctrl'], code: 'KeyZ' }), 'rowSelected')
+    ).toBe('redo');
+
+    // QWERTZ: Ctrl+Z（物理キーは KeyY）
+    expect(
+      ESTIMATE_KEYMAP.resolve(press('z', { modifiers: ['ctrl'], code: 'KeyY' }), 'rowSelected')
+    ).toBe('undo');
+
+    // AZERTY: Alt+M（物理キーは Semicolon）は表示モード切替のまま
+    expect(
+      ESTIMATE_KEYMAP.resolve(press('m', { modifiers: ['alt'], code: 'Semicolon' }), 'rowSelected')
+    ).toBe('toggleViewMode');
+
+    // 割当の無い英字は、別の割当の物理キーと重なっても何も解決しない
+    expect(
+      ESTIMATE_KEYMAP.resolve(press('w', { modifiers: ['alt'], code: 'KeyC' }), 'rowSelected')
+    ).toBeNull();
+    expect(
+      ESTIMATE_KEYMAP.resolve(press('a', { modifiers: ['alt'], code: 'KeyM' }), 'rowSelected')
+    ).toBeNull();
+  });
+
+  /**
+   * macOS の Option+英字は `event.key` が別の記号になる（`Alt+C` → `ç`）。
+   * 英字が取れないこの場合だけ物理キーで補う。
+   *
+   * @requirement estimate-creation/REQ-47.4
+   */
+  it('英字が取れないキー入力では物理キーで補って解決すること (47.4)', () => {
+    expect(
+      ESTIMATE_KEYMAP.resolve(press('ç', { modifiers: ['alt'], code: 'KeyC' }), 'rowSelected')
+    ).toBe('duplicateCell');
+    expect(
+      ESTIMATE_KEYMAP.resolve(press('µ', { modifiers: ['alt'], code: 'KeyM' }), 'rowSelected')
+    ).toBe('toggleViewMode');
+  });
 });
 
 // ============================================================================

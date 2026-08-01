@@ -20,13 +20,17 @@
  * - 45.1: 明細の階層表示モードとして「ツリー表示」と「ドリルダウン表示」を提供する（Task 54.4）
  * - 45.2: 階層表示モードのデフォルトを「ツリー表示」とする（Task 54.4）
  * - 47.3: キーボード操作の割り当て一覧を画面上で参照可能とする（Task 54.7 / 入口を置く）
+ * - 48.1, 48.2: 取り消し・やり直しの操作を提供する（Task 54.8）
+ * - 48.4: 取り消し可能な履歴が存在しない場合、取り消し操作を無効状態で表示する（Task 54.8）
  *
  * design.md `#### File Structure Plan`:
  * `EstimateItemToolbar.tsx  # 改修: 範囲選択・モード切替・取り消しを追加`
  * に従い、階層表示モードの切替操作を明細テーブル上部のツールバーに置く。
  * 表示モード自体の所有者は `useEstimateNavigation` で、本コンポーネントは
  * 現在のモードを受け取って切替を通知するだけで state を持たない。
- * （範囲選択の統合は 54.10、取り消しの統合は 54.8、キー割当は 54.6 の担当）
+ * （範囲選択の統合は 54.10、キー割当は 54.6 の担当）
+ * 取り消し・やり直し（48.1, 48.2, 48.4）は 54.8 で追加。選択の所有者を表示状態
+ * フックへ一本化する 54.10 でも、この2つは選択状態に依存しない操作のままとする。
  *
  * @module components/estimate/EstimateItemToolbar
  */
@@ -86,6 +90,19 @@ export interface EstimateItemToolbarProps {
   viewMode: EstimateViewMode;
   /** 階層表示モードの切替要求（45.1） */
   onViewModeChange: (mode: EstimateViewMode) => void;
+  /**
+   * 取り消し可能な履歴があるか（48.4）
+   *
+   * 履歴の所有者は `useEstimateUndo`。本コンポーネントは可否を受け取って
+   * 表示するだけで、履歴そのものを持たない。
+   */
+  canUndo: boolean;
+  /** やり直し可能な履歴があるか（48.4） */
+  canRedo: boolean;
+  /** 直前の編集を取り消す（48.1） */
+  onUndo: () => void;
+  /** 取り消した編集をやり直す（48.2） */
+  onRedo: () => void;
 }
 
 /** 階層表示モードの選択肢（45.1） */
@@ -191,6 +208,10 @@ export function EstimateItemToolbar({
   canReorderDown,
   viewMode,
   onViewModeChange,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: EstimateItemToolbarProps) {
   const isSelected = selectedItemId !== null;
   const canMoveUp = isSelected && selectedItem !== null && selectedItem.parentId !== null;
@@ -328,6 +349,45 @@ export function EstimateItemToolbar({
         }}
       >
         ↓ 下へ
+      </button>
+
+      {/* セパレータ */}
+      <div style={styles.separator} />
+
+      {/*
+        取り消し・やり直し (48.1, 48.2, 48.4)
+
+        取り消せる履歴が無い間は無効表示にする（48.4）。項目の選択状態には
+        依存しない（削除した行は選択できないため、選択を条件にすると
+        「行削除の取り消し」が押せなくなる）。
+      */}
+      <button
+        type="button"
+        data-testid="undo-button"
+        aria-label="元に戻す"
+        title="元に戻す (Ctrl+Z)"
+        onClick={onUndo}
+        disabled={!canUndo}
+        style={{
+          ...styles.button,
+          ...(!canUndo ? styles.buttonDisabled : {}),
+        }}
+      >
+        ↶ 元に戻す
+      </button>
+      <button
+        type="button"
+        data-testid="redo-button"
+        aria-label="やり直す"
+        title="やり直す (Ctrl+Y)"
+        onClick={onRedo}
+        disabled={!canRedo}
+        style={{
+          ...styles.button,
+          ...(!canRedo ? styles.buttonDisabled : {}),
+        }}
+      >
+        ↷ やり直す
       </button>
 
       {/* セパレータ */}

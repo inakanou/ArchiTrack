@@ -5,13 +5,14 @@
  *
  * `EstimateDetailPage.keyboard.test.tsx` が画面一気通貫を固定するのに対し、
  * 本ファイルは画面からは踏みにくい分岐（階層間の移動・端での範囲選択・
- * 取り消しの素通し・無効化）を固定します。
+ * 取り消しの実行・無効化）を固定します。
  *
  * Requirements (estimate-creation):
  * - 47.1: キーボード操作のみで行操作と階層移動を実行可能とする
  * - 47.4: ブラウザの標準操作と衝突しない（解決できないキーは `preventDefault` しない）
  * - 47.6: 範囲選択中に固有のキーボード操作を有効にする
  * - 47.8: 行操作はサーバーへの保存を伴わない（本フックは API を import しない）
+ * - 48.1, 48.2: 取り消し・やり直しをキー操作から実行する（Task 54.8）
  *
  * @module hooks/useEstimateKeyboard.test
  */
@@ -78,6 +79,10 @@ interface HarnessProps {
   onClearSelection: () => void;
   onViewModeChange: (mode: EstimateViewMode) => void;
   onCurrentLevelChange: (key: NodeKey | null) => void;
+  /** 取り消し（48.1 / Task 54.8 で配線） */
+  onUndo: () => void;
+  /** やり直し（48.2 / Task 54.8 で配線） */
+  onRedo: () => void;
 }
 
 function Harness({
@@ -127,6 +132,8 @@ const createHandlers = () => ({
   onClearSelection: vi.fn(),
   onViewModeChange: vi.fn(),
   onCurrentLevelChange: vi.fn(),
+  onUndo: vi.fn(),
+  onRedo: vi.fn(),
 });
 
 /** キーを押し、`preventDefault` されたか（＝処理されたか）を返す */
@@ -219,18 +226,43 @@ describe('useEstimateKeyboard', () => {
   });
 
   /**
-   * 取り消し・やり直しの実装は 54.8。ここで握り潰すと二重配線になるため素通しする。
+   * 取り消し・やり直しを実行する（54.8 で配線）。ブラウザ標準の取り消しと
+   * 二重に働かないよう、解決できた場合は `preventDefault` する。
    *
-   * @requirement estimate-creation/REQ-47.4
+   * @requirement estimate-creation/REQ-48.1
    */
-  it('取り消し・やり直しのキーは横取りせず素通しする (47.4)', () => {
+  it('取り消し・やり直しのキーで取り消し操作を実行する (48.1, 48.2)', () => {
     const handlers = createHandlers();
     render(<Harness {...handlers} />);
 
-    expect(pressOn(rowOf('item-a'), { key: 'z', ctrlKey: true, code: 'KeyZ' })).toBe(false);
-    expect(pressOn(rowOf('item-a'), { key: 'y', ctrlKey: true, code: 'KeyY' })).toBe(false);
+    expect(pressOn(rowOf('item-a'), { key: 'z', ctrlKey: true, code: 'KeyZ' })).toBe(true);
+    expect(handlers.onUndo).toHaveBeenCalledTimes(1);
+    expect(handlers.onRedo).not.toHaveBeenCalled();
+
+    expect(
+      pressOn(rowOf('item-a'), { key: 'z', ctrlKey: true, shiftKey: true, code: 'KeyZ' })
+    ).toBe(true);
+    expect(handlers.onRedo).toHaveBeenCalledTimes(1);
+
+    expect(pressOn(rowOf('item-a'), { key: 'y', ctrlKey: true, code: 'KeyY' })).toBe(true);
+    expect(handlers.onRedo).toHaveBeenCalledTimes(2);
+
+    // 取り消しは行操作を一切呼ばない（48.5 の「サーバー保存を伴わない」の前提）
     expect(handlers.commands.deleteRows).not.toHaveBeenCalled();
     expect(handlers.onClearSelection).not.toHaveBeenCalled();
+    expect(handlers.onUndo).toHaveBeenCalledTimes(1);
+  });
+
+  /** @requirement estimate-creation/REQ-48.1 */
+  it('セルの文字入力中は取り消しのキーを横取りしない (47.5, 48.1)', () => {
+    const handlers = createHandlers();
+    render(<Harness {...handlers} />);
+
+    const input = document.createElement('input');
+    screen.getByTestId('scope').appendChild(input);
+
+    expect(pressOn(input, { key: 'z', ctrlKey: true, code: 'KeyZ' })).toBe(false);
+    expect(handlers.onUndo).not.toHaveBeenCalled();
   });
 
   /** @requirement estimate-creation/REQ-47.4 */

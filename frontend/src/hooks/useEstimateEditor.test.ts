@@ -2106,4 +2106,173 @@ describe('useEstimateEditor', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // 取り消し・やり直しの接点（48.1, 48.5, 48.8 / Task 54.8）
+  // ==========================================================================
+
+  describe('取り消しのためのスナップショット記録と状態復元', () => {
+    /**
+     * 取り消しの単位は state スナップショット（design.md `##### useEstimateUndo`:4149）。
+     * スナップショットを取る位置は「遷移の直前」であり、変更を起こす経路が
+     * ひとつでも通知を漏らすとその操作は取り消せなくなる。
+     *
+     * @requirement estimate-creation/REQ-48.1
+     */
+    it('明細を変更するすべての操作が変更前に通知されること (48.1, 48.8)', () => {
+      const onBeforeChange = vi.fn();
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange,
+        })
+      );
+
+      const operations: readonly [string, () => void][] = [
+        ['updateLine', () => result.current.updateLine('item-1', 'line-1-estimate', 'name', 'X')],
+        ['addItem', () => result.current.addItem()],
+        ['addDiscountItem', () => result.current.addDiscountItem()],
+        ['addNoteItem', () => result.current.addNoteItem()],
+        ['insertRowAfter', () => result.current.insertRowAfter('item-1')],
+        ['duplicateItem', () => result.current.duplicateItem('item-1')],
+        ['duplicateRows', () => result.current.duplicateRows(['item-1'])],
+        ['moveItem', () => result.current.moveItem('item-2', 'up')],
+        ['reorderItems', () => result.current.reorderItems('item-1', 'item-2')],
+        ['indentItem', () => result.current.indentItem('item-2')],
+        ['outdentItem', () => result.current.outdentItem('item-2')],
+        ['indentRange', () => result.current.indentRange(['item-2'])],
+        ['outdentRange', () => result.current.outdentRange(['item-2'])],
+        [
+          'updateReportFields',
+          () =>
+            result.current.updateReportFields({
+              submissionDate: '2026-01-01',
+              validityPeriod: null,
+              separateWorks: [],
+            }),
+        ],
+        ['deleteItem', () => result.current.deleteItem('item-1')],
+        ['deleteRows', () => result.current.deleteRows(['item-2'])],
+      ];
+
+      for (const [name, operation] of operations) {
+        onBeforeChange.mockClear();
+        act(() => {
+          operation();
+        });
+        expect(onBeforeChange, `${name} が変更前に通知していない`).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    /** @requirement estimate-creation/REQ-48.1 */
+    it('通知は遷移の実行前に行われること (48.1)', () => {
+      const seen: (string | null)[] = [];
+      const latest: { name: string | null } = { name: null };
+      const { result } = renderHook(() => {
+        const editor = useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange: () => {
+            seen.push(latest.name);
+          },
+        });
+        latest.name = editor.items[0]?.lines[0]?.name ?? null;
+        return editor;
+      });
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後');
+      });
+
+      // 通知の時点では変更前の値が見えている（＝スナップショットが操作前を捉える）
+      expect(seen).toEqual(['項目1']);
+      expect(result.current.items[0]!.lines[0]!.name).toBe('変更後');
+    });
+
+    /** @requirement estimate-creation/REQ-48.5 */
+    it('復元した状態がそのまま編集状態になること (48.5)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      const before = result.current.editState;
+      expect(before.isDirty).toBe(false);
+
+      act(() => {
+        result.current.deleteItem('item-1');
+      });
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.isDirty).toBe(true);
+
+      act(() => {
+        result.current.restoreState(before);
+      });
+
+      expect(result.current.editState).toBe(before);
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items[0]!.id).toBe('item-1');
+      // 未保存フラグも復元した時点の値へ戻る
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    /** @requirement estimate-creation/REQ-48.5 */
+    it('状態の復元は通知を発生させないこと（取り消しが履歴を増やさない） (48.5)', () => {
+      const onBeforeChange = vi.fn();
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange,
+        })
+      );
+
+      const before = result.current.editState;
+      act(() => {
+        result.current.deleteItem('item-1');
+      });
+      onBeforeChange.mockClear();
+
+      act(() => {
+        result.current.restoreState(before);
+      });
+
+      expect(onBeforeChange).not.toHaveBeenCalled();
+    });
+
+    /**
+     * `setItems` は基準（`baselineRef`）ごとツリーを入れ替えるため、入れ替え前の
+     * ツリーを前提とした取り消し履歴はそこで無効になる。破棄を促す通知が無いと、
+     * 再同期後のやり直しがサーバー由来の行を含まない古いツリーを復元してしまう。
+     *
+     * @requirement estimate-creation/REQ-48.7
+     */
+    it('基準ツリーの差し替え（setItems）で履歴破棄を通知すること (48.7)', () => {
+      const onBaselineReplaced = vi.fn();
+      const onBeforeChange = vi.fn();
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange,
+          onBaselineReplaced,
+        })
+      );
+
+      // 通常の編集では基準は入れ替わらない（通知は変更前通知のみ）
+      act(() => {
+        result.current.deleteItem('item-1');
+      });
+      expect(onBaselineReplaced).not.toHaveBeenCalled();
+
+      act(() => {
+        result.current.setItems(createMockItems());
+      });
+
+      expect(onBaselineReplaced).toHaveBeenCalledTimes(1);
+    });
+  });
 });

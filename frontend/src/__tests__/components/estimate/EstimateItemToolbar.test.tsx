@@ -18,6 +18,8 @@
  * - 55.1: 名称のみを持つ注記行を明細に追加可能とする
  * - 55.3: 注記行を任意の階層の任意の位置に配置可能とする
  * - 55.6: 注記行を通常の明細行と同様に削除・複写・並び替え・階層移動の対象とする
+ * - 48.1, 48.2: 取り消し・やり直しの操作を提供する（Task 54.8）
+ * - 48.4: 取り消し可能な履歴が存在しない場合、取り消し操作を無効状態で表示する（Task 54.8）
  *
  * @module __tests__/components/estimate/EstimateItemToolbar
  */
@@ -108,6 +110,11 @@ describe('EstimateItemToolbar', () => {
     // 階層表示モードの切替（45.1, 45.2 / Task 54.4）
     viewMode: 'tree' as EstimateViewMode,
     onViewModeChange: vi.fn(),
+    // 取り消し・やり直し（48.1, 48.2, 48.4 / Task 54.8）
+    canUndo: false,
+    canRedo: false,
+    onUndo: vi.fn(),
+    onRedo: vi.fn(),
   };
 
   beforeEach(() => {
@@ -611,6 +618,68 @@ describe('EstimateItemToolbar', () => {
 
       expect(screen.getByRole('radio', { name: 'ツリー表示' })).toBeEnabled();
       expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toBeEnabled();
+    });
+  });
+
+  // ==========================================================================
+  // 取り消し・やり直し（48.1, 48.2, 48.4 / Task 54.8）
+  // ==========================================================================
+
+  describe('取り消し・やり直し', () => {
+    /** @requirement estimate-creation/REQ-48.4 */
+    it('取り消し可能な履歴が無い場合は取り消し・やり直しを無効状態で表示すること (48.4)', () => {
+      render(<EstimateItemToolbar {...defaultProps} canUndo={false} canRedo={false} />);
+
+      expect(screen.getByTestId('undo-button')).toBeDisabled();
+      expect(screen.getByTestId('redo-button')).toBeDisabled();
+    });
+
+    /** @requirement estimate-creation/REQ-48.4 */
+    it('取り消し可能な履歴がある場合は取り消しを有効状態で表示すること (48.4)', () => {
+      render(<EstimateItemToolbar {...defaultProps} canUndo={true} canRedo={false} />);
+
+      expect(screen.getByTestId('undo-button')).toBeEnabled();
+      expect(screen.getByTestId('redo-button')).toBeDisabled();
+    });
+
+    /** @requirement estimate-creation/REQ-48.2 */
+    it('やり直し可能な場合はやり直しを有効状態で表示すること (48.2, 48.4)', () => {
+      render(<EstimateItemToolbar {...defaultProps} canUndo={false} canRedo={true} />);
+
+      expect(screen.getByTestId('redo-button')).toBeEnabled();
+    });
+
+    /** @requirement estimate-creation/REQ-48.1 */
+    it('取り消しボタンの押下で取り消しが通知されること (48.1)', async () => {
+      const user = userEvent.setup();
+      const onUndo = vi.fn();
+      render(<EstimateItemToolbar {...defaultProps} canUndo={true} onUndo={onUndo} />);
+
+      await user.click(screen.getByTestId('undo-button'));
+
+      expect(onUndo).toHaveBeenCalledTimes(1);
+    });
+
+    /** @requirement estimate-creation/REQ-48.2 */
+    it('やり直しボタンの押下でやり直しが通知されること (48.2)', async () => {
+      const user = userEvent.setup();
+      const onRedo = vi.fn();
+      render(<EstimateItemToolbar {...defaultProps} canRedo={true} onRedo={onRedo} />);
+
+      await user.click(screen.getByTestId('redo-button'));
+
+      expect(onRedo).toHaveBeenCalledTimes(1);
+    });
+
+    /** @requirement estimate-creation/REQ-48.4 */
+    it('無効状態の取り消しボタンを押しても通知されないこと (48.4)', async () => {
+      const user = userEvent.setup();
+      const onUndo = vi.fn();
+      render(<EstimateItemToolbar {...defaultProps} canUndo={false} onUndo={onUndo} />);
+
+      await user.click(screen.getByTestId('undo-button'));
+
+      expect(onUndo).not.toHaveBeenCalled();
     });
   });
 });

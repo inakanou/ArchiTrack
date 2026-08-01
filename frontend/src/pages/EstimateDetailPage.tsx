@@ -28,7 +28,7 @@
  * @module pages/EstimateDetailPage
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import {
   getEstimateDetail,
@@ -62,6 +62,8 @@ import type { EstimateRowRevealRequest } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
 import { useEstimateNavigation } from '../hooks/useEstimateNavigation';
 import { useEstimateKeyboard } from '../hooks/useEstimateKeyboard';
+import { useEstimateUndo } from '../hooks/useEstimateUndo';
+import type { UseEstimateUndoReturn } from '../hooks/useEstimateUndo';
 import type { EstimateViewMode } from '../hooks/useEstimateNavigation';
 import type { NodeKey } from '../domain/estimate/estimateTree';
 import { useEstimateViewModePreference } from '../hooks/useEstimateViewModePreference';
@@ -751,9 +753,46 @@ export default function EstimateDetailPage() {
     [id, estimate]
   );
 
+  /**
+   * 取り消し・やり直しの参照（48.1, 48.7）
+   *
+   * 取り消しフック（`useEstimateUndo`）は編集フック（`useEstimateEditor`）の状態を
+   * 読み書きし、編集フックは変更の直前に取り消しフックへ通知する。相互参照になるため、
+   * 呼び出しの順序に依存しない参照を1つだけ挟む（利用はどちらも描画後の操作時のみ）。
+   */
+  const undoRef = useRef<UseEstimateUndoReturn | null>(null);
+
+  /**
+   * 明細・帳票用入力項目を変更する直前（48.1, 48.8）
+   *
+   * 変更前の編集状態を取り消し履歴へ積む。通知元は遷移を起こす唯一の場所
+   * （`useEstimateEditor`）なので、操作の種類が増えても取りこぼさない。
+   */
+  const handleBeforeEdit = useCallback((label: string) => {
+    undoRef.current?.recordSnapshot(label);
+  }, []);
+
   /** 保存成功時（42.7 の未保存解消はフックが行う） */
   const handleSaveSuccess = useCallback(() => {
     setSaveError(null);
+    // 保存が確定した時点で取り消し履歴を破棄する（48.7）。
+    // 破棄しないと、保存済みの内容を保存前の状態へ戻せてしまい、
+    // 画面とサーバーの内容が無言で食い違う。
+    undoRef.current?.clearOnSave();
+  }, []);
+
+  /**
+   * 編集の基準ツリーが差し替わった直後（48.7）
+   *
+   * 読み込み・保存応答の反映・サーバー側書き込み後の再同期（`resyncAfterServerSideMutation`）は
+   * いずれも `editor.setItems` で基準ごとツリーを入れ替える。取り消し履歴は入れ替え前の
+   * ツリーを前提としたスナップショットのため、ここで必ず破棄する。
+   * 残すと、たとえば「編集 → 取り消し（未保存が解消される）→ 諸経費追加（サーバーが行を作る）
+   * → やり直し」で、サーバーが作った行を含まない古いツリーへ戻り、次の保存で
+   * その行が削除される。
+   */
+  const handleBaselineReplaced = useCallback(() => {
+    undoRef.current?.clearHistory();
   }, []);
 
   /** 保存失敗時（42.5: 編集内容は破棄せず理由のみ提示する） */
@@ -771,7 +810,25 @@ export default function EstimateDetailPage() {
     onSave: handleEditorSave,
     onSaveSuccess: handleSaveSuccess,
     onSaveError: handleSaveError,
+    onBeforeChange: handleBeforeEdit,
+    onBaselineReplaced: handleBaselineReplaced,
   });
+
+  /**
+   * 取り消し・やり直し（48.1〜48.7）
+   *
+   * 取り消しの単位は編集状態のスナップショット。復元は reducer の state を
+   * 丸ごと差し替えるだけなので、サーバーへの問い合わせを伴わず（48.5）、
+   * 祖先の集計金額も遷移時に計算済みの値がそのまま戻る（48.6）。
+   */
+  const undo = useEstimateUndo({
+    getState: () => editor.editState,
+    restoreState: editor.restoreState,
+  });
+
+  useEffect(() => {
+    undoRef.current = undo;
+  }, [undo]);
 
   // 階層表示モードの端末単位の引き継ぎ（45.11 / 54.4）
   //
@@ -870,6 +927,8 @@ export default function EstimateDetailPage() {
     onClearSelection: handleKeyboardClearSelection,
     onViewModeChange: handleViewModeChange,
     onCurrentLevelChange: navigation.setCurrentLevelKey,
+    onUndo: undo.undo,
+    onRedo: undo.redo,
   });
 
   /**
@@ -1634,6 +1693,10 @@ export default function EstimateDetailPage() {
             canReorderDown={reorderSiblingInfo.canReorderDown}
             viewMode={navigation.viewMode}
             onViewModeChange={handleViewModeChange}
+            canUndo={undo.canUndo}
+            canRedo={undo.canRedo}
+            onUndo={undo.undo}
+            onRedo={undo.redo}
           />
           {/*
             階層構造の俯瞰パネル（46.1〜46.6）と明細を横に並べる。
