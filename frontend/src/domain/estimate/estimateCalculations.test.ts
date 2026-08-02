@@ -203,6 +203,26 @@ describe('allocateNet', () => {
     expect(totalOfResults.toString()).toBe('4000');
   });
 
+  it('itemType 未指定の行を対象に含める（未指定は STANDARD とする規約）', () => {
+    // サーバー実装 `VendorLineInfo.itemType` は省略可で、省略時は DISCOUNT 以外として扱われる。
+    // 除外は DISCOUNT / NOTE の明示指定のみに限られることを固定する。
+    const rows: AllocationRow[] = [
+      { key: 'u1', amount: dec('1000'), quantity: dec('2') }, // itemType 未指定
+      { key: 'u2', itemType: 'STANDARD', amount: dec('3000'), quantity: dec('3') },
+      { key: 'u3', itemType: 'DISCOUNT', amount: dec('-500'), quantity: dec('1') },
+    ];
+
+    const results = allocateNet(rows, new Decimal('4000'), new Set<string>());
+
+    expect(results.map((r) => r.key)).toEqual(['u1', 'u2']);
+    // 対象合計 = 1000 + 3000 = 4000（値引き行 -500 は算入しない）
+    expect(byKey(results, 'u1').ratio.toString()).toBe('0.25');
+    expect(byKey(results, 'u1').allocatedAmount.toString()).toBe('1000');
+    expect(byKey(results, 'u1').unitPrice.toString()).toBe('500');
+    expect(byKey(results, 'u2').allocatedAmount.toString()).toBe('3000');
+    expect(byKey(results, 'u2').unitPrice.toString()).toBe('1000');
+  });
+
   it('対象合計がゼロの場合は比率・案分金額・単価をゼロとする', () => {
     const rows: AllocationRow[] = [
       { key: 'a', itemType: 'STANDARD', amount: dec('0'), quantity: dec('2') },
@@ -374,17 +394,22 @@ describe('applyProfitRate', () => {
     // 実行金額行の数量を引き継ぐため 2 * 1123 = 2246
     expect(p1.newAmount?.toString()).toBe('2246');
     expect(p1.copyLineFields).toBe(true);
+    // 適用前の単価をそのまま返す（サーバー応答の originalUnitPrice と同一）
+    expect(p1.originalUnitPrice?.toString()).toBe('1000');
 
     // 1234.5 * 1.1227 = 1385.97315 → 1386
     const p2 = byKey(results, 'p2');
     expect(p2.newUnitPrice?.toString()).toBe('1386');
     // 実行金額行の数量が未設定のため金額は null
     expect(p2.newAmount).toBeNull();
+    // 丸めずに適用前の単価をそのまま返す（1386 でも 1235 でもない）
+    expect(p2.originalUnitPrice?.toString()).toBe('1234.5');
 
     // 実行金額行の単価が未設定の行は適用対象外
     const p3 = byKey(results, 'p3');
     expect(p3.newUnitPrice).toBeNull();
     expect(p3.applied).toBe(false);
+    expect(p3.originalUnitPrice).toBeNull();
   });
 
   it('値引き行と注記行を対象から除外する（41.9, 55.4）', () => {
@@ -405,6 +430,12 @@ describe('applyProfitRate', () => {
     // 見積金額行の単価が入っているため上書きしない
     expect(p2.applied).toBe(false);
     expect(p2.newUnitPrice?.toString()).toBe('1386');
+
+    // 複写範囲は「すべて上書き」と同じ（6.3）＝金額は実行金額行の数量で算出する
+    expect(p1.copyLineFields).toBe(true);
+    expect(p2.copyLineFields).toBe(true);
+    expect(p1.newAmount?.toString()).toBe('2246'); // 実行側の数量 2 * 1123
+    expect(p2.newAmount).toBeNull(); // 実行側の数量が未設定
   });
 
   it('「単価のみ上書き」は見積金額行の数量で金額を再計算し他の欄を変えない（6.4）', () => {
@@ -414,8 +445,71 @@ describe('applyProfitRate', () => {
     const p2 = byKey(results, 'p2');
 
     expect(p1.copyLineFields).toBe(false);
+    expect(p2.copyLineFields).toBe(false);
     expect(p1.newAmount?.toString()).toBe('5615'); // 見積側の数量 5 * 1123
     expect(p2.newAmount?.toString()).toBe('4158'); // 見積側の数量 3 * 1386
+
+    // 空欄判定を行わないため見積金額行の単価が入っている行にも反映する（6.4, 6.8）
+    expect(p1.applied).toBe(true);
+    expect(p2.applied).toBe(true);
+  });
+
+  it('itemType 未指定の行を対象に含める（未指定は STANDARD とする規約）', () => {
+    // サーバー実装 `ExecutionLineInfo.itemType` は省略可で、省略時は DISCOUNT 以外として扱われる
+    const rows: ProfitRateRow[] = [
+      {
+        key: 'u1', // itemType 未指定
+        executionUnitPrice: dec('1000'),
+        executionQuantity: dec('1'),
+        estimateUnitPrice: null,
+        estimateQuantity: dec('1'),
+      },
+      {
+        key: 'u2',
+        itemType: 'DISCOUNT',
+        executionUnitPrice: dec('-1000'),
+        executionQuantity: dec('1'),
+        estimateUnitPrice: null,
+        estimateQuantity: dec('1'),
+      },
+    ];
+
+    const results = applyProfitRate(rows, new Decimal('12.27'), 'all');
+
+    expect(results.map((r) => r.key)).toEqual(['u1']);
+    expect(byKey(results, 'u1').newUnitPrice?.toString()).toBe('1123');
+  });
+
+  it('端数の数量でも金額を小数第1位で四捨五入し符号を保持する（22.9）', () => {
+    const rows: ProfitRateRow[] = [
+      {
+        key: 'f1',
+        itemType: 'STANDARD',
+        executionUnitPrice: dec('1000'),
+        executionQuantity: dec('2.5'),
+        estimateUnitPrice: null,
+        estimateQuantity: dec('1.005'),
+      },
+      {
+        key: 'f2',
+        itemType: 'STANDARD',
+        executionUnitPrice: dec('-1000'),
+        executionQuantity: dec('2.5'),
+        estimateUnitPrice: null,
+        estimateQuantity: dec('1.005'),
+      },
+    ];
+
+    const all = applyProfitRate(rows, new Decimal('12.27'), 'all');
+    // 実行側の数量 2.5 * 1123 = 2807.5 → 2808（切り捨てではなく四捨五入）
+    expect(byKey(all, 'f1').newAmount?.toString()).toBe('2808');
+    // -2807.5 → -2808（絶対値で四捨五入して符号を保持）
+    expect(byKey(all, 'f2').newAmount?.toString()).toBe('-2808');
+
+    const unitPriceOnly = applyProfitRate(rows, new Decimal('12.27'), 'unit_price_only');
+    // 見積側の数量 1.005 * 1123 = 1128.615 → 1129
+    expect(byKey(unitPriceOnly, 'f1').newAmount?.toString()).toBe('1129');
+    expect(byKey(unitPriceOnly, 'f2').newAmount?.toString()).toBe('-1129');
   });
 
   it('負の単価も絶対値で四捨五入して符号を保持する', () => {
@@ -461,6 +555,8 @@ describe('applyProfitRate', () => {
       const expected = at(legacy, i);
       expect(r.key).toBe(expected.lineId);
       expect(r.newUnitPrice?.toString() ?? null).toBe(expected.newUnitPrice);
+      // originalUnitPrice も現行実装・サーバー応答の出力フィールドのため一致を確認する
+      expect(r.originalUnitPrice?.toString() ?? null).toBe(expected.originalUnitPrice);
     });
   });
 });
