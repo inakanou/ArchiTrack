@@ -248,7 +248,8 @@ describe('buildFiles - ページ番号', () => {
   it('見積金額のファイルは表紙が1ページ目・内訳書が2ページ目になる（50.2, 50.8）', () => {
     const [file] = buildFiles(referenceTree(), ['ESTIMATE']);
 
-    expect(file!.pages.map((page) => page.pageNumber)).toEqual([1, 2]);
+    // 3ページ目は `r1`（子項目を1件持つ）の明細書ページ（50.4）
+    expect(file!.pages.map((page) => page.pageNumber)).toEqual([1, 2, 3]);
     expect(file!.pages.find((page) => page.kind === 'summary')!.pageNumber).toBe(2);
   });
 
@@ -261,7 +262,9 @@ describe('buildFiles - ページ番号', () => {
   it('ページ番号を各ファイル内で1から振り直し、ファイルをまたぐ通し番号にしない（32.9）', () => {
     const files = buildFiles(referenceTree(), ['ESTIMATE', 'EXECUTION', 'VENDOR']);
 
-    expect(files[0]!.pages.map((page) => page.pageNumber)).toEqual([1, 2]);
+    // 見積: 表紙・内訳書・`r1` の明細書。実行/業者: `r1` の子は見積金額行しか
+    // 持たないため明細書ページが生成されず（38.4）、内訳書1ページのみ
+    expect(files[0]!.pages.map((page) => page.pageNumber)).toEqual([1, 2, 3]);
     expect(files[1]!.pages.map((page) => page.pageNumber)).toEqual([1]);
     expect(files[2]!.pages.map((page) => page.pageNumber)).toEqual([1]);
   });
@@ -547,12 +550,12 @@ describe('buildFiles - 値のない項目の省略', () => {
   it('省略後の階層記号を穴が空かないよう繰り上げる（38.2, 53.7）', () => {
     // 27件の第1階層のうち先頭1件だけが実行金額行を持たない。
     //
-    // 【56.3 への申し送り】本ケースは 27 行を**単一の内訳書ページ**として観測している。
-    // 明細17行の制限（52.5）と継続ページ（50.9, 50.10）は 56.3 の担当であり、
-    // 継続ページの実装後は 27 行が2ページに分かれるため、`rows` を1ページから
-    // 取り出している本アサーションは**期待値の変更が必要**になる。
-    // 固定している契約は「省略後の記号が穴なく繰り上がること」であって
-    // 「内訳書が常に1ページであること」ではない。
+    // 【56.3 で更新済み】本ケースが固定している契約は「省略後の記号が穴なく繰り上がること」
+    // であって「内訳書が常に1ページであること」ではない（56.2 の申し送り）。
+    // 56.3 で明細17行の制限（52.5）と継続ページ（50.9, 50.10）を内訳書にも適用したため、
+    // 27行は2ページに分かれる。記号の連番はページ境界に依らず連続するので、
+    // 全内訳書ページの行を連結して記号を検証する。
+    // ページ分割そのものの検証は `estimateReportLayout.detailPages.test.ts` が担当する。
     const tree = Array.from({ length: 27 }, (_, index) =>
       item({
         key: `n${index}`,
@@ -566,12 +569,12 @@ describe('buildFiles - 値のない項目の省略', () => {
       })
     );
 
-    const estimateRows = buildFiles(tree, ['ESTIMATE'])[0]!.pages.find(
-      (page) => page.kind === 'summary'
-    )!.rows;
-    const executionRows = buildFiles(tree, ['EXECUTION'])[0]!.pages.find(
-      (page) => page.kind === 'summary'
-    )!.rows;
+    const estimateRows = buildFiles(tree, ['ESTIMATE'])[0]!
+      .pages.filter((page) => page.kind === 'summary')
+      .flatMap((page) => page.rows);
+    const executionRows = buildFiles(tree, ['EXECUTION'])[0]!
+      .pages.filter((page) => page.kind === 'summary')
+      .flatMap((page) => page.rows);
 
     expect(estimateRows).toHaveLength(27);
     expect(estimateRows[25]!.name).toBe('Ｚ.工事25');

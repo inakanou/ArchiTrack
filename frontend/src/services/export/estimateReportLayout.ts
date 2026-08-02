@@ -6,8 +6,8 @@
  * `.kiro/specs/estimate-creation/pdf-format-reference.md`（実案件PDFの実測）です。
  *
  * 併せて `buildFiles` が、編集中の明細ツリーから**行タイプごとのファイル構成**
- * （表紙の有無・ページ番号・内訳書ページ）を組み立てます。PDF出力（56.6）と
- * 表計算出力（56.7）はこの構成を共有し、描画・書き出しだけを担います。
+ * （表紙の有無・ページ番号・内訳書ページ・明細書ページと継続ページ）を組み立てます。
+ * PDF出力（56.6）と表計算出力（56.7）はこの構成を共有し、描画・書き出しだけを担います。
  *
  * **丸めとの責務分担**: 値そのものの丸め規則（Requirement 22）は
  * `domain/estimate/estimateCalculations` が単一の実装として所有します。本モジュールは
@@ -25,11 +25,19 @@
  * - 32.2 / 32.5 / 32.9: 行タイプごとに独立したファイルを生成し、未選択の行タイプは
  *   出力せず、ページ番号を各ファイル内の通し番号とする
  * - 38.2 / 38.3: 対象行タイプに値のない項目を省き、後続の項目を繰り上げる
+ * - 38.4: 項目を省いた結果として明細行が0件になった階層の明細書ページを出力しない
  * - 41.8 / 41.12: 値引き行を名称欄に「【値引】」と表示し、金額を負数のまま出力・集計する
  * - 50.2 / 50.3 / 50.8 / 50.12: 見積金額のファイルのみ1ページ目を表紙とし、
  *   内訳書に第1階層の一覧を出力し、全ページに通し番号を付ける
+ * - 50.4 / 50.5 / 50.6 / 50.7: 子項目を持つ項目ごとに明細書ページを深さ優先で出力し、
+ *   子項目を持たない項目のページは出力しない
+ * - 50.9 / 50.10: 明細行が1ページに収まらない場合は同じ表題と見出しで継続ページを出力し、
+ *   合計行を最終ページにのみ置く
+ * - 50.11: 明細書の各ページに当該階層の親項目名を割り当てる
  * - 51.16: 表紙を見積金額を出力対象とするファイルにのみ適用する
+ * - 52.5: 1ページの表を見出し行1行・明細行17行・合計行1行で構成する
  * - 52.10: 合計行の名称欄に「【合計】」を出力する
+ * - 52.11 / 52.12: 明細書ページの先頭行に親項目の階層記号と名称を置き、子項目を1段下げる
  * - 55.2: 注記行を金額の集計対象から除外する
  * - 52.2: 表の列を左から「名称」「規格」「単位」「数量」「単価」「金額」「備考」の7列とする
  * - 53.1 / 53.2: 数量は小数第1位まで、小数点位置を列内で揃え、整数は小数部を空白とする
@@ -432,6 +440,11 @@ export interface ReportRow {
  * `kind` の `summary` が内訳書、`detail` が明細書に対応する。
  * 表紙（`cover`）は「そこに表紙を1ページ置く」ことだけを表す標識で、
  * 表紙に載せる宛先・工事情報・自社情報は出力サービス（56.6）が別途渡す。
+ *
+ * **継続ページ**（50.9）は同じ `kind` / `title` / `parentLabel` を持つ独立した `ReportPage`
+ * として並ぶ。`rows` は当該ページに載る明細行だけを持ち、明細書の親項目見出し行（52.11）は
+ * 階層の**先頭ページにのみ**含まれる。列名の見出し行（52.7）と、明細行が17行に満たない
+ * ページの空行（52.6）は `rows` に含めず、描画側（56.4 / 56.5）が固定グリッドとして引く。
  */
 export interface ReportPage {
   readonly kind: 'cover' | 'summary' | 'detail';
@@ -480,6 +493,9 @@ export const COVER_PAGE_TITLE = '御見積書';
 
 /** 内訳書の表題（52.8） */
 const SUMMARY_PAGE_TITLE = '内訳書';
+
+/** 明細書の表題（52.8） */
+const DETAIL_PAGE_TITLE = '明細書';
 
 /**
  * 合計行の名称欄の表示（52.10）
@@ -639,44 +655,76 @@ function buildTotalRow(total: Decimal): ReportRow {
 }
 
 // ============================================================================
-// 内訳書ページの組み立て（50.3, 52.10）
+// 出力対象の項目の列挙（38.2, 38.3, 53.7）
 // ============================================================================
 
-/**
- * 内訳書ページを組み立てる
- *
- * 第1階層の項目だけを並べ（50.3）、対象の行タイプに値を持たない項目は省いて
- * 後続を繰り上げる（38.2）。階層記号は**省略後の並び**に対して振り直すため、
- * 記号に穴は空かない。注記行と値引き行は記号を持たず、記号の番号も消費しない
- * （pdf-format-reference.md §5 の `Ａ`〜`Ｈ` ＋ `【値引】`）。
- *
- * 合計は注記行を除く（55.2）行の金額の合計とし、値引き行の負数はそのまま加算する
- * （41.8）。
- */
-function buildSummaryPage(
-  tree: readonly EditableItem[],
-  lineType: EstimateLineType,
-  pageNumber: number
-): ReportPage {
-  const rows: ReportRow[] = [];
-  let symbolIndex = 0;
-  let previousUnit: string | null = null;
-  let total = new Decimal(0);
+/** 出力対象として残った項目1件と、その階層記号 */
+interface VisibleEntry {
+  readonly item: EditableItem;
+  /** 対象行タイプの明細行（`hasValueForLineType` が true の項目なので必ず存在する） */
+  readonly line: EditableLine;
+  /** 階層記号。第2階層以降と注記行・値引き行は空文字（53.7） */
+  readonly symbol: string;
+}
 
-  for (const item of tree) {
+/**
+ * 同一の親配下の項目から、対象の行タイプに値を持つものだけを階層記号付きで列挙する
+ *
+ * 内訳書（第1階層）と明細書（各階層の子項目）で**同じ列挙規則**を用いるための単一実装。
+ * 省略の判定は `hasValueForLineType` に委ね、本関数で再実装しない（56.2 の呼び出し規約。
+ * 規則を2箇所に書くと内訳書の合計と明細書の合計が食い違う）。
+ *
+ * `levelSymbol` には**同一親配下の連番**を渡す（56.1 の呼び出し規約）。`symbolIndex` は
+ * 省略後の並びに対してのみ進むため、省略があっても記号に穴は空かない。注記行と値引き行は
+ * 記号を持たず、記号の番号も消費しない（pdf-format-reference.md §5 の `Ａ`〜`Ｈ` ＋ `【値引】`）。
+ *
+ * Requirements: 38.2, 38.3, 53.7
+ */
+function visibleEntries(
+  siblings: readonly EditableItem[],
+  lineType: EstimateLineType,
+  depth: number
+): readonly VisibleEntry[] {
+  const entries: VisibleEntry[] = [];
+  let symbolIndex = 0;
+
+  for (const item of siblings) {
     if (!hasValueForLineType(item, lineType)) {
       continue;
     }
     // `hasValueForLineType` が true を返した時点で当該行タイプの明細行は存在する
     const line = lineOf(item, lineType)!;
-    // `levelSymbol` には**同一親配下の連番**を渡す（56.1 の呼び出し規約）。
-    // `symbolIndex` は省略後の並びに対して進むため、省略があっても記号に穴は空かない。
-    const symbol = item.itemType === 'STANDARD' ? levelSymbol(symbolIndex, 0) : '';
+    const symbol = item.itemType === 'STANDARD' ? levelSymbol(symbolIndex, depth) : '';
     if (item.itemType === 'STANDARD') {
       symbolIndex += 1;
     }
+    entries.push({ item, line, symbol });
+  }
 
-    rows.push(buildItemRow({ item, line, symbol, indentLevel: 0, previousUnit }));
+  return entries;
+}
+
+/**
+ * 1つの表に並ぶ明細行と、その階層の合計金額を組み立てる
+ *
+ * 単位の繰り返し記号は**直前に出力された行**の単位に対して適用するため、省略された項目は
+ * 連鎖に参加しない（38.2, 53.6）。注記行は単位を持たない扱いとして連鎖を断ち切る。
+ * 合計は注記行を除く（55.2）行の金額の合計とし、値引き行の負数はそのまま加算する（41.8）。
+ *
+ * ページ分割は本関数の**後段**（`paginate`）で行う。すなわち `previous` の連鎖は
+ * ページ境界に影響されず、継続ページの先頭行も直前ページ最終行と比較される
+ * （design.md `##### estimateReportLayout` Implementation Notes / 53.6）。
+ */
+function buildRowSequence(
+  entries: readonly VisibleEntry[],
+  indentLevel: number
+): { readonly rows: readonly ReportRow[]; readonly total: Decimal } {
+  const rows: ReportRow[] = [];
+  let previousUnit: string | null = null;
+  let total = new Decimal(0);
+
+  for (const { item, line, symbol } of entries) {
+    rows.push(buildItemRow({ item, line, symbol, indentLevel, previousUnit }));
     previousUnit = item.itemType === 'NOTE' ? null : line.unit;
 
     if (item.itemType !== 'NOTE') {
@@ -684,15 +732,153 @@ function buildSummaryPage(
     }
   }
 
-  return {
+  return { rows, total };
+}
+
+// ============================================================================
+// ページ分割（50.9, 50.10, 52.5）
+// ============================================================================
+
+/** ページ番号を割り当てる前のページ構成 */
+type ReportPageDraft = Omit<ReportPage, 'pageNumber'>;
+
+/**
+ * 明細行を1ページあたりの行数で区切る
+ *
+ * 行が1件も無い場合も空のページを1つ返す（内訳書は対象行タイプに値を持つ項目が
+ * 1件も無くても表そのものは出力するため）。
+ */
+function chunkRows(rows: readonly ReportRow[], size: number): readonly (readonly ReportRow[])[] {
+  if (rows.length === 0) {
+    return [[]];
+  }
+  const chunks: (readonly ReportRow[])[] = [];
+  for (let start = 0; start < rows.length; start += size) {
+    chunks.push(rows.slice(start, start + size));
+  }
+  return chunks;
+}
+
+/**
+ * 1つの表をページへ割り付ける
+ *
+ * 明細行が1ページの上限（`REPORT_GRID.detailRowsPerPage` = 17行 / 52.5）を超える場合、
+ * **同じ表題と見出し行**を持つ継続ページへ繰り越す（50.9）。見出し行（列名の行 / 52.7）は
+ * 各ページに引かれる固定のグリッドであり、本モジュールが `rows` に含めることはない。
+ *
+ * 合計行は最終ページにのみ置く（50.10）。継続元のページでは `totalRow` を `null` とし、
+ * 18行グリッドの最下段は罫線だけの空行として描画側（56.4 / 56.5）が引く（52.6）。
+ */
+function paginate(
+  rows: readonly ReportRow[],
+  total: Decimal,
+  base: Omit<ReportPageDraft, 'rows' | 'totalRow'>
+): readonly ReportPageDraft[] {
+  const chunks = chunkRows(rows, REPORT_GRID.detailRowsPerPage);
+
+  return chunks.map((chunk, index) => ({
+    ...base,
+    rows: chunk,
+    totalRow: index === chunks.length - 1 ? buildTotalRow(total) : null,
+  }));
+}
+
+// ============================================================================
+// 内訳書ページの組み立て（50.3, 52.10）
+// ============================================================================
+
+/**
+ * 内訳書ページを組み立てる
+ *
+ * 第1階層の項目だけを並べ（50.3）、対象の行タイプに値を持たない項目は省いて
+ * 後続を繰り上げる（38.2）。子項目は明細書ページ側で扱うため含めない。
+ *
+ * 内訳書も明細書と**同一の表組み**（52.1）であり、1ページの明細行は17行（52.5）。
+ * 第1階層が17件を超える場合は明細書と同じ規則で継続ページへ分ける（50.9, 50.10）。
+ */
+function buildSummaryPages(
+  tree: readonly EditableItem[],
+  lineType: EstimateLineType
+): readonly ReportPageDraft[] {
+  const { rows, total } = buildRowSequence(visibleEntries(tree, lineType, 0), 0);
+
+  return paginate(rows, total, {
     kind: 'summary',
     lineType,
-    pageNumber,
     title: `${SUMMARY_PAGE_TITLE}（${LINE_TYPE_LABEL[lineType]}）`,
     parentLabel: null,
-    rows,
-    totalRow: buildTotalRow(total),
+  });
+}
+
+// ============================================================================
+// 明細書ページの組み立て（50.4〜50.7, 50.9〜50.11, 52.11, 52.12, 38.4）
+// ============================================================================
+
+/** 明細書ページの先頭行（親項目の階層記号と名称のみ / 52.11） */
+function buildHeadingRow(parent: VisibleEntry): ReportRow {
+  return {
+    kind: 'item',
+    name: composeName(parent.item, parent.line, parent.symbol),
+    specification: '',
+    unit: '',
+    quantity: '',
+    unitPrice: '',
+    amount: '',
+    remarks: '',
+    indentLevel: 0,
   };
+}
+
+/**
+ * 1つの親項目に対応する明細書ページを組み立てる（配下の孫階層は含まない）
+ *
+ * 子項目を持たない項目のページは生成せず（50.7）、対象の行タイプに値を持つ子が
+ * 1件も残らなかった階層のページも生成しない（38.4）。
+ *
+ * 先頭行に親項目の階層記号と名称を置き（52.11）、子項目は1段下げる（52.12）。
+ * 合計行の金額は**当該階層の子項目の合計**であり、親項目自身の金額は加算しない（52.10）。
+ * 親項目名は各ページのフッタへ割り当てる（50.11）。
+ */
+function buildParentDetailPages(
+  parent: VisibleEntry,
+  lineType: EstimateLineType,
+  depth: number
+): readonly ReportPageDraft[] {
+  const children = visibleEntries(parent.item.children, lineType, depth + 1);
+  if (children.length === 0) {
+    return [];
+  }
+
+  const headingRow = buildHeadingRow(parent);
+  const { rows, total } = buildRowSequence(children, 1);
+
+  return paginate([headingRow, ...rows], total, {
+    kind: 'detail',
+    lineType,
+    title: `${DETAIL_PAGE_TITLE}（${LINE_TYPE_LABEL[lineType]}）`,
+    parentLabel: headingRow.name,
+  });
+}
+
+/**
+ * 同一の親配下の項目を辿って明細書ページを深さ優先で並べる
+ *
+ * ある項目の明細書ページの直後に、その配下の階層の明細書ページを続ける（50.6）。
+ * 階層の深さに関わらず、子項目を持つ項目ごとにページを出力する（50.5）。
+ */
+function buildDetailPages(
+  siblings: readonly EditableItem[],
+  lineType: EstimateLineType,
+  depth: number
+): readonly ReportPageDraft[] {
+  const pages: ReportPageDraft[] = [];
+
+  for (const entry of visibleEntries(siblings, lineType, depth)) {
+    pages.push(...buildParentDetailPages(entry, lineType, depth));
+    pages.push(...buildDetailPages(entry.item.children, lineType, depth + 1));
+  }
+
+  return pages;
 }
 
 // ============================================================================
@@ -708,12 +894,11 @@ function buildSummaryPage(
  * - 見積金額のファイルのみ1ページ目を表紙とし（50.2, 51.16）、実行金額・
  *   業者金額のファイルは表紙を持たず1ページ目が内訳書になる（50.12）
  * - 内訳書は行タイプに依らず全ファイルに含める（50.3）
- * - ページ番号は**各ファイル内**の1始まりの通し番号とする（32.9, 50.8）
+ * - 内訳書の次のページ以降を明細書とし、子項目を持つ項目ごとに改ページする（50.4）
+ * - ページ番号は**各ファイル内**の1始まりの通し番号とする（32.9, 50.8）。
+ *   継続ページ（50.9）も1ページとして番号を消費する
  *
- * 明細書ページ（50.4〜50.7, 50.9〜50.11）は 56.3 が本関数へ追加する。
- * 追加時もページ番号は `pages` の並び順に沿って各ファイル内で振り直すこと。
- *
- * Requirements: 32.2, 32.5, 32.9, 38.2, 38.3, 50.1, 50.2, 50.3, 50.8, 50.12, 51.16
+ * Requirements: 32.2, 32.4, 32.5, 32.9, 38.2, 38.3, 38.4, 50.1〜50.12, 51.16, 52.5, 52.10, 52.11
  */
 export function buildFiles(
   tree: readonly EditableItem[],
@@ -723,20 +908,25 @@ export function buildFiles(
 
   return selected.map((lineType) => {
     const hasCoverPage = lineType === 'ESTIMATE';
-    const pages: ReportPage[] = [];
+    const drafts: ReportPageDraft[] = [];
 
     if (hasCoverPage) {
-      pages.push({
+      drafts.push({
         kind: 'cover',
         lineType,
-        pageNumber: pages.length + 1,
         title: COVER_PAGE_TITLE,
         parentLabel: null,
         rows: [],
         totalRow: null,
       });
     }
-    pages.push(buildSummaryPage(tree, lineType, pages.length + 1));
+    drafts.push(...buildSummaryPages(tree, lineType));
+    drafts.push(...buildDetailPages(tree, lineType, 0));
+
+    const pages: readonly ReportPage[] = drafts.map((draft, index) => ({
+      ...draft,
+      pageNumber: index + 1,
+    }));
 
     return { lineType, fileNameLabel: LINE_TYPE_LABEL[lineType], hasCoverPage, pages };
   });
