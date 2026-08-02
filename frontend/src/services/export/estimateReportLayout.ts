@@ -1,9 +1,13 @@
 /**
- * @fileoverview estimateReportLayout - 帳票の寸法・列構成・行構成・値の表記規則
+ * @fileoverview estimateReportLayout - 帳票の寸法・列構成・行構成・値の表記規則と構成の組み立て
  *
  * 見積書帳票（内訳書・明細書・表紙）の紙面寸法と、数量・単価・金額・単位・階層記号の
  * 表記規則を単一の定数群・関数群として提供します。寸法と書式の出典は
  * `.kiro/specs/estimate-creation/pdf-format-reference.md`（実案件PDFの実測）です。
+ *
+ * 併せて `buildFiles` が、編集中の明細ツリーから**行タイプごとのファイル構成**
+ * （表紙の有無・ページ番号・内訳書ページ）を組み立てます。PDF出力（56.6）と
+ * 表計算出力（56.7）はこの構成を共有し、描画・書き出しだけを担います。
  *
  * **丸めとの責務分担**: 値そのものの丸め規則（Requirement 22）は
  * `domain/estimate/estimateCalculations` が単一の実装として所有します。本モジュールは
@@ -18,7 +22,15 @@
  *
  * Requirements (estimate-creation):
  * - 22.10: 帳票出力における数量・単価・金額の表記を Requirement 53 に従って構成する
- * - 41.12: 値引き行を名称欄に「【値引】」と表示し、金額を負数のまま出力する
+ * - 32.2 / 32.5 / 32.9: 行タイプごとに独立したファイルを生成し、未選択の行タイプは
+ *   出力せず、ページ番号を各ファイル内の通し番号とする
+ * - 38.2 / 38.3: 対象行タイプに値のない項目を省き、後続の項目を繰り上げる
+ * - 41.8 / 41.12: 値引き行を名称欄に「【値引】」と表示し、金額を負数のまま出力・集計する
+ * - 50.2 / 50.3 / 50.8 / 50.12: 見積金額のファイルのみ1ページ目を表紙とし、
+ *   内訳書に第1階層の一覧を出力し、全ページに通し番号を付ける
+ * - 51.16: 表紙を見積金額を出力対象とするファイルにのみ適用する
+ * - 52.10: 合計行の名称欄に「【合計】」を出力する
+ * - 55.2: 注記行を金額の集計対象から除外する
  * - 52.2: 表の列を左から「名称」「規格」「単位」「数量」「単価」「金額」「備考」の7列とする
  * - 53.1 / 53.2: 数量は小数第1位まで、小数点位置を列内で揃え、整数は小数部を空白とする
  * - 53.3 / 53.4 / 53.5: 単価・金額は3桁区切り整数の右揃え、未設定とゼロは空欄、負数は先頭に「-」
@@ -34,6 +46,11 @@
 import Decimal from 'decimal.js';
 
 import { roundMoney } from '../../domain/estimate/estimateCalculations';
+import type {
+  EditableItem,
+  EditableLine,
+  EstimateLineType,
+} from '../../domain/estimate/estimateEditReducer.types';
 
 // ============================================================================
 // 型定義（design.md `##### estimateReportLayout` の契約）
@@ -368,4 +385,359 @@ export function toFullWidthDate(date: Date): string {
   const month = toFullWidth(String(date.getMonth() + 1));
   const day = toFullWidth(String(date.getDate()));
   return `${year} 年${month} 月${day} 日`;
+}
+
+// ============================================================================
+// 帳票の構成（design.md `##### estimateReportLayout` の契約）
+// ============================================================================
+
+/**
+ * 表の1行
+ *
+ * 各欄は**描画にそのまま渡せる完成した文字列**であり、`formatQuantity` /
+ * `formatMoney` / `formatUnit` / `levelSymbol` の適用は本モジュールで済んでいる。
+ * 描画側（56.4 / 56.5）は列位置・字間・列幅による打ち切り（52.13）だけを担い、
+ * 値の表記規則（Requirement 53）を再実装してはならない。
+ */
+export interface ReportRow {
+  /**
+   * 行の種別
+   *
+   * - `item`: 通常の見積項目
+   * - `note`: 注記行（名称欄のみを埋める / 55.1, 55.5）
+   * - `discount`: 値引き行（名称欄は `DISCOUNT_ROW_LABEL` / 41.12）
+   * - `total`: 合計行（52.10）
+   */
+  readonly kind: 'item' | 'note' | 'discount' | 'total';
+  /** 名称欄。第1階層の項目は「階層記号 ＋ `.` ＋ 名称」（53.7） */
+  readonly name: string;
+  readonly specification: string;
+  readonly unit: string;
+  readonly quantity: string;
+  readonly unitPrice: string;
+  readonly amount: string;
+  readonly remarks: string;
+  /**
+   * 名称欄のインデント段数（52.12）
+   *
+   * 内訳書の行と明細書の親項目見出し行は 0、明細書の子項目は 1 以上。
+   * 1段あたりの実際のずらし幅は描画側（56.5）が決める。
+   */
+  readonly indentLevel: number;
+}
+
+/**
+ * 1ページ分の構成
+ *
+ * `kind` の `summary` が内訳書、`detail` が明細書に対応する。
+ * 表紙（`cover`）は「そこに表紙を1ページ置く」ことだけを表す標識で、
+ * 表紙に載せる宛先・工事情報・自社情報は出力サービス（56.6）が別途渡す。
+ */
+export interface ReportPage {
+  readonly kind: 'cover' | 'summary' | 'detail';
+  readonly lineType: EstimateLineType;
+  /** 所属ファイル内の通し番号。1 始まり（32.9, 50.8） */
+  readonly pageNumber: number;
+  /** 表題。内訳書・明細書は対象の行タイプを併記する（32.4） */
+  readonly title: string;
+  /** 明細書フッタの親項目名（50.11）。表紙・内訳書は `null` */
+  readonly parentLabel: string | null;
+  readonly rows: readonly ReportRow[];
+  /** 合計行（52.10）。継続ページでは最終ページのみ非 `null`（50.10） */
+  readonly totalRow: ReportRow | null;
+}
+
+/** 行タイプごとに1ファイル。見積のみ表紙を持つ（32.2, 50.2, 50.12, 51.16） */
+export interface ReportFileSpec {
+  readonly lineType: EstimateLineType;
+  /** ファイル名に含める行タイプのラベル（32.6） */
+  readonly fileNameLabel: string;
+  /** `ESTIMATE` のみ `true`（50.2, 50.12, 51.16） */
+  readonly hasCoverPage: boolean;
+  readonly pages: readonly ReportPage[];
+}
+
+// ============================================================================
+// 構成の定数
+// ============================================================================
+
+/**
+ * ファイルを並べる順序（32.3）
+ *
+ * 呼び出し側が渡す `lineTypes` の順序に依らず、常に「見積」「実行」「業者」の順に返す。
+ */
+const LINE_TYPE_ORDER: readonly EstimateLineType[] = ['ESTIMATE', 'EXECUTION', 'VENDOR'];
+
+/** ファイル名と表題に用いる行タイプのラベル（32.4, 32.6） */
+const LINE_TYPE_LABEL: Readonly<Record<EstimateLineType, string>> = {
+  ESTIMATE: '見積',
+  EXECUTION: '実行',
+  VENDOR: '業者',
+};
+
+/** 表紙の表題（51.1） */
+export const COVER_PAGE_TITLE = '御見積書';
+
+/** 内訳書の表題（52.8） */
+const SUMMARY_PAGE_TITLE = '内訳書';
+
+/**
+ * 合計行の名称欄の表示（52.10）
+ *
+ * 参照PDF（pdf-format-reference.md §5 / §6）の実例は `        【合  計】` だが、
+ * 先頭の空白と字間は紙面上の配置であり、要件の文言は「【合計】」である。
+ * `DISCOUNT_ROW_LABEL`（41.12）と同じ流儀で**論理的な文字列のみ**を持ち、
+ * 字間と字下げは描画側（56.5）が担当する。
+ *
+ * 56.1 の Implementation Note はこのラベルを 56.3 の担当としていたが、
+ * 内訳書にも合計行が必要（tasks.md 56.2「第1階層の一覧と合計を配置する」）なため
+ * 本タスクで確定させる。**56.3 は再定義せず本定数を再利用すること。**
+ */
+export const TOTAL_ROW_LABEL = '【合計】';
+
+/** 階層記号と名称の区切り（pdf-format-reference.md §5 / §6） */
+const LEVEL_SYMBOL_SEPARATOR = '.';
+
+/**
+ * 「値を持つ」かの判定対象となる明細行の欄（38.2, 38.3）
+ *
+ * `id` / `lineType` は構造上の識別子、`sourceVendorName` は転記元の記録であり
+ * 帳票に出力する欄ではないため、いずれも判定に含めない。
+ */
+const VALUE_FIELDS: readonly (keyof EditableLine)[] = [
+  'name',
+  'specification',
+  'unit',
+  'quantity',
+  'unitPrice',
+  'amount',
+  'remarks',
+];
+
+// ============================================================================
+// 明細行の取り出しと値の有無（38.2, 38.3）
+// ============================================================================
+
+function lineOf(item: EditableItem, lineType: EstimateLineType): EditableLine | null {
+  return item.lines.find((line) => line.lineType === lineType) ?? null;
+}
+
+function isFilled(value: string | null): value is string {
+  return value !== null && value !== '';
+}
+
+/**
+ * 見積項目が対象の行タイプに値を持つかを判定する
+ *
+ * 「値を持たない」とは、対象の行タイプの明細行が**存在しない**か、存在しても
+ * 帳票に出力する7欄（名称・規格・単位・数量・単価・金額・備考）がすべて
+ * 未設定または空文字であることを指す。ゼロは「値がある」（`'0'` は空文字ではない）。
+ * 金額欄の空欄化は 53.4 の表記規則であって省略の理由ではないため、
+ * 金額ゼロの項目は省かずに金額欄だけを空欄として出力する。
+ *
+ * この定義により、見積金額行しか持たない注記行（55.1）と値引き行（41.8）は
+ * 実行金額・業者金額のファイルから省かれる。
+ *
+ * 親項目の金額は `estimateTree.recalculateAncestorAmounts` で子の合計に確定して
+ * いるため、値を持つ子を抱えた親が本判定で省かれることはない。
+ *
+ * **呼び出し規約**: 56.3 の明細書ページの組み立ても、内訳書と同じ省略規則を
+ * 適用するため本関数を用いること（規則を2箇所に書くと内訳書と明細書で
+ * 省略対象がずれ、内訳書の合計と明細書の合計が食い違う）。
+ *
+ * Requirements: 38.2, 38.3
+ */
+export function hasValueForLineType(item: EditableItem, lineType: EstimateLineType): boolean {
+  const line = lineOf(item, lineType);
+  if (line === null) {
+    return false;
+  }
+  return VALUE_FIELDS.some((field) => isFilled(line[field]));
+}
+
+// ============================================================================
+// 行の組み立て
+// ============================================================================
+
+/** 10進数文字列を `Decimal` にする。未設定・空文字・解釈できない値は `null` */
+function toDecimalOrNull(value: string | null): Decimal | null {
+  if (!isFilled(value)) {
+    return null;
+  }
+  try {
+    return new Decimal(value);
+  } catch {
+    return null;
+  }
+}
+
+/** 名称欄の文字列を組み立てる（53.7, 41.12） */
+function composeName(item: EditableItem, line: EditableLine, symbol: string): string {
+  if (item.itemType === 'DISCOUNT') {
+    return DISCOUNT_ROW_LABEL;
+  }
+  const name = line.name ?? '';
+  return symbol === '' ? name : `${symbol}${LEVEL_SYMBOL_SEPARATOR}${name}`;
+}
+
+/**
+ * 見積項目1件を表の1行へ変換する
+ *
+ * 注記行は名称欄以外を空欄とする（55.5）。構造上も注記行は名称しか持たないが
+ * （55.1）、空欄化を組み立て側で確定させることで、直後の行の単位が
+ * 「〃」にならないこと（53.6）が `previousUnit` の受け渡しだけで決まる。
+ */
+function buildItemRow(options: {
+  readonly item: EditableItem;
+  readonly line: EditableLine;
+  readonly symbol: string;
+  readonly indentLevel: number;
+  readonly previousUnit: string | null;
+}): ReportRow {
+  const { item, line, symbol, indentLevel, previousUnit } = options;
+
+  if (item.itemType === 'NOTE') {
+    return {
+      kind: 'note',
+      name: line.name ?? '',
+      specification: '',
+      unit: '',
+      quantity: '',
+      unitPrice: '',
+      amount: '',
+      remarks: '',
+      indentLevel,
+    };
+  }
+
+  return {
+    kind: item.itemType === 'DISCOUNT' ? 'discount' : 'item',
+    name: composeName(item, line, symbol),
+    specification: line.specification ?? '',
+    unit: formatUnit(line.unit, previousUnit),
+    quantity: formatQuantity(toDecimalOrNull(line.quantity)),
+    unitPrice: formatMoney(toDecimalOrNull(line.unitPrice)),
+    amount: formatMoney(toDecimalOrNull(line.amount)),
+    remarks: line.remarks ?? '',
+    indentLevel,
+  };
+}
+
+/** 合計行を組み立てる（52.10） */
+function buildTotalRow(total: Decimal): ReportRow {
+  return {
+    kind: 'total',
+    name: TOTAL_ROW_LABEL,
+    specification: '',
+    unit: '',
+    quantity: '',
+    unitPrice: '',
+    amount: formatMoney(total),
+    remarks: '',
+    indentLevel: 0,
+  };
+}
+
+// ============================================================================
+// 内訳書ページの組み立て（50.3, 52.10）
+// ============================================================================
+
+/**
+ * 内訳書ページを組み立てる
+ *
+ * 第1階層の項目だけを並べ（50.3）、対象の行タイプに値を持たない項目は省いて
+ * 後続を繰り上げる（38.2）。階層記号は**省略後の並び**に対して振り直すため、
+ * 記号に穴は空かない。注記行と値引き行は記号を持たず、記号の番号も消費しない
+ * （pdf-format-reference.md §5 の `Ａ`〜`Ｈ` ＋ `【値引】`）。
+ *
+ * 合計は注記行を除く（55.2）行の金額の合計とし、値引き行の負数はそのまま加算する
+ * （41.8）。
+ */
+function buildSummaryPage(
+  tree: readonly EditableItem[],
+  lineType: EstimateLineType,
+  pageNumber: number
+): ReportPage {
+  const rows: ReportRow[] = [];
+  let symbolIndex = 0;
+  let previousUnit: string | null = null;
+  let total = new Decimal(0);
+
+  for (const item of tree) {
+    if (!hasValueForLineType(item, lineType)) {
+      continue;
+    }
+    // `hasValueForLineType` が true を返した時点で当該行タイプの明細行は存在する
+    const line = lineOf(item, lineType)!;
+    // `levelSymbol` には**同一親配下の連番**を渡す（56.1 の呼び出し規約）。
+    // `symbolIndex` は省略後の並びに対して進むため、省略があっても記号に穴は空かない。
+    const symbol = item.itemType === 'STANDARD' ? levelSymbol(symbolIndex, 0) : '';
+    if (item.itemType === 'STANDARD') {
+      symbolIndex += 1;
+    }
+
+    rows.push(buildItemRow({ item, line, symbol, indentLevel: 0, previousUnit }));
+    previousUnit = item.itemType === 'NOTE' ? null : line.unit;
+
+    if (item.itemType !== 'NOTE') {
+      total = total.add(toDecimalOrNull(line.amount) ?? new Decimal(0));
+    }
+  }
+
+  return {
+    kind: 'summary',
+    lineType,
+    pageNumber,
+    title: `${SUMMARY_PAGE_TITLE}（${LINE_TYPE_LABEL[lineType]}）`,
+    parentLabel: null,
+    rows,
+    totalRow: buildTotalRow(total),
+  };
+}
+
+// ============================================================================
+// ファイルの組み立て（32.2, 32.5, 32.9, 50.2, 50.8, 50.12, 51.16）
+// ============================================================================
+
+/**
+ * 出力対象の行タイプごとに帳票ファイルの構成を組み立てる
+ *
+ * - 行タイプ1つにつき独立したファイルを1つ生成する（32.2）。選択されていない
+ *   行タイプのファイルは生成しない（32.5）。重複指定は1ファイルに畳む
+ * - ファイルは指定順に依らず「見積」「実行」「業者」の順で返す（32.3）
+ * - 見積金額のファイルのみ1ページ目を表紙とし（50.2, 51.16）、実行金額・
+ *   業者金額のファイルは表紙を持たず1ページ目が内訳書になる（50.12）
+ * - 内訳書は行タイプに依らず全ファイルに含める（50.3）
+ * - ページ番号は**各ファイル内**の1始まりの通し番号とする（32.9, 50.8）
+ *
+ * 明細書ページ（50.4〜50.7, 50.9〜50.11）は 56.3 が本関数へ追加する。
+ * 追加時もページ番号は `pages` の並び順に沿って各ファイル内で振り直すこと。
+ *
+ * Requirements: 32.2, 32.5, 32.9, 38.2, 38.3, 50.1, 50.2, 50.3, 50.8, 50.12, 51.16
+ */
+export function buildFiles(
+  tree: readonly EditableItem[],
+  lineTypes: readonly EstimateLineType[]
+): readonly ReportFileSpec[] {
+  const selected = LINE_TYPE_ORDER.filter((lineType) => lineTypes.includes(lineType));
+
+  return selected.map((lineType) => {
+    const hasCoverPage = lineType === 'ESTIMATE';
+    const pages: ReportPage[] = [];
+
+    if (hasCoverPage) {
+      pages.push({
+        kind: 'cover',
+        lineType,
+        pageNumber: pages.length + 1,
+        title: COVER_PAGE_TITLE,
+        parentLabel: null,
+        rows: [],
+        totalRow: null,
+      });
+    }
+    pages.push(buildSummaryPage(tree, lineType, pages.length + 1));
+
+    return { lineType, fileNameLabel: LINE_TYPE_LABEL[lineType], hasCoverPage, pages };
+  });
 }
