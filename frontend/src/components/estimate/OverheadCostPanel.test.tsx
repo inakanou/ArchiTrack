@@ -338,13 +338,11 @@ describe('OverheadCostPanel', () => {
         const addButton = screen.getByRole('button', { name: '項目追加' });
         await userEvent.click(addButton);
 
+        // プリセット値（名称・規格・単位・数量）は編集状態の遷移側が持つため
+        // パネルは費目と単価だけを渡す（55.6）
         await waitFor(() => {
           expect(onItemAdded).toHaveBeenCalledWith({
             costType: 'COMMON_TEMPORARY',
-            name: '共通仮設費',
-            specification: '',
-            unit: '式',
-            quantity: '1',
             unitPrice: '5000000',
           });
         });
@@ -357,7 +355,7 @@ describe('OverheadCostPanel', () => {
         expect(addButton).toBeDisabled();
       });
 
-      it('現場管理費の場合、プリセット名称が「現場管理費」', async () => {
+      it('現場管理費を選ぶと costType=SITE_MANAGEMENT と入力金額を渡す', async () => {
         const onItemAdded = vi.fn();
         render(<OverheadCostPanel estimateId="estimate-1" onItemAdded={onItemAdded} />);
 
@@ -371,16 +369,14 @@ describe('OverheadCostPanel', () => {
         await userEvent.click(addButton);
 
         await waitFor(() => {
-          expect(onItemAdded).toHaveBeenCalledWith(
-            expect.objectContaining({
-              costType: 'SITE_MANAGEMENT',
-              name: '現場管理費',
-            })
-          );
+          expect(onItemAdded).toHaveBeenCalledWith({
+            costType: 'SITE_MANAGEMENT',
+            unitPrice: '3000000',
+          });
         });
       });
 
-      it('一般管理費の場合、プリセット名称が「一般管理費」', async () => {
+      it('一般管理費を選ぶと costType=GENERAL_ADMIN と入力金額を渡す', async () => {
         const onItemAdded = vi.fn();
         render(<OverheadCostPanel estimateId="estimate-1" onItemAdded={onItemAdded} />);
 
@@ -394,12 +390,10 @@ describe('OverheadCostPanel', () => {
         await userEvent.click(addButton);
 
         await waitFor(() => {
-          expect(onItemAdded).toHaveBeenCalledWith(
-            expect.objectContaining({
-              costType: 'GENERAL_ADMIN',
-              name: '一般管理費',
-            })
-          );
+          expect(onItemAdded).toHaveBeenCalledWith({
+            costType: 'GENERAL_ADMIN',
+            unitPrice: '2000000',
+          });
         });
       });
     });

@@ -54,6 +54,7 @@ const mockEditor = {
   setItems: vi.fn(),
   getTotalAmount: vi.fn().mockReturnValue('0'),
   addDiscountItem: vi.fn(),
+  addOverheadItem: vi.fn(),
   addNoteItem: vi.fn(),
   // 範囲操作（53.3 / 54.6）とその失敗理由（44.6, 44.7 / 54.10）。
   // `lastError` は描画中に読まれるため、欠けているとモックが本物と乖離して落ちる。
@@ -529,6 +530,7 @@ describe('EstimateDetailPage', () => {
     mockEditor.duplicateItem.mockReset();
     mockEditor.setItems.mockReset();
     mockEditor.addDiscountItem.mockReset();
+    mockEditor.addOverheadItem.mockReset();
     capturedToolbarProps = {};
     capturedTableProps = {};
     editorMode.useReal = false;
@@ -2283,9 +2285,15 @@ describe('EstimateDetailPage', () => {
     });
   });
 
-  it('handleAddOverheadItemが諸経費追加APIを呼びダイアログを閉じる (REQ-7.1)', async () => {
+  /**
+   * 諸経費パネルの「項目追加」が編集フックの遷移へ配線されている（55.6）
+   *
+   * 単価は10進数文字列のまま渡す。数値へ変換すると桁の大きい金額で精度を落とす。
+   * 追加結果が実際に明細へ入ることは
+   * `EstimateDetailPage.overheadCost.test.tsx`（実物のパネルと明細テーブル）が持つ。
+   */
+  it('諸経費パネルの項目追加がeditor.addOverheadItemを呼びダイアログを閉じる (REQ-7.1, 49.3)', async () => {
     const user = userEvent.setup();
-    vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
 
     renderPage();
     await waitFor(() => {
@@ -2296,11 +2304,13 @@ describe('EstimateDetailPage', () => {
     await user.click(screen.getByTestId('overhead-add'));
 
     await waitFor(() => {
-      expect(estimatesApi.addOverheadItem).toHaveBeenCalledWith('est-001', {
+      expect(mockEditor.addOverheadItem).toHaveBeenCalledWith({
         costType: 'COMMON_TEMPORARY',
-        unitPrice: 50000,
+        unitPrice: '50000',
       });
     });
+    // サーバーへの書き込みは行わない（49.3）
+    expect(estimatesApi.addOverheadItem).not.toHaveBeenCalled();
 
     // 追加後はダイアログが閉じる
     await waitFor(() => {
@@ -2519,41 +2529,15 @@ describe('EstimateDetailPage', () => {
     });
 
     /**
-     * 43.4: 諸経費追加を行った場合、それまでの未保存の編集内容を保持する
+     * 43.4: 転記・案分・利益率適用・諸経費追加の後も未保存の編集内容を保持する
      *
-     * 諸経費行の追加そのものをクライアント側へ移すのは 55.6（段階3）。段階1では
-     * サーバー書き込みが残るため、53.9 の暫定ガードが**未保存の編集がある間の起動**を
-     * 抑止する。実行できない以上、未保存の編集が失われる余地も無い。
-     * ガード解除後（＝段階3）の 43.4 は 55.6 が担う。
+     * 受領見積書転記は 55.5、NET案分は 55.3、利益率適用は 55.4、諸経費追加は 55.6 で
+     * クライアント側へ移り、53.9 の暫定ガードは 55.6 で撤去された。未保存の値を
+     * 対象にする／未保存の変更として追加するのが要件
+     * （30.4 / 5.8 / 18.10 / 6.8 / 19.8 / 7.7, 8.7, 9.7 / 49.6, 49.7）で、
+     * 未保存を理由に起動を抑止すると要件そのものが実行できない。
      */
-    it('未保存の編集がある間は諸経費ダイアログが開かず編集内容が保持されること (43.4, 53.9)', async () => {
-      vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
-      const user = userEvent.setup();
-      renderPage();
-
-      await waitFor(() => {
-        expect(tableItems()).toHaveLength(2);
-      });
-      await editItemName('item-a', '編集済みA項目');
-
-      await user.click(screen.getByText('諸経費を計算して追加'));
-
-      expect(screen.queryByTestId('overhead-cost-dialog')).not.toBeInTheDocument();
-      expect(estimatesApi.addOverheadItem).not.toHaveBeenCalled();
-      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
-      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
-      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
-    });
-
-    /**
-     * 43.4: 転記・案分・利益率適用の後も未保存の編集内容を保持する
-     *
-     * 受領見積書転記は 55.5、NET案分は 55.3、利益率適用は 55.4 でクライアント側へ
-     * 移ったため 53.9 の暫定ガードの対象外。未保存の値を対象にするのが要件
-     * （30.4 / 5.8 / 18.10 / 6.8 / 19.8 / 49.6, 49.7）で、未保存を理由に起動を
-     * 抑止すると要件そのものが実行できない。
-     */
-    it('未保存の編集があっても転記・NET案分・利益率ダイアログが開くこと (43.4, 30.4, 18.10, 19.8)', async () => {
+    it('未保存の編集があっても転記・NET案分・利益率・諸経費ダイアログが開くこと (43.4, 30.4, 18.10, 19.8, 7.7)', async () => {
       const user = userEvent.setup();
       renderPage();
 
@@ -2574,6 +2558,9 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByTestId('mock-profit-dialog')).toBeInTheDocument();
       await user.click(screen.getByTestId('profit-close'));
 
+      await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
+      expect(screen.getByTestId('overhead-cost-dialog')).toBeInTheDocument();
+
       expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
@@ -2582,19 +2569,16 @@ describe('EstimateDetailPage', () => {
   });
 
   // =========================================================================
-  // サーバー書き込み系ダイアログの暫定ガード（Task 53.9 / 43.4, 49.5, 42.9）
+  // 転記系操作のクライアント反映（Task 55.3〜55.6 / 43.4, 49.2, 49.3, 49.5）
   //
-  // 段階1で残るサーバー書き込み（諸経費追加）については、
-  // (1) 未保存の編集がある間は起動を抑止し、(2) 操作直後にサーバー側で作られた行を
-  // 編集状態へ取り込む。(2) を欠くと、次の保存ペイロードに当該行が現れず
-  // design.md `#### 保存ペイロードとDB状態の対応`（`id` あり・ペイロードに不在 →
-  // `deleteMany`）でサーバー上の行が消える。55.7 でガードごと撤去する暫定措置。
-  //
-  // 受領見積書転記（55.5）・NET案分（55.3）・利益率適用（55.4）はクライアント側へ
-  // 移りサーバーへ書き込まないため、ガードと再同期のどちらも通らない。
+  // 受領見積書転記（55.5）・NET案分（55.3）・利益率適用（55.4）・諸経費追加（55.6）は
+  // いずれもクライアント側の編集状態へ反映するだけで、サーバーへ書き込まない。
+  // そのため 53.9 の暫定措置（未保存時の起動抑止と操作直後の再同期）は 55.6 で
+  // **対で撤去**した。明細の再取得が起きないこと（49.2）と、書き込みが無いために
+  // 楽観ロックの基準時刻が進まないこと（49.5）を、4経路について固定する。
   // =========================================================================
 
-  describe('サーバー書き込み系ダイアログの暫定ガード (Task 53.9)', () => {
+  describe('転記系操作のクライアント反映 (Task 55.3〜55.6)', () => {
     const buildLine = (itemId: string, name: string) => ({
       id: `line-${itemId}`,
       estimateItemId: itemId,
@@ -2631,10 +2615,11 @@ describe('EstimateDetailPage', () => {
     } as unknown as estimatesApi.EstimateDetail;
 
     /**
-     * 転記系の操作でサーバー側に行が増えた状態
+     * 「もし再取得したら見えるはずの」サーバー状態（行が1件多く `updatedAt` も進む）
      *
-     * 書き込みを伴うため `Estimate.updatedAt` も進む。クライアントが読み込み時の
-     * スナップショットを持ち続けると次の保存が 409 になる（49.5）。
+     * 転記系の操作はいずれもサーバーへ書き込まないため、この状態は**画面に現れては
+     * ならない**。2回目以降の取得にこれを仕込んでおくことで、再取得が復活した場合に
+     * `item-server` の出現・基準時刻の変化として必ず検出できる（49.2, 49.3, 49.5）。
      */
     const resyncedDetail = {
       ...mockEstimateDetail,
@@ -2691,18 +2676,8 @@ describe('EstimateDetailPage', () => {
       mockEstimateLoad(baseDetail);
     });
 
-    /**
-     * 未保存の変更がある間はサーバーへ書き込むダイアログが開かず、保存を促す
-     *
-     * 43.4: 諸経費追加でそれまでの未保存の編集内容を保持する
-     * 49.5: この操作の実行後の保存で競合エラーを発生させない
-     *
-     * 受領見積書転記（55.5）・NET案分（55.3）・利益率適用（55.4）はクライアント側へ
-     * 移りサーバーへ書き込まないため対象外。案内文もサーバー書き込みが残る操作だけを
-     * 名指しする（残っていない操作を名指しすると、抑止されない操作まで保存が必要だと
-     * 誤って伝える）。
-     */
-    it('未保存の変更がある間はサーバー書き込み系ダイアログが開かず保存を促すこと (43.4, 49.5)', async () => {
+    /** 未保存の変更があっても4つの転記系ダイアログと出力ダイアログが開く（53.9 のガード撤去後） */
+    it('未保存の変更があっても転記・案分・利益率・諸経費・出力のダイアログが開くこと (43.4)', async () => {
       const user = userEvent.setup();
       renderPage();
 
@@ -2710,41 +2685,6 @@ describe('EstimateDetailPage', () => {
         expect(tableItems()).toHaveLength(2);
       });
       await editItemName('item-a', '編集済みA項目');
-
-      await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
-      expect(screen.queryByTestId('overhead-cost-dialog')).not.toBeInTheDocument();
-      expect(screen.getByTestId('estimate-transfer-guard')).toHaveTextContent(
-        '未保存の変更があります。諸経費の追加を行う前に保存してください。'
-      );
-
-      // 抑止中はサーバーへの読み書きが一切起きず、編集内容もそのまま残る
-      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
-      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
-    });
-
-    /** ガードの対象はサーバーへ書き込む諸経費追加のみ。出力・転記・NET案分・利益率適用は対象外 */
-    it('未保存の変更があっても出力ダイアログは開くこと (53.9)', async () => {
-      const user = userEvent.setup();
-      renderPage();
-
-      await waitFor(() => {
-        expect(tableItems()).toHaveLength(2);
-      });
-      await editItemName('item-a', '編集済みA項目');
-
-      await user.click(screen.getByRole('button', { name: '出力' }));
-      expect(screen.getByTestId('mock-export-dialog')).toBeInTheDocument();
-      expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
-    });
-
-    /** 未保存の変更が無ければ従来どおり開く */
-    it('未保存の変更が無い間は転記・案分・利益率・諸経費の4ダイアログが開くこと (53.9)', async () => {
-      const user = userEvent.setup();
-      renderPage();
-
-      await waitFor(() => {
-        expect(tableItems()).toHaveLength(2);
-      });
 
       await user.click(screen.getByRole('button', { name: /受領見積書を業者金額に転記/ }));
       expect(screen.getByTestId('mock-transfer-dialog')).toBeInTheDocument();
@@ -2761,48 +2701,26 @@ describe('EstimateDetailPage', () => {
       await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
       expect(screen.getByTestId('overhead-cost-dialog')).toBeInTheDocument();
 
+      await user.click(screen.getByRole('button', { name: '出力' }));
+      expect(screen.getByTestId('mock-export-dialog')).toBeInTheDocument();
+
+      // 起動抑止の案内は存在しない（案内する対象そのものが無い）
       expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
-    });
-
-    /** 保存して未保存が解消されれば起動できるようになる */
-    it('保存後は抑止していたダイアログが開くこと (43.4)', async () => {
-      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
-      const user = userEvent.setup();
-      renderPage();
-
-      await waitFor(() => {
-        expect(tableItems()).toHaveLength(2);
-      });
-      await editItemName('item-a', '編集済みA項目');
-
-      await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
-      expect(screen.queryByTestId('overhead-cost-dialog')).not.toBeInTheDocument();
-
-      await user.click(screen.getByRole('button', { name: '保存' }));
-      await waitFor(() => {
-        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
-      });
-
-      // 保存で未保存が解消されると案内も下がる
-      await waitFor(() => {
-        expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
-      expect(screen.getByTestId('overhead-cost-dialog')).toBeInTheDocument();
+      // 抑止も再同期も無いので、読み込みは初回の1回のみ
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+      expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
     });
 
     /**
-     * 諸経費追加でサーバー側に作られた行を編集状態へ取り込み、次の保存で削除させない
+     * 諸経費追加はクライアント反映のため取り込み（再取得）の経路を通らない（55.6 / 49.2, 49.3）
      *
-     * 42.9: 保存処理において既存の見積項目とその実行予算項目からの参照関係を維持する
-     *   （取り込まないと当該行がペイロードから欠落し `deleteMany` の対象になる）
+     * 追加結果が実際に編集状態へ入ることは
+     * `EstimateDetailPage.overheadCost.test.tsx`（実物のパネルと明細テーブル）が持つ。
+     * 本ファイルは `../components/estimate` を丸ごとモックするため結線の生死は判定できない。
      */
-    it('諸経費追加で作られた行を取り込み、その後の編集を保存しても消えないこと (42.9)', async () => {
-      vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
+    it('諸経費追加では明細を再取得しないこと (49.2, 49.3)', async () => {
       mockEstimateLoadOnce(baseDetail);
       mockEstimateLoad(resyncedDetail);
-      vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
       const user = userEvent.setup();
       renderPage();
 
@@ -2810,40 +2728,28 @@ describe('EstimateDetailPage', () => {
         expect(tableItems()).toHaveLength(2);
       });
 
-      // 編集が無い状態で諸経費を追加する（ガードにより必ずこの状態で実行される）
       await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
       await user.click(screen.getByTestId('overhead-add'));
 
+      // 追加された行はクライアント側の一時項目で、サーバー側の行（item-server）ではない
       await waitFor(() => {
-        expect(estimatesApi.addOverheadItem).toHaveBeenCalledTimes(1);
+        expect(tableItems()).toHaveLength(3);
       });
-      // サーバー側で作られた行が編集状態へ取り込まれる
-      await waitFor(() => {
-        expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b', 'item-server']);
-      });
-
-      // 取り込み後にセルを編集して保存しても、当該行はペイロードに残る
-      await editItemName('item-a', '編集済みA項目');
-      await user.click(screen.getByRole('button', { name: '保存' }));
-
-      await waitFor(() => {
-        expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
-      });
-      expect(savePayload().items.map((node) => node.id)).toEqual([
-        'item-a',
-        'item-b',
-        'item-server',
-      ]);
+      expect(tableItems().map((item) => item.id)).not.toContain('item-server');
+      expect(tableItems()[2]!.id.startsWith('tmp-')).toBe(true);
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+      expect(estimatesApi.addOverheadItem).not.toHaveBeenCalled();
     });
 
     /**
-     * 諸経費追加でサーバー側に作られた行を取り込み、基準時刻も最新へ進める
+     * 諸経費追加の後の保存が、読み込み時の基準時刻をそのまま送る（49.5）
      *
-     * 49.5: これらの操作の実行後に保存操作を行った場合、競合エラーを発生させない
-     *   （書き込みで進んだ `Estimate.updatedAt` を取り込まないと次の保存が 409 になる）
+     * 書き込みが無いのでサーバーの `Estimate.updatedAt` は進まない。再取得して
+     * 基準時刻を差し替える（53.9 の再同期）と、他者の更新を取り込んだ新しい時刻で
+     * 保存することになり、42.5 の競合検出をすり抜けてしまう。
+     * 追加した行は編集状態の側にあるため、保存ペイロードにも現れる（42.1）。
      */
-    it('諸経費追加で行を取り込み、次の保存が最新の基準時刻を送ること (49.5, 42.9)', async () => {
-      vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
+    it('諸経費追加の後の保存が読み込み時の基準時刻を送ること (49.5, 42.1)', async () => {
       mockEstimateLoadOnce(baseDetail);
       mockEstimateLoad(resyncedDetail);
       vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
@@ -2858,7 +2764,7 @@ describe('EstimateDetailPage', () => {
       await user.click(screen.getByTestId('overhead-add'));
 
       await waitFor(() => {
-        expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b', 'item-server']);
+        expect(tableItems()).toHaveLength(3);
       });
 
       await editItemName('item-a', '編集済みA項目');
@@ -2867,13 +2773,12 @@ describe('EstimateDetailPage', () => {
       await waitFor(() => {
         expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
       });
-      // 読み込み時のスナップショットではなく、書き込み後に取り直した時刻を送る
-      expect(savePayload().expectedUpdatedAt).toBe('2024-02-01T09:00:00.000Z');
-      expect(savePayload().items.map((node) => node.id)).toEqual([
-        'item-a',
-        'item-b',
-        'item-server',
-      ]);
+      // 再取得していないので、基準時刻は読み込み時のまま
+      expect(savePayload().expectedUpdatedAt).toBe('2024-01-15T10:00:00.000Z');
+      // 追加した行はクライアント側の一時項目としてペイロードに現れる
+      expect(savePayload().items).toHaveLength(3);
+      expect(savePayload().items[2]!.id).toBeNull();
+      expect(savePayload().items[2]!.tempId).not.toBeNull();
     });
 
     /**
@@ -2953,31 +2858,6 @@ describe('EstimateDetailPage', () => {
 
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
       expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
-    });
-
-    /** 取り込みに失敗したときは黙って続行させず再読み込みを促す */
-    it('取り込みに失敗した場合は再読み込みを促すこと (42.9)', async () => {
-      vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
-      mockEstimateLoadOnce(baseDetail);
-      vi.mocked(estimatesApi.getEstimateDetail).mockRejectedValue(new Error('network'));
-      vi.mocked(estimatesApi.getEstimateItems).mockRejectedValue(new Error('network'));
-      const user = userEvent.setup();
-      renderPage();
-
-      await waitFor(() => {
-        expect(tableItems()).toHaveLength(2);
-      });
-
-      await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
-      await user.click(screen.getByTestId('overhead-add'));
-
-      await waitFor(() => {
-        expect(screen.getByTestId('estimate-transfer-guard')).toHaveTextContent(
-          '諸経費行の取り込みに失敗しました'
-        );
-      });
-      // 画面全体をエラー表示へ差し替えない（編集中の明細を消さない）
-      expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
     });
 
     /**
@@ -3475,22 +3355,6 @@ describe('EstimateDetailPage', () => {
       },
     ] as unknown as estimatesApi.EstimateItemHierarchy[];
 
-    /** 転記などサーバー側の書き込み後に取り直す階層（子はそのまま維持される） */
-    const resyncedNestedItems = [
-      ...nestedItems,
-      {
-        id: 'item-server',
-        estimateId: 'est-001',
-        parentId: null,
-        displayOrder: 2,
-        itemType: 'STANDARD' as const,
-        lines: [buildLine('item-server', 'サーバー生成項目')],
-        children: [],
-        createdAt: '2024-01-15T10:00:00.000Z',
-        updatedAt: '2024-01-15T10:00:00.000Z',
-      },
-    ] as unknown as estimatesApi.EstimateItemHierarchy[];
-
     const tableItems = () => (capturedTableProps.items ?? []) as EstimateItemHierarchyEdit[];
 
     const savePayload = (): estimatesApi.SaveEstimateDraftRequest =>
@@ -3591,22 +3455,20 @@ describe('EstimateDetailPage', () => {
     });
 
     /**
-     * サーバー書き込み後の再同期も階層形の経路を通る（53.9 の `resyncAfterServerSideMutation`）
+     * 諸経費行を追加しても既存の親子関係は崩れない（55.6 / 34.5, 42.1）
      *
-     * 再同期が平坦な明細を編集状態へ流し込むと、次の保存で同じ破壊が起きる。
+     * 53.9 の再同期は平坦な明細を編集状態へ流し込む危険があったため階層形の経路で
+     * 取り込んでいた。55.6 で再同期そのものが消え、追加はルート末尾への挿入だけに
+     * なったが、既存のツリーを作り直す実装にすると同じ破壊が起きる。
      *
      * 34.5: 画面再読み込み後も変更後の構造で表示する
      * 42.1: 変更を1回の保存操作でまとめて確定する
      */
-    it('諸経費追加後の再同期でも階層が保たれ、次の保存で壊れないこと (34.5, 42.1)', async () => {
-      vi.mocked(estimatesApi.addOverheadItem).mockResolvedValue(undefined as never);
-      vi.mocked(estimatesApi.getEstimateItems)
-        .mockResolvedValueOnce(nestedItems)
-        .mockResolvedValue(resyncedNestedItems);
+    it('諸経費行を追加して保存しても既存の階層がペイロードに保たれること (34.5, 42.1)', async () => {
       vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue({
         ...flatDetail,
         reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
-        items: resyncedNestedItems,
+        items: nestedItems,
       } as unknown as estimatesApi.SaveEstimateDraftResponse);
       const user = userEvent.setup();
       renderPage();
@@ -3618,14 +3480,15 @@ describe('EstimateDetailPage', () => {
       await user.click(screen.getByRole('button', { name: /諸経費を計算して追加/ }));
       await user.click(screen.getByTestId('overhead-add'));
 
-      // サーバー側で作られた行を取り込んでも既存の親子関係は保たれる
+      // 追加はルートレベルの末尾。既存の親子関係はそのまま
       await waitFor(() => {
-        expect(tableItems().map((item) => item.id)).toEqual([
-          'item-parent',
-          'item-sibling',
-          'item-server',
-        ]);
+        expect(tableItems()).toHaveLength(3);
       });
+      expect(
+        tableItems()
+          .slice(0, 2)
+          .map((item) => item.id)
+      ).toEqual(['item-parent', 'item-sibling']);
       expect(tableItems()[0]?.children.map((child) => child.id)).toEqual(['item-child']);
 
       await editItemName('item-sibling', '編集済み兄弟項目');
@@ -3635,6 +3498,11 @@ describe('EstimateDetailPage', () => {
         expect(estimatesApi.saveEstimateDraft).toHaveBeenCalledTimes(1);
       });
       expect(savePayload().items[0]!.children.map((node) => node.id)).toEqual(['item-child']);
+      expect(savePayload().items.map((node) => node.id)).toEqual([
+        'item-parent',
+        'item-sibling',
+        null,
+      ]);
     });
   });
 
