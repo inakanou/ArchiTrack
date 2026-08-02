@@ -6,9 +6,19 @@
  * Requirements (estimate-creation):
  * - REQ-13.1: 数量フィールドの数値バリデーション
  * - REQ-13.2: 単価フィールドの数値バリデーション
- * - REQ-13.3: 利益率の範囲バリデーション（0.00〜500.00）
  * - REQ-13.4: 必須フィールド（名称等）のバリデーション
  * - 文字数制限（名称200文字、規格500文字、単位50文字）
+ *
+ * Task 55.7 で撤去したスキーマの検証は次へ移管した（REQ-49.3）:
+ * - `applyProfitRateSchema`（REQ-13.3 の 0.00〜500.00 範囲エラー）→
+ *   `frontend/src/__tests__/components/estimate/ProfitRateDialog.test.tsx` の
+ *   `利益率の範囲エラー (13.3)`。適用がクライアント内で完結するため、
+ *   エラーメッセージの表示責務もダイアログへ移った
+ * - `calculateNetSchema`（案分の入力検証）→ 案分リクエスト自体が消滅。案分の入力条件は
+ *   `frontend/src/__tests__/components/estimate/NetAllocationDialog.test.tsx` と
+ *   `estimateCalculations.test.ts` の `allocateNet` が担当する
+ * - `addDiscountItemSchema`（REQ-41.5 の負数許容）→ 同ファイル
+ *   `saveEstimateDraftSchema` の「値引き行の負数の単価・金額を受け入れる（41.5）」
  *
  * Task 5.1: 入力バリデーションスキーマの定義
  *
@@ -24,11 +34,8 @@ import {
   createEstimateSchema,
   updateEstimateSchema,
   estimateItemLineSchema,
-  applyProfitRateSchema,
-  calculateNetSchema,
   calculateOverheadSchema,
   exportEstimateQuerySchema,
-  addDiscountItemSchema,
   ESTIMATE_VALIDATION_MESSAGES,
 } from '../../../schemas/estimate.schema.js';
 
@@ -42,9 +49,22 @@ describe('estimate.schema', () => {
       expect(ESTIMATE_VALIDATION_MESSAGES.UNIT_TOO_LONG).toBeDefined();
       expect(ESTIMATE_VALIDATION_MESSAGES.QUANTITY_INVALID).toBeDefined();
       expect(ESTIMATE_VALIDATION_MESSAGES.UNIT_PRICE_INVALID).toBeDefined();
-      expect(ESTIMATE_VALIDATION_MESSAGES.PROFIT_RATE_INVALID).toBeDefined();
-      expect(ESTIMATE_VALIDATION_MESSAGES.NET_AMOUNT_INVALID).toBeDefined();
     });
+
+    /**
+     * 撤去したスキーマの検証メッセージが残っていないこと（REQ-49.3）
+     *
+     * `PROFIT_RATE_INVALID` / `NET_AMOUNT_INVALID` は `applyProfitRateSchema` /
+     * `calculateNetSchema` と一緒に撤去した（Task 55.7）。残すと利益率の文言が
+     * `ProfitRateDialog.tsx` の `PROFIT_RATE_RANGE_MESSAGE` と二重定義になり、
+     * `OVERHEAD_PRESETS` で解消したのと同じ境界跨ぎの重複を再生産する。
+     */
+    it.each(['PROFIT_RATE_INVALID', 'NET_AMOUNT_INVALID'])(
+      '%s が定義されていないこと (REQ-49.3)',
+      (name) => {
+        expect(Object.keys(ESTIMATE_VALIDATION_MESSAGES)).not.toContain(name);
+      }
+    );
   });
 
   describe('createEstimateSchema', () => {
@@ -270,189 +290,6 @@ describe('estimate.schema', () => {
         });
         expect(result.success).toBe(false);
       });
-    });
-  });
-
-  describe('applyProfitRateSchema (REQ-13.3)', () => {
-    it('有効な利益率（0）を受け入れる', () => {
-      const result = applyProfitRateSchema.safeParse({
-        profitRate: '0',
-        overwriteOption: 'all',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('有効な利益率（10.00）を受け入れる', () => {
-      const result = applyProfitRateSchema.safeParse({
-        profitRate: '10',
-        overwriteOption: 'all',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('有効な利益率（500.00）を受け入れる', () => {
-      const result = applyProfitRateSchema.safeParse({
-        profitRate: '500',
-        overwriteOption: 'all',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('小数点を含む有効な利益率を受け入れる', () => {
-      const result = applyProfitRateSchema.safeParse({
-        profitRate: '25.5',
-        overwriteOption: 'all',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('負の利益率を拒否する', () => {
-      const result = applyProfitRateSchema.safeParse({
-        profitRate: '-1',
-        overwriteOption: 'all',
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0]!.message).toBe(
-          ESTIMATE_VALIDATION_MESSAGES.PROFIT_RATE_INVALID
-        );
-      }
-    });
-
-    it('500を超える利益率を拒否する', () => {
-      const result = applyProfitRateSchema.safeParse({
-        profitRate: '500.01',
-        overwriteOption: 'all',
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0]!.message).toBe(
-          ESTIMATE_VALIDATION_MESSAGES.PROFIT_RATE_INVALID
-        );
-      }
-    });
-
-    it('数値以外の利益率を拒否する', () => {
-      const result = applyProfitRateSchema.safeParse({
-        profitRate: 'abc',
-        overwriteOption: 'all',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    describe('overwriteOption field', () => {
-      it('allオプションを受け入れる', () => {
-        const result = applyProfitRateSchema.safeParse({
-          profitRate: '10',
-          overwriteOption: 'all',
-        });
-        expect(result.success).toBe(true);
-      });
-
-      it('empty_onlyオプションを受け入れる', () => {
-        const result = applyProfitRateSchema.safeParse({
-          profitRate: '10',
-          overwriteOption: 'empty_only',
-        });
-        expect(result.success).toBe(true);
-      });
-
-      it('unit_price_onlyオプションを受け入れる', () => {
-        const result = applyProfitRateSchema.safeParse({
-          profitRate: '10',
-          overwriteOption: 'unit_price_only',
-        });
-        expect(result.success).toBe(true);
-      });
-
-      it('無効なオプションを拒否する', () => {
-        const result = applyProfitRateSchema.safeParse({
-          profitRate: '10',
-          overwriteOption: 'invalid',
-        });
-        expect(result.success).toBe(false);
-      });
-    });
-  });
-
-  describe('calculateNetSchema', () => {
-    const validInput = {
-      vendorName: '業者A',
-      targetLineIds: ['550e8400-e29b-41d4-a716-446655440000'],
-      excludeLineIds: [],
-      netAmount: '100000',
-    };
-
-    it('有効なNET金額計算入力を受け入れる', () => {
-      const result = calculateNetSchema.safeParse(validInput);
-      expect(result.success).toBe(true);
-    });
-
-    it('業者名が空の場合を拒否する', () => {
-      const result = calculateNetSchema.safeParse({
-        ...validInput,
-        vendorName: '',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('対象行が空の場合を拒否する', () => {
-      const result = calculateNetSchema.safeParse({
-        ...validInput,
-        targetLineIds: [],
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('負のNET金額を拒否する', () => {
-      const result = calculateNetSchema.safeParse({
-        ...validInput,
-        netAmount: '-100000',
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0]!.message).toBe(
-          ESTIMATE_VALIDATION_MESSAGES.NET_AMOUNT_INVALID
-        );
-      }
-    });
-
-    it('数値以外のNET金額を拒否する', () => {
-      const result = calculateNetSchema.safeParse({
-        ...validInput,
-        netAmount: 'abc',
-      });
-      expect(result.success).toBe(false);
-    });
-  });
-
-  describe('addDiscountItemSchema (REQ-41.5)', () => {
-    it('単価を省略した入力を受け入れる（任意）', () => {
-      const result = addDiscountItemSchema.safeParse({});
-      expect(result.success).toBe(true);
-    });
-
-    it('負数の単価を受け入れる (REQ-41.5)', () => {
-      const result = addDiscountItemSchema.safeParse({ unitPrice: -100000 });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.unitPrice).toBe(-100000);
-      }
-    });
-
-    it('null の単価を受け入れる', () => {
-      const result = addDiscountItemSchema.safeParse({ unitPrice: null });
-      expect(result.success).toBe(true);
-    });
-
-    it('正数の単価を受け入れる', () => {
-      const result = addDiscountItemSchema.safeParse({ unitPrice: 5000 });
-      expect(result.success).toBe(true);
-    });
-
-    it('数値以外の単価を拒否する', () => {
-      const result = addDiscountItemSchema.safeParse({ unitPrice: 'abc' });
-      expect(result.success).toBe(false);
     });
   });
 

@@ -31,7 +31,7 @@
  * @module components/estimate/NetAllocationDialog
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Decimal from 'decimal.js';
 
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
@@ -264,6 +264,17 @@ export function NetAllocationDialog({
   const [netAmount, setNetAmount] = useState('');
   const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
 
+  /**
+   * NET金額欄の決着が付いた業者名（36.1, 36.2）
+   *
+   * 「この業者についてNET金額欄はもう自動設定に任せない」ことを表す。決着は
+   * 自動設定が実際に走ったときと、利用者が欄を手入力したときの2通りで付く。
+   *
+   * 空欄かどうかで判定してはならない。利用者が意図的に空にした操作まで
+   * 自動設定が握り潰し、36.2（手動での変更）を壊すため。
+   */
+  const settledVendorRef = useRef<string | null>(null);
+
   // 受領見積書データを取得（31.1, 31.2, 36.1 の表示・自動設定にのみ用いる）
   useEffect(() => {
     if (!isOpen) return;
@@ -277,6 +288,56 @@ export function NetAllocationDialog({
     }
     fetchQuotations();
   }, [isOpen, projectId]);
+
+  /**
+   * 対象業者に対応する受領見積書のNET金額を自動設定する（36.1）
+   *
+   * 照合鍵は `tradingPartnerName || name`。業者金額行の `sourceVendorName` と
+   * 同じ鍵を使うことで、金額の自動設定と受領見積書情報の表示が別の見積書へ
+   * 解決する事故を防ぐ（55.5 の裁定）。
+   *
+   * 決着済みの業者には何もしない（手入力の尊重 / 二重適用の防止）。
+   */
+  const settleNetAmount = useCallback(
+    (vendorName: string, quotationList: readonly ReceivedQuotationInfo[]): void => {
+      if (!vendorName || settledVendorRef.current === vendorName) return;
+      const matched = quotationList.find(
+        (quotation) => (quotation.tradingPartnerName || quotation.name) === vendorName
+      );
+      if (matched?.netAmount == null) return;
+      setNetAmount(matched.netAmount.toString());
+      settledVendorRef.current = vendorName;
+    },
+    []
+  );
+
+  /**
+   * 受領見積書の取得が業者選択より遅れて解決した場合の自動設定（36.1）
+   *
+   * 業者の選択肢は編集中の明細から即座に作られるのに対し、受領見積書の取得は
+   * 非同期。選択の時点で一覧が空だと自動設定が走らないため、解決後にも
+   * 同じ処理を駆動する。ダイアログは常時マウントで `selectedVendor` を保持し、
+   * 同じ選択肢を選び直しても `onChange` は再発火しないので、この経路が無いと
+   * 業者が1社しかない利用者には回復手段が無くなる。
+   */
+  useEffect(() => {
+    settleNetAmount(selectedVendor, quotations);
+  }, [selectedVendor, quotations, settleNetAmount]);
+
+  /**
+   * 起動ごとの初期化
+   *
+   * ダイアログは `EstimateDetailPage` が無条件に描画し `isOpen=false` で
+   * `null` を返す常時マウント構成なので、閉じたときに明示的に初期化しないと
+   * 前回の対象業者・NET金額・除外行が次回の起動へ漏れる。
+   */
+  useEffect(() => {
+    if (isOpen) return;
+    setSelectedVendor('');
+    setNetAmount('');
+    setExcludeKeys([]);
+    settledVendorRef.current = null;
+  }, [isOpen]);
 
   const allVendorRows = useMemo(() => collectVendorTargetRows(items), [items]);
 
@@ -388,16 +449,9 @@ export function NetAllocationDialog({
               const vendorName = e.target.value;
               setSelectedVendor(vendorName);
               setExcludeKeys([]);
-
-              // REQ-36.1: 選択した業者に対応する受領見積書のNET金額を自動設定
-              if (vendorName && quotations.length > 0) {
-                const matchingQuotation = quotations.find(
-                  (q) => (q.tradingPartnerName || q.name) === vendorName
-                );
-                if (matchingQuotation?.netAmount != null) {
-                  setNetAmount(matchingQuotation.netAmount.toString());
-                }
-              }
+              // 業者が変われば NET金額欄の決着はやり直し（36.1）
+              settledVendorRef.current = null;
+              settleNetAmount(vendorName, quotations);
             }}
             style={styles.select}
           >
@@ -543,7 +597,12 @@ export function NetAllocationDialog({
               id="net-amount"
               type="text"
               value={netAmount}
-              onChange={(e) => setNetAmount(e.target.value)}
+              onChange={(e) => {
+                // 手入力を行った時点でこの業者のNET金額欄は決着（36.2）。
+                // 以後、遅れて解決した受領見積書が入力値を踏み潰さない
+                settledVendorRef.current = selectedVendor;
+                setNetAmount(e.target.value);
+              }}
               placeholder="NET金額を入力"
               style={styles.input}
             />

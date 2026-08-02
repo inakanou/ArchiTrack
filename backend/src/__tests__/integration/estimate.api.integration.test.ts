@@ -435,6 +435,39 @@ describe('Estimate API Integration Tests', () => {
     };
   };
 
+  /**
+   * 値引きプリセット行の新規項目を組み立てる（REQ-41.2, 41.3）
+   *
+   * 撤去した `POST /:id/discount-items` はサーバー側でプリセット値
+   * （名称=値引き / 規格=空 / 単位=式 / 数量=1）を埋めていたが、生成は
+   * `estimateEditReducer` の `addDiscountItem` へ移り、サーバーは受け取った
+   * ツリーをそのまま確定するだけになった（Task 55.7, REQ-49.3）。
+   * ここではクライアントが送る形をそのまま再現する。
+   */
+  const buildNewDiscountItem = (
+    tempId: string,
+    options: { name?: string; unitPrice?: number | null } = {}
+  ): SaveNodePayload => {
+    const unitPrice = options.unitPrice ?? null;
+    return {
+      id: null,
+      tempId,
+      itemType: 'DISCOUNT',
+      // 値引き行は見積金額行（ESTIMATE）のみ（REQ-41.3）
+      lines: [
+        buildSaveLine('ESTIMATE', {
+          name: options.name ?? '値引き',
+          specification: '',
+          unit: '式',
+          quantity: '1',
+          unitPrice: decimal(unitPrice),
+          amount: decimal(unitPrice),
+        }),
+      ],
+      children: [],
+    };
+  };
+
   /** 既存の明細ツリー（GET の返却形）を保存ペイロードの形へ写す */
   const toSaveNodes = (items: readonly ApiItemNode[]): SaveNodePayload[] =>
     items.map((item) => ({
@@ -1163,54 +1196,11 @@ describe('Estimate API Integration Tests', () => {
       });
     });
 
-    describe('値引き行追加 POST /api/estimates/:id/discount-items', () => {
-      it('種別DISCOUNT・見積金額行1行の値引き行を作成できる (REQ-41.1, 41.2)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({ unitPrice: -50000 });
-
-        expect(response.status).toBe(201);
-        expect(response.body.id).toBeDefined();
-        expect(response.body.itemType).toBe('DISCOUNT');
-        expect(response.body.lines).toBeInstanceOf(Array);
-        // 値引き行は見積金額行（ESTIMATE）のみ（REQ-41.3）
-        expect(response.body.lines.length).toBe(1);
-        expect(response.body.lines[0].lineType).toBe('ESTIMATE');
-        // プリセット値（名称=値引き、規格=空、単位=式、数量=1）
-        expect(response.body.lines[0].name).toBe('値引き');
-        expect(response.body.lines[0].unit).toBe('式');
-        expect(response.body.lines[0].quantity).toBe(1);
-        // 負数の単価を許容（REQ-41.5）
-        expect(response.body.lines[0].unitPrice).toBe(-50000);
-      });
-
-      it('単価を省略しても値引き行を作成できる', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${itemTestEstimateId}/discount-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({});
-
-        expect(response.status).toBe(201);
-        expect(response.body.itemType).toBe('DISCOUNT');
-        expect(response.body.lines.length).toBe(1);
-        expect(response.body.lines[0].unitPrice).toBeNull();
-      });
-
-      it('存在しない見積書に値引き行を追加しようとすると404エラー', async () => {
-        const response = await request(app)
-          .post('/api/estimates/12345678-1234-4234-a234-123456789012/discount-items')
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({ unitPrice: -1000 });
-
-        expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
-      });
-    });
-
     // 撤去済みの `PUT /items/batch` / `DELETE /items/:itemId` から `PUT /:id/save` へ移行（Task 53.13）。
     // 検証対象は値引き行の仕様そのもの（REQ-41 系, REQ-34）であり、経路のみを差し替えている。
-    // 値引き行の**作成**は維持対象の `POST /:id/discount-items` を引き続き用いる。
+    // 値引き行の**作成**も `POST /:id/discount-items` の撤去（Task 55.7, REQ-49.3）に伴い
+    // `PUT /:id/save` へ移行した。プリセット値の埋め込みはクライアント側の責務になったため、
+    // ここではクライアントが送る形（`buildNewDiscountItem`）を再現して永続化を検証する。
     // 一括保存はフル状態同期のため、この describe には専用の見積書を割り当てる。
     describe('値引き行 一括保存ラウンドトリップ (REQ-41.2, 41.3, 41.5, 41.6, 41.8, 41.10, REQ-34)', () => {
       let discountTestEstimateId: string;
@@ -1219,15 +1209,25 @@ describe('Estimate API Integration Tests', () => {
         discountTestEstimateId = await createEstimateForTest('値引き行ラウンドトリップ用見積書');
       });
 
-      it('値引き行の追加が再読込後も種別DISCOUNT・ESTIMATE 1行で保持される (REQ-41.2, 41.3)', async () => {
-        // 値引き行を追加
-        const createResponse = await request(app)
-          .post(`/api/estimates/${discountTestEstimateId}/discount-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({ unitPrice: -10000 });
+      /** 値引き行を1件保存し、確定した項目IDを返す */
+      const saveDiscountItem = async (
+        estimateId: string,
+        options: { name?: string; unitPrice?: number | null } = {}
+      ): Promise<string> => {
+        const existing = toSaveNodes(await fetchItemTree(estimateId));
+        const response = await saveDraft(estimateId, [
+          ...existing,
+          buildNewDiscountItem(`discount-${existing.length}`, options),
+        ]);
+        expect(response.status).toBe(200);
+        const tree = await fetchItemTree(estimateId);
+        return tree[tree.length - 1]!.id;
+      };
 
-        expect(createResponse.status).toBe(201);
-        const discountItemId = createResponse.body.id as string;
+      it('値引き行の追加が再読込後も種別DISCOUNT・ESTIMATE 1行で保持される (REQ-41.2, 41.3, 41.5)', async () => {
+        const discountItemId = await saveDiscountItem(discountTestEstimateId, {
+          unitPrice: -10000,
+        });
 
         // 再読込（GET）で保持されていることを確認
         const getResponse = await request(app)
@@ -1243,20 +1243,35 @@ describe('Estimate API Integration Tests', () => {
         // ※GET詳細レスポンスは itemType を含まないため、単一 ESTIMATE 行という構造で DISCOUNT 構造の保持を検証する。
         expect(reloadedItem.lines.length).toBe(1);
         expect(reloadedItem.lines[0].lineType).toBe('ESTIMATE');
+        // プリセット値（名称=値引き、規格=空、単位=式、数量=1）
         expect(reloadedItem.lines[0].name).toBe('値引き');
         expect(reloadedItem.lines[0].unit).toBe('式');
         expect(Number(reloadedItem.lines[0].quantity)).toBe(1);
+        // 負数の単価を許容（REQ-41.5）
+        expect(reloadedItem.lines[0].unitPrice).toBe(-10000);
+
+        // 項目種別が DISCOUNT として永続化されている（GET /items は itemType を返す）
+        const itemNode = (await fetchItemTree(discountTestEstimateId)).find(
+          (node) => node.id === discountItemId
+        );
+        expect(itemNode?.itemType).toBe('DISCOUNT');
+      });
+
+      it('単価を省略した値引き行は単価・金額が未設定のまま保持される (REQ-41.4)', async () => {
+        const discountItemId = await saveDiscountItem(discountTestEstimateId);
+
+        const itemNode = (await fetchItemTree(discountTestEstimateId)).find(
+          (node) => node.id === discountItemId
+        );
+        expect(itemNode?.itemType).toBe('DISCOUNT');
+        expect(itemNode?.lines.length).toBe(1);
+        expect(itemNode?.lines[0]!.unitPrice).toBeNull();
+        expect(itemNode?.lines[0]!.amount).toBeNull();
       });
 
       it('一括保存で値引き行の単価を負数に更新すると単価・金額（負数）が再読込後も保持される (REQ-41.5, 41.6, 41.8, 41.10, REQ-34)', async () => {
         // 値引き行を追加（単価未設定）
-        const createResponse = await request(app)
-          .post(`/api/estimates/${discountTestEstimateId}/discount-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({});
-
-        expect(createResponse.status).toBe(201);
-        const discountItemId = createResponse.body.id as string;
+        const discountItemId = await saveDiscountItem(discountTestEstimateId);
 
         // 一括保存で負数単価・名称を更新（値引き行は種別DISCOUNT・見積金額行1件のまま送る）
         const tree = await fetchItemTree(discountTestEstimateId);
@@ -1300,19 +1315,8 @@ describe('Estimate API Integration Tests', () => {
 
       it('値引き行を保存ペイロードから除くと再読込後に消えている (REQ-34, Req 42.1)', async () => {
         // 値引き行を2件追加し、片方だけをペイロードから除く
-        const keepResponse = await request(app)
-          .post(`/api/estimates/${discountTestEstimateId}/discount-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({ unitPrice: -1000 });
-        expect(keepResponse.status).toBe(201);
-        const keptItemId = keepResponse.body.id as string;
-
-        const deleteResponse = await request(app)
-          .post(`/api/estimates/${discountTestEstimateId}/discount-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({ unitPrice: -5000 });
-        expect(deleteResponse.status).toBe(201);
-        const discountItemId = deleteResponse.body.id as string;
+        const keptItemId = await saveDiscountItem(discountTestEstimateId, { unitPrice: -1000 });
+        const discountItemId = await saveDiscountItem(discountTestEstimateId, { unitPrice: -5000 });
 
         // 削除対象を除いたツリーを保存する（一括保存はフル状態同期）
         const items = toSaveNodes(await fetchItemTree(discountTestEstimateId)).filter(
@@ -1644,12 +1648,12 @@ describe('Estimate API Integration Tests', () => {
     });
 
     // ========================================
-    // 撤去した明細操作系6経路の統合レベルでの確認（Task 53.13, Req 42.1）
+    // 撤去した11経路の統合レベルでの確認（Task 53.13 / 55.7, Req 42.1, 49.3, 49.5）
     // ========================================
     // design.md「Integration Tests」5「撤去した旧エンドポイントが404を返す」の統合テスト版。
-    // 実サーバーに対して、撤去した6経路が404であること、および**維持対象の経路が404でない**こと
+    // 実サーバーに対して、撤去した経路が404であること、および**維持対象の経路が404でない**こと
     // （＝過剰撤去が起きていないこと）を固定する。
-    describe('撤去した明細操作系エンドポイント PUT /api/estimates/:id/save への統合', () => {
+    describe('撤去したエンドポイント PUT /api/estimates/:id/save への統合', () => {
       let removedRouteEstimateId: string;
       let existingItemId: string;
 
@@ -1662,54 +1666,123 @@ describe('Estimate API Integration Tests', () => {
         existingItemId = (await fetchItemTree(removedRouteEstimateId))[0]!.id;
       });
 
-      it('撤去した6経路はいずれも404を返す (Req 42.1)', async () => {
-        const removedRoutes: Array<{ label: string; call: () => Promise<{ status: number }> }> = [
-          {
-            label: 'POST /:id/items',
-            call: () =>
-              request(app)
-                .post(`/api/estimates/${removedRouteEstimateId}/items`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ displayOrder: 0, lines: [{ lineType: 'ESTIMATE', name: 'x' }] }),
-          },
-          {
-            label: 'PUT /:id/items/batch',
-            call: () =>
-              request(app)
-                .put(`/api/estimates/${removedRouteEstimateId}/items/batch`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ items: [], updatedAt: new Date().toISOString() }),
-          },
-          {
-            label: 'PUT /:id/items/reorder',
-            call: () =>
-              request(app)
-                .put(`/api/estimates/${removedRouteEstimateId}/items/reorder`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ itemOrders: [] }),
-          },
-          {
-            label: 'POST /:id/items/:itemId/duplicate',
-            call: () =>
-              request(app)
-                .post(`/api/estimates/${removedRouteEstimateId}/items/${existingItemId}/duplicate`)
-                .set('Authorization', `Bearer ${accessToken}`),
-          },
-          {
-            label: 'DELETE /:id/items/:itemId',
-            call: () =>
-              request(app)
-                .delete(`/api/estimates/${removedRouteEstimateId}/items/${existingItemId}`)
-                .set('Authorization', `Bearer ${accessToken}`),
-          },
-          {
-            label: 'PATCH /:id/items/:itemId/move',
-            call: () =>
-              request(app)
-                .patch(`/api/estimates/${removedRouteEstimateId}/items/${existingItemId}/move`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ newParentId: null }),
-          },
+      /** 明細操作系6経路（Task 53.12/53.13, Req 42.1） */
+      const removedItemRoutes = (
+        estimateId: string,
+        itemId: string
+      ): Array<{ label: string; call: () => Promise<{ status: number }> }> => [
+        {
+          label: 'POST /:id/items',
+          call: () =>
+            request(app)
+              .post(`/api/estimates/${estimateId}/items`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({ displayOrder: 0, lines: [{ lineType: 'ESTIMATE', name: 'x' }] }),
+        },
+        {
+          label: 'PUT /:id/items/batch',
+          call: () =>
+            request(app)
+              .put(`/api/estimates/${estimateId}/items/batch`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({ items: [], updatedAt: new Date().toISOString() }),
+        },
+        {
+          label: 'PUT /:id/items/reorder',
+          call: () =>
+            request(app)
+              .put(`/api/estimates/${estimateId}/items/reorder`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({ itemOrders: [] }),
+        },
+        {
+          label: 'POST /:id/items/:itemId/duplicate',
+          call: () =>
+            request(app)
+              .post(`/api/estimates/${estimateId}/items/${itemId}/duplicate`)
+              .set('Authorization', `Bearer ${accessToken}`),
+        },
+        {
+          label: 'DELETE /:id/items/:itemId',
+          call: () =>
+            request(app)
+              .delete(`/api/estimates/${estimateId}/items/${itemId}`)
+              .set('Authorization', `Bearer ${accessToken}`),
+        },
+        {
+          label: 'PATCH /:id/items/:itemId/move',
+          call: () =>
+            request(app)
+              .patch(`/api/estimates/${estimateId}/items/${itemId}/move`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({ newParentId: null }),
+        },
+      ];
+
+      /**
+       * 転記系5経路（Task 55.7, Req 49.3）
+       *
+       * ペイロードは撤去前のスキーマを満たす正当な内容にする。形式不正で 400 になった
+       * ものを「経路が無い」と読み違えないようにするため。
+       */
+      const removedTransferRoutes = (
+        estimateId: string,
+        itemId: string
+      ): Array<{ label: string; call: () => Promise<{ status: number }> }> => [
+        {
+          label: 'POST /:id/transfer-quotation',
+          call: () =>
+            request(app)
+              .post(`/api/estimates/${estimateId}/transfer-quotation`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({
+                receivedQuotationId: '12345678-1234-4234-a234-123456789012',
+                lineItemIds: ['12345678-1234-4234-a234-123456789013'],
+              }),
+        },
+        {
+          label: 'POST /:id/calculate-net',
+          call: () =>
+            request(app)
+              .post(`/api/estimates/${estimateId}/calculate-net`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({
+                vendorName: '業者A',
+                targetLineIds: [itemId],
+                excludeLineIds: [],
+                netAmount: '100000',
+              }),
+        },
+        {
+          label: 'POST /:id/apply-profit-rate',
+          call: () =>
+            request(app)
+              .post(`/api/estimates/${estimateId}/apply-profit-rate`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({ profitRate: '10', overwriteOption: 'all' }),
+        },
+        {
+          label: 'POST /:id/overhead-items',
+          call: () =>
+            request(app)
+              .post(`/api/estimates/${estimateId}/overhead-items`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({ costType: 'COMMON_TEMPORARY' }),
+        },
+        {
+          label: 'POST /:id/discount-items',
+          call: () =>
+            request(app)
+              .post(`/api/estimates/${estimateId}/discount-items`)
+              .set('Authorization', `Bearer ${accessToken}`)
+              .send({ unitPrice: -1 }),
+        },
+      ];
+
+      it('撤去した11経路はいずれも404を返す (Req 42.1, 49.3)', async () => {
+        const removedRoutes = [
+          ...removedItemRoutes(removedRouteEstimateId, existingItemId),
+          ...removedTransferRoutes(removedRouteEstimateId, existingItemId),
         ];
 
         for (const route of removedRoutes) {
@@ -1720,6 +1793,45 @@ describe('Estimate API Integration Tests', () => {
         // 撤去は経路のみで、明細は消えていない
         const tree = await fetchItemTree(removedRouteEstimateId);
         expect(tree.map((item) => item.id)).toEqual([existingItemId]);
+      });
+
+      /**
+       * 転記系の撤去が 49.5（後続の保存で競合しない）の成立条件であることを固定する
+       * （Req 49.3, 49.5）
+       *
+       * 撤去前は案分・利益率適用・転記・諸経費行追加・値引き行追加がいずれも
+       * `Estimate.updatedAt` を進めていたため、クライアントが保持していた基準時刻が
+       * 陳腐化し、続く保存が 409 になった。経路が復活すればこの更新も復活する。
+       *
+       * 基準時刻の不変を先に確かめる。保存の成否を先に見ると、経路が復活したときの
+       * 失敗が「保存が409」という二次的な形で出て、基準時刻が進んだという
+       * 49.5 違反そのものが失敗として報告されない。
+       */
+      it('撤去した転記系5経路への要求は見積書の更新時刻を進めず、続く保存が競合しない (Req 49.3, 49.5)', async () => {
+        const transferEstimateId = await createEstimateForTest('転記系撤去確認用見積書');
+        const seed = await saveDraft(transferEstimateId, [
+          buildNewItem('seed-1', { name: '転記系撤去確認用項目', quantity: 1 }),
+        ]);
+        expect(seed.status).toBe(200);
+
+        const itemId = (await fetchItemTree(transferEstimateId))[0]!.id;
+        // クライアントが編集開始時に保持する基準時刻
+        const baselineUpdatedAt = await fetchUpdatedAt(transferEstimateId);
+
+        for (const route of removedTransferRoutes(transferEstimateId, itemId)) {
+          const response = await route.call();
+          expect(response.status, `${route.label} は404であるべき`).toBe(404);
+        }
+
+        expect(await fetchUpdatedAt(transferEstimateId)).toBe(baselineUpdatedAt);
+
+        // 陳腐化していない基準時刻で保存が通る（＝競合しない）
+        const saveResponse = await saveDraft(
+          transferEstimateId,
+          toSaveNodes(await fetchItemTree(transferEstimateId)),
+          { expectedUpdatedAt: baselineUpdatedAt }
+        );
+        expect(saveResponse.status).toBe(200);
       });
 
       it('維持対象の経路は404を返さない（過剰撤去の検出）', async () => {
@@ -1740,14 +1852,8 @@ describe('Estimate API Integration Tests', () => {
               ),
           },
           {
-            label: 'POST /:id/discount-items',
-            call: () =>
-              request(app)
-                .post(`/api/estimates/${removedRouteEstimateId}/discount-items`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ unitPrice: -1 }),
-          },
-          {
+            // 書き込みを伴わない計算は維持対象。撤去した書き込み経路
+            // `POST /:id/overhead-items` との取り違えを防ぐ
             label: 'POST /:id/calculate-overhead',
             call: () =>
               request(app)
@@ -1758,38 +1864,6 @@ describe('Estimate API Integration Tests', () => {
                   directCost: '100000',
                   constructionMonths: 12,
                 }),
-          },
-          {
-            label: 'POST /:id/overhead-items',
-            call: () =>
-              request(app)
-                .post(`/api/estimates/${removedRouteEstimateId}/overhead-items`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({ costType: 'COMMON_TEMPORARY' }),
-          },
-          {
-            label: 'POST /:id/transfer-quotation',
-            call: () =>
-              request(app)
-                .post(`/api/estimates/${removedRouteEstimateId}/transfer-quotation`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({}),
-          },
-          {
-            label: 'POST /:id/calculate-net',
-            call: () =>
-              request(app)
-                .post(`/api/estimates/${removedRouteEstimateId}/calculate-net`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({}),
-          },
-          {
-            label: 'POST /:id/apply-profit-rate',
-            call: () =>
-              request(app)
-                .post(`/api/estimates/${removedRouteEstimateId}/apply-profit-rate`)
-                .set('Authorization', `Bearer ${accessToken}`)
-                .send({}),
           },
           {
             label: 'GET /:id/export',
@@ -1818,15 +1892,32 @@ describe('Estimate API Integration Tests', () => {
   });
 
   // ==========================================
-  // Task 13.3: 計算・転記API統合テスト
+  // Task 13.3: 計算API統合テスト（書き込みなし）
   // ==========================================
   // Requirements:
-  // - 4.1-4.5: 受領見積書転記
-  // - 5.1-5.7: NET金額計算と案分
-  // - 6.1-6.6: 利益率による見積金額反映
-  // - 7.1-9.6: 諸経費自動計算
+  // - 7.2-9.3: 諸経費自動計算（書き込みを伴わない計算のみ）
+  // - 10.1-10.8: 見積書出力
+  //
+  // 諸経費行追加・NET金額案分・利益率適用の統合テストは、対応する経路を撤去した
+  // （Task 55.7, REQ-49.3）ため削除した。移行先は次のとおり:
+  // - 諸経費行のプリセット値（REQ-7.1/8.1/9.1）と単価指定 →
+  //   `frontend/.../estimateEditReducer.test.ts` の `estimateEditReducer / addOverheadItem`。
+  //   3行1セットの永続化は本ファイルの
+  //   「3行1セット（ESTIMATE/EXECUTION/VENDOR）で見積項目を追加できる」が引き続き担保する
+  // - NET金額案分（REQ-5.1〜5.4）→ `frontend/.../estimateCalculations.test.ts` の
+  //   `allocateNet`（固定値はサーバー実装から採取済み）と
+  //   `estimateEditReducer.test.ts` の `applyNetAllocation`、
+  //   画面結線は `NetAllocationDialog.applyToEditState.test.tsx`
+  // - 利益率適用（REQ-6.1〜6.5）→ 同 `applyProfitRate` と
+  //   `ProfitRateDialog.applyToEditState.test.tsx`
+  // - 利益率の範囲エラー（REQ-13.3）→ `ProfitRateDialog.test.tsx` の
+  //   `利益率の範囲エラー (13.3)`。旧経路の 400 はダイアログが握り潰しており
+  //   利用者にメッセージが届いていなかったため、移行にあわせて是正した
+  // - 存在しない見積書への404 → 本ファイルの「存在しない見積書への保存は404エラー」
+  //
+  // 撤去そのものは「撤去したエンドポイント PUT /api/estimates/:id/save への統合」が固定する。
 
-  describe('計算・転記API統合テスト', () => {
+  describe('計算API統合テスト', () => {
     let calcTestEstimateId: string;
 
     beforeAll(async () => {
@@ -1946,229 +2037,6 @@ describe('Estimate API Integration Tests', () => {
             costType: 'GENERAL_ADMIN',
             directCost: '100000',
             isRenovation: false,
-          });
-
-        expect(response.status).toBe(400);
-      });
-    });
-
-    describe('諸経費行追加 POST /api/estimates/:id/overhead-items', () => {
-      it('共通仮設費のプリセット行を追加できる (Req 7.6)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/overhead-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            costType: 'COMMON_TEMPORARY',
-          });
-
-        expect(response.status).toBe(201);
-        expect(response.body.lines).toBeInstanceOf(Array);
-        expect(response.body.lines.length).toBe(3);
-
-        // プリセット値の確認
-        const estimateLine = response.body.lines.find(
-          (line: { lineType: string }) => line.lineType === 'ESTIMATE'
-        );
-        expect(estimateLine.name).toBe('共通仮設費');
-        expect(estimateLine.unit).toBe('式');
-        expect(parseFloat(estimateLine.quantity)).toBe(1);
-      });
-
-      it('現場管理費のプリセット行を追加できる', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/overhead-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            costType: 'SITE_MANAGEMENT',
-          });
-
-        expect(response.status).toBe(201);
-        const estimateLine = response.body.lines.find(
-          (line: { lineType: string }) => line.lineType === 'ESTIMATE'
-        );
-        expect(estimateLine.name).toBe('現場管理費');
-      });
-
-      it('一般管理費のプリセット行を追加できる', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/overhead-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            costType: 'GENERAL_ADMIN',
-          });
-
-        expect(response.status).toBe(201);
-        const estimateLine = response.body.lines.find(
-          (line: { lineType: string }) => line.lineType === 'ESTIMATE'
-        );
-        expect(estimateLine.name).toBe('一般管理費');
-      });
-
-      it('単価を指定して諸経費行を追加できる', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/overhead-items`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            costType: 'COMMON_TEMPORARY',
-            unitPrice: 5000000, // 500万円
-          });
-
-        expect(response.status).toBe(201);
-        const estimateLine = response.body.lines.find(
-          (line: { lineType: string }) => line.lineType === 'ESTIMATE'
-        );
-        expect(parseFloat(estimateLine.unitPrice)).toBe(5000000);
-      });
-
-      it('存在しない見積書に諸経費行を追加しようとすると404エラー', async () => {
-        const response = await request(app)
-          .post('/api/estimates/12345678-1234-4234-a234-123456789012/overhead-items')
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            costType: 'COMMON_TEMPORARY',
-          });
-
-        expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
-      });
-    });
-
-    describe('NET金額計算・案分 POST /api/estimates/:id/calculate-net', () => {
-      const vendorLineIds: string[] = [];
-
-      beforeAll(async () => {
-        // NET金額計算テスト用にVENDOR行を持つ見積項目を3つ作成
-        // 撤去済みの `POST /:id/items` から `PUT /:id/save` へ移行（Task 53.13）。
-        // ここはあくまで `POST /:id/calculate-net`（維持対象）のセットアップである。
-        const items = [
-          { name: 'NET項目A', quantity: 100, unitPrice: 3000 },
-          { name: 'NET項目B', quantity: 200, unitPrice: 4000 },
-          { name: 'NET項目C', quantity: 50, unitPrice: 2000 },
-        ];
-
-        const existing = toSaveNodes(await fetchItemTree(calcTestEstimateId));
-        const saveResponse = await saveDraft(calcTestEstimateId, [
-          ...existing,
-          ...items.map((item, index) =>
-            buildNewItem(`net-${index}`, {
-              name: item.name,
-              unit: 'm2',
-              quantity: item.quantity,
-              estimateUnitPrice: item.unitPrice,
-              vendorUnitPrice: item.unitPrice,
-            })
-          ),
-        ]);
-        expect(saveResponse.status).toBe(200);
-
-        const tree = await fetchItemTree(calcTestEstimateId);
-        for (const item of items) {
-          const savedItem = findByEstimateName(tree, item.name);
-          expect(savedItem).toBeDefined();
-          const vendorLine = savedItem!.lines.find((line) => line.lineType === 'VENDOR');
-          expect(vendorLine).toBeDefined();
-          vendorLineIds.push(vendorLine!.id);
-        }
-      });
-
-      it('NET金額の案分計算ができる (Req 5.1, 5.2, 5.3)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/calculate-net`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            vendorName: 'テスト業者',
-            targetLineIds: vendorLineIds,
-            excludeLineIds: [],
-            netAmount: '1000000',
-          });
-
-        expect(response.status).toBe(200);
-        expect(response.body).toBeInstanceOf(Array);
-        expect(response.body.length).toBeGreaterThan(0);
-
-        // 各行の結果を確認
-        response.body.forEach(
-          (item: { lineId: string; allocatedAmount: string; ratio: string }) => {
-            expect(item).toHaveProperty('lineId');
-            expect(item).toHaveProperty('allocatedAmount');
-            expect(item).toHaveProperty('ratio');
-          }
-        );
-      });
-
-      it('除外行を指定してNET金額計算ができる (Req 5.4)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/calculate-net`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            vendorName: 'テスト業者',
-            targetLineIds: vendorLineIds,
-            excludeLineIds: [vendorLineIds[0]],
-            netAmount: '1000000',
-          });
-
-        expect(response.status).toBe(200);
-        expect(response.body).toBeInstanceOf(Array);
-      });
-    });
-
-    describe('利益率適用 POST /api/estimates/:id/apply-profit-rate', () => {
-      it('利益率を適用できる (Req 6.1, 6.2)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/apply-profit-rate`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            profitRate: '15.00',
-            overwriteOption: 'all',
-          });
-
-        expect(response.status).toBe(200);
-        expect(response.body).toBeInstanceOf(Array);
-      });
-
-      it('上書きオプションempty_onlyで利益率を適用できる (Req 6.4)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/apply-profit-rate`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            profitRate: '20.00',
-            overwriteOption: 'empty_only',
-          });
-
-        expect(response.status).toBe(200);
-      });
-
-      it('上書きオプションunit_price_onlyで利益率を適用できる (Req 6.5)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/apply-profit-rate`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            profitRate: '25.00',
-            overwriteOption: 'unit_price_only',
-          });
-
-        expect(response.status).toBe(200);
-      });
-
-      it('利益率が範囲外（0未満）の場合は400エラー (Req 6.3)', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/apply-profit-rate`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            profitRate: '-10.00',
-            overwriteOption: 'all',
-          });
-
-        expect(response.status).toBe(400);
-      });
-
-      it('利益率が範囲外（500超）の場合は400エラー', async () => {
-        const response = await request(app)
-          .post(`/api/estimates/${calcTestEstimateId}/apply-profit-rate`)
-          .set('Authorization', `Bearer ${accessToken}`)
-          .send({
-            profitRate: '501.00',
-            overwriteOption: 'all',
           });
 
         expect(response.status).toBe(400);

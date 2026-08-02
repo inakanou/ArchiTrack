@@ -1,10 +1,17 @@
 /**
  * @fileoverview 見積書APIルート
  *
- * 見積書のCRUD操作、見積項目の参照と一括保存、計算・転記機能のエンドポイントを提供します。
+ * 見積書のCRUD操作、見積項目の参照と一括保存、書き込みを伴わない計算のエンドポイントを提供します。
  *
  * 明細の追加・削除・複写・一括更新・並び替え・階層移動は `PUT /:id/save` へ統合済み
  * （旧6経路は Task 53.12 で撤去、REQ-42.1）。
+ *
+ * 受領見積書転記・NET金額案分・利益率適用・諸経費行追加・値引き行追加の5経路も
+ * Task 55.7 で撤去済み。これらはクライアントの `estimateCalculations` と
+ * `estimateEditReducer` で編集状態に反映され、`PUT /:id/save` で確定する（REQ-49.3）。
+ * 撤去に伴い、これらの経路が `Estimate.updatedAt` を進めていた処理も消滅したため、
+ * 反映後の保存が楽観的排他で競合しなくなった（REQ-49.5）。
+ * 書き込みを伴わない `POST /:id/calculate-overhead` は維持対象（REQ-7.2-9.2）。
  *
  * Requirements (estimate-creation):
  * - REQ-11.1: プロジェクトに紐付く見積書の一覧を表示する
@@ -15,27 +22,25 @@
  * - REQ-11.6: 楽観的排他制御により競合を検出する
  * - REQ-1.1-1.6: 見積書基本構造
  * - REQ-2.1-2.6: 見積項目ネスト構造
- * - REQ-4.1-4.5: 受領見積書転記
- * - REQ-5.1-5.7: NET金額計算と案分
- * - REQ-6.1-6.6: 利益率による見積金額反映
- * - REQ-7.1-9.6: 諸経費自動計算
+ * - REQ-7.2-9.2: 諸経費自動計算（書き込みを伴わない計算のみ）
  * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+ * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
+ * - REQ-49.5: これらの操作の実行後の保存で競合エラーを発生させない
  *
  * Task 4.1: 見積書CRUD APIエンドポイントの実装
  * Task 4.2: 見積項目CRUD APIエンドポイントの実装
- * Task 4.3: 計算・転記APIエンドポイントの実装
+ * Task 55.7: 転記系エンドポイントの撤去
  *
  * @module routes/estimates
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { EstimateService } from '../services/estimate.service.js';
-import { EstimateItemService, DISCOUNT_PRESET_LINE } from '../services/estimate-item.service.js';
+import { EstimateItemService } from '../services/estimate-item.service.js';
 import {
   EstimateDraftService,
   type SavedEstimateItemNode,
 } from '../services/estimate-draft.service.js';
-import { EstimateCalculationService } from '../services/estimate-calculation.service.js';
 import { OverheadCostService, OverheadCostType } from '../services/overhead-cost.service.js';
 import {
   EstimateExportService,
@@ -56,12 +61,7 @@ import {
   updateEstimateSchema,
   deleteEstimateSchema,
   estimateListQuerySchema,
-  transferQuotationSchema,
-  calculateNetSchema,
-  applyProfitRateSchema,
   calculateOverheadSchema,
-  addOverheadItemSchema,
-  addDiscountItemSchema,
   getItemsQuerySchema,
   exportEstimateQuerySchema,
   saveEstimateDraftSchema,
@@ -72,13 +72,9 @@ import {
   EstimateConflictError,
   EstimateDraftValidationError,
   DuplicateEstimateNameError,
-  EstimateItemNotFoundError,
-  EstimateItemNotBelongToEstimateError,
-  ReceivedQuotationLineItemNotFoundError,
   ItemizedStatementNotFoundForEstimateError,
 } from '../errors/estimateError.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
-import { ReceivedQuotationNotFoundError } from '../errors/receivedQuotationError.js';
 import Decimal from 'decimal.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
@@ -91,7 +87,6 @@ const estimateService = new EstimateService({
 });
 const estimateItemService = new EstimateItemService({ prisma });
 const estimateDraftService = new EstimateDraftService({ prisma });
-const estimateCalculationService = new EstimateCalculationService();
 const overheadCostService = new OverheadCostService();
 const estimateExportService = new EstimateExportService();
 
@@ -929,454 +924,8 @@ router.get(
 );
 
 // ==========================================
-// 計算・転記API (Task 4.3)
+// 計算API（書き込みなし, Task 4.3 / 55.7）
 // ==========================================
-
-/**
- * @swagger
- * /api/estimates/{id}/transfer-quotation:
- *   post:
- *     summary: 受領見積書転記
- *     description: 受領見積書の明細行を見積書の業者金額行に転記
- *     tags:
- *       - Estimate Calculation
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - receivedQuotationId
- *               - lineItemIds
- *             properties:
- *               receivedQuotationId:
- *                 type: string
- *                 format: uuid
- *               lineItemIds:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: uuid
- *               targetEstimateItemId:
- *                 type: string
- *                 format: uuid
- *     responses:
- *       200:
- *         description: 転記成功
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積書、受領見積書、または転記先が見つからない
- */
-router.post(
-  '/:id/transfer-quotation',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(transferQuotationSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.validatedParams as { id: string };
-      const validatedBody = req.validatedBody as {
-        receivedQuotationId: string;
-        lineItemIds: string[];
-        targetEstimateItemId?: string;
-      };
-
-      const items = await estimateItemService.transferFromQuotation({
-        estimateId: id,
-        receivedQuotationId: validatedBody.receivedQuotationId,
-        lineItemIds: validatedBody.lineItemIds,
-        targetEstimateItemId: validatedBody.targetEstimateItemId,
-      });
-
-      logger.info(
-        { userId: req.user?.userId, estimateId: id, transferredCount: items.length },
-        'Quotation transferred successfully'
-      );
-
-      res.json(items);
-    } catch (error) {
-      if (error instanceof EstimateNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-not-found',
-          title: 'Estimate Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_NOT_FOUND',
-        });
-        return;
-      }
-      if (error instanceof ReceivedQuotationNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/received-quotation-not-found',
-          title: 'Received Quotation Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'RECEIVED_QUOTATION_NOT_FOUND',
-        });
-        return;
-      }
-      if (error instanceof ReceivedQuotationLineItemNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/received-quotation-line-item-not-found',
-          title: 'Received Quotation Line Item Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'RECEIVED_QUOTATION_LINE_ITEM_NOT_FOUND',
-        });
-        return;
-      }
-      if (error instanceof EstimateItemNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-item-not-found',
-          title: 'Estimate Item Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_NOT_FOUND',
-        });
-        return;
-      }
-      if (error instanceof EstimateItemNotBelongToEstimateError) {
-        res.status(400).json({
-          type: 'https://architrack.example.com/problems/estimate-item-not-belong-to-estimate',
-          title: 'Bad Request',
-          status: 400,
-          detail: error.message,
-          code: 'ESTIMATE_ITEM_NOT_BELONG_TO_ESTIMATE',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/calculate-net:
- *   post:
- *     summary: NET金額計算・案分
- *     description: 業者金額行をNET金額に基づいて案分計算
- *     tags:
- *       - Estimate Calculation
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - vendorName
- *               - targetLineIds
- *               - netAmount
- *             properties:
- *               vendorName:
- *                 type: string
- *               targetLineIds:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: uuid
- *               excludeLineIds:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: uuid
- *               netAmount:
- *                 type: string
- *     responses:
- *       200:
- *         description: 計算成功
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- */
-router.post(
-  '/:id/calculate-net',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(calculateNetSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const validatedBody = req.validatedBody as {
-        vendorName: string;
-        targetLineIds: string[];
-        excludeLineIds: string[];
-        netAmount: string;
-      };
-
-      // データベースから業者金額行を取得
-      const dbVendorLines = await prisma.estimateItemLine.findMany({
-        where: {
-          id: { in: validatedBody.targetLineIds },
-          lineType: 'VENDOR',
-        },
-      });
-
-      // 計算用の情報を構築
-      const vendorLines = dbVendorLines.map((line) => ({
-        id: line.id,
-        amount: new Decimal(line.amount?.toString() || '0'),
-      }));
-
-      // NET金額案分計算
-      const result = estimateCalculationService.previewNetAllocation(
-        vendorLines,
-        validatedBody.excludeLineIds,
-        validatedBody.netAmount
-      );
-
-      // トランザクションで実行金額行を更新
-      await prisma.$transaction(async (tx) => {
-        for (const allocation of result) {
-          const vendorLine = dbVendorLines.find((l) => l.id === allocation.lineId);
-          if (!vendorLine) continue;
-
-          // 案分後の単価を計算（数量がある場合は案分金額÷数量、ない場合は案分金額を単価とする）
-          const quantity = vendorLine.quantity ? new Decimal(vendorLine.quantity.toString()) : null;
-          const allocatedAmount = allocation.allocatedAmount.toDecimalPlaces(
-            0,
-            Decimal.ROUND_HALF_UP
-          );
-          const unitPrice =
-            quantity && !quantity.isZero()
-              ? allocatedAmount.div(quantity).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-              : allocatedAmount;
-
-          // 同じ項目のEXECUTION行を更新
-          await tx.estimateItemLine.update({
-            where: {
-              estimateItemId_lineType: {
-                estimateItemId: vendorLine.estimateItemId,
-                lineType: 'EXECUTION',
-              },
-            },
-            data: {
-              name: vendorLine.name,
-              specification: vendorLine.specification,
-              unit: vendorLine.unit,
-              quantity: vendorLine.quantity,
-              unitPrice: unitPrice.toString(),
-              amount: allocatedAmount.toString(),
-            },
-          });
-        }
-
-        // 見積書のupdatedAtを更新
-        await tx.estimate.update({
-          where: { id },
-          data: { updatedAt: new Date() },
-        });
-      });
-
-      // レスポンスを構築
-      const response = result.map((item) => ({
-        lineId: item.lineId,
-        originalAmount: item.originalAmount?.toString() ?? null,
-        allocatedAmount: item.allocatedAmount.toString(),
-        ratio: item.ratio.toString(),
-      }));
-
-      logger.info({ userId: req.user?.userId }, 'NET calculation and allocation completed');
-
-      res.json(response);
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/apply-profit-rate:
- *   post:
- *     summary: 利益率適用
- *     description: 実行金額行に利益率を適用して見積金額行に反映
- *     tags:
- *       - Estimate Calculation
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - profitRate
- *               - overwriteOption
- *             properties:
- *               profitRate:
- *                 type: string
- *                 description: 利益率（0〜500%）
- *               overwriteOption:
- *                 type: string
- *                 enum: [all, empty_only, unit_price_only]
- *     responses:
- *       200:
- *         description: 適用成功
- *       400:
- *         description: バリデーションエラー（利益率範囲外など）
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- */
-router.post(
-  '/:id/apply-profit-rate',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(applyProfitRateSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const validatedBody = req.validatedBody as {
-        profitRate: string;
-        overwriteOption: 'all' | 'empty_only' | 'unit_price_only';
-      };
-
-      // データベースから見積書の実行金額行を取得
-      const dbExecutionLines = await prisma.estimateItemLine.findMany({
-        where: {
-          estimateItem: { estimateId: id },
-          lineType: 'EXECUTION',
-          unitPrice: { not: null },
-        },
-      });
-
-      // 計算用の情報を構築
-      const executionLines = dbExecutionLines.map((line) => ({
-        lineId: line.id,
-        unitPrice: new Decimal(line.unitPrice!.toString()),
-      }));
-
-      // 利益率計算
-      const result = estimateCalculationService.previewProfitRate(
-        executionLines,
-        validatedBody.profitRate
-      );
-
-      // トランザクションで見積金額行を更新
-      await prisma.$transaction(async (tx) => {
-        for (const preview of result) {
-          const execLine = dbExecutionLines.find((l) => l.id === preview.lineId);
-          if (!execLine || !preview.newUnitPrice) continue;
-
-          // 上書きオプションに基づいてESTIMATE行を取得
-          const estimateLine = await tx.estimateItemLine.findUnique({
-            where: {
-              estimateItemId_lineType: {
-                estimateItemId: execLine.estimateItemId,
-                lineType: 'ESTIMATE',
-              },
-            },
-          });
-          if (!estimateLine) continue;
-
-          // 上書き判定
-          if (validatedBody.overwriteOption === 'empty_only') {
-            if (estimateLine.unitPrice !== null) continue;
-          }
-
-          const newUnitPrice = preview.newUnitPrice.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
-
-          if (validatedBody.overwriteOption === 'unit_price_only') {
-            // 単価のみ更新（金額は数量×単価で再計算）
-            const amount =
-              estimateLine.quantity && newUnitPrice
-                ? new Decimal(estimateLine.quantity.toString())
-                    .mul(newUnitPrice)
-                    .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-                : null;
-            await tx.estimateItemLine.update({
-              where: { id: estimateLine.id },
-              data: {
-                unitPrice: newUnitPrice.toString(),
-                amount: amount?.toString() ?? null,
-              },
-            });
-          } else {
-            // all または empty_only: 実行金額行の情報をコピー
-            const quantity = execLine.quantity ? new Decimal(execLine.quantity.toString()) : null;
-            const amount = quantity
-              ? quantity.mul(newUnitPrice).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-              : null;
-            await tx.estimateItemLine.update({
-              where: { id: estimateLine.id },
-              data: {
-                name: execLine.name,
-                specification: execLine.specification,
-                unit: execLine.unit,
-                quantity: execLine.quantity,
-                unitPrice: newUnitPrice.toString(),
-                amount: amount?.toString() ?? null,
-              },
-            });
-          }
-        }
-
-        // 見積書のupdatedAtを更新
-        await tx.estimate.update({
-          where: { id },
-          data: { updatedAt: new Date() },
-        });
-      });
-
-      // レスポンスを構築
-      const response = result.map((item) => ({
-        lineId: item.lineId,
-        originalUnitPrice: item.originalUnitPrice?.toString() ?? null,
-        newUnitPrice: item.newUnitPrice?.toString() ?? null,
-      }));
-
-      logger.info(
-        { userId: req.user?.userId, profitRate: validatedBody.profitRate },
-        'Profit rate calculation and application completed'
-      );
-
-      res.json(response);
-    } catch (error) {
-      next(error);
-    }
-  }
-);
 
 /**
  * @swagger
@@ -1539,206 +1088,6 @@ router.post(
           status: 400,
           detail: error.message,
           code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/overhead-items:
- *   post:
- *     summary: 諸経費行追加
- *     description: プリセット値を使用して諸経費行を追加
- *     tags:
- *       - Estimate Calculation
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - costType
- *             properties:
- *               costType:
- *                 type: string
- *                 enum: [COMMON_TEMPORARY, SITE_MANAGEMENT, GENERAL_ADMIN]
- *               unitPrice:
- *                 type: number
- *                 description: 単価（任意、自動計算結果を上書き）
- *     responses:
- *       201:
- *         description: 諸経費行追加成功
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積書が見つからない
- */
-router.post(
-  '/:id/overhead-items',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(addOverheadItemSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.validatedParams as { id: string };
-      const validatedBody = req.validatedBody as {
-        costType: 'COMMON_TEMPORARY' | 'SITE_MANAGEMENT' | 'GENERAL_ADMIN';
-        unitPrice?: number;
-      };
-
-      const costType = validatedBody.costType as OverheadCostType;
-      const preset = overheadCostService.getPresetValues(costType);
-
-      // 既存の項目数を取得して表示順序を決定
-      const existingItems = await estimateItemService.getHierarchy(id);
-      const displayOrder = existingItems.length;
-
-      const item = await estimateItemService.createItem(id, {
-        displayOrder,
-        lines: [
-          {
-            lineType: 'ESTIMATE',
-            name: preset.name,
-            specification: preset.specification,
-            unit: preset.unit,
-            quantity: preset.quantity,
-            unitPrice: validatedBody.unitPrice ?? null,
-          },
-          { lineType: 'EXECUTION' },
-          { lineType: 'VENDOR' },
-        ],
-      });
-
-      logger.info(
-        { userId: req.user?.userId, estimateId: id, costType: validatedBody.costType },
-        'Overhead item added'
-      );
-
-      res.status(201).json(item);
-    } catch (error) {
-      if (error instanceof EstimateNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-not-found',
-          title: 'Estimate Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_NOT_FOUND',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/estimates/{id}/discount-items:
- *   post:
- *     summary: 値引き行追加
- *     description: |
- *       種別=DISCOUNT・見積金額行（ESTIMATE）のみのプリセット値引き項目を
- *       ルート末尾の表示順序で作成する（REQ-41.1, REQ-41.2, REQ-41.3）。
- *       単価は手入力前提（任意）かつマイナス値を許容する（REQ-41.4, REQ-41.5）。
- *     tags:
- *       - Estimate Items
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: 見積書ID
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               unitPrice:
- *                 type: number
- *                 nullable: true
- *                 description: 単価（任意、負数許容。省略時はnull）
- *     responses:
- *       201:
- *         description: 値引き行追加成功
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積書が見つからない
- */
-router.post(
-  '/:id/discount-items',
-  authenticate,
-  requirePermission('estimate:update'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(addDiscountItemSchema, 'body'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.validatedParams as { id: string };
-      const validatedBody = req.validatedBody as {
-        unitPrice?: number | null;
-      };
-
-      // 既存の項目数を取得して表示順序を決定（ルート末尾に追加）
-      const existingItems = await estimateItemService.getHierarchy(id);
-      const displayOrder = existingItems.length;
-
-      const item = await estimateItemService.createItem(id, {
-        displayOrder,
-        itemType: 'DISCOUNT',
-        lines: [
-          {
-            lineType: 'ESTIMATE',
-            name: DISCOUNT_PRESET_LINE.name,
-            specification: DISCOUNT_PRESET_LINE.specification,
-            unit: DISCOUNT_PRESET_LINE.unit,
-            quantity: DISCOUNT_PRESET_LINE.quantity,
-            unitPrice: validatedBody.unitPrice ?? null,
-          },
-        ],
-      });
-
-      logger.info(
-        { userId: req.user?.userId, estimateId: id, itemId: item.id },
-        'Discount item added'
-      );
-
-      res.status(201).json(item);
-    } catch (error) {
-      if (error instanceof EstimateNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-not-found',
-          title: 'Estimate Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ESTIMATE_NOT_FOUND',
         });
         return;
       }

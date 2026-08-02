@@ -9,8 +9,16 @@
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
  * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
  * - REQ-3.1-3.5: 見積書新規作成と内訳書連携
- * - REQ-4.1-4.5: 受領見積書転記
  * - REQ-10.1-10.8: 見積書出力
+ * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
+ *
+ * `transferFromQuotation` / `addOverheadItem` / `addDiscountItem` は Task 55.7 で撤去した。
+ * 対応する書き込み経路が消え、転記・諸経費行追加・値引き行追加はいずれも
+ * `estimateEditReducer` の遷移として編集状態へ反映されるようになったため（REQ-49.3）。
+ * 個々の関数のテストは削除し、「公開されていないこと」を
+ * `撤去済みの書き込み系API関数` で固定する。振る舞いの移行先は
+ * `estimateEditReducer.test.ts` の `applyQuotationTransfer` / `addOverheadItem` /
+ * 「プリセット値の値引き行をルートレベルの末尾に追加する」。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -24,10 +32,8 @@ import {
   createEstimate,
   updateEstimate,
   deleteEstimate,
-  transferFromQuotation,
   exportEstimate,
   downloadEstimate,
-  addDiscountItem,
   saveEstimateDraft,
 } from '../../api/estimates';
 import type {
@@ -35,8 +41,6 @@ import type {
   EstimateSummary,
   EstimateDetail,
   EstimateInfo,
-  EstimateItemHierarchy,
-  EstimateItemLine,
   SaveEstimateDraftRequest,
   SaveEstimateDraftResponse,
 } from '../../api/estimates';
@@ -562,105 +566,6 @@ describe('estimates API client', () => {
   });
 
   // ==========================================================================
-  // transferFromQuotation - 受領見積書転記
-  // ==========================================================================
-  describe('transferFromQuotation', () => {
-    const mockTransferredItems: EstimateItemHierarchy[] = [
-      {
-        id: 'item-new',
-        estimateId: 'est-1',
-        parentId: null,
-        displayOrder: 1,
-        itemType: 'STANDARD',
-        lines: [
-          {
-            id: 'line-new',
-            estimateItemId: 'item-new',
-            lineType: 'VENDOR',
-            name: '転記された項目',
-            specification: null,
-            unit: '式',
-            quantity: '1',
-            unitPrice: '50000',
-            amount: '50000',
-            remarks: null,
-            sourceReceivedQuotationLineItemId: 'rq-line-1',
-            sourceVendorName: 'テスト業者',
-            createdAt: '2025-01-05T00:00:00.000Z',
-            updatedAt: '2025-01-05T00:00:00.000Z',
-          },
-        ],
-        children: [],
-        createdAt: '2025-01-05T00:00:00.000Z',
-        updatedAt: '2025-01-05T00:00:00.000Z',
-      },
-    ];
-
-    it('受領見積書から見積書に転記できること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockTransferredItems);
-
-      const input = {
-        receivedQuotationId: 'rq-1',
-        lineItemIds: ['rq-line-1', 'rq-line-2'],
-      };
-      const result = await transferFromQuotation('est-1', input);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/transfer-quotation', input);
-      expect(result).toEqual(mockTransferredItems);
-    });
-
-    it('ターゲット見積項目を指定して転記できること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockTransferredItems);
-
-      const input = {
-        receivedQuotationId: 'rq-1',
-        lineItemIds: ['rq-line-1'],
-        targetEstimateItemId: 'item-1',
-      };
-      const result = await transferFromQuotation('est-1', input);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/transfer-quotation', input);
-      expect(result).toEqual(mockTransferredItems);
-    });
-
-    it('見積書が見つからない場合、404エラーがスローされること', async () => {
-      const mockError = new ApiError(404, '見積書が見つかりません');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(
-        transferFromQuotation('non-existent', {
-          receivedQuotationId: 'rq-1',
-          lineItemIds: ['rq-line-1'],
-        })
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('受領見積書が見つからない場合、404エラーがスローされること', async () => {
-      const mockError = new ApiError(404, '受領見積書が見つかりません');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(
-        transferFromQuotation('est-1', {
-          receivedQuotationId: 'non-existent',
-          lineItemIds: ['rq-line-1'],
-        })
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('認証エラーの場合、401エラーがスローされること', async () => {
-      const mockError = new ApiError(401, '認証が必要です');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(
-        transferFromQuotation('est-1', {
-          receivedQuotationId: 'rq-1',
-          lineItemIds: ['rq-line-1'],
-        })
-      ).rejects.toMatchObject({ statusCode: 401 });
-    });
-  });
-
-  // ==========================================================================
   // exportEstimate - 見積書出力
   // ==========================================================================
   describe('exportEstimate', () => {
@@ -867,106 +772,6 @@ describe('estimates API client', () => {
     });
   });
 
-  // ============================================================================
-  // 値引き行追加API (Task 51.5, REQ-41.2)
-  // ============================================================================
-
-  describe('addDiscountItem', () => {
-    const mockDiscountLine: EstimateItemLine = {
-      id: 'discount-line-1',
-      estimateItemId: 'discount-item-1',
-      lineType: 'ESTIMATE',
-      name: '値引き',
-      specification: '',
-      unit: '式',
-      quantity: '1',
-      unitPrice: '-50000',
-      amount: '-50000',
-      remarks: null,
-      sourceReceivedQuotationLineItemId: null,
-      sourceVendorName: null,
-      createdAt: '2025-01-05T00:00:00.000Z',
-      updatedAt: '2025-01-05T00:00:00.000Z',
-    };
-
-    const mockDiscountItem: EstimateItemHierarchy = {
-      id: 'discount-item-1',
-      estimateId: 'est-1',
-      parentId: null,
-      displayOrder: 3,
-      itemType: 'DISCOUNT',
-      lines: [mockDiscountLine],
-      children: [],
-      createdAt: '2025-01-05T00:00:00.000Z',
-      updatedAt: '2025-01-05T00:00:00.000Z',
-    };
-
-    it('単価を指定して値引き行を追加できること（itemType=DISCOUNTの項目を取得）', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
-
-      const result = await addDiscountItem('est-1', -50000);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: -50000,
-      });
-      expect(result).toEqual(mockDiscountItem);
-      expect(result.itemType).toBe('DISCOUNT');
-    });
-
-    it('負数の単価を許容して値引き行を追加できること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
-
-      await addDiscountItem('est-1', -123456);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: -123456,
-      });
-    });
-
-    it('単価を省略した場合、unitPriceにnullを送信すること', async () => {
-      const mockEmptyDiscountItem: EstimateItemHierarchy = {
-        ...mockDiscountItem,
-        lines: [{ ...mockDiscountLine, unitPrice: null, amount: null }],
-      };
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockEmptyDiscountItem);
-
-      const result = await addDiscountItem('est-1');
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: null,
-      });
-      expect(result).toEqual(mockEmptyDiscountItem);
-    });
-
-    it('単価にnullを明示指定した場合、unitPriceにnullを送信すること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
-
-      await addDiscountItem('est-1', null);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: null,
-      });
-    });
-
-    it('見積書が見つからない場合、404エラーがスローされること', async () => {
-      const mockError = new ApiError(404, '見積書が見つかりません');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(addDiscountItem('non-existent', -1000)).rejects.toMatchObject({
-        statusCode: 404,
-      });
-    });
-
-    it('認証エラーの場合、401エラーがスローされること', async () => {
-      const mockError = new ApiError(401, '認証が必要です');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(addDiscountItem('est-1', -1000)).rejects.toMatchObject({
-        statusCode: 401,
-      });
-    });
-  });
-
   // ==========================================================================
   // 明細の一括保存 (Task 53.5)
   // ==========================================================================
@@ -1069,28 +874,39 @@ describe('estimates API client', () => {
   });
 
   // ============================================================================
-  // 明細操作系API関数の撤去 (Task 53.12, REQ-42.1)
+  // 書き込み系API関数の撤去 (Task 53.12 / 55.7, REQ-42.1, REQ-49.3)
   // ============================================================================
 
   /**
    * 明細の追加・削除・複写・一括更新・並び替え・階層移動は
    * {@link saveEstimateDraft}（`PUT /api/estimates/:id/save`）へ統合したため、
-   * 個別に書き込む旧関数はモジュールから撤去されている。
+   * 個別に書き込む旧関数はモジュールから撤去されている（Task 53.12）。
+   *
+   * 転記・諸経費行追加・値引き行追加を書き込む関数も、これらの操作が
+   * `estimateEditReducer` による編集状態への反映で完結し、確定は
+   * {@link saveEstimateDraft} 1回に集約されたため撤去した（Task 55.7, REQ-49.3）。
+   * 関数が残っていれば「実行の時点でデータベースへ書き込まない」を破る経路が
+   * 復活しうる。
    *
    * 「関数が無いこと」は呼び出しでは表現できないため、モジュールの公開名で固定する。
-   * あわせて、段階3・段階4まで残す関数が巻き添えで消えていないことも固定する
-   * （過剰撤去の検出）。
+   * あわせて、段階4まで残す関数が巻き添えで消えていないことも固定する
+   * （過剰撤去の検出）。書き込みを伴わない `calculateOverhead` は維持対象で、
+   * 撤去した書き込み経路 `addOverheadItem` と取り違えてはならない。
    *
    * Requirements (estimate-creation):
    * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+   * - REQ-49.3: これらの操作は実行の時点でデータベースへの書き込みを行わない
    */
-  describe('撤去済みの明細操作系API関数 (REQ-42.1)', () => {
+  describe('撤去済みの書き込み系API関数 (REQ-42.1, REQ-49.3)', () => {
     it.each([
       'createEstimateItem',
       'deleteEstimateItem',
       'moveEstimateItem',
       'reorderEstimateItems',
       'batchUpdateEstimateItems',
+      'transferFromQuotation',
+      'addOverheadItem',
+      'addDiscountItem',
     ])('%s が公開されていないこと', (name) => {
       expect(Object.keys(estimatesApi)).not.toContain(name);
     });
@@ -1099,10 +915,7 @@ describe('estimates API client', () => {
       'saveEstimateDraft',
       'getEstimateDetail',
       'getEstimateItems',
-      'transferFromQuotation',
       'calculateOverhead',
-      'addOverheadItem',
-      'addDiscountItem',
       'exportEstimate',
       'downloadEstimate',
     ])('%s は撤去されていないこと', (name) => {

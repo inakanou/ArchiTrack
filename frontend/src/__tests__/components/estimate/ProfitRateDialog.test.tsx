@@ -16,6 +16,9 @@
  * - 6.6: 利益率を百分率で入力可能とする
  * - 6.7: 「空の場合のみ上書き」の判定を編集中の見積金額行の単価に対して行う
  * - 6.9: 未保存の新規行が適用対象に含まれる場合、その行も適用対象として扱う
+ * - 13.3: 利益率に 0.00〜500.00 の範囲外の値が入力された場合はエラーメッセージを表示する
+ *   （Task 55.7 で `POST /:id/apply-profit-rate` と `applyProfitRateSchema` を撤去した際に、
+ *   サーバー側の範囲検証から本ダイアログへ移した責務）
  * - 19.3: 利益率の入力フィールド（0.00〜500.00%）を提供する
  * - 19.4: 上書きオプションを提供する
  * - 19.5: 各行の元の単価と新しい単価のプレビューを表示する
@@ -381,5 +384,56 @@ describe('ProfitRateDialog', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onApply).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 利益率の範囲エラー（13.3）
+   *
+   * 範囲検証はかつてサーバーの `applyProfitRateSchema`（`POST /:id/apply-profit-rate`）
+   * にしか無く、旧ダイアログは 400 応答を空の catch で握り潰していたため
+   * 「エラーメッセージを表示する」は実際には満たされていなかった。適用が
+   * クライアント内で完結した（49.3）いま、範囲検証はこのダイアログの責務である。
+   *
+   * 期待値の `-0.01` / `500.01` / メッセージ文言はテスト側にリテラルで置く。
+   * 実装と同じ定数・判定関数を参照すると、境界をずらす変異をテストが追従して
+   * しまい検証が空振りするため。
+   */
+  describe('利益率の範囲エラー (13.3)', () => {
+    it.each([
+      ['負の利益率', '-0.01'],
+      ['500を超える利益率', '500.01'],
+    ])('%s はエラーメッセージを表示し適用させない', async (_label, rate) => {
+      const user = userEvent.setup();
+      render(<ProfitRateDialog {...defaultProps} />);
+
+      await user.clear(screen.getByLabelText('利益率 (%)'));
+      await user.type(screen.getByLabelText('利益率 (%)'), rate);
+
+      // 13.3 の要求そのもの（エラーメッセージの表示）を先に確かめる。
+      // 適用ボタンの状態を先に見ると、範囲検証を落とす変異が
+      // 「ボタンが有効なまま」という副次的な失敗として現れ、
+      // メッセージ表示の検証が実行されないまま終わる。
+      expect(screen.getByRole('alert')).toHaveTextContent('利益率は0〜500の範囲で入力してください');
+      expect(screen.getByRole('button', { name: '適用' })).toBeDisabled();
+
+      await user.click(screen.getByRole('button', { name: '適用' }));
+      expect(onApply).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['下限', '0'],
+      ['上限', '500'],
+    ])('境界値（%s）はエラーとせず適用できる', async (_label, rate) => {
+      const user = userEvent.setup();
+      render(<ProfitRateDialog {...defaultProps} />);
+
+      await user.clear(screen.getByLabelText('利益率 (%)'));
+      await user.type(screen.getByLabelText('利益率 (%)'), rate);
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: '適用' }));
+      expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ rate }));
+    });
   });
 });

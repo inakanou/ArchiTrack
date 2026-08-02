@@ -45,11 +45,11 @@ export const ESTIMATE_VALIDATION_MESSAGES = {
   // 単価関連（REQ-13.2）
   UNIT_PRICE_INVALID: '単価は数値を入力してください',
 
-  // 利益率関連（REQ-13.3）
-  PROFIT_RATE_INVALID: '利益率は0〜500の範囲で入力してください',
-
-  // NET金額関連
-  NET_AMOUNT_INVALID: 'NET金額は0以上の数値を入力してください',
+  // 利益率（REQ-13.3）とNET金額の検証メッセージは、`applyProfitRateSchema` /
+  // `calculateNetSchema` の撤去（Task 55.7, REQ-49.3）で唯一の利用者を失ったため削除した。
+  // 利益率の範囲エラー文言の権威は
+  // `frontend/src/components/estimate/ProfitRateDialog.tsx` の
+  // `PROFIT_RATE_RANGE_MESSAGE` に一本化してある。
 
   // 行タイプ関連
   LINE_TYPE_INVALID: '行タイプが無効です',
@@ -195,53 +195,6 @@ export const deleteEstimateItemSchema = z.object({
 });
 
 /**
- * 受領見積書転記スキーマ
- *
- * Requirements: REQ-4.1, REQ-4.2
- */
-export const transferQuotationSchema = z.object({
-  receivedQuotationId: uuidSchema,
-  lineItemIds: z.array(uuidSchema).min(1, '転記する明細行を選択してください'),
-  targetEstimateItemId: uuidSchema.optional(),
-});
-
-/**
- * NET金額計算スキーマ
- *
- * Requirements: REQ-5.1, REQ-5.2, REQ-5.3, REQ-5.4
- * Task 5.1: 入力バリデーションスキーマの定義
- */
-export const calculateNetSchema = z.object({
-  vendorName: z.string().min(1, '業者名は必須です'),
-  targetLineIds: z.array(uuidSchema).min(1, '案分対象の行を選択してください'),
-  excludeLineIds: z.array(uuidSchema).default([]),
-  netAmount: z.string().refine(
-    (val) => {
-      const num = parseFloat(val);
-      return !isNaN(num) && num >= 0;
-    },
-    { message: ESTIMATE_VALIDATION_MESSAGES.NET_AMOUNT_INVALID }
-  ),
-});
-
-/**
- * 利益率適用スキーマ
- *
- * Requirements: REQ-6.1, REQ-13.3
- * Task 5.1: 入力バリデーションスキーマの定義
- */
-export const applyProfitRateSchema = z.object({
-  profitRate: z.string().refine(
-    (val) => {
-      const num = parseFloat(val);
-      return !isNaN(num) && num >= 0 && num <= 500;
-    },
-    { message: ESTIMATE_VALIDATION_MESSAGES.PROFIT_RATE_INVALID }
-  ),
-  overwriteOption: z.enum(['all', 'empty_only', 'unit_price_only']),
-});
-
-/**
  * 諸経費種別
  */
 export const overheadCostTypeSchema = z.enum([
@@ -286,27 +239,6 @@ export const calculateOverheadSchema = z.object({
     )
     .optional(),
   isRenovation: z.boolean().default(false),
-});
-
-/**
- * 諸経費行追加スキーマ
- */
-export const addOverheadItemSchema = z.object({
-  costType: overheadCostTypeSchema,
-  unitPrice: z.number().optional(),
-});
-
-/**
- * 値引き行追加スキーマ
- *
- * 値引きプリセット行（種別=DISCOUNT・見積金額行のみ）を追加する際のリクエストボディ。
- * 単価は手入力前提（REQ-41.4）で任意、かつマイナス値（負数）を許容する（REQ-41.5）。
- * z.number() は範囲制限を付けないため、デフォルトで負数を受理する。
- *
- * Requirements: REQ-41.1, REQ-41.2, REQ-41.4, REQ-41.5
- */
-export const addDiscountItemSchema = z.object({
-  unitPrice: z.number().nullable().optional(),
 });
 
 /**
@@ -690,12 +622,7 @@ export type DeleteEstimateInput = z.infer<typeof deleteEstimateSchema>;
 export type EstimateListQuery = z.infer<typeof estimateListQuerySchema>;
 export type UpdateEstimateItemInput = z.infer<typeof updateEstimateItemSchema>;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
-export type TransferQuotationInput = z.infer<typeof transferQuotationSchema>;
-export type CalculateNetInput = z.infer<typeof calculateNetSchema>;
-export type ApplyProfitRateInput = z.infer<typeof applyProfitRateSchema>;
 export type CalculateOverheadInput = z.infer<typeof calculateOverheadSchema>;
-export type AddOverheadItemInput = z.infer<typeof addOverheadItemSchema>;
-export type AddDiscountItemInput = z.infer<typeof addDiscountItemSchema>;
 export type ExportEstimateQuery = z.infer<typeof exportEstimateQuerySchema>;
 export type GetItemsQuery = z.infer<typeof getItemsQuerySchema>;
 

@@ -102,7 +102,10 @@ const DISCOUNT_PRESET = {
 /**
  * 諸経費行のプリセット値（7.1, 8.1, 9.1）
  *
- * バックエンド `OverheadCostService.getPresetValues` と同一。
+ * 本定義がプリセット値の唯一の権威。かつてバックエンド
+ * `OverheadCostService.getPresetValues` に同内容の複製があったが、諸経費行の生成が
+ * `POST /:id/overhead-items` の撤去（Task 55.7, REQ-49.3）でクライアントへ移り、
+ * 複製は呼び出し元を失ったため撤去した。
  */
 const OVERHEAD_PRESETS: Readonly<
   Record<

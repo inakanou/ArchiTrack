@@ -14,6 +14,8 @@
  * - REQ-7.3: 自動計算機能が有効な場合、国土交通省基準の共通仮設費計算式に準じて単価を自動計算する
  * - REQ-8.3: 自動計算機能が有効な場合、国土交通省基準の現場管理費計算式に準じて単価を自動計算する
  * - REQ-9.3: 自動計算機能が有効な場合、国土交通省基準の一般管理費計算式に準じて単価を自動計算する
+ * - REQ-49.3: 諸経費行追加は実行の時点でデータベースへの書き込みを行わない
+ * - REQ-49.5: 諸経費行追加の後に保存操作を行っても競合エラーを発生させない
  *
  * @module e2e/specs/estimate/estimate-reorder-overhead-e2e.spec
  */
@@ -22,7 +24,11 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { buildNewEstimateItemNode, saveEstimateDraft } from '../../helpers/estimate-draft';
+import {
+  buildNewEstimateItemNode,
+  getEstimateUpdatedAt,
+  saveEstimateDraft,
+} from '../../helpers/estimate-draft';
 
 interface ApiLine {
   lineType: string;
@@ -308,10 +314,20 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
 
   test.describe('諸経費の自動計算と項目追加', () => {
     /**
+     * 諸経費行の追加は編集状態への反映のみで完結し、保存で確定する（REQ-49.3, 49.5）
+     *
+     * かつては「項目追加」が `POST /:id/overhead-items` を発行して 201 を返し、
+     * その場でデータベースに書き込んでいた。この経路は Task 55.7 で撤去され、
+     * 追加は `estimateEditReducer` の遷移になった。ここでは
+     * 「追加の時点で書き込みが1件も出ない」「見積書の更新時刻が進まない」
+     * 「続く保存が競合しない」までを通しで固定する。
+     *
      * @requirement estimate-creation/REQ-7.1
      * @requirement estimate-creation/REQ-7.3
+     * @requirement estimate-creation/REQ-49.3
+     * @requirement estimate-creation/REQ-49.5
      */
-    test('共通仮設費を自動計算して見積項目に追加できる（建築新営） (estimate-creation/REQ-7.1, estimate-creation/REQ-7.3)', async ({
+    test('共通仮設費を自動計算して追加し、保存で確定できる（建築新営） (estimate-creation/REQ-7.1, estimate-creation/REQ-7.3, estimate-creation/REQ-49.3, estimate-creation/REQ-49.5)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -321,12 +337,31 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
 
       const before = await fetchRootItemsOrdered(page.request);
       const beforeCount = before.length;
+      // 画面を開く前の基準時刻。追加操作でこれが進めば 49.5 が破れる
+      const updatedAtBefore = await getEstimateUpdatedAt(
+        page.request,
+        accessToken,
+        createdEstimateId!
+      );
 
       await page.goto(`/estimates/${createdEstimateId}`);
       await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('estimate-detail-page')).toBeVisible({
         timeout: getTimeout(15000),
       });
+
+      // 追加の時点で書き込みが発生しないことを、実際に送出されたリクエストで数える
+      const writeRequests: string[] = [];
+      const recordWrite = (request: import('@playwright/test').Request): void => {
+        const method = request.method();
+        if (method === 'GET' || method === 'OPTIONS') return;
+        const url = request.url();
+        if (!url.includes('/api/estimates/')) return;
+        // 諸経費の率・金額の算定（書き込みなし）は対象外
+        if (url.includes('/calculate-overhead')) return;
+        writeRequests.push(`${method} ${url}`);
+      };
+      page.on('request', recordWrite);
 
       // ダイアログを開く
       await page.getByRole('button', { name: '諸経費を計算して追加' }).click();
@@ -338,7 +373,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       await dialog.getByLabel('直接工事費').fill('100000');
       await dialog.getByLabel('工期').fill('12');
 
-      // 計算実行
+      // 計算実行（書き込みを伴わない `POST /:id/calculate-overhead` は維持対象）
       const calcPromise = page.waitForResponse(
         (r) => r.url().includes('/calculate-overhead') && r.request().method() === 'POST',
         { timeout: getTimeout(15000) }
@@ -352,20 +387,48 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       const amountText = (await dialog.getByTestId('calculated-amount').textContent()) ?? '';
       expect(amountText).toMatch(/[0-9]/);
 
-      // 項目追加
-      const addPromise = page.waitForResponse(
-        (r) => r.url().includes('/overhead-items') && r.request().method() === 'POST',
-        { timeout: getTimeout(15000) }
-      );
+      // 項目追加（サーバーへは書き込まない）
       await dialog.getByRole('button', { name: '項目追加' }).click();
-      const addRes = await addPromise;
-      expect(addRes.status()).toBe(201);
 
       // ダイアログが閉じる
       await expect(dialog).toBeHidden();
+
+      // 追加された行が画面に現れる。保存前の行はサーバーIDを持たないので行キー
+      // （一時識別子 `tmp-*`）で引く。名称は入力欄の**値**なので `hasText` では拾えない
+      const table = page.locator('[aria-label="見積項目テーブル"]');
+      const addedRow = table.locator('[data-estimate-row-key^="tmp-"]');
+      await expect(addedRow).toHaveCount(1, { timeout: getTimeout(10000) });
+      // プリセット値のまま追加されている（7.1）
+      const addedEstimateLine = addedRow.getByTestId('line-type-ESTIMATE');
+      await expect(addedEstimateLine.getByLabel('名称')).toHaveValue('共通仮設費');
+      await expect(addedEstimateLine.getByLabel('単位')).toHaveValue('式');
+      await expect(addedEstimateLine.getByLabel('数量')).toHaveValue('1');
+
+      // 49.3 の要求そのもの（書き込みが発生していないこと）を先に確かめる。
+      // 明細の件数を先に見ると、経路が復活したときの失敗が「件数が増えている」という
+      // 二次的な形で出て、書き込みが起きたことが失敗として報告されない
+      expect(writeRequests).toEqual([]);
+      expect(await getEstimateUpdatedAt(page.request, accessToken, createdEstimateId!)).toBe(
+        updatedAtBefore
+      );
+      // データベース側はまだ増えていない（未保存の変更）
+      expect((await fetchRootItemsOrdered(page.request)).length).toBe(beforeCount);
+
+      // 保存で確定する。基準時刻が進んでいないので競合しない（49.5）
+      const savePromise = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+          r.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^保存$/i }).click();
+      const saveRes = await savePromise;
+      expect(saveRes.status()).toBe(200);
+
+      page.off('request', recordWrite);
       await page.waitForLoadState('networkidle');
 
-      // API上で「共通仮設費」項目が追加されていることを検証
+      // API上で「共通仮設費」項目がプリセット値のまま確定していることを検証（7.1）
       const after = await fetchRootItemsOrdered(page.request);
       expect(after.length).toBe(beforeCount + 1);
       const overheadItem = after.find((i) =>
@@ -373,8 +436,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       );
       expect(overheadItem).toBeTruthy();
 
-      // 画面の見積項目テーブルに、追加された共通仮設費の行が表示されていることを検証
-      const table = page.locator('[aria-label="見積項目テーブル"]');
+      // 画面の見積項目テーブルに、確定後の共通仮設費の行が表示されていることを検証
       await expect(table.getByTestId(`estimate-item-${overheadItem!.id}`)).toBeVisible();
     });
 

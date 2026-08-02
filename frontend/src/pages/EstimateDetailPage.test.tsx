@@ -514,6 +514,37 @@ const mockEstimateLoadOnce = (detail: estimatesApi.EstimateDetail): void => {
   vi.mocked(estimatesApi.getEstimateItems).mockResolvedValueOnce(detail.items);
 };
 
+/** 読み取り専用の見積書API（呼ばれてもデータベースを変更しない） */
+const READ_ONLY_ESTIMATE_APIS = new Set([
+  'getEstimates',
+  'getEstimatesSummary',
+  'getEstimateDetail',
+  'getEstimateItems',
+  'calculateOverhead',
+  'exportEstimate',
+  'downloadEstimate',
+]);
+
+/**
+ * 書き込み系の見積書APIが一つも呼ばれていないことを確かめる（49.3）
+ *
+ * かつては撤去対象の `transferFromQuotation` / `addOverheadItem` / `addDiscountItem` を
+ * 名指しで検証していたが、関数そのものが消えた（Task 55.7）ため名指しでは書けない。
+ * 読み取り専用の関数だけを除外し、残り全部の呼び出しゼロで固定することで、
+ * 将来どの書き込み関数が足されても当該経路から呼ばれれば落ちる。
+ */
+const expectNoEstimateWriteApiCall = (): void => {
+  const called = Object.entries(estimatesApi)
+    .filter(
+      ([name, value]) =>
+        vi.isMockFunction(value) &&
+        !READ_ONLY_ESTIMATE_APIS.has(name) &&
+        value.mock.calls.length > 0
+    )
+    .map(([name]) => name);
+  expect(called).toEqual([]);
+};
+
 describe('EstimateDetailPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -1726,10 +1757,8 @@ describe('EstimateDetailPage', () => {
         estimatesApi.createEstimate,
         estimatesApi.updateEstimate,
         estimatesApi.deleteEstimate,
-        estimatesApi.transferFromQuotation,
+        // 書き込みではないが、対象の操作では呼ばれてはならないので数に含める
         estimatesApi.calculateOverhead,
-        estimatesApi.addOverheadItem,
-        estimatesApi.addDiscountItem,
       ].reduce((total, fn) => total + vi.mocked(fn).mock.calls.length, 0);
 
     const editEstimateName = async (value: string) => {
@@ -2310,7 +2339,7 @@ describe('EstimateDetailPage', () => {
       });
     });
     // サーバーへの書き込みは行わない（49.3）
-    expect(estimatesApi.addOverheadItem).not.toHaveBeenCalled();
+    expectNoEstimateWriteApiCall();
 
     // 追加後はダイアログが閉じる
     await waitFor(() => {
@@ -2335,10 +2364,8 @@ describe('EstimateDetailPage', () => {
         estimatesApi.createEstimate,
         estimatesApi.updateEstimate,
         estimatesApi.deleteEstimate,
-        estimatesApi.transferFromQuotation,
+        // 書き込みではないが、対象の操作では呼ばれてはならないので数に含める
         estimatesApi.calculateOverhead,
-        estimatesApi.addOverheadItem,
-        estimatesApi.addDiscountItem,
       ].reduce((total, fn) => total + vi.mocked(fn).mock.calls.length, 0);
 
     const buildLine = (itemId: string, name: string) => ({
@@ -2738,7 +2765,7 @@ describe('EstimateDetailPage', () => {
       expect(tableItems().map((item) => item.id)).not.toContain('item-server');
       expect(tableItems()[2]!.id.startsWith('tmp-')).toBe(true);
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
-      expect(estimatesApi.addOverheadItem).not.toHaveBeenCalled();
+      expectNoEstimateWriteApiCall();
     });
 
     /**
@@ -2803,7 +2830,7 @@ describe('EstimateDetailPage', () => {
       await user.click(screen.getByTestId('transfer-apply'));
 
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
-      expect(estimatesApi.transferFromQuotation).not.toHaveBeenCalled();
+      expectNoEstimateWriteApiCall();
       // サーバー側の行（item-server）は取り込まれず、転記で作られた行だけが増える
       expect(
         tableItems()
@@ -2911,10 +2938,8 @@ describe('EstimateDetailPage', () => {
         estimatesApi.createEstimate,
         estimatesApi.updateEstimate,
         estimatesApi.deleteEstimate,
-        estimatesApi.transferFromQuotation,
+        // 書き込みではないが、対象の操作では呼ばれてはならないので数に含める
         estimatesApi.calculateOverhead,
-        estimatesApi.addOverheadItem,
-        estimatesApi.addDiscountItem,
       ].reduce((total, fn) => total + vi.mocked(fn).mock.calls.length, 0);
 
     /** 保存応答（`PUT /api/estimates/:id/save`）の最小形 */

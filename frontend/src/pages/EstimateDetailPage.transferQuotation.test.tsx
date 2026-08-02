@@ -188,6 +188,37 @@ const renderedItemKeys = (): string[] =>
 /** 転記で新しく作られた項目のキー（読み込み時の item-a 以外） */
 const transferredKeys = (): string[] => renderedItemKeys().filter((key) => key !== 'item-a');
 
+/** 読み取り専用の見積書API（呼ばれてもデータベースを変更しない） */
+const READ_ONLY_ESTIMATE_APIS = new Set([
+  'getEstimates',
+  'getEstimatesSummary',
+  'getEstimateDetail',
+  'getEstimateItems',
+  'calculateOverhead',
+  'exportEstimate',
+  'downloadEstimate',
+]);
+
+/**
+ * 書き込み系の見積書APIが一つも呼ばれていないことを確かめる（49.3）
+ *
+ * かつては撤去対象の `transferFromQuotation` を名指しで検証していたが、
+ * 関数そのものが消えた（Task 55.7）ため名指しでは書けない。読み取り専用の
+ * 関数だけを除外し、残り全部の呼び出しゼロで固定することで、
+ * 将来どの書き込み関数が足されても転記経路から呼ばれれば落ちる。
+ */
+const expectNoEstimateWriteApiCall = (): void => {
+  const called = Object.entries(estimatesApi)
+    .filter(
+      ([name, value]) =>
+        vi.isMockFunction(value) &&
+        !READ_ONLY_ESTIMATE_APIS.has(name) &&
+        value.mock.calls.length > 0
+    )
+    .map(([name]) => name);
+  expect(called).toEqual([]);
+};
+
 describe('EstimateDetailPage 受領見積書転記の統合（実物のコンポーネント）', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -320,8 +351,7 @@ describe('EstimateDetailPage 受領見積書転記の統合（実物のコンポ
       expect(transferredKeys()).toHaveLength(2);
     });
 
-    expect(estimatesApi.transferFromQuotation).not.toHaveBeenCalled();
-    expect(estimatesApi.saveEstimateDraft).not.toHaveBeenCalled();
+    expectNoEstimateWriteApiCall();
     // 初回読み込みの1回のみ（転記後の再取得が無い）
     expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
     expect(lineInput('item-a', 'ESTIMATE', '名称').value).toBe('編集済みA');

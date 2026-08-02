@@ -39,6 +39,21 @@ import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 vi.mock('../../api/received-quotations');
 vi.mock('../../api/estimates');
 
+/**
+ * 見積書APIの関数が一つも呼ばれていないことを確かめる（49.3）
+ *
+ * かつては撤去対象の `transferFromQuotation` を名指しで検証していたが、
+ * 関数そのものが消えた（Task 55.7）ため名指しでは書けない。モジュール全体の
+ * 呼び出しゼロで固定することで、将来どの関数が足されても転記経路から
+ * 呼ばれれば落ちる。本ダイアログは受領見積書API（別モジュール）しか使わない。
+ */
+const expectNoEstimateApiCall = (): void => {
+  const called = Object.entries(estimatesApi)
+    .filter(([, value]) => vi.isMockFunction(value) && value.mock.calls.length > 0)
+    .map(([name]) => name);
+  expect(called).toEqual([]);
+};
+
 const mockReceivedQuotations = [
   {
     id: 'rq-001',
@@ -468,7 +483,7 @@ describe('TransferQuotationDialog', () => {
     await user.click(screen.getByRole('button', { name: '転記' }));
 
     expect(onApply).toHaveBeenCalledTimes(1);
-    expect(estimatesApi.transferFromQuotation).not.toHaveBeenCalled();
+    expectNoEstimateApiCall();
   });
 
   it('受領見積書が未選択の場合は転記ボタンが無効', async () => {

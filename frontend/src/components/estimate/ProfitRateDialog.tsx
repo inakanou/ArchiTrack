@@ -18,6 +18,7 @@
  * - 6.7: 「空の場合のみ上書き」の判定を編集中の見積金額行の単価に対して行う
  * - 6.8: プレビューに表示した新しい単価と実際に反映される単価を一致させる
  * - 6.9: 未保存の新規行が適用対象に含まれる場合、その行も適用対象として扱う
+ * - 13.3: 利益率に 0.00〜500.00 の範囲外の値が入力された場合はエラーメッセージを表示する
  * - 19.1〜19.6: 利益率適用ダイアログの各機能
  * - 19.8: 編集中の実行金額行（未保存の追加・編集を含む）を適用対象の一覧に表示する
  * - 22.6: 利益率適用後の単価を小数第1位で四捨五入した整数で表示する
@@ -57,6 +58,15 @@ export interface ProfitRateDialogProps {
 }
 
 const DEFAULT_PROFIT_RATE = '12.27';
+
+/** 利益率の下限（13.3, 19.3） */
+const MIN_PROFIT_RATE = new Decimal('0');
+
+/** 利益率の上限（13.3, 19.3） */
+const MAX_PROFIT_RATE = new Decimal('500');
+
+/** 範囲外の利益率に対して表示するエラーメッセージ（13.3） */
+const PROFIT_RATE_RANGE_MESSAGE = '利益率は0〜500の範囲で入力してください';
 
 const styles = {
   overlay: {
@@ -161,6 +171,11 @@ const styles = {
     cursor: 'pointer',
   } as React.CSSProperties,
   disabledButton: { backgroundColor: '#93c5fd', cursor: 'not-allowed' } as React.CSSProperties,
+  errorMessage: {
+    marginTop: '8px',
+    fontSize: '13px',
+    color: '#b91c1c',
+  } as React.CSSProperties,
 };
 
 function formatAmount(amount: Decimal | null): string {
@@ -261,20 +276,45 @@ export function ProfitRateDialog({ isOpen, items, onClose, onApply }: ProfitRate
   const rateDecimal = useMemo(() => toDecimal(profitRate), [profitRate]);
 
   /**
+   * 利益率の範囲エラー（13.3）
+   *
+   * かつて範囲検証はサーバーの `applyProfitRateSchema` にしか無く、旧ダイアログは
+   * その 400 応答を空の catch で握り潰していたため「エラーメッセージを表示する」は
+   * 実際には満たされていなかった。適用がクライアント内で完結した（49.3）いま、
+   * 範囲検証はこのダイアログの責務である。
+   *
+   * `<input type="number" min max>` の制約はキーボード操作でしか効かず、貼り付けや
+   * プログラム的な変更を止められないため、値そのものを判定する。
+   */
+  const rangeError = useMemo(() => {
+    if (rateDecimal === null) return null;
+    if (rateDecimal.lt(MIN_PROFIT_RATE) || rateDecimal.gt(MAX_PROFIT_RATE)) {
+      return PROFIT_RATE_RANGE_MESSAGE;
+    }
+    return null;
+  }, [rateDecimal]);
+
+  /**
    * 適用プレビュー（19.5）
    *
    * 計算は 55.1 の `applyProfitRate` に委ねる。適用側（reducer の `applyProfitRate`）も
    * 同じ関数を通るため、プレビューに出た単価と反映される単価が一致する（6.8）。
    * 値引き行・注記行の除外も同関数が行う（41.9, 55.4）。
+   *
+   * 範囲外の利益率ではプレビューを出さない（適用できない値の結果を見せない、13.3）。
    */
   const previewResults = useMemo(() => {
-    if (rateDecimal === null || targetRows.length === 0) {
+    if (rateDecimal === null || rangeError !== null || targetRows.length === 0) {
       return null;
     }
     return applyProfitRate(targetRows, rateDecimal, overwriteOption);
-  }, [targetRows, rateDecimal, overwriteOption]);
+  }, [targetRows, rateDecimal, rangeError, overwriteOption]);
 
-  const isFormValid = rateDecimal !== null && previewResults !== null && previewResults.length > 0;
+  const isFormValid =
+    rateDecimal !== null &&
+    rangeError === null &&
+    previewResults !== null &&
+    previewResults.length > 0;
 
   /**
    * 利益率の適用（19.6）
@@ -321,7 +361,14 @@ export function ProfitRateDialog({ isOpen, items, onClose, onApply }: ProfitRate
             max="500"
             step="0.01"
             style={styles.input}
+            aria-invalid={rangeError !== null}
+            aria-errormessage={rangeError !== null ? 'profit-rate-error' : undefined}
           />
+          {rangeError !== null && (
+            <div id="profit-rate-error" role="alert" style={styles.errorMessage}>
+              {rangeError}
+            </div>
+          )}
         </div>
 
         {/* 上書きオプション (REQ-19.4, REQ-6.2, REQ-6.3, REQ-6.4) */}

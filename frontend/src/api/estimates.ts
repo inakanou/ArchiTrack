@@ -1,13 +1,20 @@
 /**
  * @fileoverview 見積書APIクライアント
  *
- * 見積書のCRUD操作、見積項目の参照、計算・転記・出力機能のAPIクライアントを提供します。
+ * 見積書のCRUD操作、見積項目の参照、書き込みを伴わない計算、出力機能の
+ * APIクライアントを提供します。
  *
  * 明細の追加・削除・複写・一括更新・並び替え・階層移動を個別に書き込む関数
  * （`createEstimateItem` / `deleteEstimateItem` / `moveEstimateItem` /
  * `reorderEstimateItems` / `batchUpdateEstimateItems`）は
  * {@link saveEstimateDraft}（`PUT /api/estimates/:id/save`）へ統合したため撤去済み。
  * 画面の行操作はローカル状態に閉じ、保存操作1回でまとめて確定する（REQ-42.1、Task 53.12）。
+ *
+ * 転記・諸経費行追加・値引き行追加を書き込む関数
+ * （`transferFromQuotation` / `addOverheadItem` / `addDiscountItem`）も
+ * Task 55.7 で撤去済み。これらは `estimateEditReducer` の遷移として編集状態に反映され、
+ * {@link saveEstimateDraft} で確定する（REQ-49.3, REQ-49.5）。
+ * 書き込みを伴わない {@link calculateOverhead} は維持対象。
  *
  * Task 11: フロントエンドページの実装（API Client）
  *
@@ -17,8 +24,8 @@
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
  * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
  * - REQ-3.1-3.5: 見積書新規作成と内訳書連携
- * - REQ-4.1-4.5: 受領見積書転記
  * - REQ-10.1-10.8: 見積書出力
+ * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
  *
  * @module api/estimates
  */
@@ -151,15 +158,6 @@ export interface UpdateEstimateInput {
 }
 
 /**
- * 受領見積書転記入力
- */
-export interface TransferQuotationInput {
-  receivedQuotationId: string;
-  lineItemIds: string[];
-  targetEstimateItemId?: string;
-}
-
-/**
  * 出力形式
  */
 export type ExportFormat = 'pdf' | 'xlsx';
@@ -284,28 +282,6 @@ export async function deleteEstimate(id: string, updatedAt: string): Promise<voi
 }
 
 // ============================================================================
-// 受領見積書転記API
-// ============================================================================
-
-/**
- * 受領見積書から見積書に転記
- * Requirements: REQ-4.1-4.5
- *
- * @param estimateId - 見積書ID
- * @param input - 転記入力
- * @returns 転記後の見積項目
- */
-export async function transferFromQuotation(
-  estimateId: string,
-  input: TransferQuotationInput
-): Promise<EstimateItemHierarchy[]> {
-  return apiClient.post<EstimateItemHierarchy[]>(
-    `/api/estimates/${estimateId}/transfer-quotation`,
-    input
-  );
-}
-
-// ============================================================================
 // 見積書出力API
 // ============================================================================
 
@@ -392,57 +368,6 @@ export async function calculateOverhead(
     `/api/estimates/${estimateId}/calculate-overhead`,
     input
   );
-}
-
-/**
- * 諸経費行を見積項目として追加
- *
- * Requirements (estimate-creation):
- * - REQ-7.1, REQ-8.1, REQ-9.1: プリセット値を使用して諸経費行を追加する
- *
- * バックエンドがプリセット値（名称・規格・単位・数量）を設定し、unitPrice のみ受け取る。
- *
- * @param estimateId - 見積書ID
- * @param input - 諸経費種別と単価
- * @returns 追加された見積項目
- */
-export async function addOverheadItem(
-  estimateId: string,
-  input: {
-    costType: 'COMMON_TEMPORARY' | 'SITE_MANAGEMENT' | 'GENERAL_ADMIN';
-    unitPrice?: number;
-  }
-): Promise<EstimateItemHierarchy> {
-  return apiClient.post<EstimateItemHierarchy>(
-    `/api/estimates/${estimateId}/overhead-items`,
-    input
-  );
-}
-
-/**
- * 値引き行を見積項目として追加
- *
- * Requirements (estimate-creation):
- * - REQ-41.2: 名称：値引き、規格：空白、単位：式、数量：1をプリセット値とする値引き行をルートレベルに追加する
- * - REQ-41.5: 単価にマイナス値（負数）の入力を許容する
- *
- * バックエンドがプリセット値（名称・規格・単位・数量）を設定し、unitPrice のみ受け取る。
- * 作成される項目は itemType='DISCOUNT'・見積金額行（ESTIMATE）1行のみで構成される。
- * unitPrice 省略時は null を送信する（手入力前提）。
- *
- * エンドポイント: POST /api/estimates/:id/discount-items
- *
- * @param estimateId - 見積書ID
- * @param unitPrice - 単価（任意・負数許容・null許容）。省略時は null
- * @returns 追加された値引き項目（itemType='DISCOUNT'）
- */
-export async function addDiscountItem(
-  estimateId: string,
-  unitPrice?: number | null
-): Promise<EstimateItemHierarchy> {
-  return apiClient.post<EstimateItemHierarchy>(`/api/estimates/${estimateId}/discount-items`, {
-    unitPrice: unitPrice ?? null,
-  });
 }
 
 // ============================================================================

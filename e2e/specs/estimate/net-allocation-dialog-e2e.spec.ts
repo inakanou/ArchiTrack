@@ -5,6 +5,10 @@
  * - REQ-36.1: 対象業者を選択した場合、NET金額欄に受領見積書で入力されたNET金額を自動設定する
  * - REQ-36.2: 自動設定されたNET金額をユーザーが手動で変更可能とする
  *
+ * テストデータの準備は `POST /:id/transfer-quotation` を直接呼んでいたが、
+ * この経路は Task 55.7 で撤去された（REQ-49.3）ため `PUT /:id/save` で
+ * 同じ最終状態を作る形へ移行した。
+ *
  * @module e2e/specs/estimate/net-allocation-dialog-e2e.spec
  */
 
@@ -12,6 +16,14 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import {
+  buildSaveLine,
+  flattenEstimateItems,
+  getEstimateItemTree,
+  saveEstimateDraft,
+  toDecimalString,
+  toSaveNodes,
+} from '../../helpers/estimate-draft';
 
 const QUOTATION_NET_AMOUNT = 170000;
 
@@ -245,10 +257,24 @@ test.describe('NET金額案分ダイアログの自動設定機能 (REQ-36)', ()
       expect(createdReceivedQuotationId).toBeTruthy();
     });
 
-    test('準備5：見積書を作成し、受領見積書から業者金額行を転記する', async ({ page, request }) => {
+    /**
+     * 転記結果に相当する業者金額行を用意する（準備）
+     *
+     * かつては `POST /:id/transfer-quotation` を直接呼んで業者金額行を作っていたが、
+     * この経路は Task 55.7 で撤去され、転記はクライアントの編集状態への反映と
+     * `PUT /:id/save` による確定になった（REQ-49.3）。準備としては同じ最終状態
+     * （受領見積書の明細と同じ値を持ち、`sourceVendorName` が協力業者名である
+     * 業者金額行）を一括保存で作る。REQ-36.1 の自動設定はこの
+     * `sourceVendorName` を鍵に受領見積書を引き当てる。
+     */
+    test('準備5：見積書を作成し、受領見積書に対応する業者金額行を保存する', async ({
+      page,
+      request,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdItemizedStatementId).toBeTruthy();
       expect(createdReceivedQuotationId).toBeTruthy();
+      expect(tradingPartnerName).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -277,31 +303,65 @@ test.describe('NET金額案分ダイアログの自動設定機能 (REQ-36)', ()
 
       await page.waitForURL(/\/estimates\/[0-9a-f-]+$/);
 
-      // 受領見積書の明細行IDを取得
+      // 受領見積書の明細行を取得
       const baseUrl = API_BASE_URL;
       const quotationDetail = await request.get(
         `${baseUrl}/api/quotations/${createdReceivedQuotationId}`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       expect(quotationDetail.ok()).toBeTruthy();
-      const quotationBody = await quotationDetail.json();
-      const lineItemIds: string[] = (quotationBody.lineItems || []).map(
-        (li: { id: string }) => li.id
-      );
-      expect(lineItemIds.length).toBeGreaterThan(0);
+      const quotationBody = (await quotationDetail.json()) as {
+        lineItems?: Array<{
+          name: string;
+          specification: string | null;
+          unit: string | null;
+          quantity: number | string | null;
+          unitPrice: number | string | null;
+        }>;
+      };
+      const lineItems = quotationBody.lineItems ?? [];
+      expect(lineItems.length).toBeGreaterThan(0);
 
-      // 受領見積書からの転記APIを呼び出し、業者金額行を生成
-      const transferResponse = await request.post(
-        `${baseUrl}/api/estimates/${createdEstimateId}/transfer-quotation`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: {
-            receivedQuotationId: createdReceivedQuotationId,
-            lineItemIds,
-          },
-        }
-      );
-      expect(transferResponse.ok()).toBeTruthy();
+      // 転記結果に相当する業者金額行を一括保存で作る（既存項目は保ったまま追加する）
+      const existing = await getEstimateItemTree(request, accessToken, createdEstimateId!);
+      await saveEstimateDraft(request, accessToken, createdEstimateId!, [
+        ...toSaveNodes(existing),
+        ...lineItems.map((lineItem, index) => {
+          const quantity = lineItem.quantity === null ? null : Number(lineItem.quantity);
+          const unitPrice = lineItem.unitPrice === null ? null : Number(lineItem.unitPrice);
+          return {
+            id: null,
+            tempId: `net-transfer-${index}`,
+            itemType: 'STANDARD' as const,
+            lines: [
+              // 転記は業者金額行にのみ反映する（REQ-4.1）。実行金額行は案分の書き込み先
+              buildSaveLine('ESTIMATE', { name: lineItem.name }),
+              buildSaveLine('EXECUTION', { name: lineItem.name }),
+              buildSaveLine('VENDOR', {
+                name: lineItem.name,
+                specification: lineItem.specification,
+                unit: lineItem.unit,
+                quantity: toDecimalString(quantity),
+                unitPrice: toDecimalString(unitPrice),
+                amount:
+                  quantity === null || unitPrice === null
+                    ? null
+                    : toDecimalString(quantity * unitPrice),
+                sourceVendorName: tradingPartnerName,
+              }),
+            ],
+            children: [],
+          };
+        }),
+      ]);
+
+      // 業者金額行が協力業者名を持って確定していること（REQ-36.1 の引き当て鍵）
+      const saved = await getEstimateItemTree(request, accessToken, createdEstimateId!);
+      const vendorNames = flattenEstimateItems(saved)
+        .flatMap((item) => item.lines)
+        .filter((line) => line.lineType === 'VENDOR')
+        .map((line) => line.sourceVendorName);
+      expect(vendorNames).toContain(tradingPartnerName);
     });
   });
 
@@ -328,7 +388,11 @@ test.describe('NET金額案分ダイアログの自動設定機能 (REQ-36)', ()
         timeout: getTimeout(15000),
       });
 
-      // NET案分ダイアログを開く
+      // NET案分ダイアログを開く。
+      // 業者の選択肢は編集中の明細から即座に作られる一方、NET金額の自動設定は
+      // 受領見積書一覧の非同期取得に依存する。取得の解決を待たずに業者を選んでも
+      // 自動設定されること（＝ダイアログが取得解決時に再適用すること）自体が
+      // REQ-36.1 の検証対象なので、ここで取得完了を待ってはならない。
       await page.getByRole('button', { name: '業者金額を実行金額に転記' }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
@@ -370,7 +434,11 @@ test.describe('NET金額案分ダイアログの自動設定機能 (REQ-36)', ()
         timeout: getTimeout(15000),
       });
 
-      // NET案分ダイアログを開く
+      // NET案分ダイアログを開く。
+      // 業者の選択肢は編集中の明細から即座に作られる一方、NET金額の自動設定は
+      // 受領見積書一覧の非同期取得に依存する。取得の解決を待たずに業者を選んでも
+      // 自動設定されること（＝ダイアログが取得解決時に再適用すること）自体が
+      // REQ-36.1 の検証対象なので、ここで取得完了を待ってはならない。
       await page.getByRole('button', { name: '業者金額を実行金額に転記' }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 

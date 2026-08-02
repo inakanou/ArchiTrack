@@ -4,6 +4,16 @@
  * 見積書の金額計算、NET金額案分、利益率適用を担当します。
  * Decimal.jsを使用して高精度な10進数計算を実現します。
  *
+ * **本サービスは Task 55.7 以降、HTTP経路からは呼ばれない（意図的な維持）。**
+ * 案分・利益率適用は `POST /:id/calculate-net` / `POST /:id/apply-profit-rate` の撤去に伴い
+ * クライアントの `frontend/src/domain/estimate/estimateCalculations.ts` へ一本化された
+ * （REQ-49.3）。それでも本サービスを残すのは、design.md の撤去段階表（`Modified Files`）が
+ * 撤去対象として挙げるのはエンドポイントだけであり、かつ REQ-5.8 / 6.8 が求める
+ * 「クライアント計算がサーバー実装と一致する」ことの**照合先**が本実装だからである。
+ * `estimateCalculations.test.ts` の固定値は本サービスを実行して採取されており
+ * （Task 55.1）、本サービスを消すと一致の再導出ができなくなる。
+ * 撤去する場合は照合先の移設とセットで行うこと。
+ *
  * Requirements (estimate-creation):
  * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
  * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
