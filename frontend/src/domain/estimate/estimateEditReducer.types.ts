@@ -147,6 +147,102 @@ export interface EstimateEditState {
 }
 
 // ============================================================================
+// 転記・計算結果の適用ペイロード（49.1〜49.4, 49.8）
+// ============================================================================
+
+/**
+ * 受領見積書から転記する1明細行（4.3）
+ *
+ * 金額は転記対象ではなく 数量 × 単価 として導出する（4.3 は名称・規格・単位・
+ * 数量・単価のみを転記対象と定める）。
+ */
+export interface QuotationTransferLine {
+  readonly name: string | null;
+  readonly specification: string | null;
+  readonly unit: string | null;
+  /** 数量（10進数文字列） */
+  readonly quantity: string | null;
+  /** 単価（10進数文字列） */
+  readonly unitPrice: string | null;
+  readonly remarks?: string | null;
+}
+
+/**
+ * 受領見積書転記の適用内容（4.1, 4.2, 4.6）
+ *
+ * 転記先の見積項目を指定した場合はその項目の業者金額行へ、指定しない場合は
+ * 明細行ごとに新規の見積項目を作ってその業者金額行へ反映する。
+ */
+export interface QuotationTransferPayload {
+  /** 転記先の見積項目。`null` は新規項目を作成する（4.2） */
+  readonly targetKey: NodeKey | null;
+  /** 転記元の業者名。業者金額行の `sourceVendorName` に記録する */
+  readonly vendorName: string | null;
+  /** 転記する明細行（受領見積書の並び順で渡す） */
+  readonly lines: readonly QuotationTransferLine[];
+}
+
+/**
+ * NET金額案分の適用内容（5.2, 5.3, 5.4, 5.5）
+ *
+ * 対象・除外はいずれも**見積項目のキー**で指定する。未保存の新規項目も
+ * 一時識別子で指定できる（5.9, 49.7）。
+ */
+export interface NetAllocationPayload {
+  /** 案分対象の見積項目キー（業者金額行の値を用いる） */
+  readonly targetKeys: readonly NodeKey[];
+  /** 案分から除外する見積項目キー（5.2） */
+  readonly excludeKeys?: readonly NodeKey[];
+  /** 案分するNET金額（10進数文字列） */
+  readonly netAmount: string;
+}
+
+/**
+ * 利益率適用の上書きオプション（6.2〜6.4）
+ *
+ * `estimateCalculations` の `OverwriteOption` の実体。計算関数と遷移アクションの
+ * 双方が同じ列挙を用いるため、依存の最下層である本モジュールで定義する。
+ */
+export type OverwriteOption = 'all' | 'empty_only' | 'unit_price_only';
+
+/**
+ * 利益率適用の適用内容（6.1〜6.4, 6.7）
+ */
+export interface ProfitRatePayload {
+  /**
+   * 適用対象の見積項目キー
+   *
+   * 省略した場合は明細ツリー全体を対象とする（6.1「全実行金額行に対して」）。
+   */
+  readonly targetKeys?: readonly NodeKey[];
+  /** 利益率（百分率の10進数文字列。例: `'12.27'`） */
+  readonly rate: string;
+  /** 上書きオプション（6.2〜6.4） */
+  readonly overwriteOption: OverwriteOption;
+}
+
+/**
+ * 諸経費の種別（7.1, 8.1, 9.1）
+ *
+ * バックエンド `OverheadCostService` の `OverheadCostType` と同一の値。
+ */
+export type OverheadCostType = 'COMMON_TEMPORARY' | 'SITE_MANAGEMENT' | 'GENERAL_ADMIN';
+
+/**
+ * 諸経費行追加の適用内容（7.1, 7.7, 8.1, 8.7, 9.1, 9.7）
+ */
+export interface OverheadItemPayload {
+  readonly costType: OverheadCostType;
+  /**
+   * 見積金額行の単価（10進数文字列）
+   *
+   * 自動計算の結果でも手入力でもよい（7.5, 8.5, 9.5）。省略時は未入力。
+   * 計算そのものは書き込みを伴わない既存経路が担い、本遷移は結果の反映のみを行う。
+   */
+  readonly unitPrice?: string | null;
+}
+
+// ============================================================================
 // アクション
 // ============================================================================
 
@@ -154,9 +250,8 @@ export interface EstimateEditState {
  * 編集状態の遷移アクション
  *
  * design.md の `EstimateEditAction` のうち、行の挿入・削除・複写・並び替え・
- * セル値の更新・帳票用入力項目の更新（53.2）と、階層の上げ下げ（53.3）に
- * 対応する集合を定義する。
- * 転記・案分・利益率・諸経費（`apply*` / `addOverheadItem`）は段階3で追加する。
+ * セル値の更新・帳票用入力項目の更新（53.2）と、階層の上げ下げ（53.3）、
+ * および転記・案分・利益率・諸経費の適用（55.2）に対応する集合を定義する。
  */
 export type EstimateEditAction =
   /**
@@ -214,4 +309,12 @@ export type EstimateEditAction =
       value: string | null;
     }
   /** 帳票用入力項目を更新する（54.6, 54.8） */
-  | { type: 'updateReportFields'; fields: EstimateReportFields };
+  | { type: 'updateReportFields'; fields: EstimateReportFields }
+  /** 受領見積書の転記結果を業者金額行へ反映する（4.1, 4.2, 4.6, 49.1） */
+  | { type: 'applyQuotationTransfer'; payload: QuotationTransferPayload }
+  /** NET金額の案分結果を実行金額行へ反映する（5.3, 5.4, 5.5, 49.1） */
+  | { type: 'applyNetAllocation'; payload: NetAllocationPayload }
+  /** 利益率の適用結果を見積金額行へ反映する（6.1〜6.4, 49.1） */
+  | { type: 'applyProfitRate'; payload: ProfitRatePayload }
+  /** 諸経費行をルートレベルの末尾へ追加する（7.1, 8.1, 9.1, 49.1） */
+  | { type: 'addOverheadItem'; payload: OverheadItemPayload };

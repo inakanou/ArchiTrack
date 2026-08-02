@@ -29,6 +29,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { summarize } from './estimateCalculations';
 import {
   estimateEditReducer,
   createEstimateEditReducer,
@@ -1526,5 +1527,698 @@ describe('createInitialEstimateEditState', () => {
     expect(state.reportFields).toEqual(EMPTY_REPORT_FIELDS);
     expect(state.isDirty).toBe(false);
     expect(state.lastError).toBeNull();
+  });
+});
+
+// ============================================================================
+// 転記・計算結果の適用（55.2）
+//
+// Requirements (estimate-creation):
+// - 4.6: 転記結果を未保存の変更として編集中の内容に反映する
+// - 7.7 / 8.7 / 9.7: 諸経費行の追加を未保存の変更として扱う
+// - 41.11: 値引き行の追加を未保存の変更として扱う
+// - 49.1: 5操作の結果を未保存の変更として編集中の明細に反映する
+// - 49.2: 明細の再取得を行わず、それまでの未保存の編集内容を保持する
+// - 49.3: 実行の時点でデータベースへの書き込みを行わない（純粋関数）
+// - 49.4: 反映結果を1回の保存操作で確定する
+// - 49.8: これらの変更を取り消し可能とする
+// ============================================================================
+
+/** 行タイプごとに値を指定できる3行1セットの項目 */
+function detailedItem(
+  id: string,
+  lines: Partial<Record<EstimateLineType, Partial<EditableLine>>>,
+  overrides: {
+    readonly itemType?: EstimateEditItemType;
+    readonly children?: readonly EditableItem[];
+    readonly temporary?: boolean;
+  } = {}
+): EditableItem {
+  const temporary = overrides.temporary ?? false;
+  return {
+    id: temporary ? null : id,
+    tempId: temporary ? (id as TempId) : null,
+    itemType: overrides.itemType ?? 'STANDARD',
+    lines: (['ESTIMATE', 'EXECUTION', 'VENDOR'] as const).map((lineType) =>
+      line(lineType, lines[lineType] ?? {})
+    ),
+    children: overrides.children ?? [],
+  };
+}
+
+function lineOf(target: EditableItem, lineType: EstimateLineType): EditableLine {
+  const found = target.lines.find((entry) => entry.lineType === lineType);
+  if (found === undefined) {
+    throw new Error(`テスト用項目に ${lineType} 行が存在しません`);
+  }
+  return found;
+}
+
+// ----------------------------------------------------------------------------
+// applyQuotationTransfer（4.1, 4.2, 4.3, 4.6）
+// ----------------------------------------------------------------------------
+
+describe('estimateEditReducer / applyQuotationTransfer', () => {
+  /** 数量 2.5 × 単価 333 = 832.5 → 小数第1位で四捨五入して 833（22.3, 22.9） */
+  const TRANSFER_LINE = {
+    name: '鉄筋工事',
+    specification: 'SD295',
+    unit: 'm2',
+    quantity: '2.5',
+    unitPrice: '333',
+    remarks: '一次見積',
+  } as const;
+
+  it('転記先を指定すると業者金額行へ名称・規格・単位・数量・単価を反映する (4.1, 4.3)', () => {
+    const before = stateOf([detailedItem('A', {}), detailedItem('B', {})]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: {
+        targetKey: 'B',
+        vendorName: '株式会社テスト建設',
+        lines: [TRANSFER_LINE],
+      },
+    });
+
+    const vendor = lineOf(findItem(after.items, 'B'), 'VENDOR');
+    expect(vendor.name).toBe('鉄筋工事');
+    expect(vendor.specification).toBe('SD295');
+    expect(vendor.unit).toBe('m2');
+    expect(vendor.quantity).toBe('2.5');
+    expect(vendor.unitPrice).toBe('333');
+    expect(vendor.amount).toBe('833');
+    expect(vendor.remarks).toBe('一次見積');
+    expect(vendor.sourceVendorName).toBe('株式会社テスト建設');
+    expect(after.isDirty).toBe(true);
+  });
+
+  it('転記元が備考を渡さない場合は転記先の備考を残す (4.3)', () => {
+    const before = stateOf([detailedItem('B', { VENDOR: { remarks: '手入力の備考' } })]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: {
+        targetKey: 'B',
+        vendorName: 'V',
+        lines: [{ name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '10' }],
+      },
+    });
+
+    expect(lineOf(findItem(after.items, 'B'), 'VENDOR').remarks).toBe('手入力の備考');
+    expect(lineOf(findItem(after.items, 'B'), 'VENDOR').name).toBe('転記');
+  });
+
+  it('転記先の見積金額行・実行金額行は変更しない (4.1)', () => {
+    const before = stateOf([
+      detailedItem('B', {
+        ESTIMATE: { name: '既存の見積', unitPrice: '9999', amount: '9999' },
+        EXECUTION: { name: '既存の実行', unitPrice: '8888', amount: '8888' },
+      }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { targetKey: 'B', vendorName: 'V', lines: [TRANSFER_LINE] },
+    });
+
+    const target = findItem(after.items, 'B');
+    expect(lineOf(target, 'ESTIMATE')).toEqual(lineOf(findItem(before.items, 'B'), 'ESTIMATE'));
+    expect(lineOf(target, 'EXECUTION')).toEqual(lineOf(findItem(before.items, 'B'), 'EXECUTION'));
+  });
+
+  it('転記先を指定しない場合は明細行ごとに新規項目を作りその業者金額行へ反映する (4.2, 4.4, 43.1)', () => {
+    const reducer = deterministicReducer();
+    const before = stateOf([detailedItem('A', {})]);
+
+    const after = reducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: {
+        targetKey: null,
+        vendorName: 'V社',
+        lines: [
+          TRANSFER_LINE,
+          { name: '型枠工事', specification: null, unit: '式', quantity: '1', unitPrice: '5000' },
+        ],
+      },
+    });
+
+    expect(keysOf(after.items)).toEqual(['A', 'tmp-t1', 'tmp-t2']);
+
+    const created = findItem(after.items, 'tmp-t1');
+    expect(created.id).toBeNull();
+    expect(created.itemType).toBe('STANDARD');
+    expect(created.lines.map((entry) => entry.lineType)).toEqual([
+      'ESTIMATE',
+      'EXECUTION',
+      'VENDOR',
+    ]);
+    expect(lineOf(created, 'VENDOR').name).toBe('鉄筋工事');
+    expect(lineOf(created, 'VENDOR').amount).toBe('833');
+    expect(lineOf(created, 'VENDOR').sourceVendorName).toBe('V社');
+    // 見積金額行・実行金額行は空のまま（転記対象は業者金額行のみ）
+    expect(lineOf(created, 'ESTIMATE').name).toBeNull();
+    expect(lineOf(created, 'EXECUTION').unitPrice).toBeNull();
+
+    const second = findItem(after.items, 'tmp-t2');
+    expect(lineOf(second, 'VENDOR').name).toBe('型枠工事');
+    expect(lineOf(second, 'VENDOR').amount).toBe('5000');
+  });
+
+  it('転記先を指定して複数行を転記すると先頭行が転記先へ、残りが新規項目になる (4.1, 4.2)', () => {
+    const reducer = deterministicReducer();
+    const before = stateOf([detailedItem('A', {})]);
+
+    const after = reducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: {
+        targetKey: 'A',
+        vendorName: 'V社',
+        lines: [
+          TRANSFER_LINE,
+          { name: '型枠工事', specification: null, unit: '式', quantity: '1', unitPrice: '5000' },
+        ],
+      },
+    });
+
+    expect(keysOf(after.items)).toEqual(['A', 'tmp-t1']);
+    expect(lineOf(findItem(after.items, 'A'), 'VENDOR').name).toBe('鉄筋工事');
+    expect(lineOf(findItem(after.items, 'tmp-t1'), 'VENDOR').name).toBe('型枠工事');
+  });
+
+  it('子項目への転記で親項目の業者金額行の合計が再計算される (43.5)', () => {
+    const before = stateOf([
+      detailedItem('P', { VENDOR: { amount: '0' } }, { children: [detailedItem('C', {})] }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { targetKey: 'C', vendorName: 'V', lines: [TRANSFER_LINE] },
+    });
+
+    expect(lineOf(findItem(after.items, 'P'), 'VENDOR').amount).toBe('833');
+  });
+
+  it('存在しない転記先を指定した場合は明細を変更しない', () => {
+    const before = stateOf([detailedItem('A', {})]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { targetKey: 'missing', vendorName: 'V', lines: [TRANSFER_LINE] },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+
+  it('業者金額行を持たない値引き行を転記先に指定した場合は明細を変更しない (41.3)', () => {
+    const before = stateOf([singleLineItem('D', 'DISCOUNT')]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { targetKey: 'D', vendorName: 'V', lines: [TRANSFER_LINE] },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+
+  it('転記元の明細行が空の場合は明細を変更しない', () => {
+    const before = stateOf([detailedItem('A', {})]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { targetKey: null, vendorName: 'V', lines: [] },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+
+  it('入力の state を変更しない（49.3: 書き込みを伴わない純粋な遷移）', () => {
+    const before = stateOf([detailedItem('A', {})]);
+    const snapshot = JSON.parse(JSON.stringify(before)) as unknown;
+
+    estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { targetKey: 'A', vendorName: 'V', lines: [TRANSFER_LINE] },
+    });
+
+    expect(JSON.parse(JSON.stringify(before))).toEqual(snapshot);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// applyNetAllocation（5.2, 5.3, 5.4, 5.5, 5.9, 41.9, 55.4）
+// ----------------------------------------------------------------------------
+
+describe('estimateEditReducer / applyNetAllocation', () => {
+  function allocationTree(): readonly EditableItem[] {
+    return [
+      detailedItem('A', {
+        VENDOR: {
+          name: '仮設工事',
+          specification: '一式',
+          unit: '式',
+          quantity: '10',
+          unitPrice: '30000',
+          amount: '300000',
+        },
+      }),
+      detailedItem('B', {
+        VENDOR: {
+          name: '土工事',
+          specification: 'GL-1.5m',
+          unit: 'm3',
+          quantity: '7',
+          unitPrice: '100000',
+          amount: '700000',
+        },
+      }),
+    ];
+  }
+
+  it('NET金額を業者金額の比率で案分し実行金額行へ単価と金額を反映する (5.3, 5.4, 5.5)', () => {
+    const before = stateOf(allocationTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['A', 'B'], netAmount: '900000' },
+    });
+
+    const a = lineOf(findItem(after.items, 'A'), 'EXECUTION');
+    expect(a.unitPrice).toBe('27000');
+    expect(a.amount).toBe('270000');
+    // 名称・規格・単位・数量は業者金額行から複写する（5.3）
+    expect(a.name).toBe('仮設工事');
+    expect(a.specification).toBe('一式');
+    expect(a.unit).toBe('式');
+    expect(a.quantity).toBe('10');
+
+    const b = lineOf(findItem(after.items, 'B'), 'EXECUTION');
+    expect(b.unitPrice).toBe('90000');
+    expect(b.amount).toBe('630000');
+    expect(after.isDirty).toBe(true);
+  });
+
+  it('案分金額を小数第1位で四捨五入し、数量ゼロの行は案分金額を単価とする (22.4, 22.5)', () => {
+    const before = stateOf([
+      detailedItem('A', { VENDOR: { quantity: '3', amount: '1' } }),
+      detailedItem('B', { VENDOR: { quantity: '0', amount: '2' } }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['A', 'B'], netAmount: '100' },
+    });
+
+    // 100 × 1/3 = 33.333… → 33、33 ÷ 3 = 11
+    expect(lineOf(findItem(after.items, 'A'), 'EXECUTION').amount).toBe('33');
+    expect(lineOf(findItem(after.items, 'A'), 'EXECUTION').unitPrice).toBe('11');
+    // 100 × 2/3 = 66.666… → 67、数量ゼロのため案分金額をそのまま単価とする
+    expect(lineOf(findItem(after.items, 'B'), 'EXECUTION').amount).toBe('67');
+    expect(lineOf(findItem(after.items, 'B'), 'EXECUTION').unitPrice).toBe('67');
+  });
+
+  it('除外指定した行は実行金額行を変更せず、案分の母数からも外れる (5.2)', () => {
+    const before = stateOf(allocationTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['A', 'B'], excludeKeys: ['B'], netAmount: '900000' },
+    });
+
+    // Bを除いた母数（300000）に対する比率1.0で全額がAへ案分される
+    expect(lineOf(findItem(after.items, 'A'), 'EXECUTION').amount).toBe('900000');
+    expect(lineOf(findItem(after.items, 'A'), 'EXECUTION').unitPrice).toBe('90000');
+    expect(lineOf(findItem(after.items, 'B'), 'EXECUTION')).toEqual(
+      lineOf(findItem(before.items, 'B'), 'EXECUTION')
+    );
+  });
+
+  it('値引き行・注記行は案分の対象にも母数にも含めない (41.9, 55.4)', () => {
+    // 構造上は業者金額行を持たないが、防御的に3行を持つ形で指定しても除外されること
+    const before = stateOf([
+      detailedItem('A', { VENDOR: { quantity: '1', amount: '300000' } }),
+      detailedItem('D', { VENDOR: { quantity: '1', amount: '700000' } }, { itemType: 'DISCOUNT' }),
+      detailedItem('N', { VENDOR: { quantity: '1', amount: '700000' } }, { itemType: 'NOTE' }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['A', 'D', 'N'], netAmount: '900000' },
+    });
+
+    // 母数がAの300000のみなら全額がAへ案分される
+    expect(lineOf(findItem(after.items, 'A'), 'EXECUTION').amount).toBe('900000');
+    expect(lineOf(findItem(after.items, 'D'), 'EXECUTION').amount).toBeNull();
+    expect(lineOf(findItem(after.items, 'N'), 'EXECUTION').amount).toBeNull();
+  });
+
+  it('未保存の新規行（一時識別子）も案分対象に含める (5.9, 49.7)', () => {
+    const before = stateOf([
+      detailedItem('A', { VENDOR: { quantity: '1', amount: '300000' } }),
+      detailedItem('tmp-new', { VENDOR: { quantity: '1', amount: '700000' } }, { temporary: true }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['A', 'tmp-new'], netAmount: '1000000' },
+    });
+
+    expect(lineOf(findItem(after.items, 'tmp-new'), 'EXECUTION').amount).toBe('700000');
+    expect(lineOf(findItem(after.items, 'tmp-new'), 'EXECUTION').unitPrice).toBe('700000');
+  });
+
+  it('子項目への案分後も親項目の実行金額が子の合計と一致する (43.5, 55.1申し送り)', () => {
+    const before = stateOf([
+      detailedItem(
+        'P',
+        {},
+        {
+          children: [
+            detailedItem('C1', { VENDOR: { quantity: '1', amount: '300000' } }),
+            detailedItem('C2', { VENDOR: { quantity: '1', amount: '700000' } }),
+          ],
+        }
+      ),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['C1', 'C2'], netAmount: '900000' },
+    });
+
+    expect(lineOf(findItem(after.items, 'P'), 'EXECUTION').amount).toBe('900000');
+    // ルート階層のみを合計する `summarize` が葉の合計と一致する（55.1 の前提を崩さない）
+    expect(summarize(after.items).executionTotal.toString()).toBe('900000');
+  });
+
+  it('対象が1件も解決できない場合は明細を変更しない', () => {
+    const before = stateOf(allocationTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['missing'], netAmount: '900000' },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+
+  it('NET金額が数値でない場合は明細を変更しない', () => {
+    const before = stateOf(allocationTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['A', 'B'], netAmount: '' },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// applyProfitRate（6.1, 6.2, 6.3, 6.4, 6.7, 6.9, 41.9, 55.4）
+// ----------------------------------------------------------------------------
+
+describe('estimateEditReducer / applyProfitRate', () => {
+  /** 実行単価 1000 × (1 + 12.27/100) = 1122.7 → 四捨五入して 1123（22.6） */
+  function profitTree(): readonly EditableItem[] {
+    return [
+      detailedItem('A', {
+        ESTIMATE: { name: '見積の名称', quantity: '2', unitPrice: null, amount: null },
+        EXECUTION: {
+          name: '実行の名称',
+          specification: '実行の規格',
+          unit: '式',
+          quantity: '3',
+          unitPrice: '1000',
+          amount: '3000',
+        },
+      }),
+    ];
+  }
+
+  it('すべて上書きで名称・規格・単位・数量・単価を見積金額行へ反映する (6.2, 22.6)', () => {
+    const before = stateOf(profitTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { rate: '12.27', overwriteOption: 'all' },
+    });
+
+    const estimate = lineOf(findItem(after.items, 'A'), 'ESTIMATE');
+    expect(estimate.unitPrice).toBe('1123');
+    expect(estimate.amount).toBe('3369');
+    expect(estimate.name).toBe('実行の名称');
+    expect(estimate.specification).toBe('実行の規格');
+    expect(estimate.unit).toBe('式');
+    expect(estimate.quantity).toBe('3');
+    expect(after.isDirty).toBe(true);
+  });
+
+  it('単価のみ上書きでは単価と金額だけを更新し名称・数量を残す (6.4)', () => {
+    const before = stateOf(profitTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { rate: '12.27', overwriteOption: 'unit_price_only' },
+    });
+
+    const estimate = lineOf(findItem(after.items, 'A'), 'ESTIMATE');
+    expect(estimate.unitPrice).toBe('1123');
+    // 金額は見積金額行の数量（2）× 新しい単価
+    expect(estimate.amount).toBe('2246');
+    expect(estimate.name).toBe('見積の名称');
+    expect(estimate.quantity).toBe('2');
+  });
+
+  it('空の場合のみ上書きは編集中の見積単価が入っている行を変更しない (6.3, 6.7)', () => {
+    const before = stateOf([
+      detailedItem('FILLED', {
+        ESTIMATE: { name: '手入力済み', quantity: '2', unitPrice: '500', amount: '1000' },
+        EXECUTION: { name: '実行', quantity: '3', unitPrice: '1000', amount: '3000' },
+      }),
+      detailedItem('EMPTY', {
+        ESTIMATE: { name: null, quantity: null, unitPrice: null, amount: null },
+        EXECUTION: { name: '実行', quantity: '3', unitPrice: '1000', amount: '3000' },
+      }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { rate: '12.27', overwriteOption: 'empty_only' },
+    });
+
+    expect(lineOf(findItem(after.items, 'FILLED'), 'ESTIMATE')).toEqual(
+      lineOf(findItem(before.items, 'FILLED'), 'ESTIMATE')
+    );
+    expect(lineOf(findItem(after.items, 'EMPTY'), 'ESTIMATE').unitPrice).toBe('1123');
+    expect(lineOf(findItem(after.items, 'EMPTY'), 'ESTIMATE').amount).toBe('3369');
+  });
+
+  it('実行金額行の単価が未設定の行は見積金額行を変更しない', () => {
+    const before = stateOf([
+      detailedItem('A', {
+        ESTIMATE: { name: '見積', unitPrice: null },
+        EXECUTION: { unitPrice: null, quantity: '3' },
+      }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { rate: '12.27', overwriteOption: 'all' },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+
+  it('対象を指定しない場合は入れ子の項目も含めて全実行金額行へ適用する (6.1)', () => {
+    const before = stateOf([
+      detailedItem(
+        'P',
+        { EXECUTION: { quantity: '1', unitPrice: '1000' } },
+        {
+          children: [
+            detailedItem('C', { EXECUTION: { quantity: '2', unitPrice: '1000', amount: '2000' } }),
+          ],
+        }
+      ),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { rate: '12.27', overwriteOption: 'all' },
+    });
+
+    expect(lineOf(findItem(after.items, 'C'), 'ESTIMATE').unitPrice).toBe('1123');
+    expect(lineOf(findItem(after.items, 'C'), 'ESTIMATE').amount).toBe('2246');
+    // 親項目の金額は子の合計で上書きされる（2.3, 43.5）
+    expect(lineOf(findItem(after.items, 'P'), 'ESTIMATE').amount).toBe('2246');
+  });
+
+  it('対象を指定した場合は指定外の項目を変更しない (6.9)', () => {
+    const before = stateOf([
+      detailedItem('A', { EXECUTION: { quantity: '1', unitPrice: '1000' } }),
+      detailedItem('B', { EXECUTION: { quantity: '1', unitPrice: '1000' } }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { targetKeys: ['A'], rate: '12.27', overwriteOption: 'all' },
+    });
+
+    expect(lineOf(findItem(after.items, 'A'), 'ESTIMATE').unitPrice).toBe('1123');
+    expect(lineOf(findItem(after.items, 'B'), 'ESTIMATE').unitPrice).toBeNull();
+  });
+
+  it('値引き行・注記行は利益率適用の対象に含めない (41.9, 55.4)', () => {
+    const before = stateOf([
+      detailedItem(
+        'D',
+        { EXECUTION: { quantity: '1', unitPrice: '1000' }, ESTIMATE: { unitPrice: '-5000' } },
+        { itemType: 'DISCOUNT' }
+      ),
+      detailedItem('N', { EXECUTION: { quantity: '1', unitPrice: '1000' } }, { itemType: 'NOTE' }),
+    ]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { rate: '12.27', overwriteOption: 'all' },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+
+  it('利益率が数値でない場合は明細を変更しない', () => {
+    const before = stateOf(profitTree());
+
+    const after = estimateEditReducer(before, {
+      type: 'applyProfitRate',
+      payload: { rate: 'abc', overwriteOption: 'all' },
+    });
+
+    expect(after.items).toBe(before.items);
+    expect(after.isDirty).toBe(false);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// addOverheadItem（7.1, 7.7, 8.1, 8.7, 9.1, 9.7）
+// ----------------------------------------------------------------------------
+
+describe('estimateEditReducer / addOverheadItem', () => {
+  it.each([
+    ['COMMON_TEMPORARY', '共通仮設費'],
+    ['SITE_MANAGEMENT', '現場管理費'],
+    ['GENERAL_ADMIN', '一般管理費'],
+  ] as const)('%s のプリセット値で見積金額行を構成する (7.1, 8.1, 9.1)', (costType, name) => {
+    const after = estimateEditReducer(stateOf([]), {
+      type: 'addOverheadItem',
+      payload: { costType },
+    });
+
+    const created = after.items[0]!;
+    const estimate = lineOf(created, 'ESTIMATE');
+    expect(estimate.name).toBe(name);
+    expect(estimate.specification).toBe('');
+    expect(estimate.unit).toBe('式');
+    expect(estimate.quantity).toBe('1');
+    expect(estimate.unitPrice).toBeNull();
+    expect(estimate.amount).toBeNull();
+  });
+
+  it('ルートレベルの末尾へ3行1セットの未保存項目として追加する (7.7, 43.1)', () => {
+    const reducer = deterministicReducer();
+    const before = stateOf([detailedItem('A', {})]);
+
+    const after = reducer(before, {
+      type: 'addOverheadItem',
+      payload: { costType: 'SITE_MANAGEMENT', unitPrice: '1234567' },
+    });
+
+    expect(keysOf(after.items)).toEqual(['A', 'tmp-t1']);
+    const created = findItem(after.items, 'tmp-t1');
+    expect(created.id).toBeNull();
+    expect(created.itemType).toBe('STANDARD');
+    expect(created.lines.map((entry) => entry.lineType)).toEqual([
+      'ESTIMATE',
+      'EXECUTION',
+      'VENDOR',
+    ]);
+    expect(after.isDirty).toBe(true);
+  });
+
+  it('単価を渡すと数量1との積で金額を自動計算する (8.7, 22.9)', () => {
+    const after = estimateEditReducer(stateOf([]), {
+      type: 'addOverheadItem',
+      payload: { costType: 'GENERAL_ADMIN', unitPrice: '1234567' },
+    });
+
+    const estimate = lineOf(after.items[0]!, 'ESTIMATE');
+    expect(estimate.unitPrice).toBe('1234567');
+    expect(estimate.amount).toBe('1234567');
+  });
+
+  it('実行金額行・業者金額行は空のまま追加する (9.1)', () => {
+    const after = estimateEditReducer(stateOf([]), {
+      type: 'addOverheadItem',
+      payload: { costType: 'COMMON_TEMPORARY', unitPrice: '100' },
+    });
+
+    expect(lineOf(after.items[0]!, 'EXECUTION').name).toBeNull();
+    expect(lineOf(after.items[0]!, 'EXECUTION').amount).toBeNull();
+    expect(lineOf(after.items[0]!, 'VENDOR').amount).toBeNull();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// 適用後も未保存の編集内容が保持される（49.2, 49.4）
+// ----------------------------------------------------------------------------
+
+describe('estimateEditReducer / 適用と未保存の編集内容の共存', () => {
+  it('セル編集の後に転記・案分・利益率・諸経費・値引きを適用しても編集内容が残る (49.2, 49.4)', () => {
+    const reducer = deterministicReducer();
+
+    // 未保存のセル編集
+    const edited = reducer(stateOf([detailedItem('A', {})]), {
+      type: 'updateLineField',
+      key: 'A',
+      lineType: 'VENDOR',
+      field: 'quantity',
+      value: '4',
+    });
+    expect(edited.isDirty).toBe(true);
+
+    const applied = [
+      {
+        type: 'applyQuotationTransfer',
+        payload: {
+          targetKey: null,
+          vendorName: 'V',
+          lines: [
+            { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '10' },
+          ],
+        },
+      },
+      { type: 'applyNetAllocation', payload: { targetKeys: ['A'], netAmount: '500' } },
+      {
+        type: 'applyProfitRate',
+        payload: { targetKeys: ['A'], rate: '10', overwriteOption: 'all' },
+      },
+      { type: 'addOverheadItem', payload: { costType: 'COMMON_TEMPORARY', unitPrice: '100' } },
+      { type: 'insertDiscountRow' },
+    ] satisfies readonly EstimateEditAction[];
+
+    const final = applied.reduce((current, action) => reducer(current, action), edited);
+
+    // 未保存のセル編集（数量4）は失われない
+    expect(lineOf(findItem(final.items, 'A'), 'VENDOR').quantity).toBe('4');
+    // 1回の保存で確定できるよう、未保存フラグは立ったまま
+    expect(final.isDirty).toBe(true);
   });
 });

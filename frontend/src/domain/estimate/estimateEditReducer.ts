@@ -2,7 +2,8 @@
  * @fileoverview estimateEditReducer - 見積明細の編集状態を遷移させる純粋関数
  *
  * 行の挿入・削除・複写・上下移動・ドラッグによる並び替え・セル値の更新・
- * 帳票用入力項目の更新を、サーバーへ問い合わせない副作用のない遷移として実装します。
+ * 帳票用入力項目の更新に加え、受領見積書転記・NET金額案分・利益率適用・諸経費行追加の
+ * 適用を、サーバーへ問い合わせない副作用のない遷移として実装します。
  * UI・サーバーいずれにも依存しないドメイン層のモジュールであり、
  * components / hooks / pages / api / services からは import しません。
  *
@@ -27,6 +28,14 @@
  * - 41.2 / 41.3: 値引き行のプリセット値と見積金額行のみの構成
  * - 55.1 / 55.3: 注記行は名称のみを持ち、任意の階層の任意の位置に配置できる
  * - 22.3 / 22.9: 金額（数量×単価の自動計算結果）を小数第1位で四捨五入した整数で保持する
+ * - 4.1 / 4.2 / 4.3 / 4.6: 受領見積書の内容を業者金額行へ転記し未保存の変更として扱う
+ * - 5.3 / 5.4 / 5.5: NET金額の案分結果を実行金額行の単価・金額へ反映する
+ * - 6.1〜6.4 / 6.7: 利益率の適用結果を上書きオプションに従って見積金額行へ反映する
+ * - 7.1 / 7.7 / 8.1 / 8.7 / 9.1 / 9.7: 諸経費行をプリセット値で追加し未保存の変更として扱う
+ * - 41.11: 値引き行の追加を未保存の変更として扱う（`insertDiscountRow`）
+ * - 49.1〜49.4: 転記・計算結果を未保存の変更として反映し、再取得も書き込みも行わない
+ * - 49.6 / 49.7: 計算対象を編集中の明細の値とし、未保存の新規項目も含める
+ * - 49.8: これらの変更を取り消し可能とする（純粋な遷移のためスナップショットで復元できる）
  *
  * Design: design.md `#### Frontend Domain` > `##### estimateEditReducer`
  *
@@ -44,6 +53,12 @@
 import Decimal from 'decimal.js';
 
 import {
+  allocateNet,
+  applyProfitRate as calculateProfitRate,
+  roundMoney,
+} from './estimateCalculations';
+import type { AllocationRow, ProfitRateRow } from './estimateCalculations';
+import {
   childrenOf,
   descendantKeys,
   nodeKeyOf,
@@ -59,7 +74,13 @@ import type {
   EstimateEditState,
   EstimateLineType,
   EstimateReportFields,
+  NetAllocationPayload,
   NodeKey,
+  OverheadCostType,
+  OverheadItemPayload,
+  ProfitRatePayload,
+  QuotationTransferLine,
+  QuotationTransferPayload,
   TempId,
 } from './estimateEditReducer.types';
 
@@ -77,6 +98,27 @@ const DISCOUNT_PRESET = {
   unit: '式',
   quantity: '1',
 } as const;
+
+/**
+ * 諸経費行のプリセット値（7.1, 8.1, 9.1）
+ *
+ * バックエンド `OverheadCostService.getPresetValues` と同一。
+ */
+const OVERHEAD_PRESETS: Readonly<
+  Record<
+    OverheadCostType,
+    {
+      readonly name: string;
+      readonly specification: string;
+      readonly unit: string;
+      readonly quantity: string;
+    }
+  >
+> = {
+  COMMON_TEMPORARY: { name: '共通仮設費', specification: '', unit: '式', quantity: '1' },
+  SITE_MANAGEMENT: { name: '現場管理費', specification: '', unit: '式', quantity: '1' },
+  GENERAL_ADMIN: { name: '一般管理費', specification: '', unit: '式', quantity: '1' },
+};
 
 /** 帳票用入力項目の初期値（54.7: 未入力は空欄として扱う） */
 export const EMPTY_REPORT_FIELDS: EstimateReportFields = Object.freeze({
@@ -383,24 +425,33 @@ function cloneSubtree(root: EditableItem, generateTempId: TempIdGenerator): Edit
 // ============================================================================
 
 /**
- * 金額を単価×数量として求める（小数第1位で四捨五入した整数）
- *
- * 数量・単価のいずれかが未入力または数値でない場合は null を返す。
- * 既存の `EstimateCalculator.calculateAmount` と同一規則。
- * 段階3で `estimateCalculations.roundMoney` に集約される想定。
+ * 10進数文字列を `Decimal` に変換する（未入力・数値でない場合は null）
  */
-function calculateLineAmount(quantity: string | null, unitPrice: string | null): string | null {
-  if (quantity === null || quantity === '' || unitPrice === null || unitPrice === '') {
+function toDecimal(value: string | null | undefined): Decimal | null {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
   try {
-    return new Decimal(quantity)
-      .mul(new Decimal(unitPrice))
-      .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-      .toString();
+    const parsed = new Decimal(value);
+    return parsed.isFinite() ? parsed : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * 金額を単価×数量として求める（小数第1位で四捨五入した整数）
+ *
+ * 数量・単価のいずれかが未入力または数値でない場合は null を返す。
+ * 丸めは `estimateCalculations.roundMoney` に委ねる（22.3, 22.9 の単一実装）。
+ */
+function calculateLineAmount(quantity: string | null, unitPrice: string | null): string | null {
+  const quantityValue = toDecimal(quantity);
+  const unitPriceValue = toDecimal(unitPrice);
+  if (quantityValue === null || unitPriceValue === null) {
+    return null;
+  }
+  return roundMoney(quantityValue.mul(unitPriceValue)).toString();
 }
 
 // ============================================================================
@@ -908,6 +959,350 @@ function applyUpdateReportFields(
 }
 
 // ============================================================================
+// 転記・計算結果の適用（49.1〜49.4, 49.8）
+//
+// いずれの遷移もサーバーへ問い合わせず（49.3）、結果を未保存の変更として
+// 編集中の明細へ反映する（49.1）。明細の再取得を行わないため、それまでの
+// 未保存の編集内容はそのまま残る（49.2）。計算は `estimateCalculations` の
+// 単一実装に委ね、ここでは反映先の行の組み立てだけを行う（5.8, 6.8）。
+// ============================================================================
+
+/** ツリー全体を先行順で列挙する（明示スタックの反復・再帰なし） */
+function collectItems(tree: readonly EditableItem[]): readonly EditableItem[] {
+  const collected: EditableItem[] = [];
+  const stack: EditableItem[] = tree.slice().reverse();
+  let current = stack.pop();
+  while (current !== undefined) {
+    collected.push(current);
+    for (let at = current.children.length - 1; at >= 0; at -= 1) {
+      const child = current.children[at];
+      if (child !== undefined) {
+        stack.push(child);
+      }
+    }
+    current = stack.pop();
+  }
+  return collected;
+}
+
+/**
+ * 項目単位の差し替えをツリー全体へ適用する
+ *
+ * @param update 差し替え後の項目。変更しない場合は null を返すこと
+ * @returns 変化が無い場合は入力ツリーを同一参照で返す
+ */
+function mapItems(
+  tree: readonly EditableItem[],
+  update: (item: EditableItem) => EditableItem | null
+): readonly EditableItem[] {
+  return rebuildTree(tree, (siblings) => {
+    let changed = false;
+    const next = siblings.map((entry) => {
+      const updated = update(entry);
+      if (updated === null || updated === entry) {
+        return entry;
+      }
+      changed = true;
+      return updated;
+    });
+    return changed ? next : siblings;
+  });
+}
+
+/** 指定した行タイプの明細行を返す（持たない場合は undefined） */
+function lineOfType(target: EditableItem, lineType: EstimateLineType): EditableLine | undefined {
+  return target.lines.find((entry) => entry.lineType === lineType);
+}
+
+/** 項目の指定行タイプだけを差し替える */
+function withLine(
+  target: EditableItem,
+  lineType: EstimateLineType,
+  build: (line: EditableLine) => EditableLine
+): EditableItem {
+  return {
+    ...target,
+    lines: target.lines.map((entry) => (entry.lineType === lineType ? build(entry) : entry)),
+  };
+}
+
+/**
+ * 受領見積書の内容を業者金額行へ写す（4.3）
+ *
+ * 転記対象は名称・規格・単位・数量・単価（4.3）と業者名。金額は転記元の値を
+ * 持ち込まず 数量 × 単価 として導出する（22.9）。
+ *
+ * 備考は 4.3 の転記対象に含まれないため、転記元が備考を渡した場合のみ反映し、
+ * 渡さない場合は転記先の既存の備考を残す（既存行への転記で手入力を消さない）。
+ */
+function transferredVendorLine(
+  source: EditableLine,
+  transfer: QuotationTransferLine,
+  vendorName: string | null
+): EditableLine {
+  return {
+    ...source,
+    name: transfer.name,
+    specification: transfer.specification,
+    unit: transfer.unit,
+    quantity: transfer.quantity,
+    unitPrice: transfer.unitPrice,
+    amount: calculateLineAmount(transfer.quantity, transfer.unitPrice),
+    remarks: transfer.remarks === undefined ? source.remarks : transfer.remarks,
+    sourceVendorName: vendorName,
+  };
+}
+
+/** 転記先未指定のときに作る新規項目（4.2）。業者金額行のみに値が入る */
+function createTransferredItem(
+  tempId: TempId,
+  transfer: QuotationTransferLine,
+  vendorName: string | null
+): EditableItem {
+  return {
+    id: null,
+    tempId,
+    itemType: 'STANDARD',
+    lines: STANDARD_LINE_TYPES.map((lineType) =>
+      lineType === 'VENDOR'
+        ? transferredVendorLine(emptyLine('VENDOR'), transfer, vendorName)
+        : emptyLine(lineType)
+    ),
+    children: [],
+  };
+}
+
+/**
+ * 受領見積書の転記結果を反映する（4.1, 4.2, 4.6）
+ *
+ * 転記先を指定した場合は先頭の明細行をその項目の業者金額行へ反映し、残りは
+ * 新規項目として追加する（4.4「それぞれ別の見積項目行の業者金額行として反映する」。
+ * 撤去対象の `POST /:id/transfer-quotation` は先頭以外を破棄していたが、
+ * 選択した明細行を無言で捨てないよう新規項目として受ける）。
+ */
+function applyQuotationTransferAction(
+  state: EstimateEditState,
+  payload: QuotationTransferPayload,
+  generateTempId: TempIdGenerator
+): EstimateEditState {
+  const head = payload.lines[0];
+  if (head === undefined) {
+    return unchanged(state);
+  }
+
+  let rebuilt: readonly EditableItem[] = state.items;
+  let appendSources: readonly QuotationTransferLine[] = payload.lines;
+
+  const targetKey = payload.targetKey;
+  if (targetKey !== null) {
+    const target = findItem(state.items, targetKey);
+    if (target === null || lineOfType(target, 'VENDOR') === undefined) {
+      // 存在しない項目、または業者金額行を持たない値引き行・注記行（41.3, 55.1）
+      return unchanged(state);
+    }
+    rebuilt = mapItems(state.items, (entry) =>
+      nodeKeyOf(entry) === targetKey
+        ? withLine(entry, 'VENDOR', (vendor) =>
+            transferredVendorLine(vendor, head, payload.vendorName)
+          )
+        : null
+    );
+    appendSources = payload.lines.slice(1);
+  }
+
+  const appended = appendSources.map((transfer) =>
+    createTransferredItem(generateTempId(), transfer, payload.vendorName)
+  );
+
+  return withItems(state, appended.length === 0 ? rebuilt : [...rebuilt, ...appended]);
+}
+
+/**
+ * NET金額の案分結果を実行金額行へ反映する（5.3, 5.4, 5.5）
+ *
+ * 案分は編集中の業者金額行の値に対して行う（5.8, 49.6）。除外指定・値引き行・
+ * 注記行の扱いは `estimateCalculations.allocateNet` が担う（5.2, 41.9, 55.4）。
+ */
+function applyNetAllocationAction(
+  state: EstimateEditState,
+  payload: NetAllocationPayload
+): EstimateEditState {
+  const netAmount = toDecimal(payload.netAmount);
+  if (netAmount === null) {
+    return unchanged(state);
+  }
+
+  const vendorByKey = new Map<NodeKey, EditableLine>();
+  const rows: AllocationRow[] = [];
+  for (const key of payload.targetKeys) {
+    if (vendorByKey.has(key)) {
+      continue;
+    }
+    const target = findItem(state.items, key);
+    if (target === null || lineOfType(target, 'VENDOR') === undefined) {
+      continue;
+    }
+    const vendor = lineOfType(target, 'VENDOR');
+    if (vendor === undefined || lineOfType(target, 'EXECUTION') === undefined) {
+      continue;
+    }
+    vendorByKey.set(key, vendor);
+    rows.push({
+      key,
+      itemType: target.itemType,
+      amount: toDecimal(vendor.amount),
+      quantity: toDecimal(vendor.quantity),
+    });
+  }
+
+  const results = allocateNet(rows, netAmount, new Set<NodeKey>(payload.excludeKeys ?? []));
+  if (results.length === 0) {
+    return unchanged(state);
+  }
+
+  const resultByKey = new Map(results.map((entry) => [entry.key, entry]));
+  const nextItems = mapItems(state.items, (entry) => {
+    const key = nodeKeyOf(entry);
+    const result = resultByKey.get(key);
+    const vendor = vendorByKey.get(key);
+    if (result === undefined || vendor === undefined) {
+      return null;
+    }
+    // 実行金額行は業者金額行の名称・規格・単位・数量を引き継ぐ（5.3）
+    return withLine(entry, 'EXECUTION', (execution) => ({
+      ...execution,
+      name: vendor.name,
+      specification: vendor.specification,
+      unit: vendor.unit,
+      quantity: vendor.quantity,
+      unitPrice: result.unitPrice.toString(),
+      amount: result.allocatedAmount.toString(),
+    }));
+  });
+
+  return withItems(state, nextItems);
+}
+
+/**
+ * 利益率の適用結果を見積金額行へ反映する（6.1〜6.4, 6.7）
+ *
+ * 上書きオプションの判定と新しい単価・金額の算出は
+ * `estimateCalculations.applyProfitRate` が担い、ここでは `applied` が真の行だけを
+ * 反映する（6.8: プレビューと反映結果を一致させる）。
+ */
+function applyProfitRateAction(
+  state: EstimateEditState,
+  payload: ProfitRatePayload
+): EstimateEditState {
+  const rate = toDecimal(payload.rate);
+  if (rate === null) {
+    return unchanged(state);
+  }
+
+  const targetKeys = payload.targetKeys;
+  const targets: EditableItem[] = [];
+  if (targetKeys === undefined) {
+    // 対象未指定は全実行金額行（6.1）
+    targets.push(...collectItems(state.items));
+  } else {
+    const seen = new Set<NodeKey>();
+    for (const key of targetKeys) {
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const found = findItem(state.items, key);
+      if (found !== null) {
+        targets.push(found);
+      }
+    }
+  }
+
+  const executionByKey = new Map<NodeKey, EditableLine>();
+  const rows: ProfitRateRow[] = [];
+  for (const target of targets) {
+    const execution = lineOfType(target, 'EXECUTION');
+    const estimate = lineOfType(target, 'ESTIMATE');
+    if (execution === undefined || estimate === undefined) {
+      continue;
+    }
+    const key = nodeKeyOf(target);
+    executionByKey.set(key, execution);
+    rows.push({
+      key,
+      itemType: target.itemType,
+      executionUnitPrice: toDecimal(execution.unitPrice),
+      executionQuantity: toDecimal(execution.quantity),
+      estimateUnitPrice: toDecimal(estimate.unitPrice),
+      estimateQuantity: toDecimal(estimate.quantity),
+    });
+  }
+
+  const results = calculateProfitRate(rows, rate, payload.overwriteOption).filter(
+    (entry) => entry.applied && entry.newUnitPrice !== null
+  );
+  if (results.length === 0) {
+    return unchanged(state);
+  }
+
+  const resultByKey = new Map(results.map((entry) => [entry.key, entry]));
+  const nextItems = mapItems(state.items, (entry) => {
+    const key = nodeKeyOf(entry);
+    const result = resultByKey.get(key);
+    const execution = executionByKey.get(key);
+    if (result === undefined || execution === undefined || result.newUnitPrice === null) {
+      return null;
+    }
+    const unitPrice = result.newUnitPrice.toString();
+    const amount = result.newAmount === null ? null : result.newAmount.toString();
+
+    return withLine(entry, 'ESTIMATE', (estimate) =>
+      result.copyLineFields
+        ? {
+            // 「すべて上書き」「空の場合のみ上書き」は実行金額行の内容を複写する（6.2, 6.3）
+            ...estimate,
+            name: execution.name,
+            specification: execution.specification,
+            unit: execution.unit,
+            quantity: execution.quantity,
+            unitPrice,
+            amount,
+          }
+        : // 「単価のみ上書き」は単価と金額だけを更新する（6.4）
+          { ...estimate, unitPrice, amount }
+    );
+  });
+
+  return withItems(state, nextItems);
+}
+
+/** 諸経費行を作る（7.1, 8.1, 9.1）。単価は自動計算・手入力のいずれでもよい */
+function createOverheadItem(tempId: TempId, payload: OverheadItemPayload): EditableItem {
+  const preset = OVERHEAD_PRESETS[payload.costType];
+  const unitPrice = payload.unitPrice ?? null;
+
+  return {
+    id: null,
+    tempId,
+    itemType: 'STANDARD',
+    lines: STANDARD_LINE_TYPES.map((lineType) =>
+      lineType === 'ESTIMATE'
+        ? {
+            ...emptyLine('ESTIMATE'),
+            name: preset.name,
+            specification: preset.specification,
+            unit: preset.unit,
+            quantity: preset.quantity,
+            unitPrice,
+            amount: calculateLineAmount(preset.quantity, unitPrice),
+          }
+        : emptyLine(lineType)
+    ),
+    children: [],
+  };
+}
+
+// ============================================================================
 // リデューサ
 // ============================================================================
 
@@ -969,6 +1364,19 @@ export function createEstimateEditReducer(
 
       case 'updateReportFields':
         return applyUpdateReportFields(state, action.fields);
+
+      case 'applyQuotationTransfer':
+        return applyQuotationTransferAction(state, action.payload, generateTempId);
+
+      case 'applyNetAllocation':
+        return applyNetAllocationAction(state, action.payload);
+
+      case 'applyProfitRate':
+        return applyProfitRateAction(state, action.payload);
+
+      case 'addOverheadItem':
+        // 諸経費行はルートレベルの末尾に追加する（7.1, 8.1, 9.1）
+        return insertItem(state, null, null, createOverheadItem(generateTempId(), action.payload));
     }
   };
 }

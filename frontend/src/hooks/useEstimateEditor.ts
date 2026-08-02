@@ -71,7 +71,11 @@ import type {
   EstimateEditAction,
   EstimateEditState,
   EstimateReportFields,
+  NetAllocationPayload,
   NodeKey,
+  OverheadItemPayload,
+  ProfitRatePayload,
+  QuotationTransferPayload,
   TempId,
 } from '../domain/estimate/estimateEditReducer.types';
 import {
@@ -434,6 +438,49 @@ export interface UseEstimateEditorResult {
    * - 47.6: 範囲選択中に範囲固有のキーボード操作を有効にする
    */
   outdentRange: (itemIds: readonly string[]) => void;
+
+  /**
+   * 受領見積書の転記結果を反映（ローカル操作）
+   *
+   * 転記先を指定した項目の業者金額行へ反映し、転記先を指定しない場合は明細行ごとに
+   * 新規項目を作る。サーバーへの書き込みも明細の再取得も行わないため、それまでの
+   * 未保存の編集内容はそのまま残る。
+   *
+   * Requirements (estimate-creation):
+   * - 4.1, 4.2, 4.3: 受領見積書の内容を業者金額行へ転記する
+   * - 4.6, 49.1: 転記結果を未保存の変更として編集中の内容に反映する
+   * - 49.3: 実行の時点でデータベースへの書き込みを行わない
+   * - 49.8: 変更を取り消し可能とする（`onBeforeChange` 通知を伴う）
+   */
+  applyQuotationTransfer: (payload: QuotationTransferPayload) => void;
+
+  /**
+   * NET金額の案分結果を反映（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 5.3, 5.4, 5.5: 案分結果を実行金額行の単価・金額へ反映する
+   * - 49.1, 49.3, 49.6, 49.7, 49.8
+   */
+  applyNetAllocation: (payload: NetAllocationPayload) => void;
+
+  /**
+   * 利益率の適用結果を反映（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 6.1〜6.4, 6.7: 上書きオプションに従って見積金額行へ反映する
+   * - 49.1, 49.3, 49.6, 49.7, 49.8
+   */
+  applyProfitRate: (payload: ProfitRatePayload) => void;
+
+  /**
+   * 諸経費行を追加（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 7.1, 8.1, 9.1: プリセット値（名称・規格空白・単位「式」・数量1）で追加する
+   * - 7.7, 8.7, 9.7: 追加を未保存の変更として扱い、保存操作で確定する
+   * - 49.1, 49.3, 49.8
+   */
+  addOverheadItem: (payload: OverheadItemPayload) => void;
 
   /**
    * 変更を保存
@@ -1130,6 +1177,50 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
   );
 
   /**
+   * 受領見積書の転記結果を反映（4.1, 4.2, 4.6, 49.1, 49.3, 49.8）
+   */
+  const applyQuotationTransfer = useCallback(
+    (payload: QuotationTransferPayload): void => {
+      recordChange('受領見積書の転記');
+      dispatch({ type: 'applyQuotationTransfer', payload });
+    },
+    [recordChange]
+  );
+
+  /**
+   * NET金額の案分結果を反映（5.3, 5.4, 5.5, 49.1, 49.3, 49.8）
+   */
+  const applyNetAllocation = useCallback(
+    (payload: NetAllocationPayload): void => {
+      recordChange('NET金額の案分');
+      dispatch({ type: 'applyNetAllocation', payload });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 利益率の適用結果を反映（6.1〜6.4, 49.1, 49.3, 49.8）
+   */
+  const applyProfitRate = useCallback(
+    (payload: ProfitRatePayload): void => {
+      recordChange('利益率の適用');
+      dispatch({ type: 'applyProfitRate', payload });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 諸経費行を追加（7.1, 7.7, 8.1, 8.7, 9.1, 9.7, 49.1, 49.3, 49.8）
+   */
+  const addOverheadItem = useCallback(
+    (payload: OverheadItemPayload): void => {
+      recordChange('諸経費行の追加');
+      dispatch({ type: 'addOverheadItem', payload });
+    },
+    [recordChange]
+  );
+
+  /**
    * 直近のエラー表示を消す
    */
   const dismissError = useCallback((): void => {
@@ -1265,6 +1356,10 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     deleteRows,
     duplicateItem,
     duplicateRows,
+    applyQuotationTransfer,
+    applyNetAllocation,
+    applyProfitRate,
+    addOverheadItem,
     save,
     discard,
     setItems,

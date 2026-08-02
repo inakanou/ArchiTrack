@@ -41,6 +41,7 @@ import type {
   EstimateEditItemType,
   EstimateLineType,
   NodeKey,
+  OverwriteOption,
 } from './estimateEditReducer.types';
 import { isAggregatableChild } from './estimateTree';
 
@@ -70,8 +71,15 @@ export interface AllocationResult {
   readonly unitPrice: Decimal;
 }
 
-/** 利益率適用の上書きオプション（6.2〜6.4） */
-export type OverwriteOption = 'all' | 'empty_only' | 'unit_price_only';
+/**
+ * 利益率適用の上書きオプション（6.2〜6.4）
+ *
+ * 実体は `estimateEditReducer.types` にある（適用アクション
+ * `ProfitRatePayload` と同一の列挙を用いるため、依存の最下層で定義する）。
+ * design.md の `EstimateCalculations` 契約が本モジュールでの露出を定めているため
+ * ここから再エクスポートする。
+ */
+export type { OverwriteOption } from './estimateEditReducer.types';
 
 /** 利益率適用の入力行（編集中の実行金額行・見積金額行から構成する） */
 export interface ProfitRateRow {

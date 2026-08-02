@@ -32,7 +32,8 @@ import {
   type UseEstimateEditorOptions,
   type EstimateItemHierarchyEdit,
 } from './useEstimateEditor';
-import type { EditableItem } from '../domain/estimate/estimateEditReducer.types';
+import { useEstimateUndo, type UseEstimateUndoReturn } from './useEstimateUndo';
+import type { EditableItem, EstimateEditState } from '../domain/estimate/estimateEditReducer.types';
 
 /** 保存ペイロードのツリーから ESTIMATE 行の名称を取り出す */
 const estimateNameOf = (item: EditableItem): string | null =>
@@ -2131,6 +2132,39 @@ describe('useEstimateEditor', () => {
 
       const operations: readonly [string, () => void][] = [
         ['updateLine', () => result.current.updateLine('item-1', 'line-1-estimate', 'name', 'X')],
+        [
+          'applyQuotationTransfer',
+          () =>
+            result.current.applyQuotationTransfer({
+              targetKey: 'item-1',
+              vendorName: 'V社',
+              lines: [
+                {
+                  name: '転記',
+                  specification: null,
+                  unit: '式',
+                  quantity: '1',
+                  unitPrice: '100',
+                },
+              ],
+            }),
+        ],
+        [
+          'applyNetAllocation',
+          () =>
+            result.current.applyNetAllocation({
+              targetKeys: ['item-1', 'item-2'],
+              netAmount: '10000',
+            }),
+        ],
+        [
+          'applyProfitRate',
+          () => result.current.applyProfitRate({ rate: '10', overwriteOption: 'all' }),
+        ],
+        [
+          'addOverheadItem',
+          () => result.current.addOverheadItem({ costType: 'COMMON_TEMPORARY', unitPrice: '500' }),
+        ],
         ['addItem', () => result.current.addItem()],
         ['addDiscountItem', () => result.current.addDiscountItem()],
         ['addNoteItem', () => result.current.addNoteItem()],
@@ -2273,6 +2307,302 @@ describe('useEstimateEditor', () => {
       });
 
       expect(onBaselineReplaced).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * 転記・案分・利益率適用・諸経費追加・値引き追加の結果を編集状態へ反映する遷移（55.2）。
+   *
+   * サーバーへ書き込まず（49.3）、明細を再取得しないため未保存の編集内容がそのまま残り
+   * （49.2）、1回の保存操作で確定できる（49.4）。適用前に取り消し履歴へ記録されるため
+   * 適用結果を取り消せる（48.8, 49.8）。
+   */
+  describe('転記・計算結果の適用（4.6, 7.7, 8.7, 9.7, 41.11, 49.1〜49.4, 49.8）', () => {
+    /** @requirement estimate-creation/REQ-4.6 */
+    it('受領見積書の転記結果が業者金額行へ反映され未保存の変更になること (4.6, 49.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.applyQuotationTransfer({
+          targetKey: 'item-1',
+          vendorName: '株式会社テスト建設',
+          lines: [
+            {
+              name: '鉄筋工事',
+              specification: 'SD295',
+              unit: 'm2',
+              quantity: '2.5',
+              unitPrice: '333',
+            },
+          ],
+        });
+      });
+
+      const vendor = result.current.items[0]!.lines.find((line) => line.lineType === 'VENDOR')!;
+      expect(vendor.name).toBe('鉄筋工事');
+      expect(vendor.amount).toBe('833');
+      expect(vendor.sourceVendorName).toBe('株式会社テスト建設');
+      expect(result.current.isDirty).toBe(true);
+    });
+
+    /** @requirement estimate-creation/REQ-49.1 */
+    it('NET金額の案分結果が実行金額行へ反映されること (49.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      // 業者金額行は item-1 / item-2 とも 8000（母数 16000）
+      act(() => {
+        result.current.applyNetAllocation({
+          targetKeys: ['item-1', 'item-2'],
+          netAmount: '12000',
+        });
+      });
+
+      const execution = result.current.items[0]!.lines.find(
+        (line) => line.lineType === 'EXECUTION'
+      )!;
+      expect(execution.amount).toBe('6000');
+      expect(execution.unitPrice).toBe('600');
+    });
+
+    /** @requirement estimate-creation/REQ-49.1 */
+    it('利益率の適用結果が見積金額行へ反映されること (49.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      // item-1 の実行単価 900 × 1.1 = 990、数量 10 → 金額 9900
+      act(() => {
+        result.current.applyProfitRate({
+          targetKeys: ['item-1'],
+          rate: '10',
+          overwriteOption: 'all',
+        });
+      });
+
+      const estimate = result.current.items[0]!.lines.find((line) => line.lineType === 'ESTIMATE')!;
+      expect(estimate.unitPrice).toBe('990');
+      expect(estimate.amount).toBe('9900');
+    });
+
+    /** @requirement estimate-creation/REQ-7.7 */
+    it('諸経費行がプリセット値でルート末尾へ追加されること (7.7, 8.7, 9.7)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addOverheadItem({ costType: 'SITE_MANAGEMENT', unitPrice: '1234567' });
+      });
+
+      const added = result.current.items[2]!;
+      const estimate = added.lines.find((line) => line.lineType === 'ESTIMATE')!;
+      expect(estimate.name).toBe('現場管理費');
+      expect(estimate.unit).toBe('式');
+      expect(estimate.quantity).toBe('1');
+      expect(estimate.amount).toBe('1234567');
+      expect(result.current.isDirty).toBe(true);
+    });
+
+    /** @requirement estimate-creation/REQ-49.3 */
+    it('適用時にサーバーへのリクエストが発生しないこと (49.3)', () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      try {
+        const { result } = renderHook(() =>
+          useEstimateEditor({
+            ...defaultOptions,
+            initialItems: createMockItems(),
+          })
+        );
+
+        act(() => {
+          result.current.applyQuotationTransfer({
+            targetKey: null,
+            vendorName: 'V社',
+            lines: [
+              { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '100' },
+            ],
+          });
+        });
+        act(() => {
+          result.current.applyNetAllocation({ targetKeys: ['item-1'], netAmount: '5000' });
+        });
+        act(() => {
+          result.current.applyProfitRate({ rate: '10', overwriteOption: 'all' });
+        });
+        act(() => {
+          result.current.addOverheadItem({ costType: 'GENERAL_ADMIN', unitPrice: '100' });
+        });
+        act(() => {
+          result.current.addDiscountItem();
+        });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(result.current.isDirty).toBe(true);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    /** @requirement estimate-creation/REQ-49.2 */
+    it('適用後も未保存の編集内容が保持され、保存操作1回で確定できること (49.2, 49.4)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      // 未保存のセル編集
+      act(() => {
+        result.current.updateLine('item-2', 'line-2-estimate', 'name', '編集した名称');
+      });
+
+      act(() => {
+        result.current.applyQuotationTransfer({
+          targetKey: 'item-1',
+          vendorName: 'V社',
+          lines: [
+            { name: '転記', specification: null, unit: '式', quantity: '2', unitPrice: '50' },
+          ],
+        });
+      });
+      act(() => {
+        result.current.addOverheadItem({ costType: 'COMMON_TEMPORARY', unitPrice: '300' });
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      // 保存は1回のみ（49.4）
+      expect(onSave).toHaveBeenCalledTimes(1);
+      const payload = onSave.mock.calls[0]![0];
+      // 適用前の未保存編集が残っている（49.2）
+      expect(estimateNameOf(payload.items[1]!)).toBe('編集した名称');
+      // 転記結果と諸経費行も同じ保存に含まれる
+      const transferred = payload.items[0]!.lines.find((line) => line.lineType === 'VENDOR')!;
+      expect(transferred.name).toBe('転記');
+      expect(transferred.amount).toBe('100');
+      expect(estimateNameOf(payload.items[2]!)).toBe('共通仮設費');
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    /**
+     * 取り消し履歴は `onBeforeChange` の通知でしか積まれない。適用系が通知を漏らすと
+     * 「適用前に取り消し履歴へ記録し、適用結果を取り消せる」（48.8, 49.8）が成立しない。
+     * 実際に `useEstimateUndo` を結線して往復を確認する。
+     *
+     * @requirement estimate-creation/REQ-49.8
+     */
+    it('適用結果を取り消せること (48.8, 49.8)', () => {
+      const { result } = renderHook(() => {
+        const stateRef = { current: null as EstimateEditState | null };
+        const undoRef = { current: null as UseEstimateUndoReturn | null };
+        const editor = useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange: (label) => undoRef.current?.recordSnapshot(label),
+        });
+        stateRef.current = editor.editState;
+        const undo = useEstimateUndo({
+          getState: () => {
+            const current = stateRef.current;
+            if (current === null) {
+              throw new Error('編集状態が未初期化');
+            }
+            return current;
+          },
+          restoreState: editor.restoreState,
+        });
+        undoRef.current = undo;
+        return { editor, undo };
+      });
+
+      const operations: readonly [string, () => void, () => unknown][] = [
+        [
+          'applyQuotationTransfer',
+          () =>
+            result.current.editor.applyQuotationTransfer({
+              targetKey: 'item-1',
+              vendorName: 'V社',
+              lines: [
+                { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '100' },
+              ],
+            }),
+          () => result.current.editor.items[0]!.lines.find((l) => l.lineType === 'VENDOR')!.name,
+        ],
+        [
+          'applyNetAllocation',
+          () =>
+            result.current.editor.applyNetAllocation({
+              targetKeys: ['item-1', 'item-2'],
+              netAmount: '12000',
+            }),
+          () =>
+            result.current.editor.items[0]!.lines.find((l) => l.lineType === 'EXECUTION')!.amount,
+        ],
+        [
+          'applyProfitRate',
+          () => result.current.editor.applyProfitRate({ rate: '10', overwriteOption: 'all' }),
+          () =>
+            result.current.editor.items[0]!.lines.find((l) => l.lineType === 'ESTIMATE')!.unitPrice,
+        ],
+        [
+          'addOverheadItem',
+          () => result.current.editor.addOverheadItem({ costType: 'GENERAL_ADMIN' }),
+          () => result.current.editor.items.length,
+        ],
+        [
+          'addDiscountItem',
+          () => result.current.editor.addDiscountItem(),
+          () => result.current.editor.items.length,
+        ],
+      ];
+
+      for (const [name, operation, observe] of operations) {
+        const before = observe();
+
+        act(() => {
+          operation();
+        });
+        expect(observe(), `${name} が明細を変更していない`).not.toEqual(before);
+        expect(result.current.undo.canUndo, `${name} が履歴へ記録されていない`).toBe(true);
+
+        act(() => {
+          result.current.undo.undo();
+        });
+        expect(observe(), `${name} の適用を取り消せていない`).toEqual(before);
+
+        act(() => {
+          result.current.undo.redo();
+        });
+        expect(observe(), `${name} をやり直せていない`).not.toEqual(before);
+
+        act(() => {
+          result.current.undo.undo();
+        });
+      }
     });
   });
 });
