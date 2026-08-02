@@ -114,7 +114,7 @@ const meta = {
   tags: ['autodocs'],
   args: {
     onClose: fn(),
-    onComplete: fn(),
+    onApply: fn(),
   },
 } satisfies Meta<typeof ProfitRateDialog>;
 
@@ -127,7 +127,6 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     items: mockItems,
   },
 };
@@ -138,7 +137,6 @@ export const Default: Story = {
 export const NoExecutionLines: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     items: [],
   },
 };
@@ -149,7 +147,6 @@ export const NoExecutionLines: Story = {
 export const Closed: Story = {
   args: {
     isOpen: false,
-    estimateId: 'estimate-1',
     items: mockItems,
   },
 };

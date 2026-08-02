@@ -253,6 +253,8 @@ vi.mock('../components/estimate/NetAllocationDialog', () => ({
     ) : null,
 }));
 
+// 55.4: 利益率適用はクライアント計算へ移り、適用は `onApply`（編集状態への反映）で行う。
+// 実物のダイアログを通した検証は `EstimateDetailPage.profitRate.test.tsx` が持つ。
 vi.mock('../components/estimate/ProfitRateDialog', () => ({
   ProfitRateDialog: (props: Record<string, unknown>) =>
     props.isOpen ? (
@@ -260,8 +262,17 @@ vi.mock('../components/estimate/ProfitRateDialog', () => ({
         <button data-testid="profit-close" onClick={() => (props.onClose as () => void)()}>
           Close
         </button>
-        <button data-testid="profit-complete" onClick={() => (props.onComplete as () => void)()}>
-          Complete
+        <button
+          data-testid="profit-apply"
+          onClick={() =>
+            (props.onApply as (payload: unknown) => void)({
+              targetKeys: ['item-a'],
+              rate: '10',
+              overwriteOption: 'all',
+            })
+          }
+        >
+          Apply
         </button>
       </div>
     ) : null,
@@ -2542,13 +2553,13 @@ describe('EstimateDetailPage', () => {
     });
 
     /**
-     * 43.4: 利益率適用の後も未保存の編集内容を保持する
+     * 43.4: 案分・利益率適用の後も未保存の編集内容を保持する
      *
-     * 利益率適用は段階1のまま（サーバー書き込み）なので 53.9 の暫定ガードが
-     * 未保存の編集がある間の起動を抑止する。NET案分は 55.3 でクライアント計算へ
-     * 移ったためガードの対象外（未保存の値で案分するのが 5.8 / 18.10 の要件）。
+     * NET案分は 55.3、利益率適用は 55.4 でクライアント計算へ移ったため 53.9 の
+     * 暫定ガードの対象外。未保存の値で計算するのが要件（5.8 / 18.10 / 6.8 / 19.8）で、
+     * 未保存を理由に起動を抑止すると要件そのものが実行できない。
      */
-    it('未保存の編集がある間は利益率ダイアログが開かずNET案分は開くこと (43.4, 53.9, 18.10)', async () => {
+    it('未保存の編集があってもNET案分・利益率ダイアログが開くこと (43.4, 18.10, 19.8)', async () => {
       const user = userEvent.setup();
       renderPage();
 
@@ -2562,8 +2573,10 @@ describe('EstimateDetailPage', () => {
       await user.click(screen.getByTestId('net-close'));
 
       await user.click(screen.getByRole('button', { name: /実行金額を見積金額に転記/ }));
-      expect(screen.queryByTestId('mock-profit-dialog')).not.toBeInTheDocument();
+      expect(screen.getByTestId('mock-profit-dialog')).toBeInTheDocument();
+      await user.click(screen.getByTestId('profit-close'));
 
+      expect(screen.queryByTestId('estimate-transfer-guard')).not.toBeInTheDocument();
       expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
     });
@@ -2572,7 +2585,7 @@ describe('EstimateDetailPage', () => {
   // =========================================================================
   // 転記系ダイアログの暫定ガード（Task 53.9 / 43.4, 49.5, 42.9）
   //
-  // 段階1では転記・案分・利益率適用・諸経費追加がサーバーへ書き込むため、
+  // 段階1で残るサーバー書き込み（受領見積書転記・諸経費追加）については、
   // (1) 未保存の編集がある間は起動を抑止し、(2) 操作直後にサーバー側で作られた行を
   // 編集状態へ取り込む。(2) を欠くと、次の保存ペイロードに当該行が現れず
   // design.md `#### 保存ペイロードとDB状態の対応`（`id` あり・ペイロードに不在 →
@@ -2677,14 +2690,15 @@ describe('EstimateDetailPage', () => {
     });
 
     /**
-     * 未保存の変更がある間はサーバーへ書き込む3種のダイアログが開かず、保存を促す
+     * 未保存の変更がある間はサーバーへ書き込む2種のダイアログが開かず、保存を促す
      *
      * 43.4: 転記・案分・利益率適用・諸経費追加でそれまでの未保存の編集内容を保持する
      * 49.5: これらの操作の実行後の保存で競合エラーを発生させない
      *
-     * NET案分は 55.3 でクライアント計算へ移りサーバーへ書き込まないため対象外。
+     * NET案分（55.3）・利益率適用（55.4）はクライアント計算へ移りサーバーへ
+     * 書き込まないため対象外。
      */
-    it('未保存の変更がある間はサーバー書き込み系3ダイアログが開かず保存を促すこと (43.4, 49.5)', async () => {
+    it('未保存の変更がある間はサーバー書き込み系2ダイアログが開かず保存を促すこと (43.4, 49.5)', async () => {
       const user = userEvent.setup();
       renderPage();
 
@@ -2695,7 +2709,6 @@ describe('EstimateDetailPage', () => {
 
       const guarded: [RegExp, string][] = [
         [/受領見積書を業者金額に転記/, 'mock-transfer-dialog'],
-        [/実行金額を見積金額に転記/, 'mock-profit-dialog'],
         [/諸経費を計算して追加/, 'overhead-cost-dialog'],
       ];
 
@@ -2712,7 +2725,7 @@ describe('EstimateDetailPage', () => {
       expect(itemNameOf(tableItems()[0])).toBe('編集済みA項目');
     });
 
-    /** ガードの対象はサーバーへ書き込む3種のみ。出力・NET案分は書き込まないため対象外 */
+    /** ガードの対象はサーバーへ書き込む2種のみ。出力・NET案分・利益率適用は対象外 */
     it('未保存の変更があっても出力ダイアログは開くこと (53.9)', async () => {
       const user = userEvent.setup();
       renderPage();
@@ -2865,8 +2878,13 @@ describe('EstimateDetailPage', () => {
       ]);
     });
 
-    /** 利益率適用も同じ取り込み経路を通る */
-    it('利益率の完了でも行を取り込むこと (42.9)', async () => {
+    /**
+     * 利益率適用もクライアント計算のため取り込み（再取得）の経路を通らない（55.4 / 49.2, 49.3）
+     *
+     * 適用結果が実際に編集状態へ入ることは
+     * `EstimateDetailPage.profitRate.test.tsx`（実物のダイアログと明細テーブル）が持つ。
+     */
+    it('利益率の適用では明細を再取得しないこと (49.2, 49.3)', async () => {
       mockEstimateLoadOnce(baseDetail);
       mockEstimateLoad(resyncedDetail);
       const user = userEvent.setup();
@@ -2877,11 +2895,10 @@ describe('EstimateDetailPage', () => {
       });
 
       await user.click(screen.getByRole('button', { name: /実行金額を見積金額に転記/ }));
-      await user.click(screen.getByTestId('profit-complete'));
-      await waitFor(() => {
-        expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b', 'item-server']);
-      });
-      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(2);
+      await user.click(screen.getByTestId('profit-apply'));
+
+      expect(estimatesApi.getEstimateDetail).toHaveBeenCalledTimes(1);
+      expect(tableItems().map((item) => item.id)).toEqual(['item-a', 'item-b']);
     });
 
     /**
