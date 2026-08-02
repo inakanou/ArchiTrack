@@ -1,36 +1,58 @@
 /**
  * @fileoverview NetAllocationDialog - 業者金額→実行金額転記ダイアログ（NET金額案分）
  *
- * Task 22.1: NetAllocationDialogコンポーネントの実装
+ * Task 55.3: 案分ダイアログの入力元を編集中の明細へ変更
+ *
+ * 案分対象は**編集中の明細ツリー**（未保存の追加・編集を含む）から構成し、対象の識別には
+ * 項目キー（`NodeKey` = サーバーの項目ID または未保存行の一時識別子 `tmp-*`）を用いる。
+ * プレビューと適用は同一の計算関数 `estimateCalculations.allocateNet` を通り、適用は
+ * `onApply` で編集状態への遷移（`estimateEditReducer` の `applyNetAllocation`）へ渡す。
+ * サーバーへの書き込みは行わない（49.3）。
  *
  * Requirements (estimate-creation):
- * - REQ-18.1: 「業者金額を実行金額に転記」ボタンを提供する
- * - REQ-18.2: NET金額案分ダイアログを表示する
- * - REQ-18.3: 対象業者を選択するドロップダウンを提供する
- * - REQ-18.4: 業者金額行一覧をチェックボックス付きで表示する
- * - REQ-18.5: 案分から除外する諸経費行を指定可能とする
- * - REQ-18.6: NET金額の入力フィールドを提供する
- * - REQ-18.7: 案分率と案分後金額のプレビューを表示する
- * - REQ-18.8: 案分実行ボタンで業者金額行を実行金額行に転記する
- * - REQ-18.9: 処理中インジケーターを表示する
+ * - 5.1: 業者と対象の業者金額行を指定した場合、案分対象として選択状態にする
+ * - 5.2: 案分から除外する諸経費行を指定した場合、案分対象から除外する
+ * - 5.3: NET金額を入力した場合、除外行以外の業者金額行を実行金額行に転記する
+ * - 5.9: 未保存の新規行が案分対象に含まれる場合、その行も案分対象として扱う
+ * - 18.1〜18.8: NET金額案分ダイアログの各機能
+ * - 18.10: 編集中の業者金額行（未保存の追加・編集を含む）を案分対象の一覧に表示する
+ * - 31.1, 31.2: 受領見積書の合計金額とNET金額を縦並びで表示する
+ * - 33.1〜33.4: 選択済み案分対象行の合計金額を編集中の値に基づいて表示する
+ * - 36.1, 36.2: 対象業者の選択でNET金額を自動設定し、手動変更も可能とする
+ * - 41.9, 55.4: 値引き行・注記行を案分の対象外とする
+ * - 49.1, 49.3, 49.6, 49.7: 結果を未保存の変更として反映し、サーバーへ書き込まない
+ *
+ * 18.9 / 5.7 の「処理中の表示」は、案分がクライアント内で同期的に完結するように
+ * なったため成立する処理中の期間が存在しない（49.3 でサーバーへの往復が無くなった）。
+ *
+ * Design: design.md `#### Frontend Domain` > `##### estimateCalculations`,
+ *         Requirements Traceability `5.8, 5.9`（`allocateNet` を NetAllocationDialog が用いる）
  *
  * @module components/estimate/NetAllocationDialog
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import Decimal from 'decimal.js';
+
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
-import { apiClient } from '../../api/client';
 import { getReceivedQuotationsByProject } from '../../api/received-quotations';
 import type { ReceivedQuotationInfo } from '../../api/received-quotations';
-import Decimal from 'decimal.js';
+import { allocateNet } from '../../domain/estimate/estimateCalculations';
+import type { AllocationRow } from '../../domain/estimate/estimateCalculations';
+import type {
+  EstimateEditItemType,
+  NetAllocationPayload,
+  NodeKey,
+} from '../../domain/estimate/estimateEditReducer.types';
 
 export interface NetAllocationDialogProps {
   isOpen: boolean;
-  estimateId: string;
   projectId: string;
+  /** 編集中の明細ツリー（未保存の追加・編集を含む / 18.10, 49.6） */
   items: EstimateItemHierarchyEdit[];
   onClose: () => void;
-  onComplete: () => void;
+  /** 案分結果を編集状態へ反映する（49.1, 49.3） */
+  onApply: (payload: NetAllocationPayload) => void;
 }
 
 const styles = {
@@ -143,70 +165,114 @@ function formatAmount(amount: string | number | null | undefined): string {
   return num.toLocaleString('ja-JP') + '円';
 }
 
-interface VendorLine {
-  itemId: string;
-  lineId: string;
-  name: string | null;
-  amount: string | null;
-  vendorName: string | null;
-}
-
-function findItemLineByLineId(
-  items: EstimateItemHierarchyEdit[],
-  lineId: string
-): { sourceReceivedQuotationLineItemId?: string | null } | null {
-  for (const item of items) {
-    const line = item.lines.find((l) => l.id === lineId);
-    if (line) return line;
-    if (item.children.length > 0) {
-      const found = findItemLineByLineId(item.children, lineId);
-      if (found) return found;
-    }
+/**
+ * 数値文字列を Decimal へ変換する（変換できない場合は null）
+ *
+ * `estimateEditReducer` が適用時に用いる変換規則と同一。プレビューと適用で
+ * 同じ入力値を得るために規則を揃える必要がある（5.8）。
+ */
+function toDecimal(value: string | null | undefined): Decimal | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
   }
-  return null;
+  try {
+    const parsed = new Decimal(value);
+    return parsed.isFinite() ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
-function collectVendorLines(items: EstimateItemHierarchyEdit[]): VendorLine[] {
-  const result: VendorLine[] = [];
-  for (const item of items) {
-    const vendorLine = item.lines.find((l) => l.lineType === 'VENDOR');
-    if (vendorLine && vendorLine.amount) {
+/**
+ * 案分対象の候補行（編集中の明細ツリーから収集する）
+ *
+ * `key` は項目キー。未保存の新規行は一時識別子（`tmp-*`）がそのまま入るため、
+ * サーバーへ保存していない行も案分対象として識別できる（5.9, 18.10, 49.7）。
+ */
+interface VendorTargetRow {
+  readonly key: NodeKey;
+  readonly itemType: EstimateEditItemType;
+  readonly name: string | null;
+  readonly amount: string | null;
+  readonly quantity: string | null;
+  readonly vendorName: string | null;
+  readonly sourceReceivedQuotationLineItemId: string | null;
+}
+
+/** 案分・利益率の対象になる項目種別か（41.9, 55.4） */
+function isCalculationTargetType(itemType: EstimateEditItemType): boolean {
+  return itemType !== 'DISCOUNT' && itemType !== 'NOTE';
+}
+
+/**
+ * 編集中の明細ツリーから案分対象の候補を収集する
+ *
+ * 階層の深さに上限を設けないため明示スタックで走査する（2.5）。
+ * 実行金額行を持たない項目は転記先が無いため対象にしない（適用側の
+ * `applyNetAllocation` と同じ選定にすることでプレビューと結果を一致させる / 5.8）。
+ */
+function collectVendorTargetRows(items: readonly EstimateItemHierarchyEdit[]): VendorTargetRow[] {
+  const result: VendorTargetRow[] = [];
+  const stack: EstimateItemHierarchyEdit[] = [...items].reverse();
+
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (item === undefined) {
+      break;
+    }
+
+    const itemType: EstimateEditItemType = item.itemType ?? 'STANDARD';
+    const vendorLine = item.lines.find((line) => line.lineType === 'VENDOR');
+    const hasExecutionLine = item.lines.some((line) => line.lineType === 'EXECUTION');
+
+    if (
+      vendorLine !== undefined &&
+      vendorLine.amount !== null &&
+      vendorLine.amount !== '' &&
+      hasExecutionLine &&
+      isCalculationTargetType(itemType)
+    ) {
       result.push({
-        itemId: item.id,
-        lineId: vendorLine.id,
+        key: item.id,
+        itemType,
         name: vendorLine.name,
         amount: vendorLine.amount,
-        vendorName: vendorLine.sourceVendorName || null,
+        quantity: vendorLine.quantity,
+        vendorName: vendorLine.sourceVendorName ?? null,
+        sourceReceivedQuotationLineItemId: vendorLine.sourceReceivedQuotationLineItemId ?? null,
       });
     }
-    if (item.children.length > 0) {
-      result.push(...collectVendorLines(item.children));
+
+    for (let index = item.children.length - 1; index >= 0; index -= 1) {
+      const child = item.children[index];
+      if (child !== undefined) {
+        stack.push(child);
+      }
     }
   }
+
   return result;
 }
 
 export function NetAllocationDialog({
   isOpen,
-  estimateId,
   projectId,
   items,
   onClose,
-  onComplete,
+  onApply,
 }: NetAllocationDialogProps) {
   const [selectedVendor, setSelectedVendor] = useState('');
-  const [excludeLineIds, setExcludeLineIds] = useState<string[]>([]);
+  const [excludeKeys, setExcludeKeys] = useState<NodeKey[]>([]);
   const [netAmount, setNetAmount] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
 
-  // 受領見積書データを取得
+  // 受領見積書データを取得（31.1, 31.2, 36.1 の表示・自動設定にのみ用いる）
   useEffect(() => {
     if (!isOpen) return;
     async function fetchQuotations() {
       try {
         const data = await getReceivedQuotationsByProject(projectId);
-        setQuotations(data);
+        setQuotations(Array.isArray(data) ? data : []);
       } catch {
         // エラー処理は省略
       }
@@ -214,81 +280,96 @@ export function NetAllocationDialog({
     fetchQuotations();
   }, [isOpen, projectId]);
 
-  const allVendorLines = useMemo(() => collectVendorLines(items), [items]);
-  const vendors = useMemo(() => {
-    const names = new Set(allVendorLines.map((l) => l.vendorName).filter(Boolean) as string[]);
-    return Array.from(names);
-  }, [allVendorLines]);
+  const allVendorRows = useMemo(() => collectVendorTargetRows(items), [items]);
 
-  const targetLines = useMemo(
-    () => allVendorLines.filter((l) => l.vendorName === selectedVendor),
-    [allVendorLines, selectedVendor]
+  const vendors = useMemo(() => {
+    const names = new Set(allVendorRows.map((row) => row.vendorName).filter(Boolean) as string[]);
+    return Array.from(names);
+  }, [allVendorRows]);
+
+  /** 選択した業者の案分対象行（表示順） */
+  const targetRows = useMemo(
+    () => allVendorRows.filter((row) => row.vendorName === selectedVendor),
+    [allVendorRows, selectedVendor]
   );
 
-  // 選択済み案分対象行の合計金額 (REQ-33)
-  const selectedLinesTotal = useMemo(() => {
-    const activeLines = targetLines.filter((l) => !excludeLineIds.includes(l.lineId));
-    return activeLines.reduce((sum, l) => sum.add(new Decimal(l.amount || 0)), new Decimal(0));
-  }, [targetLines, excludeLineIds]);
+  const excludeKeySet = useMemo(() => new Set<NodeKey>(excludeKeys), [excludeKeys]);
 
+  /** 計算関数へ渡す入力行（プレビューと適用で同一の値を用いる / 5.8） */
+  const allocationRows = useMemo<AllocationRow[]>(
+    () =>
+      targetRows.map((row) => ({
+        key: row.key,
+        itemType: row.itemType,
+        amount: toDecimal(row.amount),
+        quantity: toDecimal(row.quantity),
+      })),
+    [targetRows]
+  );
+
+  // 選択済み案分対象行の合計金額（33.1〜33.4: 編集中の業者金額行の値に基づく）
+  const selectedRowsTotal = useMemo(
+    () =>
+      allocationRows
+        .filter((row) => !excludeKeySet.has(row.key))
+        .reduce((sum, row) => sum.add(row.amount ?? new Decimal(0)), new Decimal(0)),
+    [allocationRows, excludeKeySet]
+  );
+
+  const netAmountDecimal = useMemo(() => toDecimal(netAmount), [netAmount]);
+
+  /**
+   * 案分プレビュー（18.7）
+   *
+   * 計算は 55.1 の `allocateNet` に委ねる。適用側（`applyNetAllocation`）も同じ関数を
+   * 通るため、プレビューに出た金額と反映される金額が一致する（5.8）。
+   */
   const previewResults = useMemo(() => {
-    if (!netAmount || !targetLines.length) return null;
-    try {
-      const net = new Decimal(netAmount);
-      const activeLines = targetLines.filter((l) => !excludeLineIds.includes(l.lineId));
-      const totalAmount = activeLines.reduce(
-        (sum, l) => sum.add(new Decimal(l.amount || 0)),
-        new Decimal(0)
-      );
-      return activeLines.map((line) => {
-        const ratio = totalAmount.isZero()
-          ? new Decimal(0)
-          : new Decimal(line.amount || 0).div(totalAmount);
-        const allocated = net.mul(ratio).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
-        return {
-          lineId: line.lineId,
-          name: line.name,
-          originalAmount: line.amount,
-          ratio: ratio.mul(100).toDecimalPlaces(2).toString(),
-          allocatedAmount: allocated.toString(),
-        };
-      });
-    } catch {
-      return null;
-    }
-  }, [netAmount, targetLines, excludeLineIds]);
+    if (netAmountDecimal === null || allocationRows.length === 0) return null;
+    return allocateNet(allocationRows, netAmountDecimal, excludeKeySet);
+  }, [allocationRows, netAmountDecimal, excludeKeySet]);
 
-  const handleToggleExclude = useCallback((lineId: string) => {
-    setExcludeLineIds((prev) =>
-      prev.includes(lineId) ? prev.filter((id) => id !== lineId) : [...prev, lineId]
+  const nameByKey = useMemo(() => {
+    const map = new Map<NodeKey, string | null>();
+    for (const row of targetRows) {
+      map.set(row.key, row.name);
+    }
+    return map;
+  }, [targetRows]);
+
+  const amountByKey = useMemo(() => {
+    const map = new Map<NodeKey, string | null>();
+    for (const row of targetRows) {
+      map.set(row.key, row.amount);
+    }
+    return map;
+  }, [targetRows]);
+
+  const handleToggleExclude = useCallback((key: NodeKey) => {
+    setExcludeKeys((prev) =>
+      prev.includes(key) ? prev.filter((entry) => entry !== key) : [...prev, key]
     );
   }, []);
 
-  const handleSubmit = useCallback(async () => {
-    if (!selectedVendor || !netAmount || !targetLines.length) return;
-    setIsSubmitting(true);
-    try {
-      const activeLineIds = targetLines
-        .filter((l) => !excludeLineIds.includes(l.lineId))
-        .map((l) => l.lineId);
-      await apiClient.post(`/api/estimates/${estimateId}/calculate-net`, {
-        vendorName: selectedVendor,
-        targetLineIds: activeLineIds,
-        excludeLineIds,
-        netAmount,
-      });
-      onComplete();
-      onClose();
-    } catch {
-      // error handling
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [estimateId, selectedVendor, netAmount, targetLines, excludeLineIds, onComplete, onClose]);
+  const isFormValid = selectedVendor !== '' && netAmount !== '' && targetRows.length > 0;
+
+  /**
+   * 案分の実行（18.8）
+   *
+   * サーバーへは書き込まず、編集状態への反映として `onApply` へ渡す（49.1, 49.3）。
+   * 対象キーは表示中の対象行すべてを渡し、除外はキーの集合で表す（5.2）。
+   */
+  const handleApply = useCallback(() => {
+    if (!isFormValid) return;
+    onApply({
+      targetKeys: targetRows.map((row) => row.key),
+      excludeKeys: targetRows.filter((row) => excludeKeySet.has(row.key)).map((row) => row.key),
+      netAmount,
+    });
+    onClose();
+  }, [isFormValid, onApply, onClose, targetRows, excludeKeySet, netAmount]);
 
   if (!isOpen) return null;
-
-  const isFormValid = selectedVendor && netAmount && targetLines.length > 0;
 
   return (
     <div style={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="net-dialog-title">
@@ -308,7 +389,7 @@ export function NetAllocationDialog({
             onChange={(e) => {
               const vendorName = e.target.value;
               setSelectedVendor(vendorName);
-              setExcludeLineIds([]);
+              setExcludeKeys([]);
 
               // REQ-36.1: 選択した業者に対応する受領見積書のNET金額を自動設定
               if (vendorName && quotations.length > 0) {
@@ -321,7 +402,6 @@ export function NetAllocationDialog({
               }
             }}
             style={styles.select}
-            disabled={isSubmitting}
           >
             <option value="">選択してください</option>
             {vendors.map((v) => (
@@ -332,8 +412,8 @@ export function NetAllocationDialog({
           </select>
         </div>
 
-        {/* 業者金額行一覧 (REQ-18.4, REQ-18.5) */}
-        {selectedVendor && targetLines.length > 0 && (
+        {/* 業者金額行一覧 (REQ-18.4, REQ-18.5, REQ-18.10) */}
+        {selectedVendor && targetRows.length > 0 && (
           <div style={styles.section}>
             <div style={styles.sectionTitle}>
               案分対象行（除外する行のチェックを外してください）
@@ -347,26 +427,31 @@ export function NetAllocationDialog({
                 overflowY: 'auto',
               }}
             >
-              {targetLines.map((line) => (
-                <div key={line.lineId} style={styles.lineItem}>
+              {targetRows.map((row) => (
+                <div
+                  key={row.key}
+                  data-testid="allocation-target"
+                  data-allocation-key={row.key}
+                  style={styles.lineItem}
+                >
                   <input
                     type="checkbox"
-                    checked={!excludeLineIds.includes(line.lineId)}
-                    onChange={() => handleToggleExclude(line.lineId)}
+                    checked={!excludeKeySet.has(row.key)}
+                    onChange={() => handleToggleExclude(row.key)}
                     style={styles.checkbox}
-                    disabled={isSubmitting}
+                    aria-label={`${row.name || '(名称なし)'} を案分対象にする`}
                   />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '14px', fontWeight: 500 }}>
-                      {line.name || '(名称なし)'}
+                      {row.name || '(名称なし)'}
                     </div>
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: 500 }}>
-                    {formatAmount(line.amount)}
+                    {formatAmount(row.amount)}
                   </div>
                 </div>
               ))}
-              {/* 選択済み案分対象行の合計金額 (REQ-33.1, REQ-33.2, REQ-33.3) */}
+              {/* 選択済み案分対象行の合計金額 (REQ-33.1, REQ-33.2, REQ-33.3, REQ-33.4) */}
               <div
                 data-testid="selected-lines-total"
                 style={{
@@ -382,13 +467,13 @@ export function NetAllocationDialog({
                 }}
               >
                 <span>合計:</span>
-                <span>{formatAmount(selectedLinesTotal.toString())}</span>
+                <span>{formatAmount(selectedRowsTotal.toString())}</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* 受領見積書の合計金額・NET金額表示 */}
+        {/* 受領見積書の合計金額・NET金額表示 (REQ-31.1, REQ-31.2) */}
         {selectedVendor &&
           (() => {
             // 選択した業者名に対応する受領見積書を検索
@@ -397,13 +482,10 @@ export function NetAllocationDialog({
                 q.name.includes(selectedVendor) ||
                 q.lineItems.some((li) => li.name?.includes(selectedVendor))
             );
-            // sourceVendorNameから受領見積書を特定: vendor linesのsourceReceivedQuotationLineItemIdから逆引き
+            // 転記元の受領見積書明細行から逆引きする
             const sourceLineItemIds = new Set(
-              targetLines
-                .map((l) => {
-                  const itemData = findItemLineByLineId(items, l.lineId);
-                  return itemData?.sourceReceivedQuotationLineItemId;
-                })
+              targetRows
+                .map((row) => row.sourceReceivedQuotationLineItemId)
                 .filter(Boolean) as string[]
             );
             const relatedQuotation =
@@ -454,7 +536,7 @@ export function NetAllocationDialog({
             );
           })()}
 
-        {/* NET金額入力 (REQ-18.6) */}
+        {/* NET金額入力 (REQ-18.6, REQ-36.2) */}
         {selectedVendor && (
           <div style={styles.section}>
             <label htmlFor="net-amount" style={styles.sectionTitle}>
@@ -467,7 +549,6 @@ export function NetAllocationDialog({
               onChange={(e) => setNetAmount(e.target.value)}
               placeholder="NET金額を入力"
               style={styles.input}
-              disabled={isSubmitting}
             />
           </div>
         )}
@@ -486,15 +567,28 @@ export function NetAllocationDialog({
                 </tr>
               </thead>
               <tbody>
-                {previewResults.map((r) => (
-                  <tr key={r.lineId}>
-                    <td style={styles.previewCell}>{r.name || '(名称なし)'}</td>
+                {previewResults.map((result) => (
+                  <tr
+                    key={result.key}
+                    data-testid="allocation-preview-row"
+                    data-allocation-key={result.key}
+                  >
+                    <td style={styles.previewCell}>{nameByKey.get(result.key) || '(名称なし)'}</td>
                     <td style={{ ...styles.previewCell, textAlign: 'right' }}>
-                      {formatAmount(r.originalAmount)}
+                      {formatAmount(amountByKey.get(result.key))}
                     </td>
-                    <td style={{ ...styles.previewCell, textAlign: 'right' }}>{r.ratio}%</td>
-                    <td style={{ ...styles.previewCell, textAlign: 'right' }}>
-                      {formatAmount(r.allocatedAmount)}
+                    {/* 比率は生の値で返るため百分率化・桁丸めは表示側で行う（55.1） */}
+                    <td
+                      style={{ ...styles.previewCell, textAlign: 'right' }}
+                      data-testid="preview-ratio"
+                    >
+                      {result.ratio.mul(100).toDecimalPlaces(2).toString()}%
+                    </td>
+                    <td
+                      style={{ ...styles.previewCell, textAlign: 'right' }}
+                      data-testid="preview-allocated"
+                    >
+                      {formatAmount(result.allocatedAmount.toString())}
                     </td>
                   </tr>
                 ))}
@@ -503,26 +597,21 @@ export function NetAllocationDialog({
           </div>
         )}
 
-        {/* ボタン (REQ-18.8, REQ-18.9) */}
+        {/* ボタン (REQ-18.8) */}
         <div style={styles.buttonGroup}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={styles.cancelButton}
-            disabled={isSubmitting}
-          >
+          <button type="button" onClick={onClose} style={styles.cancelButton}>
             キャンセル
           </button>
           <button
             type="button"
-            onClick={handleSubmit}
-            disabled={!isFormValid || isSubmitting}
+            onClick={handleApply}
+            disabled={!isFormValid}
             style={{
               ...styles.submitButton,
-              ...(!isFormValid || isSubmitting ? styles.disabledButton : {}),
+              ...(!isFormValid ? styles.disabledButton : {}),
             }}
           >
-            {isSubmitting ? '案分実行中...' : '案分実行'}
+            案分実行
           </button>
         </div>
       </div>

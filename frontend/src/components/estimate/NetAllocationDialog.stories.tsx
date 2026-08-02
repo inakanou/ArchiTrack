@@ -116,7 +116,7 @@ const meta = {
   tags: ['autodocs'],
   args: {
     onClose: fn(),
-    onComplete: fn(),
+    onApply: fn(),
   },
 } satisfies Meta<typeof NetAllocationDialog>;
 
@@ -129,7 +129,6 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
     items: mockItems,
   },
@@ -141,7 +140,6 @@ export const Default: Story = {
 export const NoVendorLines: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
     items: [],
   },
@@ -153,7 +151,6 @@ export const NoVendorLines: Story = {
 export const Closed: Story = {
   args: {
     isOpen: false,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
     items: mockItems,
   },

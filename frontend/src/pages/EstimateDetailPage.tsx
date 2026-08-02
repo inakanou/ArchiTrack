@@ -73,7 +73,11 @@ import type {
   EstimateEditorSaveResult,
   EstimateItemHierarchyEdit,
 } from '../hooks/useEstimateEditor';
-import type { EditableItem, EditError } from '../domain/estimate/estimateEditReducer.types';
+import type {
+  EditableItem,
+  EditError,
+  NetAllocationPayload,
+} from '../domain/estimate/estimateEditReducer.types';
 import { EstimateExportDialog } from '../components/estimate/EstimateExportDialog';
 import { TransferQuotationDialog } from '../components/estimate/TransferQuotationDialog';
 import { NetAllocationDialog } from '../components/estimate/NetAllocationDialog';
@@ -1406,17 +1410,39 @@ export default function EstimateDetailPage() {
    * それまでの未保存の編集内容を破棄してしまうため、43.4「転記・案分・利益率適用を
    * 行った場合、それまでの未保存の編集内容を保持する」を満たせない。
    *
-   * **段階1の暫定状態**: 各ダイアログは現在もサーバーへ書き込む。結果を編集状態へ
-   * 反映する経路（reducer の `applyQuotationTransfer` / `applyNetAllocation` /
-   * `applyProfitRate`）は段階3の 55.5・55.3・55.4 が追加し、エンドポイントの撤去は
-   * 55.7 が行う（design.md `#### Modified Files` の撤去段階表: 本経路は**段階3**）。
-   * それまでの間は、`openGuardedTransferDialog` が未保存の編集を抱えたままの実行を
-   * 抑止したうえで、サーバー側で作られた行を `resyncAfterServerSideMutation` で
-   * 編集状態へ取り込む（53.9）。取り込まないと次の保存でその行が削除される。
+   * **段階1の残り**: 受領見積書転記・利益率適用・諸経費追加のダイアログは現在も
+   * サーバーへ書き込む。結果を編集状態へ反映する経路（reducer の
+   * `applyQuotationTransfer` / `applyProfitRate`）は段階3の 55.5・55.4 が追加し、
+   * エンドポイントの撤去は 55.7 が行う（design.md `#### Modified Files` の撤去段階表:
+   * 本経路は**段階3**）。それまでの間は、`openGuardedTransferDialog` が未保存の編集を
+   * 抱えたままの実行を抑止したうえで、サーバー側で作られた行を
+   * `resyncAfterServerSideMutation` で編集状態へ取り込む（53.9）。
+   * 取り込まないと次の保存でその行が削除される。
+   *
+   * NET金額案分は 55.3 でクライアント計算へ移ったため本経路を通らない
+   * （{@link handleNetAllocationApply} を参照）。
    */
   const handleTransferComplete = useCallback(() => {
     void resyncAfterServerSideMutation();
   }, [resyncAfterServerSideMutation]);
+
+  /**
+   * NET金額案分の適用（55.3）
+   *
+   * サーバーへは書き込まず、案分結果を未保存の変更として編集状態へ反映する。
+   * 明細の再取得を伴わないため、それまでの未保存の編集内容はそのまま残る。
+   *
+   * Requirements (estimate-creation):
+   * - 5.3, 5.8: 案分結果を実行金額行へ反映し、プレビューと一致させる
+   * - 49.1, 49.2, 49.3: 未保存の変更として反映し、再取得も書き込みも行わない
+   * - 49.8: 取り消し可能とする（`useEstimateEditor` が `onBeforeChange` を通知する）
+   */
+  const handleNetAllocationApply = useCallback(
+    (payload: NetAllocationPayload) => {
+      editor.applyNetAllocation(payload);
+    },
+    [editor]
+  );
 
   // ローディング表示
   if (isLoading) {
@@ -1587,9 +1613,12 @@ export default function EstimateDetailPage() {
           >
             受領見積書を業者金額に転記
           </button>
+          {/* NET金額案分は 55.3 でクライアント計算へ移ったためガードの対象外。
+              未保存の業者金額を含む編集中の値で案分するのが要件（5.8, 18.10, 49.6）で
+              あり、未保存を理由に起動を抑止すると要件そのものが実行できない。 */}
           <button
             type="button"
-            onClick={() => openGuardedTransferDialog(() => setIsNetDialogOpen(true))}
+            onClick={() => setIsNetDialogOpen(true)}
             style={{ ...styles.actionButton, ...styles.secondaryButton }}
           >
             業者金額を実行金額に転記
@@ -1856,14 +1885,13 @@ export default function EstimateDetailPage() {
         onTransferComplete={handleTransferComplete}
       />
 
-      {/* NET金額案分ダイアログ (REQ-18) */}
+      {/* NET金額案分ダイアログ (REQ-18)。適用は編集状態への反映のみ（55.3 / 49.3） */}
       <NetAllocationDialog
         isOpen={isNetDialogOpen}
-        estimateId={estimate.id}
         projectId={estimate.projectId}
         items={editor.items}
         onClose={() => setIsNetDialogOpen(false)}
-        onComplete={handleTransferComplete}
+        onApply={handleNetAllocationApply}
       />
 
       {/* 利益率適用ダイアログ (REQ-19) */}
