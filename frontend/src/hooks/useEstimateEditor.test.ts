@@ -2136,7 +2136,7 @@ describe('useEstimateEditor', () => {
           'applyQuotationTransfer',
           () =>
             result.current.applyQuotationTransfer({
-              targetKey: 'item-1',
+              parentKey: 'item-1',
               vendorName: 'V社',
               lines: [
                 {
@@ -2318,7 +2318,11 @@ describe('useEstimateEditor', () => {
    * 適用結果を取り消せる（48.8, 49.8）。
    */
   describe('転記・計算結果の適用（4.6, 7.7, 8.7, 9.7, 41.11, 49.1〜49.4, 49.8）', () => {
-    /** @requirement estimate-creation/REQ-4.6 */
+    /**
+     * 転記先を指定した場合、転記項目は当該項目の**子**として作られる（30.3 / 55.5）。
+     *
+     * @requirement estimate-creation/REQ-4.6
+     */
     it('受領見積書の転記結果が業者金額行へ反映され未保存の変更になること (4.6, 49.1)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -2329,7 +2333,7 @@ describe('useEstimateEditor', () => {
 
       act(() => {
         result.current.applyQuotationTransfer({
-          targetKey: 'item-1',
+          parentKey: 'item-1',
           vendorName: '株式会社テスト建設',
           lines: [
             {
@@ -2343,7 +2347,9 @@ describe('useEstimateEditor', () => {
         });
       });
 
-      const vendor = result.current.items[0]!.lines.find((line) => line.lineType === 'VENDOR')!;
+      const created = result.current.items[0]!.children[0]!;
+      expect(created.id.startsWith('tmp-')).toBe(true);
+      const vendor = created.lines.find((line) => line.lineType === 'VENDOR')!;
       expect(vendor.name).toBe('鉄筋工事');
       expect(vendor.amount).toBe('833');
       expect(vendor.sourceVendorName).toBe('株式会社テスト建設');
@@ -2434,7 +2440,7 @@ describe('useEstimateEditor', () => {
 
         act(() => {
           result.current.applyQuotationTransfer({
-            targetKey: null,
+            parentKey: null,
             vendorName: 'V社',
             lines: [
               { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '100' },
@@ -2480,7 +2486,7 @@ describe('useEstimateEditor', () => {
 
       act(() => {
         result.current.applyQuotationTransfer({
-          targetKey: 'item-1',
+          parentKey: 'item-1',
           vendorName: 'V社',
           lines: [
             { name: '転記', specification: null, unit: '式', quantity: '2', unitPrice: '50' },
@@ -2501,7 +2507,9 @@ describe('useEstimateEditor', () => {
       // 適用前の未保存編集が残っている（49.2）
       expect(estimateNameOf(payload.items[1]!)).toBe('編集した名称');
       // 転記結果と諸経費行も同じ保存に含まれる
-      const transferred = payload.items[0]!.lines.find((line) => line.lineType === 'VENDOR')!;
+      const transferred = payload.items[0]!.children[0]!.lines.find(
+        (line) => line.lineType === 'VENDOR'
+      )!;
       expect(transferred.name).toBe('転記');
       expect(transferred.amount).toBe('100');
       expect(estimateNameOf(payload.items[2]!)).toBe('共通仮設費');
@@ -2544,13 +2552,13 @@ describe('useEstimateEditor', () => {
           'applyQuotationTransfer',
           () =>
             result.current.editor.applyQuotationTransfer({
-              targetKey: 'item-1',
+              parentKey: 'item-1',
               vendorName: 'V社',
               lines: [
                 { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '100' },
               ],
             }),
-          () => result.current.editor.items[0]!.lines.find((l) => l.lineType === 'VENDOR')!.name,
+          () => result.current.editor.items[0]!.children.length,
         ],
         [
           'applyNetAllocation',

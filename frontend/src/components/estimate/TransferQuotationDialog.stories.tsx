@@ -65,7 +65,7 @@ const meta = {
   tags: ['autodocs'],
   args: {
     onClose: fn(),
-    onTransferComplete: fn(),
+    onApply: fn(),
   },
 } satisfies Meta<typeof TransferQuotationDialog>;
 
@@ -78,9 +78,8 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
-    estimateItems: mockEstimateItems,
+    items: mockEstimateItems,
   },
 };
 
@@ -90,9 +89,8 @@ export const Default: Story = {
 export const NoEstimateItems: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
-    estimateItems: [],
+    items: [],
   },
 };
 
@@ -102,8 +100,7 @@ export const NoEstimateItems: Story = {
 export const Closed: Story = {
   args: {
     isOpen: false,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
-    estimateItems: mockEstimateItems,
+    items: mockEstimateItems,
   },
 };

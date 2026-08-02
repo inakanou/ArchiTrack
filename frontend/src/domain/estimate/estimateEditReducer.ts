@@ -1027,33 +1027,12 @@ function withLine(
 }
 
 /**
- * 受領見積書の内容を業者金額行へ写す（4.3）
+ * 受領見積書の1明細行から見積項目を作る（4.2, 4.3, 30.3）
  *
  * 転記対象は名称・規格・単位・数量・単価（4.3）と業者名。金額は転記元の値を
- * 持ち込まず 数量 × 単価 として導出する（22.9）。
- *
- * 備考は 4.3 の転記対象に含まれないため、転記元が備考を渡した場合のみ反映し、
- * 渡さない場合は転記先の既存の備考を残す（既存行への転記で手入力を消さない）。
+ * 持ち込まず 数量 × 単価 として導出する（22.9）。備考は 4.3 の転記対象に
+ * 含まれないため空のままとする。業者金額行以外は空の3行1セットで作る。
  */
-function transferredVendorLine(
-  source: EditableLine,
-  transfer: QuotationTransferLine,
-  vendorName: string | null
-): EditableLine {
-  return {
-    ...source,
-    name: transfer.name,
-    specification: transfer.specification,
-    unit: transfer.unit,
-    quantity: transfer.quantity,
-    unitPrice: transfer.unitPrice,
-    amount: calculateLineAmount(transfer.quantity, transfer.unitPrice),
-    remarks: transfer.remarks === undefined ? source.remarks : transfer.remarks,
-    sourceVendorName: vendorName,
-  };
-}
-
-/** 転記先未指定のときに作る新規項目（4.2）。業者金額行のみに値が入る */
 function createTransferredItem(
   tempId: TempId,
   transfer: QuotationTransferLine,
@@ -1065,56 +1044,67 @@ function createTransferredItem(
     itemType: 'STANDARD',
     lines: STANDARD_LINE_TYPES.map((lineType) =>
       lineType === 'VENDOR'
-        ? transferredVendorLine(emptyLine('VENDOR'), transfer, vendorName)
+        ? {
+            ...emptyLine('VENDOR'),
+            name: transfer.name,
+            specification: transfer.specification,
+            unit: transfer.unit,
+            quantity: transfer.quantity,
+            unitPrice: transfer.unitPrice,
+            amount: calculateLineAmount(transfer.quantity, transfer.unitPrice),
+            sourceVendorName: vendorName,
+          }
         : emptyLine(lineType)
     ),
     children: [],
   };
 }
 
+/** 指定した親の子の末尾へ複数の項目をまとめて追加する変換を作る */
+function appendChildrenTransform(
+  parentKey: NodeKey | null,
+  newItems: readonly EditableItem[]
+): SiblingsTransform {
+  return (siblings, currentParentKey) =>
+    currentParentKey === parentKey ? [...siblings, ...newItems] : siblings;
+}
+
 /**
- * 受領見積書の転記結果を反映する（4.1, 4.2, 4.6）
+ * 受領見積書の転記結果を反映する（4.1, 4.2, 4.4, 4.6, 30.1, 30.3）
  *
- * 転記先を指定した場合は先頭の明細行をその項目の業者金額行へ反映し、残りは
- * 新規項目として追加する（4.4「それぞれ別の見積項目行の業者金額行として反映する」。
- * 撤去対象の `POST /:id/transfer-quotation` は先頭以外を破棄していたが、
- * 選択した明細行を無言で捨てないよう新規項目として受ける）。
+ * 転記ダイアログの転記先は「新規項目として作成」（`parentKey === null`）と
+ * 「＜既存項目名＞の子項目として作成」（`parentKey` に当該項目のキー）の2種で、
+ * 既存の業者金額行を上書きする選択肢は無い（30.1, 30.2）。したがって選択した
+ * 明細行はすべて新しい見積項目になり（4.4）、指定した親の子として追加される
+ * （30.3 / design.md :2337-2339「当該項目のparentIdに選択した既存項目IDを設定
+ * して転記」）。撤去対象の `POST /:id/transfer-quotation` は転記先指定時に先頭
+ * 以外の明細行を破棄していたが、選択した行を無言で捨てない。
+ *
+ * 値引き行・注記行は子を持てない（41.3）ため、行挿入と同じ `validateInsertParent`
+ * で親を検証する。
  */
 function applyQuotationTransferAction(
   state: EstimateEditState,
   payload: QuotationTransferPayload,
   generateTempId: TempIdGenerator
 ): EstimateEditState {
-  const head = payload.lines[0];
-  if (head === undefined) {
+  if (payload.lines.length === 0) {
     return unchanged(state);
   }
 
-  let rebuilt: readonly EditableItem[] = state.items;
-  let appendSources: readonly QuotationTransferLine[] = payload.lines;
-
-  const targetKey = payload.targetKey;
-  if (targetKey !== null) {
-    const target = findItem(state.items, targetKey);
-    if (target === null || lineOfType(target, 'VENDOR') === undefined) {
-      // 存在しない項目、または業者金額行を持たない値引き行・注記行（41.3, 55.1）
-      return unchanged(state);
-    }
-    rebuilt = mapItems(state.items, (entry) =>
-      nodeKeyOf(entry) === targetKey
-        ? withLine(entry, 'VENDOR', (vendor) =>
-            transferredVendorLine(vendor, head, payload.vendorName)
-          )
-        : null
-    );
-    appendSources = payload.lines.slice(1);
+  const invalid = validateInsertParent(state, payload.parentKey);
+  if (invalid !== null) {
+    return invalid.rejection;
   }
 
-  const appended = appendSources.map((transfer) =>
+  const appended = payload.lines.map((transfer) =>
     createTransferredItem(generateTempId(), transfer, payload.vendorName)
   );
 
-  return withItems(state, appended.length === 0 ? rebuilt : [...rebuilt, ...appended]);
+  return withItems(
+    state,
+    rebuildTree(state.items, appendChildrenTransform(payload.parentKey, appended))
+  );
 }
 
 /**

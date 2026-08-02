@@ -153,8 +153,8 @@ export interface EstimateEditState {
 /**
  * 受領見積書から転記する1明細行（4.3）
  *
- * 金額は転記対象ではなく 数量 × 単価 として導出する（4.3 は名称・規格・単位・
- * 数量・単価のみを転記対象と定める）。
+ * 転記対象は名称・規格・単位・数量・単価のみ（4.3）。備考は対象に含まれず、
+ * 金額も転記せず 数量 × 単価 として導出する（22.9）。
  */
 export interface QuotationTransferLine {
   readonly name: string | null;
@@ -164,18 +164,20 @@ export interface QuotationTransferLine {
   readonly quantity: string | null;
   /** 単価（10進数文字列） */
   readonly unitPrice: string | null;
-  readonly remarks?: string | null;
 }
 
 /**
- * 受領見積書転記の適用内容（4.1, 4.2, 4.6）
+ * 受領見積書転記の適用内容（4.1, 4.2, 4.4, 4.6, 30.1, 30.3）
  *
- * 転記先の見積項目を指定した場合はその項目の業者金額行へ、指定しない場合は
- * 明細行ごとに新規の見積項目を作ってその業者金額行へ反映する。
+ * 転記する明細行はそれぞれが新しい見積項目になり、その業者金額行へ反映される
+ * （4.4「それぞれ別の見積項目行の業者金額行として反映する」）。`parentKey` は
+ * その項目を作る**親**を指す。転記ダイアログの選択肢は「新規項目として作成」
+ * （`null`）と「＜既存項目名＞の子項目として作成」（当該項目のキー）の2種で、
+ * 既存の業者金額行を上書きする選択肢は存在しない（30.1, 30.2, 30.3）。
  */
 export interface QuotationTransferPayload {
-  /** 転記先の見積項目。`null` は新規項目を作成する（4.2） */
-  readonly targetKey: NodeKey | null;
+  /** 転記項目を作る親の見積項目。`null` はルートレベルへ追加する（4.2, 30.1） */
+  readonly parentKey: NodeKey | null;
   /** 転記元の業者名。業者金額行の `sourceVendorName` に記録する */
   readonly vendorName: string | null;
   /** 転記する明細行（受領見積書の並び順で渡す） */

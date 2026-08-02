@@ -196,7 +196,6 @@ interface VendorTargetRow {
   readonly amount: string | null;
   readonly quantity: string | null;
   readonly vendorName: string | null;
-  readonly sourceReceivedQuotationLineItemId: string | null;
 }
 
 /** 案分・利益率の対象になる項目種別か（41.9, 55.4） */
@@ -239,7 +238,6 @@ function collectVendorTargetRows(items: readonly EstimateItemHierarchyEdit[]): V
         amount: vendorLine.amount,
         quantity: vendorLine.quantity,
         vendorName: vendorLine.sourceVendorName ?? null,
-        sourceReceivedQuotationLineItemId: vendorLine.sourceReceivedQuotationLineItemId ?? null,
       });
     }
 
@@ -476,21 +474,20 @@ export function NetAllocationDialog({
         {/* 受領見積書の合計金額・NET金額表示 (REQ-31.1, REQ-31.2) */}
         {selectedVendor &&
           (() => {
-            // 選択した業者名に対応する受領見積書を検索
-            const matchingQuotation = quotations.find(
-              (q) =>
-                q.name.includes(selectedVendor) ||
-                q.lineItems.some((li) => li.name?.includes(selectedVendor))
-            );
-            // 転記元の受領見積書明細行から逆引きする
-            const sourceLineItemIds = new Set(
-              targetRows
-                .map((row) => row.sourceReceivedQuotationLineItemId)
-                .filter(Boolean) as string[]
-            );
+            // 転記元の受領見積書は**業者金額行に残る業者名**から引き当てる（55.5）。
+            // クライアント側の転記（`applyQuotationTransfer`）が業者金額行へ載せるのは
+            // `sourceVendorName` だけで、受領見積書明細行の識別子は編集状態にも
+            // 保存ペイロードにも存在しない。ここで用いる照合キーは、転記ダイアログが
+            // `sourceVendorName` に入れる値および REQ-36.1 のNET金額自動設定と同じ
+            // 「協力業者名（無ければ受領見積書名）」でなければならない。
             const relatedQuotation =
-              quotations.find((q) => q.lineItems.some((li) => sourceLineItemIds.has(li.id))) ||
-              matchingQuotation;
+              quotations.find((q) => (q.tradingPartnerName || q.name) === selectedVendor) ??
+              // 転記を経ずに業者名を手入力した明細向けの緩い照合
+              quotations.find(
+                (q) =>
+                  q.name.includes(selectedVendor) ||
+                  q.lineItems.some((li) => li.name?.includes(selectedVendor))
+              );
 
             if (!relatedQuotation) return null;
 

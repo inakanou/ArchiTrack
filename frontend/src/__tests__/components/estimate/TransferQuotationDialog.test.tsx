@@ -27,10 +27,6 @@ vi.mock('../../../api/received-quotations', () => ({
 import { getReceivedQuotationsByProject } from '../../../api/received-quotations';
 const mockGetQuotations = vi.mocked(getReceivedQuotationsByProject);
 
-vi.mock('../../../api/estimates', () => ({
-  transferFromQuotation: vi.fn(),
-}));
-
 const createMockEstimateItems = (): EstimateItemHierarchyEdit[] => [
   {
     id: 'item-1',
@@ -107,11 +103,10 @@ const createMockEstimateItems = (): EstimateItemHierarchyEdit[] => [
 describe('TransferQuotationDialog', () => {
   const defaultProps = {
     isOpen: true,
-    estimateId: 'est-1',
     projectId: 'proj-1',
-    estimateItems: createMockEstimateItems(),
+    items: createMockEstimateItems(),
     onClose: vi.fn(),
-    onTransferComplete: vi.fn(),
+    onApply: vi.fn(),
   };
 
   beforeEach(() => {

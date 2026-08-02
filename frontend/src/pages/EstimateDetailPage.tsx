@@ -78,6 +78,7 @@ import type {
   EditError,
   NetAllocationPayload,
   ProfitRatePayload,
+  QuotationTransferPayload,
 } from '../domain/estimate/estimateEditReducer.types';
 import { EstimateExportDialog } from '../components/estimate/EstimateExportDialog';
 import { TransferQuotationDialog } from '../components/estimate/TransferQuotationDialog';
@@ -410,18 +411,20 @@ const styles = {
 // ============================================================================
 
 /**
- * 未保存の変更がある間に転記系ダイアログの起動を抑止したときの案内（53.9）
+ * 未保存の変更がある間にサーバー書き込み系ダイアログの起動を抑止したときの案内（53.9）
  *
- * 段階1の転記・案分・利益率・諸経費追加は依然としてサーバーへ書き込むため、
- * 未保存の編集を抱えたまま実行すると (a) 結果を取り込むための再同期が編集内容を
- * 上書きし（43.4 違反）、(b) サーバー側で進んだ `Estimate.updatedAt` により
+ * 未保存の編集を抱えたままサーバーへ書き込むと (a) 結果を取り込むための再同期が
+ * 編集内容を上書きし（43.4 違反）、(b) サーバー側で進んだ `Estimate.updatedAt` により
  * 次の保存が競合（409）になる（49.5 違反）。実行前の保存を促して両方を塞ぐ。
+ *
+ * 抑止が残るのは**サーバーへ書き込む経路だけ**。案分（55.3）・利益率適用（55.4）・
+ * 受領見積書転記（55.5）はクライアント反映へ移ったため対象外で、残るのは
+ * 諸経費追加のみ。文言も実際に抑止される操作だけを名指しする。
  */
-const TRANSFER_GUARD_MESSAGE =
-  '未保存の変更があります。転記・案分・利益率適用・諸経費の追加を行う前に保存してください。';
+const TRANSFER_GUARD_MESSAGE = '未保存の変更があります。諸経費の追加を行う前に保存してください。';
 
 /**
- * 転記系の操作後の再同期に失敗したときの案内（53.9）
+ * サーバー書き込み後の再同期に失敗したときの案内（53.9）
  *
  * 再同期できないとサーバー側で作られた行をクライアントが知らないままになり、
  * 次の保存でその行がペイロードに現れず削除されてしまう
@@ -429,7 +432,7 @@ const TRANSFER_GUARD_MESSAGE =
  * 黙って続行させず、再読み込みを促す。
  */
 const TRANSFER_RESYNC_FAILED_MESSAGE =
-  '転記結果の取り込みに失敗しました。保存する前に画面を再読み込みしてください。';
+  '諸経費行の取り込みに失敗しました。保存する前に画面を再読み込みしてください。';
 
 // ============================================================================
 // ヘルパー関数
@@ -1296,12 +1299,14 @@ export default function EstimateDetailPage() {
    * 競合（409）になり 49.5 に反する。
    *
    * 明細の取得経路は `fetchData` と揃える（53.15）。ここだけ平坦な
-   * `getEstimateDetail(...).items` を使うと、転記・案分・利益率適用・諸経費追加の
-   * 直後に階層が失われた状態が編集状態へ入り込み、次の保存で DB 上の親子関係が
-   * 消える（2.2, 34.5, 42.1）。
+   * `getEstimateDetail(...).items` を使うと、諸経費追加の直後に階層が失われた
+   * 状態が編集状態へ入り込み、次の保存で DB 上の親子関係が消える
+   * （2.2, 34.5, 42.1）。
    *
-   * 段階3（55.5・55.6）で転記・案分・利益率適用・諸経費追加がクライアント計算へ
-   * 移ると書き込み自体が消えるため、本再同期は 55.7 でガードごと撤去する。
+   * 呼び出し元は {@link handleAddOverheadItem} のみ（受領見積書転記は 55.5 で
+   * クライアント反映へ移り、本経路を通らなくなった）。段階3の 55.6 で諸経費追加も
+   * クライアント計算へ移ると書き込み自体が消えるため、本再同期は 55.7 でガードごと
+   * 撤去する。
    */
   const resyncAfterServerSideMutation = useCallback(async (): Promise<void> => {
     if (!id) {
@@ -1405,26 +1410,23 @@ export default function EstimateDetailPage() {
   }, [id, estimate]);
 
   /**
-   * 転記・案分・利益率適用の完了時の処理（43.4）
+   * 受領見積書転記の適用（55.5）
    *
-   * 完了後の**明細の全件再取得を撤去**した（53.6）。再取得は `editor.setItems` 経由で
-   * それまでの未保存の編集内容を破棄してしまうため、43.4「転記・案分・利益率適用を
-   * 行った場合、それまでの未保存の編集内容を保持する」を満たせない。
+   * サーバーへは書き込まず、転記結果を未保存の変更として編集状態へ反映する。
+   * 明細の再取得を伴わないため、それまでの未保存の編集内容はそのまま残る。
    *
-   * **段階1の残り**: 受領見積書転記・諸経費追加のダイアログは現在もサーバーへ
-   * 書き込む。結果を編集状態へ反映する経路（reducer の `applyQuotationTransfer`）は
-   * 段階3の 55.5 が追加し、エンドポイントの撤去は 55.7 が行う
-   * （design.md `#### Modified Files` の撤去段階表: 本経路は**段階3**）。
-   * それまでの間は、`openGuardedTransferDialog` が未保存の編集を抱えたままの実行を
-   * 抑止したうえで、サーバー側で作られた行を `resyncAfterServerSideMutation` で
-   * 編集状態へ取り込む（53.9）。取り込まないと次の保存でその行が削除される。
-   *
-   * NET金額案分は 55.3、利益率適用は 55.4 でクライアント計算へ移ったため本経路を
-   * 通らない（{@link handleNetAllocationApply} / {@link handleProfitRateApply} を参照）。
+   * Requirements (estimate-creation):
+   * - 4.1, 4.2, 4.3, 4.4: 選択した明細行を業者金額行として編集中の明細へ反映する
+   * - 4.6, 49.1, 49.2, 49.3: 未保存の変更として反映し、再取得も書き込みも行わない
+   * - 30.3, 30.4: 未保存の新規項目を含む既存項目の子項目として転記する
+   * - 49.8: 取り消し可能とする（`useEstimateEditor` が `onBeforeChange` を通知する）
    */
-  const handleTransferComplete = useCallback(() => {
-    void resyncAfterServerSideMutation();
-  }, [resyncAfterServerSideMutation]);
+  const handleQuotationTransferApply = useCallback(
+    (payload: QuotationTransferPayload) => {
+      editor.applyQuotationTransfer(payload);
+    },
+    [editor]
+  );
 
   /**
    * NET金額案分の適用（55.3）
@@ -1621,13 +1623,16 @@ export default function EstimateDetailPage() {
         </div>
 
         {/* アクションボタン */}
-        {/* 転記・案分・利益率適用・諸経費追加はサーバーへ書き込むため、未保存の
-            変更がある間は起動を抑止する（53.9 の暫定措置。55.7 で撤去）。
+        {/* サーバーへ書き込むのは諸経費追加のみになったため、未保存の変更がある間の
+            起動抑止もそのボタンだけに残る（53.9 の暫定措置。55.7 で撤去）。
             出力はサーバーへ書き込まないためガードの対象外。 */}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
+          {/* 受領見積書転記は 55.5 でクライアント反映へ移ったためガードの対象外。
+              未保存の新規項目を転記先に選べることが要件（30.4, 49.6, 49.7）であり、
+              未保存を理由に起動を抑止すると要件そのものが実行できない。 */}
           <button
             type="button"
-            onClick={() => openGuardedTransferDialog(() => setIsTransferDialogOpen(true))}
+            onClick={() => setIsTransferDialogOpen(true)}
             style={{ ...styles.actionButton, ...styles.secondaryButton }}
           >
             受領見積書を業者金額に転記
@@ -1897,14 +1902,13 @@ export default function EstimateDetailPage() {
         onClose={() => setIsExportDialogOpen(false)}
       />
 
-      {/* 転記ダイアログ (REQ-4.1-4.5) */}
+      {/* 受領見積書転記ダイアログ (REQ-4)。転記は編集状態への反映のみ（55.5 / 49.3） */}
       <TransferQuotationDialog
         isOpen={isTransferDialogOpen}
-        estimateId={estimate.id}
         projectId={estimate.projectId}
-        estimateItems={editor.items}
+        items={editor.items}
         onClose={() => setIsTransferDialogOpen(false)}
-        onTransferComplete={handleTransferComplete}
+        onApply={handleQuotationTransferApply}
       />
 
       {/* NET金額案分ダイアログ (REQ-18)。適用は編集状態への反映のみ（55.3 / 49.3） */}

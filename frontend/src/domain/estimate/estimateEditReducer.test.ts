@@ -1575,7 +1575,13 @@ function lineOf(target: EditableItem, lineType: EstimateLineType): EditableLine 
 }
 
 // ----------------------------------------------------------------------------
-// applyQuotationTransfer（4.1, 4.2, 4.3, 4.6）
+// applyQuotationTransfer（4.1, 4.2, 4.3, 4.4, 4.6, 30.1, 30.3）
+//
+// 55.5 の裁定: 転記ダイアログの転記先は「新規項目として作成」(30.1) と
+// 「＜既存項目名＞の子項目として作成」(30.2) の2種のみで、既存の業者金額行を
+// 上書きする選択肢は存在しない。したがって `parentKey` は**転記項目を作る親**を
+// 指し（30.3 / design.md :2337-2339「当該項目のparentIdに選択した既存項目IDを
+// 設定して転記」）、選択した明細行はすべて新規の見積項目になる（4.4）。
 // ----------------------------------------------------------------------------
 
 describe('estimateEditReducer / applyQuotationTransfer', () => {
@@ -1586,81 +1592,23 @@ describe('estimateEditReducer / applyQuotationTransfer', () => {
     unit: 'm2',
     quantity: '2.5',
     unitPrice: '333',
-    remarks: '一次見積',
   } as const;
 
-  it('転記先を指定すると業者金額行へ名称・規格・単位・数量・単価を反映する (4.1, 4.3)', () => {
-    const before = stateOf([detailedItem('A', {}), detailedItem('B', {})]);
+  const SECOND_LINE = {
+    name: '型枠工事',
+    specification: null,
+    unit: '式',
+    quantity: '1',
+    unitPrice: '5000',
+  } as const;
 
-    const after = estimateEditReducer(before, {
-      type: 'applyQuotationTransfer',
-      payload: {
-        targetKey: 'B',
-        vendorName: '株式会社テスト建設',
-        lines: [TRANSFER_LINE],
-      },
-    });
-
-    const vendor = lineOf(findItem(after.items, 'B'), 'VENDOR');
-    expect(vendor.name).toBe('鉄筋工事');
-    expect(vendor.specification).toBe('SD295');
-    expect(vendor.unit).toBe('m2');
-    expect(vendor.quantity).toBe('2.5');
-    expect(vendor.unitPrice).toBe('333');
-    expect(vendor.amount).toBe('833');
-    expect(vendor.remarks).toBe('一次見積');
-    expect(vendor.sourceVendorName).toBe('株式会社テスト建設');
-    expect(after.isDirty).toBe(true);
-  });
-
-  it('転記元が備考を渡さない場合は転記先の備考を残す (4.3)', () => {
-    const before = stateOf([detailedItem('B', { VENDOR: { remarks: '手入力の備考' } })]);
-
-    const after = estimateEditReducer(before, {
-      type: 'applyQuotationTransfer',
-      payload: {
-        targetKey: 'B',
-        vendorName: 'V',
-        lines: [{ name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '10' }],
-      },
-    });
-
-    expect(lineOf(findItem(after.items, 'B'), 'VENDOR').remarks).toBe('手入力の備考');
-    expect(lineOf(findItem(after.items, 'B'), 'VENDOR').name).toBe('転記');
-  });
-
-  it('転記先の見積金額行・実行金額行は変更しない (4.1)', () => {
-    const before = stateOf([
-      detailedItem('B', {
-        ESTIMATE: { name: '既存の見積', unitPrice: '9999', amount: '9999' },
-        EXECUTION: { name: '既存の実行', unitPrice: '8888', amount: '8888' },
-      }),
-    ]);
-
-    const after = estimateEditReducer(before, {
-      type: 'applyQuotationTransfer',
-      payload: { targetKey: 'B', vendorName: 'V', lines: [TRANSFER_LINE] },
-    });
-
-    const target = findItem(after.items, 'B');
-    expect(lineOf(target, 'ESTIMATE')).toEqual(lineOf(findItem(before.items, 'B'), 'ESTIMATE'));
-    expect(lineOf(target, 'EXECUTION')).toEqual(lineOf(findItem(before.items, 'B'), 'EXECUTION'));
-  });
-
-  it('転記先を指定しない場合は明細行ごとに新規項目を作りその業者金額行へ反映する (4.2, 4.4, 43.1)', () => {
+  it('転記先を指定しない場合は明細行ごとにルートレベルの新規項目を作りその業者金額行へ反映する (4.2, 4.3, 4.4, 30.1)', () => {
     const reducer = deterministicReducer();
     const before = stateOf([detailedItem('A', {})]);
 
     const after = reducer(before, {
       type: 'applyQuotationTransfer',
-      payload: {
-        targetKey: null,
-        vendorName: 'V社',
-        lines: [
-          TRANSFER_LINE,
-          { name: '型枠工事', specification: null, unit: '式', quantity: '1', unitPrice: '5000' },
-        ],
-      },
+      payload: { parentKey: null, vendorName: 'V社', lines: [TRANSFER_LINE, SECOND_LINE] },
     });
 
     expect(keysOf(after.items)).toEqual(['A', 'tmp-t1', 'tmp-t2']);
@@ -1673,9 +1621,16 @@ describe('estimateEditReducer / applyQuotationTransfer', () => {
       'EXECUTION',
       'VENDOR',
     ]);
-    expect(lineOf(created, 'VENDOR').name).toBe('鉄筋工事');
-    expect(lineOf(created, 'VENDOR').amount).toBe('833');
-    expect(lineOf(created, 'VENDOR').sourceVendorName).toBe('V社');
+    const vendor = lineOf(created, 'VENDOR');
+    expect(vendor.name).toBe('鉄筋工事');
+    expect(vendor.specification).toBe('SD295');
+    expect(vendor.unit).toBe('m2');
+    expect(vendor.quantity).toBe('2.5');
+    expect(vendor.unitPrice).toBe('333');
+    expect(vendor.amount).toBe('833');
+    expect(vendor.sourceVendorName).toBe('V社');
+    // 4.3 は名称・規格・単位・数量・単価のみを転記対象とする（備考は対象外）
+    expect(vendor.remarks).toBeNull();
     // 見積金額行・実行金額行は空のまま（転記対象は業者金額行のみ）
     expect(lineOf(created, 'ESTIMATE').name).toBeNull();
     expect(lineOf(created, 'EXECUTION').unitPrice).toBeNull();
@@ -1683,40 +1638,84 @@ describe('estimateEditReducer / applyQuotationTransfer', () => {
     const second = findItem(after.items, 'tmp-t2');
     expect(lineOf(second, 'VENDOR').name).toBe('型枠工事');
     expect(lineOf(second, 'VENDOR').amount).toBe('5000');
+    expect(after.isDirty).toBe(true);
   });
 
-  it('転記先を指定して複数行を転記すると先頭行が転記先へ、残りが新規項目になる (4.1, 4.2)', () => {
+  it('転記先を指定すると選択した明細行がすべてその項目の子項目になる (30.3, 4.4)', () => {
     const reducer = deterministicReducer();
-    const before = stateOf([detailedItem('A', {})]);
+    const before = stateOf([detailedItem('A', {}), detailedItem('B', {})]);
 
     const after = reducer(before, {
       type: 'applyQuotationTransfer',
-      payload: {
-        targetKey: 'A',
-        vendorName: 'V社',
-        lines: [
-          TRANSFER_LINE,
-          { name: '型枠工事', specification: null, unit: '式', quantity: '1', unitPrice: '5000' },
-        ],
-      },
+      payload: { parentKey: 'B', vendorName: 'V社', lines: [TRANSFER_LINE, SECOND_LINE] },
     });
 
-    expect(keysOf(after.items)).toEqual(['A', 'tmp-t1']);
-    expect(lineOf(findItem(after.items, 'A'), 'VENDOR').name).toBe('鉄筋工事');
-    expect(lineOf(findItem(after.items, 'tmp-t1'), 'VENDOR').name).toBe('型枠工事');
+    // ルートは増えず、選択した2行はいずれも B の子になる
+    expect(keysOf(after.items)).toEqual(['A', 'B']);
+    expect(keysOf(findItem(after.items, 'B').children)).toEqual(['tmp-t1', 'tmp-t2']);
+    expect(lineOf(findItem(after.items, 'tmp-t1'), 'VENDOR').name).toBe('鉄筋工事');
+    expect(lineOf(findItem(after.items, 'tmp-t2'), 'VENDOR').name).toBe('型枠工事');
   });
 
-  it('子項目への転記で親項目の業者金額行の合計が再計算される (43.5)', () => {
+  it('転記先の既存の見積金額行・実行金額行・業者金額行の入力値を上書きしない (30.3)', () => {
     const before = stateOf([
-      detailedItem('P', { VENDOR: { amount: '0' } }, { children: [detailedItem('C', {})] }),
+      detailedItem('B', {
+        ESTIMATE: { name: '既存の見積', unitPrice: '9999', amount: '9999' },
+        EXECUTION: { name: '既存の実行', unitPrice: '8888', amount: '8888' },
+        VENDOR: { name: '既存の業者', remarks: '手入力の備考' },
+      }),
     ]);
 
     const after = estimateEditReducer(before, {
       type: 'applyQuotationTransfer',
-      payload: { targetKey: 'C', vendorName: 'V', lines: [TRANSFER_LINE] },
+      payload: { parentKey: 'B', vendorName: 'V', lines: [TRANSFER_LINE] },
     });
 
-    expect(lineOf(findItem(after.items, 'P'), 'VENDOR').amount).toBe('833');
+    const target = findItem(after.items, 'B');
+    expect(lineOf(target, 'ESTIMATE').name).toBe('既存の見積');
+    expect(lineOf(target, 'EXECUTION').name).toBe('既存の実行');
+    expect(lineOf(target, 'VENDOR').name).toBe('既存の業者');
+    expect(lineOf(target, 'VENDOR').remarks).toBe('手入力の備考');
+  });
+
+  it('ネストした転記先を指定した場合もルート直下ではなくその子として追加する (30.3)', () => {
+    const reducer = deterministicReducer();
+    const before = stateOf([
+      detailedItem('P', {}, { children: [detailedItem('C', {})] }),
+      detailedItem('Q', {}),
+    ]);
+
+    const after = reducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { parentKey: 'C', vendorName: 'V', lines: [TRANSFER_LINE, SECOND_LINE] },
+    });
+
+    expect(keysOf(after.items)).toEqual(['P', 'Q']);
+    expect(keysOf(findItem(after.items, 'C').children)).toEqual(['tmp-t1', 'tmp-t2']);
+  });
+
+  it('転記先の子として追加した金額が先祖の業者金額行へ集計される (2.3, 43.5)', () => {
+    const before = stateOf([detailedItem('P', { VENDOR: { amount: '0' } })]);
+
+    const after = estimateEditReducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { parentKey: 'P', vendorName: 'V', lines: [TRANSFER_LINE, SECOND_LINE] },
+    });
+
+    expect(lineOf(findItem(after.items, 'P'), 'VENDOR').amount).toBe('5833');
+  });
+
+  it('未保存の新規項目を転記先に指定できる (30.4, 49.7)', () => {
+    const reducer = deterministicReducer();
+    const before = stateOf([detailedItem('tmp-new', {}, { temporary: true })]);
+
+    const after = reducer(before, {
+      type: 'applyQuotationTransfer',
+      payload: { parentKey: 'tmp-new', vendorName: 'V', lines: [TRANSFER_LINE] },
+    });
+
+    expect(keysOf(findItem(after.items, 'tmp-new').children)).toEqual(['tmp-t1']);
+    expect(lineOf(findItem(after.items, 'tmp-t1'), 'VENDOR').name).toBe('鉄筋工事');
   });
 
   it('存在しない転記先を指定した場合は明細を変更しない', () => {
@@ -1724,31 +1723,35 @@ describe('estimateEditReducer / applyQuotationTransfer', () => {
 
     const after = estimateEditReducer(before, {
       type: 'applyQuotationTransfer',
-      payload: { targetKey: 'missing', vendorName: 'V', lines: [TRANSFER_LINE] },
+      payload: { parentKey: 'missing', vendorName: 'V', lines: [TRANSFER_LINE] },
     });
 
     expect(after.items).toBe(before.items);
     expect(after.isDirty).toBe(false);
   });
 
-  it('業者金額行を持たない値引き行を転記先に指定した場合は明細を変更しない (41.3)', () => {
-    const before = stateOf([singleLineItem('D', 'DISCOUNT')]);
+  it.each(['DISCOUNT', 'NOTE'] as const)(
+    '子を持てない%s行を転記先に指定した場合は転記せず拒否する (41.3)',
+    (itemType) => {
+      const before = stateOf([singleLineItem('X', itemType)]);
 
-    const after = estimateEditReducer(before, {
-      type: 'applyQuotationTransfer',
-      payload: { targetKey: 'D', vendorName: 'V', lines: [TRANSFER_LINE] },
-    });
+      const after = estimateEditReducer(before, {
+        type: 'applyQuotationTransfer',
+        payload: { parentKey: 'X', vendorName: 'V', lines: [TRANSFER_LINE] },
+      });
 
-    expect(after.items).toBe(before.items);
-    expect(after.isDirty).toBe(false);
-  });
+      expect(after.items).toBe(before.items);
+      expect(after.isDirty).toBe(false);
+      expect(after.lastError).toEqual({ kind: 'INVALID_PARENT_TYPE', key: 'X', itemType });
+    }
+  );
 
   it('転記元の明細行が空の場合は明細を変更しない', () => {
     const before = stateOf([detailedItem('A', {})]);
 
     const after = estimateEditReducer(before, {
       type: 'applyQuotationTransfer',
-      payload: { targetKey: null, vendorName: 'V', lines: [] },
+      payload: { parentKey: null, vendorName: 'V', lines: [] },
     });
 
     expect(after.items).toBe(before.items);
@@ -1761,7 +1764,7 @@ describe('estimateEditReducer / applyQuotationTransfer', () => {
 
     estimateEditReducer(before, {
       type: 'applyQuotationTransfer',
-      payload: { targetKey: 'A', vendorName: 'V', lines: [TRANSFER_LINE] },
+      payload: { parentKey: 'A', vendorName: 'V', lines: [TRANSFER_LINE] },
     });
 
     expect(JSON.parse(JSON.stringify(before))).toEqual(snapshot);
@@ -2198,7 +2201,7 @@ describe('estimateEditReducer / 適用と未保存の編集内容の共存', () 
       {
         type: 'applyQuotationTransfer',
         payload: {
-          targetKey: null,
+          parentKey: null,
           vendorName: 'V',
           lines: [
             { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '10' },
