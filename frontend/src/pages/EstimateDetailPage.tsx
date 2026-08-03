@@ -1796,11 +1796,19 @@ export default function EstimateDetailPage() {
         onConfirm={handleDelete}
       />
 
-      {/* 出力ダイアログ (REQ-10.1, REQ-10.2) */}
+      {/*
+        出力ダイアログ (REQ-10.1, REQ-10.2)。
+        帳票は**編集中のツリーと帳票用入力項目**から生成するため、未保存の変更が
+        そのまま反映される（56.1 / 56.2）。保存要求は伴わないので `editor.isDirty` は
+        出力後もそのまま残り、その旨をダイアログが表示する（56.3 / 56.4）。
+      */}
       <EstimateExportDialog
         isOpen={isExportDialogOpen}
-        estimateId={estimate.id}
         estimateName={estimate.name}
+        projectId={estimate.projectId}
+        items={editor.editState.items}
+        reportFields={editor.reportFields}
+        hasUnsavedChanges={editor.isDirty}
         onClose={() => setIsExportDialogOpen(false)}
       />
 

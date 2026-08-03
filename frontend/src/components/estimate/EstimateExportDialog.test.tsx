@@ -1,627 +1,490 @@
 /**
- * @fileoverview EstimateExportDialog テスト
+ * @fileoverview EstimateExportDialog の単体テスト（Task 56.9）
  *
- * Task 42.4: 見積書出力の行タイプ複数選択テスト
+ * 帳票の生成はフロントエンドで完結する（56.6 / 56.7）。本ダイアログの責務は
+ * **編集中のツリーをそのまま出力サービスへ渡すこと**と、選択・既定値・エラー表示である。
  *
  * Requirements (estimate-creation):
- * - REQ-32.1: 出力対象として「見積」「実行」「業者」をチェックボックスで複数選択可能とする
- * - REQ-32.2: チェックされた行タイプの列のみを出力対象とする
- * - REQ-32.3: 出力ファイル名にチェックされた行タイプのラベルを含める
- * - REQ-32.4: lineTypesクエリパラメータ（カンマ区切り）を受け付ける
- * - REQ-32.5: デフォルト値として「見積」のみをONとする
- * - REQ-32.6: いずれのチェックボックスもチェックされていない場合、出力ボタンを無効化する
- * - REQ-32.7: チェックされた行タイプの列を横1列に並べ、行タイプごとのプレフィックス付き列名で出力する
- * - REQ-32.8: 出力形式のデフォルトをExcel（.xlsx）とする
- * - REQ-10.1: PDF出力を選択した場合、建設工事見積書形式のPDFファイルを生成する
- * - REQ-10.2: Excel出力を選択した場合、建設工事見積書形式のExcelファイルを生成する
- * - REQ-10.8: 見積書出力が処理中の場合、出力処理中であることを表示する
- * - REQ-10.14: 出力形式のデフォルトをExcel（.xlsx）とする
+ * - 10.9: 出力形式のデフォルトをExcel（.xlsx）とする
+ * - 10.10: 出力ダイアログでチェックされた行タイプを出力対象とする
+ * - 32.1: 「見積」「実行」「業者」をチェックボックスで複数選択可能とする
+ * - 32.7: チェックボックスのデフォルト値を Requirement 38 AC1 に従って設定する
+ * - 32.8: いずれもチェックされていない場合、出力ボタンを無効化する
+ * - 38.1: デフォルト値として「見積」と「実行」をONとする
+ * - 56.1: 未保存の変更がある状態でも帳票を出力可能とする
+ * - 56.2: 編集中の内容を反映した帳票を生成する
+ * - 56.3: 保存操作を伴わせず、未保存の変更を保持する
+ * - 56.4: 未保存の変更がある間、帳票が未保存の内容を含むことを画面上で示す
+ * - 10.7: 出力処理中であることを表示する
+ * - 10.8: 日本語描画の準備に失敗した場合は中断してエラーメッセージを表示する
+ *
+ * 「未保存の編集が帳票に載る」の一気通貫（画面の編集 → 出力）は
+ * `pages/EstimateDetailPage.export.test.tsx` が実物のページで検証する。
+ *
+ * @module components/estimate/EstimateExportDialog.test
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as XLSX from 'xlsx';
 import { EstimateExportDialog } from './EstimateExportDialog';
+// 観測窓の裏取り用。**モックしない実物**を通して `fetch` の記録に現れることを確かめる。
+import { getCompanyInfo } from '../../api/company-info';
+import type {
+  EditableItem,
+  EstimateReportFields,
+} from '../../domain/estimate/estimateEditReducer.types';
+import type { EstimatePdfExportInput } from '../../services/export/EstimatePdfExportService';
 
-describe('EstimateExportDialog', () => {
-  const defaultProps = {
-    isOpen: true,
-    estimateId: 'est-001',
-    estimateName: 'テスト見積書',
-    onClose: vi.fn(),
-  };
+// ============================================================================
+// モック
+// ============================================================================
 
-  let originalFetch: typeof globalThis.fetch;
+/**
+ * 帳票（PDF）サービスは**動的読み込み口ごと**差し替える。
+ *
+ * 実体を読むとフォント資産（約2.25MB）まで読み込むため。読み込み口を経由していることは
+ * `services/export/loadEstimatePdfExportService.test.ts` が静的 import グラフで機械検査する。
+ */
+const pdfGenerateAndDownload =
+  vi.fn<(input: EstimatePdfExportInput) => Promise<readonly unknown[]>>();
+vi.mock('../../services/export/loadEstimatePdfExportService', () => ({
+  loadEstimatePdfExportService: async () => ({
+    generate: vi.fn(),
+    downloadFiles: vi.fn(),
+    generateAndDownload: pdfGenerateAndDownload,
+  }),
+}));
 
-  beforeEach(() => {
-    vi.resetAllMocks();
-    originalFetch = globalThis.fetch;
-    global.URL.createObjectURL = vi.fn(() => 'blob:http://localhost/test');
-    global.URL.revokeObjectURL = vi.fn();
+/** 表紙の周辺情報の取得（読み取りのみ）。実 API を叩かないよう差し替える */
+const loadSubject = vi.fn();
+vi.mock('../../services/export/estimateReportSubject', () => ({
+  loadEstimateReportSubject: (projectId: string) => loadSubject(projectId),
+}));
+
+const SUBJECT = {
+  project: { name: '本社ビル改修工事', siteAddress: '東京都千代田区1-1' },
+  customer: { name: '株式会社サンプル', representativeName: '山田太郎' },
+  company: {
+    companyName: '株式会社アークン',
+    representative: '中野一郎',
+    address: '大阪府大阪市1-1',
+    phone: '06-0000-0000',
+    fax: '06-0000-0001',
+  },
+};
+
+// ============================================================================
+// フィクスチャ
+// ============================================================================
+
+const line = (lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR', name: string, amount: string) => ({
+  id: null,
+  lineType,
+  name,
+  specification: null,
+  unit: '式',
+  quantity: '1',
+  unitPrice: amount,
+  amount,
+  remarks: null,
+  sourceVendorName: null,
+});
+
+/** 3行タイプすべてに値を持つ1件のツリー */
+const treeNamed = (name: string): readonly EditableItem[] => [
+  {
+    id: 'item-1',
+    tempId: null,
+    itemType: 'STANDARD',
+    lines: [
+      line('ESTIMATE', name, '100000'),
+      line('EXECUTION', name, '80000'),
+      line('VENDOR', name, '70000'),
+    ],
+    children: [],
+  },
+];
+
+const REPORT_FIELDS: EstimateReportFields = {
+  submissionDate: '2026-08-03',
+  validityPeriod: '提出日より1ヶ月間',
+  separateWorks: ['電気設備工事'],
+};
+
+const baseProps = {
+  isOpen: true,
+  estimateName: 'テスト見積書',
+  projectId: 'proj-1',
+  items: treeNamed('内装工事'),
+  reportFields: REPORT_FIELDS,
+  hasUnsavedChanges: false,
+  onClose: vi.fn(),
+};
+
+const renderDialog = (overrides: Partial<typeof baseProps> = {}) =>
+  render(<EstimateExportDialog {...baseProps} onClose={vi.fn()} {...overrides} />);
+
+// ============================================================================
+// 出力の観測
+// ============================================================================
+
+/** ダウンロードされたファイル名と Blob（実物の表計算サービスが作ったもの） */
+const downloaded: { fileName: string; blob: Blob }[] = [];
+let nextBlob: Blob | null = null;
+
+/**
+ * 表計算ファイルの全セル値を連結した文字列（表題・見出し・明細・合計をすべて含む）
+ *
+ * 名称欄は階層記号を前置した文字列になる（53.1 / `Ⅰ．内装工事`）ため、
+ * 完全一致ではなく包含で判定する。
+ */
+const sheetTextOf = async (blob: Blob): Promise<string> => {
+  const buffer = await blob.arrayBuffer();
+  const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]!]!;
+  return Object.entries(sheet)
+    .filter(([key]) => !key.startsWith('!'))
+    .map(([, cell]) => String((cell as XLSX.CellObject).v ?? ''))
+    .join('\u0000');
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  downloaded.length = 0;
+  nextBlob = null;
+  pdfGenerateAndDownload.mockResolvedValue([]);
+  loadSubject.mockResolvedValue(SUBJECT);
+
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: vi.fn((blob: Blob) => {
+      nextBlob = blob;
+      return 'blob:mock';
+    }),
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement
+  ) {
+    downloaded.push({ fileName: this.download, blob: nextBlob! });
+  });
+});
+
+const exportButton = (): HTMLButtonElement =>
+  screen.getByRole('button', { name: /^出力/ }) as HTMLButtonElement;
+
+const checkbox = (value: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'): HTMLInputElement =>
+  document.querySelector(`input[type="checkbox"][value="${value}"]`) as HTMLInputElement;
+
+const formatRadio = (value: 'pdf' | 'xlsx'): HTMLInputElement =>
+  document.querySelector(
+    `input[type="radio"][name="export-format"][value="${value}"]`
+  ) as HTMLInputElement;
+
+// ============================================================================
+// 表示
+// ============================================================================
+
+describe('EstimateExportDialog - 表示', () => {
+  it('isOpen=false の場合は何も表示しない', () => {
+    const { container } = renderDialog({ isOpen: false });
+
+    expect(container.innerHTML).toBe('');
   });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  /**
-   * ダイアログが開かれたときに表示される
-   */
-  it('ダイアログが開かれたときに正しくレンダリングされる', () => {
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText('見積書出力')).toBeInTheDocument();
-  });
-
-  /**
-   * isOpen=false の場合、ダイアログが表示されない
-   */
-  it('isOpen=false の場合、ダイアログが表示されない', () => {
-    render(<EstimateExportDialog {...defaultProps} isOpen={false} />);
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  });
-
-  // ============================================================================
-  // REQ-32.1: チェックボックスで複数選択可能
-  // ============================================================================
-
-  /**
-   * REQ-32.1: 出力対象をチェックボックスで表示する（ラジオボタンではない）
-   */
-  it('出力対象がチェックボックスで表示される（ラジオボタンではない）', () => {
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    // チェックボックスが3つ存在する
-    const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes.length).toBeGreaterThanOrEqual(3);
-
-    // 「見積」「実行」「業者」のラベルが表示されている
-    expect(screen.getByText('見積')).toBeInTheDocument();
-    expect(screen.getByText('実行')).toBeInTheDocument();
-    expect(screen.getByText('業者')).toBeInTheDocument();
-
-    // ラジオボタンが出力対象セクションに存在しない（出力形式セクションにはラジオボタンがあるが、出力対象セクションはチェックボックスであること）
-    const lineTypeRadios = screen
-      .queryAllByRole('radio')
-      .filter((radio) => (radio as HTMLInputElement).name === 'export-line-type');
-    expect(lineTypeRadios).toHaveLength(0);
-  });
-
-  /**
-   * REQ-32.1: 複数のチェックボックスを同時に選択できる
-   */
-  it('複数のチェックボックスを同時に選択できる', async () => {
+  it('出力対象を3つのチェックボックスで複数選択できる（32.1）', async () => {
     const user = userEvent.setup();
-    render(<EstimateExportDialog {...defaultProps} />);
+    renderDialog();
 
-    const checkboxes = screen.getAllByRole('checkbox');
-    // デフォルトで見積がON
-    const estimateCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
-    ) as HTMLInputElement;
-    const executionCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
-    ) as HTMLInputElement;
-    const vendorCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'VENDOR'
-    ) as HTMLInputElement;
+    expect(checkbox('ESTIMATE')).toBeInTheDocument();
+    expect(checkbox('EXECUTION')).toBeInTheDocument();
+    expect(checkbox('VENDOR')).toBeInTheDocument();
 
-    expect(estimateCheckbox).toBeTruthy();
-    expect(executionCheckbox).toBeTruthy();
-    expect(vendorCheckbox).toBeTruthy();
+    await user.click(checkbox('VENDOR'));
 
-    // REQ-38.1: デフォルトで見積+実行がON。業者もチェックする
-    await user.click(vendorCheckbox);
+    // 3つ同時に選択できる（ラジオボタンなら排他になる）
+    expect(checkbox('ESTIMATE').checked).toBe(true);
+    expect(checkbox('EXECUTION').checked).toBe(true);
+    expect(checkbox('VENDOR').checked).toBe(true);
+  });
+});
 
-    // 3つともチェックされている
-    expect(estimateCheckbox.checked).toBe(true);
-    expect(executionCheckbox.checked).toBe(true);
-    expect(vendorCheckbox.checked).toBe(true);
+// ============================================================================
+// 既定値（38.1, 32.7, 10.9, 32.8）
+// ============================================================================
+
+describe('EstimateExportDialog - 既定値', () => {
+  it('行タイプの既定は「見積」と「実行」の2つで「業者」はOFF（38.1 / 32.7）', () => {
+    renderDialog();
+
+    expect(checkbox('ESTIMATE').checked).toBe(true);
+    expect(checkbox('EXECUTION').checked).toBe(true);
+    expect(checkbox('VENDOR').checked).toBe(false);
   });
 
-  // ============================================================================
-  // REQ-38.1: デフォルト値は「見積」と「実行」がON（REQ-32.5を上書き）
-  // ============================================================================
+  it('出力形式の既定は表計算形式（10.9 / 32.8）', () => {
+    renderDialog();
 
-  /**
-   * REQ-38.1: デフォルト値は「見積」と「実行」がON、「業者」はOFF
-   */
-  it('デフォルト値は「見積」と「実行」がON、「業者」はOFF', () => {
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    const checkboxes = screen.getAllByRole('checkbox');
-    const estimateCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
-    ) as HTMLInputElement;
-    const executionCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
-    ) as HTMLInputElement;
-    const vendorCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'VENDOR'
-    ) as HTMLInputElement;
-
-    expect(estimateCheckbox.checked).toBe(true);
-    expect(executionCheckbox.checked).toBe(true);
-    expect(vendorCheckbox.checked).toBe(false);
+    expect(formatRadio('xlsx').checked).toBe(true);
+    expect(formatRadio('pdf').checked).toBe(false);
   });
 
-  // ============================================================================
-  // REQ-32.8, REQ-10.14: 出力形式のデフォルトをExcel（.xlsx）とする
-  // ============================================================================
-
-  /**
-   * REQ-32.8, REQ-10.14: 出力形式のデフォルトをExcel（.xlsx）とする
-   */
-  it('出力形式のデフォルトがExcel（.xlsx）である', () => {
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    const formatRadios = screen.getAllByRole('radio').filter((radio) => {
-      return (radio as HTMLInputElement).name === 'export-format';
-    });
-
-    const xlsxRadio = formatRadios.find(
-      (r) => (r as HTMLInputElement).value === 'xlsx'
-    ) as HTMLInputElement;
-    const pdfRadio = formatRadios.find(
-      (r) => (r as HTMLInputElement).value === 'pdf'
-    ) as HTMLInputElement;
-
-    expect(xlsxRadio.checked).toBe(true);
-    expect(pdfRadio.checked).toBe(false);
-  });
-
-  // ============================================================================
-  // REQ-32.6: チェックボックス全OFFで出力ボタンがdisabled
-  // ============================================================================
-
-  /**
-   * REQ-32.6: いずれのチェックボックスもチェックされていない場合、出力ボタンを無効化する
-   */
-  it('チェックボックス全OFFで出力ボタンがdisabledになる', async () => {
+  it('既定のまま出力すると「見積」「実行」の2ファイルを表計算形式でこの順に生成する', async () => {
     const user = userEvent.setup();
-    render(<EstimateExportDialog {...defaultProps} />);
+    renderDialog();
 
-    // REQ-38.1: デフォルトでは「見積」+「実行」がONなので出力ボタンは有効
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    expect(exportButton).not.toBeDisabled();
-
-    // 全てのチェックを外す
-    const checkboxes = screen.getAllByRole('checkbox');
-    const estimateCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'ESTIMATE'
-    )!;
-    const executionCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
-    )!;
-    await user.click(estimateCheckbox);
-    await user.click(executionCheckbox);
-
-    // 全てのチェックボックスがOFFになったので出力ボタンはdisabled
-    expect(exportButton).toBeDisabled();
-  });
-
-  // ============================================================================
-  // REQ-32.4: lineTypesクエリパラメータ（カンマ区切り）
-  // ============================================================================
-
-  /**
-   * REQ-32.4: 単一行タイプ選択時のlineTypesパラメータ確認
-   */
-  it('単一行タイプ選択時にlineTypesクエリパラメータが正しく付加される', async () => {
-    const user = userEvent.setup();
-    const mockBlob = new Blob(['test'], { type: 'application/pdf' });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(mockBlob),
-    });
-
-    const originalCreateElement = document.createElement.bind(document);
-    const mockClick = vi.fn();
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === 'a') {
-        element.click = mockClick;
-      }
-      return element;
-    });
-
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    // デフォルト（見積+実行ON、出力形式Excel）で出力（REQ-38.1）
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
+    await user.click(exportButton());
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION',
-        expect.objectContaining({ method: 'GET' })
-      );
+      expect(downloaded.map((file) => file.fileName)).toEqual([
+        'テスト見積書_見積.xlsx',
+        'テスト見積書_実行.xlsx',
+      ]);
     });
   });
+});
 
-  /**
-   * REQ-32.4: 複数行タイプ選択時にlineTypesパラメータがカンマ区切りで付加される
-   */
-  it('複数行タイプ選択時にlineTypesクエリパラメータがカンマ区切りで付加される', async () => {
+// ============================================================================
+// 出力ボタンの閾値（32.8）
+// ============================================================================
+
+describe('EstimateExportDialog - 出力ボタンの活性', () => {
+  it('行タイプが1つでも選択されていれば有効', async () => {
     const user = userEvent.setup();
-    const mockBlob = new Blob(['test'], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(mockBlob),
-    });
+    renderDialog();
 
-    const originalCreateElement = document.createElement.bind(document);
-    const mockClick = vi.fn();
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === 'a') {
-        element.click = mockClick;
-      }
-      return element;
-    });
+    await user.click(checkbox('EXECUTION'));
 
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    // REQ-38.1: デフォルトで見積+実行がON。業者もチェックする
-    const checkboxes = screen.getAllByRole('checkbox');
-    const vendorCheckbox = checkboxes.find((cb) => (cb as HTMLInputElement).value === 'VENDOR')!;
-    await user.click(vendorCheckbox);
-
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
-
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION,VENDOR',
-        expect.objectContaining({ method: 'GET' })
-      );
-    });
+    // 「見積」だけが残った状態＝閾値のちょうど上
+    expect(checkbox('ESTIMATE').checked).toBe(true);
+    expect(checkbox('EXECUTION').checked).toBe(false);
+    expect(checkbox('VENDOR').checked).toBe(false);
+    expect(exportButton()).toBeEnabled();
   });
 
-  // ============================================================================
-  // REQ-32.3: 出力ファイル名に行タイプラベルを含める
-  // ============================================================================
-
-  /**
-   * REQ-32.3: 出力ファイル名に選択された行タイプラベルが含まれる（単一）
-   */
-  it('出力ファイル名に選択された行タイプラベルが含まれる（単一）', async () => {
+  it('いずれも選択されていない場合は無効になり、押しても出力しない（32.8）', async () => {
     const user = userEvent.setup();
-    const mockBlob = new Blob(['test'], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(mockBlob),
-    });
+    renderDialog();
 
-    const originalCreateElement = document.createElement.bind(document);
-    let downloadFileName = '';
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === 'a') {
-        element.click = vi.fn();
-        Object.defineProperty(element, 'download', {
-          set: (value: string) => {
-            downloadFileName = value;
-          },
-          get: () => downloadFileName,
-        });
-      }
-      return element;
-    });
+    await user.click(checkbox('ESTIMATE'));
+    await user.click(checkbox('EXECUTION'));
 
-    render(<EstimateExportDialog {...defaultProps} />);
+    expect(checkbox('ESTIMATE').checked).toBe(false);
+    expect(checkbox('EXECUTION').checked).toBe(false);
+    expect(checkbox('VENDOR').checked).toBe(false);
+    expect(exportButton()).toBeDisabled();
 
-    // REQ-38.1: デフォルト（見積+実行ON、Excel）で出力
-    // 見積のみにするため実行をOFF
-    const checkboxes = screen.getAllByRole('checkbox');
-    const executionCheckbox = checkboxes.find(
-      (cb) => (cb as HTMLInputElement).value === 'EXECUTION'
-    )!;
-    await user.click(executionCheckbox);
+    await user.click(exportButton());
 
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
-
-    await waitFor(() => {
-      expect(downloadFileName).toContain('_見積');
-      expect(downloadFileName).toContain('.xlsx');
-    });
+    expect(downloaded).toEqual([]);
   });
 
-  /**
-   * REQ-32.3: 出力ファイル名に複数行タイプラベルがアンダースコア区切りで含まれる
-   */
-  it('出力ファイル名に複数行タイプラベルがアンダースコア区切りで含まれる', async () => {
+  it('外した行タイプを選び直すと再び有効になる', async () => {
     const user = userEvent.setup();
-    const mockBlob = new Blob(['test'], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(mockBlob),
-    });
+    renderDialog();
 
-    const originalCreateElement = document.createElement.bind(document);
-    let downloadFileName = '';
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === 'a') {
-        element.click = vi.fn();
-        Object.defineProperty(element, 'download', {
-          set: (value: string) => {
-            downloadFileName = value;
-          },
-          get: () => downloadFileName,
-        });
-      }
-      return element;
-    });
+    await user.click(checkbox('ESTIMATE'));
+    await user.click(checkbox('EXECUTION'));
+    expect(exportButton()).toBeDisabled();
 
-    render(<EstimateExportDialog {...defaultProps} />);
+    await user.click(checkbox('VENDOR'));
 
-    // REQ-38.1: デフォルトで見積+実行がON。そのまま出力
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
+    expect(exportButton()).toBeEnabled();
+  });
+});
 
-    await waitFor(() => {
-      expect(downloadFileName).toContain('_見積_実行');
-      expect(downloadFileName).toContain('.xlsx');
-    });
+// ============================================================================
+// 未保存の変更（56.1, 56.2, 56.4）
+// ============================================================================
+
+describe('EstimateExportDialog - 未保存の変更', () => {
+  it('未保存の変更がある場合は帳票が未保存の内容を含むことを示す（56.4）', () => {
+    renderDialog({ hasUnsavedChanges: true });
+
+    const notice = screen.getByTestId('estimate-export-unsaved-notice');
+    expect(notice).toBeInTheDocument();
+    expect(notice.textContent).toContain('未保存');
   });
 
-  // ============================================================================
-  // REQ-10.1: PDF出力
-  // ============================================================================
+  it('未保存の変更がない場合は示さない', () => {
+    renderDialog({ hasUnsavedChanges: false });
 
-  /**
-   * REQ-10.1: PDF出力を実行できる
-   */
-  it('PDF出力を実行できる', async () => {
-    const user = userEvent.setup();
-    const mockBlob = new Blob(['test'], { type: 'application/pdf' });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(mockBlob),
-    });
-
-    const originalCreateElement = document.createElement.bind(document);
-    const mockClick = vi.fn();
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === 'a') {
-        element.click = mockClick;
-      }
-      return element;
-    });
-
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    // 出力形式をPDFに変更
-    const pdfRadio = screen
-      .getAllByRole('radio')
-      .find((r) => (r as HTMLInputElement).value === 'pdf')!;
-    await user.click(pdfRadio);
-
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
-
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-001/export?format=pdf&lineTypes=ESTIMATE,EXECUTION',
-        expect.objectContaining({ method: 'GET' })
-      );
-    });
-
-    await waitFor(() => {
-      expect(mockClick).toHaveBeenCalled();
-    });
+    expect(screen.queryByTestId('estimate-export-unsaved-notice')).not.toBeInTheDocument();
   });
 
-  /**
-   * REQ-10.2: Excel出力を実行できる（デフォルトで選択済み）
-   */
-  it('Excel出力を実行できる（デフォルト選択）', async () => {
-    const user = userEvent.setup();
-    const mockBlob = new Blob(['test'], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(mockBlob),
-    });
+  it('未保存の変更がある状態でも出力ボタンは有効（56.1）', () => {
+    renderDialog({ hasUnsavedChanges: true });
 
-    const originalCreateElement = document.createElement.bind(document);
-    const mockClick = vi.fn();
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === 'a') {
-        element.click = mockClick;
-      }
-      return element;
-    });
-
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    // デフォルトでExcelが選択済み（REQ-38.1: 見積+実行がデフォルトON）
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
-
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-001/export?format=xlsx&lineTypes=ESTIMATE,EXECUTION',
-        expect.objectContaining({ method: 'GET' })
-      );
-    });
-
-    await waitFor(() => {
-      expect(mockClick).toHaveBeenCalled();
-    });
+    expect(exportButton()).toBeEnabled();
   });
 
-  // ============================================================================
-  // REQ-10.8: 出力処理中表示
-  // ============================================================================
-
-  /**
-   * REQ-10.8: 出力処理中のインジケーター表示
-   */
-  it('出力処理中はローディングインジケーターを表示する', async () => {
+  it('渡された編集中のツリーの内容が生成された表計算ファイルに載る（56.2）', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockImplementation(
-      () =>
+    renderDialog({ items: treeNamed('未保存の内装工事'), hasUnsavedChanges: true });
+
+    await user.click(exportButton());
+    await waitFor(() => expect(downloaded.length).toBeGreaterThan(0));
+
+    const text = await sheetTextOf(downloaded[0]!.blob);
+    expect(text).toContain('未保存の内装工事');
+    // 渡していない名称は載らない＝上の包含判定が名称に反応していることの裏取り
+    expect(text).not.toContain('保存済みの内装工事');
+  });
+});
+
+// ============================================================================
+// 帳票（PDF）出力
+// ============================================================================
+
+describe('EstimateExportDialog - 帳票（PDF）出力', () => {
+  it('動的読み込み口から取得したサービスへ編集中のツリーと帳票用入力項目を渡す', async () => {
+    const user = userEvent.setup();
+    const items = treeNamed('未保存の内装工事');
+    renderDialog({ items, hasUnsavedChanges: true });
+
+    await user.click(formatRadio('pdf'));
+    await user.click(exportButton());
+
+    await waitFor(() => expect(pdfGenerateAndDownload).toHaveBeenCalledTimes(1));
+    const input = pdfGenerateAndDownload.mock.calls[0]![0];
+    expect(input.tree).toBe(items);
+    expect(input.lineTypes).toEqual(['ESTIMATE', 'EXECUTION']);
+    expect(input.estimate).toEqual({ name: 'テスト見積書', reportFields: REPORT_FIELDS });
+    expect(input.project).toEqual(SUBJECT.project);
+    expect(input.customer).toEqual(SUBJECT.customer);
+    expect(input.company).toEqual(SUBJECT.company);
+    expect(loadSubject).toHaveBeenCalledWith('proj-1');
+  });
+
+  it('出力サービスの日本語エラーメッセージをそのまま表示する（10.8）', async () => {
+    const user = userEvent.setup();
+    pdfGenerateAndDownload.mockRejectedValue(
+      new Error(
+        '日本語フォントの登録に失敗したため、帳票の出力を中断しました。文字が正しく表示されないファイルは作成されません。'
+      )
+    );
+    const onClose = vi.fn();
+    renderDialog({ onClose });
+
+    await user.click(formatRadio('pdf'));
+    await user.click(exportButton());
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('日本語フォントの登録に失敗したため');
+    // 失敗した以上ダイアログは開いたままで、選択をやり直せる
+    expect(onClose).not.toHaveBeenCalled();
+    expect(exportButton()).toBeEnabled();
+  });
+
+  it('出力処理中であることと出力サービスの進捗を表示する（10.7）', async () => {
+    const user = userEvent.setup();
+    let release: () => void = () => {};
+    pdfGenerateAndDownload.mockImplementation(
+      (input) =>
         new Promise((resolve) => {
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                blob: () => Promise.resolve(new Blob(['test'])),
-              }),
-            1000
-          );
+          input.onProgress?.({
+            phase: 'generating',
+            current: 0,
+            total: 2,
+            percent: 0,
+            message: '見積の帳票を生成中... (1/2)',
+          });
+          release = () => resolve([]);
         })
     );
+    renderDialog();
 
-    render(<EstimateExportDialog {...defaultProps} />);
+    await user.click(formatRadio('pdf'));
+    await user.click(exportButton());
 
-    // デフォルトでExcelが選択済みなので、そのまま出力
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
+    await waitFor(() => expect(exportButton().textContent).toContain('出力中'));
+    expect(exportButton()).toBeDisabled();
+    // 進捗はサービスが報告した文言をそのまま出す（画面側で作文しない）
+    expect(screen.getByTestId('estimate-export-progress').textContent).toBe(
+      '見積の帳票を生成中... (1/2)'
+    );
 
-    await waitFor(() => {
-      expect(screen.getByText(/出力中/i)).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole('button', { name: /出力中/i })).toBeDisabled();
+    release();
+    // 完了後は進捗表示を残さない
+    await waitFor(() =>
+      expect(screen.queryByTestId('estimate-export-progress')).not.toBeInTheDocument()
+    );
   });
+});
 
-  // ============================================================================
-  // エラーハンドリング
-  // ============================================================================
+// ============================================================================
+// 出力に保存を伴わせない（56.3）
+// ============================================================================
 
+describe('EstimateExportDialog - 保存を伴わない', () => {
   /**
-   * 出力エラー時はエラーメッセージを表示する
+   * 「通信が0件」は否定の主張なので、**観測窓が通信を本当に捉えられること**を
+   * 同じテスト内で示さなければ空振りになる（窓が閉じていても 0 件になる）。
+   * そのため窓は開いたままにし、出力の後に実物の API 関数を1本通して
+   * 同じ記録に現れることまで確かめる（53.14 → 54.11 / 55.9 で確立した手順）。
    */
-  it('出力エラー時はエラーメッセージを表示する', async () => {
+  it('表計算出力は API を1本も呼ばない（56.3）', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('出力に失敗しました'));
+    const requestLog: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        requestLog.push(String(input));
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ success: true, data: {} }),
+          text: async () => '',
+        } as unknown as Response);
+      })
+    );
 
-    render(<EstimateExportDialog {...defaultProps} />);
+    try {
+      renderDialog({ hasUnsavedChanges: true });
 
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
+      await user.click(exportButton());
+      await waitFor(() => expect(downloaded.length).toBe(2));
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-      expect(screen.getByText(/見積書の出力に失敗しました/i)).toBeInTheDocument();
-    });
+      // 観測窓は開いたまま。ここで閉じると 0 件の主張が空振りになる。
+      expect(requestLog).toEqual([]);
+
+      // --- 窓が通信を捉えられることの裏取り --------------------------------
+      // 同じ窓に実物の API 呼び出しが記録される＝上の `toEqual([])` は
+      // 「窓が通信を見られなかったから空だった」のではない。
+      await getCompanyInfo();
+      expect(requestLog).toHaveLength(1);
+      expect(requestLog[0]).toContain('/api/company-info');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
+});
 
-  // ============================================================================
-  // キャンセルと成功
-  // ============================================================================
+// ============================================================================
+// 閉じる
+// ============================================================================
 
-  /**
-   * キャンセルボタンでダイアログを閉じる
-   */
-  it('キャンセルボタンでダイアログを閉じる', async () => {
+describe('EstimateExportDialog - 閉じる', () => {
+  it('キャンセルで閉じる', async () => {
     const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderDialog({ onClose });
 
-    render(<EstimateExportDialog {...defaultProps} />);
+    await user.click(screen.getByRole('button', { name: 'キャンセル' }));
 
-    const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
-    await user.click(cancelButton);
-
-    expect(defaultProps.onClose).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * 出力成功後にダイアログを閉じる
-   */
-  it('出力成功後にダイアログを閉じる', async () => {
+  it('出力に成功したら閉じる', async () => {
     const user = userEvent.setup();
-    const mockBlob = new Blob(['test'], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(mockBlob),
-    });
+    const onClose = vi.fn();
+    renderDialog({ onClose });
 
-    const originalCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === 'a') {
-        element.click = vi.fn();
-      }
-      return element;
-    });
+    await user.click(exportButton());
 
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    // デフォルトでExcelが選択済み
-    const exportButton = screen.getByRole('button', { name: '出力' });
-    await user.click(exportButton);
-
-    await waitFor(() => {
-      expect(defaultProps.onClose).toHaveBeenCalled();
-    });
-  });
-
-  // ============================================================================
-  // 出力形式選択（既存テスト更新）
-  // ============================================================================
-
-  /**
-   * 出力形式選択オプションを表示する
-   */
-  it('出力形式選択オプションを表示する', () => {
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    expect(screen.getByText('出力対象と出力形式を選択してください')).toBeInTheDocument();
-
-    const formatRadios = screen.getAllByRole('radio').filter((radio) => {
-      return (radio as HTMLInputElement).name === 'export-format';
-    });
-    expect(formatRadios).toHaveLength(2);
-  });
-
-  /**
-   * PDF出力形式を選択できる
-   */
-  it('PDF出力形式を選択できる', async () => {
-    const user = userEvent.setup();
-
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    const pdfRadio = screen
-      .getAllByRole('radio')
-      .find((r) => (r as HTMLInputElement).value === 'pdf')!;
-    await user.click(pdfRadio);
-
-    expect(pdfRadio).toBeChecked();
-  });
-
-  /**
-   * Excel出力形式を選択できる
-   */
-  it('Excel出力形式を選択できる', async () => {
-    const user = userEvent.setup();
-
-    render(<EstimateExportDialog {...defaultProps} />);
-
-    const excelRadio = screen
-      .getAllByRole('radio')
-      .find((r) => (r as HTMLInputElement).value === 'xlsx')!;
-
-    // デフォルトで選択済みだが、改めてクリック
-    await user.click(excelRadio);
-
-    expect(excelRadio).toBeChecked();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });
