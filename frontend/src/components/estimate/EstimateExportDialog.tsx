@@ -30,7 +30,6 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { ExportFormat } from '../../api/estimates';
 import type {
   EditableItem,
   EstimateReportFields,
@@ -41,6 +40,16 @@ import { estimateExcelExportService } from '../../services/export/EstimateExcelE
 // （`services/export/loadEstimatePdfExportService.test.ts` が静的 import グラフで検査する）。
 import { loadEstimatePdfExportService } from '../../services/export/loadEstimatePdfExportService';
 import { loadEstimateReportSubject } from '../../services/export/estimateReportSubject';
+
+/**
+ * 出力形式
+ *
+ * かつては `api/estimates` が持っていたが、出力をサーバーへ依頼する関数ごと
+ * 撤去した（Task 56.10）。現在この値が決めるのは「どちらの出力サービスを呼ぶか」
+ * だけで通信要素を持たないため、唯一の消費者である本ダイアログの選択状態として
+ * ここに置く（`ExportLineType` と同じ扱い）。
+ */
+type ExportFormat = 'pdf' | 'xlsx';
 
 /**
  * 出力対象行タイプ

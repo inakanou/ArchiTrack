@@ -1,7 +1,7 @@
 /**
  * @fileoverview 見積書APIクライアント
  *
- * 見積書のCRUD操作、見積項目の参照、書き込みを伴わない計算、出力機能の
+ * 見積書のCRUD操作、見積項目の参照、書き込みを伴わない計算の
  * APIクライアントを提供します。
  *
  * 明細の追加・削除・複写・一括更新・並び替え・階層移動を個別に書き込む関数
@@ -16,6 +16,11 @@
  * {@link saveEstimateDraft} で確定する（REQ-49.3, REQ-49.5）。
  * 書き込みを伴わない {@link calculateOverhead} は維持対象。
  *
+ * 見積書出力を依頼する関数（`exportEstimate` / `downloadEstimate`）と出力形式の型
+ * （`ExportFormat`）も Task 56.10 で撤去済み。帳票（PDF）と表計算（Excel）は
+ * `EstimatePdfExportService` / `EstimateExcelExportService` が画面の編集中ツリーから
+ * 生成するため、出力にサーバーは関与しない（REQ-10.1, REQ-10.2）。
+ *
  * Task 11: フロントエンドページの実装（API Client）
  *
  * Requirements (estimate-creation):
@@ -24,7 +29,6 @@
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
  * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
  * - REQ-3.1-3.5: 見積書新規作成と内訳書連携
- * - REQ-10.1-10.8: 見積書出力
  * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
  *
  * @module api/estimates
@@ -165,11 +169,6 @@ export interface UpdateEstimateInput {
   name: string;
 }
 
-/**
- * 出力形式
- */
-export type ExportFormat = 'pdf' | 'xlsx';
-
 // ============================================================================
 // 見積書CRUD API
 // ============================================================================
@@ -287,45 +286,6 @@ export async function updateEstimate(
  */
 export async function deleteEstimate(id: string, updatedAt: string): Promise<void> {
   await apiClient.delete(`/api/estimates/${id}?updatedAt=${encodeURIComponent(updatedAt)}`);
-}
-
-// ============================================================================
-// 見積書出力API
-// ============================================================================
-
-/**
- * 見積書を出力（PDF/Excel）
- * Requirements: REQ-10.1-10.8, REQ-32.4
- *
- * Task 42.3: lineTypeパラメータをlineTypes（配列）に変更
- *
- * @param id - 見積書ID
- * @param format - 出力形式
- * @param lineTypes - 出力対象行タイプの配列（デフォルト: ['ESTIMATE']）
- * @returns Blobデータ
- */
-export async function exportEstimate(
-  id: string,
-  format: ExportFormat,
-  lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'> = ['ESTIMATE']
-): Promise<Blob> {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const lineTypesParam = lineTypes.join(',');
-  const response = await fetch(
-    `${baseUrl}/api/estimates/${id}/export?format=${format}&lineTypes=${lineTypesParam}`,
-    {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-      },
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error('見積書の出力に失敗しました');
-  }
-
-  return response.blob();
 }
 
 /**
@@ -541,27 +501,4 @@ export async function saveEstimateDraft(
   input: SaveEstimateDraftRequest
 ): Promise<SaveEstimateDraftResponse> {
   return apiClient.put<SaveEstimateDraftResponse>(`/api/estimates/${estimateId}/save`, input);
-}
-
-/**
- * 見積書出力ファイルをダウンロード
- *
- * @param id - 見積書ID
- * @param format - 出力形式
- * @param filename - ファイル名
- */
-export async function downloadEstimate(
-  id: string,
-  format: ExportFormat,
-  filename: string
-): Promise<void> {
-  const blob = await exportEstimate(id, format);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
 }

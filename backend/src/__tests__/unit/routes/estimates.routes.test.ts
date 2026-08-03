@@ -584,7 +584,7 @@ describe('estimates.routes', () => {
   });
 
   // ==========================================
-  // 撤去済みエンドポイント（Task 53.12 / 55.7, REQ-42.1, REQ-49.3）
+  // 撤去済みエンドポイント（Task 53.12 / 55.7 / 56.10, REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2）
   // ==========================================
 
   /**
@@ -597,17 +597,25 @@ describe('estimates.routes', () => {
    * 49.3（実行時点でデータベースへ書き込まない）と 49.5（後続の保存で競合させない）の
    * 成立条件であり、経路が復活すれば `Estimate.updatedAt` を進める書き込みも復活する。
    *
+   * 見積書出力 `GET /:id/export` も、帳票（PDF）と表計算（Excel）の生成を
+   * クライアントの `EstimatePdfExportService` / `EstimateExcelExportService` へ
+   * 移したため存在しない（Task 56.10）。経路が残っていれば「出力にサーバーが
+   * 関与しない」が破れ、未保存の変更を含む出力（REQ-56.1〜56.3）が
+   * サーバー側の保存済みデータで上書きされうる。
+   *
    * 「経路が無いこと」は個々のハンドラのテストでは表現できないため、
    * ルーターへ要求を投げて**見つからない応答**になることで固定する。
-   * あわせて、段階4で撤去する経路と維持対象の経路が
-   * 巻き添えで消えていないこと（過剰撤去の検出）も同じ観点で固定する。
+   * あわせて、維持対象の経路が巻き添えで消えていないこと
+   * （過剰撤去の検出）も同じ観点で固定する。
    *
    * Requirements (estimate-creation):
+   * - REQ-10.1: PDF出力を選択した場合、建設工事見積書形式のPDFファイルを生成する
+   * - REQ-10.2: Excel出力を選択した場合、同じ書式規則のExcelファイルを生成する
    * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
    * - REQ-49.3: これらの操作は実行の時点でデータベースへの書き込みを行わない
    * - REQ-49.5: これらの操作の実行後に保存操作を行っても競合エラーを発生させない
    */
-  describe('撤去済みエンドポイント (REQ-42.1, REQ-49.3)', () => {
+  describe('撤去済みエンドポイント (REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2)', () => {
     const anotherItemId = '550e8400-e29b-41d4-a716-446655440009';
     const receivedQuotationId = '550e8400-e29b-41d4-a716-446655440007';
     const lineItemId = '550e8400-e29b-41d4-a716-446655440008';
@@ -705,7 +713,23 @@ describe('estimates.routes', () => {
       },
     ];
 
-    const removedRoutes = [...removedItemRoutes, ...removedTransferRoutes];
+    /**
+     * 出力系1経路（Task 56.10, REQ-10.1, REQ-10.2）
+     *
+     * クエリは撤去前のスキーマを満たす正当な内容にする（`format` は必須だった）。
+     * 形式不正の 400 を「経路が無い」と読み違えないようにするため。
+     */
+    const removedExportRoutes: Array<{ name: string; send: () => request.Test }> = [
+      {
+        name: 'GET /api/estimates/:id/export',
+        send: () =>
+          request(app).get(
+            `/api/estimates/${validUUID}/export?format=pdf&lineTypes=ESTIMATE,EXECUTION`
+          ),
+      },
+    ];
+
+    const removedRoutes = [...removedItemRoutes, ...removedTransferRoutes, ...removedExportRoutes];
 
     it.each(removedRoutes)('$name が見つからない応答を返すこと', async ({ send }) => {
       const response = await send();
@@ -714,10 +738,12 @@ describe('estimates.routes', () => {
     });
 
     /**
-     * 撤去した11経路がデータベースへ到達しないこと（REQ-49.3, REQ-49.5）
+     * 撤去した12経路がデータベースへ到達しないこと（REQ-49.3, REQ-49.5, REQ-10.1, REQ-10.2）
      *
      * `$transaction` は撤去前の案分・利益率適用が `Estimate.updatedAt` を
      * 進めていた経路そのもの。ここが呼ばれれば 49.5（後続の保存で競合しない）が破れる。
+     * `getHierarchy` は撤去前の出力経路が明細ツリーを読み出していた入口でもあり、
+     * ここが呼ばれれば出力がサーバー側の保存済みデータを見ていることになる。
      */
     it('撤去した経路がサービス・データベースの呼び出しに到達しないこと (REQ-49.3, REQ-49.5)', async () => {
       for (const route of removedRoutes) {
@@ -729,16 +755,11 @@ describe('estimates.routes', () => {
     });
 
     /**
-     * 過剰撤去の検出。`GET /:id/export` は段階4で撤去するため本段階では残る。
-     * 書き込みを伴わない `POST /:id/calculate-overhead` は撤去対象ではない
-     * （撤去した書き込み経路 `POST /:id/overhead-items` との取り違えを防ぐ）。
-     * 応答の中身ではなく「経路が解決されること」だけを見る。
+     * 過剰撤去の検出。書き込みを伴わない `POST /:id/calculate-overhead` は
+     * 撤去対象ではない（撤去した書き込み経路 `POST /:id/overhead-items` との
+     * 取り違えを防ぐ）。応答の中身ではなく「経路が解決されること」だけを見る。
      */
     const keptRoutes: Array<{ name: string; send: () => request.Test }> = [
-      {
-        name: 'GET /api/estimates/:id/export',
-        send: () => request(app).get(`/api/estimates/${validUUID}/export`),
-      },
       {
         name: 'POST /api/estimates/:id/calculate-overhead',
         send: () => request(app).post(`/api/estimates/${validUUID}/calculate-overhead`).send({}),

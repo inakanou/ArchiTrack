@@ -13,6 +13,10 @@
  * 反映後の保存が楽観的排他で競合しなくなった（REQ-49.5）。
  * 書き込みを伴わない `POST /:id/calculate-overhead` は維持対象（REQ-7.2-9.2）。
  *
+ * 見積書出力 `GET /:id/export` も Task 56.10 で撤去済み。帳票（PDF）と表計算（Excel）は
+ * クライアントの `EstimatePdfExportService` / `EstimateExcelExportService` が編集中の
+ * ツリーから生成するため、出力にサーバーは関与しない（REQ-10.1, REQ-10.2）。
+ *
  * Requirements (estimate-creation):
  * - REQ-11.1: プロジェクトに紐付く見積書の一覧を表示する
  * - REQ-11.2: 見積書を選択した場合、見積書の詳細を表示する
@@ -23,6 +27,7 @@
  * - REQ-1.1-1.6: 見積書基本構造
  * - REQ-2.1-2.6: 見積項目ネスト構造
  * - REQ-7.2-9.2: 諸経費自動計算（書き込みを伴わない計算のみ）
+ * - REQ-10.1, REQ-10.2: 見積書の帳票・表計算はクライアントで生成する（サーバー経路なし）
  * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
  * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
  * - REQ-49.5: これらの操作の実行後の保存で競合エラーを発生させない
@@ -30,6 +35,7 @@
  * Task 4.1: 見積書CRUD APIエンドポイントの実装
  * Task 4.2: 見積項目CRUD APIエンドポイントの実装
  * Task 55.7: 転記系エンドポイントの撤去
+ * Task 56.10: 出力エンドポイントの撤去
  *
  * @module routes/estimates
  */
@@ -42,12 +48,6 @@ import {
   type SavedEstimateItemNode,
 } from '../services/estimate-draft.service.js';
 import { OverheadCostService, OverheadCostType } from '../services/overhead-cost.service.js';
-import {
-  EstimateExportService,
-  ExportFormat,
-  type EstimateExportData,
-  type EstimateExportItem,
-} from '../services/estimate-export.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -63,7 +63,6 @@ import {
   estimateListQuerySchema,
   calculateOverheadSchema,
   getItemsQuerySchema,
-  exportEstimateQuerySchema,
   saveEstimateDraftSchema,
 } from '../schemas/estimate.schema.js';
 import { ValidationError } from '../errors/apiError.js';
@@ -88,7 +87,6 @@ const estimateService = new EstimateService({
 const estimateItemService = new EstimateItemService({ prisma });
 const estimateDraftService = new EstimateDraftService({ prisma });
 const overheadCostService = new OverheadCostService();
-const estimateExportService = new EstimateExportService();
 
 // ==========================================
 // 見積書CRUD API (Task 4.1)
@@ -867,8 +865,8 @@ router.put(
 // 追加・削除・更新・並び順の変更・階層の変更は保存1回でまとめて確定する。
 // 参照系の `GET /:id/items` は維持する。
 //
-// 転記系5経路（`POST /:id/transfer-quotation` ほか）は段階3、
-// `GET /:id/export` は段階4で撤去するため本ファイルに残している。
+// 転記系5経路（`POST /:id/transfer-quotation` ほか）は段階3（Task 55.7）、
+// 出力の `GET /:id/export` は段階4（Task 56.10）で撤去済み。
 
 /**
  * @swagger
@@ -1095,208 +1093,5 @@ router.post(
     }
   }
 );
-
-// ==========================================
-// 見積書出力API (Task 6.3)
-// ==========================================
-
-/**
- * @swagger
- * /api/estimates/{id}/export:
- *   get:
- *     summary: 見積書出力
- *     description: 見積書をPDFまたはExcel形式で出力
- *     tags:
- *       - Estimates
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: 見積書ID
- *       - in: query
- *         name: format
- *         required: true
- *         schema:
- *           type: string
- *           enum: [pdf, xlsx]
- *         description: 出力形式
- *     responses:
- *       200:
- *         description: ファイルバイナリ
- *         content:
- *           application/pdf:
- *             schema:
- *               type: string
- *               format: binary
- *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
- *             schema:
- *               type: string
- *               format: binary
- *       400:
- *         description: バリデーションエラー
- *       401:
- *         description: 認証エラー
- *       403:
- *         description: 権限不足
- *       404:
- *         description: 見積書が見つからない
- *       500:
- *         description: 出力処理エラー
- */
-router.get(
-  '/:id/export',
-  (req: Request, _res: Response, next: NextFunction): void => {
-    // ファイルダウンロード用: クエリパラメータのtokenをAuthorizationヘッダーに変換
-    if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
-      req.headers.authorization = `Bearer ${req.query.token}`;
-    }
-    next();
-  },
-  authenticate,
-  requirePermission('estimate:read'),
-  validate(estimateIdParamSchema, 'params'),
-  validate(exportEstimateQuerySchema, 'query'),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { id } = req.validatedParams as { id: string };
-      const { format, lineTypes } = req.validatedQuery as {
-        format: 'pdf' | 'xlsx';
-        lineTypes: Array<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
-      };
-
-      // 見積書を取得
-      const estimate = await estimateService.findById(id);
-
-      if (!estimate) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/estimate-not-found',
-          title: 'Estimate Not Found',
-          status: 404,
-          detail: `見積書が見つかりません: ${id}`,
-          code: 'ESTIMATE_NOT_FOUND',
-          estimateId: id,
-        });
-        return;
-      }
-
-      // 見積項目を階層構造で取得
-      const items = await estimateItemService.getHierarchy(id);
-
-      // 出力用データを構築（全行タイプを含めて渡す）
-      const exportData: EstimateExportData = {
-        id: estimate.id,
-        name: estimate.name,
-        projectName: (estimate as unknown as { project?: { name: string } }).project?.name ?? '',
-        createdAt: estimate.createdAt,
-        items: items.map((item) => convertToExportItem(item)),
-        totalAmount: null, // サービス内で計算される
-      };
-
-      // 出力形式に応じてエクスポート（複数行タイプ対応）
-      const exportFormat = format === 'pdf' ? ExportFormat.PDF : ExportFormat.XLSX;
-      let buffer: Buffer;
-
-      // REQ-10 AC10-12: 全ての行タイプでプレフィックス付き列名を使用
-      if (exportFormat === ExportFormat.XLSX) {
-        buffer = await estimateExportService.exportToExcelWithLineTypes(exportData, lineTypes);
-      } else {
-        buffer = await estimateExportService.exportToPdfWithLineTypes(exportData, lineTypes);
-      }
-
-      // ファイル名を生成（複数行タイプ対応）
-      const fileName = estimateExportService.generateFileNameWithLineTypes(
-        exportData,
-        exportFormat,
-        lineTypes
-      );
-
-      // Content-TypeとContent-Dispositionを設定
-      const contentType =
-        format === 'pdf'
-          ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-      res.setHeader('Content-Type', contentType);
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`
-      );
-      res.setHeader('Content-Length', buffer.length);
-
-      logger.info(
-        { userId: req.user?.userId, estimateId: id, format, lineTypes },
-        'Estimate exported successfully'
-      );
-
-      res.send(buffer);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('見積書')) {
-        res.status(400).json({
-          type: 'https://architrack.example.com/problems/export-error',
-          title: 'Export Error',
-          status: 400,
-          detail: error.message,
-          code: 'EXPORT_ERROR',
-        });
-        return;
-      }
-      next(error);
-    }
-  }
-);
-
-/**
- * EstimateItemをEstimateExportItemに変換するヘルパー関数
- */
-function convertToExportItem(
-  item: {
-    id: string;
-    parentId: string | null;
-    displayOrder: number;
-    lines: Array<{
-      id: string;
-      lineType: string;
-      name: string | null;
-      specification: string | null;
-      unit: string | null;
-      quantity: unknown;
-      unitPrice: unknown;
-      amount: unknown;
-      remarks: string | null;
-    }>;
-    children?: unknown[];
-  },
-  targetLineType?: 'ESTIMATE' | 'EXECUTION' | 'VENDOR'
-): EstimateExportItem {
-  // 指定された行タイプのみをフィルタリング（指定なしの場合は全行）
-  const filteredLines = targetLineType
-    ? item.lines.filter((line) => line.lineType === targetLineType)
-    : item.lines;
-
-  return {
-    id: item.id,
-    parentId: item.parentId,
-    displayOrder: item.displayOrder,
-    lines: filteredLines.map((line) => ({
-      id: line.id,
-      lineType: line.lineType as 'ESTIMATE' | 'EXECUTION' | 'VENDOR',
-      name: line.name,
-      specification: line.specification,
-      unit: line.unit,
-      quantity: line.quantity !== null ? Number(line.quantity) : null,
-      unitPrice: line.unitPrice !== null ? Number(line.unitPrice) : null,
-      amount: line.amount !== null ? Number(line.amount) : null,
-      remarks: line.remarks,
-    })),
-    children: Array.isArray(item.children)
-      ? item.children.map((child) => convertToExportItem(child as typeof item, targetLineType))
-      : [],
-  };
-}
 
 export default router;

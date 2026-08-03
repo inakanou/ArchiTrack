@@ -9,16 +9,24 @@
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
  * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
  * - REQ-3.1-3.5: 見積書新規作成と内訳書連携
- * - REQ-10.1-10.8: 見積書出力
  * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
  *
  * `transferFromQuotation` / `addOverheadItem` / `addDiscountItem` は Task 55.7 で撤去した。
  * 対応する書き込み経路が消え、転記・諸経費行追加・値引き行追加はいずれも
  * `estimateEditReducer` の遷移として編集状態へ反映されるようになったため（REQ-49.3）。
  * 個々の関数のテストは削除し、「公開されていないこと」を
- * `撤去済みの書き込み系API関数` で固定する。振る舞いの移行先は
+ * `撤去済みのAPI関数` で固定する。振る舞いの移行先は
  * `estimateEditReducer.test.ts` の `applyQuotationTransfer` / `addOverheadItem` /
  * 「プリセット値の値引き行をルートレベルの末尾に追加する」。
+ *
+ * `exportEstimate` / `downloadEstimate` は Task 56.10 で撤去した。出力エンドポイント
+ * `GET /api/estimates/:id/export` が消え、帳票（PDF）と表計算（Excel）は画面の
+ * 編集中ツリーから生成されるようになったため（REQ-10.1, REQ-10.2）。個々の関数の
+ * テストは削除し、振る舞いの移行先は
+ * `services/export/EstimatePdfExportService.test.ts`（PDF生成）、
+ * `services/export/EstimateExcelExportService.test.ts`（Excel生成）、
+ * `components/estimate/EstimateExportDialog.test.tsx`（形式・行タイプの選択と
+ * ダウンロードの実行）。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -32,8 +40,6 @@ import {
   createEstimate,
   updateEstimate,
   deleteEstimate,
-  exportEstimate,
-  downloadEstimate,
   saveEstimateDraft,
 } from '../../api/estimates';
 import type {
@@ -59,16 +65,6 @@ vi.mock('../../api/client', async () => {
     },
   };
 });
-
-// グローバルfetchモック
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
-
-// URL.createObjectURLとrevokeObjectURLのモック
-const mockCreateObjectURL = vi.fn(() => 'blob:test-url');
-const mockRevokeObjectURL = vi.fn();
-global.URL.createObjectURL = mockCreateObjectURL;
-global.URL.revokeObjectURL = mockRevokeObjectURL;
 
 // localStorageモック
 const mockLocalStorage = {
@@ -568,167 +564,6 @@ describe('estimates API client', () => {
   });
 
   // ==========================================================================
-  // exportEstimate - 見積書出力
-  // ==========================================================================
-  describe('exportEstimate', () => {
-    it('PDFフォーマットで見積書を出力できること', async () => {
-      const mockBlob = new Blob(['PDF content'], { type: 'application/pdf' });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      const result = await exportEstimate('est-1', 'pdf');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(result).toEqual(mockBlob);
-    });
-
-    it('Excelフォーマットで見積書を出力できること', async () => {
-      const mockBlob = new Blob(['Excel content'], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      const result = await exportEstimate('est-1', 'xlsx');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=xlsx&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(result).toEqual(mockBlob);
-    });
-
-    it('出力失敗時にエラーがスローされること', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
-
-      await expect(exportEstimate('est-1', 'pdf')).rejects.toThrow('見積書の出力に失敗しました');
-    });
-
-    it('認証トークンがない場合も正常にリクエストされること', async () => {
-      mockLocalStorage.getItem.mockReturnValue(null as unknown as string);
-      const mockBlob = new Blob(['PDF content'], { type: 'application/pdf' });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      const result = await exportEstimate('est-1', 'pdf');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer null',
-          },
-        }
-      );
-      expect(result).toEqual(mockBlob);
-    });
-  });
-
-  // ==========================================================================
-  // downloadEstimate - 見積書ダウンロード
-  // ==========================================================================
-  describe('downloadEstimate', () => {
-    let mockLink: HTMLAnchorElement;
-    let appendChildSpy: ReturnType<typeof vi.spyOn>;
-    let removeChildSpy: ReturnType<typeof vi.spyOn>;
-
-    beforeEach(() => {
-      mockLink = {
-        href: '',
-        download: '',
-        click: vi.fn(),
-      } as unknown as HTMLAnchorElement;
-      vi.spyOn(document, 'createElement').mockReturnValue(mockLink);
-      appendChildSpy = vi.spyOn(document.body, 'appendChild').mockReturnValue(mockLink);
-      removeChildSpy = vi.spyOn(document.body, 'removeChild').mockReturnValue(mockLink);
-    });
-
-    it('PDFファイルをダウンロードできること', async () => {
-      const mockBlob = new Blob(['PDF content'], { type: 'application/pdf' });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      await downloadEstimate('est-1', 'pdf', '見積書.pdf');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(mockCreateObjectURL).toHaveBeenCalledWith(mockBlob);
-      expect(mockLink.href).toBe('blob:test-url');
-      expect(mockLink.download).toBe('見積書.pdf');
-      expect(mockLink.click).toHaveBeenCalled();
-      expect(appendChildSpy).toHaveBeenCalledWith(mockLink);
-      expect(removeChildSpy).toHaveBeenCalledWith(mockLink);
-      expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:test-url');
-    });
-
-    it('Excelファイルをダウンロードできること', async () => {
-      const mockBlob = new Blob(['Excel content'], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      await downloadEstimate('est-1', 'xlsx', '見積書.xlsx');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=xlsx&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(mockLink.download).toBe('見積書.xlsx');
-    });
-
-    it('出力失敗時にエラーがスローされること', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
-
-      await expect(downloadEstimate('est-1', 'pdf', '見積書.pdf')).rejects.toThrow(
-        '見積書の出力に失敗しました'
-      );
-    });
-  });
-
-  // ==========================================================================
   // エラーハンドリング
   // ==========================================================================
   describe('エラーハンドリング', () => {
@@ -876,7 +711,7 @@ describe('estimates API client', () => {
   });
 
   // ============================================================================
-  // 書き込み系API関数の撤去 (Task 53.12 / 55.7, REQ-42.1, REQ-49.3)
+  // 撤去したAPI関数 (Task 53.12 / 55.7 / 56.10, REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2)
   // ============================================================================
 
   /**
@@ -890,16 +725,24 @@ describe('estimates API client', () => {
    * 関数が残っていれば「実行の時点でデータベースへ書き込まない」を破る経路が
    * 復活しうる。
    *
+   * 見積書出力をサーバーへ依頼する関数（`exportEstimate` / `downloadEstimate`）も
+   * 撤去した（Task 56.10）。帳票（PDF）と表計算（Excel）は
+   * `EstimatePdfExportService` / `EstimateExcelExportService` が画面の編集中ツリーから
+   * 生成する。関数が残っていれば、保存済みデータをサーバーから受け取って出力する経路が
+   * 復活し、未保存の変更を含む出力（REQ-56.1〜56.3）が成立しなくなる。
+   *
    * 「関数が無いこと」は呼び出しでは表現できないため、モジュールの公開名で固定する。
-   * あわせて、段階4まで残す関数が巻き添えで消えていないことも固定する
+   * あわせて、維持対象の関数が巻き添えで消えていないことも固定する
    * （過剰撤去の検出）。書き込みを伴わない `calculateOverhead` は維持対象で、
    * 撤去した書き込み経路 `addOverheadItem` と取り違えてはならない。
    *
    * Requirements (estimate-creation):
+   * - REQ-10.1: PDF出力を選択した場合、建設工事見積書形式のPDFファイルを生成する
+   * - REQ-10.2: Excel出力を選択した場合、同じ書式規則のExcelファイルを生成する
    * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
    * - REQ-49.3: これらの操作は実行の時点でデータベースへの書き込みを行わない
    */
-  describe('撤去済みの書き込み系API関数 (REQ-42.1, REQ-49.3)', () => {
+  describe('撤去済みのAPI関数 (REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2)', () => {
     it.each([
       'createEstimateItem',
       'deleteEstimateItem',
@@ -909,19 +752,17 @@ describe('estimates API client', () => {
       'transferFromQuotation',
       'addOverheadItem',
       'addDiscountItem',
+      'exportEstimate',
+      'downloadEstimate',
     ])('%s が公開されていないこと', (name) => {
       expect(Object.keys(estimatesApi)).not.toContain(name);
     });
 
-    it.each([
-      'saveEstimateDraft',
-      'getEstimateDetail',
-      'getEstimateItems',
-      'calculateOverhead',
-      'exportEstimate',
-      'downloadEstimate',
-    ])('%s は撤去されていないこと', (name) => {
-      expect(typeof (estimatesApi as Record<string, unknown>)[name]).toBe('function');
-    });
+    it.each(['saveEstimateDraft', 'getEstimateDetail', 'getEstimateItems', 'calculateOverhead'])(
+      '%s は撤去されていないこと',
+      (name) => {
+        expect(typeof (estimatesApi as Record<string, unknown>)[name]).toBe('function');
+      }
+    );
   });
 });

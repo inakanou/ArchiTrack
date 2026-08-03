@@ -530,8 +530,6 @@ const READ_ONLY_ESTIMATE_APIS = new Set([
   'getEstimateDetail',
   'getEstimateItems',
   'calculateOverhead',
-  'exportEstimate',
-  'downloadEstimate',
 ]);
 
 /**

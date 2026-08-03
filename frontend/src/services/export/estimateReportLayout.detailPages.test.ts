@@ -269,6 +269,11 @@ describe('buildFiles - 明細書ページの内容', () => {
     }),
   ];
 
+  /**
+   * 明細書ページの表題へ対象の行タイプを併記する（組み立て側）
+   *
+   * @requirement estimate-creation/REQ-32.4
+   */
   it('表題に対象の行タイプを併記する（32.4）', () => {
     expect(detailPagesOf(tree, 'ESTIMATE')[0]!.title).toBe('明細書（見積）');
   });

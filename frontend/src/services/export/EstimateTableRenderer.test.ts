@@ -609,6 +609,18 @@ describe.each(TABLE_PAGES)('表題とページ番号（52.8, 52.9, 52.1）— $l
   });
 });
 
+/**
+ * 内訳書・明細書の表題に対象の行タイプを併記する（例：内訳書（実行））
+ *
+ * かつては見積E2E（`estimate-features-e2e.spec.ts`）の
+ * 「出力APIがlineTypesクエリパラメータを受け付ける」がこの受入基準のタグを
+ * 持っていたが、出力エンドポイントの撤去（Task 56.10）で当該テストごと消えた。
+ * 実体を検証しているのは以下の表題アサーションなので、機械認識可能なタグを
+ * ここへ移した（併記の組み立て側は
+ * `estimateReportLayout.detailPages.test.ts` / `.buildFiles.test.ts` が担う）。
+ *
+ * @requirement estimate-creation/REQ-32.4
+ */
 describe('表題の字間と行タイプの併記（32.4）', () => {
   it('内訳書の表題の字間を全角スペースで空け、行タイプを併記する（§4 / 32.4）', () => {
     const doc = render(summaryPage());

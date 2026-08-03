@@ -22,9 +22,15 @@
  * - REQ-31.1: NET案分ダイアログに受領見積書合計金額表示
  * - REQ-31.2: NET案分ダイアログにNET金額表示
  * - REQ-32.1: 出力ダイアログに行タイプ選択チェックボックス（複数選択可能）
- * - REQ-32.2: 選択行タイプのみ出力
- * - REQ-32.3: 出力ファイル名に行タイプラベル含む
- * - REQ-32.4: 出力APIがlineTypesパラメータ（カンマ区切り）を受け付ける
+ * - REQ-32.2: チェックされた行タイプごとに独立したファイルを生成する
+ * - REQ-32.5: チェックされていない行タイプのファイルを出力しない
+ * - REQ-32.6: 各出力ファイル名に当該ファイルの行タイプのラベルを含める
+ * - REQ-10.1: PDF出力を選択した場合、建設工事見積書形式のPDFファイルを生成する
+ *
+ * Task 56.10: 出力エンドポイント `GET /api/estimates/:id/export` を撤去し、
+ * 帳票（PDF）と表計算（Excel）はフロントエンドが編集中のツリーから生成するようになった。
+ * 旧「出力APIがlineTypesパラメータを受け付ける」はエンドポイントごと消えたため、
+ * 「サーバーへ出力を依頼せずに生成が完結する」検証へ移行した。
  *
  * @module e2e/specs/estimate/estimate-features-e2e.spec
  */
@@ -1136,8 +1142,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
 
     /**
      * @requirement estimate-creation/REQ-32.2
+     * @requirement estimate-creation/REQ-32.5
+     *
+     * 出力はフロントエンドで生成されるようになった（Task 56.10）。
+     * 「どの行タイプが出力対象になったか」はリクエストURLではなく、
+     * **実際にダウンロードされたファイル**で確かめる。
+     * ファイル名は「{見積名}_{行タイプのラベル}.pdf」（32.6）なので、
+     * 見積名に「見積」「実行」の語が含まれていても末尾のラベルで判別できる。
      */
-    test('選択された行タイプのみが出力対象となる (estimate-creation/REQ-32.2)', async ({
+    test('チェックした行タイプのファイルだけがダウンロードされる (estimate-creation/REQ-32.2)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1149,6 +1162,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
 
       await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
         timeout: getTimeout(15000),
+      });
+
+      // ダウンロードされたファイル名をすべて記録する
+      const downloadedFileNames: string[] = [];
+      page.on('download', (download) => {
+        downloadedFileNames.push(download.suggestedFilename());
       });
 
       // 出力ダイアログを開く
@@ -1164,18 +1183,13 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       await executionCheckbox.check();
       await expect(executionCheckbox).toBeChecked();
 
+      // 「業者」はデフォルトでOFFのまま
+      const vendorCheckbox = page.locator('input[type="checkbox"][value="VENDOR"]');
+      await expect(vendorCheckbox).not.toBeChecked();
+
       // PDF形式を選択
       const pdfRadio = page.locator('input[type="radio"][name="export-format"][value="pdf"]');
       await pdfRadio.click();
-
-      // APIリクエストを監視
-      const requestPromise = page.waitForRequest(
-        (request) =>
-          request.url().includes('/api/estimates/') &&
-          request.url().includes('/export') &&
-          request.url().includes('lineTypes=EXECUTION'),
-        { timeout: getTimeout(30000) }
-      );
 
       // 出力ボタンをクリック
       await page
@@ -1183,15 +1197,33 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // APIリクエストのURLにlineTypes=EXECUTIONが含まれることを確認
-      const apiRequest = await requestPromise;
-      expect(apiRequest.url()).toContain('lineTypes=EXECUTION');
+      // 全ファイルの生成とダウンロードが終わるとダイアログが閉じる
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: getTimeout(60000) });
+
+      // REQ-32.2: チェックした「実行」のファイルが1つ生成される
+      expect(downloadedFileNames).toHaveLength(1);
+      expect(downloadedFileNames[0]).toMatch(/_実行\.pdf$/);
+
+      // REQ-32.5: チェックしていない行タイプのファイルは出力されない
+      expect(downloadedFileNames.some((name) => /_見積\.pdf$/.test(name))).toBe(false);
+      expect(downloadedFileNames.some((name) => /_業者\.pdf$/.test(name))).toBe(false);
     });
 
     /**
-     * @requirement estimate-creation/REQ-32.3
+     * @requirement estimate-creation/REQ-32.6
+     *
+     * ファイル名への行タイプラベル付与は現行の requirements.md では 32.6
+     * （旧タグの 32.3 は「見積→実行→業者の順に逐次ダウンロードする」に変わった。
+     * 32.3 の順序検証は Task 56.12 が担当する）。
+     *
+     * 旧テストは「最初にダウンロードされた1ファイル」だけを見て「業者」を期待していた。
+     * 出力がバックエンド生成だった頃はチェックした行タイプを1ファイルに束ねていたので
+     * それで足りたが、現行の 32.2 は**行タイプごとに独立したファイル**を生成するため、
+     * 「見積を外して業者を足す」と実行・業者の2ファイルが出て最初の1つは実行になる。
+     * 32.6 は「各出力ファイル名に**当該ファイルの**行タイプのラベルを含める」なので、
+     * ダウンロードされた全ファイルを集めて1つずつ照合する形へ移行した。
      */
-    test('出力ファイル名に選択された行タイプのラベルが含まれる (estimate-creation/REQ-32.3)', async ({
+    test('出力ファイル名に当該ファイルの行タイプのラベルが含まれる (estimate-creation/REQ-32.6)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1205,6 +1237,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
+      // ダウンロードされたファイル名をすべて記録する
+      const downloadedFileNames: string[] = [];
+      page.on('download', (download) => {
+        downloadedFileNames.push(download.suggestedFilename());
+      });
+
       // 出力ダイアログを開く
       await page.getByRole('button', { name: /^出力$/i }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
@@ -1213,7 +1251,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
       await estimateCheckbox.uncheck();
 
-      // 「業者」をチェック
+      // 「実行」はデフォルトでON、「業者」を足して2つの行タイプを対象にする
+      const executionCheckbox = page.locator('input[type="checkbox"][value="EXECUTION"]');
+      await expect(executionCheckbox).toBeChecked();
       const vendorCheckbox = page.locator('input[type="checkbox"][value="VENDOR"]');
       await vendorCheckbox.check();
 
@@ -1221,26 +1261,43 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const excelRadio = page.locator('input[type="radio"][name="export-format"][value="xlsx"]');
       await excelRadio.click();
 
-      // ダウンロードの待機設定
-      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
-
       // 出力ボタンをクリック
       await page
         .getByRole('dialog')
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // ダウンロードされたファイル名に「業者」が含まれることを確認
-      const download = await downloadPromise;
-      const filename = download.suggestedFilename();
-      expect(filename).toContain('業者');
-      expect(filename).toMatch(/\.xlsx$/i);
+      // 全ファイルの生成とダウンロードが終わるとダイアログが閉じる
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: getTimeout(60000) });
+
+      // チェックした2つの行タイプそれぞれに1ファイル（REQ-32.2）
+      expect(downloadedFileNames).toHaveLength(2);
+
+      // REQ-32.6: 各ファイル名が**そのファイルの**行タイプのラベルを持つ
+      const executionFiles = downloadedFileNames.filter((name) => /_実行\.xlsx$/i.test(name));
+      const vendorFiles = downloadedFileNames.filter((name) => /_業者\.xlsx$/i.test(name));
+      expect(executionFiles).toHaveLength(1);
+      expect(vendorFiles).toHaveLength(1);
+
+      // チェックしていない「見積」のラベルを持つファイルは無い（REQ-32.5）
+      expect(downloadedFileNames.filter((name) => /_見積\.xlsx$/i.test(name))).toEqual([]);
     });
 
     /**
-     * @requirement estimate-creation/REQ-32.4
+     * @requirement estimate-creation/REQ-10.1
+     *
+     * 出力エンドポイント `GET /api/estimates/:id/export` は撤去された（Task 56.10）。
+     * 旧テストはこのエンドポイントへのリクエストURLに `lineTypes` が載ることを
+     * 検証していたが、エンドポイントごと存在しないため検証対象の振る舞いが消えた。
+     * 代わりに「サーバーへ出力を依頼せずに帳票が生成される」ことを固定する。
+     *
+     * 否定の主張（出力エンドポイントを叩かない）が空振りにならないよう、
+     * 出力操作の間に発生したAPIリクエストを実際に記録し、記録が空でないこと
+     * （＝記録の仕組みが生きていること）を先に確かめてから、その中に
+     * 出力エンドポイントが無いことを主張する。PDF出力は表紙の周辺情報を
+     * 読み取り専用APIから取得するため、記録は必ず非空になる。
      */
-    test('出力APIがlineTypesクエリパラメータを受け付ける (estimate-creation/REQ-32.4)', async ({
+    test('出力がフロントエンド生成で完結し、サーバーへ出力を依頼しない (estimate-creation/REQ-10.1)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1262,18 +1319,25 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
       await expect(estimateCheckbox).toBeChecked();
 
+      // 「実行」のチェックを外し、「見積」1ファイルだけに絞る
+      const executionCheckbox = page.locator('input[type="checkbox"][value="EXECUTION"]');
+      await executionCheckbox.uncheck();
+
       // PDF形式を選択
       const pdfRadio = page.locator('input[type="radio"][name="export-format"][value="pdf"]');
       await pdfRadio.click();
 
-      // APIリクエストを監視
-      const requestPromise = page.waitForRequest(
-        (request) =>
-          request.url().includes('/api/estimates/') &&
-          request.url().includes('/export') &&
-          request.url().includes('lineTypes='),
-        { timeout: getTimeout(30000) }
-      );
+      // ここから先（出力操作中）のAPIリクエストとダウンロードを記録する
+      const apiRequestUrls: string[] = [];
+      page.on('request', (request) => {
+        if (request.url().includes('/api/')) {
+          apiRequestUrls.push(request.url());
+        }
+      });
+      const downloadedFileNames: string[] = [];
+      page.on('download', (download) => {
+        downloadedFileNames.push(download.suggestedFilename());
+      });
 
       // 出力ボタンをクリック
       await page
@@ -1281,9 +1345,18 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // APIリクエストにlineTypesパラメータが含まれることを確認
-      const apiRequest = await requestPromise;
-      expect(apiRequest.url()).toContain('lineTypes=ESTIMATE');
+      // 生成とダウンロードが終わるとダイアログが閉じる
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: getTimeout(60000) });
+
+      // REQ-10.1: 帳票（PDF）が生成されてダウンロードされる
+      expect(downloadedFileNames).toHaveLength(1);
+      expect(downloadedFileNames[0]).toMatch(/_見積\.pdf$/);
+
+      // 記録の仕組みが生きていること（表紙の周辺情報を読み取るリクエストが載る）
+      expect(apiRequestUrls.length).toBeGreaterThan(0);
+
+      // そのうえで、出力をサーバーへ依頼したリクエストは1本も無い
+      expect(apiRequestUrls.filter((url) => url.includes('/export'))).toEqual([]);
     });
   });
 

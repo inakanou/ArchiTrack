@@ -1779,10 +1779,32 @@ describe('Estimate API Integration Tests', () => {
         },
       ];
 
-      it('撤去した11経路はいずれも404を返す (Req 42.1, 49.3)', async () => {
+      /**
+       * 出力系1経路（Task 56.10, Req 10.1, 10.2）
+       *
+       * 帳票（PDF）と表計算（Excel）はクライアントの `EstimatePdfExportService` /
+       * `EstimateExcelExportService` が編集中のツリーから生成する。経路が残っていれば
+       * 出力がサーバー側の保存済みデータを見る経路が復活しうる。
+       * クエリは撤去前のスキーマを満たす正当な内容にして、形式不正の400を
+       * 「経路が無い」と読み違えないようにする。
+       */
+      const removedExportRoutes = (
+        estimateId: string
+      ): Array<{ label: string; call: () => Promise<{ status: number }> }> => [
+        {
+          label: 'GET /:id/export',
+          call: () =>
+            request(app)
+              .get(`/api/estimates/${estimateId}/export?format=pdf&lineTypes=ESTIMATE,EXECUTION`)
+              .set('Authorization', `Bearer ${accessToken}`),
+        },
+      ];
+
+      it('撤去した12経路はいずれも404を返す (Req 42.1, 49.3, 10.1, 10.2)', async () => {
         const removedRoutes = [
           ...removedItemRoutes(removedRouteEstimateId, existingItemId),
           ...removedTransferRoutes(removedRouteEstimateId, existingItemId),
+          ...removedExportRoutes(removedRouteEstimateId),
         ];
 
         for (const route of removedRoutes) {
@@ -1866,13 +1888,6 @@ describe('Estimate API Integration Tests', () => {
                 }),
           },
           {
-            label: 'GET /:id/export',
-            call: () =>
-              request(app)
-                .get(`/api/estimates/${removedRouteEstimateId}/export?format=pdf`)
-                .set('Authorization', `Bearer ${accessToken}`),
-          },
-          {
             label: 'GET /:id',
             call: () =>
               request(app)
@@ -1896,7 +1911,6 @@ describe('Estimate API Integration Tests', () => {
   // ==========================================
   // Requirements:
   // - 7.2-9.3: 諸経費自動計算（書き込みを伴わない計算のみ）
-  // - 10.1-10.8: 見積書出力
   //
   // 諸経費行追加・NET金額案分・利益率適用の統合テストは、対応する経路を撤去した
   // （Task 55.7, REQ-49.3）ため削除した。移行先は次のとおり:
@@ -1914,6 +1928,17 @@ describe('Estimate API Integration Tests', () => {
   //   `利益率の範囲エラー (13.3)`。旧経路の 400 はダイアログが握り潰しており
   //   利用者にメッセージが届いていなかったため、移行にあわせて是正した
   // - 存在しない見積書への404 → 本ファイルの「存在しない見積書への保存は404エラー」
+  //
+  // 見積書出力（REQ-10.1, 10.2）の統合テストも、経路を撤去した（Task 56.10）ため削除した。
+  // 帳票（PDF）と表計算（Excel）はクライアントが編集中のツリーから生成するので、
+  // サーバーは出力に関与しない。移行先は次のとおり:
+  // - PDF生成（REQ-10.1）→ `frontend/.../EstimatePdfExportService.test.ts`
+  // - Excel生成（REQ-10.2）→ `frontend/.../EstimateExcelExportService.test.ts`
+  // - 行タイプごとのファイル分割・順序・ファイル名（REQ-32.2/32.3/32.6）→ 同上と
+  //   `frontend/.../EstimateExportDialog.test.tsx`
+  // - 画面からの出力が通信を伴わずに完結すること →
+  //   `e2e/specs/estimate/estimate-features-e2e.spec.ts` の
+  //   「出力がフロントエンド生成で完結し、サーバーへ出力を依頼しない」
   //
   // 撤去そのものは「撤去したエンドポイント PUT /api/estimates/:id/save への統合」が固定する。
 
@@ -2038,52 +2063,6 @@ describe('Estimate API Integration Tests', () => {
             directCost: '100000',
             isRenovation: false,
           });
-
-        expect(response.status).toBe(400);
-      });
-    });
-
-    describe('見積書出力 GET /api/estimates/:id/export', () => {
-      it('PDF形式で見積書を出力できる (Req 10.1)', async () => {
-        const response = await request(app)
-          .get(`/api/estimates/${calcTestEstimateId}/export`)
-          .query({ format: 'pdf' })
-          .set('Authorization', `Bearer ${accessToken}`);
-
-        expect(response.status).toBe(200);
-        expect(response.headers['content-type']).toBe('application/pdf');
-        expect(response.headers['content-disposition']).toContain('attachment');
-        expect(response.body).toBeDefined();
-      });
-
-      it('Excel形式で見積書を出力できる (Req 10.2)', async () => {
-        const response = await request(app)
-          .get(`/api/estimates/${calcTestEstimateId}/export`)
-          .query({ format: 'xlsx' })
-          .set('Authorization', `Bearer ${accessToken}`);
-
-        expect(response.status).toBe(200);
-        expect(response.headers['content-type']).toBe(
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        );
-        expect(response.headers['content-disposition']).toContain('attachment');
-      });
-
-      it('存在しない見積書を出力しようとすると404エラー', async () => {
-        const response = await request(app)
-          .get('/api/estimates/12345678-1234-4234-a234-123456789012/export')
-          .query({ format: 'pdf' })
-          .set('Authorization', `Bearer ${accessToken}`);
-
-        expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
-      });
-
-      it('不正な出力形式を指定すると400エラー', async () => {
-        const response = await request(app)
-          .get(`/api/estimates/${calcTestEstimateId}/export`)
-          .query({ format: 'invalid' })
-          .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(400);
       });
