@@ -118,6 +118,8 @@ function createMockLine(
 }
 
 const mockEstimateDetail: estimatesApi.EstimateDetail = {
+  // 帳票用入力項目（56.8 で `EstimateDetail` に追加。未入力の見積書を表す）
+  reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
   id: 'est-001',
   projectId: 'proj-001',
   name: '見積書A',

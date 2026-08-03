@@ -65,6 +65,13 @@ const mockEditor = {
   outdentRange: vi.fn(),
   lastError: null as import('../domain/estimate/estimateEditReducer.types').EditError | null,
   dismissError: vi.fn(),
+  // 帳票用入力項目（54.1〜54.3, 54.6 / 56.8）。描画中に読まれるため必須
+  reportFields: {
+    submissionDate: null as string | null,
+    validityPeriod: null as string | null,
+    separateWorks: [] as string[],
+  },
+  updateReportFields: vi.fn(),
 };
 
 /**
@@ -359,6 +366,8 @@ vi.mock('react-router-dom', async () => {
 });
 
 const mockEstimateDetail = {
+  // 帳票用入力項目（56.8 で `EstimateDetail` に追加。未入力の見積書を表す）
+  reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
   id: 'est-001',
   projectId: 'proj-001',
   name: 'テスト見積書',
@@ -1320,8 +1329,9 @@ describe('EstimateDetailPage', () => {
       expect(screen.getByTestId('estimate-detail-page')).toBeInTheDocument();
     });
 
-    // toEditFormat(undefined)が空配列を返し、setItemsに空配列が渡される
-    expect(mockEditor.setItems).toHaveBeenCalledWith([]);
+    // toEditFormat(undefined)が空配列を返し、setItemsに空配列が渡される。
+    // 第2引数は帳票用入力項目（56.8）。明細と同じ読み込みで基準ごと入れ替える。
+    expect(mockEditor.setItems).toHaveBeenCalledWith([], mockEstimateDetail.reportFields);
   });
 
   // =========================================================================

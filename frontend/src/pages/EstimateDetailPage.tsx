@@ -50,6 +50,10 @@ import type {
   AddOverheadItemParams,
   OverheadCostResult,
 } from '../components/estimate/OverheadCostPanel';
+// 帳票用入力項目のパネル（56.8）。`../components/estimate` の barrel 経由にしないのは、
+// `EstimateDetailPage.test.tsx` が barrel を丸ごとモックしており、
+// 結線漏れが検知されない死角に入るため（53.14 / 54.2 / 54.10 の再発防止）。
+import { EstimateReportFieldsPanel } from '../components/estimate/EstimateReportFieldsPanel';
 import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import {
@@ -1145,7 +1149,10 @@ export default function EstimateDetailPage() {
       const data = await getEstimateDetail(id);
       const items = await getEstimateItems(id);
       setEstimate(data);
-      editor.setItems(toEditFormat(items));
+      // 帳票用入力項目も編集の基準ごと入れ替える（54.6）。
+      // ここで渡さないと保存済みの提出日・有効期限・別途工事が編集状態に入らず、
+      // 次の保存が空の値でサーバーを上書きする。
+      editor.setItems(toEditFormat(items), data.reportFields);
     } catch {
       setError('見積書の取得に失敗しました');
     } finally {
@@ -1703,6 +1710,17 @@ export default function EstimateDetailPage() {
               </button>
             </div>
           )}
+          {/*
+            帳票用入力項目（54.1〜54.3, 54.6, 54.8）
+
+            編集は `editor.updateReportFields` を通るため、明細の編集とまったく同じ
+            `isDirty` に載る。未保存インジケーター（27.5 / 53.7）と保存ボタンの活性が
+            帳票用入力項目の編集にもそのまま効く。
+          */}
+          <EstimateReportFieldsPanel
+            value={editor.reportFields}
+            onChange={editor.updateReportFields}
+          />
           <EstimateItemToolbar
             selectedKeys={selectedKeys}
             selectedItem={selectedItem}

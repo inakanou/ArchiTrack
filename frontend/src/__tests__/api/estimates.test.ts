@@ -243,6 +243,8 @@ describe('estimates API client', () => {
   // ==========================================================================
   describe('getEstimateDetail', () => {
     const mockDetail: EstimateDetail = {
+      // 帳票用入力項目（56.8 で `EstimateDetail` に追加。未入力の見積書を表す）
+      reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
       id: 'est-1',
       projectId: 'project-1',
       name: '見積書#1',

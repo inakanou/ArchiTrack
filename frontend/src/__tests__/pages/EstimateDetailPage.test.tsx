@@ -78,6 +78,9 @@ const mockEditor = {
   // 無効化された階層操作の理由（44.6, 44.7 / 54.10）は描画中に読まれる
   lastError: null,
   dismissError: vi.fn(),
+  // 帳票用入力項目（54.1〜54.3, 54.6 / 56.8）。描画中に読まれるため必須
+  reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] as string[] },
+  updateReportFields: vi.fn(),
 };
 
 vi.mock('../../hooks/useEstimateEditor', () => ({
@@ -86,6 +89,8 @@ vi.mock('../../hooks/useEstimateEditor', () => ({
 
 // テストデータ
 const mockEstimateDetail: EstimateDetail = {
+  // 帳票用入力項目（56.8 で `EstimateDetail` に追加。未入力の見積書を表す）
+  reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
   id: 'est-1',
   projectId: 'project-1',
   name: 'テスト見積書',

@@ -119,6 +119,14 @@ export interface EstimateInfo {
 export interface EstimateDetail extends EstimateInfo {
   items: EstimateItemHierarchy[];
   totalAmount: string | null;
+  /**
+   * 帳票用の追加入力項目（REQ-54.6）
+   *
+   * 画面はこの値を編集の起点にする。保存応答（{@link SaveEstimateDraftResponse}）と
+   * 同じ形。読み取り経路が返さないと、保存済みの提出日・有効期限・別途工事が
+   * 再読み込みで失われ、次の保存で空の値に上書きされる。
+   */
+  reportFields: SaveEstimateDraftReportFields;
 }
 
 /**

@@ -22,7 +22,7 @@
  * @module tests/unit/services/estimate.service
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EstimateService } from '../../../services/estimate.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
@@ -353,6 +353,9 @@ describe('EstimateService', () => {
         createdAt: new Date('2026-02-03T00:00:00Z'),
         updatedAt: new Date('2026-02-03T00:00:00Z'),
         deletedAt: null,
+        submissionDate: null,
+        validityPeriod: null,
+        separateWorks: [],
         project: {
           id: 'proj-001',
           name: 'テストプロジェクト',
@@ -959,6 +962,9 @@ describe('EstimateService', () => {
         createdAt: new Date('2026-02-03T00:00:00Z'),
         updatedAt: new Date('2026-02-03T00:00:00Z'),
         deletedAt: null,
+        submissionDate: null,
+        validityPeriod: null,
+        separateWorks: [],
         project: {
           id: 'proj-001',
           name: 'テストプロジェクト',
@@ -1240,6 +1246,164 @@ describe('EstimateService', () => {
           }),
         })
       );
+    });
+  });
+
+  // ==========================================================================
+  // 帳票用の追加入力項目（Requirements: REQ-54.4, REQ-54.5, REQ-54.6, REQ-54.7）
+  //
+  // Task 56.8。提出日・有効期限・別途工事は見積書画面から編集して保存するが、
+  // 新規作成時の既定値（54.4 / 54.5）は作成経路が与える。読み取り経路
+  // （`findById` → `GET /api/estimates/:id`）が3項目を返さない限り、
+  // 画面は保存済みの値を復元できない（54.6 の「編集可能」が再読み込みで壊れる）。
+  // ==========================================================================
+  describe('帳票用入力項目', () => {
+    /** 作成経路のトランザクションを組み立て、`estimate.create` のモックを返す */
+    const stubCreateTransaction = () => {
+      const create = vi.fn().mockResolvedValue({
+        id: 'est-001',
+        projectId: 'proj-001',
+        name: 'テスト見積書',
+        sourceItemizedStatementId: null,
+        sourceItemizedStatementName: null,
+        createdAt: new Date('2026-08-03T23:30:00Z'),
+        updatedAt: new Date('2026-08-03T23:30:00Z'),
+        deletedAt: null,
+      });
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          project: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+          },
+          estimate: {
+            count: vi.fn().mockResolvedValue(0),
+            create,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      return create;
+    };
+
+    /** `create` に渡された `data` を取り出す */
+    const createdData = (create: ReturnType<typeof vi.fn>): Record<string, unknown> =>
+      (create.mock.calls[0]?.[0] as { data: Record<string, unknown> }).data;
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('新規作成時に提出日を当日（日本時間）とする（Requirements: REQ-54.4）', async () => {
+      // Arrange
+      // 2026-08-03T23:30Z は日本時間では 2026-08-04 08:30。UTC の暦日（08-03）を
+      // そのまま使うと提出日が前日にずれるため、境界をまたぐ時刻を固定する。
+      const service54 = new EstimateService({
+        prisma: mockPrisma,
+        auditLogService: mockAuditLogService,
+        now: () => new Date('2026-08-03T23:30:00Z'),
+      });
+      const create = stubCreateTransaction();
+
+      // Act
+      await service54.create({ projectId: 'proj-001', name: 'テスト見積書' }, 'user-001');
+
+      // Assert
+      expect(createdData(create).submissionDate).toEqual(new Date('2026-08-04T00:00:00.000Z'));
+    });
+
+    it('新規作成時に有効期限を既定文言とする（Requirements: REQ-54.5）', async () => {
+      // Arrange
+      const service54 = new EstimateService({
+        prisma: mockPrisma,
+        auditLogService: mockAuditLogService,
+        now: () => new Date('2026-08-03T23:30:00Z'),
+      });
+      const create = stubCreateTransaction();
+
+      // Act
+      await service54.create({ projectId: 'proj-001', name: 'テスト見積書' }, 'user-001');
+
+      // Assert
+      expect(createdData(create).validityPeriod).toBe('提出日より1ヶ月間');
+    });
+
+    it('時計を注入しない本番構成でも当日を用いる（Requirements: REQ-54.4）', async () => {
+      // Arrange
+      // 既定の時計（`new Date()`）が使われることを、注入なしの構成で固定する。
+      // これが無いと本番経路の時刻取得は一度も実行されない。
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-12-31T20:00:00Z')); // JST では 2027-01-01 05:00
+      const create = stubCreateTransaction();
+
+      // Act
+      await service.create({ projectId: 'proj-001', name: 'テスト見積書' }, 'user-001');
+
+      // Assert
+      expect(createdData(create).submissionDate).toEqual(new Date('2027-01-01T00:00:00.000Z'));
+    });
+
+    it('保存済みの帳票用入力項目を見積書詳細で返す（Requirements: REQ-54.6）', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.estimate.findUnique).mockResolvedValue({
+        id: 'est-001',
+        projectId: 'proj-001',
+        name: 'テスト見積書',
+        sourceItemizedStatementId: null,
+        sourceItemizedStatementName: null,
+        createdAt: new Date('2026-08-03T00:00:00Z'),
+        updatedAt: new Date('2026-08-03T00:00:00Z'),
+        deletedAt: null,
+        submissionDate: new Date('2026-08-04T00:00:00.000Z'),
+        validityPeriod: '提出日より3ヶ月間',
+        separateWorks: ['電気設備工事', '空調設備工事'],
+        project: { id: 'proj-001', name: 'テストプロジェクト' },
+        items: [],
+      } as never);
+
+      // Act
+      const result = await service.findById('est-001');
+
+      // Assert
+      expect(result?.reportFields).toEqual({
+        submissionDate: '2026-08-04',
+        validityPeriod: '提出日より3ヶ月間',
+        separateWorks: ['電気設備工事', '空調設備工事'],
+      });
+    });
+
+    it('未入力の帳票用入力項目を空のまま返す（Requirements: REQ-54.7）', async () => {
+      // Arrange
+      // 52.2 で追加した3列は既存の見積書では未入力（NULL / 空配列）のまま。
+      // ここを既定値で埋めてしまうと、画面が開いた瞬間に未保存の変更になる。
+      vi.mocked(mockPrisma.estimate.findUnique).mockResolvedValue({
+        id: 'est-001',
+        projectId: 'proj-001',
+        name: 'テスト見積書',
+        sourceItemizedStatementId: null,
+        sourceItemizedStatementName: null,
+        createdAt: new Date('2026-08-03T00:00:00Z'),
+        updatedAt: new Date('2026-08-03T00:00:00Z'),
+        deletedAt: null,
+        submissionDate: null,
+        validityPeriod: null,
+        separateWorks: [],
+        project: { id: 'proj-001', name: 'テストプロジェクト' },
+        items: [],
+      } as never);
+
+      // Act
+      const result = await service.findById('est-001');
+
+      // Assert
+      expect(result?.reportFields).toEqual({
+        submissionDate: null,
+        validityPeriod: null,
+        separateWorks: [],
+      });
     });
   });
 });
