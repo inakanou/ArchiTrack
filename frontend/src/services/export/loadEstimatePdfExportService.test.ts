@@ -18,10 +18,18 @@
  * フォント資産（2.25MB）を含むため初期ロードから切り離す」
  */
 
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
+
+import {
+  SRC_ROOT,
+  allSourceFiles,
+  isTestFile,
+  staticImportsOf,
+  staticReachableFrom,
+} from './__tests__/staticImportGraph';
 
 // 動的読み込みの実行検証で実物のフォント資産（約3MB）を読み込まないための軽量ダブル。
 // 静的グラフの検証はディスク上のソースを直接読むため、これらのモックの影響を受けない。
@@ -48,98 +56,12 @@ import { loadEstimatePdfExportService } from './loadEstimatePdfExportService';
 // 静的 import グラフ
 // ============================================================================
 
-const SRC_ROOT = path.resolve(__dirname, '../..');
+// 走査そのもの（相対指定子と `@/…` エイリアスの解決を含む）は
+// `__tests__/staticImportGraph.ts` に切り出し、フォント資産の分離を検査する
+// `__tests__/fontAssetIsolation.test.ts`（Task 56.13）と実装を共有する。
 const LOADER = path.join(SRC_ROOT, 'services/export/loadEstimatePdfExportService.ts');
 const SERVICE = path.join(SRC_ROOT, 'services/export/EstimatePdfExportService.ts');
 const FONT_ASSET = path.join(SRC_ROOT, 'services/export/fonts/noto-sans-jp-base64.ts');
-
-/** `import ... from '...'` / `export ... from '...'` / `import '...'`（型のみは除く） */
-const STATIC_IMPORT_PATTERNS = [
-  /^[ \t]*(?:import|export)[ \t]+(?!type[ \t])[^;]*?[ \t]from[ \t]*['"]([^'"]+)['"]/gm,
-  /^[ \t]*import[ \t]*['"]([^'"]+)['"]/gm,
-];
-
-const CANDIDATE_SUFFIXES = ['.ts', '.tsx', '/index.ts', '/index.tsx'];
-
-/**
- * パスエイリアス `@` の指す先（`vite.config.ts:78-83` の `resolve.alias` で `@` → `/src`）
- *
- * **56.9 への申し送り**: 相対指定子だけを解決すると `@/services/export/...` 形式の
- * import が辺として数えられず、「フォント資産へ静的に到達しない」の検査が
- * 無条件に真になりうる。現時点で `frontend/src` にエイリアス import は0件だが、
- * 将来の混入で検査が空振りしないよう**エイリアスもここで解決する**。
- * npm パッケージ（`jspdf` など）は `frontend/src` の外なので辺にならない。
- */
-const PATH_ALIAS_PREFIX = '@/';
-
-/** 相対指定子とパスエイリアスをファイルへ解決する（`.ts` / `.tsx` / ディレクトリの `index`） */
-function resolveSpecifier(fromFile: string, specifier: string): string | null {
-  const isAlias = specifier.startsWith(PATH_ALIAS_PREFIX);
-  if (!specifier.startsWith('.') && !isAlias) {
-    return null;
-  }
-  const base = isAlias
-    ? path.join(SRC_ROOT, specifier.slice(PATH_ALIAS_PREFIX.length))
-    : path.resolve(path.dirname(fromFile), specifier);
-  for (const suffix of CANDIDATE_SUFFIXES) {
-    const candidate = base.endsWith('.ts') || base.endsWith('.tsx') ? base : `${base}${suffix}`;
-    if (existsSync(candidate) && statSync(candidate).isFile()) {
-      return candidate;
-    }
-  }
-  return null;
-}
-
-function staticImportsOf(file: string): readonly string[] {
-  const source = readFileSync(file, 'utf8');
-  const resolved: string[] = [];
-  for (const pattern of STATIC_IMPORT_PATTERNS) {
-    pattern.lastIndex = 0;
-    let match = pattern.exec(source);
-    while (match !== null) {
-      const target = resolveSpecifier(file, match[1]!);
-      if (target !== null) {
-        resolved.push(target);
-      }
-      match = pattern.exec(source);
-    }
-  }
-  return resolved;
-}
-
-/** 静的 import だけを辿って到達できるファイルの集合（entry を含む） */
-function staticReachableFrom(entry: string): ReadonlySet<string> {
-  const seen = new Set<string>([entry]);
-  const queue = [entry];
-  while (queue.length > 0) {
-    const current = queue.pop()!;
-    for (const next of staticImportsOf(current)) {
-      if (!seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
-      }
-    }
-  }
-  return seen;
-}
-
-function allSourceFiles(directory: string): readonly string[] {
-  const found: string[] = [];
-  for (const entry of readdirSync(directory)) {
-    const full = path.join(directory, entry);
-    if (statSync(full).isDirectory()) {
-      found.push(...allSourceFiles(full));
-      continue;
-    }
-    if (full.endsWith('.ts') || full.endsWith('.tsx')) {
-      found.push(full);
-    }
-  }
-  return found;
-}
-
-const isTestFile = (file: string): boolean =>
-  file.includes('.test.') || file.includes('.stories.') || file.includes('__tests__');
 
 // ============================================================================
 

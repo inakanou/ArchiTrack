@@ -62,7 +62,8 @@ vi.mock('../../hooks/useUnsavedChanges', () => ({
 }));
 
 // PDF出力サービスのモック（ページテストではUI動作のみをテストし、実際のPDF生成は行わない）
-vi.mock('../../services/export', () => ({
+// 画面は `loadPdfExportService()`（動的 import の境界）経由で呼び出すため実サービスを差し替える。
+vi.mock('../../services/export/PdfExportService', () => ({
   exportAndDownloadPdf: vi.fn().mockResolvedValue(undefined),
 }));
 

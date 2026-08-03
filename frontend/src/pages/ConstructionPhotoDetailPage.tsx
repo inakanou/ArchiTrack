@@ -62,7 +62,9 @@ import {
 import { getProject } from '../api/projects';
 import { getConstructionSignboards } from '../api/construction-signboards';
 import { ApiError } from '../api/client';
-import { exportConstructionPhotoLedger } from '../services/export/ConstructionPhotoLedgerExportService';
+// 台帳PDF出力サービスは日本語フォント資産（約3MB）へ静的に到達するため、
+// 値としては静的 import せず出力実行時に動的読み込みする（初期チャンクからの分離）
+import { loadConstructionPhotoLedgerExportService } from '../services/export/loadConstructionPhotoLedgerExportService';
 import { constructionPhotoBulkExportService } from '../services/export/ConstructionPhotoBulkExportService';
 import type {
   ConstructionPhotoExportProgress,
@@ -582,6 +584,7 @@ export default function ConstructionPhotoDetailPage() {
     setNotice(null);
     setIsExporting(true);
     try {
+      const { exportConstructionPhotoLedger } = await loadConstructionPhotoLedgerExportService();
       const result = await exportConstructionPhotoLedger({
         photos,
         workName: project?.name ?? album.name,

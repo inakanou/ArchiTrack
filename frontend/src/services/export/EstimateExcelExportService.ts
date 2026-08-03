@@ -43,9 +43,11 @@
  * `components/estimate-request/ExcelExportButton.tsx` などから**静的に import されている**。
  * 本モジュールだけを動的化してもバンドルからは消えないため、境界モジュールは設けない。
  *
- * **フォント資産への非到達**: 本モジュールは `PdfExportService` / `services/export/index.ts` を
- * import しない（どちらも `PdfReportService` 経由でフォント資産へ到達する）。
+ * **フォント資産への非到達**: 本モジュールは `PdfExportService` を import しない
+ * （`PdfReportService` 経由でフォント資産へ到達するため）。
  * ダウンロードは同等の実装を本モジュール内に持つ。
+ * なお `services/export/index.ts`（フォント資産を再エクスポートしていた barrel）は
+ * Task 56.13 で撤去済みで、各モジュールは実体を直接 import する。
  *
  * 依存方向: `domain` と `services/export` の型・定数にのみ依存し、`hooks` / `components` /
  * `pages` / `api` には依存しない（design.md `#### Dependency Direction`）。

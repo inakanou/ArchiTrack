@@ -23,8 +23,11 @@
 import { useState, useCallback, useEffect } from 'react';
 // Task 33.4: Link importは削除（ナビゲーションボタンをブレッドクラムに統一）
 import type { SiteSurveyDetail } from '../../types/site-survey.types';
-import { exportAndDownloadPdf, type AnnotatedImageWithComment } from '../../services/export';
+import type { AnnotatedImageWithComment } from '../../services/export/PdfReportService';
 import { renderImagesForReport } from '../../services/export/AnnotationRendererService';
+// PDF出力サービスは日本語フォント資産（約3MB）へ静的に到達するため、
+// 値としては静的 import せず出力実行時に動的読み込みする（初期チャンクからの分離）
+import { loadPdfExportService } from '../../services/export/loadPdfExportService';
 import type { PdfExportProgress } from '../../services/export/PdfExportService';
 import { getSiteSurvey } from '../../api/site-surveys';
 
@@ -323,6 +326,7 @@ export default function SiteSurveyDetailInfo({
       // PdfExportServiceを使用してPDFを生成・ダウンロード
       // ファイル名はPdfExportService.generateDefaultFilename()のデフォルト（現場調査報告書_YYYYMMDD.pdf）を使用
       // Requirements: 11.9
+      const { exportAndDownloadPdf } = await loadPdfExportService();
       await exportAndDownloadPdf(survey, annotatedImages, {
         onProgress: (progress) => {
           setPdfProgress(progress);

@@ -54,7 +54,9 @@ import { ApiError } from '../api/client';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import type { SiteSurveyInfo } from '../types/site-survey.types';
 import { renderImagesForReport } from '../services/export/AnnotationRendererService';
-import { exportAndDownloadPdf } from '../services/export/PdfExportService';
+// PDF出力サービスは日本語フォント資産（約3MB）へ静的に到達するため、
+// 値としては静的 import せず出力実行時に動的読み込みする（初期チャンクからの分離）
+import { loadPdfExportService } from '../services/export/loadPdfExportService';
 import {
   ItemSelectionPanel,
   EstimateRequestTextPanel,
@@ -949,6 +951,7 @@ export default function EstimateRequestDetailPage() {
       }));
 
       // PDF生成・ダウンロード
+      const { exportAndDownloadPdf } = await loadPdfExportService();
       await exportAndDownloadPdf(surveyDetail, imagesWithComment);
 
       setShowSurveySelector(false);

@@ -37,10 +37,12 @@ import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
 import UnsavedChangesBadge from '../components/quantity-table/UnsavedChangesBadge';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
-import { generateQuantityTablePdf } from '../services/export/QuantityTablePdfExportService';
+// PDF出力サービスは日本語フォント資産（約3MB）へ静的に到達するため、
+// 値としては静的 import せず出力実行時に動的読み込みする（初期チャンクからの分離）
+import { loadQuantityTablePdfExportService } from '../services/export/loadQuantityTablePdfExportService';
 import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
 import { validateCalculationParams } from '../utils/calculation-params-validation';
-import { downloadPdf } from '../services/export/PdfExportService';
+import { loadPdfExportService } from '../services/export/loadPdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
 import SurveySelectDialog, {
@@ -1188,6 +1190,7 @@ export default function QuantityTableEditPage() {
       // PDF生成
       const now = new Date();
       const createdDate = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+      const { generateQuantityTablePdf } = await loadQuantityTablePdfExportService();
       const blob = await generateQuantityTablePdf({
         quantityTableName: renderTable.name,
         projectName: renderTable.project.name,
@@ -1196,6 +1199,7 @@ export default function QuantityTableEditPage() {
       });
 
       // ダウンロード
+      const { downloadPdf } = await loadPdfExportService();
       downloadPdf(blob, `${renderTable.name}.pdf`);
     } catch {
       // REQ-26.10: エラーメッセージ表示
