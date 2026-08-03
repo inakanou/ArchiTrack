@@ -259,6 +259,25 @@ describe('buildFiles - ページ番号', () => {
     expect(file!.pages.find((page) => page.kind === 'summary')!.pageNumber).toBe(1);
   });
 
+  it('表紙を含む全ページに当該ファイルの行タイプを持たせる（32.2, 32.9）', () => {
+    // 描画・書き出し側（56.6 / 56.7）はページ単位で行タイプを参照するため、
+    // ファイルの行タイプとページの行タイプが食い違うと別の行タイプの帳票が混ざる。
+    const files = buildFiles(referenceTree(), ['ESTIMATE', 'EXECUTION', 'VENDOR']);
+    // 期待値は literal（実装から取り出した値同士を突き合わせない）
+    const expectedLineTypes: readonly EstimateLineType[] = ['ESTIMATE', 'EXECUTION', 'VENDOR'];
+
+    expect(files).toHaveLength(3);
+    files.forEach((file, index) => {
+      expect(file.pages.length).toBeGreaterThan(0);
+      for (const page of file.pages) {
+        expect(page.lineType).toBe(expectedLineTypes[index]);
+      }
+    });
+    // 表紙ページも当該ファイルの行タイプを持つ（表紙は見積のファイルにのみ存在する）
+    expect(files[0]!.pages[0]!.kind).toBe('cover');
+    expect(files[0]!.pages[0]!.lineType).toBe('ESTIMATE');
+  });
+
   it('ページ番号を各ファイル内で1から振り直し、ファイルをまたぐ通し番号にしない（32.9）', () => {
     const files = buildFiles(referenceTree(), ['ESTIMATE', 'EXECUTION', 'VENDOR']);
 
@@ -403,6 +422,15 @@ describe('buildFiles - 内訳書ページ', () => {
     expect(summary.totalRow!.name).toBe('【合計】');
     // 486,304 + 2,726,170 + 3,070,745 - 48,585（注記行は加算しない）
     expect(summary.totalRow!.amount).toBe('6,234,634');
+    // 合計行は名称欄と金額欄だけを埋め、他の欄は空欄とする（52.10）。
+    // 直前の明細行が単位・数量・単価を持つため、これらが漏れれば空欄でなくなる
+    expect(summary.totalRow).toMatchObject({
+      specification: '',
+      unit: '',
+      quantity: '',
+      unitPrice: '',
+      remarks: '',
+    });
   });
 
   it('単位の繰り返し判定を対象行タイプの明細行同士で行う（53.6）', () => {
@@ -467,6 +495,91 @@ describe('buildFiles - 内訳書ページ', () => {
 
   it('内訳書ページは親項目名のフッタを持たない（50.11 は明細書のみ）', () => {
     expect(summaryOf('ESTIMATE').parentLabel).toBeNull();
+  });
+
+  it('単位が空文字の行が続いても繰り返し記号を出さない（53.6）', () => {
+    // `hasUnit` は未設定（null）と**空文字**の双方を「単位なし」とみなす。空文字を
+    // 単位として扱うと、単位を持たない行が2つ続いたとき2行目の単位欄に「〃」が入り、
+    // 空欄であるべき列に記号が印字される。
+    //
+    // グリッドのセル編集は空入力を null へ正規化する（`EstimateItemRow.tsx`）が、
+    // API 経由の読み込みと転記（`useEstimateEditor` / `estimateEditReducer` の
+    // 業者見積・実行金額の転記）は `unit` を受け取った文字列のまま保持するため、
+    // 空文字の単位は編集中のツリーに実在しうる。
+    const tree = [
+      item({
+        key: 'b1',
+        lines: [line('ESTIMATE', { name: '仮設工事', unit: '', quantity: '1', amount: '100' })],
+      }),
+      item({
+        key: 'b2',
+        lines: [line('ESTIMATE', { name: '雑工事', unit: '', quantity: '1', amount: '200' })],
+      }),
+      item({
+        key: 'b3',
+        lines: [line('ESTIMATE', { name: '塗装工事', unit: '式', quantity: '1', amount: '300' })],
+      }),
+    ];
+    const [file] = buildFiles(tree, ['ESTIMATE']);
+    const rows = file!.pages.find((page) => page.kind === 'summary')!.rows;
+
+    // 2行目は「〃」ではなく空欄。3行目は直前が単位なしなので単位をそのまま出す
+    expect(rows.map((row) => row.unit)).toEqual(['', '', '式']);
+    // 3行が省略されずに並んでいる（空文字の単位だけを持つ行が消えたわけではない）
+    expect(rows.map((row) => row.name)).toEqual(['Ａ.仮設工事', 'Ｂ.雑工事', 'Ｃ.塗装工事']);
+  });
+
+  it('数量・単価が未設定の行は当該欄を空欄とする（53.1, 53.4）', () => {
+    // 値引き行（`r5`）は金額しか持たない（41.8）。数量欄・単価欄が未設定のまま
+    // 「0」と書かれないことを固定する。同じ表に数量・単価を持つ行（`r1`）があるため、
+    // 空欄になる理由が「未設定の欄を空欄にしている」ことであり、
+    // 数量欄・単価欄が常に空になる実装になったからではないことも同時に示す。
+    const rows = summaryOf('ESTIMATE').rows;
+
+    expect(rows[4]!.kind).toBe('discount');
+    expect(rows[4]!.quantity).toBe('');
+    expect(rows[4]!.unitPrice).toBe('');
+    expect(rows[4]!.unit).toBe('');
+    expect(rows[0]!.quantity).toBe('1     ');
+    expect(rows[0]!.unitPrice).toBe('486,304');
+  });
+
+  it('数値として解釈できない数量・単価は空欄とする（53.1, 53.4）', () => {
+    // 編集中の明細は入力文字列をそのまま保持する（`estimateEditReducer.applyUpdateLineField`
+    // は数量・単価を検証せず、`calculateLineAmount` が解釈できない場合に金額を null にするだけ）。
+    // 未保存の状態でも帳票を出力する（56.1, 56.2）ため、桁区切り付きの貼り付けや
+    // 入力途中の文字列がそのまま帳票へ届く。0 と誤記せず空欄にすることを固定する。
+    const tree = [
+      item({
+        key: 'g1',
+        lines: [
+          line('ESTIMATE', {
+            name: '貼り付け途中',
+            unit: '式',
+            quantity: '1,000',
+            unitPrice: '¥8,950',
+            amount: '1000',
+          }),
+        ],
+      }),
+      item({
+        key: 'g2',
+        lines: [line('ESTIMATE', { name: '通常', unit: '式', quantity: '2', amount: '200' })],
+      }),
+    ];
+    const [file] = buildFiles(tree, ['ESTIMATE']);
+    const rows = file!.pages.find((page) => page.kind === 'summary')!.rows;
+
+    expect(rows[0]!.quantity).toBe('');
+    expect(rows[0]!.unitPrice).toBe('');
+    // 解釈できる値は従来どおり表記される（＝空欄が総なめの結果ではない）
+    expect(rows[1]!.quantity).toBe('2     ');
+    expect(rows[0]!.amount).toBe('1,000');
+  });
+
+  it('合計行を字下げせず名称欄の基準位置に置く（52.10）', () => {
+    // 描画側（56.5）は `indentLevel` の段数だけ名称欄を右へずらす。
+    expect(summaryOf('ESTIMATE').totalRow!.indentLevel).toBe(0);
   });
 
   it('金額がゼロの項目は金額欄を空欄とし、合計にも影響しない（53.4）', () => {

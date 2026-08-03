@@ -78,8 +78,10 @@ function item(options: {
 function work(options: {
   key: string;
   name: string;
+  specification?: string;
   unit?: string;
   amount?: string;
+  remarks?: string;
   children?: readonly EditableItem[];
 }): EditableItem {
   return item({
@@ -87,9 +89,11 @@ function work(options: {
     lines: [
       line('ESTIMATE', {
         name: options.name,
+        specification: options.specification ?? null,
         unit: options.unit ?? '式',
         quantity: '1',
         amount: options.amount ?? '1000',
+        remarks: options.remarks ?? null,
       }),
     ],
     children: options.children,
@@ -225,7 +229,12 @@ describe('buildFiles - 明細書ページの内容', () => {
     work({
       key: 'a',
       name: '建築工事',
+      // 親項目自身が規格欄・備考欄に値を持つ並び。見出し行（52.11）は名称欄以外を
+      // 空欄とするため、この2欄を埋めておかないと「空欄である」という断言が
+      // フィクスチャ側の未設定で恒真になり、親の値を漏らす実装を検出できない。
+      specification: 'RC造3階建',
       amount: '3000',
+      remarks: '本体工事一式',
       children: [
         item({
           key: 'a1',
@@ -351,10 +360,63 @@ describe('buildFiles - 明細書ページの内容', () => {
     // 175,000 + 362,304 - 2,304
     // 注記行の 9,999 は加算せず（55.2）、親項目自身の金額 3,000 も加算しない
     expect(totalRow!.amount).toBe('535,000');
+    // 合計行は名称欄と金額欄だけを埋める（52.10）
+    expect(totalRow).toMatchObject({
+      specification: '',
+      unit: '',
+      quantity: '',
+      unitPrice: '',
+      remarks: '',
+    });
   });
 
   it('各ページに親項目名を割り当てる（50.11）', () => {
     expect(detailPagesOf(tree, 'ESTIMATE')[0]!.parentLabel).toBe('Ａ.建築工事');
+  });
+
+  it('見出し行の行種別を合計行と区別できる値にする（52.10, 52.11）', () => {
+    // 描画側（56.5 `EstimateTableRenderer.nameStartMm` / `drawRow`）は `kind === 'total'` の行だけ
+    // 名称欄の字下げと字間を合計行の規則へ切り替える。見出し行が `'total'` を名乗ると
+    // 親項目名が合計行として描かれるため、見出し行と合計行の行種別を固定する。
+    const page = detailPagesOf(tree, 'ESTIMATE')[0]!;
+
+    expect(page.rows[0]!.kind).toBe('item');
+    expect(page.totalRow!.kind).toBe('total');
+  });
+
+  it('合計行を字下げせず名称欄の基準位置に置く（52.10, 52.12）', () => {
+    // 子項目は `indentLevel: 1`（52.12）。合計行が同じ段数を持つと描画側で
+    // 子項目と同じ位置へずれるため、合計行の段数を 0 に固定する。
+    const page = detailPagesOf(tree, 'ESTIMATE')[0]!;
+
+    expect(page.totalRow!.indentLevel).toBe(0);
+    expect(page.rows[1]!.indentLevel).toBe(1);
+  });
+
+  it('子を持つ注記行の見出し行にも階層記号を付けない（53.7, 55.1）', () => {
+    // 注記行・値引き行は子を持てない（41.3, 55.1 / `estimateEditReducer.validateInsertParent`
+    // と `indentSingleRow` が拒否する）ため、この並びは画面操作では作れない。
+    // それでも組み立て側は `itemType === 'STANDARD'` の項目にしか階層記号を採番しない
+    // ガードを持っており、そのガードが load-bearing であることをここで固定する
+    // （注記行が単位・金額を抱えた場合を固定する既存ケースと同じ流儀）。
+    // ガードを外すと注記行が記号を受け取り、明細書の見出し行（52.11）に
+    // 第1階層の記号が現れてしまう。
+    const noteWithChildren = [
+      item({
+        key: 'note',
+        itemType: 'NOTE',
+        lines: [line('ESTIMATE', { name: '※支給品の内訳' })],
+        children: [work({ key: 'note-child', name: '支給品Ａ' })],
+      }),
+      work({ key: 'a', name: '本工事', children: [work({ key: 'a1', name: '躯体' })] }),
+    ];
+    const pages = detailPagesOf(noteWithChildren, 'ESTIMATE');
+
+    // 注記行の見出しには記号が付かず、通常項目の見出しには付く
+    // （＝記号が出ない理由が「記号を採番していない」ことであり、
+    //   記号そのものが出ない実装になったからではない）
+    expect(pages.map((page) => page.rows[0]!.name)).toEqual(['※支給品の内訳', 'Ａ.本工事']);
+    expect(pages.map((page) => page.parentLabel)).toEqual(['※支給品の内訳', 'Ａ.本工事']);
   });
 });
 
