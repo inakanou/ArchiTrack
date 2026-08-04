@@ -318,7 +318,8 @@ function sheetOf(file: ReportFileSpec): XLSX.WorkSheet {
 function sheetRow(sheet: XLSX.WorkSheet, rowIndex: number): readonly string[] {
   return TEST_COLUMN_BOXES.map((_box, column) => {
     const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: column })] as
-      { v?: unknown } | undefined;
+      | { v?: unknown }
+      | undefined;
     return cell === undefined ? '' : String(cell.v);
   });
 }
