@@ -715,62 +715,16 @@ test.describe('見積書機能', () => {
       await page.getByRole('button', { name: /キャンセル/i }).click();
     });
 
-    /**
-     * @requirement estimate-creation/REQ-5.4
-     * @requirement estimate-creation/REQ-5.5
-     * NET金額入力とプレビュー確認
-     */
-    test('REQ-5.4-5.5：NET金額入力とプレビュー', async ({ page }) => {
-      expect(createdEstimateId).toBeTruthy();
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 見積書詳細画面に移動
-      await page.goto(`/estimates/${createdEstimateId}`);
-      await page.waitForLoadState('networkidle');
-
-      // 詳細ページが表示されることを確認
-      await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      // NET金額案分ダイアログを開く
-      await page.getByRole('button', { name: '業者金額を実行金額に転記' }).click();
-      await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
-
-      // 対象業者選択ドロップダウンが存在することを確認
-      const vendorSelect = page.locator('#vendor-select');
-      await expect(vendorSelect).toBeVisible({ timeout: getTimeout(5000) });
-
-      // 業者データがある場合はNET金額入力をテスト
-      const vendorOptions = await vendorSelect.locator('option').count();
-      if (vendorOptions > 1) {
-        // 最初の業者を選択
-        const options = await vendorSelect.locator('option').all();
-        if (options[1]) {
-          const value = await options[1].getAttribute('value');
-          if (value) {
-            await vendorSelect.selectOption(value);
-          }
-        }
-
-        // NET金額入力フィールドが表示されることを確認
-        const netAmountInput = page.locator('#net-amount');
-        const inputVisible = await netAmountInput.isVisible().catch(() => false);
-
-        if (inputVisible) {
-          // NET金額を入力
-          await netAmountInput.fill('150000');
-
-          // プレビューが表示されることを確認
-          const previewText = page.getByText(/案分プレビュー|案分率/i);
-          await expect(previewText).toBeVisible({ timeout: getTimeout(5000) });
-        }
-      }
-
-      // ダイアログを閉じる
-      await page.getByRole('button', { name: /キャンセル/i }).click();
-    });
+    // REQ-5.4 / REQ-5.5（案分計算とその結果の実行金額行への表示）の検証は、
+    // `estimate-transfer-calculation-save-e2e.spec.ts` の
+    // 「未保存の新規行の対象化とプレビューの一致」へ移した（Task 57.4）。
+    //
+    // かつてここにあった「REQ-5.4-5.5：NET金額入力とプレビュー」は、業者選択肢の件数を
+    // `if (vendorOptions > 1)` で見てから案分に触れる作りだった。この describe の serial 順では
+    // 業者金額行を作る「タスク15.4: 受領見積書転記」が後ろにあるため条件は常に偽で
+    // （実測: option は空選択肢の1件のみ）、NET金額入力もプレビュー確認も一度も実行されない
+    // まま緑になっていた。前提が欠けたときに自動的に無効化されるテストは置けないため削除し、
+    // 業者金額行を必ず用意したうえで案分後単価・案分後金額を無条件に検証する側へ帰属を移した。
   });
 
   // ============================================================================

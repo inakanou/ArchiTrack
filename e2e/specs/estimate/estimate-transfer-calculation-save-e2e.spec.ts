@@ -54,7 +54,21 @@
  * さらに案分の入力となる業者金額行の単価は**画面で書き換えてから**案分するため、
  * 保存済みの値（40,000円）で計算する実装ではどの期待値にも一致しない（5.8）。
  *
+ * ## 5.4 / 5.5 の帰属をここへ移した経緯（Task 57.4）
+ *
+ * 5.4（案分計算による単価）と 5.5（案分後金額の実行金額行への表示）は、かつて
+ * `estimate-e2e.spec.ts` の「REQ-5.4-5.5：NET金額入力とプレビュー」が担っていた。
+ * だがその test は業者選択肢の件数を `if (vendorOptions > 1)` で見てから中身を実行する
+ * 作りで、当該 spec の serial 順では業者金額行がまだ存在せず条件が常に偽になり、
+ * 案分に触れる行が**一度も実行されないまま緑**になっていた。前提が欠けたら失敗する形に
+ * できない以上、その test は削除し、5.4 / 5.5 の検証は本 spec の
+ * 「未保存の新規行の対象化とプレビューの一致」に一本化する。本 spec は業者金額行を
+ * 準備5と `resetItemTree` で必ず作り、業者が選べなければ `#vendor-select` の
+ * `selectOption` が落ちるため、前提の欠落が黙って素通りしない。
+ *
  * Requirements coverage (estimate-creation):
+ * - REQ-5.4: NET金額が入力された場合、各実行金額行の単価をNET金額に基づいて案分計算する
+ * - REQ-5.5: 案分計算が実行された場合、案分後の金額を自動計算して実行金額行に表示する
  * - REQ-5.8: 案分計算を編集中の業者金額行の値に基づいて行い、プレビューの案分後金額と反映される金額を一致させる
  * - REQ-5.9: 未保存の新規行が案分対象に含まれる場合、その行も案分対象として扱う
  * - REQ-6.8: 利益率適用を編集中の実行金額行の値に基づいて行い、プレビューの新しい単価と反映される単価を一致させる
@@ -970,6 +984,13 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
      * 先に件数を見ると、対象の選定が壊れた変異が「行数が違う」という二次的な形で落ち、
      * 5.8 / 6.8 の違反そのものが失敗として報告されない（55.3 / 55.4 の教訓）。
      *
+     * 案分の検証は 5.8（編集中の値に基づくこと）だけでなく 5.4 / 5.5 そのものを含む。
+     * 案分後**単価**が期待値と一致することが 5.4、案分後**金額**が実行金額行の金額欄に
+     * 出ることが 5.5 にあたる。どちらも業者金額行が無ければ `#vendor-select` の
+     * 業者選択で落ちるため、前提が欠けたときに黙って素通りすることはない。
+     *
+     * @requirement estimate-creation/REQ-5.4
+     * @requirement estimate-creation/REQ-5.5
      * @requirement estimate-creation/REQ-5.8
      * @requirement estimate-creation/REQ-5.9
      * @requirement estimate-creation/REQ-6.8
@@ -977,7 +998,7 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
      * @requirement estimate-creation/REQ-49.7
      * @requirement estimate-creation/REQ-34.6
      */
-    test('未保存の新規行が転記先・案分対象・利益率適用対象になり、プレビューの表示値が保存後の再読み込み後の値と一致する (estimate-creation/REQ-5.8, estimate-creation/REQ-5.9, estimate-creation/REQ-6.8, estimate-creation/REQ-6.9, estimate-creation/REQ-49.7)', async ({
+    test('未保存の新規行が転記先・案分対象・利益率適用対象になり、プレビューの表示値が保存後の再読み込み後の値と一致する (estimate-creation/REQ-5.4, estimate-creation/REQ-5.5, estimate-creation/REQ-5.8, estimate-creation/REQ-5.9, estimate-creation/REQ-6.8, estimate-creation/REQ-6.9, estimate-creation/REQ-49.7)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
