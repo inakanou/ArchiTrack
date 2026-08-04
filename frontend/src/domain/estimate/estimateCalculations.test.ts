@@ -589,6 +589,9 @@ function summaryTree(): EditableItem[] {
   ];
 }
 
+/**
+ * @requirement estimate-creation/REQ-39.10 サマリーセクションは未保存の変更を含む編集中の内容に基づいて各金額を計算する
+ */
 describe('summarize', () => {
   it('固定値でサマリー各項目を算出する（39.1〜39.8）', () => {
     const summary = summarize(summaryTree());

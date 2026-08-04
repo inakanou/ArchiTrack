@@ -1297,6 +1297,9 @@ describe('EstimateService', () => {
       vi.useRealTimers();
     });
 
+    /**
+     * @requirement estimate-creation/REQ-54.4 見積書を新規作成した場合に提出日のデフォルト値として当日の日付を設定する
+     */
     it('新規作成時に提出日を当日（日本時間）とする（Requirements: REQ-54.4）', async () => {
       // Arrange
       // 2026-08-03T23:30Z は日本時間では 2026-08-04 08:30。UTC の暦日（08-03）を
@@ -1315,6 +1318,9 @@ describe('EstimateService', () => {
       expect(createdData(create).submissionDate).toEqual(new Date('2026-08-04T00:00:00.000Z'));
     });
 
+    /**
+     * @requirement estimate-creation/REQ-54.5 見積書を新規作成した場合に有効期限のデフォルト値として「提出日より1ヶ月間」を設定する
+     */
     it('新規作成時に有効期限を既定文言とする（Requirements: REQ-54.5）', async () => {
       // Arrange
       const service54 = new EstimateService({

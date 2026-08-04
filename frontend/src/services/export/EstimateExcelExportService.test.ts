@@ -318,8 +318,7 @@ function sheetOf(file: ReportFileSpec): XLSX.WorkSheet {
 function sheetRow(sheet: XLSX.WorkSheet, rowIndex: number): readonly string[] {
   return TEST_COLUMN_BOXES.map((_box, column) => {
     const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: column })] as
-      | { v?: unknown }
-      | undefined;
+      { v?: unknown } | undefined;
     return cell === undefined ? '' : String(cell.v);
   });
 }
@@ -890,6 +889,9 @@ describe('列幅を帳票の列定義から換算する', () => {
 // それぞれ「列幅を帳票の列定義から換算する」「用紙設定が帳票と同一」の節が固定している。
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-52.14 出力形式がExcelの場合は罫線の描画を行わず列構成・行構成・表題・ページ番号・合計行・階層記号・インデントのみを本要件に従って構成する
+ */
 describe('罫線を出力せず標準のグリッド線に委ねる', () => {
   it('帳票（PDF）が同じページに罫線を引くのに対し、表計算はセル書式を一切持たない', () => {
     const file = referenceFile();

@@ -74,6 +74,9 @@ beforeEach(() => {
   vi.mocked(getCompanyInfo).mockResolvedValue(COMPANY);
 });
 
+/**
+ * @requirement estimate-creation/REQ-51.13 自社情報を自社情報登録機能に登録された内容から取得する
+ */
 describe('loadEstimateReportSubject', () => {
   it('プロジェクト・取引先・自社情報を表紙の入力へまとめる', async () => {
     const subject = await loadEstimateReportSubject('proj-1');

@@ -244,6 +244,10 @@ describe('buildFiles - 表紙の有無', () => {
 // ページ番号（32.9, 50.8）
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-50.8 全ページに通し番号を出力する
+ * @requirement estimate-creation/REQ-32.9 ページ番号を各ファイル内の通し番号とする
+ */
 describe('buildFiles - ページ番号', () => {
   it('見積金額のファイルは表紙が1ページ目・内訳書が2ページ目になる（50.2, 50.8）', () => {
     const [file] = buildFiles(referenceTree(), ['ESTIMATE']);
@@ -293,6 +297,9 @@ describe('buildFiles - ページ番号', () => {
 // 内訳書の内容（50.3, 52.10, 53.1〜53.7）
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-50.3 内訳書のページに見積項目の第1階層の一覧を出力する
+ */
 describe('buildFiles - 内訳書ページ', () => {
   function summaryOf(lineType: EstimateLineType) {
     const [file] = buildFiles(referenceTree(), [lineType]);

@@ -560,6 +560,10 @@ describe('EstimateDraftService', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-34.3 見積項目の内容を編集して保存した場合に変更が保存され再読み込み後も反映される
+   * @requirement estimate-creation/REQ-42.9 保存処理において既存の見積項目とその実行予算項目からの参照関係を維持する
+   */
   describe('saveDraft: 既存項目の更新（34.3, 42.9）', () => {
     it('既存項目はIDを維持して更新し、削除＋再作成を行わない', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
@@ -686,6 +690,9 @@ describe('EstimateDraftService', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-34.1 見積項目を追加して保存した場合に追加が保存され再読み込み後も反映される
+   */
   describe('saveDraft: 新規項目と親子関係の解決（34.1, 42.1）', () => {
     it('多階層の新規サブツリーを一時IDから生成IDへの対応表で解決する', async () => {
       const input = buildInput([
@@ -1171,6 +1178,9 @@ describe('EstimateDraftService', () => {
       expect(result.items[0]!.children[0]!.parentId).toBe(ITEM_A);
     });
 
+    /**
+     * @requirement estimate-creation/REQ-29.4 保存操作を行った場合に自動計算された親項目の金額を保存する
+     */
     it('親項目の集計金額を保存し、返却ツリーにも同じ金額が含まれる（29.4）', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([
         { id: ITEM_A, parentId: null },

@@ -122,6 +122,13 @@ function summaryRowNames(tree: readonly EditableItem[], lineType: EstimateLineTy
 // 明細書ページの生成対象（50.4, 50.5, 50.6, 50.7, 38.4）
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-50.4 内訳書の次のページ以降を明細書とし子項目を持つ項目ごとに改ページする
+ * @requirement estimate-creation/REQ-50.5 第2階層以下にも子項目を持つ場合は階層ごとに明細書ページを出力する
+ * @requirement estimate-creation/REQ-50.6 明細書ページを親項目の並び順に従って出力する
+ * @requirement estimate-creation/REQ-50.7 子項目を持たない項目には明細書ページを出力しない
+ * @requirement estimate-creation/REQ-38.4 項目を省いた結果として明細行が0件になった階層の明細書ページを出力しない
+ */
 describe('buildFiles - 明細書ページの生成対象', () => {
   it('子項目を持つ項目ごとに明細書ページを生成し、子を持たない項目には生成しない（50.4, 50.7）', () => {
     const tree = [
@@ -437,6 +444,10 @@ function parentWithChildren(units: readonly string[]): readonly EditableItem[] {
   ];
 }
 
+/**
+ * @requirement estimate-creation/REQ-50.9 1つの階層の明細行が1ページに収まらない場合は同じ表題と見出しで継続ページを出力する
+ * @requirement estimate-creation/REQ-50.10 継続ページが出力される場合は合計行を最終ページの最下行にのみ出力する
+ */
 describe('buildFiles - 継続ページ', () => {
   it('明細行が17行に収まる場合はページを分けない（52.5, 52.6）', () => {
     // 見出し行1行 ＋ 子16件 = 17行

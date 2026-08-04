@@ -339,19 +339,10 @@
 
 #### Acceptance Criteria
 
-1. ~~→ project-management/Requirement 28 AC 1 に移動~~
-2. ~~→ project-management/Requirement 28 AC 2 に移動~~
-3. ~~→ project-management/Requirement 28 AC 3 に移動~~
-4. ~~→ project-management/Requirement 28 AC 4 に移動~~
-5. ~~→ project-management/Requirement 28 AC 5 に移動~~
-6. ~~→ project-management/Requirement 28 AC 6 に移動~~
-7. ~~→ project-management/Requirement 28 AC 7 に移動~~
-8. ~~→ project-management/Requirement 28 AC 8 に移動~~
-9. ~~→ project-management/Requirement 28 AC 9 に移動~~
-10. ~~→ project-management/Requirement 28 AC 10 に移動~~
-11. ~~→ project-management/Requirement 28 AC 11 に移動~~
-12. ~~→ project-management/Requirement 28 AC 12 に移動~~
-13. ~~→ project-management/Requirement 28 AC 13 に移動~~
+本要件の受入基準1〜13は **project-management/Requirement 28 の受入基準1〜13へ全件移動済み**であり、本仕様には受入基準を持たない。
+
+- 移動先の検証は `e2e/specs/estimate/estimate-navigation-e2e.spec.ts` が `@requirement project-management/REQ-28.1`〜`REQ-28.13` として担う
+- 番号付きの受入基準として残すと `scripts/check-requirement-coverage.ts` が本仕様側の未充足として計上し、移動先で検証済みの内容を二重に要求してしまうため、追跡用の記述に置き換えている
 
 ### Requirement 17: 受領見積書転記UIの改善
 
@@ -379,7 +370,7 @@
 6. The NET金額案分ダイアログ shall NET金額の入力フィールドを提供する
 7. When NET金額が入力された場合, the NET金額案分ダイアログ shall 各行の案分率と案分後金額のプレビューを表示する
 8. When ユーザーが案分実行ボタンをクリックした場合, the 見積書作成システム shall 除外行以外の業者金額行を実行金額行に転記し、案分された単価を自動計算して設定する
-9. While 案分計算が処理中の場合, the NET金額案分ダイアログ shall 処理中インジケーターを表示する
+- **受入基準9は撤廃**: ~~While 案分計算が処理中の場合, the NET金額案分ダイアログ shall 処理中インジケーターを表示する~~ → Requirement 49 受入基準3（案分をサーバーへ往復させずクライアント内で同期的に完結させる）により、処理中として観測できる期間が存在しなくなった。番号付きの受入基準として残すと検証不能な内容をカバレッジゲートが要求し続けるため、追跡用の記述に置き換えている（後続の受入基準10の番号は変更しない）
 10. The NET金額案分ダイアログ shall 編集中の業者金額行（未保存の追加・編集を含む）を案分対象の一覧に表示する
 
 ### Requirement 19: 実行金額から見積金額への転記（利益率適用ダイアログ）
@@ -394,7 +385,7 @@
 4. The 利益率適用ダイアログ shall 上書きオプション（すべて上書き、空の場合のみ上書き、単価のみ上書き）を提供する
 5. When 利益率が入力された場合, the 利益率適用ダイアログ shall 各行の元の単価と新しい単価のプレビューを表示する
 6. When ユーザーが適用ボタンをクリックした場合, the 見積書作成システム shall 実行金額行の名称・規格・単位・数量・単価を利益率適用後に見積金額行に反映する
-7. While 適用処理中の場合, the 利益率適用ダイアログ shall 処理中インジケーターを表示する
+- **受入基準7は撤廃**: ~~While 適用処理中の場合, the 利益率適用ダイアログ shall 処理中インジケーターを表示する~~ → Requirement 49 受入基準3（利益率適用をサーバーへ往復させずクライアント内で同期的に完結させる）により、処理中として観測できる期間が存在しなくなった。番号付きの受入基準として残すと検証不能な内容をカバレッジゲートが要求し続けるため、追跡用の記述に置き換えている（後続の受入基準8の番号は変更しない）
 8. The 利益率適用ダイアログ shall 編集中の実行金額行（未保存の追加・編集を含む）を適用対象の一覧に表示する
 
 ### Requirement 20: サマリーパネル
@@ -446,11 +437,13 @@
 
 #### Acceptance Criteria
 
-1. ~~→ 撤廃~~
-2. ~~→ Requirement 44 AC4 に移管~~
-3. ~~→ Requirement 44 AC5 に移管~~
-4. ~~→ Requirement 44 AC7 および Requirement 42 AC8 に移管~~
-5. ~~→ 撤廃~~
+本要件の受入基準1〜5は撤廃または移管済みであり、本仕様には受入基準を持たない。
+
+- 受入基準1・5: 撤廃（階層移動は編集セッション中の操作となり専用の取得・更新手段を持たない）
+- 受入基準2: Requirement 44 受入基準4 へ移管
+- 受入基準3: Requirement 44 受入基準5 へ移管
+- 受入基準4: Requirement 44 受入基準7 および Requirement 42 受入基準8 へ移管
+- 番号付きの受入基準として残すと `scripts/check-requirement-coverage.ts` が撤廃済みの内容を未充足として計上するため、追跡用の記述に置き換えている
 
 ### Requirement 25: 見積書作成画面のデフォルト値
 

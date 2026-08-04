@@ -660,6 +660,9 @@ describe('estimate.schema', () => {
         expect(result.success).toBe(true);
       });
 
+      /**
+       * @requirement estimate-creation/REQ-42.8 保存しようとした階層構造に循環参照または親を失った項目が含まれる場合は保存を行わず不備として返す
+       */
       it('IDも一時識別子も持たない項目は拒否する（親を失った項目、42.8）', () => {
         const result = saveEstimateDraftSchema.safeParse(
           draft([newNode('tmp-1', { tempId: null })])
@@ -986,6 +989,9 @@ describe('estimate.schema', () => {
       });
     });
 
+    /**
+     * @requirement estimate-creation/REQ-42.4 入力内容に不備がある場合は保存を開始せずに不備の内容を返す
+     */
     describe('不備内容の返却（42.4）', () => {
       it('複数の不備をまとめて呼び出し元に返す', () => {
         const result = saveEstimateDraftSchema.safeParse(

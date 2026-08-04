@@ -49,6 +49,9 @@ const MM_PER_PX = 0.264583;
 const mm = (px: number): number => px * MM_PER_PX;
 
 describe('estimateReportLayout - レイアウト定数', () => {
+  /**
+   * @requirement estimate-creation/REQ-50.1 帳票の用紙をA4横（297mm × 210mm）とする
+   */
   describe('用紙（50.1 / pdf-format-reference §1）', () => {
     it('A4横（297mm × 210mm）である', () => {
       expect(REPORT_GRID.paper.widthMm).toBe(297);
@@ -175,6 +178,11 @@ describe('estimateReportLayout - レイアウト定数', () => {
   });
 });
 
+/**
+ * @requirement estimate-creation/REQ-53.1 帳票の数量を小数第1位まで表示し小数点の位置を列内で揃えて右揃えに出力する
+ * @requirement estimate-creation/REQ-53.2 数量が整数の場合は小数部を空白として出力する
+ * @requirement estimate-creation/REQ-22.10 帳票出力における数量・単価・金額の表記を Requirement 53 に従う
+ */
 describe('estimateReportLayout - 数量の表記（53.1, 53.2）', () => {
   it('参照PDFの記入例をそのまま再現する', () => {
     // pdf-format-reference §7:「`1     ` / `612     ` / `343.1   ` / `53.7   `」
@@ -235,6 +243,11 @@ describe('estimateReportLayout - 数量の表記（53.1, 53.2）', () => {
   });
 });
 
+/**
+ * @requirement estimate-creation/REQ-53.3 帳票の単価と金額を3桁区切りのカンマ付き整数で右揃えに出力する
+ * @requirement estimate-creation/REQ-53.4 単価または金額が未設定またはゼロの場合は当該欄を空欄とする
+ * @requirement estimate-creation/REQ-53.5 金額が負数の場合は先頭にマイナス記号を付けて出力する
+ */
 describe('estimateReportLayout - 単価・金額の表記（53.3, 53.4, 53.5）', () => {
   it('3桁区切りのカンマ付き整数で出力する', () => {
     // pdf-format-reference §5 / §6 の記入例
@@ -288,6 +301,9 @@ describe('estimateReportLayout - 単価・金額の表記（53.3, 53.4, 53.5）'
   });
 });
 
+/**
+ * @requirement estimate-creation/REQ-53.6 ある行の単位が直前の行の単位と同一の場合は当該行の単位欄を繰り返し記号とする
+ */
 describe('estimateReportLayout - 単位の繰り返し記号（53.6）', () => {
   it('直前の行と同一の単位を繰り返し記号に置き換える', () => {
     expect(UNIT_REPEAT_MARK).toBe('〃');
@@ -344,6 +360,9 @@ describe('estimateReportLayout - 単位の繰り返し記号（53.6）', () => {
   });
 });
 
+/**
+ * @requirement estimate-creation/REQ-53.7 内訳書と明細書における第1階層の項目に階層記号を付けて出力する
+ */
 describe('estimateReportLayout - 階層記号（53.7）', () => {
   it('第1階層に全角英大文字を並び順で付ける', () => {
     // pdf-format-reference §5:「`Ａ`〜`Ｈ`」
@@ -435,6 +454,9 @@ describe('estimateReportLayout - 表紙の全角表記（53.8, 53.9）', () => {
   });
 });
 
+/**
+ * @requirement estimate-creation/REQ-41.12 帳票出力において値引き行を名称欄に「【値引】」と表示し金額をマイナスで出力する
+ */
 describe('estimateReportLayout - 値引き行の表記（41.12）', () => {
   it('名称欄の表示を「【値引】」とする', () => {
     expect(DISCOUNT_ROW_LABEL).toBe('【値引】');

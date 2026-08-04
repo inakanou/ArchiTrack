@@ -172,6 +172,9 @@ describe('EstimateDetailPage 保存エラーの提示（実物のコンポーネ
    * 制限時間超過は `code: ESTIMATE_SAVE_TIMEOUT` で識別する。HTTP ステータスだけでは
    * 他の 500 と区別できず、メッセージ文字列での判定は文言変更で壊れる。
    */
+  /**
+   * @requirement estimate-creation/REQ-42.3 保存操作の一部に失敗した場合に変更をすべて破棄して保存前の状態を保ち原因を伝える
+   */
   it('制限時間超過の保存失敗で原因・未保存・回避策が読み取れる文言を出すこと (42.3)', async () => {
     vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValue(
       new ApiError(500, SAVE_TIMEOUT_DETAIL, saveTimeoutResponseBody)

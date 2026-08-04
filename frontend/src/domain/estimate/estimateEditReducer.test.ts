@@ -1122,6 +1122,9 @@ describe('estimateEditReducer / indentRange', () => {
     expect(after.lastError).toBeNull();
   });
 
+  /**
+   * @requirement estimate-creation/REQ-44.7 階層の上げ下げによって項目が自身または自身の子孫の子になる場合は操作を行わない
+   */
   it('先頭行の祖先を先頭行の子にする指定は状態を変更せずエラー情報を返す（44.7）', () => {
     const before = stateOf(deepTree());
 
@@ -1859,6 +1862,9 @@ describe('estimateEditReducer / applyNetAllocation', () => {
     );
   });
 
+  /**
+   * @requirement estimate-creation/REQ-55.4 注記行をNET金額案分および利益率適用の対象外とする
+   */
   it('値引き行・注記行は案分の対象にも母数にも含めない (41.9, 55.4)', () => {
     // 構造上は業者金額行を持たないが、防御的に3行を持つ形で指定しても除外されること
     const before = stateOf([

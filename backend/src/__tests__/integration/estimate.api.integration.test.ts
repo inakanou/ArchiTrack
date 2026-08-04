@@ -1445,6 +1445,9 @@ describe('Estimate API Integration Tests', () => {
         deleteTestEstimateId = await createEstimateForTest('削除テスト用見積書');
       });
 
+      /**
+       * @requirement estimate-creation/REQ-34.2 見積項目を削除して保存した場合に削除が保存され再読み込み後も反映される
+       */
       it('ペイロードから除いた項目が削除され再読込後に現れない (Req 12.3, 34.2, 42.1)', async () => {
         const setupResponse = await saveDraft(deleteTestEstimateId, [
           buildNewItem('keep-1', { name: '残す項目' }),

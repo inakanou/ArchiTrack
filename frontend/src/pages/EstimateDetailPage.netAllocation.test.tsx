@@ -174,6 +174,9 @@ describe('EstimateDetailPage NET金額案分の統合（実物のコンポーネ
    * 入力元が編集中の明細でなければこの固定値は成立しない。
    */
   /** @requirement estimate-creation/REQ-5.8 */
+  /**
+   * @requirement estimate-creation/REQ-49.6 転記・計算の対象を編集中の明細の値とする
+   */
   it('未保存の業者金額でプレビューと適用結果が一致すること (5.8, 18.7, 49.6)', async () => {
     renderPage();
     await waitForItems();

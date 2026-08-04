@@ -469,6 +469,11 @@ describe('jsPDF との適合性', () => {
 // 52.3 / 52.4: 罫線
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-52.1 内訳書と明細書に同一の表組みを用いる
+ * @requirement estimate-creation/REQ-52.3 表の各列と各行を罫線で区切る
+ * @requirement estimate-creation/REQ-52.4 表の外枠と見出し行の区切りを内側の罫線より太い線で出力する
+ */
 describe.each(TABLE_PAGES)('罫線（52.3, 52.4, 52.1）— $label', ({ build }) => {
   it('7列を区切る縦罫線8本を参照座標へ表の上端から下端まで引く', () => {
     const doc = render(build());
@@ -552,6 +557,10 @@ describe.each(TABLE_PAGES)('罫線（52.3, 52.4, 52.1）— $label', ({ build })
 // 52.5 / 52.6: 固定グリッドと空行
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-52.5 1ページの表を見出し行1行・明細行17行・合計行1行で構成する
+ * @requirement estimate-creation/REQ-52.6 明細行が17行に満たない場合は残りの行を空行として出力する
+ */
 describe.each(TABLE_PAGES)(
   '固定グリッドと空行（52.5, 52.6, 52.1）— $label',
   ({ build, filledRowCount }) => {
@@ -587,6 +596,10 @@ describe.each(TABLE_PAGES)(
 // 52.8 / 52.9 / 32.4: 表題とページ番号
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-52.8 表の上部中央に「内訳書」または「明細書」の表題を出力する
+ * @requirement estimate-creation/REQ-52.9 表の上部左にページ番号を出力する
+ */
 describe.each(TABLE_PAGES)('表題とページ番号（52.8, 52.9, 52.1）— $label', ({ build }) => {
   it('表題を参照座標に16ptで配置する', () => {
     const doc = render(build());
@@ -675,6 +688,10 @@ const EXPECTED_HEADER_TEXTS = [
   '備　　考',
 ] as const;
 
+/**
+ * @requirement estimate-creation/REQ-52.2 表の列を左から「名称」「規格」「単位」「数量」「単価」「金額」「備考」の順とする
+ * @requirement estimate-creation/REQ-52.7 見出し行の各列に列名を出力する
+ */
 describe.each(TABLE_PAGES)('見出し行（52.7, 52.1）— $label', ({ build }) => {
   function headerTexts(doc: RecordingDocument): readonly TextCall[] {
     return textsOnBaseline(doc, HEADER_BASELINE_PX);
@@ -816,6 +833,10 @@ describe('明細行の列位置', () => {
 // 52.11 / 52.12: 明細書の先頭行と子項目のインデント
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-52.11 明細書ページの先頭行に当該階層の親項目の階層記号と名称を出力する
+ * @requirement estimate-creation/REQ-52.12 明細書の子項目の名称を親項目より右にずらして出力する
+ */
 describe('明細書の先頭行と子項目のインデント（52.11, 52.12）', () => {
   it('先頭行に親項目の階層記号と名称を出力する', () => {
     const doc = render(detailPage());
@@ -858,6 +879,9 @@ describe('明細書の先頭行と子項目のインデント（52.11, 52.12）'
 // 50.11: 表の外側下部のフッタ
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-50.11 明細書の各ページの表の外側下部に当該階層の親項目名を右寄せで出力する
+ */
 describe('親項目名のフッタ（50.11）', () => {
   it('明細書は表の外側下部へ親項目名を右寄せで出力する', () => {
     const doc = render(detailPage());
@@ -901,6 +925,9 @@ describe('親項目名のフッタ（50.11）', () => {
 // 52.10: 合計行
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-52.10 合計行の名称欄に「【合計】」を出力し金額欄に当該階層の金額の合計を出力する
+ */
 describe('合計行（52.10）', () => {
   it('合計行の名称欄と金額欄を §5 の座標へ出力する', () => {
     const doc = render(summaryPage());
@@ -932,6 +959,9 @@ describe('合計行（52.10）', () => {
 // 52.13: 列幅による打ち切り
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-52.13 名称・規格・備考の文字列が列幅に収まらない場合は列幅の範囲内で打ち切る
+ */
 describe('列幅に収まらない文字列の打ち切り（52.13）', () => {
   it('フィクスチャの名称・規格・備考が列幅を実際に超える（否定側アサーションの前提）', () => {
     const widths = [
@@ -1060,6 +1090,9 @@ describe('列幅に収まらない文字列の打ち切り（52.13）', () => {
 // 55.5: 注記行
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-55.5 帳票出力時に注記行の名称を名称欄に出力し他の欄は空欄とする
+ */
 describe('注記行（55.5）', () => {
   it('注記行は名称欄のみを出力する', () => {
     const doc = render(detailPage());

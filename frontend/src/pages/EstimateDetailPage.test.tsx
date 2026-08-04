@@ -1030,6 +1030,10 @@ describe('EstimateDetailPage', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-18.1 見積書画面に「業者金額を実行金額に転記」ボタンを提供する
+   * @requirement estimate-creation/REQ-18.2 当該ボタンをクリックした場合にNET金額案分ダイアログを表示する
+   */
   it('NET案分ボタンクリックでNETダイアログを表示し、閉じることができる', async () => {
     const user = userEvent.setup();
 
@@ -1059,6 +1063,10 @@ describe('EstimateDetailPage', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-19.1 見積書画面に「実行金額を見積金額に転記」ボタンを提供する
+   * @requirement estimate-creation/REQ-19.2 当該ボタンをクリックした場合に利益率適用ダイアログを表示する
+   */
   it('利益率ボタンクリックで利益率ダイアログを表示し、閉じることができる', async () => {
     const user = userEvent.setup();
 
@@ -1962,6 +1970,9 @@ describe('EstimateDetailPage', () => {
      * 再読み込み後の順序維持そのものは配列順で `displayOrder` を再採番するサーバー
      * （52.5）と結合した E2E（53.14）が担当する。
      */
+    /**
+     * @requirement estimate-creation/REQ-42.6 明細の並び順を画面に表示されている順序どおりに確定する
+     */
     it('ドラッグによる並び替えが保存対象に含まれること (12.8, 34.5, 42.6)', async () => {
       mockEstimateLoad({
         ...mockEstimateDetail,
@@ -2011,6 +2022,9 @@ describe('EstimateDetailPage', () => {
      * 42.7: 保存成功時に未保存の変更がない状態へ戻す
      * 27.4: 未保存の変更がない場合、保存ボタンを無効状態で表示する
      * 27.3: 1回の保存操作でまとめて反映する（保存後の明細の追加取得を行わない）
+     */
+    /**
+     * @requirement estimate-creation/REQ-42.7 保存操作が成功した場合に未保存の変更がない状態に戻す
      */
     it('保存応答の最新ツリーで状態を差し替え追加取得を行わないこと (42.2, 42.7, 27.3, 27.4)', async () => {
       vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(buildSavedResponse());
@@ -3042,6 +3056,9 @@ describe('EstimateDetailPage', () => {
      * 27.5: 未保存の変更がある間はその旨を画面上に表示する
      * 27.4: 未保存の変更がある場合は保存ボタンが有効になる（無効表示は未保存が無い場合のみ）
      */
+    /**
+     * @requirement estimate-creation/REQ-27.5 未保存の変更がある間はその旨を画面上に表示する
+     */
     it('未保存の変更がある間はその旨を画面上に表示する (27.5, 27.4)', async () => {
       renderPage();
 
@@ -3084,6 +3101,9 @@ describe('EstimateDetailPage', () => {
      *
      * アプリ内の画面遷移は React Router の遷移ブロックで捕捉する。
      * 未保存の変更が無い間はガードしない（確認を求めない）。
+     */
+    /**
+     * @requirement estimate-creation/REQ-27.6 未保存の変更がある状態で画面を離れようとした場合に確認を求める
      */
     it('未保存の変更に応じてアプリ内遷移のガードが切り替わる (27.6)', async () => {
       renderPage();
@@ -3219,6 +3239,9 @@ describe('EstimateDetailPage', () => {
      * 対象外となり、自動保存があっても検出できない（変異検証で確認済み）。
      * 偽の timer 下では `waitFor` / `userEvent` の内部待機が進まないため、
      * `act` と `advanceTimersByTimeAsync` / `fireEvent` だけで駆動する。
+     */
+    /**
+     * @requirement estimate-creation/REQ-27.7 自動保存を行わない
      */
     it('編集後に時間が経過しても自動保存を行わない (27.7)', async () => {
       vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(savedResponse());

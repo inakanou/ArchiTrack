@@ -281,6 +281,10 @@ describe('EstimateDetailPage 諸経費行・値引き行の追加（実物のコ
    *
    * @requirement estimate-creation/REQ-7.7
    */
+  /**
+   * @requirement estimate-creation/REQ-8.7 現場管理費行が追加された場合に追加を未保存の変更として扱う
+   * @requirement estimate-creation/REQ-9.7 一般管理費行が追加された場合に追加を未保存の変更として扱う
+   */
   it('諸経費追加が未保存の変更となり保存操作で確定すること (7.7, 8.7, 9.7)', async () => {
     vi.mocked(estimatesApi.saveEstimateDraft).mockResolvedValue(savedResponse());
     const user = userEvent.setup();

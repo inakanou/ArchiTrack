@@ -493,6 +493,10 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-12.3 見積項目を削除した場合に3行1セット全体を削除する
+   * @requirement estimate-creation/REQ-43.6 親項目を削除した場合にその子孫項目もあわせて取り除く
+   */
   describe('deleteItem - 項目削除（12.3, 43.6）', () => {
     it('項目を削除すると3行1セット全体が削除されること', () => {
       const { result } = renderHook(() =>
@@ -671,6 +675,9 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-12.5 見積項目を複製した場合に3行1セット全体を複製する
+   */
   describe('duplicateItem - 項目複製（12.5）', () => {
     it('項目を複製すると3行1セット全体が複製されること', () => {
       const { result } = renderHook(() =>
@@ -714,6 +721,9 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-43.5 行の追加・削除・階層変更が行われた場合に影響を受ける親項目の集計金額を再計算する
+   */
   describe('階層金額の自動計算（2.3, 43.5）', () => {
     it('子項目の金額変更時に親項目の金額が自動計算されること', () => {
       const { result } = renderHook(() =>
@@ -938,6 +948,9 @@ describe('useEstimateEditor', () => {
      *
      * 一括保存の応答は採番済みの項目ID・明細行IDを含むため、送信内容ではなく
      * 応答で差し替えないと新規行が一時IDのまま残り、次の保存で二重作成される。
+     */
+    /**
+     * @requirement estimate-creation/REQ-42.2 保存操作が成功した場合に保存後の最新の明細内容を画面へ反映する
      */
     it('onSaveが返した最新ツリーで状態を差し替えること (42.2)', async () => {
       const onSave =
@@ -1335,6 +1348,9 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-54.8 帳票用入力項目を編集した場合に変更を未保存の変更として扱う
+   */
   describe('updateReportFields - 帳票用入力項目（54.6, 54.8）', () => {
     it('提出日・有効期限・別途工事を編集できること (54.6)', () => {
       const { result } = renderHook(() =>
@@ -1810,6 +1826,11 @@ describe('useEstimateEditor', () => {
     });
   });
 
+  /**
+   * @requirement estimate-creation/REQ-55.2 注記行を金額の集計対象から除外する
+   * @requirement estimate-creation/REQ-55.3 注記行を任意の階層の任意の位置に配置可能とする
+   * @requirement estimate-creation/REQ-55.6 注記行を通常の明細行と同様に挿入・削除・複写・並び替え・階層移動の対象とする
+   */
   describe('addNoteItem - 注記行追加（55.1, 55.2, 55.3, 55.6）', () => {
     /** 名称のみを持つ注記行（金額を持ってしまっている異常データを含む）を作る */
     const createNoteHierarchyItem = (

@@ -269,6 +269,9 @@ describe('TransferQuotationDialog', () => {
   });
 
   /** @requirement estimate-creation/REQ-17.1 */
+  /**
+   * @requirement estimate-creation/REQ-4.5 見積依頼機能で登録された受領見積書のみを転記元として選択可能とする
+   */
   it('プロジェクトに紐付く受領見積書一覧をサーバーから取得して表示する (4.5, 17.1, 17.2)', async () => {
     render(<TransferQuotationDialog {...defaultProps} />);
     await waitForLoaded();

@@ -167,6 +167,12 @@ const previewRowKeys = (): string[] =>
     .getAllByTestId('allocation-preview-row')
     .map((row) => row.getAttribute('data-allocation-key') ?? '');
 
+/**
+ * @requirement estimate-creation/REQ-18.3 NET金額案分ダイアログは対象業者を選択するドロップダウンを提供する
+ * @requirement estimate-creation/REQ-18.4 選択した業者の業者金額行一覧をチェックボックス付きで表示する
+ * @requirement estimate-creation/REQ-18.5 案分から除外する諸経費行を指定可能とする
+ * @requirement estimate-creation/REQ-18.6 NET金額の入力フィールドを提供する
+ */
 describe('NetAllocationDialog', () => {
   const onApply = vi.fn<(payload: NetAllocationPayload) => void>();
   const onClose = vi.fn();

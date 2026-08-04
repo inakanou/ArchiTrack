@@ -373,6 +373,9 @@ beforeEach(() => {
 // 用紙設定とページ送り（10.3, 50.1）
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-10.3 出力の用紙設定とページ構成を Requirement 50 に従って構成する
+ */
 describe('用紙設定とページ送り', () => {
   it('用紙を横向き・mm単位のA4として生成する', async () => {
     await generate(input({ lineTypes: ['ESTIMATE'] }));
@@ -682,6 +685,11 @@ describe('進捗の報告', () => {
 // 描画対象の受け渡し（56.3 / 56.4 からの申し送り）
 // ============================================================================
 
+/**
+ * @requirement estimate-creation/REQ-10.4 出力の表紙を Requirement 51 に従って構成する
+ * @requirement estimate-creation/REQ-10.5 出力の内訳書ページと明細書ページの表組みを Requirement 52 に従って構成する
+ * @requirement estimate-creation/REQ-10.6 出力の数量・単価・金額・単位・階層記号の表記を Requirement 53 に従って構成する
+ */
 describe('描画対象の受け渡し', () => {
   it('親の金額が空でも再計算済みツリーを渡すため配下が帳票から消えない', async () => {
     await generate(input({ lineTypes: ['EXECUTION'] }));
