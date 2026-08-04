@@ -21,6 +21,7 @@
  * `api` には依存しません（design.md `#### Dependency Direction`）。
  *
  * Requirements (estimate-creation):
+ * - 2.5: 階層の深さに上限を設けない（明細書ページの組み立ては明示スタックで反復する / 57.5）
  * - 22.10: 帳票出力における数量・単価・金額の表記を Requirement 53 に従って構成する
  * - 32.2 / 32.5 / 32.9: 行タイプごとに独立したファイルを生成し、未選択の行タイプは
  *   出力せず、ページ番号を各ファイル内の通し番号とする
@@ -531,6 +532,25 @@ const VALUE_FIELDS: readonly (keyof EditableLine)[] = [
 ];
 
 // ============================================================================
+// 配列の連結
+// ============================================================================
+
+/**
+ * 配列の全要素を末尾へ追加する
+ *
+ * `target.push(...source)` は `source` の全要素を**関数呼び出しの引数**として展開するため、
+ * 要素数が処理系の引数上限（V8 で概ね数万〜十数万）を超えると
+ * `RangeError: Maximum call stack size exceeded` になる。帳票のページ数・行数は
+ * 見積項目の件数と階層の深さに比例して増えるため（Requirement 2.5 は深さに上限を設けない）、
+ * ページ配列の連結には要素数に依存しない本関数を用いる。
+ */
+function appendAll<T>(target: T[], source: readonly T[]): void {
+  for (const element of source) {
+    target.push(element);
+  }
+}
+
+// ============================================================================
 // 明細行の取り出しと値の有無（38.2, 38.3）
 // ============================================================================
 
@@ -811,7 +831,7 @@ function buildSummaryPages(
 }
 
 // ============================================================================
-// 明細書ページの組み立て（50.4〜50.7, 50.9〜50.11, 52.11, 52.12, 38.4）
+// 明細書ページの組み立て（2.5, 50.4〜50.7, 50.9〜50.11, 52.11, 52.12, 38.4）
 // ============================================================================
 
 /** 明細書ページの先頭行（親項目の階層記号と名称のみ / 52.11） */
@@ -838,21 +858,26 @@ function buildHeadingRow(parent: VisibleEntry): ReportRow {
  * 先頭行に親項目の階層記号と名称を置き（52.11）、子項目は1段下げる（52.12）。
  * 合計行の金額は**当該階層の子項目の合計**であり、親項目自身の金額は加算しない（52.10）。
  * 親項目名は各ページのフッタへ割り当てる（50.11）。
+ *
+ * `children` は呼び出し側が `visibleEntries(parent.item.children, lineType, depth + 1)` で
+ * 求めたものを渡す。`buildDetailPages` の走査が同じ列挙結果を子階層への降下にも使うため、
+ * 本関数の内側で再計算せず**1階層につき1回だけ列挙する**（列挙は純粋関数なので結果は同一）。
  */
 function buildParentDetailPages(
   parent: VisibleEntry,
-  lineType: EstimateLineType,
-  depth: number
+  children: readonly VisibleEntry[],
+  lineType: EstimateLineType
 ): readonly ReportPageDraft[] {
-  const children = visibleEntries(parent.item.children, lineType, depth + 1);
   if (children.length === 0) {
     return [];
   }
 
   const headingRow = buildHeadingRow(parent);
   const { rows, total } = buildRowSequence(children, 1);
+  const detailRows: ReportRow[] = [headingRow];
+  appendAll(detailRows, rows);
 
-  return paginate([headingRow, ...rows], total, {
+  return paginate(detailRows, total, {
     kind: 'detail',
     lineType,
     title: `${DETAIL_PAGE_TITLE}（${LINE_TYPE_LABEL[lineType]}）`,
@@ -860,11 +885,32 @@ function buildParentDetailPages(
   });
 }
 
+/** `buildDetailPages` の走査位置。1つの階層（同一の親配下の列挙結果）に対応する */
+interface DetailTraversalFrame {
+  /** 当該階層の出力対象（`visibleEntries` の結果） */
+  readonly entries: readonly VisibleEntry[];
+  /** 当該階層の深さ（第1階層が 0） */
+  readonly depth: number;
+  /** 次に処理する `entries` の位置 */
+  index: number;
+}
+
 /**
  * 同一の親配下の項目を辿って明細書ページを深さ優先で並べる
  *
  * ある項目の明細書ページの直後に、その配下の階層の明細書ページを続ける（50.6）。
  * 階層の深さに関わらず、子項目を持つ項目ごとにページを出力する（50.5）。
+ *
+ * **明示スタックによる反復で実装する**（Task 57.5）。自己再帰で書くと階層の深さが
+ * そのまま呼び出しスタックの深さになり、深さ約4500段で
+ * `RangeError: Maximum call stack size exceeded` となって帳票が一切出力できなくなる
+ * （57.2 の実測）。「階層の深さに上限を設けない」（Requirement 2.5）はヒープ上の
+ * スタックで走査することでのみ成立する。`domain/estimate/estimateTree` の走査も
+ * 同じ理由で明示スタックに揃えてある。
+ *
+ * 走査順は再帰版と同一。各階層について「先頭の項目のページ群を出す → その項目の配下へ降りる
+ * → 戻って次の兄弟へ」という深さ優先・先行順であり、`index` を進めてから子の枠を積むことで
+ * 兄弟の残りが子より後に処理されることを保証する。
  */
 function buildDetailPages(
   siblings: readonly EditableItem[],
@@ -872,10 +918,27 @@ function buildDetailPages(
   depth: number
 ): readonly ReportPageDraft[] {
   const pages: ReportPageDraft[] = [];
+  const stack: DetailTraversalFrame[] = [
+    { entries: visibleEntries(siblings, lineType, depth), depth, index: 0 },
+  ];
 
-  for (const entry of visibleEntries(siblings, lineType, depth)) {
-    pages.push(...buildParentDetailPages(entry, lineType, depth));
-    pages.push(...buildDetailPages(entry.item.children, lineType, depth + 1));
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]!;
+    if (frame.index >= frame.entries.length) {
+      stack.pop();
+      continue;
+    }
+
+    const entry = frame.entries[frame.index]!;
+    frame.index += 1;
+
+    const childDepth = frame.depth + 1;
+    const children = visibleEntries(entry.item.children, lineType, childDepth);
+    appendAll(pages, buildParentDetailPages(entry, children, lineType));
+
+    if (children.length > 0) {
+      stack.push({ entries: children, depth: childDepth, index: 0 });
+    }
   }
 
   return pages;
@@ -920,8 +983,8 @@ export function buildFiles(
         totalRow: null,
       });
     }
-    drafts.push(...buildSummaryPages(tree, lineType));
-    drafts.push(...buildDetailPages(tree, lineType, 0));
+    appendAll(drafts, buildSummaryPages(tree, lineType));
+    appendAll(drafts, buildDetailPages(tree, lineType, 0));
 
     const pages: readonly ReportPage[] = drafts.map((draft, index) => ({
       ...draft,
