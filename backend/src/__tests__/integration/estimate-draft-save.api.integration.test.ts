@@ -8,6 +8,7 @@
  *
  * Task 52.8: 一括保存エンドポイントの追加
  * Task 52.9: 統合テスト（一括保存のセマンティクス）
+ * Task 57.6: トランザクションの制限時間（実測で確定）と超過時のロールバック・応答（42.1, 42.3）
  *
  * Requirements (estimate-creation):
  * - 34.5: 変更後の並び順と階層をデータベースに反映し、再読み込み後も変更後の構造で表示する
@@ -30,8 +31,14 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { validateEnv } from '../../config/env.js';
-import type { PrismaClient } from '../../generated/prisma/client.js';
+import {
+  PrismaClient as PrismaClientCtor,
+  type PrismaClient,
+} from '../../generated/prisma/client.js';
+import { EstimateDraftService } from '../../services/estimate-draft.service.js';
+import { EstimateSaveTimeoutError } from '../../errors/estimateError.js';
 
 // 環境変数を初期化（モジュールインポート前に実行）
 validateEnv();
@@ -1945,5 +1952,258 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
       expect(estimate.updatedAt.toISOString()).toBe(expectedUpdatedAt);
       expect(estimate.separateWorks).toEqual([]);
     });
+  });
+
+  // ==========================================
+  // トランザクションの制限時間と超過時のロールバック（42.1, 42.3 / Task 57.6）
+  //
+  // モックで `$transaction` の引数を覗くだけでは「渡している」ことしか言えないため、
+  // ここでは**実DBの行ロックで保存処理を実際に待たせて**、設定した制限時間が
+  // 本当に効いているか（超えれば失敗し、超えなければ成功するか）を境界の両側から固定する。
+  // ==========================================
+  describe('トランザクションの制限時間と超過時のロールバック（42.1, 42.3）', () => {
+    /**
+     * 期待値はリテラルで持つ（本番定数をそのまま参照すると、定数を書き換えたときに
+     * 期待値も一緒に動いてしまい、実測で確定した値を固定できないため）
+     */
+    const EXPECTED_TIMEOUT_MS = 15000;
+    const EXPECTED_MAX_WAIT_MS = 5000;
+
+    /** 保持中の行ロック */
+    interface HeldRowLock {
+      /** ロック保持トランザクションの終了を待つ */
+      readonly finished: Promise<void>;
+      /** ロックを解放する */
+      release(): void;
+    }
+
+    /**
+     * 対象見積書の行を別セッションから `FOR UPDATE` で占有する
+     *
+     * 保存トランザクション内の `UPDATE estimates ...` がこのロック待ちでブロックされるため、
+     * 「トランザクションが何ミリ秒動き続けたか」をテスト側から任意に制御できる。
+     */
+    const lockEstimateRow = async (estimateId: string): Promise<HeldRowLock> => {
+      const holder = new PrismaClientCtor({
+        adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
+      });
+
+      let releaseFn: () => void = () => {};
+      const releaseSignal = new Promise<void>((resolve) => {
+        releaseFn = resolve;
+      });
+      let acquiredFn: () => void = () => {};
+      const acquired = new Promise<void>((resolve) => {
+        acquiredFn = resolve;
+      });
+
+      let acquireError: unknown = null;
+      let failedFn: () => void = () => {};
+      const failed = new Promise<void>((resolve) => {
+        failedFn = resolve;
+      });
+
+      const running = holder
+        .$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT id FROM estimates WHERE id = ${estimateId} FOR UPDATE`;
+            acquiredFn();
+            await releaseSignal;
+          },
+          { timeout: 60000, maxWait: 20000 }
+        )
+        .then(
+          () => undefined,
+          (e: unknown) => {
+            acquireError = e;
+            failedFn();
+          }
+        )
+        .then(async () => {
+          await holder.$disconnect();
+        });
+
+      // ロックが取れなければテストの前提が崩れる。黙って待ち続けず即座に失敗させる
+      await Promise.race([acquired, failed]);
+      if (acquireError !== null) {
+        throw acquireError;
+      }
+      return { finished: running, release: releaseFn };
+    };
+
+    it('保存が8秒ブロックされても完了する（Prisma既定の5秒では落ちる長さ）', async () => {
+      const ids = await createComplexEstimate('制限時間_8秒ブロックでも完了');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(ids.estimateId);
+      const lock = await lockEstimateRow(ids.estimateId);
+
+      const startedAt = performance.now();
+      const pending = request(app)
+        .put(`/api/estimates/${ids.estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          reportFields: reportFieldsPayload(),
+          items: buildComplexSaveItems(ids),
+        });
+
+      const releaseTimer = setTimeout(() => lock.release(), 8000);
+      const response = await pending;
+      clearTimeout(releaseTimer);
+      lock.release();
+      await lock.finished;
+      const elapsedMs = performance.now() - startedAt;
+
+      // ロックが実際に保存をブロックしたことを確かめる（ブロックしていなければ検証にならない）
+      expect(elapsedMs).toBeGreaterThanOrEqual(8000);
+      expect(response.status).toBe(200);
+
+      // 保存自体は正しく確定している
+      const savedItems = await prisma.estimateItem.findMany({
+        where: { estimateId: ids.estimateId },
+        select: { id: true },
+      });
+      expect(savedItems.length).toBeGreaterThan(0);
+    }, 60000);
+
+    it('制限時間を超えた保存は破棄され、保存前の状態と更新日時が保たれる', async () => {
+      const ids = await createComplexEstimate('制限時間_超過でロールバック');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(ids.estimateId);
+      const before = await snapshotItems(ids.estimateId);
+      const lock = await lockEstimateRow(ids.estimateId);
+
+      const startedAt = performance.now();
+      const pending = request(app)
+        .put(`/api/estimates/${ids.estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          reportFields: reportFieldsPayload({ validityPeriod: '見積後30日間' }),
+          items: buildComplexSaveItems(ids),
+        });
+
+      // 設定値（15秒）より確実に長くブロックする
+      const releaseTimer = setTimeout(() => lock.release(), 17000);
+      const response = await pending;
+      clearTimeout(releaseTimer);
+      lock.release();
+      await lock.finished;
+      const elapsedMs = performance.now() - startedAt;
+
+      expect(elapsedMs).toBeGreaterThan(15000);
+
+      // 原因（時間内に完了しなかった）と結果（保存されていない）が分かる応答
+      expect(response.status).toBe(500);
+      expect(response.body.code).toBe('ESTIMATE_SAVE_TIMEOUT');
+      expect(response.body.detail).toContain('制限時間');
+      expect(response.body.detail).toContain('保存されていません');
+      expect(response.body.details).toEqual({
+        timeoutMs: EXPECTED_TIMEOUT_MS,
+        maxItems: 2000,
+      });
+
+      // 変更はすべて破棄され保存前の状態が保たれている（42.3）
+      expect(await snapshotItems(ids.estimateId)).toEqual(before);
+      const estimate = await prisma.estimate.findUniqueOrThrow({
+        where: { id: ids.estimateId },
+        select: { updatedAt: true, validityPeriod: true },
+      });
+      expect(estimate.updatedAt.toISOString()).toBe(expectedUpdatedAt);
+      expect(estimate.validityPeriod).toBeNull();
+    }, 90000);
+
+    it('接続の取得待ちが maxWait を超えた場合も書き込みゼロで失敗する', async () => {
+      const ids = await createComplexEstimate('制限時間_maxWait超過');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(ids.estimateId);
+      const before = await snapshotItems(ids.estimateId);
+
+      // 接続を1本しか持たないクライアントを用意し、トランザクション開始の直前に
+      // その1本を別トランザクションで占有する。事前照合の読み取りは占有前に済むため、
+      // `maxWait` が支配する区間だけを切り出して観測できる。
+      const singleConnection = new PrismaClientCtor({
+        adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL!, max: 1 }),
+      });
+
+      let releaseFn: () => void = () => {};
+      const releaseSignal = new Promise<void>((resolve) => {
+        releaseFn = resolve;
+      });
+      let occupied: Promise<void> | null = null;
+
+      const occupyPool = async (): Promise<void> => {
+        let acquiredFn: () => void = () => {};
+        const acquired = new Promise<void>((resolve) => {
+          acquiredFn = resolve;
+        });
+        occupied = singleConnection
+          .$transaction(
+            async (tx) => {
+              await tx.$executeRaw`SELECT 1`;
+              acquiredFn();
+              await releaseSignal;
+            },
+            { timeout: 60000, maxWait: 20000 }
+          )
+          .then(
+            () => undefined,
+            () => undefined
+          );
+        await acquired;
+      };
+
+      let waitStartedAt = 0;
+      // サービスが渡した `$transaction` のオプションには一切手を加えず、
+      // 呼び出しの直前にプールを枯渇させるだけのゲート
+      const gated = new Proxy(singleConnection, {
+        get(target, prop, receiver) {
+          if (prop === '$transaction') {
+            return async (
+              ...args: [(tx: unknown) => Promise<unknown>, unknown]
+            ): Promise<unknown> => {
+              await occupyPool();
+              waitStartedAt = performance.now();
+              return (target.$transaction as unknown as (...a: unknown[]) => Promise<unknown>)(
+                ...args
+              );
+            };
+          }
+          const value = Reflect.get(target, prop, receiver) as unknown;
+          return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+        },
+      });
+
+      const gatedService = new EstimateDraftService({
+        prisma: gated as unknown as PrismaClient,
+      });
+
+      const error = await gatedService
+        .saveDraft(ids.estimateId, {
+          expectedUpdatedAt,
+          reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+          items: buildComplexSaveItems(ids) as never,
+        })
+        .then(
+          () => null,
+          (e: unknown) => e
+        );
+      const waitedMs = performance.now() - waitStartedAt;
+
+      releaseFn();
+      await occupied;
+      await singleConnection.$disconnect();
+
+      expect(error).toBeInstanceOf(EstimateSaveTimeoutError);
+      // Prisma 既定の maxWait は 2000ms。実測に基づき 5000ms を明示していることを、
+      // 「待った時間」で確かめる（既定に戻すとここが約2秒になり落ちる）
+      expect(waitedMs).toBeGreaterThanOrEqual(EXPECTED_MAX_WAIT_MS - 1000);
+      expect(waitedMs).toBeLessThan(EXPECTED_MAX_WAIT_MS + 4000);
+
+      // トランザクションが始まらなかったので書き込みはゼロ（42.3）
+      expect(await snapshotItems(ids.estimateId)).toEqual(before);
+      const estimate = await prisma.estimate.findUniqueOrThrow({
+        where: { id: ids.estimateId },
+        select: { updatedAt: true },
+      });
+      expect(estimate.updatedAt.toISOString()).toBe(expectedUpdatedAt);
+    }, 60000);
   });
 });

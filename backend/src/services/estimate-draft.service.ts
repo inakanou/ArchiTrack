@@ -32,6 +32,7 @@
  * Task 52.4: 明細の差分適用と親子関係の解決
  * Task 52.5: 楽観ロックと並び順の再採番および最新状態の返却
  * Task 52.6: 明細更新の一括化とN+1クエリの解消
+ * Task 57.6: 一括保存の上限件数とトランザクション制限時間の確定（実測に基づく）
  *
  * 一括化の方針（design.md「estimate-draft.service」Responsibilities & Constraints
  * 「更新は `updateMany` または VALUES 一括UPDATEで行い、明細件数に比例した個別UPDATEを
@@ -57,12 +58,14 @@ import {
   EstimateNotFoundError,
   EstimateDraftValidationError,
   EstimateConflictError,
+  EstimateSaveTimeoutError,
 } from '../errors/estimateError.js';
-import type {
-  SaveEstimateDraftInput,
-  SaveEstimateItemNodeInput,
-  SaveEstimateLineInput,
-  SaveEstimateReportFieldsInput,
+import {
+  SAVE_ESTIMATE_MAX_ITEMS,
+  type SaveEstimateDraftInput,
+  type SaveEstimateItemNodeInput,
+  type SaveEstimateLineInput,
+  type SaveEstimateReportFieldsInput,
 } from '../schemas/estimate.schema.js';
 
 /**
@@ -108,6 +111,44 @@ const ESTIMATE_LINE_TYPES = ['ESTIMATE', 'EXECUTION', 'VENDOR'] as const;
  * ペイロードの件数に比例して増えるものではない。
  */
 const MAX_BIND_PARAMETERS_PER_STATEMENT = 30000;
+
+/**
+ * 一括保存トランザクションの制限時間（42.1, 42.3 / Task 57.6）
+ *
+ * Prisma の既定は `timeout` 5000ms / `maxWait` 2000ms。上限件数
+ * （{@link SAVE_ESTIMATE_MAX_ITEMS} = 2000項目 ＝ 6000明細行）での実測から、
+ * 既定値では余裕が足りないと判断して明示する。
+ *
+ * `timeout`（15000ms）の根拠:
+ * - 上限2000項目・全件新規（最悪経路）でトランザクション本体を計測した独立3ラン
+ *   （各 n=20、warmup 除外、WSL2 / arm64 8コア / ローカルDB・ネットワーク遅延ゼロ）の
+ *   観測最悪値は 4244ms / 3919ms / 3593ms。Task 57.2 の2ラン（3513ms / 2733ms）と
+ *   合わせた5ラン中の最悪は **4244ms** で、既定5000msに対する余裕はわずか 1.18倍だった。
+ * - 同じ負荷でもラン間で最悪値が 2733〜4244ms（1.55倍）ぶれるため、点推定では決めない。
+ * - 15000ms は観測最悪値の約3.5倍。内訳は「ラン間ぶれ 約1.6倍」×「本番のみに乗る費用
+ *   （トランザクション内10文ぶんのネットワーク往復・接続プール競合・CPU共有）約2.2倍」。
+ * - 上限側は、保存要求全体が一般的なクライアント/リバースプロキシのタイムアウト（30〜60秒）に
+ *   収まることで抑えている。
+ *
+ * `maxWait`（5000ms）の根拠:
+ * - 接続取得＋BEGIN の実測は p50 1〜2ms / 最大 14ms（上記の独立ラン）で、平常時は既定2000msでも
+ *   十分だが、これは競合のない条件の値でしかない。
+ * - 上限規模の保存が1件走っている間に別の保存要求が来た場合、その要求は先行分の完了を待つ。
+ *   上限規模のトランザクション本体は p95 で 2319〜4244ms のため、`maxWait` はこれを上回る
+ *   5000ms とし、「先行の1件を待てば接続を取れる」状態では誤って失敗させない。
+ * - 一方で `timeout`（15000ms）と同じにはしない。プールが本当に枯渇しているときは
+ *   待ち続けるより早く失敗を返したほうが利用者に状況が伝わるため。
+ *
+ * 超過時は Prisma が `P2028` を投げ、{@link EstimateSaveTimeoutError} に変換して
+ * 「保存されていない」ことが分かる応答を返す（42.3）。
+ */
+export const ESTIMATE_SAVE_TRANSACTION_OPTIONS: { timeout: number; maxWait: number } = {
+  timeout: 15000,
+  maxWait: 5000,
+};
+
+/** Prisma のトランザクションAPIエラー（制限時間超過・接続取得待ち超過）のコード */
+const PRISMA_TRANSACTION_API_ERROR_CODE = 'P2028';
 
 /**
  * 差分適用の結果
@@ -302,6 +343,8 @@ export class EstimateDraftService {
    * @throws EstimateNotFoundError 見積書が存在しない、または論理削除済みの場合（404）
    * @throws EstimateDraftValidationError 検証NGの場合（422・書き込みゼロ）
    * @throws EstimateConflictError 楽観ロック競合の場合（409・データ変更なし）
+   * @throws EstimateSaveTimeoutError トランザクションが制限時間を超えた場合
+   *   （500・全ロールバックにより保存前の状態が保たれる、42.3）
    */
   async saveDraft(
     estimateId: string,
@@ -338,28 +381,44 @@ export class EstimateDraftService {
     }
 
     // ===== 3. 差分適用（単一トランザクション、42.1, 42.3） =====
-    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      await this.applyEstimateUpdate(tx, estimateId, input.reportFields, expectedUpdatedAt);
+    // 制限時間は上限件数での実測に基づく（ESTIMATE_SAVE_TRANSACTION_OPTIONS）。
+    try {
+      return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
+        await this.applyEstimateUpdate(tx, estimateId, input.reportFields, expectedUpdatedAt);
 
-      const deletedItemIds = await this.applyDeletions(tx, frames, existingItems);
-      const { createdItemIds, updatedItemIds, tempIdMap } = await this.applyUpserts(
-        tx,
-        estimateId,
-        frames
-      );
+        const deletedItemIds = await this.applyDeletions(tx, frames, existingItems);
+        const { createdItemIds, updatedItemIds, tempIdMap } = await this.applyUpserts(
+          tx,
+          estimateId,
+          frames
+        );
 
-      // ===== 4. 保存後の最新状態を返す（42.2, 42.7, 34.6, 29.4） =====
-      const saved = await this.loadSavedState(tx, estimateId);
+        // ===== 4. 保存後の最新状態を返す（42.2, 42.7, 34.6, 29.4） =====
+        const saved = await this.loadSavedState(tx, estimateId);
 
-      return {
-        createdItemIds,
-        updatedItemIds,
-        deletedItemIds,
-        tempIdMap,
-        estimate: saved.estimate,
-        items: saved.items,
-      };
-    });
+        return {
+          createdItemIds,
+          updatedItemIds,
+          deletedItemIds,
+          tempIdMap,
+          estimate: saved.estimate,
+          items: saved.items,
+        };
+      }, ESTIMATE_SAVE_TRANSACTION_OPTIONS);
+    } catch (error) {
+      // 制限時間超過・接続取得待ち超過（P2028）は、Prisma がトランザクションを巻き戻すため
+      // 保存前の状態が保たれる。そのことが利用者に伝わる応答へ変換する（42.3）。
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === PRISMA_TRANSACTION_API_ERROR_CODE
+      ) {
+        throw new EstimateSaveTimeoutError({
+          timeoutMs: ESTIMATE_SAVE_TRANSACTION_OPTIONS.timeout,
+          maxItems: SAVE_ESTIMATE_MAX_ITEMS,
+        });
+      }
+      throw error;
+    }
   }
 
   /**

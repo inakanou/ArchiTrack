@@ -293,6 +293,33 @@ describe('errorHandler middleware', () => {
       });
     });
 
+    // Task 57.6 / Requirements (estimate-creation) 42.3:
+    // トランザクションの制限時間超過は「変更が全て破棄された」ことと原因が分かる応答にする。
+    // P2028 専用の分岐が無いと `Database Error`（400・形式不正の色）に紛れ、
+    // 利用者にも運用にも原因が伝わらない。
+    it('should handle P2028 (transaction timeout) as a rolled-back server-side failure', () => {
+      const prismaError = new Prisma.PrismaClientKnownRequestError(
+        'Transaction API error: A query cannot be executed on an expired transaction.',
+        {
+          code: 'P2028',
+          clientVersion: '7.8.0',
+          meta: { operation: 'query', timeout: 15000, timeTaken: 15100 },
+        }
+      );
+
+      errorHandler(prismaError, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(500);
+      expect(jsonMock).toHaveBeenCalledWith({
+        type: 'https://api.architrack.com/errors/internal-server-error',
+        title: 'Transaction Timeout',
+        status: 500,
+        detail:
+          'The transaction did not finish within the time limit. All changes were rolled back and nothing was saved.',
+        instance: '/api/test',
+      });
+    });
+
     it('should handle other PrismaClientKnownRequestError', () => {
       const prismaError = new Prisma.PrismaClientKnownRequestError('Some error', {
         code: 'P2003',

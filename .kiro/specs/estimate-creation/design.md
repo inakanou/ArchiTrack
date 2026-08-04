@@ -4331,7 +4331,8 @@ interface SaveEstimateLine {
 **Implementation Notes**
 - Integration: 設計は `quantity-table.service.ts:945-1107` の `saveDraft` を参照元とするが、**コードは共有せず見積書用に独立実装する**（数量表への波及を避ける）
 - Validation: 配列長上限（明細総数）をスキーマで設ける。現行 `batchUpdateItemsSchema` に上限がない問題（`estimate.schema.ts:228-249`）を再発させない
-- Risks: 明細件数が多い見積書での一括UPDATEの実行計画。段階1のリリース前に件数上限と実測を取る
+- Transaction limits: `$transaction` に `timeout: 15000ms` / `maxWait: 5000ms` を明示する（Prisma 既定の 5000ms / 2000ms では上限件数で余裕が足りないため）。超過時は Prisma が `P2028` を投げ、全ロールバックのうえ「保存されていないこと」と原因が分かる 500 応答へ変換する（42.3）
+- Risks（解消済み。Task 57.6）: 明細件数が多い見積書での一括UPDATEの実行計画は実測で確認済み。上限は 2000 項目（＝6000明細行）を据え置く。上限いっぱいの最悪経路（全件新規）でトランザクション本体を計測した独立3ラン（各 n=20、ローカルDB）の観測最悪値は 4244 / 3919 / 3593ms、Task 57.2 の2ラン（3513 / 2733ms）と合わせて最悪 4244ms で、Prisma 既定 5000ms に対する余裕は 1.18 倍しかなかった。発行クエリ数は件数に依らず有界（新規経路10文、分割で最大+3）で `UPDATE` は常に2文のため、件数上限の引き下げではなく制限時間の明示（上記 Transaction limits）で対処する。上限を引き上げる場合は同じ最悪経路で再計測すること
 
 ### Data Models
 

@@ -733,7 +733,9 @@ function formatSubmissionDate(submissionDate: Date | null): string | null {
  *       422:
  *         description: 明細ツリーの検証エラー（書き込みゼロ）
  *       500:
- *         description: 保存処理エラー（全ロールバック）
+ *         description: >
+ *           保存処理エラー（全ロールバック）。トランザクションが制限時間を超えた場合は
+ *           code=ESTIMATE_SAVE_TIMEOUT で、変更が保存されていないことと件数を減らす回避策を返す
  */
 router.put(
   '/:id/save',
@@ -849,6 +851,8 @@ router.put(
       }
       // 検証NG（422）・形式不正（400）は ApiError としてエラーハンドラが problem details 化する。
       // トランザクション途中の失敗（並行削除による中断を含む）は 500 のまま扱う（42.3）。
+      // 制限時間超過はサービスが EstimateSaveTimeoutError（500・ApiError）へ変換済みのため、
+      // ここでも同じ経路でエラーハンドラに委ね、原因の分かる problem details として返す。
       next(error);
     }
   }

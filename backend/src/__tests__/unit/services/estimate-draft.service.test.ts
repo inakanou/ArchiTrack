@@ -25,22 +25,28 @@
  * Task 52.5: 楽観ロックと並び順の再採番および最新状態の返却
  * Task 52.6: 明細更新の一括化とN+1クエリの解消
  * Task 52.7: 一括保存処理の単体テスト（42.3, 42.4, 42.5, 42.6, 42.9 の受入観点を網羅）
+ * Task 57.6: トランザクションの制限時間の明示と、超過（P2028）時の応答（42.1, 42.3）
  *
  * @module __tests__/unit/services/estimate-draft.service.test
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { EstimateDraftService } from '../../../services/estimate-draft.service.js';
+import {
+  EstimateDraftService,
+  ESTIMATE_SAVE_TRANSACTION_OPTIONS,
+} from '../../../services/estimate-draft.service.js';
 import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import {
   EstimateNotFoundError,
   EstimateDraftValidationError,
   EstimateConflictError,
+  EstimateSaveTimeoutError,
 } from '../../../errors/estimateError.js';
-import type {
-  SaveEstimateDraftInput,
-  SaveEstimateItemNodeInput,
-  SaveEstimateLineInput,
+import {
+  SAVE_ESTIMATE_MAX_ITEMS,
+  type SaveEstimateDraftInput,
+  type SaveEstimateItemNodeInput,
+  type SaveEstimateLineInput,
 } from '../../../schemas/estimate.schema.js';
 
 /** 書き込み系モック（トランザクションクライアント側） */
@@ -1419,6 +1425,74 @@ describe('EstimateDraftService', () => {
       expect(statement.text).not.toContain(ITEM_A);
       expect(statement.text).not.toContain(ESTIMATE_ID);
       expect(statement.text).toContain('$1');
+    });
+  });
+
+  // ==========================================
+  // トランザクションの制限時間（42.1, 42.3 / Task 57.6）
+  // ==========================================
+  describe('トランザクションの制限時間と超過時の応答（42.1, 42.3）', () => {
+    /**
+     * ここで期待値をリテラルで書くのは意図的（`ESTIMATE_SAVE_TRANSACTION_OPTIONS` を
+     * そのまま突き合わせると定数を書き換えてもテストが緑のままになり、実測で確定した
+     * 値を固定できないため）。値を変えるときは 57.6 の実測をやり直すこと。
+     */
+    const EXPECTED_TIMEOUT_MS = 15000;
+    const EXPECTED_MAX_WAIT_MS = 5000;
+
+    it('$transaction に実測で確定した timeout と maxWait を明示して渡す', async () => {
+      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]));
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      const options = mockPrisma.$transaction.mock.calls[0]![1] as unknown;
+      expect(options).toEqual({ timeout: EXPECTED_TIMEOUT_MS, maxWait: EXPECTED_MAX_WAIT_MS });
+    });
+
+    it('公開定数は実測で確定した値そのものである（暫定値を残さない）', () => {
+      expect(ESTIMATE_SAVE_TRANSACTION_OPTIONS).toEqual({
+        timeout: EXPECTED_TIMEOUT_MS,
+        maxWait: EXPECTED_MAX_WAIT_MS,
+      });
+    });
+
+    it('制限時間超過（P2028）は原因と「保存されていないこと」が分かるエラーへ変換される', async () => {
+      mockPrisma.$transaction.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError(
+          'Transaction API error: A query cannot be executed on an expired transaction.',
+          { code: 'P2028', clientVersion: '7.8.0' }
+        )
+      );
+
+      const error = await service
+        .saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]))
+        .then(
+          () => null,
+          (e: unknown) => e
+        );
+
+      expect(error).toBeInstanceOf(EstimateSaveTimeoutError);
+      const timeoutError = error as EstimateSaveTimeoutError;
+      expect(timeoutError.statusCode).toBe(500);
+      expect(timeoutError.code).toBe('ESTIMATE_SAVE_TIMEOUT');
+      // 原因（時間内に完了しなかったこと）と結果（保存されていないこと）の双方を伝える
+      expect(timeoutError.message).toContain('制限時間');
+      expect(timeoutError.message).toContain('保存されていません');
+      expect(timeoutError.details).toEqual({
+        timeoutMs: EXPECTED_TIMEOUT_MS,
+        maxItems: SAVE_ESTIMATE_MAX_ITEMS,
+      });
+    });
+
+    it('P2028 以外の Prisma エラーは握り潰さずそのまま伝播する', async () => {
+      const foreignKeyError = new Prisma.PrismaClientKnownRequestError('FK violation', {
+        code: 'P2003',
+        clientVersion: '7.8.0',
+      });
+      mockPrisma.$transaction.mockRejectedValueOnce(foreignKeyError);
+
+      await expect(
+        service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]))
+      ).rejects.toBe(foreignKeyError);
     });
   });
 });
