@@ -58,6 +58,66 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 const isTestEnvironment = import.meta.env.MODE === 'test';
 
 /**
+ * 見積明細の一括保存がトランザクションの制限時間を超えたことを表すエラーコード
+ *
+ * バックエンドの `EstimateSaveTimeoutError`（500 / RFC7807）が返す `code`。
+ * 画面側の文言分岐（`EstimateDetailPage`）と、下の再試行抑止の双方が
+ * この1箇所を参照する（文字列を各所に散らさないため）。
+ *
+ * Requirements (estimate-creation): 42.3
+ */
+export const ESTIMATE_SAVE_TIMEOUT_CODE = 'ESTIMATE_SAVE_TIMEOUT';
+
+/**
+ * 自動再試行の対象から外すエラーコード
+ *
+ * サーバーが「この要求は終局的に失敗した」と宣言したもの。再送しても結果は変わらず、
+ * 制限時間ぶんの待ち時間とサーバー負荷だけが積み上がる。
+ * ステータスコードでは判定しない（同じ 500 でも一時的な障害は再試行する価値がある）。
+ *
+ * Requirements (estimate-creation): 42.3（制限時間超過の保存を繰り返さない）
+ */
+const NON_RETRYABLE_ERROR_CODES: readonly string[] = [ESTIMATE_SAVE_TIMEOUT_CODE];
+
+/**
+ * エラーレスポンスのボディからサーバーのエラーコードを取り出す
+ *
+ * RFC 7807 Problem Details と従来形式のいずれも、コードは `code` に入る。
+ */
+function extractErrorCode(body: unknown): string | null {
+  if (body !== null && typeof body === 'object' && 'code' in body) {
+    const code = (body as { code: unknown }).code;
+    if (typeof code === 'string' && code.length > 0) {
+      return code;
+    }
+  }
+  return null;
+}
+
+/**
+ * `ApiError` からサーバーのエラーコードを取り出す
+ *
+ * HTTP ステータスだけでは区別できない失敗（同じ 500 でも原因が異なる）を
+ * 呼び出し元が識別するための公開ヘルパー。
+ *
+ * @param error 任意の値（`ApiError` 以外や `code` の無い応答では null）
+ */
+export function getApiErrorCode(error: unknown): string | null {
+  if (!(error instanceof ApiError)) {
+    return null;
+  }
+  return extractErrorCode(error.response);
+}
+
+/**
+ * サーバーが終局的な失敗として宣言したエラーかどうかを判定
+ */
+function isNonRetryableErrorBody(body: unknown): boolean {
+  const code = extractErrorCode(body);
+  return code !== null && NON_RETRYABLE_ERROR_CODES.includes(code);
+}
+
+/**
  * リトライ可能なHTTPステータスコードかどうかを判定
  * サーバーsleep状態からの復帰時の一時的なエラーはリトライ対象
  *
@@ -76,6 +136,17 @@ function isRetryableStatusCode(statusCode: number): boolean {
 
   // 4xx: クライアントエラーはリトライ不可（401は別途トークンリフレッシュで処理）
   return false;
+}
+
+/**
+ * `ApiError` が自動再試行の対象かどうかを判定
+ *
+ * ステータスコードが再試行可能でも、サーバーが終局的な失敗を示すコードを返した場合は
+ * 再試行しない。リクエスト単位で `disableRetry` を立てる方法とは異なり、
+ * 同じエンドポイントの一時的な障害（502/503 等）からの回復は残る。
+ */
+function isRetryableApiError(error: ApiError): boolean {
+  return isRetryableStatusCode(error.statusCode) && !isNonRetryableErrorBody(error.response);
 }
 
 /**
@@ -249,7 +320,8 @@ class ApiClient {
           const apiError = new ApiError(response.status, errorMessage, data);
 
           // 5xxエラーはリトライ対象（最後の試行でない場合）
-          if (isRetryableStatusCode(response.status) && attempt < maxRetries) {
+          // ただしサーバーが終局的な失敗として宣言したコードは再送しない（42.3）
+          if (isRetryableApiError(apiError) && attempt < maxRetries) {
             lastError = apiError;
             logger.debug(`Server error (${response.status}), will retry`, {
               path,
@@ -284,7 +356,7 @@ class ApiClient {
 
         // ApiErrorはリトライ対象かどうかを判定
         if (error instanceof ApiError) {
-          if (isRetryableStatusCode(error.statusCode) && attempt < maxRetries) {
+          if (isRetryableApiError(error) && attempt < maxRetries) {
             lastError = error;
             continue; // リトライ
           }

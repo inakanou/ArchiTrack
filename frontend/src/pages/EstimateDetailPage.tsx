@@ -43,7 +43,7 @@ import type {
   SaveEstimateDraftItemNode,
   SavedEstimateItemHierarchy,
 } from '../api/estimates';
-import { ApiError } from '../api/client';
+import { ApiError, getApiErrorCode, ESTIMATE_SAVE_TIMEOUT_CODE } from '../api/client';
 import { OverheadCostPanel } from '../components/estimate/OverheadCostPanel';
 import type {
   CalculateOverheadParams,
@@ -533,16 +533,36 @@ function toSaveEstimateItemNodes(
 }
 
 /**
+ * 保存が制限時間を超えた場合の文言（Task 57.8 / 42.3）
+ *
+ * 原因（制限時間内に完了しなかった）・結果（変更は保存されず保存前の状態のまま）・
+ * 回避策（件数を減らす／時間をおく）の3点を含む。バックエンドの `detail` と同じ内容を
+ * 画面側で持つのは、409 / 403 / 404 と同じく**あらかじめ分かっている固定の事象**であり、
+ * 表示がサーバーの本文の有無に左右されないようにするため
+ * （サーバー本文をそのまま出す 400 / 422 は、内容が入力ごとに変わり画面側で書けない）。
+ */
+const SAVE_TIMEOUT_MESSAGE =
+  '保存処理が制限時間内に完了しなかったため、変更は保存されていません。' +
+  '見積書は保存前の状態のまま変更されていません。' +
+  '明細の件数を減らして保存し直すか、時間をおいて再度お試しください。';
+
+/**
  * 保存失敗の理由を画面表示用の文言へ変換する
  *
  * Requirements (estimate-creation):
+ * - 42.3: 保存に失敗した場合、保存前の状態が保たれていることとエラーメッセージを表示する
+ *   （制限時間超過は `code: ESTIMATE_SAVE_TIMEOUT` で識別する。HTTP ステータスだけでは
+ *   他の 500 と区別できず、メッセージ文字列での判定は文言変更で壊れる）
  * - 42.5: 競合が発生したことを表示する（409）。編集中の内容は呼び出し元が保持する
  *
- * 409 以外（400 / 403 / 404 / 422 / 500）はサーバーの応答内容を提示するのみで、
+ * 上記以外（400 / 403 / 404 / 422 / 500）はサーバーの応答内容を提示するのみで、
  * 保存前のクライアント検証は行わない（それを求める 42.4 は本タスクの範囲外）。
  */
 function toSaveErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
+    if (getApiErrorCode(error) === ESTIMATE_SAVE_TIMEOUT_CODE) {
+      return SAVE_TIMEOUT_MESSAGE;
+    }
     if (error.statusCode === 409) {
       return '他のユーザーによって更新されました。編集中の内容は保持しています。再読み込みして最新の内容を確認してください。';
     }
