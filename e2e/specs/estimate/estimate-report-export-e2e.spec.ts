@@ -50,6 +50,7 @@
  * - REQ-32.3: 生成したファイルを「見積」「実行」「業者」の順に逐次ダウンロードする
  * - REQ-50.2: 出力対象の行タイプが見積金額の場合、帳票の1ページ目を表紙とする
  * - REQ-50.12: 実行金額・業者金額の場合、表紙を出力せず1ページ目を内訳書とする
+ * - REQ-51.11: 表紙に別途工事の記載欄を5行分、番号付きで出力する
  * - REQ-51.16: 表紙を見積金額を出力対象とするファイルにのみ適用する
  * - REQ-54.6: 別途工事・有効期限・提出日を見積書画面から編集可能とする
  * - REQ-56.1: 未保存の変更がある状態でも帳票を出力可能とする
@@ -273,6 +274,15 @@ const REPORT_FIELDS = {
   separateWorkFirst: '外構は別途申し受けます',
   separateWorkSecond: '解体は別途申し受けます',
 } as const;
+
+/**
+ * 別途工事の記載欄の番号（51.11）
+ *
+ * 参照PDF（`pdf-format-reference.md` §3）は丸数字 `①`〜`⑤` を用いるが、埋め込みフォント
+ * （Fontsource japanese-400-normal のサブセット）は U+2460〜U+2464 を持たず、丸数字のままでは
+ * グリフが `.notdef` に落ちて**紙面に何も出ない**（56.14）。実装は全角括弧＋全角数字を用いる。
+ */
+const SEPARATE_WORK_MARKS = ['（１）', '（２）', '（３）', '（４）', '（５）'] as const;
 
 /** 見積項目テーブル内の項目ラッパーを指すセレクタ */
 const ROW_SELECTOR =
@@ -886,9 +896,10 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
      * 1ページ目が内訳書であることもページ数とページ本文で確認する（50.2, 50.12, 51.16）。
      *
      * @requirement estimate-creation/REQ-32.2
+     * @requirement estimate-creation/REQ-51.11
      * @requirement estimate-creation/REQ-54.6
      */
-    test('帳票用入力項目を入力して出力すると表紙に反映され、実行のファイルには表紙が無い (estimate-creation/REQ-32.2, estimate-creation/REQ-54.6)', async ({
+    test('帳票用入力項目を入力して出力すると表紙に番号付き5行で反映され、実行のファイルには表紙が無い (estimate-creation/REQ-32.2, estimate-creation/REQ-51.11, estimate-creation/REQ-54.6)', async ({
       page,
     }) => {
       test.setTimeout(getTimeout(300000));
@@ -941,10 +952,25 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
       expect(cover, '有効期限が表紙に反映されていない（51.8, 54.6）').toContain(
         `（見積有効期限：${REPORT_FIELDS.validityPeriod}）`
       );
-      expect(cover, '別途工事が表紙に反映されていない（51.11, 54.6）').toContain(
-        REPORT_FIELDS.separateWorkFirst
+      // 別途工事は**番号付きで5行**（51.11）。番号は紙面に出るグリフでなければならない。
+      // 記載内容だけを見ると、番号が埋め込みフォントに無い文字で「何も描かれていない」状態でも
+      // 通ってしまう（56.14 で実際に起きた）。番号と内容を**連結した形**で突き合わせ、
+      // 未入力の3行も番号だけが順に並ぶことまで確認する。
+      expect(cover, '別途工事の1行目が番号付きで表紙に反映されていない（51.11, 54.6）').toContain(
+        `${SEPARATE_WORK_MARKS[0]}${REPORT_FIELDS.separateWorkFirst}`
       );
-      expect(cover).toContain(REPORT_FIELDS.separateWorkSecond);
+      expect(cover, '別途工事の2行目が番号付きで表紙に反映されていない（51.11, 54.6）').toContain(
+        `${SEPARATE_WORK_MARKS[1]}${REPORT_FIELDS.separateWorkSecond}`
+      );
+      let separateWorkSearchFrom = -1;
+      for (const [index, mark] of SEPARATE_WORK_MARKS.entries()) {
+        const found = cover.indexOf(mark, separateWorkSearchFrom + 1);
+        expect(
+          found,
+          `別途工事の記載欄の番号 ${mark}（${index + 1}行目）が表紙に順に描かれていない（51.11）: ${cover}`
+        ).toBeGreaterThan(separateWorkSearchFrom);
+        separateWorkSearchFrom = found;
+      }
 
       // 表紙は表組みのページではない（内訳書は2ページ目から）
       expect(cover).not.toContain('内訳書');

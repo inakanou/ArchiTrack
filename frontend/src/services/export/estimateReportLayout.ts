@@ -150,7 +150,7 @@ export const REPORT_FONT_SIZES = {
   coverTaxNote: 13,
   /** 表紙のリード文・工事件名・工事場所・別途工事見出し */
   coverLead: 12,
-  /** 表紙の別途工事①〜⑤ */
+  /** 表紙の別途工事の記載欄5行（§3 の ①〜⑤ の行） */
   coverAdditionalWork: 11,
   /** 表の本文・見出し・ページ番号・自社連絡先 */
   tableBody: 10,

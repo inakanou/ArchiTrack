@@ -377,6 +377,21 @@ describe('工事件名と工事場所（51.9, 51.10）', () => {
 // 51.11: 別途工事の記載欄
 // ============================================================================
 
+/**
+ * 別途工事の記載欄の番号（51.11）
+ *
+ * **実装から読み戻さず本ファイルに直接書く**。参照PDF（§3）は丸数字だが、埋め込みフォントが
+ * U+2460〜U+2464 を持たず紙面に何も出ないため全角括弧＋全角数字へ改めた（56.14）。
+ */
+const SEPARATE_WORK_MARKS = ['（１）', '（２）', '（３）', '（４）', '（５）'] as const;
+
+/** 別途工事の記載欄として描かれた行（番号で始まる行）を描画順に取り出す */
+function separateWorkRows(doc: RecordingDocument): readonly string[] {
+  return doc.texts
+    .filter((call) => SEPARATE_WORK_MARKS.some((mark) => call.text.startsWith(mark)))
+    .map((call) => call.text);
+}
+
 describe('別途工事の記載欄（51.11）', () => {
   it('見出しと5行分の番号付き記載欄を参照座標に描画する', () => {
     const doc = render();
@@ -385,8 +400,13 @@ describe('別途工事の記載欄（51.11）', () => {
     const heading = textOf(doc, '別途工事');
     expectAt(heading, 129, 560, 12);
 
-    // §3 別途工事 ①〜⑤: x=200, y=586 / 618 / 649 / 680 / 714 px / 11pt
-    const marks = ['①', '②', '③', '④', '⑤'];
+    // §3 別途工事 の番号欄: x=200, y=586 / 618 / 649 / 680 / 714 px / 11pt
+    //
+    // 番号の表記は §3 の丸数字（`①`〜`⑤`）ではなく全角括弧＋全角数字を用いる。
+    // 埋め込みフォントが U+2460〜U+2464 を持たず紙面に何も出ないため（56.14）。
+    // グリフとして実際に出ることは `__tests__/estimateCoverGlyphRendering.test.ts` が
+    // フォント資産と生成したPDFに対して検査する。
+    const marks = SEPARATE_WORK_MARKS;
     const yPx = [586, 618, 649, 680, 714];
     const rows = doc.texts.filter((call) => marks.some((mark) => call.text.startsWith(mark)));
     expect(rows, '別途工事の記載欄は常に5行').toHaveLength(5);
@@ -400,8 +420,8 @@ describe('別途工事の記載欄（51.11）', () => {
     }
 
     // 1件目は入力値が続き、残り4行は番号のみ
-    expect(rows[0]!.text).toBe('①この見積書に記載なき事項');
-    expect(rows.slice(1).map((row) => row.text)).toEqual(['②', '③', '④', '⑤']);
+    expect(rows[0]!.text).toBe('（１）この見積書に記載なき事項');
+    expect(rows.slice(1).map((row) => row.text)).toEqual(['（２）', '（３）', '（４）', '（５）']);
   });
 
   it('別途工事が5件ある場合は5件すべてを番号付きで描画する', () => {
@@ -414,9 +434,13 @@ describe('別途工事の記載欄（51.11）', () => {
       },
     });
 
-    expect(doc.texts.filter((call) => /^[①②③④⑤]/.test(call.text)).map((call) => call.text)).toEqual(
-      ['①甲', '②乙', '③丙', '④丁', '⑤戊']
-    );
+    expect(separateWorkRows(doc)).toEqual([
+      '（１）甲',
+      '（２）乙',
+      '（３）丙',
+      '（４）丁',
+      '（５）戊',
+    ]);
   });
 
   it('別途工事が5件を超えても記載欄は5行を超えない', () => {
@@ -433,9 +457,13 @@ describe('別途工事の記載欄（51.11）', () => {
     expect(doc.texts.some((call) => call.text.includes('己'))).toBe(false);
     expect(doc.texts.some((call) => call.text.includes('庚'))).toBe(false);
     // 5行目までは入力どおり
-    expect(doc.texts.filter((call) => /^[①②③④⑤]/.test(call.text)).map((call) => call.text)).toEqual(
-      ['①甲', '②乙', '③丙', '④丁', '⑤戊']
-    );
+    expect(separateWorkRows(doc)).toEqual([
+      '（１）甲',
+      '（２）乙',
+      '（３）丙',
+      '（４）丁',
+      '（５）戊',
+    ]);
     // 総描画数は基準ケースと同じ24件（6行目が増えていない）
     expect(doc.texts).toHaveLength(24);
   });
@@ -573,9 +601,7 @@ describe('未登録項目の空欄出力（51.15, 54.7）', () => {
       reportFields: { ...subject.reportFields, separateWorks: [] },
     });
 
-    expect(doc.texts.filter((call) => /^[①②③④⑤]/.test(call.text)).map((call) => call.text)).toEqual(
-      ['①', '②', '③', '④', '⑤']
-    );
+    expect(separateWorkRows(doc)).toEqual([...SEPARATE_WORK_MARKS]);
   });
 
   it('自社情報が未登録でも例外にならず、右側ブロックを空欄で描画する', () => {
