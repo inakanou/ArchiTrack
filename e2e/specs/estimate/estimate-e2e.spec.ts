@@ -3,27 +3,58 @@
  *
  * Task 15: E2Eテストの実装
  *
+ * かつてこの一覧は `- REQ-1.1 ~ REQ-1.6` のような範囲表記だった。
+ * 帰属の抽出規則（`scripts/check-requirement-coverage.ts` の `extractTestCoverage`）は
+ * `- REQ-N.M` 形式しか読まないため、範囲の**始点だけ**が拾われ、
+ * 実際には検証していない REQ-1.1・REQ-2.1・REQ-8.1・REQ-9.1・REQ-11.1 が
+ * このファイルの担当として数えられていた（逆に範囲の途中は取りこぼされていた）。
+ * 各テストの `@requirement` タグと一致する形へ揃える。
+ *
  * Requirements coverage (estimate-creation):
- * - REQ-1.1 ~ REQ-1.6: 見積書基本構造（3行1セット）
- * - REQ-2.1 ~ REQ-2.6: 見積項目ネスト構造
- * - REQ-3.1 ~ REQ-3.5: 見積書新規作成と内訳書連携
- * - REQ-4.1 ~ REQ-4.5: 受領見積書転記
- * - REQ-5.1 ~ REQ-5.7: NET金額計算と案分
- * - REQ-6.1 ~ REQ-6.6: 利益率による見積金額反映
- * - REQ-7.1 ~ REQ-7.6: 共通仮設費プリセット
- * - REQ-8.1 ~ REQ-8.6: 現場管理費プリセット
- * - REQ-9.1 ~ REQ-9.6: 一般管理費プリセット
- * - REQ-10.1 ~ REQ-10.8: 見積書出力
- * - REQ-11.1 ~ REQ-11.7: 見積書CRUD操作
- * - REQ-12.1 ~ REQ-12.6: 見積項目操作
+ * - REQ-1.3: 数量または単価の入力に応じて金額を単価×数量として自動計算する
+ * - REQ-2.5: 階層の深さに上限を設けない
+ * - REQ-2.7: 親項目の展開・折りたたみで子項目の表示/非表示を切り替える
+ * - REQ-3.1: 見積書新規作成時にプロジェクトの内訳書選択画面を表示する
+ * - REQ-3.2: 選択した内訳書の内容を見積書の初期値とする
+ * - REQ-3.3: 内訳書を選択せずに空の見積書を作成する
+ * - REQ-4.1: 見積項目行を指定して受領見積書の行を転記する
+ * - REQ-4.2: 見積項目行を指定せずに受領見積書の行を転記する
+ * - REQ-4.3: 受領見積書から名称・規格・単位・数量・単価を転記する
+ * - REQ-4.4: 複数の受領見積書を順次転記する
+ * - REQ-5.1: 業者と対象の業者金額行を指定してNET金額計算を開始する
+ * - REQ-5.2: 案分から除外する諸経費行を指定する
+ * - REQ-5.3: NET金額の入力を受け付ける
+ * - REQ-6.1: 利益率を指定して全実行金額行に反映する
+ * - REQ-6.2: 「すべて上書き」オプションを選択する
+ * - REQ-6.3: 「空の場合のみ上書き」オプションを選択する
+ * - REQ-6.4: 「単価のみ上書き」オプションを選択する
+ * - REQ-6.5: 見積金額行への反映を実行する
+ * - REQ-6.6: 利益率を百分率で入力可能とする
+ * - REQ-7.1: 共通仮設費行のプリセット値（名称・規格・単位・数量）を設定する
+ * - REQ-7.2: 共通仮設費の単価を手入力で設定可能とする
+ * - REQ-7.3: 国土交通省の共通費積算基準に準じて単価を自動計算する
+ * - REQ-7.4: 自動計算に必要なパラメータの入力画面を提供する
+ * - REQ-7.5: 自動計算結果を手入力で上書き可能とする
+ * - REQ-7.6: 自動計算が処理中であることを表示する
+ * - REQ-10.1: PDF出力で建設工事見積書形式のファイルを生成する
+ * - REQ-10.2: Excel出力でPDFと同じ内容のファイルを生成する
+ * - REQ-12.1: 見積項目の追加で新規の3行1セットを生成する
  *
  * @module e2e/specs/estimate/estimate-e2e.spec
  */
 
 import { test, expect } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import {
+  buildNewEstimateItemNode,
+  findEstimateItemByName,
+  getEstimateItemTree,
+  saveEstimateDraft,
+} from '../../helpers/estimate-draft';
+import type { SaveNodePayload } from '../../helpers/estimate-draft';
 
 /**
  * 見積書機能のE2Eテスト
@@ -40,6 +71,7 @@ test.describe('見積書機能', () => {
   let createdEstimateIdWithoutItemizedStatement: string | null = null;
   let createdEstimateRequestId: string | null = null;
   let createdReceivedQuotationId: string | null = null;
+  let createdReceivedQuotationName: string = '';
   let accessToken: string = '';
   let projectName: string = '';
   let tradingPartnerName: string = '';
@@ -439,30 +471,33 @@ test.describe('見積書機能', () => {
 
         // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
-        // 数量と単価の入力フィールドを探す（aria-labelで検索）
-        const quantityInputs = page.locator('input[aria-label="数量"]');
-        const unitPriceInputs = page.locator('input[aria-label="単価"]');
+        // 数量・単価を入力する行を1つに固定する。
+        // 「画面のどこかに 5,000 がある」ではなく「入力した行の金額欄が 5,000 になる」を
+        // 主張するため、入力欄と金額欄は同じ行（3行1セットの見積金額行）から引く
+        const estimateLine = page
+          .locator('[aria-label="見積項目テーブル"] [data-testid="line-type-ESTIMATE"]')
+          .first();
+        await expect(estimateLine).toBeVisible({ timeout: getTimeout(15000) });
 
-        const quantityCount = await quantityInputs.count();
-        const unitPriceCount = await unitPriceInputs.count();
+        const quantityInput = estimateLine.locator('input[aria-label="数量"]');
+        const unitPriceInput = estimateLine.locator('input[aria-label="単価"]');
+        const amountField = estimateLine.locator('[data-testid="amount-field"]');
 
-        // 入力フィールドが存在する場合、金額計算をテスト
-        if (quantityCount > 0 && unitPriceCount > 0) {
-          // 最初の数量フィールドに値を入力
-          await quantityInputs.first().fill('5');
+        // 入力欄が無ければ以降の入力・検算はどのみち成立しない。
+        // かつてはここが `if (count > 0)` のガードで、欄が消えると何も検証せずに
+        // 緑になった（実測ではガードは常に真で、条件そのものが不要だった）
+        await expect(quantityInput).toHaveCount(1);
+        await expect(unitPriceInput).toHaveCount(1);
+        await expect(amountField).toHaveCount(1);
 
-          // 最初の単価フィールドに値を入力
-          await unitPriceInputs.first().fill('1000');
+        await quantityInput.fill('5');
+        await unitPriceInput.fill('1000');
 
-          // フォーカスを外して計算をトリガー
-          await unitPriceInputs.first().blur();
+        // フォーカスを外して計算をトリガー
+        await unitPriceInput.blur();
 
-          // 金額が5,000と計算されることを確認（UIに反映されるまで待機）
-          // 見積項目テーブル内の金額欄を確認
-          await expect(
-            page.locator('[data-testid="estimate-detail-page"]').getByText('5,000').first()
-          ).toBeVisible({ timeout: getTimeout(10000) });
-        }
+        // 金額欄が単価×数量（1000×5）として自動計算される
+        await expect(amountField).toHaveText('5,000', { timeout: getTimeout(10000) });
       });
     });
 
@@ -472,16 +507,75 @@ test.describe('見積書機能', () => {
 
     test.describe('階層構造の表示', () => {
       /**
-       * @requirement estimate-creation/REQ-2.5
-       * 親項目を展開または折りたたむと子項目の表示/非表示が切り替わる
+       * 深い階層のフィクスチャ（第1階層 → … → 第5階層）
+       *
+       * 2.5 は「階層の深さに上限を設けない」を要求する。要件 2.4 が例示する3階層
+       * （建築工事 > 直接仮設工事 > 遣り方）を**超える**5階層を作り、すべてが
+       * 画面に描かれることを確かめる。深さで打ち切る実装が入れば深い側から消える。
        */
-      test('REQ-2.5：階層構造の展開/折りたたみ', async ({ page }) => {
-        expect(createdEstimateId).toBeTruthy();
+      const DEEP_NAMES = [
+        '階層深さ検証_第1階層',
+        '階層深さ検証_第2階層',
+        '階層深さ検証_第3階層',
+        '階層深さ検証_第4階層',
+        '階層深さ検証_第5階層',
+      ] as const;
+
+      /**
+       * @requirement estimate-creation/REQ-2.5
+       * @requirement estimate-creation/REQ-2.7
+       * 上限のない深さの階層が表示され、展開/折りたたみで子孫の表示が切り替わる
+       *
+       * かつてこのテストは「展開/折りたたみボタンが1件以上あれば押す」という
+       * `if (expandCount > 0)` のガードだけを持ち、最後は素の
+       * `getByText(/見積項目/i)` で終わっていた。実測ではフィクスチャの見積書が
+       * 平坦（内訳書の3項目がすべてルート）でボタンは**常に0件**であり、
+       * 内側は一度も実行されないまま緑になっていた。加えてセレクタの
+       * `aria-label*="折りたたみ"` は実際の `折りたたむ` と一致しない。
+       * 前提（子を持つ項目）はテスト自身が作る。
+       */
+      test('REQ-2.5/REQ-2.7：深い階層が表示され展開/折りたたみで子孫の表示が切り替わる', async ({
+        page,
+      }) => {
+        expect(createdEstimateIdWithoutItemizedStatement).toBeTruthy();
 
         await loginAsUser(page, 'REGULAR_USER');
+        const token = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+        expect(token).toBeTruthy();
 
-        // 見積書詳細画面に移動
-        await page.goto(`/estimates/${createdEstimateId}`);
+        // 5階層の入れ子を作る（最も深い項目から順に親へ包んでいく）
+        const deepTree = [...DEEP_NAMES].reverse().reduce<SaveNodePayload[]>(
+          (children, name) => [
+            buildNewEstimateItemNode({
+              name,
+              unit: '式',
+              quantity: 1,
+              estimateUnitPrice: 1000,
+              children,
+            }),
+          ],
+          []
+        );
+        await saveEstimateDraft(
+          page.request,
+          token,
+          createdEstimateIdWithoutItemizedStatement!,
+          deepTree
+        );
+
+        // 保存した階層が実際に5段で返ってくることを確認してから画面を開く
+        const tree = await getEstimateItemTree(
+          page.request,
+          token,
+          createdEstimateIdWithoutItemizedStatement!
+        );
+        const itemIds = DEEP_NAMES.map((name) => {
+          const found = findEstimateItemByName(tree, name);
+          expect(found, `フィクスチャに ${name} が見つからない`).toBeTruthy();
+          return found!.id;
+        });
+
+        await page.goto(`/estimates/${createdEstimateIdWithoutItemizedStatement}`);
         await page.waitForLoadState('networkidle');
 
         // 詳細ページが表示されることを確認
@@ -489,22 +583,41 @@ test.describe('見積書機能', () => {
           timeout: getTimeout(15000),
         });
 
-        // 展開/折りたたみボタンを探す
-        const expandButtons = page.locator(
-          '[data-testid="expand-toggle"], button[aria-label*="展開"], button[aria-label*="折りたたみ"]'
-        );
-        const expandCount = await expandButtons.count();
+        // 折りたたみ操作はツリー表示のものなので、表示モードを明示的に確定させる（REQ-45.1）
+        const treeModeRadio = page.getByTestId('view-mode-tree');
+        await expect(treeModeRadio).toBeVisible({ timeout: getTimeout(10000) });
+        await treeModeRadio.click();
+        await expect(treeModeRadio).toHaveAttribute('aria-checked', 'true', {
+          timeout: getTimeout(10000),
+        });
 
-        if (expandCount > 0) {
-          // 展開ボタンをクリック
-          await expandButtons.first().click();
+        const row = (itemId: string): Locator => page.getByTestId(`estimate-item-${itemId}`);
 
-          // 状態が変化することを確認（折りたたみ/展開）
-          await page.waitForTimeout(500);
+        // REQ-2.5: 5階層すべてが描かれる（深さで打ち切られていない）
+        for (const itemId of itemIds) {
+          await expect(row(itemId)).toBeVisible({ timeout: getTimeout(10000) });
         }
 
-        // 見積項目テーブルが表示されていることを確認
-        await expect(page.getByText(/見積項目/i)).toBeVisible();
+        // REQ-2.7: 第2階層を折りたたむと、その子孫（第3〜第5階層）が画面から消える
+        const collapseButton = row(itemIds[1]!).getByRole('button', { name: '折りたたむ' });
+        await expect(collapseButton).toHaveAttribute('aria-expanded', 'true');
+        await collapseButton.click();
+
+        for (const itemId of itemIds.slice(2)) {
+          await expect(row(itemId)).toHaveCount(0, { timeout: getTimeout(10000) });
+        }
+        // 折りたたんだ項目自身と祖先は残る
+        await expect(row(itemIds[0]!)).toBeVisible();
+        await expect(row(itemIds[1]!)).toBeVisible();
+
+        // REQ-2.7: 展開すると子孫が戻る
+        const expandButton = row(itemIds[1]!).getByRole('button', { name: '展開する' });
+        await expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+        await expandButton.click();
+
+        for (const itemId of itemIds) {
+          await expect(row(itemId)).toBeVisible({ timeout: getTimeout(10000) });
+        }
       });
     });
 
@@ -608,6 +721,13 @@ test.describe('見積書機能', () => {
   test.describe('タスク15.2: NET金額計算・案分', () => {
     /**
      * テストデータ準備：見積依頼と受領見積書を作成
+     *
+     * かつてこの準備は `if (status === 201)` で作成の成否を分岐し、末尾も
+     * 「両方のIDが取れたときだけアサートする」形だった。実測では見積依頼の作成が
+     * **常に 400**（必須の `name` を送っておらず、`requestDate` は受け付けない）で、
+     * 受領見積書の作成に至っては URL が実在しない（正しくは `/quotations`）ため
+     * 内側は一度も実行されず、**準備が何ひとつ作れていないまま緑**になっていた。
+     * 作成できなければ失敗するよう、各段の応答を無条件に検証する。
      */
     test('準備：見積依頼と受領見積書を作成する', async ({ request }) => {
       expect(createdProjectId).toBeTruthy();
@@ -622,63 +742,61 @@ test.describe('見積書機能', () => {
         {
           headers: { Authorization: `Bearer ${accessToken}` },
           data: {
+            name: `E2E見積依頼_${Date.now()}`,
             tradingPartnerId: createdTradingPartnerId,
-            requestDate: new Date().toISOString(),
           },
         }
       );
+      expect(estimateRequestResponse.status()).toBe(201);
+      createdEstimateRequestId = (await estimateRequestResponse.json()).id;
+      expect(createdEstimateRequestId).toBeTruthy();
 
-      if (estimateRequestResponse.status() === 201) {
-        const estimateRequestBody = await estimateRequestResponse.json();
-        createdEstimateRequestId = estimateRequestBody.id;
+      // 受領見積書を作成（明細は multipart の `lineItems` にJSON文字列で載せる）
+      const lineItems = JSON.stringify([
+        {
+          name: 'テスト項目1',
+          sortOrder: 0,
+          specification: '規格A',
+          unit: '式',
+          quantity: 1,
+          unitPrice: 100000,
+          amount: 100000,
+        },
+        {
+          name: 'テスト項目2',
+          sortOrder: 1,
+          specification: '規格B',
+          unit: '式',
+          quantity: 2,
+          unitPrice: 50000,
+          amount: 100000,
+        },
+        {
+          name: '諸経費',
+          sortOrder: 2,
+          specification: '',
+          unit: '式',
+          quantity: 1,
+          unitPrice: 20000,
+          amount: 20000,
+        },
+      ]);
 
-        // 受領見積書を作成
-        const receivedQuotationResponse = await request.post(
-          `${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/received-quotations`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            data: {
-              quotationNumber: `RQ-${Date.now()}`,
-              quotationDate: new Date().toISOString(),
-              lineItems: [
-                {
-                  name: 'テスト項目1',
-                  specification: '規格A',
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 100000,
-                },
-                {
-                  name: 'テスト項目2',
-                  specification: '規格B',
-                  unit: '式',
-                  quantity: 2,
-                  unitPrice: 50000,
-                },
-                {
-                  name: '諸経費',
-                  specification: '',
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 20000,
-                },
-              ],
-            },
-          }
-        );
-
-        if (receivedQuotationResponse.status() === 201) {
-          const receivedQuotationBody = await receivedQuotationResponse.json();
-          createdReceivedQuotationId = receivedQuotationBody.id;
+      createdReceivedQuotationName = `E2E受領見積書_${Date.now()}`;
+      const receivedQuotationResponse = await request.post(
+        `${baseUrl}/api/estimate-requests/${createdEstimateRequestId}/quotations`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          multipart: {
+            name: createdReceivedQuotationName,
+            submittedAt: new Date().toISOString(),
+            lineItems,
+          },
         }
-      }
-
-      // テストデータが作成できた場合のみアサート
-      // API未実装の場合はスキップ
-      if (createdEstimateRequestId && createdReceivedQuotationId) {
-        expect(createdEstimateRequestId).toBeTruthy();
-        expect(createdReceivedQuotationId).toBeTruthy();
-      }
+      );
+      expect(receivedQuotationResponse.status()).toBe(201);
+      createdReceivedQuotationId = (await receivedQuotationResponse.json()).id;
+      expect(createdReceivedQuotationId).toBeTruthy();
     });
 
     /**
@@ -732,75 +850,163 @@ test.describe('見積書機能', () => {
   // ============================================================================
 
   test.describe('タスク15.3: 諸経費自動計算', () => {
+    /** 諸経費計算ダイアログを開き、共通仮設費の計算パラメータを入力する */
+    const openOverheadDialog = async (page: Page): Promise<Locator> => {
+      await page.goto(`/estimates/${createdEstimateId}`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.getByRole('button', { name: '諸経費を計算して追加' }).click();
+      const dialog = page.getByTestId('overhead-cost-dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+      return dialog;
+    };
+
+    /** 追加された未保存の諸経費行（保存前なのでサーバーIDを持たず行キーは `tmp-`） */
+    const addedOverheadEstimateLine = (page: Page): Locator =>
+      page
+        .locator('[aria-label="見積項目テーブル"] [data-estimate-row-key^="tmp-"]')
+        .getByTestId('line-type-ESTIMATE');
+
     /**
      * @requirement estimate-creation/REQ-7.1
      * @requirement estimate-creation/REQ-7.2
      * @requirement estimate-creation/REQ-7.3
      * @requirement estimate-creation/REQ-7.4
-     * 共通仮設費の自動計算
+     * 共通仮設費の自動計算とプリセット値での行追加
+     *
+     * かつてこのテストは「諸経費のパネルかボタンのどちらかが見えていれば
+     * `expect(panelVisible || buttonVisible).toBeTruthy()`」という、条件が真のときだけ
+     * 入るブロックの中で同じ条件を主張する**恒真アサーション**だった
+     * （実測: `panelVisible=false` / `buttonVisible=true` で、パネルの testid は
+     * 本番コードに存在すらしない）。7.1〜7.4 の何ひとつ検証していないため、
+     * 観測可能な振る舞い（パラメータ入力欄・自動計算結果・プリセット値・手入力）へ
+     * 置き換える。
      */
-    test('REQ-7.1-7.4：諸経費計算パネルの表示', async ({ page }) => {
+    test('REQ-7.1-7.4：共通仮設費を自動計算しプリセット値の行として追加する', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
+      const dialog = await openOverheadDialog(page);
 
-      // 見積書詳細画面に移動
-      await page.goto(`/estimates/${createdEstimateId}`);
-      await page.waitForLoadState('networkidle');
+      // REQ-7.4: 自動計算に必要なパラメータ（直接工事費・工期）の入力欄が提供される
+      await dialog.getByLabel('諸経費種別').selectOption('COMMON_TEMPORARY');
+      await expect(dialog.getByLabel('直接工事費')).toBeVisible();
+      await expect(dialog.getByLabel('工期')).toBeVisible();
+      await dialog.getByLabel('直接工事費').fill('100000');
+      await dialog.getByLabel('工期').fill('12');
 
-      // 詳細ページが表示されることを確認
-      await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
-        timeout: getTimeout(15000),
-      });
+      // REQ-7.3: 共通仮設費の計算式（国土交通省の公共建築工事共通費積算基準）で単価を算出する
+      const calcPromise = page.waitForResponse(
+        (r) => r.url().includes('/calculate-overhead') && r.request().method() === 'POST',
+        { timeout: getTimeout(15000) }
+      );
+      await dialog.getByRole('button', { name: '計算', exact: true }).click();
+      const calcResponse = await calcPromise;
+      expect(calcResponse.status()).toBe(200);
+      const calculated = (await calcResponse.json()) as {
+        rate: string;
+        amount: string;
+        formula: string;
+      };
+      expect(Number(calculated.rate)).toBeGreaterThan(0);
+      expect(Number(calculated.amount)).toBeGreaterThan(0);
 
-      // 諸経費計算関連のUI要素を探す
-      const overheadPanel = page.locator('[data-testid="overhead-cost-panel"]');
-      const overheadButton = page.getByRole('button', {
-        name: /諸経費|共通仮設費|現場管理費|一般管理費/i,
-      });
+      // 算定率と計算金額が画面に出て、単価として使われる欄へ自動計算結果が入る
+      await expect(dialog.getByTestId('calculated-rate')).toHaveText(`${calculated.rate}%`);
+      await expect(dialog.getByLabel('計算金額')).toHaveValue(calculated.amount);
 
-      // パネルまたはボタンが存在するか確認
-      const panelVisible = await overheadPanel.isVisible().catch(() => false);
-      const buttonVisible = await overheadButton.isVisible().catch(() => false);
+      // REQ-7.1: 追加された行は名称=共通仮設費・規格=空白・単位=式・数量=1のプリセット値を持つ
+      await dialog.getByRole('button', { name: '項目追加' }).click();
+      await expect(dialog).toBeHidden();
 
-      // 諸経費関連のUIが存在するかを確認（存在しない場合も許容）
-      if (panelVisible || buttonVisible) {
-        expect(panelVisible || buttonVisible).toBeTruthy();
-      }
+      const addedLine = addedOverheadEstimateLine(page);
+      await expect(addedLine).toHaveCount(1, { timeout: getTimeout(10000) });
+      await expect(addedLine.getByLabel('名称')).toHaveValue('共通仮設費');
+      await expect(addedLine.getByLabel('規格')).toHaveValue('');
+      await expect(addedLine.getByLabel('単位')).toHaveValue('式');
+      await expect(addedLine.getByLabel('数量')).toHaveValue('1');
+      await expect(addedLine.getByLabel('単価')).toHaveValue(calculated.amount);
+
+      // REQ-7.2: 共通仮設費の単価は手入力で設定できる（金額も追随して再計算される）
+      const unitPriceInput = addedLine.getByLabel('単価');
+      await unitPriceInput.fill('123456');
+      await unitPriceInput.blur();
+      await expect(unitPriceInput).toHaveValue('123456');
+      await expect(addedLine.locator('[data-testid="amount-field"]')).toHaveText('123,456');
     });
 
     /**
      * @requirement estimate-creation/REQ-7.5
      * @requirement estimate-creation/REQ-7.6
-     * 計算結果の手入力での上書き
+     * 計算中の表示と、自動計算結果の手入力での上書き
+     *
+     * かつてこのテストは「単価の入力欄が1件以上あれば最初の1件に 50000 を入れる」だけで、
+     * 諸経費にも自動計算にも触れていなかった（実測ではガードは常に真＝条件は不要だったが、
+     * 主張していたのは無関係な見積項目行の入力欄の値）。7.5 は「自動計算結果を手入力で
+     * 上書きできること」、7.6 は「計算中であることを表示すること」を要求するので、
+     * 実際に計算を走らせ、その応答を保留させた状態で計算中の表示を観測する。
      */
-    test('REQ-7.5-7.6：諸経費の手入力上書き', async ({ page }) => {
+    test('REQ-7.5-7.6：計算中を表示し自動計算結果を手入力で上書きできる', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 見積書詳細画面に移動
-      await page.goto(`/estimates/${createdEstimateId}`);
-      await page.waitForLoadState('networkidle');
-
-      // 詳細ページが表示されることを確認
-      await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
-        timeout: getTimeout(15000),
+      // 計算の応答を保留できるようにする。保留を解くまで「計算中」の表示が続くため、
+      // 競合に依存せず REQ-7.6 の表示を観測できる
+      let releaseCalculation: () => void = () => {};
+      const calculationHeld = new Promise<void>((resolve) => {
+        releaseCalculation = resolve;
+      });
+      await page.route('**/calculate-overhead', async (route) => {
+        await calculationHeld;
+        await route.continue();
       });
 
-      // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
+      const dialog = await openOverheadDialog(page);
+      await dialog.getByLabel('諸経費種別').selectOption('COMMON_TEMPORARY');
+      await dialog.getByLabel('直接工事費').fill('100000');
+      await dialog.getByLabel('工期').fill('12');
 
-      // 単価入力フィールドがあれば手入力をテスト
-      const unitPriceInputs = page.locator('input[aria-label*="単価"]');
-      const inputCount = await unitPriceInputs.count();
+      const calcPromise = page.waitForResponse(
+        (r) => r.url().includes('/calculate-overhead') && r.request().method() === 'POST',
+        { timeout: getTimeout(30000) }
+      );
+      await dialog.getByRole('button', { name: '計算', exact: true }).click();
 
-      if (inputCount > 0) {
-        // 最初の単価フィールドに手入力
-        await unitPriceInputs.first().fill('50000');
+      // REQ-7.6: 計算が終わるまで「計算中」であることが表示され、再実行もできない
+      const calculatingButton = dialog.getByRole('button', { name: '計算中...' });
+      await expect(calculatingButton).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(calculatingButton).toBeDisabled();
 
-        // 値が入力されたことを確認
-        await expect(unitPriceInputs.first()).toHaveValue('50000');
-      }
+      releaseCalculation();
+      const calcResponse = await calcPromise;
+      expect(calcResponse.status()).toBe(200);
+      const calculated = (await calcResponse.json()) as { rate: string; amount: string };
+
+      // 計算が終われば「計算中」の表示は消える
+      await expect(calculatingButton).toHaveCount(0, { timeout: getTimeout(10000) });
+      await expect(dialog.getByRole('button', { name: '計算', exact: true })).toBeEnabled();
+
+      // 自動計算結果が単価として入っている
+      const calculatedAmountInput = dialog.getByLabel('計算金額');
+      await expect(calculatedAmountInput).toHaveValue(calculated.amount);
+
+      // REQ-7.5: 自動計算結果を手入力で上書きできる
+      const manualUnitPrice = String(Number(calculated.amount) + 77777);
+      expect(manualUnitPrice).not.toBe(calculated.amount);
+      await calculatedAmountInput.fill(manualUnitPrice);
+      await expect(calculatedAmountInput).toHaveValue(manualUnitPrice);
+
+      // 追加される行の単価は自動計算値ではなく手入力値になる
+      await dialog.getByRole('button', { name: '項目追加' }).click();
+      await expect(dialog).toBeHidden();
+
+      const addedLine = addedOverheadEstimateLine(page);
+      await expect(addedLine).toHaveCount(1, { timeout: getTimeout(10000) });
+      await expect(addedLine.getByLabel('単価')).toHaveValue(manualUnitPrice);
     });
   });
 
@@ -869,9 +1075,16 @@ test.describe('見積書機能', () => {
       const quotationSelect = page.locator('#quotation-select');
       await expect(quotationSelect).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 受領見積書の選択肢が存在することを確認（少なくとも「選択してください」オプション）
-      const options = await quotationSelect.locator('option').count();
-      expect(options).toBeGreaterThanOrEqual(1);
+      // 準備で作成した受領見積書が転記元として選べる。
+      // 「選択してください」だけでも通る件数の下限ではなく、準備で作った協力業者の
+      // 受領見積書（選択肢のラベルは `取引先名 - 合計金額`）を名指しすることで、
+      // 準備が実際に作れていないと失敗する
+      expect(tradingPartnerName).toBeTruthy();
+      expect(createdReceivedQuotationId).toBeTruthy();
+      await expect(quotationSelect.locator('option', { hasText: tradingPartnerName })).toHaveCount(
+        1,
+        { timeout: getTimeout(10000) }
+      );
 
       // 転記先選択ドロップダウンの存在を確認
       const targetSelect = page.locator('#target-select');

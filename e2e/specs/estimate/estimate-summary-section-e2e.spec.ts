@@ -249,6 +249,10 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       ];
 
       // すべてのラベルが存在し、順序通り出現することを確認（REQ-39.1, REQ-39.9）
+      //
+      // 以下の `toBeGreaterThanOrEqual(0)` は `count()` に対する恒真判定ではなく、
+      // `String.prototype.indexOf` が**見つからなければ -1 を返す**ことを使った
+      // 「ラベルが存在する」の主張である（ラベルが1つでも欠ければ失敗する）
       let lastIndex = -1;
       for (const label of expectedOrder) {
         const idx = panelText.indexOf(label);

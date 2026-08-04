@@ -19,9 +19,52 @@
  */
 
 import { test, expect } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+
+/**
+ * サマリーパネルの指定ラベルの値セルを返す。
+ *
+ * サマリーパネルは「ラベル + 値」を1つの `div` に並べた構造なので、
+ * ラベルを含む最も内側の `div` がその項目の行にあたる。
+ */
+function summaryRow(page: Page, label: string): Locator {
+  return page
+    .locator('[data-testid="summary-panel"] div')
+    .filter({ has: page.getByText(label, { exact: true }) })
+    .last();
+}
+
+/**
+ * 金額テキストから数値（円）を取り出す。"140,000円" → 140000
+ */
+function parseAmountText(text: string | null): number {
+  if (!text) return NaN;
+  const matched = text.match(/(-?[\d,]+)/);
+  if (!matched) return NaN;
+  return Number(matched[1]!.replace(/,/g, ''));
+}
+
+/**
+ * 見積項目の1行タイプ（見積/実行/業者）に数量と単価を入力する。
+ *
+ * サマリーパネルは未保存の編集内容から再計算されるため（REQ-27.1）、
+ * 保存せずに合計値の検証条件を作り出せる。
+ */
+async function fillLineAmount(
+  page: Page,
+  lineType: 'ESTIMATE' | 'EXECUTION' | 'VENDOR',
+  quantity: number,
+  unitPrice: number
+): Promise<void> {
+  const line = page.locator(`[data-testid="line-type-${lineType}"]`).first();
+  await expect(line).toBeVisible({ timeout: getTimeout(10000) });
+  await line.locator('input[aria-label="数量"]').fill(String(quantity));
+  await line.locator('input[aria-label="単価"]').fill(String(unitPrice));
+  await line.locator('input[aria-label="単価"]').blur();
+}
 
 /**
  * 見積書レイアウト・サマリーパネル・見積業者列のE2Eテスト
@@ -216,20 +259,31 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
       const quantityInputs = page.locator('input[aria-label="数量"]');
       const unitPriceInputs = page.locator('input[aria-label="単価"]');
 
-      const quantityCount = await quantityInputs.count();
-      if (quantityCount > 0) {
-        // 最初の見積行（ESTIMATE）の数量と単価を入力
-        await quantityInputs.first().fill('10');
-        await unitPriceInputs.first().fill('5000');
-        await unitPriceInputs.first().blur();
-      }
+      // かつては `if (quantityCount > 0)` と `if (await saveButton.isEnabled())` の
+      // 二重ガードで、項目追加が効かなくても「何も入力せず・何も保存せず」に緑だった
+      // （実測では 3 件 / true ＝どちらも常に真でガードは不要）。
+      // 準備が成立しなければ後続の金額検証がすべて無意味になるので無条件に確定させる
+      await expect(quantityInputs.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(unitPriceInputs.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 保存
+      // 最初の見積行（ESTIMATE）の数量と単価を入力
+      await quantityInputs.first().fill('10');
+      await unitPriceInputs.first().fill('5000');
+      await unitPriceInputs.first().blur();
+
+      // 保存（未保存の変更が実在するので保存ボタンは必ず有効）
       const saveButton = page.getByRole('button', { name: /保存/i });
-      if (await saveButton.isEnabled()) {
-        await saveButton.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
+
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      expect((await savePromise).status()).toBe(200);
+      await expect(saveButton).toBeDisabled({ timeout: getTimeout(10000) });
     });
 
     /**
@@ -433,52 +487,51 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
       // 転記ダイアログが表示されることを確認
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 受領見積書の選択UIが表示されるか確認し、選択可能なら転記を実行
-      const quotationSelect = page.locator(
-        'select[aria-label*="受領見積書"], [data-testid="quotation-select"]'
+      // かつてこのテストのセレクタは
+      // `select[aria-label*="受領見積書"], [data-testid="quotation-select"]` で、
+      // 実DOMの `#quotation-select`（`<label for>` で紐づく）と一致せず
+      // **常に不可視**だった（同じ時点で `#quotation-select` は 1 件存在する）。
+      // その結果、転記を伴う本体（4重のガードの内側にあり、最内は
+      // `expect(tableContent).toBeTruthy()` という恒真に近い主張）は一度も実行されず、
+      // 実際には `else` 側の「見積業者列の存在」＝REQ-17.3 の確認だけが走っていた。
+      // 17.4 は「転記された業者金額行に受領見積書の業者名を表示する」ことなので、
+      // 転記を無条件に実行して業者名の表示そのものを主張する。
+      const dialog = page.getByRole('dialog');
+      const quotationSelect = page.locator('#quotation-select');
+      await expect(quotationSelect).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 準備で作成した受領見積書（選択肢のラベルは `取引先名 - 合計金額`）を選ぶ
+      expect(tradingPartnerName).toBeTruthy();
+      await expect(quotationSelect.locator('option', { hasText: tradingPartnerName })).toHaveCount(
+        1,
+        { timeout: getTimeout(10000) }
       );
-      const selectVisible = await quotationSelect.isVisible().catch(() => false);
+      await quotationSelect.selectOption({ index: 1 });
 
-      if (selectVisible) {
-        // 受領見積書を選択して転記実行
-        const options = await quotationSelect.locator('option').count();
-        if (options > 1) {
-          await quotationSelect.selectOption({ index: 1 });
-        }
+      // 明細行は選択時点で全選択される（REQ-35.3）
+      const lineCheckboxes = dialog.locator('input[type="checkbox"]');
+      await expect(lineCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const lineCount = await lineCheckboxes.count();
+      expect(lineCount).toBeGreaterThan(0);
 
-        // 転記実行ボタンをクリック
-        const executeButton = page.getByRole('dialog').getByRole('button', { name: /転記|実行/i });
-        if (await executeButton.isVisible()) {
-          await executeButton.click();
+      // 転記実行
+      await dialog.getByRole('button', { name: '転記', exact: true }).click();
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
 
-          // 転記完了を待機
-          await page.waitForLoadState('networkidle');
+      // 転記された業者金額行の「見積業者」列に受領見積書の業者名が表示される（17.4）。
+      // 見積業者セルは VENDOR 行で唯一のテキスト（他の列は input の値なので
+      // テキストとして現れない）なので、行のテキスト一致で名指しできる
+      const vendorRowsWithName = page
+        .locator('[data-testid="line-type-VENDOR"]')
+        .filter({ hasText: tradingPartnerName });
+      await expect(vendorRowsWithName).toHaveCount(lineCount, { timeout: getTimeout(10000) });
 
-          // 転記後、業者金額行に業者名が表示されていることを確認
-          // VENDOR行（業者行）のsourceVendorNameが表示される
-          const vendorRows = page.locator('[data-testid="line-type-VENDOR"]');
-          const vendorCount = await vendorRows.count();
-
-          if (vendorCount > 0) {
-            // 業者行に業者名テキストが含まれているか確認
-            // 転記された行には取引先名が見積業者列に表示される
-            const tableContent = await page
-              .locator('[aria-label="見積項目テーブル"]')
-              .textContent();
-            expect(tableContent).toBeTruthy();
-          }
-        }
-      } else {
-        // ダイアログを閉じる
-        const closeButton = page.getByRole('button', { name: /閉じる|キャンセル/i });
-        if (await closeButton.isVisible()) {
-          await closeButton.click();
-        }
-
-        // 見積業者列がテーブルヘッダーに存在することを確認（REQ-17.3の基本確認）
-        const table = page.locator('[aria-label="見積項目テーブル"]');
-        await expect(table.getByText('見積業者')).toBeVisible();
-      }
+      // 転記していない既存の業者金額行には業者名が出ない（列が全行に同じ値を
+      // 描いているだけ、という取り違えを排除する）
+      const vendorRowsWithoutName = page
+        .locator('[data-testid="line-type-VENDOR"]')
+        .filter({ hasNotText: tradingPartnerName });
+      expect(await vendorRowsWithoutName.count()).toBeGreaterThan(0);
     });
 
     /**
@@ -548,10 +601,9 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
       expect(basicInfoBbox).toBeTruthy();
       expect(summaryBbox).toBeTruthy();
 
-      if (basicInfoBbox && summaryBbox) {
-        // サマリーパネルのtop座標が基本情報のtop座標より下にあることを確認
-        expect(summaryBbox.y).toBeGreaterThan(basicInfoBbox.y);
-      }
+      // サマリーパネルのtop座標が基本情報のtop座標より下にあることを確認。
+      // 直前の2件で null でないことを確定させているので条件分岐は置かない
+      expect(summaryBbox!.y).toBeGreaterThan(basicInfoBbox!.y);
     });
 
     /**
@@ -580,10 +632,18 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
       // 「見積金額合計」ラベルが存在することを確認
       await expect(summaryPanel.getByText('見積金額合計')).toBeVisible();
 
-      // 金額値が表示されていることを確認（「円」を含むまたは「-」表示）
-      const summaryText = await summaryPanel.textContent();
-      expect(summaryText).toBeTruthy();
-      expect(summaryText).toContain('見積金額合計');
+      // かつてここは `expect(summaryText).toBeTruthy()` と
+      // `expect(summaryText).toContain('見積金額合計')` だけで、前者はパネルが
+      // 見えている以上つねに真、後者は直前の `getByText('見積金額合計')` と
+      // 同じことを言い直しているにすぎず、**金額そのものは一度も見ていなかった**。
+      // 合計が 0 円でも、桁が壊れていても緑になる。
+      //
+      // 準備4で 数量10 × 単価5,000 の見積金額行を1件だけ保存しているので、
+      // 見積金額合計は 50,000 円でなければならない（REQ-20.2）
+      await expect(
+        page.locator('[aria-label="見積項目テーブル"] [data-testid="line-type-ESTIMATE"]')
+      ).toHaveCount(1);
+      expect(parseAmountText(await summaryRow(page, '見積金額合計').textContent())).toBe(50000);
     });
 
     /**
@@ -666,13 +726,20 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
       // 「利益率」ラベルが存在することを確認
       await expect(summaryPanel.getByText('利益率')).toBeVisible();
 
-      // 利益率の値が「%」または「-」のいずれかで表示されることを確認
-      // （見積金額と実行金額がある場合は%表示、ない場合は「-」表示）
-      const profitRateText = await summaryPanel.textContent();
-      expect(profitRateText).toBeTruthy();
-      // 利益率は「%」を含むか、値なし時は「-」を含む
-      const containsPercentOrDash = profitRateText!.includes('%') || profitRateText!.includes('-');
-      expect(containsPercentOrDash).toBeTruthy();
+      // かつてここは「パネル全体のテキストが `%` か `-` を含む」ことしか見ておらず、
+      // 恒真だった。パネルには「値引率」もあるので `%` はそちらだけでも成立し、
+      // `-` に至っては負数・区切り・ハイフンを含むあらゆる文字列で真になる。
+      // 利益率の値が丸ごと欠けても、百分率でなく小数で出ていても緑だった。
+      //
+      // 百分率表示（REQ-20.5）を実際に主張するため、比率が確定する入力を作る。
+      // 見積 10 × 5,000 = 50,000 / 実行 10 × 4,000 = 40,000 なので
+      // 利益額 10,000、利益率 10,000 ÷ 50,000 = 20%
+      await fillLineAmount(page, 'ESTIMATE', 10, 5000);
+      await fillLineAmount(page, 'EXECUTION', 10, 4000);
+
+      await expect(summaryRow(page, '見積金額合計')).toHaveText('見積金額合計50,000円');
+      await expect(summaryRow(page, '実行金額合計')).toHaveText('実行金額合計40,000円');
+      await expect(summaryRow(page, '利益率')).toHaveText('利益率20%');
     });
 
     /**
@@ -701,12 +768,18 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
       // 「値引率」ラベルが存在することを確認
       await expect(summaryPanel.getByText('値引率')).toBeVisible();
 
-      // 値引率の値が「%」または「-」のいずれかで表示されることを確認
-      const discountRateText = await summaryPanel.textContent();
-      expect(discountRateText).toBeTruthy();
-      const containsPercentOrDash =
-        discountRateText!.includes('%') || discountRateText!.includes('-');
-      expect(containsPercentOrDash).toBeTruthy();
+      // 利益率側と同じく、かつては「パネル全体が `%` か `-` を含む」だけの
+      // 恒真判定だった。準備4の時点では業者金額合計が 0 円なので値引率は
+      // 「-」表示になり、**百分率表示は一度も検証されていなかった**。
+      //
+      // 実行 10 × 5,000 = 50,000 / 業者 10 × 4,000 = 40,000 とすると
+      // 値引額 10,000、値引率 10,000 ÷ 40,000 = 25%（REQ-20.6）
+      await fillLineAmount(page, 'EXECUTION', 10, 5000);
+      await fillLineAmount(page, 'VENDOR', 10, 4000);
+
+      await expect(summaryRow(page, '実行金額合計')).toHaveText('実行金額合計50,000円');
+      await expect(summaryRow(page, '業者金額合計')).toHaveText('業者金額合計40,000円');
+      await expect(summaryRow(page, '値引率')).toHaveText('値引率25%');
     });
   });
 
@@ -744,33 +817,35 @@ test.describe('見積書レイアウト・サマリーパネル・見積業者�
       // サイドバー要素が存在しないことを確認
       expect(sidebarCount).toBe(0);
 
-      // サイドパネルとしての「合計金額パネル」「NET金額計算パネル」「利益率設定パネル」がメインコンテンツ横に配置されていないことを確認
-      // ページの主コンテナのスタイルがflexRowやグリッド2カラムでないことを検証
+      // サイドパネルとしての「合計金額パネル」「NET金額計算パネル」「利益率設定パネル」が
+      // メインコンテンツの横に配置されていないことを確認する。
+      //
+      // かつてここは「grid かつ 2カラムなら…」という二重の `if` の内側が
+      // **コメントだけ**（アサーション0件）のループで、2カラムのサイドバーが
+      // 復活しても何ひとつ検出できなかった。横に何かが居るかどうかは
+      // 「見積項目テーブルがコンテナの幅をほぼ使い切っているか」で直接測れる。
+      // サイドバーが復活すれば、その幅（数百px）だけテーブルが痩せる。
+      // 判定は「主コンテナの直下の子が上から下へ積まれているか」で行う。
+      // サイドバーが1枚でも復活すれば、その要素は本文と**縦方向に重なりつつ
+      // 横に並ぶ**ため、この並びが崩れる。
       const detailPage = page.locator('[data-testid="estimate-detail-page"]');
-      const displayStyle = await detailPage.evaluate((el) => {
-        // 子要素にflex-direction: rowのレイアウトがないことを確認
-        const children = Array.from(el.children);
-        return children.map((child) => {
-          const computed = window.getComputedStyle(child);
-          return {
-            display: computed.display,
-            flexDirection: computed.flexDirection,
-            gridTemplateColumns: computed.gridTemplateColumns,
-          };
-        });
-      });
+      const bands = await detailPage.evaluate((el) =>
+        Array.from(el.children)
+          .map((child) => {
+            const rect = child.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+          })
+          // 非表示・面積ゼロの要素は積み重ねの判定対象にならない
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+      );
 
-      // 2カラムレイアウト（サイドバー配置）がないことを確認
-      for (const style of displayStyle) {
-        if (style.display === 'grid' && style.gridTemplateColumns) {
-          // 2カラム以上のグリッドでないことを確認（summaryGridの5カラムは許容）
-          const columns = style.gridTemplateColumns.split(' ').filter((c: string) => c !== '');
-          // 2カラムのサイドバーレイアウト（例：「1fr 300px」）でないこと
-          if (columns.length === 2) {
-            // サマリー以外の2カラムグリッドがメインレイアウトに使われていないことを確認
-            // infoGridは2カラムだが、それはサイドバーではなく情報表示用
-          }
-        }
+      expect(bands.length, '主コンテナの直下に表示中の子要素が無い').toBeGreaterThan(1);
+      for (let i = 1; i < bands.length; i++) {
+        // 直前の帯の下端より下から始まっていること（1px の丸め誤差は許容）
+        expect(
+          bands[i]!.top,
+          `主コンテナの直下 ${i} 番目の要素が直前の要素と横に並んでいる（サイドバー配置）`
+        ).toBeGreaterThanOrEqual(bands[i - 1]!.bottom - 1);
       }
     });
 

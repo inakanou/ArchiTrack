@@ -406,10 +406,10 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
 
   test.describe('ツリー表示の折りたたみ', () => {
     /**
-     * @requirement estimate-creation/45.4
-     * @requirement estimate-creation/45.5
+     * @requirement estimate-creation/REQ-45.4
+     * @requirement estimate-creation/REQ-45.5
      */
-    test('子を持つ項目を折りたたむと子孫が画面から消え、展開すると戻る (estimate-creation/45.4, estimate-creation/45.5)', async ({
+    test('子を持つ項目を折りたたむと子孫が画面から消え、展開すると戻る (estimate-creation/REQ-45.4, estimate-creation/REQ-45.5)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -463,11 +463,11 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
 
   test.describe('ドリルダウン表示の階層移動', () => {
     /**
-     * @requirement estimate-creation/45.8
-     * @requirement estimate-creation/45.7
-     * @requirement estimate-creation/45.9
+     * @requirement estimate-creation/REQ-45.8
+     * @requirement estimate-creation/REQ-45.7
+     * @requirement estimate-creation/REQ-45.9
      */
-    test('階層を下げると子の一覧へ切り替わり、経路から上位の階層へ戻れる (estimate-creation/45.8, estimate-creation/45.7)', async ({
+    test('階層を下げると子の一覧へ切り替わり、経路から上位の階層へ戻れる (estimate-creation/REQ-45.8, estimate-creation/REQ-45.7)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -559,9 +559,9 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
 
   test.describe('表示モード切替と未保存の編集内容', () => {
     /**
-     * @requirement estimate-creation/45.10
+     * @requirement estimate-creation/REQ-45.10
      */
-    test('表示モードを切り替えても未保存の編集内容が保持され、サーバーへも書き込まれない (estimate-creation/45.10)', async ({
+    test('表示モードを切り替えても未保存の編集内容が保持され、サーバーへも書き込まれない (estimate-creation/REQ-45.10)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -630,9 +630,9 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
      * 手順1で「そもそもスクロールしていない」場合は手順3が自動的に真になってしまうため、
      * スクロール量が0でないことを明示的に確かめる。
      *
-     * @requirement estimate-creation/46.5
+     * @requirement estimate-creation/REQ-46.5
      */
-    test('俯瞰パネルで項目を選ぶと明細の表示位置が当該項目まで移動し選択状態になる (estimate-creation/46.5)', async ({
+    test('俯瞰パネルで項目を選ぶと明細の表示位置が当該項目まで移動し選択状態になる (estimate-creation/REQ-46.5)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -746,9 +746,9 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
 
   test.describe('セル入力中のキー操作', () => {
     /**
-     * @requirement estimate-creation/47.5
+     * @requirement estimate-creation/REQ-47.5
      */
-    test('セルの文字入力中は行操作のキーが発火せず、入力内容も維持される (estimate-creation/47.5)', async ({
+    test('セルの文字入力中は行操作のキーが発火せず、入力内容も維持される (estimate-creation/REQ-47.5)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -811,15 +811,15 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
      * 深さ1のフィクスチャでは親・祖父・ルートがいずれも区別できず、
      * 誤って祖父やルートへ移す実装を検出できない（54.9 の申し送り）。
      *
-     * @requirement estimate-creation/44.1
-     * @requirement estimate-creation/44.3
-     * @requirement estimate-creation/44.4
-     * @requirement estimate-creation/44.5
-     * @requirement estimate-creation/44.8
-     * @requirement estimate-creation/47.6
-     * @requirement estimate-creation/47.7
+     * @requirement estimate-creation/REQ-44.1
+     * @requirement estimate-creation/REQ-44.3
+     * @requirement estimate-creation/REQ-44.4
+     * @requirement estimate-creation/REQ-44.5
+     * @requirement estimate-creation/REQ-44.8
+     * @requirement estimate-creation/REQ-47.6
+     * @requirement estimate-creation/REQ-47.7
      */
-    test('行選択中はキーで範囲選択でき、範囲全体の階層上げ下げと解除が効く (estimate-creation/44.1, estimate-creation/44.3, estimate-creation/47.6)', async ({
+    test('行選択中はキーで範囲選択でき、範囲全体の階層上げ下げと解除が効く (estimate-creation/REQ-44.1, estimate-creation/REQ-44.3, estimate-creation/REQ-47.6)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -904,11 +904,11 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
 
   test.describe('取り消しと履歴の破棄', () => {
     /**
-     * @requirement estimate-creation/48.1
-     * @requirement estimate-creation/48.4
-     * @requirement estimate-creation/48.7
+     * @requirement estimate-creation/REQ-48.1
+     * @requirement estimate-creation/REQ-48.4
+     * @requirement estimate-creation/REQ-48.7
      */
-    test('削除した行を取り消しで復元でき、保存が成功すると取り消し履歴が破棄される (estimate-creation/48.1, estimate-creation/48.7)', async ({
+    test('削除した行を取り消しで復元でき、保存が成功すると取り消し履歴が破棄される (estimate-creation/REQ-48.1, estimate-creation/REQ-48.7)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -976,11 +976,11 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
      * 「0件」は窓が早く閉じても真になるため、窓の終端で保存の1件が
      * 記録されていることをもってリスナーが生きていたことを示す。
      *
-     * @requirement estimate-creation/45.10
-     * @requirement estimate-creation/47.8
-     * @requirement estimate-creation/48.5
+     * @requirement estimate-creation/REQ-45.10
+     * @requirement estimate-creation/REQ-47.8
+     * @requirement estimate-creation/REQ-48.5
      */
-    test('折りたたみ・モード切替・パネル選択・キー操作・取り消しを通して書き込みは0件で、保存で1件だけ発生する (estimate-creation/45.10, estimate-creation/47.8, estimate-creation/48.5)', async ({
+    test('折りたたみ・モード切替・パネル選択・キー操作・取り消しを通して書き込みは0件で、保存で1件だけ発生する (estimate-creation/REQ-45.10, estimate-creation/REQ-47.8, estimate-creation/REQ-48.5)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();

@@ -3,10 +3,46 @@
  *
  * Task 20: 画面構成・ナビゲーション関連のテスト実装
  *
+ * かつてこの一覧は `- REQ-14.1 ~ REQ-14.10` のような範囲表記だった。
+ * 帰属の抽出規則（`scripts/check-requirement-coverage.ts` の `extractTestCoverage`）は
+ * `- REQ-N.M` 形式しか読まないため範囲の**始点だけ**が拾われ、
+ * このファイルに対応するテストが無い REQ-16.1（現在は
+ * project-management/Requirement 28 へ移管済み）まで担当として数えられていた。
+ * 各テストの `@requirement` タグと一致する形へ揃える。
+ *
  * Requirements coverage (estimate-creation):
- * - REQ-14.1 ~ REQ-14.10: 画面構成
- * - REQ-15.1 ~ REQ-15.8: パンくずナビゲーション
- * - REQ-16.1 ~ REQ-16.13: プロジェクト詳細画面の見積書セクション
+ * - REQ-14.1: 見積書一覧画面を提供する
+ * - REQ-14.2: 見積書一覧画面に見積書をカード形式で表示する
+ * - REQ-14.3: 見積書名・作成日時・合計金額を表示する
+ * - REQ-14.4: 見積書カードのクリックで詳細画面へ遷移する
+ * - REQ-14.5: 見積書一覧画面に新規作成ボタンを提供する
+ * - REQ-14.6: 見積書一覧画面にページネーションを提供する
+ * - REQ-14.7: 見積書が存在しない場合に空状態を表示する
+ * - REQ-14.8: 見積書画面を提供する
+ * - REQ-14.9: 見積書画面に見積書の詳細情報を表示する
+ * - REQ-14.10: 見積書画面に編集・削除・出力ボタンを提供する
+ * - REQ-15.1: 見積書一覧画面のパンくずを規定の形式で表示する
+ * - REQ-15.2: 見積書一覧画面の「ダッシュボード」をリンクとして提供する
+ * - REQ-15.3: 見積書一覧画面の「プロジェクト一覧」をリンクとして提供する
+ * - REQ-15.4: 見積書一覧画面の「プロジェクト」をリンクとして提供する
+ * - REQ-15.5: 見積書新規作成画面のパンくずを規定の形式で表示する
+ * - REQ-15.6: 見積書新規作成画面の先祖項目をリンクとして提供する
+ * - REQ-15.7: 見積書新規作成画面から「← 一覧に戻る」リンクを削除する
+ * - REQ-15.8: 見積書詳細画面のパンくずを規定の形式で表示する
+ * - REQ-15.9: 見積書詳細画面の先祖項目をリンクとして提供する
+ * - REQ-15.10: 見積書詳細画面から「← 見積書一覧に戻る」リンクを削除する
+ * - REQ-15.11: パンくずの現在位置をリンクなしのテキストとして表示する
+ * - REQ-15.12: 見積書一覧画面から「← プロジェクト詳細に戻る」リンクを削除する
+ *
+ * プロジェクト詳細画面の見積書セクション（旧 Requirement 16）は
+ * project-management/Requirement 28 へ移管済みで、estimate-creation 側の
+ * requirements.md では Requirement 16 の AC 1〜13 が**すべて取り消し線**
+ * （`→ project-management/Requirement 28 AC N に移動`）になっている。
+ * したがってこのセクションのテスト群が担当する AC は
+ * `@requirement project-management/REQ-28.x` のみで表す。
+ * かつては estimate-creation 側の帰属タグを併記していたが、
+ * 移管済み＝この spec が所有しない AC をカバー済みとして計上してしまうため削除した。
+ * **復活させないこと。**
  *
  * @module e2e/specs/estimate/estimate-navigation-e2e.spec
  */
@@ -289,20 +325,24 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       await page.goto(`/projects/${createdProjectId}/estimates`);
       await page.waitForLoadState('networkidle');
 
-      // ページネーションUIまたは件数表示が存在するか確認
-      const paginationOrCount = await page
-        .locator('[data-testid="pagination"], [class*="pagination"]')
-        .or(page.getByText(/全\d+件/))
-        .first()
-        .isVisible()
-        .catch(() => false);
-
-      // 少なくとも件数表示はあるはず
+      // 件数表示があること
       const countText = page.getByText(/全\d+件/);
       await expect(countText).toBeVisible({ timeout: getTimeout(10000) });
 
-      // または、ページネーションUIが表示される（データが多い場合）
-      expect(paginationOrCount || (await countText.isVisible())).toBeTruthy();
+      // 14.6 が求めるのはページネーションの提供そのもの。
+      // かつての最後の1行は
+      // `expect(paginationOrCount || (await countText.isVisible())).toBeTruthy();`
+      // で、直前に `countText` の可視を無条件に断言済みなうえ第1項も実測で常に真
+      // （短絡するため第2項は評価すらされない）＝**恒真**だった。
+      // ページネーションが撤去されても検出できないので、UIそのものを名指しする。
+      const pagination = page.getByTestId('pagination-controls');
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
+
+      // ページ移動の操作と現在ページ・総ページ数の表示を備えていること
+      await expect(pagination.getByRole('button', { name: '前のページ' })).toBeVisible();
+      await expect(pagination.getByRole('button', { name: '次のページ' })).toBeVisible();
+      await expect(pagination.getByTestId('current-page')).toHaveText('1');
+      await expect(pagination.getByTestId('total-pages')).not.toHaveText('');
     });
 
     /**
@@ -346,8 +386,14 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
       await page.getByRole('button', { name: /^作成$/i }).click();
       const response = await createPromise;
+      // かつては作成レスポンスを検査せずに `responseBody.id` を取り出していた。
+      // 作成に失敗すると `emptyProjectId` が `undefined` になり
+      // `/projects/undefined/estimates` を開くが、**存在しないプロジェクトでも
+      // 空状態は表示される**ため、準備が丸ごと失敗しても緑になっていた。
+      expect(response.status()).toBe(201);
       const responseBody = await response.json();
-      const emptyProjectId = responseBody.id;
+      const emptyProjectId: string = responseBody.id;
+      expect(emptyProjectId, '空プロジェクトの作成に失敗した').toBeTruthy();
 
       // 見積書一覧画面に移動
       await page.goto(`/projects/${emptyProjectId}/estimates`);
@@ -723,13 +769,23 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       const currentItemText = breadcrumb.getByText('見積書一覧');
       await expect(currentItemText).toBeVisible();
 
-      // 最後の要素がリンクでないことを確認
-      // aria-current="page" がある、または <span> タグであることを確認
-      const isLink = await currentItemText.evaluate((el) => el.tagName === 'A');
-      const hasAriaCurrent = await currentItemText.getAttribute('aria-current');
+      // かつてここは `expect(!isLink || hasAriaCurrent === 'page').toBeTruthy();` で、
+      // 「リンクでなければ真」という含意のため、**`aria-current` を一切見ないまま**
+      // 通っていた。さらに現在位置がリンク化される回帰が起きても
+      // `aria-current="page"` さえ付いていれば緑のままで、
+      // 15.11 が求める「リンクなしのテキストとして表示する」を検証できていない。
+      //
+      // 要件どおり「アンカーではないこと」を無条件に主張する
+      const tagName = await currentItemText.evaluate((el) => el.tagName);
+      expect(tagName).not.toBe('A');
 
-      // 現在位置はリンクではない、またはaria-current="page"を持つ
-      expect(!isLink || hasAriaCurrent === 'page').toBeTruthy();
+      // パンくず内に「見積書一覧」へのリンクが存在しない（現在位置がリンク化されていない）
+      await expect(breadcrumb.getByRole('link', { name: '見積書一覧' })).toHaveCount(0);
+
+      // 対照：先祖の項目はリンクとして提供されている（15.2〜15.4）。
+      // 「パンくずにリンクが1つも無い」という別の理由で緑にならないことを固定する
+      await expect(breadcrumb.getByRole('link', { name: 'ダッシュボード' })).toHaveCount(1);
+      await expect(breadcrumb.getByRole('link', { name: 'プロジェクト一覧' })).toHaveCount(1);
     });
 
     /**
@@ -766,7 +822,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
      * @requirement project-management/REQ-28.1
      * 見積書セクションの表示位置確認（見積依頼セクションの下）
      */
-    test('REQ-16.1：見積書セクションが表示される', async ({ page }) => {
+    test('REQ-28.1：見積書セクションが表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -783,10 +839,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.2
-     * @requirement estimate-creation/REQ-16.2
      * セクションタイトル「見積書」を表示する
      */
-    test('REQ-16.2：セクションタイトル「見積書」が表示される', async ({ page }) => {
+    test('REQ-28.2：セクションタイトル「見積書」が表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -803,10 +858,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.3
-     * @requirement estimate-creation/REQ-16.3
      * 見積書の総数を表示する
      */
-    test('REQ-16.3：総数が表示される', async ({ page }) => {
+    test('REQ-28.3：総数が表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -827,11 +881,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.4 @requirement project-management/REQ-28.5
-     * @requirement estimate-creation/REQ-16.4
-     * @requirement estimate-creation/REQ-16.5
      * 見積書カードの表示確認（名称、作成日時、合計金額）
      */
-    test('REQ-16.4-16.5：見積書カードが表示される', async ({ page }) => {
+    test('REQ-28.4-28.5：見積書カードが表示される', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
       expect(estimateName).toBeTruthy();
 
@@ -870,10 +922,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.6
-     * @requirement estimate-creation/REQ-16.6
      * 見積書カードクリックで見積書画面へ遷移
      */
-    test('REQ-16.6：見積書カードクリックで詳細画面へ遷移する', async ({ page }) => {
+    test('REQ-28.6：見積書カードクリックで詳細画面へ遷移する', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -890,24 +941,24 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       const estimateCard = section.locator('a[href^="/estimates/"]').first();
       await expect(estimateCard).toBeVisible();
 
-      // URLを確認してからクリック
+      // かつてここは `if (href && !href.includes('/new'))` で分岐し、`else` 側は
+      // 「条件に合うリンクが1本も無ければ何もクリックせず `break` もしない」ため、
+      // カードのリンク先が壊れていても遷移を試みないまま次に進んでいた
+      // （`/new` を含む「新規作成」リンクが先頭に来た場合が該当する）。
+      // どちらの経路を通ったかも結果に現れず、16.6 の「カードをクリックすると
+      // 詳細画面へ遷移する」を確かめられていなかった。
+      //
+      // 先頭のカードリンクが見積書詳細を指していることを先に固定してからクリックする
       const href = await estimateCard.getAttribute('href');
-      if (href && !href.includes('/new')) {
-        await estimateCard.click();
-        // 見積書詳細画面に遷移することを確認
-        await page.waitForURL(/\/estimates\/[0-9a-f-]+$/);
-      } else {
-        // カードのリンクを探す（見積書詳細へのリンク）
-        const cardLinks = await section.locator('a').all();
-        for (const link of cardLinks) {
-          const linkHref = await link.getAttribute('href');
-          if (linkHref && linkHref.match(/\/estimates\/[0-9a-f-]+$/)) {
-            await link.click();
-            await page.waitForURL(/\/estimates\/[0-9a-f-]+$/);
-            break;
-          }
-        }
-      }
+      expect(href, '見積書セクションの先頭リンクが詳細画面を指していない').toMatch(
+        /^\/estimates\/[0-9a-f-]+$/
+      );
+
+      await estimateCard.click();
+
+      // 見積書詳細画面に遷移することを確認
+      await page.waitForURL(/\/estimates\/[0-9a-f-]+$/);
+      expect(new URL(page.url()).pathname).toBe(href);
       await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
         timeout: getTimeout(15000),
       });
@@ -915,11 +966,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.7 @requirement project-management/REQ-28.8
-     * @requirement estimate-creation/REQ-16.7
-     * @requirement estimate-creation/REQ-16.8
      * 「すべて見る」リンクで一覧画面へ遷移
      */
-    test('REQ-16.7-16.8：「すべて見る」リンクで一覧画面へ遷移する', async ({ page }) => {
+    test('REQ-28.7-28.8：「すべて見る」リンクで一覧画面へ遷移する', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -949,11 +998,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.9 @requirement project-management/REQ-28.10
-     * @requirement estimate-creation/REQ-16.9
-     * @requirement estimate-creation/REQ-16.10
      * 新規作成ボタンクリックで作成画面へ遷移
      */
-    test('REQ-16.9-16.10：新規作成ボタンで作成画面へ遷移する', async ({ page }) => {
+    test('REQ-28.9-28.10：新規作成ボタンで作成画面へ遷移する', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -980,10 +1027,9 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.11
-     * @requirement estimate-creation/REQ-16.11
      * 空状態表示確認
      */
-    test('REQ-16.11：見積書がない場合は空状態が表示される', async ({ page, request }) => {
+    test('REQ-28.11：見積書がない場合は空状態が表示される', async ({ page, request }) => {
       // 空のプロジェクトを作成
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -1015,8 +1061,13 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
       await page.getByRole('button', { name: /^作成$/i }).click();
       const response = await createPromise;
+      // 上と同じく、作成の成否を見ないまま `id` を取り出していた。
+      // プロジェクトが作れていなくても「見積書はまだありません」は出るため、
+      // 準備の失敗が結果に現れなかった
+      expect(response.status()).toBe(201);
       const responseBody = await response.json();
-      const emptyProjectId = responseBody.id;
+      const emptyProjectId: string = responseBody.id;
+      expect(emptyProjectId, '空見積書プロジェクトの作成に失敗した').toBeTruthy();
 
       // プロジェクト詳細画面に移動
       await page.goto(`/projects/${emptyProjectId}`);
@@ -1045,16 +1096,23 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
     /**
      * @requirement project-management/REQ-28.12
-     * @requirement estimate-creation/REQ-16.12
-     * スケルトンローダー表示確認
-     * Note: スケルトンはロード中に一瞬だけ表示されるため、ネットワークスロットリングを使用
+     * ローディング表示の確認。
+     *
+     * この AC は estimate-creation の requirements.md では取り消し線となり
+     * project-management/Requirement 28 AC 12 へ移管済みのため、
+     * 帰属は project-management 側のみに置く。
+     *
+     * **スケルトンは主張できない**（詳細は本文のコメントを参照）。
+     * ローディング表示はロード中に一瞬だけ現れるためネットワークを遅延させて観測する。
      */
-    test('REQ-16.12：ローディング中にスケルトンが表示される', async ({ page }) => {
+    test('REQ-28.12：ローディング中はページのローディング表示が現れ完了後に消える', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // ネットワークを遅延させてスケルトンを確認
+      // ネットワークを遅延させてローディング表示を観測する
       await page.route('**/api/projects/*/estimates/latest*', async (route) => {
         // 1秒遅延させる
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1064,29 +1122,43 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       // プロジェクト詳細画面に移動
       await page.goto(`/projects/${createdProjectId}`);
 
-      // スケルトンが表示されることを確認（ロード中）
-      const skeleton = page.locator('[data-testid="estimate-section-skeleton"]');
+      // ロード中であることが画面に表示される。
+      //
+      // かつてここは `await skeleton.isVisible().catch(() => false);` と
+      // **戻り値を捨てる**1行で、スケルトンについて何ひとつ主張していなかった
+      // （実測: `isVisible=false` / `count=0`）。
+      //
+      // 実測で分かった真因: `ProjectDetailPage.tsx:595-612` は `isLoading` の間
+      // **ページ全体のローディング表示で早期 return** し、`EstimateSectionCard` を
+      // そもそも描画しない。したがって `estimate-section-skeleton`（同カードの
+      // `isLoading` 分岐）はこの画面からは**構造的に到達不能**で、待っても現れない。
+      // セクション単位のスケルトンを出すかどうかは `frontend/` の実装判断であり、
+      // 要件の所有者も estimate-creation ではなく project-management/REQ-28.12 のため、
+      // ここでは**実際に観測できるローディング表示**を無条件に主張する。
+      //
+      // このテスト名とタグから「スケルトン」を外したのは上記の理由による。
+      // 早期 return が残る限りスケルトンの主張は必ず失敗するため、
+      // `frontend/` 側でセクション単位のスケルトンを描画するよう変更しない限り
+      // **スケルトンのアサーションを復活させないこと。**
+      //
+      // ロード完了後にも `role="status"` を持つ要素は残るため、
+      // ローディング固有の文言で名指しする
+      const pageLoading = page.getByText('読み込み中...');
+      await expect(pageLoading).toBeVisible({ timeout: getTimeout(10000) });
 
-      // スケルトンが一時的に表示されることを確認（表示されない場合もある）
-      // Note: 高速なAPI応答の場合はスケルトンが見えないこともあるため、存在チェックのみ
-      await skeleton.isVisible().catch(() => false);
-
-      // ロード完了後は見積書セクションが表示される
+      // ロード完了後はローディング表示が消え、見積書セクションが表示される
       await expect(page.locator('[data-testid="estimate-section"]')).toBeVisible({
         timeout: getTimeout(15000),
       });
-
-      // Note: スケルトンは高速なAPI応答の場合は見えないことがある
-      // テストはロード完了後のUIが正しいことで成功とする
+      await expect(pageLoading).toHaveCount(0, { timeout: getTimeout(10000) });
     });
 
     /**
      * @requirement project-management/REQ-28.13
-     * @requirement estimate-creation/REQ-16.13
      * 見積書セクションのUIが見積依頼セクションと同様のスタイル
      * Note: スタイルの一貫性はUIの視覚的確認となるため、構造の確認を行う
      */
-    test('REQ-16.13：見積書セクションの構造が正しい', async ({ page }) => {
+    test('REQ-28.13：見積書セクションの構造が正しい', async ({ page }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
