@@ -21,6 +21,7 @@
  * - REQ-23.9: 「上の階層へ移動」ボタンを提供し、選択中の項目を親の兄弟レベルに移動する
  * - REQ-34.5: 階層を変更して保存した場合、画面再読み込み後も変更後の構造で表示する
  * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+ * - REQ-45.2: 階層表示モードのデフォルトを「ツリー表示」とする
  * - REQ-45.3: ツリー表示では全階層をインデント付きで一覧表示する
  *
  * @module e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec
@@ -93,6 +94,14 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
     await waitForItemTable(page);
   };
 
+  /**
+   * 明細テーブルが描画されるまで待つ
+   *
+   * 54.x で階層表示モード（ツリー表示／ドリルダウン表示）が入り、インデントは
+   * ツリー表示でしか現れない（ドリルダウン表示の行は一律 `paddingLeft: 0px`）。
+   * 本 spec は REQ-45.3「ツリー表示では全階層をインデント付きで一覧表示する」を
+   * 主張するので、その前提であるモードを明示的に固定する（45.2）。
+   */
   const waitForItemTable = async (page: Page): Promise<void> => {
     await page.waitForLoadState('networkidle');
     await expect(page.getByTestId('estimate-detail-page')).toBeVisible({
@@ -100,6 +109,9 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
     });
     await expect(page.locator('[aria-label="見積項目テーブル"]')).toBeVisible({
       timeout: getTimeout(15000),
+    });
+    await expect(page.getByTestId('view-mode-tree')).toHaveAttribute('aria-checked', 'true', {
+      timeout: getTimeout(10000),
     });
   };
 
@@ -117,9 +129,10 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
   /**
    * 行のインデント量（px）を読む
    *
-   * `EstimateItemTable` は行ラッパーに `paddingLeft: level * 16px` を与えており、
-   * 階層レベルがそのままインデントとして現れる（REQ-2.6, REQ-45.3）。
-   * ルートは 0px、1段目の子は 16px になる。
+   * ツリー表示の描画を担う `EstimateItemTreeView` は行ラッパーに
+   * `paddingLeft: depth * 16px` を与えており（54.2 で `EstimateItemTable` から
+   * 行描画が分離された）、階層レベルがそのままインデントとして現れる
+   * （REQ-2.6, REQ-45.3）。ルートは 0px、1段目の子は 16px になる。
    */
   const indentOf = async (page: Page, itemId: string): Promise<string> =>
     await page

@@ -16,6 +16,7 @@
  * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
  * - REQ-34.5: 階層を変更して保存した場合、画面再読み込み後も変更後の構造で表示する
  * - REQ-44.6: ルートレベルで「上の階層へ移動」は実行できない
+ * - REQ-45.2: 階層表示モードのデフォルトを「ツリー表示」とする
  *
  * @module e2e/specs/estimate/estimate-hierarchy-move-e2e.spec
  */
@@ -70,7 +71,14 @@ test.describe('見積項目の階層移動（画面操作と一括保存）', ()
     ]);
   };
 
-  /** 見積書画面を開いて明細が描画されるまで待つ */
+  /**
+   * 見積書画面を開いて明細が描画されるまで待つ
+   *
+   * 54.x で階層表示モード（ツリー表示／ドリルダウン表示）が入り、モードによって
+   * 描画される行の集合が変わる。本 spec は子項目・孫項目を DOM から直接選択して
+   * 階層を上げ下げするため、**全階層が一覧されるツリー表示**でしか成立しない。
+   * 依存しているモードを明示的に固定する（45.2）。
+   */
   const openEstimatePage = async (page: Page): Promise<void> => {
     await page.goto(`/estimates/${createdEstimateId}`);
     await page.waitForLoadState('networkidle');
@@ -79,6 +87,9 @@ test.describe('見積項目の階層移動（画面操作と一括保存）', ()
     });
     await expect(page.locator('[aria-label="見積項目テーブル"]')).toBeVisible({
       timeout: getTimeout(15000),
+    });
+    await expect(page.getByTestId('view-mode-tree')).toHaveAttribute('aria-checked', 'true', {
+      timeout: getTimeout(10000),
     });
   };
 
