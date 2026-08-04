@@ -98,5 +98,190 @@ describe('EstimateItemService', () => {
       expect(result[0]!.children[0]!.children).toHaveLength(1);
       expect(result[0]!.children[0]!.children[0]!.id).toBe('ei-003');
     });
+
+    it('見積金額行の数値項目と転記元情報を変換する（Requirements: REQ-2.2）', async () => {
+      // Arrange: Prisma の Decimal 相当値と NULL 混在の行を返す
+      const mockItems = [
+        {
+          id: 'ei-001',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 0,
+          itemType: 'STANDARD',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-02T00:00:00Z'),
+          lines: [
+            {
+              id: 'eil-001',
+              estimateItemId: 'ei-001',
+              lineType: 'ESTIMATE',
+              name: '直接仮設工事',
+              specification: '一式',
+              unit: '式',
+              quantity: '2.5',
+              unitPrice: '1000',
+              amount: '2500',
+              remarks: '備考',
+              sourceReceivedQuotationLineItemId: 'rqli-001',
+              sourceVendorName: '株式会社サンプル',
+            },
+            {
+              id: 'eil-002',
+              estimateItemId: 'ei-001',
+              lineType: 'VENDOR',
+              name: null,
+              specification: null,
+              unit: null,
+              quantity: null,
+              unitPrice: null,
+              amount: null,
+              remarks: null,
+              sourceReceivedQuotationLineItemId: null,
+              sourceVendorName: null,
+            },
+          ],
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.getHierarchy('est-001');
+
+      // Assert: 数値は Number 変換され、NULL は NULL のまま保持される
+      const [estimateLine, vendorLine] = result[0]!.lines;
+      expect(estimateLine).toMatchObject({
+        lineType: 'ESTIMATE',
+        quantity: 2.5,
+        unitPrice: 1000,
+        amount: 2500,
+        sourceReceivedQuotationLineItemId: 'rqli-001',
+        sourceVendorName: '株式会社サンプル',
+      });
+      expect(vendorLine).toMatchObject({
+        lineType: 'VENDOR',
+        quantity: null,
+        unitPrice: null,
+        amount: null,
+        sourceReceivedQuotationLineItemId: null,
+        sourceVendorName: null,
+      });
+    });
+
+    it('転記元カラムが未定義の行はNULLへ正規化する（Requirements: REQ-2.2）', async () => {
+      // Arrange: 転記元カラムをプロパティごと持たない行
+      const mockItems = [
+        {
+          id: 'ei-001',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 0,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-01T00:00:00Z'),
+          lines: [
+            {
+              id: 'eil-001',
+              estimateItemId: 'ei-001',
+              lineType: 'EXECUTION',
+              name: '遣り方',
+              specification: null,
+              unit: null,
+              quantity: null,
+              unitPrice: null,
+              amount: null,
+              remarks: null,
+            },
+          ],
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.getHierarchy('est-001');
+
+      // Assert
+      expect(result[0]!.lines[0]).toMatchObject({
+        sourceReceivedQuotationLineItemId: null,
+        sourceVendorName: null,
+      });
+    });
+
+    it('項目種別を保持し未設定はSTANDARDへ既定する（Requirements: REQ-41.3, REQ-55.1）', async () => {
+      // Arrange: DISCOUNT / NOTE / itemType 未設定を混在させる
+      const mockItems = [
+        {
+          id: 'ei-001',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 0,
+          itemType: 'DISCOUNT',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-01T00:00:00Z'),
+          lines: [],
+        },
+        {
+          id: 'ei-002',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 1,
+          itemType: 'NOTE',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-01T00:00:00Z'),
+          lines: [],
+        },
+        {
+          id: 'ei-003',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 2,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-01T00:00:00Z'),
+          lines: [],
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.getHierarchy('est-001');
+
+      // Assert
+      expect(result.map((item) => item.itemType)).toEqual(['DISCOUNT', 'NOTE', 'STANDARD']);
+    });
+
+    it('親が存在しない項目はルートにも子にも現れない（Requirements: REQ-2.4）', async () => {
+      // Arrange: 参照先が結果集合に存在しない parentId を持つ項目
+      const mockItems = [
+        {
+          id: 'ei-001',
+          estimateId: 'est-001',
+          parentId: null,
+          displayOrder: 0,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-01T00:00:00Z'),
+          lines: [],
+        },
+        {
+          id: 'ei-999',
+          estimateId: 'est-001',
+          parentId: 'ei-missing',
+          displayOrder: 0,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-01T00:00:00Z'),
+          lines: [],
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateItem.findMany).mockResolvedValue(mockItems as never);
+
+      // Act
+      const result = await service.getHierarchy('est-001');
+
+      // Assert: 例外を投げず、親不在の項目は木から除外される
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe('ei-001');
+      expect(result[0]!.children).toHaveLength(0);
+    });
   });
 });
