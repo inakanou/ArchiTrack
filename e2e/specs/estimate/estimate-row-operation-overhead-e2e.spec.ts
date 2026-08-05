@@ -39,6 +39,7 @@ import type { Locator, Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { observeApiRequests } from '../../helpers/api-request-observer';
 import {
   buildNewEstimateItemNode,
   findEstimateItemByName,
@@ -197,38 +198,9 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
     }
   };
 
-  /**
-   * APIへの書き込みリクエストを**実際のネットワーク通信として**収集する
-   *
-   * 「未保存インジケーター」などの画面上の代理シグナルではなく、ブラウザが実際に
-   * 送出したリクエストを観測する。明細の読み込みは `GET /:id` と `GET /:id/items`
-   * だけなので、GET 以外（POST/PUT/PATCH/DELETE …）をすべて書き込みとして数える。
-   *
-   * 除外するのは認証系（`/api/auth/*`）のみ。アクセストークンの再取得は
-   * 明細操作とは無関係に発生しうるうえ POST であり、見積明細の保存有無を
-   * 判定する材料にならないためである。
-   */
-  const collectWriteRequests = (page: Page): { requests: string[]; stop: () => void } => {
-    const requests: string[] = [];
-    const record = (request: { url: () => string; method: () => string }): void => {
-      const url = request.url();
-      const method = request.method();
-      if (!url.startsWith(API_BASE_URL) || url.includes('/api/auth/')) {
-        return;
-      }
-      // GET は読み込み、OPTIONS は CORS プリフライトでどちらも書き込みではない
-      if (method === 'GET' || method === 'OPTIONS') {
-        return;
-      }
-      requests.push(`${method} ${url}`);
-    };
-    page.on('request', record);
-    return { requests, stop: () => page.off('request', record) };
-  };
-
   /** 保存ボタンを押し、`PUT /:id/save` がちょうど1回だけ成功することを確認する */
   const saveAndExpectSingleWrite = async (page: Page): Promise<void> => {
-    const { requests, stop } = collectWriteRequests(page);
+    const { writes: requests, stop } = observeApiRequests(page);
 
     const savePromise = page.waitForResponse(
       (response) =>
@@ -257,7 +229,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
     });
     stop();
 
-    expect(requests).toEqual([`PUT ${API_BASE_URL}/api/estimates/${createdEstimateId}/save`]);
+    expect(requests).toEqual([`PUT /api/estimates/${createdEstimateId}/save`]);
   };
 
   test.beforeEach(async ({ context }) => {
@@ -362,7 +334,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
       await openEstimatePage(page);
 
       // 画面表示後の書き込みリクエストだけを数える
-      const { requests: writeRequests, stop } = collectWriteRequests(page);
+      const { writes: writeRequests, stop } = observeApiRequests(page);
 
       const initialRowIds = await domRowIds(page);
       expect(initialRowIds).toHaveLength(ITEM_NAMES.length);
@@ -645,7 +617,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
       expect(initialIds).toHaveLength(ITEM_NAMES.length);
       expect(initialIds.indexOf(sourceId)).toBe(3);
 
-      const { requests: writeRequests, stop } = collectWriteRequests(page);
+      const { writes: writeRequests, stop } = observeApiRequests(page);
 
       // --- ドラッグ ×3（REQ-43.1, REQ-43.2）---
       //

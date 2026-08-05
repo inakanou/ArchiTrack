@@ -85,10 +85,11 @@
  */
 
 import { test, expect } from '@playwright/test';
-import type { Locator, Page, Request } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { observeApiRequests } from '../../helpers/api-request-observer';
 import {
   buildNewEstimateItemNode,
   buildSaveLine,
@@ -338,37 +339,13 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
   };
 
   /**
-   * ブラウザが送出したリクエストを種類別に収集する
+   * 観測した読み取りのうち、明細の再取得（49.2）だけを抜き出す
    *
-   * 明細の読み込みは GET のみなので、GET / OPTIONS 以外をすべて書き込み候補として数え、
-   * 明細操作と無関係に起こりうる認証系（`/api/auth/*`）だけを除外する。
-   * 明細の再取得（49.2）は GET のうち `/:id/items` を別に数える。
+   * 明細の再取得は `GET /:id/items`。表紙用のプロジェクト情報などの読み取りは
+   * 再取得ではないため除外する。
    */
-  const observeRequests = (
-    page: Page
-  ): { writes: string[]; itemFetches: string[]; stop: () => void } => {
-    const writes: string[] = [];
-    const itemFetches: string[] = [];
-    const record = (request: Request): void => {
-      const url = request.url();
-      const method = request.method();
-      if (!url.startsWith(API_BASE_URL) || url.includes('/api/auth/')) {
-        return;
-      }
-      if (method === 'GET') {
-        if (url.includes(`/api/estimates/${createdEstimateId}/items`)) {
-          itemFetches.push(`${method} ${url}`);
-        }
-        return;
-      }
-      if (method === 'OPTIONS') {
-        return;
-      }
-      writes.push(`${method} ${url}`);
-    };
-    page.on('request', record);
-    return { writes, itemFetches, stop: () => page.off('request', record) };
-  };
+  const itemFetchesOf = (reads: string[]): string[] =>
+    reads.filter((read) => read.includes(`/api/estimates/${createdEstimateId}/items`));
 
   /**
    * 保存ボタンを押し、保存ハンドラが完全に解決するまで待つ
@@ -798,7 +775,7 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
       await expect(page.locator(ROW_SELECTOR)).toHaveCount(2);
 
       // 画面表示後のリクエストだけを数える
-      const { writes, itemFetches, stop } = observeRequests(page);
+      const { writes, reads, stop } = observeApiRequests(page);
 
       // --- 1. セル編集（この内容が5操作を越えて残ることを見る / 43.4）---
       const keepEditRow = rowByKey(page, keepEditItemId);
@@ -883,7 +860,7 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
       expect(
         writes,
         '諸経費追加で、読み取り専用の算定以外のリクエストが発生している（49.3）'
-      ).toEqual([`POST ${API_BASE_URL}/api/estimates/${createdEstimateId}/calculate-overhead`]);
+      ).toEqual([`POST /api/estimates/${createdEstimateId}/calculate-overhead`]);
       await expectEditsPreserved('諸経費追加');
 
       // --- 6. 値引き行追加 ---
@@ -893,12 +870,12 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
       await expect(cellInput(discountRow, 'ESTIMATE', '名称')).toHaveValue('値引き');
       await cellInput(discountRow, 'ESTIMATE', '単価').fill(String(DISCOUNT_UNIT_PRICE));
       expect(writes, '値引き行追加でサーバーへの書き込みが発生している（49.3）').toEqual([
-        `POST ${API_BASE_URL}/api/estimates/${createdEstimateId}/calculate-overhead`,
+        `POST /api/estimates/${createdEstimateId}/calculate-overhead`,
       ]);
       await expectEditsPreserved('値引き行追加');
 
       // --- 5操作を通して明細の再取得も起きていない（49.2）---
-      expect(itemFetches, '5操作の途中で明細の再取得が発生している（49.2）').toEqual([]);
+      expect(itemFetchesOf(reads), '5操作の途中で明細の再取得が発生している（49.2）').toEqual([]);
 
       // --- サーバー側は操作前のまま（未保存の変更である / 49.1）---
       expect(await getEstimateUpdatedAt(page.request, accessToken, createdEstimateId!)).toBe(
@@ -916,8 +893,8 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
 
       expect(writes, '保存が1リクエストで確定していない、または観測窓が閉じていた（49.4）').toEqual(
         [
-          `POST ${API_BASE_URL}/api/estimates/${createdEstimateId}/calculate-overhead`,
-          `PUT ${API_BASE_URL}/api/estimates/${createdEstimateId}/save`,
+          `POST /api/estimates/${createdEstimateId}/calculate-overhead`,
+          `PUT /api/estimates/${createdEstimateId}/save`,
         ]
       );
 

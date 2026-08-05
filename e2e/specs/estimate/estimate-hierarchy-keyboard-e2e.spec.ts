@@ -71,6 +71,7 @@ import type { Locator, Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { observeApiRequests } from '../../helpers/api-request-observer';
 import {
   buildNewEstimateItemNode,
   findEstimateItemByName,
@@ -262,30 +263,6 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
   /** 俯瞰パネルの項目（`treeitem`）を取る */
   const panelNode = (page: Page, itemId: string): Locator =>
     page.getByTestId(`hierarchy-node-${itemId}`);
-
-  /**
-   * APIへの書き込みリクエストを**実際のネットワーク通信として**収集する
-   *
-   * 53.14（`estimate-row-operation-overhead-e2e.spec.ts`）で確立した数え方をそのまま用いる。
-   * 明細の読み込みは GET のみなので、GET / OPTIONS 以外をすべて書き込みとして数え、
-   * 明細操作と無関係に起こりうる認証系（`/api/auth/*`）だけを除外する。
-   */
-  const collectWriteRequests = (page: Page): { requests: string[]; stop: () => void } => {
-    const requests: string[] = [];
-    const record = (request: { url: () => string; method: () => string }): void => {
-      const url = request.url();
-      const method = request.method();
-      if (!url.startsWith(API_BASE_URL) || url.includes('/api/auth/')) {
-        return;
-      }
-      if (method === 'GET' || method === 'OPTIONS') {
-        return;
-      }
-      requests.push(`${method} ${url}`);
-    };
-    page.on('request', record);
-    return { requests, stop: () => page.off('request', record) };
-  };
 
   /**
    * 保存ボタンを押し、保存ハンドラが完全に解決するまで待つ
@@ -994,7 +971,7 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
       await expect(page.locator(ROW_SELECTOR)).toHaveCount(TOTAL_ITEM_COUNT);
 
       // 画面表示後の書き込みリクエストだけを数える
-      const { requests: writeRequests, stop } = collectWriteRequests(page);
+      const { writes: writeRequests, stop } = observeApiRequests(page);
 
       // --- 1. ツリー表示の折りたたみ／展開（45.4, 45.5）---
       await itemRow(page, ids[NAME.rootA]!).getByRole('button', { name: '折りたたむ' }).click();
@@ -1061,9 +1038,7 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
       await saveAndWaitForSettled(page);
       stop();
 
-      expect(writeRequests).toEqual([
-        `PUT ${API_BASE_URL}/api/estimates/${createdEstimateId}/save`,
-      ]);
+      expect(writeRequests).toEqual([`PUT /api/estimates/${createdEstimateId}/save`]);
 
       // 保存後は画面の状態がそのまま確定している
       const saved = await fetchTree(page);

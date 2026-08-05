@@ -24,6 +24,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { observeApiRequests } from '../../helpers/api-request-observer';
 import {
   buildNewEstimateItemNode,
   getEstimateUpdatedAt,
@@ -211,17 +212,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       await expect(page.getByTestId('reorder-up-button')).toBeEnabled();
 
       // ↑ボタンはサーバーへ問い合わせず画面上の並びだけを変える（REQ-12.7, 43.1）
-      const writeRequests: string[] = [];
-      const recordWrite = (request: { url: () => string; method: () => string }): void => {
-        const method = request.method();
-        if (
-          request.url().includes('/api/estimates') &&
-          (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE')
-        ) {
-          writeRequests.push(`${method} ${request.url()}`);
-        }
-      };
-      page.on('request', recordWrite);
+      const { writes: writeRequests, stop: stopObserving } = observeApiRequests(page);
 
       await page.getByTestId('reorder-up-button').click();
       expect(writeRequests).toEqual([]);
@@ -236,10 +227,8 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       await page.getByRole('button', { name: /^保存$/i }).click();
       const saveRes = await savePromise;
       expect(saveRes.status()).toBe(200);
-      page.off('request', recordWrite);
-      expect(writeRequests).toEqual([
-        `PUT ${API_BASE_URL}/api/estimates/${createdEstimateId}/save`,
-      ]);
+      stopObserving();
+      expect(writeRequests).toEqual([`PUT /api/estimates/${createdEstimateId}/save`]);
 
       await page.waitForLoadState('networkidle');
 
@@ -351,17 +340,10 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       });
 
       // 追加の時点で書き込みが発生しないことを、実際に送出されたリクエストで数える
-      const writeRequests: string[] = [];
-      const recordWrite = (request: import('@playwright/test').Request): void => {
-        const method = request.method();
-        if (method === 'GET' || method === 'OPTIONS') return;
-        const url = request.url();
-        if (!url.includes('/api/estimates/')) return;
-        // 諸経費の率・金額の算定（書き込みなし）は対象外
-        if (url.includes('/calculate-overhead')) return;
-        writeRequests.push(`${method} ${url}`);
-      };
-      page.on('request', recordWrite);
+      const { writes, stop: stopObserving } = observeApiRequests(page);
+      // 諸経費の率・金額の算定（書き込みなし）は対象外
+      const writeRequestsOf = (): string[] =>
+        writes.filter((write) => !write.includes('/calculate-overhead'));
 
       // ダイアログを開く
       await page.getByRole('button', { name: '諸経費を計算して追加' }).click();
@@ -407,7 +389,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       // 49.3 の要求そのもの（書き込みが発生していないこと）を先に確かめる。
       // 明細の件数を先に見ると、経路が復活したときの失敗が「件数が増えている」という
       // 二次的な形で出て、書き込みが起きたことが失敗として報告されない
-      expect(writeRequests).toEqual([]);
+      expect(writeRequestsOf()).toEqual([]);
       expect(await getEstimateUpdatedAt(page.request, accessToken, createdEstimateId!)).toBe(
         updatedAtBefore
       );
@@ -425,7 +407,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       const saveRes = await savePromise;
       expect(saveRes.status()).toBe(200);
 
-      page.off('request', recordWrite);
+      stopObserving();
       await page.waitForLoadState('networkidle');
 
       // API上で「共通仮設費」項目がプリセット値のまま確定していることを検証（7.1）

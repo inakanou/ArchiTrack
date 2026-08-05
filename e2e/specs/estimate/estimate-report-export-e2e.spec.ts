@@ -62,11 +62,12 @@
  */
 
 import { test, expect } from '@playwright/test';
-import type { Locator, Page, Request } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { observeApiRequests } from '../../helpers/api-request-observer';
 import {
   buildNewEstimateItemNode,
   findEstimateItemByName,
@@ -371,29 +372,6 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
 
   const cellInput = (row: Locator, lineType: SaveLineType, label: string): Locator =>
     row.getByTestId(`line-type-${lineType}`).locator(`input[aria-label="${label}"]`);
-
-  /**
-   * ブラウザが送出した書き込みリクエストを収集する
-   *
-   * 帳票生成に必要な読み取り（表紙のプロジェクト・取引先・自社情報）は GET なので、
-   * GET / OPTIONS 以外をすべて書き込み候補として数える。
-   */
-  const observeWrites = (page: Page): { writes: string[]; stop: () => void } => {
-    const writes: string[] = [];
-    const record = (request: Request): void => {
-      const url = request.url();
-      const method = request.method();
-      if (!url.startsWith(API_BASE_URL) || url.includes('/api/auth/')) {
-        return;
-      }
-      if (method === 'GET' || method === 'OPTIONS') {
-        return;
-      }
-      writes.push(`${method} ${url}`);
-    };
-    page.on('request', record);
-    return { writes, stop: () => page.off('request', record) };
-  };
 
   /**
    * 保存ボタンを押し、保存ハンドラが完全に解決するまで待つ
@@ -795,7 +773,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
       await expect(page.locator(ROW_SELECTOR)).toHaveCount(4);
 
       // 画面表示後のリクエストだけを数える
-      const { writes, stop } = observeWrites(page);
+      const { writes, stop } = observeApiRequests(page);
 
       // --- 未保存の編集（56.1 の前提）---
       await cellInput(rowByKey(page, childAId), 'ESTIMATE', '単価').fill(
@@ -870,7 +848,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
       stop();
 
       expect(writes, '出力が書き込みを発生させている、または観測窓が閉じていた（56.3）').toEqual([
-        `PUT ${API_BASE_URL}/api/estimates/${createdEstimateId}/save`,
+        `PUT /api/estimates/${createdEstimateId}/save`,
       ]);
 
       // 保存で編集内容が確定する（＝編集そのものが実在していたことの裏取り）
