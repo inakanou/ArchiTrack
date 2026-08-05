@@ -1,30 +1,92 @@
 /**
- * @fileoverview useEstimateEditorフック - 見積書編集状態管理
+ * @fileoverview useEstimateEditorフック - 見積書編集状態管理（遷移関数への委譲）
  *
- * Task 8.1: useEstimateEditorフックの実装
+ * Task 53.4: 編集フックの遷移関数への置き換え
  *
- * 見積書編集画面での状態管理を担当します。
- * ローカル操作はAPI呼び出しなしで実行し、保存時にバッチ処理で一括送信します。
+ * 差分記録方式（`pendingChanges: Map`）を廃止し、編集状態の遷移を純粋 reducer
+ * `estimateEditReducer`（`domain/estimate`）へ全面的に委譲します。
+ * セルの編集・行操作・帳票用入力項目の編集はすべて同一の state に集約され、
+ * 未保存判定（`isDirty`）は reducer の state から直接得られます。
+ *
+ * 依存方向（design.md `#### Dependency Direction`）:
+ * `types → estimateTree → estimateEditReducer → hooks(本モジュール) → components → pages`
+ * ドメイン層は本モジュールを参照しません。
  *
  * Requirements (estimate-creation):
- * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
- * - REQ-1.4: 金額フィールドを入力不可として表示する
- * - REQ-1.5: 合計行に全見積項目の金額合計を自動計算して表示する
- * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
- * - REQ-12.1: 見積項目を追加した場合、新規の3行1セット（見積・実行・業者金額行）を作成する
- * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
- * - REQ-12.3: 見積項目を削除した場合、3行1セット全体を削除する
- * - REQ-12.5: 見積項目を複製した場合、3行1セット全体を複製する
+ * - 12.1: 見積項目の追加は3行1セット（見積・実行・業者金額行）を作成する
+ * - 12.2: 見積項目の表示順序をドラッグ&ドロップで変更可能とする
+ * - 12.3: 見積項目の削除は3行1セット全体を削除する
+ * - 12.5: 見積項目の複製は3行1セット全体を複製する
+ * - 12.7: 上記すべての操作を編集セッション中にサーバーへ問い合わせずに行う
+ *   （Requirement 43 に従う。本モジュールは API モジュールを一切 import しない）
+ * - 27.1: 名称・規格・単位・数量・単価・備考をクライアントサイドで即座に編集可能とする
+ *   （編集モード切替を持たず `updateLine` が常時有効）
+ * - 27.2: 見積項目セクションの保存ボタン（`EstimateDetailPage`）が押下時に呼ぶ操作
+ *   （`save`）を提供する。ボタン自体の描画・配置は `EstimateDetailPage` の責務
+ * - 27.4: 未保存の変更がない場合に保存ボタンを無効表示するための判定（`isDirty`）を供給する
+ * - 42.2: 保存操作が成功した場合に保存後の最新の明細内容を画面へ反映する
+ *   （`onSave` が返した最新状態で差し替える）
+ * - 42.7: 保存操作が成功した場合に未保存の変更がない状態へ戻す
+ * - 54.6: 別途工事・有効期限・提出日を見積書画面から編集する経路（`updateReportFields`）を提供する
+ * - 54.8: 帳票用入力項目の変更を未保存の変更として扱う
+ * - 48.1, 48.8: 明細・帳票用入力項目を変更するすべての操作を、変更の直前に
+ *   `onBeforeChange` で通知する（取り消し履歴のスナップショット地点）
+ * - 48.5: `restoreState` で編集状態を丸ごと復元する（サーバーへの問い合わせを伴わない）
+ * - 1.5: 合計行に全見積項目の金額合計を自動計算して表示する（`getTotalAmount`）
+ * - 2.3: 子項目を持つ場合、親項目の金額を子項目の金額合計とする（reducer が毎遷移で再計算）
+ * - 41.2, 41.3: 値引き行はプリセット値・見積金額行のみでルートレベルへ追加する
+ *
+ * 表示状態は保持しない（design.md `##### estimateEditReducer`「状態には保存対象のみを
+ * 保持する。表示状態（モード・選択・展開・カーソル）は保持しない」）。折りたたみ状態の
+ * 単一の所有者は `useEstimateNavigation` であり、本フックは 54.2 で暫定保持していた
+ * `collapsedKeys` / `toggleExpanded` を撤去済み。
+ *
+ * 後続タスクへの申し送り:
+ * - 範囲操作（`indentRange` / `outdentRange` / `deleteRows` / `duplicateRows`）は
+ *   54.6（キーボードの範囲操作 / 47.6）で公開済み。reducer は `keys` を並べ替えない
+ *   （design.md `##### estimateEditReducer` > Preconditions）ため、呼び出し側が
+ *   **表示順（先行順）**のキー列を渡す責務を負う。順序は
+ *   `useEstimateNavigation.selectedKeys`（＝`flattenForGrid` 由来の表示順）から得る。
+ *   ツールバーへ範囲操作を出す 54.10 も同じ関数を用いること。
+ * - 保存経路（`saveEstimateDraft` の1回呼び出し・応答反映・競合検出）は
+ *   `EstimateDetailPage` が `onSave` として注入する（53.5）。本モジュールは
+ *   API モジュールを import せず、応答の反映のみを担う。
+ *   `onSave` 未指定の間、`save()` は編集内容を保持したまま何もしない。
  *
  * @module hooks/useEstimateEditor
  */
 
-import { useState, useCallback, useRef } from 'react';
-import { EstimateCalculator } from '../utils/estimate-calculation';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Decimal from 'decimal.js';
+import {
+  EMPTY_REPORT_FIELDS,
+  createInitialEstimateEditState,
+  estimateEditReducer,
+} from '../domain/estimate/estimateEditReducer';
+import type {
+  EditableItem,
+  EditableLine,
+  EditableLineField,
+  EditError,
+  EstimateEditAction,
+  EstimateEditState,
+  EstimateReportFields,
+  NetAllocationPayload,
+  NodeKey,
+  OverheadItemPayload,
+  ProfitRatePayload,
+  QuotationTransferPayload,
+  TempId,
+} from '../domain/estimate/estimateEditReducer.types';
+import {
+  flattenForGrid,
+  nodeKeyOf,
+  pathTo,
+  recalculateAncestorAmounts,
+} from '../domain/estimate/estimateTree';
 
 // ============================================================================
-// 型定義
+// 型定義（画面が参照する編集用ビューモデル）
 // ============================================================================
 
 /**
@@ -37,11 +99,13 @@ export type EstimateItemLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
  *
  * - STANDARD: 通常の見積項目（見積・実行・業者の3行構成）。未指定時もSTANDARD扱い
  * - DISCOUNT: 値引き行（見積金額行のみ・マイナス単価許容）
+ * - NOTE: 注記行（名称のみ・金額の集計対象外）
  *
  * Requirements (estimate-creation):
- * - REQ-41.2, REQ-41.3: 値引きプリセット行
+ * - 41.2, 41.3: 値引きプリセット行
+ * - 55.1, 55.2: 注記行
  */
-export type EstimateItemType = 'STANDARD' | 'DISCOUNT';
+export type EstimateItemType = 'STANDARD' | 'DISCOUNT' | 'NOTE';
 
 /**
  * 見積項目行（編集用）
@@ -73,28 +137,54 @@ export interface EstimateItemHierarchyEdit {
    * 見積項目種別（任意。未指定はSTANDARD扱い）
    *
    * Requirements (estimate-creation):
-   * - REQ-41.2, REQ-41.3: 値引き行は 'DISCOUNT'
+   * - 41.2, 41.3: 値引き行は 'DISCOUNT'
    */
   itemType?: EstimateItemType;
   lines: EstimateItemLineEdit[];
   children: EstimateItemHierarchyEdit[];
-  isExpanded: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 /**
- * 変更タイプ
+ * 注記行の挿入位置（55.3）
+ *
+ * いずれも省略時はルートレベルの末尾を意味する。
  */
-export type ItemChangeType = 'add' | 'update' | 'delete';
+export interface EstimateNoteInsertPosition {
+  /** 挿入先の親項目ID。`null` / 省略でルートレベル */
+  readonly parentId?: string | null;
+  /** この項目の直後へ挿入する。`null` / 省略で同一階層の末尾 */
+  readonly afterId?: string | null;
+}
 
 /**
- * 変更差分
+ * 保存へ渡す編集内容
+ *
+ * 差分ではなく編集中のツリー全体と帳票用入力項目を渡す。
+ * 保存経路（`saveEstimateDraft` の呼び出し）の接続は 53.5 が担当する。
  */
-export interface ItemChange {
-  type: ItemChangeType;
-  itemId: string;
-  data?: EstimateItemHierarchyEdit;
+export interface EstimateEditorSavePayload {
+  readonly items: readonly EditableItem[];
+  readonly reportFields: EstimateReportFields;
+}
+
+/**
+ * 保存応答から反映する最新状態（53.5）
+ *
+ * `onSave` がこれを返した場合、保存後の状態は**送信内容ではなく応答**で差し替える。
+ * 一括保存の応答は採番済みの項目ID・明細行ID・転記元行の参照を含むため、
+ * 差し替えないと新規行が一時IDのまま残り、次の保存で二重作成される。
+ *
+ * Requirements (estimate-creation):
+ * - 42.2: 保存操作が成功した場合、保存後の最新の明細内容を画面に反映する
+ *   （応答で差し替えるため、保存後の追加取得を必要としない）
+ */
+export interface EstimateEditorSaveResult {
+  /** 保存後の明細ツリー（表示用ビューモデル） */
+  readonly items: EstimateItemHierarchyEdit[];
+  /** 保存後の帳票用入力項目（54.1〜54.3）。省略時は直前の値を保つ */
+  readonly reportFields?: EstimateReportFields;
 }
 
 /**
@@ -112,9 +202,20 @@ export interface UseEstimateEditorOptions {
   initialItems: EstimateItemHierarchyEdit[];
 
   /**
-   * 保存処理（変更差分を受け取って保存）
+   * 帳票用入力項目の初期値（54.1〜54.3）
    */
-  onSave?: (changes: Map<string, ItemChange>) => Promise<void>;
+  initialReportFields?: EstimateReportFields;
+
+  /**
+   * 保存処理（編集中のツリー全体を受け取って保存）
+   *
+   * 保存後の最新状態（{@link EstimateEditorSaveResult}）を返すと、その内容で
+   * 明細と帳票用入力項目を差し替える（42.2）。`void` を返した場合は
+   * 送信した内容をそのまま確定済みとして扱う。
+   *
+   * 未指定の場合 `save()` は何も行わず、未保存状態を維持する。
+   */
+  onSave?: (payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult | void>;
 
   /**
    * 保存成功時のコールバック
@@ -125,6 +226,37 @@ export interface UseEstimateEditorOptions {
    * 保存エラー時のコールバック
    */
   onSaveError?: (error: Error) => void;
+
+  /**
+   * 明細・帳票用入力項目を**変更する直前**に呼ばれる通知（48.1, 48.8）
+   *
+   * 取り消しの単位は state スナップショット（design.md `##### useEstimateUndo`）で
+   * あり、スナップショットは「遷移の直前の state」でなければならない。呼び出し元が
+   * 操作ごとに記録すると経路の追加時に取りこぼしが起きるため、遷移を起こす
+   * 唯一の場所である本フックが通知の責務を持つ。
+   *
+   * `save` / `discard` / `setItems` は取り消しの対象外のため通知しない
+   * （保存・破棄・読み込みは編集の履歴ではなく基準そのものの入れ替え）。
+   *
+   * @param label 操作の説明（履歴のデバッグ・ログ用）
+   */
+  onBeforeChange?: (label: string) => void;
+
+  /**
+   * 編集の基準（`baselineRef` と明細ツリー）を**丸ごと入れ替えた直後**に呼ばれる通知
+   * （48.7）
+   *
+   * `setItems` は読み込み・保存応答の反映・サーバー側書き込み後の再同期で呼ばれ、
+   * それまでの編集状態とは無関係な新しいツリーへ差し替える。取り消し履歴は差し替え前の
+   * ツリーを前提としたスナップショットのため、入れ替え後も残すと**別のツリーの状態へ
+   * 復元できてしまう**。とくにサーバー側書き込み（転記・案分・利益率適用・諸経費追加）の
+   * 再同期後にやり直しが残っていると、サーバーが作った行を含まない古いツリーへ戻り、
+   * 次の保存でその行が削除される（design.md `#### 保存ペイロードとDB状態の対応`）。
+   *
+   * 通知は基準を入れ替える唯一の場所である本フックが担う。呼び出し元の各経路
+   * （読み込み・再同期）で個別に破棄すると、経路の追加時に取りこぼす。
+   */
+  onBaselineReplaced?: () => void;
 }
 
 /**
@@ -132,24 +264,41 @@ export interface UseEstimateEditorOptions {
  */
 export interface UseEstimateEditorResult {
   /**
-   * 見積項目一覧
+   * 見積項目一覧（reducer state から導出した表示用ツリー）
    */
   items: EstimateItemHierarchyEdit[];
 
   /**
-   * 未保存の変更があるか
+   * 帳票用入力項目（54.1〜54.3）
    */
-  isDirty: boolean;
+  reportFields: EstimateReportFields;
 
   /**
-   * 変更差分
+   * 編集状態そのもの（保存・取り消しが参照する）
    */
-  pendingChanges: Map<string, ItemChange>;
+  editState: EstimateEditState;
+
+  /**
+   * 未保存の変更があるか（27.4 の保存ボタン無効表示の判定に用いる）
+   */
+  isDirty: boolean;
 
   /**
    * 保存中かどうか
    */
   isSaving: boolean;
+
+  /**
+   * 直近の操作が無効だった理由（44.6, 44.7, 41.3, 55.1）
+   *
+   * 次に**変更が成立した操作**または `dismissError()` まで保持される。
+   */
+  lastError: EditError | null;
+
+  /**
+   * 表示済みのエラーを消す
+   */
+  dismissError: () => void;
 
   /**
    * 行のフィールドを更新（ローカル操作）
@@ -162,9 +311,48 @@ export interface UseEstimateEditorResult {
   ) => void;
 
   /**
+   * 帳票用入力項目を更新（54.6, 54.8）
+   */
+  updateReportFields: (fields: EstimateReportFields) => void;
+
+  /**
    * 項目を並び替え（ローカル操作）
    */
   reorderItems: (sourceId: string, targetId: string) => void;
+
+  /**
+   * 同一階層内で1つ上/下へ移動（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 43.1: 並び替えをサーバーへの保存を伴わずに画面上の明細へ反映する
+   */
+  moveItem: (itemId: string, direction: 'up' | 'down') => void;
+
+  /**
+   * 階層を1段下げる（ローカル操作）
+   *
+   * 直前の兄弟の子として配置する。直前の兄弟が無い場合は `lastError` に
+   * `NO_PRECEDING_SIBLING` を設定して状態を変えない。
+   *
+   * Requirements (estimate-creation):
+   * - 12.6: 見積項目の親項目を変更（移動）可能とする
+   * - 23.10: 「下の階層へ移動」で選択中の項目の階層を1段下げる
+   * - 43.1: 階層の上げ下げをサーバーへの保存を伴わずに画面上の明細へ反映する
+   */
+  indentItem: (itemId: string) => void;
+
+  /**
+   * 階層を1段上げる（ローカル操作）
+   *
+   * 現在の親項目の直後（＝親の兄弟レベル）へ移す。ルートレベルの項目では
+   * `lastError` に `CANNOT_OUTDENT_ROOT` を設定して状態を変えない。
+   *
+   * Requirements (estimate-creation):
+   * - 12.6: 見積項目の親項目を変更（移動）可能とする
+   * - 23.9: 「上の階層へ移動」で選択中の項目を現在の親の兄弟レベルへ移動する
+   * - 43.1: 階層の上げ下げをサーバーへの保存を伴わずに画面上の明細へ反映する
+   */
+  outdentItem: (itemId: string) => void;
 
   /**
    * 項目を追加（ローカル操作）
@@ -175,10 +363,36 @@ export interface UseEstimateEditorResult {
    * 値引き行を追加（ローカル操作）
    *
    * Requirements (estimate-creation):
-   * - REQ-41.2: 名称：値引き、規格：空白、単位：式、数量：1のプリセット値でルートレベルに追加
-   * - REQ-41.3: 見積金額行（ESTIMATE）のみで構成し、実行・業者金額行を持たない
+   * - 41.2: 名称：値引き、規格：空白、単位：式、数量：1のプリセット値でルートレベルに追加
+   * - 41.3: 見積金額行（ESTIMATE）のみで構成し、実行・業者金額行を持たない
    */
   addDiscountItem: () => void;
+
+  /**
+   * 注記行を追加（ローカル操作）
+   *
+   * 位置を省略した場合はルートレベルの末尾に追加する。
+   * `parentId` / `afterId` を指定すると任意の階層の任意の位置へ挿入できる。
+   *
+   * Requirements (estimate-creation):
+   * - 55.1: 名称のみを持ち規格・単位・数量・単価・金額を持たない注記行を追加する
+   * - 55.3: 注記行を任意の階層の任意の位置に配置可能とする
+   */
+  addNoteItem: (position?: EstimateNoteInsertPosition) => void;
+
+  /**
+   * 指定した項目の直後へ同一階層の項目を挿入（ローカル操作）
+   *
+   * 親は基準行の親を引き継ぐ。キーボードの行挿入（47.1）が「いま居る行の次」へ
+   * 挿入するため、親の解決を画面側で再実装せずに済むよう本フックが担う。
+   * 基準行がツリーに無い場合はルート階層の末尾へ追加する。
+   *
+   * Requirements (estimate-creation):
+   * - 12.1: 見積項目の追加は3行1セットを作成する
+   * - 43.1: 行の挿入をサーバーへの保存を伴わずに画面上の明細へ反映する
+   * - 47.1: キーボード操作のみで行の挿入を実行可能とする
+   */
+  insertRowAfter: (afterItemId: string) => void;
 
   /**
    * 項目を削除（ローカル操作）
@@ -186,12 +400,90 @@ export interface UseEstimateEditorResult {
   deleteItem: (itemId: string) => void;
 
   /**
+   * 複数の項目をまとめて削除（ローカル操作）
+   *
+   * 範囲選択に対する削除（47.6）で用いる。単一行の削除は {@link deleteItem}。
+   */
+  deleteRows: (itemIds: readonly string[]) => void;
+
+  /**
    * 項目を複製（ローカル操作）
    */
   duplicateItem: (itemId: string) => void;
 
   /**
-   * 変更を保存（バッチ処理）
+   * 複数の項目をまとめて複写（ローカル操作）
+   *
+   * 範囲選択に対する複写（44.3, 47.6）で用いる。単一行の複写は {@link duplicateItem}。
+   */
+  duplicateRows: (itemIds: readonly string[]) => void;
+
+  /**
+   * 選択範囲の階層を1段下げる（ローカル操作）
+   *
+   * `itemIds` は**表示順（先行順）**で渡す契約（design.md `##### estimateEditReducer`
+   * の Preconditions）。2行以上では先頭行が親になり、残りがその子として配置される（44.4）。
+   *
+   * Requirements (estimate-creation):
+   * - 44.3, 44.4: 範囲選択に対する階層操作
+   * - 47.6: 範囲選択中に範囲固有のキーボード操作を有効にする
+   */
+  indentRange: (itemIds: readonly string[]) => void;
+
+  /**
+   * 選択範囲の階層を1段上げる（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 44.3, 44.5, 44.6: 範囲選択に対する階層操作
+   * - 47.6: 範囲選択中に範囲固有のキーボード操作を有効にする
+   */
+  outdentRange: (itemIds: readonly string[]) => void;
+
+  /**
+   * 受領見積書の転記結果を反映（ローカル操作）
+   *
+   * 転記先を指定した項目の業者金額行へ反映し、転記先を指定しない場合は明細行ごとに
+   * 新規項目を作る。サーバーへの書き込みも明細の再取得も行わないため、それまでの
+   * 未保存の編集内容はそのまま残る。
+   *
+   * Requirements (estimate-creation):
+   * - 4.1, 4.2, 4.3: 受領見積書の内容を業者金額行へ転記する
+   * - 4.6, 49.1: 転記結果を未保存の変更として編集中の内容に反映する
+   * - 49.3: 実行の時点でデータベースへの書き込みを行わない
+   * - 49.8: 変更を取り消し可能とする（`onBeforeChange` 通知を伴う）
+   */
+  applyQuotationTransfer: (payload: QuotationTransferPayload) => void;
+
+  /**
+   * NET金額の案分結果を反映（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 5.3, 5.4, 5.5: 案分結果を実行金額行の単価・金額へ反映する
+   * - 49.1, 49.3, 49.6, 49.7, 49.8
+   */
+  applyNetAllocation: (payload: NetAllocationPayload) => void;
+
+  /**
+   * 利益率の適用結果を反映（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 6.1〜6.4, 6.7: 上書きオプションに従って見積金額行へ反映する
+   * - 49.1, 49.3, 49.6, 49.7, 49.8
+   */
+  applyProfitRate: (payload: ProfitRatePayload) => void;
+
+  /**
+   * 諸経費行を追加（ローカル操作）
+   *
+   * Requirements (estimate-creation):
+   * - 7.1, 8.1, 9.1: プリセット値（名称・規格空白・単位「式」・数量1）で追加する
+   * - 7.7, 8.7, 9.7: 追加を未保存の変更として扱い、保存操作で確定する
+   * - 49.1, 49.3, 49.8
+   */
+  addOverheadItem: (payload: OverheadItemPayload) => void;
+
+  /**
+   * 変更を保存
    */
   save: () => Promise<void>;
 
@@ -203,287 +495,378 @@ export interface UseEstimateEditorResult {
   /**
    * 項目を外部から設定
    */
-  setItems: (items: EstimateItemHierarchyEdit[]) => void;
-
-  /**
-   * 展開/折りたたみを切り替え
-   */
-  toggleExpanded: (itemId: string) => void;
+  setItems: (items: EstimateItemHierarchyEdit[], reportFields?: EstimateReportFields) => void;
 
   /**
    * 合計金額を取得
    */
   getTotalAmount: () => string;
+
+  /**
+   * 編集状態を丸ごと復元する（48.1, 48.2, 48.5）
+   *
+   * 取り消し・やり直しが保持していたスナップショットを差し戻すための経路。
+   * `isDirty` を含めてそのまま置き換えるため、サーバーへの問い合わせを伴わない。
+   * `onBeforeChange` は通知しない（復元自体は取り消しの対象ではない）。
+   */
+  restoreState: (state: EstimateEditState) => void;
 }
 
 // ============================================================================
-// ユーティリティ関数
+// 定数
+// ============================================================================
+
+/** 一時識別子の接頭辞（`estimateEditReducer` の発番と同一） */
+const TEMP_ID_PREFIX = 'tmp-';
+
+/** 折りたたみ無しの空集合（`flattenForGrid` のキャッシュキーとして同一参照を使う） */
+const NO_COLLAPSED_KEYS: ReadonlySet<NodeKey> = new Set<NodeKey>();
+
+/** ドメイン層の `EditableLine` へ書き戻せるフィールド */
+const EDITABLE_LINE_FIELDS: ReadonlySet<string> = new Set<string>([
+  'name',
+  'specification',
+  'unit',
+  'quantity',
+  'unitPrice',
+  'amount',
+  'remarks',
+  'sourceVendorName',
+]);
+
+/** 永続化前の項目が持つ生成日時（サーバー由来の値が無いことを表す） */
+const UNKNOWN_TIMESTAMP = '';
+
+// ============================================================================
+// 表示用ビューモデルとドメイン表現の相互変換
 // ============================================================================
 
 /**
- * ユニークIDを生成
- */
-const generateId = (): string => {
-  return `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-};
-
-/**
- * 新しい見積項目を作成
- */
-const createNewItem = (
-  estimateId: string,
-  parentId: string | null,
-  displayOrder: number
-): EstimateItemHierarchyEdit => {
-  const itemId = generateId();
-  const now = new Date().toISOString();
-
-  return {
-    id: itemId,
-    estimateId,
-    parentId,
-    displayOrder,
-    lines: [
-      {
-        id: generateId(),
-        estimateItemId: itemId,
-        lineType: 'ESTIMATE',
-        name: null,
-        specification: null,
-        unit: null,
-        quantity: null,
-        unitPrice: null,
-        amount: null,
-        remarks: null,
-      },
-      {
-        id: generateId(),
-        estimateItemId: itemId,
-        lineType: 'EXECUTION',
-        name: null,
-        specification: null,
-        unit: null,
-        quantity: null,
-        unitPrice: null,
-        amount: null,
-        remarks: null,
-      },
-      {
-        id: generateId(),
-        estimateItemId: itemId,
-        lineType: 'VENDOR',
-        name: null,
-        specification: null,
-        unit: null,
-        quantity: null,
-        unitPrice: null,
-        amount: null,
-        remarks: null,
-      },
-    ],
-    children: [],
-    isExpanded: true,
-    createdAt: now,
-    updatedAt: now,
-  };
-};
-
-/**
- * 新しい値引き項目を作成
+ * ドメイン層が保持しない項目の付随情報
  *
- * Requirements (estimate-creation):
- * - REQ-41.2: 名称：値引き、規格：空白、単位：式、数量：1をプリセット値とする
- * - REQ-41.3: 見積金額行（ESTIMATE）のみで構成し、実行・業者金額行を持たない
- *
- * 単価・金額は手入力前提のため null（quantity は文字列 '1'）。
+ * `EditableItem` は保存対象のみを持つ（design.md `##### estimateEditReducer`）ため、
+ * サーバー由来の日時と転記元行の参照はフック側で保持して表示用ツリーへ戻す。
  */
-const createDiscountItem = (
-  estimateId: string,
-  displayOrder: number
-): EstimateItemHierarchyEdit => {
-  const itemId = generateId();
-  const now = new Date().toISOString();
+interface EstimateItemMeta {
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly quotationLineIdByLineType: ReadonlyMap<EstimateItemLineType, string | null>;
+}
 
-  return {
-    id: itemId,
-    estimateId,
-    parentId: null,
-    displayOrder,
-    itemType: 'DISCOUNT',
-    lines: [
-      {
-        id: generateId(),
-        estimateItemId: itemId,
-        lineType: 'ESTIMATE',
-        name: '値引き',
-        specification: '',
-        unit: '式',
-        quantity: '1',
-        unitPrice: null,
-        amount: null,
-        remarks: null,
-      },
-    ],
-    children: [],
-    isExpanded: true,
-    createdAt: now,
-    updatedAt: now,
-  };
-};
+type EstimateItemMetaMap = Map<NodeKey, EstimateItemMeta>;
 
 /**
- * 項目を複製
+ * ツリーを葉から順に写像する（明示スタックによる後行順走査）
+ *
+ * 再帰を用いないため階層の深さに上限を設けない（2.5）。
  */
-const duplicateItemData = (
+function mapTreeBottomUp<S, T>(
+  roots: readonly S[],
+  childrenOf: (node: S) => readonly S[],
+  build: (node: S, children: T[]) => T
+): T[] {
+  interface Frame {
+    readonly source: readonly S[];
+    readonly output: T[];
+    readonly owner: S | null;
+    index: number;
+  }
+
+  const stack: Frame[] = [{ source: roots, output: [], owner: null, index: 0 }];
+  let result: T[] = [];
+
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
+    if (frame === undefined) {
+      break;
+    }
+
+    const child = frame.source[frame.index];
+    if (child !== undefined) {
+      frame.index += 1;
+      stack.push({ source: childrenOf(child), output: [], owner: child, index: 0 });
+      continue;
+    }
+
+    stack.pop();
+    const owner = frame.owner;
+    if (owner === null) {
+      result = frame.output;
+      continue;
+    }
+    const parentFrame = stack[stack.length - 1];
+    if (parentFrame !== undefined) {
+      parentFrame.output.push(build(owner, frame.output));
+    }
+  }
+
+  return result;
+}
+
+/** 画面が用いる行IDを解決する（未永続の行は項目キーと行タイプから合成する） */
+function resolveLineId(itemKey: NodeKey, lineType: EstimateItemLineType, lineId: string | null) {
+  return lineId ?? `${itemKey}::${lineType}`;
+}
+
+/** 表示用ツリーの項目をドメイン表現へ変換する */
+function toEditableItem(
   item: EstimateItemHierarchyEdit,
-  newParentId: string | null = null
-): EstimateItemHierarchyEdit => {
-  const newItemId = generateId();
-  const now = new Date().toISOString();
+  children: EditableItem[],
+  meta: EstimateItemMetaMap
+): EditableItem {
+  const isTemporary = item.id.startsWith(TEMP_ID_PREFIX);
+  const key: NodeKey = item.id;
+
+  const quotationLineIdByLineType = new Map<EstimateItemLineType, string | null>();
+  for (const line of item.lines) {
+    quotationLineIdByLineType.set(line.lineType, line.sourceReceivedQuotationLineItemId ?? null);
+  }
+  meta.set(key, {
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    quotationLineIdByLineType,
+  });
+
+  const lines: EditableLine[] = item.lines.map((line) => ({
+    id: line.id.startsWith(TEMP_ID_PREFIX) || line.id.includes('::') ? null : line.id,
+    lineType: line.lineType,
+    name: line.name,
+    specification: line.specification,
+    unit: line.unit,
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+    amount: line.amount,
+    remarks: line.remarks,
+    sourceVendorName: line.sourceVendorName ?? null,
+  }));
 
   return {
-    ...item,
-    id: newItemId,
-    parentId: newParentId ?? item.parentId,
-    lines: item.lines.map((line) => ({
-      ...line,
-      id: generateId(),
-      estimateItemId: newItemId,
-    })),
-    children: item.children.map((child) => duplicateItemData(child, newItemId)),
-    createdAt: now,
-    updatedAt: now,
+    id: isTemporary ? null : item.id,
+    tempId: isTemporary ? (item.id as TempId) : null,
+    itemType: item.itemType ?? 'STANDARD',
+    lines,
+    children,
   };
-};
+}
 
 /**
- * 階層構造から項目を検索
+ * 表示用ツリーをドメイン表現へ変換し、付随情報を収集する
  */
-const findItemById = (
-  items: EstimateItemHierarchyEdit[],
-  itemId: string
-): EstimateItemHierarchyEdit | null => {
-  for (const item of items) {
-    if (item.id === itemId) {
-      return item;
+function toEditableTree(
+  items: readonly EstimateItemHierarchyEdit[],
+  meta: EstimateItemMetaMap
+): readonly EditableItem[] {
+  return mapTreeBottomUp<EstimateItemHierarchyEdit, EditableItem>(
+    items,
+    (item) => item.children,
+    (item, children) => toEditableItem(item, children, meta)
+  );
+}
+
+/** ドメイン表現を表示用ツリーへ変換する */
+function toViewTree(
+  items: readonly EditableItem[],
+  estimateId: string,
+  meta: EstimateItemMetaMap
+): EstimateItemHierarchyEdit[] {
+  const roots = mapTreeBottomUp<EditableItem, EstimateItemHierarchyEdit>(
+    items,
+    (item) => item.children,
+    (item, children) => {
+      const key = nodeKeyOf(item);
+      const itemMeta = meta.get(key);
+      children.forEach((child, index) => {
+        child.parentId = key;
+        child.displayOrder = index;
+      });
+      return {
+        id: key,
+        estimateId,
+        parentId: null,
+        displayOrder: 0,
+        itemType: item.itemType,
+        lines: item.lines.map((line) => ({
+          id: resolveLineId(key, line.lineType, line.id),
+          estimateItemId: key,
+          lineType: line.lineType,
+          name: line.name,
+          specification: line.specification,
+          unit: line.unit,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          amount: line.amount,
+          remarks: line.remarks,
+          sourceReceivedQuotationLineItemId:
+            itemMeta?.quotationLineIdByLineType.get(line.lineType) ?? null,
+          sourceVendorName: line.sourceVendorName,
+        })),
+        children,
+        createdAt: itemMeta?.createdAt ?? UNKNOWN_TIMESTAMP,
+        updatedAt: itemMeta?.updatedAt ?? UNKNOWN_TIMESTAMP,
+      };
     }
-    if (item.children.length > 0) {
-      const found = findItemById(item.children, itemId);
-      if (found) return found;
+  );
+
+  roots.forEach((root, index) => {
+    root.parentId = null;
+    root.displayOrder = index;
+  });
+  return roots;
+}
+
+// ============================================================================
+// フック層のアクション解決とエラー保持方針
+// ============================================================================
+
+/**
+ * フック層で最新 state を用いて解決するアクション
+ *
+ * 画面は行ID・項目IDで操作を指示するため、行タイプや並び替えの向きは
+ * **ディスパッチ時点の最新 state** から解決する（描画時の値に依存しない）。
+ */
+type EstimateEditorAction =
+  | EstimateEditAction
+  | { type: 'dismissError' }
+  /** 取り消し・やり直しが保持していた state をそのまま復元する（48.1, 48.2） */
+  | { type: 'restoreState'; state: EstimateEditState }
+  | {
+      type: 'updateLineByLineId';
+      itemKey: NodeKey;
+      lineId: string;
+      field: EditableLineField;
+      value: string | null;
     }
+  | { type: 'reorderByItemIds'; sourceKey: NodeKey; targetKey: NodeKey };
+
+/** ツリー全体を先行順で走査して項目を取得する */
+function findItemByKey(items: readonly EditableItem[], key: NodeKey): EditableItem | null {
+  const stack: EditableItem[] = items.slice();
+  let current = stack.pop();
+  while (current !== undefined) {
+    if (nodeKeyOf(current) === key) {
+      return current;
+    }
+    for (const child of current.children) {
+      stack.push(child);
+    }
+    current = stack.pop();
   }
   return null;
-};
+}
 
 /**
- * 階層構造の項目を更新
+ * フック層のアクションをドメイン層のアクションへ解決する
+ *
+ * @returns 解決できない指定（存在しない項目・行）の場合は null
  */
-const updateItemInHierarchy = (
-  items: EstimateItemHierarchyEdit[],
-  itemId: string,
-  updater: (item: EstimateItemHierarchyEdit) => EstimateItemHierarchyEdit
-): EstimateItemHierarchyEdit[] => {
-  return items.map((item) => {
-    if (item.id === itemId) {
-      return updater(item);
+function resolveEditAction(
+  state: EstimateEditState,
+  action: Exclude<EstimateEditorAction, { type: 'dismissError' } | { type: 'restoreState' }>
+): EstimateEditAction | null {
+  if (action.type === 'updateLineByLineId') {
+    const item = findItemByKey(state.items, action.itemKey);
+    if (item === null) {
+      return null;
     }
-    if (item.children.length > 0) {
-      return {
-        ...item,
-        children: updateItemInHierarchy(item.children, itemId, updater),
-      };
+    const line = item.lines.find(
+      (candidate) =>
+        resolveLineId(action.itemKey, candidate.lineType, candidate.id) === action.lineId
+    );
+    if (line === undefined) {
+      return null;
     }
-    return item;
-  });
-};
-
-/**
- * 階層構造から項目を削除
- */
-const removeItemFromHierarchy = (
-  items: EstimateItemHierarchyEdit[],
-  itemId: string
-): EstimateItemHierarchyEdit[] => {
-  return items
-    .filter((item) => item.id !== itemId)
-    .map((item) => ({
-      ...item,
-      children: removeItemFromHierarchy(item.children, itemId),
-    }));
-};
-
-/**
- * 親項目の金額を再計算（子項目の合計）
- */
-const recalculateParentAmounts = (
-  items: EstimateItemHierarchyEdit[]
-): EstimateItemHierarchyEdit[] => {
-  return items.map((item) => {
-    // 先に子項目を再帰的に処理
-    const processedChildren = recalculateParentAmounts(item.children);
-
-    // 子項目がある場合、親の金額は子項目の合計
-    if (processedChildren.length > 0) {
-      // 各行タイプごとに合計を計算
-      const lineTypes: EstimateItemLineType[] = ['ESTIMATE', 'EXECUTION', 'VENDOR'];
-
-      const updatedLines = item.lines.map((line) => {
-        if (!lineTypes.includes(line.lineType)) {
-          return line;
-        }
-
-        // 同じ行タイプの子項目の金額を合計
-        const childAmounts = processedChildren
-          .map((child) => {
-            const childLine = child.lines.find((l) => l.lineType === line.lineType);
-            if (childLine?.amount) {
-              try {
-                return new Decimal(childLine.amount);
-              } catch {
-                return null;
-              }
-            }
-            return null;
-          })
-          .filter((amount): amount is Decimal => amount !== null);
-
-        const totalAmount = childAmounts.reduce((sum, amount) => sum.add(amount), new Decimal(0));
-
-        return {
-          ...line,
-          amount: totalAmount.toString(),
-        };
-      });
-
-      return {
-        ...item,
-        lines: updatedLines,
-        children: processedChildren,
-      };
-    }
-
     return {
-      ...item,
-      children: processedChildren,
+      type: 'updateLineField',
+      key: action.itemKey,
+      lineType: line.lineType,
+      field: action.field,
+      value: action.value,
     };
-  });
-};
+  }
+
+  if (action.type === 'reorderByItemIds') {
+    // 表示順（先行順）での前後関係から挿入位置を決める（12.2）
+    const rows = flattenForGrid(state.items, NO_COLLAPSED_KEYS);
+    const from = rows.findIndex((row) => row.key === action.sourceKey);
+    const to = rows.findIndex((row) => row.key === action.targetKey);
+    if (from < 0 || to < 0) {
+      return null;
+    }
+    return {
+      type: 'reorderByDnd',
+      sourceKey: action.sourceKey,
+      targetKey: action.targetKey,
+      position: from < to ? 'after' : 'before',
+    };
+  }
+
+  return action;
+}
 
 /**
- * 削除された項目のすべての子IDを取得
+ * 遷移関数のラッパ（エラー保持方針）
+ *
+ * `estimateEditReducer` は変化の無い操作でも `lastError` を null に戻すため、
+ * 44.6・44.7・41.3 の理由表示が「次の無害な操作」で消えてしまう（53.2 申し送り）。
+ * 要件・設計に消去方針の規定が無いため、**フック層の方針**として次を採る:
+ *
+ * 1. 新しいエラーが発生したらそれを表示する
+ * 2. 変更が成立した操作（`items` / `reportFields` / `isDirty` が変わる操作）が
+ *    エラーを解除する
+ * 3. 変化の無い操作は直前のエラーを保持する
+ * 4. UI が表示を終えたら `dismissError()` で明示的に解除できる
+ *
+ * 44.6「それ以上上げられないことを**示す**」は、表示前に消えると充足しないため
+ * 2・3 の区別が必要になる。ドメイン層（53.1〜53.3）は変更しない。
  */
-const getAllChildIds = (item: EstimateItemHierarchyEdit): string[] => {
-  const ids: string[] = [];
-  for (const child of item.children) {
-    ids.push(child.id);
-    ids.push(...getAllChildIds(child));
+function estimateEditorReducer(
+  state: EstimateEditState,
+  action: EstimateEditorAction
+): EstimateEditState {
+  if (action.type === 'dismissError') {
+    return state.lastError === null ? state : { ...state, lastError: null };
   }
-  return ids;
-};
+
+  if (action.type === 'restoreState') {
+    // スナップショットは遷移の結果そのもの（祖先の集計金額も再計算済み）のため、
+    // 再計算も未保存判定もやり直さずそのまま採用する（48.5, 48.6）
+    return action.state;
+  }
+
+  const resolved = resolveEditAction(state, action);
+  if (resolved === null) {
+    // 存在しない項目・行への指示は状態も直前のエラーも変えない
+    return state;
+  }
+
+  const next = estimateEditReducer(state, resolved);
+  if (next.lastError !== null || resolved.type === 'setItems') {
+    return next;
+  }
+  if (
+    next.items !== state.items ||
+    next.reportFields !== state.reportFields ||
+    next.isDirty !== state.isDirty
+  ) {
+    return next;
+  }
+  return state.lastError === null ? next : { ...next, lastError: state.lastError };
+}
 
 // ============================================================================
 // useEstimateEditor フック
 // ============================================================================
+
+interface EditorInit {
+  readonly initialItems: readonly EstimateItemHierarchyEdit[];
+  readonly initialReportFields: EstimateReportFields;
+  readonly meta: EstimateItemMetaMap;
+}
+
+function initEditorState(init: EditorInit): EstimateEditState {
+  const items = recalculateAncestorAmounts(toEditableTree(init.initialItems, init.meta));
+  return createInitialEstimateEditState(items, init.initialReportFields);
+}
 
 /**
  * 見積書編集状態管理フック
@@ -491,19 +874,11 @@ const getAllChildIds = (item: EstimateItemHierarchyEdit): string[] => {
  * @example
  * ```tsx
  * function EstimateEditor() {
- *   const {
- *     items,
- *     isDirty,
- *     updateLine,
- *     addItem,
- *     deleteItem,
- *     save,
- *     discard,
- *   } = useEstimateEditor({
+ *   const { items, isDirty, updateLine, addItem, deleteItem, save, discard } = useEstimateEditor({
  *     estimateId: 'est-001',
  *     initialItems: [],
- *     onSave: async (changes) => {
- *       await api.batchUpdate(changes);
+ *     onSave: async ({ items, reportFields }) => {
+ *       await saveEstimateDraft(estimateId, items, reportFields);
  *     },
  *   });
  *
@@ -512,7 +887,7 @@ const getAllChildIds = (item: EstimateItemHierarchyEdit): string[] => {
  *       {items.map((item) => (
  *         <EstimateItemRow key={item.id} item={item} onUpdate={updateLine} />
  *       ))}
- *       <button onClick={addItem}>追加</button>
+ *       <button onClick={() => addItem()}>追加</button>
  *       <button onClick={save} disabled={!isDirty}>保存</button>
  *       <button onClick={discard} disabled={!isDirty}>破棄</button>
  *     </div>
@@ -521,55 +896,76 @@ const getAllChildIds = (item: EstimateItemHierarchyEdit): string[] => {
  * ```
  */
 export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimateEditorResult {
-  const { estimateId, initialItems, onSave, onSaveSuccess, onSaveError } = options;
-
-  // 初期データの親項目金額を計算
-  const processedInitialItems = recalculateParentAmounts(initialItems);
-
-  // 状態
-  const [items, setItems] = useState<EstimateItemHierarchyEdit[]>(processedInitialItems);
-  const [pendingChanges, setPendingChanges] = useState<Map<string, ItemChange>>(new Map());
-  const [isSaving, setIsSaving] = useState(false);
-
-  // 初期データの参照を保持（破棄時に使用）
-  const initialItemsRef = useRef<EstimateItemHierarchyEdit[]>(processedInitialItems);
-
-  // isDirtyは変更差分の有無で判定
-  const isDirty = pendingChanges.size > 0;
+  const {
+    estimateId,
+    initialItems,
+    initialReportFields,
+    onSave,
+    onSaveSuccess,
+    onSaveError,
+    onBeforeChange,
+    onBaselineReplaced,
+  } = options;
 
   /**
-   * 変更差分を記録
+   * 変更前の通知先（48.1）
+   *
+   * 各操作の `useCallback` の依存に入れると、通知先が描画ごとに変わる呼び出し元で
+   * 全操作の同一性が壊れる。参照に載せて同一性を保つ。
    */
-  const recordChange = useCallback(
-    (itemId: string, type: ItemChangeType, data?: EstimateItemHierarchyEdit) => {
-      setPendingChanges((prev) => {
-        const newChanges = new Map(prev);
-        const existingChange = newChanges.get(itemId);
+  const onBeforeChangeRef = useRef(onBeforeChange);
+  useEffect(() => {
+    onBeforeChangeRef.current = onBeforeChange;
+  });
 
-        // 新規追加した項目を削除する場合は、変更差分から完全に削除
-        if (type === 'delete' && existingChange?.type === 'add') {
-          newChanges.delete(itemId);
-          return newChanges;
-        }
+  /** 変更の直前に通知する（取り消し履歴へスナップショットを積ませる） */
+  const recordChange = useCallback((label: string): void => {
+    onBeforeChangeRef.current?.(label);
+  }, []);
 
-        // 既存の変更がある場合、タイプを適切に更新
-        if (existingChange) {
-          // addの後のupdateはaddのまま
-          if (existingChange.type === 'add' && type === 'update') {
-            newChanges.set(itemId, { type: 'add', itemId, data });
-            return newChanges;
-          }
-        }
+  /**
+   * 基準の入れ替え後の通知先（48.7）
+   *
+   * `onBeforeChangeRef` と同じ理由で参照に載せ、`setItems` の同一性を保つ。
+   */
+  const onBaselineReplacedRef = useRef(onBaselineReplaced);
+  useEffect(() => {
+    onBaselineReplacedRef.current = onBaselineReplaced;
+  });
 
-        newChanges.set(itemId, { type, itemId, data });
-        return newChanges;
-      });
-    },
-    []
+  /** 基準の入れ替え直後に通知する（取り消し履歴を破棄させる） */
+  const notifyBaselineReplaced = useCallback((): void => {
+    onBaselineReplacedRef.current?.();
+  }, []);
+
+  // ドメイン層が保持しない付随情報（サーバー由来の日時・転記元行の参照）
+  const metaRef = useRef<EstimateItemMetaMap>(new Map());
+
+  const [state, dispatch] = useReducer(
+    estimateEditorReducer,
+    {
+      initialItems,
+      initialReportFields: initialReportFields ?? EMPTY_REPORT_FIELDS,
+      meta: metaRef.current,
+    } satisfies EditorInit,
+    initEditorState
+  );
+
+  const [isSaving, setIsSaving] = useState(false);
+
+  // 破棄（discard）で戻す基準となる保存済み状態
+  const baselineRef = useRef<EstimateEditorSavePayload>({
+    items: state.items,
+    reportFields: state.reportFields,
+  });
+
+  const items = useMemo(
+    () => toViewTree(state.items, estimateId, metaRef.current),
+    [state.items, estimateId]
   );
 
   /**
-   * 行のフィールドを更新（REQ-1.3, REQ-1.4, REQ-34.3）
+   * 行のフィールドを更新（27.1, 22.9 の金額自動計算は reducer が行う）
    */
   const updateLine = useCallback(
     (
@@ -578,264 +974,351 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
       field: keyof EstimateItemLineEdit,
       value: string | null
     ): void => {
-      setItems((prevItems) => {
-        const updatedItems = updateItemInHierarchy(prevItems, itemId, (item) => {
-          const updatedLines = item.lines.map((line) => {
-            if (line.id !== lineId) return line;
-
-            const updatedLine = { ...line, [field]: value };
-
-            // 数量または単価が変更された場合、金額を自動計算
-            if (field === 'quantity' || field === 'unitPrice') {
-              const quantity = field === 'quantity' ? value : line.quantity;
-              const unitPrice = field === 'unitPrice' ? value : line.unitPrice;
-              const calculatedAmount = EstimateCalculator.calculateAmount(quantity, unitPrice);
-              updatedLine.amount = calculatedAmount?.toString() ?? null;
-            }
-
-            return updatedLine;
-          });
-
-          return {
-            ...item,
-            lines: updatedLines,
-            updatedAt: new Date().toISOString(),
-          };
-        });
-
-        // 親項目の金額を再計算（REQ-2.3）
-        const recalculatedItems = recalculateParentAmounts(updatedItems);
-
-        // 変更を記録（recalculatedItemsから最新データを取得してステールデータを回避）
-        const updatedItem = findItemById(recalculatedItems, itemId);
-        if (updatedItem) {
-          recordChange(itemId, 'update', updatedItem);
-        }
-
-        return recalculatedItems;
+      if (!EDITABLE_LINE_FIELDS.has(field)) {
+        return;
+      }
+      recordChange('セルの編集');
+      dispatch({
+        type: 'updateLineByLineId',
+        itemKey: itemId,
+        lineId,
+        field: field as EditableLineField,
+        value,
       });
     },
     [recordChange]
   );
 
   /**
-   * 項目を追加（REQ-12.1）
+   * 帳票用入力項目を更新（54.6, 54.8）
+   */
+  const updateReportFields = useCallback(
+    (fields: EstimateReportFields): void => {
+      recordChange('帳票用入力項目の編集');
+      dispatch({ type: 'updateReportFields', fields });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 項目を追加（12.1）
    */
   const addItem = useCallback(
     (parentId?: string): void => {
-      setItems((prevItems) => {
-        if (parentId) {
-          // 子項目として追加
-          return updateItemInHierarchy(prevItems, parentId, (parent) => {
-            const newDisplayOrder = parent.children.length;
-            const newItem = createNewItem(estimateId, parentId, newDisplayOrder);
-
-            // 新規追加を記録
-            recordChange(newItem.id, 'add', newItem);
-
-            return {
-              ...parent,
-              children: [...parent.children, newItem],
-            };
-          });
-        }
-
-        // ルートレベルに追加
-        const newDisplayOrder = prevItems.length;
-        const newItem = createNewItem(estimateId, null, newDisplayOrder);
-
-        // 新規追加を記録
-        recordChange(newItem.id, 'add', newItem);
-
-        return [...prevItems, newItem];
-      });
-    },
-    [estimateId, recordChange]
-  );
-
-  /**
-   * 値引き行を追加（REQ-41.2, REQ-41.3, REQ-41.8）
-   *
-   * 常にルートレベル末尾に itemType='DISCOUNT'・ESTIMATE 1行のみの
-   * プリセット項目を追加する。recordChange に itemType を含む item を
-   * そのまま渡すことで、バッチ保存の 'add' 差分に itemType が含まれる。
-   */
-  const addDiscountItem = useCallback((): void => {
-    setItems((prevItems) => {
-      const newDisplayOrder = prevItems.length;
-      const newItem = createDiscountItem(estimateId, newDisplayOrder);
-
-      // 新規追加を記録（itemType を含む item をそのまま記録）
-      recordChange(newItem.id, 'add', newItem);
-
-      return [...prevItems, newItem];
-    });
-  }, [estimateId, recordChange]);
-
-  /**
-   * 項目を削除（REQ-12.3）
-   */
-  const deleteItem = useCallback(
-    (itemId: string): void => {
-      const itemToDelete = findItemById(items, itemId);
-      if (!itemToDelete) return;
-
-      setItems((prevItems) => {
-        return removeItemFromHierarchy(prevItems, itemId);
-      });
-
-      // 変更を記録（子項目も含めて削除）
-      const childIds = getAllChildIds(itemToDelete);
-      recordChange(itemId, 'delete');
-      for (const childId of childIds) {
-        recordChange(childId, 'delete');
-      }
-    },
-    [items, recordChange]
-  );
-
-  /**
-   * 項目を複製（REQ-12.5）
-   */
-  const duplicateItem = useCallback(
-    (itemId: string): void => {
-      const itemToDuplicate = findItemById(items, itemId);
-      if (!itemToDuplicate) return;
-
-      // 複製を一度だけ作成（同じインスタンスを使用）
-      const duplicated = duplicateItemData(itemToDuplicate);
-
-      setItems((prevItems) => {
-        if (itemToDuplicate.parentId) {
-          // 子項目の複製 - 同じ親の子として追加
-          return updateItemInHierarchy(prevItems, itemToDuplicate.parentId, (parent) => {
-            const newChildren = [...parent.children, duplicated];
-            // displayOrderを更新
-            return {
-              ...parent,
-              children: newChildren.map((child, idx) => ({
-                ...child,
-                displayOrder: idx,
-              })),
-            };
-          });
-        }
-
-        // ルートレベルの複製
-        const newItems = [...prevItems, duplicated];
-        // displayOrderを更新
-        return newItems.map((item, idx) => ({
-          ...item,
-          displayOrder: idx,
-        }));
-      });
-
-      // 複製した項目を記録（同じインスタンスを使用）
-      recordChange(duplicated.id, 'add', duplicated);
-    },
-    [items, recordChange]
-  );
-
-  /**
-   * 項目を並び替え（REQ-12.2）
-   */
-  const reorderItems = useCallback(
-    (sourceId: string, targetId: string): void => {
-      setItems((prevItems) => {
-        // フラットなリストに変換（ルートレベルのみ対応、子項目の並び替えは別途実装）
-        const sourceIndex = prevItems.findIndex((item) => item.id === sourceId);
-        const targetIndex = prevItems.findIndex((item) => item.id === targetId);
-
-        if (sourceIndex === -1 || targetIndex === -1) return prevItems;
-
-        const newItems = [...prevItems];
-        const [removed] = newItems.splice(sourceIndex, 1);
-        newItems.splice(targetIndex, 0, removed!);
-
-        // displayOrderを更新
-        return newItems.map((item, idx) => ({
-          ...item,
-          displayOrder: idx,
-        }));
-      });
-
-      // 両方の項目に変更を記録
-      recordChange(sourceId, 'update');
-      recordChange(targetId, 'update');
+      recordChange('項目の追加');
+      dispatch({ type: 'insertRow', afterKey: null, parentKey: parentId ?? null });
     },
     [recordChange]
   );
 
   /**
-   * 変更を保存
+   * 値引き行を追加（41.2, 41.3, 41.11）
+   */
+  const addDiscountItem = useCallback((): void => {
+    recordChange('値引き行の追加');
+    dispatch({ type: 'insertDiscountRow' });
+  }, [recordChange]);
+
+  /**
+   * 注記行を追加（55.1, 55.3）
+   */
+  const addNoteItem = useCallback(
+    (position?: EstimateNoteInsertPosition): void => {
+      recordChange('注記行の追加');
+      dispatch({
+        type: 'insertNoteRow',
+        parentKey: position?.parentId ?? null,
+        afterKey: position?.afterId ?? null,
+      });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 指定行の直後へ同一階層の項目を挿入（12.1, 43.1, 47.1）
+   *
+   * 挿入先の親は基準行の親。経路の導出はドメイン層（`estimateTree.pathTo`）に任せ、
+   * 画面側が親子関係を再実装しないようにする。
+   */
+  const insertRowAfter = useCallback(
+    (afterItemId: string): void => {
+      recordChange('行の挿入');
+      const path = pathTo(state.items, afterItemId);
+      if (path.length === 0) {
+        dispatch({ type: 'insertRow', afterKey: null, parentKey: null });
+        return;
+      }
+      const parent = path[path.length - 2];
+      dispatch({
+        type: 'insertRow',
+        afterKey: afterItemId,
+        parentKey: parent === undefined ? null : nodeKeyOf(parent),
+      });
+    },
+    [state.items, recordChange]
+  );
+
+  /**
+   * 項目を削除（12.3, 12.4, 43.6: 子孫もあわせて取り除く）
+   */
+  const deleteItem = useCallback(
+    (itemId: string): void => {
+      recordChange('行の削除');
+      dispatch({ type: 'deleteRows', keys: [itemId] });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 複数の項目をまとめて削除（44.3, 47.6）
+   */
+  const deleteRows = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('行の削除');
+      dispatch({ type: 'deleteRows', keys: itemIds });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 項目を複製（12.5）
+   */
+  const duplicateItem = useCallback(
+    (itemId: string): void => {
+      recordChange('行の複写');
+      dispatch({ type: 'duplicateRows', keys: [itemId] });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 複数の項目をまとめて複写（12.5, 44.3, 47.6）
+   */
+  const duplicateRows = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('行の複写');
+      dispatch({ type: 'duplicateRows', keys: itemIds });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 項目を並び替え（12.2）
+   *
+   * 並び替えは他の行操作と同じく state の遷移として記録されるため、
+   * 保存対象に含まれる（旧実装のドラッグ操作は差分に本体を持たず永続化されなかった）。
+   */
+  const reorderItems = useCallback(
+    (sourceId: string, targetId: string): void => {
+      recordChange('並び替え');
+      dispatch({ type: 'reorderByItemIds', sourceKey: sourceId, targetKey: targetId });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 同一階層内で1つ上/下へ移動（43.1）
+   */
+  const moveItem = useCallback(
+    (itemId: string, direction: 'up' | 'down'): void => {
+      recordChange('行の移動');
+      dispatch({ type: 'moveRow', key: itemId, direction });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 選択範囲の階層を1段下げる（12.6, 23.10, 43.1, 44.3, 44.4, 47.6）
+   *
+   * `itemIds` は表示順（先行順）で渡す契約（design.md `##### estimateEditReducer` の
+   * Preconditions）。順序を作るのは表示順を知る側（`useEstimateNavigation.selectedKeys`）。
+   */
+  const indentRange = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('階層を下げる');
+      dispatch({ type: 'indentRange', keys: itemIds });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 選択範囲の階層を1段上げる（12.6, 23.9, 43.1, 44.3, 44.5, 47.6）
+   */
+  const outdentRange = useCallback(
+    (itemIds: readonly string[]): void => {
+      recordChange('階層を上げる');
+      dispatch({ type: 'outdentRange', keys: itemIds });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 階層を1段下げる（12.6, 23.10, 43.1）
+   *
+   * 単一行の指示。`keys` は表示順で渡す契約だが要素が1つのため自明に満たされる。
+   */
+  const indentItem = useCallback(
+    (itemId: string): void => {
+      indentRange([itemId]);
+    },
+    [indentRange]
+  );
+
+  /**
+   * 階層を1段上げる（12.6, 23.9, 43.1）
+   *
+   * `indentItem` と同じく単一行の指示のみを扱う。
+   */
+  const outdentItem = useCallback(
+    (itemId: string): void => {
+      outdentRange([itemId]);
+    },
+    [outdentRange]
+  );
+
+  /**
+   * 受領見積書の転記結果を反映（4.1, 4.2, 4.6, 49.1, 49.3, 49.8）
+   */
+  const applyQuotationTransfer = useCallback(
+    (payload: QuotationTransferPayload): void => {
+      recordChange('受領見積書の転記');
+      dispatch({ type: 'applyQuotationTransfer', payload });
+    },
+    [recordChange]
+  );
+
+  /**
+   * NET金額の案分結果を反映（5.3, 5.4, 5.5, 49.1, 49.3, 49.8）
+   */
+  const applyNetAllocation = useCallback(
+    (payload: NetAllocationPayload): void => {
+      recordChange('NET金額の案分');
+      dispatch({ type: 'applyNetAllocation', payload });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 利益率の適用結果を反映（6.1〜6.4, 49.1, 49.3, 49.8）
+   */
+  const applyProfitRate = useCallback(
+    (payload: ProfitRatePayload): void => {
+      recordChange('利益率の適用');
+      dispatch({ type: 'applyProfitRate', payload });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 諸経費行を追加（7.1, 7.7, 8.1, 8.7, 9.1, 9.7, 49.1, 49.3, 49.8）
+   */
+  const addOverheadItem = useCallback(
+    (payload: OverheadItemPayload): void => {
+      recordChange('諸経費行の追加');
+      dispatch({ type: 'addOverheadItem', payload });
+    },
+    [recordChange]
+  );
+
+  /**
+   * 直近のエラー表示を消す
+   */
+  const dismissError = useCallback((): void => {
+    dispatch({ type: 'dismissError' });
+  }, []);
+
+  /**
+   * 外部から項目を設定（読み込み・保存応答の反映・サーバー側書き込み後の再同期）
+   *
+   * 基準（`baselineRef`）ごと差し替えるため、差し替え前のツリーを前提とした取り消し履歴は
+   * この時点で無効になる。`onBaselineReplaced` で破棄を促す（48.7）。
+   */
+  const setItems = useCallback(
+    (newItems: EstimateItemHierarchyEdit[], reportFields?: EstimateReportFields): void => {
+      const meta: EstimateItemMetaMap = new Map();
+      const converted = toEditableTree(newItems, meta);
+      metaRef.current = meta;
+      baselineRef.current = {
+        items: converted,
+        reportFields: reportFields ?? baselineRef.current.reportFields,
+      };
+      dispatch({ type: 'setItems', items: converted, reportFields });
+      notifyBaselineReplaced();
+    },
+    [notifyBaselineReplaced]
+  );
+
+  /**
+   * 変更を保存（27.3, 42.2, 42.7）
+   *
+   * `onSave` を**1回だけ**呼び出し、応答が返した最新状態で明細と帳票用入力項目を
+   * 差し替える。差し替えは `setItems` と同一経路のため、採番済みの項目ID・明細行ID・
+   * 転記元行の参照（`sourceReceivedQuotationLineItemId`）もあわせて取り込まれ、
+   * 保存後の追加取得は不要になる（42.2）。
+   *
+   * 保存が失敗した場合は state を一切変更しない。未保存の編集内容と `isDirty` を
+   * 保ったままにして、競合（409）でも編集内容を失わせない（42.5）。
+   *
+   * `onSave` 未指定の間は保存を行わず、未保存の編集内容を保持する。
    */
   const save = useCallback(async (): Promise<void> => {
-    // 変更がない場合はスキップ
-    if (pendingChanges.size === 0) {
+    if (!state.isDirty || onSave === undefined) {
       return;
     }
 
+    const payload: EstimateEditorSavePayload = {
+      items: state.items,
+      reportFields: state.reportFields,
+    };
+
     setIsSaving(true);
-
     try {
-      if (onSave) {
-        await onSave(pendingChanges);
+      const saved = await onSave(payload);
+      if (saved) {
+        // 応答の最新ツリーで差し替える（42.2）
+        setItems(saved.items, saved.reportFields);
+      } else {
+        // 応答を返さない呼び出し元は送信内容をそのまま確定済みとして扱う
+        baselineRef.current = payload;
+        dispatch({ type: 'setItems', items: payload.items, reportFields: payload.reportFields });
+        // `setItems` を通らない経路でも基準を入れ替えたことに変わりはない（48.7）
+        notifyBaselineReplaced();
       }
-
-      // 保存成功時に変更差分をクリア
-      setPendingChanges(new Map());
-      // 初期データを更新
-      initialItemsRef.current = items;
-
-      if (onSaveSuccess) {
-        onSaveSuccess();
-      }
+      onSaveSuccess?.();
     } catch (error) {
-      if (onSaveError && error instanceof Error) {
-        onSaveError(error);
+      if (error instanceof Error) {
+        onSaveError?.(error);
       }
     } finally {
       setIsSaving(false);
     }
-  }, [pendingChanges, items, onSave, onSaveSuccess, onSaveError]);
+  }, [state, onSave, onSaveSuccess, onSaveError, setItems, notifyBaselineReplaced]);
 
   /**
    * 変更を破棄
    */
   const discard = useCallback((): void => {
-    setItems(initialItemsRef.current);
-    setPendingChanges(new Map());
+    const baseline = baselineRef.current;
+    dispatch({ type: 'setItems', items: baseline.items, reportFields: baseline.reportFields });
   }, []);
 
   /**
-   * 外部から項目を設定
+   * 編集状態を丸ごと復元する（48.1, 48.2, 48.5）
    */
-  const setItemsExternal = useCallback((newItems: EstimateItemHierarchyEdit[]): void => {
-    setItems(newItems);
-    initialItemsRef.current = newItems;
-    setPendingChanges(new Map());
+  const restoreState = useCallback((next: EstimateEditState): void => {
+    dispatch({ type: 'restoreState', state: next });
   }, []);
 
   /**
-   * 展開/折りたたみを切り替え
-   */
-  const toggleExpanded = useCallback((itemId: string): void => {
-    setItems((prevItems) =>
-      updateItemInHierarchy(prevItems, itemId, (item) => ({
-        ...item,
-        isExpanded: !item.isExpanded,
-      }))
-    );
-    // 展開状態の変更はisDirtyに影響しない
-  }, []);
-
-  /**
-   * 合計金額を取得（REQ-1.5）
+   * 合計金額を取得（1.5, 41.8: 値引き行の負数も加算する）
    */
   const getTotalAmount = useCallback((): string => {
-    // ルートレベルの見積金額行の合計を計算
-    const total = items.reduce((sum, item) => {
-      const estimateLine = item.lines.find((l) => l.lineType === 'ESTIMATE');
+    const total = state.items.reduce((sum, item) => {
+      // 注記行は金額の集計対象から除外する（55.2）
+      if (item.itemType === 'NOTE') {
+        return sum;
+      }
+      const estimateLine = item.lines.find((line) => line.lineType === 'ESTIMATE');
       if (estimateLine?.amount) {
         try {
           return sum.add(new Decimal(estimateLine.amount));
@@ -847,24 +1330,41 @@ export function useEstimateEditor(options: UseEstimateEditorOptions): UseEstimat
     }, new Decimal(0));
 
     return total.toString();
-  }, [items]);
+  }, [state.items]);
 
   return {
     items,
-    isDirty,
-    pendingChanges,
+    reportFields: state.reportFields,
+    editState: state,
+    isDirty: state.isDirty,
     isSaving,
+    lastError: state.lastError,
+    dismissError,
     updateLine,
+    updateReportFields,
     reorderItems,
+    moveItem,
+    indentItem,
+    outdentItem,
+    indentRange,
+    outdentRange,
     addItem,
     addDiscountItem,
+    addNoteItem,
+    insertRowAfter,
     deleteItem,
+    deleteRows,
     duplicateItem,
+    duplicateRows,
+    applyQuotationTransfer,
+    applyNetAllocation,
+    applyProfitRate,
+    addOverheadItem,
     save,
     discard,
-    setItems: setItemsExternal,
-    toggleExpanded,
+    setItems,
     getTotalAmount,
+    restoreState,
   };
 }
 

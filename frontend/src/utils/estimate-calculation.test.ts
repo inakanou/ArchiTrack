@@ -19,7 +19,6 @@ import {
   type VendorLineInfo,
   type ExecutionLineInfo,
   type EstimateItemWithLines,
-  type EstimateItemHierarchy,
 } from './estimate-calculation';
 import Decimal from 'decimal.js';
 
@@ -154,97 +153,6 @@ describe('EstimateCalculator', () => {
 
       const result = EstimateCalculator.calculateSubtotal(items);
       expect(result.toString()).toBe('10000');
-    });
-  });
-
-  describe('calculateHierarchyAmounts', () => {
-    it('子項目の金額合計を親項目の金額として計算する（REQ-2.3）', () => {
-      const hierarchy: EstimateItemHierarchy[] = [
-        {
-          id: 'parent-1',
-          lines: [
-            { lineType: 'ESTIMATE', amount: null },
-            { lineType: 'EXECUTION', amount: null },
-            { lineType: 'VENDOR', amount: null },
-          ],
-          children: [
-            {
-              id: 'child-1',
-              lines: [{ lineType: 'ESTIMATE', amount: '10000' }],
-              children: [],
-            },
-            {
-              id: 'child-2',
-              lines: [{ lineType: 'ESTIMATE', amount: '20000' }],
-              children: [],
-            },
-          ],
-        },
-      ];
-
-      const result = EstimateCalculator.calculateHierarchyAmounts(hierarchy);
-
-      // 親項目の金額が子項目の合計になっている
-      const parentEstimateLine = result[0]!.lines.find((l) => l.lineType === 'ESTIMATE');
-      expect(parentEstimateLine?.amount?.toString()).toBe('30000');
-    });
-
-    it('複数階層のネストを処理する（REQ-2.4）', () => {
-      const hierarchy: EstimateItemHierarchy[] = [
-        {
-          id: 'grandparent',
-          lines: [{ lineType: 'ESTIMATE', amount: null }],
-          children: [
-            {
-              id: 'parent-1',
-              lines: [{ lineType: 'ESTIMATE', amount: null }],
-              children: [
-                {
-                  id: 'child-1',
-                  lines: [{ lineType: 'ESTIMATE', amount: '5000' }],
-                  children: [],
-                },
-                {
-                  id: 'child-2',
-                  lines: [{ lineType: 'ESTIMATE', amount: '5000' }],
-                  children: [],
-                },
-              ],
-            },
-            {
-              id: 'parent-2',
-              lines: [{ lineType: 'ESTIMATE', amount: '10000' }],
-              children: [],
-            },
-          ],
-        },
-      ];
-
-      const result = EstimateCalculator.calculateHierarchyAmounts(hierarchy);
-
-      // grandparent = parent-1 (10000) + parent-2 (10000) = 20000
-      const grandparentLine = result[0]!.lines.find((l) => l.lineType === 'ESTIMATE');
-      expect(grandparentLine?.amount?.toString()).toBe('20000');
-    });
-
-    it('子項目がない場合は元の金額を維持する', () => {
-      const hierarchy: EstimateItemHierarchy[] = [
-        {
-          id: 'item-1',
-          lines: [{ lineType: 'ESTIMATE', amount: '15000' }],
-          children: [],
-        },
-      ];
-
-      const result = EstimateCalculator.calculateHierarchyAmounts(hierarchy);
-
-      const estimateLine = result[0]!.lines.find((l) => l.lineType === 'ESTIMATE');
-      expect(estimateLine?.amount?.toString()).toBe('15000');
-    });
-
-    it('空の階層配列に対応する', () => {
-      const result = EstimateCalculator.calculateHierarchyAmounts([]);
-      expect(result).toHaveLength(0);
     });
   });
 

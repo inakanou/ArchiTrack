@@ -2,19 +2,9 @@
   "$schema": "./schemas/security-audit-allowlist.schema.json",
   "description": "既知の脆弱性で修正版が未提供、または開発ツールのため本番に影響しないもの",
   "version": "1.0.0",
-  "lastUpdated": "2026-07-28",
+  "lastUpdated": "2026-08-05",
   "allowlist": {
     "backend": [
-      {
-        "package": "brace-expansion",
-        "advisory": "GHSA-mh99-v99m-4gvg",
-        "severity": "high",
-        "reason": "開発依存のみ (npm audit --omit=dev はクリーン=ブロック0)。GHSA-mh99-v99m-4gvg (DoS via unbounded expansion / OOM)。eslint 系ツールチェーンの推移的依存で本番バンドル非該当。npm audit は影響レンジを <=5.0.7 と過大報告し、バックポート修正版 1.1.16 や 5.0.8 まで一律フラグする既知の誤検知を含む。install 済みは 1.1.16 / 5.0.8 でいずれも修正取り込み済み。全 brace-expansion を 5.0.8 へ強制 override すると minimatch@3 が 1.x API 前提のため破壊 (eslint も TypeError)、fixAvailable も eslint@10 への破壊的メジャーで採用不可。2026-07-29 評価: dev-only の非ブロック警告として許容。",
-        "reference": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
-        "expires": "2026-10-31",
-        "addedBy": "claude",
-        "addedDate": "2026-07-29"
-      },
       {
         "package": "xlsx",
         "severity": "high",
@@ -27,19 +17,9 @@
     ],
     "frontend": [
       {
-        "package": "brace-expansion",
-        "advisory": "GHSA-mh99-v99m-4gvg",
-        "severity": "high",
-        "reason": "開発依存のみ (npm audit --omit=dev はクリーン=ブロック0)。GHSA-mh99-v99m-4gvg (DoS via unbounded expansion / OOM)。jest / eslint / eslint-plugin-react / storybook 等テストツールチェーンの推移的依存で本番バンドル非該当。npm audit は影響レンジを <=5.0.7 と過大報告し旧メジャー線 1.1.14 / 2.1.0 まで一律フラグする。全 brace-expansion を 5.0.8 へ強制 override すると minimatch@3 (1.x API 前提) と eslint を TypeError で破壊、fixAvailable も eslint-plugin-react@7.22 への破壊的メジャーダウングレードで採用不可。frontend の 5.x 線 5.0.6 のみ真に範囲内だが dev-only の非ブロック警告のため許容。2026-07-29 評価。",
-        "reference": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
-        "expires": "2026-10-31",
-        "addedBy": "claude",
-        "addedDate": "2026-07-29"
-      },
-      {
         "package": "react-router",
         "severity": "high",
-        "reason": "本番依存だが、残存する唯一の advisory は『RSC Mode CSRF Bypass Allows Action Execution Before 400 Response』(GHSA-qwww-vcr4-c8h2, 影響範囲 >=7.12.0 <8.3.0) で React Server Components / フレームワークモード専用の脆弱性。本アプリは Vite SPA で createBrowserRouter + RouterProvider によるクライアントサイドルーティングのみを使用し (@react-router/* フレームワークパッケージ非依存・RSC 未使用) 本 advisory は非該当。7.18.1 へ更新済みで実害のある 4 件 (open redirect / XSS / DoS / constructor injection, いずれも <7.18.0) は解消済み。RSC CSRF の修正は react-router v8.3.0 系への破壊的メジャー移行が必要なため v8 移行まで暫定許容。",
+        "reason": "本番依存だが、残存する唯一の advisory は『RSC Mode CSRF Bypass Allows Action Execution Before 400 Response』(GHSA-qwww-vcr4-c8h2, 影響範囲 >=7.12.0 <8.3.0) で React Server Components / フレームワークモード専用の脆弱性。本アプリは Vite SPA で createBrowserRouter + RouterProvider によるクライアントサイドルーティングのみを使用し (@react-router/* フレームワークパッケージ非依存・RSC 未使用) 本 advisory は非該当。7.18.2 へ更新済みで実害のある 4 件 (open redirect / XSS / DoS / constructor injection, いずれも <7.18.0) は解消済み。RSC CSRF の修正は react-router v8.3.0 系への破壊的メジャー移行が必要なため v8 移行まで暫定許容。",
         "reference": "https://github.com/advisories/GHSA-qwww-vcr4-c8h2",
         "expires": "2026-10-31",
         "addedBy": "claude",
@@ -48,25 +28,14 @@
       {
         "package": "react-router-dom",
         "severity": "high",
-        "reason": "react-router に連動する wrapper。脆弱性の実体は react-router の『RSC Mode CSRF Bypass』(GHSA-qwww-vcr4-c8h2) で RSC / フレームワークモード専用。本アプリは Vite SPA のクライアントサイドルーティングのみで非該当。7.18.1 へ更新済み。修正は react-router v8.3.0 系への破壊的メジャー移行が必要なため v8 移行まで暫定許容。",
+        "reason": "react-router に連動する wrapper。脆弱性の実体は react-router の『RSC Mode CSRF Bypass』(GHSA-qwww-vcr4-c8h2) で RSC / フレームワークモード専用。本アプリは Vite SPA のクライアントサイドルーティングのみで非該当。7.18.2 へ更新済み。修正は react-router v8.3.0 系への破壊的メジャー移行が必要なため v8 移行まで暫定許容。",
         "reference": "https://github.com/advisories/GHSA-qwww-vcr4-c8h2",
         "expires": "2026-10-31",
         "addedBy": "claude",
         "addedDate": "2026-07-28"
       }
     ],
-    "root": [
-      {
-        "package": "brace-expansion",
-        "advisory": "GHSA-mh99-v99m-4gvg",
-        "severity": "high",
-        "reason": "開発依存のみ (npm audit --omit=dev はクリーン=ブロック0)。GHSA-mh99-v99m-4gvg (DoS via unbounded expansion / OOM)。archiver / exceljs / glob / rimraf / readdir-glob / zip-stream 等ビルド・スクリプト用ツールの推移的依存で本番バンドル非該当。npm audit は影響レンジを <=5.0.7 と過大報告しバックポート修正版 1.1.16 / 2.1.3 / 5.0.8 まで一律フラグする既知の誤検知を含む。install 済みは 1.1.16 / 2.1.3 / 5.0.8 でいずれも修正取り込み済み。全 brace-expansion を強制 override すると minimatch@3 (1.x API 前提) を破壊するため採用不可。2026-07-29 評価: dev-only の非ブロック警告として許容。",
-        "reference": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
-        "expires": "2026-10-31",
-        "addedBy": "claude",
-        "addedDate": "2026-07-29"
-      }
-    ]
+    "root": []
   },
   "policy": {
     "production": {

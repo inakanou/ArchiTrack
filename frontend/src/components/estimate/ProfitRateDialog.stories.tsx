@@ -66,7 +66,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
       createVendorLine('1', 'item-1'),
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -81,7 +80,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
       createVendorLine('2', 'item-2'),
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -96,7 +94,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
       createVendorLine('3', 'item-3'),
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -117,7 +114,7 @@ const meta = {
   tags: ['autodocs'],
   args: {
     onClose: fn(),
-    onComplete: fn(),
+    onApply: fn(),
   },
 } satisfies Meta<typeof ProfitRateDialog>;
 
@@ -130,7 +127,6 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     items: mockItems,
   },
 };
@@ -141,7 +137,6 @@ export const Default: Story = {
 export const NoExecutionLines: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     items: [],
   },
 };
@@ -152,7 +147,6 @@ export const NoExecutionLines: Story = {
 export const Closed: Story = {
   args: {
     isOpen: false,
-    estimateId: 'estimate-1',
     items: mockItems,
   },
 };

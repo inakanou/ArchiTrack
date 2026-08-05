@@ -38,6 +38,59 @@ import { ProjectNotFoundError } from '../errors/projectError.js';
 export interface EstimateServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
+  /**
+   * 現在時刻の取得（省略時はシステム時計）
+   *
+   * 新規作成時の提出日の既定値（REQ-54.4）が唯一の利用者。時刻を引数化しないと
+   * 「当日」の判定をテストから固定できない。
+   */
+  now?: () => Date;
+}
+
+/**
+ * 新規作成時の有効期限の既定文言（REQ-54.5）
+ *
+ * 要件が文言そのものを定めているため、組み立てずに定数として持つ。
+ */
+export const DEFAULT_VALIDITY_PERIOD = '提出日より1ヶ月間';
+
+/**
+ * 提出日の暦日を決める時間帯（REQ-54.4）
+ *
+ * 「当日」は利用者（国内の積算担当者）の暦日を指す。サーバーの時間帯設定は
+ * コンテナ既定の UTC のため、そのまま `Date` の暦日を取ると日本時間 00:00〜09:00 に
+ * 作成した見積書の提出日が前日になる。時間帯を明示して曖昧さを消す。
+ */
+const SUBMISSION_DATE_TIME_ZONE = 'Asia/Tokyo';
+
+/** `YYYY-MM-DD` を切り出すフォーマッタ（`en-CA` はゼロ埋めのハイフン区切りを返す） */
+const SUBMISSION_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: SUBMISSION_DATE_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/**
+ * 指定時刻における日本時間の暦日を `DATE` 列用の値へ変換する（REQ-54.4）
+ *
+ * `Estimate.submissionDate` は `@db.Date` で、Prisma は UTC 0時として読み書きする。
+ * 一括保存（`estimate-draft.service`）が `new Date('YYYY-MM-DD')` で組み立てるのと
+ * 同じ表現に揃える。
+ */
+function toSubmissionDate(now: Date): Date {
+  return new Date(`${SUBMISSION_DATE_FORMATTER.format(now)}T00:00:00.000Z`);
+}
+
+/**
+ * `DATE` 列の値を `YYYY-MM-DD` の文字列へ変換する（REQ-54.6）
+ *
+ * 読み取り経路の返却形は一括保存の応答（`estimates.routes.ts`）と同じ
+ * ISO8601 の日付とする。`Date` のまま JSON 化すると日時形式になり、
+ * 画面の日付入力がそのまま扱えない。
+ */
+function formatSubmissionDate(submissionDate: Date | null): string | null {
+  return submissionDate === null ? null : submissionDate.toISOString().slice(0, 10);
 }
 
 /**
@@ -110,11 +163,32 @@ export interface EstimateItemInfo {
 }
 
 /**
+ * 帳票用の追加入力項目（REQ-54.1, REQ-54.2, REQ-54.3）
+ *
+ * 保存経路（`PUT /api/estimates/:id/save`）のワイヤ形と同一。
+ */
+export interface EstimateReportFieldsInfo {
+  /** 提出日（`YYYY-MM-DD`、未入力は null） */
+  submissionDate: string | null;
+  /** 有効期限（未入力は null） */
+  validityPeriod: string | null;
+  /** 別途工事（順序保持、未入力は空配列） */
+  separateWorks: string[];
+}
+
+/**
  * 見積書詳細情報
  */
 export interface EstimateDetailInfo extends EstimateInfo {
   project: ProjectInfoSummary;
   items: EstimateItemInfo[];
+  /**
+   * 帳票用の追加入力項目（REQ-54.6）
+   *
+   * 画面はこの値を編集の起点にする。返さないと、保存済みの提出日・有効期限・
+   * 別途工事が再読み込みで失われ、次の保存で空の値に上書きされる。
+   */
+  reportFields: EstimateReportFieldsInfo;
 }
 
 /**
@@ -146,10 +220,12 @@ type PrismaTransactionClient = Omit<
 export class EstimateService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
+  private readonly now: () => Date;
 
   constructor(deps: EstimateServiceDependencies) {
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
+    this.now = deps.now ?? ((): Date => new Date());
   }
 
   /**
@@ -235,12 +311,20 @@ export class EstimateService {
       }
 
       // 4. 見積書の作成
+      //
+      // 帳票用入力項目の既定値（REQ-54.4, REQ-54.5）は作成時に確定させる。
+      // 画面側で「未入力なら当日を表示する」形にすると、52.2 以前に作られた
+      // 既存の見積書を開いた瞬間にも既定値が入り、未入力（REQ-54.7）と
+      // 区別できないまま未保存の変更として扱われてしまう。
+      // 別途工事（REQ-54.1）は既定値を持たない（スキーマの `@default([])`）。
       const estimate = await tx.estimate.create({
         data: {
           projectId: input.projectId,
           name: input.name.trim(),
           sourceItemizedStatementId: itemizedStatement?.id ?? null,
           sourceItemizedStatementName: itemizedStatement?.name ?? null,
+          submissionDate: toSubmissionDate(this.now()),
+          validityPeriod: DEFAULT_VALIDITY_PERIOD,
         },
       });
 
@@ -674,6 +758,9 @@ export class EstimateService {
     sourceItemizedStatementName: string | null;
     createdAt: Date;
     updatedAt: Date;
+    submissionDate: Date | null;
+    validityPeriod: string | null;
+    separateWorks: string[];
     project: {
       id: string;
       name: string;
@@ -714,6 +801,11 @@ export class EstimateService {
       createdAt: estimate.createdAt,
       updatedAt: estimate.updatedAt,
       itemCount: estimate.items.length,
+      reportFields: {
+        submissionDate: formatSubmissionDate(estimate.submissionDate),
+        validityPeriod: estimate.validityPeriod,
+        separateWorks: estimate.separateWorks,
+      },
       items: estimate.items.map((item) => ({
         id: item.id,
         estimateId: item.estimateId,

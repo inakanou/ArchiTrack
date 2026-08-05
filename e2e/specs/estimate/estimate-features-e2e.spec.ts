@@ -22,9 +22,15 @@
  * - REQ-31.1: NET案分ダイアログに受領見積書合計金額表示
  * - REQ-31.2: NET案分ダイアログにNET金額表示
  * - REQ-32.1: 出力ダイアログに行タイプ選択チェックボックス（複数選択可能）
- * - REQ-32.2: 選択行タイプのみ出力
- * - REQ-32.3: 出力ファイル名に行タイプラベル含む
- * - REQ-32.4: 出力APIがlineTypesパラメータ（カンマ区切り）を受け付ける
+ * - REQ-32.2: チェックされた行タイプごとに独立したファイルを生成する
+ * - REQ-32.5: チェックされていない行タイプのファイルを出力しない
+ * - REQ-32.6: 各出力ファイル名に当該ファイルの行タイプのラベルを含める
+ * - REQ-10.1: PDF出力を選択した場合、建設工事見積書形式のPDFファイルを生成する
+ *
+ * Task 56.10: 出力エンドポイント `GET /api/estimates/:id/export` を撤去し、
+ * 帳票（PDF）と表計算（Excel）はフロントエンドが編集中のツリーから生成するようになった。
+ * 旧「出力APIがlineTypesパラメータを受け付ける」はエンドポイントごと消えたため、
+ * 「サーバーへ出力を依頼せずに生成が完結する」検証へ移行した。
  *
  * @module e2e/specs/estimate/estimate-features-e2e.spec
  */
@@ -33,6 +39,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { flattenEstimateItems, getEstimateItemTree } from '../../helpers/estimate-draft';
 
 /**
  * 見積書機能追加のE2Eテスト
@@ -48,6 +55,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
   let createdEstimateRequestId: string | null = null;
   let createdReceivedQuotationId: string | null = null;
   let accessToken: string = '';
+  /** 協力業者名。転記された業者金額行の `sourceVendorName` と受領見積書の照合キーになる */
+  let tradingPartnerName: string = '';
+  /** 受領見積書に登録するNET金額（REQ-31.2 の表示対象） */
+  const RECEIVED_QUOTATION_NET_AMOUNT = 180000;
+  /** 受領見積書の合計金額（明細 100000 + 2×50000 / REQ-31.1 の表示対象） */
+  const RECEIVED_QUOTATION_TOTAL_AMOUNT = 200000;
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
@@ -111,7 +124,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
 
       await expect(page.getByLabel('取引先名')).toBeVisible({ timeout: getTimeout(10000) });
 
-      const tradingPartnerName = `E2Eテスト業者_機能テスト_${Date.now()}`;
+      tradingPartnerName = `E2Eテスト業者_機能テスト_${Date.now()}`;
       await page.getByLabel('取引先名').fill(tradingPartnerName);
       await page.getByLabel('フリガナ', { exact: true }).fill('キノウテストギョウシャ');
       await page.getByLabel('住所').fill('東京都新宿区テスト町1-1-1');
@@ -261,6 +274,10 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
             name: `受領見積書_機能テスト_${Date.now()}`,
             submittedAt: new Date().toISOString(),
             lineItems,
+            // REQ-31.2 が表示対象とする「受領見積書登録画面で入力したNET金額」。
+            // これが無いと NET案分ダイアログのNET金額欄そのものが描画されず、
+            // 31.2 は前提を欠いたまま何も検証できない
+            netAmount: String(RECEIVED_QUOTATION_NET_AMOUNT),
           },
         }
       );
@@ -375,9 +392,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       expect(summaryBbox).toBeTruthy();
       expect(transferBbox).toBeTruthy();
 
-      if (summaryBbox && transferBbox) {
-        expect(transferBbox.y).toBeGreaterThan(summaryBbox.y + summaryBbox.height - 5);
-      }
+      // 直前の2件で null でないことを確定させているので、位置関係の主張は無条件に置く
+      // （`if (a && b)` の形だと、型の絞り込みなのか検証の省略なのかが読めない）
+      expect(transferBbox!.y).toBeGreaterThan(summaryBbox!.y + summaryBbox!.height - 5);
     });
 
     /**
@@ -446,22 +463,23 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
-      // 編集モード切替不要で入力フィールドが直接操作可能であることを確認
-      // 数量入力フィールドが表示されていること
+      // 編集モード切替不要で入力フィールドが直接操作可能であることを確認。
+      // かつては `if (count > 0)` / `if (unitPriceCount > 0)` の二重ガードで、
+      // 欄が1つも無ければ何も検証せずに緑になった（実測ではどちらも常に 9 件＝
+      // ガードは常に真で不要だった）ので、条件を外して無条件に主張する
       const quantityInputs = page.locator('input[aria-label="数量"]');
-      const count = await quantityInputs.count();
+      const unitPriceInputs = page.locator('input[aria-label="単価"]');
+      await expect(quantityInputs.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (count > 0) {
-        // 数量フィールドが直接編集可能（enabled）であることを確認
-        await expect(quantityInputs.first()).toBeEnabled();
+      // 数量・単価フィールドが直接編集可能（enabled）であることを確認
+      await expect(quantityInputs.first()).toBeEnabled();
+      await expect(unitPriceInputs.first()).toBeEnabled();
 
-        // 単価フィールドも直接編集可能であることを確認
-        const unitPriceInputs = page.locator('input[aria-label="単価"]');
-        const unitPriceCount = await unitPriceInputs.count();
-        if (unitPriceCount > 0) {
-          await expect(unitPriceInputs.first()).toBeEnabled();
-        }
-      }
+      // 「即座に編集可能」＝実際に打ち込んだ値がその場で入力欄に載る
+      await quantityInputs.first().fill('7');
+      await expect(quantityInputs.first()).toHaveValue('7');
+      await unitPriceInputs.first().fill('1200');
+      await expect(unitPriceInputs.first()).toHaveValue('1200');
     });
 
     /**
@@ -503,31 +521,43 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
-      // 数量フィールドに値を入力して変更を作成
+      // 数量フィールドに値を入力して変更を作成。
+      // かつては `if (count > 0)` のガードで囲まれ、欄が消えれば保存の検証ごと
+      // 素通りした（実測では常に 9 件＝ガードは不要）
       const quantityInputs = page.locator('input[aria-label="数量"]');
-      const count = await quantityInputs.count();
+      await expect(quantityInputs.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (count > 0) {
-        await quantityInputs.first().fill('99');
-        await quantityInputs.first().blur();
+      await quantityInputs.first().fill('99');
+      await quantityInputs.first().blur();
 
-        // 保存ボタンが有効状態になることを確認
-        const saveButton = page.getByRole('button', { name: /^保存$/i });
-        await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
+      // 保存ボタンが有効状態になることを確認
+      const saveButton = page.getByRole('button', { name: /^保存$/i });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
 
-        // 保存ボタンをクリック
-        const savePromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api') &&
-            response.url().includes('/estimates') &&
-            (response.request().method() === 'PUT' || response.request().method() === 'PATCH'),
-          { timeout: getTimeout(30000) }
-        );
+      // 保存ボタンをクリック
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api') &&
+          response.url().includes('/estimates') &&
+          (response.request().method() === 'PUT' || response.request().method() === 'PATCH'),
+        { timeout: getTimeout(30000) }
+      );
 
-        await saveButton.click();
-        const response = await savePromise;
-        expect(response.ok()).toBeTruthy();
-      }
+      await saveButton.click();
+      const response = await savePromise;
+      expect(response.status()).toBe(200);
+
+      // 保存後は未保存の変更が無くなる
+      await expect(saveButton).toBeDisabled({ timeout: getTimeout(10000) });
+
+      // クライアントサイドの変更が実際にデータベースへ反映されている（27.3）。
+      // 画面の表示ではなくサーバーが返す値で確認するので、ローカル state を
+      // 見ているだけという取り違えが起こらない
+      const savedTree = await getEstimateItemTree(page.request, accessToken, createdEstimateId!);
+      const savedQuantities = flattenEstimateItems(savedTree).flatMap((item) =>
+        item.lines.filter((line) => line.lineType === 'ESTIMATE').map((line) => line.quantity)
+      );
+      expect(savedQuantities).toContain(99);
     });
 
     /**
@@ -651,9 +681,13 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
-      // VENDOR行が表示されていることを確認
+      // VENDOR行が表示されていることを確認。
+      // かつては `if (initialVendorCount > 0)` のガードで、行が1件も無ければ
+      // 「チェックを外す」だけして何も検証せずに緑になった（実測では常に 3 件）
       const vendorRows = page.locator('[data-testid="line-type-VENDOR"]');
+      await expect(vendorRows.first()).toBeVisible({ timeout: getTimeout(10000) });
       const initialVendorCount = await vendorRows.count();
+      expect(initialVendorCount).toBeGreaterThan(0);
 
       // 「業者」チェックボックスを外す
       const vendorCheckbox = page
@@ -662,13 +696,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .locator('input[type="checkbox"]');
       await vendorCheckbox.uncheck();
 
-      // VENDOR行が非表示になることを確認
-      if (initialVendorCount > 0) {
-        await expect(vendorRows.first()).not.toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // 該当する行タイプの行が「すべて」非表示になる（28.3）
+      await expect(vendorRows).toHaveCount(0, { timeout: getTimeout(5000) });
 
-      // チェックボックスを元に戻す
+      // チェックボックスを元に戻すと同じ件数に戻る
       await vendorCheckbox.check();
+      await expect(vendorRows).toHaveCount(initialVendorCount, { timeout: getTimeout(5000) });
     });
 
     /**
@@ -688,6 +721,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
+      // かつてこのテストは行数を「チェックを外した後」に数えていた。フィルターは
+      // 非表示の行をDOMから取り除くため、実測値は**常に 0** で
+      // `if (executionCount > 0)` の内側は一度も実行されず、表示/非表示の切替を
+      // 何ひとつ検証しないまま緑になっていた。件数は外す前に確定させる。
+      const executionRows = page.locator('[data-testid="line-type-EXECUTION"]');
+      await expect(executionRows.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const executionCount = await executionRows.count();
+      expect(executionCount).toBeGreaterThan(0);
+
       // 「実行」チェックボックスを外す
       const executionCheckbox = page
         .locator('label')
@@ -695,20 +737,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .locator('input[type="checkbox"]');
       await executionCheckbox.uncheck();
 
-      // EXECUTION行が非表示になることを確認
-      const executionRows = page.locator('[data-testid="line-type-EXECUTION"]');
-      const executionCount = await executionRows.count();
-      if (executionCount > 0) {
-        await expect(executionRows.first()).not.toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // EXECUTION行がすべて非表示になることを確認
+      await expect(executionRows).toHaveCount(0, { timeout: getTimeout(5000) });
 
-      // 「実行」チェックボックスを再度チェック
+      // 「実行」チェックボックスを再度チェックすると、該当行がすべて再表示される（28.4）
       await executionCheckbox.check();
-
-      // EXECUTION行が再表示されることを確認
-      if (executionCount > 0) {
-        await expect(executionRows.first()).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      await expect(executionRows).toHaveCount(executionCount, { timeout: getTimeout(5000) });
     });
   });
 
@@ -752,12 +786,25 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       // 子項目を追加
       await addChildButton.click();
 
-      // 保存
+      // 保存。かつては `if (await saveButton.isEnabled())` で囲まれており、
+      // 子項目の追加が効かず未保存の変更が生じなくても黙って素通りしていた
+      // （実測では常に true）。REQ-29 の各テストはこの親子構造が保存されている
+      // ことを前提にするので、保存できなければここで落とす
       const saveButton = page.getByRole('button', { name: /^保存$/i });
-      if (await saveButton.isEnabled()) {
-        await saveButton.click();
-        await page.waitForLoadState('networkidle');
-      }
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
+
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      expect((await savePromise).status()).toBe(200);
+
+      // 子を持つ親項目が実際に保存されている（29.1 / 29.3 の前提）
+      const savedTree = await getEstimateItemTree(page.request, accessToken, createdEstimateId!);
+      expect(savedTree.some((item) => item.children.length > 0)).toBe(true);
     });
 
     /**
@@ -777,28 +824,39 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
-      // 親項目（子項目を持つ項目）の単価フィールドが編集不可であることを確認
-      // 展開ボタンがある項目は親項目
-      const expandButtons = page.locator(
-        'button[aria-label*="展開"], button[aria-label*="折りたたみ"]'
+      // 親項目（子項目を持つ項目）の単価フィールドが編集不可であることを確認。
+      //
+      // かつてのセレクタ `button[aria-label*="展開"], button[aria-label*="折りたたみ"]` は
+      // 実DOMの `展開する` / `折りたたむ` と一致せず、実測で**常に0件**だった
+      // （同じ時点で実セレクタは 1 件を返す＝親項目は存在する）。内側の
+      // `if (parentUnitPriceCount > 0)` も、親項目の単価はそもそも `<input>` で
+      // 描かれないため二重に成立しない。実DOMに合わせ、無条件に主張する。
+      const parentToggles = page.locator(
+        'button[aria-label="折りたたむ"], button[aria-label="展開する"]'
       );
-      const expandCount = await expandButtons.count();
+      await expect(parentToggles.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 親項目が存在する場合
-      if (expandCount > 0) {
-        // 親項目の行にある単価フィールドを確認
-        // 親項目は展開ボタンと同じ行にある - 単価がread-onlyまたは表示のみであることを確認
-        const parentRow = expandButtons.first().locator('..');
-        const parentUnitPrice = parentRow.locator('input[aria-label="単価"]');
-        const parentUnitPriceCount = await parentUnitPrice.count();
+      // 展開/折りたたみボタンを持つ行＝子項目を持つ親項目
+      const parentRow = parentToggles.first().locator('..');
+      const parentEstimateLine = parentRow.getByTestId('line-type-ESTIMATE').first();
 
-        if (parentUnitPriceCount > 0) {
-          // disabled属性またはreadonly属性で編集不可を確認
-          const isDisabled = await parentUnitPrice.isDisabled();
-          const isReadonly = await parentUnitPrice.getAttribute('readonly');
-          expect(isDisabled || isReadonly !== null).toBeTruthy();
-        }
-      }
+      // 単価は入力欄として提供されない（＝編集不可 / 29.1）
+      await expect(parentEstimateLine.locator('input[aria-label="単価"]')).toHaveCount(0);
+      // 単価は表示専用の要素として存在する
+      await expect(parentEstimateLine.locator('[aria-label="単価"]')).toHaveCount(1);
+
+      // 対照：子を持たない項目では単価が入力欄として提供される
+      // （「どの行でも単価が入力欄でない」という別の理由で緑にならないことを固定する）
+      const leafRow = page
+        .locator(
+          '[aria-label="見積項目テーブル"] [data-testid^="estimate-item-"]:not([data-testid="estimate-item-row"])'
+        )
+        .filter({ hasNot: page.locator('button[aria-label="折りたたむ"]') })
+        .filter({ hasNot: page.locator('button[aria-label="展開する"]') })
+        .first();
+      await expect(
+        leafRow.getByTestId('line-type-ESTIMATE').first().locator('input[aria-label="単価"]')
+      ).toHaveCount(1);
     });
 
     /**
@@ -822,9 +880,56 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const table = page.locator('[aria-label="見積項目テーブル"]');
       await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      // テーブルのコンテンツが読み込まれていることを確認
-      const tableContent = await table.textContent();
-      expect(tableContent).toBeTruthy();
+      // かつてここは「テーブルのテキストが空でない」（＝ヘッダー行があるだけで真）
+      // という恒真の1行しかなく、29.2 が言う「子項目の金額合計を親項目の金額として
+      // 自動計算する」ことは**一度も検証されていなかった**。親の金額が 0 のままでも、
+      // 子と無関係な値でも緑になる。
+      //
+      // 準備で作った「子を持つ親」を API のツリーから名指しし、子の金額を変えると
+      // 親の金額がその合計に追随することを確かめる。
+      const tree = await getEstimateItemTree(page.request, accessToken, createdEstimateId!);
+      const parent = tree.find((item) => item.children.length > 0);
+      expect(parent, '準備で作った「子を持つ親項目」がツリーに無い').toBeDefined();
+      expect(parent!.children.length).toBeGreaterThan(0);
+
+      const parentAmountField = page
+        .getByTestId(`estimate-item-${parent!.id}`)
+        .getByTestId('line-type-ESTIMATE')
+        .first()
+        .getByTestId('amount-field');
+
+      // 子ごとに異なる単価を入れる（全子の合計であって「最初の子だけ」でないことを固定する）
+      let expectedTotal = 0;
+      for (const [index, child] of parent!.children.entries()) {
+        const quantity = 2;
+        const unitPrice = 3000 * (index + 1);
+        const childEstimateLine = page
+          .getByTestId(`estimate-item-${child.id}`)
+          .getByTestId('line-type-ESTIMATE')
+          .first();
+        await expect(childEstimateLine).toBeVisible({ timeout: getTimeout(10000) });
+        await childEstimateLine.locator('input[aria-label="数量"]').fill(String(quantity));
+        await childEstimateLine.locator('input[aria-label="単価"]').fill(String(unitPrice));
+        await childEstimateLine.locator('input[aria-label="単価"]').blur();
+        expectedTotal += quantity * unitPrice;
+      }
+
+      // 親の金額＝子の金額合計（29.2）
+      await expect(parentAmountField).toHaveText(`${expectedTotal.toLocaleString('en-US')}`, {
+        timeout: getTimeout(10000),
+      });
+
+      // 子を1件だけ変えると親も追随する（初回だけ偶然一致した、を排除する）
+      const firstChildEstimateLine = page
+        .getByTestId(`estimate-item-${parent!.children[0]!.id}`)
+        .getByTestId('line-type-ESTIMATE')
+        .first();
+      await firstChildEstimateLine.locator('input[aria-label="単価"]').fill('9000');
+      await firstChildEstimateLine.locator('input[aria-label="単価"]').blur();
+      const updatedTotal = expectedTotal - 2 * 3000 + 2 * 9000;
+      await expect(parentAmountField).toHaveText(`${updatedTotal.toLocaleString('en-US')}`, {
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
@@ -844,20 +949,35 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
-      // 展開ボタン（親項目の指標）が存在する場合
-      const expandButtons = page.locator(
-        'button[aria-label*="展開"], button[aria-label*="折りたたみ"]'
+      // 29.1 と同じ理由（実DOMと一致しないセレクタ）で、かつては
+      // `if (expandCount > 0)` の内側が一度も実行されていなかった。しかも内側は
+      // 「画面のどこかの名称欄が enabled」を見るだけで、親項目の欄ではなかった。
+      // 親項目の行に絞って、単価以外の5項目が編集可能であることを主張する。
+      const parentToggles = page.locator(
+        'button[aria-label="折りたたむ"], button[aria-label="展開する"]'
       );
-      const expandCount = await expandButtons.count();
+      await expect(parentToggles.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (expandCount > 0) {
-        // 名称フィールドが存在し編集可能であることを確認
-        const nameInputs = page.locator('input[aria-label="名称"]');
-        const nameCount = await nameInputs.count();
-        if (nameCount > 0) {
-          await expect(nameInputs.first()).toBeEnabled();
-        }
+      const parentEstimateLine = parentToggles
+        .first()
+        .locator('..')
+        .getByTestId('line-type-ESTIMATE')
+        .first();
+
+      // 名称・規格・単位・数量・備考は手動編集可能（29.3）
+      for (const label of ['名称', '規格', '単位', '数量', '備考']) {
+        const field = parentEstimateLine.locator(`input[aria-label="${label}"]`);
+        await expect(field, `親項目の「${label}」が編集可能でない`).toHaveCount(1);
+        await expect(field).toBeEnabled();
       }
+
+      // 実際に打ち込めることまで見る（enabled だが値を受け付けない実装を排除する）
+      const parentNameInput = parentEstimateLine.locator('input[aria-label="名称"]');
+      await parentNameInput.fill('親項目名称編集確認');
+      await expect(parentNameInput).toHaveValue('親項目名称編集確認');
+
+      // 単価だけは手動編集の対象外（29.1 と表裏）
+      await expect(parentEstimateLine.locator('input[aria-label="単価"]')).toHaveCount(0);
     });
   });
 
@@ -918,6 +1038,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
+      // 30.2 は「既存項目ごとに」選択肢を出すことを求めるので、先に既存項目を
+      // API のツリーから確定させる（画面の折りたたみ状態に左右されないため）
+      const tree = await getEstimateItemTree(page.request, accessToken, createdEstimateId!);
+      // 値引き行・注記行は転記先になれない（`canHostTransferredItem`）ので除く
+      const existingItems = flattenEstimateItems(tree).filter(
+        (item) => item.itemType !== 'DISCOUNT' && item.itemType !== 'NOTE'
+      );
+      expect(existingItems.length, '転記先になれる既存の見積項目が1件も無い').toBeGreaterThan(0);
+
       // 転記ダイアログを開く
       await page.getByRole('button', { name: '受領見積書を業者金額に転記' }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
@@ -926,12 +1055,26 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const targetSelect = page.locator('#target-select');
       await expect(targetSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 「の子項目として作成」を含むオプションが存在することを確認
+      // かつてここは `expect(childOptionCount).toBeGreaterThanOrEqual(0)` で、
+      // `count()` は定義上つねに 0 以上なので**何を数えても緑**だった。
+      // 子項目オプションが1件も出なくても、既存項目の一部しか出なくても通る。
+      //
+      // 既存項目の件数と一致すること（＝「既存項目ごとに」提供されること）を主張する
       const childOptions = targetSelect.locator('option').filter({ hasText: /の子項目として作成/ });
-      const childOptionCount = await childOptions.count();
+      await expect(childOptions).toHaveCount(existingItems.length, {
+        timeout: getTimeout(10000),
+      });
 
-      // 見積項目が存在する場合、子項目作成オプションが存在する
-      expect(childOptionCount).toBeGreaterThanOrEqual(0);
+      // 選択肢のラベルが「＜既存項目名＞ の子項目として作成」の形になっている
+      // （名称が空の項目は画面側で `(名称なし)` に置き換わる）
+      for (const item of existingItems) {
+        const itemName =
+          item.lines.find((line) => line.lineType === 'ESTIMATE')?.name || '(名称なし)';
+        await expect(
+          targetSelect.locator('option').filter({ hasText: `${itemName} の子項目として作成` }),
+          `「${itemName} の子項目として作成」の選択肢が無い`
+        ).not.toHaveCount(0);
+      }
 
       // ダイアログを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
@@ -962,32 +1105,63 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const quotationSelect = page.locator('#quotation-select');
       await expect(quotationSelect).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 受領見積書の選択肢が存在するか確認
+      // かつては `if (quotationOptions > 1)` と `if (childOptionCount > 0)` の
+      // 二重ガードだった（実測ではそれぞれ 2 件・5 件で常に真＝条件が不要）。
+      // 前提が欠ければ落ちるよう、件数そのものを主張してから操作する
       const quotationOptions = await quotationSelect.locator('option').count();
+      expect(quotationOptions).toBeGreaterThan(1);
 
-      if (quotationOptions > 1) {
-        // 受領見積書を選択
-        await quotationSelect.selectOption({ index: 1 });
+      // 受領見積書を選択
+      await quotationSelect.selectOption({ index: 1 });
 
-        // 転記先選択で子項目オプションが存在するか確認
-        const targetSelect = page.locator('#target-select');
-        const childOptions = targetSelect
-          .locator('option')
-          .filter({ hasText: /の子項目として作成/ });
-        const childOptionCount = await childOptions.count();
+      // 転記先選択で子項目オプションが提供される（30.2）
+      const targetSelect = page.locator('#target-select');
+      const childOptions = targetSelect.locator('option').filter({ hasText: /の子項目として作成/ });
+      await expect(childOptions.first()).toBeAttached({ timeout: getTimeout(10000) });
 
-        if (childOptionCount > 0) {
-          // 最初の子項目オプションを選択
-          await targetSelect.selectOption({ index: 1 });
+      // 最初の子項目オプションを選択
+      await targetSelect.selectOption({ index: 1 });
 
-          // 選択されたオプションのテキストに「の子項目として作成」が含まれることを確認
-          const selectedText = await targetSelect.locator('option:checked').textContent();
-          expect(selectedText).toContain('の子項目として作成');
-        }
+      // 選択されたオプションのテキストに「の子項目として作成」が含まれることを確認
+      const selectedText = await targetSelect.locator('option:checked').textContent();
+      expect(selectedText).toContain('の子項目として作成');
+
+      // 実際に「子項目として」転記されることまで見る（30.3）。
+      // 明細行は受領見積書を選んだ時点で全選択される（REQ-35.3）ので、
+      // 転記される件数はチェック済みの件数と一致する
+      const dialog = page.getByRole('dialog');
+      const lineCheckboxes = dialog.locator('input[type="checkbox"]');
+      await expect(lineCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const lineCount = await lineCheckboxes.count();
+      expect(lineCount).toBeGreaterThan(0);
+      for (let i = 0; i < lineCount; i++) {
+        await expect(lineCheckboxes.nth(i)).toBeChecked();
       }
 
-      // ダイアログを閉じる
-      await page.getByRole('button', { name: /キャンセル/i }).click();
+      const rows = page.locator(
+        '[aria-label="見積項目テーブル"] [data-testid^="estimate-item-"]:not([data-testid="estimate-item-row"])'
+      );
+      const beforeItemCount = await rows.count();
+
+      await dialog.getByRole('button', { name: '転記', exact: true }).click();
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+
+      // 選択した明細行の数だけ項目が増える
+      await expect(rows).toHaveCount(beforeItemCount + lineCount, { timeout: getTimeout(10000) });
+
+      // 追加された行（未保存なので行キーは `tmp-`）はルートではなく子として置かれる。
+      // ツリー表示のインデントは `深さ × 16px` なので、0px ならルート＝
+      // 「新規項目として作成」になってしまっており 30.3 を満たさない
+      const addedRows = page.locator(
+        '[aria-label="見積項目テーブル"] [data-estimate-row-key^="tmp-"]'
+      );
+      await expect(addedRows).toHaveCount(lineCount, { timeout: getTimeout(10000) });
+      for (let i = 0; i < lineCount; i++) {
+        const childIndent = await addedRows
+          .nth(i)
+          .evaluate((el) => (el as HTMLElement).style.paddingLeft);
+        expect(Number.parseFloat(childIndent)).toBeGreaterThan(0);
+      }
     });
   });
 
@@ -996,6 +1170,70 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
   // ============================================================================
 
   test.describe('REQ-31: NET案分ダイアログの受領見積書情報表示', () => {
+    /**
+     * テスト準備：受領見積書を業者金額行へ実際に転記して保存する
+     *
+     * NET案分ダイアログの受領見積書情報セクションは、業者金額行に残る
+     * `sourceVendorName` から受領見積書を引き当てて描画される
+     * （`NetAllocationDialog.tsx` の照合キーは「協力業者名 ?? 受領見積書名」）。
+     * 転記が一度も行われていない見積書では対象業者の選択肢が「選択してください」
+     * だけになり、実測でも `#vendor-select` の option は**常に1件**だった。
+     * その状態では 31.1 / 31.2 の内側は永久に実行されないため、前提をここで作る。
+     */
+    test('準備：受領見積書を業者金額行へ転記して保存する', async ({ page }) => {
+      expect(createdEstimateId).toBeTruthy();
+      expect(tradingPartnerName).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      expect(accessToken).toBeTruthy();
+
+      await page.goto(`/estimates/${createdEstimateId}`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.getByRole('button', { name: '受領見積書を業者金額に転記' }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+
+      const quotationSelect = page.locator('#quotation-select');
+      await expect(quotationSelect).toBeVisible({ timeout: getTimeout(10000) });
+      await quotationSelect.selectOption({ index: 1 });
+
+      // 受領見積書の明細行は選択時点で全選択される（REQ-35.3）
+      const lineCheckboxes = dialog.locator('input[type="checkbox"]');
+      await expect(lineCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const lineCount = await lineCheckboxes.count();
+      expect(lineCount).toBeGreaterThan(0);
+      for (let i = 0; i < lineCount; i++) {
+        await expect(lineCheckboxes.nth(i)).toBeChecked();
+      }
+
+      await dialog.getByRole('button', { name: '転記', exact: true }).click();
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+
+      // 転記結果を保存して確定する
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^保存$/i }).click();
+      expect((await savePromise).status()).toBe(200);
+
+      // 業者金額行に協力業者名が `sourceVendorName` として載っていることを確認する。
+      // ここが空だと NET案分ダイアログの対象業者が作られない
+      const savedTree = await getEstimateItemTree(page.request, accessToken, createdEstimateId!);
+      const vendorNames = flattenEstimateItems(savedTree)
+        .flatMap((item) => item.lines)
+        .filter((line) => line.lineType === 'VENDOR')
+        .map((line) => line.sourceVendorName);
+      expect(vendorNames).toContain(tradingPartnerName);
+    });
+
     /**
      * @requirement estimate-creation/REQ-31.1
      */
@@ -1021,21 +1259,22 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const vendorSelect = page.locator('#vendor-select');
       await expect(vendorSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 業者データがある場合
-      const vendorOptions = await vendorSelect.locator('option').count();
-      if (vendorOptions > 1) {
-        // 最初の業者を選択
-        await vendorSelect.selectOption({ index: 1 });
+      // かつては `if (vendorOptions > 1)` の内側に
+      // `const isInfoVisible = ...; if (isInfoVisible) { await expect(...).toBeVisible(); }`
+      // という**恒真アサーション**が置かれていた（真のときだけ入るブロックの中で
+      // 同じ条件が真であることを主張しており、何も検証していない）。しかも実測では
+      // `vendorOptions` は**常に1件**で内側は一度も実行されていなかった。
+      // 前提は上の準備テストが作るので、ここでは無条件に主張する。
+      await expect(vendorSelect.locator('option')).toHaveCount(2, { timeout: getTimeout(10000) });
+      await vendorSelect.selectOption(tradingPartnerName);
 
-        // 受領見積書情報セクションが表示される場合
-        const quotationInfoSection = page.getByText('受領見積書合計金額');
-        const isInfoVisible = await quotationInfoSection.isVisible().catch(() => false);
-
-        if (isInfoVisible) {
-          // 受領見積書合計金額ラベルが表示されることを確認
-          await expect(quotationInfoSection).toBeVisible();
-        }
-      }
+      // 受領見積書情報セクションに「合計金額」が**その値ごと**表示される（31.1）
+      const quotationInfoGrid = page.getByTestId('quotation-info-grid');
+      await expect(quotationInfoGrid).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(quotationInfoGrid.getByText('受領見積書合計金額')).toBeVisible();
+      await expect(
+        quotationInfoGrid.getByText(`${RECEIVED_QUOTATION_TOTAL_AMOUNT.toLocaleString('ja-JP')}円`)
+      ).toBeVisible();
 
       // ダイアログを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
@@ -1066,18 +1305,28 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const vendorSelect = page.locator('#vendor-select');
       await expect(vendorSelect).toBeVisible({ timeout: getTimeout(5000) });
 
-      const vendorOptions = await vendorSelect.locator('option').count();
-      if (vendorOptions > 1) {
-        await vendorSelect.selectOption({ index: 1 });
+      // 31.1 と同型の恒真アサーション（`if (isNetVisible) { expect(...).toBeVisible() }`）を
+      // 撤去し、値と並び順まで主張する
+      await expect(vendorSelect.locator('option')).toHaveCount(2, { timeout: getTimeout(10000) });
+      await vendorSelect.selectOption(tradingPartnerName);
 
-        // NET金額ラベルが表示される場合
-        const netAmountLabel = page.getByText('NET金額（受領見積書入力値）');
-        const isNetVisible = await netAmountLabel.isVisible().catch(() => false);
+      const quotationInfoGrid = page.getByTestId('quotation-info-grid');
+      await expect(quotationInfoGrid).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(quotationInfoGrid.getByText('NET金額（受領見積書入力値）')).toBeVisible();
+      await expect(
+        quotationInfoGrid.getByText(`${RECEIVED_QUOTATION_NET_AMOUNT.toLocaleString('ja-JP')}円`)
+      ).toBeVisible();
 
-        if (isNetVisible) {
-          await expect(netAmountLabel).toBeVisible();
-        }
-      }
+      // 「受領見積書合計金額の下に」縦並びで表示される（31.2）
+      const totalBox = await quotationInfoGrid
+        .getByText('受領見積書合計金額')
+        .boundingBox({ timeout: getTimeout(5000) });
+      const netBox = await quotationInfoGrid
+        .getByText('NET金額（受領見積書入力値）')
+        .boundingBox({ timeout: getTimeout(5000) });
+      expect(totalBox).toBeTruthy();
+      expect(netBox).toBeTruthy();
+      expect(netBox!.y).toBeGreaterThan(totalBox!.y);
 
       // ダイアログを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
@@ -1136,8 +1385,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
 
     /**
      * @requirement estimate-creation/REQ-32.2
+     * @requirement estimate-creation/REQ-32.5
+     *
+     * 出力はフロントエンドで生成されるようになった（Task 56.10）。
+     * 「どの行タイプが出力対象になったか」はリクエストURLではなく、
+     * **実際にダウンロードされたファイル**で確かめる。
+     * ファイル名は「{見積名}_{行タイプのラベル}.pdf」（32.6）なので、
+     * 見積名に「見積」「実行」の語が含まれていても末尾のラベルで判別できる。
      */
-    test('選択された行タイプのみが出力対象となる (estimate-creation/REQ-32.2)', async ({
+    test('チェックした行タイプのファイルだけがダウンロードされる (estimate-creation/REQ-32.2)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1149,6 +1405,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
 
       await expect(page.locator('[data-testid="estimate-detail-page"]')).toBeVisible({
         timeout: getTimeout(15000),
+      });
+
+      // ダウンロードされたファイル名をすべて記録する
+      const downloadedFileNames: string[] = [];
+      page.on('download', (download) => {
+        downloadedFileNames.push(download.suggestedFilename());
       });
 
       // 出力ダイアログを開く
@@ -1164,18 +1426,13 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       await executionCheckbox.check();
       await expect(executionCheckbox).toBeChecked();
 
+      // 「業者」はデフォルトでOFFのまま
+      const vendorCheckbox = page.locator('input[type="checkbox"][value="VENDOR"]');
+      await expect(vendorCheckbox).not.toBeChecked();
+
       // PDF形式を選択
       const pdfRadio = page.locator('input[type="radio"][name="export-format"][value="pdf"]');
       await pdfRadio.click();
-
-      // APIリクエストを監視
-      const requestPromise = page.waitForRequest(
-        (request) =>
-          request.url().includes('/api/estimates/') &&
-          request.url().includes('/export') &&
-          request.url().includes('lineTypes=EXECUTION'),
-        { timeout: getTimeout(30000) }
-      );
 
       // 出力ボタンをクリック
       await page
@@ -1183,15 +1440,33 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // APIリクエストのURLにlineTypes=EXECUTIONが含まれることを確認
-      const apiRequest = await requestPromise;
-      expect(apiRequest.url()).toContain('lineTypes=EXECUTION');
+      // 全ファイルの生成とダウンロードが終わるとダイアログが閉じる
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: getTimeout(60000) });
+
+      // REQ-32.2: チェックした「実行」のファイルが1つ生成される
+      expect(downloadedFileNames).toHaveLength(1);
+      expect(downloadedFileNames[0]).toMatch(/_実行\.pdf$/);
+
+      // REQ-32.5: チェックしていない行タイプのファイルは出力されない
+      expect(downloadedFileNames.some((name) => /_見積\.pdf$/.test(name))).toBe(false);
+      expect(downloadedFileNames.some((name) => /_業者\.pdf$/.test(name))).toBe(false);
     });
 
     /**
-     * @requirement estimate-creation/REQ-32.3
+     * @requirement estimate-creation/REQ-32.6
+     *
+     * ファイル名への行タイプラベル付与は現行の requirements.md では 32.6
+     * （旧タグの 32.3 は「見積→実行→業者の順に逐次ダウンロードする」に変わった。
+     * 32.3 の順序検証は Task 56.12 が担当する）。
+     *
+     * 旧テストは「最初にダウンロードされた1ファイル」だけを見て「業者」を期待していた。
+     * 出力がバックエンド生成だった頃はチェックした行タイプを1ファイルに束ねていたので
+     * それで足りたが、現行の 32.2 は**行タイプごとに独立したファイル**を生成するため、
+     * 「見積を外して業者を足す」と実行・業者の2ファイルが出て最初の1つは実行になる。
+     * 32.6 は「各出力ファイル名に**当該ファイルの**行タイプのラベルを含める」なので、
+     * ダウンロードされた全ファイルを集めて1つずつ照合する形へ移行した。
      */
-    test('出力ファイル名に選択された行タイプのラベルが含まれる (estimate-creation/REQ-32.3)', async ({
+    test('出力ファイル名に当該ファイルの行タイプのラベルが含まれる (estimate-creation/REQ-32.6)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1205,6 +1480,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         timeout: getTimeout(15000),
       });
 
+      // ダウンロードされたファイル名をすべて記録する
+      const downloadedFileNames: string[] = [];
+      page.on('download', (download) => {
+        downloadedFileNames.push(download.suggestedFilename());
+      });
+
       // 出力ダイアログを開く
       await page.getByRole('button', { name: /^出力$/i }).click();
       await expect(page.getByRole('dialog')).toBeVisible({ timeout: getTimeout(10000) });
@@ -1213,7 +1494,9 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
       await estimateCheckbox.uncheck();
 
-      // 「業者」をチェック
+      // 「実行」はデフォルトでON、「業者」を足して2つの行タイプを対象にする
+      const executionCheckbox = page.locator('input[type="checkbox"][value="EXECUTION"]');
+      await expect(executionCheckbox).toBeChecked();
       const vendorCheckbox = page.locator('input[type="checkbox"][value="VENDOR"]');
       await vendorCheckbox.check();
 
@@ -1221,26 +1504,43 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const excelRadio = page.locator('input[type="radio"][name="export-format"][value="xlsx"]');
       await excelRadio.click();
 
-      // ダウンロードの待機設定
-      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
-
       // 出力ボタンをクリック
       await page
         .getByRole('dialog')
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // ダウンロードされたファイル名に「業者」が含まれることを確認
-      const download = await downloadPromise;
-      const filename = download.suggestedFilename();
-      expect(filename).toContain('業者');
-      expect(filename).toMatch(/\.xlsx$/i);
+      // 全ファイルの生成とダウンロードが終わるとダイアログが閉じる
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: getTimeout(60000) });
+
+      // チェックした2つの行タイプそれぞれに1ファイル（REQ-32.2）
+      expect(downloadedFileNames).toHaveLength(2);
+
+      // REQ-32.6: 各ファイル名が**そのファイルの**行タイプのラベルを持つ
+      const executionFiles = downloadedFileNames.filter((name) => /_実行\.xlsx$/i.test(name));
+      const vendorFiles = downloadedFileNames.filter((name) => /_業者\.xlsx$/i.test(name));
+      expect(executionFiles).toHaveLength(1);
+      expect(vendorFiles).toHaveLength(1);
+
+      // チェックしていない「見積」のラベルを持つファイルは無い（REQ-32.5）
+      expect(downloadedFileNames.filter((name) => /_見積\.xlsx$/i.test(name))).toEqual([]);
     });
 
     /**
-     * @requirement estimate-creation/REQ-32.4
+     * @requirement estimate-creation/REQ-10.1
+     *
+     * 出力エンドポイント `GET /api/estimates/:id/export` は撤去された（Task 56.10）。
+     * 旧テストはこのエンドポイントへのリクエストURLに `lineTypes` が載ることを
+     * 検証していたが、エンドポイントごと存在しないため検証対象の振る舞いが消えた。
+     * 代わりに「サーバーへ出力を依頼せずに帳票が生成される」ことを固定する。
+     *
+     * 否定の主張（出力エンドポイントを叩かない）が空振りにならないよう、
+     * 出力操作の間に発生したAPIリクエストを実際に記録し、記録が空でないこと
+     * （＝記録の仕組みが生きていること）を先に確かめてから、その中に
+     * 出力エンドポイントが無いことを主張する。PDF出力は表紙の周辺情報を
+     * 読み取り専用APIから取得するため、記録は必ず非空になる。
      */
-    test('出力APIがlineTypesクエリパラメータを受け付ける (estimate-creation/REQ-32.4)', async ({
+    test('出力がフロントエンド生成で完結し、サーバーへ出力を依頼しない (estimate-creation/REQ-10.1)', async ({
       page,
     }) => {
       expect(createdEstimateId).toBeTruthy();
@@ -1262,18 +1562,25 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const estimateCheckbox = page.locator('input[type="checkbox"][value="ESTIMATE"]');
       await expect(estimateCheckbox).toBeChecked();
 
+      // 「実行」のチェックを外し、「見積」1ファイルだけに絞る
+      const executionCheckbox = page.locator('input[type="checkbox"][value="EXECUTION"]');
+      await executionCheckbox.uncheck();
+
       // PDF形式を選択
       const pdfRadio = page.locator('input[type="radio"][name="export-format"][value="pdf"]');
       await pdfRadio.click();
 
-      // APIリクエストを監視
-      const requestPromise = page.waitForRequest(
-        (request) =>
-          request.url().includes('/api/estimates/') &&
-          request.url().includes('/export') &&
-          request.url().includes('lineTypes='),
-        { timeout: getTimeout(30000) }
-      );
+      // ここから先（出力操作中）のAPIリクエストとダウンロードを記録する
+      const apiRequestUrls: string[] = [];
+      page.on('request', (request) => {
+        if (request.url().includes('/api/')) {
+          apiRequestUrls.push(request.url());
+        }
+      });
+      const downloadedFileNames: string[] = [];
+      page.on('download', (download) => {
+        downloadedFileNames.push(download.suggestedFilename());
+      });
 
       // 出力ボタンをクリック
       await page
@@ -1281,9 +1588,18 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
         .getByRole('button', { name: /^出力$/i })
         .click();
 
-      // APIリクエストにlineTypesパラメータが含まれることを確認
-      const apiRequest = await requestPromise;
-      expect(apiRequest.url()).toContain('lineTypes=ESTIMATE');
+      // 生成とダウンロードが終わるとダイアログが閉じる
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: getTimeout(60000) });
+
+      // REQ-10.1: 帳票（PDF）が生成されてダウンロードされる
+      expect(downloadedFileNames).toHaveLength(1);
+      expect(downloadedFileNames[0]).toMatch(/_見積\.pdf$/);
+
+      // 記録の仕組みが生きていること（表紙の周辺情報を読み取るリクエストが載る）
+      expect(apiRequestUrls.length).toBeGreaterThan(0);
+
+      // そのうえで、出力をサーバーへ依頼したリクエストは1本も無い
+      expect(apiRequestUrls.filter((url) => url.includes('/export'))).toEqual([]);
     });
   });
 

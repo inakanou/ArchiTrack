@@ -4,16 +4,20 @@
  * 国土交通省の公共建築工事共通費積算基準に準じた諸経費（共通仮設費・現場管理費・一般管理費）
  * の自動計算を提供します。
  *
+ * プリセット値（名称・規格・単位・数量）の権威は
+ * `frontend/src/domain/estimate/estimateEditReducer.ts` の `OVERHEAD_PRESETS` に一本化した。
+ * 諸経費行の生成が `POST /:id/overhead-items` の撤去（Task 55.7、REQ-49.3）により
+ * クライアント側の編集状態への反映へ移り、サーバー側の複製は呼び出し元を失ったため。
+ * 本サービスは書き込みを伴わない率・金額の算定のみを担う。
+ *
  * Requirements (estimate-creation):
- * - REQ-7.1: 共通仮設費行の追加を選択した場合、プリセット値として設定する
  * - REQ-7.3: 国土交通省の公共建築工事共通費積算基準の共通仮設費計算式に準じて単価を自動計算する
  * - REQ-7.5: 自動計算結果を手入力で上書き可能とする
- * - REQ-8.1: 現場管理費行の追加を選択した場合、プリセット値として設定する
  * - REQ-8.3: 国土交通省の公共建築工事共通費積算基準の現場管理費計算式に準じて単価を自動計算する
- * - REQ-9.1: 一般管理費行の追加を選択した場合、プリセット値として設定する
  * - REQ-9.3: 国土交通省の公共建築工事共通費積算基準の一般管理費計算式に準じて単価を自動計算する
  *
  * Task 3.4: OverheadCostServiceの実装（諸経費自動計算）
+ * Task 55.7: プリセット値の複製を撤去（`getPresetValues`）
  *
  * 計算式（令和7年改定）:
  * - 共通仮設費率: Kr = Exp(a - b * loge(P) + c * loge(T))
@@ -45,16 +49,6 @@ export enum OverheadCostType {
   SITE_MANAGEMENT = 'SITE_MANAGEMENT',
   /** 一般管理費 */
   GENERAL_ADMIN = 'GENERAL_ADMIN',
-}
-
-/**
- * プリセット値
- */
-export interface PresetValues {
-  name: string;
-  specification: string;
-  unit: string;
-  quantity: number;
 }
 
 /**
@@ -187,40 +181,6 @@ export class OverheadCostService {
     a: new Decimal('2.5169'),
     b: new Decimal('0.0969'),
   };
-
-  /**
-   * 諸経費種別ごとのプリセット値を取得する
-   *
-   * Requirements: REQ-7.1, REQ-8.1, REQ-9.1
-   *
-   * @param costType - 諸経費種別
-   * @returns プリセット値
-   */
-  getPresetValues(costType: OverheadCostType): PresetValues {
-    switch (costType) {
-      case OverheadCostType.COMMON_TEMPORARY:
-        return {
-          name: '共通仮設費',
-          specification: '',
-          unit: '式',
-          quantity: 1,
-        };
-      case OverheadCostType.SITE_MANAGEMENT:
-        return {
-          name: '現場管理費',
-          specification: '',
-          unit: '式',
-          quantity: 1,
-        };
-      case OverheadCostType.GENERAL_ADMIN:
-        return {
-          name: '一般管理費',
-          specification: '',
-          unit: '式',
-          quantity: 1,
-        };
-    }
-  }
 
   /**
    * 共通仮設費を計算する

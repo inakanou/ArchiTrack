@@ -10,10 +10,23 @@
  * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
  * - REQ-11.5: 見積書に見積名称を設定可能とする
  * - REQ-11.6: 楽観的排他制御により競合を検出する
+ * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
+ * - REQ-49.5: これらの操作の実行後の保存で競合エラーを発生させない
+ *
+ * 転記系5経路のハンドラのテストは、経路を撤去した（Task 55.7）ことに伴い削除した。
+ * 各経路が担っていた振る舞いの移行先は次のとおり:
+ * - 受領見積書転記 → `frontend/.../estimateEditReducer.test.ts` の `applyQuotationTransfer`
+ * - NET金額案分 → 同 `applyNetAllocation` と `estimateCalculations.test.ts` の `allocateNet`
+ * - 利益率適用 → 同 `applyProfitRate` と `estimateCalculations.test.ts` の `applyProfitRate`
+ *   （利益率の範囲エラー REQ-13.3 は `ProfitRateDialog.test.tsx` の
+ *   `利益率の範囲エラー (13.3)`）
+ * - 諸経費行追加 → 同 `addOverheadItem`
+ * - 値引き行追加 → 同「プリセット値の値引き行をルートレベルの末尾に追加する」
+ * 撤去そのものは本ファイルの `撤去済みエンドポイント (REQ-42.1, REQ-49.3)` が固定する。
  *
  * Task 4.1: 見積書CRUD APIエンドポイントの実装
  * Task 4.2: 見積項目CRUD APIエンドポイントの実装
- * Task 4.3: 計算・転記APIエンドポイントの実装
+ * Task 55.7: 転記系エンドポイントの撤去
  *
  * @module __tests__/unit/routes/estimates.routes
  */
@@ -21,7 +34,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import Decimal from 'decimal.js';
 
 // Use vi.hoisted to create mock functions that are hoisted along with vi.mock
 const {
@@ -31,23 +43,13 @@ const {
   mockFindLatestByProjectId,
   mockUpdate,
   mockDelete,
-  mockCreateItem,
   mockGetHierarchy,
-  mockDeleteItem,
-  mockDuplicateItem,
-  mockReorderItems,
-  mockMoveItem,
-  mockTransferFromQuotation,
-  mockPreviewNetAllocation,
-  mockPreviewProfitRate,
   mockCalculateCommonTemporaryCost,
   mockCalculateSiteManagementCost,
   mockCalculateGeneralAdminCost,
-  mockGetPresetValues,
   mockCreateLog,
   mockRequirePermission,
   mockState,
-  mockPrismaEstimateItemLineFindMany,
   mockPrismaTransaction,
 } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
@@ -56,23 +58,13 @@ const {
   mockFindLatestByProjectId: vi.fn(),
   mockUpdate: vi.fn(),
   mockDelete: vi.fn(),
-  mockCreateItem: vi.fn(),
   mockGetHierarchy: vi.fn(),
-  mockDeleteItem: vi.fn(),
-  mockDuplicateItem: vi.fn(),
-  mockReorderItems: vi.fn(),
-  mockMoveItem: vi.fn(),
-  mockTransferFromQuotation: vi.fn(),
-  mockPreviewNetAllocation: vi.fn(),
-  mockPreviewProfitRate: vi.fn(),
   mockCalculateCommonTemporaryCost: vi.fn(),
   mockCalculateSiteManagementCost: vi.fn(),
   mockCalculateGeneralAdminCost: vi.fn(),
-  mockGetPresetValues: vi.fn(),
   mockCreateLog: vi.fn(),
   mockRequirePermission: vi.fn(),
   mockState: { shouldRejectPermission: false },
-  mockPrismaEstimateItemLineFindMany: vi.fn(),
   mockPrismaTransaction: vi.fn(),
 }));
 
@@ -95,7 +87,7 @@ vi.mock('../../../db.js', () => ({
       delete: vi.fn(),
     },
     estimateItemLine: {
-      findMany: mockPrismaEstimateItemLineFindMany,
+      findMany: vi.fn(),
       update: vi.fn(),
     },
   })),
@@ -114,20 +106,7 @@ vi.mock('../../../services/estimate.service.js', () => ({
 
 vi.mock('../../../services/estimate-item.service.js', () => ({
   EstimateItemService: class {
-    createItem = mockCreateItem;
     getHierarchy = mockGetHierarchy;
-    deleteItem = mockDeleteItem;
-    duplicateItem = mockDuplicateItem;
-    reorderItems = mockReorderItems;
-    moveItem = mockMoveItem;
-    transferFromQuotation = mockTransferFromQuotation;
-  },
-}));
-
-vi.mock('../../../services/estimate-calculation.service.js', () => ({
-  EstimateCalculationService: class {
-    previewNetAllocation = mockPreviewNetAllocation;
-    previewProfitRate = mockPreviewProfitRate;
   },
 }));
 
@@ -136,7 +115,6 @@ vi.mock('../../../services/overhead-cost.service.js', () => ({
     calculateCommonTemporaryCost = mockCalculateCommonTemporaryCost;
     calculateSiteManagementCost = mockCalculateSiteManagementCost;
     calculateGeneralAdminCost = mockCalculateGeneralAdminCost;
-    getPresetValues = mockGetPresetValues;
   },
   OverheadCostType: {
     COMMON_TEMPORARY: 'COMMON_TEMPORARY',
@@ -189,9 +167,6 @@ import {
   EstimateNotFoundError,
   EstimateConflictError,
   DuplicateEstimateNameError,
-  EstimateItemHasChildrenError,
-  EstimateItemNotFoundError,
-  EstimateItemCircularReferenceError,
 } from '../../../errors/estimateError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 import { ValidationError } from '../../../errors/apiError.js';
@@ -585,256 +560,6 @@ describe('estimates.routes', () => {
     });
   });
 
-  describe('POST /api/estimates/:id/items', () => {
-    const validCreateItemInput = {
-      displayOrder: 0,
-      lines: [
-        { lineType: 'ESTIMATE', name: 'テスト項目', unit: '式', quantity: 1, unitPrice: 10000 },
-        { lineType: 'EXECUTION' },
-        { lineType: 'VENDOR' },
-      ],
-    };
-
-    it('見積項目を作成できること', async () => {
-      mockCreateItem.mockResolvedValue(mockEstimateDetail.items[0]);
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/items`)
-        .send(validCreateItemInput);
-
-      expect(response.status).toBe(201);
-      expect(response.body).toHaveProperty('id');
-    });
-
-    it('見積書が存在しない場合は404を返すこと', async () => {
-      mockCreateItem.mockRejectedValue(new EstimateNotFoundError(validUUID));
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/items`)
-        .send(validCreateItemInput);
-
-      expect(response.status).toBe(404);
-    });
-  });
-
-  describe('DELETE /api/estimates/:id/items/:itemId', () => {
-    it('見積項目を削除できること', async () => {
-      mockDeleteItem.mockResolvedValue(undefined);
-
-      const response = await request(app).delete(
-        `/api/estimates/${validUUID}/items/${estimateItemId}`
-      );
-
-      expect(response.status).toBe(204);
-    });
-
-    it('子項目がある場合は422を返すこと', async () => {
-      mockDeleteItem.mockRejectedValue(new EstimateItemHasChildrenError(estimateItemId, 2));
-
-      const response = await request(app).delete(
-        `/api/estimates/${validUUID}/items/${estimateItemId}`
-      );
-
-      expect(response.status).toBe(422);
-      expect(response.body.code).toBe('ESTIMATE_ITEM_HAS_CHILDREN');
-    });
-
-    it('forceDeleteオプションで強制削除できること', async () => {
-      mockDeleteItem.mockResolvedValue(undefined);
-
-      const response = await request(app)
-        .delete(`/api/estimates/${validUUID}/items/${estimateItemId}`)
-        .send({ forceDelete: true });
-
-      expect(response.status).toBe(204);
-      expect(mockDeleteItem).toHaveBeenCalledWith(estimateItemId, true);
-    });
-  });
-
-  describe('POST /api/estimates/:id/items/:itemId/duplicate', () => {
-    it('見積項目を複製できること', async () => {
-      const duplicatedItem = { ...mockEstimateDetail.items[0], id: 'new-item-id' };
-      mockDuplicateItem.mockResolvedValue(duplicatedItem);
-
-      const response = await request(app).post(
-        `/api/estimates/${validUUID}/items/${estimateItemId}/duplicate`
-      );
-
-      expect(response.status).toBe(201);
-      expect(mockDuplicateItem).toHaveBeenCalledWith(estimateItemId);
-    });
-  });
-
-  describe('PUT /api/estimates/:id/items/reorder', () => {
-    it('見積項目の順序を変更できること', async () => {
-      mockReorderItems.mockResolvedValue(undefined);
-      const anotherItemId = '550e8400-e29b-41d4-a716-446655440009';
-
-      const response = await request(app)
-        .put(`/api/estimates/${validUUID}/items/reorder`)
-        .send({
-          itemOrders: [
-            { id: estimateItemId, displayOrder: 1 },
-            { id: anotherItemId, displayOrder: 0 },
-          ],
-        });
-
-      expect(response.status).toBe(204);
-    });
-  });
-
-  describe('POST /api/estimates/:id/transfer-quotation', () => {
-    const receivedQuotationId = '550e8400-e29b-41d4-a716-446655440007';
-    const lineItemId = '550e8400-e29b-41d4-a716-446655440008';
-
-    it('受領見積書から転記できること', async () => {
-      mockTransferFromQuotation.mockResolvedValue([mockEstimateDetail.items[0]]);
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/transfer-quotation`)
-        .send({
-          receivedQuotationId,
-          lineItemIds: [lineItemId],
-        });
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
-    });
-
-    it('転記先を指定して転記できること', async () => {
-      mockTransferFromQuotation.mockResolvedValue([mockEstimateDetail.items[0]]);
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/transfer-quotation`)
-        .send({
-          receivedQuotationId,
-          lineItemIds: [lineItemId],
-          targetEstimateItemId: estimateItemId,
-        });
-
-      expect(response.status).toBe(200);
-      expect(mockTransferFromQuotation).toHaveBeenCalledWith(
-        expect.objectContaining({
-          targetEstimateItemId: estimateItemId,
-        })
-      );
-    });
-  });
-
-  describe('POST /api/estimates/:id/calculate-net', () => {
-    it('NET金額案分計算ができること', async () => {
-      mockPrismaEstimateItemLineFindMany.mockResolvedValue([
-        {
-          id: estimateItemId,
-          estimateItemId: estimateItemId,
-          lineType: 'VENDOR',
-          name: 'テスト',
-          specification: null,
-          unit: '式',
-          quantity: '1',
-          unitPrice: '10000',
-          amount: '10000',
-        },
-      ]);
-
-      mockPreviewNetAllocation.mockReturnValue([
-        {
-          lineId: estimateItemId,
-          originalAmount: new Decimal('10000'),
-          allocatedAmount: new Decimal('8000'),
-          ratio: new Decimal('0.8'),
-        },
-      ]);
-
-      mockPrismaTransaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const txMock = {
-            estimateItemLine: { update: vi.fn().mockResolvedValue({}) },
-            estimate: { update: vi.fn().mockResolvedValue({}) },
-          };
-          return callback(txMock);
-        }
-      );
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/calculate-net`)
-        .send({
-          vendorName: 'テスト業者',
-          targetLineIds: [estimateItemId],
-          excludeLineIds: [],
-          netAmount: '8000',
-        });
-
-      expect(response.status).toBe(200);
-    });
-  });
-
-  describe('POST /api/estimates/:id/apply-profit-rate', () => {
-    it('利益率を適用できること', async () => {
-      mockPrismaEstimateItemLineFindMany.mockResolvedValue([
-        {
-          id: estimateItemId,
-          estimateItemId: estimateItemId,
-          lineType: 'EXECUTION',
-          name: 'テスト',
-          specification: null,
-          unit: '式',
-          quantity: '1',
-          unitPrice: '10000',
-          amount: '10000',
-        },
-      ]);
-
-      mockPreviewProfitRate.mockReturnValue([
-        {
-          lineId: estimateItemId,
-          originalUnitPrice: new Decimal('10000'),
-          newUnitPrice: new Decimal('11000'),
-        },
-      ]);
-
-      mockPrismaTransaction.mockImplementation(
-        async (callback: (tx: unknown) => Promise<unknown>) => {
-          const txMock = {
-            estimateItemLine: {
-              findUnique: vi.fn().mockResolvedValue({
-                id: 'estimate-line-id',
-                estimateItemId: estimateItemId,
-                lineType: 'ESTIMATE',
-                quantity: '1',
-                unitPrice: null,
-                amount: null,
-              }),
-              update: vi.fn().mockResolvedValue({}),
-            },
-            estimate: { update: vi.fn().mockResolvedValue({}) },
-          };
-          return callback(txMock);
-        }
-      );
-
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/apply-profit-rate`)
-        .send({
-          profitRate: '10',
-          overwriteOption: 'all',
-        });
-
-      expect(response.status).toBe(200);
-    });
-
-    it('利益率が範囲外の場合は400を返すこと', async () => {
-      const response = await request(app)
-        .post(`/api/estimates/${validUUID}/apply-profit-rate`)
-        .send({
-          profitRate: '600',
-          overwriteOption: 'all',
-        });
-
-      expect(response.status).toBe(400);
-    });
-  });
-
   describe('POST /api/estimates/:id/calculate-overhead', () => {
     it('諸経費を計算できること', async () => {
       mockCalculateCommonTemporaryCost.mockReturnValue({
@@ -858,95 +583,206 @@ describe('estimates.routes', () => {
     });
   });
 
-  describe('POST /api/estimates/:id/overhead-items', () => {
-    it('諸経費行を追加できること', async () => {
-      mockGetPresetValues.mockReturnValue({
-        name: '共通仮設費',
-        specification: '',
-        unit: '式',
-        quantity: 1,
-      });
-      mockCreateItem.mockResolvedValue(mockEstimateDetail.items[0]);
-
-      const response = await request(app).post(`/api/estimates/${validUUID}/overhead-items`).send({
-        costType: 'COMMON_TEMPORARY',
-      });
-
-      expect(response.status).toBe(201);
-    });
-  });
-
   // ==========================================
-  // 階層移動API (Task 27.1, REQ-24)
+  // 撤去済みエンドポイント（Task 53.12 / 55.7 / 56.10, REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2）
   // ==========================================
 
-  describe('PATCH /api/estimates/:id/items/:itemId/move', () => {
-    const newParentId = '550e8400-e29b-41d4-a716-446655440010';
+  /**
+   * 明細の追加・削除・複写・一括更新・並び替え・階層移動は
+   * `PUT /api/estimates/:id/save`（一括保存）へ統合したため、旧6経路は存在しない。
+   *
+   * 受領見積書転記・NET金額案分・利益率適用・諸経費行追加・値引き行追加の5経路も、
+   * クライアントの `estimateCalculations` と `estimateEditReducer` による
+   * 編集状態への反映へ移したため存在しない（Task 55.7）。この撤去自体が
+   * 49.3（実行時点でデータベースへ書き込まない）と 49.5（後続の保存で競合させない）の
+   * 成立条件であり、経路が復活すれば `Estimate.updatedAt` を進める書き込みも復活する。
+   *
+   * 見積書出力 `GET /:id/export` も、帳票（PDF）と表計算（Excel）の生成を
+   * クライアントの `EstimatePdfExportService` / `EstimateExcelExportService` へ
+   * 移したため存在しない（Task 56.10）。経路が残っていれば「出力にサーバーが
+   * 関与しない」が破れ、未保存の変更を含む出力（REQ-56.1〜56.3）が
+   * サーバー側の保存済みデータで上書きされうる。
+   *
+   * 「経路が無いこと」は個々のハンドラのテストでは表現できないため、
+   * ルーターへ要求を投げて**見つからない応答**になることで固定する。
+   * あわせて、維持対象の経路が巻き添えで消えていないこと
+   * （過剰撤去の検出）も同じ観点で固定する。
+   *
+   * Requirements (estimate-creation):
+   * - REQ-10.1: PDF出力を選択した場合、建設工事見積書形式のPDFファイルを生成する
+   * - REQ-10.2: Excel出力を選択した場合、同じ書式規則のExcelファイルを生成する
+   * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+   * - REQ-49.3: これらの操作は実行の時点でデータベースへの書き込みを行わない
+   * - REQ-49.5: これらの操作の実行後に保存操作を行っても競合エラーを発生させない
+   */
+  describe('撤去済みエンドポイント (REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2)', () => {
+    const anotherItemId = '550e8400-e29b-41d4-a716-446655440009';
+    const receivedQuotationId = '550e8400-e29b-41d4-a716-446655440007';
+    const lineItemId = '550e8400-e29b-41d4-a716-446655440008';
 
-    it('項目を別の親に移動できること', async () => {
-      mockMoveItem.mockResolvedValue(undefined);
+    /** 明細操作系6経路（Task 53.12, REQ-42.1） */
+    const removedItemRoutes: Array<{ name: string; send: () => request.Test }> = [
+      {
+        name: 'POST /api/estimates/:id/items',
+        send: () =>
+          request(app)
+            .post(`/api/estimates/${validUUID}/items`)
+            .send({ displayOrder: 0, lines: [{ lineType: 'ESTIMATE' }] }),
+      },
+      {
+        name: 'DELETE /api/estimates/:id/items/:itemId',
+        send: () =>
+          request(app)
+            .delete(`/api/estimates/${validUUID}/items/${estimateItemId}`)
+            .send({ forceDelete: true }),
+      },
+      {
+        name: 'POST /api/estimates/:id/items/:itemId/duplicate',
+        send: () =>
+          request(app).post(`/api/estimates/${validUUID}/items/${estimateItemId}/duplicate`),
+      },
+      {
+        name: 'PUT /api/estimates/:id/items/batch',
+        send: () =>
+          request(app)
+            .put(`/api/estimates/${validUUID}/items/batch`)
+            .send({ items: [], updatedAt: '2024-01-01T00:00:00.000Z' }),
+      },
+      {
+        name: 'PUT /api/estimates/:id/items/reorder',
+        send: () =>
+          request(app)
+            .put(`/api/estimates/${validUUID}/items/reorder`)
+            .send({ itemOrders: [{ id: estimateItemId, displayOrder: 0 }] }),
+      },
+      {
+        name: 'PATCH /api/estimates/:id/items/:itemId/move',
+        send: () =>
+          request(app)
+            .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
+            .send({ newParentId: anotherItemId }),
+      },
+    ];
 
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId });
+    /**
+     * 転記系5経路（Task 55.7, REQ-49.3）
+     *
+     * ペイロードは撤去前のスキーマを満たす正当な内容にする。形式不正で 400 に
+     * なったものを「経路が無い」と読み違えないようにするため。
+     */
+    const removedTransferRoutes: Array<{ name: string; send: () => request.Test }> = [
+      {
+        name: 'POST /api/estimates/:id/transfer-quotation',
+        send: () =>
+          request(app)
+            .post(`/api/estimates/${validUUID}/transfer-quotation`)
+            .send({ receivedQuotationId, lineItemIds: [lineItemId] }),
+      },
+      {
+        name: 'POST /api/estimates/:id/calculate-net',
+        send: () =>
+          request(app)
+            .post(`/api/estimates/${validUUID}/calculate-net`)
+            .send({
+              vendorName: 'テスト業者',
+              targetLineIds: [estimateItemId],
+              excludeLineIds: [],
+              netAmount: '8000',
+            }),
+      },
+      {
+        name: 'POST /api/estimates/:id/apply-profit-rate',
+        send: () =>
+          request(app)
+            .post(`/api/estimates/${validUUID}/apply-profit-rate`)
+            .send({ profitRate: '10', overwriteOption: 'all' }),
+      },
+      {
+        name: 'POST /api/estimates/:id/overhead-items',
+        send: () =>
+          request(app)
+            .post(`/api/estimates/${validUUID}/overhead-items`)
+            .send({ costType: 'COMMON_TEMPORARY' }),
+      },
+      {
+        name: 'POST /api/estimates/:id/discount-items',
+        send: () =>
+          request(app)
+            .post(`/api/estimates/${validUUID}/discount-items`)
+            .send({ unitPrice: -1000 }),
+      },
+    ];
 
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual({ success: true });
-      expect(mockMoveItem).toHaveBeenCalledWith(estimateItemId, newParentId);
-    });
+    /**
+     * 出力系1経路（Task 56.10, REQ-10.1, REQ-10.2）
+     *
+     * クエリは撤去前のスキーマを満たす正当な内容にする（`format` は必須だった）。
+     * 形式不正の 400 を「経路が無い」と読み違えないようにするため。
+     */
+    const removedExportRoutes: Array<{ name: string; send: () => request.Test }> = [
+      {
+        name: 'GET /api/estimates/:id/export',
+        send: () =>
+          request(app).get(
+            `/api/estimates/${validUUID}/export?format=pdf&lineTypes=ESTIMATE,EXECUTION`
+          ),
+      },
+    ];
 
-    it('項目をルートレベルに移動できること（newParentId: null）', async () => {
-      mockMoveItem.mockResolvedValue(undefined);
+    const removedRoutes = [...removedItemRoutes, ...removedTransferRoutes, ...removedExportRoutes];
 
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId: null });
-
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual({ success: true });
-      expect(mockMoveItem).toHaveBeenCalledWith(estimateItemId, null);
-    });
-
-    it('循環参照が発生する場合400を返すこと', async () => {
-      mockMoveItem.mockRejectedValue(
-        new EstimateItemCircularReferenceError(estimateItemId, newParentId)
-      );
-
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId });
-
-      expect(response.status).toBe(400);
-      expect(response.body.code).toBe('ESTIMATE_ITEM_CIRCULAR_REFERENCE');
-    });
-
-    it('存在しない項目の場合404を返すこと', async () => {
-      mockMoveItem.mockRejectedValue(new EstimateItemNotFoundError(estimateItemId));
-
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId });
+    it.each(removedRoutes)('$name が見つからない応答を返すこと', async ({ send }) => {
+      const response = await send();
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_ITEM_NOT_FOUND');
     });
 
-    it('不正なリクエストボディの場合400を返すこと', async () => {
-      const response = await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId: 'not-a-uuid' });
+    /**
+     * 撤去した12経路がデータベースへ到達しないこと（REQ-49.3, REQ-49.5, REQ-10.1, REQ-10.2）
+     *
+     * `$transaction` は撤去前の案分・利益率適用が `Estimate.updatedAt` を
+     * 進めていた経路そのもの。ここが呼ばれれば 49.5（後続の保存で競合しない）が破れる。
+     * `getHierarchy` は撤去前の出力経路が明細ツリーを読み出していた入口でもあり、
+     * ここが呼ばれれば出力がサーバー側の保存済みデータを見ていることになる。
+     */
+    it('撤去した経路がサービス・データベースの呼び出しに到達しないこと (REQ-49.3, REQ-49.5)', async () => {
+      for (const route of removedRoutes) {
+        await route.send();
+      }
 
-      expect(response.status).toBe(400);
+      expect(mockPrismaTransaction).not.toHaveBeenCalled();
+      expect(mockGetHierarchy).not.toHaveBeenCalled();
     });
 
-    it('estimate:update権限が必要であること', async () => {
-      mockMoveItem.mockResolvedValue(undefined);
+    /**
+     * 過剰撤去の検出。書き込みを伴わない `POST /:id/calculate-overhead` は
+     * 撤去対象ではない（撤去した書き込み経路 `POST /:id/overhead-items` との
+     * 取り違えを防ぐ）。応答の中身ではなく「経路が解決されること」だけを見る。
+     */
+    const keptRoutes: Array<{ name: string; send: () => request.Test }> = [
+      {
+        name: 'POST /api/estimates/:id/calculate-overhead',
+        send: () => request(app).post(`/api/estimates/${validUUID}/calculate-overhead`).send({}),
+      },
+      {
+        name: 'PUT /api/estimates/:id/save',
+        send: () => request(app).put(`/api/estimates/${validUUID}/save`).send({}),
+      },
+    ];
 
-      await request(app)
-        .patch(`/api/estimates/${validUUID}/items/${estimateItemId}/move`)
-        .send({ newParentId: null });
+    it.each(keptRoutes)('$name は撤去されていないこと', async ({ send }) => {
+      const response = await send();
 
-      expect(mockRequirePermission).toHaveBeenCalledWith('estimate:update');
+      expect(response.status).not.toBe(404);
+    });
+
+    it('見積項目の参照経路 GET /api/estimates/:id/items は維持されること', async () => {
+      mockGetHierarchy.mockResolvedValue(mockEstimateDetail.items);
+
+      const response = await request(app).get(`/api/estimates/${validUUID}/items`);
+
+      expect(response.status).toBe(200);
+      expect(mockGetHierarchy).toHaveBeenCalledWith(validUUID);
     });
   });
 });

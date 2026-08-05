@@ -15,15 +15,21 @@
  * - REQ-23.10: 「下の階層へ移動」ボタンを提供する
  * - REQ-41.1: 見積項目操作ツールバーに「値引き行追加」ボタンを提供する
  * - REQ-41.7: 値引き行は自動計算を持たず、手入力のみ（専用ダイアログなし）
+ * - 55.1: 名称のみを持つ注記行を明細に追加可能とする
+ * - 55.3: 注記行を任意の階層の任意の位置に配置可能とする
+ * - 55.6: 注記行を通常の明細行と同様に削除・複写・並び替え・階層移動の対象とする
+ * - 48.1, 48.2: 取り消し・やり直しの操作を提供する（Task 54.8）
+ * - 48.4: 取り消し可能な履歴が存在しない場合、取り消し操作を無効状態で表示する（Task 54.8）
  *
  * @module __tests__/components/estimate/EstimateItemToolbar
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EstimateItemToolbar } from '../../../components/estimate/EstimateItemToolbar';
 import type { EstimateItemHierarchyEdit } from '../../../hooks/useEstimateEditor';
+import type { EstimateViewMode } from '../../../hooks/useEstimateNavigation';
 
 // ============================================================================
 // テストデータ
@@ -75,7 +81,6 @@ const createMockItem = (
     },
   ],
   children: [],
-  isExpanded: true,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   ...overrides,
@@ -87,20 +92,29 @@ const createMockItem = (
 
 describe('EstimateItemToolbar', () => {
   const defaultProps = {
-    selectedItemId: null as string | null,
+    selectedKeys: [] as readonly string[],
     selectedItem: null as EstimateItemHierarchyEdit | null,
     hasPreviousSibling: false,
     onAddItem: vi.fn(),
     onAddChildItem: vi.fn(),
-    onDeleteItem: vi.fn(),
-    onDuplicateItem: vi.fn(),
-    onMoveUp: vi.fn(),
-    onMoveDown: vi.fn(),
+    onDeleteItems: vi.fn(),
+    onDuplicateItems: vi.fn(),
+    onMoveUpItems: vi.fn(),
+    onMoveDownItems: vi.fn(),
     onReorderUp: vi.fn(),
     onReorderDown: vi.fn(),
     onAddDiscountItem: vi.fn(),
+    onAddNoteItem: vi.fn(),
     canReorderUp: false,
     canReorderDown: false,
+    // 階層表示モードの切替（45.1, 45.2 / Task 54.4）
+    viewMode: 'tree' as EstimateViewMode,
+    onViewModeChange: vi.fn(),
+    // 取り消し・やり直し（48.1, 48.2, 48.4 / Task 54.8）
+    canUndo: false,
+    canRedo: false,
+    onUndo: vi.fn(),
+    onRedo: vi.fn(),
   };
 
   beforeEach(() => {
@@ -171,7 +185,7 @@ describe('EstimateItemToolbar', () => {
     const selectedItem = createMockItem();
     const selectedProps = {
       ...defaultProps,
-      selectedItemId: 'item-1',
+      selectedKeys: ['item-1'],
       selectedItem,
     };
 
@@ -201,7 +215,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -214,7 +228,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -230,7 +244,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           hasPreviousSibling={false}
         />
@@ -244,7 +258,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           hasPreviousSibling={true}
         />
@@ -271,7 +285,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -281,61 +295,61 @@ describe('EstimateItemToolbar', () => {
       expect(defaultProps.onAddChildItem).toHaveBeenCalledWith('item-1');
     });
 
-    it('複製ボタンクリックでonDuplicateItemが呼ばれること', async () => {
+    it('複製ボタンクリックでonDuplicateItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem();
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
 
       await user.click(screen.getByRole('button', { name: /複製/ }));
 
-      expect(defaultProps.onDuplicateItem).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onDuplicateItems).toHaveBeenCalledWith(['item-1']);
     });
 
-    it('削除ボタンクリックでonDeleteItemが呼ばれること', async () => {
+    it('削除ボタンクリックでonDeleteItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem();
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
 
       await user.click(screen.getByRole('button', { name: /削除/ }));
 
-      expect(defaultProps.onDeleteItem).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onDeleteItems).toHaveBeenCalledWith(['item-1']);
     });
 
-    it('上の階層へボタンクリックでonMoveUpが呼ばれること', async () => {
+    it('上の階層へボタンクリックでonMoveUpItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem({ parentId: 'parent-1' });
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
 
       await user.click(screen.getByRole('button', { name: /上の階層へ/ }));
 
-      expect(defaultProps.onMoveUp).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onMoveUpItems).toHaveBeenCalledWith(['item-1']);
     });
 
-    it('下の階層へボタンクリックでonMoveDownが呼ばれること', async () => {
+    it('下の階層へボタンクリックでonMoveDownItemsが呼ばれること', async () => {
       const user = userEvent.setup();
       const selectedItem = createMockItem();
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           hasPreviousSibling={true}
         />
@@ -343,7 +357,7 @@ describe('EstimateItemToolbar', () => {
 
       await user.click(screen.getByRole('button', { name: /下の階層へ/ }));
 
-      expect(defaultProps.onMoveDown).toHaveBeenCalledWith('item-1');
+      expect(defaultProps.onMoveDownItems).toHaveBeenCalledWith(['item-1']);
     });
   });
 
@@ -361,7 +375,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderUp={true}
           canReorderDown={false}
@@ -377,7 +391,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderUp={false}
           canReorderDown={true}
@@ -394,7 +408,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderUp={true}
         />
@@ -411,7 +425,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
           canReorderDown={true}
         />
@@ -443,7 +457,7 @@ describe('EstimateItemToolbar', () => {
       render(
         <EstimateItemToolbar
           {...defaultProps}
-          selectedItemId="item-1"
+          selectedKeys={['item-1']}
           selectedItem={selectedItem}
         />
       );
@@ -458,6 +472,214 @@ describe('EstimateItemToolbar', () => {
       await user.click(screen.getByTestId('add-discount-button'));
 
       expect(defaultProps.onAddDiscountItem).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // 55.1, 55.3, 55.6: 注記行（Task 53.8）
+  describe('注記行追加ボタン（55.1, 55.3）', () => {
+    it('「注記行追加」ボタンが未選択時も有効で表示されること (55.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      const button = screen.getByTestId('add-note-button');
+      expect(button).toHaveTextContent('注記行追加');
+      expect(button).toBeEnabled();
+    });
+
+    it('注記行追加ボタンクリックでonAddNoteItemが呼ばれること (55.1)', async () => {
+      const user = userEvent.setup();
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      await user.click(screen.getByTestId('add-note-button'));
+
+      expect(defaultProps.onAddNoteItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('注記行を選択中でも削除・複製・階層移動・並び替えのボタンが有効であること (55.6)', () => {
+      const noteItem = createMockItem({
+        id: 'note-1',
+        parentId: 'item-parent',
+        itemType: 'NOTE',
+      });
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          selectedKeys={['note-1']}
+          selectedItem={noteItem}
+          hasPreviousSibling={true}
+          canReorderUp={true}
+          canReorderDown={true}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: '削除' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '複製' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '上の階層へ' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '下の階層へ' })).toBeEnabled();
+      expect(screen.getByTestId('reorder-up-button')).toBeEnabled();
+      expect(screen.getByTestId('reorder-down-button')).toBeEnabled();
+    });
+
+    it('注記行を選択中に削除・複製を押すと注記行のIDが渡されること (55.6)', async () => {
+      const user = userEvent.setup();
+      const noteItem = createMockItem({ id: 'note-1', itemType: 'NOTE' });
+      render(
+        <EstimateItemToolbar {...defaultProps} selectedKeys={['note-1']} selectedItem={noteItem} />
+      );
+
+      await user.click(screen.getByRole('button', { name: '複製' }));
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      expect(defaultProps.onDuplicateItems).toHaveBeenCalledWith(['note-1']);
+      expect(defaultProps.onDeleteItems).toHaveBeenCalledWith(['note-1']);
+    });
+  });
+
+  // ==========================================================================
+  // 階層表示モードの切替（Task 54.4 / 45.1, 45.2）
+  //
+  // design.md `#### File Structure Plan`:
+  // `EstimateItemToolbar.tsx  # 改修: 範囲選択・モード切替・取り消しを追加`
+  // に従い、切替操作はツールバー上に置く（範囲選択・取り消しの統合は 54.10 / 54.8）。
+  // モードの所有者は `useEstimateNavigation` であり、本コンポーネントは
+  // 表示中のモードを受け取って通知するだけで自前の state を持たない。
+  // ==========================================================================
+  describe('階層表示モードの切替 (45.1, 45.2)', () => {
+    it('ツリー表示とドリルダウン表示の2つの選択肢を提供すること (45.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} />);
+
+      const group = screen.getByRole('radiogroup', { name: '階層表示モード' });
+      expect(group).toBeInTheDocument();
+      expect(within(group).getByRole('radio', { name: 'ツリー表示' })).toBeInTheDocument();
+      expect(within(group).getByRole('radio', { name: 'ドリルダウン表示' })).toBeInTheDocument();
+    });
+
+    it('ツリー表示のときはツリー表示が選択済みとして示されること (45.2)', () => {
+      render(<EstimateItemToolbar {...defaultProps} viewMode="tree" />);
+
+      expect(screen.getByRole('radio', { name: 'ツリー表示' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+      expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toHaveAttribute(
+        'aria-checked',
+        'false'
+      );
+    });
+
+    it('ドリルダウン表示のときはドリルダウン表示が選択済みとして示されること (45.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} viewMode="drilldown" />);
+
+      expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+      expect(screen.getByRole('radio', { name: 'ツリー表示' })).toHaveAttribute(
+        'aria-checked',
+        'false'
+      );
+    });
+
+    it('ドリルダウン表示を選ぶと切替が通知されること (45.1)', async () => {
+      const user = userEvent.setup();
+      const onViewModeChange = vi.fn();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          viewMode="tree"
+          onViewModeChange={onViewModeChange}
+        />
+      );
+
+      await user.click(screen.getByRole('radio', { name: 'ドリルダウン表示' }));
+
+      expect(onViewModeChange).toHaveBeenCalledTimes(1);
+      expect(onViewModeChange).toHaveBeenCalledWith('drilldown');
+    });
+
+    it('ツリー表示を選ぶと切替が通知されること (45.1)', async () => {
+      const user = userEvent.setup();
+      const onViewModeChange = vi.fn();
+      render(
+        <EstimateItemToolbar
+          {...defaultProps}
+          viewMode="drilldown"
+          onViewModeChange={onViewModeChange}
+        />
+      );
+
+      await user.click(screen.getByRole('radio', { name: 'ツリー表示' }));
+
+      expect(onViewModeChange).toHaveBeenCalledTimes(1);
+      expect(onViewModeChange).toHaveBeenCalledWith('tree');
+    });
+
+    it('モード切替は項目の選択状態に関わらず操作できること (45.1)', () => {
+      render(<EstimateItemToolbar {...defaultProps} selectedKeys={[]} selectedItem={null} />);
+
+      expect(screen.getByRole('radio', { name: 'ツリー表示' })).toBeEnabled();
+      expect(screen.getByRole('radio', { name: 'ドリルダウン表示' })).toBeEnabled();
+    });
+  });
+
+  // ==========================================================================
+  // 取り消し・やり直し（48.1, 48.2, 48.4 / Task 54.8）
+  // ==========================================================================
+
+  describe('取り消し・やり直し', () => {
+    /** @requirement estimate-creation/REQ-48.4 */
+    it('取り消し可能な履歴が無い場合は取り消し・やり直しを無効状態で表示すること (48.4)', () => {
+      render(<EstimateItemToolbar {...defaultProps} canUndo={false} canRedo={false} />);
+
+      expect(screen.getByTestId('undo-button')).toBeDisabled();
+      expect(screen.getByTestId('redo-button')).toBeDisabled();
+    });
+
+    /** @requirement estimate-creation/REQ-48.4 */
+    it('取り消し可能な履歴がある場合は取り消しを有効状態で表示すること (48.4)', () => {
+      render(<EstimateItemToolbar {...defaultProps} canUndo={true} canRedo={false} />);
+
+      expect(screen.getByTestId('undo-button')).toBeEnabled();
+      expect(screen.getByTestId('redo-button')).toBeDisabled();
+    });
+
+    /** @requirement estimate-creation/REQ-48.2 */
+    it('やり直し可能な場合はやり直しを有効状態で表示すること (48.2, 48.4)', () => {
+      render(<EstimateItemToolbar {...defaultProps} canUndo={false} canRedo={true} />);
+
+      expect(screen.getByTestId('redo-button')).toBeEnabled();
+    });
+
+    /** @requirement estimate-creation/REQ-48.1 */
+    it('取り消しボタンの押下で取り消しが通知されること (48.1)', async () => {
+      const user = userEvent.setup();
+      const onUndo = vi.fn();
+      render(<EstimateItemToolbar {...defaultProps} canUndo={true} onUndo={onUndo} />);
+
+      await user.click(screen.getByTestId('undo-button'));
+
+      expect(onUndo).toHaveBeenCalledTimes(1);
+    });
+
+    /** @requirement estimate-creation/REQ-48.2 */
+    it('やり直しボタンの押下でやり直しが通知されること (48.2)', async () => {
+      const user = userEvent.setup();
+      const onRedo = vi.fn();
+      render(<EstimateItemToolbar {...defaultProps} canRedo={true} onRedo={onRedo} />);
+
+      await user.click(screen.getByTestId('redo-button'));
+
+      expect(onRedo).toHaveBeenCalledTimes(1);
+    });
+
+    /** @requirement estimate-creation/REQ-48.4 */
+    it('無効状態の取り消しボタンを押しても通知されないこと (48.4)', async () => {
+      const user = userEvent.setup();
+      const onUndo = vi.fn();
+      render(<EstimateItemToolbar {...defaultProps} canUndo={false} onUndo={onUndo} />);
+
+      await user.click(screen.getByTestId('undo-button'));
+
+      expect(onUndo).not.toHaveBeenCalled();
     });
   });
 });

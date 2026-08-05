@@ -27,11 +27,13 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import SiteSurveyDetailInfo from '../../../components/site-surveys/SiteSurveyDetailInfo';
 import type { SiteSurveyDetail } from '../../../types/site-survey.types';
-import * as exportModule from '../../../services/export';
+import * as exportModule from '../../../services/export/PdfExportService';
 import * as annotationModule from '../../../services/export/AnnotationRendererService';
 
 // エクスポートサービスのモック
-vi.mock('../../../services/export', () => ({
+// コンポーネントは `loadPdfExportService()`（動的 import の境界）経由で呼び出すため、
+// 読み込み口は本物のまま、その先の実サービスだけを差し替える。
+vi.mock('../../../services/export/PdfExportService', () => ({
   exportAndDownloadPdf: vi.fn(),
 }));
 

@@ -1,85 +1,140 @@
 /**
  * @fileoverview ProfitRateDialog テスト
  *
- * Requirements:
- * - REQ-19.1〜19.7: 利益率適用ダイアログの各機能
+ * Task 55.4: 利益率ダイアログの入力元を編集中の明細へ変更
+ *
+ * 適用対象は**編集中の明細ツリー**から構成し、上書きオプションの3分岐も
+ * 編集中の値に対して判定する。プレビューと適用は同一の計算関数
+ * （`estimateCalculations.applyProfitRate`）を通り、適用はサーバーへ書き込まず
+ * `onApply` で編集状態への遷移へ渡す。
+ *
+ * Requirements (estimate-creation):
+ * - 6.2: 「すべて上書き」は名称・規格・単位・数量・単価を見積金額行に上書きする
+ * - 6.3: 「空の場合のみ上書き」は見積金額行が空の項目のみ上書きする
+ * - 6.4: 「単価のみ上書き」は単価のみを上書きする
+ * - 6.5: 反映が実行された場合、金額を自動計算して表示する
+ * - 6.6: 利益率を百分率で入力可能とする
+ * - 6.7: 「空の場合のみ上書き」の判定を編集中の見積金額行の単価に対して行う
+ * - 6.9: 未保存の新規行が適用対象に含まれる場合、その行も適用対象として扱う
+ * - 13.3: 利益率に 0.00〜500.00 の範囲外の値が入力された場合はエラーメッセージを表示する
+ *   （Task 55.7 で `POST /:id/apply-profit-rate` と `applyProfitRateSchema` を撤去した際に、
+ *   サーバー側の範囲検証から本ダイアログへ移した責務）
+ * - 19.3: 利益率の入力フィールド（0.00〜500.00%）を提供する
+ * - 19.4: 上書きオプションを提供する
+ * - 19.5: 各行の元の単価と新しい単価のプレビューを表示する
+ * - 19.6: 適用ボタンで実行金額行の内容を利益率適用後に見積金額行へ反映する
+ * - 19.8: 編集中の実行金額行（未保存の追加・編集を含む）を適用対象の一覧に表示する
+ * - 37.1, 37.2: 利益率のデフォルト値12.27%と手動変更
+ * - 49.7: 計算対象に未保存の新規項目を含める
+ *
+ * 19.7（処理中インジケーター）は、適用がクライアント内で同期的に完結するように
+ * なったため成立する処理中の期間が存在しない（49.3 でサーバーへの往復が無くなった）。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfitRateDialog } from '../../../components/estimate/ProfitRateDialog';
-import type { EstimateItemHierarchyEdit } from '../../../hooks/useEstimateEditor';
+import type {
+  EstimateItemHierarchyEdit,
+  EstimateItemLineEdit,
+} from '../../../hooks/useEstimateEditor';
 
-// apiClientをモック
-vi.mock('../../../api/client', () => ({
-  apiClient: {
-    post: vi.fn(),
-  },
-}));
+type LineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
 
-import { apiClient } from '../../../api/client';
+const buildLine = (
+  itemId: string,
+  lineType: LineType,
+  overrides: Partial<EstimateItemLineEdit> = {}
+): EstimateItemLineEdit => ({
+  id: `${itemId}-${lineType}`,
+  estimateItemId: itemId,
+  lineType,
+  name: null,
+  specification: null,
+  unit: null,
+  quantity: null,
+  unitPrice: null,
+  amount: null,
+  remarks: null,
+  ...overrides,
+});
 
-const mockApiPost = vi.mocked(apiClient.post);
+const buildItem = (
+  id: string,
+  lines: EstimateItemLineEdit[],
+  overrides: Partial<EstimateItemHierarchyEdit> = {}
+): EstimateItemHierarchyEdit => ({
+  id,
+  estimateId: 'est-1',
+  parentId: null,
+  displayOrder: 0,
+  lines,
+  children: [],
+  createdAt: '2025-01-01T00:00:00Z',
+  updatedAt: '2025-01-01T00:00:00Z',
+  ...overrides,
+});
 
-const createMockItems = (): EstimateItemHierarchyEdit[] => [
-  {
-    id: 'item-1',
-    estimateId: 'est-1',
-    parentId: null,
-    displayOrder: 0,
-    isExpanded: true,
-    createdAt: '2025-01-01T00:00:00Z',
-    updatedAt: '2025-01-01T00:00:00Z',
-    lines: [
-      {
-        id: 'line-e-1',
-        estimateItemId: 'item-1',
-        lineType: 'ESTIMATE',
-        name: '外壁塗装',
-        specification: null,
-        unit: '式',
-        quantity: '1',
-        unitPrice: '100000',
-        amount: '100000',
-        remarks: null,
-      },
-      {
-        id: 'line-x-1',
-        estimateItemId: 'item-1',
-        lineType: 'EXECUTION',
-        name: '外壁塗装',
-        specification: null,
-        unit: '式',
-        quantity: '1',
-        unitPrice: '90000',
-        amount: '90000',
-        remarks: null,
-      },
-      {
-        id: 'line-v-1',
-        estimateItemId: 'item-1',
-        lineType: 'VENDOR',
-        name: '外壁塗装',
-        specification: null,
-        unit: '式',
-        quantity: '1',
-        unitPrice: '80000',
-        amount: '80000',
-        remarks: null,
-      },
-    ],
-    children: [],
-  },
-];
+/**
+ * 標準の適用対象（実行金額行・見積金額行の双方を持つ）
+ *
+ * 実行金額行の数量(2)と見積金額行の数量(3)を意図的に違える。上書きオプションによって
+ * 金額の算出に使う数量が変わる（6.2 は実行金額行・6.4 は見積金額行）ため。
+ */
+const standardItem = (
+  id: string,
+  name: string,
+  executionUnitPrice: string | null,
+  estimateUnitPrice: string | null
+): EstimateItemHierarchyEdit =>
+  buildItem(id, [
+    buildLine(id, 'ESTIMATE', {
+      name: `旧${name}`,
+      unit: '個',
+      quantity: '3',
+      unitPrice: estimateUnitPrice,
+      amount: estimateUnitPrice,
+    }),
+    buildLine(id, 'EXECUTION', {
+      name,
+      specification: '仕様A',
+      unit: '式',
+      quantity: '2',
+      unitPrice: executionUnitPrice,
+      amount: executionUnitPrice,
+    }),
+    buildLine(id, 'VENDOR', { name }),
+  ]);
+
+/** プレビュー行（項目キーで引く） */
+const previewRow = (key: string): HTMLElement => {
+  const row = screen
+    .getAllByTestId('profit-preview-row')
+    .find((element) => element.getAttribute('data-profit-key') === key);
+  if (row === undefined) {
+    throw new Error(`プレビュー行が見つかりません: ${key}`);
+  }
+  return row;
+};
+
+const previewKeys = (): (string | null)[] =>
+  screen
+    .queryAllByTestId('profit-preview-row')
+    .map((element) => element.getAttribute('data-profit-key'));
+
+const cellText = (key: string, testId: string): string =>
+  (within(previewRow(key)).getByTestId(testId).textContent ?? '').trim();
 
 describe('ProfitRateDialog', () => {
+  const onClose = vi.fn();
+  const onApply = vi.fn();
+
   const defaultProps = {
     isOpen: true,
-    estimateId: 'est-1',
-    items: createMockItems(),
-    onClose: vi.fn(),
-    onComplete: vi.fn(),
+    items: [standardItem('item-1', '外壁塗装', '90000', null)],
+    onClose,
+    onApply,
   };
 
   beforeEach(() => {
@@ -91,295 +146,294 @@ describe('ProfitRateDialog', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('isOpen=trueの場合はダイアログが表示される (REQ-19.2)', () => {
+  it('isOpen=trueの場合はダイアログが表示される', () => {
     render(<ProfitRateDialog {...defaultProps} />);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('実行金額を見積金額に転記（利益率適用）')).toBeInTheDocument();
   });
 
-  it('利益率入力フィールドが表示される (REQ-19.3)', () => {
+  /** @requirement estimate-creation/REQ-19.3 */
+  it('利益率入力フィールドが百分率で提供される (19.3, 6.6)', () => {
     render(<ProfitRateDialog {...defaultProps} />);
     const input = screen.getByLabelText('利益率 (%)');
-    expect(input).toBeInTheDocument();
     expect(input).toHaveAttribute('type', 'number');
     expect(input).toHaveAttribute('min', '0');
     expect(input).toHaveAttribute('max', '500');
     expect(input).toHaveAttribute('step', '0.01');
   });
 
-  it('上書きオプションが表示される (REQ-19.4)', () => {
+  /** @requirement estimate-creation/REQ-19.4 */
+  it('上書きオプションの3分岐が提供される (19.4)', () => {
     render(<ProfitRateDialog {...defaultProps} />);
-
-    expect(screen.getByText('上書きオプション')).toBeInTheDocument();
-    expect(screen.getByLabelText(/すべて上書き/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/すべて上書き/)).toBeChecked();
     expect(screen.getByLabelText(/空の場合のみ上書き/)).toBeInTheDocument();
     expect(screen.getByLabelText(/単価のみ上書き/)).toBeInTheDocument();
   });
 
-  it('上書きオプションのデフォルトは「すべて上書き」', () => {
+  /** @requirement estimate-creation/REQ-37.1 */
+  it('利益率のデフォルト値が12.27である (37.1)', () => {
     render(<ProfitRateDialog {...defaultProps} />);
-    const allRadio = screen.getByLabelText(/すべて上書き/) as HTMLInputElement;
-    expect(allRadio.checked).toBe(true);
+    expect(screen.getByLabelText('利益率 (%)')).toHaveValue(12.27);
   });
 
-  it('上書きオプションを変更できる', async () => {
-    const user = userEvent.setup();
-    render(<ProfitRateDialog {...defaultProps} />);
-
-    const emptyOnlyRadio = screen.getByLabelText(/空の場合のみ上書き/);
-    await user.click(emptyOnlyRadio);
-    expect((emptyOnlyRadio as HTMLInputElement).checked).toBe(true);
-
-    const unitPriceRadio = screen.getByLabelText(/単価のみ上書き/);
-    await user.click(unitPriceRadio);
-    expect((unitPriceRadio as HTMLInputElement).checked).toBe(true);
-  });
-
-  it('利益率入力でプレビューが表示される (REQ-19.5)', async () => {
+  /** @requirement estimate-creation/REQ-37.2 */
+  it('利益率のデフォルト値を手動で変更できる (37.2)', async () => {
     const user = userEvent.setup();
     render(<ProfitRateDialog {...defaultProps} />);
 
     const input = screen.getByLabelText('利益率 (%)');
     await user.clear(input);
-    await user.type(input, '10');
+    await user.type(input, '25');
+
+    expect(input).toHaveValue(25);
+    // 90,000 × 1.25 = 112,500
+    expect(cellText('item-1', 'preview-new-unit-price')).toBe('112,500円');
+  });
+
+  /** @requirement estimate-creation/REQ-19.5 */
+  it('元の単価と新しい単価のプレビューを表示する (19.5)', () => {
+    render(<ProfitRateDialog {...defaultProps} />);
 
     expect(screen.getByText('適用プレビュー')).toBeInTheDocument();
-    expect(screen.getByText('元の単価')).toBeInTheDocument();
-    expect(screen.getByText('新しい単価')).toBeInTheDocument();
-    // 90000 * 1.10 = 99000
-    expect(screen.getByText('99,000円')).toBeInTheDocument();
+    expect(cellText('item-1', 'preview-original-unit-price')).toBe('90,000円');
+    // 90,000 × 1.1227 = 101,043
+    expect(cellText('item-1', 'preview-new-unit-price')).toBe('101,043円');
   });
 
-  it('不正な利益率ではプレビューが表示されない', async () => {
+  /** @requirement estimate-creation/REQ-19.8 */
+  it('編集中の実行金額行を適用対象の一覧に表示する（子孫を含む） (19.8, 49.7)', () => {
+    const child = standardItem('tmp-child', '子項目工事', '50000', null);
+    const parent = standardItem('item-parent', '親項目工事', '30000', null);
+    render(<ProfitRateDialog {...defaultProps} items={[{ ...parent, children: [child] }]} />);
+
+    // 未保存の一時識別子（tmp-*）の行も適用対象になる（6.9, 49.7）
+    expect(previewKeys()).toEqual(['item-parent', 'tmp-child']);
+    expect(within(previewRow('tmp-child')).getByText('子項目工事')).toBeInTheDocument();
+  });
+
+  /**
+   * 適用側（`estimateEditReducer` の `applyProfitRate`）は見積金額行を持たない項目を
+   * `continue` で飛ばす。ダイアログが同じ条件で選ばないと、反映されない行に
+   * 新しい単価を示してしまい 6.8 に反する。
+   */
+  /** @requirement estimate-creation/REQ-6.8 */
+  it('見積金額行を持たない項目は適用対象にしない（適用側と同じ選定） (6.8)', () => {
+    const noEstimate = buildItem('item-no-estimate', [
+      buildLine('item-no-estimate', 'EXECUTION', {
+        name: '見積金額行なし工事',
+        quantity: '1',
+        unitPrice: '70000',
+        amount: '70000',
+      }),
+    ]);
+
+    render(
+      <ProfitRateDialog
+        {...defaultProps}
+        items={[standardItem('item-1', '外壁塗装', '90000', null), noEstimate]}
+      />
+    );
+
+    expect(previewKeys()).toEqual(['item-1']);
+    expect(screen.queryByText('見積金額行なし工事')).not.toBeInTheDocument();
+  });
+
+  /** @requirement estimate-creation/REQ-6.8 */
+  it('実行金額行を持たない項目は適用対象にしない（適用側と同じ選定） (6.8)', () => {
+    const noExecution = buildItem('item-no-execution', [
+      buildLine('item-no-execution', 'ESTIMATE', {
+        name: '実行金額行なし工事',
+        quantity: '1',
+        unitPrice: '70000',
+        amount: '70000',
+      }),
+    ]);
+
+    render(
+      <ProfitRateDialog
+        {...defaultProps}
+        items={[standardItem('item-1', '外壁塗装', '90000', null), noExecution]}
+      />
+    );
+
+    expect(previewKeys()).toEqual(['item-1']);
+    expect(screen.queryByText('実行金額行なし工事')).not.toBeInTheDocument();
+  });
+
+  /**
+   * 値引き行・注記行は利益率の対象外（design.md Invariants / 41.9, 55.4）。
+   * 項目種別を計算関数へ渡さないとこの除外が効かず、適用側だけが除外して食い違う。
+   */
+  /** @requirement estimate-creation/REQ-6.8 */
+  it('値引き行・注記行は適用対象にしない (6.8)', () => {
+    const discount = standardItem('item-discount', '値引き', '90000', null);
+    const note = standardItem('item-note', '注記', '90000', null);
+
+    render(
+      <ProfitRateDialog
+        {...defaultProps}
+        items={[
+          standardItem('item-1', '外壁塗装', '90000', null),
+          { ...discount, itemType: 'DISCOUNT' as const },
+          { ...note, itemType: 'NOTE' as const },
+        ]}
+      />
+    );
+
+    expect(previewKeys()).toEqual(['item-1']);
+  });
+
+  /** @requirement estimate-creation/REQ-6.7 */
+  it('「空の場合のみ上書き」を編集中の見積金額行の単価で判定する (6.3, 6.7)', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProfitRateDialog
+        {...defaultProps}
+        items={[
+          standardItem('item-empty', '見積単価が空', '90000', null),
+          standardItem('item-filled', '見積単価あり', '90000', '50000'),
+        ]}
+      />
+    );
+
+    await user.click(screen.getByLabelText(/空の場合のみ上書き/));
+
+    // 単価が入っている行は反映されないことをプレビューで示す（6.8）
+    expect(cellText('item-empty', 'preview-applied')).toBe('反映する');
+    expect(cellText('item-filled', 'preview-applied')).toBe('反映しない');
+  });
+
+  /** @requirement estimate-creation/REQ-6.2 */
+  it('「すべて上書き」は見積金額行の単価が入っていても反映する (6.2)', () => {
+    render(
+      <ProfitRateDialog
+        {...defaultProps}
+        items={[standardItem('item-filled', '見積単価あり', '90000', '50000')]}
+      />
+    );
+
+    expect(cellText('item-filled', 'preview-applied')).toBe('反映する');
+  });
+
+  /**
+   * 金額の算出に使う数量は上書きオプションで変わる（バックエンド実装と同じ規約）。
+   * 「すべて上書き」「空の場合のみ上書き」は実行金額行の数量を複写するのでその数量、
+   * 「単価のみ上書き」は見積金額行の数量が残るのでその数量を用いる。
+   */
+  /** @requirement estimate-creation/REQ-6.5 */
+  it('新しい金額を上書きオプションに応じた数量で自動計算して表示する (6.5, 6.2, 6.4)', async () => {
     const user = userEvent.setup();
     render(<ProfitRateDialog {...defaultProps} />);
 
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
-    await user.type(input, 'abc');
+    // すべて上書き: 実行金額行の数量 2 × 101,043
+    expect(cellText('item-1', 'preview-new-amount')).toBe('202,086円');
 
-    expect(screen.queryByText('適用プレビュー')).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText(/単価のみ上書き/));
+
+    // 単価のみ上書き: 見積金額行の数量 3 × 101,043
+    expect(cellText('item-1', 'preview-new-amount')).toBe('303,129円');
   });
 
-  it('適用ボタンで送信される (REQ-19.6)', async () => {
+  /** @requirement estimate-creation/REQ-19.6 */
+  it('適用ボタンで編集状態への反映を要求し、サーバーへは送らない (19.6, 49.1, 49.3)', async () => {
     const user = userEvent.setup();
-    mockApiPost.mockResolvedValueOnce({});
+    render(
+      <ProfitRateDialog
+        {...defaultProps}
+        items={[
+          standardItem('item-1', '外壁塗装', '90000', null),
+          standardItem('tmp-2', '未保存工事', '30000', null),
+        ]}
+      />
+    );
 
-    render(<ProfitRateDialog {...defaultProps} />);
-
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
-    await user.type(input, '15');
+    await user.click(screen.getByLabelText(/単価のみ上書き/));
     await user.click(screen.getByRole('button', { name: '適用' }));
 
-    await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith('/api/estimates/est-1/apply-profit-rate', {
-        profitRate: '15',
-        overwriteOption: 'all',
-      });
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply).toHaveBeenCalledWith({
+      targetKeys: ['item-1', 'tmp-2'],
+      rate: '12.27',
+      overwriteOption: 'unit_price_only',
     });
-
-    expect(defaultProps.onComplete).toHaveBeenCalled();
-    expect(defaultProps.onClose).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('利益率が空の場合は適用ボタンが無効', async () => {
     const user = userEvent.setup();
     render(<ProfitRateDialog {...defaultProps} />);
 
-    // デフォルト12.27をクリアする
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
+    await user.clear(screen.getByLabelText('利益率 (%)'));
 
     expect(screen.getByRole('button', { name: '適用' })).toBeDisabled();
+    expect(screen.queryByText('適用プレビュー')).not.toBeInTheDocument();
   });
 
-  it('送信中は「適用中...」と表示される (REQ-19.7)', async () => {
-    const user = userEvent.setup();
-    mockApiPost.mockImplementation(() => new Promise(() => {}));
+  it('適用対象が無い場合は適用ボタンが無効', () => {
+    render(<ProfitRateDialog {...defaultProps} items={[]} />);
 
-    render(<ProfitRateDialog {...defaultProps} />);
-
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
-    await user.type(input, '10');
-    await user.click(screen.getByRole('button', { name: '適用' }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '適用中...' })).toBeDisabled();
-    });
+    expect(screen.getByRole('button', { name: '適用' })).toBeDisabled();
+    expect(screen.queryByText('適用プレビュー')).not.toBeInTheDocument();
   });
 
-  it('キャンセルボタンでonCloseが呼ばれる', async () => {
+  it('キャンセルボタンでonCloseが呼ばれ、適用は行われない', async () => {
     const user = userEvent.setup();
     render(<ProfitRateDialog {...defaultProps} />);
 
     await user.click(screen.getByRole('button', { name: 'キャンセル' }));
-    expect(defaultProps.onClose).toHaveBeenCalled();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onApply).not.toHaveBeenCalled();
   });
 
-  it('API呼び出し失敗時にクラッシュしない', async () => {
-    const user = userEvent.setup();
-    mockApiPost.mockRejectedValueOnce(new Error('API Error'));
-
-    render(<ProfitRateDialog {...defaultProps} />);
-
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
-    await user.type(input, '10');
-    await user.click(screen.getByRole('button', { name: '適用' }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '適用' })).not.toBeDisabled();
-    });
-  });
-
-  it('上書きオプションがAPI呼び出しに反映される', async () => {
-    const user = userEvent.setup();
-    mockApiPost.mockResolvedValueOnce({});
-
-    render(<ProfitRateDialog {...defaultProps} />);
-
-    await user.click(screen.getByLabelText(/単価のみ上書き/));
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
-    await user.type(input, '20');
-    await user.click(screen.getByRole('button', { name: '適用' }));
-
-    await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith('/api/estimates/est-1/apply-profit-rate', {
-        profitRate: '20',
-        overwriteOption: 'unit_price_only',
-      });
-    });
-  });
-
-  it('実行金額行の単価がない項目は対象外', () => {
-    const items: EstimateItemHierarchyEdit[] = [
-      {
-        id: 'item-1',
-        estimateId: 'est-1',
-        parentId: null,
-        displayOrder: 0,
-        isExpanded: true,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        lines: [
-          {
-            id: 'line-x-1',
-            estimateItemId: 'item-1',
-            lineType: 'EXECUTION',
-            name: '単価なし工事',
-            specification: null,
-            unit: null,
-            quantity: null,
-            unitPrice: null,
-            amount: null,
-            remarks: null,
-          },
-        ],
-        children: [],
-      },
-    ];
-
-    render(<ProfitRateDialog {...defaultProps} items={items} />);
-
-    // プレビューは表示されない（対象行がないため）
-    expect(screen.queryByText('適用プレビュー')).not.toBeInTheDocument();
-  });
-
-  it('子項目のEXECUTION行も収集される', async () => {
-    const user = userEvent.setup();
-    const items: EstimateItemHierarchyEdit[] = [
-      {
-        id: 'item-parent',
-        estimateId: 'est-1',
-        parentId: null,
-        displayOrder: 0,
-        isExpanded: true,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        lines: [],
-        children: [
-          {
-            id: 'item-child',
-            estimateId: 'est-1',
-            parentId: 'item-parent',
-            displayOrder: 0,
-            isExpanded: true,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-            lines: [
-              {
-                id: 'line-x-child',
-                estimateItemId: 'item-child',
-                lineType: 'EXECUTION',
-                name: '子項目工事',
-                specification: null,
-                unit: '式',
-                quantity: '1',
-                unitPrice: '50000',
-                amount: '50000',
-                remarks: null,
-              },
-            ],
-            children: [],
-          },
-        ],
-      },
-    ];
-
-    render(<ProfitRateDialog {...defaultProps} items={items} />);
-
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
-    await user.type(input, '10');
-
-    // 子項目の工事名が表示される
-    expect(screen.getByText('子項目工事')).toBeInTheDocument();
-  });
-
-  // ==========================================================================
-  // REQ-37.1, REQ-37.2: 利益率デフォルト値12.27%
-  // ==========================================================================
-  describe('利益率デフォルト値 (REQ-37.1, REQ-37.2)', () => {
-    it('利益率入力フィールドのデフォルト値が12.27であること (REQ-37.1)', () => {
-      render(<ProfitRateDialog {...defaultProps} />);
-      const input = screen.getByLabelText('利益率 (%)') as HTMLInputElement;
-      expect(input.value).toBe('12.27');
-    });
-
-    it('デフォルト値12.27でプレビューが表示されること', () => {
-      render(<ProfitRateDialog {...defaultProps} />);
-      // 90000 * 1.1227 = 101043
-      expect(screen.getByText('適用プレビュー')).toBeInTheDocument();
-    });
-
-    it('デフォルト値を自由に変更できること (REQ-37.2)', async () => {
+  /**
+   * 利益率の範囲エラー（13.3）
+   *
+   * 範囲検証はかつてサーバーの `applyProfitRateSchema`（`POST /:id/apply-profit-rate`）
+   * にしか無く、旧ダイアログは 400 応答を空の catch で握り潰していたため
+   * 「エラーメッセージを表示する」は実際には満たされていなかった。適用が
+   * クライアント内で完結した（49.3）いま、範囲検証はこのダイアログの責務である。
+   *
+   * 期待値の `-0.01` / `500.01` / メッセージ文言はテスト側にリテラルで置く。
+   * 実装と同じ定数・判定関数を参照すると、境界をずらす変異をテストが追従して
+   * しまい検証が空振りするため。
+   */
+  describe('利益率の範囲エラー (13.3)', () => {
+    it.each([
+      ['負の利益率', '-0.01'],
+      ['500を超える利益率', '500.01'],
+    ])('%s はエラーメッセージを表示し適用させない', async (_label, rate) => {
       const user = userEvent.setup();
       render(<ProfitRateDialog {...defaultProps} />);
 
-      const input = screen.getByLabelText('利益率 (%)') as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, '25');
-      expect(input.value).toBe('25');
+      await user.clear(screen.getByLabelText('利益率 (%)'));
+      await user.type(screen.getByLabelText('利益率 (%)'), rate);
+
+      // 13.3 の要求そのもの（エラーメッセージの表示）を先に確かめる。
+      // 適用ボタンの状態を先に見ると、範囲検証を落とす変異が
+      // 「ボタンが有効なまま」という副次的な失敗として現れ、
+      // メッセージ表示の検証が実行されないまま終わる。
+      expect(screen.getByRole('alert')).toHaveTextContent('利益率は0〜500の範囲で入力してください');
+      expect(screen.getByRole('button', { name: '適用' })).toBeDisabled();
+
+      await user.click(screen.getByRole('button', { name: '適用' }));
+      expect(onApply).not.toHaveBeenCalled();
     });
-  });
 
-  it('送信中はフォーム入力が無効になる', async () => {
-    const user = userEvent.setup();
-    mockApiPost.mockImplementation(() => new Promise(() => {}));
+    it.each([
+      ['下限', '0'],
+      ['上限', '500'],
+    ])('境界値（%s）はエラーとせず適用できる', async (_label, rate) => {
+      const user = userEvent.setup();
+      render(<ProfitRateDialog {...defaultProps} />);
 
-    render(<ProfitRateDialog {...defaultProps} />);
+      await user.clear(screen.getByLabelText('利益率 (%)'));
+      await user.type(screen.getByLabelText('利益率 (%)'), rate);
 
-    const input = screen.getByLabelText('利益率 (%)');
-    await user.clear(input);
-    await user.type(input, '10');
-    await user.click(screen.getByRole('button', { name: '適用' }));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('利益率 (%)')).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'キャンセル' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: '適用' }));
+      expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ rate }));
     });
   });
 });

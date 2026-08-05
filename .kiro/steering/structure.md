@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-07-29（Steering Sync: 新ドメイン construction-photo（工事写真台帳）を反映。spec カタログ・`ConstructionPhotoSectionCard`・`pages/ConstructionPhoto*`/`ConstructionSignboardListPage`・`components/construction-photos/`・`api/construction-photo*`/`construction-signboards`・backend `services/signboard-*`（SVG描画・sharp合成）・e2e `construction-photos/` を追加）_
+_最終更新: 2026-08-05（Steering Sync: 見積書作成の行操作・ネスト構造・帳票書式の再設計を反映。UI非依存の `frontend/src/domain/`（estimateEditReducer/estimateTree/estimateCalculations/estimateKeymap）を新設層として追加、`services/export/` の `load*ExportService.ts` 動的import分離、`components/estimate/` の表示・俯瞰・キー割当・帳票入力コンポーネント、backend `estimate-draft.service.ts` 追加と `estimate-export.service.ts` 撤去、`estimates.routes.ts` の経路整理、hooks件数を実測値32に是正）_
+
+_2026-07-29（Steering Sync: 新ドメイン construction-photo（工事写真台帳）を反映。spec カタログ・`ConstructionPhotoSectionCard`・`pages/ConstructionPhoto*`/`ConstructionSignboardListPage`・`components/construction-photos/`・`api/construction-photo*`/`construction-signboards`・backend `services/signboard-*`（SVG描画・sharp合成）・e2e `construction-photos/` を追加）_
 
 _2026-07-09（Steering Sync: `utils/imageFitScale.ts`・`hooks/useElementSize.ts`・`pages/SiteSurveyImageViewerPage.css`（`svh`二段宣言）を反映、hooks件数を実測値27に是正）_
 
@@ -255,8 +257,8 @@ git config core.hooksPath .husky
   - 内容: 会社名・住所・連絡先管理（シングルトンパターン）、見積依頼文への自動挿入、楽観的排他制御
 
 - `.kiro/specs/estimate-creation/` - 見積書作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全76タスク完了）
-  - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、Excel/PDF出力（複数行タイプ選択対応）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（tasks.md のチェック項目245件すべて完了）
+  - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、**明細編集のクライアント完結＋一括保存（行操作・階層移動・範囲操作・Undo/Redo・キーボード操作・階層表示モード・俯瞰パネル・注記行）**、**帳票出力のフロントエンド生成（A4横の表紙/内訳書/明細書 PDF・Excel、未保存プレビュー）**
 
 - `.kiro/specs/contract-management/` - 契約書管理機能 ✅実装完了
   - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
@@ -565,18 +567,25 @@ frontend/
 │   │       ├── pdf-worker-config.ts  # pdfjs-dist worker共通設定モジュール
 │   │       ├── number-format.ts      # 数値表示形式・丸め規則ユーティリティ
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── estimate/                # 見積書コンポーネント（12+ファイル）
+│   │   ├── estimate/                # 見積書コンポーネント（18+ファイル）
 │   │       ├── EstimateCard.tsx      # 見積書カード
 │   │       ├── EstimateItemRow.tsx   # 見積項目行
 │   │       ├── EstimateItemTable.tsx # 見積項目テーブル
-│   │       ├── EstimateItemToolbar.tsx # 見積項目ツールバー
+│   │       ├── EstimateItemToolbar.tsx # 見積項目ツールバー（範囲選択・表示モード切替・取り消し統合）
+│   │       ├── EstimateItemTreeView.tsx # ツリー表示（展開/折りたたみ）
+│   │       ├── EstimateItemDrilldownView.tsx # ドリルダウン表示（現在階層のみ）
+│   │       ├── EstimateBreadcrumbPath.tsx # 現在階層の経路表示
+│   │       ├── EstimateHierarchyPanel.tsx # 階層構造の俯瞰パネル
+│   │       ├── EstimateKeymapHelp.tsx # キー割当一覧の表示
+│   │       ├── EstimateReportFieldsPanel.tsx # 帳票用入力項目（別途工事・有効期限・提出日）
+│   │       ├── useEstimateRowDrag.ts # 行のドラッグ&ドロップ
 │   │       ├── TransferQuotationDialog.tsx # 受領見積書転記ダイアログ
 │   │       ├── NetCalculationPanel.tsx # NET金額案分パネル
 │   │       ├── NetAllocationDialog.tsx # NET案分ダイアログ（プロジェクト単位受領見積書選択）
 │   │       ├── OverheadCostPanel.tsx # 諸経費パネル
 │   │       ├── ProfitRatePanel.tsx   # 利益率パネル
 │   │       ├── ProfitRateDialog.tsx  # 利益率適用ダイアログ
-│   │       ├── EstimateExportDialog.tsx # 見積書Excel出力ダイアログ
+│   │       ├── EstimateExportDialog.tsx # 帳票出力ダイアログ（PDF/Excel、行タイプ選択）
 │   │       └── index.ts              # エクスポート集約
 │   │   ├── contract/                # 契約書コンポーネント（5ファイル）
 │   │       ├── ContractForm.tsx     # 契約書作成・編集フォーム（新規/変更契約対応、見積書連動金額計算）
@@ -809,8 +818,15 @@ frontend/src/
 │   ├── execution-budget.ts # 実行予算API
 │   ├── order-detail.ts # 発注詳細API
 │   └── progress.ts # 出来高API
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等 27ファイル）
-├── services/          # サービス層（TokenRefreshManager.ts）
+├── domain/            # UI非依存のドメインロジック層（純関数・reducer。Reactに依存させない）
+│   └── estimate/      # 見積明細の編集モデル
+│       ├── estimateEditReducer.ts # 編集状態の遷移関数（行操作・階層移動・範囲操作）
+│       ├── estimateTree.ts # ツリー導出・祖先金額の再計算
+│       ├── estimateCalculations.ts # 案分・利益率・集計のクライアント計算
+│       └── estimateKeymap.ts # キー割当の単一定義（画面のヘルプ表示と共用）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等 32ファイル）
+├── services/          # サービス層（TokenRefreshManager.ts、AutoSaveManager.ts、UndoManager.ts）
+│   └── export/        # 帳票・エクスポート生成（jsPDF/SheetJS。`load*ExportService.ts` の動的importで初期チャンクから分離）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
 ├── utils/             # ユーティリティ関数
 │   ├── calculation-engine.ts # 数量計算エンジン（フロントエンド版）
@@ -931,7 +947,7 @@ backend/
 │   │   ├── company-info.routes.ts # 自社情報ルート（シングルトンCRUD）
 │   │   ├── project-quotations.routes.ts # プロジェクト単位受領見積書取得ルート（転記用）
 │   │   ├── claude-vision.routes.ts # Claude Vision OCRルート（見積書構造化データ抽出）
-│   │   ├── estimates.routes.ts # 見積書ルート（CRUD、階層構造、転記、案分、利益率、Excel出力）
+│   │   ├── estimates.routes.ts # 見積書ルート（CRUD、明細一括保存 PUT /:id/save、明細取得、諸経費計算）
 │   │   ├── contracts.routes.ts # 契約書ルート（CRUD、ステータス遷移）
 │   │   ├── schedules.routes.ts # 工程表ルート（CRUD、エクスポート）
 │   │   ├── execution-budget.routes.ts # 実行予算ルート（CRUD、変更契約適用）
@@ -1002,10 +1018,10 @@ backend/
 │   │   ├── company-info.service.ts # 自社情報管理（シングルトンパターン、楽観的排他制御）
 │   │   ├── estimate.service.ts # 見積書管理（CRUD、楽観的排他制御）
 │   │   ├── estimate-item.service.ts # 見積項目管理（3行1セット、階層構造）
+│   │   ├── estimate-draft.service.ts # 見積明細の一括保存（ツリー全体の差分適用、単一トランザクション、楽観ロック）
 │   │   ├── estimate-calculation.service.ts # 見積金額計算（NET金額案分）
 │   │   ├── estimate-validation.service.ts # 見積書バリデーション
-│   │   ├── estimate-export.service.ts # 見積書Excel出力
-│   │   ├── overhead-cost.service.ts # 諸経費行管理
+│   │   ├── overhead-cost.service.ts # 諸経費計算（行の追加はクライアント側）
 │   │   ├── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
 │   │   ├── contract.service.ts # 契約書管理（CRUD、ステータス遷移、見積書連動金額計算、楽観的排他制御）
 │   │   ├── schedule.service.ts # 工程表管理（CRUD、工程項目管理、数量表連携、楽観的排他制御）

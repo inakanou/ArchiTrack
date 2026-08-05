@@ -68,7 +68,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
       createVendorLine('v-1', 'item-1', '仮設工事', '500000', 'A建設'),
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -83,7 +82,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
       createVendorLine('v-2', 'item-2', '基礎工事', '1200000', 'A建設'),
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -98,7 +96,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
       createVendorLine('v-3', 'item-3', '電気設備工事', '800000', 'B電工'),
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -119,7 +116,7 @@ const meta = {
   tags: ['autodocs'],
   args: {
     onClose: fn(),
-    onComplete: fn(),
+    onApply: fn(),
   },
 } satisfies Meta<typeof NetAllocationDialog>;
 
@@ -132,7 +129,6 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
     items: mockItems,
   },
@@ -144,7 +140,6 @@ export const Default: Story = {
 export const NoVendorLines: Story = {
   args: {
     isOpen: true,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
     items: [],
   },
@@ -156,7 +151,6 @@ export const NoVendorLines: Story = {
 export const Closed: Story = {
   args: {
     isOpen: false,
-    estimateId: 'estimate-1',
     projectId: 'project-1',
     items: mockItems,
   },

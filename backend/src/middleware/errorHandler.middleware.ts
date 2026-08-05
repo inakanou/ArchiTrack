@@ -80,6 +80,30 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
       return;
     }
 
+    // P2028: Transaction API error (interactive transaction timeout / maxWait exceeded)
+    // The transaction is rolled back by Prisma, so nothing was persisted. Reporting this as
+    // 400 "Database Error" would blame the request format and hide that fact from the client.
+    if (err.code === 'P2028') {
+      // 5xx として扱うため、他の 5xx と同様に Sentry へ送る
+      captureException(err, {
+        url: req.url,
+        method: req.method,
+        errorType: 'transaction_timeout',
+      });
+
+      res.status(500).json(
+        createProblemDetails({
+          type: PROBLEM_TYPES.INTERNAL_SERVER_ERROR,
+          title: 'Transaction Timeout',
+          status: 500,
+          detail:
+            'The transaction did not finish within the time limit. All changes were rolled back and nothing was saved.',
+          instance: req.url,
+        })
+      );
+      return;
+    }
+
     // Other Prisma errors
     res.status(400).json(
       createProblemDetails({

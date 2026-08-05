@@ -142,6 +142,58 @@ export class ItemizedStatementNotFoundForEstimateError extends NotFoundError {
 }
 
 /**
+ * 明細一括保存の検証エラー
+ * 422 Unprocessable Entity
+ *
+ * design.md「Error Handling」の「保存前の検証NG（必須項目・循環参照・孤児ノード・件数上限）」に
+ * 対応する。トランザクション開始前の全件検証で検出したため、書き込みは一切発生していない。
+ *
+ * Requirements (estimate-creation): 42.4, 42.8
+ */
+export class EstimateDraftValidationError extends ApiError {
+  constructor(public readonly issues: readonly { path: string; message: string }[]) {
+    super(
+      422,
+      '見積明細の入力内容に不備があるため保存できません',
+      'ESTIMATE_DRAFT_VALIDATION_ERROR',
+      { issues },
+      PROBLEM_TYPES.VALIDATION_ERROR
+    );
+    this.name = 'EstimateDraftValidationError';
+  }
+}
+
+/**
+ * 明細一括保存のトランザクション制限時間超過エラー
+ * 500 Internal Server Error
+ *
+ * Prisma のインタラクティブトランザクションが `timeout` または `maxWait` を超えると
+ * `P2028` を投げる。これをそのまま流すと `errorHandler` の汎用 Prisma 分岐に落ちて
+ * 400「Database operation failed」になり、利用者には「入力が悪いらしい」としか伝わらない。
+ *
+ * design.md「Error Handling / Error Strategy」の「トランザクション途中の失敗 → 500、
+ * 全ロールバック」に合わせて 500 とし、メッセージで
+ * 「制限時間内に完了しなかったこと」と「変更が一切保存されていないこと」を伝える。
+ *
+ * Requirements (estimate-creation): 42.1, 42.3
+ * Task 57.6: 一括保存の上限件数とトランザクション制限時間の確定
+ */
+export class EstimateSaveTimeoutError extends ApiError {
+  constructor(context: { timeoutMs: number; maxItems: number }) {
+    super(
+      500,
+      '保存処理が制限時間内に完了しなかったため、変更は保存されていません。' +
+        '見積書は保存前の状態のまま変更されていません。' +
+        '明細の件数を減らして保存し直すか、時間をおいて再度お試しください',
+      'ESTIMATE_SAVE_TIMEOUT',
+      { timeoutMs: context.timeoutMs, maxItems: context.maxItems },
+      PROBLEM_TYPES.INTERNAL_SERVER_ERROR
+    );
+    this.name = 'EstimateSaveTimeoutError';
+  }
+}
+
+/**
  * 循環参照エラー（見積項目の親子関係）
  * 400 Bad Request
  */

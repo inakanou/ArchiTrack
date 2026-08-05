@@ -1,31 +1,46 @@
 /**
  * @fileoverview useEstimateEditorフックのテスト
  *
- * Task 8.1: useEstimateEditorフックの実装
+ * Task 53.4: 編集フックの遷移関数への置き換え
+ *
+ * 差分記録方式（`pendingChanges: Map`）を廃止し、編集状態を
+ * `estimateEditReducer` へ委譲した後の振る舞いを検証します。
  *
  * Requirements (estimate-creation):
- * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
- * - REQ-1.4: 金額フィールドを入力不可として表示する
- * - REQ-1.5: 合計行に全見積項目の金額合計を自動計算して表示する
- * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
- * - REQ-12.1: 見積項目を追加した場合、新規の3行1セット（見積・実行・業者金額行）を作成する
- * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
- * - REQ-12.3: 見積項目を削除した場合、3行1セット全体を削除する
- * - REQ-12.5: 見積項目を複製した場合、3行1セット全体を複製する
- * - REQ-34.1: 見積項目追加後の保存・再読み込みの整合性
- * - REQ-34.2: 見積項目削除後の保存・再読み込みの整合性
- * - REQ-34.3: 見積項目編集後の保存・再読み込みの整合性
- * - REQ-34.4: 保存処理における全変更タイプの正しい処理
+ * - 12.1: 見積項目の追加は3行1セット（見積・実行・業者金額行）を作成する
+ * - 12.2: 見積項目の表示順序をドラッグ&ドロップで変更可能とする
+ * - 12.3: 見積項目の削除は3行1セット全体を削除する
+ * - 12.5: 見積項目の複製は3行1セット全体を複製する
+ * - 12.7: 行操作を編集セッション中にサーバーへ問い合わせずに行う
+ * - 27.1: 名称・規格・単位・数量・単価・備考をクライアントサイドで即座に編集可能とする
+ * - 27.2: 見積項目セクションの保存ボタンが押下時に呼ぶ操作（save）を提供する
+ * - 42.7: 保存操作が成功した場合に未保存の変更がない状態へ戻す
+ * - 54.1〜54.3: 別途工事・有効期限・提出日を見積書ごとに保持する
+ * - 54.6: 別途工事・有効期限・提出日を編集する経路を提供する
+ * - 54.8: 帳票用入力項目の変更を未保存の変更として扱う
+ * - 1.5: 合計行に全見積項目の金額合計を自動計算して表示する
+ * - 2.3: 子項目を持つ場合、親項目の金額を子項目の金額合計とする
+ * - 41.2, 41.3, 41.6, 41.8, 41.11: 値引きプリセット行
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import {
   useEstimateEditor,
+  type EstimateEditorSavePayload,
+  type EstimateEditorSaveResult,
   type UseEstimateEditorOptions,
   type EstimateItemHierarchyEdit,
-  type ItemChange,
 } from './useEstimateEditor';
+import { useEstimateUndo, type UseEstimateUndoReturn } from './useEstimateUndo';
+import type { EditableItem, EstimateEditState } from '../domain/estimate/estimateEditReducer.types';
+
+/** 保存ペイロードのツリーから ESTIMATE 行の名称を取り出す */
+const estimateNameOf = (item: EditableItem): string | null =>
+  item.lines.find((line) => line.lineType === 'ESTIMATE')?.name ?? null;
+
+/** 保存ペイロードのツリーからキー（id または tempId）を取り出す */
+const keyOf = (item: EditableItem): string => item.id ?? item.tempId ?? '';
 
 describe('useEstimateEditor', () => {
   // Mock console.error to avoid noise in tests
@@ -85,7 +100,6 @@ describe('useEstimateEditor', () => {
         },
       ],
       children: [],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     },
@@ -133,7 +147,6 @@ describe('useEstimateEditor', () => {
         },
       ],
       children: [],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     },
@@ -231,7 +244,6 @@ describe('useEstimateEditor', () => {
             },
           ],
           children: [],
-          isExpanded: true,
           createdAt: '2025-01-01T00:00:00.000Z',
           updatedAt: '2025-01-01T00:00:00.000Z',
         },
@@ -279,12 +291,10 @@ describe('useEstimateEditor', () => {
             },
           ],
           children: [],
-          isExpanded: true,
           createdAt: '2025-01-01T00:00:00.000Z',
           updatedAt: '2025-01-01T00:00:00.000Z',
         },
       ],
-      isExpanded: true,
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     },
@@ -308,8 +318,8 @@ describe('useEstimateEditor', () => {
 
       expect(result.current.items).toHaveLength(2);
       expect(result.current.isDirty).toBe(false);
-      expect(result.current.pendingChanges.size).toBe(0);
       expect(result.current.isSaving).toBe(false);
+      expect(result.current.lastError).toBeNull();
     });
 
     it('空の初期データでも正しく動作すること', () => {
@@ -318,9 +328,19 @@ describe('useEstimateEditor', () => {
       expect(result.current.items).toHaveLength(0);
       expect(result.current.isDirty).toBe(false);
     });
+
+    it('提出日・有効期限・別途工事を状態として持ち初期値が未入力であること (54.1〜54.3)', () => {
+      const { result } = renderHook(() => useEstimateEditor(defaultOptions));
+
+      expect(result.current.reportFields).toEqual({
+        submissionDate: null,
+        validityPeriod: null,
+        separateWorks: [],
+      });
+    });
   });
 
-  describe('updateLine - 行のフィールド更新（REQ-1.3, REQ-1.4）', () => {
+  describe('updateLine - 行のフィールド更新（1.3, 1.4, 27.1）', () => {
     it('数量を更新すると金額が自動計算されること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -381,7 +401,25 @@ describe('useEstimateEditor', () => {
       expect(estimateLine?.amount).toBe('10000'); // 元の金額のまま
     });
 
-    it('変更差分が正しく追跡されること', () => {
+    it('編集モード切替なしにセルを編集でき、未保存の変更として扱われること (27.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      expect(result.current.isDirty).toBe(false);
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '新しい名称');
+      });
+
+      expect(result.current.isDirty).toBe(true);
+      expect(result.current.items[0]?.lines[0]?.name).toBe('新しい名称');
+    });
+
+    it('存在しない行を指定しても状態が変化しないこと', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -390,16 +428,14 @@ describe('useEstimateEditor', () => {
       );
 
       act(() => {
-        result.current.updateLine('item-1', 'line-1-estimate', 'name', '新しい名称');
+        result.current.updateLine('item-1', '存在しない行', 'name', 'X');
       });
 
-      const change = result.current.pendingChanges.get('item-1');
-      expect(change).toBeDefined();
-      expect(change?.type).toBe('update');
+      expect(result.current.isDirty).toBe(false);
     });
   });
 
-  describe('addItem - 項目追加（REQ-12.1）', () => {
+  describe('addItem - 項目追加（12.1）', () => {
     it('新規項目が3行1セットで追加されること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -440,7 +476,7 @@ describe('useEstimateEditor', () => {
       expect(newChild?.lines).toHaveLength(3);
     });
 
-    it('変更差分にaddとして追加されること', () => {
+    it('新規項目が一時識別子を持ち、未保存の変更になること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -452,13 +488,16 @@ describe('useEstimateEditor', () => {
         result.current.addItem();
       });
 
-      const newItem = result.current.items[2];
-      const change = result.current.pendingChanges.get(newItem!.id);
-      expect(change?.type).toBe('add');
+      expect(result.current.items[2]?.id).toMatch(/^tmp-/);
+      expect(result.current.isDirty).toBe(true);
     });
   });
 
-  describe('deleteItem - 項目削除（REQ-12.3）', () => {
+  /**
+   * @requirement estimate-creation/REQ-12.3 見積項目を削除した場合に3行1セット全体を削除する
+   * @requirement estimate-creation/REQ-43.6 親項目を削除した場合にその子孫項目もあわせて取り除く
+   */
+  describe('deleteItem - 項目削除（12.3, 43.6）', () => {
     it('項目を削除すると3行1セット全体が削除されること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -476,22 +515,6 @@ describe('useEstimateEditor', () => {
       expect(result.current.isDirty).toBe(true);
     });
 
-    it('変更差分にdeleteとして追加されること', () => {
-      const { result } = renderHook(() =>
-        useEstimateEditor({
-          ...defaultOptions,
-          initialItems: createMockItems(),
-        })
-      );
-
-      act(() => {
-        result.current.deleteItem('item-1');
-      });
-
-      const change = result.current.pendingChanges.get('item-1');
-      expect(change?.type).toBe('delete');
-    });
-
     it('子項目を持つ項目を削除すると子項目も削除されること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -507,7 +530,7 @@ describe('useEstimateEditor', () => {
       expect(result.current.items).toHaveLength(0);
     });
 
-    it('新規追加した項目を削除するとpendingChangesからも削除されること', () => {
+    it('新規追加した項目を削除するとツリーから取り除かれること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -521,19 +544,34 @@ describe('useEstimateEditor', () => {
       });
 
       const newItemId = result.current.items[2]!.id;
-      expect(result.current.pendingChanges.has(newItemId)).toBe(true);
 
       // 追加した項目を削除
       act(() => {
         result.current.deleteItem(newItemId);
       });
 
-      // 新規追加した項目は完全に削除される（deleteフラグも立たない）
-      expect(result.current.pendingChanges.has(newItemId)).toBe(false);
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items.some((item) => item.id === newItemId)).toBe(false);
+    });
+
+    it('存在しない項目を削除しても状態が変化しないこと', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.deleteItem('存在しない項目');
+      });
+
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.isDirty).toBe(false);
     });
   });
 
-  describe('reorderItems - 項目並び替え（REQ-12.2）', () => {
+  describe('reorderItems - 項目並び替え（12.2）', () => {
     it('項目の順序を変更できること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -552,6 +590,23 @@ describe('useEstimateEditor', () => {
       expect(result.current.isDirty).toBe(true);
     });
 
+    it('後方への移動では対象行の後ろへ挿入されること', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      // item-1をitem-2の位置へ移動（後方移動）
+      act(() => {
+        result.current.reorderItems('item-1', 'item-2');
+      });
+
+      expect(result.current.items[0]?.id).toBe('item-2');
+      expect(result.current.items[1]?.id).toBe('item-1');
+    });
+
     it('displayOrderが正しく更新されること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -568,7 +623,38 @@ describe('useEstimateEditor', () => {
       expect(result.current.items[1]?.displayOrder).toBe(1);
     });
 
-    it('変更差分にreorderとして追加されること', () => {
+    /**
+     * 旧実装ではドラッグによる並び替えが差分に本体（data）を持たず、
+     * 保存経路で読み飛ばされて永続化されなかった（design.md `#### Modified Files`）。
+     * 遷移関数へ委譲した後は並び順そのものが state であり、保存対象に含まれる。
+     */
+    it('並び替えが保存対象のツリーに反映されること (12.2)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.reorderItems('item-2', 'item-1');
+      });
+
+      expect(result.current.isDirty).toBe(true);
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+      const payload = onSave.mock.calls[0]![0];
+      expect(payload.items.map(keyOf)).toEqual(['item-2', 'item-1']);
+    });
+
+    it('並び替えを行っても未保存のセル編集が保持されること (43.3)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -577,18 +663,22 @@ describe('useEstimateEditor', () => {
       );
 
       act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '編集済み');
+      });
+
+      act(() => {
         result.current.reorderItems('item-2', 'item-1');
       });
 
-      const change1 = result.current.pendingChanges.get('item-1');
-      const change2 = result.current.pendingChanges.get('item-2');
-      // 並び替えはupdateとして記録
-      expect(change1?.type).toBe('update');
-      expect(change2?.type).toBe('update');
+      const moved = result.current.items.find((item) => item.id === 'item-1');
+      expect(moved?.lines.find((l) => l.lineType === 'ESTIMATE')?.name).toBe('編集済み');
     });
   });
 
-  describe('duplicateItem - 項目複製（REQ-12.5）', () => {
+  /**
+   * @requirement estimate-creation/REQ-12.5 見積項目を複製した場合に3行1セット全体を複製する
+   */
+  describe('duplicateItem - 項目複製（12.5）', () => {
     it('項目を複製すると3行1セット全体が複製されること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -603,9 +693,11 @@ describe('useEstimateEditor', () => {
 
       expect(result.current.items).toHaveLength(3);
 
-      const duplicated = result.current.items[2];
+      // 複製は複製元の直後に配置される
+      const duplicated = result.current.items[1];
       expect(duplicated?.lines).toHaveLength(3);
       expect(duplicated?.lines[0]?.name).toBe('項目1');
+      expect(result.current.isDirty).toBe(true);
     });
 
     it('複製された項目は新しいIDを持つこと', () => {
@@ -620,33 +712,19 @@ describe('useEstimateEditor', () => {
         result.current.duplicateItem('item-1');
       });
 
-      const duplicated = result.current.items[2];
+      const duplicated = result.current.items[1];
       expect(duplicated?.id).not.toBe('item-1');
       // 行のIDも新しくなっている
       duplicated?.lines.forEach((line) => {
         expect(line.id).not.toContain('line-1');
       });
     });
-
-    it('変更差分にaddとして追加されること', () => {
-      const { result } = renderHook(() =>
-        useEstimateEditor({
-          ...defaultOptions,
-          initialItems: createMockItems(),
-        })
-      );
-
-      act(() => {
-        result.current.duplicateItem('item-1');
-      });
-
-      const duplicated = result.current.items[2];
-      const change = result.current.pendingChanges.get(duplicated!.id);
-      expect(change?.type).toBe('add');
-    });
   });
 
-  describe('階層金額の自動計算（REQ-2.3）', () => {
+  /**
+   * @requirement estimate-creation/REQ-43.5 行の追加・削除・階層変更が行われた場合に影響を受ける親項目の集計金額を再計算する
+   */
+  describe('階層金額の自動計算（2.3, 43.5）', () => {
     it('子項目の金額変更時に親項目の金額が自動計算されること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -668,11 +746,29 @@ describe('useEstimateEditor', () => {
       const parentEstimateLine = parent?.lines.find((l) => l.lineType === 'ESTIMATE');
       expect(parentEstimateLine?.amount).toBe('13000');
     });
+
+    it('子項目の削除時に親項目の金額が再計算されること (43.5)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockHierarchyItems(),
+        })
+      );
+
+      act(() => {
+        result.current.deleteItem('child-2');
+      });
+
+      const parent = result.current.items[0];
+      const parentEstimateLine = parent?.lines.find((l) => l.lineType === 'ESTIMATE');
+      expect(parentEstimateLine?.amount).toBe('5000');
+    });
   });
 
-  describe('save - バッチ保存', () => {
+  describe('save - 一括保存', () => {
     it('変更がない場合は保存をスキップすること', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -689,7 +785,8 @@ describe('useEstimateEditor', () => {
     });
 
     it('変更がある場合に保存が実行されること', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
       const onSaveSuccess = vi.fn();
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -712,8 +809,9 @@ describe('useEstimateEditor', () => {
       expect(onSaveSuccess).toHaveBeenCalled();
     });
 
-    it('保存成功後にisDirtyがfalseになること', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+    it('保存成功後に未保存の変更がない状態へ戻ること (42.7)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -733,12 +831,14 @@ describe('useEstimateEditor', () => {
       });
 
       expect(result.current.isDirty).toBe(false);
-      expect(result.current.pendingChanges.size).toBe(0);
+      // 保存後も編集内容は画面に残る
+      expect(result.current.items[0]?.lines[0]?.name).toBe('新しい名称');
     });
 
     it('保存中はisSavingがtrueになること', async () => {
       let resolvePromise: () => void;
-      const onSave = vi.fn().mockImplementation(
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockImplementation(
         () =>
           new Promise<void>((resolve) => {
             resolvePromise = resolve;
@@ -780,7 +880,8 @@ describe('useEstimateEditor', () => {
 
     it('保存失敗時にonSaveErrorが呼ばれること', async () => {
       const error = new Error('Save failed');
-      const onSave = vi.fn().mockRejectedValue(error);
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockRejectedValue(error);
       const onSaveError = vi.fn();
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -803,8 +904,9 @@ describe('useEstimateEditor', () => {
       expect(result.current.isDirty).toBe(true); // 失敗時はisDirtyを維持
     });
 
-    it('保存時に変更差分がonSaveに渡されること', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+    it('保存時に編集後のツリー全体と帳票用入力項目が渡されること (54.8)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -815,6 +917,298 @@ describe('useEstimateEditor', () => {
 
       act(() => {
         result.current.updateLine('item-1', 'line-1-estimate', 'name', '新しい名称');
+      });
+      act(() => {
+        result.current.deleteItem('item-2');
+      });
+      act(() => {
+        result.current.updateReportFields({
+          submissionDate: '2026-07-31',
+          validityPeriod: '提出日より1ヶ月間',
+          separateWorks: ['外構工事'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const payload = onSave.mock.calls[0]![0];
+      expect(payload.items.map(keyOf)).toEqual(['item-1']);
+      expect(estimateNameOf(payload.items[0]!)).toBe('新しい名称');
+      expect(payload.reportFields).toEqual({
+        submissionDate: '2026-07-31',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['外構工事'],
+      });
+    });
+
+    /**
+     * 42.2: 保存操作が成功した場合、保存後の最新の明細内容を画面に反映する
+     *
+     * 一括保存の応答は採番済みの項目ID・明細行IDを含むため、送信内容ではなく
+     * 応答で差し替えないと新規行が一時IDのまま残り、次の保存で二重作成される。
+     */
+    /**
+     * @requirement estimate-creation/REQ-42.2 保存操作が成功した場合に保存後の最新の明細内容を画面へ反映する
+     */
+    it('onSaveが返した最新ツリーで状態を差し替えること (42.2)', async () => {
+      const onSave =
+        vi.fn<(payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult>>();
+      onSave.mockResolvedValue({
+        items: [
+          {
+            id: 'server-assigned-1',
+            estimateId: 'estimate-1',
+            parentId: null,
+            displayOrder: 0,
+            lines: [
+              {
+                id: 'server-line-1',
+                estimateItemId: 'server-assigned-1',
+                lineType: 'ESTIMATE',
+                name: 'サーバー確定名称',
+                specification: null,
+                unit: '式',
+                quantity: '1',
+                unitPrice: '5000',
+                amount: '5000',
+                remarks: null,
+                sourceReceivedQuotationLineItemId: 'quotation-line-9',
+                sourceVendorName: null,
+              },
+            ],
+            children: [],
+            createdAt: '2025-02-01T00:00:00.000Z',
+            updatedAt: '2025-02-01T00:00:00.000Z',
+          },
+        ],
+        reportFields: {
+          submissionDate: '2026-07-31',
+          validityPeriod: '提出日より1ヶ月間',
+          separateWorks: ['外構工事'],
+        },
+      });
+
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.addItem();
+      });
+      expect(result.current.isDirty).toBe(true);
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+      // 送信内容（3項目・一時ID入り）ではなく応答の1項目で差し替わる
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.items[0]?.id).toBe('server-assigned-1');
+      expect(result.current.items[0]?.lines[0]?.name).toBe('サーバー確定名称');
+      // 転記元行の参照も応答から取り込まれる
+      expect(result.current.items[0]?.lines[0]?.sourceReceivedQuotationLineItemId).toBe(
+        'quotation-line-9'
+      );
+      expect(result.current.reportFields).toEqual({
+        submissionDate: '2026-07-31',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['外構工事'],
+      });
+      // 42.7: 未保存の変更がない状態へ戻る
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    /**
+     * 42.2: 応答を差し替えた後の再保存では、応答由来の確定IDが送られる
+     */
+    it('応答反映後の再保存で一時IDではなく確定IDが送られること (42.2)', async () => {
+      const onSave =
+        vi.fn<(payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult>>();
+      onSave.mockResolvedValue({
+        items: [
+          {
+            id: 'server-assigned-1',
+            estimateId: 'estimate-1',
+            parentId: null,
+            displayOrder: 0,
+            lines: [
+              {
+                id: 'server-line-1',
+                estimateItemId: 'server-assigned-1',
+                lineType: 'ESTIMATE',
+                name: 'サーバー確定名称',
+                specification: null,
+                unit: '式',
+                quantity: '1',
+                unitPrice: '5000',
+                amount: '5000',
+                remarks: null,
+                sourceReceivedQuotationLineItemId: null,
+                sourceVendorName: null,
+              },
+            ],
+            children: [],
+            createdAt: '2025-02-01T00:00:00.000Z',
+            updatedAt: '2025-02-01T00:00:00.000Z',
+          },
+        ],
+      });
+
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: [],
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.addItem();
+      });
+      await act(async () => {
+        await result.current.save();
+      });
+
+      act(() => {
+        result.current.updateLine('server-assigned-1', 'server-line-1', 'name', '再編集');
+      });
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(onSave).toHaveBeenCalledTimes(2);
+      const secondPayload = onSave.mock.calls[1]![0];
+      expect(secondPayload.items).toHaveLength(1);
+      expect(secondPayload.items[0]?.id).toBe('server-assigned-1');
+      expect(secondPayload.items[0]?.tempId).toBeNull();
+    });
+
+    it('onSaveがvoidを返す場合は送信内容をそのまま確定済みとして扱うこと', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '新しい名称');
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.isDirty).toBe(false);
+      expect(result.current.items[0]?.lines[0]?.name).toBe('新しい名称');
+    });
+
+    /**
+     * 42.5: 競合（保存失敗）時に編集中の内容を失わせない
+     */
+    it('保存が失敗した場合に編集内容と未保存状態が保持されること (42.5)', async () => {
+      const onSave =
+        vi.fn<(payload: EstimateEditorSavePayload) => Promise<EstimateEditorSaveResult>>();
+      onSave.mockRejectedValue(new Error('conflict'));
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '編集済み名称');
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.items[0]?.lines[0]?.name).toBe('編集済み名称');
+      expect(result.current.isDirty).toBe(true);
+      expect(result.current.isSaving).toBe(false);
+    });
+
+    it('onSave未指定の場合は保存されず未保存状態が維持されること', async () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '新しい名称');
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      expect(result.current.isDirty).toBe(true);
+      expect(result.current.isSaving).toBe(false);
+    });
+
+    it('連続した編集の最新値が保存対象に含まれること', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後名称A');
+      });
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'unitPrice', '2000');
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const payload = onSave.mock.calls[0]![0];
+      const line = payload.items[0]!.lines.find((l) => l.lineType === 'ESTIMATE');
+      expect(line?.name).toBe('変更後名称A');
+      expect(line?.unitPrice).toBe('2000');
+      // 金額も自動計算されていること (10 * 2000 = 20000)
+      expect(line?.amount).toBe('20000');
+    });
+
+    it('追加・削除・更新を含む編集内容が1つのツリーとして渡されること', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後');
+      });
+      act(() => {
+        result.current.addItem();
+      });
+      act(() => {
         result.current.deleteItem('item-2');
       });
 
@@ -822,12 +1216,16 @@ describe('useEstimateEditor', () => {
         await result.current.save();
       });
 
-      expect(onSave).toHaveBeenCalled();
-      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
-      expect(savedChanges.has('item-1')).toBe(true);
-      expect(savedChanges.has('item-2')).toBe(true);
-      expect(savedChanges.get('item-1')?.type).toBe('update');
-      expect(savedChanges.get('item-2')?.type).toBe('delete');
+      const payload = onSave.mock.calls[0]![0];
+      expect(payload.items).toHaveLength(2);
+      // 更新: 既存IDのまま最新値を持つ
+      expect(payload.items[0]!.id).toBe('item-1');
+      expect(estimateNameOf(payload.items[0]!)).toBe('変更後');
+      // 追加: 一時識別子を持ち id は null
+      expect(payload.items[1]!.id).toBeNull();
+      expect(payload.items[1]!.tempId).toMatch(/^tmp-/);
+      // 削除: ツリーから消えている
+      expect(payload.items.some((item) => item.id === 'item-2')).toBe(false);
     });
   });
 
@@ -843,6 +1241,8 @@ describe('useEstimateEditor', () => {
 
       act(() => {
         result.current.updateLine('item-1', 'line-1-estimate', 'name', '新しい名称');
+      });
+      act(() => {
         result.current.addItem();
       });
 
@@ -855,7 +1255,7 @@ describe('useEstimateEditor', () => {
 
       expect(result.current.isDirty).toBe(false);
       expect(result.current.items).toHaveLength(2);
-      expect(result.current.pendingChanges.size).toBe(0);
+      expect(result.current.items[0]?.lines[0]?.name).toBe('項目1');
     });
   });
 
@@ -871,45 +1271,56 @@ describe('useEstimateEditor', () => {
 
       expect(result.current.items).toHaveLength(2);
       expect(result.current.isDirty).toBe(false);
-      expect(result.current.pendingChanges.size).toBe(0);
-    });
-  });
-
-  describe('toggleExpanded - 展開/折りたたみ', () => {
-    it('項目の展開状態をトグルできること', () => {
-      const { result } = renderHook(() =>
-        useEstimateEditor({
-          ...defaultOptions,
-          initialItems: createMockHierarchyItems(),
-        })
-      );
-
-      expect(result.current.items[0]?.isExpanded).toBe(true);
-
-      act(() => {
-        result.current.toggleExpanded('parent-1');
-      });
-
-      expect(result.current.items[0]?.isExpanded).toBe(false);
     });
 
-    it('展開状態の変更はisDirtyに影響しないこと', () => {
-      const { result } = renderHook(() =>
-        useEstimateEditor({
-          ...defaultOptions,
-          initialItems: createMockHierarchyItems(),
-        })
-      );
+    it('外部設定後の項目が破棄の基準になること', () => {
+      const { result } = renderHook(() => useEstimateEditor(defaultOptions));
 
       act(() => {
-        result.current.toggleExpanded('parent-1');
+        result.current.setItems(createMockItems());
+      });
+      act(() => {
+        result.current.deleteItem('item-1');
       });
 
+      expect(result.current.items).toHaveLength(1);
+
+      act(() => {
+        result.current.discard();
+      });
+
+      expect(result.current.items).toHaveLength(2);
       expect(result.current.isDirty).toBe(false);
     });
   });
 
-  describe('getTotalAmount - 合計金額取得（REQ-1.5）', () => {
+  // 折りたたみ状態は表示状態であり、単一の所有者は `useEstimateNavigation`（Task 54.2）。
+  // 本フックが再び表示状態を持つと俯瞰パネル（54.5）と明細テーブルの表示が食い違う。
+  describe('表示状態を保持しないこと（design.md「状態には保存対象のみを保持する」）', () => {
+    it('編集用ビューモデルが展開状態（isExpanded）を持たないこと', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockHierarchyItems(),
+        })
+      );
+
+      expect(result.current.items[0]).not.toHaveProperty('isExpanded');
+    });
+
+    it('展開/折りたたみの操作（toggleExpanded）を公開しないこと', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockHierarchyItems(),
+        })
+      );
+
+      expect(result.current).not.toHaveProperty('toggleExpanded');
+    });
+  });
+
+  describe('getTotalAmount - 合計金額取得（1.5）', () => {
     it('全見積項目の合計金額を取得できること', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
@@ -937,201 +1348,355 @@ describe('useEstimateEditor', () => {
     });
   });
 
-  /** @requirement estimate-creation/REQ-34.3 */
-  describe('updateLine - ステールデータ問題の修正 (REQ-34.3)', () => {
-    it('連続したupdateLineでrecordChangeに最新データが記録されること', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+  /**
+   * @requirement estimate-creation/REQ-54.8 帳票用入力項目を編集した場合に変更を未保存の変更として扱う
+   */
+  describe('updateReportFields - 帳票用入力項目（54.6, 54.8）', () => {
+    it('提出日・有効期限・別途工事を編集できること (54.6)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
           initialItems: createMockItems(),
-          onSave,
         })
       );
 
-      // 名称を変更
       act(() => {
-        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後名称A');
+        result.current.updateReportFields({
+          submissionDate: '2026-07-31',
+          validityPeriod: '提出日より1ヶ月間',
+          separateWorks: ['外構工事', '電気設備工事'],
+        });
       });
 
-      // 続けて単価を変更（同じ項目に対して）
+      expect(result.current.reportFields).toEqual({
+        submissionDate: '2026-07-31',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['外構工事', '電気設備工事'],
+      });
+    });
+
+    it('帳票用入力項目の編集が未保存の変更として扱われること (54.8)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      expect(result.current.isDirty).toBe(false);
+
       act(() => {
-        result.current.updateLine('item-1', 'line-1-estimate', 'unitPrice', '2000');
+        result.current.updateReportFields({
+          submissionDate: '2026-07-31',
+          validityPeriod: null,
+          separateWorks: [],
+        });
       });
 
-      // 保存時にonSaveに渡される変更データに最新の値が含まれること
-      await act(async () => {
-        await result.current.save();
+      expect(result.current.isDirty).toBe(true);
+    });
+
+    it('明細の編集と帳票用入力項目の編集が同一の状態に含まれること (54.8)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '編集済み');
+      });
+      act(() => {
+        result.current.updateReportFields({
+          submissionDate: '2026-07-31',
+          validityPeriod: null,
+          separateWorks: [],
+        });
       });
 
-      expect(onSave).toHaveBeenCalled();
-      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
-      const change = savedChanges.get('item-1');
-      expect(change).toBeDefined();
-      expect(change?.type).toBe('update');
-      expect(change?.data).toBeDefined();
+      expect(result.current.editState.items[0]?.lines[0]?.name).toBe('編集済み');
+      expect(result.current.editState.reportFields.submissionDate).toBe('2026-07-31');
+      expect(result.current.editState.isDirty).toBe(true);
+    });
+  });
 
-      // data内のlinesに最新の名称と単価が反映されていること
-      const estimateLine = change?.data?.lines.find((l) => l.lineType === 'ESTIMATE');
-      expect(estimateLine?.name).toBe('変更後名称A');
-      expect(estimateLine?.unitPrice).toBe('2000');
-      // 金額も自動計算されていること (10 * 2000 = 20000)
-      expect(estimateLine?.amount).toBe('20000');
+  describe('行操作のローカル完結（12.7）', () => {
+    it('行操作とセル編集でサーバーへのリクエストが発生しないこと (12.7)', () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      try {
+        const { result } = renderHook(() =>
+          useEstimateEditor({
+            ...defaultOptions,
+            initialItems: createMockItems(),
+          })
+        );
+
+        act(() => {
+          result.current.updateLine('item-1', 'line-1-estimate', 'quantity', '3');
+        });
+        act(() => {
+          result.current.addItem();
+        });
+        act(() => {
+          result.current.duplicateItem('item-1');
+        });
+        act(() => {
+          result.current.reorderItems('item-2', 'item-1');
+        });
+        act(() => {
+          result.current.deleteItem('item-2');
+        });
+        act(() => {
+          result.current.addDiscountItem();
+        });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(result.current.isDirty).toBe(true);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 
   /**
-   * @requirement estimate-creation/REQ-34.1
-   * @requirement estimate-creation/REQ-34.2
-   * @requirement estimate-creation/REQ-34.3
-   * @requirement estimate-creation/REQ-34.4
+   * ツールバーの「上の階層へ移動」「下の階層へ移動」「↑」「↓」が使う遷移関数。
+   * 53.6 でページ側の移動API・並び替えAPIの即時呼び出しを置き換えるために公開した。
+   *
+   * 範囲選択UIは 54.10 のため、ここでは単一行の指示のみを扱う。
+   * `indentRange` / `outdentRange` は `keys` を表示順（先行順）で受け取る契約だが
+   * （design.md `##### estimateEditReducer` の Preconditions）、要素が1つのため自明に満たされる。
    */
-  describe('保存時の変更タイプ処理 (REQ-34.4)', () => {
-    it('add/delete/updateの全変更タイプがpendingChangesに正しく記録されること', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+  describe('moveItem / indentItem / outdentItem - 階層移動と並び替え（23.9, 23.10, 43.1）', () => {
+    it('moveItemが同一階層内で順序を入れ替えること (43.1)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
           initialItems: createMockItems(),
-          onSave,
         })
       );
 
-      // update: 名称変更
       act(() => {
-        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後');
+        result.current.moveItem('item-2', 'up');
       });
 
-      // add: 新規追加
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-2', 'item-1']);
+      expect(result.current.isDirty).toBe(true);
+
       act(() => {
-        result.current.addItem();
+        result.current.moveItem('item-2', 'down');
       });
 
-      // delete: 既存項目削除
-      act(() => {
-        result.current.deleteItem('item-2');
-      });
-
-      // 保存
-      await act(async () => {
-        await result.current.save();
-      });
-
-      expect(onSave).toHaveBeenCalled();
-      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
-
-      // update
-      const updateChange = savedChanges.get('item-1');
-      expect(updateChange?.type).toBe('update');
-
-      // delete
-      const deleteChange = savedChanges.get('item-2');
-      expect(deleteChange?.type).toBe('delete');
-
-      // add（新規追加されたアイテムを見つける）
-      const addChanges = Array.from(savedChanges.values()).filter((c) => c.type === 'add');
-      expect(addChanges.length).toBe(1);
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
     });
 
-    it('追加された項目のデータがpendingChangesに含まれること (REQ-34.1)', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+    it('indentItemが直前の兄弟の子へ移すこと (23.10, 43.1)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
           initialItems: createMockItems(),
-          onSave,
         })
       );
 
-      // 新規追加
       act(() => {
-        result.current.addItem();
+        result.current.indentItem('item-2');
       });
 
-      const newItem = result.current.items[2];
-      expect(newItem).toBeDefined();
-      expect(newItem!.lines).toHaveLength(3);
-
-      // 保存
-      await act(async () => {
-        await result.current.save();
-      });
-
-      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
-      const addChange = savedChanges.get(newItem!.id);
-      expect(addChange?.type).toBe('add');
-      expect(addChange?.data).toBeDefined();
-      expect(addChange?.data?.lines).toHaveLength(3);
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1']);
+      expect(result.current.items[0]?.children.map((child) => child.id)).toEqual(['item-2']);
+      expect(result.current.items[0]?.children[0]?.parentId).toBe('item-1');
+      expect(result.current.lastError).toBeNull();
     });
 
-    it('削除された項目のIDがpendingChangesに含まれること (REQ-34.2)', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+    it('outdentItemが親の兄弟レベルへ戻すこと (23.9, 43.1)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
           initialItems: createMockItems(),
-          onSave,
         })
       );
 
       act(() => {
-        result.current.deleteItem('item-1');
+        result.current.indentItem('item-2');
+      });
+      act(() => {
+        result.current.outdentItem('item-2');
       });
 
-      // items から削除されていること
-      expect(result.current.items).toHaveLength(1);
-      expect(result.current.items[0]?.id).toBe('item-2');
-
-      // 保存
-      await act(async () => {
-        await result.current.save();
-      });
-
-      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
-      const deleteChange = savedChanges.get('item-1');
-      expect(deleteChange?.type).toBe('delete');
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      expect(result.current.items[1]?.parentId).toBeNull();
+      expect(result.current.lastError).toBeNull();
     });
 
-    it('編集された項目の最新データがpendingChangesに含まれること (REQ-34.3)', async () => {
-      const onSave = vi.fn().mockResolvedValue(undefined);
+    it('直前の兄弟が無い行のindentItemは状態を変えず理由を残すこと', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
           initialItems: createMockItems(),
-          onSave,
         })
       );
 
-      // 名称を変更
       act(() => {
-        result.current.updateLine('item-1', 'line-1-estimate', 'name', '最新名称');
+        result.current.indentItem('item-1');
       });
 
-      // 単価を変更
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      expect(result.current.lastError?.kind).toBe('NO_PRECEDING_SIBLING');
+    });
+
+    it('ルート行のoutdentItemは状態を変えず理由を残すこと', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
       act(() => {
-        result.current.updateLine('item-1', 'line-1-estimate', 'unitPrice', '5000');
+        result.current.outdentItem('item-1');
       });
 
-      // 保存
-      await act(async () => {
-        await result.current.save();
-      });
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      expect(result.current.lastError?.kind).toBe('CANNOT_OUTDENT_ROOT');
+    });
 
-      const savedChanges = onSave.mock.calls[0]![0] as Map<string, ItemChange>;
-      const updateChange = savedChanges.get('item-1');
-      expect(updateChange?.type).toBe('update');
+    it('階層移動と並び替えを連続で行ってもサーバーへのリクエストが発生しないこと (12.7, 43.2)', () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
 
-      const estimateLine = updateChange?.data?.lines.find((l) => l.lineType === 'ESTIMATE');
-      // 最新の名称と単価が含まれること
-      expect(estimateLine?.name).toBe('最新名称');
-      expect(estimateLine?.unitPrice).toBe('5000');
-      // 金額も自動計算されていること (10 * 5000 = 50000)
-      expect(estimateLine?.amount).toBe('50000');
+      try {
+        const { result } = renderHook(() =>
+          useEstimateEditor({
+            ...defaultOptions,
+            initialItems: createMockItems(),
+          })
+        );
+
+        act(() => {
+          result.current.indentItem('item-2');
+        });
+        act(() => {
+          result.current.outdentItem('item-2');
+        });
+        act(() => {
+          result.current.moveItem('item-2', 'up');
+        });
+        act(() => {
+          result.current.moveItem('item-2', 'down');
+        });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2']);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 
-  describe('addDiscountItem - 値引き行追加（REQ-41.2, 41.3, 41.6, 41.8, 41.10）', () => {
-    it('ルート末尾にitemType=DISCOUNT・ESTIMATE1行のみ・プリセット値の項目が追加されること (REQ-41.2, 41.3)', () => {
+  describe('lastError - 操作が無効だった理由の保持', () => {
+    it('値引き行を親に指定した追加が拒否され理由が得られること (41.3)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+      const discountId = result.current.items[2]!.id;
+
+      act(() => {
+        result.current.addItem(discountId);
+      });
+
+      expect(result.current.items).toHaveLength(3);
+      expect(result.current.lastError).toEqual({
+        kind: 'INVALID_PARENT_TYPE',
+        key: discountId,
+        itemType: 'DISCOUNT',
+      });
+    });
+
+    it('変化の無い操作では直前のエラーが保持されること', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+      const discountId = result.current.items[2]!.id;
+      act(() => {
+        result.current.addItem(discountId);
+      });
+      expect(result.current.lastError?.kind).toBe('INVALID_PARENT_TYPE');
+
+      // 存在しない項目への削除指示（無害な no-op）
+      act(() => {
+        result.current.deleteItem('存在しない項目');
+      });
+
+      expect(result.current.lastError?.kind).toBe('INVALID_PARENT_TYPE');
+    });
+
+    it('変更が成立した操作でエラーが解除されること', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+      const discountId = result.current.items[2]!.id;
+      act(() => {
+        result.current.addItem(discountId);
+      });
+      expect(result.current.lastError?.kind).toBe('INVALID_PARENT_TYPE');
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.lastError).toBeNull();
+    });
+
+    it('dismissErrorで明示的に解除できること', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addDiscountItem();
+      });
+      const discountId = result.current.items[2]!.id;
+      act(() => {
+        result.current.addItem(discountId);
+      });
+      expect(result.current.lastError?.kind).toBe('INVALID_PARENT_TYPE');
+
+      act(() => {
+        result.current.dismissError();
+      });
+
+      expect(result.current.lastError).toBeNull();
+    });
+  });
+
+  describe('addDiscountItem - 値引き行追加（41.2, 41.3, 41.6, 41.8, 41.11）', () => {
+    it('ルート末尾にitemType=DISCOUNT・ESTIMATE1行のみ・プリセット値の項目が追加されること (41.2, 41.3)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -1169,11 +1734,14 @@ describe('useEstimateEditor', () => {
       expect(discountItem.displayOrder).toBe(2);
     });
 
-    it('pendingChangesにaddとして記録され、data.itemTypeがDISCOUNTかつlines長1であること (REQ-41.8)', () => {
+    it('値引き行の追加が未保存の変更として扱われ、保存対象に含まれること (41.11)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
           initialItems: createMockItems(),
+          onSave,
         })
       );
 
@@ -1181,15 +1749,20 @@ describe('useEstimateEditor', () => {
         result.current.addDiscountItem();
       });
 
-      const discountItem = result.current.items[2]!;
-      const change = result.current.pendingChanges.get(discountItem.id);
-      expect(change?.type).toBe('add');
-      expect(change?.data?.itemType).toBe('DISCOUNT');
-      expect(change?.data?.lines).toHaveLength(1);
-      expect(change?.data?.lines[0]!.lineType).toBe('ESTIMATE');
+      expect(result.current.isDirty).toBe(true);
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const payload = onSave.mock.calls[0]![0];
+      const discount = payload.items[2]!;
+      expect(discount.itemType).toBe('DISCOUNT');
+      expect(discount.lines).toHaveLength(1);
+      expect(discount.lines[0]!.lineType).toBe('ESTIMATE');
     });
 
-    it('値引き行の単価を負数に更新すると金額が負数になり、getTotalAmountが減算されること (REQ-41.6, 41.8)', () => {
+    it('値引き行の単価を負数に更新すると金額が負数になり、getTotalAmountが減算されること (41.6, 41.8)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -1221,7 +1794,7 @@ describe('useEstimateEditor', () => {
       expect(result.current.getTotalAmount()).toBe('17000');
     });
 
-    it('値引き行はupdateLine・階層再計算を経てもEXECUTION/VENDOR行が再合成されないこと (REQ-41.3 不変条件)', () => {
+    it('値引き行はupdateLine・階層再計算を経てもEXECUTION/VENDOR行が再合成されないこと (41.3 不変条件)', () => {
       const { result } = renderHook(() =>
         useEstimateEditor({
           ...defaultOptions,
@@ -1236,7 +1809,7 @@ describe('useEstimateEditor', () => {
       const discountItem = result.current.items[2]!;
       const estimateLineId = discountItem.lines[0]!.id;
 
-      // 単価更新（recalculateParentAmounts経由のstate更新を誘発）
+      // 単価更新（親集計の再計算を経由するstate更新を誘発）
       act(() => {
         result.current.updateLine(discountItem.id, estimateLineId, 'unitPrice', '-1000');
       });
@@ -1250,6 +1823,815 @@ describe('useEstimateEditor', () => {
       expect(finalDiscount.lines.some((l) => l.lineType === 'EXECUTION')).toBe(false);
       expect(finalDiscount.lines.some((l) => l.lineType === 'VENDOR')).toBe(false);
       expect(finalDiscount.itemType).toBe('DISCOUNT');
+    });
+  });
+
+  /**
+   * @requirement estimate-creation/REQ-55.2 注記行を金額の集計対象から除外する
+   * @requirement estimate-creation/REQ-55.3 注記行を任意の階層の任意の位置に配置可能とする
+   * @requirement estimate-creation/REQ-55.6 注記行を通常の明細行と同様に挿入・削除・複写・並び替え・階層移動の対象とする
+   */
+  describe('addNoteItem - 注記行追加（55.1, 55.2, 55.3, 55.6）', () => {
+    /** 名称のみを持つ注記行（金額を持ってしまっている異常データを含む）を作る */
+    const createNoteHierarchyItem = (
+      id: string,
+      name: string,
+      amount: string | null = null
+    ): EstimateItemHierarchyEdit => ({
+      id,
+      estimateId: 'estimate-1',
+      parentId: null,
+      displayOrder: 0,
+      itemType: 'NOTE',
+      lines: [
+        {
+          id: `line-${id}-estimate`,
+          estimateItemId: id,
+          lineType: 'ESTIMATE',
+          name,
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount,
+          remarks: null,
+        },
+      ],
+      children: [],
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    });
+
+    it('位置未指定でルート末尾にitemType=NOTE・ESTIMATE1行のみ・名称以外NULLの項目が追加されること (55.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+
+      expect(result.current.items).toHaveLength(3);
+      const noteItem = result.current.items[2]!;
+
+      expect(noteItem.itemType).toBe('NOTE');
+      expect(noteItem.parentId).toBeNull();
+      expect(noteItem.children).toHaveLength(0);
+      expect(noteItem.lines).toHaveLength(1);
+
+      const line = noteItem.lines[0]!;
+      expect(line.lineType).toBe('ESTIMATE');
+      // 名称のみを持つ（初期値は空欄）。他の欄はすべてNULL
+      expect(line.name).toBeNull();
+      expect(line.specification).toBeNull();
+      expect(line.unit).toBeNull();
+      expect(line.quantity).toBeNull();
+      expect(line.unitPrice).toBeNull();
+      expect(line.amount).toBeNull();
+      expect(line.remarks).toBeNull();
+    });
+
+    it('parentId・afterId指定で任意の階層の任意の位置へ挿入されること (55.3)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockHierarchyItems(),
+        })
+      );
+
+      // parent-1 の子（child-1 と child-2 の間）へ挿入する
+      act(() => {
+        result.current.addNoteItem({ parentId: 'parent-1', afterId: 'child-1' });
+      });
+
+      const parent = result.current.items[0]!;
+      expect(parent.children).toHaveLength(3);
+      expect(parent.children.map((child) => child.id)[0]).toBe('child-1');
+      expect(parent.children[1]!.itemType).toBe('NOTE');
+      expect(parent.children[2]!.id).toBe('child-2');
+      // 親IDと表示順が挿入位置に合わせて解決されること
+      expect(parent.children[1]!.parentId).toBe('parent-1');
+      expect(parent.children[1]!.displayOrder).toBe(1);
+    });
+
+    it('ルート内の任意の位置（先頭項目の直後）へ挿入できること (55.3)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem({ afterId: 'item-1' });
+      });
+
+      expect(result.current.items.map((item) => item.id)[0]).toBe('item-1');
+      expect(result.current.items[1]!.itemType).toBe('NOTE');
+      expect(result.current.items[2]!.id).toBe('item-2');
+    });
+
+    it('注記行を親項目の集計対象から除外すること (55.2)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockHierarchyItems(),
+        })
+      );
+
+      // 子の合計 5000 + 3000 = 8000
+      const beforeAmount = result.current.items[0]!.lines.find(
+        (line) => line.lineType === 'ESTIMATE'
+      )!.amount;
+      expect(beforeAmount).toBe('8000');
+
+      act(() => {
+        result.current.addNoteItem({ parentId: 'parent-1' });
+      });
+
+      const afterAmount = result.current.items[0]!.lines.find(
+        (line) => line.lineType === 'ESTIMATE'
+      )!.amount;
+      // 注記行を足しても親の集計は変わらない
+      expect(afterAmount).toBe('8000');
+      expect(result.current.getTotalAmount()).toBe('8000');
+    });
+
+    it('ルートレベルの注記行が金額を持っていても合計金額に加算されないこと (55.2)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          // 注記行が金額を持つ異常データでも集計対象外であること
+          initialItems: [...createMockItems(), createNoteHierarchyItem('note-1', '注記', '5000')],
+        })
+      );
+
+      // item-1(10000) + item-2(10000) のみ。注記行の 5000 は加算しない
+      expect(result.current.getTotalAmount()).toBe('20000');
+    });
+
+    it('注記行の追加が未保存の変更として扱われ、保存対象に含まれること (55.1)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+
+      expect(result.current.isDirty).toBe(true);
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      const payload = onSave.mock.calls[0]![0];
+      const note = payload.items[2]!;
+      expect(note.itemType).toBe('NOTE');
+      expect(note.id).toBeNull();
+      expect(note.tempId).not.toBeNull();
+      expect(note.lines).toHaveLength(1);
+      expect(note.lines[0]!.lineType).toBe('ESTIMATE');
+    });
+
+    it('注記行が削除の対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      act(() => {
+        result.current.deleteItem(noteId);
+      });
+
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items.some((item) => item.itemType === 'NOTE')).toBe(false);
+    });
+
+    it('注記行が複写の対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteItem = result.current.items[2]!;
+      act(() => {
+        result.current.updateLine(noteItem.id, noteItem.lines[0]!.id, 'name', '※支給材は別途');
+      });
+
+      act(() => {
+        result.current.duplicateItem(result.current.items[2]!.id);
+      });
+
+      expect(result.current.items).toHaveLength(4);
+      const copy = result.current.items[3]!;
+      expect(copy.itemType).toBe('NOTE');
+      expect(copy.lines).toHaveLength(1);
+      expect(copy.lines[0]!.name).toBe('※支給材は別途');
+    });
+
+    it('注記行が同一階層内の並び替えの対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      act(() => {
+        result.current.moveItem(noteId, 'up');
+      });
+
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', noteId, 'item-2']);
+    });
+
+    it('注記行が階層移動の対象となること (55.6)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      // 直前の兄弟（item-2）の子へ下げる
+      act(() => {
+        result.current.indentItem(noteId);
+      });
+
+      expect(result.current.lastError).toBeNull();
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items[1]!.children.map((child) => child.id)).toEqual([noteId]);
+
+      // ルートレベルへ戻す
+      act(() => {
+        result.current.outdentItem(noteId);
+      });
+
+      expect(result.current.lastError).toBeNull();
+      expect(result.current.items.map((item) => item.id)).toEqual(['item-1', 'item-2', noteId]);
+    });
+
+    it('注記行を親に指定した挿入は拒否され、INVALID_PARENT_TYPEを設定すること (55.1 不変条件)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addNoteItem();
+      });
+      const noteId = result.current.items[2]!.id;
+
+      act(() => {
+        result.current.addNoteItem({ parentId: noteId });
+      });
+
+      expect(result.current.items).toHaveLength(3);
+      expect(result.current.items[2]!.children).toHaveLength(0);
+      expect(result.current.lastError).toEqual({
+        kind: 'INVALID_PARENT_TYPE',
+        key: noteId,
+        itemType: 'NOTE',
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 取り消し・やり直しの接点（48.1, 48.5, 48.8 / Task 54.8）
+  // ==========================================================================
+
+  describe('取り消しのためのスナップショット記録と状態復元', () => {
+    /**
+     * 取り消しの単位は state スナップショット（design.md `##### useEstimateUndo`:4149）。
+     * スナップショットを取る位置は「遷移の直前」であり、変更を起こす経路が
+     * ひとつでも通知を漏らすとその操作は取り消せなくなる。
+     *
+     * @requirement estimate-creation/REQ-48.1
+     */
+    it('明細を変更するすべての操作が変更前に通知されること (48.1, 48.8)', () => {
+      const onBeforeChange = vi.fn();
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange,
+        })
+      );
+
+      const operations: readonly [string, () => void][] = [
+        ['updateLine', () => result.current.updateLine('item-1', 'line-1-estimate', 'name', 'X')],
+        [
+          'applyQuotationTransfer',
+          () =>
+            result.current.applyQuotationTransfer({
+              parentKey: 'item-1',
+              vendorName: 'V社',
+              lines: [
+                {
+                  name: '転記',
+                  specification: null,
+                  unit: '式',
+                  quantity: '1',
+                  unitPrice: '100',
+                },
+              ],
+            }),
+        ],
+        [
+          'applyNetAllocation',
+          () =>
+            result.current.applyNetAllocation({
+              targetKeys: ['item-1', 'item-2'],
+              netAmount: '10000',
+            }),
+        ],
+        [
+          'applyProfitRate',
+          () => result.current.applyProfitRate({ rate: '10', overwriteOption: 'all' }),
+        ],
+        [
+          'addOverheadItem',
+          () => result.current.addOverheadItem({ costType: 'COMMON_TEMPORARY', unitPrice: '500' }),
+        ],
+        ['addItem', () => result.current.addItem()],
+        ['addDiscountItem', () => result.current.addDiscountItem()],
+        ['addNoteItem', () => result.current.addNoteItem()],
+        ['insertRowAfter', () => result.current.insertRowAfter('item-1')],
+        ['duplicateItem', () => result.current.duplicateItem('item-1')],
+        ['duplicateRows', () => result.current.duplicateRows(['item-1'])],
+        ['moveItem', () => result.current.moveItem('item-2', 'up')],
+        ['reorderItems', () => result.current.reorderItems('item-1', 'item-2')],
+        ['indentItem', () => result.current.indentItem('item-2')],
+        ['outdentItem', () => result.current.outdentItem('item-2')],
+        ['indentRange', () => result.current.indentRange(['item-2'])],
+        ['outdentRange', () => result.current.outdentRange(['item-2'])],
+        [
+          'updateReportFields',
+          () =>
+            result.current.updateReportFields({
+              submissionDate: '2026-01-01',
+              validityPeriod: null,
+              separateWorks: [],
+            }),
+        ],
+        ['deleteItem', () => result.current.deleteItem('item-1')],
+        ['deleteRows', () => result.current.deleteRows(['item-2'])],
+      ];
+
+      for (const [name, operation] of operations) {
+        onBeforeChange.mockClear();
+        act(() => {
+          operation();
+        });
+        expect(onBeforeChange, `${name} が変更前に通知していない`).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    /** @requirement estimate-creation/REQ-48.1 */
+    it('通知は遷移の実行前に行われること (48.1)', () => {
+      const seen: (string | null)[] = [];
+      const latest: { name: string | null } = { name: null };
+      const { result } = renderHook(() => {
+        const editor = useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange: () => {
+            seen.push(latest.name);
+          },
+        });
+        latest.name = editor.items[0]?.lines[0]?.name ?? null;
+        return editor;
+      });
+
+      act(() => {
+        result.current.updateLine('item-1', 'line-1-estimate', 'name', '変更後');
+      });
+
+      // 通知の時点では変更前の値が見えている（＝スナップショットが操作前を捉える）
+      expect(seen).toEqual(['項目1']);
+      expect(result.current.items[0]!.lines[0]!.name).toBe('変更後');
+    });
+
+    /** @requirement estimate-creation/REQ-48.5 */
+    it('復元した状態がそのまま編集状態になること (48.5)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      const before = result.current.editState;
+      expect(before.isDirty).toBe(false);
+
+      act(() => {
+        result.current.deleteItem('item-1');
+      });
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.isDirty).toBe(true);
+
+      act(() => {
+        result.current.restoreState(before);
+      });
+
+      expect(result.current.editState).toBe(before);
+      expect(result.current.items).toHaveLength(2);
+      expect(result.current.items[0]!.id).toBe('item-1');
+      // 未保存フラグも復元した時点の値へ戻る
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    /** @requirement estimate-creation/REQ-48.5 */
+    it('状態の復元は通知を発生させないこと（取り消しが履歴を増やさない） (48.5)', () => {
+      const onBeforeChange = vi.fn();
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange,
+        })
+      );
+
+      const before = result.current.editState;
+      act(() => {
+        result.current.deleteItem('item-1');
+      });
+      onBeforeChange.mockClear();
+
+      act(() => {
+        result.current.restoreState(before);
+      });
+
+      expect(onBeforeChange).not.toHaveBeenCalled();
+    });
+
+    /**
+     * `setItems` は基準（`baselineRef`）ごとツリーを入れ替えるため、入れ替え前の
+     * ツリーを前提とした取り消し履歴はそこで無効になる。破棄を促す通知が無いと、
+     * 再同期後のやり直しがサーバー由来の行を含まない古いツリーを復元してしまう。
+     *
+     * @requirement estimate-creation/REQ-48.7
+     */
+    it('基準ツリーの差し替え（setItems）で履歴破棄を通知すること (48.7)', () => {
+      const onBaselineReplaced = vi.fn();
+      const onBeforeChange = vi.fn();
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange,
+          onBaselineReplaced,
+        })
+      );
+
+      // 通常の編集では基準は入れ替わらない（通知は変更前通知のみ）
+      act(() => {
+        result.current.deleteItem('item-1');
+      });
+      expect(onBaselineReplaced).not.toHaveBeenCalled();
+
+      act(() => {
+        result.current.setItems(createMockItems());
+      });
+
+      expect(onBaselineReplaced).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * 転記・案分・利益率適用・諸経費追加・値引き追加の結果を編集状態へ反映する遷移（55.2）。
+   *
+   * サーバーへ書き込まず（49.3）、明細を再取得しないため未保存の編集内容がそのまま残り
+   * （49.2）、1回の保存操作で確定できる（49.4）。適用前に取り消し履歴へ記録されるため
+   * 適用結果を取り消せる（48.8, 49.8）。
+   */
+  describe('転記・計算結果の適用（4.6, 7.7, 8.7, 9.7, 41.11, 49.1〜49.4, 49.8）', () => {
+    /**
+     * 転記先を指定した場合、転記項目は当該項目の**子**として作られる（30.3 / 55.5）。
+     *
+     * @requirement estimate-creation/REQ-4.6
+     */
+    it('受領見積書の転記結果が業者金額行へ反映され未保存の変更になること (4.6, 49.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.applyQuotationTransfer({
+          parentKey: 'item-1',
+          vendorName: '株式会社テスト建設',
+          lines: [
+            {
+              name: '鉄筋工事',
+              specification: 'SD295',
+              unit: 'm2',
+              quantity: '2.5',
+              unitPrice: '333',
+            },
+          ],
+        });
+      });
+
+      const created = result.current.items[0]!.children[0]!;
+      expect(created.id.startsWith('tmp-')).toBe(true);
+      const vendor = created.lines.find((line) => line.lineType === 'VENDOR')!;
+      expect(vendor.name).toBe('鉄筋工事');
+      expect(vendor.amount).toBe('833');
+      expect(vendor.sourceVendorName).toBe('株式会社テスト建設');
+      expect(result.current.isDirty).toBe(true);
+    });
+
+    /** @requirement estimate-creation/REQ-49.1 */
+    it('NET金額の案分結果が実行金額行へ反映されること (49.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      // 業者金額行は item-1 / item-2 とも 8000（母数 16000）
+      act(() => {
+        result.current.applyNetAllocation({
+          targetKeys: ['item-1', 'item-2'],
+          netAmount: '12000',
+        });
+      });
+
+      const execution = result.current.items[0]!.lines.find(
+        (line) => line.lineType === 'EXECUTION'
+      )!;
+      expect(execution.amount).toBe('6000');
+      expect(execution.unitPrice).toBe('600');
+    });
+
+    /** @requirement estimate-creation/REQ-49.1 */
+    it('利益率の適用結果が見積金額行へ反映されること (49.1)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      // item-1 の実行単価 900 × 1.1 = 990、数量 10 → 金額 9900
+      act(() => {
+        result.current.applyProfitRate({
+          targetKeys: ['item-1'],
+          rate: '10',
+          overwriteOption: 'all',
+        });
+      });
+
+      const estimate = result.current.items[0]!.lines.find((line) => line.lineType === 'ESTIMATE')!;
+      expect(estimate.unitPrice).toBe('990');
+      expect(estimate.amount).toBe('9900');
+    });
+
+    /** @requirement estimate-creation/REQ-7.7 */
+    it('諸経費行がプリセット値でルート末尾へ追加されること (7.7, 8.7, 9.7)', () => {
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+        })
+      );
+
+      act(() => {
+        result.current.addOverheadItem({ costType: 'SITE_MANAGEMENT', unitPrice: '1234567' });
+      });
+
+      const added = result.current.items[2]!;
+      const estimate = added.lines.find((line) => line.lineType === 'ESTIMATE')!;
+      expect(estimate.name).toBe('現場管理費');
+      expect(estimate.unit).toBe('式');
+      expect(estimate.quantity).toBe('1');
+      expect(estimate.amount).toBe('1234567');
+      expect(result.current.isDirty).toBe(true);
+    });
+
+    /** @requirement estimate-creation/REQ-49.3 */
+    it('適用時にサーバーへのリクエストが発生しないこと (49.3)', () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      try {
+        const { result } = renderHook(() =>
+          useEstimateEditor({
+            ...defaultOptions,
+            initialItems: createMockItems(),
+          })
+        );
+
+        act(() => {
+          result.current.applyQuotationTransfer({
+            parentKey: null,
+            vendorName: 'V社',
+            lines: [
+              { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '100' },
+            ],
+          });
+        });
+        act(() => {
+          result.current.applyNetAllocation({ targetKeys: ['item-1'], netAmount: '5000' });
+        });
+        act(() => {
+          result.current.applyProfitRate({ rate: '10', overwriteOption: 'all' });
+        });
+        act(() => {
+          result.current.addOverheadItem({ costType: 'GENERAL_ADMIN', unitPrice: '100' });
+        });
+        act(() => {
+          result.current.addDiscountItem();
+        });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(result.current.isDirty).toBe(true);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    /** @requirement estimate-creation/REQ-49.2 */
+    it('適用後も未保存の編集内容が保持され、保存操作1回で確定できること (49.2, 49.4)', async () => {
+      const onSave = vi.fn<(payload: EstimateEditorSavePayload) => Promise<void>>();
+      onSave.mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onSave,
+        })
+      );
+
+      // 未保存のセル編集
+      act(() => {
+        result.current.updateLine('item-2', 'line-2-estimate', 'name', '編集した名称');
+      });
+
+      act(() => {
+        result.current.applyQuotationTransfer({
+          parentKey: 'item-1',
+          vendorName: 'V社',
+          lines: [
+            { name: '転記', specification: null, unit: '式', quantity: '2', unitPrice: '50' },
+          ],
+        });
+      });
+      act(() => {
+        result.current.addOverheadItem({ costType: 'COMMON_TEMPORARY', unitPrice: '300' });
+      });
+
+      await act(async () => {
+        await result.current.save();
+      });
+
+      // 保存は1回のみ（49.4）
+      expect(onSave).toHaveBeenCalledTimes(1);
+      const payload = onSave.mock.calls[0]![0];
+      // 適用前の未保存編集が残っている（49.2）
+      expect(estimateNameOf(payload.items[1]!)).toBe('編集した名称');
+      // 転記結果と諸経費行も同じ保存に含まれる
+      const transferred = payload.items[0]!.children[0]!.lines.find(
+        (line) => line.lineType === 'VENDOR'
+      )!;
+      expect(transferred.name).toBe('転記');
+      expect(transferred.amount).toBe('100');
+      expect(estimateNameOf(payload.items[2]!)).toBe('共通仮設費');
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    /**
+     * 取り消し履歴は `onBeforeChange` の通知でしか積まれない。適用系が通知を漏らすと
+     * 「適用前に取り消し履歴へ記録し、適用結果を取り消せる」（48.8, 49.8）が成立しない。
+     * 実際に `useEstimateUndo` を結線して往復を確認する。
+     *
+     * @requirement estimate-creation/REQ-49.8
+     */
+    it('適用結果を取り消せること (48.8, 49.8)', () => {
+      const { result } = renderHook(() => {
+        const stateRef = { current: null as EstimateEditState | null };
+        const undoRef = { current: null as UseEstimateUndoReturn | null };
+        const editor = useEstimateEditor({
+          ...defaultOptions,
+          initialItems: createMockItems(),
+          onBeforeChange: (label) => undoRef.current?.recordSnapshot(label),
+        });
+        stateRef.current = editor.editState;
+        const undo = useEstimateUndo({
+          getState: () => {
+            const current = stateRef.current;
+            if (current === null) {
+              throw new Error('編集状態が未初期化');
+            }
+            return current;
+          },
+          restoreState: editor.restoreState,
+        });
+        undoRef.current = undo;
+        return { editor, undo };
+      });
+
+      const operations: readonly [string, () => void, () => unknown][] = [
+        [
+          'applyQuotationTransfer',
+          () =>
+            result.current.editor.applyQuotationTransfer({
+              parentKey: 'item-1',
+              vendorName: 'V社',
+              lines: [
+                { name: '転記', specification: null, unit: '式', quantity: '1', unitPrice: '100' },
+              ],
+            }),
+          () => result.current.editor.items[0]!.children.length,
+        ],
+        [
+          'applyNetAllocation',
+          () =>
+            result.current.editor.applyNetAllocation({
+              targetKeys: ['item-1', 'item-2'],
+              netAmount: '12000',
+            }),
+          () =>
+            result.current.editor.items[0]!.lines.find((l) => l.lineType === 'EXECUTION')!.amount,
+        ],
+        [
+          'applyProfitRate',
+          () => result.current.editor.applyProfitRate({ rate: '10', overwriteOption: 'all' }),
+          () =>
+            result.current.editor.items[0]!.lines.find((l) => l.lineType === 'ESTIMATE')!.unitPrice,
+        ],
+        [
+          'addOverheadItem',
+          () => result.current.editor.addOverheadItem({ costType: 'GENERAL_ADMIN' }),
+          () => result.current.editor.items.length,
+        ],
+        [
+          'addDiscountItem',
+          () => result.current.editor.addDiscountItem(),
+          () => result.current.editor.items.length,
+        ],
+      ];
+
+      for (const [name, operation, observe] of operations) {
+        const before = observe();
+
+        act(() => {
+          operation();
+        });
+        expect(observe(), `${name} が明細を変更していない`).not.toEqual(before);
+        expect(result.current.undo.canUndo, `${name} が履歴へ記録されていない`).toBe(true);
+
+        act(() => {
+          result.current.undo.undo();
+        });
+        expect(observe(), `${name} の適用を取り消せていない`).toEqual(before);
+
+        act(() => {
+          result.current.undo.redo();
+        });
+        expect(observe(), `${name} をやり直せていない`).not.toEqual(before);
+
+        act(() => {
+          result.current.undo.undo();
+        });
+      }
     });
   });
 });

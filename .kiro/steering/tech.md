@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-07-29（Steering Sync: 工事写真台帳（construction-photo）の技術要素を反映。jspdf/jszip の用途に工事写真台帳を追記、工事看板のサーバサイド合成パターン（構造化テキスト→SVG描画 `signboard-svg.service` → sharp composite `signboard-composite.service` によるオンデマンド看板重畳。クライアント fabric 合成とは別系統のサーバ側合成路）を追加）_
+_最終更新: 2026-08-05（Steering Sync: 見積明細の編集・保存パターン（domain層の純関数への遷移ロジック分離、ツリー全体の差分適用による一括保存 `PUT /api/estimates/:id/save`、IDを維持する更新とtempIdによる親子解決、楽観ロック、Undo/Redo、未保存プレビュー）と帳票生成方針（フロントエンド生成を既定化、レイアウト計算と描画の分離、`load*ExportService.ts` による動的import分離）を追加。backend jspdf の用途から見積書を除外、Prisma client 7.9.1 / @anthropic-ai/sdk 0.106.0 / jsdom 30 / @testing-library/jest-dom 7 へ版数を是正）_
+
+_2026-07-29（Steering Sync: 工事写真台帳（construction-photo）の技術要素を反映。jspdf/jszip の用途に工事写真台帳を追記、工事看板のサーバサイド合成パターン（構造化テキスト→SVG描画 `signboard-svg.service` → sharp composite `signboard-composite.service` によるオンデマンド看板重畳。クライアント fabric 合成とは別系統のサーバ側合成路）を追加）_
 
 _2026-07-09（Steering Sync: レスポンシブ・ビューポート方針（ブレークポイントの単一情報源とMobileサフィックスのspread合成、入力16px/タップ44pxの下限、`vh`→`svh`二段宣言による動的ビューポート高、フィット倍率の純関数化 computeFitScale＋useElementSize による再フィット）を追加）_
 
@@ -40,6 +42,17 @@ ArchiTrack/
 
 他機能で用いるフィールド単位の即時保存・楽観的排他制御とは異なる明示保存方針である点に注意。
 
+### 編集・保存パターン（見積明細編集）
+
+見積明細編集も同じ**クライアントサイドドラフト + 明示保存モデル**を採用し、数量表よりドメインロジックの分離を進めた構成をとります。新規に編集画面を作る場合はこちらを参照実装とします。
+
+- 編集状態の遷移は `frontend/src/domain/estimate/` の純関数に閉じる（`estimateEditReducer`＝行操作・階層移動・範囲操作、`estimateTree`＝ツリー導出と祖先金額の再計算、`estimateCalculations`＝案分・利益率・集計、`estimateKeymap`＝キー割当の単一定義）。React に依存させず、フックは遷移関数へ委譲するだけにする
+- 行の挿入・削除・複写・並び替え・ドラッグ&ドロップ・階層の上げ下げ・範囲操作はサーバーへ送らない。転記・案分・利益率適用・諸経費追加・値引き追加も**未保存の変更としてドラフトへ反映**し、明細の再取得を行わない（未保存編集を失わせない）
+- 保存は `PUT /api/estimates/:id/save`（backend `estimate-draft.service`）へツリー全体を送る差分適用。トランザクション前に全件検証し、既存項目は**IDを維持して更新**する（`ExecutionBudgetItem.estimateItemId` の参照を切らないため削除＋再作成はしない）。新規項目の親子関係は一時ID（`tempId`）→生成IDの対応表で解決し、子孫削除は `parentId` の `onDelete: Cascade` に委ねる
+- 競合は `expectedUpdatedAt` による楽観ロックで検出し、409時は編集中の内容を保持したまま保存を中止する
+- Undo/Redo は編集状態を丸ごと積むスナップショット履歴（`UndoManager`、直近10回）で提供する。履歴は「その時点のツリー」を前提とするため、保存成功時および読み込み・再同期でツリーが差し替わった時点で破棄する（古いツリーを復元して次の保存で行を消す事故を防ぐ）
+- 帳票出力はドラフトを入力にフロントエンドで生成するため、未保存のままプレビューできる（保存を伴わない）
+
 ## フロントエンド
 
 ### 技術スタック
@@ -57,8 +70,8 @@ ArchiTrack/
 - `react-dom` ^19.2.4 - React DOM操作
 - `react-router-dom` ^7.16.0 - React Router v7（ルーティング、7.14.2以下のDoS脆弱性 GHSA-8x6r-g9mw-2r78 対応で7.16.0へ更新）
 - `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`ImageViewer`/`AnnotationEditor` が共有する）
-- `jspdf` ^4.0.0 - PDF報告書生成（現場調査、A4縦/横対応、見積書PDF出力、工事写真台帳の看板重畳PDF出力）
-- `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・工程表エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
+- `jspdf` ^4.0.0 - PDF帳票生成（現場調査報告書、数量表、見積書帳票＝A4横の表紙/内訳書/明細書、工事写真台帳の看板重畳）
+- `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・見積依頼エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
 - `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像・工事写真の一括エクスポート、型定義同梱）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
@@ -81,9 +94,9 @@ ArchiTrack/
 - `@vitest/coverage-v8` ^4.1.2 - Vitestカバレッジ（V8プロバイダー）
 - `@vitest/coverage-istanbul` ^4.1.2 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
-- `@testing-library/jest-dom` ^6.9.1 - Jest DOMマッチャー
+- `@testing-library/jest-dom` ^7.0.0 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
-- `jsdom` ^28.0.0 - ブラウザ環境シミュレーション
+- `jsdom` ^30.0.1 - ブラウザ環境シミュレーション
 - `@sentry/react` ^10.32.1 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
 - `storybook` ^10.2.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
@@ -125,6 +138,14 @@ ArchiTrack/
 - **画像フィット倍率**: `utils/imageFitScale` の `computeFitScale`（純関数・React 非依存）に一元化する。`allowUpscale=false`（既定）は原寸頭打ちでデスクトップの現行挙動を維持し、`allowUpscale=true` は `maxUpscale`（既定 3）までフィット拡大して小画像の過小表示を防ぐ。表示領域の実寸は `hooks/useElementSize`（ResizeObserver、非対応環境では購読せず例外も出さない）で購読し、コンテナ寸法の変化に追従して再フィットする
 - **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`ImageViewer` / `AnnotationEditor` はこの two-layer 構成を共有する
 
+### 帳票生成方針（フロントエンド）
+
+新規の帳票はサーバーの出力エンドポイントを増やさず、フロントエンド生成を既定とします（未保存内容のプレビューが可能・サーバー負荷を持ち込まないため）。
+
+- 生成コードは `services/export/` に置き、レイアウト計算（`estimateReportLayout` 等の純関数）と描画（jsPDF/SheetJS を触る Renderer/Service）を分離する。ページ組みは再帰ではなく反復で構成する（深い階層でのスタック消費を避ける）
+- 生成モジュールと日本語フォント資産は重いため、`load*ExportService.ts` の動的 import 経由でのみ参照し、初期チャンクへ載せない
+- 既存のサーバー生成（工程表・発注書・出来高）は現状維持。方針の混在を避けるため、同一機能内でサーバー生成とクライアント生成を併存させない
+
 ## バックエンド
 
 ### 技術スタック
@@ -133,8 +154,8 @@ ArchiTrack/
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
 - **フレームワーク**: Express 5.2.0
-- **ORM**: Prisma 7.8.0（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
-- **データベースクライアント**: pg (PostgreSQL) 8.18.0、@prisma/client 7.8.0、@prisma/adapter-pg 7.3.0
+- **ORM**: Prisma 7.8.0 / @prisma/client 7.9.1（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
+- **データベースクライアント**: pg (PostgreSQL) 8.22.0、@prisma/client 7.9.1、@prisma/adapter-pg 7.3.0
 - **キャッシュクライアント**: ioredis 5.10.1
 - **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
 - **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
@@ -142,13 +163,13 @@ ArchiTrack/
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
-- **PDF生成**: jspdf ^4.1.0（見積書PDF出力）
+- **PDF生成**: jspdf ^4.1.0（工程表・発注書・出来高のサーバ生成。見積書帳票はフロントエンド生成へ移行済み）
 - **バリデーション**: zod 4.3.6
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
 - **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
 - **工事看板のサーバサイド合成**: 工事写真台帳の工事看板（電子黒板）は構造化テキストから `services/signboard-svg.service`（SVG描画）→ `services/signboard-composite.service`（sharp composite）で写真へオンデマンド重畳する。合成は保存せずリクエスト時に生成し、印刷用画像（/print）と非合成の原本画像（/original）を配信路として分離。現場調査のクライアント fabric 合成とは別系統のサーバ側合成パス
-- **AI/OCR精度向上**: @anthropic-ai/sdk 0.74.0（Claude Vision APIによる見積書OCR構造化データ抽出）
+- **AI/OCR精度向上**: @anthropic-ai/sdk 0.106.0（Claude Vision APIによる見積書OCR構造化データ抽出）
 - **祝日データ**: @holiday-jp/holiday_jp ^2.5.1（日本の祝日判定、工程表エクスポート用）
 - **ストレージ抽象化**: StorageProvider インターフェースによる環境別バックエンド切り替え
   - LocalStorageProvider（開発・テスト環境）

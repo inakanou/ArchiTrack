@@ -2,9 +2,19 @@
  * @fileoverview EstimateItemTableコンポーネント - 見積項目テーブル
  *
  * Task 9.1: EstimateItemTableコンポーネントの実装
+ * Task 54.2: 階層表示モード別のサブコンポーネントへ分離し、ツリー表示を接続
  *
- * 見積項目を階層ツリー形式で表示するテーブルコンポーネントです。
- * 展開/折りたたみ、項目選択、ドラッグ&ドロップ、自動金額計算表示などの機能を提供します。
+ * 見積項目の明細テーブルの**外枠**（ヘッダー行・スクロール領域・空状態）と、
+ * 階層表示モードごとの描画の振り分けを担います。行の描画はモード別の
+ * サブコンポーネントが持ちます。
+ *
+ * - ツリー表示（既定 / 45.2）: {@link EstimateItemTreeView}
+ * - ドリルダウン表示（45.6〜45.9）: {@link EstimateItemDrilldownView}
+ *
+ * 折りたたみ・選択などの**表示状態は本コンポーネントも保持しません**。
+ * 単一の所有者は `useEstimateNavigation` であり、`collapsedKeys` /
+ * `onToggleCollapsed` として受け渡されます（design.md 「状態には保存対象のみを
+ * 保持する。表示状態（モード・選択・展開・カーソル）は保持しない」）。
  *
  * Requirements (estimate-creation):
  * - REQ-1.1: タイトル行に名称・規格・単位・数量・単価・金額・備考のラベルを表示する
@@ -15,23 +25,41 @@
  * - REQ-2.2: 親項目を持つ見積項目を作成した場合、その項目を親項目の子として階層表示する
  * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
  * - REQ-2.4: 複数階層のネストをサポートする
- * - REQ-2.5: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-2.6: 項目の階層レベルをインデント表示で視覚的に区別する
+ * - REQ-2.7: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
+ * - REQ-45.3, 45.4, 45.5: ツリー表示の一覧・展開/折りたたみ・子孫の非表示
+ * - REQ-45.6, 45.7, 45.8, 45.9: ドリルダウン表示の現在階層一覧・経路表示・階層移動
+ * - REQ-46.5: 階層構造パネルで項目を選択した場合、明細の表示を当該項目へ移動する
+ *   （スクロール領域を所有するのが本コンポーネントのため、移動もここが担う）
  *
  * @module components/estimate/EstimateItemTable
  */
 
-import { useCallback } from 'react';
-import { EstimateItemRow } from './EstimateItemRow';
-import type {
-  EstimateItemHierarchyEdit,
-  EstimateItemLineEdit,
-} from '../../hooks/useEstimateEditor';
+import { useEffect, useRef } from 'react';
+import { EstimateItemTreeView } from './EstimateItemTreeView';
+import type { EstimateLineChangeHandler, EstimateVisibleLineTypes } from './EstimateItemTreeView';
+import { EstimateItemDrilldownView } from './EstimateItemDrilldownView';
+import type { NodeKey } from '../../domain/estimate/estimateTree';
+import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
+import type { EstimateViewMode } from '../../hooks/useEstimateNavigation';
 
 // ============================================================================
 // 型定義
 // ============================================================================
+
+/**
+ * 明細の表示を特定の項目まで移動する要求（46.5）
+ *
+ * 「どの項目へ移動するか」だけでなく「何度目の要求か」を持つ。同じ項目を選び直した
+ * 場合も利用者にとっては移動要求であり、キーだけを渡す形では2回目以降が無反応になる。
+ */
+export interface EstimateRowRevealRequest {
+  /** 表示を移動する対象の項目キー（明細行の識別子と同一） */
+  key: NodeKey;
+  /** 移動要求の連番。同じキーでも値が変われば移動をやり直す */
+  requestId: number;
+}
 
 /**
  * EstimateItemTableコンポーネントのProps
@@ -39,27 +67,68 @@ import type {
 export interface EstimateItemTableProps {
   /** 見積項目の階層データ */
   items: EstimateItemHierarchyEdit[];
-  /** 選択中の項目ID */
-  selectedItemId?: string | null;
+  /**
+   * 階層表示モード（45.1, 45.2）
+   *
+   * 所有者は `useEstimateNavigation`。未指定は既定のツリー表示。
+   */
+  viewMode?: EstimateViewMode;
+  /**
+   * ドリルダウン表示の現在階層（45.6）
+   *
+   * 所有者は `useEstimateNavigation`。`null` / 未指定はルート階層。
+   * ツリー表示では用いない。
+   */
+  currentLevelKey?: NodeKey | null;
+  /** ドリルダウン表示の現在階層の変更要求（45.7, 45.8, 45.9） */
+  onCurrentLevelChange?: (key: NodeKey | null) => void;
+  /**
+   * 折りたたみ中の項目キー（45.5）
+   *
+   * 所有者は `useEstimateNavigation`。未指定は「折りたたみなし」。
+   */
+  collapsedKeys?: ReadonlySet<NodeKey>;
+  /** 展開/折りたたみの切り替え要求（45.4） */
+  onToggleCollapsed?: (key: NodeKey) => void;
+  /**
+   * 選択中の行キー（44.1, 23.7）
+   *
+   * 所有者は `useEstimateNavigation` ただ1つ。単一選択は要素1件、範囲選択は
+   * 表示順に並んだ複数件で表し、モード別のサブコンポーネントへそのまま渡す。
+   * 54.10 で画面ローカルの選択との二重所有を解消した。
+   */
+  selectedKeys?: readonly NodeKey[];
+  /**
+   * 明細の表示を当該項目まで移動する要求（46.5）
+   *
+   * 階層構造パネル（`EstimateHierarchyPanel`）で項目が選ばれたときに画面から渡る。
+   * 選択状態（`selectedKeys`）と分ける理由は、選択は「どれが選ばれているか」という
+   * 継続する状態であるのに対し、移動は「いま動かせ」という一度きりの要求だから。
+   * `null` / 未指定は移動要求なし。
+   */
+  revealRequest?: EstimateRowRevealRequest | null;
   /** ドラッグ可能かどうか */
   draggable?: boolean;
   /** 項目選択コールバック */
   onItemSelect?: (itemId: string) => void;
-  /** 展開/折りたたみコールバック */
-  onToggleExpand?: (itemId: string) => void;
   /** 行フィールド変更コールバック */
-  onLineChange?: (
-    itemId: string,
-    lineId: string,
-    field: keyof EstimateItemLineEdit,
-    value: string | null
-  ) => void;
-  /** ドラッグ開始コールバック */
+  onLineChange?: EstimateLineChangeHandler;
+  /**
+   * ドラッグ開始コールバック（12.2）
+   *
+   * 行への DOM ハンドラの配線は {@link useEstimateRowDrag} が持ち、モード別の
+   * サブコンポーネント双方へ同じ実装が渡る。
+   */
   onDragStart?: (itemId: string) => void;
-  /** ドロップコールバック */
+  /**
+   * ドロップコールバック（12.2）
+   *
+   * ドラッグ元と対象の識別子を渡す。並び替えの決定は
+   * `useEstimateEditor.reorderItems` 以降の責務で、本コンポーネントは通知のみ行う。
+   */
   onDrop?: (sourceId: string, targetId: string) => void;
   /** 表示する行タイプのフィルター */
-  visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
+  visibleLineTypes?: EstimateVisibleLineTypes;
 }
 
 // ============================================================================
@@ -98,31 +167,6 @@ const styles = {
     maxHeight: '600px',
     overflowY: 'auto' as const,
   } as React.CSSProperties,
-  itemWrapper: {
-    position: 'relative' as const,
-    transition: 'background-color 0.2s',
-  } as React.CSSProperties,
-  itemWrapperSelected: {
-    backgroundColor: '#eff6ff',
-  },
-  expandButton: {
-    position: 'absolute' as const,
-    left: '4px',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    width: '24px',
-    height: '24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    border: 'none',
-    backgroundColor: 'transparent',
-    color: '#6b7280',
-    cursor: 'pointer',
-    borderRadius: '4px',
-    transition: 'background-color 0.2s, color 0.2s',
-    zIndex: 10,
-  } as React.CSSProperties,
   emptyState: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -143,31 +187,6 @@ const styles = {
 // ============================================================================
 // サブコンポーネント
 // ============================================================================
-
-/**
- * 展開/折りたたみアイコン
- */
-function ChevronIcon({ isExpanded }: { isExpanded: boolean }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{
-        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-        transition: 'transform 0.2s',
-      }}
-      aria-hidden="true"
-    >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
 
 /**
  * 空状態アイコン
@@ -194,118 +213,6 @@ function EmptyIcon() {
   );
 }
 
-/**
- * 階層項目レンダリングのProps
- */
-interface ItemRendererProps {
-  item: EstimateItemHierarchyEdit;
-  level: number;
-  selectedItemId?: string | null;
-  draggable?: boolean;
-  onItemSelect?: (itemId: string) => void;
-  onToggleExpand?: (itemId: string) => void;
-  onLineChange?: (
-    itemId: string,
-    lineId: string,
-    field: keyof EstimateItemLineEdit,
-    value: string | null
-  ) => void;
-  visibleLineTypes?: Set<'ESTIMATE' | 'EXECUTION' | 'VENDOR'>;
-}
-
-/**
- * 階層項目レンダラー
- */
-function ItemRenderer({
-  item,
-  level,
-  selectedItemId,
-  draggable = false,
-  onItemSelect,
-  onToggleExpand,
-  onLineChange,
-  visibleLineTypes,
-}: ItemRendererProps) {
-  const hasChildren = item.children.length > 0;
-  const isSelected = selectedItemId === item.id;
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      // 展開ボタンのクリックは項目選択しない
-      if ((e.target as HTMLElement).closest('[data-expand-button]')) {
-        return;
-      }
-      onItemSelect?.(item.id);
-    },
-    [item.id, onItemSelect]
-  );
-
-  const handleToggleExpand = useCallback(() => {
-    onToggleExpand?.(item.id);
-  }, [item.id, onToggleExpand]);
-
-  const wrapperStyle: React.CSSProperties = {
-    ...styles.itemWrapper,
-    ...(isSelected ? styles.itemWrapperSelected : {}),
-    paddingLeft: `${level * 16}px`,
-  };
-
-  return (
-    <>
-      <div
-        style={wrapperStyle}
-        data-testid={`estimate-item-${item.id}`}
-        data-selected={isSelected.toString()}
-        onClick={handleClick}
-        draggable={draggable}
-      >
-        {/* 展開/折りたたみボタン */}
-        {hasChildren && (
-          <button
-            type="button"
-            style={{
-              ...styles.expandButton,
-              left: `${level * 16 + 4}px`,
-            }}
-            onClick={handleToggleExpand}
-            aria-label={item.isExpanded ? '折りたたむ' : '展開する'}
-            data-expand-button
-          >
-            <ChevronIcon isExpanded={item.isExpanded} />
-          </button>
-        )}
-
-        {/* 項目行（3行1セット） */}
-        <EstimateItemRow
-          itemId={item.id}
-          lines={item.lines}
-          indentLevel={hasChildren ? 1 : 0} // 展開ボタン分のスペース
-          isSelected={isSelected}
-          onLineChange={onLineChange}
-          hasChildren={hasChildren}
-          visibleLineTypes={visibleLineTypes}
-        />
-      </div>
-
-      {/* 子項目（展開時のみ） */}
-      {item.isExpanded &&
-        item.children.map((child) => (
-          <ItemRenderer
-            key={child.id}
-            item={child}
-            level={level + 1}
-            selectedItemId={selectedItemId}
-            draggable={draggable}
-            onItemSelect={onItemSelect}
-            onToggleExpand={onToggleExpand}
-            onLineChange={onLineChange}
-            visibleLineTypes={visibleLineTypes}
-          />
-        ))}
-    </>
-  );
-}
-
 // ============================================================================
 // メインコンポーネント
 // ============================================================================
@@ -313,31 +220,67 @@ function ItemRenderer({
 /**
  * 見積項目テーブル
  *
- * 見積項目を階層ツリー形式で表示します。
- * 展開/折りたたみ、項目選択、インデント表示などの機能を提供します。
+ * ヘッダー行と本体の外枠を描画し、明細行の描画は階層表示モードごとの
+ * サブコンポーネントへ委譲します。
  *
  * @example
  * ```tsx
- * const { items, updateLine, toggleExpanded } = useEstimateEditor({ ... });
+ * const editor = useEstimateEditor({ ... });
+ * const navigation = useEstimateNavigation({ items: editor.editState.items });
  *
  * <EstimateItemTable
- *   items={items}
- *   selectedItemId={selectedId}
- *   onItemSelect={setSelectedId}
- *   onToggleExpand={toggleExpanded}
- *   onLineChange={updateLine}
+ *   items={editor.items}
+ *   collapsedKeys={navigation.collapsedKeys}
+ *   onToggleCollapsed={navigation.toggleCollapsed}
+ *   onLineChange={editor.updateLine}
  * />
  * ```
  */
 export function EstimateItemTable({
   items,
-  selectedItemId,
+  viewMode = 'tree',
+  currentLevelKey = null,
+  onCurrentLevelChange,
+  collapsedKeys,
+  onToggleCollapsed,
+  selectedKeys,
+  revealRequest = null,
   draggable = false,
   onItemSelect,
-  onToggleExpand,
+  onDragStart,
+  onDrop,
   onLineChange,
   visibleLineTypes,
 }: EstimateItemTableProps) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // 明細の表示を対象項目まで移動する（46.5）
+  //
+  // 折りたたまれた祖先の展開や現在階層の移動（`useEstimateNavigation.revealAndSelect`）は
+  // 「対象が一覧に**含まれる**」までしか保証しない。行数の多い見積書では対象がスクロール領域の
+  // 外にあるままなので、要求のたびにスクロール位置そのものを動かす。
+  //
+  // 対象行は展開・階層移動と同じコミットで描画済みのため、この副作用の時点で存在する。
+  const revealKey = revealRequest === null ? null : revealRequest.key;
+  const revealRequestId = revealRequest === null ? null : revealRequest.requestId;
+  useEffect(() => {
+    if (revealKey === null) {
+      return;
+    }
+    const body = bodyRef.current;
+    if (body === null) {
+      return;
+    }
+    // 属性セレクタのエスケープを持ち込まないため、走査して照合する
+    const targetTestId = `estimate-item-${revealKey}`;
+    for (const row of body.querySelectorAll<HTMLElement>('[data-testid]')) {
+      if (row.dataset.testid === targetTestId) {
+        row.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+    }
+  }, [revealKey, revealRequestId]);
+
   return (
     <div style={styles.table} aria-label="見積項目テーブル">
       {/* ヘッダー行 */}
@@ -355,27 +298,39 @@ export function EstimateItemTable({
         </div>
       </div>
 
-      {/* ボディ */}
-      <div style={styles.body}>
+      {/* ボディ（明細のスクロール領域。46.5 の「移動」はこの中で起こる） */}
+      <div style={styles.body} ref={bodyRef}>
         {items.length === 0 ? (
           <div style={styles.emptyState}>
             <EmptyIcon />
             <span>見積項目がありません</span>
           </div>
+        ) : viewMode === 'drilldown' ? (
+          <EstimateItemDrilldownView
+            items={items}
+            currentLevelKey={currentLevelKey}
+            onCurrentLevelChange={onCurrentLevelChange}
+            selectedKeys={selectedKeys}
+            draggable={draggable}
+            onItemSelect={onItemSelect}
+            onDragStart={onDragStart}
+            onDrop={onDrop}
+            onLineChange={onLineChange}
+            visibleLineTypes={visibleLineTypes}
+          />
         ) : (
-          items.map((item) => (
-            <ItemRenderer
-              key={item.id}
-              item={item}
-              level={0}
-              selectedItemId={selectedItemId}
-              draggable={draggable}
-              onItemSelect={onItemSelect}
-              onToggleExpand={onToggleExpand}
-              onLineChange={onLineChange}
-              visibleLineTypes={visibleLineTypes}
-            />
-          ))
+          <EstimateItemTreeView
+            items={items}
+            collapsedKeys={collapsedKeys}
+            onToggleCollapsed={onToggleCollapsed}
+            selectedKeys={selectedKeys}
+            draggable={draggable}
+            onItemSelect={onItemSelect}
+            onDragStart={onDragStart}
+            onDrop={onDrop}
+            onLineChange={onLineChange}
+            visibleLineTypes={visibleLineTypes}
+          />
         )}
       </div>
     </div>

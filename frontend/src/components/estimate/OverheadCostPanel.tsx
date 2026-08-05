@@ -54,13 +54,16 @@ export interface CalculateOverheadParams {
 
 /**
  * 項目追加パラメータ
+ *
+ * プリセット値（名称・規格・単位・数量）は含めない。55.6 で追加先が編集状態の
+ * 遷移（`estimateEditReducer` の `addOverheadItem`）になり、7.1/8.1/9.1 の
+ * プリセット値はそちらが単一の定義として持つ。パネルが同じ値を重複して持つと
+ * どちらを直しても画面が変わらない／変わってしまう死んだ経路になる。
  */
 export interface AddOverheadItemParams {
+  /** 諸経費種別（プリセット値の決定に用いる） */
   costType: OverheadCostType;
-  name: string;
-  specification: string;
-  unit: string;
-  quantity: string;
+  /** 見積金額行の単価（10進数文字列。自動計算結果でも手入力でもよい） */
   unitPrice: string;
 }
 
@@ -70,24 +73,18 @@ export interface AddOverheadItemParams {
 export interface OverheadCostPanelProps {
   /** 見積書ID */
   estimateId: string;
-  /** 項目追加時のコールバック */
-  onItemAdded: (params: AddOverheadItemParams) => void | Promise<void>;
+  /**
+   * 項目追加時のコールバック（55.6: 編集状態への反映のみで完結する同期処理）
+   *
+   * 追加はサーバーへ書き込まず編集中の明細へ反映される（7.7, 8.7, 9.7, 49.3）。
+   * 待ち時間が存在しないため、追加中であることを示す表示は持たない
+   * （要件 7.6/8.6/9.6 の「処理中の表示」は**自動計算**に対する条項で、
+   * 計算はいまもサーバーの計算経路が担う）。
+   */
+  onItemAdded: (params: AddOverheadItemParams) => void;
   /** 計算実行時のコールバック（API呼び出し用） */
   onCalculate?: (params: CalculateOverheadParams) => Promise<OverheadCostResult>;
 }
-
-// ============================================================================
-// 定数定義
-// ============================================================================
-
-/**
- * 諸経費種別とプリセット名称のマッピング
- */
-const COST_TYPE_NAMES: Record<OverheadCostType, string> = {
-  COMMON_TEMPORARY: '共通仮設費',
-  SITE_MANAGEMENT: '現場管理費',
-  GENERAL_ADMIN: '一般管理費',
-};
 
 // ============================================================================
 // スタイル定義
@@ -311,15 +308,15 @@ const validatePositiveNumber = (value: string): string | null => {
  * 諸経費計算パネル
  *
  * 国土交通省の公共建築工事共通費積算基準に準じた諸経費計算UIを提供します。
- * 計算はバックエンドAPIで実行され、結果を表示します。
+ * 計算はバックエンドAPIで実行され、結果を表示します（書き込みは伴いません）。
+ * 項目追加は呼び出し元の編集状態へ反映されます（55.6）。
  *
  * @example
  * ```tsx
  * <OverheadCostPanel
  *   estimateId="est-001"
- *   onItemAdded={async (params) => {
- *     await addOverheadItem(params);
- *     refetch();
+ *   onItemAdded={(params) => {
+ *     editor.addOverheadItem({ costType: params.costType, unitPrice: params.unitPrice });
  *   }}
  *   onCalculate={async (params) => {
  *     return await api.calculateOverhead(params);
@@ -347,7 +344,6 @@ export function OverheadCostPanel({
   const [calculatedAmountError, setCalculatedAmountError] = useState<string | null>(null);
   const [calculationResult, setCalculationResult] = useState<OverheadCostResult | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
 
   // 入力ハンドラー
   const handleDirectCostChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -425,24 +421,11 @@ export function OverheadCostPanel({
     onCalculate,
   ]);
 
-  // 項目追加ハンドラー
-  const handleAddItem = useCallback(async () => {
+  // 項目追加ハンドラー（55.6: 編集状態への反映のみ。サーバー往復は無い）
+  const handleAddItem = useCallback(() => {
     if (!calculatedAmount) return;
 
-    setIsAdding(true);
-
-    try {
-      await onItemAdded({
-        costType,
-        name: COST_TYPE_NAMES[costType],
-        specification: '',
-        unit: '式',
-        quantity: '1',
-        unitPrice: calculatedAmount,
-      });
-    } finally {
-      setIsAdding(false);
-    }
+    onItemAdded({ costType, unitPrice: calculatedAmount });
   }, [costType, calculatedAmount, onItemAdded]);
 
   // ボタンの有効/無効判定
@@ -454,7 +437,7 @@ export function OverheadCostPanel({
     (costType === 'SITE_MANAGEMENT' && (!pureConstructionCost || !!pureConstructionCostError)) ||
     (costType === 'GENERAL_ADMIN' && (!constructionCost || !!constructionCostError));
 
-  const isAddDisabled = isAdding || !calculatedAmount || !!calculatedAmountError;
+  const isAddDisabled = !calculatedAmount || !!calculatedAmountError;
 
   return (
     <section style={styles.panel} role="region" aria-label="諸経費計算">
@@ -660,7 +643,7 @@ export function OverheadCostPanel({
           disabled={isAddDisabled}
           onClick={handleAddItem}
         >
-          {isAdding ? '追加中...' : '項目追加'}
+          項目追加
         </button>
       </div>
     </section>

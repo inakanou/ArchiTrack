@@ -870,3 +870,101 @@ describe('EstimateItemRow', () => {
     });
   });
 });
+
+// ============================================================================
+// 注記行の描画（Task 53.8）
+// ============================================================================
+
+/**
+ * 注記行のテストデータ（ESTIMATE行1件のみ・名称以外はNULL）
+ *
+ * design.md「明細の種別と注記行」: `NOTE` 項目は `EstimateItemLine` を
+ * `ESTIMATE` の1件のみ持ち、`name` 以外は NULL とする。
+ */
+const createNoteLines = (): EstimateItemLineEdit[] => [
+  {
+    id: 'line-note-1',
+    estimateItemId: 'note-1',
+    lineType: 'ESTIMATE',
+    name: '※支給材は別途',
+    specification: null,
+    unit: null,
+    quantity: null,
+    unitPrice: null,
+    amount: null,
+    remarks: null,
+  },
+];
+
+describe('EstimateItemRow - 注記行（55.1）', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('itemType=NOTE の行が名称欄のみを表示し、規格・単位・数量・単価・備考の入力欄を持たないこと (55.1)', () => {
+    render(<EstimateItemRow itemId="note-1" lines={createNoteLines()} itemType="NOTE" />);
+
+    const row = screen.getByTestId('estimate-item-row');
+    expect(row).toHaveAttribute('data-item-type', 'NOTE');
+
+    // 名称欄のみ表示される
+    expect(within(row).getByLabelText('名称')).toHaveValue('※支給材は別途');
+
+    // 他の欄は入力欄を持たない
+    expect(within(row).queryByLabelText('規格')).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText('単位')).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText('数量')).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText('単価')).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText('備考')).not.toBeInTheDocument();
+  });
+
+  it('itemType=NOTE の行が金額欄を描画せず空欄になること (55.1)', () => {
+    render(<EstimateItemRow itemId="note-1" lines={createNoteLines()} itemType="NOTE" />);
+
+    const row = screen.getByTestId('estimate-item-row');
+    // 通常行の金額欄（'-' や数値を表示する）を持たない
+    expect(within(row).queryByTestId('amount-field')).not.toBeInTheDocument();
+    // 桁位置を揃えるための空欄は描画される
+    expect(within(row).getByTestId('note-blank-amount')).toBeEmptyDOMElement();
+    expect(within(row).getByTestId('note-blank-specification')).toBeEmptyDOMElement();
+    expect(within(row).getByTestId('note-blank-remarks')).toBeEmptyDOMElement();
+  });
+
+  it('itemType=NOTE の行が種別ラベルに「注記」を表示すること', () => {
+    render(<EstimateItemRow itemId="note-1" lines={createNoteLines()} itemType="NOTE" />);
+
+    const row = screen.getByTestId('estimate-item-row');
+    expect(within(row).getByText('注記')).toBeInTheDocument();
+    expect(within(row).queryByText('見積')).not.toBeInTheDocument();
+  });
+
+  it('注記行の名称を編集するとonLineChangeがnameフィールドで呼ばれること (55.1)', async () => {
+    const onLineChange = vi.fn();
+    render(
+      <EstimateItemRow
+        itemId="note-1"
+        lines={createNoteLines()}
+        itemType="NOTE"
+        onLineChange={onLineChange}
+      />
+    );
+
+    const row = screen.getByTestId('estimate-item-row');
+    await userEvent.type(within(row).getByLabelText('名称'), 'X');
+
+    expect(onLineChange).toHaveBeenCalledWith('note-1', 'line-note-1', 'name', expect.any(String));
+    // 名称以外のフィールドは編集経路を持たない
+    for (const call of onLineChange.mock.calls) {
+      expect(call[2]).toBe('name');
+    }
+  });
+
+  it('itemType未指定（STANDARD）の行は従来どおり全欄を表示すること（注記描画が既定にならないこと）', () => {
+    render(<EstimateItemRow itemId="item-1" lines={createMockLines()} />);
+
+    const estimateRow = screen.getByTestId('line-type-ESTIMATE');
+    expect(within(estimateRow).getByLabelText('規格')).toBeInTheDocument();
+    expect(within(estimateRow).getByLabelText('数量')).toBeInTheDocument();
+    expect(within(estimateRow).getByLabelText('備考')).toBeInTheDocument();
+  });
+});

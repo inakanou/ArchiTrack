@@ -8,7 +8,7 @@ export { EstimateItemRow } from './EstimateItemRow';
 export type { EstimateItemRowProps } from './EstimateItemRow';
 
 export { EstimateItemTable } from './EstimateItemTable';
-export type { EstimateItemTableProps } from './EstimateItemTable';
+export type { EstimateItemTableProps, EstimateRowRevealRequest } from './EstimateItemTable';
 
 export { TransferQuotationDialog } from './TransferQuotationDialog';
 export type { TransferQuotationDialogProps } from './TransferQuotationDialog';
@@ -21,3 +21,8 @@ export type { EstimateCardProps } from './EstimateCard';
 
 export { EstimateItemToolbar } from './EstimateItemToolbar';
 export type { EstimateItemToolbarProps } from './EstimateItemToolbar';
+
+export { EstimateKeymapHelp } from './EstimateKeymapHelp';
+
+export { EstimateHierarchyPanel, ESTIMATE_HIERARCHY_PANEL_LABEL } from './EstimateHierarchyPanel';
+export type { EstimateHierarchyPanelProps } from './EstimateHierarchyPanel';

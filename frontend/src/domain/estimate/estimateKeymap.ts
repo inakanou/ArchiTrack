@@ -1,0 +1,464 @@
+/**
+ * @fileoverview estimateKeymap - 見積明細のキー割当の単一定義と解決
+ *
+ * Task 54.6: キー割当の定義と解決
+ *
+ * 行の挿入・削除・複写・範囲選択・階層の上げ下げ・階層間の移動・表示モード切替の
+ * キー割当を**この1ファイルだけ**が持ちます。画面側（`useEstimateKeyboard`）は
+ * 「押されたキー」と「フォーカス文脈」を渡してコマンド名を受け取るだけで、
+ * キーの条件分岐を持ちません。キー割当一覧の表示（54.7）も同じ `entries` から
+ * 生成するため、定義と画面表示・実際の挙動が乖離しません。
+ *
+ * 依存方向（design.md `#### Dependency Direction`）:
+ * `types → api → calculations / estimateTree / keymap → reducer → hooks → components → pages`
+ * 本モジュールは hooks / components を参照しません。
+ *
+ * Requirements (estimate-creation):
+ * - 23.11: ツールバーの各操作に対応するキーボードショートカットを提供する（割当の定義）
+ *   54.6 の時点では 47.1 が列挙する操作だけを定義していたため、ツールバーの追加系
+ *   （23.2, 23.4, 41.1, 55.1）と同一階層の並び替え（12.2）に対応する割当が欠けていた。
+ *   54.10 で `addRootItem` / `addChildItem` / `addDiscountRow` / `addNoteRow` /
+ *   `reorderRowUp` / `reorderRowDown` を追加して対応を閉じている。
+ * - 47.1: キーボード操作のみで行の挿入・削除・複写・範囲選択・階層の上げ下げ・階層間の移動を実行可能とする
+ * - 47.4: ブラウザの標準操作と衝突しないキー割り当てを用いる
+ * - 47.5: セルの文字入力中は文字編集の操作を優先し、行操作を実行しない
+ * - 47.6: 範囲選択中に固有のキーボード操作を有効にする
+ * - 47.7: 範囲選択解除の操作で範囲選択を解除する
+ *
+ * Design: design.md `##### estimateKeymap`（:4086-4120）
+ *
+ * ## キー割当の考え方（47.4）
+ *
+ * ブラウザが自ら使うキーは採用しない。特に次は使えない。
+ * - `Alt+←` / `Alt+→`（履歴の戻る・進む）、`Alt+Home`（ホーム）、`Alt+D`（アドレスバー）
+ * - `Ctrl+D`（ブックマーク）、`Ctrl+P` `Ctrl+S` `Ctrl+F` `Ctrl+T` `Ctrl+W`
+ * - `Ctrl+PageUp` / `Ctrl+PageDown`（タブ切替）、`Shift+Insert`（貼り付け）
+ * - `Tab` / `Shift+Tab`（フォーカス移動）。これは 47.2 の**セル間移動そのもの**であり、
+ *   横取りせずブラウザ標準のまま使う（明細のセルはすべてフォーカス可能な入力要素で、
+ *   DOM の並びが表示順と一致する）
+ * - `F1` 等のファンクションキー（ヘルプ・再読み込み・開発者ツール）
+ *
+ * 残った空きから、方向の意味が対応する組を選んでいる。
+ * - `Alt+↑` / `Alt+↓`: 階層を出入りする（表示の移動）
+ * - `Alt+Shift+←` / `Alt+Shift+→`: 階層を上げる・下げる（明細の編集）
+ * - `Alt+Shift+↑` / `Alt+Shift+↓`: 同じ階層内で並び順を入れ替える（明細の編集 / 12.2）
+ * - `Shift+↑` / `Shift+↓`: 範囲選択を広げる
+ * - `Alt+PageUp` / `Alt+PageDown`: 階層内の先頭行・末尾行へ
+ * - `Alt+Shift+PageUp` / `Alt+Shift+PageDown`: 前の階層・次の階層へ
+ * - `Alt+A` / `Alt+Shift+A` / `Alt+Shift+D` / `Alt+Shift+N`: 項目・子項目・値引き行・注記行の追加
+ *
+ * 修飾キーを伴わない割当は `Esc`（選択解除）だけに限る。修飾キー無しのキーは
+ * 文字入力・キャレット移動・スクロールを奪うため（47.4, 47.5）。
+ *
+ * @module domain/estimate/estimateKeymap
+ */
+
+import { isTextInputElement } from '../../utils/keyboard-input';
+import type { NodeKey } from './estimateEditReducer.types';
+
+// ============================================================================
+// 型定義（design.md `##### estimateKeymap` の契約）
+// ============================================================================
+
+/** キー操作を解釈する文脈（どこにフォーカスがあるか） */
+export type FocusContext = 'cellEditing' | 'rowSelected' | 'rangeSelected' | 'hierarchyPanel';
+
+/** キー操作が表す明細操作 */
+export type EstimateCommand =
+  | 'insertRow'
+  | 'deleteRow'
+  | 'duplicateCell'
+  | 'addRootItem'
+  | 'addChildItem'
+  | 'addDiscountRow'
+  | 'addNoteRow'
+  | 'reorderRowUp'
+  | 'reorderRowDown'
+  | 'toggleRangeSelect'
+  | 'clearSelection'
+  | 'indent'
+  | 'outdent'
+  | 'drillDown'
+  | 'drillUp'
+  | 'firstRowInLevel'
+  | 'lastRowInLevel'
+  | 'nextLevel'
+  | 'prevLevel'
+  | 'toggleViewMode'
+  | 'undo'
+  | 'redo';
+
+/** 修飾キー */
+export type KeymapModifier = 'ctrl' | 'shift' | 'alt' | 'meta';
+
+/** キー割当1件 */
+export interface KeymapEntry {
+  readonly command: EstimateCommand;
+  /** `KeyboardEvent.key` と照合する値（英字は大文字小文字を区別しない） */
+  readonly key: string;
+  readonly modifiers: readonly KeymapModifier[];
+  readonly contexts: readonly FocusContext[];
+  /** 利用者向けの説明（54.7 のキー割当一覧はこの文字列を表示する） */
+  readonly label: string;
+}
+
+/** キー割当の定義と解決 */
+export interface EstimateKeymap {
+  readonly entries: readonly KeymapEntry[];
+  resolve(event: KeyboardEvent, context: FocusContext): EstimateCommand | null;
+}
+
+// ============================================================================
+// DOM 上の目印（画面側と共有する契約）
+// ============================================================================
+
+/**
+ * 明細行に付ける行キーの属性
+ *
+ * キー操作の対象行は「いまフォーカスのある要素が属する行」で決まる。
+ * 画面側が独自の選択状態を持たずに済むよう、行の識別子を DOM に載せる。
+ */
+export const ESTIMATE_ROW_KEY_ATTRIBUTE = 'data-estimate-row-key';
+
+/** 階層構造パネルの範囲を示す属性（`hierarchyPanel` 文脈の判定に用いる） */
+export const ESTIMATE_HIERARCHY_PANEL_ATTRIBUTE = 'data-estimate-hierarchy-panel';
+
+// ============================================================================
+// キー割当の定義
+// ============================================================================
+
+/** 明細行が対象の文脈（行選択中・範囲選択中） */
+const ROW_CONTEXTS: readonly FocusContext[] = ['rowSelected', 'rangeSelected'];
+
+/** 明細の編集を伴わない移動系が使える文脈 */
+const NAVIGATION_CONTEXTS: readonly FocusContext[] = [
+  'rowSelected',
+  'rangeSelected',
+  'hierarchyPanel',
+];
+
+const ENTRIES: readonly KeymapEntry[] = [
+  // --- 行操作（43.1: いずれもサーバーへ保存せず画面上の明細を更新する） -------
+  {
+    command: 'insertRow',
+    key: 'Insert',
+    modifiers: ['alt'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Insert: 選択行の直後に行を挿入',
+  },
+  {
+    command: 'deleteRow',
+    key: 'Delete',
+    modifiers: ['alt'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Delete: 選択行（範囲選択中は範囲全体）を削除',
+  },
+  {
+    command: 'duplicateCell',
+    key: 'c',
+    modifiers: ['alt'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+C: 選択行（範囲選択中は範囲全体）を複写',
+  },
+  // --- ツールバーの項目追加・並び替えに対応する割当（23.11 / Task 54.10） ----
+  //
+  // 23.11 は「ツールバーの**各**操作に対応するキーボード操作」を求める。54.6 の時点で
+  // 割当があったのは 47.1 が列挙する操作（挿入・削除・複写・範囲選択・階層の上げ下げ・
+  // 階層間の移動）だけで、ツールバーの追加系（23.2, 23.4, 41.1, 55.1）と同一階層の
+  // 並び替え（12.2）には対応するキーが無かった。ここで埋める。
+  //
+  // 選び方は 47.4 に従い、修飾キー付きで未使用の組から採る。英字は `Alt+D`（アドレスバー）
+  // `Alt+E`/`Alt+F`（メニュー）を避けて `a` / `n` を選び、「ルートへ追加」と「選択行を
+  // 起点に追加」を `Shift` の有無で対にした。並び替えは階層の上げ下げ（`Alt+Shift+←→`）と
+  // 直交する `Alt+Shift+↑↓` を用いる。
+  //
+  // 文脈はいずれも `ROW_CONTEXTS`。これらは明細を書き換える操作なので、階層構造パネルへ
+  // フォーカスがある間に発火してはならない（削除・複写・階層の上げ下げと同じ扱い。
+  // `NAVIGATION_CONTEXTS` は表示を動かすだけの操作のための集合）。未選択のときの文脈も
+  // `rowSelected` に落ちるため、選択が無くても「項目追加」「値引き行追加」は使える。
+  {
+    command: 'addRootItem',
+    key: 'a',
+    modifiers: ['alt'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+A: ルートレベルの末尾に項目を追加',
+  },
+  {
+    command: 'addChildItem',
+    key: 'a',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+A: 選択行の子として項目を追加',
+  },
+  {
+    command: 'addDiscountRow',
+    key: 'd',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+D: ルートレベルの末尾に値引き行を追加',
+  },
+  {
+    command: 'addNoteRow',
+    key: 'n',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+N: 選択行の直後（未選択ならルート末尾）に注記行を追加',
+  },
+  {
+    command: 'reorderRowUp',
+    key: 'ArrowUp',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+↑: 同じ階層内で1つ上へ移動',
+  },
+  {
+    command: 'reorderRowDown',
+    key: 'ArrowDown',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+↓: 同じ階層内で1つ下へ移動',
+  },
+  // --- 範囲選択（44.1, 44.2, 47.6, 47.7） -----------------------------------
+  {
+    command: 'toggleRangeSelect',
+    key: 'ArrowDown',
+    modifiers: ['shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Shift+↓: 範囲選択を1行下へ広げる',
+  },
+  {
+    command: 'toggleRangeSelect',
+    key: 'ArrowUp',
+    modifiers: ['shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Shift+↑: 範囲選択を1行上へ広げる',
+  },
+  {
+    command: 'clearSelection',
+    key: 'Escape',
+    modifiers: [],
+    contexts: ['cellEditing', 'rowSelected', 'rangeSelected', 'hierarchyPanel'],
+    label: 'Esc: セルの入力を抜ける／選択を解除する',
+  },
+  // --- 階層の上げ下げ（44.4, 44.5, 47.6） ------------------------------------
+  {
+    command: 'indent',
+    key: 'ArrowRight',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+→: 階層を1段下げる（範囲選択中は範囲全体）',
+  },
+  {
+    command: 'outdent',
+    key: 'ArrowLeft',
+    modifiers: ['alt', 'shift'],
+    contexts: ROW_CONTEXTS,
+    label: 'Alt+Shift+←: 階層を1段上げる（範囲選択中は範囲全体）',
+  },
+  // --- 階層間の移動（45.7〜45.9, 47.1） --------------------------------------
+  {
+    command: 'drillDown',
+    key: 'ArrowDown',
+    modifiers: ['alt'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Alt+↓: 選択行の子階層を表示する（ドリルダウン表示）',
+  },
+  {
+    command: 'drillUp',
+    key: 'ArrowUp',
+    modifiers: ['alt'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Alt+↑: 一つ上の階層へ戻る（ドリルダウン表示）',
+  },
+  {
+    command: 'firstRowInLevel',
+    key: 'PageUp',
+    modifiers: ['alt'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Alt+PageUp: 表示中の先頭行を選択',
+  },
+  {
+    command: 'lastRowInLevel',
+    key: 'PageDown',
+    modifiers: ['alt'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Alt+PageDown: 表示中の末尾行を選択',
+  },
+  {
+    command: 'prevLevel',
+    key: 'PageUp',
+    modifiers: ['alt', 'shift'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Alt+Shift+PageUp: 前の階層へ移動（ドリルダウン表示）',
+  },
+  {
+    command: 'nextLevel',
+    key: 'PageDown',
+    modifiers: ['alt', 'shift'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Alt+Shift+PageDown: 次の階層へ移動（ドリルダウン表示）',
+  },
+  // --- 表示モード（45.1） ----------------------------------------------------
+  {
+    command: 'toggleViewMode',
+    key: 'm',
+    modifiers: ['alt'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Alt+M: ツリー表示とドリルダウン表示を切り替える',
+  },
+  // --- 取り消し・やり直し（48.1, 48.2） --------------------------------------
+  // 既存の割当（`useUndoKeyboardShortcuts`）をそのまま引き継ぐ。文字入力中は
+  // ブラウザ標準の取り消しが働くため `cellEditing` には割り当てない。
+  {
+    command: 'undo',
+    key: 'z',
+    modifiers: ['ctrl'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Ctrl+Z: 直前の編集を取り消す',
+  },
+  {
+    command: 'undo',
+    key: 'z',
+    modifiers: ['meta'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: '⌘Z: 直前の編集を取り消す',
+  },
+  {
+    command: 'redo',
+    key: 'z',
+    modifiers: ['ctrl', 'shift'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Ctrl+Shift+Z: 取り消した編集をやり直す',
+  },
+  {
+    command: 'redo',
+    key: 'z',
+    modifiers: ['meta', 'shift'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: '⌘Shift+Z: 取り消した編集をやり直す',
+  },
+  {
+    command: 'redo',
+    key: 'y',
+    modifiers: ['ctrl'],
+    contexts: NAVIGATION_CONTEXTS,
+    label: 'Ctrl+Y: 取り消した編集をやり直す',
+  },
+];
+
+// ============================================================================
+// 解決
+// ============================================================================
+
+/** 英字1文字か（割当・入力文字の双方の判定に用いる） */
+const SINGLE_LETTER = /^[a-z]$/i;
+
+/**
+ * 押されたキーが割当と一致するか
+ *
+ * macOS の Option+英字は `event.key` が別の文字になる（`Alt+C` → `ç`）ため、
+ * 英字1文字の割当は `event.code`（物理キー）でも照合する。
+ *
+ * ただし**入力文字として英字が取れている場合は物理キーを見ない**。キー配列が
+ * 異なると英字と物理キーの対応がずれるため（QWERTZ の `Y` は物理キー `KeyZ`、
+ * AZERTY の `M` は `Semicolon`）、物理キーを併用すると押していない操作に
+ * 解決される。実際、`Ctrl+Y`（やり直し）は QWERTZ で `key='y'` / `code='KeyZ'`
+ * となり、割当の並び順（undo が redo より前）により「取り消し」へ解決されていた。
+ */
+function keyMatches(entryKey: string, event: KeyboardEvent): boolean {
+  if (event.key.toLowerCase() === entryKey.toLowerCase()) {
+    return true;
+  }
+  if (entryKey.length === 1 && SINGLE_LETTER.test(entryKey)) {
+    if (SINGLE_LETTER.test(event.key)) {
+      // 英字が取れているので、それが割当と違う以上この割当ではない
+      return false;
+    }
+    return event.code === `Key${entryKey.toUpperCase()}`;
+  }
+  return false;
+}
+
+/** 修飾キーが過不足なく一致するか（余分な修飾キーは不一致とする） */
+function modifiersMatch(modifiers: readonly KeymapModifier[], event: KeyboardEvent): boolean {
+  return (
+    event.ctrlKey === modifiers.includes('ctrl') &&
+    event.shiftKey === modifiers.includes('shift') &&
+    event.altKey === modifiers.includes('alt') &&
+    event.metaKey === modifiers.includes('meta')
+  );
+}
+
+/**
+ * キー操作からコマンドを解決する
+ *
+ * 文字入力要素が対象のイベントは、呼び出し側がどの文脈を渡しても
+ * `cellEditing` として扱う。文字編集の優先（47.5）は文脈判定の取り違えで
+ * 破れてはならないため。
+ */
+function resolve(event: KeyboardEvent, context: FocusContext): EstimateCommand | null {
+  const effectiveContext: FocusContext = isTextInputElement(event.target) ? 'cellEditing' : context;
+
+  for (const entry of ENTRIES) {
+    if (!entry.contexts.includes(effectiveContext)) {
+      continue;
+    }
+    if (keyMatches(entry.key, event) && modifiersMatch(entry.modifiers, event)) {
+      return entry.command;
+    }
+  }
+  return null;
+}
+
+/** 見積明細のキー割当（単一の定義） */
+export const ESTIMATE_KEYMAP: EstimateKeymap = {
+  entries: ENTRIES,
+  resolve,
+};
+
+// ============================================================================
+// フォーカス文脈・対象行の判定
+// ============================================================================
+
+/** {@link resolveEstimateFocusContext} の判定材料 */
+export interface FocusContextInput {
+  /** 選択中の行数（2行以上で範囲選択の文脈になる / 44.8, 47.6） */
+  readonly selectedCount: number;
+}
+
+/**
+ * フォーカス位置から文脈を判定する
+ *
+ * 判定順は「文字入力中 → 階層構造パネル → 範囲選択中 → 行選択中」。
+ * 文字入力の判定は共通ユーティリティ `isTextInputElement`（53.11）を用い、
+ * 取り消し・やり直しのショートカットと同一の基準を共有する（47.5）。
+ */
+export function resolveEstimateFocusContext(
+  target: EventTarget | null,
+  input: FocusContextInput
+): FocusContext {
+  if (isTextInputElement(target)) {
+    return 'cellEditing';
+  }
+  if (
+    target instanceof HTMLElement &&
+    target.closest(`[${ESTIMATE_HIERARCHY_PANEL_ATTRIBUTE}]`) !== null
+  ) {
+    return 'hierarchyPanel';
+  }
+  return input.selectedCount >= 2 ? 'rangeSelected' : 'rowSelected';
+}
+
+/**
+ * フォーカス位置が属する明細行のキーを取り出す
+ *
+ * 明細の外（ツールバー・パネルなど）にフォーカスがある場合は null。
+ */
+export function resolveEstimateRowKey(target: EventTarget | null): NodeKey | null {
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+  const row = target.closest<HTMLElement>(`[${ESTIMATE_ROW_KEY_ATTRIBUTE}]`);
+  const key = row?.getAttribute(ESTIMATE_ROW_KEY_ATTRIBUTE);
+  return key === undefined || key === null || key === '' ? null : key;
+}

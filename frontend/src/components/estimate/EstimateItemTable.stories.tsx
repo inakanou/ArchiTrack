@@ -37,7 +37,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
     displayOrder: 1,
     lines: [createLine('line-1', 'item-1', 'ESTIMATE', '仮設工事', '500000')],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -55,7 +54,6 @@ const mockItems: EstimateItemHierarchyEdit[] = [
         displayOrder: 1,
         lines: [createLine('line-2-1', 'item-2-1', 'ESTIMATE', 'コンクリート工事', '800000')],
         children: [],
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
       },
@@ -66,12 +64,10 @@ const mockItems: EstimateItemHierarchyEdit[] = [
         displayOrder: 2,
         lines: [createLine('line-2-2', 'item-2-2', 'ESTIMATE', '鉄筋工事', '400000')],
         children: [],
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
       },
     ],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -91,7 +87,7 @@ const meta = {
   tags: ['autodocs'],
   args: {
     onItemSelect: fn(),
-    onToggleExpand: fn(),
+    onToggleCollapsed: fn(),
     onLineChange: fn(),
     onDragStart: fn(),
     onDrop: fn(),
@@ -107,7 +103,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     items: mockItems,
-    selectedItemId: null,
+    selectedKeys: [],
     draggable: false,
   },
 };
@@ -118,7 +114,7 @@ export const Default: Story = {
 export const WithSelectedItem: Story = {
   args: {
     items: mockItems,
-    selectedItemId: 'item-2',
+    selectedKeys: ['item-2'],
     draggable: false,
   },
 };
@@ -129,7 +125,7 @@ export const WithSelectedItem: Story = {
 export const DraggableEnabled: Story = {
   args: {
     items: mockItems,
-    selectedItemId: null,
+    selectedKeys: [],
     draggable: true,
   },
 };
@@ -140,7 +136,7 @@ export const DraggableEnabled: Story = {
 export const Empty: Story = {
   args: {
     items: [],
-    selectedItemId: null,
+    selectedKeys: [],
     draggable: false,
   },
 };

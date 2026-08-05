@@ -1,16 +1,20 @@
 /**
  * @fileoverview 諸経費サービスのユニットテスト
  *
+ * プリセット値（REQ-7.1/8.1/9.1）の検証は、諸経費行の生成がクライアントへ移った
+ * （Task 55.7, REQ-49.3）ことに伴い
+ * `frontend/src/domain/estimate/estimateEditReducer.test.ts` の
+ * 「%s のプリセット値で見積金額行を構成する (7.1, 8.1, 9.1)」へ移管済み。
+ * 本ファイルは書き込みを伴わない率・金額の算定のみを検証する。
+ *
  * Requirements (estimate-creation):
- * - REQ-7.1: 共通仮設費行の追加を選択した場合、名称：共通仮設費、規格：空白、単位：式、数量：1をプリセット値として設定する
  * - REQ-7.2: 共通仮設費の単価を手入力で設定可能とする
  * - REQ-7.3: 国土交通省の公共建築工事共通費積算基準の共通仮設費計算式に準じて単価を自動計算する
- * - REQ-8.1: 現場管理費行の追加を選択した場合、名称：現場管理費、規格：空白、単位：式、数量：1をプリセット値として設定する
  * - REQ-8.3: 国土交通省の公共建築工事共通費積算基準の現場管理費計算式に準じて単価を自動計算する
- * - REQ-9.1: 一般管理費行の追加を選択した場合、名称：一般管理費、規格：空白、単位：式、数量：1をプリセット値として設定する
  * - REQ-9.3: 国土交通省の公共建築工事共通費積算基準の一般管理費計算式に準じて単価を自動計算する
  *
  * Task 3.4: OverheadCostServiceの実装（諸経費自動計算）
+ * Task 55.7: プリセット値の検証をクライアントへ移管
  *
  * @module __tests__/unit/services/overhead-cost.service
  */
@@ -24,35 +28,6 @@ describe('OverheadCostService', () => {
 
   beforeEach(() => {
     service = new OverheadCostService();
-  });
-
-  describe('getPresetValues', () => {
-    it('共通仮設費のプリセット値を返す（Requirements: REQ-7.1）', () => {
-      const preset = service.getPresetValues(OverheadCostType.COMMON_TEMPORARY);
-
-      expect(preset.name).toBe('共通仮設費');
-      expect(preset.specification).toBe('');
-      expect(preset.unit).toBe('式');
-      expect(preset.quantity).toBe(1);
-    });
-
-    it('現場管理費のプリセット値を返す（Requirements: REQ-8.1）', () => {
-      const preset = service.getPresetValues(OverheadCostType.SITE_MANAGEMENT);
-
-      expect(preset.name).toBe('現場管理費');
-      expect(preset.specification).toBe('');
-      expect(preset.unit).toBe('式');
-      expect(preset.quantity).toBe(1);
-    });
-
-    it('一般管理費のプリセット値を返す（Requirements: REQ-9.1）', () => {
-      const preset = service.getPresetValues(OverheadCostType.GENERAL_ADMIN);
-
-      expect(preset.name).toBe('一般管理費');
-      expect(preset.specification).toBe('');
-      expect(preset.unit).toBe('式');
-      expect(preset.quantity).toBe(1);
-    });
   });
 
   describe('calculateCommonTemporaryCost (共通仮設費計算)', () => {

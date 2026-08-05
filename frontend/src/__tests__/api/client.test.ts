@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ApiError, apiClient } from '../../api/client';
+import { ApiError, apiClient, getApiErrorCode, ESTIMATE_SAVE_TIMEOUT_CODE } from '../../api/client';
 
 // loggerをモック（テスト出力をクリーンに保つため）
 vi.mock('../../utils/logger', () => ({
@@ -273,6 +273,95 @@ describe('ApiClient', () => {
           expect(error.message).toBe('Network error');
         }
       }
+    });
+  });
+
+  /**
+   * Task 57.8 / Requirements (estimate-creation) 42.3
+   *
+   * 一括保存が制限時間を超えた（`code: ESTIMATE_SAVE_TIMEOUT`）場合、再試行しても
+   * 同じ重い要求を繰り返すだけで結果は変わらない。サーバーが終局の失敗として
+   * 宣言したコードは自動再試行の対象から外す。
+   * ただし一時的な障害からの回復のため、他の 5xx の再試行は残す。
+   */
+  describe('サーバーが終局と宣言したエラーコードの再試行抑止', () => {
+    const jsonErrorResponse = (body: unknown) => ({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => body,
+    });
+
+    const saveTimeoutBody = {
+      type: 'https://architrack.example.com/problems/internal-server-error',
+      title: 'ESTIMATE_SAVE_TIMEOUT',
+      status: 500,
+      detail: '保存処理が制限時間内に完了しなかったため、変更は保存されていません。',
+      code: 'ESTIMATE_SAVE_TIMEOUT',
+      details: { timeoutMs: 15000, maxItems: 2000 },
+    };
+
+    it('ESTIMATE_SAVE_TIMEOUT の 500 は再試行せず1回で失敗すること', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonErrorResponse(saveTimeoutBody));
+      globalThis.fetch = fetchMock;
+
+      await expect(apiClient.put('/api/estimates/est-001/save', { items: [] })).rejects.toThrow(
+        ApiError
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('コードの無い 500 は従来どおり再試行されること（5xx の再試行を一律に止めていない）', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonErrorResponse({ status: 500, detail: 'Internal Server Error' }));
+      globalThis.fetch = fetchMock;
+
+      await expect(apiClient.put('/api/estimates/est-001/save', { items: [] })).rejects.toThrow(
+        ApiError
+      );
+
+      // 初回 + 3回のリトライ
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('別のコードの 500 は再試行されること（抑止対象を限定している）', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonErrorResponse({ status: 500, code: 'INTERNAL_ERROR' }));
+      globalThis.fetch = fetchMock;
+
+      await expect(apiClient.put('/api/estimates/est-001/save', { items: [] })).rejects.toThrow(
+        ApiError
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('再試行を抑止しても応答の内容はそのまま呼び出し元へ渡ること', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(jsonErrorResponse(saveTimeoutBody));
+
+      try {
+        await apiClient.put('/api/estimates/est-001/save', { items: [] });
+        expect.unreachable('ApiError が送出されるはず');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        if (error instanceof ApiError) {
+          expect(error.statusCode).toBe(500);
+          expect(error.message).toBe(saveTimeoutBody.detail);
+          expect(getApiErrorCode(error)).toBe(ESTIMATE_SAVE_TIMEOUT_CODE);
+        }
+      }
+    });
+
+    it('getApiErrorCode は code が無い応答や ApiError 以外では null を返すこと', () => {
+      expect(getApiErrorCode(new ApiError(500, 'x', { detail: 'x' }))).toBeNull();
+      expect(getApiErrorCode(new ApiError(500, 'x'))).toBeNull();
+      expect(getApiErrorCode(new ApiError(500, 'x', 'plain text body'))).toBeNull();
+      expect(getApiErrorCode(new Error('x'))).toBeNull();
+      expect(getApiErrorCode(null)).toBeNull();
     });
   });
 

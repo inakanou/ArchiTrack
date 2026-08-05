@@ -19,6 +19,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { buildNewEstimateItemNode, saveEstimateDraft } from '../../helpers/estimate-draft';
 
 /**
  * 見積書 - 数値表示形式と丸め規則のE2Eテスト
@@ -32,6 +33,19 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
   let createdTradingPartnerId: string | null = null;
   let createdEstimateId: string | null = null;
   let accessToken: string = '';
+  /** 協力業者名。業者金額行の `sourceVendorName` ＝NET案分の対象業者名になる */
+  let tradingPartnerName: string = '';
+
+  /**
+   * 案分検証用フィクスチャの業者金額（案分が割り切れない組み合わせを選ぶ）
+   *
+   * 1000 : 2000 の比で 1000円 を案分すると 333.33… / 666.66… になる。
+   * 整数化されていなければ小数がそのまま表示・設定されるので、
+   * REQ-22.4 / REQ-22.5 の「整数」が空振りしない。
+   */
+  const VENDOR_AMOUNT_A = 1000;
+  const VENDOR_AMOUNT_B = 2000;
+  const ALLOCATION_NET_AMOUNT = 1000;
 
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
@@ -114,7 +128,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       await expect(page.getByLabel('取引先名')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 取引先情報を入力
-      const tradingPartnerName = `E2E数値テスト業者_見積_${Date.now()}`;
+      tradingPartnerName = `E2E数値テスト業者_見積_${Date.now()}`;
       await page.getByLabel('取引先名').fill(tradingPartnerName);
       await page.getByLabel('フリガナ', { exact: true }).fill('スウチテストギョウシャミツモリ');
       await page.getByLabel('住所').fill('東京都新宿区テスト町2-2-2');
@@ -181,43 +195,37 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       expect(createdEstimateId).toBeTruthy();
 
       // 見積項目を作成（3行1セット: ESTIMATE, EXECUTION, VENDOR）
-      const itemResponse = await request.post(
-        `${baseUrl}/api/estimates/${createdEstimateId}/items`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: {
-            parentId: null,
-            displayOrder: 0,
-            lines: [
-              {
-                lineType: 'ESTIMATE',
-                name: '数値フォーマットテスト項目',
-                specification: '規格A',
-                unit: '式',
-                quantity: 1,
-                unitPrice: 1000,
-              },
-              {
-                lineType: 'EXECUTION',
-                name: '数値フォーマットテスト項目',
-                specification: '規格A',
-                unit: '式',
-                quantity: 1,
-                unitPrice: 1000,
-              },
-              {
-                lineType: 'VENDOR',
-                name: '数値フォーマットテスト項目',
-                specification: '規格A',
-                unit: '式',
-                quantity: 1,
-                unitPrice: 1000,
-              },
-            ],
-          },
-        }
-      );
-      expect(itemResponse.status()).toBe(201);
+      // 撤去済みの `POST /:id/items` ではなく一括保存（`PUT /:id/save`）で作成する
+      // （estimate-creation REQ-42.1、Task 53.13）
+      // 業者名（`sourceVendorName`）を載せた業者金額行を2件用意する。
+      // これが無いと NET案分ダイアログの対象業者が空になり、NET金額の入力欄
+      // そのものが描画されない（実測: `#net-amount` は常に不可視だった）ため、
+      // REQ-22.4 / REQ-22.5 の案分後の整数表示を検証しようがない
+      expect(tradingPartnerName).toBeTruthy();
+      const savedItems = await saveEstimateDraft(request, accessToken, createdEstimateId!, [
+        buildNewEstimateItemNode({
+          name: '数値フォーマットテスト項目',
+          specification: '規格A',
+          unit: '式',
+          quantity: 1,
+          estimateUnitPrice: 1000,
+          executionUnitPrice: 1000,
+          vendorUnitPrice: VENDOR_AMOUNT_A,
+          vendorName: tradingPartnerName,
+        }),
+        buildNewEstimateItemNode({
+          name: '数値フォーマットテスト項目2',
+          specification: '規格B',
+          unit: '式',
+          quantity: 1,
+          estimateUnitPrice: 1000,
+          executionUnitPrice: 1000,
+          vendorUnitPrice: VENDOR_AMOUNT_B,
+          vendorName: tradingPartnerName,
+        }),
+      ]);
+      expect(savedItems.length).toBe(2);
+      expect(savedItems[0]!.lines.length).toBe(3);
     });
   });
 
@@ -348,16 +356,11 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
     const amountText = await amountFields.first().textContent();
     expect(amountText).toBeTruthy();
 
-    // 金額が整数表示されていることを確認（小数点を含まない）
-    // 桁区切りカンマ付きの数字、もしくは「-」であること
-    if (amountText && amountText !== '-') {
-      // 小数点が含まれていないことを確認
-      const numericPart = amountText.replace(/,/g, '');
-      expect(numericPart).not.toContain('.');
-      // 数値として有効であることを確認
-      const numValue = parseInt(numericPart, 10);
-      expect(isNaN(numValue)).toBeFalsy();
-    }
+    // 金額が「数量×単価」の自動計算結果として、桁区切り付きの整数で表示される。
+    // かつては `if (amountText && amountText !== '-')` のガードで、金額欄が
+    // 未計算（`-`）なら何も検証せずに緑になった（実測では常に "12,345"＝
+    // ガードは不要）。3 × 4115 = 12345 は入力から一意に決まるので値ごと固定する
+    expect(amountText).toBe('12,345');
   });
 
   // ============================================================================
@@ -381,85 +384,61 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
-
-    // VENDOR行の数量と単価を入力
-    const vendorRows = page.locator('[data-testid="line-type-VENDOR"]');
-    const vendorCount = await vendorRows.count();
-
-    if (vendorCount > 0) {
-      const vendorQuantity = vendorRows.first().locator('input[aria-label="数量"]');
-      const vendorUnitPrice = vendorRows.first().locator('input[aria-label="単価"]');
-
-      if ((await vendorQuantity.isVisible()) && (await vendorUnitPrice.isVisible())) {
-        await vendorQuantity.fill('1');
-        await vendorQuantity.blur();
-        await vendorUnitPrice.fill('100000');
-        await vendorUnitPrice.blur();
-      }
-
-      // 保存
-      const saveButton = page.getByRole('button', { name: /保存/i });
-      if (await saveButton.isEnabled()) {
-        await saveButton.click();
-        await page.waitForLoadState('networkidle');
-      }
-    }
-
-    // NET案分ダイアログを開く（「業者金額を実行金額に転記」ボタン）
+    // かつてこのテストは
+    // 「VENDOR行がある → 入力欄が見える → 保存ボタンが有効 → 転記ボタンが見える →
+    //   ダイアログが見える → NET金額欄が見える → プレビュー文字列がある」
+    // という7重のガードの内側にしか案分の検証を持っていなかった。実測では
+    // 最内の `inputVisible` が**常に偽**（対象業者が1件も無く NET金額欄が
+    // 描画されない）で、案分の検証は一度も実行されないまま緑になっていた。
+    // 前提（業者名付きの業者金額行）は準備3が作るので、ここでは無条件に進める。
     const netButton = page.getByRole('button', { name: /業者金額を実行金額に転記/i });
-    const netButtonVisible = await netButton.isVisible().catch(() => false);
+    await expect(netButton).toBeVisible({ timeout: getTimeout(10000) });
+    await netButton.click();
 
-    if (netButtonVisible) {
-      await netButton.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ダイアログが表示されることを確認
-      const dialog = page.getByRole('dialog');
-      const dialogVisible = await dialog.isVisible().catch(() => false);
+    // 対象業者を選ぶとNET金額の入力欄が現れる
+    await dialog.locator('#vendor-select').selectOption(tradingPartnerName);
+    const netAmountInput = dialog.locator('#net-amount');
+    await expect(netAmountInput).toBeVisible({ timeout: getTimeout(10000) });
+    await netAmountInput.fill(String(ALLOCATION_NET_AMOUNT));
 
-      if (dialogVisible) {
-        // NET金額を入力
-        const netAmountInput = dialog
-          .locator('input[aria-label*="NET金額"], input[type="number"], input[type="text"]')
-          .first();
-        const inputVisible = await netAmountInput.isVisible().catch(() => false);
+    // 案分プレビューの「案分後金額」が整数で表示される（22.4）。
+    // 1000 : 2000 で 1000 を案分すると割り切れないので、整数化していなければ
+    // ここに小数が現れる
+    const allocatedCells = dialog.getByTestId('preview-allocated');
+    await expect(allocatedCells).toHaveCount(2, { timeout: getTimeout(10000) });
 
-        if (inputVisible) {
-          await netAmountInput.fill('150000');
-
-          // プレビューまたは案分結果を確認
-          // 案分結果の金額が整数であることを確認
-          const previewText = await dialog.textContent();
-          if (previewText) {
-            // 結果に小数が含まれていないことを確認（金額表示部分）
-            // 金額値は桁区切り付き整数で表示される
-            const pricePattern = /\d{1,3}(,\d{3})*(\.\d+)/;
-            const hasDecimalAmount = pricePattern.test(previewText);
-            // 金額部分に小数が含まれていないことを期待
-            // ただし利率表示（%付き）は小数を含んでも許容
-            expect(hasDecimalAmount).toBeFalsy();
-          }
-        }
-
-        // ダイアログを閉じる
-        const closeButton = dialog.getByRole('button', { name: /閉じる|キャンセル/i });
-        if (await closeButton.isVisible()) {
-          await closeButton.click();
-        }
-      }
+    const allocatedValues: number[] = [];
+    for (let i = 0; i < 2; i++) {
+      const text = (await allocatedCells.nth(i).textContent()) ?? '';
+      expect(text, '案分後金額が表示されていない').toMatch(/^[0-9,]+円$/);
+      const numericPart = text.replace(/[,円]/g, '');
+      expect(numericPart).not.toContain('.');
+      allocatedValues.push(Number.parseInt(numericPart, 10));
     }
+    // 整数へ丸めた結果の総和がNET金額と一致する（丸めの方向に依存せずに、
+    // 「小数を切り捨てて桁が落ちている」状態を弾ける）
+    expect(allocatedValues[0]! + allocatedValues[1]!).toBe(ALLOCATION_NET_AMOUNT);
 
-    // 金額フィールドが整数表示であることを確認
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    // 明細の金額フィールドも整数表示である。
+    // 未計算（`-`）の欄は読み飛ばすため、実際に検査できた件数を数えておく。
+    // 全欄が `-` ならループは1件も主張せずに終わってしまう
     const amountFields = page.locator('[data-testid="amount-field"]');
     const amountCount = await amountFields.count();
+    expect(amountCount).toBeGreaterThan(0);
+    let inspectedAmounts = 0;
     for (let i = 0; i < amountCount; i++) {
-      const text = await amountFields.nth(i).textContent();
-      if (text && text !== '-') {
-        const numericPart = text.replace(/,/g, '');
-        // 小数点を含まないことを確認
-        expect(numericPart).not.toContain('.');
-      }
+      const text = (await amountFields.nth(i).textContent()) ?? '';
+      if (text === '-') continue;
+      expect(text.replace(/,/g, '')).not.toContain('.');
+      inspectedAmounts += 1;
     }
+    expect(inspectedAmounts, '整数表示を検査できた金額欄が1件も無い').toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -485,57 +464,56 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(15000),
     });
 
-    // NET案分ダイアログを開く
+    // かつては 22.4 と同型の多重ガードで、しかも**案分実行ボタンを押していなかった**
+    // （`executeVisible` を見るだけで、内側でNET金額を入れた後にキャンセルで閉じる）。
+    // 実測でも最内の `inputVisible` は常に偽で、案分は一度も走っていなかった。
+    // 「案分処理後の単価」を検証するには案分を実行する必要がある。
     const netButton = page.getByRole('button', { name: /業者金額を実行金額に転記/i });
-    const netButtonVisible = await netButton.isVisible().catch(() => false);
+    await expect(netButton).toBeVisible({ timeout: getTimeout(10000) });
+    await netButton.click();
 
-    if (netButtonVisible) {
-      await netButton.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ダイアログが表示されることを確認
-      const dialog = page.getByRole('dialog');
-      const dialogVisible = await dialog.isVisible().catch(() => false);
+    await dialog.locator('#vendor-select').selectOption(tradingPartnerName);
+    const netAmountInput = dialog.locator('#net-amount');
+    await expect(netAmountInput).toBeVisible({ timeout: getTimeout(10000) });
+    await netAmountInput.fill(String(ALLOCATION_NET_AMOUNT));
 
-      if (dialogVisible) {
-        // 実行ボタンが存在する場合、案分を実行
-        const executeButton = dialog.getByRole('button', { name: /実行|適用|転記/i });
-        const executeVisible = await executeButton.isVisible().catch(() => false);
+    // 案分を実行する
+    await dialog.getByRole('button', { name: '案分実行' }).click();
+    await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
 
-        if (executeVisible) {
-          // NET金額入力
-          const netAmountInput = dialog
-            .locator('input[aria-label*="NET金額"], input[type="number"], input[type="text"]')
-            .first();
-          const inputVisible = await netAmountInput.isVisible().catch(() => false);
-          if (inputVisible) {
-            await netAmountInput.fill('200000');
-          }
-        }
+    // 案分結果は実行金額行の単価として設定される。数量が 1 なので
+    // 単価＝案分後金額であり、整数かつ総和がNET金額と一致する（22.5）
+    const executionUnitPrices = page
+      .locator('[data-testid="line-type-EXECUTION"]')
+      .locator('input[aria-label="単価"]');
+    await expect(executionUnitPrices).toHaveCount(2, { timeout: getTimeout(10000) });
 
-        // ダイアログを閉じる
-        const closeButton = dialog.getByRole('button', { name: /閉じる|キャンセル/i });
-        if (await closeButton.isVisible()) {
-          await closeButton.click();
-        }
-      }
+    let executionTotal = 0;
+    for (let i = 0; i < 2; i++) {
+      const value = await executionUnitPrices.nth(i).inputValue();
+      expect(value, '案分後の実行金額行の単価が空').not.toBe('');
+      expect(value).not.toContain('.');
+      const numValue = Number.parseInt(value, 10);
+      expect(Number.isNaN(numValue)).toBe(false);
+      executionTotal += numValue;
     }
+    expect(executionTotal).toBe(ALLOCATION_NET_AMOUNT);
 
-    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
-
-    // 単価フィールドの値が整数であることを確認
+    // 画面上の単価はすべて整数で表示される（空欄は読み飛ばすので検査件数も固定する）
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
     const unitPriceCount = await unitPriceInputs.count();
-
+    expect(unitPriceCount).toBeGreaterThan(0);
+    let inspectedUnitPrices = 0;
     for (let i = 0; i < unitPriceCount; i++) {
       const value = await unitPriceInputs.nth(i).inputValue();
-      if (value && value !== '') {
-        // 単価が整数であることを確認（小数点を含まない）
-        expect(value).not.toContain('.');
-        // 数値として有効であることを確認
-        const numValue = parseInt(value, 10);
-        expect(isNaN(numValue)).toBeFalsy();
-      }
+      if (value === '') continue;
+      expect(value).not.toContain('.');
+      inspectedUnitPrices += 1;
     }
+    expect(inspectedUnitPrices, '整数表示を検査できた単価欄が1件も無い').toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -561,83 +539,84 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
 
     // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
 
-    // EXECUTION行の数量と単価を入力
+    // かつては 22.4 / 22.5 と同じ多重ガード（実行行がある→入力欄が見える→
+    // 保存ボタンが有効→転記ボタンが見える→ダイアログが見える→入力欄が見える→
+    // プレビュー文字列がある）で囲まれていた。実測ではすべて常に真＝条件は
+    // 一つも要らなかったので撤去し、代わりに割り切れない利益率を使って
+    // 「整数へ丸められていること」が空振りしない形にする。
     const executionRows = page.locator('[data-testid="line-type-EXECUTION"]');
-    const executionCount = await executionRows.count();
+    await expect(executionRows.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-    if (executionCount > 0) {
-      const execQuantity = executionRows.first().locator('input[aria-label="数量"]');
-      const execUnitPrice = executionRows.first().locator('input[aria-label="単価"]');
+    const execQuantity = executionRows.first().locator('input[aria-label="数量"]');
+    const execUnitPrice = executionRows.first().locator('input[aria-label="単価"]');
+    await expect(execQuantity).toBeVisible();
+    await expect(execUnitPrice).toBeVisible();
 
-      if ((await execQuantity.isVisible()) && (await execUnitPrice.isVisible())) {
-        await execQuantity.fill('1');
-        await execQuantity.blur();
-        await execUnitPrice.fill('10000');
-        await execUnitPrice.blur();
-      }
+    await execQuantity.fill('1');
+    await execQuantity.blur();
+    // 10001 に利益率 3% を掛けると 10301.03 になり、整数化していなければ小数が残る
+    await execUnitPrice.fill('10001');
+    await execUnitPrice.blur();
 
-      // 保存
-      const saveButton = page.getByRole('button', { name: /保存/i });
-      if (await saveButton.isEnabled()) {
-        await saveButton.click();
-        await page.waitForLoadState('networkidle');
-      }
-    }
+    // 保存（未保存の変更が実在するので保存ボタンは必ず有効）
+    const saveButton = page.getByRole('button', { name: /^保存$/i });
+    await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
+    const savePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+        response.request().method() === 'PUT',
+      { timeout: getTimeout(30000) }
+    );
+    await saveButton.click();
+    expect((await savePromise).status()).toBe(200);
 
     // 利益率適用ダイアログを開く（「実行金額を見積金額に転記」ボタン）
     const profitButton = page.getByRole('button', { name: /実行金額を見積金額に転記/i });
-    const profitButtonVisible = await profitButton.isVisible().catch(() => false);
+    await expect(profitButton).toBeVisible({ timeout: getTimeout(10000) });
+    await profitButton.click();
 
-    if (profitButtonVisible) {
-      await profitButton.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ダイアログが表示されることを確認
-      const dialog = page.getByRole('dialog');
-      const dialogVisible = await dialog.isVisible().catch(() => false);
+    const profitRateInput = dialog.locator('#profit-rate');
+    await expect(profitRateInput).toBeVisible({ timeout: getTimeout(10000) });
+    await profitRateInput.fill('3');
 
-      if (dialogVisible) {
-        // 利益率入力フィールドを探す
-        const profitRateInput = dialog
-          .locator('input[aria-label*="利益率"], input[type="number"], input[type="text"]')
-          .first();
-        const inputVisible = await profitRateInput.isVisible().catch(() => false);
-
-        if (inputVisible) {
-          // 利益率10%を入力
-          await profitRateInput.fill('10');
-
-          // プレビュー結果を確認（新しい単価が整数であること）
-          const previewText = await dialog.textContent();
-          if (previewText) {
-            // 金額表示に小数が含まれていないことを確認
-            const priceWithDecimal = /\d{1,3}(,\d{3})*\.\d+/;
-            // %表示の小数は許容するので、%を含む部分を除外して確認
-            const cleanedText = previewText.replace(/[\d.]+%/g, '');
-            const hasDecimalPrice = priceWithDecimal.test(cleanedText);
-            expect(hasDecimalPrice).toBeFalsy();
-          }
-        }
-
-        // ダイアログを閉じる
-        const closeButton = dialog.getByRole('button', { name: /閉じる|キャンセル/i });
-        if (await closeButton.isVisible()) {
-          await closeButton.click();
-        }
-      }
+    // プレビューの「新しい単価」が整数で表示される（22.6）
+    const newUnitPriceCells = dialog.getByTestId('preview-new-unit-price');
+    await expect(newUnitPriceCells.first()).toBeVisible({ timeout: getTimeout(10000) });
+    const previewCount = await newUnitPriceCells.count();
+    expect(previewCount).toBeGreaterThan(0);
+    for (let i = 0; i < previewCount; i++) {
+      const text = (await newUnitPriceCells.nth(i).textContent()) ?? '';
+      expect(text, '新しい単価が表示されていない').toMatch(/^[0-9,]+円$/);
+      expect(text.replace(/[,円]/g, '')).not.toContain('.');
     }
+    // 10001 × 1.03 = 10301.03 が整数へ丸められている
+    await expect(newUnitPriceCells.first()).toHaveText('10,301円');
 
-    // 常にインライン編集可能（REQ-27.1: 編集モード切替不要）
+    // 適用すると見積金額行の単価も整数のまま設定される
+    await dialog.getByRole('button', { name: '適用' }).click();
+    await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    const estimateUnitPrice = page
+      .locator('[data-testid="line-type-ESTIMATE"]')
+      .first()
+      .locator('input[aria-label="単価"]');
+    await expect(estimateUnitPrice).toHaveValue('10301', { timeout: getTimeout(10000) });
 
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
     const unitPriceCount = await unitPriceInputs.count();
-
+    expect(unitPriceCount).toBeGreaterThan(0);
+    let inspectedUnitPrices = 0;
     for (let i = 0; i < unitPriceCount; i++) {
       const value = await unitPriceInputs.nth(i).inputValue();
-      if (value && value !== '') {
-        // 単価が整数（小数点を含まない）であることを確認
-        expect(value).not.toContain('.');
-      }
+      if (value === '') continue;
+      // 単価が整数（小数点を含まない）であることを確認
+      expect(value).not.toContain('.');
+      inspectedUnitPrices += 1;
     }
+    expect(inspectedUnitPrices, '整数表示を検査できた単価欄が1件も無い').toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -808,14 +787,10 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       timeout: getTimeout(10000),
     });
 
-    // 金額フィールドの値を確認
-    const amountText = await amountFields.first().textContent();
-    expect(amountText).toBeTruthy();
-
-    // 「2,500」（桁区切り付き整数）であることを確認
-    if (amountText && amountText !== '-') {
-      expect(amountText).toBe('2,500');
-    }
+    // 「2,500」（桁区切り付き整数）であることを確認。
+    // かつては `if (amountText && amountText !== '-')` のガードで、金額が
+    // 未計算なら期待値の比較ごと素通りした（実測では常に "2,500"＝ガードは不要）
+    await expect(amountFields.first()).toHaveText('2,500', { timeout: getTimeout(10000) });
 
     // テストケース2: 数量3.00 x 単価1234 = 3702（整数）
     await quantityInputs.first().fill('3');
@@ -834,17 +809,13 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
     await unitPriceInputs.first().fill('3333');
     await unitPriceInputs.first().blur();
 
-    // 四捨五入の結果が整数であることを確認
-    const amountText3 = await amountFields.first().textContent();
-    expect(amountText3).toBeTruthy();
-    if (amountText3 && amountText3 !== '-') {
-      // カンマを除去して数値確認
-      const numericValue = amountText3.replace(/,/g, '');
-      // 小数点を含まないこと
-      expect(numericValue).not.toContain('.');
-      // 2.50 * 3333 = 8332.5 → 四捨五入で8333
-      expect(parseInt(numericValue, 10)).toBe(8333);
-    }
+    // 四捨五入の結果が整数であることを確認（同じくガードを撤去。実測では常に "8,333"）
+    await expect(amountFields.first()).toHaveText('8,333', { timeout: getTimeout(10000) });
+    const amountText3 = (await amountFields.first().textContent()) ?? '';
+    // 小数点を含まないこと
+    expect(amountText3.replace(/,/g, '')).not.toContain('.');
+    // 2.50 * 3333 = 8332.5 → 四捨五入で8333
+    expect(Number.parseInt(amountText3.replace(/,/g, ''), 10)).toBe(8333);
   });
 
   // ============================================================================

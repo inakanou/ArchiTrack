@@ -9,32 +9,46 @@
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
  * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
  * - REQ-3.1-3.5: 見積書新規作成と内訳書連携
- * - REQ-4.1-4.5: 受領見積書転記
- * - REQ-10.1-10.8: 見積書出力
+ * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
+ *
+ * `transferFromQuotation` / `addOverheadItem` / `addDiscountItem` は Task 55.7 で撤去した。
+ * 対応する書き込み経路が消え、転記・諸経費行追加・値引き行追加はいずれも
+ * `estimateEditReducer` の遷移として編集状態へ反映されるようになったため（REQ-49.3）。
+ * 個々の関数のテストは削除し、「公開されていないこと」を
+ * `撤去済みのAPI関数` で固定する。振る舞いの移行先は
+ * `estimateEditReducer.test.ts` の `applyQuotationTransfer` / `addOverheadItem` /
+ * 「プリセット値の値引き行をルートレベルの末尾に追加する」。
+ *
+ * `exportEstimate` / `downloadEstimate` は Task 56.10 で撤去した。出力エンドポイント
+ * `GET /api/estimates/:id/export` が消え、帳票（PDF）と表計算（Excel）は画面の
+ * 編集中ツリーから生成されるようになったため（REQ-10.1, REQ-10.2）。個々の関数の
+ * テストは削除し、振る舞いの移行先は
+ * `services/export/EstimatePdfExportService.test.ts`（PDF生成）、
+ * `services/export/EstimateExcelExportService.test.ts`（Excel生成）、
+ * `components/estimate/EstimateExportDialog.test.tsx`（形式・行タイプの選択と
+ * ダウンロードの実行）。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { apiClient, ApiError } from '../../api/client';
+import * as estimatesApi from '../../api/estimates';
 import {
   getEstimates,
   getEstimatesSummary,
   getEstimateDetail,
+  getEstimateItems,
   createEstimate,
   updateEstimate,
   deleteEstimate,
-  transferFromQuotation,
-  exportEstimate,
-  downloadEstimate,
-  moveEstimateItem,
-  addDiscountItem,
+  saveEstimateDraft,
 } from '../../api/estimates';
 import type {
   EstimatesResponse,
   EstimateSummary,
   EstimateDetail,
   EstimateInfo,
-  EstimateItemHierarchy,
-  EstimateItemLine,
+  SaveEstimateDraftRequest,
+  SaveEstimateDraftResponse,
 } from '../../api/estimates';
 
 // モック設定
@@ -51,16 +65,6 @@ vi.mock('../../api/client', async () => {
     },
   };
 });
-
-// グローバルfetchモック
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
-
-// URL.createObjectURLとrevokeObjectURLのモック
-const mockCreateObjectURL = vi.fn(() => 'blob:test-url');
-const mockRevokeObjectURL = vi.fn();
-global.URL.createObjectURL = mockCreateObjectURL;
-global.URL.revokeObjectURL = mockRevokeObjectURL;
 
 // localStorageモック
 const mockLocalStorage = {
@@ -235,6 +239,8 @@ describe('estimates API client', () => {
   // ==========================================================================
   describe('getEstimateDetail', () => {
     const mockDetail: EstimateDetail = {
+      // 帳票用入力項目（56.8 で `EstimateDetail` に追加。未入力の見積書を表す）
+      reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
       id: 'est-1',
       projectId: 'project-1',
       name: '見積書#1',
@@ -304,6 +310,62 @@ describe('estimates API client', () => {
       await expect(getEstimateDetail('est-1')).rejects.toMatchObject({
         statusCode: 401,
       });
+    });
+  });
+
+  // ==========================================================================
+  // getEstimateItems - 見積明細を階層構造で取得（Task 53.15）
+  // ==========================================================================
+  describe('getEstimateItems', () => {
+    /**
+     * `GET /api/estimates/:id` の `items` は実装上**平坦な配列**で、`children` も
+     * `itemType` も持たない（`estimate.service.ts` の `toEstimateDetailInfo`）。
+     * 親子関係が必要な場合は `GET /api/estimates/:id/items` を使う。
+     *
+     * Requirements (estimate-creation):
+     * - REQ-2.2: 親項目を持つ見積項目を親項目の子として階層表示する
+     * - REQ-34.5: 階層を変更して保存した場合、画面再読み込み後も変更後の構造で表示する
+     * - REQ-45.3: ツリー表示では全階層をインデント付きで一覧表示する
+     */
+    it('明細取得の経路が階層形のエンドポイントであること', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce([]);
+
+      await getEstimateItems('est-1');
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/estimates/est-1/items');
+    });
+
+    it('親子関係を組んだツリーをそのまま返すこと', async () => {
+      const child = {
+        id: 'item-child',
+        estimateId: 'est-1',
+        parentId: 'item-parent',
+        displayOrder: 0,
+        itemType: 'STANDARD' as const,
+        lines: [],
+        children: [],
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      };
+      const tree = [
+        {
+          id: 'item-parent',
+          estimateId: 'est-1',
+          parentId: null,
+          displayOrder: 0,
+          itemType: 'STANDARD' as const,
+          lines: [],
+          children: [child],
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-01T00:00:00.000Z',
+        },
+      ];
+      vi.mocked(apiClient.get).mockResolvedValueOnce(tree);
+
+      const result = await getEstimateItems('est-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.children.map((item) => item.id)).toEqual(['item-child']);
     });
   });
 
@@ -502,266 +564,6 @@ describe('estimates API client', () => {
   });
 
   // ==========================================================================
-  // transferFromQuotation - 受領見積書転記
-  // ==========================================================================
-  describe('transferFromQuotation', () => {
-    const mockTransferredItems: EstimateItemHierarchy[] = [
-      {
-        id: 'item-new',
-        estimateId: 'est-1',
-        parentId: null,
-        displayOrder: 1,
-        itemType: 'STANDARD',
-        lines: [
-          {
-            id: 'line-new',
-            estimateItemId: 'item-new',
-            lineType: 'VENDOR',
-            name: '転記された項目',
-            specification: null,
-            unit: '式',
-            quantity: '1',
-            unitPrice: '50000',
-            amount: '50000',
-            remarks: null,
-            sourceReceivedQuotationLineItemId: 'rq-line-1',
-            sourceVendorName: 'テスト業者',
-            createdAt: '2025-01-05T00:00:00.000Z',
-            updatedAt: '2025-01-05T00:00:00.000Z',
-          },
-        ],
-        children: [],
-        createdAt: '2025-01-05T00:00:00.000Z',
-        updatedAt: '2025-01-05T00:00:00.000Z',
-      },
-    ];
-
-    it('受領見積書から見積書に転記できること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockTransferredItems);
-
-      const input = {
-        receivedQuotationId: 'rq-1',
-        lineItemIds: ['rq-line-1', 'rq-line-2'],
-      };
-      const result = await transferFromQuotation('est-1', input);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/transfer-quotation', input);
-      expect(result).toEqual(mockTransferredItems);
-    });
-
-    it('ターゲット見積項目を指定して転記できること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockTransferredItems);
-
-      const input = {
-        receivedQuotationId: 'rq-1',
-        lineItemIds: ['rq-line-1'],
-        targetEstimateItemId: 'item-1',
-      };
-      const result = await transferFromQuotation('est-1', input);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/transfer-quotation', input);
-      expect(result).toEqual(mockTransferredItems);
-    });
-
-    it('見積書が見つからない場合、404エラーがスローされること', async () => {
-      const mockError = new ApiError(404, '見積書が見つかりません');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(
-        transferFromQuotation('non-existent', {
-          receivedQuotationId: 'rq-1',
-          lineItemIds: ['rq-line-1'],
-        })
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('受領見積書が見つからない場合、404エラーがスローされること', async () => {
-      const mockError = new ApiError(404, '受領見積書が見つかりません');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(
-        transferFromQuotation('est-1', {
-          receivedQuotationId: 'non-existent',
-          lineItemIds: ['rq-line-1'],
-        })
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('認証エラーの場合、401エラーがスローされること', async () => {
-      const mockError = new ApiError(401, '認証が必要です');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(
-        transferFromQuotation('est-1', {
-          receivedQuotationId: 'rq-1',
-          lineItemIds: ['rq-line-1'],
-        })
-      ).rejects.toMatchObject({ statusCode: 401 });
-    });
-  });
-
-  // ==========================================================================
-  // exportEstimate - 見積書出力
-  // ==========================================================================
-  describe('exportEstimate', () => {
-    it('PDFフォーマットで見積書を出力できること', async () => {
-      const mockBlob = new Blob(['PDF content'], { type: 'application/pdf' });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      const result = await exportEstimate('est-1', 'pdf');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(result).toEqual(mockBlob);
-    });
-
-    it('Excelフォーマットで見積書を出力できること', async () => {
-      const mockBlob = new Blob(['Excel content'], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      const result = await exportEstimate('est-1', 'xlsx');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=xlsx&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(result).toEqual(mockBlob);
-    });
-
-    it('出力失敗時にエラーがスローされること', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
-
-      await expect(exportEstimate('est-1', 'pdf')).rejects.toThrow('見積書の出力に失敗しました');
-    });
-
-    it('認証トークンがない場合も正常にリクエストされること', async () => {
-      mockLocalStorage.getItem.mockReturnValue(null as unknown as string);
-      const mockBlob = new Blob(['PDF content'], { type: 'application/pdf' });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      const result = await exportEstimate('est-1', 'pdf');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer null',
-          },
-        }
-      );
-      expect(result).toEqual(mockBlob);
-    });
-  });
-
-  // ==========================================================================
-  // downloadEstimate - 見積書ダウンロード
-  // ==========================================================================
-  describe('downloadEstimate', () => {
-    let mockLink: HTMLAnchorElement;
-    let appendChildSpy: ReturnType<typeof vi.spyOn>;
-    let removeChildSpy: ReturnType<typeof vi.spyOn>;
-
-    beforeEach(() => {
-      mockLink = {
-        href: '',
-        download: '',
-        click: vi.fn(),
-      } as unknown as HTMLAnchorElement;
-      vi.spyOn(document, 'createElement').mockReturnValue(mockLink);
-      appendChildSpy = vi.spyOn(document.body, 'appendChild').mockReturnValue(mockLink);
-      removeChildSpy = vi.spyOn(document.body, 'removeChild').mockReturnValue(mockLink);
-    });
-
-    it('PDFファイルをダウンロードできること', async () => {
-      const mockBlob = new Blob(['PDF content'], { type: 'application/pdf' });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      await downloadEstimate('est-1', 'pdf', '見積書.pdf');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=pdf&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(mockCreateObjectURL).toHaveBeenCalledWith(mockBlob);
-      expect(mockLink.href).toBe('blob:test-url');
-      expect(mockLink.download).toBe('見積書.pdf');
-      expect(mockLink.click).toHaveBeenCalled();
-      expect(appendChildSpy).toHaveBeenCalledWith(mockLink);
-      expect(removeChildSpy).toHaveBeenCalledWith(mockLink);
-      expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:test-url');
-    });
-
-    it('Excelファイルをダウンロードできること', async () => {
-      const mockBlob = new Blob(['Excel content'], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        blob: vi.fn().mockResolvedValueOnce(mockBlob),
-      });
-
-      await downloadEstimate('est-1', 'xlsx', '見積書.xlsx');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/estimates/est-1/export?format=xlsx&lineTypes=ESTIMATE',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: 'Bearer test-access-token',
-          },
-        }
-      );
-      expect(mockLink.download).toBe('見積書.xlsx');
-    });
-
-    it('出力失敗時にエラーがスローされること', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      });
-
-      await expect(downloadEstimate('est-1', 'pdf', '見積書.pdf')).rejects.toThrow(
-        '見積書の出力に失敗しました'
-      );
-    });
-  });
-
-  // ==========================================================================
   // エラーハンドリング
   // ==========================================================================
   describe('エラーハンドリング', () => {
@@ -807,142 +609,160 @@ describe('estimates API client', () => {
     });
   });
 
-  // ============================================================================
-  // 階層移動API (Task 27.2, REQ-24)
-  // ============================================================================
+  // ==========================================================================
+  // 明細の一括保存 (Task 53.5)
+  // ==========================================================================
 
-  describe('moveEstimateItem', () => {
-    it('項目を別の親に移動できること', async () => {
-      vi.mocked(apiClient.patch).mockResolvedValueOnce({ success: true });
+  describe('saveEstimateDraft', () => {
+    const savedResponse: SaveEstimateDraftResponse = {
+      id: 'est-1',
+      projectId: 'proj-1',
+      project: { id: 'proj-1', name: 'テストプロジェクト' },
+      name: 'テスト見積書',
+      sourceItemizedStatementId: null,
+      sourceItemizedStatementName: null,
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: '2024-01-16T09:00:00.000Z',
+      itemCount: 1,
+      reportFields: {
+        submissionDate: '2024-01-16',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['電気設備工事'],
+      },
+      items: [],
+    };
 
-      await moveEstimateItem('est-1', 'item-1', 'parent-1');
+    const request: SaveEstimateDraftRequest = {
+      expectedUpdatedAt: '2024-01-15T10:00:00.000Z',
+      reportFields: {
+        submissionDate: '2024-01-16',
+        validityPeriod: '提出日より1ヶ月間',
+        separateWorks: ['電気設備工事'],
+      },
+      items: [
+        {
+          id: 'item-1',
+          tempId: null,
+          itemType: 'STANDARD',
+          lines: [
+            {
+              lineType: 'ESTIMATE',
+              name: '仮設工事',
+              specification: null,
+              unit: '式',
+              quantity: '1',
+              unitPrice: '100000',
+              amount: '100000',
+              remarks: null,
+              sourceVendorName: null,
+            },
+          ],
+          children: [],
+        },
+      ],
+    };
 
-      expect(apiClient.patch).toHaveBeenCalledWith('/api/estimates/est-1/items/item-1/move', {
-        newParentId: 'parent-1',
+    /**
+     * 42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+     */
+    it('PUT /api/estimates/:id/save を1回だけ呼び出しペイロードをそのまま送出すること (42.1)', async () => {
+      vi.mocked(apiClient.put).mockResolvedValueOnce(savedResponse);
+
+      const result = await saveEstimateDraft('est-1', request);
+
+      expect(apiClient.put).toHaveBeenCalledTimes(1);
+      expect(apiClient.put).toHaveBeenCalledWith('/api/estimates/est-1/save', request);
+      expect(result).toEqual(savedResponse);
+    });
+
+    /**
+     * 42.2: 保存操作が成功した場合、保存後の最新の明細内容を返す
+     */
+    it('保存後の最新ツリーと帳票用入力項目を返すこと (42.2)', async () => {
+      vi.mocked(apiClient.put).mockResolvedValueOnce(savedResponse);
+
+      const result = await saveEstimateDraft('est-1', request);
+
+      expect(result.items).toBe(savedResponse.items);
+      expect(result.reportFields).toEqual(savedResponse.reportFields);
+      expect(result.updatedAt).toBe('2024-01-16T09:00:00.000Z');
+    });
+
+    /**
+     * 42.5: 保存開始後に他ユーザーが更新していた場合は保存を中止する（409）
+     */
+    it('競合時に409のApiErrorがスローされること (42.5)', async () => {
+      vi.mocked(apiClient.put).mockRejectedValueOnce(
+        new ApiError(409, '他のユーザーによって更新されています')
+      );
+
+      await expect(saveEstimateDraft('est-1', request)).rejects.toMatchObject({
+        statusCode: 409,
       });
     });
 
-    it('項目をルートレベルに移動できること（parentId: null）', async () => {
-      vi.mocked(apiClient.patch).mockResolvedValueOnce({ success: true });
+    it('検証NG時に422のApiErrorがスローされること', async () => {
+      vi.mocked(apiClient.put).mockRejectedValueOnce(new ApiError(422, '見積項目の検証に失敗'));
 
-      await moveEstimateItem('est-1', 'item-1', null);
-
-      expect(apiClient.patch).toHaveBeenCalledWith('/api/estimates/est-1/items/item-1/move', {
-        newParentId: null,
+      await expect(saveEstimateDraft('est-1', request)).rejects.toMatchObject({
+        statusCode: 422,
       });
-    });
-
-    it('APIエラーの場合エラーがスローされること', async () => {
-      const mockError = new ApiError(400, '循環参照が発生するため移動できません');
-      vi.mocked(apiClient.patch).mockRejectedValueOnce(mockError);
-
-      try {
-        await moveEstimateItem('est-1', 'item-1', 'parent-1');
-        expect.fail('エラーがスローされるべきです');
-      } catch (error) {
-        expect(error).toBeInstanceOf(ApiError);
-        expect((error as ApiError).statusCode).toBe(400);
-      }
     });
   });
 
   // ============================================================================
-  // 値引き行追加API (Task 51.5, REQ-41.2)
+  // 撤去したAPI関数 (Task 53.12 / 55.7 / 56.10, REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2)
   // ============================================================================
 
-  describe('addDiscountItem', () => {
-    const mockDiscountLine: EstimateItemLine = {
-      id: 'discount-line-1',
-      estimateItemId: 'discount-item-1',
-      lineType: 'ESTIMATE',
-      name: '値引き',
-      specification: '',
-      unit: '式',
-      quantity: '1',
-      unitPrice: '-50000',
-      amount: '-50000',
-      remarks: null,
-      sourceReceivedQuotationLineItemId: null,
-      sourceVendorName: null,
-      createdAt: '2025-01-05T00:00:00.000Z',
-      updatedAt: '2025-01-05T00:00:00.000Z',
-    };
-
-    const mockDiscountItem: EstimateItemHierarchy = {
-      id: 'discount-item-1',
-      estimateId: 'est-1',
-      parentId: null,
-      displayOrder: 3,
-      itemType: 'DISCOUNT',
-      lines: [mockDiscountLine],
-      children: [],
-      createdAt: '2025-01-05T00:00:00.000Z',
-      updatedAt: '2025-01-05T00:00:00.000Z',
-    };
-
-    it('単価を指定して値引き行を追加できること（itemType=DISCOUNTの項目を取得）', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
-
-      const result = await addDiscountItem('est-1', -50000);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: -50000,
-      });
-      expect(result).toEqual(mockDiscountItem);
-      expect(result.itemType).toBe('DISCOUNT');
+  /**
+   * 明細の追加・削除・複写・一括更新・並び替え・階層移動は
+   * {@link saveEstimateDraft}（`PUT /api/estimates/:id/save`）へ統合したため、
+   * 個別に書き込む旧関数はモジュールから撤去されている（Task 53.12）。
+   *
+   * 転記・諸経費行追加・値引き行追加を書き込む関数も、これらの操作が
+   * `estimateEditReducer` による編集状態への反映で完結し、確定は
+   * {@link saveEstimateDraft} 1回に集約されたため撤去した（Task 55.7, REQ-49.3）。
+   * 関数が残っていれば「実行の時点でデータベースへ書き込まない」を破る経路が
+   * 復活しうる。
+   *
+   * 見積書出力をサーバーへ依頼する関数（`exportEstimate` / `downloadEstimate`）も
+   * 撤去した（Task 56.10）。帳票（PDF）と表計算（Excel）は
+   * `EstimatePdfExportService` / `EstimateExcelExportService` が画面の編集中ツリーから
+   * 生成する。関数が残っていれば、保存済みデータをサーバーから受け取って出力する経路が
+   * 復活し、未保存の変更を含む出力（REQ-56.1〜56.3）が成立しなくなる。
+   *
+   * 「関数が無いこと」は呼び出しでは表現できないため、モジュールの公開名で固定する。
+   * あわせて、維持対象の関数が巻き添えで消えていないことも固定する
+   * （過剰撤去の検出）。書き込みを伴わない `calculateOverhead` は維持対象で、
+   * 撤去した書き込み経路 `addOverheadItem` と取り違えてはならない。
+   *
+   * Requirements (estimate-creation):
+   * - REQ-10.1: PDF出力を選択した場合、建設工事見積書形式のPDFファイルを生成する
+   * - REQ-10.2: Excel出力を選択した場合、同じ書式規則のExcelファイルを生成する
+   * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+   * - REQ-49.3: これらの操作は実行の時点でデータベースへの書き込みを行わない
+   */
+  describe('撤去済みのAPI関数 (REQ-42.1, REQ-49.3, REQ-10.1, REQ-10.2)', () => {
+    it.each([
+      'createEstimateItem',
+      'deleteEstimateItem',
+      'moveEstimateItem',
+      'reorderEstimateItems',
+      'batchUpdateEstimateItems',
+      'transferFromQuotation',
+      'addOverheadItem',
+      'addDiscountItem',
+      'exportEstimate',
+      'downloadEstimate',
+    ])('%s が公開されていないこと', (name) => {
+      expect(Object.keys(estimatesApi)).not.toContain(name);
     });
 
-    it('負数の単価を許容して値引き行を追加できること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
-
-      await addDiscountItem('est-1', -123456);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: -123456,
-      });
-    });
-
-    it('単価を省略した場合、unitPriceにnullを送信すること', async () => {
-      const mockEmptyDiscountItem: EstimateItemHierarchy = {
-        ...mockDiscountItem,
-        lines: [{ ...mockDiscountLine, unitPrice: null, amount: null }],
-      };
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockEmptyDiscountItem);
-
-      const result = await addDiscountItem('est-1');
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: null,
-      });
-      expect(result).toEqual(mockEmptyDiscountItem);
-    });
-
-    it('単価にnullを明示指定した場合、unitPriceにnullを送信すること', async () => {
-      vi.mocked(apiClient.post).mockResolvedValueOnce(mockDiscountItem);
-
-      await addDiscountItem('est-1', null);
-
-      expect(apiClient.post).toHaveBeenCalledWith('/api/estimates/est-1/discount-items', {
-        unitPrice: null,
-      });
-    });
-
-    it('見積書が見つからない場合、404エラーがスローされること', async () => {
-      const mockError = new ApiError(404, '見積書が見つかりません');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(addDiscountItem('non-existent', -1000)).rejects.toMatchObject({
-        statusCode: 404,
-      });
-    });
-
-    it('認証エラーの場合、401エラーがスローされること', async () => {
-      const mockError = new ApiError(401, '認証が必要です');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(mockError);
-
-      await expect(addDiscountItem('est-1', -1000)).rejects.toMatchObject({
-        statusCode: 401,
-      });
-    });
+    it.each(['saveEstimateDraft', 'getEstimateDetail', 'getEstimateItems', 'calculateOverhead'])(
+      '%s は撤去されていないこと',
+      (name) => {
+        expect(typeof (estimatesApi as Record<string, unknown>)[name]).toBe('function');
+      }
+    );
   });
 });

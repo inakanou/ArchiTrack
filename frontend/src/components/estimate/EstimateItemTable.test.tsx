@@ -14,7 +14,7 @@
  * - REQ-2.2: 親項目を持つ見積項目を作成した場合、その項目を親項目の子として階層表示する
  * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
  * - REQ-2.4: 複数階層のネストをサポートする
- * - REQ-2.5: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
+ * - REQ-2.7: 親項目を展開または折りたたむ場合、子項目の表示/非表示を切り替える
  * - REQ-2.6: 項目の階層レベルをインデント表示で視覚的に区別する
  * - REQ-12.2: 見積項目の表示順序を変更した場合、ドラッグ&ドロップで順序を変更可能とする
  *
@@ -123,7 +123,6 @@ const createMockHierarchy = (): EstimateItemHierarchyEdit[] => [
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
       },
@@ -171,12 +170,10 @@ const createMockHierarchy = (): EstimateItemHierarchyEdit[] => [
           },
         ],
         children: [],
-        isExpanded: true,
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
       },
     ],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -224,7 +221,6 @@ const createMockHierarchy = (): EstimateItemHierarchyEdit[] => [
       },
     ],
     children: [],
-    isExpanded: true,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',
   },
@@ -399,17 +395,14 @@ describe('EstimateItemTable', () => {
                       },
                     ],
                     children: [],
-                    isExpanded: true,
                     createdAt: '2025-01-01T00:00:00Z',
                     updatedAt: '2025-01-01T00:00:00Z',
                   },
                 ],
-                isExpanded: true,
                 createdAt: '2025-01-01T00:00:00Z',
                 updatedAt: '2025-01-01T00:00:00Z',
               },
             ],
-            isExpanded: true,
             createdAt: '2025-01-01T00:00:00Z',
             updatedAt: '2025-01-01T00:00:00Z',
           },
@@ -426,7 +419,10 @@ describe('EstimateItemTable', () => {
       });
     });
 
-    describe('REQ-2.5: 展開/折りたたみ機能', () => {
+    // 折りたたみ状態は `useEstimateNavigation` が所有する表示状態のため、
+    // `collapsedKeys` / `onToggleCollapsed` として受け渡す（Task 54.2）。
+    // ツリー表示の網羅的な検証は EstimateItemTable.treeMode.test.tsx が担当する。
+    describe('REQ-2.7: 展開/折りたたみ機能', () => {
       it('展開ボタンが表示される（子項目がある場合）', () => {
         const items = createMockHierarchy();
         render(<EstimateItemTable items={items} />);
@@ -435,46 +431,39 @@ describe('EstimateItemTable', () => {
         expect(expandButtons.length).toBeGreaterThan(0);
       });
 
-      it('展開ボタンをクリックすると子項目が非表示になる', async () => {
+      it('展開ボタンをクリックすると折りたたみ要求が通知される', async () => {
         const items = createMockHierarchy();
-        const onToggleExpand = vi.fn();
-        render(<EstimateItemTable items={items} onToggleExpand={onToggleExpand} />);
+        const onToggleCollapsed = vi.fn();
+        render(<EstimateItemTable items={items} onToggleCollapsed={onToggleCollapsed} />);
 
         // 折りたたむボタンをクリック（最初の項目）
         const collapseButtons = screen.getAllByRole('button', { name: /折りたたむ/i });
         const collapseButton = collapseButtons[0]!;
         await userEvent.click(collapseButton);
 
-        expect(onToggleExpand).toHaveBeenCalledWith('item-1');
+        expect(onToggleCollapsed).toHaveBeenCalledWith('item-1');
       });
 
-      it('折りたたんだ状態で展開ボタンをクリックすると子項目が表示される', async () => {
-        const mockData = createMockHierarchy();
-        const items: EstimateItemHierarchyEdit[] = [
-          {
-            ...mockData[0]!,
-            isExpanded: false, // 折りたたみ状態
-          },
-        ];
-        const onToggleExpand = vi.fn();
-        render(<EstimateItemTable items={items} onToggleExpand={onToggleExpand} />);
+      it('折りたたんだ状態で展開ボタンをクリックすると展開要求が通知される', async () => {
+        const items = createMockHierarchy();
+        const onToggleCollapsed = vi.fn();
+        render(
+          <EstimateItemTable
+            items={items}
+            collapsedKeys={new Set(['item-1'])}
+            onToggleCollapsed={onToggleCollapsed}
+          />
+        );
 
         const expandButton = screen.getByRole('button', { name: /展開する/i });
         await userEvent.click(expandButton);
 
-        expect(onToggleExpand).toHaveBeenCalledWith('item-1');
+        expect(onToggleCollapsed).toHaveBeenCalledWith('item-1');
       });
 
       it('折りたたみ状態では子項目が非表示', () => {
-        const mockData = createMockHierarchy();
-        const items: EstimateItemHierarchyEdit[] = [
-          {
-            ...mockData[0]!,
-            isExpanded: false, // 折りたたみ状態
-          },
-          mockData[1]!,
-        ];
-        render(<EstimateItemTable items={items} />);
+        const items = createMockHierarchy();
+        render(<EstimateItemTable items={items} collapsedKeys={new Set(['item-1'])} />);
 
         // 子項目が表示されていないことを確認（入力フィールドの値として）
         const allNames = screen.getAllByLabelText('名称') as HTMLInputElement[];
@@ -565,17 +554,14 @@ describe('EstimateItemTable', () => {
                       },
                     ],
                     children: [],
-                    isExpanded: true,
                     createdAt: '2025-01-01T00:00:00Z',
                     updatedAt: '2025-01-01T00:00:00Z',
                   },
                 ],
-                isExpanded: true,
                 createdAt: '2025-01-01T00:00:00Z',
                 updatedAt: '2025-01-01T00:00:00Z',
               },
             ],
-            isExpanded: true,
             createdAt: '2025-01-01T00:00:00Z',
             updatedAt: '2025-01-01T00:00:00Z',
           },
@@ -605,9 +591,9 @@ describe('EstimateItemTable', () => {
         expect(onItemSelect).toHaveBeenCalledWith('item-1');
       });
 
-      it('selectedItemIdで指定された項目がハイライトされる', () => {
+      it('selectedKeysで指定された項目がハイライトされる', () => {
         const items = createMockHierarchy();
-        render(<EstimateItemTable items={items} selectedItemId="item-1" />);
+        render(<EstimateItemTable items={items} selectedKeys={['item-1']} />);
 
         const selectedItem = screen.getByTestId('estimate-item-item-1');
         expect(selectedItem).toHaveAttribute('data-selected', 'true');
@@ -682,7 +668,6 @@ describe('EstimateItemTable', () => {
           parentId: null,
           displayOrder: 0,
           itemType: 'DISCOUNT',
-          isExpanded: true,
           createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
           lines: [
@@ -748,5 +733,165 @@ describe('EstimateItemTable', () => {
         expect(rootItem).toHaveAttribute('draggable', 'false');
       });
     });
+  });
+});
+
+// ============================================================================
+// 注記行の描画（Task 53.8）
+// ============================================================================
+
+describe('EstimateItemTable - 注記行（55.1, 55.3）', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** 通常項目の子として注記行を持つ階層データ */
+  const createHierarchyWithNote = (): EstimateItemHierarchyEdit[] => [
+    {
+      id: 'item-1',
+      estimateId: 'estimate-1',
+      parentId: null,
+      displayOrder: 0,
+      itemType: 'STANDARD',
+      lines: [
+        {
+          id: 'line-1-est',
+          estimateItemId: 'item-1',
+          lineType: 'ESTIMATE',
+          name: '建築工事',
+          specification: null,
+          unit: '式',
+          quantity: '1',
+          unitPrice: '1000000',
+          amount: '1000000',
+          remarks: null,
+        },
+      ],
+      children: [
+        {
+          id: 'note-1',
+          estimateId: 'estimate-1',
+          parentId: 'item-1',
+          displayOrder: 0,
+          itemType: 'NOTE',
+          lines: [
+            {
+              id: 'line-note-est',
+              estimateItemId: 'note-1',
+              lineType: 'ESTIMATE',
+              name: '※支給材は別途',
+              specification: null,
+              unit: null,
+              quantity: null,
+              unitPrice: null,
+              amount: null,
+              remarks: null,
+            },
+          ],
+          children: [],
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ],
+      createdAt: '2025-01-01T00:00:00Z',
+      updatedAt: '2025-01-01T00:00:00Z',
+    },
+  ];
+
+  it('子階層に配置された注記行が名称欄のみで描画されること (55.1, 55.3)', () => {
+    render(<EstimateItemTable items={createHierarchyWithNote()} />);
+
+    const noteWrapper = screen.getByTestId('estimate-item-note-1');
+    const noteRow = within(noteWrapper).getByTestId('estimate-item-row');
+
+    expect(noteRow).toHaveAttribute('data-item-type', 'NOTE');
+    expect(within(noteRow).getByLabelText('名称')).toHaveValue('※支給材は別途');
+    expect(within(noteRow).queryByLabelText('数量')).not.toBeInTheDocument();
+    expect(within(noteRow).queryByLabelText('単価')).not.toBeInTheDocument();
+    expect(within(noteRow).queryByTestId('amount-field')).not.toBeInTheDocument();
+  });
+
+  it('注記行の兄弟にあたる通常項目は従来どおり全欄を描画すること', () => {
+    render(<EstimateItemTable items={createHierarchyWithNote()} />);
+
+    const standardWrapper = screen.getByTestId('estimate-item-item-1');
+    const standardRow = within(standardWrapper).getAllByTestId('estimate-item-row')[0]!;
+    expect(standardRow).toHaveAttribute('data-item-type', 'STANDARD');
+    expect(within(standardRow).getByLabelText('数量')).toBeInTheDocument();
+  });
+
+  /** 通常項目の子として「注記行と通常項目の両方」を持つ階層データ */
+  const createHierarchyWithNoteAndStandardChild = (): EstimateItemHierarchyEdit[] => {
+    const tree = createHierarchyWithNote();
+    const root = tree[0]!;
+    root.children = [
+      ...root.children,
+      {
+        id: 'child-1',
+        estimateId: 'estimate-1',
+        parentId: 'item-1',
+        displayOrder: 1,
+        itemType: 'STANDARD',
+        lines: [
+          {
+            id: 'line-child-1-est',
+            estimateItemId: 'child-1',
+            lineType: 'ESTIMATE',
+            name: '子項目',
+            specification: null,
+            unit: '式',
+            quantity: '1',
+            unitPrice: '400000',
+            amount: '400000',
+            remarks: null,
+          },
+        ],
+        children: [],
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+    return tree;
+  };
+
+  it('子が注記行のみの親項目は単価欄が入力欄のまま描画されること（53.1の葉扱いと整合 / 55.2）', () => {
+    render(<EstimateItemTable items={createHierarchyWithNote()} />);
+
+    const parentWrapper = screen.getByTestId('estimate-item-item-1');
+    const parentRow = within(parentWrapper).getByTestId('estimate-item-row');
+
+    // 注記行は集計対象外（55.2）で親は葉として自身の金額を保持するため、
+    // 単価は導出値ではなく手入力のまま編集できなければならない
+    const unitPrice = within(parentRow).getByLabelText('単価');
+    expect(unitPrice.tagName).toBe('INPUT');
+    expect(unitPrice).toHaveValue('1000000');
+  });
+
+  it('子に通常項目が1件でもあれば単価欄が読み取り専用で描画されること (29.1)', () => {
+    render(<EstimateItemTable items={createHierarchyWithNoteAndStandardChild()} />);
+
+    const parentWrapper = screen.getByTestId('estimate-item-item-1');
+    const parentRow = within(parentWrapper).getByTestId('estimate-item-row');
+
+    // 集計対象の子を持つ親は導出値になるため単価は入力不可
+    const unitPrice = within(parentRow).getByLabelText('単価');
+    expect(unitPrice.tagName).not.toBe('INPUT');
+    expect(unitPrice.tagName).toBe('DIV');
+  });
+
+  it('子が注記行のみでも展開/折りたたみボタンは表示されること（表示上の子は存在する）', () => {
+    render(<EstimateItemTable items={createHierarchyWithNote()} />);
+
+    const parentWrapper = screen.getByTestId('estimate-item-item-1');
+    expect(within(parentWrapper).getByRole('button', { name: '折りたたむ' })).toBeInTheDocument();
+  });
+
+  it('注記行を選択できること（削除・複写・並び替え・階層移動の対象になる前提）(55.6)', async () => {
+    const onItemSelect = vi.fn();
+    render(<EstimateItemTable items={createHierarchyWithNote()} onItemSelect={onItemSelect} />);
+
+    await userEvent.click(screen.getByTestId('estimate-item-note-1'));
+
+    expect(onItemSelect).toHaveBeenCalledWith('note-1');
   });
 });

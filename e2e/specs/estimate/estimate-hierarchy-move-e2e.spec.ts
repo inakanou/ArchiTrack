@@ -1,28 +1,137 @@
 /**
- * @fileoverview 見積項目の階層移動APIエンドポイントのE2Eテスト
+ * @fileoverview 見積項目の階層移動のE2Eテスト（画面操作＋一括保存）
+ *
+ * Task 53.13: 旧API直叩き（`PATCH /api/estimates/:id/items/:itemId/move`）を
+ * 画面操作＋一括保存（`PUT /api/estimates/:id/save`）の検証へ移行した。
+ * REQ-24 は撤廃され（requirements.md「Requirement 24」）、階層移動は編集セッション中の
+ * ローカル操作となり、確定は保存1回に集約された。
  *
  * Requirements coverage (estimate-creation):
- * - REQ-24.1: PATCH /api/estimates/:id/items/:itemId/move エンドポイント提供
- * - REQ-24.2: 新しい親項目IDが指定された場合、対象項目を子項目に移動する
- * - REQ-24.3: 親項目IDにnullが指定された場合、対象項目をルートレベルに移動する
- * - REQ-24.4: 移動先が自身または子孫の場合、循環参照エラー（400）を返す
- * - REQ-24.5: 移動対象の項目が存在しない場合、404 Not Foundを返す
+ * - REQ-23.9: 「上の階層へ移動」ボタンを提供する
+ * - REQ-23.10: 「下の階層へ移動」ボタンを提供する
+ * - REQ-12.6: 見積項目の親項目を変更（移動）可能とする
+ * - REQ-12.7: 上記の操作を編集セッション中にサーバーへ問い合わせずに行う
+ * - REQ-43.1: 階層の上げ下げをサーバーへの保存を伴わずに画面上の明細へ反映する
+ * - REQ-43.2: 操作を連続して行ってもサーバーへの保存を発生させない
+ * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
+ * - REQ-34.5: 階層を変更して保存した場合、画面再読み込み後も変更後の構造で表示する
+ * - REQ-44.6: ルートレベルで「上の階層へ移動」は実行できない
+ * - REQ-45.2: 階層表示モードのデフォルトを「ツリー表示」とする
  *
  * @module e2e/specs/estimate/estimate-hierarchy-move-e2e.spec
  */
 
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import {
+  buildNewEstimateItemNode,
+  findEstimateItemByName,
+  getEstimateItemTree,
+  saveEstimateDraft,
+  type EstimateItemNode,
+} from '../../helpers/estimate-draft';
 
-test.describe('見積項目の階層移動API', () => {
+test.describe('見積項目の階層移動（画面操作と一括保存）', () => {
   test.describe.configure({ mode: 'serial' });
 
   let createdProjectId: string | null = null;
   let createdEstimateId: string | null = null;
   let accessToken: string = '';
-  const rootItemIds: string[] = [];
+
+  /** 明細ツリーの初期状態（ルート3項目）へ戻す */
+  const resetItemTree = async (page: Page): Promise<void> => {
+    await saveEstimateDraft(page.request, accessToken, createdEstimateId!, [
+      buildNewEstimateItemNode({
+        name: '階層移動テスト項目1',
+        unit: '式',
+        quantity: 1,
+        estimateUnitPrice: 1000,
+        executionUnitPrice: 1000,
+        vendorUnitPrice: 1000,
+      }),
+      buildNewEstimateItemNode({
+        name: '階層移動テスト項目2',
+        unit: '式',
+        quantity: 1,
+        estimateUnitPrice: 1000,
+        executionUnitPrice: 1000,
+        vendorUnitPrice: 1000,
+      }),
+      buildNewEstimateItemNode({
+        name: '階層移動テスト項目3',
+        unit: '式',
+        quantity: 1,
+        estimateUnitPrice: 1000,
+        executionUnitPrice: 1000,
+        vendorUnitPrice: 1000,
+      }),
+    ]);
+  };
+
+  /**
+   * 見積書画面を開いて明細が描画されるまで待つ
+   *
+   * 54.x で階層表示モード（ツリー表示／ドリルダウン表示）が入り、モードによって
+   * 描画される行の集合が変わる。本 spec は子項目・孫項目を DOM から直接選択して
+   * 階層を上げ下げするため、**全階層が一覧されるツリー表示**でしか成立しない。
+   * 依存しているモードを明示的に固定する（45.2）。
+   */
+  const openEstimatePage = async (page: Page): Promise<void> => {
+    await page.goto(`/estimates/${createdEstimateId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('estimate-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(page.locator('[aria-label="見積項目テーブル"]')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(page.getByTestId('view-mode-tree')).toHaveAttribute('aria-checked', 'true', {
+      timeout: getTimeout(10000),
+    });
+  };
+
+  /** 明細行を選択する（入力欄を避けて行の端をクリックする） */
+  const selectRow = async (page: Page, itemId: string): Promise<void> => {
+    const row = page.getByTestId(`estimate-item-${itemId}`);
+    await expect(row).toBeVisible({ timeout: getTimeout(10000) });
+    await row.click({ position: { x: 5, y: 5 } });
+    await expect(row).toHaveAttribute('data-selected', 'true');
+  };
+
+  /** 保存ボタンを押し、`PUT /:id/save` が1回だけ成功することを確認する（REQ-42.1） */
+  const saveAndExpectSingleRequest = async (page: Page): Promise<void> => {
+    const saveRequests: string[] = [];
+    const countSave = (request: { url: () => string; method: () => string }): void => {
+      if (request.url().includes(`/api/estimates/${createdEstimateId}/save`)) {
+        saveRequests.push(request.method());
+      }
+    };
+    page.on('request', countSave);
+
+    const savePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/estimates/${createdEstimateId}/save`) &&
+        response.request().method() === 'PUT',
+      { timeout: getTimeout(30000) }
+    );
+    const saveButton = page.getByRole('button', { name: /^保存$/i });
+    await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
+    await saveButton.click();
+
+    const saveResponse = await savePromise;
+    expect(saveResponse.status()).toBe(200);
+    await page.waitForLoadState('networkidle');
+    page.off('request', countSave);
+
+    // 保存はまとめて1回（REQ-42.1）
+    expect(saveRequests).toEqual(['PUT']);
+  };
+
+  const fetchTree = async (page: Page): Promise<EstimateItemNode[]> =>
+    await getEstimateItemTree(page.request, accessToken, createdEstimateId!);
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
@@ -96,231 +205,191 @@ test.describe('見積項目の階層移動API', () => {
       createdEstimateId = estimateData.id;
       expect(createdEstimateId).toBeTruthy();
 
-      // 見積項目を3つ追加（ルートレベル）
+      // 見積項目を3つ追加（ルートレベル）。撤去済みの `POST /:id/items` ではなく
+      // 一括保存（`PUT /:id/save`）で作成する
+      await resetItemTree(page);
+
+      const tree = await fetchTree(page);
+      expect(tree.length).toBe(3);
+      expect(tree.every((item) => item.parentId === null)).toBe(true);
+    });
+  });
+
+  // ============================================================================
+  // 下の階層へ移動（REQ-23.10, 12.6, 34.5, 42.1）
+  // ============================================================================
+
+  test.describe('下の階層へ移動', () => {
+    /**
+     * @requirement estimate-creation/REQ-23.10
+     * @requirement estimate-creation/REQ-12.6
+     * @requirement estimate-creation/REQ-34.5
+     * @requirement estimate-creation/REQ-42.1
+     */
+    test('「下の階層へ」で直前の兄弟の子になり保存後の再読込でも維持される (estimate-creation/REQ-23.10, estimate-creation/REQ-12.6, estimate-creation/REQ-34.5, estimate-creation/REQ-42.1)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      await resetItemTree(page);
+
+      const before = await fetchTree(page);
+      const parentId = findEstimateItemByName(before, '階層移動テスト項目1')!.id;
+      const targetId = findEstimateItemByName(before, '階層移動テスト項目2')!.id;
+
+      await openEstimatePage(page);
+      await selectRow(page, targetId);
+
+      // 直前に兄弟が存在するため「下の階層へ」が有効になる
+      const moveDownButton = page.getByRole('button', { name: /下の階層へ/ });
+      await expect(moveDownButton).toBeEnabled();
+      await moveDownButton.click();
+
+      await saveAndExpectSingleRequest(page);
+
+      // 再読込後も親子関係が維持される（REQ-34.5）
+      const after = await fetchTree(page);
+      const parentItem = after.find((item) => item.id === parentId);
+      expect(parentItem).toBeDefined();
+      expect(parentItem!.children.map((child) => child.id)).toContain(targetId);
+      // ルートレベルからは外れている
+      expect(after.map((item) => item.id)).not.toContain(targetId);
+    });
+  });
+
+  // ============================================================================
+  // 上の階層へ移動（REQ-23.9, 12.6, 34.5, 42.1）
+  // ============================================================================
+
+  test.describe('上の階層へ移動', () => {
+    /**
+     * @requirement estimate-creation/REQ-23.9
+     * @requirement estimate-creation/REQ-12.6
+     * @requirement estimate-creation/REQ-34.5
+     * @requirement estimate-creation/REQ-42.1
+     */
+    test('「上の階層へ」で子項目がルートレベルへ戻り保存後の再読込でも維持される (estimate-creation/REQ-23.9, estimate-creation/REQ-12.6, estimate-creation/REQ-34.5, estimate-creation/REQ-42.1)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      await resetItemTree(page);
+
+      const before = await fetchTree(page);
+      const parentId = findEstimateItemByName(before, '階層移動テスト項目1')!.id;
+      const targetId = findEstimateItemByName(before, '階層移動テスト項目2')!.id;
+
+      await openEstimatePage(page);
+
+      // 親子関係は編集セッション中の操作で作る（REQ-43.1: 行操作はローカル完結）。
+      // 保存を挟まずに「下の階層へ」→「上の階層へ」と戻せることを確認する。
+      await selectRow(page, targetId);
+      const moveDownButton = page.getByRole('button', { name: /下の階層へ/ });
+      await expect(moveDownButton).toBeEnabled();
+      await moveDownButton.click();
+
+      // 親を持つ状態になったため「上の階層へ」が有効になる（REQ-23.9）
+      const moveUpButton = page.getByRole('button', { name: /上の階層へ/ });
+      await expect(moveUpButton).toBeEnabled();
+      await moveUpButton.click();
+
+      await saveAndExpectSingleRequest(page);
+
+      // 再読込後もルートレベルに存在する（REQ-34.5）
+      const after = await fetchTree(page);
+      const movedItem = after.find((item) => item.id === targetId);
+      expect(movedItem).toBeDefined();
+      expect(movedItem!.parentId).toBeNull();
+      // 元の親も子を持たないルート項目のまま
+      const parentItem = after.find((item) => item.id === parentId);
+      expect(parentItem).toBeDefined();
+      expect(parentItem!.children.length).toBe(0);
+    });
+
+    /**
+     * @requirement estimate-creation/REQ-44.6
+     * @requirement estimate-creation/REQ-23.9
+     */
+    test('ルートレベルの項目では「上の階層へ」を実行できない (estimate-creation/REQ-44.6, estimate-creation/REQ-23.9)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      await resetItemTree(page);
+
+      const before = await fetchTree(page);
+      const rootItemId = before[0]!.id;
+
+      await openEstimatePage(page);
+      await selectRow(page, rootItemId);
+
+      await expect(page.getByRole('button', { name: /上の階層へ/ })).toBeDisabled();
+    });
+  });
+
+  // ============================================================================
+  // 階層移動のローカル完結（REQ-12.7, 43.1, 43.2）
+  // ============================================================================
+
+  test.describe('階層移動のローカル完結', () => {
+    /**
+     * @requirement estimate-creation/REQ-12.7
+     * @requirement estimate-creation/REQ-43.1
+     * @requirement estimate-creation/REQ-43.2
+     */
+    test('階層の上げ下げを連続して行ってもサーバーへの書き込みが発生しない (estimate-creation/REQ-12.7, estimate-creation/REQ-43.1, estimate-creation/REQ-43.2)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      await resetItemTree(page);
+
+      const before = await fetchTree(page);
+      const targetId = findEstimateItemByName(before, '階層移動テスト項目2')!.id;
+
+      await openEstimatePage(page);
+
+      // 画面表示後の書き込みリクエストのみを数える
+      const writeRequests: string[] = [];
+      page.on('request', (request) => {
+        const method = request.method();
+        if (
+          request.url().includes('/api/estimates') &&
+          (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE')
+        ) {
+          writeRequests.push(`${method} ${request.url()}`);
+        }
+      });
+
+      await selectRow(page, targetId);
+
+      // 「下の階層へ」→「上の階層へ」を3往復
       for (let i = 0; i < 3; i++) {
-        const itemResponse = await page.request.post(
-          `${API_BASE_URL}/api/estimates/${createdEstimateId}/items`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            data: {
-              parentId: null,
-              displayOrder: i,
-              lines: [
-                {
-                  lineType: 'ESTIMATE',
-                  name: `階層移動テスト項目${i + 1}`,
-                  specification: null,
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 1000,
-                },
-                {
-                  lineType: 'EXECUTION',
-                  name: `階層移動テスト項目${i + 1}`,
-                  specification: null,
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 1000,
-                },
-                {
-                  lineType: 'VENDOR',
-                  name: `階層移動テスト項目${i + 1}`,
-                  specification: null,
-                  unit: '式',
-                  quantity: 1,
-                  unitPrice: 1000,
-                },
-              ],
-            },
-          }
-        );
-        expect(itemResponse.status()).toBe(201);
-        const itemData = await itemResponse.json();
-        rootItemIds.push(itemData.id);
+        const moveDownButton = page.getByRole('button', { name: /下の階層へ/ });
+        await expect(moveDownButton).toBeEnabled();
+        await moveDownButton.click();
+
+        const moveUpButton = page.getByRole('button', { name: /上の階層へ/ });
+        await expect(moveUpButton).toBeEnabled();
+        await moveUpButton.click();
       }
 
-      expect(rootItemIds.length).toBe(3);
-    });
-  });
+      // 未保存の変更として保持され、サーバーへの書き込みは1件も起きない（REQ-43.1, 43.2）
+      expect(writeRequests).toEqual([]);
+      await expect(page.getByRole('button', { name: /^保存$/i })).toBeEnabled();
 
-  // ============================================================================
-  // REQ-24.2: 新しい親項目IDが指定された場合、子項目に移動する
-  // ============================================================================
-
-  test.describe('親項目への移動', () => {
-    /**
-     * @requirement estimate-creation/REQ-24.2
-     */
-    test('新しい親項目IDを指定して子項目に移動できる (estimate-creation/REQ-24.2)', async ({
-      page,
-    }) => {
-      expect(createdEstimateId).toBeTruthy();
-      expect(rootItemIds.length).toBeGreaterThanOrEqual(2);
-
-      await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-      // rootItemIds[2] を rootItemIds[0] の子に移動
-      const response = await page.request.patch(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items/${rootItemIds[2]}/move`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: { newParentId: rootItemIds[0] },
-        }
-      );
-      expect(response.status()).toBe(200);
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
-
-      // 移動後に階層構造で取得して親子関係を確認
-      const getResponse = await page.request.get(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
-      expect(getResponse.status()).toBe(200);
-
-      const items = await getResponse.json();
-      // 移動した項目が親項目の子になっていることを確認
-      const parentItem = items.find((item: { id: string }) => item.id === rootItemIds[0]);
-      expect(parentItem).toBeTruthy();
-      const childIds = parentItem.children.map((c: { id: string }) => c.id);
-      expect(childIds).toContain(rootItemIds[2]);
-    });
-  });
-
-  // ============================================================================
-  // REQ-24.3: 親項目IDにnullが指定された場合、ルートレベルに移動する
-  // ============================================================================
-
-  test.describe('ルートレベルへの移動', () => {
-    /**
-     * @requirement estimate-creation/REQ-24.3
-     */
-    test('親項目IDにnullを指定してルートレベルに移動できる (estimate-creation/REQ-24.3)', async ({
-      page,
-    }) => {
-      expect(createdEstimateId).toBeTruthy();
-
-      await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-      // 前のテストで子に移動した rootItemIds[2] をルートに戻す
-      const response = await page.request.patch(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items/${rootItemIds[2]}/move`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: { newParentId: null },
-        }
-      );
-      expect(response.status()).toBe(200);
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
-
-      // 移動後に階層構造で確認
-      const getResponse = await page.request.get(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
-      expect(getResponse.status()).toBe(200);
-
-      const items = await getResponse.json();
-      // ルートレベルの項目IDに含まれることを確認（items配列のトップレベルに存在する）
-      const rootIds = items.map((item: { id: string }) => item.id);
-      expect(rootIds).toContain(rootItemIds[2]);
-    });
-  });
-
-  // ============================================================================
-  // REQ-24.4: 循環参照エラー
-  // ============================================================================
-
-  test.describe('循環参照チェック', () => {
-    /**
-     * @requirement estimate-creation/REQ-24.4
-     */
-    test('自身を親に指定すると400エラーが返される (estimate-creation/REQ-24.4)', async ({
-      page,
-    }) => {
-      expect(createdEstimateId).toBeTruthy();
-
-      await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-      // 自身を親に指定
-      const response = await page.request.patch(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items/${rootItemIds[0]}/move`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: { newParentId: rootItemIds[0] },
-        }
-      );
-      expect(response.status()).toBe(400);
-    });
-
-    /**
-     * @requirement estimate-creation/REQ-24.4
-     */
-    test('子孫を親に指定すると400エラーが返される (estimate-creation/REQ-24.4)', async ({
-      page,
-    }) => {
-      expect(createdEstimateId).toBeTruthy();
-
-      await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-      // まず rootItemIds[2] を rootItemIds[0] の子に移動
-      const moveResponse = await page.request.patch(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items/${rootItemIds[2]}/move`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: { newParentId: rootItemIds[0] },
-        }
-      );
-      expect(moveResponse.status()).toBe(200);
-
-      // rootItemIds[0] を rootItemIds[2]（自身の子孫）の子に移動しようとする
-      const response = await page.request.patch(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items/${rootItemIds[0]}/move`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: { newParentId: rootItemIds[2] },
-        }
-      );
-      expect(response.status()).toBe(400);
-    });
-  });
-
-  // ============================================================================
-  // REQ-24.5: 存在しない項目への移動
-  // ============================================================================
-
-  test.describe('存在しない項目', () => {
-    /**
-     * @requirement estimate-creation/REQ-24.5
-     */
-    test('存在しない項目を移動しようとすると404エラーが返される (estimate-creation/REQ-24.5)', async ({
-      page,
-    }) => {
-      expect(createdEstimateId).toBeTruthy();
-
-      await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-      const nonExistentId = '00000000-0000-0000-0000-000000000000';
-      const response = await page.request.patch(
-        `${API_BASE_URL}/api/estimates/${createdEstimateId}/items/${nonExistentId}/move`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: { newParentId: null },
-        }
-      );
-      expect(response.status()).toBe(404);
+      // DBの構造も変わっていない
+      const after = await fetchTree(page);
+      expect(after.map((item) => item.id)).toEqual(before.map((item) => item.id));
+      expect(after.every((item) => item.children.length === 0)).toBe(true);
     });
   });
 });

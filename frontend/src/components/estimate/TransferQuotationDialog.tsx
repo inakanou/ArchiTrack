@@ -1,23 +1,42 @@
 /**
  * @fileoverview TransferQuotationDialog - 受領見積書転記ダイアログ
  *
- * Task 11.4: 受領見積書転記ダイアログの実装
+ * Task 55.5: 受領見積書転記ダイアログの入力元を編集中の明細へ変更
+ *
+ * 転記先の選択肢は**編集中の明細ツリー**（未保存の追加・編集を含む）から構成し、
+ * 識別には項目キー（`NodeKey` = サーバーの項目ID または未保存行の一時識別子 `tmp-*`）を
+ * 用いる。転記は `onApply` で編集状態への遷移（`estimateEditReducer` の
+ * `applyQuotationTransfer`）へ渡し、サーバーへの書き込みは行わない（49.3）。
+ * 受領見積書の一覧と明細の取得は従来どおりサーバーから行う（17.1, 17.2）。
  *
  * Requirements (estimate-creation):
- * - REQ-4.1: 見積項目行を指定して受領見積書の行を選択した場合、業者金額行に転記する
- * - REQ-4.2: 見積項目行を指定せずに受領見積書の行を選択した場合、新規見積項目行を作成
- * - REQ-4.3: 名称・規格・単位・数量・単価を転記対象とする
- * - REQ-4.4: 複数の受領見積書を順次転記した場合、別の見積項目行として反映する
- * - REQ-4.5: 見積依頼機能で登録された受領見積書のみを転記元として選択可能とする
+ * - 4.1, 4.2: 転記先の指定有無で、既存項目の子として作るか新規項目として作るかを切り替える
+ * - 4.3: 名称・規格・単位・数量・単価を転記対象とする
+ * - 4.4: 選択した明細行はそれぞれ別の見積項目行の業者金額行として反映する
+ * - 4.5: 見積依頼機能で登録された受領見積書のみを転記元として選択可能とする
+ * - 4.6, 49.1, 49.3: 転記結果を未保存の変更として反映し、サーバーへ書き込まない
+ * - 17.1, 17.2: プロジェクトに紐付く受領見積書一覧をドロップダウンリストに表示する
+ * - 30.1, 30.2, 30.3: 「新規項目として作成」と「＜既存項目名＞の子項目として作成」を提供する
+ * - 30.4: 未保存の新規項目も転記先の選択肢に含める
+ * - 35.1, 35.2: 受領見積書の選択肢を「業者名 - 金額」形式で表示する
+ * - 35.3: 転記する明細行をデフォルトですべてチェック済みにする
+ * - 41.3: 子を持てない値引き行・注記行は転記先の選択肢に出さない
+ *
+ * Design: design.md `#### TransferQuotationDialog変更`（30.1〜30.3）
  *
  * @module components/estimate/TransferQuotationDialog
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getReceivedQuotationsByProject } from '../../api/received-quotations';
-import { transferFromQuotation } from '../../api/estimates';
-import type { ReceivedQuotationInfo } from '../../api/received-quotations';
+import type { LineItemInfo, ReceivedQuotationInfo } from '../../api/received-quotations';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
+import type {
+  EstimateEditItemType,
+  NodeKey,
+  QuotationTransferLine,
+  QuotationTransferPayload,
+} from '../../domain/estimate/estimateEditReducer.types';
 
 // ============================================================================
 // 型定義
@@ -26,16 +45,14 @@ import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 export interface TransferQuotationDialogProps {
   /** ダイアログの表示状態 */
   isOpen: boolean;
-  /** 見積書ID */
-  estimateId: string;
   /** プロジェクトID */
   projectId: string;
-  /** 見積項目一覧（転記先選択用） */
-  estimateItems: EstimateItemHierarchyEdit[];
+  /** 編集中の明細ツリー（未保存の追加・編集を含む / 30.4, 49.7） */
+  items: EstimateItemHierarchyEdit[];
   /** ダイアログを閉じるコールバック */
   onClose: () => void;
-  /** 転記完了コールバック */
-  onTransferComplete: () => void;
+  /** 転記結果を編集状態へ反映する（4.6, 49.1, 49.3） */
+  onApply: (payload: QuotationTransferPayload) => void;
 }
 
 // ============================================================================
@@ -196,26 +213,81 @@ function formatAmount(amount: number | string | null | undefined): string {
   return num.toLocaleString('ja-JP') + '円';
 }
 
+/** 転記先の選択肢 */
+interface TransferTargetOption {
+  /** 項目キー。未保存の新規項目は一時識別子（`tmp-*`）が入る（30.4） */
+  readonly key: NodeKey;
+  readonly name: string;
+  readonly level: number;
+}
+
 /**
- * フラット化した見積項目リストを取得（転記先選択用）
+ * 転記項目の親になれる項目種別か（41.3）
+ *
+ * 値引き行・注記行は子を持てないため転記先にできない。適用側
+ * （`estimateEditReducer` の `validateInsertParent`）と同じ判定を用いる。
+ * ここが食い違うと、選べるのに転記が反映されない選択肢が生まれる。
  */
-function flattenEstimateItems(
-  items: EstimateItemHierarchyEdit[],
-  level: number = 0
-): Array<{ id: string; name: string; level: number }> {
-  const result: Array<{ id: string; name: string; level: number }> = [];
-  for (const item of items) {
-    const estimateLine = item.lines.find((l) => l.lineType === 'ESTIMATE');
-    result.push({
-      id: item.id,
-      name: estimateLine?.name || '(名称なし)',
-      level,
-    });
-    if (item.children.length > 0) {
-      result.push(...flattenEstimateItems(item.children, level + 1));
+function canHostTransferredItem(itemType: EstimateEditItemType): boolean {
+  return itemType !== 'DISCOUNT' && itemType !== 'NOTE';
+}
+
+/**
+ * 編集中の明細ツリーから転記先の選択肢を組み立てる（30.2, 30.4）
+ *
+ * 階層の深さに上限を設けない（2.5）ため明示スタックで先行順に走査する。
+ */
+function collectTransferTargets(
+  items: readonly EstimateItemHierarchyEdit[]
+): TransferTargetOption[] {
+  const result: TransferTargetOption[] = [];
+  const stack: Array<{ item: EstimateItemHierarchyEdit; level: number }> = [...items]
+    .reverse()
+    .map((item) => ({ item, level: 0 }));
+
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (entry === undefined) {
+      break;
+    }
+    const { item, level } = entry;
+    const itemType: EstimateEditItemType = item.itemType ?? 'STANDARD';
+
+    if (canHostTransferredItem(itemType)) {
+      const estimateLine = item.lines.find((line) => line.lineType === 'ESTIMATE');
+      result.push({ key: item.id, name: estimateLine?.name || '(名称なし)', level });
+    }
+
+    for (let index = item.children.length - 1; index >= 0; index -= 1) {
+      const child = item.children[index];
+      if (child !== undefined) {
+        stack.push({ item: child, level: level + 1 });
+      }
     }
   }
+
   return result;
+}
+
+/**
+ * 受領見積書の明細行を転記ペイロードの1行へ変換する（4.3）
+ *
+ * 転記対象は名称・規格・単位・数量・単価のみ。金額は転記せず、適用側が
+ * 数量 × 単価 として導出する（22.9）。数値は10進数文字列で渡す。
+ */
+function toTransferLine(lineItem: LineItemInfo): QuotationTransferLine {
+  return {
+    name: lineItem.name ?? null,
+    specification: lineItem.specification,
+    unit: lineItem.unit,
+    quantity: lineItem.quantity === null ? null : String(lineItem.quantity),
+    unitPrice: lineItem.unitPrice === null ? null : String(lineItem.unitPrice),
+  };
+}
+
+/** 業者金額行に記録する転記元の業者名（35.1 の表示と同じ解決） */
+function vendorNameOf(quotation: ReceivedQuotationInfo): string {
+  return quotation.tradingPartnerName || quotation.name;
 }
 
 // ============================================================================
@@ -227,23 +299,20 @@ function flattenEstimateItems(
  */
 export function TransferQuotationDialog({
   isOpen,
-  estimateId,
   projectId,
-  estimateItems,
+  items,
   onClose,
-  onTransferComplete,
+  onApply,
 }: TransferQuotationDialogProps) {
   // 状態
   const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedQuotationId, setSelectedQuotationId] = useState('');
   const [selectedLineItemIds, setSelectedLineItemIds] = useState<string[]>([]);
-  const [targetEstimateItemId, setTargetEstimateItemId] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [targetKey, setTargetKey] = useState('');
 
   /**
-   * 受領見積書一覧を取得
-   * Requirements: REQ-4.5
+   * 受領見積書一覧を取得（サーバー参照は読み取りのみ / 4.5, 17.1, 17.2）
    */
   useEffect(() => {
     async function fetchQuotations() {
@@ -297,44 +366,36 @@ export function TransferQuotationDialog({
    * 転記先変更時のハンドラ
    */
   const handleTargetChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    setTargetEstimateItemId(e.target.value);
+    setTargetKey(e.target.value);
   }, []);
 
-  /**
-   * 転記実行
-   * Requirements: REQ-4.1, REQ-4.2
-   */
-  const handleSubmit = useCallback(async () => {
-    if (!selectedQuotationId || selectedLineItemIds.length === 0) return;
+  const selectedQuotation = quotations.find((q) => q.id === selectedQuotationId);
+  const targetOptions = useMemo(() => collectTransferTargets(items), [items]);
+  const isFormValid = selectedQuotation !== undefined && selectedLineItemIds.length > 0;
 
-    setIsSubmitting(true);
-    try {
-      await transferFromQuotation(estimateId, {
-        receivedQuotationId: selectedQuotationId,
-        lineItemIds: selectedLineItemIds,
-        targetEstimateItemId: targetEstimateItemId || undefined,
-      });
-      onTransferComplete();
-      onClose();
-    } catch {
-      // エラー処理
-    } finally {
-      setIsSubmitting(false);
+  /**
+   * 転記実行（4.1, 4.2, 4.3, 4.4, 4.6, 30.3, 49.3）
+   *
+   * サーバーへは書き込まず、編集状態への反映として `onApply` へ渡す。
+   * 明細行はチェックした順ではなく**受領見積書の並び順**で渡す（作られる
+   * 見積項目の並びを転記元と一致させる）。
+   */
+  const handleSubmit = useCallback(() => {
+    if (selectedQuotation === undefined || selectedLineItemIds.length === 0) {
+      return;
     }
-  }, [
-    estimateId,
-    selectedQuotationId,
-    selectedLineItemIds,
-    targetEstimateItemId,
-    onTransferComplete,
-    onClose,
-  ]);
+    const selected = new Set(selectedLineItemIds);
+    onApply({
+      parentKey: targetKey === '' ? null : targetKey,
+      vendorName: vendorNameOf(selectedQuotation),
+      lines: selectedQuotation.lineItems
+        .filter((lineItem) => selected.has(lineItem.id))
+        .map(toTransferLine),
+    });
+    onClose();
+  }, [selectedQuotation, selectedLineItemIds, targetKey, onApply, onClose]);
 
   if (!isOpen) return null;
-
-  const selectedQuotation = quotations.find((q) => q.id === selectedQuotationId);
-  const flattenedItems = flattenEstimateItems(estimateItems);
-  const isFormValid = selectedQuotationId && selectedLineItemIds.length > 0;
 
   return (
     <div
@@ -363,7 +424,7 @@ export function TransferQuotationDialog({
           </div>
         ) : (
           <>
-            {/* 受領見積書選択 */}
+            {/* 受領見積書選択 (REQ-4.5, REQ-17.1, REQ-35.1, REQ-35.2) */}
             <div style={styles.section}>
               <label htmlFor="quotation-select" style={styles.sectionTitle}>
                 受領見積書を選択
@@ -373,12 +434,11 @@ export function TransferQuotationDialog({
                 value={selectedQuotationId}
                 onChange={handleQuotationChange}
                 style={styles.select}
-                disabled={isSubmitting}
               >
                 <option value="">選択してください</option>
                 {quotations.map((q) => (
                   <option key={q.id} value={q.id}>
-                    {q.tradingPartnerName || q.name} - {formatAmount(q.totalAmount)}
+                    {vendorNameOf(q)} - {formatAmount(q.totalAmount)}
                   </option>
                 ))}
               </select>
@@ -408,7 +468,6 @@ export function TransferQuotationDialog({
                           onChange={() => handleLineItemToggle(item.id)}
                           style={styles.checkbox}
                           data-testid={`line-checkbox-${item.id}`}
-                          disabled={isSubmitting}
                         />
                         <div style={styles.lineItemInfo}>
                           <div style={styles.lineItemName}>{item.name || '(名称なし)'}</div>
@@ -426,23 +485,22 @@ export function TransferQuotationDialog({
               </div>
             )}
 
-            {/* 転記先選択 */}
+            {/* 転記先選択 (REQ-30.1, REQ-30.2, REQ-30.4) */}
             <div style={styles.section}>
               <label htmlFor="target-select" style={styles.sectionTitle}>
                 転記先見積項目
               </label>
               <select
                 id="target-select"
-                value={targetEstimateItemId}
+                value={targetKey}
                 onChange={handleTargetChange}
                 style={styles.select}
-                disabled={isSubmitting}
               >
                 <option value="">新規項目として作成</option>
-                {flattenedItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {'  '.repeat(item.level)}
-                    {item.name} の子項目として作成
+                {targetOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {'  '.repeat(option.level)}
+                    {option.name} の子項目として作成
                   </option>
                 ))}
               </select>
@@ -450,24 +508,19 @@ export function TransferQuotationDialog({
 
             {/* ボタン */}
             <div style={styles.buttonGroup}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={styles.cancelButton}
-                disabled={isSubmitting}
-              >
+              <button type="button" onClick={onClose} style={styles.cancelButton}>
                 キャンセル
               </button>
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!isFormValid || isSubmitting}
+                disabled={!isFormValid}
                 style={{
                   ...styles.submitButton,
-                  ...(!isFormValid || isSubmitting ? styles.submitButtonDisabled : {}),
+                  ...(!isFormValid ? styles.submitButtonDisabled : {}),
                 }}
               >
-                {isSubmitting ? '転記中...' : '転記'}
+                転記
               </button>
             </div>
           </>

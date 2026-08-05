@@ -14,7 +14,6 @@ const createSelectedItem = (parentId: string | null): EstimateItemHierarchyEdit 
   displayOrder: 1,
   lines: [],
   children: [],
-  isExpanded: true,
   createdAt: '2025-01-01T00:00:00Z',
   updatedAt: '2025-01-01T00:00:00Z',
 });
@@ -35,14 +34,23 @@ const meta = {
     onAddItem: fn(),
     onAddChildItem: fn(),
     onAddDiscountItem: fn(),
-    onDeleteItem: fn(),
-    onDuplicateItem: fn(),
-    onMoveUp: fn(),
-    onMoveDown: fn(),
+    onAddNoteItem: fn(),
+    onDeleteItems: fn(),
+    onDuplicateItems: fn(),
+    onMoveUpItems: fn(),
+    onMoveDownItems: fn(),
     onReorderUp: fn(),
     onReorderDown: fn(),
     canReorderUp: false,
     canReorderDown: false,
+    // 階層表示モードの切替（45.1, 45.2）
+    viewMode: 'tree',
+    onViewModeChange: fn(),
+    // 取り消し・やり直し（48.1, 48.2, 48.4）
+    canUndo: false,
+    canRedo: false,
+    onUndo: fn(),
+    onRedo: fn(),
   },
 } satisfies Meta<typeof EstimateItemToolbar>;
 
@@ -55,7 +63,7 @@ type Story = StoryObj<typeof meta>;
  */
 export const NoSelection: Story = {
   args: {
-    selectedItemId: null,
+    selectedKeys: [],
     selectedItem: null,
     hasPreviousSibling: false,
   },
@@ -67,7 +75,7 @@ export const NoSelection: Story = {
  */
 export const RootItemSelected: Story = {
   args: {
-    selectedItemId: 'item-1',
+    selectedKeys: ['item-1'],
     selectedItem: createSelectedItem(null),
     hasPreviousSibling: false,
   },
@@ -78,7 +86,7 @@ export const RootItemSelected: Story = {
  */
 export const ChildItemSelected: Story = {
   args: {
-    selectedItemId: 'item-1',
+    selectedKeys: ['item-1'],
     selectedItem: createSelectedItem('parent-1'),
     hasPreviousSibling: false,
   },
@@ -89,7 +97,7 @@ export const ChildItemSelected: Story = {
  */
 export const AllButtonsEnabled: Story = {
   args: {
-    selectedItemId: 'item-1',
+    selectedKeys: ['item-1'],
     selectedItem: createSelectedItem('parent-1'),
     hasPreviousSibling: true,
   },
@@ -101,8 +109,36 @@ export const AllButtonsEnabled: Story = {
  */
 export const RootWithPreviousSibling: Story = {
   args: {
-    selectedItemId: 'item-1',
+    selectedKeys: ['item-1'],
     selectedItem: createSelectedItem(null),
     hasPreviousSibling: true,
+  },
+};
+
+/**
+ * 範囲選択中（44.3, 44.8）
+ *
+ * 選択中の行数が表示され、削除・複製・階層の上げ下げは選択範囲全体が対象になる。
+ * 「下の階層へ」は先頭行を親へ昇格させる規則（44.4）のため、先頭行に直前の兄弟が
+ * 無くても操作できる。
+ */
+export const RangeSelected: Story = {
+  args: {
+    selectedKeys: ['item-1', 'item-2', 'item-3'],
+    selectedItem: createSelectedItem('parent-1'),
+    hasPreviousSibling: false,
+  },
+};
+
+/**
+ * ドリルダウン表示を選択中（45.1）
+ * 階層表示モードの切替はいずれのボタンも項目の選択状態に依存せず常に操作できる
+ */
+export const DrilldownViewMode: Story = {
+  args: {
+    selectedKeys: [],
+    selectedItem: null,
+    hasPreviousSibling: false,
+    viewMode: 'drilldown',
   },
 };

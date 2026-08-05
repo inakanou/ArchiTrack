@@ -5,9 +5,13 @@
  * API呼び出しを最小化するため、プレビュー計算はクライアントサイドで実行します。
  * Decimal.jsを使用して高精度な10進数計算を実現し、バックエンドと同一精度を保証します。
  *
+ * 階層の金額集計（REQ-2.3）は `domain/estimate/estimateTree` の
+ * `recalculateAncestorAmounts` が単一の実装として担当する。本モジュールにあった
+ * `calculateHierarchyAmounts`（見積金額行のみを再帰集計し注記行を除外しない旧実装）は
+ * 二重実装だったため撤去した（Task 53.12）。
+ *
  * Requirements (estimate-creation):
  * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
- * - REQ-2.3: 子項目を持つ場合、親項目の金額として子項目の金額合計を自動計算して表示する
  * - REQ-13.6: 高精度な10進数計算により丸め誤差を最小化する
  *
  * Task 7.1: EstimateCalculator（クライアントサイド計算モジュール）の実装
@@ -40,15 +44,6 @@ export interface EstimateItemLine {
 export interface EstimateItemWithLines {
   id: string;
   lines: EstimateItemLine[];
-}
-
-/**
- * 見積項目の階層構造
- */
-export interface EstimateItemHierarchy {
-  id: string;
-  lines: EstimateItemLine[];
-  children: EstimateItemHierarchy[];
 }
 
 /**
@@ -184,68 +179,6 @@ export class EstimateCalculator {
       }
       return sum;
     }, new Decimal(0));
-  }
-
-  /**
-   * 階層構造の金額を計算する
-   *
-   * 子項目を持つ場合、親項目の金額は子項目の金額合計として計算されます。
-   * 再帰的に処理し、下位の階層から計算を行います。
-   *
-   * Requirements: REQ-2.3
-   *
-   * @param hierarchy - 階層構造の見積項目一覧
-   * @returns 金額が計算された階層構造
-   */
-  static calculateHierarchyAmounts(hierarchy: EstimateItemHierarchy[]): EstimateItemHierarchy[] {
-    return hierarchy.map((item) => this.calculateItemAmount(item));
-  }
-
-  /**
-   * 単一項目の金額を計算する（再帰）
-   */
-  private static calculateItemAmount(item: EstimateItemHierarchy): EstimateItemHierarchy {
-    // まず子項目を再帰的に処理
-    const processedChildren = item.children.map((child) => this.calculateItemAmount(child));
-
-    // 子項目がある場合、子項目の金額合計を親の金額とする
-    if (processedChildren.length > 0) {
-      const childAmounts = processedChildren
-        .map((child) => {
-          const estimateLine = child.lines.find((l) => l.lineType === 'ESTIMATE');
-          if (estimateLine?.amount) {
-            try {
-              return new Decimal(estimateLine.amount);
-            } catch {
-              return null;
-            }
-          }
-          return null;
-        })
-        .filter((amount): amount is Decimal => amount !== null);
-
-      const totalAmount = childAmounts.reduce((sum, amount) => sum.add(amount), new Decimal(0));
-
-      // 親の見積金額行を更新
-      const updatedLines = item.lines.map((line) => {
-        if (line.lineType === 'ESTIMATE') {
-          return { ...line, amount: totalAmount.toString() };
-        }
-        return line;
-      });
-
-      return {
-        ...item,
-        lines: updatedLines,
-        children: processedChildren,
-      };
-    }
-
-    // 子項目がない場合はそのまま返す
-    return {
-      ...item,
-      children: processedChildren,
-    };
   }
 
   /**

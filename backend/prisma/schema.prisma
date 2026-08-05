@@ -273,19 +273,19 @@ model Project {
   createdById          String // 作成者ID
 
   // リレーション
-  tradingPartner        TradingPartner?        @relation(fields: [tradingPartnerId], references: [id])
-  salesPerson           User                   @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
-  constructionPerson    User?                  @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
-  createdBy             User                   @relation("CreatedProjects", fields: [createdById], references: [id])
-  statusHistory         ProjectStatusHistory[]
-  siteSurveys           SiteSurvey[] // 現場調査リレーション
-  quantityTables        QuantityTable[] // 数量表リレーション
-  itemizedStatements    ItemizedStatement[] // 内訳書リレーション
-  estimateRequests      EstimateRequest[] // 見積依頼リレーション
-  estimates             Estimate[] // 見積書リレーション
-  contracts             Contract[] // 契約書リレーション
-  constructionSchedules ConstructionSchedule[] // 工程表リレーション
-  executionBudgets      ExecutionBudget[] // 実行予算リレーション
+  tradingPartner          TradingPartner?          @relation(fields: [tradingPartnerId], references: [id])
+  salesPerson             User                     @relation("SalesPersonProjects", fields: [salesPersonId], references: [id])
+  constructionPerson      User?                    @relation("ConstructionPersonProjects", fields: [constructionPersonId], references: [id])
+  createdBy               User                     @relation("CreatedProjects", fields: [createdById], references: [id])
+  statusHistory           ProjectStatusHistory[]
+  siteSurveys             SiteSurvey[] // 現場調査リレーション
+  quantityTables          QuantityTable[] // 数量表リレーション
+  itemizedStatements      ItemizedStatement[] // 内訳書リレーション
+  estimateRequests        EstimateRequest[] // 見積依頼リレーション
+  estimates               Estimate[] // 見積書リレーション
+  contracts               Contract[] // 契約書リレーション
+  constructionSchedules   ConstructionSchedule[] // 工程表リレーション
+  executionBudgets        ExecutionBudget[] // 実行予算リレーション
   constructionPhotoAlbums ConstructionPhotoAlbum[] // 工事写真アルバムリレーション
   constructionSignboards  ConstructionSignboard[] // 工事看板リレーション
 
@@ -1120,14 +1120,17 @@ enum EstimateItemLineType {
 
 /**
  * 見積項目種別
- * 見積項目が通常項目（3行1セット）か値引き行（見積金額行のみ）かを判別する。
+ * 見積項目が通常項目（3行1セット）か値引き行（見積金額行のみ）か注記行（名称のみ）かを判別する。
  * Requirements (estimate-creation):
  * - REQ-41.2: 値引き行をルートレベルに追加する
  * - REQ-41.3: 値引き行を見積金額行のみで構成し、実行金額行・業者金額行を持たない構造とする
+ * - REQ-55.1: 名称のみを持ち規格・単位・数量・単価・金額を持たない注記行を明細に追加可能とする
+ * - REQ-55.2: 注記行を金額の集計対象から除外する
  */
 enum EstimateItemType {
   STANDARD // 通常項目（3行1セット）
   DISCOUNT // 値引き行（見積金額行のみ）
+  NOTE // 注記行（見積金額行のみ・名称以外の項目を持たない／金額集計の対象外）
 }
 
 /**
@@ -1140,6 +1143,9 @@ enum EstimateItemType {
  * - name: 見積書名（必須、最大200文字）
  * - sourceItemizedStatementId: 参照内訳書ID（任意、外部キー制約なし）
  * - sourceItemizedStatementName: 参照内訳書名（スナップショット、最大200文字）
+ * - submissionDate: 提出日（任意、DATE。未入力時は帳票の該当欄を空欄とする）
+ * - validityPeriod: 有効期限（任意、最大100文字の自由文。例「提出日より1ヶ月間」）
+ * - separateWorks: 別途工事の記載（順序を保持する文字列配列、既定値は空配列。最大5件はアプリ側で検証）
  * - createdAt: 作成日時
  * - updatedAt: 更新日時（楽観的排他制御用）
  * - deletedAt: 論理削除日時
@@ -1153,6 +1159,9 @@ enum EstimateItemType {
  * - REQ-11.5: 見積書に見積名称を設定可能とする
  * - REQ-11.6: 楽観的排他制御により競合を検出する
  * - REQ-3.2: 選択した内訳書の項目を見積金額行の初期値として設定する
+ * - REQ-54.1: 見積書に別途工事の記載を5件まで入力可能とする
+ * - REQ-54.2: 見積書に見積の有効期限を入力可能とする
+ * - REQ-54.3: 見積書に提出日を入力可能とする
  */
 model Estimate {
   id                          String    @id @default(uuid())
@@ -1160,6 +1169,9 @@ model Estimate {
   name                        String // 見積書名（必須、最大200文字）
   sourceItemizedStatementId   String? // 参照内訳書ID（任意、参照情報のみ）
   sourceItemizedStatementName String? // 参照内訳書名（スナップショット）
+  submissionDate              DateTime? @map("submission_date") @db.Date // 提出日（任意、未入力は帳票で空欄）
+  validityPeriod              String?   @map("validity_period") @db.VarChar(100) // 有効期限（任意、「提出日より1ヶ月間」等の自由文）
+  separateWorks               String[]  @default([]) @map("separate_works") // 別途工事（順序保持、最大5件はアプリ側で検証）
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
   deletedAt                   DateTime? // 論理削除
@@ -1182,7 +1194,7 @@ model Estimate {
  * - id: 見積項目の一意ID（UUID）
  * - estimateId: 所属する見積書ID（外部キー、カスケード削除）
  * - parentId: 親項目ID（自己参照外部キー、ルート項目はnull、カスケード削除）
- * - itemType: 項目種別（STANDARD=通常項目/DISCOUNT=値引き行、デフォルトSTANDARD）
+ * - itemType: 項目種別（STANDARD=通常項目/DISCOUNT=値引き行/NOTE=注記行、デフォルトSTANDARD）
  * - displayOrder: 表示順序
  * - createdAt: 作成日時
  * - updatedAt: 更新日時
@@ -1198,12 +1210,13 @@ model Estimate {
  * - REQ-12.2: ドラッグ&ドロップで順序を変更可能とする
  * - REQ-41.2: 値引き行をルートレベルに追加する
  * - REQ-41.3: 値引き行を見積金額行のみで構成し、実行金額行・業者金額行を持たない構造とする
+ * - REQ-55.1: 名称のみを持ち規格・単位・数量・単価・金額を持たない注記行を明細に追加可能とする
  */
 model EstimateItem {
   id           String           @id @default(uuid())
   estimateId   String
   parentId     String? // 親項目ID（ルート項目はnull）
-  itemType     EstimateItemType @default(STANDARD) // 項目種別（STANDARD=通常項目/DISCOUNT=値引き行）
+  itemType     EstimateItemType @default(STANDARD) // 項目種別（STANDARD=通常項目/DISCOUNT=値引き行/NOTE=注記行）
   displayOrder Int // 表示順序
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt

@@ -30,29 +30,57 @@ vi.mock('../../api/estimates');
 
 // useNavigateモック
 const mockNavigate = vi.fn();
+
+// useBlockerモック（Task 53.7: 未保存の変更がある状態での離脱ガード, 27.6）
+//
+// 本ファイルは MemoryRouter（非データルーター）で描画するため、実物の `useBlocker`
+// は利用できない。ここでは離脱ガードそのものは検証しないため、常に「未ブロック」を
+// 返す。ガードの挙動は `src/pages/EstimateDetailPage.test.tsx` で検証する。
+const mockBlockerProceed = vi.fn();
+const mockBlockerReset = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useBlocker: () => ({
+      state: 'unblocked' as const,
+      proceed: mockBlockerProceed,
+      reset: mockBlockerReset,
+    }),
   };
 });
 
 // useEstimateEditorモック
 const mockEditor = {
   items: [] as EstimateItemHierarchy[],
+  // 表示状態フック（useEstimateNavigation）が読み取る編集中ツリー（54.2）
+  editState: { items: [] },
   setItems: vi.fn(),
   isDirty: false,
   isSaving: false,
   save: vi.fn().mockResolvedValue(undefined),
   discard: vi.fn(),
   updateLine: vi.fn(),
-  toggleExpanded: vi.fn(),
   reorderItems: vi.fn(),
   getTotalAmount: vi.fn(() => '100000'),
   addItem: vi.fn(),
   deleteItem: vi.fn(),
   duplicateItem: vi.fn(),
+  addDiscountItem: vi.fn(),
+  addNoteItem: vi.fn(),
+  moveItem: vi.fn(),
+  insertRowAfter: vi.fn(),
+  deleteRows: vi.fn(),
+  duplicateRows: vi.fn(),
+  indentRange: vi.fn(),
+  outdentRange: vi.fn(),
+  // 無効化された階層操作の理由（44.6, 44.7 / 54.10）は描画中に読まれる
+  lastError: null,
+  dismissError: vi.fn(),
+  // 帳票用入力項目（54.1〜54.3, 54.6 / 56.8）。描画中に読まれるため必須
+  reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] as string[] },
+  updateReportFields: vi.fn(),
 };
 
 vi.mock('../../hooks/useEstimateEditor', () => ({
@@ -61,6 +89,8 @@ vi.mock('../../hooks/useEstimateEditor', () => ({
 
 // テストデータ
 const mockEstimateDetail: EstimateDetail = {
+  // 帳票用入力項目（56.8 で `EstimateDetail` に追加。未入力の見積書を表す）
+  reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
   id: 'est-1',
   projectId: 'project-1',
   name: 'テスト見積書',
