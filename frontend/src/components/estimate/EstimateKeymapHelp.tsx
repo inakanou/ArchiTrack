@@ -256,7 +256,12 @@ export function EstimateKeymapHelp() {
                 閉じる
               </button>
             </div>
-            <div style={styles.body}>
+            {/*
+              一覧は行数が多く縦に溢れる。中に操作要素が無いため、
+              フォーカスできないとキーボードだけではスクロールできない
+              （axe `scrollable-region-focusable`）。
+            */}
+            <div style={styles.body} tabIndex={0}>
               <table style={styles.table}>
                 <thead>
                   <tr>
