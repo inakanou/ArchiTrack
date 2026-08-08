@@ -1761,6 +1761,8 @@ describe('SiteSurveyDetailPage', () => {
             index: 1,
             fileName: 'corrupted.jpg',
             error: 'サポートされていないファイル形式です: MIMEタイプと一致しません',
+            // Task 107.1: 失敗情報には再送用の File 実体が含まれる
+            file: new File(['corrupted'], 'corrupted.jpg', { type: 'image/jpeg' }),
           },
         ],
       });

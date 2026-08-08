@@ -438,6 +438,13 @@ export interface BatchUploadError {
   fileName: string;
   /** エラーメッセージ */
   error: string;
+  /**
+   * 失敗した画像の実体
+   *
+   * 呼び出し元が未送信画像として保持し、再圧縮せずそのまま再送するために
+   * File 参照を返す（Requirement 37.1, 37.4）。
+   */
+  file: File;
 }
 
 /**
