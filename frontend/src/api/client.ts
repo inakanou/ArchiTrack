@@ -193,6 +193,12 @@ class ApiClient {
       disableRetry = false,
     } = options;
 
+    // multipart 送信かどうか。boundary の付与をブラウザへ委ねるため、
+    // FormData の場合は Content-Type を設定せず、本文も JSON 化しない。
+    // 判定は `body instanceof FormData` の単一条件に限定し、JSON 経路へ影響させない。
+    // Requirements (site-survey): 37.11, 37.13
+    const isFormDataBody = body instanceof FormData;
+
     let lastError: ApiError | null = null;
     let currentDelay = this.retryConfig.initialDelayMs;
     const maxRetries = disableRetry ? 0 : this.retryConfig.maxRetries;
@@ -220,8 +226,9 @@ class ApiClient {
         const url = `${this.baseUrl}${path}`;
 
         // アクセストークンが設定されている場合、Authorizationヘッダーを追加
+        // multipart（FormData）では Content-Type を設定せず、ブラウザの自動設定に委ねる
         const requestHeaders: Record<string, string> = {
-          'Content-Type': 'application/json',
+          ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
           ...headers,
         };
 
@@ -229,10 +236,17 @@ class ApiClient {
           requestHeaders['Authorization'] = `Bearer ${this.accessToken}`;
         }
 
+        // FormData はそのまま渡す（再試行時も同一インスタンスを再送する）
+        const requestBody: BodyInit | undefined = isFormDataBody
+          ? body
+          : body
+            ? JSON.stringify(body)
+            : undefined;
+
         const response = await fetch(url, {
           method,
           headers: requestHeaders,
-          body: body ? JSON.stringify(body) : undefined,
+          body: requestBody,
           signal: controller.signal,
           credentials: 'include', // 要件26.5: HTTPOnly Cookieを送受信するため
         });

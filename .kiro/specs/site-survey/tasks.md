@@ -2626,7 +2626,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 - [ ] 105. Core: multipart 送信経路の共通クライアント統一
 
-- [ ] 105.1 共通クライアントが multipart ボディを送信できるようにする
+- [x] 105.1 共通クライアントが multipart ボディを送信できるようにする
   - 送信ボディが FormData の場合は JSON 化せず、Content-Type をブラウザの自動設定に委ねる
   - 既存の JSON リクエストのヘッダ組み立てと本文生成を変更しない
   - multipart 送信時に Content-Type が設定されず、既存の JSON リクエストのヘッダが変化しないことを単体テストで確認できること

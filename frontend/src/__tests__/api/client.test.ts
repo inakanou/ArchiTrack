@@ -472,6 +472,97 @@ describe('ApiClient', () => {
     });
   });
 
+  /**
+   * Task 105.1 / Requirements (site-survey) 37.11, 37.13
+   *
+   * multipart 送信を共通クライアントへ統一するための第一歩。
+   * ボディが FormData の場合は JSON 化せず、`Content-Type` はブラウザの自動設定
+   * （boundary 付与）に委ねる。JSON 経路のヘッダ組み立てと本文生成は不変であること。
+   */
+  describe('multipart（FormData）ボディの送信', () => {
+    /** fetch 呼び出しに渡された RequestInit を捕捉する */
+    let capturedInit: RequestInit | undefined;
+
+    /** 成功応答を返す fetch モックを差し替え、RequestInit を捕捉する */
+    const mockFetchCapturingInit = (): void => {
+      capturedInit = undefined;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ success: true }),
+        });
+      });
+    };
+
+    /** 捕捉した RequestInit のヘッダを取り出す */
+    const capturedHeaders = (): Record<string, string> =>
+      (capturedInit?.headers ?? {}) as Record<string, string>;
+
+    beforeEach(() => {
+      apiClient.setAccessToken(null);
+      apiClient.setTokenRefreshCallback(null);
+      apiClient.setSessionExpiredCallback(null);
+    });
+
+    it('FormData ボディでは Content-Type ヘッダを設定しないこと', async () => {
+      mockFetchCapturingInit();
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+
+      await apiClient.post('/api/site-surveys/1/images', formData);
+
+      expect(Object.keys(capturedHeaders())).not.toContain('Content-Type');
+    });
+
+    it('FormData ボディを JSON 文字列化せずそのまま渡すこと', async () => {
+      mockFetchCapturingInit();
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+
+      await apiClient.post('/api/site-surveys/1/images', formData);
+
+      expect(capturedInit?.body).toBe(formData);
+    });
+
+    it('FormData ボディでも Authorization ヘッダと明示指定のヘッダを維持すること', async () => {
+      mockFetchCapturingInit();
+      apiClient.setAccessToken('upload-token');
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+
+      await apiClient.post('/api/site-surveys/1/images', formData, {
+        headers: { 'X-Request-Id': 'req-001' },
+      });
+
+      expect(capturedHeaders()['Authorization']).toBe('Bearer upload-token');
+      expect(capturedHeaders()['X-Request-Id']).toBe('req-001');
+
+      apiClient.setAccessToken(null);
+    });
+
+    it('JSON ボディでは Content-Type: application/json と JSON 文字列化を維持すること（回帰検出）', async () => {
+      mockFetchCapturingInit();
+      const body = { title: '現場調査' };
+
+      await apiClient.post('/api/site-surveys', body);
+
+      expect(capturedHeaders()['Content-Type']).toBe('application/json');
+      expect(capturedInit?.body).toBe(JSON.stringify(body));
+    });
+
+    it('ボディなしのリクエストでは Content-Type: application/json を維持すること（回帰検出）', async () => {
+      mockFetchCapturingInit();
+
+      await apiClient.get('/api/site-surveys');
+
+      expect(capturedHeaders()['Content-Type']).toBe('application/json');
+      expect(capturedInit?.body).toBeUndefined();
+    });
+  });
+
   describe('型安全性', () => {
     it('ジェネリック型でレスポンス型を指定できること', async () => {
       interface User {
