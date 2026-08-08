@@ -540,3 +540,34 @@ Requirements 35〜36 は、スマートフォン実機の狭幅ビューポー�
 6. While モバイル幅で画像編集を表示している, the Site Survey Service shall ページ全体で水平スクロール（コンテンツ幅がビューポート幅を超える状態）を発生させない
 7. The Site Survey Service shall 画像編集画面のヘッダー・パンくず等の固定または重畳する要素が、画像作業領域や操作要素と視覚的に重ならないよう配置する
 8. The Site Survey Service shall 本要件の表示領域最適化を、Requirement 33（ピンチズーム/パンと描画の両立）および Requirement 34（ズーム操作手段・フィット・倍率表示）の挙動を維持したまま提供する
+
+### Requirement 37: アップロード失敗時の撮影画像の保持と再送
+
+**Objective:** As a 現場調査担当者, I want 画像アップロードが失敗しても撮影・選択した画像が画面に保持され、その場で再送できること, so that 通信状態や認証状態に起因する失敗のたびに現場で写真を撮り直さずに済む
+
+- **In scope**: 現場調査詳細画面を表示している間の未送信画像の保持と再送、未送信画像の内容確認（サムネイル・ファイル名・失敗理由）と明示的な破棄、再送しても解消しない失敗の区別と提示、認証の有効期限切れによる失敗からの無操作での復帰、一時的な通信障害からの自動再試行、重複登録を避けるための自動再試行の抑制、画像1件あたりの送信完了猶予
+- **Out of scope**: 画面リロード・タブ再起動・アプリ切り替えをまたぐ端末ローカルへの永続保存と復旧、オフライン中の自動キュー送信、サーバー側の受入上限（件数・サイズ・形式）の変更、Requirement 19 が定める失敗通知の文言体系
+- **Adjacent expectations**: Requirement 4（アップロード・バッチ処理・圧縮の挙動を維持する）、Requirement 19（失敗の通知は引き続き Requirement 19 が所管し、本要件は保持と再送のみを規定する）、Requirement 15.3（カメラ連携による直接撮影を前提とする）、ユーザー認証機能（セッションの有効期限管理と、セッション切れをユーザーへ通知する手段を提供することを期待する）
+
+#### Acceptance Criteria
+1. When 画像アップロードで1件以上の画像が失敗する, the Site Survey Service shall 失敗した画像を未送信画像として画面に保持する
+2. While 未送信画像が保持されている, the Site Survey Service shall 未送信画像の件数と、各画像のサムネイル・ファイル名・失敗理由を表示する
+3. While 未送信画像が保持されている, the Site Survey Service shall 保持中の画像のうち再送可能なものをまとめて再送する操作手段を提供する
+4. When ユーザーが再送を実行する, the Site Survey Service shall 保持中の画像のみを送信対象とし、初回送信時と同一の画像データを送信することで再圧縮による画質の再劣化を発生させない
+5. When 再送で一部の画像が成功する, the Site Survey Service shall 成功した画像を未送信画像から取り除き、失敗した画像のみを保持し続ける
+6. When 再送で全ての画像が成功する, the Site Survey Service shall 未送信画像の表示を解消する
+7. While 未送信画像が保持されている, the Site Survey Service shall 保持中の画像を破棄する操作手段を提供する
+8. When ユーザーが未送信画像の破棄を実行する, the Site Survey Service shall 破棄の確認をユーザーに求め、承諾された場合にのみ保持中の画像を解放する
+9. While 未送信画像が保持されている, when ユーザーが新たなファイル選択またはカメラ撮影を行う, the Site Survey Service shall 既存の未送信画像を保持したまま新規画像のアップロードを実行する
+10. While アップロードまたは再送の処理が実行中である, the Site Survey Service shall 追加の再送操作を受け付けない
+11. If 画像アップロードが認証の有効期限切れにより失敗する, then the Site Survey Service shall ユーザーに再ログインを要求せずに認証を更新し、当該アップロードを継続する
+12. If 認証の更新に失敗する, then the Site Survey Service shall 他機能と同一の手段でセッション切れをユーザーに通知する
+13. If 画像アップロードがサーバーの処理に到達する前の通信障害または応答不能により失敗する, then the Site Survey Service shall 待機間隔を段階的に延ばしながら自動的に再試行する
+14. If 画像アップロードがサーバーの処理中の失敗により終了する, then the Site Survey Service shall 同一画像が重複登録されることを避けるため自動再試行を行わず、当該画像を未送信画像として保持する
+15. The Site Survey Service shall 画像1件あたりの送信に少なくとも120秒の完了猶予を与え、モバイル回線での送信を時間切れで打ち切らない
+16. If 画像の失敗理由が、サーバーの受入条件（サイズ上限・画像形式）を満たさないことによる確定的な拒否である, then the Site Survey Service shall 当該画像を再送不可として区別し、再送しても解消しない旨とその理由をユーザーに提示する
+17. While 再送不可と区別された画像が保持されている, the Site Survey Service shall 当該画像を再送の対象に含めず、破棄の操作手段のみを提供する
+18. When 保持中の画像が全て再送不可である, the Site Survey Service shall 再送の操作手段を実行不可の状態で提示する
+19. If 画像アップロードが送信の時間切れにより終了する, then the Site Survey Service shall 自動再試行を行わず、当該画像を未送信画像として保持し、ユーザーの操作による再送に委ねる
+20. While 未送信画像の再送が可能である, the Site Survey Service shall 1件あたりの送信が時間切れとなってから、ユーザーが再送を開始できる状態になるまでの待ち時間を、自動再試行の繰り返しによって延伸させない
+21. If ストレージへの保存失敗または画像処理の失敗により個別の画像の登録が失敗する, then the Site Survey Service shall 当該画像を再送可能な未送信画像として保持する
