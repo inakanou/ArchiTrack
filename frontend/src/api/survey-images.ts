@@ -4,6 +4,7 @@
  * Task 7.2: 画像管理APIクライアントの実装
  * Task 27.3: 画像メタデータAPIクライアントの実装
  * Task 107.1: multipart送信の共通クライアント統一と部分失敗の扱いの是正
+ * Task 108.2: バッチアップロードの失敗情報に再送可否の区分を持たせる
  *
  * Requirements:
  * - 4.1: POST /api/site-surveys/:id/images 画像アップロード（FormData対応）
@@ -17,6 +18,7 @@
  */
 
 import { ApiError, apiClient } from './client';
+import { classifyUploadFailure } from '../utils/upload-failure';
 import type {
   SurveyImageInfo,
   UploadImageOptions,
@@ -88,8 +90,8 @@ interface BatchUploadResponse {
  *   - 認証エラー（401）
  *   - 権限不足（403）
  *   - 現場調査が見つからない（404）
- *   - サポートされていないファイル形式（415）- `isUnsupportedFileTypeErrorResponse(error.response)`で識別可能
  *   - 個別ファイルの失敗（207）- 失敗理由は `message`、レスポンス全体は `response` に入る。
+ *     画像形式の非対応はこの経路（207）で現れる。本エンドポイントは 415 を返さない。
  *     再送可否は `classifyUploadFailure` が失敗理由から判定する
  *
  * Requirements: 4.1, 4.5, 4.8, 37.16, 37.21
@@ -235,6 +237,10 @@ export async function uploadSurveyImages(
           // 呼び出し元が未送信画像として保持し再圧縮せず再送できるよう、
           // 失敗した画像の実体をそのまま返す（Requirement 37.1）
           file,
+          // 再送可否は送信例外が手元にあるこの時点で確定させる。呼び出し元へ渡るのは
+          // 失敗理由の文字列だけであり、そこからでは 413（サイズ上限超過）を
+          // 再送不可と判定できず再送可へ倒れてしまう（Requirement 37.16, 37.21）
+          kind: classifyUploadFailure(error),
         });
         completed++;
         return { success: false as const, error: errorMessage };

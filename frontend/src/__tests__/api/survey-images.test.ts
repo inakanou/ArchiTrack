@@ -823,6 +823,98 @@ describe('Survey Images API Client', () => {
   });
 
   // ==========================================================================
+  // 失敗区分の分類（Task 108.2）
+  //
+  // 文字列の失敗理由だけでは、サイズ上限超過（413）が文言判定にかからず
+  // 「再送可」へ倒れる。分類は送信例外が手元にある catch 内で行い、
+  // 区分を BatchUploadError に持たせる。
+  // ==========================================================================
+  describe('バッチアップロードの失敗区分 (Task 108.2)', () => {
+    /** 207（部分失敗）レスポンスのモックを組み立てる */
+    const mockPartialFailure = (fileName: string, error: string) => ({
+      ok: true,
+      status: 207,
+      statusText: 'Multi-Status',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({
+        successful: [],
+        failed: [{ fileName, error }],
+      }),
+    });
+
+    it('サイズ上限超過（413）の失敗が再送不可の区分で返ること - Requirement 37.16', async () => {
+      // Arrange
+      const files = [new File(['content'], 'huge.jpg', { type: 'image/jpeg' })];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 413,
+        statusText: 'Payload Too Large',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ error: 'ファイルサイズが上限を超えています' }),
+      });
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      // 文言には「サポートされていない〜」が含まれないため、文字列判定では
+      // retriable に倒れる。状態コードを保持した分類でのみ permanent になる。
+      expect(result.errors[0]?.kind).toBe('permanent');
+      expect(result.errors[0]?.file).toBe(files[0]);
+    });
+
+    it('ストレージ障害による部分失敗が再送可の区分で返ること - Requirement 37.21', async () => {
+      // Arrange
+      const files = [new File(['content'], 'photo.jpg', { type: 'image/jpeg' })];
+
+      mockFetch.mockResolvedValueOnce(
+        mockPartialFailure('photo.jpg', '画像の保存に失敗しました: ストレージへの書き込みエラー')
+      );
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.kind).toBe('retriable');
+    });
+
+    it('画像形式の非対応による部分失敗が再送不可の区分で返ること - Requirement 37.16', async () => {
+      // Arrange
+      const files = [new File(['content'], 'document.pdf', { type: 'application/pdf' })];
+
+      mockFetch.mockResolvedValueOnce(
+        mockPartialFailure(
+          'document.pdf',
+          'サポートされていない画像形式です。JPEG、PNG、WEBP形式のみ対応しています。'
+        )
+      );
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.kind).toBe('permanent');
+    });
+
+    it('ApiError以外の例外は再送可の区分で返ること - Requirement 37.21', async () => {
+      // Arrange
+      const files = [new File(['content'], 'photo.jpg', { type: 'image/jpeg' })];
+      vi.spyOn(apiClient, 'sendFormData').mockRejectedValue(new TypeError('unexpected failure'));
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.kind).toBe('retriable');
+    });
+  });
+
+  // ==========================================================================
   // getSurveyImages Tests
   // ==========================================================================
   describe('getSurveyImages', () => {

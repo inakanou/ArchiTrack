@@ -34,6 +34,7 @@ import {
   updateImageMetadataBatch,
   deleteSurveyImage,
 } from '../api/survey-images';
+import { isUnsupportedFormatMessage } from '../utils/upload-failure';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import useMediaQuery from '../hooks/useMediaQuery';
@@ -60,6 +61,7 @@ import type {
   UpdateImageMetadataInput,
   BatchUpdateImageMetadataInput,
 } from '../types/site-survey.types';
+import type { FailedUpload, UploadOutcome } from '../types/upload.types';
 
 // ============================================================================
 // スタイル定義
@@ -593,10 +595,16 @@ export default function SiteSurveyDetailPage() {
    * 現場調査に画像をアップロードします。
    *
    * Task 46.2: バッチアップロードエラーをユーザーに通知
-   * Requirements: 19.11, 19.13, 19.14, 19.15, 19.16
+   * Task 108.2: 失敗した画像を ImageUploader へ返し、未送信画像として保持させる
+   *
+   * 失敗の通知（Requirement 19）と未送信画像の保持（Requirement 37）は併存する。
+   * 通知はこの画面が従来どおり生成し、保持は戻り値の `UploadOutcome` を通じて
+   * `ImageUploader` が行う。
+   *
+   * Requirements: 19.11, 19.13, 19.14, 19.15, 19.16, 37.1, 37.16, 37.21
    */
   const handleImageUpload = useCallback(
-    async (files: File[]) => {
+    async (files: File[]): Promise<UploadOutcome | void> => {
       if (!id) return;
 
       setIsUploading(true);
@@ -639,11 +647,10 @@ export default function SiteSurveyDetailPage() {
           const errorDetails = errors
             .map((err) => {
               // エラーカテゴリ判定 (Requirement 19.14, 19.15)
-              const isFileTypeError =
-                err.error.includes('サポートされていないファイル形式') ||
-                err.error.includes('サポートされていない画像形式') ||
-                err.error.includes('MIMEタイプと一致しません');
-              const reason = isFileTypeError
+              // 判定の二重定義を避けるため、形式エラーの述語は
+              // `utils/upload-failure` の `isUnsupportedFormatMessage` に一元化する。
+              // 判定対象の文言集合は従来の3断片と同一であり、表示文言は変わらない。
+              const reason = isUnsupportedFormatMessage(err.error)
                 ? 'サポートされていないファイル形式'
                 : 'サーバーエラー';
               return `${err.fileName}: ${reason}`;
@@ -660,6 +667,17 @@ export default function SiteSurveyDetailPage() {
             setError(`全${errorCount}件のアップロードに失敗しました。\n${errorDetails}`);
           }
         }
+
+        // 失敗した画像を ImageUploader へ返し、未送信画像として保持させる（37.1）。
+        // 再送可否の区分は送信例外を参照できる API 層で確定済みのため、
+        // ここでは文言から再判定せずそのまま引き渡す（37.16, 37.21）。
+        const failed: FailedUpload[] = errors.map((err) => ({
+          file: err.file,
+          error: err.error,
+          kind: err.kind,
+        }));
+
+        return { failed };
       } finally {
         setIsUploading(false);
         setUploadProgress(undefined);
