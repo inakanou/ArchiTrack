@@ -6226,6 +6226,9 @@ graph TB
     Uploader --> Pending
     Uploader --> Panel
     Uploader --> Compress
+    Uploader --> Classify
+    PhotoUploader --> Classify
+    PhotoUploader --> Client
     Pending --> Classify
     Pending --> UploadTypes
     Panel --> UploadTypes
