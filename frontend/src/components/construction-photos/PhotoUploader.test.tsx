@@ -6,20 +6,46 @@
  * - ローカル/カメラ選択で upload API が呼ばれ、追加された写真項目を通知する
  * - 現調選択モーダルで選択→ from-surveys API
  * - アップロードは最大5並列・部分失敗継続（uploadFilesInWaves）
+ * - 失敗した画像の実体がアップロードUIの未送信一覧まで到達する（Task 108.3）
  *
- * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 11.5
+ * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 11.5 / site-survey 37.1（工事写真 20.1）
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { PhotoUploader, uploadFilesInWaves } from './PhotoUploader';
 import * as imagesApi from '../../api/construction-photo-images';
 import * as siteSurveysApi from '../../api/site-surveys';
+import { ApiError } from '../../api/client';
 import type { ConstructionPhotoWithUrls } from '../../types/construction-photo.types';
 import type { PaginatedSiteSurveys, SiteSurveyDetail } from '../../types/site-survey.types';
 
 vi.mock('../../api/construction-photo-images');
 vi.mock('../../api/site-surveys');
+
+// ============================================================================
+// URL.createObjectURL / revokeObjectURL のスタブ
+//
+// jsdom は ObjectURL API を実装しないが、未送信画像のプレビューURL生成に必要と
+// なる。テストを条件付きで無効化せずスタブへ差し替える（AI運用第3原則）。
+// ============================================================================
+
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
+
+beforeEach(() => {
+  let issued = 0;
+  URL.createObjectURL = vi.fn((): string => {
+    issued += 1;
+    return `blob:mock/${issued}`;
+  });
+  URL.revokeObjectURL = vi.fn();
+});
+
+afterEach(() => {
+  URL.createObjectURL = originalCreateObjectURL;
+  URL.revokeObjectURL = originalRevokeObjectURL;
+});
 
 function makePhoto(id: string, fileName: string): ConstructionPhotoWithUrls {
   return {
@@ -98,9 +124,10 @@ describe('uploadFilesInWaves (R11.5)', () => {
     const result = await uploadFilesInWaves('album-1', files);
 
     expect(result.successful.map((p) => p.fileName)).toEqual(['a.jpg', 'c.jpg']);
-    expect(result.failed).toEqual([
-      { fileName: 'bad.jpg', error: 'サポートされていないファイル形式' },
-    ]);
+    // 失敗は File 実体・失敗理由・再送可否として返る（37.1）
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0]!.file).toBe(files[1]);
+    expect(result.failed[0]!.error).toBe('サポートされていないファイル形式');
   });
 
   it('リクエストが例外を投げても失敗として集約し継続する', async () => {
@@ -112,10 +139,80 @@ describe('uploadFilesInWaves (R11.5)', () => {
       return Promise.resolve({ successful: [makePhoto(name, name)], failed: [] });
     });
 
-    const result = await uploadFilesInWaves('album-1', [makeFile('ok.jpg'), makeFile('throw.jpg')]);
+    const okFile = makeFile('ok.jpg');
+    const throwFile = makeFile('throw.jpg');
+    const result = await uploadFilesInWaves('album-1', [okFile, throwFile]);
     expect(result.successful).toHaveLength(1);
     expect(result.failed).toHaveLength(1);
-    expect(result.failed[0]!.fileName).toBe('throw.jpg');
+    expect(result.failed[0]!.file).toBe(throwFile);
+  });
+
+  // ==========================================================================
+  // 失敗した画像の実体と再送可否の返却（Task 108.3, Requirement 37.1 / 20.1）
+  // ==========================================================================
+
+  it('送信例外で失敗した画像の File 実体と再送可否を返す (37.1, 37.16)', async () => {
+    const timeoutFile = makeFile('timeout.jpg');
+    const tooLargeFile = makeFile('too-large.jpg');
+
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockImplementation((_albumId, files) => {
+      const name = files[0]!.name;
+      if (name === 'timeout.jpg') {
+        return Promise.reject(new Error('ネットワークエラー'));
+      }
+      return Promise.reject(new ApiError(413, 'ファイルサイズが上限を超えています'));
+    });
+
+    const result = await uploadFilesInWaves('album-1', [timeoutFile, tooLargeFile]);
+
+    expect(result.failed).toHaveLength(2);
+    // 通信エラーは再送で解消しうるため retriable
+    expect(result.failed[0]).toEqual({
+      file: timeoutFile,
+      error: 'ネットワークエラー',
+      kind: 'retriable',
+    });
+    // 413（サイズ上限超過）は確定的な拒否のため permanent
+    expect(result.failed[1]).toEqual({
+      file: tooLargeFile,
+      error: 'ファイルサイズが上限を超えています',
+      kind: 'permanent',
+    });
+  });
+
+  it('サーバーが 207 で per-file 失敗を返した場合も対応する File を返し文言で分類する (37.16, 37.21)', async () => {
+    const formatFile = makeFile('format.jpg');
+    const storageFile = makeFile('storage.jpg');
+
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockImplementation((_albumId, files) => {
+      const name = files[0]!.name;
+      if (name === 'format.jpg') {
+        return Promise.resolve({
+          successful: [],
+          failed: [
+            {
+              fileName: name,
+              error: 'サポートされていない画像形式です。JPEG、PNG、WebPのみ対応しています。',
+            },
+          ],
+        });
+      }
+      return Promise.resolve({
+        successful: [],
+        failed: [{ fileName: name, error: '画像の保存に失敗しました' }],
+      });
+    });
+
+    const result = await uploadFilesInWaves('album-1', [formatFile, storageFile]);
+
+    expect(result.failed).toHaveLength(2);
+    // 画像形式の非対応は再送しても解消しない
+    expect(result.failed[0]!.file).toBe(formatFile);
+    expect(result.failed[0]!.kind).toBe('permanent');
+    // ストレージ保存失敗は再送で解消しうる（一律 permanent 化による画像喪失を避ける）
+    expect(result.failed[1]!.file).toBe(storageFile);
+    expect(result.failed[1]!.error).toBe('画像の保存に失敗しました');
+    expect(result.failed[1]!.kind).toBe('retriable');
   });
 });
 
@@ -272,6 +369,88 @@ describe('PhotoUploader コンポーネント', () => {
       expect(onPhotosAdded).toHaveBeenCalledWith([expect.objectContaining({ id: 'copy-1' })]);
     });
   });
+
+  // ==========================================================================
+  // 失敗した画像の未送信一覧への反映（Task 108.3, Requirement 37.1 / 20.1）
+  // ==========================================================================
+
+  // @requirement site-survey/REQ-37.1
+  it('一部が失敗した場合、失敗画像が未送信一覧に反映され成功分の登録と失敗通知は変わらない (37.1, R12.5)', async () => {
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockImplementation((_albumId, files) => {
+      const name = files[0]!.name;
+      if (name === 'fail.jpg') {
+        return Promise.reject(new Error('ネットワークエラー'));
+      }
+      return Promise.resolve({ successful: [makePhoto('ok-1', name)], failed: [] });
+    });
+
+    const onPhotosAdded = vi.fn();
+    const onNotify = vi.fn();
+    render(
+      <PhotoUploader
+        albumId="album-1"
+        projectId="project-1"
+        onPhotosAdded={onPhotosAdded}
+        onNotify={onNotify}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [makeFile('ok.jpg'), makeFile('fail.jpg')] },
+      });
+    });
+
+    // 成功分は従来どおり親へ通知される（部分失敗継続）
+    await waitFor(() => {
+      expect(onPhotosAdded).toHaveBeenCalledWith([expect.objectContaining({ id: 'ok-1' })]);
+    });
+
+    // 失敗した画像の実体がアップロードUIまで到達し未送信一覧に現れる（37.1）
+    const items = await screen.findAllByTestId('pending-upload-item');
+    expect(items).toHaveLength(1);
+    expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 1 件');
+    expect(screen.getByTestId('pending-upload-filename')).toHaveTextContent('fail.jpg');
+    expect(screen.getByTestId('pending-upload-reason')).toHaveTextContent('ネットワークエラー');
+    // 通信エラーは再送で解消しうるため再送可能な状態で保持される
+    expect(items[0]!).toHaveAttribute('data-kind', 'retriable');
+
+    // 既存の失敗通知の文言は変更しない（回帰検出）
+    expect(onNotify).toHaveBeenCalledWith('1件を追加しました。1件の追加に失敗しました。\nfail.jpg');
+  });
+
+  it('全件失敗しても全ての画像が未送信一覧に保持され失敗通知の文言は変わらない (37.1)', async () => {
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockRejectedValue(
+      new ApiError(503, 'ストレージが利用できません')
+    );
+
+    const onPhotosAdded = vi.fn();
+    const onNotify = vi.fn();
+    render(
+      <PhotoUploader
+        albumId="album-1"
+        projectId="project-1"
+        onPhotosAdded={onPhotosAdded}
+        onNotify={onNotify}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [makeFile('a.jpg'), makeFile('b.jpg')] },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('pending-upload-item')).toHaveLength(2);
+    });
+    expect(screen.getAllByTestId('pending-upload-filename').map((el) => el.textContent)).toEqual([
+      'a.jpg',
+      'b.jpg',
+    ]);
+    expect(onPhotosAdded).not.toHaveBeenCalled();
+    expect(onNotify).toHaveBeenCalledWith('全2件の追加に失敗しました。\na.jpg\nb.jpg');
+  });
 });
 
 /**
@@ -280,4 +459,5 @@ describe('PhotoUploader コンポーネント', () => {
  * @requirement construction-photo/REQ-5.2
  * @requirement construction-photo/REQ-5.3
  * @requirement construction-photo/REQ-11.5
+ * @requirement construction-photo/REQ-20.1
  */
