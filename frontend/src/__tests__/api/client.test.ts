@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ApiError, apiClient, getApiErrorCode, ESTIMATE_SAVE_TIMEOUT_CODE } from '../../api/client';
+import {
+  ApiError,
+  apiClient,
+  getApiErrorCode,
+  ESTIMATE_SAVE_TIMEOUT_CODE,
+  UPLOAD_TIMEOUT_MS,
+} from '../../api/client';
 
 // loggerをモック（テスト出力をクリーンに保つため）
 vi.mock('../../utils/logger', () => ({
@@ -560,6 +566,217 @@ describe('ApiClient', () => {
 
       expect(capturedHeaders()['Content-Type']).toBe('application/json');
       expect(capturedInit?.body).toBeUndefined();
+    });
+  });
+
+  /**
+   * Task 105.3 / Requirements (site-survey) 37.13, 37.14, 37.15, 37.19, 37.20
+   *
+   * multipart 送信は非冪等である。サーバー処理に到達する前の失敗（通信障害・上流の
+   * 応答不能）だけを再試行し、サーバー処理中の失敗（500）と送信の時間切れは
+   * 再試行しない。送信猶予は1件あたり120秒とする。
+   */
+  describe('multipart 送信の再試行方針と送信タイムアウト', () => {
+    /** signal の中断が発生した回数 */
+    let abortCount = 0;
+
+    /** アップロード用の FormData を作る */
+    const uploadFormData = (): FormData => {
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+      return formData;
+    };
+
+    /** JSON のエラー応答 */
+    const errorResponse = (status: number, statusText: string) => ({
+      ok: false,
+      status,
+      statusText,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ status, detail: statusText }),
+    });
+
+    /** JSON の成功応答 */
+    const successResponse = () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ successful: 1 }),
+    });
+
+    /** 中断されるまで解決しない fetch モック（送信猶予の検証用） */
+    const mockNeverSettlingFetch = () => {
+      const fetchMock = vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              abortCount += 1;
+              const abortError = new Error('The operation was aborted.');
+              abortError.name = 'AbortError';
+              reject(abortError);
+            });
+          })
+      );
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      return fetchMock;
+    };
+
+    /** 即座に AbortError で失敗する fetch モック（時間切れの再試行抑止の検証用） */
+    const mockAbortingFetch = () => {
+      const abortError = new Error('The operation was aborted.');
+      abortError.name = 'AbortError';
+      const fetchMock = vi.fn().mockRejectedValue(abortError);
+      globalThis.fetch = fetchMock;
+      return fetchMock;
+    };
+
+    beforeEach(() => {
+      abortCount = 0;
+      apiClient.setAccessToken(null);
+      apiClient.setTokenRefreshCallback(null);
+      apiClient.setSessionExpiredCallback(null);
+    });
+
+    it('上流の応答不能（503）では再試行し、最終的に成功すること', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(errorResponse(503, 'Service Unavailable'))
+        .mockResolvedValueOnce(errorResponse(503, 'Service Unavailable'))
+        .mockResolvedValueOnce(successResponse());
+      globalThis.fetch = fetchMock;
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).resolves.toEqual({ successful: 1 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('上流の応答不能（502・504）も再試行の対象であること', async () => {
+      for (const status of [502, 504]) {
+        const fetchMock = vi.fn().mockResolvedValue(errorResponse(status, 'Upstream failure'));
+        globalThis.fetch = fetchMock;
+
+        await expect(
+          apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+        ).rejects.toThrow(ApiError);
+
+        // 初回 + 3回のリトライ
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+      }
+    });
+
+    it('通信障害（ネットワークエラー）では再試行されること', async () => {
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+      globalThis.fetch = fetchMock;
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow(ApiError);
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('サーバー処理中の失敗（500）では重複登録を避けるため再試行しないこと', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(errorResponse(500, 'Internal Server Error'));
+      globalThis.fetch = fetchMock;
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow(ApiError);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('送信の時間切れでは再試行せず1回で失敗すること', async () => {
+      const fetchMock = mockAbortingFetch();
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow('Request timeout');
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('画像1件あたりの送信猶予が120秒であること', async () => {
+      const fetchMock = mockNeverSettlingFetch();
+
+      const rejection = expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow('Request timeout');
+
+      await vi.advanceTimersByTimeAsync(119_999);
+      expect(abortCount).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await rejection;
+
+      expect(abortCount).toBe(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('UPLOAD_TIMEOUT_MS が 120000 ミリ秒であること', () => {
+      expect(UPLOAD_TIMEOUT_MS).toBe(120_000);
+    });
+
+    it('sendFormData は既定で POST を使い FormData をそのまま送ること', async () => {
+      let capturedInit: RequestInit | undefined;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return Promise.resolve(successResponse());
+      });
+      const formData = uploadFormData();
+
+      await apiClient.sendFormData('/api/site-surveys/1/images', formData);
+
+      expect(capturedInit?.method).toBe('POST');
+      expect(capturedInit?.body).toBe(formData);
+      expect(Object.keys((capturedInit?.headers ?? {}) as Record<string, string>)).not.toContain(
+        'Content-Type'
+      );
+    });
+
+    it('sendFormData は method と timeout の上書きを受け付けること', async () => {
+      let capturedInit: RequestInit | undefined;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return Promise.resolve(successResponse());
+      });
+
+      await apiClient.sendFormData('/api/site-surveys/1/images/1', uploadFormData(), {
+        method: 'PUT',
+      });
+      expect(capturedInit?.method).toBe('PUT');
+
+      mockNeverSettlingFetch();
+      const rejection = expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData(), { timeout: 5_000 })
+      ).rejects.toThrow('Request timeout');
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejection;
+      expect(abortCount).toBe(1);
+    });
+
+    it('JSON 経路の 500 は従来どおり再試行されること（回帰検出）', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(errorResponse(500, 'Internal Server Error'));
+      globalThis.fetch = fetchMock;
+
+      await expect(apiClient.post('/api/site-surveys', { title: '現場調査' })).rejects.toThrow(
+        ApiError
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('JSON 経路の時間切れは従来どおり再試行されること（回帰検出）', async () => {
+      const fetchMock = mockAbortingFetch();
+
+      await expect(apiClient.post('/api/site-surveys', { title: '現場調査' })).rejects.toThrow(
+        'Request timeout'
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
   });
 

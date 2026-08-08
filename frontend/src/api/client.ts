@@ -27,6 +27,21 @@ interface RequestOptions {
 }
 
 /**
+ * multipart 送信で使用できるHTTPメソッド
+ */
+type FormDataMethod = 'POST' | 'PUT';
+
+/**
+ * multipart 送信のオプション
+ */
+interface SendFormDataOptions {
+  /** HTTPメソッド（既定: POST） */
+  readonly method?: FormDataMethod;
+  /** 送信タイムアウト（ミリ秒、既定: UPLOAD_TIMEOUT_MS） */
+  readonly timeout?: number;
+}
+
+/**
  * トークンリフレッシュコールバックの型定義
  */
 export type TokenRefreshCallback = () => Promise<string>;
@@ -67,6 +82,29 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
  * テスト環境かどうかを判定
  */
 const isTestEnvironment = import.meta.env.MODE === 'test';
+
+/**
+ * 画像1件あたりの送信猶予（ミリ秒）
+ *
+ * モバイル回線からの multipart 送信は JSON の既定（30秒）では足りず、
+ * 送り切れる通信でも時間切れで打ち切られてしまう。通常のデータ操作より長い
+ * 120秒を multipart 送信の既定とする。
+ *
+ * Requirements (site-survey): 37.15
+ */
+export const UPLOAD_TIMEOUT_MS = 120000;
+
+/**
+ * multipart 送信で自動再試行を許すHTTPステータスコード
+ *
+ * サーバーの処理に到達する前の失敗だけを対象とする。`0` は通信障害、
+ * `502` / `503` / `504` は上流の応答不能であり、いずれも登録が始まっていない。
+ * `500` はサーバー処理中の失敗であり、永続化が完了した後に失敗した場合は
+ * 再送が同一画像の重複登録を生むため対象に含めない。
+ *
+ * Requirements (site-survey): 37.13, 37.14
+ */
+const UPLOAD_RETRYABLE_STATUS_CODES: readonly number[] = [0, 502, 503, 504];
 
 /**
  * 見積明細の一括保存がトランザクションの制限時間を超えたことを表すエラーコード
@@ -174,9 +212,24 @@ function isRetryableStatusCode(statusCode: number): boolean {
  * ステータスコードが再試行可能でも、サーバーが終局的な失敗を示すコードを返した場合は
  * 再試行しない。リクエスト単位で `disableRetry` を立てる方法とは異なり、
  * 同じエンドポイントの一時的な障害（502/503 等）からの回復は残る。
+ *
+ * multipart 送信（`isFormDataBody`）は非冪等であるため、判定を
+ * `UPLOAD_RETRYABLE_STATUS_CODES` に限定する。再試行条件はリクエストオプションから
+ * 注入せず、ボディが `FormData` である事実のみから導出する。
+ *
+ * Requirements (site-survey): 37.13, 37.14
+ *
+ * @param error 判定対象のエラー
+ * @param isFormDataBody ボディが FormData（multipart 送信）かどうか
  */
-function isRetryableApiError(error: ApiError): boolean {
-  return isRetryableStatusCode(error.statusCode) && !isNonRetryableErrorBody(error.response);
+function isRetryableApiError(error: ApiError, isFormDataBody: boolean): boolean {
+  if (isNonRetryableErrorBody(error.response)) {
+    return false;
+  }
+
+  return isFormDataBody
+    ? UPLOAD_RETRYABLE_STATUS_CODES.includes(error.statusCode)
+    : isRetryableStatusCode(error.statusCode);
 }
 
 /**
@@ -438,7 +491,8 @@ class ApiClient {
 
           // 5xxエラーはリトライ対象（最後の試行でない場合）
           // ただしサーバーが終局的な失敗として宣言したコードは再送しない（42.3）
-          if (isRetryableApiError(apiError) && attempt < maxRetries) {
+          // multipart 送信ではサーバー処理に到達する前の失敗に限定する（37.13, 37.14）
+          if (isRetryableApiError(apiError, isFormDataBody) && attempt < maxRetries) {
             lastError = apiError;
             logger.debug(`Server error (${response.status}), will retry`, {
               path,
@@ -461,9 +515,14 @@ class ApiClient {
         clearTimeout(timeoutId);
 
         // AbortErrorの場合はタイムアウト（リトライ対象）
+        // ただし multipart 送信の時間切れは再試行しない。再試行するとユーザーが
+        // 手動再送を開始できるまでの待ち時間が送信猶予の回数ぶん延伸するため、
+        // 1回で失敗させる。ネットワークエラーと時間切れはどちらも statusCode 0 に
+        // なるため、ステータスコードではなくこの発生分岐で区別する。
+        // Requirements (site-survey): 37.19, 37.20
         if (error instanceof Error && error.name === 'AbortError') {
           const apiError = new ApiError(0, 'Request timeout');
-          if (attempt < maxRetries) {
+          if (!isFormDataBody && attempt < maxRetries) {
             lastError = apiError;
             logger.debug('Request timeout, will retry', { path, attempt: attempt + 1, maxRetries });
             continue; // リトライ
@@ -473,7 +532,7 @@ class ApiClient {
 
         // ApiErrorはリトライ対象かどうかを判定
         if (error instanceof ApiError) {
-          if (isRetryableApiError(error) && attempt < maxRetries) {
+          if (isRetryableApiError(error, isFormDataBody) && attempt < maxRetries) {
             lastError = error;
             continue; // リトライ
           }
@@ -481,6 +540,7 @@ class ApiClient {
         }
 
         // ネットワークエラー等（リトライ対象）
+        // multipart 送信でもサーバー処理に到達する前の失敗であり再試行してよい（37.13）
         const apiError = new ApiError(0, 'Network error', error);
         if (attempt < maxRetries) {
           lastError = apiError;
@@ -536,6 +596,29 @@ class ApiClient {
    */
   async delete<T>(path: string, options?: Omit<RequestOptions, 'method'>): Promise<T> {
     return this.request<T>(path, { ...options, method: 'DELETE' });
+  }
+
+  /**
+   * multipart（FormData）リクエストを送信
+   *
+   * 401リフレッシュ・セッション切れ通知・再試行・タイムアウトは `request()` の
+   * 既存機構を共有する。再試行はサーバー処理に到達する前の失敗に限定され、
+   * 送信の時間切れでは再試行しない（`request()` 内で FormData ボディから導出）。
+   *
+   * Requirements (site-survey): 37.11, 37.12, 37.13, 37.14, 37.15, 37.19, 37.20
+   *
+   * @param path リクエストパス
+   * @param formData 送信する FormData
+   * @param options メソッドと送信タイムアウトの上書き
+   */
+  async sendFormData<T>(
+    path: string,
+    formData: FormData,
+    options: SendFormDataOptions = {}
+  ): Promise<T> {
+    const { method = 'POST', timeout = UPLOAD_TIMEOUT_MS } = options;
+
+    return this.request<T>(path, { method, body: formData, timeout });
   }
 
   /**
@@ -604,4 +687,4 @@ if (typeof window !== 'undefined') {
 }
 
 // 型定義のエクスポート
-export type { RequestOptions };
+export type { RequestOptions, SendFormDataOptions, FormDataMethod };
