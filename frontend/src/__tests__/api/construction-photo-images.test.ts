@@ -2,12 +2,14 @@
  * @fileoverview 工事写真 画像管理APIクライアントのユニットテスト
  *
  * Task 5.1: フロントAPIクライアントと型（アップロード/現調コピー/一覧/メタ更新/並び替え/削除/印字画像）
+ * Task 107.2: multipart送信の共通クライアント統一（返却形式は不変）
  * TDD: RED Phase - テストを最初に書く
  *
  * Requirements:
  * - 4.1: multipart アップロード（{successful, failed}）
  * - 6.1: 現調写真コピー（{successful, failed}）
  * - 7.1: メタデータ一括更新・並び替え
+ * - 37.1: multipart 送信を共通クライアント（apiClient.sendFormData）経由へ統一する
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -40,6 +42,7 @@ vi.mock('../../api/client', async () => {
       put: vi.fn(),
       patch: vi.fn(),
       delete: vi.fn(),
+      sendFormData: vi.fn(),
       getAccessToken: vi.fn(() => 'test-token'),
     },
   };
@@ -93,6 +96,7 @@ describe('construction-photo-images API client', () => {
 
   // ==========================================================================
   // uploadConstructionPhotos - multipart（{successful, failed}）
+  // Task 107.2: 共通クライアント（apiClient.sendFormData）へ委譲する
   // ==========================================================================
   describe('uploadConstructionPhotos', () => {
     it('複数ファイルを1リクエストのmultipartで送信し{successful,failed}を返すこと', async () => {
@@ -101,83 +105,67 @@ describe('construction-photo-images API client', () => {
         new File(['b'], 'p2.jpg', { type: 'image/jpeg' }),
       ];
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          successful: [mockPhoto, { ...mockPhoto, id: 'photo-2' }],
-          failed: [],
-        }),
+      vi.mocked(apiClient.sendFormData).mockResolvedValueOnce({
+        successful: [mockPhoto, { ...mockPhoto, id: 'photo-2' }],
+        failed: [],
       });
 
       const result = await uploadConstructionPhotos('album-1', files);
 
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain('/api/construction-photos/album-1/images');
-      expect(options.method).toBe('POST');
-      expect(options.body).toBeInstanceOf(FormData);
-
-      const formData = options.body as FormData;
+      expect(apiClient.sendFormData).toHaveBeenCalledTimes(1);
+      const [path, formData] = vi.mocked(apiClient.sendFormData).mock.calls[0] as [
+        string,
+        FormData,
+      ];
+      expect(path).toBe('/api/construction-photos/album-1/images');
+      expect(formData).toBeInstanceOf(FormData);
       expect(formData.getAll('images')).toHaveLength(2);
 
       expect(result.successful).toHaveLength(2);
       expect(result.failed).toHaveLength(0);
     });
 
-    it('部分失敗(207)でも{successful,failed}をそのまま返すこと', async () => {
+    it('素のfetchを使わず共通クライアント経由で送信すること', async () => {
+      const files = [new File(['a'], 'p1.jpg', { type: 'image/jpeg' })];
+      vi.mocked(apiClient.sendFormData).mockResolvedValueOnce({
+        successful: [mockPhoto],
+        failed: [],
+      });
+
+      await uploadConstructionPhotos('album-1', files);
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(apiClient.sendFormData).toHaveBeenCalledTimes(1);
+    });
+
+    it('部分失敗(207)でも例外を投げず{successful,failed}をそのまま返すこと', async () => {
       const files = [
         new File(['a'], 'p1.jpg', { type: 'image/jpeg' }),
         new File(['b'], 'bad.gif', { type: 'image/gif' }),
       ];
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 207,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          successful: [mockPhoto],
-          failed: [{ fileName: 'bad.gif', error: '許可されていない画像形式です' }],
-        }),
-      });
+      const partialResult = {
+        successful: [mockPhoto],
+        failed: [{ fileName: 'bad.gif', error: '許可されていない画像形式です' }],
+      };
+      vi.mocked(apiClient.sendFormData).mockResolvedValueOnce(partialResult);
 
       const result = await uploadConstructionPhotos('album-1', files);
 
+      expect(result).toEqual(partialResult);
       expect(result.successful).toHaveLength(1);
       expect(result.failed).toHaveLength(1);
       expect(result.failed[0]?.fileName).toBe('bad.gif');
     });
 
-    it('認証トークンをAuthorizationヘッダに付与すること', async () => {
-      const files = [new File(['a'], 'p1.jpg', { type: 'image/jpeg' })];
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ successful: [mockPhoto], failed: [] }),
-      });
-
-      await uploadConstructionPhotos('album-1', files);
-
-      const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((options.headers as Record<string, string>)['Authorization']).toBe(
-        'Bearer test-token'
-      );
-    });
-
     it('413(ファイルサイズ超過)でApiErrorをスローすること', async () => {
       const files = [new File(['a'], 'big.jpg', { type: 'image/jpeg' })];
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 413,
-        statusText: 'Payload Too Large',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
+      vi.mocked(apiClient.sendFormData).mockRejectedValueOnce(
+        new ApiError(413, 'ファイルサイズが上限を超えています', {
           detail: 'ファイルサイズが上限を超えています',
           code: 'FILE_SIZE_EXCEEDED',
-        }),
-      });
+        })
+      );
 
       await expect(uploadConstructionPhotos('album-1', files)).rejects.toThrow(ApiError);
     });

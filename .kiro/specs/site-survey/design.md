@@ -6170,7 +6170,7 @@ graph LR
 - `hooks/usePendingUploads.ts` → `types/upload.types.ts`, `utils/upload-failure.ts`, React のみ。**api 層に依存しない**
 - `components/site-surveys/PendingUploadPanel.tsx` → `types/upload.types.ts` のみ。純表示コンポーネントとし api / hooks に依存しない
 - `components/site-surveys/ImageUploader.tsx` → `usePendingUploads`, `PendingUploadPanel`, `utils/image-compression`
-- `api/survey-images.ts` / `api/construction-photo-images.ts` → `api/client.ts` のみ。**fetch 直叩きを禁止する**
+- `api/survey-images.ts` / `api/construction-photo-images.ts` → `api/client.ts` のみ。**アップロード経路の fetch 直叩きを禁止する**。ただし画像を Blob として取得する経路（印字画像・非合成原本）は、共通クライアントが JSON/text しか解釈せず Blob を返せないため対象外とし、素の fetch を維持する
 - 新規の外部ライブラリ依存を追加しない
 
 #### Revalidation Triggers

@@ -2,14 +2,16 @@
  * @fileoverview 工事写真 画像管理APIクライアント
  *
  * Task 5.1: フロントAPIクライアントと型（アップロード/現調コピー/一覧/メタ更新/並び替え/削除/印字画像）
+ * Task 107.2: multipart送信の共通クライアント統一（返却形式は不変）
  *
  * 既存の画像管理APIクライアント（survey-images.ts）の規約に倣う。JSONボディの操作は
- * `apiClient` を用い、multipart アップロードと Blob 取得（印字画像）は fetch を直接使う。
+ * `apiClient` を用い、multipart アップロードは `apiClient.sendFormData` へ委譲する。
+ * Blob 取得（印字画像・非合成原本）のみ、apiClient が JSON/text 前提のため fetch を直接使う。
  * 二重マウント規約に合わせ、アルバム配下の操作（一覧/アップロード/現調コピー/並び替え）は
  * nested パス、画像ID指定の操作（メタ一括更新/削除/印字画像）は flat パスを用いる。
  *
  * Requirements:
- * - 4.1, 12.5: multipart アップロード（複数ファイル・最大10件、部分失敗 {successful, failed}）
+ * - 4.1, 12.5, 37.1: multipart アップロード（複数ファイル・最大10件、部分失敗 {successful, failed}）
  * - 6.1, 12.5: 現調写真コピー（{successful, failed}）
  * - 7.8, 11.2, 11.3: 一覧（署名付きサムネURL同梱、displayOrder 昇順）
  * - 7.1, 7.5, 7.6, 9.1, 9.5, 11.4: メタデータ一括更新
@@ -68,32 +70,6 @@ function resolveErrorMessage(data: unknown, statusText: string): string {
   return statusText;
 }
 
-/**
- * FormData を用いた multipart リクエストを送信する
- *
- * apiClient は Content-Type: application/json 固定のため、multipart は fetch を直接使う。
- * Content-Type はブラウザが boundary 付きで自動設定するため明示しない。
- */
-async function requestWithFormData<T>(url: string, formData: FormData): Promise<T> {
-  const response = await fetch(`${getBaseUrl()}${url}`, {
-    method: 'POST',
-    headers: buildAuthHeaders(),
-    body: formData,
-    credentials: 'include',
-  });
-
-  const contentType = response.headers.get('content-type');
-  const data: unknown = contentType?.includes('application/json')
-    ? await response.json()
-    : await response.text();
-
-  if (!response.ok) {
-    throw new ApiError(response.status, resolveErrorMessage(data, response.statusText), data);
-  }
-
-  return data as T;
-}
-
 // ============================================================================
 // APIクライアント関数
 // ============================================================================
@@ -119,13 +95,18 @@ export async function getConstructionPhotos(albumId: string): Promise<Constructi
  * サーバは全件成功で 201、部分失敗で 207 を返し、いずれもボディは {successful, failed}。
  * 部分失敗を許容するため、失敗があってもエラーをスローせず結果をそのまま返す。
  *
+ * 送信は共通クライアントの `sendFormData` へ委譲する（Task 107.2）。これにより
+ * 401 リフレッシュ・セッション切れ通知・アップロード向けの再試行方針・120秒の送信
+ * タイムアウトが multipart 経路にも適用される。返却形式（{successful, failed}）は
+ * 変更しない。
+ *
  * @param albumId - アルバムID（UUID）
  * @param files - アップロードするファイルの配列
  * @returns 成功分（写真項目）と失敗分（ファイル名・エラー）を含む結果
  * @throws ApiError 認証エラー（401）、権限不足（403）、アルバムが見つからない（404）、
  *   ファイルサイズ超過（413）、件数超過・ファイル未指定（400）、ストレージ未設定（503）
  *
- * Requirements: 4.1, 4.2, 4.3, 12.1, 12.2, 12.5
+ * Requirements: 4.1, 4.2, 4.3, 12.1, 12.2, 12.5, 37.1
  */
 export async function uploadConstructionPhotos(
   albumId: string,
@@ -136,7 +117,7 @@ export async function uploadConstructionPhotos(
     formData.append('images', file);
   }
 
-  return requestWithFormData<ConstructionPhotoUploadResult>(
+  return apiClient.sendFormData<ConstructionPhotoUploadResult>(
     `/api/construction-photos/${albumId}/images`,
     formData
   );
