@@ -878,5 +878,148 @@ describe('ApiClient', () => {
         expect(mockSessionExpiredCallback).not.toHaveBeenCalled();
       });
     });
+
+    /**
+     * 進行中のトークン更新の共有（並行リクエストの401）
+     *
+     * アップロードは常に並列で実行されるため、複数のリクエストが同時に401となる。
+     * トークン更新は1回だけ実行し、更新中に発生した401は完了を待って同一リクエストを
+     * 再送する。セッション切れの通知は、共有した更新が失敗した場合にのみ発火させる。
+     *
+     * Requirements (site-survey): 37.11, 37.12
+     */
+    describe('並行リクエストの401（進行中のトークン更新の共有）', () => {
+      /**
+       * 期限切れトークンのリクエストにのみ401を返す fetch モックを設定する
+       *
+       * トークン更新後の再送は新しいトークンを載せるため成功する。
+       */
+      const mockFetchRejectingStaleToken = (staleToken: string): void => {
+        globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+          const requestHeaders = (init.headers ?? {}) as Record<string, string>;
+          if (requestHeaders['Authorization'] === `Bearer ${staleToken}`) {
+            return Promise.resolve({
+              ok: false,
+              status: 401,
+              statusText: 'Unauthorized',
+              headers: new Headers({ 'content-type': 'application/json' }),
+              json: async () => ({ error: 'TOKEN_EXPIRED' }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ success: true }),
+          });
+        });
+      };
+
+      /** 5件を同時に送信する */
+      const sendFiveConcurrentRequests = (): Promise<unknown>[] =>
+        [1, 2, 3, 4, 5].map((index) => apiClient.get(`/api/site-surveys/${index}/images`));
+
+      afterEach(() => {
+        apiClient.setSessionExpiredCallback(null);
+        apiClient.setTokenRefreshCallback(null);
+        apiClient.setAccessToken(null);
+      });
+
+      it('5件が同時に401となってもトークン更新が1回だけ実行され、全件が再送されて成功すること', async () => {
+        const mockSessionExpiredCallback = vi.fn();
+        const mockRefreshCallback = vi.fn().mockResolvedValue('new-access-token');
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+        mockFetchRejectingStaleToken('old-access-token');
+
+        const results = await Promise.all(sendFiveConcurrentRequests());
+
+        // トークン更新は共有され1回だけ実行される
+        expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+
+        // 5件とも再送されて成功する（初回5回 + 再送5回）
+        expect(results).toEqual([
+          { success: true },
+          { success: true },
+          { success: true },
+          { success: true },
+          { success: true },
+        ]);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(10);
+
+        // セッション切れ通知は一度も発火しない
+        expect(mockSessionExpiredCallback).not.toHaveBeenCalled();
+        expect(apiClient.getAccessToken()).toBe('new-access-token');
+      });
+
+      it('共有したトークン更新が失敗した場合、5件とも401で失敗しセッション切れ通知が1回だけ発火すること', async () => {
+        const mockSessionExpiredCallback = vi.fn();
+        const mockRefreshCallback = vi.fn().mockRejectedValue(new Error('Refresh failed'));
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+        mockFetchRejectingStaleToken('old-access-token');
+
+        const results = await Promise.allSettled(sendFiveConcurrentRequests());
+
+        // トークン更新は共有され1回だけ実行される
+        expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+
+        // 5件とも401で失敗する（再送は行われない）
+        for (const result of results) {
+          expect(result.status).toBe('rejected');
+          if (result.status === 'rejected') {
+            expect(result.reason).toBeInstanceOf(ApiError);
+            expect((result.reason as ApiError).statusCode).toBe(401);
+          }
+        }
+        expect(globalThis.fetch).toHaveBeenCalledTimes(5);
+
+        // セッション切れ通知は共有した更新の失敗に対して1回だけ発火する
+        expect(mockSessionExpiredCallback).toHaveBeenCalledTimes(1);
+      });
+
+      it('更新API自体が401を返しても待ち合わせでデッドロックせず全件が失敗すること', async () => {
+        // デッドロックが起きた場合にテストがハングせず時間切れで失敗するよう実タイマーを使う
+        vi.useRealTimers();
+
+        const mockSessionExpiredCallback = vi.fn();
+        // AuthContext と同じく、更新コールバックが apiClient 経由で更新APIを呼ぶ構成を再現する
+        const mockRefreshCallback = vi.fn().mockImplementation(async () => {
+          const refreshed = await apiClient.post<{ accessToken: string }>('/api/v1/auth/refresh', {
+            refreshToken: 'stored-refresh-token',
+          });
+          return refreshed.accessToken;
+        });
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+
+        // 更新APIを含む全てのリクエストが401を返す
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ error: 'TOKEN_EXPIRED' }),
+        });
+
+        const results = await Promise.allSettled(sendFiveConcurrentRequests());
+
+        // 更新は1回だけ試みられ、更新APIの401が再帰的な更新を引き起こさない
+        expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+        for (const result of results) {
+          expect(result.status).toBe('rejected');
+          if (result.status === 'rejected') {
+            expect(result.reason).toBeInstanceOf(ApiError);
+            expect((result.reason as ApiError).statusCode).toBe(401);
+          }
+        }
+      });
+    });
   });
 });
