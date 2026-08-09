@@ -3,6 +3,7 @@
  *
  * Task 5.1: フロントAPIクライアントと型（アップロード/現調コピー/一覧/メタ更新/並び替え/削除/印字画像）
  * Task 107.2: multipart送信の共通クライアント統一（返却形式は不変）
+ * Task 15.2: 共通クライアントへの送信経路の固定（construction-photo spec）
  * TDD: RED Phase - テストを最初に書く
  *
  * Requirements:
@@ -10,11 +11,18 @@
  * - 6.1: 現調写真コピー（{successful, failed}）
  * - 7.1: メタデータ一括更新・並び替え
  * - 37.1: multipart 送信を共通クライアント（apiClient.sendFormData）経由へ統一する
+ * - 20.11, 20.12, 20.13, 20.15, 20.19, 20.20（construction-photo spec）:
+ *   認証更新・セッション切れ通知・到達前失敗の自動再試行・1件あたりの送信猶予・
+ *   時間切れ時に自動再試行しない方針を、工事写真のアップロードにも適用するため、
+ *   送信経路が共通クライアントの multipart 経路に固定されていることを検証する。
+ *   共通クライアント自体の再試行方針・送信猶予・認証更新の内部挙動は
+ *   `src/__tests__/api/client.test.ts`（site-survey Requirement 37 が所有）が担保するため、
+ *   ここでは重複して検証しない。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
-import { ApiError } from '../../api/client';
+import { ApiError, UPLOAD_TIMEOUT_MS } from '../../api/client';
 import {
   getConstructionPhotos,
   uploadConstructionPhotos,
@@ -77,6 +85,7 @@ describe('construction-photo-images API client', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   // ==========================================================================
@@ -156,6 +165,78 @@ describe('construction-photo-images API client', () => {
       expect(result.successful).toHaveLength(1);
       expect(result.failed).toHaveLength(1);
       expect(result.failed[0]?.fileName).toBe('bad.gif');
+    });
+
+    // ------------------------------------------------------------------
+    // Task 15.2: 共通クライアントへの送信経路の固定
+    // Requirements 20.11, 20.12, 20.13, 20.15, 20.19, 20.20
+    // ------------------------------------------------------------------
+
+    it('送信猶予を呼び出し側で短縮せず共通クライアントの既定に委ねること - Requirement 20.15', async () => {
+      const files = [new File(['a'], 'p1.jpg', { type: 'image/jpeg' })];
+      vi.mocked(apiClient.sendFormData).mockResolvedValueOnce({
+        successful: [mockPhoto],
+        failed: [],
+      });
+
+      await uploadConstructionPhotos('album-1', files);
+
+      const call = vi.mocked(apiClient.sendFormData).mock.calls[0];
+      if (!call) {
+        throw new Error('sendFormData が呼ばれていません');
+      }
+      const [, , options] = call;
+
+      // options 未指定なら共通クライアントの既定（UPLOAD_TIMEOUT_MS）が適用される。
+      // 明示指定する場合も既定を下回ってはならない（120秒の完了猶予を工事写真側で潰さない）。
+      const effectiveTimeout = options?.timeout ?? UPLOAD_TIMEOUT_MS;
+      expect(effectiveTimeout).toBeGreaterThanOrEqual(UPLOAD_TIMEOUT_MS);
+
+      // メソッドも既定（POST）から逸脱しない。PUT へ差し替えると multipart 経路の
+      // 前提（1リクエスト1アルバムへの追加）が変わるため固定する。
+      expect(options?.method ?? 'POST').toBe('POST');
+    });
+
+    it('独自の送信手段や認証ヘッダ組み立てを持たず共通クライアントの経路のみを使うこと - Requirements 20.11, 20.12, 20.13', async () => {
+      const xhrConstructor = vi.fn();
+      vi.stubGlobal('XMLHttpRequest', xhrConstructor);
+
+      const files = [new File(['a'], 'p1.jpg', { type: 'image/jpeg' })];
+      vi.mocked(apiClient.sendFormData).mockResolvedValueOnce({
+        successful: [mockPhoto],
+        failed: [],
+      });
+
+      await uploadConstructionPhotos('album-1', files);
+
+      // 独自の送信実装（fetch / XMLHttpRequest）を持たないこと。
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(xhrConstructor).not.toHaveBeenCalled();
+
+      // JSON ボディ用の経路（post/put/patch）へ迂回しないこと。multipart 用の
+      // 送信猶予と再試行方針は sendFormData 経由でのみ適用される。
+      expect(apiClient.post).not.toHaveBeenCalled();
+      expect(apiClient.put).not.toHaveBeenCalled();
+      expect(apiClient.patch).not.toHaveBeenCalled();
+
+      // Authorization を工事写真側で組み立てないこと。認証の更新（期限切れからの
+      // 無操作復帰）とセッション切れ通知は共通クライアントが一元的に担う。
+      expect(apiClient.getAccessToken).not.toHaveBeenCalled();
+
+      expect(apiClient.sendFormData).toHaveBeenCalledTimes(1);
+    });
+
+    it('送信の時間切れで工事写真側が独自に再試行しないこと - Requirements 20.19, 20.20', async () => {
+      const files = [new File(['a'], 'p1.jpg', { type: 'image/jpeg' })];
+      // 共通クライアントが再試行を尽くしたのちに投げる時間切れ（AbortError 由来の
+      // ApiError(0, 'Request timeout')）を再現する。
+      vi.mocked(apiClient.sendFormData).mockRejectedValue(new ApiError(0, 'Request timeout'));
+
+      await expect(uploadConstructionPhotos('album-1', files)).rejects.toThrow(ApiError);
+
+      // 呼び出し側で再送ループを持つと、再送を開始できるまでの待ち時間が延伸する。
+      expect(apiClient.sendFormData).toHaveBeenCalledTimes(1);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('413(ファイルサイズ超過)でApiErrorをスローすること', async () => {
