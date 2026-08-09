@@ -16,7 +16,12 @@
  * 再送可否の区分を `ImageUploader` へ返す（site-survey 37.1 / 工事写真 20.1）。
  * 失敗通知（onNotify）の文言と部分失敗継続の挙動は変更しない。
  *
- * Requirements: 4.1, 4.2, 4.4, 4.5, 5.1, 5.2, 5.3, 6.1, 11.5, 12.5, 37.1
+ * Task 14: 親への通知（onPhotosAdded / onNotify）の呼び出しを個別に保護し、通知の例外を
+ * 送信の失敗として扱わない。保持は「試行対象のうち失敗しなかったものを取り除く」差分更新
+ * であるため、通知の例外が伝播すると登録済みの画像まで未送信画像として残り、再送で重複
+ * 登録される（工事写真 20.5, 20.14）。
+ *
+ * Requirements: 4.1, 4.2, 4.4, 4.5, 5.1, 5.2, 5.3, 6.1, 11.5, 12.5, 20.5, 20.14, 37.1
  */
 
 import { useCallback, useState } from 'react';
@@ -203,6 +208,28 @@ function buildNotice(successCount: number, failedNames: string[]): string | null
   return `全${failedNames.length}件の追加に失敗しました。\n${detail}`;
 }
 
+/**
+ * 親への通知呼び出しを保護し、通知の例外を送信の失敗へ昇格させない（20.5, 20.14）。
+ *
+ * `ImageUploader.submitFiles` の catch は「試行対象の全ファイル」を未送信画像として
+ * 保持へ回す。そのため通知の例外が `handleUpload` の外へ伝播すると、サーバー登録済みの
+ * 画像まで未送信画像として保持され、再送で同一画像が重複登録される（20.14）。
+ *
+ * 送信そのものは `uploadFilesInWaves` が各リクエストを個別に捕捉して `failed[]` へ
+ * 集約するため例外を投げない。したがってアダプタ層で塞ぐべき例外経路は通知に限られる。
+ *
+ * 通知の失敗は無言で握り潰さず、原因を辿れるようコンソールへ記録する。ユーザーへの
+ * 再提示は行わない（提示手段そのものが失敗しているため。失敗通知の文言・表示条件は
+ * 変更しない）。
+ */
+function notifySafely(label: string, notify: () => void): void {
+  try {
+    notify();
+  } catch (err) {
+    console.error(`${label}に失敗しました`, err);
+  }
+}
+
 // ============================================================================
 // コンポーネント
 // ============================================================================
@@ -240,8 +267,10 @@ export function PhotoUploader({
           onProgress: setUploadProgress,
         });
 
+        // 通知は個別に保護する。通知の失敗で `failed[]` を汚染すると、登録済みの画像まで
+        // 未送信画像として保持され再送で重複登録される（20.5, 20.14）。
         if (successful.length > 0) {
-          onPhotosAdded(successful);
+          notifySafely('追加された写真項目の通知', () => onPhotosAdded(successful));
         }
         // 通知の文言は従来どおり失敗したファイル名の一覧で構成する（挙動保存）
         const notice = buildNotice(
@@ -249,7 +278,7 @@ export function PhotoUploader({
           failed.map((f) => f.file.name)
         );
         if (notice) {
-          onNotify?.(notice);
+          notifySafely('アップロード結果の通知', () => onNotify?.(notice));
         }
 
         return { failed };

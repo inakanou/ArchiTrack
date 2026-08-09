@@ -7,8 +7,9 @@
  * - 現調選択モーダルで選択→ from-surveys API
  * - アップロードは最大5並列・部分失敗継続（uploadFilesInWaves）
  * - 失敗した画像の実体がアップロードUIの未送信一覧まで到達する（Task 108.3）
+ * - 親への通知が例外を投げても、送信の失敗として扱わない（Task 14, 20.5, 20.14）
  *
- * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 11.5 / site-survey 37.1（工事写真 20.1）
+ * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 11.5, 20.5, 20.14 / site-survey 37.1（工事写真 20.1）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -451,6 +452,141 @@ describe('PhotoUploader コンポーネント', () => {
     expect(onPhotosAdded).not.toHaveBeenCalled();
     expect(onNotify).toHaveBeenCalledWith('全2件の追加に失敗しました。\na.jpg\nb.jpg');
   });
+
+  // ==========================================================================
+  // 通知の例外を送信の失敗として扱わない（Task 14, Requirement 20.5, 20.14）
+  //
+  // ImageUploader.submitFiles の catch は「試行対象の全ファイル」を保持へ回すため、
+  // 通知の例外が handleUpload の外へ伝播すると、サーバー登録済みの画像まで未送信画像
+  // として保持され、再送で同一画像が重複登録される（20.14）。
+  // ==========================================================================
+
+  // @requirement construction-photo/REQ-20.5
+  // @requirement construction-photo/REQ-20.14
+  it('成功分の通知（onPhotosAdded）が例外を投げても、失敗した画像だけが未送信一覧に残る (20.5, 20.14)', async () => {
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockImplementation((_albumId, files) => {
+      const name = files[0]!.name;
+      if (name === 'fail.jpg') {
+        return Promise.reject(new Error('ネットワークエラー'));
+      }
+      return Promise.resolve({ successful: [makePhoto('ok-1', name)], failed: [] });
+    });
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onPhotosAdded = vi.fn(() => {
+      throw new Error('親の状態更新で失敗');
+    });
+    const onNotify = vi.fn();
+    render(
+      <PhotoUploader
+        albumId="album-1"
+        projectId="project-1"
+        onPhotosAdded={onPhotosAdded}
+        onNotify={onNotify}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [makeFile('ok.jpg'), makeFile('fail.jpg')] },
+      });
+    });
+
+    // 通知が例外を投げても、送信に失敗した画像のみが未送信一覧に残る（20.5）
+    const items = await screen.findAllByTestId('pending-upload-item');
+    expect(items).toHaveLength(1);
+    const fileNames = screen.getAllByTestId('pending-upload-filename').map((el) => el.textContent);
+    expect(fileNames).toEqual(['fail.jpg']);
+    // サーバー登録済みの画像は未送信一覧に現れない（再送による重複登録の回避, 20.14）
+    expect(fileNames).not.toContain('ok.jpg');
+
+    // 失敗通知の文言・表示条件は変更しない（挙動保存）
+    expect(onNotify).toHaveBeenCalledWith('1件を追加しました。1件の追加に失敗しました。\nfail.jpg');
+    // 通知の失敗を無言で握り潰さない
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
+  // @requirement construction-photo/REQ-20.5
+  // @requirement construction-photo/REQ-20.14
+  it('失敗通知（onNotify）が例外を投げても、失敗した画像だけが未送信一覧に残る (20.5, 20.14)', async () => {
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockImplementation((_albumId, files) => {
+      const name = files[0]!.name;
+      if (name === 'fail.jpg') {
+        return Promise.reject(new Error('ネットワークエラー'));
+      }
+      return Promise.resolve({ successful: [makePhoto('ok-1', name)], failed: [] });
+    });
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onPhotosAdded = vi.fn();
+    const onNotify = vi.fn(() => {
+      throw new Error('通知の表示で失敗');
+    });
+    render(
+      <PhotoUploader
+        albumId="album-1"
+        projectId="project-1"
+        onPhotosAdded={onPhotosAdded}
+        onNotify={onNotify}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [makeFile('ok.jpg'), makeFile('fail.jpg')] },
+      });
+    });
+
+    const items = await screen.findAllByTestId('pending-upload-item');
+    expect(items).toHaveLength(1);
+    expect(screen.getAllByTestId('pending-upload-filename').map((el) => el.textContent)).toEqual([
+      'fail.jpg',
+    ]);
+    // 成功分の親への通知は従来どおり行われる（部分失敗継続）
+    expect(onPhotosAdded).toHaveBeenCalledWith([expect.objectContaining({ id: 'ok-1' })]);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
+  // @requirement construction-photo/REQ-20.14
+  it('全件失敗時に失敗通知が例外を投げても未送信一覧は失敗した画像のみで構成される (20.14)', async () => {
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockRejectedValue(
+      new ApiError(503, 'ストレージが利用できません')
+    );
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onNotify = vi.fn(() => {
+      throw new Error('通知の表示で失敗');
+    });
+    render(
+      <PhotoUploader
+        albumId="album-1"
+        projectId="project-1"
+        onPhotosAdded={vi.fn()}
+        onNotify={onNotify}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [makeFile('a.jpg'), makeFile('b.jpg')] },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('pending-upload-item')).toHaveLength(2);
+    });
+    // 保持される失敗理由は送信の失敗であって、通知の失敗ではない
+    expect(screen.getAllByTestId('pending-upload-reason').map((el) => el.textContent)).toEqual([
+      'ストレージが利用できません',
+      'ストレージが利用できません',
+    ]);
+    // 全件失敗の文言・表示条件は変更しない（挙動保存）
+    expect(onNotify).toHaveBeenCalledWith('全2件の追加に失敗しました。\na.jpg\nb.jpg');
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
 });
 
 /**
@@ -460,4 +596,6 @@ describe('PhotoUploader コンポーネント', () => {
  * @requirement construction-photo/REQ-5.3
  * @requirement construction-photo/REQ-11.5
  * @requirement construction-photo/REQ-20.1
+ * @requirement construction-photo/REQ-20.5
+ * @requirement construction-photo/REQ-20.14
  */
