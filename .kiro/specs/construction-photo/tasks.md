@@ -283,7 +283,7 @@
   - _Requirements: 20.11, 20.12, 20.13, 20.15, 20.19, 20.20_
   - _Boundary: construction-photo-images APIクライアント_
 
-- [ ] 15.3 (P) 形式エラー文言の契約を統合テストで固定
+- [x] 15.3 (P) 形式エラー文言の契約を統合テストで固定
   - 不正な画像形式の写真をアップロードした際、部分失敗応答の失敗理由が画像検証エラーの定義が生成する文言と一致すること
   - 照合に用いる文言はバックエンドの画像検証エラー定義から取得し、テスト内に文字列を書き下ろさない
   - 既存の統合テストは失敗したファイル名のみを検証しており、文言を変更しても失敗しない。この穴を塞ぐ
@@ -346,6 +346,9 @@
 - タスク14実施済み(2026-08-09): 通知の例外保護は `notifySafely()` ヘルパで `onPhotosAdded`/`onNotify` を個別に包む形で実装。**通知例外時に成功画像が保持されないことの単体テスト3件は14のREDとして既に追加済み**のため、15.1では再追加せず残り6観点に集中する。
 - 申し送り(14レビュー由来): `components/site-surveys/ImageUploader.tsx` の「PhotoUploader は catch を持たず onPhotosAdded の例外が伝播する」旨のコメントが工事写真については陳腐化した。当該ファイルは境界外のため site-survey Req37 側で追随する。
 - 検証環境の実態(2026-08-09時点): docker コンテナは1つも起動していない。フロント単体は `npm --prefix frontend run test` でローカル実行可能（`cd` はフックでブロックされるため `--prefix` 必須）。15.3(バックエンド統合)と15.4(E2E)は docker 環境の起動が前提。
+- バックエンド統合テストの起動手順(15.3で確立): test compose の postgres/redis だけを起動すれば**ホストから直接**実行できる。`docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d postgres redis` → `DATABASE_URL=postgresql://postgres:test@localhost:5433/architrack_test npm --prefix backend run prisma:migrate:deploy` → `RUN_INTEGRATION_TESTS=true npm --prefix backend run test -- <file>`。global-setup が非docker検出でポート5433/redis6380へ自動解決するためコンテナへ入る必要はない。
+- 15.3の設計判断: 「207の失敗理由がバックエンドの検証エラー定義と一致する」だけではトートロジー（期待値と実装が同じ定義由来）で文言変更を検知できないことをレビューが実測確認。フロントの判定断片を `frontend/src/utils/upload-failure.ts` から fs 読み出しして包含を検証する形とした。到達可能なのは `UnsupportedImageFormatError` の1経路のみ（multerに fileFilter が無く `InvalidFileTypeError`/`InvalidMagicBytesError` は非到達）。
+- 15.3の申し送り(非ブロッキング): フロント定数を改名した場合の失敗メッセージが `expected 0 to be greater than 0` のみで原因が読み取りにくい。診断メッセージの付与が望ましい。
 
 ### Requirements Coverage（Requirement 20）
 
