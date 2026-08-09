@@ -291,7 +291,7 @@
   - _Requirements: 20.16, 20.17, 20.18, 20.21_
   - _Boundary: construction-photo-images ルート, ConstructionPhotoImageService_
 
-- [ ] 15.4 失敗から保持・再送・破棄までをE2Eで検証
+- [x] 15.4 失敗から保持・再送・破棄までをE2Eで検証
   - アップロード応答をサーバーエラーへ差し替えて失敗させ、未送信件数とサムネイル・ファイル名・失敗理由が表示されることを確認する
   - 差し替えを解除して再送を実行し、写真項目が一覧へ追加され未送信の表示が解消することを確認する
   - サイズ上限超過の応答へ差し替え、当該画像が再送不可として区別され、再送の操作手段が実行不可となり理由が提示されることを確認する
@@ -349,6 +349,8 @@
 - バックエンド統合テストの起動手順(15.3で確立): test compose の postgres/redis だけを起動すれば**ホストから直接**実行できる。`docker compose -p architrack-test -f docker-compose.yml -f docker-compose.test.yml --env-file .env.test up -d postgres redis` → `DATABASE_URL=postgresql://postgres:test@localhost:5433/architrack_test npm --prefix backend run prisma:migrate:deploy` → `RUN_INTEGRATION_TESTS=true npm --prefix backend run test -- <file>`。global-setup が非docker検出でポート5433/redis6380へ自動解決するためコンテナへ入る必要はない。
 - 15.3の設計判断: 「207の失敗理由がバックエンドの検証エラー定義と一致する」だけではトートロジー（期待値と実装が同じ定義由来）で文言変更を検知できないことをレビューが実測確認。フロントの判定断片を `frontend/src/utils/upload-failure.ts` から fs 読み出しして包含を検証する形とした。到達可能なのは `UnsupportedImageFormatError` の1経路のみ（multerに fileFilter が無く `InvalidFileTypeError`/`InvalidMagicBytesError` は非到達）。
 - 15.3の申し送り(非ブロッキング): フロント定数を改名した場合の失敗メッセージが `expected 0 to be greater than 0` のみで原因が読み取りにくい。診断メッセージの付与が望ましい。
+- 15.4の設計逸脱2件(レビュー承認済み): (a) **20.13のラベルを付与**。503差し替え中の同一パスへのリクエスト回数を実測し `>1` を確認したため、design.mdの条件付き許可を満たす。(b) **20.5に部分再送段階を追加**。設計記載の「単一画像の全件成功」では受入基準20.5の「一部の画像が成功する」が発生せずラベルが過大主張になるため、2件中1件だけ失敗させ続ける段階を挟んだ。
+- 15.4の実装メモ: 応答差し替えは `url.pathname` のみで判定しオリジン非依存。`page.unroute` は matcher/handler とも同一参照で解除。再送対象の絞り込みは multipart ボディ先頭4096バイトのファイル名判定で、1リクエスト1ファイル・単一フィールド構成のため境界をまたがない。判定失敗は `routeErrors` に記録し末尾で失敗させる（握り潰しなし）。
 
 ### Requirements Coverage（Requirement 20）
 
