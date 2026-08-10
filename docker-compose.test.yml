@@ -170,6 +170,12 @@ services:
     volumes:
       - ./backend:/app
       - backend_test_node_modules:/app/node_modules
+      # 統合テストの「形式エラー文言の契約」検証はフロントの判定断片の定義元
+      # (frontend/src/utils/upload-failure.ts) をソースから読み出して照合する。
+      # backend は /app にマウントされるため、リポジトリ直下の相対位置と同じになるよう
+      # frontend のソースをコンテナの /frontend へ読み取り専用で配置する。
+      # これによりCI（ネイティブ実行）とpre-push（コンテナ実行）で同じ相対パスが解決される。
+      - ./frontend/src:/frontend/src:ro
       # Use tmpfs for ephemeral test storage (auto-cleaned, writable by all users)
       - type: tmpfs
         target: /app/storage

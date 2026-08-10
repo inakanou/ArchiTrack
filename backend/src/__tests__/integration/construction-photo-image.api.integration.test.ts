@@ -51,13 +51,27 @@ import {
  * 読み出して唯一の定義から取得する。ファイル欠落・定義の改名時は例外または空配列となり、
  * 呼び出し側のアサーションでテストが失敗する（前提が崩れた場合に緑にしない）。
  *
+ * 参照先はリポジトリ直下からの相対位置で解決する。コンテナ実行時は backend が `/app` に
+ * マウントされるため、`docker-compose.test.yml` が frontend のソースを `/frontend` へ
+ * 読み取り専用で配置して同じ相対位置を成立させる。
+ *
  * design.md「Integration Tests / 形式エラー文言の契約」に対応。
  */
 function readUnsupportedFormatMessageFragments(): string[] {
-  const source = readFileSync(
-    fileURLToPath(new URL('../../../../frontend/src/utils/upload-failure.ts', import.meta.url)),
-    'utf-8'
+  const sourcePath = fileURLToPath(
+    new URL('../../../../frontend/src/utils/upload-failure.ts', import.meta.url)
   );
+  let source: string;
+  try {
+    source = readFileSync(sourcePath, 'utf-8');
+  } catch (error) {
+    throw new Error(
+      `フロントの判定断片の定義元を読み出せませんでした: ${sourcePath}\n` +
+        'コンテナ実行時は docker-compose.test.yml の backend に frontend ソースの ' +
+        '読み取り専用マウント（./frontend/src:/frontend/src:ro）が必要です。',
+      { cause: error }
+    );
+  }
   const arrayLiteral = /UNSUPPORTED_FORMAT_MESSAGE_FRAGMENTS\s*=\s*\[([\s\S]*?)\]/.exec(source);
   if (arrayLiteral === null) {
     return [];
