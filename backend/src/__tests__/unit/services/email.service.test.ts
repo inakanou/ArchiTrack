@@ -275,8 +275,7 @@ describe('EmailService', () => {
 
       // キューのprocessコールバックをシミュレート
       let invitationCallback:
-        | ((job: { data: { to: string; invitationToken: string } }) => Promise<void>)
-        | null = null;
+        ((job: { data: { to: string; invitationToken: string } }) => Promise<void>) | null = null;
       (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
         if (name === 'invitation-email') {
           invitationCallback = callback;
@@ -320,8 +319,7 @@ describe('EmailService', () => {
         );
 
         let invitationCallback:
-          | ((job: { data: { to: string; invitationToken: string } }) => Promise<void>)
-          | null = null;
+          ((job: { data: { to: string; invitationToken: string } }) => Promise<void>) | null = null;
         (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
           if (name === 'invitation-email') {
             invitationCallback = callback;
@@ -365,8 +363,7 @@ describe('EmailService', () => {
         (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{resetUrl}}</html>');
 
         let passwordResetCallback:
-          | ((job: { data: { to: string; resetToken: string } }) => Promise<void>)
-          | null = null;
+          ((job: { data: { to: string; resetToken: string } }) => Promise<void>) | null = null;
         (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
           if (name === 'password-reset-email') {
             passwordResetCallback = callback;

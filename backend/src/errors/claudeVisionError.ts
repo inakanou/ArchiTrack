@@ -18,12 +18,7 @@ import type { ProblemDetails } from '../types/problem-details.js';
  * Claude Vision APIのエラー種別
  */
 export type ClaudeVisionErrorType =
-  | 'timeout'
-  | 'rate_limit'
-  | 'auth_error'
-  | 'parse_error'
-  | 'service_unavailable'
-  | 'unknown';
+  'timeout' | 'rate_limit' | 'auth_error' | 'parse_error' | 'service_unavailable' | 'unknown';
 
 /**
  * Claude Vision API固有のエラークラス
