@@ -114,6 +114,9 @@ describe('PendingUploadPanel', () => {
     });
   });
 
+  /**
+   * @requirement site-survey/REQ-37.17: 再送不可の画像は再送対象外である旨を提示し破棄のみ提供する
+   */
   describe('再送不可の区別（Requirement 37.16, 37.17）', () => {
     it('再送不可の項目に再送しても解消しない旨とその理由を併記する', () => {
       renderPanel({
@@ -216,6 +219,9 @@ describe('PendingUploadPanel', () => {
     });
   });
 
+  /**
+   * @requirement site-survey/REQ-37.10: 処理の実行中は追加の再送操作を受け付けない
+   */
   describe('処理中の操作抑止（Requirement 37.10）', () => {
     it('isBusy が true のとき再送ボタンを操作できない', async () => {
       const user = userEvent.setup();

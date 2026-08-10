@@ -203,6 +203,9 @@ describe('uploadFilesInWaves (R11.5)', () => {
     });
   });
 
+  /**
+   * @requirement construction-photo/REQ-20.21: ストレージ保存の失敗は再送可能な未送信画像として保持する
+   */
   it('サーバーが 207 で per-file 失敗を返した場合も対応する File を返し文言で分類する (37.16, 37.21)', async () => {
     const formatFile = makeFile('format.jpg');
     const storageFile = makeFile('storage.jpg');

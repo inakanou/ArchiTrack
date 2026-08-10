@@ -167,10 +167,16 @@ describe('classifyUploadFailure - 207 部分失敗', () => {
     expect(classifyUploadFailure(new ApiError(207, MAX_IMAGES_EXCEEDED_MESSAGE))).toBe('retriable');
   });
 
+  /**
+   * @requirement site-survey/REQ-37.21: ストレージ保存の失敗は再送可能な未送信画像として保持する
+   */
   it('ストレージ障害を retriable に分類すること（37.21）', () => {
     expect(classifyUploadFailure(new ApiError(207, STORAGE_FAILURE_MESSAGE))).toBe('retriable');
   });
 
+  /**
+   * @requirement site-survey/REQ-37.21: 画像処理の失敗も再送可能な未送信画像として保持する
+   */
   it('画像処理失敗を retriable に分類すること（37.21）', () => {
     expect(classifyUploadFailure(new ApiError(207, THUMBNAIL_FAILURE_MESSAGE))).toBe('retriable');
     expect(classifyUploadFailure(new ApiError(207, COMPRESSION_FAILURE_MESSAGE))).toBe('retriable');

@@ -187,6 +187,9 @@ describe('usePendingUploads', () => {
     });
   });
 
+  /**
+   * @requirement site-survey/REQ-37.9: 新規アップロードでも既存の未送信画像を保持し続ける
+   */
   describe('record: 重複排除と既存保持の温存（37.9）', () => {
     it('同一画像が繰り返し失敗しても保持件数が増えない', () => {
       const file = createFile('same.jpg');
@@ -264,6 +267,9 @@ describe('usePendingUploads', () => {
     });
   });
 
+  /**
+   * @requirement site-survey/REQ-37.17: 再送不可の画像を再送対象に含めない
+   */
   describe('retriableFiles: 再送対象の抽出（37.17）', () => {
     it('再送可能な画像のみを提供し、再送不可を除外する', () => {
       const retriable = createFile('retriable.jpg');

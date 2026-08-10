@@ -828,6 +828,9 @@ describe('ImageUploader', () => {
       expect(screen.queryByTestId('pending-upload-panel')).not.toBeInTheDocument();
     });
 
+    /**
+     * @requirement site-survey/REQ-37.4: 再送は保持中の画像のみを対象とし再圧縮を行わない
+     */
     it('should retry only retriable pending images and not re-compress them (37.3, 37.4)', async () => {
       const retriable = createMockFile('retriable.jpg', 1024);
       const permanent = createMockFile('permanent.jpg', 2048);
@@ -935,6 +938,9 @@ describe('ImageUploader', () => {
       });
     });
 
+    /**
+     * @requirement site-survey/REQ-37.9: 新規のファイル選択でも既存の未送信画像を保持し続ける
+     */
     it('should keep existing pending images when new files are selected (37.9)', async () => {
       const first = createMockFile('first.jpg', 1024);
       const second = createMockFile('second.jpg', 2048);
@@ -985,6 +991,9 @@ describe('ImageUploader', () => {
       expect(screen.getByTestId('pending-upload-discard-button')).toBeDisabled();
     });
 
+    /**
+     * @requirement site-survey/REQ-37.10: 処理の実行中は追加の再送操作を受け付けない
+     */
     it('should not accept another retry while a retry is in flight (37.10)', async () => {
       const file = createMockFile('inflight.jpg', 1024);
       let resolveRetry: (outcome: { failed: FailedUpload[] }) => void = () => {};

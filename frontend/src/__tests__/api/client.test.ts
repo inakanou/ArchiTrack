@@ -677,6 +677,10 @@ describe('ApiClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
+    /**
+     * @requirement site-survey/REQ-37.14: 処理中の失敗は重複登録を避けるため自動再試行しない
+     * @requirement construction-photo/REQ-20.14: 同上（工事写真も同一の共有クライアント経路）
+     */
     it('サーバー処理中の失敗（500）では重複登録を避けるため再試行しないこと', async () => {
       const fetchMock = vi.fn().mockResolvedValue(errorResponse(500, 'Internal Server Error'));
       globalThis.fetch = fetchMock;
@@ -688,6 +692,15 @@ describe('ApiClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    /**
+     * 時間切れで送信が1回で終わることは、再送を開始できる状態になるまでの待ち時間が
+     * 自動再試行の繰り返しで延伸しないこと（37.20 / 20.20）も同時に固定する。
+     *
+     * @requirement site-survey/REQ-37.19: 時間切れは自動再試行せず未送信として保持へ委ねる
+     * @requirement site-survey/REQ-37.20: 再送を開始できるまでの待ち時間を再試行で延伸させない
+     * @requirement construction-photo/REQ-20.19: 同上（工事写真も同一の共有クライアント経路）
+     * @requirement construction-photo/REQ-20.20: 同上（工事写真も同一の共有クライアント経路）
+     */
     it('送信の時間切れでは再試行せず1回で失敗すること', async () => {
       const fetchMock = mockAbortingFetch();
 
@@ -698,6 +711,10 @@ describe('ApiClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    /**
+     * @requirement site-survey/REQ-37.15: 画像1件あたり少なくとも120秒の送信猶予を与える
+     * @requirement construction-photo/REQ-20.15: 同上（工事写真も同一の共有クライアント経路）
+     */
     it('画像1件あたりの送信猶予が120秒であること', async () => {
       const fetchMock = mockNeverSettlingFetch();
 
@@ -1103,7 +1120,10 @@ describe('ApiClient', () => {
      * トークン更新は1回だけ実行し、更新中に発生した401は完了を待って同一リクエストを
      * 再送する。セッション切れの通知は、共有した更新が失敗した場合にのみ発火させる。
      *
-     * Requirements (site-survey): 37.11, 37.12
+     * @requirement site-survey/REQ-37.11: 再ログインを要求せず認証を更新しアップロードを継続する
+     * @requirement site-survey/REQ-37.12: 認証の更新に失敗した場合のみセッション切れを通知する
+     * @requirement construction-photo/REQ-20.11: 同上（工事写真も同一の共有クライアント経路）
+     * @requirement construction-photo/REQ-20.12: 同上（工事写真も同一の共有クライアント経路）
      */
     describe('並行リクエストの401（進行中のトークン更新の共有）', () => {
       /**
