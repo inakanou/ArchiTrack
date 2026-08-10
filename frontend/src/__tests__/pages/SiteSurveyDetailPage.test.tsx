@@ -15,7 +15,7 @@
  * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import SiteSurveyDetailPage from '../../pages/SiteSurveyDetailPage';
@@ -152,6 +152,34 @@ function renderComponent() {
     </BrowserRouter>
   );
 }
+
+// ============================================================================
+// URL.createObjectURL / revokeObjectURL のスタブ
+//
+// アップロード失敗時に ImageUploader が未送信画像のプレビューURLを生成するが、
+// jsdom は ObjectURL API を実装しない。テストを条件付きで無効化せず
+// スタブへ差し替える（AI運用第3原則）。
+// ============================================================================
+
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
+
+/** 発行済み ObjectURL の通し番号 */
+let issuedObjectUrlCount = 0;
+
+beforeEach(() => {
+  issuedObjectUrlCount = 0;
+  URL.createObjectURL = vi.fn((): string => {
+    issuedObjectUrlCount += 1;
+    return `blob:mock/${issuedObjectUrlCount}`;
+  });
+  URL.revokeObjectURL = vi.fn();
+});
+
+afterEach(() => {
+  URL.createObjectURL = originalCreateObjectURL;
+  URL.revokeObjectURL = originalRevokeObjectURL;
+});
 
 describe('SiteSurveyDetailPage', () => {
   beforeEach(() => {
@@ -1761,6 +1789,10 @@ describe('SiteSurveyDetailPage', () => {
             index: 1,
             fileName: 'corrupted.jpg',
             error: 'サポートされていないファイル形式です: MIMEタイプと一致しません',
+            // Task 107.1: 失敗情報には再送用の File 実体が含まれる
+            file: new File(['corrupted'], 'corrupted.jpg', { type: 'image/jpeg' }),
+            // Task 108.2: 再送可否の区分は API 層で確定して渡る（形式エラーは再送不可）
+            kind: 'permanent',
           },
         ],
       });
@@ -1846,6 +1878,201 @@ describe('SiteSurveyDetailPage', () => {
         el.textContent?.includes('アップロードに失敗しました')
       );
       expect(uploadErrorAlert).toBeUndefined();
+    });
+  });
+
+  // ============================================================================
+  // Task 108.2: 失敗画像の返却と未送信一覧への反映
+  // Requirements: 37.1, 37.16, 37.21
+  // ============================================================================
+  describe('アップロード失敗画像の保持 (Task 108.2, Requirement 37)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+      vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
+        ...mockPermission,
+        canEdit: true,
+      });
+    });
+
+    /**
+     * ファイル選択を発火し、uploadSurveyImages の呼び出し完了まで待つ。
+     *
+     * @param files - 選択するファイル
+     */
+    async function selectFiles(files: File[]): Promise<void> {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(fileInput).toBeTruthy();
+      Object.defineProperty(fileInput, 'files', { value: files, configurable: true });
+      fireEvent.change(fileInput);
+
+      await waitFor(() => {
+        expect(surveyImagesApi.uploadSurveyImages).toHaveBeenCalled();
+      });
+    }
+
+    it('アップロード失敗時に未送信一覧が画面へ現れること - Requirement 37.1', async () => {
+      // Arrange
+      const failedFile = new File(['content'], 'failed-photo.jpg', { type: 'image/jpeg' });
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+        results: [],
+        errors: [
+          {
+            index: 0,
+            fileName: 'failed-photo.jpg',
+            error: '画像の保存に失敗しました: ストレージへの書き込みエラー',
+            file: failedFile,
+            kind: 'retriable',
+          },
+        ],
+      });
+
+      // Act
+      await selectFiles([failedFile]);
+
+      // Assert
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 1 件');
+      expect(screen.getByTestId('pending-upload-filename')).toHaveTextContent('failed-photo.jpg');
+    });
+
+    it('ストレージ障害は再送可として未送信一覧へ反映されること - Requirement 37.21', async () => {
+      // Arrange
+      const failedFile = new File(['content'], 'storage-error.jpg', { type: 'image/jpeg' });
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+        results: [],
+        errors: [
+          {
+            index: 0,
+            fileName: 'storage-error.jpg',
+            error: '画像の保存に失敗しました: ストレージへの書き込みエラー',
+            file: failedFile,
+            kind: 'retriable',
+          },
+        ],
+      });
+
+      // Act
+      await selectFiles([failedFile]);
+
+      // Assert
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-item')).toHaveAttribute('data-kind', 'retriable');
+      });
+      expect(screen.getByTestId('pending-upload-retry-button')).toBeEnabled();
+      expect(screen.queryByTestId('pending-upload-permanent-note')).not.toBeInTheDocument();
+    });
+
+    it('サイズ上限超過は再送不可として未送信一覧へ反映されること - Requirement 37.16', async () => {
+      // Arrange
+      const failedFile = new File(['content'], 'too-large.jpg', { type: 'image/jpeg' });
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+        results: [],
+        errors: [
+          {
+            index: 0,
+            fileName: 'too-large.jpg',
+            // 文言に形式エラーの断片を含まないため、文字列判定では再送可へ倒れる。
+            // 区分が API から渡ることでのみ再送不可になる。
+            error: 'ファイルサイズが上限を超えています',
+            file: failedFile,
+            kind: 'permanent',
+          },
+        ],
+      });
+
+      // Act
+      await selectFiles([failedFile]);
+
+      // Assert
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-item')).toHaveAttribute('data-kind', 'permanent');
+      });
+      expect(screen.getByTestId('pending-upload-retry-button')).toBeDisabled();
+      expect(screen.getByTestId('pending-upload-permanent-note')).toBeInTheDocument();
+    });
+
+    it('部分成功の通知文言が従来どおり表示されること - Requirement 19.13', async () => {
+      // Arrange
+      const okFile = new File(['ok'], 'photo.jpg', { type: 'image/jpeg' });
+      const ngFile = new File(['ng'], 'corrupted.jpg', { type: 'image/jpeg' });
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+        results: [{ ...(mockImages[0] as SurveyImageInfo) }],
+        errors: [
+          {
+            index: 1,
+            fileName: 'corrupted.jpg',
+            error: 'サポートされていない画像形式です。JPEG、PNG、WEBP形式のみ対応しています。',
+            file: ngFile,
+            kind: 'permanent',
+          },
+        ],
+      });
+
+      // Act
+      await selectFiles([okFile, ngFile]);
+
+      // Assert
+      await waitFor(() => {
+        const alerts = screen.getAllByRole('alert');
+        const uploadError = alerts.find((el) =>
+          el.textContent?.includes('1件のアップロードに成功しました。')
+        );
+        expect(uploadError?.textContent).toContain(
+          '1件のアップロードに成功しました。1件のアップロードに失敗しました。'
+        );
+        expect(uploadError?.textContent).toContain(
+          'corrupted.jpg: サポートされていないファイル形式'
+        );
+      });
+    });
+
+    it('全件失敗の通知文言が従来どおり表示されること - Requirement 19.14, 19.15', async () => {
+      // Arrange
+      const ngFile1 = new File(['ng1'], 'corrupted.jpg', { type: 'image/jpeg' });
+      const ngFile2 = new File(['ng2'], 'server-error.jpg', { type: 'image/jpeg' });
+      vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+        results: [],
+        errors: [
+          {
+            index: 0,
+            fileName: 'corrupted.jpg',
+            error: 'ファイルの内容がMIMEタイプと一致しません。',
+            file: ngFile1,
+            kind: 'permanent',
+          },
+          {
+            index: 1,
+            fileName: 'server-error.jpg',
+            error: '画像の保存に失敗しました: ストレージへの書き込みエラー',
+            file: ngFile2,
+            kind: 'retriable',
+          },
+        ],
+      });
+
+      // Act
+      await selectFiles([ngFile1, ngFile2]);
+
+      // Assert
+      await waitFor(() => {
+        const alerts = screen.getAllByRole('alert');
+        const uploadError = alerts.find((el) =>
+          el.textContent?.includes('全2件のアップロードに失敗しました。')
+        );
+        // 形式エラーは共有述語で判定され、それ以外はサーバーエラーとして提示される
+        expect(uploadError?.textContent).toContain(
+          'corrupted.jpg: サポートされていないファイル形式'
+        );
+        expect(uploadError?.textContent).toContain('server-error.jpg: サーバーエラー');
+      });
     });
   });
 

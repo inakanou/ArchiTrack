@@ -15,6 +15,8 @@
  * - 12.4, 4.5: 不正な画像形式（マジックバイト不一致）を拒否
  * - 12.5: 部分失敗時、成功分は登録を維持
  * - 13.1, 13.2, 13.3: 認証・認可（401）・プロジェクト境界（404）
+ * - 20.16: 部分失敗（207）の形式エラー文言が共有の画像検証エラー定義と一致する（フロントの
+ *   再送不可分類の根拠を固定する）
  *
  * Scope:
  * - 二重マウント（nested `/api/construction-photos/:id/images`）
@@ -23,6 +25,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
 
@@ -33,6 +37,48 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
+// 207 の失敗理由の照合に用いる文言の情報源（テスト内に文言を書き下ろさないため）
+import {
+  SurveyImageService,
+  UnsupportedImageFormatError,
+} from '../../services/survey-image.service.js';
+
+/**
+ * フロントの再送可否分類が用いる「画像形式の非対応」判定断片を、フロントのソースから読み出す。
+ *
+ * backend と frontend は別パッケージのため import できない。一方で判定断片を本ファイルへ
+ * 書き写すと二重定義になり、契約の検証にならない。そこで同一チェックアウト内のソースを
+ * 読み出して唯一の定義から取得する。ファイル欠落・定義の改名時は例外または空配列となり、
+ * 呼び出し側のアサーションでテストが失敗する（前提が崩れた場合に緑にしない）。
+ *
+ * 参照先はリポジトリ直下からの相対位置で解決する。コンテナ実行時は backend が `/app` に
+ * マウントされるため、`docker-compose.test.yml` が frontend のソースを `/frontend` へ
+ * 読み取り専用で配置して同じ相対位置を成立させる。
+ *
+ * design.md「Integration Tests / 形式エラー文言の契約」に対応。
+ */
+function readUnsupportedFormatMessageFragments(): string[] {
+  const sourcePath = fileURLToPath(
+    new URL('../../../../frontend/src/utils/upload-failure.ts', import.meta.url)
+  );
+  let source: string;
+  try {
+    source = readFileSync(sourcePath, 'utf-8');
+  } catch (error) {
+    throw new Error(
+      `フロントの判定断片の定義元を読み出せませんでした: ${sourcePath}\n` +
+        'コンテナ実行時は docker-compose.test.yml の backend に frontend ソースの ' +
+        '読み取り専用マウント（./frontend/src:/frontend/src:ro）が必要です。',
+      { cause: error }
+    );
+  }
+  const arrayLiteral = /UNSUPPORTED_FORMAT_MESSAGE_FRAGMENTS\s*=\s*\[([\s\S]*?)\]/.exec(source);
+  if (arrayLiteral === null) {
+    return [];
+  }
+  const [, entries = ''] = arrayLiteral;
+  return Array.from(entries.matchAll(/'([^']+)'/g), ([, fragment = '']) => fragment);
+}
 
 describe('Construction Photo Image Upload API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -254,6 +300,49 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
       expect(res.body.failed[0].fileName).toBe('bad.jpg');
     });
 
+    it('不正な画像形式の失敗理由は共有の画像検証エラー定義の文言と一致する（REQ 20.16）', async () => {
+      const bogus = Buffer.from('this is definitely not an image');
+
+      // 期待文言はバックエンドの画像検証エラー定義から取得する（テスト内に文言を書き下ろさない）。
+      // ConstructionPhotoImageService は surveyImageService.validateFile を再利用しており、
+      // 工事写真側が独自の検証・独自の文言を持った時点でこの一致検証が落ちる。
+      const sharedValidator = new SurveyImageService({ prisma });
+      let validationError: unknown = null;
+      try {
+        sharedValidator.validateFile({
+          buffer: bogus,
+          mimetype: 'image/jpeg',
+          originalname: 'bad.jpg',
+          size: bogus.length,
+        });
+      } catch (error) {
+        validationError = error;
+      }
+      // 共有バリデータが不正バイト列を拒否しない場合は前提が崩れているためテストを失敗させる
+      expect(validationError).toBeInstanceOf(UnsupportedImageFormatError);
+      const expectedFailureMessage = (validationError as Error).message;
+
+      const res = await request(app)
+        .post(`/api/construction-photos/${albumId}/images`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .attach('images', validJpeg, { filename: 'contract-ok.jpg', contentType: 'image/jpeg' })
+        .attach('images', bogus, { filename: 'contract-bad.jpg', contentType: 'image/jpeg' });
+
+      expect(res.status).toBe(207);
+      expect(res.body.failed).toHaveLength(1);
+      expect(res.body.failed[0].fileName).toBe('contract-bad.jpg');
+      // 工事写真が独自の検証メッセージを持つと、この一致検証が落ちる。
+      expect(res.body.failed[0].error).toBe(expectedFailureMessage);
+
+      // フロントの再送可否分類（frontend/src/utils/upload-failure.ts の
+      // UNSUPPORTED_FORMAT_MESSAGE_FRAGMENTS）はこの文言を根拠に permanent と判定する。
+      // 判定断片は別パッケージのため import できないが、同一チェックアウト内のソースから
+      // 読み出して照合し、文言変更で分類が retriable へ倒れる回帰を検知する。
+      const fragments = readUnsupportedFormatMessageFragments();
+      expect(fragments.length).toBeGreaterThan(0);
+      expect(fragments.some((fragment) => expectedFailureMessage.includes(fragment))).toBe(true);
+    });
+
     it('ファイル数上限（10件）を超えると拒否する（REQ 12.1, 12.3）', async () => {
       let req = request(app)
         .post(`/api/construction-photos/${albumId}/images`)
@@ -356,4 +445,8 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
  * @requirement construction-photo/REQ-12.2
  * @requirement construction-photo/REQ-12.3
  * @requirement construction-photo/REQ-12.4
+ * REQ-20.16 は「形式エラーの失敗理由文言」というフロント分類の根拠のみを固定する。
+ * 再送対象からの除外（20.17）・再送手段の実行不可提示（20.18）は画面側の観測が必要なため
+ * 本ファイルではタグ付けしない。
+ * @requirement construction-photo/REQ-20.16
  */

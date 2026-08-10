@@ -6124,3 +6124,456 @@ graph LR
 - 再フィットが Req 33-34 のズーム/パンに回帰を生む → 再フィットを「初期化時のみ」に縮退（resize追従を一時停止）。
 - `svh` 採用でレイアウト不整合 → 当該コンテナを `vh` フォールバックのみへ戻す。
 - モバイル `allowUpscale` で画質/ぼやけが問題化 → `maxUpscale` 上限を厳格化、または等倍上限へ一時復帰。
+
+## Requirement 37: アップロード失敗時の撮影画像の保持と再送
+
+### Overview
+
+**Purpose**: 画像アップロードの失敗時に撮影・選択した画像を画面へ保持し、その場で再送できるようにする。あわせて multipart 送信経路を共通APIクライアントへ統一し、認証期限切れ・一時的な通信障害に起因する失敗そのものを減らす。
+
+**Users**: 現場でスマートフォンから撮影・登録を行う現場調査担当者。撮り直しの発生が直接の作業損失となる。
+
+**Impact（既存前提の是正）**: 撮影画像は `ImageUploader.tsx:314-331` のクロージャローカル変数にのみ存在し、`catch` はメッセージだけを state 化して `File` 参照を捨てている。加えて multipart 送信は `survey-images.ts:75` / `construction-photo-images.ts:78` の素の `fetch` 1回で、`client.ts` が持つ401リフレッシュ・指数バックオフ再試行・セッション切れ通知・タイムアウトのいずれも適用されていない。本節はこの2点を、Requirement 19（失敗通知）と Requirement 4（アップロード・圧縮）の挙動を維持したまま解消する。
+
+#### Goals
+- 失敗した画像を `File` 実体のまま保持し、サムネイル・ファイル名・失敗理由とともに提示する
+- 保持中の画像を再圧縮せずに再送し、成功分のみを保持リストから取り除く
+- 再送しても解消しない失敗（受入条件違反）を区別し、再送対象から除外する
+- multipart 送信を `apiClient` へ統一し、401リフレッシュ・再試行・セッション切れ通知・送信タイムアウトを適用する
+- アップロードの再試行を非冪等性に配慮した条件に限定し、同一画像の重複登録を防ぐ
+
+#### Non-Goals
+- 端末ローカルへの永続化（IndexedDB 等）とリロード・アプリ再起動をまたぐ復旧
+- オフライン中の自動キュー送信
+- サーバー受入上限（10MB／10件）およびフロント側 `MAX_FILE_SIZE_MB` の変更
+- 失敗通知の文言体系（Requirement 19 が所管）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- `api/client.ts` の multipart 送信経路: FormData ボディの受理、アップロード時の再試行方針、送信タイムアウト、公開メソッド `sendFormData`
+- `api/survey-images.ts` / `api/construction-photo-images.ts` の送信手段を `apiClient` へ統一すること、および失敗時に `File` 実体を呼び出し元へ返すこと
+- 未送信画像の保持・重複排除・プレビューURLの生存管理（新規 `hooks/usePendingUploads.ts`）
+- 失敗理由の恒久／一時の分類（新規 `utils/upload-failure.ts`）
+- 未送信画像の提示と再送・破棄の操作面（新規 `components/site-surveys/PendingUploadPanel.tsx`、および `ImageUploader` からの結線）
+
+#### Out of Boundary
+- 端末ローカルへの永続化とリロード跨ぎの復旧、オフラインキュー
+- バックエンドの受入上限（`backend/src/routes/survey-images.routes.ts:58` の 10MB／10件）の変更
+- フロント側 `image-uploader.constants.ts:14` の `MAX_FILE_SIZE_MB` 是正（サーバー値との乖離解消は別要件として切り出す）
+- 失敗の通知文言体系（Requirement 19 が所管する `SiteSurveyDetailPage` のメッセージ生成）。本設計は形式エラーの**判定述語**のみを `isUnsupportedFormatMessage` として共有し、表示文言そのものは変更しない
+- セッション切れモーダルの表示制御（`ProtectedLayout.tsx:47-52` と `AuthContext` が所管）
+- トークンリフレッシュの実装そのもの（`services/TokenRefreshManager.ts` が所管）
+
+#### Allowed Dependencies
+- 依存方向: `types` → `utils` → `api` → `hooks` → `components` → `pages`。左方向のみ import 可、上位への import は不可
+- `hooks/usePendingUploads.ts` → `types/upload.types.ts`, `utils/upload-failure.ts`, React のみ。**api 層に依存しない**
+- `components/site-surveys/PendingUploadPanel.tsx` → `types/upload.types.ts` のみ。純表示コンポーネントとし api / hooks に依存しない
+- `components/site-surveys/ImageUploader.tsx` → `usePendingUploads`, `PendingUploadPanel`, `utils/image-compression`
+- `api/survey-images.ts` / `api/construction-photo-images.ts` → `api/client.ts` のみ。**アップロード経路の fetch 直叩きを禁止する**。ただし画像を Blob として取得する経路（印字画像・非合成原本）は、共通クライアントが JSON/text しか解釈せず Blob を返せないため対象外とし、素の fetch を維持する
+- 新規の外部ライブラリ依存を追加しない
+
+#### Revalidation Triggers
+- バックエンドの受入上限、または部分失敗レスポンス（207 の `{successful, failed}`）の形式が変わる → `utils/upload-failure.ts` の分類と `survey-images.ts` の 207 変換を再検証
+- バックエンドが per-file 失敗（`image-upload.service.ts:278-291`）にエラーコードを付与するようになる → `isUnsupportedFormatMessage` の文字列判定をコード判定へ移行し、文言変更への脆さを解消する
+- `image-upload.service.ts` の失敗メッセージ文言が変わる → `isUnsupportedFormatMessage` の判定と Requirement 19.14 の分岐を同時に再検証
+- `apiClient` の再試行方針・401 リフレッシュ手順が変わる → 37.11〜37.14 を再検証
+- 永続化（IndexedDB 等）を導入する → `usePendingUploads` の保持先が変わるため本節の境界を再設計
+- `ImageUploader` の利用画面が現調・工事写真以外へ広がる → `onUpload` 戻り値契約の適合性を再検証
+
+### 設計合成（Design Decisions）
+
+- **Generalization**: 現調 Requirement 37.1〜37.10 と工事写真 Requirement 20.1〜20.10 は同一の問題である。両画面が共用する `ImageUploader` を一般化点とし、1コンポーネントの改修で両スペックを充足させる。同様に 37.11〜37.15 は送信経路一般の関心であるため、画像固有の実装を作らず `client.ts` に集約する。
+- **Build vs Adopt（Adopt）**: 401リフレッシュ再送（`client.ts:303-352`）・指数バックオフ（`:187-379`）・セッション切れ発火（`:518-528`）は既存資産をそのまま採用する。`received-quotations.ts:173-179` のように各APIモジュールで `triggerSessionExpired()` を個別に呼ぶ方式は、リフレッシュによる**継続**（37.11）を満たせないため採用しない。
+- **Build vs Adopt（Adopt）**: プレビューURLは `URL.createObjectURL` と `FileInlinePreview.tsx:815-820` の useEffect クリーンアップ作法を採用。新規ライブラリを追加しない。
+- **Build vs Adopt（Adopt）**: 破棄確認は `window.confirm` を採用する。汎用 `ConfirmDialog` はコードベースに存在せず、破棄1操作のために新規共通ダイアログを起こすのは過剰である。既存実績は `useUnsavedChanges.ts:197`。E2E では `page.on('dialog')` で扱う。
+- **Simplification**: `RequestOptions` に再試行条件の注入口を設けない。`body` が `FormData` である事実からアップロード用の再試行方針を導出する。本コードベースにおいて FormData ボディは multipart アップロードのみを意味するため、単一利用の拡張点を公開APIへ露出させる必要がない。
+- **Simplification**: 保持リストの操作を `record(attempted, failed)` の1メソッドに集約する。初回アップロードと再送を同一経路で扱え、「試行したが失敗しなかったものを除去し、失敗したものを追加・更新する」という不変条件を1箇所で保証できる。
+- **Rejected**: IndexedDB / Service Worker による永続化は Requirement 37 の Out of scope（Non-Goals）に該当するため採用しない。
+
+### Architecture
+
+```mermaid
+graph TB
+    subgraph Pages
+        SurveyPage[SiteSurveyDetailPage]
+        PhotoPage[ConstructionPhotoDetailPage]
+    end
+    subgraph Components
+        Uploader[ImageUploader]
+        Panel[PendingUploadPanel]
+        PhotoUploader[PhotoUploader]
+    end
+    subgraph Hooks
+        Pending[usePendingUploads]
+    end
+    subgraph Api
+        SurveyApi[survey-images]
+        PhotoApi[construction-photo-images]
+        Client[apiClient]
+    end
+    subgraph Utils
+        Classify[upload-failure]
+        Compress[image-compression]
+    end
+    subgraph Types
+        UploadTypes[upload types]
+    end
+
+    SurveyPage --> Uploader
+    PhotoPage --> PhotoUploader
+    PhotoUploader --> Uploader
+    Uploader --> Pending
+    Uploader --> Panel
+    Uploader --> Compress
+    Uploader --> Classify
+    PhotoUploader --> Classify
+    PhotoUploader --> Client
+    Pending --> Classify
+    Pending --> UploadTypes
+    Panel --> UploadTypes
+    SurveyPage --> SurveyApi
+    PhotoUploader --> PhotoApi
+    SurveyApi --> Client
+    PhotoApi --> Client
+    SurveyApi --> Classify
+    PhotoApi --> Classify
+```
+
+**Key Decisions**:
+- `PendingUploadPanel` は状態を持たない純表示コンポーネントとし、保持ロジックは `usePendingUploads` に閉じる。これにより両者を独立して単体テストでき、カバレッジ80%（tech.md:1273）を満たしやすくする。
+- `usePendingUploads` は api 層へ依存しない。再送の実行主体は `ImageUploader` の `onUpload` プロパティであり、フックは「何を保持しているか」のみを所有する。
+- 送信経路の統一により、`survey-images.ts` と `construction-photo-images.ts` から重複した `requestWithFormData` 実装が消える。
+
+#### Technology Stack
+
+| レイヤ | 技術 | 役割 | 備考 |
+|---|---|---|---|
+| Frontend | React 19 / TypeScript | 保持state・再送UI | 新規依存なし |
+| Frontend | Web API `URL.createObjectURL` | 未送信画像のサムネイル | 解放は useEffect クリーンアップで保証 |
+| Frontend | Web API `AbortController` | 送信タイムアウト | `client.ts` の既存機構を multipart にも適用 |
+| Test | Vitest / React Testing Library | 単体テスト | `globalThis.fetch` 差し替え（tech.md:406） |
+| Test | Playwright | E2E | `page.route` + `route.fulfill` / `route.abort` |
+
+### File Structure Plan
+
+#### Created Files
+
+| パス | 責務 |
+|---|---|
+| `frontend/src/types/upload.types.ts` | `UploadFailureKind` / `FailedUpload` / `UploadOutcome` / `PendingUpload` の型定義 |
+| `frontend/src/utils/upload-failure.ts` | 失敗の恒久／一時分類（`classifyUploadFailure`）と `FailedUpload` 生成 |
+| `frontend/src/hooks/usePendingUploads.ts` | 未送信画像の保持・重複排除・プレビューURLの生存管理 |
+| `frontend/src/components/site-surveys/PendingUploadPanel.tsx` | 未送信画像一覧の表示と再送・破棄の操作面（純表示） |
+| `frontend/src/__tests__/utils/upload-failure.test.ts` | 分類ロジックの単体テスト |
+| `frontend/src/__tests__/hooks/usePendingUploads.test.ts` | 保持・重複排除・URL解放の単体テスト |
+| `frontend/src/__tests__/components/site-surveys/PendingUploadPanel.test.tsx` | 表示・操作可否・a11y の単体テスト |
+| `e2e/specs/site-surveys/site-survey-upload-retry-e2e.spec.ts` | 失敗→保持→再送成功の E2E |
+
+#### Modified Files
+
+| パス | 変更内容 |
+|---|---|
+| `frontend/src/api/client.ts` | `request` が FormData ボディを受理（Content-Type を自動設定に委譲）、FormData 時はアップロード用の再試行方針と送信タイムアウトを適用、タイムアウト分岐で再試行を抑止、進行中のトークン更新を `refreshInFlight` として共有、公開メソッド `sendFormData` を追加 |
+| `frontend/src/api/survey-images.ts` | ローカル `requestWithFormData` を削除し `apiClient.sendFormData` へ委譲。207 の per-file 失敗を `ApiError(207, ...)` として返す（415 への一律変換を廃止）。`BatchUploadError` に `file` を格納 |
+| `frontend/src/api/construction-photo-images.ts` | 同上。`uploadConstructionPhotos` は結果に加え失敗 `File` を解決可能にする |
+| `frontend/src/types/site-survey.types.ts` | `BatchUploadError` に `file: File` を追加 |
+| `frontend/src/components/site-surveys/ImageUploader.tsx` | `onUpload` の戻り値契約を拡張、`usePendingUploads` の利用、`PendingUploadPanel` の描画、再送ハンドラ（再圧縮しない） |
+| `frontend/src/components/construction-photos/PhotoUploader.tsx` | `uploadFilesInWaves` が失敗 `File` を返す、`handleUpload` が `UploadOutcome` を返す |
+| `frontend/src/pages/SiteSurveyDetailPage.tsx` | `handleImageUpload` が `UploadOutcome` を返す。Requirement 19 の通知文言体系は維持し、`:642-645` の形式エラー判定のみ `isUnsupportedFormatMessage` へ置換して判定の二重定義を解消する |
+| `frontend/src/__tests__/components/site-surveys/ImageUploader.test.tsx` | 失敗時の保持・再送・破棄のテストを追加 |
+| `frontend/src/components/construction-photos/PhotoUploader.test.tsx` | 失敗 `File` 返却のテストを追加 |
+| `frontend/src/__tests__/api/client.test.ts` | FormData 送信時の Content-Type 非設定・再試行方針・401リフレッシュのテストを追加 |
+
+### Components and Interfaces
+
+| Component | Domain | Intent | Requirements | 主要依存 |
+|---|---|---|---|---|
+| `apiClient.sendFormData` | Api | multipart 送信を共通経路へ統一する | 37.11, 37.12, 37.13, 37.14, 37.15 | `client.ts` 内部 |
+| `classifyUploadFailure` | Utils | 失敗を恒久／一時に分類する | 37.16 | `ApiError` |
+| `usePendingUploads` | Hooks | 未送信画像を保持し、プレビューURLの生存を管理する | 37.1, 37.5, 37.6, 37.9 | `upload.types`, `upload-failure` |
+| `PendingUploadPanel` | Components | 未送信画像を提示し再送・破棄を受け付ける | 37.2, 37.3, 37.7, 37.17, 37.18 | `upload.types` |
+| `ImageUploader`（改修） | Components | 保持・再送を結線し、再送時は再圧縮しない | 37.4, 37.8, 37.10 | 上記3点 |
+
+#### Api: `apiClient`（拡張）
+
+**Contracts**: Service
+
+```ts
+type FormDataMethod = 'POST' | 'PUT';
+
+interface SendFormDataOptions {
+  /** HTTPメソッド（既定: POST） */
+  readonly method?: FormDataMethod;
+  /** 送信タイムアウト（ミリ秒、既定: UPLOAD_TIMEOUT_MS） */
+  readonly timeout?: number;
+}
+
+/**
+ * multipart リクエストを共通クライアント経由で送信する。
+ * 401 リフレッシュ・セッション切れ通知・再試行・タイムアウトは request() の既存機構を共有する。
+ */
+sendFormData<T>(path: string, formData: FormData, options?: SendFormDataOptions): Promise<T>;
+```
+
+- **再試行方針（37.13, 37.14）**: `body` が `FormData` の場合、既定の再試行判定（ネットワークエラー・タイムアウト・5xx）を、`statusCode` が `0`・`502`・`503`・`504` のいずれかである場合に限定する。`500` はサーバー処理中の失敗であり、永続化の完了後に失敗した場合に再送が重複登録を生むため対象外とする。
+- **タイムアウトは再試行しない（37.19, 37.20）**: `AbortError` 分岐（`request` 内のタイムアウト検出）では、FormData ボディの場合に再試行せず即座に失敗させる。ネットワークエラーとタイムアウトはいずれも `statusCode === 0` になるため、ステータスコードではなく**発生分岐**で区別する。これにより1件あたりの最悪待ち時間を `UPLOAD_TIMEOUT_MS` 1回分に抑え、ユーザーが手動再送を開始できるまでの遅延を延伸させない。
+- **並行リクエストの 401（37.11, 37.12）**: 現行実装は 401 検出時に `tokenRefreshCallback` を `null` にして再帰を防ぐが、**並行リクエストは `null` を見て `sessionExpiredCallback` を発火させたうえで 401 のまま失敗する**（`client.ts:304-306`）。アップロードは常に並列（現調5件バッチ・工事写真5並列）であるため、この経路は必ず踏まれる。`ApiClient` に進行中のトークン更新を表す単一 Promise（`refreshInFlight: Promise<string> | null`）を持たせ、更新中に発生した 401 はその完了を待って同一リクエストを再送する。セッション切れ通知は、共有した更新が**失敗した場合にのみ**発火させる。
+- **タイムアウト（37.15）**: `UPLOAD_TIMEOUT_MS = 120000`。JSON 既定の 30 秒を上書きする。
+- **エラー包絡**: 既存の `ApiError(statusCode, message, response)` を踏襲し、RFC 7807 の `detail` → `error` → `statusText` の順でメッセージを解決する。
+- **Implementation Notes**:
+  - *Integration*: `Content-Type` は FormData 時に設定しない（boundary をブラウザに委ねる）。JSON 経路の `Content-Type: application/json` は不変。
+  - *Validation*: 既存 `__tests__/api/client.test.ts` の 401 リフレッシュ・再試行回数のテストが JSON 経路の回帰を検出する。
+  - *Risk*: `client.ts` は全 JSON リクエストの共通経路であり、ヘッダ分岐の誤りが全機能へ波及する。FormData 判定は `body instanceof FormData` の単一条件に限定する。
+  - *Risk (Research Needed 解消)*: 再試行時は同一 `FormData` インスタンスを再送する。`fetch` は Blob を消費しないため再送は安全である。仕様上の裏付けが取れない環境が判明した場合は、再試行前に `FormData` を再構築する方式へ切り替える。
+
+#### Utils: `upload-failure`
+
+**Contracts**: Service
+
+```ts
+import type { UploadFailureKind, FailedUpload } from '../types/upload.types';
+
+/**
+ * サーバーの受入条件違反による確定的な拒否を 'permanent'、
+ * それ以外を 'retriable' として分類する。
+ */
+export function classifyUploadFailure(error: unknown): UploadFailureKind;
+
+/** File と発生した例外から保持用の失敗情報を組み立てる */
+export function toFailedUpload(file: File, error: unknown): FailedUpload;
+
+/**
+ * 画像形式の非対応を示すサーバーメッセージかどうかを判定する。
+ * Requirement 19.14 の文言分岐と本分類の唯一の情報源とする。
+ */
+export function isUnsupportedFormatMessage(message: string): boolean;
+```
+
+- **分類規則（37.16）**: リクエスト単位の `ApiError.statusCode` が `400`（件数・入力検証）または `413`（サイズ上限超過）であれば `'permanent'`。それ以外（`0`, `401`, `403`, `404`, `5xx`、および非 `ApiError`）は `'retriable'`。
+- **207（部分失敗）を 415 へ潰す既存変換を是正する**: `survey-images.ts:163-166` は現在、207 の `failed[0]` を理由に関わらず `ApiError(415, ...)` へ変換している。しかしバックエンドの `failed[]` は `image-upload.service.ts:278-291` が `upload()` の**あらゆる例外**（ストレージ障害・画像処理失敗・DBエラー・枚数上限）を捕捉して詰めたものであり、形式エラーとは限らない。この変換を維持したまま 415 を `'permanent'` に写像すると、一時的なストレージ障害で失敗した写真が「再送しても解消しない」と表示され、破棄しか選べなくなる。
+- **是正後の扱い**: 207 の per-file 失敗は `ApiError(207, failedItem.error, result)` として返し、`classifyUploadFailure` は**メッセージ内容**で判定する。`isUnsupportedFormatMessage` が真であれば `'permanent'`、それ以外（枚数上限・ストレージ障害・画像処理失敗）は `'retriable'`。
+- **文言判定の一元化**: `SiteSurveyDetailPage.tsx:642-645` が Requirement 19.14 のために持つ同等の文字列判定を `isUnsupportedFormatMessage` へ統合し、判定の二重定義を作らない。
+- **既知の脆さ**: メッセージ文字列への依存はサーバー側の文言変更に弱い。バックエンドが per-file 失敗にエラーコードを付与できるようになった時点で、コード判定へ移行する（Revalidation Triggers 参照）。
+
+#### Types: `upload.types`
+
+```ts
+/** 再送で解消しうるか否か */
+export type UploadFailureKind = 'retriable' | 'permanent';
+
+/** アップロードに失敗した1件 */
+export interface FailedUpload {
+  readonly file: File;
+  readonly error: string;
+  readonly kind: UploadFailureKind;
+}
+
+/** onUpload の戻り値。void を返した場合は全件成功とみなす */
+export interface UploadOutcome {
+  readonly failed: readonly FailedUpload[];
+}
+
+/** 保持中の未送信画像 */
+export interface PendingUpload extends FailedUpload {
+  /** 重複排除と React key に用いる安定キー */
+  readonly id: string;
+  /** プレビュー用 ObjectURL。解放は usePendingUploads が保証する */
+  readonly previewUrl: string;
+}
+```
+
+#### Hooks: `usePendingUploads`
+
+**Contracts**: State
+
+```ts
+export interface UsePendingUploadsResult {
+  /** 保持中の未送信画像。追加順を維持する */
+  readonly pending: readonly PendingUpload[];
+  /** 再送可能な File のみ。空配列なら再送不可 */
+  readonly retriableFiles: readonly File[];
+  /**
+   * 1回の送信試行の結果を反映する。
+   * attempted のうち failed に含まれないものを保持から取り除き、
+   * failed を追加または既存エントリの更新として反映する。
+   */
+  record: (attempted: readonly File[], failed: readonly FailedUpload[]) => void;
+  /** 保持中の全画像を解放する */
+  discardAll: () => void;
+}
+
+export function usePendingUploads(): UsePendingUploadsResult;
+```
+
+- **安定キー**: `id = ${file.name}:${file.size}:${file.lastModified}`。同一画像の再送が繰り返し失敗しても保持件数が増えない（37.5, 37.9）。
+- **ObjectURL ライフサイクル**: `id` 単位で生成し、保持から外れた時点と アンマウント時に `revokeObjectURL` する。`FileInlinePreview.tsx:815-820` の作法に準拠。
+- **Implementation Notes**:
+  - *Integration*: 再送は本フックの責務外。`ImageUploader` が `retriableFiles` を `onUpload` へ渡し、結果を `record` で反映する。
+  - *Validation*: `record` の不変条件（試行して成功したものは残らない／失敗したものは重複しない）を単体テストで直接検証する。
+  - *Risk*: 保持件数の上限を設けない。1回の選択は現調で5件ずつ・工事写真で最大5並列に分割されるため、実運用で保持件数が発散しない。上限を設けると「保持しきれず消える」という本要件の趣旨に反する。
+
+#### Components: `PendingUploadPanel`
+
+**Contracts**: State（純表示）
+
+```ts
+export interface PendingUploadPanelProps {
+  readonly pending: readonly PendingUpload[];
+  /** 再送可能な画像が存在しない場合は false */
+  readonly canRetry: boolean;
+  /** 再送中またはアップロード中は true。操作を受け付けない */
+  readonly isBusy: boolean;
+  readonly onRetry: () => void;
+  readonly onDiscardAll: () => void;
+}
+```
+
+- 未送信件数、各画像のサムネイル・ファイル名・失敗理由を表示する（37.2）。
+- `kind === 'permanent'` の項目は「再送しても解消しない」旨と理由を併記し、再送対象から除外されていることを示す（37.16, 37.17）。
+- `canRetry === false` のとき再送ボタンを `disabled` で提示する（37.18）。
+- **Implementation Note**: 操作ボタンは 44×44px 以上（tech.md:136）。コンテナは `role="alert"` ではなく `role="status"` とし、Requirement 19 のエラー表示（`role="alert"`）と読み上げ役割を競合させない。スタイルはインライン style オブジェクト（tech.md:137）、モバイル分岐が必要な場合は `MEDIA_QUERIES.isMobile`（tech.md:134）を用いる。
+
+#### Components: `ImageUploader`（改修）
+
+```ts
+export interface ImageUploaderProps {
+  /** 戻り値が void の場合は全件成功とみなす（既存呼び出しとの後方互換） */
+  onUpload: (files: File[]) => Promise<UploadOutcome | void>;
+  // 既存 props は不変
+}
+```
+
+- 初回送信は `compressImagesForUpload` を通す。**再送は圧縮を通さない**（37.4）。保持しているのは圧縮済み `File` であり、再圧縮は画質の二重劣化を生む。
+- 破棄は `window.confirm` で確認し、承諾時のみ `discardAll()` を呼ぶ（37.8）。
+- `isUploading` または再送中は再送・破棄の操作を受け付けない（37.10）。
+- 新規選択時に保持中の画像を消さない（37.9）。`record` は今回の試行分のみを対象とするため、既存の保持は自然に温存される。
+
+### System Flows
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Uploader as ImageUploader
+    participant Hook as usePendingUploads
+    participant Page as SiteSurveyDetailPage
+    participant Api as survey-images
+    participant Client as apiClient
+
+    User->>Uploader: カメラ撮影
+    Uploader->>Uploader: 圧縮
+    Uploader->>Page: onUpload
+    Page->>Api: uploadSurveyImages
+    Api->>Client: sendFormData
+    Client-->>Api: 失敗
+    Api-->>Page: errors に File を含めて返却
+    Page-->>Uploader: UploadOutcome
+    Uploader->>Hook: record 試行分と失敗分
+    Hook-->>Uploader: pending と retriableFiles
+    Uploader->>User: 未送信件数とサムネイルを提示
+
+    User->>Uploader: 再送
+    Uploader->>Page: onUpload 圧縮なし
+    Page->>Api: uploadSurveyImages
+    Api->>Client: sendFormData
+    Client-->>Api: 成功
+    Api-->>Page: results
+    Page-->>Uploader: UploadOutcome 失敗なし
+    Uploader->>Hook: record
+    Hook-->>Uploader: pending 空
+    Uploader->>User: 未送信表示を解消
+```
+
+`apiClient` 内部の失敗分岐（37.11〜37.14）:
+
+```mermaid
+graph TB
+    Send[sendFormData] --> Resp{応答}
+    Resp -->|401 更新なし| Refresh[トークン更新を開始]
+    Resp -->|401 更新中| Wait[進行中の更新を待つ]
+    Refresh -->|成功| Retry[同一リクエストを再送]
+    Wait -->|成功| Retry
+    Refresh -->|失敗| Expired[セッション切れを通知]
+    Wait -->|失敗| Expired
+    Resp -->|ネットワークエラー or 502 or 503 or 504| Backoff[待機して再試行 最大3回]
+    Resp -->|送信の時間切れ| NoRetry[再試行せず失敗]
+    Resp -->|500| NoRetry
+    Resp -->|400 or 413| Permanent[恒久失敗として返却]
+    Resp -->|207 部分失敗| Classify{メッセージ判定}
+    Classify -->|形式非対応| Permanent
+    Classify -->|それ以外| Transient[一時失敗として返却]
+    Resp -->|2xx| Done[成功]
+    Backoff --> Send
+    Retry --> Done
+```
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|---|---|---|---|---|
+| 37.1 | 失敗画像を未送信として保持 | `usePendingUploads`, `ImageUploader` | `record` | 保持シーケンス |
+| 37.2 | 件数・サムネイル・ファイル名・理由の表示 | `PendingUploadPanel` | `PendingUploadPanelProps` | — |
+| 37.3 | 再送可能な画像の一括再送手段 | `PendingUploadPanel`, `ImageUploader` | `onRetry`, `retriableFiles` | 再送シーケンス |
+| 37.4 | 再送は同一データ・再圧縮しない | `ImageUploader` | `onUpload` | 再送シーケンス |
+| 37.5 | 部分成功時は成功分のみ除去 | `usePendingUploads` | `record` | 再送シーケンス |
+| 37.6 | 全件成功で表示解消 | `usePendingUploads`, `PendingUploadPanel` | `pending` | 再送シーケンス |
+| 37.7 | 破棄の操作手段 | `PendingUploadPanel` | `onDiscardAll` | — |
+| 37.8 | 破棄は確認のうえ解放 | `ImageUploader` | `window.confirm`, `discardAll` | — |
+| 37.9 | 新規選択時も既存保持を維持 | `usePendingUploads` | `record`, `id` による重複排除 | — |
+| 37.10 | 処理中は再送を受け付けない | `ImageUploader`, `PendingUploadPanel` | `isBusy` | — |
+| 37.11 | 認証更新して継続 | `apiClient` | `refreshInFlight` の共有と待ち合わせ | apiClient 分岐 |
+| 37.12 | セッション切れ通知 | `apiClient` | `sessionExpiredCallback`（共有更新の失敗時のみ） | apiClient 分岐 |
+| 37.13 | 段階的な自動再試行 | `apiClient.sendFormData` | 再試行方針 | apiClient 分岐 |
+| 37.14 | 処理中失敗は再試行しない | `apiClient.sendFormData` | 再試行方針 | apiClient 分岐 |
+| 37.15 | 1件120秒の送信猶予 | `apiClient.sendFormData` | `UPLOAD_TIMEOUT_MS` | — |
+| 37.16 | 恒久失敗の区別と理由提示 | `classifyUploadFailure`, `PendingUploadPanel` | `UploadFailureKind`, `isUnsupportedFormatMessage` | apiClient 分岐 |
+| 37.17 | 恒久失敗は再送対象外・破棄のみ | `usePendingUploads`, `PendingUploadPanel` | `retriableFiles` | — |
+| 37.18 | 全件恒久失敗なら再送を実行不可表示 | `PendingUploadPanel` | `canRetry` | — |
+| 37.19 | 時間切れは再試行せず保持 | `apiClient.sendFormData`, `usePendingUploads` | `AbortError` 分岐の再試行抑止 | apiClient 分岐 |
+| 37.20 | 再送開始までの待ち時間を延伸させない | `apiClient.sendFormData` | `UPLOAD_TIMEOUT_MS` 1回分の上限 | apiClient 分岐 |
+| 37.21 | ストレージ・画像処理失敗は再送可能として保持 | `classifyUploadFailure`, `survey-images.ts` | 207 の `'retriable'` 分類 | apiClient 分岐 |
+
+### Error Handling
+
+- **Error Strategy**: 失敗は `ApiError` に統一し、UI 側は `UploadFailureKind` の2値へ縮約する。ステータスコードを UI コンポーネントへ持ち込まない。
+- **Error Categories**:
+  - 一時的（`0`, `5xx`）: `apiClient` が自動再試行、なお失敗すれば `'retriable'` として保持
+  - 認証（`401`）: `apiClient` が更新して継続、更新失敗時はセッション切れ通知のうえ `'retriable'` として保持
+  - 受入条件違反（`400`, `413`, `415`）: 再試行せず `'permanent'` として保持し、破棄のみ提示
+- **既存挙動の維持**: Requirement 19 の部分成功・全件失敗メッセージ（`SiteSurveyDetailPage.tsx:634-662`）は変更しない。保持パネルは通知を置き換えるのではなく併存する。
+
+### Testing Strategy
+
+#### Unit
+- `classifyUploadFailure`: `400` / `413` が `'permanent'`、`0` / `401` / `403` / `404` / `500` / `503` および非 `ApiError` が `'retriable'` に分類されること。**207 は理由メッセージで分岐し**、形式非対応のみ `'permanent'`、枚数上限・ストレージ障害・画像処理失敗は `'retriable'` になること（37.16）
+- `isUnsupportedFormatMessage`: `image-upload.service.ts` が返す形式エラー文言に真、枚数上限文言（`画像数の上限`）およびストレージ障害文言に偽を返すこと
+- `usePendingUploads`: 失敗の保持（37.1）、試行して成功した画像が保持から消えること（37.5）、同一画像の再失敗で件数が増えないこと（37.9）、`discardAll` と アンマウントで `revokeObjectURL` が呼ばれること
+- `PendingUploadPanel`: 件数・サムネイル・ファイル名・理由の表示（37.2）、`permanent` 項目の理由併記（37.16）、`canRetry === false` で再送ボタンが `disabled`（37.18）、`isBusy` で操作不可（37.10）
+- `ImageUploader`: `onUpload` が失敗を返したとき保持パネルが現れること（37.1）、再送時に `compressImagesForUpload` が呼ばれないこと（37.4）、破棄が `window.confirm` の承諾時のみ実行されること（37.8）、新規選択で既存保持が消えないこと（37.9）
+- `apiClient`: FormData 送信で `Content-Type` を設定しないこと、`503` で再試行し `500` で再試行しないこと（37.13, 37.14）、`401` でリフレッシュして再送すること（37.11）、リフレッシュ失敗で `sessionExpiredCallback` が発火すること（37.12）、タイムアウトが 120 秒であること（37.15）、**タイムアウトで再試行せず1回で失敗すること**（37.19, 37.20）
+- `apiClient`（並行 401）: 5件を同時に送信し全てが `401` を返す状況で、トークン更新が**1回だけ**実行され、更新成功時は**5件とも再送されて成功**し、`sessionExpiredCallback` が**一度も発火しない**こと。更新失敗時は5件とも失敗し `sessionExpiredCallback` が発火すること（37.11, 37.12）
+- `PhotoUploader`: `uploadFilesInWaves` が失敗した `File` を返すこと
+
+#### E2E（`e2e/specs/site-surveys/site-survey-upload-retry-e2e.spec.ts`）
+既存 `site-survey-upload-validation-e2e.spec.ts:657-711` の `page.route` + `route.fulfill` + `page.unroute` を踏襲する。`page.waitForTimeout()` は使用しない（tech.md:516）。
+
+1. **失敗→保持**: アップロード POST を `route.fulfill({status: 500})` で失敗させ、未送信件数とサムネイルが表示されること（37.1, 37.2）
+2. **再送成功**: `page.unroute` で介入を解除し再送ボタンを押下、画像が一覧へ追加され未送信表示が解消すること（37.3, 37.6）
+3. **恒久失敗の区別**: `route.fulfill({status: 413})` で失敗させ、再送ボタンが `disabled` になり理由が表示されること（37.16, 37.18）
+4. **破棄**: `page.on('dialog')` で確認を承諾し、未送信表示が消えること（37.7, 37.8）
+5. **通信断からの復帰**: `route.abort('failed')` で失敗させたのち解除し再送成功すること（37.13）。`context.setOffline` は localhost で機能しないため用いない
+
+工事写真側（construction-photo Requirement 20）の E2E は当該スペックで定義する。共用コンポーネントの改修であるため、現調側の検証が実装の主たる担保となる。
+
+### Migration Strategy
+
+DBマイグレーション不要。フロントエンドのみの変更であり、後方互換の段階導入とする。
+
+- **フェーズ1（通信層、M / Medium）**: `client.ts` の FormData 対応、`refreshInFlight` によるトークン更新の共有、タイムアウト再試行の抑止、`sendFormData` 追加、両APIモジュールの委譲、`survey-images.ts` の 207 変換是正。UI 変更を伴わずに 37.11〜37.15, 37.19, 37.20 を満たす。既存の失敗通知（Requirement 19）に影響しないため単独リリース可能。`refreshInFlight` は JSON 経路にも効くため、既存の並行リクエストにおける偽のセッション切れも同時に解消する。
+- **フェーズ2（保持層、M / Medium）**: `upload.types` / `upload-failure` / `usePendingUploads` / `PendingUploadPanel` の新設。この時点では `ImageUploader` から未接続。
+- **フェーズ3（結線、S / Low）**: `onUpload` 戻り値契約の拡張と、`SiteSurveyDetailPage` / `PhotoUploader` からの失敗 `File` 返却。37.1〜37.10, 37.16〜37.18 が有効化される。
+
+**Rollback triggers**:
+- FormData 経由の統一が JSON 経路へ回帰を生む → `sendFormData` の利用箇所のみ旧 `requestWithFormData` へ戻す（両APIモジュールに局所化されている）
+- 再試行方針の変更で重複登録が観測される → FormData 時の再試行を `statusCode === 0` のみへ縮退
+- 保持中の `File` によるメモリ逼迫が実機で確認される → 保持件数に上限を設け、超過分は古い順に破棄する方針へ変更（要件再検証が必要）

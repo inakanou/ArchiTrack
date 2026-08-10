@@ -12,7 +12,16 @@
  * 一部が失敗しても残りを継続する（部分失敗継続, R12.5）。成功分は onPhotosAdded で親へ
  * 通知し、失敗・部分失敗は onNotify で通知する。
  *
- * Requirements: 4.1, 4.2, 4.4, 4.5, 5.1, 5.2, 5.3, 6.1, 11.5, 12.5
+ * Task 108.3: 失敗した画像を撮り直さずに再送できるよう、失敗した `File` の実体と
+ * 再送可否の区分を `ImageUploader` へ返す（site-survey 37.1 / 工事写真 20.1）。
+ * 失敗通知（onNotify）の文言と部分失敗継続の挙動は変更しない。
+ *
+ * Task 14: 親への通知（onPhotosAdded / onNotify）の呼び出しを個別に保護し、通知の例外を
+ * 送信の失敗として扱わない。保持は「試行対象のうち失敗しなかったものを取り除く」差分更新
+ * であるため、通知の例外が伝播すると登録済みの画像まで未送信画像として残り、再送で重複
+ * 登録される（工事写真 20.5, 20.14）。
+ *
+ * Requirements: 4.1, 4.2, 4.4, 4.5, 5.1, 5.2, 5.3, 6.1, 11.5, 12.5, 20.5, 20.14, 37.1
  */
 
 import { useCallback, useState } from 'react';
@@ -22,11 +31,10 @@ import {
   uploadConstructionPhotos,
 } from '../../api/construction-photo-images';
 import { ApiError } from '../../api/client';
+import { toFailedUpload } from '../../utils/upload-failure';
 import { SurveyImagePicker } from './SurveyImagePicker';
-import type {
-  ConstructionPhotoUploadResult,
-  ConstructionPhotoWithUrls,
-} from '../../types/construction-photo.types';
+import type { ConstructionPhotoWithUrls } from '../../types/construction-photo.types';
+import type { FailedUpload, UploadOutcome } from '../../types/upload.types';
 
 // ============================================================================
 // 定数
@@ -35,17 +43,46 @@ import type {
 /** アップロード同時実行数の上限（R11.5） */
 export const MAX_UPLOAD_CONCURRENCY = 5;
 
+/**
+ * 1リクエスト内の個別ファイル失敗を表す HTTP ステータス（Multi-Status）。
+ *
+ * `uploadConstructionPhotos` は部分失敗を例外にせず `failed[]` として返すため、
+ * 失敗理由から再送可否を判定する `classifyUploadFailure` へ渡す際に、
+ * 207 相当の例外として組み立て直す（`survey-images.ts` と同一の規約）。
+ */
+const MULTI_STATUS = 207;
+
 // ============================================================================
 // アップロードウェーブ処理
 // ============================================================================
+
+/**
+ * `uploadFilesInWaves` の集約結果
+ *
+ * 失敗分は失敗した画像の実体（`File`）を保持する。撮影済みの画像を未送信画像として
+ * 画面に保持し、再圧縮せずそのまま再送できるようにするため、ファイル名の文字列へ
+ * 縮退させない（Requirement 37.1 / 工事写真 20.1）。
+ */
+export interface UploadWavesResult {
+  /** 追加に成功した写真項目（署名付きURL同梱） */
+  successful: ConstructionPhotoWithUrls[];
+  /** 失敗した画像（実体・失敗理由・再送可否） */
+  failed: FailedUpload[];
+}
 
 /**
  * ファイルを最大 `concurrency` 並列でアップロードする（1ファイル=1リクエスト）。
  *
  * サーバは1リクエストで複数ファイルを受け付けるが、フロントでは同時実行数を制限して
  * サーバ負荷を抑える（R11.5）。ウェーブ単位で `concurrency` 件ずつ並列実行し、各リクエストの
- * `{successful, failed}` を集約する。リクエストが例外を投げても失敗として集約し、残りの
- * ウェーブ処理を継続する（部分失敗継続）。
+ * 結果を集約する。リクエストが例外を投げても失敗として集約し、残りのウェーブ処理を
+ * 継続する（部分失敗継続, R12.5）。
+ *
+ * 失敗は `FailedUpload` として返す。1リクエスト1ファイルで送信しているため、
+ * リクエストの失敗も応答の `failed[]` も、送信した `file` を一意に指す。
+ * 再送可否の区分は、送信例外（またはサーバーの失敗理由）が手元にあるこの時点で
+ * 確定させる。呼び出し元へ渡るのが文言だけでは 413（サイズ上限超過）を再送不可と
+ * 判定できず、再送可へ倒れてしまうためである（37.16, 37.21）。
  *
  * @param albumId - アルバムID
  * @param files - アップロード対象ファイル
@@ -60,11 +97,11 @@ export async function uploadFilesInWaves(
     concurrency?: number;
     onProgress?: (progress: UploadProgress) => void;
   } = {}
-): Promise<ConstructionPhotoUploadResult> {
+): Promise<UploadWavesResult> {
   const concurrency = options.concurrency ?? MAX_UPLOAD_CONCURRENCY;
   const total = files.length;
   const successful: ConstructionPhotoWithUrls[] = [];
-  const failed: ConstructionPhotoUploadResult['failed'] = [];
+  const failed: FailedUpload[] = [];
 
   const queue = [...files];
   let completed = 0;
@@ -76,21 +113,20 @@ export async function uploadFilesInWaves(
   while (queue.length > 0) {
     const wave = queue.splice(0, concurrency);
     const waveResults = await Promise.all(
-      wave.map(async (file) => {
+      wave.map(async (file): Promise<UploadWavesResult> => {
         try {
-          return await uploadConstructionPhotos(albumId, [file]);
-        } catch (err) {
-          const message =
-            err instanceof ApiError
-              ? err.message
-              : err instanceof Error
-                ? err.message
-                : 'アップロードに失敗しました';
-          const single: ConstructionPhotoUploadResult = {
-            successful: [],
-            failed: [{ fileName: file.name, error: message }],
+          const result = await uploadConstructionPhotos(albumId, [file]);
+          return {
+            successful: result.successful,
+            // 応答の failed[] は 207（部分失敗）として扱い、失敗理由の文言から
+            // 再送可否を判定する。ストレージ障害・画像処理失敗も同じ配列で返るため、
+            // 一律に再送不可とすると撮影画像を破棄するしかなくなる（37.21）。
+            failed: result.failed.map((item) =>
+              toFailedUpload(file, new ApiError(MULTI_STATUS, item.error, result))
+            ),
           };
-          return single;
+        } catch (err) {
+          return { successful: [], failed: [toFailedUpload(file, err)] };
         }
       })
     );
@@ -172,6 +208,28 @@ function buildNotice(successCount: number, failedNames: string[]): string | null
   return `全${failedNames.length}件の追加に失敗しました。\n${detail}`;
 }
 
+/**
+ * 親への通知呼び出しを保護し、通知の例外を送信の失敗へ昇格させない（20.5, 20.14）。
+ *
+ * `ImageUploader.submitFiles` の catch は「試行対象の全ファイル」を未送信画像として
+ * 保持へ回す。そのため通知の例外が `handleUpload` の外へ伝播すると、サーバー登録済みの
+ * 画像まで未送信画像として保持され、再送で同一画像が重複登録される（20.14）。
+ *
+ * 送信そのものは `uploadFilesInWaves` が各リクエストを個別に捕捉して `failed[]` へ
+ * 集約するため例外を投げない。したがってアダプタ層で塞ぐべき例外経路は通知に限られる。
+ *
+ * 通知の失敗は無言で握り潰さず、原因を辿れるようコンソールへ記録する。ユーザーへの
+ * 再提示は行わない（提示手段そのものが失敗しているため。失敗通知の文言・表示条件は
+ * 変更しない）。
+ */
+function notifySafely(label: string, notify: () => void): void {
+  try {
+    notify();
+  } catch (err) {
+    console.error(`${label}に失敗しました`, err);
+  }
+}
+
 // ============================================================================
 // コンポーネント
 // ============================================================================
@@ -194,9 +252,13 @@ export function PhotoUploader({
   const [isCopying, setIsCopying] = useState(false);
 
   // ローカル/カメラのアップロード（ImageUploader が圧縮済みファイルを渡す）
+  //
+  // 失敗した画像は `UploadOutcome` として ImageUploader へ返し、未送信画像として
+  // 保持させる（37.1）。再送可否は uploadFilesInWaves が送信例外を参照して確定済みの
+  // ため、ここでは文言から再判定しない（37.16, 37.21）。
   const handleUpload = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
+    async (files: File[]): Promise<UploadOutcome> => {
+      if (files.length === 0) return { failed: [] };
 
       setIsUploading(true);
       setUploadProgress({ completed: 0, total: files.length, current: 0 });
@@ -205,16 +267,21 @@ export function PhotoUploader({
           onProgress: setUploadProgress,
         });
 
+        // 通知は個別に保護する。通知の失敗で `failed[]` を汚染すると、登録済みの画像まで
+        // 未送信画像として保持され再送で重複登録される（20.5, 20.14）。
         if (successful.length > 0) {
-          onPhotosAdded(successful);
+          notifySafely('追加された写真項目の通知', () => onPhotosAdded(successful));
         }
+        // 通知の文言は従来どおり失敗したファイル名の一覧で構成する（挙動保存）
         const notice = buildNotice(
           successful.length,
-          failed.map((f) => f.fileName)
+          failed.map((f) => f.file.name)
         );
         if (notice) {
-          onNotify?.(notice);
+          notifySafely('アップロード結果の通知', () => onNotify?.(notice));
         }
+
+        return { failed };
       } finally {
         setIsUploading(false);
         setUploadProgress(undefined);

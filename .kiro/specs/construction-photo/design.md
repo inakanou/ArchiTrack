@@ -14,12 +14,16 @@
 - 参考書式（表紙＋1ページ3枠・No.通し番号）に準拠した台帳PDFを出力する。
 - 多数写真でもサーバーリクエストが過大にならない（一覧50件ページング・一括取得・保存最大2リクエスト・アップロード並列5）。
 - 詳細画面の運用機能を site-survey と同等に拡充する: 画像フルスクリーンビューア（ズーム・回転・パン）、ZIP一括エクスポート、アルバム編集・削除導線、権限に応じたUI出し分け、未保存離脱警告、モバイル対応（R14〜R19）。
+- 写真項目のアップロードが失敗しても撮影・選択した画像を画面に保持し、再圧縮せずその場で再送できるようにする。認証期限切れからは無操作で復帰し、到達前の通信障害は自動再試行する（R20）。
 
 ### Non-Goals
 - site-survey 機能自体の仕様変更（読取・コピー元参照のみ）。
 - 工事看板の画像アップロード形式（構造化テキスト描画のみ）、会社横断の看板共有。
 - 現調写真のリンク（共有参照）方式（コピー＝独立複製のみ）。
 - サーバサイドPDF生成への移行（クライアント jsPDF を踏襲）。
+- 未送信画像の端末ローカル保存（画面リロード・タブ再起動をまたぐ復旧）、およびオフライン中の自動キュー送信（R20 の Out of scope）。
+- 未送信保持・再送機構そのものの実装および共通レイヤへの移設。当該機構は site-survey spec の Requirement 37 が所有し、本 spec は利用のみを行う。
+- 画像アップロードのサイズ上限値（フロント50MB／サーバー10MB）の乖離の是正。本 spec は乖離を前提に失敗を区分・提示するにとどめる。
 
 ## Boundary Commitments
 
@@ -32,17 +36,24 @@
 - 工事写真詳細の画像ビューア（ズーム/回転/パン, 閲覧専用）と、写真項目画像のZIP一括エクスポート（クライアント生成, 形式/解像度/看板重畳モード/選択/進捗/中断）。
 - 工事写真詳細・一覧のアルバム編集/削除導線、権限（`construction_photo:*`）に応じたUI出し分け、未保存離脱警告、詳細画面のモバイルレイアウト。
 - 看板配置有無に関わらず**非合成の原本画像をオンデマンド配信するエンドポイント**（ビューア表示・ZIPの `plain`/`original` モード用）。一覧DTOには `originalUrl` を含めない（既存の効率・非公開方針を維持し、原本は専用エンドポイントで必要時のみ取得）。
+- 工事写真の**アップロード送信アダプタ**（`PhotoUploader`）— 並列ウェーブ送信の集約結果に失敗画像の実体（`File`）と再送可否区分を含めて返す責務、および 207（部分失敗）応答を再送可否判定へ渡せる形へ組み立てる責務（R20.1, R20.16, R20.21）。
+- 工事写真画面における R20 の受入検証（写真項目追加経路の単体テストと E2E シナリオ）。
 
 ### Out of Boundary
 - site-survey の `SiteSurvey`/`SurveyImage`/`ImageAnnotation`（読取のみ。書込・スキーマ変更は行わない）。
 - `CompanyInfo`（会社名は読取のみ）、`Project`（`name` 読取・パネル結線のみ）。
 - 共通画像基盤（`ImageProcessorService`/`SignedUrlService`/`StorageProvider`/`PdfFontService`）の内部実装（利用のみ、拡張しない）。
+- **未送信画像の保持・再送・破棄の機構本体**: `components/site-surveys/ImageUploader`（保持と再送・破棄の結線）、`hooks/usePendingUploads`（保持・重複排除・プレビューURL生存管理）、`components/site-surveys/PendingUploadPanel`（一覧表示と操作面）、`utils/upload-failure`（恒久／一時の分類）、`types/upload.types`（共有型）。所有は site-survey spec の Requirement 37。本 spec は利用のみで改変しない。
+- **multipart 送信の再試行方針・送信猶予・401 リフレッシュ・セッション切れ通知**: `api/client.ts` の `ApiClient.request`／`sendFormData`／`UPLOAD_TIMEOUT_MS`／`UPLOAD_RETRYABLE_STATUS_CODES`。所有は site-survey spec Requirement 37。本 spec は `apiClient.sendFormData` を呼ぶのみ。
+- 未送信保持部品を `components/common/` 等の共通レイヤへ移設する構造リファクタ（受入基準を変えず、完了済み実装への回帰リスクのみを生むため本 spec では扱わない）。
 
 ### Allowed Dependencies
 - 基盤（利用可）: `StorageProvider.copy/upload/getSignedUrl`、`ImageProcessorService.processImage`、`SignedUrlService.generateBatchSignedUrls`、`CompanyInfoService.getCompanyInfo`、`PdfFontService.initializePdfFonts`、fabric primitives、multer 設定、`authenticate`/`requirePermission`/`validate`。
 - フロント基盤（利用可・流用）: `hooks/useCanvasViewport`・`components/site-surveys/ZoomControls`・`components/site-surveys/gestures/*`・`utils/imageFitScale`・`ImageViewer` の回転定数/`normalizeRotation`（ビューアR14）、`hooks/useUnsavedChanges`＋`components/common/UnsavedChangesDialog`（離脱警告R18）、`hooks/useMediaQuery`＋`utils/responsive`（モバイルR19）、`hooks/usePermission`（権限R17）、JSZip（ZIP生成R15）。site-survey の `services/export/bulkExportService` は**流用せず独立クローン**（安定性優先）。
-- 依存方向: Types → Prisma → Storage/Infra → Service → Route → API(client) → UI。左方向のみ import 可、上方向禁止。
+- フロント基盤（利用可・R20）: `types/upload.types`（`FailedUpload`/`UploadOutcome`/`PendingUpload`/`UploadFailureKind`）、`utils/upload-failure`（`toFailedUpload`/`classifyUploadFailure`/`isUnsupportedFormatMessage`）、`components/site-surveys/ImageUploader`（保持・再送・破棄の結線を内包）、`api/client.ts` の `apiClient.sendFormData`。いずれも**利用のみ**で、これらのファイルを本 spec の実装で変更しない。
+- 依存方向: Types → Prisma → Storage/Infra → Service → Route → API(client) → UI。左方向のみ import 可、上方向禁止。R20 の追加経路も `types/upload.types → utils/upload-failure → api/construction-photo-images → components/construction-photos/PhotoUploader` の順で左方向のみに従う（`utils` は `api` を import しない）。
 - 制約: site-survey のサービス／モデルへ書込依存しない。現調写真は Prisma 読取＋`storage.copy` のみ。
+- 制約（R20）: 工事写真から共有部品への依存は `components/construction-photos/* → components/site-surveys/*` の一方向のみ。`components/site-surveys/*` が工事写真の型・API・画面を参照することは禁止（既存の `ConstructionPhotoImageViewer → site-surveys/ZoomControls` と同じ向き）。
 
 ### Revalidation Triggers
 - `constructionPhotos` サマリDTO形状の変更 → `project-management`（詳細画面）に再検証。
@@ -53,6 +64,10 @@
 - 画像ビューアのルート（`/construction-photos/:albumId/photos/:photoId`）／表示状態契約の変更 → 詳細画面の写真クリック導線を再検証。
 - ZIP エクスポートの看板モード（composited/plain/original）と画像取得元（print-image/原本）の対応変更 → エクスポート結果を再検証。
 - `construction_photo:*` 権限とUI出し分けのマッピング変更 → 詳細/一覧の操作導線・`readOnly` 挙動を再検証。
+- `UploadOutcome`／`FailedUpload` の契約形状の変更（site-survey 側） → `PhotoUploader.handleUpload` の返却と工事写真 E2E を再検証。
+- `UPLOAD_RETRYABLE_STATUS_CODES`／`UPLOAD_TIMEOUT_MS`／再試行回数・バックオフ係数の変更 → R20.13〜R20.15・R20.19・R20.20 を再検証。
+- **バックエンドの画像形式エラー文言の変更**（`surveyImageService.validateFile` が投げる 3 種のメッセージ） → 207 応答の恒久／一時分類（R20.16, R20.21）が静かに壊れるため、`utils/upload-failure` の判定文言と工事写真の再送不可 E2E を再検証。
+- `construction-photo-images` のアップロード応答形状（201/207 と `{successful, failed}`）の変更 → `PhotoUploader.uploadFilesInWaves` の集約と再送可否判定を再検証。
 
 ## Architecture
 
@@ -127,6 +142,45 @@ graph TB
 - 境界分離: 工事写真ドメインは site-survey と別テーブル・別ルート・別サービス。共有は Infra 層のみ（読取・利用）。
 - 依存方向: `Types → Prisma → Infra → Service → Route → API → UI`（左方向のみ）。
 - Steering準拠: 二重マウント／モジュールDI／署名付きURL配信／RBAC権限 を踏襲。
+
+### アップロード失敗の保持と再送の分担（R20）
+
+R20 は site-survey の Requirement 37 と同一の問題（画像送信の失敗を、送信元機能に依らず画像の実体ごと保持して再送する）である。requirements.md の Adjacent expectations が「site-survey と共通のアップロードUIで提供され、挙動が一致する」ことを前提としているため、**機構は共有部品を採用し、工事写真は送信アダプタのみを所有する**。
+
+```mermaid
+graph TB
+    subgraph Owned_by_this_spec
+        DetailPage[ConstructionPhotoDetailPage]
+        PhotoUploader[PhotoUploader 送信アダプタ]
+        ImageApi[construction-photo-images api]
+    end
+    subgraph Owned_by_site_survey_Req37
+        ImageUploader[ImageUploader 保持と再送の結線]
+        PendingHook[usePendingUploads 保持機構]
+        PendingPanel[PendingUploadPanel 表示と操作面]
+        Classifier[upload failure 恒久と一時の分類]
+        UploadTypes[upload types 共有型]
+        ApiClientCore[ApiClient sendFormData 再試行と猶予と401更新]
+    end
+
+    DetailPage --> PhotoUploader
+    PhotoUploader --> ImageUploader
+    PhotoUploader --> ImageApi
+    PhotoUploader --> Classifier
+    ImageApi --> ApiClientCore
+    ImageUploader --> PendingHook
+    ImageUploader --> PendingPanel
+    ImageUploader --> Classifier
+    PendingHook --> UploadTypes
+    Classifier --> UploadTypes
+```
+
+**Key Decisions**:
+- **境界の切り方**: `ImageUploader` が「保持・再送・破棄」を所有し、送信そのものは注入された `onUpload` に委ねる。工事写真は `PhotoUploader.handleUpload` としてこのアダプタを実装するのみで、保持ロジックを持たない（No Hidden Shared Ownership）。
+- **再送可否の確定位置**: 分類は「送信例外が手元にある」アダプタ層（`uploadFilesInWaves`）で確定させ、上位へは区分済みの `FailedUpload` を渡す。文字列の失敗理由だけを上げると 413（サイズ上限超過）が文言判定にかからず再送可へ倒れるためである。
+- **207 の扱い**: `uploadConstructionPhotos` は部分失敗を例外化せず `{successful, failed}` を返すため、アダプタが `ApiError(207, item.error)` として組み立て直して分類器へ渡す。207 は「ストレージ障害・画像処理失敗・DBエラー」も含むため一律 permanent とはせず、画像形式の非対応のみ permanent とする（R20.21）。
+- **バックエンド変更なし**: `constructionPhotoImageService` は `surveyImageService.validateFile()` を再利用しており、形式エラーの文言が分類器の判定集合と一致する。R20 に伴うバックエンド／スキーマ／API コントラクトの変更は発生しない。
+- **現調コピーは対象外**: `handleSurveySelect` は画像バイトを送信せずサーバー側の複製を要求するだけであるため、保持・再送の対象としない（requirements.md 備考1）。失敗時は従来どおり通知のみを行う。
 
 ### Technology Stack
 
@@ -225,6 +279,31 @@ interface ConstructionPhotoPermission {
 
 // ビューア表示状態 (R14) — ImageViewer の RotationAngle を流用
 interface ConstructionPhotoViewerState { zoom: number; rotation: 0 | 90 | 180 | 270; panX: number; panY: number; }
+
+// --- アップロード失敗の保持と再送 (R20) の型 ---
+// 定義の所有は site-survey spec Req37（frontend/src/types/upload.types.ts）。
+// 本 spec は利用のみで、形状を変更しない。参照の便宜のため再掲する。
+
+// 再送で解消しうるか否か。permanent はサーバーの受入条件違反による確定的な拒否 (R20.16)
+type UploadFailureKind = 'retriable' | 'permanent';
+
+// アップロードに失敗した1件。再圧縮せず再送するため実体を File のまま保持する (R20.4)
+interface FailedUpload {
+  readonly file: File;
+  readonly error: string;      // ユーザーへ提示する失敗理由 (R20.2)
+  readonly kind: UploadFailureKind;
+}
+
+// onUpload の戻り値。void を返した場合は全件成功とみなす（既存呼び出しとの後方互換）
+interface UploadOutcome {
+  readonly failed: readonly FailedUpload[];
+}
+
+// 保持中の未送信画像。id は name:size:lastModified 由来の安定キー（同一画像の重複保持を防ぐ）
+interface PendingUpload extends FailedUpload {
+  readonly id: string;
+  readonly previewUrl: string;  // ObjectURL。生成・解放は usePendingUploads が唯一の責任者
+}
 ```
 
 ## File Structure Plan
@@ -291,6 +370,25 @@ frontend/src/
 - `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)
 - `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)
 - `routes.tsx` — CPビューアルート `/construction-photos/:albumId/photos/:photoId` を追加 (R14)
+
+### アップロード失敗の保持と再送のファイル（Req 20）
+
+**利用のみ・本 spec では変更しない（所有は site-survey spec Req37）**
+- `frontend/src/types/upload.types.ts` — `FailedUpload`/`UploadOutcome`/`PendingUpload`/`UploadFailureKind`
+- `frontend/src/utils/upload-failure.ts` — `toFailedUpload`/`classifyUploadFailure`/`isUnsupportedFormatMessage`
+- `frontend/src/hooks/usePendingUploads.ts` — 保持・重複排除・ObjectURL 生存管理
+- `frontend/src/components/site-surveys/PendingUploadPanel.tsx` — 未送信一覧の表示と再送・破棄の操作面
+- `frontend/src/components/site-surveys/ImageUploader.tsx` — 保持と再送・破棄の結線、圧縮の有無の切替
+- `frontend/src/api/client.ts` — `sendFormData`／`UPLOAD_TIMEOUT_MS`／`UPLOAD_RETRYABLE_STATUS_CODES`／401 リフレッシュ待ち合わせ
+
+**本 spec が所有する送信アダプタ（結線済み・回帰時の修正対象）**
+- `frontend/src/components/construction-photos/PhotoUploader.tsx` — `uploadFilesInWaves` が失敗画像の実体と再送可否を集約し、`handleUpload` が `UploadOutcome` として返す (R20.1, R20.16, R20.21)
+- `frontend/src/api/construction-photo-images.ts` — `uploadConstructionPhotos` が `apiClient.sendFormData` へ委譲（R20.11〜R20.15, R20.19, R20.20 の適用経路）
+- `frontend/src/pages/ConstructionPhotoDetailPage.tsx` — `PhotoUploader` を `canEdit` 配下に描画。未送信一覧は `ImageUploader` 内部に描画されるため詳細画面側の追加結線は不要
+
+**新規（検証）**
+- `e2e/specs/construction-photos/construction-photo-upload-retry.spec.ts` — 失敗→保持→再送→解消／再送不可の区別／破棄確認の E2E (R20.1〜R20.3, R20.5〜R20.8, R20.16〜R20.18)。R20.13 は「リクエスト回数2回以上」を観測した場合にのみラベルへ含める（Testing Strategy の検証責務の切り分けを参照）
+- `frontend/src/components/construction-photos/PhotoUploader.test.tsx` — 既存ファイルへ再送・破棄・実行中抑止・全件再送不可のケースを追加（工事写真経路での要件トレースを成立させる）
 
 ### Modified Files
 - `backend/prisma/schema.prisma` — 3モデル追加＋`Project`に逆リレーション追加（migration生成）。
@@ -388,6 +486,43 @@ flowchart LR
 
 ビューアは注釈編集を持たない閲覧専用で、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転状態を合成する。表示する原本は**新設の `GET .../original`**（看板を焼き込まない生原本）を必要時にのみ取得する（R11.3, R14.6）。
 
+### アップロード失敗時の保持と再送（R20）
+
+```mermaid
+flowchart TD
+    Pick[ファイル選択またはカメラ撮影] --> Val{フロント前段検証 50MB}
+    Val -->|超過| VErr[validationErrors として提示 保持しない]
+    Val -->|通過| Comp[初回のみ圧縮]
+    Comp --> Wave[1ファイル1リクエストで最大5並列送信]
+    Wave --> Res{送信結果}
+    Res -->|全件成功| Added[写真項目を一覧へ追加]
+    Res -->|到達前の通信障害 0 502 503 504| Auto[段階的バックオフで自動再試行]
+    Auto --> Res
+    Res -->|401 認証期限切れ| Refresh[トークン更新を待ち合わせて継続]
+    Refresh --> Res
+    Res -->|更新失敗| Session[セッション切れを共通手段で通知]
+    Res -->|400 または 413| Perm[permanent として保持]
+    Res -->|207 の形式非対応| Perm
+    Res -->|207 のその他 5xx タイムアウト| Retri[retriable として保持]
+    Session --> Retri
+    Perm --> Panel[未送信一覧に件数 サムネ ファイル名 理由を表示]
+    Retri --> Panel
+    Panel --> Act{ユーザー操作}
+    Act -->|再送| Resend[retriable のみを再圧縮せず送信]
+    Resend --> Res
+    Act -->|破棄| Confirm{破棄の確認}
+    Confirm -->|承諾| Free[保持を解放しプレビューURLを破棄]
+    Confirm -->|取消| Panel
+    Act -->|全件 permanent| Disabled[再送手段を実行不可で提示]
+```
+
+**Key Decisions**:
+- **自動再試行の対象**: サーバー処理に到達する前の失敗（`0`/`502`/`503`/`504`）に限る。`500` は永続化が完了した後の失敗を含み、再送が同一画像の重複登録を生むため対象外とする（R20.13, R20.14）。
+- **時間切れは自動再試行しない**: 1件あたり120秒の猶予を与えたうえで、時間切れは保持へ回してユーザー操作に委ねる。自動再試行を重ねると再送を開始できるまでの待ち時間が積み上がるためである（R20.15, R20.19, R20.20）。
+- **前段検証との線引き**: フロントの上限（50MB）で弾かれた画像は**送信を試行していない**ため未送信画像として保持せず、従来どおり `validationErrors` として提示する。サーバー上限（10MB）超過はサーバーが 413 を返し、`permanent` として保持・提示する（R20.16）。
+- **件数上限は到達不能**: `uploadFilesInWaves` は1リクエスト1ファイルで送信するため、R12.1 の件数上限に起因する 400 は工事写真 UI から発生しない。R20.16 が挙げる 3 条件のうち、工事写真で到達するのは「サイズ上限」と「画像形式」の 2 経路である。到達不能な経路の検証は行わない。
+- **並行送信の抑止**: 保持の反映は「試行対象のうち失敗しなかったものを取り除く」差分更新であるため、送信が同時に走ると後から解決した試行が先行試行の結果を上書きする。実行中は新規選択・カメラ・D&D も含めて送信系操作を抑止する（R20.10 が求める範囲を上回る意図的な選択）。
+
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -411,6 +546,28 @@ flowchart LR
 | 17 | 権限UI出し分け | useConstructionPhotoPermission, usePermission, DetailPage/ListPage, PhotoItemPanel(readOnly) | construction_photo:* | - |
 | 18 | 未保存離脱警告 | useUnsavedChanges, UnsavedChangesDialog, DetailPage | - | - |
 | 19 | 詳細画面モバイル | useMediaQuery, responsive, DetailPage, PhotoItemPanel | - | - |
+| 20 | アップロード失敗時の保持と再送 | PhotoUploader（送信アダプタ）, ImageUploader, usePendingUploads, PendingUploadPanel, upload-failure, ApiClient.sendFormData | UploadOutcome, FailedUpload, PendingUploadPanelProps, sendFormData | 保持・再送フロー |
+
+### Requirement 20 と site-survey Requirement 37 の対応
+
+R20 の機構は site-survey spec の Requirement 37 が所有する。共有部品のコードコメントは `37.x` のみを引用しているため、工事写真の要件から実装へ辿るには本表を経由する。コードコメントに両番号を併記することはしない（所有が曖昧になるため）。
+
+| 工事写真 | site-survey | 内容 | 実装の所在 |
+|---|---|---|---|
+| 20.1 | 37.1 | 失敗画像を未送信画像として保持 | `ImageUploader.submitFiles` ＋ `PhotoUploader.handleUpload` |
+| 20.2 | 37.2 | 件数・サムネ・ファイル名・失敗理由の表示 | `PendingUploadPanel` |
+| 20.3 | 37.3 | 再送可能分の一括再送 | `ImageUploader.handleRetry` |
+| 20.4 | 37.4 | 同一画像データで再送（再圧縮しない） | `submitFiles(files, compress=false)` |
+| 20.5 / 20.6 | 37.5 / 37.6 | 部分成功で成功分のみ除去／全成功で解消 | `usePendingUploads.record` |
+| 20.7 / 20.8 | 37.7 / 37.8 | 破棄の操作手段／破棄の確認 | `PendingUploadPanel` ＋ `ImageUploader.handleDiscardAll` |
+| 20.9 | 37.9 | 新規選択・撮影でも既存保持を維持 | `usePendingUploads.record` の差分更新 |
+| 20.10 | 37.10 | 実行中は追加の再送を受け付けない | `ImageUploader` の `isBusy` |
+| 20.11 / 20.12 | 37.11 / 37.12 | 401 の無操作復帰／セッション切れ通知 | `ApiClient.request` の `refreshInFlight` ／ `sessionExpiredCallback` |
+| 20.13 / 20.14 | 37.13 / 37.14 | 到達前失敗の自動再試行／処理中失敗は再試行しない | `UPLOAD_RETRYABLE_STATUS_CODES` |
+| 20.15 | 37.15 | 1件あたり120秒の送信猶予 | `UPLOAD_TIMEOUT_MS` |
+| 20.16 / 20.17 / 20.18 | 37.16 / 37.17 / 37.18 | 恒久／一時の区別・再送対象外・実行不可提示 | `classifyUploadFailure` ＋ `retriableFiles` ＋ `canRetry` |
+| 20.19 / 20.20 | 37.19 / 37.20 | 時間切れは自動再試行せず保持／待ち時間を延伸させない | `isRetryableApiError` の FormData 分岐 |
+| 20.21 | 37.21 | ストレージ保存失敗は再送可として保持 | 207 の文言分岐（形式非対応以外は `retriable`） |
 
 ## Components and Interfaces
 
@@ -430,6 +587,11 @@ flowchart LR
 | BulkExportDialog / ProgressDialog / ExportSettingsForm | UI | エクスポート設定・進捗・中断UI(clone) | 15 | ExportService(P0) | State |
 | useConstructionPhotoPermission | UI(hook) | 権限出し分け(canView/Create/Edit/Delete) | 17 | usePermission(P0) | Hook |
 | AlbumDeleteDialog | UI | アルバム削除確認 | 16 | album API(P0) | State |
+| PhotoUploader | UI | 3系統追加＋**送信アダプタ**（失敗画像の実体と再送可否を返す） | 4,5,6,20 | ImageUploader(P0), ImageApi(P0), upload-failure(P0) | State |
+| ImageUploader（借用） | UI | 未送信保持・再送・破棄の結線 | 20 | usePendingUploads(P0), PendingUploadPanel(P0) | State |
+| usePendingUploads（借用） | UI(hook) | 保持・重複排除・ObjectURL 生存管理 | 20 | upload.types(P0) | Hook |
+| PendingUploadPanel（借用） | UI | 未送信一覧の表示と操作面 | 20 | upload.types(P0) | State |
+| ApiClient.sendFormData（借用） | API(client) | multipart 送信の再試行・猶予・401更新 | 20 | ApiClient(P0) | Service |
 
 ### Backend Service Interfaces
 
@@ -509,6 +671,36 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 - Preconditions: `export()` は `photos.length>0`（0件は呼び出し側で非実行・通知 R15.11）。ビューアは対象写真が要求プロジェクト配下であること。
 - Postconditions: `export()` は ZIP Blob とダウンロードをもたらし、`failed` を通知に反映。`useConstructionPhotoPermission` は権限ロード完了まで全 `false`（安全側 R17.5）。
 
+### Frontend Interfaces（R20 送信アダプタ）
+
+本 spec が所有するのは以下の 2 つの契約のみである。保持機構側の契約（`usePendingUploads`/`PendingUploadPanelProps`）は site-survey spec Req37 が所有するため、ここでは接続点のみを規定する。
+
+```typescript
+// 工事写真のアップロード送信アダプタ (R20.1, R20.16, R20.21)
+// 1ファイル=1リクエストで最大5並列（R11.5）。失敗は File の実体ごと集約して返す。
+interface UploadWavesResult {
+  successful: ConstructionPhotoWithUrls[];
+  failed: FailedUpload[];                       // 再送可否は本関数内で確定済み
+}
+function uploadFilesInWaves(
+  albumId: string,
+  files: File[],
+  options?: { concurrency?: number; onProgress?: (p: UploadProgress) => void },
+): Promise<UploadWavesResult>;
+
+// ImageUploader へ注入するハンドラ。UploadOutcome を返すことで保持が成立する (R20.1)
+// PhotoUploaderProps は既存のまま（albumId/projectId/onPhotosAdded/onNotify/disabled）。
+type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
+```
+
+- **Preconditions**: `uploadFilesInWaves` に渡す `files` は `ImageUploader` の前段検証（サイズ50MB以下）を通過した圧縮済みファイル。再送時は圧縮を経ずに同一 `File` が渡る。
+- **Postconditions**: 戻り値の `failed[]` は送信した `File` を一意に指し、`kind` が確定している。成功分は `onPhotosAdded` で親へ通知し、失敗の通知文言（`buildNotice`）は従来どおりファイル名の一覧で構成する（挙動保存）。
+- **Invariants**:
+  - 応答の `failed[]` は `ApiError(207, item.error)` として分類器へ渡す。文字列の失敗理由のみを上位へ渡さない（413 が再送可へ倒れるため）。工事写真側で失敗理由から再分類しない（分類の二重定義を作らない）。
+  - **成功分の通知（`onPhotosAdded`）および失敗通知（`onNotify`）の例外を、送信の失敗として扱わない**。`ImageUploader.submitFiles` の catch は試行対象の**全ファイル**を保持へ回すため、成功分の通知で例外が伝播すると、サーバー登録済みの画像まで未送信画像として保持され、再送で重複登録される。`handleUpload` は通知の呼び出しを個別に保護し、通知の失敗が `UploadOutcome` の `failed[]` を汚染しないようにする。これは R20.14 が守る「同一画像の重複登録を避ける」不変条件をアダプタ層でも維持するためである。
+  - `uploadFilesInWaves` 自体は例外を投げない（各リクエストを個別に捕捉し `failed[]` へ集約する）。したがって `handleUpload` が reject しうるのは通知経路のみであり、上記の保護でアダプタ層の例外経路は塞がれる。
+- **決定: 権限喪失時の保持の扱い（R17 との相互作用）** — `PhotoUploader` は `canEdit` 配下に描画されるため、編集権限を失うとアンマウントで保持中の未送信画像が解放される。R17.1（編集権限なしは操作手段を表示しない）を優先する。編集権限のないユーザーが再送してもバックエンドが 403 で拒否するため、保持を続けても再送は成立せず「再送できるはず」という誤った期待を生むからである。
+
 ### API Contracts
 
 | Method | Endpoint | Request | Response | Errors |
@@ -540,11 +732,29 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 
 ### Error Strategy
 - 入力検証は境界（zodスキーマ/multer）で fail fast。バッチ処理は部分失敗を許容し、成功分は確定・失敗分のみ通知（R12.5, R11.5）。
+- アップロードの失敗は**通知と保持を併存**させる。通知（失敗件数と理由の提示）は従来どおり画面が行い、保持（画像の実体を残して再送可能にする）は `ImageUploader` が行う。両者は独立した関心事であり、片方が他方を代替しない（R12.5 と R20 の共存）。
 
 ### Error Categories and Responses
 - **User (4xx)**: 形式外/サイズ超過/件数超過→413/400 でフィールド単位エラー（R4.5,R12.3）。未認証401・権限なし403（R13）。対象アルバム/写真なし404。楽観排他競合409（R1.5）。
 - **System (5xx)**: ストレージ保存失敗→当該写真は未登録として通知し他は維持（R12.5）。合成失敗→当該写真は看板なしにフォールバックせず、エラー通知し保存を中断（データ不整合回避）。
 - **Business (422相当)**: 印刷対象0件→PDF実行せず通知（R10.13）。使用中看板の削除→使用件数を返し確認（R8.8）。
+
+### アップロード失敗の分類（R20.16, R20.21）
+
+判定に迷う場合は `retriable` に倒す。`permanent` の誤判定は撮影画像の喪失に直結するのに対し、`retriable` の誤判定は無駄な再送に留まるためである。
+
+| 失敗の形 | 区分 | 挙動 |
+|---|---|---|
+| `0` / `502` / `503` / `504`（サーバー到達前） | retriable | まず段階的バックオフで自動再試行。尽きたら保持（R20.13） |
+| 送信の時間切れ（120秒） | retriable | 自動再試行せず保持し、ユーザー操作の再送に委ねる（R20.19, R20.20） |
+| `401` → トークン更新成功 | 失敗としない | 無操作で送信を継続（R20.11） |
+| `401` → トークン更新失敗 | retriable | 共通手段でセッション切れを通知したうえで保持（R20.12） |
+| `400`（入力検証） / `413`（サイズ上限） | **permanent** | 再送対象から除外し、再送しても解消しない旨と理由を提示（R20.16, R20.17） |
+| `207` かつ失敗理由が画像形式の非対応 | **permanent** | 同上 |
+| `207` かつストレージ障害・画像処理失敗・DBエラー | retriable | 再送対象として保持（R20.21） |
+| `500` その他・`ApiError` でない例外 | retriable | 自動再試行はせず保持（R20.14） |
+
+保持中の画像が全て `permanent` の場合、再送手段は非表示にせず**実行不可の状態で提示**し、破棄の操作手段のみを有効にする（R20.18）。
 
 ### Monitoring
 - 既存の監査ログ（`AuditLogService`）と Sentry を踏襲。合成・アップロードの失敗はエラーログに写真ID・アルバムIDを記録。
@@ -561,6 +771,14 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 - `ConstructionPhotoBulkExportService.export`: signboardMode 別に取得元を切替（composited=print-image, plain/original=原本）、resolution/format を canvas 再エンコードで適用、進捗通知、1件失敗は `failed` に積み継続（R15.2,R15.3,R15.4,R15.10）。
 - `ConstructionPhotoBulkExportService.export`: `AbortSignal` abort で AbortError により処理中断し途中生成を破棄する（R15.9）。
 - `useConstructionPhotoPermission`: `construction_photo:update` 保持で canEdit、`construction_photo:delete` 保持で canDelete、権限ロード中は全 false（R17.1,R17.2,R17.5）。
+- `uploadFilesInWaves`: 送信例外で失敗した画像の `File` 実体と再送可否区分を返す。413 は `permanent`、通信エラーは `retriable`（R20.1,R20.16）。
+- `uploadFilesInWaves`: サーバーが 207 で per-file 失敗を返した場合も対応する `File` を返し、画像形式の非対応のみ `permanent`、ストレージ障害は `retriable` に分類する（R20.16,R20.21）。
+- `PhotoUploader`: 一部失敗・全件失敗のいずれでも失敗画像が未送信一覧へ反映され、成功分の登録と失敗通知の文言が変わらない（R20.1,R12.5）。
+- `PhotoUploader`: 未送信画像を保持した状態で再送を実行すると、圧縮を経ずに同一 `File` が送信され、成功分のみ保持から取り除かれる（R20.3,R20.4,R20.5）。
+- `PhotoUploader`: 破棄は確認の承諾時にのみ保持を解放し、アップロード実行中は再送・破棄の操作を受け付けない（R20.8,R20.10）。
+- `PhotoUploader`: 保持中の画像が全て `permanent` の場合、再送手段が実行不可の状態で提示される（R20.18）。
+- `PhotoUploader`: `onPhotosAdded` が例外を投げても、**成功した画像が未送信画像として保持されない**（登録済み画像の重複登録を招かない）。失敗した画像のみが保持される（R20.5,R20.14）。
+- `construction-photo-images`: `uploadConstructionPhotos` が素の `fetch` ではなく `apiClient.sendFormData` へ委譲する（再試行方針・120秒の送信猶予・401 更新の適用経路を工事写真側で固定する。R20.11,R20.13,R20.15,R20.19）。
 
 ### Integration Tests
 - 画像一覧API: 1リクエストで全写真＋署名付きURLを返し、写真ごとの個別URL取得が発生しない（R11.2）。
@@ -569,6 +787,10 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 - サマリAPI: `detail-summary` に `constructionPhotos:{totalCount,latest...}` が同型で含まれる（R2.3）。
 - 認可: 未認証401・権限なし403（R13.1,R13.3）。
 - 非合成原本エンドポイント: 看板配置済み写真でも生原本（非合成）を返し、一覧DTOに `originalUrl` を含めない。権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）（R14.6,R15.4,R13.2,R13.4）。
+- **形式エラー文言の契約**: 不正な画像形式のアップロードに対し、207 応答の `failed[].error` が `utils/upload-failure` の判定断片（`サポートされていないファイル形式` / `サポートされていない画像形式` / `MIMEタイプと一致しません`）のいずれかを**含む**ことを検証する（R20.16,R20.17,R20.18）。
+  - 既存の `construction-photo-image.api.integration.test.ts` は `failed[].fileName` のみを検証しており、メッセージ本文を保証していない。工事写真が独自の検証メッセージを持った瞬間に恒久／一時の分類が `retriable` へ倒れ、再送不可の区別が無言で壊れるため、この1項目でフロントとバックエンドの文言契約を固定する。
+  - **情報源はバックエンドの検証エラー定義**（`survey-image.service` の `InvalidFileTypeError` / `InvalidMagicBytesError` / `UnsupportedImageFormatError`）とし、統合テストはその定義から得たメッセージで照合する。テスト内に文言を書き下ろさない（二重定義を作らないため）。backend と frontend は別パッケージであり、バックエンドのテストからフロントの定数を import することはできないため、フロントの `UNSUPPORTED_FORMAT_MESSAGE_FRAGMENTS` 側は当該エラー定義に由来することをコメントで示す（記載済み）。
+  - 恒久解はバックエンドの per-file 失敗へエラーコードを付与し、文言でなくコードで分類することだが、`survey-image.service` 側の変更を伴うため本 spec の Out of Boundary とする。本項目はその移行までの回帰検知として機能する。
 
 ### E2E/UI Tests（Playwright, 要件はE2Eで検証して完了）
 - プロジェクト詳細→工事写真パネル（工程表直下）→一覧→詳細への遷移（R2.1,R2.2,R2.4）。
@@ -581,6 +803,24 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 - 削除権限を持たないユーザー（user）でアルバム削除・写真削除の導線が非表示、編集権限なしで詳細が読み取り専用（R17）。
 - 未保存変更ありでアプリ内遷移/リロード時に離脱警告が出て、保存後は警告が出ない（R18）。
 - モバイル幅で詳細画面が横スクロールせず縦積み表示になる（R19）。
+- アップロード応答をサーバーエラーへ差し替えて失敗させ、未送信件数とサムネイル・ファイル名・失敗理由が表示される（R20.1,R20.2）。
+- 差し替えを解除して再送し、写真項目が一覧へ追加され未送信の表示が解消する（R20.3,R20.5,R20.6）。
+- サイズ上限超過（413）の応答へ差し替え、当該画像が再送不可として区別され、再送手段が実行不可となり理由が提示される（R20.16,R20.17,R20.18）。
+- 破棄の確認ダイアログを承諾すると未送信の表示が消える（R20.7,R20.8）。
+- 一時的な通信障害（`503`）で失敗させたのち復旧させ、再送が成功する（R20.1,R20.3,R20.5,R20.6）。オフライン切替はローカル環境で機能しないため用いず、応答差し替えで再現する。**自動再試行（R20.13）を主張する場合は、差し替え中の同一パスへのリクエストが2回以上発生したことを観測する**。回数を観測しないなら本シナリオのラベルに R20.13 を含めない。
+
+**R20 の検証責務の切り分け**
+
+E2E で観測できる受入基準と、共有クライアントの内部挙動として単体テストでのみ観測できる受入基準を区別する。工事写真の E2E に観測しないラベルを付けない（カバレッジの過大主張を作らないため）。
+
+| 受入基準 | 検証手段 | 備考 |
+|---|---|---|
+| 20.1〜20.3, 20.5〜20.8, 20.16〜20.18 | 工事写真 E2E | 画面に現れる状態と操作結果として観測可能 |
+| 20.4, 20.9, 20.10 | `PhotoUploader` 単体テスト | 再圧縮の有無・保持の温存・実行中抑止は画面から区別しにくい |
+| 20.11, 20.12, 20.13, 20.14, 20.15, 20.19, 20.20 | `api/client.ts` の単体テスト（所有は site-survey Req37）＋ `construction-photo-images` 単体テストの `sendFormData` 委譲確認 | 再試行方針・送信猶予・401 更新は共有クライアントの内部挙動。工事写真側は「その経路を通っていること」を確認すれば足りる |
+| 20.21 | `PhotoUploader` 単体テスト（207 のストレージ障害が `retriable`）＋ 上記の形式エラー文言の契約テスト | フロントの分類とバックエンドの文言の両側で固定する |
+
+**E2E の前提と観測方針**: テスト環境（frontend 5174 / backend 3100 / postgres 5433）を用い、フロントは本番ビルドのため事前ビルドが必要。応答差し替えの観測は**オリジンではなくパス基準**で行う（CI と ローカルで API オリジンが食い違い、オリジン依存の観測は全件素通りするため）。固定時間待機を用いず明示的な条件待ちのみで構成する。
 
 ### Performance
 - アルバム50件ページング・一括署名URL取得でリクエスト数が写真数に比例しないこと（R11.1,R11.2）。
@@ -591,6 +831,8 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 - データ分離: アルバム/写真/看板の取得時に対象が要求プロジェクト配下であることをサービスで検証（R13.2）。
 - 配信: 原本・サムネ・合成画像はすべて署名付きURL（TTL 900s）で配信し公開パスを用いない（R13.4）。
 - UI権限出し分け（R17）はフロントの体験向上であり権威ではない。実際の認可はバックエンド RBAC（`requirePermission`）が権威で、非表示化した操作もサーバ側で403となる（多重防御）。`useConstructionPhotoPermission` は権限ロード完了まで安全側（非表示）に倒す（R17.5）。
+- 未送信画像の保持（R20）はブラウザのメモリ上のみで、`File` 実体も `ObjectURL` も永続化しない。端末ローカル保存は Out of scope であり、画面離脱・リロードで保持は失われる（撮影画像が端末に残り続けることによる情報残留を作らない）。`ObjectURL` は保持から外れた時点・破棄時・アンマウント時に必ず解放する。
+- 認証期限切れからの復帰（R20.11）はリフレッシュトークンによる既存の更新経路を用い、再送のために資格情報を画面へ保持しない。更新失敗時は共通のセッション切れ通知へ倒し、失敗を握り潰さない（R20.12）。
 
 ## Performance & Scalability
 - リクエスト効率（R11）は既存 site-survey 方針を踏襲: 一覧`limit=50`、詳細は写真一覧＋署名URLを一括取得（N+1回避）、サムネ優先・原本/印字画像は必要時、保存は最大2リクエスト、アップロード並列5、署名URL TTL 900s。

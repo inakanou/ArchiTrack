@@ -2,6 +2,7 @@
  * @fileoverview 画像アップロードUIコンポーネント
  *
  * Task 9.3: 画像アップロードUIを実装する
+ * Task 108.1: アップロードUIに未送信保持と再送・破棄を結線する
  *
  * Requirements:
  * - 4.1: ファイル選択ダイアログ
@@ -9,6 +10,13 @@
  * - 4.5: エラー表示（形式不正）
  * - 4.6: エラー表示（サイズ超過）
  * - 13.3: モバイル環境でのカメラ連携
+ * - 37.1: 失敗した画像を未送信画像として画面に保持する
+ * - 37.3: 保持中の再送可能な画像をまとめて再送する
+ * - 37.4: 再送では初回送信と同一の画像データを送り、再圧縮しない
+ * - 37.6: 再送で全件成功したら未送信画像の表示を解消する
+ * - 37.8: 破棄は確認の承諾時にのみ実行する
+ * - 37.9: 新規のファイル選択・撮影でも既存の未送信画像を保持し続ける
+ * - 37.10: アップロード中・再送中は追加の再送操作を受け付けない
  *
  * 機能:
  * - ファイル選択ダイアログ
@@ -17,6 +25,7 @@
  * - アップロード進捗表示
  * - バリデーションエラー表示（形式不正、サイズ超過）
  * - モバイル環境でのカメラ連携
+ * - アップロードに失敗した画像の保持と再送・破棄
  */
 
 import { useState, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react';
@@ -27,6 +36,10 @@ import {
   MAX_FILE_SIZE_BYTES,
 } from './image-uploader.constants';
 import { compressImagesForUpload } from '../../utils/image-compression';
+import { toFailedUpload } from '../../utils/upload-failure';
+import { usePendingUploads } from '../../hooks/usePendingUploads';
+import PendingUploadPanel from './PendingUploadPanel';
+import type { UploadOutcome } from '../../types/upload.types';
 
 // 定数の再エクスポート（後方互換性のため）
 
@@ -62,8 +75,13 @@ export interface ValidationError {
  * ImageUploader コンポーネントの Props
  */
 export interface ImageUploaderProps {
-  /** アップロードハンドラ（バリデーション済みファイルを受け取る） */
-  onUpload: (files: File[]) => Promise<void>;
+  /**
+   * アップロードハンドラ（バリデーション済みファイルを受け取る）
+   *
+   * 失敗した画像を保持・再送できるよう、失敗の内訳（`UploadOutcome`）を返せる。
+   * 戻り値が `void` の場合は全件成功として扱う（既存呼び出しとの後方互換）。
+   */
+  onUpload: (files: File[]) => Promise<UploadOutcome | void>;
   /** バリデーションエラーコールバック */
   onValidationError?: (errors: ValidationError[]) => void;
   /** アップロードエラーコールバック */
@@ -79,6 +97,14 @@ export interface ImageUploaderProps {
   /** カスタムクラス名 */
   className?: string;
 }
+
+// ============================================================================
+// 定数
+// ============================================================================
+
+/** 未送信画像の破棄を確認する文言（37.8） */
+const DISCARD_CONFIRM_MESSAGE =
+  '未送信の画像をすべて破棄します。破棄した画像は元に戻せません。よろしいですか？';
 
 // ============================================================================
 // スタイル定義
@@ -263,6 +289,26 @@ export function ImageUploader({
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  /** 再送の実行中フラグ。アップロード中と同様に追加の送信操作を受け付けない（37.10） */
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  // 未送信画像の保持（37.1, 37.5, 37.6, 37.9）
+  const { pending, retriableFiles, record, discardAll } = usePendingUploads();
+
+  /**
+   * アップロード中または再送中は送信系の操作を受け付けない（37.10）。
+   *
+   * 37.10 と design が明示的に求めるのは「再送・破棄」の抑止のみだが、本実装は
+   * 新規選択・カメラ・D&D・キーボード操作も同時に抑止する意図的な選択を採る。
+   * 送信の後処理はいずれも `record(attempted, failed)` を通り、これは
+   * 「試行対象のうち失敗しなかったものを保持から取り除く」という前回保持を
+   * 前提とした差分更新である。送信が同時に走ると、後から解決した試行の
+   * `record` が先行試行の結果を上書きし、未送信画像を取りこぼす競合が生じる。
+   * 抑止中も保持自体は維持され、完了後に新規アップロードを実行できるため
+   * 37.9 の保持要件は満たされる。
+   */
+  const isBusy = isUploading || isRetrying;
+
   // 参照
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -281,10 +327,65 @@ export function ImageUploader({
     return null;
   }, []);
 
+  /**
+   * 送信を実行し、その結果を未送信画像の保持へ反映する。
+   *
+   * 初回送信と再送の後処理（失敗の記録・エラー表示）を1箇所に集約し、
+   * 「試行して失敗しなかった画像は保持に残らない」という不変条件を共通化する。
+   *
+   * 例外で失敗した場合も試行対象の File を保持へ回す（37.1）。呼び出し側の
+   * `onUpload`（`SiteSurveyDetailPage.handleImageUpload` /
+   * `PhotoUploader.handleUpload`）は catch を持たず、通信断・認証切れ・
+   * `onPhotosAdded` の例外がそのままここへ伝播する。ここで File 参照を捨てると
+   * 撮影済みの画像が復元不能に失われるため、メッセージの state 化だけでは足りない。
+   *
+   * @param files - 送信対象の画像
+   * @param compress - 送信前に圧縮するかどうか。再送では false を指定する（37.4）
+   */
+  const submitFiles = useCallback(
+    async (files: File[], compress: boolean): Promise<void> => {
+      setUploadError(null);
+
+      // 例外時に保持へ回す試行対象。圧縮前に例外が起きた場合は元ファイルが
+      // 試行対象であるため、初期値を入力ファイルとし圧縮成功後に差し替える。
+      let attempted: File[] = files;
+
+      try {
+        // 初回送信のみブラウザ側で縮小・再エンコードして通信量とサーバ負荷を削減する。
+        // 非対応環境や圧縮不要な画像は元ファイルがそのまま返るため安全。
+        // 再送は保持している圧縮済みの画像をそのまま送り、再圧縮による画質の
+        // 二重劣化を避ける（37.4）。
+        const filesToSend = compress ? await compressImagesForUpload(files) : files;
+        attempted = filesToSend;
+        const outcome = await onUpload(filesToSend);
+        // 戻り値が void の呼び出しは全件成功として扱う（既存呼び出しとの後方互換）
+        record(filesToSend, outcome?.failed ?? []);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'アップロードに失敗しました。';
+        setUploadError(errorMessage);
+        if (error instanceof Error) {
+          onError?.(error);
+        } else {
+          onError?.(new Error(errorMessage));
+        }
+
+        // 試行対象をすべて未送信画像として保持する（37.1）。`toFailedUpload` は
+        // 400 / 413 のみを permanent とし、通信エラーや ApiError でない例外は
+        // retriable に分類するため、例外時は既定で再送可能な状態で残る（37.3, 37.16）。
+        record(
+          attempted,
+          attempted.map((file) => toFailedUpload(file, error))
+        );
+      }
+    },
+    [onUpload, onError, record]
+  );
+
   // ファイル処理
   const processFiles = useCallback(
     async (files: FileList | File[]) => {
-      if (disabled || isUploading) return;
+      if (disabled || isBusy) return;
 
       const fileArray = Array.from(files);
       if (fileArray.length === 0) return;
@@ -311,27 +412,44 @@ export function ImageUploader({
       }
 
       // 有効なファイルがある場合はアップロード
+      // 既存の未送信画像は今回の試行対象に含まれないため保持され続ける（37.9）
       if (validFiles.length > 0) {
-        setUploadError(null);
-        try {
-          // 送信前にブラウザ側で縮小・再エンコードして通信量とサーバ負荷を削減する。
-          // 非対応環境や圧縮不要な画像は元ファイルがそのまま返るため安全。
-          const filesToUpload = await compressImagesForUpload(validFiles);
-          await onUpload(filesToUpload);
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : 'アップロードに失敗しました。';
-          setUploadError(errorMessage);
-          if (error instanceof Error) {
-            onError?.(error);
-          } else {
-            onError?.(new Error(errorMessage));
-          }
-        }
+        await submitFiles(validFiles, true);
       }
     },
-    [disabled, isUploading, validateFile, onUpload, onValidationError, onError]
+    [disabled, isBusy, validateFile, onValidationError, submitFiles]
   );
+
+  /**
+   * 保持中の再送可能な画像をまとめて再送する（37.3）。
+   * 再送では圧縮を通さず、初回送信と同一の画像データを送る（37.4）。
+   */
+  const handleRetry = useCallback(async () => {
+    if (disabled || isBusy) return;
+
+    // 再送不可（permanent）の画像は対象に含めない（37.17）
+    const filesToRetry = [...retriableFiles];
+    if (filesToRetry.length === 0) return;
+
+    setIsRetrying(true);
+    try {
+      await submitFiles(filesToRetry, false);
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [disabled, isBusy, retriableFiles, submitFiles]);
+
+  /**
+   * 保持中の未送信画像を破棄する（37.7, 37.8）。
+   * 破棄した画像は復元できないため、確認が承諾された場合にのみ解放する。
+   */
+  const handleDiscardAll = useCallback(() => {
+    if (disabled || isBusy) return;
+
+    if (!window.confirm(DISCARD_CONFIRM_MESSAGE)) return;
+
+    discardAll();
+  }, [disabled, isBusy, discardAll]);
 
   // ファイル入力変更ハンドラ
   const handleFileChange = useCallback(
@@ -348,20 +466,20 @@ export function ImageUploader({
 
   // クリックハンドラ
   const handleClick = useCallback(() => {
-    if (!disabled && !isUploading) {
+    if (!disabled && !isBusy) {
       fileInputRef.current?.click();
     }
-  }, [disabled, isUploading]);
+  }, [disabled, isBusy]);
 
   // キーボードハンドラ
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      if ((event.key === 'Enter' || event.key === ' ') && !disabled && !isUploading) {
+      if ((event.key === 'Enter' || event.key === ' ') && !disabled && !isBusy) {
         event.preventDefault();
         fileInputRef.current?.click();
       }
     },
-    [disabled, isUploading]
+    [disabled, isBusy]
   );
 
   // ドラッグイベントハンドラ
@@ -369,11 +487,11 @@ export function ImageUploader({
     (event: DragEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      if (!disabled && !isUploading) {
+      if (!disabled && !isBusy) {
         setIsDragActive(true);
       }
     },
-    [disabled, isUploading]
+    [disabled, isBusy]
   );
 
   const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -393,25 +511,25 @@ export function ImageUploader({
       event.stopPropagation();
       setIsDragActive(false);
 
-      if (disabled || isUploading) return;
+      if (disabled || isBusy) return;
 
       const files = event.dataTransfer?.files;
       if (files && files.length > 0) {
         processFiles(files);
       }
     },
-    [disabled, isUploading, processFiles]
+    [disabled, isBusy, processFiles]
   );
 
   // カメラボタンクリックハンドラ
   const handleCameraClick = useCallback(
     (event: React.MouseEvent) => {
       event.stopPropagation();
-      if (!disabled && !isUploading) {
+      if (!disabled && !isBusy) {
         cameraInputRef.current?.click();
       }
     },
-    [disabled, isUploading]
+    [disabled, isBusy]
   );
 
   // 進捗バーの計算
@@ -423,7 +541,7 @@ export function ImageUploader({
   const uploadAreaStyle: React.CSSProperties = {
     ...styles.uploadArea,
     ...(isDragActive ? styles.uploadAreaActive : {}),
-    ...(disabled || isUploading ? styles.uploadAreaDisabled : {}),
+    ...(disabled || isBusy ? styles.uploadAreaDisabled : {}),
     ...(compact ? styles.uploadAreaCompact : {}),
   };
 
@@ -444,8 +562,8 @@ export function ImageUploader({
         data-testid="upload-area"
         data-drag-active={isDragActive ? 'true' : undefined}
         role="button"
-        tabIndex={disabled || isUploading ? -1 : 0}
-        aria-disabled={disabled || isUploading ? 'true' : undefined}
+        tabIndex={disabled || isBusy ? -1 : 0}
+        aria-disabled={disabled || isBusy ? 'true' : undefined}
         style={uploadAreaStyle}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
@@ -481,7 +599,7 @@ export function ImageUploader({
           data-testid="camera-button"
           style={styles.cameraButton}
           onClick={handleCameraClick}
-          disabled={disabled || isUploading}
+          disabled={disabled || isBusy}
         >
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
@@ -508,7 +626,7 @@ export function ImageUploader({
         data-testid="file-input"
         accept={ALLOWED_FILE_TYPES.join(',')}
         multiple
-        disabled={disabled || isUploading}
+        disabled={disabled || isBusy}
         onChange={handleFileChange}
         style={styles.hiddenInput}
         aria-label="画像ファイルを選択"
@@ -521,7 +639,7 @@ export function ImageUploader({
         data-testid="camera-input"
         accept="image/*"
         capture="environment"
-        disabled={disabled || isUploading}
+        disabled={disabled || isBusy}
         onChange={handleFileChange}
         style={styles.hiddenInput}
         aria-label="カメラで撮影"
@@ -573,6 +691,15 @@ export function ImageUploader({
           <p style={{ margin: 0, fontSize: '13px', color: '#b91c1c' }}>{uploadError}</p>
         </div>
       )}
+
+      {/* 未送信画像の保持と再送・破棄（37.1〜37.3, 37.6〜37.10） */}
+      <PendingUploadPanel
+        pending={pending}
+        canRetry={retriableFiles.length > 0}
+        isBusy={isBusy}
+        onRetry={handleRetry}
+        onDiscardAll={handleDiscardAll}
+      />
 
       {/* スピナーアニメーション用のスタイル */}
       <style>{`

@@ -11,6 +11,15 @@
  * - 4.5: エラー表示（形式不正）
  * - 4.6: エラー表示（サイズ超過）
  * - 13.3: モバイル環境でのカメラ連携
+ *
+ * Task 108.1（Requirement 37）:
+ * - 37.1: 失敗した画像を未送信画像として画面に保持する
+ * - 37.3: 保持中の再送可能な画像をまとめて再送する
+ * - 37.4: 再送では初回送信と同一の画像データを送り、再圧縮しない
+ * - 37.6: 再送で全件成功したら未送信画像の表示を解消する
+ * - 37.8: 破棄は確認の承諾時にのみ実行する
+ * - 37.9: 新規のファイル選択・撮影でも既存の未送信画像を保持し続ける
+ * - 37.10: アップロード中・再送中は追加の再送操作を受け付けない
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -23,6 +32,53 @@ import ImageUploader, {
   MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_MB,
 } from '../../../components/site-surveys/ImageUploader';
+import { compressImagesForUpload } from '../../../utils/image-compression';
+import type { FailedUpload, UploadFailureKind } from '../../../types/upload.types';
+
+// ============================================================================
+// 画像圧縮のモック
+//
+// 再送で再圧縮が行われないこと（37.4）を検証するため、圧縮モジュールをスパイに
+// 差し替える。既定の実装は入力をそのまま返す恒等関数とし、既存テストが期待する
+// 「選択したファイルがそのまま onUpload へ渡る」挙動を維持する。
+// ============================================================================
+
+vi.mock('../../../utils/image-compression', () => ({
+  compressImageForUpload: vi.fn(),
+  compressImagesForUpload: vi.fn(),
+}));
+
+const compressImagesForUploadMock = vi.mocked(compressImagesForUpload);
+
+// ============================================================================
+// URL.createObjectURL / revokeObjectURL のスタブ
+//
+// jsdom は ObjectURL API を実装しないため、テストを条件付きで無効化せず
+// スタブへ差し替える（AI運用第3原則）。
+// ============================================================================
+
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
+
+/** 発行済み ObjectURL の通し番号 */
+let issuedObjectUrlCount = 0;
+
+beforeEach(() => {
+  // vi.clearAllMocks() は呼び出し履歴のみを消すため、実装はここで毎回張り直す
+  compressImagesForUploadMock.mockImplementation((files: File[]) => Promise.resolve(files));
+
+  issuedObjectUrlCount = 0;
+  URL.createObjectURL = vi.fn((): string => {
+    issuedObjectUrlCount += 1;
+    return `blob:mock/${issuedObjectUrlCount}`;
+  });
+  URL.revokeObjectURL = vi.fn();
+});
+
+afterEach(() => {
+  URL.createObjectURL = originalCreateObjectURL;
+  URL.revokeObjectURL = originalRevokeObjectURL;
+});
 
 // ============================================================================
 // モックとヘルパー
@@ -616,8 +672,10 @@ describe('ImageUploader', () => {
 
       fireEvent.change(input, { target: { files: [file] } });
 
+      // 例外時はアップロードエラー表示と未送信画像の失敗理由の双方に同じ文言が
+      // 現れるため、対象を data-testid で特定して検証する
       await waitFor(() => {
-        expect(screen.getByText(/Network error/i)).toBeInTheDocument();
+        expect(screen.getByTestId('upload-error')).toHaveTextContent(/Network error/i);
       });
     });
 
@@ -634,15 +692,17 @@ describe('ImageUploader', () => {
       fireEvent.change(input, { target: { files: [file] } });
 
       await waitFor(() => {
-        expect(screen.getByText(/Upload failed/i)).toBeInTheDocument();
+        expect(screen.getByTestId('upload-error')).toHaveTextContent(/Upload failed/i);
       });
 
       // Retry succeeds
       fireEvent.change(input, { target: { files: [file] } });
 
       await waitFor(() => {
-        expect(screen.queryByText(/Upload failed/i)).not.toBeInTheDocument();
+        expect(screen.queryByTestId('upload-error')).not.toBeInTheDocument();
       });
+      // 再送に成功した画像は未送信画像からも取り除かれる（37.6）
+      expect(screen.queryByTestId('pending-upload-panel')).not.toBeInTheDocument();
     });
   });
 
@@ -719,6 +779,344 @@ describe('ImageUploader', () => {
       await waitFor(() => {
         expect(mockOnUpload).toHaveBeenCalled();
       });
+    });
+  });
+
+  // ==========================================================================
+  // 未送信画像の保持と再送（Requirement 37 / Task 108.1）
+  // ==========================================================================
+
+  describe('pending uploads (Requirement 37)', () => {
+    /** 失敗情報を組み立てる */
+    function createFailure(
+      file: File,
+      error: string,
+      kind: UploadFailureKind = 'retriable'
+    ): FailedUpload {
+      return { file, error, kind };
+    }
+
+    it('should keep failed images as pending when onUpload reports failures (37.1)', async () => {
+      const file = createMockFile('failed.jpg', 1024);
+      const onUpload = vi
+        .fn()
+        .mockResolvedValue({ failed: [createFailure(file, '送信に失敗しました')] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 1 件');
+      expect(screen.getByTestId('pending-upload-filename')).toHaveTextContent('failed.jpg');
+      expect(screen.getByTestId('pending-upload-reason')).toHaveTextContent('送信に失敗しました');
+    });
+
+    it('should treat a void return value as a full success (backward compatibility)', async () => {
+      const file = createMockFile('ok.jpg', 1024);
+      const onUpload = vi.fn().mockResolvedValue(undefined);
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(onUpload).toHaveBeenCalledWith([file]);
+      });
+      expect(screen.queryByTestId('pending-upload-panel')).not.toBeInTheDocument();
+    });
+
+    /**
+     * @requirement site-survey/REQ-37.4: 再送は保持中の画像のみを対象とし再圧縮を行わない
+     */
+    it('should retry only retriable pending images and not re-compress them (37.3, 37.4)', async () => {
+      const retriable = createMockFile('retriable.jpg', 1024);
+      const permanent = createMockFile('permanent.jpg', 2048);
+      const onUpload = vi
+        .fn()
+        .mockResolvedValueOnce({
+          failed: [
+            createFailure(retriable, '通信に失敗しました', 'retriable'),
+            createFailure(permanent, 'ファイルサイズが上限を超えています', 'permanent'),
+          ],
+        })
+        .mockResolvedValueOnce({ failed: [] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [retriable, permanent] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 2 件');
+      });
+      expect(compressImagesForUploadMock).toHaveBeenCalledTimes(1);
+
+      await userEvent.click(screen.getByTestId('pending-upload-retry-button'));
+
+      await waitFor(() => {
+        expect(onUpload).toHaveBeenCalledTimes(2);
+      });
+      // 再送対象は保持中の再送可能な画像のみ（37.3, 37.17）
+      expect(onUpload).toHaveBeenNthCalledWith(2, [retriable]);
+      // 再送で圧縮を通さない（37.4）
+      expect(compressImagesForUploadMock).toHaveBeenCalledTimes(1);
+
+      // 再送不可の画像のみが保持として残る（37.5）
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 1 件');
+      });
+      expect(screen.getByTestId('pending-upload-filename')).toHaveTextContent('permanent.jpg');
+    });
+
+    it('should clear the pending panel when a retry succeeds for every image (37.6)', async () => {
+      const file = createMockFile('retry-me.jpg', 1024);
+      const onUpload = vi
+        .fn()
+        .mockResolvedValueOnce({ failed: [createFailure(file, '通信に失敗しました')] })
+        .mockResolvedValueOnce({ failed: [] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId('pending-upload-retry-button'));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('pending-upload-panel')).not.toBeInTheDocument();
+      });
+    });
+
+    it('should keep pending images when the discard confirmation is rejected (37.8)', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      const file = createMockFile('keep-me.jpg', 1024);
+      const onUpload = vi
+        .fn()
+        .mockResolvedValue({ failed: [createFailure(file, '通信に失敗しました')] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId('pending-upload-discard-button'));
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+    });
+
+    it('should discard pending images only when the confirmation is accepted (37.8)', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const file = createMockFile('discard-me.jpg', 1024);
+      const onUpload = vi
+        .fn()
+        .mockResolvedValue({ failed: [createFailure(file, '通信に失敗しました')] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId('pending-upload-discard-button'));
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(screen.queryByTestId('pending-upload-panel')).not.toBeInTheDocument();
+      });
+    });
+
+    /**
+     * @requirement site-survey/REQ-37.9: 新規のファイル選択でも既存の未送信画像を保持し続ける
+     */
+    it('should keep existing pending images when new files are selected (37.9)', async () => {
+      const first = createMockFile('first.jpg', 1024);
+      const second = createMockFile('second.jpg', 2048);
+      const onUpload = vi
+        .fn()
+        .mockResolvedValueOnce({ failed: [createFailure(first, '通信に失敗しました')] })
+        .mockResolvedValueOnce({ failed: [createFailure(second, '通信に失敗しました')] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      const input = screen.getByTestId('file-input');
+      fireEvent.change(input, { target: { files: [first] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 1 件');
+      });
+
+      // 新たなファイル選択を行っても既存の保持は消えない
+      fireEvent.change(input, { target: { files: [second] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 2 件');
+      });
+      const fileNames = screen
+        .getAllByTestId('pending-upload-filename')
+        .map((element) => element.textContent);
+      expect(fileNames).toEqual(['first.jpg', 'second.jpg']);
+    });
+
+    it('should disable the retry action while an upload is in progress (37.10)', async () => {
+      const file = createMockFile('busy.jpg', 1024);
+      const onUpload = vi
+        .fn()
+        .mockResolvedValue({ failed: [createFailure(file, '通信に失敗しました')] });
+
+      const { rerender } = render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('pending-upload-retry-button')).toBeEnabled();
+
+      rerender(<ImageUploader {...defaultProps} onUpload={onUpload} isUploading />);
+
+      expect(screen.getByTestId('pending-upload-retry-button')).toBeDisabled();
+      expect(screen.getByTestId('pending-upload-discard-button')).toBeDisabled();
+    });
+
+    /**
+     * @requirement site-survey/REQ-37.10: 処理の実行中は追加の再送操作を受け付けない
+     */
+    it('should not accept another retry while a retry is in flight (37.10)', async () => {
+      const file = createMockFile('inflight.jpg', 1024);
+      let resolveRetry: (outcome: { failed: FailedUpload[] }) => void = () => {};
+      const onUpload = vi
+        .fn()
+        .mockResolvedValueOnce({ failed: [createFailure(file, '通信に失敗しました')] })
+        .mockImplementationOnce(
+          () =>
+            new Promise<{ failed: FailedUpload[] }>((resolve) => {
+              resolveRetry = resolve;
+            })
+        );
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId('pending-upload-retry-button'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-retry-button')).toBeDisabled();
+      });
+
+      // 再送中の追加操作は受け付けない
+      fireEvent.click(screen.getByTestId('pending-upload-retry-button'));
+      expect(onUpload).toHaveBeenCalledTimes(2);
+
+      resolveRetry({ failed: [] });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('pending-upload-panel')).not.toBeInTheDocument();
+      });
+    });
+
+    it('should keep the attempted images as retriable pending uploads when onUpload rejects (37.1)', async () => {
+      // onUpload が outcome を返さず例外で失敗した場合でも、試行対象の File を
+      // 捨てずに未送信画像として保持する。SiteSurveyDetailPage / PhotoUploader の
+      // ハンドラは catch を持たないため、この経路は実運用で発生する。
+      const first = createMockFile('rejected-1.jpg', 1024);
+      const second = createMockFile('rejected-2.jpg', 2048);
+      const onUpload = vi.fn().mockRejectedValue(new Error('ネットワークエラーが発生しました'));
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [first, second] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 2 件');
+      const fileNames = screen
+        .getAllByTestId('pending-upload-filename')
+        .map((element) => element.textContent);
+      expect(fileNames).toEqual(['rejected-1.jpg', 'rejected-2.jpg']);
+      // 例外は既定で再送可能に分類されるため、再送手段が実行可能である（37.3, 37.17）
+      expect(screen.getByTestId('pending-upload-retry-button')).toBeEnabled();
+      expect(screen.queryByTestId('pending-upload-permanent-note')).not.toBeInTheDocument();
+      // 例外の文言は失敗理由としても提示する（37.2）
+      expect(screen.getAllByTestId('pending-upload-reason')[0]).toHaveTextContent(
+        'ネットワークエラーが発生しました'
+      );
+    });
+
+    it('should retry the pending images captured from a rejected upload (37.1, 37.3)', async () => {
+      const file = createMockFile('rejected-retry.jpg', 1024);
+      const onUpload = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('ネットワークエラーが発生しました'))
+        .mockResolvedValueOnce({ failed: [] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId('pending-upload-retry-button'));
+
+      await waitFor(() => {
+        expect(onUpload).toHaveBeenCalledTimes(2);
+      });
+      // 保持していた File がそのまま再送される（37.4）
+      expect(onUpload).toHaveBeenNthCalledWith(2, [file]);
+      expect(compressImagesForUploadMock).toHaveBeenCalledTimes(1);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('pending-upload-panel')).not.toBeInTheDocument();
+      });
+    });
+
+    it('should keep the original files as pending when compression throws (37.1)', async () => {
+      // 圧縮が失敗した場合、送信対象は確定していないが元ファイルは失われていない。
+      // 撮影画像の喪失を避けるため、元ファイルを保持する。
+      const file = createMockFile('compress-fails.jpg', 1024);
+      compressImagesForUploadMock.mockRejectedValueOnce(new Error('画像の圧縮に失敗しました'));
+      const onUpload = vi.fn().mockResolvedValue({ failed: [] });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+      expect(onUpload).not.toHaveBeenCalled();
+      expect(screen.getByTestId('pending-upload-filename')).toHaveTextContent('compress-fails.jpg');
+      expect(screen.getByTestId('pending-upload-retry-button')).toBeEnabled();
+
+      // 保持された元ファイルは再送で圧縮を通さずそのまま送られる（37.4）
+      await userEvent.click(screen.getByTestId('pending-upload-retry-button'));
+
+      await waitFor(() => {
+        expect(onUpload).toHaveBeenCalledWith([file]);
+      });
+      expect(compressImagesForUploadMock).toHaveBeenCalledTimes(1);
     });
   });
 });

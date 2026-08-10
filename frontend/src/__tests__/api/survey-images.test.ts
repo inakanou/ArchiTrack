@@ -21,7 +21,8 @@ import {
   type BatchUploadProgress,
 } from '../../api/survey-images';
 import type { SurveyImageInfo } from '../../types/site-survey.types';
-import { ApiError } from '../../api/client';
+import { ApiError, apiClient } from '../../api/client';
+import { classifyUploadFailure } from '../../utils/upload-failure';
 
 // モック用のレスポンスデータ
 const mockImageInfo: SurveyImageInfo = {
@@ -52,9 +53,9 @@ describe('Survey Images API Client', () => {
   });
 
   // ==========================================================================
-  // requestWithFormData Edge Cases
+  // multipart 送信のエッジケース（共通クライアント経由）
   // ==========================================================================
-  describe('requestWithFormData edge cases', () => {
+  describe('multipart送信のエッジケース', () => {
     it('非JSONレスポンスでもテキストとして処理できること', async () => {
       // Arrange
       const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
@@ -127,10 +128,8 @@ describe('Survey Images API Client', () => {
       const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
       const surveyId = 'survey-1';
 
-      // apiClient.getAccessToken()がnullを返すようにモック
-      const { apiClient } = await import('../../api/client');
-      const originalGetAccessToken = apiClient.getAccessToken;
-      apiClient.getAccessToken = () => null;
+      // アクセストークン未設定の状態にする
+      apiClient.setAccessToken(null);
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -148,9 +147,34 @@ describe('Survey Images API Client', () => {
       expect(options.headers).toBeDefined();
       // Authorizationヘッダーがないことを確認
       expect((options.headers as Record<string, string>)['Authorization']).toBeUndefined();
+    });
 
-      // Clean up
-      apiClient.getAccessToken = originalGetAccessToken;
+    it('アクセストークンがある場合はAuthorizationヘッダーが付与されること', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+      apiClient.setAccessToken('test-access-token');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockImageInfo,
+      });
+
+      try {
+        // Act
+        await uploadSurveyImage('survey-1', file);
+
+        // Assert
+        const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+        expect((options.headers as Record<string, string>)['Authorization']).toBe(
+          'Bearer test-access-token'
+        );
+        // multipart では boundary をブラウザに委ねるため Content-Type を設定しない
+        expect((options.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+      } finally {
+        apiClient.setAccessToken(null);
+      }
     });
   });
 
@@ -464,7 +488,11 @@ describe('Survey Images API Client', () => {
       expect(secondFormData.get('displayOrder')).toBe('11');
     });
 
-    it('非ApiError例外が発生した場合もエラー情報を記録すること', async () => {
+    // Task 107.1: 送信を共通クライアントへ委譲したことで、fetch が投げた素の例外は
+    // ApiError(0, 'Network error') へ正規化される。呼び出し元にはサーバー由来の失敗と
+    // 同じ形で失敗理由が渡ること（`ApiError` 以外が渡った場合の汎用文言へのフォールバックは
+    // Task 107.1 のテスト群で検証する）
+    it('通信エラーがApiErrorへ正規化され失敗理由が記録されること', async () => {
       // Arrange
       const files = [
         new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' }),
@@ -494,7 +522,8 @@ describe('Survey Images API Client', () => {
         BatchUploadProgress,
       ];
       expect(lastCall[0].errors.length).toBe(1);
-      expect(lastCall[0].errors[0]?.error).toBe('アップロードに失敗しました。');
+      expect(lastCall[0].errors[0]?.error).toBe('Network error');
+      expect(lastCall[0].errors[0]?.file).toBe(files[1]);
     });
 
     it('onProgressが未定義でもエラーなく動作すること', async () => {
@@ -634,6 +663,254 @@ describe('Survey Images API Client', () => {
       // Assert
       expect(result.results).toHaveLength(0);
       expect(result.errors).toHaveLength(2);
+    });
+  });
+
+  // ==========================================================================
+  // Task 107.1: 共通クライアントへの委譲と部分失敗（207）の是正
+  // Requirements: 37.1, 37.16, 37.21
+  // ==========================================================================
+  describe('共通クライアント委譲と部分失敗の扱い (Task 107.1)', () => {
+    /** 207（部分失敗）レスポンスのモックを組み立てる */
+    const mockPartialFailure = (fileName: string, error: string) => ({
+      ok: true,
+      status: 207,
+      statusText: 'Multi-Status',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({
+        successful: [],
+        failed: [{ fileName, error }],
+      }),
+    });
+
+    it('multipart送信が共通クライアントのsendFormDataへ委譲されること - Requirement 37.1', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+      const sendFormDataSpy = vi.spyOn(apiClient, 'sendFormData');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => mockImageInfo,
+      });
+
+      // Act
+      await uploadSurveyImage('survey-1', file, { displayOrder: 2 });
+
+      // Assert
+      expect(sendFormDataSpy).toHaveBeenCalledTimes(1);
+      const call = sendFormDataSpy.mock.calls[0];
+      if (!call) {
+        throw new Error('Expected sendFormData to be called');
+      }
+      const [path, formData] = call;
+      expect(path).toBe('/api/site-surveys/survey-1/images');
+      expect(formData).toBeInstanceOf(FormData);
+      expect(formData.get('images')).toBeInstanceOf(File);
+      expect(formData.get('displayOrder')).toBe('2');
+    });
+
+    it('ストレージ障害による部分失敗が207として返り再送可能に分類されること - Requirement 37.21', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+
+      mockFetch.mockResolvedValueOnce(
+        mockPartialFailure('photo.jpg', '画像の保存に失敗しました: ストレージへの書き込みエラー')
+      );
+
+      // Act & Assert
+      try {
+        await uploadSurveyImage('survey-1', file);
+        expect.fail('ApiError should have been thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).statusCode).toBe(207);
+        expect((error as ApiError).message).toBe(
+          '画像の保存に失敗しました: ストレージへの書き込みエラー'
+        );
+        // 一時的な障害のため再送で解消しうる
+        expect(classifyUploadFailure(error)).toBe('retriable');
+      }
+    });
+
+    it('枚数上限による部分失敗も再送可能に分類されること - Requirement 37.21', async () => {
+      // Arrange
+      const file = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+
+      mockFetch.mockResolvedValueOnce(
+        mockPartialFailure('photo.jpg', '画像数の上限（10枚）に達しました')
+      );
+
+      // Act & Assert
+      try {
+        await uploadSurveyImage('survey-1', file);
+        expect.fail('ApiError should have been thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).statusCode).toBe(207);
+        expect(classifyUploadFailure(error)).toBe('retriable');
+      }
+    });
+
+    it('画像形式の非対応による部分失敗は再送不可に分類されること - Requirement 37.16', async () => {
+      // Arrange
+      const file = new File(['test content'], 'document.pdf', { type: 'application/pdf' });
+
+      mockFetch.mockResolvedValueOnce(
+        mockPartialFailure(
+          'document.pdf',
+          'サポートされていない画像形式です。JPEG、PNG、WEBP形式のみ対応しています。'
+        )
+      );
+
+      // Act & Assert
+      try {
+        await uploadSurveyImage('survey-1', file);
+        expect.fail('ApiError should have been thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).statusCode).toBe(207);
+        // 受入条件違反は再送しても解消しない
+        expect(classifyUploadFailure(error)).toBe('permanent');
+      }
+    });
+
+    it('バッチアップロードの失敗情報に対象画像の実体が含まれること - Requirement 37.1', async () => {
+      // Arrange
+      const files = [
+        new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' }),
+        new File(['content2'], 'photo2.jpg', { type: 'image/jpeg' }),
+      ];
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ...mockImageInfo, id: 'image-1' }),
+        })
+        .mockResolvedValueOnce(
+          mockPartialFailure('photo2.jpg', '画像の保存に失敗しました: ストレージへの書き込みエラー')
+        );
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.results).toHaveLength(1);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.index).toBe(1);
+      expect(result.errors[0]?.fileName).toBe('photo2.jpg');
+      // 再送に用いるため File 実体そのものが返ること（再圧縮しない）
+      expect(result.errors[0]?.file).toBe(files[1]);
+    });
+
+    it('共通クライアントがApiError以外を投げた場合も汎用文言と画像実体を記録すること', async () => {
+      // Arrange
+      const files = [new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' })];
+      vi.spyOn(apiClient, 'sendFormData').mockRejectedValue(new TypeError('unexpected failure'));
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.results).toHaveLength(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.error).toBe('アップロードに失敗しました。');
+      expect(result.errors[0]?.file).toBe(files[0]);
+    });
+  });
+
+  // ==========================================================================
+  // 失敗区分の分類（Task 108.2）
+  //
+  // 文字列の失敗理由だけでは、サイズ上限超過（413）が文言判定にかからず
+  // 「再送可」へ倒れる。分類は送信例外が手元にある catch 内で行い、
+  // 区分を BatchUploadError に持たせる。
+  // ==========================================================================
+  describe('バッチアップロードの失敗区分 (Task 108.2)', () => {
+    /** 207（部分失敗）レスポンスのモックを組み立てる */
+    const mockPartialFailure = (fileName: string, error: string) => ({
+      ok: true,
+      status: 207,
+      statusText: 'Multi-Status',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({
+        successful: [],
+        failed: [{ fileName, error }],
+      }),
+    });
+
+    it('サイズ上限超過（413）の失敗が再送不可の区分で返ること - Requirement 37.16', async () => {
+      // Arrange
+      const files = [new File(['content'], 'huge.jpg', { type: 'image/jpeg' })];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 413,
+        statusText: 'Payload Too Large',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ error: 'ファイルサイズが上限を超えています' }),
+      });
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      // 文言には「サポートされていない〜」が含まれないため、文字列判定では
+      // retriable に倒れる。状態コードを保持した分類でのみ permanent になる。
+      expect(result.errors[0]?.kind).toBe('permanent');
+      expect(result.errors[0]?.file).toBe(files[0]);
+    });
+
+    it('ストレージ障害による部分失敗が再送可の区分で返ること - Requirement 37.21', async () => {
+      // Arrange
+      const files = [new File(['content'], 'photo.jpg', { type: 'image/jpeg' })];
+
+      mockFetch.mockResolvedValueOnce(
+        mockPartialFailure('photo.jpg', '画像の保存に失敗しました: ストレージへの書き込みエラー')
+      );
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.kind).toBe('retriable');
+    });
+
+    it('画像形式の非対応による部分失敗が再送不可の区分で返ること - Requirement 37.16', async () => {
+      // Arrange
+      const files = [new File(['content'], 'document.pdf', { type: 'application/pdf' })];
+
+      mockFetch.mockResolvedValueOnce(
+        mockPartialFailure(
+          'document.pdf',
+          'サポートされていない画像形式です。JPEG、PNG、WEBP形式のみ対応しています。'
+        )
+      );
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.kind).toBe('permanent');
+    });
+
+    it('ApiError以外の例外は再送可の区分で返ること - Requirement 37.21', async () => {
+      // Arrange
+      const files = [new File(['content'], 'photo.jpg', { type: 'image/jpeg' })];
+      vi.spyOn(apiClient, 'sendFormData').mockRejectedValue(new TypeError('unexpected failure'));
+
+      // Act
+      const result = await uploadSurveyImages('survey-1', files);
+
+      // Assert
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.kind).toBe('retriable');
     });
   });
 

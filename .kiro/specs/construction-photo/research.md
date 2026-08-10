@@ -207,3 +207,156 @@ _`/kiro-spec-design` シンセシスで確定。design.md に反映済み。_
 3. **ビューア流用範囲**: `ImageViewer.tsx`（fabric注釈搭載・大型）はそのまま流用せず、**閲覧専用の薄い `ConstructionPhotoImageViewer` を新設**し、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転ヘルパ（`normalizeRotation`/`ROTATION_CONSTANTS`）を合成。ルートは `/construction-photos/:albumId/photos/:photoId`。ビューアは**原本のみ表示**（看板重畳は印字/エクスポート時の関心事）。
 4. **CP権限マッピング確定**: `useConstructionPhotoPermission` は**ロール直書きせず `usePermission('construction_photo:<action>')` で判定**（RBAC権限駆動）。canEdit=`:update`、canDelete=`:delete`。site-survey同様に user は削除不可となるが、判定はロールでなくバックエンド付与権限に従う。
 5. **削除確認ダイアログ**: `projects/DeleteConfirmationDialog`（survey/estimate件数依存）・`contracts/DeleteConfirmDialog`（契約特化命名）とも汎用性不足のため、**FocusManagerパターンを踏襲した薄い `AlbumDeleteDialog` を新設**。
+
+---
+
+# Gap Analysis 追補③: Requirement 20（アップロード失敗時の撮影画像の保持と再送）
+
+対象は 2026-08-08 に requirements.md へ追加された **Requirement 20**（および Boundary Context の In scope 3行・Out of scope 3行の追記）。既存の追補①（R1–13）・追補②（R14–19）は対象外とする。
+
+## 分析サマリ
+
+- **本要件のロジックは既に実装済み**。ブランチ `fix/photo-upload-retain-on-failure` で site-survey 側の同等要件（Requirement 37）が完了しており、その実装は**工事写真が内包する共有部品（`ImageUploader` / `usePendingUploads` / `PendingUploadPanel` / `apiClient.sendFormData`）に置かれている**ため、工事写真は結線済みのまま受益している。
+- **工事写真固有の結線も完了済み**。`PhotoUploader` は失敗画像の実体（`File`）と再送可否区分を `UploadOutcome` として `ImageUploader` へ返しており（site-survey tasks 108.3）、`construction-photo-images.ts` の multipart 送信も共通クライアントへ統一済み（同 107.2）。
+- **残る GAP は「検証」と「仕様文書」に限られる**。工事写真側の E2E が 0 件、design.md / tasks.md に Requirement 20 の記述が皆無（両ドキュメントは 7/29 生成で要件追加より前）。
+- **推奨アプローチ**: **Option A（既存共有実装の追認＋検証・文書の追補）**。新規コードはほぼ不要で、E2E シナリオと要件トレース表の追加が主作業。
+- **総合見積**: **S（1〜3日）／リスク 低**。ただし E2E は test 環境ビルドを伴うため実時間コストが支配的。
+
+---
+
+## 1. 要件 → 資産マッピング（GAPタグ: 再利用済 / 未検証 / 制約 / 要調査）
+
+| AC | 充足状況 | 実装資産 |
+|---|---|---|
+| 20.1 失敗画像を未送信画像として保持 | **再利用済** | `ImageUploader.submitFiles` → `usePendingUploads.record`（`ImageUploader.tsx:345-383`）。工事写真側は `PhotoUploader.handleUpload` が `{failed}` を返却（`PhotoUploader.tsx:232-262`） |
+| 20.2 件数・サムネ・ファイル名・失敗理由の表示 | **再利用済** | `PendingUploadPanel.tsx`（`pending-upload-count` / `-thumbnail` / `-filename` / `-reason`） |
+| 20.3 再送可能分の一括再送 | **再利用済** | `ImageUploader.handleRetry`（`retriableFiles` のみ対象） |
+| 20.4 同一画像データで再送（再圧縮しない） | **再利用済** | `submitFiles(files, compress=false)`。保持しているのは圧縮後 `File`（`attempted = filesToSend`） |
+| 20.5 部分成功で成功分のみ除去 | **再利用済** | `usePendingUploads.record` の差分更新（`attempted` かつ非 `failed` を解放） |
+| 20.6 全成功で表示解消 | **再利用済** | 同上 |
+| 20.7 破棄の操作手段 | **再利用済** | `PendingUploadPanel` の `pending-upload-discard-button` |
+| 20.8 破棄は確認の承諾時のみ | **再利用済** | `ImageUploader.handleDiscardAll` の `window.confirm(DISCARD_CONFIRM_MESSAGE)` |
+| 20.9 新規選択・撮影でも既存保持を維持 | **再利用済** | `record` が「今回の試行に含まれない保持」を温存 |
+| 20.10 実行中は追加の再送を受け付けない | **再利用済** | `isBusy = isUploading \|\| isRetrying`。工事写真は `PhotoUploader` が `isUploading` を伝播 |
+| 20.11 認証期限切れは無操作で更新して継続 | **再利用済** | `ApiClient.request` の 401 リフレッシュ＋`refreshInFlight` 待ち合わせ。工事写真は `apiClient.sendFormData` 経由（`construction-photo-images.ts:120-123`） |
+| 20.12 更新失敗は他機能と同一手段で通知 | **再利用済** | `sessionExpiredCallback` / `triggerSessionExpired`（`client.ts`） |
+| 20.13 到達前失敗は段階的バックオフで自動再試行 | **再利用済** | `UPLOAD_RETRYABLE_STATUS_CODES = [0, 502, 503, 504]`＋`backoffMultiplier: 2`（1s→2s→4s） |
+| 20.14 サーバー処理中の失敗は自動再試行しない | **再利用済** | 再試行対象を上記ステータスに限定（重複登録回避） |
+| 20.15 1件あたり 120 秒の完了猶予 | **再利用済** | `UPLOAD_TIMEOUT_MS = 120000`（`sendFormData` の既定 timeout） |
+| 20.16 受入条件違反を再送不可として区別 | **再利用済** | `classifyUploadFailure`（400/413=permanent、207 は文言分岐）。工事写真は応答 `failed[]` を `new ApiError(207, item.error)` へ組み立てて渡す（`PhotoUploader.tsx:116-121`）。**バックエンドは `constructionPhotoImageService` が `surveyImageService.validateFile()` を再利用（`construction-photo-image.service.ts:702`）しているため、`upload-failure.ts` が参照する形式エラー文言と一致する** |
+| 20.17 再送不可は再送対象に含めない | **再利用済** | `usePendingUploads.retriableFiles`（`kind === 'retriable'` のみ） |
+| 20.18 全件再送不可なら再送手段を実行不可で提示 | **再利用済** | `canRetry = retriableFiles.length > 0` ＋ `pending-upload-retry-unavailable` |
+| 20.19 時間切れは自動再試行せず保持 | **再利用済** | `request()` が FormData ボディから再試行方針を導出し、タイムアウトは再試行対象外 |
+| 20.20 時間切れ後の再送開始待ちを延伸させない | **再利用済** | 同上（自動再試行を回さないため待ち時間が積み上がらない） |
+| 20.21 ストレージ保存失敗は再送可として保持 | **再利用済** | 207 の文言分岐で形式エラー以外は `retriable`（`upload-failure.ts:134-136`） |
+| **全AC 横断** | **未検証（GAP）** | `e2e/specs/construction-photos/` に Requirement 20 のシナリオが **0件**（`未送信` / `再送` の grep ヒット無し）。site-survey 側は `site-survey-upload-retry-e2e.spec.ts`（594行）で 5 シナリオ検証済み |
+| **全AC 横断** | **文書欠落（GAP）** | `design.md` / `tasks.md` に Requirement 20 の記述が **0件**。両ファイルは 2026-07-29 生成で、要件追加（08-08）より前 |
+
+### 未充足 GAP の一覧
+
+| # | GAP | 種別 | 内容 |
+|---|---|---|---|
+| G1 | 工事写真 E2E 未整備 | 未検証 | 失敗→保持→再送→解消／サイズ超過で再送不可／破棄確認の各シナリオが工事写真詳細画面で未検証。プロジェクト方針（要件はE2Eで動作確認するまで完了としない）に未達 |
+| G2 | design.md に Requirement 20 の節が無い | 文書 | 共有部品への委譲・工事写真側の責務境界・現調コピー経路を対象外とする判断が設計として残っていない |
+| G3 | tasks.md に Requirement 20 のタスク／カバレッジ表が無い | 文書 | 実装済みであること自体がトレースできない。`spec.json` は `phase: requirements-generated` のまま（design/tasks は `generated: true` だが要件追加以前の内容） |
+| G4 | 要件番号の相互参照が無い | 文書 | 同一実装が site-survey 37.x と工事写真 20.x の2系統にマップされる。コード内コメントは 37.x のみを引用しており、工事写真の要件から実装へ辿れない |
+| G5 | 工事写真経路の単体テスト範囲 | 未検証 | `PhotoUploader.test.tsx` は「失敗画像が未送信一覧に反映される」（20.1/20.16/20.21）まで。再送（20.3/20.4）・破棄（20.7/20.8）・実行中抑止（20.10）・全件 permanent（20.18）は `ImageUploader.test.tsx` 側の検証に依存し、工事写真の要件トレースとしては記録が無い |
+
+### 制約・注意点
+
+- **C1（構造）**: `ImageUploader` / `PendingUploadPanel` / `usePendingUploads` は `components/site-surveys/` 配下にあり、工事写真から cross-feature import している。`ConstructionPhotoImageViewer` が `site-surveys/ZoomControls` 等を import している前例と同型のため既存慣行とは整合するが、「site-survey 機能の部品を工事写真が使う」依存が1本増える。
+- **C2（デッドパス）**: `uploadFilesInWaves` は 1リクエスト1ファイルで送信するため、R12.1（1リクエスト10件上限）による 400 は工事写真 UI からは到達しない。20.16 が挙げる「件数上限」条項は工事写真では実質デッドパスであり、E2E で再現できない。
+- **C3（既知の脆さ）**: 207 の permanent/retriable 分岐はバックエンドのメッセージ文言に依存する（`upload-failure.ts` 冒頭に明記済み）。現時点では工事写真バックエンドが `surveyImageService.validateFile` を共有するため一致するが、工事写真が独自の検証メッセージを持ち始めた時点で静かに壊れる。
+- **C4（権限との相互作用）**: 工事写真詳細画面は `canEdit` のときのみ `PhotoUploader` を描画する（`ConstructionPhotoDetailPage.tsx:846-855`）。編集権限を失って再描画されると `usePendingUploads` のアンマウント解放が走り、保持中の未送信画像が失われる。要件 20 と要件 17 の相互作用として明文化されていない。
+- **C5（前段バリデーション）**: フロントの `MAX_FILE_SIZE_MB = 50` はサーバーの 10MB より緩い。したがって 10〜50MB の画像はサーバーへ到達して 413 となり、`permanent` として保持・提示される（20.16 が到達可能）。一方 50MB 超はフロントで弾かれ `validationErrors` 表示となり、未送信画像としては保持されない（20.1 の対象外）。この線引きは要件に書かれていない。
+
+---
+
+## 2. 統合ポイント（具体）
+
+- **フロント結線（変更不要）**: `ConstructionPhotoDetailPage.tsx:846-855` → `PhotoUploader`（`albumId`/`projectId`/`onPhotosAdded`/`onNotify`）→ `ImageUploader`（`onUpload=handleUpload`, `isUploading`, `uploadProgress`, `compact`）。未送信画像パネルは `ImageUploader` の内部に描画されるため、詳細画面側の追加結線は不要。
+- **API 層（変更不要）**: `uploadConstructionPhotos` → `apiClient.sendFormData('/api/construction-photos/:albumId/images', formData)`。20.11〜20.15/20.19/20.20 はここで自動的に効く。
+- **バックエンド（変更不要）**: `construction-photo-images.routes.ts` は 全件成功 201 / 部分失敗 207（L359, L459）、`LIMIT_FILE_SIZE` → 413（L167-171）、件数超過等 → 400（L178）。`upload-failure.ts` の分類規則と噛み合っている。
+- **E2E の追加先**: `e2e/specs/construction-photos/`（既存2ファイル）。雛形は `e2e/specs/site-surveys/site-survey-upload-retry-e2e.spec.ts`。観測用の testid は `pending-upload-panel` / `-count` / `-item` / `-thumbnail` / `-filename` / `-reason` / `-permanent-note` / `-retry-button` / `-discard-button` / `-retry-unavailable` が既に付与済み。
+
+---
+
+## 3. 実装アプローチ（Options）
+
+### Option A: 既存共有実装の追認＋検証・文書の追補（推奨）
+実装は現状のまま（工事写真は共有部品経由で 20.1〜20.21 を充足）とし、(1) 工事写真 E2E の追加、(2) design.md への Requirement 20 節の追補、(3) tasks.md への検証タスクと Requirements Coverage 表の追加、(4) 工事写真経路の単体テスト補強（G5）を行う。
+
+- ✅ 新規プロダクトコードがほぼ不要。site-survey と挙動が一致するという Adjacent expectations（requirements.md L35）をそのまま満たす
+- ✅ 共有部品の二重メンテを増やさない
+- ❌ 工事写真の要件が site-survey 配下の部品に依存し続ける（C1）
+
+### Option B: 保持・再送部品を共通レイヤへ移設してから検証
+`ImageUploader` / `PendingUploadPanel` / `usePendingUploads` を `components/common/` 等へ移設し、site-survey・工事写真の双方から対等に参照する構造へ整える。
+
+- ✅ 「site-survey の部品を工事写真が借りている」という依存の非対称を解消（C1）
+- ❌ site-survey 側の広範なテスト・Storybook・import の書き換えが発生し、完了済み実装への回帰リスクを新たに作る
+- ❌ 本要件の受入基準は1つも変わらない（純粋な構造リファクタ）
+
+### Option C: 工事写真専用の保持・再送機構を新設（独立クローン）
+既存 spec の「site-survey サービスは拡張せず独立クローン」方針を UI 層にも適用し、`ConstructionPhotoPendingUploads` 等を新設する。
+
+- ✅ site-survey への影響ゼロ
+- ❌ 「site-survey 側の同等要件と挙動が一致することを前提とする」（requirements.md L35）に真っ向から反し、挙動が乖離する温床になる
+- ❌ 工数・二重メンテが最大。**非推奨**
+
+---
+
+## 4. 工数・リスク
+
+| # | 作業 | 工数 | リスク | 根拠 |
+|---|---|---|---|---|
+| G1 | 工事写真 E2E（失敗→保持→再送→解消／再送不可／破棄） | S | 中 | 雛形（site-survey 594行）とtestidが揃っており記述は定型。リスクはE2E環境側（test環境ビルド必須・route差し替えのオリジン一致） |
+| G2/G3/G4 | design.md / tasks.md / spec.json の追補 | S | 低 | 文書のみ。site-survey design.md の Requirement 37 節を工事写真の要件番号へ写像する |
+| G5 | 工事写真経路の単体テスト補強 | S | 低 | `PhotoUploader.test.tsx` に再送・破棄・実行中抑止のケースを追加。既存 mock 構成をそのまま利用 |
+| C4 | 権限喪失時の保持解放の扱いを設計で明記（必要なら是正） | S | 低 | まず設計判断。是正する場合も `canEdit` 判定箇所の局所変更 |
+
+**全体**: **S（1〜3日）／リスク 低**。E2E の実行時間（pre-push は全件で約1.6時間）が実時間の支配要因。
+
+---
+
+## 5. 設計フェーズへの申し送り（Research Needed）
+
+1. **要件番号の対応表をどこに置くか**: 同一実装が site-survey 37.x と工事写真 20.x にマップされる。design.md に「20.x ⇔ 37.x 対応表」を置き、コード内コメントの `37.x` 引用を工事写真から辿れるようにするか、コメント側に両番号を併記するかを決める。
+2. **共有部品の置き場所（C1）**: Option A のまま `site-surveys/` に置き続けるか、`components/common/` へ移すか。移す場合は本要件の外（別要件）として切り出すのが安全。
+3. **権限喪失時の未送信画像の扱い（C4）**: 編集権限を失った際に保持中の画像を解放してよいか、警告して残すか。要件 17.1（編集権限なしは操作手段を表示しない）と 20.1（保持する）のどちらを優先するかを設計で確定する。
+4. **フロント 50MB / サーバー 10MB の乖離（C5）**: 「フロントで弾かれた画像は未送信画像として保持しない」を仕様として明記するか、保持対象に含めるか。site-survey 側では「上限値そのものの是正は別要件」と整理済みのため、工事写真も同じ整理を踏襲するかを確認する。
+5. **現調コピー経路を対象外とする根拠の明記（G5関連）**: 備考1 のとおり Requirement 6 は対象外だが、`PhotoUploader.handleSurveySelect` は失敗時に保持を行わない設計であることを design.md に明記し、将来「コピーも保持すべき」という誤った回帰修正が入らないようにする。
+6. **E2E 実装時の環境前提**: E2E は test 環境（フロント 5174 / API 3100）を用い、フロントは本番ビルドのため `test:docker:build` が必須。応答差し替えの観測はオリジンではなく**パス基準**で行う（CI は `VITE_API_URL=localhost:3000`、`API_BASE_URL=127.0.0.1:3000` でオリジンが食い違い、オリジン依存の観測は全件素通りする）。固定時間待機は用いず明示的な条件待ちのみで構成する。
+
+## 設計判断（Requirement 20・Research項目の解決）
+
+_`/kiro-spec-design` シンセシスで確定。design.md に反映済み。_
+
+**シンセシスの3レンズ**
+
+1. **一般化**: R20（工事写真）と site-survey R37 は「画像送信の失敗を、送信元機能に依らず画像の実体ごと保持して再送する」という同一問題である。一般化は既にコードベースで達成されており、機能非依存の機構（`ImageUploader` / `usePendingUploads` / `PendingUploadPanel` / `upload-failure` / `types/upload.types` / `ApiClient.sendFormData`）と、機能固有の送信アダプタ（`onUpload` が `UploadOutcome` を返す契約）に分離されている。**一般化はインターフェースで達成済みであり、実装の複製は不要**。
+2. **Build vs Adopt**: 既存の共有機構を全面採用する。工事写真専用の保持機構を新設すると requirements.md L35（site-survey と挙動が一致することを前提とする）に真っ向から反する。再試行・バックオフ・送信猶予・401 リフレッシュも既存 `ApiClient` が提供しており、外部ライブラリの追加は不要。
+3. **簡素化**: R20 に対する新規プロダクトコンポーネントは **ゼロ**。設計作業は「境界の明文化」「検証の追加」「要件番号の対応表」に限られる。共通レイヤへの移設（追補③ Option B）は受入基準を1つも変えず、完了済み実装への回帰リスクのみを生むため本 spec では採らない（Non-Goals へ明記）。
+
+**Research Needed 6項目の解決**
+
+1. **要件番号の対応表の置き場所**: design.md の Requirements Traceability 直下に「Requirement 20 と site-survey Requirement 37 の対応」表を置く。**コードコメントへの両番号併記は行わない**（共有部品の所有は site-survey にあり、併記すると所有が曖昧になる）。工事写真からの追跡は本表を経由する。
+2. **共有部品の置き場所**: `components/site-surveys/` に置いたまま利用する（追補③ Option A）。依存の向きは `components/construction-photos/* → components/site-surveys/*` の一方向のみに固定し、逆向きを禁止として Allowed Dependencies に明記。既存の `ConstructionPhotoImageViewer → site-surveys/ZoomControls` と同じ向きで前例と整合する。
+3. **権限喪失時の未送信画像の扱い（R17 × R20）**: **R17.1 を優先**し、`canEdit` が false になった時点で `PhotoUploader` がアンマウントされ保持が解放される現行挙動を設計として確定する。根拠は、編集権限のないユーザーが再送してもバックエンドが 403 で拒否するため保持しても再送が成立せず、「再送できるはず」という誤った期待を生むこと。
+4. **フロント50MB／サーバー10MB の乖離**: **フロント前段検証で弾かれた画像は「送信を試行していない」ため 20.1 の対象外**とし、従来どおり `validationErrors` として提示する。サーバー上限超過（10MB超〜50MB以下）はサーバーが 413 を返し `permanent` として保持・提示する（20.16 が到達可能）。上限値そのものの是正は Out of Boundary（site-survey 側で「別要件」と整理済みの方針を踏襲）。
+5. **現調コピー経路を対象外とする根拠**: `handleSurveySelect` は画像バイトを送信せず、サーバー側の `storage.copy` を要求するだけであるため保持・再送の対象としない（requirements.md 備考1）。将来「コピーも保持すべき」という誤った回帰修正が入らないよう design.md の Key Decisions に明記した。
+6. **E2E の環境前提**: テスト環境（frontend 5174 / backend 3100 / postgres 5433）を用い、フロントは本番ビルドのため事前ビルドが必要。応答差し替えの観測は**パス基準**（オリジン基準にすると CI とローカルで API オリジンが食い違い観測が全件素通りする）。固定時間待機は用いない。design.md の E2E 節に前提として記載。
+
+**追加の設計判断**
+
+7. **件数上限の到達不能パス（追補③ C2）**: `uploadFilesInWaves` は1リクエスト1ファイルで送信するため、R12.1 の件数上限に起因する 400 は工事写真 UI から発生しない。20.16 が挙げる3条件のうち工事写真で到達するのは「サイズ上限」「画像形式」の2経路のみであることを design.md に明記し、**到達不能な経路の検証は行わない**（前提条件でテストを無効化する構成を作らないため）。
+8. **通知と保持の併存**: R12.5 の失敗通知（画面が生成）と R20 の保持（`ImageUploader` が実施）は独立した関心事として併存させ、片方が他方を代替しない。既存の通知文言・表示条件は変更しない（挙動保存）。
+9. **バックエンド変更なしの確認**: `constructionPhotoImageService` が `surveyImageService.validateFile()` を再利用しているため（`construction-photo-image.service.ts:702`）、207 の恒久／一時分類が参照する形式エラー文言が一致する。R20 に伴うバックエンド・スキーマ・API コントラクトの変更は発生しない。ただし当該文言の変更は分類を静かに壊すため Revalidation Trigger に登録した。
+
+## 設計レビュー指摘の反映（Requirement 20）
+
+_`/kiro-validate-design` の Critical Issues 3件を design.md へ反映（2026-08-09）。_
+
+1. **文言依存の permanent 判定に回帰検知がなかった**: `construction-photo-image.api.integration.test.ts:253-254` は `failed[].fileName` しか検証しておらず、207 応答のメッセージ本文がフロントの判定断片（`UNSUPPORTED_FORMAT_MESSAGE_FRAGMENTS`）に一致し続ける保証がなかった。→ Integration Tests に「形式エラー文言の契約」項目を追加。判定断片はフロントを唯一の情報源とし、テスト側で文字列を再定義しない。エラーコード化による恒久解は `survey-image.service` の変更を伴うため Out of Boundary とし、本項目を移行までの回帰検知とする。
+2. **E2E の要件ラベルが観測内容を超えていた**: 「通信障害→復旧→再送成功」シナリオに 20.13（段階的バックオフの自動再試行）を付していたが、実際に観測しているのは 20.3（ユーザー操作の再送）。→ ラベルを 20.1/20.3/20.5/20.6 へ訂正し、20.13 を主張する場合はリクエスト回数2回以上の観測を条件とした。あわせて「R20 の検証責務の切り分け」表を追加し、E2E で観測できる基準（20.1〜20.3, 20.5〜20.8, 20.16〜20.18）と、共有クライアントの単体テストでのみ観測できる基準（20.11〜20.15, 20.19, 20.20）を明示的に分離した。
+3. **部分成功後の通知例外で重複登録が起こりうる経路が未記述だった**: `ImageUploader.submitFiles` の catch は試行対象の全ファイルを保持へ回すため、`onPhotosAdded` が例外を投げると登録済みの画像まで未送信画像として保持され、再送で重複登録される。`uploadFilesInWaves` 自体は例外を投げないため、`handleUpload` が reject しうるのは通知経路のみ。→ 送信アダプタの Invariants に「通知の例外を送信の失敗として扱わない」を追加し、単体テスト項目（成功画像が保持されないこと）も追加した。現行の `handlePhotosAdded` は純粋な state 更新であり発生確率は低いが、R20.14 の不変条件をアダプタ層でも維持するため明文化した。

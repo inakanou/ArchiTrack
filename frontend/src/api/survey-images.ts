@@ -3,6 +3,8 @@
  *
  * Task 7.2: 画像管理APIクライアントの実装
  * Task 27.3: 画像メタデータAPIクライアントの実装
+ * Task 107.1: multipart送信の共通クライアント統一と部分失敗の扱いの是正
+ * Task 108.2: バッチアップロードの失敗情報に再送可否の区分を持たせる
  *
  * Requirements:
  * - 4.1: POST /api/site-surveys/:id/images 画像アップロード（FormData対応）
@@ -11,9 +13,12 @@
  * - 4.10: PUT /api/site-surveys/:id/images/order 画像順序変更
  * - 10.4: PATCH /api/site-surveys/images/:imageId 画像メタデータ更新（コメント・報告書出力フラグ）
  * - 10.8: 報告書出力フラグの永続化
+ * - 37.1: 失敗した画像の実体を呼び出し元へ返す
+ * - 37.16, 37.21: 部分失敗（207）を形式エラーへ潰さず失敗理由のまま伝える
  */
 
 import { ApiError, apiClient } from './client';
+import { classifyUploadFailure } from '../utils/upload-failure';
 import type {
   SurveyImageInfo,
   UploadImageOptions,
@@ -40,70 +45,30 @@ export type { BatchUploadProgress, BatchUploadOptions, BatchUploadError, BatchUp
 /** デフォルトバッチサイズ */
 const DEFAULT_BATCH_SIZE = 5;
 
+/**
+ * 1リクエスト内の個別ファイル失敗（部分失敗）を表すHTTPステータス
+ *
+ * バックエンドは単一ファイルの送信もバッチとして処理し、一部が失敗した場合に
+ * 207（Multi-Status）と `{ successful, failed }` を返す。この区分を保ったまま
+ * 呼び出し元へ伝えることで、失敗理由に応じた再送可否の判定
+ * （`utils/upload-failure.ts` の `classifyUploadFailure`）が可能になる。
+ *
+ * Requirements: 37.16, 37.21
+ */
+const MULTI_STATUS = 207;
+
 // ============================================================================
-// 内部ヘルパー関数
+// 内部型定義
 // ============================================================================
 
 /**
- * FormDataを使用したHTTPリクエストを送信
+ * バッチアップロードのレスポンス
  *
- * APIクライアントの基本機能（Content-Type: application/json）では
- * FormDataを正しく送信できないため、専用の実装を提供
- *
- * @param url - リクエストURL
- * @param formData - 送信するFormData
- * @param method - HTTPメソッド
- * @returns レスポンスデータ
+ * バックエンドは単一ファイルもバッチとして処理するため、常にこの形式で返す。
  */
-async function requestWithFormData<T>(
-  url: string,
-  formData: FormData,
-  method: 'POST' | 'PUT' = 'POST'
-): Promise<T> {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const fullUrl = `${baseUrl}${url}`;
-
-  // 認証トークンを取得
-  const accessToken = apiClient.getAccessToken();
-
-  const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
-  }
-  // Content-Typeはブラウザが自動設定（multipart/form-data with boundary）
-
-  const response = await fetch(fullUrl, {
-    method,
-    headers,
-    body: formData,
-    credentials: 'include', // HTTPOnly Cookieを送受信
-  });
-
-  // レスポンスボディを取得
-  const contentType = response.headers.get('content-type');
-  let data: unknown;
-
-  if (contentType?.includes('application/json')) {
-    data = await response.json();
-  } else {
-    data = await response.text();
-  }
-
-  // エラーレスポンスの処理
-  if (!response.ok) {
-    // RFC 7807 Problem Details形式のdetailフィールドを優先的に使用
-    const errorMessage =
-      (data && typeof data === 'object'
-        ? 'detail' in data && typeof data.detail === 'string'
-          ? data.detail
-          : 'error' in data && typeof data.error === 'string'
-            ? data.error
-            : null
-        : null) || response.statusText;
-    throw new ApiError(response.status, errorMessage, data);
-  }
-
-  return data as T;
+interface BatchUploadResponse {
+  successful?: SurveyImageInfo[];
+  failed?: Array<{ fileName: string; error: string }>;
 }
 
 // ============================================================================
@@ -125,9 +90,11 @@ async function requestWithFormData<T>(
  *   - 認証エラー（401）
  *   - 権限不足（403）
  *   - 現場調査が見つからない（404）
- *   - サポートされていないファイル形式（415）- `isUnsupportedFileTypeErrorResponse(error.response)`で識別可能
+ *   - 個別ファイルの失敗（207）- 失敗理由は `message`、レスポンス全体は `response` に入る。
+ *     画像形式の非対応はこの経路（207）で現れる。本エンドポイントは 415 を返さない。
+ *     再送可否は `classifyUploadFailure` が失敗理由から判定する
  *
- * Requirements: 4.1, 4.5, 4.8
+ * Requirements: 4.1, 4.5, 4.8, 37.16, 37.21
  *
  * @example
  * // 基本的な使用法
@@ -154,15 +121,20 @@ export async function uploadSurveyImage(
   // { successful: [...], failed: [...] } 形式で返す。
   // 失敗時はステータス207（Multi-Status）で返されるが、
   // response.ok は 2xx 全体で true のため、レスポンスボディを検査する必要がある。
-  const result = await requestWithFormData<{
-    successful: SurveyImageInfo[];
-    failed: Array<{ fileName: string; error: string }>;
-  }>(`/api/site-surveys/${surveyId}/images`, formData, 'POST');
+  const result = await apiClient.sendFormData<BatchUploadResponse>(
+    `/api/site-surveys/${surveyId}/images`,
+    formData
+  );
 
-  // バッチレスポンスの failed 配列にエントリがある場合はエラーをスロー
-  if (result.failed && result.failed.length > 0) {
-    const failedItem = result.failed[0] as { fileName: string; error: string };
-    throw new ApiError(415, failedItem.error, result);
+  // バッチレスポンスの failed 配列にエントリがある場合はエラーをスロー。
+  // バックエンドの failed[] はストレージ障害・画像処理失敗・DBエラー・枚数上限を
+  // 区別せず捕捉したものであり、形式エラーとは限らない。したがって 415 へ潰さず
+  // 207（部分失敗）として失敗理由をそのまま伝え、再送可否の判定は
+  // `classifyUploadFailure` に委ねる（一律 permanent 化による撮影画像の喪失を防ぐ）。
+  // Requirements: 37.16, 37.21
+  const failedItem = result?.failed?.[0];
+  if (failedItem) {
+    throw new ApiError(MULTI_STATUS, failedItem.error, result);
   }
 
   // successful 配列から最初のエントリを返す
@@ -184,9 +156,9 @@ export async function uploadSurveyImage(
  * @param surveyId - 現場調査ID（UUID）
  * @param files - アップロードするファイルの配列
  * @param options - バッチアップロードオプション
- * @returns 成功した画像情報とエラー情報を含むBatchUploadResult
+ * @returns 成功した画像情報とエラー情報（失敗した画像の実体を含む）を持つBatchUploadResult
  *
- * Requirements: 4.2, 4.3, 19.10, 19.12, 19.16
+ * Requirements: 4.2, 4.3, 19.10, 19.12, 19.16, 37.1
  *
  * @example
  * // 基本的な使用法
@@ -262,6 +234,13 @@ export async function uploadSurveyImages(
           index: globalIndex,
           fileName: file.name,
           error: errorMessage,
+          // 呼び出し元が未送信画像として保持し再圧縮せず再送できるよう、
+          // 失敗した画像の実体をそのまま返す（Requirement 37.1）
+          file,
+          // 再送可否は送信例外が手元にあるこの時点で確定させる。呼び出し元へ渡るのは
+          // 失敗理由の文字列だけであり、そこからでは 413（サイズ上限超過）を
+          // 再送不可と判定できず再送可へ倒れてしまう（Requirement 37.16, 37.21）
+          kind: classifyUploadFailure(error),
         });
         completed++;
         return { success: false as const, error: errorMessage };

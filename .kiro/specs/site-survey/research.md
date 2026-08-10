@@ -672,3 +672,129 @@ ImageViewer のズーム/パン/タッチ処理を AnnotationEditor 内へ移植
 - **フィット上限是正**: `imageFitScale` の `allowUpscale`/`maxUpscale` でモバイルのみ拡大許容（Req 36.2）、デスクトップは `allowUpscale=false` で現行維持。フィット/ズームは表示専用で保存座標不変（Req 9 後方互換）。
 - **境界**: 本節は「フィット倍率算出・再フィット発火・コンテナ寸法(svh)」を所有し、ズーム適用・`fit`意味論は Req 33-34 の `canvasViewportController` へ委譲（二重所有回避）。再フィットは等倍/初期化時のみ適用しユーザーのズーム中は保持（Req 33.7 整合）。
 
+
+---
+
+# ギャップ分析: Requirement 37「アップロード失敗時の撮影画像の保持と再送」（2026-08-08）
+
+## 1. 現状調査（Current State）
+
+### 対象アセット
+
+| 資産 | パス | 役割 |
+|---|---|---|
+| 撮影/選択UI | `frontend/src/components/site-surveys/ImageUploader.tsx` | 現調・工事写真の**両画面が共用**する唯一のアップロードUI。カメラ入力は `capture="environment"`（`:518-528`）の1系統のみ |
+| 現調の送信 | `frontend/src/api/survey-images.ts:58-107, 210-282` | 独自 `requestWithFormData`（fetch直叩き）+ 5件バッチ |
+| 工事写真の送信 | `frontend/src/api/construction-photo-images.ts:77-95` / `PhotoUploader.tsx:56-107` | 独自 `requestWithFormData` + 最大5並列 |
+| 共通クライアント | `frontend/src/api/client.ts` | 401リフレッシュ再送（`:303-352`）、指数バックオフ再試行（`:187-379`）、`triggerSessionExpired()`（`:518-528`） |
+| 圧縮 | `frontend/src/utils/image-compression.ts` | 長辺2048/JPEG 0.85。非対応・失敗時は原本フォールバック（`:119-128`） |
+
+### 要件充足を阻む既存構造（すべて確認済みの事実）
+
+1. **撮影画像はどこにも保持されていない** — `ImageUploader.tsx:314-331` の `validFiles` / `filesToUpload` はクロージャローカル変数のみ。`catch`（`:321-330`）はメッセージのみ state 化し `File` 参照を捨てる。`useState<File[]>` はフロントエンド全体に存在しない。
+2. **失敗情報が文字列に縮退する** — `PhotoUploader.tsx:82-97` と `survey-images.ts:258-268` が `File` を `{fileName, error}` に潰すため、呼び出し元へ `File` が返らない。
+3. **multipart 経路が共通クライアントを迂回している** — `survey-images.ts:75` / `construction-photo-images.ts:78` は素の `fetch` 1回。401リフレッシュ・セッション切れ通知・再試行・タイムアウトのいずれも無い。
+4. **永続化層が存在しない** — IndexedDB / Service Worker / localforage の実装は0件。`useNetworkStatus.ts` は `navigator.onLine` の検知のみでキューを持たない。
+
+### 踏襲すべき規約（steering 由来、拘束力あり）
+
+- レイヤ構成 `api/` `components/<domain>/` `hooks/` `utils/` `types/`（structure.md:796-836）。`stores/` は未導入（:839-844）
+- スタイルは**インライン style オブジェクト**が基本（tech.md:137）。モバイル差分は `...Mobile` サフィックスの spread 合成（tech.md:135）
+- ブレークポイントは `utils/responsive.ts` の `MEDIA_QUERIES` が単一情報源。ハードコード禁止（tech.md:134）
+- 単体テストは `frontend/src/__tests__/` 配下、`*.test.tsx`（structure.md:405-410, 1426）。**カバレッジ80%は pre-push で強制**（tech.md:1273）
+- 操作系コントロールは **44×44px 以上**、入力系は **16px 以上**（tech.md:136）
+- E2Eは `e2e/specs/site-surveys/`。`page.waitForTimeout()` 禁止（tech.md:516）
+- 要件カバレッジは E2E で **100%** 確認（product.md:90）
+
+## 2. 要件別 Requirement-to-Asset マップ
+
+| 受入基準 | 必要な技術要素 | 既存資産 | 判定 |
+|---|---|---|---|
+| 37.1 失敗画像の保持 | 失敗 `File` を返す戻り値契約 + 保持state | なし（`ImageUploader.tsx:313-331` は破棄） | **Missing** |
+| 37.2 サムネイル/ファイル名/理由の表示 | ObjectURL 生成と解放 | `FileInlinePreview.tsx:815-820`（useEffect戻り値でrevoke）が既存作法 | Reuse |
+| 37.3-37.6 再送・部分成功の除去 | 再送ハンドラ + 差分更新 | `OcrDataExtractor.tsx:1091,1117,1204` に「Fileを保持して再実行」の前例あり | Partial |
+| 37.7-37.8 確認付き破棄 | 確認ダイアログ | **汎用 `ConfirmDialog` は存在しない**。`window.confirm` は `useUnsavedChanges.ts:197` 等で使用実績あり。専用ダイアログは `contracts/DeleteConfirmDialog.tsx` 等ドメイン別 | **Constraint** |
+| 37.9 新規選択時も既存を保持 | 保持リストへの追記・重複排除 | なし | Missing |
+| 37.10 処理中は再送不可 | `isUploading` ガード | `ImageUploader.tsx:287` に既存ガード | Reuse |
+| 37.11 認証更新して継続 | 401→リフレッシュ→再送 | `client.ts:303-352` にJSON経路のみ実装済み。multipart は未接続 | **Missing（配線）** |
+| 37.12 セッション切れ通知 | `triggerSessionExpired()` | `client.ts:518-528`。`received-quotations.ts:173-179` が multipart から明示発火する前例。モーダルは `ProtectedLayout.tsx:47-52` で全画面に常設済み | Reuse |
+| 37.13 段階的な自動再試行 | 指数バックオフ | `client.ts:187-379`（1s→2s→4s、最大3回）。multipart は未接続 | **Missing（配線）** |
+| 37.14 重複回避のため再試行しない | 再試行対象の絞り込み | `client.ts` は 5xx を一律再試行。**アップロードには不適**（500で二重登録の恐れ） | **Missing** |
+| 37.15 1件120秒の猶予 | 送信タイムアウト | `client.ts:172` は既定30秒。multipart は現状**タイムアウト無制限** | **Missing** |
+
+### Constraint / Unknown
+
+- **[Constraint] フロント50MB vs バックエンド10MB** — `image-uploader.constants.ts:14` は 50MB、multer は `survey-images.routes.ts:58` / `construction-photo-images.routes.ts:73` ともに 10MB・10件。圧縮が効かない画像（HEIC等で `image-compression.ts:119-128` の原本フォールバック）は**再送しても永久に 413 で失敗し、未送信リストに滞留する**。Requirement 37 の再送導線を入れると、この乖離が「消えない未送信件数」としてユーザーに露出する。
+- **[Constraint] 確認ダイアログの共通部品が無い** — 37.8 の実現手段が `window.confirm`（既存実績あり・E2Eでは `page.on('dialog')` が必要）と新規共通コンポーネントの二択になる。
+- **[Unknown] Research Needed** — `client.ts` の再試行ループへ FormData を通した場合、同一 `FormData` インスタンスの再送が全対象ブラウザで安全か（Blob は消費されない想定だが未検証）。設計フェーズで確認。
+- **[Unknown] Research Needed** — 保持中の `File`（圧縮後の in-memory Blob）を多数抱えた場合のモバイル端末でのメモリ挙動。上限件数の要否。
+
+## 3. 実装アプローチ options
+
+### Option A: 既存コンポーネント拡張（ImageUploader に保持責務を集約）
+
+- **拡張対象**: `ImageUploader.tsx`（保持state・再送UI）、`client.ts`（FormData対応）、`survey-images.ts` / `construction-photo-images.ts`（apiClientへ委譲）、`PhotoUploader.tsx` / `SiteSurveyDetailPage.tsx`（失敗Fileを返す）
+- **互換性**: `onUpload` の戻り値契約を `Promise<void>` → `Promise<UploadOutcome | void>` に拡張。`void` 継続を許容すれば既存呼び出しは非破壊
+- **トレードオフ**: ✅ 1コンポーネントの改修で**両画面が同時に要件充足**（工事写真 Requirement 20 も同時に満たす） ✅ 新規ファイル最小 ❌ `ImageUploader.tsx` が589行→さらに肥大 ❌ 保持ロジックとUIが同一ファイルに同居
+
+### Option B: 新規コンポーネント/フック分離
+
+- **新設**: `hooks/usePendingUploads.ts`（保持・重複排除・ObjectURL ライフサイクル）、`components/site-surveys/PendingUploadPanel.tsx`（未送信リストUI）
+- **統合点**: `ImageUploader` はフックを呼びパネルを描画するだけ。`usePendingSaveAfterReauth.ts:57-90`（ref退避＋再認証エッジ検知）の一般化として設計できる
+- **トレードオフ**: ✅ 単一責任が保たれ単体テストが容易（カバレッジ80%達成が楽） ✅ `ImageUploader` の肥大を回避 ❌ ファイル数増 ❌ フックとコンポーネントの契約設計が必要
+
+### Option C: ハイブリッド（推奨）
+
+- **段階1（通信層）**: `client.ts` に FormData ボディ対応・アップロード専用の再試行条件・長めのタイムアウトを追加し、両 API モジュールを `apiClient` 経由へ統一 → 37.11-37.15 を**UI変更なしで**充足
+- **段階2（保持層）**: `usePendingUploads` フック + `PendingUploadPanel` を新設し、`ImageUploader` から利用 → 37.1-37.10 を充足
+- **段階3（配線）**: `SiteSurveyDetailPage` / `PhotoUploader` が失敗 `File` を返すよう戻り値契約を拡張
+- **リスク軽減**: 段階1は既存の失敗通知（Requirement 19）を壊さず単独でリリース可能。段階2以降が遅れても「失敗しにくくなる」効果だけ先行して得られる
+- **トレードオフ**: ✅ 通信層とUI層のリスクを分離 ✅ 段階1のみで実害（認証切れによる消失）の多くが解消 ❌ 計画が3段階に分かれ調整が必要
+
+## 4. 工数とリスク
+
+| 段階 | 工数 | リスク | 根拠 |
+|---|---|---|---|
+| 段階1 通信層 | **S**（1-3日） | **Medium** | 既存パターンの拡張だが、`client.ts` は**全JSONリクエストの共通経路**。Content-Type 分岐の誤りが全機能に波及する。既存 `__tests__/api/client.test.ts`（401リフレッシュ・再試行回数を検証済み）が回帰の防波堤になる |
+| 段階2 保持層 | **M**（3-7日） | **Medium** | ObjectURL のライフサイクル管理と、両画面共用コンポーネントへのUI追加。44px/16px 等のa11y規約とモバイル幅での表示検証が必要 |
+| 段階3 配線 | **S** | **Low** | 型を追う機械的な変更。`BatchUploadError` への `file` 追加は影響範囲が限定的（利用は `survey-images.ts` と `SiteSurveyDetailPage.tsx` のみ） |
+| テスト | **M** | **Low** | E2Eの失敗系は `site-survey-upload-validation-e2e.spec.ts:657-711`（`page.route` + `route.fulfill(500)` + `page.unroute`）をそのまま踏襲可。ネットワーク遮断は `route.abort('failed')`（`setOffline` は localhost で効かない旨がコード内に明記） |
+| **合計** | **M**（1週間前後） | **Medium** | — |
+
+## 5. 設計フェーズへの申し送り
+
+### 推奨アプローチ
+**Option C（ハイブリッド、3段階）**。段階1で「そもそも失敗しない」割合を上げ、段階2で「失敗しても消えない」を担保する二段構えとする。
+
+### 設計で決めるべき論点
+1. **保持責務の置き場所** — `ImageUploader`（共用＝両画面同時に要件充足）か、各ページか。工事写真 Requirement 20 が同一文面である以上、共用コンポーネントへの集約が整合的
+2. **再試行対象の判定基準** — 37.13/37.14 の「サーバー処理到達前/処理中」を HTTP ステータスへどう写像するか。二重登録回避を優先し、5xx一律再試行は採らない方針の妥当性
+3. **確認ダイアログの実現手段** — `window.confirm`（既存実績・E2Eは `page.on('dialog')`）か `components/common/` への新規共通コンポーネントか
+4. **保持件数の上限とメモリ方針** — 上限を設けるか、設ける場合の超過時挙動
+5. **50MB/10MB 乖離の扱い** — 本要件の Out of scope（サーバー受入上限の変更）に触れずに、恒久的に失敗し続ける画像をどう扱うか。フロント側バリデーション値の是正は別要件として切り出すか
+
+### Research Needed（設計フェーズで解消）
+- 再試行時の `FormData` インスタンス再利用の安全性
+- 保持中 `File` のモバイル端末でのメモリ影響と上限件数の要否
+
+## 設計合成の記録: Requirement 37（2026-08-08）
+
+- **Generalization**: 現調 37.1-37.10 と工事写真 20.1-20.10 は同一問題。共用 `ImageUploader` を一般化点とし1改修で両スペック充足。37.11-37.15 は送信経路一般の関心のため `client.ts` に集約し、画像固有の実装を作らない。
+- **Build vs Adopt（Adopt）**: `client.ts:303-352`（401リフレッシュ再送）/`:187-379`（指数バックオフ）/`:518-528`（セッション切れ発火）を採用。`received-quotations.ts:173-179` 方式（各APIで `triggerSessionExpired()` を個別呼び出し）は**リフレッシュによる継続（37.11）を満たせない**ため不採用。
+- **Build vs Adopt（Adopt）**: プレビューは `URL.createObjectURL` + `FileInlinePreview.tsx:815-820` の useEffect クリーンアップ作法。新規ライブラリなし。
+- **Build vs Adopt（Adopt）**: 破棄確認は `window.confirm`（既存実績 `useUnsavedChanges.ts:197`）。汎用 `ConfirmDialog` は不在で、破棄1操作のための新規共通ダイアログは過剰。
+- **Simplification**: `RequestOptions` に再試行条件の注入口（`retryPredicate`）を設けず、`body instanceof FormData` からアップロード方針を導出。単一利用の拡張点を公開APIへ露出させない。
+- **Simplification**: 保持リスト操作を `record(attempted, failed)` の1メソッドへ集約。初回送信と再送を同一経路で扱い、「成功分は残らない／失敗分は重複しない」不変条件を1箇所で保証。
+- **Rejected**: IndexedDB / Service Worker による永続化は Requirement 37 の Non-Goals。
+- **Research Needed の解消**: 再試行時の同一 `FormData` 再送は、`fetch` が Blob を消費しないため安全と判断。裏付けの取れない環境が判明した場合は再試行前に `FormData` を再構築する方式へ切り替える（design.md の Implementation Notes に記載）。
+- **保持件数上限**: 設けない。現調は5件ずつ・工事写真は最大5並列に分割されるため発散しない。上限は「保持しきれず消える」という要件趣旨に反する。実機でメモリ逼迫が観測された場合のみ要件を再検証する。
+
+## 設計レビュー指摘と是正: Requirement 37（2026-08-08）
+
+`/kiro-validate-design` で3件のCritical Issueを検出し、design.md と requirements.md へ反映した。
+
+1. **並行401で偽のセッション切れ（NO-GO要因）**: `client.ts:254` は 401 で `tokenRefreshCallback` を null 化して再帰を防ぐが、並行リクエストは `:304-306` へ落ちて `sessionExpiredCallback()` を発火させたうえで401のまま失敗する。アップロードは常に並列（現調5件バッチ `survey-images.ts:242` / 工事写真5並列 `PhotoUploader.tsx:64`）のため必ず踏む。現状は multipart が `client.ts` を通らないため未顕在で、**本設計が新規に持ち込む回帰**だった。→ `refreshInFlight: Promise<string> | null` の共有と待ち合わせを設計に追加。JSON経路の既存不具合も同時に解消する。
+2. **207を415へ潰す変換による誤分類（NO-GO要因）**: `survey-images.ts:163-166` は 207 の `failed[0]` を理由に関わらず `ApiError(415, ...)` へ変換する。だが `failed[]` は `image-upload.service.ts:278-291` が `upload()` の**あらゆる例外**（ストレージ障害・画像処理失敗・DBエラー・枚数上限）を捕捉したもので、形式エラーとは限らない。415→`'permanent'` の写像では一時障害の写真が「再送不可」になり要件の目的を裏切る。→ 207 は `ApiError(207, ...)` として返し、`isUnsupportedFormatMessage` によるメッセージ判定で分岐する設計へ是正。判定述語は Requirement 19.14 の `SiteSurveyDetailPage.tsx:642-645` と共有し二重定義を作らない。文言依存の脆さは Revalidation Trigger として記録。
+3. **タイムアウト×再試行でUIが数分ロック**: 120秒×4回＋バックオフで1ファイル最悪約6分、その間 `isUploading` により全操作不可で中断手段なし。→ ユーザー判断により「タイムアウトは再試行しない」を採用。`AbortError` 分岐で FormData の場合に再試行を抑止する（ネットワークエラーとタイムアウトはどちらも `statusCode === 0` のため、ステータスではなく発生分岐で区別）。
+
+**要件への波及**: 37.13 が「送信の時間切れ」を自動再試行対象に含めていたため矛盾が生じ、当該文言を削除。あわせて 37.19（時間切れは再試行せず保持）と 37.20（再送開始までの待ち時間を自動再試行で延伸させない）を追加した。

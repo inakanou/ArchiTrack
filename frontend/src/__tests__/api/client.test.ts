@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ApiError, apiClient, getApiErrorCode, ESTIMATE_SAVE_TIMEOUT_CODE } from '../../api/client';
+import {
+  ApiError,
+  apiClient,
+  getApiErrorCode,
+  ESTIMATE_SAVE_TIMEOUT_CODE,
+  UPLOAD_TIMEOUT_MS,
+} from '../../api/client';
 
 // loggerをモック（テスト出力をクリーンに保つため）
 vi.mock('../../utils/logger', () => ({
@@ -472,6 +478,325 @@ describe('ApiClient', () => {
     });
   });
 
+  /**
+   * Task 105.1 / Requirements (site-survey) 37.11, 37.13
+   *
+   * multipart 送信を共通クライアントへ統一するための第一歩。
+   * ボディが FormData の場合は JSON 化せず、`Content-Type` はブラウザの自動設定
+   * （boundary 付与）に委ねる。JSON 経路のヘッダ組み立てと本文生成は不変であること。
+   */
+  describe('multipart（FormData）ボディの送信', () => {
+    /** fetch 呼び出しに渡された RequestInit を捕捉する */
+    let capturedInit: RequestInit | undefined;
+
+    /** 成功応答を返す fetch モックを差し替え、RequestInit を捕捉する */
+    const mockFetchCapturingInit = (): void => {
+      capturedInit = undefined;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ success: true }),
+        });
+      });
+    };
+
+    /** 捕捉した RequestInit のヘッダを取り出す */
+    const capturedHeaders = (): Record<string, string> =>
+      (capturedInit?.headers ?? {}) as Record<string, string>;
+
+    beforeEach(() => {
+      apiClient.setAccessToken(null);
+      apiClient.setTokenRefreshCallback(null);
+      apiClient.setSessionExpiredCallback(null);
+    });
+
+    it('FormData ボディでは Content-Type ヘッダを設定しないこと', async () => {
+      mockFetchCapturingInit();
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+
+      await apiClient.post('/api/site-surveys/1/images', formData);
+
+      expect(Object.keys(capturedHeaders())).not.toContain('Content-Type');
+    });
+
+    it('FormData ボディを JSON 文字列化せずそのまま渡すこと', async () => {
+      mockFetchCapturingInit();
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+
+      await apiClient.post('/api/site-surveys/1/images', formData);
+
+      expect(capturedInit?.body).toBe(formData);
+    });
+
+    it('FormData ボディでも Authorization ヘッダと明示指定のヘッダを維持すること', async () => {
+      mockFetchCapturingInit();
+      apiClient.setAccessToken('upload-token');
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+
+      await apiClient.post('/api/site-surveys/1/images', formData, {
+        headers: { 'X-Request-Id': 'req-001' },
+      });
+
+      expect(capturedHeaders()['Authorization']).toBe('Bearer upload-token');
+      expect(capturedHeaders()['X-Request-Id']).toBe('req-001');
+
+      apiClient.setAccessToken(null);
+    });
+
+    it('JSON ボディでは Content-Type: application/json と JSON 文字列化を維持すること（回帰検出）', async () => {
+      mockFetchCapturingInit();
+      const body = { title: '現場調査' };
+
+      await apiClient.post('/api/site-surveys', body);
+
+      expect(capturedHeaders()['Content-Type']).toBe('application/json');
+      expect(capturedInit?.body).toBe(JSON.stringify(body));
+    });
+
+    it('ボディなしのリクエストでは Content-Type: application/json を維持すること（回帰検出）', async () => {
+      mockFetchCapturingInit();
+
+      await apiClient.get('/api/site-surveys');
+
+      expect(capturedHeaders()['Content-Type']).toBe('application/json');
+      expect(capturedInit?.body).toBeUndefined();
+    });
+  });
+
+  /**
+   * Task 105.3 / Requirements (site-survey) 37.13, 37.14, 37.15, 37.19, 37.20
+   *
+   * multipart 送信は非冪等である。サーバー処理に到達する前の失敗（通信障害・上流の
+   * 応答不能）だけを再試行し、サーバー処理中の失敗（500）と送信の時間切れは
+   * 再試行しない。送信猶予は1件あたり120秒とする。
+   */
+  describe('multipart 送信の再試行方針と送信タイムアウト', () => {
+    /** signal の中断が発生した回数 */
+    let abortCount = 0;
+
+    /** アップロード用の FormData を作る */
+    const uploadFormData = (): FormData => {
+      const formData = new FormData();
+      formData.append('images', new File(['dummy'], 'photo.jpg', { type: 'image/jpeg' }));
+      return formData;
+    };
+
+    /** JSON のエラー応答 */
+    const errorResponse = (status: number, statusText: string) => ({
+      ok: false,
+      status,
+      statusText,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ status, detail: statusText }),
+    });
+
+    /** JSON の成功応答 */
+    const successResponse = () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ successful: 1 }),
+    });
+
+    /** 中断されるまで解決しない fetch モック（送信猶予の検証用） */
+    const mockNeverSettlingFetch = () => {
+      const fetchMock = vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              abortCount += 1;
+              const abortError = new Error('The operation was aborted.');
+              abortError.name = 'AbortError';
+              reject(abortError);
+            });
+          })
+      );
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      return fetchMock;
+    };
+
+    /** 即座に AbortError で失敗する fetch モック（時間切れの再試行抑止の検証用） */
+    const mockAbortingFetch = () => {
+      const abortError = new Error('The operation was aborted.');
+      abortError.name = 'AbortError';
+      const fetchMock = vi.fn().mockRejectedValue(abortError);
+      globalThis.fetch = fetchMock;
+      return fetchMock;
+    };
+
+    beforeEach(() => {
+      abortCount = 0;
+      apiClient.setAccessToken(null);
+      apiClient.setTokenRefreshCallback(null);
+      apiClient.setSessionExpiredCallback(null);
+    });
+
+    it('上流の応答不能（503）では再試行し、最終的に成功すること', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(errorResponse(503, 'Service Unavailable'))
+        .mockResolvedValueOnce(errorResponse(503, 'Service Unavailable'))
+        .mockResolvedValueOnce(successResponse());
+      globalThis.fetch = fetchMock;
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).resolves.toEqual({ successful: 1 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('上流の応答不能（502・504）も再試行の対象であること', async () => {
+      for (const status of [502, 504]) {
+        const fetchMock = vi.fn().mockResolvedValue(errorResponse(status, 'Upstream failure'));
+        globalThis.fetch = fetchMock;
+
+        await expect(
+          apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+        ).rejects.toThrow(ApiError);
+
+        // 初回 + 3回のリトライ
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+      }
+    });
+
+    it('通信障害（ネットワークエラー）では再試行されること', async () => {
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+      globalThis.fetch = fetchMock;
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow(ApiError);
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    /**
+     * @requirement site-survey/REQ-37.14: 処理中の失敗は重複登録を避けるため自動再試行しない
+     * @requirement construction-photo/REQ-20.14: 同上（工事写真も同一の共有クライアント経路）
+     */
+    it('サーバー処理中の失敗（500）では重複登録を避けるため再試行しないこと', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(errorResponse(500, 'Internal Server Error'));
+      globalThis.fetch = fetchMock;
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow(ApiError);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * 時間切れで送信が1回で終わることは、再送を開始できる状態になるまでの待ち時間が
+     * 自動再試行の繰り返しで延伸しないこと（37.20 / 20.20）も同時に固定する。
+     *
+     * @requirement site-survey/REQ-37.19: 時間切れは自動再試行せず未送信として保持へ委ねる
+     * @requirement site-survey/REQ-37.20: 再送を開始できるまでの待ち時間を再試行で延伸させない
+     * @requirement construction-photo/REQ-20.19: 同上（工事写真も同一の共有クライアント経路）
+     * @requirement construction-photo/REQ-20.20: 同上（工事写真も同一の共有クライアント経路）
+     */
+    it('送信の時間切れでは再試行せず1回で失敗すること', async () => {
+      const fetchMock = mockAbortingFetch();
+
+      await expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow('Request timeout');
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * @requirement site-survey/REQ-37.15: 画像1件あたり少なくとも120秒の送信猶予を与える
+     * @requirement construction-photo/REQ-20.15: 同上（工事写真も同一の共有クライアント経路）
+     */
+    it('画像1件あたりの送信猶予が120秒であること', async () => {
+      const fetchMock = mockNeverSettlingFetch();
+
+      const rejection = expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData())
+      ).rejects.toThrow('Request timeout');
+
+      await vi.advanceTimersByTimeAsync(119_999);
+      expect(abortCount).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await rejection;
+
+      expect(abortCount).toBe(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('UPLOAD_TIMEOUT_MS が 120000 ミリ秒であること', () => {
+      expect(UPLOAD_TIMEOUT_MS).toBe(120_000);
+    });
+
+    it('sendFormData は既定で POST を使い FormData をそのまま送ること', async () => {
+      let capturedInit: RequestInit | undefined;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return Promise.resolve(successResponse());
+      });
+      const formData = uploadFormData();
+
+      await apiClient.sendFormData('/api/site-surveys/1/images', formData);
+
+      expect(capturedInit?.method).toBe('POST');
+      expect(capturedInit?.body).toBe(formData);
+      expect(Object.keys((capturedInit?.headers ?? {}) as Record<string, string>)).not.toContain(
+        'Content-Type'
+      );
+    });
+
+    it('sendFormData は method と timeout の上書きを受け付けること', async () => {
+      let capturedInit: RequestInit | undefined;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return Promise.resolve(successResponse());
+      });
+
+      await apiClient.sendFormData('/api/site-surveys/1/images/1', uploadFormData(), {
+        method: 'PUT',
+      });
+      expect(capturedInit?.method).toBe('PUT');
+
+      mockNeverSettlingFetch();
+      const rejection = expect(
+        apiClient.sendFormData('/api/site-surveys/1/images', uploadFormData(), { timeout: 5_000 })
+      ).rejects.toThrow('Request timeout');
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejection;
+      expect(abortCount).toBe(1);
+    });
+
+    it('JSON 経路の 500 は従来どおり再試行されること（回帰検出）', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(errorResponse(500, 'Internal Server Error'));
+      globalThis.fetch = fetchMock;
+
+      await expect(apiClient.post('/api/site-surveys', { title: '現場調査' })).rejects.toThrow(
+        ApiError
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('JSON 経路の時間切れは従来どおり再試行されること（回帰検出）', async () => {
+      const fetchMock = mockAbortingFetch();
+
+      await expect(apiClient.post('/api/site-surveys', { title: '現場調査' })).rejects.toThrow(
+        'Request timeout'
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+  });
+
   describe('型安全性', () => {
     it('ジェネリック型でレスポンス型を指定できること', async () => {
       interface User {
@@ -785,6 +1110,152 @@ describe('ApiClient', () => {
 
         // sessionExpiredCallbackは呼ばれないこと
         expect(mockSessionExpiredCallback).not.toHaveBeenCalled();
+      });
+    });
+
+    /**
+     * 進行中のトークン更新の共有（並行リクエストの401）
+     *
+     * アップロードは常に並列で実行されるため、複数のリクエストが同時に401となる。
+     * トークン更新は1回だけ実行し、更新中に発生した401は完了を待って同一リクエストを
+     * 再送する。セッション切れの通知は、共有した更新が失敗した場合にのみ発火させる。
+     *
+     * @requirement site-survey/REQ-37.11: 再ログインを要求せず認証を更新しアップロードを継続する
+     * @requirement site-survey/REQ-37.12: 認証の更新に失敗した場合のみセッション切れを通知する
+     * @requirement construction-photo/REQ-20.11: 同上（工事写真も同一の共有クライアント経路）
+     * @requirement construction-photo/REQ-20.12: 同上（工事写真も同一の共有クライアント経路）
+     */
+    describe('並行リクエストの401（進行中のトークン更新の共有）', () => {
+      /**
+       * 期限切れトークンのリクエストにのみ401を返す fetch モックを設定する
+       *
+       * トークン更新後の再送は新しいトークンを載せるため成功する。
+       */
+      const mockFetchRejectingStaleToken = (staleToken: string): void => {
+        globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+          const requestHeaders = (init.headers ?? {}) as Record<string, string>;
+          if (requestHeaders['Authorization'] === `Bearer ${staleToken}`) {
+            return Promise.resolve({
+              ok: false,
+              status: 401,
+              statusText: 'Unauthorized',
+              headers: new Headers({ 'content-type': 'application/json' }),
+              json: async () => ({ error: 'TOKEN_EXPIRED' }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ success: true }),
+          });
+        });
+      };
+
+      /** 5件を同時に送信する */
+      const sendFiveConcurrentRequests = (): Promise<unknown>[] =>
+        [1, 2, 3, 4, 5].map((index) => apiClient.get(`/api/site-surveys/${index}/images`));
+
+      afterEach(() => {
+        apiClient.setSessionExpiredCallback(null);
+        apiClient.setTokenRefreshCallback(null);
+        apiClient.setAccessToken(null);
+      });
+
+      it('5件が同時に401となってもトークン更新が1回だけ実行され、全件が再送されて成功すること', async () => {
+        const mockSessionExpiredCallback = vi.fn();
+        const mockRefreshCallback = vi.fn().mockResolvedValue('new-access-token');
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+        mockFetchRejectingStaleToken('old-access-token');
+
+        const results = await Promise.all(sendFiveConcurrentRequests());
+
+        // トークン更新は共有され1回だけ実行される
+        expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+
+        // 5件とも再送されて成功する（初回5回 + 再送5回）
+        expect(results).toEqual([
+          { success: true },
+          { success: true },
+          { success: true },
+          { success: true },
+          { success: true },
+        ]);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(10);
+
+        // セッション切れ通知は一度も発火しない
+        expect(mockSessionExpiredCallback).not.toHaveBeenCalled();
+        expect(apiClient.getAccessToken()).toBe('new-access-token');
+      });
+
+      it('共有したトークン更新が失敗した場合、5件とも401で失敗しセッション切れ通知が1回だけ発火すること', async () => {
+        const mockSessionExpiredCallback = vi.fn();
+        const mockRefreshCallback = vi.fn().mockRejectedValue(new Error('Refresh failed'));
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+        mockFetchRejectingStaleToken('old-access-token');
+
+        const results = await Promise.allSettled(sendFiveConcurrentRequests());
+
+        // トークン更新は共有され1回だけ実行される
+        expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+
+        // 5件とも401で失敗する（再送は行われない）
+        for (const result of results) {
+          expect(result.status).toBe('rejected');
+          if (result.status === 'rejected') {
+            expect(result.reason).toBeInstanceOf(ApiError);
+            expect((result.reason as ApiError).statusCode).toBe(401);
+          }
+        }
+        expect(globalThis.fetch).toHaveBeenCalledTimes(5);
+
+        // セッション切れ通知は共有した更新の失敗に対して1回だけ発火する
+        expect(mockSessionExpiredCallback).toHaveBeenCalledTimes(1);
+      });
+
+      it('更新API自体が401を返しても待ち合わせでデッドロックせず全件が失敗すること', async () => {
+        // デッドロックが起きた場合にテストがハングせず時間切れで失敗するよう実タイマーを使う
+        vi.useRealTimers();
+
+        const mockSessionExpiredCallback = vi.fn();
+        // AuthContext と同じく、更新コールバックが apiClient 経由で更新APIを呼ぶ構成を再現する
+        const mockRefreshCallback = vi.fn().mockImplementation(async () => {
+          const refreshed = await apiClient.post<{ accessToken: string }>('/api/v1/auth/refresh', {
+            refreshToken: 'stored-refresh-token',
+          });
+          return refreshed.accessToken;
+        });
+
+        apiClient.setSessionExpiredCallback(mockSessionExpiredCallback);
+        apiClient.setTokenRefreshCallback(mockRefreshCallback);
+        apiClient.setAccessToken('old-access-token');
+
+        // 更新APIを含む全てのリクエストが401を返す
+        globalThis.fetch = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ error: 'TOKEN_EXPIRED' }),
+        });
+
+        const results = await Promise.allSettled(sendFiveConcurrentRequests());
+
+        // 更新は1回だけ試みられ、更新APIの401が再帰的な更新を引き起こさない
+        expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+        for (const result of results) {
+          expect(result.status).toBe('rejected');
+          if (result.status === 'rejected') {
+            expect(result.reason).toBeInstanceOf(ApiError);
+            expect((result.reason as ApiError).statusCode).toBe(401);
+          }
+        }
       });
     });
   });
