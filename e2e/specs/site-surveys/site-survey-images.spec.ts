@@ -225,9 +225,17 @@ test.describe('現場調査画像管理', () => {
       await input.setInputFiles(unsupportedFilePath);
 
       // エラーメッセージが表示されることを確認
-      await expect(
-        page.getByText(/サポートされていない|対応していない|形式.*不正|ファイル形式/i)
-      ).toBeVisible({ timeout: getTimeout(10000) });
+      //
+      // 未送信画像の保持（REQ-37）により、同じ失敗理由が未送信画像パネルにも提示される。
+      // ページ全体を対象にした文言一致は複数要素に解決してしまうため、失敗の通知そのものを
+      // 担うアップロード失敗サマリの alert に限定して観測する。
+      const uploadError = page
+        .getByRole('alert')
+        .filter({ hasText: '件のアップロードに失敗しました' });
+      await expect(uploadError).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(uploadError).toContainText(
+        /サポートされていない|対応していない|形式.*不正|ファイル形式/i
+      );
     });
 
     /**
