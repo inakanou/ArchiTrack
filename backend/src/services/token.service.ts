@@ -18,9 +18,7 @@ export interface TokenPayload {
  * トークン関連のエラー型
  */
 export type TokenError =
-  | { type: 'TOKEN_EXPIRED' }
-  | { type: 'TOKEN_INVALID' }
-  | { type: 'TOKEN_MALFORMED' };
+  { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' } | { type: 'TOKEN_MALFORMED' };
 
 /**
  * TokenService
