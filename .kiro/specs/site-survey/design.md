@@ -6703,7 +6703,8 @@ graph TB
 | `frontend/src/components/site-surveys/SiteSurveyListCard.tsx` | 変更 | 同上 |
 | `frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx` | 変更 | 同上 |
 | `frontend/src/components/projects/SiteSurveySectionCard.tsx` | 変更 | 同上 |
-| `frontend/vitest.setup.ts` | 変更 | jsdom に `IntersectionObserver` のスタブを追加する |
+| `frontend/src/test-support/intersection-observer.ts` | 新規 | テスト用 `IntersectionObserver` スタブ。観測登録・解除の記録と交差状態の発火をテストへ提供する |
+| `frontend/vitest.setup.ts` | 変更 | 上記スタブを全テストへインストールし、テスト間で観測状態を初期化する |
 | `backend/src/services/image-list.service.ts` | 変更なし（実装済み） | 署名付きURL生成の定数化は是正済み。本節では回帰テストによる固定のみ |
 | `backend/src/services/signed-url.service.ts` | 変更なし（実装済み） | `validateSurveyAccess` の提供は是正済み |
 | `backend/scripts/backfill-annotated-thumbnails.ts` | 新規（任意） | 注釈ありでサムネイル未生成の画像を再生成する冪等スクリプト。要件充足の条件ではなくデータ品質改善 |

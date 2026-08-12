@@ -118,6 +118,15 @@ console.error = (...args: unknown[]) => {
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
+import {
+  installIntersectionObserverStub,
+  resetIntersectionObserverStub,
+} from './src/test-support/intersection-observer';
+
+// IntersectionObserver は jsdom に存在しないため、表示領域観測を行うコンポーネント・
+// フックのテストが実行時エラーになる。交差状態をテストから発火できるスタブへ差し替える。
+// 制御用のヘルパーは src/test-support/intersection-observer から import する。
+installIntersectionObserverStub();
 
 // Testing Library の cleanup を各テスト後に自動実行
 // これにより DOM 要素とイベントリスナーが確実にクリーンアップされる
@@ -127,4 +136,7 @@ afterEach(() => {
   // restoreAllMocks は clearAllMocks よりも徹底的で、
   // モックの実装自体を削除してメモリリークを防ぐ
   vi.restoreAllMocks();
+  // スタブは vi のモックではないため restoreAllMocks の対象外。
+  // テスト間で観測登録と disconnect 回数が持ち越されないよう明示的に初期化する
+  resetIntersectionObserverStub();
 });
