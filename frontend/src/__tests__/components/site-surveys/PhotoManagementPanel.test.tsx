@@ -15,7 +15,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
+import { triggerAllIntersections } from '../../../test-support/intersection-observer';
 import userEvent from '@testing-library/user-event';
 import { PhotoManagementPanel } from '../../../components/site-surveys/PhotoManagementPanel';
 import type { SurveyImageInfo } from '../../../types/site-survey.types';
@@ -72,6 +73,18 @@ const mockImages: SurveyImageInfo[] = [
 // ============================================================================
 // テストスイート
 // ============================================================================
+
+/**
+ * 表示領域への到達を発火して遅延読み込みされた画像を読み込ませる
+ *
+ * 実寸を持つ画像は表示領域へ入るまで取得を開始しない（Requirement 38.8）。
+ * 表示元URLの選択や注釈取得の挙動を検証するテストでは、描画後にこれを呼ぶ。
+ */
+function revealImages() {
+  act(() => {
+    triggerAllIntersections(true);
+  });
+}
 
 describe('PhotoManagementPanel', () => {
   const defaultProps = {
@@ -147,6 +160,7 @@ describe('PhotoManagementPanel', () => {
   describe('サムネイル画像表示', () => {
     it('一覧ではサムネイル画像URLを優先使用すること', () => {
       render(<PhotoManagementPanel {...defaultProps} />);
+      revealImages();
 
       const images = screen.getAllByRole('img');
       expect(images[0]).toHaveAttribute('src', 'https://example.com/thumbnail/img-1.jpg');
@@ -161,6 +175,7 @@ describe('PhotoManagementPanel', () => {
       }));
 
       render(<PhotoManagementPanel {...defaultProps} images={imagesWithoutThumbnail} />);
+      revealImages();
 
       const images = screen.getAllByRole('img');
       expect(images[0]).toHaveAttribute('src', 'https://example.com/medium/img-1.jpg');
@@ -174,6 +189,7 @@ describe('PhotoManagementPanel', () => {
       }));
 
       render(<PhotoManagementPanel {...defaultProps} images={imagesWithoutThumbAndMedium} />);
+      revealImages();
 
       const images = screen.getAllByRole('img');
       expect(images[0]).toHaveAttribute('src', 'https://example.com/original/img-1.jpg');
@@ -1111,6 +1127,7 @@ describe('PhotoManagementPanel', () => {
   describe('注釈付き画像表示 (Task 55.2, Requirement 20.2)', () => {
     it('PhotoManagementPanelがAnnotatedImageThumbnailで画像を表示すること', () => {
       render(<PhotoManagementPanel {...defaultProps} />);
+      revealImages();
 
       // AnnotatedImageThumbnailが各画像に対してレンダリングされていること
       // (preferThumbnail指定によりthumbnailUrlを最優先で使用する)
@@ -1154,6 +1171,7 @@ describe('PhotoManagementPanel', () => {
       const images = [createMockImage('annot-1', 1, { hasAnnotations: true })];
 
       render(<PhotoManagementPanel {...defaultProps} images={images} />);
+      revealImages();
 
       await waitFor(() => {
         expect(getAnnotationMock).toHaveBeenCalledWith('annot-1');

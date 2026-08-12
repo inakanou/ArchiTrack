@@ -11,6 +11,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import { getAnnotation } from '../../api/survey-annotations';
+import { useInViewport } from '../../hooks/useInViewport';
 import type { AnnotationInfo } from '../../types/site-survey.types';
 import { logger } from '../../utils/logger';
 // カスタムシェイプをFabric.jsクラスレジストリに登録
@@ -44,6 +45,14 @@ export interface AnnotatedImageInput {
   originalPath?: string;
   /** ファイル名 */
   fileName?: string;
+  /**
+   * 画像の実寸（ピクセル）
+   *
+   * 未読込の状態でも表示領域を確保するために用いる。値が正でない場合、要素が高さを
+   * 失って一斉に交差判定されるため、表示領域の観測を行わず即時取得へ縮退する。
+   */
+  width?: number;
+  height?: number;
 }
 
 export interface AnnotatedImageThumbnailProps {
@@ -114,6 +123,15 @@ export function AnnotatedImageThumbnail({
   // サーバーサイドで合成済みの注釈付きサムネイル。縮小表示（preferThumbnail）のときのみ採用する。
   // 拡大表示ではサムネイル解像度では不足するため、従来通りクライアントサイドで合成する。
   const serverRenderedUrl = preferThumbnail ? (image.annotatedThumbnailUrl ?? null) : null;
+
+  // 表示領域の観測を行う条件。
+  // - 即時取得（loading='eager'）は拡大表示・単一画像表示の意図であり観測しない。
+  // - 実寸が正の値でない場合、未読込の要素が高さを失って全件が同時に交差判定されるため、
+  //   観測しても遅延読み込みが成立しない。取得抑止を諦めて即時取得へ縮退する。
+  const hasIntrinsicSize = (image.width ?? 0) > 0 && (image.height ?? 0) > 0;
+  const { ref: imageRef, isInViewport } = useInViewport<HTMLImageElement>({
+    enabled: loading === 'lazy' && hasIntrinsicSize,
+  });
 
   /**
    * 画像をロードする
@@ -302,13 +320,18 @@ export function AnnotatedImageThumbnail({
   }, []);
 
   // 画像のレンダリング
+  // 表示領域へ到達するまでは開始しない。注釈取得APIの呼び出しと Fabric.js による合成は
+  // いずれもこの経路にあるため、表示領域外の画像に対して通信も描画も発生しない。
   useEffect(() => {
+    if (!isInViewport) {
+      return;
+    }
     // 非同期関数を定義して即時実行することで、ESLintの警告を回避
     const executeRender = async () => {
       await renderAnnotatedImage();
     };
     void executeRender();
-  }, [renderAnnotatedImage]);
+  }, [isInViewport, renderAnnotatedImage]);
 
   // エラー時のフォールバック表示
   if (error) {
@@ -332,9 +355,13 @@ export function AnnotatedImageThumbnail({
   }
 
   // ローディング中は元画像を表示（注釈のレンダリング完了後に差し替え）
+  // 表示領域へ到達するまでは src を与えず、実寸のみで領域を確保する。
   return (
     <img
-      src={renderedUrl ?? serverRenderedUrl ?? originalImageUrl}
+      ref={imageRef}
+      src={isInViewport ? (renderedUrl ?? serverRenderedUrl ?? originalImageUrl) : undefined}
+      width={image.width}
+      height={image.height}
       alt={alt}
       style={{
         ...style,
