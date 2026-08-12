@@ -522,6 +522,9 @@ router.get(
           ...img,
           originalUrl: withUrls?.originalUrl ?? null,
           thumbnailUrl: withUrls?.thumbnailUrl ?? null,
+          // Requirements: 38.2, 38.5 - 合成済みサムネイルの表示元URLを詳細応答へ引き渡す
+          // 得られない画像でも項目を欠落させず null として現れるようにする
+          annotatedThumbnailUrl: withUrls?.annotatedThumbnailUrl ?? null,
         };
       });
 

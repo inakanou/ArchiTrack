@@ -484,6 +484,111 @@ describe('Site Surveys Routes', () => {
 
       expect(response.status).toBe(404);
     });
+
+    // Requirements: 38.2, 38.5
+    // 詳細取得の応答に合成済みサムネイルの表示元URLを含める
+    describe('合成済みサムネイルの表示元URLの引き渡し', () => {
+      const IMAGE_WITH_ANNOTATED = '550e8400-e29b-41d4-a716-446655440010';
+      const IMAGE_WITHOUT_ANNOTATED = '550e8400-e29b-41d4-a716-446655440011';
+      const IMAGE_NOT_IN_URL_RESULT = '550e8400-e29b-41d4-a716-446655440012';
+
+      const baseImage = {
+        surveyId: TEST_SURVEY_ID,
+        fileName: 'photo.jpg',
+        fileSize: 1024,
+        width: 1600,
+        height: 1200,
+        displayOrder: 0,
+        originalPath: 'surveys/original.jpg',
+        thumbnailPath: 'surveys/thumb.jpg',
+        annotatedThumbnailPath: null as string | null,
+        comment: null,
+        includeInReport: true,
+        createdAt: new Date('2025-01-03T00:00:00Z'),
+      };
+
+      beforeEach(() => {
+        (mockSiteSurveyService.findById as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...mockSurveyDetail,
+          images: [
+            {
+              ...baseImage,
+              id: IMAGE_WITH_ANNOTATED,
+              displayOrder: 0,
+              annotatedThumbnailPath: 'surveys/annotated.jpg',
+            },
+            { ...baseImage, id: IMAGE_WITHOUT_ANNOTATED, displayOrder: 1 },
+            { ...baseImage, id: IMAGE_NOT_IN_URL_RESULT, displayOrder: 2 },
+          ],
+        });
+
+        (mockImageListService.findBySurveyIdWithUrls as ReturnType<typeof vi.fn>).mockResolvedValue(
+          [
+            {
+              ...baseImage,
+              id: IMAGE_WITH_ANNOTATED,
+              annotatedThumbnailPath: 'surveys/annotated.jpg',
+              originalUrl: 'https://example.com/original-0',
+              thumbnailUrl: 'https://example.com/thumb-0',
+              annotatedThumbnailUrl: 'https://example.com/annotated-0',
+              hasAnnotations: true,
+            },
+            {
+              ...baseImage,
+              id: IMAGE_WITHOUT_ANNOTATED,
+              originalUrl: 'https://example.com/original-1',
+              thumbnailUrl: 'https://example.com/thumb-1',
+              annotatedThumbnailUrl: null,
+              hasAnnotations: false,
+            },
+          ]
+        );
+      });
+
+      it('should include annotatedThumbnailUrl for images that have a composed thumbnail', async () => {
+        const response = await request(app).get(`/api/site-surveys/${TEST_SURVEY_ID}`);
+
+        expect(response.status).toBe(200);
+        const image = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_WITH_ANNOTATED
+        );
+        expect(image.annotatedThumbnailUrl).toBe('https://example.com/annotated-0');
+      });
+
+      it('should expose annotatedThumbnailUrl as null instead of omitting it when unavailable', async () => {
+        const response = await request(app).get(`/api/site-surveys/${TEST_SURVEY_ID}`);
+
+        expect(response.status).toBe(200);
+        const withoutAnnotated = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_WITHOUT_ANNOTATED
+        );
+        const notInUrlResult = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_NOT_IN_URL_RESULT
+        );
+
+        expect(Object.keys(withoutAnnotated)).toContain('annotatedThumbnailUrl');
+        expect(withoutAnnotated.annotatedThumbnailUrl).toBeNull();
+        expect(Object.keys(notInUrlResult)).toContain('annotatedThumbnailUrl');
+        expect(notInUrlResult.annotatedThumbnailUrl).toBeNull();
+      });
+
+      it('should keep existing originalUrl and thumbnailUrl passthrough unchanged', async () => {
+        const response = await request(app).get(`/api/site-surveys/${TEST_SURVEY_ID}`);
+
+        expect(response.status).toBe(200);
+        const image = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_WITH_ANNOTATED
+        );
+        expect(image.originalUrl).toBe('https://example.com/original-0');
+        expect(image.thumbnailUrl).toBe('https://example.com/thumb-0');
+
+        const notInUrlResult = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_NOT_IN_URL_RESULT
+        );
+        expect(notInUrlResult.originalUrl).toBeNull();
+        expect(notInUrlResult.thumbnailUrl).toBeNull();
+      });
+    });
   });
 
   describe('PUT /api/site-surveys/:id', () => {
