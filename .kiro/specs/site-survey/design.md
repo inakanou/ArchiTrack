@@ -6698,6 +6698,7 @@ graph TB
 | `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` | 変更 | 表示元URLの選択（実装済み）に加え、`loading="lazy"` 時の取得抑止を追加 |
 | `frontend/src/components/site-surveys/LazyImage.tsx` | 削除 | 未使用。観測ロジックは `useInViewport` へ移設 |
 | `frontend/src/components/site-surveys/LazyImage.stories.tsx` | 削除 | 上記に付随 |
+| `frontend/src/__tests__/components/site-surveys/LazyImage.test.tsx` | 削除 | 上記に付随。利用側の import が無いコンポーネントに対する単体テストであり、削除対象と同時に除去する |
 | `frontend/src/components/site-surveys/index.ts` | 変更 | `LazyImage` / `LazyImageProps` のバレル再エクスポート（31, 47行）を除去する |
 | `frontend/src/components/site-surveys/SiteSurveyListTable.tsx` | 変更 | フォールバック経路へ `thumbnailUrl` と `preferThumbnail` を渡す。`loading="lazy"` は維持する（実装時の是正、下記注記を参照） |
 | `frontend/src/components/site-surveys/SiteSurveyListCard.tsx` | 変更 | 同上 |

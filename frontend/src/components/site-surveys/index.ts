@@ -28,7 +28,6 @@ export { ImageUploader } from './ImageUploader';
 export { default as SiteSurveyErrorDisplay } from './SiteSurveyErrorDisplay';
 export { default as ImageViewer } from './ImageViewer';
 export { default as AnnotationEditor } from './AnnotationEditor';
-export { LazyImage } from './LazyImage';
 export { PhotoManagementPanel } from './PhotoManagementPanel';
 export { default as ImageExportDialog } from './ImageExportDialog';
 export { PendingUploadPanel } from './PendingUploadPanel';
@@ -44,7 +43,6 @@ export type { ImageUploaderProps, UploadProgress, ValidationError } from './Imag
 export type { SiteSurveyErrorDisplayProps } from './SiteSurveyErrorDisplay';
 export type { ImageViewerProps } from './ImageViewer';
 export type { AnnotationEditorProps } from './AnnotationEditor';
-export type { LazyImageProps } from './LazyImage';
 export type { PhotoManagementPanelProps } from './PhotoManagementPanel';
 export type { PendingUploadPanelProps } from './PendingUploadPanel';
 export type {
