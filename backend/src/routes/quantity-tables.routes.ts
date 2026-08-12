@@ -55,10 +55,16 @@ const quantityTableService = new QuantityTableService({
 /**
  * 数量グループに紐づく surveyImage の URL を署名付きURLへ変換する。
  *
- * findById が返す surveyImage の thumbnailUrl/originalUrl は `/api/storage/<path>` 形式の
- * 内部パスである。ストレージ設定時はこれを署名付きURLへ変換しないと、フロントの <img> から
- * 直接参照できずリンク切れになる。詳細取得（GET /:id）と保存（PUT /:id/save）で表示経路を
- * 一致させるため、両エンドポイントでこの変換を共通適用する。
+ * findById が返す surveyImage の thumbnailUrl/originalUrl/annotatedThumbnailUrl は
+ * `/api/storage/<path>` 形式の内部パスである。ストレージ設定時はこれを署名付きURLへ
+ * 変換しないと、フロントの <img> から直接参照できずリンク切れになる。詳細取得（GET /:id）と
+ * 保存（PUT /:id/save）で表示経路を一致させるため、両エンドポイントでこの変換を共通適用する。
+ *
+ * 注釈付きサムネイル（annotatedThumbnailUrl）は、数量グループ表題部の写真表示で
+ * クライアントサイドの注釈合成（グループごとの注釈取得APIとFabric.jsレンダリング）を
+ * 省略するために用いる。変換対象から漏れると表示できずクライアント合成へ退行するため、
+ * thumbnailUrl/originalUrl と同じ経路で変換する。
+ * Requirements: 49.1, 49.3
  */
 async function enrichQuantityTableSignedUrls(
   quantityTable: QuantityTableDetailWithItems
@@ -78,33 +84,35 @@ async function enrichQuantityTableSignedUrls(
         return group;
       }
 
-      // 元のURLを保持（署名付きURL生成失敗時のフォールバック）
-      let thumbnailUrl: string = group.surveyImage.thumbnailUrl;
-      let originalUrl: string = group.surveyImage.originalUrl;
+      /**
+       * `/api/storage/<path>` 形式の内部パスを署名付きURLへ変換する。
+       * 生成に失敗した場合は元のURLをそのまま返す（既存のフォールバック挙動を維持）。
+       */
+      const toSignedUrl = async <T extends string | null>(
+        internalUrl: T,
+        label: string
+      ): Promise<T> => {
+        if (!internalUrl) {
+          return internalUrl;
+        }
+        try {
+          // /api/storage/ プレフィックスを除去してパスのみを取得
+          const objectKey = internalUrl.replace(/^\/api\/storage\//, '');
+          return (await storageProvider.getSignedUrl(objectKey)) as T;
+        } catch (error) {
+          logger.warn(
+            { groupId: group.id, internalUrl, error },
+            `Failed to generate signed URL for ${label}`
+          );
+          return internalUrl;
+        }
+      };
 
-      // サムネイルURLを署名付きURLに変換
-      try {
-        // /api/storage/ プレフィックスを除去してパスのみを取得
-        const thumbnailPath = group.surveyImage.thumbnailUrl.replace(/^\/api\/storage\//, '');
-        thumbnailUrl = await storageProvider.getSignedUrl(thumbnailPath);
-      } catch (error) {
-        logger.warn(
-          { groupId: group.id, thumbnailUrl: group.surveyImage.thumbnailUrl, error },
-          'Failed to generate signed URL for thumbnail'
-        );
-      }
-
-      // オリジナル画像URLを署名付きURLに変換
-      try {
-        // /api/storage/ プレフィックスを除去してパスのみを取得
-        const originalPath = group.surveyImage.originalUrl.replace(/^\/api\/storage\//, '');
-        originalUrl = await storageProvider.getSignedUrl(originalPath);
-      } catch (error) {
-        logger.warn(
-          { groupId: group.id, originalUrl: group.surveyImage.originalUrl, error },
-          'Failed to generate signed URL for original image'
-        );
-      }
+      const [thumbnailUrl, originalUrl, annotatedThumbnailUrl] = await Promise.all([
+        toSignedUrl(group.surveyImage.thumbnailUrl, 'thumbnail'),
+        toSignedUrl(group.surveyImage.originalUrl, 'original image'),
+        toSignedUrl(group.surveyImage.annotatedThumbnailUrl, 'annotated thumbnail'),
+      ]);
 
       return {
         ...group,
@@ -112,6 +120,7 @@ async function enrichQuantityTableSignedUrls(
           ...group.surveyImage,
           thumbnailUrl,
           originalUrl,
+          annotatedThumbnailUrl,
         },
       };
     })

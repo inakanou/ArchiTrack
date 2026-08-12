@@ -179,9 +179,50 @@ export class SignedUrlService {
       return false;
     }
 
+    return this.validateProjectAccess(image.survey.projectId, userId);
+  }
+
+  /**
+   * ユーザーが現場調査配下の画像にアクセスする権限を持っているか検証する
+   *
+   * 画像のアクセス可否は画像単位ではなく、画像が属する現場調査のプロジェクト単位で決まる。
+   * 画像一覧のように同一現場調査の画像をまとめて扱う経路では、画像ごとに
+   * `validateSignedUrlAccess` を呼ぶと同じプロジェクト判定を枚数分繰り返すことになるため、
+   * 現場調査単位で1回だけ検証できるようこのメソッドを用いる。
+   *
+   * @param surveyId - 現場調査ID
+   * @param userId - ユーザーID
+   * @returns アクセス権限があればtrue、なければfalse
+   */
+  async validateSurveyAccess(surveyId: string, userId: string): Promise<boolean> {
+    const survey = await this.prisma.siteSurvey.findUnique({
+      where: { id: surveyId },
+      select: {
+        id: true,
+        projectId: true,
+      },
+    });
+
+    if (!survey) {
+      return false;
+    }
+
+    return this.validateProjectAccess(survey.projectId, userId);
+  }
+
+  /**
+   * ユーザーがプロジェクトの関係者、またはadminロール保持者かを判定する
+   *
+   * `validateSignedUrlAccess` と `validateSurveyAccess` の共通判定。
+   *
+   * @param projectId - プロジェクトID
+   * @param userId - ユーザーID
+   * @returns アクセス権限があればtrue、なければfalse
+   */
+  private async validateProjectAccess(projectId: string, userId: string): Promise<boolean> {
     // プロジェクト情報を取得
     const project = await this.prisma.project.findUnique({
-      where: { id: image.survey.projectId },
+      where: { id: projectId },
       select: {
         id: true,
         deletedAt: true,

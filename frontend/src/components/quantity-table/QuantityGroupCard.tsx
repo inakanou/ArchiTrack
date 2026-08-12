@@ -832,11 +832,16 @@ export default function QuantityGroupCard({
                 <AnnotatedImageThumbnail
                   image={{
                     id: group.surveyImage.id,
+                    thumbnailUrl: group.surveyImage.thumbnailUrl,
+                    annotatedThumbnailUrl: group.surveyImage.annotatedThumbnailUrl,
                     originalUrl: group.surveyImage.originalUrl,
                   }}
                   alt={group.surveyImage.fileName}
                   style={styles.thumbnail}
                   hasAnnotations={hasAnnotations}
+                  // 表題部の縮小表示。原寸画像ではなくサムネイルを使い、
+                  // サーバー生成の注釈付きサムネイルがあれば注釈取得APIも省略する
+                  preferThumbnail
                 />
                 {/* 注釈バッジ（REQ-3.3） */}
                 {hasAnnotations && (

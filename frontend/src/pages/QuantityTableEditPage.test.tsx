@@ -381,11 +381,12 @@ describe('QuantityTableEditPage', () => {
 
         renderWithRouter();
 
-        // 注釈表示のためoriginalUrlを使用する仕様に変更
+        // 表題部は縮小表示のため、原寸画像ではなくサムネイルを使用する
+        // （数量グループ数に比例した原寸画像のダウンロードを避ける）
         await waitFor(() => {
           const thumbnail = screen.getByAltText('photo1.jpg');
           expect(thumbnail).toBeInTheDocument();
-          expect(thumbnail).toHaveAttribute('src', '/images/original-1.jpg');
+          expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
         });
       });
 

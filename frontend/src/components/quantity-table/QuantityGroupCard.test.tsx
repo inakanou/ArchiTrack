@@ -22,21 +22,36 @@ import type { QuantityGroupDetail } from '../../types/quantity-table.types';
 // アンマウント後に発火する logger.warn）を抑止する。これがないと
 // vitest-worker teardown 中に onUserConsoleLog が pending のまま rpc が閉じられ、
 // EnvironmentTeardownError として Unhandled Rejection になり test:coverage が失敗する。
+// 実コンポーネントのURL選択規則（preferThumbnail 指定時は
+// annotatedThumbnailUrl > thumbnailUrl > originalUrl）をモックでも再現し、
+// 呼び出し側が渡すURLの誤りを検出できるようにする。
 vi.mock('../site-surveys/AnnotatedImageThumbnail', () => ({
   AnnotatedImageThumbnail: ({
     image,
     alt,
     style,
+    preferThumbnail,
   }: {
-    image: { id: string; originalUrl?: string | null };
+    image: {
+      id: string;
+      thumbnailUrl?: string | null;
+      annotatedThumbnailUrl?: string | null;
+      originalUrl?: string | null;
+    };
     alt: string;
     style?: React.CSSProperties;
+    preferThumbnail?: boolean;
   }) => (
     <img
-      src={image.originalUrl || ''}
+      src={
+        (preferThumbnail
+          ? (image.annotatedThumbnailUrl ?? image.thumbnailUrl ?? image.originalUrl)
+          : image.originalUrl) || ''
+      }
       alt={alt}
       style={style}
       data-testid="annotated-image-thumbnail"
+      data-prefer-thumbnail={preferThumbnail ? 'true' : 'false'}
     />
   ),
 }));
@@ -294,10 +309,31 @@ describe('QuantityGroupCard', () => {
           <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
         );
 
-        // 注釈表示のためoriginalUrlを使用する仕様に変更
+        // 表題部は縮小表示のため、原寸画像ではなくサムネイルを使用する
+        // （グループ数に比例した原寸画像のダウンロードを避ける）
         const thumbnail = screen.getByAltText('photo1.jpg');
         expect(thumbnail).toBeInTheDocument();
-        expect(thumbnail).toHaveAttribute('src', '/images/original-1.jpg');
+        expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
+        expect(thumbnail).toHaveAttribute('data-prefer-thumbnail', 'true');
+      });
+
+      it('サーバー生成の注釈付きサムネイルがある場合はそれを表示する', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                hasAnnotations: true,
+                annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        const thumbnail = screen.getByAltText('photo1.jpg');
+        expect(thumbnail).toHaveAttribute('src', '/images/annotated-thumb-1.jpg');
       });
 
       it('紐付き画像がないグループには画像プレースホルダーが表示される', () => {

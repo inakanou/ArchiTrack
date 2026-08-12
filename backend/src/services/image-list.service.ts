@@ -17,6 +17,13 @@ import type { SignedUrlService } from './signed-url.service.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 
 /**
+ * 署名付きURLの有効期限（秒）- 15分
+ *
+ * `SignedUrlService` の既定値と揃える。
+ */
+const SIGNED_URL_EXPIRES_IN = 900;
+
+/**
  * 画像情報（基本情報）
  */
 export interface SurveyImageInfo {
@@ -129,62 +136,51 @@ export class ImageListService {
     });
     const annotationImageIds = new Set(annotations.map((a) => a.imageId));
 
-    // 一括で署名付きURLを取得（原画像用）
-    const originalUrlResults = await this.signedUrlService.generateBatchSignedUrls(
-      imageIds,
-      userId,
-      'original'
-    );
+    // 原画像URLのアクセス権限は画像単位ではなく、画像が属する現場調査のプロジェクト単位で
+    // 決まる。画像ごとに検証すると同じ判定を枚数分繰り返すため（1枚あたりプロジェクト・
+    // ロール照会が発生し、写真が多い現場調査で初期表示が著しく遅くなる）、現場調査単位で
+    // 1回だけ検証する。
+    // Requirements: 16.1（画像一覧の初期表示を2秒以内に完了する）
+    const hasOriginalAccess = await this.signedUrlService.validateSurveyAccess(surveyId, userId);
 
-    // 結果をマップに変換（高速アクセス用）
-    const originalUrlMap = new Map<string, string | null>();
-    for (const result of originalUrlResults) {
-      if (result.success) {
-        originalUrlMap.set(result.imageId, result.url);
-      } else {
-        originalUrlMap.set(result.imageId, null);
+    const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
+
+    // 署名付きURLの生成に必要なストレージキーは findBySurveyId の結果に含まれているため、
+    // 画像ごとにDBを引き直さずパスから直接生成する。
+    const signUrl = async (objectKey: string | null): Promise<string | null> => {
+      if (!storageProvider || !objectKey) {
+        return null;
       }
-    }
+      try {
+        return await storageProvider.getSignedUrl(objectKey, {
+          expiresIn: SIGNED_URL_EXPIRES_IN,
+        });
+      } catch {
+        return null;
+      }
+    };
 
     // 各画像に署名付きURLを付与
-    const imagesWithUrls: ImageWithUrls[] = [];
+    return Promise.all(
+      images.map(async (image) => {
+        const [originalUrl, thumbnailUrl, annotatedThumbnailUrl] = await Promise.all([
+          // 原画像はアクセス権限検証を通過した場合のみURLを返す
+          hasOriginalAccess ? signUrl(image.originalPath) : Promise.resolve(null),
+          // サムネイル・注釈付きサムネイルは従来から権限検証を経ずに生成しており、
+          // 本メソッドのリクエスト削減にあたっても挙動を変えていない
+          signUrl(image.thumbnailPath),
+          signUrl(image.annotatedThumbnailPath),
+        ]);
 
-    for (const image of images) {
-      let thumbnailUrl: string | null = null;
-      let annotatedThumbnailUrl: string | null = null;
-
-      // サムネイルURLを個別に取得
-      try {
-        thumbnailUrl = await this.signedUrlService.generateSignedUrl(image.id, 'thumbnail');
-      } catch {
-        thumbnailUrl = null;
-      }
-
-      // 注釈付きサムネイルURLを生成（要件20.4対応）
-      if (image.annotatedThumbnailPath && isStorageConfigured()) {
-        try {
-          const storageProvider = getStorageProvider();
-          if (storageProvider) {
-            annotatedThumbnailUrl = await storageProvider.getSignedUrl(
-              image.annotatedThumbnailPath,
-              { expiresIn: 900 }
-            );
-          }
-        } catch {
-          annotatedThumbnailUrl = null;
-        }
-      }
-
-      imagesWithUrls.push({
-        ...image,
-        originalUrl: originalUrlMap.get(image.id) ?? null,
-        thumbnailUrl,
-        annotatedThumbnailUrl,
-        hasAnnotations: annotationImageIds.has(image.id),
-      });
-    }
-
-    return imagesWithUrls;
+        return {
+          ...image,
+          originalUrl,
+          thumbnailUrl,
+          annotatedThumbnailUrl,
+          hasAnnotations: annotationImageIds.has(image.id),
+        };
+      })
+    );
   }
 
   /**

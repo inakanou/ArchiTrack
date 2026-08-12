@@ -217,6 +217,64 @@ describe('AnnotatedImageThumbnail', () => {
     });
   });
 
+  describe('サーバーサイド生成の注釈付きサムネイル優先（画面読み込み時のリクエスト削減）', () => {
+    const annotatedImage: SurveyImageInfo = {
+      ...mockImage,
+      annotatedThumbnailUrl: 'https://example.com/annotated-thumbnail.jpg',
+      hasAnnotations: true,
+    };
+
+    it('preferThumbnail=true かつ annotatedThumbnailUrl がある場合はそれを表示し getAnnotation を呼ばない', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(
+        <AnnotatedImageThumbnail
+          image={annotatedImage}
+          alt="テスト画像"
+          hasAnnotations
+          preferThumbnail
+        />
+      );
+
+      await waitFor(() => {
+        const img = screen.getByRole('img');
+        expect(img).toHaveAttribute('src', annotatedImage.annotatedThumbnailUrl);
+      });
+      expect(surveyAnnotationsApi.getAnnotation).not.toHaveBeenCalled();
+    });
+
+    it('preferThumbnail=true でも annotatedThumbnailUrl がない場合はクライアント合成にフォールバックする', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(
+        <AnnotatedImageThumbnail
+          image={{ ...annotatedImage, annotatedThumbnailUrl: null }}
+          alt="テスト画像"
+          hasAnnotations
+          preferThumbnail
+        />
+      );
+
+      await waitFor(() => {
+        expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalledWith(annotatedImage.id);
+      });
+    });
+
+    it('preferThumbnail 未指定（拡大表示）のときは annotatedThumbnailUrl を使わずクライアント合成する', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(<AnnotatedImageThumbnail image={annotatedImage} alt="テスト画像" hasAnnotations />);
+
+      await waitFor(() => {
+        expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalledWith(annotatedImage.id);
+      });
+      expect(screen.getByRole('img')).not.toHaveAttribute(
+        'src',
+        annotatedImage.annotatedThumbnailUrl
+      );
+    });
+  });
+
   describe('注釈がある場合', () => {
     it('注釈付き画像がレンダリングされる', async () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({

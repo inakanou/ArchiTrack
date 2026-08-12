@@ -30,6 +30,7 @@ const mockPrisma = {
 const mockSignedUrlService = {
   generateSignedUrl: vi.fn(),
   generateBatchSignedUrls: vi.fn(),
+  validateSurveyAccess: vi.fn(),
 };
 
 // storageモック
@@ -58,11 +59,26 @@ describe('ImageListService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // 既定はストレージ未設定・権限ありとし、各テストで必要に応じて上書きする
+    vi.mocked(isStorageConfigured).mockReturnValue(false);
+    vi.mocked(getStorageProvider).mockReturnValue(null);
+    mockSignedUrlService.validateSurveyAccess.mockResolvedValue(true);
+    mockStorageProvider.getSignedUrl.mockImplementation((objectKey: string) =>
+      Promise.resolve(`https://r2.example.com/${objectKey}`)
+    );
     service = new ImageListService({
       prisma: mockPrisma as never,
       signedUrlService: mockSignedUrlService as never,
     });
   });
+
+  /**
+   * ストレージ設定済み・プロバイダありの状態にする
+   */
+  const configureStorage = () => {
+    vi.mocked(isStorageConfigured).mockReturnValue(true);
+    vi.mocked(getStorageProvider).mockReturnValue(mockStorageProvider as never);
+  };
 
   describe('findBySurveyId', () => {
     it('現場調査に紐付く画像一覧をdisplayOrderでソートして返すこと', async () => {
@@ -142,16 +158,13 @@ describe('ImageListService', () => {
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
       mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
-      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
-        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
-      ]);
-      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail1');
+      configureStorage();
 
       const result = await service.findBySurveyIdWithUrls(surveyId, userId);
 
       expect(result).toHaveLength(1);
-      expect(result[0]?.originalUrl).toBeDefined();
-      expect(result[0]?.thumbnailUrl).toBeDefined();
+      expect(result[0]?.originalUrl).toBe('https://r2.example.com/surveys/123/original1.jpg');
+      expect(result[0]?.thumbnailUrl).toBe('https://r2.example.com/surveys/123/thumb1.jpg');
     });
 
     it('署名付きURL生成に失敗した画像にはnullを設定すること', async () => {
@@ -175,16 +188,81 @@ describe('ImageListService', () => {
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
       mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
-      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
-        { success: false, error: 'GENERATION_FAILED', imageId: 'img-1' },
-      ]);
-      mockSignedUrlService.generateSignedUrl.mockRejectedValue(new Error('URL generation failed'));
+      configureStorage();
+      mockStorageProvider.getSignedUrl.mockRejectedValue(new Error('URL generation failed'));
 
       const result = await service.findBySurveyIdWithUrls(surveyId, userId);
 
       expect(result).toHaveLength(1);
       expect(result[0]?.originalUrl).toBeNull();
       expect(result[0]?.thumbnailUrl).toBeNull();
+    });
+
+    it('アクセス権限がない場合は原画像URLをnullにすること', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const userId = 'user-123';
+      const mockImages = [
+        {
+          id: 'img-1',
+          surveyId,
+          fileName: 'image1.jpg',
+          fileSize: 1024,
+          width: 800,
+          height: 600,
+          displayOrder: 1,
+          originalPath: 'surveys/123/original1.jpg',
+          thumbnailPath: 'surveys/123/thumb1.jpg',
+          annotatedThumbnailPath: null,
+          createdAt: new Date('2024-01-01'),
+        },
+      ];
+
+      mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
+      configureStorage();
+      mockSignedUrlService.validateSurveyAccess.mockResolvedValue(false);
+
+      const result = await service.findBySurveyIdWithUrls(surveyId, userId);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.originalUrl).toBeNull();
+    });
+
+    it('画像枚数によらずアクセス権限検証を1回だけ行い、画像ごとの署名付きURL再照会を行わないこと', async () => {
+      // 写真が多い現場調査で画面読み込み時のクエリ数が枚数に比例しないことを保証する。
+      // Requirements: 16.1（画像一覧の初期表示を2秒以内に完了する）
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const userId = 'user-123';
+      const mockImages = Array.from({ length: 10 }, (_, index) => ({
+        id: `img-${index + 1}`,
+        surveyId,
+        fileName: `image${index + 1}.jpg`,
+        fileSize: 1024,
+        width: 800,
+        height: 600,
+        displayOrder: index + 1,
+        originalPath: `surveys/123/original${index + 1}.jpg`,
+        thumbnailPath: `surveys/123/thumb${index + 1}.jpg`,
+        annotatedThumbnailPath: null,
+        createdAt: new Date('2024-01-01'),
+      }));
+
+      mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
+      configureStorage();
+
+      const result = await service.findBySurveyIdWithUrls(surveyId, userId);
+
+      expect(result).toHaveLength(10);
+      // 権限検証は現場調査単位で1回のみ
+      expect(mockSignedUrlService.validateSurveyAccess).toHaveBeenCalledTimes(1);
+      expect(mockSignedUrlService.validateSurveyAccess).toHaveBeenCalledWith(surveyId, userId);
+      // 画像IDからストレージキーを引き直す経路（DB再照会を伴う）は使わない
+      expect(mockSignedUrlService.generateSignedUrl).not.toHaveBeenCalled();
+      expect(mockSignedUrlService.generateBatchSignedUrls).not.toHaveBeenCalled();
+      // 画像一覧・注釈有無の取得はそれぞれ1クエリに収まる
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.imageAnnotation.findMany).toHaveBeenCalledTimes(1);
     });
 
     it('レスポンスにhasAnnotationsフィールドが含まれること (Task 55.1, Requirement 20.4)', async () => {
@@ -222,11 +300,7 @@ describe('ImageListService', () => {
       // img-1のみ注釈あり
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
       mockPrisma.imageAnnotation.findMany.mockResolvedValue([{ imageId: 'img-1' }]);
-      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
-        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
-        { success: true, url: 'https://r2.example.com/original2', imageId: 'img-2' },
-      ]);
-      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail');
+      configureStorage();
 
       const result = await service.findBySurveyIdWithUrls(surveyId, userId);
 
@@ -245,9 +319,10 @@ describe('ImageListService', () => {
       const result = await service.findBySurveyIdWithUrls(surveyId, userId);
 
       expect(result).toEqual([]);
-      // 注釈やURL生成は呼ばれない
+      // 注釈取得・権限検証・URL生成はいずれも呼ばれない
       expect(mockPrisma.imageAnnotation.findMany).not.toHaveBeenCalled();
-      expect(mockSignedUrlService.generateBatchSignedUrls).not.toHaveBeenCalled();
+      expect(mockSignedUrlService.validateSurveyAccess).not.toHaveBeenCalled();
+      expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
     });
 
     it('annotatedThumbnailPathがありストレージ設定済みの場合、注釈付きサムネイルURLを生成すること', async () => {
@@ -271,14 +346,9 @@ describe('ImageListService', () => {
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
       mockPrisma.imageAnnotation.findMany.mockResolvedValue([{ imageId: 'img-1' }]);
-      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
-        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
-      ]);
-      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail1');
 
       // ストレージ設定済み・プロバイダあり
-      vi.mocked(isStorageConfigured).mockReturnValue(true);
-      vi.mocked(getStorageProvider).mockReturnValue(mockStorageProvider as never);
+      configureStorage();
       mockStorageProvider.getSignedUrl.mockResolvedValue('https://r2.example.com/annotated-thumb1');
 
       const result = await service.findBySurveyIdWithUrls(surveyId, userId);
@@ -312,14 +382,9 @@ describe('ImageListService', () => {
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
       mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
-      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
-        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
-      ]);
-      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail1');
 
       // ストレージ設定済みだがURL生成失敗
-      vi.mocked(isStorageConfigured).mockReturnValue(true);
-      vi.mocked(getStorageProvider).mockReturnValue(mockStorageProvider as never);
+      configureStorage();
       mockStorageProvider.getSignedUrl.mockRejectedValue(new Error('signed url failed'));
 
       const result = await service.findBySurveyIdWithUrls(surveyId, userId);
@@ -349,10 +414,6 @@ describe('ImageListService', () => {
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
       mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
-      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
-        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
-      ]);
-      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail1');
 
       vi.mocked(isStorageConfigured).mockReturnValue(true);
       vi.mocked(getStorageProvider).mockReturnValue(null);
@@ -384,10 +445,7 @@ describe('ImageListService', () => {
 
       mockPrisma.surveyImage.findMany.mockResolvedValue(mockImages);
       mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
-      mockSignedUrlService.generateBatchSignedUrls.mockResolvedValue([
-        { success: true, url: 'https://r2.example.com/original1', imageId: 'img-1' },
-      ]);
-      mockSignedUrlService.generateSignedUrl.mockResolvedValue('https://r2.example.com/thumbnail');
+      configureStorage();
 
       const result = await service.findBySurveyIdWithUrls(surveyId, userId);
 

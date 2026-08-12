@@ -33,6 +33,13 @@ export interface AnnotatedImageInput {
   mediumUrl?: string | null;
   /** サムネイル画像URL（署名付きURL、preferThumbnail指定時に最優先で使用） */
   thumbnailUrl?: string | null;
+  /**
+   * 注釈付きサムネイルURL（署名付きURL、サーバーサイド生成）
+   *
+   * 注釈保存時にサーバー側で生成される合成済みサムネイル。preferThumbnail 指定時は
+   * これを最優先で使用し、注釈取得APIとクライアントサイド合成を完全に省略する。
+   */
+  annotatedThumbnailUrl?: string | null;
   /** オリジナル画像パス（フォールバック用） */
   originalPath?: string;
   /** ファイル名 */
@@ -61,6 +68,12 @@ export interface AnnotatedImageThumbnailProps {
    * サムネイルURLを最優先で使用するか。
    * 一覧グリッドのような縮小表示で、フル解像度の原画像を読み込む代わりに
    * サムネイル画像を表示し、通信量と再描画コストを削減する。
+   *
+   * `true` のとき、サーバーサイド生成の注釈付きサムネイル（`annotatedThumbnailUrl`）が
+   * あればそれをそのまま表示し、注釈取得APIの呼び出しとFabric.jsによる
+   * クライアントサイド合成を行わない。写真が多い画面での画像1枚あたりの
+   * 追加リクエストと再描画コストを排除するための経路。
+   *
    * 既定は `false`（従来通り mediumUrl > originalUrl の順でフォールバック）。
    */
   preferThumbnail?: boolean;
@@ -98,6 +111,10 @@ export function AnnotatedImageThumbnail({
     ? (image.thumbnailUrl ?? image.mediumUrl ?? image.originalUrl ?? image.originalPath)
     : (image.mediumUrl ?? image.originalUrl ?? image.originalPath);
 
+  // サーバーサイドで合成済みの注釈付きサムネイル。縮小表示（preferThumbnail）のときのみ採用する。
+  // 拡大表示ではサムネイル解像度では不足するため、従来通りクライアントサイドで合成する。
+  const serverRenderedUrl = preferThumbnail ? (image.annotatedThumbnailUrl ?? null) : null;
+
   /**
    * 画像をロードする
    */
@@ -115,6 +132,16 @@ export function AnnotatedImageThumbnail({
    * 注釈付き画像をレンダリングする
    */
   const renderAnnotatedImage = useCallback(async () => {
+    // サーバーサイド生成の注釈付きサムネイルがある場合は、それをそのまま表示する。
+    // 注釈取得API（getAnnotation）の呼び出しもFabric.jsによる合成も行わないため、
+    // 写真枚数に比例したリクエストとレンダリング負荷が発生しない。
+    if (serverRenderedUrl) {
+      setRenderedUrl(serverRenderedUrl);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     if (!originalImageUrl) {
       setError('画像URLがありません');
       setIsLoading(false);
@@ -264,7 +291,7 @@ export function AnnotatedImageThumbnail({
         setIsLoading(false);
       }
     }
-  }, [image.id, originalImageUrl, loadImageElement, hasAnnotations]);
+  }, [image.id, originalImageUrl, serverRenderedUrl, loadImageElement, hasAnnotations]);
 
   // コンポーネントのマウント/アンマウント管理
   useEffect(() => {
@@ -307,7 +334,7 @@ export function AnnotatedImageThumbnail({
   // ローディング中は元画像を表示（注釈のレンダリング完了後に差し替え）
   return (
     <img
-      src={renderedUrl ?? originalImageUrl}
+      src={renderedUrl ?? serverRenderedUrl ?? originalImageUrl}
       alt={alt}
       style={{
         ...style,

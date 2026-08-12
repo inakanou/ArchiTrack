@@ -634,6 +634,53 @@ describe('QuantityTablesRoutes', () => {
       );
     });
 
+    it('surveyImageのannotatedThumbnailUrlも署名付きURLに変換して返却する（Req 49.1, 49.3）', async () => {
+      // 注釈付きサムネイルは数量グループ表題部の写真表示でクライアントサイドの注釈合成
+      // （グループごとの注釈取得API呼び出し）を省略するために用いる。変換されないと
+      // `/api/storage/...` のままとなり表示できず、クライアント合成へ退行する。
+      const body = buildSaveBody();
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            quantityTableId: tableId,
+            name: 'グループA',
+            surveyImageId: 'img-1',
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/api/storage/thumbnails/img-1.jpg',
+              originalUrl: '/api/storage/originals/img-1.jpg',
+              fileName: 'img-1.jpg',
+              hasAnnotations: true,
+              annotatedThumbnailUrl: '/api/storage/annotated-thumbnails/img-1.jpg',
+              comment: null,
+            },
+            displayOrder: 0,
+            itemCount: 0,
+            items: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      mockService.saveDraft.mockResolvedValue(latestDetail);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(body)
+        .expect(200);
+
+      expect(response.body.groups[0].surveyImage.annotatedThumbnailUrl).toBe(
+        'https://signed.example.com/annotated-thumbnails/img-1.jpg?sig=test'
+      );
+    });
+
     it('バリデーションエラー（整合性検証）時に400を返却する（Req 42.9）', async () => {
       const { QuantityTableValidationError } =
         await import('../../../errors/quantityTableError.js');

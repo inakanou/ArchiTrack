@@ -393,6 +393,126 @@ describe('SignedUrlService', () => {
     });
   });
 
+  describe('validateSurveyAccess', () => {
+    it('should return true when user has project access', async () => {
+      // Arrange
+      const surveyId = 'test-survey-id';
+      const userId = 'test-user-id';
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        projectId: 'test-project-id',
+      });
+
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: 'test-project-id',
+        deletedAt: null,
+        createdById: userId,
+        salesPersonId: null,
+        constructionPersonId: null,
+      });
+
+      // Act
+      const result = await signedUrlService.validateSurveyAccess(surveyId, userId);
+
+      // Assert
+      expect(result).toBe(true);
+      // 画像単位の照会を行わずに現場調査から直接プロジェクトを解決する
+      expect(mockPrisma.surveyImage.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should return true when user has admin role', async () => {
+      // Arrange
+      const surveyId = 'test-survey-id';
+      const userId = 'admin-user-id';
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        projectId: 'test-project-id',
+      });
+
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: 'test-project-id',
+        deletedAt: null,
+        createdById: 'other-user-id',
+        salesPersonId: 'another-user-id',
+        constructionPersonId: 'yet-another-user-id',
+      });
+
+      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'admin' } }]);
+
+      // Act
+      const result = await signedUrlService.validateSurveyAccess(surveyId, userId);
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('should return false when survey does not exist', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue(null);
+
+      // Act
+      const result = await signedUrlService.validateSurveyAccess('missing-survey-id', 'user-id');
+
+      // Assert
+      expect(result).toBe(false);
+      expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should return false when project is deleted', async () => {
+      // Arrange
+      const surveyId = 'test-survey-id';
+      const userId = 'test-user-id';
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        projectId: 'test-project-id',
+      });
+
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: 'test-project-id',
+        deletedAt: new Date(),
+        createdById: userId,
+        salesPersonId: null,
+        constructionPersonId: null,
+      });
+
+      // Act
+      const result = await signedUrlService.validateSurveyAccess(surveyId, userId);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+
+    it('should return false when user has no project access and no admin role', async () => {
+      // Arrange
+      const surveyId = 'test-survey-id';
+      const userId = 'unrelated-user-id';
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        projectId: 'test-project-id',
+      });
+
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: 'test-project-id',
+        deletedAt: null,
+        createdById: 'other-user-id',
+        salesPersonId: 'another-user-id',
+        constructionPersonId: 'yet-another-user-id',
+      });
+
+      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'user' } }]);
+
+      // Act
+      const result = await signedUrlService.validateSurveyAccess(surveyId, userId);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+  });
+
   describe('getSignedUrlWithValidation', () => {
     it('should return signed URL when user has access', async () => {
       // Arrange
