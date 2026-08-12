@@ -798,3 +798,131 @@ ImageViewer のズーム/パン/タッチ処理を AnnotationEditor 内へ移植
 3. **タイムアウト×再試行でUIが数分ロック**: 120秒×4回＋バックオフで1ファイル最悪約6分、その間 `isUploading` により全操作不可で中断手段なし。→ ユーザー判断により「タイムアウトは再試行しない」を採用。`AbortError` 分岐で FormData の場合に再試行を抑止する（ネットワークエラーとタイムアウトはどちらも `statusCode === 0` のため、ステータスではなく発生分岐で区別）。
 
 **要件への波及**: 37.13 が「送信の時間切れ」を自動再試行対象に含めていたため矛盾が生じ、当該文言を削除。あわせて 37.19（時間切れは再試行せず保持）と 37.20（再送開始までの待ち時間を自動再試行で延伸させない）を追加した。
+
+---
+
+## ギャップ分析: Requirement 38「写真枚数によらない画面表示の応答性」（2026-08-12）
+
+**前提**: 本要件は未承認（`spec.json` の `approvals.requirements.approved: false`）。分析は要件の見直しにも供する。
+
+### 現状調査（Current State）
+
+| 資産 | 位置 | 本要件との関係 |
+|---|---|---|
+| 画像一覧取得 | `backend/src/services/image-list.service.ts` `findBySurveyIdWithUrls` | AC1・AC4 の実体。詳細取得（`site-surveys.routes.ts` GET `/:id`）と一覧取得（`survey-images.routes.ts` GET `/`）の両方が使用 |
+| 署名付きURL生成・権限検証 | `backend/src/services/signed-url.service.ts` | AC9 の実体。`validateSignedUrlAccess`（画像単位）と `validateSurveyAccess`（現場調査単位）を持つ |
+| 注釈付きサムネイル生成 | `backend/src/services/annotation.service.ts` `save` → `AnnotatedThumbnailService.generateAnnotatedThumbnail` | AC5 の供給源。注釈保存時に**サーバー側で同期生成**し、失敗時は `ThumbnailRegenerationError` で保存自体を500にする（Requirement 20.4 / 23.1-23.4） |
+| サムネイル表示 | `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` | AC2・AC5〜AC7 の実体。`preferThumbnail` 指定時にサーバー生成サムネイルを優先し、注釈取得APIとクライアント合成を省略 |
+| 詳細画面の写真一覧 | `frontend/src/components/site-surveys/PhotoManagementPanel.tsx` | 全画像を一括描画（ページング・仮想化なし） |
+| 未使用の遅延読み込み部品 | `frontend/src/components/site-surveys/LazyImage.tsx`（303行、`IntersectionObserver` + `rootMargin` 実装済み） | **どこからも import されていない**。AC8 の再利用候補 |
+| バッチ注釈取得 | `backend` 注釈バッチAPI / `frontend/src/api/survey-annotations.ts` `getBatchAnnotations` | Requirement 18 で新設。現状はエクスポート経路（`AnnotationRendererService`）のみが使用 |
+
+### Requirement-to-Asset Map
+
+| AC | 状態 | 根拠 |
+|---|---|---|
+| 38.1（一覧を1リクエストで取得） | **充足** | `site-surveys.routes.ts` GET `/:id` の応答に画像とURLを同梱 |
+| 38.2（注釈のための画像ごと追加リクエストなし） | **条件付き充足** | `annotatedThumbnailUrl` があれば注釈取得APIを呼ばない。無い場合はフォールバックで画像ごとに `getAnnotation` が発生（→ G2） |
+| 38.3（リクエストを一覧1回＋表示対象画像に限定） | **条件付き充足** | 同上 |
+| 38.4（枚数が増えても Requirement 16.1 の時間内） | **Unknown** | 画像1枚あたり約5件の逐次DB問い合わせを撤廃し定数化したが、実測値がない（→ G4） |
+| 38.5（注釈付きサムネイル優先） | **充足** | `AnnotatedImageThumbnail` が `preferThumbnail` 時に最優先で採用。一覧画面は従来から短絡済み |
+| 38.6（利用不可時の表示結果維持） | **充足** | クライアント合成へフォールバック。Requirement 20 の表示結果は不変 |
+| 38.7（縮小表示はサムネイル／原本は必要時のみ） | **部分充足** | 詳細画面は充足。**一覧系のフォールバック経路が原本を使用**（→ G3） |
+| 38.8（表示領域外は取得しない） | **Missing** | 未実装（→ G1） |
+| 38.9（アクセス可否判定を変えない） | **充足** | 権限検証を現場調査単位へ集約したが判定基準・結果は不変（→ 別途 Constraint） |
+
+### 残ギャップ
+
+- **G1 — Missing: 表示領域外の取得抑止（AC8）**
+  `<img loading="lazy">` は付与済みだが、先読み範囲はブラウザ任せで「表示領域に入るまで取得しない」を保証しない。さらにクライアント合成フォールバック経路は `new Image()` で即時取得するため `loading` 属性が効かない。`LazyImage.tsx` が未使用のまま存在する。
+
+- **G2 — Constraint: 注釈付きサムネイルが存在しない画像**
+  現行の保存経路は同期生成のため新規注釈では必ず生成される。残るのは次の2系統。
+  1. マイグレーション `20260223100000_add_annotated_thumbnail_path` 以前に保存された注釈（バックフィル用スクリプトは存在しない）
+  2. 空注釈レコード（`generateAnnotatedThumbnail` が `null` を返して削除する一方、`hasAnnotations` は注釈レコードの有無で判定されるため true になり、フォールバック経路へ入る）
+  いずれも画像ごとの `getAnnotation` を誘発し AC2・AC3 を破る。
+
+- **G3 — Missing: 一覧系フォールバックの原本使用（AC7）**
+  `SiteSurveyListTable.tsx:150-162`、`SiteSurveyListCard.tsx:77-90`、`SiteSurveySectionCard.tsx:301-314`、`SiteSurveyResponsiveView.tsx:165-178` は、注釈付きサムネイルが無いとき `originalUrl: survey.thumbnailOriginalUrl` のみを渡す。64px 表示に原本を読み込む。`SiteSurveyInfo.thumbnailUrl` は既に応答に含まれており、渡していないだけ。
+
+- **G4 — Unknown: AC4 の検証手段**
+  「Requirement 16.1 の時間内」を判定する計測手段・基準データセット（写真枚数）が定義されていない。
+
+- **Constraint（AC9 の周辺）**: 現状、原本画像URLのみがプロジェクト所属の権限検証を経ており、サムネイル・注釈付きサムネイルは検証を経ずに生成される。本要件は「判定結果を変えない」ため充足だが、**この不整合自体は Requirement 14 の課題として未解決**。
+
+### 実装アプローチ
+
+- **Option A: `AnnotatedImageThumbnail` を拡張して遅延読み込みを内蔵**
+  同コンポーネントに `IntersectionObserver` を組み込み、フォールバック合成の起動も遅延させる。呼び出し側（詳細画面・一覧・数量表）は無変更で AC8 を満たす。
+  ✅ 変更点が1ファイル／全画面へ一律適用 ／ ❌ 表示・合成・遅延の3責務が集中（現在323行）
+
+- **Option B: 既存 `LazyImage` を採用し、合成の起動条件として組み合わせる**
+  未使用の `LazyImage` を表示層に据え、`AnnotatedImageThumbnail` は合成のみを担う。
+  ✅ 責務分離・既存資産の活用 ／ ❌ 2コンポーネントの協調設計が必要、呼び出し側の差し替えが広範
+
+- **Option C: ハイブリッド（推奨）**
+  AC8 は Option A（`AnnotatedImageThumbnail` 内で `LazyImage` の観測ロジックを再利用）。G2 はフォールバック経路を `getBatchAnnotations`（Requirement 18 で既存）へ寄せ、画像ごとではなく画面あたり1リクエストに収める。G3 は各一覧コンポーネントへ `thumbnailUrl` + `preferThumbnail` を渡すだけの局所修正。
+  ✅ 新規APIを作らずAC2/3/7/8を満たす ／ ❌ 3箇所の変更調整が必要
+
+### Effort / Risk
+
+- **Effort: S（1〜3日）** — G1・G3 は既存パターンの適用、G2 は既存バッチAPIの転用で新規エンドポイント不要
+- **Risk: Low** — 表示結果を変えない範囲の変更。ただし G1 は `IntersectionObserver` のテスト環境モックが必要で、既存 `AnnotatedImageThumbnail.test.tsx`（26件）への影響を要確認
+
+### Research Needed（設計フェーズへ持ち越し）
+
+1. **AC4 の検証方法** — 計測対象（サーバー処理時間か画面表示完了までか）、基準となる写真枚数、E2Eで測るかバックエンドの性能テスト（`backend/performance/`）で測るか
+2. **G2 のバックフィル要否** — マイグレーション以前の注釈が実データにどれだけ残存するか。残存量次第でバックフィル実施か `getBatchAnnotations` 転用のみかが決まる
+3. **空注釈レコードの扱い** — `hasAnnotations` の判定を「注釈レコードの有無」から「注釈オブジェクトが1件以上」へ変更するか。変更すると Requirement 20 の表示判定にも波及する
+4. **`rootMargin` の値** — 先読み距離。スクロール時の体感（AC8 と Requirement 16.1 のトレードオフ）
+
+## 設計ディスカバリと合成の記録: Requirement 38（2026-08-12）
+
+**Discovery Type**: Light（Extension）。新規外部依存なし、既存コンポーネントの拡張と1スクリプト追加に収まるため Full へは escalate しなかった。
+
+### 調査で判明した事実
+
+- **サーバー側の合成は既に同期・確実である**: `annotation.service.ts:262-281` は `AnnotationService.save` のトランザクション後に `AnnotatedThumbnailService.generateAnnotatedThumbnail` を同期実行し、失敗時は `ThumbnailRegenerationError` を投げて保存全体を500にする（`annotation.routes.ts:257-272`）。したがって合成済みサムネイルの欠落は**新規保存では起こり得ない**。当初「生成が不確実だからクライアント合成が必要」と想定していたが誤りで、欠落はマイグレーション `20260223100000_add_annotated_thumbnail_path` 以前のデータに限られる。この事実が「フォールバックを最適化する」から「フォールバックが発動しない状態を作る」への方針転換の根拠となった。
+- **空注釈レコードという第2の欠落源**: `generateAnnotatedThumbnail` は空注釈に対して `null` を返しサムネイルを削除する一方、`ImageAnnotation` レコード自体は残る。`image-list.service.ts` の `hasAnnotations` はレコードの存在のみで判定しているため、描画すべき注釈が無い画像でもフォールバック経路へ入り、無駄な注釈取得を1件発生させていた。
+- **遅延読み込みの未使用資産が2つある**: `components/site-surveys/LazyImage.tsx`（303行、`IntersectionObserver` 実装済み、バレル `index.ts:31,47` から再エクスポートされているが利用側の import は0件）と `hooks/useLazyLoadGroups.ts`（利用側 import 0件）。前者は要素単位の観測で本要件に合致し、後者は追加読み込みのトリガー要素を観測する別物である。
+- **`getBatchAnnotations` は surveyId を要求する**: `api/survey-annotations.ts:187` の署名は `(surveyId, imageIds)`。`AnnotatedImageThumbnail` は画像単位のコンポーネントで surveyId を知らないため、バッチ転用は親コンポーネントから注釈データを流し込む新たな結線を全呼び出し側（現調詳細・現調一覧・プロジェクト詳細・数量表）へ強いることになる。
+- **`loading="lazy"` では抑止できない経路がある**: `AnnotatedImageThumbnail` のクライアント合成は `new Image()` で画像を取得するため、`<img loading="lazy">` の対象外である。38.8 が `loading` 属性だけでは満たせない理由。
+- **jsdom に `IntersectionObserver` は存在しない**: `frontend/vitest.setup.ts` にスタブがなく、導入時はテスト基盤側の対応が必要。
+- **性能テストの既存形式**: `backend/performance/*.perf.ts` は autocannon で P95 を測る形式（`project-crud.perf.ts` が P95 < 500ms を判定）。38.4 の検証はこの形式に揃えられる。
+
+### 検討して採らなかった案
+
+- **フォールバックのバッチ化（`getBatchAnnotations` 転用）**: 1画面1リクエストへ収まるが、38.3 の「画像一覧の取得1回と表示対象の画像そのものの取得のみ」に文字通り反する。加えて根本原因（レガシー注釈のサムネイル欠落）を残し、4系統の呼び出し側へ新たな結線を要求する。
+- **表示時のサーバー側オンデマンド再生成**: `findBySurveyIdWithUrls` で欠落を検出して都度生成する案。画像一覧の応答時間が生成コストに引きずられ 38.4 と正面から衝突する。バックフィルを画面表示経路から切り離した理由。
+- **ページング・仮想スクロール**: 並び替え・一括メタデータ更新・一括ZIPエクスポート（Requirement 31）が全件表示を前提としており、表示件数の変更はそれらの前提に波及する。Non-Goals とした。
+- **`useLazyLoadGroups` の転用**: 観測対象の粒度が異なる。かつ数量表スペックの所管。
+
+### Research Needed の解消状況
+
+- **AC 38.4 の検証方法**（ギャップ分析で持ち越し）→ **解消**。測定対象はサーバー処理時間（`GET /api/site-surveys/:id/images` の P95）とし、ブラウザ描画は含めない。判定線は「写真100枚の P95 が10枚の P95 の3倍以内、かつ絶対値が 2000ms 未満」。枚数比10倍に対する3倍以内を「比例させない」の操作的定義とする。
+- **バックフィル要否**（同上）→ **設計へ組み込み**。`dryRun` で対象件数を先に測り、0件なら以降不要という手順にした。実データの残存量は実行時に判明する。
+- **空注釈レコードの扱い**（同上）→ **解消**。`hasAnnotations` を「描画対象の注釈オブジェクトが1件以上」へ変更する。判定に要する `data` は既存の `findMany` の `select` へ足すため問い合わせ回数は増えない。Requirement 20 の注釈バッジ表示にも波及するが、空注釈でバッジが出なくなるのは表示として正しい方向である。
+- **`rootMargin` の値**（同上）→ `LazyImage` の既定値 `'50px'` を踏襲する。独自の値を導入する根拠がない。
+
+### 残るリスク
+
+- **観測対象の寸法確保**: 未読込の `<img>` は `height: 'auto'`（`PhotoManagementPanel` の `styles.image:120-125`）だと高さ0に潰れ、全要素が同時に交差判定されて遅延読み込みが無効化される。`AnnotatedImageInput` へ画像実寸を追加し `width`/`height` 属性で領域を確保する設計としたが、実寸を渡さない呼び出し側では観測を無効化する縮退規則を置いた。呼び出し側が寸法指定のない `style` を渡すようになった場合は Revalidation Trigger とする。
+- **Requirement 14 との未解決の非対称性**: 原本画像URLのみがプロジェクト所属の権限検証を経ており、サムネイル・注釈付きサムネイルは検証を経ずに生成される。本設計はこれを維持する（38.9）。是正の要否は Requirement 14 の所管として未決のまま残る。
+
+## 設計レビュー指摘と是正: Requirement 38（2026-08-12）
+
+`/kiro-validate-design` で3件のCritical Issueを検出し NO-GO 判定とした。ユーザー承認のうえ requirements.md と design.md へ是正を反映した。
+
+1. **依拠する不変条件が実運用で破れる（NO-GO要因）**: 設計は「非空の注釈 ⇒ `annotatedThumbnailPath` 非null」を前提に 38.2 / 38.3 を満たすとしていた。しかし `annotation.service.ts:237-258` の `$transaction` は注釈をコミットした**後**に `:262-281` でサムネイル生成を行い、失敗時に `ThumbnailRegenerationError` を投げる。注釈のみが永続化されサムネイルが欠落する状態が**正常系の障害で新規に発生し得る**ため、欠落をレガシーデータ限定とする前提が成立しない。要件充足がデータ状態に依存し、回帰テストで固定できなかった。
+   → **是正（案a: 要件の緩和を採用）**。38.2 を「登録写真の枚数に比例した追加リクエストを発生させない」、38.3 を「画像一覧の取得1回と、表示領域に入った画像に対する取得のみに限定する」へ改め、38.6 に「代替手段のための取得も表示領域に入った画像に限る」を追加した。充足機構を「フォールバックを起こさせないこと」から「フォールバックを含む一切の取得が表示領域に入った画像に限られること」（38.8 の機構）へ移した。上限が登録枚数ではなく同時表示数となり、データ状態に依存しなくなる。
+   → 案b（サムネイル生成を注釈保存と同一トランザクションへ）は画像処理でDB接続を長時間占有し 38.4 と衝突するため不採用。案c（バックフィルの定期実行）は運用負担を恒久化するため不採用。
+
+2. **`hasAnnotations` の意味が producer 間で分岐する**: 設計は `image-list.service.ts` の導出を「注釈オブジェクトが1件以上」へ変更するとしていたが、同じフィールドを `quantity-table.service.ts:466-469` が `annotation: { select: { id: true } }` から算出しており変更対象外だった。同一画像に対し現場調査APIは `false`、数量表APIは `true` を返す分岐が生じる。
+   → **是正（指摘1の是正により前提が消滅、変更自体を撤回）**。ユーザー承認時の方針は「導出規則の集約」だったが、指摘1を案aで是正した結果、空注釈レコードによる余分な取得も表示領域内の数件に収まり、`hasAnnotations` の意味変更が不要になった。加えて集約を実行するには、`quantity-table.service.ts` が重い `data` を意図的に取得していない最適化を壊すか、スキーマへ派生列を追加する必要があった。**両 producer とも「注釈レコードの存在」で据え置く**ことで分岐そのものが発生しない。承認された方針からの逸脱にあたるため、この判断はユーザーへ明示的に報告した。
+
+3. **寸法確保の縮退規則が実際の呼び出しと噛み合わない**: 設計は「`image.width`/`image.height` **未指定**なら観測しない」と規定したが、一覧系4コンポーネントは `SiteSurveyListTable.tsx:150-162` のように合成オブジェクトへ `width: 0, height: 0` を渡す。「未指定」ではないため観測が有効化され、高さ0で全要素が同時交差して 38.8 が機能しない。
+   → **是正**。縮退条件を「実寸が**正の値**であること」へ改め、一覧系4コンポーネントには `loading="eager"` を明示して観測対象外とする方針を File Structure Plan の責務欄へ記載した。Revalidation Trigger にも「一覧系が `loading` の指定を外した場合」を追加した。
+
+**要件への波及**: 38.2 / 38.3 / 38.6 の文言を変更した。設計の充足機構が変わったことに伴う調整であり、要件の意図（リクエストを登録写真の枚数から切り離す）は変えていない。
+
+**バックフィルの位置づけ変更**: 38.2 / 38.3 の充足条件ではなくなり、データ品質改善の任意手段となった。Migration Strategy の順序制約を撤廃し、`ThumbnailRegenerationError` により欠落は新規にも発生するため `targeted` は0へ恒久収束しないことを明記した。

@@ -6577,3 +6577,349 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 - FormData 経由の統一が JSON 経路へ回帰を生む → `sendFormData` の利用箇所のみ旧 `requestWithFormData` へ戻す（両APIモジュールに局所化されている）
 - 再試行方針の変更で重複登録が観測される → FormData 時の再試行を `statusCode === 0` のみへ縮退
 - 保持中の `File` によるメモリ逼迫が実機で確認される → 保持件数に上限を設け、超過分は古い順に破棄する方針へ変更（要件再検証が必要）
+
+## Requirement 38: 写真枚数によらない画面表示の応答性
+
+### Overview
+
+**Purpose**: 現場調査の一覧・詳細画面で発生するサーバーリクエストの件数と通信量を、登録写真の枚数から切り離す。Requirement 16.1（画像一覧の初期表示2秒以内）は達成手段を定めていないため、枚数に比例する処理が実装へ混入しても要件違反として検出されない。本節はその構造的な制約を設計として固定する。
+
+**Users**: 写真が多数登録された現場調査を扱う現場調査担当者と、サーバー負荷を管理するシステム運用者。
+
+**Impact（既存前提の是正）**: 本要件が対象とする経路には、写真枚数に比例する処理が3系統存在した。
+
+1. `image-list.service.ts` の `findBySurveyIdWithUrls` が画像1枚あたり約5件の逐次データベース問い合わせを発行していた（`generateBatchSignedUrls` 内のループでプロジェクト・ロール照会を繰り返し、さらにサムネイル用に再照会）。**是正済み**。権限検証を現場調査単位の1回へ集約し、ストレージキーは `findBySurveyId` の結果を再利用する。
+2. `AnnotatedImageThumbnail` が注釈のある画像ごとに注釈取得APIを呼び、Fabric.js でクライアント合成していた。サーバー側は Requirement 20.4 に基づき合成済みサムネイルを生成・返却しているにもかかわらず、表示側がそれを参照していなかった。**是正済み**。`preferThumbnail` 指定時は `annotatedThumbnailUrl` を最優先で採用する。
+3. 表示領域外の画像も画面表示時に取得していた。`<img loading="lazy">` は付与されているが先読み範囲はブラウザ判断であり、クライアント合成経路は `new Image()` で即時取得するため `loading` 属性が効かない。**本節で是正する**。
+
+残る差分は、表示領域外の取得抑止（38.8）と、一覧系フォールバック経路の原本使用（38.7）である。表示領域外の取得抑止は、画像本体だけでなくクライアント合成のための注釈取得にも及ぶため、38.2 / 38.3 の充足機構でもある。
+
+#### Goals
+- 画面表示で発生する画像関連リクエストを、画像一覧取得1回と、表示領域に入った画像に対する取得のみに限定する
+- 表示領域に入るまで画像本体もクライアント合成も開始しない
+- 縮小表示に原本画像を用いる経路を排除する
+- 画像一覧取得のデータベース問い合わせ回数を写真枚数から独立させる（是正済みの状態を回帰テストで固定する）
+
+#### Non-Goals
+- 写真一覧のページング・仮想スクロール導入（表示件数の変更は Requirement 20 の表示前提に波及するため本要件では扱わない）
+- 注釈をレンダリングしたサムネイル画像の生成契機の変更（Requirement 20.4 / 23.1-23.4 が所管）
+- 画像の圧縮率・保存形式の変更（Requirement 4 が所管）
+- アクセス権限の判定基準の変更（Requirement 14 が所管）
+- PDF報告書出力時のリクエスト最適化（Requirement 18 が所管）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- `backend/src/services/image-list.service.ts` の `findBySurveyIdWithUrls`: 署名付きURL生成に要する問い合わせ回数と権限検証の実行単位
+- `backend/src/services/signed-url.service.ts` の現場調査単位の権限検証入口（`validateSurveyAccess`）
+- `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` の取得タイミングと表示元URLの選択規則
+- 表示領域到達の観測（新規 `frontend/src/hooks/useInViewport.ts`）
+- 一覧系4コンポーネントがフォールバック経路で `AnnotatedImageThumbnail` へ渡す画像URLと `loading` の指定
+- 合成済みサムネイルを持たない既存注釈の解消手段の提供（新規 `backend/scripts/backfill-annotated-thumbnails.ts`）。要件充足の条件ではなくデータ品質改善として所有する
+
+#### Out of Boundary
+- `AnnotatedThumbnailService.generateAnnotatedThumbnail` の生成ロジックそのもの（Requirement 20.4 / 23 が所管）。本節はこれを**呼び出す**のみで、生成結果の内容には関与しない
+- `AnnotationService.save` の同期生成フローと `ThumbnailRegenerationError` の扱い（Requirement 23 が所管）。トランザクション外での生成失敗により注釈のみが永続化される経路は本節では是正せず、その状態が起こり得る前提で設計する
+- `hasAnnotations` の導出規則。`image-list.service.ts` と `quantity-table.service.ts:466-469` の双方が「注釈レコードの存在」で一致しており、本節では変更しない
+- `SignedUrlService.validateSignedUrlAccess` の判定基準（プロジェクト関係者・admin ロール）。本節は実行単位のみを変更し、判定基準は変更しない
+- サムネイル・注釈付きサムネイルが原本画像と異なり権限検証を経ずに生成される既存の非対称性。本節はこれを**維持**する。是正するか否かは Requirement 14 の所管であり、本節では判断しない
+- `frontend/src/hooks/useLazyLoadGroups.ts`（数量表のグループ単位ページング。対象・粒度が異なり、quantity-table-generation スペックの所管）
+- 数量表画面の写真表示（quantity-table-generation の Requirement 49 が所管）。`AnnotatedImageThumbnail` は共用だが、呼び出し側の結線は当該スペックが持つ
+
+#### Allowed Dependencies
+- 依存方向: `types` → `hooks` → `components` → `pages`。左方向のみ import 可
+- `hooks/useInViewport.ts` → React のみ。ドメイン型・api 層に依存しない汎用フックとする
+- `components/site-surveys/AnnotatedImageThumbnail.tsx` → `hooks/useInViewport`, `api/survey-annotations`, `fabric`
+- 一覧系コンポーネント → `AnnotatedImageThumbnail` のみ。注釈取得APIを直接呼ばない
+- バックエンド: `ImageListService` → `SignedUrlService`, `storage`。`SignedUrlService` の内部実装（Prisma モデル構造）へ依存しない
+- 新規の外部ライブラリ依存を追加しない
+
+#### Revalidation Triggers
+- `SurveyImage` に新たな画像バリアント（中解像度など）が追加された場合 → 表示元URLの選択順序を再検証
+- `AnnotatedImageThumbnail` の呼び出し側が実寸を持たない画像情報を渡すようになった場合 → 観測が無効化され 38.8 が満たされなくなるため再検証
+- 一覧系コンポーネントが `loading` の指定を外した場合 → 実寸0の合成オブジェクトで観測が有効化され破綻するため再検証
+- Requirement 14 がサムネイルへの権限検証を要求するようになった場合 → `findBySurveyIdWithUrls` のURL生成分岐を再検証
+- 写真一覧にページングを導入する場合 → 38.3 の「一覧取得1回」の前提が変わるため本節を再設計
+- `hasAnnotations` の導出規則をいずれかの producer が変更した場合 → 現場調査APIと数量表APIの意味の一致が崩れるため両者を再検証
+
+### 設計合成（Design Decisions）
+
+- **Generalization**: `AnnotatedImageThumbnail` は現場調査詳細・現場調査一覧・プロジェクト詳細・数量表の4系統から使われる単一の表示点である。表示元URLの選択と取得タイミングをこのコンポーネントへ集約すれば、呼び出し側を変更せずに全画面へ効果が及ぶ。取得タイミングの制御に新規 props を追加せず、既存の `loading` prop（`'lazy' | 'eager'`）を観測の有無の切り替えに用いる。拡大表示は `loading="eager"` を指定済みであり、意味づけが一致する。
+- **Build vs Adopt（Adopt）**: 表示領域観測は `LazyImage.tsx:153-184` の `IntersectionObserver` 実装を `hooks/useInViewport.ts` へ抽出して採用する。新規ライブラリを追加しない。
+- **Build vs Adopt（Rejected）**: `hooks/useLazyLoadGroups.ts` は観測対象が「追加読み込みのトリガー要素」であり、要素単位の表示判定には使えない。かつ import 実績がない。採用しない。
+- **Build vs Adopt（Rejected）**: フォールバック経路を `getBatchAnnotations`（Requirement 18 で新設）へ寄せる案。1画面1リクエストへ収まるが、38.3 の「画像一覧の取得1回と表示対象の画像そのものの取得のみ」に文字通り反する。またレガシー注釈にサムネイルが無いという根本原因を残し、`AnnotatedImageThumbnail` が親から注釈データを受け取る新たな結線を全呼び出し側へ強いる。採用しない。
+- **38.2 / 38.3 の充足機構は表示領域による限定である（設計レビューでの是正）**。当初は「合成済みサムネイルの欠落はレガシーデータに限られる」という不変条件に依拠し、バックフィルで解消する設計としていた。しかし `annotation.service.ts:237-258` の `$transaction` は注釈をコミットした**後**に `:262-281` でサムネイル生成を行い、失敗時に `ThumbnailRegenerationError` を投げる。**注釈のみが永続化されサムネイルが無い状態が正常系の障害で新規に発生し得る**ため、この不変条件は成立しない。したがって 38.2 / 38.3 は「フォールバックを起こさせないこと」ではなく「フォールバックを含む一切の画像関連取得が表示領域に入った画像に限られること」（38.8 の機構）によって満たす。登録写真の枚数ではなく同時に表示される画像数が上限となり、データ状態に依存しない。
+- **Simplification（設計レビューでの撤回）**: `hasAnnotations` の導出を「注釈オブジェクトが1件以上」へ変更する案は採用しない。上記のとおり 38.2 / 38.3 は表示領域による限定で満たされるため、空注釈レコードによる余分な取得も表示領域内の数件に収まり、変更の必要がない。加えて `quantity-table.service.ts:466-469` は同じ `hasAnnotations` を `annotation: { select: { id: true } }` から導出しており、重い `data` を意図的に取得していない。導出規則を「オブジェクト数」へ集約するとこの最適化を壊すか、スキーマへ派生列を追加する必要が生じる。**両 producer とも「注釈レコードの存在」で一致させたまま据え置く**ことで、producer 間の意味の分岐も発生しない。
+- **バックフィルの位置づけ**: 上記により、バックフィルは 38.2 / 38.3 の充足条件ではなくなる。合成済みサムネイルの欠落した画像で不要なクライアント合成が起きることを減らすデータ品質改善として残し、実施は任意とする。
+- **Simplification**: 未使用の `LazyImage.tsx`（303行）と付随する stories を削除する。`components/site-surveys/index.ts:31,47` からバレル再エクスポートされているが、利用側の import は0件である。観測ロジックを `useInViewport` へ移設したうえで残置すると、遅延読み込みの実装が2つ並存し必ず片方が陳腐化する。削除に伴いバレルの再エクスポートも除去する。
+- **Rejected**: ページング・仮想スクロールの導入。写真の一括操作（並び替え・一括メタデータ更新・一括エクスポート）が全件表示を前提としており、表示件数の変更は Requirement 20 および Requirement 31 の前提に波及する。Non-Goals とする。
+
+### Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend
+        ListViews[一覧系4コンポーネント]
+        PhotoPanel[PhotoManagementPanel]
+        Thumb[AnnotatedImageThumbnail]
+        Viewport[useInViewport]
+        AnnotApi[api survey-annotations]
+    end
+    subgraph Backend
+        ImageList[ImageListService]
+        SignedUrl[SignedUrlService]
+        Storage[StorageProvider]
+        Backfill[backfill-annotated-thumbnails]
+        AnnotThumb[AnnotatedThumbnailService]
+    end
+
+    ListViews --> Thumb
+    PhotoPanel --> Thumb
+    Thumb --> Viewport
+    Thumb -.フォールバックのみ.-> AnnotApi
+    PhotoPanel --> ImageList
+    ImageList --> SignedUrl
+    ImageList --> Storage
+    Backfill --> AnnotThumb
+    AnnotThumb --> Storage
+```
+
+**Key Decisions**
+
+- `AnnotatedImageThumbnail` から注釈取得APIへの線は破線である。合成済みサムネイルが存在する画像では到達しない。到達する場合も表示領域に入った画像に限られ、登録写真の枚数には比例しない。
+- `ImageListService` から `SignedUrlService` への呼び出しは画像枚数によらず1回（権限検証）に固定される。URL生成はストレージプロバイダへ直接行い、画像IDからの再照会を挟まない。
+- バックフィルは表示経路から独立している。実行タイミングは表示側の変更より前であればよく、両者は同時反映を要しない。
+
+### File Structure Plan
+
+| ファイル | 区分 | 責務 |
+|---|---|---|
+| `frontend/src/hooks/useInViewport.ts` | 新規 | 単一要素が表示領域（+先読み余白）に到達したかを一度だけ判定する |
+| `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` | 変更 | 表示元URLの選択（実装済み）に加え、`loading="lazy"` 時の取得抑止を追加 |
+| `frontend/src/components/site-surveys/LazyImage.tsx` | 削除 | 未使用。観測ロジックは `useInViewport` へ移設 |
+| `frontend/src/components/site-surveys/LazyImage.stories.tsx` | 削除 | 上記に付随 |
+| `frontend/src/components/site-surveys/index.ts` | 変更 | `LazyImage` / `LazyImageProps` のバレル再エクスポート（31, 47行）を除去する |
+| `frontend/src/components/site-surveys/SiteSurveyListTable.tsx` | 変更 | フォールバック経路へ `thumbnailUrl` と `preferThumbnail` を渡す。合成オブジェクトに実寸を持たないため `loading="eager"` を明示し観測対象外とする |
+| `frontend/src/components/site-surveys/SiteSurveyListCard.tsx` | 変更 | 同上 |
+| `frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx` | 変更 | 同上 |
+| `frontend/src/components/projects/SiteSurveySectionCard.tsx` | 変更 | 同上 |
+| `frontend/vitest.setup.ts` | 変更 | jsdom に `IntersectionObserver` のスタブを追加する |
+| `backend/src/services/image-list.service.ts` | 変更なし（実装済み） | 署名付きURL生成の定数化は是正済み。本節では回帰テストによる固定のみ |
+| `backend/src/services/signed-url.service.ts` | 変更なし（実装済み） | `validateSurveyAccess` の提供は是正済み |
+| `backend/scripts/backfill-annotated-thumbnails.ts` | 新規（任意） | 注釈ありでサムネイル未生成の画像を再生成する冪等スクリプト。要件充足の条件ではなくデータ品質改善 |
+| `backend/performance/survey-image-list.perf.ts` | 新規 | 38.4 の検証（写真枚数を変えた画像一覧取得のレイテンシ測定） |
+
+### Components and Interfaces
+
+| Component | Domain | Intent | Requirements | Dependencies | Contracts |
+|---|---|---|---|---|---|
+| `useInViewport` | Frontend/Hook | 要素の表示領域到達を一度だけ通知する | 38.8 | React（P0） | Service |
+| `AnnotatedImageThumbnail` | Frontend/Component | 表示元URLの選択と取得タイミングの制御 | 38.2, 38.5, 38.6, 38.7, 38.8 | `useInViewport`（P0）, `api/survey-annotations`（P1）, `fabric`（P1） | Service |
+| 一覧系4コンポーネント | Frontend/Component | 縮小表示へサムネイルを供給する | 38.7 | `AnnotatedImageThumbnail`（P0） | — |
+| `ImageListService.findBySurveyIdWithUrls` | Backend/Service | 画像一覧と表示用URLを枚数非依存の問い合わせ回数で返す | 38.1, 38.4, 38.9 | `SignedUrlService`（P0）, `StorageProvider`（P0） | Service |
+| `SignedUrlService.validateSurveyAccess` | Backend/Service | 現場調査単位のアクセス可否判定 | 38.9 | Prisma（P0） | Service |
+| `backfillAnnotatedThumbnails` | Backend/Batch | 合成済みサムネイルの欠落を解消する（データ品質改善・任意） | — | `AnnotatedThumbnailService`（P0） | Batch |
+
+#### `useInViewport`
+
+```typescript
+export interface UseInViewportOptions {
+  /** 先読み余白。既定は '50px'（LazyImage の既定値を踏襲） */
+  rootMargin?: string;
+  /** false のとき観測を行わず、常に表示領域内として扱う */
+  enabled?: boolean;
+}
+
+export interface UseInViewportResult<T extends Element> {
+  /** 観測対象へ付与する ref */
+  ref: React.RefObject<T | null>;
+  /** 一度でも表示領域へ入ったか。true になった後は false へ戻らない */
+  isInViewport: boolean;
+}
+
+export function useInViewport<T extends Element>(
+  options?: UseInViewportOptions
+): UseInViewportResult<T>;
+```
+
+**契約**
+
+- 単調性: `isInViewport` は一度 `true` になった後 `false` へ戻らない。到達後は `observer.disconnect()` を呼び、再取得のちらつきを避ける
+- 既定値: `enabled` 未指定時は `true`（観測する）
+- 縮退: `typeof IntersectionObserver === 'undefined'` の実行環境では初期値 `true` を返し、観測を行わない。取得抑止は失われるが表示は成立する
+- 副作用: アンマウント時に `disconnect()` する
+
+#### `AnnotatedImageThumbnail`（差分）
+
+公開 props は追加しない。`AnnotatedImageInput` に画像の実寸を追加する。
+
+```typescript
+export interface AnnotatedImageInput {
+  // 既存フィールドは変更しない
+  /** 画像の実寸（ピクセル）。指定時は img の width/height 属性へ反映し、未読込時も領域を確保する */
+  width?: number;
+  height?: number;
+}
+```
+
+**取得タイミングの規則**
+
+| 条件 | 観測 | 根拠 |
+|---|---|---|
+| `loading === 'eager'` | 行わない | 拡大表示・単一画像表示。即時取得が意図 |
+| `image.width` または `image.height` が**正の値でない**（未指定・0・負値） | 行わない | 未読込時に領域を確保できず、全要素が高さ0で同時に交差判定されるため観測が無意味になる |
+| 上記以外 | 行う | 38.8 |
+
+- 判定条件を「未指定」ではなく「正の値であること」とする。一覧系4コンポーネントは合成した `SurveyImageInfo` へ `width: 0, height: 0` を渡しており（`SiteSurveyListTable.tsx:150-162` ほか）、「未指定」を条件にすると観測が有効化されて破綻する（設計レビューでの是正）
+- 観測対象は描画される `<img>` 要素そのものとする。ラッパー要素を新設しない（既存の DOM 構造・スタイル・テストの参照経路を変えない）
+- `isInViewport === false` の間は `src` を設定せず、`width`/`height` 属性のみを与えて領域を確保する
+- クライアント合成（`new Image()` および Fabric.js による描画）も `isInViewport === true` になるまで開始しない。これが `loading="lazy"` では抑止できなかった経路である
+
+#### `ImageListService.findBySurveyIdWithUrls`（差分）
+
+レスポンス型は変更しない。`hasAnnotations` は現行どおり「注釈レコードが存在するか」を表す（設計レビューにより意味変更を撤回。`quantity-table.service.ts:466-469` と同一の導出規則を保つ）。
+
+**問い合わせ回数の契約（38.4, 38.9）**
+
+| 対象 | 回数 | 備考 |
+|---|---|---|
+| 画像一覧 | 1 | `findBySurveyId` |
+| 注釈の有無 | 1 | `imageAnnotation.findMany`（`in` 句） |
+| 権限検証 | 最大3 | `validateSurveyAccess`（現場調査→プロジェクト→ロール）。画像枚数に依存しない |
+| 署名付きURL生成 | 0 | ストレージキーは画像一覧の取得結果を用いる。データベースへ問い合わせない |
+
+- 原本画像URLのみ `validateSurveyAccess` の結果で出し分ける。サムネイル・注釈付きサムネイルは検証を経ずに生成する現行の非対称性を維持する（38.9: 判定結果を変更しない）
+- 本メソッドはすでに上表の回数へ是正済みである。本節での追加変更はなく、回帰テストによる固定のみを行う
+
+#### `backfillAnnotatedThumbnails`
+
+```typescript
+export interface BackfillResult {
+  /** 対象となった画像数 */
+  targeted: number;
+  /** サムネイルを生成できた画像数 */
+  regenerated: number;
+  /** 注釈が空でサムネイル生成対象外だった画像数 */
+  skippedEmpty: number;
+  /** 生成に失敗した画像のID と理由 */
+  failures: Array<{ imageId: string; reason: string }>;
+}
+
+export function backfillAnnotatedThumbnails(options?: {
+  /** 一度に処理する件数。既定 50 */
+  batchSize?: number;
+  /** true のとき対象件数の集計のみ行い、生成を実行しない */
+  dryRun?: boolean;
+}): Promise<BackfillResult>;
+```
+
+**契約**
+
+- 対象: `ImageAnnotation` が存在し、かつ `SurveyImage.annotatedThumbnailPath` が `null` の画像
+- 冪等性: 生成に成功した画像は次回実行の対象から外れる。中断後の再実行で重複生成しない
+- 部分失敗: 個別画像の失敗は `failures` へ集約し、残りの処理を継続する。全体を中断しない
+- 逐次処理: `batchSize` 単位で処理し、画像処理の同時実行数を抑える
+
+### System Flows
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Panel as PhotoManagementPanel
+    participant Thumb as AnnotatedImageThumbnail
+    participant Obs as useInViewport
+    participant API as Site Survey API
+    participant Storage
+
+    User->>Panel: 現場調査詳細画面を開く
+    Panel->>API: GET /api/site-surveys/:id
+    API->>Storage: 署名付きURL生成（枚数分・DB問い合わせなし）
+    API-->>Panel: 画像一覧 + thumbnailUrl + annotatedThumbnailUrl + hasAnnotations
+    Note over Panel,API: リクエストはここまでで1回（38.1, 38.3）
+
+    Panel->>Thumb: 全画像を描画
+    Thumb->>Obs: 観測開始（loading=lazy かつ実寸あり）
+    Note over Thumb: src 未設定。width/height で領域確保
+
+    User->>Panel: スクロール
+    Obs-->>Thumb: isInViewport = true
+    alt annotatedThumbnailUrl あり
+        Thumb->>Storage: 合成済みサムネイル取得
+        Note over Thumb: 注釈取得APIを呼ばない（38.2, 38.5）
+    else hasAnnotations = false
+        Thumb->>Storage: 通常サムネイル取得
+    else 合成済みサムネイルなし かつ 注釈あり
+        Thumb->>API: GET 注釈データ（安全網・38.6）
+        Thumb->>Storage: 通常サムネイル取得
+        Note over Thumb: クライアント合成。表示領域に入った画像に限られる
+    end
+```
+
+**Key Decisions（フロー上の要点）**
+
+- 分岐3（クライアント合成）は 38.6 の安全網として恒久的に残る。合成済みサムネイルの欠落は `AnnotationService.save` のトランザクション外での生成失敗により新規にも発生し得るため、発生しない前提を置かない
+- 分岐3を含むすべての取得が `isInViewport = true` の後段にある。これが 38.2 / 38.3 を登録写真の枚数から切り離す唯一の機構である
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|---|---|---|---|---|
+| 38.1 | 画像一覧を1リクエストで取得 | `ImageListService.findBySurveyIdWithUrls` | 画像一覧レスポンス（URL同梱） | 詳細画面表示 |
+| 38.2 | 注釈のための追加リクエストを枚数に比例させない | `AnnotatedImageThumbnail`, `useInViewport` | `annotatedThumbnailUrl`, `hasAnnotations`, `UseInViewportResult` | 詳細画面表示（分岐1・スクロール） |
+| 38.3 | リクエストを一覧1回＋表示領域に入った画像に限定 | `AnnotatedImageThumbnail`, `useInViewport` | 同上 | 詳細画面表示 |
+| 38.4 | 枚数増加時も Requirement 16.1 の時間内 | `ImageListService.findBySurveyIdWithUrls`, `SignedUrlService.validateSurveyAccess` | 問い合わせ回数の契約 | — |
+| 38.5 | 合成済みサムネイルを優先 | `AnnotatedImageThumbnail` | `preferThumbnail`, `annotatedThumbnailUrl` | 詳細画面表示（分岐1） |
+| 38.6 | 利用不可時に表示結果を維持（取得は表示領域内に限る） | `AnnotatedImageThumbnail`, `useInViewport` | クライアント合成フォールバック | 詳細画面表示（分岐3） |
+| 38.7 | 縮小表示はサムネイル／原本は必要時のみ | 一覧系4コンポーネント, `AnnotatedImageThumbnail` | `thumbnailUrl`, `preferThumbnail` | — |
+| 38.8 | 表示領域外は取得しない | `useInViewport`, `AnnotatedImageThumbnail` | `UseInViewportResult` | 詳細画面表示（スクロール） |
+| 38.9 | アクセス可否の判定結果を変えない | `SignedUrlService.validateSurveyAccess`, `ImageListService` | 原本URLのみ検証結果で出し分け | — |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| `IntersectionObserver` が実行環境に存在しない | 観測を行わず全画像を取得する。表示は成立し、取得抑止のみ失われる | 38.8 の縮退。表示破綻より劣化を選ぶ |
+| 合成済みサムネイルの署名付きURL生成に失敗 | 当該URLを `null` とし、クライアント合成へフォールバックする | 38.6 |
+| 注釈保存後のサムネイル生成に失敗（`ThumbnailRegenerationError`） | 注釈は永続化済み・サムネイルは欠落したまま残る。当該画像は以後クライアント合成で表示される | Requirement 23 の所管。本節はこの状態が恒常的に起こり得る前提で 38.2 / 38.3 を設計する |
+| バックフィル中の個別画像の失敗 | `failures` へ記録し処理を継続。当該画像はフォールバック経路で表示される | 38.6。全体中断は解消済みの画像まで失う |
+| 画像一覧取得時の権限検証が false | 原本画像URLのみ `null`。サムネイルは現行どおり返す | 38.9（判定結果を変更しない） |
+
+### Testing Strategy
+
+**単体（フロントエンド）**
+
+- `useInViewport`: 交差前は `false`、交差後 `true`、再度離脱しても `true` のまま（単調性）、アンマウントで `disconnect` が呼ばれること、`enabled: false` で観測しないこと、`IntersectionObserver` 不在時に `true` を返すこと
+- `AnnotatedImageThumbnail`: 交差前は `src` を設定せず注釈取得APIも呼ばないこと（38.8, 38.6）／`loading="eager"` では観測せず即時取得すること／`width`/`height` が0のとき観測しないこと（一覧系の合成オブジェクト対策）／`annotatedThumbnailUrl` があるとき注釈取得APIを呼ばないこと（38.2, 38.5、実装済み・回帰固定）／`hasAnnotations=false` で注釈取得APIを呼ばないこと（実装済み）
+- 一覧系4コンポーネント: フォールバック経路で原本URLではなくサムネイルURLが `<img src>` に現れること（38.7）
+
+**単体（バックエンド）**
+
+- `findBySurveyIdWithUrls`: 画像10枚で `validateSurveyAccess` が1回のみ呼ばれ、画像IDからのURL再生成経路（`generateSignedUrl` / `generateBatchSignedUrls`）が呼ばれないこと（38.4、実装済み・回帰固定）／権限なしで原本URLのみ `null` になること（38.9、実装済み・回帰固定）
+- `backfillAnnotatedThumbnails`: 対象抽出が「注釈あり かつ サムネイル未生成」に限られること／再実行で同一画像を二重処理しないこと（冪等性）／個別失敗で処理が継続すること／`dryRun` で生成を実行しないこと
+
+**E2E**
+
+- 写真多数の現場調査の詳細画面を開き、初期表示時点で発生した画像関連リクエスト（画像本体および `/api/site-surveys/images/*/annotations`）の合計が、登録写真の総数より少ないこと（38.2, 38.3, 38.8）。観測はパス基準で行い、オリジン依存の判定をしない
+- 合成済みサムネイルを持つ画像では、表示領域へ入れても `/api/site-surveys/images/*/annotations` へのリクエストが発生しないこと（38.2, 38.5）
+- スクロール後に追加の画像リクエストが発生すること（38.8 の裏側。取得が「遅延」であって「欠落」でないことを示す）
+
+**性能（38.4）**
+
+- `backend/performance/survey-image-list.perf.ts` を既存の autocannon 方式（`project-crud.perf.ts` と同形式）で追加する
+- 測定対象はサーバー処理時間（`GET /api/site-surveys/:id/images` の P95）とする。ブラウザ描画時間は含めない
+- 判定基準: 写真10枚と100枚の P95 を測定し、**100枚の P95 が10枚の P95 の3倍以内**であること、かつ絶対値が Requirement 16.1 の 2000ms を下回ること。枚数比10倍に対して3倍以内を「比例させない」の判定線とする
+
+### Migration Strategy
+
+**順序制約なし**: 表示側の変更（`useInViewport` 導入、一覧系のURL差し替え）は単独で 38.1〜38.9 を満たす。バックフィルは前提条件ではない。
+
+**バックフィル（任意・データ品質改善）**
+
+1. `backfillAnnotatedThumbnails` を `dryRun: true` で実行し、対象件数を把握する。**0件であれば以降の手順は不要**
+2. 本実行し、`failures` を確認する。失敗が残る画像はフォールバック経路で従来どおり表示されるため、リリースの阻害要因とはしない
+
+実施すると、合成済みサムネイルを持たない画像で発生していた表示領域内のクライアント合成が減り、体感表示速度が改善する。実施しなくても要件は満たされる。
+
+**ロールバック**: バックフィルは `annotatedThumbnailPath` を欠落状態から充足状態へ一方向に進めるのみで、既存の値を破壊しない。表示側の変更は独立してリバート可能である。
+
+**観測**: バックフィルの `BackfillResult` をログへ出力する。`ThumbnailRegenerationError` により欠落は新規にも発生し得るため、`targeted` は0へ恒久収束しない。定期実行は行わず、必要に応じて手動実行する。

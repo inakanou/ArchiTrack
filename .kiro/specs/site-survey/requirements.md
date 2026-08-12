@@ -571,3 +571,22 @@ Requirements 35〜36 は、スマートフォン実機の狭幅ビューポー�
 19. If 画像アップロードが送信の時間切れにより終了する, then the Site Survey Service shall 自動再試行を行わず、当該画像を未送信画像として保持し、ユーザーの操作による再送に委ねる
 20. While 未送信画像の再送が可能である, the Site Survey Service shall 1件あたりの送信が時間切れとなってから、ユーザーが再送を開始できる状態になるまでの待ち時間を、自動再試行の繰り返しによって延伸させない
 21. If ストレージへの保存失敗または画像処理の失敗により個別の画像の登録が失敗する, then the Site Survey Service shall 当該画像を再送可能な未送信画像として保持する
+
+### Requirement 38: 写真枚数によらない画面表示の応答性
+
+**Objective:** As a システム運用者, I want 現場調査の画面表示で発生するサーバーリクエストの件数・通信量・応答時間が登録写真の枚数に比例して増大しないこと, so that 写真が多数登録された現場調査でも画面表示が遅延せず、サーバーの負荷を抑えられる
+
+- **In scope**: 現場調査一覧画面・詳細画面の表示時に発生するリクエストの件数・取得対象・取得タイミング、縮小表示に用いる画像の選択、Requirement 16.1 が定める初期表示時間を写真枚数によらず満たすこと
+- **Out of scope**: 表示される内容そのもの（注釈の表示結果は Requirement 20 が所管）、PDF報告書出力時のリクエスト最適化（Requirement 18 が所管）、画像の圧縮・保存形式（Requirement 4 が所管）、アクセス権限の判定基準そのもの（Requirement 14 が所管）、注釈をレンダリングしたサムネイル画像の生成契機（Requirement 20.4 が所管）
+- **Adjacent expectations**: Requirement 20.4（注釈の保存時に注釈をレンダリングしたサムネイル画像が生成・更新されていることを前提とする）、Requirement 16.1（本要件は同項の初期表示時間を写真枚数によらず満たすための制約を定める）、Requirement 14（本要件によるリクエスト削減は画像へのアクセス可否の判定結果を変更しない）
+
+#### Acceptance Criteria
+1. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 画像一覧と各画像の表示に必要な情報を、画像ごとの個別リクエストに分割せず1回のリクエストで取得する
+2. When ユーザーが現場調査詳細画面を表示する, the Site Survey Service shall 注釈を反映したサムネイルの表示のために、登録写真の枚数に比例した追加リクエストを発生させない
+3. The Site Survey Service shall 現場調査詳細画面の表示で画像に関して発生するサーバーリクエストを、画像一覧の取得1回と、表示領域に入った画像に対する取得のみに限定する
+4. The Site Survey Service shall 登録写真の枚数が増加しても、画像一覧の取得を Requirement 16.1 が定める初期表示時間の範囲内で完了する
+5. Where 注釈をレンダリングしたサムネイル画像が利用可能である, the Site Survey Service shall 一覧画面・詳細画面のサムネイル表示に当該画像を用いる
+6. If 注釈をレンダリングしたサムネイル画像が利用できない, then the Site Survey Service shall Requirement 20 が定める注釈付きサムネイルの表示結果を代替手段によって維持し、当該代替手段のための取得も表示領域に入った画像に限る
+7. The Site Survey Service shall 一覧画面・詳細画面の縮小表示にサムネイル画像を用い、原本画像は拡大表示・注釈編集・エクスポートなど原寸を要する操作の時点でのみ取得する
+8. Where 画像が表示領域外にある, the Site Survey Service shall 当該画像の取得を表示領域に入るまで行わない
+9. The Site Survey Service shall 本要件による画面表示の効率化にあたり、Requirement 14 が定める画像へのアクセス可否の判定結果を変更しない
