@@ -184,6 +184,25 @@ describe('SiteSurveyListTable', () => {
       // annotated-thumbnail testidは存在しないこと
       expect(within(row).queryByTestId('annotated-thumbnail')).not.toBeInTheDocument();
     });
+
+    it('クライアント合成へ退避する場合も原本ではなくサムネイルを表示すること', () => {
+      // 注釈付きサムネイルが無く代表画像がある場合はクライアント側で注釈を合成する。
+      // その経路でも縮小表示には原本ではなくサムネイルを用いる（Requirement 38.7）
+      const surveysWithRepresentative: SiteSurveyInfo[] = [
+        {
+          ...mockSiteSurveys[0]!,
+          thumbnailImageId: 'img-1',
+          thumbnailOriginalUrl: 'https://example.com/original1.jpg',
+          thumbnailUrl: 'https://example.com/thumbnail1.jpg',
+        },
+      ];
+
+      render(<SiteSurveyListTable {...defaultProps} surveys={surveysWithRepresentative} />);
+
+      const row = screen.getByTestId('survey-row-survey-1');
+      const img = within(row).getByRole('img');
+      expect(img).toHaveAttribute('src', 'https://example.com/thumbnail1.jpg');
+    });
   });
 
   // ==========================================================================

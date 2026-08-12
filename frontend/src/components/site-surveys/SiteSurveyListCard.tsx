@@ -88,6 +88,8 @@ function ThumbnailImage({ survey }: { survey: SiteSurveyInfo }) {
       displayOrder: 0,
       createdAt: '',
       originalUrl: survey.thumbnailOriginalUrl,
+      // 縮小表示のため原本ではなくサムネイルを表示元に用いる（Requirement 38.7）
+      thumbnailUrl: survey.thumbnailUrl,
     };
 
     return (
@@ -101,6 +103,7 @@ function ThumbnailImage({ survey }: { survey: SiteSurveyInfo }) {
           borderRadius: '8px',
         }}
         loading="lazy"
+        preferThumbnail
       />
     );
   }

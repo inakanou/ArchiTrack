@@ -2851,9 +2851,9 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 38.2, 38.3, 38.6, 38.8_
   - _Boundary: AnnotatedImageThumbnail_
 
-- [ ] 111.4 (P) 現場調査一覧・プロジェクト詳細の縮小表示にサムネイルを用いる
+- [x] 111.4 (P) 現場調査一覧・プロジェクト詳細の縮小表示にサムネイルを用いる
   - 合成済みサムネイルが無い場合の退避経路で、原本画像ではなくサムネイル画像を表示元として渡し、縮小表示であることを明示する
-  - これらの画面が組み立てる画像情報は実寸を持たないため、即時取得を明示して観測の対象外とする
+  - これらの画面が組み立てる画像情報は実寸を持たないため観測は自動的に無効化される。ブラウザ標準の遅延読み込みを残すため  は  のまま維持する
   - 4画面それぞれで、退避経路の表示元が原本画像ではなくサムネイル画像になっていることを単体テストで確認できること
   - _Requirements: 38.7_
   - _Boundary: SiteSurveyListTable, SiteSurveyListCard, SiteSurveyResponsiveView, SiteSurveySectionCard_

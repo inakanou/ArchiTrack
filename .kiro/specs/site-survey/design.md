@@ -6637,7 +6637,7 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 #### Revalidation Triggers
 - `SurveyImage` に新たな画像バリアント（中解像度など）が追加された場合 → 表示元URLの選択順序を再検証
 - `AnnotatedImageThumbnail` の呼び出し側が実寸を持たない画像情報を渡すようになった場合 → 観測が無効化され 38.8 が満たされなくなるため再検証
-- 一覧系コンポーネントが `loading` の指定を外した場合 → 実寸0の合成オブジェクトで観測が有効化され破綻するため再検証
+- 一覧系コンポーネントが合成する画像情報へ実寸（正の値）を持たせるようになった場合 → 観測が有効化されるため、表示領域の確保が成立するかを再検証
 - Requirement 14 がサムネイルへの権限検証を要求するようになった場合 → `findBySurveyIdWithUrls` のURL生成分岐を再検証
 - 写真一覧にページングを導入する場合 → 38.3 の「一覧取得1回」の前提が変わるため本節を再設計
 - `hasAnnotations` の導出規則をいずれかの producer が変更した場合 → 現場調査APIと数量表APIの意味の一致が崩れるため両者を再検証
@@ -6699,7 +6699,7 @@ graph TB
 | `frontend/src/components/site-surveys/LazyImage.tsx` | 削除 | 未使用。観測ロジックは `useInViewport` へ移設 |
 | `frontend/src/components/site-surveys/LazyImage.stories.tsx` | 削除 | 上記に付随 |
 | `frontend/src/components/site-surveys/index.ts` | 変更 | `LazyImage` / `LazyImageProps` のバレル再エクスポート（31, 47行）を除去する |
-| `frontend/src/components/site-surveys/SiteSurveyListTable.tsx` | 変更 | フォールバック経路へ `thumbnailUrl` と `preferThumbnail` を渡す。合成オブジェクトに実寸を持たないため `loading="eager"` を明示し観測対象外とする |
+| `frontend/src/components/site-surveys/SiteSurveyListTable.tsx` | 変更 | フォールバック経路へ `thumbnailUrl` と `preferThumbnail` を渡す。`loading="lazy"` は維持する（実装時の是正、下記注記を参照） |
 | `frontend/src/components/site-surveys/SiteSurveyListCard.tsx` | 変更 | 同上 |
 | `frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx` | 変更 | 同上 |
 | `frontend/src/components/projects/SiteSurveySectionCard.tsx` | 変更 | 同上 |
@@ -6772,6 +6772,7 @@ export interface AnnotatedImageInput {
 | 上記以外 | 行う | 38.8 |
 
 - 判定条件を「未指定」ではなく「正の値であること」とする。一覧系4コンポーネントは合成した `SurveyImageInfo` へ `width: 0, height: 0` を渡しており（`SiteSurveyListTable.tsx:150-162` ほか）、「未指定」を条件にすると観測が有効化されて破綻する（設計レビューでの是正）
+- **一覧系の `loading` は `lazy` のまま維持する（実装時の是正）**。当初は実寸0による破綻を避けるため `loading="eager"` を明示する方針としたが、観測の抑止は上記の実寸判定が既に担っている。`eager` を明示すると `<img>` に対するブラウザ標準の遅延読み込みまで無効化され、現場調査一覧の全行のサムネイルが即時取得される。これは Requirement 38.8 の趣旨に反するため採らない
 - 観測対象は描画される `<img>` 要素そのものとする。ラッパー要素を新設しない（既存の DOM 構造・スタイル・テストの参照経路を変えない）
 - `isInViewport === false` の間は `src` を設定せず、`width`/`height` 属性のみを与えて領域を確保する
 - クライアント合成（`new Image()` および Fabric.js による描画）も `isInViewport === true` になるまで開始しない。これが `loading="lazy"` では抑止できなかった経路である
