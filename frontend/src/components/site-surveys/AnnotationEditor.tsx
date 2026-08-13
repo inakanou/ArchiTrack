@@ -1994,7 +1994,9 @@ function AnnotationEditor({
    * REQ-9.1: 全ての注釈データをデータベースに保存する
    * REQ-9.4: 保存中インジケーターを表示する
    * REQ-9.5: エラーメッセージを表示してリトライを促す
-   * 注釈保存後、サムネイルも更新する（注釈付き画像をサムネイルに反映）
+   * 注釈保存後、合成済み画像を注釈付きサムネイルへ反映する
+   * REQ-23.4: 合成済みサムネイルの更新完了を保証してから保存完了とみなす
+   * REQ-23.6: 更新に失敗した場合はエラーを提示し、旧状態が残らないよう再取得を要求する
    */
   const handleSave = useCallback(async () => {
     if (!fabricCanvasRef.current || state.isSaving) return;
@@ -2034,8 +2036,30 @@ function AnnotationEditor({
         // 更新後の表示元を優先する（サーバ側生成の旧経路の値で上書きしない）
         annotatedThumbnailUrl = thumbnailResponse.annotatedThumbnailUrl ?? annotatedThumbnailUrl;
       } catch (thumbnailErr) {
-        // サムネイル更新に失敗しても注釈保存は成功しているので警告のみ
-        console.warn('合成済みサムネイルの更新に失敗しました:', thumbnailErr);
+        // Task 115.2 / REQ-23.4: 合成済みサムネイルの更新完了を保存完了の条件とするため、
+        // 更新に失敗した場合は保存完了（saveSuccess）とみなさない。
+        // REQ-23.6: 失敗を握り潰さず、サーバ側再生成失敗と同一のエラー提示・再取得要求を行う。
+        // なお注釈本体は既に保存済みであるため、注釈保存の契約（保存成功）は巻き戻さない。
+        console.error('合成済みサムネイルの更新に失敗しました:', thumbnailErr);
+
+        setState((prev) => ({ ...prev, isSaving: false, saveSuccess: false }));
+
+        toast.error(
+          '注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。',
+          { duration: 8000 }
+        );
+
+        // 旧状態のサムネイルを最新として通知しない
+        if (onAnnotationSaved) {
+          onAnnotationSaved({ annotatedThumbnailUrl: null });
+        }
+
+        // 画像一覧を強制再取得して旧状態残留を防止
+        if (onRequestRefresh) {
+          onRequestRefresh();
+        }
+
+        return;
       }
 
       // REQ-23.5: 更新後の annotatedThumbnailUrl をコールバックで通知
