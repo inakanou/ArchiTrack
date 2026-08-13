@@ -225,19 +225,77 @@ export function parseArgs(argv: string[]): DrawnAnnotationBackfillOptions {
   return options;
 }
 
+/** 起動処理が必要とする Prisma クライアント */
+export type BackfillPrismaClient = Pick<PrismaClient, 'imageAnnotation' | '$disconnect'>;
+
+/**
+ * 起動処理が外部と接する部分
+ *
+ * プロセスの引数・環境変数・DB接続・終了コードの通知は、いずれも実行環境そのものに
+ * 依存する。起動処理の中身（引数の解釈から終了コードの決定まで）を実行環境なしで
+ * 検証できるよう、接点だけをこの文脈へ集約して差し替え可能にしている。
+ */
+export interface BackfillCliContext {
+  /** `process.argv.slice(2)` 相当のコマンドライン引数 */
+  argv: string[];
+  /** 接続先を読み出す環境変数 */
+  env: NodeJS.ProcessEnv;
+  /** `.env` の読み込み */
+  loadEnv: () => void;
+  /** 接続先から Prisma クライアントを組み立てる */
+  createPrismaClient: (connectionString: string) => BackfillPrismaClient;
+  /** 実行結果の終了コードを通知する */
+  setExitCode: (code: number) => void;
+}
+
+/**
+ * 接続先から Prisma クライアントを組み立てる
+ *
+ * @param connectionString - データベースの接続先
+ */
+export function createBackfillPrismaClient(connectionString: string): BackfillPrismaClient {
+  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+}
+
+/**
+ * 実行結果の終了コードをプロセスへ通知する
+ *
+ * `process.exit` ではなく `exitCode` を用いる。DB接続の解放を待たずに打ち切らないためである。
+ *
+ * @param code - 終了コード
+ */
+export function setProcessExitCode(code: number): void {
+  process.exitCode = code;
+}
+
+/**
+ * 実プロセス・実DBへ接続する既定の実行文脈を組み立てる
+ */
+export function createDefaultCliContext(): BackfillCliContext {
+  return {
+    argv: process.argv.slice(2),
+    env: process.env,
+    loadEnv: config,
+    createPrismaClient: createBackfillPrismaClient,
+    setExitCode: setProcessExitCode,
+  };
+}
+
 /**
  * スクリプトとして実行されたときの入口
+ *
+ * @param context - 外部と接する部分
  */
-async function main(): Promise<void> {
-  config();
+export async function runBackfillCli(context: BackfillCliContext): Promise<void> {
+  context.loadEnv();
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = context.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error('DATABASE_URL が設定されていません');
   }
 
-  const options = parseArgs(process.argv.slice(2));
-  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const options = parseArgs(context.argv);
+  const prisma = context.createPrismaClient(connectionString);
 
   try {
     logger.info({ action: 'backfill_drawn_annotations_started', ...options });
@@ -265,19 +323,39 @@ async function main(): Promise<void> {
       });
     }
 
-    process.exitCode = exitCode;
+    context.setExitCode(exitCode);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-// 直接実行されたときのみ処理を開始する（テストからの import では起動しない）
-if (process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error: unknown) => {
-    logger.error({
-      action: 'backfill_drawn_annotations_failed',
-      error: error instanceof Error ? error.message : String(error),
-    });
-    process.exit(1);
+/**
+ * 起動そのものに失敗した場合に記録して異常終了する
+ *
+ * @param error - 失敗の内容
+ */
+export function reportFatalStartupError(error: unknown): void {
+  logger.error({
+    action: 'backfill_drawn_annotations_failed',
+    error: error instanceof Error ? error.message : String(error),
   });
+  process.exit(1);
+}
+
+/**
+ * このモジュール自身が直接実行されたかを判定する
+ *
+ * テストからの import では起動しないよう、起動されたスクリプトのパスと自身の
+ * モジュールURLが一致する場合のみ真とする。
+ *
+ * @param scriptPath - `process.argv[1]` 相当の起動対象のパス
+ * @param moduleUrl - `import.meta.url` 相当の自身のモジュールURL
+ */
+export function isDirectExecution(scriptPath: string | undefined, moduleUrl: string): boolean {
+  return scriptPath !== undefined && moduleUrl === `file://${scriptPath}`;
+}
+
+// 直接実行されたときのみ処理を開始する（テストからの import では起動しない）
+if (isDirectExecution(process.argv[1], import.meta.url)) {
+  runBackfillCli(createDefaultCliContext()).catch(reportFatalStartupError);
 }

@@ -15,9 +15,18 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import logger from '../../../utils/logger.js';
 import {
   backfillDrawnAnnotationFlags,
   resolveBackfillExitCode,
+  parseArgs,
+  runBackfillCli,
+  createBackfillPrismaClient,
+  createDefaultCliContext,
+  setProcessExitCode,
+  reportFatalStartupError,
+  isDirectExecution,
+  type BackfillCliContext,
 } from '../../../../scripts/backfill-drawn-annotation-flags.js';
 
 // ============================================================================
@@ -398,6 +407,52 @@ describe('backfillDrawnAnnotationFlags (Task 115.13, Requirements: 20.2)', () =>
       expect(result.failures[0]).toMatchObject({ annotationId: 'ann-1' });
       expect(result.failures[0]?.reason).toContain('deadlock detected');
     });
+
+    it('Error 以外で失敗した場合も理由を文字列として記録する', async () => {
+      const store = createFakeStore([['ann-1', 1]]);
+      store.update.mockImplementationOnce(() => Promise.reject('connection terminated'));
+
+      const result = await store.run({ batchSize: 1 });
+
+      expect(result.failures).toEqual([{ annotationId: 'ann-1', reason: 'connection terminated' }]);
+    });
+  });
+
+  describe('欠落した注釈データ', () => {
+    it('data が未設定のレコードは描画なしとして扱う', async () => {
+      mockPrisma.imageAnnotation.findMany
+        .mockResolvedValueOnce([{ id: 'ann-null-data', data: null }])
+        .mockResolvedValueOnce([]);
+
+      const result = await run();
+
+      expect(mockPrisma.imageAnnotation.update).toHaveBeenCalledWith({
+        where: { id: 'ann-null-data' },
+        data: { hasDrawnAnnotations: false },
+      });
+      expect(result.markedFalse).toBe(1);
+    });
+  });
+
+  describe('引数の解釈', () => {
+    it('集計のみの実行と区切り件数を受け付ける', () => {
+      expect(parseArgs(['--dry-run', '--batch-size=200'])).toEqual({
+        dryRun: true,
+        batchSize: 200,
+      });
+    });
+
+    it('指定が無い場合は既定の挙動とする', () => {
+      expect(parseArgs([])).toEqual({});
+    });
+
+    it('区切り件数に0を指定した場合は既定の区切りを維持する', () => {
+      expect(parseArgs(['--batch-size=0'])).toEqual({});
+    });
+
+    it('解釈できない引数は無視する', () => {
+      expect(parseArgs(['--batch-size=abc', '--unknown'])).toEqual({});
+    });
   });
 });
 
@@ -421,8 +476,8 @@ describe('backfill-drawn-annotation-flags の実行入口', () => {
     expect(entry).toContain('scripts/backfill-drawn-annotation-flags.ts');
   });
 
-  it('スクリプトを直接実行すると main が起動しDB接続の準備段階まで到達する', () => {
-    // 接続先を与えずに起動する。入口が結線されていれば main が動き、接続先の欠落で
+  it('スクリプトを直接実行すると起動処理が動きDB接続の準備段階まで到達する', () => {
+    // 接続先を与えずに起動する。入口が結線されていれば起動処理が動き、接続先の欠落で
     // 失敗して終了コード1になる。入口が壊れていれば何もせず正常終了してしまう。
     const isolatedCwd = mkdtempSync(join(tmpdir(), 'backfill-entry-'));
     const env: NodeJS.ProcessEnv = { ...process.env };
@@ -440,4 +495,227 @@ describe('backfill-drawn-annotation-flags の実行入口', () => {
     expect(output).toContain('DATABASE_URL');
     expect(proc.status).toBe(1);
   }, 150_000);
+});
+
+// ============================================================================
+// 起動処理
+//
+// 実起動での確認（上記）は入口が結線されていることしか示さない。起動処理が
+// 引数の解釈・実行時の依存の組み立て・終了コードの通知まで正しく行うことは、
+// 外部と接する部分を差し替えて直接検証する。
+// ============================================================================
+
+describe('runBackfillCli（起動処理）', () => {
+  const CONNECTION_STRING = 'postgresql://user:pass@localhost:5432/architrack';
+
+  /**
+   * 外部と接する部分を差し替えた実行文脈を組み立てる
+   *
+   * @param options - 対象レコード・引数・環境変数
+   */
+  function createCliHarness(
+    options: {
+      entries?: Array<[string, number]>;
+      argv?: string[];
+      env?: NodeJS.ProcessEnv;
+    } = {}
+  ) {
+    const store = createFakeStore(
+      options.entries ?? [
+        ['ann-1', 1],
+        ['ann-2', 0],
+      ]
+    );
+    const disconnect = vi.fn(() => Promise.resolve());
+    const prisma = {
+      imageAnnotation: { findMany: store.findMany, update: store.update, count: store.count },
+      $disconnect: disconnect,
+    };
+    const createPrismaClient = vi.fn(() => prisma);
+    const setExitCode = vi.fn();
+    const loadEnv = vi.fn();
+
+    const context = {
+      argv: options.argv ?? [],
+      env: options.env ?? { DATABASE_URL: CONNECTION_STRING },
+      loadEnv,
+      createPrismaClient,
+      setExitCode,
+    } as unknown as BackfillCliContext;
+
+    return { store, disconnect, createPrismaClient, setExitCode, loadEnv, context };
+  }
+
+  it('接続先が未設定の場合は起動を中止し接続を試みない', async () => {
+    const harness = createCliHarness({ env: {} });
+
+    await expect(runBackfillCli(harness.context)).rejects.toThrow('DATABASE_URL');
+
+    expect(harness.loadEnv).toHaveBeenCalledTimes(1);
+    expect(harness.createPrismaClient).not.toHaveBeenCalled();
+    expect(harness.setExitCode).not.toHaveBeenCalled();
+  });
+
+  it('接続先を実行時の依存の組み立てへ引き渡す', async () => {
+    const harness = createCliHarness();
+
+    await runBackfillCli(harness.context);
+
+    expect(harness.createPrismaClient).toHaveBeenCalledWith(CONNECTION_STRING);
+  });
+
+  it('引数を解釈して埋め戻しへ反映する', async () => {
+    const harness = createCliHarness({
+      entries: [
+        ['ann-1', 1],
+        ['ann-2', 0],
+        ['ann-3', 1],
+      ],
+      argv: ['--batch-size=2'],
+    });
+
+    await runBackfillCli(harness.context);
+
+    expect(harness.store.findMany.mock.calls.length).toBeGreaterThan(0);
+    for (const call of harness.store.findMany.mock.calls) {
+      expect(call[0]?.take).toBe(2);
+    }
+    expect(harness.store.unresolvedIds()).toEqual([]);
+  });
+
+  it('全件を算出できた場合は終了コード0を通知する', async () => {
+    const harness = createCliHarness();
+
+    await runBackfillCli(harness.context);
+
+    expect(harness.setExitCode).toHaveBeenCalledWith(0);
+  });
+
+  it('未算出が残った場合は終了コード1を通知する', async () => {
+    const harness = createCliHarness({
+      entries: [
+        ['ann-1', 1],
+        ['ann-2', 0],
+      ],
+    });
+    harness.store.update.mockImplementationOnce(() =>
+      Promise.reject(new Error('deadlock detected'))
+    );
+
+    await runBackfillCli(harness.context);
+
+    expect(harness.setExitCode).toHaveBeenCalledWith(1);
+  });
+
+  it('集計のみの実行では更新せず終了コード0を通知する', async () => {
+    const harness = createCliHarness({ argv: ['--dry-run'] });
+
+    await runBackfillCli(harness.context);
+
+    expect(harness.store.update).not.toHaveBeenCalled();
+    expect(harness.setExitCode).toHaveBeenCalledWith(0);
+  });
+
+  it('埋め戻しが例外で終わっても接続を解放する', async () => {
+    const harness = createCliHarness();
+    harness.store.findMany.mockImplementationOnce(() =>
+      Promise.reject(new Error('connection refused'))
+    );
+
+    await expect(runBackfillCli(harness.context)).rejects.toThrow('connection refused');
+
+    expect(harness.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('正常終了時にも接続を解放する', async () => {
+    const harness = createCliHarness();
+
+    await runBackfillCli(harness.context);
+
+    expect(harness.disconnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('実行時の依存の組み立て', () => {
+  it('接続先から Prisma クライアントを組み立てる', async () => {
+    const client = createBackfillPrismaClient(
+      'postgresql://user:pass@127.0.0.1:65432/architrack_unused'
+    );
+
+    expect(typeof client.imageAnnotation.findMany).toBe('function');
+    expect(typeof client.imageAnnotation.update).toBe('function');
+    expect(typeof client.imageAnnotation.count).toBe('function');
+
+    await client.$disconnect();
+  });
+
+  it('既定の実行文脈は実プロセスの引数と環境変数を用いる', () => {
+    const context = createDefaultCliContext();
+
+    expect(context.argv).toEqual(process.argv.slice(2));
+    expect(context.env).toBe(process.env);
+    expect(context.createPrismaClient).toBe(createBackfillPrismaClient);
+    expect(context.setExitCode).toBe(setProcessExitCode);
+    expect(typeof context.loadEnv).toBe('function');
+  });
+
+  it('終了コードの通知はプロセスの終了コードへ反映される', () => {
+    const original = process.exitCode;
+    try {
+      setProcessExitCode(0);
+      expect(process.exitCode).toBe(0);
+    } finally {
+      process.exitCode = original;
+    }
+  });
+});
+
+describe('起動時の致命的な失敗の扱い', () => {
+  it('失敗を記録して異常終了させる', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation((() => undefined) as never);
+
+    try {
+      reportFatalStartupError(new Error('DATABASE_URL が設定されていません'));
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'backfill_drawn_annotations_failed',
+          error: 'DATABASE_URL が設定されていません',
+        })
+      );
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('Error 以外の失敗も文字列として記録する', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation((() => undefined) as never);
+
+    try {
+      reportFatalStartupError('unexpected token');
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ error: 'unexpected token' }));
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+});
+
+describe('直接実行の判定', () => {
+  it('起動されたスクリプトが自身と一致する場合のみ真とする', () => {
+    expect(isDirectExecution('/app/scripts/x.ts', 'file:///app/scripts/x.ts')).toBe(true);
+  });
+
+  it('別のモジュールから読み込まれた場合は偽とする', () => {
+    expect(isDirectExecution('/app/scripts/other.ts', 'file:///app/scripts/x.ts')).toBe(false);
+  });
+
+  it('起動されたスクリプトが特定できない場合は偽とする', () => {
+    expect(isDirectExecution(undefined, 'file:///app/scripts/x.ts')).toBe(false);
+  });
 });

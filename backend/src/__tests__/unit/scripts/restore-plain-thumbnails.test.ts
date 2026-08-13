@@ -18,12 +18,23 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { PrismaClient } from '../../../generated/prisma/client.js';
+import type { StorageProvider } from '../../../storage/storage-provider.interface.js';
+import logger from '../../../utils/logger.js';
 import {
   restorePlainThumbnails,
   resolveRestoreExitCode,
   buildPlainThumbnailKey,
   parseArgs,
+  runRestoreCli,
+  createRestorePrismaClient,
+  createRestoreRuntimeDependencies,
+  createDefaultRestoreCliContext,
+  setProcessExitCode,
+  reportFatalStartupError,
+  isDirectExecution,
   ANNOTATION_BAKED_THUMBNAIL_MARKER,
+  type RestoreCliContext,
 } from '../../../../scripts/restore-plain-thumbnails.js';
 
 // ============================================================================
@@ -598,6 +609,53 @@ describe('restorePlainThumbnails (Task 115.5, Requirements: 20.2, 20.3, 23.8, 38
     it('指定が無い場合は既定の挙動とする', () => {
       expect(parseArgs([])).toEqual({});
     });
+
+    it('区切り件数に0を指定した場合は既定の区切りを維持する', () => {
+      expect(parseArgs(['--batch-size=0'])).toEqual({});
+    });
+
+    it('解釈できない引数は無視する', () => {
+      expect(parseArgs(['--batch-size=abc', '--unknown'])).toEqual({});
+    });
+  });
+
+  describe('Error 以外で失敗した場合の記録', () => {
+    it('原本の取得が Error 以外で失敗しても理由を文字列として記録する', async () => {
+      const store = createFakeStore([{ id: 'img-1', baked: true }]);
+      store.get.mockImplementationOnce(() => Promise.reject('socket hang up'));
+
+      const result = await store.run();
+
+      expect(result.failures).toEqual([{ imageId: 'img-1', reason: 'socket hang up' }]);
+    });
+
+    it('旧いキーの後始末が Error 以外で失敗しても是正は成立する', async () => {
+      const store = createFakeStore([{ id: 'img-1', baked: true }]);
+      store.del.mockImplementationOnce(() => Promise.reject('access denied'));
+
+      const result = await store.run();
+
+      expect(result.restored).toBe(1);
+      expect(result.failures).toHaveLength(0);
+      expect(store.bakedIds()).toEqual([]);
+    });
+
+    it('項目の更新に失敗した場合は新しい実体の後始末に失敗しても処理を継続する', async () => {
+      const store = createFakeStore([
+        { id: 'img-1', baked: true },
+        { id: 'img-2', baked: true },
+      ]);
+      store.update.mockImplementationOnce(() => Promise.reject(new Error('deadlock detected')));
+      store.del.mockImplementationOnce(() => Promise.reject(new Error('access denied')));
+
+      const result = await store.run();
+
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]).toMatchObject({ imageId: 'img-1' });
+      // 後続の画像は是正されている（後始末の失敗で全体を中断しない）
+      expect(result.restored).toBe(1);
+      expect(store.bakedIds()).toEqual(['img-1']);
+    });
   });
 });
 
@@ -621,8 +679,8 @@ describe('restore-plain-thumbnails の実行入口', () => {
     expect(entry).toContain('scripts/restore-plain-thumbnails.ts');
   });
 
-  it('スクリプトを直接実行すると main が起動しDB接続の準備段階まで到達する', () => {
-    // 接続先を与えずに起動する。入口が結線されていれば main が動き、接続先の欠落で
+  it('スクリプトを直接実行すると起動処理が動きDB接続の準備段階まで到達する', () => {
+    // 接続先を与えずに起動する。入口が結線されていれば起動処理が動き、接続先の欠落で
     // 失敗して終了コード1になる。入口が壊れていれば何もせず正常終了してしまう。
     const isolatedCwd = mkdtempSync(join(tmpdir(), 'restore-plain-thumbs-entry-'));
     const env: NodeJS.ProcessEnv = { ...process.env };
@@ -640,4 +698,293 @@ describe('restore-plain-thumbnails の実行入口', () => {
     expect(output).toContain('DATABASE_URL');
     expect(proc.status).toBe(1);
   }, 150_000);
+});
+
+// ============================================================================
+// 起動処理
+//
+// 実起動での確認（上記）は入口が結線されていることしか示さない。起動処理が
+// 前提条件の確認・引数の解釈・実行時の依存の組み立て・終了コードの通知まで
+// 正しく行うことは、外部と接する部分を差し替えて直接検証する。
+// ============================================================================
+
+describe('runRestoreCli（起動処理）', () => {
+  const CONNECTION_STRING = 'postgresql://user:pass@localhost:5432/architrack';
+
+  /**
+   * 外部と接する部分を差し替えた実行文脈を組み立てる
+   *
+   * @param options - 対象画像・引数・環境変数・前提条件
+   */
+  function createCliHarness(
+    options: {
+      entries?: FakeStoreEntry[];
+      argv?: string[];
+      env?: NodeJS.ProcessEnv;
+      storageConfigured?: boolean;
+      storageProvider?: unknown;
+    } = {}
+  ) {
+    const store = createFakeStore(options.entries ?? [{ id: 'img-1', baked: true }]);
+    const disconnect = vi.fn(() => Promise.resolve());
+    const prisma = { ...store.deps.prisma, $disconnect: disconnect };
+    const createPrismaClient = vi.fn(() => prisma);
+    const storageProvider =
+      options.storageProvider === undefined ? store.deps.storageProvider : options.storageProvider;
+    const isStorageConfiguredFn = vi.fn(() => options.storageConfigured ?? true);
+    const getStorageProviderFn = vi.fn(() => storageProvider);
+    const createRestoreDependencies = vi.fn((injectedPrisma: unknown, injectedStorage: unknown) =>
+      Promise.resolve({
+        ...store.deps,
+        prisma: injectedPrisma,
+        storageProvider: injectedStorage,
+      })
+    );
+    const setExitCode = vi.fn();
+    const loadEnv = vi.fn();
+
+    const context = {
+      argv: options.argv ?? [],
+      env: options.env ?? { DATABASE_URL: CONNECTION_STRING },
+      loadEnv,
+      isStorageConfigured: isStorageConfiguredFn,
+      getStorageProvider: getStorageProviderFn,
+      createPrismaClient,
+      createRestoreDependencies,
+      setExitCode,
+    } as unknown as RestoreCliContext;
+
+    return {
+      store,
+      prisma,
+      disconnect,
+      createPrismaClient,
+      createRestoreDependencies,
+      isStorageConfiguredFn,
+      getStorageProviderFn,
+      setExitCode,
+      loadEnv,
+      context,
+    };
+  }
+
+  it('接続先が未設定の場合は起動を中止し接続を試みない', async () => {
+    const harness = createCliHarness({ env: {} });
+
+    await expect(runRestoreCli(harness.context)).rejects.toThrow('DATABASE_URL');
+
+    expect(harness.loadEnv).toHaveBeenCalledTimes(1);
+    expect(harness.createPrismaClient).not.toHaveBeenCalled();
+    expect(harness.setExitCode).not.toHaveBeenCalled();
+  });
+
+  it('ストレージが未設定の場合は起動を中止する', async () => {
+    const harness = createCliHarness({ storageConfigured: false });
+
+    await expect(runRestoreCli(harness.context)).rejects.toThrow('ストレージが設定されていません');
+
+    expect(harness.createPrismaClient).not.toHaveBeenCalled();
+  });
+
+  it('ストレージプロバイダーを初期化できない場合は起動を中止する', async () => {
+    const harness = createCliHarness({ storageProvider: null });
+
+    await expect(runRestoreCli(harness.context)).rejects.toThrow(
+      'ストレージプロバイダーを初期化できませんでした'
+    );
+
+    expect(harness.createPrismaClient).not.toHaveBeenCalled();
+  });
+
+  it('接続先とストレージを実行時の依存の組み立てへ引き渡す', async () => {
+    const harness = createCliHarness();
+
+    await runRestoreCli(harness.context);
+
+    expect(harness.createPrismaClient).toHaveBeenCalledWith(CONNECTION_STRING);
+    expect(harness.createRestoreDependencies).toHaveBeenCalledWith(
+      harness.prisma,
+      harness.store.deps.storageProvider
+    );
+  });
+
+  it('引数を解釈して是正へ反映する', async () => {
+    const harness = createCliHarness({
+      entries: [
+        { id: 'img-1', baked: true },
+        { id: 'img-2', baked: true },
+        { id: 'img-3', baked: true },
+      ],
+      argv: ['--batch-size=2'],
+    });
+
+    await runRestoreCli(harness.context);
+
+    expect(harness.store.findMany.mock.calls.length).toBeGreaterThan(0);
+    for (const call of harness.store.findMany.mock.calls) {
+      expect(call[0]?.take).toBe(2);
+    }
+    expect(harness.store.bakedIds()).toEqual([]);
+  });
+
+  it('全件を是正できた場合は終了コード0を通知する', async () => {
+    const harness = createCliHarness();
+
+    await runRestoreCli(harness.context);
+
+    expect(harness.setExitCode).toHaveBeenCalledWith(0);
+  });
+
+  it('焼き込みが残った場合は終了コード1を通知する', async () => {
+    const harness = createCliHarness();
+    harness.store.get.mockImplementationOnce(() => Promise.resolve(null));
+
+    await runRestoreCli(harness.context);
+
+    expect(harness.setExitCode).toHaveBeenCalledWith(1);
+  });
+
+  it('集計のみの実行では差し替えず終了コード0を通知する', async () => {
+    const harness = createCliHarness({ argv: ['--dry-run'] });
+
+    await runRestoreCli(harness.context);
+
+    expect(harness.store.upload).not.toHaveBeenCalled();
+    expect(harness.store.update).not.toHaveBeenCalled();
+    expect(harness.setExitCode).toHaveBeenCalledWith(0);
+  });
+
+  it('是正が例外で終わっても接続を解放する', async () => {
+    const harness = createCliHarness();
+    harness.store.findMany.mockImplementationOnce(() =>
+      Promise.reject(new Error('connection refused'))
+    );
+
+    await expect(runRestoreCli(harness.context)).rejects.toThrow('connection refused');
+
+    expect(harness.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('正常終了時にも接続を解放する', async () => {
+    const harness = createCliHarness();
+
+    await runRestoreCli(harness.context);
+
+    expect(harness.disconnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('実行時の依存の組み立て', () => {
+  it('接続先から Prisma クライアントを組み立てる', async () => {
+    const client = createRestorePrismaClient(
+      'postgresql://user:pass@127.0.0.1:65432/architrack_unused'
+    );
+
+    expect(typeof client.surveyImage.findMany).toBe('function');
+    expect(typeof client.surveyImage.update).toBe('function');
+
+    await client.$disconnect();
+  });
+
+  it('sharp と各サービスを結線した依存を組み立て、実際に素のサムネイルを生成できる', async () => {
+    const prisma = { surveyImage: {} } as unknown as PrismaClient;
+    const storageProvider = {
+      get: vi.fn(),
+      upload: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as StorageProvider;
+
+    const deps = await createRestoreRuntimeDependencies(prisma, storageProvider);
+
+    expect(deps.prisma).toBe(prisma);
+    expect(deps.storageProvider).toBe(storageProvider);
+
+    // 組み立てた依存が実体として動作すること（sharp の結線を含む）を確かめる
+    const sharp = (await import('sharp')).default;
+    const source = await sharp({
+      create: { width: 400, height: 300, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    const thumbnail = await deps.imageProcessorService.generateThumbnail(source);
+    const metadata = await sharp(thumbnail).metadata();
+
+    expect(metadata.width).toBe(200);
+    expect(metadata.height).toBe(200);
+    expect(deps.surveyImageService.detectMimeTypeByMagicBytes(thumbnail)).toBe('image/jpeg');
+  }, 30_000);
+
+  it('既定の実行文脈は実プロセスの引数と環境変数を用いる', () => {
+    const context = createDefaultRestoreCliContext();
+
+    expect(context.argv).toEqual(process.argv.slice(2));
+    expect(context.env).toBe(process.env);
+    expect(context.createPrismaClient).toBe(createRestorePrismaClient);
+    expect(context.createRestoreDependencies).toBe(createRestoreRuntimeDependencies);
+    expect(context.setExitCode).toBe(setProcessExitCode);
+    expect(typeof context.loadEnv).toBe('function');
+    expect(typeof context.isStorageConfigured).toBe('function');
+    expect(typeof context.getStorageProvider).toBe('function');
+  });
+
+  it('終了コードの通知はプロセスの終了コードへ反映される', () => {
+    const original = process.exitCode;
+    try {
+      setProcessExitCode(0);
+      expect(process.exitCode).toBe(0);
+    } finally {
+      process.exitCode = original;
+    }
+  });
+});
+
+describe('起動時の致命的な失敗の扱い', () => {
+  it('失敗を記録して異常終了させる', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation((() => undefined) as never);
+
+    try {
+      reportFatalStartupError(new Error('DATABASE_URL が設定されていません'));
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'restore_plain_thumbnails_failed',
+          error: 'DATABASE_URL が設定されていません',
+        })
+      );
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('Error 以外の失敗も文字列として記録する', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation((() => undefined) as never);
+
+    try {
+      reportFatalStartupError('unexpected token');
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ error: 'unexpected token' }));
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+});
+
+describe('直接実行の判定', () => {
+  it('起動されたスクリプトが自身と一致する場合のみ真とする', () => {
+    expect(isDirectExecution('/app/scripts/x.ts', 'file:///app/scripts/x.ts')).toBe(true);
+  });
+
+  it('別のモジュールから読み込まれた場合は偽とする', () => {
+    expect(isDirectExecution('/app/scripts/other.ts', 'file:///app/scripts/x.ts')).toBe(false);
+  });
+
+  it('起動されたスクリプトが特定できない場合は偽とする', () => {
+    expect(isDirectExecution(undefined, 'file:///app/scripts/x.ts')).toBe(false);
+  });
 });

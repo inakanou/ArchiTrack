@@ -34,7 +34,10 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { config } from 'dotenv';
 import { PrismaClient } from '../src/generated/prisma/client.js';
-import { ImageProcessorService } from '../src/services/image-processor.service.js';
+import {
+  ImageProcessorService,
+  type SharpStatic,
+} from '../src/services/image-processor.service.js';
 import { SurveyImageService } from '../src/services/survey-image.service.js';
 import { getStorageProvider, isStorageConfigured } from '../src/storage/index.js';
 import type { StorageProvider } from '../src/storage/storage-provider.interface.js';
@@ -394,41 +397,123 @@ export function parseArgs(argv: string[]): PlainThumbnailRestoreOptions {
 }
 
 /**
- * スクリプトとして実行されたときの入口
+ * 起動処理が外部と接する部分
+ *
+ * プロセスの引数・環境変数・DB接続・ストレージの設定・終了コードの通知は、いずれも
+ * 実行環境そのものに依存する。起動処理の中身（前提条件の確認から終了コードの決定まで）を
+ * 実行環境なしで検証できるよう、接点だけをこの文脈へ集約して差し替え可能にしている。
  */
-async function main(): Promise<void> {
-  config();
+export interface RestoreCliContext {
+  /** `process.argv.slice(2)` 相当のコマンドライン引数 */
+  argv: string[];
+  /** 接続先を読み出す環境変数 */
+  env: NodeJS.ProcessEnv;
+  /** `.env` の読み込み */
+  loadEnv: () => void;
+  /** ストレージが設定されているか */
+  isStorageConfigured: () => boolean;
+  /** ストレージプロバイダーの取得 */
+  getStorageProvider: () => StorageProvider | null;
+  /** 接続先から Prisma クライアントを組み立てる */
+  createPrismaClient: (connectionString: string) => PrismaClient;
+  /** 是正に必要な実行時の依存を組み立てる */
+  createRestoreDependencies: (
+    prisma: PrismaClient,
+    storageProvider: StorageProvider
+  ) => Promise<PlainThumbnailRestoreDependencies>;
+  /** 実行結果の終了コードを通知する */
+  setExitCode: (code: number) => void;
+}
 
-  const connectionString = process.env.DATABASE_URL;
+/**
+ * 接続先から Prisma クライアントを組み立てる
+ *
+ * @param connectionString - データベースの接続先
+ */
+export function createRestorePrismaClient(connectionString: string): PrismaClient {
+  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+}
+
+/**
+ * 是正に必要な実行時の依存を組み立てる
+ *
+ * 画像処理は sharp を実行時に読み込んで結線する。起動時点で読み込むと、この手段を
+ * 用いない経路にまで sharp の可用性を要求してしまうためである。
+ *
+ * @param prisma - Prisma クライアント
+ * @param storageProvider - ストレージプロバイダー
+ */
+export async function createRestoreRuntimeDependencies(
+  prisma: PrismaClient,
+  storageProvider: StorageProvider
+): Promise<PlainThumbnailRestoreDependencies> {
+  const sharpModule = await import('sharp');
+  const sharp = sharpModule.default;
+  const imageProcessorService = new ImageProcessorService(((input: Buffer) =>
+    sharp(input)) as SharpStatic);
+  const surveyImageService = new SurveyImageService({ prisma, storageProvider });
+
+  return { prisma, storageProvider, imageProcessorService, surveyImageService };
+}
+
+/**
+ * 実行結果の終了コードをプロセスへ通知する
+ *
+ * `process.exit` ではなく `exitCode` を用いる。DB接続の解放を待たずに打ち切らないためである。
+ *
+ * @param code - 終了コード
+ */
+export function setProcessExitCode(code: number): void {
+  process.exitCode = code;
+}
+
+/**
+ * 実プロセス・実DB・実ストレージへ接続する既定の実行文脈を組み立てる
+ */
+export function createDefaultRestoreCliContext(): RestoreCliContext {
+  return {
+    argv: process.argv.slice(2),
+    env: process.env,
+    loadEnv: config,
+    isStorageConfigured,
+    getStorageProvider,
+    createPrismaClient: createRestorePrismaClient,
+    createRestoreDependencies: createRestoreRuntimeDependencies,
+    setExitCode: setProcessExitCode,
+  };
+}
+
+/**
+ * スクリプトとして実行されたときの入口
+ *
+ * @param context - 外部と接する部分
+ */
+export async function runRestoreCli(context: RestoreCliContext): Promise<void> {
+  context.loadEnv();
+
+  const connectionString = context.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error('DATABASE_URL が設定されていません');
   }
 
-  if (!isStorageConfigured()) {
+  if (!context.isStorageConfigured()) {
     throw new Error('ストレージが設定されていません');
   }
 
-  const storageProvider = getStorageProvider();
+  const storageProvider = context.getStorageProvider();
   if (!storageProvider) {
     throw new Error('ストレージプロバイダーを初期化できませんでした');
   }
 
-  const options = parseArgs(process.argv.slice(2));
-  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const options = parseArgs(context.argv);
+  const prisma = context.createPrismaClient(connectionString);
 
   try {
-    const sharpModule = await import('sharp');
-    const sharp = sharpModule.default;
-    const imageProcessorService = new ImageProcessorService(((input: Buffer) =>
-      sharp(input)) as import('../src/services/image-processor.service.js').SharpStatic);
-    const surveyImageService = new SurveyImageService({ prisma, storageProvider });
+    const deps = await context.createRestoreDependencies(prisma, storageProvider);
 
     logger.info({ action: 'restore_plain_thumbnails_started', ...options });
 
-    const result = await restorePlainThumbnails(
-      { prisma, storageProvider, imageProcessorService, surveyImageService },
-      options
-    );
+    const result = await restorePlainThumbnails(deps, options);
     const exitCode = resolveRestoreExitCode(result, options);
 
     logger.info({
@@ -450,19 +535,39 @@ async function main(): Promise<void> {
       });
     }
 
-    process.exitCode = exitCode;
+    context.setExitCode(exitCode);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-// 直接実行されたときのみ処理を開始する（テストからの import では起動しない）
-if (process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error: unknown) => {
-    logger.error({
-      action: 'restore_plain_thumbnails_failed',
-      error: error instanceof Error ? error.message : String(error),
-    });
-    process.exit(1);
+/**
+ * 起動そのものに失敗した場合に記録して異常終了する
+ *
+ * @param error - 失敗の内容
+ */
+export function reportFatalStartupError(error: unknown): void {
+  logger.error({
+    action: 'restore_plain_thumbnails_failed',
+    error: error instanceof Error ? error.message : String(error),
   });
+  process.exit(1);
+}
+
+/**
+ * このモジュール自身が直接実行されたかを判定する
+ *
+ * テストからの import では起動しないよう、起動されたスクリプトのパスと自身の
+ * モジュールURLが一致する場合のみ真とする。
+ *
+ * @param scriptPath - `process.argv[1]` 相当の起動対象のパス
+ * @param moduleUrl - `import.meta.url` 相当の自身のモジュールURL
+ */
+export function isDirectExecution(scriptPath: string | undefined, moduleUrl: string): boolean {
+  return scriptPath !== undefined && moduleUrl === `file://${scriptPath}`;
+}
+
+// 直接実行されたときのみ処理を開始する（テストからの import では起動しない）
+if (isDirectExecution(process.argv[1], import.meta.url)) {
+  runRestoreCli(createDefaultRestoreCliContext()).catch(reportFatalStartupError);
 }
