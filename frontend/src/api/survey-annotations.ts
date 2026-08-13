@@ -237,3 +237,39 @@ export async function updateAnnotatedThumbnail(
     { imageData }
   );
 }
+
+/**
+ * 合成済みサムネイル取り消しレスポンス
+ */
+export interface DeleteAnnotatedThumbnailResponse {
+  success: boolean;
+  /** 取り消し後の保存先（常に null） */
+  annotatedThumbnailPath: null;
+  /** 取り消し後の表示元（常に null） */
+  annotatedThumbnailUrl: null;
+}
+
+/**
+ * 合成済みサムネイルが存在しない状態へ収束させる
+ *
+ * 注釈も回転も無い状態で保存された画像は、合成しても素のサムネイルと同じ
+ * 内容にしかならない。この場合は合成済みサムネイル（annotatedThumbnailPath）を
+ * 空にして、表示を素のサムネイルへ退避させる。通常サムネイル（thumbnailPath）は
+ * この操作でも書き換わらない。既に空の場合も成功する（冪等）。
+ *
+ * @param imageId - 画像ID（UUID）
+ * @returns 取り消し結果（保存先・表示元はいずれも null）
+ * @throws ApiError
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - 画像が見つからない（404）
+ *
+ * Requirements: 22.5, 23.2, 23.8
+ */
+export async function deleteAnnotatedThumbnail(
+  imageId: string
+): Promise<DeleteAnnotatedThumbnailResponse> {
+  return apiClient.delete<DeleteAnnotatedThumbnailResponse>(
+    `/api/site-surveys/images/${imageId}/annotated-thumbnail`
+  );
+}

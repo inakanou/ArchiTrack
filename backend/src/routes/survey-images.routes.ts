@@ -1052,4 +1052,135 @@ router.patch(
   }
 );
 
+/**
+ * @swagger
+ * /api/site-surveys/images/{imageId}/annotated-thumbnail:
+ *   delete:
+ *     summary: 合成済みサムネイル取り消し
+ *     description: |
+ *       注釈も回転も無い状態で保存された画像について、合成済みサムネイルが
+ *       存在しない状態へ収束させる。annotatedThumbnailPath を空にしたうえで、
+ *       残存する実体を後片付けする。
+ *       通常サムネイル（thumbnailPath）は読みも書きも削除も行わない。
+ *       既に合成済みサムネイルが無い場合も成功を返す（冪等）。
+ *     tags:
+ *       - Survey Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: imageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 画像ID
+ *     responses:
+ *       200:
+ *         description: 合成済みサムネイル取り消し成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 annotatedThumbnailPath:
+ *                   type: string
+ *                   nullable: true
+ *                   description: 取り消し後の保存先（常に null）
+ *                 annotatedThumbnailUrl:
+ *                   type: string
+ *                   nullable: true
+ *                   description: 取り消し後の表示元（常に null）
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 画像が見つからない
+ */
+router.delete(
+  '/:imageId/annotated-thumbnail',
+  authenticate,
+  // 画像編集画面の保存操作の一部であるため、更新権限で足りる（削除権限は要求しない）
+  requirePermission('site_survey:update'),
+  validate(imageIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageId } = req.validatedParams as { imageId: string };
+
+      // 注意: thumbnailPath は取得しない。本経路は通常サムネイルを読みも書きもしない。
+      const image = await prisma.surveyImage.findUnique({
+        where: { id: imageId },
+        select: {
+          id: true,
+          annotatedThumbnailPath: true,
+        },
+      });
+
+      if (!image) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/image-not-found',
+          title: 'Image Not Found',
+          status: 404,
+          detail: `画像が見つかりません: ${imageId}`,
+          code: 'IMAGE_NOT_FOUND',
+          imageId,
+        });
+        return;
+      }
+
+      const staleAnnotatedThumbnailPath = image.annotatedThumbnailPath;
+
+      // 既に合成済みサムネイルが無い場合は何も変更しない（Req 23.8: 冪等）
+      if (staleAnnotatedThumbnailPath) {
+        // 1. 先に項目を空へ切り替える（annotatedThumbnailPath のみ。thumbnailPath は不変）。
+        //    実体より先に項目を空にすることで、実体だけが失われた表示元を指す瞬間を作らない。
+        //    表示側は空になった時点で素のサムネイルへ退避する。
+        await prisma.surveyImage.update({
+          where: { id: imageId },
+          data: { annotatedThumbnailPath: null },
+        });
+
+        // 2. 残存する合成済みサムネイルの実体を best-effort 削除（通常サムネイルは削除対象外）
+        const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
+        if (storageProvider) {
+          try {
+            await storageProvider.delete(staleAnnotatedThumbnailPath);
+          } catch (deleteError) {
+            logger.warn(
+              {
+                imageId,
+                stalePath: staleAnnotatedThumbnailPath,
+                error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+              },
+              'Failed to delete annotated thumbnail object (best-effort)'
+            );
+          }
+        } else {
+          logger.warn(
+            { imageId, stalePath: staleAnnotatedThumbnailPath },
+            'Storage is not configured; annotated thumbnail object left in place'
+          );
+        }
+
+        logger.info(
+          { userId: req.user!.userId, imageId, stalePath: staleAnnotatedThumbnailPath },
+          'Annotated thumbnail cleared (no annotations and no rotation)'
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+        annotatedThumbnailPath: null,
+        annotatedThumbnailUrl: null,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to clear annotated thumbnail');
+      next(error);
+    }
+  }
+);
+
 export default router;

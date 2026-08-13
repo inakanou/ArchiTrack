@@ -159,6 +159,11 @@ vi.mock('../../../api/survey-annotations', () => ({
     annotatedThumbnailPath: 'annotated-thumbnails/test.jpg',
     annotatedThumbnailUrl: null,
   }),
+  deleteAnnotatedThumbnail: vi.fn().mockResolvedValue({
+    success: true,
+    annotatedThumbnailPath: null,
+    annotatedThumbnailUrl: null,
+  }),
 }));
 
 const mockToast = {

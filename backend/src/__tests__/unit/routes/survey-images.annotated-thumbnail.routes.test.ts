@@ -332,3 +332,129 @@ describe('PATCH /api/site-surveys/images/:imageId/annotated-thumbnail (Task 115.
     expect(mockStorageProvider.upload).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Task 115.3: 注釈も回転も無い保存では合成済みサムネイルが存在しない状態へ収束させる。
+ *
+ * 収束の受け口として合成済みサムネイルの取り消しを設ける。
+ *
+ * Requirements:
+ * - 22.5: 保存された回転状態を復元して表示する（回転が無い状態へ戻した場合は素の状態に戻る）
+ * - 23.2: 回転後の画像状態を反映したサムネイル画像を再生成する
+ * - 23.3: 回転と注釈の両方を反映した最終状態のサムネイル画像を再生成する
+ * - 23.8: 変更を伴わない保存でも冪等に動作し、既存サムネイルを破損させない
+ */
+describe('DELETE /api/site-surveys/images/:imageId/annotated-thumbnail (Task 115.3)', () => {
+  let app: Application;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    callOrder.length = 0;
+
+    mockPrisma.surveyImage.findUnique.mockResolvedValue({
+      id: IMAGE_ID,
+      surveyId: SURVEY_ID,
+      thumbnailPath: NORMAL_THUMBNAIL_PATH,
+      annotatedThumbnailPath: OLD_ANNOTATED_PATH,
+      fileName: 'photo.jpg',
+    });
+    mockPrisma.surveyImage.update.mockImplementation(async () => {
+      callOrder.push('db-update');
+      return { id: IMAGE_ID };
+    });
+    mockStorageProvider.delete.mockImplementation(async (key: string) => {
+      callOrder.push(`delete:${key}`);
+    });
+
+    app = createApp();
+  });
+
+  it('合成済みサムネイルの項目を空へ更新する (Req 22.5, 23.2)', async () => {
+    const response = await request(app).delete(
+      `/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.surveyImage.update).toHaveBeenCalledTimes(1);
+    const updateArg = mockPrisma.surveyImage.update.mock.calls[0]![0] as {
+      where: { id: string };
+      data: Record<string, unknown>;
+    };
+    expect(updateArg.where).toEqual({ id: IMAGE_ID });
+    expect(Object.keys(updateArg.data)).toEqual(['annotatedThumbnailPath']);
+    expect(updateArg.data.annotatedThumbnailPath).toBeNull();
+    expect(response.body).toEqual({
+      success: true,
+      annotatedThumbnailPath: null,
+      annotatedThumbnailUrl: null,
+    });
+  });
+
+  it('通常サムネイルの項目も実体も触らない (Req 38.5)', async () => {
+    await request(app).delete(`/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`);
+
+    const updateArg = mockPrisma.surveyImage.update.mock.calls[0]![0] as {
+      data: Record<string, unknown>;
+    };
+    expect(updateArg.data).not.toHaveProperty('thumbnailPath');
+    expect(mockStorageProvider.delete).not.toHaveBeenCalledWith(NORMAL_THUMBNAIL_PATH);
+  });
+
+  it('表示元を失う瞬間を作らないよう項目の更新後に実体を削除する (Req 22.5)', async () => {
+    await request(app).delete(`/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`);
+
+    expect(mockStorageProvider.delete).toHaveBeenCalledWith(OLD_ANNOTATED_PATH);
+
+    const updateIndex = callOrder.indexOf('db-update');
+    const deleteIndex = callOrder.indexOf(`delete:${OLD_ANNOTATED_PATH}`);
+    expect(updateIndex).toBeGreaterThanOrEqual(0);
+    expect(deleteIndex).toBeGreaterThan(updateIndex);
+  });
+
+  it('既に合成済みサムネイルが無い場合も成功し何も変更しない (Req 23.8)', async () => {
+    mockPrisma.surveyImage.findUnique.mockResolvedValue({
+      id: IMAGE_ID,
+      surveyId: SURVEY_ID,
+      thumbnailPath: NORMAL_THUMBNAIL_PATH,
+      annotatedThumbnailPath: null,
+      fileName: 'photo.jpg',
+    });
+
+    const response = await request(app).delete(
+      `/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      success: true,
+      annotatedThumbnailPath: null,
+      annotatedThumbnailUrl: null,
+    });
+    expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
+    expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+  });
+
+  it('実体の削除に失敗しても項目は空のまま成功を返す (Req 23.8)', async () => {
+    mockStorageProvider.delete.mockRejectedValue(new Error('delete failed'));
+
+    const response = await request(app).delete(
+      `/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.surveyImage.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('画像が存在しない場合は404を返す', async () => {
+    mockPrisma.surveyImage.findUnique.mockResolvedValue(null);
+
+    const response = await request(app).delete(
+      `/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('IMAGE_NOT_FOUND');
+    expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
+    expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+  });
+});

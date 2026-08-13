@@ -65,6 +65,7 @@ import {
   saveAnnotation,
   getAnnotation,
   updateAnnotatedThumbnail,
+  deleteAnnotatedThumbnail,
 } from '../../api/survey-annotations';
 import { ApiError } from '../../api/client';
 import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
@@ -301,6 +302,29 @@ const STYLES = {
     color: '#065f46',
   },
 };
+
+// ============================================================================
+// ヘルパー
+// ============================================================================
+
+/**
+ * 回転角度を 0 以上 360 未満へ正規化する
+ *
+ * 保存済みデータ由来の回転角度は 0/90/180/270 に限られない値（360度、負の値、
+ * 数値でない値）を含み得るため、合成済みサムネイルの生成要否を判定する前に
+ * 正規化する。正規化結果が 0 の場合は「回転が加えられていない」とみなす。
+ *
+ * @param rotation - 回転角度（度）
+ * @returns 0 以上 360 未満へ正規化した回転角度（判定不能な値は 0）
+ *
+ * @requirement 22.8
+ */
+function normalizeImageRotation(rotation: number): number {
+  if (!Number.isFinite(rotation)) {
+    return 0;
+  }
+  return ((rotation % 360) + 360) % 360;
+}
 
 // ============================================================================
 // コンポーネント
@@ -2024,20 +2048,38 @@ function AnnotationEditor({
 
       // Task 115.1: 合成済み画像は注釈付きサムネイル（annotatedThumbnailPath）へ保存する。
       // 通常サムネイルはアップロード時の素の画像として不変。
+      //
+      // Task 115.3 (Req 22.4, 23.2, 23.3): 回転は原本を書き換えず注釈データとして保存される。
+      // 回転を反映した画像を持つのは編集画面のキャンバスだけであるため、注釈が0件でも
+      // 回転が加えられていれば合成済みサムネイルを生成・更新する必要がある。
+      // 逆に注釈も回転も無い場合、合成結果は素のサムネイルと同一の内容にしかならない。
+      // この場合は合成済みサムネイルが存在しない状態へ収束させ、表示を素のサムネイルへ
+      // 退避させる（Req 22.5, 23.8）。
+      const hasRotation = normalizeImageRotation(annotationData.imageRotation) !== 0;
+      const requiresAnnotatedThumbnail = objects.length > 0 || hasRotation;
+
       let annotatedThumbnailUrl: string | null = saveResponse.annotatedThumbnailUrl ?? null;
       try {
-        // キャンバスを画像としてエクスポート（JPEG形式、品質0.9）
-        const imageData = canvas.toDataURL({
-          format: 'jpeg',
-          quality: 0.9,
-          multiplier: 1,
-        });
-        const thumbnailResponse = await updateAnnotatedThumbnail(imageId, imageData);
-        // 更新後の表示元を優先する（サーバ側生成の旧経路の値で上書きしない）
-        annotatedThumbnailUrl = thumbnailResponse.annotatedThumbnailUrl ?? annotatedThumbnailUrl;
+        if (requiresAnnotatedThumbnail) {
+          // キャンバスを画像としてエクスポート（JPEG形式、品質0.9）
+          const imageData = canvas.toDataURL({
+            format: 'jpeg',
+            quality: 0.9,
+            multiplier: 1,
+          });
+          const thumbnailResponse = await updateAnnotatedThumbnail(imageId, imageData);
+          // 更新後の表示元を優先する（サーバ側生成の旧経路の値で上書きしない）
+          annotatedThumbnailUrl = thumbnailResponse.annotatedThumbnailUrl ?? annotatedThumbnailUrl;
+        } else {
+          // 既存の合成済みサムネイルを残さない。既に無い場合も成功する（冪等）
+          await deleteAnnotatedThumbnail(imageId);
+          annotatedThumbnailUrl = null;
+        }
       } catch (thumbnailErr) {
         // Task 115.2 / REQ-23.4: 合成済みサムネイルの更新完了を保存完了の条件とするため、
         // 更新に失敗した場合は保存完了（saveSuccess）とみなさない。
+        // Task 115.3: 取り消し（存在しない状態への収束）も同じく表示の最新化であるため、
+        // 失敗時の扱いは更新と同一とする。
         // REQ-23.6: 失敗を握り潰さず、サーバ側再生成失敗と同一のエラー提示・再取得要求を行う。
         // なお注釈本体は既に保存済みであるため、注釈保存の契約（保存成功）は巻き戻さない。
         console.error('合成済みサムネイルの更新に失敗しました:', thumbnailErr);

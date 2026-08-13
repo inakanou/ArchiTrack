@@ -1807,6 +1807,66 @@
             "description": "ストレージ未設定"
           }
         }
+      },
+      "delete": {
+        "summary": "合成済みサムネイル取り消し",
+        "description": "注釈も回転も無い状態で保存された画像について、合成済みサムネイルが\n存在しない状態へ収束させる。annotatedThumbnailPath を空にしたうえで、\n残存する実体を後片付けする。\n通常サムネイル（thumbnailPath）は読みも書きも削除も行わない。\n既に合成済みサムネイルが無い場合も成功を返す（冪等）。\n",
+        "tags": [
+          "Survey Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "imageId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "画像ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "合成済みサムネイル取り消し成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "annotatedThumbnailPath": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "取り消し後の保存先（常に null）"
+                    },
+                    "annotatedThumbnailUrl": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "取り消し後の表示元（常に null）"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "画像が見つからない"
+          }
+        }
       }
     },
     "/api/projects/{projectId}/site-surveys": {
