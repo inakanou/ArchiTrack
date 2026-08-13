@@ -309,6 +309,7 @@ function surveyImageRow(overrides: Record<string, unknown> = {}) {
     id: SURVEY_IMAGE_ID_1,
     originalPath: 'survey-images/survey-1/orig.jpg',
     thumbnailPath: 'survey-images/survey-1/thumb.jpg',
+    annotatedThumbnailPath: null,
     fileName: 'survey.jpg',
     fileSize: 111111,
     width: 1024,
@@ -316,6 +317,26 @@ function surveyImageRow(overrides: Record<string, unknown> = {}) {
     survey: { projectId: PROJECT_ID },
     ...overrides,
   };
+}
+
+/**
+ * findMany の select を尊重して行を射影するモック設定。
+ *
+ * DB 上の状態（例: 注釈レコードの有無）を素直に書いたうえで、サービスが select していない
+ * 列は取得できないことを再現する。これにより「DB には注釈があるが、サービスはそれを
+ * 取得していない」という現状を、取得できたことにせずテストへ表現できる。
+ */
+function mockSurveyImageFindManySelectAware(
+  findManyMock: ReturnType<typeof vi.fn>,
+  dbRows: Array<Record<string, unknown>>
+) {
+  findManyMock.mockImplementation((args: { select?: Record<string, unknown> }) => {
+    const select = args.select;
+    if (!select) return Promise.resolve(dbRows);
+    return Promise.resolve(
+      dbRows.map((row) => Object.fromEntries(Object.keys(select).map((key) => [key, row[key]])))
+    );
+  });
 }
 
 function createSurveyMockPrisma() {
@@ -429,6 +450,137 @@ describe('ConstructionPhotoImageService.addFromSurveyImage', () => {
 
     // Sharp 再処理は行わない（バイト複製）
     expect(mockProcessor.processImage).not.toHaveBeenCalled();
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 115.8: 取り込み時の複製元の確定
+  //
+  // site-survey Requirements 20.2 / 20.3 により、現場調査の詳細画面・一覧画面の
+  // サムネイルは保存済み注釈をレンダリングした状態で表示される。その表示元は
+  // 115.1 以降「注釈付きサムネイル（annotatedThumbnailPath）」であり、通常サムネイル
+  // （thumbnailPath）は素の画像として不変になった。
+  // よって工事写真へ取り込んだ後の見た目を取り込み前と一致させるには、サムネイルの
+  // 複製元として注釈付きサムネイルを優先する必要がある。
+  // --------------------------------------------------------------------------
+
+  it('(g) 注釈付きサムネイルを持つ現調写真はサムネの複製元が注釈付きサムネイルになる（site-survey Requirements: 20.2, 20.3）', async () => {
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({
+        id: SURVEY_IMAGE_ID_1,
+        annotatedThumbnailPath: 'survey-images/survey-1/annotated/thumb.jpg',
+      }),
+    ]);
+    (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+      copiedPhotoRow({ id: 'copied-1' })
+    );
+
+    const result = await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+    expect(result.failed).toHaveLength(0);
+
+    const copyCalls = (mockStorage.copy as ReturnType<typeof vi.fn>).mock.calls as Array<
+      [string, string]
+    >;
+    expect(copyCalls).toHaveLength(2);
+
+    // サムネの複製先（_thumb_ を含むキー）に対応する複製元が注釈付きサムネイルであること
+    const thumbCopy = copyCalls.find(([, dst]) => dst.includes('_thumb_'));
+    expect(thumbCopy?.[0]).toBe('survey-images/survey-1/annotated/thumb.jpg');
+
+    // 原本は原本のまま複製する（注釈は焼き込まない）
+    const originalCopy = copyCalls.find(([, dst]) => !dst.includes('_thumb_'));
+    expect(originalCopy?.[0]).toBe('survey-images/survey-1/orig.jpg');
+
+    // 素の通常サムネイルは複製元にならない（注釈が消える退行の検出）
+    expect(copyCalls.map(([src]) => src)).not.toContain('survey-images/survey-1/thumb.jpg');
+
+    // 複製元は注釈付きサムネイルを読み出せている必要がある（Prisma の select 漏れ検出）
+    const selected = (
+      (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        select: Record<string, unknown>;
+      }
+    ).select;
+    expect(selected.annotatedThumbnailPath).toBe(true);
+  });
+
+  it('(h) 注釈が無い現調写真はサムネの複製元が通常サムネイルになる（site-survey Requirements: 20.2, 20.3）', async () => {
+    // 注釈レコード自体が無い画像。現場調査側の表示も素のサムネイルであり、
+    // 素の通常サムネイルを複製した結果が取り込み前の見た目と一致する（本来正しい結果）。
+    mockSurveyImageFindManySelectAware(
+      mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>,
+      [surveyImageRow({ id: SURVEY_IMAGE_ID_1, annotatedThumbnailPath: null, annotation: null })]
+    );
+    (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+      copiedPhotoRow({ id: 'copied-1' })
+    );
+
+    const result = await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+    expect(result.failed).toHaveLength(0);
+
+    const copyCalls = (mockStorage.copy as ReturnType<typeof vi.fn>).mock.calls as Array<
+      [string, string]
+    >;
+    const thumbCopy = copyCalls.find(([, dst]) => dst.includes('_thumb_'));
+    expect(thumbCopy?.[0]).toBe('survey-images/survey-1/thumb.jpg');
+  });
+
+  it('(i) 【承認済みの差分】注釈はあるが合成済みサムネイルが未生成の現調写真は、注釈が写らない通常サムネイルの複製になる（取り込みは失敗させない。合成済みサムネイルが生成されれば注釈付きが複製される）（site-survey Requirements: 20.2, 20.3）', async () => {
+    // 注釈が存在する（描画された注釈あり）が、合成済みサムネイルは未生成の画像。
+    // 合成済みサムネイルが埋まるのは画像編集画面での再保存時のみであり、現時点の既存
+    // データはこの状態が既定である。現場調査側は表示時のクライアント合成で注釈を描くため、
+    // この状態の取り込み結果には注釈が写らず、取り込み前の見た目と一致しない。
+    // 取り込めないほうが後退であるため、この差分は承認のうえで受容している
+    // （design.md「工事写真への取り込み時の見た目（承認済みの差分）」）。
+    // サービスは注釈の有無を取得していないため、この状態は (h) と区別できないまま
+    // 素の複製になる。ここではその結果を「承認済みの差分」として固定する。
+    const annotatedDbRow = surveyImageRow({
+      id: SURVEY_IMAGE_ID_1,
+      annotatedThumbnailPath: null,
+      annotation: { hasDrawnAnnotations: true },
+    });
+    mockSurveyImageFindManySelectAware(
+      mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>,
+      [annotatedDbRow]
+    );
+    (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+      copiedPhotoRow({ id: 'copied-1' })
+    );
+
+    const result = await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+
+    // 取り込み自体は成功させる（注釈が写らないことを理由に失敗させない）
+    expect(result.successful).toHaveLength(1);
+    expect(result.failed).toHaveLength(0);
+
+    const copyCalls = (mockStorage.copy as ReturnType<typeof vi.fn>).mock.calls as Array<
+      [string, string]
+    >;
+    const thumbCopy = copyCalls.find(([, dst]) => dst.includes('_thumb_'));
+    expect(thumbCopy?.[0]).toBe('survey-images/survey-1/thumb.jpg');
+
+    // サーバ側での再合成は行わない（合成手段は封鎖されている）
+    expect(mockProcessor.processImage).not.toHaveBeenCalled();
+
+    // この差分は恒久ではない。同じ注釈付き画像でも合成済みサムネイルが生成されれば、
+    // 以降の取り込みでは注釈付きサムネイルが複製される。
+    (mockStorage.copy as ReturnType<typeof vi.fn>).mockClear();
+    mockSurveyImageFindManySelectAware(
+      mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>,
+      [
+        {
+          ...annotatedDbRow,
+          annotatedThumbnailPath: 'survey-images/survey-1/annotated/thumb.jpg',
+        },
+      ]
+    );
+
+    const afterBackfill = await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+    expect(afterBackfill.failed).toHaveLength(0);
+
+    const copyCallsAfter = (mockStorage.copy as ReturnType<typeof vi.fn>).mock.calls as Array<
+      [string, string]
+    >;
+    const thumbCopyAfter = copyCallsAfter.find(([, dst]) => dst.includes('_thumb_'));
+    expect(thumbCopyAfter?.[0]).toBe('survey-images/survey-1/annotated/thumb.jpg');
   });
 
   it('(b) width/height/fileSize は複製元 SurveyImage から流用される（Requirements: 6.2）', async () => {

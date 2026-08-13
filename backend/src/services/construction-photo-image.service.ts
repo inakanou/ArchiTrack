@@ -123,6 +123,12 @@ interface SurveyImageSource {
   id: string;
   originalPath: string;
   thumbnailPath: string;
+  /**
+   * 注釈・回転を焼き込んだ合成済みサムネイルのパス（未生成なら null）。
+   * site-survey 側の詳細/一覧のサムネイル表示元であり、取り込み後の見た目を
+   * 取り込み前と一致させるための複製元となる（site-survey Requirements: 20.2, 20.3）。
+   */
+  annotatedThumbnailPath: string | null;
   fileName: string;
   fileSize: number;
   width: number;
@@ -284,6 +290,7 @@ export class ConstructionPhotoImageService {
         id: true,
         originalPath: true,
         thumbnailPath: true,
+        annotatedThumbnailPath: true,
         fileName: true,
         fileSize: true,
         width: true,
@@ -652,6 +659,7 @@ export class ConstructionPhotoImageService {
    * 1件の現場調査写真を新キーへ複製し ConstructionPhoto を作成、DTO を返す。
    *
    * 原本＋サムネを storage.copy でバイト複製し、寸法/サイズは複製元から流用する。
+   * サムネの複製元は合成済みサムネイルがあればそれを、無ければ通常サムネイルを用いる。
    * ここで送出された例外は呼び出し側で failed として集約される（部分失敗継続）。
    */
   private async copyOne(
@@ -667,8 +675,24 @@ export class ConstructionPhotoImageService {
     const thumbnailPath = `construction-photos/${albumId}/${uniquePrefix}_thumb_${sanitizedFileName}`;
 
     // 原本＋サムネの2キーをバイト複製（Sharp再処理なし）（R6.2）
+    //
+    // サムネの複製元は site-survey 側の表示元と同じ規則で選ぶ。site-survey の詳細/一覧の
+    // サムネイルは注釈をレンダリングした状態で表示され（site-survey Requirements: 20.2, 20.3）、
+    // その実体は合成済みサムネイル（annotatedThumbnailPath）である。通常サムネイルは
+    // アップロード時の素の画像として不変になったため、通常サムネイルを複製すると
+    // 取り込み後に注釈が消えて取り込み前の見た目と一致しなくなる。
+    // 原本は注釈を焼き込まない素の画像であり、複製元は常に原本とする。
+    //
+    // 合成済みサムネイルが無い場合は通常サムネイルを複製する。これは稀な例外ではなく、
+    // 合成済みサムネイルが埋まるのは画像編集画面での再保存時のみであるため、現時点の
+    // 既存データではこちらが既定の経路である。したがって注釈があっても合成済み
+    // サムネイルが未生成であれば、取り込み結果に注釈は写らない。これは
+    // 「取り込み後の見た目が取り込み前と一致する」ことに対する承認済みの差分であり、
+    // 取り込み自体を失敗させない（design.md「工事写真への取り込み時の見た目（承認済みの差分）」）。
+    // 当該画像を一度でも画像編集画面で保存すれば、以降は注釈付きサムネイルが複製される。
+    const thumbnailSourcePath = source.annotatedThumbnailPath ?? source.thumbnailPath;
     await this.storageProvider.copy(source.originalPath, originalPath);
-    await this.storageProvider.copy(source.thumbnailPath, thumbnailPath);
+    await this.storageProvider.copy(thumbnailSourcePath, thumbnailPath);
 
     // 独立した写真項目を作成。寸法/サイズは複製元流用、来歴を記録（R6.2, 6.3）
     const photo = await this.prisma.constructionPhoto.create({
