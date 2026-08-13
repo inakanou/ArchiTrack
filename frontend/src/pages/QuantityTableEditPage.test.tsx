@@ -1295,7 +1295,9 @@ describe('QuantityTableEditPage', () => {
               thumbnailUrl: '/images/thumb-1.jpg',
               originalUrl: '/images/original-1.jpg',
               fileName: 'photo1.jpg',
+              // 注釈の目印は「描画された注釈の有無」で判定する（Task 115.13）
               hasAnnotations: true,
+              hasDrawnAnnotations: true,
             },
           },
         ],
@@ -1308,6 +1310,38 @@ describe('QuantityTableEditPage', () => {
         // 注釈バッジが表示されることを確認
         expect(screen.getByTestId('annotation-badge-group-1')).toBeInTheDocument();
       });
+    });
+
+    // Task 115.13: 回転のみを保存した写真は注釈レコードが残るため hasAnnotations が真に
+    // なるが、描画された注釈は0件なので注釈バッジを出してはならない
+    it('回転のみを保存した写真（注釈0件）は注釈バッジを表示しない', async () => {
+      const tableWithRotationOnlyImage: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+              // 注釈レコードは存在する（回転角度が載る）が、描画された注釈は0件
+              hasAnnotations: true,
+              hasDrawnAnnotations: false,
+              annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithRotationOnlyImage);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByAltText('photo1.jpg')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('annotation-badge-group-1')).not.toBeInTheDocument();
     });
 
     it('紐付けられた写真に注釈がない場合、注釈バッジは表示されない', async () => {
@@ -1358,6 +1392,7 @@ describe('QuantityTableEditPage', () => {
         displayOrder: 0,
         createdAt: '2025-01-01T00:00:00Z',
         hasAnnotations: true,
+        hasDrawnAnnotations: true,
       },
       {
         id: 'photo-2',
@@ -1426,6 +1461,65 @@ describe('QuantityTableEditPage', () => {
       await waitFor(() => {
         expect(screen.getByTestId('photo-annotation-badge-photo-1')).toBeInTheDocument();
       });
+    });
+
+    // Task 115.13: 写真選択ダイアログの注釈の目印も「描画された注釈の有無」で判定する
+    it('回転のみを保存した写真は写真選択ダイアログで注釈バッジを表示しない', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetSiteSurveys.mockResolvedValue({
+        data: [
+          {
+            id: 'survey-1',
+            projectId: 'proj-456',
+            name: 'テスト調査',
+            surveyDate: '2025-01-01',
+            memo: null,
+            thumbnailUrl: null,
+            imageCount: 2,
+            createdAt: '2025-01-01T00:00:00Z',
+            updatedAt: '2025-01-01T00:00:00Z',
+          },
+        ],
+        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
+      });
+      mockGetSiteSurvey.mockResolvedValue({
+        id: 'survey-1',
+        projectId: 'proj-456',
+        name: 'テスト調査',
+        surveyDate: '2025-01-01',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 2,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        project: { id: 'proj-456', name: 'テストプロジェクト' },
+        images: [
+          {
+            ...mockPhotosWithAnnotations[0]!,
+            // 注釈レコードは存在する（回転角度が載る）が、描画された注釈は0件
+            hasAnnotations: true,
+            hasDrawnAnnotations: false,
+            annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
+          },
+          mockPhotosWithAnnotations[1]!,
+        ],
+      });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('photo-annotation-badge-photo-1')).not.toBeInTheDocument();
     });
 
     it('写真を選択するとドラフトに紐付けられ永続化APIは呼ばれない', async () => {
@@ -1638,6 +1732,7 @@ describe('QuantityTableEditPage', () => {
               originalUrl: '/images/original-1.jpg',
               fileName: 'photo1.jpg',
               hasAnnotations: true,
+              hasDrawnAnnotations: true,
             },
           },
         ],
@@ -1669,6 +1764,7 @@ describe('QuantityTableEditPage', () => {
               originalUrl: '/images/original-1.jpg',
               fileName: 'photo1.jpg',
               hasAnnotations: true,
+              hasDrawnAnnotations: true,
             },
           },
         ],

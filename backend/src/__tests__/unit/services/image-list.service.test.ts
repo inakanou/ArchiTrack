@@ -455,6 +455,82 @@ describe('ImageListService', () => {
     });
   });
 
+  // ==========================================================================
+  // Task 115.13: 描画された注釈の有無を示す項目を設ける
+  //
+  // 現場調査詳細画面の画像一覧はこの経路の応答を用いる。既存の hasAnnotations は
+  // 「注釈レコードの存在」から導出されるため、注釈0件（回転のみ）の保存でも真になる。
+  // 描画された注釈の有無は派生項目 hasDrawnAnnotations で供給する。
+  //
+  // Requirements: 20.2
+  // ==========================================================================
+  describe('findBySurveyIdWithUrls - 描画された注釈の有無 (Task 115.13, Requirements: 20.2)', () => {
+    const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+    const userId = 'user-1';
+
+    /** 画像レコード（Prisma戻り値）を組み立てる */
+    const buildImage = (id: string, displayOrder: number) => ({
+      id,
+      surveyId,
+      fileName: `${id}.jpg`,
+      fileSize: 1024,
+      width: 800,
+      height: 600,
+      displayOrder,
+      originalPath: `surveys/123/original-${id}.jpg`,
+      thumbnailPath: `surveys/123/thumb-${id}.jpg`,
+      annotatedThumbnailPath: null,
+      createdAt: new Date('2024-01-01'),
+    });
+
+    it('注釈0件（回転のみ）の画像は hasDrawnAnnotations が false、注釈がある画像は true になる', async () => {
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        buildImage('img-rotation-only', 1),
+        buildImage('img-annotated', 2),
+        buildImage('img-plain', 3),
+      ]);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([
+        { imageId: 'img-rotation-only', hasDrawnAnnotations: false },
+        { imageId: 'img-annotated', hasDrawnAnnotations: true },
+      ]);
+      configureStorage();
+
+      const result = await service.findBySurveyIdWithUrls(surveyId, userId);
+
+      expect(result[0]?.hasDrawnAnnotations).toBe(false);
+      expect(result[1]?.hasDrawnAnnotations).toBe(true);
+      expect(result[2]?.hasDrawnAnnotations).toBe(false);
+      // 既存項目の意味は変更しない（注釈レコードの存在から導出する）
+      expect(result[0]?.hasAnnotations).toBe(true);
+      expect(result[1]?.hasAnnotations).toBe(true);
+      expect(result[2]?.hasAnnotations).toBe(false);
+    });
+
+    it('未算出（バックフィル未実施）の既存注釈は従来どおり注釈ありとして扱う', async () => {
+      mockPrisma.surveyImage.findMany.mockResolvedValue([buildImage('img-legacy', 1)]);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([
+        { imageId: 'img-legacy', hasDrawnAnnotations: null },
+      ]);
+      configureStorage();
+
+      const result = await service.findBySurveyIdWithUrls(surveyId, userId);
+
+      expect(result[0]?.hasDrawnAnnotations).toBe(true);
+    });
+
+    it('判定に重い注釈データ（data）を取得しない', async () => {
+      mockPrisma.surveyImage.findMany.mockResolvedValue([buildImage('img-1', 1)]);
+      mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
+      configureStorage();
+
+      await service.findBySurveyIdWithUrls(surveyId, userId);
+
+      const args = mockPrisma.imageAnnotation.findMany.mock.calls[0]![0];
+      expect(args.select).toEqual({ imageId: true, hasDrawnAnnotations: true });
+      expect(args.select).not.toHaveProperty('data');
+    });
+  });
+
   describe('countBySurveyId', () => {
     it('現場調査に紐付く画像数を返すこと', async () => {
       const surveyId = '123e4567-e89b-12d3-a456-426614174000';

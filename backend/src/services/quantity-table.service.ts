@@ -99,6 +99,8 @@ export interface SurveyImageSummary {
    * フロントは false の場合に注釈取得APIの呼び出しを省略できる（画面オープン時のN+1抑止）。
    */
   hasAnnotations: boolean;
+  /** 描画された注釈の有無（Requirement 20.2、Task 115.13） */
+  hasDrawnAnnotations: boolean;
   /** 注釈付きサムネイルURL（REQ-3.3, 4.2, 19.2, 20.2） */
   annotatedThumbnailUrl: string | null;
   /** 写真コメント（REQ-21.1, 21.2） */
@@ -465,8 +467,10 @@ export class QuantityTableService {
                 comment: true,
                 // 注釈の有無のみ判定する（重いdataは取得しない）。
                 // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
+                // hasDrawnAnnotations は描画された注釈の有無の派生値で、これも data を
+                // 読まずに判定するためレコード側から取得する（Requirement 20.2、Task 115.13）。
                 annotation: {
-                  select: { id: true },
+                  select: { id: true, hasDrawnAnnotations: true },
                 },
               },
             },
@@ -1481,7 +1485,7 @@ export class QuantityTableService {
         annotatedThumbnailPath: string | null;
         fileName: string;
         comment: string | null;
-        annotation: { id: string } | null;
+        annotation: { id: string; hasDrawnAnnotations: boolean | null } | null;
       } | null;
       items: Array<{
         id: string;
@@ -1520,6 +1524,12 @@ export class QuantityTableService {
             originalUrl: `/api/storage/${g.surveyImage.originalPath}`,
             fileName: g.surveyImage.fileName,
             hasAnnotations: g.surveyImage.annotation !== null,
+            // 描画された注釈の有無（Requirement 20.2、Task 115.13）。
+            // 回転のみの保存でも注釈レコードは残るため hasAnnotations とは一致しない。
+            // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う。
+            hasDrawnAnnotations: g.surveyImage.annotation
+              ? (g.surveyImage.annotation.hasDrawnAnnotations ?? true)
+              : false,
             annotatedThumbnailUrl: g.surveyImage.annotatedThumbnailPath
               ? `/api/storage/${g.surveyImage.annotatedThumbnailPath}`
               : null,

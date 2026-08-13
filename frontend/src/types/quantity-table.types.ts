@@ -308,8 +308,15 @@ export interface SurveyImageSummary {
   thumbnailUrl: string;
   originalUrl: string;
   fileName: string;
-  /** 注釈の有無 */
+  /** 注釈の有無（注釈レコードの存在から導出。回転のみの保存でも真になる） */
   hasAnnotations?: boolean;
+  /**
+   * 描画された注釈の有無（要件20.2）
+   *
+   * 画像編集画面は注釈0件（回転のみ）でも保存するため、hasAnnotations では
+   * 描画の有無を判定できない。注釈の目印の判定にはこちらを用いる。
+   */
+  hasDrawnAnnotations?: boolean;
   /** 注釈付きサムネイルURL（REQ-3.3, 4.2, 19.2, 20.2） */
   annotatedThumbnailUrl?: string | null;
   /** 写真コメント（REQ-21.1, 21.2） */

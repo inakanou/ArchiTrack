@@ -88,6 +88,8 @@ export interface SurveyImageInfo {
    * フロントは false の場合に注釈取得APIの呼び出しを省略できる（画面オープン時のN+1抑止）。
    */
   hasAnnotations: boolean;
+  /** 描画された注釈の有無（Requirement 20.2、Task 115.13） */
+  hasDrawnAnnotations: boolean;
 }
 
 /**
@@ -402,9 +404,11 @@ export class SiteSurveyService {
           },
           // 注釈の有無のみ判定する（重いdataは取得しない）。
           // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
+          // hasDrawnAnnotations は描画された注釈の有無の派生値で、これも data を
+          // 読まずに判定するためレコード側から取得する（Requirement 20.2、Task 115.13）。
           include: {
             annotation: {
-              select: { id: true },
+              select: { id: true, hasDrawnAnnotations: true },
             },
           },
         },
@@ -552,7 +556,7 @@ export class SiteSurveyService {
       comment: string | null;
       includeInReport: boolean;
       createdAt: Date;
-      annotation: { id: string } | null;
+      annotation: { id: string; hasDrawnAnnotations: boolean | null } | null;
     }>;
   }): SiteSurveyDetail {
     const images: SurveyImageInfo[] = siteSurvey.images.map((img) => ({
@@ -570,6 +574,10 @@ export class SiteSurveyService {
       includeInReport: img.includeInReport,
       createdAt: img.createdAt,
       hasAnnotations: img.annotation !== null,
+      // 描画された注釈の有無（Requirement 20.2、Task 115.13）。
+      // 回転のみの保存でも注釈レコードは残るため hasAnnotations とは一致しない。
+      // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う。
+      hasDrawnAnnotations: img.annotation ? (img.annotation.hasDrawnAnnotations ?? true) : false,
     }));
 
     return {

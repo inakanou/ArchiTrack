@@ -14,7 +14,7 @@
  * - 監査ログへの記録
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import {
   SiteSurveyService,
   type SiteSurveyServiceDependencies,
@@ -844,9 +844,10 @@ describe('SiteSurveyService', () => {
                 displayOrder: 'asc',
               },
               // 注釈の有無のみを軽量取得する（N+1抑止のためのフラグ供給）
+              // 描画された注釈の有無（hasDrawnAnnotations）も重いdataを読まずに取得する
               include: {
                 annotation: {
-                  select: { id: true },
+                  select: { id: true, hasDrawnAnnotations: true },
                 },
               },
             },
@@ -930,7 +931,7 @@ describe('SiteSurveyService', () => {
             },
             include: {
               annotation: {
-                select: { id: true },
+                select: { id: true, hasDrawnAnnotations: true },
               },
             },
           },
@@ -1828,5 +1829,105 @@ describe('SiteSurveyService', () => {
       // Assert
       expect(result.data[0]!.thumbnailUrl).toBe('first-thumbnail.jpg');
     });
+  });
+});
+
+// ============================================================================
+// Task 115.13: 描画された注釈の有無を示す項目を設ける
+//
+// 数量表編集画面が実際に用いる取得経路は GET /api/site-surveys/:id であり、その応答は
+// SiteSurveyService.findById の結果をそのまま引き継ぐ。したがって当該経路の応答に
+// hasDrawnAnnotations が現れることを、この取得経路で確認する。
+//
+// Requirements: 20.2
+// ============================================================================
+
+describe('SiteSurveyService - 描画された注釈の有無 (Task 115.13, Requirements: 20.2)', () => {
+  let service: SiteSurveyService;
+  let mockPrisma: ReturnType<typeof createMockPrisma>;
+
+  /** 注釈リレーションの状態を指定して現場調査詳細のPrisma戻り値を組み立てる */
+  const buildSurvey = (
+    annotations: Array<{ id: string; hasDrawnAnnotations: boolean | null } | null>
+  ) => ({
+    ...mockSiteSurvey,
+    project: { id: 'project-123', name: 'テストプロジェクト' },
+    images: annotations.map((annotation, index) => ({
+      id: `image-00${index + 1}`,
+      surveyId: 'survey-123',
+      originalPath: `surveys/survey-123/images/image-00${index + 1}.jpg`,
+      thumbnailPath: `surveys/survey-123/thumbnails/image-00${index + 1}.jpg`,
+      annotatedThumbnailPath: null,
+      fileName: `photo${index + 1}.jpg`,
+      fileSize: 150000,
+      width: 1920,
+      height: 1080,
+      displayOrder: index + 1,
+      comment: null,
+      includeInReport: false,
+      createdAt: new Date('2024-01-10'),
+      annotation,
+    })),
+  });
+
+  beforeEach(() => {
+    mockPrisma = createMockPrisma();
+    service = new SiteSurveyService({
+      prisma: mockPrisma,
+      auditLogService: createMockAuditLogService(),
+    });
+  });
+
+  it('注釈0件（回転のみ）で保存された画像は hasDrawnAnnotations が false になる', async () => {
+    mockPrisma.siteSurvey.findUnique = vi
+      .fn()
+      .mockResolvedValue(buildSurvey([{ id: 'annotation-001', hasDrawnAnnotations: false }]));
+
+    const result = await service.findById('survey-123');
+
+    expect(result!.images[0]!.hasDrawnAnnotations).toBe(false);
+    // 既存項目の意味は変更しない（注釈レコードの存在から導出する）
+    expect(result!.images[0]!.hasAnnotations).toBe(true);
+  });
+
+  it('描画された注釈がある画像は hasDrawnAnnotations が true になる', async () => {
+    mockPrisma.siteSurvey.findUnique = vi
+      .fn()
+      .mockResolvedValue(buildSurvey([{ id: 'annotation-001', hasDrawnAnnotations: true }]));
+
+    const result = await service.findById('survey-123');
+
+    expect(result!.images[0]!.hasDrawnAnnotations).toBe(true);
+    expect(result!.images[0]!.hasAnnotations).toBe(true);
+  });
+
+  it('注釈レコードが存在しない画像は hasDrawnAnnotations が false になる', async () => {
+    mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(buildSurvey([null]));
+
+    const result = await service.findById('survey-123');
+
+    expect(result!.images[0]!.hasDrawnAnnotations).toBe(false);
+    expect(result!.images[0]!.hasAnnotations).toBe(false);
+  });
+
+  it('未算出（バックフィル未実施）の既存注釈は従来どおり注釈ありとして扱う', async () => {
+    mockPrisma.siteSurvey.findUnique = vi
+      .fn()
+      .mockResolvedValue(buildSurvey([{ id: 'annotation-001', hasDrawnAnnotations: null }]));
+
+    const result = await service.findById('survey-123');
+
+    expect(result!.images[0]!.hasDrawnAnnotations).toBe(true);
+  });
+
+  it('判定に重い注釈データ（data）を取得しない', async () => {
+    mockPrisma.siteSurvey.findUnique = vi.fn().mockResolvedValue(buildSurvey([null]));
+
+    await service.findById('survey-123');
+
+    const args = (mockPrisma.siteSurvey.findUnique as unknown as Mock).mock.calls[0]![0];
+    const annotationSelect = args.include.images.include.annotation.select;
+    expect(annotationSelect).toEqual({ id: true, hasDrawnAnnotations: true });
+    expect(annotationSelect).not.toHaveProperty('data');
   });
 });

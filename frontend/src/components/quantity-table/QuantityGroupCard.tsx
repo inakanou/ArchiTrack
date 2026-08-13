@@ -533,6 +533,10 @@ export default function QuantityGroupCard({
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const hasAnnotations = group.surveyImage?.hasAnnotations ?? false;
+  // 注釈の目印は「描画された注釈の有無」で判定する（site-survey Task 115.13、要件20.2）。
+  // hasAnnotations は注釈レコードの存在から導出されるため、回転のみを保存した写真でも
+  // 真になり、目印の判定には使えない。
+  const hasDrawnAnnotations = group.surveyImage?.hasDrawnAnnotations ?? false;
 
   // Task 35.1: インライン編集ステート
   const [isEditingName, setIsEditingName] = useState(false);
@@ -844,7 +848,7 @@ export default function QuantityGroupCard({
                   preferThumbnail
                 />
                 {/* 注釈バッジ（REQ-3.3） */}
-                {hasAnnotations && (
+                {hasDrawnAnnotations && (
                   <span
                     data-testid={`annotation-badge-${group.id}`}
                     style={{

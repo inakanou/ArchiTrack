@@ -212,7 +212,9 @@ describe('QuantityTableService', () => {
 
     // 画面オープン時の注釈N+1リクエスト抑止のため、
     // surveyImage.hasAnnotations を注釈リレーションの有無から導出して返すことを検証する。
-    const buildGroupWithImage = (annotation: { id: string } | null) => ({
+    const buildGroupWithImage = (
+      annotation: { id: string; hasDrawnAnnotations?: boolean | null } | null
+    ) => ({
       id: '123e4567-e89b-12d3-a456-426614174010',
       quantityTableId,
       name: null,
@@ -233,7 +235,9 @@ describe('QuantityTableService', () => {
       _count: { items: 0 },
     });
 
-    const buildTableWithGroup = (annotation: { id: string } | null) => ({
+    const buildTableWithGroup = (
+      annotation: { id: string; hasDrawnAnnotations?: boolean | null } | null
+    ) => ({
       id: quantityTableId,
       projectId: '123e4567-e89b-12d3-a456-426614174000',
       name: 'テスト数量表',
@@ -265,6 +269,81 @@ describe('QuantityTableService', () => {
 
       // Assert
       expect(result!.groups[0]!.surveyImage!.hasAnnotations).toBe(false);
+    });
+
+    // ========================================================================
+    // Task 115.13: 描画された注釈の有無を示す項目を設ける
+    //
+    // 既存の hasAnnotations は「注釈レコードの存在」から導出されるため、注釈0件
+    // （回転のみ）の保存でも真になる。描画された注釈の有無は派生項目
+    // hasDrawnAnnotations として、重い data を取得せずに供給する。
+    //
+    // Requirements: 20.2
+    // ========================================================================
+    it('注釈0件（回転のみ）で保存された画像は surveyImage.hasDrawnAnnotations が false になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithGroup({ id: 'ann-1', hasDrawnAnnotations: false })
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(false);
+      // 既存項目の意味は変更しない
+      expect(result!.groups[0]!.surveyImage!.hasAnnotations).toBe(true);
+    });
+
+    it('描画された注釈がある画像は surveyImage.hasDrawnAnnotations が true になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithGroup({ id: 'ann-1', hasDrawnAnnotations: true })
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(true);
+    });
+
+    it('注釈リレーションが存在しない場合は surveyImage.hasDrawnAnnotations が false になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithGroup(null));
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(false);
+    });
+
+    it('未算出（バックフィル未実施）の既存注釈は従来どおり注釈ありとして扱う', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithGroup({ id: 'ann-1', hasDrawnAnnotations: null })
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(true);
+    });
+
+    it('判定に重い注釈データ（data）を取得しない', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithGroup(null));
+
+      // Act
+      await service.findById(quantityTableId);
+
+      // Assert
+      const args = mockPrisma.quantityTable.findUnique.mock.calls[0]![0];
+      const annotationSelect = args.include.groups.include.surveyImage.select.annotation.select;
+      expect(annotationSelect).toEqual({ id: true, hasDrawnAnnotations: true });
+      expect(annotationSelect).not.toHaveProperty('data');
     });
   });
 

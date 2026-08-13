@@ -589,6 +589,85 @@ describe('Site Surveys Routes', () => {
         expect(notInUrlResult.thumbnailUrl).toBeNull();
       });
     });
+
+    // Requirements: 20.2
+    // Task 115.13: 描画された注釈の有無を示す項目を設ける
+    //
+    // 数量表編集画面と現場調査詳細画面が実際に用いる取得経路はこの詳細取得である。
+    // 画像一覧の経路に項目があっても、この経路の応答で欠落すると画面には届かない。
+    describe('描画された注釈の有無の引き渡し (Task 115.13)', () => {
+      const IMAGE_ROTATION_ONLY = '550e8400-e29b-41d4-a716-446655440020';
+      const IMAGE_ANNOTATED = '550e8400-e29b-41d4-a716-446655440021';
+
+      const baseImage = {
+        surveyId: TEST_SURVEY_ID,
+        fileName: 'photo.jpg',
+        fileSize: 1024,
+        width: 1600,
+        height: 1200,
+        displayOrder: 0,
+        originalPath: 'surveys/original.jpg',
+        thumbnailPath: 'surveys/thumb.jpg',
+        annotatedThumbnailPath: null as string | null,
+        comment: null,
+        includeInReport: true,
+        createdAt: new Date('2025-01-03T00:00:00Z'),
+      };
+
+      beforeEach(() => {
+        (mockSiteSurveyService.findById as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...mockSurveyDetail,
+          images: [
+            {
+              ...baseImage,
+              id: IMAGE_ROTATION_ONLY,
+              displayOrder: 0,
+              // 回転のみを保存した写真: 注釈レコードは残るが描画された注釈は0件
+              hasAnnotations: true,
+              hasDrawnAnnotations: false,
+            },
+            {
+              ...baseImage,
+              id: IMAGE_ANNOTATED,
+              displayOrder: 1,
+              hasAnnotations: true,
+              hasDrawnAnnotations: true,
+            },
+          ],
+        });
+
+        (mockImageListService.findBySurveyIdWithUrls as ReturnType<typeof vi.fn>).mockResolvedValue(
+          []
+        );
+      });
+
+      it('should include hasDrawnAnnotations for each image', async () => {
+        const response = await request(app).get(`/api/site-surveys/${TEST_SURVEY_ID}`);
+
+        expect(response.status).toBe(200);
+        const rotationOnly = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_ROTATION_ONLY
+        );
+        const annotated = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_ANNOTATED
+        );
+
+        expect(Object.keys(rotationOnly)).toContain('hasDrawnAnnotations');
+        expect(rotationOnly.hasDrawnAnnotations).toBe(false);
+        expect(annotated.hasDrawnAnnotations).toBe(true);
+      });
+
+      it('should keep hasAnnotations unchanged alongside hasDrawnAnnotations', async () => {
+        const response = await request(app).get(`/api/site-surveys/${TEST_SURVEY_ID}`);
+
+        expect(response.status).toBe(200);
+        const rotationOnly = response.body.images.find(
+          (img: { id: string }) => img.id === IMAGE_ROTATION_ONLY
+        );
+        // 既存項目の意味は変更しない（注釈レコードが存在すれば真）
+        expect(rotationOnly.hasAnnotations).toBe(true);
+      });
+    });
   });
 
   describe('PUT /api/site-surveys/:id', () => {

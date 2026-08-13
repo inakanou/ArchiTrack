@@ -306,6 +306,57 @@ describe('QuantityTablesRoutes', () => {
       expect(response.body.project).toBeDefined();
     });
 
+    // Requirements: site-survey/20.2
+    // Task 115.13: 数量表編集画面が実際に用いる取得経路の応答に、描画された注釈の有無が
+    // 現れることを確認する。署名付きURL変換の再構築で項目が落ちると画面へ届かない。
+    it('surveyImageに描画された注釈の有無（hasDrawnAnnotations）を含めて返却する', async () => {
+      const tableId = '123e4567-e89b-12d3-a456-426614174001';
+      const detail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テスト数量表',
+        groupCount: 1,
+        itemCount: 0,
+        project: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'テストプロジェクト' },
+        groups: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            quantityTableId: tableId,
+            name: 'グループA',
+            surveyImageId: 'img-1',
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/api/storage/thumbnails/img-1.jpg',
+              originalUrl: '/api/storage/originals/img-1.jpg',
+              fileName: 'img-1.jpg',
+              // 回転のみを保存した写真: 注釈レコードは残るが描画された注釈は0件
+              hasAnnotations: true,
+              hasDrawnAnnotations: false,
+              annotatedThumbnailUrl: null,
+              comment: null,
+            },
+            displayOrder: 0,
+            itemCount: 0,
+            items: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockService.findById.mockResolvedValue(detail);
+
+      const response = await request(app).get(`/api/quantity-tables/${tableId}`).expect(200);
+
+      const surveyImage = response.body.groups[0].surveyImage;
+      expect(Object.keys(surveyImage)).toContain('hasDrawnAnnotations');
+      expect(surveyImage.hasDrawnAnnotations).toBe(false);
+      // 既存項目の意味は変更しない
+      expect(surveyImage.hasAnnotations).toBe(true);
+    });
+
     it('should return 404 when quantity table not found', async () => {
       const tableId = '123e4567-e89b-12d3-a456-426614174001';
       mockService.findById.mockResolvedValue(null);

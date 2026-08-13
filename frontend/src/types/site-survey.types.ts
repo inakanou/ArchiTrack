@@ -86,8 +86,15 @@ export interface SurveyImageInfo {
   annotatedThumbnailUrl?: string | null;
   /** 注釈付きサムネイルのR2パス（要件20.4対応） */
   annotatedThumbnailPath?: string | null;
-  /** 注釈の有無 */
+  /** 注釈の有無（注釈レコードの存在から導出。回転のみの保存でも真になる） */
   hasAnnotations?: boolean;
+  /**
+   * 描画された注釈の有無（要件20.2）
+   *
+   * 画像編集画面は注釈0件（回転のみ）でも保存するため、hasAnnotations では
+   * 描画の有無を判定できない。注釈の目印の判定にはこちらを用いる。
+   */
+  hasDrawnAnnotations?: boolean;
   /** 注釈データ（注釈が存在する場合） */
   annotations?: AnnotationData[];
 }

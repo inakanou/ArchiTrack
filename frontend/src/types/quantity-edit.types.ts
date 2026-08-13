@@ -137,8 +137,10 @@ export interface SurveyImageSummary {
   originalUrl: string;
   /** ファイル名 */
   fileName: string;
-  /** 注釈の有無 */
+  /** 注釈の有無（注釈レコードの存在から導出。回転のみの保存でも真になる） */
   hasAnnotations: boolean;
+  /** 描画された注釈の有無（要件20.2）。注釈の目印の判定に用いる */
+  hasDrawnAnnotations?: boolean;
 }
 
 // ============================================================================

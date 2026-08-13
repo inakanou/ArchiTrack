@@ -336,6 +336,52 @@ describe('QuantityGroupCard', () => {
         expect(thumbnail).toHaveAttribute('src', '/images/annotated-thumb-1.jpg');
       });
 
+      // ====================================================================
+      // Task 115.13: 注釈の目印は「描画された注釈の有無」で判定する
+      //
+      // 画像編集画面は注釈0件でも無条件に保存するため、回転のみを保存した写真にも
+      // 注釈レコードと合成済みサムネイルが残る。既存の hasAnnotations は注釈レコードの
+      // 存在から導出されるため、目印の判定には使えない。
+      //
+      // Requirements: site-survey/20.2
+      // ====================================================================
+      it('描画された注釈がある場合は注釈バッジを表示する', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                hasAnnotations: true,
+                hasDrawnAnnotations: true,
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        expect(screen.getByTestId('annotation-badge-group-1')).toBeInTheDocument();
+      });
+
+      it('回転のみを保存した写真（注釈レコードあり・描画0件）は注釈バッジを表示しない', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                hasAnnotations: true,
+                hasDrawnAnnotations: false,
+                annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        expect(screen.queryByTestId('annotation-badge-group-1')).not.toBeInTheDocument();
+      });
+
       it('紐付き画像がないグループには画像プレースホルダーが表示される', () => {
         renderWithRouter(
           <QuantityGroupCard group={mockGroupWithoutImage} groupDisplayName="グループ 2" />

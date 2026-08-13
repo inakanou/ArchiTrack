@@ -76,6 +76,7 @@ describe('ImageDeleteService', () => {
     imageId: 'image-123',
     data: { version: '1.0', objects: [] },
     version: '1.0',
+    hasDrawnAnnotations: false,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-02'),
   };

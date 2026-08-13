@@ -158,6 +158,22 @@ export interface AnnotationData {
 }
 
 /**
+ * 描画された注釈が存在するかを判定する（Requirement 20.2、Task 115.13）
+ *
+ * 画像編集画面は注釈が0件でも無条件に保存し、回転角度も同じレコードへ載るため、
+ * 注釈レコードの存在では描画の有無を判定できない。判定は描画オブジェクトの件数で行う。
+ *
+ * 保存済みデータには `objects` が配列でない壊れた値が混ざり得るため、その場合は
+ * 描画なし（false）として扱う。
+ *
+ * @param data - 注釈データ（Fabric.js JSON形式）
+ * @returns 描画された注釈が1件以上ある場合 true
+ */
+export function hasDrawnObjects(data: { objects?: unknown }): boolean {
+  return Array.isArray(data.objects) && data.objects.length > 0;
+}
+
+/**
  * 注釈保存入力
  */
 export interface SaveAnnotationInput {
@@ -176,6 +192,14 @@ export interface AnnotationInfo {
   version: string;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * 描画された注釈が存在するか（Requirement 20.2、Task 115.13）。
+   *
+   * 画像編集画面は注釈が0件（回転のみ）でも無条件に保存するため、注釈レコードの存在
+   * （`hasAnnotations`）では描画の有無を判定できない。保存のたびに `data.objects` の
+   * 件数から算出して永続化し、取得側が重い `data` を読まずに判定できるようにする。
+   */
+  hasDrawnAnnotations: boolean;
   /**
    * 注釈付きサムネイルのR2オブジェクトパス。
    * `save()` 実行直後に同期再生成された最新パス（Task 60.3）。
@@ -330,6 +354,8 @@ export class AnnotationService {
         imageId,
         data: data as unknown as Prisma.InputJsonValue,
         version: data.version,
+        // 描画された注釈の有無を保存時に維持する（Requirement 20.2、Task 115.13）
+        hasDrawnAnnotations: hasDrawnObjects(data),
       },
     });
 
@@ -366,6 +392,8 @@ export class AnnotationService {
       data: {
         data: data as unknown as Prisma.InputJsonValue,
         version: data.version,
+        // 注釈をすべて削除した保存でも false へ戻す（Requirement 20.2、Task 115.13）
+        hasDrawnAnnotations: hasDrawnObjects(data),
       },
     });
 
@@ -601,6 +629,7 @@ export class AnnotationService {
     imageId: string;
     data: unknown;
     version: string;
+    hasDrawnAnnotations?: boolean | null;
     createdAt: Date;
     updatedAt: Date;
   }): AnnotationInfo {
@@ -609,6 +638,8 @@ export class AnnotationService {
       imageId: annotation.imageId,
       data: annotation.data as AnnotationData,
       version: annotation.version,
+      // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う
+      hasDrawnAnnotations: annotation.hasDrawnAnnotations ?? true,
       createdAt: annotation.createdAt,
       updatedAt: annotation.updatedAt,
     };

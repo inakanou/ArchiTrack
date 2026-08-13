@@ -45,7 +45,8 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "prisma:format": "prisma format",
-    "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts"
+    "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts",
+    "backfill:drawn-annotations": "tsx scripts/backfill-drawn-annotation-flags.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",

@@ -533,19 +533,26 @@ model SurveyImage {
  * - imageId: 画像ID（外部キー、@unique、カスケード削除）
  * - data: Fabric.js JSON形式の注釈データ
  * - version: スキーマバージョン（デフォルト: "1.0"）
+ * - hasDrawnAnnotations: 描画された注釈が存在するかの派生値（要件20.2対応）
  * - createdAt: 作成日時
  * - updatedAt: 更新日時
  * Requirements:
  * - 9.1: 全ての注釈データをデータベースに保存する
  * - 9.2: 保存された注釈データを復元して表示する
+ * - 20.2: 描画された注釈の有無を重いdataを読まずに判定する
  */
 model ImageAnnotation {
-  id        String   @id @default(uuid())
-  imageId   String   @unique
-  data      Json // Fabric.js JSON形式
-  version   String   @default("1.0") // スキーマバージョン
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  imageId             String   @unique
+  data                Json // Fabric.js JSON形式
+  version             String   @default("1.0") // スキーマバージョン
+  /// 描画された注釈（data.objects）が1件以上あるかの派生値（要件20.2）。
+  /// 画像編集画面は注釈0件（回転のみ）でも保存するため、注釈レコードの存在では
+  /// 描画の有無を判定できない。重いdataを読まずに判定するためレコード側へ持たせる。
+  /// null は未算出（バックフィル未実施）を表し、既存の挙動どおり注釈ありとして扱う。
+  hasDrawnAnnotations Boolean?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   image SurveyImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
 

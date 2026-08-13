@@ -1219,3 +1219,112 @@ describe('AnnotationService', () => {
     });
   });
 });
+
+// ============================================================================
+// Task 115.13: 描画された注釈の有無を示す項目を設ける
+//
+// 既存の hasAnnotations は「注釈レコードの存在」から導出されるため、画像編集画面が
+// 注釈0件（回転のみ）でも無条件に保存する現行仕様では常に真になる。描画された注釈の
+// 有無を示す派生項目 hasDrawnAnnotations を保存時に維持し、重い data を読み込まずに
+// 判定できるようにする。
+//
+// Requirements: 20.2
+// ============================================================================
+
+describe('AnnotationService - 描画された注釈の有無 (Task 115.13, Requirements: 20.2)', () => {
+  let service: AnnotationService;
+  let mockPrisma: ReturnType<typeof createMockPrisma>;
+
+  /** 注釈0件・回転のみの保存データ（画像編集画面の回転操作のみの保存に相当） */
+  const rotationOnlyData: AnnotationData = {
+    version: '1.0',
+    objects: [],
+    imageRotation: 90,
+  };
+
+  beforeEach(() => {
+    mockPrisma = createMockPrisma();
+    service = new AnnotationService({ prisma: mockPrisma });
+  });
+
+  /**
+   * save() のトランザクションをモックし、create/update のモック関数を返す
+   *
+   * @param existing - 既存注釈レコード（null なら新規作成経路）
+   */
+  function stubTransaction(existing: { id: string; updatedAt: Date } | null) {
+    const create = vi.fn().mockImplementation(async ({ data }: { data: object }) => ({
+      ...mockImageAnnotation,
+      ...data,
+    }));
+    const update = vi.fn().mockImplementation(async ({ data }: { data: object }) => ({
+      ...mockImageAnnotation,
+      ...data,
+    }));
+
+    mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) =>
+      fn({
+        surveyImage: { findUnique: vi.fn().mockResolvedValue(mockSurveyImage) },
+        imageAnnotation: {
+          findUnique: vi.fn().mockResolvedValue(existing),
+          create,
+          update,
+        },
+      })
+    );
+
+    return { create, update };
+  }
+
+  it('注釈0件（回転のみ）の新規保存では hasDrawnAnnotations を false で永続化する', async () => {
+    const { create } = stubTransaction(null);
+
+    const result = await service.save({ imageId: 'image-123', data: rotationOnlyData });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ hasDrawnAnnotations: false }),
+      })
+    );
+    expect(result.hasDrawnAnnotations).toBe(false);
+  });
+
+  it('注釈が1件以上ある新規保存では hasDrawnAnnotations を true で永続化する', async () => {
+    const { create } = stubTransaction(null);
+
+    const result = await service.save({ imageId: 'image-123', data: mockAnnotationData });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ hasDrawnAnnotations: true }),
+      })
+    );
+    expect(result.hasDrawnAnnotations).toBe(true);
+  });
+
+  it('注釈をすべて削除した更新では hasDrawnAnnotations が true から false へ戻る', async () => {
+    const { update } = stubTransaction({ id: 'annotation-123', updatedAt: new Date('2024-01-02') });
+
+    const result = await service.save({ imageId: 'image-123', data: rotationOnlyData });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ hasDrawnAnnotations: false }),
+      })
+    );
+    expect(result.hasDrawnAnnotations).toBe(false);
+  });
+
+  it('注釈を追加した更新では hasDrawnAnnotations が true になる', async () => {
+    const { update } = stubTransaction({ id: 'annotation-123', updatedAt: new Date('2024-01-02') });
+
+    const result = await service.save({ imageId: 'image-123', data: mockAnnotationData });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ hasDrawnAnnotations: true }),
+      })
+    );
+    expect(result.hasDrawnAnnotations).toBe(true);
+  });
+});

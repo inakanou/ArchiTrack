@@ -384,6 +384,7 @@ router.post(
       // これによりフロントエンドは詳細データを再取得せずに、返却された画像を
       // 一覧へ追記して即座に表示できる（追加のたびに全画像を再取得する遅延を回避）。
       // 新規アップロード画像には注釈が存在しないため hasAnnotations は常に false。
+      // 描画された注釈も当然存在しないため hasDrawnAnnotations も false（Task 115.13）。
       const enrichedSuccessful = await Promise.all(
         result.successful.map(async (image) => {
           const [originalUrl, thumbnailUrl] = await Promise.all([
@@ -396,6 +397,7 @@ router.post(
             originalUrl,
             thumbnailUrl,
             hasAnnotations: false,
+            hasDrawnAnnotations: false,
           };
         })
       );

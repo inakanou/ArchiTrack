@@ -48,6 +48,8 @@ export interface ImageWithUrls extends SurveyImageInfo {
   thumbnailUrl: string | null;
   annotatedThumbnailUrl: string | null;
   hasAnnotations: boolean;
+  /** 描画された注釈の有無（Requirement 20.2、Task 115.13） */
+  hasDrawnAnnotations: boolean;
 }
 
 /**
@@ -130,11 +132,17 @@ export class ImageListService {
     const imageIds = images.map((img) => img.id);
 
     // 注釈有無を一括確認（要件20.4対応）
+    // 描画された注釈の有無（hasDrawnAnnotations）も同じクエリで取得する。
+    // 重いdataは読まないため、判定コストは従来と変わらない（Requirement 20.2、Task 115.13）。
     const annotations = await this.prisma.imageAnnotation.findMany({
       where: { imageId: { in: imageIds } },
-      select: { imageId: true },
+      select: { imageId: true, hasDrawnAnnotations: true },
     });
     const annotationImageIds = new Set(annotations.map((a) => a.imageId));
+    // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う
+    const drawnAnnotationImageIds = new Set(
+      annotations.filter((a) => (a.hasDrawnAnnotations ?? true) === true).map((a) => a.imageId)
+    );
 
     // 原画像URLのアクセス権限は画像単位ではなく、画像が属する現場調査のプロジェクト単位で
     // 決まる。画像ごとに検証すると同じ判定を枚数分繰り返すため（1枚あたりプロジェクト・
@@ -178,6 +186,8 @@ export class ImageListService {
           thumbnailUrl,
           annotatedThumbnailUrl,
           hasAnnotations: annotationImageIds.has(image.id),
+          // 回転のみの保存でも注釈レコードは残るため hasAnnotations とは一致しない
+          hasDrawnAnnotations: drawnAnnotationImageIds.has(image.id),
         };
       })
     );

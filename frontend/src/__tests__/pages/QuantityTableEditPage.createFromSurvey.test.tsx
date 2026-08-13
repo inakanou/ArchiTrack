@@ -21,7 +21,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
@@ -158,6 +158,13 @@ const buildSurveyDetailWithPhotos = (): SiteSurveyDetail => ({
     buildSurveyImage({ id: 'img-2', displayOrder: 1, comment: null }),
     buildSurveyImage({ id: 'img-1', displayOrder: 0, comment: 'コメント1' }),
   ],
+});
+
+/** 任意の写真構成で現場調査詳細を組み立てる（注釈の有無の判定源の検証用） */
+const buildSurveyDetailWith = (images: SurveyImageInfo[]): SiteSurveyDetail => ({
+  ...buildSurveyDetailWithPhotos(),
+  imageCount: images.length,
+  images,
 });
 
 const buildSurveyDetailNoPhotos = (): SiteSurveyDetail => ({
@@ -325,5 +332,131 @@ describe('QuantityTableEditPage - 現場調査から一括追加配線 (Task 61.
     // 不完全な生成データを残さない（既存1件のまま）（REQ-40.12）
     const groupSections = await screen.findAllByTestId('quantity-group');
     expect(groupSections).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// Task 115.7 / 115.13: 注釈の有無の判定源を一本化する
+//
+// 数量表編集画面が写真サマリを組み立てる際、注釈の有無を「合成済みサムネイル
+// （annotatedThumbnailUrl）の有無」から導出していたため、site-survey の 115.1 以降
+// 合成済みサムネイルが実際に保存されるようになると、注釈が0件（回転のみの保存など）でも
+// 注釈ありと誤表示される。
+//
+// さらに、既存の hasAnnotations は「注釈レコードの存在」から導出されるため、回転のみの
+// 保存でも真になり、判定源をそこへ差し替えるだけでは誤表示は解消しない（Task 115.13）。
+// 判定源はサーバーが供給する「描画された注釈の有無」（hasDrawnAnnotations）へ一本化し、
+// 合成済みサムネイルの有無にも注釈レコードの存在にも影響されないことを検証する。
+//
+// Requirements: site-survey/20.2
+// ============================================================================
+
+describe('QuantityTableEditPage - 注釈の有無の判定源 (Task 115.7, 115.13)', () => {
+  const user = userEvent.setup();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** 現場調査から一括生成を実行し、生成グループが表示されるまで待つ */
+  async function createGroupsFromSurvey(detail: SiteSurveyDetail) {
+    mockGetQuantityTableDetail.mockResolvedValueOnce(buildInitialDetail());
+    mockGetSiteSurveys.mockResolvedValue(buildSurveyList());
+    mockGetSiteSurvey.mockResolvedValue(detail);
+    renderWithRouter();
+    await waitForLoaded();
+
+    await user.click(screen.getByTestId('bulk-create-from-survey-button'));
+    await screen.findByTestId('survey-select-dialog');
+    await user.click(await screen.findByTestId('survey-select-option-survey-1'));
+    await user.click(screen.getByTestId('survey-select-dialog-confirm'));
+
+    // 既存グループA + 写真枚数分の生成グループが表示される
+    await waitFor(() => {
+      expect(screen.getAllByTestId('quantity-group')).toHaveLength(detail.images.length + 1);
+    });
+  }
+
+  it('回転のみを保存した写真は、注釈レコードも合成済みサムネイルも存在するが目印を表示しない', async () => {
+    // 回転のみを保存した写真: 回転角度を載せた注釈レコードが残り（hasAnnotations は真）、
+    // 合成済みサムネイルも保存されるが、描画された注釈は0件
+    await createGroupsFromSurvey(
+      buildSurveyDetailWith([
+        buildSurveyImage({
+          id: 'img-1',
+          displayOrder: 0,
+          hasAnnotations: true,
+          hasDrawnAnnotations: false,
+          annotatedThumbnailUrl: 'http://example.com/annotated-img-1.jpg',
+        }),
+        buildSurveyImage({
+          id: 'img-2',
+          displayOrder: 1,
+          hasAnnotations: true,
+          hasDrawnAnnotations: false,
+          annotatedThumbnailUrl: 'http://example.com/annotated-img-2.jpg',
+        }),
+      ])
+    );
+
+    expect(screen.queryAllByTestId(/^annotation-badge-/)).toHaveLength(0);
+  });
+
+  it('注釈が存在する写真は、合成済みサムネイルが未生成でも注釈の目印を表示する', async () => {
+    await createGroupsFromSurvey(
+      buildSurveyDetailWith([
+        buildSurveyImage({
+          id: 'img-1',
+          displayOrder: 0,
+          hasAnnotations: true,
+          hasDrawnAnnotations: true,
+          annotatedThumbnailUrl: null,
+        }),
+        buildSurveyImage({
+          id: 'img-2',
+          displayOrder: 1,
+          hasAnnotations: true,
+          hasDrawnAnnotations: true,
+          annotatedThumbnailUrl: null,
+        }),
+      ])
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId(/^annotation-badge-/)).toHaveLength(2);
+    });
+  });
+
+  it('注釈の有無が写真ごとに独立して反映される（合成済みサムネイルの有無と一致しない場合）', async () => {
+    await createGroupsFromSurvey(
+      buildSurveyDetailWith([
+        // 描画された注釈あり・合成済みサムネイルなし → 目印あり
+        buildSurveyImage({
+          id: 'img-1',
+          displayOrder: 0,
+          hasAnnotations: true,
+          hasDrawnAnnotations: true,
+          annotatedThumbnailUrl: null,
+        }),
+        // 回転のみ（注釈レコードはあるが描画された注釈は0件）・合成済みサムネイルあり → 目印なし
+        buildSurveyImage({
+          id: 'img-2',
+          displayOrder: 1,
+          hasAnnotations: true,
+          hasDrawnAnnotations: false,
+          annotatedThumbnailUrl: 'http://example.com/annotated-img-2.jpg',
+        }),
+      ])
+    );
+
+    // 生成グループは写真順（displayOrder 昇順）に既存グループAの末尾へ並ぶ。
+    // グループ単位で目印の有無を確認し、合算件数の一致で誤りが打ち消し合わないようにする。
+    const groupSections = screen.getAllByTestId('quantity-group');
+    await waitFor(() => {
+      expect(within(groupSections[1]!).getByAltText('img-1.jpg')).toBeInTheDocument();
+    });
+    expect(within(groupSections[1]!).queryAllByTestId(/^annotation-badge-/)).toHaveLength(1);
+    expect(within(groupSections[2]!).getByAltText('img-2.jpg')).toBeInTheDocument();
+    expect(within(groupSections[2]!).queryAllByTestId(/^annotation-badge-/)).toHaveLength(0);
   });
 });

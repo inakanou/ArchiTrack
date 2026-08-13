@@ -793,6 +793,8 @@ export default function QuantityTableEditPage() {
             originalUrl: selectedPhoto.originalUrl || '',
             fileName: selectedPhoto.fileName,
             hasAnnotations: selectedPhoto.hasAnnotations,
+            // 注釈の目印は「描画された注釈の有無」で判定する（Task 115.13、要件20.2）
+            hasDrawnAnnotations: selectedPhoto.hasDrawnAnnotations ?? false,
             comment: selectedPhoto.comment ?? null,
           },
         }));
@@ -1328,7 +1330,14 @@ export default function QuantityTableEditPage() {
               thumbnailUrl: img.thumbnailUrl || img.originalUrl || '',
               originalUrl: img.originalUrl || '',
               fileName: img.fileName,
-              hasAnnotations: !!img.annotatedThumbnailUrl,
+              // 注釈の目印の判定源は、サーバーが供給する「描画された注釈の有無」
+              // （hasDrawnAnnotations）に一本化する。合成済みサムネイル
+              // （annotatedThumbnailUrl）は回転のみの保存でも生成され、注釈レコードの存在
+              // から導出される hasAnnotations も回転のみの保存で真になるため、どちらを
+              // 判定源にしても注釈0件の写真が注釈ありと誤表示される
+              // （site-survey Task 115.7 / 115.13、Requirement 20.2）。
+              hasAnnotations: img.hasAnnotations ?? false,
+              hasDrawnAnnotations: img.hasDrawnAnnotations ?? false,
               annotatedThumbnailUrl: img.annotatedThumbnailUrl ?? null,
               comment: img.comment ?? null,
             };
@@ -1713,8 +1722,10 @@ export default function QuantityTableEditPage() {
             ) : (
               <div style={styles.photoGrid} data-testid="photo-list">
                 {availablePhotos.map((photo) => {
+                  // 写真選択ダイアログの注釈の目印も「描画された注釈の有無」で判定する
+                  // （Task 115.13、要件20.2）
                   const hasPhotoAnnotations =
-                    photo.hasAnnotations || (photo.annotations?.length ?? 0) > 0;
+                    (photo.hasDrawnAnnotations ?? false) || (photo.annotations?.length ?? 0) > 0;
                   return (
                     <div
                       key={photo.id}
