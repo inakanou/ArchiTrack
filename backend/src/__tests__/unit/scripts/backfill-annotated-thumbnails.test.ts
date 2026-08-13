@@ -1,16 +1,21 @@
 /**
- * @fileoverview 注釈付きサムネイルのバックフィルのテスト
+ * @fileoverview 注釈付きサムネイルのバックフィルが起動できないことのテスト
  *
- * Task 113.3: 合成済みサムネイルを持たない既存注釈を解消する手段を用意する
+ * Task 113.3 で導入したバックフィルは、サーバー側の注釈描画器を用いる。
+ * Task 115.6 で当該描画器の位置づけが「本番データを生成してはならない」に確定したため、
+ * バックフィルも「注釈が欠落した画像を生成しないことが保証されない限り実行してはならない」
+ * 手段となった。本テストは、その起動が明示的な失敗で封じられていることを固定する。
  *
  * Requirements:
+ * - 20.4: 注釈をレンダリングしたサムネイル画像の生成契機
  * - 38.6: 注釈付きサムネイルが利用できない場合の代替手段を維持する
  *
  * @module tests/unit/scripts/backfill-annotated-thumbnails
  */
 
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { backfillAnnotatedThumbnails } from '../../../../scripts/backfill-annotated-thumbnails.js';
+import { ServerSideAnnotatedThumbnailDisabledError } from '../../../services/annotated-thumbnail.service.js';
 
 // ============================================================================
 // モック
@@ -29,19 +34,6 @@ const mockAnnotatedThumbnailService = {
   generateAnnotatedThumbnail: vi.fn(),
 };
 
-/** 対象画像（注釈あり・サムネイル未生成）を組み立てる */
-function targets(...ids: string[]) {
-  return ids.map((id) => ({ id }));
-}
-
-/** 注釈レコードを組み立てる */
-function annotations(...entries: Array<[string, number]>) {
-  return entries.map(([imageId, objectCount]) => ({
-    imageId,
-    data: { objects: Array.from({ length: objectCount }, () => ({ type: 'rect' })) },
-  }));
-}
-
 function run(options?: { batchSize?: number; dryRun?: boolean }) {
   return backfillAnnotatedThumbnails(
     {
@@ -52,138 +44,47 @@ function run(options?: { batchSize?: number; dryRun?: boolean }) {
   );
 }
 
-describe('backfillAnnotatedThumbnails', () => {
+describe('backfillAnnotatedThumbnails: 起動の封鎖 (Task 115.6)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (mockAnnotatedThumbnailService.generateAnnotatedThumbnail as Mock).mockResolvedValue(
+    // 抽出が実行されてしまった場合に処理が進めるだけの応答を用意しておく。
+    // これにより「起動できない」ことがモックの不足による失敗ではないと言える。
+    mockPrisma.surveyImage.findMany.mockResolvedValue([{ id: 'img-1' }]);
+    mockPrisma.imageAnnotation.findMany.mockResolvedValue([
+      { imageId: 'img-1', data: { objects: [{ type: 'rect' }] } },
+    ]);
+    mockAnnotatedThumbnailService.generateAnnotatedThumbnail.mockResolvedValue(
       'annotated-thumbnails/generated.jpg'
     );
   });
 
-  describe('対象の抽出', () => {
-    it('注釈があり合成済みサムネイルを持たない画像のみを対象とする', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue(targets('img-1'));
-      mockPrisma.imageAnnotation.findMany.mockResolvedValue(annotations(['img-1', 2]));
-
-      await run();
-
-      const where = mockPrisma.surveyImage.findMany.mock.calls[0]?.[0]?.where;
-      expect(where).toMatchObject({ annotatedThumbnailPath: null });
-      // 注釈レコードが存在する画像に限定されていること
-      expect(JSON.stringify(where)).toContain('annotation');
-    });
-
-    it('対象が0件の場合は生成を行わない', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
-
-      const result = await run();
-
-      expect(result.targeted).toBe(0);
-      expect(result.regenerated).toBe(0);
-      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).not.toHaveBeenCalled();
-    });
+  it('起動しようとすると明示的な失敗で拒否される', async () => {
+    await expect(run()).rejects.toBeInstanceOf(ServerSideAnnotatedThumbnailDisabledError);
   });
 
-  describe('生成', () => {
-    it('対象ごとにサムネイルを再生成し件数を返す', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue(targets('img-1', 'img-2'));
-      mockPrisma.imageAnnotation.findMany.mockResolvedValue(
-        annotations(['img-1', 2], ['img-2', 1])
-      );
-
-      const result = await run();
-
-      expect(result.targeted).toBe(2);
-      expect(result.regenerated).toBe(2);
-      expect(result.skippedEmpty).toBe(0);
-      expect(result.failures).toEqual([]);
-      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalledTimes(2);
-    });
-
-    it('生成対象外（空の注釈）は再生成件数へ数えない', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue(targets('img-1'));
-      mockPrisma.imageAnnotation.findMany.mockResolvedValue(annotations(['img-1', 0]));
-      (mockAnnotatedThumbnailService.generateAnnotatedThumbnail as Mock).mockResolvedValue(null);
-
-      const result = await run();
-
-      expect(result.targeted).toBe(1);
-      expect(result.regenerated).toBe(0);
-      expect(result.skippedEmpty).toBe(1);
-    });
-
-    it('件数を区切って処理する', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue(targets('img-1', 'img-2', 'img-3'));
-      mockPrisma.imageAnnotation.findMany.mockImplementation(
-        ({ where }: { where: { imageId: { in: string[] } } }) =>
-          Promise.resolve(annotations(...where.imageId.in.map((id) => [id, 1] as [string, number])))
-      );
-
-      const result = await run({ batchSize: 2 });
-
-      expect(result.regenerated).toBe(3);
-      // 3件を2件ずつ、2回に分けて注釈を取得する
-      expect(mockPrisma.imageAnnotation.findMany).toHaveBeenCalledTimes(2);
-    });
+  it('集計のみの実行（dryRun）でも起動できない', async () => {
+    await expect(run({ dryRun: true })).rejects.toBeInstanceOf(
+      ServerSideAnnotatedThumbnailDisabledError
+    );
   });
 
-  describe('部分失敗', () => {
-    it('個別の失敗を記録し残りの処理を継続する', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue(targets('img-1', 'img-2'));
-      mockPrisma.imageAnnotation.findMany.mockResolvedValue(
-        annotations(['img-1', 1], ['img-2', 1])
-      );
-      (mockAnnotatedThumbnailService.generateAnnotatedThumbnail as Mock)
-        .mockRejectedValueOnce(new Error('storage unavailable'))
-        .mockResolvedValueOnce('annotated-thumbnails/img-2.jpg');
+  it('対象の抽出も注釈の読み込みも生成も一切行わない', async () => {
+    await expect(run()).rejects.toThrow();
 
-      const result = await run();
-
-      expect(result.regenerated).toBe(1);
-      expect(result.failures).toHaveLength(1);
-      expect(result.failures[0]).toMatchObject({ imageId: 'img-1' });
-      expect(result.failures[0]?.reason).toContain('storage unavailable');
-    });
-
-    it('注釈レコードが取得できない画像は失敗として記録する', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue(targets('img-1'));
-      mockPrisma.imageAnnotation.findMany.mockResolvedValue([]);
-
-      const result = await run();
-
-      expect(result.regenerated).toBe(0);
-      expect(result.failures).toHaveLength(1);
-      expect(result.failures[0]).toMatchObject({ imageId: 'img-1' });
-    });
+    expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.imageAnnotation.findMany).not.toHaveBeenCalled();
+    expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).not.toHaveBeenCalled();
   });
 
-  describe('集計のみの実行', () => {
-    it('dryRun では対象件数のみを集計し生成を行わない', async () => {
-      mockPrisma.surveyImage.findMany.mockResolvedValue(targets('img-1', 'img-2'));
+  it('失敗は判別可能な code を持ち、実行してはならない理由を伝える', async () => {
+    const caught = await run().catch((error: unknown) => error);
 
-      const result = await run({ dryRun: true });
-
-      expect(result.targeted).toBe(2);
-      expect(result.regenerated).toBe(0);
-      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).not.toHaveBeenCalled();
-      expect(mockPrisma.imageAnnotation.findMany).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('冪等性', () => {
-    it('生成済みの画像は次回の対象に含まれない', async () => {
-      // 1回目: 対象1件を生成。サービスが annotatedThumbnailPath を永続化するため、
-      // 2回目の抽出条件（annotatedThumbnailPath: null）には合致しなくなる
-      mockPrisma.surveyImage.findMany.mockResolvedValueOnce(targets('img-1'));
-      mockPrisma.imageAnnotation.findMany.mockResolvedValueOnce(annotations(['img-1', 1]));
-      const first = await run();
-      expect(first.regenerated).toBe(1);
-
-      mockPrisma.surveyImage.findMany.mockResolvedValueOnce([]);
-      const second = await run();
-
-      expect(second.targeted).toBe(0);
-      expect(mockAnnotatedThumbnailService.generateAnnotatedThumbnail).toHaveBeenCalledTimes(1);
-    });
+    expect(caught).toBeInstanceOf(ServerSideAnnotatedThumbnailDisabledError);
+    const error = caught as ServerSideAnnotatedThumbnailDisabledError;
+    expect(error.code).toBe('SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED');
+    expect(error.message).toContain('矢印');
+    expect(error.message).toContain('座標');
+    expect(error.message).toContain('回転');
+    expect(error.message).toContain('design.md');
   });
 });

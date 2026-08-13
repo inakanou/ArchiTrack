@@ -1,14 +1,28 @@
 /**
- * @fileoverview 注釈付きサムネイル生成サービス
+ * @fileoverview 注釈付きサムネイル生成サービス（サーバー側描画。現在は封鎖中）
  *
  * Task 53.2: AnnotatedThumbnailServiceを実装する
+ * Task 115.6: サーバー側の注釈描画による生成手段の位置づけを確定する
  *
- * 注釈保存時にサーバーサイドで注釈付きサムネイル画像を生成・更新します。
- * Fabric.js JSON注釈データからSVGを生成し、Sharpのcomposite機能で
- * オリジナル画像に重ねてサムネイルを生成します。
+ * 注釈保存時にサーバーサイドで注釈付きサムネイル画像を生成・更新するために導入したが、
+ * **この描画器は本番データを生成してはならない**。design.md「Requirement 20 /
+ * アーキテクチャ方針 / 改訂後の採用方針」のとおり、合成の実行主体は画像編集画面
+ * （クライアント）へ改訂され、本描画器には要件を満たせない欠陥が確認されている。
+ *
+ * そのため `AnnotatedThumbnailService` は構築時点でも各メソッドでも
+ * {@link ServerSideAnnotatedThumbnailDisabledError} を送出し、いかなる経路からも
+ * 合成済みサムネイルを生成・永続化できない。合成と永続化の実装そのものは、注釈を1つも
+ * 描画できないまま既存データを書き換えるため撤去した。将来サーバー側合成を作り直す
+ * （design.md の第2案）際は {@link SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON} の
+ * 各点を解消することが前提となる。
+ *
+ * 図形ごとのSVG生成（{@link generateSvgFromAnnotation}）は、描画器が対応していた図形の
+ * 範囲を示す記録として残している。単体では本番データを書き換えないが、これを用いた
+ * 合成の再導入には上記と同じ前提が掛かる。
  *
  * Requirements:
- * - 20.4: 注釈保存時にサーバーサイドで注釈付きサムネイル画像を生成・更新する
+ * - 20.4: 注釈をレンダリングしたサムネイル画像の生成契機
+ * - 38.6: 注釈付きサムネイルが利用できない場合の代替手段を維持する
  *
  * @module services/annotated-thumbnail
  */
@@ -16,28 +30,6 @@
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import type { AnnotationData, FabricSerializedObject } from './annotation.service.js';
-import sharp from 'sharp';
-import logger from '../utils/logger.js';
-
-// ============================================================================
-// 定数定義
-// ============================================================================
-
-/**
- * サムネイルサイズ（要件: 400x300px、注釈の視認性確保）
- */
-const THUMBNAIL_WIDTH = 400;
-const THUMBNAIL_HEIGHT = 300;
-
-/**
- * JPEG品質
- */
-const JPEG_QUALITY = 80;
-
-/**
- * R2保存先プレフィックス
- */
-const ANNOTATED_THUMBNAIL_PREFIX = 'annotated-thumbnails';
 
 // ============================================================================
 // 型定義
@@ -49,6 +41,42 @@ const ANNOTATED_THUMBNAIL_PREFIX = 'annotated-thumbnails';
 export interface AnnotatedThumbnailServiceDependencies {
   prisma: PrismaClient;
   storageProvider: StorageProvider;
+}
+
+// ============================================================================
+// 封鎖（Task 115.6）
+// ============================================================================
+
+/**
+ * サーバー側描画による注釈付きサムネイル生成が封鎖されている理由。
+ *
+ * 有効化しようとした者がその場で欠陥を把握できるよう、確認済みの4点を列挙する。
+ * 文面は design.md「Requirement 20 / アーキテクチャ方針 / 改訂後の採用方針」に対応する。
+ */
+export const SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON = [
+  'サーバー側の注釈描画による注釈付きサムネイル生成は封鎖されています（Task 115.6）。',
+  '合成の実行主体は画像編集画面（クライアント）であり、この描画器は本番データを生成してはなりません。',
+  '確認済みの欠陥:',
+  '(1) 対応する図形の型が基本図形のみで、実際に保存される矢印・寸法線・多角形・折れ線・' +
+    'フリーハンド・テキスト注釈はいずれも該当せず、すべて描画されずに捨てられる',
+  '(2) 注釈の座標は編集画面の表示解像度で保存されるが、この描画器には原寸への換算が無く位置がずれる',
+  '(3) 直角方向の回転を伴う場合、合成対象の寸法が超過して必ず失敗する',
+  '(4) 注釈が0件で回転のみの変更では合成を行わず既存を削除するため、回転が反映されない',
+  '有効化するには上記をすべて解消したうえで、design.md の採用方針を改訂してください。',
+].join('\n');
+
+/**
+ * サーバー側描画による注釈付きサムネイル生成が封鎖されていることを示すエラー。
+ *
+ * 「たまたま呼ばれていない」ではなく、呼び出そうとした時点で明示的に失敗させるために用いる。
+ */
+export class ServerSideAnnotatedThumbnailDisabledError extends Error {
+  readonly code = 'SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED';
+
+  constructor() {
+    super(SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON);
+    this.name = 'ServerSideAnnotatedThumbnailDisabledError';
+  }
 }
 
 // ============================================================================
@@ -180,6 +208,12 @@ function escapeXml(text: string): string {
  * サーバーサイドで注釈をレンダリングするためにFabric.js JSONからSVGに変換します。
  * 完全な互換性は求めず、サムネイル表示レベルの近似表示を実現します。
  *
+ * **この関数の出力を本番データの生成に用いてはなりません（Task 115.6）。**
+ * 対応する図形の型は基本図形のみで、実際に保存される矢印・寸法線・多角形・折れ線・
+ * フリーハンド・テキスト注釈はいずれも該当せず、すべて描画されずに捨てられます。
+ * 加えて、注釈の座標は編集画面の表示解像度で保存されるため原寸への換算も必要です。
+ * 詳細は {@link SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON} を参照してください。
+ *
  * @param annotationData - Fabric.js JSON形式の注釈データ
  * @param imageWidth - オリジナル画像の幅
  * @param imageHeight - オリジナル画像の高さ
@@ -227,192 +261,56 @@ export function generateSvgFromAnnotation(
 }
 
 // ============================================================================
-// サービスクラス
+// サービスクラス（封鎖中）
 // ============================================================================
 
 /**
- * 注釈付きサムネイル生成サービス
+ * 注釈付きサムネイル生成サービス（封鎖中）
  *
- * 注釈保存時に注釈付きサムネイル画像を生成・更新します。
+ * 注釈保存時に合成済みサムネイルを生成・永続化する手段として Task 53.2 で導入したが、
+ * Task 115.6 により**本番データを生成してはならない**手段として封鎖した。
+ * 合成の実行主体は画像編集画面（クライアント）であり、保存先の項目は
+ * `PATCH /api/site-surveys/images/:imageId/annotated-thumbnail` が更新する。
+ *
+ * 封鎖は二重に掛けている。構築時点で {@link ServerSideAnnotatedThumbnailDisabledError} を
+ * 送出し、構築を迂回して各メソッドへ到達した場合も同じ失敗で拒否する。前者だけでは
+ * prototype 経由やサブクラス化で生成が復活しうるためである。
+ *
+ * 合成と永続化の実装は、注釈を1つも描画できないまま既存データを書き換えるため撤去した。
+ * 復活させる場合は {@link SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON} の各点を
+ * 解消したうえで作り直すこと（design.md「Requirement 20 / アーキテクチャ方針」第2案）。
  *
  * Requirements:
- * - 20.4: 注釈保存時にサーバーサイドで注釈付きサムネイル画像を生成・更新する
+ * - 20.4: 注釈をレンダリングしたサムネイル画像の生成契機
+ * - 38.6: 注釈付きサムネイルが利用できない場合の代替手段を維持する
  */
 export class AnnotatedThumbnailService {
-  private readonly prisma: PrismaClient;
-  private readonly storageProvider: StorageProvider;
-
-  constructor(deps: AnnotatedThumbnailServiceDependencies) {
-    this.prisma = deps.prisma;
-    this.storageProvider = deps.storageProvider;
+  constructor(_deps: AnnotatedThumbnailServiceDependencies) {
+    // 依存を保持する前に拒否する。依存へ一切触れずに失敗させることで、構築の試みが
+    // ストレージ・データベースへ副作用を残さないことを保証する。
+    throw new ServerSideAnnotatedThumbnailDisabledError();
   }
 
   /**
-   * 注釈付きサムネイルを生成・更新する
+   * 注釈付きサムネイルを生成・更新する（封鎖中）
    *
-   * 注釈保存（AnnotationService.save）成功後に呼び出されます。
-   * オリジナル画像に注釈データをレンダリングし、サムネイルサイズにリサイズして
-   * R2に保存します。
-   *
-   * @param imageId - 画像ID
-   * @param annotationData - 注釈データ（Fabric.js JSON形式）
-   * @returns 生成されたサムネイルのR2パス、失敗時はnull
-   * @requirement 20.4
+   * @throws {ServerSideAnnotatedThumbnailDisabledError} 常に送出する
    */
   async generateAnnotatedThumbnail(
-    imageId: string,
-    annotationData: AnnotationData
+    _imageId: string,
+    _annotationData: AnnotationData
   ): Promise<string | null> {
-    // 1. 画像メタデータ取得
-    //    Requirement 23.8: 旧サムネイルパスも取得し、冪等な置き換えで旧キー削除対象を得る
-    const image = await this.prisma.surveyImage.findUnique({
-      where: { id: imageId },
-      select: {
-        id: true,
-        surveyId: true,
-        originalPath: true,
-        width: true,
-        height: true,
-        annotatedThumbnailPath: true,
-      },
-    });
-
-    if (!image) {
-      logger.warn({ imageId }, 'Annotated thumbnail: image not found');
-      return null;
-    }
-
-    // 注釈オブジェクトが空の場合はサムネイルを削除
-    if (!annotationData.objects || annotationData.objects.length === 0) {
-      await this.removeAnnotatedThumbnailForImage(imageId, image);
-      return null;
-    }
-
-    // 2. オリジナル画像取得
-    //    原画像が欠損している場合は再生成不能なので null を返す（再生成失敗ではなくソース欠如）
-    const originalBuffer = await this.storageProvider.get(image.originalPath);
-    if (!originalBuffer) {
-      logger.warn(
-        { imageId, path: image.originalPath },
-        'Annotated thumbnail: original image not found in storage'
-      );
-      return null;
-    }
-
-    // 3. SVGオーバーレイ生成
-    const svgString = generateSvgFromAnnotation(annotationData, image.width, image.height);
-    const svgBuffer = Buffer.from(svgString);
-
-    // 4. Sharpでオリジナル画像にSVGをcomposite（回転対応 - Req 22.4, 22.5）
-    const rotation = annotationData.imageRotation ?? 0;
-    let pipeline = sharp(originalBuffer);
-    if (rotation !== 0) {
-      pipeline = pipeline.rotate(rotation);
-    }
-    const compositeResult = await pipeline
-      .composite([{ input: svgBuffer, top: 0, left: 0 }])
-      .resize(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, { fit: 'inside' })
-      .jpeg({ quality: JPEG_QUALITY })
-      .toBuffer();
-
-    // 5. R2 にタイムスタンプ付き新キーで PUT（アトミック置き換え）
-    //    Requirement 23.8: 既存キーを上書きせず、新キーで保存する
-    //    PUT 失敗時は例外を伝播させ、DB 更新は行わない（旧状態を保持）
-    const newPath = `${ANNOTATED_THUMBNAIL_PREFIX}/${imageId}.${Date.now()}.jpg`;
-    await this.storageProvider.upload(newPath, compositeResult, {
-      contentType: 'image/jpeg',
-    });
-
-    // 6. DB 更新（旧 path 退避）
-    const oldPath = image.annotatedThumbnailPath;
-    await this.prisma.surveyImage.update({
-      where: { id: imageId },
-      data: { annotatedThumbnailPath: newPath },
-    });
-
-    // 7. 旧キーの best-effort 削除
-    //    失敗してもログのみで本処理の成否には影響させない（孤立ファイル処理に委譲）
-    if (oldPath && oldPath !== newPath) {
-      this.storageProvider.delete(oldPath).catch((err: unknown) => {
-        logger.warn(
-          {
-            action: 'stale_annotated_thumbnail_delete_failed',
-            imageId,
-            oldPath,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          'Failed to delete stale annotated thumbnail (best-effort)'
-        );
-      });
-    }
-
-    logger.info({ imageId, thumbnailPath: newPath }, 'Annotated thumbnail generated successfully');
-    return newPath;
+    throw new ServerSideAnnotatedThumbnailDisabledError();
   }
 
   /**
-   * 注釈付きサムネイルを削除する
+   * 注釈付きサムネイルを削除する（封鎖中）
    *
-   * 注釈が全て削除された場合にannotatedThumbnailPathをnullに更新し、
-   * R2からサムネイルファイルを削除します。
+   * 保存先の項目はクライアント合成の結果で管理されるため、本サービスからは操作しない。
    *
-   * @param imageId - 画像ID
+   * @throws {ServerSideAnnotatedThumbnailDisabledError} 常に送出する
    */
-  async removeAnnotatedThumbnail(imageId: string): Promise<void> {
-    const image = await this.prisma.surveyImage.findUnique({
-      where: { id: imageId },
-      select: {
-        id: true,
-        annotatedThumbnailPath: true,
-      },
-    });
-
-    if (!image || !image.annotatedThumbnailPath) {
-      return;
-    }
-
-    try {
-      await this.storageProvider.delete(image.annotatedThumbnailPath);
-      await this.prisma.surveyImage.update({
-        where: { id: imageId },
-        data: { annotatedThumbnailPath: null },
-      });
-      logger.info({ imageId }, 'Annotated thumbnail removed successfully');
-    } catch (error) {
-      logger.error(
-        { imageId, error: error instanceof Error ? error.message : String(error) },
-        'Failed to remove annotated thumbnail'
-      );
-    }
-  }
-
-  /**
-   * 空の注釈で呼ばれた場合の内部用削除メソッド
-   */
-  private async removeAnnotatedThumbnailForImage(
-    imageId: string,
-    _image: { id: string } & Record<string, unknown>
-  ): Promise<void> {
-    // 既存サムネイルパスを取得
-    const fullImage = await this.prisma.surveyImage.findUnique({
-      where: { id: imageId },
-      select: { annotatedThumbnailPath: true },
-    });
-
-    if (fullImage?.annotatedThumbnailPath) {
-      try {
-        await this.storageProvider.delete(fullImage.annotatedThumbnailPath);
-      } catch (error) {
-        logger.warn(
-          { imageId, error: error instanceof Error ? error.message : String(error) },
-          'Failed to delete existing annotated thumbnail from storage'
-        );
-      }
-    }
-
-    await this.prisma.surveyImage.update({
-      where: { id: imageId },
-      data: { annotatedThumbnailPath: null },
-    });
+  async removeAnnotatedThumbnail(_imageId: string): Promise<void> {
+    throw new ServerSideAnnotatedThumbnailDisabledError();
   }
 }

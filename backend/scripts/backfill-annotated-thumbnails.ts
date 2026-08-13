@@ -1,33 +1,40 @@
 /**
- * @fileoverview 注釈付きサムネイルのバックフィル
+ * @fileoverview 注釈付きサムネイルのバックフィル（封鎖中）
  *
  * Task 113.3: 合成済みサムネイルを持たない既存注釈を解消する手段を用意する
+ * Task 115.6: サーバー側の注釈描画による生成手段の位置づけを確定する
  *
- * 注釈は保存時にサーバー側でサムネイルを同期生成するが、次の経路で欠落が残る。
+ * 本バックフィルは、合成済みサムネイルを持たない注釈付き画像を抽出し、サーバー側の
+ * 注釈描画器（`AnnotatedThumbnailService`）で再生成することを意図した手段である。
  *
- * 1. 注釈付きサムネイルの導入（マイグレーション 20260223100000）以前に保存された注釈
- * 2. 注釈の永続化後、トランザクション外のサムネイル生成が失敗した場合
+ * **現在この手段は起動できない。** 用いる描画器には、実際に保存される注釈（矢印・寸法線・
+ * 多角形・折れ線・フリーハンド・テキスト）を一切描画しないという欠陥があり、実行すれば
+ * 「注釈が写っていないサムネイル」を既存データへ書き戻してしまう。これは Requirement 20.2 /
+ * 20.3 の表示結果を破壊するため、design.md「Requirement 20 / アーキテクチャ方針 /
+ * 改訂後の採用方針」で「注釈が欠落した画像を生成しないことが保証されない限り実行しては
+ * ならない」と定めた。
  *
- * 欠落した画像は表示時にクライアントサイド合成へ退避するため表示自体は成立する
- * （Requirement 38.6）。本バックフィルはその退避の発生を減らすデータ品質改善であり、
- * 要件の充足条件ではない。取得の上限は表示領域による限定（Requirement 38.8）が担う。
+ * 抽出条件（`annotatedThumbnailPath` が null かつ注釈レコードが存在する画像）と冪等性の
+ * 設計は design.md に記録している。再開するときは、まず描画器側の欠陥
+ * （{@link SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON}）を解消し、生成結果に注釈が
+ * 含まれることを検証できる手段を用意すること。欠陥の全文は
+ * `annotated-thumbnail.service.ts` の `SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON` にある。
+ *
+ * なお、合成済みサムネイルの欠落は表示側のクライアント合成への退避で表示自体が成立する
+ * （Requirement 38.6）ため、本手段が起動できないことによる要件上の未充足は生じない。
  *
  * Requirements:
+ * - 20.4: 注釈をレンダリングしたサムネイル画像の生成契機
  * - 38.6: 注釈付きサムネイルが利用できない場合の代替手段を維持する
  *
  * @module scripts/backfill-annotated-thumbnails
  */
 
 import type { PrismaClient } from '../src/generated/prisma/client.js';
-import type { AnnotatedThumbnailService } from '../src/services/annotated-thumbnail.service.js';
-import type { AnnotationData } from '../src/services/annotation.service.js';
-
-// ============================================================================
-// 定数
-// ============================================================================
-
-/** 一度に注釈データを読み込む件数の既定値 */
-const DEFAULT_BATCH_SIZE = 50;
+import {
+  ServerSideAnnotatedThumbnailDisabledError,
+  type AnnotatedThumbnailService,
+} from '../src/services/annotated-thumbnail.service.js';
 
 // ============================================================================
 // 型定義
@@ -68,97 +75,21 @@ export interface BackfillDependencies {
 // ============================================================================
 
 /**
- * 配列を指定サイズごとに分割する
- */
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
-}
-
-/**
- * 合成済みサムネイルを持たない注釈付き画像のサムネイルを再生成する
+ * 合成済みサムネイルを持たない注釈付き画像のサムネイルを再生成する（封鎖中）
  *
- * 生成に成功した画像は `annotatedThumbnailPath` が埋まるため、次回実行時の抽出条件
- * （同項が null）に合致しなくなる。したがって再実行しても二重に処理しない。
+ * **常に {@link ServerSideAnnotatedThumbnailDisabledError} で失敗する。**
+ * 呼び出し側が同期例外と非同期の拒否を取り違えないよう、拒否は Promise の reject で返す。
+ * 対象の抽出も注釈データの読み込みも生成も行わないため、既存データへ一切影響しない。
+ * 集計のみの実行（`dryRun`）も同様に拒否する。抽出を許すと「実行できる手段である」という
+ * 誤解を残すためである。
  *
- * 個別の画像で失敗しても処理を継続し、失敗は `failures` へ集約する。全体を中断すると
- * 解消済みの画像まで再処理することになるためである。
- *
- * @param deps - Prisma クライアントと注釈付きサムネイル生成サービス
- * @param options - 実行件数の区切りと集計のみの実行
+ * @param _deps - Prisma クライアントと注釈付きサムネイル生成サービス
+ * @param _options - 実行件数の区切りと集計のみの実行
+ * @throws {ServerSideAnnotatedThumbnailDisabledError} 常に送出する
  */
 export async function backfillAnnotatedThumbnails(
-  deps: BackfillDependencies,
-  options: BackfillOptions = {}
+  _deps: BackfillDependencies,
+  _options: BackfillOptions = {}
 ): Promise<BackfillResult> {
-  const { batchSize = DEFAULT_BATCH_SIZE, dryRun = false } = options;
-  const { prisma, annotatedThumbnailService } = deps;
-
-  const result: BackfillResult = {
-    targeted: 0,
-    regenerated: 0,
-    skippedEmpty: 0,
-    failures: [],
-  };
-
-  // 対象は「注釈レコードが存在し、かつ合成済みサムネイルを持たない画像」。
-  // ID のみを先に取得し、重い注釈データは処理する分だけ後から読み込む。
-  const targets = await prisma.surveyImage.findMany({
-    where: {
-      annotatedThumbnailPath: null,
-      annotation: { isNot: null },
-    },
-    select: { id: true },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  result.targeted = targets.length;
-
-  if (dryRun || targets.length === 0) {
-    return result;
-  }
-
-  for (const idChunk of chunk(
-    targets.map((t) => t.id),
-    batchSize
-  )) {
-    const annotations = await prisma.imageAnnotation.findMany({
-      where: { imageId: { in: idChunk } },
-      select: { imageId: true, data: true },
-    });
-    const dataByImageId = new Map(annotations.map((a) => [a.imageId, a.data]));
-
-    // 画像処理は負荷が高いため、区切った範囲の中でも逐次に実行する
-    for (const imageId of idChunk) {
-      const data = dataByImageId.get(imageId);
-      if (data === undefined) {
-        // 抽出時には存在した注釈が読み込み時に失われている（並行削除など）
-        result.failures.push({ imageId, reason: '注釈データを取得できませんでした' });
-        continue;
-      }
-
-      try {
-        const path = await annotatedThumbnailService.generateAnnotatedThumbnail(
-          imageId,
-          data as unknown as AnnotationData
-        );
-        if (path === null) {
-          // 空の注釈・原画像の欠損など、生成対象にならなかった場合
-          result.skippedEmpty += 1;
-        } else {
-          result.regenerated += 1;
-        }
-      } catch (error) {
-        result.failures.push({
-          imageId,
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  }
-
-  return result;
+  throw new ServerSideAnnotatedThumbnailDisabledError();
 }
