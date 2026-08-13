@@ -234,7 +234,11 @@ vi.mock('../../../api/survey-annotations', () => ({
   getAnnotation: getAnnotationMock,
   saveAnnotation: vi.fn().mockResolvedValue({ id: 'test-annotation-id' }),
   exportAnnotationJson: vi.fn().mockResolvedValue('{}'),
-  updateThumbnail: vi.fn().mockResolvedValue({ success: true, thumbnailPath: '/test/path' }),
+  updateAnnotatedThumbnail: vi.fn().mockResolvedValue({
+    success: true,
+    annotatedThumbnailPath: 'annotated-thumbnails/test.jpg',
+    annotatedThumbnailUrl: null,
+  }),
 }));
 
 const mockToast = {

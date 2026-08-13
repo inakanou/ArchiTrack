@@ -15,7 +15,7 @@ import {
   getAnnotation,
   saveAnnotation,
   exportAnnotationJson,
-  updateThumbnail,
+  updateAnnotatedThumbnail,
   getBatchAnnotations,
 } from '../../api/survey-annotations';
 import type {
@@ -401,28 +401,29 @@ describe('survey-annotations API client', () => {
   });
 
   // ===========================================================================
-  // updateThumbnail テスト
+  // updateAnnotatedThumbnail テスト
   // ===========================================================================
 
-  describe('updateThumbnail', () => {
+  describe('updateAnnotatedThumbnail', () => {
     const mockImageId = '123e4567-e89b-12d3-a456-426614174000';
     const mockImageData = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...';
 
-    it('サムネイルを正常に更新できる', async () => {
+    it('合成済みサムネイルを注釈付きサムネイルの受け口へ送る (Task 115.1, Req 20.4)', async () => {
       // Arrange
       const mockResponse = {
         success: true,
-        thumbnailPath: '/uploads/thumbnails/new-thumbnail.jpg',
+        annotatedThumbnailPath: `annotated-thumbnails/${mockImageId}.1700000000000.jpg`,
+        annotatedThumbnailUrl: 'https://signed.example.com/annotated.jpg?sig=test',
       };
 
       vi.mocked(apiClient.patch).mockResolvedValueOnce(mockResponse);
 
       // Act
-      const result = await updateThumbnail(mockImageId, mockImageData);
+      const result = await updateAnnotatedThumbnail(mockImageId, mockImageData);
 
       // Assert
       expect(apiClient.patch).toHaveBeenCalledWith(
-        `/api/site-surveys/images/${mockImageId}/thumbnail`,
+        `/api/site-surveys/images/${mockImageId}/annotated-thumbnail`,
         { imageData: mockImageData }
       );
       expect(result).toEqual(mockResponse);
@@ -441,8 +442,8 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 404,
       });
     });
@@ -459,8 +460,8 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 400,
       });
     });
@@ -471,8 +472,8 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 401,
       });
     });
@@ -483,8 +484,8 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 403,
       });
     });

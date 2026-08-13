@@ -61,7 +61,11 @@ import { createDimensionLine } from './tools/DimensionTool';
 import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
 import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
-import { saveAnnotation, getAnnotation, updateThumbnail } from '../../api/survey-annotations';
+import {
+  saveAnnotation,
+  getAnnotation,
+  updateAnnotatedThumbnail,
+} from '../../api/survey-annotations';
 import { ApiError } from '../../api/client';
 import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
 import { useToast } from '../../hooks/useToast';
@@ -2016,14 +2020,9 @@ function AnnotationEditor({
       // APIを呼び出して保存
       const saveResponse = await saveAnnotation(imageId, { data: annotationData });
 
-      // REQ-23.5: レスポンスのannotatedThumbnailUrlをコールバックで通知
-      if (onAnnotationSaved) {
-        onAnnotationSaved({
-          annotatedThumbnailUrl: saveResponse.annotatedThumbnailUrl ?? null,
-        });
-      }
-
-      // サムネイルを更新（注釈付き画像を反映）
+      // Task 115.1: 合成済み画像は注釈付きサムネイル（annotatedThumbnailPath）へ保存する。
+      // 通常サムネイルはアップロード時の素の画像として不変。
+      let annotatedThumbnailUrl: string | null = saveResponse.annotatedThumbnailUrl ?? null;
       try {
         // キャンバスを画像としてエクスポート（JPEG形式、品質0.9）
         const imageData = canvas.toDataURL({
@@ -2031,11 +2030,17 @@ function AnnotationEditor({
           quality: 0.9,
           multiplier: 1,
         });
-        await updateThumbnail(imageId, imageData);
-        console.log('Thumbnail updated with annotations');
+        const thumbnailResponse = await updateAnnotatedThumbnail(imageId, imageData);
+        // 更新後の表示元を優先する（サーバ側生成の旧経路の値で上書きしない）
+        annotatedThumbnailUrl = thumbnailResponse.annotatedThumbnailUrl ?? annotatedThumbnailUrl;
       } catch (thumbnailErr) {
         // サムネイル更新に失敗しても注釈保存は成功しているので警告のみ
-        console.warn('サムネイルの更新に失敗しました:', thumbnailErr);
+        console.warn('合成済みサムネイルの更新に失敗しました:', thumbnailErr);
+      }
+
+      // REQ-23.5: 更新後の annotatedThumbnailUrl をコールバックで通知
+      if (onAnnotationSaved) {
+        onAnnotationSaved({ annotatedThumbnailUrl });
       }
 
       // 保存成功

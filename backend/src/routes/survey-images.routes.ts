@@ -134,6 +134,19 @@ const imageOrderService = new ImageOrderService({ prisma });
 const imageMetadataService = new ImageMetadataService({ prisma });
 
 /**
+ * 注釈付き（合成済み）サムネイルのストレージ区画
+ *
+ * Task 115.1: 画像編集画面で合成された画像はこの区画にのみ保存し、
+ * 通常サムネイル（`surveys/{surveyId}/...`）と区画で識別できるようにする。
+ */
+const ANNOTATED_THUMBNAIL_PREFIX = 'annotated-thumbnails';
+
+/**
+ * 注釈付きサムネイルの署名付きURL有効期限（秒）
+ */
+const ANNOTATED_THUMBNAIL_URL_EXPIRES_IN = 900;
+
+/**
  * バリデーションスキーマ
  */
 const surveyIdParamSchema = z.object({
@@ -856,10 +869,14 @@ router.patch(
 
 /**
  * @swagger
- * /api/site-surveys/images/{imageId}/thumbnail:
+ * /api/site-surveys/images/{imageId}/annotated-thumbnail:
  *   patch:
- *     summary: サムネイル更新
- *     description: 注釈付き画像からサムネイルを再生成して更新
+ *     summary: 合成済みサムネイル更新
+ *     description: |
+ *       画像編集画面で合成した注釈付き画像を受け取り、注釈付きサムネイル
+ *       （annotatedThumbnailPath）として保存する。
+ *       通常サムネイル（thumbnailPath）はアップロード時の素の画像として不変であり、
+ *       本エンドポイントでは一切書き換えない。
  *     tags:
  *       - Survey Images
  *     security:
@@ -886,7 +903,21 @@ router.patch(
  *                 description: Base64エンコードされた画像データ（data:image/...形式）
  *     responses:
  *       200:
- *         description: サムネイル更新成功
+ *         description: 合成済みサムネイル更新成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 annotatedThumbnailPath:
+ *                   type: string
+ *                   description: 保存された注釈付きサムネイルのストレージキー
+ *                 annotatedThumbnailUrl:
+ *                   type: string
+ *                   nullable: true
+ *                   description: 注釈付きサムネイルの署名付きURL
  *       400:
  *         description: 無効な画像データ
  *       401:
@@ -895,9 +926,11 @@ router.patch(
  *         description: 権限不足
  *       404:
  *         description: 画像が見つからない
+ *       503:
+ *         description: ストレージ未設定
  */
 router.patch(
-  '/:imageId/thumbnail',
+  '/:imageId/annotated-thumbnail',
   authenticate,
   requirePermission('site_survey:update'),
   validate(imageIdParamSchema, 'params'),
@@ -907,26 +940,13 @@ router.patch(
       const { imageId } = req.validatedParams as { imageId: string };
       const { imageData } = req.validatedBody as { imageData: string };
 
-      // ストレージサービスが利用可能か確認
-      if (!imageUploadService) {
-        res.status(503).json({
-          type: 'https://architrack.example.com/problems/storage-not-configured',
-          title: 'Storage Not Configured',
-          status: 503,
-          detail: 'ストレージが設定されていません',
-          code: 'STORAGE_NOT_CONFIGURED',
-        });
-        return;
-      }
-
       // 画像の存在確認
+      // 注意: thumbnailPath は取得しない。本経路は通常サムネイルを読みも書きもしない。
       const image = await prisma.surveyImage.findUnique({
         where: { id: imageId },
         select: {
           id: true,
-          surveyId: true,
-          thumbnailPath: true,
-          fileName: true,
+          annotatedThumbnailPath: true,
         },
       });
 
@@ -942,22 +962,22 @@ router.patch(
         return;
       }
 
-      // Base64データをバッファに変換
-      const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
-      const imageBuffer = Buffer.from(base64Data, 'base64');
-
       // ストレージプロバイダーを取得
-      const storageProvider = getStorageProvider();
+      const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
       if (!storageProvider) {
         res.status(503).json({
           type: 'https://architrack.example.com/problems/storage-not-configured',
           title: 'Storage Not Configured',
           status: 503,
-          detail: 'ストレージプロバイダーが利用できません',
+          detail: 'ストレージが設定されていません',
           code: 'STORAGE_NOT_CONFIGURED',
         });
         return;
       }
+
+      // Base64データをバッファに変換
+      const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+      const imageBuffer = Buffer.from(base64Data, 'base64');
 
       // Sharpをダイナミックインポートしてサムネイル生成
       const sharpModule = await import('sharp');
@@ -967,41 +987,66 @@ router.patch(
 
       const thumbnailBuffer = await imageProcessorService.generateThumbnail(imageBuffer);
 
-      // 新しいサムネイルパスを生成（既存パスを上書き）
-      const timestamp = Date.now();
-      const newThumbnailPath = `surveys/${image.surveyId}/${timestamp}_thumb_annotated_${image.fileName}`;
-
-      // サムネイルをストレージにアップロード
-      await storageProvider.upload(newThumbnailPath, thumbnailBuffer, {
+      // 1. 注釈付きサムネイル用の区画へタイムスタンプ付き新キーで保存
+      //    通常サムネイル（surveys/{surveyId}/...）とは区画で識別できる
+      //    保存に失敗した場合は例外を伝播させ DB は更新しない（旧い表示元を維持）
+      const newAnnotatedThumbnailPath = `${ANNOTATED_THUMBNAIL_PREFIX}/${imageId}.${Date.now()}.jpg`;
+      await storageProvider.upload(newAnnotatedThumbnailPath, thumbnailBuffer, {
         contentType: 'image/jpeg',
       });
 
-      // 古いサムネイルを削除（エラーは無視）
-      if (image.thumbnailPath && image.thumbnailPath !== newThumbnailPath) {
+      // 2. DB を新キーへ切り替え（annotatedThumbnailPath のみ。thumbnailPath は不変）
+      const oldAnnotatedThumbnailPath = image.annotatedThumbnailPath;
+      await prisma.surveyImage.update({
+        where: { id: imageId },
+        data: { annotatedThumbnailPath: newAnnotatedThumbnailPath },
+      });
+
+      // 3. 旧い合成済みサムネイルの best-effort 削除（通常サムネイルは削除対象外）
+      if (oldAnnotatedThumbnailPath && oldAnnotatedThumbnailPath !== newAnnotatedThumbnailPath) {
         try {
-          await storageProvider.delete(image.thumbnailPath);
-        } catch {
-          logger.warn({ oldPath: image.thumbnailPath }, 'Failed to delete old thumbnail');
+          await storageProvider.delete(oldAnnotatedThumbnailPath);
+        } catch (deleteError) {
+          logger.warn(
+            {
+              imageId,
+              oldPath: oldAnnotatedThumbnailPath,
+              error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+            },
+            'Failed to delete stale annotated thumbnail (best-effort)'
+          );
         }
       }
 
-      // データベースのサムネイルパスを更新
-      await prisma.surveyImage.update({
-        where: { id: imageId },
-        data: { thumbnailPath: newThumbnailPath },
-      });
+      // 4. 更新後の表示元を署名付きURLで返す（呼び出し元が追加取得なしに画面へ反映できる）
+      let annotatedThumbnailUrl: string | null = null;
+      try {
+        annotatedThumbnailUrl = await storageProvider.getSignedUrl(newAnnotatedThumbnailPath, {
+          expiresIn: ANNOTATED_THUMBNAIL_URL_EXPIRES_IN,
+        });
+      } catch (urlError) {
+        logger.warn(
+          {
+            imageId,
+            path: newAnnotatedThumbnailPath,
+            error: urlError instanceof Error ? urlError.message : String(urlError),
+          },
+          'Failed to generate annotatedThumbnailUrl'
+        );
+      }
 
       logger.info(
-        { userId: req.user!.userId, imageId, newThumbnailPath },
-        'Thumbnail updated with annotations'
+        { userId: req.user!.userId, imageId, annotatedThumbnailPath: newAnnotatedThumbnailPath },
+        'Annotated thumbnail updated from editor composite'
       );
 
       res.status(200).json({
         success: true,
-        thumbnailPath: newThumbnailPath,
+        annotatedThumbnailPath: newAnnotatedThumbnailPath,
+        annotatedThumbnailUrl,
       });
     } catch (error) {
-      logger.error({ error }, 'Failed to update thumbnail');
+      logger.error({ error }, 'Failed to update annotated thumbnail');
       next(error);
     }
   }

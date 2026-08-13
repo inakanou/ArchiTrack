@@ -96,7 +96,11 @@ vi.mock('../../../api/survey-annotations', () => ({
   getAnnotation: vi.fn().mockResolvedValue(null),
   saveAnnotation: vi.fn().mockResolvedValue({ id: 'test-annotation-id' }),
   exportAnnotationJson: vi.fn().mockResolvedValue('{}'),
-  updateThumbnail: vi.fn().mockResolvedValue({ success: true, thumbnailPath: '/test/path' }),
+  updateAnnotatedThumbnail: vi.fn().mockResolvedValue({
+    success: true,
+    annotatedThumbnailPath: 'annotated-thumbnails/test.jpg',
+    annotatedThumbnailUrl: null,
+  }),
 }));
 
 // useToastのモック（Task 62.2: ThumbnailRegenerationError通知用）
@@ -1571,7 +1575,7 @@ describe('AnnotationEditor', () => {
         (await import('../../../api/survey-annotations')).saveAnnotation
       );
       const mockUpdateThumbnail = vi.mocked(
-        (await import('../../../api/survey-annotations')).updateThumbnail
+        (await import('../../../api/survey-annotations')).updateAnnotatedThumbnail
       );
 
       mockSaveAnnotation.mockResolvedValue(mockAnnotationInfo);
@@ -1623,6 +1627,71 @@ describe('AnnotationEditor', () => {
         expect(mockOnAnnotationSaved).toHaveBeenCalledWith({
           annotatedThumbnailUrl: 'https://example.com/new-thumbnail.jpg',
         });
+      });
+    });
+
+    it('合成済みサムネイルは注釈付きサムネイルの受け口へ送られる (Task 115.1, Req 20.4)', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const { saveAnnotation, updateAnnotatedThumbnail } =
+        await import('../../../api/survey-annotations');
+      vi.mocked(saveAnnotation).mockResolvedValue(mockAnnotationInfo);
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+      mockCanvasInstance.toDataURL.mockReturnValue('data:image/jpeg;base64,composited');
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      await waitFor(() => {
+        expect(updateAnnotatedThumbnail).toHaveBeenCalledWith(
+          defaultProps.imageId,
+          'data:image/jpeg;base64,composited'
+        );
+      });
+    });
+
+    it('合成済みサムネイル更新の応答が返す表示元でonAnnotationSavedを呼ぶ (Task 115.1, Req 38.5)', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const { saveAnnotation, updateAnnotatedThumbnail } =
+        await import('../../../api/survey-annotations');
+      const mockOnAnnotationSaved = vi.fn();
+
+      // 注釈保存の応答は旧経路（サーバ側生成）の値。合成済み更新の応答が優先される
+      vi.mocked(saveAnnotation).mockResolvedValue({
+        ...mockAnnotationInfo,
+        annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
+      });
+      vi.mocked(updateAnnotatedThumbnail).mockResolvedValueOnce({
+        success: true,
+        annotatedThumbnailPath: 'annotated-thumbnails/img.1700000000000.jpg',
+        annotatedThumbnailUrl: 'https://signed.example.com/annotated.jpg?sig=test',
+      });
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} onAnnotationSaved={mockOnAnnotationSaved} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      const saveButton = screen.getByRole('button', { name: /保存/i });
+      await user.click(saveButton);
+
+      await waitFor(() => {
+        expect(mockOnAnnotationSaved).toHaveBeenCalledWith({
+          annotatedThumbnailUrl: 'https://signed.example.com/annotated.jpg?sig=test',
+        });
+      });
+      // 旧経路の値で上書き通知しないこと
+      expect(mockOnAnnotationSaved).not.toHaveBeenCalledWith({
+        annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
       });
     });
 
@@ -2739,11 +2808,12 @@ describe('AnnotationEditor', () => {
         mockCanvasInstance.getObjects.mockReturnValue([]);
         mockCanvasInstance.toDataURL.mockReturnValue('data:image/png;base64,test');
 
-        const { saveAnnotation, updateThumbnail } = await import('../../../api/survey-annotations');
+        const { saveAnnotation, updateAnnotatedThumbnail } =
+          await import('../../../api/survey-annotations');
         (saveAnnotation as ReturnType<typeof vi.fn>).mockResolvedValue({
           id: 'test-annotation-id',
         });
-        (updateThumbnail as ReturnType<typeof vi.fn>).mockResolvedValue({
+        (updateAnnotatedThumbnail as ReturnType<typeof vi.fn>).mockResolvedValue({
           success: true,
           thumbnailPath: '/test/path',
         });

@@ -1723,10 +1723,10 @@
         }
       }
     },
-    "/api/site-surveys/images/{imageId}/thumbnail": {
+    "/api/site-surveys/images/{imageId}/annotated-thumbnail": {
       "patch": {
-        "summary": "サムネイル更新",
-        "description": "注釈付き画像からサムネイルを再生成して更新",
+        "summary": "合成済みサムネイル更新",
+        "description": "画像編集画面で合成した注釈付き画像を受け取り、注釈付きサムネイル\n（annotatedThumbnailPath）として保存する。\n通常サムネイル（thumbnailPath）はアップロード時の素の画像として不変であり、\n本エンドポイントでは一切書き換えない。\n",
         "tags": [
           "Survey Images"
         ],
@@ -1768,7 +1768,28 @@
         },
         "responses": {
           "200": {
-            "description": "サムネイル更新成功"
+            "description": "合成済みサムネイル更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "annotatedThumbnailPath": {
+                      "type": "string",
+                      "description": "保存された注釈付きサムネイルのストレージキー"
+                    },
+                    "annotatedThumbnailUrl": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "注釈付きサムネイルの署名付きURL"
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "無効な画像データ"
@@ -1781,6 +1802,9 @@
           },
           "404": {
             "description": "画像が見つからない"
+          },
+          "503": {
+            "description": "ストレージ未設定"
           }
         }
       }

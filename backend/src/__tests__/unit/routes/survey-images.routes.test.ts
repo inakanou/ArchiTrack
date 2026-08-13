@@ -226,12 +226,20 @@ describe('survey-images.routes', () => {
       expect(patchRoutes).toContain('/:imageId');
     });
 
-    it('PATCH /:imageId/thumbnail (サムネイル更新) が登録されていること', () => {
+    it('PATCH /:imageId/annotated-thumbnail (合成済みサムネイル更新) が登録されていること', () => {
       const patchRoutes = router.stack
         .filter((layer: RouterLayer) => layer.route && layer.route.methods?.patch)
         .map((layer: RouterLayer) => layer.route.path);
 
-      expect(patchRoutes).toContain('/:imageId/thumbnail');
+      expect(patchRoutes).toContain('/:imageId/annotated-thumbnail');
+    });
+
+    it('通常サムネイルを書き換える PATCH /:imageId/thumbnail は登録されていないこと', () => {
+      const patchRoutes = router.stack
+        .filter((layer: RouterLayer) => layer.route && layer.route.methods?.patch)
+        .map((layer: RouterLayer) => layer.route.path);
+
+      expect(patchRoutes).not.toContain('/:imageId/thumbnail');
     });
   });
 });

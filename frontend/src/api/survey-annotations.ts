@@ -196,22 +196,26 @@ export async function getBatchAnnotations(
 }
 
 /**
- * サムネイル更新レスポンス
+ * 合成済みサムネイル更新レスポンス
  */
-export interface UpdateThumbnailResponse {
+export interface UpdateAnnotatedThumbnailResponse {
   success: boolean;
-  thumbnailPath: string;
+  /** 保存された注釈付きサムネイルのストレージキー */
+  annotatedThumbnailPath: string;
+  /** 注釈付きサムネイルの署名付きURL（生成できなかった場合は null） */
+  annotatedThumbnailUrl: string | null;
 }
 
 /**
- * 注釈付き画像からサムネイルを更新する
+ * 画像編集画面で合成した画像を注釈付きサムネイルとして保存する
  *
- * キャンバスからエクスポートした画像データを使用してサムネイルを再生成します。
- * 注釈が保存された後に呼び出すことで、サムネイルに注釈を反映できます。
+ * キャンバスからエクスポートした合成済み画像を送信し、注釈付きサムネイル
+ * （annotatedThumbnailPath）を更新します。通常サムネイル（thumbnailPath）は
+ * アップロード時の素の画像として不変であり、この操作では書き換わりません。
  *
  * @param imageId - 画像ID（UUID）
  * @param imageData - Base64エンコードされた画像データ（data:image/...形式）
- * @returns サムネイル更新結果
+ * @returns 合成済みサムネイル更新結果（更新後の表示元を含む）
  * @throws ApiError
  *   - バリデーションエラー（400）
  *   - 認証エラー（401）
@@ -219,16 +223,17 @@ export interface UpdateThumbnailResponse {
  *   - 画像が見つからない（404）
  *
  * @example
- * // キャンバスからサムネイルを更新
+ * // キャンバスから合成済みサムネイルを更新
  * const canvas = fabricCanvas;
  * const imageData = canvas.toDataURL({ format: 'jpeg', quality: 0.9 });
- * await updateThumbnail('image-id', imageData);
+ * const { annotatedThumbnailUrl } = await updateAnnotatedThumbnail('image-id', imageData);
  */
-export async function updateThumbnail(
+export async function updateAnnotatedThumbnail(
   imageId: string,
   imageData: string
-): Promise<UpdateThumbnailResponse> {
-  return apiClient.patch<UpdateThumbnailResponse>(`/api/site-surveys/images/${imageId}/thumbnail`, {
-    imageData,
-  });
+): Promise<UpdateAnnotatedThumbnailResponse> {
+  return apiClient.patch<UpdateAnnotatedThumbnailResponse>(
+    `/api/site-surveys/images/${imageId}/annotated-thumbnail`,
+    { imageData }
+  );
 }
