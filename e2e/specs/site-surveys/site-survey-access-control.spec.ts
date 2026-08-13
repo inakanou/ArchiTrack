@@ -5,11 +5,14 @@
  * - REQ-14.1: プロジェクトへのアクセス権を持つユーザーが現場調査を閲覧可能
  * - REQ-14.2: プロジェクトへの編集権限を持つユーザーが現場調査の作成・編集・削除を許可
  * - REQ-14.3: 適切な権限を持たないユーザーの操作拒否とエラーメッセージ表示
- * - REQ-14.4: 画像URLの署名付きURLの有効期限とアクセス権限を検証
+ * - REQ-14.4: 画像URLの払い出しがアクセス権限の検証を経ること
+ *   （署名付きURLの有効期限そのものは本番の STORAGE_TYPE=r2 前提であり、
+ *    STORAGE_TYPE=local のテスト環境では再現できないため検証対象外。詳細は当該テストの説明を参照）
  * - REQ-14.5: 現場調査の操作履歴を監査ログに記録
  */
 
 import { test, expect } from '@playwright/test';
+import { API_BASE_URL } from '../../config';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import path from 'path';
@@ -385,47 +388,67 @@ test.describe('現場調査アクセス制御', () => {
       expect(isImageAccessible).toBeTruthy();
     });
 
-    test('未認証状態で画像URLに直接アクセスすると拒否される (site-survey/REQ-14.4)', async ({
+    /**
+     * 画像URLの払い出し契約（site-survey/REQ-14.4）
+     *
+     * 【このテスト環境で検証すること / しないこと】
+     * 本番の `STORAGE_TYPE` は `r2`（docs/deployment/environment-variables.md）であり、
+     * 画像URLは R2 の署名付きURL（既定900秒）として認証済みAPIから払い出される。
+     * このとき `backend/src/app.ts` の `/storage` 静的配信はマウントされない。
+     *
+     * 一方 E2E のテスト環境は `STORAGE_TYPE: local`（docker-compose.test.yml）であり、
+     * `/storage` の静的配信が有効になる。この静的配信は dev/test 専用の構成で
+     * 署名を伴わないため、「署名パラメータが付与されていること」「有効期限切れの
+     * 署名付きURLが拒否されること」といった本番相当の署名付きURL契約は
+     * テスト環境では再現できない。よって本テストではそれらを検証しない
+     * （検証しようとすると、テスト環境固有の構成に対する偽の合否判定になる）。
+     *
+     * 代わりに、ストレージ種別に依存しない契約
+     * 「画像URLは認証済みAPI経由でのみ払い出され、その払い出しはアクセス権限の
+     * 検証を経る」ことを検証する。`request` フィクスチャはブラウザコンテキストとは
+     * 独立した認証情報を持たないAPIコンテキストであり、未認証状態を再現できる。
+     */
+    test('画像URLは認証済みAPI経由でのみ払い出される (site-survey/REQ-14.4)', async ({
       page,
-      context,
+      request,
     }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
+      // 未認証では現場調査（画像URLを含む）を取得できない
+      const unauthenticatedSurvey = await request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}`
+      );
+      expect(unauthenticatedSurvey.status()).toBe(401);
+
+      // 未認証では画像一覧（署名付きURLの払い出し口）を取得できない
+      const unauthenticatedImages = await request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`
+      );
+      expect(unauthenticatedImages.status()).toBe(401);
+
+      // 認証済みかつアクセス権限を持つユーザーには画像URLが払い出される
       await loginAsUser(page, 'REGULAR_USER');
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      expect(accessToken, 'ログイン後にアクセストークンが保持されている').toBeTruthy();
 
-      // 現場調査詳細ページにアクセス
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const authenticatedImages = await request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      expect(authenticatedImages.status()).toBe(200);
 
-      // 画像URLを取得
-      const imageElement = page
-        .locator('img[src*="storage"], img[src*="blob"], img[src*="api"]')
-        .first();
-      const imageCount = await imageElement.count();
-      const imageSrc = imageCount > 0 ? await imageElement.getAttribute('src') : null;
+      const images = (await authenticatedImages.json()) as Array<{
+        id: string;
+        originalUrl: string | null;
+      }>;
+      expect(Array.isArray(images)).toBe(true);
+      expect(images.length).toBeGreaterThan(0);
 
-      if (imageSrc && !imageSrc.startsWith('blob:') && !imageSrc.startsWith('data:')) {
-        // ログアウト
-        await page.goto('/');
-        await context.clearCookies();
-        await page.evaluate(() => {
-          localStorage.removeItem('refreshToken');
-          localStorage.removeItem('accessToken');
-        });
-
-        // 画像URLに直接アクセス
-        const response = await page.request.get(imageSrc);
-
-        // 署名が無効になった場合は401/403または画像データが取得できない
-        const status = response.status();
-        // 署名付きURLが有効な場合は一定時間はアクセス可能なので、どちらの結果もOK
-        expect(typeof status === 'number').toBeTruthy();
-      }
-
-      // テストが完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // 原画像URLは現場調査へのアクセス権限検証を通過した場合のみ払い出される
+      // （backend/src/services/image-list.service.ts の validateSurveyAccess）
+      expect(images[0]!.originalUrl).toBeTruthy();
     });
   });
 

@@ -882,7 +882,9 @@ ImageViewer のズーム/パン/タッチ処理を AnnotationEditor 内へ移植
 
 ### 調査で判明した事実
 
-- **サーバー側の合成は既に同期・確実である**: `annotation.service.ts:262-281` は `AnnotationService.save` のトランザクション後に `AnnotatedThumbnailService.generateAnnotatedThumbnail` を同期実行し、失敗時は `ThumbnailRegenerationError` を投げて保存全体を500にする（`annotation.routes.ts:257-272`）。したがって合成済みサムネイルの欠落は**新規保存では起こり得ない**。当初「生成が不確実だからクライアント合成が必要」と想定していたが誤りで、欠落はマイグレーション `20260223100000_add_annotated_thumbnail_path` 以前のデータに限られる。この事実が「フォールバックを最適化する」から「フォールバックが発動しない状態を作る」への方針転換の根拠となった。
+- ~~**サーバー側の合成は既に同期・確実である**~~ **（誤り。後述の訂正を参照）**: `annotation.service.ts:262-281` は `AnnotationService.save` のトランザクション後に `AnnotatedThumbnailService.generateAnnotatedThumbnail` を同期実行し、失敗時は `ThumbnailRegenerationError` を投げて保存全体を500にする（`annotation.routes.ts:257-272`）。したがって合成済みサムネイルの欠落は新規保存では起こり得ず、欠落はマイグレーション `20260223100000_add_annotated_thumbnail_path` 以前のデータに限られる、と当初は結論した。
+
+  > **訂正（Requirement 38 の実装検証で判明）**: この記述はコードの読み取りのみに基づいており、**実行時には成立していない**。注釈保存の経路は生成サービスをサービス層へ注入しておらず、生成サービスは本番コードのどこからも生成されない。したがって上記の同期生成は条件分岐が常に偽となって**一度も実行されず**、合成済みサムネイルの保存先は本番で恒久的に空のままである。注釈保存後に注釈付きの見た目が保たれているのは、画像編集画面がクライアント側で合成した画像で**通常サムネイルを上書きする別経路**によるものであり、サーバー側合成の産物ではない。この事実は Requirement 38 の設計判断（「フォールバックが発動しない状態を作る」ではなく「フォールバックを含む一切の取得を表示領域内に限定する」）を追認する。是正は Requirement 20.4 / 23 の所管であり、サーバー側合成とクライアント側合成のどちらを正とするかの設計判断を要する。
 - **空注釈レコードという第2の欠落源**: `generateAnnotatedThumbnail` は空注釈に対して `null` を返しサムネイルを削除する一方、`ImageAnnotation` レコード自体は残る。`image-list.service.ts` の `hasAnnotations` はレコードの存在のみで判定しているため、描画すべき注釈が無い画像でもフォールバック経路へ入り、無駄な注釈取得を1件発生させていた。
 - **遅延読み込みの未使用資産が2つある**: `components/site-surveys/LazyImage.tsx`（303行、`IntersectionObserver` 実装済み、バレル `index.ts:31,47` から再エクスポートされているが利用側の import は0件）と `hooks/useLazyLoadGroups.ts`（利用側 import 0件）。前者は要素単位の観測で本要件に合致し、後者は追加読み込みのトリガー要素を観測する別物である。
 - **`getBatchAnnotations` は surveyId を要求する**: `api/survey-annotations.ts:187` の署名は `(surveyId, imageIds)`。`AnnotatedImageThumbnail` は画像単位のコンポーネントで surveyId を知らないため、バッチ転用は親コンポーネントから注釈データを流し込む新たな結線を全呼び出し側（現調詳細・現調一覧・プロジェクト詳細・数量表）へ強いることになる。

@@ -239,31 +239,34 @@ test.describe('サムネイル再生成シナリオ', () => {
 
   /**
    * 詳細画面のサムネイルURLを取得するヘルパー関数
+   *
+   * 詳細画面の写真は表示領域へ入るまで表示元URL（img の src）を設定しない
+   * （site-survey/REQ-38.8 の遅延読み込み）。そのため対象を表示領域へ入れたうえで、
+   * 表示元URLが設定されるまで待ってから読み出す。
    */
   async function getThumbnailSrcFromDetailPage(
     page: import('@playwright/test').Page
-  ): Promise<string | null> {
-    if (!createdSurveyId) return null;
+  ): Promise<string> {
+    if (!createdSurveyId) {
+      throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+    }
 
     await page.goto(`/site-surveys/${createdSurveyId}`);
     await page.waitForLoadState('networkidle');
 
-    // サムネイル画像のsrc属性を取得
-    const thumbnailImage = page.locator('img[src*="thumbnail"], img[src*="site-survey"]').first();
-    if (await thumbnailImage.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
-      return await thumbnailImage.getAttribute('src');
-    }
+    // 写真パネルが表示されるまで待つ（第3原則: 前提条件でテストを自動的に無効化しない。
+    // 写真パネルが出ない場合はテスト対象の前提が崩れているので失敗させる）
+    // 注: locator.isVisible({ timeout }) は timeout が無視され即時判定されるため使用しない。
+    const thumbnailImage = page.locator('[data-testid="photo-panel-item"] img').first();
+    await expect(thumbnailImage).toBeVisible({ timeout: getTimeout(10000) });
 
-    // data-testidやボタン内の画像を探す
-    const imageButton = page.getByRole('button', { name: /画像を拡大表示/i }).first();
-    if (await imageButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-      const img = imageButton.locator('img').first();
-      if (await img.isVisible({ timeout: 2000 }).catch(() => false)) {
-        return await img.getAttribute('src');
-      }
-    }
+    // 表示領域へ入れ、表示元URLが設定されるまで待つ
+    await thumbnailImage.scrollIntoViewIfNeeded();
+    await expect(thumbnailImage).toHaveAttribute('src', /.+/, { timeout: getTimeout(10000) });
 
-    return null;
+    const src = await thumbnailImage.getAttribute('src');
+    expect(src, '詳細画面のサムネイル表示元URLが設定されている').toBeTruthy();
+    return src as string;
   }
 
   /**
@@ -342,11 +345,9 @@ test.describe('サムネイル再生成シナリオ', () => {
       const thumbnailAfter = await getThumbnailSrcFromDetailPage(page);
 
       // サムネイルURLが変更されていること
-      if (thumbnailBefore) {
-        expect(thumbnailAfter).not.toBe(thumbnailBefore);
-      }
-      // サムネイルが存在することを確認
-      expect(thumbnailAfter).toBeTruthy();
+      // getThumbnailSrcFromDetailPage は表示元URLの取得に失敗した場合に失敗するため、
+      // thumbnailBefore は必ず非空。保存前後で異なることを無条件に検証する。
+      expect(thumbnailAfter).not.toBe(thumbnailBefore);
     }
   });
 
@@ -391,10 +392,7 @@ test.describe('サムネイル再生成シナリオ', () => {
       const thumbnailAfter = await getThumbnailSrcFromDetailPage(page);
 
       // サムネイルURLが変更されていること
-      if (thumbnailBefore) {
-        expect(thumbnailAfter).not.toBe(thumbnailBefore);
-      }
-      expect(thumbnailAfter).toBeTruthy();
+      expect(thumbnailAfter).not.toBe(thumbnailBefore);
     }
   });
 
@@ -454,10 +452,7 @@ test.describe('サムネイル再生成シナリオ', () => {
       const thumbnailAfter = await getThumbnailSrcFromDetailPage(page);
 
       // サムネイルURLが変更されていること
-      if (thumbnailBefore) {
-        expect(thumbnailAfter).not.toBe(thumbnailBefore);
-      }
-      expect(thumbnailAfter).toBeTruthy();
+      expect(thumbnailAfter).not.toBe(thumbnailBefore);
     }
   });
 
@@ -473,15 +468,6 @@ test.describe('サムネイル再生成シナリオ', () => {
 
     // 詳細画面でサムネイルURLを取得（前のテストで保存済みの状態）
     const thumbnailAfterSave = await getThumbnailSrcFromDetailPage(page);
-
-    // ストレージ未構成の場合サムネイルが存在しない可能性がある
-    if (!thumbnailAfterSave) {
-      // サムネイルなしでも詳細画面自体は正常に表示されることを確認
-      if (createdSurveyId) {
-        await expect(page.locator('body')).toBeVisible();
-      }
-      return;
-    }
 
     // ページをリロード
     await page.reload();

@@ -3,12 +3,21 @@
  *
  * Task 26.2: 現場調査のE2Eテストを実装する
  *
- * Requirements:
- * - 4.1: POST /api/site-surveys/:id/images 画像アップロード
- * - 4.7: DELETE /api/site-surveys/images/:imageId 画像削除
+ * Requirements coverage (site-survey):
+ * - REQ-4.1: POST /api/site-surveys/:id/images 画像アップロード
+ * - REQ-4.2: 複数画像のバッチアップロード
+ * - REQ-4.3: 5件超のキュー処理
+ * - REQ-4.4: サムネイル自動生成
+ * - REQ-4.6: 300KB超の圧縮
+ * - REQ-4.7: DELETE /api/site-surveys/images/:imageId 画像削除
+ * - REQ-4.8: 対応形式（PNG）のアップロード
+ * - REQ-4.10: 画像一覧を固定の表示順序で表示する
+ * - REQ-4.11: ドラッグアンドドロップで表示順序を変更する（未保存状態になる）
+ * - REQ-10.8: 写真一覧を保存された表示順序の通りに表示する
+ * - REQ-10.9: 保存ボタンで表示順序をデータベースへ一括保存する
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
@@ -17,6 +26,85 @@ import { getTimeout } from '../../helpers/wait-helpers';
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 写真パネルの表示元URLを取得する
+ *
+ * 詳細画面の写真は表示領域へ入るまで表示元URL（img の src）を設定しない
+ * （site-survey/REQ-38.8 の遅延読み込み）。そのため対象を表示領域へ入れたうえで、
+ * 表示元URLが設定されるまで待ってから読み出す。
+ *
+ * @param panelItem - `photo-panel-item` のロケータ
+ * @returns 設定された表示元URL
+ */
+async function getPanelImageSrc(panelItem: Locator): Promise<string> {
+  const image = panelItem.locator('img');
+  await image.scrollIntoViewIfNeeded();
+  // 表示領域到達後に表示元URLが設定されるまで待つ
+  await expect(image).toHaveAttribute('src', /.+/, { timeout: getTimeout(10000) });
+  const src = await image.getAttribute('src');
+  expect(src, '写真パネルの表示元URLが設定されている').toBeTruthy();
+  return src as string;
+}
+
+/**
+ * 写真パネルの並び替えをHTML5ネイティブDnDのイベント送出で再現する
+ *
+ * 並び替えの実装（`frontend/src/components/site-surveys/PhotoManagementPanel.tsx`）は
+ * HTML5ネイティブDnD（`draggable` 属性 + `dataTransfer`）であり、DnDライブラリを使っていない。
+ * Playwright の `locator.dragTo()` や `mouse.down/move/up` が送出するのはポインタ入力であって
+ * `dragstart` / `drop` ではないため、これらの操作では本実装のハンドラは一切起動しない
+ * （実測でも並び順・未保存状態ともに変化しないことを確認済み）。
+ *
+ * そこで `dragstart` → `dragenter` → `dragover` → `drop` → `dragend` を、同一の
+ * `DataTransfer` インスタンスを共有したうえで明示的に送出する。`handleDragStart` が
+ * `dataTransfer.setData('text/plain', imageId)` で書き込んだ値を `handleDrop` が
+ * `getData('text/plain')` で読むため、同一インスタンスの共有が必須となる。
+ *
+ * @param page - 対象ページ
+ * @param sourceIndex - ドラッグ元の写真パネルの位置（0起点）
+ * @param targetIndex - ドロップ先の写真パネルの位置（0起点）
+ */
+async function reorderPhotoByDragAndDrop(
+  page: Page,
+  sourceIndex: number,
+  targetIndex: number
+): Promise<void> {
+  await page.evaluate(
+    ({ sourceIndex, targetIndex }) => {
+      const items = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-testid="photo-panel-item"]')
+      );
+      const source = items[sourceIndex];
+      const target = items[targetIndex];
+
+      if (!source || !target) {
+        throw new Error(
+          `写真パネルが不足しています（必要: ${Math.max(sourceIndex, targetIndex) + 1}件 / 実際: ${items.length}件）`
+        );
+      }
+
+      const handle = source.querySelector<HTMLElement>('[data-testid="photo-drag-handle"]');
+      if (!handle) {
+        throw new Error('ドラッグハンドル（photo-drag-handle）が見つかりません');
+      }
+
+      const dataTransfer = new DataTransfer();
+      const dispatch = (element: HTMLElement, type: string): void => {
+        element.dispatchEvent(
+          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer })
+        );
+      };
+
+      dispatch(handle, 'dragstart');
+      dispatch(target, 'dragenter');
+      dispatch(target, 'dragover');
+      dispatch(target, 'drop');
+      dispatch(handle, 'dragend');
+    },
+    { sourceIndex, targetIndex }
+  );
+}
 
 /**
  * 現場調査画像管理のE2Eテスト
@@ -518,7 +606,8 @@ test.describe('現場調査画像管理', () => {
    * 画像表示順序テスト
    *
    * REQ-4.10: 画像一覧を固定の表示順序で表示する
-   * REQ-4.11: ドラッグアンドドロップで表示順序を変更して保存する
+   * REQ-4.11: ドラッグアンドドロップで表示順序を変更する（未保存状態になる）
+   * REQ-10.8/REQ-10.9: 保存ボタンで表示順序を一括保存し、保存された順序で表示する
    */
   test.describe('画像表示順序', () => {
     /**
@@ -570,8 +659,14 @@ test.describe('現場調査画像管理', () => {
 
     /**
      * @requirement site-survey/REQ-4.11
+     *
+     * REQ-4.11 は「ドラッグアンドドロップで表示順序を変更する（未保存状態になる）」であり、
+     * 永続化は含まない。ドラッグ＆ドロップの結果はローカル状態にのみ反映され、
+     * データベースへの保存は保存ボタン（REQ-10.9）で行われる。
+     * したがって本テストはリロードを挟まず、その場での並び替えと未保存化のみを検証する。
+     * 永続化は「並び替え後に保存すると表示順序が永続化される」テストで別途検証する。
      */
-    test('ドラッグ＆ドロップで画像の表示順序を変更できる', async ({ page }) => {
+    test('ドラッグ＆ドロップで画像の表示順序を変更すると未保存状態になる', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -584,55 +679,102 @@ test.describe('現場調査画像管理', () => {
       const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
       await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ドラッグハンドルを取得（PhotoManagementPanelのドラッグ要素）
-      const dragHandles = page.locator('[data-testid="photo-drag-handle"]');
-      const imageCount = await dragHandles.count();
+      // 画像が2枚未満の場合はテスト失敗（第3原則: 前提条件でテストを自動的に無効化しない）
+      const imageCount = await photoPanelItems.count();
+      expect(
+        imageCount,
+        'REQ-4.11: ドラッグ＆ドロップの検証には2枚以上の画像が必要（前段のアップロードテストが未実行の可能性）'
+      ).toBeGreaterThanOrEqual(2);
 
-      if (imageCount < 2) {
-        // 画像が2枚未満の場合はテスト失敗（第3原則: 前提条件でテストを除外してはならない）
-        throw new Error(
-          `REQ-4.11: 画像が${imageCount}枚しかありません。ドラッグ＆ドロップテストには2枚以上の画像が必要です。前のテスト（複数画像アップロード）が正しく実行されていません。`
-        );
+      // 並び替え前の順序を記録
+      // （表示領域へ入れてから表示元URLの設定を待つ。site-survey/REQ-38.8 の遅延読み込み対応）
+      const firstImageSrc = await getPanelImageSrc(photoPanelItems.nth(0));
+      const secondImageSrc = await getPanelImageSrc(photoPanelItems.nth(1));
+      expect(firstImageSrc, '並び替えを判別するには先頭2枚の表示元URLが異なる必要がある').not.toBe(
+        secondImageSrc
+      );
+
+      // 操作前は未保存インジケーターが出ていないこと
+      const dirtyIndicator = page.getByTestId('dirty-indicator');
+      await expect(dirtyIndicator).toBeHidden();
+
+      // 1枚目を2枚目の位置へドラッグ＆ドロップ
+      await reorderPhotoByDragAndDrop(page, 0, 1);
+
+      // (b) 未保存状態になること（REQ-4.11 の「未保存状態になる」）
+      await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(dirtyIndicator).toContainText('未保存の変更があります');
+
+      // (a) リロードせずに並び順が入れ替わっていること
+      expect(await getPanelImageSrc(photoPanelItems.nth(0))).toBe(secondImageSrc);
+      expect(await getPanelImageSrc(photoPanelItems.nth(1))).toBe(firstImageSrc);
+    });
+
+    /**
+     * @requirement site-survey/REQ-10.9
+     * @requirement site-survey/REQ-10.8
+     *
+     * REQ-10.9: 保存ボタンで表示順序をデータベースへ一括保存する
+     * REQ-10.8: 写真一覧を保存された表示順序の通りに表示する
+     */
+    test('並び替え後に保存すると表示順序が永続化される', async ({ page }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      // 最初と2番目のドラッグハンドルを取得
-      const firstHandle = dragHandles.nth(0);
-      const secondHandle = dragHandles.nth(1);
+      await loginAsUser(page, 'REGULAR_USER');
 
-      // 画像のsrcを取得して順序確認用に保存
-      const firstImageSrc = await photoPanelItems.nth(0).locator('img').getAttribute('src');
-      const secondImageSrc = await photoPanelItems.nth(1).locator('img').getAttribute('src');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-      // ドラッグ＆ドロップ操作
-      await firstHandle.dragTo(secondHandle);
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ページをリロードして順序が保存されていることを確認
+      const imageCount = await photoPanelItems.count();
+      expect(
+        imageCount,
+        'REQ-10.9: 表示順序の永続化検証には2枚以上の画像が必要（前段のアップロードテストが未実行の可能性）'
+      ).toBeGreaterThanOrEqual(2);
+
+      const firstImageSrc = await getPanelImageSrc(photoPanelItems.nth(0));
+      const secondImageSrc = await getPanelImageSrc(photoPanelItems.nth(1));
+      expect(firstImageSrc, '並び替えを判別するには先頭2枚の表示元URLが異なる必要がある').not.toBe(
+        secondImageSrc
+      );
+
+      await reorderPhotoByDragAndDrop(page, 0, 1);
+
+      const dirtyIndicator = page.getByTestId('dirty-indicator');
+      await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 保存ボタンで表示順序を一括保存（REQ-10.9）
+      const orderSavePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/site-surveys/${createdSurveyId}/images/order`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page
+        .getByRole('region', { name: '写真管理パネル' })
+        .getByRole('button', { name: '保存', exact: true })
+        .click();
+
+      const orderSaveResponse = await orderSavePromise;
+      expect(orderSaveResponse.ok()).toBeTruthy();
+
+      // 保存完了により未保存状態が解消されること
+      await expect(dirtyIndicator).toBeHidden({ timeout: getTimeout(15000) });
+
+      // リロード後も保存された表示順序で表示されること（REQ-10.8）
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      // 順序が変更されたことを確認
-      const newPhotoPanelItems = page.locator('[data-testid="photo-panel-item"]');
-      await expect(newPhotoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const reloadedItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(reloadedItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      const newFirstImageSrc = await newPhotoPanelItems.nth(0).locator('img').getAttribute('src');
-      const newSecondImageSrc = await newPhotoPanelItems.nth(1).locator('img').getAttribute('src');
-
-      // 順序が入れ替わったか、少なくとも操作が完了したことを確認
-      // 注: ドラッグ＆ドロップの結果は実装に依存する
-      expect(newFirstImageSrc).toBeTruthy();
-      expect(newSecondImageSrc).toBeTruthy();
-
-      // 順序変更が成功した場合は、元の順序と異なることを確認
-      // （ただし、実装によっては順序が変わらない場合もある）
-      if (firstImageSrc !== secondImageSrc) {
-        // 元々異なる画像だった場合のみ、順序変更を確認
-        const orderChanged =
-          newFirstImageSrc === secondImageSrc || newSecondImageSrc === firstImageSrc;
-        // 順序が変わっていれば成功、変わっていなくても操作は完了
-        if (orderChanged) {
-          expect(newFirstImageSrc).toBe(secondImageSrc);
-        }
-      }
+      expect(await getPanelImageSrc(reloadedItems.nth(0))).toBe(secondImageSrc);
+      expect(await getPanelImageSrc(reloadedItems.nth(1))).toBe(firstImageSrc);
     });
   });
 
