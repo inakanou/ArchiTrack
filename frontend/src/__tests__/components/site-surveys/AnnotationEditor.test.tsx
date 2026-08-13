@@ -2062,6 +2062,66 @@ describe('AnnotationEditor', () => {
       });
     });
 
+    // Task 115.4: 変更を伴わない保存が既存表示を壊さない
+    //
+    // 合成の実行主体は編集画面であるため、繰り返しの保存で経路の選択が揺らぐと
+    // 既存の合成済みサムネイルが取り消され表示が退行する。注釈が残っている限り
+    // 何度保存しても更新経路であり続けること、通知される表示元が空にならないことを
+    // 検証する。注釈も回転も無い場合の繰り返しは Task 115.3 のテストで検証済み。
+    describe('変更を伴わない保存の繰り返し (Task 115.4, Req 23.8)', () => {
+      // vi.clearAllMocks() は実装を戻さないため、差し替えた実装を既定へ復帰させる
+      afterEach(async () => {
+        const { updateAnnotatedThumbnail } = await import('../../../api/survey-annotations');
+        vi.mocked(updateAnnotatedThumbnail).mockResolvedValue({
+          success: true,
+          annotatedThumbnailPath: 'annotated-thumbnails/test.jpg',
+          annotatedThumbnailUrl: null,
+        });
+      });
+
+      it('注釈がある状態で同一内容の保存を繰り返しても表示元が空にならない (Req 23.8)', async () => {
+        const user = (await import('@testing-library/user-event')).default.setup();
+        const { saveAnnotation, updateAnnotatedThumbnail, deleteAnnotatedThumbnail } =
+          await import('../../../api/survey-annotations');
+        vi.mocked(saveAnnotation).mockResolvedValue(mockAnnotationInfo);
+        vi.mocked(updateAnnotatedThumbnail).mockResolvedValue({
+          success: true,
+          annotatedThumbnailPath: 'annotated-thumbnails/latest.jpg',
+          annotatedThumbnailUrl: 'https://example.com/latest-thumbnail.jpg',
+        });
+
+        withSingleAnnotation();
+
+        const mockOnAnnotationSaved = vi.fn();
+        render(<AnnotationEditor {...defaultProps} onAnnotationSaved={mockOnAnnotationSaved} />);
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        const saveButton = screen.getByRole('button', { name: /保存/i });
+
+        for (const expectedCount of [1, 2, 3]) {
+          await user.click(saveButton);
+          await waitFor(() => {
+            expect(updateAnnotatedThumbnail).toHaveBeenCalledTimes(expectedCount);
+          });
+          await waitFor(() => {
+            expect(mockOnAnnotationSaved).toHaveBeenCalledTimes(expectedCount);
+          });
+        }
+
+        // 繰り返しても取り消し経路へは分岐しない（既存の合成済みサムネイルを消さない）
+        expect(deleteAnnotatedThumbnail).not.toHaveBeenCalled();
+        // 通知された表示元は毎回同一で、途中で空になる瞬間が無い
+        for (const call of mockOnAnnotationSaved.mock.calls) {
+          expect(call[0]).toEqual({
+            annotatedThumbnailUrl: 'https://example.com/latest-thumbnail.jpg',
+          });
+        }
+        expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
+      });
+    });
+
     it('保存成功時にonAnnotationSavedコールバックがannotatedThumbnailUrlと共に呼ばれる (REQ-23.5)', async () => {
       const user = (await import('@testing-library/user-event')).default.setup();
       const mockSaveAnnotation = vi.mocked(

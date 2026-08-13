@@ -458,3 +458,194 @@ describe('DELETE /api/site-surveys/images/:imageId/annotated-thumbnail (Task 115
     expect(mockStorageProvider.delete).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Task 115.4: 変更を伴わない保存が既存表示を壊さない
+ *
+ * 115.1〜115.3 の各テストは 1 回の要求を切り出して検証しており、要求をまたいだ
+ * 状態遷移（項目が指す保存先と実体の対応）は検証していない。ここでは項目と実体を
+ * 保持する模擬を用意し、同一内容の保存を繰り返した後も「項目が指す実体が必ず存在する」
+ * ことを不変条件として確認する。
+ *
+ * Requirements:
+ * - 23.8: 画像変更を伴わない保存操作でもサムネイル再生成処理が冪等に動作し、
+ *   既存サムネイルを破損させない
+ */
+describe('変更を伴わない保存の繰り返し (Task 115.4, Req 23.8)', () => {
+  let app: Application;
+  /** 項目 annotatedThumbnailPath の現在値 */
+  let dbAnnotatedThumbnailPath: string | null;
+  /** ストレージ上に実在するキーの集合 */
+  let storedObjects: Set<string>;
+
+  /** 合成済みサムネイル区画に実在するキー一覧 */
+  function annotatedObjects(): string[] {
+    return [...storedObjects].filter((key) => key.startsWith('annotated-thumbnails/'));
+  }
+
+  /**
+   * 表示元の不変条件
+   *
+   * - 退避先である素のサムネイルの実体は常に残っている
+   * - 合成済みサムネイルの項目が値を持つなら、その実体は必ず存在する
+   *   （実体を失ったキーを指す＝表示が壊れた状態）
+   */
+  function expectDisplaySourceIntact(): void {
+    expect(storedObjects.has(NORMAL_THUMBNAIL_PATH)).toBe(true);
+    if (dbAnnotatedThumbnailPath !== null) {
+      expect(storedObjects.has(dbAnnotatedThumbnailPath)).toBe(true);
+    }
+  }
+
+  async function saveWithoutChange(): Promise<request.Response> {
+    return request(app)
+      .patch(`/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`)
+      .send({ imageData: IMAGE_DATA });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    callOrder.length = 0;
+
+    dbAnnotatedThumbnailPath = OLD_ANNOTATED_PATH;
+    storedObjects = new Set([NORMAL_THUMBNAIL_PATH, OLD_ANNOTATED_PATH]);
+
+    mockPrisma.surveyImage.findUnique.mockImplementation(async () => ({
+      id: IMAGE_ID,
+      surveyId: SURVEY_ID,
+      thumbnailPath: NORMAL_THUMBNAIL_PATH,
+      annotatedThumbnailPath: dbAnnotatedThumbnailPath,
+      fileName: 'photo.jpg',
+    }));
+    mockPrisma.surveyImage.update.mockImplementation(
+      async (args: { where: { id: string }; data: { annotatedThumbnailPath?: string | null } }) => {
+        if ('annotatedThumbnailPath' in args.data) {
+          dbAnnotatedThumbnailPath = args.data.annotatedThumbnailPath ?? null;
+        }
+        return { id: IMAGE_ID };
+      }
+    );
+    mockStorageProvider.upload.mockImplementation(async (key: string) => {
+      storedObjects.add(key);
+      return { key, size: 1 };
+    });
+    mockStorageProvider.delete.mockImplementation(async (key: string) => {
+      storedObjects.delete(key);
+    });
+    mockStorageProvider.getSignedUrl.mockImplementation(async (key: string) => {
+      if (!storedObjects.has(key)) {
+        throw new Error(`object not found: ${key}`);
+      }
+      return `https://signed.example.com/${key}?sig=test`;
+    });
+    mockImageProcessorService.generateThumbnail.mockResolvedValue(Buffer.from('thumb'));
+
+    app = createApp();
+  });
+
+  it('同一内容の保存を繰り返しても表示元は常に有効な実体を指す (Req 23.8)', async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await saveWithoutChange();
+
+      expect(response.status).toBe(200);
+      // 応答が指す表示元は項目の現在値と一致し、その実体は存在する
+      expect(response.body.annotatedThumbnailPath).toBe(dbAnnotatedThumbnailPath);
+      expect(response.body.annotatedThumbnailUrl).toBe(
+        `https://signed.example.com/${dbAnnotatedThumbnailPath}?sig=test`
+      );
+      expectDisplaySourceIntact();
+    }
+
+    // 繰り返しても合成済みサムネイルの実体は 1 件に収束する（旧キーが積み上がらない）
+    expect(annotatedObjects()).toEqual([dbAnnotatedThumbnailPath]);
+    // 通常サムネイルの項目は一度も書き換えられない
+    for (const call of mockPrisma.surveyImage.update.mock.calls) {
+      const updateArg = call[0] as { data: Record<string, unknown> };
+      expect(Object.keys(updateArg.data)).toEqual(['annotatedThumbnailPath']);
+    }
+  });
+
+  it('同一ミリ秒に連続保存して保存先が同一キーになっても実体を消さない (Req 23.8)', async () => {
+    // 保存先キーは時刻から作られるため、連続保存では前回と同一キーになり得る。
+    // このとき旧キーの後始末が新キーと同一の実体を消すと、項目が実体を失った
+    // キーを指したまま残る（＝既存サムネイルの破損）。
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1700000009000);
+
+    try {
+      const first = await saveWithoutChange();
+      expect(first.status).toBe(200);
+      expectDisplaySourceIntact();
+
+      const second = await saveWithoutChange();
+      expect(second.status).toBe(200);
+      expect(second.body.annotatedThumbnailPath).toBe(first.body.annotatedThumbnailPath);
+      expectDisplaySourceIntact();
+      expect(storedObjects.has(second.body.annotatedThumbnailPath)).toBe(true);
+      expect(annotatedObjects()).toEqual([second.body.annotatedThumbnailPath]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('保存先の項目更新に失敗しても既存の表示元は有効なまま残り再保存で復帰する (Req 23.8)', async () => {
+    mockPrisma.surveyImage.update.mockRejectedValueOnce(new Error('db update failed'));
+
+    const failed = await saveWithoutChange();
+
+    expect(failed.status).toBeGreaterThanOrEqual(500);
+    // 項目は旧い保存先を指したままで、その実体も残っている
+    expect(dbAnnotatedThumbnailPath).toBe(OLD_ANNOTATED_PATH);
+    expectDisplaySourceIntact();
+
+    const retried = await saveWithoutChange();
+
+    expect(retried.status).toBe(200);
+    expectDisplaySourceIntact();
+    // 復帰後は項目が指す実体が存在し、旧い保存先は後始末されている
+    expect(annotatedObjects()).toContain(dbAnnotatedThumbnailPath);
+    expect(annotatedObjects()).not.toContain(OLD_ANNOTATED_PATH);
+    // 失敗した試行が保存した実体はどこからも参照されないまま残る。項目の更新が
+    // 実際には適用されたうえで応答だけ失う場合があり、失敗を理由に消すと
+    // 項目が実体を失ったキーを指す危険があるため、ここでは消さない方を選ぶ。
+    expect(dbAnnotatedThumbnailPath).toBe(retried.body.annotatedThumbnailPath);
+  });
+
+  it('取り消しを繰り返しても素のサムネイルを壊さず2回目以降は何も変更しない (Req 23.8)', async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await request(app).delete(
+        `/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`
+      );
+
+      expect(response.status).toBe(200);
+      expect(dbAnnotatedThumbnailPath).toBeNull();
+      expectDisplaySourceIntact();
+    }
+
+    // 収束後の繰り返しでは項目更新も実体削除も発生しない
+    expect(mockPrisma.surveyImage.update).toHaveBeenCalledTimes(1);
+    expect(mockStorageProvider.delete).toHaveBeenCalledTimes(1);
+    expect(mockStorageProvider.delete).toHaveBeenCalledWith(OLD_ANNOTATED_PATH);
+    expect(annotatedObjects()).toEqual([]);
+  });
+
+  it('更新と取り消しを往復しても表示元が有効なまま保たれる (Req 23.8)', async () => {
+    const updated = await saveWithoutChange();
+    expect(updated.status).toBe(200);
+    expectDisplaySourceIntact();
+
+    const cleared = await request(app).delete(
+      `/api/site-surveys/images/${IMAGE_ID}/annotated-thumbnail`
+    );
+    expect(cleared.status).toBe(200);
+    expect(dbAnnotatedThumbnailPath).toBeNull();
+    expectDisplaySourceIntact();
+    // 取り消し後は合成済みの実体が残らない（表示は素のサムネイルへ退避する）
+    expect(annotatedObjects()).toEqual([]);
+
+    const reupdated = await saveWithoutChange();
+    expect(reupdated.status).toBe(200);
+    expect(dbAnnotatedThumbnailPath).toBe(reupdated.body.annotatedThumbnailPath);
+    expectDisplaySourceIntact();
+    expect(annotatedObjects()).toEqual([dbAnnotatedThumbnailPath]);
+  });
+});
