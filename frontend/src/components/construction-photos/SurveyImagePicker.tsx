@@ -196,7 +196,7 @@ const styles = {
  * 現調写真選択モーダル
  *
  * 1. モーダルを開くと同一プロジェクトの現場調査一覧を読み込む
- * 2. 現場調査を選ぶと当該調査の画像一覧（サムネ優先）を読み込む
+ * 2. 現場調査を選ぶと当該調査の画像一覧（合成済みサムネイル > 素のサムネイル）を読み込む
  * 3. 追加したい画像を複数選択して「追加」で onSelect に画像IDを渡す
  */
 export function SurveyImagePicker({
@@ -352,6 +352,12 @@ export function SurveyImagePicker({
                 <div style={styles.imageGrid}>
                   {surveyImages.map((image) => {
                     const isSelected = selectedImageIds.has(image.id);
+                    // 候補の表示元は工事写真への取り込み時の複製元と同じ規則で選ぶ。
+                    // 取り込み側（construction-photo-image.service）は
+                    // annotatedThumbnailPath ?? thumbnailPath を複製するため、
+                    // ここで素のサムネイルのみを表示すると選択時と取り込み後で
+                    // 見た目が食い違う（Task 115.16 / Requirements 20.2, 20.3）。
+                    const displayUrl = image.annotatedThumbnailUrl ?? image.thumbnailUrl;
                     return (
                       <div
                         key={image.id}
@@ -367,9 +373,9 @@ export function SurveyImagePicker({
                           onChange={() => toggleImage(image.id)}
                           aria-label={`${image.fileName} を選択`}
                         />
-                        {image.thumbnailUrl ? (
+                        {displayUrl ? (
                           <img
-                            src={image.thumbnailUrl}
+                            src={displayUrl}
                             alt={image.fileName}
                             style={styles.image}
                             loading="lazy"
