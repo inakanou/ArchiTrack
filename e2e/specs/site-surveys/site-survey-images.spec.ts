@@ -48,6 +48,18 @@ async function getPanelImageSrc(panelItem: Locator): Promise<string> {
 }
 
 /**
+ * ドラッグ操作の再現時に観測したUI側の前提（site-survey/REQ-4.11）
+ */
+interface DragAndDropObservation {
+  /** ドラッグ起点要素（ドラッグハンドル）の `draggable` 属性値 */
+  sourceDraggable: string | null;
+  /** `dragover` の既定動作が抑止されたか（ドロップを許可するために必須） */
+  dragOverDefaultPrevented: boolean;
+  /** `drop` の既定動作が抑止されたか（ブラウザ既定の処理を止めるために必須） */
+  dropDefaultPrevented: boolean;
+}
+
+/**
  * 写真パネルの並び替えをHTML5ネイティブDnDのイベント送出で再現する
  *
  * 並び替えの実装（`frontend/src/components/site-surveys/PhotoManagementPanel.tsx`）は
@@ -61,16 +73,22 @@ async function getPanelImageSrc(panelItem: Locator): Promise<string> {
  * `dataTransfer.setData('text/plain', imageId)` で書き込んだ値を `handleDrop` が
  * `getData('text/plain')` で読むため、同一インスタンスの共有が必須となる。
  *
+ * イベントを明示送出する方式は、UI側の前提（起点要素の `draggable` 指定、ドロップ許可に
+ * 必要な既定動作の抑止）が失われても並びだけは変わってしまうため、前提が壊れたことを
+ * 並びの検証では検出できない。そこで送出結果から前提の成否を観測して呼び出し元へ返し、
+ * 呼び出し元で検証できるようにする（site-survey/REQ-4.11）。
+ *
  * @param page - 対象ページ
  * @param sourceIndex - ドラッグ元の写真パネルの位置（0起点）
  * @param targetIndex - ドロップ先の写真パネルの位置（0起点）
+ * @returns ドラッグ操作の前提に関する観測結果
  */
 async function reorderPhotoByDragAndDrop(
   page: Page,
   sourceIndex: number,
   targetIndex: number
-): Promise<void> {
-  await page.evaluate(
+): Promise<DragAndDropObservation> {
+  return await page.evaluate(
     ({ sourceIndex, targetIndex }) => {
       const items = Array.from(
         document.querySelectorAll<HTMLElement>('[data-testid="photo-panel-item"]')
@@ -90,17 +108,28 @@ async function reorderPhotoByDragAndDrop(
       }
 
       const dataTransfer = new DataTransfer();
-      const dispatch = (element: HTMLElement, type: string): void => {
-        element.dispatchEvent(
+      /**
+       * イベントを送出し、既定動作が抑止された（= ハンドラが preventDefault を呼んだ）かを返す
+       * `dispatchEvent` は cancelable なイベントが取り消された場合に false を返す
+       */
+      const dispatch = (element: HTMLElement, type: string): boolean => {
+        const cancelled = !element.dispatchEvent(
           new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer })
         );
+        return cancelled;
       };
 
       dispatch(handle, 'dragstart');
       dispatch(target, 'dragenter');
-      dispatch(target, 'dragover');
-      dispatch(target, 'drop');
+      const dragOverDefaultPrevented = dispatch(target, 'dragover');
+      const dropDefaultPrevented = dispatch(target, 'drop');
       dispatch(handle, 'dragend');
+
+      return {
+        sourceDraggable: handle.getAttribute('draggable'),
+        dragOverDefaultPrevented,
+        dropDefaultPrevented,
+      };
     },
     { sourceIndex, targetIndex }
   );
@@ -620,11 +649,14 @@ test.describe('現場調査画像管理', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // ネットワークレスポンスをキャプチャするPromiseを先に作成
+      // 詳細取得のレスポンスをキャプチャするPromiseを先に作成
+      // （URLはパス完全一致で判定する。`/images` など下位パスの応答を取り違えないため）
+      const detailPath = `/api/site-surveys/${createdSurveyId}`;
       const responsePromise = page.waitForResponse(
         (response) =>
-          response.url().includes(`/api/site-surveys/${createdSurveyId}`) &&
-          response.request().method() === 'GET',
+          new URL(response.url()).pathname === detailPath &&
+          response.request().method() === 'GET' &&
+          response.ok(),
         { timeout: getTimeout(30000) }
       );
 
@@ -633,28 +665,48 @@ test.describe('現場調査画像管理', () => {
 
       // APIレスポンスを待機
       const apiResponse = await responsePromise;
-      const responseData = await apiResponse.json();
+      const responseData = (await apiResponse.json()) as {
+        images: Array<{ id: string; displayOrder: number }>;
+      };
 
-      if (responseData.images.length < 2) {
-        // 画像が2枚未満の場合はテストをパス（順序の確認ができない）
-        return;
-      }
+      // 前提: 順序を判定するには2枚以上の画像が必要
+      // （第3原則: 前提が満たせない場合は沈黙せず失敗させる）
+      expect(
+        responseData.images.length,
+        'REQ-4.10: 表示順序の検証には2枚以上の画像が必要（前段のアップロードテストが未実行の可能性）'
+      ).toBeGreaterThanOrEqual(2);
 
-      // displayOrder順にソートされていることを確認
-      const sortedByOrder = [...responseData.images].sort(
-        (a: { displayOrder: number }, b: { displayOrder: number }) =>
-          a.displayOrder - b.displayOrder
+      // 画像の識別には画像IDを用いる
+      // （画像IDはリクエストごとに変動しない。署名付きURLは署名部が変動しうるため識別に用いない）
+      const displayOrderByImageId = new Map(
+        responseData.images.map((image) => [image.id, image.displayOrder] as const)
       );
 
       // UIに表示される画像の順序を取得
       await page.waitForLoadState('networkidle');
       const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
-      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(photoPanelItems).toHaveCount(responseData.images.length, {
+        timeout: getTimeout(10000),
+      });
 
-      const displayedCount = await photoPanelItems.count();
+      const displayedImageIds = await photoPanelItems.evaluateAll((items) =>
+        items.map((item) => item.getAttribute('data-image-id'))
+      );
 
-      // 表示されている画像数がAPI結果と一致することを確認
-      expect(displayedCount).toBe(sortedByOrder.length);
+      // 表示された画像が応答の画像と過不足なく一致すること
+      expect([...displayedImageIds].sort(), 'REQ-4.10: 応答の画像がすべて表示される').toEqual(
+        [...displayOrderByImageId.keys()].sort()
+      );
+
+      // 表示順序がdisplayOrder昇順であること
+      // （displayOrderは同値が混在しうる（バッチアップロードで同値が割り当てられる）ため、
+      //   同値内の並びには依存しない「昇順であること」で判定する）
+      const displayedOrders = displayedImageIds.map(
+        (imageId) => displayOrderByImageId.get(imageId ?? '') as number
+      );
+      expect(displayedOrders, 'REQ-4.10: 画像一覧がdisplayOrder昇順で表示される').toEqual(
+        [...displayedOrders].sort((a, b) => a - b)
+      );
     });
 
     /**
@@ -698,8 +750,32 @@ test.describe('現場調査画像管理', () => {
       const dirtyIndicator = page.getByTestId('dirty-indicator');
       await expect(dirtyIndicator).toBeHidden();
 
+      // (前提1) ドラッグの起点がドラッグ可能である指定を保持していること
+      // イベント送出による再現は `draggable` が失われても成立してしまうため、明示的に検証する
+      const sourceDragHandle = photoPanelItems.nth(0).getByTestId('photo-drag-handle');
+      await expect(
+        sourceDragHandle,
+        'REQ-4.11: ドラッグの起点はドラッグ可能である指定を保持する'
+      ).toHaveAttribute('draggable', 'true');
+
       // 1枚目を2枚目の位置へドラッグ＆ドロップ
-      await reorderPhotoByDragAndDrop(page, 0, 1);
+      const dragObservation = await reorderPhotoByDragAndDrop(page, 0, 1);
+
+      // (前提2) 起点要素の `draggable` はイベント送出時点でも保持されていること
+      expect(
+        dragObservation.sourceDraggable,
+        'REQ-4.11: ドラッグ送出時も起点はドラッグ可能である'
+      ).toBe('true');
+
+      // (前提3) ドロップ許可に必要な既定動作の抑止が働いていること
+      // 抑止が失われるとブラウザはドロップを受け付けない（実ブラウザ操作では並び替えが成立しない）
+      expect(
+        dragObservation.dragOverDefaultPrevented,
+        'REQ-4.11: dragover の既定動作が抑止されドロップが許可される'
+      ).toBe(true);
+      expect(dragObservation.dropDefaultPrevented, 'REQ-4.11: drop の既定動作が抑止される').toBe(
+        true
+      );
 
       // (b) 未保存状態になること（REQ-4.11 の「未保存状態になる」）
       await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
