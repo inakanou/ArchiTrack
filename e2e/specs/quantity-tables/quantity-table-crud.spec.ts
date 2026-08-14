@@ -20,12 +20,17 @@
  * - REQ-14.1-REQ-14.5: 数値フィールドの表示書式
  * - REQ-15.1-REQ-15.3: 数量フィールドの入力制御
  *
+ * Requirements coverage (site-survey):
+ * - REQ-20.2: 縮小表示に保存済みの注釈を反映する（描画された注釈を持つ写真だけを
+ *   注釈ありとして示す。注釈の目印の表示・非表示を検証する末尾のブロック）
+ *
  * @module e2e/specs/quantity-tables/quantity-table-crud.spec
  */
 
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
@@ -1172,16 +1177,23 @@ test.describe('数量表CRUD操作', () => {
           expect(pathOf(imageSrc!)).toBe(pathOf(linkedImage!.thumbnailUrl));
         }
 
-        // 注釈バッジが表示されることを確認（注釈がある場合）
-        const annotationBadge = firstGroup.getByTestId(/annotation-badge/);
-        const hasAnnotationBadge = await annotationBadge
-          .isVisible({ timeout: 2000 })
-          .catch(() => false);
-
-        // 注釈がある場合はバッジが表示される
-        if (hasAnnotationBadge) {
-          await expect(annotationBadge).toBeVisible();
-        }
+        // 注釈の目印（バッジ）の検証（site-survey/REQ-20.2、site-survey Task 115.14）
+        //
+        // 目印の有無を自ら観測し、その結果を条件にして検証すると、目印が出ても出なくても
+        // 通る自己充足の構造になる。ここでは前提が既知であること
+        // （この写真は事前準備でアップロードしただけで画像編集画面を一度も経ておらず、
+        // 描画された注釈を持たない）を画面が実際に用いる取得経路の応答で確認したうえで、
+        // 非表示を無条件に検証する。
+        // 目印が「表示される」側の検証は、注釈を描いた状態を自ら用意する本ファイル末尾の
+        // 「数量表グループの注釈の目印」で行う。
+        expect(
+          linkedImage!.hasDrawnAnnotations,
+          '事前準備でアップロードしただけの写真は描画された注釈を持たない'
+        ).toBe(false);
+        await expect(
+          firstGroup.locator('[data-testid^="annotation-badge-"]'),
+          '描画された注釈を持たない写真のグループには注釈の目印を表示しない'
+        ).toHaveCount(0);
       } else {
         // 写真が紐付けられていない場合、プレースホルダーまたは写真選択ボタンが表示される
         const placeholder = firstGroup.getByTestId(/image-placeholder/);
@@ -4604,3 +4616,553 @@ test.describe('数量表CRUD操作', () => {
 // NOTE: REQ-2.5とREQ-4.3は実装済みのため、「未実装機能テスト」セクションは削除されました。
 // REQ-2.5は数量表一覧テストセクション内に移動
 // REQ-4.3は数量グループ操作テストセクション内で実装されています
+
+// ============================================================================
+// 数量表グループの注釈の目印（site-survey Task 115.14）
+// ============================================================================
+
+/** 目印の検証に用いる3状態（ファイル名で識別する） */
+const BADGE_IMAGE_FILE_NAMES = {
+  /** 画像編集画面で矢印を描いて保存した写真（描画された注釈あり） */
+  drawnAnnotation: 'qt-badge-drawn-annotation.png',
+  /** 登録しただけで画像編集画面を一度も経ていない写真（注釈なし） */
+  noAnnotation: 'qt-badge-no-annotation.png',
+  /** 画像編集画面で90度回転だけを行って保存した写真（注釈0件） */
+  rotationOnly: 'qt-badge-rotation-only.png',
+} as const;
+
+/** 注釈の目印の要素。グループ配下に存在するか否かで表示・非表示を判定する */
+const ANNOTATION_BADGE_SELECTOR = '[data-testid^="annotation-badge-"]';
+
+/**
+ * 数量表グループの注釈の目印（表示・非表示）
+ *
+ * Requirements coverage (site-survey):
+ * - REQ-20.2: 縮小表示に保存済みの注釈を反映する
+ *
+ * ## 何を検証するか（site-survey Task 115.14 の主旨）
+ *
+ * 従来の検証は、目印の有無を自ら観測した結果を条件にして
+ * 「目印があるなら目印が見えること」を確かめていた。これは目印が出ても出なくても
+ * 成立するため、判別能力を持たない。ここでは注釈の有無が**既知**の3状態を自ら用意し、
+ * 目印の表示と非表示を**無条件に**検証する。
+ *
+ * | 状態 | 用意の方法 | 描画された注釈 | 目印 |
+ * | --- | --- | --- | --- |
+ * | 注釈あり | 画像編集画面で矢印を描いて保存 | あり | 表示される |
+ * | 注釈なし | 登録のみ（画像編集画面を経ない） | なし | 表示されない |
+ * | 回転のみ | 画像編集画面で90度回転だけを保存 | なし | 表示されない |
+ *
+ * 「回転のみ」を含めるのは、注釈レコードの存在から導出される項目（`hasAnnotations`）を
+ * 判定源にすると回転のみの保存でも真になり、注釈0件の写真が注釈ありと誤表示されるためである
+ * （site-survey Task 115.7 / 115.13）。この状態が「表示されない」ことまで検証して初めて、
+ * 判定源の取り違えを検出できる。
+ *
+ * ## 前提状態の用意と確認
+ *
+ * 注釈と回転はデータの直接書き換えではなく画像編集画面の操作で用意する
+ * （生成経路の欠落を見落とさないため）。用意できたことは、
+ * 数量表編集画面が実際に用いる取得経路 `GET /api/quantity-tables/:id` の応答が示す
+ * 「描画された注釈の有無」で確認する。前提が成立しない場合は検証本体を実行せず失敗させる
+ * （AI運用7原則 第3原則）。
+ */
+test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  /** `GET /api/site-surveys/:id` の応答のうち本ブロックが用いる項目 */
+  interface BadgeDetailImage {
+    id: string;
+    fileName: string;
+    hasDrawnAnnotations: boolean;
+  }
+
+  /** `GET /api/quantity-tables/:id` の応答のうち本ブロックが用いる項目 */
+  interface BadgeQuantityGroup {
+    surveyImage: {
+      fileName: string;
+      hasDrawnAnnotations: boolean;
+    } | null;
+  }
+
+  const RUN_ID = Date.now();
+  const BADGE_SURVEY_NAME = `注釈の目印検証用現場調査_${RUN_ID}`;
+
+  let badgeProjectId: string | null = null;
+  let badgeSurveyId: string | null = null;
+  let badgeQuantityTableId: string | null = null;
+
+  /** ログイン済みページの認証ヘッダを組み立てる */
+  async function getAuthHeaders(page: Page): Promise<Record<string, string>> {
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
+    return { Authorization: `Bearer ${accessToken}` };
+  }
+
+  /** 現場調査詳細の取得経路から画像一覧を読む */
+  async function fetchSurveyImages(page: Page): Promise<BadgeDetailImage[]> {
+    const response = await page.request.get(`${API_BASE_URL}/api/site-surveys/${badgeSurveyId}`, {
+      headers: await getAuthHeaders(page),
+    });
+    expect(response.ok(), '現場調査詳細の取得が成功する').toBeTruthy();
+    return ((await response.json()) as { images: BadgeDetailImage[] }).images;
+  }
+
+  /** 数量表編集画面が実際に用いる取得経路からグループ一覧を読む */
+  async function fetchQuantityTableGroups(page: Page): Promise<BadgeQuantityGroup[]> {
+    const response = await page.request.get(
+      `${API_BASE_URL}/api/quantity-tables/${badgeQuantityTableId}`,
+      { headers: await getAuthHeaders(page) }
+    );
+    expect(response.ok(), '数量表詳細の取得が成功する').toBeTruthy();
+    return ((await response.json()) as { groups: BadgeQuantityGroup[] }).groups;
+  }
+
+  const imageOf = (images: BadgeDetailImage[], fileName: string): BadgeDetailImage => {
+    const image = images.find((candidate) => candidate.fileName === fileName);
+    if (!image) {
+      throw new Error(`前提状態の画像が見つかりません: ${fileName}`);
+    }
+    return image;
+  };
+
+  /** 画像編集画面を開き、編集モードへ入る */
+  async function openImageEditor(page: Page, imageId: string): Promise<void> {
+    await page.goto(`/site-surveys/${badgeSurveyId}/images/${imageId}`);
+    await page.waitForLoadState('networkidle');
+
+    const editModeButton = page.getByRole('button', { name: /編集モード/i });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(15000) });
+    await editModeButton.click();
+
+    await page
+      .locator('[data-testid="annotation-toolbar"]')
+      .waitFor({ state: 'visible', timeout: getTimeout(15000) });
+  }
+
+  /** 編集キャンバスの中心座標を取得する */
+  async function getCanvasCenter(page: Page): Promise<{ x: number; y: number }> {
+    const upperCanvas = page.locator('.upper-canvas');
+    await expect(upperCanvas).toBeVisible({ timeout: getTimeout(15000) });
+
+    let box = await upperCanvas.boundingBox();
+    for (
+      let attempt = 0;
+      attempt < 20 && (!box || box.width <= 10 || box.height <= 10);
+      attempt++
+    ) {
+      await page.waitForTimeout(300);
+      box = await upperCanvas.boundingBox();
+    }
+    if (!box || box.width <= 10 || box.height <= 10) {
+      throw new Error('編集キャンバスの領域が確保されていません');
+    }
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  }
+
+  /**
+   * 編集キャンバスの状態を取得する
+   *
+   * 画像編集画面はキャンバスを `window.__fabricCanvas` として公開している。
+   * 背景画像は `canvas.backgroundImage` に置かれ `getObjects()` には現れないため、
+   * 注釈の件数と背景画像の回転角度を分けて読む。描画・回転が実際に反映されたかを
+   * 保存前に確認するために用いる。
+   */
+  function getEditorCanvasState(
+    page: Page
+  ): Promise<{ hasCanvas: boolean; annotationCount: number; backgroundAngle: number | null }> {
+    return page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects: () => unknown[];
+            backgroundImage?: { angle?: number } | null;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        return { hasCanvas: false, annotationCount: 0, backgroundAngle: null };
+      }
+      const background = canvas.backgroundImage;
+      return {
+        hasCanvas: true,
+        annotationCount: canvas.getObjects().length,
+        backgroundAngle: background ? Number(background.angle ?? 0) : null,
+      };
+    });
+  }
+
+  /** 矢印注釈を1本描く */
+  async function drawArrow(page: Page): Promise<void> {
+    const arrowTool = page.getByRole('button', { name: /矢印/i });
+    await expect(arrowTool).toBeVisible({ timeout: getTimeout(10000) });
+    await arrowTool.click();
+    await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
+
+    // 背景画像の読み込み前に描くと、合成結果に素材が写らない状態で保存されうる
+    await expect
+      .poll(async () => (await getEditorCanvasState(page)).backgroundAngle !== null, {
+        timeout: getTimeout(15000),
+        message: '編集キャンバスに背景画像が読み込まれていない',
+      })
+      .toBe(true);
+
+    const before = await getEditorCanvasState(page);
+    expect(before.hasCanvas, '編集キャンバスが公開されている').toBe(true);
+
+    const center = await getCanvasCenter(page);
+    await page.mouse.move(center.x - 50, center.y - 50);
+    await page.mouse.down();
+    await page.mouse.move(center.x + 50, center.y + 50, { steps: 10 });
+    await page.mouse.up();
+
+    // 描画が実際に注釈を生成したことを確認してから保存する。生成されていない状態で
+    // 保存すると「注釈なし」として扱われ、検証対象の前提が崩れる
+    await expect
+      .poll(async () => (await getEditorCanvasState(page)).annotationCount, {
+        timeout: getTimeout(10000),
+        message: '矢印の描画で注釈オブジェクトが生成されていない',
+      })
+      .toBe(before.annotationCount + 1);
+
+    await page.getByRole('button', { name: /選択/i }).click();
+  }
+
+  /** 画像を90度回転する（注釈は一切描かない） */
+  async function rotate90(page: Page): Promise<void> {
+    const rotateButton = page.getByRole('button', { name: /画像を90度回転/i });
+    await expect(rotateButton).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 背景画像の読み込み前に押しても回転は適用されない
+    await expect
+      .poll(async () => (await getEditorCanvasState(page)).backgroundAngle, {
+        timeout: getTimeout(15000),
+        message: '編集キャンバスに背景画像が読み込まれていない',
+      })
+      .toBe(0);
+
+    await rotateButton.click();
+
+    await expect
+      .poll(async () => (await getEditorCanvasState(page)).backgroundAngle, {
+        timeout: getTimeout(10000),
+        message: '回転操作が背景画像へ適用されていない',
+      })
+      .toBe(90);
+
+    // 回転のみであること（注釈オブジェクトが増えていないこと）を保存前に確認する
+    const state = await getEditorCanvasState(page);
+    expect(state.annotationCount, '回転のみの状態では注釈オブジェクトが存在しない').toBe(0);
+  }
+
+  /**
+   * 画像編集画面で保存し、合成済みサムネイルの更新完了まで確認する
+   *
+   * 保存は注釈の保存（PUT）と合成済みサムネイルの更新（PATCH）の2段で構成される。
+   */
+  async function saveInImageEditor(page: Page, imageId: string): Promise<void> {
+    const annotationSaved = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/api/site-surveys/images/${imageId}/annotations` &&
+        response.request().method() === 'PUT',
+      { timeout: getTimeout(30000) }
+    );
+    const thumbnailUpdated = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/site-surveys/images/${imageId}/annotated-thumbnail` &&
+        response.request().method() === 'PATCH',
+      { timeout: getTimeout(30000) }
+    );
+
+    await page.getByRole('button', { name: /^保存$/i }).click();
+
+    const annotationResponse = await annotationSaved;
+    expect(annotationResponse.ok(), '注釈の保存が成功する').toBeTruthy();
+
+    const thumbnailResponse = await thumbnailUpdated;
+    expect(thumbnailResponse.ok(), '合成済みサムネイルの更新が成功する').toBeTruthy();
+
+    await expect(page.getByText(/保存しました/i)).toBeVisible({ timeout: getTimeout(15000) });
+  }
+
+  /** 数量表編集画面を開く */
+  async function openBadgeQuantityTable(page: Page): Promise<void> {
+    if (!badgeQuantityTableId) {
+      throw new Error('badgeQuantityTableIdが未設定です。事前準備が正しく実行されていません。');
+    }
+    await page.goto(`/quantity-tables/${badgeQuantityTableId}/edit`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('quantity-table-edit-area')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+  }
+
+  /**
+   * 対象の写真を紐づけたグループを特定する
+   *
+   * 特定に先立ち、数量表編集画面が実際に用いる取得経路の応答で
+   * 「描画された注釈の有無」が既知の前提どおりであることを確認する。
+   * 前提が崩れている場合はここで失敗し、検証本体は実行されない。
+   */
+  async function locateGroupWithVerifiedPrerequisite(
+    page: Page,
+    fileName: string,
+    expectedHasDrawnAnnotations: boolean
+  ): Promise<Locator> {
+    const groups = await fetchQuantityTableGroups(page);
+    const target = groups.find((group) => group.surveyImage?.fileName === fileName);
+    expect(target, `数量表の応答に ${fileName} を紐づけたグループが現れる`).toBeTruthy();
+    expect(
+      target!.surveyImage!.hasDrawnAnnotations,
+      `${fileName} の「描画された注釈の有無」が前提どおりである`
+    ).toBe(expectedHasDrawnAnnotations);
+
+    const group = page
+      .getByTestId('quantity-group')
+      .filter({ has: page.getByAltText(fileName, { exact: true }) });
+    await expect(group, `${fileName} を紐づけたグループが1件表示される`).toHaveCount(1, {
+      timeout: getTimeout(15000),
+    });
+    await group.scrollIntoViewIfNeeded();
+    return group;
+  }
+
+  /**
+   * 事前準備
+   *
+   * 注釈あり・注釈なし・回転のみの3枚を持つ現場調査を作り、その現場調査から
+   * 数量表のグループを一括生成して各写真を紐づける。
+   */
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    try {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // --- プロジェクト作成（営業担当者の既定値は画面が解決するため画面から作る） ---
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+
+      await page.getByRole('button', { name: /新規作成/i }).click();
+      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(`注釈の目印検証_${RUN_ID}`);
+
+      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+      if (!(await salesPersonSelect.inputValue())) {
+        const options = await salesPersonSelect.locator('option').all();
+        const firstUserOption = options[1] ? await options[1].getAttribute('value') : null;
+        if (firstUserOption) {
+          await salesPersonSelect.selectOption(firstUserOption);
+        }
+      }
+
+      const createProjectPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/projects') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      await createProjectPromise;
+
+      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
+      badgeProjectId = page.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
+      expect(badgeProjectId, 'プロジェクトが作成される').toBeTruthy();
+
+      const authHeaders = await getAuthHeaders(page);
+
+      // --- 現場調査作成 ---
+      const surveyDate = new Date().toISOString().split('T')[0]!;
+      const surveyResponse = await page.request.post(
+        `${API_BASE_URL}/api/projects/${badgeProjectId}/site-surveys`,
+        { headers: authHeaders, data: { name: BADGE_SURVEY_NAME, surveyDate } }
+      );
+      expect(surveyResponse.ok(), '現場調査の作成が成功する').toBeTruthy();
+      badgeSurveyId = ((await surveyResponse.json()) as { id: string }).id;
+      expect(badgeSurveyId, '現場調査が作成される').toBeTruthy();
+
+      // --- 写真を3枚登録 ---
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
+      expect(fs.existsSync(testImagePath), '素材画像が存在する').toBeTruthy();
+      const imageBuffer = fs.readFileSync(testImagePath);
+
+      for (const fileName of Object.values(BADGE_IMAGE_FILE_NAMES)) {
+        const uploadResponse = await page.request.post(
+          `${API_BASE_URL}/api/site-surveys/${badgeSurveyId}/images`,
+          {
+            headers: authHeaders,
+            multipart: { images: { name: fileName, mimeType: 'image/png', buffer: imageBuffer } },
+          }
+        );
+        expect(uploadResponse.ok(), `画像の登録が成功する: ${fileName}`).toBeTruthy();
+      }
+
+      const uploadedImages = await fetchSurveyImages(page);
+      expect(uploadedImages).toHaveLength(Object.keys(BADGE_IMAGE_FILE_NAMES).length);
+
+      // --- 状態1: 画像編集画面で矢印を描いて保存する（描画された注釈あり） ---
+      const annotatedImageId = imageOf(uploadedImages, BADGE_IMAGE_FILE_NAMES.drawnAnnotation).id;
+      await openImageEditor(page, annotatedImageId);
+      await drawArrow(page);
+      await saveInImageEditor(page, annotatedImageId);
+
+      // --- 状態3: 画像編集画面で90度回転だけを保存する（注釈0件） ---
+      const rotatedImageId = imageOf(uploadedImages, BADGE_IMAGE_FILE_NAMES.rotationOnly).id;
+      await openImageEditor(page, rotatedImageId);
+      await rotate90(page);
+      await saveInImageEditor(page, rotatedImageId);
+
+      // 状態2（注釈なし）は登録したままとし、画像編集画面を一度も開かない
+
+      // --- 用意した状態を現場調査の取得経路の応答で確認する ---
+      const preparedImages = await fetchSurveyImages(page);
+      expect(
+        imageOf(preparedImages, BADGE_IMAGE_FILE_NAMES.drawnAnnotation).hasDrawnAnnotations,
+        '矢印を描いて保存した写真は描画された注釈を持つ'
+      ).toBe(true);
+      expect(
+        imageOf(preparedImages, BADGE_IMAGE_FILE_NAMES.noAnnotation).hasDrawnAnnotations,
+        '登録しただけの写真は描画された注釈を持たない'
+      ).toBe(false);
+      expect(
+        imageOf(preparedImages, BADGE_IMAGE_FILE_NAMES.rotationOnly).hasDrawnAnnotations,
+        '回転だけを保存した写真は描画された注釈を持たない'
+      ).toBe(false);
+
+      // --- 数量表を作成し、現場調査から写真枚数分のグループを生成して紐づける ---
+      const tableResponse = await page.request.post(
+        `${API_BASE_URL}/api/projects/${badgeProjectId}/quantity-tables`,
+        { headers: authHeaders, data: { name: `注釈の目印検証数量表_${RUN_ID}` } }
+      );
+      expect(tableResponse.ok(), '数量表の作成が成功する').toBeTruthy();
+      badgeQuantityTableId = ((await tableResponse.json()) as { id: string }).id;
+      expect(badgeQuantityTableId, '数量表が作成される').toBeTruthy();
+
+      await openBadgeQuantityTable(page);
+
+      await page.getByTestId('bulk-create-from-survey-button').click();
+      const surveyDialog = page.getByTestId('survey-select-dialog');
+      await expect(surveyDialog).toBeVisible({ timeout: getTimeout(15000) });
+      await page.getByTestId(`survey-select-option-${badgeSurveyId}`).click();
+      await page.getByTestId('survey-select-dialog-confirm').click();
+      await expect(surveyDialog).not.toBeVisible({ timeout: getTimeout(15000) });
+
+      const generatedGroups = page.getByTestId('quantity-group');
+      await expect(generatedGroups).toHaveCount(Object.keys(BADGE_IMAGE_FILE_NAMES).length, {
+        timeout: getTimeout(15000),
+      });
+
+      // 生成はクライアントドラフトに留まるため、明示保存して永続化する（REQ-42.5）
+      await saveQuantityTableDraft(page);
+
+      // --- 紐づけ結果を、数量表編集画面が実際に用いる取得経路の応答で確認する ---
+      const savedGroups = await fetchQuantityTableGroups(page);
+      const linkedFileNames = savedGroups
+        .map((group) => group.surveyImage?.fileName)
+        .filter((fileName): fileName is string => Boolean(fileName));
+      expect(
+        [...linkedFileNames].sort(),
+        '3枚の写真がそれぞれグループへ紐づいて永続化されている'
+      ).toEqual([...Object.values(BADGE_IMAGE_FILE_NAMES)].sort());
+    } finally {
+      await context.close();
+    }
+  });
+
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies();
+  });
+
+  /**
+   * @requirement site-survey/REQ-20.2
+   */
+  test('描画された注釈がある写真を紐づけたグループには注釈の目印が表示される (site-survey/REQ-20.2)', async ({
+    page,
+  }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+    await openBadgeQuantityTable(page);
+
+    const group = await locateGroupWithVerifiedPrerequisite(
+      page,
+      BADGE_IMAGE_FILE_NAMES.drawnAnnotation,
+      true
+    );
+
+    await expect(
+      group.locator(ANNOTATION_BADGE_SELECTOR),
+      '描画された注釈がある写真のグループには注釈の目印を表示する'
+    ).toBeVisible({ timeout: getTimeout(15000) });
+  });
+
+  /**
+   * @requirement site-survey/REQ-20.2
+   */
+  test('注釈が無い写真を紐づけたグループには注釈の目印が表示されない (site-survey/REQ-20.2)', async ({
+    page,
+  }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+    await openBadgeQuantityTable(page);
+
+    const group = await locateGroupWithVerifiedPrerequisite(
+      page,
+      BADGE_IMAGE_FILE_NAMES.noAnnotation,
+      false
+    );
+
+    await expect(
+      group.locator(ANNOTATION_BADGE_SELECTOR),
+      '注釈が無い写真のグループには注釈の目印を表示しない'
+    ).toHaveCount(0, { timeout: getTimeout(15000) });
+  });
+
+  /**
+   * @requirement site-survey/REQ-20.2
+   *
+   * 注釈レコードの存在から導出される項目を判定源にすると、回転のみの保存でも真になり
+   * 目印が誤表示される（site-survey Task 115.7 / 115.13）。この状態の非表示を検証することで
+   * 判定源の取り違えを検出する。
+   */
+  test('回転のみで注釈0件の写真を紐づけたグループには注釈の目印が表示されない (site-survey/REQ-20.2)', async ({
+    page,
+  }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+    await openBadgeQuantityTable(page);
+
+    const group = await locateGroupWithVerifiedPrerequisite(
+      page,
+      BADGE_IMAGE_FILE_NAMES.rotationOnly,
+      false
+    );
+
+    await expect(
+      group.locator(ANNOTATION_BADGE_SELECTOR),
+      '回転のみで注釈0件の写真のグループには注釈の目印を表示しない'
+    ).toHaveCount(0, { timeout: getTimeout(15000) });
+  });
+
+  /**
+   * クリーンアップ: 検証用に作成したプロジェクトを削除する
+   */
+  test.afterAll(async ({ browser }) => {
+    if (!badgeProjectId) {
+      return;
+    }
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await loginAsUser(page, 'ADMIN_USER');
+      const authHeaders = await getAuthHeaders(page);
+      await page.request.delete(`${API_BASE_URL}/api/projects/${badgeProjectId}`, {
+        headers: authHeaders,
+      });
+    } finally {
+      await context.close();
+    }
+  });
+});
