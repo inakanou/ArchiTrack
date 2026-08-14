@@ -32,6 +32,7 @@ import {
   SiteSurveyConflictError,
 } from '../errors/siteSurveyError.js';
 import { SITE_SURVEY_TARGET_TYPE } from '../types/audit-log.types.js';
+import { SURVEY_IMAGE_ORDER_BY } from '../utils/survey-image-order.js';
 
 /**
  * SiteSurveyService依存関係
@@ -399,9 +400,9 @@ export class SiteSurveyService {
           },
         },
         images: {
-          orderBy: {
-            displayOrder: 'asc',
-          },
+          // displayOrderは重複し得るため、一意な鍵まで含めて並びを確定させる
+          // （Task 115.20 / Requirements 4.10）。
+          orderBy: SURVEY_IMAGE_ORDER_BY,
           // 注釈の有無のみ判定する（重いdataは取得しない）。
           // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
           // hasDrawnAnnotations は描画された注釈の有無の派生値で、これも data を
@@ -656,7 +657,10 @@ export class SiteSurveyService {
         take,
         include: {
           images: {
-            orderBy: { displayOrder: 'asc' },
+            // 先頭1件を代表画像に使うため、displayOrderが重複しても
+            // 同じ画像が選ばれるよう一意な鍵まで含めて並び替える
+            // （Task 115.20 / Requirements 4.10）。
+            orderBy: SURVEY_IMAGE_ORDER_BY,
             take: 1, // サムネイル用に最初の1件のみ取得
           },
         },
@@ -748,7 +752,10 @@ export class SiteSurveyService {
         take: limit,
         include: {
           images: {
-            orderBy: { displayOrder: 'asc' },
+            // 先頭1件を代表画像に使うため、displayOrderが重複しても
+            // 同じ画像が選ばれるよう一意な鍵まで含めて並び替える
+            // （Task 115.20 / Requirements 4.10）。
+            orderBy: SURVEY_IMAGE_ORDER_BY,
             take: 1, // サムネイル用に最初の1件のみ取得
             select: {
               id: true,

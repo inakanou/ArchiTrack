@@ -30,6 +30,7 @@ const mockPrisma = {
   surveyImage: {
     create: vi.fn(),
     count: vi.fn(),
+    aggregate: vi.fn(),
   },
   $transaction: vi.fn(),
 };
@@ -70,6 +71,9 @@ describe('ImageUploadService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // 採番は既存の最大表示順序を参照する（Task 115.20 / Requirements 4.10）。
+    // 既定は画像なし（最大値なし）とし、必要なテストで上書きする。
+    mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
     service = new ImageUploadService({
       prisma: mockPrisma as never,
       s3Client: mockS3Client as never,
@@ -250,16 +254,103 @@ describe('ImageUploadService', () => {
       expect(results.failed[0]?.error).toContain('上限');
       expect(results.failed[1]?.error).toContain('上限');
     });
+
+    /**
+     * Task 115.20 / Requirements 4.10
+     *
+     * 実データでは同一現場調査内に表示順序の重複が観測されている。
+     * まとめて登録する経路の採番が既存の値と衝突しないことを確認する。
+     */
+    it('既存の最大表示順序の次から一意に採番すること（Requirements: 4.10）', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const files = [1, 2, 3].map((index) => ({
+        buffer: Buffer.from(`test${index}`),
+        mimetype: 'image/jpeg',
+        originalname: `test${index}.jpg`,
+        size: 1024,
+      }));
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        deletedAt: null,
+      });
+      // 表示順序1〜6のうち1件を削除した状態（件数5・最大6）。
+      // 件数起点の採番だと既存の6と重複してしまう。
+      mockPrisma.surveyImage.count.mockResolvedValue(5);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: 6 } });
+      mockSurveyImageService.validateFile.mockReturnValue(undefined);
+      mockSurveyImageService.sanitizeFileName.mockImplementation((name: string) => name);
+      mockImageProcessorService.processImage.mockResolvedValue({
+        original: {
+          buffer: Buffer.from('processed'),
+          metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
+          wasCompressed: false,
+        },
+        thumbnail: Buffer.from('thumbnail'),
+        metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
+      });
+      mockS3Client.send.mockResolvedValue({});
+      mockPrisma.surveyImage.create.mockImplementation(
+        (args: { data: { displayOrder: number; fileName: string } }) =>
+          Promise.resolve({
+            id: `img-${args.data.displayOrder}`,
+            surveyId,
+            fileName: args.data.fileName,
+            fileSize: 1024,
+            width: 800,
+            height: 600,
+            displayOrder: args.data.displayOrder,
+            originalPath: 'surveys/123/original.jpg',
+            thumbnailPath: 'surveys/123/thumb.jpg',
+            createdAt: new Date(),
+          })
+      );
+
+      const results = await service.uploadBatch(surveyId, files);
+
+      expect(results.failed).toHaveLength(0);
+      const assignedOrders = results.successful.map((image) => image.displayOrder);
+      expect(assignedOrders).toEqual([7, 8, 9]);
+      expect(new Set(assignedOrders).size).toBe(assignedOrders.length);
+    });
   });
 
+  /**
+   * Task 115.20 / Requirements 4.10
+   *
+   * 採番は「件数+1」だと削除でできた欠番により既存の値と衝突する。
+   * 既存の最大値+1とすることで、同一現場調査内で値が重複しないようにする。
+   */
   describe('getNextDisplayOrder', () => {
-    it('現在の画像数+1を返すこと', async () => {
-      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+    const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+
+    it('既存の最大表示順序+1を返すこと', async () => {
       mockPrisma.surveyImage.count.mockResolvedValue(5);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: 5 } });
 
       const result = await service.getNextDisplayOrder(surveyId);
 
       expect(result).toBe(6);
+    });
+
+    it('画像が1件もない場合は1を返すこと', async () => {
+      mockPrisma.surveyImage.count.mockResolvedValue(0);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
+
+      const result = await service.getNextDisplayOrder(surveyId);
+
+      expect(result).toBe(1);
+    });
+
+    it('削除により欠番が生じても既存の値と重複しない番号を返すこと', async () => {
+      // 表示順序1〜6のうち1件を削除した状態。件数は5だが最大値は6。
+      // 件数+1では既存の6と重複してしまう。
+      mockPrisma.surveyImage.count.mockResolvedValue(5);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: 6 } });
+
+      const result = await service.getNextDisplayOrder(surveyId);
+
+      expect(result).toBe(7);
     });
   });
 

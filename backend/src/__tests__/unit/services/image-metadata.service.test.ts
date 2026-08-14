@@ -328,9 +328,7 @@ describe('ImageMetadataService', () => {
           surveyId: mockSurveyId,
           includeInReport: true,
         },
-        orderBy: {
-          displayOrder: 'asc',
-        },
+        orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       });
     });
 
@@ -378,11 +376,11 @@ describe('ImageMetadataService', () => {
 
       await service.findForReport(mockSurveyId);
 
+      // 表示順序が重複しても報告書の並びが実行ごとに変わらないよう一意な鍵まで指定する
+      // （Task 115.20 / Requirements 4.10）
       expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          orderBy: {
-            displayOrder: 'asc',
-          },
+          orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         })
       );
     });

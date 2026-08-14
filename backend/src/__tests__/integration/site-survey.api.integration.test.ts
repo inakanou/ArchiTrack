@@ -717,6 +717,74 @@ describe('Site Survey API Integration Tests', () => {
 
         expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
       });
+
+      /**
+       * Task 115.20 / Requirements 4.10
+       *
+       * 実データでは同一現場調査内に表示順序の重複が存在する
+       * （画像11枚に対し異なる値が7個）。重複が残っていても一覧の並びが
+       * 一意に定まることを、実データベース経由で確認する。
+       *
+       * 挿入順（＝並び替えの鍵で決着しない場合にデータベースが返しがちな順）と
+       * 期待順を意図的にずらしてあるため、表示順序だけを鍵にすると失敗する。
+       */
+      it('表示順序が重複していても一覧の並びが一意に定まる（Requirements: 4.10）', async () => {
+        const baseTime = new Date('2025-03-01T00:00:00.000Z').getTime();
+        // 表示順序2のグループ: 作成日時が異なる（第二の鍵で決着する）
+        const orderTwoLater = '11111111-1111-4111-8111-111111111111';
+        const orderTwoEarlier = '22222222-2222-4222-8222-222222222222';
+        // 表示順序6のグループ: 作成日時まで同値（第三の鍵=識別子で決着する）
+        const orderSixLargerId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const orderSixSmallerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+        // 挿入順は期待順の逆にする
+        const insertions = [
+          { id: orderTwoLater, displayOrder: 2, createdAt: new Date(baseTime + 2000) },
+          { id: orderTwoEarlier, displayOrder: 2, createdAt: new Date(baseTime + 1000) },
+          { id: orderSixLargerId, displayOrder: 6, createdAt: new Date(baseTime + 3000) },
+          { id: orderSixSmallerId, displayOrder: 6, createdAt: new Date(baseTime + 3000) },
+        ];
+
+        for (const [index, row] of insertions.entries()) {
+          await prisma.surveyImage.create({
+            data: {
+              ...row,
+              surveyId,
+              originalPath: `test/original-${index}.jpg`,
+              thumbnailPath: `test/thumb-${index}.jpg`,
+              fileName: `dup-${index}.jpg`,
+              fileSize: 1000,
+              width: 800,
+              height: 600,
+            },
+          });
+        }
+
+        const fetchImages = async (): Promise<Array<{ id: string; displayOrder: number }>> => {
+          const response = await request(app)
+            .get(`/api/site-surveys/${surveyId}/images`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .expect(200);
+          return response.body as Array<{ id: string; displayOrder: number }>;
+        };
+
+        const first = await fetchImages();
+        const second = await fetchImages();
+        const third = await fetchImages();
+
+        // 表示順序の昇順を保ったまま、重複分は作成日時→識別子で決着する
+        expect(first.map((image) => image.id)).toEqual([
+          orderTwoEarlier,
+          orderTwoLater,
+          orderSixSmallerId,
+          orderSixLargerId,
+        ]);
+        expect(first.map((image) => image.displayOrder)).toEqual([2, 2, 6, 6]);
+
+        // 繰り返し取得しても並びが変わらない
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+      });
     });
 
     /**

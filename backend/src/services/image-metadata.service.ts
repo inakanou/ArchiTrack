@@ -23,6 +23,7 @@
  */
 
 import type { PrismaClient, SurveyImage } from '../generated/prisma/client.js';
+import { SURVEY_IMAGE_ORDER_BY } from '../utils/survey-image-order.js';
 
 /**
  * 画像が見つからないエラー
@@ -197,9 +198,9 @@ export class ImageMetadataService {
         surveyId,
         includeInReport: true,
       },
-      orderBy: {
-        displayOrder: 'asc',
-      },
+      // displayOrderは重複し得るため、報告書の並びが実行ごとに変わらないよう
+      // 一意な鍵まで含めて並び替える（Task 115.20 / Requirements 4.10）。
+      orderBy: SURVEY_IMAGE_ORDER_BY,
     });
 
     return images.map((image) => this.mapToImageMetadata(image));

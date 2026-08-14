@@ -7,7 +7,7 @@
  * - GET /api/site-surveys/:id/images（一覧）
  *
  * Requirements:
- * - 4.9: 画像一覧を固定の表示順序で表示する
+ * - 4.10: 画像一覧を固定の表示順序で表示する
  *
  * @module services/image-list
  */
@@ -15,6 +15,7 @@
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { SignedUrlService } from './signed-url.service.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
+import { SURVEY_IMAGE_ORDER_BY } from '../utils/survey-image-order.js';
 
 /**
  * 署名付きURLの有効期限（秒）- 15分
@@ -66,7 +67,7 @@ export interface ImageListServiceDependencies {
  * 現場調査に紐付く画像の一覧取得機能を提供します。
  *
  * Requirements:
- * - 4.9: 画像一覧を固定の表示順序で表示する
+ * - 4.10: 画像一覧を固定の表示順序で表示する
  */
 export class ImageListService {
   private readonly prisma: PrismaClient;
@@ -81,8 +82,10 @@ export class ImageListService {
    * 現場調査に紐付く画像一覧を取得
    *
    * displayOrderの昇順でソートして返します。
+   * displayOrderは同一現場調査内で重複し得るため、並びが実行ごとに変わらないよう
+   * 一意な鍵まで含めて並び替えます（Task 115.20 / Requirements 4.10）。
    *
-   * Requirements: 4.9
+   * Requirements: 4.10
    *
    * @param surveyId - 現場調査ID
    * @returns 画像情報の配列
@@ -90,7 +93,7 @@ export class ImageListService {
   async findBySurveyId(surveyId: string): Promise<SurveyImageInfo[]> {
     const images = await this.prisma.surveyImage.findMany({
       where: { surveyId },
-      orderBy: { displayOrder: 'asc' },
+      orderBy: SURVEY_IMAGE_ORDER_BY,
       select: {
         id: true,
         surveyId: true,
@@ -115,7 +118,7 @@ export class ImageListService {
    * 各画像に対して署名付きURLを生成して返します。
    * URL生成に失敗した画像にはnullが設定されます。
    *
-   * Requirements: 4.9, 4.1
+   * Requirements: 4.10, 4.1
    *
    * @param surveyId - 現場調査ID
    * @param userId - ユーザーID（アクセス権限検証用）

@@ -5,7 +5,7 @@
  * - GET /api/site-surveys/:id/images（一覧）
  *
  * Requirements:
- * - 4.9: 画像一覧を固定の表示順序で表示する
+ * - 4.10: 画像一覧を固定の表示順序で表示する
  *
  * @module tests/unit/services/image-list.service
  */
@@ -121,7 +121,7 @@ describe('ImageListService', () => {
       expect(result[1]?.id).toBe('img-2');
       expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledWith({
         where: { surveyId },
-        orderBy: { displayOrder: 'asc' },
+        orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         select: expect.any(Object),
       });
     });
@@ -528,6 +528,134 @@ describe('ImageListService', () => {
       const args = mockPrisma.imageAnnotation.findMany.mock.calls[0]![0];
       expect(args.select).toEqual({ imageId: true, hasDrawnAnnotations: true });
       expect(args.select).not.toHaveProperty('data');
+    });
+  });
+
+  /**
+   * Task 115.20 / Requirements 4.10
+   *
+   * displayOrderが重複していても取得順序が実行ごとに変わらないことを検証する。
+   *
+   * 実データでは同一現場調査内にdisplayOrderの重複が存在する（画像11枚に対し
+   * 異なる値が7個）。データベースは並び替えの鍵で決まらない行の順序を保証しない
+   * ため、鍵が displayOrder だけだと同値行の並びは実行ごとに変わり得る。
+   * ここではその性質を模したフェイクを用い、鍵で決着しない行を呼び出しごとに
+   * 回転させて返す。
+   */
+  describe('表示順序が重複する場合の取得順序（Requirements: 4.10）', () => {
+    const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+
+    /** displayOrderが重複する行（実データで観測された 2,2 / 6,6 / 8,8,8 を模す） */
+    const rowsWithDuplicatedDisplayOrder = [
+      { id: 'img-a', displayOrder: 2, createdAt: new Date('2024-01-01T00:00:00.000Z') },
+      { id: 'img-b', displayOrder: 2, createdAt: new Date('2024-01-01T00:00:01.000Z') },
+      { id: 'img-c', displayOrder: 6, createdAt: new Date('2024-01-01T00:00:02.000Z') },
+      { id: 'img-d', displayOrder: 6, createdAt: new Date('2024-01-01T00:00:03.000Z') },
+      { id: 'img-e', displayOrder: 8, createdAt: new Date('2024-01-01T00:00:04.000Z') },
+      // 同一ミリ秒で登録された2件。作成日時までが同値でも並びが定まる必要がある
+      { id: 'img-f', displayOrder: 8, createdAt: new Date('2024-01-01T00:00:05.000Z') },
+      { id: 'img-g', displayOrder: 8, createdAt: new Date('2024-01-01T00:00:05.000Z') },
+    ].map((row) => ({
+      surveyId,
+      fileName: `${row.id}.jpg`,
+      fileSize: 1024,
+      width: 800,
+      height: 600,
+      originalPath: `surveys/${surveyId}/${row.id}.jpg`,
+      thumbnailPath: `surveys/${surveyId}/${row.id}_thumb.jpg`,
+      annotatedThumbnailPath: null,
+      ...row,
+    }));
+
+    type OrderKey = Record<string, 'asc' | 'desc'>;
+
+    /**
+     * 並び替えの鍵で決着しない行の順序を保証しないデータベースを模す
+     *
+     * 指定された鍵だけで安定に並べ、同値のまま残った行は呼び出し回数に応じて
+     * 回転させる（= 実行ごとに異なる順序を返す）。
+     */
+    const createUnstableFindMany = () => {
+      let callCount = 0;
+      return (args: { orderBy?: OrderKey | OrderKey[] }) => {
+        const keys = Array.isArray(args.orderBy)
+          ? args.orderBy
+          : args.orderBy
+            ? [args.orderBy]
+            : [];
+        const rotation = callCount++;
+
+        // 鍵で決着する部分だけを比較して安定並べ替え
+        const sorted = [...rowsWithDuplicatedDisplayOrder].sort((left, right) => {
+          for (const key of keys) {
+            const [field, direction] = Object.entries(key)[0] as [string, 'asc' | 'desc'];
+            const l = (left as unknown as Record<string, unknown>)[field];
+            const r = (right as unknown as Record<string, unknown>)[field];
+            const lv = l instanceof Date ? l.getTime() : (l as number | string);
+            const rv = r instanceof Date ? r.getTime() : (r as number | string);
+            if (lv < rv) return direction === 'asc' ? -1 : 1;
+            if (lv > rv) return direction === 'asc' ? 1 : -1;
+          }
+          return 0;
+        });
+
+        // 鍵で同値のまま残ったグループを回転させる
+        const result: typeof sorted = [];
+        let index = 0;
+        while (index < sorted.length) {
+          let end = index + 1;
+          const isTied = (a: (typeof sorted)[number], b: (typeof sorted)[number]) =>
+            keys.every((key) => {
+              const [field] = Object.entries(key)[0] as [string, 'asc' | 'desc'];
+              const av = (a as unknown as Record<string, unknown>)[field];
+              const bv = (b as unknown as Record<string, unknown>)[field];
+              return av instanceof Date && bv instanceof Date
+                ? av.getTime() === bv.getTime()
+                : av === bv;
+            });
+          while (end < sorted.length && isTied(sorted[index]!, sorted[end]!)) {
+            end++;
+          }
+          const group = sorted.slice(index, end);
+          const offset = rotation % group.length;
+          result.push(...group.slice(offset), ...group.slice(0, offset));
+          index = end;
+        }
+
+        return Promise.resolve(result);
+      };
+    };
+
+    it('displayOrderが重複していても繰り返し取得で並びが変わらないこと', async () => {
+      mockPrisma.surveyImage.findMany.mockImplementation(createUnstableFindMany());
+
+      const first = (await service.findBySurveyId(surveyId)).map((image) => image.id);
+      const second = (await service.findBySurveyId(surveyId)).map((image) => image.id);
+      const third = (await service.findBySurveyId(surveyId)).map((image) => image.id);
+
+      expect(first).toHaveLength(rowsWithDuplicatedDisplayOrder.length);
+      expect(second).toEqual(first);
+      expect(third).toEqual(first);
+    });
+
+    it('displayOrderの昇順を保ったまま第二・第三の鍵で並びを確定させること', async () => {
+      mockPrisma.surveyImage.findMany.mockImplementation(createUnstableFindMany());
+
+      // フェイクは呼び出しごとに同値行を回転させるため、2回目以降でも同じ並びに
+      // なることを確認する
+      await service.findBySurveyId(surveyId);
+      const ids = (await service.findBySurveyId(surveyId)).map((image) => image.id);
+
+      expect(ids).toEqual(['img-a', 'img-b', 'img-c', 'img-d', 'img-e', 'img-f', 'img-g']);
+    });
+
+    it('取得時の並び替えに一意な鍵を含めること', async () => {
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+
+      await service.findBySurveyId(surveyId);
+
+      const args = mockPrisma.surveyImage.findMany.mock.calls[0]![0];
+      expect(args.orderBy).toEqual([{ displayOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]);
     });
   });
 

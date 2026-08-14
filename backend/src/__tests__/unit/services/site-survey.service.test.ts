@@ -836,13 +836,12 @@ describe('SiteSurveyService', () => {
       await service.findById('survey-123');
 
       // Assert - orderByと注釈存在判定includeが正しく指定されていることを確認
+      // displayOrderが重複しても並びが定まるよう一意な鍵まで指定する（Task 115.20 / Requirements 4.10）
       expect(mockPrisma.siteSurvey.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({
           include: expect.objectContaining({
             images: {
-              orderBy: {
-                displayOrder: 'asc',
-              },
+              orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
               // 注釈の有無のみを軽量取得する（N+1抑止のためのフラグ供給）
               // 描画された注釈の有無（hasDrawnAnnotations）も重いdataを読まずに取得する
               include: {
@@ -926,9 +925,7 @@ describe('SiteSurveyService', () => {
             },
           },
           images: {
-            orderBy: {
-              displayOrder: 'asc',
-            },
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
             include: {
               annotation: {
                 select: { id: true, hasDrawnAnnotations: true },
@@ -974,6 +971,109 @@ describe('SiteSurveyService', () => {
 
       // Assert
       expect(result?.thumbnailUrl).toBeNull();
+    });
+
+    /**
+     * Task 115.20 / Requirements 4.10
+     *
+     * displayOrderが重複していても詳細取得の画像の並びが実行ごとに変わらないこと。
+     * データベースは並び替えの鍵で決まらない行の順序を保証しないため、ここでは
+     * その性質を模したフェイクを用いる（鍵で同値の行は呼び出しごとに回転させる）。
+     */
+    describe('表示順序が重複する場合の画像の並び（Requirements: 4.10）', () => {
+      const duplicatedOrderImages = [
+        { id: 'image-a', displayOrder: 2, createdAt: new Date('2024-01-10T00:00:00.000Z') },
+        { id: 'image-b', displayOrder: 2, createdAt: new Date('2024-01-10T00:00:01.000Z') },
+        { id: 'image-c', displayOrder: 6, createdAt: new Date('2024-01-10T00:00:02.000Z') },
+        { id: 'image-d', displayOrder: 8, createdAt: new Date('2024-01-10T00:00:03.000Z') },
+        { id: 'image-e', displayOrder: 8, createdAt: new Date('2024-01-10T00:00:04.000Z') },
+        { id: 'image-f', displayOrder: 8, createdAt: new Date('2024-01-10T00:00:05.000Z') },
+      ].map((row) => ({
+        surveyId: 'survey-123',
+        originalPath: `surveys/survey-123/images/${row.id}.jpg`,
+        thumbnailPath: `surveys/survey-123/thumbnails/${row.id}.jpg`,
+        annotatedThumbnailPath: null,
+        fileName: `${row.id}.jpg`,
+        fileSize: 150000,
+        width: 1920,
+        height: 1080,
+        comment: null,
+        includeInReport: false,
+        annotation: null,
+        ...row,
+      }));
+
+      type OrderKey = Record<string, 'asc' | 'desc'>;
+
+      /** 鍵で決着しない行の順序を保証しないデータベースを模したfindUnique */
+      const createUnstableFindUnique = () => {
+        let callCount = 0;
+        return (args: { include?: { images?: { orderBy?: OrderKey | OrderKey[] } } }) => {
+          const orderBy = args.include?.images?.orderBy;
+          const keys: OrderKey[] = Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : [];
+          const rotation = callCount++;
+
+          const valueOf = (row: (typeof duplicatedOrderImages)[number], field: string) => {
+            const value = (row as unknown as Record<string, unknown>)[field];
+            return value instanceof Date ? value.getTime() : (value as number | string);
+          };
+
+          const sorted = [...duplicatedOrderImages].sort((left, right) => {
+            for (const key of keys) {
+              const [field, direction] = Object.entries(key)[0] as [string, 'asc' | 'desc'];
+              const l = valueOf(left, field);
+              const r = valueOf(right, field);
+              if (l < r) return direction === 'asc' ? -1 : 1;
+              if (l > r) return direction === 'asc' ? 1 : -1;
+            }
+            return 0;
+          });
+
+          const images: typeof sorted = [];
+          let index = 0;
+          while (index < sorted.length) {
+            let end = index + 1;
+            while (
+              end < sorted.length &&
+              keys.every((key) => {
+                const [field] = Object.entries(key)[0] as [string, 'asc' | 'desc'];
+                return valueOf(sorted[index]!, field) === valueOf(sorted[end]!, field);
+              })
+            ) {
+              end++;
+            }
+            const group = sorted.slice(index, end);
+            const offset = rotation % group.length;
+            images.push(...group.slice(offset), ...group.slice(0, offset));
+            index = end;
+          }
+
+          return Promise.resolve({ ...mockSurveyWithProjectAndImages, images });
+        };
+      };
+
+      it('繰り返し取得しても画像の並びが変わらないこと', async () => {
+        mockPrisma.siteSurvey.findUnique = vi.fn(createUnstableFindUnique()) as never;
+
+        const first = (await service.findById('survey-123'))?.images.map((img) => img.id);
+        const second = (await service.findById('survey-123'))?.images.map((img) => img.id);
+        const third = (await service.findById('survey-123'))?.images.map((img) => img.id);
+
+        expect(first).toHaveLength(duplicatedOrderImages.length);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+      });
+
+      it('displayOrderの昇順を保ったまま第二・第三の鍵で並びを確定させること', async () => {
+        mockPrisma.siteSurvey.findUnique = vi.fn(createUnstableFindUnique()) as never;
+
+        // フェイクは呼び出しごとに同値行を回転させるため、2回目以降でも同じ並びに
+        // なることを確認する
+        await service.findById('survey-123');
+        const ids = (await service.findById('survey-123'))?.images.map((img) => img.id);
+
+        expect(ids).toEqual(['image-a', 'image-b', 'image-c', 'image-d', 'image-e', 'image-f']);
+      });
     });
   });
 
@@ -1828,6 +1928,31 @@ describe('SiteSurveyService', () => {
 
       // Assert
       expect(result.data[0]!.thumbnailUrl).toBe('first-thumbnail.jpg');
+    });
+
+    /**
+     * Task 115.20 / Requirements 4.10
+     *
+     * 一覧のサムネイルは先頭1件（take: 1）で決まるため、displayOrderが重複すると
+     * どの画像が代表になるかが実行ごとに変わり得る。並び替えに一意な鍵を含めて
+     * 代表画像を確定させる。
+     */
+    it('サムネイル取得の並び替えに一意な鍵を含めること（Requirements: 4.10）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      // Act
+      await service.findByProjectId('project-123', {}, defaultPagination, defaultSort);
+
+      // Assert
+      const args = (mockPrisma.siteSurvey.findMany as unknown as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as { include: { images: { orderBy: unknown } } };
+      expect(args.include.images.orderBy).toEqual([
+        { displayOrder: 'asc' },
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ]);
     });
   });
 });

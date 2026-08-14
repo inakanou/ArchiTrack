@@ -186,6 +186,32 @@ describe('SiteSurveyService', () => {
       );
     });
 
+    /**
+     * Task 115.20 / Requirements 4.10
+     *
+     * サムネイルは先頭1件（take: 1）で決まるため、displayOrderが重複すると
+     * どの画像が代表になるかが実行ごとに変わり得る。並び替えに一意な鍵を含める。
+     */
+    it('サムネイル取得の並び替えに一意な鍵を含めること（Requirements: 4.10）', async () => {
+      // Arrange
+      const projectId = 'project-123';
+
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(0);
+
+      // Act
+      await service.findLatestByProjectId(projectId);
+
+      // Assert
+      const args = (mockPrisma.siteSurvey.findMany as unknown as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as { include: { images: { orderBy: unknown } } };
+      expect(args.include.images.orderBy).toEqual([
+        { displayOrder: 'asc' },
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ]);
+    });
+
     it('論理削除されたレコードは除外される', async () => {
       // Arrange
       const projectId = 'project-123';

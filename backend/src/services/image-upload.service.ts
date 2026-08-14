@@ -258,10 +258,15 @@ export class ImageUploadService {
       throw new SurveyNotFoundError(surveyId);
     }
 
-    // 現在の画像数を取得
+    // 現在の画像数を取得（上限判定用）
     let currentCount = await this.prisma.surveyImage.count({
       where: { surveyId },
     });
+
+    // 採番の起点は既存の最大表示順序の次にする。件数起点だと削除で生じた欠番の分だけ
+    // 番号が巻き戻り、既存の画像と同じ表示順序を割り当ててしまう
+    // （Task 115.20 / Requirements 4.10）。
+    let nextDisplayOrder = await this.getNextDisplayOrder(surveyId);
 
     const successful: UploadResult[] = [];
     const failed: Array<{ fileName: string; error: string }> = [];
@@ -280,9 +285,10 @@ export class ImageUploadService {
         const result = await this.upload({
           surveyId,
           file,
-          displayOrder: currentCount + 1,
+          displayOrder: nextDisplayOrder,
         });
         successful.push(result);
+        nextDisplayOrder++;
         currentCount++;
       } catch (error) {
         failed.push({
@@ -308,14 +314,19 @@ export class ImageUploadService {
   /**
    * 次の表示順序を取得
    *
+   * 現在の画像数ではなく既存の最大値を起点にする。
+   * 件数起点だと削除で生じた欠番の分だけ番号が巻き戻り、既存の画像と同じ
+   * 表示順序を割り当ててしまう（Task 115.20 / Requirements 4.10）。
+   *
    * @param surveyId - 現場調査ID
-   * @returns 次の表示順序（現在の画像数 + 1）
+   * @returns 次の表示順序（既存の最大表示順序 + 1、画像がなければ1）
    */
   async getNextDisplayOrder(surveyId: string): Promise<number> {
-    const count = await this.prisma.surveyImage.count({
+    const aggregate = await this.prisma.surveyImage.aggregate({
       where: { surveyId },
+      _max: { displayOrder: true },
     });
-    return count + 1;
+    return (aggregate._max.displayOrder ?? 0) + 1;
   }
 
   /**
