@@ -14,6 +14,7 @@
 import { test, expect } from '@playwright/test';
 import { API_BASE_URL } from '../../config';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -347,47 +348,6 @@ test.describe('現場調査アクセス制御', () => {
    * @requirement site-survey/REQ-14.4
    */
   test.describe('署名付きURL', () => {
-    test('画像URLが署名付きURLで提供される (site-survey/REQ-14.4)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 現場調査詳細ページにアクセス
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      // 認証済みユーザーとして画像にアクセスできることを確認
-      // R2ストレージからの画像取得は認証を経由し、署名付きURLにリダイレクトされる
-
-      // 画像が表示されていることを確認
-      // 認証が正しく機能していれば画像が表示される（署名付きURLが提供される）
-      const imageElements = page.locator('img').first();
-      await expect(imageElements).toBeVisible({ timeout: getTimeout(15000) });
-
-      // 画像APIリクエストが成功することを確認
-      // 署名付きURLは認証ヘッダーまたはURLパラメータで検証される
-      const imageApiResponse = await page
-        .waitForResponse(
-          (response) =>
-            (response.url().includes('/api/site-surveys/') && response.url().includes('/images')) ||
-            response.url().includes('r2.cloudflarestorage.com') ||
-            response.url().includes('storage.googleapis.com') ||
-            response.request().resourceType() === 'image',
-          { timeout: getTimeout(15000) }
-        )
-        .catch(() => null);
-
-      // 画像APIが成功ステータスを返す、または既にキャッシュされた画像が表示されている
-      const isImageAccessible =
-        imageApiResponse === null || // 既にキャッシュされている
-        imageApiResponse.ok() || // 成功
-        imageApiResponse.status() === 304; // Not Modified
-
-      expect(isImageAccessible).toBeTruthy();
-    });
-
     /**
      * 画像URLの払い出し契約（site-survey/REQ-14.4）
      *
@@ -449,6 +409,101 @@ test.describe('現場調査アクセス制御', () => {
       // 原画像URLは現場調査へのアクセス権限検証を通過した場合のみ払い出される
       // （backend/src/services/image-list.service.ts の validateSurveyAccess）
       expect(images[0]!.originalUrl).toBeTruthy();
+    });
+
+    /**
+     * アクセス権限の検証（site-survey/REQ-14.4）
+     *
+     * 【このテストが引き受ける範囲】
+     * REQ-14.4 は「署名付きURLの有効期限とアクセス権限を検証する」と規定する。
+     * このうち **有効期限** は本番の `STORAGE_TYPE=r2` に固有の性質であり、
+     * `STORAGE_TYPE=local` のテスト環境では `LocalStorageProvider.getSignedUrl` が
+     * 署名も期限も伴わない静的配信URLを返すため、E2Eでは原理的に再現できない。
+     * 有効期限側は `e2e/requirement-exclusions.json` の `site-survey/REQ-14.4` に
+     * E2E対象外として登録済みで、バックエンドの単体・統合テストとセキュリティ監査の所管とする。
+     *
+     * 一方 **アクセス権限の検証** はストレージ種別に依存しない。原画像URLの払い出しは
+     * `ImageListService.findBySurveyIdWithUrls` が `validateSurveyAccess` の結果で
+     * 分岐しており、この分岐はローカルストレージ構成でもそのまま働く。
+     * よってE2Eはこちらを引き受ける。直前のテストが「未認証では払い出されない」を、
+     * 本テストが「認証済みでもプロジェクトの関係者でなければ払い出されない」を検証する。
+     *
+     * 【観測の判別能力】
+     * 「原画像URLが null であること」は、権限検証が働いた結果ではなく
+     * ストレージ未構成やURL生成失敗でも成立し得る。そのため同一の画像一覧に対して
+     * 関係者（プロジェクト作成者）の払い出しを対照として同時に観測し、
+     * 同じ画像レコードに対して払い出しの有無が利用者によって分かれることを確認する。
+     *
+     * 【前提】
+     * 事前準備でプロジェクトを作成したのは REGULAR_USER であり、営業担当者・工事担当者は
+     * ログインユーザーが既定値となる（project-management の Requirement 1.5 / 1.6）。
+     * したがって REGULAR_USER_2 は当該プロジェクトの関係者ではない。この前提
+     * （別人であること・admin ロールを持たないこと）はテスト内で明示的に検証し、
+     * 崩れた場合は検証本体を素通りさせずに失敗させる。
+     */
+    test('アクセス権限を持たないユーザーには原画像URLが払い出されない (site-survey/REQ-14.4)', async ({
+      request,
+    }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+
+      const loginViaApi = async (
+        user: (typeof TEST_USERS)[keyof typeof TEST_USERS]
+      ): Promise<{ userId: string; roles: string[]; accessToken: string }> => {
+        const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
+          data: { email: user.email, password: user.password },
+        });
+        expect(response.status(), `${user.email} のログインが成功する`).toBe(200);
+        const body = (await response.json()) as {
+          accessToken: string;
+          user: { id: string; roles: string[] };
+        };
+        return { userId: body.user.id, roles: body.user.roles, accessToken: body.accessToken };
+      };
+
+      const fetchImages = async (
+        accessToken: string
+      ): Promise<Array<{ id: string; originalUrl: string | null }>> => {
+        const response = await request.get(
+          `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        expect(response.status(), '画像一覧の取得が成功する').toBe(200);
+        return (await response.json()) as Array<{ id: string; originalUrl: string | null }>;
+      };
+
+      const member = await loginViaApi(TEST_USERS.REGULAR_USER);
+      const outsider = await loginViaApi(TEST_USERS.REGULAR_USER_2);
+
+      // 前提の検証: 別人であり、かつ関係者でなくても払い出されるadminロールを持たないこと
+      expect(outsider.userId, '非関係者はプロジェクト作成者とは別のユーザーである').not.toBe(
+        member.userId
+      );
+      expect(outsider.roles, '非関係者はadminロールを持たない').not.toContain('admin');
+
+      // 対照: プロジェクトの関係者には原画像URLが払い出される
+      const memberImages = await fetchImages(member.accessToken);
+      expect(memberImages.length, '事前準備でアップロードした画像が存在する').toBeGreaterThan(0);
+      for (const image of memberImages) {
+        expect(
+          image.originalUrl,
+          `関係者には原画像URLが払い出される (image=${image.id})`
+        ).toBeTruthy();
+      }
+
+      // 本体: 同じ画像レコードでも、関係者でないユーザーには原画像URLが払い出されない
+      const outsiderImages = await fetchImages(outsider.accessToken);
+      expect(
+        outsiderImages.map((image) => image.id),
+        '非関係者にも同じ画像レコードが返る（払い出しの有無だけが分かれる）'
+      ).toEqual(memberImages.map((image) => image.id));
+      for (const image of outsiderImages) {
+        expect(
+          image.originalUrl,
+          `非関係者には原画像URLが払い出されない (image=${image.id})`
+        ).toBeNull();
+      }
     });
   });
 
