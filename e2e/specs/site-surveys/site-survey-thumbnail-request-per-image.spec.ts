@@ -7,6 +7,8 @@
  * - REQ-38.2: 注釈を反映したサムネイルの表示のために、登録写真の枚数に比例した追加リクエストを発生させない
  * - REQ-38.3: 画像に関して発生するリクエストを、画像一覧の取得1回と表示領域に入った画像に対する取得のみに限定する
  * - REQ-38.5: 注釈をレンダリングしたサムネイル画像が利用可能なとき、縮小表示に当該画像を用いる
+ * - REQ-38.6: 合成済みサムネイルが利用できない画像は代替手段（クライアント合成）で注釈付きの表示結果を維持し、そのための取得も表示領域に入った画像に限る
+ * - REQ-38.7: 詳細画面の縮小表示にサムネイル画像を用い、原本画像を取得しない
  *
  * ## 検証する状態
  *
@@ -216,6 +218,8 @@ const countOf = (values: string[], key: string): number =>
  * @requirement site-survey/REQ-38.2
  * @requirement site-survey/REQ-38.3
  * @requirement site-survey/REQ-38.5
+ * @requirement site-survey/REQ-38.6
+ * @requirement site-survey/REQ-38.7
  */
 test.describe('縮小表示のリクエスト数（1枚あたり1件）', () => {
   test.describe.configure({ mode: 'serial' });
@@ -590,11 +594,24 @@ test.describe('縮小表示のリクエスト数（1枚あたり1件）', () => 
   });
 
   /**
+   * 本テストが引き受ける受入基準
+   *
+   * - 38.2 / 38.3 / 38.5: 画像1枚あたりの取得が表示元1件に収まり、合成済みサムネイルを
+   *   持つ画像では注釈取得が発生しないこと
+   * - 38.6: 合成済みサムネイルを持たない注釈付き画像（対照）が代替手段（クライアント合成）
+   *   へ退避し、そのための注釈取得が当該1枚に限られること。対照を表示領域へ入れて初めて
+   *   注釈取得が観測されるため、代替手段のための取得も表示領域に入った画像に限られる
+   * - 38.7: 縮小表示の取得が全て表示元（通常サムネイル／合成済みサムネイル）であり、
+   *   原本の取得が1件も発生しないこと（`observation.originalKeys` が空であること）。
+   *   一覧画面側の縮小表示は SiteSurveyListTable のコンポーネントテストが引き受ける
+   *
    * @requirement site-survey/REQ-38.2
    * @requirement site-survey/REQ-38.3
    * @requirement site-survey/REQ-38.5
+   * @requirement site-survey/REQ-38.6
+   * @requirement site-survey/REQ-38.7
    */
-  test('注釈あり・回転のみ・注釈なしのいずれも画像1枚あたりの取得が表示元1件に収まり注釈取得が発生しないこと (site-survey/REQ-38.2, site-survey/REQ-38.3, site-survey/REQ-38.5)', async ({
+  test('注釈あり・回転のみ・注釈なしのいずれも画像1枚あたりの取得が表示元1件に収まり注釈取得が発生しないこと (site-survey/REQ-38.2, site-survey/REQ-38.3, site-survey/REQ-38.5, site-survey/REQ-38.6, site-survey/REQ-38.7)', async ({
     browser,
   }) => {
     const context = await browser.newContext({ viewport: MEASUREMENT_VIEWPORT });

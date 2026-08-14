@@ -9,6 +9,8 @@
  *   （署名付きURLの有効期限そのものは本番の STORAGE_TYPE=r2 前提であり、
  *    STORAGE_TYPE=local のテスト環境では再現できないため検証対象外。詳細は当該テストの説明を参照）
  * - REQ-14.5: 現場調査の操作履歴を監査ログに記録
+ * - REQ-38.9: 画面表示の効率化（画像一覧のリクエスト削減）にあたり REQ-14 の
+ *   アクセス可否の判定結果を変更しないこと
  */
 
 import { test, expect } from '@playwright/test';
@@ -440,8 +442,19 @@ test.describe('現場調査アクセス制御', () => {
      * したがって REGULAR_USER_2 は当該プロジェクトの関係者ではない。この前提
      * （別人であること・admin ロールを持たないこと）はテスト内で明示的に検証し、
      * 崩れた場合は検証本体を素通りさせずに失敗させる。
+     *
+     * 【REQ-38.9（効率化が判定結果を変えないこと）を引き受ける理由】
+     * Requirement 38 は画像一覧のリクエスト・クエリ削減として、権限検証を画像ごとから
+     * 現場調査ごと1回へ集約した（`ImageListService.findBySurveyIdWithUrls`）。
+     * 本テストは**その集約後の実装**に対して、関係者には原画像URLが払い出され、
+     * 非関係者には同じ画像レコードでも払い出されないことを観測する。すなわち
+     * 削減の前後で REQ-14 の判定結果（誰に払い出すか）が変わっていないことを、
+     * 対照付きで確認している。集約が「1回だけ・同じ引数で」行われることは
+     * backend/src/__tests__/unit/services/image-list.service.test.ts が併せて固定する。
+     *
+     * @requirement site-survey/REQ-38.9
      */
-    test('アクセス権限を持たないユーザーには原画像URLが払い出されない (site-survey/REQ-14.4)', async ({
+    test('アクセス権限を持たないユーザーには原画像URLが払い出されない (site-survey/REQ-14.4, site-survey/REQ-38.9)', async ({
       request,
     }) => {
       if (!createdSurveyId) {

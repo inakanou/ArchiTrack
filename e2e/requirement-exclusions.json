@@ -2,7 +2,7 @@
   "$schema": "./requirement-exclusions.schema.json",
   "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
   "version": "1.0.0",
-  "lastUpdated": "2026-04-28",
+  "lastUpdated": "2026-08-15",
   "exclusions": [
     {
       "id": "REQ-23.3",
@@ -3313,6 +3313,71 @@
         "description": "client-side-edit-explicit-save-e2e.spec.ts で参照系GETを許可しつつ永続化書き込み(POST/PUT/PATCH/DELETE)のみ禁止することをリクエスト監視で確認",
         "threshold": "reference_reads: allowed"
       }
+    },
+    {
+      "id": "site-survey/REQ-38.4",
+      "requirement": "REQ-38: 写真枚数によらない画面表示の応答性",
+      "title": "登録写真の枚数が増加しても画像一覧の取得を初期表示時間内に完了する",
+      "reason": "本受入基準は応答時間の計測であり、Playwright のE2Eでは計測値が実行環境の負荷に左右され判定が安定しない。同じ理由で同種の受入基準 site-survey/REQ-16.1（画像一覧の初期表示時間）も既にE2E対象外としている。本ブランチで専用のパフォーマンステストを新設し、そちらで判定する",
+      "category": "performance",
+      "alternativeVerification": {
+        "method": "performance-test",
+        "tool": "autocannon (backend/performance/survey-image-list.perf.ts / npm --prefix backend run test:perf:survey-images)",
+        "description": "写真5枚と50枚（1現場調査あたりの上限）の現場調査を作成し、GET /api/site-surveys/:id/images の応答時間 P97.5 を計測して、枚数比10倍に対する倍率と絶対値の双方を判定する",
+        "threshold": "p97_5(50枚) < 2000ms かつ p97_5(50枚) <= p97_5(5枚) * 3"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-49.3",
+      "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
+      "title": "数量表編集画面の表示で発生するリクエスト件数を数量グループ数に比例させない",
+      "reason": "件数の観測が成立するには表示領域外グループの取得抑止（REQ-49.8）が前提となるが、数量表の応答（SurveyImageSummary）が画像の実寸を持たないため表示領域観測が働かず、現時点では成立しない。要件49は本ブランチ（site-survey の作業）のコミット 80d617f で quantity-table-generation へ新設された非機能要件であり、実装とE2Eは当該スペックの所管。本ブランチが実装したのは表示元の選択とまとめ取得（REQ-49.1/49.2/49.4/49.5/49.6/49.10）に限られる",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest / React Testing Library",
+        "description": "グループごとの追加リクエストが発生しないことは frontend/src/__tests__/components/site-surveys/AnnotatedImageThumbnail.test.tsx（合成済みサムネイルがある場合に注釈取得APIを呼ばない）と frontend/src/components/quantity-table/QuantityGroupCard.test.tsx（表題部が preferThumbnail を渡す）で担保する。リクエスト総数が数量グループ数に比例しないことの観測は、REQ-49.8 の実装後に quantity-table-generation スペックのE2E（Playwright のリクエスト監視）で行う",
+        "threshold": "per_group_annotation_requests: 0"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-49.7",
+      "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
+      "title": "表題部の写真の拡大表示時に原本画像を取得する",
+      "reason": "現在の写真プレビューダイアログ（frontend/src/components/quantity-table/PhotoPreviewDialog.tsx）は表示元を annotatedThumbnailUrl || originalUrl とし、合成済みサムネイルがある場合は拡大表示でも原本を取得しない。本受入基準を満たすには当該ダイアログの表示元規則の変更が必要で、要件49を所管する quantity-table-generation スペックの実装課題である。実装前にE2Eの目印を付けると、満たしていない状態を満たしていると記録することになるため付けない",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "quantity-table-generation スペックで PhotoPreviewDialog の表示元を原本へ改める実装を行ったうえで、拡大操作の時点で原本のストレージキーへの取得が発生することをリクエスト監視で検証する。現時点の表示元規則（合成済みサムネイル優先）は frontend/src/components/quantity-table/PhotoChangeDialog.test.tsx と同じ規則としてコンポーネント側に固定されている",
+        "threshold": "original_fetch_on_zoom: 1"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-49.8",
+      "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
+      "title": "表示領域外の数量グループの写真取得を表示領域に入るまで行わない",
+      "reason": "表示領域観測は画像の実寸（width/height）の供給を前提とする（AnnotatedImageThumbnail の hasIntrinsicSize）。数量表の応答が返す写真サマリは実寸を持たないため観測が成立せず、現状は表示領域到達を待たずに取得する。実寸の供給はバックエンド応答（quantity-table.service の SurveyImageSummary）の変更を伴い、要件49を所管する quantity-table-generation スペックの実装課題である",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "unit-test",
+        "tool": "Vitest / React Testing Library",
+        "description": "表示領域到達までの取得抑止の機構そのものは frontend/src/__tests__/components/site-surveys/AnnotatedImageThumbnail.test.tsx の「表示領域到達までの取得抑止」群（交差前は表示元URLを設定せず注釈取得APIも呼ばない／交差後に設定される）で検証済み。数量表編集画面への適用は実寸の供給後に quantity-table-generation スペックで検証する",
+        "threshold": "offscreen_group_fetch: 0"
+      }
+    },
+    {
+      "id": "quantity-table-generation/REQ-49.9",
+      "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
+      "title": "写真選択・変更ダイアログの写真一覧を現場調査ごとに分割せずまとめて取得する",
+      "reason": "現在の写真選択ダイアログ（frontend/src/pages/QuantityTableEditPage.tsx の handleSelectImage）はプロジェクトの現場調査一覧を取得した後、現場調査ごとに GET /api/site-surveys/:id を発行する。まとめ取得にはプロジェクト単位で写真一覧を返すAPIの新設が必要で、要件49を所管する quantity-table-generation スペックの実装課題である。実装前にE2Eの目印を付けると、満たしていない状態を満たしていると記録することになるため付けない",
+      "category": "pending-implementation",
+      "alternativeVerification": {
+        "method": "e2e-test",
+        "tool": "Playwright",
+        "description": "quantity-table-generation スペックでプロジェクト単位の写真一覧取得APIを実装したうえで、ダイアログを開いた際の現場調査詳細取得が現場調査数に比例しないことをリクエスト監視で検証する。現状の取得経路（getSiteSurveys の後に現場調査ごとの getSiteSurvey）は frontend/src/pages/QuantityTableEditPage.test.tsx が固定している",
+        "threshold": "survey_detail_requests: 1"
+      }
     }
   ],
   "categories": {
@@ -3346,16 +3411,16 @@
     }
   },
   "summary": {
-    "totalExclusions": 579,
+    "totalExclusions": 584,
     "byCategory": {
-      "performance": 23,
+      "performance": 24,
       "infrastructure": 103,
       "fault-tolerance": 21,
       "data-integrity": 28,
       "security": 5,
-      "pending-implementation": 363,
+      "pending-implementation": 367,
       "integration-test": 36
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証。site-survey/REQ-21.1-21.8は画像アップロード時の拡張子不一致許容でマジックバイト判定はバイナリレベル処理のためユニットテストで検証。site-survey/REQ-22.1-22.8は注釈エディタでの画像回転機能でCanvas操作のためユニットテストで検証。site-survey/REQ-23.4は保存処理の同期完了保証でバックエンド内部制御のため統合テストで検証。site-survey/REQ-23.6はサムネイル再生成失敗時のエラー処理で異常系のため統合テストで検証。site-survey/REQ-23.8はサムネイル再生成の冪等性でバックエンド内部ロジックのため統合テストで検証"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.2-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証。site-survey/REQ-21.1-21.8は画像アップロード時の拡張子不一致許容でマジックバイト判定はバイナリレベル処理のためユニットテストで検証。site-survey/REQ-22.1-22.8は注釈エディタでの画像回転機能でCanvas操作のためユニットテストで検証。site-survey/REQ-23.4は保存処理の同期完了保証でバックエンド内部制御のため統合テストで検証。site-survey/REQ-23.6はサムネイル再生成失敗時のエラー処理で異常系のため統合テストで検証。site-survey/REQ-23.8はサムネイル再生成の冪等性でバックエンド内部ロジックのため統合テストで検証。site-survey/REQ-38.4は画像一覧取得の応答時間の計測でsite-survey/REQ-16.1と同種のためパフォーマンステスト(backend/performance/survey-image-list.perf.ts)で検証。quantity-table-generation/REQ-49.3, 49.7, 49.8, 49.9は要件49（画面表示のリクエスト効率）のうち本ブランチが実装していない範囲で、実装とE2Eはquantity-table-generationスペックの所管。"
   }
 }

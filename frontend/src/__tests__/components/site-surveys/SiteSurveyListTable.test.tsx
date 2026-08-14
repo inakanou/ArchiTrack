@@ -185,7 +185,14 @@ describe('SiteSurveyListTable', () => {
       expect(within(row).queryByTestId('annotated-thumbnail')).not.toBeInTheDocument();
     });
 
-    it('クライアント合成へ退避する場合も原本ではなくサムネイルを表示すること', () => {
+    /**
+     * 一覧画面の縮小表示に原本ではなくサムネイルを用いること。詳細画面側は
+     * e2e/specs/site-surveys/site-survey-thumbnail-request-per-image.spec.ts が
+     * 原本の取得が1件も発生しないことを併せて観測する。
+     *
+     * @requirement site-survey/REQ-38.7
+     */
+    it('クライアント合成へ退避する場合も原本ではなくサムネイルを表示すること (site-survey/REQ-38.7)', () => {
       // 注釈付きサムネイルが無く代表画像がある場合はクライアント側で注釈を合成する。
       // その経路でも縮小表示には原本ではなくサムネイルを用いる（Requirement 38.7）
       const surveysWithRepresentative: SiteSurveyInfo[] = [

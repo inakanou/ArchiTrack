@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
@@ -376,7 +376,12 @@ describe('QuantityTableEditPage', () => {
     });
 
     describe('REQ 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する', () => {
-      it('紐付き画像があるグループにサムネイルが表示される', async () => {
+      /**
+       * 表題部の写真表示に原本画像ではなくサムネイル画像を用いること。
+       *
+       * @requirement quantity-table-generation/REQ-49.4
+       */
+      it('紐付き画像があるグループにサムネイルが表示される (quantity-table-generation/REQ-49.4)', async () => {
         mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
 
         renderWithRouter();
@@ -1410,7 +1415,10 @@ describe('QuantityTableEditPage', () => {
       },
     ];
 
-    it('写真選択ダイアログで注釈ありの写真には注釈バッジが表示される', async () => {
+    /**
+     * @requirement quantity-table-generation/REQ-49.10
+     */
+    it('写真選択ダイアログで注釈ありの写真には注釈バッジが表示される (quantity-table-generation/REQ-49.10)', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
       mockGetSiteSurveys.mockResolvedValue({
@@ -1461,6 +1469,16 @@ describe('QuantityTableEditPage', () => {
       await waitFor(() => {
         expect(screen.getByTestId('photo-annotation-badge-photo-1')).toBeInTheDocument();
       });
+
+      // 写真選択ダイアログの一覧表示は原本ではなくサムネイルを表示元に用いる
+      // （quantity-table-generation/REQ-49.10）。写真変更ダイアログ側は
+      // PhotoChangeDialog.test.tsx が同じ規則を固定する。
+      const photoDialog = within(screen.getByRole('dialog', { name: /写真を選択/ }));
+      for (const photo of mockPhotosWithAnnotations) {
+        const candidate = photoDialog.getByAltText(photo.fileName);
+        expect(candidate).toHaveAttribute('src', photo.thumbnailUrl);
+        expect(candidate).not.toHaveAttribute('src', photo.originalUrl);
+      }
     });
 
     // Task 115.13: 写真選択ダイアログの注釈の目印も「描画された注釈の有無」で判定する

@@ -64,7 +64,7 @@ const quantityTableService = new QuantityTableService({
  * クライアントサイドの注釈合成（グループごとの注釈取得APIとFabric.jsレンダリング）を
  * 省略するために用いる。変換対象から漏れると表示できずクライアント合成へ退行するため、
  * thumbnailUrl/originalUrl と同じ経路で変換する。
- * Requirements: 49.1, 49.3
+ * Requirements: quantity-table-generation 49.1（写真表示に必要な情報をまとめて取得する）
  */
 async function enrichQuantityTableSignedUrls(
   quantityTable: QuantityTableDetailWithItems

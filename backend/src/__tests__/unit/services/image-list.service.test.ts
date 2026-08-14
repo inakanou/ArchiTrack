@@ -198,7 +198,13 @@ describe('ImageListService', () => {
       expect(result[0]?.thumbnailUrl).toBeNull();
     });
 
-    it('アクセス権限がない場合は原画像URLをnullにすること', async () => {
+    /**
+     * 画面表示の効率化（権限検証の現場調査単位への集約）が、アクセス可否の判定結果を
+     * 変えないことを固定する。
+     *
+     * @requirement site-survey/REQ-38.9
+     */
+    it('アクセス権限がない場合は原画像URLをnullにすること (site-survey/REQ-38.9)', async () => {
       const surveyId = '123e4567-e89b-12d3-a456-426614174000';
       const userId = 'user-123';
       const mockImages = [
@@ -228,7 +234,14 @@ describe('ImageListService', () => {
       expect(result[0]?.originalUrl).toBeNull();
     });
 
-    it('画像枚数によらずアクセス権限検証を1回だけ行い、画像ごとの署名付きURL再照会を行わないこと', async () => {
+    /**
+     * 権限検証の集約が「1回だけ・同じ引数で」行われることを固定する。判定の入力
+     * （現場調査IDと利用者ID）が削減の前後で変わらないことが、判定結果を変えないこと
+     * （site-survey/REQ-38.9）の根拠になる。
+     *
+     * @requirement site-survey/REQ-38.9
+     */
+    it('画像枚数によらずアクセス権限検証を1回だけ行い、画像ごとの署名付きURL再照会を行わないこと (site-survey/REQ-38.9)', async () => {
       // 写真が多い現場調査で画面読み込み時のクエリ数が枚数に比例しないことを保証する。
       // Requirements: 16.1（画像一覧の初期表示を2秒以内に完了する）
       const surveyId = '123e4567-e89b-12d3-a456-426614174000';

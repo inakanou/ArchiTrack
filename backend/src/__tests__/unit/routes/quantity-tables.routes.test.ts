@@ -685,7 +685,13 @@ describe('QuantityTablesRoutes', () => {
       );
     });
 
-    it('surveyImageのannotatedThumbnailUrlも署名付きURLに変換して返却する（Req 49.1, 49.3）', async () => {
+    /**
+     * 数量グループの写真表示に必要な情報（表示元URL）を、グループごとの個別リクエストに
+     * 分割せず数量表の応答へまとめて載せること。
+     *
+     * @requirement quantity-table-generation/REQ-49.1
+     */
+    it('surveyImageのannotatedThumbnailUrlも署名付きURLに変換して返却する (quantity-table-generation/REQ-49.1)', async () => {
       // 注釈付きサムネイルは数量グループ表題部の写真表示でクライアントサイドの注釈合成
       // （グループごとの注釈取得API呼び出し）を省略するために用いる。変換されないと
       // `/api/storage/...` のままとなり表示できず、クライアント合成へ退行する。

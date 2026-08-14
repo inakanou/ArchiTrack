@@ -87,7 +87,13 @@ describe('PhotoChangeDialog', () => {
       expect(screen.getByText('利用可能な写真がありません')).toBeInTheDocument();
     });
 
-    it('REQ-19.2: 注釈付きサムネイルURLが存在する場合はそちらを使用すること', () => {
+    /**
+     * 写真変更ダイアログの写真一覧表示にサムネイル画像（合成済み優先・素のサムネイル退避）
+     * を用い、原本画像を表示元にしないこと。
+     *
+     * @requirement quantity-table-generation/REQ-49.10
+     */
+    it('REQ-19.2: 注釈付きサムネイルURLが存在する場合はそちらを使用すること (quantity-table-generation/REQ-49.10)', () => {
       const imageWithAnnotation = createImage({
         id: 'img-anno',
         fileName: 'annotated.jpg',
@@ -100,17 +106,25 @@ describe('PhotoChangeDialog', () => {
       expect(img.src).toContain('/thumb/annotated.jpg');
     });
 
-    it('REQ-19.2: 注釈付きサムネイルURLがnullの場合は通常サムネイルを使用すること', () => {
+    /**
+     * 合成済みサムネイルが無い場合も素のサムネイルを表示元に用い、原本へ退行しないこと。
+     *
+     * @requirement quantity-table-generation/REQ-49.10
+     */
+    it('REQ-19.2: 注釈付きサムネイルURLがnullの場合は通常サムネイルを使用すること (quantity-table-generation/REQ-49.10)', () => {
       const imageWithoutAnnotation = createImage({
         id: 'img-normal',
         fileName: 'normal.jpg',
         thumbnailUrl: '/thumb/normal.jpg',
+        originalUrl: '/original/normal.jpg',
         annotatedThumbnailUrl: null,
       });
       render(<PhotoChangeDialog {...defaultProps} images={[imageWithoutAnnotation]} />);
 
       const img = screen.getByAltText('normal.jpg') as HTMLImageElement;
       expect(img.src).toContain('/thumb/normal.jpg');
+      // 原本画像は一覧表示の表示元に用いない
+      expect(img.src).not.toContain('/original/normal.jpg');
     });
   });
 

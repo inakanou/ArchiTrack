@@ -304,7 +304,16 @@ describe('QuantityGroupCard', () => {
     });
 
     describe('REQ 3.3: 該当写真の注釈付きサムネイル表示', () => {
-      it('紐付き画像があるグループにサムネイルが表示される', () => {
+      /**
+       * 表題部の写真表示に原本ではなくサムネイルを用いること（REQ-49.4）。
+       * あわせて縮小表示であることの申告（preferThumbnail）を表示側へ渡していることを
+       * 固定する。これは注釈取得APIを省略する条件であり、注釈取得が発生しないことは
+       * AnnotatedImageThumbnail のテストが引き受ける（REQ-49.2）。
+       *
+       * @requirement quantity-table-generation/REQ-49.4
+       * @requirement quantity-table-generation/REQ-49.2
+       */
+      it('紐付き画像があるグループにサムネイルが表示される (quantity-table-generation/REQ-49.4, quantity-table-generation/REQ-49.2)', () => {
         renderWithRouter(
           <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
         );
@@ -317,7 +326,12 @@ describe('QuantityGroupCard', () => {
         expect(thumbnail).toHaveAttribute('data-prefer-thumbnail', 'true');
       });
 
-      it('サーバー生成の注釈付きサムネイルがある場合はそれを表示する', () => {
+      /**
+       * 注釈をレンダリングしたサムネイルが利用可能なときは表題部の表示元に当該画像を用いる。
+       *
+       * @requirement quantity-table-generation/REQ-49.5
+       */
+      it('サーバー生成の注釈付きサムネイルがある場合はそれを表示する (quantity-table-generation/REQ-49.5)', () => {
         renderWithRouter(
           <QuantityGroupCard
             group={{

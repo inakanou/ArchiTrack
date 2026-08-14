@@ -355,7 +355,15 @@ describe('AnnotatedImageThumbnail', () => {
       hasAnnotations: true,
     };
 
-    it('preferThumbnail=true かつ annotatedThumbnailUrl がある場合はそれを表示し getAnnotation を呼ばない', async () => {
+    /**
+     * 合成済みサムネイルが供給されている場合、注釈を反映した表示のための追加リクエスト
+     * （注釈取得API）が発生しないこと。数量表編集画面の表題部はこの経路を数量グループ
+     * ごとに用いるため、グループごとの追加リクエストが発生しないことの根拠になる
+     * （呼び出し側が preferThumbnail を渡すことは QuantityGroupCard.test.tsx が固定する）。
+     *
+     * @requirement quantity-table-generation/REQ-49.2
+     */
+    it('preferThumbnail=true かつ annotatedThumbnailUrl がある場合はそれを表示し getAnnotation を呼ばない (quantity-table-generation/REQ-49.2)', async () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
 
       renderRevealed(
@@ -374,8 +382,28 @@ describe('AnnotatedImageThumbnail', () => {
       expect(surveyAnnotationsApi.getAnnotation).not.toHaveBeenCalled();
     });
 
-    it('preferThumbnail=true でも annotatedThumbnailUrl がない場合はクライアント合成にフォールバックする', async () => {
-      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+    /**
+     * 合成済みサムネイルが利用できない場合の代替手段（クライアント合成）。
+     *
+     * 注釈取得が発生するだけでは「代替手段が働いた」までしか示せないため、合成結果が
+     * 実際に表示元へ反映されること（素のサムネイルのままにならないこと）まで確認する。
+     * これは現場調査の一覧・詳細（site-survey/REQ-38.6）と数量表編集画面の表題部
+     * （quantity-table-generation/REQ-49.6）が共有する同一の退避経路である。
+     *
+     * @requirement site-survey/REQ-38.6
+     * @requirement quantity-table-generation/REQ-49.6
+     */
+    it('preferThumbnail=true でも annotatedThumbnailUrl がない場合はクライアント合成にフォールバックし合成結果を表示する (site-survey/REQ-38.6, quantity-table-generation/REQ-49.6)', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: annotatedImage.id,
+        data: {
+          objects: [{ type: 'rect', left: 100, top: 100, width: 200, height: 150 }],
+        },
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      });
 
       renderRevealed(
         <AnnotatedImageThumbnail
@@ -388,6 +416,15 @@ describe('AnnotatedImageThumbnail', () => {
 
       await waitFor(() => {
         expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalledWith(annotatedImage.id);
+      });
+
+      // 合成結果（キャンバスの出力）が表示元になること。素のサムネイルのままなら
+      // 注釈が失われており、代替手段が表示結果を維持できていない
+      await waitFor(() => {
+        expect(screen.getByRole('img')).toHaveAttribute(
+          'src',
+          'data:image/jpeg;base64,mockdataurl'
+        );
       });
     });
 
