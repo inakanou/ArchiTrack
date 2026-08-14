@@ -3459,5 +3459,117 @@ describe('AnnotationEditor', () => {
         expect(screen.queryByRole('button', { name: /回転/i })).not.toBeInTheDocument();
       });
     });
+
+    /**
+     * Task 115.11: 保存済みの回転を表示へ適用する前に検証する
+     *
+     * Requirements: 22.5, 22.8
+     *
+     * 保存済みデータの回転角度は破損データ・旧データ・外部からの直接更新により
+     * 0/90/180/270 以外の値を含み得る。想定外の値をそのまま表示へ適用すると、
+     * 角度だけが適用されて表示領域の縦横が入れ替わらず画像が切れる（例: -90）、
+     * あるいは角度の指定自体が破綻する（例: 数値でない値）。
+     * 復元時も想定内の4つの角度へ正規化してから表示へ適用することを検証する。
+     */
+    describe('保存済み回転の復元表示 (Task 115.11, Req 22.5, 22.8)', () => {
+      // 背景画像モックの自然サイズ 1000x800・スケール 0.8 に対応する表示寸法
+      const UPRIGHT_SIZE = { width: 800, height: 640 };
+      const SWAPPED_SIZE = { width: 640, height: 800 };
+      const ALLOWED_ANGLES = [0, 90, 180, 270];
+
+      afterEach(async () => {
+        const { getAnnotation } = await import('../../../api/survey-annotations');
+        vi.mocked(getAnnotation).mockResolvedValue(null);
+      });
+
+      /** 指定した回転角度が永続化された状態で編集画面を描画する */
+      async function renderWithSavedRotation(savedRotation: unknown): Promise<void> {
+        const { getAnnotation } = await import('../../../api/survey-annotations');
+        vi.mocked(getAnnotation).mockResolvedValue({
+          id: 'test-annotation',
+          imageId: defaultProps.imageId,
+          data: { version: '1.0', objects: [], imageRotation: savedRotation },
+          version: '1.0',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        } as unknown as Awaited<ReturnType<typeof getAnnotation>>);
+
+        render(<AnnotationEditor {...defaultProps} />);
+
+        await waitFor(() => {
+          expect(getAnnotation).toHaveBeenCalledWith(defaultProps.imageId);
+        });
+      }
+
+      /** 背景画像へ適用された角度の一覧（set呼び出しのうち angle を含むもの） */
+      function appliedAngles(): unknown[] {
+        return mockFabricImageInstance.set.mock.calls
+          .map((call) => call[0] as { angle?: unknown } | undefined)
+          .filter((arg): arg is { angle: unknown } => !!arg && 'angle' in arg)
+          .map((arg) => arg.angle);
+      }
+
+      it('保存済みの回転が負の値でも想定内の角度へ正規化して表示へ適用する (Req 22.5, 22.8)', async () => {
+        // -90度は270度と等価。正規化せずに適用すると angle=-90 かつ縦横が
+        // 入れ替わらないため、画像が表示領域から切れる。
+        await renderWithSavedRotation(-90);
+
+        await waitFor(() => {
+          expect(appliedAngles()).toContain(270);
+        });
+        // 270度は縦横が入れ替わる（切れない表示になる）
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalledWith(SWAPPED_SIZE);
+        // 想定外の角度がそのまま適用されていないこと
+        expect(appliedAngles()).not.toContain(-90);
+        expect(mockCanvasInstance.setDimensions).not.toHaveBeenCalledWith(UPRIGHT_SIZE);
+      });
+
+      it('保存済みの回転が一周した値では無回転として表示する (Req 22.5, 22.8)', async () => {
+        // 360度は一周であり無回転と等価。角度として 360 を適用してはならない。
+        await renderWithSavedRotation(360);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        expect(appliedAngles()).not.toContain(360);
+        for (const angle of appliedAngles()) {
+          expect(ALLOWED_ANGLES).toContain(angle);
+        }
+        // 無回転なので縦横は入れ替わらない
+        expect(mockCanvasInstance.setDimensions).not.toHaveBeenCalledWith(SWAPPED_SIZE);
+      });
+
+      it('保存済みの回転が数値でない場合でも表示が破綻しない (Req 22.5, 22.8)', async () => {
+        // 数値でない値は回転として判定不能。角度指定・キャンバス寸法の双方が
+        // 非数値へ汚染されないことを検証する。
+        await renderWithSavedRotation(Number.NaN);
+
+        await waitFor(() => {
+          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+        });
+
+        for (const angle of appliedAngles()) {
+          expect(ALLOWED_ANGLES).toContain(angle);
+        }
+        for (const call of mockCanvasInstance.setDimensions.mock.calls) {
+          const size = call[0] as { width: number; height: number };
+          expect(Number.isFinite(size.width)).toBe(true);
+          expect(Number.isFinite(size.height)).toBe(true);
+        }
+      });
+
+      it('保存済みの回転が想定外の角度でも最も近い想定角へ丸めて表示する (Req 22.5, 22.8)', async () => {
+        // 45度は想定内の角度ではない。最も近い想定角（90度）へ丸めることで、
+        // 角度と表示領域の縦横が常に整合する。
+        await renderWithSavedRotation(45);
+
+        await waitFor(() => {
+          expect(appliedAngles()).toContain(90);
+        });
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalledWith(SWAPPED_SIZE);
+        expect(appliedAngles()).not.toContain(45);
+      });
+    });
   });
 });

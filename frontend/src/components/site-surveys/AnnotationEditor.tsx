@@ -326,6 +326,41 @@ function normalizeImageRotation(rotation: number): number {
   return ((rotation % 360) + 360) % 360;
 }
 
+/** 表示へ適用できる回転角度（度） */
+type ImageRotation = 0 | 90 | 180 | 270;
+
+/** 表示へ適用できる回転角度の一覧（インデックス = 90度単位の象限） */
+const IMAGE_ROTATION_QUADRANTS: readonly [
+  ImageRotation,
+  ImageRotation,
+  ImageRotation,
+  ImageRotation,
+] = [0, 90, 180, 270];
+
+/**
+ * 保存済みの回転角度を表示へ適用できる角度へ検証・正規化する
+ *
+ * 表示への適用（applyImageRotation）は 90度/270度のときだけ表示領域の縦横を入れ替えるため、
+ * 想定外の値（負の値・360度以上・90度単位でない値・数値でない値）をそのまま渡すと、
+ * 角度だけが適用されて縦横が入れ替わらず画像が切れる、あるいは角度指定自体が破綻する。
+ * 破損データ・旧データ・外部からの直接更新に備え、表示へ適用する前に想定内の4つの角度へ
+ * 丸める。normalizeImageRotation（生成要否の判定と同一の規則）で 0 以上 360 未満へ
+ * 正規化したうえで、最も近い90度単位の象限へ丸めることで、適用する角度と表示領域の
+ * 縦横が常に整合する。
+ *
+ * @param rotation - 保存済みデータ由来の回転角度（値の妥当性は保証されない）
+ * @returns 表示へ適用できる回転角度（0/90/180/270）
+ *
+ * @requirement 22.5, 22.8
+ */
+function toDisplayImageRotation(rotation: unknown): ImageRotation {
+  const numeric = typeof rotation === 'number' ? rotation : Number.NaN;
+  const normalized = normalizeImageRotation(numeric);
+  // normalized は 0 以上 360 未満のため、象限は 0..4 に収まる（4 は一周＝0 と等価）
+  const quadrant = Math.round(normalized / 90) % IMAGE_ROTATION_QUADRANTS.length;
+  return IMAGE_ROTATION_QUADRANTS[quadrant] ?? IMAGE_ROTATION_QUADRANTS[0];
+}
+
 // ============================================================================
 // コンポーネント
 // ============================================================================
@@ -801,8 +836,11 @@ function AnnotationEditor({
               return;
             }
 
-            // 回転状態の復元 (Req 22.4, 22.5)
-            const savedRotation = (annotationData.data.imageRotation ?? 0) as 0 | 90 | 180 | 270;
+            // 回転状態の復元 (Req 22.4, 22.5, 22.8)
+            // Task 115.11: 保存済みの値は 0/90/180/270 に限られない（破損データ・旧データ・
+            // 外部からの直接更新）。想定外の値のまま表示へ適用すると画像が切れる／角度指定が
+            // 破綻するため、表示へ適用する前に想定内の角度へ検証・正規化する。
+            const savedRotation = toDisplayImageRotation(annotationData.data.imageRotation);
             if (savedRotation !== 0 && backgroundImageRef.current) {
               imageRotationRef.current = savedRotation;
               applyImageRotation(canvas, backgroundImageRef.current, savedRotation);
