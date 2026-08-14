@@ -884,9 +884,13 @@ test.describe('数量表CRUD操作', () => {
 
       const firstGroup = groups.first();
 
-      // 写真選択前：プレースホルダーが表示されていることを確認
+      // 写真選択前：プレースホルダーが表示されていることを確認。
+      // 事前準備で作成したグループは写真未紐付けであるため、プレースホルダーは必ず存在する。
       const placeholder = firstGroup.getByTestId(/image-placeholder/);
-      const hasPlaceholder = await placeholder.isVisible({ timeout: 3000 }).catch(() => false);
+      await expect(
+        placeholder,
+        '写真未紐付けのグループにはプレースホルダーが表示される必要がある'
+      ).toBeVisible({ timeout: getTimeout(5000) });
 
       // 写真選択ボタンをクリック
       const photoSelectButton = firstGroup.getByRole('button', { name: /写真を選択/ });
@@ -903,46 +907,32 @@ test.describe('数量表CRUD操作', () => {
       const photoListOrEmpty = photoList.or(emptyStateText);
       await expect(photoListOrEmpty).toBeVisible({ timeout: getTimeout(20000) });
 
-      // 写真一覧から最初の写真を選択（写真が存在する場合）
+      // 写真一覧から最初の写真を選択する。
+      // 事前準備で現場調査へ写真をアップロードしているため候補は必ず存在する。
+      // 候補が無いことを理由に検証を飛ばすと、紐付けの検証が実質を持たなくなる。
       const photos = photoDialog.locator('img');
-      const photoCount = await photos.count();
+      await expect(
+        photos.first(),
+        '写真の選択候補が存在する必要がある（事前準備でアップロード済み）'
+      ).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (photoCount > 0) {
-        // 写真を選択
-        await photos.first().click();
+      // 写真を選択
+      await photos.first().click();
 
-        // APIコールを待つ
-        await page
-          .waitForResponse(
-            (resp) => resp.url().includes('/api/quantity-groups/') && resp.status() === 200,
-            { timeout: getTimeout(10000) }
-          )
-          .catch(() => {
-            // APIがまだ実装されていない場合はスキップ
-          });
+      // ダイアログが閉じることを確認
+      await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
 
-        // ダイアログが閉じることを確認
-        await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
+      // グループにサムネイルが表示されることを確認（必須）
+      const thumbnail = firstGroup.locator('img');
+      await expect(thumbnail).toBeVisible({ timeout: getTimeout(5000) });
 
-        // グループにサムネイルが表示されることを確認（必須）
-        const thumbnail = firstGroup.locator('img');
-        await expect(thumbnail).toBeVisible({ timeout: getTimeout(5000) });
+      // プレースホルダーが消えていることを確認
+      await expect(placeholder).not.toBeVisible({ timeout: getTimeout(3000) });
 
-        // プレースホルダーが消えていることを確認
-        if (hasPlaceholder) {
-          await expect(placeholder).not.toBeVisible({ timeout: getTimeout(3000) });
-        }
-
-        // REQ-42.5: 写真の紐づけはクライアントドラフトの更新に留まるため、保存しないと
-        // リロード後には失われる。以降のテスト（REQ-3.3 の表示元検証など）が
-        // 紐づけ済みの状態を前提とするため、ここで明示保存して永続化する。
-        await saveQuantityTableDraft(page);
-      } else {
-        // 写真がない場合はダイアログを閉じてテスト終了
-        const closeButton = photoDialog.getByRole('button', { name: /ダイアログを閉じる/ });
-        await closeButton.click();
-        await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // REQ-42.5: 写真の紐づけはクライアントドラフトの更新に留まるため、保存しないと
+      // リロード後には失われる。以降のテスト（REQ-3.3 の表示元検証など）が
+      // 紐づけ済みの状態を前提とするため、ここで明示保存して永続化する。
+      await saveQuantityTableDraft(page);
     });
 
     test('写真紐づけ時に注釈付き写真と数量項目の関連性が視覚的に表示される (quantity-table-generation/REQ-4.4)', async ({
@@ -972,110 +962,32 @@ test.describe('数量表CRUD操作', () => {
 
       const firstGroup = groups.first();
 
-      // 写真が紐付けられている場合、注釈オーバーレイが表示されることを確認
+      // 直前の REQ-4.3-link テストで写真を紐づけて保存しているため、
+      // サムネイルは必ず表示される。紐付けの有無を観測して分岐すると、
+      // 写真が出ても出なくても通る自己充足の構造になる。
       const thumbnail = firstGroup.locator('img');
-      const hasThumbnail = await thumbnail.isVisible({ timeout: 3000 }).catch(() => false);
+      await expect(
+        thumbnail,
+        '写真紐づけ済みグループにはサムネイルが表示される必要がある'
+      ).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (hasThumbnail) {
-        // REQ-4.4: 写真が紐付けられている場合の動作を確認
-        // 注釈オーバーレイの有無を確認（注釈がある画像の場合のみ表示）
-        const annotationOverlay = firstGroup.getByTestId(/annotation-overlay/);
-        const hasAnnotationOverlay = await annotationOverlay
-          .isVisible({ timeout: 3000 })
-          .catch(() => false);
+      // REQ-4.4: 注釈の目印（バッジ）は「描画された注釈を持つ写真」にのみ表示される。
+      // 事前準備でアップロードしただけの写真は注釈を持たないため、目印は表示されない。
+      // 目印の有無を自ら観測して分岐せず、非表示を無条件に検証する。
+      await expect(
+        firstGroup.locator('[data-testid^="annotation-badge-"]'),
+        '描画された注釈を持たない写真のグループには注釈の目印を表示しない'
+      ).toHaveCount(0);
 
-        // サムネイルをクリックすると注釈ビューアが表示される
-        await thumbnail.click();
+      // REQ-4.4: サムネイルをクリックすると写真プレビュー（注釈ビューア）が表示される
+      await thumbnail.click();
+      const viewerModal = page.getByTestId('photo-preview-overlay');
+      await expect(viewerModal).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 写真プレビューダイアログが表示されることを確認
-        const viewerModal = page.getByTestId('photo-preview-overlay');
-        await expect(viewerModal).toBeVisible({ timeout: getTimeout(5000) });
-
-        // 注釈がある場合は注釈関連UIも確認
-        if (hasAnnotationOverlay) {
-          // 注釈オーバーレイ表示を確認
-          await expect(annotationOverlay).toBeVisible();
-        }
-
-        // モーダルを閉じる
-        const closeModal = viewerModal.getByRole('button', { name: /閉じる|×/ });
-        await closeModal.click();
-        await expect(viewerModal).not.toBeVisible({ timeout: getTimeout(3000) });
-      } else {
-        // 写真が紐付けられていない場合、自分で写真を紐付ける
-        const photoSelectButton = firstGroup.getByRole('button', { name: /写真を選択/ });
-        if (!(await photoSelectButton.isVisible({ timeout: 3000 }).catch(() => false))) {
-          throw new Error(
-            'REQ-4.4: 写真選択ボタンが見つかりません。写真関連UIが正しく実装されていません。'
-          );
-        }
-
-        // 写真選択ダイアログを開く
-        await photoSelectButton.click();
-        const photoDialog = page.getByRole('dialog', { name: /写真を選択/ });
-        await expect(photoDialog).toBeVisible({ timeout: getTimeout(10000) });
-
-        // 写真一覧または空状態が表示されるまで待機
-        const photoList = photoDialog.getByTestId('photo-list');
-        const emptyStateText = photoDialog.getByText(/利用可能な写真がありません/);
-        const photoListOrEmpty = photoList.or(emptyStateText);
-        await expect(photoListOrEmpty).toBeVisible({ timeout: getTimeout(20000) });
-
-        // 写真が利用可能か確認
-        const photos = photoDialog.locator('img');
-        const photoCount = await photos.count();
-
-        if (photoCount === 0) {
-          // 写真がない場合はダイアログを閉じてテストをスキップ（テストデータの問題）
-          const closeButton = photoDialog.getByRole('button', { name: /ダイアログを閉じる/ });
-          await closeButton.click();
-          await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
-
-          // 写真がないため注釈表示機能をテストできない - 明確なメッセージで失敗
-          throw new Error(
-            'REQ-4.4: テスト環境に写真がないため、注釈表示機能をテストできません。テストデータに写真を追加してください。'
-          );
-        }
-
-        // 写真を選択して紐付ける
-        await photos.first().click();
-
-        // APIコールを待つ
-        await page
-          .waitForResponse(
-            (resp) => resp.url().includes('/api/quantity-groups/') && resp.status() === 200,
-            { timeout: getTimeout(10000) }
-          )
-          .catch(() => {
-            // APIがまだ実装されていない場合はスキップ
-          });
-
-        // ダイアログが閉じることを確認
-        await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
-
-        // 紐付け後、注釈機能をテスト
-        const linkedThumbnail = firstGroup.locator('img');
-        await expect(linkedThumbnail).toBeVisible({ timeout: getTimeout(5000) });
-
-        // REQ-4.4: 注釈オーバーレイが表示されることを確認
-        const annotationOverlay = firstGroup.getByTestId(/annotation-overlay/);
-        const hasAnnotationOverlay = await annotationOverlay
-          .isVisible({ timeout: 3000 })
-          .catch(() => false);
-
-        if (hasAnnotationOverlay) {
-          // 注釈オーバーレイがある場合、クリックして注釈ビューアを確認
-          await linkedThumbnail.click();
-          const viewerModal = page.getByTestId('annotation-viewer-modal');
-          await expect(viewerModal).toBeVisible({ timeout: getTimeout(5000) });
-
-          // モーダルを閉じる
-          const closeModal = viewerModal.getByRole('button', { name: /閉じる|×/ });
-          await closeModal.click();
-          await expect(viewerModal).not.toBeVisible({ timeout: getTimeout(3000) });
-        }
-        // 注釈がない写真の場合は紐付けのみで成功とする
-      }
+      // モーダルを閉じる
+      const closeModal = viewerModal.getByRole('button', { name: /閉じる|×/ });
+      await closeModal.click();
+      await expect(viewerModal).not.toBeVisible({ timeout: getTimeout(3000) });
     });
 
     test('写真が紐づけられたグループではオリジナル画像（注釈付き）が表示される (quantity-table-generation/REQ-3.3)', async ({
@@ -1107,104 +1019,88 @@ test.describe('数量表CRUD操作', () => {
 
       const firstGroup = groups.first();
 
-      // 写真が紐付けられている場合のテスト
-      // 注: locator.isVisible({ timeout }) は timeout が無視され即時判定されるため、
-      // 画像の描画完了前に「写真なし」と誤判定して検証本体が実行されなくなる。
-      // 紐付け済みの写真が描画されるまで待ってから分岐する。
+      // REQ-3.3: 紐付け写真の注釈付き画像が表示されることを確認（必須）
+      //
+      // 直前の REQ-4.3-link テストで写真を紐づけて保存しているため、画像は必ず表示される。
+      // 紐付けの有無を自ら観測して分岐すると、写真が出ても出なくても通る構造になるため、
+      // 表示を無条件に検証する。表示に用いる画像の選択は REQ-49.4/49.5 が定める
+      // （原本ではなくサムネイル）。
       const image = firstGroup.locator('img');
-      const hasImage = await image
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false);
+      await expect(image, '紐付け済みの写真が表示される必要がある').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      if (hasImage) {
-        // REQ-3.3: 紐付け写真の注釈付き画像が表示されることを確認（必須）
-        // 表示に用いる画像の選択は REQ-49.4/49.5 が定める（原本ではなくサムネイル）
-        await expect(image).toBeVisible();
+      // 表示元の検証（REQ-49.4 / REQ-49.5 / REQ-49.6）
+      //
+      // 表題部の縮小表示には原本ではなくサムネイルを用い、注釈をレンダリングした
+      // 合成済みサムネイルが利用可能であればそれを表示元とする。
+      // 判定はストレージキーの命名（`_thumb` を含むか等）ではなく、画面が実際に用いる
+      // 取得経路（GET /api/quantity-tables/:id）の応答を基準に行う。命名を前提にすると、
+      // 合成済みサムネイル（annotated-thumbnails/... 区画）が表示元になった時点で
+      // 判定が成立しなくなる。
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const detailResponse = await page.request.get(
+        `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      expect(detailResponse.ok()).toBeTruthy();
+      const detail = (await detailResponse.json()) as {
+        groups: Array<{
+          surveyImage: {
+            fileName: string;
+            originalUrl: string;
+            thumbnailUrl: string;
+            annotatedThumbnailUrl: string | null;
+            hasDrawnAnnotations: boolean;
+          } | null;
+        }>;
+      };
 
-        // 表示元の検証（REQ-49.4 / REQ-49.5 / REQ-49.6）
-        //
-        // 表題部の縮小表示には原本ではなくサムネイルを用い、注釈をレンダリングした
-        // 合成済みサムネイルが利用可能であればそれを表示元とする。
-        // 判定はストレージキーの命名（`_thumb` を含むか等）ではなく、画面が実際に用いる
-        // 取得経路（GET /api/quantity-tables/:id）の応答を基準に行う。命名を前提にすると、
-        // 合成済みサムネイル（annotated-thumbnails/... 区画）が表示元になった時点で
-        // 判定が成立しなくなる。
-        const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
-        const detailResponse = await page.request.get(
-          `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        expect(detailResponse.ok()).toBeTruthy();
-        const detail = (await detailResponse.json()) as {
-          groups: Array<{
-            surveyImage: {
-              fileName: string;
-              originalUrl: string;
-              thumbnailUrl: string;
-              annotatedThumbnailUrl: string | null;
-              hasDrawnAnnotations: boolean;
-            } | null;
-          }>;
-        };
+      const imageAlt = await image.getAttribute('alt');
+      const linkedImage = detail.groups.find(
+        (group) => group.surveyImage !== null && group.surveyImage.fileName === imageAlt
+      )?.surveyImage;
+      expect(linkedImage, `表示中の画像(${imageAlt})が数量表の応答に含まれる`).toBeTruthy();
 
-        const imageAlt = await image.getAttribute('alt');
-        const linkedImage = detail.groups.find(
-          (group) => group.surveyImage !== null && group.surveyImage.fileName === imageAlt
-        )?.surveyImage;
-        expect(linkedImage, `表示中の画像(${imageAlt})が数量表の応答に含まれる`).toBeTruthy();
+      const imageSrc = await image.getAttribute('src');
+      expect(imageSrc, '表示元URLが設定されている').toBeTruthy();
 
-        const imageSrc = await image.getAttribute('src');
-        expect(imageSrc, '表示元URLが設定されている').toBeTruthy();
+      const pathOf = (url: string): string => new URL(url, page.url()).pathname;
 
-        const pathOf = (url: string): string => new URL(url, page.url()).pathname;
+      // 原本画像は縮小表示に用いない（REQ-49.4）
+      expect(pathOf(imageSrc!)).not.toBe(pathOf(linkedImage!.originalUrl));
 
-        // 原本画像は縮小表示に用いない（REQ-49.4）
-        expect(pathOf(imageSrc!)).not.toBe(pathOf(linkedImage!.originalUrl));
+      // 応答の項目の有無を条件にして検証を選ぶと、当該項目が常に空である限り
+      // 検証本体が一度も実行されない。ここは前提が既知であること
+      // （この写真は事前準備でアップロードしただけで画像編集画面を一度も経ておらず、
+      // 描画された注釈も合成済みサムネイルも持たない）を、画面が実際に用いる取得経路の
+      // 応答で先に確定させたうえで、表示元を無条件に検証する。
+      // 注釈がある場合（REQ-49.5 / REQ-49.6）の表示元は、注釈を描いた状態を自ら用意する
+      // 本ファイル末尾の「数量表グループの注釈の目印」および site-survey 側の
+      // 注釈付きサムネイルのテストで検証する。
+      expect(
+        linkedImage!.hasDrawnAnnotations,
+        '事前準備でアップロードしただけの写真は描画された注釈を持たない'
+      ).toBe(false);
+      expect(
+        linkedImage!.annotatedThumbnailUrl,
+        '描画された注釈が無い写真には合成済みサムネイルが存在しない'
+      ).toBeNull();
 
-        if (linkedImage!.annotatedThumbnailUrl) {
-          // 合成済みサムネイルが利用可能な場合はそれを表示元とする（REQ-49.5）
-          expect(pathOf(imageSrc!)).toBe(pathOf(linkedImage!.annotatedThumbnailUrl));
-        } else if (linkedImage!.hasDrawnAnnotations) {
-          // 合成済みサムネイルが無い注釈付き画像は、通常サムネイルにクライアント側で
-          // 注釈を重ねて表示結果を維持する（REQ-49.6）。合成結果は data URL として現れる
-          expect(
-            imageSrc!.startsWith('data:image/') ||
-              pathOf(imageSrc!) === pathOf(linkedImage!.thumbnailUrl)
-          ).toBe(true);
-        } else {
-          // 注釈が無い画像は通常サムネイルをそのまま表示する（REQ-49.4）
-          expect(pathOf(imageSrc!)).toBe(pathOf(linkedImage!.thumbnailUrl));
-        }
+      // 注釈が無い画像は通常サムネイルをそのまま表示する（REQ-49.4）
+      expect(pathOf(imageSrc!)).toBe(pathOf(linkedImage!.thumbnailUrl));
 
-        // 注釈の目印（バッジ）の検証（site-survey/REQ-20.2、site-survey Task 115.14）
-        //
-        // 目印の有無を自ら観測し、その結果を条件にして検証すると、目印が出ても出なくても
-        // 通る自己充足の構造になる。ここでは前提が既知であること
-        // （この写真は事前準備でアップロードしただけで画像編集画面を一度も経ておらず、
-        // 描画された注釈を持たない）を画面が実際に用いる取得経路の応答で確認したうえで、
-        // 非表示を無条件に検証する。
-        // 目印が「表示される」側の検証は、注釈を描いた状態を自ら用意する本ファイル末尾の
-        // 「数量表グループの注釈の目印」で行う。
-        expect(
-          linkedImage!.hasDrawnAnnotations,
-          '事前準備でアップロードしただけの写真は描画された注釈を持たない'
-        ).toBe(false);
-        await expect(
-          firstGroup.locator('[data-testid^="annotation-badge-"]'),
-          '描画された注釈を持たない写真のグループには注釈の目印を表示しない'
-        ).toHaveCount(0);
-      } else {
-        // 写真が紐付けられていない場合、プレースホルダーまたは写真選択ボタンが表示される
-        const placeholder = firstGroup.getByTestId(/image-placeholder/);
-        const photoButton = firstGroup.getByRole('button', { name: /写真を選択/ });
-
-        const hasPlaceholder = await placeholder.isVisible({ timeout: 2000 }).catch(() => false);
-        const hasPhotoButton = await photoButton.isVisible({ timeout: 2000 }).catch(() => false);
-
-        // 写真未紐付け時は適切なUIが表示されること
-        expect(hasPlaceholder || hasPhotoButton).toBeTruthy();
-      }
+      // 注釈の目印（バッジ）の検証（site-survey/REQ-20.2、site-survey Task 115.14）
+      //
+      // 目印の有無を自ら観測し、その結果を条件にして検証すると、目印が出ても出なくても
+      // 通る自己充足の構造になる。上で前提（描画された注釈を持たない）を確定させたうえで、
+      // 非表示を無条件に検証する。
+      // 目印が「表示される」側の検証は、注釈を描いた状態を自ら用意する本ファイル末尾の
+      // 「数量表グループの注釈の目印」で行う。
+      await expect(
+        firstGroup.locator('[data-testid^="annotation-badge-"]'),
+        '描画された注釈を持たない写真のグループには注釈の目印を表示しない'
+      ).toHaveCount(0);
     });
 
     test('数量グループを折りたたむと画像も非表示になる (quantity-table-generation/REQ-3.4)', async ({
@@ -1251,9 +1147,13 @@ test.describe('数量表CRUD操作', () => {
       // 初期状態: グループが展開されていることを確認
       await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
 
-      // 画像が紐付けられている場合の確認
+      // 画像が紐付けられていることの確認。
+      // REQ-4.3-link テストで写真を紐づけて保存しているため、画像は必ず表示される。
+      // 画像の有無を観測して分岐すると、折りたたみ時の非表示検証が実質を持たなくなる。
       const image = firstGroup.locator('img');
-      const hasImage = await image.isVisible({ timeout: 3000 }).catch(() => false);
+      await expect(image, '折りたたみ前は紐付け済みの画像が表示される必要がある').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // グループを折りたたむ
       await toggleButton.click();
@@ -1263,15 +1163,15 @@ test.describe('数量表CRUD操作', () => {
       await expect(expandButton).toBeVisible({ timeout: getTimeout(3000) });
 
       // REQ-3.4: 折りたたみ後、画像が非表示になることを確認
-      if (hasImage) {
-        // 画像が存在していた場合、折りたたみ後は非表示になっていること
-        await expect(image).not.toBeVisible({ timeout: getTimeout(3000) });
-      }
+      await expect(image, '折りたたみ後は画像が非表示になる必要がある').not.toBeVisible({
+        timeout: getTimeout(3000),
+      });
 
       // 項目一覧も非表示になっていることを確認
       const itemTable = firstGroup.getByRole('table', { name: /数量項目一覧/ });
-      const hasItemTable = await itemTable.isVisible({ timeout: 1000 }).catch(() => false);
-      expect(hasItemTable).toBeFalsy();
+      await expect(itemTable, '折りたたみ後は項目一覧が非表示になる必要がある').not.toBeVisible({
+        timeout: getTimeout(3000),
+      });
 
       // グループを再展開
       await expandButton.click();
@@ -1280,9 +1180,9 @@ test.describe('数量表CRUD操作', () => {
       await expect(toggleButton).toBeVisible({ timeout: getTimeout(3000) });
 
       // REQ-3.4: 展開後、画像が再表示されることを確認
-      if (hasImage) {
-        await expect(image).toBeVisible({ timeout: getTimeout(3000) });
-      }
+      await expect(image, '展開後は画像が再表示される必要がある').toBeVisible({
+        timeout: getTimeout(3000),
+      });
     });
   });
 

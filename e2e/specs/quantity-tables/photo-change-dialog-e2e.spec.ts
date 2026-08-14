@@ -7,56 +7,75 @@
  * - @requirement quantity-table-generation/REQ-19.3: 写真選択で紐づけ変更
  * - @requirement quantity-table-generation/REQ-19.4: 確定後に関連写真表示エリアを更新
  *
+ * Requirements coverage (site-survey):
+ * - REQ-115.19 相当の是正: 検証を条件分岐で包まず、前提が満たせない場合は失敗させる。
+ *   本ファイルは事前準備で現場調査と写真をシードし、写真の存在を前提として
+ *   REQ-19.1〜19.4 を無条件に検証する。
+ *
  * @module e2e/specs/quantity-tables/photo-change-dialog-e2e.spec
  */
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { API_BASE_URL } from '../../config';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/** 事前準備でシードする現場調査写真の枚数（REQ-19.2/19.3 の候補として必須） */
+const SEED_PHOTO_COUNT = 3;
 
 let testProjectId: string | null = null;
+let createdSurveyId: string | null = null;
 let createdQuantityTableId: string | null = null;
 
 /**
  * 数量表編集画面へ遷移する。
  *
- * 事前準備で作成した tableId が利用できる場合は直接遷移し、
- * それ以外は /projects → 詳細 → 一覧 → カード のUIフローでナビゲートする。
+ * 事前準備で作成した数量表を直接開く。前提（事前準備の成功）が満たせない場合は
+ * 黙って抜けずに失敗させる。
  */
-async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
-  if (createdQuantityTableId) {
-    await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-    await page.waitForLoadState('networkidle');
-    const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
-    return await editArea.isVisible({ timeout: getTimeout(10000) }).catch(() => false);
+async function navigateToQuantityTableEdit(page: Page): Promise<void> {
+  if (!createdQuantityTableId) {
+    throw new Error(
+      'createdQuantityTableIdが未設定です。事前準備テストが正しく実行されていません。'
+    );
   }
-
-  await page.goto('/projects');
+  await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
   await page.waitForLoadState('networkidle');
+  await expect(
+    page.locator('[data-testid="quantity-table-edit-area"]'),
+    '数量表編集画面が表示される必要がある'
+  ).toBeVisible({ timeout: getTimeout(15000) });
+}
 
-  const projectCard = page.locator('[data-testid^="project-card-"]').first();
-  if (!(await projectCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-    return false;
-  }
-  await projectCard.click();
-  await page.waitForLoadState('networkidle');
+/**
+ * 数量グループの写真選択ダイアログを開く。
+ *
+ * 未紐付けのグループではプレースホルダー、紐付け済みのグループでは
+ * 「写真を変更」ボタンが表示される。呼び出し側が期待する入口を明示して渡すことで、
+ * 「どちらか出た方を使う」という観測結果依存の分岐を排除する。
+ */
+async function openPhotoDialog(page: Page, entry: 'placeholder' | 'change-button'): Promise<void> {
+  const trigger =
+    entry === 'placeholder'
+      ? page.locator('[data-testid^="image-placeholder-"]').first()
+      : page.getByRole('button', { name: '写真を変更' }).first();
 
-  const quantityTableLink = page.getByText('すべて見る').first();
-  if (!(await quantityTableLink.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-    return false;
-  }
-  await quantityTableLink.click();
-  await page.waitForLoadState('networkidle');
+  await expect(trigger, `写真選択ダイアログの入口(${entry})が表示される必要がある`).toBeVisible({
+    timeout: getTimeout(10000),
+  });
+  await trigger.click();
 
-  const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-  if (!(await tableCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-    return false;
-  }
-  await tableCard.click();
-  await page.waitForLoadState('networkidle');
-
-  return true;
+  await expect(
+    page.getByRole('dialog', { name: '写真を選択' }),
+    '写真選択ダイアログが開く必要がある'
+  ).toBeVisible({ timeout: getTimeout(10000) });
 }
 
 test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示', () => {
@@ -67,13 +86,10 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
   });
 
   /**
-   * 事前準備: テスト用プロジェクト・数量表・グループを作成
+   * 事前準備: テスト用プロジェクト・現場調査写真・数量表・グループを作成
    *
-   * REQ-19 のテストはグループの存在を前提とするため、独立して実行できるよう
-   * 事前にプロジェクト・数量表・グループ1件を作成する。写真未紐付けの状態で
-   * 「写真選択」UIから写真変更ダイアログを開く動作（REQ-19.1 の同等経路）と、
-   * ダイアログ内の写真一覧／空状態表示（REQ-19.2）、選択／クローズ動作
-   * （REQ-19.3, 19.4）を検証する。
+   * REQ-19 のテストはグループと選択候補の写真の存在を前提とするため、
+   * 事前にプロジェクト、写真を持つ現場調査、数量表、グループ1件を作成する。
    */
   test.describe('事前準備', () => {
     test('テスト用プロジェクトを作成する', async ({ page }) => {
@@ -92,14 +108,12 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const salesPersonValue = await salesPersonSelect.inputValue();
+      // e2e-guard-allow: 検証ではなく前提の準備（既定値が無い場合のみ営業担当者を選ぶ）
       if (!salesPersonValue) {
         const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
+        const firstUserOption = await options[1]?.getAttribute('value');
+        expect(firstUserOption, '営業担当者の選択肢が存在する必要がある').toBeTruthy();
+        await salesPersonSelect.selectOption(firstUserOption!);
       }
 
       const createProjectPromise = page.waitForResponse(
@@ -117,6 +131,71 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
       const projectMatch = page.url().match(/\/projects\/([0-9a-f-]+)$/);
       testProjectId = projectMatch?.[1] ?? null;
       expect(testProjectId).toBeTruthy();
+    });
+
+    test('テスト用の現場調査写真を作成する', async ({ page }) => {
+      if (!testProjectId) {
+        throw new Error(
+          'testProjectIdが未設定です。プロジェクト作成テストが正しく実行されていません。'
+        );
+      }
+
+      await page.goto(`/projects/${testProjectId}/site-surveys/new`);
+      await page.waitForLoadState('networkidle');
+
+      const nameField = page.getByLabel(/調査名/i);
+      await expect(nameField).toBeVisible({ timeout: getTimeout(10000) });
+      await nameField.fill(`REQ19_現場調査_${Date.now()}`);
+
+      const createSurveyPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/') &&
+          response.url().includes('site-surveys') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      await createSurveyPromise;
+
+      await page.waitForURL(/\/site-surveys\/[0-9a-f-]+$/, { timeout: getTimeout(15000) });
+      createdSurveyId = page.url().match(/\/site-surveys\/([0-9a-f-]+)$/)?.[1] ?? null;
+      expect(createdSurveyId, '現場調査IDが取得できる必要がある').toBeTruthy();
+
+      // 選択候補となる写真を API 経由でアップロードする
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
+      expect(fs.existsSync(testImagePath), 'テスト用画像が存在する必要がある').toBeTruthy();
+      const imageBuffer = fs.readFileSync(testImagePath);
+
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      expect(accessToken, 'アクセストークンが取得できる必要がある').toBeTruthy();
+
+      const form = new FormData();
+      for (let i = 0; i < SEED_PHOTO_COUNT; i += 1) {
+        form.append(
+          'images',
+          new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }),
+          `req19-${i + 1}.png`
+        );
+      }
+      const uploadResponse = await page.request.post(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        { headers: { Authorization: `Bearer ${accessToken}` }, multipart: form }
+      );
+      expect(
+        uploadResponse.ok(),
+        `写真アップロードが成功する必要がある (status=${uploadResponse.status()})`
+      ).toBeTruthy();
+
+      const detailResponse = await page.request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      expect(detailResponse.ok()).toBeTruthy();
+      const detail = (await detailResponse.json()) as { images?: unknown[] };
+      expect(
+        detail.images?.length ?? 0,
+        'REQ-19 の選択候補として写真がシードされている必要がある'
+      ).toBeGreaterThanOrEqual(SEED_PHOTO_COUNT);
     });
 
     test('テスト用数量表とグループを作成する', async ({ page }) => {
@@ -169,137 +248,87 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
   /**
    * @requirement quantity-table-generation/REQ-19.1: 写真変更ボタンと写真変更ダイアログ
    *
-   * 写真が紐付けられている数量グループでは「写真を変更」ボタンが表示され、
-   * クリックで写真選択（変更）ダイアログが開くこと。写真未紐付けの場合も
-   * プレースホルダーから同等の写真選択ダイアログを開けることを検証する。
+   * 写真未紐付けのグループではプレースホルダーから写真選択ダイアログを開ける。
+   * 事前準備で作成したグループは写真未紐付けであるため、この経路は必ず成立する。
    */
-  test('写真変更操作で写真選択用ダイアログが開く (REQ-19.1)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated, '数量表編集画面に到達できる必要がある').toBeTruthy();
-
-    // 写真変更ボタンが存在する場合（写真紐付け済みグループがある場合）
-    const changePhotoButton = page.getByRole('button', { name: '写真を変更' }).first();
-    const changeButtonVisible = await changePhotoButton
-      .isVisible({ timeout: getTimeout(5000) })
-      .catch(() => false);
-
-    if (changeButtonVisible) {
-      // REQ-19.1: 写真変更ダイアログを表示する
-      await changePhotoButton.click();
-
-      // 写真選択ダイアログが表示される
-      const dialog = page.getByRole('dialog');
-      await expect(dialog.first()).toBeVisible({ timeout: getTimeout(5000) });
-    } else {
-      // 写真未紐付けの場合はプレースホルダーから写真選択ダイアログを開く動作を検証
-      const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
-      await expect(
-        placeholder,
-        '写真選択用UI（変更ボタンまたはプレースホルダー）が必ず存在する'
-      ).toBeVisible({ timeout: getTimeout(5000) });
-
-      await placeholder.click();
-      const dialog = page.getByRole('dialog').first();
-      await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
-    }
+  test('写真未紐付けのグループでプレースホルダーから写真選択ダイアログが開く (REQ-19.1)', async ({
+    page,
+  }) => {
+    await navigateToQuantityTableEdit(page);
+    await openPhotoDialog(page, 'placeholder');
   });
 
   /**
    * @requirement quantity-table-generation/REQ-19.2: ダイアログに注釈付き写真一覧を表示
    *
-   * 写真選択ダイアログ内で、選択可能な写真が（注釈付きの場合は注釈バッジ付きで）
-   * グリッド表示される。利用可能写真ゼロ件のメッセージ／写真サムネイルのいずれかは必ず表示される。
+   * 写真選択ダイアログ内で、選択可能な写真がグリッド表示される。
+   * 事前準備で写真をシードしているため、空状態ではなく写真一覧が表示される。
    */
-  test('写真選択ダイアログに注釈付き写真一覧が表示される (REQ-19.2)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+  test('写真選択ダイアログに写真一覧が表示される (REQ-19.2)', async ({ page }) => {
+    await navigateToQuantityTableEdit(page);
+    await openPhotoDialog(page, 'placeholder');
 
-    // 写真変更ボタンまたはプレースホルダーから選択ダイアログを開く
-    const changePhotoButton = page.getByRole('button', { name: '写真を変更' }).first();
-    const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
-
-    if (await changePhotoButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-      await changePhotoButton.click();
-    } else if (await placeholder.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-      await placeholder.click();
-    } else {
-      // グループも写真も無い場合 - 編集画面が存在することのみ検証
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-      return;
-    }
-
-    const dialog = page.getByRole('dialog').first();
-    await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
-
-    // 写真リストまたは「利用可能な写真がありません」メッセージが必ず表示される
+    const dialog = page.getByRole('dialog', { name: '写真を選択' });
     const photoList = dialog.locator('[data-testid="photo-list"]');
-    const emptyMessage = dialog.getByText(/利用可能な写真がありません|写真を読み込み中/);
+    await expect(photoList, '写真一覧が表示される必要がある').toBeVisible({
+      timeout: getTimeout(20000),
+    });
 
-    const photoListVisible = await photoList
-      .isVisible({ timeout: getTimeout(8000) })
-      .catch(() => false);
-    const emptyVisible = await emptyMessage
-      .first()
-      .isVisible({ timeout: getTimeout(8000) })
-      .catch(() => false);
-
-    expect(
-      photoListVisible || emptyVisible,
-      '写真リストまたは空状態メッセージのいずれかが表示される必要がある'
-    ).toBeTruthy();
+    const photoItems = dialog.locator('[data-testid^="photo-item-"]');
+    await expect(photoItems, 'シードした写真が選択候補として表示される必要がある').toHaveCount(
+      SEED_PHOTO_COUNT,
+      { timeout: getTimeout(20000) }
+    );
+    await expect(photoItems.first()).toBeVisible();
   });
 
   /**
+   * @requirement quantity-table-generation/REQ-19.1: 写真変更ボタンと写真変更ダイアログ
    * @requirement quantity-table-generation/REQ-19.3: 写真選択で紐づけ変更
    * @requirement quantity-table-generation/REQ-19.4: 関連写真表示エリアを更新
    *
-   * 注釈付き写真一覧から写真を選択すると数量グループに紐づく写真が変更され、
-   * 確定後に関連写真表示エリアが更新される（ダイアログが閉じる）。
+   * 写真一覧から写真を選択すると数量グループに紐づく写真が変更され、
+   * 確定後に関連写真表示エリアが更新される（ダイアログが閉じ、サムネイルが表示される）。
+   * 紐付け後は「写真を変更」ボタンが現れ、同じダイアログを再度開ける（REQ-19.1）。
    */
-  test('写真変更ダイアログで写真選択するとダイアログが閉じ表示が更新される (REQ-19.3, REQ-19.4)', async ({
+  test('写真を選択するとダイアログが閉じ関連写真表示エリアが更新される (REQ-19.3, REQ-19.4, REQ-19.1)', async ({
     page,
   }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await navigateToQuantityTableEdit(page);
+    await openPhotoDialog(page, 'placeholder');
 
-    const changePhotoButton = page.getByRole('button', { name: '写真を変更' }).first();
-    const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
-
-    if (await changePhotoButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-      await changePhotoButton.click();
-    } else if (await placeholder.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-      await placeholder.click();
-    } else {
-      // 編集画面が表示されることのみ検証
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
-
-    const dialog = page.getByRole('dialog').first();
-    await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
-
-    // 写真項目を見つけて選択
+    const dialog = page.getByRole('dialog', { name: '写真を選択' });
     const photoItem = dialog.locator('[data-testid^="photo-item-"]').first();
-    const photoVisible = await photoItem
-      .isVisible({ timeout: getTimeout(8000) })
-      .catch(() => false);
+    await expect(photoItem, '選択できる写真が存在する必要がある').toBeVisible({
+      timeout: getTimeout(20000),
+    });
+    const selectedFileName = await photoItem.getAttribute('alt');
+    expect(selectedFileName, '選択した写真のファイル名が取得できる必要がある').toBeTruthy();
 
-    if (photoVisible) {
-      // REQ-19.3, 19.4: 写真選択 → ダイアログクローズ
-      await photoItem.click();
-      await page.waitForLoadState('networkidle');
+    await photoItem.click();
 
-      // ダイアログが閉じることで「変更を確定」した状態を検証
-      await expect(dialog).not.toBeVisible({ timeout: getTimeout(10000) });
-    } else {
-      // 写真がない場合はダイアログを閉じて画面が維持されること
-      const closeBtn = dialog.getByRole('button', { name: 'ダイアログを閉じる' }).first();
-      if (await closeBtn.isVisible({ timeout: getTimeout(2000) }).catch(() => false)) {
-        await closeBtn.click();
-        await expect(dialog).not.toBeVisible({ timeout: getTimeout(5000) });
-      }
-    }
+    // REQ-19.3/19.4: ダイアログが閉じ、関連写真表示エリアに選択した写真が現れる
+    await expect(dialog).not.toBeVisible({ timeout: getTimeout(10000) });
+
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+    const groupThumbnail = groupCard.locator(`img[alt="${selectedFileName}"]`).first();
+    await expect(
+      groupThumbnail,
+      '選択した写真が関連写真表示エリアに表示される必要がある'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    // REQ-42.5: 紐づけはクライアントドラフトの更新に留まるため明示保存して永続化する
+    await saveQuantityTableDraft(page);
+
+    // REQ-19.1: 紐付け済みグループでは「写真を変更」ボタンから同じダイアログを開ける
+    await openPhotoDialog(page, 'change-button');
+
+    const closeButton = page
+      .getByRole('dialog', { name: '写真を選択' })
+      .getByRole('button', { name: 'ダイアログを閉じる' });
+    await closeButton.click();
+    await expect(page.getByRole('dialog', { name: '写真を選択' })).not.toBeVisible({
+      timeout: getTimeout(10000),
+    });
   });
 });
