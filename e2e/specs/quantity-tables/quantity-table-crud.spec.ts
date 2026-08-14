@@ -29,6 +29,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { API_BASE_URL } from '../../config';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -926,6 +927,11 @@ test.describe('数量表CRUD操作', () => {
         if (hasPlaceholder) {
           await expect(placeholder).not.toBeVisible({ timeout: getTimeout(3000) });
         }
+
+        // REQ-42.5: 写真の紐づけはクライアントドラフトの更新に留まるため、保存しないと
+        // リロード後には失われる。以降のテスト（REQ-3.3 の表示元検証など）が
+        // 紐づけ済みの状態を前提とするため、ここで明示保存して永続化する。
+        await saveQuantityTableDraft(page);
       } else {
         // 写真がない場合はダイアログを閉じてテスト終了
         const closeButton = photoDialog.getByRole('button', { name: /ダイアログを閉じる/ });
@@ -1097,23 +1103,73 @@ test.describe('数量表CRUD操作', () => {
       const firstGroup = groups.first();
 
       // 写真が紐付けられている場合のテスト
+      // 注: locator.isVisible({ timeout }) は timeout が無視され即時判定されるため、
+      // 画像の描画完了前に「写真なし」と誤判定して検証本体が実行されなくなる。
+      // 紐付け済みの写真が描画されるまで待ってから分岐する。
       const image = firstGroup.locator('img');
-      const hasImage = await image.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasImage = await image
+        .waitFor({ state: 'visible', timeout: getTimeout(10000) })
+        .then(() => true)
+        .catch(() => false);
 
       if (hasImage) {
-        // REQ-3.3: オリジナル画像（注釈付き）が表示されることを確認（必須）
+        // REQ-3.3: 紐付け写真の注釈付き画像が表示されることを確認（必須）
+        // 表示に用いる画像の選択は REQ-49.4/49.5 が定める（原本ではなくサムネイル）
         await expect(image).toBeVisible();
 
-        // 画像のsrc属性を取得してオリジナル画像URLであることを確認
+        // 表示元の検証（REQ-49.4 / REQ-49.5 / REQ-49.6）
+        //
+        // 表題部の縮小表示には原本ではなくサムネイルを用い、注釈をレンダリングした
+        // 合成済みサムネイルが利用可能であればそれを表示元とする。
+        // 判定はストレージキーの命名（`_thumb` を含むか等）ではなく、画面が実際に用いる
+        // 取得経路（GET /api/quantity-tables/:id）の応答を基準に行う。命名を前提にすると、
+        // 合成済みサムネイル（annotated-thumbnails/... 区画）が表示元になった時点で
+        // 判定が成立しなくなる。
+        const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+        const detailResponse = await page.request.get(
+          `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        expect(detailResponse.ok()).toBeTruthy();
+        const detail = (await detailResponse.json()) as {
+          groups: Array<{
+            surveyImage: {
+              fileName: string;
+              originalUrl: string;
+              thumbnailUrl: string;
+              annotatedThumbnailUrl: string | null;
+              hasDrawnAnnotations: boolean;
+            } | null;
+          }>;
+        };
+
+        const imageAlt = await image.getAttribute('alt');
+        const linkedImage = detail.groups.find(
+          (group) => group.surveyImage !== null && group.surveyImage.fileName === imageAlt
+        )?.surveyImage;
+        expect(linkedImage, `表示中の画像(${imageAlt})が数量表の応答に含まれる`).toBeTruthy();
+
         const imageSrc = await image.getAttribute('src');
-        if (imageSrc) {
-          // サムネイルURLではなくオリジナルURLを使用していることを確認
-          // サムネイルは通常 /thumbnails/ や _thumb などを含む
-          const isThumbnail =
-            imageSrc.includes('/thumbnails/') ||
-            imageSrc.includes('_thumb') ||
-            imageSrc.includes('thumbnail');
-          expect(isThumbnail).toBeFalsy();
+        expect(imageSrc, '表示元URLが設定されている').toBeTruthy();
+
+        const pathOf = (url: string): string => new URL(url, page.url()).pathname;
+
+        // 原本画像は縮小表示に用いない（REQ-49.4）
+        expect(pathOf(imageSrc!)).not.toBe(pathOf(linkedImage!.originalUrl));
+
+        if (linkedImage!.annotatedThumbnailUrl) {
+          // 合成済みサムネイルが利用可能な場合はそれを表示元とする（REQ-49.5）
+          expect(pathOf(imageSrc!)).toBe(pathOf(linkedImage!.annotatedThumbnailUrl));
+        } else if (linkedImage!.hasDrawnAnnotations) {
+          // 合成済みサムネイルが無い注釈付き画像は、通常サムネイルにクライアント側で
+          // 注釈を重ねて表示結果を維持する（REQ-49.6）。合成結果は data URL として現れる
+          expect(
+            imageSrc!.startsWith('data:image/') ||
+              pathOf(imageSrc!) === pathOf(linkedImage!.thumbnailUrl)
+          ).toBe(true);
+        } else {
+          // 注釈が無い画像は通常サムネイルをそのまま表示する（REQ-49.4）
+          expect(pathOf(imageSrc!)).toBe(pathOf(linkedImage!.thumbnailUrl));
         }
 
         // 注釈バッジが表示されることを確認（注釈がある場合）
