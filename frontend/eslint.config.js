@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
@@ -6,6 +7,19 @@ import prettierPlugin from 'eslint-plugin-prettier';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
 import reactRefreshPlugin from 'eslint-plugin-react-refresh';
+
+// eslint-plugin-react の settings.react.version に 'detect' を指定すると、
+// プラグイン内部の detectReactVersion() が ESLint 9 で非推奨・ESLint 10 で削除された
+// context.getFilename() を無条件に呼び出すため、ESLint 10 環境
+// （ルートの eslint@10 を使う pre-commit / lint-staged 経路）では
+// ルール読み込み時に TypeError となり静的検査そのものが起動しない。
+// eslint-plugin-react は ESLint 10 未対応（最新 7.37.5 の peerDependencies は eslint ^9.7 まで、
+// jsx-eslint/eslint-plugin-react#3977 で対応待ち）のため、
+// 実際にインストールされている react のバージョンをここで解決して明示指定し、
+// プラグイン側の壊れたバージョン検出経路を通さないようにする。
+// ルールを無効化する回避ではなく、バージョン検出手段を ESLint API 非依存に置き換えるもの。
+const require = createRequire(import.meta.url);
+const reactVersion = require('react/package.json').version;
 
 export default [
   // Ignore patterns
@@ -43,7 +57,7 @@ export default [
     },
     settings: {
       react: {
-        version: 'detect',
+        version: reactVersion,
       },
     },
     rules: {
@@ -109,7 +123,7 @@ export default [
     },
     settings: {
       react: {
-        version: 'detect',
+        version: reactVersion,
       },
     },
     rules: {

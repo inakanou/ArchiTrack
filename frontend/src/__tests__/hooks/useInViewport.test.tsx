@@ -26,9 +26,7 @@ import {
  */
 function InViewportProbe({ options }: { options?: UseInViewportOptions }) {
   const { ref, isInViewport } = useInViewport<HTMLDivElement>(options);
-  return (
-    <div ref={ref} data-testid="target" data-in-viewport={isInViewport ? 'true' : 'false'} />
-  );
+  return <div ref={ref} data-testid="target" data-in-viewport={isInViewport ? 'true' : 'false'} />;
 }
 
 /** 到達状態を読み取る */

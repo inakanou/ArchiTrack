@@ -135,7 +135,9 @@ describe('AnnotatedImageThumbnail', () => {
     it('loading属性をeagerに設定できる', async () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
 
-      renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" loading="eager" />);
+      renderRevealed(
+        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" loading="eager" />
+      );
 
       const img = screen.getByRole('img');
       expect(img).toHaveAttribute('loading', 'eager');
@@ -164,7 +166,9 @@ describe('AnnotatedImageThumbnail', () => {
       const handleClick = vi.fn();
       const user = userEvent.setup();
 
-      renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" onClick={handleClick} />);
+      renderRevealed(
+        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" onClick={handleClick} />
+      );
 
       const img = screen.getByRole('img');
       await user.click(img);
@@ -208,7 +212,9 @@ describe('AnnotatedImageThumbnail', () => {
 
   describe('hasAnnotations プロップによる注釈取得の制御（一覧表示N+1抑止）', () => {
     it('hasAnnotations=false のときは getAnnotation を呼ばず元画像を表示する', async () => {
-      renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={false} />);
+      renderRevealed(
+        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={false} />
+      );
 
       await waitFor(() => {
         const img = screen.getByRole('img');
@@ -220,7 +226,9 @@ describe('AnnotatedImageThumbnail', () => {
     it('hasAnnotations=true のときは従来通り getAnnotation を呼ぶ', async () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
 
-      renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={true} />);
+      renderRevealed(
+        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" hasAnnotations={true} />
+      );
 
       await waitFor(() => {
         expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalledWith(mockImage.id);
@@ -260,7 +268,12 @@ describe('AnnotatedImageThumbnail', () => {
 
     it('交差前も実寸で表示領域を確保する', () => {
       render(
-        <AnnotatedImageThumbnail image={sizedImage} alt="テスト画像" loading="lazy" preferThumbnail />
+        <AnnotatedImageThumbnail
+          image={sizedImage}
+          alt="テスト画像"
+          loading="lazy"
+          preferThumbnail
+        />
       );
 
       const img = screen.getByRole('img');
@@ -270,7 +283,12 @@ describe('AnnotatedImageThumbnail', () => {
 
     it('表示領域へ入ると表示元URLが設定される', async () => {
       render(
-        <AnnotatedImageThumbnail image={sizedImage} alt="テスト画像" loading="lazy" preferThumbnail />
+        <AnnotatedImageThumbnail
+          image={sizedImage}
+          alt="テスト画像"
+          loading="lazy"
+          preferThumbnail
+        />
       );
 
       act(() => {
@@ -376,7 +394,9 @@ describe('AnnotatedImageThumbnail', () => {
     it('preferThumbnail 未指定（拡大表示）のときは annotatedThumbnailUrl を使わずクライアント合成する', async () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
 
-      renderRevealed(<AnnotatedImageThumbnail image={annotatedImage} alt="テスト画像" hasAnnotations />);
+      renderRevealed(
+        <AnnotatedImageThumbnail image={annotatedImage} alt="テスト画像" hasAnnotations />
+      );
 
       await waitFor(() => {
         expect(surveyAnnotationsApi.getAnnotation).toHaveBeenCalledWith(annotatedImage.id);
@@ -493,7 +513,9 @@ describe('AnnotatedImageThumbnail', () => {
         () => new Promise((resolve) => setTimeout(() => resolve(null), 100))
       );
 
-      const { unmount } = renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+      const { unmount } = renderRevealed(
+        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />
+      );
 
       // すぐにアンマウント
       unmount();
@@ -640,7 +662,9 @@ describe('AnnotatedImageThumbnail', () => {
         configurable: true,
       });
 
-      const { unmount } = renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+      const { unmount } = renderRevealed(
+        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />
+      );
 
       // 画像ロード前にアンマウント
       await act(async () => {
@@ -684,7 +708,9 @@ describe('AnnotatedImageThumbnail', () => {
         updatedAt: '2025-01-01T00:00:00Z',
       });
 
-      const { unmount } = renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+      const { unmount } = renderRevealed(
+        <AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />
+      );
 
       // enlivenObjects実行前にアンマウント
       await act(async () => {
