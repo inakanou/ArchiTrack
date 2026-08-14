@@ -27,6 +27,7 @@ import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import logger from '../utils/logger.js';
+import { moveToOrphaned } from '../utils/orphaned-object.js';
 
 // Services
 import { SiteSurveyService } from '../services/site-survey.service.js';
@@ -999,10 +1000,19 @@ router.patch(
 
       // 2. DB を新キーへ切り替え（annotatedThumbnailPath のみ。thumbnailPath は不変）
       const oldAnnotatedThumbnailPath = image.annotatedThumbnailPath;
-      await prisma.surveyImage.update({
-        where: { id: imageId },
-        data: { annotatedThumbnailPath: newAnnotatedThumbnailPath },
-      });
+      try {
+        await prisma.surveyImage.update({
+          where: { id: imageId },
+          data: { annotatedThumbnailPath: newAnnotatedThumbnailPath },
+        });
+      } catch (updateError) {
+        // 保存済みの実体はどこからも参照されないまま残る。ただし更新が実際には
+        // 適用されたうえで応答だけを失う経路があるため、失敗を理由に消すと項目が
+        // 実在しないキーを指す危険がある。そこで消さずに既定の孤立ファイル回収
+        // （orphaned/ 区画へ移し 7 日後に自動削除）へ載せる。(Requirements: 4.8)
+        await moveToOrphaned(storageProvider, newAnnotatedThumbnailPath, updateError, { imageId });
+        throw updateError;
+      }
 
       // 3. 旧い合成済みサムネイルの best-effort 削除（通常サムネイルは削除対象外）
       if (oldAnnotatedThumbnailPath && oldAnnotatedThumbnailPath !== newAnnotatedThumbnailPath) {

@@ -42,6 +42,7 @@ const mockStorageProvider = vi.hoisted(() => ({
   type: 'local',
   upload: vi.fn(),
   delete: vi.fn(),
+  copy: vi.fn(),
   getSignedUrl: vi.fn(),
 }));
 
@@ -532,6 +533,12 @@ describe('変更を伴わない保存の繰り返し (Task 115.4, Req 23.8)', ()
     mockStorageProvider.delete.mockImplementation(async (key: string) => {
       storedObjects.delete(key);
     });
+    mockStorageProvider.copy.mockImplementation(async (source: string, destination: string) => {
+      if (!storedObjects.has(source)) {
+        throw new Error(`object not found: ${source}`);
+      }
+      storedObjects.add(destination);
+    });
     mockStorageProvider.getSignedUrl.mockImplementation(async (key: string) => {
       if (!storedObjects.has(key)) {
         throw new Error(`object not found: ${key}`);
@@ -626,6 +633,70 @@ describe('変更を伴わない保存の繰り返し (Task 115.4, Req 23.8)', ()
     expect(mockStorageProvider.delete).toHaveBeenCalledTimes(1);
     expect(mockStorageProvider.delete).toHaveBeenCalledWith(OLD_ANNOTATED_PATH);
     expect(annotatedObjects()).toEqual([]);
+  });
+
+  it('項目更新に失敗して残った実体は孤立ファイルの回収対象になる (Req 4.8, 23.8)', async () => {
+    mockPrisma.surveyImage.update.mockRejectedValueOnce(new Error('db update failed'));
+
+    const failed = await saveWithoutChange();
+
+    expect(failed.status).toBeGreaterThanOrEqual(500);
+
+    // 保存に成功した新しい実体（どこからも参照されない）
+    const strandedPath = mockStorageProvider.upload.mock.calls[0]![0] as string;
+    expect(strandedPath).toMatch(new RegExp(`^annotated-thumbnails/${IMAGE_ID}\\.\\d+\\.jpg$`));
+
+    // 既定の孤立ファイル回収と同じ扱い（orphaned/ 区画へ移し 7 日後に自動削除）に載る
+    expect(mockStorageProvider.copy).toHaveBeenCalledWith(strandedPath, `orphaned/${strandedPath}`);
+    expect(storedObjects.has(`orphaned/${strandedPath}`)).toBe(true);
+
+    // 回収であって即時削除ではない（項目の更新が実際には適用されている場合に備える）
+    expect(mockStorageProvider.delete).not.toHaveBeenCalledWith(strandedPath);
+    expect(storedObjects.has(strandedPath)).toBe(true);
+
+    // 既存の表示元は旧い保存先を指したまま有効
+    expect(dbAnnotatedThumbnailPath).toBe(OLD_ANNOTATED_PATH);
+    expectDisplaySourceIntact();
+  });
+
+  it('孤立ファイルの回収は警告として記録される (Req 4.8)', async () => {
+    const logger = (await import('../../../utils/logger.js')).default;
+    mockPrisma.surveyImage.update.mockRejectedValueOnce(new Error('db update failed'));
+
+    await saveWithoutChange();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ path: expect.stringContaining('orphaned/') }),
+      expect.stringContaining('孤立ファイル')
+    );
+  });
+
+  it('孤立ファイルの回収に失敗しても実体を消さず元の失敗を返す (Req 4.8, 23.8)', async () => {
+    const logger = (await import('../../../utils/logger.js')).default;
+    mockPrisma.surveyImage.update.mockRejectedValueOnce(new Error('db update failed'));
+    mockStorageProvider.copy.mockRejectedValueOnce(new Error('copy failed'));
+
+    const failed = await saveWithoutChange();
+
+    expect(failed.status).toBeGreaterThanOrEqual(500);
+
+    const strandedPath = mockStorageProvider.upload.mock.calls[0]![0] as string;
+    expect(mockStorageProvider.delete).not.toHaveBeenCalledWith(strandedPath);
+    expect(storedObjects.has(strandedPath)).toBe(true);
+    expect(dbAnnotatedThumbnailPath).toBe(OLD_ANNOTATED_PATH);
+    expectDisplaySourceIntact();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ originalPath: strandedPath, error: 'copy failed' }),
+      expect.stringContaining('孤立ファイルの移動に失敗')
+    );
+  });
+
+  it('項目更新に成功した保存では回収を行わない (Req 4.8)', async () => {
+    const response = await saveWithoutChange();
+
+    expect(response.status).toBe(200);
+    expect(mockStorageProvider.copy).not.toHaveBeenCalled();
   });
 
   it('更新と取り消しを往復しても表示元が有効なまま保たれる (Req 23.8)', async () => {
