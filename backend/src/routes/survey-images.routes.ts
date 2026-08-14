@@ -143,6 +143,18 @@ const imageMetadataService = new ImageMetadataService({ prisma });
 const ANNOTATED_THUMBNAIL_PREFIX = 'annotated-thumbnails';
 
 /**
+ * 注釈付き（合成済み）サムネイルの保存形式
+ *
+ * Task 115.18: 保存キーの拡張子・Content-Type・保存する実体の3者を同じ形式で揃える。
+ * 生成側は既定で元画像の形式を保つため、ここで宣言した形式を生成側へも渡して固定する。
+ * 表示・ダウンロードの経路は拡張子とContent-Typeから形式を判断するため、
+ * 申告側ではなく生成側を申告に合わせる。
+ */
+const ANNOTATED_THUMBNAIL_OUTPUT_FORMAT = 'jpeg' as const;
+const ANNOTATED_THUMBNAIL_EXTENSION = 'jpg';
+const ANNOTATED_THUMBNAIL_CONTENT_TYPE = 'image/jpeg';
+
+/**
  * 注釈付きサムネイルの署名付きURL有効期限（秒）
  */
 const ANNOTATED_THUMBNAIL_URL_EXPIRES_IN = 900;
@@ -988,14 +1000,21 @@ router.patch(
       const imageProcessorService = new ImageProcessorService(((input: Buffer) =>
         sharp(input)) as import('../services/image-processor.service.js').SharpStatic);
 
-      const thumbnailBuffer = await imageProcessorService.generateThumbnail(imageBuffer);
+      // 保存キーの拡張子とContent-Typeで申告する形式に、生成する実体を一致させる
+      // （Task 115.18: 既定は元画像の形式を保つため明示的に固定する）
+      const thumbnailBuffer = await imageProcessorService.generateThumbnail(
+        imageBuffer,
+        undefined,
+        undefined,
+        { outputFormat: ANNOTATED_THUMBNAIL_OUTPUT_FORMAT }
+      );
 
       // 1. 注釈付きサムネイル用の区画へタイムスタンプ付き新キーで保存
       //    通常サムネイル（surveys/{surveyId}/...）とは区画で識別できる
       //    保存に失敗した場合は例外を伝播させ DB は更新しない（旧い表示元を維持）
-      const newAnnotatedThumbnailPath = `${ANNOTATED_THUMBNAIL_PREFIX}/${imageId}.${Date.now()}.jpg`;
+      const newAnnotatedThumbnailPath = `${ANNOTATED_THUMBNAIL_PREFIX}/${imageId}.${Date.now()}.${ANNOTATED_THUMBNAIL_EXTENSION}`;
       await storageProvider.upload(newAnnotatedThumbnailPath, thumbnailBuffer, {
-        contentType: 'image/jpeg',
+        contentType: ANNOTATED_THUMBNAIL_CONTENT_TYPE,
       });
 
       // 2. DB を新キーへ切り替え（annotatedThumbnailPath のみ。thumbnailPath は不変）

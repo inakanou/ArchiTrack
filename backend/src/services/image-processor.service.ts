@@ -87,6 +87,22 @@ export interface SharpStatic {
 }
 
 /**
+ * サムネイルの出力形式
+ *
+ * - `preserve`: 元画像の形式を保つ（既定。アップロード時の素のサムネイル）
+ * - `jpeg`: JPEGへ固定する（保存キーの拡張子やContent-TypeをJPEGで申告する保存先向け）
+ */
+export type ThumbnailOutputFormat = 'preserve' | 'jpeg';
+
+/**
+ * サムネイル生成のオプション
+ */
+export interface GenerateThumbnailOptions {
+  /** 出力形式（既定: `preserve`） */
+  outputFormat?: ThumbnailOutputFormat;
+}
+
+/**
  * 画像処理サービス
  *
  * Sharpを使用した画像処理を提供します。
@@ -185,16 +201,22 @@ export class ImageProcessorService {
    *
    * Requirements: 4.4
    *
+   * 出力形式は既定で元画像の形式を保つ。保存先が拡張子やContent-Typeで形式を
+   * 申告する場合は `options.outputFormat` で形式を固定し、申告と実体を一致させる
+   * （Task 115.18）。
+   *
    * @param buffer - 元画像バッファ
    * @param width - サムネイル幅（デフォルト: 200px）
    * @param height - サムネイル高さ（デフォルト: 200px）
+   * @param options - 生成オプション（出力形式）
    * @returns サムネイルバッファ
    * @throws {ImageProcessingError} サムネイル生成に失敗した場合
    */
   async generateThumbnail(
     buffer: Buffer,
     width: number = ImageProcessorService.THUMBNAIL_WIDTH,
-    height: number = ImageProcessorService.THUMBNAIL_HEIGHT
+    height: number = ImageProcessorService.THUMBNAIL_HEIGHT,
+    options: GenerateThumbnailOptions = {}
   ): Promise<Buffer> {
     try {
       const metadata = await this.getMetadata(buffer);
@@ -207,7 +229,9 @@ export class ImageProcessorService {
       });
 
       // フォーマットに応じた出力設定
-      this.applyFormatSettings(instance, metadata.format, 80);
+      // 出力形式が指定された場合は元画像の形式ではなく指定形式で書き出す
+      const outputFormat = options.outputFormat === 'jpeg' ? 'jpeg' : metadata.format;
+      this.applyFormatSettings(instance, outputFormat, 80);
 
       return await instance.toBuffer();
     } catch (error) {

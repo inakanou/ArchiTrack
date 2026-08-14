@@ -48,6 +48,25 @@ async function getPanelImageSrc(panelItem: Locator): Promise<string> {
 }
 
 /**
+ * 写真パネルの画像IDを取得する
+ *
+ * 並びの識別には画像ID（`data-image-id`）を用いる。表示元URLは署名付きURLであり
+ * 署名部や有効期限が要求ごとに変動しうるため、リロードを挟む検証では同一の画像でも
+ * 値が一致せず判定が成立しなくなる。画像IDは要求ごとに変動しない。
+ *
+ * @param panelItem - `photo-panel-item` のロケータ
+ * @returns 画像ID
+ */
+async function getPanelImageId(panelItem: Locator): Promise<string> {
+  await expect(panelItem).toHaveAttribute('data-image-id', /.+/, {
+    timeout: getTimeout(10000),
+  });
+  const imageId = await panelItem.getAttribute('data-image-id');
+  expect(imageId, '写真パネルの画像IDが設定されている').toBeTruthy();
+  return imageId as string;
+}
+
+/**
  * ドラッグ操作の再現時に観測したUI側の前提（site-survey/REQ-4.11）
  */
 interface DragAndDropObservation {
@@ -812,10 +831,12 @@ test.describe('現場調査画像管理', () => {
         'REQ-10.9: 表示順序の永続化検証には2枚以上の画像が必要（前段のアップロードテストが未実行の可能性）'
       ).toBeGreaterThanOrEqual(2);
 
-      const firstImageSrc = await getPanelImageSrc(photoPanelItems.nth(0));
-      const secondImageSrc = await getPanelImageSrc(photoPanelItems.nth(1));
-      expect(firstImageSrc, '並び替えを判別するには先頭2枚の表示元URLが異なる必要がある').not.toBe(
-        secondImageSrc
+      // 並び替え前の順序を画像IDで記録する
+      // （画像IDは要求ごとに変動しない。署名付きURLは署名部が変動しうるため識別に用いない）
+      const firstImageId = await getPanelImageId(photoPanelItems.nth(0));
+      const secondImageId = await getPanelImageId(photoPanelItems.nth(1));
+      expect(firstImageId, '並び替えを判別するには先頭2枚の画像IDが異なる必要がある').not.toBe(
+        secondImageId
       );
 
       await reorderPhotoByDragAndDrop(page, 0, 1);
@@ -849,8 +870,14 @@ test.describe('現場調査画像管理', () => {
       const reloadedItems = page.locator('[data-testid="photo-panel-item"]');
       await expect(reloadedItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      expect(await getPanelImageSrc(reloadedItems.nth(0))).toBe(secondImageSrc);
-      expect(await getPanelImageSrc(reloadedItems.nth(1))).toBe(firstImageSrc);
+      expect(
+        await getPanelImageId(reloadedItems.nth(0)),
+        'REQ-10.8: 保存した表示順序の先頭は並び替え後の先頭（元の2枚目）である'
+      ).toBe(secondImageId);
+      expect(
+        await getPanelImageId(reloadedItems.nth(1)),
+        'REQ-10.8: 保存した表示順序の2枚目は並び替え後の2枚目（元の1枚目）である'
+      ).toBe(firstImageId);
     });
   });
 

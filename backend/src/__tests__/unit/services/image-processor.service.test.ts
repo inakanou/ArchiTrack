@@ -809,3 +809,74 @@ describe('ImageProcessorService', () => {
     });
   });
 });
+
+/**
+ * サムネイルの出力形式の指定（Task 115.18）
+ *
+ * 保存キーの拡張子と Content-Type を特定の形式で申告する呼び出し元があるため、
+ * 生成する実体の形式を申告へ合わせられる必要がある。
+ * ここでは実体の形式を確かめる必要があるため、モックではなく実 sharp を用いる。
+ */
+describe('ImageProcessorService: サムネイルの出力形式（実 sharp / Task 115.18）', () => {
+  /**
+   * 実 sharp を結線した ImageProcessorService を組み立てる
+   */
+  async function createRealService(): Promise<ImageProcessorService> {
+    const sharp = (await import('sharp')).default;
+    return new ImageProcessorService(((input: Buffer) => sharp(input)) as unknown as SharpStatic);
+  }
+
+  /**
+   * 指定形式の実画像を生成する
+   */
+  async function createImage(format: 'png' | 'webp' | 'jpeg'): Promise<Buffer> {
+    const sharp = (await import('sharp')).default;
+    const base = sharp({
+      create: { width: 320, height: 240, channels: 3, background: { r: 12, g: 34, b: 56 } },
+    });
+    if (format === 'png') return await base.png().toBuffer();
+    if (format === 'webp') return await base.webp().toBuffer();
+    return await base.jpeg().toBuffer();
+  }
+
+  /**
+   * バッファの実体の形式を読み出す
+   */
+  async function detectFormat(buffer: Buffer): Promise<string | undefined> {
+    const sharp = (await import('sharp')).default;
+    return (await sharp(buffer).metadata()).format;
+  }
+
+  it('出力形式に jpeg を指定すると、元がPNGでも実体はJPEGになる', async () => {
+    const service = await createRealService();
+    const source = await createImage('png');
+    expect(await detectFormat(source), '前提: 元画像はPNGである').toBe('png');
+
+    const thumbnail = await service.generateThumbnail(source, 200, 200, {
+      outputFormat: 'jpeg',
+    });
+
+    expect(await detectFormat(thumbnail), 'jpeg指定時の実体はJPEGである').toBe('jpeg');
+  });
+
+  it('出力形式に jpeg を指定すると、元がWebPでも実体はJPEGになる', async () => {
+    const service = await createRealService();
+    const source = await createImage('webp');
+    expect(await detectFormat(source), '前提: 元画像はWebPである').toBe('webp');
+
+    const thumbnail = await service.generateThumbnail(source, 200, 200, {
+      outputFormat: 'jpeg',
+    });
+
+    expect(await detectFormat(thumbnail), 'jpeg指定時の実体はJPEGである').toBe('jpeg');
+  });
+
+  it('出力形式を指定しない場合は元画像の形式を保つ（アップロード時の素のサムネイル）', async () => {
+    const service = await createRealService();
+    const source = await createImage('png');
+
+    const thumbnail = await service.generateThumbnail(source);
+
+    expect(await detectFormat(thumbnail), '未指定時は元の形式を保つ').toBe('png');
+  });
+});
