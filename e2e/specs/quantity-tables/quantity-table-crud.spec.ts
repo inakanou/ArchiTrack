@@ -59,6 +59,20 @@ test.describe('数量表CRUD操作', () => {
   });
 
   /**
+   * ログイン済みページの認証ヘッダを組み立てる。
+   *
+   * 検証の前提（数量項目などの下地データ）をAPIで用意する際に用いる。
+   *
+   * @param page - ログイン済みのページ
+   * @returns Authorization ヘッダを含むヘッダ表
+   */
+  async function apiAuthHeaders(page: Page): Promise<Record<string, string>> {
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
+    return { Authorization: `Bearer ${accessToken}` };
+  }
+
+  /**
    * 事前準備: テスト用プロジェクトと数量表を作成
    */
   test.describe('事前準備', () => {
@@ -1752,51 +1766,136 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 前提0: 移動対象の数量項目を検証自身がAPIで用意する
+      // （先行する無関係な検証の副作用に依存しないため、この検証だけを実行しても成立させる）
+      const seedHeaders = await apiAuthHeaders(page);
+      const seedTableResponse = await page.request.get(
+        `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+        { headers: seedHeaders }
+      );
+      expect(seedTableResponse.ok(), '数量表詳細の取得が成功する').toBeTruthy();
+      const seedGroups = (
+        (await seedTableResponse.json()) as { groups: { id: string; items: unknown[] }[] }
+      ).groups;
+      expect(seedGroups.length, '移動元となる数量グループが存在する').toBeGreaterThan(0);
+      const seedSourceGroup = seedGroups[0]!;
+      const seedItemName = `移動検証項目_${Date.now().toString(36)}`;
+      const seedItemResponse = await page.request.post(
+        `${API_BASE_URL}/api/quantity-groups/${seedSourceGroup.id}/items`,
+        {
+          headers: seedHeaders,
+          data: {
+            workType: '移動検証工種',
+            name: seedItemName,
+            unit: 'm',
+            calculationMethod: 'STANDARD',
+            calculationParams: null,
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+            quantity: 1,
+            displayOrder: seedSourceGroup.items.length,
+          },
+        }
+      );
+      expect(seedItemResponse.ok(), '移動対象となる数量項目の作成が成功する').toBeTruthy();
+
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // グループが2つ以上必要。ない場合は追加
-      let groups = page.getByTestId('quantity-group');
-      let groupCount = await groups.count();
+      // 前提1: 移動元と移動先の数量グループを検証自身が用意する（不足分は追加する）
+      const groups = page.getByTestId('quantity-group');
+      await expect(groups.first(), '数量グループが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      while (groupCount < 2) {
+      while ((await groups.count()) < 2) {
+        const groupCountBefore = await groups.count();
         const addGroupButton = page
           .getByRole('button', { name: /グループ追加|グループを追加/ })
           .first();
-        if (await addGroupButton.isVisible({ timeout: 3000 })) {
-          await addGroupButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-        groups = page.getByTestId('quantity-group');
-        groupCount = await groups.count();
-        if (groupCount >= 2) break;
-        // 無限ループ防止
-        if (!(await addGroupButton.isVisible({ timeout: 1000 }))) break;
+        await expect(addGroupButton, '数量グループを追加する操作が提供される').toBeVisible({
+          timeout: getTimeout(5000),
+        });
+        await addGroupButton.click();
+        await expect(groups, '数量グループが1つ増える').toHaveCount(groupCountBefore + 1, {
+          timeout: getTimeout(10000),
+        });
       }
 
-      if (groupCount >= 2) {
-        // 最初のグループに項目があることを確認
-        const firstGroup = groups.first();
-        const itemInFirstGroup = firstGroup.getByTestId('quantity-item-row').first();
-        const hasItem = await itemInFirstGroup.isVisible({ timeout: 3000 });
-
-        if (hasItem) {
-          // アクションメニューを開く
-          const moreButton = itemInFirstGroup.getByLabel(/アクション|メニュー|その他/);
-          if (await moreButton.isVisible({ timeout: 2000 })) {
-            await moreButton.click();
-
-            // グループ移動オプションを確認
-            const moveToGroupOption = page.getByRole('menuitem', {
-              name: /グループに移動|別グループ/,
-            });
-            const hasMoveToGroup = await moveToGroupOption.isVisible({ timeout: 2000 });
-
-            // 移動オプションが存在すること（必須）
-            expect(hasMoveToGroup || true).toBeTruthy(); // 機能実装状況による
+      // 前提2: 移動元グループに移動対象の数量項目があること
+      const sourceGroup = groups.first();
+      const targetGroup = groups.nth(1);
+      const sourceItems = sourceGroup.getByTestId('quantity-item-row');
+      await expect(sourceItems.first(), '移動元の数量グループに数量項目がある').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      // 用意した数量項目そのものが移動元グループに表示されていること
+      // （先行する検証が残した項目ではなく、この検証が用意した項目で前提が満たされている）
+      await expect
+        .poll(
+          async () =>
+            sourceItems
+              .locator('input[id$="-name"]')
+              .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value)),
+          {
+            message: 'REQ-6.4: 検証自身が用意した移動対象の数量項目が移動元グループに表示される',
+            timeout: getTimeout(10000),
           }
-        }
-      }
+        )
+        .toContain(seedItemName);
+      const sourceItemCountBefore = await sourceItems.count();
+      const targetItemCountBefore = await targetGroup.getByTestId('quantity-item-row').count();
+
+      // REQ-6.2: 数量項目の移動操作から移動先選択UIを開く
+      const actionMenuButton = sourceItems.first().getByLabel(/アクション|メニュー|その他/);
+      await expect(actionMenuButton, '数量項目の操作メニューを開く操作が提供される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await actionMenuButton.click();
+
+      // アクションメニューは Portal で body 直下へ描画されるため menu 配下で参照する
+      const actionMenu = page.getByRole('menu');
+      await expect(actionMenu, '数量項目の操作メニューが開く').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      const moveToGroupOption = actionMenu.getByRole('menuitem', {
+        name: /グループに移動|別グループ/,
+      });
+      await expect(
+        moveToGroupOption,
+        'REQ-6.4: 数量項目を別の数量グループへ移動する操作が提供される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+      await moveToGroupOption.click();
+
+      // REQ-6.2: 移動先グループを選ぶUIが表示される
+      const moveDialog = page.getByRole('dialog');
+      await expect(moveDialog, '移動先選択UIが表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      const targetGroupChoice = moveDialog
+        .getByRole('radiogroup', { name: 'グループ選択' })
+        .getByRole('radio')
+        .nth(1);
+      await expect(targetGroupChoice, '移動先の数量グループを選択できる').toBeEnabled({
+        timeout: getTimeout(5000),
+      });
+      await targetGroupChoice.check();
+      await moveDialog.getByRole('button', { name: '移動' }).click();
+      await expect(moveDialog, '移動の確定で移動先選択UIが閉じる').not.toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // REQ-6.4: 移動先グループへ移り、元の位置からは取り除かれる
+      await expect(sourceItems, 'REQ-6.4: 移動元グループから数量項目が取り除かれる').toHaveCount(
+        sourceItemCountBefore - 1,
+        { timeout: getTimeout(10000) }
+      );
+      await expect(
+        targetGroup.getByTestId('quantity-item-row'),
+        'REQ-6.4: 移動先グループへ数量項目が移る'
+      ).toHaveCount(targetItemCountBefore + 1, { timeout: getTimeout(10000) });
     });
 
     test('複数の数量項目を選択して一括削除・コピー・移動ができる (quantity-table-generation/REQ-6.5)', async ({
@@ -1812,48 +1911,50 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 項目が2つ以上必要
-      let itemRows = page.getByTestId('quantity-item-row');
-      let itemCount = await itemRows.count();
+      // 前提: 一括操作の対象となる数量項目を2件以上、検証自身が用意する
+      const itemRows = page.getByTestId('quantity-item-row');
+      await expect(
+        page.getByTestId('quantity-group').first(),
+        '数量グループが表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
 
-      while (itemCount < 2) {
+      while ((await itemRows.count()) < 2) {
+        const itemCountBefore = await itemRows.count();
         const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        if (await addItemButton.isVisible({ timeout: 3000 })) {
-          await addItemButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-        itemRows = page.getByTestId('quantity-item-row');
-        itemCount = await itemRows.count();
-        if (itemCount >= 2) break;
-        if (!(await addItemButton.isVisible({ timeout: 1000 }))) break;
+        await expect(addItemButton, '数量項目を追加する操作が提供される').toBeVisible({
+          timeout: getTimeout(5000),
+        });
+        await addItemButton.click();
+        await expect(itemRows, '数量項目が1つ増える').toHaveCount(itemCountBefore + 1, {
+          timeout: getTimeout(10000),
+        });
       }
 
-      if (itemCount >= 2) {
-        // チェックボックスまたは選択機能を確認
-        const firstCheckbox = itemRows.first().getByRole('checkbox');
-        const secondCheckbox = itemRows.nth(1).getByRole('checkbox');
+      // REQ-6.5: 複数の数量項目を選択できること
+      const firstCheckbox = itemRows.first().getByRole('checkbox');
+      const secondCheckbox = itemRows.nth(1).getByRole('checkbox');
+      await expect(
+        firstCheckbox,
+        'REQ-6.5: 数量項目を一括操作の対象として選択する操作が提供される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(secondCheckbox, 'REQ-6.5: 2件目の数量項目も選択できる').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-        const hasCheckbox1 = await firstCheckbox.isVisible({ timeout: 2000 });
-        const hasCheckbox2 = await secondCheckbox.isVisible({ timeout: 1000 });
+      await firstCheckbox.check();
+      await secondCheckbox.check();
+      await expect(firstCheckbox, '1件目の数量項目が選択状態になる').toBeChecked();
+      await expect(secondCheckbox, '2件目の数量項目が選択状態になる').toBeChecked();
 
-        if (hasCheckbox1 && hasCheckbox2) {
-          // 複数選択
-          await firstCheckbox.click();
-          await secondCheckbox.click();
-
-          // 一括操作ボタンが表示される（必須）
-          const bulkActionButton = page.getByRole('button', { name: /一括|選択した項目/ });
-          await expect(bulkActionButton).toBeVisible({ timeout: 3000 });
-        } else {
-          // チェックボックスがない場合は、Shiftキー選択やドラッグ選択の確認
-          // 一括操作機能の存在を確認
-          const bulkActionButton = page.getByRole('button', { name: /一括|複数選択/ });
-          const hasBulkAction = await bulkActionButton.isVisible({ timeout: 2000 });
-
-          // 一括操作機能が存在する、または将来実装予定であること
-          expect(hasBulkAction || true).toBeTruthy();
-        }
-      }
+      // REQ-6.5: 選択した全項目に対する削除・コピー・移動の一括操作が提供されること
+      // （「現場調査から一括追加」は選択項目に対する操作ではないため名称で区別する）
+      const bulkActionButton = page.getByRole('button', {
+        name: /選択した項目|一括削除|一括コピー|一括移動/,
+      });
+      await expect(
+        bulkActionButton.first(),
+        'REQ-6.5: 選択した数量項目に対する一括操作が提供される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 
@@ -1864,9 +1965,157 @@ test.describe('数量表CRUD操作', () => {
    * REQ-7: 入力支援・オートコンプリート
    */
   test.describe('オートコンプリート機能', () => {
+    // REQ-7.1 の候補は「同一プロジェクト内の対象フィールドの入力履歴」から作られる。
+    // 履歴が無ければ候補は出ないため、候補の有無を理由に検証を飛ばすのではなく、
+    // 検証自身がAPIで既知の履歴を作り、前提が整ったことを確かめてからUIを検証する。
+    const MAJOR_CATEGORY_PREFIX = 'オートコンプリート大項目';
+    const seededMajorCategory = `${MAJOR_CATEGORY_PREFIX}${Date.now().toString(36)}`;
+
+    /** 実行ごとに一意な接尾辞（同一データベースを繰り返し使うため候補値を実行間で区別する） */
+    const AUTOCOMPLETE_RUN_ID = Date.now().toString(36);
+
+    /** 中項目（REQ-7.3）の検証で用いる既知の候補 */
+    const MIDDLE_CATEGORY_PREFIX = 'オートコンプリート中項目';
+    const seededMiddleCategory = `${MIDDLE_CATEGORY_PREFIX}${AUTOCOMPLETE_RUN_ID}`;
+
+    /**
+     * 入力上限が狭いフィールド（工種・単位）向けの短い実行識別子。
+     * 単位は Requirement 13.3 により半角6文字相当が上限で、AUTOCOMPLETE_RUN_ID（8文字）は
+     * そのままでは収まらないため、末尾3文字のみを用いる。
+     */
+    const SHORT_RUN_ID = AUTOCOMPLETE_RUN_ID.slice(-3);
+
+    /**
+     * 大項目・中項目以外の対象フィールド（REQ-7.3）の検証対象。
+     * label は画面上のラベル、field はオートコンプリート候補APIの応答キー、
+     * prefix は絞り込みに用いる前方一致文字列、suffix は実行ごとの識別子に対応する。
+     *
+     * prefix + suffix は Requirement 13 のフィールド仕様（13.1: 全角25文字/半角50文字、
+     * 13.2 工種: 全角8文字/半角16文字、13.3 単位: 全角3文字/半角6文字）に収まる長さにしている。
+     * 上限を超える値を入力履歴として投入すると、この検証が共有している数量表そのものが
+     * 保存時バリデーション（REQ-11.2）で弾かれ、後続の保存検証が巻き添えで壊れるため。
+     */
+    const AUTOCOMPLETE_FIELDS = [
+      {
+        label: '小項目',
+        field: 'minorCategory',
+        prefix: 'オートコンプリート小項目',
+        suffix: AUTOCOMPLETE_RUN_ID,
+      },
+      {
+        label: '任意分類',
+        field: 'customCategory',
+        prefix: 'オートコンプリート任意分類',
+        suffix: AUTOCOMPLETE_RUN_ID,
+      },
+      { label: '工種', field: 'workType', prefix: '補完工種', suffix: SHORT_RUN_ID },
+      {
+        label: '規格',
+        field: 'specification',
+        prefix: 'オートコンプリート規格',
+        suffix: AUTOCOMPLETE_RUN_ID,
+      },
+      { label: '単位', field: 'unit', prefix: '補', suffix: SHORT_RUN_ID },
+    ] as const;
+
+    /** 対象フィールドへ投入する入力履歴の値（前方一致で絞り込めるよう prefix を先頭に置く） */
+    function autocompleteSeedValue(fieldSpec: (typeof AUTOCOMPLETE_FIELDS)[number]): string {
+      return `${fieldSpec.prefix}${fieldSpec.suffix}`;
+    }
+
+    /** 50音順（REQ-7.7）の検証で用いる、並び順が一意に定まる大項目の候補群 */
+    const SORT_PREFIX = `オートコンプリート並び順${AUTOCOMPLETE_RUN_ID}`;
+    const SORT_SEED_VALUES = [`${SORT_PREFIX}う`, `${SORT_PREFIX}あ`, `${SORT_PREFIX}い`];
+    const SORT_EXPECTED_ORDER = [`${SORT_PREFIX}あ`, `${SORT_PREFIX}い`, `${SORT_PREFIX}う`];
+
+    /** ログイン済みページの認証ヘッダを組み立てる */
+    async function autocompleteAuthHeaders(page: Page): Promise<Record<string, string>> {
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
+      return { Authorization: `Bearer ${accessToken}` };
+    }
+
+    /**
+     * 対象フィールドのオートコンプリート候補となる入力履歴を用意する。
+     *
+     * 既存の数量表の先頭グループへ、指定された値を持つ数量項目をAPIで追加し、
+     * 数量表編集画面の初回表示が用いる候補取得経路の応答に現れることまで確かめる。
+     * 前提が用意できなければこの時点で失敗する。
+     *
+     * @param page - ログイン済みのページ
+     * @param seeds - 投入する入力履歴。1要素につき数量項目を1件作成する。
+     *                キーは候補APIの応答キー（majorCategory 等）、値は投入する文字列。
+     */
+    async function seedAutocompleteHistory(
+      page: Page,
+      seeds: Record<string, string>[]
+    ): Promise<void> {
+      const headers = await autocompleteAuthHeaders(page);
+
+      const tableResponse = await page.request.get(
+        `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+        { headers }
+      );
+      expect(tableResponse.ok(), '数量表詳細の取得が成功する').toBeTruthy();
+      const tableGroups = (
+        (await tableResponse.json()) as {
+          groups: { id: string; items: unknown[] }[];
+        }
+      ).groups;
+      expect(tableGroups.length, '入力履歴を書き込む数量グループが存在する').toBeGreaterThan(0);
+      const seedGroup = tableGroups[0]!;
+
+      for (const [index, seed] of seeds.entries()) {
+        const itemResponse = await page.request.post(
+          `${API_BASE_URL}/api/quantity-groups/${seedGroup.id}/items`,
+          {
+            headers,
+            data: {
+              // 工種は Requirement 13.2（全角8文字/半角16文字）、単位は 13.3（全角3文字/半角6文字）、
+              // 名称は 13.1（全角25文字/半角50文字）が上限。上限内の値のみを投入する。
+              workType: '検証工種',
+              name: 'オートコンプリート検証名称',
+              unit: 'm',
+              calculationMethod: 'STANDARD',
+              calculationParams: null,
+              adjustmentFactor: 1,
+              roundingUnit: 0.01,
+              quantity: 1,
+              displayOrder: seedGroup.items.length + index,
+              ...seed,
+            },
+          }
+        );
+        expect(itemResponse.ok(), '入力履歴となる数量項目の作成が成功する').toBeTruthy();
+      }
+
+      const candidatesResponse = await page.request.get(
+        `${API_BASE_URL}/api/projects/${testProjectId}/quantity-items/autocomplete-candidates`,
+        { headers }
+      );
+      expect(candidatesResponse.ok(), 'オートコンプリート候補の取得が成功する').toBeTruthy();
+      const candidates = (
+        (await candidatesResponse.json()) as {
+          candidates: Record<string, string[]>;
+        }
+      ).candidates;
+      for (const seed of seeds) {
+        for (const [field, value] of Object.entries(seed)) {
+          expect(
+            candidates[field],
+            `用意した入力履歴が${field}のオートコンプリート候補に含まれる`
+          ).toContain(value);
+        }
+      }
+    }
+
+    /** 大項目（REQ-7.1 / REQ-7.4）の検証で用いる入力履歴を用意する */
+    async function seedMajorCategoryHistory(page: Page): Promise<void> {
+      await seedAutocompleteHistory(page, [{ majorCategory: seededMajorCategory }]);
+    }
+
     test('大項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.1)', async ({
       page,
-      request,
     }) => {
       if (!createdQuantityTableId) {
         throw new Error(
@@ -1874,98 +2123,37 @@ test.describe('数量表CRUD操作', () => {
         );
       }
 
-      // Step 1: ログイン
       await loginAsUser(page, 'REGULAR_USER');
 
-      // Step 2: APIを使用してオートコンプリート用のテストデータを作成
-      // 新しい数量表を作成し、有効なデータを保存する
-      const testProject = testProjectId;
+      // 候補の元となる入力履歴を用意する（前提が整わなければここで失敗する）
+      await seedMajorCategoryHistory(page);
 
-      // テスト用の数量表をAPIで作成
-      const createTableResponse = await request.post('/api/quantity-tables', {
-        headers: {
-          Cookie: await page
-            .context()
-            .cookies()
-            .then((cookies) => cookies.map((c) => `${c.name}=${c.value}`).join('; ')),
-        },
-        data: {
-          name: 'オートコンプリートテスト用数量表',
-          projectId: testProject,
-          groups: [
-            {
-              displayOrder: 0,
-              items: [
-                {
-                  displayOrder: 0,
-                  majorCategory: '建築工事オートコンプリートテスト',
-                  workType: 'テスト工種',
-                  name: 'テスト名称',
-                  unit: 'm',
-                  quantity: 1.0,
-                  calculationMethod: 'STANDARD',
-                  adjustmentFactor: 1.0,
-                },
-              ],
-            },
-          ],
-        },
-      });
-
-      // APIレスポンスを確認（成功しなくてもテストは続行）
-      const tableCreated = createTableResponse.ok();
-
-      // Step 3: 元の数量表編集画面にアクセス
+      // 初回表示で候補が一括取得される（REQ-7.1）ため、用意後に編集画面を開く
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // グループカードが表示されることを確認
-      const groupCard = page.getByTestId('quantity-group-card').first();
-      await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByTestId('quantity-group-card').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(page.getByTestId('quantity-item-row').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 項目行を取得（なければ追加）
-      let itemRow = page.getByTestId('quantity-item-row').first();
-      const hasItem = await itemRow.isVisible({ timeout: 3000 }).catch(() => false);
-      if (!hasItem) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加|項目追加/ }).first();
-        await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
-        await addItemButton.click();
-        await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(1000);
-        itemRow = page.getByTestId('quantity-item-row').first();
-      }
-
-      // 項目行が表示されることを確認（必須）
-      await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
-
-      // Step 4: 大項目フィールドにフォーカスして入力
       const majorCategoryInput = page.getByRole('combobox', { name: /大項目/ }).first();
       await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-      // フィールドをクリアして、オートコンプリートをトリガー
-      await majorCategoryInput.clear();
-      await majorCategoryInput.fill('建');
-      await page.waitForTimeout(500); // デバウンス待機
+      // 入力内容に前方一致する候補が表示されること
+      await majorCategoryInput.click();
+      await majorCategoryInput.fill(MAJOR_CATEGORY_PREFIX);
 
-      // Step 5: オートコンプリート候補リストの確認
-      // REQ-7.1: 過去の入力履歴からオートコンプリート候補を表示する
-      // 注: データがある場合のみlistboxが表示される
       const listbox = page.getByRole('listbox');
-      const listboxVisible = await listbox.isVisible({ timeout: 5000 }).catch(() => false);
-
-      if (tableCreated && listboxVisible) {
-        // APIでデータを作成でき、listboxが表示されている場合
-        await expect(listbox).toBeVisible();
-      } else {
-        // データがない場合でも、オートコンプリートコンポーネントが機能していることを確認
-        // （候補がないためlistboxは表示されないが、入力は受け付ける）
-        const inputValue = await majorCategoryInput.inputValue();
-        expect(inputValue).toBe('建');
-        console.log(
-          'オートコンプリート: 候補データがないか、API作成に失敗したためlistboxは表示されませんでした。' +
-            'コンポーネント自体は機能しています。'
-        );
-      }
+      await expect(listbox, 'REQ-7.1: 入力履歴からの候補リストが表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(
+        listbox.getByRole('option', { name: seededMajorCategory, exact: true }),
+        'REQ-7.1: 用意した入力履歴が候補として表示される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
 
       // テスト終了前にクリーンアップ
       await page.keyboard.press('Escape');
@@ -1985,43 +2173,33 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 選択対象となる候補を検証自身が用意する（前提が整わなければここで失敗する）
+      await seedMajorCategoryHistory(page);
+
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 大項目コンボボックスが表示されることを確認（必須）
       const majorCategoryInput = page.getByRole('combobox', { name: /大項目/ }).first();
       await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-      // オートコンプリートを開くために入力
-      await majorCategoryInput.fill('建');
-      await page.waitForTimeout(500); // デバウンス待機
+      await majorCategoryInput.click();
+      await majorCategoryInput.fill(MAJOR_CATEGORY_PREFIX);
 
-      // オートコンプリート候補リストの確認
       const listbox = page.getByRole('listbox');
-      const listboxVisible = await listbox.isVisible({ timeout: 3000 }).catch(() => false);
+      await expect(listbox, '候補リストが表示される').toBeVisible({ timeout: getTimeout(5000) });
 
-      if (listboxVisible) {
-        // 候補リストが表示されている場合は選択テストを実行
-        const firstOption = listbox.getByRole('option').first();
-        await expect(firstOption).toBeVisible({ timeout: 2000 });
+      const seededOption = listbox.getByRole('option', { name: seededMajorCategory, exact: true });
+      await expect(seededOption, '用意した候補が選択肢として表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-        // オプションテキストを取得
-        const optionText = await firstOption.textContent();
-        expect(optionText).toBeTruthy();
-
-        // オプションをクリックして選択
-        await firstOption.click();
-        await page.waitForTimeout(100);
-
-        // 選択した値が入力欄に反映されていることを確認
-        const inputValue = await majorCategoryInput.inputValue();
-        expect(inputValue).toBeTruthy();
-      } else {
-        // 候補データがない場合は入力機能の確認のみ
-        const inputValue = await majorCategoryInput.inputValue();
-        expect(inputValue).toBe('建');
-        console.log('REQ-7.4: オートコンプリート候補がないため、選択テストはスキップ');
-      }
+      // REQ-7.4: 候補を選択すると、その値が該当フィールドへ自動入力される
+      await seededOption.click();
+      await expect(majorCategoryInput, 'REQ-7.4: 選択した候補の値が入力欄へ反映される').toHaveValue(
+        seededMajorCategory,
+        { timeout: getTimeout(5000) }
+      );
 
       // クリーンアップ
       await page.keyboard.press('Escape');
@@ -2041,34 +2219,34 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 候補の元となる中項目の入力履歴を用意する（前提が整わなければここで失敗する）
+      await seedAutocompleteHistory(page, [{ middleCategory: seededMiddleCategory }]);
+
+      // 初回表示で候補が一括取得される（REQ-7.1）ため、用意後に編集画面を開く
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
+
+      await expect(page.getByTestId('quantity-item-row').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // 中項目コンボボックスが表示されることを確認（必須）
       const mediumCategoryInput = page.getByRole('combobox', { name: /中項目/ }).first();
       await expect(mediumCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-      // REQ-7.2: 2文字以上の入力でオートコンプリート機能が動作する
-      // 入力を開始（デバウンス300ms + API応答時間を考慮）
-      await mediumCategoryInput.fill('工事');
+      // REQ-7.3 / REQ-7.3a: 入力内容に前方一致する候補をドロップダウン表示する
+      await mediumCategoryInput.click();
+      await mediumCategoryInput.fill(MIDDLE_CATEGORY_PREFIX);
 
-      // APIレスポンスを待つ
-      await page.waitForTimeout(500);
-
-      // オートコンプリート候補リストが表示される
-      // 注: 履歴データがある場合のみlistboxが表示される
-      const listbox = page.getByRole('listbox');
-      const listboxVisible = await listbox.isVisible({ timeout: 3000 }).catch(() => false);
-
-      if (listboxVisible) {
-        // 候補がある場合はlistboxが表示される
-        await expect(listbox).toBeVisible();
-      } else {
-        // 候補がない場合でもオートコンプリート機能が有効であることを確認
-        // コンボボックスの属性で機能が有効かを確認
-        const hasComboboxRole = await mediumCategoryInput.getAttribute('role');
-        expect(hasComboboxRole).toBe('combobox');
-      }
+      const listbox = page.getByRole('listbox', { name: '中項目の候補' });
+      await expect(listbox, 'REQ-7.3: 中項目の候補がドロップダウン表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(
+        listbox.getByRole('option', { name: seededMiddleCategory, exact: true }),
+        'REQ-7.3: 用意した入力履歴が中項目の候補として表示される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
 
       // テスト終了前にクリーンアップ: リストを閉じて入力をクリア
       await page.keyboard.press('Escape');
@@ -2088,40 +2266,49 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 各対象フィールドの候補の元となる入力履歴を用意する（1件の数量項目に全フィールド分を持たせる）
+      const seededFieldValues = Object.fromEntries(
+        AUTOCOMPLETE_FIELDS.map((fieldSpec) => [fieldSpec.field, autocompleteSeedValue(fieldSpec)])
+      );
+      await seedAutocompleteHistory(page, [seededFieldValues]);
+
+      // 初回表示で候補が一括取得される（REQ-7.1）ため、用意後に編集画面を開く
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // テスト対象のフィールドリスト（combobox roleを持つフィールド）
-      const fieldsToTest = ['小項目', '任意分類', '工種', '規格', '単位'];
+      await expect(page.getByTestId('quantity-item-row').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 各フィールドがオートコンプリート機能を持つことを確認
-      let comboboxFieldsFound = 0;
+      // REQ-7.3: 対象フィールドごとに、用意した入力履歴が候補としてドロップダウン表示される
+      for (const fieldSpec of AUTOCOMPLETE_FIELDS) {
+        const { label, prefix } = fieldSpec;
+        const seededValue = autocompleteSeedValue(fieldSpec);
+        const fieldInput = page.getByRole('combobox', { name: new RegExp(label) }).first();
+        await expect(fieldInput, `REQ-7.3: ${label}フィールドが表示される`).toBeVisible({
+          timeout: getTimeout(5000),
+        });
 
-      for (const fieldName of fieldsToTest) {
-        const fieldInput = page.getByRole('combobox', { name: new RegExp(fieldName) }).first();
-        const hasField = await fieldInput.isVisible({ timeout: 2000 }).catch(() => false);
+        await fieldInput.click();
+        await fieldInput.fill(prefix);
 
-        if (hasField) {
-          comboboxFieldsFound++;
+        const listbox = page.getByRole('listbox', { name: `${label}の候補` });
+        await expect(listbox, `REQ-7.3: ${label}の候補がドロップダウン表示される`).toBeVisible({
+          timeout: getTimeout(5000),
+        });
+        await expect(
+          listbox.getByRole('option', { name: seededValue, exact: true }),
+          `REQ-7.3: 用意した入力履歴が${label}の候補として表示される`
+        ).toBeVisible({ timeout: getTimeout(5000) });
 
-          // フィールドに入力してオートコンプリート機能を確認
-          await fieldInput.fill('テスト');
-          await page.waitForTimeout(500); // デバウンス待機
-
-          // リストボックスの存在は履歴データに依存するため、
-          // combobox roleが正しく設定されていることで機能確認とする
-          const role = await fieldInput.getAttribute('role');
-          expect(role).toBe('combobox');
-
-          // クリーンアップ
-          await page.keyboard.press('Escape');
-          await page.waitForTimeout(100);
-          await fieldInput.clear();
-        }
+        // 次のフィールドの検証に影響しないよう、リストを閉じて入力を戻す
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
+        await fieldInput.clear();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
       }
-
-      // 少なくとも1つのcomboboxフィールドが存在すること（必須）
-      expect(comboboxFieldsFound).toBeGreaterThan(0);
 
       // 最終クリーンアップ
       await page.keyboard.press('Escape');
@@ -2139,50 +2326,52 @@ test.describe('数量表CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集ページに遷移
+      // 並び順が一意に定まる大項目の候補を、投入順とは異なる順序で用意する
+      // （投入順のまま表示されれば並び順の検証が失敗する）
+      await seedAutocompleteHistory(
+        page,
+        SORT_SEED_VALUES.map((value) => ({ majorCategory: value }))
+      );
+
+      // 数量表編集ページに遷移（初回表示で候補が一括取得される）
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // エラーアラートが表示されている場合は、ページをリロードしてリセット
-      const errorAlert = page.getByRole('alert').first();
-      if (await errorAlert.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-      }
+      await expect(page.getByTestId('quantity-item-row').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // 大項目コンボボックスが表示されることを確認（必須）
       const majorCategoryInput = page.getByRole('combobox', { name: /大項目/ }).first();
       await expect(majorCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-      // フォーカスしてリストを開く（fill('')の代わりにfocusとキー操作を使用）
-      await majorCategoryInput.focus();
-      await page.waitForTimeout(100);
-      // ArrowDownでリストを開く
-      await page.keyboard.press('ArrowDown');
+      // 用意した候補群に共通する前方一致文字列を入力し、候補を絞り込む
+      await majorCategoryInput.click();
+      await majorCategoryInput.fill(SORT_PREFIX);
 
-      // オートコンプリート候補リストが表示される
-      const listbox = page.getByRole('listbox');
-      const hasListbox = await listbox.isVisible({ timeout: 3000 });
+      const listbox = page.getByRole('listbox', { name: '大項目の候補' });
+      await expect(listbox, 'REQ-7.7: 大項目の候補がドロップダウン表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      if (hasListbox) {
-        const options = listbox.getByRole('option');
-        const optionCount = await options.count();
+      const options = listbox.getByRole('option');
+      await expect(options, 'REQ-7.7: 用意した候補が全件表示される').toHaveCount(
+        SORT_SEED_VALUES.length,
+        { timeout: getTimeout(5000) }
+      );
 
-        if (optionCount >= 2) {
-          // 候補が2つ以上ある場合、50音順（辞書順）に並んでいることを確認
-          const optionTexts: string[] = [];
-          for (let i = 0; i < optionCount; i++) {
-            const text = await options.nth(i).textContent();
-            if (text) optionTexts.push(text);
-          }
+      const optionTexts = await options.allTextContents();
+      expect(optionTexts, 'REQ-7.7: 候補が50音順（投入順ではない）に表示される').toEqual(
+        SORT_EXPECTED_ORDER
+      );
 
-          // 元の配列とソート後の配列を比較
-          const sortedTexts = [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja'));
-          expect(optionTexts).toEqual(sortedTexts);
-        }
-      }
+      const sortedTexts = [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja'));
+      expect(optionTexts, 'REQ-7.7: 表示順が50音順の整列結果と一致する').toEqual(sortedTexts);
 
       // クリーンアップ: リストを閉じる
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+      await majorCategoryInput.clear();
       await page.keyboard.press('Escape');
       await page.waitForTimeout(300);
     });
@@ -4032,35 +4221,17 @@ test.describe('数量表CRUD操作', () => {
 
       await page.waitForTimeout(500);
 
-      // 保存ボタンが表示されることを確認（必須）
-      const saveButton = page.getByRole('button', { name: /保存/ });
-      await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
-
-      await saveButton.click();
-
-      // 保存成功のインジケーターが表示されることを確認
-      // または保存エラーが表示されないことを確認
-      const successIndicator = page.getByText(/保存しました|保存完了|success/i);
-      const errorIndicator = page.getByRole('alert').first();
-
-      // 成功メッセージが表示されるか、エラーが表示されないことを確認
-      const successVisible = await successIndicator.isVisible({ timeout: 5000 }).catch(() => false);
-      if (!successVisible) {
-        // エラーがある場合はその内容を確認
-        const errorVisible = await errorIndicator.isVisible({ timeout: 1000 }).catch(() => false);
-        if (errorVisible) {
-          const errorText = await errorIndicator.textContent();
-          // 保存できませんエラーの場合はテスト失敗
-          if (errorText?.includes('保存できません')) {
-            throw new Error(`保存に失敗しました: ${errorText}`);
-          }
-        }
-        // 成功メッセージが表示されなくても、エラーがなければOK
-        // （自動保存の場合、明示的なメッセージが出ない可能性）
-      }
+      // REQ-11.1: 保存操作で永続化されること。保存APIの応答が 200 であることと
+      // 保存完了フィードバック（「保存しました」）の表示を無条件に主張する。
+      // 保存が 400 などで失敗した場合は 200 の応答待機が成立せずこのテストは失敗する。
+      await saveQuantityTableDraft(page);
     });
 
-    test('編集後に自動保存インジケーターが表示される (quantity-table-generation/REQ-11.5)', async ({
+    // REQ-11.5 は「編集内容の自動保存（一定間隔での保存）を行わず、データの永続化は
+    // 保存操作時にのみ実行する」ことを求める。したがって検証すべきは自動保存インジケーターの
+    // 有無ではなく、(1) 編集後に一定時間を置いても永続化が起きないこと、
+    // (2) 保存操作でのみ永続化され完了フィードバックが表示されること、の二点である。
+    test('編集内容は自動保存されず保存操作時にのみ永続化される (quantity-table-generation/REQ-11.5)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -4070,75 +4241,118 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
+      const headers = await apiAuthHeaders(page);
+
+      // 前提: 編集対象となる数量項目を検証自身が用意する
+      const tableResponse = await page.request.get(
+        `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+        { headers }
+      );
+      expect(tableResponse.ok(), '数量表詳細の取得が成功する').toBeTruthy();
+      const seedGroups = (
+        (await tableResponse.json()) as { groups: { id: string; items: unknown[] }[] }
+      ).groups;
+      expect(seedGroups.length, '編集対象を置く数量グループが存在する').toBeGreaterThan(0);
+      const seedGroup = seedGroups[0]!;
+      const seedItemResponse = await page.request.post(
+        `${API_BASE_URL}/api/quantity-groups/${seedGroup.id}/items`,
+        {
+          headers,
+          data: {
+            workType: '自動保存検証工種',
+            name: '自動保存検証名称',
+            unit: 'm',
+            calculationMethod: 'STANDARD',
+            calculationParams: null,
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+            quantity: 1,
+            displayOrder: seedGroup.items.length,
+          },
+        }
+      );
+      expect(seedItemResponse.ok(), '編集対象となる数量項目の作成が成功する').toBeTruthy();
+
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 編集可能なフィールドを探す
-      // 数量フィールドは計算モードではreadOnlyになるため、名称フィールドも試す
-      const quantityInput = page.locator('input[id$="-quantity"]').first();
-      const quantityVisible = await quantityInput.isVisible({ timeout: 3000 }).catch(() => false);
-
-      let fieldEdited = false;
-
-      // 数量フィールドが表示されていて、readOnlyでない場合に使用
-      if (quantityVisible) {
-        const isReadOnly = await quantityInput.getAttribute('readonly');
-        if (!isReadOnly) {
-          const originalValue = await quantityInput.inputValue();
-          const newValue = (parseFloat(originalValue) || 0) + 1;
-          await quantityInput.fill(String(newValue));
-          await page.keyboard.press('Tab');
-          fieldEdited = true;
+      // 永続化リクエストを観測する。CIとローカルでAPIオリジンが異なるため、
+      // オリジンではなくパスとメソッドで判定する。
+      const persistRequests: string[] = [];
+      page.on('request', (request) => {
+        const method = request.method();
+        const pathname = new URL(request.url()).pathname;
+        if (method !== 'GET' && /^\/api\/quantity-(tables|groups|items)/.test(pathname)) {
+          persistRequests.push(`${method} ${pathname}`);
         }
+      });
+
+      // 前提: 保存が通る状態にするため必須フィールド（名称・工種・単位）を全項目で埋め、
+      // 先頭項目の名称に、永続化の有無を判別できる印を入れる。
+      // 値は REQ-13 の入力上限（名称: 全角25文字 / 工種: 全角8文字 / 単位: 全角3文字）に収める。
+      const editMarker = `保存検証印_${Date.now().toString(36)}`;
+      const nameInputs = page.getByRole('combobox', { name: /名称/ });
+      const workTypeInputs = page.getByRole('combobox', { name: /工種/ });
+      const unitInputs = page.getByRole('combobox', { name: /単位/ });
+
+      const nameCount = await nameInputs.count();
+      expect(nameCount, '編集対象の数量項目が表示されている').toBeGreaterThan(0);
+      for (let i = 0; i < nameCount; i++) {
+        await nameInputs.nth(i).fill(i === 0 ? editMarker : `保存検証名称${i + 1}`);
       }
-
-      // 数量フィールドが使えない場合、名称フィールドを試す
-      if (!fieldEdited) {
-        const nameField = page.getByRole('combobox', { name: /名称/ }).first();
-        const nameVisible = await nameField.isVisible({ timeout: 2000 }).catch(() => false);
-        if (nameVisible) {
-          const originalValue = await nameField.inputValue();
-          await nameField.fill(originalValue + '_test');
-          await page.keyboard.press('Tab');
-          fieldEdited = true;
-        }
+      const workTypeCount = await workTypeInputs.count();
+      for (let i = 0; i < workTypeCount; i++) {
+        await workTypeInputs.nth(i).fill(`検証工種${i + 1}`);
       }
-
-      await page.waitForTimeout(1500);
-
-      // 保存中または保存済みインジケーターが表示されることを確認
-      const savingIndicator = page.getByText(/保存中|保存しました|自動保存/);
-      const hasSaveIndicator = await savingIndicator
-        .first()
-        .isVisible({ timeout: getTimeout(3000) })
-        .catch(() => false);
-
-      // REQ-11.5: 保存インジケーターが表示される
-      if (hasSaveIndicator) {
-        expect(hasSaveIndicator).toBeTruthy();
-      } else if (fieldEdited) {
-        // インジケーターがない場合、保存ボタンをクリックして確認
-        const saveButton = page.getByRole('button', { name: /保存/ });
-        const saveButtonVisible = await saveButton.isVisible({ timeout: 2000 }).catch(() => false);
-        if (saveButtonVisible) {
-          await saveButton.click();
-          await page.waitForTimeout(1000);
-          // 保存後のフィードバックを確認
-          const saveSuccess = page.getByText(/保存しました|保存完了|success/i);
-          const hasSuccess = await saveSuccess.isVisible({ timeout: 3000 }).catch(() => false);
-          expect(hasSuccess || true).toBeTruthy();
-        } else {
-          // 保存ボタンもない場合、ページが正常に動作していることを確認
-          expect(fieldEdited).toBeTruthy();
-        }
-      } else {
-        // 編集可能なフィールドがない場合、ページの基本機能を確認
-        const editAreaVisible = await page
-          .getByTestId('quantity-table-edit-area')
-          .isVisible({ timeout: 2000 })
-          .catch(() => false);
-        expect(editAreaVisible).toBeTruthy();
+      const unitCount = await unitInputs.count();
+      for (let i = 0; i < unitCount; i++) {
+        await unitInputs.nth(i).fill('m');
       }
+      await page.keyboard.press('Escape');
+
+      // 編集が入力欄へ反映されていること（編集を実施した前提の確認）
+      await expect(nameInputs.first(), '先頭項目に編集が反映されている').toHaveValue(editMarker, {
+        timeout: getTimeout(5000),
+      });
+
+      // REQ-11.5: 一定間隔の自動保存が行われないこと（十分な待機を置いても永続化が発生しない）
+      await page.waitForTimeout(6000);
+      expect(
+        persistRequests,
+        'REQ-11.5: 編集後に一定時間が経過しても自動保存の永続化リクエストが発行されない'
+      ).toEqual([]);
+
+      const beforeSaveResponse = await page.request.get(
+        `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+        { headers }
+      );
+      expect(beforeSaveResponse.ok(), '保存操作前の数量表取得が成功する').toBeTruthy();
+      expect(
+        JSON.stringify(await beforeSaveResponse.json()),
+        'REQ-11.5: 保存操作前は編集内容が永続化されていない'
+      ).not.toContain(editMarker);
+
+      // REQ-11.5: 保存操作時にのみ永続化が実行される
+      await saveQuantityTableDraft(page);
+      await expect(
+        page.getByText(/保存しました/).first(),
+        'REQ-11.5: 保存操作の完了フィードバックが表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
+
+      expect(
+        persistRequests,
+        'REQ-11.5: 永続化リクエストは保存操作による1回のみ発行される'
+      ).toEqual([`PUT /api/quantity-tables/${createdQuantityTableId}/save`]);
+
+      const afterSaveResponse = await page.request.get(
+        `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+        { headers }
+      );
+      expect(afterSaveResponse.ok(), '保存操作後の数量表取得が成功する').toBeTruthy();
+      expect(
+        JSON.stringify(await afterSaveResponse.json()),
+        'REQ-11.5: 保存操作によって編集内容が永続化される'
+      ).toContain(editMarker);
     });
 
     test('整合性チェックでエラーが検出されると保存が中断される (quantity-table-generation/REQ-11.2)', async ({
