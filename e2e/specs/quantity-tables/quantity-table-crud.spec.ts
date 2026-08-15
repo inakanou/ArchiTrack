@@ -41,6 +41,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * 文字幅を算出する（全角=2・半角=1）。
+ *
+ * REQ-13.1/13.2/13.3 の「全角N文字/半角2N文字」は文字幅の上限を指す。
+ * backend の QuantityFieldValidationService.calculateStringWidth および
+ * frontend の utils/field-validation.calculateStringWidth と同一仕様。
+ */
+function calculateStringWidth(value: string): number {
+  let width = 0;
+  for (const char of value) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    const isHankaku =
+      (codePoint >= 0x0000 && codePoint <= 0x007f) || (codePoint >= 0xff61 && codePoint <= 0xff9f);
+    width += isHankaku ? 1 : 2;
+  }
+  return width;
+}
+
+/**
  * 数量表CRUD機能のE2Eテスト
  */
 test.describe('数量表CRUD操作', () => {
@@ -3690,15 +3708,11 @@ test.describe('数量表CRUD操作', () => {
       // 入力値を確認
       const fieldValue = await targetField.inputValue();
 
-      // REQ-13.1: 最大文字数制限が適用される
-      // ハードリミット: 50文字以下に制限される
-      // ソフトリミット: 51文字で警告表示されるが入力は受け付ける
-      if (fieldValue.length <= 50) {
-        expect(fieldValue.length).toBeLessThanOrEqual(50);
-      } else {
-        // ソフトリミットの場合、入力が受け付けられていることを確認
-        expect(fieldValue.length).toBe(51);
-      }
+      // REQ-13.1: 最大文字数（全角25文字/半角50文字）を超える入力を防止する。
+      // 同じ「防止する」規定の REQ-22.5（数量グループ名）は、上限を超える入力を
+      // 入力欄が保持しないことで実現している。よって上限超過の入力を行っても、
+      // 入力欄が保持する値は常に上限（半角50文字相当の幅）以内でなければならない。
+      expect(calculateStringWidth(fieldValue)).toBeLessThanOrEqual(50);
     });
 
     /**
@@ -3736,12 +3750,9 @@ test.describe('数量表CRUD操作', () => {
       // 入力値を確認
       const fieldValue = await targetField.inputValue();
 
-      // REQ-13.2: 最大文字数制限が適用される
-      if (fieldValue.length <= 16) {
-        expect(fieldValue.length).toBeLessThanOrEqual(16);
-      } else {
-        expect(fieldValue.length).toBe(17);
-      }
+      // REQ-13.2: 最大文字数（全角8文字/半角16文字）を超える入力を防止する。
+      // 上限超過の入力を行っても、入力欄が保持する値は常に上限以内でなければならない。
+      expect(calculateStringWidth(fieldValue)).toBeLessThanOrEqual(16);
     });
 
     /**
@@ -3777,12 +3788,9 @@ test.describe('数量表CRUD操作', () => {
       // 入力値を確認
       const fieldValue = await targetField.inputValue();
 
-      // REQ-13.3: 最大文字数制限が適用される
-      if (fieldValue.length <= 6) {
-        expect(fieldValue.length).toBeLessThanOrEqual(6);
-      } else {
-        expect(fieldValue.length).toBe(7);
-      }
+      // REQ-13.3: 最大文字数（全角3文字/半角6文字）を超える入力を防止する。
+      // 上限超過の入力を行っても、入力欄が保持する値は常に上限以内でなければならない。
+      expect(calculateStringWidth(fieldValue)).toBeLessThanOrEqual(6);
     });
 
     /**
