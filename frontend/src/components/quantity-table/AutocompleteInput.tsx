@@ -5,8 +5,12 @@
  * Task 17.1: クライアントサイド候補ストア方式に更新する
  * Task 18.1: 旧useAutocompleteフックを廃止し新モード専用に統合する
  * Task 25.2: フォーカス時にvalueの有無に関わらずドロップダウンを開くよう修正
+ * Task 12.1: テキストフィールドの入力時点での最大文字数超過を防止する
  *
  * Requirements:
+ * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考の最大文字数超過入力を防止（全角25/半角50）
+ * - 13.2: 工種の最大文字数超過入力を防止（全角8/半角16）
+ * - 13.3: 単位の最大文字数超過入力を防止（全角3/半角6）
  * - 7.1: 入力開始時の候補表示
  * - 7.3: クライアントサイドでのフィルタリング表示（フォーカス時に全候補表示）
  * - 7.3a: 空フィールドへのフォーカス時に全候補をドロップダウン表示
@@ -19,6 +23,7 @@
 import { useState, useRef, useCallback, useId, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { AutocompleteFieldName } from '../../hooks/useAutocompleteCandidateStore';
+import { calculateStringWidth, FIELD_CONSTRAINTS } from '../../utils/field-validation';
 import FieldValidationTooltip from './FieldValidationTooltip';
 
 // ============================================================================
@@ -53,6 +58,13 @@ export interface AutocompleteInputProps {
   required?: boolean;
   /** 無効化フラグ */
   disabled?: boolean;
+  /**
+   * 入力を受け付ける最大文字幅（半角換算。全角は幅2、半角は幅1）。
+   * 省略時は field に対応するフィールド仕様（FIELD_CONSTRAINTS）の上限を用いる。
+   *
+   * Requirements: 13.1, 13.2, 13.3（最大文字数を超える入力を防止する）
+   */
+  maxWidth?: number;
 }
 
 // ============================================================================
@@ -173,6 +185,7 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
     error,
     required = false,
     disabled = false,
+    maxWidth: maxWidthProp,
   } = props;
 
   const generatedId = useId();
@@ -192,6 +205,21 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
+  /** 日本語入力（IME）の変換中かどうか */
+  const isComposingRef = useRef(false);
+  /** 変換開始直前の確定値（変換結果が上限を超えたときの戻り先） */
+  const preCompositionValueRef = useRef('');
+
+  /**
+   * このフィールドの最大文字幅（半角換算）。
+   * 明示指定がない場合はフィールド仕様（FIELD_CONSTRAINTS）から決まる。
+   *
+   * Requirements:
+   * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考（全角25文字/半角50文字）
+   * - 13.2: 工種（全角8文字/半角16文字）
+   * - 13.3: 単位（全角3文字/半角6文字）
+   */
+  const maxWidth = maxWidthProp ?? FIELD_CONSTRAINTS[field].hankaku;
 
   // getSuggestionsで候補を取得
   const suggestions = useMemo(() => {
@@ -245,16 +273,79 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
   );
 
   /**
+   * 入力を受け付けてよいかを判定する。
+   *
+   * 上限以内なら受け付ける。上限を超える場合は原則拒否するが、
+   * 現在値が既に上限を超えている（幅の検証を持たない数量項目作成APIで作られた既存データ等）
+   * ときに編集不能とならないよう、値が短くなる編集だけは受け付ける。
+   */
+  const acceptsWidth = useCallback(
+    (nextValue: string, baseValue: string) => {
+      const nextWidth = calculateStringWidth(nextValue);
+      return nextWidth <= maxWidth || nextWidth < calculateStringWidth(baseValue);
+    },
+    [maxWidth]
+  );
+
+  /**
    * 入力値変更ハンドラ
+   *
+   * REQ-13.1/13.2/13.3: 最大文字数（全角N文字/半角2N文字）を超える入力を防止する。
+   * 保存時の拒否ではなく入力時点で受け付けない方式であり、REQ-22.5（数量グループ名）と
+   * 同じく「上限以内のときだけ状態を更新する」ことで実現する。
+   *
+   * 日本語入力（IME）の変換中は判定を行わずそのまま通す。変換中の読み（例：単位欄の
+   * 「りゅうべい」）は上限を超えることがあり、この段階で拒否すると変換が中断されて
+   * 「立米」のような上限以内の正当な値を確定できなくなるため。判定は確定時に行う。
    */
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = e.target.value;
+
+      // 変換中は幅を判定しない（compositionend で確定値を判定する）
+      const nativeIsComposing = (e.nativeEvent as InputEvent).isComposing === true;
+      if (isComposingRef.current || nativeIsComposing) {
+        onChange(newValue);
+        setIsOpen(true);
+        setSelectedIndex(-1);
+        return;
+      }
+
+      // 上限を超える入力は親へ通知しない（＝状態が変化しないので controlled input の
+      // 表示も直前の値のまま戻る）。DOM を直接書き換えないためカーソル位置も保たれる。
+      if (!acceptsWidth(newValue, value)) {
+        return;
+      }
+
       onChange(newValue);
       setIsOpen(true);
       setSelectedIndex(-1);
     },
-    [onChange]
+    [onChange, value, acceptsWidth]
+  );
+
+  /**
+   * 変換開始ハンドラ。戻り先となる直前の確定値を控える。
+   */
+  const handleCompositionStart = useCallback(() => {
+    isComposingRef.current = true;
+    preCompositionValueRef.current = value;
+  }, [value]);
+
+  /**
+   * 変換確定ハンドラ
+   *
+   * REQ-13.1/13.2/13.3: 変換で確定した値の幅を評価し、上限を超える場合のみ
+   * 変換開始直前の確定値へ戻す。
+   */
+  const handleCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLInputElement>) => {
+      isComposingRef.current = false;
+      const committed = e.currentTarget.value;
+      const base = preCompositionValueRef.current;
+      onChange(acceptsWidth(committed, base) ? committed : base);
+    },
+    [onChange, acceptsWidth]
   );
 
   /**
@@ -416,6 +507,8 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
           disabled={disabled}
           style={inputStyles}
           onChange={handleInputChange}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}

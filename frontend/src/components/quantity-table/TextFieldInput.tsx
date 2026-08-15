@@ -14,8 +14,13 @@
  * @module components/quantity-table/TextFieldInput
  */
 
-import { useId, useMemo } from 'react';
-import { getRemainingWidth, type TextFieldName } from '../../utils/field-validation';
+import { useCallback, useId, useMemo, useRef } from 'react';
+import {
+  calculateStringWidth,
+  FIELD_CONSTRAINTS,
+  getRemainingWidth,
+  type TextFieldName,
+} from '../../utils/field-validation';
 
 // ============================================================================
 // 型定義
@@ -195,9 +200,53 @@ export default function TextFieldInput({
   const counterColor = useMemo(() => getCounterColor(remaining), [remaining]);
   const counterText = useMemo(() => getCounterText(remaining), [remaining]);
 
+  // 日本語入力（IME）の変換中かどうかと、変換開始直前の確定値
+  const isComposingRef = useRef(false);
+  const preCompositionValueRef = useRef('');
+
+  const maxWidth = FIELD_CONSTRAINTS[fieldName].hankaku;
+
+  // 入力を受け付けてよいかの判定。
+  // 上限以内なら受け付ける。既に上限を超えた値が入っている場合に編集不能とならないよう、
+  // 短くなる編集だけは受け付ける。
+  const acceptsWidth = useCallback(
+    (nextValue: string, baseValue: string) => {
+      const nextWidth = calculateStringWidth(nextValue);
+      return nextWidth <= maxWidth || nextWidth < calculateStringWidth(baseValue);
+    },
+    [maxWidth]
+  );
+
   // 入力変更ハンドラ
+  // REQ-13.1/13.2/13.3: 最大文字数を超える入力を防止する。
+  // 上限以内のときだけ親へ通知することで、超過した値が状態に入らないようにする。
+  // 変換中（IME）は幅を判定せずそのまま通す。変換中の読みは上限を超えることがあり、
+  // ここで拒否すると上限以内の正当な変換結果（例：「立米」）を確定できなくなるため。
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange(e.target.value);
+    const newValue = e.target.value;
+    const nativeIsComposing = (e.nativeEvent as InputEvent).isComposing === true;
+    if (isComposingRef.current || nativeIsComposing) {
+      onChange(newValue);
+      return;
+    }
+    if (!acceptsWidth(newValue, value)) {
+      return;
+    }
+    onChange(newValue);
+  };
+
+  // 変換開始：戻り先となる直前の確定値を控える
+  const handleCompositionStart = () => {
+    isComposingRef.current = true;
+    preCompositionValueRef.current = value;
+  };
+
+  // 変換確定：確定値の幅を評価し、上限を超える場合のみ変換開始直前の値へ戻す
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>) => {
+    isComposingRef.current = false;
+    const committed = e.currentTarget.value;
+    const base = preCompositionValueRef.current;
+    onChange(acceptsWidth(committed, base) ? committed : base);
   };
 
   // 入力スタイルを計算
@@ -238,6 +287,8 @@ export default function TextFieldInput({
           disabled={disabled}
           style={inputStyles}
           onChange={handleChange}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
           aria-invalid={!!error}
           aria-required={required}
           aria-describedby={
