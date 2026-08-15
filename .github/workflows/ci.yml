@@ -93,6 +93,48 @@ jobs:
           echo ""
           npm run check:req-coverage
 
+  e2e-assertion-guard:
+    name: E2E Assertion Guard Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "E2E Assertion Guard Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "This check validates that the detector itself still classifies"
+          echo "each known pattern correctly (fixtures in"
+          echo "scripts/check-e2e-assertion-guards.selftest.ts)."
+          echo ""
+          npm run check:e2e-guards:selftest
+
+      - name: Check disabled E2E assertions
+        run: |
+          echo "========================================="
+          echo "E2E Assertion Guard Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that:"
+          echo "  1. No new E2E test structure disables its own assertions"
+          echo "  2. Every exclusion carries a documented reason"
+          echo ""
+          echo "Baseline: e2e/assertion-guard-baseline.json"
+          echo ""
+          npm run check:e2e-guards
+
   typecheck:
     name: TypeScript Type Check
     runs-on: ubuntu-latest
@@ -344,8 +386,9 @@ jobs:
   test-integration:
     name: Integration & E2E Tests
     runs-on: ubuntu-latest
-    # requirement-coverage を前提条件に追加（E2E実行前にカバレッジ検証を通過する必要がある）
-    needs: [lint, typecheck, test-unit, build, test-storybook, requirement-coverage]
+    # requirement-coverage / e2e-assertion-guard を前提条件に追加
+    # （E2E実行前にカバレッジ検証と検証無効化チェックを通過する必要がある）
+    needs: [lint, typecheck, test-unit, build, test-storybook, requirement-coverage, e2e-assertion-guard]
     # Dependabot PRではシークレットにアクセスできないため、integration/e2eテストをスキップ
     if: github.actor != 'dependabot[bot]'
     steps:
@@ -531,7 +574,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, e2e-assertion-guard]
     if: always()
     steps:
       - name: Check status
@@ -550,7 +593,8 @@ jobs:
              [[ "${{ needs.test-storybook.result }}" != "success" ]] || \
              [[ "$integration_ok" != "true" ]] || \
              [[ "${{ needs.security.result }}" != "success" ]] || \
-             [[ "${{ needs.requirement-coverage.result }}" != "success" ]]; then
+             [[ "${{ needs.requirement-coverage.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-assertion-guard.result }}" != "success" ]]; then
             echo "❌ CI check failed:"
             echo "   - Lint: ${{ needs.lint.result }}"
             echo "   - TypeCheck: ${{ needs.typecheck.result }}"
@@ -560,6 +604,7 @@ jobs:
             echo "   - Integration Tests: ${{ needs.test-integration.result }}"
             echo "   - Security: ${{ needs.security.result }}"
             echo "   - Requirement Coverage: ${{ needs.requirement-coverage.result }}"
+            echo "   - E2E Assertion Guard: ${{ needs.e2e-assertion-guard.result }}"
             exit 1
           fi
           echo "✅ All CI checks passed successfully"
