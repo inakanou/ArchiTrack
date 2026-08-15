@@ -34,6 +34,7 @@ import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
+import ItemCopyMoveDialog from '../components/quantity-table/ItemCopyMoveDialog';
 import UnsavedChangesBadge from '../components/quantity-table/UnsavedChangesBadge';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
@@ -211,6 +212,48 @@ const styles = {
     fontSize: '14px',
     fontWeight: 500,
     borderRadius: '6px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  // 選択した数量項目に対する一括操作バー（REQ-6.5）
+  bulkActionBar: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap' as const,
+    gap: '8px',
+    backgroundColor: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    borderRadius: '8px',
+    padding: '10px 16px',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  bulkActionCount: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#1d4ed8',
+    marginRight: '4px',
+  } as React.CSSProperties,
+  bulkActionButton: {
+    padding: '6px 12px',
+    fontSize: '13px',
+    fontWeight: 500,
+    border: '1px solid #bfdbfe',
+    borderRadius: '6px',
+    backgroundColor: '#ffffff',
+    color: '#1d4ed8',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  bulkActionDeleteButton: {
+    borderColor: '#fecaca',
+    color: '#dc2626',
+  } as React.CSSProperties,
+  bulkActionClearButton: {
+    padding: '6px 12px',
+    fontSize: '13px',
+    fontWeight: 500,
+    border: 'none',
+    borderRadius: '6px',
+    backgroundColor: 'transparent',
+    color: '#6b7280',
     cursor: 'pointer',
   } as React.CSSProperties,
   // 操作エラー表示スタイル（インライン）
@@ -538,6 +581,16 @@ export default function QuantityTableEditPage() {
   const [isSurveySelectDialogOpen, setIsSurveySelectDialogOpen] = useState(false);
   const [surveyOptions, setSurveyOptions] = useState<SiteSurveySummary[]>([]);
   const [isCreatingFromSurvey, setIsCreatingFromSurvey] = useState(false);
+
+  // 数量項目の移動先選択ダイアログ用state（REQ-6.2, 6.4, 6.5）
+  // itemKeys: 移動対象の項目キー、sourceGroupKey: 移動元グループのキー（移動先候補から除外する）
+  const [moveTargetSelection, setMoveTargetSelection] = useState<{
+    itemKeys: string[];
+    sourceGroupKey: string;
+  } | null>(null);
+
+  /** 一括操作の対象として選択中の項目キー（REQ-6.5） */
+  const selectedItemKeys = editState.selectedItems;
 
   /**
    * 数量表詳細を取得（参照系GET。REQ-42.10）。
@@ -926,6 +979,77 @@ export default function QuantityTableEditPage() {
     },
     [findGroupKeyByItemKey]
   );
+
+  /**
+   * 一括操作の対象選択切り替えハンドラ（REQ-6.5）
+   * 選択状態はドラフトではないため未保存扱いにはしない。
+   */
+  const handleItemSelectionChange = useCallback((itemKey: string) => {
+    dispatch({ type: 'toggleItemSelection', itemKey });
+  }, []);
+
+  /**
+   * 単一項目の移動先選択ダイアログを開くハンドラ（REQ-6.2, REQ-6.4）
+   * アクションメニューの「別グループに移動」から呼ばれる。
+   */
+  const handleOpenMoveDialogForItem = useCallback(
+    (itemKey: string) => {
+      setOperationError(null);
+      const groupKey = findGroupKeyByItemKey(itemKey);
+      if (groupKey === null) return;
+      setMoveTargetSelection({ itemKeys: [itemKey], sourceGroupKey: groupKey });
+    },
+    [findGroupKeyByItemKey]
+  );
+
+  /**
+   * 選択中の全項目に対する移動先選択ダイアログを開くハンドラ（REQ-6.5）
+   * 移動元グループは先頭の選択項目が属するグループとする（移動先候補から除外するため）。
+   */
+  const handleOpenMoveDialogForSelection = useCallback(() => {
+    setOperationError(null);
+    const firstKey = selectedItemKeys[0];
+    if (firstKey === undefined) return;
+    const groupKey = findGroupKeyByItemKey(firstKey);
+    if (groupKey === null) return;
+    setMoveTargetSelection({ itemKeys: [...selectedItemKeys], sourceGroupKey: groupKey });
+  }, [selectedItemKeys, findGroupKeyByItemKey]);
+
+  /** 移動先選択ダイアログを閉じるハンドラ */
+  const handleCloseMoveDialog = useCallback(() => {
+    setMoveTargetSelection(null);
+  }, []);
+
+  /**
+   * 移動先グループ確定ハンドラ（REQ-6.4, REQ-6.5, REQ-42.1）
+   * ドラフト内で対象項目を移動先グループへ移し、元のグループから取り除く。
+   */
+  const handleConfirmMoveItems = useCallback((targetGroupKey: string, itemKeys: string[]) => {
+    dispatch({ type: 'moveItems', itemKeys, targetGroupKey });
+    setMoveTargetSelection(null);
+  }, []);
+
+  /**
+   * 選択項目の一括コピーハンドラ（REQ-6.5, REQ-42.1）
+   * 各対象の直下へ複製する（単一項目のコピーと同一の挙動）。
+   */
+  const handleBulkCopyItems = useCallback(() => {
+    setOperationError(null);
+    dispatch({ type: 'copyItems', itemKeys: selectedItemKeys });
+  }, [selectedItemKeys]);
+
+  /**
+   * 選択項目の一括削除ハンドラ（REQ-6.5, REQ-42.1）
+   */
+  const handleBulkDeleteItems = useCallback(() => {
+    setOperationError(null);
+    dispatch({ type: 'removeItems', itemKeys: selectedItemKeys });
+  }, [selectedItemKeys]);
+
+  /** 一括操作の選択解除ハンドラ（REQ-6.5） */
+  const handleClearItemSelection = useCallback(() => {
+    dispatch({ type: 'clearItemSelection' });
+  }, []);
 
   /**
    * グループ名変更ハンドラ（REQ-22.1, REQ-22.2, REQ-42.2）
@@ -1624,6 +1748,59 @@ export default function QuantityTableEditPage() {
         </div>
       )}
 
+      {/* 選択した数量項目に対する一括操作（REQ-6.5）。
+          「現場調査から一括追加」は選択項目に対する操作ではないため名称で明確に区別する。 */}
+      {selectedItemKeys.length > 0 && (
+        <div style={styles.bulkActionBar} data-testid="quantity-item-bulk-action-bar">
+          <span style={styles.bulkActionCount}>{selectedItemKeys.length}件の項目を選択中</span>
+          <button
+            type="button"
+            style={styles.bulkActionButton}
+            onClick={handleBulkCopyItems}
+            aria-label="選択した項目をコピー"
+          >
+            選択した項目をコピー
+          </button>
+          <button
+            type="button"
+            style={styles.bulkActionButton}
+            onClick={handleOpenMoveDialogForSelection}
+            aria-label="選択した項目を移動"
+          >
+            選択した項目を移動
+          </button>
+          <button
+            type="button"
+            style={{ ...styles.bulkActionButton, ...styles.bulkActionDeleteButton }}
+            onClick={handleBulkDeleteItems}
+            aria-label="選択した項目を削除"
+          >
+            選択した項目を削除
+          </button>
+          <button
+            type="button"
+            style={styles.bulkActionClearButton}
+            onClick={handleClearItemSelection}
+            aria-label="選択を解除"
+          >
+            選択を解除
+          </button>
+        </div>
+      )}
+
+      {/* 数量項目の移動先グループ選択ダイアログ（REQ-6.2, 6.4, 6.5） */}
+      {moveTargetSelection !== null && (
+        <ItemCopyMoveDialog
+          isOpen
+          mode="move"
+          selectedItemIds={moveTargetSelection.itemKeys}
+          groups={groups}
+          currentGroupId={moveTargetSelection.sourceGroupKey}
+          onConfirm={handleConfirmMoveItems}
+          onClose={handleCloseMoveDialog}
+        />
+      )}
+
       {/* グループ一覧 */}
       {groups.length === 0 ? (
         <EmptyState onAddGroup={handleAddGroup} />
@@ -1642,6 +1819,9 @@ export default function QuantityTableEditPage() {
                 onDeleteItem={handleDeleteItem}
                 onCopyItem={handleCopyItem}
                 onMoveItem={handleMoveItem}
+                onMoveItemToGroup={handleOpenMoveDialogForItem}
+                selectedItemIds={selectedItemKeys}
+                onItemSelectionChange={handleItemSelectionChange}
                 onOpenAnnotationViewer={handleOpenAnnotationViewer}
                 getSuggestions={getSuggestions}
                 onBlurAddCandidate={addCandidateOnBlur}

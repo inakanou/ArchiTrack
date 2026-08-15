@@ -15,7 +15,7 @@
  * - 36.9: メニュー外クリックでドロップダウン閉じる
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import QuantityItemActionMenu from '../../../components/quantity-table/QuantityItemActionMenu';
@@ -491,6 +491,63 @@ describe('QuantityItemActionMenu (Task 50.1, 50.3)', () => {
       expect(menu.style.left).toBe('260px');
     });
 
+    /**
+     * REQ-46.1 / 46.3 / 46.4: メニュー全体を切り取らず表示する
+     *
+     * ドロップダウンは position: fixed のため、ビューポート外へはみ出すと
+     * ブラウザのスクロールでは表示領域内へ引き込めず、当該項目は操作不能になる。
+     * 数量グループの最下行や項目1件のみのグループではボタンが画面下端付近に来るため、
+     * メニュー高さがビューポート下端を超える場合の位置補正を検証する。
+     */
+    describe('REQ-46.1/46.3/46.4: ビューポート外へはみ出さない位置補正', () => {
+      // prototype への spy は他テストへ漏れるため、各テスト後に必ず戻す
+      let offsetHeightSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+      afterEach(() => {
+        offsetHeightSpy?.mockRestore();
+        offsetHeightSpy = null;
+      });
+
+      it('下側に収まらない場合はボタン上へ反転して表示される', () => {
+        // メニュー実寸 200px（jsdom は offsetHeight=0 のため明示的に与える）
+        offsetHeightSpy = vi
+          .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+          .mockReturnValue(200);
+        const { rerender } = render(<QuantityItemActionMenu {...defaultProps} isOpen={false} />);
+
+        const button = screen.getByRole('button', { name: 'アクション' });
+        vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+          // ボタンはビューポート下端付近（window.innerHeight は jsdom 既定 768）
+          makeRect({ top: 678, left: 278, bottom: 700, right: 300 })
+        );
+
+        rerender(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+        const menu = screen.getByRole('menu');
+        // 下側（702）では 702 + 200 = 902 > 768 のため、ボタン上（678 - 2 - 200 = 476）へ反転
+        expect(menu.style.top).toBe('476px');
+      });
+
+      it('上下いずれにも収まらない場合はビューポート内へ収める', () => {
+        // ビューポート（768px）より高いメニュー
+        offsetHeightSpy = vi
+          .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+          .mockReturnValue(900);
+        const { rerender } = render(<QuantityItemActionMenu {...defaultProps} isOpen={false} />);
+
+        const button = screen.getByRole('button', { name: 'アクション' });
+        vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+          makeRect({ top: 10, left: 278, bottom: 32, right: 300 })
+        );
+
+        rerender(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+        const menu = screen.getByRole('menu');
+        // 下にも上にも収まらないため上端の余白（8px）まで引き上げる
+        expect(menu.style.top).toBe('8px');
+      });
+    });
+
     it('REQ-46.10: Portal 化後もメニュー項目の構成と活性制御が変わらない（REQ-36 回帰防止）', () => {
       render(
         <div data-testid="overflow-wrapper" style={{ overflowX: 'auto', overflowY: 'hidden' }}>
@@ -518,6 +575,41 @@ describe('QuantityItemActionMenu (Task 50.1, 50.3)', () => {
       await user.click(screen.getByText('コピー'));
 
       expect(defaultProps.onCopy).toHaveBeenCalledTimes(1);
+      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * REQ-6.2: 数量項目の移動操作で移動先選択UIを表示する
+   * REQ-6.4: 移動先に別の数量グループを選べる
+   */
+  describe('REQ-6.2, 6.4: 別グループへの移動導線', () => {
+    it('onMoveToGroup 未指定のときは「別グループに移動」を表示しない（既存4項目のまま）', () => {
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} />);
+
+      const menu = screen.getByRole('menu');
+      expect(within(menu).queryByText('別グループに移動')).not.toBeInTheDocument();
+      expect(within(menu).getAllByRole('menuitem')).toHaveLength(4);
+    });
+
+    it('onMoveToGroup 指定時に「別グループに移動」がメニュー項目として表示される', () => {
+      render(<QuantityItemActionMenu {...defaultProps} isOpen={true} onMoveToGroup={vi.fn()} />);
+
+      const menu = screen.getByRole('menu');
+      const moveToGroupItem = within(menu).getByRole('menuitem', { name: /別グループに移動/ });
+      expect(moveToGroupItem).toBeInTheDocument();
+    });
+
+    it('「別グループに移動」選択で onMoveToGroup が呼ばれメニューが閉じる', async () => {
+      const user = userEvent.setup();
+      const onMoveToGroup = vi.fn();
+      render(
+        <QuantityItemActionMenu {...defaultProps} isOpen={true} onMoveToGroup={onMoveToGroup} />
+      );
+
+      await user.click(screen.getByText('別グループに移動'));
+
+      expect(onMoveToGroup).toHaveBeenCalledTimes(1);
       expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
     });
   });

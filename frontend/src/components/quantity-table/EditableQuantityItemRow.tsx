@@ -47,6 +47,15 @@ export interface EditableQuantityItemRowProps {
   canMoveUp?: boolean;
   /** 下に移動可能かどうか */
   canMoveDown?: boolean;
+  /** 一括操作の対象として選択されているか（REQ-6.5） */
+  isSelected?: boolean;
+  /** 一括操作の選択状態変更コールバック（REQ-6.5） */
+  onSelectionChange?: (itemId: string, selected: boolean) => void;
+  /**
+   * 別の数量グループへ移動するコールバック（REQ-6.2, 6.4）。
+   * 未指定のときアクションメニューに移動の導線を表示しない。
+   */
+  onMoveToGroup?: (itemId: string) => void;
   /** バリデーション表示フラグ */
   showValidation?: boolean;
   /** オートコンプリート候補取得関数（Task 18.1: 必須） */
@@ -171,6 +180,16 @@ const styles = {
   actionsCellWithLabel: {
     marginTop: '15px',
   } as React.CSSProperties,
+  // 一括操作の対象選択チェックボックス（REQ-6.5）。
+  // 行高さ 37px（REQ-37.3）を維持するため 14px に抑え、縮小も抑止する。
+  selectionCheckbox: {
+    width: '14px',
+    height: '14px',
+    margin: 0,
+    flexShrink: 0,
+    cursor: 'pointer',
+    accentColor: '#2563eb',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -210,6 +229,9 @@ export default function EditableQuantityItemRow({
   onMoveDown,
   canMoveUp = false,
   canMoveDown = false,
+  isSelected = false,
+  onSelectionChange,
+  onMoveToGroup,
   showValidation = true,
   getSuggestions,
   onBlurAddCandidate,
@@ -435,6 +457,16 @@ export default function EditableQuantityItemRow({
     setIsMenuOpen(false);
   }, []);
 
+  /**
+   * 一括操作の選択切り替え（REQ-6.5）
+   */
+  const handleSelectionChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onSelectionChange?.(item.id, e.target.checked);
+    },
+    [item.id, onSelectionChange]
+  );
+
   return (
     // Task 69.2: アクションメニューの閉じ処理をここに二重で張らない。
     // 旧来は行の onBlur でも handleCloseMenu を呼んでいたが、Task 69.1 の Portal 化により
@@ -654,6 +686,17 @@ export default function EditableQuantityItemRow({
           role="cell"
         >
           <div data-testid="action-cell-inline-wrapper" style={styles.actionCellInlineWrapper}>
+            {/* 一括操作の対象選択（REQ-6.5）。
+                列の追加は行わず操作列セル内に置く。タイトル行（QuantityGroupTitleRow）は
+                REQ-18.1/18.4 によりメイン11列＋操作列の計12列で固定されており、選択列を
+                新設すると当該要件の列構成を崩すため、行操作の一種として操作列に収める。 */}
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={handleSelectionChange}
+              aria-label="項目を選択"
+              style={styles.selectionCheckbox}
+            />
             <QuantityItemActionMenu
               isOpen={isMenuOpen}
               onToggle={handleToggleMenu}
@@ -666,6 +709,7 @@ export default function EditableQuantityItemRow({
               onDelete={() => {
                 onDelete?.(item.id);
               }}
+              onMoveToGroup={onMoveToGroup ? () => onMoveToGroup(item.id) : undefined}
               canMoveUp={canMoveUp}
               canMoveDown={canMoveDown}
             />

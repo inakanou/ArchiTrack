@@ -996,24 +996,23 @@ export class QuantityTableService {
       );
       const dbGroupIds = current.groups.map((g) => g.id);
 
-      // 2-1. 削除: payload に存在しない既存グループ（項目は onDelete: Cascade で連鎖削除）
-      const groupIdsToDelete = dbGroupIds.filter((gid) => !payloadGroupIds.has(gid));
-      if (groupIdsToDelete.length > 0) {
-        await tx.quantityGroup.deleteMany({
-          where: { id: { in: groupIdsToDelete } },
-        });
-      }
+      // 既存項目IDの全集合（数量表全体）
+      const dbItemIds = current.groups.flatMap((g) => g.items.map((it) => it.id));
 
-      // 残存グループ（削除されなかった既存グループ）の項目ID集合
-      const dbItemIdsByGroup = new Map<string, string[]>();
-      for (const g of current.groups) {
-        dbItemIdsByGroup.set(
-          g.id,
-          g.items.map((it) => it.id)
-        );
-      }
+      // payload に残っている既存項目IDの全集合（数量表全体）。
+      // 数量項目のグループ間移動（REQ-6.4）では、移動元グループの payload から当該項目が
+      // 消える一方で移動先グループの payload に同じ id が現れる。削除判定をグループ単位で
+      // 行うと「移動元から消えた」ことだけを見て移動した項目を削除してしまうため、
+      // 数量表全体の集合で判定する。
+      const payloadItemIds = new Set(
+        input.groups
+          .flatMap((g) => g.items.map((it) => it.id))
+          .filter((iid): iid is string => iid !== null)
+      );
 
-      // 2-2. グループを payload 配列順に処理（displayOrder は配列順を正とする）
+      // 2-1. グループを payload 配列順に処理（displayOrder は配列順を正とする）
+      //      削除（グループ・項目）は本ループの後段でまとめて行う。所属変更（グループ間移動）を
+      //      先に確定させないと、移動元グループの Cascade 削除に移動済み項目が巻き込まれる。
       for (const [groupIndex, group] of input.groups.entries()) {
         const groupName = group.name.trim() === '' ? null : group.name.trim();
 
@@ -1043,23 +1042,7 @@ export class QuantityTableService {
           persistedGroupId = group.id;
         }
 
-        // 3. 項目の差分適用（グループ単位）
-        const payloadItemIds = new Set(
-          group.items.map((it) => it.id).filter((iid): iid is string => iid !== null)
-        );
-
-        // 3-1. 削除: payload に存在しない既存項目（既存グループのみ対象）
-        if (group.id !== null) {
-          const dbItemIds = dbItemIdsByGroup.get(group.id) ?? [];
-          const itemIdsToDelete = dbItemIds.filter((iid) => !payloadItemIds.has(iid));
-          if (itemIdsToDelete.length > 0) {
-            await tx.quantityItem.deleteMany({
-              where: { id: { in: itemIdsToDelete } },
-            });
-          }
-        }
-
-        // 3-2. 項目を payload 配列順に処理（displayOrder は配列順を正とする）
+        // 2-2. 項目を payload 配列順に処理（displayOrder は配列順を正とする）
         for (const [itemIndex, item] of group.items.entries()) {
           const itemData = this.buildItemPersistData(item, itemIndex);
 
@@ -1071,12 +1054,35 @@ export class QuantityTableService {
               },
             });
           } else {
+            // 既存項目の更新。quantityGroupId を明示することで、数量項目のグループ間移動
+            // （REQ-6.4）が保存時に所属グループの変更として確定する。
             await tx.quantityItem.update({
               where: { id: item.id },
-              data: itemData,
+              data: {
+                quantityGroupId: persistedGroupId,
+                ...itemData,
+              },
             });
           }
         }
+      }
+
+      // 3-1. 削除: payload に存在しない既存グループ（残存項目は onDelete: Cascade で連鎖削除）
+      //      グループ間移動した項目は 2-2 で移動先グループへ付け替え済みのため巻き込まれない。
+      const groupIdsToDelete = dbGroupIds.filter((gid) => !payloadGroupIds.has(gid));
+      if (groupIdsToDelete.length > 0) {
+        await tx.quantityGroup.deleteMany({
+          where: { id: { in: groupIdsToDelete } },
+        });
+      }
+
+      // 3-2. 削除: payload に存在しない既存項目（数量表全体で判定）
+      //      グループ削除で Cascade 済みのIDが含まれても deleteMany は無害。
+      const itemIdsToDelete = dbItemIds.filter((iid) => !payloadItemIds.has(iid));
+      if (itemIdsToDelete.length > 0) {
+        await tx.quantityItem.deleteMany({
+          where: { id: { in: itemIdsToDelete } },
+        });
       }
 
       // 4. 数量表名・updatedAt を更新

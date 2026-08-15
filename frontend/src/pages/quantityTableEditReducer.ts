@@ -194,6 +194,13 @@ export type QuantityTableEditAction =
   | { type: 'copyItem'; groupKey: string; itemKey: string }
   | { type: 'reorderItem'; groupKey: string; itemKey: string; direction: ReorderDirection }
   | { type: 'updateItemField'; groupKey: string; itemKey: string; updates: Partial<DraftItem> }
+  // 数量項目のグループ間移動（REQ-6.2 / REQ-6.4）・複数選択の一括操作（REQ-6.5）
+  | { type: 'moveItems'; itemKeys: string[]; targetGroupKey: string }
+  | { type: 'copyItems'; itemKeys: string[] }
+  | { type: 'removeItems'; itemKeys: string[] }
+  // 一括操作の対象選択（REQ-6.5）。ドラフトを変更しないため isDirty は立てない
+  | { type: 'toggleItemSelection'; itemKey: string }
+  | { type: 'clearItemSelection' }
   // 現場調査一括生成（REQ-40）
   | { type: 'generateGroupsFromSurvey'; surveyName: string; surveyImageIds: string[] }
   // インポート取り込み（REQ-31）
@@ -483,6 +490,9 @@ export function quantityTableEditReducer(
   action: QuantityTableEditAction
 ): QuantityTableEditState {
   switch (action.type) {
+    // load / saveSync はドラフトを丸ごと置換するため、一括操作の選択（REQ-6.5）も解除する。
+    // 保存時に新規行の仮IDはサーバー採番IDへ置き換わるため、選択を持ち越すと画面に
+    // 「N件選択中」と出ているのに一括操作が何も起きない状態になる。
     case 'load':
       return {
         ...state,
@@ -490,6 +500,7 @@ export function quantityTableEditReducer(
         draft: detailToDraft(action.detail),
         isLoading: false,
         isDirty: false,
+        selectedItems: [],
       };
 
     case 'saveSync':
@@ -501,7 +512,22 @@ export function quantityTableEditReducer(
         saveStatus: 'saved',
         saveError: null,
         isDirty: false,
+        selectedItems: [],
       };
+
+    // 一括操作の対象選択（REQ-6.5）。編集内容ではないため draft / isDirty を変更しない。
+    case 'toggleItemSelection': {
+      const isSelected = state.selectedItems.includes(action.itemKey);
+      return {
+        ...state,
+        selectedItems: isSelected
+          ? state.selectedItems.filter((key) => key !== action.itemKey)
+          : [...state.selectedItems, action.itemKey],
+      };
+    }
+
+    case 'clearItemSelection':
+      return state.selectedItems.length === 0 ? state : { ...state, selectedItems: [] };
 
     default:
       break;
@@ -647,6 +673,96 @@ export function quantityTableEditReducer(
         return { ...g, items: nextItems };
       });
       return next === null || !updated ? state : withDraft(state, next);
+    }
+
+    case 'moveItems': {
+      const keys = new Set(action.itemKeys);
+      if (keys.size === 0) {
+        return state;
+      }
+      const targetIndex = draft.groups.findIndex((g) => rowKey(g) === action.targetGroupKey);
+      const targetGroup = draft.groups[targetIndex];
+      if (targetIndex === -1 || targetGroup === undefined) {
+        return state; // 移動先なし
+      }
+
+      // 移動対象をドラフト全体の表示順（グループ順 → 項目順）で収集する。
+      // itemKeys の指定順に依存させないことで、複数選択の一括移動でも
+      // 移動先での並び順が画面上の並びと一致し一意に定まる（REQ-6.5）。
+      const movingItems: DraftItem[] = [];
+      for (const group of draft.groups) {
+        for (const item of group.items) {
+          if (keys.has(rowKey(item))) {
+            movingItems.push(item);
+          }
+        }
+      }
+      if (movingItems.length === 0) {
+        return state; // 対象なし
+      }
+
+      // 移動元（全グループ）から取り除き、移動先グループの末尾へ加える（REQ-6.4）
+      const nextGroups = draft.groups.map((group) => ({
+        ...group,
+        items: renumberItems(group.items.filter((item) => !keys.has(rowKey(item)))),
+      }));
+      const nextTarget = nextGroups[targetIndex] as DraftGroup;
+      nextGroups[targetIndex] = {
+        ...nextTarget,
+        items: renumberItems([...nextTarget.items, ...movingItems]),
+      };
+
+      return {
+        ...withDraft(state, { ...draft, groups: nextGroups }),
+        selectedItems: state.selectedItems.filter((key) => !keys.has(key)),
+      };
+    }
+
+    case 'copyItems': {
+      const keys = new Set(action.itemKeys);
+      if (keys.size === 0) {
+        return state;
+      }
+      let copied = false;
+      const nextGroups = draft.groups.map((group) => {
+        if (!group.items.some((item) => keys.has(rowKey(item)))) {
+          return group;
+        }
+        copied = true;
+        // 単一項目のコピー（copyItem）と同じく、各対象の直下へ複製を挿入する
+        const nextItems: DraftItem[] = [];
+        for (const item of group.items) {
+          nextItems.push(item);
+          if (keys.has(rowKey(item))) {
+            nextItems.push(duplicateDraftItem(item, item.displayOrder));
+          }
+        }
+        return { ...group, items: renumberItems(nextItems) };
+      });
+      return copied ? withDraft(state, { ...draft, groups: nextGroups }) : state;
+    }
+
+    case 'removeItems': {
+      const keys = new Set(action.itemKeys);
+      if (keys.size === 0) {
+        return state;
+      }
+      let removed = false;
+      const nextGroups = draft.groups.map((group) => {
+        const filtered = group.items.filter((item) => !keys.has(rowKey(item)));
+        if (filtered.length === group.items.length) {
+          return group;
+        }
+        removed = true;
+        return { ...group, items: renumberItems(filtered) };
+      });
+      if (!removed) {
+        return state;
+      }
+      return {
+        ...withDraft(state, { ...draft, groups: nextGroups }),
+        selectedItems: state.selectedItems.filter((key) => !keys.has(key)),
+      };
     }
 
     case 'generateGroupsFromSurvey': {

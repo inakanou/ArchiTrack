@@ -80,6 +80,45 @@ function makeDetail(overrides: Partial<QuantityTableDetail> = {}): QuantityTable
   };
 }
 
+/**
+ * グループ2件・項目3件（group-1 に item-1/item-2、group-2 に item-3）の
+ * サーバー詳細フィクスチャを生成する。
+ * グループ間移動（REQ-6.2/6.4）と複数選択の一括操作（REQ-6.5）の検証に用いる。
+ */
+function makeTwoGroupDetail(): QuantityTableDetail {
+  const base = makeDetail();
+  const baseGroup = base.groups[0]!;
+  const baseItem = baseGroup.items[0]!;
+
+  const makeItem = (id: string, groupId: string, name: string, displayOrder: number) => ({
+    ...baseItem,
+    id,
+    quantityGroupId: groupId,
+    name,
+    displayOrder,
+  });
+
+  const group1 = {
+    ...baseGroup,
+    id: 'group-1',
+    name: 'グループ1',
+    displayOrder: 0,
+    itemCount: 2,
+    items: [makeItem('item-1', 'group-1', '項目1', 0), makeItem('item-2', 'group-1', '項目2', 1)],
+  };
+  const group2 = {
+    ...baseGroup,
+    id: 'group-2',
+    name: 'グループ2',
+    surveyImageId: null,
+    displayOrder: 1,
+    itemCount: 1,
+    items: [makeItem('item-3', 'group-2', '項目3', 0)],
+  };
+
+  return { ...base, groupCount: 2, itemCount: 3, groups: [group1, group2] };
+}
+
 /** ロード済みの編集状態を生成する */
 function loadedState(detail: QuantityTableDetail = makeDetail()): QuantityTableEditState {
   return quantityTableEditReducer(initialQuantityTableEditState, {
@@ -386,6 +425,227 @@ describe('item: updateItemField', () => {
     expect(item.quantity).toBe('99.0');
     expect(item.workType).toBe('工種'); // 未指定は保持
     expect(state.isDirty).toBe(true);
+  });
+});
+
+// ============================================================================
+// 数量項目の選択状態（REQ-6.5）
+// ============================================================================
+
+describe('選択状態: toggleItemSelection / clearItemSelection', () => {
+  it('未選択の項目を選択し、再度指定すると選択を解除する', () => {
+    let state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    expect(state.selectedItems).toEqual(['item-1']);
+
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-2' });
+    expect(state.selectedItems).toEqual(['item-1', 'item-2']);
+
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-1' });
+    expect(state.selectedItems).toEqual(['item-2']);
+  });
+
+  it('選択状態の変更はドラフトを変更せず isDirty を立てない', () => {
+    const before = loadedState(makeTwoGroupDetail());
+    const state = quantityTableEditReducer(before, {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    expect(state.draft).toBe(before.draft);
+    expect(state.isDirty).toBe(false);
+  });
+
+  it('clearItemSelection で全選択を解除する', () => {
+    let state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-3' });
+    expect(state.selectedItems).toHaveLength(2);
+
+    state = quantityTableEditReducer(state, { type: 'clearItemSelection' });
+    expect(state.selectedItems).toEqual([]);
+  });
+});
+
+// ============================================================================
+// 数量項目のグループ間移動（REQ-6.2 / REQ-6.4）
+// ============================================================================
+
+describe('item: moveItems', () => {
+  it('別グループへ移動すると移動元から取り除かれ移動先の末尾へ加わる（REQ-6.4）', () => {
+    const state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'moveItems',
+      itemKeys: ['item-1'],
+      targetGroupKey: 'group-2',
+    });
+
+    const [group1, group2] = state.draft!.groups;
+    expect(group1!.items.map((i) => i.id)).toEqual(['item-2']);
+    expect(group2!.items.map((i) => i.id)).toEqual(['item-3', 'item-1']);
+    expect(state.isDirty).toBe(true);
+  });
+
+  it('移動元・移動先の displayOrder を 0 始まりの連番へ再採番する', () => {
+    const state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'moveItems',
+      itemKeys: ['item-1'],
+      targetGroupKey: 'group-2',
+    });
+
+    const [group1, group2] = state.draft!.groups;
+    expect(group1!.items.map((i) => i.displayOrder)).toEqual([0]);
+    expect(group2!.items.map((i) => i.displayOrder)).toEqual([0, 1]);
+  });
+
+  it('複数項目を一括で移動し、元の並び順を保って移動先へ加える（REQ-6.5）', () => {
+    const state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'moveItems',
+      itemKeys: ['item-2', 'item-1'],
+      targetGroupKey: 'group-2',
+    });
+
+    const [group1, group2] = state.draft!.groups;
+    expect(group1!.items).toHaveLength(0);
+    // 指定順ではなく元の表示順（item-1 → item-2）で移動先へ加わる
+    expect(group2!.items.map((i) => i.id)).toEqual(['item-3', 'item-1', 'item-2']);
+  });
+
+  it('移動した項目を選択状態から取り除く', () => {
+    let state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-3' });
+    state = quantityTableEditReducer(state, {
+      type: 'moveItems',
+      itemKeys: ['item-1'],
+      targetGroupKey: 'group-2',
+    });
+    expect(state.selectedItems).toEqual(['item-3']);
+  });
+
+  it('移動先グループが存在しない場合は状態を変更しない', () => {
+    const before = loadedState(makeTwoGroupDetail());
+    const state = quantityTableEditReducer(before, {
+      type: 'moveItems',
+      itemKeys: ['item-1'],
+      targetGroupKey: 'group-unknown',
+    });
+    expect(state).toBe(before);
+  });
+
+  it('移動対象が1件も存在しない場合は状態を変更しない', () => {
+    const before = loadedState(makeTwoGroupDetail());
+    expect(
+      quantityTableEditReducer(before, {
+        type: 'moveItems',
+        itemKeys: [],
+        targetGroupKey: 'group-2',
+      })
+    ).toBe(before);
+    expect(
+      quantityTableEditReducer(before, {
+        type: 'moveItems',
+        itemKeys: ['item-unknown'],
+        targetGroupKey: 'group-2',
+      })
+    ).toBe(before);
+  });
+});
+
+// ============================================================================
+// 数量項目の一括コピー・一括削除（REQ-6.5）
+// ============================================================================
+
+describe('item: copyItems', () => {
+  it('選択した複数項目をそれぞれ直下へ複製する（REQ-6.5）', () => {
+    const state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'copyItems',
+      itemKeys: ['item-1', 'item-3'],
+    });
+
+    const [group1, group2] = state.draft!.groups;
+    expect(group1!.items.map((i) => i.id)).toEqual(['item-1', null, 'item-2']);
+    expect(group1!.items[1]!.name).toBe('項目1');
+    expect(group1!.items[1]!.tempId).toMatch(/^temp-/);
+    expect(group1!.items.map((i) => i.displayOrder)).toEqual([0, 1, 2]);
+
+    expect(group2!.items.map((i) => i.id)).toEqual(['item-3', null]);
+    expect(group2!.items[1]!.name).toBe('項目3');
+    expect(state.isDirty).toBe(true);
+  });
+
+  it('対象が1件も存在しない場合は状態を変更しない', () => {
+    const before = loadedState(makeTwoGroupDetail());
+    expect(quantityTableEditReducer(before, { type: 'copyItems', itemKeys: [] })).toBe(before);
+    expect(
+      quantityTableEditReducer(before, { type: 'copyItems', itemKeys: ['item-unknown'] })
+    ).toBe(before);
+  });
+});
+
+describe('item: removeItems', () => {
+  it('選択した複数項目を一括削除し displayOrder を再採番する（REQ-6.5）', () => {
+    const state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'removeItems',
+      itemKeys: ['item-1', 'item-3'],
+    });
+
+    const [group1, group2] = state.draft!.groups;
+    expect(group1!.items.map((i) => i.id)).toEqual(['item-2']);
+    expect(group1!.items.map((i) => i.displayOrder)).toEqual([0]);
+    expect(group2!.items).toHaveLength(0);
+    expect(state.isDirty).toBe(true);
+  });
+
+  it('削除した項目を選択状態から取り除く', () => {
+    let state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-2' });
+    state = quantityTableEditReducer(state, { type: 'removeItems', itemKeys: ['item-1'] });
+    expect(state.selectedItems).toEqual(['item-2']);
+  });
+
+  it('対象が1件も存在しない場合は状態を変更しない', () => {
+    const before = loadedState(makeTwoGroupDetail());
+    expect(quantityTableEditReducer(before, { type: 'removeItems', itemKeys: [] })).toBe(before);
+    expect(
+      quantityTableEditReducer(before, { type: 'removeItems', itemKeys: ['item-unknown'] })
+    ).toBe(before);
+  });
+});
+
+describe('選択状態: ドラフト置換時の解除', () => {
+  it('load でドラフトを置換すると選択を解除する', () => {
+    const state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    expect(state.selectedItems).toEqual(['item-1']);
+
+    const reloaded = quantityTableEditReducer(state, {
+      type: 'load',
+      detail: makeTwoGroupDetail(),
+    });
+    expect(reloaded.selectedItems).toEqual([]);
+  });
+
+  it('saveSync でドラフトを置換すると選択を解除する（仮IDが採番済みIDへ置き換わるため）', () => {
+    const state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+
+    const synced = quantityTableEditReducer(state, {
+      type: 'saveSync',
+      detail: makeTwoGroupDetail(),
+    });
+    expect(synced.selectedItems).toEqual([]);
   });
 });
 

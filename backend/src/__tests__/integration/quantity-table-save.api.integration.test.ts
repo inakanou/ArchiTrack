@@ -520,6 +520,110 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       expect(deletedItem3).toBeNull();
     });
 
+    it('数量項目を別の数量グループへ移し替えた状態を保存できる（quantity-table-generation Req 6.4）', async () => {
+      // Arrange: group1(item1,item2) / group2(item3)
+      const seeded = await createSeededTable(testProjectId, 'グループ間移動テスト');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      // Act: item1 を group1 から group2 の末尾へ移す（他は変更しない）
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'グループ間移動テスト',
+          groups: [
+            {
+              id: seeded.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: seeded.item2Id, name: '型枠', displayOrder: 0 })],
+            },
+            {
+              id: seeded.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: seeded.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                itemPayload({ id: seeded.item1Id, name: '外部足場', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+          ],
+        });
+
+      // Assert: 保存が成功する（移動元からの消失を削除と誤認して 500 にならない）
+      expect(response.status).toBe(200);
+
+      // Assert: item1 は削除されず group2 に所属し直している（同一IDのまま移動）
+      const movedItem = await prisma.quantityItem.findUnique({ where: { id: seeded.item1Id } });
+      expect(movedItem).not.toBeNull();
+      expect(movedItem?.quantityGroupId).toBe(seeded.group2Id);
+      expect(movedItem?.displayOrder).toBe(1);
+
+      // Assert: 再取得でも移動が保持される（移動元1件・移動先2件）
+      const detailResponse = await request(app)
+        .get(`/api/quantity-tables/${seeded.tableId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(detailResponse.status).toBe(200);
+      const groups = [...detailResponse.body.groups].sort(
+        (a: { displayOrder: number }, b: { displayOrder: number }) =>
+          a.displayOrder - b.displayOrder
+      );
+      expect(groups[0].items.map((i: { id: string }) => i.id)).toEqual([seeded.item2Id]);
+      expect(
+        [...groups[1].items]
+          .sort(
+            (a: { displayOrder: number }, b: { displayOrder: number }) =>
+              a.displayOrder - b.displayOrder
+          )
+          .map((i: { id: string }) => i.id)
+      ).toEqual([seeded.item3Id, seeded.item1Id]);
+    });
+
+    it('移動元グループを同時に削除しても移動した数量項目は失われない（Req 6.4）', async () => {
+      // Arrange: group1(item1,item2) / group2(item3)
+      const seeded = await createSeededTable(testProjectId, 'グループ間移動＋移動元削除テスト');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      // Act: item1 を group2 へ移したうえで group1 ごと削除する（item2 は道連れで削除される）
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'グループ間移動＋移動元削除テスト',
+          groups: [
+            {
+              id: seeded.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: seeded.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                itemPayload({ id: seeded.item1Id, name: '外部足場', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+          ],
+        });
+
+      // Assert
+      expect(response.status).toBe(200);
+
+      const movedItem = await prisma.quantityItem.findUnique({ where: { id: seeded.item1Id } });
+      expect(movedItem).not.toBeNull();
+      expect(movedItem?.quantityGroupId).toBe(seeded.group2Id);
+
+      // 移動元グループと、移動しなかった配下項目は削除される
+      const deletedGroup = await prisma.quantityGroup.findUnique({
+        where: { id: seeded.group1Id },
+      });
+      expect(deletedGroup).toBeNull();
+      const deletedItem = await prisma.quantityItem.findUnique({ where: { id: seeded.item2Id } });
+      expect(deletedItem).toBeNull();
+    });
+
     it('保存成功で updatedAt が更新され、返却された updatedAt で再度保存できる（42.8 同期）', async () => {
       const { tableId } = await createSeededTable(testProjectId, '同期テスト');
       const firstExpected = await getExpectedUpdatedAt(tableId);

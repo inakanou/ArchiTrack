@@ -68,6 +68,12 @@ export interface QuantityGroupCardProps {
   onCopyItem?: (itemId: string) => void;
   /** 項目移動コールバック（REQ-6.3） */
   onMoveItem?: (itemId: string, direction: 'up' | 'down') => void;
+  /** 別の数量グループへの移動を開始するコールバック（REQ-6.2, 6.4） */
+  onMoveItemToGroup?: (itemId: string) => void;
+  /** 一括操作の対象として選択中の項目ID一覧（REQ-6.5） */
+  selectedItemIds?: string[];
+  /** 一括操作の選択状態変更コールバック（REQ-6.5） */
+  onItemSelectionChange?: (itemId: string, selected: boolean) => void;
   /** 注釈ビューアを開くコールバック（REQ-4.4） */
   onOpenAnnotationViewer?: (groupId: string) => void;
   /** オートコンプリート候補取得関数（Task 18.1: isEditable時に必須） */
@@ -519,6 +525,9 @@ export default function QuantityGroupCard({
   onDeleteItem,
   onCopyItem,
   onMoveItem,
+  onMoveItemToGroup,
+  selectedItemIds,
+  onItemSelectionChange,
   onOpenAnnotationViewer: _onOpenAnnotationViewer,
   getSuggestions,
   onBlurAddCandidate,
@@ -936,6 +945,9 @@ export default function QuantityGroupCard({
                       onCopy={onCopyItem}
                       onMoveUp={(itemId) => onMoveItem?.(itemId, 'up')}
                       onMoveDown={(itemId) => onMoveItem?.(itemId, 'down')}
+                      onMoveToGroup={onMoveItemToGroup}
+                      isSelected={selectedItemIds?.includes(item.id) ?? false}
+                      onSelectionChange={onItemSelectionChange}
                       canMoveUp={index > 0}
                       canMoveDown={index < items.length - 1}
                       getSuggestions={getSuggestions || defaultGetSuggestions}
