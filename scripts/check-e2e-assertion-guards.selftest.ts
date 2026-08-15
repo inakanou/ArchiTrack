@@ -1,0 +1,338 @@
+/**
+ * @fileoverview 「検証無効化」検出規則の自己検査
+ *
+ * scripts/check-e2e-assertion-guards.ts の検出規則が、意図した書き方を
+ * 捕捉し（漏れ）、意図しない書き方を捕捉しない（過検出）ことを、
+ * 書き方そのものを注入して確認する。
+ *
+ * 使用方法:
+ *   npx tsx scripts/check-e2e-assertion-guards.selftest.ts
+ *   npm run check:e2e-guards:selftest
+ *
+ * 検出漏れの是正（タスク 115.24）と過検出の圧縮（タスク 115.25）は
+ * 相反する方向の変更であるため、双方をこの一覧で同時に固定する。
+ */
+
+import { scanSource, type GuardType } from './check-e2e-assertion-guards.js';
+
+interface Case {
+  /** 何を確かめるか */
+  name: string;
+  /** 注入する書き方 */
+  source: string;
+  /** 検出されていなければならない型（同じ行に限定しない） */
+  expected: GuardType[];
+  /** 検出されてはならない型 */
+  forbidden?: GuardType[];
+  /** 理由の無い除外注釈が検出されること */
+  expectInvalidAllow?: boolean;
+  /** 除外注釈により検出が抑止されること */
+  expectAllowed?: boolean;
+}
+
+// ============================================================================
+// 115.24: 捕捉できていなかった三つの書き方
+// ============================================================================
+
+const MISSED_FORMS: Case[] = [
+  {
+    name: '115.24-1 分割して受ける形（観測結果を分割代入で受けて黙って抜ける）',
+    source: [
+      "test('destructured', async ({ page }) => {",
+      '  const { visible } = await page.evaluate(() => ({ visible: false }));',
+      '  if (!visible) {',
+      '    return;',
+      '  }',
+      "  await expect(page.getByRole('dialog')).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '115.24-2 宣言と代入を分ける形（上位の有効範囲の宣言に後から代入する）',
+    source: [
+      'let testProjectId: string;',
+      'test.beforeAll(async () => {',
+      '  testProjectId = await createProject();',
+      '});',
+      "test('declared then assigned', async ({ page }) => {",
+      '  if (!testProjectId) {',
+      '    return;',
+      '  }',
+      "  await expect(page.getByText('x')).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '115.24-3 三項で検証を包む形',
+    source: [
+      "test('ternary', async ({ page }) => {",
+      "  const shown = await page.getByRole('dialog').isVisible();",
+      "  shown ? await expect(page.getByRole('dialog')).toBeVisible() : undefined;",
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+];
+
+// ============================================================================
+// 115.25: 圧縮の対象（正当な主張であり数えてはならない）
+// ============================================================================
+
+const OVER_DETECTIONS: Case[] = [
+  {
+    name: '115.25-1 空文字で宣言して後から代入した値の検証',
+    source: [
+      "let accessToken: string = '';",
+      "test('login', async ({ request }) => {",
+      "  const loginResponse = await request.post('/api/v1/auth/login');",
+      '  const loginBody = await loginResponse.json();',
+      '  accessToken = loginBody.accessToken;',
+      '  expect(accessToken).toBeTruthy();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T3-tautology'],
+  },
+  {
+    name: '115.25-2 既定値を補ったうえでの検証',
+    source: [
+      "test('project id', async ({ page }) => {",
+      '  const match = page.url().match(/\\/projects\\/([0-9a-f-]+)$/);',
+      '  const projectId = match?.[1] ?? null;',
+      '  expect(projectId).toBeTruthy();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T3-tautology'],
+  },
+  {
+    name: '115.25-3 比較の形を持つ式（リテラル比較は実質のある検証）',
+    source: [
+      "test('status', async ({ request }) => {",
+      "  const response = await request.get('/api/health');",
+      '  expect(response.status() === 304).toBeTruthy();',
+      '  expect(response.status() >= 200).toBeTruthy();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T3-tautology'],
+  },
+];
+
+// ============================================================================
+// 115.25: 圧縮の境界（代入の右辺のうち何を主題として評価するか）
+//
+// 「後から代入される名前は宣言時の値を辿らない」という圧縮の規則は、
+// 代入の右辺まで一律に打ち切ると本物の恒真判定を取り逃がす。
+// 右辺の形そのものが恒真になり得るもの（論理和・既定値・型判定）は評価し、
+// 真偽リテラルの単純な代入は評価しない、という境界をここで固定する。
+// ============================================================================
+
+const ASSIGNMENT_BOUNDARY: Case[] = [
+  {
+    name: '115.25-4 論理和を代入した値の検証は恒真として検出する',
+    source: [
+      "test('assigned disjunction', async ({ page }) => {",
+      '  let errorFound = false;',
+      '  const currentUrl = page.url();',
+      "  const isStillOnNewPage = currentUrl.includes('/trading-partners/new');",
+      '  const didNotNavigateToDetail = !currentUrl.match(/\\/trading-partners\\/[0-9a-f-]+$/);',
+      '  errorFound = isStillOnNewPage || didNotNavigateToDetail;',
+      '  expect(errorFound).toBeTruthy();',
+      '});',
+    ].join('\n'),
+    expected: ['T3-tautology'],
+  },
+  {
+    name: '115.25-5 条件のもとで真を代入する観測フラグは検出しない',
+    source: [
+      "test('observed flag', async ({ page }) => {",
+      '  let downloadHappened = false;',
+      "  if (await page.getByRole('dialog').isVisible()) {",
+      '    downloadHappened = true;',
+      '  }',
+      '  expect(downloadHappened).toBeTruthy();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T3-tautology'],
+  },
+];
+
+// ============================================================================
+// 圧縮によって失われてはならない検出（本セッションで確立した合格の判定基準）
+// ============================================================================
+
+const MUST_KEEP: Case[] = [
+  {
+    name: '維持1 比較を含むが恒真な論理和（site-survey-access-control の画像到達性）',
+    source: [
+      "test('image accessible', async ({ page }) => {",
+      '  const imageApiResponse = await page',
+      "    .waitForResponse((response) => response.url().includes('/images'))",
+      '    .catch(() => null);',
+      '  const isImageAccessible =',
+      '    imageApiResponse === null || imageApiResponse.ok() || imageApiResponse.status() === 304;',
+      '  expect(isImageAccessible).toBeTruthy();',
+      '});',
+    ].join('\n'),
+    expected: ['T3-tautology'],
+  },
+  {
+    name: '維持2 自ら観測した結果を条件にする（quantity-item-action-menu の前提確認）',
+    source: [
+      "test('action menu', async ({ page }) => {",
+      '  const navigated = await navigateToQuantityTableEdit(page);',
+      '  if (!navigated) {',
+      '    test.skip();',
+      '    return;',
+      '  }',
+      "  await expect(page.getByRole('menu')).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '維持3 条件付きのスキップ',
+    source: ["test.skip(process.env.CI !== 'true', 'CI でのみ実行する');"].join('\n'),
+    expected: ['T6-conditional-skip'],
+  },
+  {
+    name: '維持4 型判定による恒真式',
+    source: [
+      "test('typeof', async ({ request }) => {",
+      "  const response = await request.get('/api/health');",
+      '  const body = await response.json();',
+      "  expect(typeof body.totalCount === 'number').toBeTruthy();",
+      '});',
+    ].join('\n'),
+    expected: ['T3-tautology'],
+  },
+  {
+    name: '維持5 待機の指定を尊重しない判定',
+    source: [
+      "test('ignored timeout', async ({ page }) => {",
+      "  const shown = await page.getByRole('dialog').isVisible({ timeout: 1000 });",
+      '  if (shown) {',
+      "    await expect(page.getByRole('dialog')).toBeVisible();",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: ['T2-ignored-timeout', 'T5-observed-result-gate'],
+  },
+  {
+    name: '維持6 理由の無い除外注釈は除外として扱わない',
+    source: [
+      "test('invalid allow', async ({ page }) => {",
+      "  const shown = await page.getByRole('dialog').isVisible();",
+      '  // e2e-guard-allow:',
+      '  if (shown) {',
+      "    await expect(page.getByRole('dialog')).toBeVisible();",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+    expectInvalidAllow: true,
+  },
+  {
+    name: '維持7 理由のある除外注釈は検出を抑止する',
+    source: [
+      "test('valid allow', async ({ page }) => {",
+      "  const shown = await page.getByRole('dialog').isVisible();",
+      '  // e2e-guard-allow: 検証ではなく前提の準備',
+      '  if (shown) {',
+      "    await expect(page.getByRole('dialog')).toBeVisible();",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: [],
+    expectAllowed: true,
+  },
+  {
+    name: '維持8 前提が満たせないときに失敗させる分岐は検出しない',
+    source: [
+      "test('fail fast', async ({ page }) => {",
+      '  const navigated = await navigateToQuantityTableEdit(page);',
+      '  if (!navigated) {',
+      "    throw new Error('前提の画面へ遷移できない');",
+      '  }',
+      "  await expect(page.getByRole('menu')).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T1-conditional-expect', 'T5-observed-result-gate'],
+  },
+];
+
+// ============================================================================
+// 実行
+// ============================================================================
+
+function runCase(index: number, testCase: Case): string[] {
+  const failures: string[] = [];
+  const result = scanSource(`selftest/case-${index}.spec.ts`, testCase.source);
+  const detected = new Set(result.findings.map((f) => f.type));
+
+  for (const type of testCase.expected) {
+    if (!detected.has(type)) {
+      failures.push(`${type} が検出されていない`);
+    }
+  }
+  for (const type of testCase.forbidden ?? []) {
+    if (detected.has(type)) {
+      const hit = result.findings.find((f) => f.type === type);
+      failures.push(`${type} が検出されている（過検出）: ${hit?.snippet ?? ''}`);
+    }
+  }
+  if (testCase.expected.length === 0 && !testCase.forbidden && result.findings.length > 0) {
+    failures.push(`検出されてはならないが検出された: ${result.findings[0]!.snippet}`);
+  }
+  if (testCase.expectInvalidAllow && result.invalidAllows.length === 0) {
+    failures.push('理由の無い除外注釈が検出されていない');
+  }
+  if (!testCase.expectInvalidAllow && result.invalidAllows.length > 0) {
+    failures.push('理由の無い除外注釈が誤って検出された');
+  }
+  if (testCase.expectAllowed && result.allowed.length === 0) {
+    failures.push('除外注釈による抑止が働いていない');
+  }
+  return failures;
+}
+
+function main(): void {
+  const groups: Array<{ title: string; cases: Case[] }> = [
+    { title: '115.24 捕捉できていなかった三つの書き方', cases: MISSED_FORMS },
+    { title: '115.25 過検出（正当な主張は数えない）', cases: OVER_DETECTIONS },
+    { title: '115.25 圧縮の境界（代入の右辺の扱い）', cases: ASSIGNMENT_BOUNDARY },
+    { title: '維持すべき検出', cases: MUST_KEEP },
+  ];
+
+  console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');
+  let failed = 0;
+  let index = 0;
+  for (const group of groups) {
+    console.log(`\n[${group.title}]`);
+    for (const testCase of group.cases) {
+      index += 1;
+      const failures = runCase(index, testCase);
+      if (failures.length === 0) {
+        console.log(`  ✅ ${testCase.name}`);
+      } else {
+        failed += 1;
+        console.log(`  ❌ ${testCase.name}`);
+        for (const failure of failures) console.log(`     - ${failure}`);
+      }
+    }
+  }
+
+  const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
+  if (failed > 0) {
+    console.log(`\n❌ ${failed}/${total} 件の確認に失敗しました`);
+    process.exit(1);
+  }
+  console.log(`\n✅ ${total}/${total} 件の確認に成功しました`);
+}
+
+main();

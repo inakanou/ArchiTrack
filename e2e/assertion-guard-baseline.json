@@ -6,7 +6,7 @@
     "正当な分岐は該当行の直前に `// e2e-guard-allow: <理由>` を置いて除外できる（理由は必須）。",
     "allowedFiles は除外注釈の件数。除外が増えた場合も検査は失敗する（差分として現れる）。"
   ],
-  "generatedTotal": 1288,
+  "generatedTotal": 1171,
   "allowedTotal": 1,
   "allowedFiles": {
     "e2e/specs/quantity-tables/photo-change-dialog-e2e.spec.ts": 1
@@ -30,7 +30,6 @@
       "T5-observed-result-gate": 6
     },
     "e2e/specs/auth/auth-initialization.spec.ts": {
-      "T3-tautology": 1,
       "T5-observed-result-gate": 1
     },
     "e2e/specs/auth/invitations.spec.ts": {
@@ -48,28 +47,26 @@
       "T5-observed-result-gate": 1
     },
     "e2e/specs/auth/profile.spec.ts": {
-      "T3-tautology": 7,
+      "T3-tautology": 1,
       "T5-observed-result-gate": 7
     },
     "e2e/specs/auth/security-accessibility.spec.ts": {
       "T1-conditional-expect": 2
     },
     "e2e/specs/auth/session-expired-modal.spec.ts": {
-      "T3-tautology": 1,
       "T5-observed-result-gate": 3
     },
     "e2e/specs/auth/sessions.spec.ts": {
       "T1-conditional-expect": 3,
-      "T3-tautology": 3,
       "T5-observed-result-gate": 1
     },
     "e2e/specs/auth/token-refresh.spec.ts": {
-      "T3-tautology": 4,
+      "T3-tautology": 1,
       "T5-observed-result-gate": 2
     },
     "e2e/specs/auth/two-factor.spec.ts": {
       "T1-conditional-expect": 2,
-      "T3-tautology": 6,
+      "T3-tautology": 1,
       "T5-observed-result-gate": 12
     },
     "e2e/specs/company-info/company-info-api.spec.ts": {
@@ -78,18 +75,8 @@
     "e2e/specs/company-info/company-info-navigation.spec.ts": {
       "T5-observed-result-gate": 2
     },
-    "e2e/specs/construction-photos/construction-photo-additional.spec.ts": {
-      "T3-tautology": 3
-    },
-    "e2e/specs/construction-photos/construction-photo-workflow.spec.ts": {
-      "T3-tautology": 1
-    },
     "e2e/specs/contracts/contract-e2e.spec.ts": {
-      "T3-tautology": 6,
       "T5-observed-result-gate": 1
-    },
-    "e2e/specs/estimate-requests/breadcrumb-navigation-e2e.spec.ts": {
-      "T3-tautology": 1
     },
     "e2e/specs/estimate-requests/claude-vision-e2e.spec.ts": {
       "T2-ignored-timeout": 1
@@ -99,17 +86,15 @@
       "T5-observed-result-gate": 3
     },
     "e2e/specs/estimate-requests/estimate-request-e2e.spec.ts": {
-      "T1-conditional-expect": 2,
+      "T1-conditional-expect": 1,
       "T2-ignored-timeout": 1,
-      "T3-tautology": 4,
-      "T5-observed-result-gate": 1
+      "T3-tautology": 2,
+      "T5-observed-result-gate": 2
     },
     "e2e/specs/estimate-requests/estimate-request-layout-net-e2e.spec.ts": {
-      "T3-tautology": 1,
       "T5-observed-result-gate": 3
     },
     "e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec.ts": {
-      "T3-tautology": 8,
       "T5-observed-result-gate": 9
     },
     "e2e/specs/estimate-requests/lineitem-sort-order-e2e.spec.ts": {
@@ -148,15 +133,14 @@
     "e2e/specs/estimate-requests/preview-resize-e2e.spec.ts": {
       "T5-observed-result-gate": 4
     },
-    "e2e/specs/estimate-requests/received-quotation-dialog-improvements-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
     "e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts": {
-      "T1-conditional-expect": 1,
       "T3-tautology": 1,
-      "T5-observed-result-gate": 2
+      "T5-observed-result-gate": 3
     },
     "e2e/specs/estimate-requests/session-expired-protection-extra-e2e.spec.ts": {
+      "T5-observed-result-gate": 1
+    },
+    "e2e/specs/estimate-requests/site-survey-report-e2e.spec.ts": {
       "T5-observed-result-gate": 1
     },
     "e2e/specs/estimate-requests/structured-data-ocr-e2e.spec.ts": {
@@ -166,89 +150,19 @@
     "e2e/specs/estimate-requests/trading-partner-search-e2e.spec.ts": {
       "T3-tautology": 1
     },
-    "e2e/specs/estimate/estimate-discount-preset-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/estimate-e2e.spec.ts": {
-      "T3-tautology": 2
-    },
-    "e2e/specs/estimate/estimate-export-dialog-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/estimate-features-e2e.spec.ts": {
-      "T3-tautology": 4
-    },
-    "e2e/specs/estimate/estimate-hierarchy-keyboard-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/estimate-hierarchy-move-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/estimate-layout-summary-e2e.spec.ts": {
-      "T3-tautology": 4
-    },
-    "e2e/specs/estimate/estimate-navigation-e2e.spec.ts": {
-      "T3-tautology": 5
-    },
     "e2e/specs/estimate/estimate-number-format-e2e.spec.ts": {
-      "T3-tautology": 2,
       "T5-observed-result-gate": 3
     },
-    "e2e/specs/estimate/estimate-reorder-overhead-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
     "e2e/specs/estimate/estimate-report-export-e2e.spec.ts": {
-      "T3-tautology": 1,
       "T5-observed-result-gate": 1
     },
-    "e2e/specs/estimate/estimate-row-operation-overhead-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/estimate-summary-section-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/estimate-toolbar-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
     "e2e/specs/estimate/estimate-transfer-calculation-save-e2e.spec.ts": {
-      "T1-conditional-expect": 1,
-      "T3-tautology": 4
-    },
-    "e2e/specs/estimate/net-allocation-dialog-e2e.spec.ts": {
-      "T3-tautology": 5
-    },
-    "e2e/specs/estimate/profit-rate-dialog-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/estimate/transfer-quotation-dialog-e2e.spec.ts": {
-      "T3-tautology": 4
-    },
-    "e2e/specs/execution-budget/amendment-apply-e2e.spec.ts": {
-      "T3-tautology": 3
-    },
-    "e2e/specs/execution-budget/budget-edit-cost-monthly-close-e2e.spec.ts": {
-      "T3-tautology": 2
-    },
-    "e2e/specs/execution-budget/cost-input-e2e.spec.ts": {
-      "T3-tautology": 1
-    },
-    "e2e/specs/execution-budget/execution-budget-display-e2e.spec.ts": {
-      "T3-tautology": 6
+      "T1-conditional-expect": 1
     },
     "e2e/specs/execution-budget/helpers.ts": {
       "T5-observed-result-gate": 1
     },
-    "e2e/specs/execution-budget/order-management-e2e.spec.ts": {
-      "T3-tautology": 2
-    },
-    "e2e/specs/execution-budget/order-status-export-e2e.spec.ts": {
-      "T3-tautology": 2
-    },
     "e2e/specs/execution-budget/progress-input-e2e.spec.ts": {
-      "T3-tautology": 3,
       "T5-observed-result-gate": 2
     },
     "e2e/specs/integration/database.spec.ts": {
@@ -259,17 +173,14 @@
       "T4-response-field-gate": 2,
       "T5-observed-result-gate": 18
     },
-    "e2e/specs/project-contract-navigation.spec.ts": {
-      "T3-tautology": 1
+    "e2e/specs/itemized-statements/itemized-statement-reorder.spec.ts": {
+      "T5-observed-result-gate": 1
     },
     "e2e/specs/project-execution-budget-navigation.spec.ts": {
-      "T3-tautology": 3
-    },
-    "e2e/specs/project-schedule-navigation.spec.ts": {
       "T3-tautology": 1
     },
     "e2e/specs/project-status-transition.spec.ts": {
-      "T3-tautology": 2,
+      "T3-tautology": 1,
       "T5-observed-result-gate": 1
     },
     "e2e/specs/projects/project-accessibility.spec.ts": {
@@ -277,12 +188,12 @@
       "T3-tautology": 1
     },
     "e2e/specs/projects/project-additional-requirements.spec.ts": {
-      "T1-conditional-expect": 1,
-      "T3-tautology": 2,
-      "T5-observed-result-gate": 6
+      "T3-tautology": 1,
+      "T5-observed-result-gate": 7
     },
     "e2e/specs/projects/project-address-autofill.spec.ts": {
-      "T2-ignored-timeout": 2
+      "T2-ignored-timeout": 2,
+      "T5-observed-result-gate": 1
     },
     "e2e/specs/projects/project-autocomplete.spec.ts": {
       "T1-conditional-expect": 1,
@@ -290,7 +201,6 @@
       "T5-observed-result-gate": 13
     },
     "e2e/specs/projects/project-breadcrumb.spec.ts": {
-      "T3-tautology": 1,
       "T5-observed-result-gate": 7
     },
     "e2e/specs/projects/project-clipboard-copy-e2e.spec.ts": {
@@ -299,6 +209,9 @@
     "e2e/specs/projects/project-crud.spec.ts": {
       "T1-conditional-expect": 3
     },
+    "e2e/specs/projects/project-customer-label.spec.ts": {
+      "T5-observed-result-gate": 1
+    },
     "e2e/specs/projects/project-detail-sections.spec.ts": {
       "T4-response-field-gate": 1,
       "T5-observed-result-gate": 1
@@ -306,9 +219,6 @@
     "e2e/specs/projects/project-detail.spec.ts": {
       "T3-tautology": 1,
       "T5-observed-result-gate": 2
-    },
-    "e2e/specs/projects/project-kana-search.spec.ts": {
-      "T3-tautology": 1
     },
     "e2e/specs/projects/project-list-columns.spec.ts": {
       "T1-conditional-expect": 1
@@ -323,9 +233,6 @@
       "T3-tautology": 1,
       "T5-observed-result-gate": 2
     },
-    "e2e/specs/projects/project-search-scope.spec.ts": {
-      "T3-tautology": 2
-    },
     "e2e/specs/projects/project-sort-extension.spec.ts": {
       "T1-conditional-expect": 1
     },
@@ -333,12 +240,11 @@
       "T5-observed-result-gate": 3
     },
     "e2e/specs/projects/project-trading-partner.spec.ts": {
-      "T1-conditional-expect": 2,
       "T4-response-field-gate": 1,
-      "T5-observed-result-gate": 1
+      "T5-observed-result-gate": 3
     },
     "e2e/specs/projects/trading-partner-select-kana.spec.ts": {
-      "T1-conditional-expect": 1
+      "T5-observed-result-gate": 1
     },
     "e2e/specs/quantity-tables/autocomplete-optimization.spec.ts": {
       "T2-ignored-timeout": 11,
@@ -346,17 +252,14 @@
       "T6-conditional-skip": 12
     },
     "e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 3
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/create-groups-from-survey-e2e.spec.ts": {
       "T2-ignored-timeout": 3,
-      "T3-tautology": 2,
       "T5-observed-result-gate": 1
     },
     "e2e/specs/quantity-tables/edit-guard-indicator-sticky-header-e2e.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 2
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/field-specification.spec.ts": {
       "T3-tautology": 2,
@@ -364,11 +267,10 @@
       "T6-conditional-skip": 21
     },
     "e2e/specs/quantity-tables/focus-select-all.spec.ts": {
-      "T1-conditional-expect": 1,
+      "T5-observed-result-gate": 1,
       "T6-conditional-skip": 5
     },
     "e2e/specs/quantity-tables/group-card-fixed-photo-scroll-e2e.spec.ts": {
-      "T3-tautology": 2,
       "T5-observed-result-gate": 3
     },
     "e2e/specs/quantity-tables/group-rename-e2e.spec.ts": {
@@ -407,24 +309,19 @@
       "T5-observed-result-gate": 2
     },
     "e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 2
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/quantity-count-method-switch-e2e.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 2
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/quantity-count-persistence-e2e.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 2
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/quantity-group-copy.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 1
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/quantity-item-action-menu-clipping-e2e.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 2
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/quantity-item-action-menu.spec.ts": {
       "T2-ignored-timeout": 2,
@@ -432,15 +329,14 @@
       "T5-observed-result-gate": 21
     },
     "e2e/specs/quantity-tables/quantity-table-copy.spec.ts": {
-      "T1-conditional-expect": 3,
       "T2-ignored-timeout": 5,
-      "T5-observed-result-gate": 2
+      "T5-observed-result-gate": 5
     },
     "e2e/specs/quantity-tables/quantity-table-crud.spec.ts": {
       "T1-conditional-expect": 1,
       "T2-ignored-timeout": 89,
-      "T3-tautology": 27,
-      "T5-observed-result-gate": 41
+      "T3-tautology": 25,
+      "T5-observed-result-gate": 42
     },
     "e2e/specs/quantity-tables/quantity-table-inline-calculation-fields.spec.ts": {
       "T5-observed-result-gate": 1
@@ -465,12 +361,13 @@
       "T5-observed-result-gate": 2
     },
     "e2e/specs/security/security-measures.spec.ts": {
-      "T1-conditional-expect": 1,
-      "T5-observed-result-gate": 4
+      "T5-observed-result-gate": 5
+    },
+    "e2e/specs/site-survey-thumbnail-regeneration.spec.ts": {
+      "T5-observed-result-gate": 1
     },
     "e2e/specs/site-surveys/site-survey-access-control.spec.ts": {
-      "T1-conditional-expect": 2,
-      "T3-tautology": 2
+      "T1-conditional-expect": 2
     },
     "e2e/specs/site-surveys/site-survey-all-shape-outline.spec.ts": {
       "T5-observed-result-gate": 7,
@@ -482,33 +379,32 @@
     },
     "e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts": {
       "T2-ignored-timeout": 6,
-      "T5-observed-result-gate": 16,
+      "T5-observed-result-gate": 17,
       "T6-conditional-skip": 1
     },
     "e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts": {
       "T1-conditional-expect": 2,
       "T2-ignored-timeout": 2,
       "T3-tautology": 9,
-      "T5-observed-result-gate": 4
+      "T5-observed-result-gate": 5
     },
     "e2e/specs/site-surveys/site-survey-annotations.spec.ts": {
-      "T1-conditional-expect": 3,
+      "T1-conditional-expect": 1,
       "T2-ignored-timeout": 13,
       "T3-tautology": 2,
-      "T5-observed-result-gate": 9
+      "T5-observed-result-gate": 11
     },
     "e2e/specs/site-surveys/site-survey-batch-annotations.spec.ts": {
-      "T1-conditional-expect": 3,
+      "T1-conditional-expect": 1,
       "T2-ignored-timeout": 3,
       "T3-tautology": 3,
-      "T5-observed-result-gate": 12,
+      "T5-observed-result-gate": 18,
       "T6-conditional-skip": 6
     },
     "e2e/specs/site-surveys/site-survey-breadcrumb.spec.ts": {
       "T1-conditional-expect": 2
     },
     "e2e/specs/site-surveys/site-survey-bulk-export.spec.ts": {
-      "T3-tautology": 1,
       "T6-conditional-skip": 1
     },
     "e2e/specs/site-surveys/site-survey-crud.spec.ts": {
@@ -522,8 +418,8 @@
       "T5-observed-result-gate": 4
     },
     "e2e/specs/site-surveys/site-survey-export.spec.ts": {
-      "T1-conditional-expect": 3,
-      "T5-observed-result-gate": 2
+      "T1-conditional-expect": 1,
+      "T5-observed-result-gate": 4
     },
     "e2e/specs/site-surveys/site-survey-image-breadcrumb-e2e.spec.ts": {
       "T1-conditional-expect": 2
@@ -531,8 +427,11 @@
     "e2e/specs/site-surveys/site-survey-image-order.spec.ts": {
       "T1-conditional-expect": 2
     },
+    "e2e/specs/site-surveys/site-survey-image-request-scaling.spec.ts": {
+      "T5-observed-result-gate": 1
+    },
     "e2e/specs/site-surveys/site-survey-image-rotation.spec.ts": {
-      "T5-observed-result-gate": 5
+      "T5-observed-result-gate": 9
     },
     "e2e/specs/site-surveys/site-survey-images.spec.ts": {
       "T1-conditional-expect": 2,
@@ -567,6 +466,9 @@
       "T2-ignored-timeout": 10,
       "T3-tautology": 6,
       "T5-observed-result-gate": 7
+    },
+    "e2e/specs/site-surveys/site-survey-thumbnail-request-per-image.spec.ts": {
+      "T5-observed-result-gate": 1
     },
     "e2e/specs/site-surveys/site-survey-upload-validation-e2e.spec.ts": {
       "T1-conditional-expect": 2,

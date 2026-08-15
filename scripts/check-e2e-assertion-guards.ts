@@ -28,20 +28,43 @@
  *
  * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 は別軸のため重複して計上する）
  *
+ * 検証を包む形（T1 / T4 / T5 の入口）:
+ *   - `if (cond) { await expect(...) }`
+ *   - `cond && (await expect(...))` / `cond ?? (await expect(...))`
+ *   - `cond ? await expect(...) : undefined`（三項で包む形）
+ *   - 観測結果を条件に黙って抜ける形（`if (!observed) { return; }` など）
+ *
  * 局所変数の追跡:
  *   検出は「expect や if の直下に書かれた式」だけを見ると容易に迂回できる。
- *   同一ファイル内の変数宣言の初期化子を表引きし、識別子が判定の主題・条件に現れた場合は
- *   その初期化子を展開したうえで分類する。したがって次の二つは同じ扱いになる。
+ *   同一ファイル内の値の出どころを表引きし、識別子が判定の主題・条件に現れた場合は
+ *   その値を展開したうえで分類する。したがって次の二つは同じ扱いになる。
  *
  *     expect(a === null || a.ok()).toBeTruthy();            // 直接記述
  *     const ok = a === null || a.ok(); expect(ok).toBeTruthy(); // 変数を挟む形（同じく T3）
  *
- *   初期化子が次のいずれかを含む場合、その識別子は「観測」を運ぶものとして扱う。
+ *   表に載せるのは次の三つの形である。
+ *     (1) 初期化子を伴う宣言（`const ok = await res.json()`）
+ *     (2) 分割して受ける形（`const { ok } = await res.json()` / `const [a] = await ...`）
+ *     (3) 宣言と代入を分ける形（`let id: string;` … `id = await createProject()`）
+ *   (3) は上位の有効範囲での宣言と組み合わさる用例が多く、表に載せないと
+ *   `if (!id) { return; }` のような沈黙して終える構造が無検出になる。
+ *
+ *   値が次のいずれかを含む場合、その識別子は「観測」を運ぶものとして扱う。
  *     (a) 即時判定・観測（isVisible / count / textContent / getAttribute / evaluate 等）
  *     (b) await を伴う呼び出し（画面や API から結果を取り出す行為そのもの）
  *     (c) 失敗の握り潰し（`.catch(...)`）
- *   論理和・既定値（`||` / `??`）を含む初期化子は恒真になり得るものとして扱う。
+ *   論理和・既定値（`||` / `??`）を含む値は恒真になり得るものとして扱う。
  *   スコープは追わず、同名の宣言は検出側に有利な方（観測を含む方）へ寄せて併合する。
+ *
+ *   表は「宣言の初期化子」と「代入の右辺」に分けて持つ。上記の分類（T1/T4/T5）では
+ *   双方を同じように展開するが、T3 の主題の判断では扱いを変える。
+ *     - 宣言の初期化子は、後から代入される名前については参照しない。
+ *       `let accessToken = ''` のように宣言時の値が仮置きで、代入後の値を検証する形は
+ *       正当な主張であり、宣言時の偽値のリテラルで恒真と数えてはならないためである。
+ *     - 代入の右辺は、その形自体が論理和・既定値（右辺が偽値のリテラルでないもの）
+ *       または型判定であるものに限って評価する。
+ *       `let errorFound = false; errorFound = a || b;` は代入した式そのものが恒真であり、
+ *       同じ式を `const` で書いた場合と扱いを変える理由が無いためである。
  *
  * 検出対象外とした構造（意図的に対象外。再検討時はこの記述を更新すること）:
  *   - 論理和による検証のうち、真偽以外の matcher に渡る形（`expect(a || b).toContain(...)` 等）
@@ -53,6 +76,28 @@
  *     待機自体を落とさない用法は正当でもあるため単独では対象外とする。
  *     ただし、その結果が条件や検証の主題に現れた時点で上記の局所変数の追跡により
  *     T3 / T5 として検出される（無害な待機と、検証を骨抜きにする使い方とを区別する）。
+ *   - 比較の形を持つ式（`expect(status === 304).toBeTruthy()` 等）
+ *     比較そのものは実質のある検証であり、恒真ではない。
+ *     被演算子へ再帰するとリテラル比較まで恒真として数えてしまうため、比較を見つけた
+ *     時点で打ち切る（型判定 `typeof x === 'number'` を持つ場合のみ例外）。
+ *     `a === null || a.ok() || a.status() === 304` のように「比較を含むが全体としては
+ *     恒真」な論理和は、打ち切りの前に論理和として判定されるため従来どおり検出される。
+ *   - 既定値として偽値を補うだけの形（`const id = match?.[1] ?? null;` の検証）
+ *     左辺が偽なら結果も偽であり、真偽の主張を骨抜きにしないため。
+ *   - 真偽のリテラルを代入した値の検証（`let ok = false; ok = true; expect(ok).toBeTruthy()`）
+ *     代入の右辺を評価する対象から真偽のリテラルを外した結果、この形は無検出になる。
+ *     これは意図した限界であり、無条件に真を代入する恒真の主張は取り逃がす。
+ *     `let downloadHappened = false; … downloadHappened = true;` のように、事象の発生や
+ *     条件の成立を記録して検証する観測フラグが正当な用法として多数を占めるためである。
+ *     本稿の執筆時点の走査では、この形に該当する箇所は e2e 配下に 34 箇所あり、
+ *     いずれも条件分岐・例外処理・コールバックの内側でのみ真を代入している
+ *     （無条件に真を代入する箇所は 0 件）。真偽のリテラルの代入まで辿ると、
+ *     この 34 箇所がそのまま過検出として戻る。
+ *
+ * 検出規則の確認:
+ *   scripts/check-e2e-assertion-guards.selftest.ts に、捕捉すべき書き方と
+ *   捕捉してはならない書き方を注入する一覧を置いている。規則を変更したら
+ *   `npm run check:e2e-guards:selftest` を実行すること。
  *
  * 正当な用途の除外:
  *   前提の準備・後始末・検証ロジックそのものなど、条件分岐が正当な箇所は
@@ -93,7 +138,7 @@ const ALLOW_MARKER = 'e2e-guard-allow:';
 // 型定義
 // ============================================================================
 
-type GuardType =
+export type GuardType =
   | 'T1-conditional-expect'
   | 'T2-ignored-timeout'
   | 'T3-tautology'
@@ -116,7 +161,7 @@ interface AllowEntry {
   snippet: string;
 }
 
-interface ScanResult {
+export interface ScanResult {
   findings: Finding[];
   allowed: AllowEntry[];
   /** 理由の無い除外注釈（除外として扱わない） */
@@ -247,13 +292,74 @@ function isSilentExit(statement: ts.Statement): boolean {
   });
 }
 
+/** 比較の演算子（比較そのものは実質のある検証なので恒真とはみなさない） */
+const COMPARISON_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.InstanceOfKeyword,
+  ts.SyntaxKind.InKeyword,
+]);
+
+/** 代入の演算子か（`=` および複合代入） */
+function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+
+function unwrapParentheses(node: ts.Expression): ts.Expression {
+  let current = node;
+  while (ts.isParenthesizedExpression(current)) current = current.expression;
+  return current;
+}
+
+/**
+ * 偽値のリテラルか。
+ *
+ * `x ?? null` や `x || ''` のように既定値として偽値を補う形は、
+ * 真偽の主張（toBeTruthy）を骨抜きにしない。左辺が偽なら結果も偽であり、
+ * 主張はそのまま左辺に対して働くためである。
+ */
+function isFalsyLiteral(node: ts.Expression): boolean {
+  const inner = unwrapParentheses(node);
+  if (inner.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (inner.kind === ts.SyntaxKind.FalseKeyword) return true;
+  if (ts.isIdentifier(inner) && inner.text === 'undefined') return true;
+  if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) {
+    return inner.text === '';
+  }
+  if (ts.isNumericLiteral(inner)) return Number(inner.text) === 0;
+  return false;
+}
+
+/** 型判定を直接の被演算子に持つか（`typeof x === 'number'` の判別） */
+function hasTypeOfOperand(node: ts.BinaryExpression): boolean {
+  return (
+    ts.isTypeOfExpression(unwrapParentheses(node.left)) ||
+    ts.isTypeOfExpression(unwrapParentheses(node.right))
+  );
+}
+
 /**
  * 恒真になり得る式か。
  *
- * 対象は次の三つに限る。単なる比較（`a === b`、`a <= b` 等）は実質のある検証なので含めない。
+ * 対象は次の三つに限る。
  * - リテラルそのもの（`expect(true)`）
  * - 型判定（`typeof x === 'number'`。実行時の値ではなく静的な型に依存する）
- * - 論理和（`expect(A || B)`。どちらの結果でも通るため観測を検証していない）
+ * - 論理和・既定値（`expect(A || B)`。どちらの結果でも通るため観測を検証していない）
+ *
+ * 比較（`a === b`、`a <= b` 等）は実質のある検証なので含めない。被演算子へ再帰すると
+ * `x === 304` のようなリテラル比較まで恒真として数えてしまうため、比較の形を見つけた
+ * 時点で打ち切る（型判定を被演算子に持つ場合のみ例外とする）。
+ * これにより `a === null || a.ok() || a.status() === 304` のように
+ * 「比較を含むが全体としては恒真」な論理和は従来どおり検出される。
+ *
+ * 既定値として偽値を補うだけの形（`match?.[1] ?? null`）も、真偽の主張を
+ * 骨抜きにしないため恒真とはみなさない。
  */
 function isVacuousBoolean(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isVacuousBoolean(node.expression);
@@ -261,8 +367,11 @@ function isVacuousBoolean(node: ts.Expression): boolean {
   if (ts.isBinaryExpression(node)) {
     const kind = node.operatorToken.kind;
     if (kind === ts.SyntaxKind.BarBarToken || kind === ts.SyntaxKind.QuestionQuestionToken) {
+      if (isFalsyLiteral(node.right)) return isVacuousBoolean(node.left);
       return true;
     }
+    if (COMPARISON_OPERATORS.has(kind)) return hasTypeOfOperand(node);
+    if (isAssignmentOperator(kind)) return false;
     return isVacuousBoolean(node.left) || isVacuousBoolean(node.right);
   }
   return (
@@ -271,6 +380,34 @@ function isVacuousBoolean(node: ts.Expression): boolean {
     ts.isNumericLiteral(node) ||
     ts.isStringLiteral(node)
   );
+}
+
+/**
+ * 代入の右辺のうち、恒真の主題として評価してよい形か。
+ *
+ * 後から代入される名前については、宣言時の仮置きの値を主題にしてはならない
+ * （`let accessToken = ''`）。しかし代入の右辺まで一律に打ち切ると、
+ * `let errorFound = false; errorFound = a || b;` のように代入した式そのものが
+ * 恒真である形を取り逃がす。そこで右辺の形を見て次の二つに限り評価する。
+ *
+ * - 論理和・既定値（`a || b` / `a ?? b`。右辺が偽値のリテラルである既定値は除く）
+ * - 型判定（`typeof x === 'number'` / `typeof x`）
+ *
+ * 真偽のリテラルの単純な代入（`flag = true`）は評価しない。
+ * `let downloadHappened = false; … downloadHappened = true;` のように、
+ * 事象の発生を記録して検証する観測フラグが正当な用法として多数を占めるためである。
+ */
+function isEvaluableAssignment(node: ts.Expression): boolean {
+  const inner = unwrapParentheses(node);
+  if (ts.isTypeOfExpression(inner)) return true;
+  if (ts.isBinaryExpression(inner)) {
+    const kind = inner.operatorToken.kind;
+    if (kind === ts.SyntaxKind.BarBarToken || kind === ts.SyntaxKind.QuestionQuestionToken) {
+      return !isFalsyLiteral(inner.right);
+    }
+    if (COMPARISON_OPERATORS.has(kind)) return hasTypeOfOperand(inner);
+  }
+  return false;
 }
 
 /** 条件付きスキップか（`test.skip(<式>, ...)` / `test.fixme(<式>, ...)`） */
@@ -287,9 +424,15 @@ function isConditionalSkip(node: ts.Node, sourceFile: ts.SourceFile): boolean {
 }
 
 function scanFile(absPath: string): ScanResult {
-  const source = fs.readFileSync(absPath, 'utf8');
-  const sourceFile = ts.createSourceFile(absPath, source, ts.ScriptTarget.Latest, true);
-  const relPath = path.relative(ROOT, absPath);
+  return scanSource(path.relative(ROOT, absPath), fs.readFileSync(absPath, 'utf8'));
+}
+
+/**
+ * 走査本体。ファイルの内容そのものを受け取るため、検出規則の確認では
+ * 任意の書き方を注入して結果を検証できる（scripts/check-e2e-assertion-guards.selftest.ts）。
+ */
+export function scanSource(relPath: string, source: string): ScanResult {
+  const sourceFile = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true);
   const lines = source.split('\n');
   const findings: Finding[] = [];
   const allowed: AllowEntry[] = [];
@@ -302,14 +445,63 @@ function scanFile(absPath: string): ScanResult {
 
   // --------------------------------------------------------------------------
   // 局所変数の表（同名は併合する）
+  //
+  // 初期化子を伴う宣言のほか、次の二つの書き方も同じ表に載せる。
+  //   - 分割して受ける形（`const { ok } = await res.json()` / `const [a] = await ...`）
+  //   - 宣言と代入を分ける形（`let id: string;` … `id = await createProject()`）
+  // 後者は上位の有効範囲での宣言と組み合わさる用例が多く、表に載せないと
+  // `if (!id) { return; }` のような沈黙して終える構造が無検出になる。
   // --------------------------------------------------------------------------
-  const varTable = new Map<string, ts.Expression[]>();
+  //
+  // 表は「宣言の初期化子」と「代入の右辺」に分ける。分類（T1/T4/T5）では双方を
+  // 同じように展開するが、T3 の主題の判断では扱いが異なるためである（後述）。
+  // --------------------------------------------------------------------------
+  /** 宣言の初期化子（分割して受ける形を含む） */
+  const declTable = new Map<string, ts.Expression[]>();
+  /** 代入の右辺（`id = await createProject()` の右辺） */
+  const assignTable = new Map<string, ts.Expression[]>();
+  /** 後から代入される名前（宣言時の値を主題の判断に用いない） */
+  const reassigned = new Set<string>();
   {
+    const register = (
+      table: Map<string, ts.Expression[]>,
+      name: string,
+      expression: ts.Expression
+    ): void => {
+      const list = table.get(name) ?? [];
+      list.push(expression);
+      table.set(name, list);
+    };
+    const registerBinding = (name: ts.BindingName, expression: ts.Expression): void => {
+      if (ts.isIdentifier(name)) {
+        register(declTable, name.text, expression);
+        return;
+      }
+      for (const element of name.elements) {
+        if (ts.isOmittedExpression(element)) continue;
+        registerBinding(element.name, expression);
+      }
+    };
     const collect = (n: ts.Node): void => {
-      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
-        const list = varTable.get(n.name.text) ?? [];
-        list.push(n.initializer);
-        varTable.set(n.name.text, list);
+      if (ts.isVariableDeclaration(n) && n.initializer) {
+        registerBinding(n.name, n.initializer);
+      }
+      if (ts.isBinaryExpression(n) && isAssignmentOperator(n.operatorToken.kind)) {
+        const target = unwrapParentheses(n.left);
+        if (ts.isIdentifier(target)) {
+          reassigned.add(target.text);
+          if (n.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+            register(assignTable, target.text, n.right);
+          }
+        }
+      }
+      if (
+        (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+        (n.operator === ts.SyntaxKind.PlusPlusToken ||
+          n.operator === ts.SyntaxKind.MinusMinusToken) &&
+        ts.isIdentifier(n.operand)
+      ) {
+        reassigned.add(n.operand.text);
       }
       ts.forEachChild(n, collect);
     };
@@ -324,12 +516,12 @@ function scanFile(absPath: string): ScanResult {
       if (depth > RESOLVE_DEPTH_LIMIT) return;
       const visitIdentifiers = (m: ts.Node): void => {
         if (ts.isIdentifier(m) && !seen.has(m.text)) {
-          const initializers = varTable.get(m.text);
-          if (initializers) {
+          const values = [...(declTable.get(m.text) ?? []), ...(assignTable.get(m.text) ?? [])];
+          if (values.length > 0) {
             seen.add(m.text);
-            for (const initializer of initializers) {
-              parts.push(initializer.getText(sourceFile));
-              walk(initializer, depth + 1);
+            for (const value of values) {
+              parts.push(value.getText(sourceFile));
+              walk(value, depth + 1);
             }
           }
         }
@@ -341,13 +533,27 @@ function scanFile(absPath: string): ScanResult {
     return parts.join(' ');
   };
 
-  /** 判定の主題が恒真になり得るか（識別子は初期化子まで辿る） */
+  /**
+   * 判定の主題が恒真になり得るか（識別子は値の出どころまで辿る）。
+   *
+   * 後から代入される名前は、宣言時の値を辿らない。`let accessToken = ''` のように
+   * 宣言時の値が仮置きで、代入後の値を検証する形が正当な主張であるため。
+   * 一方で代入の右辺は、その形自体が恒真になり得るもの（論理和・既定値・型判定）に
+   * 限って評価する。`let ok = false; ok = a || b;` は宣言時の値ではなく代入した式が
+   * 恒真なのであり、同じ式を `const` で書いた場合と扱いを変える理由が無いためである。
+   */
   const isVacuousSubject = (node: ts.Expression, depth = 0): boolean => {
     if (ts.isParenthesizedExpression(node)) return isVacuousSubject(node.expression, depth);
     if (ts.isAwaitExpression(node)) return isVacuousSubject(node.expression, depth);
     if (isVacuousBoolean(node)) return true;
     if (ts.isIdentifier(node) && depth < RESOLVE_DEPTH_LIMIT) {
-      for (const initializer of varTable.get(node.text) ?? []) {
+      if (reassigned.has(node.text)) {
+        for (const assigned of assignTable.get(node.text) ?? []) {
+          if (isEvaluableAssignment(assigned) && isVacuousSubject(assigned, depth + 1)) return true;
+        }
+        return false;
+      }
+      for (const initializer of declTable.get(node.text) ?? []) {
         if (isVacuousSubject(initializer, depth + 1)) return true;
       }
     }
@@ -465,7 +671,7 @@ function scanFile(absPath: string): ScanResult {
       }
     }
 
-    // --- 論理短絡・三項による検証の無効化 ---
+    // --- 論理短絡による検証の無効化 ---
     if (
       ts.isBinaryExpression(node) &&
       (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
@@ -474,6 +680,15 @@ function scanFile(absPath: string): ScanResult {
       !containsAssertion(node.left)
     ) {
       push(node, classifyCondition(node.left), node.left);
+    }
+
+    // --- 三項で検証を包む形（if 文と同じく条件次第で検証本体に到達しない） ---
+    if (ts.isConditionalExpression(node) && !containsAssertion(node.condition)) {
+      const branchAsserts = containsAssertion(node.whenTrue) || containsAssertion(node.whenFalse);
+      const branchFails = containsFailure(node.whenTrue) || containsFailure(node.whenFalse);
+      if (branchAsserts && !branchFails) {
+        push(node, classifyCondition(node.condition), node.condition);
+      }
     }
 
     ts.forEachChild(node, visit);
@@ -685,4 +900,7 @@ function main(): void {
   console.log('\n✅ 新規の検証無効化は検出されませんでした');
 }
 
-main();
+// 直接起動されたときのみ実行する（検出規則の確認からは走査部分だけを読み込む）
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main();
+}
