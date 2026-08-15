@@ -5,9 +5,9 @@
  * - ドラッグアンドドロップによる順序変更のバックエンド対応
  * - 一括更新処理
  *
- * Requirements: 4.9, 4.10
- * - 4.9: 画像一覧を固定の表示順序で表示する
- * - 4.10: ユーザーが画像をドラッグアンドドロップすると、画像の表示順序を変更して保存する
+ * Requirements: 4.10, 4.11
+ * - 4.10: 画像一覧を固定の表示順序で表示する
+ * - 4.11: ユーザーが画像をドラッグアンドドロップすると、画像の表示順序を変更する
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -53,7 +53,7 @@ describe('ImageOrderService', () => {
     service = new ImageOrderService(deps);
   });
 
-  describe('updateImageOrder (Requirements: 4.9, 4.10)', () => {
+  describe('updateImageOrder (Requirements: 4.10, 4.11)', () => {
     const surveyId = 'survey-123';
     const existingImages = [
       { id: 'image-1', surveyId, displayOrder: 1 },
