@@ -10,7 +10,7 @@
  * - REQ-4.4: サムネイル自動生成
  * - REQ-4.6: 300KB超の圧縮
  * - REQ-4.7: DELETE /api/site-surveys/images/:imageId 画像削除
- * - REQ-4.8: 対応形式（PNG）のアップロード
+ * - REQ-4.9: 対応形式（PNG）のアップロード
  * - REQ-4.10: 画像一覧を固定の表示順序で表示する
  * - REQ-4.11: ドラッグアンドドロップで表示順序を変更する（未保存状態になる）
  * - REQ-10.8: 写真一覧を保存された表示順序の通りに表示する
@@ -435,7 +435,7 @@ test.describe('現場調査画像管理', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.8
+     * @requirement site-survey/REQ-4.9
      */
     test('PNG形式の画像をアップロードできる', async ({ page }) => {
       if (!createdSurveyId) {

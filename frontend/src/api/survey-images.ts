@@ -10,7 +10,7 @@
  * - 4.1: POST /api/site-surveys/:id/images 画像アップロード（FormData対応）
  * - 4.2: バッチアップロード対応
  * - 4.7: DELETE /api/site-surveys/images/:imageId 画像削除
- * - 4.10: PUT /api/site-surveys/:id/images/order 画像順序変更
+ * - 4.11: PUT /api/site-surveys/:id/images/order 画像順序変更
  * - 10.4: PATCH /api/site-surveys/images/:imageId 画像メタデータ更新（コメント・報告書出力フラグ）
  * - 10.8: 報告書出力フラグの永続化
  * - 37.1: 失敗した画像の実体を呼び出し元へ返す
@@ -94,7 +94,7 @@ interface BatchUploadResponse {
  *     画像形式の非対応はこの経路（207）で現れる。本エンドポイントは 415 を返さない。
  *     再送可否は `classifyUploadFailure` が失敗理由から判定する
  *
- * Requirements: 4.1, 4.5, 4.8, 37.16, 37.21
+ * Requirements: 4.1, 4.5, 4.9, 37.16, 37.21
  *
  * @example
  * // 基本的な使用法
@@ -310,7 +310,7 @@ export async function deleteSurveyImage(imageId: string): Promise<void> {
  *   - 権限不足（403）
  *   - 現場調査が見つからない（404）
  *
- * Requirements: 4.9, 4.10
+ * Requirements: 4.10, 4.11
  *
  * @example
  * await updateSurveyImageOrder('survey-id', [

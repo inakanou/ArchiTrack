@@ -8,6 +8,8 @@
  * Requirements:
  * - 4.8: R2削除失敗時の孤立ファイルをorphaned/プレフィックスに移動する
  *
+ * @requirement site-survey/REQ-4.8
+ *
  * 処理フロー:
  * 1. R2削除失敗時
  * 2. CopyObjectCommandで orphaned/{original_path} にコピー

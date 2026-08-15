@@ -9,6 +9,8 @@
  * - 4.8: 孤立ファイルとして専用プレフィックス（orphaned/）に移動し、
  *   Object Lifecycle Rule により 7 日後に自動削除する
  *
+ * @requirement site-survey/REQ-4.8
+ *
  * @module tests/unit/utils/orphaned-object
  */
 

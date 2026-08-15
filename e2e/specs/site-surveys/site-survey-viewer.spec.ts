@@ -4,9 +4,9 @@
  * Requirements coverage (site-survey):
  * - REQ-4.2: 複数画像の同時選択（バッチアップロード）
  * - REQ-4.5: 許可されない形式のエラー表示
- * - REQ-4.8: JPEG、PNG、WEBP形式をサポート
- * - REQ-4.9: 画像一覧を固定の表示順序で表示
- * - REQ-4.10: ドラッグアンドドロップで表示順序を変更
+ * - REQ-4.9: JPEG、PNG、WEBP形式をサポート
+ * - REQ-4.10: 画像一覧を固定の表示順序で表示
+ * - REQ-4.11: ドラッグアンドドロップで表示順序を変更
  * - REQ-5.1: 画像をクリックしてビューアを開く
  * - REQ-5.2: ズームイン/ズームアウト操作
  * - REQ-5.3: 画像の回転
@@ -290,10 +290,10 @@ test.describe('現場調査画像ビューア', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-4.8
+   * @requirement site-survey/REQ-4.9
    */
   test.describe('サポートファイル形式', () => {
-    test('JPEG、PNG、WEBP形式がサポートされている (site-survey/REQ-4.8)', async ({ page }) => {
+    test('JPEG、PNG、WEBP形式がサポートされている (site-survey/REQ-4.9)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -330,10 +330,10 @@ test.describe('現場調査画像ビューア', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-4.9
+   * @requirement site-survey/REQ-4.10
    */
   test.describe('画像表示順序', () => {
-    test('画像一覧が一定の順序で表示される (site-survey/REQ-4.9)', async ({ page }) => {
+    test('画像一覧が一定の順序で表示される (site-survey/REQ-4.10)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -363,10 +363,10 @@ test.describe('現場調査画像ビューア', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-4.10
+   * @requirement site-survey/REQ-4.11
    */
   test.describe('画像並び替え', () => {
-    test('ドラッグアンドドロップUIが存在する (site-survey/REQ-4.10)', async ({ page }) => {
+    test('ドラッグアンドドロップUIが存在する (site-survey/REQ-4.11)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
