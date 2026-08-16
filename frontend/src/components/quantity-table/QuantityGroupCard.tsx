@@ -552,6 +552,10 @@ export default function QuantityGroupCard({
   const [editNameValue, setEditNameValue] = useState(groupDisplayName);
   const [nameError, setNameError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  /** IME 変換中かどうか（変換中は幅の判定を行わない: Task 115.34、REQ-22.5） */
+  const isNameComposingRef = useRef(false);
+  /** 変換開始直前の確定値（確定値が上限を超えた場合の戻り先） */
+  const preCompositionNameRef = useRef('');
 
   /**
    * 展開/折りたたみを切り替え
@@ -620,6 +624,9 @@ export default function QuantityGroupCard({
    */
   const handleNameClick = useCallback(() => {
     if (!isEditable || !onRenameGroup) return;
+    // 前回の編集が変換中のまま閉じられた場合に備え、変換中の追跡を初期化する
+    // （compositionend が届かないまま編集が終わると次回の確定が抑止され続けるため）
+    isNameComposingRef.current = false;
     setEditNameValue(groupDisplayName);
     setNameError(null);
     setIsEditingName(true);
@@ -666,10 +673,39 @@ export default function QuantityGroupCard({
   }, [groupDisplayName]);
 
   /**
+   * このキー操作が日本語入力（IME）の変換中のものかを判定する（Task 115.34、REQ-22.5）
+   *
+   * 変換中の Enter は「変換の確定」、Escape は「変換の取り消し」であって、
+   * 名前編集の確定・取り消しではない。変換中は幅の判定を行わない（上限を超えた読みを
+   * 保持する）ため、変換中の Enter をそのまま確定へ通すと上限超過の名前が確定してしまう。
+   *
+   * 変換中の現れ方はブラウザ・IME によって異なるため、複数の手掛かりを併用する:
+   * - compositionstart/compositionend で自前に追跡した状態（isNameComposingRef）
+   * - KeyboardEvent.isComposing（標準。keydown が compositionend より先に届く環境で有効）
+   * - keyCode === 229（IME 変換中を示す旧来の値。compositionend が keydown より先に
+   *   届く環境や isComposing を提供しない環境で唯一の手掛かりとなる）
+   */
+  const isNameKeyEventComposing = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    const nativeEvent = e.nativeEvent as KeyboardEvent;
+    return (
+      isNameComposingRef.current ||
+      nativeEvent.isComposing === true ||
+      e.keyCode === 229 ||
+      nativeEvent.keyCode === 229
+    );
+  }, []);
+
+  /**
    * キー操作ハンドラ
    */
   const handleNameKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
+      // 変換中のキーは IME のもの。確定も取り消しも行わず IME に委ねる
+      // （preventDefault もしない。ここで抑止すると変換操作そのものを妨げるため）
+      if (isNameKeyEventComposing(e)) {
+        return;
+      }
+
       if (e.key === 'Enter') {
         e.preventDefault();
         handleNameConfirm();
@@ -678,21 +714,75 @@ export default function QuantityGroupCard({
         handleNameCancel();
       }
     },
-    [handleNameConfirm, handleNameCancel]
+    [handleNameConfirm, handleNameCancel, isNameKeyEventComposing]
   );
 
   /**
-   * グループ名入力変更ハンドラ（REQ-22.4, 22.5: 最大文字数制限）
+   * 入力を受け付けてよいかを判定する。
+   *
+   * 上限以内なら受け付ける。上限を超える場合は原則拒否するが、
+   * 現在値が既に上限を超えている（幅の検証を持たない経路で作られた既存データ等）ときに
+   * 編集不能とならないよう、値が短くなる編集だけは受け付ける。
    */
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    const width = calculateStringWidth(newValue);
-    // 最大文字数を超えない場合のみ更新（REQ-22.5）
-    if (width <= GROUP_NAME_MAX_WIDTH) {
+  const acceptsNameWidth = useCallback((nextValue: string, baseValue: string) => {
+    const nextWidth = calculateStringWidth(nextValue);
+    return nextWidth <= GROUP_NAME_MAX_WIDTH || nextWidth < calculateStringWidth(baseValue);
+  }, []);
+
+  /**
+   * グループ名入力変更ハンドラ（REQ-22.4, 22.5: 最大文字数制限）
+   *
+   * 日本語入力（IME）の変換中は判定を行わずそのまま通す。変換中の読みは確定語より
+   * 長くなることがあり、この段階で拒否すると変換が中断されて上限以内の正当な名前を
+   * 確定できなくなるため。判定は確定時（compositionend）に行う。
+   */
+  const handleNameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newValue = e.target.value;
+
+      // 変換中は幅を判定しない（compositionend で確定値を判定する）
+      const nativeIsComposing = (e.nativeEvent as InputEvent).isComposing === true;
+      if (isNameComposingRef.current || nativeIsComposing) {
+        setEditNameValue(newValue);
+        setNameError(null);
+        return;
+      }
+
+      // 上限を超える入力は状態へ反映しない（＝controlled input の表示も直前の値のまま
+      // 戻る）。DOM を直接書き換えないためカーソル位置も保たれる。
+      if (!acceptsNameWidth(newValue, editNameValue)) {
+        return;
+      }
+
       setEditNameValue(newValue);
       setNameError(null);
-    }
-  }, []);
+    },
+    [acceptsNameWidth, editNameValue]
+  );
+
+  /**
+   * 変換開始ハンドラ。戻り先となる直前の確定値を控える。
+   */
+  const handleNameCompositionStart = useCallback(() => {
+    isNameComposingRef.current = true;
+    preCompositionNameRef.current = editNameValue;
+  }, [editNameValue]);
+
+  /**
+   * 変換確定ハンドラ（REQ-22.5）
+   *
+   * 変換で確定した値の幅を評価し、上限を超える場合のみ変換開始直前の確定値へ戻す。
+   */
+  const handleNameCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLInputElement>) => {
+      isNameComposingRef.current = false;
+      const committed = e.currentTarget.value;
+      const base = preCompositionNameRef.current;
+      setEditNameValue(acceptsNameWidth(committed, base) ? committed : base);
+      setNameError(null);
+    },
+    [acceptsNameWidth]
+  );
 
   /**
    * blurイベントで確定
@@ -733,6 +823,8 @@ export default function QuantityGroupCard({
                 type="text"
                 value={editNameValue}
                 onChange={handleNameChange}
+                onCompositionStart={handleNameCompositionStart}
+                onCompositionEnd={handleNameCompositionEnd}
                 onKeyDown={handleNameKeyDown}
                 onBlur={handleNameBlur}
                 style={styles.groupNameInput}
