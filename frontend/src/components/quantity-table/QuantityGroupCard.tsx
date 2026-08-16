@@ -554,8 +554,13 @@ export default function QuantityGroupCard({
   const nameInputRef = useRef<HTMLInputElement>(null);
   /** IME 変換中かどうか（変換中は幅の判定を行わない: Task 115.34、REQ-22.5） */
   const isNameComposingRef = useRef(false);
-  /** 変換開始直前の確定値（確定値が上限を超えた場合の戻り先） */
-  const preCompositionNameRef = useRef('');
+  /**
+   * 幅の判定を通した直前の値（判定を経ていない値が確定されそうな場合の戻り先）
+   *
+   * 編集を開始した時点と変換を開始した時点で更新する。編集開始時にも更新するのは、
+   * 変換を一度も行っていない編集で焦点を失った場合の戻り先を持たせるため（Task 115.40）。
+   */
+  const preCompositionNameRef = useRef(groupDisplayName);
 
   /**
    * 展開/折りたたみを切り替え
@@ -627,6 +632,8 @@ export default function QuantityGroupCard({
     // 前回の編集が変換中のまま閉じられた場合に備え、変換中の追跡を初期化する
     // （compositionend が届かないまま編集が終わると次回の確定が抑止され続けるため）
     isNameComposingRef.current = false;
+    // 幅の判定を通った戻り先を編集開始時の値で初期化する（Task 115.40）
+    preCompositionNameRef.current = groupDisplayName;
     setEditNameValue(groupDisplayName);
     setNameError(null);
     setIsEditingName(true);
@@ -645,23 +652,30 @@ export default function QuantityGroupCard({
   /**
    * グループ名の変更を確定する（REQ-22.2）
    */
-  const handleNameConfirm = useCallback(() => {
-    const trimmed = editNameValue.trim();
-    // 空白チェック（REQ-22.3）
-    if (!trimmed) {
-      setNameError('グループ名を入力してください');
-      return;
-    }
-    // 変更なしの場合はAPIを呼ばない
-    if (trimmed === groupDisplayName) {
+  const confirmNameValue = useCallback(
+    (rawValue: string) => {
+      const trimmed = rawValue.trim();
+      // 空白チェック（REQ-22.3）
+      if (!trimmed) {
+        setNameError('グループ名を入力してください');
+        return;
+      }
+      // 変更なしの場合はAPIを呼ばない
+      if (trimmed === groupDisplayName) {
+        setIsEditingName(false);
+        setNameError(null);
+        return;
+      }
+      onRenameGroup?.(group.id, trimmed);
       setIsEditingName(false);
       setNameError(null);
-      return;
-    }
-    onRenameGroup?.(group.id, trimmed);
-    setIsEditingName(false);
-    setNameError(null);
-  }, [editNameValue, groupDisplayName, group.id, onRenameGroup]);
+    },
+    [groupDisplayName, group.id, onRenameGroup]
+  );
+
+  const handleNameConfirm = useCallback(() => {
+    confirmNameValue(editNameValue);
+  }, [confirmNameValue, editNameValue]);
 
   /**
    * 編集キャンセル（Escapeキー）
@@ -785,11 +799,26 @@ export default function QuantityGroupCard({
   );
 
   /**
-   * blurイベントで確定
+   * blurイベントで確定（Task 115.40、REQ-22.5）
+   *
+   * 焦点喪失の時点では、editNameValue が幅の判定を経ていない場合がある。
+   * - 変換中に焦点を失った場合。変換中は幅の判定を行わないため上限超過の読みが残る
+   * - 変換の確定（compositionend）と焦点喪失が同一の実行単位に入った場合。戻し処理は
+   *   状態の更新であり、同じ実行単位から見える値は反映前（＝上限超過）のままになる
+   *
+   * このため、変換の確定と同じ判定（acceptsNameWidth と変換開始直前の値）を改めて適用し、
+   * 上限を超える場合は戻り先の値で確定する。判定は compositionend と共通の実装を用いる。
+   *
+   * 変換中でも確定を先送りにはしない。先送りにすると、確定の通知が届かないまま焦点を
+   * 失った場合に、確定されないまま残る編集が生じるため。
    */
   const handleNameBlur = useCallback(() => {
-    handleNameConfirm();
-  }, [handleNameConfirm]);
+    const base = preCompositionNameRef.current;
+    const valueToConfirm = acceptsNameWidth(editNameValue, base) ? editNameValue : base;
+    // 編集欄が開いたまま残る場合（空白でエラーになる場合）に備えて表示も戻す
+    setEditNameValue(valueToConfirm);
+    confirmNameValue(valueToConfirm);
+  }, [acceptsNameWidth, confirmNameValue, editNameValue]);
 
   const items = group.items ?? [];
 
