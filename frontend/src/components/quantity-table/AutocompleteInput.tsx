@@ -6,6 +6,7 @@
  * Task 18.1: 旧useAutocompleteフックを廃止し新モード専用に統合する
  * Task 25.2: フォーカス時にvalueの有無に関わらずドロップダウンを開くよう修正
  * Task 12.1: テキストフィールドの入力時点での最大文字数超過を防止する
+ * Task 115.43: 補完候補の取得時点で上限を超える候補を濾す（選択経由の迂回を塞ぐ）
  *
  * Requirements:
  * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考の最大文字数超過入力を防止（全角25/半角50）
@@ -232,10 +233,26 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
    */
   const maxWidth = maxWidthProp ?? FIELD_CONSTRAINTS[field].hankaku;
 
-  // getSuggestionsで候補を取得
+  /**
+   * getSuggestions で候補を取得し、取得の時点で上限を超えるものを濾す（Task 115.43）
+   *
+   * 初回一括取得の候補（REQ-7.1）は、幅の検証を持たない経路で作られた既存データを含みうる。
+   * 濾さずに表示すると、選択（クリック／上下キー＋Enter）でそのまま入力欄の状態へ載り、
+   * 入力時点の防止（REQ-13.1/13.2/13.3）が候補経由で迂回される。
+   *
+   * 選択の処理（selectSuggestion）ではなく取得の時点で濾すのは次の理由による。
+   * - 選択の経路はクリックと Enter の二つがあり、いずれも suggestions を参照する。
+   *   取得の一点で濾せば経路の増減に関わらず防護が保たれる
+   * - 上限超過の候補は選んでも入力できない。表示してから拒否するより、はじめから
+   *   提示しない方が利用者から見て一貫する（REQ-7.4 の自動入力は常に成立する）
+   * - 上限（maxWidth）は maxWidth prop とフィールド仕様から本コンポーネントが決めるため、
+   *   候補ストア（useAutocompleteCandidateStore）側では権威ある判定ができない
+   */
   const suggestions = useMemo(() => {
-    return getSuggestions(field, value);
-  }, [field, value, getSuggestions]);
+    return getSuggestions(field, value).filter(
+      (candidate) => calculateStringWidth(candidate) <= maxWidth
+    );
+  }, [field, value, getSuggestions, maxWidth]);
 
   // 候補があり、フォーカス中の場合にドロップダウンを開く
   const shouldShowDropdown = isOpen && suggestions.length > 0;

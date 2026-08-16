@@ -34,12 +34,18 @@ function ControlledAutocomplete({
   onChangeSpy,
   onBlurAddCandidateSpy,
   initialValue = '',
+  serverCandidates,
 }: {
   field: AutocompleteFieldName;
   label: string;
   onChangeSpy?: (value: string) => void;
   onBlurAddCandidateSpy?: (field: AutocompleteFieldName, value: string) => void;
   initialValue?: string;
+  /**
+   * サーバー側（初回一括取得）から届いた候補。幅の判定を経ていない値を含みうる。
+   * 実際の候補ストアと同じく前方一致で絞り込んで返す（Req 7.3, 7.3a）。
+   */
+  serverCandidates?: string[];
 }) {
   const [value, setValue] = useState(initialValue);
   return (
@@ -52,7 +58,9 @@ function ControlledAutocomplete({
         setValue(next);
       }}
       field={field}
-      getSuggestions={() => []}
+      getSuggestions={(_f, inputText) =>
+        (serverCandidates ?? []).filter((candidate) => candidate.startsWith(inputText))
+      }
       onBlurAddCandidate={(f, v) => onBlurAddCandidateSpy?.(f, v)}
     />
   );
@@ -680,6 +688,140 @@ describe('数量項目テキストフィールドの入力時点での上限超�
 
         expect(input).toHaveValue('立米');
       });
+    });
+  });
+
+  /**
+   * Task 115.43: 補完候補の選択と取得に幅の判定を通す
+   *
+   * サーバー側（初回一括取得の候補）には幅の検証を持たない経路で作られた値が含まれうる。
+   * 候補の取得時点で上限を超えるものを濾すことで、クリック・キーボードのいずれの選択経路でも
+   * 上限を超える値が入力欄の状態に載らないことを固定する。
+   *
+   * Requirements:
+   * - 7.3 / 7.3a: 候補のドロップダウン表示（濾した後も表示自体は成立する）
+   * - 7.4: 候補選択時の自動入力
+   * - 13.3: 単位は全角3文字/半角6文字を超える入力を防止する
+   */
+  describe('補完候補の選択 (Task 115.43)', () => {
+    /** 単位欄（上限 半角6 / 全角3） */
+    const UNIT_MAX_WIDTH = 6;
+    /** サーバー側に存在しうる上限超過の候補（全角6文字＝幅12） */
+    const OVER_LIMIT_CANDIDATE = '立方メートル';
+    /** 上限以内の候補（全角2文字＝幅4） */
+    const WITHIN_LIMIT_CANDIDATE = '立米';
+
+    it('前提: サーバー側の候補に上限を超える値が含まれる', () => {
+      expect(calculateStringWidth(OVER_LIMIT_CANDIDATE)).toBeGreaterThan(UNIT_MAX_WIDTH);
+      expect(calculateStringWidth(WITHIN_LIMIT_CANDIDATE)).toBeLessThanOrEqual(UNIT_MAX_WIDTH);
+    });
+
+    it('上限を超えるサーバー側の候補はドロップダウンに現れない', () => {
+      render(
+        <ControlledAutocomplete
+          field="unit"
+          label="単位"
+          serverCandidates={[OVER_LIMIT_CANDIDATE, WITHIN_LIMIT_CANDIDATE]}
+        />
+      );
+      const input = screen.getByLabelText('単位');
+
+      fireEvent.focus(input);
+
+      const options = screen.getAllByRole('option');
+      expect(options.map((o) => o.textContent)).toEqual([WITHIN_LIMIT_CANDIDATE]);
+    });
+
+    it('クリックで選択しても上限を超える値は入らない', () => {
+      const onChangeSpy = vi.fn();
+      render(
+        <ControlledAutocomplete
+          field="unit"
+          label="単位"
+          onChangeSpy={onChangeSpy}
+          serverCandidates={[OVER_LIMIT_CANDIDATE, WITHIN_LIMIT_CANDIDATE]}
+        />
+      );
+      const input = screen.getByLabelText('単位');
+
+      fireEvent.focus(input);
+      const options = screen.getAllByRole('option');
+      expect(options.length).toBeGreaterThan(0);
+      fireEvent.click(options[0]!);
+
+      expect(input).toHaveValue(WITHIN_LIMIT_CANDIDATE);
+      expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+        UNIT_MAX_WIDTH
+      );
+      for (const [notified] of onChangeSpy.mock.calls) {
+        expect(calculateStringWidth(notified)).toBeLessThanOrEqual(UNIT_MAX_WIDTH);
+      }
+    });
+
+    it('キーボード操作で選択しても上限を超える値は入らない', () => {
+      const onChangeSpy = vi.fn();
+      render(
+        <ControlledAutocomplete
+          field="unit"
+          label="単位"
+          onChangeSpy={onChangeSpy}
+          serverCandidates={[OVER_LIMIT_CANDIDATE, WITHIN_LIMIT_CANDIDATE]}
+        />
+      );
+      const input = screen.getByLabelText('単位');
+
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(input).toHaveValue(WITHIN_LIMIT_CANDIDATE);
+      expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+        UNIT_MAX_WIDTH
+      );
+      for (const [notified] of onChangeSpy.mock.calls) {
+        expect(calculateStringWidth(notified)).toBeLessThanOrEqual(UNIT_MAX_WIDTH);
+      }
+    });
+
+    it('既存の値が上限を超えていても上限超過の候補は選べない', () => {
+      // 幅の検証を持たない経路で作られた既存データを編集中の状態。値を短くする編集は
+      // 受け付けるが（115.33 の救済措置）、候補として上限超過の値を差し込む経路は残さない。
+      const overLimitValue = '立方メートル';
+      render(
+        <ControlledAutocomplete
+          field="unit"
+          label="単位"
+          initialValue={overLimitValue}
+          serverCandidates={['立方メートルあたり', OVER_LIMIT_CANDIDATE, WITHIN_LIMIT_CANDIDATE]}
+        />
+      );
+      const input = screen.getByLabelText('単位');
+
+      fireEvent.focus(input);
+
+      expect(screen.queryByRole('option', { name: '立方メートルあたり' })).toBeNull();
+      expect(screen.queryByRole('option', { name: OVER_LIMIT_CANDIDATE })).toBeNull();
+    });
+
+    it('上限以内の候補は従来どおり選択できる (Req 7.4)', () => {
+      render(
+        <ControlledAutocomplete
+          field="unit"
+          label="単位"
+          serverCandidates={['m2', 'm3', WITHIN_LIMIT_CANDIDATE]}
+        />
+      );
+      const input = screen.getByLabelText('単位');
+
+      fireEvent.focus(input);
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+        'm2',
+        'm3',
+        WITHIN_LIMIT_CANDIDATE,
+      ]);
+
+      fireEvent.click(screen.getByRole('option', { name: 'm3' }));
+      expect(input).toHaveValue('m3');
     });
   });
 });
