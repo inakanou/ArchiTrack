@@ -3092,3 +3092,299 @@ enum CalculationMethod {
 - PDF出力: 写真のData URL変換はPromise.allで並列実行
 - インポート: React.lazy()による動的インポートでバンドルサイズ影響を回避
 - OCR処理: Claude Vision API用のCanvas描画スケールは2.0（トークン量削減）、Tesseract.js用は4.0（精度向上）
+
+## Requirement 49: 数量グループ数によらない写真表示の効率
+
+### Overview
+
+**Purpose**: 数量表編集画面と写真選択ダイアログで発生するサーバーリクエストの件数と通信量を、数量グループ数および選択可能な写真の枚数から切り離す。
+
+**Users**: 数量グループが多い数量表を扱う積算担当者と、サーバー負荷を管理するシステム運用者。
+
+**Impact（既存前提の是正）**: 本要件が対象とする経路のうち2点は是正済みである。
+
+1. 数量グループ表題部が縮小表示に原本画像を読み込んでいた（`QuantityGroupCard.tsx:832`）。**是正済み**。サムネイルを渡し `preferThumbnail` を指定する。
+2. 数量表詳細APIが `annotatedThumbnailUrl` を署名付きURLへ変換せず `/api/storage/<path>` の内部パスのまま返していた（`quantity-tables.routes.ts` の `enrichQuantityTableSignedUrls`）。当該パスは配信されないため、合成済みサムネイルは表示に使えずクライアント合成へ退行していた。**是正済み**。
+
+残る差分は、拡大表示が原本を取得しないこと（49.7）、表示領域外の取得抑止（49.8）、写真選択ダイアログの一括取得（49.9）である。
+
+#### Goals
+- 数量表編集画面の表示で発生するリクエストを、数量表詳細の取得1回と、表示領域に入った写真の取得のみに限定する
+- 拡大表示の操作時点で原本画像を取得し、縮小表示用の画像を引き伸ばさない
+- 写真選択ダイアログの写真一覧を、現場調査ごとの個別リクエストに分割せず取得する
+- 写真選択ダイアログの対象を Requirement 4.3 / 19.2 が定める注釈付き写真のみへ揃える
+
+**利用者から見える変化**: 写真選択ダイアログに注釈のない写真が表示されなくなる。現行実装は要件の規定に反して全写真を表示していたため、これは要件への追従であり機能の縮小ではない。ただし注釈を付けずに写真を数量グループへ紐づける運用が存在する場合、当該操作は行えなくなる。
+
+#### Non-Goals
+- 表示領域到達の観測機構そのもの（共有コンポーネント `AnnotatedImageThumbnail` と `useInViewport` が担い、site-survey スペックの Requirement 38 が所管する）
+- 注釈をレンダリングしたサムネイル画像の生成（site-survey の Requirement 20.4 / 23 が所管）
+- 2つある拡大表示経路（プレビューと注釈ビューア）の統合。表示要素が異なるため本要件では扱わない
+- 未結線の `PhotoChangeDialog` の扱い（Requirement 19・39 の所管）
+- 写真選択ダイアログの絞り込み・検索UI（Requirement 4・19 の所管）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- `frontend/src/components/quantity-table/QuantityGroupCard.tsx` が `AnnotatedImageThumbnail` へ渡す画像情報（表示元URL・実寸・縮小表示指定）
+- `frontend/src/components/quantity-table/PhotoPreviewDialog.tsx` の拡大表示の表示元
+- `frontend/src/pages/QuantityTableEditPage.tsx` の写真選択ダイアログにおける写真一覧の取得手段
+- 数量表詳細レスポンスの `surveyImage` が持つフィールド（`quantity-table.service.ts` の写真サマリ生成、`quantity-tables.routes.ts` の署名付きURL変換）
+- **プロジェクト単位の現場調査写真一覧を返す新規エンドポイントの契約**（後述の「境界をまたぐ変更」を参照）
+
+#### Out of Boundary
+- `AnnotatedImageThumbnail` の表示元選択規則と取得タイミングの制御（site-survey の Requirement 38 が所管）。本スペックは**利用者**であり、同コンポーネントを変更しない
+- `useInViewport` の実装（同上）
+- 注釈をレンダリングしたサムネイルの生成契機と生成結果（site-survey の Requirement 20.4 / 23 が所管）
+- `hasAnnotations` の導出規則。現場調査API・数量表APIとも「注釈レコードの存在」で一致しており変更しない
+- 未結線の `PhotoChangeDialog.tsx` の存廃。Requirement 19・39 が2つのダイアログを前提としている一方、実装は写真の追加・変更を同一ダイアログで扱う。この不一致の解消は本要件の対象外
+- 写真選択ダイアログのレイアウト（Requirement 39 が所管）
+
+#### 境界をまたぐ変更（明示）
+49.9 を満たすには、プロジェクト内の現場調査写真をまとめて取得する手段が必要である。この能力は既存のどのスペックにも存在せず、データ自体は現場調査機能が保持する。本設計は次の方針を採る。
+
+- **契約は本スペックが所有する**。当該エンドポイントは写真選択ダイアログのためだけに存在し、他の利用者を想定しない
+- **実装は現場調査機能が所有するファイルへ加える**。画像一覧の権限検証と署名付きURL生成の規約（site-survey Requirement 38.4 の問い合わせ回数の契約）を二重に持たないため
+- この変更は site-survey の Requirement 38.4 が定める「問い合わせ回数を枚数に比例させない」規約を満たす形で行う。違反した場合は同要件の回帰となる
+
+#### Allowed Dependencies
+- 依存方向: `types` → `api` → `components` → `pages`。左方向のみ import 可
+- `QuantityGroupCard` → `AnnotatedImageThumbnail`, `PhotoPreviewDialog`。注釈取得APIを直接呼ばない
+- `PhotoPreviewDialog` → `AnnotatedImageThumbnail`。Fabric.js を直接扱わない
+- `QuantityTableEditPage` → 新規の写真一覧取得API。現場調査詳細取得（`getSiteSurvey`）を写真収集の目的で呼ばない
+- バックエンド: 新規エンドポイント → `ImageListService`, `SignedUrlService`。Prisma へ直接問い合わせる経路を新設しない
+- 新規の外部ライブラリ依存を追加しない
+
+#### Revalidation Triggers
+- site-survey の Requirement 38 が `AnnotatedImageThumbnail` の観測条件（実寸が正の値であること）を変更した場合 → 数量表が渡す画像情報を再検証
+- `SurveyImageSummary` の利用箇所（PDF出力・一括生成）が増えた場合 → 実寸フィールド追加の影響を再検証
+- プロジェクトあたりの現場調査数・写真枚数が新規エンドポイントの上限を超えるようになった場合 → ページング方針を再設計
+- `PhotoChangeDialog` が結線された場合 → 49.9・49.10 の対象範囲を再検証
+
+### 設計合成（Design Decisions）
+
+- **Generalization**: 49.2・49.3・49.8 はいずれも「表示元の選択と取得タイミング」という単一の関心であり、共有コンポーネント `AnnotatedImageThumbnail` が既に所管している。数量表側で独自の遅延読み込みを実装せず、**同コンポーネントが観測を成立させるために必要な入力（実寸）を供給する**ことに作業を絞る。
+- **Build vs Adopt（Adopt）**: 拡大表示の注釈反映は、注釈ビューア（`QuantityTableEditPage.tsx:1814-1826`）が既に採っている「原本画像＋クライアント合成」方式を採用する。`PhotoPreviewDialog` の `annotatedThumbnailUrl || originalUrl` は、合成済みサムネイル（縮小解像度）を拡大表示に用いるため 49.7 を満たさない。
+- **Build vs Adopt（Adopt）**: 新規エンドポイントの権限検証と署名付きURL生成は `SignedUrlService` / `ImageListService` の既存規約を採用する。プロジェクト単位の権限判定は `SignedUrlService` が内部に持つプロジェクト判定を公開して用い、判定基準を複製しない。
+- **Simplification**: 写真一覧の取得を「現場調査一覧の取得 → 各現場調査の詳細取得」の2段構えから、1エンドポイントの1リクエストへ置き換える。中間の現場調査詳細は写真収集のためだけに取得されており、他の情報は使われていない。
+- **選択対象を注釈付き写真のみへ絞る（設計レビューでの是正）**: Requirement 4.3 / 19.2 は選択対象を「同一プロジェクトの注釈付き現場写真一覧（注釈エディタで編集済みの画像）」と定めているが、現行実装（`QuantityTableEditPage.tsx:1715-1740`）は絞り込みを行わず全写真を描画し、注釈ありにバッジを付けるのみである。**要件どおりサーバー側で注釈付きのみへ絞る**ことにより、応答件数と通信量が要件の範囲へ収まり、上限到達の可能性も大きく下がる。要件を変更せず実装を要件へ寄せる方向であり、変更範囲が最小となる。
+- **Simplification（設計レビューでの是正）**: 一覧が返す表示用の署名付きURLを1件あたり1本（`displayUrl`）に統一する。当初は `thumbnailUrl` / `annotatedThumbnailUrl` / `originalUrl` の3本を返す設計だったが、R2 実装（`r2-storage.provider.ts:188`）の SigV4 presigned URL は1本あたり数百バイト規模であり、件数に比例して応答が肥大する。Requirement 49 の Objective は「件数**と通信量**」を対象としており、件数削減と引き換えに通信量を増やす設計は目的の半分しか満たさない。優先順位の解決をサーバー側へ寄せることで、呼び出し側の分岐も不要になる。
+- **Simplification**: 上限は件数のみで表現し、ページングを導入しない。注釈付きのみへ絞ったことで想定件数が大きく下がるため、既定200・最大500とする。現行実装は現場調査を先頭100件までしか見ておらず既に暗黙の上限がある。上限を応答で明示することで、暗黙の切り捨てを可視化する。
+- **Rejected**: 数量表側で `useInViewport` を直接使い `QuantityGroupCard` の描画自体を遅延させる案。遅延読み込みの実装が2箇所に分かれ、同じ問題への対処が重複する。design.md の境界（取得タイミングは共有コンポーネントの所管）にも反する。
+- **Rejected**: 既存の現場調査一覧APIへ `includeImages` クエリを追加する案。同APIは一覧表示用に代表画像1枚のURLのみを返す設計であり、全画像を返す責務を持ち込むと応答形状が用途によって変わる。
+- **Rejected（設計レビューで検討し不採用）**: 写真選択を「現場調査を選ぶ → その写真を見る」の2段構えへ変更し、新規エンドポイント自体を不要にする案。上限到達と応答サイズの双方を解消できるが、Requirement 4.3 / 19.2 が明示する「同一プロジェクトの写真一覧」と正面から矛盾し、承認済み要件2件の改定と稼働中の操作体験の変更を伴う。注釈付きへの絞り込みで同じ問題が解消できるため採らない。
+
+### Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend
+        EditPage[QuantityTableEditPage]
+        GroupCard[QuantityGroupCard]
+        Preview[PhotoPreviewDialog]
+        Thumb[AnnotatedImageThumbnail]
+    end
+    subgraph Backend
+        TableRoutes[quantity-tables routes]
+        TableService[QuantityTableService]
+        ProjectImages[project survey-images endpoint]
+        ImageList[ImageListService]
+        SignedUrl[SignedUrlService]
+    end
+
+    EditPage --> TableRoutes
+    EditPage --> ProjectImages
+    EditPage --> GroupCard
+    GroupCard --> Thumb
+    GroupCard --> Preview
+    Preview --> Thumb
+    TableRoutes --> TableService
+    TableRoutes --> SignedUrl
+    ProjectImages --> ImageList
+    ImageList --> SignedUrl
+```
+
+**Key Decisions**
+
+- `AnnotatedImageThumbnail` は本スペックの境界外にある共有部品である。図中で数量表側から一方向に依存しており、逆向きの依存や数量表固有の分岐を同コンポーネントへ持ち込まない。
+- 写真選択ダイアログの取得先が `ProjectImages` の1経路に集約される。現行の「現場調査一覧 → 現場調査詳細 × N」の経路は廃止する。
+
+### File Structure Plan
+
+| ファイル | 区分 | 責務 |
+|---|---|---|
+| `backend/src/services/image-list.service.ts` | 変更 | プロジェクト単位で注釈付き現場調査写真を一括取得する経路を追加する。表示用URLを1本へ解決し、問い合わせ回数を写真枚数に比例させない |
+| `backend/src/services/signed-url.service.ts` | 変更 | プロジェクト単位のアクセス可否判定を公開する（既存の内部判定を公開するのみで判定基準は変更しない） |
+| `backend/src/routes/site-surveys.routes.ts` | 変更 | プロジェクト配下の写真一覧エンドポイントを追加する |
+| `backend/src/services/quantity-table.service.ts` | 変更 | 写真サマリへ実寸（幅・高さ）を含める |
+| `backend/src/routes/quantity-tables.routes.ts` | 変更なし（実装済み） | `annotatedThumbnailUrl` の署名付きURL変換は是正済み |
+| `frontend/src/types/quantity-table.types.ts` | 変更 | 写真サマリの型へ実寸を追加する |
+| `frontend/src/api/site-surveys.ts` | 変更 | プロジェクト単位の写真一覧取得を追加する |
+| `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 変更 | 表題部の画像情報へ実寸を渡す |
+| `frontend/src/components/quantity-table/PhotoPreviewDialog.tsx` | 変更 | 拡大表示を原本画像＋クライアント合成へ切り替える |
+| `frontend/src/pages/QuantityTableEditPage.tsx` | 変更 | 写真選択ダイアログの取得を一括取得へ置き換える。表示元は `displayUrl` を用い、注釈の有無による分岐とバッジ表示は不要になる（全件が注釈付きのため） |
+
+### Components and Interfaces
+
+| Component | Domain | Intent | Requirements | Dependencies | Contracts |
+|---|---|---|---|---|---|
+| プロジェクト写真一覧エンドポイント | Backend/API | プロジェクト内の注釈付き現場調査写真を表示用URL1本でまとめて返す | 49.9, 49.10 | `ImageListService`（P0）, `SignedUrlService`（P0） | API |
+| `ImageListService`（プロジェクト単位） | Backend/Service | 枚数非依存の問い合わせ回数で写真とURLを返す | 49.9 | `SignedUrlService`（P0）, `StorageProvider`（P0） | Service |
+| `QuantityTableService` の写真サマリ | Backend/Service | 表示に必要な情報へ実寸を加える | 49.8 | Prisma（P0） | Service |
+| `QuantityGroupCard` | Frontend/Component | 表題部の表示元と実寸を供給する | 49.2, 49.3, 49.4, 49.5, 49.6, 49.8 | `AnnotatedImageThumbnail`（P0） | — |
+| `PhotoPreviewDialog` | Frontend/Component | 拡大表示で原本を用い注釈を反映する | 49.7 | `AnnotatedImageThumbnail`（P0） | — |
+| `QuantityTableEditPage` の写真選択 | Frontend/Page | 選択可能な写真を一括取得する | 49.9, 49.10 | 写真一覧API（P0） | — |
+
+#### プロジェクト写真一覧エンドポイント
+
+```
+GET /api/projects/:projectId/survey-images
+```
+
+| 項目 | 内容 |
+|---|---|
+| クエリ | `limit`（既定 200、最大 500） |
+| 認可 | `site_survey:read` 権限、およびプロジェクトへのアクセス可否判定 |
+| 対象 | **注釈が存在する写真のみ**（Requirement 4.3 / 19.2 が定める「注釈エディタで編集済みの画像」） |
+| 並び | 現場調査の調査日降順 → 写真の表示順昇順 |
+| 応答 | `{ images: ProjectSurveyImage[]; hasMore: boolean }` |
+| エラー | 400（クエリ不正）、401、403、404（プロジェクト不在） |
+
+```typescript
+export interface ProjectSurveyImage {
+  id: string;
+  surveyId: string;
+  surveyName: string;
+  fileName: string;
+  /**
+   * 一覧表示に用いる画像（署名付きURL）
+   *
+   * 注釈をレンダリングしたサムネイルを優先し、無い場合は通常のサムネイルへ解決した
+   * 結果を1本だけ返す。呼び出し側が優先順位を再実装する必要をなくし、
+   * 応答に含まれる署名付きURLの本数を抑える。
+   */
+  displayUrl: string | null;
+  /** 原本画像（署名付きURL）。選択確定後の拡大表示に用いる */
+  originalUrl: string | null;
+  comment: string | null;
+  /** 画像の実寸（表示領域確保に用いる） */
+  width: number;
+  height: number;
+  displayOrder: number;
+}
+```
+
+**契約**
+
+- **注釈が存在しない写真は返さない**。Requirement 4.3 / 19.2 は選択対象を「注釈エディタで編集済みの画像」と定めており、絞り込みをサーバー側で行うことで応答件数と通信量を要件の範囲へ収める
+- `hasAnnotations` は返さない。全件が注釈ありであることが本エンドポイントの不変条件であり、常に真となるフィールドを持たせない
+- 表示用の署名付きURLは1件あたり1本に限る。優先順位（注釈付きサムネイル > 通常サムネイル）はサーバー側で解決する
+- `hasMore` が `true` の場合、上限に達して切り捨てが発生したことを示す。呼び出し側はその旨を利用者へ提示できる
+- 問い合わせ回数は写真枚数・現場調査数に比例させない。現場調査の抽出・注釈付き画像の抽出をそれぞれ1回で行い、アクセス可否の判定はプロジェクト単位で1回とする
+- 署名付きURLは画像の抽出結果に含まれるストレージキーから生成し、画像ごとの再照会を行わない
+
+#### 写真サマリへの実寸追加
+
+```typescript
+export interface SurveyImageSummary {
+  // 既存フィールドは変更しない
+  /** 画像の実寸（ピクセル）。未読込時に表示領域を確保するために用いる */
+  width: number;
+  height: number;
+}
+```
+
+- 実寸が正の値でない場合、共有コンポーネントは表示領域を確保できず観測を行わない（site-survey の設計が定める縮退規則）。したがって本フィールドの供給が 49.8 の成立条件である
+
+#### `PhotoPreviewDialog`（差分）
+
+- 表示元を `annotatedThumbnailUrl || originalUrl` から、共有コンポーネントへの委譲（原本画像＋クライアント合成）へ変更する
+- 縮小表示指定を行わず、即時取得を指定する。拡大表示は利用者の明示操作を契機とするため遅延させない
+- 注釈の反映結果は Requirement 3.3 の規定を維持する
+
+### System Flows
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Page as QuantityTableEditPage
+    participant API as Backend
+    participant Card as QuantityGroupCard
+    participant Thumb as AnnotatedImageThumbnail
+
+    User->>Page: 数量表編集画面を開く
+    Page->>API: GET 数量表詳細
+    API-->>Page: グループ + 写真サマリ（URL・実寸・注釈有無）
+    Note over Page,API: リクエストはここまでで1回（49.1）
+
+    Page->>Card: 全グループを描画
+    Card->>Thumb: 表示元URL・実寸・縮小表示指定を渡す
+    Note over Thumb: 実寸で領域を確保し、表示領域到達まで取得しない（49.8）
+
+    User->>Page: 写真を選択する操作
+    Page->>API: GET プロジェクト写真一覧（1回）
+    API-->>Page: 写真一覧 + hasMore
+    Note over Page,API: 現場調査ごとの個別取得を行わない（49.9）
+
+    User->>Card: 表題部の写真をクリック
+    Card->>Thumb: 原本画像・即時取得を指定
+    Note over Thumb: この時点で原本を取得しクライアント合成する（49.7）
+```
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|---|---|---|---|---|
+| 49.1 | 写真の表示情報をまとめて取得 | `QuantityTableService` の写真サマリ, `quantity-tables routes` | 数量表詳細レスポンス | 画面表示 |
+| 49.2 | 注釈のためのグループごと追加リクエストなし | `QuantityGroupCard`, `AnnotatedImageThumbnail`（境界外） | 表示元URLの供給 | 画面表示 |
+| 49.3 | リクエスト件数をグループ数に比例させない | `QuantityGroupCard` | 実寸の供給 | 画面表示 |
+| 49.4 | 表題部はサムネイル | `QuantityGroupCard` | 縮小表示指定 | 画面表示 |
+| 49.5 | 合成済みサムネイル優先 | `QuantityGroupCard` | `annotatedThumbnailUrl` の供給 | 画面表示 |
+| 49.6 | 利用不可時の表示維持 | `AnnotatedImageThumbnail`（境界外） | フォールバック | 画面表示 |
+| 49.7 | 拡大表示時に原本を取得 | `PhotoPreviewDialog` | 原本＋即時取得の指定 | 拡大表示 |
+| 49.8 | 表示領域外は取得しない | `QuantityTableService` の写真サマリ, `QuantityGroupCard`, （境界外）`AnnotatedImageThumbnail` | 実寸フィールド | 画面表示 |
+| 49.9 | 選択可能な写真をまとめて取得 | プロジェクト写真一覧エンドポイント, `QuantityTableEditPage` | `ProjectSurveyImage` | 写真選択 |
+| 49.10 | ダイアログ一覧はサムネイル | プロジェクト写真一覧エンドポイント, `QuantityTableEditPage` | `displayUrl`（サムネイル解像度へ解決済み） | 写真選択 |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 写真一覧の取得に失敗 | ダイアログへ取得失敗を提示し、既存の写真紐づけは変更しない | 49.9。部分的に取得した一覧で選択させない |
+| 上限に達して切り捨てが発生 | `hasMore` を真として返し、一覧に全件が含まれない旨を提示する | 49.9。暗黙の切り捨てを可視化する |
+| 注釈付き写真が1件も存在しない | 空一覧を返す。ダイアログは「注釈付きの写真がありません」と、注釈エディタでの編集を促す旨を提示する | Requirement 4.3 / 19.2。対象が注釈付きに限られることを利用者へ明示する |
+| 実寸が欠落した写真 | 共有コンポーネントが観測を行わず即時取得へ縮退する。表示は成立する | 49.8 の縮退。表示破綻より機能劣化を選ぶ |
+| 原本画像の取得に失敗（拡大表示） | 既存のエラー表示を維持する。縮小表示用の画像で代替しない | 49.7 |
+
+### Testing Strategy
+
+**単体（バックエンド）**
+
+- プロジェクト写真一覧: 現場調査3件・写真30枚でアクセス可否の判定が1回のみ呼ばれ、画像ごとの再照会が発生しないこと（49.9）／**注釈のない写真が応答へ含まれないこと**（Requirement 4.3, 19.2）／`displayUrl` が注釈付きサムネイル優先で解決され、応答に表示用URLが1件あたり1本しか含まれないこと（49.9）／上限を超えた場合に `hasMore` が真になり件数が上限で打ち切られること／プロジェクトへのアクセス権がない場合に拒否されること／並びが調査日降順・表示順昇順であること
+- 写真サマリ: 数量表詳細の応答に実寸が含まれること（49.8）
+
+**単体（フロントエンド）**
+
+- `QuantityGroupCard`: 表題部へ渡す画像情報に実寸が含まれること（49.8）／サムネイルと合成済みサムネイルの優先順が維持されること（49.4, 49.5、実装済み・回帰固定）
+- `PhotoPreviewDialog`: 拡大表示の表示元が合成済みサムネイルではなく原本になること、および即時取得が指定されること（49.7）
+- `QuantityTableEditPage`: 写真選択ダイアログを開いたときに写真一覧APIを1回だけ呼び、現場調査詳細の取得が発生しないこと（49.9）／一覧の表示元が `displayUrl`（サムネイル解像度）であること（49.10）／`hasMore` が真のとき切り捨ての旨が提示されること／注釈付き写真が0件のとき注釈エディタでの編集を促す旨が提示されること
+
+**E2E**
+
+- 数量グループを多数持つ数量表の編集画面を開き、初期表示時点で発生した画像関連リクエストの合計がグループ数より少ないこと（49.2, 49.3, 49.8）。観測はパス基準で行う
+- 写真選択ダイアログを開いたときに現場調査詳細への個別リクエストが発生しないこと（49.9）
+- 注釈のない写真が写真選択ダイアログに現れないこと（Requirement 4.3, 19.2）。注釈を付けた写真のみが選択できることを実操作で確認する
+
+### Migration Strategy
+
+**順序制約**: 49.8 の成立は site-survey の共有コンポーネント改修（同スペック Task 111.3）の完了を前提とする。実寸の供給を先行して行っても表示は変わらず、害はない。
+
+**他スペックへの依存の扱い（設計レビューでの是正）**: 本スペックの作業は実寸の供給のみであり、それだけでは表示領域外の取得は止まらない。したがって **49.8 の検証タスクは site-survey の Task 111.3 完了までブロック扱いとする**。タスク生成時に当該依存を明記し、未完了の間は検証タスクへ `_Blocked:_` を付す。本スペックのタスクをすべて完了しても、この依存が解消されるまで 49.8 は未達であることを、タスク側で可視化する。
+
+1. バックエンドの実寸供給とフロントエンドの受け渡しを先行して反映する（単独で安全）
+2. 共有コンポーネントの観測導入が完了した時点で 49.8 が成立する
+3. 写真一覧エンドポイントと拡大表示の是正は上記と独立に反映できる
+
+**ロールバック**: 実寸の供給と拡大表示の是正は既存フィールドを削除せず、応答の追加とフロントエンドの表示元変更に留まるため個別にリバート可能である。
+
+**利用者への影響を伴う変更**: 写真選択ダイアログの対象を注釈付きのみへ絞る変更は、利用者から見える挙動が変わる唯一の項目である。注釈を付けずに写真を紐づける運用が存在する場合は影響を受けるため、反映前に運用実態を確認する。要件（4.3 / 19.2）への追従であり、要件側の改定は行わない。
