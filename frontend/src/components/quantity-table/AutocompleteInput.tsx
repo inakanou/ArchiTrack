@@ -205,9 +205,20 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
-  /** 日本語入力（IME）の変換中かどうか */
+  /**
+   * 日本語入力（IME）の変換中かどうか
+   *
+   * この記録の寿命は「一回の焦点セッション」とする（Task 115.42）。焦点を得た時点で
+   * 初期化し、変換の確定（compositionend）または焦点喪失のいずれか早い方で終了する。
+   * 確定の通知でしか消さないと、確定が届かないまま焦点が外れた場合に記録が残り、
+   * 以後その入力欄では変換と無関係の直接入力でも幅の判定が迂回され続ける。
+   */
   const isComposingRef = useRef(false);
-  /** 変換開始直前の確定値（変換結果が上限を超えたときの戻り先） */
+  /**
+   * 幅の判定を通った直前の値（判定を経ていない値が残りそうな場合の戻り先）
+   *
+   * 焦点を得た時点と変換を開始した時点で更新する。
+   */
   const preCompositionValueRef = useRef('');
 
   /**
@@ -355,16 +366,31 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
    */
   const handleFocus = useCallback(() => {
     setIsFocused(true);
+    // 変換中の記録は焦点セッションごとに初期化する（Task 115.42）。
+    // 前の焦点セッションで確定の通知が届かないまま終わっていた場合に、記録が
+    // 持ち越されて幅の判定が迂回され続けることを防ぐ。
+    isComposingRef.current = false;
+    preCompositionValueRef.current = value;
     // フォーカス時に既存の入力値を全選択（上書き入力の効率化）
     inputRef.current?.select();
     if (suggestions.length > 0) {
       setIsOpen(true);
     }
-  }, [suggestions.length]);
+  }, [suggestions.length, value]);
 
   /**
    * ブラー時ハンドラ
-   * blur時にonBlurAddCandidateを呼び出して確定値を候補に追加
+   *
+   * 変換中の記録をここで終了させる（Task 115.42）。焦点喪失の時点では value が幅の
+   * 判定を経ていない場合があるため、変換の確定と同じ判定を改めて適用し、判定を通った
+   * 値だけを状態と候補の登録へ渡す。
+   * - 変換中に焦点を失った場合。変換中は幅の判定を行わないため上限超過の読みが残る
+   * - 変換の確定（compositionend）と焦点喪失が同一の実行単位に入った場合。戻し処理は
+   *   状態の更新であり、同じ実行単位から見える値は反映前（＝上限超過）のままになる
+   *
+   * blur時にonBlurAddCandidateを呼び出して確定値を候補に追加する（REQ-7.6）。
+   * 上限を超える値は候補一覧へ入れない。候補は以後の入力の元になるため、
+   * 入力時点の防止（REQ-13.1/13.2/13.3）を迂回する経路になってはならない。
    */
   const handleBlur = useCallback(
     (e: React.FocusEvent<HTMLInputElement>) => {
@@ -379,12 +405,20 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
         setSelectedIndex(-1);
       }, 150);
 
+      const base = preCompositionValueRef.current;
+      const committed = acceptsWidth(value, base) ? value : base;
+      isComposingRef.current = false;
+      preCompositionValueRef.current = committed;
+      if (committed !== value) {
+        onChange(committed);
+      }
+
       // blur時に確定値を候補リストに追加（APIリクエストなし）
-      if (!disabled && value.trim()) {
-        onBlurAddCandidate(field, value);
+      if (!disabled && committed.trim() && calculateStringWidth(committed) <= maxWidth) {
+        onBlurAddCandidate(field, committed);
       }
     },
-    [disabled, value, field, onBlurAddCandidate]
+    [disabled, value, field, onBlurAddCandidate, acceptsWidth, onChange, maxWidth]
   );
 
   /**

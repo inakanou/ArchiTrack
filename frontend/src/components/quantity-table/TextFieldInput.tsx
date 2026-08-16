@@ -200,7 +200,12 @@ export default function TextFieldInput({
   const counterColor = useMemo(() => getCounterColor(remaining), [remaining]);
   const counterText = useMemo(() => getCounterText(remaining), [remaining]);
 
-  // 日本語入力（IME）の変換中かどうかと、変換開始直前の確定値
+  // 日本語入力（IME）の変換中かどうかと、幅の判定を通った直前の値（戻り先）。
+  //
+  // 変換中の記録の寿命は「一回の焦点セッション」とする（Task 115.42）。焦点を得た時点で
+  // 初期化し、変換の確定（compositionend）または焦点喪失のいずれか早い方で終了する。
+  // 確定の通知でしか消さないと、確定が届かないまま焦点が外れた場合に記録が残り、
+  // 以後その入力欄では変換と無関係の直接入力でも幅の判定が迂回され続ける。
   const isComposingRef = useRef(false);
   const preCompositionValueRef = useRef('');
 
@@ -249,6 +254,25 @@ export default function TextFieldInput({
     onChange(acceptsWidth(committed, base) ? committed : base);
   };
 
+  // 焦点獲得：変換中の記録を初期化し、戻り先を現在の（幅の判定を通った）値にする
+  const handleFocus = () => {
+    isComposingRef.current = false;
+    preCompositionValueRef.current = value;
+  };
+
+  // 焦点喪失：変換中の記録を終了する。焦点喪失の時点では value が幅の判定を経ていない
+  // 場合があるため（変換中に焦点を失った場合、確定と焦点喪失が同一の実行単位に入った場合）、
+  // 変換の確定と同じ判定を改めて適用し、上限を超える場合は戻り先の値へ戻す。
+  const handleBlur = () => {
+    const base = preCompositionValueRef.current;
+    const committed = acceptsWidth(value, base) ? value : base;
+    isComposingRef.current = false;
+    preCompositionValueRef.current = committed;
+    if (committed !== value) {
+      onChange(committed);
+    }
+  };
+
   // 入力スタイルを計算
   const inputStyles = {
     ...styles.input,
@@ -289,6 +313,8 @@ export default function TextFieldInput({
           onChange={handleChange}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           aria-invalid={!!error}
           aria-required={required}
           aria-describedby={

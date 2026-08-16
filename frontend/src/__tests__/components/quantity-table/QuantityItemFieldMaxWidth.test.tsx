@@ -32,11 +32,13 @@ function ControlledAutocomplete({
   field,
   label,
   onChangeSpy,
+  onBlurAddCandidateSpy,
   initialValue = '',
 }: {
   field: AutocompleteFieldName;
   label: string;
   onChangeSpy?: (value: string) => void;
+  onBlurAddCandidateSpy?: (field: AutocompleteFieldName, value: string) => void;
   initialValue?: string;
 }) {
   const [value, setValue] = useState(initialValue);
@@ -51,7 +53,7 @@ function ControlledAutocomplete({
       }}
       field={field}
       getSuggestions={() => []}
-      onBlurAddCandidate={() => {}}
+      onBlurAddCandidate={(f, v) => onBlurAddCandidateSpy?.(f, v)}
     />
   );
 }
@@ -476,6 +478,208 @@ describe('数量項目テキストフィールドの入力時点での上限超�
 
       expect(onUpdateSpy).not.toHaveBeenCalled();
       expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(maxWidth);
+    });
+  });
+
+  /**
+   * 変換中の記録の寿命（Task 115.42、Req 13.1/13.2/13.3）
+   *
+   * 変換中は幅の判定を迂回する。その記録を確定の通知（compositionend）でしか消さないと、
+   * 確定が届かないまま焦点が外れた場合に記録が残り、以後その入力欄では変換と無関係の
+   * 直接入力でも判定が迂回され続ける（入力時点の防止が恒久的に無効化される）。
+   *
+   * 記録の寿命は「一回の焦点セッション」とする。焦点を得た時点で初期化し、焦点を失う
+   * 時点で必ず終了させる。終了時には変換の確定と同じ幅の判定を適用し、判定を通った値だけを
+   * 状態と外部（候補の登録）へ渡す。
+   */
+  describe('変換中の記録の寿命 (Task 115.42)', () => {
+    /** 単位欄（上限 半角6 / 全角3）。変換中の読み「りゅうべい」は幅10で上限を超える */
+    const UNIT_MAX_WIDTH = 6;
+    const READING = 'りゅうべい';
+
+    describe('AutocompleteInput', () => {
+      /** 焦点を得てから、確定の通知が届かないまま変換中に焦点を失う */
+      function loseFocusWhileComposing(input: HTMLElement) {
+        fireEvent.focus(input);
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: READING } });
+        expect(input).toHaveValue(READING);
+        fireEvent.blur(input);
+      }
+
+      it('確定が届かないまま焦点を失った後も直接入力に幅の判定が働く', () => {
+        expect(calculateStringWidth(READING)).toBeGreaterThan(UNIT_MAX_WIDTH);
+
+        render(<ControlledAutocomplete field="unit" label="単位" initialValue="m" />);
+        const input = screen.getByLabelText('単位');
+
+        loseFocusWhileComposing(input);
+
+        // 変換と無関係の直接入力。上限を超える幅は受け付けてはならない
+        fireEvent.focus(input);
+        fireEvent.change(input, { target: { value: 'a'.repeat(UNIT_MAX_WIDTH + 1) } });
+        expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+          UNIT_MAX_WIDTH
+        );
+
+        // 上限以内は従来どおり受け付ける
+        const atLimit = 'a'.repeat(UNIT_MAX_WIDTH);
+        fireEvent.change(input, { target: { value: atLimit } });
+        expect(input).toHaveValue(atLimit);
+      });
+
+      it('確定が届かないまま焦点を失うと幅の判定を経ていない値は残らない', () => {
+        render(<ControlledAutocomplete field="unit" label="単位" initialValue="m" />);
+        const input = screen.getByLabelText('単位');
+
+        loseFocusWhileComposing(input);
+
+        // 変換開始直前の（幅の判定を通った）値へ戻る
+        expect(input).toHaveValue('m');
+      });
+
+      it('焦点喪失では上限を超える値が候補として登録されない', () => {
+        const onBlurAddCandidateSpy = vi.fn();
+        render(
+          <ControlledAutocomplete
+            field="unit"
+            label="単位"
+            initialValue="m"
+            onBlurAddCandidateSpy={onBlurAddCandidateSpy}
+          />
+        );
+        const input = screen.getByLabelText('単位');
+
+        loseFocusWhileComposing(input);
+
+        expect(onBlurAddCandidateSpy).not.toHaveBeenCalledWith('unit', READING);
+        // 登録されうるのは幅の判定を通った値だけ
+        for (const [, registered] of onBlurAddCandidateSpy.mock.calls) {
+          expect(calculateStringWidth(registered)).toBeLessThanOrEqual(UNIT_MAX_WIDTH);
+        }
+      });
+
+      it('上限を超えた既存の値は焦点喪失で候補に登録されない', () => {
+        // 幅の検証を持たない経路で作られた既存データを想定する。編集はできる（短くする
+        // 編集を受け付ける）が、候補一覧へ入れると以後の入力の元になってしまう。
+        const onBlurAddCandidateSpy = vi.fn();
+        const overLimit = 'a'.repeat(UNIT_MAX_WIDTH + 4);
+        render(
+          <ControlledAutocomplete
+            field="unit"
+            label="単位"
+            initialValue={overLimit}
+            onBlurAddCandidateSpy={onBlurAddCandidateSpy}
+          />
+        );
+        const input = screen.getByLabelText('単位');
+
+        fireEvent.focus(input);
+        fireEvent.blur(input);
+
+        // 値そのものは編集の妨げにならないよう保持されるが、候補には登録しない
+        expect(input).toHaveValue(overLimit);
+        expect(onBlurAddCandidateSpy).not.toHaveBeenCalled();
+      });
+
+      it('変換を経て確定した上限以内の値は焦点喪失で候補に登録される', () => {
+        const onBlurAddCandidateSpy = vi.fn();
+        render(
+          <ControlledAutocomplete
+            field="unit"
+            label="単位"
+            onBlurAddCandidateSpy={onBlurAddCandidateSpy}
+          />
+        );
+        const input = screen.getByLabelText('単位');
+
+        fireEvent.focus(input);
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: READING } });
+        fireEvent.change(input, { target: { value: '立米' } });
+        fireEvent.compositionEnd(input, { data: '立米' });
+        fireEvent.blur(input);
+
+        expect(input).toHaveValue('立米');
+        expect(onBlurAddCandidateSpy).toHaveBeenCalledWith('unit', '立米');
+      });
+
+      it('焦点を得た時点で変換中の記録が初期化される', () => {
+        render(<ControlledAutocomplete field="unit" label="単位" />);
+        const input = screen.getByLabelText('単位');
+
+        // 焦点喪失を伴わずに変換中の記録だけが残った状態を作る
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: READING } });
+
+        // 改めて焦点を得た後は、変換と無関係の直接入力に幅の判定が働く
+        fireEvent.focus(input);
+        const wider = 'あ'.repeat(6); // 幅12。残っている読み（幅10）より広い
+        expect(calculateStringWidth(wider)).toBeGreaterThan(calculateStringWidth(READING));
+        fireEvent.change(input, { target: { value: wider } });
+        expect(input).not.toHaveValue(wider);
+      });
+    });
+
+    describe('TextFieldInput', () => {
+      function ControlledUnitTextField({ initialValue = '' }: { initialValue?: string }) {
+        const [value, setValue] = useState(initialValue);
+        return (
+          <TextFieldInput
+            id="text-unit-lifetime"
+            fieldName="unit"
+            label="単位"
+            value={value}
+            onChange={setValue}
+          />
+        );
+      }
+
+      it('確定が届かないまま焦点を失った後も直接入力に幅の判定が働く', () => {
+        render(<ControlledUnitTextField initialValue="m" />);
+        const input = screen.getByLabelText('単位');
+
+        fireEvent.focus(input);
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: READING } });
+        fireEvent.blur(input);
+
+        // 幅の判定を経ていない読みは残らない
+        expect(input).toHaveValue('m');
+
+        fireEvent.focus(input);
+        fireEvent.change(input, { target: { value: 'a'.repeat(UNIT_MAX_WIDTH + 1) } });
+        expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+          UNIT_MAX_WIDTH
+        );
+      });
+
+      it('焦点を得た時点で変換中の記録が初期化される', () => {
+        render(<ControlledUnitTextField />);
+        const input = screen.getByLabelText('単位');
+
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: READING } });
+
+        fireEvent.focus(input);
+        const wider = 'あ'.repeat(6); // 幅12。残っている読み（幅10）より広い
+        fireEvent.change(input, { target: { value: wider } });
+        expect(input).not.toHaveValue(wider);
+      });
+
+      it('変換を経て確定した上限以内の値は焦点喪失でも保持される', () => {
+        render(<ControlledUnitTextField />);
+        const input = screen.getByLabelText('単位');
+
+        fireEvent.focus(input);
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: READING } });
+        fireEvent.change(input, { target: { value: '立米' } });
+        fireEvent.compositionEnd(input, { data: '立米' });
+        fireEvent.blur(input);
+
+        expect(input).toHaveValue('立米');
+      });
     });
   });
 });

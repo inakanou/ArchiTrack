@@ -563,6 +563,74 @@ describe('QuantityGroupCard グループ名の上限超過防止 (REQ-22.5)', ()
   });
 
   /**
+   * 変換中の記録の寿命（Task 115.41 / 115.42、REQ-22.5）
+   *
+   * 変換中に確定の通知（compositionend）が届かないまま焦点を失うと、変換中の記録が
+   * 残ったままになる。記録が残ると以後の確定・取り消しが抑止され、幅の判定も迂回され続ける。
+   *
+   * 記録の寿命は「一回の焦点セッション」とする。編集を開始する時点（入力欄が焦点を得る
+   * 時点）で初期化し、焦点を失う時点で必ず終了させる。
+   */
+  describe('変換中の記録の寿命', () => {
+    /**
+     * 空欄で焦点を失うと編集欄が残る経路（Task 115.42）
+     *
+     * 変換中の読みが上限を超える場合、焦点喪失の確定は幅の判定で変換開始直前の値へ戻す。
+     * その値が空欄なら確定できず、誤りの表示とともに編集欄が残る。このとき変換中の記録が
+     * 残っていると、その編集欄では以後の確定・取り消しも幅の判定も働かなくなる。
+     */
+    describe('空欄で焦点を失い編集欄が残った後', () => {
+      /** 名前を消したうえで、上限超過の読みを変換中のまま焦点喪失させる */
+      function loseFocusWhileComposingOverLimit(input: HTMLElement) {
+        fireEvent.change(input, { target: { value: '' } });
+        typeOverLimitReadingWhileComposing(input);
+        fireEvent.blur(input);
+        // 幅の判定で戻された値は空欄のため確定できず、編集欄が残る
+        expect(screen.getByRole('textbox', { name: /グループ名を編集/i })).toBeInTheDocument();
+        expect(screen.getByText('グループ名を入力してください')).toBeInTheDocument();
+      }
+
+      it('編集の確定が働く', async () => {
+        const { input, onRenameGroup } = await openNameEditorWithMock('テストグループ');
+        loseFocusWhileComposingOverLimit(input);
+
+        fireEvent.change(input, { target: { value: '新しいグループ名' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        expect(onRenameGroup).toHaveBeenCalledWith('group-1', '新しいグループ名');
+        expect(
+          screen.queryByRole('textbox', { name: /グループ名を編集/i })
+        ).not.toBeInTheDocument();
+      });
+
+      it('編集の取り消しが働く', async () => {
+        const { input } = await openNameEditorWithMock('テストグループ');
+        loseFocusWhileComposingOverLimit(input);
+
+        fireEvent.change(input, { target: { value: '取り消される値' } });
+        fireEvent.keyDown(input, { key: 'Escape' });
+
+        expect(
+          screen.queryByRole('textbox', { name: /グループ名を編集/i })
+        ).not.toBeInTheDocument();
+        expect(screen.getByText('テストグループ')).toBeInTheDocument();
+      });
+
+      it('入力時点の幅の判定が働く', async () => {
+        const { input } = await openNameEditorWithMock('テストグループ');
+        loseFocusWhileComposingOverLimit(input);
+
+        // 変換と無関係の直接入力。上限を超える幅は受け付けてはならない
+        fireEvent.change(input, { target: { value: 'あ'.repeat(ZENKAKU_AT_LIMIT + 1) } });
+
+        expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+          GROUP_NAME_MAX_WIDTH
+        );
+      });
+    });
+  });
+
+  /**
    * 変換中の記録が固着する経路（Task 115.41、REQ-22.5）
    *
    * 変換中に入力欄が外れると確定の通知（compositionend）が届かず、変換中の記録が

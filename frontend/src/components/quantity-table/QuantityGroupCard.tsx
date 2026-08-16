@@ -811,10 +811,17 @@ export default function QuantityGroupCard({
    *
    * 変換中でも確定を先送りにはしない。先送りにすると、確定の通知が届かないまま焦点を
    * 失った場合に、確定されないまま残る編集が生じるため。
+   *
+   * あわせて変換中の記録をここで終了させる（Task 115.42）。記録の寿命は「一回の焦点
+   * セッション」であり、編集開始（入力欄が焦点を得る時点）で初期化し、焦点喪失で終了する。
+   * 焦点喪失で消さないと、空欄のため確定できず編集欄が残った場合に記録が固着し、
+   * その編集欄では以後の確定・取り消しも幅の判定も働かなくなる。
    */
   const handleNameBlur = useCallback(() => {
     const base = preCompositionNameRef.current;
     const valueToConfirm = acceptsNameWidth(editNameValue, base) ? editNameValue : base;
+    isNameComposingRef.current = false;
+    preCompositionNameRef.current = valueToConfirm;
     // 編集欄が開いたまま残る場合（空白でエラーになる場合）に備えて表示も戻す
     setEditNameValue(valueToConfirm);
     confirmNameValue(valueToConfirm);
