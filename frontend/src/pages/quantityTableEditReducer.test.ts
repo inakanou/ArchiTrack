@@ -212,6 +212,36 @@ describe('group: removeGroup', () => {
     expect(state.draft!.groups[0]!.id).toBeNull();
     expect(state.isDirty).toBe(true);
   });
+
+  it('削除したグループ配下の項目を選択状態から取り除く（REQ-6.5）', () => {
+    let state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-2' });
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-3' });
+    expect(state.selectedItems).toEqual(['item-1', 'item-2', 'item-3']);
+
+    state = quantityTableEditReducer(state, { type: 'removeGroup', groupKey: 'group-1' });
+
+    // group-1 配下（item-1 / item-2）だけが選択から外れ、他グループの選択は残る
+    expect(state.selectedItems).toEqual(['item-3']);
+    // 削除自体はドラフトの変更なので未保存フラグは立つ
+    expect(state.isDirty).toBe(true);
+  });
+
+  it('存在しないグループの削除は選択状態を変更しない', () => {
+    const before = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    const state = quantityTableEditReducer(before, {
+      type: 'removeGroup',
+      groupKey: 'group-unknown',
+    });
+    expect(state).toBe(before);
+    expect(state.selectedItems).toEqual(['item-1']);
+  });
 });
 
 describe('group: copyGroup', () => {
@@ -372,6 +402,40 @@ describe('item: removeItem', () => {
     expect(items[0]!.id).toBeNull();
     expect(items[0]!.displayOrder).toBe(0);
     expect(state.isDirty).toBe(true);
+  });
+
+  it('削除した項目を選択状態から取り除く（REQ-6.5）', () => {
+    let state = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    state = quantityTableEditReducer(state, { type: 'toggleItemSelection', itemKey: 'item-2' });
+    expect(state.selectedItems).toEqual(['item-1', 'item-2']);
+
+    state = quantityTableEditReducer(state, {
+      type: 'removeItem',
+      groupKey: 'group-1',
+      itemKey: 'item-1',
+    });
+
+    // 削除した項目だけが選択から外れ、残る項目の選択は保持する
+    expect(state.selectedItems).toEqual(['item-2']);
+    // 削除自体はドラフトの変更なので未保存フラグは立つ
+    expect(state.isDirty).toBe(true);
+  });
+
+  it('存在しない項目の削除は選択状態を変更しない', () => {
+    const before = quantityTableEditReducer(loadedState(makeTwoGroupDetail()), {
+      type: 'toggleItemSelection',
+      itemKey: 'item-1',
+    });
+    const state = quantityTableEditReducer(before, {
+      type: 'removeItem',
+      groupKey: 'group-1',
+      itemKey: 'item-unknown',
+    });
+    expect(state).toBe(before);
+    expect(state.selectedItems).toEqual(['item-1']);
   });
 });
 

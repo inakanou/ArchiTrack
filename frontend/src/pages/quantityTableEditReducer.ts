@@ -546,11 +546,18 @@ export function quantityTableEditReducer(
     }
 
     case 'removeGroup': {
+      const target = draft.groups.find((g) => rowKey(g) === action.groupKey);
       const filtered = draft.groups.filter((g) => rowKey(g) !== action.groupKey);
-      if (filtered.length === draft.groups.length) {
+      if (target === undefined || filtered.length === draft.groups.length) {
         return state; // 対象なし
       }
-      return withDraft(state, { ...draft, groups: renumberGroups(filtered) });
+      // 配下の項目はドラフトから消えるため、一括操作の選択（REQ-6.5）からも取り除く。
+      // 残すと「N件選択中」の表示だけが残り、一括操作が何も起きない状態になる。
+      const removedItemKeys = new Set(target.items.map((item) => rowKey(item)));
+      return {
+        ...withDraft(state, { ...draft, groups: renumberGroups(filtered) }),
+        selectedItems: state.selectedItems.filter((key) => !removedItemKeys.has(key)),
+      };
     }
 
     case 'copyGroup': {
@@ -618,7 +625,14 @@ export function quantityTableEditReducer(
         removed = filtered.length !== g.items.length;
         return { ...g, items: renumberItems(filtered) };
       });
-      return next === null || !removed ? state : withDraft(state, next);
+      if (next === null || !removed) {
+        return state;
+      }
+      // 削除した項目は一括操作の選択（REQ-6.5）からも取り除く（removeItems と同一方針）
+      return {
+        ...withDraft(state, next),
+        selectedItems: state.selectedItems.filter((key) => key !== action.itemKey),
+      };
     }
 
     case 'copyItem': {
