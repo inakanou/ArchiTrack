@@ -921,8 +921,9 @@ export class QuantityTableService {
    *
    * トランザクション内で以下を実行:
    * 1. 数量表の存在確認・楽観的排他制御（expectedUpdatedAt 不一致は 409）
-   * 2. 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認。
-   *    属さないIDが含まれる場合は書き込み前に保存を中断（400）
+   * 2. ID検証（いずれも書き込み前に保存を中断, 400）:
+   *    - 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認
+   *    - 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認
    * 3. DB現状と payload の差分適用:
    *    - グループ・項目とも payload の配列順に「更新（id一致）/ 作成（id=null）」を先に適用する
    *    - 削除はその後段でまとめて行う。判定はグループ単位ではなく数量表全体のID集合の差分で
@@ -951,7 +952,8 @@ export class QuantityTableService {
    * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
    * @throws QuantityTableConflictError 楽観的排他制御エラー（他ユーザーによる更新との競合, 409）
    * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合）、
-   *         または当該数量表に属さないグループ・項目IDが含まれる場合（400）
+   *         同一のグループ・項目IDが複数回含まれる場合、または当該数量表に属さない
+   *         グループ・項目IDが含まれる場合（400）
    */
   async saveDraft(
     id: string,
@@ -1017,7 +1019,14 @@ export class QuantityTableService {
           .filter((iid): iid is string => iid !== null)
       );
 
-      // 2-0. 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認する。
+      // 2-0-1. 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認する。
+      //      重複を受け入れると同じ行が複数回更新されるうえ、上の payload*Ids 集合には
+      //      1件としてしか入らないため削除判定からも外れ、どちらの指定が反映されたのか
+      //      定まらない状態が残る（グループの重複では他グループが巻き添えで削除される）。
+      //      所属検証と同じく、書き込み前に中断する（REQ-42.9, 11.2, 11.4）。
+      this.validateDraftDuplicateIds(input);
+
+      // 2-0-2. 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認する。
       //      属さないIDを受け入れると、他の数量表のグループ・項目が本数量表の配下へ
       //      付け替えられてしまう（既存項目の更新は quantityGroupId を明示するため）。
       //      書き込み前に検証し、違反時は保存を中断する（REQ-42.9, 11.2, 11.4）。
@@ -1187,6 +1196,58 @@ export class QuantityTableService {
     if (Object.keys(validationErrors).length > 0) {
       throw new QuantityTableValidationError(
         '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+        validationErrors
+      );
+    }
+  }
+
+  /**
+   * フル状態同期保存（saveDraft）の識別子重複検証
+   *
+   * payload 内で同じ既存ID（グループ・項目）が複数回現れないことを検証する。
+   * 重複を受け入れると、同じ行が payload の出現回数だけ更新され（最後の指定が勝つ）、
+   * かつ削除判定に用いるID集合には1件としてしか入らないため削除対象からも外れる。
+   * グループIDの重複では、重複分の位置に本来置かれるはずだったグループが payload から
+   * 消えたものと扱われ、配下項目ごと削除される。いずれも利用者の意図しない状態を生む。
+   *
+   * 新規のグループ・項目は id を持たない（null）ため対象外である。クライアント仮ID
+   * （tempId）は永続化にも応答にも用いないため、重複しても状態には影響しない。
+   *
+   * Requirements:
+   * - 42.9: 整合性エラー時はエラーを返し保存を中断する
+   * - 11.2: 整合性チェックエラー時は保存を中断する
+   * - 11.4: 不整合がある場合は問題箇所を明示する
+   *
+   * @param input - フル状態同期保存入力
+   * @throws QuantityTableValidationError 同一IDが複数回現れる場合
+   */
+  private validateDraftDuplicateIds(input: SaveQuantityTableDraftInput): void {
+    const seenGroupIds = new Set<string>();
+    const seenItemIds = new Set<string>();
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.id !== null) {
+        if (seenGroupIds.has(group.id)) {
+          validationErrors[`groups[${groupIndex}].id`] =
+            '同一の数量グループが複数回指定されています';
+        }
+        seenGroupIds.add(group.id);
+      }
+      for (const [itemIndex, item] of group.items.entries()) {
+        if (item.id !== null) {
+          if (seenItemIds.has(item.id)) {
+            validationErrors[`groups[${groupIndex}].items[${itemIndex}].id`] =
+              '同一の数量項目が複数回指定されています';
+          }
+          seenItemIds.add(item.id);
+        }
+      }
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      throw new QuantityTableValidationError(
+        '同一のグループまたは項目が重複して含まれています。最新データを再取得してください。',
         validationErrors
       );
     }

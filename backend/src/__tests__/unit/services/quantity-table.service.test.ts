@@ -2532,5 +2532,161 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.quantityGroup.deleteMany).not.toHaveBeenCalled();
       expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
     });
+
+    /**
+     * 保存要求内の識別子重複検証。
+     *
+     * 同一IDが payload に複数回現れると、同じ行が複数回更新されるうえ、
+     * 削除判定の集合にも含まれるため削除対象から外れ、意図しない状態が生じる。
+     */
+    it('同一の項目IDが複数回現れる場合は保存を中断し書き込みを行わない（REQ-42.9, 11.2）', async () => {
+      // Arrange: DB には group-1(item-1, item-2), group-2 が存在する
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        currentState({
+          groups: [
+            { id: 'group-1', items: [{ id: 'item-1' }, { id: 'item-2' }] },
+            { id: 'group-2', items: [] },
+          ],
+        })
+      );
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: 'group-1',
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [validItem({ id: 'item-1', displayOrder: 0 })],
+          },
+          {
+            id: 'group-2',
+            name: 'グループ2',
+            surveyImageId: null,
+            displayOrder: 1,
+            // 同一項目IDの再出現（二重更新かつ削除対象からの脱落を招く）
+            items: [validItem({ id: 'item-1', displayOrder: 0 })],
+          },
+        ],
+      };
+
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      // REQ-11.4: 問題箇所（2件目の出現位置）を明示する
+      expect((caught as QuantityTableValidationError).validationErrors).toHaveProperty([
+        'groups[1].items[0].id',
+      ]);
+      // 書き込みは一切行われない（部分反映なし）
+      expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('同一のグループIDが複数回現れる場合は保存を中断し書き込みを行わない（REQ-42.9, 11.2）', async () => {
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        currentState({
+          groups: [
+            { id: 'group-1', items: [] },
+            { id: 'group-2', items: [] },
+          ],
+        })
+      );
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: 'group-1',
+            name: '重複1回目',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [],
+          },
+          {
+            // 同一グループIDの再出現（group-2 が削除対象になる副作用も伴う）
+            id: 'group-1',
+            name: '重複2回目',
+            surveyImageId: null,
+            displayOrder: 1,
+            items: [],
+          },
+        ],
+      };
+
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      expect((caught as QuantityTableValidationError).validationErrors).toHaveProperty([
+        'groups[1].id',
+      ]);
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('新規（id=null）が複数含まれても重複とはみなさず保存する（過剰な拒否の防止）', async () => {
+      // Arrange: 新規は識別子を持たないため、複数現れても重複ではない
+      setupFindUnique(currentState({ groups: [{ id: 'group-1', items: [] }] }), reloadedDetail());
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-new' });
+      mockPrisma.quantityItem.create.mockResolvedValue({ id: 'item-db-new' });
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: newUpdatedAt,
+      });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: 'group-1',
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [
+              validItem({ id: null, displayOrder: 0 }),
+              validItem({ id: null, displayOrder: 1 }),
+            ],
+          },
+          {
+            id: null,
+            name: '新規グループA',
+            surveyImageId: null,
+            displayOrder: 1,
+            items: [validItem({ id: null, displayOrder: 0 })],
+          },
+          {
+            id: null,
+            name: '新規グループB',
+            surveyImageId: null,
+            displayOrder: 2,
+            items: [],
+          },
+        ],
+      };
+
+      await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
+      expect(mockPrisma.quantityItem.create).toHaveBeenCalledTimes(3);
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalledTimes(2);
+    });
   });
 });
