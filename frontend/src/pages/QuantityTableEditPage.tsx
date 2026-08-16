@@ -215,6 +215,15 @@ const styles = {
     cursor: 'pointer',
   } as React.CSSProperties,
   // 選択した数量項目に対する一括操作バー（REQ-6.5）
+  //
+  // Task 115.38: 通常の流れ（数量グループ一覧の直前）に置くと、下方の行を選択した際に
+  // 操作面が画面外へ出て上方向へスクロールしないと操作できなかった。
+  // ヘッダー操作ボタン群の固定表示（REQ-45.2）と同じ position: sticky を用い、
+  // 数量グループ一覧の「後ろ」に置いてビューポート下端へ貼り付ける。
+  // 末尾に置くことで sticky が流れの中で自身の領域を確保し、
+  // 最下部までスクロールした際に最終行を恒久的に覆い隠さない（REQ-45.3 と同じ考え方）。
+  // z-index はアクションメニュー / 補完候補一覧（いずれも Portal・z-index 1000）より
+  // 背面となる値にし、それらを覆い隠さない（REQ-46.7 と整合）。
   bulkActionBar: {
     display: 'flex',
     alignItems: 'center',
@@ -224,7 +233,14 @@ const styles = {
     border: '1px solid #bfdbfe',
     borderRadius: '8px',
     padding: '10px 16px',
-    marginBottom: '16px',
+    marginTop: '16px',
+    position: 'sticky' as const,
+    bottom: 0,
+    zIndex: 50,
+    // 狭幅環境でも操作面が横幅からはみ出さないよう、余白込みで幅を収める
+    boxSizing: 'border-box' as const,
+    maxWidth: '100%',
+    boxShadow: '0 -2px 6px -1px rgba(0, 0, 0, 0.12)',
   } as React.CSSProperties,
   bulkActionCount: {
     fontSize: '13px',
@@ -1748,46 +1764,6 @@ export default function QuantityTableEditPage() {
         </div>
       )}
 
-      {/* 選択した数量項目に対する一括操作（REQ-6.5）。
-          「現場調査から一括追加」は選択項目に対する操作ではないため名称で明確に区別する。 */}
-      {selectedItemKeys.length > 0 && (
-        <div style={styles.bulkActionBar} data-testid="quantity-item-bulk-action-bar">
-          <span style={styles.bulkActionCount}>{selectedItemKeys.length}件の項目を選択中</span>
-          <button
-            type="button"
-            style={styles.bulkActionButton}
-            onClick={handleBulkCopyItems}
-            aria-label="選択した項目をコピー"
-          >
-            選択した項目をコピー
-          </button>
-          <button
-            type="button"
-            style={styles.bulkActionButton}
-            onClick={handleOpenMoveDialogForSelection}
-            aria-label="選択した項目を移動"
-          >
-            選択した項目を移動
-          </button>
-          <button
-            type="button"
-            style={{ ...styles.bulkActionButton, ...styles.bulkActionDeleteButton }}
-            onClick={handleBulkDeleteItems}
-            aria-label="選択した項目を削除"
-          >
-            選択した項目を削除
-          </button>
-          <button
-            type="button"
-            style={styles.bulkActionClearButton}
-            onClick={handleClearItemSelection}
-            aria-label="選択を解除"
-          >
-            選択を解除
-          </button>
-        </div>
-      )}
-
       {/* 数量項目の移動先グループ選択ダイアログ（REQ-6.2, 6.4, 6.5） */}
       {moveTargetSelection !== null && (
         <ItemCopyMoveDialog
@@ -1834,6 +1810,48 @@ export default function QuantityTableEditPage() {
               />
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 選択した数量項目に対する一括操作（REQ-6.5）。
+          「現場調査から一括追加」は選択項目に対する操作ではないため名称で明確に区別する。
+          Task 115.38: 下方の行を選択しても操作面が画面外へ出ないよう、数量グループ一覧の
+          後ろに置いてビューポート下端へ sticky 固定する（styles.bulkActionBar 参照）。 */}
+      {selectedItemKeys.length > 0 && (
+        <div style={styles.bulkActionBar} data-testid="quantity-item-bulk-action-bar">
+          <span style={styles.bulkActionCount}>{selectedItemKeys.length}件の項目を選択中</span>
+          <button
+            type="button"
+            style={styles.bulkActionButton}
+            onClick={handleBulkCopyItems}
+            aria-label="選択した項目をコピー"
+          >
+            選択した項目をコピー
+          </button>
+          <button
+            type="button"
+            style={styles.bulkActionButton}
+            onClick={handleOpenMoveDialogForSelection}
+            aria-label="選択した項目を移動"
+          >
+            選択した項目を移動
+          </button>
+          <button
+            type="button"
+            style={{ ...styles.bulkActionButton, ...styles.bulkActionDeleteButton }}
+            onClick={handleBulkDeleteItems}
+            aria-label="選択した項目を削除"
+          >
+            選択した項目を削除
+          </button>
+          <button
+            type="button"
+            style={styles.bulkActionClearButton}
+            onClick={handleClearItemSelection}
+            aria-label="選択を解除"
+          >
+            選択を解除
+          </button>
         </div>
       )}
 

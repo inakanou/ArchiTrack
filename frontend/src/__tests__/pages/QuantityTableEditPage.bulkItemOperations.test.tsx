@@ -323,3 +323,78 @@ describe('QuantityTableEditPage - 複数選択の一括操作（REQ-6.5）', () 
     expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
   });
 });
+
+// ============================================================================
+// Task 115.38: 一括操作の操作面を選択中は常に視認できる位置に置く
+// ============================================================================
+
+/**
+ * 操作面が通常の流れ（数量グループ一覧の直前）に置かれていると、下方の数量項目を
+ * 選択した場合に操作面が画面外へ出てしまい、上方向へスクロールしないと操作できない。
+ *
+ * 是正方式は固定表示ヘッダー（REQ-45）と同じ position: sticky を用い、
+ * 数量グループ一覧の「後ろ」へ置いてビューポート下端へ貼り付ける。
+ * 末尾に配置することで操作面自身が流れの中で領域を確保し、
+ * 最終行を恒久的に覆い隠さない（REQ-45.3 と同じ考え方）。
+ *
+ * 実ブラウザ上の見え方（下方の行を選択したときの視認性・狭幅での収まり・
+ * 前面要素との重なり）は仮想DOMでは判定できないため、ここでは
+ * 「ビューポート基準で固定される」「一覧より後ろに置かれる」「前面要素より背面に置かれる」
+ * というレイアウト契約を検証し、実際の見え方は実ブラウザ検証で確認する。
+ */
+describe('QuantityTableEditPage - 一括操作の操作面の常時視認（REQ-6.5, REQ-45 と同方式）', () => {
+  const user = userEvent.setup();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** 項目を1件選択して操作面の要素を返す */
+  async function selectItemAndGetBar(): Promise<HTMLElement> {
+    await renderLoaded();
+    const rows = itemRowsOfGroup(0);
+    await user.click(within(rows[1]!).getByRole('checkbox'));
+    return await screen.findByTestId('quantity-item-bulk-action-bar');
+  }
+
+  it('選択中の操作面はビューポート下端に固定表示される（通常の流れで画面外へ出ない）', async () => {
+    const bar = await selectItemAndGetBar();
+
+    expect(bar.style.position).toBe('sticky');
+    expect(bar.style.bottom).toBe('0px');
+  });
+
+  it('操作面は数量グループ一覧より後ろに置かれ、末尾で自身の領域を確保する', async () => {
+    const bar = await selectItemAndGetBar();
+    const groupSection = screen.getByTestId('quantity-group-section');
+
+    // 一覧より前にあると、末尾へ貼り付ける固定表示が成立せず流れの途中で
+    // 空隙が生じるため、DOM順で一覧の後ろにあることを要求する
+    expect(
+      groupSection.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('操作面は補完候補一覧・行のアクションメニュー（z-index 1000）より背面に置かれる', async () => {
+    const bar = await selectItemAndGetBar();
+
+    const zIndex = Number(bar.style.zIndex);
+    expect(Number.isNaN(zIndex)).toBe(false);
+    expect(zIndex).toBeGreaterThan(0);
+    expect(zIndex).toBeLessThan(1000);
+  });
+
+  it('狭い画面でも操作群が折り返し、操作面が横幅からはみ出さない', async () => {
+    const bar = await selectItemAndGetBar();
+
+    expect(bar.style.flexWrap).toBe('wrap');
+    expect(bar.style.boxSizing).toBe('border-box');
+    expect(bar.style.maxWidth).toBe('100%');
+  });
+
+  it('選択が無い間は固定表示の操作面を表示しない', async () => {
+    await renderLoaded();
+
+    expect(screen.queryByTestId('quantity-item-bulk-action-bar')).not.toBeInTheDocument();
+  });
+});
