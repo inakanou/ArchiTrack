@@ -916,12 +916,18 @@ export class QuantityTableService {
    * 本メソッドが編集画面の唯一の書き込み手段となり、既存 bulkSave（項目更新のみ）の
    * 役割を包含・置換する。
    *
+   * トランザクション開始前に全フィールドの整合性検証（文字数・数値範囲・計算整合）を行い、
+   * 違反があれば DB へ一切アクセスせず保存を中断する。
+   *
    * トランザクション内で以下を実行:
    * 1. 数量表の存在確認・楽観的排他制御（expectedUpdatedAt 不一致は 409）
-   * 2. 全フィールドの整合性検証（文字数・数値範囲・計算整合）。違反時は保存中断
+   * 2. 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認。
+   *    属さないIDが含まれる場合は書き込み前に保存を中断（400）
    * 3. DB現状と payload の差分適用:
-   *    - グループ: 削除（payload にない既存）→ 更新（id一致）→ 作成（id=null）
-   *    - 項目: グループ単位で同様に削除→更新→作成
+   *    - グループ・項目とも payload の配列順に「更新（id一致）/ 作成（id=null）」を先に適用する
+   *    - 削除はその後段でまとめて行う。判定はグループ単位ではなく数量表全体のID集合の差分で
+   *      行い、payload のどこにも現れない既存グループ・既存項目を削除する
+   *      （グループ間移動した項目を移動元からの消失と誤認しないため。REQ-6.4）
    *    - displayOrder は payload の配列順を正とする
    *    - グループ名・写真紐づけ（surveyImageId）・数量表名を反映
    * 4. 数量表の updatedAt 更新・監査ログ記録
@@ -944,7 +950,8 @@ export class QuantityTableService {
    * @returns 最新の数量表詳細（項目を含む）
    * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
    * @throws QuantityTableConflictError 楽観的排他制御エラー（他ユーザーによる更新との競合, 409）
-   * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合, 400）
+   * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合）、
+   *         または当該数量表に属さないグループ・項目IDが含まれる場合（400）
    */
   async saveDraft(
     id: string,
@@ -1009,6 +1016,12 @@ export class QuantityTableService {
           .flatMap((g) => g.items.map((it) => it.id))
           .filter((iid): iid is string => iid !== null)
       );
+
+      // 2-0. 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認する。
+      //      属さないIDを受け入れると、他の数量表のグループ・項目が本数量表の配下へ
+      //      付け替えられてしまう（既存項目の更新は quantityGroupId を明示するため）。
+      //      書き込み前に検証し、違反時は保存を中断する（REQ-42.9, 11.2, 11.4）。
+      this.validateDraftOwnership(input, dbGroupIds, dbItemIds);
 
       // 2-1. グループを payload 配列順に処理（displayOrder は配列順を正とする）
       //      削除（グループ・項目）は本ループの後段でまとめて行う。所属変更（グループ間移動）を
@@ -1174,6 +1187,54 @@ export class QuantityTableService {
     if (Object.keys(validationErrors).length > 0) {
       throw new QuantityTableValidationError(
         '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+        validationErrors
+      );
+    }
+  }
+
+  /**
+   * フル状態同期保存（saveDraft）の所属検証
+   *
+   * payload に含まれる既存ID（グループ・項目）が、保存対象の数量表に属することを検証する。
+   * 形式（UUID）が正しくても他の数量表のIDであれば、更新時に quantityGroupId を明示する
+   * 実装上、他の数量表の項目が本数量表のグループへ付け替えられる。属さないIDは
+   * QuantityTableValidationError で拒否し、書き込み前に保存を中断する。
+   *
+   * Requirements:
+   * - 42.9: 整合性エラー時はエラーを返し保存を中断する
+   * - 11.2: 整合性チェックエラー時は保存を中断する
+   * - 11.4: 不整合がある場合は問題箇所を明示する
+   *
+   * @param input - フル状態同期保存入力
+   * @param dbGroupIds - 保存対象の数量表に属する既存グループIDの全集合
+   * @param dbItemIds - 保存対象の数量表に属する既存項目IDの全集合
+   * @throws QuantityTableValidationError 属さないIDが1件以上含まれる場合
+   */
+  private validateDraftOwnership(
+    input: SaveQuantityTableDraftInput,
+    dbGroupIds: string[],
+    dbItemIds: string[]
+  ): void {
+    const groupIdSet = new Set(dbGroupIds);
+    const itemIdSet = new Set(dbItemIds);
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.id !== null && !groupIdSet.has(group.id)) {
+        validationErrors[`groups[${groupIndex}].id`] =
+          'この数量表に属さない数量グループが指定されています';
+      }
+      for (const [itemIndex, item] of group.items.entries()) {
+        if (item.id !== null && !itemIdSet.has(item.id)) {
+          validationErrors[`groups[${groupIndex}].items[${itemIndex}].id`] =
+            'この数量表に属さない数量項目が指定されています';
+        }
+      }
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      throw new QuantityTableValidationError(
+        'この数量表に属さないグループまたは項目が含まれています。最新データを再取得してください。',
         validationErrors
       );
     }

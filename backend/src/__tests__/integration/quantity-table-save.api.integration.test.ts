@@ -676,6 +676,160 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
     });
   });
 
+  describe('保存対象の所属検証（Req 42.9）', () => {
+    it('他の数量表に属する数量項目IDを含む保存は 400 で拒否され、当該項目の所属は変わらない', async () => {
+      // Arrange: 保存対象の数量表（A）と、無関係な別の数量表（B）
+      const target = await createSeededTable(testProjectId, '所属検証テスト_対象');
+      const other = await createSeededTable(testProjectId, '所属検証テスト_別数量表');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: A の保存ペイロードに、B に属する項目の id を混入させる
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '所属検証テスト_対象',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: target.item1Id, name: '外部足場', unit: 'm2', displayOrder: 0 }),
+                // 別数量表（B）の項目 id。所属検証がなければ B の項目が A のグループへ付け替わる
+                itemPayload({ id: other.item1Id, name: '乗っ取り項目', displayOrder: 1 }),
+              ],
+            },
+            {
+              id: target.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+              ],
+            },
+          ],
+        });
+
+      // Assert: 400 で拒否される（問題箇所をフィールドパスで明示する）
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(Object.keys(response.body)).toContain('groups[0].items[1].id');
+
+      // Assert: 別数量表（B）の項目は所属も名称も変わっていない
+      const untouched = await prisma.quantityItem.findUnique({ where: { id: other.item1Id } });
+      expect(untouched?.quantityGroupId).toBe(other.group1Id);
+      expect(untouched?.name).toBe('外部足場');
+
+      // Assert: 保存対象（A）にも部分反映がない（item2 が削除されていない）
+      const survivingItem = await prisma.quantityItem.findUnique({ where: { id: target.item2Id } });
+      expect(survivingItem).not.toBeNull();
+      expect(survivingItem?.quantityGroupId).toBe(target.group1Id);
+    });
+
+    it('他の数量表に属する数量グループIDを含む保存は 400 で拒否され、当該グループは変更されない', async () => {
+      // Arrange: 保存対象の数量表（A）と、無関係な別の数量表（B）
+      const target = await createSeededTable(testProjectId, 'グループ所属検証テスト_対象');
+      const other = await createSeededTable(testProjectId, 'グループ所属検証テスト_別数量表');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: A の保存ペイロードに、B に属するグループの id を混入させる
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'グループ所属検証テスト_対象',
+          groups: [
+            {
+              id: other.group1Id,
+              name: '乗っ取りグループ',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: null, name: '注入項目', displayOrder: 0 })],
+            },
+          ],
+        });
+
+      // Assert: 400 で拒否される
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(Object.keys(response.body)).toContain('groups[0].id');
+
+      // Assert: 別数量表（B）のグループは名称も配下項目数も変わっていない
+      const untouchedGroup = await prisma.quantityGroup.findUnique({
+        where: { id: other.group1Id },
+        include: { items: true },
+      });
+      expect(untouchedGroup?.name).toBe('初期グループ1');
+      expect(untouchedGroup?.items).toHaveLength(2);
+
+      // Assert: 保存対象（A）は一切変更されていない（グループ2件が残存）
+      const targetGroups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: target.tableId },
+      });
+      expect(targetGroups).toHaveLength(2);
+    });
+
+    it('新規（id=null）・同一数量表内の更新・グループ間移動は所属検証で拒否されない', async () => {
+      // Arrange: 別数量表が併存していても、正当な保存は成功する
+      const target = await createSeededTable(testProjectId, '正当保存テスト_対象');
+      await createSeededTable(testProjectId, '正当保存テスト_別数量表');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: 新規グループ＋新規項目の作成、既存項目の更新、group1→group2 への移動を同時に行う
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '正当保存テスト_対象',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: target.item2Id, name: '型枠更新後', displayOrder: 0 })],
+            },
+            {
+              id: target.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                // group1 から group2 への移動
+                itemPayload({ id: target.item1Id, name: '外部足場', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+            {
+              id: null,
+              name: '新規グループ',
+              surveyImageId: null,
+              displayOrder: 2,
+              items: [itemPayload({ id: null, name: '新規項目', displayOrder: 0 })],
+            },
+          ],
+        });
+
+      // Assert: 保存が成功する
+      expect(response.status).toBe(200);
+
+      const movedItem = await prisma.quantityItem.findUnique({ where: { id: target.item1Id } });
+      expect(movedItem?.quantityGroupId).toBe(target.group2Id);
+      const updatedItem = await prisma.quantityItem.findUnique({ where: { id: target.item2Id } });
+      expect(updatedItem?.name).toBe('型枠更新後');
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: target.tableId },
+      });
+      expect(groups).toHaveLength(3);
+    });
+  });
+
   describe('楽観的排他制御（Req 42.9）', () => {
     it('expectedUpdatedAt が一致しない場合は 409（QUANTITY_TABLE_CONFLICT）が返り、保存が中断される', async () => {
       const { tableId } = await createSeededTable(testProjectId, '競合テスト');
