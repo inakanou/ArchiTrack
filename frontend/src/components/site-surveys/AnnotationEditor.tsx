@@ -47,6 +47,9 @@ import {
   type TPointerEvent,
 } from 'fabric';
 import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
+// Task 115.60 (Req 26.1, 26.5): 既定スタイルは一元管理の資材から供給する。
+// 本画面で局所に宣言すると中央の値を影で覆い、実際に描かれる注釈が中央の意図と食い違う。
+import { DEFAULT_STYLE_OPTIONS } from './annotation-toolbar.constants';
 import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
 import { AnnotationGuide } from './AnnotationGuide';
 import { GUIDE_IDLE_MS, COOLDOWN_MS } from './gestures/gesture-thresholds';
@@ -109,16 +112,6 @@ interface DragState {
 // ============================================================================
 // 型定義
 // ============================================================================
-
-/**
- * デフォルトのスタイルオプション
- */
-const DEFAULT_STYLE_OPTIONS: StyleOptions = {
-  strokeColor: '#ff0000',
-  strokeWidth: 2,
-  fillColor: '',
-  fontSize: 16,
-};
 
 /**
  * Task 96.3 (Req 33.8): 空き領域ダブルタップによるズームトグルの拡大倍率。
