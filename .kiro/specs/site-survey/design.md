@@ -4910,7 +4910,7 @@ flowchart LR
 #### This Spec Owns
 - `bulkExportService` の実装と所有（複数画像のレンダリング→ZIP 化→ダウンロード制御、進捗 callback、`AbortController` 対応）
 - `BulkExportDialog`・`BulkExportProgressDialog`・`ExportSettingsForm`（個別/一括で共有する設定フォーム部）の実装と所有
-- `SurveyImageGrid` への複数選択 UI（チェックボックス）と選択 state の追加
+- 詳細画面が描画する画像一覧部品 `PhotoManagementPanel` への複数選択 UI（チェックボックス）と選択 state の追加（要件10.1 のとおり詳細画面はサムネイル一覧を持たず、画像一覧は本部品が担う）
 - 現場調査詳細画面ツールバー上の「全件一括エクスポート」「選択画像エクスポート」エントリポイント
 - 6 形状（Rectangle/Circle/Polygon/Polyline/Freehand/Dimension）のカスタムクラスを Group 化し、`outline: ShapeOutlineAttribute` 属性をシリアライズ可能にする
 - `annotation-style-tokens.ts` への `ShapeOutlineAttribute` 共通型と 6 形状向け既定値の追加
@@ -4923,6 +4923,7 @@ flowchart LR
 - Requirements 11 の PDF 報告書出力経路（バッチ注釈取得・PDF レイアウト）
 - Requirements 22 の画像回転、Req 23 のサムネイル再生成パイプライン本体（新属性が透過的に流れることのみ確認）
 - 白縁取りの全画像一括マイグレーション（既存データへの遡及付与）
+- `SurveyImageGrid` の存廃判断。同部品にも同等の選択欄が実装されているが、どの画面からも描画されておらず（参照は barrel export・自身の単体テスト・Storybook のみ）、本要件の観測可能な経路には関与しない
 
 #### Allowed Dependencies
 - 新規外部依存: `jszip`（最新メジャー、MIT、actively maintained）。フロント `package.json` に追加
@@ -4951,8 +4952,8 @@ flowchart LR
 ```mermaid
 graph TB
     subgraph DetailPage
-        SurveyDetail
-        SurveyImageGrid
+        SurveyDetail[SiteSurveyDetailPage]
+        PhotoManagementPanel
         BulkExportButton
     end
 
@@ -4985,7 +4986,7 @@ graph TB
         JSZip
     end
 
-    SurveyDetail --> SurveyImageGrid
+    SurveyDetail --> PhotoManagementPanel
     SurveyDetail --> BulkExportButton
     BulkExportButton --> BulkExportDialog
     BulkExportDialog --> ExportSettingsForm
@@ -5012,7 +5013,7 @@ graph TB
 |-------|------------------|-----------------|-------|
 | ZIP Library | `jszip` ^3 系（最新） | クライアントサイド ZIP 生成（Blob 出力、`generateAsync` のストリーム書き込み） | フロント `package.json` 新規追加。`tech.md` 更新対象 |
 | Canvas Library | Fabric.js 7.3.1 | 6 形状の Group 化、`paintFirst: 'stroke'`（Dimension ラベル） | 既存。新規 API 利用なし |
-| Frontend Framework | React 19.2.0 + TypeScript 5.9.3 | BulkExportDialog / ProgressDialog / SurveyImageGrid 拡張 | 既存スタック |
+| Frontend Framework | React 19.2.0 + TypeScript 5.9.3 | BulkExportDialog / ProgressDialog / PhotoManagementPanel 拡張 | 既存スタック |
 | Cancellation | ブラウザ標準 `AbortController` | 一括処理中断 | 追加依存なし |
 
 選定理由概要は本表で十分。詳細トレードオフ（jszip 採用根拠、メモリ上限の推定、archiver との比較）は `research.md` の R6/R7 を参照。
@@ -5033,8 +5034,7 @@ frontend/src/components/site-surveys/
 ├── BulkExportProgressDialog.tsx          # 新規: 件数/割合プログレス + キャンセルボタン + 部分失敗時の選択肢
 ├── ExportSettingsForm.tsx                # 新規: 形式/解像度/注釈含む/原本出力 のフォーム本体（個別/一括で共有）
 ├── ImageExportDialog.tsx                 # 変更: 設定フォーム部を ExportSettingsForm に置換、ロジックは維持
-├── SurveyImageGrid.tsx                   # 変更: 各サムネイルへチェックボックス追加、選択 state 連携、選択件数表示
-├── SurveyDetailPage.tsx                  # 変更: 「全件一括エクスポート」「選択画像エクスポート」ボタンを追加（後者は選択 1 件以上時のみ活性）
+├── PhotoManagementPanel.tsx              # 変更: 各写真へチェックボックス追加、選択 state 連携
 ├── annotation-style-tokens.ts            # 変更: ShapeOutlineAttribute 共通型と 6 形状向け既定値追加（rectangleOutline 等）
 ├── registerCustomShapes.ts               # 変更: 6 形状の Group 版を再登録（type ID は維持）
 └── tools/
@@ -5044,6 +5044,9 @@ frontend/src/components/site-surveys/
     ├── PolylineTool.ts                   # 変更: Polyline extends Group（outlinePolyline + bodyPolyline）
     ├── FreehandTool.ts                   # 変更: Freehand extends Group（outlinePath + bodyPath）
     └── DimensionTool.ts                  # 変更: Dimension extends Group（outlineLine + bodyLine + labelText with paintFirst）
+
+frontend/src/pages/
+└── SiteSurveyDetailPage.tsx              # 変更: 「全件一括エクスポート」「選択画像エクスポート」ボタンを追加（後者は選択 1 件以上時のみ活性）、選択集合を PhotoManagementPanel と同期
 
 frontend/src/__tests__/site-surveys/
 ├── services/
@@ -5071,8 +5074,8 @@ e2e/specs/
 - `services/export/AnnotationRendererService.ts` — 既存 `renderImages()` を `bulkExportService` から呼ぶため、`onProgress(index, total)` callback と `signal: AbortSignal` 引数を追加する後方互換拡張（既存呼び出し箇所は引数省略で従来挙動）。Group 化 6 形状の `enlivenObjects` 復元・`toDataURL` 出力をテストで検証
 - `services/export/ExportService.ts` — `getExportSettings()` 型を `ExportSettings` インターフェースとして export し、個別/一括双方が同型を受領できるよう公開
 - `components/site-surveys/ImageExportDialog.tsx` — `ExportSettingsForm` を埋め込む形にリファクタ。ロジックは維持
-- `components/site-surveys/SurveyImageGrid.tsx` — 各サムネイル左上にチェックボックスを追加。`selectedImageIds: Set<string>` を親（SurveyDetailPage）から受け、`onSelectionChange` で同期
-- `components/site-surveys/SurveyDetailPage.tsx` — 詳細画面アクション領域に「全件一括エクスポート」「選択画像エクスポート（N 件）」ボタンを追加。後者は選択 0 件で disabled
+- `components/site-surveys/PhotoManagementPanel.tsx` — 各写真にチェックボックスを追加。`selectedImageIds: Set<string>` を親（SiteSurveyDetailPage）から受け、`onSelectionChange` で同期。両 props 未指定時は選択欄を表示しない（既存呼び出し箇所への後方互換）
+- `pages/SiteSurveyDetailPage.tsx` — 詳細画面アクション領域に「全件一括エクスポート」「選択画像エクスポート（N 件）」ボタンを追加。後者は選択 0 件で disabled
 - `components/site-surveys/annotation-style-tokens.ts` — `ShapeOutlineAttribute = { enabled, color, width }` を export。`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）。`ANNOTATION_DEFAULTS` に `rectangleOutline`/`circleOutline`/`polygonOutline`/`polylineOutline`/`freehandOutline`/`dimensionOutline` を追加、いずれも `enabled: true` 既定
 - `components/site-surveys/registerCustomShapes.ts` — `classRegistry.setClass('rectangle', Rectangle)` 等を Group 版で再登録（type ID 不変）
 - `tools/{Rectangle,Circle,Polygon,Polyline,Freehand}Tool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
@@ -5086,7 +5089,7 @@ e2e/specs/
 ```mermaid
 sequenceDiagram
     participant User
-    participant Detail as SurveyDetailPage
+    participant Detail as SiteSurveyDetailPage
     participant Dialog as BulkExportDialog
     participant Progress as BulkExportProgressDialog
     participant Bulk as bulkExportService
@@ -5152,7 +5155,7 @@ graph TB
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 31.1, 31.2, 31.3 | 全件/選択の起動、0 件時非活性 | SurveyDetailPage, SurveyImageGrid, BulkExportDialog | `BulkExportDialogProps` | 一括エクスポートフロー |
+| 31.1, 31.2, 31.3 | 全件/選択の起動、0 件時非活性 | SiteSurveyDetailPage, PhotoManagementPanel, BulkExportDialog | `BulkExportDialogProps` | 一括エクスポートフロー |
 | 31.4, 31.5, 31.6 | 設定 UI 共有・設定一括適用・レンダリング仕様継承 | ExportSettingsForm, bulkExportService, AnnotationRendererService | `ExportSettings`, `BulkExportInput` | 一括エクスポートフロー |
 | 31.7, 31.8, 31.9 | ZIP 単一ファイル化・命名規則・ZIP ファイル名 | bulkExportService, zip-naming | `ZipNamingStrategy` | 一括エクスポートフロー |
 | 31.10, 31.11, 31.12 | 進捗可視化・キャンセル可能・中断時 ZIP 非生成 | BulkExportProgressDialog, bulkExportService | `BulkExportProgress`, AbortSignal | 一括エクスポートフロー |
@@ -5179,7 +5182,7 @@ graph TB
 | ExportSettingsForm | UI | 形式・解像度・注釈含む・原本のフォーム本体 | 31.4 | StyleTokens (P1) | UI props |
 | BulkExportDialog | UI | 起動 + 設定確定 | 31.1-31.5, 31.15 | ExportSettingsForm (P0), bulkExportService (P0) | UI props |
 | BulkExportProgressDialog | UI | 進捗・キャンセル・部分失敗時の選択肢 | 31.10-31.14 | bulkExportService (P0) | UI props |
-| SurveyImageGrid (ext) | UI | チェックボックス・選択 state 連携 | 31.2, 31.3 | SurveyDetailPage (P0) | UI props |
+| PhotoManagementPanel (ext) | UI | チェックボックス・選択 state 連携 | 31.2, 31.3 | SiteSurveyDetailPage (P0) | UI props |
 | Rectangle (Group) | Tools | 白縁取り付き矩形 | 32.* (Rect分) | Fabric Group/Rect (P0), StyleTokens (P1) | State, Serialization |
 | Circle (Group) | Tools | 白縁取り付き円/楕円 | 32.* (Ellipse分) | Fabric Group/Ellipse (P0), StyleTokens (P1) | State, Serialization |
 | Polygon (Group) | Tools | 白縁取り付き多角形 | 32.* (Polygon分) | Fabric Group/Polygon (P0), StyleTokens (P1) | State, Serialization |
@@ -5376,17 +5379,17 @@ type PartialFailureChoice = 'download-partial' | 'cancel';
 - 部分失敗発生時は「N 件失敗。成功分（M 件）のみダウンロードしますか？」のサブダイアログで `PartialFailureChoice` を取得
 - キャンセル時は確認サブダイアログを挟まず即時中断（誤操作影響は小、再実行容易）
 
-##### SurveyImageGrid (ext)
+##### PhotoManagementPanel (ext)
 
 | Field | Detail |
 |-------|--------|
-| Intent | 各サムネイル左上のチェックボックスと選択 state を提供 |
+| Intent | 詳細画面が描画する画像一覧（要件10.1）の各写真にチェックボックスと選択 state を提供 |
 | Requirements | 31.2, 31.3 |
 
 **Implementation Notes**
-- `selectedImageIds: Set<string>` を親（SurveyDetailPage）から受領、変更は `onSelectionChange` で親に通知
-- 既存のドラッグ順序変更・個別アクションメニューは無変更
-- チェックボックスはデフォルト表示（モード切替は実装しない）
+- `selectedImageIds: Set<string>` を親（SiteSurveyDetailPage）から受領、変更は `onSelectionChange` で親に通知
+- 既存のドラッグ順序変更・メタデータ入力・削除操作は無変更
+- チェックボックスは `selectedImageIds` と `onSelectionChange` の両方が渡されたときのみ表示（両 props は任意で、未指定の既存呼び出し箇所は選択欄なしのまま動作する）
 
 #### Tools Layer
 
