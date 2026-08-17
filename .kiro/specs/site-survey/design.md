@@ -5140,11 +5140,15 @@ graph TB
 
 #### Directory Structure
 
+以下のツリーは**各ブロック見出しがリポジトリルートからの相対パス**（呼称規約1）であり、配下の行はその直下の実配置を表す。各行の区分（新規／変更）は本節を書いた時点の計画だが、**配置そのものは実装の実配置と一致していなければならない**。
+
 ```
+frontend/src/services/
+└── ExportService.ts                      # 変更: 個別エクスポート共有ユーティリティを bulk からも参照（`export/` 配下ではない）
+
 frontend/src/services/export/
 ├── bulkExportService.ts                  # 新規: 複数画像レンダ → JSZip → ダウンロード coordinator
 ├── zip-naming.ts                         # 新規: ZIP 内ファイル名規則ユーティリティ
-├── ExportService.ts                      # 変更: 個別エクスポート共有ユーティリティを bulk からも参照
 └── AnnotationRendererService.ts          # 変更（検証中心）: 6形状 Group 版が toDataURL で正しく出るかテスト追加
 
 frontend/src/components/site-surveys/
@@ -5154,8 +5158,8 @@ frontend/src/components/site-surveys/
 ├── ImageExportDialog.tsx                 # 変更: 設定フォーム部を ExportSettingsForm に置換、ロジックは維持
 ├── PhotoManagementPanel.tsx              # 変更: 各写真へチェックボックス追加、選択 state 連携
 ├── annotation-style-tokens.ts            # 変更: ShapeOutlineAttribute 共通型と 6 形状向け既定値追加（rectangleOutline 等）
-├── registerCustomShapes.ts               # 変更: 6 形状の Group 版を再登録（type ID は維持）
 └── tools/
+    ├── registerCustomShapes.ts           # 変更: 6 形状の Group 版を再登録（type ID は維持）
     ├── RectangleTool.ts                  # 変更: Rectangle extends Group（outlineRect + bodyRect）
     ├── CircleTool.ts                     # 変更: Circle extends Group（outlineEllipse + bodyEllipse）
     ├── PolygonTool.ts                    # 変更: Polygon extends Group（outlinePolygon + bodyPolygon）
@@ -5166,14 +5170,14 @@ frontend/src/components/site-surveys/
 frontend/src/pages/
 └── SiteSurveyDetailPage.tsx              # 変更: 「全件一括エクスポート」「選択画像エクスポート」ボタンを追加（後者は選択 1 件以上時のみ活性）、選択集合を PhotoManagementPanel と同期
 
-frontend/src/__tests__/site-surveys/
-├── services/
-│   ├── bulkExportService.test.ts         # 新規: 順次レンダ・ZIP 構築・進捗 callback・キャンセル・部分失敗の各経路
-│   └── zip-naming.test.ts                # 新規: 命名規則の決定論性、重複時のサフィックス
-├── components/
-│   ├── BulkExportDialog.test.tsx         # 新規: 起動・設定確定・対象 0 件の非活性表示
-│   ├── BulkExportProgressDialog.test.tsx # 新規: 進捗表示・キャンセル・部分失敗ユーザー選択
-│   └── ExportSettingsForm.test.tsx       # 新規: フォーム単体の挙動・既定値
+frontend/src/__tests__/services/export/
+├── bulkExportService.test.ts             # 新規: 順次レンダ・ZIP 構築・進捗 callback・キャンセル・部分失敗の各経路
+└── zip-naming.test.ts                    # 新規: 命名規則の決定論性、重複時のサフィックス
+
+frontend/src/__tests__/components/site-surveys/
+├── BulkExportDialog.test.tsx             # 新規: 起動・設定確定・対象 0 件の非活性表示
+├── BulkExportProgressDialog.test.tsx     # 新規: 進捗表示・キャンセル・部分失敗ユーザー選択
+├── ExportSettingsForm.test.tsx           # 新規: フォーム単体の挙動・既定値
 └── tools/
     ├── RectangleTool.outline.test.ts     # 新規: Group化・toObject/fromObject・後方互換
     ├── CircleTool.outline.test.ts        # 新規（同上）
@@ -5182,22 +5186,24 @@ frontend/src/__tests__/site-surveys/
     ├── FreehandTool.outline.test.ts      # 新規（同上）
     └── DimensionTool.outline.test.ts     # 新規: 寸法線 Group化 + ラベル paintFirst・寸法値変更時の追従
 
-e2e/specs/
+e2e/specs/site-surveys/
 ├── site-survey-bulk-export.spec.ts       # 新規: 全件/選択 ZIP、設定反映、進捗、キャンセル、部分失敗
 └── site-survey-all-shape-outline.spec.ts # 新規: 6 形状すべて白縁取り保存→リロード→復元
 ```
 
 #### Modified Files（主要変更点サマリー）
 
+以下の箇条書きのパスは、`frontend/` や `e2e/` 等のパッケージ接頭辞を明示したもの（`frontend/package.json`）を除き、**`frontend/src/` からの相対パス**である。
+
 - `services/export/AnnotationRendererService.ts` — 既存 `renderImages()` を `bulkExportService` から呼ぶため、`onProgress(index, total)` callback と `signal: AbortSignal` 引数を追加する後方互換拡張（既存呼び出し箇所は引数省略で従来挙動）。Group 化 6 形状の `enlivenObjects` 復元・`toDataURL` 出力をテストで検証
-- `services/export/ExportService.ts` — `getExportSettings()` 型を `ExportSettings` インターフェースとして export し、個別/一括双方が同型を受領できるよう公開
+- `services/ExportService.ts` — `getExportSettings()` 型を `ExportSettings` インターフェースとして export し、個別/一括双方が同型を受領できるよう公開
 - `components/site-surveys/ImageExportDialog.tsx` — `ExportSettingsForm` を埋め込む形にリファクタ。ロジックは維持
 - `components/site-surveys/PhotoManagementPanel.tsx` — 各写真にチェックボックスを追加。`selectedImageIds: Set<string>` を親（SiteSurveyDetailPage）から受け、`onSelectionChange` で同期。両 props 未指定時は選択欄を表示しない（既存呼び出し箇所への後方互換）
 - `pages/SiteSurveyDetailPage.tsx` — 詳細画面アクション領域に「全件一括エクスポート」「選択画像エクスポート（N 件）」ボタンを追加。後者は選択 0 件で disabled
 - `components/site-surveys/annotation-style-tokens.ts` — `ShapeOutlineAttribute = { enabled, color, width }` を export。`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）。`ANNOTATION_DEFAULTS` に `rectangleOutline`/`circleOutline`/`polygonOutline`/`polylineOutline`/`freehandOutline`/`dimensionOutline` を追加、いずれも `enabled: true` 既定
-- `components/site-surveys/registerCustomShapes.ts` — `classRegistry.setClass('rectangle', Rectangle)` 等を Group 版で再登録（type ID 不変）
-- `tools/{Rectangle,Circle,Polygon,Polyline,Freehand}Tool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
-- `tools/DimensionTool.ts` — 寸法線部を Group 化（`outlineLine + bodyLine`）、寸法値ラベルの `FabricText` に `paintFirst: 'stroke'` + `stroke: '#ffffff'` + `strokeWidth = fontSize * 0.12` + `strokeUniform: true` を適用（Req 32 #12）
+- `components/site-surveys/tools/registerCustomShapes.ts` — `classRegistry.setClass('rectangle', Rectangle)` 等を Group 版で再登録（type ID 不変）
+- `components/site-surveys/tools/{Rectangle,Circle,Polygon,Polyline,Freehand}Tool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
+- `components/site-surveys/tools/DimensionTool.ts` — 寸法線部を Group 化（`outlineLine + bodyLine`）、寸法値ラベルの `FabricText` に `paintFirst: 'stroke'` + `stroke: '#ffffff'` + `strokeWidth = fontSize * 0.12` + `strokeUniform: true` を適用（Req 32 #12）
 - `frontend/package.json` — `dependencies` に `jszip` を追加
 
 ### System Flows
