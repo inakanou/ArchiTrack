@@ -11,11 +11,15 @@
  * - 7.10: 図形の色・線の太さ・塗りつぶしをカスタマイズ可能にする
  * - 8.5: テキストのフォントサイズ・色・背景色をカスタマイズ可能にする
  *
+ * Task 115.70 (Req 26.4, 26.6): 本コンポーネントは本番の描画経路から一度も参照されていない
+ * （実際に描かれるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネント）。
+ * セッション内のスタイル引継ぎ（要件26.4 / 26.6）の主張は、未結線の本部品ではなく
+ * 実際に状態を保持する `AnnotationEditor`（`styleOptionsRef`）側へ移した。
+ * 検証は `frontend/src/__tests__/components/site-surveys/AnnotationEditor.style-session.test.tsx`。
+ *
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
  * @requirement site-survey/REQ-26.3
- * @requirement site-survey/REQ-26.4
- * @requirement site-survey/REQ-26.6
  * @requirement site-survey/REQ-28.7
  * @requirement site-survey/REQ-28.8
  * @requirement site-survey/REQ-29.1

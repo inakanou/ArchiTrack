@@ -7,8 +7,6 @@
  * - 24.5: 矢印の白縁取りの有効/無効をユーザーが任意に切替可能にする
  * - 25.2: テキストの白アウトラインの有効/無効をユーザーが任意に切替可能にする
  * - 26.3: 矢印・テキストツール初回選択時に白縁取り/白アウトラインが有効な初期状態で起動
- * - 26.4: セッション内の同ツール再利用時に直前のスタイル設定を引き継ぐ
- * - 26.6: セッション中はユーザー選択値を優先する
  * - 28.8: 選択中ツール再タップで詳細属性パネルをトグル表示
  * - 29.1: 選択中ツールを視覚的にハイライト
  *
@@ -20,13 +18,18 @@
  * - トグル変更で onStyleChange に arrowOutlineEnabled / textOutlineEnabled が渡る
  * - matchMedia('(max-width: 768px)') を mock してモバイル幅で初期折りたたみ、
  *   デスクトップ幅で初期展開になる
- * - styleOptions の outline 値が round-trip で復元される（Req 26.4 観測代替）
+ * - styleOptions の outline 値が props 再投入で表示へ反映される
+ *
+ * Task 115.70: 本ファイルは要件26.4 / 26.6 の受入基準カバレッジを単独で担っていたが、
+ * 検証対象の `StylePanel` は本番の描画経路から一度も参照されていない。未結線の部品を
+ * 検証しても要件が守られている証拠にはならないため、当該の主張は結線側
+ * （`AnnotationEditor.style-session.test.tsx`）へ移した。下記の round-trip は
+ * 制御コンポーネントが props を表示へ反映することの検証であり、セッション状態を
+ * 保持する主体を通らないため、要件26.4 の主張としては扱わない。
  *
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
  * @requirement site-survey/REQ-26.3
- * @requirement site-survey/REQ-26.4
- * @requirement site-survey/REQ-26.6
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -162,7 +165,7 @@ describe('StylePanel - 白縁取り/白アウトライン トグル (Task 70.2, 
       expect(toggle.checked).toBe(true);
     });
 
-    it('styleOptions.arrowOutlineEnabled=false の時、白縁取りトグルは unchecked (Req 26.4 round-trip 復元)', () => {
+    it('styleOptions.arrowOutlineEnabled=false の時、白縁取りトグルは unchecked (Req 24.5)', () => {
       render(
         <StylePanel
           styleOptions={{ ...DEFAULT_STYLE_OPTIONS, arrowOutlineEnabled: false }}
@@ -350,9 +353,9 @@ describe('StylePanel - 白縁取り/白アウトライン トグル (Task 70.2, 
   });
 
   // ==========================================================================
-  // Round-trip (Req 26.4 の観測代替)
+  // Round-trip (制御 props の表示反映。Req 26.4 の主張は結線側へ移動済み)
   // ==========================================================================
-  describe('styleOptions の outline 値 round-trip (Req 26.4 観測代替)', () => {
+  describe('styleOptions の outline 値 round-trip (制御 props の表示反映, Req 24.5)', () => {
     it('arrowOutlineEnabled=false で描画 → activeTool 変更 (text) → 再び arrow に戻した際、前回 OFF 状態が復元される', () => {
       // 1) 矢印 + OFF で描画
       const { rerender } = render(
