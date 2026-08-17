@@ -4923,7 +4923,7 @@ flowchart LR
 - Requirements 11 の PDF 報告書出力経路（バッチ注釈取得・PDF レイアウト）
 - Requirements 22 の画像回転、Req 23 のサムネイル再生成パイプライン本体（新属性が透過的に流れることのみ確認）
 - 白縁取りの全画像一括マイグレーション（既存データへの遡及付与）
-- `SurveyImageGrid` の存廃判断。同部品にも同等の選択欄が実装されているが、どの画面からも描画されておらず（参照は barrel export・自身の単体テスト・Storybook のみ）、本要件の観測可能な経路には関与しない
+- `SurveyImageGrid`（Task 115.55 で撤去済み）。同部品にも同等の選択欄が実装されていたが、どの画面からも描画されておらず（参照は barrel export・自身の単体テスト・Storybook のみ）、本要件の観測可能な経路には関与していなかった。要件10.1 が詳細画面について「サムネイル一覧は表示しない」と定めている以上、サムネイルグリッドである同部品には結線先が存在しない。画像一覧の責務は `PhotoManagementPanel` が単独で担う（表示順ソート・ドラッグでの順序変更・選択欄・報告書出力フラグをすべて備える上位互換）。要件31.2・31.3 の検証は `PhotoManagementPanel` の単体検証と E2E が担保する
 
 #### Allowed Dependencies
 - 新規外部依存: `jszip`（最新メジャー、MIT、actively maintained）。フロント `package.json` に追加

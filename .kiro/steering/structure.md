@@ -486,7 +486,6 @@ frontend/
 │   │       ├── SiteSurveyDetailInfo.tsx # 現場調査詳細情報表示
 │   │       ├── SiteSurveyErrorDisplay.tsx # エラー表示
 │   │       ├── ImageUploader.tsx    # 画像アップロードUI
-│   │       ├── SurveyImageGrid.tsx  # 画像グリッド表示
 │   │       ├── ImageViewer.tsx      # 画像ビューア（Fabric.js）
 │   │       ├── LazyImage.tsx        # 遅延読み込み画像
 │   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
@@ -737,7 +736,6 @@ frontend/
 - `SiteSurveyDetailInfo.stories.tsx` - 詳細情報表示
 - `SiteSurveyErrorDisplay.stories.tsx` - エラー表示
 - `ImageUploader.stories.tsx` - 画像アップロード
-- `SurveyImageGrid.stories.tsx` - 画像グリッド
 - `ImageViewer.stories.tsx` - 画像ビューア
 - `LazyImage.stories.tsx` - 遅延読み込み画像
 - `AnnotationToolbar.stories.tsx` - 注釈ツールバー
