@@ -61,151 +61,659 @@ const __dirname = path.dirname(__filename);
 // モバイル Viewport 設定（iPhone SE 相当）
 const MOBILE_VIEWPORT = { width: 375, height: 667 };
 
+// ============================================================================
+// Task 73.1 / 115.48: モバイル Viewport の注釈機能（白縁取り・タッチ操作・ツールバー）
+// ============================================================================
+//
+// Requirements coverage:
+//   - 24.1 / 24.6 / 24.7: 矢印の白縁取り表示と属性の永続化・復元
+//   - 25.1 / 25.7 / 25.8: テキストの白アウトライン表示と属性の永続化・復元
+//   - 27.1: テキスト注釈のダブルタップで編集モードへ遷移
+//   - 27.2 / 27.3 / 27.9 / 27.10: 長押しでのコンテキストメニュー表示と操作実行、
+//     描画ツール選択中は表示しない
+//   - 28.1 / 28.3 / 28.5: モバイル幅ツールバーの収まり・44px タップ領域・全ツール到達性
+//
+// Task 115.48（AI運用7原則 第3原則）:
+//   本 describe は以前 `E2E_SURVEY_ID` / `E2E_IMAGE_ID` の有無で `test.skip` する構成であり、
+//   当該環境変数はリポジトリのどこにも設定されていないため全件が恒久的に飛ばされていた。
+//   前提となるプロジェクト・現場調査・画像は検証の中で用意する。用意できない場合は
+//   飛ばさずに失敗させる。
+//
+// 長押し・ダブルタップは実タッチでしか成立しない（`touchGestureManager` は pointerdown を
+// 見ており、`page.mouse` では発火しない）。Task 98.1 / 98.2 と同じく CDP
+// `Input.dispatchTouchEvent` で実タッチを模擬する。
+
+/** 長押しの保持時間。実装の閾値（LONG_PRESS_MS = 500ms）を超える保持を与える。 */
+const LONG_PRESS_HOLD_MS = 800;
+
+/** 直前のタップをダブルタップ判定から失効させる待ち時間（DOUBLE_TAP_MS = 300ms を超える）。 */
+const DOUBLE_TAP_EXPIRY_MS = 500;
+
+/** 注釈オブジェクトの白縁取り状態（page.evaluate の戻り値） */
+interface AnnotationOutlineState {
+  type: string;
+  outlineEnabled: boolean;
+  outlineColor: string | null;
+  textOutlineEnabled: boolean;
+  textOutlineWidthRatio: number;
+}
+
 test.describe('モバイル Viewport 注釈機能', () => {
   test.describe.configure({ mode: 'serial' });
 
   let sharedPage: Page;
   let sharedContext: BrowserContext;
-  let surveyId: string | null = null;
-  let imageId: string | null = null;
+  let cdp: CDPSession;
+  let createdProjectId: string | null = null;
+  let createdSurveyId: string | null = null;
+  let createdImageId: string | null = null;
+
+  async function dispatchTouch(
+    type: 'touchStart' | 'touchMove' | 'touchEnd',
+    points: Array<{ x: number; y: number; id: number }>
+  ): Promise<void> {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map((p) => ({ x: p.x, y: p.y, id: p.id })),
+    });
+  }
+
+  /** 単一タップ（touchStart → touchEnd） */
+  async function tapAt(x: number, y: number): Promise<void> {
+    await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+    await sharedPage.waitForTimeout(40);
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(40);
+  }
+
+  /** ダブルタップ（DOUBLE_TAP_MS = 300ms 以内に同一点を 2 回タップ） */
+  async function doubleTapAt(x: number, y: number): Promise<void> {
+    await tapAt(x, y);
+    await sharedPage.waitForTimeout(90);
+    await tapAt(x, y);
+    await sharedPage.waitForTimeout(80);
+  }
+
+  /** 1 本指ドラッグ（タッチ）。描画ツールでの描画に用いる。 */
+  async function oneFingerDrag(
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    steps = 10
+  ): Promise<void> {
+    await dispatchTouch('touchStart', [{ x: from.x, y: from.y, id: 0 }]);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      await dispatchTouch('touchMove', [
+        { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, id: 0 },
+      ]);
+      await sharedPage.waitForTimeout(16);
+    }
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(80);
+  }
+
+  /**
+   * 指を接地したまま保持する（長押しの成立）。保持中に判定を行うため、
+   * 接地と解放を別関数に分けている。
+   */
+  async function pressAndHold(x: number, y: number): Promise<void> {
+    await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+    await sharedPage.waitForTimeout(LONG_PRESS_HOLD_MS);
+  }
+
+  /** 接地中の指を解放する。 */
+  async function releaseTouch(): Promise<void> {
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(80);
+  }
+
+  /** ページのスクロールを先頭へ戻し、キャンバス座標の基準を実レイアウトと一致させる。 */
+  async function resetScroll(): Promise<void> {
+    await sharedPage.evaluate(() => {
+      window.scrollTo(0, 0);
+    });
+    await sharedPage.waitForTimeout(120);
+  }
+
+  /** upper-canvas の bounding box を、Fabric の初期化完了まで待って取得する。 */
+  async function getCanvasBox(): Promise<CanvasBox> {
+    const upper = sharedPage.locator('.upper-canvas');
+    for (let i = 0; i < 30; i++) {
+      const box = await upper.boundingBox();
+      const ready = await sharedPage.evaluate(() => !!globalThis.__fabricCanvas);
+      if (box && box.width > 10 && box.height > 10 && ready) {
+        return box;
+      }
+      await sharedPage.waitForTimeout(200);
+    }
+    throw new Error('upper-canvas が初期化されませんでした');
+  }
+
+  /** 画像ビューアを開き、編集モードへ入って注釈ツールバーの表示を待つ。 */
+  async function enterEditMode(): Promise<void> {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}/images/${createdImageId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    const editModeButton = sharedPage.getByRole('button', { name: '編集モード', exact: true });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(15000) });
+    await editModeButton.tap();
+
+    await expect(sharedPage.getByTestId('annotation-toolbar')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await getCanvasBox();
+    await resetScroll();
+  }
+
+  /** 指定ツールを選択し、押下状態になったことを確認する。 */
+  async function selectTool(label: string): Promise<void> {
+    const tool = sharedPage.getByRole('button', { name: label, exact: true });
+    await expect(tool).toBeVisible({ timeout: getTimeout(10000) });
+    await tool.tap();
+    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /** Fabric キャンバス上のオブジェクト数を取得する。 */
+  async function getObjectCount(): Promise<number> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return -1;
+      return c.getObjects().length;
+    });
+  }
+
+  /** 各オブジェクトの type と白縁取り／白アウトライン属性を読み出す。 */
+  async function readOutlineStates(): Promise<AnnotationOutlineState[]> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return [];
+      const objects = c.getObjects() as unknown as Array<{
+        type?: string;
+        toObject: () => {
+          type?: string;
+          outline?: { enabled?: boolean; color?: string };
+          textOutline?: { enabled?: boolean; widthRatio?: number };
+        };
+      }>;
+      return objects.map((obj) => {
+        const serialized = obj.toObject();
+        return {
+          type: serialized.type ?? obj.type ?? 'unknown',
+          outlineEnabled: serialized.outline?.enabled === true,
+          outlineColor: serialized.outline?.color ?? null,
+          textOutlineEnabled: serialized.textOutline?.enabled === true,
+          textOutlineWidthRatio: serialized.textOutline?.widthRatio ?? 0,
+        };
+      });
+    });
+  }
+
+  /** 現在の選択オブジェクトの type を読む（未選択は null）。 */
+  async function readActiveType(): Promise<string | null> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return null;
+      const active = c.getActiveObject();
+      return active ? (active.type ?? 'unknown') : null;
+    });
+  }
+
+  /** textAnnotation の編集状態（isEditing）を読む。 */
+  async function readTextEditing(): Promise<boolean | null> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return null;
+      const objs = c.getObjects() as unknown as Array<{ type?: string; isEditing?: boolean }>;
+      const textObj = objs.find((o) => o.type === 'textAnnotation');
+      return textObj ? textObj.isEditing === true : null;
+    });
+  }
+
+  /**
+   * 指定 type のオブジェクト中心の client 座標を、scene 座標と viewportTransform、
+   * upper-canvas の boundingBox から算出する。
+   */
+  async function objectCenterClient(objectType: string): Promise<{ x: number; y: number }> {
+    const box = await getCanvasBox();
+    const info = await sharedPage.evaluate((targetType) => {
+      const c = globalThis.__fabricCanvas as unknown as {
+        getObjects: () => Array<{
+          type?: string;
+          getCenterPoint?: () => { x: number; y: number };
+        }>;
+        viewportTransform: number[];
+      } | null;
+      if (!c) return null;
+      const obj = c.getObjects().find((o) => o.type === targetType);
+      if (!obj || typeof obj.getCenterPoint !== 'function') return null;
+      const center = obj.getCenterPoint();
+      return { sx: center.x, sy: center.y, vpt: c.viewportTransform };
+    }, objectType);
+
+    if (!info) {
+      throw new Error(`${objectType} のオブジェクトが見つかりませんでした`);
+    }
+    const point = {
+      x: box.x + info.sx * (info.vpt[0] ?? 1) + (info.vpt[4] ?? 0),
+      y: box.y + info.sy * (info.vpt[3] ?? 1) + (info.vpt[5] ?? 0),
+    };
+    // 可視ビューポート外の座標へタッチを送っても何も起きず、原因の分からない失敗になる。
+    // 前提が崩れていることを明示するため、その場で失敗させる。
+    if (
+      point.x < 0 ||
+      point.y < 0 ||
+      point.x > MOBILE_VIEWPORT.width ||
+      point.y > MOBILE_VIEWPORT.height
+    ) {
+      throw new Error(
+        `${objectType} の中心 (${Math.round(point.x)}, ${Math.round(point.y)}) が` +
+          ` 可視ビューポート ${MOBILE_VIEWPORT.width}x${MOBILE_VIEWPORT.height} の外にあります`
+      );
+    }
+    return point;
+  }
+
+  /** 注釈を保存し、保存完了の表示を待つ。 */
+  async function saveAnnotations(): Promise<void> {
+    await sharedPage.getByRole('button', { name: '保存', exact: true }).tap();
+    await expect(sharedPage.getByRole('status', { name: '保存完了' })).toBeVisible({
+      timeout: getTimeout(20000),
+    });
+  }
 
   test.beforeAll(async ({ browser }) => {
-    sharedContext = await browser.newContext({ viewport: MOBILE_VIEWPORT });
+    sharedContext = await browser.newContext({
+      viewport: MOBILE_VIEWPORT,
+      hasTouch: true,
+      isMobile: true,
+    });
     sharedPage = await sharedContext.newPage();
+    cdp = await sharedContext.newCDPSession(sharedPage);
+
     await loginAsUser(sharedPage, 'REGULAR_USER');
 
-    // プロジェクト・現場調査・画像のアップロードは既存ヘルパーで省略化。
-    // 実運用では site-survey-annotations.spec.ts の beforeAll パターンを踏襲。
-    // NOTE: 完全な事前準備は runtime 環境で検証予定。
-
-    // テスト用の画像アップロード後、surveyId / imageId を設定
-    surveyId = process.env.E2E_SURVEY_ID ?? null;
-    imageId = process.env.E2E_IMAGE_ID ?? null;
-  });
-
-  test.afterAll(async () => {
-    await sharedContext?.close();
-  });
-
-  test.beforeEach(async () => {
-    test.skip(!surveyId || !imageId, 'E2E_SURVEY_ID / E2E_IMAGE_ID 未設定のためスキップ');
-  });
-
-  test('(a) 白縁取り付き矢印を配置→保存→リロード→復元', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
+    // --- プロジェクト作成 ---
+    await sharedPage.goto('/projects');
     await sharedPage.waitForLoadState('networkidle');
-
-    // 矢印ツールを選択
-    await sharedPage.getByRole('button', { name: /矢印/i }).tap();
-
-    // Canvas 上で矢印描画（模擬ドラッグ）
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) return;
-    await sharedPage.touchscreen.tap(box.x + 50, box.y + 50);
-    // tap sequence を drag に変換（mobile simulator 制約により簡易化）
-
-    // 保存
-    await sharedPage.getByRole('button', { name: /保存/i }).tap();
-    await expect(sharedPage.getByText(/保存しました/i)).toBeVisible({
-      timeout: getTimeout(10000),
+    await sharedPage.getByRole('button', { name: /新規作成/i }).click();
+    await expect(sharedPage).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+    await expect(sharedPage.getByText(/読み込み中/i).first()).not.toBeVisible({
+      timeout: getTimeout(15000),
     });
 
-    // リロード後、白縁取りが復元されていることを確認
-    await sharedPage.reload();
+    const projectName = `モバイル注釈E2E用PJ_${Date.now()}`;
+    await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
+    const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
+    const salesPersonValue = await salesPersonSelect.inputValue();
+    if (!salesPersonValue) {
+      const options = await salesPersonSelect.locator('option').all();
+      const firstUserOption = await options[1]?.getAttribute('value');
+      if (firstUserOption) {
+        await salesPersonSelect.selectOption(firstUserOption);
+      }
+    }
+
+    const createProjectPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/projects') &&
+        response.request().method() === 'POST' &&
+        response.status() === 201,
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createProjectPromise;
+
+    await sharedPage.waitForURL(/\/projects\/[0-9a-f-]+$/);
+    createdProjectId = sharedPage.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdProjectId).toBeTruthy();
+
+    // --- 現場調査作成 ---
+    await sharedPage.goto(`/projects/${createdProjectId}/site-surveys/new`);
     await sharedPage.waitForLoadState('networkidle');
-    await expect(sharedPage.locator('canvas').first()).toBeVisible();
-    // outline enabled 属性をローカルストレージ経由で確認するか、
-    // Canvas.getObjects() で outline 属性の存在を検証する（page.evaluate 併用）
+    await expect(sharedPage.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+    const surveyName = `モバイル注釈E2E用調査_${Date.now()}`;
+    await sharedPage.getByLabel(/調査名/i).fill(surveyName);
+    await sharedPage.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+
+    const createSurveyPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/') &&
+        response.url().includes('site-surveys') &&
+        response.request().method() === 'POST',
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createSurveyPromise;
+
+    await sharedPage.waitForURL(/\/site-surveys\/[0-9a-f-]+$/);
+    createdSurveyId = sharedPage.url().match(/\/site-surveys\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdSurveyId).toBeTruthy();
+
+    // --- 画像を API で直接アップロード ---
+    const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
+    expect(fs.existsSync(testImagePath)).toBeTruthy();
+    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const uploadResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        multipart: {
+          images: {
+            name: 'test-image-large.jpg',
+            mimeType: 'image/jpeg',
+            buffer: fs.readFileSync(testImagePath),
+          },
+        },
+      }
+    );
+    expect(uploadResponse.ok()).toBeTruthy();
+
+    const uploadBody = (await uploadResponse.json()) as { successful?: Array<{ id?: string }> };
+    createdImageId = uploadBody.successful?.[0]?.id ?? null;
+    expect(createdImageId).toBeTruthy();
   });
 
-  test('(b) テキスト注釈に白アウトラインを付与→保存→リロード→復元', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
+  test.afterAll(async ({ browser }) => {
+    // 後始末: 作成したデータを ADMIN 権限の API 呼び出しで削除する。
+    const cleanupContext = await browser.newContext();
+    const cleanupPage = await cleanupContext.newPage();
+    try {
+      await loginAsUser(cleanupPage, 'ADMIN_USER');
+      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const headers = { Authorization: `Bearer ${adminToken}` };
+      if (createdSurveyId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {
+          headers,
+        });
+      }
+      if (createdProjectId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
+          headers,
+        });
+      }
+    } catch {
+      // 後始末の失敗は検証結果に影響させない
+    } finally {
+      await cleanupPage.close();
+      await cleanupContext.close();
+      await sharedContext?.close();
+    }
+  });
 
-    await sharedPage.getByRole('button', { name: /テキスト/i }).tap();
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) return;
-    await sharedPage.touchscreen.tap(box.x + 100, box.y + 100);
+  /**
+   * (a) 白縁取り付き矢印を配置 → 保存 → リロード → 復元
+   *     Requirement 24.1, 24.6, 24.7
+   */
+  test('(a) 白縁取り付き矢印を配置→保存→リロード→復元 (REQ-24.1/24.6/24.7)', async () => {
+    await enterEditMode();
+    const box = await getCanvasBox();
 
-    // テキスト入力と確定（実 UI のモーダル/インライン編集に応じて調整）
+    await selectTool('矢印');
+    await oneFingerDrag(
+      { x: box.x + box.width * 0.12, y: box.y + box.height * 0.16 },
+      { x: box.x + box.width * 0.44, y: box.y + box.height * 0.42 }
+    );
+
+    // Req 24.1: 矢印は白色の縁取りを付与された状態で作成される
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: '矢印注釈が作成されませんでした',
+      })
+      .toBe(1);
+
+    const drawn = await readOutlineStates();
+    expect(drawn[0]!.type).toBe('arrow');
+    expect(drawn[0]!.outlineEnabled).toBe(true);
+    expect(drawn[0]!.outlineColor).toMatch(/^(white|#fff(fff)?|rgba?\(255,\s*255,\s*255)/i);
+
+    // Req 24.6: 白縁取り属性を含めて永続化する
+    await saveAnnotations();
+
+    // Req 24.7: 再表示時に保存された白縁取り属性を復元する
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存した矢印注釈が復元されませんでした',
+      })
+      .toBe(1);
+
+    const restored = await readOutlineStates();
+    expect(restored[0]!.type).toBe('arrow');
+    expect(restored[0]!.outlineEnabled).toBe(true);
+    expect(restored[0]!.outlineColor).toMatch(/^(white|#fff(fff)?|rgba?\(255,\s*255,\s*255)/i);
+  });
+
+  /**
+   * (b) テキスト注釈に白アウトラインを付与 → 保存 → リロード → 復元
+   *     Requirement 25.1, 25.7, 25.8
+   */
+  test('(b) テキスト注釈に白アウトラインを付与→保存→リロード→復元 (REQ-25.1/25.7/25.8)', async () => {
+    await enterEditMode();
+    const box = await getCanvasBox();
+
+    await selectTool('テキスト');
+    await tapAt(box.x + box.width * 0.62, box.y + box.height * 0.4);
+
+    // テキストツールは配置と同時に編集状態へ入り、初期文字列が全選択される
+    await expect
+      .poll(() => readTextEditing(), {
+        timeout: getTimeout(10000),
+        message: 'テキスト注釈が編集状態になりませんでした',
+      })
+      .toBe(true);
+
     await sharedPage.keyboard.type('現場調査');
     await sharedPage.keyboard.press('Escape');
+    await resetScroll();
 
-    // 白アウトライントグルで再確認
-    // StylePanel 展開 → textOutlineEnabled チェックボックス確認
+    // Req 25.1: テキストは白アウトラインを付与された状態で配置される
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: 'テキスト注釈が作成されませんでした',
+      })
+      .toBe(2);
 
-    await sharedPage.getByRole('button', { name: /保存/i }).tap();
-    await sharedPage.reload();
-    await expect(sharedPage.locator('canvas').first()).toBeVisible();
+    const drawn = await readOutlineStates();
+    const drawnText = drawn.find((state) => state.type === 'textAnnotation');
+    expect(drawnText, 'テキスト注釈が作成されていない').toBeTruthy();
+    expect(drawnText!.textOutlineEnabled).toBe(true);
+    expect(drawnText!.textOutlineWidthRatio).toBeGreaterThan(0);
+
+    // Req 25.7: 白アウトライン属性を含めて永続化する
+    await saveAnnotations();
+
+    // Req 25.8: 再表示時に保存された白アウトライン属性を復元する
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存したテキスト注釈が復元されませんでした',
+      })
+      .toBe(2);
+
+    const restored = await readOutlineStates();
+    const restoredText = restored.find((state) => state.type === 'textAnnotation');
+    expect(restoredText, 'テキスト注釈が復元されていない').toBeTruthy();
+    expect(restoredText!.textOutlineEnabled).toBe(true);
+    expect(restoredText!.textOutlineWidthRatio).toBeGreaterThan(0);
   });
 
-  test('(c) 既存注釈を長押しでコンテキストメニュー表示→削除', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
+  /**
+   * (c) 既存注釈の長押しでコンテキストメニューが開く（描画ツール中は開かない）
+   *     Requirement 27.2, 27.9, 27.10
+   *
+   * Task 115.47 の是正（長押しの対象を座標の当たり判定で解決する）を実ブラウザで検出できる
+   * 唯一の検証。通知に対象が含まれない実装でも、対象の上を長押しすればメニューが開くこと。
+   */
+  test('(c) 描画ツール中は開かず選択ツール中の長押しでコンテキストメニューが開く (REQ-27.2/27.9/27.10)', async () => {
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存済みの注釈が復元されませんでした',
+      })
+      .toBe(2);
 
-    // 選択ツールを確認（既定）
-    await sharedPage.getByRole('button', { name: /選択/i }).tap();
+    const menuPanel = sharedPage.getByTestId('annotation-context-menu-panel');
+    const arrowCenter = await objectCenterClient('arrow');
 
-    // 注釈オブジェクト上で長押し（500ms 以上 touchstart → touchend）
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    if (!box) return;
+    // Req 27.9: 描画ツール選択中は長押ししてもコンテキストメニューを表示しない
+    await selectTool('矢印');
+    await pressAndHold(arrowCenter.x, arrowCenter.y);
+    await expect(menuPanel).toBeHidden();
+    await releaseTouch();
 
-    await sharedPage.touchscreen.tap(box.x + 60, box.y + 60);
-    // 本 API では touchstart を保持する直接操作が制限されるため、
-    // page.evaluate で TouchEvent をディスパッチするか、
-    // カスタム helper 経由で longpress を模擬する運用を推奨。
+    // Req 27.10 / 27.2: 選択ツール選択中に既存オブジェクトを長押しするとメニューが開く
+    await selectTool('選択');
+    await resetScroll();
+    const arrowCenterForSelect = await objectCenterClient('arrow');
+    await pressAndHold(arrowCenterForSelect.x, arrowCenterForSelect.y);
+    await expect(menuPanel).toBeVisible({ timeout: getTimeout(5000) });
+    await expect(sharedPage.getByTestId('annotation-editor-container')).toHaveAttribute(
+      'data-context-menu-visible',
+      'true'
+    );
 
-    // コンテキストメニューの「削除」ボタンをタップ
-    await sharedPage.getByRole('button', { name: /削除/i }).tap();
-    // オブジェクトが消えたことを検証
+    // Req 27.2: 長押しした対象が選択状態になっている
+    expect(await readActiveType()).toBe('arrow');
+
+    await releaseTouch();
   });
 
-  test('(d) 既存テキストをダブルタップで編集モード', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
+  /**
+   * (d) モバイルツールバーの全ツールが画面幅に収まりタップ可能
+   *     Requirement 28.1, 28.3, 28.5
+   */
+  test('(d) モバイルツールバーの全ツールが画面幅に収まりタップできる (REQ-28.1/28.3/28.5)', async () => {
+    await enterEditMode();
 
-    await sharedPage.getByRole('button', { name: /選択/i }).tap();
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    if (!box) return;
-
-    // ダブルタップ（touchGestureManager が 300ms 以内の 2 回 pointerdown を検出）
-    await sharedPage.touchscreen.tap(box.x + 100, box.y + 100);
-    await sharedPage.waitForTimeout(100);
-    await sharedPage.touchscreen.tap(box.x + 100, box.y + 100);
-
-    // 編集モード進入（IText.enterEditing）はカーソル表示やテキスト入力可否で検証
-  });
-
-  test('(e) モバイルツールバーの全ツールがタップ可能', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
-
-    const toolNames = [
-      /選択/i,
-      /寸法線/i,
-      /矢印/i,
-      /円/i,
-      /四角形/i,
-      /多角形/i,
-      /折れ線/i,
-      /フリーハンド/i,
-      /テキスト/i,
+    const toolLabels = [
+      '選択',
+      '寸法線',
+      '矢印',
+      '円',
+      '四角形',
+      '多角形',
+      '折れ線',
+      'フリーハンド',
+      'テキスト',
     ];
 
-    for (const name of toolNames) {
-      const button = sharedPage.getByRole('button', { name });
+    for (const label of toolLabels) {
+      const button = sharedPage.getByRole('button', { name: label, exact: true });
       await expect(button).toBeVisible();
-      const boundingBox = await button.boundingBox();
-      expect(boundingBox?.width).toBeGreaterThanOrEqual(44);
-      expect(boundingBox?.height).toBeGreaterThanOrEqual(44);
+
+      // Req 28.5: 全ツールがタップで選択できる
       await button.tap();
+      await expect(button).toHaveAttribute('aria-pressed', 'true');
+
+      const boundingBox = await button.boundingBox();
+      expect(boundingBox, `${label} のタップ領域が取得できない`).not.toBeNull();
+      // Req 28.3: タップ領域は 44x44 論理ピクセル以上
+      expect(boundingBox!.width, `${label} の幅が 44px 未満`).toBeGreaterThanOrEqual(44);
+      expect(boundingBox!.height, `${label} の高さが 44px 未満`).toBeGreaterThanOrEqual(44);
+      // Req 28.1: 各項目が画面幅に収まる（横方向のはみ出しがない）
+      expect(boundingBox!.x, `${label} が画面左端からはみ出している`).toBeGreaterThanOrEqual(0);
+      expect(
+        boundingBox!.x + boundingBox!.width,
+        `${label} が画面右端からはみ出している`
+      ).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
     }
+
+    // Req 28.1: ツールバー自体もモバイル幅に収まる
+    const toolbarBox = await sharedPage.getByTestId('annotation-toolbar').boundingBox();
+    expect(toolbarBox).not.toBeNull();
+    expect(toolbarBox!.x).toBeGreaterThanOrEqual(0);
+    expect(toolbarBox!.x + toolbarBox!.width).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+  });
+
+  /**
+   * (e) 既存テキストをダブルタップで編集モードへ遷移
+   *     Requirement 27.1
+   */
+  test('(e) 既存テキストをダブルタップで編集モードへ遷移する (REQ-27.1)', async () => {
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存済みの注釈が復元されませんでした',
+      })
+      .toBe(2);
+
+    await selectTool('選択');
+    await resetScroll();
+    expect(await readTextEditing()).toBe(false);
+
+    const textCenter = await objectCenterClient('textAnnotation');
+
+    // タップ座標が実際にテキスト注釈へ当たることを単タップの選択で先に確かめる。
+    // これによりダブルタップが不発の場合に「座標が外れている」のか
+    // 「ダブルタップの調停が働いていない」のかを切り分けられる。
+    await tapAt(textCenter.x, textCenter.y);
+    await expect
+      .poll(() => readActiveType(), {
+        timeout: getTimeout(10000),
+        message: 'タップ座標がテキスト注釈に当たっていません',
+      })
+      .toBe('textAnnotation');
+
+    // 直前の単タップがダブルタップとして誤検出されないよう lastTap を失効させる
+    await sharedPage.waitForTimeout(DOUBLE_TAP_EXPIRY_MS);
+
+    await doubleTapAt(textCenter.x, textCenter.y);
+
+    // Req 27.1: ダブルタップで当該テキスト注釈が編集モードへ遷移する
+    await expect
+      .poll(() => readTextEditing(), {
+        timeout: getTimeout(10000),
+        message: 'ダブルタップでテキスト編集モードへ遷移しませんでした',
+      })
+      .toBe(true);
+  });
+
+  /**
+   * (f) コンテキストメニューの項目タップで操作が実行される
+   *     Requirement 27.3
+   *
+   * 項目をタップするには指を離す必要があるため、「指を離してもメニューが開いたままである」
+   * ことが前提になる。メニューの表示自体（Req 27.2）は (c) で検証済みであり、本テストは
+   * 表示後の操作実行のみを対象とする。
+   */
+  test('(f) コンテキストメニューの削除をタップすると注釈が削除される (REQ-27.3)', async () => {
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存済みの注釈が復元されませんでした',
+      })
+      .toBe(2);
+
+    await selectTool('選択');
+    await resetScroll();
+    const countBeforeMenu = await getObjectCount();
+    const arrowCenter = await objectCenterClient('arrow');
+
+    const menuPanel = sharedPage.getByTestId('annotation-context-menu-panel');
+    await pressAndHold(arrowCenter.x, arrowCenter.y);
+    await expect(menuPanel).toBeVisible({ timeout: getTimeout(5000) });
+    await releaseTouch();
+
+    // 指を離してもメニューは開いたままで、項目をタップできる
+    await expect(menuPanel, '指を離した時点でコンテキストメニューが閉じている').toBeVisible();
+
+    // Req 27.3: 「削除」をタップすると当該オブジェクトが削除される
+    await menuPanel.getByRole('button', { name: '削除', exact: true }).tap();
+    await expect(menuPanel).toBeHidden({ timeout: getTimeout(5000) });
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: 'コンテキストメニューの削除で注釈が削除されませんでした',
+      })
+      .toBe(countBeforeMenu - 1);
   });
 });
 
