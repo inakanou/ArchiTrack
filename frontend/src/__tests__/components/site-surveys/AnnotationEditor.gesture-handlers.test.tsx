@@ -6,10 +6,14 @@
  *   - custom:dbltap: target が TextAnnotation（type === 'textAnnotation' または 'i-text'）
  *     の場合、`target.enterEditing()` を呼ぶ
  *   - custom:dbltap: target が他のタイプ（例: rectangle）の場合、enterEditing を呼ばない
- *   - custom:longpress: 選択ツール選択中かつ target がある場合、コンテキストメニュー状態を
- *     表示状態に遷移（Req 27.10）
+ *   - custom:longpress: 選択ツール選択中に長押し点へヒットテストで対象が居る場合、
+ *     コンテキストメニュー状態を表示状態に遷移（Req 27.2, 27.10）
  *   - custom:longpress: 描画ツール選択中は何もしない（Req 27.9 / Req 17）
- *   - custom:longpress: target が null の場合は開かない（防御的）
+ *   - custom:longpress: 長押し点に対象が無い場合は開かない（防御的）
+ *
+ * Task 115.47: longpress の対象は payload.target ではなく `canvas.findTarget` の実ヒット
+ * テストで解決する（buildPayload は target を設定しないため、payload.target 依存では
+ * 実機のタッチ長押しでメニューが開かない）。ダブルタップ側（Task 96.3）と同一方式。
  *
  * コンテキストメニューの可視状態は `data-context-menu-visible` 属性で観測する。
  *
@@ -33,7 +37,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, act } from '@testing-library/react';
 
 const originalConsoleError = console.error;
 beforeAll(() => {
@@ -489,8 +493,8 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
     });
   });
 
-  describe('handleLongPress (Req 27.9, 27.10)', () => {
-    it('選択ツール選択中に target ありで長押し → コンテキストメニュー state が visible になる (Req 27.10)', async () => {
+  describe('handleLongPress (Req 27.2, 27.9, 27.10)', () => {
+    it('target を含まない通知でも、対象の上を長押しすればコンテキストメニューが開く (Req 27.2, 27.10)', async () => {
       render(<AnnotationEditor {...defaultProps} />);
 
       await waitFor(() => {
@@ -503,18 +507,55 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
 
       const longpressHandler = getRegisteredHandler('custom:longpress')!;
 
+      // 長押し点に注釈オブジェクトが居る
       const target = { type: 'rectangle' };
+      setHitTarget(target);
+
+      // 本番 payload 形状（touchGestureManager.buildPayload は target を設定しない）
       longpressHandler({
         pointerType: 'touch',
         clientX: 120,
         clientY: 240,
-        target,
         currentTool: 'select',
       });
 
       await waitFor(() => {
         expect(container).toHaveAttribute('data-context-menu-visible', 'true');
       });
+
+      // メニューはヒットテストで解決した対象に対して操作を行う
+      const panel = screen.getByTestId('annotation-context-menu-panel');
+      expect(panel).toBeInTheDocument();
+
+      const user = (await import('@testing-library/user-event')).default.setup();
+      await user.click(screen.getByRole('button', { name: '削除' }));
+      expect(mockCanvasInstance.remove).toHaveBeenCalledWith(target);
+    });
+
+    it('payload.target があってもヒットテストで対象が無ければ開かない（payload.target に依存しない）', async () => {
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(getRegisteredHandler('custom:longpress')).toBeDefined();
+      });
+
+      const container = screen.getByTestId('annotation-editor-container');
+      const longpressHandler = getRegisteredHandler('custom:longpress')!;
+
+      // 長押し点は空き領域（beforeEach で setHitTarget(undefined) 済み）だが payload には target がある
+      // act で state 更新を確定させてから「開いていない」ことを判定する（未反映による偽陰性の排除）
+      await act(async () => {
+        longpressHandler({
+          pointerType: 'touch',
+          clientX: 120,
+          clientY: 240,
+          target: { type: 'rectangle' },
+          currentTool: 'select',
+        });
+      });
+
+      expect(container).toHaveAttribute('data-context-menu-visible', 'false');
+      expect(screen.queryByTestId('annotation-context-menu-panel')).not.toBeInTheDocument();
     });
 
     it('描画ツール選択中に target ありで長押し → コンテキストメニューは開かない (Req 27.9 / Req 17)', async () => {
@@ -535,21 +576,24 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
 
       const longpressHandler = getRegisteredHandler('custom:longpress')!;
 
-      const target = { type: 'rectangle' };
-      longpressHandler({
-        pointerType: 'touch',
-        clientX: 120,
-        clientY: 240,
-        target,
-        currentTool: 'arrow',
+      // 長押し点には注釈オブジェクトが居るが、描画ツール中なのでメニューは開かない
+      setHitTarget({ type: 'rectangle' });
+      await act(async () => {
+        longpressHandler({
+          pointerType: 'touch',
+          clientX: 120,
+          clientY: 240,
+          currentTool: 'arrow',
+        });
       });
 
       const container = screen.getByTestId('annotation-editor-container');
       // 描画ツール中の長押しはメニューを開かない
       expect(container).toHaveAttribute('data-context-menu-visible', 'false');
+      expect(screen.queryByTestId('annotation-context-menu-panel')).not.toBeInTheDocument();
     });
 
-    it('選択ツール選択中に target なしで長押し → コンテキストメニューは開かない（防御的）', async () => {
+    it('選択ツール選択中に対象の無い位置を長押し → コンテキストメニューは開かない（防御的）', async () => {
       render(<AnnotationEditor {...defaultProps} />);
 
       await waitFor(() => {
@@ -561,14 +605,17 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
 
       const longpressHandler = getRegisteredHandler('custom:longpress')!;
 
-      longpressHandler({
-        pointerType: 'touch',
-        clientX: 120,
-        clientY: 240,
-        currentTool: 'select',
+      await act(async () => {
+        longpressHandler({
+          pointerType: 'touch',
+          clientX: 120,
+          clientY: 240,
+          currentTool: 'select',
+        });
       });
 
       expect(container).toHaveAttribute('data-context-menu-visible', 'false');
+      expect(screen.queryByTestId('annotation-context-menu-panel')).not.toBeInTheDocument();
     });
   });
 });

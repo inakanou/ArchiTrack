@@ -141,6 +141,31 @@ const DOUBLE_TAP_ZOOM_EPSILON = 0.01;
 const REFIT_IDENTITY_ZOOM_EPSILON = 0.01;
 
 /**
+ * Task 96.3 / 115.47 (Req 27.1, 27.2, 27.9, 27.10, 33.8):
+ * ジェスチャー通知（`custom:dbltap` / `custom:longpress`）の座標から実対象を解決する。
+ *
+ * `touchGestureManager.buildPayload` は payload に `target` を設定せず、Fabric の
+ * `canvas.fire` もカスタムイベントに `target` を付与しない。したがって本番のタッチ操作では
+ * `payload.target` は常に undefined であり、これに依存したハンドラは何もしないまま終わる。
+ * 対象は通知の clientX/clientY から Fabric の実ヒットテストで解決しなければならない。
+ *
+ * Fabric v7 の `findTarget` は clientX/clientY を持つイベント様オブジェクトから
+ * `getScenePoint` 経由で対象を解決し、`{ target?, subTargets, ... }` を返す。
+ *
+ * ダブルタップ側と長押し側で判定を二重に持たないよう、両者はこの 1 箇所を共用する。
+ */
+const resolveGestureTarget = (
+  canvas: FabricCanvas,
+  payload: GesturePayload
+): FabricObject | undefined => {
+  const eventLike = {
+    clientX: payload.clientX,
+    clientY: payload.clientY,
+  } as unknown as TPointerEvent;
+  return canvas.findTarget(eventLike).target;
+};
+
+/**
  * AnnotationEditorの状態
  */
 interface AnnotationEditorState {
@@ -1386,18 +1411,11 @@ function AnnotationEditor({
       return;
     }
 
-    // Task 96.3 (round 1 修正): payload.target には依存しない。
-    // touchGestureManager の buildPayload は target を設定せず、Fabric の canvas.fire は
-    // カスタムイベントに target を付与しないため、本番タッチ dbltap では payload.target が
-    // 常に undefined になる。ここでタップ点のクライアント座標から実ヒットテストを行い対象を得る。
-    // Fabric v7 の findTarget は clientX/clientY を持つイベント様オブジェクトから
-    // getScenePoint 経由で対象を解決し、{ target?, subTargets, ... } を返す。
-    const eventLike = {
-      clientX: payload.clientX,
-      clientY: payload.clientY,
-    } as unknown as TPointerEvent;
-    const hit = canvas.findTarget(eventLike);
-    const target = hit.target as { type?: string; enterEditing?: () => void } | undefined;
+    // Task 96.3 (round 1 修正) / 115.47: payload.target には依存せず、タップ点の座標から
+    // 実ヒットテストで対象を得る（判定は resolveGestureTarget の 1 箇所のみ。長押し側と共用）。
+    const target = resolveGestureTarget(canvas, payload) as
+      | { type?: string; enterEditing?: () => void }
+      | undefined;
 
     // Req 27.1: テキスト注釈上は従来どおり編集モードへ（後方互換）。ズームはしない。
     // これにより、従来 payload.target=undefined→no-op で実質壊れていたタッチのテキスト編集も
@@ -1431,25 +1449,37 @@ function AnnotationEditor({
   }, []);
 
   /**
-   * Task 72.2 (Req 27.9, 27.10): 長押しハンドラ
+   * Task 72.2 / 115.47 (Req 27.2, 27.9, 27.10): 長押しハンドラ
    *
-   * 選択ツール選択中かつ target がある場合のみコンテキストメニュー state を visible にする。
+   * 選択ツール選択中に、長押し点の座標をヒットテスト（`resolveGestureTarget`）して対象が
+   * 得られた場合のみコンテキストメニュー state を visible にする（Req 27.2, 27.10）。
+   * 通知（GesturePayload）は target を含まないため、対象は必ず座標から解決する。
    * 描画ツール選択中は Req 17 (描画ツール使用中のオブジェクト選択防止) と Req 27.9 に従い
-   * コンテキストメニューを表示せず何もしない。
+   * コンテキストメニューを表示せず何もしない（ヒットテストも行わない）。
    */
   const handleLongPress = useCallback((payload: GesturePayload) => {
     // Req 27.9 / Req 17: 描画ツール選択中は長押しによるメニュー表示を行わない
     if (activeToolRef.current !== 'select') {
       return;
     }
-    // 防御的: target が無い長押しはメニューを開かない
-    if (!payload.target) {
+
+    const canvas = fabricCanvasRef.current;
+    if (canvas === null) {
+      return;
+    }
+
+    // Task 115.47: payload.target には依存せず、長押し点の座標から実ヒットテストで対象を得る
+    // （ダブルタップ側と同一方式。判定は resolveGestureTarget の 1 箇所のみ）。
+    const target = resolveGestureTarget(canvas, payload);
+
+    // 防御的: 長押し点に対象が無ければメニューを開かない
+    if (!target) {
       return;
     }
     setContextMenu({
       visible: true,
       position: { x: payload.clientX, y: payload.clientY },
-      targetObject: payload.target as FabricObject,
+      targetObject: target,
     });
   }, []);
 
