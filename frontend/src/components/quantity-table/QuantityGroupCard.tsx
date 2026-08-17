@@ -552,7 +552,14 @@ export default function QuantityGroupCard({
   const [editNameValue, setEditNameValue] = useState(groupDisplayName);
   const [nameError, setNameError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  /** IME 変換中かどうか（変換中は幅の判定を行わない: Task 115.34、REQ-22.5） */
+  /**
+   * IME 変換中かどうか（変換中は幅の判定を行わない: Task 115.34、REQ-22.5）
+   *
+   * 記録の寿命は「一回の焦点セッション」とする（Task 115.42）。この編集欄では
+   * 変換の確定（compositionend）または焦点喪失（handleNameBlur）で終了させる。
+   * 焦点喪失側だけで全ての焦点セッションの開始前に初期化された状態を保証できるため、
+   * 編集開始時の初期化は置かない（Task 115.44）。
+   */
   const isNameComposingRef = useRef(false);
   /**
    * 幅の判定を通した直前の値（判定を経ていない値が確定されそうな場合の戻り先）
@@ -629,9 +636,10 @@ export default function QuantityGroupCard({
    */
   const handleNameClick = useCallback(() => {
     if (!isEditable || !onRenameGroup) return;
-    // 前回の編集が変換中のまま閉じられた場合に備え、変換中の追跡を初期化する
-    // （compositionend が届かないまま編集が終わると次回の確定が抑止され続けるため）
-    isNameComposingRef.current = false;
+    // 変換中の記録はここでは初期化しない（Task 115.44）。編集開始時の初期化は
+    // 焦点喪失時の終了（handleNameBlur）に完全に含まれる。編集欄は焦点喪失後も
+    // 残りうる（空欄で確定できない場合）ため、全ての焦点セッションを覆えるのは
+    // 焦点喪失側だけであり、編集開始側は一度も単独では効かない。
     // 幅の判定を通った戻り先を編集開始時の値で初期化する（Task 115.40）
     preCompositionNameRef.current = groupDisplayName;
     setEditNameValue(groupDisplayName);
@@ -813,9 +821,14 @@ export default function QuantityGroupCard({
    * 失った場合に、確定されないまま残る編集が生じるため。
    *
    * あわせて変換中の記録をここで終了させる（Task 115.42）。記録の寿命は「一回の焦点
-   * セッション」であり、編集開始（入力欄が焦点を得る時点）で初期化し、焦点喪失で終了する。
+   * セッション」であり、確定の通知（compositionend）か焦点喪失の早い方で終了する。
    * 焦点喪失で消さないと、空欄のため確定できず編集欄が残った場合に記録が固着し、
    * その編集欄では以後の確定・取り消しも幅の判定も働かなくなる。
+   *
+   * この編集欄では焦点喪失側が唯一の終了点である（Task 115.44）。編集開始時にも
+   * 初期化していたが、編集欄は焦点喪失後も残りうる（空欄で確定できない場合）ため
+   * 編集開始側では覆えない焦点セッションがあり、逆に焦点喪失側は全ての焦点セッションを
+   * 覆う。変換中は確定も取り消しも抑止されるため、焦点喪失以外に編集欄を閉じる経路も無い。
    */
   const handleNameBlur = useCallback(() => {
     const base = preCompositionNameRef.current;

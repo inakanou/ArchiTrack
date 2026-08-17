@@ -1213,6 +1213,9 @@ export class QuantityTableService {
    * 新規のグループ・項目は id を持たない（null）ため対象外である。クライアント仮ID
    * （tempId）は永続化にも応答にも用いないため、重複しても状態には影響しない。
    *
+   * 項目IDはグループを跨いで判定するが、グループIDとは別の集合で判定する。両者は
+   * 別の表の識別子であり、同じ値であっても重複ではない（Task 115.44 で分離を検証で固定）。
+   *
    * Requirements:
    * - 42.9: 整合性エラー時はエラーを返し保存を中断する
    * - 11.2: 整合性チェックエラー時は保存を中断する
@@ -1222,6 +1225,8 @@ export class QuantityTableService {
    * @throws QuantityTableValidationError 同一IDが複数回現れる場合
    */
   private validateDraftDuplicateIds(input: SaveQuantityTableDraftInput): void {
+    // グループIDと項目IDは別の表の識別子であるため、集合を分けて判定する。
+    // 同じ集合で判定すると、両者が同じ値になった要求を誤って重複として拒否する。
     const seenGroupIds = new Set<string>();
     const seenItemIds = new Set<string>();
     const validationErrors: Record<string, string> = {};

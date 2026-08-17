@@ -210,9 +210,9 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
    * 日本語入力（IME）の変換中かどうか
    *
    * この記録の寿命は「一回の焦点セッション」とする（Task 115.42）。焦点を得た時点で
-   * 初期化し、変換の確定（compositionend）または焦点喪失のいずれか早い方で終了する。
-   * 確定の通知でしか消さないと、確定が届かないまま焦点が外れた場合に記録が残り、
-   * 以後その入力欄では変換と無関係の直接入力でも幅の判定が迂回され続ける。
+   * 初期化し、変換の確定（compositionend）で終了する。確定の通知でしか消さないと、
+   * 確定が届かないまま焦点が外れた場合に記録が残り、以後その入力欄では変換と無関係の
+   * 直接入力でも幅の判定が迂回され続けるため、焦点獲得側の初期化が要となる（Task 115.44）。
    */
   const isComposingRef = useRef(false);
   /**
@@ -398,12 +398,16 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
   /**
    * ブラー時ハンドラ
    *
-   * 変換中の記録をここで終了させる（Task 115.42）。焦点喪失の時点では value が幅の
-   * 判定を経ていない場合があるため、変換の確定と同じ判定を改めて適用し、判定を通った
-   * 値だけを状態と候補の登録へ渡す。
+   * 焦点喪失の時点では value が幅の判定を経ていない場合があるため、変換の確定と同じ
+   * 判定を改めて適用し、判定を通った値だけを状態と候補の登録へ渡す。
    * - 変換中に焦点を失った場合。変換中は幅の判定を行わないため上限超過の読みが残る
    * - 変換の確定（compositionend）と焦点喪失が同一の実行単位に入った場合。戻し処理は
    *   状態の更新であり、同じ実行単位から見える値は反映前（＝上限超過）のままになる
+   *
+   * 変換中の記録はここでは終了させない（Task 115.44）。記録が意味を持つのは入力が
+   * 起こるとき＝焦点がある間だけで、次に入力が起こる前には必ず焦点獲得（handleFocus）を
+   * 経るため、初期化は焦点獲得側だけで漏れなく行える。候補一覧へ焦点が移る場合は
+   * 冒頭で早期に戻るため、そもそもここでは終了させられない。
    *
    * blur時にonBlurAddCandidateを呼び出して確定値を候補に追加する（REQ-7.6）。
    * 上限を超える値は候補一覧へ入れない。候補は以後の入力の元になるため、
@@ -424,7 +428,6 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
 
       const base = preCompositionValueRef.current;
       const committed = acceptsWidth(value, base) ? value : base;
-      isComposingRef.current = false;
       preCompositionValueRef.current = committed;
       if (committed !== value) {
         onChange(committed);

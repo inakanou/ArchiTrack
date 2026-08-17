@@ -234,6 +234,9 @@ describe('QuantityTableEditPage - 複数選択の一括操作（REQ-6.5）', () 
   it('項目未選択のときは一括操作の操作面を表示しない', async () => {
     await renderLoaded();
 
+    // 操作面そのものと、その中の各操作の双方が現れないことを一つの検証で確かめる
+    // （Task 115.44: 操作面の要素だけを見る同趣旨の検証が重複していたため統合した）
+    expect(screen.queryByTestId('quantity-item-bulk-action-bar')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /選択した項目を削除/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /選択した項目をコピー/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /選択した項目を移動/ })).not.toBeInTheDocument();
@@ -340,7 +343,10 @@ describe('QuantityTableEditPage - 複数選択の一括操作（REQ-6.5）', () 
  * 実ブラウザ上の見え方（下方の行を選択したときの視認性・狭幅での収まり・
  * 前面要素との重なり）は仮想DOMでは判定できないため、ここでは
  * 「ビューポート基準で固定される」「一覧より後ろに置かれる」「前面要素より背面に置かれる」
- * というレイアウト契約を検証し、実際の見え方は実ブラウザ検証で確認する。
+ * 「操作群が折り返す」というレイアウト契約を検証し、実際の見え方は実ブラウザ検証で確認する。
+ *
+ * Task 115.44: 収まりを担っていない指定の照合と、選択が無い間の非表示の重複検証を整理した
+ * （非表示の検証は REQ-6.5 の「項目未選択のときは一括操作の操作面を表示しない」へ統合）。
  */
 describe('QuantityTableEditPage - 一括操作の操作面の常時視認（REQ-6.5, REQ-45 と同方式）', () => {
   const user = userEvent.setup();
@@ -384,17 +390,18 @@ describe('QuantityTableEditPage - 一括操作の操作面の常時視認（REQ-
     expect(zIndex).toBeLessThan(1000);
   });
 
-  it('狭い画面でも操作群が折り返し、操作面が横幅からはみ出さない', async () => {
+  /**
+   * 狭い幅での収まり（Task 115.44 で組み替え）
+   *
+   * 収まりを実際に担っているのは折り返しの指定である。操作面は main（padding のみの
+   * ブロック）直下の自動幅ブロックであり、外枠の幅は常に親の内容領域に収まる。
+   * はみ出しうるのは中の操作群だけで、それを防ぐのは flexWrap である。
+   * 併記されていた boxSizing / maxWidth は自動幅のブロックでは効かないため、
+   * 指定ごと外した（照合していただけで収まりを保証していなかった）。
+   */
+  it('操作群が折り返す（狭い幅で操作面が横幅からはみ出さないための指定）', async () => {
     const bar = await selectItemAndGetBar();
 
     expect(bar.style.flexWrap).toBe('wrap');
-    expect(bar.style.boxSizing).toBe('border-box');
-    expect(bar.style.maxWidth).toBe('100%');
-  });
-
-  it('選択が無い間は固定表示の操作面を表示しない', async () => {
-    await renderLoaded();
-
-    expect(screen.queryByTestId('quantity-item-bulk-action-bar')).not.toBeInTheDocument();
   });
 });

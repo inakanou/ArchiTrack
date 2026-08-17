@@ -224,6 +224,12 @@ const styles = {
   // 最下部までスクロールした際に最終行を恒久的に覆い隠さない（REQ-45.3 と同じ考え方）。
   // z-index はアクションメニュー / 補完候補一覧（いずれも Portal・z-index 1000）より
   // 背面となる値にし、それらを覆い隠さない（REQ-46.7 と整合）。
+  //
+  // 狭幅環境での収まりを担うのは flexWrap である。操作面は main（padding のみのブロック）
+  // 直下の自動幅ブロックであり、外枠の幅は常に親の内容領域に収まる。はみ出しうるのは
+  // 中の操作群だけで、それを防ぐのは折り返しの指定である。
+  // Task 115.44: 併記していた boxSizing / maxWidth は自動幅のブロックでは効かず
+  // （max-width は親の内容幅と等しいため決して拘束しない）、収まりに寄与しないため外した。
   bulkActionBar: {
     display: 'flex',
     alignItems: 'center',
@@ -237,9 +243,6 @@ const styles = {
     position: 'sticky' as const,
     bottom: 0,
     zIndex: 50,
-    // 狭幅環境でも操作面が横幅からはみ出さないよう、余白込みで幅を収める
-    boxSizing: 'border-box' as const,
-    maxWidth: '100%',
     boxShadow: '0 -2px 6px -1px rgba(0, 0, 0, 0.12)',
   } as React.CSSProperties,
   bulkActionCount: {

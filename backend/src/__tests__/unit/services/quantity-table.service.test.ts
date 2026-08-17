@@ -2688,5 +2688,51 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.quantityItem.create).toHaveBeenCalledTimes(3);
       expect(mockPrisma.quantityGroup.create).toHaveBeenCalledTimes(2);
     });
+
+    /**
+     * グループIDと項目IDは別の表の識別子であり、別々の集合で判定する（Task 115.44）。
+     *
+     * 両者を同じ集合で判定すると、グループIDと項目IDが同じ値になった要求を「重複」と
+     * 誤って拒否する。実データはいずれも UUID のため衝突は事実上起きないが、
+     * 集合を分けているという判断が検証で守られていない状態だった（同じ集合にしても
+     * 全ての検証が成功していた）。ここで名前空間の分離そのものを検証する。
+     */
+    it('グループIDと項目IDが同じ値でも重複とはみなさず保存する（識別子の集合を分けて判定する）', async () => {
+      // Arrange: グループと項目が同じ識別子を持つ状態（別の表の識別子であり衝突ではない）
+      const sharedId = 'same-id-in-different-tables';
+      setupFindUnique(
+        currentState({ groups: [{ id: sharedId, items: [{ id: sharedId }] }] }),
+        reloadedDetail()
+      );
+      mockPrisma.quantityGroup.update.mockResolvedValue({ id: sharedId });
+      mockPrisma.quantityItem.update.mockResolvedValue({ id: sharedId });
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: newUpdatedAt,
+      });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: sharedId,
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [validItem({ id: sharedId, name: '更新名称', displayOrder: 0 })],
+          },
+        ],
+      };
+
+      // Act & Assert: 拒否されず、グループ・項目とも更新される
+      await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
+      expect(mockPrisma.quantityGroup.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: sharedId } })
+      );
+      expect(mockPrisma.quantityItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: sharedId } })
+      );
+    });
   });
 });
