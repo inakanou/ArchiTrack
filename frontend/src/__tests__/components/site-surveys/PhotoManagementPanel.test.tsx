@@ -1273,6 +1273,58 @@ describe('PhotoManagementPanel', () => {
       expect(onSelectionChange).toHaveBeenCalledWith(new Set(['img-1']));
     });
 
+    // 上の等値比較（toHaveBeenCalledWith(new Set([...]))）は「通知された集合の中身」しか
+    // 主張していない。呼び出し元から渡された集合を直接書き換えて同じ参照を返す実装でも
+    // 中身は一致するため緑のまま通る。React の state として渡された集合を書き換えると
+    // 参照が変わらず再描画が発生せず、選択欄の表示が更新されない退行になる。
+    // 撤去済み部品（Task 115.55 で撤去）の検証が持っていた不変性の主張を、
+    // 出荷済みの画像一覧である本コンポーネントへ引き継ぐ。
+    it('選択追加時に呼び出し元へ渡した集合を書き換えず別インスタンスを通知すること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+      const original = new Set<string>(['img-1']);
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={original}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-2'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      const notified = onSelectionChange.mock.calls[0]?.[0] as Set<string>;
+      expect(notified).toBeInstanceOf(Set);
+      // 呼び出し元の集合そのものを返してはならない（参照が同一だと再描画が起きない）
+      expect(notified).not.toBe(original);
+      // 呼び出し元の集合の中身が書き換えられていないこと
+      expect(Array.from(original)).toEqual(['img-1']);
+    });
+
+    it('選択解除時に呼び出し元へ渡した集合を書き換えず別インスタンスを通知すること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+      const original = new Set<string>(['img-1', 'img-3']);
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={original}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-1'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      const notified = onSelectionChange.mock.calls[0]?.[0] as Set<string>;
+      expect(notified).toBeInstanceOf(Set);
+      expect(notified).not.toBe(original);
+      expect(Array.from(original).sort()).toEqual(['img-1', 'img-3']);
+    });
+
     it('選択操作が報告書出力フラグ・画像クリックへ波及しないこと', async () => {
       const user = userEvent.setup();
       const onImageMetadataChange = vi.fn();
