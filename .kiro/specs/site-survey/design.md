@@ -32,6 +32,123 @@
 - OCR（光学文字認識）による自動寸法読み取り
 - 動画ファイルのサポート
 
+### 呼称規約（部品名の表記ルール）
+
+本設計書は部品を指すときに**実装に存在する名前をそのまま使う**。「その名前が論理名なのか実ファイル名なのか」を読み手が判別できない状態は、設計と実装の乖離をレビューで見逃す原因になるため、以下を**文書全体の規約**とする。
+
+1. **フロントエンドの画面・コンポーネント・フック**は、**実ファイル名（拡張子なしの basename）** で呼ぶ。この層はファイル名とエクスポート名が一致している。パスを示すときはリポジトリルートからの相対パス（例: `frontend/src/pages/SiteSurveyDetailPage.tsx`）を書く。定数・トークン等のモジュール（`annotation-style-tokens.ts` など）は kebab-case のファイル名で呼び、参照するシンボル名は別途バッククォートで示す。
+2. **バックエンドのサービス**は、**実エクスポート名（PascalCase のクラス名）** で呼ぶ。ファイル名は kebab-case の別体系（`SiteSurveyService` ⇔ `backend/src/services/site-survey.service.ts`）なので、パスを示すときは相対パスを併記する。一方、**バックエンドのルートは PascalCase のエクスポートを持たない**。`backend/src/routes/site-surveys.routes.ts` / `survey-images.routes.ts` / `annotation.routes.ts` はいずれも `export default router` を主エクスポートとし、PascalCase のエクスポートを持たない（`survey-images.routes.ts` は他に camelCase の `export async function initializeStorageServices()` を公開する。同ディレクトリでは `construction-photo-images.routes.ts` の `initializeConstructionPhotoImageServices` と `invitation.routes.ts` の `createInvitationRoutes` が同じく camelCase 関数を公開する）。したがって**ルートは実ファイル名**（`annotation.routes.ts` 等）で呼び、パスを示すときはリポジトリルートからの相対パスを書く。
+3. 実装に 1:1 で対応する実体を持たない**論理部品名**は、下の「論理名と実体の対応表」に列挙したものだけを使う。**部品名については、表に無い名前は実ファイル名または実エクスポート名そのもの**とみなしてよい。**この既定則が適用されるのは規約6 が定義する「部品名」に限る**（契約名には適用しない。規約6 を参照）。
+4. **Mermaid 図**に限り、ノードID・participant 別名・表示ラベルに短縮形を許容する。使用する短縮形は下表に列挙する。本文・見出し・表・ファイル構成ブロックでは短縮形を使わない。**実在しないファイル名・クラス名を、あたかも実体であるかのようにラベルへ書いてはならない。**
+5. 新しい部品名を本文に書くときは、実装が存在するなら 1/2 に従い、存在しないなら下表へ追記する。**実在しないファイル名を実ファイル名として書いてはならない。**
+6. **規約1〜3・5 の適用対象は「部品名」に限る。** 部品名とは、ページ / コンポーネント / フック / サービス / ルート / ミドルウェア / マネージャのように、実装ファイルまたは実エクスポートとして配置される実行時の構成要素を指す。これに対し、`interface` / `type` 定義ブロックに現れる**型名**、および「Requirements Traceability」表の Interfaces 列に現れる **API 契約名**（`SurveyAPI` / `ImageAPI` 等）は、本設計書が定義する**設計上の抽象契約**であって、**実装のエクスポート名の主張ではない**。したがって規約3 の既定則（表に無い名前は実名とみなしてよい）は契約名には適用しない。**契約名が実装に実体を持つかどうかは、名前の見た目からは判別できない**（例: `IAuditLogService` は実在し `ISurveyService` は実在しない。どちらも同じ `I*Service` 表記である）。判別は下の「契約名の実在対照表」だけを根拠とし、**表に無い契約名を実在するものとして扱ってはならない**。新しい契約名を書くときは同表へ追記する。
+
+#### 論理名と実体の対応表
+
+**この表に載せてよいのは、1:1 の実体を持たないことを確認できる名前だけ**である。掲載の可否は次の手順で機械的に判定する。
+
+- `git ls-files` で該当ファイルが存在しないこと、または `grep -n 'export class'` / `grep -n 'export'` で単一の実エクスポートに解決できないことを示す
+- 複数ファイル・複数エクスポートの**集約**、実装ファイルを持たない**概念**、複数実体の**総称**、および規約4 が許容する **Mermaid 短縮形**のみが該当する
+- 逆に 1:1 の実体が確認できた名前は、この表へ逃がさず**規約1/2 に従って実名へ書き換える**。「表に載せれば論理名を使ってよい」という運用は禁止する
+
+| 本文中の名前 | 種別 | 実体 |
+|---|---|---|
+| `SurveyRoutes` | 論理名（集約） | `backend/src/routes/site-surveys.routes.ts`、`backend/src/routes/survey-images.routes.ts`、`backend/src/routes/annotation.routes.ts` の総称 |
+| `AuthMiddleware` | 論理名（集約） | `backend/src/middleware/authenticate.middleware.ts`、`backend/src/middleware/authorize.middleware.ts` |
+| `CanvasEngine` | 論理概念 | Fabric.js の Canvas 実体。専用の実装ファイルは持たない |
+| `ShapeTool` | 論理概念（総称） | `frontend/src/components/site-surveys/tools/` 配下の図形ツール（`RectangleTool` / `CircleTool` / `ArrowTool` / `PolygonTool` / `PolylineTool` / `FreehandTool`）の総称 |
+| `DetailPage` / `SurveyPage` / `Detail` / `Page` / `SurveyDetail`（Mermaid 内のみ） | 短縮形 | `SiteSurveyDetailPage`（`frontend/src/pages/SiteSurveyDetailPage.tsx`）。**`SurveyDetail` は下の契約名の実在対照表にある同名の抽象契約（DTO）とは別物**である。Mermaid ノードID としての用例は要件31-32 節にあり、いずれも表示ラベルへ実名 `SiteSurveyDetailPage` を併記している |
+| `ImageViewerPage`（Mermaid 内のみ） | 短縮形 | `SiteSurveyImageViewerPage`（`frontend/src/pages/SiteSurveyImageViewerPage.tsx`） |
+| `Uploader`（Mermaid 内のみ） | 短縮形 | `ImageUploader`（`frontend/src/components/site-surveys/ImageUploader.tsx`） |
+| `survey-images`（Mermaid 内のみ） | 短縮形 | `backend/src/routes/survey-images.routes.ts` |
+| `Site Survey API`（Mermaid 内のみ） | 短縮形 | 上記 `SurveyRoutes`（現場調査系ルート群） |
+
+**注**: `ExportService` は論理名ではなく実装がある（`frontend/src/services/ExportService.ts`）。`frontend/src/services/export/` 配下ではない点に注意する。
+
+**適用済みの是正**: 以下の名前は以前**実在しない論理名**で呼ばれていた。本規約の導入に伴い、いずれも実名へ統一済みである。
+
+| 旧称 | 統一後の名前 | 実体 |
+|---|---|---|
+| `SurveyDetailPage` | `SiteSurveyDetailPage` | `frontend/src/pages/SiteSurveyDetailPage.tsx` |
+| `SurveyListPage` | `SiteSurveyListPage` | `frontend/src/pages/SiteSurveyListPage.tsx` |
+| `SiteSurveyAnnotationEditorPage` | `SiteSurveyImageViewerPage` | `frontend/src/pages/SiteSurveyImageViewerPage.tsx` |
+| `SurveyService` | `SiteSurveyService` | `backend/src/services/site-survey.service.ts`（`export class SiteSurveyService`） |
+| `ImageService` | `SurveyImageService` | `backend/src/services/survey-image.service.ts`（`export class SurveyImageService`。`validateFile` / `detectMimeTypeByMagicBytes` も同ファイル内のメソッド） |
+| `SurveyImagesRoutes` | `survey-images.routes.ts` | `backend/src/routes/survey-images.routes.ts`（規約2 によりルートは実ファイル名で呼ぶ） |
+| `QuotaWarningDialog` | `StorageWarningBanner` | `frontend/src/components/site-surveys/StorageWarningBanner.tsx`（要件15.8 の警告 UI。結線状況の是非は本設計書の管轄外とし、タスク 115.64 の判断に委ねる） |
+
+#### 契約名の実在対照表
+
+規約6 の判別根拠となる表である。対象は**要件1〜30 節（`## Architecture` から `## Requirements 31-32` 見出しの直前まで）の `interface` / `type` 定義ブロックに現れる型名**と、**「Requirements Traceability」表の Interfaces 列に現れる API 契約名**。次の手順で機械的に抽出・対照した。
+
+- 型名の抽出: 当該範囲から `^(export )?(interface|type) [A-Z][A-Za-z0-9]*` に一致する宣言名を全件列挙
+- API 契約名の抽出: 追跡表の Interfaces 列を全行から取り出し、`*API` 形式の名前を全件列挙
+- 実在判定: 各名について `grep -rn --include=*.ts --include=*.tsx -E "export (interface|type|class) <名前>\b" backend/src frontend/src` を実行し、0 件なら非エクスポート宣言も `grep -wE "(interface|type) <名前>"` で確認
+
+**実装に実体がある契約名**（設計書の記述は実装の型を指す。以下のパスは宣言位置）:
+
+| 契約名 | 実体 |
+|---|---|
+| `AnnotatedImageWithComment` | `frontend/src/services/export/PdfReportService.ts:118` |
+| `AnnotationData` | `frontend/src/types/site-survey.types.ts:620` |
+| `AnnotationContextMenuProps` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:56` |
+| `AnnotationInfo` | `backend/src/services/annotation.service.ts:188` |
+| `AnnotationToolDefaults` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:77` |
+| `ArrowJSON` | `frontend/src/components/site-surveys/tools/ArrowTool.ts:79` |
+| `ArrowOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:58` |
+| `BaseAnnotationOverlayProps` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:44` |
+| `ContextMenuAction` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:37` |
+| `GesturePayload` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:78` |
+| `AutoSaveState` | `frontend/src/services/AutoSaveManager.ts:68` |
+| `BatchAnnotationRequest` | `frontend/src/types/site-survey.types.ts:931` |
+| `BatchAnnotationResponse` | `frontend/src/types/site-survey.types.ts:921` |
+| `BatchUpdateImageMetadataInput` | `backend/src/services/image-metadata.service.ts:74` |
+| `BatchUploadProgress` | `backend/src/services/batch-upload.service.ts:74` |
+| `BatchUploadResult` | `backend/src/services/batch-upload.service.ts:85` |
+| `CacheEntry` | `frontend/src/services/AutoSaveManager.ts:118` |
+| `ExportImageOptions` | `frontend/src/services/ExportService.ts:23` |
+| `FabricSerializedObject` | `backend/src/services/annotation.service.ts:128` |
+| `IAnnotatedThumbnailService` | `backend/src/services/annotation.service.ts:106` |
+| `IAuditLogService` | `backend/src/types/audit-log.types.ts:10` |
+| `IAutoSaveManager` | `frontend/src/services/AutoSaveManager.ts:160` |
+| `IExportService` | `frontend/src/services/ExportService.ts:40` |
+| `IUndoManager` | `frontend/src/services/UndoManager.ts:45` |
+| `IText` | Fabric.js の標準クラス（外部ライブラリ。本リポジトリでは宣言せず `fabric` から import する） |
+| `ImageExportDialogProps` | `frontend/src/components/site-surveys/ImageExportDialog.tsx:63` |
+| `ImageViewerProps` | `frontend/src/components/site-surveys/ImageViewer.tsx:96` |
+| `LocalStorageData` | `frontend/src/services/AutoSaveManager.ts:50` |
+| `PhotoManagementPanelProps` | `frontend/src/components/site-surveys/PhotoManagementPanel.tsx:38` |
+| `ProjectSurveySummary` | `backend/src/services/site-survey.service.ts:164` |
+| `SaveAnnotationInput` | `backend/src/services/annotation.service.ts:179` |
+| `SiteSurveySectionCardProps` | `frontend/src/components/projects/SiteSurveySectionCard.tsx:32` |
+| `TextAnnotationJSON` | `frontend/src/components/site-surveys/tools/TextTool.ts:113` |
+| `TextOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:65` |
+| `TouchGestureManager` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:116` |
+| `TouchState` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:88` |
+| `SurveyImageInfo` | 同名宣言が4箇所に存在する（`backend/src/services/site-survey.service.ts:72`、`backend/src/services/image-list.service.ts:30`、`backend/src/services/survey-image.service.ts:112`、`frontend/src/types/site-survey.types.ts:54`）。**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
+| `ToolType` | `frontend/src/components/site-surveys/annotation-toolbar.constants.ts:23` |
+| `UndoCommand` | `frontend/src/services/UndoManager.ts:16` |
+| `UndoManagerState` | `frontend/src/services/UndoManager.ts:28` |
+| `UpdateImageMetadataInput` | `backend/src/services/image-metadata.service.ts:61` |
+| `UploadImageInput` | `backend/src/services/survey-image.service.ts:103` |
+| `UseUnsavedChangesResult` | `frontend/src/hooks/useUnsavedChanges.ts:51` |
+| `AnnotationEditorState` | `frontend/src/components/site-surveys/AnnotationEditor.tsx:163`（**非エクスポート**のモジュールローカル型。外部から import できない） |
+| `ImageViewerState` | `frontend/src/components/site-surveys/ImageViewer.tsx:62`（**非エクスポート**のモジュールローカル型。外部から import できない） |
+
+**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名のエクスポートは `backend/src` にも `frontend/src` にも存在しない**（各名について上記 grep が 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。
+
+| 種別 | 契約名 |
+|---|---|
+| サービス契約（`I*`） | `ISurveyService`、`IImageService`、`IAnnotationService`、`IImageDeleteService`、`IImageMetadataService` |
+| 依存注入契約（`*Dependencies`） | `SurveyServiceDependencies`、`ImageServiceDependencies` |
+| API 契約（追跡表 Interfaces 列） | `SurveyAPI`、`SurveyListAPI`、`ImageAPI`、`ImageDeleteAPI`、`ImageMetadataAPI`、`ImageOrderAPI`、`AnnotationAPI`、`AnnotationBatchAPI`、`ExportAPI`、`ThumbnailAPI` |
+| DTO・入出力契約 | `SurveyInfo`、`SurveyDetail`、`PaginatedSurveys`、`SurveyFilter`、`CreateSurveyInput`、`UpdateSurveyInput`、`SaveAnnotationResponse`、`AnnotationDataV1`、`AnnotationSaveDataV1`、`AutoSaveConfig`、`ExportPdfOptions`、`PdfReportLayoutConfig`、`ToolOptions`、`OrderChangeHandlers`、`PendingOrderRef` |
+| 画面状態契約（`*State`） | `ImageExportDialogState`、`PhotoManagementState`、`SiteSurveyDetailPageState`、`SiteSurveySectionCardState` |
+
+**警告（規約6 の要点）**: `I*Service` / `I*Manager` 表記は上表の**両方**に現れる。`IAuditLogService` / `IAnnotatedThumbnailService` / `IAutoSaveManager` / `IExportService` / `IUndoManager` は実在し、`ISurveyService` / `IImageService` / `IAnnotationService` / `IImageDeleteService` / `IImageMetadataService` は実在しない。**表記だけで実在を推定してはならない。**
+
+**注**: 追跡表 Interfaces 列には契約名以外に `Breadcrumb`（部品名。`frontend/src/components/common/Breadcrumb.tsx`。規約1 が適用される）、`R2 Lifecycle Rule` / `SignedURL検証` / `localStorage`（外部機構・ブラウザ API を指す説明語）も現れる。これらは契約名ではないため本表の対象外とする。
+
 ## Architecture
 
 ### Existing Architecture Analysis
@@ -70,8 +187,8 @@ graph TB
     subgraph Frontend
         ProjectDetailPage[ProjectDetailPage]
         SiteSurveySectionCard[SiteSurveySectionCard]
-        SurveyListPage[SurveyListPage]
-        SurveyDetailPage[SurveyDetailPage]
+        SiteSurveyListPage[SiteSurveyListPage]
+        SiteSurveyDetailPage[SiteSurveyDetailPage]
         ImageViewer[ImageViewer]
         AnnotationEditor[AnnotationEditor]
         CanvasEngine[Fabric.js Canvas]
@@ -80,9 +197,9 @@ graph TB
     end
 
     subgraph Backend
-        SurveyRoutes[survey.routes.ts]
-        SurveyService[SurveyService]
-        ImageService[ImageService]
+        SurveyRoutes[SurveyRoutes]
+        SiteSurveyService[SiteSurveyService]
+        SurveyImageService[SurveyImageService]
         AnnotationService[AnnotationService]
         ExportService[ExportService]
         ImageMetadataService[ImageMetadataService]
@@ -100,23 +217,23 @@ graph TB
 
     ProjectDetailPage --> SiteSurveySectionCard
     SiteSurveySectionCard --> SurveyRoutes
-    SurveyListPage --> SurveyRoutes
-    SurveyDetailPage --> SurveyRoutes
+    SiteSurveyListPage --> SurveyRoutes
+    SiteSurveyDetailPage --> SurveyRoutes
     ImageViewer --> SurveyRoutes
     AnnotationEditor --> CanvasEngine
     AnnotationEditor --> SurveyRoutes
     PhotoManagementPanel --> SurveyRoutes
     ImageExportDialog --> ExportService
 
-    SurveyRoutes --> SurveyService
-    SurveyRoutes --> ImageService
+    SurveyRoutes --> SiteSurveyService
+    SurveyRoutes --> SurveyImageService
     SurveyRoutes --> AnnotationService
     SurveyRoutes --> ExportService
     SurveyRoutes --> ImageMetadataService
     SurveyRoutes --> ImageDeleteService
 
-    SurveyService --> PostgreSQL
-    ImageService --> R2
+    SiteSurveyService --> PostgreSQL
+    SurveyImageService --> R2
     ImageMetadataService --> PostgreSQL
     ImageDeleteService --> R2
     AnnotationService --> PostgreSQL
@@ -129,7 +246,7 @@ graph TB
 - Domain boundaries: SiteSurveyドメインをProject配下の独立モジュールとして配置
 - Existing patterns preserved: 認証/認可、監査ログ、楽観的排他制御
 - New components rationale:
-  - ImageService: 画像処理と外部ストレージ連携の責務分離
+  - SurveyImageService: 画像処理と外部ストレージ連携の責務分離
   - AnnotationService: 注釈データの永続化と復元
   - ExportService: PDF/画像エクスポートのビジネスロジック
   - **ImageMetadataService**: 写真コメント・報告書出力フラグの管理（要件10対応）
@@ -262,7 +379,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant User
-    participant SurveyDetailPage
+    participant SiteSurveyDetailPage
     participant PhotoManagementPanel
     participant pendingOrderRef
     participant useUnsavedChanges
@@ -285,28 +402,28 @@ sequenceDiagram
     PhotoManagementPanel-->>User: 未保存インジケーター表示
 
     User->>PhotoManagementPanel: 「上へ移動」/「下へ移動」ボタン
-    PhotoManagementPanel->>SurveyDetailPage: handleOrderChange(newImages)
-    SurveyDetailPage->>SurveyDetailPage: setImages(newImages) ローカル状態更新
-    SurveyDetailPage->>pendingOrderRef: 順序変更を記録
-    SurveyDetailPage->>useUnsavedChanges: markAsChanged()
-    SurveyDetailPage-->>User: 未保存インジケーター表示（即時保存しない）
+    PhotoManagementPanel->>SiteSurveyDetailPage: handleOrderChange(newImages)
+    SiteSurveyDetailPage->>SiteSurveyDetailPage: setImages(newImages) ローカル状態更新
+    SiteSurveyDetailPage->>pendingOrderRef: 順序変更を記録
+    SiteSurveyDetailPage->>useUnsavedChanges: markAsChanged()
+    SiteSurveyDetailPage-->>User: 未保存インジケーター表示（即時保存しない）
 
     User->>PhotoManagementPanel: ドラッグ&ドロップで並び替え
-    PhotoManagementPanel->>SurveyDetailPage: handleOrderChange(newImages)
-    SurveyDetailPage->>SurveyDetailPage: setImages(newImages) ローカル状態更新
-    SurveyDetailPage->>pendingOrderRef: 順序変更を記録
-    SurveyDetailPage->>useUnsavedChanges: markAsChanged()
-    SurveyDetailPage-->>User: 未保存インジケーター表示（即時保存しない）
+    PhotoManagementPanel->>SiteSurveyDetailPage: handleOrderChange(newImages)
+    SiteSurveyDetailPage->>SiteSurveyDetailPage: setImages(newImages) ローカル状態更新
+    SiteSurveyDetailPage->>pendingOrderRef: 順序変更を記録
+    SiteSurveyDetailPage->>useUnsavedChanges: markAsChanged()
+    SiteSurveyDetailPage-->>User: 未保存インジケーター表示（即時保存しない）
 
     User->>PhotoManagementPanel: 保存ボタンクリック
-    PhotoManagementPanel->>SurveyDetailPage: handleSaveMetadata(changes)
-    SurveyDetailPage->>SurveyDetailPage: changesにpendingOrderRefの順序変更を追加
-    SurveyDetailPage->>Backend: PATCH /api/site-surveys/images/batch
+    PhotoManagementPanel->>SiteSurveyDetailPage: handleSaveMetadata(changes)
+    SiteSurveyDetailPage->>SiteSurveyDetailPage: changesにpendingOrderRefの順序変更を追加
+    SiteSurveyDetailPage->>Backend: PATCH /api/site-surveys/images/batch
     Backend->>PostgreSQL: 一括更新（comment, includeInReport, displayOrder）
     PostgreSQL-->>Backend: 更新完了
-    Backend-->>SurveyDetailPage: 更新結果
-    SurveyDetailPage->>pendingOrderRef: クリア（null）
-    SurveyDetailPage->>useUnsavedChanges: markAsSaved()
+    Backend-->>SiteSurveyDetailPage: 更新結果
+    SiteSurveyDetailPage->>pendingOrderRef: クリア（null）
+    SiteSurveyDetailPage->>useUnsavedChanges: markAsSaved()
 ```
 
 **Key Decisions**:
@@ -357,17 +474,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant SurveyDetailPage
+    participant SiteSurveyDetailPage
     participant AnnotationRendererService
     participant PdfReportService
     participant jsPDF
     participant Backend
 
-    User->>SurveyDetailPage: 調査報告書出力ボタン押下
-    SurveyDetailPage->>Backend: GET /api/site-surveys/:id/images
-    Backend-->>SurveyDetailPage: 画像一覧（includeInReport=true のみフィルタ）
+    User->>SiteSurveyDetailPage: 調査報告書出力ボタン押下
+    SiteSurveyDetailPage->>Backend: GET /api/site-surveys/:id/images
+    Backend-->>SiteSurveyDetailPage: 画像一覧（includeInReport=true のみフィルタ）
 
-    SurveyDetailPage->>AnnotationRendererService: renderImagesForReport(images)
+    SiteSurveyDetailPage->>AnnotationRendererService: renderImagesForReport(images)
     AnnotationRendererService->>Backend: POST /api/site-surveys/annotations/batch（全imageIdを一括送信）
     Backend-->>AnnotationRendererService: 全画像の注釈データ（Map形式）
 
@@ -375,9 +492,9 @@ sequenceDiagram
         AnnotationRendererService->>AnnotationRendererService: Fabric.js Canvas生成・レンダリング
     end
 
-    AnnotationRendererService-->>SurveyDetailPage: 注釈付きdataURL配列
+    AnnotationRendererService-->>SiteSurveyDetailPage: 注釈付きdataURL配列
 
-    SurveyDetailPage->>PdfReportService: generateReport(survey, images)
+    SiteSurveyDetailPage->>PdfReportService: generateReport(survey, images)
     PdfReportService->>jsPDF: PDF初期化（A4縦）
     PdfReportService->>jsPDF: 表紙描画（調査名、調査日、プロジェクト名）
     PdfReportService->>jsPDF: 基本情報セクション描画
@@ -388,8 +505,8 @@ sequenceDiagram
     end
 
     PdfReportService->>jsPDF: ページ番号追加
-    jsPDF-->>SurveyDetailPage: PDF Blob
-    SurveyDetailPage-->>User: PDFダウンロード開始（ファイル名: 現場調査報告書_YYYYMMDD.pdf）
+    jsPDF-->>SiteSurveyDetailPage: PDF Blob
+    SiteSurveyDetailPage-->>User: PDFダウンロード開始（ファイル名: 現場調査報告書_YYYYMMDD.pdf）
 ```
 
 **Key Decisions**:
@@ -438,23 +555,23 @@ sequenceDiagram
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.6 | 現場調査CRUD | SurveyService, SurveyRoutes | SurveyAPI | - |
+| 1.1-1.6 | 現場調査CRUD | SiteSurveyService, SurveyRoutes | SurveyAPI | - |
 | **2.1** | **プロジェクト詳細画面の現場調査セクション** | **SiteSurveySectionCard, ProjectDetailPage** | **SurveyListAPI** | - |
-| 2.3-2.4 | 画面遷移（一覧→詳細、詳細→ビューア） | SurveyListPage, SurveyDetailPage | Breadcrumb | - |
+| 2.3-2.4 | 画面遷移（一覧→詳細、詳細→ビューア） | SiteSurveyListPage, SiteSurveyDetailPage | Breadcrumb | - |
 | **2.5** | **全現場調査関連画面にブレッドクラム表示** | **全SiteSurvey画面** | **Breadcrumb** | - |
-| **2.6** | **一覧画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧** | **SurveyListPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
-| **2.7** | **詳細画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査** | **SurveyDetailPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
+| **2.6** | **一覧画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧** | **SiteSurveyListPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
+| **2.7** | **詳細画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査** | **SiteSurveyDetailPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.8** | **画像プレビュー画面（閲覧モード）ブレッドクラム: ... > 現場調査 > 画像** | **SiteSurveyImageViewerPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.9** | **画像プレビュー画面（編集モード）ブレッドクラム: ... > 現場調査 > 画像** | **SiteSurveyImageViewerPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.10** | **ブレッドクラム各項目クリックで対応画面へ遷移** | **Breadcrumb** | **Breadcrumb** | - |
-| **2.11** | **一覧画面タイトルを「現場調査一覧」に変更** | **SurveyListPage** | - | - |
+| **2.11** | **一覧画面タイトルを「現場調査一覧」に変更** | **SiteSurveyListPage** | - | - |
 | **2.12** | **画像プレビュー画面から「← 現場調査に戻る」リンクを削除** | **SiteSurveyImageViewerPage** | - | - |
-| 3.1-3.5 | 一覧・検索 | SurveyListPage, SurveyService | SurveyListAPI | - |
-| 4.1-4.6, 4.9 | 画像アップロード・管理 | ImageService, ImageUploader | ImageAPI | アップロードフロー |
+| 3.1-3.5 | 一覧・検索 | SiteSurveyListPage, SiteSurveyService | SurveyListAPI | - |
+| 4.1-4.6, 4.9 | 画像アップロード・管理 | SurveyImageService, ImageUploader | ImageAPI | アップロードフロー |
 | **4.7** | **画像削除** | **ImageDeleteService, PhotoManagementPanel** | **ImageDeleteAPI** | **画像削除フロー** |
 | **4.8** | **R2孤立ファイル処理** | **ImageDeleteService** | **R2 Lifecycle Rule** | **R2孤立ファイル処理フロー** |
-| **4.10** | **画像一覧の固定表示順序** | **PhotoManagementPanel, SurveyDetailPage** | **ImageAPI** | - |
-| **4.11** | **ドラッグ&ドロップ順序変更（ローカル状態のみ）** | **PhotoManagementPanel, SurveyDetailPage** | - | - |
+| **4.10** | **画像一覧の固定表示順序** | **PhotoManagementPanel, SiteSurveyDetailPage** | **ImageAPI** | - |
+| **4.11** | **ドラッグ&ドロップ順序変更（ローカル状態のみ）** | **PhotoManagementPanel, SiteSurveyDetailPage** | - | - |
 | **4.12** | **「上へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | **4.13** | **「下へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | 5.1-5.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
@@ -463,15 +580,15 @@ sequenceDiagram
 | 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | **9.1** | **手動保存（保存ボタン）** | **AnnotationEditor, useUnsavedChanges** | **AnnotationAPI** | **注釈編集フロー** |
 | 9.2 | 注釈データ復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
-| **9.3** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges, SurveyDetailPage** | - | - |
+| **9.3** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges, SiteSurveyDetailPage** | - | - |
 | 9.4-9.6 | 保存インジケーター・リトライ・エクスポート | AnnotationService | AnnotationAPI | 注釈編集フロー |
 | **10.1** | **写真一覧管理（削除ボタン付き）** | **PhotoManagementPanel** | **ImageMetadataAPI** | **写真メタデータ更新フロー** |
 | 10.2-10.4 | コメント・フラグ入力 | PhotoManagementPanel, ImageMetadataService | ImageMetadataAPI | 写真メタデータ更新フロー |
-| **10.5** | **ドラッグ順序変更（ローカル状態のみ）** | **PhotoManagementPanel, SurveyDetailPage** | - | - |
+| **10.5** | **ドラッグ順序変更（ローカル状態のみ）** | **PhotoManagementPanel, SiteSurveyDetailPage** | - | - |
 | **10.6** | **「上へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | **10.7** | **「下へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | **10.8** | **写真一覧の表示順序** | **PhotoManagementPanel** | - | - |
-| **10.9** | **保存ボタン（メタデータ+順序一括保存）** | **PhotoManagementPanel, SurveyDetailPage, useUnsavedChanges** | **ImageMetadataAPI, ImageOrderAPI** | **写真メタデータ更新フロー** |
+| **10.9** | **保存ボタン（メタデータ+順序一括保存）** | **PhotoManagementPanel, SiteSurveyDetailPage, useUnsavedChanges** | **ImageMetadataAPI, ImageOrderAPI** | **写真メタデータ更新フロー** |
 | **10.10** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges** | - | - |
 | **10.11, 10.12** | **画像削除（確認ダイアログ付き）** | **PhotoManagementPanel, ImageDeleteService** | **ImageDeleteAPI** | **画像削除フロー** |
 | **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService** | **ExportAPI** | **PDF報告書生成フロー** |
@@ -480,7 +597,7 @@ sequenceDiagram
 | 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
 | 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
 | **15.7** | **QuotaExceededError LRUリトライ** | **AutoSaveManager** | **localStorage** | - |
-| **15.8** | **保存失敗時ユーザー警告・今すぐ保存促進** | **AutoSaveManager, QuotaWarningDialog** | - | - |
+| **15.8** | **保存失敗時ユーザー警告・今すぐ保存促進** | **AutoSaveManager, StorageWarningBanner** | - | - |
 | **15.9** | **プライベートブラウジング検出・自動保存無効化** | **AutoSaveManager** | - | - |
 | **15.10** | **クロスブラウザQuotaExceededError検出** | **AutoSaveManager (isQuotaExceededError)** | - | - |
 | 16.1-16.8 | 非機能要件 | 全コンポーネント | - | - |
@@ -494,16 +611,16 @@ sequenceDiagram
 | **18.8** | **既存個別APIとのレスポンス互換性** | **AnnotationService** | **AnnotationBatchAPI** | - |
 | **20.1** | **画像プレビュー画面（閲覧モード）で注釈レンダリング表示** | **SiteSurveyImageViewerPage, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
 | **20.2** | **詳細画面サムネイルに注釈レンダリング表示** | **PhotoManagementPanel, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
-| **20.3** | **一覧画面代表画像サムネイルに注釈レンダリング表示** | **SurveyListPage, SiteSurveyListTable, SiteSurveyListCard, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
-| **20.4** | **注釈保存時にサムネイル画像を生成・更新** | **AnnotationEditor, AnnotatedThumbnailService, ImageService** | **ThumbnailAPI** | **注釈付きサムネイル生成フロー** |
-| **21.1** | **拡張子不一致でもマジックバイト判定がサポート対象ならアップロード許可** | **ImageService (validateFile)** | **ImageAPI** | **アップロードフロー** |
-| **21.2** | **拡張子.pngだが実際はJPEGのファイルを許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
-| **21.3** | **拡張子.jpgだが実際はPNGのファイルを許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
-| **21.4** | **拡張子.jpegだが実際はWEBPのファイルを許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
-| **21.5** | **画像以外の拡張子(.txt等)でもマジックバイトがサポート対象なら許可** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
-| **21.6** | **マジックバイトがサポート対象外の場合は拡張子に関わらず拒否** | **ImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
-| **21.7** | **Content-Typeをマジックバイトの実際の画像形式に基づいて設定** | **ImageService (validateFile)** | **ImageAPI** | **アップロードフロー** |
-| **21.8** | **拡張子ベースのバリデーション廃止** | **ImageService (validateFile)** | **ImageAPI** | - |
+| **20.3** | **一覧画面代表画像サムネイルに注釈レンダリング表示** | **SiteSurveyListPage, SiteSurveyListTable, SiteSurveyListCard, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
+| **20.4** | **注釈保存時にサムネイル画像を生成・更新** | **AnnotationEditor, AnnotatedThumbnailService, SurveyImageService** | **ThumbnailAPI** | **注釈付きサムネイル生成フロー** |
+| **21.1** | **拡張子不一致でもマジックバイト判定がサポート対象ならアップロード許可** | **SurveyImageService (validateFile)** | **ImageAPI** | **アップロードフロー** |
+| **21.2** | **拡張子.pngだが実際はJPEGのファイルを許可** | **SurveyImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.3** | **拡張子.jpgだが実際はPNGのファイルを許可** | **SurveyImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.4** | **拡張子.jpegだが実際はWEBPのファイルを許可** | **SurveyImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.5** | **画像以外の拡張子(.txt等)でもマジックバイトがサポート対象なら許可** | **SurveyImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.6** | **マジックバイトがサポート対象外の場合は拡張子に関わらず拒否** | **SurveyImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
+| **21.7** | **Content-Typeをマジックバイトの実際の画像形式に基づいて設定** | **SurveyImageService (validateFile)** | **ImageAPI** | **アップロードフロー** |
+| **21.8** | **拡張子ベースのバリデーション廃止** | **SurveyImageService (validateFile)** | **ImageAPI** | - |
 | **22.1** | **注釈エディタで回転ボタンにより背景画像を90度単位で回転** | **AnnotationEditor** | - | **画像回転フロー** |
 | **22.2** | **回転時に描画済み注釈は追従せず現在の位置・サイズを維持** | **AnnotationEditor** | - | - |
 | **22.3** | **回転後の画像サイズに合わせてキャンバスサイズを調整** | **AnnotationEditor** | - | - |
@@ -516,9 +633,9 @@ sequenceDiagram
 | **23.2** | **画像回転保存時のサムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
 | **23.3** | **回転+注釈編集併用時の最終状態サムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
 | **23.4** | **保存処理のサムネイル再生成完了保証（同期化）** | **AnnotationService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
-| **23.5** | **再生成後の詳細・一覧画面サムネイル表示更新** | **PhotoManagementPanel, SiteSurveyListTable, SiteSurveyListCard, SurveyDetailPage** | **AnnotationAPI, ThumbnailAPI** | - |
+| **23.5** | **再生成後の詳細・一覧画面サムネイル表示更新** | **PhotoManagementPanel, SiteSurveyListTable, SiteSurveyListCard, SiteSurveyDetailPage** | **AnnotationAPI, ThumbnailAPI** | - |
 | **23.6** | **サムネイル再生成失敗時のエラー通知と旧状態残留防止** | **AnnotationService, AnnotatedThumbnailService, AnnotationEditor** | **AnnotationAPI** | - |
-| **23.7** | **再オープン時のサムネイル一致保証** | **AnnotatedThumbnailService, SurveyImagesRoutes** | **ImageAPI** | - |
+| **23.7** | **再オープン時のサムネイル一致保証** | **AnnotatedThumbnailService, survey-images.routes.ts** | **ImageAPI** | - |
 | **23.8** | **冪等なサムネイル再生成処理（既存サムネイル破損防止）** | **AnnotatedThumbnailService** | - | - |
 
 ## Components and Interfaces
@@ -527,16 +644,16 @@ sequenceDiagram
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| SurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
-| ImageService | Backend/Service | 画像アップロード・処理 | 4, 21 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
+| SiteSurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
+| SurveyImageService | Backend/Service | 画像アップロード・処理 | 4, 21 | Sharp (P0), Cloudflare R2 (P0), Multer (P0) | Service, API |
 | AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18, 20.4 | PrismaClient (P0), AnnotatedThumbnailService (P1) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
 | **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
 | ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18, 20 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
-| SurveyListPage | Frontend/Page | 一覧表示（タイトル「現場調査一覧」） | 2, 3, 20.3 | SurveyAPI (P0) | State |
-| SurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
+| SiteSurveyListPage | Frontend/Page | 一覧表示（タイトル「現場調査一覧」） | 2, 3, 20.3 | SurveyAPI (P0) | State |
+| SiteSurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
 | **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
 | AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13, 22 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0) | State |
 | ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12, 20.1 | Fabric.js (P0) | State |
@@ -550,7 +667,7 @@ sequenceDiagram
 
 ### Backend / Service Layer
 
-#### SurveyService
+#### SiteSurveyService
 
 | Field | Detail |
 |-------|--------|
@@ -568,7 +685,7 @@ sequenceDiagram
 - Inbound: SurveyRoutes — HTTPリクエスト処理 (P0)
 - Outbound: PrismaClient — データ永続化 (P0)
 - Outbound: AuditLogService — 操作履歴記録 (P1)
-- Outbound: ImageService — 画像削除連携 (P1)
+- Outbound: SurveyImageService — 画像削除連携 (P1)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
@@ -653,7 +770,7 @@ interface ISurveyService {
 - Validation: Zodスキーマによる入力バリデーション
 - Risks: プロジェクト削除時のカスケード削除設計が必要
 
-#### ImageService
+#### SurveyImageService
 
 | Field | Detail |
 |-------|--------|
@@ -954,7 +1071,7 @@ Cloudflare R2ダッシュボードまたはAPIで設定:
 - 報告書出力フラグ（includeInReport）の管理
 - **表示順序（displayOrder）の管理**（要件10.9対応: 保存時に順序変更も一括保存）
 - 複数画像の一括更新サポート（メタデータ+順序）
-- 既存のImageServiceと連携（画像自体の操作はImageServiceに委譲）
+- 既存のSurveyImageServiceと連携（画像自体の操作はSurveyImageServiceに委譲）
 
 **Dependencies**
 - Inbound: SurveyRoutes — HTTPリクエスト処理 (P0)
@@ -1215,7 +1332,7 @@ async findByImageIds(
 - **報告書出力フラグに基づく選択的出力（要件11.2対応）**
 
 **Dependencies**
-- Inbound: SurveyDetailPage — PDF報告書エクスポートトリガー (P0)
+- Inbound: SiteSurveyDetailPage — PDF報告書エクスポートトリガー (P0)
 - Inbound: ImageViewer — 個別画像エクスポートトリガー (P0)
 - Outbound: jsPDF — PDF生成 (P0)
 - Outbound: Fabric.js — Canvas→画像変換 (P0)
@@ -1401,13 +1518,13 @@ renderImagesSection3PerPage(
 
 **バンドル方法**:
 ```typescript
-// frontend/src/services/export/fonts/noto-sans-jp.ts
+// frontend/src/services/export/fonts/noto-sans-jp-base64.ts
 // ビルド時にBase64エンコードされたフォントデータを生成
 export const NotoSansJPBase64 = '/* Base64 encoded font data */';
 
-// frontend/src/services/export/ExportService.ts
+// frontend/src/services/export/PdfFontService.ts
 import { jsPDF } from 'jspdf';
-import { NotoSansJPBase64 } from './fonts/noto-sans-jp';
+import { NotoSansJPBase64 } from './fonts/noto-sans-jp-base64';
 
 export function initializePdfFonts(doc: jsPDF): void {
   doc.addFileToVFS('NotoSansJP-Regular.ttf', NotoSansJPBase64);
@@ -1639,7 +1756,7 @@ interface SiteSurveySectionCardState {
 - Validation: 現場調査が0件の場合は新規作成リンクを表示
 - Risks: APIレスポンス遅延時のUX（ローディングスケルトン表示）
 
-#### SurveyDetailPage（要件4.10-4.13、10対応）
+#### SiteSurveyDetailPage（要件4.10-4.13、10対応）
 
 | Field | Detail |
 |-------|--------|
@@ -1664,7 +1781,7 @@ interface SiteSurveySectionCardState {
 ##### State Management
 
 ```typescript
-interface SurveyDetailPageState {
+interface SiteSurveyDetailPageState {
   survey: SurveyDetail | null;
   images: SurveyImageInfo[];
   isLoading: boolean;
@@ -1770,7 +1887,7 @@ const handleSaveMetadata = async (
 - 現場調査詳細画面のメイン表示コンポーネントとして機能
 
 **Dependencies**
-- Inbound: SurveyDetailPage — 親コンポーネント (P0)
+- Inbound: SiteSurveyDetailPage — 親コンポーネント (P0)
 - Outbound: ImageMetadataAPI — コメント・フラグ更新 (P0)
 - Outbound: ImageOrderAPI — 順序変更 (P0)
 - Outbound: ImageDeleteAPI — 画像削除 (P0)
@@ -1911,7 +2028,7 @@ interface UseUnsavedChangesResult {
 ```
 
 **Implementation Notes**
-- Integration: SurveyDetailPage、PhotoManagementPanel、AnnotationEditorで共有
+- Integration: SiteSurveyDetailPage、PhotoManagementPanel、AnnotationEditorで共有
 - Validation: isDirty=trueの場合のみbeforeunloadイベントをリッスン
 - Risks: React Routerとの連携（ルート遷移時の確認ダイアログ）
 
@@ -1999,7 +2116,7 @@ interface ImageExportDialogProps {
 - **背景画像の90度単位回転（要件22対応）**: 描画済み注釈は回転に追従しない
 
 **Dependencies**
-- Inbound: SurveyDetailPage — 親コンポーネント (P0)
+- Inbound: SiteSurveyDetailPage — 親コンポーネント (P0)
 - Outbound: Fabric.js — Canvas操作 (P0)
 - Outbound: UndoManager — 操作履歴 (P0)
 - Outbound: AnnotationAPI — データ永続化 (P0)
@@ -2085,7 +2202,7 @@ interface ToolOptions {
 - タッチデバイス対応
 
 **Dependencies**
-- Inbound: SurveyDetailPage — 親コンポーネント (P0)
+- Inbound: SiteSurveyDetailPage — 親コンポーネント (P0)
 - Outbound: Fabric.js — Canvas操作 (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
@@ -2662,8 +2779,8 @@ interface FabricSerializedObject {
 
 ### Unit Tests
 
-- **SurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携、**直近N件取得**
-- **ImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード、**マジックバイトのみによる形式判定（detectMimeTypeByMagicBytes: JPEG/PNG/WEBP各形式の正常判定、未サポート形式の拒否）（21.1-21.8）**、**拡張子不一致ファイルの許可（拡張子.pngで中身JPEG等）（21.2-21.5）**、**Content-Typeのマジックバイト準拠設定（21.7）**
+- **SiteSurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携、**直近N件取得**
+- **SurveyImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード、**マジックバイトのみによる形式判定（detectMimeTypeByMagicBytes: JPEG/PNG/WEBP各形式の正常判定、未サポート形式の拒否）（21.1-21.8）**、**拡張子不一致ファイルの許可（拡張子.pngで中身JPEG等）（21.2-21.5）**、**Content-Typeのマジックバイト準拠設定（21.7）**
 - **ImageMetadataService**: コメント更新、報告書フラグ更新、**順序更新**、バリデーション、**一括更新（メタデータ+順序）**
 - **ImageDeleteService**: 画像削除、注釈連動削除、R2連携、**孤立ファイルorphaned/移動（4.8）**
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート、**バッチ注釈取得（findByImageIds: 正常系、注釈なし画像、不正imageId、空配列）（18.1, 18.3, 18.4, 18.8）**
@@ -2672,7 +2789,7 @@ interface FabricSerializedObject {
 - **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視、**QuotaExceededError LRUリトライ（15.7）、プライベートブラウジング検出（15.9）、クロスブラウザエラー検出（15.10）**
 - **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation
 - **AnnotationEditor（回転機能）**: **handleRotate（90度回転、キャンバスサイズ調整、注釈非追従）（22.1, 22.2, 22.3）**、**回転状態の保存・復元（imageRotationフィールド）（22.4, 22.5）**、**回転操作のUndo/Redo（22.6）**、**累積回転角度管理（22.8）**
-- **SurveyDetailPage**: **handleOrderChange（ローカル状態更新）**、**handleSaveMetadata（メタデータ+順序一括保存）**、**pendingOrderRefパターン**
+- **SiteSurveyDetailPage**: **handleOrderChange（ローカル状態更新）**、**handleSaveMetadata（メタデータ+順序一括保存）**、**pendingOrderRefパターン**
 
 - **AnnotationRendererService**: **バッチ注釈取得統合（renderImagesForReport: バッチAPI使用、フォールバック）（18.2, 18.5, 18.7）**
 - **survey-annotations API**: **getBatchAnnotations関数（正常系、エラーハンドリング）（18.1, 18.7）**
@@ -2821,7 +2938,7 @@ interface FabricSerializedObject {
 1. SiteSurveySectionCardコンポーネントの実装
 2. PhotoManagementPanelコンポーネントの拡張（削除ボタン、手動保存、**「上へ移動」「下へ移動」ボタン**）
 3. useUnsavedChangesフックとの統合
-4. **SurveyDetailPageの変更**:
+4. **SiteSurveyDetailPageの変更**:
    - 手動保存、ナビゲーション削除
    - **pendingOrderRefパターンの実装（未保存順序変更の追跡）**
    - **handleOrderChange（ローカル状態のみ更新）**
@@ -3474,10 +3591,10 @@ interface SurveyInfo {
 
 **一覧APIレスポンスの拡張**:
 
-SurveyService.findByProjectIdおよびfindLatestByProjectIdのレスポンスに、代表画像の`annotatedThumbnailUrl`と`representativeImageId`を含める。代表画像はdisplayOrder=1の画像とする。
+SiteSurveyService.findByProjectIdおよびfindLatestByProjectIdのレスポンスに、代表画像の`annotatedThumbnailUrl`と`representativeImageId`を含める。代表画像はdisplayOrder=1の画像とする。
 
 ```typescript
-// SurveyService 拡張
+// SiteSurveyService 拡張
 async findByProjectId(...): Promise<PaginatedSurveys> {
   // 代表画像（displayOrder最小）のannotatedThumbnailPathを取得
   // 署名付きURLを生成してレスポンスに含める
@@ -3492,7 +3609,7 @@ async findByProjectId(...): Promise<PaginatedSurveys> {
 - `AnnotatedThumbnailService.removeAnnotatedThumbnail`: 正常系（R2削除、DB更新）
 - `AnnotationService.save`: 注釈保存後にサムネイル生成が呼ばれることを検証
 - `generateSvgFromAnnotation`: 各注釈タイプ（矢印、円、四角形、テキスト、寸法線）のSVG変換
-- SurveyService一覧APIレスポンスに`annotatedThumbnailUrl`が含まれることを検証
+- SiteSurveyService一覧APIレスポンスに`annotatedThumbnailUrl`が含まれることを検証
 
 **フロントエンド単体テスト**:
 - `PhotoManagementPanel`: AnnotatedImageThumbnailコンポーネントを使用して注釈付き画像を表示すること
@@ -4093,7 +4210,7 @@ async generateAnnotatedThumbnail(
 
 ### 変更4: SaveAnnotation レスポンスに annotatedThumbnailUrl を含める
 
-**対象ファイル**: `backend/src/routes/survey-annotations.routes.ts`
+**対象ファイル**: `backend/src/routes/annotation.routes.ts`
 
 注釈保存レスポンスに最新の `annotatedThumbnailPath` から生成した署名付き URL を含める。フロントエンドはこの URL を受け取ることで、追加の API 呼び出しなしに最新サムネイルを表示できる（AC5）。
 
@@ -4106,7 +4223,7 @@ interface SaveAnnotationResponse {
 
 ### 変更5: フロントエンドのサムネイル反映
 
-**対象ファイル**: `frontend/src/pages/SiteSurveyAnnotationEditorPage.tsx`（または該当する保存ハンドラ）
+**対象ファイル**: `frontend/src/pages/SiteSurveyImageViewerPage.tsx`（または該当する保存ハンドラ）
 
 ```typescript
 async function handleSave() {
@@ -4141,7 +4258,7 @@ async function handleSave() {
 ```mermaid
 sequenceDiagram
     participant FE as AnnotationEditor
-    participant API as SurveyAnnotationsRoutes
+    participant API as annotation.routes.ts
     participant AS as AnnotationService
     participant ATS as AnnotatedThumbnailService
     participant R2 as Cloudflare R2
@@ -4202,10 +4319,10 @@ sequenceDiagram
 | `backend/src/services/annotation.service.ts` | 変更 | `save` メソッドのサムネイル再生成を await 同期化、エラー伝播 |
 | `backend/src/services/annotated-thumbnail.service.ts` | 変更 | `generateAnnotatedThumbnail` の冪等化（タイムスタンプキー＋旧削除） |
 | `backend/src/services/errors.ts` | 変更 または 新規 | `ThumbnailRegenerationError` クラス追加 |
-| `backend/src/routes/survey-annotations.routes.ts` | 変更 | 保存レスポンスに `annotatedThumbnailUrl` を含める、エラーハンドリング追加 |
-| `frontend/src/pages/SiteSurveyAnnotationEditorPage.tsx` | 変更 | 保存成功時のキャッシュ更新、エラー時の再取得 |
-| `backend/src/services/__tests__/annotation.service.test.ts` | 変更 | Req 23 AC のテストケース追加 |
-| `backend/src/services/__tests__/annotated-thumbnail.service.test.ts` | 変更 | 冪等性・アトミック置き換えのテストケース追加 |
+| `backend/src/routes/annotation.routes.ts` | 変更 | 保存レスポンスに `annotatedThumbnailUrl` を含める、エラーハンドリング追加 |
+| `frontend/src/pages/SiteSurveyImageViewerPage.tsx` | 変更 | 保存成功時のキャッシュ更新、エラー時の再取得 |
+| `backend/src/__tests__/unit/services/annotation.service.test.ts` | 変更 | Req 23 AC のテストケース追加 |
+| `backend/src/__tests__/unit/services/annotated-thumbnail.service.test.ts` | 変更 | 冪等性・アトミック置き換えのテストケース追加 |
 | `e2e/specs/site-survey-thumbnail-regeneration.spec.ts` | 新規 | Req 23 の E2E シナリオ |
 
 ---
@@ -4267,7 +4384,7 @@ sequenceDiagram
 
 #### Existing Architecture Analysis
 
-- Frontend 単独で完結する拡張。バックエンドは既存 `survey-annotations.routes.ts` の JSON 保存フローをそのまま利用し、Prisma スキーマも無変更
+- Frontend 単独で完結する拡張。バックエンドは既存 `annotation.routes.ts` の JSON 保存フローをそのまま利用し、Prisma スキーマも無変更
 - Canvas コアは `AnnotationEditor.tsx`、ビューアは `ImageViewer.tsx` に分離。タッチイベントは `ImageViewer.tsx` が一次レシーバ
 - ツール実装は `tools/*.ts` に `extends Path | IText | Ellipse | Rect | ...` で配置、`registerCustomShapes.ts` で `classRegistry.setClass('arrow', Arrow)` 等により登録
 - Undo/Redo は `UndoManager` + `useFabricUndoIntegration` による `object:modified` 差分スナップショット方式が既に整備済み
@@ -4803,7 +4920,7 @@ interface TextAnnotationJSON {
 **後方互換ルール**:
 - 任意フィールド未設定のデータは従来表現で復元（Req 24.9, 25.10）
 - 新規保存時は必ず `outline` / `textOutline` を含める（enabled=false の場合も）
-- バックエンド API（`survey-annotations.routes.ts`）は JSON をそのまま受け流すため変更不要
+- バックエンド API（`annotation.routes.ts`）は JSON をそのまま受け流すため変更不要
 
 ### Error Handling
 
@@ -4943,7 +5060,7 @@ flowchart LR
 
 #### Existing Architecture Analysis
 
-- フロント完結スコープ。バックエンドは既存 `survey-images.routes.ts`（署名付き URL 発行）と `survey-annotations.routes.ts`（注釈 JSON 読取）をそのまま利用。Prisma スキーマ無変更
+- フロント完結スコープ。バックエンドは既存 `survey-images.routes.ts`（署名付き URL 発行）と `annotation.routes.ts`（注釈 JSON 読取）をそのまま利用。Prisma スキーマ無変更
 - 個別エクスポートの 3 層（ダイアログ UI / `ExportService` / `AnnotationRendererService`）が確立済み。一括化は最下層 `renderImages()` を呼ぶ薄い coordinator を追加する形で吸収可能
 - 6 形状の現行ツールは `extends Rect | Ellipse | Polygon | Polyline | Path` の単一クラス。白縁取りには Arrow が確立した Group 化パターン（`outlineShape + bodyShape`）を踏襲する
 - `annotation-style-tokens.ts` には既に `ArrowOutlineAttribute` / `TextOutlineAttribute` と `ANNOTATION_DEFAULTS` の枠組みが整備済み（Req 26 の成果）
@@ -5594,7 +5711,7 @@ interface DimensionJSON {
 **後方互換ルール**:
 - 任意フィールド未設定のデータは従来表現で復元（Req 32.9、Req 24/25 と同方針）
 - 新規保存時は `enabled` 明示（false でも保存）
-- バックエンド `survey-annotations.routes.ts` は JSON をそのまま受け流すため変更不要
+- バックエンド `annotation.routes.ts` は JSON をそのまま受け流すため変更不要
 - Dimension の独立 2 属性は UI 上 1 トグルで同期するが、将来 UI に 2 つ目のトグルを追加してもスキーマ migration 不要（独立属性化の効用）
 
 #### ZIP 内構造（参考、永続化なし）
