@@ -75,7 +75,36 @@
 | `SurveyService` | `SiteSurveyService` | `backend/src/services/site-survey.service.ts`（`export class SiteSurveyService`） |
 | `ImageService` | `SurveyImageService` | `backend/src/services/survey-image.service.ts`（`export class SurveyImageService`。`validateFile` / `detectMimeTypeByMagicBytes` も同ファイル内のメソッド） |
 | `SurveyImagesRoutes` | `survey-images.routes.ts` | `backend/src/routes/survey-images.routes.ts`（規約2 によりルートは実ファイル名で呼ぶ） |
-| `QuotaWarningDialog` | `StorageWarningBanner` | `frontend/src/components/site-surveys/StorageWarningBanner.tsx`（要件15.8 の警告 UI。結線状況の是非は本設計書の管轄外とし、タスク 115.64 の判断に委ねる） |
+| `QuotaWarningDialog` | `StorageWarningBanner` | `frontend/src/components/site-surveys/StorageWarningBanner.tsx`（要件15.8 の警告 UI。**未結線のまま存置する判断をタスク 115.64 で確定した。理由は下の「未結線部品の扱い」を参照**） |
+
+#### 未結線部品の扱い（タスク 115.64 の判断）
+
+`frontend/src/components/site-surveys/` および `frontend/src/components/site-survey/` 配下の各実装ファイルについて、本番コードからの import を機械的に数え、未結線のものを全件洗い出した。抽出手順は次のとおり。
+
+- 各ファイル名 `X` について `grep -rlE "from '[^']*/X'|from '\./X'" frontend/src e2e` を実行し、`__tests__/` 配下・`*.stories.tsx`・`*.test.ts(x)`・自ファイルを参照元から除外する
+- 残った参照元が `index.ts`（まとめ出力）だけ、または 0 件のものを未結線とする
+- **`frontend/src/components/site-surveys/index.ts` と `frontend/src/components/site-survey/index.ts` は、本番コードのどこからも import されていない**。したがってまとめ出力への再エクスポートは結線とみなさない
+- 副作用 import（`import './tools/registerCustomShapes'`）は `from` を伴わないため、上記の式では拾えない。個別に確認し結線ありと判定した
+
+撤去の可否は「現在使われているか」ではなく **「要件上使われうるか」** で判断した。
+
+**撤去したもの**（出荷済みの別実装が同じ受入基準を満たしており、要件上この部品が使われる余地が無い）:
+
+| 撤去した部品 | 自称していた担当要件 | 当該要件を満たす出荷済みの実装 |
+|---|---|---|
+| `SiteSurveyListView`（`frontend/src/components/site-surveys/SiteSurveyListView.tsx`） | 3.1, 3.5 | `SiteSurveyResponsiveView`（`frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx`）。`SiteSurveyListPage` から結線済みで、テーブル/カード切替に加えグリッド表示も持つ上位互換 |
+| `SiteSurveySearchFilter`（`frontend/src/components/site-surveys/SiteSurveySearchFilter.tsx`） | 3.2, 3.3, 3.4 | `SiteSurveyListPage`（`frontend/src/pages/SiteSurveyListPage.tsx`）が検索フォーム・調査日範囲・並び替え・クリアをページ内に直接実装している |
+| `SiteSurveyErrorDisplay`（`frontend/src/components/site-surveys/SiteSurveyErrorDisplay.tsx`）と `useSiteSurveyError`（`frontend/src/hooks/useSiteSurveyError.ts`） | 16.8 | 表示は `SiteSurveyListPage` / `SiteSurveyDetailPage` の `role="alert"` エラー表示と再試行ボタンが担う。Sentry 送信は `frontend/src/components/ErrorBoundary.tsx` と `frontend/src/utils/logger.ts` が全画面共通で担う |
+
+**撤去しなかったもの**（要件が表示・機能を求めており、出荷済みの代替実装が無い。撤去すると要件の実装そのものが失われるため、正しい是正は撤去ではなく結線である）:
+
+| 未結線の部品 | 担当要件 | 撤去せず存置する理由（＝結線されていない理由） |
+|---|---|---|
+| `StorageWarningBanner`（`frontend/src/components/site-surveys/StorageWarningBanner.tsx`） | 15.8, 15.9 | 要件15.8 は「ユーザーに警告を表示し、手動で『今すぐ保存』を促す」ことを求め、この警告 UI は本部品にしか存在しない。結線には `AutoSaveManager` の `setOnQuotaExceeded`（`frontend/src/services/AutoSaveManager.ts:501`）の登録と `frontend/src/utils/storage-error.ts` の消費が前提だが、**自動保存基盤そのもの（要件15.4, 15.5, 15.7-15.10）が本番から一切参照されていない**。基盤ごとの結線は撤去タスクの境界を超える |
+| `RestoreAnnotationDialog`（`frontend/src/components/site-survey/RestoreAnnotationDialog.tsx`） | 15.5 | 同上。`frontend/src/hooks/useAnnotationRestoration.ts` および `AutoSaveManager` とともに自動保存・復元基盤を構成する。基盤の結線と同時にしか結線できない |
+| `DimensionValueInput`（`frontend/src/components/site-surveys/tools/DimensionValueInput.tsx`） | 6.2, 6.3 | 出荷済みの `AnnotationEditor` は `createDimensionLine` で寸法線を描くだけで、寸法値入力フィールドを開く経路を持たない（`frontend/src/components/site-surveys/AnnotationEditor.tsx:1280-1285`）。本部品が要件6.2/6.3 の唯一の実装である |
+| `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`） | 5.1-5.6, 12, 20.1 | 本設計書の「Requirements Traceability」表と「Components and Interfaces」が要件5 の担当として明示しており、要件33-34 節は「フェーズ4 で `canvasViewportController` へ移行して二重実装を解消する」計画を持つ。**設計上の役割が現存するため撤去しない** |
+| `StylePanel`（`frontend/src/components/site-surveys/StylePanel.tsx`）と `style-panel.constants.ts` | 24.5, 25.2, 26.3, 26.4, 26.6, 28.7 | タスク 115.70 の所管。実際に描画されるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである。ただし **要件26.4 / 26.6 の受入基準カバレッジは本部品の単体検証（`StylePanel.outline-toggle.test.tsx`）にしか存在せず**、結線側に同等の主張が無い。先に主張を結線側へ移すまで撤去できない |
 
 #### 契約名の実在対照表
 

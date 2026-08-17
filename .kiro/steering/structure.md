@@ -480,11 +480,8 @@ frontend/
 │   │       ├── SiteSurveyForm.tsx   # 現場調査作成・編集フォーム
 │   │       ├── SiteSurveyListTable.tsx # 現場調査一覧テーブル
 │   │       ├── SiteSurveyListCard.tsx # 現場調査一覧カード（モバイル）
-│   │       ├── SiteSurveyListView.tsx # 現場調査一覧ビュー
-│   │       ├── SiteSurveySearchFilter.tsx # 検索・フィルタUI
 │   │       ├── SiteSurveyResponsiveView.tsx # レスポンシブビュー切り替え
 │   │       ├── SiteSurveyDetailInfo.tsx # 現場調査詳細情報表示
-│   │       ├── SiteSurveyErrorDisplay.tsx # エラー表示
 │   │       ├── ImageUploader.tsx    # 画像アップロードUI
 │   │       ├── ImageViewer.tsx      # 画像ビューア（Fabric.js）
 │   │       ├── LazyImage.tsx        # 遅延読み込み画像
@@ -730,11 +727,8 @@ frontend/
 - `SiteSurveyForm.stories.tsx` - 現場調査フォーム
 - `SiteSurveyListTable.stories.tsx` - 一覧テーブル
 - `SiteSurveyListCard.stories.tsx` - 一覧カード（モバイル）
-- `SiteSurveyListView.stories.tsx` - 一覧ビュー
-- `SiteSurveySearchFilter.stories.tsx` - 検索・フィルタ
 - `SiteSurveyResponsiveView.stories.tsx` - レスポンシブビュー
 - `SiteSurveyDetailInfo.stories.tsx` - 詳細情報表示
-- `SiteSurveyErrorDisplay.stories.tsx` - エラー表示
 - `ImageUploader.stories.tsx` - 画像アップロード
 - `ImageViewer.stories.tsx` - 画像ビューア
 - `LazyImage.stories.tsx` - 遅延読み込み画像
