@@ -25,7 +25,11 @@
 
 import { Group, Rect } from 'fabric';
 
-import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  resolveShapeOutlineWidth,
+  type ShapeOutlineAttribute,
+} from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -180,7 +184,12 @@ export class RectangleShape extends Group {
     const mergedOptions = { ...DEFAULT_RECTANGLE_OPTIONS, ...options };
 
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
-    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.rectangleOutline };
+    // Task 115.53 (Req 32.2): 片側幅は既定線幅由来の固定値ではなく本体線幅から算出し、
+    // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
+    const outline: ShapeOutlineAttribute = {
+      ...ANNOTATION_DEFAULTS.rectangleOutline,
+      width: resolveShapeOutlineWidth(mergedOptions.strokeWidth),
+    };
 
     // 外側 Rect（白縁取り）を生成
     // 子の left/top は Group 原点（0,0）からの相対座標。
@@ -396,6 +405,8 @@ export class RectangleShape extends Group {
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
     this._bodyRect.set('strokeWidth', width);
+    // Task 115.53 (Req 32.2): 本体線幅の変更に追随して片側幅も再算出する
+    this._outline = { ...this._outline, width: resolveShapeOutlineWidth(width) };
     this._outlineRect.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }

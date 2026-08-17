@@ -23,6 +23,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ANNOTATION_DEFAULTS,
   getToolDefaults,
+  resolveShapeOutlineWidth,
   type ShapeOutlineAttribute,
 } from '../../../components/site-surveys/annotation-style-tokens';
 
@@ -207,6 +208,50 @@ describe('annotation-style-tokens', () => {
         expect(bodyStrokeWidth).toBe(3);
         expect(minOutlineWidth).toBeCloseTo(2.25, 10);
       });
+    });
+  });
+
+  // Task 115.53 (Req 32.2): 縁取り幅は固定値の加算ではなく本体線幅からの比率で算出する
+  describe('resolveShapeOutlineWidth (Req 32.2)', () => {
+    /** 線の太さの入力範囲（AnnotationToolbar / StylePanel の min=1 / max=20） */
+    const SELECTABLE_STROKE_WIDTHS = Array.from({ length: 20 }, (_, index) => index + 1);
+
+    it.each(SELECTABLE_STROKE_WIDTHS)(
+      '本体線幅 %i で描画される縁取り線幅が本体線幅の 1.5 倍以上になる',
+      (bodyStrokeWidth) => {
+        // 描画される縁取り線幅は design.md の `bodyStrokeWidth + outline.width * 2`
+        const renderedOutlineWidth =
+          bodyStrokeWidth + resolveShapeOutlineWidth(bodyStrokeWidth) * 2;
+
+        expect(renderedOutlineWidth).toBeGreaterThanOrEqual(bodyStrokeWidth * 1.5);
+      }
+    );
+
+    it('本体線幅の上限 20 でも比率を満たす（固定値の加算では 1.3 倍に留まっていた）', () => {
+      const renderedOutlineWidth = 20 + resolveShapeOutlineWidth(20) * 2;
+
+      expect(resolveShapeOutlineWidth(20)).toBe(15);
+      expect(renderedOutlineWidth).toBe(50);
+      expect(renderedOutlineWidth / 20).toBeGreaterThanOrEqual(1.5);
+    });
+
+    it('片側幅の下限 2 論理ピクセルを保証する', () => {
+      expect(resolveShapeOutlineWidth(1)).toBe(2);
+    });
+
+    it('既定線幅 3 に対する算出値は既定の縁取り幅と一致する', () => {
+      expect(resolveShapeOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)).toBe(
+        ANNOTATION_DEFAULTS.rectangleOutline.width
+      );
+    });
+
+    it('非数・非正の本体線幅は既定線幅にフォールバックする', () => {
+      expect(resolveShapeOutlineWidth(0)).toBe(
+        resolveShapeOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
+      );
+      expect(resolveShapeOutlineWidth(Number.NaN)).toBe(
+        resolveShapeOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
+      );
     });
   });
 });

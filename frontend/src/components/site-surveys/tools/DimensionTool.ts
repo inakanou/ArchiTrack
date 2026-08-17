@@ -49,6 +49,7 @@ import { Path, FabricText, Group, type Canvas } from 'fabric';
 
 import {
   ANNOTATION_DEFAULTS,
+  resolveShapeOutlineWidth,
   type ShapeOutlineAttribute,
   type TextOutlineAttribute,
 } from '../annotation-style-tokens';
@@ -372,7 +373,12 @@ export class DimensionLine extends Group {
     const pathData = generateDimensionLinePath(startPoint, endPoint, mergedOptions.capLength);
 
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
-    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.dimensionOutline };
+    // Task 115.53 (Req 32.2): 片側幅は既定線幅由来の固定値ではなく本体線幅から算出し、
+    // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
+    const outline: ShapeOutlineAttribute = {
+      ...ANNOTATION_DEFAULTS.dimensionOutline,
+      width: resolveShapeOutlineWidth(mergedOptions.strokeWidth),
+    };
 
     // ラベル白アウトライン属性（Task 82.2 / Req 32.12）
     const labelOutline: TextOutlineAttribute = { ...ANNOTATION_DEFAULTS.dimensionLabelOutline };
@@ -649,6 +655,8 @@ export class DimensionLine extends Group {
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
     this._bodyLine.set('strokeWidth', width);
+    // Task 115.53 (Req 32.2): 本体線幅の変更に追随して片側幅も再算出する
+    this._outline = { ...this._outline, width: resolveShapeOutlineWidth(width) };
     this._outlineLine.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }

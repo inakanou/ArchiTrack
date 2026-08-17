@@ -186,6 +186,13 @@ import { ANNOTATION_DEFAULTS } from '../../../../components/site-surveys/annotat
 // ヘルパー
 // ============================================================================
 
+/**
+ * 線の太さとして選択可能な全範囲（AnnotationToolbar / StylePanel の入力範囲 1〜20）
+ *
+ * Task 115.53 (Req 32.2): 比率で定めた要件は入力の上限値まで検証する。
+ */
+const SELECTABLE_STROKE_WIDTHS = Array.from({ length: 20 }, (_, index) => index + 1);
+
 type ChildPath = {
   path?: string | Array<unknown>;
   stroke?: string;
@@ -284,6 +291,28 @@ describe('Freehand (Group + 白縁取り)', () => {
       expect((outline.strokeWidth ?? 0) / (body.strokeWidth ?? 1)).toBeGreaterThanOrEqual(1.5);
     });
 
+    // Task 115.53 (Req 32.2): 比率で定めた要件は入力の上限値まで検証しないと満たしたことにならない。
+    // 線の太さの入力範囲は 1〜20（AnnotationToolbar / StylePanel）である。
+    describe.each(SELECTABLE_STROKE_WIDTHS)('本体線幅 %i', (strokeWidth) => {
+      it('作成時の白縁取り線幅が本体線幅の 1.5 倍以上である', () => {
+        const freehand = new FreehandPath(FREEHAND_PATH_DATA, { strokeWidth });
+
+        const [outline, body] = getOutlineAndBody(freehand);
+        expect(body.strokeWidth).toBe(strokeWidth);
+        expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(strokeWidth * 1.5);
+      });
+
+      it('setStrokeWidth 後の白縁取り線幅が本体線幅の 1.5 倍以上である', () => {
+        const freehand = new FreehandPath(FREEHAND_PATH_DATA);
+
+        freehand.setStrokeWidth(strokeWidth);
+
+        const [outline, body] = getOutlineAndBody(freehand);
+        expect(body.strokeWidth).toBe(strokeWidth);
+        expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(strokeWidth * 1.5);
+      });
+    });
+
     it('外側 Path は strokeLineCap: round / strokeLineJoin: round を適用する', () => {
       const freehand = new FreehandPath(FREEHAND_PATH_DATA);
 
@@ -325,7 +354,9 @@ describe('Freehand (Group + 白縁取り)', () => {
 
       const [outline, body] = getOutlineAndBody(freehand);
       expect(body.strokeWidth).toBe(5);
-      expect(outline.strokeWidth).toBe(5 + ANNOTATION_DEFAULTS.freehandOutline.width * 2);
+      // Task 115.53 (Req 32.2): 縁取り片側幅は本体線幅から比例算出する（ceil(5 * 0.75) = 4）
+      expect(outline.strokeWidth).toBe(5 + 4 * 2);
+      expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(5 * 1.5);
     });
   });
 

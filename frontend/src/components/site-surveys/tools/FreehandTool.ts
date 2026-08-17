@@ -41,7 +41,11 @@ import {
 } from 'fabric';
 import type { Point as FabricPoint, TSimplePathData } from 'fabric';
 
-import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  resolveShapeOutlineWidth,
+  type ShapeOutlineAttribute,
+} from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -189,7 +193,12 @@ export class FreehandPath extends Group {
     const mergedOptions = { ...DEFAULT_FREEHAND_OPTIONS, ...options };
 
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
-    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.freehandOutline };
+    // Task 115.53 (Req 32.2): 片側幅は既定線幅由来の固定値ではなく本体線幅から算出し、
+    // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
+    const outline: ShapeOutlineAttribute = {
+      ...ANNOTATION_DEFAULTS.freehandOutline,
+      width: resolveShapeOutlineWidth(mergedOptions.strokeWidth),
+    };
 
     // 外側 Path（白縁取り）を生成
     // 子の left/top は Group 原点（0,0）からの相対座標。
@@ -302,6 +311,8 @@ export class FreehandPath extends Group {
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
     this._bodyPath.set('strokeWidth', width);
+    // Task 115.53 (Req 32.2): 本体線幅の変更に追随して片側幅も再算出する
+    this._outline = { ...this._outline, width: resolveShapeOutlineWidth(width) };
     this._outlinePath.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }

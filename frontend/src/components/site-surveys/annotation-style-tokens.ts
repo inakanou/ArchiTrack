@@ -6,6 +6,7 @@
  * - 26.2: 初期本体色を赤系またはオレンジ系の有彩色に設定する
  * - 26.3: 初回選択時に白縁取り/白アウトラインが有効な初期状態で起動する
  * - 26.5: 各ツールの既定色・既定線幅・既定白縁取り有無を一元管理する
+ * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上の太さで付与する（比率を全線幅で満たす）
  * - 32.11: 寸法線・円・四角形・多角形・折れ線・フリーハンドの各ツール初回起動時に
  *          白縁取りが有効な初期状態でツールを起動する
  * - 32.13: 各対象ツールの既定白縁取り有無を Req 26 の設定資材一元管理の枠組みで管理する
@@ -18,6 +19,7 @@
  * @requirement site-survey/REQ-26.2
  * @requirement site-survey/REQ-26.3
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-32.2
  * @requirement site-survey/REQ-32.11
  * @requirement site-survey/REQ-32.13
  */
@@ -130,13 +132,53 @@ const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_FILL = '';
 
 /**
- * 形状白縁取りの既定幅
+ * 形状白縁取りの片側幅を本体線幅から算出する比率
+ *
+ * design.md 5423 行: 「片側幅。本体 strokeWidth * 0.75 を推奨既定」
+ */
+const SHAPE_OUTLINE_WIDTH_RATIO = 0.75;
+
+/**
+ * 形状白縁取りの片側幅の下限（論理ピクセル）
  *
  * design.md: 本体 strokeWidth * 0.75 を推奨既定（最低 2px を保証）。
- * 既存 arrowOutline と同パターンで、本体線幅 3 に対し ceil(3 * 0.75) = 3 を最低 2px と合わせて 3px。
- * 注釈: タスク指示では「2.25 切り上げで最低 2px」と明記されているため Math.ceil を採用し最低 2 を保証。
  */
-const DEFAULT_SHAPE_OUTLINE_WIDTH = Math.max(2, Math.ceil(DEFAULT_STROKE_WIDTH * 0.75));
+const MIN_SHAPE_OUTLINE_WIDTH = 2;
+
+/**
+ * 本体線幅から形状白縁取りの片側幅を算出する（Req 32.2）
+ *
+ * Task 115.53: 従来は既定線幅 3 から算出した固定値を全形状・全線幅で共有していたため、
+ * 縁取りの太さが「本体線幅への固定値の加算」で決まっていた。要件 32.2 が定めるのは
+ * 比率（本体線幅の 1.5 倍以上）であり、固定値の加算では本体線幅が大きくなるほど比率が
+ * 下がる。線幅の入力範囲は 1〜20（AnnotationToolbar / StylePanel）であり、固定値 3 の
+ * 加算では本体線幅 13 以上で 1.5 倍を下回っていた。
+ *
+ * 本体線幅に比例させることで、描画される白縁取り線幅
+ * （design.md 5403 行: `outlineShape.strokeWidth = bodyStrokeWidth + outline.width * 2`）は
+ * 本体線幅の 2.5 倍となり、選択可能な全線幅で 1.5 倍以上を満たす。
+ *
+ * @param bodyStrokeWidth 本体線幅（論理ピクセル）
+ * @returns 白縁取りの片側幅（論理ピクセル）
+ */
+export function resolveShapeOutlineWidth(bodyStrokeWidth: number): number {
+  const effectiveBodyStrokeWidth =
+    Number.isFinite(bodyStrokeWidth) && bodyStrokeWidth > 0
+      ? bodyStrokeWidth
+      : DEFAULT_STROKE_WIDTH;
+
+  return Math.max(
+    MIN_SHAPE_OUTLINE_WIDTH,
+    Math.ceil(effectiveBodyStrokeWidth * SHAPE_OUTLINE_WIDTH_RATIO)
+  );
+}
+
+/**
+ * 形状白縁取りの既定幅
+ *
+ * 既定線幅 3 に対する算出値（ceil(3 * 0.75) = 3、下限 2px と合わせて 3px）。
+ */
+const DEFAULT_SHAPE_OUTLINE_WIDTH = resolveShapeOutlineWidth(DEFAULT_STROKE_WIDTH);
 
 /**
  * 形状白縁取りの既定オブジェクトを生成するファクトリ
