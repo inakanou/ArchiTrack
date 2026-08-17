@@ -4,11 +4,15 @@
  *
  * Requirements coverage (site-survey):
  * - 32.1: 6 形状すべてに白色の縁取り線を付与して表示する
+ * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上の太さで付与する
  * - 32.6: 白縁取り属性を注釈データに含めて永続化する
  * - 32.7: 保存済みの対象注釈を再表示する際に白縁取り属性を復元する
  * - 32.8: 既存の復元経路（enlivenObjects）で白縁取り属性が復元される
  * - 32.12: 寸法線の寸法値ラベルにも白アウトライン表現を適用する
  * - 32.14: 保存時に白縁取りを含む最終状態のサムネイルを再生成する
+ *
+ * 対象は要件 32 の 6 形状（四角形・円・多角形・折れ線・フリーハンド・寸法線）である。
+ * 矢印（要件 24.2）は既定値も丸め方も 6 形状とは独立して持たれているため本 spec の対象外。
  *
  * Task 115.48（AI運用7原則 第3原則）:
  *   本 spec は以前 `E2E_SURVEY_ID` / `E2E_IMAGE_ID` の有無で `test.skip` する構成であり、
@@ -16,12 +20,21 @@
  *   前提となるプロジェクト・現場調査・画像は検証の中で用意する。用意できない場合は
  *   飛ばさずに失敗させる。
  *
+ * Task 115.61（観測強度）:
+ *   本 spec は以前、白縁取り幅について「0 より大きい」ことしか主張しておらず、
+ *   要件 32.2 が定める本体線幅に対する比率を観測していなかった。比率で定められた要件は
+ *   本体線幅が大きいほど破れやすいため、既定線幅だけでは判別できない。
+ *   現在は全ての幅の主張を比率（片側幅 >= 本体線幅 * 0.75、実描画の縁取り線幅 >=
+ *   本体線幅 * 1.5）へ改め、線幅入力の上限値 20 でも成立することを (d) で確認する。
+ *
  * 構成:
  *   (a) 四角形・円・多角形・折れ線・寸法線の描画→保存→リロード→復元
  *   (b) 寸法線の寸法値ラベルの白アウトライン
  *   (c) フリーハンドの描画→保存→リロード→復元（他形状と挙動が異なるため独立）
+ *   (d) 線幅入力の上限値での 6 形状の白縁取り比率（描画直後および保存・復元後）
  *
  * @requirement site-survey/REQ-32.1
+ * @requirement site-survey/REQ-32.2
  * @requirement site-survey/REQ-32.6
  * @requirement site-survey/REQ-32.7
  * @requirement site-survey/REQ-32.8
@@ -86,6 +99,28 @@ const SHAPE_CELLS: ReadonlyArray<{ x0: number; y0: number; x1: number; y1: numbe
 /** フリーハンド専用の描画領域（既存 5 形状と重ならない右下） */
 const FREEHAND_CELL = { x0: 0.64, y0: 0.52, x1: 0.82, y1: 0.78 } as const;
 
+/**
+ * 線幅入力の上限値（AnnotationToolbar のスタイルパネル `line-width` の max）
+ *
+ * 要件 32.2 は比率を定めるため、既定線幅だけで確かめると本体線幅が大きい領域での
+ * 破れを見逃す。入力できる最大の本体線幅で比率が成立することを確認する。
+ */
+const MAX_STROKE_WIDTH = 20;
+
+/**
+ * 白縁取りの片側幅が満たすべき本体線幅に対する比率（design.md の検証条件）
+ *
+ * 実描画の縁取り線幅は `本体線幅 + 片側幅 * 2` として描かれるため、
+ * 片側幅が本体線幅の 0.75 倍以上であることが要件 32.2 の「1.5 倍以上」に対応する。
+ */
+const MIN_OUTLINE_WIDTH_RATIO = 0.75;
+
+/** 実描画の縁取り線幅が本体線幅に対して満たすべき比率（要件 32.2） */
+const MIN_RENDERED_OUTLINE_RATIO = 1.5;
+
+/** 白色の表現ゆれ（`white` / `#fff` / `#ffffff` / `rgb(255,255,255)`）を受け入れる正規表現 */
+const WHITE_PATTERN = /^(white|#fff(fff)?|rgba?\(255,\s*255,\s*255)/i;
+
 /** `window.__fabricCanvas` のうち本 spec が参照する範囲の最小型 */
 interface OutlineProbeCanvas {
   getObjects(): Array<OutlineProbeObject>;
@@ -98,6 +133,7 @@ interface OutlineProbeObject {
   type?: string;
   toObject(): {
     type?: string;
+    strokeWidth?: number;
     outline?: { enabled?: boolean; color?: string; width?: number };
     labelOutline?: { enabled?: boolean; widthRatio?: number };
   };
@@ -107,15 +143,38 @@ interface OutlineProbeObject {
     paintFirst?: string;
     stroke?: string;
     strokeWidth?: number;
+    opacity?: number;
   }>;
 }
 
-/** 形状ごとの白縁取り状態（page.evaluate の戻り値） */
+/**
+ * 形状ごとの白縁取り状態（page.evaluate の戻り値）
+ *
+ * 属性としての白縁取り（`toObject().outline`）に加え、Group の子として実際に描かれている
+ * 縁取り/本体の線幅も読み出す。属性だけを見ると、属性は正しいのに描画へ反映されない欠陥や、
+ * その逆を見逃すため。
+ */
 interface ShapeOutlineState {
   type: string;
+  /**
+   * 本体線幅（Group にミラーされたシリアライズ値）
+   *
+   * 復元時にキャンバスサイズが変わると表示倍率が掛けられるため、片側幅（属性値）や
+   * Group の子の線幅とは座標系が揃わない。比率の判定には使わない。
+   */
+  bodyStrokeWidth: number;
   outlineEnabled: boolean;
   outlineColor: string | null;
+  /** 白縁取りの片側幅（属性値） */
   outlineWidth: number;
+  /** 実描画の縁取り線（Group の第1子）の色 */
+  renderedOutlineStroke: string | null;
+  /** 実描画の縁取り線幅（= 本体線幅 + 片側幅 * 2） */
+  renderedOutlineStrokeWidth: number;
+  /** 実描画の縁取り線の不透明度（無効時は 0） */
+  renderedOutlineOpacity: number;
+  /** 実描画の本体線（Group の第2子）の線幅 */
+  renderedBodyStrokeWidth: number;
 }
 
 interface CanvasBox {
@@ -123,6 +182,54 @@ interface CanvasBox {
   y: number;
   width: number;
   height: number;
+}
+
+/**
+ * 白縁取りが要件 32.2 の比率を満たすことを主張する（Task 115.61）
+ *
+ * 「幅が 0 より大きい」ではなく本体線幅に対する比率で主張する。属性上の片側幅と、
+ * 実際に描かれている縁取り線幅の双方を観測する。
+ *
+ * 比較の基準には Group の子として実際に描かれている本体線幅を使う。Group 自体へ
+ * ミラーされた `strokeWidth` は、保存時と復元時でキャンバスサイズが異なる場合に
+ * 復元処理が表示倍率を掛けるため、片側幅（倍率が掛からない属性値）や子の線幅とは
+ * 座標系が揃わない。同一座標系の値どうしで比率を見る。
+ *
+ * @param state 対象形状の白縁取り状態
+ * @param label 失敗時に形状を識別するためのラベル
+ * @param expectedBodyStrokeWidth 期待する本体線幅（描画時に指定した線幅）
+ */
+function expectOutlineRatio(
+  state: ShapeOutlineState,
+  label: string,
+  expectedBodyStrokeWidth: number
+): void {
+  expect(state.renderedBodyStrokeWidth, `${label}: 本体線幅が描画時の指定と一致しない`).toBe(
+    expectedBodyStrokeWidth
+  );
+  expect(state.bodyStrokeWidth, `${label}: 本体線幅が注釈データに保持されていない`).toBeGreaterThan(
+    0
+  );
+  expect(state.outlineEnabled, `${label}: 白縁取りが無効`).toBe(true);
+  expect(state.outlineColor, `${label}: 縁取り色が白でない`).toMatch(WHITE_PATTERN);
+
+  // 要件 32.2: 片側幅は本体線幅の 0.75 倍以上（design.md の検証条件）
+  expect(
+    state.outlineWidth,
+    `${label}: 片側幅 ${state.outlineWidth} が本体線幅 ${state.renderedBodyStrokeWidth} の ` +
+      `${MIN_OUTLINE_WIDTH_RATIO} 倍（${state.renderedBodyStrokeWidth * MIN_OUTLINE_WIDTH_RATIO}）未満`
+  ).toBeGreaterThanOrEqual(state.renderedBodyStrokeWidth * MIN_OUTLINE_WIDTH_RATIO);
+
+  // 実描画側: 縁取りの線が白で可視、かつ本体線幅の 1.5 倍以上の太さで描かれている
+  expect(state.renderedOutlineStroke, `${label}: 実描画の縁取り線が白でない`).toMatch(
+    WHITE_PATTERN
+  );
+  expect(state.renderedOutlineOpacity, `${label}: 実描画の縁取り線が不可視`).toBeGreaterThan(0);
+  expect(
+    state.renderedOutlineStrokeWidth,
+    `${label}: 実描画の縁取り線幅 ${state.renderedOutlineStrokeWidth} が本体線幅 ` +
+      `${state.renderedBodyStrokeWidth} の ${MIN_RENDERED_OUTLINE_RATIO} 倍未満`
+  ).toBeGreaterThanOrEqual(state.renderedBodyStrokeWidth * MIN_RENDERED_OUTLINE_RATIO);
 }
 
 test.describe('6 形状の白縁取り保存・復元', () => {
@@ -133,6 +240,8 @@ test.describe('6 形状の白縁取り保存・復元', () => {
   let createdProjectId: string | null = null;
   let createdSurveyId: string | null = null;
   let createdImageId: string | null = null;
+  /** (d) 専用の画像。既定線幅で描いた注釈と混ざらない白紙のキャンバスを得るために分ける。 */
+  let maxWidthImageId: string | null = null;
 
   /**
    * upper-canvas の bounding box を、Fabric の実サイズ・背景画像の設定完了・
@@ -186,8 +295,8 @@ test.describe('6 形状の白縁取り保存・復元', () => {
   }
 
   /** 画像ビューアを開き、編集モードへ入って注釈ツールバーの表示を待つ。 */
-  async function enterEditMode(): Promise<void> {
-    await sharedPage.goto(`/site-surveys/${createdSurveyId}/images/${createdImageId}`);
+  async function enterEditMode(imageId: string | null = createdImageId): Promise<void> {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}/images/${imageId}`);
     await sharedPage.waitForLoadState('networkidle');
 
     const editModeButton = sharedPage.getByRole('button', { name: '編集モード', exact: true });
@@ -208,6 +317,110 @@ test.describe('6 形状の白縁取り保存・復元', () => {
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 
+  /**
+   * スタイルパネルの線幅入力へ本体線幅を入力する（描画ツール選択後に呼ぶこと）。
+   *
+   * 入力欄は描画ツール選択中のみ表示される。以降に作成される注釈へ適用される。
+   */
+  async function setStrokeWidth(width: number): Promise<void> {
+    const input = sharedPage.getByTestId('line-width');
+    await expect(input).toBeVisible({ timeout: getTimeout(10000) });
+    await input.fill(String(width));
+    await expect(input).toHaveValue(String(width));
+  }
+
+  /**
+   * スタイルパネルが現在示している本体線幅を読み出す（描画ツール選択後に呼ぶこと）。
+   *
+   * 既定線幅は一元管理の資材（Requirement 26.5）が供給する値であり、E2E 側で数値を
+   * 固定すると供給元の変更で無関係に落ちる。画面が示す値をそのまま観測する。
+   */
+  async function readStrokeWidthValue(): Promise<number> {
+    const input = sharedPage.getByTestId('line-width');
+    await expect(input).toBeVisible({ timeout: getTimeout(10000) });
+    const value = Number(await input.inputValue());
+    expect(value, 'スタイルパネルの線幅が数値として読み出せない').toBeGreaterThan(0);
+    return value;
+  }
+
+  /**
+   * 指定形状を指定セルへ描画し、オブジェクトが 1 つ増えたことを確認する。
+   *
+   * @param shape 対象形状
+   * @param cell 描画領域（キャンバス相対比率）
+   * @param box キャンバスの bounding box
+   * @param strokeWidth 本体線幅（スタイルパネルへ入力する値）
+   */
+  async function drawShape(
+    shape: ShapeDefinition,
+    cell: { x0: number; y0: number; x1: number; y1: number },
+    box: CanvasBox,
+    strokeWidth: number
+  ): Promise<void> {
+    const left = box.x + box.width * cell.x0;
+    const top = box.y + box.height * cell.y0;
+    const right = box.x + box.width * cell.x1;
+    const bottom = box.y + box.height * cell.y1;
+
+    const countBefore = await getObjectCount();
+    await selectTool(shape.toolLabel);
+    await setStrokeWidth(strokeWidth);
+
+    if (shape.gesture === 'drag') {
+      await sharedPage.mouse.move(left, top);
+      await sharedPage.mouse.down();
+      await sharedPage.mouse.move(right, bottom, { steps: 12 });
+      await sharedPage.mouse.up();
+    } else if (shape.gesture === 'polygon') {
+      // 頂点を 3 点クリックし、始点上のダブルクリックで閉じる
+      await sharedPage.mouse.click(left, top);
+      await sharedPage.mouse.click(right, top);
+      await sharedPage.mouse.click(right, bottom);
+      await sharedPage.mouse.dblclick(left, top);
+    } else {
+      // 折れ線: 3 点を打ち、終点のダブルクリックで確定する
+      await sharedPage.mouse.click(left, bottom);
+      await sharedPage.mouse.click((left + right) / 2, top);
+      await sharedPage.mouse.dblclick(right, bottom);
+    }
+
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: `${shape.toolLabel} の描画でオブジェクトが作成されませんでした`,
+      })
+      .toBe(countBefore + 1);
+  }
+
+  /**
+   * フリーハンドで一筆描き、オブジェクトが 1 つ増えたことを確認する。
+   *
+   * @param box キャンバスの bounding box
+   * @param strokeWidth 本体線幅（スタイルパネルへ入力する値）
+   */
+  async function drawFreehand(box: CanvasBox, strokeWidth: number): Promise<void> {
+    const countBefore = await getObjectCount();
+    await selectTool(FREEHAND_DEFINITION.toolLabel);
+    await setStrokeWidth(strokeWidth);
+
+    const left = box.x + box.width * FREEHAND_CELL.x0;
+    const top = box.y + box.height * FREEHAND_CELL.y0;
+    const right = box.x + box.width * FREEHAND_CELL.x1;
+    const bottom = box.y + box.height * FREEHAND_CELL.y1;
+    await sharedPage.mouse.move(left, top);
+    await sharedPage.mouse.down();
+    await sharedPage.mouse.move((left + right) / 2, bottom, { steps: 10 });
+    await sharedPage.mouse.move(right, top, { steps: 10 });
+    await sharedPage.mouse.up();
+
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: 'フリーハンドの描画でオブジェクトが作成されませんでした',
+      })
+      .toBe(countBefore + 1);
+  }
+
   /** Fabric キャンバス上のオブジェクト数を取得する。 */
   async function getObjectCount(): Promise<number> {
     return await sharedPage.evaluate(() => {
@@ -226,11 +439,20 @@ test.describe('6 形状の白縁取り保存・復元', () => {
       if (!canvas) return [];
       return canvas.getObjects().map((obj) => {
         const serialized = obj.toObject();
+        // 6 形状はいずれも [縁取り, 本体, ...] の順で子を持つ Group（design.md）。
+        const children = obj._objects ?? [];
+        const outlineChild = children[0];
+        const bodyChild = children[1];
         return {
           type: serialized.type ?? obj.type ?? 'unknown',
+          bodyStrokeWidth: serialized.strokeWidth ?? 0,
           outlineEnabled: serialized.outline?.enabled === true,
           outlineColor: serialized.outline?.color ?? null,
           outlineWidth: serialized.outline?.width ?? 0,
+          renderedOutlineStroke: outlineChild?.stroke ?? null,
+          renderedOutlineStrokeWidth: outlineChild?.strokeWidth ?? 0,
+          renderedOutlineOpacity: outlineChild?.opacity ?? 0,
+          renderedBodyStrokeWidth: bodyChild?.strokeWidth ?? 0,
         };
       });
     });
@@ -300,27 +522,37 @@ test.describe('6 形状の白縁取り保存・復元', () => {
     expect(createdSurveyId).toBeTruthy();
 
     // --- 画像を API で直接アップロード（6 形状を描き分ける広さを確保する） ---
+    // 2 枚用意する。1 枚目は (a)〜(c)（既定線幅）、2 枚目は (d)（線幅入力の上限値）で使う。
     const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
     const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
-    const uploadResponse = await sharedPage.request.post(
-      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        multipart: {
-          images: {
-            name: 'test-image-large.jpg',
-            mimeType: 'image/jpeg',
-            buffer: fs.readFileSync(testImagePath),
-          },
-        },
-      }
-    );
-    expect(uploadResponse.ok()).toBeTruthy();
+    const imageBuffer = fs.readFileSync(testImagePath);
 
-    const uploadBody = (await uploadResponse.json()) as { successful?: Array<{ id?: string }> };
-    createdImageId = uploadBody.successful?.[0]?.id ?? null;
+    async function uploadImage(): Promise<string | null> {
+      const uploadResponse = await sharedPage.request.post(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          multipart: {
+            images: {
+              name: 'test-image-large.jpg',
+              mimeType: 'image/jpeg',
+              buffer: imageBuffer,
+            },
+          },
+        }
+      );
+      expect(uploadResponse.ok()).toBeTruthy();
+      const uploadBody = (await uploadResponse.json()) as { successful?: Array<{ id?: string }> };
+      return uploadBody.successful?.[0]?.id ?? null;
+    }
+
+    createdImageId = await uploadImage();
     expect(createdImageId).toBeTruthy();
+
+    maxWidthImageId = await uploadImage();
+    expect(maxWidthImageId).toBeTruthy();
+    expect(maxWidthImageId).not.toBe(createdImageId);
   });
 
   test.afterAll(async ({ browser }) => {
@@ -359,41 +591,13 @@ test.describe('6 形状の白縁取り保存・復元', () => {
     await enterEditMode();
     const box = await getCanvasBox();
 
+    // 既定線幅（一元管理の資材が供給する値）を画面から読み取る
+    await selectTool(SHAPE_DEFINITIONS[0]!.toolLabel);
+    const defaultStrokeWidth = await readStrokeWidthValue();
+
     // --- 対象形状を順に描画する ---
     for (const [index, shape] of SHAPE_DEFINITIONS.entries()) {
-      const cell = SHAPE_CELLS[index]!;
-      const left = box.x + box.width * cell.x0;
-      const top = box.y + box.height * cell.y0;
-      const right = box.x + box.width * cell.x1;
-      const bottom = box.y + box.height * cell.y1;
-
-      const countBefore = await getObjectCount();
-      await selectTool(shape.toolLabel);
-
-      if (shape.gesture === 'drag') {
-        await sharedPage.mouse.move(left, top);
-        await sharedPage.mouse.down();
-        await sharedPage.mouse.move(right, bottom, { steps: 12 });
-        await sharedPage.mouse.up();
-      } else if (shape.gesture === 'polygon') {
-        // 頂点を 3 点クリックし、始点上のダブルクリックで閉じる
-        await sharedPage.mouse.click(left, top);
-        await sharedPage.mouse.click(right, top);
-        await sharedPage.mouse.click(right, bottom);
-        await sharedPage.mouse.dblclick(left, top);
-      } else {
-        // 折れ線: 3 点を打ち、終点のダブルクリックで確定する
-        await sharedPage.mouse.click(left, bottom);
-        await sharedPage.mouse.click((left + right) / 2, top);
-        await sharedPage.mouse.dblclick(right, bottom);
-      }
-
-      await expect
-        .poll(() => getObjectCount(), {
-          timeout: getTimeout(10000),
-          message: `${shape.toolLabel} の描画でオブジェクトが作成されませんでした`,
-        })
-        .toBe(countBefore + 1);
+      await drawShape(shape, SHAPE_CELLS[index]!, box, defaultStrokeWidth);
     }
 
     // --- 保存（Requirement 32.6） ---
@@ -424,16 +628,12 @@ test.describe('6 形状の白縁取り保存・復元', () => {
     const restoredTypes = outlineStates.map((state) => state.type);
     expect(restoredTypes.sort()).toEqual(SHAPE_DEFINITIONS.map((shape) => shape.objectType).sort());
 
-    // 各形状が白縁取り有効・白色・本体線幅に対する上乗せ幅を持って復元される
-    // （Requirement 32.1 / 32.6 / 32.7 / 32.8）
+    // 各形状が白縁取り有効・白色・本体線幅に対する比率を満たす幅で復元される
+    // （Requirement 32.1 / 32.2 / 32.6 / 32.7 / 32.8）
     for (const shape of SHAPE_DEFINITIONS) {
       const restored = outlineStates.find((state) => state.type === shape.objectType);
       expect(restored, `${shape.toolLabel} が復元されていない`).toBeTruthy();
-      expect(restored!.outlineEnabled, `${shape.toolLabel} の白縁取りが無効`).toBe(true);
-      expect(restored!.outlineColor, `${shape.toolLabel} の縁取り色が白でない`).toMatch(
-        /^(white|#fff(fff)?|rgba?\(255,\s*255,\s*255)/i
-      );
-      expect(restored!.outlineWidth, `${shape.toolLabel} の縁取り幅が 0`).toBeGreaterThan(0);
+      expectOutlineRatio(restored!, `${shape.toolLabel}（既定線幅）`, defaultStrokeWidth);
     }
   });
 
@@ -501,22 +701,8 @@ test.describe('6 形状の白縁取り保存・復元', () => {
 
     // --- フリーハンドで一筆描く ---
     await selectTool(FREEHAND_DEFINITION.toolLabel);
-    const left = box.x + box.width * FREEHAND_CELL.x0;
-    const top = box.y + box.height * FREEHAND_CELL.y0;
-    const right = box.x + box.width * FREEHAND_CELL.x1;
-    const bottom = box.y + box.height * FREEHAND_CELL.y1;
-    await sharedPage.mouse.move(left, top);
-    await sharedPage.mouse.down();
-    await sharedPage.mouse.move((left + right) / 2, bottom, { steps: 10 });
-    await sharedPage.mouse.move(right, top, { steps: 10 });
-    await sharedPage.mouse.up();
-
-    await expect
-      .poll(() => getObjectCount(), {
-        timeout: getTimeout(10000),
-        message: 'フリーハンドの描画でオブジェクトが作成されませんでした',
-      })
-      .toBe(SHAPE_DEFINITIONS.length + 1);
+    const defaultStrokeWidth = await readStrokeWidthValue();
+    await drawFreehand(box, defaultStrokeWidth);
 
     // Requirement 32.1: 描画直後の時点でフリーハンド注釈として白縁取りが付与される
     const drawnStates = await readShapeOutlineStates();
@@ -529,7 +715,8 @@ test.describe('6 形状の白縁取り保存・復元', () => {
         .map((state) => state.type)
         .join(', ')}）`
     ).toBeTruthy();
-    expect(drawnFreehand!.outlineEnabled, 'フリーハンドの白縁取りが無効').toBe(true);
+    // Requirement 32.2: 描画直後から比率を満たす幅で縁取りが付与される
+    expectOutlineRatio(drawnFreehand!, 'フリーハンド（既定線幅・描画直後）', defaultStrokeWidth);
 
     // Requirement 32.6: 白縁取り属性を含めて永続化する
     const thumbnailResponsePromise = sharedPage.waitForResponse(
@@ -558,8 +745,76 @@ test.describe('6 形状の白縁取り保存・復元', () => {
       (state) => state.type === FREEHAND_DEFINITION.objectType
     );
     expect(restoredFreehand, 'フリーハンドが復元されていない').toBeTruthy();
-    expect(restoredFreehand!.outlineEnabled, 'フリーハンドの白縁取りが復元されていない').toBe(true);
-    expect(restoredFreehand!.outlineColor).toMatch(/^(white|#fff(fff)?|rgba?\(255,\s*255,\s*255)/i);
-    expect(restoredFreehand!.outlineWidth).toBeGreaterThan(0);
+    expectOutlineRatio(restoredFreehand!, 'フリーハンド（既定線幅・復元後）', defaultStrokeWidth);
+  });
+
+  /**
+   * (d) 線幅入力の上限値で 6 形状を描画し、白縁取りが本体線幅に対する比率を満たす
+   *     Requirement 32.2
+   *
+   * Task 115.61: 要件 32.2 は比率で定められているため、既定線幅だけを見ると
+   * 「本体線幅への固定値の加算」で実装された欠陥（Task 115.53 が是正）を検出できない。
+   * 固定値加算は本体線幅が大きいほど比率が下がるため、入力できる上限の本体線幅で
+   * 成立することを確認する。描画直後と保存・復元後の双方で観測する。
+   *
+   * 対象は要件 32 の 6 形状。既定線幅で描いた注釈と混ざらないよう別画像を使う。
+   */
+  test('(d) 線幅入力の上限値でも 6 形状の白縁取りが本体線幅に対する比率を満たす', async () => {
+    await enterEditMode(maxWidthImageId);
+    const box = await getCanvasBox();
+
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '(d) 用の画像に既存の注釈が残っています',
+      })
+      .toBe(0);
+
+    // --- 上限線幅で 5 形状 + フリーハンドを描画する ---
+    for (const [index, shape] of SHAPE_DEFINITIONS.entries()) {
+      await drawShape(shape, SHAPE_CELLS[index]!, box, MAX_STROKE_WIDTH);
+    }
+    await drawFreehand(box, MAX_STROKE_WIDTH);
+
+    const allShapes = [...SHAPE_DEFINITIONS, FREEHAND_DEFINITION];
+
+    // Requirement 32.2: 描画直後の 6 形状すべてで比率が成立する
+    const drawnStates = await readShapeOutlineStates();
+    expect(drawnStates.map((state) => state.type).sort()).toEqual(
+      allShapes.map((shape) => shape.objectType).sort()
+    );
+    for (const shape of allShapes) {
+      const drawn = drawnStates.find((state) => state.type === shape.objectType);
+      expect(drawn, `${shape.toolLabel} が上限線幅で作成されていない`).toBeTruthy();
+      expectOutlineRatio(drawn!, `${shape.toolLabel}（上限線幅・描画直後）`, MAX_STROKE_WIDTH);
+    }
+
+    // --- 保存して復元後も比率が維持される（Requirement 32.2 / 32.7） ---
+    const thumbnailResponsePromise = sharedPage.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname.endsWith('/annotated-thumbnail') &&
+        response.request().method() === 'PATCH',
+      { timeout: getTimeout(60000) }
+    );
+    await sharedPage.getByRole('button', { name: '保存', exact: true }).click();
+    await thumbnailResponsePromise;
+    await expect(sharedPage.getByRole('status', { name: '保存完了' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    await enterEditMode(maxWidthImageId);
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '上限線幅で保存した注釈が復元されませんでした',
+      })
+      .toBe(allShapes.length);
+
+    const restoredStates = await readShapeOutlineStates();
+    for (const shape of allShapes) {
+      const restored = restoredStates.find((state) => state.type === shape.objectType);
+      expect(restored, `${shape.toolLabel} が復元されていない`).toBeTruthy();
+      expectOutlineRatio(restored!, `${shape.toolLabel}（上限線幅・復元後）`, MAX_STROKE_WIDTH);
+    }
   });
 });
