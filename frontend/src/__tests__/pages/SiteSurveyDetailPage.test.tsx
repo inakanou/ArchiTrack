@@ -2194,4 +2194,103 @@ describe('SiteSurveyDetailPage', () => {
       alertSpy.mockRestore();
     });
   });
+
+  // ==========================================================================
+  // 画像一覧からの選択操作（Task 115.51, Requirements 31.2, 31.3）
+  //
+  // 選択欄が画面に描画されない限り選択状態は恒久的に空となり、
+  // 選択画像エクスポートは常に実行不可のままになる。
+  // 「非活性である」ことの検証（Requirement 31.3）も、選択できて初めて
+  // 実質の検証になる。
+  // ==========================================================================
+
+  describe('画像一覧からの選択操作 (Task 115.51, Requirements 31.2, 31.3)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    });
+
+    it('詳細画面が描画する画像一覧に選択チェックボックスが存在すること (Requirement 31.2)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      for (const image of mockImages) {
+        expect(screen.getByTestId(`image-checkbox-${image.id}`)).toBeInTheDocument();
+      }
+    });
+
+    it('画像を選択すると選択画像エクスポートが活性化し件数が反映されること (Requirement 31.2, 31.3)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      // 未選択時は非活性（Requirement 31.3）
+      expect(selectedButton).toBeDisabled();
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+
+      await waitFor(() => {
+        expect(selectedButton).toHaveTextContent('選択画像エクスポート（1 件）');
+      });
+      expect(selectedButton).toBeEnabled();
+      expect(selectedButton).toHaveAttribute('aria-disabled', 'false');
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      await waitFor(() => {
+        expect(selectedButton).toHaveTextContent('選択画像エクスポート（2 件）');
+      });
+    });
+
+    it('選択を全て解除すると選択画像エクスポートが再び非活性になること (Requirement 31.3)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const checkbox = screen.getByTestId('image-checkbox-img-1');
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+
+      fireEvent.click(checkbox);
+      await waitFor(() => {
+        expect(selectedButton).toBeEnabled();
+      });
+
+      fireEvent.click(checkbox);
+      await waitFor(() => {
+        expect(selectedButton).toBeDisabled();
+      });
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（0 件）');
+      expect(selectedButton).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('選択した画像のみを対象に BulkExportDialog が開くこと (Requirement 31.2)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      await waitFor(() => {
+        expect(selectedButton).toBeEnabled();
+      });
+      fireEvent.click(selectedButton);
+
+      // BulkExportDialog が選択モード（選択件数付きの見出し）で開く
+      await waitFor(() => {
+        expect(
+          screen.getByText('1 件選択画像エクスポート', { selector: 'h2' })
+        ).toBeInTheDocument();
+      });
+    });
+  });
 });

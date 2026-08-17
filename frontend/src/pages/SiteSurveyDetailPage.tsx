@@ -327,9 +327,8 @@ export default function SiteSurveyDetailPage() {
   });
 
   // 一括エクスポート関連 state (Task 87.3, Requirements 31.1, 31.2, 31.3)
-  // 選択中の画像 ID 集合。SurveyImageGrid と双方向同期する想定だが、
-  // 本ページの実 UI は PhotoManagementPanel のため、選択 UI の組み込みは
-  // 別タスクの責務とし、本タスクではページ側の state と Props 受け渡し経路を確立する。
+  // 選択中の画像 ID 集合。本ページが描画する画像一覧（PhotoManagementPanel）の
+  // 選択欄と双方向に同期する (Task 115.51)。
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
   // 起動中の BulkExportDialog モード（null は閉）
   const [bulkExportMode, setBulkExportMode] = useState<BulkExportDialogMode | null>(null);
@@ -720,6 +719,19 @@ export default function SiteSurveyDetailPage() {
     return [];
   }, [survey, bulkExportMode, selectedImageIds]);
 
+  /**
+   * 画像一覧の選択欄からの選択変更 (Task 115.51)
+   *
+   * 画像一覧（PhotoManagementPanel）で選択された画像 ID 集合をページ側の
+   * state に反映し、「選択画像エクスポート」の対象・活性状態へ結び付ける。
+   *
+   * @requirement site-survey/REQ-31.2
+   * @requirement site-survey/REQ-31.3
+   */
+  const handleSelectionChange = useCallback((next: Set<string>) => {
+    setSelectedImageIds(next);
+  }, []);
+
   /** 「全件一括エクスポート」ボタン押下 (Requirement 31.1) */
   const handleBulkExportAll = useCallback(() => {
     setBulkExportMode('all');
@@ -932,6 +944,8 @@ export default function SiteSurveyDetailPage() {
           isDirty={isDirty}
           isSaving={isSavingMetadata}
           onDelete={canDelete ? handleImageDelete : undefined}
+          selectedImageIds={selectedImageIds}
+          onSelectionChange={handleSelectionChange}
         />
       </div>
 

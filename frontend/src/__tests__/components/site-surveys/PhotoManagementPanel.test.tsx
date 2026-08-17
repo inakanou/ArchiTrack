@@ -1178,4 +1178,120 @@ describe('PhotoManagementPanel', () => {
       });
     });
   });
+
+  // ==========================================================================
+  // エクスポート対象の選択（Requirement 31.2, 31.3）
+  //
+  // 現場調査詳細画面が実際に描画する画像一覧は本コンポーネントである。
+  // 選択欄を本コンポーネントに持たせない限り、選択画像エクスポートは
+  // 画面から到達不能なまま（選択状態が恒久的に空）になる。
+  // ==========================================================================
+
+  describe('エクスポート対象の選択 (Requirement 31.2, 31.3)', () => {
+    it('選択 props を与えると各画像に選択チェックボックスを描画すること', () => {
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      for (const image of mockImages) {
+        const checkbox = screen.getByTestId(`image-checkbox-${image.id}`);
+        expect(checkbox).toBeInTheDocument();
+        expect(checkbox).not.toBeChecked();
+      }
+    });
+
+    it('選択チェックボックスの操作で選択 ID を含む集合が通知されること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-2'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      expect(onSelectionChange).toHaveBeenCalledWith(new Set(['img-2']));
+    });
+
+    it('選択済み画像はチェック状態で描画され、解除で当該 ID が除かれた集合が通知されること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={new Set(['img-1', 'img-3'])}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      expect(screen.getByTestId('image-checkbox-img-1')).toBeChecked();
+      expect(screen.getByTestId('image-checkbox-img-3')).toBeChecked();
+      expect(screen.getByTestId('image-checkbox-img-2')).not.toBeChecked();
+
+      await user.click(screen.getByTestId('image-checkbox-img-1'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      expect(onSelectionChange).toHaveBeenCalledWith(new Set(['img-3']));
+    });
+
+    it('選択 props を与えない場合は選択チェックボックスを描画しないこと（後方互換）', () => {
+      render(<PhotoManagementPanel {...defaultProps} />);
+
+      for (const image of mockImages) {
+        expect(screen.queryByTestId(`image-checkbox-${image.id}`)).not.toBeInTheDocument();
+      }
+    });
+
+    it('読み取り専用でも選択できること（エクスポートは編集権限を要さない）', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          readOnly={true}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const checkbox = screen.getByTestId('image-checkbox-img-1');
+      expect(checkbox).toBeEnabled();
+
+      await user.click(checkbox);
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      expect(onSelectionChange).toHaveBeenCalledWith(new Set(['img-1']));
+    });
+
+    it('選択操作が報告書出力フラグ・画像クリックへ波及しないこと', async () => {
+      const user = userEvent.setup();
+      const onImageMetadataChange = vi.fn();
+      const onImageClick = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          onImageMetadataChange={onImageMetadataChange}
+          onImageClick={onImageClick}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-1'));
+
+      expect(onImageMetadataChange).not.toHaveBeenCalled();
+      expect(onImageClick).not.toHaveBeenCalled();
+    });
+  });
 });
