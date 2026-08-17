@@ -50,6 +50,9 @@ import AnnotationToolbar, { type ToolType, type StyleOptions } from './Annotatio
 // Task 115.60 (Req 26.1, 26.5): 既定スタイルは一元管理の資材から供給する。
 // 本画面で局所に宣言すると中央の値を影で覆い、実際に描かれる注釈が中央の意図と食い違う。
 import { DEFAULT_STYLE_OPTIONS } from './annotation-toolbar.constants';
+// Task 115.73 (Req 32.2): 復元時の表示倍率は座標系ごとに適用先が異なる。
+// 集合体へ複写された線幅は実描画から導出し直す（詳細は annotation-restore-scale.ts）。
+import { resolveRestoredStrokeWidth } from './annotation-restore-scale';
 import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
 import { AnnotationGuide } from './AnnotationGuide';
 import { GUIDE_IDLE_MS, COOLDOWN_MS } from './gestures/gesture-thresholds';
@@ -922,10 +925,22 @@ function AnnotationEditor({
                       scaleY: (objAny.scaleY ?? 1) * scaleY,
                     });
 
-                    // ストローク幅もスケール（平均スケールを使用）
+                    // ストローク幅の解決（Task 115.73, Req 32.2）
+                    // 集合体（Group）の注釈は実描画を子が保持し、表示倍率は上の scaleX/scaleY
+                    // 経由で子へ伝搬する。集合体自身の strokeWidth は子から複写された後方互換用の
+                    // 値であり、ここへ重ねて倍率を掛けると複写元（実描画）と座標系が食い違う。
+                    // resolveRestoredStrokeWidth は集合体なら実描画から導出し直し、集合体でない
+                    // 注釈（テキストの白アウトラインは strokeUniform のため拡大率が線幅へ伝搬
+                    // しない）は従来どおり平均倍率を掛ける。
                     const avgScale = (scaleX + scaleY) / 2;
                     if (objAny.strokeWidth) {
-                      fabricObj.set({ strokeWidth: objAny.strokeWidth * avgScale });
+                      fabricObj.set({
+                        strokeWidth: resolveRestoredStrokeWidth(
+                          fabricObj,
+                          objAny.strokeWidth,
+                          avgScale
+                        ),
+                      });
                     }
                   }
 
