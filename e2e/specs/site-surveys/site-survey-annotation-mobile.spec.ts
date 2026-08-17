@@ -54,6 +54,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+// ダブルタップ判定の閾値は本番の一元管理された定数を直接参照する。
+// テスト側に数値を複製すると、閾値が変わったときに検証だけが古い前提で緑になる。
+import { DOUBLE_TAP_MS } from '../../../frontend/src/components/site-surveys/gestures/gesture-thresholds';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,8 +89,138 @@ const MOBILE_VIEWPORT = { width: 375, height: 667 };
 /** 長押しの保持時間。実装の閾値（LONG_PRESS_MS = 500ms）を超える保持を与える。 */
 const LONG_PRESS_HOLD_MS = 800;
 
-/** 直前のタップをダブルタップ判定から失効させる待ち時間（DOUBLE_TAP_MS = 300ms を超える）。 */
-const DOUBLE_TAP_EXPIRY_MS = 500;
+/** 直前のタップをダブルタップ判定から失効させる待ち時間（本番の閾値を確実に超える）。 */
+const DOUBLE_TAP_EXPIRY_MS = DOUBLE_TAP_MS + 200;
+
+// ============================================================================
+// ダブルタップの実タッチ発火（Task 115.69）
+// ============================================================================
+//
+// touchGestureManager は「直前のタップの pointerup 時刻」から「次のタップの pointerdown
+// 時刻」までの経過を DOUBLE_TAP_MS と比較する。したがって発火間隔として意味を持つのは
+// 1 回目の指を離してから 2 回目を接地するまでの時間だけである。
+//
+// 旧実装は 1 回目の接地から 2 回目の接地まで公称 170ms（接地 40ms + 解放後 40ms +
+// タップ間 90ms）を費やし、そこに CDP の往復が 3 回入っていた。閾値に対する余裕が
+// 130ms しかなく、負荷のかかった実行環境では往復が伸びて 2 回のタップが別々の単発
+// タップとして扱われ、間欠的に失敗していた。
+//
+// 対処は 2 つを併用する:
+//   1. 待ちを詰める（公称の発火間隔 130ms → 60ms、余裕 170ms → 240ms）
+//   2. 実測した発火間隔が閾値内であることを主張する（越えたらその場で明確に落ちる）
+// 2 は本番の定数 DOUBLE_TAP_MS を参照するため、閾値の変更に自動で追随する。
+
+/** 1 回のタップで指を接地している時間。 */
+const TAP_HOLD_MS = 40;
+
+/**
+ * 1 回目の指を離してから 2 回目を接地するまでの公称待ち時間。
+ * これがそのまま本番の判定対象（pointerup → pointerdown）になる。
+ */
+const DOUBLE_TAP_GAP_MS = 60;
+
+/** ダブルタップ後、キャンバスの状態更新が落ち着くまでの待ち時間。 */
+const DOUBLE_TAP_SETTLE_MS = 80;
+
+/** CDP `Input.dispatchTouchEvent` の送出関数（各 describe がローカルに束縛する）。 */
+type DispatchTouch = (
+  type: 'touchStart' | 'touchMove' | 'touchEnd',
+  points: Array<{ x: number; y: number; id: number }>
+) => Promise<void>;
+
+/** ページ側で採取したタッチ由来ポインタイベントの発生時刻（ミリ秒） */
+interface PointerTimeline {
+  downs: number[];
+  ups: number[];
+}
+
+/** ページ側に仕込む計測窓の格納先 */
+interface PointerTimelineWindow {
+  __e2ePointerTimeline?: PointerTimeline;
+  __e2eStopPointerTimeline?: () => void;
+}
+
+/**
+ * 実タッチでダブルタップを発火させ、本番が閾値と比較するのと同一の経過時間
+ * （1 回目の pointerup → 2 回目の pointerdown）を実測して閾値内であることを主張する。
+ *
+ * 実測が閾値を越えた場合は「ダブルタップが成立しなかった」という分かりにくい失敗ではなく
+ * 「発火間隔が閾値を越えた」という真因の見える失敗になる。リトライで覆い隠さない。
+ *
+ * @returns 実測した発火間隔（ミリ秒）
+ */
+async function doubleTapWithinThreshold(
+  page: Page,
+  dispatchTouch: DispatchTouch,
+  x: number,
+  y: number
+): Promise<number> {
+  await page.evaluate(() => {
+    const target = window as unknown as PointerTimelineWindow;
+    target.__e2eStopPointerTimeline?.();
+    const timeline: PointerTimeline = { downs: [], ups: [] };
+    const onDown = (event: PointerEvent): void => {
+      if (event.pointerType === 'touch') {
+        timeline.downs.push(Date.now());
+      }
+    };
+    const onUp = (event: PointerEvent): void => {
+      if (event.pointerType === 'touch') {
+        timeline.ups.push(Date.now());
+      }
+    };
+    // 本番の判定は canvas 要素上のハンドラで行われる。捕捉フェーズの window リスナは
+    // 同一ディスパッチ内で直前に走るため、本番が見る時刻と実質同一の値を採れる。
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointerup', onUp, true);
+    target.__e2ePointerTimeline = timeline;
+    target.__e2eStopPointerTimeline = (): void => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointerup', onUp, true);
+      delete target.__e2eStopPointerTimeline;
+    };
+  });
+
+  await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+  await page.waitForTimeout(TAP_HOLD_MS);
+  await dispatchTouch('touchEnd', []);
+  await page.waitForTimeout(DOUBLE_TAP_GAP_MS);
+  await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+  await page.waitForTimeout(TAP_HOLD_MS);
+  await dispatchTouch('touchEnd', []);
+
+  const timeline = await page.evaluate((): PointerTimeline => {
+    const target = window as unknown as PointerTimelineWindow;
+    target.__e2eStopPointerTimeline?.();
+    const collected = target.__e2ePointerTimeline ?? { downs: [], ups: [] };
+    delete target.__e2ePointerTimeline;
+    return collected;
+  });
+
+  const firstUp = timeline.ups[0];
+  const secondDown = timeline.downs[1];
+  if (firstUp === undefined || secondDown === undefined) {
+    // 実タッチが届いていない＝ダブルタップ以前の問題。飛ばさず失敗させる。
+    throw new Error(
+      `ダブルタップの実タッチがページ側で観測できませんでした（pointerdown=${timeline.downs.length}回, pointerup=${timeline.ups.length}回）`
+    );
+  }
+
+  const elapsedMs = secondDown - firstUp;
+  expect(
+    elapsedMs,
+    `ダブルタップの発火間隔が閾値 ${DOUBLE_TAP_MS}ms を越えました（実測 ${elapsedMs}ms / 公称 ${DOUBLE_TAP_GAP_MS}ms）。` +
+      '本番はこの 2 回のタップを別々の単発タップとして扱うため、ダブルタップは成立しません。'
+  ).toBeLessThanOrEqual(DOUBLE_TAP_MS);
+
+  // 閾値に対する余裕を実行ログへ残す。余裕が痩せていく変化を、失敗するより前に観測できる。
+  console.log(
+    `[double-tap] 発火間隔 実測 ${elapsedMs}ms / 公称 ${DOUBLE_TAP_GAP_MS}ms（閾値 ${DOUBLE_TAP_MS}ms に対する余裕 ${DOUBLE_TAP_MS - elapsedMs}ms）`
+  );
+
+  await page.waitForTimeout(DOUBLE_TAP_SETTLE_MS);
+  return elapsedMs;
+}
 
 /** 注釈オブジェクトの白縁取り状態（page.evaluate の戻り値） */
 interface AnnotationOutlineState {
@@ -126,12 +259,12 @@ test.describe('モバイル Viewport 注釈機能', () => {
     await sharedPage.waitForTimeout(40);
   }
 
-  /** ダブルタップ（DOUBLE_TAP_MS = 300ms 以内に同一点を 2 回タップ） */
+  /**
+   * ダブルタップ（同一点を 2 回タップ）。発火間隔が本番の閾値内であることを
+   * 実測して主張する（Task 115.69）。
+   */
   async function doubleTapAt(x: number, y: number): Promise<void> {
-    await tapAt(x, y);
-    await sharedPage.waitForTimeout(90);
-    await tapAt(x, y);
-    await sharedPage.waitForTimeout(80);
+    await doubleTapWithinThreshold(sharedPage, dispatchTouch, x, y);
   }
 
   /** 1 本指ドラッグ（タッチ）。描画ツールでの描画に用いる。 */
@@ -1342,14 +1475,12 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
   }
 
   /**
-   * ダブルタップ（DOUBLE_TAP_MS=300ms 以内に同一点を2回タップ）。
-   * touchGestureManager は2回目の pointerdown で `custom:dbltap` を発火する。
+   * ダブルタップ（同一点を2回タップ）。touchGestureManager は2回目の pointerdown で
+   * `custom:dbltap` を発火する。発火間隔が本番の閾値内であることを実測して主張する
+   * （Task 115.69）。
    */
   async function doubleTapAt(x: number, y: number): Promise<void> {
-    await tapAt(x, y);
-    await sharedPage.waitForTimeout(90);
-    await tapAt(x, y);
-    await sharedPage.waitForTimeout(80);
+    await doubleTapWithinThreshold(sharedPage, dispatchTouch, x, y);
   }
 
   /** 1本指ドラッグ（タッチ）。選択ツールでの注釈移動・描画に用いる。 */
