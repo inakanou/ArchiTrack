@@ -6,6 +6,7 @@
  * - 26.2: 初期本体色を赤系またはオレンジ系の有彩色に設定する
  * - 26.3: 初回選択時に白縁取り/白アウトラインが有効な初期状態で起動する
  * - 26.5: 各ツールの既定色・既定線幅・既定白縁取り有無を一元管理する
+ * - 24.2: 矢印の白縁取り線幅を本体線幅の 1.5 倍以上の太さで付与する（比率を全線幅で満たす）
  * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上の太さで付与する（比率を全線幅で満たす）
  * - 32.11: 寸法線・円・四角形・多角形・折れ線・フリーハンドの各ツール初回起動時に
  *          白縁取りが有効な初期状態でツールを起動する
@@ -19,6 +20,7 @@
  * @requirement site-survey/REQ-26.2
  * @requirement site-survey/REQ-26.3
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-24.2
  * @requirement site-survey/REQ-32.2
  * @requirement site-survey/REQ-32.11
  * @requirement site-survey/REQ-32.13
@@ -132,11 +134,16 @@ const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_FILL = '';
 
 /**
- * 形状白縁取りの片側幅を本体線幅から算出する比率
+ * 白縁取りの片側幅を本体線幅から算出する比率
  *
- * design.md 5423 行: 「片側幅。本体 strokeWidth * 0.75 を推奨既定」
+ * design.md 5427 行（6 形状）/ 4496 行（矢印）: 「片側幅。本体 strokeWidth * 0.75 を推奨既定」。
+ * 矢印と 6 形状で同一の推奨既定が示されているため、比率は一つの定数として共有する。
+ *
+ * 「本体線幅の 1.5 倍以上」は描画される縁取り線幅の総幅を指す（design.md 5563 行の検証条件
+ * `width >= bodyStrokeWidth * 0.75` に従う）。片側幅そのものを 1.5 倍と解すると、設計が示す
+ * 推奨既定 0.75 倍が恒久的に要件違反となるため。
  */
-const SHAPE_OUTLINE_WIDTH_RATIO = 0.75;
+const OUTLINE_WIDTH_RATIO = 0.75;
 
 /**
  * 形状白縁取りの片側幅の下限（論理ピクセル）
@@ -155,7 +162,7 @@ const MIN_SHAPE_OUTLINE_WIDTH = 2;
  * 加算では本体線幅 13 以上で 1.5 倍を下回っていた。
  *
  * 本体線幅に比例させることで、描画される白縁取り線幅
- * （design.md 5403 行: `outlineShape.strokeWidth = bodyStrokeWidth + outline.width * 2`）は
+ * （design.md 5407 行: `outlineShape.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
  * 本体線幅の 2.5 倍となり、選択可能な全線幅で 1.5 倍以上を満たす。
  *
  * @param bodyStrokeWidth 本体線幅（論理ピクセル）
@@ -169,7 +176,48 @@ export function resolveShapeOutlineWidth(bodyStrokeWidth: number): number {
 
   return Math.max(
     MIN_SHAPE_OUTLINE_WIDTH,
-    Math.ceil(effectiveBodyStrokeWidth * SHAPE_OUTLINE_WIDTH_RATIO)
+    Math.ceil(effectiveBodyStrokeWidth * OUTLINE_WIDTH_RATIO)
+  );
+}
+
+/**
+ * 矢印白縁取りの片側幅の下限（論理ピクセル）
+ *
+ * 矢印は 6 形状とは独立した既定項目であり、従来から下限 1px・四捨五入で運用してきた。
+ * 既定線幅 3 に対する算出値（round(2.25) = 2）を維持するため、この丸め方を変えない。
+ */
+const MIN_ARROW_OUTLINE_WIDTH = 1;
+
+/**
+ * 本体線幅から矢印白縁取りの片側幅を算出する（Req 24.2）
+ *
+ * Task 115.59: 矢印の片側幅は既定線幅 3 から一度だけ算出した固定値 2 を全線幅で共有していたため、
+ * 描画される縁取り線幅は「本体線幅 + 4」という固定値の加算で決まっていた。要件 24.2 が定めるのは
+ * 比率（本体線幅の 1.5 倍以上）であり、固定値の加算では本体線幅が大きくなるほど比率が下がる。
+ * 線幅の入力範囲は 1〜20（AnnotationToolbar / StylePanel）であり、本体線幅 8 でちょうど 1.5 倍、
+ * 9 以上で下回っていた（6 形状の 13 より早く破綻していた）。
+ *
+ * 本体線幅に比例させることで、描画される白縁取り線幅
+ * （design.md 4478 行: `outlinePath.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
+ * 概ね本体線幅の 2.5 倍となり、選択可能な全線幅で 1.5 倍以上を満たす。
+ *
+ * 丸めは 6 形状の `Math.ceil` ではなく矢印従来の `Math.round`、下限も 2 ではなく 1 を維持する。
+ * これにより既定線幅 3 での片側幅は 2 のままとなり、既定の見た目を変えずに比率を満たせる。
+ * 四捨五入による最悪ケースでも片側幅は `0.75 * body - 0.5` 以上であり、描画幅は
+ * `2.5 * body - 1`（本体線幅 1 以上で常に `1.5 * body` 以上）となる。
+ *
+ * @param bodyStrokeWidth 本体線幅（論理ピクセル）
+ * @returns 白縁取りの片側幅（論理ピクセル）
+ */
+export function resolveArrowOutlineWidth(bodyStrokeWidth: number): number {
+  const effectiveBodyStrokeWidth =
+    Number.isFinite(bodyStrokeWidth) && bodyStrokeWidth > 0
+      ? bodyStrokeWidth
+      : DEFAULT_STROKE_WIDTH;
+
+  return Math.max(
+    MIN_ARROW_OUTLINE_WIDTH,
+    Math.round(effectiveBodyStrokeWidth * OUTLINE_WIDTH_RATIO)
   );
 }
 
@@ -204,8 +252,9 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
   arrowOutline: {
     enabled: true,
     color: '#ffffff',
-    // design.md: 本体 strokeWidth * 0.75 を推奨既定（最低 1px を保証）
-    width: Math.max(1, Math.round(DEFAULT_STROKE_WIDTH * 0.75)),
+    // Task 115.59 (Req 24.2): 既定線幅に対する算出値（round(3 * 0.75) = 2、下限 1px）。
+    // 実際の片側幅は本体線幅から都度算出する（resolveArrowOutlineWidth）。
+    width: resolveArrowOutlineWidth(DEFAULT_STROKE_WIDTH),
   },
   textOutline: {
     enabled: true,

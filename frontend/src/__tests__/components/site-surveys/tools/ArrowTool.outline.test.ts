@@ -191,6 +191,13 @@ import { ANNOTATION_DEFAULTS } from '../../../../components/site-surveys/annotat
 // ヘルパー
 // ============================================================================
 
+/**
+ * 線の太さとして選択可能な全範囲（AnnotationToolbar / StylePanel の入力範囲 1〜20）
+ *
+ * Task 115.59 (Req 24.2): 比率で定めた要件は入力の上限値まで検証する。
+ */
+const SELECTABLE_STROKE_WIDTHS = Array.from({ length: 20 }, (_, index) => index + 1);
+
 type ChildPath = {
   path?: string;
   stroke?: string;
@@ -274,6 +281,29 @@ describe('Arrow (Group + 白縁取り)', () => {
       expect((outline.strokeWidth ?? 0) / (body.strokeWidth ?? 1)).toBeGreaterThanOrEqual(1.5);
     });
 
+    // Task 115.59 (Req 24.2): 比率で定めた要件は入力の上限値まで検証しないと満たしたことにならない。
+    // 線の太さの入力範囲は 1〜20（AnnotationToolbar / StylePanel）である。
+    // 縁取り片側幅が固定値 2 だった従来実装では、本体線幅 9 以上で 1.5 倍を下回っていた。
+    describe.each(SELECTABLE_STROKE_WIDTHS)('本体線幅 %i', (strokeWidth) => {
+      it('作成時の白縁取り線幅が本体線幅の 1.5 倍以上である', () => {
+        const arrow = new Arrow({ x: 100, y: 100 }, { x: 300, y: 100 }, { strokeWidth });
+
+        const [outline, body] = getOutlineAndBody(arrow);
+        expect(body.strokeWidth).toBe(strokeWidth);
+        expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(strokeWidth * 1.5);
+      });
+
+      it('setStrokeWidth 後の白縁取り線幅が本体線幅の 1.5 倍以上である', () => {
+        const arrow = new Arrow({ x: 100, y: 100 }, { x: 300, y: 100 });
+
+        arrow.setStrokeWidth(strokeWidth);
+
+        const [outline, body] = getOutlineAndBody(arrow);
+        expect(body.strokeWidth).toBe(strokeWidth);
+        expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(strokeWidth * 1.5);
+      });
+    });
+
     it('外側 Path は strokeLineCap: round / strokeLineJoin: round を適用する', () => {
       const arrow = new Arrow({ x: 100, y: 100 }, { x: 300, y: 100 });
 
@@ -309,7 +339,9 @@ describe('Arrow (Group + 白縁取り)', () => {
 
       const [outline, body] = getOutlineAndBody(arrow);
       expect(body.strokeWidth).toBe(5);
-      expect(outline.strokeWidth).toBe(5 + ANNOTATION_DEFAULTS.arrowOutline.width * 2);
+      // Task 115.59 (Req 24.2): 縁取り片側幅は本体線幅から比例算出する（round(5 * 0.75) = 4）
+      expect(outline.strokeWidth).toBe(5 + 4 * 2);
+      expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(5 * 1.5);
     });
   });
 

@@ -23,6 +23,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ANNOTATION_DEFAULTS,
   getToolDefaults,
+  resolveArrowOutlineWidth,
   resolveShapeOutlineWidth,
   type ShapeOutlineAttribute,
 } from '../../../components/site-surveys/annotation-style-tokens';
@@ -251,6 +252,58 @@ describe('annotation-style-tokens', () => {
       );
       expect(resolveShapeOutlineWidth(Number.NaN)).toBe(
         resolveShapeOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
+      );
+    });
+  });
+
+  // Task 115.59 (Req 24.2): 矢印の縁取り幅も固定値ではなく本体線幅からの比率で算出する
+  describe('resolveArrowOutlineWidth (Req 24.2)', () => {
+    /** 線の太さの入力範囲（AnnotationToolbar / StylePanel の min=1 / max=20） */
+    const SELECTABLE_STROKE_WIDTHS = Array.from({ length: 20 }, (_, index) => index + 1);
+
+    it.each(SELECTABLE_STROKE_WIDTHS)(
+      '本体線幅 %i で描画される矢印の縁取り線幅が本体線幅の 1.5 倍以上になる',
+      (bodyStrokeWidth) => {
+        // 描画される縁取り線幅は design.md 4478 行の `bodyStrokeWidth + outlineWidth * 2`
+        const renderedOutlineWidth =
+          bodyStrokeWidth + resolveArrowOutlineWidth(bodyStrokeWidth) * 2;
+
+        expect(renderedOutlineWidth).toBeGreaterThanOrEqual(bodyStrokeWidth * 1.5);
+      }
+    );
+
+    it('本体線幅の上限 20 でも比率を満たす（固定値 2 の加算では 1.2 倍に留まっていた）', () => {
+      const renderedOutlineWidth = 20 + resolveArrowOutlineWidth(20) * 2;
+
+      expect(resolveArrowOutlineWidth(20)).toBe(15);
+      expect(renderedOutlineWidth).toBe(50);
+      expect(renderedOutlineWidth / 20).toBeGreaterThanOrEqual(1.5);
+    });
+
+    it('比率が最初に破綻していた本体線幅 9 で 1.5 倍以上を満たす', () => {
+      const renderedOutlineWidth = 9 + resolveArrowOutlineWidth(9) * 2;
+
+      // 従来の固定値 2 では 9 + 4 = 13（1.44 倍）で要件 24.2 を下回っていた
+      expect(renderedOutlineWidth).toBeGreaterThanOrEqual(9 * 1.5);
+    });
+
+    it('片側幅の下限 1 論理ピクセルを保証する', () => {
+      expect(resolveArrowOutlineWidth(1)).toBe(1);
+    });
+
+    it('既定線幅 3 に対する算出値は既定の矢印縁取り幅と一致する（既定の見た目を変えない）', () => {
+      expect(resolveArrowOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)).toBe(
+        ANNOTATION_DEFAULTS.arrowOutline.width
+      );
+      expect(ANNOTATION_DEFAULTS.arrowOutline.width).toBe(2);
+    });
+
+    it('非数・非正の本体線幅は既定線幅にフォールバックする', () => {
+      expect(resolveArrowOutlineWidth(0)).toBe(
+        resolveArrowOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
+      );
+      expect(resolveArrowOutlineWidth(Number.NaN)).toBe(
+        resolveArrowOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
       );
     });
   });

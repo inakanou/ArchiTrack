@@ -272,6 +272,26 @@ describe('Arrow シリアライズ/復元 (Task 65.2)', () => {
       expect(restored.getOutline()).toEqual({ enabled: true, color: '#ffffff', width: 4 });
     });
 
+    // Task 115.59 (Req 24.7): 縁取り片側幅を本体線幅から算出するようにしても、
+    // 保存済みの縁取り幅は復元時に優先し、既存注釈の見た目を後から変えない。
+    it('保存済みの縁取り幅は本体線幅からの算出値より優先される（本体線幅の上限でも）', async () => {
+      const json = {
+        type: 'arrow' as const,
+        startPoint: { x: 10, y: 20 },
+        endPoint: { x: 200, y: 100 },
+        stroke: '#ff0000',
+        strokeWidth: 20,
+        arrowheadSize: 12,
+        // 算出値（15）とは異なる保存値
+        outline: { enabled: true, color: '#ffffff', width: 2 },
+      };
+
+      const arrow = await Arrow.fromObject(json);
+
+      expect(arrow.getOutline()!.width).toBe(2);
+      expect(getOutlinePath(arrow).strokeWidth).toBe(20 + 2 * 2);
+    });
+
     it('outline.enabled=false の JSON から復元すると outlinePath.opacity が 0 になる', async () => {
       const json = {
         type: 'arrow' as const,
