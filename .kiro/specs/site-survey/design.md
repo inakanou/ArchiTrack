@@ -3600,7 +3600,9 @@ function getDisplayImageUrl(image: SurveyImageInfo): string {
 **対象ファイル**:
 - `frontend/src/components/site-surveys/SiteSurveyListTable.tsx`
 - `frontend/src/components/site-surveys/SiteSurveyListCard.tsx`
+- `frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx`（グリッド表示の代表画像。115.67 で追加）
 - `frontend/src/components/projects/SiteSurveySectionCard.tsx`
+- `backend/src/routes/site-surveys.routes.ts`（一覧取得の応答への表示元URLの供給。115.67 で追加）
 
 **設計方針**: 一覧画面のサムネイル表示にAnnotatedImageThumbnailコンポーネントを使用する。代表画像の`annotatedThumbnailUrl`が存在する場合はサーバーサイド生成済みサムネイルを表示し、存在しない場合はAnnotatedImageThumbnailでクライアントサイドレンダリングにフォールバックする。
 
@@ -6810,6 +6812,8 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 
 > **経緯**: 上記2の供給側の欠落は、当初「是正済み」と記載していた。タスク113.2のE2E検証で、詳細画面が合成済みサムネイルを一度も採用しないことが観測され、実レスポンスのキー比較（詳細取得には `annotatedThumbnailUrl` が無く、画像一覧取得には有る）で確定した。System Flows は当初から詳細応答に当該URLが含まれる前提で記述されており、実装が設計に追随していなかった。
 
+> **経緯（115.67）**: 同じ形の欠落が現場調査一覧の取得経路にも残っていた。一覧の応答は代表画像の `annotatedThumbnailPath`（保存位置）を返す一方で署名付きURLを生成しておらず、表示側は当該URLのみを参照するため、一覧の代表画像は常にクライアント側の合成へ落ちていた。要件20.3 は代替手段によって満たされるため機能欠陥としては現れないが、要件38 が定める「表示リクエストを写真数に比例させない」方針とは非対称である。115.67 で `/` と `/latest` の双方へ供給し、併せてグリッド表示の代表画像（`SiteSurveyResponsiveView` の `GridItemThumbnail`）が当該URLを採用していなかった欠落も是正した。
+
 #### Goals
 - 画面表示で発生する画像関連リクエストを、画像一覧取得1回と、表示領域に入った画像に対する取得のみに限定する
 - 表示領域に入るまで画像本体もクライアント合成も開始しない
@@ -6829,6 +6833,7 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 - `backend/src/services/image-list.service.ts` の `findBySurveyIdWithUrls`: 署名付きURL生成に要する問い合わせ回数と権限検証の実行単位
 - `backend/src/services/signed-url.service.ts` の現場調査単位の権限検証入口（`validateSurveyAccess`）
 - `backend/src/routes/site-surveys.routes.ts` の現場調査詳細取得における画像の表示元URLの詰め替え: `ImageListService.findBySurveyIdWithUrls` が返す表示元URLのうち、応答へ引き渡す項目の範囲。System Flows が要求する合成済みサムネイルURLの供給点であり、38.5 の詳細画面分および 38.2 の充足に必要
+- `backend/src/routes/site-surveys.routes.ts` の現場調査一覧取得（`GET /api/projects/:projectId/site-surveys` と `GET /api/projects/:projectId/site-surveys/latest`）における代表画像の表示元URLの詰め替え: `SiteSurveyService.findByProjectId` / `findLatestByProjectId` が返す `annotatedThumbnailPath` から署名付きURLを生成し応答へ含める範囲。詳細取得と同じ供給点であり、38.5 の一覧画面分および 38.2 の充足に必要（115.67）
 - `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` の取得タイミングと表示元URLの選択規則
 - 表示領域到達の観測（新規 `frontend/src/hooks/useInViewport.ts`）
 - 一覧系4コンポーネントがフォールバック経路で `AnnotatedImageThumbnail` へ渡す画像URLと `loading` の指定
@@ -6928,7 +6933,7 @@ graph TB
 | `frontend/vitest.setup.ts` | 変更 | 上記スタブを全テストへインストールし、テスト間で観測状態を初期化する |
 | `backend/src/services/image-list.service.ts` | 変更なし（実装済み） | 署名付きURL生成の定数化は是正済み。本節では回帰テストによる固定のみ |
 | `backend/src/services/signed-url.service.ts` | 変更なし（実装済み） | `validateSurveyAccess` の提供は是正済み |
-| `backend/src/routes/site-surveys.routes.ts` | 変更 | 現場調査詳細取得の応答で、画像一覧サービスが返す合成済みサムネイルの表示元URLを落とさず引き渡す（38.5 の詳細画面分・38.2） |
+| `backend/src/routes/site-surveys.routes.ts` | 変更 | 現場調査詳細取得の応答で、画像一覧サービスが返す合成済みサムネイルの表示元URLを落とさず引き渡す（38.5 の詳細画面分・38.2）。併せて現場調査一覧取得（`/` と `/latest`）の応答で、代表画像の `annotatedThumbnailPath` から署名付きURLを生成し `annotatedThumbnailUrl` として引き渡す（38.5 の一覧画面分・38.2・20.3、115.67） |
 | `backend/scripts/backfill-annotated-thumbnails.ts` | 新規（任意） | 注釈ありでサムネイル未生成の画像を再生成する冪等スクリプト。要件充足の条件ではなくデータ品質改善 |
 | `backend/performance/survey-image-list.perf.ts` | 新規 | 38.4 の検証（写真枚数を変えた画像一覧取得のレイテンシ測定） |
 
@@ -6941,6 +6946,7 @@ graph TB
 | 一覧系4コンポーネント | Frontend/Component | 縮小表示へサムネイルを供給する | 38.7 | `AnnotatedImageThumbnail`（P0） | — |
 | `ImageListService.findBySurveyIdWithUrls` | Backend/Service | 画像一覧と表示用URLを枚数非依存の問い合わせ回数で返す | 38.1, 38.4, 38.9 | `SignedUrlService`（P0）, `StorageProvider`（P0） | Service |
 | 現場調査詳細取得の応答組み立て | Backend/Route | 画像一覧サービスの表示元URLを欠落なく応答へ引き渡す | 38.2, 38.5 | `ImageListService`（P0） | API |
+| 現場調査一覧取得の応答組み立て | Backend/Route | 代表画像の合成済みサムネイルの表示元URLを応答へ引き渡す | 20.3, 38.2, 38.5, 38.7 | `SiteSurveyService`（P0）, `StorageProvider`（P0） | API |
 | `SignedUrlService.validateSurveyAccess` | Backend/Service | 現場調査単位のアクセス可否判定 | 38.9 | Prisma（P0） | Service |
 | `backfillAnnotatedThumbnails` | Backend/Batch | 合成済みサムネイルの欠落を解消する（データ品質改善・任意） | — | `AnnotatedThumbnailService`（P0） | Batch |
 

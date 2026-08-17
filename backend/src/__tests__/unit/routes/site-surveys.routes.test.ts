@@ -20,6 +20,7 @@ const mockSiteSurveyService = vi.hoisted(() => ({
   createSiteSurvey: vi.fn(),
   findById: vi.fn(),
   findByProjectId: vi.fn(),
+  findLatestByProjectId: vi.fn(),
   updateSiteSurvey: vi.fn(),
   deleteSiteSurvey: vi.fn(),
 }));
@@ -37,6 +38,18 @@ const mockSignedUrlService = vi.hoisted(() => ({
   getSignedUrlWithValidation: vi
     .fn()
     .mockResolvedValue({ success: true, url: 'https://example.com/signed-url' }),
+}));
+
+/**
+ * ストレージの構成状態（Task 115.67）
+ *
+ * 一覧取得の応答は署名付きURLの生成をストレージ構成の有無で分岐する。
+ * 両方の分岐を検証するため、テストから切り替えられるようにする。
+ */
+const mockStorageState = vi.hoisted(() => ({ configured: true }));
+
+const mockStorageProvider = vi.hoisted(() => ({
+  getSignedUrl: vi.fn(),
 }));
 
 // モック: データベースとRedis
@@ -81,6 +94,12 @@ vi.mock('../../../services/signed-url.service', () => ({
       return mockSignedUrlService;
     }
   },
+}));
+
+// モック: ストレージ（署名付きURLの生成元）
+vi.mock('../../../storage/index.js', () => ({
+  isStorageConfigured: () => mockStorageState.configured,
+  getStorageProvider: () => (mockStorageState.configured ? mockStorageProvider : null),
 }));
 
 // モック: 認証ミドルウェア
@@ -144,6 +163,7 @@ describe('Site Surveys Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStorageState.configured = true;
 
     app = express();
     app.use(express.json());
@@ -451,6 +471,149 @@ describe('Site Surveys Routes', () => {
       const response = await request(app).get('/api/projects/invalid-uuid/site-surveys');
 
       expect(response.status).toBe(400);
+    });
+
+    // Requirements: 20.3, 38.2, 38.7
+    // Task 115.67: 一覧取得の応答へ代表画像の合成済みサムネイルの表示元URLを引き渡す
+    //
+    // 応答が保存位置（annotatedThumbnailPath）だけを返し表示元URLを返さないと、
+    // 一覧の代表画像は常にクライアント側の合成へ落ち、注釈取得が写真数に比例する。
+    describe('代表画像の合成済みサムネイルの表示元URLの供給', () => {
+      const SURVEY_WITH_ANNOTATED = '550e8400-e29b-41d4-a716-446655440020';
+      const SURVEY_WITHOUT_ANNOTATED = '550e8400-e29b-41d4-a716-446655440021';
+
+      const THUMBNAIL_PATH = 'surveys/representative-thumb.jpg';
+      const ORIGINAL_PATH = 'surveys/representative-original.jpg';
+      const ANNOTATED_THUMBNAIL_PATH = 'annotated-thumbnails/representative-annotated.jpg';
+
+      /** 署名付きURLは元のキーを含む形にして、どのキーを署名したかを判別可能にする */
+      const signedUrlOf = (key: string): string => `https://signed.example.com/${key}?sig=1`;
+
+      const baseListedSurvey = {
+        ...mockSurveyInfo,
+        thumbnailUrl: THUMBNAIL_PATH,
+        thumbnailImageId: '550e8400-e29b-41d4-a716-446655440030',
+        thumbnailOriginalPath: ORIGINAL_PATH,
+        annotatedThumbnailPath: null as string | null,
+        representativeImageId: '550e8400-e29b-41d4-a716-446655440030',
+        imageCount: 1,
+      };
+
+      const listedSurveys = [
+        {
+          ...baseListedSurvey,
+          id: SURVEY_WITH_ANNOTATED,
+          annotatedThumbnailPath: ANNOTATED_THUMBNAIL_PATH,
+        },
+        { ...baseListedSurvey, id: SURVEY_WITHOUT_ANNOTATED },
+      ];
+
+      type ListedSurveyResponse = {
+        id: string;
+        thumbnailUrl: string | null;
+        thumbnailOriginalUrl: string | null;
+        annotatedThumbnailUrl: string | null;
+      };
+
+      const findSurvey = (
+        surveys: ListedSurveyResponse[],
+        id: string
+      ): ListedSurveyResponse | undefined => surveys.find((survey) => survey.id === id);
+
+      beforeEach(() => {
+        mockStorageProvider.getSignedUrl.mockImplementation(async (key: string) =>
+          signedUrlOf(key)
+        );
+
+        (mockSiteSurveyService.findByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+          data: listedSurveys,
+          pagination: { page: 1, limit: 20, total: 2, totalPages: 1 },
+        });
+        (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue(
+          {
+            totalCount: 2,
+            latestSurveys: listedSurveys,
+          }
+        );
+      });
+
+      it('should include annotatedThumbnailUrl derived from the annotated thumbnail key', async () => {
+        const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/site-surveys`);
+
+        expect(response.status).toBe(200);
+        const survey = findSurvey(response.body.data, SURVEY_WITH_ANNOTATED);
+
+        // 保存位置そのものではなく、当該保存位置から作った表示元URLであること。
+        // 通常サムネイルのキーを署名した場合は別の値になるため、取り違えを検出できる
+        expect(survey?.annotatedThumbnailUrl).toBe(signedUrlOf(ANNOTATED_THUMBNAIL_PATH));
+        expect(survey?.annotatedThumbnailUrl).not.toBe(survey?.thumbnailUrl);
+        expect(survey?.annotatedThumbnailUrl).not.toBe(survey?.thumbnailOriginalUrl);
+      });
+
+      it('should expose annotatedThumbnailUrl as null instead of omitting it when unavailable', async () => {
+        const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/site-surveys`);
+
+        expect(response.status).toBe(200);
+        const survey = findSurvey(response.body.data, SURVEY_WITHOUT_ANNOTATED);
+
+        expect(Object.keys(survey!)).toContain('annotatedThumbnailUrl');
+        expect(survey?.annotatedThumbnailUrl).toBeNull();
+      });
+
+      it('should keep existing thumbnailUrl and thumbnailOriginalUrl passthrough unchanged', async () => {
+        const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/site-surveys`);
+
+        expect(response.status).toBe(200);
+        const survey = findSurvey(response.body.data, SURVEY_WITH_ANNOTATED);
+
+        expect(survey?.thumbnailUrl).toBe(signedUrlOf(THUMBNAIL_PATH));
+        expect(survey?.thumbnailOriginalUrl).toBe(signedUrlOf(ORIGINAL_PATH));
+      });
+
+      it('should expose annotatedThumbnailUrl as null when signing the annotated thumbnail fails', async () => {
+        mockStorageProvider.getSignedUrl.mockImplementation(async (key: string) => {
+          if (key === ANNOTATED_THUMBNAIL_PATH) {
+            throw new Error('signing failed');
+          }
+          return signedUrlOf(key);
+        });
+
+        const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/site-surveys`);
+
+        expect(response.status).toBe(200);
+        const survey = findSurvey(response.body.data, SURVEY_WITH_ANNOTATED);
+
+        expect(survey?.annotatedThumbnailUrl).toBeNull();
+        // 退避経路（クライアント側の合成）が使える状態は保たれる
+        expect(survey?.thumbnailUrl).toBe(signedUrlOf(THUMBNAIL_PATH));
+        expect(survey?.thumbnailOriginalUrl).toBe(signedUrlOf(ORIGINAL_PATH));
+      });
+
+      it('should expose annotatedThumbnailUrl as null when storage is not configured', async () => {
+        mockStorageState.configured = false;
+
+        const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/site-surveys`);
+
+        expect(response.status).toBe(200);
+        const survey = findSurvey(response.body.data, SURVEY_WITH_ANNOTATED);
+
+        expect(Object.keys(survey!)).toContain('annotatedThumbnailUrl');
+        expect(survey?.annotatedThumbnailUrl).toBeNull();
+      });
+
+      it('should include annotatedThumbnailUrl in the latest surveys response as well', async () => {
+        const response = await request(app).get(
+          `/api/projects/${TEST_PROJECT_ID}/site-surveys/latest`
+        );
+
+        expect(response.status).toBe(200);
+        const withAnnotated = findSurvey(response.body.latestSurveys, SURVEY_WITH_ANNOTATED);
+        const withoutAnnotated = findSurvey(response.body.latestSurveys, SURVEY_WITHOUT_ANNOTATED);
+
+        expect(withAnnotated?.annotatedThumbnailUrl).toBe(signedUrlOf(ANNOTATED_THUMBNAIL_PATH));
+        expect(Object.keys(withoutAnnotated!)).toContain('annotatedThumbnailUrl');
+        expect(withoutAnnotated?.annotatedThumbnailUrl).toBeNull();
+      });
     });
   });
 

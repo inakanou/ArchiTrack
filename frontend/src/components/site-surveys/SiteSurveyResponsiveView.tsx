@@ -161,6 +161,20 @@ function ViewModeToggle({
  * グリッドアイテムサムネイル
  */
 function GridItemThumbnail({ survey }: { survey: SiteSurveyInfo }) {
+  // 注釈付きサムネイル（サーバーサイド生成）が存在する場合はそちらを優先（要件20.3, 38.2, 38.7）
+  // 表示元URLを採用しないと注釈データの取得と合成が代表画像の数だけ発生する
+  if (survey.annotatedThumbnailUrl) {
+    return (
+      <img
+        src={survey.annotatedThumbnailUrl}
+        alt={`${survey.name}のサムネイル（注釈付き）`}
+        className="w-full h-32 sm:h-36 md:h-40 object-cover"
+        loading="lazy"
+        data-testid="annotated-thumbnail"
+      />
+    );
+  }
+
   // 注釈表示に必要な情報がある場合
   if (survey.thumbnailImageId && survey.thumbnailOriginalUrl) {
     // AnnotatedImageThumbnail用のSurveyImageInfoオブジェクトを作成

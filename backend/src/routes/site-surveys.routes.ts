@@ -231,10 +231,11 @@ router.get(
 
       const result = await siteSurveyService.findLatestByProjectId(projectId, limit);
 
-      // thumbnailUrl と thumbnailOriginalUrl を署名付きURLに変換
+      // thumbnailUrl・thumbnailOriginalUrl・annotatedThumbnailUrl を署名付きURLに変換
       let enrichedSurveys = result.latestSurveys.map((survey) => ({
         ...survey,
         thumbnailOriginalUrl: null as string | null,
+        annotatedThumbnailUrl: null as string | null,
       }));
       if (isStorageConfigured()) {
         const storageProvider = getStorageProvider();
@@ -243,6 +244,7 @@ router.get(
             result.latestSurveys.map(async (survey) => {
               let thumbnailUrl: string | null = null;
               let thumbnailOriginalUrl: string | null = null;
+              let annotatedThumbnailUrl: string | null = null;
 
               // サムネイルURLを生成
               if (survey.thumbnailUrl) {
@@ -270,10 +272,30 @@ router.get(
                 }
               }
 
+              // 合成済みサムネイルURLを生成（Requirements: 20.3, 38.2, 38.7）
+              // 供給しないと表示側は常にクライアント側の合成へ落ち、注釈取得が写真数に比例する
+              if (survey.annotatedThumbnailPath) {
+                try {
+                  annotatedThumbnailUrl = await storageProvider.getSignedUrl(
+                    survey.annotatedThumbnailPath
+                  );
+                } catch (error) {
+                  logger.warn(
+                    {
+                      surveyId: survey.id,
+                      annotatedThumbnailPath: survey.annotatedThumbnailPath,
+                      error,
+                    },
+                    'Failed to generate signed URL for annotated thumbnail'
+                  );
+                }
+              }
+
               return {
                 ...survey,
                 thumbnailUrl,
                 thumbnailOriginalUrl,
+                annotatedThumbnailUrl,
               };
             })
           );
@@ -396,10 +418,11 @@ router.get(
         { sort, order }
       );
 
-      // thumbnailUrl と thumbnailOriginalUrl を署名付きURLに変換
+      // thumbnailUrl・thumbnailOriginalUrl・annotatedThumbnailUrl を署名付きURLに変換
       let enrichedData = result.data.map((survey) => ({
         ...survey,
         thumbnailOriginalUrl: null as string | null,
+        annotatedThumbnailUrl: null as string | null,
       }));
       if (isStorageConfigured()) {
         const storageProvider = getStorageProvider();
@@ -408,6 +431,7 @@ router.get(
             result.data.map(async (survey) => {
               let thumbnailUrl: string | null = null;
               let thumbnailOriginalUrl: string | null = null;
+              let annotatedThumbnailUrl: string | null = null;
 
               // サムネイルURLを生成
               if (survey.thumbnailUrl) {
@@ -435,10 +459,30 @@ router.get(
                 }
               }
 
+              // 合成済みサムネイルURLを生成（Requirements: 20.3, 38.2, 38.7）
+              // 供給しないと表示側は常にクライアント側の合成へ落ち、注釈取得が写真数に比例する
+              if (survey.annotatedThumbnailPath) {
+                try {
+                  annotatedThumbnailUrl = await storageProvider.getSignedUrl(
+                    survey.annotatedThumbnailPath
+                  );
+                } catch (error) {
+                  logger.warn(
+                    {
+                      surveyId: survey.id,
+                      annotatedThumbnailPath: survey.annotatedThumbnailPath,
+                      error,
+                    },
+                    'Failed to generate signed URL for annotated thumbnail'
+                  );
+                }
+              }
+
               return {
                 ...survey,
                 thumbnailUrl,
                 thumbnailOriginalUrl,
+                annotatedThumbnailUrl,
               };
             })
           );

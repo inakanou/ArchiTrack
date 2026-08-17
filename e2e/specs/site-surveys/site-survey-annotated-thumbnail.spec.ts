@@ -717,5 +717,17 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
         message: '一覧画面の代表画像サムネイルに注釈が反映されていない',
       })
       .toBeGreaterThanOrEqual(MIN_ANNOTATION_PIXELS);
+
+    // 一覧の代表画像は、サーバー生成の合成済みサムネイルを表示元に用いる（Task 115.67）。
+    // 注釈が見えることだけでは、クライアント側の合成へ落ちていても成立してしまうため、
+    // 表示元が保存済みの合成結果そのものであることを併せて主張する（REQ-38.2, REQ-38.7）
+    const listSrc = await readListThumbnailSrc();
+    console.log(`[REQ-38] 一覧の代表画像の表示元: ${listSrc.slice(0, 120)}`);
+    expect(
+      listSrc.startsWith('data:'),
+      '一覧の代表画像がクライアント側の合成へ落ちている（合成済みサムネイルの表示元URLが供給されていない）'
+    ).toBe(false);
+    expect(new URL(listSrc).pathname).toContain(savedAnnotatedThumbnailPath!);
+    await expect(sharedPage.locator('[data-testid="annotated-thumbnail"]')).toHaveCount(1);
   });
 });
