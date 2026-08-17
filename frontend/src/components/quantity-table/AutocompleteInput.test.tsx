@@ -8,8 +8,8 @@
  * Requirements:
  * - 7.1: 入力開始時の候補表示
  * - 7.3: クライアントサイドでのフィルタリング表示
- * - 7.4: 候補選択時の自動入力
- * - 7.5: 上下キー選択とEnter確定
+ * - 7.4: 候補選択時の自動入力（上下キー選択とEnter確定を含む）
+ * - 7.5: blur時にクライアントサイドで候補追加
  * - 7.6: blur時の候補追加はAPIリクエスト不要
  * - 7.7: 候補を50音順に表示
  */
@@ -164,7 +164,7 @@ describe('AutocompleteInput', () => {
     });
   });
 
-  describe('キーボード操作 (Req 7.5)', () => {
+  describe('キーボード操作 (Req 7.4)', () => {
     it('下矢印キーで次の候補にフォーカスが移動する', async () => {
       getSuggestions.mockReturnValue(['建築工事', '建設工事', '建具工事']);
 
@@ -431,7 +431,7 @@ describe('AutocompleteInput', () => {
       expect(onChange).toHaveBeenCalledWith('建築工事');
     });
 
-    it('キーボード操作が正常に動作する (Req 7.5)', async () => {
+    it('キーボード操作が正常に動作する (Req 7.4)', async () => {
       const onChange = vi.fn();
       getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
