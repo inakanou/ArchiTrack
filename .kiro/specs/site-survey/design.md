@@ -108,11 +108,13 @@
 
 #### 契約名の実在対照表
 
-規約6 の判別根拠となる表である。対象は**要件1〜30 節（`## Architecture` から `## Requirements 31-32` 見出しの直前まで）の `interface` / `type` 定義ブロックに現れる型名**と、**「Requirements Traceability」表の Interfaces 列に現れる API 契約名**。次の手順で機械的に抽出・対照した。
+規約6 の判別根拠となる表である。規約6 は**文書全体**に効くため、本表の対象範囲も文書全体と一致させる。すなわち対象は**`## Architecture` 以降の全域（文書末尾まで）の `interface` / `type` 定義ブロックに現れる型名**と、**「Requirements Traceability」表（文書内に7つある）の Interfaces 列に現れる契約名**（`*API` 形式に限らない）である。当初は要件1〜30 節だけを対象としていたが、規約の適用範囲と食い違うためタスク 115.74 で全域へ広げた。次の手順で機械的に抽出・対照した。
 
-- 型名の抽出: 当該範囲から `^(export )?(interface|type) [A-Z][A-Za-z0-9]*` に一致する宣言名を全件列挙
-- API 契約名の抽出: 追跡表の Interfaces 列を全行から取り出し、`*API` 形式の名前を全件列挙
-- 実在判定: 各名について `grep -rn --include=*.ts --include=*.tsx -E "export (interface|type|class) <名前>\b" backend/src frontend/src` を実行し、0 件なら非エクスポート宣言も `grep -wE "(interface|type) <名前>"` で確認
+- 型名の抽出: 対象範囲から `^[[:space:]]*(export )?(declare )?(interface|type) [A-Z][A-Za-z0-9_]*` に一致する宣言名を全件列挙する。**行頭固定にすると字下げされた宣言を取りこぼす**ため先頭の空白を許す。抽出結果は 102 件（重複除去後）
+- 追跡表の契約名の抽出: 全追跡表の Interfaces 列を全行から取り出し、バッククォートの有無によらず PascalCase トークンを全件列挙する。**`*API` 形式だけを見てはならない**。`*API` 形式が現れるのは冒頭の総合追跡表だけ（節別の6表はいずれも 0 件。実測）だが、要件24-30 の節別追跡表には `*API` でない契約名（`GestureEvent` / `CursorStrategy` / `HandleSizeStrategy`）があり、`*API` に限ると取りこぼす
+- 実在判定: 各名について `grep -rn --include=*.ts --include=*.tsx -E "^[[:space:]]*(export )?(declare )?(interface|type|class) <名前>\b" backend frontend e2e scripts`（`node_modules` を除く）を実行する。**走査範囲を `backend/src` / `frontend/src` に限ってはならない**。`backend/scripts` 配下の宣言を取りこぼす（`BackfillResult` が該当）
+- 実在判定の誤検出の除去: 上記の式は `import { type X, ... }` の継続行にも一致する。ヒットが import 文だけの名前は**宣言ではない**ため実体なしと判定する。またヒットが `__tests__/` 配下・`*.test.ts(x)` だけの名前も実装の実体とはみなさない
+- 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない
 
 **実装に実体がある契約名**（設計書の記述は実装の型を指す。以下のパスは宣言位置）:
 
@@ -161,10 +163,40 @@
 | `UpdateImageMetadataInput` | `backend/src/services/image-metadata.service.ts:61` |
 | `UploadImageInput` | `backend/src/services/survey-image.service.ts:103` |
 | `UseUnsavedChangesResult` | `frontend/src/hooks/useUnsavedChanges.ts:51` |
-| `AnnotationEditorState` | `frontend/src/components/site-surveys/AnnotationEditor.tsx:163`（**非エクスポート**のモジュールローカル型。外部から import できない） |
+| `AnnotationEditorState` | `frontend/src/components/site-surveys/AnnotationEditor.tsx:166`（**非エクスポート**のモジュールローカル型。外部から import できない） |
 | `ImageViewerState` | `frontend/src/components/site-surveys/ImageViewer.tsx:62`（**非エクスポート**のモジュールローカル型。外部から import できない） |
+| `AnnotatedImageInput` | `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx:28` |
+| `AnnotationMode` | 同名宣言が2箇所に存在する（`frontend/src/components/site-surveys/ExportSettingsForm.tsx:38`、`frontend/src/services/export/bulkExportService.ts:53`）。値集合は同一だが**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
+| `BackfillResult` | `backend/scripts/backfill-annotated-thumbnails.ts:50`（**`backend/src` の外**にある。実在判定の走査範囲を `backend/scripts` まで広げないと取りこぼす） |
+| `BulkExportDialogProps` | `frontend/src/components/site-surveys/BulkExportDialog.tsx:84`。**同名の別物**が `frontend/src/components/construction-photos/BulkExportDialog.tsx:55`（工事写真側の Props）にある。本設計書が指すのは前者 |
+| `BulkExportFailure` | `frontend/src/services/export/bulkExportService.ts:104` |
+| `BulkExportInput` | `frontend/src/services/export/bulkExportService.ts:76` |
+| `BulkExportProgress` | `frontend/src/services/export/bulkExportService.ts:92` |
+| `BulkExportProgressDialogProps` | `frontend/src/components/site-surveys/BulkExportProgressDialog.tsx:51`。**同名の別物**が `frontend/src/components/construction-photos/BulkExportProgressDialog.tsx:31` にある。本設計書が指すのは前者 |
+| `BulkExportResult` | `frontend/src/services/export/bulkExportService.ts:114` |
+| `BulkExportService` | `frontend/src/services/export/bulkExportService.ts:133` |
+| `ExportFormat` | 同名宣言が7箇所に存在し、**値集合が二系統に分かれる**。現場調査系（`'jpeg' \| 'png'`）は `frontend/src/components/site-surveys/ExportSettingsForm.tsx:25`、`frontend/src/services/export/zip-naming.ts:31`、`frontend/src/services/export/bulkExportService.ts:39`。無関係な**同名の別物**（`'xlsx' \| 'pdf'`）が `frontend/src/api/order-detail.ts:102`、`frontend/src/api/schedules.ts:144`、`frontend/src/api/progress.ts:101`、`frontend/src/components/estimate/EstimateExportDialog.tsx:52` にある。**1:1 の実体ではない** |
+| `ExportResolution` | 同名宣言が2箇所に存在する（`frontend/src/components/site-surveys/ExportSettingsForm.tsx:30`、`frontend/src/services/export/bulkExportService.ts:44`）。**1:1 の実体ではない** |
+| `ExportSettings` | 同名宣言が2箇所に存在する（`frontend/src/components/site-surveys/ExportSettingsForm.tsx:43`、`frontend/src/services/export/bulkExportService.ts:60`）。**1:1 の実体ではない** |
+| `ExportSettingsFormProps` | `frontend/src/components/site-surveys/ExportSettingsForm.tsx:55`。**同名の別物**が `frontend/src/components/construction-photos/ExportSettingsForm.tsx:36`（`value` の型が `ConstructionPhotoExportSettings`）にある。本設計書が指すのは前者 |
+| `FailedUpload` | `frontend/src/types/upload.types.ts:24` |
+| `FormDataMethod` | `frontend/src/api/client.ts:32`（**非エクスポート**のモジュールローカル型。外部から import できない） |
+| `ImageUploaderProps` | `frontend/src/components/site-surveys/ImageUploader.tsx:77` |
+| `PartialFailureChoice` | `frontend/src/components/site-surveys/BulkExportProgressDialog.tsx:46` |
+| `PendingUpload` | `frontend/src/types/upload.types.ts:44` |
+| `PendingUploadPanelProps` | `frontend/src/components/site-surveys/PendingUploadPanel.tsx:43` |
+| `RectangleJSON` | `frontend/src/components/site-surveys/tools/RectangleTool.ts:74` |
+| `SendFormDataOptions` | `frontend/src/api/client.ts:37`（**非エクスポート**のモジュールローカル型。外部から import できない） |
+| `ShapeOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:42`。同ファイルの `ArrowOutlineAttribute`（58 行目）は本型の別名 |
+| `UploadFailureKind` | `frontend/src/types/upload.types.ts:19` |
+| `UploadOutcome` | `frontend/src/types/upload.types.ts:36` |
+| `UseInViewportOptions` | `frontend/src/hooks/useInViewport.ts:32` |
+| `UseInViewportResult` | `frontend/src/hooks/useInViewport.ts:44` |
+| `UsePendingUploadsResult` | `frontend/src/hooks/usePendingUploads.ts:40` |
+| `ZipNamingInput` | `frontend/src/services/export/zip-naming.ts:49` |
+| `ZipNamingStrategy` | `frontend/src/services/export/zip-naming.ts:65` |
 
-**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名のエクスポートは `backend/src` にも `frontend/src` にも存在しない**（各名について上記 grep が 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。
+**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。
 
 | 種別 | 契約名 |
 |---|---|
@@ -173,10 +205,23 @@
 | API 契約（追跡表 Interfaces 列） | `SurveyAPI`、`SurveyListAPI`、`ImageAPI`、`ImageDeleteAPI`、`ImageMetadataAPI`、`ImageOrderAPI`、`AnnotationAPI`、`AnnotationBatchAPI`、`ExportAPI`、`ThumbnailAPI` |
 | DTO・入出力契約 | `SurveyInfo`、`SurveyDetail`、`PaginatedSurveys`、`SurveyFilter`、`CreateSurveyInput`、`UpdateSurveyInput`、`SaveAnnotationResponse`、`AnnotationDataV1`、`AnnotationSaveDataV1`、`AutoSaveConfig`、`ExportPdfOptions`、`PdfReportLayoutConfig`、`ToolOptions`、`OrderChangeHandlers`、`PendingOrderRef` |
 | 画面状態契約（`*State`） | `ImageExportDialogState`、`PhotoManagementState`、`SiteSurveyDetailPageState`、`SiteSurveySectionCardState` |
+| 追跡表 Interfaces 列の非 `*API` 契約名（要件24-30） | `GestureEvent`、`CursorStrategy`、`HandleSizeStrategy` |
+| 図形シリアライズ・型拡張契約（要件31 以降） | `DimensionJSON`、`ShapeJSONExt`、`ShapeOutlineMethods`、`AnnotationToolDefaultsExt` |
+
+**注（追跡表 Interfaces 列の非 `*API` 契約名の行について）**: `GestureEvent` / `CursorStrategy` / `HandleSizeStrategy` の3件は要件24-30 の追跡表（`## Requirements 24-30` 節の追跡表。要件27.1-27.10 行と要件29.1-29.8 行）の Interfaces 列にだけ現れる名前で、設計書内に `interface` / `type` 定義ブロックを持たず、**`backend` / `frontend` / `e2e` / `scripts` の全域で宣言も参照も 0 件**である（タスク 115.74 で実測。`grep -rnw` でも一致なし）。なお `GestureEvent` は WebKit 独自の DOM 型と同名だが、本設計書のそれは touchGestureManager のジェスチャー判定契約を指す名前であり、実装に同名の宣言は無い。
+
+**注（上表の最終行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:124` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:77` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル75 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断は本表の対象外であり、タスク 115.75 の所管とする。
 
 **警告（規約6 の要点）**: `I*Service` / `I*Manager` 表記は上表の**両方**に現れる。`IAuditLogService` / `IAnnotatedThumbnailService` / `IAutoSaveManager` / `IExportService` / `IUndoManager` は実在し、`ISurveyService` / `IImageService` / `IAnnotationService` / `IImageDeleteService` / `IImageMetadataService` は実在しない。**表記だけで実在を推定してはならない。**
 
-**注**: 追跡表 Interfaces 列には契約名以外に `Breadcrumb`（部品名。`frontend/src/components/common/Breadcrumb.tsx`。規約1 が適用される）、`R2 Lifecycle Rule` / `SignedURL検証` / `localStorage`（外部機構・ブラウザ API を指す説明語）も現れる。これらは契約名ではないため本表の対象外とする。
+**注**: 追跡表 Interfaces 列には契約名以外に `Breadcrumb`（部品名。`frontend/src/components/common/Breadcrumb.tsx`。規約1 が適用される）、`R2 Lifecycle Rule` / `SignedURL検証` / `localStorage`（外部機構・ブラウザ API を指す説明語）も現れる。要件19 以降の追跡表では加えて次の4種が現れる。いずれも型の契約名ではないため本表の対象外とする。
+
+- **ブラウザ API・DOM 例外名**: `AbortSignal`（31.10-31.12）、`ResizeObserver`（36.4）、`AbortError`（37.19）、`window.confirm`
+- **メソッド修飾名（`型.メソッド` 形式）**: `Arrow.setOutline` / `Arrow.toObject` / `TextAnnotation.setOutline` / `TextAnnotation.toObject` / `Dimension.setLabelOutline`。ドットの前は図形部品のクラス名であり、規約6 の契約名ではなく**規約1 の部品名**として扱う（`Arrow` は `frontend/src/components/site-surveys/tools/ArrowTool.ts:208`、`TextAnnotation` は同ディレクトリの `TextTool.ts:206` に実在。ただし `Dimension` は実装では `DimensionLine`（同 `DimensionTool.ts:293`）であり、`Dimension` という名前のクラスは存在しない）。修飾名そのものは本表へ収録しない
+- **関数・ハンドラ・プロパティ名・定数名**: `clampZoom` / `computeFitScale` / `zoomToPoint` / `discardAll` / `onRetry`、`UPLOAD_TIMEOUT_MS` など
+- **バッククォートを伴わない説明句**: `Fabric selection/object:moving`（33.11-33.12）、`既存 Req 14 経路`（31.16）、`各 Tool の setOutline/toObject/fromObject`（32.1-32.10）、`画像一覧レスポンス（URL同梱）`（38.1）、`原本URLのみ検証結果で出し分け`（38.9）。語として `Fabric` / `Req` / `Tool` / `URL` を含むが、いずれも型名ではない
+
+タスク 115.74 で、要件19 以降の全追跡表（要件24-30 / 31-32 / 33-34 / 35-36 / 37 / 38 の6表と、冒頭の総合追跡表の要件19 以降の行）の Interfaces 列から PascalCase トークンを機械的に再抽出し、上記4種を除いた残りが**全件上の2表のいずれかに収録済み**であることを確認した（`ExportSettings`、`BulkExportInput`、`PendingUploadPanelProps`、`UseInViewportResult`、`ZipNamingStrategy`、`TextOutlineAttribute`、`ContextMenuAction`、`TouchState` 等）。
 
 ## Architecture
 
