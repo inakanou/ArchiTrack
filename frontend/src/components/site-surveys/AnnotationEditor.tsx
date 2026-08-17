@@ -42,7 +42,6 @@ import {
   Canvas as FabricCanvas,
   FabricImage,
   FabricObject,
-  PencilBrush,
   Polyline,
   type TPointerEventInfo,
   type TPointerEvent,
@@ -56,7 +55,7 @@ import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
 import { PolygonBuilder, createPolygon } from './tools/PolygonTool';
 import { PolylineBuilder, createPolyline } from './tools/PolylineTool';
-import { DEFAULT_FREEHAND_OPTIONS } from './tools/FreehandTool';
+import { DEFAULT_FREEHAND_OPTIONS, createFreehandBrush } from './tools/FreehandTool';
 import { createDimensionLine } from './tools/DimensionTool';
 import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
@@ -688,12 +687,19 @@ function AnnotationEditor({
 
       // フリーハンドモードの設定
       if (tool === 'freehand') {
-        // PencilBrushを設定してフリーハンドモードを有効化
+        // Task 115.50 (Req 32.1, 32.11): 素の PencilBrush ではなく FreehandBrush を設定する。
+        // FreehandBrush は描画完了時（PencilBrush._finalizeAndAddPath → createPath）に
+        // 白縁取り付きの FreehandPath（outlinePath + bodyPath の Group）を生成するため、
+        // 本番の描画で作られるフリーハンド注釈が要件 32 の対象形状となる。
         canvas.isDrawingMode = true;
-        const brush = new PencilBrush(canvas);
-        brush.color = styleOptionsRef.current.strokeColor;
-        brush.width = styleOptionsRef.current.strokeWidth;
-        brush.decimate = DEFAULT_FREEHAND_OPTIONS.decimate;
+        const brush = createFreehandBrush(
+          {
+            stroke: styleOptionsRef.current.strokeColor,
+            strokeWidth: styleOptionsRef.current.strokeWidth,
+            decimate: DEFAULT_FREEHAND_OPTIONS.decimate,
+          },
+          canvas
+        );
         canvas.freeDrawingBrush = brush;
       } else {
         // フリーハンドモードを無効化

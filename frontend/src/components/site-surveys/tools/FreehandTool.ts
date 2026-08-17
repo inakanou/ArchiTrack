@@ -3,6 +3,7 @@
  *
  * Task 15.6: フリーハンドツールを実装する
  * Task 81.1: Freehand クラスを Group ベースへ再設計（白縁取りダブルストローク）
+ * Task 115.50: 本番の描画完了経路（PencilBrush.createPath）から FreehandPath を生成する
  *
  * Fabric.js PencilBrushの活用、描画の滑らかさ調整、
  * 白縁取り付き Group 構造のカスタム Fabric.js オブジェクト実装を行うモジュールです。
@@ -13,6 +14,9 @@
  * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上に設定する
  * - 32.3: 本体色を変更しても白縁取りは白のまま維持する
  * - 32.4: 移動・リサイズ・回転・形状変形（パスデータ変更）時に本体と同期して白縁取りを変形する
+ * - 32.6: 白縁取り属性を注釈データに含めて永続化する
+ * - 32.7: 保存された白縁取り属性を復元して表示する
+ * - 32.11: 初回にフリーハンドツールを選択したとき白縁取りが有効な初期状態で起動する
  *
  * @requirement site-survey/REQ-26.1
  * @requirement site-survey/REQ-26.2
@@ -21,10 +25,21 @@
  * @requirement site-survey/REQ-32.2
  * @requirement site-survey/REQ-32.3
  * @requirement site-survey/REQ-32.4
+ * @requirement site-survey/REQ-32.6
+ * @requirement site-survey/REQ-32.7
+ * @requirement site-survey/REQ-32.11
  */
 
-import { Group, Path, PencilBrush, type Canvas, type TPointerEvent, type TEvent } from 'fabric';
-import type { Point as FabricPoint } from 'fabric';
+import {
+  Group,
+  Path,
+  PencilBrush,
+  util,
+  type Canvas,
+  type TPointerEvent,
+  type TEvent,
+} from 'fabric';
+import type { Point as FabricPoint, TSimplePathData } from 'fabric';
 
 import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
 
@@ -592,6 +607,15 @@ export class FreehandBrush extends PencilBrush {
 
   /**
    * マウスアップイベント（描画終了）
+   *
+   * Task 115.50: `ev` を伴う本番経路では、親 `PencilBrush.onMouseUp` が
+   * `_finalizeAndAddPath()` → `createPath()` → `canvas.add()` を実行する。
+   * 生成と canvas への追加はその一本の経路に委ね、本メソッドで別途 FreehandPath を
+   * 組み立てることはしない（同一ストロークから 2 つの形状が作られるのを避ける）。
+   *
+   * `ev` を伴わない呼出（ブラシ単体の利用）は Fabric の描画完了経路を通らないため、
+   * 従来どおり収集済みポイント列から FreehandPath を組み立てて保持する。
+   *
    * @returns Fabric.jsのonMouseUpはbooleanを返すが、テスト用にFreehandPathも返せるようにする
    */
   override onMouseUp(ev?: TEvent<TPointerEvent>): boolean {
@@ -607,6 +631,12 @@ export class FreehandBrush extends PencilBrush {
       return false;
     }
 
+    // 本番経路: 平滑化済みパスから createPath() が FreehandPath を生成し canvas へ追加する
+    if (ev) {
+      this._freehandPoints = [];
+      return super.onMouseUp(ev);
+    }
+
     // パスデータを生成
     const pathData = this._generatePathData();
 
@@ -614,11 +644,37 @@ export class FreehandBrush extends PencilBrush {
     this._lastCreatedPath = new FreehandPath(pathData, this._options);
     this._freehandPoints = [];
 
-    // 親クラスのonMouseUpを呼ぶ
-    if (ev) {
-      return super.onMouseUp(ev);
-    }
     return true;
+  }
+
+  /**
+   * 描画完了時に canvas へ追加する形状を生成する
+   *
+   * Task 115.50 (Req 32.1, 32.6, 32.7, 32.11):
+   * Fabric の `PencilBrush._finalizeAndAddPath()` は `createPath()` の戻り値を
+   * そのまま `canvas.add()` する。ここで白縁取り付きの `FreehandPath`（Group:
+   * outlinePath + bodyPath）を返すことで、本番のフリーハンド描画が要件 32 の
+   * 対象形状として作成される。
+   *
+   * - パスデータは親クラスが平滑化・デシメート済みのものを受け取る（描画品質を維持）。
+   *   `FreehandPath` は `pathData` を文字列として保持・永続化する契約のため
+   *   `util.joinPath` で文字列へ変換する（`fromObject` は文字列以外を不正データとして扱う）。
+   * - 本体色・本体線幅はブラシの現在値（`color` / `width`）を採用する。
+   *   スタイル変更は `canvas.freeDrawingBrush.color/width` へ直接反映されるため、
+   *   コンストラクタ引数の複製ではなく現在値を参照する必要がある。
+   *
+   * 戻り値型は Fabric の契約（`Path`）に合わせる。`FreehandPath` は `Group` 派生で
+   * あり型としては `Path` ではないが、`_finalizeAndAddPath` が戻り値に要求するのは
+   * `canvas.add()` と `setCoords()` のみで、いずれも Group が満たす。
+   */
+  override createPath(pathData: TSimplePathData): Path {
+    const freehand = new FreehandPath(util.joinPath(pathData), {
+      ...this._options,
+      stroke: this.color,
+      strokeWidth: this.width,
+    });
+    this._lastCreatedPath = freehand;
+    return freehand as unknown as Path;
   }
 
   /** 最後に作成されたパス */
