@@ -68,12 +68,17 @@ export interface FabricCanvasLike {
 /**
  * canvas.fire() の payload。
  * AnnotationContextMenu や各ツールは pointerType / currentTool で分岐を行う。
+ *
+ * **操作対象（target）は意図的に持たない（Task 115.47 / 115.49）**。
+ * 本モジュールはジェスチャーの検出のみを担い、どの注釈オブジェクトへの操作かは
+ * 受け手が clientX/clientY から Fabric の実ヒットテストで解決する。かつて宣言だけが
+ * 残っていた `target` は、設定する側が存在しないまま受け手がそれに依存したため、
+ * 長押しの経路が実機で機能しない欠陥を生んだ。再発防止のため宣言を置かない。
  */
 export interface GesturePayload {
   pointerType: 'touch' | 'mouse' | 'pen';
   clientX: number;
   clientY: number;
-  target?: unknown;
   currentTool: string;
 }
 

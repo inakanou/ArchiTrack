@@ -144,9 +144,9 @@ const REFIT_IDENTITY_ZOOM_EPSILON = 0.01;
  * Task 96.3 / 115.47 (Req 27.1, 27.2, 27.9, 27.10, 33.8):
  * ジェスチャー通知（`custom:dbltap` / `custom:longpress`）の座標から実対象を解決する。
  *
- * `touchGestureManager.buildPayload` は payload に `target` を設定せず、Fabric の
- * `canvas.fire` もカスタムイベントに `target` を付与しない。したがって本番のタッチ操作では
- * `payload.target` は常に undefined であり、これに依存したハンドラは何もしないまま終わる。
+ * `GesturePayload` は操作対象を持たない（Task 115.49 で使われない宣言を除去済み）。
+ * `touchGestureManager.buildPayload` は対象を設定せず、Fabric の `canvas.fire` も
+ * カスタムイベントに `target` を付与しないため、通知から対象を読む実装は必ず空振りする。
  * 対象は通知の clientX/clientY から Fabric の実ヒットテストで解決しなければならない。
  *
  * Fabric v7 の `findTarget` は clientX/clientY を持つイベント様オブジェクトから

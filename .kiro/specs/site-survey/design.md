@@ -4638,11 +4638,13 @@ export function getToolDefaults(tool: ToolKind): AnnotationToolDefaults;
 ##### Service Interface
 
 ```typescript
+// GesturePayload は操作対象（target）を持たない。ジェスチャー検出は「どこで起きたか」
+// までを責務とし、「どの注釈オブジェクトか」は受け手が clientX/clientY から
+// Fabric の実ヒットテスト（findTarget）で解決する。
 interface GesturePayload {
   pointerType: 'touch' | 'mouse' | 'pen';
   clientX: number;
   clientY: number;
-  target?: FabricObject;
   currentTool: ToolKind;
 }
 
@@ -4748,8 +4750,9 @@ type ContextMenuAction = 'edit' | 'duplicate' | 'delete';
 **Implementation Notes**
 - `useEffect` 内で `const detach = touchGestureManager.attach(canvas, () => activeToolRef.current)` を実行し、cleanup で `detach()`
 - `canvas.on('custom:dbltap', handleDoubleTap)` / `canvas.on('custom:longpress', handleLongPress)` を配線
-  - `handleDoubleTap`: target が `TextAnnotation` なら `target.enterEditing()`
-  - `handleLongPress`: 選択ツールなら ContextMenu を開く、描画ツールなら Req 17 により無視
+  - 通知は操作対象を持たないため、両ハンドラは通知の clientX/clientY から `canvas.findTarget` で対象を解決する（解決処理は 1 箇所を共用）
+  - `handleDoubleTap`: 解決した対象が `TextAnnotation` なら `target.enterEditing()`
+  - `handleLongPress`: 選択ツールかつ対象が解決できたら ContextMenu を開く、描画ツールなら Req 17 により無視
 - ContextMenu の visible/position/target state を useState で保持
 - カーソル制御: `activeTool` 変更の useEffect で `canvas.defaultCursor = toolCursorMap[activeTool]` を設定
 

@@ -542,6 +542,8 @@ describe('AnnotationEditor - custom:dbltap / custom:longpress ハンドラ (Task
       const container = screen.getByTestId('annotation-editor-container');
       const longpressHandler = getRegisteredHandler('custom:longpress')!;
 
+      // Task 115.49: GesturePayload はもはや target を宣言しない。ここでは型の外から
+      // 対象を紛れ込ませ、実装が通知の対象へ再び依存し始めていないことを見張る。
       // 長押し点は空き領域（beforeEach で setHitTarget(undefined) 済み）だが payload には target がある
       // act で state 更新を確定させてから「開いていない」ことを判定する（未反映による偽陰性の排除）
       await act(async () => {
