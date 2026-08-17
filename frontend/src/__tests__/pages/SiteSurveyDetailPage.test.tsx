@@ -28,13 +28,26 @@ import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.
 // モックナビゲート
 const mockNavigate = vi.fn();
 
+// Task 115.56: 画像一覧が差し替わる契機（別の現場調査への遷移＝ルートパラメータの変更、
+// 画像編集画面からの復帰＝location.key の変化）をテストから再現できるようにする。
+// 既定値は従来どおり survey-123 / 固定キーであり、他のテストの前提は変わらない。
+let mockRouteSurveyId = 'survey-123';
+let mockLocationKey = 'default';
+
 // モック設定
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ id: 'survey-123' }),
+    useParams: () => ({ id: mockRouteSurveyId }),
     useNavigate: () => mockNavigate,
+    useLocation: () => ({
+      key: mockLocationKey,
+      pathname: `/site-surveys/${mockRouteSurveyId}`,
+      search: '',
+      hash: '',
+      state: null,
+    }),
   };
 });
 
@@ -184,6 +197,9 @@ afterEach(() => {
 describe('SiteSurveyDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Task 115.56: ルートパラメータ / location.key を既定へ戻す
+    mockRouteSurveyId = 'survey-123';
+    mockLocationKey = 'default';
     vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(
       mockPermission
     );
@@ -2291,6 +2307,158 @@ describe('SiteSurveyDetailPage', () => {
           screen.getByText('1 件選択画像エクスポート', { selector: 'h2' })
         ).toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // 再取得時の選択整合（Task 115.56, Requirements 31.2, 31.3）
+  //
+  // 現場調査の再取得は画像一覧を差し替えるため、選択集合が現存しない画像の
+  // 識別子を指したままになりうる。要件31.3 の非活性判定と要件31.2 の対象は
+  // いずれも「いま画像一覧にある画像の選択」を基準としなければならない。
+  // ==========================================================================
+  describe('再取得時の選択整合 (Task 115.56, Requirements 31.2, 31.3)', () => {
+    /** 指定した画像だけを持つ現場調査詳細を組み立てる */
+    const buildDetail = (surveyId: string, images: SurveyImageInfo[]): SiteSurveyDetail => ({
+      ...mockSurveyDetail,
+      id: surveyId,
+      imageCount: images.length,
+      images,
+    });
+
+    /** 別の現場調査に属する画像 */
+    const otherSurveyImage: SurveyImageInfo = {
+      ...(mockImages[0] as SurveyImageInfo),
+      id: 'img-9',
+      surveyId: 'survey-999',
+      fileName: 'image9.jpg',
+    };
+
+    /** 同一ツリーで再描画し、ルートパラメータ/location.key の変化を反映させる */
+    const rerenderPage = (view: ReturnType<typeof renderComponent>) => {
+      view.rerender(
+        <BrowserRouter>
+          <SiteSurveyDetailPage />
+        </BrowserRouter>
+      );
+    };
+
+    it('別の現場調査へ移ると存在しない画像の選択が残らない (Requirement 31.2, 31.3)', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', mockImages)
+      );
+
+      const view = renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-1')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-export-selected-button')).toHaveTextContent(
+          '選択画像エクスポート（2 件）'
+        );
+      });
+
+      // 別の現場調査へ遷移し、画像一覧が丸ごと差し替わる
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-999', [otherSurveyImage])
+      );
+      mockRouteSurveyId = 'survey-999';
+      rerenderPage(view);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-9')).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('image-checkbox-img-1')).not.toBeInTheDocument();
+
+      // 前の現場調査の選択は対象として存在しないため、非活性へ戻る（要件31.3）
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（0 件）');
+      expect(selectedButton).toBeDisabled();
+      expect(selectedButton).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getByTestId('image-checkbox-img-9')).not.toBeChecked();
+    });
+
+    it('再取得で消えた画像の選択だけが取り除かれ対象件数と一致する (Requirement 31.2, 31.3)', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', mockImages)
+      );
+
+      const view = renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-1')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-export-selected-button')).toHaveTextContent(
+          '選択画像エクスポート（2 件）'
+        );
+      });
+
+      // 他の利用者による削除等で img-1 が失われた状態を再取得する
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', [mockImages[1] as SurveyImageInfo])
+      );
+      mockLocationKey = 'after-edit';
+      rerenderPage(view);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('image-checkbox-img-1')).not.toBeInTheDocument();
+      });
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（1 件）');
+      expect(selectedButton).toBeEnabled();
+      expect(screen.getByTestId('image-checkbox-img-2')).toBeChecked();
+
+      // ボタンの件数とエクスポート対象が一致すること（要件31.2）
+      fireEvent.click(selectedButton);
+      await waitFor(() => {
+        expect(
+          screen.getByText('1 件選択画像エクスポート', { selector: 'h2' })
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('画像編集画面から戻っても現存する画像の選択は保持される (Requirement 31.2)', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', mockImages)
+      );
+
+      const view = renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-1')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-export-selected-button')).toHaveTextContent(
+          '選択画像エクスポート（1 件）'
+        );
+      });
+
+      // 画像編集画面から戻る（location.key が変わり再取得されるが画像は同一）
+      mockLocationKey = 'returned-from-editor';
+      rerenderPage(view);
+
+      await waitFor(() => {
+        expect(vi.mocked(siteSurveysApi.getSiteSurvey).mock.calls.length).toBeGreaterThan(1);
+      });
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（1 件）');
+      expect(selectedButton).toBeEnabled();
+      expect(screen.getByTestId('image-checkbox-img-1')).toBeChecked();
     });
   });
 });

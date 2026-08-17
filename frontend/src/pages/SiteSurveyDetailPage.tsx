@@ -277,6 +277,38 @@ function DeleteConfirmDialog({
 }
 
 /**
+ * 選択集合を、いま画像一覧にある画像だけへ絞り込む (Task 115.56)
+ *
+ * 現場調査の再取得は画像一覧を丸ごと差し替えるため、選択集合が
+ * 現存しない画像の識別子を指したままになりうる。要件31.2 の
+ * 「画像一覧で選択した画像」も要件31.3 の非活性判定も、対象は常に
+ * 現在の画像一覧に存在する画像でなければならない。
+ *
+ * 現存する選択は取り除かない（画像編集画面から戻った場合など、
+ * 同じ画像が引き続き一覧にあるときは選択を保持する）。
+ * 変化が無い場合は引数の集合をそのまま返し、不要な再描画を避ける。
+ *
+ * @requirement site-survey/REQ-31.2
+ * @requirement site-survey/REQ-31.3
+ */
+function pruneSelectionToExistingImages(
+  selected: Set<string>,
+  images: readonly SurveyImageInfo[] | undefined
+): Set<string> {
+  if (selected.size === 0) return selected;
+
+  const existingIds = new Set((images ?? []).map((image) => image.id));
+  const next = new Set<string>();
+  for (const imageId of selected) {
+    if (existingIds.has(imageId)) {
+      next.add(imageId);
+    }
+  }
+
+  return next.size === selected.size ? selected : next;
+}
+
+/**
  * 現場調査詳細ページ
  *
  * 現場調査の基本情報と画像一覧を表示し、各画像から
@@ -352,6 +384,11 @@ export default function SiteSurveyDetailPage() {
     try {
       const data = await getSiteSurvey(id);
       setSurvey(data);
+      // 画像一覧の差し替えに合わせ、現存しない画像の選択を取り除く (Task 115.56)。
+      // setSurvey と同一の更新でまとめて反映されるため、選択欄・件数表示・
+      // 活性状態・エクスポート対象が食い違う描画は生じない。
+      // 詳細が得られなかった場合は画像一覧そのものが描画されないため、選択も空になる。
+      setSelectedImageIds((prev) => pruneSelectionToExistingImages(prev, data?.images));
     } catch (err) {
       setError(err instanceof Error ? err.message : '現場調査の取得に失敗しました');
     } finally {
