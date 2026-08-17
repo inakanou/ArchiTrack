@@ -4758,6 +4758,7 @@ export function getToolDefaults(tool: ToolKind): AnnotationToolDefaults;
 - Integration: 各 tool は import し、既存ハードコード（例 `ArrowTool.ts:68-72`）を置換
 - Validation: 単体テストで `ANNOTATION_DEFAULTS` の各値が視認性要件（Req 26.1-26.2）を満たすことを確認（例: `strokeWidth >= 3`、`arrowOutline.enabled === true`）
 - Risks: セッション内継承（Req 26.4）は既存 `AnnotationEditor.styleOptionsRef` の仕組みをそのまま流用、本トークンは初期値のみ供給
+- 既定線幅（`strokeWidth`）から導かれる白縁取りの既定の見た目は、要件32 節の「既定線幅から導かれる白縁取りの既定値（要件24.2 / 32.2 / 26.5）」に表として記録している。**既定線幅を変更する場合は同表の 2 つの算出（六形状と矢印）を個別に検算すること**
 
 #### Gestures Layer
 
@@ -5716,6 +5717,23 @@ interface AnnotationToolDefaultsExt extends AnnotationToolDefaults {
 - Integration: 6 ツールが `ANNOTATION_DEFAULTS.{shape}Outline` を初期値として参照
 - Validation: 単体テストで全 6 既定値が `enabled === true` かつ `width >= bodyStrokeWidth * 0.75` を確認（Req 32.2 / 32.11）
 - Risks: 既存 Arrow の `ArrowOutlineAttribute` と共通型の重複。型エイリアス化は破壊変更なしで実施可能だが、本 Spec ではエイリアス化を任意とし実装判断に委ねる
+
+##### 既定線幅から導かれる白縁取りの既定値（要件24.2 / 32.2 / 26.5）
+
+要件26.1 の是正で既定線幅が 2 から 3 になった結果（タスク 115.60）、**六形状の白縁取りの既定の見た目が変わり、矢印は変わらなかった**。同じ既定値の変更が部位ごとに異なる結果を生むため、既定の見た目そのものを設計上の記録として固定する。値の出所は `frontend/src/components/site-surveys/annotation-style-tokens.ts` の `ANNOTATION_DEFAULTS` であり、片側幅の算出は同ファイルの `resolveShapeOutlineWidth`（六形状）と `resolveArrowOutlineWidth`（矢印）に分かれている。比率 `0.75` は両者が共有する単一の定数 `OUTLINE_WIDTH_RATIO` である。
+
+| 部位 | 片側幅の算出 | 既定線幅 3 での片側幅 | 描画される縁取り線幅 | 本体線幅に対する比 | 既定線幅 2 のときの片側幅 |
+|---|---|---|---|---|---|
+| 六形状（四角形・円・多角形・折れ線・フリーハンド・寸法線の線部） | `max(2, ceil(本体線幅 × 0.75))` | **3** | 3 + 3×2 = **9** | 3.0 倍 | 2（変化あり: 2 → 3） |
+| 矢印 | `max(1, round(本体線幅 × 0.75))` | **2** | 3 + 2×2 = **7** | 約 2.33 倍 | 2（変化なし） |
+
+**なぜ結果が分かれるか**: 既定線幅 3 に比率を掛けた素の値はどちらも 2.25 で同一である。ここから六形状は**切り上げ**で 3、矢印は**四捨五入**で 2 になる。下限も六形状が 2、矢印が 1 で異なる（既定線幅 3 では下限は効かない）。既定線幅が 2 だった時期は素の値が 1.5 で、切り上げ 2 と下限 2 が一致し、四捨五入も 2 だったため両者が偶然同値だった。**この一致は偶然であり、既定線幅が変わると解消する。** 丸め方を統一しなかった理由はタスク 115.59 の判断（矢印の既定の見た目を変えないため）にある。
+
+**既定線幅を再び変更する場合は、上表の 2 つの算出それぞれで片側幅と描画幅を検算し、本表を更新すること。**一方の算出だけで「縁取りは不変」と結論してはならない。
+
+**要件との関係**: 描画される縁取り線幅が本体線幅の 1.5 倍以上であることを要件24.2（矢印）と要件32.2（六形状）が求める。既定線幅 3 では六形状 3.0 倍・矢印 約2.33 倍でいずれも満たす。選択可能な全線幅（1〜20）での比率充足は別途 `resolveShapeOutlineWidth` / `resolveArrowOutlineWidth` の単体検証が全件で主張しており、本表は既定値の見た目の記録に限る。
+
+**影響を受けない算出**: 要件25 のテキスト白アウトラインと要件32.12 の寸法値ラベル白アウトラインは、片側幅ではなく `fontSize × widthRatio` で算出する。テキストは `ANNOTATION_DEFAULTS.fontSize`（16）× 0.12 = 1.92、寸法値ラベルは `frontend/src/components/site-surveys/tools/DimensionTool.ts` の `DEFAULT_LABEL_STYLE.fontSize`（12）× 0.12 = 1.44 である。**いずれも本体線幅を参照しないため、既定線幅の変更では変化しない。**
 
 ### Data Models
 

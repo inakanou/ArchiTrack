@@ -307,4 +307,87 @@ describe('annotation-style-tokens', () => {
       );
     });
   });
+
+  /**
+   * Task 115.71 (Req 24.2, 32.2, 26.5): 既定線幅から導かれる白縁取りの既定の見た目を固定する
+   *
+   * Task 115.60 で既定線幅が 2 から 3 へ是正された結果、六形状の片側幅は切り上げのため
+   * 2 から 3 へ変わり、矢印は四捨五入のため 2 のまま変わらなかった。同じ既定値の変更が
+   * 部位ごとに異なる結果を生むため、既定の見た目そのものを具体的な数値で主張する。
+   *
+   * 期待値は算出関数を再実行して得るのではなく **具体的な数値を直接書く**。算出側の変更に
+   * 追随して緑のままになる恒真の判定を避けるため（design.md 要件32 節
+   * 「既定線幅から導かれる白縁取りの既定値（要件24.2 / 32.2 / 26.5）」の表と対応する）。
+   *
+   * 選択可能な全線幅（1〜20）での比率充足は上の resolveShapeOutlineWidth /
+   * resolveArrowOutlineWidth の各 describe が既に全件で主張しているため、ここでは重複させない。
+   *
+   * @requirement site-survey/REQ-24.2
+   * @requirement site-survey/REQ-32.2
+   * @requirement site-survey/REQ-26.5
+   */
+  describe('Task 115.71: 既定線幅から導かれる白縁取りの既定値', () => {
+    const shapeOutlineKeys = [
+      'rectangleOutline',
+      'circleOutline',
+      'polygonOutline',
+      'polylineOutline',
+      'freehandOutline',
+      'dimensionOutline',
+    ] as const;
+
+    it('既定線幅は 3 論理ピクセルである（本表の前提。Req 26.1, 26.5）', () => {
+      expect(ANNOTATION_DEFAULTS.strokeWidth).toBe(3);
+    });
+
+    it('既定線幅 3 から六形状の片側幅 3 が導かれる（切り上げ。Req 32.2）', () => {
+      expect(resolveShapeOutlineWidth(3)).toBe(3);
+    });
+
+    it('既定線幅 3 から矢印の片側幅 2 が導かれる（四捨五入。Req 24.2）', () => {
+      expect(resolveArrowOutlineWidth(3)).toBe(2);
+    });
+
+    it.each(shapeOutlineKeys)('%s の既定の片側幅は 3 である (Req 32.2, 26.5)', (key) => {
+      const outline = ANNOTATION_DEFAULTS[key] as ShapeOutlineAttribute;
+      expect(outline.width).toBe(3);
+    });
+
+    it('矢印の既定の片側幅は 2 である（六形状の 3 とは異なる）(Req 24.2, 26.5)', () => {
+      expect(ANNOTATION_DEFAULTS.arrowOutline.width).toBe(2);
+    });
+
+    it('六形状と矢印で既定の片側幅が異なる（丸め方の違いによる非対称）', () => {
+      expect(ANNOTATION_DEFAULTS.rectangleOutline.width).not.toBe(
+        ANNOTATION_DEFAULTS.arrowOutline.width
+      );
+    });
+
+    it('既定状態で描画される六形状の縁取り線幅は 9 である（本体線幅の 3.0 倍。Req 32.2）', () => {
+      // 描画される縁取り線幅は各ツールの `bodyStrokeWidth + outline.width * 2`
+      expect(3 + 3 * 2).toBe(9);
+      expect(ANNOTATION_DEFAULTS.strokeWidth + ANNOTATION_DEFAULTS.rectangleOutline.width * 2).toBe(
+        9
+      );
+    });
+
+    it('既定状態で描画される矢印の縁取り線幅は 7 である（本体線幅の約 2.33 倍。Req 24.2）', () => {
+      expect(3 + 2 * 2).toBe(7);
+      expect(ANNOTATION_DEFAULTS.strokeWidth + ANNOTATION_DEFAULTS.arrowOutline.width * 2).toBe(7);
+    });
+
+    it('テキスト白アウトラインは本体線幅を参照しないため既定線幅の変更で変化しない (Req 26.5)', () => {
+      // fontSize * widthRatio = 16 * 0.12 = 1.92（片側幅の算出とは独立）
+      expect(ANNOTATION_DEFAULTS.fontSize).toBe(16);
+      expect(ANNOTATION_DEFAULTS.textOutline.widthRatio).toBe(0.12);
+      expect(ANNOTATION_DEFAULTS.fontSize * ANNOTATION_DEFAULTS.textOutline.widthRatio).toBeCloseTo(
+        1.92,
+        10
+      );
+    });
+
+    it('寸法値ラベルの白アウトラインも本体線幅を参照しない (Req 26.5)', () => {
+      expect(ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio).toBe(0.12);
+    });
+  });
 });
