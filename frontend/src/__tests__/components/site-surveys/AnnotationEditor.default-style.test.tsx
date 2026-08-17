@@ -14,6 +14,10 @@
  * 中央の資材にフィールドが増えた場合や、画面が局所宣言を再導入して中央と食い違わせた
  * 場合のいずれでも失敗する。
  *
+ * Task 115.72 (Req 26.5): `fillColor` の期待値が本番側の代替式（空なら `#ffffff` を表示）を
+ * 複製していたため、中央の塗りが変わっても両辺が同時に動き何も主張していなかった。代替の
+ * 入力と出力を別々の主張へ分離した（詳細は `FIELD_OBSERVERS.fillColor` と末尾の describe を参照）。
+ *
  * Boundary: 注釈編集画面の既定スタイル値の供給元
  *
  * Requirements:
@@ -298,8 +302,16 @@ const FIELD_OBSERVERS: Record<
     toolLabel: '四角形',
     testId: 'fill-color-picker',
     // 塗りつぶし入力は空文字（＝塗りつぶし無し）を色入力へ与えられないため、
-    // 画面側が `#ffffff` を代替表示する。中央の値が空でなくなれば期待値も追随する。
-    expected: ANNOTATION_DEFAULTS.fill || '#ffffff',
+    // 画面側（`AnnotationToolbar` の `styleOptions.fillColor || '#ffffff'`）が
+    // `#ffffff` を代替表示する。
+    //
+    // Task 115.72 (Req 26.5): 従来この期待値は本番と同一の代替式
+    // （`ANNOTATION_DEFAULTS.fill || '#ffffff'`）を複製していた。中央の値が変わると
+    // 期待値も同時に動くため、代替が吸収する範囲では何も主張していない。代替の式を撤去し、
+    // 代替の**出力**そのものを固定する。中央の塗りが空でない色になれば画面の表示値は
+    // その色になり、本項目は落ちる。代替の**入力**（中央が空であること）は下の describe で
+    // 別の主張として置く。
+    expected: '#ffffff',
   },
   fontSize: {
     toolLabel: 'テキスト',
@@ -357,5 +369,23 @@ describe('AnnotationEditor - 既定スタイルの供給元は一元管理の資
     const value = await readDefaultStyleValue('矢印', 'line-width');
 
     expect(Number(value)).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * Task 115.72 (Req 26.5): 塗りの代替表示を、入力と出力の二つの主張に分けて固定する。
+   *
+   * 画面側は色入力へ空文字を与えられないため `#ffffff` を代替表示する。この代替式を
+   * 期待値へ複製すると、中央の値が変わっても両辺が同時に動くため落ちない。入力（中央が
+   * 空であること）を直接主張しておけば、中央の塗りが空でない色へ変わった時点で本 describe が
+   * 失敗し、上の `fillColor` の突き合わせと合わせて二重に検出できる。
+   */
+  describe('塗りの代替表示の前提 (Task 115.72)', () => {
+    it('代替表示の入力: 一元管理の既定塗りは空文字（＝塗りつぶし無し）である (Req 26.5)', () => {
+      expect(ANNOTATION_DEFAULTS.fill).toBe('');
+    });
+
+    it('代替表示の入力は注釈編集画面へも空文字のまま供給される (Req 26.5)', () => {
+      expect(DEFAULT_STYLE_OPTIONS.fillColor).toBe('');
+    });
   });
 });
