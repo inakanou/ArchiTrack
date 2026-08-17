@@ -77,6 +77,11 @@ const styles = {
     top: 0,
     zIndex: 50,
     backgroundColor: '#ffffff',
+    // Task 115.46: 狭い幅では見出し部と操作ボタン群が一列に収まらず、右へはみ出して
+    // ページ全体に水平方向のスクロールを生じさせていた。固定は垂直方向のみ（sticky/top）
+    // であるため、横へスクロールすると固定した操作ボタン群も画面外へ出てしまい
+    // REQ-45.1（常に画面内に表示）が成立しない。折り返しで画面幅に収める。
+    flexWrap: 'wrap' as const,
   } as React.CSSProperties,
   headerLeft: {
     display: 'flex',
@@ -123,7 +128,10 @@ const styles = {
     display: 'flex',
     gap: '12px',
     alignItems: 'center',
-    flexShrink: 0,
+    // Task 115.46: 操作ボタン群自体も画面幅に収まらない場合は折り返す。
+    // 併せて flexShrink: 0 を外した。ヘッダーが折り返しても操作ボタン群が
+    // 縮まないままだと、行の幅を超えて右へはみ出し続けるためである。
+    flexWrap: 'wrap' as const,
   } as React.CSSProperties,
   addGroupButton: {
     display: 'inline-flex',
@@ -1693,7 +1701,7 @@ export default function QuantityTableEditPage() {
             {renderTable.groupCount}グループ / {renderTable.itemCount}項目
           </p>
         </div>
-        <div style={styles.headerActions}>
+        <div style={styles.headerActions} data-testid="quantity-table-edit-header-actions">
           {/* Task 62.2: 未保存変更インジケーター（REQ-44）。isDirty の間のみ保存ボタン付近に表示 */}
           <UnsavedChangesBadge isUnsaved={isDirty} />
           {saveMessage && (

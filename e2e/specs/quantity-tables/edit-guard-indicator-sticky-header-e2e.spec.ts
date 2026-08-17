@@ -18,6 +18,11 @@
  * - REQ-45.3: 固定表示中も編集領域がヘッダーに恒久的に隠されずスクロール・操作可能を維持する
  * - REQ-45.4: 固定ヘッダー内に未保存変更インジケーター（REQ-44）を両立表示する
  *
+ * Task 115.46: 狭幅（幅375）でヘッダー操作群が画面幅を超えないことを実ブラウザで検証する。
+ * ヘッダーの固定は垂直方向のみのため、水平スクロールが生じると横へスクロールした時点で
+ * 固定ヘッダーの操作ボタン群が画面外へ出る。REQ-45.1 の「常に画面内に表示」は狭幅でも
+ * 成立する必要があり、単体テスト（jsdom）はレイアウト計算を行わないため検出できない。
+ *
  * 注記:
  * - react-router の useBlocker はアプリ内（クライアントサイド）ナビゲーションのみを
  *   インターセプトする。ブラウザのリロード/タブクローズ（beforeunload）の標準ダイアログは
@@ -161,6 +166,67 @@ async function addItemToGroupAt(
   await expect(unitInput).toBeVisible({ timeout: getTimeout(5000) });
   await unitInput.fill(fields.unit);
   await unitInput.blur();
+}
+
+/**
+ * 狭幅ビューポート（スマートフォン想定）。
+ * ヘッダー操作群が画面幅を超えるかどうかの検証に用いる。
+ */
+const NARROW_VIEWPORT = { width: 375, height: 812 } as const;
+
+/**
+ * ページ全体・編集画面ヘッダーの水平方向のはみ出しを実ブラウザ上で計測する。
+ *
+ * overflow による内部スクロール領域（REQ-41 の水平スクロール等）の中身は
+ * ページ全体の水平スクロールを生じさせないため、診断一覧からは除外する。
+ */
+async function measureHorizontalOverflow(page: Page): Promise<{
+  docScrollWidth: number;
+  docClientWidth: number;
+  headerScrollWidth: number;
+  headerClientWidth: number;
+  overflowingElements: { tag: string; testId: string; right: number; text: string }[];
+}> {
+  return page.evaluate(() => {
+    const header = document.querySelector('[data-testid="quantity-table-edit-header"]');
+    if (!header) {
+      throw new Error('編集画面ヘッダーが見つかりません');
+    }
+
+    const clientWidth = document.documentElement.clientWidth;
+
+    /** 祖先に水平スクロール領域を持つ（＝はみ出しが内部で吸収される）要素か */
+    const isClippedByAncestor = (element: Element): boolean => {
+      let current = element.parentElement;
+      while (current && current !== document.body) {
+        const overflowX = window.getComputedStyle(current).overflowX;
+        if (overflowX !== 'visible') {
+          return true;
+        }
+        current = current.parentElement;
+      }
+      return false;
+    };
+
+    const overflowingElements = Array.from(document.querySelectorAll('body *'))
+      .filter((element) => element.getBoundingClientRect().right > clientWidth + 1)
+      .filter((element) => !isClippedByAncestor(element))
+      .slice(0, 10)
+      .map((element) => ({
+        tag: element.tagName.toLowerCase(),
+        testId: element.getAttribute('data-testid') ?? '',
+        right: Math.round(element.getBoundingClientRect().right),
+        text: (element.textContent ?? '').trim().slice(0, 24),
+      }));
+
+    return {
+      docScrollWidth: document.documentElement.scrollWidth,
+      docClientWidth: clientWidth,
+      headerScrollWidth: header.scrollWidth,
+      headerClientWidth: header.clientWidth,
+      overflowingElements,
+    };
+  });
 }
 
 const editHeader = (page: Page) => page.getByTestId('quantity-table-edit-header');
@@ -370,6 +436,95 @@ test.describe('REQ-43/44/45: 離脱ガード・未保存インジケーター・
     await expect(lastGroupCard).toBeInViewport();
     // 編集領域として操作可能（項目追加ボタンが見えている）
     await expect(lastGroupCard.getByRole('button', { name: '項目を追加' })).toBeVisible();
+  });
+
+  // --------------------------------------------------------------------------
+  // シナリオ6: 狭幅ビューポートでヘッダー操作群が画面幅に収まる (REQ-45.1, 45.2, 45.3, 45.4)
+  //
+  // ヘッダーの固定は垂直方向のみ（position: sticky / top: 0）であり、ページに水平方向の
+  // スクロールが生じると、横へスクロールした時点で固定ヘッダーの操作ボタン群も
+  // 画面外へ出てしまう。したがって「常に画面内に表示する」(REQ-45.1) を狭幅でも
+  // 成立させるには、ヘッダー操作群が画面幅に収まっていることが必要条件となる。
+  //
+  // 単体テスト（jsdom）はレイアウトを計算せず scrollWidth が常に 0 になるため、
+  // この検証は実ブラウザでのみ成立する。
+  // --------------------------------------------------------------------------
+  test('幅375でもヘッダー操作群が画面幅に収まりページに横スクロールが生じない', async ({
+    page,
+  }) => {
+    if (!testProjectId) {
+      throw new Error('testProjectId が未設定です。前段のテストが実行されていません。');
+    }
+
+    await page.setViewportSize({ width: NARROW_VIEWPORT.width, height: NARROW_VIEWPORT.height });
+
+    // 数量表名には RUN_ID（13桁の数字）を付けない。パンくずは共有コンポーネントであり、
+    // 途中で改行できない長大な英数字の連なりを含む名称では狭幅で自らはみ出す。
+    // それは本タスクの境界（数量表の編集画面の見出し）の外側にある別事象であり、
+    // 混入させるとヘッダーの収まりを測れなくなるため、現実的な長さの名称を用いる。
+    await createQuantityTable(page, '狭幅ヘッダー数量表');
+
+    // 編集領域を伴う実際の状態で検証する（空表示のままでは検証が現実の使用状態から乖離する）
+    await addGroup(page, 1);
+    await addItemToGroupAt(page, 0, 1, { workType: '工種N', name: '名称N', unit: 'm2' });
+
+    const header = editHeader(page);
+    await expect(header).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 前提検証: ビューポート幅が意図した狭幅になっていること
+    const viewportWidth = await page.evaluate(() => window.innerWidth);
+    expect(viewportWidth, 'ビューポート幅が 375 に設定されていない').toBe(NARROW_VIEWPORT.width);
+
+    const metrics = await measureHorizontalOverflow(page);
+
+    // REQ-45.1: ページ全体に水平スクロールが生じない
+    // （生じると横スクロール時に固定ヘッダーの操作ボタン群が画面外へ出る）
+    expect(
+      metrics.docScrollWidth,
+      `幅${NARROW_VIEWPORT.width}でページ全体に横方向のスクロールが生じている` +
+        `（内容の幅 ${metrics.docScrollWidth} > 表示幅 ${metrics.docClientWidth}）。` +
+        `画面幅を超える要素: ${JSON.stringify(metrics.overflowingElements)}`
+    ).toBeLessThanOrEqual(metrics.docClientWidth);
+
+    // REQ-45.1: ヘッダー自身の内容も表示幅に収まる（操作群が右へはみ出していない）
+    expect(
+      metrics.headerScrollWidth,
+      `ヘッダーの内容が表示幅を超えている` +
+        `（内容の幅 ${metrics.headerScrollWidth} > 表示幅 ${metrics.headerClientWidth}）`
+    ).toBeLessThanOrEqual(metrics.headerClientWidth);
+
+    // 挙動としての確認: 右方向へスクロールを試みても実際には移動しない
+    await page.evaluate(() => window.scrollTo(document.documentElement.scrollWidth, 0));
+    const scrollXAfterAttempt = await page.evaluate(() => window.scrollX);
+    expect(scrollXAfterAttempt, '右方向へのスクロールが発生している').toBe(0);
+
+    // REQ-45.1, 45.4: 狭幅でもヘッダー操作ボタン群と未保存インジケーターが画面内に見えている
+    await expect(header.getByRole('button', { name: 'インポート' })).toBeInViewport();
+    await expect(header.getByRole('button', { name: 'PDF出力' })).toBeInViewport();
+    await expect(header.getByRole('button', { name: '保存' })).toBeInViewport();
+    await expect(header.getByRole('button', { name: /グループを追加/ })).toBeInViewport();
+    await expect(header.getByTestId('bulk-create-from-survey-button')).toBeInViewport();
+    await expect(header.getByTestId('unsaved-changes-badge')).toBeInViewport();
+
+    // REQ-45.2: 狭幅でも垂直スクロールに追従せずビューポート上部に固定される
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), { timeout: getTimeout(10000) })
+      .toBeGreaterThan(0);
+    const headerBoxAfterScroll = await header.boundingBox();
+    expect(headerBoxAfterScroll, 'ヘッダーの bounding box が取得できない').not.toBeNull();
+    expect(headerBoxAfterScroll!.y).toBeGreaterThanOrEqual(0);
+    expect(headerBoxAfterScroll!.y).toBeLessThan(120);
+
+    // REQ-45.3: 折り返しでヘッダーが縦に伸びても編集領域が恒久的に隠されない
+    expect(
+      headerBoxAfterScroll!.height,
+      `ヘッダーの高さ ${headerBoxAfterScroll!.height} がビューポート高さの半分を超え、` +
+        `編集領域の可視域が確保できていない`
+    ).toBeLessThan(NARROW_VIEWPORT.height / 2);
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').last();
+    await expect(groupCard).toBeInViewport();
+    await expect(groupCard.getByRole('button', { name: '項目を追加' })).toBeVisible();
   });
 
   // --------------------------------------------------------------------------

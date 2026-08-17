@@ -2763,5 +2763,39 @@ describe('QuantityTableEditPage', () => {
       const header = screen.getByTestId('quantity-table-edit-header');
       expect(header).toContainElement(screen.getByText('未保存の変更があります'));
     });
+
+    /**
+     * 狭い幅での収まり（Task 115.46）
+     *
+     * ヘッダーの固定は垂直方向のみのため、ページに水平方向のスクロールが生じると
+     * 横へスクロールした時点で固定ヘッダーの操作ボタン群が画面外へ出る。
+     * 狭い幅で操作ボタン群が画面幅を超えないことは REQ-45.1 の前提条件である。
+     *
+     * ヘッダーは main（padding のみのブロック）直下の自動幅ブロックであり、外枠の幅は
+     * 常に親の内容領域に収まる。はみ出しうるのは中の見出し部・操作ボタン群であり、
+     * 収まりを実際に担うのは折り返しの指定である。
+     *
+     * jsdom はレイアウトを計算しない（scrollWidth が常に 0）ため、実際に横方向の
+     * 移動が生じないことは E2E
+     * （e2e/specs/quantity-tables/edit-guard-indicator-sticky-header-e2e.spec.ts）
+     * で幅375 の実ブラウザ上で検証する。
+     */
+    it('ヘッダーの見出し部と操作ボタン群が狭い幅で折り返す', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const header = screen.getByTestId('quantity-table-edit-header');
+      expect(header.style.flexWrap).toBe('wrap');
+
+      const headerActions = screen.getByTestId('quantity-table-edit-header-actions');
+      expect(headerActions.style.flexWrap).toBe('wrap');
+      // 操作ボタン群が縮まずに右へはみ出す原因となる flexShrink: 0 を持たない
+      expect(headerActions.style.flexShrink).not.toBe('0');
+    });
   });
 });
