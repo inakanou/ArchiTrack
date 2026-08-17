@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FabricObject } from 'fabric';
 import {
@@ -69,6 +69,36 @@ function renderMenu(overrides: Partial<AnnotationContextMenuProps> = {}): {
     target: target as FabricObject,
     rerender: (next) => view.rerender(<AnnotationContextMenu {...props} {...next} />),
   };
+}
+
+/**
+ * 長押しの指を離した瞬間にブラウザが生成する「互換のクリック」を再現する。
+ *
+ * タッチ入力では、pointerdown / touchstart は長押し開始時に別要素（キャンバス）へ配送され、
+ * オーバーレイが現れるのは長押し成立後である。指を離すとブラウザは touchend のあとに
+ * mousedown → mouseup → click の互換イベントを、その時点で接触点にある要素、
+ * すなわちオーバーレイへ配送する。**先行する pointerdown はオーバーレイに存在しない。**
+ * Pointer Events 仕様上、互換のマウスイベントからポインタイベントは生成されない。
+ */
+function firePostLongPressCompatibilityClick(overlay: HTMLElement): void {
+  fireEvent.mouseDown(overlay, { detail: 1 });
+  fireEvent.mouseUp(overlay, { detail: 1 });
+  fireEvent.click(overlay, { detail: 1 });
+}
+
+/**
+ * 実機のタッチによる「本物のメニュー外タップ」を、ブラウザが配送する順序どおりに再現する。
+ *
+ * pointerdown → touchstart → pointerup → touchend → mousedown → mouseup → click
+ */
+function fireRealTouchTap(target: HTMLElement): void {
+  fireEvent.pointerDown(target, { pointerId: 1, pointerType: 'touch', isPrimary: true });
+  fireEvent.touchStart(target, { touches: [{ clientX: 10, clientY: 10 }] });
+  fireEvent.pointerUp(target, { pointerId: 1, pointerType: 'touch', isPrimary: true });
+  fireEvent.touchEnd(target, { changedTouches: [{ clientX: 10, clientY: 10 }] });
+  fireEvent.mouseDown(target, { detail: 1 });
+  fireEvent.mouseUp(target, { detail: 1 });
+  fireEvent.click(target, { detail: 1 });
 }
 
 // ============================================================================
@@ -211,6 +241,56 @@ describe('AnnotationContextMenu', () => {
       await user.click(panel);
 
       expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('タッチによるメニュー外タップ（pointerdown を伴う本物のタップ）で onClose が呼ばれる', () => {
+      const { onClose, onAction } = renderMenu();
+
+      fireRealTouchTap(screen.getByTestId('annotation-context-menu-overlay'));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onAction).not.toHaveBeenCalled();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 長押し解放後の互換クリックでメニューを閉じない（Req 27.3 / Req 27.5）
+  //
+  // Task 115.52: 要件27.5 のメニュー外タップ判定が、長押しを離した瞬間にブラウザが
+  // 生成する互換クリックを外側タップとして受けてしまい、要件27.3 の「項目をタップする」
+  // 機会そのものを消していた。オーバーレイは自身が受けた pointerdown を伴うクリックだけを
+  // 外側タップとみなす。
+  // --------------------------------------------------------------------------
+  describe('長押し解放後の互換クリック', () => {
+    it('オーバーレイに pointerdown が来ていない互換クリックでは onClose を呼ばない（Req 27.3）', () => {
+      const { onClose } = renderMenu();
+
+      firePostLongPressCompatibilityClick(screen.getByTestId('annotation-context-menu-overlay'));
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('互換クリックを無視したあとでも、続く本物のメニュー外タップでは onClose を呼ぶ（Req 27.5）', () => {
+      const { onClose } = renderMenu();
+      const overlay = screen.getByTestId('annotation-context-menu-overlay');
+
+      firePostLongPressCompatibilityClick(overlay);
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireRealTouchTap(overlay);
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('互換クリックを無視したあと、メニュー項目のタップで onAction が実行される（Req 27.3）', () => {
+      const { onAction, onClose, target } = renderMenu();
+
+      firePostLongPressCompatibilityClick(screen.getByTestId('annotation-context-menu-overlay'));
+      fireRealTouchTap(screen.getByRole('button', { name: '削除' }));
+
+      expect(onAction).toHaveBeenCalledTimes(1);
+      expect(onAction).toHaveBeenCalledWith('delete' satisfies ContextMenuAction, target);
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
 
