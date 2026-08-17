@@ -21,6 +21,13 @@
  * 進捗・キャンセルの観測は、画像本体（署名付き URL）の応答を検証側から明示的に
  * 解放するまで保留させることで決定的にする（時間待ちに依存しない）。
  *
+ * Task 115.66:
+ *   要件31.2 / 31.3 の「選択」は常に *いま開いている現場調査* の画像一覧に対するものである。
+ *   別の現場調査へ移ったときに選択が持ち越されないことは単体の検証しか無かったため、
+ *   実ブラウザで調査A → 調査B の画面遷移を通す検証 (e) を追加する。
+ *   遷移は利用者が実際に通る導線（詳細のパンくず「現場調査一覧」→ 一覧で調査Bを選ぶ）を
+ *   使い、途中で画面が再読み込みされていない（SPA 内遷移である）ことも併せて確かめる。
+ *
  * @requirement site-survey/REQ-31.1
  * @requirement site-survey/REQ-31.2
  * @requirement site-survey/REQ-31.3
@@ -95,6 +102,11 @@ test.describe('現場調査画像の一括エクスポート', () => {
   let createdSurveyName = '';
   /** アップロードした画像 ID（選択エクスポートの対象指定に使う） */
   const uploadedImageIds: string[] = [];
+  /** 現場調査をまたぐ遷移先（調査B）。同一プロジェクト配下に用意する (Task 115.66) */
+  let secondSurveyId: string | null = null;
+  let secondSurveyName = '';
+  /** 調査B の画像 ID（調査B でも選択欄が描画される状態を作るために 1 枚用意する） */
+  let secondSurveyImageId: string | null = null;
 
   /**
    * 一括エクスポートが読み出す画像本体（`/storage/surveys/<surveyId>/...` の原本）だけを
@@ -221,6 +233,52 @@ test.describe('現場調査画像の一括エクスポート', () => {
     }
 
     expect(uploadedImageIds).toHaveLength(FIXTURE_IMAGE_COUNT);
+
+    // --- 調査B（現場調査をまたぐ遷移先）を用意する (Task 115.66) ---
+    // 用意できなければこの場で失敗させる（後段の検証へ失敗をずらさない）。
+    secondSurveyName = `一括エクスポートE2E用調査B_${Date.now()}`;
+    const secondSurveyResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/projects/${createdProjectId}/site-surveys`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          name: secondSurveyName,
+          surveyDate: new Date().toISOString().split('T')[0]!,
+        },
+      }
+    );
+    expect(
+      secondSurveyResponse.status(),
+      `調査Bの作成に失敗した: ${await secondSurveyResponse.text()}`
+    ).toBe(201);
+    const secondSurveyBody = (await secondSurveyResponse.json()) as { id?: string };
+    expect(secondSurveyBody.id, '調査Bの作成応答に id が含まれない').toBeTruthy();
+    secondSurveyId = secondSurveyBody.id!;
+
+    // 調査B にも画像を 1 枚置く。
+    // 「選択できる画像がそもそも無いから 0 件」ではないことを担保する。
+    const secondUploadResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/${secondSurveyId}/images`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        multipart: {
+          images: {
+            name: 'bulk-export-second-survey.png',
+            mimeType: 'image/png',
+            buffer: imageBuffer,
+          },
+        },
+      }
+    );
+    expect(
+      secondUploadResponse.ok(),
+      `調査Bへの画像アップロードに失敗した: ${await secondUploadResponse.text()}`
+    ).toBeTruthy();
+    const secondUploadBody = (await secondUploadResponse.json()) as {
+      successful?: Array<{ id?: string }>;
+    };
+    expect(secondUploadBody.successful?.[0]?.id, '調査Bの画像 ID が得られない').toBeTruthy();
+    secondSurveyImageId = secondUploadBody.successful![0]!.id!;
   });
 
   test.afterAll(async ({ browser }) => {
@@ -233,6 +291,11 @@ test.describe('現場調査画像の一括エクスポート', () => {
       const headers = { Authorization: `Bearer ${adminToken}` };
       if (createdSurveyId) {
         await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {
+          headers,
+        });
+      }
+      if (secondSurveyId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${secondSurveyId}`, {
           headers,
         });
       }
@@ -404,5 +467,80 @@ test.describe('現場調査画像の一括エクスポート', () => {
     const downloadPath = await download.path();
     const entryNames = readZipEntryNames(fs.readFileSync(downloadPath));
     expect(entryNames).toHaveLength(selectedIds.length);
+  });
+
+  /**
+   * (e) 現場調査をまたいでも選択が持ち越されない
+   *     Requirement 31.2, 31.3
+   *
+   * 調査A で選択して「選択画像エクスポート」が活性になることを確かめたうえで、
+   * 利用者の導線（詳細のパンくず「現場調査一覧」→ 一覧で調査B を選ぶ）で調査B へ移り、
+   * 調査B では 0 件かつ非活性へ戻ることを確かめる。
+   * 途中で画面が再読み込みされていないこと（＝選択状態が持ち越されうる SPA 内遷移で
+   * あること）を window 上の目印で確かめ、検証が素通りしないようにする。
+   */
+  test('(e) 別の現場調査へ移ると選択が持ち越されず選択画像エクスポートが非活性へ戻る', async () => {
+    expect(secondSurveyId, '調査Bが用意されていない').toBeTruthy();
+    expect(secondSurveyImageId, '調査Bの画像が用意されていない').toBeTruthy();
+
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    // --- 調査A: 選択すると活性になる（反対の状態へ実際に遷移できることの確認）---
+    const trigger = sharedPage.getByTestId('bulk-export-selected-button');
+    await expect(trigger).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(trigger).toBeDisabled();
+
+    const checkbox = sharedPage.getByTestId(`image-checkbox-${uploadedImageIds[0]}`);
+    await expect(checkbox, '調査Aの画像一覧に選択用チェックボックスが表示されない').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await checkbox.check();
+    await expect(trigger).toBeEnabled();
+    await expect(trigger).toHaveText('選択画像エクスポート（1 件）');
+    await expect(trigger).toHaveAttribute('aria-disabled', 'false');
+
+    // 画面の再読み込みを検知するための目印を置く
+    await sharedPage.evaluate(() => {
+      (window as unknown as { __crossSurveyProbe?: string }).__crossSurveyProbe = 'survey-a';
+    });
+
+    // --- 調査A → 現場調査一覧 → 調査B（利用者の導線を通る）---
+    const breadcrumb = sharedPage.getByRole('navigation', { name: /パンくず|breadcrumb/i });
+    await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+    await breadcrumb.getByRole('link', { name: '現場調査一覧' }).click();
+    await expect(sharedPage).toHaveURL(new RegExp(`/projects/${createdProjectId}/site-surveys$`), {
+      timeout: getTimeout(15000),
+    });
+
+    const secondSurveyLink = sharedPage.getByText(secondSurveyName).first();
+    await expect(secondSurveyLink, '現場調査一覧に調査Bが表示されない').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await secondSurveyLink.click();
+    await expect(sharedPage).toHaveURL(new RegExp(`/site-surveys/${secondSurveyId}$`), {
+      timeout: getTimeout(15000),
+    });
+
+    // 遷移が SPA 内で行われた（＝ページ状態が持ち越されうる経路である）ことを確かめる。
+    // 再読み込みが挟まっていた場合、以下の検証は選択の整理と無関係に成立してしまう。
+    const probeAfterNavigation = await sharedPage.evaluate(
+      () => (window as unknown as { __crossSurveyProbe?: string }).__crossSurveyProbe
+    );
+    expect(
+      probeAfterNavigation,
+      '調査A → 調査B の遷移で画面が再読み込みされており、選択の持ち越しを検証できていない'
+    ).toBe('survey-a');
+
+    // --- 調査B: 選択は持ち越されず 0 件かつ非活性 (Requirement 31.2, 31.3) ---
+    const secondSurveyCheckbox = sharedPage.getByTestId(`image-checkbox-${secondSurveyImageId}`);
+    await expect(secondSurveyCheckbox, '調査Bの画像一覧が描画されない').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(secondSurveyCheckbox).not.toBeChecked();
+
+    await expect(trigger).toHaveText('選択画像エクスポート（0 件）');
+    await expect(trigger).toBeDisabled();
+    await expect(trigger).toHaveAttribute('aria-disabled', 'true');
   });
 });
