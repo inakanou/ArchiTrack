@@ -34,6 +34,18 @@
  *
  * 素材を正方形にするのは、サムネイル生成が cover 縮小（中央切り抜き）であるため。
  * 縦横比が異なると注釈の位置が切り抜きで失われ、判定が素材の縦横比に依存してしまう。
+ *
+ * ## Task 115.68（空振りの判定の実効化と、沈黙する前提準備の解消）
+ *
+ * - 「保存前に合成済みサムネイル（`data-testid="annotated-thumbnail"`）が現れない」ことの
+ *   判定は、115.67 以前は**供給側が表示元URLをそもそも返さないため恒久的に成立**していた。
+ *   条件で包まれてもおらず恒真式でもないのに、外部の欠落によって壊しても落ちない判定
+ *   だった。115.67 で供給が入ったため、本タスクで変異により実効性を実測した。
+ *   一覧取得の応答が合成済みサムネイルの保存位置を持たないときに通常サムネイルの
+ *   表示元URLで代替する変異（画像は正しく表示され、表示元の由来を比べる判定も
+ *   通り続ける）を入れると、当該の判定だけが `Expected: 0 / Received: 1` で落ちた。
+ * - 前提準備のうち営業担当者の選択は、選択肢が無い場合に何もせず素通りしていた。
+ *   選択肢の供給と選択の成立を明示的に主張する形へ改めた。
  */
 
 import zlib from 'zlib';
@@ -485,14 +497,29 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
       .getByRole('textbox', { name: /プロジェクト名/i })
       .fill(`注釈サムネイルテスト_${Date.now()}`);
 
+    // 営業担当者は必須項目である。選択肢が供給されない場合はここで失敗させる（Task 115.68）。
+    // 以前は「選択肢が無ければ何もしない」構成で、前提が崩れると作成ボタンの押下が
+    // 通らない形で後段が失敗し、前提の崩れか対象の欠陥かを判別できなかった。
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    if (!(await salesPersonSelect.inputValue())) {
-      const options = await salesPersonSelect.locator('option').all();
-      const firstUserOption = options[1] ? await options[1].getAttribute('value') : null;
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
+    await expect(salesPersonSelect, '営業担当者の選択欄が表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 先頭は未選択のプレースホルダ（value=""）であり、実在の担当者は2件目以降に現れる。
+    // 候補は非同期に読み込まれるため、供給されるまで待って明示的に主張する
+    await expect
+      .poll(() => salesPersonSelect.locator('option').count(), {
+        timeout: getTimeout(15000),
+        message: '営業担当者の選択肢が供給されない',
+      })
+      .toBeGreaterThan(1);
+
+    const salesPersonValue = await salesPersonSelect.locator('option').nth(1).getAttribute('value');
+    expect(salesPersonValue, '営業担当者の選択肢が実在の担当者を指す').toBeTruthy();
+
+    // 既定値が解決済みであっても選択肢から選び直し、前提の成立を観測可能にする
+    await salesPersonSelect.selectOption(salesPersonValue!);
+    await expect(salesPersonSelect, '営業担当者が選択されている').toHaveValue(salesPersonValue!);
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
