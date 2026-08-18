@@ -195,13 +195,14 @@
 | `UsePendingUploadsResult` | `frontend/src/hooks/usePendingUploads.ts:40` |
 | `ZipNamingInput` | `frontend/src/services/export/zip-naming.ts:49` |
 | `ZipNamingStrategy` | `frontend/src/services/export/zip-naming.ts:65` |
+| `SiteSurveyServiceDependencies` | `backend/src/services/site-survey.service.ts:40`（タスク 115.76 で設計側の名前と項目を実体へ合わせ、下の「実体を持たない契約名」表から移した） |
+| `SurveyImageServiceDependencies` | `backend/src/services/survey-image.service.ts:131`（同上） |
 
-**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。 **下表の全43行について、実装するのか設計から落とすのか抽象契約として残すのかの判断はタスク 115.75 で一件ずつ決着させた**（後述の「実体を持たない契約名の扱い」。判別可能にしたことと乖離が無いことは別の主張であるため、判断を省いてはならない）。
+**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。 **タスク 115.75 の時点では下表は43行あり、その全行について実装するのか設計から落とすのか抽象契約として残すのかの判断を一件ずつ決着させた**（後述の「実体を持たない契約名の扱い」。判別可能にしたことと乖離が無いことは別の主張であるため、判断を省いてはならない）。**その後タスク 115.76 で、依存注入契約の2件（旧 `SurveyServiceDependencies` / 旧 `ImageServiceDependencies`）を設計側の名前も項目も実装の実体へ合わせたため、当該2件は上の「実装に実体がある契約名」表へ移り、下表は現在41行である**。
 
 | 種別 | 契約名 |
 |---|---|
 | サービス契約（`I*`） | `ISurveyService`、`IImageService`、`IAnnotationService`、`IImageDeleteService`、`IImageMetadataService` |
-| 依存注入契約（`*Dependencies`） | `SurveyServiceDependencies`、`ImageServiceDependencies` |
 | API 契約（追跡表 Interfaces 列） | `SurveyAPI`、`SurveyListAPI`、`ImageAPI`、`ImageDeleteAPI`、`ImageMetadataAPI`、`ImageOrderAPI`、`AnnotationAPI`、`AnnotationBatchAPI`、`ExportAPI`、`ThumbnailAPI` |
 | DTO・入出力契約 | `SurveyInfo`、`SurveyDetail`、`PaginatedSurveys`、`SurveyFilter`、`CreateSurveyInput`、`UpdateSurveyInput`、`SaveAnnotationResponse`、`AnnotationDataV1`、`AnnotationSaveDataV1`、`AutoSaveConfig`、`ExportPdfOptions`、`PdfReportLayoutConfig`、`ToolOptions`、`OrderChangeHandlers`、`PendingOrderRef` |
 | 画面状態契約（`*State`） | `ImageExportDialogState`、`PhotoManagementState`、`SiteSurveyDetailPageState`、`SiteSurveySectionCardState` |
@@ -223,13 +224,13 @@
 
 タスク 115.74 で、要件19 以降の全追跡表（要件24-30 / 31-32 / 33-34 / 35-36 / 37 / 38 の6表と、冒頭の総合追跡表の要件19 以降の行）の Interfaces 列から PascalCase トークンを機械的に再抽出し、上記4種を除いた残りが**全件上の2表のいずれかに収録済み**であることを確認した（`ExportSettings`、`BulkExportInput`、`PendingUploadPanelProps`、`UseInViewportResult`、`ZipNamingStrategy`、`TextOutlineAttribute`、`ContextMenuAction`、`TouchState` 等）。
 
-#### 実体を持たない契約名の扱い（タスク 115.75 の決着）
+#### 実体を持たない契約名の扱い（タスク 115.75 の決着とタスク 115.76 の是正）
 
-本節の「実装に実体を持たない契約名（設計上の抽象契約）」表の**全43行**について、一件ずつ「実装する / 設計から落とす / 抽象契約として残す」のいずれかへ決着させた結果を示す。判断は名前の見た目ではなく、**各契約名が設計書中で担当する要件と役割を読み、実装側に近い名前・同等の役割を持つ実体があるかを `grep` で確かめ、実体ありと記した行は当該ファイルの当該行を開いて照合**して行った。
+本節の「実装に実体を持たない契約名（設計上の抽象契約）」表がタスク 115.75 の時点で持っていた**43行**について、一件ずつ「実装する / 設計から落とす / 抽象契約として残す」のいずれかへ決着させた結果を示す。**うち #6 / #7 の2件はタスク 115.76 で設計側を実態へ合わせた結果、実体を持つ契約名になったため上の表へ移った**が、経緯を追えるよう決着表の行番号は 115.75 当時のまま据え置く（本節を参照する他の記述の #番号を無効化しないため）。したがって決着表は43行、「実装に実体を持たない契約名」表は現在41行であり、差の2件が #6 / #7 である。判断は名前の見た目ではなく、**各契約名が設計書中で担当する要件と役割を読み、実装側に近い名前・同等の役割を持つ実体があるかを `grep` で確かめ、実体ありと記した行は当該ファイルの当該行を開いて照合**して行った。
 
-**結論**: 43件すべてを**抽象契約として残す**。実装のエクスポート名として新設すべきものは無い。**ただし「実体を持たない」ことと「役割が実装されていない」ことは別であり、43件のいずれについても、下表に記した実装側の機構が同等の役割を果たしていることを確認した**（役割の担い手が皆無の行は無い）。
+**結論**: タスク 115.75 では43件すべてを**抽象契約として残す**と決着させた。その後タスク 115.76 で #6 / #7 の2件を設計側の名前・項目とも実装の実体へ合わせたため、**現在は41件が抽象契約、2件（#6 / #7）が実体を持つ契約名**である。実装のエクスポート名として新たに設けるべきものは無い。**ただし「実体を持たない」ことと「役割が実装されていない」ことは別であり、43件のいずれについても、下表に記した実装側の機構が同等の役割を果たしていることを確認した**（役割の担い手が皆無の行は無い）。
 
-**内容の食い違いについて**: 「役割の担い手がある」ことと「設計の記述と実装の中身が一致する」ことも別である。下表で内容の食い違いを明記した行は**6件（#2・#6・#7・#24・#28・#32）**であり、うち **#6 `SurveyServiceDependencies` と #7 `ImageServiceDependencies` は依存の受け渡し項目の食い違いであってタスク 115.76 の所管**、残る **#2 `IImageService.validateSignedUrl` / #24 `SaveAnnotationResponse` / #28 `ExportPdfOptions` / #32 `PendingOrderRef` の4件は後述の「食い違いが残る4件」表に詳細を示す**。この6件以外の行にも名称の差はあるが（#18-23 の `Site` 接頭辞、#27 の `autoSaveIntervalMs`→`debounceInterval` 等）、項目が1対1で対応するため内容の食い違いとしては数えていない。
+**内容の食い違いについて**: 「役割の担い手がある」ことと「設計の記述と実装の中身が一致する」ことも別である。タスク 115.75 の時点で下表が内容の食い違いを明記していた行は**6件（#2・#6・#7・#24・#28・#32）**であった。うち **#6 と #7 の依存の受け渡し項目の食い違いはタスク 115.76 で解消済み**（設計の型定義ブロックを実装の項目構成へ書き直した）であり、**現在も食い違いが残るのは #2 `IImageService.validateSignedUrl` / #24 `SaveAnnotationResponse` / #28 `ExportPdfOptions` / #32 `PendingOrderRef` の4件**で、後述の「食い違いが残る4件」表に詳細を示す。この6件以外の行にも名称の差はあるが（#18-23 の `Site` 接頭辞、#27 の `autoSaveIntervalMs`→`debounceInterval` 等）、項目が1対1で対応するため内容の食い違いとしては数えていない。
 
 ##### 決着表
 
@@ -240,8 +241,8 @@
 | 3 | `IAnnotationService` | 抽象契約として残す | 実体は `AnnotationService`（`backend/src/services/annotation.service.ts:226`）。`backend/src/routes/annotation.routes.ts:43` で直接 `new` |
 | 4 | `IImageDeleteService` | 抽象契約として残す | 実体は `ImageDeleteService`（`backend/src/services/image-delete.service.ts:97`）。`backend/src/routes/survey-images.routes.ts:116` で直接 `new` |
 | 5 | `IImageMetadataService` | 抽象契約として残す | 実体は `ImageMetadataService`（`backend/src/services/image-metadata.service.ts:111`）。`backend/src/routes/survey-images.routes.ts:135` で直接 `new` |
-| 6 | `SurveyServiceDependencies` | 抽象契約として残す | 実体は `SiteSurveyServiceDependencies`（`backend/src/services/site-survey.service.ts:40`）。`Site` 接頭辞の有無だけが異なる。**項目の食い違い（設計は `imageService` を含むが実装は `prisma` / `auditLogService` の2項目）はタスク 115.76 の所管**であり本表では扱わない |
-| 7 | `ImageServiceDependencies` | 抽象契約として残す | 実体は `SurveyImageServiceDependencies`（`backend/src/services/survey-image.service.ts:131`）。**項目の食い違い（設計は `s3Client` / `sharpProcessor`、実装は `storageProvider` 中心で `s3Client` は `@deprecated`）はタスク 115.76 の所管** |
+| 6 | 旧 `SurveyServiceDependencies` → 現 `SiteSurveyServiceDependencies` | **タスク 115.76 で設計を実態へ合わせた（実体あり）** | 実体は `SiteSurveyServiceDependencies`（`backend/src/services/site-survey.service.ts:40`）。115.75 時点の設計は名前が `Site` 接頭辞を欠くうえ、項目に `imageService: IImageService` を含んでいたが、**実装は `prisma` / `auditLogService` の2項目のみ**で、`SiteSurveyService` は画像サービスをまったく注入されていない（`grep -n "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件。論理削除は `SiteSurvey.deletedAt` の更新のみで関連画像は同 475-477 行のコメントどおり親の削除フィルタで除外される）。115.76 で設計側の名前を `SiteSurveyServiceDependencies` へ、項目を実装の2項目へ改めた |
+| 7 | 旧 `ImageServiceDependencies` → 現 `SurveyImageServiceDependencies` | **タスク 115.76 で設計を実態へ合わせた（実体あり）** | 実体は `SurveyImageServiceDependencies`（`backend/src/services/survey-image.service.ts:131`）。115.75 時点の設計は `prisma` / `s3Client`（必須）/ `sharpProcessor` の3項目だったが、**実装は `prisma`（必須）と保存先に関する3項目 `s3Client?` / `bucketName?` / `storageProvider?`（いずれも任意。前2つは `@deprecated`）**で、`sharpProcessor` に相当する項目は無く `survey-image.service.ts` は `sharp` を一切参照しない（`grep -n sharp backend/src/services/survey-image.service.ts` が 0 件）。115.76 で設計側の名前を `SurveyImageServiceDependencies` へ、項目を実装の4項目（任意性・`@deprecated` を含む）へ改めた |
 | 8 | `SurveyAPI` | 抽象契約として残す | HTTP エンドポイント群の呼称であり型ではない。実体は `backend/src/routes/site-surveys.routes.ts` の `POST /`（119 行）/ `GET /:id`（534 行）/ `PUT /:id`（643 行）/ `DELETE /:id`（728 行）。マウントは `backend/src/app.ts:334-335` |
 | 9 | `SurveyListAPI` | 抽象契約として残す | 同上。`backend/src/routes/site-surveys.routes.ts` の `GET /`（389 行）と `GET /latest`（221 行） |
 | 10 | `ImageAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `GET /`（271 行）/ `POST /`（352 行）。マウントは `backend/src/app.ts:338-339` |
@@ -304,9 +305,9 @@
 
 **注意（過去の誤った説明の撤回）**: 本節は以前「実在しない側は他サービスへ注入されない」「将来注入されるようになった時点で初めてインターフェースが必要になる」と記していたが、**`SurveyImageService` は既に上記3箇所へ注入されており、どちらの記述も事実に反する**ため撤回した。注入の有無は #1/#3/#4/#5 について個別に成立する実測事実であって、5件を貫く規則ではない。
 
-##### 食い違いが残る4件（実在の有無ではなく内容の問題。#6/#7 を除く）
+##### 食い違いが残る4件（実在の有無ではなく内容の問題。#6/#7 は解消済みのため除く）
 
-下記は「抽象契約として残す」判断は変えないが、**設計の記述と実装の内容が一致していない**。実在の有無を扱う本タスクの境界外であり、是正は別途起票が必要である。なお決着表で内容の食い違いを記した行は全部で6件あり、**依存の受け渡し項目の食い違いである #6 `SurveyServiceDependencies` と #7 `ImageServiceDependencies` はタスク 115.76 の所管**のため本表からは除いている（本表は残る4件）。
+下記は「抽象契約として残す」判断は変えないが、**設計の記述と実装の内容が一致していない**。実在の有無を扱うタスク 115.75 の境界外であり、是正は別途起票が必要である。なお決着表で内容の食い違いを記した行はタスク 115.75 の時点で全部で6件あったが、**依存の受け渡し項目の食い違いであった #6（旧 `SurveyServiceDependencies`）と #7（旧 `ImageServiceDependencies`）はタスク 115.76 で設計側を実態へ合わせて解消済み**であるため本表からは除いている（本表は残る4件）。
 
 **#2 `IImageService.validateSignedUrl` の署名不一致の所管について**: これは依存の受け渡し項目の食い違いではなく**メソッド署名の不一致**であるため、`_Boundary: 設計文書の依存受け渡し型の記述_` に限定されるタスク 115.76 の所管には**入らない**。また本書の作成時点で `tasks.md` に本件を扱うタスクは**存在しない**（`grep -n "署名付き\|signedUrl\|SignedUrl" .kiro/specs/site-survey/tasks.md` の一致11件をすべて確認したが、いずれも署名付き URL の機能・E2E・API 応答に関する記述であり、`IImageService` の宣言と実装の署名差を扱うものは無い）。すなわち**この1件は現時点で未起票**であり、是正には新規の起票を要する。
 
@@ -860,10 +861,10 @@ sequenceDiagram
 ##### Service Interface
 
 ```typescript
-interface SurveyServiceDependencies {
+// 実装の実体: backend/src/services/site-survey.service.ts:40
+interface SiteSurveyServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
-  imageService: IImageService;
 }
 
 interface CreateSurveyInput {
@@ -929,6 +930,15 @@ interface ISurveyService {
 }
 ```
 
+**タスク 115.76 の境界外にある食い違いの記録**: 直上の型定義ブロック（`SiteSurveyServiceDependencies`）の是正はタスク 115.76 の `_Boundary: 設計文書の依存受け渡し型の記述_` に含まれるが、**本小節の Responsibilities & Constraints と Dependencies の記述は同境界の外**である。境界外の食い違いを無記録で放置しないため、実測結果をここに残す（訂正自体は別途起票を要する）。
+
+本小節の当該2ブロックの箇条書きは書く直前に機械的に数え直して**9項目**（Responsibilities & Constraints 5項目＋Dependencies 4項目）であり、そのすべてを実装と突き合わせた結果、食い違うのは次の**2項目**である。
+
+- **Dependencies の `Outbound: SurveyImageService — 画像削除連携 (P1)`**: 実装の `SiteSurveyService` は `SurveyImageService` を注入も参照もしない（`grep -c "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件）。直上の型定義ブロックが示す依存2項目（`prisma` / `auditLogService`）とも矛盾する。
+- **Responsibilities & Constraints の「論理削除時に関連画像データを連動削除」**: 実装の `SiteSurveyService.deleteSiteSurvey`（`backend/src/services/site-survey.service.ts:445`）は同 478-481 行で `tx.siteSurvey.update({ where: { id }, data: { deletedAt } })` を実行するのみで、画像レコードには一切書き込まない。同ファイル 475-477 行のコメントが「SurveyImage には deletedAt フィールドがない設計」「関連画像は findById 等のクエリで SiteSurvey の deletedAt フィルタにより自動的に除外される」と明記している。
+
+残る7項目は実装と対応が取れていることを確認済みである（CRUD は `createSiteSurvey`(206 行) / `findById`(389 行) / `updateSiteSurvey`(295 行) / `deleteSiteSurvey`(445 行) / `findByProjectId`(610 行)、プロジェクト存在確認は `validateProjectExists`(257 行) と `ProjectNotFoundForSurveyError`(267 行)、楽観的排他制御は同 322-326 行の `SiteSurveyConflictError`、直近N件取得は `findLatestByProjectId`(740 行)、Inbound は `backend/src/routes/site-surveys.routes.ts:50` などでの生成、Outbound の `PrismaClient` と `AuditLogService` は直上の型定義ブロックの2項目そのもの）。
+
 - Preconditions: projectIdが有効なプロジェクトを参照すること
 - Postconditions: 作成時に監査ログが記録されること
 - Invariants: 削除済みプロジェクトには現場調査を作成不可
@@ -965,10 +975,16 @@ interface ISurveyService {
 ##### Service Interface
 
 ```typescript
-interface ImageServiceDependencies {
+// 実装の実体: backend/src/services/survey-image.service.ts:131
+// storageProvider を指定した場合、s3Client と bucketName は無視される（後方互換のため残置）
+interface SurveyImageServiceDependencies {
   prisma: PrismaClient;
-  s3Client: S3Client; // @aws-sdk/client-s3
-  sharpProcessor: typeof sharp;
+  /** @deprecated storageProvider を使用すること */
+  s3Client?: S3Client; // @aws-sdk/client-s3
+  /** @deprecated storageProvider を使用すること */
+  bucketName?: string;
+  /** ストレージプロバイダー（推奨） */
+  storageProvider?: StorageProvider; // backend/src/storage/storage-provider.interface.ts
 }
 
 interface UploadImageInput {
@@ -1012,6 +1028,16 @@ interface IImageService {
   validateSignedUrl(signedUrl: string, userId: string): Promise<boolean>; // 14.4対応
 }
 ```
+
+**タスク 115.76 の境界外にある食い違いの記録**: 直上の型定義ブロック（`SurveyImageServiceDependencies`）の是正はタスク 115.76 の `_Boundary: 設計文書の依存受け渡し型の記述_` に含まれるが、**本小節の Responsibilities & Constraints と Dependencies の記述は同境界の外**である。境界外の食い違いを無記録で放置しないため、実測結果をここに残す（訂正自体は別途起票を要する）。
+
+実装の `SurveyImageService`（`backend/src/services/survey-image.service.ts:175`）のメンバ宣言を機械的に数えると、`constructor` 1個・公開メソッド10個（`getBucketName` / `getS3Client` / `getStorageProvider` / `getPrismaClient` / `detectMimeTypeByMagicBytes` / `validateMimeType` / `validateMagicBytes` / `sanitizeFileName` / `validateFile` / `getStoragePath`）・private メソッド3個（`validateJpegMagicBytes` / `validatePngMagicBytes` / `validateWebpMagicBytes`）の計14個であり、**圧縮・サムネイル生成・アップロード・表示順序更新・バッチ処理に相当するメソッドは1つも無い**。実質は「マジックバイト検証・ファイル名サニタイズ・保存パス算出のステートレスなヘルパー」であり（`backend/src/services/construction-photo-image.service.ts:146` の JSDoc も当該依存を同じ言葉で説明している）、`prisma` も保持と `getPrismaClient` での返却にしか使われない（`this.prisma` の出現は同ファイル 226 / 263 の2箇所のみ）。
+
+これに照らすと、本小節の次の記述は直上の型定義ブロックとも実装とも矛盾する。**なおこの列挙は本小節の食い違いを網羅したものではない**（網羅には Responsibilities & Constraints 7項目と Dependencies 4項目の全件判定が要り、それ自体が本タスクの境界外である）。
+
+- **Dependencies の `Outbound: Sharp — 画像処理 (P0)`**: `grep -c sharp backend/src/services/survey-image.service.ts` は 0 件（`-i` を付けても 0 件）で、修正後の型定義ブロックにも `sharpProcessor` に相当する項目は無い。実際に `sharp` を保持するのは `ImageProcessorService`（`backend/src/services/image-processor.service.ts:156` の `private readonly sharp`）である。
+- **Responsibilities & Constraints の「300KB超過時の段階的圧縮（250KB〜350KBの範囲に収める）」と「200x200pxサムネイル自動生成」**: どちらも担い手は `ImageProcessorService` であり（`TARGET_MIN_SIZE_BYTES` 119 行 / `TARGET_MAX_SIZE_BYTES` 124 行 / `THUMBNAIL_WIDTH` 129 行 / `THUMBNAIL_HEIGHT` 134 行 / `processImage` 293 行）、`SurveyImageService` には該当機構が無い（上記の公開メソッド10個のいずれも圧縮・サムネイル生成を行わない）。
+- 参考として、同ブロックの「Cloudflare R2（S3互換API）へのアップロード」は `ImageUploadService.uploadToStorage`（`backend/src/services/image-upload.service.ts:342`）、「画像表示順序の管理」は `ImageOrderService.updateImageOrder`（`backend/src/services/image-order.service.ts:91`）、「バッチアップロード時は5件ずつキュー処理」は `BatchUploadService.BATCH_SIZE = 5`（`backend/src/services/batch-upload.service.ts:114`）が担っており、いずれも `SurveyImageService` の責務ではない。
 
 - Preconditions: ファイルのマジックバイトがJPEG/PNG/WEBP形式であること（拡張子・MIMEタイプは問わない）
 - Postconditions: サムネイルが生成されストレージに保存されること
