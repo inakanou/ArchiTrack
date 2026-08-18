@@ -4510,6 +4510,8 @@ sequenceDiagram
 
 ### File Structure Plan
 
+以下の表の「ファイル」列は**リポジトリルートからの相対パス**（呼称規約1）である。「種別」列は本節を書いた時点の計画だが、**パスそのものは実装の実配置と一致していなければならない**。
+
 | ファイル | 種別 | 責務 |
 |---------|------|------|
 | `backend/src/services/annotation.service.ts` | 変更 | `save` メソッドのサムネイル再生成を await 同期化、エラー伝播 |
@@ -4646,6 +4648,8 @@ graph TB
 
 #### Directory Structure
 
+以下のツリーは**各ブロック見出しがリポジトリルートからの相対パス**（呼称規約1）であり、配下の行はその直下の実配置を表す。各行の区分（新規／変更）は本節を書いた時点の計画だが、**配置そのものは実装の実配置と一致していなければならない**。
+
 ```
 frontend/src/components/site-surveys/
 ├── AnnotationEditor.tsx               # 変更: gestureManager 組込み、context menu マウント
@@ -4672,7 +4676,7 @@ frontend/src/components/site-surveys/
 frontend/src/services/export/
 └── AnnotationRendererService.ts       # 変更（検証中心）: Group版Arrow / paintFirst テキストの再描画確認、テスト追加
 
-frontend/src/__tests__/site-surveys/
+frontend/src/__tests__/components/site-surveys/
 ├── tools/
 │   ├── ArrowTool.outline.test.ts      # 新規: 白縁取りのシリアライズ/復元/後方互換
 │   └── TextTool.outline.test.ts       # 新規: textOutline のシリアライズ/復元/後方互換
@@ -4681,19 +4685,21 @@ frontend/src/__tests__/site-surveys/
 ├── AnnotationContextMenu.test.tsx     # 新規: メニュー表示・選択・閉じるの挙動
 └── annotation-style-tokens.test.ts    # 新規: 既定値の妥当性
 
-e2e/specs/
+e2e/specs/site-surveys/
 └── site-survey-annotation-mobile.spec.ts  # 新規: モバイルViewportでの長押し・ダブルタップ・白縁取り保存E2E
 ```
 
 #### Modified Files（主要変更点サマリー）
 
-- `tools/ArrowTool.ts` — `Arrow` を `Group` ベースに再設計。内部に `outlinePath`（白・太）と `bodyPath`（本体色・細）の2枚を持つ。`toObject`/`fromObject` に `outline?: { enabled, color, width }` を追加。既存 `generateArrowPath()` はそのまま流用
-- `tools/TextTool.ts` — `IText` 初期化時に `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth`（フォントサイズの10-20%）、`strokeUniform: true` を設定。`textOutline?: { enabled, widthRatio }` 属性を追加
-- `AnnotationEditor.tsx` — 初期化時に `touchGestureManager.attach(canvas)` を呼び、`custom:dbltap`/`custom:longpress` を listen。`AnnotationContextMenu` をマウント、座標管理
-- `ImageViewer.tsx` — `handleTouchStart`/`handleTouchMove` に 3本指以上の早期リターン（= 描画コミット抑止）と cooldown タイマを追加
-- `AnnotationToolbar.tsx` — ツールバーに `flexWrap: 'wrap'` とスクロール両対応、`StylePanel` の開閉トグル、白縁取りON/OFF UIを追加
-- `annotation-toolbar.constants.ts` — `DEFAULT_STYLE_OPTIONS` / ツール別 `DEFAULT_*_OPTIONS` を `annotation-style-tokens.ts` から参照する形に置換
-- `registerCustomShapes.ts` — `classRegistry.setClass('arrow', Arrow)` を Group 版 Arrow で再登録（type ID は `'arrow'` を維持）
+以下の箇条書きのパスは、**`frontend/src/` からの相対パス**である（上のツリーはリポジトリルート相対、この箇条書きは `frontend/src/` 相対と基準が異なる）。
+
+- `components/site-surveys/tools/ArrowTool.ts` — `Arrow` を `Group` ベースに再設計。内部に `outlinePath`（白・太）と `bodyPath`（本体色・細）の2枚を持つ。`toObject`/`fromObject` に `outline?: { enabled, color, width }` を追加。既存 `generateArrowPath()` はそのまま流用
+- `components/site-surveys/tools/TextTool.ts` — `IText` 初期化時に `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth`（フォントサイズの10-20%）、`strokeUniform: true` を設定。`textOutline?: { enabled, widthRatio }` 属性を追加
+- `components/site-surveys/AnnotationEditor.tsx` — 初期化時に `touchGestureManager.attach(canvas)` を呼び、`custom:dbltap`/`custom:longpress` を listen。`AnnotationContextMenu` をマウント、座標管理
+- `components/site-surveys/ImageViewer.tsx` — `handleTouchStart`/`handleTouchMove` に 3本指以上の早期リターン（= 描画コミット抑止）と cooldown タイマを追加
+- `components/site-surveys/AnnotationToolbar.tsx` — ツールバーに `flexWrap: 'wrap'` とスクロール両対応、`StylePanel` の開閉トグル、白縁取りON/OFF UIを追加
+- `components/site-surveys/annotation-toolbar.constants.ts` — `DEFAULT_STYLE_OPTIONS` / ツール別 `DEFAULT_*_OPTIONS` を `annotation-style-tokens.ts` から参照する形に置換
+- `components/site-surveys/tools/registerCustomShapes.ts` — `classRegistry.setClass('arrow', Arrow)` を Group 版 Arrow で再登録（type ID は `'arrow'` を維持）
 - `services/export/AnnotationRendererService.ts` — Group 版 Arrow / `paintFirst` テキストが `toDataURL` で正しく出ることをテストで検証。**実装上の注意点（実読確認済み）**: 現行 `:153` は `await util.enlivenObjects(...)` を正しく使用しており、Group 化 Arrow の非同期 `fromObject` との互換性は確保される。ただし `:181-185` の `strokeWidth` スケーリング分岐は、Group 化 Arrow では Group 本体に `strokeWidth` が存在しないためスキップされる。これは Fabric Group が子 Path に親の `scaleX/scaleY` を伝搬するため描画結果は正しいが、旧 Path 版と新 Group 版で内部経路が異なるため、Integration Test でスケール非等倍時の矢印レンダリングを必ず検証する
 
 ### System Flows
@@ -6131,6 +6137,8 @@ graph TB
 
 ### File Structure Plan
 
+以下のツリーは**各ブロック見出しがリポジトリルートからの相対パス**（呼称規約1）であり、配下の行はその直下の実配置を表す。各行の区分（`新規` / `変更` / `上記再掲`）は本節を書いた時点の計画だが、**配置そのものは実装の実配置と一致していなければならない**。
+
 ```
 frontend/src/components/site-surveys/
 ├── AnnotationEditor.tsx                # 変更: useCanvasViewport 配線、initialZoom/Pan 適用、ZoomControls マウント、
@@ -6149,13 +6157,14 @@ frontend/src/hooks/                     # 既存フック配置規約（useFabri
 └── useCanvasViewport.ts                # 新規: コントローラと React 状態（現在倍率）の橋渡し、ズームUIハンドラ提供
 
 frontend/src/__tests__/site-surveys/
-├── gestures/
-│   ├── canvasViewportController.test.ts  # 新規: clampZoom/zoomToPoint中点/pan clamp/fit 算術
-│   └── touchGestureManager.viewport.test.ts # 新規: 2本指→zoom/pan駆動、2本目追加で描画中断、復帰でビュー維持
-└── (useCanvasViewport.test.ts は frontend/src/__tests__/hooks/ 配下)
+└── gestures/
+    ├── canvasViewportController.test.ts  # 新規: clampZoom/zoomToPoint中点/pan clamp/fit 算術
+    └── touchGestureManager.viewport.test.ts # 新規: 2本指→zoom/pan駆動、2本目追加で描画中断、復帰でビュー維持
 
 frontend/src/__tests__/hooks/
 └── useCanvasViewport.test.ts             # 新規: 倍率状態更新・fit リセット
+
+frontend/src/__tests__/components/site-surveys/
 └── ZoomControls.test.tsx                 # 新規: 44px・倍率表示更新・fit 挙動・描画誤発火しない
 
 e2e/specs/site-surveys/
@@ -6395,6 +6404,8 @@ graph TB
 | レイアウト | React 19 + inline style spread 分岐 / flexbox | 縦積み・単段ツールバー・16px・44px |
 
 ### File Structure Plan
+
+以下のツリーは**各ブロック見出しがリポジトリルートからの相対パス**（呼称規約1）であり、配下の行はその直下の実配置を表す。各行の区分（`新規` / `変更` / `参照のみ`）は本節を書いた時点の計画だが、**配置そのものは実装の実配置と一致していなければならない**。
 
 ```
 frontend/src/utils/
@@ -6655,6 +6666,8 @@ graph TB
 | Test | Playwright | E2E | `page.route` + `route.fulfill` / `route.abort` |
 
 ### File Structure Plan
+
+以下 2 表の「パス」列は**リポジトリルートからの相対パス**（呼称規約1）である。新規／変更の区分は表の見出し（Created Files / Modified Files）が示す本節を書いた時点の計画だが、**パスそのものは実装の実配置と一致していなければならない**。
 
 #### Created Files
 
@@ -7099,6 +7112,8 @@ graph TB
 - バックフィルは表示経路から独立している。**ただし当該バックフィルは 115.6 で封鎖済みであり実行できない。** 表示経路は封鎖の影響を受けない。
 
 ### File Structure Plan
+
+以下の表の「ファイル」列は**リポジトリルートからの相対パス**（呼称規約1）である。「区分」列は本節を書いた時点の計画だが、**区分が「削除」の行を除き、パスは実装の実配置と一致していなければならない**（「削除」の行は当該パスが実在しないことが正しい状態である）。
 
 | ファイル | 区分 | 責務 |
 |---|---|---|
