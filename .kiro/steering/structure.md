@@ -474,8 +474,7 @@ frontend/
 │   │       ├── BillingClosingDaySelect.tsx # 請求締日選択
 │   │       └── PaymentDateSelect.tsx # 支払日選択
 │   │   ├── site-survey/              # 現場調査共通コンポーネント（注釈復元ダイアログ等）
-│   │   │   ├── RestoreAnnotationDialog.tsx # 注釈復元ダイアログ
-│   │   │   └── index.ts              # エクスポート集約
+│   │   │   └── RestoreAnnotationDialog.tsx # 注釈復元ダイアログ
 │   │   ├── site-surveys/            # 現場調査コンポーネント
 │   │       ├── SiteSurveyForm.tsx   # 現場調査作成・編集フォーム
 │   │       ├── SiteSurveyListTable.tsx # 現場調査一覧テーブル
@@ -493,7 +492,7 @@ frontend/
 │   │       ├── ImageExportDialog.tsx # 画像エクスポートダイアログ
 │   │       ├── StorageWarningBanner.tsx # ストレージ警告バナー
 │   │       ├── ZoomControls.tsx     # ズーム操作UI（ズームイン/アウト/全体表示・倍率バッジ、44px下部配置の表示専用）
-│   │       ├── tools/               # 注釈ツール（12ファイル）
+│   │       ├── tools/               # 注釈ツール（11ファイル）
 │   │       │   ├── ArrowTool.ts     # 矢印ツール
 │   │       │   ├── CircleTool.ts    # 円・楕円ツール
 │   │       │   ├── DimensionTool.ts # 寸法線ツール
@@ -504,8 +503,7 @@ frontend/
 │   │       │   ├── PolylineTool.ts  # 折れ線ツール
 │   │       │   ├── RectangleTool.ts # 四角形ツール
 │   │       │   ├── TextTool.ts      # テキストツール
-│   │       │   ├── registerCustomShapes.ts # カスタムシェイプ登録
-│   │       │   └── index.ts         # エクスポート集約
+│   │       │   └── registerCustomShapes.ts # カスタムシェイプ登録
 │   │       └── gestures/            # タッチジェスチャー・ビューポート制御（3ファイル）
 │   │           ├── canvasViewportController.ts # 中点ズーム/パン/フィットの状態制御（純粋ロジック、UI非依存）
 │   │           ├── touchGestureManager.ts # マルチタッチ調停（2本指ピンチ/3本指以上の描画抑止/cooldown）

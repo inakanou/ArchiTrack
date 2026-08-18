@@ -286,7 +286,7 @@ export async function getSurveyImages(surveyId: string): Promise<SurveyImageInfo
  * @throws ApiError
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isImageNotFoundErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'IMAGE_NOT_FOUND'`で識別可能
  *
  * Requirements: 4.7
  *
@@ -342,7 +342,7 @@ export async function updateSurveyImageOrder(
  *   - バリデーションエラー（400）- コメントが2000文字を超えた場合
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isImageNotFoundErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'IMAGE_NOT_FOUND'`で識別可能
  *
  * Requirements: 10.4, 10.8
  *

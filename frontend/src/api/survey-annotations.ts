@@ -32,7 +32,7 @@ import { isNoAnnotationResponse } from '../types/site-survey.types';
  * @throws ApiError
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isAnnotationImageNotFoundErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'ANNOTATION_IMAGE_NOT_FOUND'`で識別可能
  *
  * Requirements: 9.2
  *
@@ -68,11 +68,11 @@ export async function getAnnotation(imageId: string): Promise<AnnotationInfo | n
  * @param input - 注釈保存入力（data, expectedUpdatedAt）
  * @returns 保存された注釈情報
  * @throws ApiError
- *   - バリデーションエラー（400）- `isInvalidAnnotationDataErrorResponse(error.response)`で識別可能
+ *   - バリデーションエラー（400）- `error.response.code === 'INVALID_ANNOTATION_DATA'`で識別可能
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isAnnotationImageNotFoundErrorResponse(error.response)`で識別可能
- *   - 競合（409）- 楽観的排他制御エラー、`isAnnotationConflictErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'ANNOTATION_IMAGE_NOT_FOUND'`で識別可能
+ *   - 競合（409）- 楽観的排他制御エラー、`error.response.code === 'ANNOTATION_CONFLICT'`で識別可能
  *
  * Requirements: 9.1, 9.4
  *
@@ -98,10 +98,8 @@ export async function getAnnotation(imageId: string): Promise<AnnotationInfo | n
  *   await saveAnnotation(imageId, input);
  * } catch (error) {
  *   if (error instanceof ApiError && error.statusCode === 409) {
- *     if (isAnnotationConflictErrorResponse(error.response)) {
- *       // 競合エラー - データを再読み込みしてリトライ
- *       console.log('データが更新されています。再読み込みしてください。');
- *     }
+ *     // 競合エラー - データを再読み込みしてリトライ
+ *     console.log('データが更新されています。再読み込みしてください。');
  *   }
  * }
  */
@@ -131,8 +129,8 @@ export async function saveAnnotation(
  * @throws ApiError
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isAnnotationImageNotFoundErrorResponse(error.response)`で識別可能
- *   - 注釈が見つからない（404）- `isAnnotationNotFoundErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'ANNOTATION_IMAGE_NOT_FOUND'`で識別可能
+ *   - 注釈が見つからない（404）- `error.response.code === 'ANNOTATION_NOT_FOUND'`で識別可能
  *
  * Requirements: 9.6
  *

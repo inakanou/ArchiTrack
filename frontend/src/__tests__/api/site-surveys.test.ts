@@ -23,9 +23,6 @@ import {
   getLatestSiteSurveys,
 } from '../../api/site-surveys';
 import {
-  isSiteSurveyConflictErrorResponse,
-  isProjectNotFoundForSurveyErrorResponse,
-  isSiteSurveyNotFoundErrorResponse,
   type PaginatedSiteSurveys,
   type SiteSurveyDetail,
   type SiteSurveyInfo,
@@ -328,7 +325,10 @@ describe('site-surveys API client', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(404);
-        expect(isSiteSurveyNotFoundErrorResponse((error as ApiError).response)).toBe(true);
+        expect((error as ApiError).response).toMatchObject({
+          status: 404,
+          code: 'SITE_SURVEY_NOT_FOUND',
+        });
       }
     });
   });
@@ -401,10 +401,11 @@ describe('site-surveys API client', () => {
         expect(error).toBeInstanceOf(ApiError);
         const apiError = error as ApiError;
         expect(apiError.statusCode).toBe(404);
-        expect(isProjectNotFoundForSurveyErrorResponse(apiError.response)).toBe(true);
-        if (isProjectNotFoundForSurveyErrorResponse(apiError.response)) {
-          expect(apiError.response.projectId).toBe('non-existent-project');
-        }
+        expect(apiError.response).toMatchObject({
+          status: 404,
+          code: 'PROJECT_NOT_FOUND',
+          projectId: 'non-existent-project',
+        });
       }
     });
 
@@ -501,10 +502,10 @@ describe('site-surveys API client', () => {
         expect(error).toBeInstanceOf(ApiError);
         const apiError = error as ApiError;
         expect(apiError.statusCode).toBe(409);
-        expect(isSiteSurveyConflictErrorResponse(apiError.response)).toBe(true);
-        if (isSiteSurveyConflictErrorResponse(apiError.response)) {
-          expect(apiError.response.code).toBe('SITE_SURVEY_CONFLICT');
-        }
+        expect(apiError.response).toMatchObject({
+          status: 409,
+          code: 'SITE_SURVEY_CONFLICT',
+        });
       }
     });
 
@@ -528,7 +529,10 @@ describe('site-surveys API client', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(404);
-        expect(isSiteSurveyNotFoundErrorResponse((error as ApiError).response)).toBe(true);
+        expect((error as ApiError).response).toMatchObject({
+          status: 404,
+          code: 'SITE_SURVEY_NOT_FOUND',
+        });
       }
     });
   });
@@ -563,7 +567,10 @@ describe('site-surveys API client', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ApiError);
         expect((error as ApiError).statusCode).toBe(404);
-        expect(isSiteSurveyNotFoundErrorResponse((error as ApiError).response)).toBe(true);
+        expect((error as ApiError).response).toMatchObject({
+          status: 404,
+          code: 'SITE_SURVEY_NOT_FOUND',
+        });
       }
     });
   });
@@ -611,92 +618,6 @@ describe('site-surveys API client', () => {
         expect((error as ApiError).statusCode).toBe(0);
         expect((error as ApiError).message).toBe('Request timeout');
       }
-    });
-  });
-
-  // ==========================================================================
-  // タイプガード関数のテスト
-  // ==========================================================================
-  describe('タイプガード関数', () => {
-    describe('isSiteSurveyConflictErrorResponse', () => {
-      it('正しい形式のオブジェクトに対してtrueを返すこと', () => {
-        const response = {
-          type: 'https://architrack.example.com/problems/site-survey-conflict',
-          title: 'Conflict',
-          status: 409,
-          detail: '競合が発生しました',
-          code: 'SITE_SURVEY_CONFLICT',
-        };
-        expect(isSiteSurveyConflictErrorResponse(response)).toBe(true);
-      });
-
-      it('不正な形式のオブジェクトに対してfalseを返すこと', () => {
-        const response = {
-          type: 'https://example.com/other-error',
-          title: 'Other Error',
-          status: 409,
-          detail: 'その他のエラー',
-          code: 'OTHER_ERROR',
-        };
-        expect(isSiteSurveyConflictErrorResponse(response)).toBe(false);
-      });
-
-      it('nullに対してfalseを返すこと', () => {
-        expect(isSiteSurveyConflictErrorResponse(null)).toBe(false);
-      });
-
-      it('undefinedに対してfalseを返すこと', () => {
-        expect(isSiteSurveyConflictErrorResponse(undefined)).toBe(false);
-      });
-    });
-
-    describe('isProjectNotFoundForSurveyErrorResponse', () => {
-      it('正しい形式のオブジェクトに対してtrueを返すこと', () => {
-        const response = {
-          type: 'https://architrack.example.com/problems/project-not-found',
-          title: 'Project Not Found',
-          status: 404,
-          detail: 'プロジェクトが見つかりません',
-          code: 'PROJECT_NOT_FOUND',
-          projectId: 'project-123',
-        };
-        expect(isProjectNotFoundForSurveyErrorResponse(response)).toBe(true);
-      });
-
-      it('projectIdがない場合falseを返すこと', () => {
-        const response = {
-          type: 'https://architrack.example.com/problems/project-not-found',
-          title: 'Project Not Found',
-          status: 404,
-          detail: 'プロジェクトが見つかりません',
-          code: 'PROJECT_NOT_FOUND',
-        };
-        expect(isProjectNotFoundForSurveyErrorResponse(response)).toBe(false);
-      });
-    });
-
-    describe('isSiteSurveyNotFoundErrorResponse', () => {
-      it('正しい形式のオブジェクトに対してtrueを返すこと', () => {
-        const response = {
-          type: 'https://architrack.example.com/problems/site-survey-not-found',
-          title: 'Site Survey Not Found',
-          status: 404,
-          detail: '現場調査が見つかりません',
-          code: 'SITE_SURVEY_NOT_FOUND',
-        };
-        expect(isSiteSurveyNotFoundErrorResponse(response)).toBe(true);
-      });
-
-      it('codeが異なる場合falseを返すこと', () => {
-        const response = {
-          type: 'https://architrack.example.com/problems/not-found',
-          title: 'Not Found',
-          status: 404,
-          detail: '見つかりません',
-          code: 'NOT_FOUND',
-        };
-        expect(isSiteSurveyNotFoundErrorResponse(response)).toBe(false);
-      });
     });
   });
 });

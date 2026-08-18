@@ -185,7 +185,7 @@ export async function getSiteSurvey(id: string): Promise<SiteSurveyDetail> {
  *   - バリデーションエラー（400）
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - プロジェクトが見つからない（404）- `isProjectNotFoundForSurveyErrorResponse(error.response)`で識別可能
+ *   - プロジェクトが見つからない（404）- `error.response.code === 'PROJECT_NOT_FOUND'`で識別可能
  *
  * Requirements: 1.1, 1.6
  *
@@ -226,7 +226,7 @@ export async function createSiteSurvey(
  *   - 認証エラー（401）
  *   - 権限不足（403）
  *   - 現場調査が見つからない（404）
- *   - 競合（409）- 楽観的排他制御エラー、`isSiteSurveyConflictErrorResponse(error.response)`で識別可能
+ *   - 競合（409）- 楽観的排他制御エラー、`error.response.code === 'SITE_SURVEY_CONFLICT'`で識別可能
  *
  * Requirements: 1.3, 1.5
  *
@@ -244,10 +244,8 @@ export async function createSiteSurvey(
  *   await updateSiteSurvey(id, input, expectedUpdatedAt);
  * } catch (error) {
  *   if (error instanceof ApiError && error.statusCode === 409) {
- *     if (isSiteSurveyConflictErrorResponse(error.response)) {
- *       // 競合エラー - データを再読み込みしてリトライ
- *       console.log('データが更新されています。再読み込みしてください。');
- *     }
+ *     // 競合エラー - データを再読み込みしてリトライ
+ *     console.log('データが更新されています。再読み込みしてください。');
  *   }
  * }
  */

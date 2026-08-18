@@ -88,7 +88,7 @@
 
 - 各ファイル名（プレースホルダ表記は規約7 に従い `<ファイル名>` と書く）について `grep -rlE "from '[^']*/<ファイル名>'|from '\./<ファイル名>'" frontend/src e2e` を実行し、`__tests__/` 配下・`*.stories.tsx`・`*.test.ts` / `*.test.tsx`・自ファイルを参照元から除外する
 - 残った参照元が `index.ts`（まとめ出力）だけ、または 0 件のものを未結線とする
-- **`frontend/src/components/site-surveys/index.ts` と `frontend/src/components/site-survey/index.ts` は、本番コードのどこからも import されていない**。したがってまとめ出力への再エクスポートは結線とみなさない
+- **`frontend/src/components/site-surveys/index.ts` と `frontend/src/components/site-survey/index.ts` は、本番コードのどこからも import されていない**。したがってまとめ出力への再エクスポートは結線とみなさない（**この2ファイルはタスク 115.85 で撤去済み**。下の「参照されないまとめ出力と検証専用の判定の撤去（タスク 115.85）」を参照）
 - 副作用 import（`import './tools/registerCustomShapes'`）は `from` を伴わないため、上記の式では拾えない。個別に確認し結線ありと判定した
 
 撤去の可否は「現在使われているか」ではなく **「要件上使われうるか」** で判断した。
@@ -154,7 +154,7 @@
 
 タスク 115.64 が「要件33-34 節にフェーズ4 の移行計画があるため設計上の役割が現存する」として存置した `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`）について、タスク 115.83 で**要件5 の担当を実態へ付け替えた**。決定の根拠は次の3点である。
 
-- **本番から到達しない。** `ImageViewer` を import しているのは `frontend/src/components/site-surveys/index.ts`（バレル再エクスポート）、`ImageViewer.stories.tsx`、単体テスト2件だけで、バレル経由で `ImageViewer` を取り込む本番コードも存在しない（`frontend/src` 全走査の実測）。ルート `/site-surveys/:id/images/:imageId`（`frontend/src/routes.tsx`）が描画するのは `SiteSurveyImageViewerPage` であり、その中で画像を描いているのは `AnnotationEditor` である
+- **本番から到達しない。** タスク 115.83 の実測時点で `ImageViewer` を import していたのは `frontend/src/components/site-surveys/index.ts`（バレル再エクスポート）、`ImageViewer.stories.tsx`、単体テスト2件だけで、バレル経由で `ImageViewer` を取り込む本番コードも存在しなかった（`frontend/src` 全走査の実測）。**そのバレル自体がタスク 115.85 で撤去されたため、現在の import 元は `ImageViewer.stories.tsx` と単体テスト2件のみである。**ルート `/site-surveys/:id/images/:imageId`（`frontend/src/routes.tsx`）が描画するのは `SiteSurveyImageViewerPage` であり、その中で画像を描いているのは `AnnotationEditor` である
 - **存置の根拠だった移行計画は既に完了している。** 「フェーズ4: `ImageViewer` を共通コントローラへ移行し二重実装解消」は、タスク 97 で実施済みである。現在の `ImageViewer.tsx` は `createCanvasViewportController` を import し、ズーム・パン・等倍時抑止・範囲補正をコントローラへ委譲している。したがって「これから移行するので存置する」という理由はもはや成立しない
 - **結線し直すと二重描画になる。** 画像ビューア画面は既に `AnnotationEditor` を閲覧/編集の両方で使っており、ここへ `ImageViewer` を差し込むと同一画面に2つの描画実装が並ぶ。要件33.10 が解消しようとしている二重実装を再導入することになるため採らない
 
@@ -213,6 +213,44 @@
 - **誤りが起きていないときは送らない。** 成功経路からの送出は監視のノイズになるため行わない
 
 **E2E 除外一覧の判断**: `e2e/requirement-exclusions.json` の `site-survey/REQ-16.8` は「エラーログ送信の検証は E2E 範囲外。統合テストで検証」として除外されている。**この除外そのものは維持する**。E2E 環境（フロント :5174 / バックエンド :3100）には `VITE_SENTRY_DSN` が設定されておらず、`utils/sentry.ts` の `captureException` は DSN 未設定時に何も送らずに戻るため、**E2E からは送出を観測できない**（本リポジトリで `SENTRY` を参照する設定は CI の backend 用シークレットのみ。実測）。ただし除外が挙げていた代替検証は `frontend/src/utils/sentry.test.ts`（送出ユーティリティ単体）しか無く、**画面の捕捉処理を一切通っていなかった**ため、除外の記述をタスク 115.84 で結線後の実体へ改めた。代替検証は `frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx` と `frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx` が担い、いずれも `utils/sentry` だけを差し替えて `logger` は本番実装を通し、**画面の描画経路から `captureException` へ到達すること**を検証する。
+
+#### 参照されないまとめ出力と検証専用の判定の撤去（タスク 115.85）
+
+タスク 115.64 は「撤去した部品の再エクスポート行だけを除き、まとめ出力そのものは撤去範囲を超える」として存置していた。タスク 115.85 で、現場調査のまとめ出力と、本番から呼ばれない誤り応答の判定を撤去した。
+
+**撤去したまとめ出力**（いずれも本番・検証・Storybook・E2E のどこからも import されていないことを全拡張子の全文走査で確認した）:
+
+| 撤去したファイル | 撤去前の参照元 |
+|---|---|
+| `frontend/src/components/site-surveys/index.ts` | 0 件 |
+| `frontend/src/components/site-survey/index.ts` | 0 件 |
+| `frontend/src/components/site-surveys/tools/index.ts` | 1 件（`frontend/src/components/site-surveys/index.ts` のみ。上の撤去により 0 件になるため同時に撤去した） |
+
+起票時の対象は上2件だったが、`tools/index.ts` は上位のまとめ出力だけが参照する下位のまとめ出力であり、**上位を消した時点で新たな死んだ集約点になる**ため同時に撤去した。撤去後も各ツール（`DimensionTool` / `PolylineTool` / `DimensionValueInput` 等）は `AnnotationEditor` が個別パスで直接 import しており、本番経路は変わらない。
+
+**撤去した判定**: `frontend/src/types/site-survey.types.ts` が持つタイプガードは12件あり、**本番の実行経路から呼ばれるのは `isNoAnnotationResponse` の1件だけ**である（`frontend/src/api/survey-annotations.ts` の `getAnnotation` が「注釈なし」応答を null へ畳むために呼ぶ）。残る11件を撤去した。
+
+| 撤去した判定 | 撤去前の状態 |
+|---|---|
+| `isSiteSurveyConflictErrorResponse` | タスク 115.64 の `useSiteSurveyError` 撤去で本番参照を失った（起票が数え漏らした「競合を表す判定」） |
+| `isSiteSurveyNotFoundErrorResponse` | 同上 |
+| `isUnsupportedFileTypeErrorResponse` | 同上 |
+| `isProjectNotFoundForSurveyErrorResponse` | 当初から本番呼び出しなし（JSDoc の言及のみ） |
+| `isImageNotFoundErrorResponse` | 同上 |
+| `isAnnotationImageNotFoundErrorResponse` | 同上 |
+| `isAnnotationNotFoundErrorResponse` | 同上 |
+| `isAnnotationConflictErrorResponse` | 同上 |
+| `isInvalidAnnotationDataErrorResponse` | 同上 |
+| `isSiteSurveySortableField` | **検証からも参照されない完全な死蔵**（全拡張子の全文走査で宣言以外 0 件） |
+| `isCommentTooLongErrorResponse` | **同じく完全な死蔵**（同 0 件） |
+
+**撤去の基準**: 「本番の実行経路から呼ばれず、要件の実装でも要件カバレッジの担い手でもない判定は撤去する」。JSDoc が「`isXxx(error.response)` で識別可能」と書いていることは結線ではない（本書の「未結線部品の扱い」が定めた、死んだ集約点を経由した参照を結線と数えない原則の同型である）。**`*ErrorResponse` の型宣言はいずれも残した**ため、実際に誤り分岐を結線する時点で判定を書き直せる。判定の消滅で説明が失われないよう、各 API 関数の JSDoc の識別方法は判定名から**エラーコードの値**（`error.response.code === 'SITE_SURVEY_CONFLICT'` 等）へ書き換えた。
+
+**要件カバレッジへの影響なし**: 撤去に伴い削除した検証ファイル・検証ブロックには `@requirement site-survey/REQ-*` 形式のカバレッジタグが1件も無く（実測 0 件）、`scripts/check-requirement-coverage.ts` は撤去前後とも PASSED である。要件4.5（許可されない形式の拒否）・要件9.4（楽観的排他制御エラー）の実装は判定側ではなく `ImageUploader` と `AnnotationEditor` の保存処理にあり、判定の撤去で失われる実装は無い。
+
+**撤去の妥当性はテスト件数で機械的に確かめた**: 520ファイル11930件から519ファイル11884件へ減り、差分46件は削除した検証の件数（`site-survey-image.types.test.ts` 全17件 + `site-survey-annotation.types.test.ts` の4判定分21件 + `api/site-surveys.test.ts` の「タイプガード関数」8件）と一致する。`api/site-surveys.test.ts` の API 挙動側の検証は削除せず、判定呼び出しを応答の構造主張（`toMatchObject({ status, code })`）へ書き換えて残した。
+
+**スタイルパネルの資材は本タスクの対象外**: 撤去に伴い `style-panel.constants.ts` が表示確認専用になったが、その扱いは切替UIを結線するかどうかを決めるタスク 115.96 の判断に従う。
 
 #### 契約名の実在対照表
 
@@ -7185,7 +7223,7 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 - **38.2 / 38.3 の充足機構は表示領域による限定である（設計レビューでの是正）**。当初は「合成済みサムネイルの欠落はレガシーデータに限られる」という不変条件に依拠し、バックフィルで解消する設計としていた。しかし `annotation.service.ts:237-258` の `$transaction` は注釈をコミットした**後**に `:262-281` でサムネイル生成を行い、失敗時に `ThumbnailRegenerationError` を投げる。**注釈のみが永続化されサムネイルが無い状態が正常系の障害で新規に発生し得る**ため、この不変条件は成立しない。したがって 38.2 / 38.3 は「フォールバックを起こさせないこと」ではなく「フォールバックを含む一切の画像関連取得が表示領域に入った画像に限られること」（38.8 の機構）によって満たす。登録写真の枚数ではなく同時に表示される画像数が上限となり、データ状態に依存しない。
 - **Simplification（設計レビューでの撤回）**: `hasAnnotations` の導出を「注釈オブジェクトが1件以上」へ変更する案は採用しない。上記のとおり 38.2 / 38.3 は表示領域による限定で満たされるため、空注釈レコードによる余分な取得も表示領域内の数件に収まり、変更の必要がない。加えて `quantity-table.service.ts:466-469` は同じ `hasAnnotations` を `annotation: { select: { id: true } }` から導出しており、重い `data` を意図的に取得していない。導出規則を「オブジェクト数」へ集約するとこの最適化を壊すか、スキーマへ派生列を追加する必要が生じる。**両 producer とも「注釈レコードの存在」で一致させたまま据え置く**ことで、producer 間の意味の分岐も発生しない。
 - **バックフィルの位置づけ（115.6 で改訂）**: 上記により、バックフィルは 38.2 / 38.3 の充足条件ではなくなる。当初はデータ品質改善として任意実施で残す方針だったが、当該バックフィルが用いるサーバー側描画器に注釈が一切描かれない欠陥が判明したため、**実行できない状態に封鎖した**。集計のみの指定を含めて起動を拒否し、理由を実行時に伝える。合成済みサムネイルの欠落は、表示領域による取得の限定（38.8）によって枚数非依存に保たれるため、封鎖しても 38.2 / 38.3 は満たされる。
-- **Simplification**: 未使用の `LazyImage.tsx`（303行）と付随する stories を削除する。`components/site-surveys/index.ts:31,47` からバレル再エクスポートされているが、利用側の import は0件である。観測ロジックを `useInViewport` へ移設したうえで残置すると、遅延読み込みの実装が2つ並存し必ず片方が陳腐化する。削除に伴いバレルの再エクスポートも除去する。
+- **Simplification**: 未使用の `LazyImage.tsx`（303行）と付随する stories を削除する。**本節を書いた時点**では `frontend/src/components/site-surveys/index.ts` の 31, 47行からバレル再エクスポートされていたが、利用側の import は0件であった（**このバレルはタスク 115.85 で撤去済み**。上の「参照されないまとめ出力と検証専用の判定の撤去（タスク 115.85）」を参照。ここに書いたファイル名は**執筆時点の状態の記録**であって現存の主張ではなく、呼称規約5 が禁じる「実在しないファイル名を実ファイル名として書くこと」には当たらない）。観測ロジックを `useInViewport` へ移設したうえで残置すると、遅延読み込みの実装が2つ並存し必ず片方が陳腐化する。削除に伴いバレルの再エクスポートも除去した。
 - **Rejected**: ページング・仮想スクロールの導入。写真の一括操作（並び替え・一括メタデータ更新・一括エクスポート）が全件表示を前提としており、表示件数の変更は Requirement 20 および Requirement 31 の前提に波及する。Non-Goals とする。
 
 ### Architecture
@@ -7235,7 +7273,7 @@ graph TB
 | `frontend/src/components/site-surveys/LazyImage.tsx` | 削除 | 未使用。観測ロジックは `useInViewport` へ移設 |
 | `frontend/src/components/site-surveys/LazyImage.stories.tsx` | 削除 | 上記に付随 |
 | `frontend/src/__tests__/components/site-surveys/LazyImage.test.tsx` | 削除 | 上記に付随。利用側の import が無いコンポーネントに対する単体テストであり、削除対象と同時に除去する |
-| `frontend/src/components/site-surveys/index.ts` | 変更 | `LazyImage` / `LazyImageProps` のバレル再エクスポート（31, 47行）を除去する |
+| `frontend/src/components/site-surveys/index.ts` | 変更 | `LazyImage` / `LazyImageProps` のバレル再エクスポート（31, 47行）を除去する。**本節を書いた後、タスク 115.85 で当該ファイル自体を撤去した**（本番から一度も参照されないまとめ出力であったため）。上の基準宣言が求める実在照合の例外は、**本表の中ではこの1行だけ**である（本表の外では、撤去済みのまとめ出力3ファイルを「執筆時点の状態の記録」または「撤去の記録」として明記したうえで参照する行が design.md 内に7行ある。いずれも実在の主張ではないため基準宣言の対象外である）。区分列は計画時点の記録として書き換えない |
 | `frontend/src/components/site-surveys/SiteSurveyListTable.tsx` | 変更 | フォールバック経路へ `thumbnailUrl` と `preferThumbnail` を渡す。`loading="lazy"` は維持する（実装時の是正、下記注記を参照） |
 | `frontend/src/components/site-surveys/SiteSurveyListCard.tsx` | 変更 | 同上 |
 | `frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx` | 変更 | 同上 |
