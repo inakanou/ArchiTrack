@@ -196,7 +196,7 @@
 | `ZipNamingInput` | `frontend/src/services/export/zip-naming.ts:49` |
 | `ZipNamingStrategy` | `frontend/src/services/export/zip-naming.ts:65` |
 
-**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。
+**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。 **下表の全43行について、実装するのか設計から落とすのか抽象契約として残すのかの判断はタスク 115.75 で一件ずつ決着させた**（後述の「実体を持たない契約名の扱い」。判別可能にしたことと乖離が無いことは別の主張であるため、判断を省いてはならない）。
 
 | 種別 | 契約名 |
 |---|---|
@@ -208,9 +208,9 @@
 | 追跡表 Interfaces 列の非 `*API` 契約名（要件24-30） | `GestureEvent`、`CursorStrategy`、`HandleSizeStrategy` |
 | 図形シリアライズ・型拡張契約（要件31 以降） | `DimensionJSON`、`ShapeJSONExt`、`ShapeOutlineMethods`、`AnnotationToolDefaultsExt` |
 
-**注（追跡表 Interfaces 列の非 `*API` 契約名の行について）**: `GestureEvent` / `CursorStrategy` / `HandleSizeStrategy` の3件は要件24-30 の追跡表（`## Requirements 24-30` 節の追跡表。要件27.1-27.10 行と要件29.1-29.8 行）の Interfaces 列にだけ現れる名前で、設計書内に `interface` / `type` 定義ブロックを持たず、**`backend` / `frontend` / `e2e` / `scripts` の全域で宣言も参照も 0 件**である（タスク 115.74 で実測。`grep -rnw` でも一致なし）。なお `GestureEvent` は WebKit 独自の DOM 型と同名だが、本設計書のそれは touchGestureManager のジェスチャー判定契約を指す名前であり、実装に同名の宣言は無い。
+**注（追跡表 Interfaces 列の非 `*API` 契約名の行について）**: `GestureEvent` / `CursorStrategy` / `HandleSizeStrategy` の3件は要件24-30 の追跡表（`## Requirements 24-30` 節の追跡表。要件27.1-27.10 行と要件29.1-29.8 行）の Interfaces 列にだけ現れる名前で、設計書内に `interface` / `type` 定義ブロックを持たず、**`backend` / `frontend` / `e2e` / `scripts` の全域で宣言も参照も 0 件**である（タスク 115.74 で実測。`grep -rnw` でも一致なし）。なお `GestureEvent` は WebKit 独自の DOM 型と同名だが、本設計書のそれは touchGestureManager のジェスチャー判定契約を指す名前であり、実装に同名の宣言は無い。 3件の扱いはタスク 115.75 で決着させた（下の「実体を持たない契約名の扱い」の #37-39 を参照）。
 
-**注（上表の最終行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:124` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:77` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル75 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断は本表の対象外であり、タスク 115.75 の所管とする。
+**注（上表の最終行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:124` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:77` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル75 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断はタスク 115.75 で行い、**4件とも「抽象契約として残す」で決着した**（下の「実体を持たない契約名の扱い」の #40-43 を参照）。
 
 **警告（規約6 の要点）**: `I*Service` / `I*Manager` 表記は上表の**両方**に現れる。`IAuditLogService` / `IAnnotatedThumbnailService` / `IAutoSaveManager` / `IExportService` / `IUndoManager` は実在し、`ISurveyService` / `IImageService` / `IAnnotationService` / `IImageDeleteService` / `IImageMetadataService` は実在しない。**表記だけで実在を推定してはならない。**
 
@@ -222,6 +222,100 @@
 - **バッククォートを伴わない説明句**: `Fabric selection/object:moving`（33.11-33.12）、`既存 Req 14 経路`（31.16）、`各 Tool の setOutline/toObject/fromObject`（32.1-32.10）、`画像一覧レスポンス（URL同梱）`（38.1）、`原本URLのみ検証結果で出し分け`（38.9）。語として `Fabric` / `Req` / `Tool` / `URL` を含むが、いずれも型名ではない
 
 タスク 115.74 で、要件19 以降の全追跡表（要件24-30 / 31-32 / 33-34 / 35-36 / 37 / 38 の6表と、冒頭の総合追跡表の要件19 以降の行）の Interfaces 列から PascalCase トークンを機械的に再抽出し、上記4種を除いた残りが**全件上の2表のいずれかに収録済み**であることを確認した（`ExportSettings`、`BulkExportInput`、`PendingUploadPanelProps`、`UseInViewportResult`、`ZipNamingStrategy`、`TextOutlineAttribute`、`ContextMenuAction`、`TouchState` 等）。
+
+#### 実体を持たない契約名の扱い（タスク 115.75 の決着）
+
+本節の「実装に実体を持たない契約名（設計上の抽象契約）」表の**全43行**について、一件ずつ「実装する / 設計から落とす / 抽象契約として残す」のいずれかへ決着させた結果を示す。判断は名前の見た目ではなく、**各契約名が設計書中で担当する要件と役割を読み、実装側に近い名前・同等の役割を持つ実体があるかを `grep` で確かめ、実体ありと記した行は当該ファイルの当該行を開いて照合**して行った。
+
+**結論**: 43件すべてを**抽象契約として残す**。実装のエクスポート名として新設すべきものは無い。**ただし「実体を持たない」ことと「役割が実装されていない」ことは別であり、43件のいずれについても、下表に記した実装側の機構が同等の役割を果たしていることを確認した**（役割の担い手が皆無の行は無い）。
+
+**内容の食い違いについて**: 「役割の担い手がある」ことと「設計の記述と実装の中身が一致する」ことも別である。下表で内容の食い違いを明記した行は**6件（#2・#6・#7・#24・#28・#32）**であり、うち **#6 `SurveyServiceDependencies` と #7 `ImageServiceDependencies` は依存の受け渡し項目の食い違いであってタスク 115.76 の所管**、残る **#2 `IImageService.validateSignedUrl` / #24 `SaveAnnotationResponse` / #28 `ExportPdfOptions` / #32 `PendingOrderRef` の4件は後述の「食い違いが残る4件」表に詳細を示す**。この6件以外の行にも名称の差はあるが（#18-23 の `Site` 接頭辞、#27 の `autoSaveIntervalMs`→`debounceInterval` 等）、項目が1対1で対応するため内容の食い違いとしては数えていない。
+
+##### 決着表
+
+| # | 契約名 | 決定 | 根拠（実装側で同等の役割を果たす実体。`パス:行` は照合済み） |
+|---|---|---|---|
+| 1 | `ISurveyService` | 抽象契約として残す | 実体は具象クラス `SiteSurveyService`（`backend/src/services/site-survey.service.ts:184`）。ルータが直接 `new` する（`backend/src/routes/site-surveys.routes.ts:50`、`backend/src/routes/survey-images.routes.ts:67`、`backend/src/routes/projects.routes.ts:77`）。下の「`I*Service` の非対称の理由」を参照 |
+| 2 | `IImageService` | 抽象契約として残す | **単一の実装クラスは存在せず、6メソッドが5つの具象クラスへ分解されている**（`upload`→`ImageUploadService.upload`＝`backend/src/services/image-upload.service.ts:149`、`uploadBatch`→同 246 行と `BatchUploadService.uploadBatch`＝`backend/src/services/batch-upload.service.ts:142`、`findBySurveyId`→`ImageListService.findBySurveyId`＝`backend/src/services/image-list.service.ts:93`、`updateOrder`→`ImageOrderService.updateImageOrder`＝`backend/src/services/image-order.service.ts:91`、`getSignedUrl`→`SignedUrlService.generateSignedUrl`＝`backend/src/services/signed-url.service.ts:99`、`validateSignedUrl`→同 162 行の `validateSignedUrlAccess`。ただし**メソッド名が異なり、第1引数の意味も `signedUrl`（署名付き URL 文字列）ではなく `imageId`（画像 ID）である**。引数の個数は2で一致する。内容の食い違いとして後述の「食い違いが残る4件」表に詳細を示す）。**同名に見える `SurveyImageService`（`backend/src/services/survey-image.service.ts:175`）は `IImageService` の実装ではない**：公開メソッドは `validateFile` / `sanitizeFileName` / `getStoragePath` / `detectMimeTypeByMagicBytes` 等のみで、上記6メソッドとの重複は 0 件である。同クラスを `new` する箇所は、`__tests__` 配下とカバレッジ生成物（`backend/coverage/`）を除いた本番コードでは**3箇所**である（`grep -rn "new SurveyImageService" backend frontend e2e scripts` で集計）。うち本番リクエスト経路は `backend/src/routes/survey-images.routes.ts:99` と `backend/src/routes/construction-photo-images.routes.ts:112` の2箇所で、残る1箇所は保守スクリプト `backend/scripts/restore-plain-thumbnails.ts:454`（`createRestoreRuntimeDependencies` 内。注釈が焼き込まれた通常サムネイルの是正用であり、リクエスト経路からは呼ばれない）である。下の「`I*Service` の非対称の理由」の #2 の項を参照 |
+| 3 | `IAnnotationService` | 抽象契約として残す | 実体は `AnnotationService`（`backend/src/services/annotation.service.ts:226`）。`backend/src/routes/annotation.routes.ts:43` で直接 `new` |
+| 4 | `IImageDeleteService` | 抽象契約として残す | 実体は `ImageDeleteService`（`backend/src/services/image-delete.service.ts:97`）。`backend/src/routes/survey-images.routes.ts:116` で直接 `new` |
+| 5 | `IImageMetadataService` | 抽象契約として残す | 実体は `ImageMetadataService`（`backend/src/services/image-metadata.service.ts:111`）。`backend/src/routes/survey-images.routes.ts:135` で直接 `new` |
+| 6 | `SurveyServiceDependencies` | 抽象契約として残す | 実体は `SiteSurveyServiceDependencies`（`backend/src/services/site-survey.service.ts:40`）。`Site` 接頭辞の有無だけが異なる。**項目の食い違い（設計は `imageService` を含むが実装は `prisma` / `auditLogService` の2項目）はタスク 115.76 の所管**であり本表では扱わない |
+| 7 | `ImageServiceDependencies` | 抽象契約として残す | 実体は `SurveyImageServiceDependencies`（`backend/src/services/survey-image.service.ts:131`）。**項目の食い違い（設計は `s3Client` / `sharpProcessor`、実装は `storageProvider` 中心で `s3Client` は `@deprecated`）はタスク 115.76 の所管** |
+| 8 | `SurveyAPI` | 抽象契約として残す | HTTP エンドポイント群の呼称であり型ではない。実体は `backend/src/routes/site-surveys.routes.ts` の `POST /`（119 行）/ `GET /:id`（534 行）/ `PUT /:id`（643 行）/ `DELETE /:id`（728 行）。マウントは `backend/src/app.ts:334-335` |
+| 9 | `SurveyListAPI` | 抽象契約として残す | 同上。`backend/src/routes/site-surveys.routes.ts` の `GET /`（389 行）と `GET /latest`（221 行） |
+| 10 | `ImageAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `GET /`（271 行）/ `POST /`（352 行）。マウントは `backend/src/app.ts:338-339` |
+| 11 | `ImageDeleteAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `DELETE /:imageId`（724 行） |
+| 12 | `ImageMetadataAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `PATCH /:imageId`（824 行）と `PATCH /batch`（632 行） |
+| 13 | `ImageOrderAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `PUT /order`（515 行） |
+| 14 | `AnnotationAPI` | 抽象契約として残す | `backend/src/routes/annotation.routes.ts` の `GET /:imageId/annotations`（101 行）と `PUT /:imageId/annotations`（210 行）。マウントは `backend/src/app.ts:342` |
+| 15 | `AnnotationBatchAPI` | 抽象契約として残す | `backend/src/routes/annotation.routes.ts` の `POST /annotations/batch`（450 行）。マウントは `backend/src/app.ts:344` |
+| 16 | `ExportAPI` | 抽象契約として残す | **要件11-12 のエクスポートに対応する HTTP エンドポイントは存在しない**。本設計書自身が「画像エクスポートおよびPDF生成はクライアントサイドで実行（Fabric.js toDataURL + jsPDF）」と明記しており、実体はクライアント側の `PdfReportService`（`frontend/src/services/export/PdfReportService.ts:238`）と `ExportService`（`frontend/src/services/ExportService.ts:95`。`IExportService` を `implements` する）。名前が `*API` であっても HTTP 契約とは限らない。なお注釈JSON のエクスポートだけは `GET /:imageId/annotations/export`（`backend/src/routes/annotation.routes.ts:348`）に実体がある |
+| 17 | `ThumbnailAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `PATCH /:imageId/annotated-thumbnail`（947 行）と `DELETE /:imageId/annotated-thumbnail`（1134 行） |
+| 18 | `SurveyInfo` | 抽象契約として残す | 実体は `SiteSurveyInfo`（`backend/src/services/site-survey.service.ts:48`）。`Site` 接頭辞の有無だけが異なる短縮形 |
+| 19 | `SurveyDetail` | 抽象契約として残す | 実体は `SiteSurveyDetail`（`backend/src/services/site-survey.service.ts:100`。`SiteSurveyInfo` を継承）。フロント側の受け皿も同名（`frontend/src/pages/SiteSurveyDetailPage.tsx:336` の `useState<SiteSurveyDetail \| null>`） |
+| 20 | `PaginatedSurveys` | 抽象契約として残す | 実体は `PaginatedSiteSurveys`（`backend/src/services/site-survey.service.ts:153`） |
+| 21 | `SurveyFilter` | 抽象契約として残す | 実体は `SiteSurveyFilter`（`backend/src/services/site-survey.service.ts:108`） |
+| 22 | `CreateSurveyInput` | 抽象契約として残す | 実体は `CreateSiteSurveyInput`（backend は Zod 由来の `backend/src/schemas/site-survey.schema.ts:83`、frontend は `frontend/src/types/site-survey.types.ts:191`） |
+| 23 | `UpdateSurveyInput` | 抽象契約として残す | 実体は `UpdateSiteSurveyInput`（`backend/src/schemas/site-survey.schema.ts:107`、`frontend/src/types/site-survey.types.ts:203`） |
+| 24 | `SaveAnnotationResponse` | 抽象契約として残す | 応答の形を説明するためだけの名前。実装はルータがオブジェクトリテラルを直接返しており型宣言を置いていない（`backend/src/routes/annotation.routes.ts:256` の `res.json({ ...annotation, annotatedThumbnailUrl })`）。**形の食い違いあり**（後述） |
+| 25 | `AnnotationDataV1` | 抽象契約として残す | 実体は `AnnotationData`（`frontend/src/types/site-survey.types.ts:620`、`frontend/src/services/AutoSaveManager.ts:34`）。`V1` は型名ではなく `version` フィールドの値（`'1.0'`）を指す版名である。実装側も対応を明記している（`frontend/src/services/AutoSaveManager.ts:32` の JSDoc `@see design.md - AnnotationDataV1`） |
+| 26 | `AnnotationSaveDataV1` | 抽象契約として残す | 同上。要件31-32 節が「既存」として再掲した同一物であり、`canvasWidth` / `canvasHeight` / `imageRotation` を含む形は `frontend/src/types/site-survey.types.ts:620` の `AnnotationData` が満たす |
+| 27 | `AutoSaveConfig` | 抽象契約として残す | 実体は `AutoSaveManagerOptions`（`frontend/src/services/AutoSaveManager.ts:85`）。設計の `autoSaveIntervalMs` / `maxCacheSize` / `maxCachedImages` / `privateBrowsingMode.disableAutoSave` は、それぞれ `debounceInterval` / `maxCacheSizeBytes` / `maxCachedImages` / `disableAutoSave` に対応する |
+| 28 | `ExportPdfOptions` | 抽象契約として残す | 実体は `PdfReportOptions`（`frontend/src/services/export/PdfReportService.ts:126`）。**項目の食い違いあり**（後述） |
+| 29 | `PdfReportLayoutConfig` | 抽象契約として残す | すべての項目がリテラル型の**定数設定**であり、実装では型ではなく定数オブジェクトが担う（`frontend/src/services/export/PdfReportService.ts:31` の `PDF_REPORT_LAYOUT`、同 61 行の `PDF_REPORT_LAYOUT_V2`）。定数で足りるため型宣言を要しない |
+| 30 | `ToolOptions` | 抽象契約として残す | 実体は `StyleOptions`。宣言は2箇所（`frontend/src/components/site-surveys/annotation-toolbar.constants.ts:51`、`frontend/src/components/site-surveys/style-panel.constants.ts:31`）。**ただしこの2つは同名だが形が異なる**：前者は `strokeColor` / `strokeWidth` / `fillColor` / `fontSize` の4項目で **`fontColor` を持たない**（同 51-60 行）。後者は `strokeColor` / `fillColor` / `strokeWidth` / `fontSize` / `fontColor` の5項目に加え任意項目 `arrowOutlineEnabled?` / `textOutlineEnabled?` を持つ（同 31-56 行）。**設計 `ToolOptions` の5項目（`strokeColor` / `strokeWidth` / `fillColor` / `fontSize` / `fontColor`）を満たすのは後者 `style-panel.constants.ts:31` の方だけ**である。`AnnotationEditorState`（`frontend/src/components/site-surveys/AnnotationEditor.tsx:166`）も設計の `toolOptions` に相当するフィールドを `styleOptions: StyleOptions` として持つ（同 174 行）が、その `StyleOptions` は `AnnotationToolbar.tsx:37` が再エクスポートする**前者**（`annotation-toolbar.constants.ts:51` の4項目版。`AnnotationToolbar.tsx:27-34` の import 元）である |
+| 31 | `OrderChangeHandlers` | 抽象契約として残す | ハンドラ3つを束ねた説明用の型。実装は React コンポーネント内の個別の `useCallback` として存在し、束ねる型を必要としない（`frontend/src/components/site-surveys/PhotoManagementPanel.tsx:1125` の `handleMoveUp`、同 1149 行の `handleMoveDown`、同 1075 行の `handleDrop`。設計の `handleDragReorder` に相当するのは `handleDrop` である） |
+| 32 | `PendingOrderRef` | 抽象契約として残す | 実体は `useRef` の宣言（`frontend/src/pages/SiteSurveyDetailPage.tsx:353` の `const pendingOrderRef = useRef<ImageOrderItem[] \| null>(null)`）。ref そのものであり型名を要しない。**要素型の食い違いあり**（後述） |
+| 33 | `ImageExportDialogState` | 抽象契約として残す | 画面状態を説明するための名前。実装は Props と `useState` に分かれて実在し、状態をまとめる型を持たない（開閉は Props の `open`＝`frontend/src/components/site-surveys/ImageExportDialog.tsx:63` の `ImageExportDialogProps`、`isExporting` は同 Props の `exporting`、書式・解像度・注釈有無は同 257 行の `useState<ExportSettings>`）。**設計の `error` は当該コンポーネントに Props も `useState` も存在せず、呼び出し側が保持する**（`AnnotationEditorState.error`＝`frontend/src/components/site-surveys/AnnotationEditor.tsx:170`。エクスポート失敗時の設定箇所は同 2331 行）。エラー表示を親へ引き上げた実装であるため子側に状態型は不要 |
+| 34 | `PhotoManagementState` | 抽象契約として残す | 同上。実装は個別の `useState` 群（`frontend/src/components/site-surveys/PhotoManagementPanel.tsx:941` の `deleteTargetId`、同 944 行の `draggingId`、同 945 行の `dragOverId` 等）で表現される |
+| 35 | `SiteSurveyDetailPageState` | 抽象契約として残す | 同上。実装は `frontend/src/pages/SiteSurveyDetailPage.tsx:336`（`survey`）、339 行（`isLoading`）、340 行（`error`）等の個別 `useState` |
+| 36 | `SiteSurveySectionCardState` | 抽象契約として残す | **実装ではこれは状態ではない**。`totalCount` / `latestSurveys` / `isLoading` は Props であり（`frontend/src/components/projects/SiteSurveySectionCard.tsx:32` の `SiteSurveySectionCardProps`。当該ファイルに `useState` は 0 件）、取得と保持は親が行う（`frontend/src/pages/ProjectDetailPage.tsx:408` の `useState<ProjectSurveySummary \| null>` を同 752-756 行の `<SiteSurveySectionCard>` へ受け渡す。752＝要素開始、753＝`projectId`、754＝`totalCount`、755＝`latestSurveys`、756＝`isLoading`）。**設計の `error` も同じく親が保持する**（`frontend/src/pages/ProjectDetailPage.tsx:432` の `useState<string \| null>`。`getProjectDetailSummary`（同 448 行。`sections.siteSurveys` を同 451 行で取得）の失敗時に同 483 / 485 行で設定され、同 620 行で表示される）。状態を親へ引き上げた設計であるため子側に状態型は不要 |
+| 37 | `GestureEvent` | 抽象契約として残す | 実体は `GesturePayload`（`frontend/src/components/site-surveys/gestures/touchGestureManager.ts:78`）。ジェスチャー判定の受け渡し契約という役割は同一。**設計側の名前を `GestureEvent` のまま置くのは、WebKit 独自の DOM 型 `GestureEvent` と同名で紛らわしい**ため、参照時は必ず実体名 `GesturePayload` を併記すること |
+| 38 | `CursorStrategy` | 抽象契約として残す | 型ではなく方式の呼称。実体は定数表と適用関数（`frontend/src/components/site-surveys/annotation-visual-feedback.ts:100` の `TOOL_CURSOR_MAP`、同 126 行の `applyToolCursor`）。要件29 のカーソル切替はこの2つで満たされる |
+| 39 | `HandleSizeStrategy` | 抽象契約として残す | 同じく方式の呼称。実体は `frontend/src/components/site-surveys/annotation-visual-feedback.ts:33`（`TOUCH_HANDLE`）・同 41 行（`MOUSE_HANDLE`）・同 81 行（`configureHandleSizes`）。要件29.4 の指向けハンドル拡大は `touchCornerSize: 44` / `cornerSize: 20`（同 34-35 行）で満たされる。**ただし `TOUCH_HANDLE` / `MOUSE_HANDLE` は `export` されていないモジュール内 `const`** であり、当該ファイルの `export` は `configureHandleSizes`（81 行）・`TOOL_CURSOR_MAP`（100 行）・`applyToolCursor`（126 行）の3つだけである。外部から参照できる窓口は `configureHandleSizes` の呼び出しのみで、サイズ値そのものは他モジュールから読めない |
+| 40 | `DimensionJSON` | 抽象契約として残す | 実体は `DimensionLineJSON`（`frontend/src/components/site-surveys/tools/DimensionTool.ts:124`）。**設計側の名前を実装へ合わせない理由**: 実装はシリアライズの `type` ID を `'dimensionLine'` に維持しており（同 125 行。`classRegistry` の後方互換のため）、`Dimension` / `DimensionLine` の呼び分けは既に本節の注（メソッド修飾名の項）に「`Dimension` は実装では `DimensionLine`」として記録済みである。JSON 型名だけを改名すると同じ物に2つの規約が並立するため、短縮形の扱いに揃えて設計側は `DimensionJSON` のまま残す |
+| 41 | `ShapeJSONExt` | 抽象契約として残す | 「6形状共通パターン」を説明するための名前で、実体は各形状の JSON 型が個別に持つ `outline?: ShapeOutlineAttribute` である（`RectangleTool.ts:84`、`CircleTool.ts:84`、`PolygonTool.ts:85`、`PolylineTool.ts:85`、`FreehandTool.ts:99`。いずれも `frontend/src/components/site-surveys/tools/` 配下）。共通の基底型を作らず各型へ同じ任意フィールドを持たせる実装方針であるため、共通型の実体は不要 |
+| 42 | `ShapeOutlineMethods` | 抽象契約として残す | ジェネリック契約であり、各ツールクラスが `implements` 節を持たずに**構造的に**実装している（`setOutline` は `RectangleTool.ts:464` / `CircleTool.ts:489` / `PolygonTool.ts:449` / `PolylineTool.ts:452` / `FreehandTool.ts:371` / `DimensionTool.ts:707`、`getOutline` は同順で 491 / 516 / 476 / 479 / 398 / 734 行）。共有インターフェースを介さずとも6クラス全部にメソッドが揃っているため、宣言の実体は不要 |
+| 43 | `AnnotationToolDefaultsExt` | 抽象契約として残す | **実装は意図的に統合済み**。`AnnotationToolDefaults`（`frontend/src/components/site-surveys/annotation-style-tokens.ts:77`）が拡張分（`rectangleOutline` / `circleOutline` / `polygonOutline` / `polylineOutline` / `freehandOutline` / `dimensionOutline`＝同 101 行 / `dimensionLabelOutline`＝同 103 行）を内包し、宣言直上の JSDoc（同 75 行）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と明記する。既定値の実体は `ANNOTATION_DEFAULTS`（同 247 行） |
+
+##### `I*Service` の非対称の理由（#1-5 の判断根拠）
+
+`IAuditLogService` / `IAnnotatedThumbnailService` は実在し、`ISurveyService` 以下5件は実在しない。**この非対称は単一の規則では説明できない**。とくに「他サービスへ注入される側だけにインターフェースを置く」という規則は #2 で成立しないため採らない（後述）。以下、5件それぞれの実測値と個別の根拠を示す。
+
+**実在する側（対照）**: `IAuditLogService`（`backend/src/types/audit-log.types.ts:10`）は `SiteSurveyServiceDependencies.auditLogService`（`backend/src/services/site-survey.service.ts:42`）ほか多数のサービスの依存項目の型であり、`AuditLogService`（`backend/src/services/audit-log.service.ts:25`）が `implements` する。`IAnnotatedThumbnailService`（`backend/src/services/annotation.service.ts:106`）は `AnnotationServiceDependencies.annotatedThumbnailService`（同 119 行）の型で、**任意依存**（`?`）であり注入の有無で挙動が変わる。いずれも「単一の実装クラスがあり、かつ差し替えが実際に要求される」点で共通する。
+
+**実測値（`grep -rnw` を `backend` / `frontend` / `e2e` / `scripts` の全域に対して実行し、`__tests__` 配下を除いた本番コードで集計）**:
+
+| # | 契約名 | 対応する具象クラス | 他サービスへの注入 | 個別の根拠 |
+|---|---|---|---|---|
+| 1 | `ISurveyService` | `SiteSurveyService` | **0 件**（`backend/src/services/` 配下で当該クラスを参照するのは自ファイル `site-survey.service.ts:184` のみ） | ルータが末端で `new` するだけ（`site-surveys.routes.ts:50`、`survey-images.routes.ts:67`、`projects.routes.ts:77`）。差し替え先が無いためインターフェースの実体を要しない |
+| 2 | `IImageService` | **単一の対応クラスが無い**（6メソッドが `ImageUploadService` / `BatchUploadService` / `ImageListService` / `ImageOrderService` / `SignedUrlService` の5クラスへ分解済み。決着表 #2 参照） | **他の4件と違い 0 件ではない**。ただし注入されているのは `IImageService` の実装ではなく同名系の別クラス `SurveyImageService` で、**3 件**（`batch-upload.service.ts:101`、`image-upload.service.ts:103`、`construction-photo-image.service.ts:147`） | 下の「#2 を『残す』と判断した根拠」を参照 |
+| 3 | `IAnnotationService` | `AnnotationService` | **0 件**（`backend/src/services/` 配下の参照は自ファイル `annotation.service.ts:226` のみ） | `annotation.routes.ts:43` で末端 `new`。差し替え先が無い |
+| 4 | `IImageDeleteService` | `ImageDeleteService` | **0 件**（自ファイル `image-delete.service.ts:97` のみ） | `survey-images.routes.ts:116` で末端 `new`。差し替え先が無い |
+| 5 | `IImageMetadataService` | `ImageMetadataService` | **0 件**（自ファイル `image-metadata.service.ts:111` 以外の参照は同ファイル内の静的定数参照のみ） | `survey-images.routes.ts:135` で末端 `new`。差し替え先が無い |
+
+**#2 を「抽象契約として残す」と判断した根拠（#1/#3/#4/#5 とは理由が異なる）**:
+
+`IImageService` は #1/#3/#4/#5 と違い、「注入されないから不要」では説明できない。以下の2点が根拠である。
+
+1. **`IImageService` を宣言しても、それを `implements` できるクラスが存在しない。** 設計の6メソッド（`upload` / `uploadBatch` / `findBySurveyId` / `updateOrder` / `getSignedUrl` / `validateSignedUrl`）は決着表 #2 のとおり5つの具象クラスへ分解済みで、**6メソッドを揃えて持つクラスは1つも無い**。インターフェースを実体化するには5クラスの統合（ないしファサードの新設）という設計変更が要る。これは「宣言の書き忘れ」ではなく**実装アーキテクチャが設計より細粒度に分解された結果**であり、細粒度側を正とする。
+2. **具象クラス `SurveyImageService` は3つのサービスへ注入されているが、それは `IImageService` の注入点ではない。** 注入点は `BatchUploadDependencies.surveyImageService`（`backend/src/services/batch-upload.service.ts:101`。保持は同 120 行）、`ImageUploadServiceDependencies.surveyImageService`（`backend/src/services/image-upload.service.ts:103`。保持は同 122 行）、`ConstructionPhotoImageServiceDependencies.surveyImageService`（`backend/src/services/construction-photo-image.service.ts:147`。保持は同 182 行）の3箇所で、いずれも**具象クラス型のまま**受け取っている。しかし注入先が実際に呼ぶメソッドは `validateFile` と `sanitizeFileName` の2つだけであり（呼び出しは `batch-upload.service.ts:272` / `278`、`image-upload.service.ts:176` / `179`、`construction-photo-image.service.ts:670` / `726` / `729` の計7箇所。`this.surveyImageService.` の全出現がこの7箇所）、**設計の `IImageService` の6メソッドとは1つも重ならない**。`construction-photo-image.service.ts:146` の JSDoc も当該依存を「マジックバイト検証・ファイル名サニタイズを再利用（ステートレスなヘルパー）」と記す。したがってこの3箇所は「画像サービス契約の差し替え口」ではなく**ステートレスなバリデータの共有**であり、`IImageService` を実体化してもこの注入点には適合しない（適合させるには別途 `IImageValidator` 相当の契約を新設する話になり、設計書の `IImageService` とは別物である）。
+
+**注意（過去の誤った説明の撤回）**: 本節は以前「実在しない側は他サービスへ注入されない」「将来注入されるようになった時点で初めてインターフェースが必要になる」と記していたが、**`SurveyImageService` は既に上記3箇所へ注入されており、どちらの記述も事実に反する**ため撤回した。注入の有無は #1/#3/#4/#5 について個別に成立する実測事実であって、5件を貫く規則ではない。
+
+##### 食い違いが残る4件（実在の有無ではなく内容の問題。#6/#7 を除く）
+
+下記は「抽象契約として残す」判断は変えないが、**設計の記述と実装の内容が一致していない**。実在の有無を扱う本タスクの境界外であり、是正は別途起票が必要である。なお決着表で内容の食い違いを記した行は全部で6件あり、**依存の受け渡し項目の食い違いである #6 `SurveyServiceDependencies` と #7 `ImageServiceDependencies` はタスク 115.76 の所管**のため本表からは除いている（本表は残る4件）。
+
+**#2 `IImageService.validateSignedUrl` の署名不一致の所管について**: これは依存の受け渡し項目の食い違いではなく**メソッド署名の不一致**であるため、`_Boundary: 設計文書の依存受け渡し型の記述_` に限定されるタスク 115.76 の所管には**入らない**。また本書の作成時点で `tasks.md` に本件を扱うタスクは**存在しない**（`grep -n "署名付き\|signedUrl\|SignedUrl" .kiro/specs/site-survey/tasks.md` の一致11件をすべて確認したが、いずれも署名付き URL の機能・E2E・API 応答に関する記述であり、`IImageService` の宣言と実装の署名差を扱うものは無い）。すなわち**この1件は現時点で未起票**であり、是正には新規の起票を要する。
+
+| 契約名 | 設計の記述 | 実装の実際 |
+|---|---|---|
+| `SaveAnnotationResponse` | `{ annotation: AnnotationInfo; annotatedThumbnailUrl: string \| null }`（入れ子） | `res.json({ ...annotation, annotatedThumbnailUrl })`（`backend/src/routes/annotation.routes.ts:256`）で**平坦**に返す。`annotation` というフィールドは応答に存在しない |
+| `ExportPdfOptions` | `title?` / `includeMetadata` / `imageQuality` | `PdfReportOptions`（`frontend/src/services/export/PdfReportService.ts:126`）は `includeCoverPage?` / `includeInfoSection?` / `includeImages?` / `includePageNumbers?`。**項目が一つも一致しない** |
+| `PendingOrderRef` | `current: Map<string, number> \| null`（imageId → displayOrder） | `useRef<ImageOrderItem[] \| null>`（`frontend/src/pages/SiteSurveyDetailPage.tsx:353`）。**Map ではなく配列** |
+| `IImageService.validateSignedUrl` | `validateSignedUrl(signedUrl: string, userId: string): Promise<boolean>`（本書の `interface IImageService` 宣言ブロック。第1引数は署名付き URL 文字列） | `SignedUrlService.validateSignedUrlAccess(imageId: string, userId: string): Promise<boolean>`（`backend/src/services/signed-url.service.ts:162`）。**メソッド名が異なり、第1引数は署名付き URL ではなく画像 ID** である（引数の個数は2で一致）。実装は画像 ID から現場調査・プロジェクトを引いて関係者または admin ロールかを判定しており、署名付き URL 文字列そのものは受け取らない |
 
 ## Architecture
 
