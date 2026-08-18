@@ -4953,7 +4953,7 @@ graph TB
 ```
 
 **Architecture Integration**:
-- Pattern: 既存 Clean Architecture 層（Component → Tool → Fabric）に、横断責務を持つ `gestures/` と `style/` の薄い横串レイヤを追加
+- Pattern: 既存 Clean Architecture 層（Component → Tool → Fabric）に、横断責務を持つ `frontend/src/components/site-surveys/gestures/` と `frontend/src/components/site-surveys/annotation-style-tokens.ts`（スタイルトークンはディレクトリではなく単一ファイルである）の薄い横串レイヤを追加
 - Domain boundary: ジェスチャー判定を `ImageViewer`/`AnnotationEditor` からユーティリティへ抽出し、視覚表現（白縁取り/アウトライン）はツール本体の属性拡張で吸収
 - Dependency direction: `Infra (StyleTokens, UndoManager) → Tools → Editor/Viewer Components`。`AnnotationContextMenu` は `AnnotationEditor` から呼ばれるプレゼンテーション層、逆向き依存は禁止
 - Steering compliance: TypeScript strict mode、ESLint、Prettier、既存の `hooks/use*.ts` / `services/*Service.ts` パターン
