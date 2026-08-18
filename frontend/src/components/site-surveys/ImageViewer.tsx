@@ -21,7 +21,7 @@
  * - 5.5: ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
  * - 5.6: 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
  * - 12.1: 個別画像のエクスポートオプションダイアログを表示する
- * - 13.2: タッチ操作に最適化された注釈ツールを提供する
+ * - 15.2: タッチ操作に最適化された注釈ツールを提供する
  */
 
 import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
@@ -1434,7 +1434,6 @@ const ImageViewer = forwardRef<ImageViewerRef, ImageViewerProps>(function ImageV
 
     // 等倍/初期化時のみ viewport を恒等へリセットする（Req 33-34 所有の controller.fit を呼ぶのみ）。
     controller?.fit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 再フィットはコンテナ実寸変化のみを起点とする
   }, [containerSize.width, containerSize.height]);
 
   /**

@@ -1007,7 +1007,7 @@ sequenceDiagram
 `ImageViewer` の要件5.1・5.2・5.3・5.4・5.5・5.6・13.2。内訳は要件5 系の6件と要件13.2 の1件である。
 
 - **要件5.1-5.6（6件）**: 上の「未結線部品の扱い」のとおり、タスク 115.83 が `ImageViewer` の担当を出荷経路へ付け替え**担当なし**と決着させた範囲である。115.83 の `_Requirements:_` は `5.1, 5.2, 5.3, 5.4, 5.5, 5.6`、`_Boundary:_` は「要件5 の担当部品の設計記述と、閲覧時の表示操作の結線」であり、上の付け替え表（本書「画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）」の表）も 5.1-5.6 しか挙げていない。自己申告の側が陳腐化しているため、追跡表へ写すと 115.83 の決着を覆す
-- **要件13.2（1件）**: 番号自体の誤記である（自己申告の本文は「タッチ操作に最適化された注釈ツール」だが要件13.2 の本文は取り消した操作の再実行）。**その是正はタスク 115.114 の所管**であり、本節では写さない
+- **要件13.2（1件）**: 番号自体の誤記である（自己申告の本文は「タッチ操作に最適化された注釈ツール」だが要件13.2 の本文は取り消した操作の再実行）。**その是正はタスク 115.114 の所管**であり、本節では写さない（**タスク 115.114 で当該注釈は `15.2` へ是正済み**。`grep -c '13\.2' frontend/src/components/site-surveys/ImageViewer.tsx` の出力は現在 `0`）
 
 **要件12.1 は本区分に含めず、追跡表へ追加した。** 判断の根拠は次の3点で、**うち第2点は本是正と食い違う既存記述の明示である**。
 
@@ -1072,16 +1072,26 @@ sequenceDiagram
 | SiteSurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, **5.1**, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
 | **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
 | AnnotationEditor | Frontend/Component | 注釈編集UI、**閲覧モードの画像表示・操作** | **5.2-5.4, 5.6**, 6, 7, 8, 9, 13, 22 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0), **useCanvasViewport (P0)** | State |
+| **DimensionValueInput** | Frontend/Component | 寸法線描画後の寸法値・単位の入力欄 | 6.2, 6.3 | - | State |
 | **SiteSurveyImageViewerPage** | **Frontend/Page** | **画像ビューア/エディタ画面。閲覧⇄編集の切替と表示状態の保持** | **5.1, 5.6, 2.8, 2.9, 2.12, 20.1** | **SurveyAPI (P0), AnnotationEditor (P0)** | **State** |
 | **ZoomControls** | **Frontend/Component** | **ズーム/フィット/回転の操作手段と倍率表示** | **5.2, 5.3, 34.1-34.3, 34.5, 34.6, 34.8** | **useCanvasViewport (P0)** | - |
 | ~~ImageViewer~~（未結線） | Frontend/Component | 画像表示・操作 | **担当なし**（要件5 の担当は上記へ付け替え済み。タスク 115.83） | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
 | AutoSaveManager | Frontend/Service | 自動保存・状態復元・QuotaExceeded対応 | 15, 15.7-15.10 | localStorage (P0) | State |
+| **useAnnotationRestoration** | Frontend/Hook | ローカル下書きとサーバー保存済み注釈を比較し復元確認の要否を決める | 15.5 | AutoSaveManager (P0) | State |
+| **RestoreAnnotationDialog** | Frontend/Component | 未保存の下書きを復元するか破棄するかの確認ダイアログ | 15.5 | - | State |
+| **StorageWarningBanner** | Frontend/Component | 容量超過時とプライベートブラウジング時の警告帯 | 15.8, 15.9 | - | State |
+| **storage-error.ts** | Frontend/Utility | localStorage の可用性・容量超過・SecurityError の判定 | 15.9, 15.10 | - | - |
 | **useUnsavedChanges** | Frontend/Hook | 未保存変更検出 | 9.1, 9.3, 10.8, 10.9 | - | State |
 | **AnnotatedImageThumbnail** | Frontend/Component | 注釈付き画像サムネイル表示 | 20.1, 20.2, 20.3 | AnnotationAPI (P0), Fabric.js (P0) | State |
 | **AnnotatedThumbnailService** | Backend/Service | 注釈付きサムネイル画像の生成 | 20.4 | Sharp (P0), Fabric.js Server (P1), R2 (P0) | Service |
 | **siteSurveyBreadcrumb** | Frontend/Utility | ブレッドクラムナビゲーション生成 | 2.5, 2.6, 2.7, 2.8, 2.9, 2.10 | Breadcrumb (P0) | - |
+
+**収録範囲と追加分（タスク 115.114）**: 本書の `Component Summary` は 3 つある（`grep -cE '^#{3,4} Component Summary' .kiro/specs/site-survey/design.md` の出力が `3`。書く直前の実測）。要件24-30 の部品は「Requirements 24-30」節の表が、要件31-32 の部品は「Requirements 31-32」節の表が収録し、本表はそれ以外を収録する。
+本タスクでは、本書の結線記録が名指しした部品のうち**どの `Component Summary` にも行が無かった 5 件**を本表へ追加した。内訳は、「自動保存・復元基盤の結線（タスク 115.81）」の表から `useAnnotationRestoration` / `RestoreAnnotationDialog` / `StorageWarningBanner` / `storage-error.ts` の 4 件と、「寸法値入力欄の結線（タスク 115.82）」の `DimensionValueInput` の 1 件である（4 + 1 = 5）。
+追加しなかったもの: `ZoomControls` はタスク 115.83 が本表へ収録済みであり、`AnnotationContextMenu` と `touchGestureManager` は「Requirements 24-30」節の表に行を持つ。
+追加行の Req Coverage 欄は結線記録の表の担当要件欄をそのまま写した。Key Dependencies 欄は各実装ファイルの `^import` 行に現れる本リポジトリ内のモジュールだけを挙げ、該当が無いものは `-` とした。
 
 ### Backend / Service Layer
 
