@@ -2723,7 +2723,8 @@ function AnnotationEditor({
   /**
    * Req 15.4: 注釈編集中の自動保存
    *
-   * 注釈の追加・変更・削除を検知して debounce（既定30秒）付きで localStorage へ保存する。
+   * 注釈の追加・変更・削除を検知し、編集中は一定間隔（既定30秒）で localStorage へ保存する。
+   * 描き続けている最中にも保存が起こる（発火条件は AutoSaveManager 側が持つ）。
    * 読み込み・復元由来の object:added は autoSaveReadyRef で除外する。
    */
   useEffect(() => {

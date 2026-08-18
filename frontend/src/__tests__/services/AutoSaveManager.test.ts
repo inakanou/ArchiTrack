@@ -87,13 +87,13 @@ describe('AutoSaveManager', () => {
   });
 
   describe('constructor', () => {
-    it('should initialize with default debounce interval of 30 seconds', () => {
-      expect(autoSaveManager.getDebounceInterval()).toBe(30000);
+    it('should initialize with default auto-save interval of 30 seconds', () => {
+      expect(autoSaveManager.getAutoSaveIntervalMs()).toBe(30000);
     });
 
-    it('should allow custom debounce interval', () => {
-      const customManager = new AutoSaveManager({ debounceInterval: 60000 });
-      expect(customManager.getDebounceInterval()).toBe(60000);
+    it('should allow custom auto-save interval', () => {
+      const customManager = new AutoSaveManager({ autoSaveIntervalMs: 60000 });
+      expect(customManager.getAutoSaveIntervalMs()).toBe(60000);
       customManager.destroy();
     });
 
@@ -116,7 +116,7 @@ describe('AutoSaveManager', () => {
       expect(savedData.savedAt).toBeDefined();
     });
 
-    it('should debounce save operations when force is false', () => {
+    it('should defer the save by one interval when force is false', () => {
       autoSaveManager.saveToLocal('image-123', 'survey-456', mockAnnotationData, false);
 
       // Should not save immediately
@@ -129,15 +129,18 @@ describe('AutoSaveManager', () => {
       expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
     });
 
-    it('should reset debounce timer on subsequent save calls', () => {
-      // First call
+    // 旧契約（debounce）では、後続の呼び出しがタイマーを張り直し、保存は「最後の操作から
+    // 30秒後」に起こるものとしていた。要件15.4 は「注釈編集中に一定間隔で保存する」と定める
+    // ため、後続の呼び出しでタイマーを張り直さない契約へ書き換えた（タスク 115.119）。
+    it('should NOT postpone the pending save on subsequent save calls', () => {
+      // First call - 最初の変更が間隔の起点になる
       autoSaveManager.saveToLocal('image-123', 'survey-456', mockAnnotationData);
 
       // Wait 15 seconds
       vi.advanceTimersByTime(15000);
       expect(localStorageMock.setItem).not.toHaveBeenCalled();
 
-      // Second call - should reset timer
+      // Second call - タイマーは張り直されない
       const updatedData: AnnotationData = {
         ...mockAnnotationData,
         objects: [
@@ -147,11 +150,7 @@ describe('AutoSaveManager', () => {
       };
       autoSaveManager.saveToLocal('image-123', 'survey-456', updatedData);
 
-      // Wait another 15 seconds (total 30 from second call would be 45 from first)
-      vi.advanceTimersByTime(15000);
-      expect(localStorageMock.setItem).not.toHaveBeenCalled();
-
-      // Wait remaining 15 seconds (total 30 from second call)
+      // Wait another 15 seconds (total 30 from the FIRST call)
       vi.advanceTimersByTime(15000);
       expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
 
@@ -160,6 +159,10 @@ describe('AutoSaveManager', () => {
       expect(setItemCallUpdate).toBeDefined();
       const savedData = JSON.parse(setItemCallUpdate![1]) as LocalStorageData;
       expect(savedData.annotationData.objects).toHaveLength(2);
+
+      // 変更が尽きたので、さらに間隔が経っても書き込みは増えない
+      vi.advanceTimersByTime(60000);
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
     });
 
     it('should update status to saving and then saved', () => {
@@ -198,6 +201,72 @@ describe('AutoSaveManager', () => {
       const setItemCallKey = localStorageMock.setItem.mock.calls[0];
       expect(setItemCallKey).toBeDefined();
       expect(setItemCallKey![0]).toBe('architrack_annotation_image-123');
+    });
+  });
+
+  describe('一定間隔の自動保存 (要件15.4)', () => {
+    const nthObjects = (n: number): AnnotationData => ({
+      ...mockAnnotationData,
+      objects: Array.from(
+        { length: n },
+        () => ({ type: 'rect' }) as AnnotationData['objects'][number]
+      ),
+    });
+
+    it('描き続けている最中でも一定間隔で保存が起こる', () => {
+      // 10秒ごとに編集し続ける（＝間隔30秒より短い間隔で操作が届き続ける）
+      let edits = 0;
+      for (let elapsed = 0; elapsed < 90000; elapsed += 10000) {
+        edits += 1;
+        autoSaveManager.saveToLocal('image-123', 'survey-456', nthObjects(edits));
+        vi.advanceTimersByTime(10000);
+      }
+
+      // 90秒のあいだに 30秒間隔で3回保存されている
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(3);
+    });
+
+    it('操作が届き続けても最初の変更から一定間隔で最初の保存が起こる', () => {
+      for (let elapsed = 0; elapsed < 30000; elapsed += 5000) {
+        autoSaveManager.saveToLocal('image-123', 'survey-456', mockAnnotationData);
+        vi.advanceTimersByTime(5000);
+      }
+
+      // 5秒ごとの操作でタイマーが張り直されず、30秒時点で保存されている
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('保存されるのは各間隔時点の最新データである', () => {
+      autoSaveManager.saveToLocal('image-123', 'survey-456', nthObjects(1));
+      vi.advanceTimersByTime(10000);
+      autoSaveManager.saveToLocal('image-123', 'survey-456', nthObjects(2));
+      vi.advanceTimersByTime(20000);
+
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+      const firstCall = localStorageMock.setItem.mock.calls[0];
+      expect(firstCall).toBeDefined();
+      const saved = JSON.parse(firstCall![1]) as LocalStorageData;
+      expect(saved.annotationData.objects).toHaveLength(2);
+    });
+
+    it('編集が止まれば保存も止まり、変更が無い間は書き込まない', () => {
+      autoSaveManager.saveToLocal('image-123', 'survey-456', mockAnnotationData);
+      vi.advanceTimersByTime(30000);
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+
+      // 以後は編集が無いので、何周期進めても書き込みは増えない
+      vi.advanceTimersByTime(300000);
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('編集が止まったあとに再開すると、また一定間隔で保存が起こる', () => {
+      autoSaveManager.saveToLocal('image-123', 'survey-456', nthObjects(1));
+      vi.advanceTimersByTime(90000);
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+
+      autoSaveManager.saveToLocal('image-123', 'survey-456', nthObjects(2));
+      vi.advanceTimersByTime(30000);
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -241,10 +310,10 @@ describe('AutoSaveManager', () => {
     it('should cancel pending save for the cleared imageId', () => {
       autoSaveManager.saveToLocal('image-123', 'survey-456', mockAnnotationData);
 
-      // Clear before debounce completes
+      // Clear before the interval elapses
       autoSaveManager.clearLocal('image-123');
 
-      // Fast-forward past debounce time
+      // Fast-forward past the auto-save interval
       vi.advanceTimersByTime(30000);
 
       // setItem should not be called (cancelled)

@@ -426,6 +426,56 @@ describe('AnnotationEditor - 自動保存の結線 (Req 15.4)', () => {
     expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
   });
 
+  it('描き続けている最中でも一定間隔で自動保存される', async () => {
+    await renderEditorAndWaitLoaded();
+
+    const savedObjectCounts: number[] = [];
+
+    // 5秒ごとに図形を描き足し続ける（＝間隔30秒より短い間隔で操作が届き続ける）
+    for (let step = 1; step <= 18; step += 1) {
+      canvasObjects.push(createAnnotationStub(`rect-${step}`));
+      act(() => {
+        emitCanvasEvent('object:added');
+      });
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+
+      const stored = localStorage.getItem(DRAFT_KEY);
+      if (stored !== null) {
+        const parsed = JSON.parse(stored) as { annotationData: { objects: { id: string }[] } };
+        savedObjectCounts.push(parsed.annotationData.objects.length);
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    }
+
+    // 90秒描き続けたあいだに 30秒間隔で3回保存されている（手を止めていない）
+    expect(savedObjectCounts).toHaveLength(3);
+    // 各回の保存はその時点までの図形を含む（保存が進行している）
+    expect(savedObjectCounts[0]).toBeLessThan(savedObjectCounts[1]!);
+    expect(savedObjectCounts[1]).toBeLessThan(savedObjectCounts[2]!);
+  });
+
+  it('編集が止まれば保存も止まり、変更が無い間は書き込まない', async () => {
+    await renderEditorAndWaitLoaded();
+
+    canvasObjects.push(createAnnotationStub('rect-1'));
+    act(() => {
+      emitCanvasEvent('object:added');
+    });
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
+
+    // 保存済みの下書きを消し、以後は編集しない。周期が回っても書き込みは起こらない
+    localStorage.removeItem(DRAFT_KEY);
+    act(() => {
+      vi.advanceTimersByTime(300_000);
+    });
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
   it('閲覧モード（readOnly）では自動保存を起動しない', async () => {
     render(<AnnotationEditor {...defaultProps} readOnly />);
     await waitFor(() => {

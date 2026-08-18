@@ -2,10 +2,10 @@
  * AutoSaveManager - 自動保存・状態復元管理
  *
  * 注釈編集の自動保存とローカル状態の復元を管理する。
- * 30秒間隔のdebounce自動保存を提供し、localStorageへの保存・復元を行う。
+ * 編集中は30秒間隔で自動保存し、localStorageへの保存・復元を行う。
  *
  * @see design.md - AutoSaveManager State Management
- * @see requirements.md - 要件13.4, 13.5
+ * @see requirements.md - 要件15.4（編集中の一定間隔の自動保存）, 要件15.5（復元）
  */
 
 import {
@@ -93,8 +93,8 @@ export type OnStatusChangeCallback = (state: AutoSaveState) => void;
  * AutoSaveManagerコンストラクタオプション
  */
 export interface AutoSaveManagerOptions {
-  /** debounce間隔（ミリ秒、デフォルト: 30000ms = 30秒） */
-  debounceInterval?: number;
+  /** 自動保存の間隔（ミリ秒、デフォルト: 30000ms = 30秒） */
+  autoSaveIntervalMs?: number;
   /** 最大キャッシュサイズ（バイト、デフォルト: 4MB） */
   maxCacheSizeBytes?: number;
   /** 最大キャッシュ画像数（デフォルト: 10） */
@@ -215,9 +215,11 @@ export interface IAutoSaveManager {
 const STORAGE_KEY_PREFIX = 'architrack_annotation_';
 
 /**
- * デフォルトのdebounce間隔（30秒）
+ * デフォルトの自動保存間隔（30秒）
+ *
+ * 要件15.4 が定める「一定間隔（30秒）」そのものである。
  */
-const DEFAULT_DEBOUNCE_INTERVAL = 30000;
+const DEFAULT_AUTO_SAVE_INTERVAL_MS = 30000;
 
 /**
  * デフォルトの最大キャッシュサイズ（4MB）
@@ -241,7 +243,7 @@ const SINGLE_ENTRY_WARNING_SIZE = 1 * 1024 * 1024;
 /**
  * AutoSaveManagerクラス
  *
- * - 30秒間隔のdebounce自動保存
+ * - 編集中の30秒間隔の自動保存（要件15.4）
  * - localStorageへの注釈データ保存
  * - 画像ID・調査ID・保存時刻の管理
  * - LRU方式での古いキャッシュ削除
@@ -249,11 +251,11 @@ const SINGLE_ENTRY_WARNING_SIZE = 1 * 1024 * 1024;
  * - QuotaExceededError時のエラーハンドリング
  *
  * @see design.md - AutoSaveManager
- * @see requirements.md - 要件13.4, 13.5
+ * @see requirements.md - 要件15.4（編集中の一定間隔の自動保存）, 要件15.5（復元）
  */
 export class AutoSaveManager implements IAutoSaveManager {
-  /** debounce間隔（ミリ秒） */
-  private debounceInterval: number;
+  /** 自動保存の間隔（ミリ秒） */
+  private autoSaveIntervalMs: number;
 
   /** 最大キャッシュサイズ（バイト） */
   private maxCacheSizeBytes: number;
@@ -262,7 +264,8 @@ export class AutoSaveManager implements IAutoSaveManager {
   private maxCachedImages: number;
 
   /** 画像IDごとの保存タイマー */
-  private saveTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private saveTimers: Map<string, ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>> =
+    new Map();
 
   /** 画像IDごとの保留中データ */
   private pendingData: Map<string, { surveyId: string; annotationData: AnnotationData }> =
@@ -291,18 +294,18 @@ export class AutoSaveManager implements IAutoSaveManager {
    * @param options オプション設定
    */
   constructor(options: AutoSaveManagerOptions = {}) {
-    this.debounceInterval = options.debounceInterval ?? DEFAULT_DEBOUNCE_INTERVAL;
+    this.autoSaveIntervalMs = options.autoSaveIntervalMs ?? DEFAULT_AUTO_SAVE_INTERVAL_MS;
     this.maxCacheSizeBytes = options.maxCacheSizeBytes ?? DEFAULT_MAX_CACHE_SIZE_BYTES;
     this.maxCachedImages = options.maxCachedImages ?? DEFAULT_MAX_CACHED_IMAGES;
     this.autoSaveDisabled = options.disableAutoSave ?? false;
   }
 
   /**
-   * debounce間隔を取得する
-   * @returns debounce間隔（ミリ秒）
+   * 自動保存の間隔を取得する
+   * @returns 自動保存の間隔（ミリ秒）
    */
-  getDebounceInterval(): number {
-    return this.debounceInterval;
+  getAutoSaveIntervalMs(): number {
+    return this.autoSaveIntervalMs;
   }
 
   /**
@@ -325,7 +328,7 @@ export class AutoSaveManager implements IAutoSaveManager {
    * 注釈データをlocalStorageに保存する
    *
    * - force=true: 即座に保存
-   * - force=false: debounce付きで保存（デフォルト）
+   * - force=false: 編集中は30秒間隔で保存（デフォルト。要件15.4）
    *
    * @param imageId 画像ID
    * @param surveyId 現場調査ID
@@ -343,27 +346,13 @@ export class AutoSaveManager implements IAutoSaveManager {
       return;
     }
 
-    // 既存のタイマーをクリア
-    this.cancelPendingSave(imageId);
-
     if (force) {
       // 即座に保存
+      this.cancelPendingSave(imageId);
+      this.pendingData.delete(imageId);
       this.performSave(imageId, surveyId, data);
     } else {
-      // debounce付きで保存
-      this.pendingData.set(imageId, { surveyId, annotationData: data });
-      this.updateStatus('saving');
-
-      const timer = setTimeout(() => {
-        const pending = this.pendingData.get(imageId);
-        if (pending) {
-          this.performSave(imageId, pending.surveyId, pending.annotationData);
-          this.pendingData.delete(imageId);
-        }
-        this.saveTimers.delete(imageId);
-      }, this.debounceInterval);
-
-      this.saveTimers.set(imageId, timer);
+      this.scheduleSave(imageId, surveyId, data);
     }
   }
 
@@ -387,27 +376,14 @@ export class AutoSaveManager implements IAutoSaveManager {
       return { success: false, error: 'Auto-save is disabled' };
     }
 
-    // 既存のタイマーをクリア
-    this.cancelPendingSave(imageId);
-
     if (force) {
       // 即座に保存し、結果を返す
+      this.cancelPendingSave(imageId);
+      this.pendingData.delete(imageId);
       return this.performSaveWithResult(imageId, surveyId, data);
     } else {
-      // debounce付きで保存（非同期なので常に成功を返す）
-      this.pendingData.set(imageId, { surveyId, annotationData: data });
-      this.updateStatus('saving');
-
-      const timer = setTimeout(() => {
-        const pending = this.pendingData.get(imageId);
-        if (pending) {
-          this.performSave(imageId, pending.surveyId, pending.annotationData);
-          this.pendingData.delete(imageId);
-        }
-        this.saveTimers.delete(imageId);
-      }, this.debounceInterval);
-
-      this.saveTimers.set(imageId, timer);
+      // 予約保存（非同期なので常に成功を返す）
+      this.scheduleSave(imageId, surveyId, data);
       return { success: true };
     }
   }
@@ -537,6 +513,7 @@ export class AutoSaveManager implements IAutoSaveManager {
     // 全てのタイマーをクリア
     for (const timer of this.saveTimers.values()) {
       clearTimeout(timer);
+      clearInterval(timer);
     }
     this.saveTimers.clear();
     this.pendingData.clear();
@@ -662,6 +639,41 @@ export class AutoSaveManager implements IAutoSaveManager {
   }
 
   /**
+   * 保存を予約する（内部メソッド）
+   *
+   * 要件15.4「While 注釈編集中、一定間隔（30秒）で自動保存を実行する」を満たすため、
+   * **最初の変更を起点とした一定間隔**で保存する。編集が続いていてもタイマーを張り直さない
+   * ため、描き続けている最中にも保存が起こる。
+   *
+   * 張り直す実装（debounce）にすると、間隔より短い間隔で操作が届き続けるかぎり保存が
+   * 一度も起こらず、要件が名指しする「編集中」こそ保存されない。
+   *
+   * 未保存の変更が尽きた周期でタイマーを止めるので、変更が無いあいだに書き込みは走らない。
+   */
+  private scheduleSave(imageId: string, surveyId: string, data: AnnotationData): void {
+    this.pendingData.set(imageId, { surveyId, annotationData: data });
+    this.updateStatus('saving');
+
+    // すでにタイマーが動いていれば張り直さない（間隔を保つ）
+    if (this.saveTimers.has(imageId)) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const pending = this.pendingData.get(imageId);
+      if (pending) {
+        this.performSave(imageId, pending.surveyId, pending.annotationData);
+        this.pendingData.delete(imageId);
+        return;
+      }
+      // 未保存の変更が無ければ書き込まずに停止する
+      this.cancelPendingSave(imageId);
+    }, this.autoSaveIntervalMs);
+
+    this.saveTimers.set(imageId, timer);
+  }
+
+  /**
    * 保存を実行する（内部メソッド）
    */
   private performSave(imageId: string, surveyId: string, data: AnnotationData): void {
@@ -783,8 +795,9 @@ export class AutoSaveManager implements IAutoSaveManager {
    */
   private cancelPendingSave(imageId: string): void {
     const timer = this.saveTimers.get(imageId);
-    if (timer) {
+    if (timer !== undefined) {
       clearTimeout(timer);
+      clearInterval(timer);
       this.saveTimers.delete(imageId);
     }
   }

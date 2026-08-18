@@ -129,7 +129,7 @@
 
 | 結線した部品 | 担当要件 | 結線の内容（本番の描画経路からの到達方法） |
 |---|---|---|
-| `AutoSaveManager`（`frontend/src/services/AutoSaveManager.ts`） | 15.4, 15.7, 15.9, 15.10 | `AnnotationEditor` が単一インスタンスを保持する。`fabricCanvas` の `object:added` / `object:modified` / `object:removed` を購読し、既定30秒の debounce 付きで `saveToLocal` を呼ぶ。生成時に `disableAutoSave: !isLocalStorageAvailable()` を渡す |
+| `AutoSaveManager`（`frontend/src/services/AutoSaveManager.ts`） | 15.4, 15.7, 15.9, 15.10 | `AnnotationEditor` が単一インスタンスを保持する。`fabricCanvas` の `object:added` / `object:modified` / `object:removed` を購読し、`saveToLocal` を呼ぶ。発火は既定30秒の**一定間隔**（下記「自動保存の発火条件（タスク 115.119）」を参照）。生成時に `disableAutoSave: !isLocalStorageAvailable()` を渡す |
 | `frontend/src/utils/storage-error.ts` | 15.9, 15.10 | `AutoSaveManager` が `isLocalStorageAvailable` / `isQuotaExceededError` / `isSecurityError` を消費する。容量超過の判定は `e instanceof DOMException && e.name === 'QuotaExceededError'` から `isQuotaExceededError` へ置き換え、`code===22` / `code===1014` / `name===NS_ERROR_DOM_QUOTA_REACHED` も容量超過として扱う |
 | `useAnnotationRestoration`（`frontend/src/hooks/useAnnotationRestoration.ts`） | 15.5 | `AnnotationEditor` から呼び、サーバー保存済み注釈（`getAnnotation` の応答）とローカル下書きを比較させる |
 | `RestoreAnnotationDialog`（`frontend/src/components/site-survey/RestoreAnnotationDialog.tsx`） | 15.5 | 上記フックの `showRestoreDialog` に従って描画する。復元確定時は `util.enlivenObjects` で下書きを実体化し、保存時と現在のキャンバス寸法の比から表示倍率を適用してキャンバスへ載せる |
@@ -143,6 +143,30 @@
 - **復元処理の表示倍率適用は、サーバー保存済み注釈の復元（要件9.2）と共有する。** 二重実装にするとタスク 115.73（要件32.2）の是正が片側にしか効かないため、`AnnotationEditor` 内の共有関数へ集約した
 
 **E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件15.4 / 15.5 を「統合テストで検証」として E2E から除外していたが、その統合検証は結線されていないコードだけを回していた。結線が済んだため除外の根拠は失われ、タスク 115.81 で当該2件を除外一覧から削除し、`e2e/specs/site-surveys/site-survey-responsive.spec.ts` の受入レベルの検証へ置き換えた。要件15.7-15.10 は除外一覧に無いまま恒真の判定で「検証済み」に見えていたため、同ファイルの当該検証も本番経路を通る形へ書き直した。
+
+#### 自動保存の発火条件（タスク 115.119）
+
+**発火条件は「最初の変更を起点とした一定間隔」である。** `AutoSaveManager`（`frontend/src/services/AutoSaveManager.ts`）は、未保存の変更を受け取ってから既定30秒ごとに `saveToLocal` の保留分を書き出す。**編集が続いていてもタイマーを張り直さない**ため、描き続けている最中にも保存が起こる。未保存の変更が無い周期でタイマーを止めるので、変更が無いあいだに書き込みは走らない。
+
+**タスク 115.81 までの実装は debounce（最後の操作から30秒待つ）であり、要件15.4 を満たしていなかった。** 要件15.4 は `While 注釈編集中, the Site Survey Service shall 一定間隔（30秒）で自動保存を実行する` である。EARS の `While` は状態が続いているあいだを指し、「一定間隔」は周期的な発火を指す。debounce は最後の操作から30秒後に一度発火するため、**30秒より短い間隔で描き続けているかぎり自動保存は一度も起こらない**。要件が名指しする「編集中」こそ保存されない、という取り違えであった。タスク 115.119 で実装を一定間隔へ改めた。
+
+**承認済みタスク 18.1 の本文との食い違いを、要件を正として決着させた。** `.kiro/specs/site-survey/tasks.md` のタスク 18.1「AutoSaveManagerを実装する」は箇条書きに「30秒間隔のdebounce自動保存」と明記する。実装はこの文言から意図的に外れている。判断の根拠は次の3点である。
+
+- **要件が上位の契約である。** タスクは要件を実現する手段の記録であり、要件そのものではない。手段の記述と受入基準が食い違うときに従うべきは受入基準の側である
+- **18.1 が自己申告する要件は自動保存の要件ではない。** 18.1 の `_Requirements:_` は `13.4` だが、現在の要件13.4 は `The Site Survey Service shall 操作履歴を最大50件まで保持し、超過時は最古の履歴から削除する`（Undo/Redo）であり、自動保存を定めていない。したがって 18.1 の本文は要件15.4 の解釈として権威を持たない
+- **18.1 は完了済みの履歴であって現況の契約ではない。** 本書は 18.1 の文言を書き換えないが、実装の現況は本小節が示すとおり一定間隔である
+
+**旧契約を書いていた検証の書き換え**: `frontend/src/__tests__/services/AutoSaveManager.test.ts` は「後続の呼び出しでタイマーが張り直される」ことを正の仕様として確かめていた。この主張は旧契約であるため、**削除せず**「後続の呼び出しで保留中の保存を先送りしない」へ書き換えた。あわせて `frontend/src/__tests__/components/site-surveys/AnnotationEditor.autosave-wiring.test.tsx` へ、間隔より短い間隔で操作が届き続ける最中に保存が起こることを見る検証を加えた。タスク 115.81 が加えた検証は単発の操作と静止しか通らず、この欠落を構造的に検出できなかったためである。
+
+**受入レベルでは新しい発火条件が区別されない（本タスクの境界外）**: 上の「E2E 除外一覧の是正」が要件15.4 の置き換え先とした受入レベルの検証は、`e2e/specs/site-surveys/site-survey-responsive.spec.ts:635` の `test('注釈編集中に一定間隔（30秒）で未保存状態がlocalStorageへ自動保存される (site-survey/REQ-15.4)'` である。この検証は同ファイル:646 で `await drawRectangleAnnotation(page);` を**一度だけ**呼び（`sed -n '635,670p' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -c 'drawRectangleAnnotation'` の出力が `1`。書く直前の実測）、以後は描かない。続く:649-650 の `await page.waitForTimeout(5000);` と `expect(await readDraft(page, draftKey)).toBeNull();` で即時保存でないことを確かめ、:653-655 の `await expect.poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] }).not.toBeNull();` で下書きが生えるのを待つ。**単発の操作のあと静止する形**であるため、debounce（最後の操作から30秒）でも一定間隔でも同じ判定が成立する。
+
+**帰結**: 本タスクが導入した唯一の挙動である**要件15.4 の新しい発火条件は、受入レベルでは区別されていない**。識別力を持つのは、本番の `AnnotationEditor` の描画経路を実際の `AutoSaveManager` とともに通す結線の検証（`frontend/src/__tests__/components/site-surveys/AnnotationEditor.autosave-wiring.test.tsx:429` の `it('描き続けている最中でも一定間隔で自動保存される'`）と、単体の検証（`frontend/src/__tests__/services/AutoSaveManager.test.ts`）だけである。
+
+**後続タスクの提案**: 上記の受入レベルの検証を、**一間隔を超えて描き続けたうえで書き込みが繰り返し起こること**を確かめる形へ拡張するタスクを別途起票すること。**本タスク（115.119）の境界は `AutoSaveManager` の発火条件の実装と、それを見る単体・結線の検証であり、実行時間の上限（当該検証の `test.setTimeout(180_000)`）の見直しを伴う受入検証の再設計は含まないため、ここでは手を入れない。**
+
+**名称の是正**: 発火条件が debounce でなくなったため、実装の設定項目 `debounceInterval` と取得子 `getDebounceInterval` をそれぞれ `autoSaveIntervalMs` / `getAutoSaveIntervalMs` へ改名した。既定値の定数も `DEFAULT_AUTO_SAVE_INTERVAL_MS` である。
+
+**要件番号の是正**: `frontend/src/services/AutoSaveManager.ts` の冒頭とクラスの JSDoc は `@see requirements.md - 要件13.4, 13.5` と書いていたが、要件13.4 / 13.5 は Undo/Redo の履歴（保持上限とクリア）であって自動保存を定めていない。上の 18.1 の `_Requirements:_` と同じ番号の取り違えであるため、自動保存と復元を実際に定める要件15.4 / 15.5 へ改めた。
 
 #### 寸法値入力欄の結線（タスク 115.82）
 
@@ -392,7 +416,7 @@
 
 **結論**: タスク 115.75 では43件すべてを**抽象契約として残す**と決着させた。その後タスク 115.76 で #6 / #7 の2件を設計側の名前・項目とも実装の実体へ合わせたため、**現在は41件が抽象契約、2件（#6 / #7）が実体を持つ契約名**である。実装のエクスポート名として新たに設けるべきものは無い。**ただし「実体を持たない」ことと「役割が実装されていない」ことは別であり、43件のいずれについても、下表に記した実装側の機構が同等の役割を果たしていることを確認した**（役割の担い手が皆無の行は無い）。
 
-**内容の食い違いについて**: 「役割の担い手がある」ことと「設計の記述と実装の中身が一致する」ことも別である。タスク 115.75 の時点で下表が内容の食い違いを明記していた行は**6件（#2・#6・#7・#24・#28・#32）**であった。うち #6 と #7 の依存の受け渡し項目の食い違いは**タスク 115.76 で解消済み**（設計の型定義ブロックを実装の項目構成へ書き直した）、残る #2 `IImageService.validateSignedUrl` / #24 `SaveAnnotationResponse` / #28 `ExportPdfOptions` / #32 `PendingOrderRef` の4件は**タスク 115.111 で解消済み**（4件とも設計の記述を実装の実態へ書き直した）であり、**現在この決着表に内容の食い違いが残る行は無い**。決着の内訳と根拠は後述の「内容の食い違いの決着（タスク 115.111）」に示す。この6件以外の行にも名称の差はあるが（#18-23 の `Site` 接頭辞、#27 の `autoSaveIntervalMs`→`debounceInterval` 等）、項目が1対1で対応するため内容の食い違いとしては数えていない。
+**内容の食い違いについて**: 「役割の担い手がある」ことと「設計の記述と実装の中身が一致する」ことも別である。タスク 115.75 の時点で下表が内容の食い違いを明記していた行は**6件（#2・#6・#7・#24・#28・#32）**であった。うち #6 と #7 の依存の受け渡し項目の食い違いは**タスク 115.76 で解消済み**（設計の型定義ブロックを実装の項目構成へ書き直した）、残る #2 `IImageService.validateSignedUrl` / #24 `SaveAnnotationResponse` / #28 `ExportPdfOptions` / #32 `PendingOrderRef` の4件は**タスク 115.111 で解消済み**（4件とも設計の記述を実装の実態へ書き直した）であり、**現在この決着表に内容の食い違いが残る行は無い**。決着の内訳と根拠は後述の「内容の食い違いの決着（タスク 115.111）」に示す。この6件以外の行にも名称の差はあるが（#18-23 の `Site` 接頭辞、#27 の `maxCacheSize`→`maxCacheSizeBytes` 等）、項目が1対1で対応するため内容の食い違いとしては数えていない。
 
 ##### 決着表
 
@@ -424,7 +448,7 @@
 | 24 | `SaveAnnotationResponse` | 抽象契約として残す | 応答の形を説明するためだけの名前。実装はルータがオブジェクトリテラルを直接返しており型宣言を置いていない（`backend/src/routes/annotation.routes.ts:256` の `res.json({ ...annotation, annotatedThumbnailUrl })`）。**入れ子と平坦の食い違いはタスク 115.111 で解消済み**（設計の宣言を平坦な形へ書き直した） |
 | 25 | `AnnotationDataV1` | 抽象契約として残す | 実体は `AnnotationData`（`frontend/src/types/site-survey.types.ts:620`、`frontend/src/services/AutoSaveManager.ts:38`）。`V1` は型名ではなく `version` フィールドの値（`'1.0'`）を指す版名である。実装側も対応を明記している（`frontend/src/services/AutoSaveManager.ts:36` の JSDoc `@see design.md - AnnotationDataV1`）。**タスク 115.81 で、`AutoSaveManager` 側の宣言は `frontend/src/types/site-survey.types.ts` の同名型と同じ形（`version` は任意、`canvasWidth` / `canvasHeight` / `imageRotation` を持つ）へそろえた**。形が違うとサーバー保存とローカル自動保存で同じ注釈データを受け渡せないためである |
 | 26 | `AnnotationSaveDataV1` | 抽象契約として残す | 同上。要件31-32 節が「既存」として再掲した同一物であり、`canvasWidth` / `canvasHeight` / `imageRotation` を含む形は `frontend/src/types/site-survey.types.ts:620` の `AnnotationData` が満たす |
-| 27 | `AutoSaveConfig` | 抽象契約として残す | 実体は `AutoSaveManagerOptions`（`frontend/src/services/AutoSaveManager.ts:95`）。設計の `autoSaveIntervalMs` / `maxCacheSize` / `maxCachedImages` / `privateBrowsingMode.disableAutoSave` は、それぞれ `debounceInterval` / `maxCacheSizeBytes` / `maxCachedImages` / `disableAutoSave` に対応する |
+| 27 | `AutoSaveConfig` | 抽象契約として残す | 実体は `AutoSaveManagerOptions`（`frontend/src/services/AutoSaveManager.ts:95`）。設計の `autoSaveIntervalMs` / `maxCacheSize` / `maxCachedImages` / `privateBrowsingMode.disableAutoSave` は、それぞれ `autoSaveIntervalMs` / `maxCacheSizeBytes` / `maxCachedImages` / `disableAutoSave` に対応する（間隔の項目名は、タスク 115.119 で発火条件を一定間隔へ改めた際に実装側を `debounceInterval` から `autoSaveIntervalMs` へ改名したため、現在は設計と同名である） |
 | 28 | `ExportPdfOptions` | 抽象契約として残す | 実体は `PdfReportOptions`（`frontend/src/services/export/PdfReportService.ts:126`）。**項目の食い違いはタスク 115.111 で解消済み**（設計の項目を実装の4項目へ書き直した） |
 | 29 | `PdfReportLayoutConfig` | 抽象契約として残す | すべての項目がリテラル型の**定数設定**であり、実装では型ではなく定数オブジェクトが担う（`frontend/src/services/export/PdfReportService.ts:31` の `PDF_REPORT_LAYOUT`、同 61 行の `PDF_REPORT_LAYOUT_V2`）。定数で足りるため型宣言を要しない |
 | 30 | `ToolOptions` | 抽象契約として残す | 実体は `StyleOptions`。宣言は2箇所（`frontend/src/components/site-surveys/annotation-toolbar.constants.ts:51`、`frontend/src/components/site-surveys/style-panel.constants.ts:31`）。**ただしこの2つは同名だが形が異なる**：前者は `strokeColor` / `strokeWidth` / `fillColor` / `fontSize` の4項目で **`fontColor` を持たない**（同 51-60 行）。後者は `strokeColor` / `fillColor` / `strokeWidth` / `fontSize` / `fontColor` の5項目に加え任意項目 `arrowOutlineEnabled?` / `textOutlineEnabled?` を持つ（同 31-56 行）。**設計 `ToolOptions` の5項目（`strokeColor` / `strokeWidth` / `fillColor` / `fontSize` / `fontColor`）を満たすのは後者 `style-panel.constants.ts:31` の方だけ**である。`AnnotationEditorState`（`frontend/src/components/site-surveys/AnnotationEditor.tsx:252`）も設計の `toolOptions` に相当するフィールドを `styleOptions: StyleOptions` として持つ（同 260 行）が、その `StyleOptions` は `AnnotationToolbar.tsx:37` が再エクスポートする**前者**（`annotation-toolbar.constants.ts:51` の4項目版。`AnnotationToolbar.tsx:27-34` の import 元）である |
@@ -663,7 +687,7 @@ sequenceDiagram
     User->>FabricCanvas: 注釈操作（追加/編集/削除）
     FabricCanvas->>UndoManager: 操作履歴記録
     FabricCanvas->>useUnsavedChanges: markAsChanged()
-    FabricCanvas->>LocalStorage: 一時保存（debounce 30秒）
+    FabricCanvas->>LocalStorage: 一時保存（編集中は30秒間隔）
 
     User->>AnnotationEditor: 保存ボタン
     AnnotationEditor->>FabricCanvas: toJSON()
@@ -680,7 +704,7 @@ sequenceDiagram
 - **手動保存方式**: 保存ボタンクリックでサーバーに保存（オートセーブからの変更）
 - **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理
 - **ページ離脱警告**: beforeunloadイベントで確認ダイアログを表示
-- 30秒間隔で自動的にlocalStorageに一時保存（debounce）
+- 注釈編集中は30秒間隔で自動的にlocalStorageに一時保存（要件15.4。描き続けている最中も保存される）
 - ページリロード時にlocalStorageから未保存データを復元
 
 ### ネットワーク状態管理フロー
@@ -2806,7 +2830,7 @@ interface IUndoManager {
 | Requirements | 15.4, 15.5, 15.6 |
 
 **Responsibilities & Constraints**
-- localStorageによる編集状態の一時保存（30秒間隔）
+- localStorageによる編集状態の一時保存（注釈編集中は30秒間隔。要件15.4）
 - ページリロード時の未保存データ復元
 - ネットワーク接続状態の監視と警告表示
 - 保存操作のブロック（オフライン時）
