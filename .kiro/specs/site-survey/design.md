@@ -873,18 +873,18 @@ sequenceDiagram
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.6 | 現場調査CRUD | SiteSurveyService, SurveyRoutes | SurveyAPI | - |
+| 1.1-1.6 | 現場調査CRUD | SiteSurveyService, SurveyRoutes, SiteSurveyForm, SiteSurveyCreatePage, SiteSurveyEditPage, SiteSurveyDetailInfo | SurveyAPI | - |
 | **2.1** | **プロジェクト詳細画面の現場調査セクション** | **SiteSurveySectionCard, ProjectDetailPage** | **SurveyListAPI** | - |
-| 2.3-2.4 | 画面遷移（一覧→詳細、詳細→ビューア） | SiteSurveyListPage, SiteSurveyDetailPage | Breadcrumb | - |
-| **2.5** | **全現場調査関連画面にブレッドクラム表示** | **全SiteSurvey画面** | **Breadcrumb** | - |
+| 2.3-2.4 | 画面遷移（一覧→詳細、詳細→ビューア） | SiteSurveyListPage, SiteSurveyDetailPage, SiteSurveySectionCard, SiteSurveyImageViewerPage | Breadcrumb | - |
+| **2.5** | **全現場調査関連画面にブレッドクラム表示** | **全SiteSurvey画面, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.6** | **一覧画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧** | **SiteSurveyListPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.7** | **詳細画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査** | **SiteSurveyDetailPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.8** | **画像プレビュー画面（閲覧モード）ブレッドクラム: ... > 現場調査 > 画像** | **SiteSurveyImageViewerPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.9** | **画像プレビュー画面（編集モード）ブレッドクラム: ... > 現場調査 > 画像** | **SiteSurveyImageViewerPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
-| **2.10** | **ブレッドクラム各項目クリックで対応画面へ遷移** | **Breadcrumb** | **Breadcrumb** | - |
+| **2.10** | **ブレッドクラム各項目クリックで対応画面へ遷移** | **Breadcrumb, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.11** | **一覧画面タイトルを「現場調査一覧」に変更** | **SiteSurveyListPage** | - | - |
 | **2.12** | **画像プレビュー画面から「← 現場調査に戻る」リンクを削除** | **SiteSurveyImageViewerPage** | - | - |
-| 3.1-3.5 | 一覧・検索 | SiteSurveyListPage, SiteSurveyService | SurveyListAPI | - |
+| 3.1-3.5 | 一覧・検索 | SiteSurveyListPage, SiteSurveyService, SiteSurveyListCard, SiteSurveyListTable | SurveyListAPI | - |
 | 4.1-4.6, 4.9 | 画像アップロード・管理 | SurveyImageService, ImageUploader | ImageAPI | アップロードフロー |
 | **4.7** | **画像削除** | **ImageDeleteService, PhotoManagementPanel** | **ImageDeleteAPI** | **画像削除フロー** |
 | **4.8** | **R2孤立ファイル処理** | **ImageDeleteService** | **R2 Lifecycle Rule** | **R2孤立ファイル処理フロー** |
@@ -893,12 +893,12 @@ sequenceDiagram
 | **4.12** | **「上へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | **4.13** | **「下へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | **5.1** | **画像クリックで専用画面の画像ビューアを開く** | **SiteSurveyDetailPage, SiteSurveyImageViewerPage** | - | - |
-| **5.2-5.4** | **閲覧時の拡大・縮小・回転・パン** | **AnnotationEditor, ZoomControls, useCanvasViewport, canvasViewportController, CanvasEngine** | - | **中点ズームフロー** |
+| **5.2-5.4** | **閲覧時の拡大・縮小・回転・パン** | **AnnotationEditor, ZoomControls, useCanvasViewport, canvasViewportController, CanvasEngine, SiteSurveyImageViewerPage** | - | **中点ズームフロー** |
 | **5.5** | **ピンチ操作によるズーム** | **touchGestureManager, canvasViewportController** | - | **中点ズームフロー** |
 | **5.6** | **表示状態（ズーム・回転・位置）を注釈編集モードと共有** | **SiteSurveyImageViewerPage, AnnotationEditor** | - | - |
-| 6.1-6.7 | 寸法線 | DimensionTool, DimensionValueInput, AnnotationService | AnnotationAPI | 注釈編集フロー |
-| 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
-| 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 6.1-6.7 | 寸法線 | DimensionTool, DimensionValueInput, AnnotationService, AnnotationEditor, AnnotationToolbar, StylePanel | AnnotationAPI | 注釈編集フロー |
+| 7.1-7.10 | マーキング | ShapeTool, AnnotationService, AnnotationEditor, AnnotationToolbar, StylePanel | AnnotationAPI | 注釈編集フロー |
+| 8.1-8.7 | コメント | TextTool, AnnotationService, AnnotationEditor, AnnotationToolbar, StylePanel | AnnotationAPI | 注釈編集フロー |
 | **9.1** | **手動保存（保存ボタン）** | **AnnotationEditor, useUnsavedChanges** | **AnnotationAPI** | **注釈編集フロー** |
 | 9.2 | 注釈データ復元 | AnnotationService, localStorage | AnnotationAPI | 注釈編集フロー |
 | **9.3** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges, SiteSurveyDetailPage** | - | - |
@@ -912,8 +912,8 @@ sequenceDiagram
 | **10.9** | **保存ボタン（メタデータ+順序一括保存）** | **PhotoManagementPanel, SiteSurveyDetailPage, useUnsavedChanges** | **ImageMetadataAPI, ImageOrderAPI** | **写真メタデータ更新フロー** |
 | **10.10** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges** | - | - |
 | **10.11, 10.12** | **画像削除（確認ダイアログ付き）** | **PhotoManagementPanel, ImageDeleteService** | **ImageDeleteAPI** | **画像削除フロー** |
-| **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService** | **ExportAPI** | **PDF報告書生成フロー** |
-| **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService** | **ExportAPI** | **個別画像エクスポートフロー** |
+| **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService, SiteSurveyDetailInfo** | **ExportAPI** | **PDF報告書生成フロー** |
+| **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService, ImageViewer** | **ExportAPI** | **個別画像エクスポートフロー** |
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
 | 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
 | 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
@@ -958,6 +958,101 @@ sequenceDiagram
 | **23.6** | **サムネイル再生成失敗時のエラー通知と旧状態残留防止** | **AnnotationService, AnnotatedThumbnailService, AnnotationEditor** | **AnnotationAPI** | - |
 | **23.7** | **再オープン時のサムネイル一致保証** | **AnnotatedThumbnailService, survey-images.routes.ts** | **ImageAPI** | - |
 | **23.8** | **冪等なサムネイル再生成処理（既存サムネイル破損防止）** | **AnnotatedThumbnailService** | - | - |
+
+### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）
+
+タスク 115.77 は保存容量の警告帯（`StorageWarningBanner`）の一件だけを是正したが、**同型の取りこぼしは他にも残っていた**。本節は 115.77 と同じ手順を、文書内の追跡表**7つ全件**（合計**166 行**。是正の直前に計数）へ機械的に適用した結果である。
+
+#### 突き合わせの手順
+
+1. **対象ファイルを決める。** `frontend/src/components/site-surveys/`・`frontend/src/components/site-survey/`・`frontend/src/pages/SiteSurvey*.tsx`・`frontend/src/components/projects/SiteSurveySectionCard.tsx`・`frontend/src/utils/siteSurveyBreadcrumb.ts` の実装ファイル（`*.test.ts` / `*.test.tsx` / `*.stories.tsx` を除く）と、これら以外で `@requirement site-survey/REQ-*` を持つ実装ファイルを対象とする。**実測53件**（`{ git ls-files 'frontend/src/components/site-surveys/*' 'frontend/src/components/site-survey/*' 'frontend/src/pages/SiteSurvey*.tsx' 'frontend/src/components/projects/SiteSurveySectionCard.tsx' 'frontend/src/utils/siteSurveyBreadcrumb.ts'; grep -rl '@requirement site-survey/REQ-' frontend/src; } | grep -vE '\.test\.tsx?$|\.stories\.tsx$' | sort -u | wc -l` の出力。書く直前に再測した。うち1件は `frontend/src/pages/SiteSurveyImageViewerPage.css` で、`@requirement site-survey/REQ-36.4` / `REQ-36.7` のタグを持つため対象に入る）。バックエンドの資材と共用フックは、同じ番号体系を他の仕様と共有していて自己申告がどの仕様の番号か機械的に確定できないため、本走査の対象外とした（別途の走査が要る）
+2. **各ファイルの自己申告を抽出する。** 形式は2つある。先頭の `/** */` ブロックの `Requirements:` 見出しに続く `- <番号>: <本文>` の箇条書きと、`@requirement site-survey/REQ-<番号>` タグである（後者は `grep -n "@requirement site-survey/REQ-" <ファイル>` で全件取れる）
+3. **追跡表の全行の Requirement 列を番号へ展開する。** `24.1-24.10` のような範囲と `31.4, 31.5, 31.6` のような列挙をいずれも個別番号へ開く
+4. **照合する。** 自己申告した番号を含む行の Components 列に当該部品名が現れるかを見る。単一の部品ではなく**集合を指す表記**は、指す実体へ展開したうえで一致とみなす。展開しないと**その表記を持つ行が全件偽陽性になる**。本走査で展開した表記は合計7件で、次の2群に分かれる（書く直前に該当行を数え直した実測値）
+   - **本書「論理名と実体の対応表」に登録済みの論理名（3件）**: `ShapeTool`（要件7.1-7.10 の行、1行）/ `SurveyRoutes`（要件1.1-1.6・18.1・18.6・18.7 の行、4行）/ `AuthMiddleware`（要件14.1-14.5・18.6 の行、2行）。行数はいずれも書く直前に追跡表7表を走査して数え直した。対応表が定める実体へ展開した
+   - **対応表に未登録のまま集合を指している表記（4件）**: `全SiteSurvey画面`（要件2.5 の行）/ `StyleTokens`（要件24.1-24.10・25.1-25.12・32.1-32.7, 32.9-32.10 の行、3行）/ `Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools`（要件32.1-32.7, 32.9-32.10 の行）/ `全コンポーネント`（要件16.1-16.8 の行）。いずれも「論理名と実体の対応表」に行が無く、**呼称規約の掲載可否の判定を受けていない**。本走査では便宜上、名称が示す集合へ展開して照合した。とくに `StyleTokens` は**実体を持たない名前**である（`grep -rn "StyleTokens" frontend/src | wc -l` の出力が `0`。書く直前の実測で、宣言も参照も0件。実体は `frontend/src/components/site-surveys/annotation-style-tokens.ts` であり、同じ追跡表の要件26.1-26.6・32.11, 32.13 の行は実名 `annotation-style-tokens` を用いている）。照合では `annotation-style-tokens` へ展開した
+
+   **後続タスクの提案**: 上の未登録4件について、「論理名と実体の対応表」へ登録するか実名へ統一するかを決めて適用するタスクを別途起票すること。`StyleTokens` は 1:1 の実体（`annotation-style-tokens`）へ解決できるため、対応表の掲載基準（「1:1 の実体を持たない名前だけを載せる」）に照らすと**実名への統一**が妥当である。**本タスク（115.113）の境界は追跡表の担当行であり、呼称規約の対応表そのものと Mermaid 図・要件24-30 の対照表の表記は含まないため、ここでは手を入れない。**
+5. **一致しない組（部品×要件番号）を不一致として列挙する**
+
+#### 是正前後の計数（いずれも書く直前に再測した実測値）
+
+| 項目 | 件数 |
+|---|---|
+| 走査した追跡表 | 7 表 / 166 行 |
+| 走査した実装ファイル | 53 |
+| 是正前の不一致 | 105 |
+| 追跡表へ追加した部品名 | 51 名 / 26 行 |
+| 是正後に残る不一致 | 18 |
+| 是正で解消した組 | 87（`18 + 87 = 105` で閉じる） |
+
+計数の再現手順（いずれも本表を書く直前に再実行した）:
+
+- **追跡表と行数**: `grep -nE '^\| *Requirement \| *Summary \| *Components \|' .kiro/specs/site-survey/design.md` が返す 7 箇所を表頭とし、各表頭の2行下から `|` で始まらない行の直前までを本文行として数える（合計166行）
+- **実装ファイル**: 上の手順1に記した `git ls-files` と `grep -rl` の合成を `sort -u | wc -l` で数える（53件）
+- **不一致**: 手順2〜5 をそのまま適用し、部品×要件番号の組を数える。集合を指す表記は手順4 の2群を**名称が示す実体の集合へ展開**し、`bulkExportService finalize` のように**実名に修飾語が続く表記は実名の一致として扱う**（是正前105件、是正後18件）。展開の内訳は次のとおりで、ここを取り違えると件数がずれる
+  - `ShapeTool` → 対応表が定める6ツール、`SurveyRoutes` → 3ルート、`AuthMiddleware` → 2ミドルウェア、`StyleTokens` → `annotation-style-tokens`、`Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools` → 表記が列挙する6ツール（`Rectangle` / `Circle` / `Polygon` / `Polyline` / `Freehand` / `Dimension`。書く直前に表記を `/` で区切って数え直した実測。同じ行の要約も `design.md:5795` で「6 形状」と記す）
+  - `全SiteSurvey画面` → `git ls-files 'frontend/src/pages/SiteSurvey*.tsx'` が返す**5画面**（`SiteSurveyCreatePage` / `SiteSurveyDetailPage` / `SiteSurveyEditPage` / `SiteSurveyImageViewerPage` / `SiteSurveyListPage`）。**「全」を全部品への無条件一致と読んではならない**。`siteSurveyBreadcrumb`（`frontend/src/utils/siteSurveyBreadcrumb.ts`）は画面ではなく生成の補助であり、この展開に含まれない。したがって同部品の要件2.5 の組は是正前の不一致に数える（是正で当該行へ実名を追加済み）
+  - `全コンポーネント` → 走査対象の全部品（要件16.1-16.8 の非機能要件の行であり、部品を限定しない）
+- **不一致の実測出力**（本表を書く直前に再実行）: 是正前の版（`git show HEAD:.kiro/specs/site-survey/design.md`）に対し `tables=7 rows=166 files=53 declared_pairs=296 mismatch=105`、是正後の版に対し `tables=7 rows=166 files=53 declared_pairs=296 mismatch=18`。組の集合差も同時に取り、解消 87 件・退行 0 件であることを確認した
+- **追加した部品名と行**: 是正前後の追跡表の Components 列を行キー（Requirement 列）で突き合わせ、増えた名前を数える（51名 / 26行）。写さなかった側の18件は下の3区分に分かれ、内訳は 7件 + 10件 + 1件 である
+- **突き合わせの閉じ**: 「51名 / 26行」の追加で解消する組は **87 件**であり、`是正後18 + 解消87 = 是正前105` で閉じる。解消 87 件の部品別内訳は `AnnotationEditor` 15 / `StylePanel` 7 / `SiteSurveyImageViewerPage` 4 / `FreehandTool` 4 / `AnnotationToolbar`・`ArrowTool`・`CircleTool`・`PolygonTool`・`PolylineTool`・`RectangleTool`・`TextTool`・`registerCustomShapes`・`SiteSurveyDetailInfo` 各3 / `BulkExportDialog`・`DimensionTool`・`ImageUploader`・`SiteSurveyForm`・`SiteSurveyListCard`・`SiteSurveyListTable`・`annotation-visual-feedback`・`siteSurveyBreadcrumb`・`style-panel.constants`・`touchGestureManager` 各2 / `AnnotationContextMenu`・`AnnotationRendererService`・`ImageViewer`・`SiteSurveyCreatePage`・`SiteSurveyDetailPage`・`SiteSurveyEditPage`・`SiteSurveySectionCard`・`annotation-toolbar.constants`・`canvasViewportController`・`gesture-thresholds` 各1（合計87）。**この閉じを取らずに是正前の件数だけを書くと、取り違えを検出できない**（実際、本節の初稿は 105 を 104 と誤っていた）。以後この節の件数を更新する際は、解消件数まで数えて `是正後 + 解消 = 是正前` の成立を確認すること
+
+#### 自己申告をそのまま写さなかった 18 件
+
+**自己申告は無条件には信用しない。** 箇条書きの自己申告は「番号」と「本文」を併記するため、`requirements.md` の当該番号の本文と突き合わせれば真偽を機械的に判定できる。**本文が別の要件のものである場合、その番号を追跡表へ写すと新たな虚偽記載になる**ため写さない。内訳は次の3種、合計18件である（各区分の件数は書く直前に列挙を数え直した実測値）。
+
+**(1) 担当を出荷経路へ付け替え済みの部品（7件）**
+
+`ImageViewer` の要件5.1・5.2・5.3・5.4・5.5・5.6・13.2。内訳は要件5 系の6件と要件13.2 の1件である。
+
+- **要件5.1-5.6（6件）**: 上の「未結線部品の扱い」のとおり、タスク 115.83 が `ImageViewer` の担当を出荷経路へ付け替え**担当なし**と決着させた範囲である。115.83 の `_Requirements:_` は `5.1, 5.2, 5.3, 5.4, 5.5, 5.6`、`_Boundary:_` は「要件5 の担当部品の設計記述と、閲覧時の表示操作の結線」であり、上の付け替え表（本書「画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）」の表）も 5.1-5.6 しか挙げていない。自己申告の側が陳腐化しているため、追跡表へ写すと 115.83 の決着を覆す
+- **要件13.2（1件）**: 番号自体の誤記である（自己申告の本文は「タッチ操作に最適化された注釈ツール」だが要件13.2 の本文は取り消した操作の再実行）。**その是正はタスク 115.114 の所管**であり、本節では写さない
+
+**要件12.1 は本区分に含めず、追跡表へ追加した。** 判断の根拠は次の3点で、**うち第2点は本是正と食い違う既存記述の明示である**。
+
+1. **タスク 115.83 の射程は要件5.1-5.6 に限られる。** 同タスクの `_Requirements:_` は `5.1, 5.2, 5.3, 5.4, 5.5, 5.6` であり、`_Boundary:_` も「要件5 の担当部品の設計記述と、閲覧時の表示操作の結線」である。上の付け替え表も 5.1-5.6 しか挙げていない。**要件12.1 はこの射程の外にある**
+2. **ただし設計文書の側は、要件12 も付け替え済みと記している。** 本書「未結線部品の扱い」の `ImageViewer` 行は担当要件欄を「**担当なし**（要件5.1-5.6 / **12** / 20.1 の担当は出荷経路へ付け替え済み）」と書いており、要件**12** を明示的に含めている。**この記述は、要件12.1-12.5 の行へ `ImageViewer` を加えた本是正と直接矛盾する**。タスク 115.83 の一次資料（`_Requirements:_` / `_Boundary:_`）が要件12 を射程に含めていない以上、設計文書側のこの欄が 115.83 の決着を要件12 まで広げて書いたものと解する。矛盾は伏せずに下の「境界外に残る矛盾の記録」へ2箇所とも登録した
+3. **先例が「未結線でも追跡の欠落は是正する」を採る。** `ImageViewer` は `ImageExportDialog` を実際に import して描画しており（`frontend/src/components/site-surveys/ImageViewer.tsx` の 29 行目の `import ImageExportDialog from './ImageExportDialog';` と 1775 行目の `<ImageExportDialog` 描画）、12.1 の自己申告は番号の誤記ではなく実体を伴う。本タスクが手順の先例とするタスク 115.77 は「当該部品が未結線である件は 115.64 の所管であり、本タスクでは追跡の欠落のみを扱う」として**未結線の部品でも追跡の欠落は是正した**
+
+第2点と第3点が競合する場合に第3点を優先するのは、**第2点が食い違うのは「結線されていない部品を担当として載せるか」という一点だけ**であり、それはまさに 115.77 が「追跡の欠落は是正し、結線の可否は別タスクへ委ねる」と切り分けた論点だからである。追跡表から実体のある担当を落とすと、要件12.1 の担当が文書上どこにも残らなくなる。したがって要件12.1-12.5 の行へ `ImageViewer` を加えた。**結線の可否と、矛盾する2欄の書き換えは本節では決めない**（いずれも境界外。下記参照）。
+
+**(2) 自己申告の番号が誤っている件（10件）**
+
+| 部品 | 申告番号 | 自己申告の本文 | 当該番号の実際の要件本文 |
+|---|---|---|---|
+| `ImageUploader` | 13.3 | モバイル環境でのカメラ連携 | キーボードショートカットで Undo/Redo を実行する |
+| `SiteSurveyResponsiveView` | 13.1 | デスクトップ・タブレット・スマートフォン対応 | Undo 操作で直前の注釈操作を取り消す |
+| `SiteSurveyDetailInfo` | 10.6 | PDF報告書のクライアントサイド生成 | 写真の「上へ移動」ボタンで1つ上へ移動する |
+| `SiteSurveyDetailInfo` | 12.1 | プロジェクトへのアクセス権を持つユーザーは閲覧可能 | 個別画像のエクスポートボタンで注釈をレンダリングした画像を生成する |
+| `SiteSurveyDetailInfo` | 12.2 | プロジェクトへの編集権限で作成・編集・削除を許可 | エクスポート形式として JPEG、PNG をサポートする |
+| `SiteSurveyDetailPage` | 2.6 | 詳細画面のブレッドクラム階層 | 一覧画面のブレッドクラム（実体は要件2.7。同行には収録済み） |
+| `SiteSurveyDetailPage` | 10.1 | 報告書出力対象写真の選択 | 詳細画面に写真ごとのチェックボックス・写真・コメント欄・削除ボタンを表示する |
+| `SiteSurveyDetailPage` | 12.2 | プロジェクトへの編集権限で作成・編集・削除を許可 | エクスポート形式として JPEG、PNG をサポートする |
+| `SiteSurveyListPage` | 2.7 | ブレッドクラム各項目のクリックで遷移する | 詳細画面のブレッドクラム（実体は要件2.10） |
+| `SiteSurveyListPage` | 12.2 | プロジェクトへの編集権限で作成・編集・削除を許可 | エクスポート形式として JPEG、PNG をサポートする |
+
+要件12 系の4件と要件13 系の2件は、いずれも**番号がちょうど 2 ずれて写された**ものである。申告本文は要件12.1→14.1（アクセス権を持つユーザーの閲覧）、要件12.2→14.2（編集権限による作成・編集・削除）、要件13.1→15.1（各画面サイズ対応）、要件13.3→15.3（カメラ連携）と、いずれも `requirements.md` の別番号の本文に一字一句対応する。是正するのは実装側の注釈であり、**本節の境界（追跡表）の外**にある。
+
+上表の**10 件**（`awk '/^\*\*\(2\) 自己申告の番号が誤っている件/,/^要件12 系の/' .kiro/specs/site-survey/design.md | grep -c '^| `'` の出力が `10`。書く直前の実測）は、**いずれも所管タスクを持たない**。タスク 115.114 の境界は「画像の閲覧部品の注釈が引く要件番号」であり、上の区分(1) に挙げた `ImageViewer` の要件13.2 しか覆わない。
+
+**後続タスクの提案**: 上表10件の実装側の注釈（`ImageUploader` / `SiteSurveyResponsiveView` / `SiteSurveyDetailInfo` / `SiteSurveyDetailPage` / `SiteSurveyListPage` の5ファイル）について、自己申告の要件番号を本文に合う番号へ是正するタスクを別途起票すること。**本タスク（115.113）の境界は設計文書の追跡表であり、実装ファイルの注釈は含まないため、ここでは手を入れない。**
+
+**判定の適用範囲についての注記**: 上で宣言した「番号と本文を突き合わせて真偽を機械的に判定する」手続きは、**追加を見送るかどうかの判定にのみ用いており、追加した側の自己申告へは一律には適用していない**。追加先が範囲行（`1.1-1.6` のような行）である場合、番号が同じ要件群の中でずれていても行の担当としては正しいため、本文のずれが虚偽記載にならないからである。実例として `frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx:9` は要件1.2 を「現場調査詳細画面を表示する際、現場調査の基本情報と関連する画像一覧を表示する」と申告するが、この本文は `requirements.md` の要件1.3 のものである。追加先は要件1.1-1.6 の行なので担当としては正しい。**同種のずれが他の追加分にも残っている可能性があり、全件の本文照合は行っていない。**
+
+**(3) 追跡表に対応する行を持たない件（1件）**
+
+`SiteSurveySectionCard` の要件2.2。要件2.2 は `requirements.md` で取り消し線が引かれ project-management/Requirement 24 AC 2 へ移動済みである。**追跡表に行が無いことが正しい**ため追加しない。
+
+#### 追加にあたっての注記
+
+- 要件26.1-26.6 の行へは**11 名**を加えた（内訳は書く直前に当該行の Components 列を区切りで数え直した。ツール8件＝`ArrowTool` / `CircleTool` / `DimensionTool` / `FreehandTool` / `PolygonTool` / `PolylineTool` / `RectangleTool` / `TextTool`、定数資材2件＝`style-panel.constants` / `annotation-toolbar.constants`、属性パネル1件＝`StylePanel`）。いずれも `@requirement site-survey/REQ-26.*` タグによる申告である。既定値を**一元管理する**のは `annotation-style-tokens` であり、各ツールはそれを**消費する**側として担当に加わる
+- `StylePanel` は「未結線部品の扱い」のとおり本番の描画経路に結線されていない。担当としては追跡表に載るが、**結線の有無は当該節が権威**である
+- `ImageViewer` も「未結線部品の扱い」のとおり本番の描画経路に結線されていない。要件12.1-12.5 の行には要件12.1 の担当として載るが、**結線の有無と、要件5.1-5.6 の担当がタスク 115.83 で他部品へ付け替え済みであることは当該節が権威**である。**ただし要件12 については当該節の記述と本節の是正が食い違う**（同節の担当要件欄は要件12 も付け替え済みと断定している）。この1件は権威の委譲から除外し、下の「境界外に残る矛盾の記録」へ登録した
+- **境界外に残る矛盾の記録（全 2 箇所。`grep -cE '^\|.*担当なし' .kiro/specs/site-survey/design.md` の出力が `2`。書く直前の実測で、該当は表の欄のみ＝散文中の言及を除く）**: 要件12.1-12.5 の行へ `ImageViewer` を加えた本節の是正と字面が食い違う欄が、追跡表の外に **2 箇所**ある。**いずれも本タスクの境界（追跡表の担当行）の外にあるため書き換えず、無記録で残さないようここに登録する。**
+
+  1. **「未結線部品の扱い」の `ImageViewer` 行（担当要件欄）** — より強い矛盾。当該欄は「**担当なし**（要件5.1-5.6 / **12** / 20.1 の担当は出荷経路へ付け替え済み）」と記し、**要件12 を名指しで付け替え済みと断定している**。要件12.1 の担当として `ImageViewer` を追跡表へ加えた本節の是正と正面から食い違う。上の「要件12.1 は本区分に含めず、追跡表へ追加した」の第2点に判断根拠を記した。**後続タスクの提案**: 当該欄を「要件12.1 の担当（要件5.1-5.6 の担当は 115.83 で付け替え済み）」の形へ改めるタスクを別途起票すること
+  2. **`### Component Summary` の `~~ImageViewer~~（未結線）` 行（Req Coverage 欄）** — 弱い矛盾。当該欄は「**担当なし**（要件5 の担当は上記へ付け替え済み。タスク 115.83）」と記す。括弧の但し書きは付け替えの対象を要件5 に限っているが、欄の断定は「担当なし」であり、字面が食い違う。**後続タスクの提案**: 当該行の Req Coverage 欄を「12.1（要件5 の担当は 115.83 で付け替え済み）」の形へ改めるタスクを別途起票すること
 
 ## Components and Interfaces
 
@@ -4964,13 +5059,13 @@ Body が Outline より上に描画されることで、矢じり端部も含め
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 24.1-24.10 | 矢印の白縁取り表示・属性永続化・後方互換・Undo連携 | ArrowTool (Group refactor), StyleTokens, AnnotationRendererService | `Arrow.setOutline`, `Arrow.toObject/fromObject` 拡張 | 矢印レンダリング |
-| 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), StyleTokens | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
-| 26.1-26.6 | ツール横断デフォルトスタイルの一元化、セッション内継承、白縁取り初期ON | annotation-style-tokens, AnnotationEditor styleOptionsRef | `AnnotationToolDefaults` interface | - |
-| 27.1-27.10 | ダブルタップ編集、長押しメニュー、Req8/Req17連携 | touchGestureManager, AnnotationContextMenu, AnnotationEditor | `GestureEvent`, `ContextMenuAction` | ジェスチャー判定フロー |
-| 28.1-28.8 | モバイルツールバー、折返し・スクロール、属性パネル開閉、44px タップ領域 | AnnotationToolbar, StylePanel | toolbar layout contract | - |
-| 29.1-29.8 | ツールハイライト、カーソル、プレビュー、指向けハンドル、ツールヒント、簡易ガイド | AnnotationToolbar, AnnotationGuide, Fabric defaults | `CursorStrategy`, `HandleSizeStrategy` | - |
-| 30.1-30.8 | マルチタッチ安全性、3本指抑止、cooldown、Req5/Req17 維持 | touchGestureManager, ImageViewer | `TouchState` enum, state transitions | ジェスチャー判定フロー |
+| 24.1-24.10 | 矢印の白縁取り表示・属性永続化・後方互換・Undo連携 | ArrowTool (Group refactor), StyleTokens, AnnotationRendererService, StylePanel, registerCustomShapes | `Arrow.setOutline`, `Arrow.toObject/fromObject` 拡張 | 矢印レンダリング |
+| 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), StyleTokens, StylePanel, AnnotationRendererService | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
+| 26.1-26.6 | ツール横断デフォルトスタイルの一元化、セッション内継承、白縁取り初期ON | annotation-style-tokens, AnnotationEditor styleOptionsRef, style-panel.constants, annotation-toolbar.constants, StylePanel, ArrowTool, CircleTool, DimensionTool, FreehandTool, PolygonTool, PolylineTool, RectangleTool, TextTool | `AnnotationToolDefaults` interface | - |
+| 27.1-27.10 | ダブルタップ編集、長押しメニュー、Req8/Req17連携 | touchGestureManager, AnnotationContextMenu, AnnotationEditor, gesture-thresholds | `GestureEvent`, `ContextMenuAction` | ジェスチャー判定フロー |
+| 28.1-28.8 | モバイルツールバー、折返し・スクロール、属性パネル開閉、44px タップ領域 | AnnotationToolbar, StylePanel, AnnotationContextMenu | toolbar layout contract | - |
+| 29.1-29.8 | ツールハイライト、カーソル、プレビュー、指向けハンドル、ツールヒント、簡易ガイド | AnnotationToolbar, AnnotationGuide, Fabric defaults, AnnotationEditor, StylePanel, annotation-visual-feedback | `CursorStrategy`, `HandleSizeStrategy` | - |
+| 30.1-30.8 | マルチタッチ安全性、3本指抑止、cooldown、Req5/Req17 維持 | touchGestureManager, ImageViewer, AnnotationEditor | `TouchState` enum, state transitions | ジェスチャー判定フロー |
 
 ### Components and Interfaces
 
@@ -5688,18 +5783,18 @@ graph TB
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
 | 31.1, 31.2, 31.3 | 全件/選択の起動、0 件時非活性 | SiteSurveyDetailPage, PhotoManagementPanel, BulkExportDialog | `BulkExportDialogProps` | 一括エクスポートフロー |
-| 31.4, 31.5, 31.6 | 設定 UI 共有・設定一括適用・レンダリング仕様継承 | ExportSettingsForm, bulkExportService, AnnotationRendererService | `ExportSettings`, `BulkExportInput` | 一括エクスポートフロー |
+| 31.4, 31.5, 31.6 | 設定 UI 共有・設定一括適用・レンダリング仕様継承 | ExportSettingsForm, bulkExportService, AnnotationRendererService, BulkExportDialog | `ExportSettings`, `BulkExportInput` | 一括エクスポートフロー |
 | 31.7, 31.8, 31.9 | ZIP 単一ファイル化・命名規則・ZIP ファイル名 | bulkExportService, zip-naming | `ZipNamingStrategy` | 一括エクスポートフロー |
 | 31.10, 31.11, 31.12 | 進捗可視化・キャンセル可能・中断時 ZIP 非生成 | BulkExportProgressDialog, bulkExportService | `BulkExportProgress`, AbortSignal | 一括エクスポートフロー |
 | 31.13, 31.14 | 部分失敗エラー集約・ユーザー選択 | bulkExportService, BulkExportProgressDialog | `BulkExportFailure`, `PartialFailureChoice` | 一括エクスポートフロー |
 | 31.15 | 対象 0 件時の通知 | BulkExportDialog | dialog precondition | - |
-| 31.16 | アクセス制御適用 | bulkExportService（既存 API 経由） | 既存 Req 14 経路 | - |
+| 31.16 | アクセス制御適用 | bulkExportService（既存 API 経由）, SiteSurveyDetailPage | 既存 Req 14 経路 | - |
 | 31.17 | 注釈含む時の白縁取り適用 | AnnotationRendererService（既存 enlivenObjects 経路） | - | - |
 | 31.18 | 原本出力時の注釈・回転・サムネイル非反映 | bulkExportService, ExportService.downloadOriginal | original branch | 一括エクスポートフロー |
 | 31.19 | 中間生成物の非残存 | bulkExportService finalize | finalize hook | - |
-| 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools, StyleTokens | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
+| 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools, StyleTokens, registerCustomShapes | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
 | 32.8 | 出力経路（サムネイル/PDF/個別/一括）の整合 | AnnotationRendererService, PdfReportService, bulkExportService | 既存 enlivenObjects 経路 | - |
-| 32.11, 32.13 | 既定値・既定スタイル一元管理 | annotation-style-tokens, AnnotationToolbar | `ANNOTATION_DEFAULTS` 拡張 | - |
+| 32.11, 32.13 | 既定値・既定スタイル一元管理 | annotation-style-tokens, AnnotationToolbar, FreehandTool | `ANNOTATION_DEFAULTS` 拡張 | - |
 | 32.12 | 寸法値ラベルの白アウトライン（Req 25 同形の `TextOutlineAttribute` を独立属性で保持） | DimensionTool（labelText paintFirst, labelOutline 属性） | `TextOutlineAttribute`, `Dimension.setLabelOutline/getLabelOutline` | 6 形状レンダリング構造 |
 | 32.14 | サムネイル再生成連動 | 既存 Req 23 パイプライン（変更不要） | - | - |
 
@@ -6447,7 +6542,7 @@ sequenceDiagram
 | 29.4 | 選択ハンドル44px準拠 | annotation-visual-feedback, AnnotationEditor | configureHandleSizes | - |
 | 33.1, 33.13 | 1本指=描画/誤選択防止 | touchGestureManager, AnnotationEditor | - | 調停フロー |
 | 33.2, 33.3 | 2本指ピンチ・中点ズーム | touchGestureManager, canvasViewportController | zoomToPoint | 中点ズームフロー |
-| 33.4, 34.7 | 2本指パン/等倍時抑止 | canvasViewportController | pan/isPanEnabled | 調停フロー |
+| 33.4, 34.7 | 2本指パン/等倍時抑止 | canvasViewportController, touchGestureManager | pan/isPanEnabled | 調停フロー |
 | 33.5 | 2本目で描画中断 | touchGestureManager, AnnotationEditor | onGestureStart | 調停フロー |
 | 33.6 | 拡大中の正確描画 | AnnotationEditor (Fabric options.scenePoint) | - | 調停フロー |
 | 33.7 | 再開時ビュー維持 | canvasViewportController | getState | 調停フロー |
@@ -6455,7 +6550,7 @@ sequenceDiagram
 | 33.9 | ズーム範囲一貫 | canvasViewportController, ZOOM_CONSTANTS | clampZoom | - |
 | 33.10 | 閲覧/編集の一貫性 | canvasViewportController（共通化） | - | - |
 | 33.11, 33.12 | タッチ選択/移動（拡大中追従） | AnnotationEditor | Fabric selection/object:moving | - |
-| 34.1, 34.4 | ズームイン/アウト/フィット | ZoomControls, useCanvasViewport | zoomIn/zoomOut/fit | 中点ズームフロー |
+| 34.1, 34.4 | ズームイン/アウト/フィット | ZoomControls, useCanvasViewport, canvasViewportController | zoomIn/zoomOut/fit | 中点ズームフロー |
 | 34.2, 34.3 | 倍率表示・更新 | ZoomControls, useCanvasViewport | onZoomChange | 中点ズームフロー |
 | 34.5 | ズームUI 44px | ZoomControls | - | - |
 | 34.6 | 下部・片手到達配置 | ZoomControls | - | - |
@@ -7133,10 +7228,10 @@ graph TB
 | 37.3 | 再送可能な画像の一括再送手段 | `PendingUploadPanel`, `ImageUploader` | `onRetry`, `retriableFiles` | 再送シーケンス |
 | 37.4 | 再送は同一データ・再圧縮しない | `ImageUploader` | `onUpload` | 再送シーケンス |
 | 37.5 | 部分成功時は成功分のみ除去 | `usePendingUploads` | `record` | 再送シーケンス |
-| 37.6 | 全件成功で表示解消 | `usePendingUploads`, `PendingUploadPanel` | `pending` | 再送シーケンス |
+| 37.6 | 全件成功で表示解消 | `usePendingUploads`, `PendingUploadPanel`, `ImageUploader` | `pending` | 再送シーケンス |
 | 37.7 | 破棄の操作手段 | `PendingUploadPanel` | `onDiscardAll` | — |
 | 37.8 | 破棄は確認のうえ解放 | `ImageUploader` | `window.confirm`, `discardAll` | — |
-| 37.9 | 新規選択時も既存保持を維持 | `usePendingUploads` | `record`, `id` による重複排除 | — |
+| 37.9 | 新規選択時も既存保持を維持 | `usePendingUploads`, `ImageUploader` | `record`, `id` による重複排除 | — |
 | 37.10 | 処理中は再送を受け付けない | `ImageUploader`, `PendingUploadPanel` | `isBusy` | — |
 | 37.11 | 認証更新して継続 | `apiClient` | `refreshInFlight` の共有と待ち合わせ | apiClient 分岐 |
 | 37.12 | セッション切れ通知 | `apiClient` | `sessionExpiredCallback`（共有更新の失敗時のみ） | apiClient 分岐 |
