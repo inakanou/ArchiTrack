@@ -36,7 +36,7 @@
 
 本設計書は部品を指すときに**実装に存在する名前をそのまま使う**。「その名前が論理名なのか実ファイル名なのか」を読み手が判別できない状態は、設計と実装の乖離をレビューで見逃す原因になるため、以下を**文書全体の規約**とする。
 
-1. **フロントエンドの画面・コンポーネント・フック**は、**実ファイル名（拡張子なしの basename）** で呼ぶ。この層はファイル名とエクスポート名が一致している。パスを示すときはリポジトリルートからの相対パス（例: `frontend/src/pages/SiteSurveyDetailPage.tsx`）を書く。定数・トークン等のモジュール（`annotation-style-tokens.ts` など）は kebab-case のファイル名で呼び、参照するシンボル名は別途バッククォートで示す。
+1. **フロントエンドの画面・コンポーネント・フック**は、**実ファイル名（拡張子なしの basename）** で呼ぶ。この層はファイル名とエクスポート名が一致している。パスを示すときはリポジトリルートからの相対パス（例: `frontend/src/pages/SiteSurveyDetailPage.tsx`）を書く。定数・トークン等のモジュール（`annotation-style-tokens.ts` など）は kebab-case のファイル名で呼び、参照するシンボル名は別途バッククォートで示す。**この基準に節ごとの例外は設けない。** 要件24-30 節と要件31-32 節の「Modified Files（主要変更点サマリー）」小節はかつて `frontend/src/` 相対を節の宣言として置いていたが、タスク 115.115 でルート相対へ統一した。規約側へ例外条項を置く案は採らなかった。基準が節ごとに分かれると実在照合が節の境界を状態として持たねばならず、宣言を欠く節や新設の節で同じ二重基準が再発するためである（規約7 のプレースホルダ表記だけは深さの自由を持つが、実在の主張ではないため本規約の照合対象ではない）。
 2. **バックエンドのサービス**は、**実エクスポート名（PascalCase のクラス名）** で呼ぶ。ファイル名は kebab-case の別体系（`SiteSurveyService` ⇔ `backend/src/services/site-survey.service.ts`）なので、パスを示すときは相対パスを併記する。一方、**バックエンドのルートは PascalCase のエクスポートを持たない**。`backend/src/routes/site-surveys.routes.ts` / `survey-images.routes.ts` / `annotation.routes.ts` はいずれも `export default router` を主エクスポートとし、PascalCase のエクスポートを持たない（`survey-images.routes.ts` は他に camelCase の `export async function initializeStorageServices()` を公開する。同ディレクトリでは `construction-photo-images.routes.ts` の `initializeConstructionPhotoImageServices` と `invitation.routes.ts` の `createInvitationRoutes` が同じく camelCase 関数を公開する）。したがって**ルートは実ファイル名**（`annotation.routes.ts` 等）で呼び、パスを示すときはリポジトリルートからの相対パスを書く。
 3. 実装に 1:1 で対応する実体を持たない**論理部品名**は、下の「論理名と実体の対応表」に列挙したものだけを使う。**部品名については、表に無い名前は実ファイル名または実エクスポート名そのもの**とみなしてよい。**この既定則が適用されるのは規約6 が定義する「部品名」に限る**（契約名には適用しない。規約6 を参照）。
 4. **Mermaid 図**に限り、ノードID・participant 別名・表示ラベルに短縮形を許容する。使用する短縮形は下表に列挙する。本文・見出し・表・ファイル構成ブロックでは短縮形を使わない。**実在しないファイル名・クラス名を、あたかも実体であるかのようにラベルへ書いてはならない。**
@@ -5001,16 +5001,16 @@ e2e/specs/site-surveys/
 
 #### Modified Files（主要変更点サマリー）
 
-以下の箇条書きのパスは、**`frontend/src/` からの相対パス**である（上のツリーはリポジトリルート相対、この箇条書きは `frontend/src/` 相対と基準が異なる）。
+以下の箇条書きのパスは**リポジトリルートからの相対パス**（呼称規約1）であり、上のツリーと基準は同じである。**パスそのものは実装の実配置と一致していなければならない**。
 
-- `components/site-surveys/tools/ArrowTool.ts` — `Arrow` を `Group` ベースに再設計。内部に `outlinePath`（白・太）と `bodyPath`（本体色・細）の2枚を持つ。`toObject`/`fromObject` に `outline?: { enabled, color, width }` を追加。既存 `generateArrowPath()` はそのまま流用
-- `components/site-surveys/tools/TextTool.ts` — `IText` 初期化時に `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth`（フォントサイズの10-20%）、`strokeUniform: true` を設定。`textOutline?: { enabled, widthRatio }` 属性を追加
-- `components/site-surveys/AnnotationEditor.tsx` — 初期化時に `touchGestureManager.attach(canvas)` を呼び、`custom:dbltap`/`custom:longpress` を listen。`AnnotationContextMenu` をマウント、座標管理
-- `components/site-surveys/ImageViewer.tsx` — `handleTouchStart`/`handleTouchMove` に 3本指以上の早期リターン（= 描画コミット抑止）と cooldown タイマを追加
-- `components/site-surveys/AnnotationToolbar.tsx` — ツールバーに `flexWrap: 'wrap'` とスクロール両対応、`StylePanel` の開閉トグル、白縁取りON/OFF UIを追加
-- `components/site-surveys/annotation-toolbar.constants.ts` — `DEFAULT_STYLE_OPTIONS` / ツール別 `DEFAULT_*_OPTIONS` を `annotation-style-tokens.ts` から参照する形に置換
-- `components/site-surveys/tools/registerCustomShapes.ts` — `classRegistry.setClass('arrow', Arrow)` を Group 版 Arrow で再登録（type ID は `'arrow'` を維持）
-- `services/export/AnnotationRendererService.ts` — Group 版 Arrow / `paintFirst` テキストが `toDataURL` で正しく出ることをテストで検証。**実装上の注意点（実読確認済み）**: 現行 `:153` は `await util.enlivenObjects(...)` を正しく使用しており、Group 化 Arrow の非同期 `fromObject` との互換性は確保される。ただし `:181-185` の `strokeWidth` スケーリング分岐は、Group 化 Arrow では Group 本体に `strokeWidth` が存在しないためスキップされる。これは Fabric Group が子 Path に親の `scaleX/scaleY` を伝搬するため描画結果は正しいが、旧 Path 版と新 Group 版で内部経路が異なるため、Integration Test でスケール非等倍時の矢印レンダリングを必ず検証する
+- `frontend/src/components/site-surveys/tools/ArrowTool.ts` — `Arrow` を `Group` ベースに再設計。内部に `outlinePath`（白・太）と `bodyPath`（本体色・細）の2枚を持つ。`toObject`/`fromObject` に `outline?: { enabled, color, width }` を追加。既存 `generateArrowPath()` はそのまま流用
+- `frontend/src/components/site-surveys/tools/TextTool.ts` — `IText` 初期化時に `paintFirst: 'stroke'`、`stroke: '#ffffff'`、`strokeWidth`（フォントサイズの10-20%）、`strokeUniform: true` を設定。`textOutline?: { enabled, widthRatio }` 属性を追加
+- `frontend/src/components/site-surveys/AnnotationEditor.tsx` — 初期化時に `touchGestureManager.attach(canvas)` を呼び、`custom:dbltap`/`custom:longpress` を listen。`AnnotationContextMenu` をマウント、座標管理
+- `frontend/src/components/site-surveys/ImageViewer.tsx` — `handleTouchStart`/`handleTouchMove` に 3本指以上の早期リターン（= 描画コミット抑止）と cooldown タイマを追加
+- `frontend/src/components/site-surveys/AnnotationToolbar.tsx` — ツールバーに `flexWrap: 'wrap'` とスクロール両対応、`StylePanel` の開閉トグル、白縁取りON/OFF UIを追加
+- `frontend/src/components/site-surveys/annotation-toolbar.constants.ts` — `DEFAULT_STYLE_OPTIONS` / ツール別 `DEFAULT_*_OPTIONS` を `annotation-style-tokens.ts` から参照する形に置換
+- `frontend/src/components/site-surveys/tools/registerCustomShapes.ts` — `classRegistry.setClass('arrow', Arrow)` を Group 版 Arrow で再登録（type ID は `'arrow'` を維持）
+- `frontend/src/services/export/AnnotationRendererService.ts` — Group 版 Arrow / `paintFirst` テキストが `toDataURL` で正しく出ることをテストで検証。**実装上の注意点（実読確認済み）**: 現行 `:153` は `await util.enlivenObjects(...)` を正しく使用しており、Group 化 Arrow の非同期 `fromObject` との互換性は確保される。ただし `:181-185` の `strokeWidth` スケーリング分岐は、Group 化 Arrow では Group 本体に `strokeWidth` が存在しないためスキップされる。これは Fabric Group が子 Path に親の `scaleX/scaleY` を伝搬するため描画結果は正しいが、旧 Path 版と新 Group 版で内部経路が異なるため、Integration Test でスケール非等倍時の矢印レンダリングを必ず検証する
 
 ### System Flows
 
@@ -5706,17 +5706,17 @@ e2e/specs/site-surveys/
 
 #### Modified Files（主要変更点サマリー）
 
-以下の箇条書きのパスは、`frontend/` や `e2e/` 等のパッケージ接頭辞を明示したもの（`frontend/package.json`）を除き、**`frontend/src/` からの相対パス**である。
+以下の箇条書きのパスは**リポジトリルートからの相対パス**（呼称規約1）であり、上のツリーと基準は同じである。**パスそのものは実装の実配置と一致していなければならない**。
 
-- `services/export/AnnotationRendererService.ts` — 既存 `renderImages()` を `bulkExportService` から呼ぶため、`onProgress(index, total)` callback と `signal: AbortSignal` 引数を追加する後方互換拡張（既存呼び出し箇所は引数省略で従来挙動）。Group 化 6 形状の `enlivenObjects` 復元・`toDataURL` 出力をテストで検証
-- `services/ExportService.ts` — `getExportSettings()` 型を `ExportSettings` インターフェースとして export し、個別/一括双方が同型を受領できるよう公開
-- `components/site-surveys/ImageExportDialog.tsx` — `ExportSettingsForm` を埋め込む形にリファクタ。ロジックは維持
-- `components/site-surveys/PhotoManagementPanel.tsx` — 各写真にチェックボックスを追加。`selectedImageIds: Set<string>` を親（SiteSurveyDetailPage）から受け、`onSelectionChange` で同期。両 props 未指定時は選択欄を表示しない（既存呼び出し箇所への後方互換）
-- `pages/SiteSurveyDetailPage.tsx` — 詳細画面アクション領域に「全件一括エクスポート」「選択画像エクスポート（N 件）」ボタンを追加。後者は選択 0 件で disabled
-- `components/site-surveys/annotation-style-tokens.ts` — `ShapeOutlineAttribute = { enabled, color, width }` を export。`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）。`ANNOTATION_DEFAULTS` に `rectangleOutline`/`circleOutline`/`polygonOutline`/`polylineOutline`/`freehandOutline`/`dimensionOutline` を追加、いずれも `enabled: true` 既定
-- `components/site-surveys/tools/registerCustomShapes.ts` — `classRegistry.setClass('rectangle', Rectangle)` 等を Group 版で再登録（type ID 不変）
-- `components/site-surveys/tools/RectangleTool.ts` / `components/site-surveys/tools/CircleTool.ts` / `components/site-surveys/tools/PolygonTool.ts` / `components/site-surveys/tools/PolylineTool.ts` / `components/site-surveys/tools/FreehandTool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
-- `components/site-surveys/tools/DimensionTool.ts` — 寸法線部を Group 化（`outlineLine + bodyLine`）、寸法値ラベルの `FabricText` に `paintFirst: 'stroke'` + `stroke: '#ffffff'` + `strokeWidth = fontSize * 0.12` + `strokeUniform: true` を適用（Req 32 #12）
+- `frontend/src/services/export/AnnotationRendererService.ts` — 既存 `renderImages()` を `bulkExportService` から呼ぶため、`onProgress(index, total)` callback と `signal: AbortSignal` 引数を追加する後方互換拡張（既存呼び出し箇所は引数省略で従来挙動）。Group 化 6 形状の `enlivenObjects` 復元・`toDataURL` 出力をテストで検証
+- `frontend/src/services/ExportService.ts` — `getExportSettings()` 型を `ExportSettings` インターフェースとして export し、個別/一括双方が同型を受領できるよう公開
+- `frontend/src/components/site-surveys/ImageExportDialog.tsx` — `ExportSettingsForm` を埋め込む形にリファクタ。ロジックは維持
+- `frontend/src/components/site-surveys/PhotoManagementPanel.tsx` — 各写真にチェックボックスを追加。`selectedImageIds: Set<string>` を親（SiteSurveyDetailPage）から受け、`onSelectionChange` で同期。両 props 未指定時は選択欄を表示しない（既存呼び出し箇所への後方互換）
+- `frontend/src/pages/SiteSurveyDetailPage.tsx` — 詳細画面アクション領域に「全件一括エクスポート」「選択画像エクスポート（N 件）」ボタンを追加。後者は選択 0 件で disabled
+- `frontend/src/components/site-surveys/annotation-style-tokens.ts` — `ShapeOutlineAttribute = { enabled, color, width }` を export。`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）。`ANNOTATION_DEFAULTS` に `rectangleOutline`/`circleOutline`/`polygonOutline`/`polylineOutline`/`freehandOutline`/`dimensionOutline` を追加、いずれも `enabled: true` 既定
+- `frontend/src/components/site-surveys/tools/registerCustomShapes.ts` — `classRegistry.setClass('rectangle', Rectangle)` 等を Group 版で再登録（type ID 不変）
+- `frontend/src/components/site-surveys/tools/RectangleTool.ts` / `frontend/src/components/site-surveys/tools/CircleTool.ts` / `frontend/src/components/site-surveys/tools/PolygonTool.ts` / `frontend/src/components/site-surveys/tools/PolylineTool.ts` / `frontend/src/components/site-surveys/tools/FreehandTool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
+- `frontend/src/components/site-surveys/tools/DimensionTool.ts` — 寸法線部を Group 化（`outlineLine + bodyLine`）、寸法値ラベルの `FabricText` に `paintFirst: 'stroke'` + `stroke: '#ffffff'` + `strokeWidth = fontSize * 0.12` + `strokeUniform: true` を適用（Req 32 #12）
 - `frontend/package.json` — `dependencies` に `jszip` を追加
 
 ### System Flows
