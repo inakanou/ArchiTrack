@@ -99,7 +99,7 @@
 |---|---|---|
 | `SiteSurveyListView`（`frontend/src/components/site-surveys/SiteSurveyListView.tsx`） | 3.1, 3.5 | `SiteSurveyResponsiveView`（`frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx`）。`SiteSurveyListPage` から結線済みで、テーブル/カード切替に加えグリッド表示も持つ上位互換 |
 | `SiteSurveySearchFilter`（`frontend/src/components/site-surveys/SiteSurveySearchFilter.tsx`） | 3.2, 3.3, 3.4 | `SiteSurveyListPage`（`frontend/src/pages/SiteSurveyListPage.tsx`）が検索フォーム・調査日範囲・並び替え・クリアをページ内に直接実装している |
-| `SiteSurveyErrorDisplay`（`frontend/src/components/site-surveys/SiteSurveyErrorDisplay.tsx`）と `useSiteSurveyError`（`frontend/src/hooks/useSiteSurveyError.ts`） | 16.8 | 表示は `SiteSurveyListPage` / `SiteSurveyDetailPage` の `role="alert"` エラー表示と再試行ボタンが担う。Sentry 送信は `frontend/src/components/ErrorBoundary.tsx` と `frontend/src/utils/logger.ts` が全画面共通で担う |
+| `SiteSurveyErrorDisplay`（`frontend/src/components/site-surveys/SiteSurveyErrorDisplay.tsx`）と `useSiteSurveyError`（`frontend/src/hooks/useSiteSurveyError.ts`） | 16.8 | 表示は `SiteSurveyListPage` / `SiteSurveyDetailPage` の `role="alert"` エラー表示と再試行ボタンが担う。Sentry 送信の**仕組み**は `frontend/src/components/ErrorBoundary.tsx` と `frontend/src/utils/logger.ts` にあるが、`ErrorBoundary` が拾うのは描画時の未捕捉例外だけである。**画面が `catch` で捕捉した誤りは、その画面が `logger.exception` を呼ばない限り監視へ届かない**（当初この欄は仕組みの所在だけを記しており、履行を記していなかった。タスク 115.84 で両画面の捕捉処理へ送出を結線済み。下の「捕捉した誤りの監視送出（タスク 115.84）」を参照） |
 
 **撤去しなかったもの**（撤去すると要件の実装または要件カバレッジが失われるもの。理由は行ごとに異なり、(a) 要件が表示・機能を求めているのに出荷済みの代替実装が無い、(b) 出荷済みの代替実装はあるが受入基準カバレッジの主張が当該部品の単体検証にしか無い、のいずれかである。(a) の正しい是正は結線、(b) の正しい是正は主張を結線側へ移してからの撤去である）:
 
@@ -189,6 +189,30 @@
 **E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件5.5（`site-survey/REQ-5.5`）を「タッチデバイス操作の検証はE2E範囲外。デバイステストで検証」として除外していたが、この根拠は本リポジトリの実態と食い違っていた。マルチタッチはタスク 98.1 が CDP `Input.dispatchTouchEvent`（複数 touchPoints）で送出する手法を確立しており、編集モードのピンチズームは `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` で実測検証済みだからである。同じ手法を閲覧モードへ適用できるため、タスク 115.83 で当該除外を削除し、`e2e/specs/site-surveys/site-survey-viewer.spec.ts` に閲覧モードのピンチズーム検証（2本指を広げて `window.__fabricCanvas.getZoom()` の増加を確認）を追加した。
 
 あわせて、要件5.1-5.4 / 5.6 を名乗る同ファイルの E2E は、`expect(true).toBeTruthy()` や「キャンバスまたはエディタが見えていればよい」といった恒真の判定で「検証済み」に見えていたため、本タスクで本番経路の受入レベルの検証（倍率バッジの遷移、`viewportTransform` の平行移動量、背景画像の `angle`、モード切替をまたいだ倍率・回転の引き継ぎ）へ書き直した。
+
+#### 捕捉した誤りの監視送出（タスク 115.84）
+
+要件16.8 は「エラー発生時に**適切なエラーメッセージを表示し**、**Sentry にログを送信する**」の2点を求める。前半（表示）は `SiteSurveyListPage` / `SiteSurveyDetailPage` の `role="alert"` 表示として出荷済みだったが、**後半（送出）はどちらの画面でも履行されていなかった**。両画面の `catch` は `setError(...)` を呼ぶだけで、監視基盤への記録を送っていなかった（撤去以前から未結線であり、タスク 115.64 による退行ではない）。
+
+本書の「撤去したもの」表は Sentry 送信の担い手を `ErrorBoundary` と `utils/logger.ts` と記していたが、**これは仕組みの所在の記述であって履行の記述ではない**。`ErrorBoundary` の `componentDidCatch` が拾うのは**描画中に throw された未捕捉例外**だけであり、`await` した API 呼び出しを画面が `catch` した時点で例外は消費されるため、`ErrorBoundary` には到達しない。したがって捕捉済みの通信の誤りは、画面自身が送らなければ監視へ届かない。タスク 115.84 で当該欄を履行の記述へ改め、両画面の捕捉処理から送出を行うようにした。
+
+| 送出を結線した捕捉処理 | 送出の内容 |
+|---|---|
+| `SiteSurveyListPage`（`frontend/src/pages/SiteSurveyListPage.tsx`）の `fetchData` | `operation: 'fetchSiteSurveyList'`、`projectId` |
+| `SiteSurveyDetailPage`（`frontend/src/pages/SiteSurveyDetailPage.tsx`）の `fetchData` | `operation: 'fetchSiteSurveyDetail'`、`surveyId` |
+| `SiteSurveyDetailPage` の `handleSaveMetadata` | `operation: 'saveImageMetadata'`、`surveyId` |
+| `SiteSurveyDetailPage` の `handleDeleteConfirm` | `operation: 'deleteSiteSurvey'`、`surveyId` |
+| `SiteSurveyDetailPage` の `handleImageDelete` | `operation: 'deleteSurveyImage'`、`imageId` |
+
+**結線にあたって定めた挙動**:
+
+- **送出の呼び先は `logger.exception`（`frontend/src/utils/logger.ts`）とする。** 本書が Sentry 送信の担い手として定めている経路であり、新たな送出ラッパを設けない。`logger.exception` は `utils/sentry.ts` の `captureException` を呼ぶ前に付帯情報のマスキング（`password` / `token` / `authorization` 等のキーを `[REDACTED]` 化）を通すため、送出経路を一本化する利点がある
+- **付帯情報は画面と操作の特定に必要な最小限に限る。** 送るのは画面名・操作名・対象の識別子（`projectId` / `surveyId` / `imageId`）だけとし、**資格情報・トークン・個人情報・現場調査名やファイル名といった利用者由来の文字列は含めない**。未結線の経路を結線すると、その画面が保持している値をすべて送れてしまうため、送出対象を明示的に列挙する形とした
+- **`Error` 以外がスローされた場合は `Error` へ正規化してから送る。** 表示側は文言のフォールバックを持つが、`captureException` は `Error` を前提とする。文字列がスローされた場合に送出が欠落しては要件16.8 を満たさない
+- **表示の直後に送る。** 表示（`setError`）と送出は同じ捕捉処理の中で必ず対になる。画像削除のように捕捉後に再スローする経路（呼び出し元の `PhotoManagementPanel` へ伝播させる）でも、再スローの前に送出する
+- **誤りが起きていないときは送らない。** 成功経路からの送出は監視のノイズになるため行わない
+
+**E2E 除外一覧の判断**: `e2e/requirement-exclusions.json` の `site-survey/REQ-16.8` は「エラーログ送信の検証は E2E 範囲外。統合テストで検証」として除外されている。**この除外そのものは維持する**。E2E 環境（フロント :5174 / バックエンド :3100）には `VITE_SENTRY_DSN` が設定されておらず、`utils/sentry.ts` の `captureException` は DSN 未設定時に何も送らずに戻るため、**E2E からは送出を観測できない**（本リポジトリで `SENTRY` を参照する設定は CI の backend 用シークレットのみ。実測）。ただし除外が挙げていた代替検証は `frontend/src/utils/sentry.test.ts`（送出ユーティリティ単体）しか無く、**画面の捕捉処理を一切通っていなかった**ため、除外の記述をタスク 115.84 で結線後の実体へ改めた。代替検証は `frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx` と `frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx` が担い、いずれも `utils/sentry` だけを差し替えて `logger` は本番実装を通し、**画面の描画経路から `captureException` へ到達すること**を検証する。
 
 #### 契約名の実在対照表
 

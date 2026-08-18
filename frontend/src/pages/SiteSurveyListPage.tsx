@@ -28,6 +28,7 @@ import type {
   SiteSurveyFilter,
 } from '../types/site-survey.types';
 import SiteSurveyResponsiveView from '../components/site-surveys/SiteSurveyResponsiveView';
+import { logger } from '../utils/logger';
 
 // ============================================================================
 // 定数定義
@@ -246,6 +247,16 @@ export default function SiteSurveyListPage() {
       setSiteSurveys(surveysData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
+      // 捕捉した誤りを監視基盤へ送る (Task 115.84, Requirement 16.8)。
+      // 要件16.8 はエラー時の「表示」と「Sentry へのログ送信」の双方を求める。
+      // 全画面共通の ErrorBoundary は描画時の未捕捉例外しか拾わないため、
+      // 画面が捕捉した通信の誤りは、ここから送らなければ監視へ届かない。
+      // 送出内容は画面と操作の特定に必要な最小限に限り、資格情報・個人情報は含めない。
+      logger.exception(err instanceof Error ? err : new Error(String(err)), {
+        screen: 'SiteSurveyListPage',
+        operation: 'fetchSiteSurveyList',
+        projectId,
+      });
     } finally {
       setIsLoading(false);
     }

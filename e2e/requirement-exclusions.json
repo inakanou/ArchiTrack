@@ -723,12 +723,12 @@
       "id": "site-survey/REQ-16.8",
       "requirement": "REQ-16: 非機能要件",
       "title": "エラー時のSentry送信",
-      "reason": "エラーログ送信の検証はE2E範囲外。統合テストで検証",
+      "reason": "エラーログ送信の検証はE2E範囲外。E2E環境はVITE_SENTRY_DSN未設定でcaptureExceptionが送信せず観測できないため、画面の捕捉処理からSentry境界までを単体検証で確認する",
       "category": "fault-tolerance",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Sentry mock",
-        "description": "エラー発生時にSentryにログが送信されることを確認",
+        "tool": "Vitest / utils/sentry モック",
+        "description": "一覧画面・詳細画面の catch 処理が logger.exception 経由で captureException を呼ぶことを、画面の描画経路から確認する（frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx, frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx。タスク 115.84 で結線）",
         "threshold": "sentry_log: sent"
       }
     },

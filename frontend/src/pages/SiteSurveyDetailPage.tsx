@@ -35,6 +35,7 @@ import {
   deleteSurveyImage,
 } from '../api/survey-images';
 import { isUnsupportedFormatMessage } from '../utils/upload-failure';
+import { logger } from '../utils/logger';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import useMediaQuery from '../hooks/useMediaQuery';
@@ -309,6 +310,28 @@ function pruneSelectionToExistingImages(
 }
 
 /**
+ * 捕捉した誤りを監視基盤へ送る (Task 115.84, Requirement 16.8)
+ *
+ * 要件16.8 はエラー時の「表示」と「Sentry へのログ送信」の双方を求める。
+ * 全画面共通の `ErrorBoundary` は描画時の未捕捉例外しか拾わないため、
+ * 画面が捕捉した通信の誤りは、この画面から送らなければ監視へ届かない。
+ * 送出内容は画面と操作の特定に必要な最小限に限り、資格情報・個人情報は含めない。
+ * `logger.exception` を用いるのは、設計書が Sentry 送信の担い手を
+ * `utils/logger.ts` と定めており、同経路が機密情報のマスキングを行うためである。
+ */
+function reportCaughtError(
+  err: unknown,
+  operation: string,
+  context: Record<string, string | undefined>
+): void {
+  logger.exception(err instanceof Error ? err : new Error(String(err)), {
+    screen: 'SiteSurveyDetailPage',
+    operation,
+    ...context,
+  });
+}
+
+/**
  * 現場調査詳細ページ
  *
  * 現場調査の基本情報と画像一覧を表示し、各画像から
@@ -391,6 +414,7 @@ export default function SiteSurveyDetailPage() {
       setSelectedImageIds((prev) => pruneSelectionToExistingImages(prev, data?.images));
     } catch (err) {
       setError(err instanceof Error ? err.message : '現場調査の取得に失敗しました');
+      reportCaughtError(err, 'fetchSiteSurveyDetail', { surveyId: id });
     } finally {
       setIsLoading(false);
     }
@@ -529,6 +553,7 @@ export default function SiteSurveyDetailPage() {
       markAsSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存に失敗しました');
+      reportCaughtError(err, 'saveImageMetadata', { surveyId: id });
     } finally {
       setIsSavingMetadata(false);
     }
@@ -561,6 +586,7 @@ export default function SiteSurveyDetailPage() {
       navigate(`/projects/${survey.projectId}/site-surveys`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '削除に失敗しました');
+      reportCaughtError(err, 'deleteSiteSurvey', { surveyId: id });
       setShowDeleteDialog(false);
     } finally {
       setIsDeleting(false);
@@ -620,6 +646,7 @@ export default function SiteSurveyDetailPage() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : '画像の削除に失敗しました');
+      reportCaughtError(err, 'deleteSurveyImage', { imageId });
       throw err; // PhotoManagementPanelにエラーを伝播
     }
   }, []);
