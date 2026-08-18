@@ -189,6 +189,34 @@
 
 **E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件6.2 / 6.3 を「統合テストで検証」として E2E から除外していたが、その統合検証は結線されていない `DimensionValueInput` を単体で組み立てて回すだけだった。結線が済んだため除外の根拠は失われ、タスク 115.82 で当該2件を除外一覧から削除した。あわせて `e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts` の要件6.2 / 6.3 を名乗る2件は、実際にはスタイルオプションの表示と色設定（要件6.7 と重複）しか見ていなかったため、寸法線の描画→入力欄の表示→確定→寸法線上のラベル表示という本番経路を通す検証へ書き直した。
 
+#### 除外一覧の根拠の全件監査（タスク 115.121）
+
+`e2e/requirement-exclusions.json` の全項目について、**除外の根拠が本番へ到達する検証を指しているか**を機械的に確かめた。判定の原則はタスク 115.81 が確定させた「除外の根拠は『検証が存在すること』ではなく『本番へ到達すること』」である。本タスクの境界は根拠の成否の洗い出しと是正であり、**未結線の解消（結線）は扱わない**。
+
+**対象の件数**: 除外は **261 件**である（`node -e "console.log(require('./e2e/requirement-exclusions.json').exclusions.length)"` の出力が `261`。書く直前の実測）。うち現場調査スペックの項目は **66 件**である（`node -e "console.log(require('./e2e/requirement-exclusions.json').exclusions.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `66`）。
+
+**手順**: 各項目について (1) 根拠が名指す検証成果物をリポジトリから特定し、(2) その検証が触れる実装の本番参照を、上の「未結線部品の扱い」と同じ式（`frontend/src` 配下から `__tests__` 配下・`*.test.*`・`*.stories.*`・自ファイルを除いた import 元の数）で数えた。**0 件なら、その検証は出荷されていない部品を回しているので根拠にならない。**
+
+**内訳**: 現場調査の 66 件は、根拠が自動検証を主張しないもの（負荷試験・監視・設定レビュー・セキュリティ監査・実機試験・視覚回帰・ライブラリ挙動）が **16 件**、自動検証を主張するものが **50 件**である（`node -e "const s=require('./e2e/requirement-exclusions.json').exclusions.filter(e=>e.id.startsWith('site-survey/'));const a=new Set(['integration-test','unit-test','api-test']);console.log(s.filter(e=>a.has(e.alternativeVerification.method)).length, s.filter(e=>!a.has(e.alternativeVerification.method)).length)"` の出力が `50 16`）。50 件のうち**根拠が失効していたのは 2 件**であり、残る **48 件**（50 − 2）は根拠が名指す検証成果物を特定でき、その検証が触れる実装が本番から参照されていることを確かめた。
+
+| 根拠が失効した項目 | 旧根拠 | 実測 | 本タスクの是正 |
+|---|---|---|---|
+| 要件15.6（ネットワーク切断時の警告） | 「ネットワーク切断のシミュレーションはE2E範囲外。統合テストで検証」 | 警告表示と保存ブロックの唯一の実装 `frontend/src/components/NetworkStatusIndicator.tsx` の本番参照が **0 件**。その唯一の利用元 `frontend/src/hooks/useNetworkStatus.ts` も当該部品からしか呼ばれず、切断を検知して画面へ届く経路が存在しない。代替検証 `frontend/src/__tests__/components/NetworkStatusIndicator.test.tsx` は出荷されていない部品だけを回している | 根拠を失っている事実と実測を当該項目の `reason` へ記録した。**タスク 115.81 が是正した自動保存・復元の除外と完全に同型**であり、結線と当該項目の見直しは**タスク 115.105**（「通信が切れた状態への対応が皆無である状態を解消する」。同タスクは「あわせて除外一覧の当該項目を見直すこと」を指示している）の所管とする |
+| 要件9.6（注釈データのJSONエクスポート） | 「JSONエクスポート機能は現在未実装。実装後に検証方法を決定」 | 未充足であること自体を除外の理由にしており根拠として成立しない。加えて**旧根拠は事実としても失効している**: エクスポート経路は `backend/src/routes/annotation.routes.ts` に出荷済みで、`backend/src/__tests__/unit/routes/annotation.routes.test.ts` が supertest で当該ルートを叩いている。E2E から外れる現在の理由は、`frontend/src/api/survey-annotations.ts` の `exportAnnotationJson` を呼ぶ本番コードが **0 件**で画面からの到達経路が無いことである | `reason` と `alternativeVerification` を実測へ差し替えた。画面側の未結線の解消は後続タスクの所管とする |
+
+**起票文が挙げた前提の測り直し**: タスク 115.121 の起票文は 3 つの前提を挙げるが、**そのうち 2 つは着手時点で既に成立していない**。
+
+- **寸法値の入力に関する二件（要件6.2 / 6.3）は、そもそも除外一覧に存在しない。** タスク 115.82（コミット `1a62076`）が撤去済みで、上の「寸法値入力欄の結線（タスク 115.82）」がその撤去を記録している。非存在は `node -e "console.log(require('./e2e/requirement-exclusions.json').exclusions.filter(e=>e.id==='site-survey/REQ-6.2'||e.id==='site-survey/REQ-6.3').length)"` の出力が `0` であることで確かめられる。**起票文の「その担い手は本番参照が零」は起票時点の観測であって現況ではない**（`DimensionValueInput` は `frontend/src/components/site-surveys/AnnotationEditor.tsx` の 66 行目で import され 3181 行目で描画される）
+- **寸法線の選択と削除の二件（要件6.4 / 6.6）が「同じ未結線の経路に依存している疑い」は偽である。** 寸法線の実体 `frontend/src/components/site-surveys/tools/DimensionTool.ts` は結線タスク以前から `AnnotationEditor` が import しており（`1a62076` の親コミットの `AnnotationEditor.tsx` に既に import 行がある）、Delete / Backspace の処理も同画面に実装がある。根拠が名指す単体検証も実在する（要件6.4 は `frontend/src/__tests__/components/site-surveys/DimensionTool.test.tsx` の「寸法値の再編集（6.4）」と「選択状態の管理」、要件6.6 は `frontend/src/__tests__/components/site-surveys/AnnotationEditor.test.tsx` の Delete / Backspace 検証）。**2 件とも根拠は成立している**
+- **「機能が未実装」を根拠にする一件（要件9.6）は、根拠が成立しない点は起票文のとおりだが、理由が起票文と異なる。** 上表のとおり実装は出荷済みであり、失効の型は「未充足を理由にしている」ことに加えて「根拠の記述が古い」ことである
+
+**あわせて是正した除外一覧の記述**: `summary` の集計が実態から乖離していた。`totalExclusions` は `584`（実測 261）、`byCategory` は全区分が旧値で、区分 `removed-from-spec` は欄ごと欠落していた。実測値へ書き換えた。
+
+**境界外に残る観測（是正は後続タスクを要する）**:
+
+- **代替検証手段に Jest を挙げる項目は、是正前は 124 件あった。**本リポジトリに Jest の依存も設定ファイルも存在せず、`frontend/package.json` と `backend/package.json` はいずれも Vitest を使う（両ファイルとも `vitest` を持ち `jest` を持たない。`frontend/vitest.config.ts` と `backend/vitest.config.ts` が実在する）。**根拠が名指す道具が実在しない。**124 件の内訳は現場調査スペックの項目が **32 件**、他機能スペックの項目が **92 件**であった。**このうち現場調査の 32 件は本タスクの境界内であるため、すべて Vitest へ改めた**（上表の 2 件は根拠ごと差し替え、残る 30 件は道具名の先頭 `Jest` を `Vitest` へ置換し `React Testing Library` / `Supertest` などの併記部分は据え置いた）。**是正後に Jest を挙げる項目は 92 件で、すべて他機能スペックの所管である**（`node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `92 0`。書く直前の実測）。他機能スペックの項目は本タスクの境界外であるため記録にとどめた。**後続タスクの提案**: 各機能スペックで自機能の項目の道具名を実測へ改めること
+- **要件9.3（未保存変更時の確認ダイアログ）は、検証が本番へ到達するが要件が名指す経路へは到達しない。** 根拠が指す `frontend/src/hooks/useUnsavedChanges.ts` は本番から 5 箇所に結線されており、現場調査ではそのうち `frontend/src/pages/SiteSurveyDetailPage.tsx` が使う。しかし同ページの未保存対象は画像コメントと並び順であり、要件9.3 が名指す「注釈を編集中に画面を離れようとする」経路を担う `AnnotationEditor.tsx` には離脱確認の実装が無い。**「本番へ到達する」と「要件の経路へ到達する」は別の主張である。****後続タスクの提案**: 注釈編集中の離脱確認の有無を要件9.3 に照らして決着させること
+
 #### 画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）
 
 タスク 115.64 が「要件33-34 節にフェーズ4 の移行計画があるため設計上の役割が現存する」として存置した `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`）について、タスク 115.83 で**要件5 の担当を実態へ付け替えた**。決定の根拠は次の3点である。

@@ -2,7 +2,7 @@
   "$schema": "./requirement-exclusions.schema.json",
   "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
   "version": "1.0.0",
-  "lastUpdated": "2026-08-15",
+  "lastUpdated": "2026-08-19",
   "exclusions": [
     {
       "id": "REQ-23.3",
@@ -480,7 +480,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Concurrent requests",
+        "tool": "Vitest / Concurrent requests",
         "description": "同時編集時に楽観的ロック競合が検出され、適切にエラーを返すことを確認",
         "threshold": "optimistic_lock: handled"
       }
@@ -493,7 +493,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "api-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "存在しないプロジェクトIDで現場調査作成時に404エラーが返されることを確認",
         "threshold": "http_status: 404"
       }
@@ -506,7 +506,7 @@
       "category": "fault-tolerance",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "未保存の変更がある状態で画面離脱時に確認ダイアログが表示されることを確認",
         "threshold": "confirmation_dialog: displayed"
       }
@@ -519,7 +519,7 @@
       "category": "fault-tolerance",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "保存処理中にローディングインジケーターが表示されることを確認",
         "threshold": "loading_indicator: displayed"
       }
@@ -532,7 +532,7 @@
       "category": "fault-tolerance",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Mock Service Worker",
+        "tool": "Vitest / Mock Service Worker",
         "description": "注釈データの保存に失敗した場合にエラーメッセージが表示されることを確認",
         "threshold": "error_message: displayed"
       }
@@ -541,13 +541,13 @@
       "id": "site-survey/REQ-9.6",
       "requirement": "REQ-9: 注釈データの保存・復元",
       "title": "注釈データのJSONエクスポート",
-      "reason": "JSONエクスポート機能は現在未実装。実装後に検証方法を決定",
+      "reason": "タスク 115.121 の全件監査で根拠を差し替えた。旧根拠「JSONエクスポート機能は現在未実装。実装後に検証方法を決定」は、未充足であること自体を除外の理由にしており根拠として成立しないうえ、実測でも失効している。エクスポート経路は backend/src/routes/annotation.routes.ts に出荷済みで、backend/src/__tests__/unit/routes/annotation.routes.test.ts が supertest で当該ルートを実際に叩いている（application/json と attachment 付き Content-Disposition、画像不在時の404）。現在 E2E から除外する理由は、frontend/src/api/survey-annotations.ts の exportAnnotationJson を呼ぶ本番コードが0件で、画面からエクスポートへ到達する経路が無いことである。この未結線の解消は本タスクの境界外であり後続タスクの所管とする",
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest",
-        "description": "注釈データをJSON形式でエクスポートできることを確認",
-        "threshold": "export_format: JSON"
+        "tool": "Vitest / supertest",
+        "description": "注釈エクスポート経路が application/json と attachment 付き Content-Disposition で JSON を返し、対象画像が存在しない場合に404を返すことを確認",
+        "threshold": "http_status: 200 / content_disposition: attachment"
       }
     },
     {
@@ -571,7 +571,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Prisma",
+        "tool": "Vitest / Prisma",
         "description": "現場調査の操作履歴が監査ログに記録されることを確認",
         "threshold": "audit_log: recorded"
       }
@@ -619,11 +619,11 @@
       "id": "site-survey/REQ-15.6",
       "requirement": "REQ-15: レスポンシブ対応",
       "title": "ネットワーク切断時の警告",
-      "reason": "ネットワーク切断のシミュレーションはE2E範囲外。統合テストで検証",
+      "reason": "タスク 115.121 の全件監査で根拠が失効していることを確認した。要件15.6 が求める「警告表示」と「保存操作のブロック」の唯一の実装は frontend/src/components/NetworkStatusIndicator.tsx であり、本番参照は0件である（frontend/src 配下から __tests__ 配下・*.test.* ・*.stories.* と自ファイルを除いた import 元が0件。実測）。その唯一の利用元 frontend/src/hooks/useNetworkStatus.ts も当該部品からしか呼ばれないため、切断を検知して警告や保存ブロックに至る本番経路は存在しない。したがって代替検証 frontend/src/__tests__/components/NetworkStatusIndicator.test.tsx は出荷されていない部品だけを回しており、除外の根拠が本番へ到達していない。タスク 115.81 が是正した自動保存・復元の除外と同型である。結線は本タスクの境界外であり、タスク 115.105「通信が切れた状態への対応が皆無である状態を解消する」の所管である。同タスクは「あわせて除外一覧の当該項目を見直すこと」を指示しており、本項目の見直しも同タスクが担う。結線が済むまで本項目は根拠を欠いたまま存置する",
       "category": "fault-tolerance",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Navigator.onLine mock",
+        "tool": "Vitest / Navigator.onLine mock（現状は未結線部品のみを回すため根拠として不成立）",
         "description": "ネットワーク接続が切断された場合に警告が表示されることを確認",
         "threshold": "offline_warning: displayed"
       }
@@ -740,7 +740,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Unit test",
+        "tool": "Vitest / Unit test",
         "description": "5件超過時に5件ずつキュー処理されることを確認",
         "threshold": "queue_batch_size: 5"
       }
@@ -753,7 +753,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / API test",
+        "tool": "Vitest / API test",
         "description": "画像アップロード完了時にサムネイルが自動生成されることを確認",
         "threshold": "thumbnail_generated: true"
       }
@@ -766,7 +766,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / API test",
+        "tool": "Vitest / API test",
         "description": "300KB超過時に250KB〜350KB範囲に圧縮されることを確認",
         "threshold": "compressed_size: 250-350KB"
       }
@@ -779,7 +779,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "寸法線の端点をドラッグして位置を調整できることを確認",
         "threshold": "drag_endpoint: functional"
       }
@@ -792,7 +792,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "選択中の図形をドラッグして移動できることを確認",
         "threshold": "drag_move: functional"
       }
@@ -805,7 +805,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "選択中の図形のハンドルをドラッグしてサイズ変更できることを確認",
         "threshold": "resize_handle: functional"
       }
@@ -818,7 +818,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "テキストコメントをドラッグして位置を移動できることを確認",
         "threshold": "drag_text: functional"
       }
@@ -831,7 +831,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Unit test",
+        "tool": "Vitest / Unit test",
         "description": "操作履歴が最大50件まで保持されることを確認",
         "threshold": "max_history: 50"
       }
@@ -844,7 +844,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Unit test",
+        "tool": "Vitest / Unit test",
         "description": "注釈データ保存時に操作履歴がクリアされることを確認",
         "threshold": "history_clear_on_save: true"
       }
@@ -857,7 +857,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "クリックで寸法線オブジェクトを選択できることを確認",
         "threshold": "click_select: functional"
       }
@@ -870,7 +870,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "Deleteキーで選択中の寸法線を削除できることを確認",
         "threshold": "delete_key: functional"
       }
@@ -883,7 +883,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "選択中の寸法線の色・線の太さを変更できることを確認",
         "threshold": "style_change: functional"
       }
@@ -896,7 +896,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "ドラッグによる長方形の描画が機能することを確認",
         "threshold": "rectangle_draw: functional"
       }
@@ -909,7 +909,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "クリックで頂点を追加、ダブルクリックで閉じることを確認",
         "threshold": "polygon_draw: functional"
       }
@@ -922,7 +922,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "クリックで点を追加、ダブルクリックで終了することを確認",
         "threshold": "polyline_draw: functional"
       }
@@ -935,7 +935,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "ダブルクリックでテキストを編集モードにできることを確認",
         "threshold": "double_click_edit: functional"
       }
@@ -948,7 +948,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "フォントサイズを変更できることを確認",
         "threshold": "font_size_change: functional"
       }
@@ -961,7 +961,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "テキストの背景色を設定できることを確認",
         "threshold": "background_color: functional"
       }
@@ -974,7 +974,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "吹き出し形式でテキストを表示できることを確認",
         "threshold": "callout_style: functional"
       }
@@ -1026,7 +1026,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "Undo後にRedoで操作をやり直せることを確認",
         "threshold": "redo: functional"
       }
@@ -1039,7 +1039,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "Ctrl+Z/Ctrl+Shift+Zでundo/redoが実行されることを確認",
         "threshold": "keyboard_shortcuts: functional"
       }
@@ -3153,7 +3153,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "注釈保存APIレスポンスにサムネイルURLが含まれ、同期的に返却されることを検証",
         "threshold": "response.annotatedThumbnailUrl !== null"
       }
@@ -3166,7 +3166,7 @@
       "category": "fault-tolerance",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "サムネイル生成処理のモックを使用し、失敗時にthumbnailRegenerationErrorイベントが発行されることを検証",
         "threshold": "error_event: emitted"
       }
@@ -3179,7 +3179,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "変更なし保存操作後にサムネイルURLが同一であることを検証",
         "threshold": "thumbnail_url: unchanged"
       }
@@ -3346,16 +3346,17 @@
     }
   },
   "summary": {
-    "totalExclusions": 584,
+    "totalExclusions": 261,
     "byCategory": {
-      "performance": 24,
-      "infrastructure": 103,
-      "fault-tolerance": 21,
-      "data-integrity": 28,
+      "performance": 25,
+      "infrastructure": 106,
+      "fault-tolerance": 19,
+      "data-integrity": 40,
       "security": 5,
-      "pending-implementation": 367,
-      "integration-test": 36
+      "integration-test": 60,
+      "removed-from-spec": 1,
+      "pending-implementation": 5
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.4-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証。site-survey/REQ-21.1-21.8は画像アップロード時の拡張子不一致許容でマジックバイト判定はバイナリレベル処理のためユニットテストで検証。site-survey/REQ-22.1-22.8は注釈エディタでの画像回転機能でCanvas操作のためユニットテストで検証。site-survey/REQ-23.4は保存処理の同期完了保証でバックエンド内部制御のため統合テストで検証。site-survey/REQ-23.6はサムネイル再生成失敗時のエラー処理で異常系のため統合テストで検証。site-survey/REQ-23.8はサムネイル再生成の冪等性でバックエンド内部ロジックのため統合テストで検証。site-survey/REQ-38.4は画像一覧取得の応答時間の計測でsite-survey/REQ-16.1と同種のためパフォーマンステスト(backend/performance/survey-image-list.perf.ts)で検証。quantity-table-generation/REQ-49.3, 49.7, 49.8, 49.9は要件49（画面表示のリクエスト効率）のうち本ブランチが実装していない範囲で、実装とE2Eはquantity-table-generationスペックの所管。"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.4-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証。site-survey/REQ-21.1-21.8は画像アップロード時の拡張子不一致許容でマジックバイト判定はバイナリレベル処理のためユニットテストで検証。site-survey/REQ-22.1-22.8は注釈エディタでの画像回転機能でCanvas操作のためユニットテストで検証。site-survey/REQ-23.4は保存処理の同期完了保証でバックエンド内部制御のため統合テストで検証。site-survey/REQ-23.6はサムネイル再生成失敗時のエラー処理で異常系のため統合テストで検証。site-survey/REQ-23.8はサムネイル再生成の冪等性でバックエンド内部ロジックのため統合テストで検証。site-survey/REQ-38.4は画像一覧取得の応答時間の計測でsite-survey/REQ-16.1と同種のためパフォーマンステスト(backend/performance/survey-image-list.perf.ts)で検証。quantity-table-generation/REQ-49.3, 49.7, 49.8, 49.9は要件49（画面表示のリクエスト効率）のうち本ブランチが実装していない範囲で、実装とE2Eはquantity-table-generationスペックの所管。タスク 115.121 の全件監査（2026-08-19）: 除外は実測261件であり、totalExclusions が584・byCategory が旧値のまま陳腐化していたため実測値へ是正した（removed-from-spec の区分は byCategory から欠落していた）。根拠が本番へ到達する検証を指しているかを全件について確かめ、失効していた site-survey/REQ-15.6 と site-survey/REQ-9.6 の2件を実測へ差し替えた。あわせて alternativeVerification.tool が Jest を挙げる項目を精査した。本リポジトリには Jest の依存も設定ファイルも存在せず frontend / backend とも Vitest である（frontend/package.json・backend/package.json とも vitest を持ち jest を持たない）。是正前は124件あり、内訳は現場調査スペック32件・他機能スペック92件であった。うち現場調査の32件は本タスクの境界内であるためすべて Vitest へ改めた（上記2件は根拠ごと差し替え、残る30件は先頭の Jest を Vitest へ置換し併記部分は据え置いた）。是正後に Jest を挙げる項目は92件で、すべて他機能スペックの所管であるため本監査では記録にとどめ、道具名の是正は各機能スペックの後続タスクへ委ねる。"
   }
 }
