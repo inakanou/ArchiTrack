@@ -720,6 +720,130 @@ describe('AutoSaveManager', () => {
       });
     });
 
+    // =========================================================================
+    // 要件15.10: クロスブラウザ検出の四形式を本番経路で個別に確かめる
+    //
+    // 判定（utils/storage-error の isQuotaExceededError）は番号を先に見るため、
+    // 番号と名前の両方を備えた例外を注入すると名前の分岐へ到達しない。
+    // ここでは四形式それぞれについて「ただ一つの判定にだけ合致する」例外を
+    // localStorage.setItem から投げ、本番経路（performSaveWithResult の catch）が
+    // 容量超過として扱うことを確かめる。
+    //
+    // jsdom の DOMException は既知の名前に対して legacy code を自動的に持つ
+    // （'QuotaExceededError' → 22）ため、名前だけの形式には code を持たない
+    // 素の Error を使う。
+    // =========================================================================
+    describe('要件15.10 クロスブラウザ検出の四形式（本番経路）', () => {
+      /** 容量超過として扱われたときだけ返るエラー文言（その他のエラーでは e.message が返る） */
+      const QUOTA_FAILURE_MESSAGE = 'Storage quota exceeded, cannot free enough space';
+
+      const quotaErrorForms: { label: string; create: () => Error }[] = [
+        {
+          label: 'code===22のみ',
+          create: () => {
+            const error = new DOMException('Storage full');
+            Object.defineProperty(error, 'code', { value: 22 });
+            return error;
+          },
+        },
+        {
+          label: 'code===1014のみ',
+          create: () => {
+            const error = new DOMException('Storage full');
+            Object.defineProperty(error, 'code', { value: 1014 });
+            return error;
+          },
+        },
+        {
+          label: 'name===QuotaExceededErrorのみ（codeなし）',
+          create: () => {
+            const error = new Error('Storage full');
+            Object.defineProperty(error, 'name', { value: 'QuotaExceededError' });
+            return error;
+          },
+        },
+        {
+          label: 'name===NS_ERROR_DOM_QUOTA_REACHEDのみ（codeなし）',
+          create: () => {
+            const error = new Error('Storage full');
+            Object.defineProperty(error, 'name', { value: 'NS_ERROR_DOM_QUOTA_REACHED' });
+            return error;
+          },
+        },
+      ];
+
+      it.each(quotaErrorForms)(
+        '$label の例外が、他の三形式に合致しない入力になっていること',
+        ({ label, create }) => {
+          const error = create();
+          const code = (error as unknown as { code?: number }).code;
+          const matchers = [
+            code === 22,
+            code === 1014,
+            error.name === 'QuotaExceededError',
+            error.name === 'NS_ERROR_DOM_QUOTA_REACHED',
+          ];
+
+          // ちょうど一つの形式にだけ合致していなければ、その形式を単独に確かめられない
+          expect(matchers.filter(Boolean).length, `${label} の合致数`).toBe(1);
+        }
+      );
+
+      it.each(quotaErrorForms)('$label の例外を本番経路が容量超過として扱うこと', ({ create }) => {
+        const onQuotaExceeded = vi.fn();
+        autoSaveManager.setOnQuotaExceeded(onQuotaExceeded);
+
+        const error = create();
+        const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw error;
+        });
+
+        const result = autoSaveManager.saveToLocalWithResult(
+          'image-1',
+          'survey-1',
+          mockAnnotationData,
+          true
+        );
+
+        // 容量超過と判定された場合のみ、古いエントリの削除とリトライを経て
+        // onQuotaExceeded が呼ばれ、専用の文言が返る
+        expect(result.success).toBe(false);
+        expect(result.error).toBe(QUOTA_FAILURE_MESSAGE);
+        expect(onQuotaExceeded).toHaveBeenCalledTimes(1);
+        expect(setItemSpy).toHaveBeenCalledTimes(2);
+
+        setItemSpy.mockRestore();
+      });
+
+      it('四形式のいずれにも合致しない例外は容量超過として扱わないこと', () => {
+        const onQuotaExceeded = vi.fn();
+        autoSaveManager.setOnQuotaExceeded(onQuotaExceeded);
+
+        // code も名前も四形式に当たらない例外
+        const error = new Error('Storage full');
+        Object.defineProperty(error, 'name', { value: 'InvalidStateError' });
+        const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+          throw error;
+        });
+
+        const result = autoSaveManager.saveToLocalWithResult(
+          'image-1',
+          'survey-1',
+          mockAnnotationData,
+          true
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Storage full');
+        expect(result.error).not.toBe(QUOTA_FAILURE_MESSAGE);
+        expect(onQuotaExceeded).not.toHaveBeenCalled();
+        // リトライしない（容量超過ではないため）
+        expect(setItemSpy).toHaveBeenCalledTimes(1);
+
+        setItemSpy.mockRestore();
+      });
+    });
+
     describe('storage statistics', () => {
       it('should report storage usage statistics', () => {
         autoSaveManager.saveToLocal('image-1', 'survey-1', mockAnnotationData, true);

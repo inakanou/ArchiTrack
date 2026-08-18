@@ -24,31 +24,55 @@ import {
 // =============================================================================
 
 describe('isQuotaExceededError', () => {
-  it('Chrome/Safari/Edge: code===22のエラーを検出すること', () => {
-    const error = new DOMException('Quota exceeded', 'QuotaExceededError');
-    // DOMExceptionのcodeプロパティを上書き
+  // ---------------------------------------------------------------------------
+  // 要件15.10 が挙げる四形式を、それぞれ「ただ一つの判定にだけ合致する」入力で
+  // 確かめる。判定は番号を先に見るため、番号と名前の両方を備えた例外を渡すと
+  // 名前の分岐へ到達しない。名前の分岐を確かめるには番号を持たない例外が要る。
+  //
+  // なお jsdom の DOMException は既知の名前に対して legacy code を自動的に持つ
+  // （'QuotaExceededError' → 22）。名前だけの入力には素の Error を使う。
+  // ---------------------------------------------------------------------------
+
+  it('Chrome/Safari/Edge: code===22のみに合致するエラーを検出すること', () => {
+    // 名前は容量超過を示さない値（DOMException の既定名は 'Error'）にして、
+    // code===22 の判定だけが成立する入力にする
+    const error = new DOMException('Quota exceeded');
     Object.defineProperty(error, 'code', { value: 22 });
+    expect(error.name).not.toBe('QuotaExceededError');
+    expect(error.name).not.toBe('NS_ERROR_DOM_QUOTA_REACHED');
 
     expect(isQuotaExceededError(error)).toBe(true);
   });
 
-  it('Firefox: code===1014のエラーを検出すること', () => {
+  it('Firefox: code===1014のみに合致するエラーを検出すること', () => {
     const error = new DOMException('Quota exceeded');
     Object.defineProperty(error, 'code', { value: 1014 });
+    expect(error.name).not.toBe('QuotaExceededError');
+    expect(error.name).not.toBe('NS_ERROR_DOM_QUOTA_REACHED');
 
     expect(isQuotaExceededError(error)).toBe(true);
   });
 
-  it('name===QuotaExceededErrorのエラーを検出すること', () => {
-    const error = new DOMException('Quota exceeded', 'QuotaExceededError');
+  it('name===QuotaExceededErrorのみに合致するエラー（codeなし）を検出すること', () => {
+    // 素の Error は code を持たないため、名前の判定だけが成立する
+    const error = new Error('Quota exceeded');
+    Object.defineProperty(error, 'name', { value: 'QuotaExceededError' });
+    expect((error as unknown as { code?: number }).code).toBeUndefined();
 
     expect(isQuotaExceededError(error)).toBe(true);
   });
 
-  it('name===NS_ERROR_DOM_QUOTA_REACHEDのエラーを検出すること', () => {
+  it('name===NS_ERROR_DOM_QUOTA_REACHEDのみに合致するエラー（codeなし）を検出すること', () => {
     // Firefoxの古いバージョン用
     const error = new Error('Quota reached');
     Object.defineProperty(error, 'name', { value: 'NS_ERROR_DOM_QUOTA_REACHED' });
+    expect((error as unknown as { code?: number }).code).toBeUndefined();
+
+    expect(isQuotaExceededError(error)).toBe(true);
+  });
+
+  it('実ブラウザ相当（code===22 と name===QuotaExceededError の両方）を検出すること', () => {
+    const error = new DOMException('Quota exceeded', 'QuotaExceededError');
 
     expect(isQuotaExceededError(error)).toBe(true);
   });
