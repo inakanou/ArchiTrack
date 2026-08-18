@@ -42,6 +42,11 @@
 4. **Mermaid 図**に限り、ノードID・participant 別名・表示ラベルに短縮形を許容する。使用する短縮形は下表に列挙する。本文・見出し・表・ファイル構成ブロックでは短縮形を使わない。**実在しないファイル名・クラス名を、あたかも実体であるかのようにラベルへ書いてはならない。**
 5. 新しい部品名を本文に書くときは、実装が存在するなら 1/2 に従い、存在しないなら下表へ追記する。**実在しないファイル名を実ファイル名として書いてはならない。**
 6. **規約1〜3・5 の適用対象は「部品名」に限る。** 部品名とは、ページ / コンポーネント / フック / サービス / ルート / ミドルウェア / マネージャのように、実装ファイルまたは実エクスポートとして配置される実行時の構成要素を指す。これに対し、`interface` / `type` 定義ブロックに現れる**型名**、および「Requirements Traceability」表の Interfaces 列に現れる **API 契約名**（`SurveyAPI` / `ImageAPI` 等）は、本設計書が定義する**設計上の抽象契約**であって、**実装のエクスポート名の主張ではない**。したがって規約3 の既定則（表に無い名前は実名とみなしてよい）は契約名には適用しない。**契約名が実装に実体を持つかどうかは、名前の見た目からは判別できない**（例: `IAuditLogService` は実在し `ISurveyService` は実在しない。どちらも同じ `I*Service` 表記である）。判別は下の「契約名の実在対照表」だけを根拠とし、**表に無い契約名を実在するものとして扱ってはならない**。新しい契約名を書くときは同表へ追記する。
+7. **名前・パスの「型」だけを示す表記（プレースホルダ表記）は、可変部を必ず `*` で書く。** プレースホルダ表記とは、`hooks/use*.ts` / `services/*Service.ts` / `*API` / `*.test.tsx` のように、**特定の実体ではなく命名や配置の型を示す**記述である。実体を指していないため**実在の主張ではなく**、規約1/2/5 の実名義務と規約3 の既定則は適用しない（規約5 の禁止――実在しない名前を実体であるかのように書くこと――にも、本規約の書式に従う限り抵触しない）。ただし実名と同じ見た目で書くと**実在照合が毎回偽陽性を出す**ため、可変部は必ず `*` に置き換える。`Xxx` のような英字の伏字、`(x)` のような拡張子の省略記号（`*.test.ts` / `*.test.tsx` と列挙する）は使わない。`*` は実ファイル名にも実エクスポート名にも現れない文字なので、**パス／名前トークンのうち `*` を含むものを機械的に実在照合の対象外にできる**。プレースホルダは実体を指さないため、規約1 の「リポジトリルートからの相対パス」は適用せず、文脈で通じる深さで書いてよい。本規約は部品名・契約名・パスのいずれにも適用する（規約6 の適用範囲の切り分けとは独立）。
+   - **例外はシェルコマンドの例に限る。** コマンド例の内部で説明語による可変部が必要な場合だけ `<説明語>`（日本語の説明語を `<>` で囲む。例: `<名前>` / `<ファイル名>`）を使う。コマンド例は一つのバッククォート内に空白を含むため、パスの実在照合はコマンド例全体を対象外とする。TypeScript のジェネリクス（`Promise<string>` 等）や HTML 要素（`<img>` 等）は `<>` を含むがプレースホルダ表記ではない。判別は**日本語の説明語を囲んでいるか**で行う。
+   - **逆に、`*` を含まないパス／名前トークンはすべて実在の主張として扱う。** したがって**ブレース展開 `{a,b}` を使ってはならない**。複数の実ファイルを一度に指すときは各パスを個別に列挙する。ブレース展開は実在を主張しているのに literal 照合器が展開できず、**恒久的な偽陽性**になる（要件31-32 節の 5 ツールの記述が該当し、タスク 115.80 で個別列挙へ展開済み）。
+   - **本規約の対象はリポジトリ内のパスと部品名・契約名に限る。** R2 オブジェクトキーや URL の**テンプレート**（`annotated-thumbnails/{imageId}.jpg` / `orphaned/{originalPath}` / `/api/site-surveys/images/*/annotations` など）はいずれにも当たらないため対象外であり、実行時に値が埋まる変数部は `{変数名}` のまま書いてよい（実在照合はリポジトリ内のパスだけを見る）。
+   - 規約4 の Mermaid 短縮形、および下の「論理名と実体の対応表」に載る論理名は、**いずれも特定の実体（または実体の集合）を指す名前**であってプレースホルダ表記ではない。これらは引き続き規約3/4 が扱う。
 
 #### 論理名と実体の対応表
 
@@ -81,7 +86,7 @@
 
 `frontend/src/components/site-surveys/` および `frontend/src/components/site-survey/` 配下の各実装ファイルについて、本番コードからの import を機械的に数え、未結線のものを全件洗い出した。抽出手順は次のとおり。
 
-- 各ファイル名 `X` について `grep -rlE "from '[^']*/X'|from '\./X'" frontend/src e2e` を実行し、`__tests__/` 配下・`*.stories.tsx`・`*.test.ts(x)`・自ファイルを参照元から除外する
+- 各ファイル名（プレースホルダ表記は規約7 に従い `<ファイル名>` と書く）について `grep -rlE "from '[^']*/<ファイル名>'|from '\./<ファイル名>'" frontend/src e2e` を実行し、`__tests__/` 配下・`*.stories.tsx`・`*.test.ts` / `*.test.tsx`・自ファイルを参照元から除外する
 - 残った参照元が `index.ts`（まとめ出力）だけ、または 0 件のものを未結線とする
 - **`frontend/src/components/site-surveys/index.ts` と `frontend/src/components/site-survey/index.ts` は、本番コードのどこからも import されていない**。したがってまとめ出力への再エクスポートは結線とみなさない
 - 副作用 import（`import './tools/registerCustomShapes'`）は `from` を伴わないため、上記の式では拾えない。個別に確認し結線ありと判定した
@@ -113,7 +118,7 @@
 - 型名の抽出: 対象範囲から `^[[:space:]]*(export )?(declare )?(interface|type) [A-Z][A-Za-z0-9_]*` に一致する宣言名を全件列挙する。**行頭固定にすると字下げされた宣言を取りこぼす**ため先頭の空白を許す。抽出結果は 102 件（重複除去後）
 - 追跡表の契約名の抽出: 全追跡表の Interfaces 列を全行から取り出し、バッククォートの有無によらず PascalCase トークンを全件列挙する。**`*API` 形式だけを見てはならない**。`*API` 形式が現れるのは冒頭の総合追跡表だけ（節別の6表はいずれも 0 件。実測）だが、要件24-30 の節別追跡表には `*API` でない契約名（`GestureEvent` / `CursorStrategy` / `HandleSizeStrategy`）があり、`*API` に限ると取りこぼす
 - 実在判定: 各名について `grep -rn --include=*.ts --include=*.tsx -E "^[[:space:]]*(export )?(declare )?(interface|type|class) <名前>\b" backend frontend e2e scripts`（`node_modules` を除く）を実行する。**走査範囲を `backend/src` / `frontend/src` に限ってはならない**。`backend/scripts` 配下の宣言を取りこぼす（`BackfillResult` が該当）
-- 実在判定の誤検出の除去: 上記の式は `import { type X, ... }` の継続行にも一致する。ヒットが import 文だけの名前は**宣言ではない**ため実体なしと判定する。またヒットが `__tests__/` 配下・`*.test.ts(x)` だけの名前も実装の実体とはみなさない
+- 実在判定の誤検出の除去: 上記の式は `import { type <名前>, ... }` の継続行にも一致する。ヒットが import 文だけの名前は**宣言ではない**ため実体なしと判定する。またヒットが `__tests__/` 配下・`*.test.ts` / `*.test.tsx` だけの名前も実装の実体とはみなさない
 - 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない
 
 **実装に実体がある契約名**（設計書の記述は実装の型を指す。以下のパスは宣言位置）:
@@ -4631,7 +4636,7 @@ graph TB
 - Pattern: 既存 Clean Architecture 層（Component → Tool → Fabric）に、横断責務を持つ `gestures/` と `style/` の薄い横串レイヤを追加
 - Domain boundary: ジェスチャー判定を `ImageViewer`/`AnnotationEditor` からユーティリティへ抽出し、視覚表現（白縁取り/アウトライン）はツール本体の属性拡張で吸収
 - Dependency direction: `Infra (StyleTokens, UndoManager) → Tools → Editor/Viewer Components`。`AnnotationContextMenu` は `AnnotationEditor` から呼ばれるプレゼンテーション層、逆向き依存は禁止
-- Steering compliance: TypeScript strict mode、ESLint、Prettier、既存の `hooks/useXxx.ts` / `services/XxxService.ts` パターン
+- Steering compliance: TypeScript strict mode、ESLint、Prettier、既存の `hooks/use*.ts` / `services/*Service.ts` パターン
 
 #### Technology Stack
 
@@ -5326,7 +5331,7 @@ graph TB
 - Pattern: 既存 3 層エクスポート構造（Dialog → Service → Renderer）に、coordinator `bulkExportService` と進捗 UI を追加。`ExportSettingsForm` を個別/一括で共有することで設定 UI の二重実装を回避
 - 6 形状の白縁取りは Tool 層のみで吸収。Renderer / Editor は無変更（既存 `enlivenObjects` 経路で属性が自動復元）
 - Dependency direction: `Infra (StyleTokens, JSZip) → Tools → Services → ExportUI → DetailPage`。下位レイヤから上位への依存は禁止
-- Steering compliance: TypeScript strict、ESLint、既存 `services/XxxService.ts` パターン、React 19 標準 API、テスト構成
+- Steering compliance: TypeScript strict、ESLint、既存 `services/*Service.ts` パターン、React 19 標準 API、テスト構成
 
 #### Technology Stack
 
@@ -5405,7 +5410,7 @@ e2e/specs/site-surveys/
 - `pages/SiteSurveyDetailPage.tsx` — 詳細画面アクション領域に「全件一括エクスポート」「選択画像エクスポート（N 件）」ボタンを追加。後者は選択 0 件で disabled
 - `components/site-surveys/annotation-style-tokens.ts` — `ShapeOutlineAttribute = { enabled, color, width }` を export。`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）。`ANNOTATION_DEFAULTS` に `rectangleOutline`/`circleOutline`/`polygonOutline`/`polylineOutline`/`freehandOutline`/`dimensionOutline` を追加、いずれも `enabled: true` 既定
 - `components/site-surveys/tools/registerCustomShapes.ts` — `classRegistry.setClass('rectangle', Rectangle)` 等を Group 版で再登録（type ID 不変）
-- `components/site-surveys/tools/{Rectangle,Circle,Polygon,Polyline,Freehand}Tool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
+- `components/site-surveys/tools/RectangleTool.ts` / `components/site-surveys/tools/CircleTool.ts` / `components/site-surveys/tools/PolygonTool.ts` / `components/site-surveys/tools/PolylineTool.ts` / `components/site-surveys/tools/FreehandTool.ts` — 各クラスを `extends Group` にリファクタ。内部に `outlineShape + bodyShape` の 2 オブジェクトを保持し、Arrow と同形の `setOutline/getOutline/toObject/fromObject` を実装
 - `components/site-surveys/tools/DimensionTool.ts` — 寸法線部を Group 化（`outlineLine + bodyLine`）、寸法値ラベルの `FabricText` に `paintFirst: 'stroke'` + `stroke: '#ffffff'` + `strokeWidth = fontSize * 0.12` + `strokeUniform: true` を適用（Req 32 #12）
 - `frontend/package.json` — `dependencies` に `jszip` を追加
 
@@ -6124,7 +6129,7 @@ graph TB
 **Integration**:
 - Dependency direction: `CanvasViewportController（Infra/算術）→ TouchGestureManager / useCanvasViewport（調停・橋渡し）→ AnnotationEditor / ZoomControls（プレゼンテーション）`。逆向き依存は禁止。
 - `CanvasViewportController` は `FabricCanvasLike` 最小サーフェスのみに依存し React 非依存（単体テスト容易）。
-- Steering compliance: TypeScript strict（`any` 禁止）、`hooks/useXxx.ts` / `gestures/*.ts` の既存配置規約に従う。
+- Steering compliance: TypeScript strict（`any` 禁止）、`hooks/use*.ts` / `gestures/*.ts` の既存配置規約に従う。
 
 #### Technology Stack（新規依存なし）
 
@@ -6391,7 +6396,7 @@ graph TB
 **Integration**:
 - Dependency direction: `utils/hooks（imageFitScale, useElementSize, useMediaQuery）→ components（PhotoManagementPanel, AnnotationEditor, ImageViewer, AnnotationToolbar）→ pages（DetailPage, ImageViewerPage）`。逆向き依存は禁止。
 - `imageFitScale` は純関数（React 非依存・単体テスト容易）。`useElementSize` は `ResizeObserver` を購読し実寸を返すのみで、フィット適用は呼び出し側（コンポーネント／`canvasViewportController.fit`）が行う。
-- Steering compliance: TypeScript strict（`any` 禁止）、`hooks/useXxx.ts` / `utils/*.ts` の既存配置規約に従う。
+- Steering compliance: TypeScript strict（`any` 禁止）、`hooks/use*.ts` / `utils/*.ts` の既存配置規約に従う。
 
 #### Technology Stack（新規依存なし）
 
