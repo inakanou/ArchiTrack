@@ -287,6 +287,19 @@ export interface AnnotationEditorProps {
   initialRotation?: number;
   /** 初期パン位置（REQ-5.6: ビューアとの状態共有用） */
   initialPan?: { x: number; y: number };
+  /**
+   * 表示状態（ズーム・回転・位置）の変化通知（REQ-5.6）。
+   *
+   * Task 115.83: 閲覧モードと編集モードの切り替えでは canvas を作り直すため、
+   * 表示状態は本コンポーネントの外（ホスト画面）が保持しなければ共有が成立しない。
+   * 変化のたびに最新値を通知し、ホストが `initialZoom` / `initialRotation` /
+   * `initialPan` として次のモードへ渡し戻す。
+   */
+  onViewStateChange?: (state: {
+    zoom: number;
+    rotation: number;
+    pan: { x: number; y: number };
+  }) => void;
   /** 閲覧専用モード（REQ-9.2: 注釈を表示するが編集は不可） */
   readOnly?: boolean;
   /** 画像情報（ImageExportDialog用、REQ-12.2, 12.3, 12.4） */
@@ -555,11 +568,13 @@ function AnnotationEditor({
   imageId,
   surveyId,
   initialZoom,
+  initialRotation,
   initialPan,
   readOnly = false,
   imageInfo,
   onAnnotationSaved,
   onRequestRefresh,
+  onViewStateChange,
 }: AnnotationEditorProps): React.JSX.Element {
   // Toast通知フック（REQ-23.6: サムネイル再生成失敗時のエラー通知用）
   const toast = useToast();
@@ -578,6 +593,13 @@ function AnnotationEditor({
 
   /** 背景画像の累積回転角度を管理するRef (Req 22.1, 22.8) */
   const imageRotationRef = useRef<0 | 90 | 180 | 270>(0);
+
+  // Task 115.83 (Req 5.6): 表示状態の共有。canvas 生成のたびに「ホストが保持している
+  // 最新の回転角度」を参照する必要があるため、props を ref で追随させる。
+  const initialRotationRef = useRef(initialRotation);
+  initialRotationRef.current = initialRotation;
+  const onViewStateChangeRef = useRef(onViewStateChange);
+  onViewStateChangeRef.current = onViewStateChange;
 
   // Canvas要素参照（動的に生成）
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
@@ -753,6 +775,13 @@ function AnnotationEditor({
   // Task 96.1: initialZoom/initialPan を canvas ごとに一度だけ適用するためのガード参照。
   const initialViewAppliedRef = useRef(false);
 
+  // Task 115.83 (Req 5.6): 初期ビュー適用が済み、表示状態の通知を開始してよいかの参照。
+  const viewReadyRef = useRef(false);
+
+  // Task 115.83 (Req 5.4): 閲覧モードの単一ポインタ・ドラッグによるパン操作の進行状態。
+  const viewerPanPointersRef = useRef<Set<number>>(new Set());
+  const viewerPanOriginRef = useRef<{ x: number; y: number } | null>(null);
+
   // Task 96.2 (Req 33.5, 30.1): 2本指ジェスチャー突入時に退避する描画モード（isDrawingMode）。
   // cooldown→idle 復帰時に、退避値と選択中ツールに応じて isDrawingMode を復元する。
   const prevDrawingModeRef = useRef(false);
@@ -782,6 +811,36 @@ function AnnotationEditor({
   // handleDoubleTap の依存を空に保ち、canvas 初期化 effect の再実行（dispose/再生成）を避ける。
   const viewportControllerRef = useRef(viewportController);
   viewportControllerRef.current = viewportController;
+
+  /**
+   * Task 115.83 (Req 5.6): 現在の表示状態（ズーム・回転・位置）をホストへ通知する。
+   *
+   * ホスト（`SiteSurveyImageViewerPage`）はこれを保持し、閲覧⇄編集の切り替えで
+   * 作り直される canvas へ `initialZoom` / `initialRotation` / `initialPan` として
+   * 渡し戻す。依存を持たない ref 経由の実装にして、イベントハンドラや effect から
+   * 安全に呼べるようにする。
+   */
+  const reportViewState = useCallback((): void => {
+    // canvas 生成直後〜初期ビュー適用前は、新しい canvas の等倍値（zoom=1）が一時的に
+    // 見えている。この途中経過を通知するとホストが保持している共有状態を等倍で
+    // 上書きしてしまうため、初期ビュー適用が済むまで通知しない。
+    if (!viewReadyRef.current) return;
+    const notify = onViewStateChangeRef.current;
+    if (!notify) return;
+    const controller = viewportControllerRef.current;
+    if (!controller) return;
+    const { zoom: currentZoom, panX, panY } = controller.getState();
+    notify({
+      zoom: currentZoom,
+      rotation: imageRotationRef.current,
+      pan: { x: panX, y: panY },
+    });
+  }, []);
+
+  // ズーム倍率の変化（ボタン操作・ピンチ・フィット・初期ビュー適用）をホストへ通知する（Req 5.6）。
+  useEffect(() => {
+    reportViewState();
+  }, [zoom, reportViewState]);
   const { setProgrammaticOperation } = useFabricUndoIntegration({
     canvas: fabricCanvas,
     undoManager,
@@ -1079,6 +1138,20 @@ function AnnotationEditor({
         // Fabric の選択（マーキー）/ object:moving（scenePoint=viewport 考慮）への委譲が成立する。
         canvas.selection = !readOnly && activeToolRef.current === 'select';
 
+        // Task 115.83 (Req 5.6): ホストが保持している共有回転角度を初期表示へ適用する。
+        // 閲覧⇄編集の切り替えでは canvas を作り直すため、これが無いと直前の回転が失われる。
+        // 共有値は「この画面で今表示している向き」であり、保存済みの回転（Req 22.5）より
+        // 新しいので、指定されている場合はそちらを優先する。
+        const sharedRotation = toDisplayImageRotation(initialRotationRef.current);
+        const hasSharedRotation = initialRotationRef.current !== undefined;
+        if (hasSharedRotation) {
+          imageRotationRef.current = sharedRotation;
+          if (sharedRotation !== 0) {
+            applyImageRotation(canvas, img, sharedRotation);
+          }
+          setState((prev) => ({ ...prev, imageRotation: sharedRotation }));
+        }
+
         canvas.renderAll();
 
         // REQ-9.2: 保存された注釈データを復元
@@ -1105,8 +1178,9 @@ function AnnotationEditor({
             // Task 115.11: 保存済みの値は 0/90/180/270 に限られない（破損データ・旧データ・
             // 外部からの直接更新）。想定外の値のまま表示へ適用すると画像が切れる／角度指定が
             // 破綻するため、表示へ適用する前に想定内の角度へ検証・正規化する。
+            // Task 115.83 (Req 5.6): 共有された回転が指定されている場合は上書きしない。
             const savedRotation = toDisplayImageRotation(annotationData.data.imageRotation);
-            if (savedRotation !== 0 && backgroundImageRef.current) {
+            if (!hasSharedRotation && savedRotation !== 0 && backgroundImageRef.current) {
               imageRotationRef.current = savedRotation;
               applyImageRotation(canvas, backgroundImageRef.current, savedRotation);
               setState((prev) => ({ ...prev, imageRotation: savedRotation }));
@@ -1861,6 +1935,9 @@ function AnnotationEditor({
       // 実際の touchGestureManager アタッチと初期ビュー適用は viewportController が
       // 生成された後（setFabricCanvas による再レンダー後）の専用 effect で行う。
       initialViewAppliedRef.current = false;
+      // Task 115.83 (Req 5.6): 新しい canvas の等倍値をホストへ通知しないよう、
+      // 初期ビュー適用が済むまで表示状態の通知を止める。
+      viewReadyRef.current = false;
 
       // Task 72.2 (Req 27.1, 27.9, 27.10): touchGestureManager が fire する
       // custom:dbltap / custom:longpress に React 側ハンドラを配線する。
@@ -2130,6 +2207,12 @@ function AnnotationEditor({
    * canvas 初期化後に viewportController 経由で一度だけ適用する（REQ-5.6 のビュー状態共有）。
    * ズーム範囲は controller.clampZoom（ZOOM_CONSTANTS）に準拠し、パンは等倍時抑止
    * （isPanEnabled, Req 34.7）に従う。initialZoom/initialPan が未指定の場合は何もしない。
+   *
+   * Task 115.83 (Req 5.6): 適用の契機を「画像の読み込み完了後」へ改めた。canvas 生成直後は
+   * 表示寸法が暫定（コンテナ実寸の当て込み）で、その中心を基準にズームすると復元位置が
+   * ずれるためである。あわせてパンを**絶対位置の復元**として扱う。`controller.pan` は
+   * 相対量を足す API であり、ズーム適用後の translate は 0 とは限らないため、
+   * 現在位置との差分を渡さないと共有された位置を再現できない。
    */
   useEffect(() => {
     const canvas = fabricCanvas;
@@ -2139,7 +2222,8 @@ function AnnotationEditor({
     if (initialViewAppliedRef.current) {
       return;
     }
-    if (initialZoom === undefined && initialPan === undefined) {
+    // 画像読み込み中は表示寸法が確定していないため、確定後に適用する。
+    if (state.isLoading) {
       return;
     }
     initialViewAppliedRef.current = true;
@@ -2150,12 +2234,17 @@ function AnnotationEditor({
       viewportController.zoomToPoint(center, initialZoom);
     }
     if (initialPan) {
-      // 原点（等倍時 translate=0）からの平行移動量として適用（等倍時は内部で抑止）。
-      viewportController.pan(initialPan.x, initialPan.y);
+      // 絶対位置として復元する（等倍時は controller 内部で抑止, Req 34.7）。
+      const current = viewportController.getState();
+      viewportController.pan(initialPan.x - current.panX, initialPan.y - current.panY);
     }
+
+    // ここまでで新しい canvas の表示状態が確定した。以後の変化はホストへ通知してよい。
+    viewReadyRef.current = true;
+    reportViewState();
     // initialZoom/initialPan は「初期」値のため、canvas/controller の確定時のみ適用する。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fabricCanvas, viewportController]);
+  }, [fabricCanvas, viewportController, state.isLoading, reportViewState]);
 
   /**
    * 画像URLが変更された場合の再読み込み
@@ -2344,7 +2433,71 @@ function AnnotationEditor({
 
     // 5. 状態を更新
     setState((prev) => ({ ...prev, imageRotation: newRotation }));
-  }, [undoManager, applyImageRotation]);
+
+    // 6. Task 115.83 (Req 5.6): 回転もモード間で共有する表示状態のひとつ
+    reportViewState();
+  }, [undoManager, applyImageRotation, reportViewState]);
+
+  /**
+   * Task 115.83 (Req 5.4): 閲覧モードの単一ポインタ・ドラッグによるパン操作。
+   *
+   * design.md「Requirements 33-34」の「既存 ImageViewer（閲覧モード）との差異」は、
+   * 1本指（単一ポインタ）パンを閲覧モードの入力割当と定めている（編集モードは1本指を
+   * 描画/移動に充てるため2本指パンで代替する）。本ハンドラはその閲覧モード側の割当であり、
+   * `readOnly` のときだけコンテナへ結線する。
+   *
+   * 2本指以上のときは `touchGestureManager` のピンチ/2本指パンに委ね、二重にビューポートを
+   * 動かさないよう自前のパンを中断する。移動量は前フレームからの差分で与え、等倍時の抑止と
+   * 範囲補正は `canvasViewportController` が担う（Req 34.7）。
+   */
+  const handleViewerPanPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    viewerPanPointersRef.current.add(event.pointerId);
+    if (viewerPanPointersRef.current.size !== 1) {
+      // 2本指以上に増えた時点で単一ポインタのパンは中断する。
+      viewerPanOriginRef.current = null;
+      return;
+    }
+    // マウスは主ボタンのみ（右クリック等でパンを始めない）。
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    const controller = viewportControllerRef.current;
+    if (!controller || !controller.isPanEnabled()) {
+      return;
+    }
+    viewerPanOriginRef.current = { x: event.clientX, y: event.clientY };
+  }, []);
+
+  const handleViewerPanPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const origin = viewerPanOriginRef.current;
+    if (!origin || viewerPanPointersRef.current.size !== 1) {
+      return;
+    }
+    const controller = viewportControllerRef.current;
+    if (!controller) {
+      return;
+    }
+    // 前フレームからの差分で動かし、基準点を現在位置へ進める。
+    controller.pan(event.clientX - origin.x, event.clientY - origin.y);
+    viewerPanOriginRef.current = { x: event.clientX, y: event.clientY };
+  }, []);
+
+  /**
+   * Task 115.83 (Req 5.4, 5.6): ポインタ操作の終了。
+   *
+   * 単一ポインタのパンを終了させるだけでなく、**両モードで**確定した表示状態を
+   * ホストへ通知する。`touchGestureManager` は 2本指パンの終了コールバックを公開せず、
+   * パンは倍率も変えないため、ここで拾わないと編集モードで動かした表示位置が
+   * モード切り替えで失われる。倍率の変化は別途 `zoom` の effect が通知する。
+   */
+  const handleViewerPanPointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      viewerPanPointersRef.current.delete(event.pointerId);
+      viewerPanOriginRef.current = null;
+      reportViewState();
+    },
+    [reportViewState]
+  );
 
   /**
    * 保存操作ハンドラ
@@ -2906,6 +3059,15 @@ function AnnotationEditor({
           aria-label={readOnly ? '注釈ビューア' : '注釈エディタ'}
           tabIndex={readOnly ? -1 : 0}
           onKeyDown={readOnly ? undefined : handleKeyDown}
+          /* Task 115.83 (Req 5.4): 閲覧モードのみ単一ポインタ・ドラッグをパンに割り当てる。
+             編集モードの1本指は描画/選択に充てるため結線しない（2本指パンで代替）。 */
+          onPointerDown={readOnly ? handleViewerPanPointerDown : undefined}
+          onPointerMove={readOnly ? handleViewerPanPointerMove : undefined}
+          /* 終了側は両モードで結線する。2本指パン（touchGestureManager）の終了もここで
+             拾い、確定した表示状態をホストへ共有する（Req 5.6）。 */
+          onPointerUp={handleViewerPanPointerUp}
+          onPointerCancel={handleViewerPanPointerUp}
+          onPointerLeave={handleViewerPanPointerUp}
         >
           {/* Canvas - 動的に生成されるCanvas要素のコンテナ */}
           {/* Task 96.2 (Req 33.5, 30.1): touch-action:none でブラウザ既定ジェスチャーを抑止 */}
@@ -2958,19 +3120,24 @@ function AnnotationEditor({
       </div>
 
       {/* Task 96.1 (Req 34.1, 34.2, 34.6, 34.8): ズーム操作コントロール。
-          - 編集モードでのみ表示（readOnly では非表示）。canvas/画像準備中（isLoading）は非表示。
+          - Task 115.83 (Req 5.2, 5.3): 閲覧モードでも表示する。要件5 は閲覧時の拡大・縮小・
+            回転の手段を求めており、従来の `!readOnly` 条件では閲覧のみの状態で操作手段が
+            一切現れず要件を満たさなかった。canvas/画像準備中（isLoading）は非表示。
+          - 回転ボタンは閲覧モードのときだけ本コントロールへ載せる。編集モードの回転ボタンは
+            Req 22.7 が「既存のツールバーに配置する」と定めており、二重に置かない。
           - position: fixed の下部オーバーレイで、背景 canvas の描画ヒット領域外に配置し、
             stopPropagation/preventDefault により描画の誤発火を防ぐ（ZoomControls 内で実装）。
           - 片手到達（Req 34.6）はレイアウトビューポート＝デバイス幅であることが前提。
             ホスト画面側でページ水平 overflow を抑止すること（SiteSurveyImageViewerPage の
             breadcrumbContainer.overflowX を参照）。
           - controller 未生成（canvas 初期化前）は disabled とする。 */}
-      {!readOnly && !state.isLoading && (
+      {!state.isLoading && (
         <ZoomControls
           zoom={zoom}
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           onFit={fit}
+          onRotate={readOnly ? handleRotate : undefined}
           disabled={!viewportController}
         />
       )}

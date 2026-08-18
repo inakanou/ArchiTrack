@@ -302,13 +302,21 @@ describe('AnnotationEditor - useCanvasViewport 配線 / ZoomControls / initialZo
       expect(screen.getByTestId('zoom-badge')).toHaveTextContent('100%');
     });
 
-    it('readOnly モードでは ZoomControls はマウントされない', async () => {
+    // Task 115.83 (Req 5.2, 5.3): 以前は「readOnly では ZoomControls をマウントしない」
+    // ことを主張していたが、それでは閲覧のみの状態に拡大・縮小・回転の手段が一切無く
+    // 要件5.2 / 5.3 を満たせなかった。閲覧モードでもマウントする挙動へ改めた。
+    // 閲覧モード側の詳細な受入検証は AnnotationEditor.viewer-controls.test.tsx が担う。
+    it('閲覧モードでも ZoomControls がマウントされる (Req 5.2)', async () => {
       render(<AnnotationEditor {...defaultProps} readOnly />);
 
       await waitFor(() => {
         expect(createTouchGestureManagerSpy).toHaveBeenCalled();
       });
-      expect(screen.queryByTestId('zoom-controls')).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByTestId('zoom-controls')).toBeInTheDocument();
+      });
+      // 編集モードのツールバーは閲覧では出さない（Req 9.2 の非回帰）
+      expect(screen.queryByRole('toolbar', { name: /注釈ツール/ })).not.toBeInTheDocument();
     });
   });
 

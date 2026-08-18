@@ -733,19 +733,6 @@
       }
     },
     {
-      "id": "site-survey/REQ-5.5",
-      "requirement": "REQ-5: 画像ビューア",
-      "title": "ピンチ操作（タッチデバイス）",
-      "reason": "タッチデバイス操作の検証はE2E範囲外。デバイステストで検証",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "device-testing",
-        "tool": "Manual testing / BrowserStack",
-        "description": "タッチデバイスでピンチ操作によるズームが動作することを確認",
-        "threshold": "pinch_zoom: functional"
-      }
-    },
-    {
       "id": "site-survey/REQ-4.3",
       "requirement": "REQ-4: 画像アップロード・管理",
       "title": "5件超過時のキュー処理",

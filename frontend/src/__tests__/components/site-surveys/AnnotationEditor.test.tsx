@@ -3448,15 +3448,23 @@ describe('AnnotationEditor', () => {
         (resolveSave as (() => void) | null)?.();
       });
 
-      it('readOnlyモードでは回転ボタンが表示されない', async () => {
+      // Task 115.83 (Req 5.3): 以前は「readOnly では回転ボタンが表示されない」ことを
+      // 主張していたが、それでは閲覧のみの状態に回転の手段が無く要件5.3 を満たせなかった。
+      // 閲覧モードでは注釈ツールバーを出さないまま、ズーム操作コントロール側へ回転ボタンを
+      // 載せる。ここではツールバーが出ないこと（Req 9.2 の非回帰）と、回転手段が
+      // ズーム操作コントロール配下に在ることを確認する。
+      it('readOnlyモードではツールバーを出さずズーム操作側に回転ボタンを置く', async () => {
         render(<AnnotationEditor {...defaultProps} readOnly />);
 
         await waitFor(() => {
           expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
         });
 
-        // readOnlyモードではツールバー自体が非表示
-        expect(screen.queryByRole('button', { name: /回転/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('toolbar', { name: /注釈ツール/ })).not.toBeInTheDocument();
+
+        const zoomControls = await screen.findByTestId('zoom-controls');
+        const rotateButton = screen.getByRole('button', { name: '画像を90度回転' });
+        expect(zoomControls).toContainElement(rotateButton);
       });
     });
 

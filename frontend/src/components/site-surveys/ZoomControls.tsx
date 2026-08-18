@@ -36,6 +36,14 @@ export interface ZoomControlsProps {
   onZoomOut: () => void;
   /** 全体表示（フィット）操作（Req 34.1/34.4）。useCanvasViewport.fit を想定。 */
   onFit: () => void;
+  /**
+   * 画像を90度回転する操作（任意, Req 5.3）。
+   *
+   * Task 115.83: 閲覧モードには注釈ツールバーが無く、回転の手段が存在しなかった。
+   * 指定された場合のみ回転ボタンを描画する。編集モードの回転ボタンは
+   * `AnnotationToolbar` が担う（Req 22.7）ため、そちらでは指定しない。
+   */
+  onRotate?: () => void;
   /** 無効化フラグ（任意） */
   disabled?: boolean;
 }
@@ -126,6 +134,7 @@ function ZoomControls({
   onZoomIn,
   onZoomOut,
   onFit,
+  onRotate,
   disabled = false,
 }: ZoomControlsProps): React.JSX.Element {
   /**
@@ -222,6 +231,33 @@ function ZoomControls({
           <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
         </svg>
       </button>
+
+      {/* Req 5.3: 90度単位の回転ボタン（閲覧モードの回転手段） */}
+      {onRotate && (
+        <button
+          type="button"
+          style={buttonStyle(!disabled)}
+          onClick={handleClick(onRotate)}
+          disabled={disabled}
+          aria-label="画像を90度回転"
+          title="画像を90度回転"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={STYLES.icon}
+            aria-hidden="true"
+          >
+            <path d="M21 2v6h-6" />
+            <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

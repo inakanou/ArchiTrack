@@ -7,10 +7,11 @@
  * - REQ-4.9: JPEG、PNG、WEBP形式をサポート
  * - REQ-4.10: 画像一覧を固定の表示順序で表示
  * - REQ-4.11: ドラッグアンドドロップで表示順序を変更
- * - REQ-5.1: 画像をクリックしてビューアを開く
+ * - REQ-5.1: 画像をクリックして専用画面のビューアを開く
  * - REQ-5.2: ズームイン/ズームアウト操作
  * - REQ-5.3: 画像の回転
  * - REQ-5.4: パン操作（表示領域移動）
+ * - REQ-5.5: ピンチ操作（タッチデバイス）でのズーム
  * - REQ-5.6: 表示状態を注釈編集モードと共有
  */
 
@@ -416,49 +417,88 @@ test.describe('現場調査画像ビューア', () => {
   });
 
   /**
+   * 画像ビューア（専用画面）を開く。
+   *
+   * 前提（現場調査・画像）が満たせない場合は throw して失敗させる（第3原則）。
+   */
+  async function openImageViewer(page: import('@playwright/test').Page): Promise<void> {
+    if (!createdSurveyId) {
+      throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+    }
+
+    await page.goto(`/site-surveys/${createdSurveyId}`);
+    await page.waitForLoadState('networkidle');
+
+    await ensureImageExists(page, createdSurveyId);
+
+    const imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
+    await expect(imageElement).toBeVisible({ timeout: getTimeout(10000) });
+    await imageElement.click();
+
+    await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
+      timeout: getTimeout(10000),
+    });
+    await page.waitForLoadState('networkidle');
+
+    // 画像ビューアの本体（Fabric キャンバス）が用意されるまで待つ
+    await expect(page.locator('[data-testid="annotation-editor-container"]')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(page.getByTestId('zoom-controls')).toBeVisible({ timeout: getTimeout(15000) });
+  }
+
+  /**
+   * 実装が公開する `window.__fabricCanvas` から表示状態を読み出す。
+   * [0]=zoom, [4]=panX, [5]=panY。背景画像の angle が画像の回転角度（Req 22.1/5.3）。
+   */
+  async function readViewState(page: import('@playwright/test').Page): Promise<{
+    zoom: number;
+    panX: number;
+    panY: number;
+    rotation: number;
+  }> {
+    return await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getZoom(): number;
+            viewportTransform: number[];
+            backgroundImage?: { angle?: number } | null;
+          };
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        return { zoom: -1, panX: 0, panY: 0, rotation: -1 };
+      }
+      const vpt = canvas.viewportTransform;
+      return {
+        zoom: canvas.getZoom(),
+        panX: vpt[4] ?? 0,
+        panY: vpt[5] ?? 0,
+        rotation: canvas.backgroundImage?.angle ?? -1,
+      };
+    });
+  }
+
+  /**
    * @requirement site-survey/REQ-5.1
    */
   test.describe('画像ビューア起動', () => {
-    test('画像をクリックするとビューアが開く (site-survey/REQ-5.1)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
+    test('画像をクリックすると専用画面の画像ビューアが開く (site-survey/REQ-5.1)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      // 画像が存在しない場合はアップロード
-      await ensureImageExists(page, createdSurveyId);
-
-      // 画像要素を探す（複数のセレクタを試す）
-      let imageElement = page
-        .locator('[aria-label="写真管理パネル"] [data-testid="photo-image-button"]')
-        .first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-        imageVisible = await imageElement.isVisible();
-      }
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      // ビューアページに遷移することを確認
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-
-      // ビューアページに遷移したことを確認
+      // 専用画面（画像ビューア）のURLへ遷移していること
       expect(page.url()).toMatch(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`));
+      // 閲覧のみの状態で開くこと（編集モードへ入る導線が「編集モード」を示す）
+      await expect(page.getByRole('button', { name: '編集モード' })).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      // 画像が実際に描画されていること
+      const state = await readViewState(page);
+      expect(state.zoom).toBeGreaterThan(0);
     });
   });
 
@@ -466,123 +506,35 @@ test.describe('現場調査画像ビューア', () => {
    * @requirement site-survey/REQ-5.2
    */
   test.describe('ズーム機能', () => {
-    test('ズームイン/ズームアウトボタンが存在する (site-survey/REQ-5.2)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
+    test('閲覧のみの状態でズーム操作手段が提供される (site-survey/REQ-5.2)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      // 画像が存在しない場合はアップロード
-      await ensureImageExists(page, createdSurveyId);
-
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      // ビューアページへの遷移を待機
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // 現在の実装ではAnnotationEditorを使用しており、
-      // ズームはマウスホイールで操作するためUIボタンは存在しない
-      // 代わりに注釈エディタが表示されることを確認
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
-
-      // 編集モードボタンをクリックして注釈ツールバーを表示
-      const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      await expect(editModeButton).toBeVisible({ timeout: getTimeout(3000) });
-      await editModeButton.click();
-
-      // 注釈ツールバーが表示されることを確認
-      const toolbar = page.getByRole('toolbar', { name: /注釈ツール/i });
-      const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
-
-      // ツールバーまたはエディタが表示されていればOK
-      expect(hasToolbar || (await annotationEditor.isVisible())).toBeTruthy();
+      const zoomControls = page.getByTestId('zoom-controls');
+      await expect(zoomControls.getByRole('button', { name: 'ズームイン' })).toBeVisible();
+      await expect(zoomControls.getByRole('button', { name: 'ズームアウト' })).toBeVisible();
+      await expect(zoomControls.getByRole('button', { name: '全体表示' })).toBeVisible();
+      await expect(page.getByTestId('zoom-badge')).toHaveText('100%');
     });
 
-    test('ズームイン操作で画像が拡大される (site-survey/REQ-5.2)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
+    test('ズームイン/ズームアウト操作で画像が拡大/縮小される (site-survey/REQ-5.2)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const zoomControls = page.getByTestId('zoom-controls');
+      const before = await readViewState(page);
 
-      await ensureImageExists(page, createdSurveyId);
+      await zoomControls.getByRole('button', { name: 'ズームイン' }).click();
+      await expect(page.getByTestId('zoom-badge')).toHaveText('110%');
+      const zoomedIn = await readViewState(page);
+      expect(zoomedIn.zoom).toBeGreaterThan(before.zoom);
 
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // 注釈エディタが表示されることを確認
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
-
-      // 現在のズームレベルを取得（Fabric.jsのキャンバス）
-      const zoomLevelBefore = await page.evaluate(() => {
-        const canvas = document.querySelector('canvas');
-        if (canvas) {
-          // Fabric.jsのキャンバスインスタンスにアクセス
-          const fabricCanvas = (window as { __fabricCanvas?: { getZoom: () => number } })
-            .__fabricCanvas;
-          return fabricCanvas?.getZoom() ?? 1;
-        }
-        return 1;
-      });
-
-      // マウスホイールでズームイン操作をシミュレート
-      // 現在の実装ではズームボタンがないため、マウスホイールでテスト
-      // Fabric.jsはupper-canvas（イベント処理用）とlower-canvas（描画用）の2層構造
-      const upperCanvas = page.locator('canvas.upper-canvas');
-      await expect(upperCanvas).toBeVisible({ timeout: getTimeout(3000) });
-
-      // マウスホイールでズームイン（負のdeltaY = ズームイン）
-      await upperCanvas.hover();
-      await page.mouse.wheel(0, -100);
-      await page.waitForTimeout(500);
-
-      // ズームレベルが変更されたことを確認
-      const zoomLevelAfter = await page.evaluate(() => {
-        const fabricCanvas = (window as { __fabricCanvas?: { getZoom: () => number } })
-          .__fabricCanvas;
-        return fabricCanvas?.getZoom() ?? 1;
-      });
-
-      // ズームレベルが同じ以上であれば成功（初期ズームの場合もある）
-      expect(zoomLevelAfter).toBeGreaterThanOrEqual(zoomLevelBefore);
+      await zoomControls.getByRole('button', { name: 'ズームアウト' }).click();
+      await expect(page.getByTestId('zoom-badge')).toHaveText('100%');
+      const zoomedOut = await readViewState(page);
+      expect(zoomedOut.zoom).toBeLessThan(zoomedIn.zoom);
     });
   });
 
@@ -590,93 +542,39 @@ test.describe('現場調査画像ビューア', () => {
    * @requirement site-survey/REQ-5.3
    */
   test.describe('回転機能', () => {
-    test('回転ボタンが存在する (site-survey/REQ-5.3)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
+    test('閲覧のみの状態で回転ボタンが提供される (site-survey/REQ-5.3)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      await ensureImageExists(page, createdSurveyId);
-
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      // ビューアページへの遷移を待機
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // 注釈エディタが表示されることを確認
-      // 現在の実装ではAnnotationEditorを使用しており、回転はキーボードショートカット(R)で操作
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
-
-      // 編集モードボタンをクリックしてツールバーを表示
-      const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      await expect(editModeButton).toBeVisible({ timeout: getTimeout(3000) });
-      await editModeButton.click();
-
-      // 注釈ツールバーが表示されることを確認（回転機能は現在UIボタンなし）
-      const toolbar = page.getByRole('toolbar', { name: /注釈ツール/i });
-      const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
-
-      // ツールバーまたはエディタが表示されていればOK
-      expect(hasToolbar || (await annotationEditor.isVisible())).toBeTruthy();
+      await expect(
+        page.getByTestId('zoom-controls').getByRole('button', { name: '画像を90度回転' })
+      ).toBeVisible();
     });
 
-    test('回転ボタンで画像が90度回転する (site-survey/REQ-5.3)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
+    test('回転ボタンで画像が90度単位で回転する (site-survey/REQ-5.3)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const rotateButton = page
+        .getByTestId('zoom-controls')
+        .getByRole('button', { name: '画像を90度回転' });
 
-      await ensureImageExists(page, createdSurveyId);
+      const before = await readViewState(page);
+      expect(before.rotation).toBe(0);
 
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
+      await rotateButton.click();
+      await expect
+        .poll(async () => (await readViewState(page)).rotation, {
+          timeout: getTimeout(5000),
+        })
+        .toBe(90);
 
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // 注釈エディタが表示されることを確認
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
-
-      // canvasが表示されていることを確認
-      const canvas = page.locator('canvas').first();
-      const hasCanvas = await canvas.isVisible();
-      expect(hasCanvas || (await annotationEditor.isVisible())).toBeTruthy();
+      await rotateButton.click();
+      await expect
+        .poll(async () => (await readViewState(page)).rotation, {
+          timeout: getTimeout(5000),
+        })
+        .toBe(180);
     });
   });
 
@@ -684,112 +582,87 @@ test.describe('現場調査画像ビューア', () => {
    * @requirement site-survey/REQ-5.4
    */
   test.describe('パン操作', () => {
-    test('画像キャンバスがパン操作可能な状態である (site-survey/REQ-5.4)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
+    test('拡大時のドラッグで表示領域が移動する (site-survey/REQ-5.4)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      // パンは拡大時のみ有効（Req 34.7）。まず拡大する。
+      const zoomIn = page.getByTestId('zoom-controls').getByRole('button', { name: 'ズームイン' });
+      await zoomIn.click();
+      await zoomIn.click();
+      await zoomIn.click();
+      await expect(page.getByTestId('zoom-badge')).toHaveText('130%');
 
-      await ensureImageExists(page, createdSurveyId);
-
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      // ビューアページへの遷移を待機
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // 注釈エディタが表示されることを確認（パン操作可能なキャンバスを含む）
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
-
-      // canvasが存在することを確認（パン操作可能な要素）
-      const canvas = page.locator('canvas').first();
-      const hasCanvas = await canvas.isVisible();
-
-      // キャンバスまたはエディタが表示されていればパン操作可能
-      expect(hasCanvas || (await annotationEditor.isVisible())).toBeTruthy();
-    });
-
-    test('ドラッグ操作で表示領域を移動できる (site-survey/REQ-5.4)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      await ensureImageExists(page, createdSurveyId);
-
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // 注釈エディタが表示されることを確認
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
-
-      // Fabric.jsのupper-canvas（イベント処理用）の位置を取得
       const upperCanvas = page.locator('canvas.upper-canvas');
-      await expect(upperCanvas).toBeVisible({ timeout: getTimeout(3000) });
-
+      await expect(upperCanvas).toBeVisible({ timeout: getTimeout(5000) });
       const box = await upperCanvas.boundingBox();
-      expect(box).toBeTruthy();
+      if (!box) {
+        throw new Error('upper-canvas の領域が取得できませんでした');
+      }
 
-      // 中央からドラッグ操作を実行
-      const startX = box!.x + box!.width / 2;
-      const startY = box!.y + box!.height / 2;
-      const endX = startX - 50;
-      const endY = startY - 50;
+      const before = await readViewState(page);
 
-      // ドラッグ操作
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
       await page.mouse.move(startX, startY);
       await page.mouse.down();
-      await page.mouse.move(endX, endY);
+      await page.mouse.move(startX - 30, startY - 20, { steps: 5 });
+      await page.mouse.move(startX - 60, startY - 40, { steps: 5 });
       await page.mouse.up();
 
-      // ドラッグ操作が完了したことを確認（エラーが発生しなければ成功）
-      expect(true).toBeTruthy();
+      // 表示領域（viewportTransform の平行移動量）がドラッグ方向へ移動していること
+      await expect
+        .poll(async () => (await readViewState(page)).panX, { timeout: getTimeout(5000) })
+        .toBeLessThan(before.panX);
+      const after = await readViewState(page);
+      expect(after.panY).toBeLessThan(before.panY);
+      // 拡大倍率はパンで変化しない
+      expect(after.zoom).toBeCloseTo(before.zoom, 5);
+    });
+
+    test('等倍表示ではドラッグしても表示領域が移動しない (site-survey/REQ-5.4)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
+      await expect(page.getByTestId('zoom-badge')).toHaveText('100%');
+
+      const upperCanvas = page.locator('canvas.upper-canvas');
+      await expect(upperCanvas).toBeVisible({ timeout: getTimeout(5000) });
+      const box = await upperCanvas.boundingBox();
+      if (!box) {
+        throw new Error('upper-canvas の領域が取得できませんでした');
+      }
+
+      const before = await readViewState(page);
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 60, startY - 40, { steps: 5 });
+      await page.mouse.up();
+
+      const after = await readViewState(page);
+      expect(after.panX).toBe(before.panX);
+      expect(after.panY).toBe(before.panY);
     });
   });
 
   /**
    * @requirement site-survey/REQ-5.5
+   *
+   * マルチタッチ（2本指ピンチ）は page.touchscreen では模擬できないため、
+   * CDP `Input.dispatchTouchEvent`（複数 touchPoints）で送出する
+   * （site-survey-annotation-mobile.spec.ts の Task 98.1 と同じ手法）。
+   *
+   * ピンチはキャンバス要素（upper-canvas）上の2点で成立するため、他テストが使う
+   * 1x1 の `test-image.jpg` では2本目の指がキャンバス外になり判定できない。
+   * 本テストだけは十分な表示サイズを持つ画像をアップロードして用いる。
    */
   test.describe('ピンチ操作', () => {
-    test('タッチデバイスでのピンチ操作によるズームがサポートされている (site-survey/REQ-5.5)', async ({
+    test.use({ hasTouch: true });
+
+    test('タッチデバイスのピンチ操作でズームレベルが変わる (site-survey/REQ-5.5)', async ({
       page,
     }) => {
       if (!createdSurveyId) {
@@ -797,52 +670,76 @@ test.describe('現場調査画像ビューア', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      await ensureImageExists(page, createdSurveyId);
+      // ピンチ判定に足る表示サイズの画像を用意する（前提準備）
+      const largeImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
+      const fileInput = page.locator('input[type="file"]').first();
+      await fileInput.setInputFiles(largeImagePath);
+      await page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/') &&
+          response.url().includes('images') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+      await page.reload({ waitUntil: 'networkidle' });
 
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
+      // 追加した画像は表示順の末尾に付く
+      const uploaded = page.locator('[aria-label="写真管理パネル"] button:has(img)').last();
+      await expect(uploaded).toBeVisible({ timeout: getTimeout(10000) });
+      await uploaded.click();
 
       await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
         timeout: getTimeout(10000),
       });
       await page.waitForLoadState('networkidle');
+      await expect(page.getByTestId('zoom-controls')).toBeVisible({ timeout: getTimeout(15000) });
 
-      // 注釈エディタが表示されることを確認
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
+      const upperCanvas = page.locator('canvas.upper-canvas');
+      await expect(upperCanvas).toBeVisible({ timeout: getTimeout(5000) });
+      const box = await upperCanvas.boundingBox();
+      if (!box) {
+        throw new Error('upper-canvas の領域が取得できませんでした');
+      }
+      // 2本指を置ける表示サイズであることを前提として要求する（満たさなければ失敗させる）
+      expect(Math.min(box.width, box.height)).toBeGreaterThan(120);
 
-      // canvasがタッチイベントをサポートしていることを確認
-      const canvas = page.locator('canvas').first();
-      await expect(canvas).toBeVisible({ timeout: getTimeout(3000) });
+      const cdp = await page.context().newCDPSession(page);
+      const centerX = box.x + box.width / 2;
+      const centerY = box.y + box.height / 2;
+      const half = Math.min(box.width, box.height) / 2;
+      const spreadFrom = half * 0.2;
+      const spreadTo = half * 0.9;
 
-      // タッチイベントハンドラが登録されていることを確認
-      const hasTouchSupport = await page.evaluate(() => {
-        const canvas = document.querySelector('canvas');
-        if (!canvas) return false;
-        // タッチイベントリスナーの存在を確認するのは困難なので、
-        // touch-actionスタイルまたはFabric.jsの設定を確認
-        const style = window.getComputedStyle(canvas);
-        // touch-actionが設定されているか、またはFabric.jsがロードされているかを確認
-        // @ts-expect-error Fabric.js check
-        return style.touchAction !== 'auto' || typeof window.fabric !== 'undefined';
+      const before = await readViewState(page);
+
+      // 2本指を中心から左右へ広げる（ピンチアウト＝拡大）
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [
+          { x: centerX - spreadFrom, y: centerY, id: 0 },
+          { x: centerX + spreadFrom, y: centerY, id: 1 },
+        ],
       });
+      for (let i = 1; i <= 8; i++) {
+        const offset = spreadFrom + ((spreadTo - spreadFrom) * i) / 8;
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [
+            { x: centerX - offset, y: centerY, id: 0 },
+            { x: centerX + offset, y: centerY, id: 1 },
+          ],
+        });
+        await page.waitForTimeout(16);
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 
-      // タッチサポートまたはFabric.jsが存在することを確認
-      expect(hasTouchSupport).toBeTruthy();
+      await expect
+        .poll(async () => (await readViewState(page)).zoom, { timeout: getTimeout(5000) })
+        .toBeGreaterThan(before.zoom);
     });
   });
 
@@ -850,51 +747,66 @@ test.describe('現場調査画像ビューア', () => {
    * @requirement site-survey/REQ-5.6
    */
   test.describe('表示状態の共有', () => {
-    test('ビューアと注釈エディタが同じコンテキストで動作する (site-survey/REQ-5.6)', async ({
+    test('閲覧モードで変えた倍率と回転が編集モードへ引き継がれる (site-survey/REQ-5.6)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
       await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const zoomControls = page.getByTestId('zoom-controls');
+      await zoomControls.getByRole('button', { name: 'ズームイン' }).click();
+      await zoomControls.getByRole('button', { name: 'ズームイン' }).click();
+      await expect(page.getByTestId('zoom-badge')).toHaveText('120%');
 
-      await ensureImageExists(page, createdSurveyId);
+      await zoomControls.getByRole('button', { name: '画像を90度回転' }).click();
+      await expect
+        .poll(async () => (await readViewState(page)).rotation, { timeout: getTimeout(5000) })
+        .toBe(90);
 
-      let imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
-      let imageVisible = await imageElement.isVisible();
-      if (!imageVisible) {
-        imageElement = page.locator('[aria-label="写真管理パネル"] button').first();
-        imageVisible = await imageElement.isVisible();
-      }
-
-      if (!imageVisible) {
-        throw new Error('画像が見つかりません。');
-      }
-
-      await imageElement.click();
-
-      // ビューアページへの遷移を待機
-      await page.waitForURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-        timeout: getTimeout(10000),
+      // 編集モードへ切り替える（キャンバスは作り直される）
+      await page.getByRole('button', { name: '編集モード' }).click();
+      await expect(page.getByRole('toolbar', { name: /注釈ツール/ })).toBeVisible({
+        timeout: getTimeout(15000),
       });
-      await page.waitForLoadState('networkidle');
 
-      // 注釈エディタ（ビューア/エディタ統合コンポーネント）が表示されることを確認
-      const annotationEditor = page.locator('[data-testid="annotation-editor-container"]');
-      await expect(annotationEditor).toBeVisible({ timeout: getTimeout(10000) });
+      // 倍率・回転が編集モードへ引き継がれていること
+      await expect(page.getByTestId('zoom-badge')).toHaveText('120%', {
+        timeout: getTimeout(15000),
+      });
+      await expect
+        .poll(async () => (await readViewState(page)).rotation, { timeout: getTimeout(15000) })
+        .toBe(90);
+    });
 
-      // 編集モードボタンが存在することを確認（ビューアと編集モードの切り替え）
-      const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      await expect(editModeButton).toBeVisible({ timeout: getTimeout(3000) });
+    test('編集モードで変えた倍率が閲覧モードへ引き継がれる (site-survey/REQ-5.6)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      await openImageViewer(page);
 
-      // 注釈エディタが存在し、編集モードボタンがあることを確認
-      expect(
-        (await annotationEditor.isVisible()) && (await editModeButton.isVisible())
-      ).toBeTruthy();
+      await page.getByRole('button', { name: '編集モード' }).click();
+      await expect(page.getByRole('toolbar', { name: /注釈ツール/ })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await expect(page.getByTestId('zoom-badge')).toHaveText('100%', {
+        timeout: getTimeout(15000),
+      });
+
+      const zoomControls = page.getByTestId('zoom-controls');
+      await zoomControls.getByRole('button', { name: 'ズームイン' }).click();
+      await zoomControls.getByRole('button', { name: 'ズームイン' }).click();
+      await zoomControls.getByRole('button', { name: 'ズームイン' }).click();
+      await expect(page.getByTestId('zoom-badge')).toHaveText('130%');
+
+      // 閲覧モードへ戻す
+      await page.getByRole('button', { name: '編集終了' }).click();
+      await expect(page.getByRole('toolbar', { name: /注釈ツール/ })).toBeHidden({
+        timeout: getTimeout(15000),
+      });
+
+      await expect(page.getByTestId('zoom-badge')).toHaveText('130%', {
+        timeout: getTimeout(15000),
+      });
     });
   });
 

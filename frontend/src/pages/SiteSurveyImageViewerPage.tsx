@@ -199,10 +199,53 @@ export default function SiteSurveyImageViewerPage() {
   const [isNotFound, setIsNotFound] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // ビューア状態（REQ-5.6: 将来的にAnnotationEditorと状態共有用）
-  const [zoom] = useState(1);
-  const [rotation] = useState(0);
-  const [pan] = useState({ x: 0, y: 0 });
+  // 表示状態（REQ-5.6: ズーム・回転・位置を注釈編集モードと共有する）
+  //
+  // Task 115.83: 閲覧モードと編集モードは同じ `AnnotationEditor` を `readOnly` で
+  // 切り替えて使うが、切り替え時に Fabric キャンバスが作り直されるため、表示状態は
+  // 画面（本ページ）側が保持しなければ引き継げない。以前は setter を持たない定数
+  // だったため共有が成立していなかった。
+  //
+  // 初期値は `null`（＝未取得）とし、最初の表示では初期値を渡さない。保存済みの回転
+  // （REQ-22.5）の復元を、まだ何も操作していない既定値で上書きしないためである。
+  const [viewState, setViewState] = useState<{
+    zoom: number;
+    rotation: number;
+    pan: { x: number; y: number };
+  } | null>(null);
+
+  /**
+   * 表示状態の変化を受け取り保持する（REQ-5.6）。
+   *
+   * 同値の通知では state を更新せず、再描画の連鎖を避ける。
+   */
+  const handleViewStateChange = useCallback(
+    (next: { zoom: number; rotation: number; pan: { x: number; y: number } }) => {
+      setViewState((prev) => {
+        if (
+          prev &&
+          prev.zoom === next.zoom &&
+          prev.rotation === next.rotation &&
+          prev.pan.x === next.pan.x &&
+          prev.pan.y === next.pan.y
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  /**
+   * 表示する画像が変わったら共有中の表示状態を破棄する（REQ-5.6）。
+   *
+   * 共有状態は「いま見ている画像の表示状態」であり、別画像へ持ち越すと、その画像の
+   * 保存済み回転（REQ-22.5）を前の画像の回転で上書きしてしまう。
+   */
+  useEffect(() => {
+    setViewState(null);
+  }, [imageId]);
 
   /**
    * 注釈保存成功時のコールバック（REQ-23.5: サムネイルURL即時反映）
@@ -353,9 +396,10 @@ export default function SiteSurveyImageViewerPage() {
             imageUrl={image.originalUrl}
             imageId={image.id}
             surveyId={id}
-            initialZoom={zoom}
-            initialRotation={rotation}
-            initialPan={pan}
+            initialZoom={viewState?.zoom}
+            initialRotation={viewState?.rotation}
+            initialPan={viewState?.pan}
+            onViewStateChange={handleViewStateChange}
             readOnly={!isEditMode}
             imageInfo={image}
             onAnnotationSaved={handleAnnotationSaved}

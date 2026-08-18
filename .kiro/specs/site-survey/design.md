@@ -101,11 +101,11 @@
 | `SiteSurveySearchFilter`（`frontend/src/components/site-surveys/SiteSurveySearchFilter.tsx`） | 3.2, 3.3, 3.4 | `SiteSurveyListPage`（`frontend/src/pages/SiteSurveyListPage.tsx`）が検索フォーム・調査日範囲・並び替え・クリアをページ内に直接実装している |
 | `SiteSurveyErrorDisplay`（`frontend/src/components/site-surveys/SiteSurveyErrorDisplay.tsx`）と `useSiteSurveyError`（`frontend/src/hooks/useSiteSurveyError.ts`） | 16.8 | 表示は `SiteSurveyListPage` / `SiteSurveyDetailPage` の `role="alert"` エラー表示と再試行ボタンが担う。Sentry 送信は `frontend/src/components/ErrorBoundary.tsx` と `frontend/src/utils/logger.ts` が全画面共通で担う |
 
-**撤去しなかったもの**（要件が表示・機能を求めており、出荷済みの代替実装が無い。撤去すると要件の実装そのものが失われるため、正しい是正は撤去ではなく結線である）:
+**撤去しなかったもの**（撤去すると要件の実装または要件カバレッジが失われるもの。理由は行ごとに異なり、(a) 要件が表示・機能を求めているのに出荷済みの代替実装が無い、(b) 出荷済みの代替実装はあるが受入基準カバレッジの主張が当該部品の単体検証にしか無い、のいずれかである。(a) の正しい是正は結線、(b) の正しい是正は主張を結線側へ移してからの撤去である）:
 
 | 未結線の部品 | 担当要件 | 撤去せず存置する理由（＝結線されていない理由） |
 |---|---|---|
-| `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`） | 5.1-5.6, 12, 20.1 | 本設計書の「Requirements Traceability」表と「Components and Interfaces」が要件5 の担当として明示しており、要件33-34 節は「フェーズ4 で `canvasViewportController` へ移行して二重実装を解消する」計画を持つ。**設計上の役割が現存するため撤去しない** |
+| `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`） | **担当なし**（要件5.1-5.6 / 12 / 20.1 の担当は出荷経路へ付け替え済み。下記「画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）」を参照） | 存置の理由は**設計上の役割ではなく、要件カバレッジの所在**に変わった。要件30.5（`site-survey/REQ-30.5`）と要件33.10（`site-survey/REQ-33.10`）の受入基準カバレッジは、本部品と `ImageViewer.test.tsx` / `ImageViewer.refit.test.tsx` の `@requirement` タグに**しか存在しない**（他の全ファイルを走査して 0 件。実測）。撤去すると当該2件が未カバーになり `scripts/check-requirement-coverage.ts` が失敗する。**先に主張を結線側へ移すまで撤去できない**（`StylePanel` と同型） |
 | `StylePanel`（`frontend/src/components/site-surveys/StylePanel.tsx`）と `style-panel.constants.ts` | 24.5, 25.2, 26.3, 26.4, 26.6, 28.7 | タスク 115.70 の所管。実際に描画されるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである。ただし **要件26.4 / 26.6 の受入基準カバレッジは本部品の単体検証（`StylePanel.outline-toggle.test.tsx`）にしか存在せず**、結線側に同等の主張が無い。先に主張を結線側へ移すまで撤去できない |
 
 #### 自動保存・復元基盤の結線（タスク 115.81）
@@ -149,6 +149,46 @@
 - **ツールを切り替えたら未確定の入力欄を閉じる。** 別ツールでの描画対象と入力欄の対象が食い違う状態を残さないため
 
 **E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件6.2 / 6.3 を「統合テストで検証」として E2E から除外していたが、その統合検証は結線されていない `DimensionValueInput` を単体で組み立てて回すだけだった。結線が済んだため除外の根拠は失われ、タスク 115.82 で当該2件を除外一覧から削除した。あわせて `e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts` の要件6.2 / 6.3 を名乗る2件は、実際にはスタイルオプションの表示と色設定（要件6.7 と重複）しか見ていなかったため、寸法線の描画→入力欄の表示→確定→寸法線上のラベル表示という本番経路を通す検証へ書き直した。
+
+#### 画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）
+
+タスク 115.64 が「要件33-34 節にフェーズ4 の移行計画があるため設計上の役割が現存する」として存置した `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`）について、タスク 115.83 で**要件5 の担当を実態へ付け替えた**。決定の根拠は次の3点である。
+
+- **本番から到達しない。** `ImageViewer` を import しているのは `frontend/src/components/site-surveys/index.ts`（バレル再エクスポート）、`ImageViewer.stories.tsx`、単体テスト2件だけで、バレル経由で `ImageViewer` を取り込む本番コードも存在しない（`frontend/src` 全走査の実測）。ルート `/site-surveys/:id/images/:imageId`（`frontend/src/routes.tsx`）が描画するのは `SiteSurveyImageViewerPage` であり、その中で画像を描いているのは `AnnotationEditor` である
+- **存置の根拠だった移行計画は既に完了している。** 「フェーズ4: `ImageViewer` を共通コントローラへ移行し二重実装解消」は、タスク 97 で実施済みである。現在の `ImageViewer.tsx` は `createCanvasViewportController` を import し、ズーム・パン・等倍時抑止・範囲補正をコントローラへ委譲している。したがって「これから移行するので存置する」という理由はもはや成立しない
+- **結線し直すと二重描画になる。** 画像ビューア画面は既に `AnnotationEditor` を閲覧/編集の両方で使っており、ここへ `ImageViewer` を差し込むと同一画面に2つの描画実装が並ぶ。要件33.10 が解消しようとしている二重実装を再導入することになるため採らない
+
+**したがって計画の実施（結線）ではなく、追跡表の担当を実態へ付け替える方を選んだ。**
+
+| 付け替え後の担当 | 担当要件 | 本番の描画経路からの到達方法 |
+|---|---|---|
+| `SiteSurveyDetailPage`（`frontend/src/pages/SiteSurveyDetailPage.tsx`） | 5.1 | 写真管理パネルの画像を押すと `navigate('/site-surveys/{id}/images/{imageId}')` で専用画面へ遷移する |
+| `SiteSurveyImageViewerPage`（`frontend/src/pages/SiteSurveyImageViewerPage.tsx`） | 5.1, 5.6 | 上記ルートの描画先。`AnnotationEditor` を `readOnly={!isEditMode}` で閲覧/編集に切り替え、表示状態を保持して両モードへ渡す |
+| `AnnotationEditor`（`frontend/src/components/site-surveys/AnnotationEditor.tsx`） | 5.2, 5.3, 5.4, 5.6 | 閲覧・編集の双方で Fabric キャンバスを所有し、`useCanvasViewport` が生成する単一の `canvasViewportController` でビューポートを操作する |
+| `ZoomControls`（`frontend/src/components/site-surveys/ZoomControls.tsx`） | 5.2, 5.3 | 画面下部右端の固定コントロール。閲覧モードでは回転ボタンも本コントロールへ載せる |
+| `touchGestureManager`（`frontend/src/components/site-surveys/gestures/touchGestureManager.ts`） | 5.5 | canvas への attach は `readOnly` で分岐しないため、閲覧モードでも2本指ピンチ／2本指パンが同じコントローラを駆動する |
+
+**担当の付け替えだけでは要件5 を満たさなかったため、あわせて欠けていた機能を実装した**（タスク 115.83 の後半）。付け替え先の実態には次の欠落があった。
+
+- **閲覧のみの状態に拡大・縮小の手段が無かった（5.2）。** `ZoomControls` の描画条件が `!readOnly && !state.isLoading` で、閲覧モードでは倍率バッジもボタンも現れなかった。条件から `!readOnly` を外し、閲覧モードでも表示する
+- **閲覧のみの状態に回転の手段が無かった（5.3）。** 回転ボタンは `AnnotationToolbar` にしかなく、そのツールバー自体が `!readOnly` でしか描画されない。要件22.7 が「注釈エディタの回転ボタンを**既存のツールバーに**配置する」と定めているためツールバー側は動かさず、**閲覧モードのときだけ** `ZoomControls` に回転ボタンを載せる（`onRotate` が渡されたときのみ描画する任意 props）。両モードに置くと同一ラベルのボタンが二重に現れるため、モード排他とする
+- **閲覧のみの状態に単一ポインタのパンが無かった（5.4）。** 2本指パンは `touchGestureManager` 経由で閲覧モードでも動くが、マウスや1本指では動かせなかった。本書「Requirements 33-34」の「既存 `ImageViewer`（閲覧モード）との差異」が「1本指パンは閲覧モードの入力割当、編集モードは2本指パンで代替」と定めているため、その割当どおり**閲覧モードのコンテナにのみ** `onPointerDown/Move` を結線する。等倍時の抑止と範囲補正は `canvasViewportController` が担う（要件34.7）
+- **表示状態が共有されていなかった（5.6）。** `SiteSurveyImageViewerPage` はズーム・回転・パンを **setter を持たない定数**（`const [zoom] = useState(1)` 等）として宣言しており、`AnnotationEditor` 側も `initialRotation` を分解代入すらしていなかった。閲覧⇄編集の切り替えでは `readOnly` が canvas 生成 effect の依存に含まれるため Fabric キャンバスが作り直され、表示状態は画面側が保持しない限り失われる
+
+**結線にあたって定めた挙動**:
+
+- **表示状態の保持はホスト画面（`SiteSurveyImageViewerPage`）が持つ。** `AnnotationEditor` は canvas を作り直す側なので自身では保持できない。`onViewStateChange` で最新値を上げ、ホストが `initialZoom` / `initialRotation` / `initialPan` として次のモードへ渡し戻す
+- **初回表示では初期表示状態を渡さない。** ホストの保持値は `null` で始める。既定値（等倍・無回転）を初回から渡すと、保存済みの回転の復元（要件22.5）を「まだ何も操作していない既定値」で上書きしてしまうためである。逆に**共有値が指定されている場合は保存済みの回転より優先する**。共有値は「いまこの画面で見えている向き」であり、保存済みの値より新しい
+- **初期ビューの適用は画像の読み込み完了後に行う。** canvas 生成直後の表示寸法はコンテナ実寸の当て込みで暫定であり、その中心を基準にズームすると復元位置がずれる
+- **パンは絶対位置として復元する。** `canvasViewportController.pan` は相対量を足す API であり、ズーム適用後の `viewportTransform` の平行移動量は 0 とは限らない。現在位置との差分を渡さないと共有された位置を再現できない
+- **初期ビュー適用が済むまで表示状態を通知しない。** 作り直した直後の canvas は一時的に等倍を示すため、その途中経過を通知するとホストの保持値を等倍で上書きしてしまう
+- **表示状態の通知はポインタ操作の終了時と倍率変化時に行う。** `touchGestureManager` は2本指パンの終了コールバックを公開せず、パンは倍率も変えないため、コンテナの `pointerup` / `pointercancel` / `pointerleave` を**両モードで**購読して確定値を通知する。毎フレーム通知しないのは、ホストの再描画をジェスチャー中に走らせないためである
+- **同値の通知ではホストの状態を更新しない。** 通知→再描画→通知の連鎖を避ける
+- **表示する画像が変わったら共有状態を破棄する。** 共有状態は「いま見ている画像の表示状態」であり、別画像へ持ち越すと、その画像の保存済み回転（要件22.5）を前の画像の回転で上書きしてしまう
+
+**E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件5.5（`site-survey/REQ-5.5`）を「タッチデバイス操作の検証はE2E範囲外。デバイステストで検証」として除外していたが、この根拠は本リポジトリの実態と食い違っていた。マルチタッチはタスク 98.1 が CDP `Input.dispatchTouchEvent`（複数 touchPoints）で送出する手法を確立しており、編集モードのピンチズームは `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` で実測検証済みだからである。同じ手法を閲覧モードへ適用できるため、タスク 115.83 で当該除外を削除し、`e2e/specs/site-surveys/site-survey-viewer.spec.ts` に閲覧モードのピンチズーム検証（2本指を広げて `window.__fabricCanvas.getZoom()` の増加を確認）を追加した。
+
+あわせて、要件5.1-5.4 / 5.6 を名乗る同ファイルの E2E は、`expect(true).toBeTruthy()` や「キャンバスまたはエディタが見えていればよい」といった恒真の判定で「検証済み」に見えていたため、本タスクで本番経路の受入レベルの検証（倍率バッジの遷移、`viewportTransform` の平行移動量、背景画像の `angle`、モード切替をまたいだ倍率・回転の引き継ぎ）へ書き直した。
 
 #### 契約名の実在対照表
 
@@ -787,7 +827,10 @@ sequenceDiagram
 | **4.11** | **ドラッグ&ドロップ順序変更（ローカル状態のみ）** | **PhotoManagementPanel, SiteSurveyDetailPage** | - | - |
 | **4.12** | **「上へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | **4.13** | **「下へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
-| 5.1-5.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
+| **5.1** | **画像クリックで専用画面の画像ビューアを開く** | **SiteSurveyDetailPage, SiteSurveyImageViewerPage** | - | - |
+| **5.2-5.4** | **閲覧時の拡大・縮小・回転・パン** | **AnnotationEditor, ZoomControls, useCanvasViewport, canvasViewportController, CanvasEngine** | - | **中点ズームフロー** |
+| **5.5** | **ピンチ操作によるズーム** | **touchGestureManager, canvasViewportController** | - | **中点ズームフロー** |
+| **5.6** | **表示状態（ズーム・回転・位置）を注釈編集モードと共有** | **SiteSurveyImageViewerPage, AnnotationEditor** | - | - |
 | 6.1-6.7 | 寸法線 | DimensionTool, DimensionValueInput, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
@@ -866,10 +909,12 @@ sequenceDiagram
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18, 20 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
 | SiteSurveyListPage | Frontend/Page | 一覧表示（タイトル「現場調査一覧」） | 2, 3, 20.3 | SurveyAPI (P0) | State |
-| SiteSurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, 5, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
+| SiteSurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, **5.1**, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
 | **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
-| AnnotationEditor | Frontend/Component | 注釈編集UI | 6, 7, 8, 9, 13, 22 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0) | State |
-| ImageViewer | Frontend/Component | 画像表示・操作 | 5, 12, 20.1 | Fabric.js (P0) | State |
+| AnnotationEditor | Frontend/Component | 注釈編集UI、**閲覧モードの画像表示・操作** | **5.2-5.4, 5.6**, 6, 7, 8, 9, 13, 22 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0), **useCanvasViewport (P0)** | State |
+| **SiteSurveyImageViewerPage** | **Frontend/Page** | **画像ビューア/エディタ画面。閲覧⇄編集の切替と表示状態の保持** | **5.1, 5.6, 2.8, 2.9, 2.12, 20.1** | **SurveyAPI (P0), AnnotationEditor (P0)** | **State** |
+| **ZoomControls** | **Frontend/Component** | **ズーム/フィット/回転の操作手段と倍率表示** | **5.2, 5.3, 34.1-34.3, 34.5, 34.6, 34.8** | **useCanvasViewport (P0)** | - |
+| ~~ImageViewer~~（未結線） | Frontend/Component | 画像表示・操作 | **担当なし**（要件5 の担当は上記へ付け替え済み。タスク 115.83） | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
 | AutoSaveManager | Frontend/Service | 自動保存・状態復元・QuotaExceeded対応 | 15, 15.7-15.10 | localStorage (P0) | State |
@@ -1571,7 +1616,7 @@ async findByImageIds(
 
 **Dependencies**
 - Inbound: SiteSurveyDetailPage — PDF報告書エクスポートトリガー (P0)
-- Inbound: ImageViewer — 個別画像エクスポートトリガー (P0)
+- Inbound: **AnnotationEditor** — 個別画像エクスポートトリガー (P0)（タスク 115.83 で実態へ是正。旧記述は未結線の `ImageViewer` を指していた）
 - Outbound: jsPDF — PDF生成 (P0)
 - Outbound: Fabric.js — Canvas→画像変換 (P0)
 - Outbound: AnnotationRendererService — 注釈付き画像レンダリング (P0)
@@ -2284,7 +2329,7 @@ interface UseUnsavedChangesResult {
 - エクスポート実行とダウンロードトリガー
 
 **Dependencies**
-- Inbound: ImageViewer — ダイアログ表示トリガー (P0)
+- Inbound: **AnnotationEditor** — ダイアログ表示トリガー (P0)（タスク 115.83 で実態へ是正。旧記述は未結線の `ImageViewer` を指していた）
 - Outbound: AnnotationRendererService — 注釈付き画像レンダリング (P0)
 - Outbound: ExportService — ダウンロード (P0)
 
@@ -2310,7 +2355,7 @@ interface ImageExportDialogProps {
 ```
 
 **Implementation Notes**
-- Integration: ImageViewerのツールバーから呼び出し
+- Integration: **`AnnotationEditor` が描画し、注釈ツールバーのエクスポート操作から開く**（タスク 115.83 で実態へ是正）
 - Validation: 形式に応じた品質オプションの動的制御
 - Risks: 大きい画像のエクスポート時のメモリ使用量
 
@@ -6329,7 +6374,7 @@ sequenceDiagram
   - **フェーズ1**: `canvasViewportController` 抽出 + `touchGestureManager` 拡張 + `AnnotationEditor` 配線で「拡大して描ける」を成立（Req 33 中核）
   - **フェーズ2**: 選択ハンドル44px（Req 29.4）+ 拡大中の選択/移動確実化（Req 33.11/33.12）
   - **フェーズ3**: `ZoomControls`（Req 34）+ ダブルタップズーム（Req 33.8）
-  - **フェーズ4**: `ImageViewer` を共通コントローラへ移行し二重実装解消（Req 33.10 最終担保）
+  - **フェーズ4**: `ImageViewer` を共通コントローラへ移行し二重実装解消（Req 33.10 最終担保）。**タスク 97 で実施済み**（`ImageViewer.tsx` は `createCanvasViewportController` を採用し、ズーム/パン/等倍時抑止/範囲補正を委譲している）。なお `ImageViewer` 自体は本番から未参照であり、要件5 の担当は「画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）」で出荷経路へ付け替えた
 
 **Rollback triggers**:
 - 拡大中の描画座標ずれが解消できない（RN3 が失敗）→ フェーズ1を「ズーム/パンのみ・描画はフィット時限定」へ縮退
