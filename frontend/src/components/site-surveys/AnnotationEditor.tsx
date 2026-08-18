@@ -93,6 +93,16 @@ import ZoomControls from './ZoomControls';
 // フィット計算は computeFitScale（原寸頭打ち/拡大許容を allowUpscale で制御）へ移行し、
 // useElementSize でコンテナ実寸の変化に追従して再フィットする。
 import { computeFitScale } from '../../utils/imageFitScale';
+// Task 115.81 (Req 15.4, 15.5, 15.7-15.10): 自動保存・復元基盤の画面結線。
+// design.md「AutoSaveManager」の Dependencies が Inbound: AnnotationEditor と定めるため、
+// 基盤の生成・購読・UI 表示はいずれも本コンポーネントが担う。
+import { AutoSaveManager } from '../../services/AutoSaveManager';
+import type { AnnotationData as AnnotationDraftData } from '../../services/AutoSaveManager';
+import { isLocalStorageAvailable } from '../../utils/storage-error';
+import { useAnnotationRestoration } from '../../hooks/useAnnotationRestoration';
+import RestoreAnnotationDialog from '../site-survey/RestoreAnnotationDialog';
+import StorageWarningBanner from './StorageWarningBanner';
+import type { StorageWarningType } from './StorageWarningBanner';
 import useElementSize from '../../hooks/useElementSize';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
@@ -102,6 +112,82 @@ declare global {
   interface Window {
     __fabricCanvas?: FabricCanvas | null;
   }
+}
+
+/**
+ * 復元した注釈オブジェクトへ表示倍率と操作可否を適用してキャンバスへ追加する
+ *
+ * サーバー保存済み注釈の復元（Req 9.2）とローカル下書きの復元（Req 15.5）で同じ変換を使う。
+ * 二重実装にすると倍率適用先（Task 115.73, Req 32.2）の是正が片側にしか効かないため共有する。
+ *
+ * @param canvas 対象キャンバス
+ * @param enlivenedObjects `util.enlivenObjects` で実体化済みのオブジェクト
+ * @param savedCanvasWidth 保存時のキャンバス幅（不明なら倍率1）
+ * @param savedCanvasHeight 保存時のキャンバス高さ（不明なら倍率1）
+ * @param interactive 選択・操作を許可するか
+ * @returns 適用した倍率と追加件数
+ */
+function addRestoredAnnotationObjects(
+  canvas: FabricCanvas,
+  enlivenedObjects: unknown[],
+  savedCanvasWidth: number | undefined,
+  savedCanvasHeight: number | undefined,
+  interactive: boolean
+): { addedCount: number; scaleX: number; scaleY: number; needsScaling: boolean } {
+  const currentCanvasWidth = canvas.getWidth();
+  const currentCanvasHeight = canvas.getHeight();
+  const scaleX =
+    savedCanvasWidth && savedCanvasWidth > 0 ? currentCanvasWidth / savedCanvasWidth : 1;
+  const scaleY =
+    savedCanvasHeight && savedCanvasHeight > 0 ? currentCanvasHeight / savedCanvasHeight : 1;
+  const needsScaling = scaleX !== 1 || scaleY !== 1;
+  const avgScale = (scaleX + scaleY) / 2;
+
+  let addedCount = 0;
+
+  enlivenedObjects.forEach((obj) => {
+    // FabricObjectであることを確認
+    if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
+      const fabricObj = obj as FabricObject;
+
+      // スケール変換が必要な場合は適用
+      if (needsScaling) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const objAny = fabricObj as any;
+        const left = objAny.left ?? 0;
+        const top = objAny.top ?? 0;
+        fabricObj.set({
+          left: left * scaleX,
+          top: top * scaleY,
+          scaleX: (objAny.scaleX ?? 1) * scaleX,
+          scaleY: (objAny.scaleY ?? 1) * scaleY,
+        });
+
+        // ストローク幅の解決（Task 115.73, Req 32.2）
+        // 集合体（Group）の注釈は実描画を子が保持し、表示倍率は上の scaleX/scaleY
+        // 経由で子へ伝搬する。集合体自身の strokeWidth は子から複写された後方互換用の
+        // 値であり、ここへ重ねて倍率を掛けると複写元（実描画）と座標系が食い違う。
+        // resolveRestoredStrokeWidth は集合体なら実描画から導出し直し、集合体でない
+        // 注釈（テキストの白アウトラインは strokeUniform のため拡大率が線幅へ伝搬
+        // しない）は従来どおり平均倍率を掛ける。
+        if (objAny.strokeWidth) {
+          fabricObj.set({
+            strokeWidth: resolveRestoredStrokeWidth(fabricObj, objAny.strokeWidth, avgScale),
+          });
+        }
+      }
+
+      // 閲覧モードでは選択不可、それ以外は選択ツールの場合のみ選択可能
+      fabricObj.set({
+        selectable: interactive,
+        evented: interactive,
+      });
+      canvas.add(fabricObj);
+      addedCount += 1;
+    }
+  });
+
+  return { addedCount, scaleX, scaleY, needsScaling };
 }
 
 /**
@@ -226,6 +312,13 @@ const STYLES = {
     backgroundColor: '#ffffff',
     borderBottom: '1px solid #e5e7eb',
     zIndex: 20,
+  },
+  // Task 115.81 (Req 15.8, 15.9): ストレージ警告帯の配置。ツールバーの直上に置き、
+  // 「今すぐ保存」への導線が編集領域を覆わないようにする。
+  storageWarningContainer: {
+    padding: '8px',
+    backgroundColor: '#ffffff',
+    zIndex: 21,
   },
   container: {
     position: 'relative' as const,
@@ -486,6 +579,75 @@ function AnnotationEditor({
 
   // 保存成功メッセージを 3 秒後に消すための timer 参照（unmount 後の setState を防止）
   const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Task 115.81: 自動保存・復元基盤（Req 15.4, 15.5, 15.7-15.10）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * AutoSaveManager インスタンス（コンポーネントのライフサイクル間で維持）
+   *
+   * Req 15.9: localStorage が使えない（プライベートブラウジング等の SecurityError）環境では
+   * 生成時点で自動保存を無効化し、手動保存のみで動作させる。検出は utils/storage-error に
+   * 一元化した `isLocalStorageAvailable` が担う（Req 15.10 のクロスブラウザ判定を含む）。
+   */
+  const autoSaveManagerRef = useRef<AutoSaveManager | null>(null);
+  if (!autoSaveManagerRef.current) {
+    autoSaveManagerRef.current = new AutoSaveManager({
+      disableAutoSave: !isLocalStorageAvailable(),
+    });
+  }
+  const autoSaveManager = autoSaveManagerRef.current;
+
+  /** ストレージ警告帯の表示種別（Req 15.8: 容量超過 / Req 15.9: プライベートモード） */
+  const [storageWarning, setStorageWarning] = useState<StorageWarningType | null>(null);
+
+  /**
+   * プライベートモード警告の「今後表示しない」選択（Req 15.9）
+   *
+   * 選択の永続化先は localStorage だが、この警告が出ている環境ではその localStorage が
+   * 使えない。選択を無視すると UI の申し出が嘘になるため、編集セッションの間だけ尊重する。
+   */
+  const suppressPrivateWarningRef = useRef(false);
+
+  /** サーバー保存済み注釈（ローカル下書きとの比較材料。Req 15.5） */
+  const [serverAnnotation, setServerAnnotation] = useState<{
+    data: AnnotationDraftData | null;
+    updatedAt: string | null;
+  }>({ data: null, updatedAt: null });
+
+  /** 画像・注釈の読み込みが完了し、以後の変更をユーザー編集として扱ってよいか（Req 15.4） */
+  const autoSaveReadyRef = useRef(false);
+
+  /** 復元要求（ダイアログで「復元する」が押された）を描画側へ受け渡す参照 */
+  const pendingRestoreRef = useRef<AnnotationDraftData | null>(null);
+  const [restoreRequestId, setRestoreRequestId] = useState(0);
+
+  /**
+   * 復元フックの戻り値への参照
+   *
+   * フックの呼び出しは handleSave の定義より後ろに置く必要がある（onRestore が
+   * キャンバス適用を伴うため）。手動保存の完了から再チェックを呼ぶ経路だけを参照で繋ぐ。
+   */
+  const restorationRef = useRef<{ recheckLocalData: () => void } | null>(null);
+
+  /**
+   * 現在のキャンバス内容から注釈データを構築する
+   *
+   * サーバー保存（Req 9.1）とローカル自動保存（Req 15.4）で同じ形を使う。形が食い違うと
+   * 復元時の倍率算出（canvasWidth/canvasHeight）と回転復元（imageRotation）が片側で失われる。
+   */
+  const buildAnnotationData = useCallback((canvas: FabricCanvas): AnnotationDraftData => {
+    const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
+
+    return {
+      version: '1.0',
+      objects: objects.map((obj) => obj.toObject()),
+      canvasWidth: canvas.getWidth(),
+      canvasHeight: canvas.getHeight(),
+      imageRotation: imageRotationRef.current,
+    };
+  }, []);
 
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
   const undoManagerRef = useRef<UndoManager | null>(null);
@@ -757,6 +919,10 @@ function AnnotationEditor({
    */
   const loadImage = useCallback(
     async (canvas: FabricCanvas, url: string) => {
+      // Task 115.81 (Req 15.4): 読み込み・復元でキャンバスへ載る注釈をユーザー編集と
+      // 取り違えないよう、読み込みの開始時点で自動保存の受付を閉じる。編集モードの
+      // 切り替えでは canvas が作り直されて本関数が再実行されるため、初回だけでは足りない。
+      autoSaveReadyRef.current = false;
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
       try {
@@ -851,6 +1017,11 @@ function AnnotationEditor({
         // REQ-9.2: 保存された注釈データを復元
         try {
           const annotationData = await getAnnotation(imageId);
+          // Task 115.81 (Req 15.5): ローカル下書きとの比較材料をフックへ渡すため保持する
+          setServerAnnotation({
+            data: annotationData?.data ?? null,
+            updatedAt: annotationData?.updatedAt ?? null,
+          });
           if (annotationData && annotationData.data) {
             // 再度disposeチェック
             /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */
@@ -891,71 +1062,20 @@ function AnnotationEditor({
                 return;
               }
 
-              // スケール係数を計算（保存時のキャンバスサイズと現在のキャンバスサイズの比率）
-              const savedCanvasWidth = annotationData.data.canvasWidth;
-              const savedCanvasHeight = annotationData.data.canvasHeight;
-              const currentCanvasWidth = canvas.getWidth();
-              const currentCanvasHeight = canvas.getHeight();
-              const scaleX =
-                savedCanvasWidth && savedCanvasWidth > 0
-                  ? currentCanvasWidth / savedCanvasWidth
-                  : 1;
-              const scaleY =
-                savedCanvasHeight && savedCanvasHeight > 0
-                  ? currentCanvasHeight / savedCanvasHeight
-                  : 1;
-              const needsScaling = scaleX !== 1 || scaleY !== 1;
-
-              // 復元したオブジェクトをキャンバスに追加
-              enlivenedObjects.forEach((obj) => {
-                // FabricObjectであることを確認
-                if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
-                  const fabricObj = obj as FabricObject;
-
-                  // スケール変換が必要な場合は適用
-                  if (needsScaling) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const objAny = fabricObj as any;
-                    const left = objAny.left ?? 0;
-                    const top = objAny.top ?? 0;
-                    fabricObj.set({
-                      left: left * scaleX,
-                      top: top * scaleY,
-                      scaleX: (objAny.scaleX ?? 1) * scaleX,
-                      scaleY: (objAny.scaleY ?? 1) * scaleY,
-                    });
-
-                    // ストローク幅の解決（Task 115.73, Req 32.2）
-                    // 集合体（Group）の注釈は実描画を子が保持し、表示倍率は上の scaleX/scaleY
-                    // 経由で子へ伝搬する。集合体自身の strokeWidth は子から複写された後方互換用の
-                    // 値であり、ここへ重ねて倍率を掛けると複写元（実描画）と座標系が食い違う。
-                    // resolveRestoredStrokeWidth は集合体なら実描画から導出し直し、集合体でない
-                    // 注釈（テキストの白アウトラインは strokeUniform のため拡大率が線幅へ伝搬
-                    // しない）は従来どおり平均倍率を掛ける。
-                    const avgScale = (scaleX + scaleY) / 2;
-                    if (objAny.strokeWidth) {
-                      fabricObj.set({
-                        strokeWidth: resolveRestoredStrokeWidth(
-                          fabricObj,
-                          objAny.strokeWidth,
-                          avgScale
-                        ),
-                      });
-                    }
-                  }
-
-                  // readOnlyモードでは選択不可、それ以外は選択ツールの場合のみ選択可能
-                  fabricObj.set({
-                    selectable: !readOnly && activeToolRef.current === 'select',
-                    evented: !readOnly && activeToolRef.current === 'select',
-                  });
-                  canvas.add(fabricObj);
-                }
-              });
+              // 復元したオブジェクトをキャンバスに追加（倍率適用は共有ヘルパーが担う）
+              const restored = addRestoredAnnotationObjects(
+                canvas,
+                enlivenedObjects,
+                annotationData.data.canvasWidth,
+                annotationData.data.canvasHeight,
+                !readOnly && activeToolRef.current === 'select'
+              );
               canvas.renderAll();
               console.log(
-                `Restored ${enlivenedObjects.length} annotation objects` +
-                  (needsScaling ? ` (scaled: ${scaleX.toFixed(2)}x${scaleY.toFixed(2)})` : '')
+                `Restored ${restored.addedCount} annotation objects` +
+                  (restored.needsScaling
+                    ? ` (scaled: ${restored.scaleX.toFixed(2)}x${restored.scaleY.toFixed(2)})`
+                    : '')
               );
             }
           }
@@ -964,6 +1084,9 @@ function AnnotationEditor({
           console.warn('注釈データの読み込みに失敗しました:', annotationErr);
         }
 
+        // Task 115.81 (Req 15.4): 読み込み・復元由来の object:added では自動保存を起動しない。
+        // ここから先の変更だけをユーザー編集とみなす。
+        autoSaveReadyRef.current = true;
         setState((prev) => ({ ...prev, isLoading: false, error: null }));
         /* istanbul ignore next -- @preserve 画像読み込みエラーのキャッチ（ネットワークエラー等） */
       } catch (err) {
@@ -2113,17 +2236,9 @@ function AnnotationEditor({
     setState((prev) => ({ ...prev, isSaving: true, error: null, saveSuccess: false }));
 
     try {
-      // Canvasからオブジェクトを取得（背景画像を除く）
-      const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
-
       // 注釈データを構築（キャンバス寸法と回転角度を含める - PDF/サムネイルでのスケール変換・回転用）
-      const annotationData = {
-        version: '1.0',
-        objects: objects.map((obj) => obj.toObject()),
-        canvasWidth: canvas.getWidth(),
-        canvasHeight: canvas.getHeight(),
-        imageRotation: imageRotationRef.current,
-      };
+      const annotationData = buildAnnotationData(canvas);
+      const objects = annotationData.objects;
 
       // APIを呼び出して保存
       const saveResponse = await saveAnnotation(imageId, { data: annotationData });
@@ -2137,7 +2252,7 @@ function AnnotationEditor({
       // 逆に注釈も回転も無い場合、合成結果は素のサムネイルと同一の内容にしかならない。
       // この場合は合成済みサムネイルが存在しない状態へ収束させ、表示を素のサムネイルへ
       // 退避させる（Req 22.5, 23.8）。
-      const hasRotation = normalizeImageRotation(annotationData.imageRotation) !== 0;
+      const hasRotation = normalizeImageRotation(annotationData.imageRotation ?? 0) !== 0;
       const requiresAnnotatedThumbnail = objects.length > 0 || hasRotation;
 
       let annotatedThumbnailUrl: string | null = saveResponse.annotatedThumbnailUrl ?? null;
@@ -2191,6 +2306,17 @@ function AnnotationEditor({
         onAnnotationSaved({ annotatedThumbnailUrl });
       }
 
+      // Task 115.81 (Req 15.5): サーバーへ確定したのでローカル下書きは未保存ではなくなる。
+      // 残したままにすると次回訪問時に復元確認が常時出て、実際の未保存編集と区別できなくなる。
+      autoSaveManager.clearLocal(imageId);
+      setServerAnnotation({
+        data: annotationData,
+        updatedAt: saveResponse.updatedAt,
+      });
+      restorationRef.current?.recheckLocalData();
+      // 容量超過の警告帯は手動保存の完了をもって役目を終える（Req 15.8）
+      setStorageWarning((prev) => (prev === 'quota-exceeded' ? null : prev));
+
       // 保存成功
       setState((prev) => ({ ...prev, isSaving: false, saveSuccess: true }));
 
@@ -2243,7 +2369,159 @@ function AnnotationEditor({
         error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
       }));
     }
-  }, [imageId, state.isSaving, onAnnotationSaved, onRequestRefresh, toast]);
+  }, [
+    imageId,
+    state.isSaving,
+    onAnnotationSaved,
+    onRequestRefresh,
+    toast,
+    buildAnnotationData,
+    autoSaveManager,
+  ]);
+
+  // ---------------------------------------------------------------------------
+  // Task 115.81: 自動保存・復元基盤の結線（Req 15.4, 15.5, 15.7-15.10）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * ローカル下書きをキャンバスへ適用する要求を受け取る（Req 15.5）
+   *
+   * ダイアログ確定時点ではキャンバスや背景画像がまだ準備中でありうるため、要求を参照へ退避し、
+   * 準備完了を待つ effect が実際の適用を行う。
+   */
+  const handleRestoreLocalDraft = useCallback((data: AnnotationDraftData) => {
+    pendingRestoreRef.current = data;
+    setRestoreRequestId((prev) => prev + 1);
+  }, []);
+
+  /**
+   * 未保存データ復元フック（Req 15.5）
+   *
+   * localStorage の下書きとサーバー保存済み注釈を比較し、復元確認ダイアログの表示可否を決める。
+   */
+  const restoration = useAnnotationRestoration({
+    imageId,
+    serverAnnotationData: serverAnnotation.data,
+    serverUpdatedAt: serverAnnotation.updatedAt,
+    autoSaveManager,
+    onRestore: handleRestoreLocalDraft,
+  });
+  // 参照の更新はレンダー中に行わない（React Compiler の制約）。描画後に最新値を載せ替える
+  useEffect(() => {
+    restorationRef.current = restoration;
+  }, [restoration]);
+
+  /**
+   * Req 15.8 / 15.9: ストレージ警告帯の購読
+   *
+   * - QuotaExceededError のリトライ後も保存できなかった場合に容量超過の警告を出す（15.8）
+   * - localStorage が使えない環境（SecurityError 等）では自動保存無効の警告を出す（15.9）
+   */
+  useEffect(() => {
+    if (readOnly) {
+      return;
+    }
+
+    if (
+      !suppressPrivateWarningRef.current &&
+      (autoSaveManager.isAutoSaveDisabled() || !autoSaveManager.isAutoSaveAvailable())
+    ) {
+      setStorageWarning('private-browsing');
+    }
+
+    autoSaveManager.setOnQuotaExceeded(() => {
+      setStorageWarning('quota-exceeded');
+    });
+
+    return () => {
+      autoSaveManager.setOnQuotaExceeded(null);
+    };
+  }, [autoSaveManager, readOnly]);
+
+  /**
+   * Req 15.4: 注釈編集中の自動保存
+   *
+   * 注釈の追加・変更・削除を検知して debounce（既定30秒）付きで localStorage へ保存する。
+   * 読み込み・復元由来の object:added は autoSaveReadyRef で除外する。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas || readOnly) {
+      return;
+    }
+
+    const scheduleAutoSave = () => {
+      if (!autoSaveReadyRef.current) {
+        return;
+      }
+      autoSaveManager.saveToLocal(imageId, surveyId, buildAnnotationData(canvas));
+    };
+
+    canvas.on('object:added', scheduleAutoSave);
+    canvas.on('object:modified', scheduleAutoSave);
+    canvas.on('object:removed', scheduleAutoSave);
+
+    return () => {
+      canvas.off('object:added', scheduleAutoSave);
+      canvas.off('object:modified', scheduleAutoSave);
+      canvas.off('object:removed', scheduleAutoSave);
+    };
+  }, [fabricCanvas, readOnly, imageId, surveyId, autoSaveManager, buildAnnotationData]);
+
+  /**
+   * Req 15.5: 復元確定後にローカル下書きをキャンバスへ適用する
+   */
+  useEffect(() => {
+    if (restoreRequestId === 0 || state.isLoading) {
+      return;
+    }
+
+    const canvas = fabricCanvasRef.current;
+    const draft = pendingRestoreRef.current;
+    if (!canvas || !draft) {
+      return;
+    }
+    pendingRestoreRef.current = null;
+
+    let cancelled = false;
+
+    void (async () => {
+      // 既存の注釈のみ除去する（背景画像は保持する）
+      canvas
+        .getObjects()
+        .filter((obj) => obj !== backgroundImageRef.current)
+        .forEach((obj) => canvas.remove(obj));
+
+      const objects = draft.objects ?? [];
+      if (objects.length > 0) {
+        const enlivenedObjects = await util.enlivenObjects(objects);
+        if (cancelled || isDisposedRef.current || fabricCanvasRef.current !== canvas) {
+          return;
+        }
+        addRestoredAnnotationObjects(
+          canvas,
+          enlivenedObjects,
+          draft.canvasWidth,
+          draft.canvasHeight,
+          !readOnly && activeToolRef.current === 'select'
+        );
+      }
+      canvas.renderAll();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restoreRequestId, state.isLoading, readOnly]);
+
+  /**
+   * アンマウント時に保留中の自動保存タイマーを破棄する
+   */
+  useEffect(() => {
+    return () => {
+      autoSaveManager.destroy();
+    };
+  }, [autoSaveManager]);
 
   /**
    * エクスポートダイアログを開く
@@ -2450,6 +2728,25 @@ function AnnotationEditor({
 
       {/* 全体ラッパー */}
       <div style={STYLES.wrapper}>
+        {/* Task 115.81 (Req 15.8, 15.9): ストレージ警告帯。
+            - quota-exceeded: 自動保存に失敗したので手動の「今すぐ保存」を促す（15.8）
+            - private-browsing: 自動保存を無効化し手動保存のみで動作することを伝える（15.9） */}
+        {!readOnly && storageWarning && (
+          <div style={STYLES.storageWarningContainer}>
+            <StorageWarningBanner
+              type={storageWarning}
+              onDismiss={(doNotShowAgain) => {
+                if (doNotShowAgain) {
+                  suppressPrivateWarningRef.current = true;
+                }
+                setStorageWarning(null);
+              }}
+              onSaveNow={storageWarning === 'quota-exceeded' ? handleSave : undefined}
+              showDoNotShowAgain={storageWarning === 'private-browsing'}
+            />
+          </div>
+        )}
+
         {/* ツールバー（readOnlyモードでは非表示） */}
         {!readOnly && (
           <div style={STYLES.toolbarContainer}>
@@ -2559,6 +2856,23 @@ function AnnotationEditor({
           onDownloadOriginal={handleDownloadOriginal}
           exporting={isExporting}
           downloading={isDownloading}
+        />
+      )}
+
+      {/* Task 115.81 (Req 15.5): 未保存データ復元確認ダイアログ。
+          localStorage に自動保存された下書きがある状態で再訪問・リロードすると表示する。 */}
+      {!readOnly && (
+        <RestoreAnnotationDialog
+          isOpen={restoration.showRestoreDialog}
+          localSavedAt={restoration.localSavedAtFormatted}
+          serverUpdatedAt={restoration.serverUpdatedAtFormatted}
+          isLocalNewer={restoration.isLocalNewer}
+          hasServerConflict={restoration.hasServerConflict}
+          localObjectCount={restoration.localObjectCount}
+          serverObjectCount={restoration.serverObjectCount}
+          onRestore={restoration.confirmRestore}
+          onDiscard={restoration.discardLocal}
+          onDismiss={restoration.dismissDialog}
         />
       )}
 

@@ -616,32 +616,6 @@
       }
     },
     {
-      "id": "site-survey/REQ-15.4",
-      "requirement": "REQ-15: レスポンシブ対応",
-      "title": "自動保存機能",
-      "reason": "自動保存のタイミング検証はE2E範囲外。統合テストで検証",
-      "category": "fault-tolerance",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / Timer mocks",
-        "description": "一定間隔（30秒）で自動保存が実行されることを確認",
-        "threshold": "auto_save_interval: 30s"
-      }
-    },
-    {
-      "id": "site-survey/REQ-15.5",
-      "requirement": "REQ-15: レスポンシブ対応",
-      "title": "localStorageからの編集状態復元",
-      "reason": "localStorage復元の検証はE2E範囲外。統合テストで検証",
-      "category": "fault-tolerance",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "ページリロード時にlocalStorageから未保存の編集状態が復元されることを確認",
-        "threshold": "state_restoration: functional"
-      }
-    },
-    {
       "id": "site-survey/REQ-15.6",
       "requirement": "REQ-15: レスポンシブ対応",
       "title": "ネットワーク切断時の警告",

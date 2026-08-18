@@ -80,7 +80,7 @@
 | `SurveyService` | `SiteSurveyService` | `backend/src/services/site-survey.service.ts`（`export class SiteSurveyService`） |
 | `ImageService` | `SurveyImageService` | `backend/src/services/survey-image.service.ts`（`export class SurveyImageService`。`validateFile` / `detectMimeTypeByMagicBytes` も同ファイル内のメソッド） |
 | `SurveyImagesRoutes` | `survey-images.routes.ts` | `backend/src/routes/survey-images.routes.ts`（規約2 によりルートは実ファイル名で呼ぶ） |
-| `QuotaWarningDialog` | `StorageWarningBanner` | `frontend/src/components/site-surveys/StorageWarningBanner.tsx`（要件15.8 の警告 UI。**未結線のまま存置する判断をタスク 115.64 で確定した。理由は下の「未結線部品の扱い」を参照**） |
+| `QuotaWarningDialog` | `StorageWarningBanner` | `frontend/src/components/site-surveys/StorageWarningBanner.tsx`（要件15.8 / 15.9 の警告 UI。**タスク 115.81 で `AnnotationEditor` へ結線済み。経緯は下の「未結線部品の扱い」を参照**） |
 
 #### 未結線部品の扱い（タスク 115.64 の判断）
 
@@ -105,11 +105,30 @@
 
 | 未結線の部品 | 担当要件 | 撤去せず存置する理由（＝結線されていない理由） |
 |---|---|---|
-| `StorageWarningBanner`（`frontend/src/components/site-surveys/StorageWarningBanner.tsx`） | 15.8, 15.9 | 要件15.8 は「ユーザーに警告を表示し、手動で『今すぐ保存』を促す」ことを求め、この警告 UI は本部品にしか存在しない。結線には `AutoSaveManager` の `setOnQuotaExceeded`（`frontend/src/services/AutoSaveManager.ts:501`）の登録と `frontend/src/utils/storage-error.ts` の消費が前提だが、**自動保存基盤そのもの（要件15.4, 15.5, 15.7-15.10）が本番から一切参照されていない**。基盤ごとの結線は撤去タスクの境界を超える |
-| `RestoreAnnotationDialog`（`frontend/src/components/site-survey/RestoreAnnotationDialog.tsx`） | 15.5 | 同上。`frontend/src/hooks/useAnnotationRestoration.ts` および `AutoSaveManager` とともに自動保存・復元基盤を構成する。基盤の結線と同時にしか結線できない |
-| `DimensionValueInput`（`frontend/src/components/site-surveys/tools/DimensionValueInput.tsx`） | 6.2, 6.3 | 出荷済みの `AnnotationEditor` は `createDimensionLine` で寸法線を描くだけで、寸法値入力フィールドを開く経路を持たない（`frontend/src/components/site-surveys/AnnotationEditor.tsx:1280-1285`）。本部品が要件6.2/6.3 の唯一の実装である |
+| `DimensionValueInput`（`frontend/src/components/site-surveys/tools/DimensionValueInput.tsx`） | 6.2, 6.3 | 出荷済みの `AnnotationEditor` は `createDimensionLine` で寸法線を描くだけで、寸法値入力フィールドを開く経路を持たない（`frontend/src/components/site-surveys/AnnotationEditor.tsx:1418-1423`）。本部品が要件6.2/6.3 の唯一の実装である |
 | `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`） | 5.1-5.6, 12, 20.1 | 本設計書の「Requirements Traceability」表と「Components and Interfaces」が要件5 の担当として明示しており、要件33-34 節は「フェーズ4 で `canvasViewportController` へ移行して二重実装を解消する」計画を持つ。**設計上の役割が現存するため撤去しない** |
 | `StylePanel`（`frontend/src/components/site-surveys/StylePanel.tsx`）と `style-panel.constants.ts` | 24.5, 25.2, 26.3, 26.4, 26.6, 28.7 | タスク 115.70 の所管。実際に描画されるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである。ただし **要件26.4 / 26.6 の受入基準カバレッジは本部品の単体検証（`StylePanel.outline-toggle.test.tsx`）にしか存在せず**、結線側に同等の主張が無い。先に主張を結線側へ移すまで撤去できない |
+
+#### 自動保存・復元基盤の結線（タスク 115.81）
+
+タスク 115.64 が「基盤ごとの結線は撤去タスクの境界を超える」として存置した部品群を、タスク 115.81 で `AnnotationEditor`（`frontend/src/components/site-surveys/AnnotationEditor.tsx`）へ結線した。結線先が `AnnotationEditor` である根拠は、本書の「AutoSaveManager」小節の Dependencies が **Inbound: AnnotationEditor — 自動保存要求 (P0)** と定めていることである。
+
+| 結線した部品 | 担当要件 | 結線の内容（本番の描画経路からの到達方法） |
+|---|---|---|
+| `AutoSaveManager`（`frontend/src/services/AutoSaveManager.ts`） | 15.4, 15.7, 15.9, 15.10 | `AnnotationEditor` が単一インスタンスを保持する。`fabricCanvas` の `object:added` / `object:modified` / `object:removed` を購読し、既定30秒の debounce 付きで `saveToLocal` を呼ぶ。生成時に `disableAutoSave: !isLocalStorageAvailable()` を渡す |
+| `frontend/src/utils/storage-error.ts` | 15.9, 15.10 | `AutoSaveManager` が `isLocalStorageAvailable` / `isQuotaExceededError` / `isSecurityError` を消費する。容量超過の判定は `e instanceof DOMException && e.name === 'QuotaExceededError'` から `isQuotaExceededError` へ置き換え、`code===22` / `code===1014` / `name===NS_ERROR_DOM_QUOTA_REACHED` も容量超過として扱う |
+| `useAnnotationRestoration`（`frontend/src/hooks/useAnnotationRestoration.ts`） | 15.5 | `AnnotationEditor` から呼び、サーバー保存済み注釈（`getAnnotation` の応答）とローカル下書きを比較させる |
+| `RestoreAnnotationDialog`（`frontend/src/components/site-survey/RestoreAnnotationDialog.tsx`） | 15.5 | 上記フックの `showRestoreDialog` に従って描画する。復元確定時は `util.enlivenObjects` で下書きを実体化し、保存時と現在のキャンバス寸法の比から表示倍率を適用してキャンバスへ載せる |
+| `StorageWarningBanner`（`frontend/src/components/site-surveys/StorageWarningBanner.tsx`） | 15.8, 15.9 | `setOnQuotaExceeded` の通知で `quota-exceeded`（「今すぐ保存」は手動保存 `handleSave` へ接続）、自動保存が無効な環境では `private-browsing` を表示する |
+
+**結線にあたって定めた挙動**:
+
+- **閲覧モード（`readOnly`）では自動保存・復元・警告帯のいずれも動かさない。** 復元は編集中の状態を編集画面へ戻す操作であり、描画できない閲覧キャンバスへ適用しても要件を満たさないためである。画像ビューア画面（`SiteSurveyImageViewerPage`）で「編集モード」に入った時点で復元確認が出る
+- **読み込み・復元でキャンバスへ載る注釈は自動保存の対象にしない。** サーバー保存済み注釈の復元も `object:added` を発火するため、これを下書きとして書き出すと「未保存の編集」と区別できなくなる。読み込みの開始時に受付を閉じ、読み込み完了時に開く
+- **手動保存が成功したらローカル下書きを削除する。** 残したままだと次回訪問時に復元確認が常時表示され、実際の未保存編集と区別できなくなる
+- **復元処理の表示倍率適用は、サーバー保存済み注釈の復元（要件9.2）と共有する。** 二重実装にするとタスク 115.73（要件32.2）の是正が片側にしか効かないため、`AnnotationEditor` 内の共有関数へ集約した
+
+**E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件15.4 / 15.5 を「統合テストで検証」として E2E から除外していたが、その統合検証は結線されていないコードだけを回していた。結線が済んだため除外の根拠は失われ、タスク 115.81 で当該2件を除外一覧から削除し、`e2e/specs/site-surveys/site-survey-responsive.spec.ts` の受入レベルの検証へ置き換えた。要件15.7-15.10 は除外一覧に無いまま恒真の判定で「検証済み」に見えていたため、同ファイルの当該検証も本番経路を通る形へ書き直した。
 
 #### 契約名の実在対照表
 
@@ -135,24 +154,24 @@
 | `BaseAnnotationOverlayProps` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:44` |
 | `ContextMenuAction` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:37` |
 | `GesturePayload` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:78` |
-| `AutoSaveState` | `frontend/src/services/AutoSaveManager.ts:68` |
+| `AutoSaveState` | `frontend/src/services/AutoSaveManager.ts:78` |
 | `BatchAnnotationRequest` | `frontend/src/types/site-survey.types.ts:931` |
 | `BatchAnnotationResponse` | `frontend/src/types/site-survey.types.ts:921` |
 | `BatchUpdateImageMetadataInput` | `backend/src/services/image-metadata.service.ts:74` |
 | `BatchUploadProgress` | `backend/src/services/batch-upload.service.ts:74` |
 | `BatchUploadResult` | `backend/src/services/batch-upload.service.ts:85` |
-| `CacheEntry` | `frontend/src/services/AutoSaveManager.ts:118` |
+| `CacheEntry` | `frontend/src/services/AutoSaveManager.ts:128` |
 | `ExportImageOptions` | `frontend/src/services/ExportService.ts:23` |
 | `FabricSerializedObject` | `backend/src/services/annotation.service.ts:128` |
 | `IAnnotatedThumbnailService` | `backend/src/services/annotation.service.ts:106` |
 | `IAuditLogService` | `backend/src/types/audit-log.types.ts:10` |
-| `IAutoSaveManager` | `frontend/src/services/AutoSaveManager.ts:160` |
+| `IAutoSaveManager` | `frontend/src/services/AutoSaveManager.ts:170` |
 | `IExportService` | `frontend/src/services/ExportService.ts:40` |
 | `IUndoManager` | `frontend/src/services/UndoManager.ts:45` |
 | `IText` | Fabric.js の標準クラス（外部ライブラリ。本リポジトリでは宣言せず `fabric` から import する） |
 | `ImageExportDialogProps` | `frontend/src/components/site-surveys/ImageExportDialog.tsx:63` |
 | `ImageViewerProps` | `frontend/src/components/site-surveys/ImageViewer.tsx:96` |
-| `LocalStorageData` | `frontend/src/services/AutoSaveManager.ts:50` |
+| `LocalStorageData` | `frontend/src/services/AutoSaveManager.ts:60` |
 | `PhotoManagementPanelProps` | `frontend/src/components/site-surveys/PhotoManagementPanel.tsx:38` |
 | `ProjectSurveySummary` | `backend/src/services/site-survey.service.ts:164` |
 | `SaveAnnotationInput` | `backend/src/services/annotation.service.ts:179` |
@@ -168,7 +187,7 @@
 | `UpdateImageMetadataInput` | `backend/src/services/image-metadata.service.ts:61` |
 | `UploadImageInput` | `backend/src/services/survey-image.service.ts:103` |
 | `UseUnsavedChangesResult` | `frontend/src/hooks/useUnsavedChanges.ts:51` |
-| `AnnotationEditorState` | `frontend/src/components/site-surveys/AnnotationEditor.tsx:166`（**非エクスポート**のモジュールローカル型。外部から import できない） |
+| `AnnotationEditorState` | `frontend/src/components/site-surveys/AnnotationEditor.tsx:252`（**非エクスポート**のモジュールローカル型。外部から import できない） |
 | `ImageViewerState` | `frontend/src/components/site-surveys/ImageViewer.tsx:62`（**非エクスポート**のモジュールローカル型。外部から import できない） |
 | `AnnotatedImageInput` | `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx:28` |
 | `AnnotationMode` | 同名宣言が2箇所に存在する（`frontend/src/components/site-surveys/ExportSettingsForm.tsx:38`、`frontend/src/services/export/bulkExportService.ts:53`）。値集合は同一だが**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
@@ -265,15 +284,15 @@
 | 22 | `CreateSurveyInput` | 抽象契約として残す | 実体は `CreateSiteSurveyInput`（backend は Zod 由来の `backend/src/schemas/site-survey.schema.ts:83`、frontend は `frontend/src/types/site-survey.types.ts:191`） |
 | 23 | `UpdateSurveyInput` | 抽象契約として残す | 実体は `UpdateSiteSurveyInput`（`backend/src/schemas/site-survey.schema.ts:107`、`frontend/src/types/site-survey.types.ts:203`） |
 | 24 | `SaveAnnotationResponse` | 抽象契約として残す | 応答の形を説明するためだけの名前。実装はルータがオブジェクトリテラルを直接返しており型宣言を置いていない（`backend/src/routes/annotation.routes.ts:256` の `res.json({ ...annotation, annotatedThumbnailUrl })`）。**形の食い違いあり**（後述） |
-| 25 | `AnnotationDataV1` | 抽象契約として残す | 実体は `AnnotationData`（`frontend/src/types/site-survey.types.ts:620`、`frontend/src/services/AutoSaveManager.ts:34`）。`V1` は型名ではなく `version` フィールドの値（`'1.0'`）を指す版名である。実装側も対応を明記している（`frontend/src/services/AutoSaveManager.ts:32` の JSDoc `@see design.md - AnnotationDataV1`） |
+| 25 | `AnnotationDataV1` | 抽象契約として残す | 実体は `AnnotationData`（`frontend/src/types/site-survey.types.ts:620`、`frontend/src/services/AutoSaveManager.ts:38`）。`V1` は型名ではなく `version` フィールドの値（`'1.0'`）を指す版名である。実装側も対応を明記している（`frontend/src/services/AutoSaveManager.ts:36` の JSDoc `@see design.md - AnnotationDataV1`）。**タスク 115.81 で、`AutoSaveManager` 側の宣言は `frontend/src/types/site-survey.types.ts` の同名型と同じ形（`version` は任意、`canvasWidth` / `canvasHeight` / `imageRotation` を持つ）へそろえた**。形が違うとサーバー保存とローカル自動保存で同じ注釈データを受け渡せないためである |
 | 26 | `AnnotationSaveDataV1` | 抽象契約として残す | 同上。要件31-32 節が「既存」として再掲した同一物であり、`canvasWidth` / `canvasHeight` / `imageRotation` を含む形は `frontend/src/types/site-survey.types.ts:620` の `AnnotationData` が満たす |
-| 27 | `AutoSaveConfig` | 抽象契約として残す | 実体は `AutoSaveManagerOptions`（`frontend/src/services/AutoSaveManager.ts:85`）。設計の `autoSaveIntervalMs` / `maxCacheSize` / `maxCachedImages` / `privateBrowsingMode.disableAutoSave` は、それぞれ `debounceInterval` / `maxCacheSizeBytes` / `maxCachedImages` / `disableAutoSave` に対応する |
+| 27 | `AutoSaveConfig` | 抽象契約として残す | 実体は `AutoSaveManagerOptions`（`frontend/src/services/AutoSaveManager.ts:95`）。設計の `autoSaveIntervalMs` / `maxCacheSize` / `maxCachedImages` / `privateBrowsingMode.disableAutoSave` は、それぞれ `debounceInterval` / `maxCacheSizeBytes` / `maxCachedImages` / `disableAutoSave` に対応する |
 | 28 | `ExportPdfOptions` | 抽象契約として残す | 実体は `PdfReportOptions`（`frontend/src/services/export/PdfReportService.ts:126`）。**項目の食い違いあり**（後述） |
 | 29 | `PdfReportLayoutConfig` | 抽象契約として残す | すべての項目がリテラル型の**定数設定**であり、実装では型ではなく定数オブジェクトが担う（`frontend/src/services/export/PdfReportService.ts:31` の `PDF_REPORT_LAYOUT`、同 61 行の `PDF_REPORT_LAYOUT_V2`）。定数で足りるため型宣言を要しない |
-| 30 | `ToolOptions` | 抽象契約として残す | 実体は `StyleOptions`。宣言は2箇所（`frontend/src/components/site-surveys/annotation-toolbar.constants.ts:51`、`frontend/src/components/site-surveys/style-panel.constants.ts:31`）。**ただしこの2つは同名だが形が異なる**：前者は `strokeColor` / `strokeWidth` / `fillColor` / `fontSize` の4項目で **`fontColor` を持たない**（同 51-60 行）。後者は `strokeColor` / `fillColor` / `strokeWidth` / `fontSize` / `fontColor` の5項目に加え任意項目 `arrowOutlineEnabled?` / `textOutlineEnabled?` を持つ（同 31-56 行）。**設計 `ToolOptions` の5項目（`strokeColor` / `strokeWidth` / `fillColor` / `fontSize` / `fontColor`）を満たすのは後者 `style-panel.constants.ts:31` の方だけ**である。`AnnotationEditorState`（`frontend/src/components/site-surveys/AnnotationEditor.tsx:166`）も設計の `toolOptions` に相当するフィールドを `styleOptions: StyleOptions` として持つ（同 174 行）が、その `StyleOptions` は `AnnotationToolbar.tsx:37` が再エクスポートする**前者**（`annotation-toolbar.constants.ts:51` の4項目版。`AnnotationToolbar.tsx:27-34` の import 元）である |
+| 30 | `ToolOptions` | 抽象契約として残す | 実体は `StyleOptions`。宣言は2箇所（`frontend/src/components/site-surveys/annotation-toolbar.constants.ts:51`、`frontend/src/components/site-surveys/style-panel.constants.ts:31`）。**ただしこの2つは同名だが形が異なる**：前者は `strokeColor` / `strokeWidth` / `fillColor` / `fontSize` の4項目で **`fontColor` を持たない**（同 51-60 行）。後者は `strokeColor` / `fillColor` / `strokeWidth` / `fontSize` / `fontColor` の5項目に加え任意項目 `arrowOutlineEnabled?` / `textOutlineEnabled?` を持つ（同 31-56 行）。**設計 `ToolOptions` の5項目（`strokeColor` / `strokeWidth` / `fillColor` / `fontSize` / `fontColor`）を満たすのは後者 `style-panel.constants.ts:31` の方だけ**である。`AnnotationEditorState`（`frontend/src/components/site-surveys/AnnotationEditor.tsx:252`）も設計の `toolOptions` に相当するフィールドを `styleOptions: StyleOptions` として持つ（同 260 行）が、その `StyleOptions` は `AnnotationToolbar.tsx:37` が再エクスポートする**前者**（`annotation-toolbar.constants.ts:51` の4項目版。`AnnotationToolbar.tsx:27-34` の import 元）である |
 | 31 | `OrderChangeHandlers` | 抽象契約として残す | ハンドラ3つを束ねた説明用の型。実装は React コンポーネント内の個別の `useCallback` として存在し、束ねる型を必要としない（`frontend/src/components/site-surveys/PhotoManagementPanel.tsx:1125` の `handleMoveUp`、同 1149 行の `handleMoveDown`、同 1075 行の `handleDrop`。設計の `handleDragReorder` に相当するのは `handleDrop` である） |
 | 32 | `PendingOrderRef` | 抽象契約として残す | 実体は `useRef` の宣言（`frontend/src/pages/SiteSurveyDetailPage.tsx:353` の `const pendingOrderRef = useRef<ImageOrderItem[] \| null>(null)`）。ref そのものであり型名を要しない。**要素型の食い違いあり**（後述） |
-| 33 | `ImageExportDialogState` | 抽象契約として残す | 画面状態を説明するための名前。実装は Props と `useState` に分かれて実在し、状態をまとめる型を持たない（開閉は Props の `open`＝`frontend/src/components/site-surveys/ImageExportDialog.tsx:63` の `ImageExportDialogProps`、`isExporting` は同 Props の `exporting`、書式・解像度・注釈有無は同 257 行の `useState<ExportSettings>`）。**設計の `error` は当該コンポーネントに Props も `useState` も存在せず、呼び出し側が保持する**（`AnnotationEditorState.error`＝`frontend/src/components/site-surveys/AnnotationEditor.tsx:170`。エクスポート失敗時の設定箇所は同 2331 行）。エラー表示を親へ引き上げた実装であるため子側に状態型は不要 |
+| 33 | `ImageExportDialogState` | 抽象契約として残す | 画面状態を説明するための名前。実装は Props と `useState` に分かれて実在し、状態をまとめる型を持たない（開閉は Props の `open`＝`frontend/src/components/site-surveys/ImageExportDialog.tsx:63` の `ImageExportDialogProps`、`isExporting` は同 Props の `exporting`、書式・解像度・注釈有無は同 257 行の `useState<ExportSettings>`）。**設計の `error` は当該コンポーネントに Props も `useState` も存在せず、呼び出し側が保持する**（`AnnotationEditorState.error`＝`frontend/src/components/site-surveys/AnnotationEditor.tsx:256`。エクスポート失敗時の設定箇所は同 2608 行）。エラー表示を親へ引き上げた実装であるため子側に状態型は不要 |
 | 34 | `PhotoManagementState` | 抽象契約として残す | 同上。実装は個別の `useState` 群（`frontend/src/components/site-surveys/PhotoManagementPanel.tsx:941` の `deleteTargetId`、同 944 行の `draggingId`、同 945 行の `dragOverId` 等）で表現される |
 | 35 | `SiteSurveyDetailPageState` | 抽象契約として残す | 同上。実装は `frontend/src/pages/SiteSurveyDetailPage.tsx:336`（`survey`）、339 行（`isLoading`）、340 行（`error`）等の個別 `useState` |
 | 36 | `SiteSurveySectionCardState` | 抽象契約として残す | **実装ではこれは状態ではない**。`totalCount` / `latestSurveys` / `isLoading` は Props であり（`frontend/src/components/projects/SiteSurveySectionCard.tsx:32` の `SiteSurveySectionCardProps`。当該ファイルに `useState` は 0 件）、取得と保持は親が行う（`frontend/src/pages/ProjectDetailPage.tsx:408` の `useState<ProjectSurveySummary \| null>` を同 752-756 行の `<SiteSurveySectionCard>` へ受け渡す。752＝要素開始、753＝`projectId`、754＝`totalCount`、755＝`latestSurveys`、756＝`isLoading`）。**設計の `error` も同じく親が保持する**（`frontend/src/pages/ProjectDetailPage.tsx:432` の `useState<string \| null>`。`getProjectDetailSummary`（同 448 行。`sections.siteSurveys` を同 451 行で取得）の失敗時に同 483 / 485 行で設定され、同 620 行で表示される）。状態を親へ引き上げた設計であるため子側に状態型は不要 |

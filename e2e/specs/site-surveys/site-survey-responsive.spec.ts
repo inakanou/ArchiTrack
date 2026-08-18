@@ -17,6 +17,8 @@
 import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -29,6 +31,9 @@ test.describe('現場調査レスポンシブ対応', () => {
 
   let createdProjectId: string | null = null;
   let createdSurveyId: string | null = null;
+  // 注釈編集の検証で使う画像。fixtures/test-image.jpg は 1x1 px でキャンバスが潰れ、
+  // 描画操作を行えないため、注釈用には広さのある画像を別途用意する
+  let annotationImageId: string | null = null;
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
@@ -143,8 +148,280 @@ test.describe('現場調査レスポンシブ対応', () => {
       // ページをリロードして画像が保存されていることを確認
       await page.reload();
       await page.waitForLoadState('networkidle');
+
+      // 注釈編集（REQ-15.4, 15.5, 15.7-15.10）用に、描画できる広さの画像を追加する
+      const annotationImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
+      expect(fs.existsSync(annotationImagePath)).toBeTruthy();
+
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const annotationUploadResponse = await page.request.post(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          multipart: {
+            images: {
+              name: 'test-image-large.jpg',
+              mimeType: 'image/jpeg',
+              buffer: fs.readFileSync(annotationImagePath),
+            },
+          },
+        }
+      );
+      expect(annotationUploadResponse.ok()).toBeTruthy();
+
+      const annotationUploadBody = (await annotationUploadResponse.json()) as {
+        successful?: Array<{ id?: string }>;
+      };
+      annotationImageId = annotationUploadBody.successful?.[0]?.id ?? null;
+      expect(annotationImageId).toBeTruthy();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // 自動保存・復元（REQ-15.4, 15.5, 15.7-15.10）用のヘルパー
+  //
+  // いずれの検証も「本番の描画経路（注釈エディタ）から到達すること」を条件にする。
+  // 部品を直接組み立てて確かめる形にすると、結線の欠落を構造的に見逃すためである。
+  // ---------------------------------------------------------------------------
+
+  /** 自動保存が使う localStorage キーの接頭辞（AutoSaveManager と同一） */
+  const ANNOTATION_DRAFT_PREFIX = 'architrack_annotation_';
+
+  type PlaywrightPage = import('@playwright/test').Page;
+
+  /**
+   * 画像ビューア画面で編集モードへ入り、対象画像IDを返す
+   */
+  async function enterEditMode(page: PlaywrightPage): Promise<string> {
+    const editModeButton = page.getByRole('button', { name: '編集モード' });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(15000) });
+    await editModeButton.click();
+
+    await expect(page.locator('[data-testid="annotation-toolbar"]')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    const match = page.url().match(/\/images\/([0-9a-f-]+)/);
+    const imageId = match?.[1];
+    if (!imageId) {
+      throw new Error(`画像IDをURLから取得できません: ${page.url()}`);
+    }
+    return imageId;
+  }
+
+  /**
+   * 現場調査詳細から画像を開き、注釈エディタ（編集モード）まで到達して画像IDを返す
+   */
+  async function openAnnotationEditor(page: PlaywrightPage): Promise<string> {
+    if (!createdSurveyId || !annotationImageId) {
+      throw new Error(
+        'createdSurveyId / annotationImageId が未設定です。事前準備テストが正しく実行されていません。'
+      );
+    }
+
+    await page.goto(`/site-surveys/${createdSurveyId}/images/${annotationImageId}`);
+    await page.waitForLoadState('networkidle');
+
+    return enterEditMode(page);
+  }
+
+  /**
+   * 注釈エディタのキャンバス中心座標を返す
+   */
+  async function getCanvasCenter(page: PlaywrightPage): Promise<{ x: number; y: number }> {
+    const upperCanvas = page.locator('.upper-canvas');
+    await expect(upperCanvas).toBeVisible({ timeout: getTimeout(15000) });
+
+    await expect
+      .poll(
+        async () => {
+          const box = await upperCanvas.boundingBox();
+          return box ? Math.min(box.width, box.height) : 0;
+        },
+        { timeout: getTimeout(15000) }
+      )
+      .toBeGreaterThan(10);
+
+    const box = await upperCanvas.boundingBox();
+    if (!box) {
+      throw new Error('キャンバス要素の位置・サイズを取得できません');
+    }
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  }
+
+  /**
+   * キャンバス上のオブジェクト数（背景画像を含む）を返す
+   */
+  async function getCanvasObjectCount(page: PlaywrightPage): Promise<number> {
+    return page.evaluate(() => {
+      const canvas = (
+        window as unknown as { __fabricCanvas?: { getObjects: () => unknown[] } | null }
+      ).__fabricCanvas;
+      return canvas ? canvas.getObjects().length : -1;
+    });
+  }
+
+  /**
+   * 四角形ツールで注釈を1件描く（描画が成立したことを確認してから戻る）
+   */
+  async function drawRectangleAnnotation(page: PlaywrightPage): Promise<void> {
+    const rectangleTool = page.locator('[data-tool="rectangle"]');
+    await expect(rectangleTool).toBeVisible({ timeout: getTimeout(15000) });
+    await rectangleTool.click();
+    await expect(rectangleTool).toHaveAttribute('aria-pressed', 'true');
+
+    const center = await getCanvasCenter(page);
+    const before = await getCanvasObjectCount(page);
+    expect(before).toBeGreaterThanOrEqual(0);
+
+    // キャンバス内に収まる幅で描く（画像サイズに依存しないよう実寸から求める）
+    const box = await page.locator('.upper-canvas').boundingBox();
+    if (!box) {
+      throw new Error('キャンバス要素の位置・サイズを取得できません');
+    }
+    const dx = Math.max(10, Math.floor(box.width * 0.2));
+    const dy = Math.max(10, Math.floor(box.height * 0.2));
+
+    await page.mouse.move(center.x - dx, center.y - dy);
+    await page.mouse.down();
+    await page.mouse.move(center.x + dx, center.y + dy, { steps: 12 });
+    await page.mouse.up();
+
+    await expect
+      .poll(() => getCanvasObjectCount(page), { timeout: getTimeout(15000) })
+      .toBeGreaterThan(before);
+  }
+
+  /**
+   * localStorage 上の自動保存下書きキーの一覧を返す
+   */
+  async function readDraftKeys(page: PlaywrightPage): Promise<string[]> {
+    return page.evaluate((prefix) => {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          keys.push(key);
+        }
+      }
+      return keys;
+    }, ANNOTATION_DRAFT_PREFIX);
+  }
+
+  /**
+   * 指定キーの下書き本文を返す（未保存なら null）
+   */
+  async function readDraft(page: PlaywrightPage, key: string): Promise<string | null> {
+    return page.evaluate((k) => localStorage.getItem(k), key);
+  }
+
+  /**
+   * 自動保存下書きを全件削除する（検証の初期状態をそろえる）
+   */
+  async function clearDrafts(page: PlaywrightPage): Promise<void> {
+    await page.evaluate((prefix) => {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          keys.push(key);
+        }
+      }
+      keys.forEach((key) => localStorage.removeItem(key));
+    }, ANNOTATION_DRAFT_PREFIX);
+  }
+
+  /**
+   * LRU の削除対象となる古い下書きを積む
+   */
+  async function seedStaleDrafts(page: PlaywrightPage, count: number): Promise<string[]> {
+    return page.evaluate(
+      ({ prefix, total }) => {
+        const keys: string[] = [];
+        for (let i = 0; i < total; i++) {
+          const key = `${prefix}stale-${i}`;
+          localStorage.setItem(
+            key,
+            JSON.stringify({
+              imageId: `stale-${i}`,
+              surveyId: 'stale-survey',
+              annotationData: { version: '1.0', objects: [] },
+              savedAt: new Date(Date.UTC(2020, 0, i + 1)).toISOString(),
+              serverUpdatedAt: null,
+            })
+          );
+          keys.push(key);
+        }
+        return keys;
+      },
+      { prefix: ANNOTATION_DRAFT_PREFIX, total: count }
+    );
+  }
+
+  /**
+   * 自動保存の書き込みだけを失敗させる（ブラウザごとに形の異なるストレージ例外を注入する）
+   *
+   * @param name  例外の name（QuotaExceededError / NS_ERROR_DOM_QUOTA_REACHED 等）
+   * @param code  例外の code（22 / 1014 等）
+   * @param failTimes 失敗させる回数
+   */
+  async function injectStorageWriteFailure(
+    page: PlaywrightPage,
+    name: string,
+    code: number,
+    failTimes: number
+  ): Promise<void> {
+    await page.evaluate(
+      ({ prefix, errorName, errorCode, limit }) => {
+        const state = window as unknown as { __injectedStorageFailures?: number };
+        state.__injectedStorageFailures = 0;
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key: string, value: string) {
+          if (key.startsWith(prefix) && (state.__injectedStorageFailures ?? 0) < limit) {
+            state.__injectedStorageFailures = (state.__injectedStorageFailures ?? 0) + 1;
+            const error = new Error(errorName) as Error & { code: number };
+            error.name = errorName;
+            error.code = errorCode;
+            throw error;
+          }
+          original.call(this, key, value);
+        };
+      },
+      { prefix: ANNOTATION_DRAFT_PREFIX, errorName: name, errorCode: code, limit: failTimes }
+    );
+  }
+
+  /**
+   * 注入した書き込み失敗の発生回数を返す
+   */
+  async function readInjectedFailureCount(page: PlaywrightPage): Promise<number> {
+    return page.evaluate(
+      () =>
+        (window as unknown as { __injectedStorageFailures?: number }).__injectedStorageFailures ?? 0
+    );
+  }
+
+  /**
+   * プライベートブラウジングモードの localStorage 制限を再現する（REQ-15.9）
+   *
+   * 認証トークンまで書けなくすると画面へ到達できないため、自動保存が使うキーと
+   * 利用可否の試験キーだけを SecurityError で拒否する。制限の検出と自動保存の
+   * 無効化は本番実装（utils/storage-error → AutoSaveManager）が行う。
+   */
+  async function injectPrivateBrowsingRestriction(page: PlaywrightPage): Promise<void> {
+    await page.addInitScript((prefix) => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key: string, value: string) {
+        if (key.startsWith(prefix) || key === '__storage_test__' || key === '__autosave_test__') {
+          const error = new Error('SecurityError') as Error & { code: number };
+          error.name = 'SecurityError';
+          error.code = 18;
+          throw error;
+        }
+        original.call(this, key, value);
+      };
+    }, ANNOTATION_DRAFT_PREFIX);
+  }
 
   /**
    * @requirement site-survey/REQ-15.1
@@ -355,44 +632,41 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.4
    */
   test.describe('自動保存', () => {
-    test('注釈編集中に自動保存機能が動作する (site-survey/REQ-15.4)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+    test('注釈編集中に一定間隔（30秒）で未保存状態がlocalStorageへ自動保存される (site-survey/REQ-15.4)', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
 
-      // 画像があればビューアを開く（PhotoManagementPanel内）
-      const imageElement = page.locator('[data-testid="photo-image-button"]').first();
-      const imageVisible = await imageElement.isVisible({ timeout: 3000 });
-      if (imageVisible) {
-        await imageElement.click();
-        await page.waitForLoadState('networkidle');
+      await drawRectangleAnnotation(page);
 
-        // 編集モードに入る
-        const editModeButton = page.getByRole('button', { name: /編集モード/i });
-        const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
-        if (editModeVisible) {
-          await editModeButton.click();
+      // 即時保存ではないこと（一定間隔での自動保存であること）
+      await page.waitForTimeout(5000);
+      expect(await readDraft(page, draftKey)).toBeNull();
 
-          // 自動保存インジケーターまたはメッセージを探す
-          const autoSaveIndicator = page.locator(
-            '[data-testid="auto-save-indicator"], .auto-save-status'
-          );
-          const autoSaveText = page.getByText(/自動保存|auto.*save|下書き保存/i);
+      // 30秒間隔の自動保存が発火し、未保存の編集状態が localStorage へ書き出される
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
 
-          const hasAutoSaveIndicator = await autoSaveIndicator.isVisible({ timeout: 3000 });
-          const hasAutoSaveText = await autoSaveText.isVisible();
-
-          // 自動保存機能が存在することを確認（または実装されていない場合はパス）
-          expect(hasAutoSaveIndicator || hasAutoSaveText || true).toBeTruthy();
-        }
-      }
-
-      await expect(page.locator('body')).toBeVisible();
+      const stored = await readDraft(page, draftKey);
+      const draft = JSON.parse(stored as string) as {
+        imageId: string;
+        surveyId: string;
+        savedAt: string;
+        annotationData: { objects: unknown[]; canvasWidth: number; canvasHeight: number };
+      };
+      expect(draft.imageId).toBe(imageId);
+      expect(draft.surveyId).toBe(createdSurveyId);
+      expect(draft.annotationData.objects.length).toBeGreaterThan(0);
+      expect(draft.annotationData.canvasWidth).toBeGreaterThan(0);
+      expect(draft.annotationData.canvasHeight).toBeGreaterThan(0);
+      expect(Number.isNaN(Date.parse(draft.savedAt))).toBe(false);
     });
   });
 
@@ -400,36 +674,74 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.5
    */
   test.describe('編集状態の復元', () => {
-    test('ページリロード後にlocalStorageから編集状態を復元できる (site-survey/REQ-15.5)', async ({
+    test('リロード後に未保存の編集状態をlocalStorageから復元できる (site-survey/REQ-15.5)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
+
+      // サーバーへは保存せず、自動保存だけが走った状態を作る
+      await drawRectangleAnnotation(page);
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
+
+      const draftedObjectCount = await getCanvasObjectCount(page);
+
+      // リロード（再訪問）する。サーバーには注釈が保存されていないため、
+      // 復元しなければキャンバスは描画前の状態に戻る
+      await page.reload();
       await page.waitForLoadState('networkidle');
+      await enterEditMode(page);
 
-      // localStorageに下書きデータが保存されるかを確認
-      const draftKeys = await page.evaluate(() => {
-        const keys: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (
-            key &&
-            (key.includes('draft') || key.includes('autosave') || key.includes('unsaved'))
-          ) {
-            keys.push(key);
-          }
-        }
-        return keys;
-      });
+      const afterReloadCount = await getCanvasObjectCount(page);
+      expect(afterReloadCount).toBeLessThan(draftedObjectCount);
 
-      // 下書き保存機能が存在する場合はキーが見つかる
-      // 存在しない場合でもテストは成功
-      expect(Array.isArray(draftKeys)).toBeTruthy();
+      // 未保存データの復元確認が本番の描画経路から表示される
+      const restoreDialog = page.getByRole('dialog');
+      await expect(restoreDialog).toBeVisible({ timeout: getTimeout(20000) });
+      await expect(restoreDialog).toContainText('未保存のデータがあります');
+
+      await restoreDialog.getByRole('button', { name: '復元する' }).click();
+      await expect(restoreDialog).toBeHidden({ timeout: getTimeout(15000) });
+
+      // 復元により、リロード直後より注釈が増えて自動保存時点の状態へ戻る
+      await expect
+        .poll(() => getCanvasObjectCount(page), { timeout: getTimeout(20000) })
+        .toBe(draftedObjectCount);
+    });
+
+    test('復元確認で「破棄する」を選ぶと下書きが消える (site-survey/REQ-15.5)', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
+
+      await drawRectangleAnnotation(page);
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await enterEditMode(page);
+
+      const restoreDialog = page.getByRole('dialog');
+      await expect(restoreDialog).toBeVisible({ timeout: getTimeout(20000) });
+      await restoreDialog.getByRole('button', { name: '破棄する' }).click();
+      await expect(restoreDialog).toBeHidden({ timeout: getTimeout(15000) });
+
+      expect(await readDraft(page, draftKey)).toBeNull();
     });
   });
 
@@ -513,101 +825,126 @@ test.describe('現場調査レスポンシブ対応', () => {
   /**
    * @requirement site-survey/REQ-15.7
    * @requirement site-survey/REQ-15.8
+   * @requirement site-survey/REQ-15.10
    */
   test.describe('localStorageエラーハンドリング', () => {
-    test('QuotaExceededError発生時にLRU戦略で古いキャッシュを削除する (site-survey/REQ-15.7)', async ({
+    test('QuotaExceededError発生時はLRUで古いキャッシュを削除してリトライし保存が成立する (site-survey/REQ-15.7)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
 
-      // localStorageのQuotaExceededError検出機能をテスト
-      // isQuotaExceededError関数がcode===22またはcode===1014を検出することを確認
-      const quotaErrorHandling = await page.evaluate(() => {
-        // QuotaExceededError検出ロジックのテスト
-        const testError22 = { code: 22, name: 'QuotaExceededError' };
-        const testError1014 = { code: 1014, name: 'NS_ERROR_DOM_QUOTA_REACHED' };
+      const staleKeys = await seedStaleDrafts(page, 3);
+      expect(staleKeys.length).toBe(3);
 
-        // 検出ロジックが存在するかどうかをチェック
-        const hasQuotaErrorCode22 = testError22.code === 22;
-        const hasQuotaErrorCode1014 = testError1014.code === 1014;
-        const hasQuotaErrorName = testError22.name === 'QuotaExceededError';
-        const hasFirefoxErrorName = testError1014.name === 'NS_ERROR_DOM_QUOTA_REACHED';
+      // Chrome / Safari / Edge 形式（code===22, name===QuotaExceededError）を1回だけ注入する
+      await injectStorageWriteFailure(page, 'QuotaExceededError', 22, 1);
 
-        return {
-          detectsCode22: hasQuotaErrorCode22,
-          detectsCode1014: hasQuotaErrorCode1014,
-          detectsQuotaExceededName: hasQuotaErrorName,
-          detectsFirefoxName: hasFirefoxErrorName,
-        };
-      });
+      await drawRectangleAnnotation(page);
 
-      // QuotaExceededError検出パターンが正しく認識されることを確認
-      expect(quotaErrorHandling.detectsCode22).toBeTruthy();
-      expect(quotaErrorHandling.detectsCode1014).toBeTruthy();
-      expect(quotaErrorHandling.detectsQuotaExceededName).toBeTruthy();
-      expect(quotaErrorHandling.detectsFirefoxName).toBeTruthy();
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
 
-      // LRU戦略による古いキャッシュ削除機能の確認
-      // localStorageに複数のアイテムを追加し、古いものから削除されることを検証
-      const lruDeletionWorks = await page.evaluate(() => {
-        try {
-          // テスト用のキーを追加
-          const testKeys = ['lru_test_1', 'lru_test_2', 'lru_test_3'];
-          testKeys.forEach((key, index) => {
-            localStorage.setItem(key, `value_${index}`);
-          });
+      // 1回失敗し、LRU で古いキャッシュを削除したうえでリトライして保存できている
+      expect(await readInjectedFailureCount(page)).toBe(1);
+      const remainingKeys = await readDraftKeys(page);
+      for (const staleKey of staleKeys) {
+        expect(remainingKeys).not.toContain(staleKey);
+      }
+      expect(remainingKeys).toContain(draftKey);
 
-          // キーが追加されたことを確認
-          const hasKeys = testKeys.every((key) => localStorage.getItem(key) !== null);
-
-          // クリーンアップ
-          testKeys.forEach((key) => localStorage.removeItem(key));
-
-          return hasKeys;
-        } catch {
-          return false;
-        }
-      });
-
-      expect(lruDeletionWorks).toBeTruthy();
+      // リトライで保存できたので警告帯は出ない
+      await expect(page.locator('[data-warning-type="quota-exceeded"]')).toHaveCount(0);
     });
 
-    test('QuotaExceededErrorリトライ失敗時に警告を表示する (site-survey/REQ-15.8)', async ({
+    test('リトライ後も保存に失敗すると警告を表示し「今すぐ保存」を促す (site-survey/REQ-15.8)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      await openAnnotationEditor(page);
+      await clearDrafts(page);
 
-      // QuotaExceededError発生時の警告表示機能を検証
-      // 実際のQuotaExceededErrorをシミュレートするのは困難なため、
-      // 警告表示コンポーネントが存在することを確認
-      const hasStorageWarningSupport = await page.evaluate(() => {
-        // ストレージ警告を表示するためのUIコンポーネントまたはロジックが存在するか確認
-        // SavingBannerコンポーネントがstorageWarning状態を処理できることを検証
-        return true; // 実装が存在することを前提
-      });
+      // 何度リトライしても書き込めない状態にする
+      await injectStorageWriteFailure(page, 'QuotaExceededError', 22, 1_000_000);
 
-      expect(hasStorageWarningSupport).toBeTruthy();
+      await drawRectangleAnnotation(page);
 
-      // 手動保存ボタンの存在確認
-      const saveButton = page.getByRole('button', { name: /保存|更新/i });
-      const hasSaveButton = await saveButton.isVisible({ timeout: 3000 });
+      const warningBanner = page.locator('[data-warning-type="quota-exceeded"]');
+      await expect(warningBanner).toBeVisible({ timeout: 60_000 });
+      await expect(warningBanner).toContainText('自動保存に失敗しました');
 
-      // 保存機能が利用可能であることを確認
-      expect(hasSaveButton || true).toBeTruthy();
+      const saveNowButton = warningBanner.getByRole('button', { name: '今すぐ保存' });
+      await expect(saveNowButton).toBeVisible();
+
+      // 「今すぐ保存」からサーバー保存へ到達する
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/annotations') &&
+          response.request().method() === 'PUT' &&
+          response.ok(),
+        { timeout: getTimeout(30000) }
+      );
+      await saveNowButton.click();
+      await savePromise;
+
+      // 手動保存が成立したので警告帯は役目を終える
+      await expect(warningBanner).toBeHidden({ timeout: getTimeout(30000) });
+    });
+
+    test('Firefox形式のエラー（code===1014 / NS_ERROR_DOM_QUOTA_REACHED）も容量超過として扱う (site-survey/REQ-15.10)', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
+
+      const staleKeys = await seedStaleDrafts(page, 3);
+      await injectStorageWriteFailure(page, 'NS_ERROR_DOM_QUOTA_REACHED', 1014, 1);
+
+      await drawRectangleAnnotation(page);
+
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
+
+      // name が QuotaExceededError でなくても容量超過として検出され、LRU リトライへ入る
+      expect(await readInjectedFailureCount(page)).toBe(1);
+      const remainingKeys = await readDraftKeys(page);
+      for (const staleKey of staleKeys) {
+        expect(remainingKeys).not.toContain(staleKey);
+      }
+    });
+
+    test('Firefox形式のエラーでリトライ後も失敗すると警告を表示する (site-survey/REQ-15.10)', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await openAnnotationEditor(page);
+      await clearDrafts(page);
+
+      await injectStorageWriteFailure(page, 'NS_ERROR_DOM_QUOTA_REACHED', 1014, 1_000_000);
+
+      await drawRectangleAnnotation(page);
+
+      const warningBanner = page.locator('[data-warning-type="quota-exceeded"]');
+      await expect(warningBanner).toBeVisible({ timeout: 60_000 });
+      await expect(warningBanner).toContainText('自動保存に失敗しました');
     });
   });
 
@@ -615,102 +952,40 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.9
    */
   test.describe('プライベートブラウジングモード対応', () => {
-    test('プライベートモードでSecurityErrorを検出すると自動保存を無効化する (site-survey/REQ-15.9)', async ({
+    test('SecurityErrorを検出すると自動保存を無効化し手動保存のみで動作する (site-survey/REQ-15.9)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
+
+      // 画面到達より前に制限を仕込む（自動保存基盤は生成時に利用可否を判定する）
+      await injectPrivateBrowsingRestriction(page);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
 
-      // SecurityError検出ロジックのテスト
-      const securityErrorDetection = await page.evaluate(() => {
-        // SecurityError検出パターン
-        const testSecurityError = { code: 18, name: 'SecurityError' };
+      // 自動保存が無効であることを利用者へ伝える警告帯が本番の描画経路から表示される
+      const warningBanner = page.locator('[data-warning-type="private-browsing"]');
+      await expect(warningBanner).toBeVisible({ timeout: getTimeout(20000) });
+      await expect(warningBanner).toContainText('自動保存が無効です');
 
-        // 検出ロジックが機能することを確認
-        const detectsSecurityCode = testSecurityError.code === 18;
-        const detectsSecurityName = testSecurityError.name === 'SecurityError';
+      await drawRectangleAnnotation(page);
 
-        return {
-          detectsCode18: detectsSecurityCode,
-          detectsSecurityErrorName: detectsSecurityName,
-        };
-      });
+      // 自動保存の間隔（30秒）を十分に超えても下書きは書き出されない
+      await page.waitForTimeout(45_000);
+      expect(await readDraft(page, draftKey)).toBeNull();
 
-      // SecurityError検出パターンが認識されることを確認
-      expect(securityErrorDetection.detectsCode18).toBeTruthy();
-      expect(securityErrorDetection.detectsSecurityErrorName).toBeTruthy();
-
-      // プライベートモードでの動作確認（localStorage利用可否チェック）
-      const localStorageAvailable = await page.evaluate(() => {
-        try {
-          const testKey = '__private_mode_test__';
-          localStorage.setItem(testKey, 'test');
-          localStorage.removeItem(testKey);
-          return true;
-        } catch {
-          // SecurityErrorまたはQuotaExceededErrorが発生した場合
-          return false;
-        }
-      });
-
-      // 通常モードではlocalStorageが利用可能であることを確認
-      expect(localStorageAvailable).toBeTruthy();
-    });
-  });
-
-  /**
-   * @requirement site-survey/REQ-15.10
-   */
-  test.describe('クロスブラウザlocalStorageエラー検出', () => {
-    test('クロスブラウザ対応のエラー検出パターンが実装されている (site-survey/REQ-15.10)', async ({
-      page,
-    }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      // クロスブラウザエラー検出パターンのテスト
-      const crossBrowserErrorDetection = await page.evaluate(() => {
-        // 各ブラウザのQuotaExceededErrorパターン
-        const chromeError = { code: 22, name: 'QuotaExceededError' };
-        const firefoxError = { code: 1014, name: 'NS_ERROR_DOM_QUOTA_REACHED' };
-        const safariError = { code: 22, name: 'QuotaExceededError' };
-        const edgeError = { code: 22, name: 'QuotaExceededError' };
-
-        // 全てのパターンを検出できることを確認
-        const isQuotaError = (error: { code: number; name: string }) => {
-          return (
-            error.code === 22 ||
-            error.code === 1014 ||
-            error.name === 'QuotaExceededError' ||
-            error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
-          );
-        };
-
-        return {
-          detectsChrome: isQuotaError(chromeError),
-          detectsFirefox: isQuotaError(firefoxError),
-          detectsSafari: isQuotaError(safariError),
-          detectsEdge: isQuotaError(edgeError),
-        };
-      });
-
-      // 全てのブラウザパターンが検出されることを確認
-      expect(crossBrowserErrorDetection.detectsChrome).toBeTruthy();
-      expect(crossBrowserErrorDetection.detectsFirefox).toBeTruthy();
-      expect(crossBrowserErrorDetection.detectsSafari).toBeTruthy();
-      expect(crossBrowserErrorDetection.detectsEdge).toBeTruthy();
+      // 手動保存は従来どおり利用できる
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/annotations') &&
+          response.request().method() === 'PUT' &&
+          response.ok(),
+        { timeout: getTimeout(30000) }
+      );
+      await page.locator('[data-testid="annotation-toolbar"]').getByLabel('保存').click();
+      await savePromise;
     });
   });
 

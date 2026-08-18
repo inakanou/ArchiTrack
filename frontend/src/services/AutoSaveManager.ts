@@ -8,38 +8,48 @@
  * @see requirements.md - 要件13.4, 13.5
  */
 
+import {
+  isLocalStorageAvailable,
+  isQuotaExceededError,
+  isSecurityError,
+} from '../utils/storage-error';
+
 /**
  * Fabric.jsシリアライズオブジェクトの基本型
+ *
+ * `frontend/src/types/site-survey.types.ts` の同名型と同じ形を保つ。形がずれると、
+ * サーバー保存（`saveAnnotation`）とローカル自動保存（要件15.4）で同じ注釈データを
+ * 受け渡せなくなる。
  */
 export interface FabricSerializedObject {
+  /** オブジェクトタイプ（rect, circle, path, textbox等） */
   type: string;
-  version?: string;
-  originX?: string;
-  originY?: string;
-  left?: number;
-  top?: number;
-  width?: number;
-  height?: number;
-  scaleX?: number;
-  scaleY?: number;
-  angle?: number;
+  /** その他のFabric.jsオブジェクトプロパティ */
   [key: string]: unknown;
 }
 
 /**
  * 注釈データの型定義（Fabric.js JSON形式）
  *
+ * `frontend/src/types/site-survey.types.ts` の同名型と同じ形を保つ（上記と同じ理由）。
+ *
  * @see design.md - AnnotationDataV1
  */
 export interface AnnotationData {
   /** スキーマバージョン */
-  version: string;
+  version?: string;
   /** Fabric.jsオブジェクトの配列 */
   objects: FabricSerializedObject[];
   /** 背景色（オプション） */
   background?: string;
   /** ビューポート変換（オプション） */
   viewportTransform?: number[];
+  /** 保存時のキャンバス幅（復元時のスケール変換用） */
+  canvasWidth?: number;
+  /** 保存時のキャンバス高さ（復元時のスケール変換用） */
+  canvasHeight?: number;
+  /** 背景画像の回転角度 (Req 22.4) */
+  imageRotation?: 0 | 90 | 180 | 270;
 }
 
 /**
@@ -410,7 +420,19 @@ export class AutoSaveManager implements IAutoSaveManager {
    */
   loadFromLocal(imageId: string): LocalStorageData | null {
     const key = this.getStorageKey(imageId);
-    const stored = localStorage.getItem(key);
+
+    let stored: string | null;
+    try {
+      stored = localStorage.getItem(key);
+    } catch (e) {
+      // 要件15.9: プライベートブラウジングモードでは読み出しもSecurityErrorになりうる。
+      // 復元は諦めるが編集自体は継続させる（手動保存のみで動作する）。
+      if (isSecurityError(e)) {
+        this.storageAvailable = false;
+        this.autoSaveDisabled = true;
+      }
+      return null;
+    }
 
     if (!stored) {
       return null;
@@ -438,7 +460,11 @@ export class AutoSaveManager implements IAutoSaveManager {
 
     // localStorageから削除
     const key = this.getStorageKey(imageId);
-    localStorage.removeItem(key);
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // 要件15.9: 削除不可（プライベートモード等）でも編集継続を妨げない
+    }
   }
 
   /**
@@ -526,7 +552,15 @@ export class AutoSaveManager implements IAutoSaveManager {
   getAllCacheEntries(): CacheEntry[] {
     const entries: CacheEntry[] = [];
 
-    for (let i = 0; i < localStorage.length; i++) {
+    // 要件15.9: プライベートブラウジングモードでは列挙自体がSecurityErrorになりうる
+    let length: number;
+    try {
+      length = localStorage.length;
+    } catch {
+      return entries;
+    }
+
+    for (let i = 0; i < length; i++) {
       const key = localStorage.key(i);
       if (key && key.startsWith(STORAGE_KEY_PREFIX)) {
         const value = localStorage.getItem(key);
@@ -608,18 +642,14 @@ export class AutoSaveManager implements IAutoSaveManager {
       return this.storageAvailable;
     }
 
-    // localStorageのテスト
-    const testKey = '__autosave_test__';
-    try {
-      localStorage.setItem(testKey, testKey);
-      localStorage.removeItem(testKey);
-      this.storageAvailable = true;
-      return true;
-    } catch {
-      // SecurityError、QuotaExceededError等
-      this.storageAvailable = false;
-      return false;
+    // localStorageのテスト（検出は utils/storage-error に一元化する。要件15.9, 15.10）
+    const available = isLocalStorageAvailable();
+    this.storageAvailable = available;
+    if (!available) {
+      // 要件15.9: 利用不可を検出したら自動保存を無効化し、手動保存のみで動作させる
+      this.autoSaveDisabled = true;
     }
+    return available;
   }
 
   /**
@@ -680,7 +710,9 @@ export class AutoSaveManager implements IAutoSaveManager {
       this.updateStatus('saved');
       return { success: true };
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+      // 要件15.10: クロスブラウザ検出（code===22 / code===1014 /
+      // name===QuotaExceededError / name===NS_ERROR_DOM_QUOTA_REACHED）
+      if (isQuotaExceededError(e)) {
         // 緊急クリーンアップ後にリトライ
         this.clearOldestEntries(3);
         try {
@@ -738,7 +770,11 @@ export class AutoSaveManager implements IAutoSaveManager {
     // 削除実行
     for (const entry of entriesToDelete) {
       const key = this.getStorageKey(entry.imageId);
-      localStorage.removeItem(key);
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // 削除不可でも保存試行は継続する
+      }
     }
   }
 
