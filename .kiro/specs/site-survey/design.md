@@ -767,7 +767,7 @@ sequenceDiagram
 | 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
 | **15.7** | **QuotaExceededError LRUリトライ** | **AutoSaveManager** | **localStorage** | - |
 | **15.8** | **保存失敗時ユーザー警告・今すぐ保存促進** | **AutoSaveManager, StorageWarningBanner** | - | - |
-| **15.9** | **プライベートブラウジング検出・自動保存無効化** | **AutoSaveManager** | - | - |
+| **15.9** | **プライベートブラウジング検出・自動保存無効化** | **AutoSaveManager, StorageWarningBanner** | - | - |
 | **15.10** | **クロスブラウザQuotaExceededError検出** | **AutoSaveManager (isQuotaExceededError)** | - | - |
 | 16.1-16.8 | 非機能要件 | 全コンポーネント | - | - |
 | **18.1** | **バッチ注釈取得エンドポイント提供** | **AnnotationService, SurveyRoutes** | **AnnotationBatchAPI** | **PDF報告書生成フロー** |
