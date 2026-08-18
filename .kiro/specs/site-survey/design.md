@@ -1001,14 +1001,13 @@ sequenceDiagram
 - 現場調査の作成・読取・更新・削除を管理
 - プロジェクト存在確認の整合性を保証
 - 楽観的排他制御による同時編集競合を検出
-- 論理削除時に関連画像データを連動削除
+- 論理削除は現場調査自身の `deletedAt` のみを更新し、関連画像レコードには書き込まない（`SurveyImage` に `deletedAt` は無く、関連画像は `SiteSurvey.deletedAt` のフィルタにより問い合わせ側で除外される）
 - **プロジェクト別の直近N件取得をサポート（要件2.1対応）**
 
 **Dependencies**
 - Inbound: SurveyRoutes — HTTPリクエスト処理 (P0)
 - Outbound: PrismaClient — データ永続化 (P0)
 - Outbound: AuditLogService — 操作履歴記録 (P1)
-- Outbound: SurveyImageService — 画像削除連携 (P1)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
@@ -1084,12 +1083,38 @@ interface ISurveyService {
 }
 ```
 
-**タスク 115.76 の境界外にある食い違いの記録**: 直上の型定義ブロック（`SiteSurveyServiceDependencies`）の是正はタスク 115.76 の `_Boundary: 設計文書の依存受け渡し型の記述_` に含まれるが、**本小節の Responsibilities & Constraints と Dependencies の記述は同境界の外**である。境界外の食い違いを無記録で放置しないため、実測結果をここに残す（訂正自体は別途起票を要する）。
+**責務欄・依存欄と実装の対応（タスク 115.76 の記録をタスク 115.112 で本文へ反映）**: 直上の型定義ブロック（`SiteSurveyServiceDependencies`）の是正はタスク 115.76 の `_Boundary: 設計文書の依存受け渡し型の記述_` に含まれたが、**本小節の Responsibilities & Constraints と Dependencies は同境界の外**だったため、115.76 は食い違いを記録に留めた。タスク 115.112 でその記録どおり本文を是正した。
 
-本小節の当該2ブロックの箇条書きは書く直前に機械的に数え直して**9項目**（Responsibilities & Constraints 5項目＋Dependencies 4項目）であり、そのすべてを実装と突き合わせた結果、食い違うのは次の**2項目**である。
+是正後の当該2ブロックの箇条書きは、書く直前に機械的に数え直して**8項目**である（Responsibilities & Constraints 5項目＋Dependencies 3項目。`awk '/^#### SiteSurveyService$/,/^\*\*Contracts\*\*/' .kiro/specs/site-survey/design.md | grep -c '^- '` の実測値）。是正の内訳は次の2項目である。
 
-- **Dependencies の `Outbound: SurveyImageService — 画像削除連携 (P1)`**: 実装の `SiteSurveyService` は `SurveyImageService` を注入も参照もしない（`grep -c "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件）。直上の型定義ブロックが示す依存2項目（`prisma` / `auditLogService`）とも矛盾する。
-- **Responsibilities & Constraints の「論理削除時に関連画像データを連動削除」**: 実装の `SiteSurveyService.deleteSiteSurvey`（`backend/src/services/site-survey.service.ts:445`）は同 478-481 行で `tx.siteSurvey.update({ where: { id }, data: { deletedAt } })` を実行するのみで、画像レコードには一切書き込まない。同ファイル 475-477 行のコメントが「SurveyImage には deletedAt フィールドがない設計」「関連画像は findById 等のクエリで SiteSurvey の deletedAt フィルタにより自動的に除外される」と明記している。
+- **削除した `Outbound: SurveyImageService — 画像削除連携 (P1)`**: 実装の `SiteSurveyService` は `SurveyImageService` を注入も参照もしない（`grep -c "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件）。直上の型定義ブロックが示す依存2項目（`prisma` / `auditLogService`）とも矛盾していた。
+- **書き換えた「論理削除時に関連画像データを連動削除」**: 実装の `SiteSurveyService.deleteSiteSurvey`（`backend/src/services/site-survey.service.ts:445`）は同 478-481 行で `tx.siteSurvey.update({ where: { id }, data: { deletedAt } })` を実行するのみで、画像レコードには一切書き込まない。同ファイル 475-477 行のコメントが「SurveyImage には deletedAt フィールドがない設計」「関連画像は findById 等のクエリで SiteSurvey の deletedAt フィルタにより自動的に除外される」と明記している。**設計を実態へ寄せる前に要件1.5（`.kiro/specs/site-survey/requirements.md:16`。「ユーザーが現場調査を削除する」ときに「現場調査と関連する画像データを論理削除する」）を確認した。行ごとの削除フラグを持たない実装で要件1.5 が満たされるかは経路ごとに異なり、実測した結論は「一部の経路でのみ満たされている」である**（判定の内訳と未解消の欠落は直後の段落に記す）。
+
+**要件1.5 の経路別判定と未解消の欠落（本タスクでは是正しない）**: 判定対象は現場調査画像に触れる経路である。`backend/src/routes/survey-images.routes.ts` のルートを書く直前に機械的に数え直すと**8件**であり（`grep -c '^router\.\(get\|post\|put\|patch\|delete\)(' backend/src/routes/survey-images.routes.ts` の実測値）、これに現場調査詳細の取得経路と注釈系を加え、**各経路の実装を実際に開いて**親の `deletedAt` 検査の有無を判定した。
+
+親の `deletedAt` を検査する（要件1.5 の趣旨が成立している）経路:
+
+- 画像一覧取得 `GET /`（`backend/src/routes/survey-images.routes.ts:271`）: 同 282 行で `SiteSurveyService.findById`（`backend/src/services/site-survey.service.ts:389`。`where` に `deletedAt: null` を持つ）を先に呼び、論理削除済みなら 404 を返して `ImageListService.findBySurveyIdWithUrls`（`backend/src/services/image-list.service.ts:127`）へ到達しない
+- 画像アップロード `POST /`（同 352 行）: `ImageUploadService.uploadBatch`（`backend/src/services/image-upload.service.ts:248` と 257 行）が親の `deletedAt` を検査して弾く（単件経路の `upload` も同 153 / 162 行で同様。`BatchUploadService` も `backend/src/services/batch-upload.service.ts:155` / `163` で `SURVEY_DELETED` を投げる）
+- 表示順序更新 `PUT /order`（同 515 行）: `ImageOrderService.updateImageOrder`（`backend/src/services/image-order.service.ts:91`。検査は同 101 行）が `SURVEY_DELETED` を投げ、ルート側（同 539-540 行）が 410 へ写像する
+- 現場調査詳細の取得（`backend/src/routes/site-surveys.routes.ts:544`）: こちらも `SiteSurveyService.findById` を経由するため `deletedAt: null` の絞り込みが掛かる
+- 注釈系の各検査（`backend/src/services/annotation.service.ts` の 334 / 471 / 519 行の `image.survey.deletedAt !== null`、および同 594 行の `survey: { deletedAt: null }`）
+
+親の `deletedAt` を検査しない経路は**5件**あり、これは**未解消の欠落**である:
+
+- `PATCH /batch`（`backend/src/routes/survey-images.routes.ts:632`）→ `ImageMetadataService.updateMetadataBatch`（`backend/src/services/image-metadata.service.ts:248`）
+- `PATCH /:imageId`（同 824 行）→ `ImageMetadataService.updateMetadata`（`backend/src/services/image-metadata.service.ts:132`）
+- `DELETE /:imageId`（同 724 行）→ `ImageDeleteService.delete`（`backend/src/services/image-delete.service.ts:130`）
+- `PATCH /:imageId/annotated-thumbnail`（同 947 行）: 経路内で `prisma.surveyImage.findUnique` を `select: { id: true, annotatedThumbnailPath: true }` で直接引くだけで親を辿らない
+- `DELETE /:imageId/annotated-thumbnail`（同 1134 行）: 同上
+
+この5経路は現場調査の行を一度も参照しない（`grep -rn "deletedAt" backend/src/routes/survey-images.routes.ts backend/src/services/image-metadata.service.ts backend/src/services/image-delete.service.ts backend/src/services/image-list.service.ts backend/src/services/image-order.service.ts` のヒットは `image-order.service.ts:101` の**1件のみ**で、これは上の `PUT /order` の検査そのものである）。したがって論理削除済みの現場調査に属する画像行を読み書きでき、`PATCH /:imageId` と `PATCH /batch` は応答に `id` / `surveyId` / `fileName` / `comment` / `includeInReport` / `displayOrder` を返すため、削除済みとして扱われるべき画像の情報が外へ出る。
+
+**設計判断ではなく実装の見落としと判断する根拠**: 同一ルートファイルの中で `PUT /order` だけが `SURVEY_DELETED` → 410 で明示的に遮断しており、他の更新・削除経路が同じ検査を持たないのは非対称である。「親の論理削除後も画像行の操作を許す」という設計であれば `PUT /order` を遮断する理由が無いため、この非対称は意図ではなく漏れとみなす。
+
+**後続タスクの提案**: 上記5経路へ親の `deletedAt` 検査を追加する実装タスクを別途起票すること。**本タスク（115.112）の境界は設計文書の記述の是正であり、バックエンド実装の変更を含まないため、ここでは実装へ手を入れない。**
+
+**同型の欠落（本仕様の境界外・参考）**: `QuantityGroupService.validateSurveyImage`（`backend/src/services/quantity-group.service.ts:242`。`survey` から `projectId` だけを select する）と `ConstructionPhotoImageService`（`backend/src/services/construction-photo-image.service.ts:298` の `survey: { select: { projectId: true } }`）も親の `deletedAt` を見ない。いずれも数量表・工事写真の仕様に属するため、本仕様の後続タスクの範囲には含めない。
 
 残る7項目は実装と対応が取れていることを確認済みである（CRUD は `createSiteSurvey`(206 行) / `findById`(389 行) / `updateSiteSurvey`(295 行) / `deleteSiteSurvey`(445 行) / `findByProjectId`(610 行)、プロジェクト存在確認は `validateProjectExists`(257 行) と `ProjectNotFoundForSurveyError`(267 行)、楽観的排他制御は同 322-326 行の `SiteSurveyConflictError`、直近N件取得は `findLatestByProjectId`(740 行)、Inbound は `backend/src/routes/site-surveys.routes.ts:50` などでの生成、Outbound の `PrismaClient` と `AuditLogService` は直上の型定義ブロックの2項目そのもの）。
 
@@ -1110,19 +1135,17 @@ interface ISurveyService {
 | Requirements | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8, 4.9, 4.10, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 21.8 |
 
 **Responsibilities & Constraints**
-- ファイル形式バリデーション（JPEG, PNG, WEBP） — **マジックバイトのみで判定、拡張子・MIMEタイプは判定に使用しない（要件21対応）**
-- 300KB超過時の段階的圧縮（250KB〜350KBの範囲に収める）
-- 200x200pxサムネイル自動生成
-- Cloudflare R2（S3互換API）へのアップロード
-- 画像表示順序の管理
-- バッチアップロード時は5件ずつキュー処理して順次実行
-- **Content-Typeはマジックバイト判定結果に基づいて設定（要件21.7対応）**
+- ファイル形式バリデーション（JPEG, PNG, WEBP） — **マジックバイトのみで判定、拡張子・ブラウザ提供MIMEタイプは判定に使用しない（要件21.1、21.8対応）**。`detectMimeTypeByMagicBytes` / `validateMagicBytes` / `validateMimeType` を備え、`validateFile` は判定結果のMIMEタイプを返す
+- アップロードするファイル名のサニタイズ（`sanitizeFileName`）
+- 保存先パスの算出（`getStoragePath`）。ただし**本番コードからの呼び出し元は無い**（`grep -rn "getStoragePath" backend/src frontend/src e2e` のヒットは本サービス自身の宣言と `__tests__` 配下のみ）。実際の保存先キーは `ImageUploadService.upload`（`backend/src/services/image-upload.service.ts:185-187`）と `BatchUploadService`（`backend/src/services/batch-upload.service.ts:281-283`）が同形の文字列を各自で組み立てている
+- **Content-Type はマジックバイト判定結果に基づいて設定する（要件21.7対応）。ただし設定するのは本サービスではない**。本サービスは `validateFile` が判定結果を返すところまでを担い、Content-Type を実際に載せるのは `ImageUploadService.uploadToStorage`（`backend/src/services/image-upload.service.ts:342`。判定結果の受け渡しは同 176 / 190 / 193 行）、`BatchUploadService.uploadToS3`（`backend/src/services/batch-upload.service.ts:324`。同 272 / 286 / 287 行）、`ConstructionPhotoImageService.persistOne`（`backend/src/services/construction-photo-image.service.ts:726` / `741` / `744` 行）である
+- **状態を持たない補助であり、圧縮・サムネイル生成・ストレージへの送信・表示順序・バッチの待ち行列はいずれも担わない**（担い手は下の「本小節の責務欄・依存欄と実装の対応」に挙げる）。注入された依存は保持と getter による返却にしか使われない
 
 **Dependencies**
-- Inbound: SurveyRoutes — ファイルアップロード処理 (P0)
-- Outbound: Sharp — 画像処理 (P0)
-- Outbound: @aws-sdk/client-s3 — Cloudflare R2連携 (P0)
-- Outbound: PrismaClient — メタデータ保存 (P0)
+- Inbound: `backend/src/routes/survey-images.routes.ts`（99行）と `backend/src/routes/construction-photo-images.routes.ts`（112行） — 本番リクエスト経路での生成 (P0)。保守スクリプト `backend/scripts/restore-plain-thumbnails.ts:454` も同クラスを生成するが、リクエスト経路からは呼ばれない
+- Inbound: `ImageUploadService`（`backend/src/services/image-upload.service.ts:103`）/ `BatchUploadService`（`backend/src/services/batch-upload.service.ts:101`）/ `ConstructionPhotoImageService`（`backend/src/services/construction-photo-image.service.ts:147`） — `validateFile` と `sanitizeFileName` の共有。いずれも具象クラス型のまま注入する (P0)
+- Outbound: PrismaClient — 保持と `getPrismaClient` による返却のみ。本サービス自身は問い合わせも書き込みも行わない (P1)
+- Outbound: ストレージの受け口（`backend/src/storage/storage-provider.interface.ts` の実装、および後方互換で残る `@aws-sdk/client-s3` のクライアント） — 保持と `getStorageProvider` / `getS3Client` / `getBucketName` による返却のみ。本サービス自身は送信も署名付きURL生成も行わない (P1)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
@@ -1186,15 +1209,34 @@ interface IImageService {
 }
 ```
 
-**タスク 115.76 の境界外にある食い違いの記録**: 直上の型定義ブロック（`SurveyImageServiceDependencies`）の是正はタスク 115.76 の `_Boundary: 設計文書の依存受け渡し型の記述_` に含まれるが、**本小節の Responsibilities & Constraints と Dependencies の記述は同境界の外**である。境界外の食い違いを無記録で放置しないため、実測結果をここに残す（訂正自体は別途起票を要する）。
+**本小節の責務欄・依存欄と実装の対応（タスク 115.76 の記録をタスク 115.112 で本文へ反映）**: 直上の型定義ブロック（`SurveyImageServiceDependencies`）の是正はタスク 115.76 の `_Boundary: 設計文書の依存受け渡し型の記述_` に含まれたが、**本小節の Responsibilities & Constraints と Dependencies は同境界の外**だったため、115.76 は網羅していない旨を明示したうえで食い違いを記録に留めた。タスク 115.112 で両ブロックを全件判定し、本文を実装へ合わせた。
 
-実装の `SurveyImageService`（`backend/src/services/survey-image.service.ts:175`）のメンバ宣言を機械的に数えると、`constructor` 1個・公開メソッド10個（`getBucketName` / `getS3Client` / `getStorageProvider` / `getPrismaClient` / `detectMimeTypeByMagicBytes` / `validateMimeType` / `validateMagicBytes` / `sanitizeFileName` / `validateFile` / `getStoragePath`）・private メソッド3個（`validateJpegMagicBytes` / `validatePngMagicBytes` / `validateWebpMagicBytes`）の計14個であり、**圧縮・サムネイル生成・アップロード・表示順序更新・バッチ処理に相当するメソッドは1つも無い**。実質は「マジックバイト検証・ファイル名サニタイズ・保存パス算出のステートレスなヘルパー」であり（`backend/src/services/construction-photo-image.service.ts:146` の JSDoc も当該依存を同じ言葉で説明している）、`prisma` も保持と `getPrismaClient` での返却にしか使われない（`this.prisma` の出現は同ファイル 226 / 263 の2箇所のみ）。
+実装の `SurveyImageService`（`backend/src/services/survey-image.service.ts:175`）のメンバ宣言を機械的に数えると、`constructor` 1個・公開メソッド10個（`getBucketName` / `getS3Client` / `getStorageProvider` / `getPrismaClient` / `detectMimeTypeByMagicBytes` / `validateMimeType` / `validateMagicBytes` / `sanitizeFileName` / `validateFile` / `getStoragePath`）・private メソッド3個（`validateJpegMagicBytes` / `validatePngMagicBytes` / `validateWebpMagicBytes`）の計14個であり（`awk 'NR>=225 && NR<=544' backend/src/services/survey-image.service.ts | grep -cE '^  (public |private |protected )?(static |readonly |async )*[a-zA-Z_][a-zA-Z0-9_]*\s*\('` の実測値）、**圧縮・サムネイル生成・アップロード・表示順序更新・バッチ処理に相当するメソッドは1つも無い**。実質は「マジックバイト検証・ファイル名サニタイズ・保存パス算出のステートレスなヘルパー」であり（`backend/src/services/construction-photo-image.service.ts:146` の JSDoc も当該依存を同じ言葉で説明している）、`prisma` も保持と `getPrismaClient` での返却にしか使われない（`this.prisma` の出現は同ファイル 226 / 263 の2箇所のみ）。
 
-これに照らすと、本小節の次の記述は直上の型定義ブロックとも実装とも矛盾する。**なおこの列挙は本小節の食い違いを網羅したものではない**（網羅には Responsibilities & Constraints 7項目と Dependencies 4項目の全件判定が要り、それ自体が本タスクの境界外である）。
+是正前の当該2ブロックは Responsibilities & Constraints 7項目＋Dependencies 4項目の計11項目で、**実装とそのまま対応が取れていたのは責務欄の第1項（マジックバイトのみによるファイル形式判定）だけ**であった（依存欄の Inbound 行は生成元としては誤りではないが、範囲と用途の記述が実態と食い違っていた）。**なおその第1項も、実質は据え置いたまま文言だけを精密化している**: 判定に使わない対象を「MIMEタイプ」から「ブラウザ提供MIMEタイプ」へ言い換え（実装が返す判定結果のMIMEタイプと、リクエストが申告するMIMEタイプを読み分けられるようにするため）、対応要件を「要件21」から `21.1`・`21.8` へ絞り、備えるメソッド名（`detectMimeTypeByMagicBytes` / `validateMagicBytes` / `validateMimeType` / `validateFile`）を補った。したがって「対応が取れていた」の評価は判定内容についてのものであり、行が無編集であることを意味しない。是正後は Responsibilities & Constraints 5項目＋Dependencies 4項目の計9項目である（`awk '/^#### SurveyImageService$/,/^\*\*Contracts\*\*/' .kiro/specs/site-survey/design.md | grep -c '^- '` の実測値。書く直前に数え直した）。本小節から外した記述の担い手は次のとおりで、いずれも `SurveyImageService` ではない。
 
-- **Dependencies の `Outbound: Sharp — 画像処理 (P0)`**: `grep -c sharp backend/src/services/survey-image.service.ts` は 0 件（`-i` を付けても 0 件）で、修正後の型定義ブロックにも `sharpProcessor` に相当する項目は無い。実際に `sharp` を保持するのは `ImageProcessorService`（`backend/src/services/image-processor.service.ts:156` の `private readonly sharp`）である。
-- **Responsibilities & Constraints の「300KB超過時の段階的圧縮（250KB〜350KBの範囲に収める）」と「200x200pxサムネイル自動生成」**: どちらも担い手は `ImageProcessorService` であり（`TARGET_MIN_SIZE_BYTES` 119 行 / `TARGET_MAX_SIZE_BYTES` 124 行 / `THUMBNAIL_WIDTH` 129 行 / `THUMBNAIL_HEIGHT` 134 行 / `processImage` 293 行）、`SurveyImageService` には該当機構が無い（上記の公開メソッド10個のいずれも圧縮・サムネイル生成を行わない）。
-- 参考として、同ブロックの「Cloudflare R2（S3互換API）へのアップロード」は `ImageUploadService.uploadToStorage`（`backend/src/services/image-upload.service.ts:342`）、「画像表示順序の管理」は `ImageOrderService.updateImageOrder`（`backend/src/services/image-order.service.ts:91`）、「バッチアップロード時は5件ずつキュー処理」は `BatchUploadService.BATCH_SIZE = 5`（`backend/src/services/batch-upload.service.ts:114`）が担っており、いずれも `SurveyImageService` の責務ではない。
+- 「300KB超過時の段階的圧縮（250KB〜350KBの範囲に収める）」と「200x200pxサムネイル自動生成」: `ImageProcessorService`（`backend/src/services/image-processor.service.ts`。`TARGET_MIN_SIZE_BYTES` 119 行 / `TARGET_MAX_SIZE_BYTES` 124 行 / `THUMBNAIL_WIDTH` 129 行 / `THUMBNAIL_HEIGHT` 134 行 / `processImage` 293 行）
+- 「Cloudflare R2（S3互換API）へのアップロード」: `ImageUploadService.uploadToStorage`（`backend/src/services/image-upload.service.ts:342`）と `BatchUploadService.uploadToS3`（`backend/src/services/batch-upload.service.ts:324`）
+- 「画像表示順序の管理」: `ImageOrderService.updateImageOrder`（`backend/src/services/image-order.service.ts:91`）
+- 「バッチアップロード時は5件ずつキュー処理して順次実行」: `BatchUploadService.BATCH_SIZE = 5`（`backend/src/services/batch-upload.service.ts:114`。分割は同 181 行の `splitIntoBatches`）
+- 「Content-Typeはマジックバイト判定結果に基づいて設定」: 判定は本サービスの `validateFile` だが、設定するのは `ImageUploadService` / `BatchUploadService` / `ConstructionPhotoImageService` である（要件21.7 は実装のいずれかの層で満たされていればよく、担い手を本サービスに限っていない。責務欄に担い手を明記した）
+- 依存の `Outbound: Sharp — 画像処理 (P0)`: `grep -ci sharp backend/src/services/survey-image.service.ts` は 0 件。`sharp` を保持するのは `ImageProcessorService`（`backend/src/services/image-processor.service.ts:156` の `private readonly sharp`）である
+- 依存の `Inbound: SurveyRoutes — ファイルアップロード処理 (P0)`: 生成箇所は `SurveyRoutes`（論理名。`backend/src/routes/site-surveys.routes.ts` / `backend/src/routes/survey-images.routes.ts` / `backend/src/routes/annotation.routes.ts` の総称）に収まらず `backend/src/routes/construction-photo-images.routes.ts:112` を含む。またメソッドの実際の呼び出し元は3つのサービスであるため、依存欄を生成元の行と利用元の行に分けた
+- 依存の `Outbound: @aws-sdk/client-s3 — Cloudflare R2連携 (P0)` と `Outbound: PrismaClient — メタデータ保存 (P0)`: どちらも保持と getter による返却だけで、本サービスは S3 コマンドも Prisma クエリも発行しない（`grep -nE "PutObjectCommand|GetObjectCommand|send\(" backend/src/services/survey-image.service.ts` は 0 件、`this.prisma` は 226 / 263 の2箇所のみ）
+
+なお `backend/src/middleware/upload.middleware.ts:106` は静的メンバ `SurveyImageService.ALLOWED_MIME_TYPES` を参照するが、**同ミドルウェアは本番コードのどこからも import されていない**（`grep -rn "upload.middleware" backend/src backend/scripts` のヒットは `backend/src/__tests__/unit/middleware/upload.middleware.test.ts` の4件のみ）。実行時の依存関係ではないため依存欄には挙げない。現場調査の画像アップロード経路が使う multer は `backend/src/routes/survey-images.routes.ts:56` で `fileFilter` を持たずに構成されており、申告MIMEタイプによる選別は本番経路に存在しない。
+
+**本小節に残る境界外の矛盾の記録（是正は後続タスクを要する）**: 上の是正が及んだのは Responsibilities & Constraints と Dependencies の2ブロックだけである。**同じ小節の Field 表・事前事後条件・Implementation Notes は本タスクの境界外**であり、意図して手を触れていない。その結果これらの欄は、是正後の責務欄（「圧縮・サムネイル生成・ストレージへの送信・表示順序・バッチの待ち行列はいずれも担わない」）と食い違ったまま残る。タスク 115.76 の教訓「一部だけ実態へ合わせると、文書は『一貫した誤り』から『自己矛盾』へ悪化する。境界外で直せない場合でも、矛盾が残っている事実を根拠つきでその場に記録すること」に従い、無記録で残さないよう全件の判定をここに置く。対象の欄は書く直前の機械的な走査で**8件**である（`awk '/^#### SurveyImageService$/,/^##### Cloudflare R2 設定詳細$/' .kiro/specs/site-survey/design.md | grep -cE '^\| (Intent|Requirements) \||^- (Preconditions|Postconditions|Invariants):|^- (Integration|Validation|Risks):'` の実測値）。内訳は**責務欄と矛盾する5件**、**矛盾しない2件**、**帰属だけが疑わしい1件**である。
+
+- **矛盾（`| Intent |` 行「画像のアップロード、圧縮、サムネイル生成、ストレージ管理を担当」）**: 上で数え上げた公開メソッド10個に、アップロード・圧縮・サムネイル生成・ストレージ管理へ相当するものは1つも無い。
+- **矛盾（`| Requirements |` 行）**: 掲げる要件番号は**17個**である（`awk '/^#### SurveyImageService$/,/^\*\*Responsibilities/' .kiro/specs/site-survey/design.md | grep '^| Requirements |' | grep -oE '\b[0-9]+\.[0-9]+\b' | wc -l` の実測値。書く直前に数え直した）。うち要件21の8個（21.1〜21.8）と `4.5`（許可形式でないファイルの拒否）・`4.9`（JPEG/PNG/WEBP のサポート）は `validateFile` / `detectMimeTypeByMagicBytes` が担うため妥当だが、**残る7個は担い手が別クラスである**: `4.1`（ストレージへの保存）は `ImageUploadService.uploadToStorage`、`4.2`・`4.3`（バッチアップロードと5件ずつのキュー処理）は `BatchUploadService`、`4.4`・`4.6`（サムネイル自動生成と段階的圧縮）は `ImageProcessorService`、`4.8`（削除失敗時の `orphaned/` への退避）は `ImageDeleteService.moveToOrphaned`（`backend/src/services/image-delete.service.ts:289`）、`4.10`（画像一覧の表示順序）は `ImageOrderService` と `ImageListService` が担う。
+- **矛盾（Postconditions「サムネイルが生成されストレージに保存されること」）**: 本サービスにサムネイル生成もストレージへの送信も無い。担い手は `ImageProcessorService` と `ImageUploadService` / `BatchUploadService` である。
+- **矛盾（Invariants「元画像とサムネイルは同一トランザクションで管理」）**: 本サービスはトランザクションを開始しない（`this.prisma` の出現は `backend/src/services/survey-image.service.ts` の 226 / 263 の2箇所のみで、いずれも `getPrismaClient` まわりである）。
+- **矛盾（Implementation Notes の Integration「S3Clientはシングルトンで接続管理、環境変数で設定切替」）**: 本サービスは注入された `S3Client` を保持して `getS3Client` で返すだけで、生成も接続管理も環境変数の解決も行わない。
+- 矛盾しない（Preconditions「ファイルのマジックバイトがJPEG/PNG/WEBP形式であること」／Implementation Notes の Validation「マジックバイトのみで画像形式を判定」）: いずれも是正後の責務欄の第1項と一致する。
+- 帰属だけが疑わしい（Implementation Notes の Risks「R2の無料枠（10GB/月、100万リクエスト/月）を超過時の課金に注意」）: 本サービスはストレージへのリクエストを発行しないため本小節へ置く理由は薄いが、責務の断定と真っ向から矛盾する文ではないので上記5件には数えない。
+
+**後続タスクの提案**: 上記の矛盾5件（`| Intent |` 行、`| Requirements |` 行、Postconditions、Invariants、Implementation Notes の Integration）を実態へ合わせるタスクを別途起票すること。要件番号の付け替えは本小節では閉じず、`## Requirements Traceability` 節の該当行（`4.1-4.6, 4.9` の行が Components 列に `SurveyImageService` を挙げる）と `### Component Summary` 節の `SurveyImageService` 行（Requirements 列 `4, 21`、Dependencies 列 `Sharp (P0), Cloudflare R2 (P0), Multer (P0)`）にも同じ誤帰属が及んでいるため、起票の範囲はそれらを含める必要がある。
 
 - Preconditions: ファイルのマジックバイトがJPEG/PNG/WEBP形式であること（拡張子・MIMEタイプは問わない）
 - Postconditions: サムネイルが生成されストレージに保存されること
