@@ -249,7 +249,15 @@ test.describe('現場調査注釈ツール', () => {
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('寸法線ツール選択時にスタイルオプションが表示される (site-survey/REQ-6.2)', async ({
+    /**
+     * Task 115.82 (site-survey/REQ-6.2)
+     *
+     * 旧テストは「スタイルオプションが表示される」ことしか見ておらず、要件6.2 の
+     * 「寸法値入力用のテキストフィールドを表示する」を一切検証していなかった
+     * （その内容は要件6.7 のテストと重複する）。出荷経路である
+     * 「寸法線ツール選択 → キャンバス上でドラッグ」から入力欄へ到達することを検証する。
+     */
+    test('寸法線を描画すると寸法値入力用のテキストフィールドが表示される (site-survey/REQ-6.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -263,27 +271,38 @@ test.describe('現場調査注釈ツール', () => {
 
       // 寸法線ツールを選択
       const dimensionTool = page.getByRole('button', { name: /寸法線/i });
-      await expect(dimensionTool).toBeVisible({ timeout: 5000 });
+      await expect(dimensionTool).toBeVisible({ timeout: getTimeout(5000) });
       await dimensionTool.click();
-
-      // ツールが選択状態になることを確認
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // スタイルオプションパネルが表示されることを確認（色、線幅などの設定）
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const lineWidth = page.locator('[data-testid="line-width"]');
+      // 描画前は入力欄が存在しない（＝表示の契機が「寸法線の描画」であることを示す）
+      const valueInput = page.getByRole('dialog', { name: '寸法値入力' });
+      await expect(valueInput).toHaveCount(0);
 
-      // スタイルオプションが表示されていることを確認
-      const hasStyleOptions = await styleOptions.isVisible();
-      const hasColorPicker = await colorPicker.isVisible();
-      const hasLineWidth = await lineWidth.isVisible();
+      // 出荷経路で寸法線を1本描く（描画面の内側に収まる相対座標を使う）
+      const box = await getUpperCanvasBox(page);
+      await performDrag(
+        page,
+        box.x + box.width * 0.15,
+        box.y + box.height * 0.3,
+        box.x + box.width * 0.85,
+        box.y + box.height * 0.3
+      );
 
-      // 少なくとも一つのスタイルオプションが利用可能であることを確認
-      expect(hasStyleOptions || hasColorPicker || hasLineWidth).toBeTruthy();
+      // 寸法値入力用のテキストフィールドが表示される（REQ-6.2）
+      await expect(valueInput).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(valueInput.getByRole('spinbutton', { name: '寸法値' })).toBeVisible();
+      await expect(valueInput.getByRole('combobox', { name: '単位' })).toBeVisible();
     });
 
-    test('寸法線ツールの色設定を変更できる (site-survey/REQ-6.3)', async ({ page }) => {
+    /**
+     * Task 115.82 (site-survey/REQ-6.3)
+     *
+     * 旧テストは「色設定を変更できる」ことしか見ておらず、要件6.3 の
+     * 「寸法線上に数値とオプションの単位を表示する」を一切検証していなかった。
+     * 入力欄で確定した値が、実際の寸法線オブジェクトのラベルとして描かれることを検証する。
+     */
+    test('入力した寸法値と単位が寸法線上に表示される (site-survey/REQ-6.3)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -293,23 +312,42 @@ test.describe('現場調査注釈ツール', () => {
         );
       }
 
-      // 寸法線ツールを選択
+      // 寸法線ツールを選択して寸法線を1本描く
       const dimensionTool = page.getByRole('button', { name: /寸法線/i });
-      await expect(dimensionTool).toBeVisible({ timeout: 5000 });
+      await expect(dimensionTool).toBeVisible({ timeout: getTimeout(5000) });
       await dimensionTool.click();
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // 色設定が利用可能であることを確認
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const colorPickerVisible = await colorPicker.isVisible();
-      if (colorPickerVisible) {
-        // 色設定が変更可能であることを確認
-        const initialColor = await colorPicker.inputValue();
-        expect(initialColor).toBeTruthy();
-      }
+      const box = await getUpperCanvasBox(page);
+      await performDrag(
+        page,
+        box.x + box.width * 0.15,
+        box.y + box.height * 0.7,
+        box.x + box.width * 0.85,
+        box.y + box.height * 0.7
+      );
 
-      // ツールが正しく動作していることを確認
-      await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
+      const valueInput = page.getByRole('dialog', { name: '寸法値入力' });
+      await expect(valueInput).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 確定前の寸法線ラベルは空である（値の表示が入力の結果であることを示す）
+      expect(await readDimensionLabelText(page), '描画直後の寸法線に既に寸法値が入っている').toBe(
+        ''
+      );
+
+      // 寸法値と単位を入力して確定する
+      await valueInput.getByRole('spinbutton', { name: '寸法値' }).fill('1250');
+      await valueInput.getByRole('combobox', { name: '単位' }).selectOption('cm');
+      await valueInput.getByRole('button', { name: '確定' }).click();
+
+      // 入力欄が閉じ、寸法線上に数値と単位が表示される（REQ-6.3）
+      await expect(valueInput).toHaveCount(0);
+      await expect
+        .poll(() => readDimensionLabelText(page), {
+          timeout: getTimeout(5000),
+          message: '寸法線上に入力した寸法値と単位が表示されていない',
+        })
+        .toBe('1250 cm');
     });
 
     test('選択ツールに切り替えて編集モードになる (site-survey/REQ-6.4)', async ({ page }) => {
@@ -496,6 +534,32 @@ test.describe('現場調査注釈ツール', () => {
   }
 
   /**
+   * 描画面（`.upper-canvas`）の bounding box を取得するヘルパー関数（Task 115.82）
+   *
+   * 図形の描画はこの要素の内側でしか成立しない。表示画像が小さいとキャンバスも小さく、
+   * 中心からの固定ピクセル移動では容易に外へ出てしまうため、描画座標は本 box の
+   * 相対比率で決める。見つからない場合はフォールバックせず例外にする
+   * （コンテナ座標へ退避すると描画されないまま検証だけが進むため）。
+   */
+  async function getUpperCanvasBox(
+    page: import('@playwright/test').Page
+  ): Promise<{ x: number; y: number; width: number; height: number }> {
+    const upperCanvas = page.locator('.upper-canvas');
+
+    // キャンバスサイズが10px以上になるまで最大10秒待機（画像読み込み完了を待つ）
+    for (let i = 0; i < 20; i++) {
+      const box = await upperCanvas.boundingBox();
+      // e2e-guard-allow: 検証ではなく前提の準備（描画可能なサイズになるまでの待機であり、満たせない場合は下の throw で失敗させる）
+      if (box && box.width > 10 && box.height > 10) {
+        return box;
+      }
+      await page.waitForTimeout(500);
+    }
+
+    throw new Error('描画面（.upper-canvas）が描画可能なサイズになりませんでした');
+  }
+
+  /**
    * ドラッグ操作を実行するヘルパー関数
    */
   async function performDrag(
@@ -509,6 +573,38 @@ test.describe('現場調査注釈ツール', () => {
     await page.mouse.down();
     await page.mouse.move(endX, endY, { steps: 10 });
     await page.mouse.up();
+  }
+
+  /**
+   * 寸法線に描かれている寸法値ラベルのテキストを読み出すヘルパー関数（Task 115.82, REQ-6.3）
+   *
+   * `dimensionLine` は `[outlineLine, bodyLine, labelText]` の Group であり、
+   * 寸法値ラベルはテキストを持つ子オブジェクトとして識別する。
+   * キャンバスまたは寸法線が見つからない場合は、原因を示して例外にする
+   * （値が空である状態と区別できないまま検証が素通りするのを防ぐため）。
+   */
+  async function readDimensionLabelText(page: import('@playwright/test').Page): Promise<string> {
+    return await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects(): Array<{ type?: string; _objects?: Array<{ text?: string }> }>;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        throw new Error('window.__fabricCanvas が公開されていません');
+      }
+      const dimension = canvas.getObjects().find((obj) => obj.type === 'dimensionLine');
+      if (!dimension) {
+        throw new Error('寸法線オブジェクトがキャンバス上に見つかりません');
+      }
+      const label = (dimension._objects ?? []).find((child) => typeof child.text === 'string');
+      if (!label) {
+        throw new Error('寸法線に寸法値ラベルの子オブジェクトがありません');
+      }
+      return label.text ?? '';
+    });
   }
 
   /**

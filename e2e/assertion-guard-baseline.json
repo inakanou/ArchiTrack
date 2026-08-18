@@ -6,10 +6,11 @@
     "正当な分岐は該当行の直前に `// e2e-guard-allow: <理由>` を置いて除外できる（理由は必須）。",
     "allowedFiles は除外注釈の件数。除外が増えた場合も検査は失敗する（差分として現れる）。"
   ],
-  "generatedTotal": 1094,
-  "allowedTotal": 1,
+  "generatedTotal": 1092,
+  "allowedTotal": 2,
   "allowedFiles": {
-    "e2e/specs/quantity-tables/photo-change-dialog-e2e.spec.ts": 1
+    "e2e/specs/quantity-tables/photo-change-dialog-e2e.spec.ts": 1,
+    "e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts": 1
   },
   "files": {
     "e2e/helpers/quantity-table-actions.ts": {
@@ -375,8 +376,8 @@
     "e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts": {
       "T1-conditional-expect": 2,
       "T2-ignored-timeout": 2,
-      "T3-tautology": 9,
-      "T5-observed-result-gate": 5
+      "T3-tautology": 8,
+      "T5-observed-result-gate": 4
     },
     "e2e/specs/site-surveys/site-survey-annotations.spec.ts": {
       "T1-conditional-expect": 1,

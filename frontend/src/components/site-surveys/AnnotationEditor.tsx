@@ -62,7 +62,8 @@ import { createRectangle } from './tools/RectangleTool';
 import { PolygonBuilder, createPolygon } from './tools/PolygonTool';
 import { PolylineBuilder, createPolyline } from './tools/PolylineTool';
 import { DEFAULT_FREEHAND_OPTIONS, createFreehandBrush } from './tools/FreehandTool';
-import { createDimensionLine } from './tools/DimensionTool';
+import { createDimensionLine, type DimensionLine } from './tools/DimensionTool';
+import DimensionValueInput from './tools/DimensionValueInput';
 import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
 import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
@@ -300,6 +301,38 @@ export interface AnnotationEditorProps {
 // スタイル定義
 // ============================================================================
 
+/**
+ * Task 115.82 (Req 6.2): ポインタイベントからクライアント座標（ビューポート基準）を取り出す。
+ *
+ * 寸法値入力欄は position: fixed の重ね合わせ層へ配置するため、キャンバス内部座標ではなく
+ * ビューポート基準の座標が要る。マウス／ペンは event 自身が、タッチは changedTouches が持つ。
+ *
+ * @param event Fabric から渡される元の DOM イベント
+ * @returns クライアント座標。取り出せない場合は null
+ */
+function resolveClientPoint(event: TPointerEvent | undefined): { x: number; y: number } | null {
+  if (!event) {
+    return null;
+  }
+  const mouseLike = event as { clientX?: number; clientY?: number };
+  if (typeof mouseLike.clientX === 'number' && typeof mouseLike.clientY === 'number') {
+    return { x: mouseLike.clientX, y: mouseLike.clientY };
+  }
+  const touchLike = event as { changedTouches?: ArrayLike<{ clientX: number; clientY: number }> };
+  const touch = touchLike.changedTouches?.[0];
+  if (touch) {
+    return { x: touch.clientX, y: touch.clientY };
+  }
+  return null;
+}
+
+/**
+ * Task 115.82 (Req 6.2): 寸法値入力欄が最初に示す単位。
+ *
+ * `DimensionValueInput` が選べる単位（mm / cm / m）の先頭に合わせる。
+ */
+const DEFAULT_DIMENSION_UNIT = 'mm';
+
 const STYLES = {
   wrapper: {
     display: 'flex',
@@ -329,6 +362,22 @@ const STYLES = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Task 115.82 (Req 6.2): 寸法値入力欄を載せる重ね合わせ層。
+  // キャンバス要素の DOM は Fabric が所有するため、その内側へ React で描画せず
+  // ビューポート基準の固定層に置く（AnnotationContextMenu と同じ方式）。
+  // 層自体はポインタを透過させ、入力欄だけが操作を受け取る。
+  dimensionInputOverlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    pointerEvents: 'none' as const,
+    zIndex: 1000,
+  },
+  dimensionInputAnchor: {
+    position: 'absolute' as const,
+    left: 0,
+    top: 0,
+    pointerEvents: 'auto' as const,
   },
   canvasWrapper: {
     position: 'relative' as const,
@@ -570,6 +619,21 @@ function AnnotationEditor({
     position: { x: number; y: number } | null;
     targetObject: FabricObject | null;
   }>({ visible: false, position: null, targetObject: null });
+
+  // ---------------------------------------------------------------------------
+  // Task 115.82 (Req 6.2, 6.3): 寸法値入力欄の表示状態
+  //
+  // 寸法線が描画された直後に、その線を対象とする入力欄をポップアップで開く（Req 6.2）。
+  // 確定すると対象の寸法線へ数値と単位を書き込み、線上のラベルとして描画する（Req 6.3）。
+  // 位置はクライアント座標で保持し、position: fixed の重ね合わせ層の中へ配置する
+  // （AnnotationContextMenu と同じ方式。キャンバス要素の DOM を React が触らないため）。
+  // ---------------------------------------------------------------------------
+  const [dimensionValueInput, setDimensionValueInput] = useState<{
+    target: DimensionLine;
+    position: { x: number; y: number };
+    initialValue: string;
+    initialUnit: string;
+  } | null>(null);
 
   // Task 72.4 (Req 29.7, 29.8): AnnotationGuide の表示状態と idle タイマ参照。
   // ツール選択後 GUIDE_IDLE_MS (=3000ms) 間描画操作が無ければ guideVisible=true にし、
@@ -819,6 +883,9 @@ function AnnotationEditor({
     // ツールを変更
     setState((prev) => ({ ...prev, activeTool: tool }));
     activeToolRef.current = tool;
+
+    // Task 115.82 (Req 6.2): 未確定の寸法値入力欄はツール切替で閉じる
+    setDimensionValueInput(null);
 
     // Task 13.3: 選択ツール以外に切り替える場合、現在の選択を解除
     if (tool !== 'select' && fabricCanvasRef.current) {
@@ -1394,6 +1461,8 @@ function AnnotationEditor({
 
       // ツールに応じて図形を作成
       let shape = null;
+      // Task 115.82 (Req 6.2): 寸法線が作成されたときだけ寸法値入力欄を開くための参照
+      let createdDimension: DimensionLine | null = null;
       switch (activeTool) {
         case 'arrow':
           shape = createArrow(startPoint, endPoint, {
@@ -1415,12 +1484,16 @@ function AnnotationEditor({
             fill: currentStyle.fillColor || 'transparent',
           });
           break;
-        case 'dimension':
-          shape = createDimensionLine(startPoint, endPoint, {
+        case 'dimension': {
+          // Task 115.82 (Req 6.2): 作成した寸法線は入力欄の対象として保持する
+          const dimension = createDimensionLine(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          shape = dimension;
+          createdDimension = dimension;
           break;
+        }
         default:
           // テキストなどは別途実装
           break;
@@ -1430,6 +1503,23 @@ function AnnotationEditor({
       if (shape) {
         canvas.add(shape);
         canvas.renderAll();
+      }
+
+      // Task 115.82 (Req 6.2): 寸法線が描画されたら寸法値入力用のテキストフィールドを開く。
+      // 本ハンドラ自体が readOnly でない場合にのみ登録されるため、閲覧モードでは到達しない。
+      if (createdDimension) {
+        const clientPoint = resolveClientPoint(options.e);
+        // 退避先のキャンバス座標は入力欄を置く position: fixed 層とは座標系が異なり、
+        // 位置がずれうる。Fabric は mouse:up へ必ず元の DOM イベントを渡すため
+        // 実際には到達しないが、位置の欠落で入力欄自体を出さない方が要件6.2 に反する。
+        const anchorPoint = clientPoint ?? { x: endPoint.x, y: endPoint.y };
+        setDimensionValueInput({
+          target: createdDimension,
+          // 入力欄がポインタ位置と重ならないよう少しずらす
+          position: { x: anchorPoint.x + 12, y: anchorPoint.y + 12 },
+          initialValue: createdDimension.customData.dimensionValue ?? '',
+          initialUnit: createdDimension.customData.dimensionUnit || DEFAULT_DIMENSION_UNIT,
+        });
       }
     });
 
@@ -1627,6 +1717,45 @@ function AnnotationEditor({
    */
   const handleContextMenuClose = useCallback(() => {
     setContextMenu({ visible: false, position: null, targetObject: null });
+  }, []);
+
+  /**
+   * Task 115.82 (Req 6.3): 寸法値の確定
+   *
+   * 入力された数値と単位を対象の寸法線へ書き込み、線上のラベルとして描画する。
+   * `object:modified` を発火して Undo 履歴と自動保存（Task 115.81 の結線）へ反映させる。
+   *
+   * 数値が空（未入力・空白のみ）の場合は単位も書き込まない。要件6.3 が表示を求めるのは
+   * 「数値とオプションの単位」であり、単位は数値に付随する任意要素だからである。
+   * `DimensionLine.setDimensionWithLabel` はラベルを `` `${value} ${unit}` `` で組み立てるため、
+   * 空の数値をそのまま渡すと `" mm"` のような単位だけのラベルが描かれてしまう。
+   * 空の値と空の単位を明示して渡すことで、既に値を持つ寸法線を空で確定した場合も
+   * ラベルが確実に消える（`_hasLabel` が false へ戻る）。
+   */
+  const handleDimensionValueConfirm = useCallback(
+    (value: string, unit: string) => {
+      const canvas = fabricCanvasRef.current;
+      const target = dimensionValueInput?.target ?? null;
+      if (canvas && target) {
+        const trimmedValue = value.trim();
+        const hasValue = trimmedValue !== '';
+        target.setDimensionWithLabel(canvas, hasValue ? trimmedValue : '', hasValue ? unit : '');
+        target.setCoords();
+        canvas.fire('object:modified', { target });
+        canvas.renderAll();
+      }
+      setDimensionValueInput(null);
+    },
+    [dimensionValueInput]
+  );
+
+  /**
+   * Task 115.82 (Req 6.2): 寸法値入力のキャンセル
+   *
+   * 入力欄を閉じるだけで、描画済みの寸法線は残す（値なしの寸法線として扱う）。
+   */
+  const handleDimensionValueCancel = useCallback(() => {
+    setDimensionValueInput(null);
   }, []);
 
   /**
@@ -2874,6 +3003,22 @@ function AnnotationEditor({
           onDiscard={restoration.discardLocal}
           onDismiss={restoration.dismissDialog}
         />
+      )}
+
+      {/* Task 115.82 (Req 6.2, 6.3): 寸法値入力欄。
+          寸法線を描画した直後に表示し（6.2）、確定した数値と単位を寸法線上へ描く（6.3）。 */}
+      {dimensionValueInput && (
+        <div style={STYLES.dimensionInputOverlay}>
+          <div style={STYLES.dimensionInputAnchor}>
+            <DimensionValueInput
+              position={dimensionValueInput.position}
+              initialValue={dimensionValueInput.initialValue}
+              initialUnit={dimensionValueInput.initialUnit}
+              onConfirm={handleDimensionValueConfirm}
+              onCancel={handleDimensionValueCancel}
+            />
+          </div>
+        </div>
       )}
 
       {/* 注釈コンテキストメニュー (Task 72.3, Req 27.2-27.5, 27.7) */}

@@ -105,7 +105,6 @@
 
 | 未結線の部品 | 担当要件 | 撤去せず存置する理由（＝結線されていない理由） |
 |---|---|---|
-| `DimensionValueInput`（`frontend/src/components/site-surveys/tools/DimensionValueInput.tsx`） | 6.2, 6.3 | 出荷済みの `AnnotationEditor` は `createDimensionLine` で寸法線を描くだけで、寸法値入力フィールドを開く経路を持たない（`frontend/src/components/site-surveys/AnnotationEditor.tsx:1418-1423`）。本部品が要件6.2/6.3 の唯一の実装である |
 | `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`） | 5.1-5.6, 12, 20.1 | 本設計書の「Requirements Traceability」表と「Components and Interfaces」が要件5 の担当として明示しており、要件33-34 節は「フェーズ4 で `canvasViewportController` へ移行して二重実装を解消する」計画を持つ。**設計上の役割が現存するため撤去しない** |
 | `StylePanel`（`frontend/src/components/site-surveys/StylePanel.tsx`）と `style-panel.constants.ts` | 24.5, 25.2, 26.3, 26.4, 26.6, 28.7 | タスク 115.70 の所管。実際に描画されるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである。ただし **要件26.4 / 26.6 の受入基準カバレッジは本部品の単体検証（`StylePanel.outline-toggle.test.tsx`）にしか存在せず**、結線側に同等の主張が無い。先に主張を結線側へ移すまで撤去できない |
 
@@ -129,6 +128,27 @@
 - **復元処理の表示倍率適用は、サーバー保存済み注釈の復元（要件9.2）と共有する。** 二重実装にするとタスク 115.73（要件32.2）の是正が片側にしか効かないため、`AnnotationEditor` 内の共有関数へ集約した
 
 **E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件15.4 / 15.5 を「統合テストで検証」として E2E から除外していたが、その統合検証は結線されていないコードだけを回していた。結線が済んだため除外の根拠は失われ、タスク 115.81 で当該2件を除外一覧から削除し、`e2e/specs/site-surveys/site-survey-responsive.spec.ts` の受入レベルの検証へ置き換えた。要件15.7-15.10 は除外一覧に無いまま恒真の判定で「検証済み」に見えていたため、同ファイルの当該検証も本番経路を通る形へ書き直した。
+
+#### 寸法値入力欄の結線（タスク 115.82）
+
+タスク 115.64 が「本部品が要件6.2/6.3 の唯一の実装である」として存置した `DimensionValueInput`（`frontend/src/components/site-surveys/tools/DimensionValueInput.tsx`）を、タスク 115.82 で `AnnotationEditor`（`frontend/src/components/site-surveys/AnnotationEditor.tsx`）へ結線した。結線先が `AnnotationEditor` である根拠は、要件6.2 が「寸法線が描画される」ことを表示の契機と定めており、寸法線を描画するのが同画面の `mouse:up` ハンドラ（`createDimensionLine` の呼び出し）だけだからである。
+
+| 結線した部品 | 担当要件 | 結線の内容（本番の描画経路からの到達方法） |
+|---|---|---|
+| `DimensionValueInput`（`frontend/src/components/site-surveys/tools/DimensionValueInput.tsx`） | 6.2, 6.3 | 寸法線ツールを選んでキャンバスをドラッグすると、`AnnotationEditor` の `mouse:up` ハンドラが `createDimensionLine` の戻り値（`DimensionLine`）を入力欄の対象として保持し、`dimensionValueInput` 状態を立てて本部品を描画する（6.2）。確定時は対象の `setDimensionWithLabel(canvas, value, unit)` を呼び、寸法線 Group の `labelText` へ「数値 単位」を書き込む（6.3） |
+
+**結線にあたって定めた挙動**:
+
+- **入力欄は `position: fixed` の重ね合わせ層へ置く。** キャンバス要素の DOM は Fabric が所有するため React で内側へ描画できず、祖先の `overflow` で切り取られる事故も避ける必要がある。既に同じ理由で固定層を使っている `AnnotationContextMenu` に合わせた
+- **表示位置はポインタのクライアント座標を基準にする。** マウス／ペンは元イベントの `clientX`/`clientY`、タッチは `changedTouches[0]` から取り出す（`resolveClientPoint`）。取り出せない場合はキャンバス座標（`scenePoint`）へ退避するが、これは入力欄を置く `position: fixed` の層とは**座標系が異なるため位置がずれうる**。ずれを許容しているのは、Fabric が `mouse:up` へ必ず元の DOM イベント（`options.e`）を渡すため退避経路が実際には到達しないからである。正しい退避には `viewportTransform` とキャンバス要素の `getBoundingClientRect()` による逆変換が要るが、本番経路から到達しない分岐のために検証不能なコードを増やさない判断とした
+- **閲覧モード（`readOnly`）では開かない。** `mouse:up` を含む描画イベントの購読自体が `!readOnly` のときにしか登録されないため、構造上到達しない
+- **寸法線が作られなかったときは開かない。** `createDimensionLine` は 2 点間距離が下限未満だと `null` を返す。要件6.2 の契機は「寸法線が描画される」ことなので、線が無い場合に入力欄を出さない
+- **確定時に `object:modified` を発火する。** 寸法値の書き込みは注釈の変更であり、Undo 履歴とタスク 115.81 で結線した自動保存の双方へ伝える必要がある
+- **キャンセルでは寸法線を残す。** 要件6.3 は値の入力を「オプションの単位」を含めて任意としており、値なしの寸法線（要件6.1 の成果）を取り消す根拠が無い
+- **数値が空のまま確定した場合は単位も表示しない。** 要件6.3 が表示を求めるのは「数値とオプションの単位」であり、単位は数値に付随する任意要素である。したがって**数値が無いときは単位も表示しない**と解釈する。`DimensionLine.setDimensionWithLabel` はラベルを `` `${value} ${unit}` `` で組み立てるため、空の数値をそのまま渡すと `" mm"` のような単位だけのラベルが描かれ、`_hasLabel` も真になってしまう（結線前は到達しなかった経路で、結線によって初めて到達可能になった）。`handleDimensionValueConfirm` は `value.trim()` が空のとき `setDimensionWithLabel(canvas, '', '')` を呼ぶ。入力欄を閉じるだけにせず書き込みを通すのは、既に値を持つ寸法線を空で確定した場合にラベルを確実に消す（`_hasLabel` を false へ戻す）ためであり、この経路でも `object:modified` を発火して「値を消した」変更を Undo と自動保存へ伝える
+- **ツールを切り替えたら未確定の入力欄を閉じる。** 別ツールでの描画対象と入力欄の対象が食い違う状態を残さないため
+
+**E2E 除外一覧の是正**: `e2e/requirement-exclusions.json` は要件6.2 / 6.3 を「統合テストで検証」として E2E から除外していたが、その統合検証は結線されていない `DimensionValueInput` を単体で組み立てて回すだけだった。結線が済んだため除外の根拠は失われ、タスク 115.82 で当該2件を除外一覧から削除した。あわせて `e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts` の要件6.2 / 6.3 を名乗る2件は、実際にはスタイルオプションの表示と色設定（要件6.7 と重複）しか見ていなかったため、寸法線の描画→入力欄の表示→確定→寸法線上のラベル表示という本番経路を通す検証へ書き直した。
 
 #### 契約名の実在対照表
 
@@ -768,7 +788,7 @@ sequenceDiagram
 | **4.12** | **「上へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | **4.13** | **「下へ移動」ボタン（ローカル状態のみ）** | **PhotoManagementPanel** | - | - |
 | 5.1-5.6 | 画像ビューア | ImageViewer, CanvasEngine | - | - |
-| 6.1-6.7 | 寸法線 | DimensionTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
+| 6.1-6.7 | 寸法線 | DimensionTool, DimensionValueInput, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 7.1-7.10 | マーキング | ShapeTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | 8.1-8.7 | コメント | TextTool, AnnotationService | AnnotationAPI | 注釈編集フロー |
 | **9.1** | **手動保存（保存ボタン）** | **AnnotationEditor, useUnsavedChanges** | **AnnotationAPI** | **注釈編集フロー** |
