@@ -28,6 +28,19 @@
  *   遷移は利用者が実際に通る導線（詳細のパンくず「現場調査一覧」→ 一覧で調査Bを選ぶ）を
  *   使い、途中で画面が再読み込みされていない（SPA 内遷移である）ことも併せて確かめる。
  *
+ * Task 115.86:
+ *   115.66 が足した検証 (e) は *最終状態* しか主張していなかった。選択を画面より上へ
+ *   持ち上げ、移動先の一覧を取得し終えてから整理して消す実装へ退行すると、移動先では
+ *   「選択画像エクスポート」が一瞬だけ活性で描画されてしまう。要件31.3 は「1 件も
+ *   選択していない間」の非活性を求めており、この一瞬も違反である。にもかかわらず
+ *   最終状態だけを見る検証は緑のままになる。
+ *   そこで移動先の調査の詳細取得の応答を保留し、保留したまま
+ *     (1) 活性な「選択画像エクスポート」が一つも提示されていないこと
+ *     (2) 以降に描かれる「選択画像エクスポート」を漏れなく記録する観測を仕掛けること
+ *   を行ってから応答を解放する。記録は移動先の画面が何かを描くより前に必ず仕掛かるため、
+ *   「最初に描かれた状態が 0 件かつ非活性であること」を取りこぼしなく主張できる。
+ *   時間待ちで過渡状態を狙い撃つ必要が無く、間欠的な失敗を作らない。
+ *
  * @requirement site-survey/REQ-31.1
  * @requirement site-survey/REQ-31.2
  * @requirement site-survey/REQ-31.3
@@ -42,7 +55,7 @@
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { test, expect, type Page, type BrowserContext, type Route } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -470,7 +483,7 @@ test.describe('現場調査画像の一括エクスポート', () => {
   });
 
   /**
-   * (e) 現場調査をまたいでも選択が持ち越されない
+   * (e) 現場調査をまたいでも選択が持ち越されない（移った直後の過渡状態を含む）
    *     Requirement 31.2, 31.3
    *
    * 調査A で選択して「選択画像エクスポート」が活性になることを確かめたうえで、
@@ -478,6 +491,11 @@ test.describe('現場調査画像の一括エクスポート', () => {
    * 調査B では 0 件かつ非活性へ戻ることを確かめる。
    * 途中で画面が再読み込みされていないこと（＝選択状態が持ち越されうる SPA 内遷移で
    * あること）を window 上の目印で確かめ、検証が素通りしないようにする。
+   *
+   * さらに Task 115.86 として、移動先の調査の詳細取得を保留したまま「活性な
+   * 選択画像エクスポートが一つも無い」ことを主張し、保留中に観測を仕掛けてから解放する。
+   * これにより移動先で *最初に* 描かれた「選択画像エクスポート」まで遡って
+   * 0 件かつ非活性であることを主張でき、一瞬だけ活性化する退行を取り逃がさない。
    */
   test('(e) 別の現場調査へ移ると選択が持ち越されず選択画像エクスポートが非活性へ戻る', async () => {
     expect(secondSurveyId, '調査Bが用意されていない').toBeTruthy();
@@ -505,22 +523,92 @@ test.describe('現場調査画像の一括エクスポート', () => {
       (window as unknown as { __crossSurveyProbe?: string }).__crossSurveyProbe = 'survey-a';
     });
 
-    // --- 調査A → 現場調査一覧 → 調査B（利用者の導線を通る）---
-    const breadcrumb = sharedPage.getByRole('navigation', { name: /パンくず|breadcrumb/i });
-    await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
-    await breadcrumb.getByRole('link', { name: '現場調査一覧' }).click();
-    await expect(sharedPage).toHaveURL(new RegExp(`/projects/${createdProjectId}/site-surveys$`), {
-      timeout: getTimeout(15000),
+    // 移動先（調査B）の詳細取得を、検証側の合図まで保留する関門を仕掛ける (Task 115.86)。
+    // 経路（パス）で照合する。オリジンは実行環境によって異なり、照合に用いると何も掛からない。
+    let releaseDestinationDetail: () => void = () => {};
+    const destinationDetailGate = new Promise<void>((resolve) => {
+      releaseDestinationDetail = resolve;
     });
+    let destinationDetailRequests = 0;
+    const destinationDetailMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/site-surveys/${secondSurveyId}`);
+    const holdDestinationDetail = async (route: Route): Promise<void> => {
+      destinationDetailRequests += 1;
+      await destinationDetailGate;
+      await route.continue();
+    };
+    await sharedPage.route(destinationDetailMatcher, holdDestinationDetail);
 
-    const secondSurveyLink = sharedPage.getByText(secondSurveyName).first();
-    await expect(secondSurveyLink, '現場調査一覧に調査Bが表示されない').toBeVisible({
-      timeout: getTimeout(15000),
-    });
-    await secondSurveyLink.click();
-    await expect(sharedPage).toHaveURL(new RegExp(`/site-surveys/${secondSurveyId}$`), {
-      timeout: getTimeout(15000),
-    });
+    try {
+      // --- 調査A → 現場調査一覧 → 調査B（利用者の導線を通る）---
+      const breadcrumb = sharedPage.getByRole('navigation', { name: /パンくず|breadcrumb/i });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+      await breadcrumb.getByRole('link', { name: '現場調査一覧' }).click();
+      await expect(sharedPage).toHaveURL(
+        new RegExp(`/projects/${createdProjectId}/site-surveys$`),
+        {
+          timeout: getTimeout(15000),
+        }
+      );
+
+      const secondSurveyLink = sharedPage.getByText(secondSurveyName).first();
+      await expect(secondSurveyLink, '現場調査一覧に調査Bが表示されない').toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await secondSurveyLink.click();
+      await expect(sharedPage).toHaveURL(new RegExp(`/site-surveys/${secondSurveyId}$`), {
+        timeout: getTimeout(15000),
+      });
+
+      // 関門に掛かった＝移動先の画像一覧はまだ画面へ届いていない (Task 115.86)
+      await expect
+        .poll(() => destinationDetailRequests, { timeout: getTimeout(15000) })
+        .toBeGreaterThan(0);
+
+      // 移動先の一覧を得る前から、選択は 0 件でなければならない (Requirement 31.3)。
+      // 活性な「選択画像エクスポート」がこの時点で一つでもあれば、
+      // それは前の調査の選択を持ち越したまま操作を許している。
+      await expect(
+        sharedPage.locator('[data-testid="bulk-export-selected-button"]:not([disabled])'),
+        '移動先の画像一覧を得る前に「選択画像エクスポート」が活性で提示された'
+      ).toHaveCount(0);
+
+      // 応答を保留したまま観測を仕掛ける。移動先の画面はまだ何も描いていないため、
+      // 以降に描かれる「選択画像エクスポート」を最初の一つ目から漏れなく記録できる。
+      await sharedPage.evaluate(() => {
+        const holder = window as unknown as {
+          __selectedExportStates?: Array<{ present: boolean; text: string; disabled: boolean }>;
+          __selectedExportObserver?: MutationObserver;
+        };
+        const states: Array<{ present: boolean; text: string; disabled: boolean }> = [];
+        holder.__selectedExportStates = states;
+        // 変化のたびに無条件で記録する（記録側で選り分けない）。
+        // 未描画の間は present:false として残し、絞り込みと突き合わせは検証側で行う。
+        const record = (): void => {
+          const button = document.querySelector<HTMLButtonElement>(
+            '[data-testid="bulk-export-selected-button"]'
+          );
+          states.push({
+            present: button !== null,
+            text: button === null ? '' : String(button.textContent).trim(),
+            disabled: button === null ? true : button.disabled,
+          });
+        };
+        record();
+        const observer = new MutationObserver(record);
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+        });
+        holder.__selectedExportObserver = observer;
+      });
+    } finally {
+      // 主張の成否によらず必ず解放する。関門そのものの取り外しは afterEach の
+      // `unrouteAll` に委ねる（解放した応答の処理中に取り外すと競合するため）。
+      releaseDestinationDetail();
+    }
 
     // 遷移が SPA 内で行われた（＝ページ状態が持ち越されうる経路である）ことを確かめる。
     // 再読み込みが挟まっていた場合、以下の検証は選択の整理と無関係に成立してしまう。
@@ -542,5 +630,34 @@ test.describe('現場調査画像の一括エクスポート', () => {
     await expect(trigger).toHaveText('選択画像エクスポート（0 件）');
     await expect(trigger).toBeDisabled();
     await expect(trigger).toHaveAttribute('aria-disabled', 'true');
+
+    // --- 移った直後の過渡状態: 一瞬たりとも活性化していない (Requirement 31.3, Task 115.86) ---
+    const observedStates = await sharedPage.evaluate(() => {
+      const holder = window as unknown as {
+        __selectedExportStates?: Array<{ present: boolean; text: string; disabled: boolean }>;
+        __selectedExportObserver?: MutationObserver;
+      };
+      holder.__selectedExportObserver?.disconnect();
+      return holder.__selectedExportStates;
+    });
+    expect(
+      observedStates,
+      '移動先で「選択画像エクスポート」の観測が仕掛かっていない'
+    ).toBeDefined();
+    const renderedStates = (
+      observedStates as Array<{ present: boolean; text: string; disabled: boolean }>
+    ).filter((state) => state.present === true);
+    expect(
+      renderedStates.length,
+      '移動先で「選択画像エクスポート」が一度も描画されていない'
+    ).toBeGreaterThan(0);
+    expect(
+      renderedStates[0],
+      '移動先で最初に描画された「選択画像エクスポート」が 0 件かつ非活性ではない'
+    ).toEqual({ present: true, text: '選択画像エクスポート（0 件）', disabled: true });
+    expect(
+      renderedStates.filter((state) => state.disabled === false),
+      '移動先で「選択画像エクスポート」が一瞬でも活性化した'
+    ).toEqual([]);
   });
 });
