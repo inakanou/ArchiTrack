@@ -13,6 +13,7 @@ import { test, expect, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * プロジェクト管理の追加要件E2Eテスト
@@ -226,16 +227,7 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // APIレスポンスを待機
       const errorPromise = page.waitForResponse(
@@ -363,16 +355,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // 作成APIを監視
       const createPromise = page.waitForResponse(
@@ -430,16 +413,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`POSTテスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // POST APIを監視
       const createPromise = page.waitForResponse(
@@ -709,18 +683,13 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // 営業担当者を選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const options = await salesPersonSelect.locator('option').all();
+      // 候補が供給されない場合に何もせず素通りしていたため、選択が一度も行われなくても
+      // 緑になっていた。候補の供給と選択の成立を無条件に主張する（Task 115.92）
+      const firstUserOption = await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-
-          // 選択した値が反映されることを確認
-          const selectedValue = await salesPersonSelect.inputValue();
-          expect(selectedValue).toBe(firstUserOption);
-        }
-      }
+      // 選択したユーザーIDが選択欄へ反映されることを確認（REQ-17.8）
+      const selectedValue = await salesPersonSelect.inputValue();
+      expect(selectedValue).toBe(firstUserOption);
     });
 
     /**
@@ -830,16 +799,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`監査ログテスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>
@@ -884,16 +844,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`更新テスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>
@@ -955,16 +906,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`削除テスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>
@@ -1219,16 +1161,7 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクトを作成
       const createPromise = page.waitForResponse(

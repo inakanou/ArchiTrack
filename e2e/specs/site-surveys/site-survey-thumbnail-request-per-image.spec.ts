@@ -52,6 +52,7 @@ import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -373,13 +374,7 @@ test.describe('縮小表示のリクエスト数（1枚あたり1件）', () => 
         .fill(`縮小表示リクエスト計測_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      if (!(await salesPersonSelect.inputValue())) {
-        const options = await salesPersonSelect.locator('option').all();
-        const firstUserOption = options[1] ? await options[1].getAttribute('value') : null;
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>

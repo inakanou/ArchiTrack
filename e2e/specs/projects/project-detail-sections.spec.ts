@@ -16,6 +16,7 @@ import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 test.describe('プロジェクト詳細画面 - セクション表示とAPI効率化', () => {
   test.describe.configure({ mode: 'serial' });
@@ -77,16 +78,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     await page.getByLabel(/プロジェクト名/i).fill(projectName);
     await page.getByLabel(/現場住所/i).fill('東京都渋谷区セクションテスト1-2-3');
 
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createPromise = page.waitForResponse(
       (response: Response) =>

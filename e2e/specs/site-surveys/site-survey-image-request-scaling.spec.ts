@@ -56,6 +56,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -278,13 +279,7 @@ test.describe('写真枚数によらない画面表示の応答性', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      if (!(await salesPersonSelect.inputValue())) {
-        const options = await salesPersonSelect.locator('option').all();
-        const firstUserOption = options[1] ? await options[1].getAttribute('value') : null;
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>

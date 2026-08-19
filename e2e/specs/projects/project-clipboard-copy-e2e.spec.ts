@@ -19,6 +19,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 test.describe('プロジェクト基本情報のクリップボードコピー機能', () => {
   test.describe.configure({ mode: 'serial' });
@@ -106,16 +107,7 @@ test.describe('プロジェクト基本情報のクリップボードコピー�
       await page.getByLabel(/現場住所/i).fill(options.siteAddress);
     }
 
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const opts = await salesPersonSelect.locator('option').all();
-      if (opts.length > 1 && opts[1]) {
-        const v = await opts[1].getAttribute('value');
-        if (v) {
-          await salesPersonSelect.selectOption(v);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createPromise = page.waitForResponse(
       (response: Response) =>

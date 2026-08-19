@@ -53,6 +53,7 @@ import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ============================================================================
 // 定数
@@ -501,25 +502,9 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
     // 以前は「選択肢が無ければ何もしない」構成で、前提が崩れると作成ボタンの押下が
     // 通らない形で後段が失敗し、前提の崩れか対象の欠陥かを判別できなかった。
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    await expect(salesPersonSelect, '営業担当者の選択欄が表示される').toBeVisible({
-      timeout: getTimeout(15000),
-    });
-
-    // 先頭は未選択のプレースホルダ（value=""）であり、実在の担当者は2件目以降に現れる。
-    // 候補は非同期に読み込まれるため、供給されるまで待って明示的に主張する
-    await expect
-      .poll(() => salesPersonSelect.locator('option').count(), {
-        timeout: getTimeout(15000),
-        message: '営業担当者の選択肢が供給されない',
-      })
-      .toBeGreaterThan(1);
-
-    const salesPersonValue = await salesPersonSelect.locator('option').nth(1).getAttribute('value');
-    expect(salesPersonValue, '営業担当者の選択肢が実在の担当者を指す').toBeTruthy();
-
-    // 既定値が解決済みであっても選択肢から選び直し、前提の成立を観測可能にする
-    await salesPersonSelect.selectOption(salesPersonValue!);
-    await expect(salesPersonSelect, '営業担当者が選択されている').toHaveValue(salesPersonValue!);
+    // Task 115.68 がここで確立した形を Task 115.92 で `selectFirstRealOption` へ括り出した。
+    // 原型を手書きのまま残すと定型の複製が再発するため、抽出元自身も補助関数を経由させる。
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>

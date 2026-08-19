@@ -18,6 +18,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * プロジェクト一覧操作のE2Eテスト
@@ -476,13 +477,7 @@ test.describe('プロジェクト一覧操作', () => {
 
           // 営業担当者を選択（必須フィールド）
           const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-          const options = await salesPersonSelect.locator('option').all();
-          if (options.length > 1 && options[1]) {
-            const firstUserOption = await options[1].getAttribute('value');
-            if (firstUserOption) {
-              await salesPersonSelect.selectOption(firstUserOption);
-            }
-          }
+          await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
           await page.getByRole('button', { name: /^作成$/i }).click();
           await page.waitForURL(/\/projects\/[0-9a-f-]+$/);

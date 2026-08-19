@@ -22,6 +22,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { appendEstimateItem, buildNewEstimateItemNode } from '../../helpers/estimate-draft';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ============================================================================
 // テストデータの金額設定
@@ -137,16 +138,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       await page.getByLabel(/現場住所/i).fill('東京都千代田区テスト1-1-1');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>

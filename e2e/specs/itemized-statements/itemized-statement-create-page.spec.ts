@@ -18,6 +18,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * 内訳書専用作成画面のE2Eテスト
@@ -59,16 +60,7 @@ test.describe('内訳書専用作成画面', () => {
 
       // 営業担当者を選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>

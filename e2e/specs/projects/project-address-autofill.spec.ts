@@ -11,6 +11,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * 顧客選択時の住所自動入力のE2Eテスト
@@ -186,16 +187,7 @@ test.describe('顧客選択時の住所自動入力', () => {
 
     // 営業担当者の選択を確認
     const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     // 現場住所が空であることを確認
     const siteAddressInput = page.getByLabel(/現場住所/i);

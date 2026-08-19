@@ -16,6 +16,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * TradingPartnerSelectコンポーネントのひらがな・カタカナ検索E2Eテスト
@@ -285,16 +286,7 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクトを作成
       const createPromise = page.waitForResponse(
@@ -351,16 +343,7 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクトを作成
       const createPromise = page.waitForResponse(

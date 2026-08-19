@@ -13,6 +13,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -90,16 +91,7 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>

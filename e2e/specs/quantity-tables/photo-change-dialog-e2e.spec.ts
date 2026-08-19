@@ -23,6 +23,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -107,14 +108,7 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      // e2e-guard-allow: 検証ではなく前提の準備（既定値が無い場合のみ営業担当者を選ぶ）
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        const firstUserOption = await options[1]?.getAttribute('value');
-        expect(firstUserOption, '営業担当者の選択肢が存在する必要がある').toBeTruthy();
-        await salesPersonSelect.selectOption(firstUserOption!);
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>

@@ -33,6 +33,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -171,16 +172,7 @@ test.describe('アップロード失敗時の保持と再送 (REQ-37.1〜37.18)'
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>

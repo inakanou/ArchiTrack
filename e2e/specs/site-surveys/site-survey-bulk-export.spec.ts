@@ -59,6 +59,7 @@ import { test, expect, type Page, type BrowserContext, type Route } from '@playw
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -169,14 +170,7 @@ test.describe('現場調査画像の一括エクスポート', () => {
     const projectName = `一括エクスポートE2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      const firstUserOption = await options[1]?.getAttribute('value');
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>

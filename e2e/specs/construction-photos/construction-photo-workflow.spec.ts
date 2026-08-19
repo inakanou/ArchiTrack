@@ -35,6 +35,7 @@ import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -76,16 +77,7 @@ test.describe('工事写真 主要ユーザーフロー', () => {
 
     // 営業担当者の選択（未選択なら先頭のユーザーを選ぶ）
     const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = page.waitForResponse(
       (response) =>

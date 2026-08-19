@@ -12,6 +12,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * プロジェクト詳細画面のE2Eテスト
@@ -91,16 +92,7 @@ test.describe('プロジェクト詳細画面', () => {
     await page.getByLabel(/概要/i).fill('テスト用の概要説明');
 
     // 営業担当者を確認・選択
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createPromise = page.waitForResponse(
       (response: Response) =>
@@ -298,26 +290,11 @@ test.describe('プロジェクト詳細画面', () => {
       // 取引先は任意フィールドのため未選択のまま進める
 
       // 営業担当者を確認・選択
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // 工事担当者を選択
       const constructionPersonSelect = page.locator('select[aria-label="工事担当者"]');
-      const constructionOptions = await constructionPersonSelect.locator('option').all();
-      if (constructionOptions.length > 1 && constructionOptions[1]) {
-        const firstConstructionOption = await constructionOptions[1].getAttribute('value');
-        if (firstConstructionOption) {
-          await constructionPersonSelect.selectOption(firstConstructionOption);
-        }
-      }
+      await selectFirstRealOption(constructionPersonSelect, '工事担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>

@@ -13,6 +13,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 test.describe('プロジェクト詳細画面 - 実行予算セクション', () => {
   test.describe.configure({ mode: 'serial' });
@@ -48,14 +49,7 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
     await page.getByLabel(/プロジェクト名/i).fill(`実行予算セクションテスト_${Date.now()}`);
     await page.getByLabel(/現場住所/i).fill('東京都渋谷区実行予算1-2-3');
 
-    const v = await salesPersonSelect.inputValue();
-    if (!v) {
-      const opts = await salesPersonSelect.locator('option').all();
-      if (opts.length > 1 && opts[1]) {
-        const opt = await opts[1].getAttribute('value');
-        if (opt) await salesPersonSelect.selectOption(opt);
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createPromise = page.waitForResponse(
       (response: Response) =>

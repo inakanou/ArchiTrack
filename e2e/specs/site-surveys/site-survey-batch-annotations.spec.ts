@@ -29,6 +29,7 @@ import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -69,12 +70,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    if (await salesPersonSelect.isVisible()) {
-      const options = await salesPersonSelect.locator('option').allTextContents();
-      if (options.length > 1) {
-        await salesPersonSelect.selectOption({ index: 1 });
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     await sharedPage.getByRole('button', { name: /保存|作成|登録/i }).click();
 

@@ -13,6 +13,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * 現場調査CRUD機能のE2Eテスト
@@ -60,16 +61,7 @@ test.describe('現場調査CRUD操作', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // APIレスポンスを待機しながら作成ボタンをクリック
       const createPromise = page.waitForResponse(
@@ -480,16 +472,7 @@ test.describe('現場調査CRUD操作', () => {
         await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
         const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        const salesPersonValue = await salesPersonSelect.inputValue();
-        if (!salesPersonValue) {
-          const options = await salesPersonSelect.locator('option').all();
-          if (options.length > 1 && options[1]) {
-            const firstUserOption = await options[1].getAttribute('value');
-            if (firstUserOption) {
-              await salesPersonSelect.selectOption(firstUserOption);
-            }
-          }
-        }
+        await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
         const createProjectPromise = page.waitForResponse(
           (response) =>

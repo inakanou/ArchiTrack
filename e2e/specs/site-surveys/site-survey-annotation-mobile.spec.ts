@@ -57,6 +57,7 @@ import { API_BASE_URL } from '../../config';
 // ダブルタップ判定の閾値は本番の一元管理された定数を直接参照する。
 // テスト側に数値を複製すると、閾値が変わったときに検証だけが古い前提で緑になる。
 import { DOUBLE_TAP_MS } from '../../../frontend/src/components/site-surveys/gestures/gesture-thresholds';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -477,14 +478,7 @@ test.describe('モバイル Viewport 注釈機能', () => {
     const projectName = `モバイル注釈E2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      const firstUserOption = await options[1]?.getAttribute('value');
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
@@ -1095,16 +1089,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     const projectName = `ピンチズームE2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
@@ -1676,16 +1661,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     const projectName = `ズームUI_E2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
@@ -2133,16 +2109,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     const projectName = `画像編集領域E2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>

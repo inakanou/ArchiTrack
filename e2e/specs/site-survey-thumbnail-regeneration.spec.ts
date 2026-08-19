@@ -59,6 +59,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../helpers/auth-actions';
 import { getTimeout } from '../helpers/wait-helpers';
 import { API_BASE_URL } from '../config';
+import { selectFirstRealOption } from '../helpers/form-preconditions';
 
 // ============================================================================
 // 定数
@@ -724,13 +725,7 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
         .fill(`サムネイル再生成の実体検証_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      if (!(await salesPersonSelect.inputValue())) {
-        const options = await salesPersonSelect.locator('option').all();
-        const firstUserOption = options[1] ? await options[1].getAttribute('value') : null;
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>

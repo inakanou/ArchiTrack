@@ -12,6 +12,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 test.describe('現場調査一覧・検索', () => {
   test.describe.configure({ mode: 'serial' });
@@ -43,16 +44,7 @@ test.describe('現場調査一覧・検索', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -282,18 +274,27 @@ test.describe('現場調査一覧・検索', () => {
       // 少なくとも1つのソート機能が必須
       expect(hasSortByDate || hasSortHeader || hasSortSelect).toBeTruthy();
 
-      // ソートを実行
+      // ソートを実行。画面幅により提供される操作手段が異なるため分岐するが、直前の主張で
+      // 少なくとも一つが存在することを確定させており、分岐は全域である。どの経路でも
+      // 並び替えは必ず実行される。
+      // e2e-guard-allow: 検証ではなく操作手段の変種の吸収（直前の主張で分岐が全域であることを確定済み）
       if (hasSortHeader) {
         await sortHeader.click();
+        // e2e-guard-allow: 同上（変種の吸収であり、いずれかの経路が必ず実行される）
       } else if (hasSortByDate) {
         await sortByDate.click();
-      } else if (hasSortSelect) {
-        // ソートオプションから調査日を探して選択
+      } else {
+        // 直前の主張により、ここに来るのは並び替えの選択欄が存在する場合に限られる。
+        // 分岐を全域にして、いずれの経路でも必ず並び替えが実行されるようにする（Task 115.92）
         const options = await sortSelect.locator('option').allTextContents();
         const dateOption = options.find((opt) => opt.includes('調査日'));
-        if (dateOption) {
-          await sortSelect.selectOption({ label: dateOption });
-        }
+        // 候補が無い場合に何もせず素通りすると、並び替えを行わないまま後段の
+        // 判定へ進み、失敗地点がずれる。候補の供給を無条件に主張する（Task 115.92）
+        expect(
+          dateOption,
+          `ソート項目に調査日の候補が無い（候補: ${options.join(' / ')}）`
+        ).toBeTruthy();
+        await sortSelect.selectOption({ label: dateOption! });
       }
 
       await page.waitForLoadState('networkidle');
