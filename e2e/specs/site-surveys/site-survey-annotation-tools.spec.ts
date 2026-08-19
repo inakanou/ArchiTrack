@@ -541,7 +541,7 @@ test.describe('現場調査注釈ツール', () => {
     // キャンバスサイズが10px以上になるまで最大10秒待機（画像読み込み完了を待つ）
     for (let i = 0; i < 20; i++) {
       const box = await upperCanvas.boundingBox();
-      // e2e-guard-allow: 検証ではなく前提の準備（描画可能なサイズになるまでの待機であり、満たせない場合は下の throw で失敗させる）
+      // e2e-guard-allow: 前提が満たせない場合は直後の throw で必ず失敗する（沈黙して通る経路が無い再試行の待機）
       if (box && box.width > 10 && box.height > 10) {
         return box;
       }

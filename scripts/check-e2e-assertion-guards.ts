@@ -100,11 +100,23 @@
  *   `npm run check:e2e-guards:selftest` を実行すること。
  *
  * 正当な用途の除外:
- *   前提の準備・後始末・検証ロジックそのものなど、条件分岐が正当な箇所は
- *   該当行の直前行に以下の注釈を置くことで検出対象から外せる。理由は必須であり、
- *   理由が空の注釈は除外として扱わず（検出はそのまま残る）、検査を失敗させる。
+ *   条件分岐が正当な箇所は、該当行の直前行に以下の注釈を置くことで検出対象から外せる。
+ *   理由は必須であり、理由が空の注釈は除外として扱わず（検出はそのまま残る）、検査を失敗させる。
  *
  *     // e2e-guard-allow: <理由>
+ *
+ *   除外を認める条件は一つだけである（Task 115.68 / 115.93）。
+ *
+ *     **前提が満たせない場合に必ず失敗すること。沈黙して通る経路が一つも無いこと。**
+ *
+ *   「検証ではなく前提の準備だから」は、それ単独では理由にならない。前提の準備であっても、
+ *   前提が崩れたまま素通りすれば、失敗は崩れた地点ではなく後段に現れ、前提の崩れなのか
+ *   検証対象の欠陥なのかを判別できなくなる。したがって理由には、
+ *   「どこで失敗するか」（直後の throw／無条件の主張／全域である分岐のいずれか）を書くこと。
+ *   逆に言えば、次のいずれかに当たるものだけが除外に値する。
+ *     (1) 条件が偽なら直後に throw / 無条件の主張で落ちる（再試行の待機など）
+ *     (2) 分岐が全域であり、どの経路でも同等の検証・操作が必ず実行される（変種の吸収）
+ *     (3) 判定そのものを実装している述語ヘルパー（真偽を返す関数の内部）
  *
  *   除外は実行のたびに件数と箇所の一覧を出力し、基準にも件数を記録する。
  *   除外が増えた場合も検査は失敗する（大量除外による見かけ上の解消を防ぐため）。
@@ -115,10 +127,24 @@
  *   件数が増えた場合、または基準に無いファイルで検出された場合は exit 1 とする。
  *   件数が減った場合は警告のみ（基準の更新を促す）。
  *
+ * 抑止一覧（基準）の位置づけ:
+ *   基準に載っている件数は「解消済み」ではない。**いま抑止しているだけの既知の欠陥**である。
+ *   放置すると「検査は通るのに欠陥は残る」状態が恒久化するため、次の二つを設けている。
+ *
+ *   (1) 負債の可視化
+ *       実行のたびに、型別に「現在 / 基準 / 目標 / 残り」を出力する。目標と削減計画の所在は
+ *       基準の `reduction` に記録する。CI の出力を見れば、通ったかどうかとは別に
+ *       いくつ抑止されたままかが常に分かる。
+ *   (2) 抑止一覧を増やす操作に摩擦を与える
+ *       `--update-baseline` は件数が増える方向の書き出しを既定で拒否する。
+ *       増加を記録する必要がある場合は `--allow-increase` を明示的に付けること。
+ *       これは「直せないので登録して黙らせる」を無言でできないようにするための関門である。
+ *
  * オプション:
  *   --verbose           検出箇所を全件表示する
  *   --json              JSON形式で出力する
  *   --update-baseline   現状を基準として書き出す（是正後に実行する）
+ *   --allow-increase    件数が増える方向の基準更新を許可する（--update-baseline と併用）
  *   --no-baseline       基準と照合せず検出結果のみ出力する
  */
 
@@ -170,6 +196,20 @@ export interface ScanResult {
 
 type Baseline = Record<string, Partial<Record<GuardType, number>>>;
 type AllowBaseline = Record<string, number>;
+
+/**
+ * 抑止一覧の削減計画。基準に記録し、実行のたびに残りを出力する。
+ * 目標は「いつまでに何件へ落とすか」の宣言であり、検査の合否には用いない
+ * （合否は従来どおり基準からの増加で判定する）。
+ */
+interface ReductionPlan {
+  /** 削減計画を記した文書の位置 */
+  doc?: string;
+  /** 型別の目標件数 */
+  targets?: Partial<Record<GuardType, number>>;
+  /** 除外注釈の目標件数 */
+  allowedTarget?: number;
+}
 
 const GUARD_TYPES: GuardType[] = [
   'T1-conditional-expect',
@@ -719,20 +759,38 @@ function tallyAllowed(allowed: AllowEntry[]): AllowBaseline {
   return result;
 }
 
-function loadBaseline(): { files: Baseline; allowedFiles: AllowBaseline } {
-  if (!fs.existsSync(BASELINE_PATH)) return { files: {}, allowedFiles: {} };
+function loadBaseline(): {
+  files: Baseline;
+  allowedFiles: AllowBaseline;
+  generatedTotal: number;
+  allowedTotal: number;
+  reduction: ReductionPlan;
+} {
+  if (!fs.existsSync(BASELINE_PATH)) {
+    return { files: {}, allowedFiles: {}, generatedTotal: 0, allowedTotal: 0, reduction: {} };
+  }
   const parsed = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) as {
     files?: Baseline;
     allowedFiles?: AllowBaseline;
+    generatedTotal?: number;
+    allowedTotal?: number;
+    reduction?: ReductionPlan;
   };
-  return { files: parsed.files ?? {}, allowedFiles: parsed.allowedFiles ?? {} };
+  return {
+    files: parsed.files ?? {},
+    allowedFiles: parsed.allowedFiles ?? {},
+    generatedTotal: parsed.generatedTotal ?? 0,
+    allowedTotal: parsed.allowedTotal ?? 0,
+    reduction: parsed.reduction ?? {},
+  };
 }
 
 function writeBaseline(
   current: Baseline,
   total: number,
   allowedFiles: AllowBaseline,
-  allowedTotal: number
+  allowedTotal: number,
+  reduction: ReductionPlan
 ): void {
   const ordered: Baseline = {};
   for (const file of Object.keys(current).sort()) {
@@ -754,9 +812,13 @@ function writeBaseline(
       '是正して件数を減らしたら `npm run check:e2e-guards:update` で更新すること。',
       '正当な分岐は該当行の直前に `// e2e-guard-allow: <理由>` を置いて除外できる（理由は必須）。',
       'allowedFiles は除外注釈の件数。除外が増えた場合も検査は失敗する（差分として現れる）。',
+      'ここに載っている件数は解消済みではなく、いま抑止しているだけの既知の欠陥である。',
+      'reduction は削減の目標と計画文書の所在。実行のたびに残り件数を出力する（合否には用いない）。',
+      '件数が増える方向の更新は既定で拒否する。記録が必要な場合のみ --allow-increase を付けること。',
     ],
     generatedTotal: total,
     allowedTotal,
+    reduction,
     allowedFiles: orderedAllowed,
     files: ordered,
   };
@@ -772,6 +834,7 @@ function main(): void {
   const verbose = args.includes('--verbose');
   const asJson = args.includes('--json');
   const update = args.includes('--update-baseline');
+  const allowIncrease = args.includes('--allow-increase');
   const skipBaseline = args.includes('--no-baseline');
 
   const files = collectFiles(E2E_DIR);
@@ -816,6 +879,46 @@ function main(): void {
     console.log(`     ${entry.file}:${entry.line} [${entry.type}] 理由: ${entry.reason}`);
   }
 
+  // 抑止一覧の残高を常に出力する。「検査が通ったこと」と「欠陥が残っていないこと」は別であり、
+  // 出力に残高が出ないと、抑止一覧が「直さなくてよい」の記録へ静かに変質する（Task 115.93）。
+  if (!skipBaseline) {
+    const recorded = loadBaseline();
+    const targets = recorded.reduction.targets ?? {};
+    console.log('');
+    console.log(
+      `   抑止されている既知の欠陥（負債）: ${findings.length} 件 / 基準 ${recorded.generatedTotal} 件`
+    );
+    for (const type of GUARD_TYPES) {
+      const now = byType.get(type) ?? 0;
+      const target = targets[type];
+      const label = `     ${type.padEnd(24)} 現在 ${String(now).padStart(4)}`;
+      if (target === undefined) {
+        console.log(`${label}  （目標 未設定）`);
+      } else if (now === 0 && target === 0) {
+        console.log(`${label}  目標 ${String(target).padStart(4)}  ✅ 解消済み`);
+      } else if (now <= target) {
+        // 目標が現状と同じ型は「解消済み」ではない。今の段では着手しないという宣言である。
+        console.log(
+          `${label}  目標 ${String(target).padStart(4)}  据置（本段の対象外・負債は残存）`
+        );
+      } else {
+        console.log(
+          `${label}  目標 ${String(target).padStart(4)}  残り ${String(now - target).padStart(4)}`
+        );
+      }
+    }
+    if (recorded.reduction.allowedTarget !== undefined) {
+      console.log(
+        `     ${'e2e-guard-allow'.padEnd(24)} 現在 ${String(allowed.length).padStart(4)}  目標 ${String(recorded.reduction.allowedTarget).padStart(4)}`
+      );
+    }
+    if (recorded.reduction.doc) {
+      console.log(`   削減計画: ${recorded.reduction.doc}`);
+    } else {
+      console.log('   削減計画: 未登録（基準の reduction.doc に計画文書の位置を記録すること）');
+    }
+  }
+
   if (verbose) {
     console.log('');
     for (const finding of findings) {
@@ -833,8 +936,44 @@ function main(): void {
   }
 
   if (update) {
-    writeBaseline(current, findings.length, currentAllowed, allowed.length);
+    const previous = loadBaseline();
+    // 抑止一覧は「今は直せない」の記録であって「直さなくてよい」の記録ではない。
+    // 増える方向の書き出しを無言で通すと、検出された欠陥をその場で登録して黙らせられる。
+    // 増加の記録には明示的な意思表示（--allow-increase）を要求する（Task 115.93）。
+    const growth: string[] = [];
+    for (const file of Object.keys(current).sort()) {
+      for (const type of GUARD_TYPES) {
+        const now = current[file]![type] ?? 0;
+        const before = previous.files[file]?.[type] ?? 0;
+        if (now > before) growth.push(`${file} [${type}] ${before} → ${now}`);
+      }
+    }
+    for (const file of Object.keys(currentAllowed).sort()) {
+      const now = currentAllowed[file] ?? 0;
+      const before = previous.allowedFiles[file] ?? 0;
+      if (now > before) growth.push(`${file} [e2e-guard-allow] ${before} → ${now}`);
+    }
+    if (growth.length > 0 && !allowIncrease) {
+      console.log('\n❌ 件数が増える方向の基準更新は既定で拒否します:');
+      for (const line of growth) console.log(`   ${line}`);
+      console.log(
+        '\n   抑止一覧は「今は直せない」の記録であって「直さなくてよい」の記録ではありません。'
+      );
+      console.log('   まず是正を試みてください。記録が必要な場合のみ次を実行します:');
+      console.log(
+        '     npx tsx scripts/check-e2e-assertion-guards.ts --update-baseline --allow-increase'
+      );
+      console.log(
+        '   その際は増加の理由と解消の見通しを、基準の reduction.doc が指す計画文書に残してください。'
+      );
+      process.exit(1);
+    }
+    writeBaseline(current, findings.length, currentAllowed, allowed.length, previous.reduction);
     console.log(`\n✅ 基準を更新しました: ${path.relative(ROOT, BASELINE_PATH)}`);
+    if (growth.length > 0) {
+      console.log('   ⚠️ 増加を記録しました（--allow-increase）。計画文書への記載を忘れないこと:');
+      for (const line of growth) console.log(`      ${line}`);
+    }
     return;
   }
 
@@ -843,6 +982,24 @@ function main(): void {
   const baseline = loadBaseline();
   const regressions: string[] = [];
   const improvements: string[] = [];
+
+  // 基準そのものの整合を確かめる。件数の内訳と総数がずれている基準は手で書き換えられた
+  // 疑いがあり、抑止の総量を見えなくする（Task 115.93）。
+  let baselineSum = 0;
+  for (const perType of Object.values(baseline.files)) {
+    for (const count of Object.values(perType)) baselineSum += count ?? 0;
+  }
+  let baselineAllowSum = 0;
+  for (const count of Object.values(baseline.allowedFiles)) baselineAllowSum += count;
+  if (baselineSum !== baseline.generatedTotal || baselineAllowSum !== baseline.allowedTotal) {
+    console.log('\n❌ 基準の内訳と総数が一致しません（手作業での書き換えが疑われます）:');
+    console.log(`   files の合計 ${baselineSum} / generatedTotal ${baseline.generatedTotal}`);
+    console.log(
+      `   allowedFiles の合計 ${baselineAllowSum} / allowedTotal ${baseline.allowedTotal}`
+    );
+    console.log('   `npm run check:e2e-guards:update` で書き出し直してください。');
+    process.exit(1);
+  }
 
   for (const file of Object.keys(current).sort()) {
     for (const type of GUARD_TYPES) {
