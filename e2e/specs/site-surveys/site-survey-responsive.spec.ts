@@ -8,6 +8,8 @@
  * - REQ-15.4: 一定間隔（30秒）で自動保存を実行
  * - REQ-15.5: ブラウザのlocalStorageから未保存の編集状態を復元
  * - REQ-15.6: ネットワーク接続が切断された場合の警告と保存ブロック
+ *   （現場調査の配下に未実装。タスク 115.105 が所管。本ファイルでは test.fail() を付けた
+ *   既知失敗として計上しており、被覆済みではない）
  * - REQ-15.7: QuotaExceededError時のLRU戦略による古いキャッシュ削除
  * - REQ-15.8: QuotaExceededErrorリトライ失敗時の警告表示
  * - REQ-15.9: プライベートブラウジングモードでの自動保存無効化
@@ -21,6 +23,20 @@ import { API_BASE_URL } from '../../config';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+/**
+ * タッチ操作の当たり判定の下限（論理ピクセル）。
+ *
+ * 本テストが確かめる要件15.2「タッチ操作に最適化された注釈ツールを提供する」自体は
+ * 数値基準を持たない。44x44 は要件28.3 が本スペックの基準として定める値で、
+ * 要件29.4（選択ハンドル）・要件34.5（ズーム操作手段）・要件35.5（モバイル幅の操作系）が
+ * これと整合すると明記している。
+ *
+ * ただし要件28.3 の適用範囲は「概ね幅768px未満」であり、本テストのビューポートは
+ * 768x1024 のためその範囲には入らない。すなわち本判定は要件28.3 が要求するより
+ * 厳しい下限をタブレット幅へ適用しており、現時点で実際に満たされている。
+ */
+const TOUCH_TARGET_MIN_PX = 44;
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -565,33 +581,31 @@ test.describe('現場調査レスポンシブ対応', () => {
       await imageElement.click();
       await page.waitForLoadState('networkidle');
 
-      // 編集モードボタン
+      // 編集モードボタン。観測結果で判定を包まず、無条件に到達を主張する。
       const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(5000) });
+      await editModeButton.click();
 
-      if (editModeVisible) {
-        await editModeButton.click();
+      // 注釈ツールバーが表示されることを確認
+      const toolbar = page.locator('[data-testid="annotation-toolbar"]');
+      await expect(toolbar).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 注釈ツールバーが表示されることを確認
-        const toolbar = page.locator('[data-testid="annotation-toolbar"]');
-        const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
+      const toolButtons = toolbar.locator('button');
+      const buttonCount = await toolButtons.count();
+      expect(buttonCount, 'REQ-15.2: 注釈ツールバーに操作ボタンが存在する').toBeGreaterThan(0);
 
-        // ツールボタンがタッチ操作しやすいサイズかどうか確認
-        if (hasToolbar) {
-          const toolButtons = toolbar.locator('button');
-          const buttonCount = await toolButtons.count();
-
-          if (buttonCount > 0) {
-            const firstButton = toolButtons.first();
-            const box = await firstButton.boundingBox();
-
-            // タッチターゲットは最低44px以上が推奨
-            if (box) {
-              expect(box.width >= 32 || box.height >= 32).toBeTruthy();
-            }
-          }
-        }
-      }
+      // 観測した寸法そのものを主張する。
+      // 従来は `幅>=32 || 高さ>=32` を条件分岐の中で判定しており、
+      // 一辺だけが基準を満たす細長い当たり判定も緑になっていた。
+      const box = await toolButtons.first().boundingBox();
+      expect(box, 'REQ-15.2: ツールボタンの当たり判定が取得できる').not.toBeNull();
+      expect(box!.width, 'REQ-15.2: ツールボタンの幅がタッチ標準を満たす').toBeGreaterThanOrEqual(
+        TOUCH_TARGET_MIN_PX
+      );
+      expect(
+        box!.height,
+        'REQ-15.2: ツールボタンの高さがタッチ標準を満たす'
+      ).toBeGreaterThanOrEqual(TOUCH_TARGET_MIN_PX);
 
       // ページが正しく表示されていることを確認
       await expect(page.locator('body')).toBeVisible();
@@ -619,12 +633,16 @@ test.describe('現場調査レスポンシブ対応', () => {
       const cameraButton = page.getByTestId('camera-button');
       const cameraInput = page.locator('input[accept*="image"][capture]');
 
-      const hasCameraButton = await cameraButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasCameraButton = await cameraButton.isVisible({ timeout: getTimeout(3000) });
       const cameraInputCount = await cameraInput.count();
       const hasCameraInput = cameraInputCount > 0;
 
-      // カメラ機能が存在することを確認
-      expect(hasCameraButton || hasCameraInput).toBeTruthy();
+      // 二つの実現手段のいずれかで満たされる要件のため論理和は本質的である。
+      // ただし観測は握り潰さず、いずれも無ければ落ちる。
+      expect(
+        hasCameraButton || hasCameraInput,
+        `REQ-15.3: カメラ起動の手段が存在する（ボタン=${hasCameraButton} / capture付き入力=${cameraInputCount}件）`
+      ).toBe(true);
     });
   });
 
@@ -750,6 +768,13 @@ test.describe('現場調査レスポンシブ対応', () => {
    */
   test.describe('ネットワーク状態', () => {
     test('オフライン時に警告が表示される (site-survey/REQ-15.6)', async ({ page, context }) => {
+      // 要件15.6 の通信断の告知は現場調査の配下に未実装である（タスク 115.105 が所管）。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 115.105 が実装すると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、ここで素の失敗を残すと後続の受入検証11件と後片付けが実行されなくなる。
+      test.fail();
+
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -768,23 +793,32 @@ test.describe('現場調査レスポンシブ対応', () => {
       );
       const offlineText = page.getByText(/オフライン|接続.*切断|ネットワーク.*エラー|offline/i);
 
-      // 少し待ってから確認
-      await page.waitForTimeout(2000);
+      // 通信断の告知はいずれかの表現で現れれば足りるため論理和は本質的である。
+      // 固定時間待機ではなく、いずれかが現れることを条件として待つ。
+      const offlineNotice = offlineWarning.or(offlineText).first();
+      let noticeError: unknown = null;
+      try {
+        await expect(offlineNotice).toBeVisible({ timeout: getTimeout(10000) });
+      } catch (error) {
+        noticeError = error;
+      } finally {
+        // 主張の成否によらずオンラインへ戻し、後続テストへ状態を持ち越さない
+        await context.setOffline(false);
+      }
 
-      const hasOfflineWarning = await offlineWarning.isVisible();
-      const hasOfflineText = await offlineText.isVisible();
-
-      // オンラインに戻す
-      await context.setOffline(false);
-
-      // オフライン警告機能が存在することを確認（または実装されていない場合はパス）
-      expect(hasOfflineWarning || hasOfflineText || true).toBeTruthy();
+      // 観測した結果そのものを主張する。
+      // 従来は `|| true` を論理和しており、告知が皆無でも恒久的に緑だった。
+      expect(noticeError, 'REQ-15.6: 通信が切れた際に告知が表示される').toBeNull();
     });
 
     test('オフライン時に保存操作がブロックされる (site-survey/REQ-15.6)', async ({
       page,
       context,
     }) => {
+      // 要件15.6 の保存抑止は現場調査の配下に未実装である（タスク 115.105 が所管）。
+      // 上のテストと同じ理由で落ちるはずの検証として明示する。本体は毎回すべて実行される。
+      test.fail();
+
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -800,23 +834,24 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 保存ボタンをクリック
       const saveButton = page.getByRole('button', { name: /保存|更新/i });
-      const saveButtonVisible = await saveButton.isVisible({ timeout: 3000 });
-      if (saveButtonVisible) {
+      let blockError: unknown = null;
+      try {
+        // 保存操作の手段があること自体を無条件に主張する
+        await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
         await saveButton.click();
 
-        // エラーメッセージまたは保存ブロックの表示を確認
+        // 保存が抑止された旨が示されることを条件として待つ
         const errorMessage = page.getByText(/保存.*失敗|エラー|オフライン|接続/i);
-        const hasError = await errorMessage.isVisible({ timeout: 5000 });
-
-        // オンラインに戻す
-        await context.setOffline(false);
-
-        // エラー処理が存在することを確認（または実装されていない場合はパス）
-        expect(hasError || true).toBeTruthy();
-      } else {
-        // オンラインに戻す
+        await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
+      } catch (error) {
+        blockError = error;
+      } finally {
         await context.setOffline(false);
       }
+
+      // 観測した結果そのものを主張する。
+      // 従来は `|| true` を論理和し、さらに保存ボタンが無い場合は判定ごと素通りしていた。
+      expect(blockError, 'REQ-15.6: 通信が切れた状態では保存が抑止され告知される').toBeNull();
 
       await expect(page.locator('body')).toBeVisible();
     });

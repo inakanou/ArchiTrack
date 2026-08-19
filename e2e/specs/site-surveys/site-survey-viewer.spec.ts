@@ -240,12 +240,14 @@ test.describe('現場調査画像ビューア', () => {
 
       // 複数ファイル選択が可能か確認
       const input = page.locator('input[type="file"]').first();
+      await expect(input).toHaveCount(1);
       const isMultiple = await input.evaluate(
         (el) => (el as unknown as { multiple: boolean }).multiple
       );
 
-      // 複数選択が可能であることを確認（実際のファイルアップロードは統合テストで検証）
-      expect(isMultiple || true).toBeTruthy();
+      // REQ-4.2: ファイル入力が複数選択を受け付けること。
+      // 観測した multiple の値そのものを主張する（従来は `|| true` で常に真だった）。
+      expect(isMultiple).toBe(true);
     });
   });
 
@@ -273,20 +275,15 @@ test.describe('現場調査画像ビューア', () => {
       }
 
       const input = page.locator('input[type="file"]').first();
-      if ((await input.count()) > 0) {
-        const accept = await input.getAttribute('accept');
-        // accept属性が設定されているか確認
-        if (accept) {
-          // JPEG、PNG、WEBPが含まれていることを確認
-          expect(
-            accept.includes('image/') ||
-              accept.includes('.jpg') ||
-              accept.includes('.jpeg') ||
-              accept.includes('.png') ||
-              accept.includes('.webp')
-          ).toBeTruthy();
-        }
-      }
+      await expect(input).toBeAttached();
+
+      // 観測した accept の値そのものを主張する。
+      // 従来は入力欄の有無と属性の有無で判定ごと素通りし、accept が未設定でも緑だった。
+      const accept = await input.getAttribute('accept');
+      expect(accept, 'REQ-4.5: ファイル入力に accept 属性が設定されている').not.toBeNull();
+      expect(accept?.toLowerCase() ?? '', 'REQ-4.5: accept が画像形式の受け入れ指定を含む').toMatch(
+        /image\/|\.jpe?g|\.png|\.webp/
+      );
     });
   });
 
@@ -314,19 +311,15 @@ test.describe('現場調査画像ビューア', () => {
       }
 
       const input = page.locator('input[type="file"]').first();
-      if ((await input.count()) > 0) {
-        const accept = await input.getAttribute('accept');
-        if (accept) {
-          const supportedFormats = accept.toLowerCase();
-          // 少なくとも一般的な画像形式がサポートされていることを確認
-          expect(
-            supportedFormats.includes('image/') ||
-              supportedFormats.includes('jpg') ||
-              supportedFormats.includes('jpeg') ||
-              supportedFormats.includes('png')
-          ).toBeTruthy();
-        }
-      }
+      await expect(input).toBeAttached();
+
+      // 観測した accept の値そのものを主張する。
+      // 従来は入力欄の有無と属性の有無で判定ごと素通りし、accept が未設定でも緑だった。
+      const accept = await input.getAttribute('accept');
+      expect(accept, 'REQ-4.9: ファイル入力に accept 属性が設定されている').not.toBeNull();
+      expect(accept?.toLowerCase() ?? '', 'REQ-4.9: accept が画像形式の受け入れ指定を含む').toMatch(
+        /image\/|jpe?g|png|webp/
+      );
     });
   });
 
@@ -381,27 +374,21 @@ test.describe('現場調査画像ビューア', () => {
       const imageGrid = page.locator('[aria-label="写真管理パネル"]');
       await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ドラッグハンドルが存在するかを確認
+      // 事前準備で画像を二枚アップロードしているため、画像は無条件に存在する。
+      // （従来は画像が無い場合にグリッドの表示という常に真の判定で緑にして戻っていた）
+      const imageButtons = imageGrid.locator('[data-testid="photo-image-button"]');
+      expect(
+        await imageButtons.count(),
+        'REQ-4.11: 事前準備でアップロードした画像が一覧に存在する'
+      ).toBeGreaterThanOrEqual(1);
+
+      // ドラッグハンドルが存在することを確認
       // ドラッグハンドルはdata-testid="photo-drag-handle"を持ち、draggable属性がある
       const dragHandles = page.locator('[data-testid="photo-drag-handle"]');
-      const dragHandleCount = await dragHandles.count();
-
-      if (dragHandleCount === 0) {
-        // ドラッグハンドルがない場合、画像がないか確認
-        const imageButtons = imageGrid.locator('button:has(img)');
-        const imageCount = await imageButtons.count();
-
-        if (imageCount === 0) {
-          // 画像がない場合、グリッド自体が存在すればOK
-          expect(await imageGrid.isVisible()).toBeTruthy();
-          return;
-        }
-
-        // 画像はあるがドラッグハンドルがない場合は失敗
-        throw new Error(
-          'ドラッグハンドルが見つかりません。ドラッグアンドドロップUIが実装されていない可能性があります。'
-        );
-      }
+      expect(
+        await dragHandles.count(),
+        'REQ-4.11: 画像ごとにドラッグハンドルが描画される'
+      ).toBeGreaterThanOrEqual(1);
 
       // ドラッグハンドルのdraggable属性を確認
       const firstDragHandle = dragHandles.first();
