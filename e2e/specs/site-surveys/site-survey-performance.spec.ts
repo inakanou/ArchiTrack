@@ -158,11 +158,7 @@ test.describe('現場調査非機能要件', () => {
 
       // テスト用画像ファイル（約100KB）
       const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
-
-      if (!fs.existsSync(testImagePath)) {
-        console.log('[Performance] テスト画像が見つかりません。テストをスキップします。');
-        return;
-      }
+      expect(fs.existsSync(testImagePath)).toBeTruthy();
 
       // ファイル入力を取得
       const fileInput = page.locator('input[type="file"]').first();

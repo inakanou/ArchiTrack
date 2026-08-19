@@ -108,19 +108,25 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     // テスト画像をAPI経由でアップロード（2枚）
     const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+    expect(fs.existsSync(testImagePath)).toBeTruthy();
     const imageBuffer = fs.readFileSync(testImagePath);
 
     for (let i = 0; i < 2; i++) {
-      await sharedPage.request.post(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`, {
-        headers: getAuthHeaders(),
-        multipart: {
-          images: {
-            name: `test-image-${i + 1}.jpg`,
-            mimeType: 'image/jpeg',
-            buffer: imageBuffer,
+      const uploadResponse = await sharedPage.request.post(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        {
+          headers: getAuthHeaders(),
+          multipart: {
+            images: {
+              name: `test-image-${i + 1}.jpg`,
+              mimeType: 'image/jpeg',
+              buffer: imageBuffer,
+            },
           },
-        },
-      });
+        }
+      );
+      // 画像の存在は後続テストの前提であり、失敗した場合はテストを飛ばさず失敗させる
+      expect(uploadResponse.ok()).toBeTruthy();
     }
   });
 
@@ -140,10 +146,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
    * @requirement site-survey/REQ-18.5
    */
   test('PDF報告書出力時にバッチ注釈取得エンドポイントが使用される (site-survey/REQ-18.1, site-survey/REQ-18.2, site-survey/REQ-18.5)', async () => {
-    if (!createdSurveyId) {
-      test.skip(true, '現場調査が作成されていません');
-      return;
-    }
+    expect(createdSurveyId).toBeTruthy();
 
     // ネットワークリクエストを監視
     const batchRequests: string[] = [];
@@ -190,35 +193,24 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       name: '調査報告書出力',
     });
 
-    if (await exportButton.isVisible({ timeout: getTimeout(5000) })) {
-      // ダウンロードイベントを待機
-      const downloadPromise = sharedPage.waitForEvent('download', {
-        timeout: getTimeout(30000),
-      });
+    await expect(exportButton).toBeVisible({ timeout: getTimeout(5000) });
 
-      await exportButton.click();
+    // ダウンロードイベントを待機
+    const downloadPromise = sharedPage.waitForEvent('download', {
+      timeout: getTimeout(30000),
+    });
 
-      try {
-        const download = await downloadPromise;
-        expect(download).toBeTruthy();
+    await exportButton.click();
 
-        // バッチ注釈取得エンドポイントが使用されたことを確認（REQ-18.1, REQ-18.2）
-        // 注: 画像がない場合やアップロードに失敗した場合はバッチリクエストが発生しない可能性がある
-        if (batchRequests.length > 0) {
-          expect(batchRequests.length).toBeGreaterThanOrEqual(1);
+    const download = await downloadPromise;
+    expect(download).toBeTruthy();
 
-          // 個別注釈取得リクエストがバッチ取得後に発生しないことを確認（REQ-18.5）
-          // バッチ取得成功時は個別リクエストが0件であるべき
-          expect(individualAnnotationRequests.length).toBe(0);
-        }
-      } catch {
-        // PDF生成がタイムアウトした場合でも、バッチリクエストの確認は行う
-        console.warn('PDF download timed out, but checking batch request usage');
-      }
-    } else {
-      // 報告書出力ボタンが見つからない場合はスキップ
-      console.warn('PDF export button not found, skipping test');
-    }
+    // バッチ注釈取得エンドポイントが使用されたことを確認（REQ-18.1, REQ-18.2）
+    expect(batchRequests.length).toBeGreaterThanOrEqual(1);
+
+    // 個別注釈取得リクエストがバッチ取得後に発生しないことを確認（REQ-18.5）
+    // バッチ取得成功時は個別リクエストが0件であるべき
+    expect(individualAnnotationRequests.length).toBe(0);
   });
 
   /**
@@ -226,10 +218,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
    * @requirement site-survey/REQ-18.3
    */
   test('バッチ注釈取得APIに直接アクセスして正常にレスポンスが返る (site-survey/REQ-18.1, site-survey/REQ-18.3)', async () => {
-    if (!createdSurveyId) {
-      test.skip(true, '現場調査が作成されていません');
-      return;
-    }
+    expect(createdSurveyId).toBeTruthy();
 
     // 現場調査の画像一覧を取得
     const imagesResponse = await sharedPage.request.get(
@@ -237,39 +226,40 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       { headers: getAuthHeaders() }
     );
 
-    if (imagesResponse.ok()) {
-      const images = await imagesResponse.json();
-      const imageIds = (images as { id: string }[]).map((img) => img.id);
+    expect(imagesResponse.ok()).toBeTruthy();
 
-      if (imageIds.length > 0) {
-        // バッチ注釈取得APIを呼び出し
-        const batchResponse = await sharedPage.request.post(
-          `${API_BASE_URL}/api/site-surveys/annotations/batch`,
-          {
-            headers: getAuthHeaders(),
-            data: {
-              surveyId: createdSurveyId,
-              imageIds: imageIds,
-            },
-          }
-        );
+    const images = await imagesResponse.json();
+    const imageIds = (images as { id: string }[]).map((img) => img.id);
 
-        expect(batchResponse.ok()).toBeTruthy();
+    // 画像は beforeAll でアップロード済みであることが前提
+    expect(imageIds.length).toBeGreaterThan(0);
 
-        const batchData = await batchResponse.json();
-        expect(batchData).toHaveProperty('annotations');
+    // バッチ注釈取得APIを呼び出し
+    const batchResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/annotations/batch`,
+      {
+        headers: getAuthHeaders(),
+        data: {
+          surveyId: createdSurveyId,
+          imageIds: imageIds,
+        },
+      }
+    );
 
-        // 全てのimageIdに対応するエントリが返却される（REQ-18.3）
-        for (const imageId of imageIds) {
-          expect(batchData.annotations).toHaveProperty(imageId);
-          // 各エントリはAnnotationInfoまたはnull（18.4対応）
-          const annotation = batchData.annotations[imageId];
-          if (annotation !== null) {
-            expect(annotation).toHaveProperty('id');
-            expect(annotation).toHaveProperty('imageId');
-            expect(annotation).toHaveProperty('data');
-          }
-        }
+    expect(batchResponse.ok()).toBeTruthy();
+
+    const batchData = await batchResponse.json();
+    expect(batchData).toHaveProperty('annotations');
+
+    // 全てのimageIdに対応するエントリが返却される（REQ-18.3）
+    for (const imageId of imageIds) {
+      expect(batchData.annotations).toHaveProperty(imageId);
+      // 各エントリはAnnotationInfoまたはnull（18.4対応）
+      const annotation = batchData.annotations[imageId];
+      if (annotation !== null) {
+        expect(annotation).toHaveProperty('id');
+        expect(annotation).toHaveProperty('imageId');
+        expect(annotation).toHaveProperty('data');
       }
     }
   });
@@ -278,10 +268,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
    * @requirement site-survey/REQ-18.4
    */
   test('存在しないimageIDに空の注釈データが返却される (site-survey/REQ-18.4)', async () => {
-    if (!createdSurveyId) {
-      test.skip(true, '現場調査が作成されていません');
-      return;
-    }
+    expect(createdSurveyId).toBeTruthy();
 
     // 存在しないUUID形式のimageIDでバッチAPIを呼び出し
     const nonExistentImageId = '00000000-0000-4000-a000-000000000000';
@@ -404,10 +391,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
    * @requirement site-survey/REQ-18.8
    */
   test('バッチAPIのレスポンスが個別エンドポイントのレスポンスと互換性を持つ (site-survey/REQ-18.8)', async () => {
-    if (!createdSurveyId) {
-      test.skip(true, '現場調査が作成されていません');
-      return;
-    }
+    expect(createdSurveyId).toBeTruthy();
 
     // 現場調査の画像一覧を取得
     const imagesResponse = await sharedPage.request.get(
@@ -415,18 +399,13 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       { headers: getAuthHeaders() }
     );
 
-    if (!imagesResponse.ok()) {
-      test.skip(true, '画像一覧の取得に失敗しました');
-      return;
-    }
+    expect(imagesResponse.ok()).toBeTruthy();
 
     const images = await imagesResponse.json();
     const imageIds = (images as { id: string }[]).map((img) => img.id);
 
-    if (imageIds.length === 0) {
-      test.skip(true, '画像がアップロードされていません');
-      return;
-    }
+    // 画像は beforeAll でアップロード済みであることが前提
+    expect(imageIds.length).toBeGreaterThan(0);
 
     const targetImageId = imageIds[0]!;
 
