@@ -47,6 +47,10 @@
 |--------|------|--------|--------------|
 | `VITE_API_BASE_URL` | Backend APIのベースURL | **必須** | `http://localhost:3000` |
 | `VITE_TOKEN_REFRESH_THRESHOLD` | トークン自動リフレッシュ閾値 | 任意 | `5m` |
+| `VITE_SENTRY_DSN` | Sentryエラートラッキング（Frontend） | 推奨 | なし |
+
+> `VITE_` で始まる変数はViteが**ビルド時**にバンドルへ埋め込みます。実行中のコンテナに設定しても読まれないため、値を変えたら**フロントエンドの再ビルドが必要**です（`frontend/Dockerfile` の `ARG VITE_SENTRY_DSN` が受け口）。
+> `VITE_SENTRY_DSN` が**未設定の環境では、`frontend/src/utils/sentry.ts` が即座に戻り、監視への送出は意図的に行われません**（送出処理そのものは常に配備されています）。
 
 ---
 
@@ -116,6 +120,9 @@ VITE_API_BASE_URL="http://localhost:3000"
 
 # トークンリフレッシュ閾値
 VITE_TOKEN_REFRESH_THRESHOLD="5m"
+
+# Sentry（任意。未設定なら送出は行われない）
+# VITE_SENTRY_DSN="https://xxx@xxx.ingest.sentry.io/xxx"
 ```
 
 ---
@@ -182,6 +189,10 @@ VITE_API_BASE_URL=https://your-backend.railway.app
 
 # トークンリフレッシュ閾値
 VITE_TOKEN_REFRESH_THRESHOLD=5m
+
+# Sentry（推奨）
+# ビルド時に埋め込まれるため、設定・変更後はフロントエンドの再デプロイ（再ビルド）が必要
+VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 ```
 
 ---

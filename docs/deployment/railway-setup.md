@@ -105,7 +105,12 @@ VITE_API_BASE_URL=https://your-backend.railway.app
 
 # トークンリフレッシュ閾値
 VITE_TOKEN_REFRESH_THRESHOLD=5m
+
+# Sentry（推奨）
+VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 ```
+
+> `VITE_` で始まる変数はViteが**ビルド時**にバンドルへ埋め込みます（受け口は `frontend/Dockerfile` の `ARG VITE_SENTRY_DSN`）。値を追加・変更したら**再デプロイ（再ビルド）するまで反映されません**。`VITE_SENTRY_DSN` を設定しない場合、フロントエンドからSentryへの送出は行われません。
 
 ### ステップ3: ドメイン設定
 

@@ -723,7 +723,7 @@
       "id": "site-survey/REQ-16.8",
       "requirement": "REQ-16: 非機能要件",
       "title": "エラー時のSentry送信",
-      "reason": "エラーログ送信の検証はE2E範囲外。E2E環境はVITE_SENTRY_DSN未設定でcaptureExceptionが送信せず観測できないため、画面の捕捉処理からSentry境界までを単体検証で確認する",
+      "reason": "エラーログ送信の検証はE2E範囲外。送出の宛先VITE_SENTRY_DSNはタスク 115.123 で配備の設定として定義済み（frontend/.env.example、frontend/Dockerfile のビルド引数、docs/deployment 配下の三書）だが、DSNの値は秘密のため版管理下に置かずE2E環境にも設定しない。値が無い環境ではcaptureExceptionが送信せず観測できないため、画面の捕捉処理からSentry境界までを単体検証で確認する",
       "category": "fault-tolerance",
       "alternativeVerification": {
         "method": "integration-test",

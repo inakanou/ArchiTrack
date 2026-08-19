@@ -279,7 +279,7 @@
 - **表示の直後に送る。** 表示（`setError`）と送出は同じ捕捉処理の中で必ず対になる。画像削除のように捕捉後に再スローする経路（呼び出し元の `PhotoManagementPanel` へ伝播させる）でも、再スローの前に送出する
 - **誤りが起きていないときは送らない。** 成功経路からの送出は監視のノイズになるため行わない
 
-**E2E 除外一覧の判断**: `e2e/requirement-exclusions.json` の `site-survey/REQ-16.8` は「エラーログ送信の検証は E2E 範囲外。統合テストで検証」として除外されている。**この除外そのものは維持する**。E2E 環境（フロント :5174 / バックエンド :3100）には `VITE_SENTRY_DSN` が設定されておらず、`utils/sentry.ts` の `captureException` は DSN 未設定時に何も送らずに戻るため、**E2E からは送出を観測できない**（本リポジトリで `SENTRY` を参照する設定は CI の backend 用シークレットのみ。実測）。ただし除外が挙げていた代替検証は `frontend/src/utils/sentry.test.ts`（送出ユーティリティ単体）しか無く、**画面の捕捉処理を一切通っていなかった**ため、除外の記述をタスク 115.84 で結線後の実体へ改めた。代替検証は `frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx` と `frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx` が担い、いずれも `utils/sentry` だけを差し替えて `logger` は本番実装を通し、**画面の描画経路から `captureException` へ到達すること**を検証する。
+**E2E 除外一覧の判断**: `e2e/requirement-exclusions.json` の `site-survey/REQ-16.8` は「エラーログ送信の検証は E2E 範囲外。統合テストで検証」として除外されている。**この除外そのものは維持する**。E2E 環境（フロント :5174 / バックエンド :3100）には `VITE_SENTRY_DSN` が設定されておらず、`utils/sentry.ts` の `captureException` は DSN 未設定時に何も送らずに戻るため、**E2E からは送出を観測できない**（**この点はタスク 115.123 で宛先を配備の設定として定義したあとも変わらない**。定義したのは設定の口であって値ではなく、E2E 環境にも本リポジトリにも値は置かれていないため、E2E からは依然として観測できない）。ただし除外が挙げていた代替検証は `frontend/src/utils/sentry.test.ts`（送出ユーティリティ単体）しか無く、**画面の捕捉処理を一切通っていなかった**ため、除外の記述をタスク 115.84 で結線後の実体へ改めた。代替検証は `frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx` と `frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx` が担い、いずれも `utils/sentry` だけを差し替えて `logger` は本番実装を通し、**画面の描画経路から `captureException` へ到達すること**を検証する。
 
 #### 画像アップロードの失敗経路の監視送出（タスク 115.122）
 
@@ -301,7 +301,25 @@
 
 **代替検証**: `frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx` の「画像アップロード失敗の誤り送出（タスク 115.122, Requirement 16.8）」が二経路を独立に検証し、あわせて**ファイル名・サーバー文言・例外文言が付帯情報へ現れないこと**を否定形で主張する。
 
-**充足の判断は保留する**: 本タスクで塞いだのはコード上の結線であって、送出の宛先（`VITE_SENTRY_DSN`）はリポジトリのどの環境設定にも無い。`utils/sentry.ts` の `captureException` は宛先未設定なら何もせずに戻るため、**現状の全ビルドで実効は生じない**。宛先の決着はタスク 115.123 の所管であり、それまで要件16.8 を「満たしている」とは記述しない。
+**充足の判断は本タスクでは保留した**: 本タスクで塞いだのはコード上の結線であって、送出の宛先（`VITE_SENTRY_DSN`）は当時リポジトリのどの環境設定にも無く、`utils/sentry.ts` の `captureException` は宛先未設定なら何もせずに戻るため、**当時の全ビルドで実効は生じなかった**。**この保留はタスク 115.123 で決着済みである**（次の小節を参照）。
+
+#### 監視送出の宛先の決着（タスク 115.123）
+
+タスク 115.122 は送出の結線を終えたうえで**要件16.8 の充足の判断を保留**していた（直前の小節）。先行するタスク 115.84 も同じ事情を教訓として記録しており、`tasks.md` の当該記録は「結線しても宛先が無ければ実効はない（115.84）」と題して「**コード上の結線と、要件が求める効果の発生は別の主張である。**外部基盤へ送る要件は、配備側の設定まで含めて充足を判断すること」と述べる。保留の理由はいずれも宛先の不在である。`frontend/src/utils/sentry.ts` は `initSentry` も `captureException` も宛先が未設定なら即座に戻る作りであり、その宛先（`VITE_SENTRY_DSN`）が**リポジトリのどの環境設定にも存在しなかった**ため、結線した送出も画面共通の送出も全ビルドで何も行っていなかった。バックエンドの `SENTRY_DSN` は配備の設定として既に登録されていた（`docs/deployment/environment-variables.md` の Backend Service 表、`backend/.env.example`）ため、**欠けていたのはフロントエンド側だけ**という非対称な状態であった。
+
+**決着**: 宛先を**配備の設定として供給する**方針を採る。要件16.8 の後半（Sentry へログを送信する）を取り下げる案は採らない。供給したのは設定の口であって値ではなく、**値はリポジトリへ置かない**（DSN は配備先の秘密であり、版管理下に置く対象ではない）。
+
+**供給の内訳**:
+
+- `frontend/.env.example` に `VITE_SENTRY_DSN` の項を追加した。既定は未設定（コメントアウト）であり、**未設定なら送出が行われないこと**を項の説明に明記した
+- `frontend/Dockerfile` に `ARG VITE_SENTRY_DSN` と対応する `ENV` の行を追加した。**Vite は接頭辞 `VITE_` を持つ変数をビルド時にバンドルへ埋め込む**（`frontend/vite.config.ts` の `envPrefix` 設定）ため、宛先が届く口はビルド引数であり、**実行中のコンテナへ環境変数を置いても読まれない**。既存の `VITE_API_URL` と同じ受け口を設けたことが、配備側の設定が実際にバンドルへ届く条件である。**文書だけを足して受け口を欠くと、設定しても無効のままという同じ状態が残る**ため、口の側を構造として設けた
+- 配備手順の三書へフロントエンドの変数として登録した。`docs/deployment/environment-variables.md`（Frontend Service の表へ 必須度=推奨 で追加。バックエンドの `SENTRY_DSN` 行と対称にした）、`docs/deployment/railway-setup.md`（Frontend Service の環境変数）、`docs/deployment/production-deployment.md`（Frontend 環境変数と「Sentry設定」）。いずれもビルド時に埋め込まれる性質と、未設定時は送出しない性質を併記した
+
+**要件16.8 の後半についての判断**: **宛先は配備の設定として定義され、設定された環境では送出が有効になる。未設定の環境では意図的に no-op である。** 送出処理そのものは常に配備されており（`frontend/src/main.tsx` が起動時に `initSentry` を呼び、画面の捕捉処理と `ErrorBoundary` が送出経路へ到達する）、動作を分けるのは配備側の設定値だけである。
+
+**ただし「本リポジトリで満たしていること」を主張するものではない。** 値はどのビルドにも置かれていないため、**この版のどのビルドでも実際の送出は起きていない**。要件16.8 の後半は**配備の設定によって満たされる状態**にあるのであって、**本リポジトリ内で実証された状態ではない**。この区別を崩して「監視が稼働している」と記述してはならない。
+
+**E2E 除外は維持する**: 上記は E2E からの観測可能性を何も変えない。E2E 環境（フロント :5174 / バックエンド :3100）にも値は置かれておらず、`captureException` は戻るだけである。したがって `e2e/requirement-exclusions.json` の `site-survey/REQ-16.8` の除外はそのまま維持し、代替検証（画面の描画経路から `captureException` へ到達することの単体検証）が引き続き充足の根拠を担う。
 
 #### 参照されないまとめ出力と検証専用の判定の撤去（タスク 115.85）
 

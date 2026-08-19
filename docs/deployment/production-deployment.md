@@ -72,6 +72,7 @@ RAILWAY_ENVIRONMENT=production
 ```bash
 VITE_API_BASE_URL=https://api.your-app.example.com
 VITE_API_TIMEOUT=10000
+VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 ```
 
 ### Step 2: データベースマイグレーション
@@ -218,9 +219,15 @@ npm run prisma:migrate:deploy --up-to <previous-migration-id>
 エラー監視のため、Sentryを設定：
 
 ```bash
+# Backend Service
 SENTRY_DSN=<your-sentry-dsn>
 SENTRY_ENVIRONMENT=production
+
+# Frontend Service（ビルド時に埋め込まれるため、設定後は再ビルドが必要）
+VITE_SENTRY_DSN=<your-sentry-dsn>
 ```
+
+フロントエンドの送出処理（`frontend/src/utils/sentry.ts`）は常に配備されていますが、`VITE_SENTRY_DSN` を設定しない環境では即座に戻り、**送出は意図的に行われません**。
 
 ### ログ監視
 
