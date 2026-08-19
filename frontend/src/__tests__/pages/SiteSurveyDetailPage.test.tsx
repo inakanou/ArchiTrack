@@ -28,8 +28,10 @@ import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.
 // モックナビゲート
 const mockNavigate = vi.fn();
 
-// Task 115.56: 画像一覧が差し替わる契機（別の現場調査への遷移＝ルートパラメータの変更、
-// 画像編集画面からの復帰＝location.key の変化）をテストから再現できるようにする。
+// Task 115.56 / 115.87: 画像一覧が差し替わる契機（同一の現場調査の再取得＝location.key の
+// 変化）をテストから再現できるようにする。ルートパラメータは useParams の戻り値として
+// 必要なため保持するが、単体検証では既定の survey-123 から動かさない。調査またぎを
+// この差し替えで模すと本番の導線に無い筋書きになるため（後述「再取得時の選択整合」節）。
 // 既定値は従来どおり survey-123 / 固定キーであり、他のテストの前提は変わらない。
 let mockRouteSurveyId = 'survey-123';
 let mockLocationKey = 'default';
@@ -2311,13 +2313,22 @@ describe('SiteSurveyDetailPage', () => {
   });
 
   // ==========================================================================
-  // 再取得時の選択整合（Task 115.56, Requirements 31.2, 31.3）
+  // 再取得時の選択整合（Task 115.56, 115.87, Requirements 31.2, 31.3）
   //
   // 現場調査の再取得は画像一覧を差し替えるため、選択集合が現存しない画像の
   // 識別子を指したままになりうる。要件31.3 の非活性判定と要件31.2 の対象は
   // いずれも「いま画像一覧にある画像の選択」を基準としなければならない。
+  //
+  // 【担当の境界（Task 115.87）】
+  // 選択の整理（pruneSelectionToExistingImages）が担うのは *同一の現場調査の再取得* に
+  // 対する二次の防護である。ここではその範囲だけを検証する。
+  // 別の現場調査へ移る場合の一次の防護は画面（SiteSurveyDetailPage）の作り直しであり、
+  // 選択状態は React が破棄する。同一の実体を保ったままルートパラメータだけ差し替える
+  // 筋書きは本番の導線からは到達しないため、この節では扱わない。調査またぎは実ブラウザ
+  // 検証 e2e/specs/site-surveys/site-survey-bulk-export.spec.ts の
+  // 「(e) 別の現場調査へ移ると選択が持ち越されず選択画像エクスポートが非活性へ戻る」が担う。
   // ==========================================================================
-  describe('再取得時の選択整合 (Task 115.56, Requirements 31.2, 31.3)', () => {
+  describe('再取得時の選択整合 (Task 115.56, 115.87, Requirements 31.2, 31.3)', () => {
     /** 指定した画像だけを持つ現場調査詳細を組み立てる */
     const buildDetail = (surveyId: string, images: SurveyImageInfo[]): SiteSurveyDetail => ({
       ...mockSurveyDetail,
@@ -2326,15 +2337,14 @@ describe('SiteSurveyDetailPage', () => {
       images,
     });
 
-    /** 別の現場調査に属する画像 */
-    const otherSurveyImage: SurveyImageInfo = {
+    /** 再取得後に同一の現場調査へ新たに現れた画像（選択済みの画像とは別物） */
+    const refreshedImage: SurveyImageInfo = {
       ...(mockImages[0] as SurveyImageInfo),
       id: 'img-9',
-      surveyId: 'survey-999',
       fileName: 'image9.jpg',
     };
 
-    /** 同一ツリーで再描画し、ルートパラメータ/location.key の変化を反映させる */
+    /** 同一ツリーで再描画し、location.key の変化（＝同一調査の再取得）を反映させる */
     const rerenderPage = (view: ReturnType<typeof renderComponent>) => {
       view.rerender(
         <BrowserRouter>
@@ -2343,7 +2353,7 @@ describe('SiteSurveyDetailPage', () => {
       );
     };
 
-    it('別の現場調査へ移ると存在しない画像の選択が残らない (Requirement 31.2, 31.3)', async () => {
+    it('同一調査の再取得で選択画像が全て失われると選択画像エクスポートが非活性へ戻る (Requirement 31.2, 31.3)', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
         buildDetail('survey-123', mockImages)
       );
@@ -2363,19 +2373,21 @@ describe('SiteSurveyDetailPage', () => {
         );
       });
 
-      // 別の現場調査へ遷移し、画像一覧が丸ごと差し替わる
+      // 同一の現場調査を再取得する。他の利用者が選択済みの 2 件を削除し、
+      // 別の画像が追加された後の一覧が返る（画面は作り直されず、選択集合だけが残る）。
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
-        buildDetail('survey-999', [otherSurveyImage])
+        buildDetail('survey-123', [refreshedImage])
       );
-      mockRouteSurveyId = 'survey-999';
+      mockLocationKey = 'refetched-after-remote-deletion';
       rerenderPage(view);
 
       await waitFor(() => {
         expect(screen.getByTestId('image-checkbox-img-9')).toBeInTheDocument();
       });
       expect(screen.queryByTestId('image-checkbox-img-1')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('image-checkbox-img-2')).not.toBeInTheDocument();
 
-      // 前の現場調査の選択は対象として存在しないため、非活性へ戻る（要件31.3）
+      // 選択していた画像は一覧に存在しないため、選択は 0 件となり非活性へ戻る（要件31.3）
       const selectedButton = screen.getByTestId('bulk-export-selected-button');
       expect(selectedButton).toHaveTextContent('選択画像エクスポート（0 件）');
       expect(selectedButton).toBeDisabled();
