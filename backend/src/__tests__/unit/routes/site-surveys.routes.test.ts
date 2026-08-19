@@ -495,7 +495,6 @@ describe('Site Surveys Routes', () => {
         thumbnailImageId: '550e8400-e29b-41d4-a716-446655440030',
         thumbnailOriginalPath: ORIGINAL_PATH,
         annotatedThumbnailPath: null as string | null,
-        representativeImageId: '550e8400-e29b-41d4-a716-446655440030',
         imageCount: 1,
       };
 
@@ -613,6 +612,98 @@ describe('Site Surveys Routes', () => {
         expect(withAnnotated?.annotatedThumbnailUrl).toBe(signedUrlOf(ANNOTATED_THUMBNAIL_PATH));
         expect(Object.keys(withoutAnnotated!)).toContain('annotatedThumbnailUrl');
         expect(withoutAnnotated?.annotatedThumbnailUrl).toBeNull();
+      });
+
+      /**
+       * Task 115.88 / Requirements 20.3
+       *
+       * 代表画像の識別子は表示側が読む `thumbnailImageId` 一本に統一する。
+       * 同じ値を別名でも応答へ載せると、同一の値に二つの契約名が付く。
+       *
+       * 本ファイルは `SiteSurveyService` をまるごと差し替えているため、手書きの
+       * 固定値をそのまま突き合わせると「同じ変更が書き換えた固定値」を言い直すだけの
+       * 検証になり、本番へ項目が戻っても落ちない。そこで本検証だけは
+       * `vi.importActual` で**本番の `SiteSurveyService`** を取り出し、Prisma を
+       * 差し替えて実際に走らせ、その戻り値を差し替え済みサービスの応答に据える。
+       * ルータは `...survey` で展開するため、応答の項目名の出所は本番の一覧生成処理になる。
+       */
+      it('should expose the representative image identifier only as thumbnailImageId', async () => {
+        const { SiteSurveyService: RealSiteSurveyService } = await vi.importActual<
+          typeof import('../../../services/site-survey.service')
+        >('../../../services/site-survey.service');
+
+        const REPRESENTATIVE_IMAGE_ID = '550e8400-e29b-41d4-a716-446655440030';
+        const surveyRow = {
+          id: SURVEY_WITH_ANNOTATED,
+          projectId: TEST_PROJECT_ID,
+          name: '代表画像の識別子の検証',
+          surveyDate: new Date('2025-01-15T00:00:00.000Z'),
+          memo: null,
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2025-01-02T00:00:00.000Z'),
+          images: [
+            {
+              id: REPRESENTATIVE_IMAGE_ID,
+              thumbnailPath: THUMBNAIL_PATH,
+              originalPath: ORIGINAL_PATH,
+              annotatedThumbnailPath: ANNOTATED_THUMBNAIL_PATH,
+            },
+          ],
+          _count: { images: 1 },
+        };
+
+        const prismaStub = {
+          siteSurvey: {
+            // 一覧側は件数の再取得で `select` 付きの2回目の findMany を呼ぶ
+            findMany: vi
+              .fn()
+              .mockImplementation(async (args: { select?: unknown }) =>
+                args.select ? [{ id: surveyRow.id, _count: { images: 1 } }] : [surveyRow]
+              ),
+            count: vi.fn().mockResolvedValue(1),
+          },
+        };
+
+        const realService = new RealSiteSurveyService({
+          prisma: prismaStub,
+          auditLogService: mockAuditLogService,
+        } as unknown as ConstructorParameters<typeof RealSiteSurveyService>[0]);
+
+        (mockSiteSurveyService.findByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue(
+          await realService.findByProjectId(
+            TEST_PROJECT_ID,
+            {},
+            { page: 1, limit: 20 },
+            { sort: 'surveyDate', order: 'desc' }
+          )
+        );
+        (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue(
+          await realService.findLatestByProjectId(TEST_PROJECT_ID, 2)
+        );
+
+        const listResponse = await request(app).get(
+          `/api/projects/${TEST_PROJECT_ID}/site-surveys`
+        );
+        const latestResponse = await request(app).get(
+          `/api/projects/${TEST_PROJECT_ID}/site-surveys/latest`
+        );
+
+        expect(listResponse.status).toBe(200);
+        expect(latestResponse.status).toBe(200);
+
+        const surveys = [
+          ...(listResponse.body.data as Record<string, unknown>[]),
+          ...(latestResponse.body.latestSurveys as Record<string, unknown>[]),
+        ];
+
+        // 空配列に対する否定形の主張は無条件で成立するため、まず件数を確かめる
+        expect(surveys).toHaveLength(2);
+
+        for (const survey of surveys) {
+          expect(Object.keys(survey)).toContain('thumbnailImageId');
+          expect(survey.thumbnailImageId).toBe(REPRESENTATIVE_IMAGE_ID);
+          expect(Object.keys(survey)).not.toContain('representativeImageId');
+        }
       });
     });
   });

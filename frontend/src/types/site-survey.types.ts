@@ -121,8 +121,6 @@ export interface SiteSurveyInfo {
   thumbnailOriginalUrl?: string | null;
   /** 代表画像の注釈付きサムネイルURL（要件20.3対応） */
   annotatedThumbnailUrl?: string | null;
-  /** 代表画像ID（AnnotatedImageThumbnailフォールバック用、要件20.3対応） */
-  representativeImageId?: string | null;
   /** 画像件数 */
   imageCount: number;
   /** 作成日時（ISO8601形式） */

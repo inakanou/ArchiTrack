@@ -1954,6 +1954,32 @@ describe('SiteSurveyService', () => {
         { id: 'asc' },
       ]);
     });
+
+    /**
+     * Task 115.88 / Requirements 20.3
+     *
+     * 一覧応答の代表画像の識別子は、表示側が実際に読む `thumbnailImageId` 一本だけを供給する。
+     * 同じ値を別名でも返すと、同一の値に二つの契約名が付き、どちらが正かを読み手が判別できない。
+     */
+    it('代表画像の識別子は thumbnailImageId だけを供給する（Requirements: 20.3）', async () => {
+      // Arrange
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue(mockSurveys);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      // Act
+      const result = await service.findByProjectId(
+        'project-123',
+        {},
+        defaultPagination,
+        defaultSort
+      );
+
+      // Assert
+      expect(result.data[0]!.thumbnailImageId).toBe('image-001');
+      expect(result.data[1]!.thumbnailImageId).toBeNull();
+      expect(Object.keys(result.data[0]!)).not.toContain('representativeImageId');
+      expect(Object.keys(result.data[1]!)).not.toContain('representativeImageId');
+    });
   });
 });
 

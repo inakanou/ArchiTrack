@@ -367,7 +367,7 @@
 - 追跡表の契約名の抽出: 全追跡表の Interfaces 列を全行から取り出し、バッククォートの有無によらず PascalCase トークンを全件列挙する。**`*API` 形式だけを見てはならない**。`*API` 形式が現れるのは冒頭の総合追跡表だけ（節別の6表はいずれも 0 件。実測）だが、要件24-30 の節別追跡表には `*API` でない契約名（`GestureEvent` / `CursorStrategy` / `HandleSizeStrategy`）があり、`*API` に限ると取りこぼす
 - 実在判定: 各名について `grep -rn --include=*.ts --include=*.tsx -E "^[[:space:]]*(export )?(declare )?(interface|type|class) <名前>\b" backend frontend e2e scripts`（`node_modules` を除く）を実行する。**走査範囲を `backend/src` / `frontend/src` に限ってはならない**。`backend/scripts` 配下の宣言を取りこぼす（`BackfillResult` が該当）
 - 実在判定の誤検出の除去: 上記の式は `import { type <名前>, ... }` の継続行にも一致する。ヒットが import 文だけの名前は**宣言ではない**ため実体なしと判定する。またヒットが `__tests__/` 配下・`*.test.ts` / `*.test.tsx` だけの名前も実装の実体とはみなさない
-- 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない
+- 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない。**行番号は実装ファイルの行の増減で失効する**ため、実装へ行の増減を伴う変更を加えたタスクは、当該ファイルを指す本書の `パス:行` を全件測り直す責任を負う。タスク 115.88 は `backend/src/services/site-survey.service.ts` と `frontend/src/types/site-survey.types.ts` から各2行を削除したため、当該2ファイルを指す本書の 22 件の引用のうち下流にある 11 件を測り直して是正した（本節の `ImageOrderItem` / `ProjectSurveySummary` / `SurveyImageInfo`、決着表の #1 / #19 / #20 / #21 / #22 / #23、`deleteSiteSurvey` と `findById` の引用。加えて相対参照 4 件）。**115.88 以前から誤っていた引用が同2ファイル向けに 3 件ある**: `AnnotationData` の `frontend/src/types/site-survey.types.ts:620`（本節と決着表 #25 / #26 の計3行。実測は HEAD 時点で 463 行、115.88 の削除後で 461 行）、`BatchAnnotationRequest` の同ファイル `:931`（実測 660 行）、`BatchAnnotationResponse` の同ファイル `:921`（実測 650 行）。いずれも 115.88 の変更前から当該行が当該名の宣言ではなく、115.88 の境界「一覧応答の代表画像識別子とその設計記述」の外側であるため是正せず、誤っている事実をここに記録する（`design.md:1101` が指す `design.md:5795` も同種の失効で、実測の該当行は 5934 行である）。**後続タスクの提案**: 本書の `パス:行` を全件測り直す監査タスクを別途起票すること
 
 **実装に実体がある契約名**（設計書の記述は実装の型を指す。以下のパスは宣言位置）:
 
@@ -399,18 +399,18 @@
 | `IUndoManager` | `frontend/src/services/UndoManager.ts:45` |
 | `IText` | Fabric.js の標準クラス（外部ライブラリ。本リポジトリでは宣言せず `fabric` から import する） |
 | `ImageExportDialogProps` | `frontend/src/components/site-surveys/ImageExportDialog.tsx:63` |
-| `ImageOrderItem` | `frontend/src/types/site-survey.types.ts:394` |
+| `ImageOrderItem` | `frontend/src/types/site-survey.types.ts:392` |
 | `ImageViewerProps` | `frontend/src/components/site-surveys/ImageViewer.tsx:96` |
 | `LocalStorageData` | `frontend/src/services/AutoSaveManager.ts:60` |
 | `PhotoManagementPanelProps` | `frontend/src/components/site-surveys/PhotoManagementPanel.tsx:38` |
-| `ProjectSurveySummary` | `backend/src/services/site-survey.service.ts:164` |
+| `ProjectSurveySummary` | `backend/src/services/site-survey.service.ts:162` |
 | `SaveAnnotationInput` | `backend/src/services/annotation.service.ts:179` |
 | `SiteSurveySectionCardProps` | `frontend/src/components/projects/SiteSurveySectionCard.tsx:32` |
 | `TextAnnotationJSON` | `frontend/src/components/site-surveys/tools/TextTool.ts:113` |
 | `TextOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:65` |
 | `TouchGestureManager` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:116` |
 | `TouchState` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:88` |
-| `SurveyImageInfo` | 同名宣言が4箇所に存在する（`backend/src/services/site-survey.service.ts:72`、`backend/src/services/image-list.service.ts:30`、`backend/src/services/survey-image.service.ts:112`、`frontend/src/types/site-survey.types.ts:54`）。**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
+| `SurveyImageInfo` | 同名宣言が4箇所に存在する（`backend/src/services/site-survey.service.ts:70`、`backend/src/services/image-list.service.ts:30`、`backend/src/services/survey-image.service.ts:112`、`frontend/src/types/site-survey.types.ts:54`）。**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
 | `ToolType` | `frontend/src/components/site-surveys/annotation-toolbar.constants.ts:23` |
 | `UndoCommand` | `frontend/src/services/UndoManager.ts:16` |
 | `UndoManagerState` | `frontend/src/services/UndoManager.ts:28` |
@@ -490,12 +490,12 @@
 
 | # | 契約名 | 決定 | 根拠（実装側で同等の役割を果たす実体。`パス:行` は照合済み） |
 |---|---|---|---|
-| 1 | `ISurveyService` | 抽象契約として残す | 実体は具象クラス `SiteSurveyService`（`backend/src/services/site-survey.service.ts:184`）。ルータが直接 `new` する（`backend/src/routes/site-surveys.routes.ts:50`、`backend/src/routes/survey-images.routes.ts:67`、`backend/src/routes/projects.routes.ts:77`）。下の「`I*Service` の非対称の理由」を参照 |
+| 1 | `ISurveyService` | 抽象契約として残す | 実体は具象クラス `SiteSurveyService`（`backend/src/services/site-survey.service.ts:182`）。ルータが直接 `new` する（`backend/src/routes/site-surveys.routes.ts:50`、`backend/src/routes/survey-images.routes.ts:67`、`backend/src/routes/projects.routes.ts:77`）。下の「`I*Service` の非対称の理由」を参照 |
 | 2 | `IImageService` | 抽象契約として残す | **単一の実装クラスは存在せず、6メソッドが5つの具象クラスへ分解されている**（`upload`→`ImageUploadService.upload`＝`backend/src/services/image-upload.service.ts:149`、`uploadBatch`→同 246 行と `BatchUploadService.uploadBatch`＝`backend/src/services/batch-upload.service.ts:142`、`findBySurveyId`→`ImageListService.findBySurveyId`＝`backend/src/services/image-list.service.ts:93`、`updateOrder`→`ImageOrderService.updateImageOrder`＝`backend/src/services/image-order.service.ts:91`、`getSignedUrl`→`SignedUrlService.generateSignedUrl`＝`backend/src/services/signed-url.service.ts:99`、`validateSignedUrl`→同 162 行の `validateSignedUrlAccess`。**メソッド名と第1引数の意味の食い違いはタスク 115.111 で解消済み**で、本書の宣言ブロックは実装どおり `validateSignedUrlAccess(imageId, userId)` と書く。引数の個数は当初から2で一致していた）。**同名に見える `SurveyImageService`（`backend/src/services/survey-image.service.ts:175`）は `IImageService` の実装ではない**：公開メソッドは `validateFile` / `sanitizeFileName` / `getStoragePath` / `detectMimeTypeByMagicBytes` 等のみで、上記6メソッドとの重複は 0 件である。同クラスを `new` する箇所は、`__tests__` 配下とカバレッジ生成物（`backend/coverage/`）を除いた本番コードでは**3箇所**である（`grep -rn "new SurveyImageService" backend frontend e2e scripts` で集計）。うち本番リクエスト経路は `backend/src/routes/survey-images.routes.ts:99` と `backend/src/routes/construction-photo-images.routes.ts:112` の2箇所で、残る1箇所は保守スクリプト `backend/scripts/restore-plain-thumbnails.ts:454`（`createRestoreRuntimeDependencies` 内。注釈が焼き込まれた通常サムネイルの是正用であり、リクエスト経路からは呼ばれない）である。下の「`I*Service` の非対称の理由」の #2 の項を参照 |
 | 3 | `IAnnotationService` | 抽象契約として残す | 実体は `AnnotationService`（`backend/src/services/annotation.service.ts:226`）。`backend/src/routes/annotation.routes.ts:43` で直接 `new` |
 | 4 | `IImageDeleteService` | 抽象契約として残す | 実体は `ImageDeleteService`（`backend/src/services/image-delete.service.ts:97`）。`backend/src/routes/survey-images.routes.ts:116` で直接 `new` |
 | 5 | `IImageMetadataService` | 抽象契約として残す | 実体は `ImageMetadataService`（`backend/src/services/image-metadata.service.ts:111`）。`backend/src/routes/survey-images.routes.ts:135` で直接 `new` |
-| 6 | 旧 `SurveyServiceDependencies` → 現 `SiteSurveyServiceDependencies` | **タスク 115.76 で設計を実態へ合わせた（実体あり）** | 実体は `SiteSurveyServiceDependencies`（`backend/src/services/site-survey.service.ts:40`）。115.75 時点の設計は名前が `Site` 接頭辞を欠くうえ、項目に `imageService: IImageService` を含んでいたが、**実装は `prisma` / `auditLogService` の2項目のみ**で、`SiteSurveyService` は画像サービスをまったく注入されていない（`grep -n "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件。論理削除は `SiteSurvey.deletedAt` の更新のみで関連画像は同 475-477 行のコメントどおり親の削除フィルタで除外される）。115.76 で設計側の名前を `SiteSurveyServiceDependencies` へ、項目を実装の2項目へ改めた |
+| 6 | 旧 `SurveyServiceDependencies` → 現 `SiteSurveyServiceDependencies` | **タスク 115.76 で設計を実態へ合わせた（実体あり）** | 実体は `SiteSurveyServiceDependencies`（`backend/src/services/site-survey.service.ts:40`）。115.75 時点の設計は名前が `Site` 接頭辞を欠くうえ、項目に `imageService: IImageService` を含んでいたが、**実装は `prisma` / `auditLogService` の2項目のみ**で、`SiteSurveyService` は画像サービスをまったく注入されていない（`grep -n "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件。論理削除は `SiteSurvey.deletedAt` の更新のみで関連画像は同 473-475 行のコメントどおり親の削除フィルタで除外される）。115.76 で設計側の名前を `SiteSurveyServiceDependencies` へ、項目を実装の2項目へ改めた |
 | 7 | 旧 `ImageServiceDependencies` → 現 `SurveyImageServiceDependencies` | **タスク 115.76 で設計を実態へ合わせた（実体あり）** | 実体は `SurveyImageServiceDependencies`（`backend/src/services/survey-image.service.ts:131`）。115.75 時点の設計は `prisma` / `s3Client`（必須）/ `sharpProcessor` の3項目だったが、**実装は `prisma`（必須）と保存先に関する3項目 `s3Client?` / `bucketName?` / `storageProvider?`（いずれも任意。前2つは `@deprecated`）**で、`sharpProcessor` に相当する項目は無く `survey-image.service.ts` は `sharp` を一切参照しない（`grep -n sharp backend/src/services/survey-image.service.ts` が 0 件）。115.76 で設計側の名前を `SurveyImageServiceDependencies` へ、項目を実装の4項目（任意性・`@deprecated` を含む）へ改めた |
 | 8 | `SurveyAPI` | 抽象契約として残す | HTTP エンドポイント群の呼称であり型ではない。実体は `backend/src/routes/site-surveys.routes.ts` の `POST /`（119 行）/ `GET /:id`（534 行）/ `PUT /:id`（643 行）/ `DELETE /:id`（728 行）。マウントは `backend/src/app.ts:334-335` |
 | 9 | `SurveyListAPI` | 抽象契約として残す | 同上。`backend/src/routes/site-surveys.routes.ts` の `GET /`（389 行）と `GET /latest`（221 行） |
@@ -508,11 +508,11 @@
 | 16 | `ExportAPI` | 抽象契約として残す | **要件11-12 のエクスポートに対応する HTTP エンドポイントは存在しない**。本設計書自身が「画像エクスポートおよびPDF生成はクライアントサイドで実行（Fabric.js toDataURL + jsPDF）」と明記しており、実体はクライアント側の `PdfReportService`（`frontend/src/services/export/PdfReportService.ts:238`）と `ExportService`（`frontend/src/services/ExportService.ts:95`。`IExportService` を `implements` する）。名前が `*API` であっても HTTP 契約とは限らない。なお注釈JSON のエクスポートだけは `GET /:imageId/annotations/export`（`backend/src/routes/annotation.routes.ts:348`）に実体がある |
 | 17 | `ThumbnailAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `PATCH /:imageId/annotated-thumbnail`（947 行）と `DELETE /:imageId/annotated-thumbnail`（1134 行） |
 | 18 | `SurveyInfo` | 抽象契約として残す | 実体は `SiteSurveyInfo`（`backend/src/services/site-survey.service.ts:48`）。`Site` 接頭辞の有無だけが異なる短縮形 |
-| 19 | `SurveyDetail` | 抽象契約として残す | 実体は `SiteSurveyDetail`（`backend/src/services/site-survey.service.ts:100`。`SiteSurveyInfo` を継承）。フロント側の受け皿も同名（`frontend/src/pages/SiteSurveyDetailPage.tsx:336` の `useState<SiteSurveyDetail \| null>`） |
-| 20 | `PaginatedSurveys` | 抽象契約として残す | 実体は `PaginatedSiteSurveys`（`backend/src/services/site-survey.service.ts:153`） |
-| 21 | `SurveyFilter` | 抽象契約として残す | 実体は `SiteSurveyFilter`（`backend/src/services/site-survey.service.ts:108`） |
-| 22 | `CreateSurveyInput` | 抽象契約として残す | 実体は `CreateSiteSurveyInput`（backend は Zod 由来の `backend/src/schemas/site-survey.schema.ts:83`、frontend は `frontend/src/types/site-survey.types.ts:191`） |
-| 23 | `UpdateSurveyInput` | 抽象契約として残す | 実体は `UpdateSiteSurveyInput`（`backend/src/schemas/site-survey.schema.ts:107`、`frontend/src/types/site-survey.types.ts:203`） |
+| 19 | `SurveyDetail` | 抽象契約として残す | 実体は `SiteSurveyDetail`（`backend/src/services/site-survey.service.ts:98`。`SiteSurveyInfo` を継承）。フロント側の受け皿も同名（`frontend/src/pages/SiteSurveyDetailPage.tsx:336` の `useState<SiteSurveyDetail \| null>`） |
+| 20 | `PaginatedSurveys` | 抽象契約として残す | 実体は `PaginatedSiteSurveys`（`backend/src/services/site-survey.service.ts:151`） |
+| 21 | `SurveyFilter` | 抽象契約として残す | 実体は `SiteSurveyFilter`（`backend/src/services/site-survey.service.ts:106`） |
+| 22 | `CreateSurveyInput` | 抽象契約として残す | 実体は `CreateSiteSurveyInput`（backend は Zod 由来の `backend/src/schemas/site-survey.schema.ts:83`、frontend は `frontend/src/types/site-survey.types.ts:189`） |
+| 23 | `UpdateSurveyInput` | 抽象契約として残す | 実体は `UpdateSiteSurveyInput`（`backend/src/schemas/site-survey.schema.ts:107`、`frontend/src/types/site-survey.types.ts:201`） |
 | 24 | `SaveAnnotationResponse` | 抽象契約として残す | 応答の形を説明するためだけの名前。実装はルータがオブジェクトリテラルを直接返しており型宣言を置いていない（`backend/src/routes/annotation.routes.ts:256` の `res.json({ ...annotation, annotatedThumbnailUrl })`）。**入れ子と平坦の食い違いはタスク 115.111 で解消済み**（設計の宣言を平坦な形へ書き直した） |
 | 25 | `AnnotationDataV1` | 抽象契約として残す | 実体は `AnnotationData`（`frontend/src/types/site-survey.types.ts:620`、`frontend/src/services/AutoSaveManager.ts:38`）。`V1` は型名ではなく `version` フィールドの値（`'1.0'`）を指す版名である。実装側も対応を明記している（`frontend/src/services/AutoSaveManager.ts:36` の JSDoc `@see design.md - AnnotationDataV1`）。**タスク 115.81 で、`AutoSaveManager` 側の宣言は `frontend/src/types/site-survey.types.ts` の同名型と同じ形（`version` は任意、`canvasWidth` / `canvasHeight` / `imageRotation` を持つ）へそろえた**。形が違うとサーバー保存とローカル自動保存で同じ注釈データを受け渡せないためである |
 | 26 | `AnnotationSaveDataV1` | 抽象契約として残す | 同上。要件31-32 節が「既存」として再掲した同一物であり、`canvasWidth` / `canvasHeight` / `imageRotation` を含む形は `frontend/src/types/site-survey.types.ts:620` の `AnnotationData` が満たす |
@@ -544,7 +544,7 @@
 
 | # | 契約名 | 対応する具象クラス | 他サービスへの注入 | 個別の根拠 |
 |---|---|---|---|---|
-| 1 | `ISurveyService` | `SiteSurveyService` | **0 件**（`backend/src/services/` 配下で当該クラスを参照するのは自ファイル `site-survey.service.ts:184` のみ） | ルータが末端で `new` するだけ（`site-surveys.routes.ts:50`、`survey-images.routes.ts:67`、`projects.routes.ts:77`）。差し替え先が無いためインターフェースの実体を要しない |
+| 1 | `ISurveyService` | `SiteSurveyService` | **0 件**（`backend/src/services/` 配下で当該クラスを参照するのは自ファイル `site-survey.service.ts:182` のみ） | ルータが末端で `new` するだけ（`site-surveys.routes.ts:50`、`survey-images.routes.ts:67`、`projects.routes.ts:77`）。差し替え先が無いためインターフェースの実体を要しない |
 | 2 | `IImageService` | **単一の対応クラスが無い**（6メソッドが `ImageUploadService` / `BatchUploadService` / `ImageListService` / `ImageOrderService` / `SignedUrlService` の5クラスへ分解済み。決着表 #2 参照） | **他の4件と違い 0 件ではない**。ただし注入されているのは `IImageService` の実装ではなく同名系の別クラス `SurveyImageService` で、**3 件**（`batch-upload.service.ts:101`、`image-upload.service.ts:103`、`construction-photo-image.service.ts:147`） | 下の「#2 を『残す』と判断した根拠」を参照 |
 | 3 | `IAnnotationService` | `AnnotationService` | **0 件**（`backend/src/services/` 配下の参照は自ファイル `annotation.service.ts:226` のみ） | `annotation.routes.ts:43` で末端 `new`。差し替え先が無い |
 | 4 | `IImageDeleteService` | `ImageDeleteService` | **0 件**（自ファイル `image-delete.service.ts:97` のみ） | `survey-images.routes.ts:116` で末端 `new`。差し替え先が無い |
@@ -1300,13 +1300,13 @@ interface ISurveyService {
 是正後の当該2ブロックの箇条書きは、書く直前に機械的に数え直して**8項目**である（Responsibilities & Constraints 5項目＋Dependencies 3項目。`awk '/^#### SiteSurveyService$/,/^\*\*Contracts\*\*/' .kiro/specs/site-survey/design.md | grep -c '^- '` の実測値）。是正の内訳は次の2項目である。
 
 - **削除した `Outbound: SurveyImageService — 画像削除連携 (P1)`**: 実装の `SiteSurveyService` は `SurveyImageService` を注入も参照もしない（`grep -c "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件）。直上の型定義ブロックが示す依存2項目（`prisma` / `auditLogService`）とも矛盾していた。
-- **書き換えた「論理削除時に関連画像データを連動削除」**: 実装の `SiteSurveyService.deleteSiteSurvey`（`backend/src/services/site-survey.service.ts:445`）は同 478-481 行で `tx.siteSurvey.update({ where: { id }, data: { deletedAt } })` を実行するのみで、画像レコードには一切書き込まない。同ファイル 475-477 行のコメントが「SurveyImage には deletedAt フィールドがない設計」「関連画像は findById 等のクエリで SiteSurvey の deletedAt フィルタにより自動的に除外される」と明記している。**設計を実態へ寄せる前に要件1.5（`.kiro/specs/site-survey/requirements.md:16`。「ユーザーが現場調査を削除する」ときに「現場調査と関連する画像データを論理削除する」）を確認した。行ごとの削除フラグを持たない実装で要件1.5 が満たされるかは経路ごとに異なり、実測した結論は「一部の経路でのみ満たされている」である**（判定の内訳と未解消の欠落は直後の段落に記す）。
+- **書き換えた「論理削除時に関連画像データを連動削除」**: 実装の `SiteSurveyService.deleteSiteSurvey`（`backend/src/services/site-survey.service.ts:443`）は同 476-479 行で `tx.siteSurvey.update({ where: { id }, data: { deletedAt } })` を実行するのみで、画像レコードには一切書き込まない。同ファイル 473-475 行のコメントが「SurveyImage には deletedAt フィールドがない設計」「関連画像は findById 等のクエリで SiteSurvey の deletedAt フィルタにより自動的に除外される」と明記している。**設計を実態へ寄せる前に要件1.5（`.kiro/specs/site-survey/requirements.md:16`。「ユーザーが現場調査を削除する」ときに「現場調査と関連する画像データを論理削除する」）を確認した。行ごとの削除フラグを持たない実装で要件1.5 が満たされるかは経路ごとに異なり、実測した結論は「一部の経路でのみ満たされている」である**（判定の内訳と未解消の欠落は直後の段落に記す）。
 
 **要件1.5 の経路別判定と未解消の欠落（本タスクでは是正しない）**: 判定対象は現場調査画像に触れる経路である。`backend/src/routes/survey-images.routes.ts` のルートを書く直前に機械的に数え直すと**8件**であり（`grep -c '^router\.\(get\|post\|put\|patch\|delete\)(' backend/src/routes/survey-images.routes.ts` の実測値）、これに現場調査詳細の取得経路と注釈系を加え、**各経路の実装を実際に開いて**親の `deletedAt` 検査の有無を判定した。
 
 親の `deletedAt` を検査する（要件1.5 の趣旨が成立している）経路:
 
-- 画像一覧取得 `GET /`（`backend/src/routes/survey-images.routes.ts:271`）: 同 282 行で `SiteSurveyService.findById`（`backend/src/services/site-survey.service.ts:389`。`where` に `deletedAt: null` を持つ）を先に呼び、論理削除済みなら 404 を返して `ImageListService.findBySurveyIdWithUrls`（`backend/src/services/image-list.service.ts:127`）へ到達しない
+- 画像一覧取得 `GET /`（`backend/src/routes/survey-images.routes.ts:271`）: 同 282 行で `SiteSurveyService.findById`（`backend/src/services/site-survey.service.ts:387`。`where` に `deletedAt: null` を持つ）を先に呼び、論理削除済みなら 404 を返して `ImageListService.findBySurveyIdWithUrls`（`backend/src/services/image-list.service.ts:127`）へ到達しない
 - 画像アップロード `POST /`（同 352 行）: `ImageUploadService.uploadBatch`（`backend/src/services/image-upload.service.ts:248` と 257 行）が親の `deletedAt` を検査して弾く（単件経路の `upload` も同 153 / 162 行で同様。`BatchUploadService` も `backend/src/services/batch-upload.service.ts:155` / `163` で `SURVEY_DELETED` を投げる）
 - 表示順序更新 `PUT /order`（同 515 行）: `ImageOrderService.updateImageOrder`（`backend/src/services/image-order.service.ts:91`。検査は同 101 行）が `SURVEY_DELETED` を投げ、ルート側（同 539-540 行）が 410 へ写像する
 - 現場調査詳細の取得（`backend/src/routes/site-surveys.routes.ts:544`）: こちらも `SiteSurveyService.findById` を経由するため `deletedAt: null` の絞り込みが掛かる
@@ -3600,7 +3600,7 @@ interface FabricSerializedObject {
 2. `AnnotatedThumbnailService`の実装（SVG生成、Sharp合成、R2保存）
 3. `AnnotationService.save()`に注釈付きサムネイル生成フックを追加
 4. 画像一覧APIレスポンスに`annotatedThumbnailUrl`、`hasAnnotations`を追加
-5. 一覧APIレスポンスに`annotatedThumbnailUrl`、`representativeImageId`を追加
+5. 一覧APIレスポンスに`annotatedThumbnailUrl`を追加（代表画像の識別子は既存の`thumbnailImageId`を用いる）
 6. フロントエンド各画面でAnnotatedImageThumbnailコンポーネントの利用を統合
 7. 単体テスト・E2Eテストの追加
 
@@ -4213,15 +4213,19 @@ interface SurveyInfo {
   thumbnailUrl: string | null;  // 代表画像の素のサムネイル
   // ...
 
+  // 既存フィールド（代表画像のID。AnnotatedImageThumbnailフォールバック用）
+  thumbnailImageId: string | null;
+
   // 新規フィールド（20.3対応）
   annotatedThumbnailUrl: string | null;  // 代表画像の注釈付きサムネイル
-  representativeImageId: string | null;  // 代表画像のID（AnnotatedImageThumbnailフォールバック用）
 }
 ```
 
 **一覧APIレスポンスの拡張**:
 
-SiteSurveyService.findByProjectIdおよびfindLatestByProjectIdのレスポンスに、代表画像の`annotatedThumbnailUrl`と`representativeImageId`を含める。代表画像はdisplayOrder=1の画像とする。
+SiteSurveyService.findByProjectIdおよびfindLatestByProjectIdのレスポンスに、代表画像の`annotatedThumbnailUrl`を含める。代表画像はdisplayOrder=1の画像とする。**代表画像の識別子は既存の`thumbnailImageId`一本で供給する**（AnnotatedImageThumbnailへのフォールバックで表示側が読む項目もこれである）。
+
+> **経緯（115.88）**: 本節はかつて代表画像の識別子を`representativeImageId`という別名で新設すると記していたが、表示側（`SiteSurveyListTable` / `SiteSurveyListCard` / `SiteSurveyResponsiveView` / `SiteSurveySectionCard`）が読むのは`thumbnailImageId`であり、供給側は同じ値（先頭画像のID）を二つの名前で返していた。同一の値に二つの契約名が付いた状態は、どちらが正かを読み手が判別できない点で呼称規約が禁じる乖離と同型である。115.88 で供給側の`representativeImageId`（`SiteSurveyInfo` の項目宣言と、`toSiteSurveyInfo` / `findByProjectId` / `findLatestByProjectId` の3箇所の代入、およびフロントエンドの受け皿型）を撤去し、記述を実態の`thumbnailImageId`へ改めた。撤去前に`backend` / `frontend` / `e2e` / `scripts` の全域を`grep`し、現場調査側の当該名を読む利用側が0件であることを確認している（同名の項目は工事写真のアルバムサマリーにも存在するが、別の仕様の別の応答であり本件の対象外である）。なお本撤去は上記2ファイルから各2行を削り、本書が当該2ファイルを指す `パス:行` のうち削除位置より下流の 11 件と相対参照 4 件を失効させた。「契約名の実在対照表」の照合規則に従い、撤去後に全件を測り直して是正済みである。
 
 ```typescript
 // SiteSurveyService 拡張

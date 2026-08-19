@@ -312,5 +312,27 @@ describe('SiteSurveyService', () => {
       // Assert
       expect(result.latestSurveys[0]!.imageCount).toBe(3);
     });
+
+    /**
+     * Task 115.88 / Requirements 20.3
+     *
+     * 一覧応答の代表画像の識別子は、表示側が実際に読む `thumbnailImageId` 一本だけを供給する。
+     * 同じ値を別名でも返すと、同一の値に二つの契約名が付き、どちらが正かを読み手が判別できない。
+     */
+    it('代表画像の識別子は thumbnailImageId だけを供給する（Requirements: 20.3）', async () => {
+      // Arrange
+      const projectId = 'project-123';
+      mockPrisma.siteSurvey.findMany = vi.fn().mockResolvedValue([mockSurveys[0], mockSurveys[1]]);
+      mockPrisma.siteSurvey.count = vi.fn().mockResolvedValue(2);
+
+      // Act
+      const result = await service.findLatestByProjectId(projectId, 2);
+
+      // Assert
+      expect(result.latestSurveys[0]!.thumbnailImageId).toBe('image-1');
+      expect(result.latestSurveys[1]!.thumbnailImageId).toBeNull();
+      expect(Object.keys(result.latestSurveys[0]!)).not.toContain('representativeImageId');
+      expect(Object.keys(result.latestSurveys[1]!)).not.toContain('representativeImageId');
+    });
   });
 });
