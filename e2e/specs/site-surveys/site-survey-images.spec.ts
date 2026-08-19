@@ -889,34 +889,98 @@ test.describe('現場調査画像管理', () => {
   test.describe('画像削除', () => {
     /**
      * @requirement site-survey/REQ-4.7
+     *
+     * 削除の検証は「画像が見えていること」では成立しない。削除の操作を実際に行い、
+     * 削除要求が送出されて成功したこと、および一覧から当該画像が消えたことまでを確かめる。
+     * 削除対象は本テスト自身がアップロードして用意し、他テストの成果物には依存しない。
+     *
+     * 本テストだけ ADMIN_USER で操作する。削除権限は設計上 admin のみに与えられており
+     * （useSiteSurveyPermission の canDelete = isAdmin）、REGULAR_USER には削除ボタンが
+     * 描画されないためである。役割を上げているのではなく、要件4.7 の操作主体を正しく
+     * 選んでいる。REGULAR_USER に削除を許すことは要件の意図ではない。
      */
     test('画像を削除できる', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
 
       // 詳細ページに移動
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像パネルアイテムが存在するか確認
       const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
       await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const countBeforeUpload = await photoPanelItems.count();
 
-      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
+      // 前提の確立: 削除対象の画像を本テストで用意する
+      const input = page.locator('input[type="file"]').first();
+      await expect(input).toBeAttached({ timeout: getTimeout(10000) });
 
-      // 画像が表示されていることを確認（UIテスト）
-      const imageElement = photoPanelItems.first().locator('img');
-      await expect(imageElement).toBeVisible();
+      // 宛先の判定はオリジンではなくパスで行う（CIとローカルでAPIオリジンが異なるため）
+      const uploadPromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/site-surveys/${createdSurveyId}/images` &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+      await input.setInputFiles(path.join(__dirname, '../../fixtures/test-image.jpg'));
+      const uploadResponse = await uploadPromise;
+      expect(uploadResponse.status(), '削除対象とする画像のアップロードが成功する').toBe(201);
 
-      // 注: 現在のUIでは画像削除機能は詳細ページに実装されていない
-      // 削除機能のUIが実装されたら、以下のテストを追加:
-      // 1. 削除ボタンをクリック
-      // 2. 確認ダイアログで削除を確認
-      // 3. 画像が削除されることを確認
+      const uploadBody = (await uploadResponse.json()) as { successful: { id: string }[] };
+      const targetImageId = uploadBody.successful[0]?.id ?? '';
+      expect(targetImageId, 'アップロード応答から削除対象の画像IDを取得できる').toMatch(
+        /^[0-9a-fA-F-]{36}$/
+      );
+
+      // 前提の確認: 削除対象が一覧に存在する
+      await expect(photoPanelItems).toHaveCount(countBeforeUpload + 1, {
+        timeout: getTimeout(15000),
+      });
+      const targetItem = page.locator(
+        `[data-testid="photo-panel-item"][data-image-id="${targetImageId}"]`
+      );
+      await expect(targetItem).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 削除操作: 削除ボタンを押す
+      const deleteButton = targetItem.getByRole('button', { name: /^画像を削除: / });
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      const deletePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/site-surveys/images/${targetImageId}` &&
+          response.request().method() === 'DELETE',
+        { timeout: getTimeout(30000) }
+      );
+
+      await deleteButton.click();
+
+      // 削除操作: 確認ダイアログで削除を確定する
+      const confirmDialog = page.getByRole('dialog', { name: '画像を削除' });
+      await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
+      await confirmDialog.getByRole('button', { name: '削除する' }).click();
+
+      // 削除要求が実際に送出され、成功していること（REQ-4.7）
+      const deleteResponse = await deletePromise;
+      expect(deleteResponse.status(), 'REQ-4.7: 画像削除APIが204を返す').toBe(204);
+
+      // 結果: 確認ダイアログが閉じ、一覧から当該画像が消える（REQ-4.7）
+      await expect(confirmDialog).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(targetItem).toHaveCount(0, { timeout: getTimeout(15000) });
+      await expect(photoPanelItems).toHaveCount(countBeforeUpload, {
+        timeout: getTimeout(15000),
+      });
+
+      // 削除が永続化されていること（再読込しても復活しない）
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(targetItem).toHaveCount(0, { timeout: getTimeout(15000) });
+      await expect(photoPanelItems).toHaveCount(countBeforeUpload, {
+        timeout: getTimeout(15000),
+      });
     });
   });
 
