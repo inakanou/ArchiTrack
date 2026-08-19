@@ -27,6 +27,7 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import logger from '../utils/logger.js';
 import { moveToOrphaned } from '../utils/orphaned-object.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 
 /**
  * 画像が見つからないエラー
@@ -131,12 +132,19 @@ export class ImageDeleteService {
     // 画像の存在確認と関連データの取得
     const image = await this.prisma.surveyImage.findUnique({
       where: { id: imageId },
-      include: { annotation: true },
+      include: { annotation: true, survey: { select: { deletedAt: true } } },
     });
 
     if (!image) {
       throw new ImageNotFoundError(imageId);
     }
+
+    // 論理削除された現場調査の画像は削除できない（Requirements 1.5 / Task 115.124）
+    assertSurveyNotDeleted(
+      image.survey,
+      image.surveyId,
+      `削除された現場調査の画像は削除できません: ${image.surveyId}`
+    );
 
     // データベースからの削除（トランザクション）
     await this.prisma.$transaction(async (tx) => {

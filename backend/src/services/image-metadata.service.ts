@@ -24,6 +24,7 @@
 
 import type { PrismaClient, SurveyImage } from '../generated/prisma/client.js';
 import { SURVEY_IMAGE_ORDER_BY } from '../utils/survey-image-order.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 
 /**
  * 画像が見つからないエラー
@@ -130,14 +131,22 @@ export class ImageMetadataService {
    * @throws {CommentTooLongError} コメントが2000文字を超える場合
    */
   async updateMetadata(imageId: string, input: UpdateImageMetadataInput): Promise<ImageMetadata> {
-    // 画像の存在確認
+    // 画像の存在確認（親の削除状態も同じ問い合わせで取得する）
     const existingImage = await this.prisma.surveyImage.findUnique({
       where: { id: imageId },
+      include: { survey: { select: { deletedAt: true } } },
     });
 
     if (!existingImage) {
       throw new ImageNotFoundError(imageId);
     }
+
+    // 論理削除された現場調査の画像は変更できない（Requirements 1.5 / Task 115.124）
+    assertSurveyNotDeleted(
+      existingImage.survey,
+      existingImage.surveyId,
+      `削除された現場調査の画像は変更できません: ${existingImage.surveyId}`
+    );
 
     // コメントのバリデーション
     if (input.comment !== undefined && input.comment !== null) {
@@ -267,7 +276,7 @@ export class ImageMetadataService {
     const imageIds = inputs.map((input) => input.id);
     const existingImages = await this.prisma.surveyImage.findMany({
       where: { id: { in: imageIds } },
-      select: { id: true },
+      select: { id: true, surveyId: true, survey: { select: { deletedAt: true } } },
     });
 
     const existingIdSet = new Set(existingImages.map((img) => img.id));
@@ -275,6 +284,16 @@ export class ImageMetadataService {
       if (!existingIdSet.has(input.id)) {
         throw new ImageNotFoundError(input.id);
       }
+    }
+
+    // 論理削除された現場調査の画像は一括更新でも変更できない
+    // （Requirements 1.5 / Task 115.124）
+    for (const image of existingImages) {
+      assertSurveyNotDeleted(
+        image.survey,
+        image.surveyId,
+        `削除された現場調査の画像は変更できません: ${image.surveyId}`
+      );
     }
 
     // displayOrder正規化: displayOrderが指定されたものを抽出しソート

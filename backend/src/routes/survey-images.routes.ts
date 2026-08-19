@@ -28,6 +28,11 @@ import { requirePermission } from '../middleware/authorize.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import logger from '../utils/logger.js';
 import { moveToOrphaned } from '../utils/orphaned-object.js';
+import {
+  SurveyDeletedError,
+  assertSurveyNotDeleted,
+  sendSurveyDeletedProblem,
+} from '../utils/survey-deleted-guard.js';
 
 // Services
 import { SiteSurveyService } from '../services/site-survey.service.js';
@@ -663,6 +668,11 @@ router.patch(
         }))
       );
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof MetadataImageNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/image-not-found',
@@ -747,6 +757,11 @@ router.delete(
 
       res.status(204).send();
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof ImageNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/image-not-found',
@@ -854,6 +869,11 @@ router.patch(
         displayOrder: updatedImage.displayOrder,
       });
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof MetadataImageNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/image-not-found',
@@ -955,13 +975,15 @@ router.patch(
       const { imageId } = req.validatedParams as { imageId: string };
       const { imageData } = req.validatedBody as { imageData: string };
 
-      // 画像の存在確認
+      // 画像の存在確認（親の削除状態も同じ問い合わせで取得する）
       // 注意: thumbnailPath は取得しない。本経路は通常サムネイルを読みも書きもしない。
       const image = await prisma.surveyImage.findUnique({
         where: { id: imageId },
         select: {
           id: true,
+          surveyId: true,
           annotatedThumbnailPath: true,
+          survey: { select: { deletedAt: true } },
         },
       });
 
@@ -976,6 +998,13 @@ router.patch(
         });
         return;
       }
+
+      // 論理削除された現場調査の画像は変更できない（Requirements 1.5 / Task 115.124）
+      assertSurveyNotDeleted(
+        image.survey,
+        image.surveyId,
+        `削除された現場調査の画像は変更できません: ${image.surveyId}`
+      );
 
       // ストレージプロバイダーを取得
       const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
@@ -1077,6 +1106,11 @@ router.patch(
         annotatedThumbnailUrl,
       });
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       logger.error({ error }, 'Failed to update annotated thumbnail');
       next(error);
     }
@@ -1142,11 +1176,14 @@ router.delete(
       const { imageId } = req.validatedParams as { imageId: string };
 
       // 注意: thumbnailPath は取得しない。本経路は通常サムネイルを読みも書きもしない。
+      // 親の削除状態は同じ問い合わせで取得する。
       const image = await prisma.surveyImage.findUnique({
         where: { id: imageId },
         select: {
           id: true,
+          surveyId: true,
           annotatedThumbnailPath: true,
+          survey: { select: { deletedAt: true } },
         },
       });
 
@@ -1161,6 +1198,13 @@ router.delete(
         });
         return;
       }
+
+      // 論理削除された現場調査の画像は変更できない（Requirements 1.5 / Task 115.124）
+      assertSurveyNotDeleted(
+        image.survey,
+        image.surveyId,
+        `削除された現場調査の画像は変更できません: ${image.surveyId}`
+      );
 
       const staleAnnotatedThumbnailPath = image.annotatedThumbnailPath;
 
@@ -1208,6 +1252,11 @@ router.delete(
         annotatedThumbnailUrl: null,
       });
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       logger.error({ error }, 'Failed to clear annotated thumbnail');
       next(error);
     }
