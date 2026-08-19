@@ -728,7 +728,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest / utils/sentry モック",
-        "description": "一覧画面・詳細画面の catch 処理が logger.exception 経由で captureException を呼ぶことを、画面の描画経路から確認する（frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx, frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx。タスク 115.84 で結線）",
+        "description": "一覧画面・詳細画面の catch 処理と、画像アップロードの失敗二経路（詳細画面の失敗分岐と ImageUploader の捕捉処理）が logger.exception 経由で captureException を呼ぶことを、画面の描画経路から確認する（frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx, frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx。タスク 115.84 と 115.122 で結線）",
         "threshold": "sentry_log: sent"
       }
     },

@@ -337,3 +337,238 @@ describe('SiteSurveyDetailPage の誤り送出 (Task 115.84, Requirement 16.8)',
     expect(sentry.captureException).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Task 115.122: 画像アップロードの失敗を監視基盤へ送る
+ *
+ * 要件16.8 の「表示するが送らない」状態がアップロード経路に二つ残っていた。
+ * - 詳細画面の失敗分岐: API 層（`uploadSurveyImages`）が集約した失敗の一覧を受け、
+ *   誤りを表示するだけで送出しない。捕捉処理ではないため Task 115.84 の境界外だった。
+ * - 共有部品の捕捉処理: `ImageUploader` の `catch` は誤りを表示し `onError` へ渡すが、
+ *   詳細画面がその口を受け取っていなかったため送出に至らなかった。
+ *
+ * 二経路は独立に検証する。送出内容は許可列挙・識別子・件数に限り、ファイル名や
+ * サーバーの失敗文言（利用者由来の文字列）が混入しないことを否定形でも主張する。
+ */
+describe('画像アップロード失敗の誤り送出 (Task 115.122, Requirement 16.8)', () => {
+  /** 成功したアップロード結果として返す画像（`mockImages` は空でないため添字取得を型で確定させる） */
+  const uploadedImage: SurveyImageInfo = {
+    ...(mockImages[0] as SurveyImageInfo),
+    id: 'img-2',
+    displayOrder: 2,
+  };
+
+  /** ファイル選択を発火し、アップロード呼び出しの完了まで待つ */
+  async function selectFiles(files: File[]): Promise<void> {
+    renderComponent();
+    await waitForLoaded();
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+    Object.defineProperty(fileInput, 'files', { value: files, configurable: true });
+    fireEvent.change(fileInput);
+
+    await waitFor(() => {
+      expect(surveyImagesApi.uploadSurveyImages).toHaveBeenCalled();
+    });
+  }
+
+  /** 監視基盤へ送出された全引数を文字列化する（漏洩検査用） */
+  function serializeCapturedCalls(): string {
+    return vi
+      .mocked(sentry.captureException)
+      .mock.calls.map(([error, context]) => {
+        const err = error as Error;
+        return `${err.name}|${err.message}|${JSON.stringify(context)}`;
+      })
+      .join('\n');
+  }
+
+  // ==========================================================================
+  // 経路1: 詳細画面の失敗分岐（API 層が集約した失敗の一覧）
+  // ==========================================================================
+
+  /**
+   * @requirement site-survey/REQ-16.8
+   */
+  it('個別ファイルの失敗が集約されたとき、表示に加えて監視基盤へ送出する', async () => {
+    const permanentFile = new File(['a'], 'ng-format.jpg', { type: 'image/jpeg' });
+    const retriableFile = new File(['b'], 'ng-server.jpg', { type: 'image/jpeg' });
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+      results: [],
+      errors: [
+        {
+          index: 0,
+          fileName: 'ng-format.jpg',
+          error: 'サポートされていないファイル形式です',
+          file: permanentFile,
+          kind: 'permanent',
+        },
+        {
+          index: 1,
+          fileName: 'ng-server.jpg',
+          error: 'サーバーエラーが発生しました',
+          file: retriableFile,
+          kind: 'retriable',
+        },
+      ],
+    });
+
+    await selectFiles([permanentFile, retriableFile]);
+
+    // 表示（要件16.8 の前半）が従来どおり行われること
+    await waitFor(() => {
+      expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
+    });
+
+    // 送出（要件16.8 の後半）
+    await waitFor(() => {
+      expect(sentry.captureException).toHaveBeenCalledTimes(1);
+    });
+
+    const [sentError, sentContext] = lastCapturedCall();
+    expect(sentError).toBeInstanceOf(Error);
+    expect(sentContext).toEqual({
+      screen: 'SiteSurveyDetailPage',
+      operation: 'uploadSurveyImages',
+      surveyId: 'survey-123',
+      failureScope: 'perFile',
+      failureKinds: 'permanent,retriable',
+      failedCount: 2,
+      succeededCount: 0,
+    });
+  });
+
+  /**
+   * 部分成功でも送出し、成功件数を伴うこと。
+   * @requirement site-survey/REQ-16.8
+   */
+  it('部分成功のときも失敗分を監視基盤へ送出し、件数を伴う', async () => {
+    const failedFile = new File(['a'], 'ng-partial.jpg', { type: 'image/jpeg' });
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+      results: [uploadedImage],
+      errors: [
+        {
+          index: 1,
+          fileName: 'ng-partial.jpg',
+          error: 'サーバーエラーが発生しました',
+          file: failedFile,
+          kind: 'retriable',
+        },
+      ],
+    });
+
+    await selectFiles([failedFile]);
+
+    await waitFor(() => {
+      expect(sentry.captureException).toHaveBeenCalledTimes(1);
+    });
+
+    const [, sentContext] = lastCapturedCall();
+    expect(sentContext).toMatchObject({
+      failureScope: 'perFile',
+      failureKinds: 'retriable',
+      failedCount: 1,
+      succeededCount: 1,
+    });
+  });
+
+  /**
+   * 経路1 の漏洩検査。ファイル名とサーバー文言が送出内容に現れてはならない。
+   * @requirement site-survey/REQ-16.8
+   */
+  it('集約された失敗の送出にファイル名・サーバー文言を含めない', async () => {
+    const secretFile = new File(['a'], 'PRIVATE-USER-PHOTO-9f3a.jpg', { type: 'image/jpeg' });
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+      results: [],
+      errors: [
+        {
+          index: 0,
+          fileName: 'PRIVATE-USER-PHOTO-9f3a.jpg',
+          error: 'SERVER-DETAIL-LEAK-7c21 が原因で保存できません',
+          file: secretFile,
+          kind: 'retriable',
+        },
+      ],
+    });
+
+    await selectFiles([secretFile]);
+
+    await waitFor(() => {
+      expect(sentry.captureException).toHaveBeenCalledTimes(1);
+    });
+
+    const serialized = serializeCapturedCalls();
+    expect(serialized).not.toContain('PRIVATE-USER-PHOTO-9f3a');
+    expect(serialized).not.toContain('SERVER-DETAIL-LEAK-7c21');
+  });
+
+  // ==========================================================================
+  // 経路2: 共有部品（ImageUploader）の捕捉処理
+  // ==========================================================================
+
+  /**
+   * 送信そのものが例外で終わる経路。`ImageUploader` の `catch` が `onError` へ渡し、
+   * 詳細画面がそれを受けて送出する。経路1 の分岐は実行されない。
+   * @requirement site-survey/REQ-16.8
+   */
+  it('送信が例外で終わったとき、共有部品の捕捉処理を経て監視基盤へ送出する', async () => {
+    const failure = new Error('ネットワークに接続できません');
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockRejectedValue(failure);
+
+    await selectFiles([new File(['a'], 'net-fail.jpg', { type: 'image/jpeg' })]);
+
+    await waitFor(() => {
+      expect(sentry.captureException).toHaveBeenCalledTimes(1);
+    });
+
+    const [sentError, sentContext] = lastCapturedCall();
+    expect(sentError).toBe(failure);
+    expect(sentContext).toEqual({
+      screen: 'SiteSurveyDetailPage',
+      operation: 'uploadSurveyImages',
+      surveyId: 'survey-123',
+      failureScope: 'request',
+    });
+  });
+
+  /**
+   * 経路2 の漏洩検査。
+   *
+   * 送出の主題である例外そのものは Task 115.84 と同じくそのまま渡すが、
+   * 付帯情報は許可列挙と識別子に限る。例外の文言が利用者由来の文字列
+   * （ここではファイル名）を含んでいても、それが付帯情報へ写ってはならない。
+   * @requirement site-survey/REQ-16.8
+   */
+  it('例外で終わった送信の付帯情報に試行ファイル名・例外文言を含めない', async () => {
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockRejectedValue(
+      new Error('PRIVATE-CAMERA-ROLL-4e88.jpg の送信中に LEAKED-DETAIL-1b55 で切断されました')
+    );
+
+    await selectFiles([new File(['a'], 'PRIVATE-CAMERA-ROLL-4e88.jpg', { type: 'image/jpeg' })]);
+
+    await waitFor(() => {
+      expect(sentry.captureException).toHaveBeenCalledTimes(1);
+    });
+
+    const [, sentContext] = lastCapturedCall();
+    const serializedContext = JSON.stringify(sentContext);
+    expect(serializedContext).not.toContain('PRIVATE-CAMERA-ROLL-4e88');
+    expect(serializedContext).not.toContain('LEAKED-DETAIL-1b55');
+  });
+
+  /**
+   * 全件成功のときは送出しない（監視のノイズ化を防ぐ）。
+   * @requirement site-survey/REQ-16.8
+   */
+  it('アップロードが全件成功したときは監視基盤へ送出しない', async () => {
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+      results: [uploadedImage],
+      errors: [],
+    });
+
+    await selectFiles([new File(['a'], 'ok.jpg', { type: 'image/jpeg' })]);
+
+    expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+});

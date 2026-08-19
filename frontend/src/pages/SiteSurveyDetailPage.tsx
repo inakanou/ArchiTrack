@@ -62,7 +62,7 @@ import type {
   UpdateImageMetadataInput,
   BatchUpdateImageMetadataInput,
 } from '../types/site-survey.types';
-import type { FailedUpload, UploadOutcome } from '../types/upload.types';
+import type { FailedUpload, UploadFailureKind, UploadOutcome } from '../types/upload.types';
 
 // ============================================================================
 // スタイル定義
@@ -322,13 +322,43 @@ function pruneSelectionToExistingImages(
 function reportCaughtError(
   err: unknown,
   operation: string,
-  context: Record<string, string | undefined>
+  context: Record<string, string | number | undefined>
 ): void {
   logger.exception(err instanceof Error ? err : new Error(String(err)), {
     screen: 'SiteSurveyDetailPage',
     operation,
     ...context,
   });
+}
+
+/**
+ * 画像アップロードの失敗を表す操作名 (Task 115.122, Requirement 16.8)
+ *
+ * アップロードの失敗は二経路（詳細画面の失敗分岐と共有部品の捕捉処理）から
+ * 送出されるため、操作名は共通の定数とし、経路は `failureScope` で区別する。
+ */
+const UPLOAD_FAILURE_OPERATION = 'uploadSurveyImages';
+
+/**
+ * アップロード失敗の発生層を表す許可列挙
+ *
+ * - `perFile`: API 層が集約した個別ファイルの失敗（詳細画面の失敗分岐）
+ * - `request`: 送信そのものが例外で終わった失敗（共有部品の捕捉処理）
+ *
+ * 送出してよい付帯情報は、この許可列挙と識別子・件数に限る。ファイル名や
+ * サーバーの失敗文言など利用者由来の文字列は一切含めない。
+ */
+type UploadFailureScope = 'perFile' | 'request';
+
+/**
+ * 失敗区分の許可列挙を安定した順序の文字列へ畳み込む。
+ *
+ * `UploadFailureKind` は `'retriable' | 'permanent'` の2値のみであり、
+ * 利用者由来の文字列は入り込まない。
+ */
+function summarizeFailureKinds(kinds: readonly UploadFailureKind[]): string {
+  const allowed: readonly UploadFailureKind[] = ['permanent', 'retriable'];
+  return allowed.filter((kind) => kinds.includes(kind)).join(',');
 }
 
 /**
@@ -729,6 +759,20 @@ export default function SiteSurveyDetailPage() {
             // 全件失敗 (Requirement 19.14)
             setError(`全${errorCount}件のアップロードに失敗しました。\n${errorDetails}`);
           }
+
+          // 捕捉した誤りを監視基盤へ送る (Task 115.122, Requirement 16.8)。
+          // ここは捕捉処理ではなく、API 層が集約した失敗の一覧を受けた分岐であるため
+          // Task 115.84 の結線対象から外れており、表示だけで監視へ届いていなかった。
+          // 送出する付帯情報は画面・操作・発生層・失敗区分・件数・調査 ID に限り、
+          // ファイル名やサーバーの失敗文言（利用者由来の文字列）は含めない。
+          const perFileScope: UploadFailureScope = 'perFile';
+          reportCaughtError(new Error('画像アップロードに失敗しました'), UPLOAD_FAILURE_OPERATION, {
+            surveyId: id,
+            failureScope: perFileScope,
+            failureKinds: summarizeFailureKinds(errors.map((err) => err.kind)),
+            failedCount: errorCount,
+            succeededCount: successCount,
+          });
         }
 
         // 失敗した画像を ImageUploader へ返し、未送信画像として保持させる（37.1）。
@@ -745,6 +789,27 @@ export default function SiteSurveyDetailPage() {
         setIsUploading(false);
         setUploadProgress(undefined);
       }
+    },
+    [id]
+  );
+
+  /**
+   * アップロードの送信そのものが例外で終わった場合のハンドラ
+   *
+   * `ImageUploader` の捕捉処理は誤りを表示し `onError` へ渡すだけで送出しない。
+   * この画面がその口を受け取らなければ、通信断・認証切れ・圧縮の例外は監視へ
+   * 届かない (Task 115.122, Requirement 16.8)。
+   *
+   * 付帯情報は許可列挙と識別子に限る。`ImageUploader` から渡るのは `Error` のみで
+   * ファイルは渡らないため、ファイル名が混入する経路は構造上存在しない。
+   */
+  const handleUploadError = useCallback(
+    (uploadError: Error) => {
+      const scope: UploadFailureScope = 'request';
+      reportCaughtError(uploadError, UPLOAD_FAILURE_OPERATION, {
+        surveyId: id,
+        failureScope: scope,
+      });
     },
     [id]
   );
@@ -969,6 +1034,7 @@ export default function SiteSurveyDetailPage() {
             <ImageUploader
               onUpload={handleImageUpload}
               onValidationError={handleValidationError}
+              onError={handleUploadError}
               isUploading={isUploading}
               uploadProgress={uploadProgress}
               compact={true}

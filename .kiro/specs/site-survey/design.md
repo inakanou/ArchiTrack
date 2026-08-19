@@ -281,6 +281,28 @@
 
 **E2E 除外一覧の判断**: `e2e/requirement-exclusions.json` の `site-survey/REQ-16.8` は「エラーログ送信の検証は E2E 範囲外。統合テストで検証」として除外されている。**この除外そのものは維持する**。E2E 環境（フロント :5174 / バックエンド :3100）には `VITE_SENTRY_DSN` が設定されておらず、`utils/sentry.ts` の `captureException` は DSN 未設定時に何も送らずに戻るため、**E2E からは送出を観測できない**（本リポジトリで `SENTRY` を参照する設定は CI の backend 用シークレットのみ。実測）。ただし除外が挙げていた代替検証は `frontend/src/utils/sentry.test.ts`（送出ユーティリティ単体）しか無く、**画面の捕捉処理を一切通っていなかった**ため、除外の記述をタスク 115.84 で結線後の実体へ改めた。代替検証は `frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx` と `frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx` が担い、いずれも `utils/sentry` だけを差し替えて `logger` は本番実装を通し、**画面の描画経路から `captureException` へ到達すること**を検証する。
 
+#### 画像アップロードの失敗経路の監視送出（タスク 115.122）
+
+タスク 115.84 の境界は「画面の誤り捕捉処理」であり、画像アップロードの失敗は**二経路が境界の外に残っていた**。どちらも誤りを表示するだけで監視へ届いていなかった。
+
+| 塞いだ経路 | 元の状態 | 送出の内容 |
+|---|---|---|
+| `SiteSurveyDetailPage` の `handleImageUpload` の失敗分岐（`frontend/src/pages/SiteSurveyDetailPage.tsx`） | `uploadSurveyImages`（`frontend/src/api/survey-images.ts`）が集約した失敗の一覧を受け、`setError` で通知するだけだった。`catch` ではないためタスク 115.84 の結線対象に入らなかった | `operation: 'uploadSurveyImages'`、`failureScope: 'perFile'`、`surveyId`、`failureKinds`、`failedCount`、`succeededCount` |
+| `ImageUploader` の `submitFiles` の捕捉処理（`frontend/src/components/site-surveys/ImageUploader.tsx`） | `catch` は `setUploadError` と `onError` の呼び出しを行うが、**詳細画面が `onError` を渡していなかった**ため送出に至らなかった | `operation: 'uploadSurveyImages'`、`failureScope: 'request'`、`surveyId` |
+
+**結線にあたって定めた挙動**（タスク 115.84 で定めた挙動を引き継ぎ、アップロード特有の点だけを足す）:
+
+- **送出の呼び先は同じ `reportCaughtError`（`logger.exception` 経由）とする。** 新たな送出ラッパを設けない
+- **二経路は `failureScope` の許可列挙で区別する。** `perFile` は API 層が集約した個別ファイルの失敗、`request` は送信そのものが例外で終わった失敗を表す。操作名は共通の `uploadSurveyImages` とし、経路の別は列挙値だけで表す
+- **付帯情報は許可列挙・識別子・件数に限る。** `failureKinds` は `frontend/src/types/upload.types.ts` の `UploadFailureKind`（`permanent` / `retriable` の2値）だけを安定順で畳み込んだ文字列であり、**ファイル名やサーバーが返した失敗文言は一切含めない**。表示用の文言（`errorDetails`）はファイル名を含むため、送出側では組み立て直さず、件数と区分だけを送る
+- **`perFile` 経路が送る例外は固定文言の `Error` とする。** 集約された失敗には単一の例外が存在せず、サーバー文言を連結すると利用者由来の文字列が混入するため、文言を固定して内訳は付帯情報側で表す
+- **`request` 経路には共有部品からファイルが渡らない。** `ImageUploader` の `onError` の引数は `Error` だけであり、ファイル名が混入する経路は構造上存在しない
+- **全件成功のときは送らない。** タスク 115.84 と同じくノイズ化を避ける
+
+**代替検証**: `frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx` の「画像アップロード失敗の誤り送出（タスク 115.122, Requirement 16.8）」が二経路を独立に検証し、あわせて**ファイル名・サーバー文言・例外文言が付帯情報へ現れないこと**を否定形で主張する。
+
+**充足の判断は保留する**: 本タスクで塞いだのはコード上の結線であって、送出の宛先（`VITE_SENTRY_DSN`）はリポジトリのどの環境設定にも無い。`utils/sentry.ts` の `captureException` は宛先未設定なら何もせずに戻るため、**現状の全ビルドで実効は生じない**。宛先の決着はタスク 115.123 の所管であり、それまで要件16.8 を「満たしている」とは記述しない。
+
 #### 参照されないまとめ出力と検証専用の判定の撤去（タスク 115.85）
 
 タスク 115.64 は「撤去した部品の再エクスポート行だけを除き、まとめ出力そのものは撤去範囲を超える」として存置していた。タスク 115.85 で、現場調査のまとめ出力と、本番から呼ばれない誤り応答の判定を撤去した。
