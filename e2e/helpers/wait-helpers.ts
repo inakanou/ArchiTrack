@@ -396,3 +396,34 @@ export async function waitForAuthRedirect(
   // ネットワークアイドルを待機
   await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 }
+
+/**
+ * 指定した待機時間の内に要素が表示されるかを待ち、真偽で返す
+ *
+ * `locator.isVisible()` へ渡した待機時間の指定は Playwright に無視され、
+ * 呼び出した瞬間の状態が即時に返る。描画が間に合わなければ必ず false になり、
+ * その結果で分岐すると検証そのものが飛ぶ。本補助は `waitFor({ state: 'visible' })`
+ * を用いるため、**指定した待機時間が実際に効く**。
+ *
+ * 表示された時点で直ちに解決するため、要素が現れる場合の所要時間は増えない。
+ * 現れない場合は `timeout` を待ち切ってから false を返すため、
+ * 「無いことを確かめる」用途に長い待機を与えてはならない。
+ *
+ * 待機切れ以外の失敗（strict mode 違反、ページ切断など）は握り潰さずに送出する。
+ * 偽の false を返すことは、この補助が解消しようとしている欠陥そのものであるため。
+ *
+ * @param locator - 判定対象の要素ロケーター
+ * @param timeout - 待機時間（ミリ秒）。CI 環境で伸ばす場合は `getTimeout()` を通すこと
+ * @returns 待機時間内に表示されれば true、待機切れなら false
+ */
+export async function isVisibleWithin(locator: Locator, timeout: number): Promise<boolean> {
+  try {
+    await locator.waitFor({ state: 'visible', timeout });
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      return false;
+    }
+    throw error;
+  }
+}

@@ -12,7 +12,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
@@ -114,7 +114,7 @@ test.describe('現場調査CRUD操作', () => {
       // 現場調査セクション内の「すべて見る」リンクを取得
       const siteSurveySection = page.getByLabel('現場調査', { exact: true });
       const viewAllLink = siteSurveySection.getByRole('link', { name: /すべて見る/i });
-      const viewAllLinkVisible = await viewAllLink.isVisible({ timeout: 3000 }).catch(() => false);
+      const viewAllLinkVisible = await isVisibleWithin(viewAllLink, 3000);
       if (viewAllLinkVisible) {
         await viewAllLink.click();
       } else {
@@ -271,7 +271,7 @@ test.describe('現場調査CRUD操作', () => {
       const errorMessage = page.getByText(
         /プロジェクトが見つかりません|プロジェクトが存在しません|404|Not Found|エラー/i
       );
-      const errorVisible = await errorMessage.isVisible({ timeout: getTimeout(10000) });
+      const errorVisible = await isVisibleWithin(errorMessage, getTimeout(10000));
 
       // フォームが表示されていないことも確認（フォームが表示されていたら作成できてしまう可能性がある）
       if (!errorVisible) {
@@ -614,7 +614,7 @@ test.describe('現場調査CRUD操作', () => {
       const errorMessage = page.getByText(
         /プロジェクトが見つかりません|not found|404|存在しません/i
       );
-      const hasError = await errorMessage.isVisible({ timeout: getTimeout(5000) });
+      const hasError = await isVisibleWithin(errorMessage, getTimeout(5000));
       const isRedirected =
         page.url().includes('/404') ||
         page.url().includes('/projects') ||

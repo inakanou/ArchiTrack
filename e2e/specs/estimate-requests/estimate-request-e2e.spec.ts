@@ -20,7 +20,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -3421,7 +3421,7 @@ test.describe('見積依頼機能', () => {
       // 「内訳書を本文に含める」チェックボックスが非表示（Req 39.8）
       // 見積依頼文パネルを開いてもチェックボックスが現れないことを確認
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
-      if (await showTextButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+      if (await isVisibleWithin(showTextButton, getTimeout(3000))) {
         await showTextButton.click();
         // パネル展開後も「内訳書を本文に含める」は非表示
         await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({

@@ -10,7 +10,7 @@
 
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
@@ -183,7 +183,7 @@ test.describe('現場調査注釈エディタ', () => {
       .locator('[data-testid="survey-image"], .survey-image img, .image-item')
       .first();
 
-    const imageVisible = await imageElement.isVisible({ timeout: 3000 });
+    const imageVisible = await isVisibleWithin(imageElement, 3000);
     if (!imageVisible) {
       // 画像がない場合は詳細ページが表示されていることを確認
       // 「画像一覧」または「画像がありません」のテキストで確認
@@ -207,8 +207,8 @@ test.describe('現場調査注釈エディタ', () => {
 
     // ツールバーまたは編集モードボタンが表示されることを確認
     const editButton = page.getByRole('button', { name: /編集|注釈|描画/i });
-    const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
-    const hasEditButton = await editButton.isVisible({ timeout: 5000 });
+    const hasToolbar = await isVisibleWithin(toolbar, 5000);
+    const hasEditButton = await isVisibleWithin(editButton, 5000);
 
     expect(hasToolbar || hasEditButton).toBeTruthy();
   });
@@ -227,7 +227,7 @@ test.describe('現場調査注釈エディタ', () => {
       .locator('[data-testid="survey-image"], .survey-image img, .image-item')
       .first();
 
-    const imageVisibleForTools = await imageElement.isVisible({ timeout: 3000 });
+    const imageVisibleForTools = await isVisibleWithin(imageElement, 3000);
     if (!imageVisibleForTools) {
       // 画像がない場合は詳細ページが表示されていることを確認
       const noImageText = page.getByText(/画像がありません|画像一覧/i);
@@ -243,7 +243,7 @@ test.describe('現場調査注釈エディタ', () => {
 
     // 編集モードに入る（必要な場合）
     const editModeButton = page.getByRole('button', { name: /編集モード|編集開始/i });
-    const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
+    const editModeVisible = await isVisibleWithin(editModeButton, 3000);
     if (editModeVisible) {
       await editModeButton.click();
     }
@@ -262,7 +262,7 @@ test.describe('現場調査注釈エディタ', () => {
     // 少なくとも一つのツールボタンが表示されることを確認
     let hasAtLeastOneTool = false;
     for (const button of toolButtons) {
-      const buttonVisible = await button.isVisible({ timeout: 2000 });
+      const buttonVisible = await isVisibleWithin(button, 2000);
       if (buttonVisible) {
         hasAtLeastOneTool = true;
         // ツールを選択してアクティブになることを確認
@@ -304,8 +304,8 @@ test.describe('現場調査注釈エディタ', () => {
     const pdfButton = page.getByRole('button', { name: /PDF|報告書|エクスポート/i }).first();
     const pdfLink = page.getByRole('link', { name: /PDF|報告書|エクスポート/i }).first();
 
-    const hasPdfButton = await pdfButton.isVisible({ timeout: 5000 });
-    const hasPdfLink = await pdfLink.isVisible({ timeout: 2000 });
+    const hasPdfButton = await isVisibleWithin(pdfButton, 5000);
+    const hasPdfLink = await isVisibleWithin(pdfLink, 2000);
 
     // PDF出力機能が存在することを確認
     expect(hasPdfButton || hasPdfLink).toBeTruthy();
@@ -331,7 +331,7 @@ test.describe('現場調査注釈エディタ', () => {
 
     // 画像がない場合はエラーメッセージが表示される可能性あり
     const noPhotoError = page.getByText(/報告書出力対象の写真がありません/i);
-    const noPhotoErrorVisible = await noPhotoError.isVisible({ timeout: 3000 });
+    const noPhotoErrorVisible = await isVisibleWithin(noPhotoError, 3000);
     if (noPhotoErrorVisible) {
       // 画像がない場合のエラーメッセージが表示されることを確認
       await expect(noPhotoError).toBeVisible();
@@ -351,7 +351,7 @@ test.describe('現場調査注釈エディタ', () => {
       // ダウンロードではなく、新しいタブで開く場合もある
       // その場合はPDF生成中の表示を確認
       const generatingMessage = page.getByText(/生成中|作成中|処理中/i);
-      const generatingVisible = await generatingMessage.isVisible({ timeout: 5000 });
+      const generatingVisible = await isVisibleWithin(generatingMessage, 5000);
       if (generatingVisible) {
         // 生成完了を待機
         await expect(generatingMessage).not.toBeVisible({ timeout: getTimeout(60000) });
@@ -378,7 +378,7 @@ test.describe('現場調査注釈エディタ', () => {
 
     // 画像がない場合はエラーメッセージが表示される可能性あり
     const noPhotoError = page.getByText(/報告書出力対象の写真がありません/i);
-    const noPhotoErrorVisible = await noPhotoError.isVisible({ timeout: 3000 });
+    const noPhotoErrorVisible = await isVisibleWithin(noPhotoError, 3000);
     if (noPhotoErrorVisible) {
       // 画像がない場合のエラーメッセージが表示されることを確認
       await expect(noPhotoError).toBeVisible();
@@ -391,8 +391,8 @@ test.describe('現場調査注釈エディタ', () => {
     );
     const loadingText = page.getByText(/生成中|作成中|処理中|ダウンロード中/i);
 
-    const hasProgress = await progressIndicator.isVisible({ timeout: 5000 });
-    const hasLoadingText = await loadingText.isVisible({ timeout: 5000 });
+    const hasProgress = await isVisibleWithin(progressIndicator, 5000);
+    const hasLoadingText = await isVisibleWithin(loadingText, 5000);
 
     // 進捗表示がある場合は完了を待機
     if (hasProgress || hasLoadingText) {

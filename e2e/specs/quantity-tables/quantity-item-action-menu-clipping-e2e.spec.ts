@@ -43,7 +43,7 @@
 
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -770,12 +770,12 @@ test.describe('REQ-46: 数量項目アクションメニューが表示領域に
       await page.waitForLoadState('networkidle');
 
       const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-      if (await deleteButton.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
         await deleteButton.click();
         const confirmButton = page
           .getByTestId('focus-manager-overlay')
           .getByRole('button', { name: /^削除$/i });
-        if (await confirmButton.isVisible({ timeout: getTimeout(5000) })) {
+        if (await isVisibleWithin(confirmButton, getTimeout(5000))) {
           await confirmButton.click();
           await page.waitForLoadState('networkidle');
         }

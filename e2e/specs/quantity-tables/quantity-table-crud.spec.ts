@@ -32,7 +32,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
@@ -316,7 +316,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 数量表新規作成画面またはダイアログに遷移/表示されることを確認（必須）
       const dialog = page.getByRole('dialog');
-      const isDialogVisible = await dialog.isVisible({ timeout: 3000 });
+      const isDialogVisible = await isVisibleWithin(dialog, 3000);
 
       if (isDialogVisible) {
         // ダイアログ形式の場合、名称入力欄が表示される
@@ -356,8 +356,8 @@ test.describe('数量表CRUD操作', () => {
       const createButton = quantityTableSection.getByRole('button', { name: /新規作成|追加/ });
 
       // 新規作成リンクまたはボタンのいずれかが表示されることを確認（必須）
-      const hasLink = await createLink.isVisible({ timeout: 3000 });
-      const hasButton = await createButton.isVisible({ timeout: 1000 });
+      const hasLink = await isVisibleWithin(createLink, 3000);
+      const hasButton = await isVisibleWithin(createButton, 1000);
 
       expect(hasLink || hasButton).toBeTruthy();
 
@@ -369,7 +369,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 新規作成ダイアログまたはページが表示される
       const dialog = page.getByRole('dialog');
-      const isDialogVisible = await dialog.isVisible({ timeout: 3000 });
+      const isDialogVisible = await isVisibleWithin(dialog, 3000);
 
       if (isDialogVisible) {
         // ダイアログが表示された場合 - REQ-2.1
@@ -680,9 +680,9 @@ test.describe('数量表CRUD操作', () => {
       const table = page.getByRole('table');
       const emptyState = page.getByText(/グループがありません/);
 
-      const hasGroupSection = await groupSection.isVisible({ timeout: 5000 });
-      const hasTable = await table.isVisible({ timeout: 3000 });
-      const hasEmptyState = await emptyState.isVisible({ timeout: 3000 });
+      const hasGroupSection = await isVisibleWithin(groupSection, 5000);
+      const hasTable = await isVisibleWithin(table, 3000);
+      const hasEmptyState = await isVisibleWithin(emptyState, 3000);
 
       // いずれかが表示されている必要がある（必須検証）
       expect(hasGroupSection || hasTable || hasEmptyState).toBeTruthy();
@@ -1158,9 +1158,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 折りたたみボタンを取得
       const toggleButton = firstGroup.getByRole('button', { name: /グループを折りたたむ/ });
-      const isToggleButtonVisible = await toggleButton
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+      const isToggleButtonVisible = await isVisibleWithin(toggleButton, 3000);
 
       if (!isToggleButtonVisible) {
         throw new Error(
@@ -1389,7 +1387,7 @@ test.describe('数量表CRUD操作', () => {
       const majorCategoryInput = page.getByLabel(/大項目/).first();
       const majorCategoryCell = itemRow.getByRole('cell').first();
 
-      const hasInput = await majorCategoryInput.isVisible({ timeout: 2000 }).catch(() => false);
+      const hasInput = await isVisibleWithin(majorCategoryInput, 2000);
 
       if (hasInput) {
         // 編集可能な入力フィールドがある場合
@@ -1433,7 +1431,7 @@ test.describe('数量表CRUD操作', () => {
       // 確認ダイアログが表示されれば確認ボタンをクリック
       // 注意: ダイアログ内のボタンのみを探す（行の削除ボタンと混同しないため）
       const confirmDialog = page.getByRole('dialog');
-      const hasDialog = await confirmDialog.isVisible({ timeout: 2000 });
+      const hasDialog = await isVisibleWithin(confirmDialog, 2000);
       if (hasDialog) {
         const confirmButton = confirmDialog.getByRole('button', { name: /^削除$|確認|はい/ });
         await confirmButton.click();
@@ -1460,7 +1458,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
       // エラーアラートが表示されている場合は、ページをリロードしてリセット
       const errorAlert = page.getByRole('alert').first();
-      if (await errorAlert.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await isVisibleWithin(errorAlert, 1000)) {
         await page.reload();
         await page.waitForLoadState('networkidle');
       }
@@ -1509,14 +1507,13 @@ test.describe('数量表CRUD操作', () => {
 
       // 必須フィールドが空になったため、エラーメッセージまたはハイライト表示が行われることを確認
       // REQ-5.3: 該当フィールドをハイライトし、エラーメッセージを表示する
-      const errorMessage = lastItemRow.getByText(/名称は必須です|必須/i);
+      // 名称欄の必須エラーだけを指す（`/必須/` では同じ行の工種・単位のエラーにも一致し、
+      // strict mode 違反で判定そのものが成立しなかった）
+      const errorMessage = lastItemRow.getByText('名称は必須です');
       const errorField = lastItemRow.locator('[aria-invalid="true"]');
 
-      const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasErrorField = await errorField
-        .first()
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+      const hasErrorMessage = await isVisibleWithin(errorMessage, 5000);
+      const hasErrorField = await isVisibleWithin(errorField.first(), 3000);
 
       // エラー表示が行われること（必須）
       expect(hasErrorMessage || hasErrorField).toBeTruthy();
@@ -1580,12 +1577,8 @@ test.describe('数量表CRUD操作', () => {
       const calculationMethodDisplay = firstItemRow.locator('[data-field="calculationMethod"]');
 
       // 計算方法フィールドが表示されている場合、値を確認
-      const hasSelect = await calculationMethodSelect
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-      const hasDisplay = await calculationMethodDisplay
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
+      const hasSelect = await isVisibleWithin(calculationMethodSelect, 2000);
+      const hasDisplay = await isVisibleWithin(calculationMethodDisplay, 2000);
 
       if (hasSelect) {
         // セレクトボックスの場合、「標準」を選択
@@ -1607,20 +1600,12 @@ test.describe('数量表CRUD操作', () => {
       const roundingUnitCell = firstItemRow.locator('[data-field="roundingUnit"]');
 
       // 調整係数が非表示であることを確認（必須検証）
-      const hasAdjustmentInput = await adjustmentFactorInput
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-      const hasAdjustmentCell = await adjustmentFactorCell
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
+      const hasAdjustmentInput = await isVisibleWithin(adjustmentFactorInput, 2000);
+      const hasAdjustmentCell = await isVisibleWithin(adjustmentFactorCell, 2000);
 
       // 丸め設定が非表示であることを確認（必須検証）
-      const hasRoundingInput = await roundingUnitInput
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-      const hasRoundingCell = await roundingUnitCell
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
+      const hasRoundingInput = await isVisibleWithin(roundingUnitInput, 2000);
+      const hasRoundingCell = await isVisibleWithin(roundingUnitCell, 2000);
 
       // REQ-5.5: 計算方法が「標準」の場合、両フィールドともメイン行に表示されないこと
       expect(
@@ -1654,7 +1639,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 項目がない場合は先に追加（削除テストの後に項目がない可能性があるため）
       let itemRow = page.getByTestId('quantity-item-row').first();
-      const hasItem = await itemRow.isVisible({ timeout: 2000 });
+      const hasItem = await isVisibleWithin(itemRow, 2000);
       if (!hasItem) {
         // 項目を追加
         const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
@@ -1699,7 +1684,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 項目がない場合は先に追加
       let itemRow = page.getByTestId('quantity-item-row').first();
-      const hasItem = await itemRow.isVisible({ timeout: 2000 });
+      const hasItem = await isVisibleWithin(itemRow, 2000);
       if (!hasItem) {
         const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
         await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
@@ -2470,8 +2455,8 @@ test.describe('数量表CRUD操作', () => {
       // 範囲長またはピッチ長フィールドが表示されることを確認（必須）
       const rangeField = page.getByLabel(/範囲長|range/i).first();
       const pitchField = page.getByLabel(/ピッチ長|pitch/i).first();
-      const hasRangeField = await rangeField.isVisible({ timeout: 3000 });
-      const hasPitchField = await pitchField.isVisible({ timeout: 3000 });
+      const hasRangeField = await isVisibleWithin(rangeField, 3000);
+      const hasPitchField = await isVisibleWithin(pitchField, 3000);
       expect(hasRangeField || hasPitchField).toBeTruthy();
     });
 
@@ -2581,14 +2566,14 @@ test.describe('数量表CRUD操作', () => {
 
       // エラーアラートが表示されている場合は、再試行ボタンをクリックするか再度リロード
       const errorAlert = page.getByRole('alert').first();
-      if (await errorAlert.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await isVisibleWithin(errorAlert, 1000)) {
         const retryButton = page.getByRole('button', { name: /再試行/ });
-        if (await retryButton.isVisible({ timeout: 500 }).catch(() => false)) {
+        if (await isVisibleWithin(retryButton, 500)) {
           await retryButton.click();
           await page.waitForLoadState('networkidle');
         }
         // それでもエラーが表示される場合は再度ページ遷移
-        if (await errorAlert.isVisible({ timeout: 500 }).catch(() => false)) {
+        if (await isVisibleWithin(errorAlert, 500)) {
           await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
           await page.waitForLoadState('networkidle');
         }
@@ -2638,8 +2623,8 @@ test.describe('数量表CRUD操作', () => {
       const warningAlert = page.locator('[role="alert"]').filter({ hasText: /負の値/ });
       const errorField = page.locator('[aria-invalid="true"]');
 
-      const hasWarningAlert = await warningAlert.isVisible({ timeout: 5000 });
-      const hasErrorField = await errorField.first().isVisible({ timeout: 2000 });
+      const hasWarningAlert = await isVisibleWithin(warningAlert, 5000);
+      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
 
       // 警告が表示されること（必須）
       expect(hasWarningAlert || hasErrorField).toBeTruthy();
@@ -2764,16 +2749,16 @@ test.describe('数量表CRUD操作', () => {
       const edge2Field = page.getByLabel(/端長2|edge2/i).first();
       const pitchField = page.getByLabel(/ピッチ長|pitch/i).first();
 
-      if (await rangeField.isVisible({ timeout: 3000 })) {
+      if (await isVisibleWithin(rangeField, 3000)) {
         await rangeField.fill('1000');
       }
-      if (await edge1Field.isVisible({ timeout: 2000 })) {
+      if (await isVisibleWithin(edge1Field, 2000)) {
         await edge1Field.fill('100');
       }
-      if (await edge2Field.isVisible({ timeout: 2000 })) {
+      if (await isVisibleWithin(edge2Field, 2000)) {
         await edge2Field.fill('100');
       }
-      if (await pitchField.isVisible({ timeout: 2000 })) {
+      if (await isVisibleWithin(pitchField, 2000)) {
         await pitchField.fill('200');
         // blurイベントを発火させて計算をトリガー
         await pitchField.blur();
@@ -2818,7 +2803,7 @@ test.describe('数量表CRUD操作', () => {
       // 範囲長のみ入力（他は空のまま）
       const rangeFields = page.getByLabel(/範囲長|range/i);
       const rangeField = rangeFields.nth(1);
-      if (await rangeField.isVisible({ timeout: 3000 })) {
+      if (await isVisibleWithin(rangeField, 3000)) {
         await rangeField.fill('1000');
       }
 
@@ -2966,10 +2951,10 @@ test.describe('数量表CRUD操作', () => {
         const widthField = page.getByLabel(/幅|Width/i).first();
         const depthField = page.getByLabel(/奥行|Depth/i).first();
 
-        if (await widthField.isVisible({ timeout: 1000 }).catch(() => false)) {
+        if (await isVisibleWithin(widthField, 1000)) {
           await widthField.fill('10');
         }
-        if (await depthField.isVisible({ timeout: 1000 }).catch(() => false)) {
+        if (await isVisibleWithin(depthField, 1000)) {
           await depthField.fill('10');
         }
         await page.keyboard.press('Tab');
@@ -3046,8 +3031,8 @@ test.describe('数量表CRUD操作', () => {
       const warningMessage = page.getByText(/0以下|正の値|warning|確認/i);
       const errorField = page.locator('[aria-invalid="true"], .warning, .is-warning');
 
-      const hasWarning = await warningMessage.isVisible({ timeout: 3000 });
-      const hasErrorField = await errorField.first().isVisible({ timeout: 2000 });
+      const hasWarning = await isVisibleWithin(warningMessage, 3000);
+      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
 
       // 警告が表示されること（必須）
       expect(hasWarning || hasErrorField).toBeTruthy();
@@ -3296,7 +3281,7 @@ test.describe('数量表CRUD操作', () => {
 
       // blur前に警告が表示されることを確認（REQ-10.3）
       const warningMessage = page.getByText(/0以下の値は使用できません/);
-      const hasWarning = await warningMessage.isVisible({ timeout: 3000 });
+      const hasWarning = await isVisibleWithin(warningMessage, 3000);
       expect(hasWarning).toBeTruthy();
 
       // blur時にデフォルト値（0.01）に自動補正されることを確認（REQ-10.4）
@@ -3345,14 +3330,8 @@ test.describe('数量表CRUD操作', () => {
       const errorMessage = page.getByText(/数値|数字|入力|error|エラー/i);
       const errorField = page.locator('[aria-invalid="true"], .error, .is-invalid');
 
-      const hasError = await errorMessage
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-      const hasErrorField = await errorField
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
+      const hasError = await isVisibleWithin(errorMessage.first(), 2000);
+      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
       const wasRejected =
         fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
 
@@ -3375,7 +3354,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 新しい項目を追加して初期状態からテスト
       const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/ });
-      if (await addItemButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await isVisibleWithin(addItemButton, 3000)) {
         await addItemButton.click();
         await page.waitForTimeout(500);
       }
@@ -3407,7 +3386,7 @@ test.describe('数量表CRUD操作', () => {
       const lengthFields = page.getByLabel(/長さ|L/i);
       if ((await lengthFields.count()) > 0) {
         const lengthField = lengthFields.first();
-        if (await lengthField.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(lengthField, 2000)) {
           await lengthField.fill('3');
           await page.keyboard.press('Tab');
         }
@@ -3475,7 +3454,7 @@ test.describe('数量表CRUD操作', () => {
       await page.keyboard.press('Tab');
 
       const depthField = page.getByLabel(/奥行き/).first();
-      if (await depthField.isVisible({ timeout: 2000 })) {
+      if (await isVisibleWithin(depthField, 2000)) {
         await depthField.fill('3');
         await page.keyboard.press('Tab');
       }
@@ -3728,7 +3707,7 @@ test.describe('数量表CRUD操作', () => {
       const workTypeField = page.getByRole('combobox', { name: /工種/ }).first();
       const workTypeFieldAlt = page.getByLabel(/工種/).first();
 
-      const targetField = (await workTypeField.isVisible({ timeout: 2000 }))
+      const targetField = (await isVisibleWithin(workTypeField, 2000))
         ? workTypeField
         : workTypeFieldAlt;
       await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
@@ -3768,7 +3747,7 @@ test.describe('数量表CRUD操作', () => {
       const unitField = page.getByRole('combobox', { name: /単位/ }).first();
       const unitFieldAlt = page.getByLabel(/単位/).first();
 
-      const targetField = (await unitField.isVisible({ timeout: 2000 })) ? unitField : unitFieldAlt;
+      const targetField = (await isVisibleWithin(unitField, 2000)) ? unitField : unitFieldAlt;
       await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
 
       // 7文字（半角）の文字列を入力（最大は6文字）
@@ -3961,7 +3940,7 @@ test.describe('数量表CRUD操作', () => {
       // 高さフィールドを取得（通常はオプショナル）
       const heightField = page.getByLabel(/高さ|H/i).first();
 
-      if (await heightField.isVisible({ timeout: 3000 })) {
+      if (await isVisibleWithin(heightField, 3000)) {
         // フィールドをクリア
         await heightField.clear();
         await page.keyboard.press('Tab');
@@ -4007,7 +3986,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 丸め設定フィールドも確認
       const roundingField = page.getByLabel(/丸め設定|rounding/i).first();
-      if (await roundingField.isVisible({ timeout: 2000 })) {
+      if (await isVisibleWithin(roundingField, 2000)) {
         const roundingTextAlign = await roundingField.evaluate((el) => {
           return window.getComputedStyle(el).textAlign;
         });
@@ -4055,14 +4034,8 @@ test.describe('数量表CRUD操作', () => {
       const errorMessage = page.getByText(/範囲|上限|下限|error|エラー/i);
       const errorField = page.locator('[aria-invalid="true"]');
 
-      const hasError = await errorMessage
-        .first()
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-      const hasErrorField = await errorField
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
+      const hasError = await isVisibleWithin(errorMessage.first(), 3000);
+      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
 
       // エラー表示が行われること、または値が範囲内に制限されていること
       const fieldValue = await quantityField.inputValue();
@@ -4148,14 +4121,8 @@ test.describe('数量表CRUD操作', () => {
       const errorMessage = page.getByText(/範囲|正の値|0より大きい|error|エラー/i);
       const errorField = page.locator('[aria-invalid="true"]');
 
-      const hasError = await errorMessage
-        .first()
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-      const hasErrorField = await errorField
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
+      const hasError = await isVisibleWithin(errorMessage.first(), 3000);
+      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
 
       // エラー表示が行われること、または値が範囲内に制限されていること
       const fieldValue = await widthField.inputValue();
@@ -4386,8 +4353,8 @@ test.describe('数量表CRUD操作', () => {
       const errorMessage = page.getByText(/名称は必須です/i).first();
       const errorField = page.locator('[aria-invalid="true"]').first();
 
-      const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasErrorField = await errorField.isVisible({ timeout: 2000 }).catch(() => false);
+      const hasError = await isVisibleWithin(errorMessage, 3000);
+      const hasErrorField = await isVisibleWithin(errorField, 2000);
 
       // バリデーションエラーが表示されること（保存が中断されることを示す）（必須）
       expect(hasError || hasErrorField).toBeTruthy();
@@ -4426,18 +4393,9 @@ test.describe('数量表CRUD操作', () => {
       const errorField = page.locator('[aria-invalid="true"], .error, .is-invalid');
       const warningAlert = page.getByRole('alert');
 
-      const hasError = await errorMessage
-        .first()
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
-      const hasErrorField = await errorField
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-      const hasWarning = await warningAlert
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
+      const hasError = await isVisibleWithin(errorMessage.first(), 3000);
+      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
+      const hasWarning = await isVisibleWithin(warningAlert.first(), 2000);
 
       // エラー表示が行われること（フィールドレベルのバリデーション）
       expect(hasError || hasErrorField || hasWarning).toBeTruthy();
@@ -4479,10 +4437,7 @@ test.describe('数量表CRUD操作', () => {
 
         // 警告メッセージの確認（blur前）
         const warningMessage = page.getByText(/0以下.*使用できません/i);
-        hasWarning = await warningMessage
-          .first()
-          .isVisible({ timeout: 2000 })
-          .catch(() => false);
+        hasWarning = await isVisibleWithin(warningMessage.first(), 2000);
 
         // aria-invalidの確認（blur前）
         hasHighlight = await lastInput
@@ -4566,27 +4521,22 @@ test.describe('数量表CRUD操作', () => {
       // パンくずナビゲーションが表示される（必須）
       // aria-label="breadcrumb" で設定されているnavを検索
       const breadcrumb = page.locator('nav[aria-label="breadcrumb"]');
-      const hasBreadcrumb = await breadcrumb.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasBreadcrumb = await isVisibleWithin(breadcrumb, 5000);
 
       // 代替：getByRoleで検索
       const breadcrumbNav = page.getByRole('navigation', { name: /breadcrumb/i });
-      const hasBreadcrumbNav = await breadcrumbNav.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasBreadcrumbNav = await isVisibleWithin(breadcrumbNav, 3000);
 
       // パンくずナビゲーションが何らかの形で存在することを確認
       expect(hasBreadcrumb || hasBreadcrumbNav).toBeTruthy();
 
       // パンくず内のコンテンツを確認（少なくとも「プロジェクト」と「新規作成」がある）
       if (hasBreadcrumb) {
-        const hasProjectText = await breadcrumb
-          .getByText(/プロジェクト/)
-          .first()
-          .isVisible({ timeout: 2000 })
-          .catch(() => false);
-        const hasNewText = await breadcrumb
-          .getByText(/新規作成/)
-          .first()
-          .isVisible({ timeout: 2000 })
-          .catch(() => false);
+        const hasProjectText = await isVisibleWithin(
+          breadcrumb.getByText(/プロジェクト/).first(),
+          2000
+        );
+        const hasNewText = await isVisibleWithin(breadcrumb.getByText(/新規作成/).first(), 2000);
         expect(hasProjectText || hasNewText).toBeTruthy();
       }
     });
@@ -4637,7 +4587,7 @@ test.describe('数量表CRUD操作', () => {
       // 最後の項目はリンクでないか、aria-current属性を持つ
       const hasAriaCurrent = await lastItem.getAttribute('aria-current');
       const link = lastItem.getByRole('link');
-      const isLink = await link.isVisible({ timeout: 1000 });
+      const isLink = await isVisibleWithin(link, 1000);
 
       // 最後の項目がリンクでない、またはaria-current="page"を持つ（必須）
       expect(!isLink || hasAriaCurrent === 'page').toBeTruthy();
@@ -4710,13 +4660,13 @@ test.describe('数量表CRUD操作', () => {
 
         // 削除ボタンをクリック
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        const hasDeleteButton = await deleteButton.isVisible({ timeout: 5000 });
+        const hasDeleteButton = await isVisibleWithin(deleteButton, 5000);
         if (hasDeleteButton) {
           await deleteButton.click();
           const confirmButton = page
             .getByTestId('focus-manager-overlay')
             .getByRole('button', { name: /^削除$/i });
-          const hasConfirmButton = await confirmButton.isVisible({ timeout: 5000 });
+          const hasConfirmButton = await isVisibleWithin(confirmButton, 5000);
           if (hasConfirmButton) {
             await confirmButton.click();
             await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

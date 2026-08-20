@@ -52,7 +52,7 @@ import { fileURLToPath } from 'url';
 import { test, expect, type Page, type BrowserContext, type CDPSession } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 // ダブルタップ判定の閾値は本番の一元管理された定数を直接参照する。
 // テスト側に数値を複製すると、閾値が変わったときに検証だけが古い前提で緑になる。
@@ -1165,7 +1165,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
         await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -1179,7 +1179,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
         await cleanupPage.goto(`/projects/${createdProjectId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -1750,7 +1750,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
         await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -1764,7 +1764,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
         await cleanupPage.goto(`/projects/${createdProjectId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -2200,7 +2200,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
         await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -2214,7 +2214,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
         await cleanupPage.goto(`/projects/${createdProjectId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')

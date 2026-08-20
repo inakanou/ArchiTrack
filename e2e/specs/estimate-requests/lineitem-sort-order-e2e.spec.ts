@@ -25,7 +25,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
 
@@ -355,7 +355,7 @@ test.describe('受領見積書 明細行の並び順と上下移動（REQ-37 残
       await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(10000) });
       await transcriptionButton.click();
       const confirmButton = page.getByTestId('transcription-confirm-button');
-      if (await confirmButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+      if (await isVisibleWithin(confirmButton, getTimeout(3000))) {
         await confirmButton.click();
       }
       await expect(page.getByTestId('transcription-message')).toBeVisible({

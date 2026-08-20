@@ -13,7 +13,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -31,28 +31,28 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
     await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
     await page.waitForLoadState('networkidle');
     const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
-    return await editArea.isVisible({ timeout: getTimeout(10000) }).catch(() => false);
+    return await isVisibleWithin(editArea, getTimeout(10000));
   }
 
   await page.goto('/projects');
   await page.waitForLoadState('networkidle');
 
   const projectCard = page.locator('[data-testid="project-card"]').first();
-  if (!(await projectCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(projectCard, getTimeout(5000)))) {
     return false;
   }
   await projectCard.click();
   await page.waitForLoadState('networkidle');
 
   const quantityTableLink = page.getByText('すべて見る').first();
-  if (!(await quantityTableLink.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(quantityTableLink, getTimeout(5000)))) {
     return false;
   }
   await quantityTableLink.click();
   await page.waitForLoadState('networkidle');
 
   const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-  if (!(await tableCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(tableCard, getTimeout(5000)))) {
     return false;
   }
   await tableCard.click();
@@ -66,7 +66,7 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
  */
 async function getFirstGroupCard(page: Page) {
   const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-  if (await groupCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+  if (await isVisibleWithin(groupCard, getTimeout(5000))) {
     return groupCard;
   }
   return null;
@@ -224,7 +224,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
     if (originalName && originalName !== newName) {
       await updatedHeading.click();
       const restoreInput = groupCard.getByLabel('グループ名を編集');
-      if (await restoreInput.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+      if (await isVisibleWithin(restoreInput, getTimeout(3000))) {
         await restoreInput.fill(originalName);
         await restoreInput.press('Enter');
       }

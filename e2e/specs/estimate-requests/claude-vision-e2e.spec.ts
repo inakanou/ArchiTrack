@@ -17,7 +17,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -26,7 +26,7 @@ import { API_BASE_URL } from '../../config';
 async function openReceivedQuotationForm(page: import('@playwright/test').Page) {
   // フォームが開いている場合は一度閉じる
   const cancelButton = page.getByRole('button', { name: /^キャンセル$/i });
-  if (await cancelButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+  if (await isVisibleWithin(cancelButton, 1000)) {
     await cancelButton.click();
     await page.waitForTimeout(500);
   }

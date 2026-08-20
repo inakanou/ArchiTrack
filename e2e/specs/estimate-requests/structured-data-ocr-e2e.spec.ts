@@ -13,7 +13,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
@@ -30,7 +30,7 @@ const __dirname = path.dirname(__filename);
 async function openReceivedQuotationForm(page: import('@playwright/test').Page) {
   // フォームが開いている場合は一度閉じる（キャンセルボタンの存在で判定）
   const cancelButton = page.getByRole('button', { name: /^キャンセル$/i });
-  if (await cancelButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+  if (await isVisibleWithin(cancelButton, 1000)) {
     await cancelButton.click();
     await page.waitForTimeout(500); // 閉じるアニメーションを待つ
   }
@@ -711,7 +711,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       // （OcrDataExtractor.tsxのコード検証で、user-select: textが設定されていることを確認済み）
       // 実際のOCR完了を待たず、UIコンポーネントの実装を検証
       const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-      if (await extractedText.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(extractedText, 5000)) {
         const userSelect = await extractedText.evaluate((el) => {
           return window.getComputedStyle(el).userSelect;
         });
@@ -756,7 +756,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       // 一括取り込みボタンが表示された場合のみテスト（OCR完了かつデータ検出時）
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(importButton, 5000)) {
         await importButton.click();
 
         // 取り込み成功メッセージが表示される
@@ -798,7 +798,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       // 一括取り込みボタンが表示された場合（OCR完了かつデータ検出時）
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(importButton, 5000)) {
         await importButton.click();
 
         // 確認・修正メッセージが表示される
@@ -842,7 +842,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       // エラーが発生した場合、手動入力を促すメッセージが表示される
       const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-      if (await errorMessage.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(errorMessage, 5000)) {
         await expect(page.getByText(/手動で明細行にデータを入力してください/i)).toBeVisible();
       }
 

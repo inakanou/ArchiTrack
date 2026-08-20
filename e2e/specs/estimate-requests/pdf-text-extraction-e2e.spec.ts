@@ -21,7 +21,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
@@ -177,7 +177,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // テキスト抽出結果が表示された場合はテキスト内容を確認
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(extractedText, 3000)) {
       // 抽出されたテキストが空でないことを確認（REQ-17.1: getTextContent APIでテキスト抽出）
       const textContent = await extractedText.textContent();
       expect(textContent).toBeTruthy();
@@ -243,7 +243,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // テキスト抽出結果が表示された場合の検証
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(extractedText, 3000)) {
       // テキストが抽出されていることを確認
       const textContent = await extractedText.textContent();
       expect(textContent).toBeTruthy();
@@ -327,8 +327,8 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
 
-    const hasResult = await extractedText.isVisible({ timeout: 3000 }).catch(() => false);
-    const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
+    const hasResult = await isVisibleWithin(extractedText, 3000);
+    const hasError = await isVisibleWithin(errorMessage, 3000);
 
     // いずれかの結果が表示されていることを確認（OCR処理が実行された証拠）
     expect(hasResult || hasError).toBeTruthy();
@@ -377,7 +377,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // 一括取り込みボタンが表示された場合のみ検証（データが検出された場合）
     const importButton = page.locator('[data-testid="ocr-import-button"]');
-    if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await isVisibleWithin(importButton, 5000)) {
       // 一括取り込みボタンをクリック
       await importButton.click();
 
@@ -446,7 +446,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const prevButton = page.getByRole('button', { name: '前へ' });
 
     // ページナビゲーションが表示された場合のみ検証
-    if (await nextButton.isVisible({ timeout: getTimeout(10000) }).catch(() => false)) {
+    if (await isVisibleWithin(nextButton, getTimeout(10000))) {
       // 「ページ 1 / 2」テキストが表示される
       await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
         timeout: getTimeout(5000),
@@ -502,7 +502,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // フォームが開いている場合は閉じる
     const cancelButton = page.getByRole('button', { name: /^キャンセル$/i });
-    if (await cancelButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (await isVisibleWithin(cancelButton, 1000)) {
       await cancelButton.click();
       await page.waitForTimeout(500);
     }
@@ -588,7 +588,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // エラーが発生した場合、タイムアウトエラーメッセージが含まれることを確認
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-    if (await errorMessage.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(errorMessage, 3000)) {
       const errorText = await errorMessage.textContent();
       // タイムアウトエラーの場合、エラーメッセージにタイムアウト関連のテキストが含まれる
       // (実際のエラーメッセージはアプリケーション実装に依存)
@@ -598,7 +598,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     // 正常に抽出完了した場合も、処理が30秒以内に完了していることを間接的に確認
     // （テスト全体が35秒以内に完了していればタイムアウト制御が機能している）
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(extractedText, 3000)) {
       const textContent = await extractedText.textContent();
       expect(textContent).toBeTruthy();
     }

@@ -40,7 +40,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -1471,8 +1471,8 @@ test.describe('現場調査注釈ツール', () => {
       const retryButton = page.getByRole('button', { name: /リトライ|再試行|retry/i });
       const saveButtonAfterError = page.getByRole('button', { name: /保存/i });
 
-      const hasRetryButton = await retryButton.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasSaveButton = await saveButtonAfterError.isVisible({ timeout: 3000 });
+      const hasRetryButton = await isVisibleWithin(retryButton, 3000);
+      const hasSaveButton = await isVisibleWithin(saveButtonAfterError, 3000);
 
       // リトライボタンまたは保存ボタンが利用可能であることを確認
       expect(hasRetryButton || hasSaveButton).toBeTruthy();

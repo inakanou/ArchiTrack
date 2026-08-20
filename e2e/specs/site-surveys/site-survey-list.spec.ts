@@ -11,7 +11,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 test.describe('現場調査一覧・検索', () => {
@@ -136,7 +136,7 @@ test.describe('現場調査一覧・検索', () => {
       const paginationElement = page.locator(
         '[data-testid="pagination"], .pagination, [role="navigation"][aria-label*="ページ"]'
       );
-      const hasPagination = await paginationElement.isVisible({ timeout: 3000 });
+      const hasPagination = await isVisibleWithin(paginationElement, 3000);
 
       // ページネーションがない場合でも、一覧が正常に表示されていればOK
       if (!hasPagination) {
@@ -267,9 +267,9 @@ test.describe('現場調査一覧・検索', () => {
       // ソート項目セレクトを取得（複数ある場合はfirst()）
       const sortSelect = page.getByLabel(/ソート項目/i);
 
-      const hasSortByDate = await sortByDate.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasSortHeader = await sortHeader.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasSortSelect = await sortSelect.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSortByDate = await isVisibleWithin(sortByDate, 3000);
+      const hasSortHeader = await isVisibleWithin(sortHeader, 3000);
+      const hasSortSelect = await isVisibleWithin(sortSelect, 3000);
 
       // 少なくとも1つのソート機能が必須
       expect(hasSortByDate || hasSortHeader || hasSortSelect).toBeTruthy();
@@ -352,8 +352,8 @@ test.describe('現場調査一覧・検索', () => {
         '.thumbnail-placeholder, .no-image, [aria-label*="画像なし"]'
       );
 
-      const hasThumbnail = await thumbnail.first().isVisible({ timeout: 3000 });
-      const hasPlaceholder = await placeholder.first().isVisible({ timeout: 3000 });
+      const hasThumbnail = await isVisibleWithin(thumbnail.first(), 3000);
+      const hasPlaceholder = await isVisibleWithin(placeholder.first(), 3000);
 
       // サムネイル要素かプレースホルダーのどちらかが存在することを確認
       // 画像がない場合はプレースホルダーが表示される

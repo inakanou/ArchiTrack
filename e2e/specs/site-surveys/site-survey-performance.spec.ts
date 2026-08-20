@@ -17,7 +17,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -277,7 +277,7 @@ test.describe('現場調査非機能要件', () => {
       const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
       const errorPage = page.locator('[data-testid="error-page"], .error-container');
 
-      const hasErrorMessage = await errorMessage.isVisible({ timeout: 5000 });
+      const hasErrorMessage = await isVisibleWithin(errorMessage, 5000);
       const hasErrorPage = await errorPage.isVisible();
       const is404Url = page.url().includes('404');
 
@@ -298,7 +298,7 @@ test.describe('現場調査非機能要件', () => {
       // エラーメッセージまたはリダイレクトを確認
       const errorAlert = page.getByRole('alert');
       const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
-      const hasErrorAlert = await errorAlert.isVisible({ timeout: 5000 });
+      const hasErrorAlert = await isVisibleWithin(errorAlert, 5000);
       const hasErrorMessage = await errorMessage.isVisible();
       const isRedirected = !page.url().includes(nonExistentProjectId);
 
@@ -329,7 +329,7 @@ test.describe('現場調査非機能要件', () => {
       const validationError = page.getByText(/必須|入力してください|required/i);
       const formError = page.locator('.error-message, [data-testid="form-error"], [role="alert"]');
 
-      const hasValidationError = await validationError.isVisible({ timeout: getTimeout(5000) });
+      const hasValidationError = await isVisibleWithin(validationError, getTimeout(5000));
       const hasFormError = await formError.isVisible().catch(() => false);
 
       // HTML5 required属性によるネイティブバリデーション検出

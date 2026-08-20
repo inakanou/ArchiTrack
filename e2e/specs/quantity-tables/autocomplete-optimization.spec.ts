@@ -21,7 +21,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import {
   createTestProject,
@@ -188,7 +188,7 @@ test.describe('オートコンプリート最適化', () => {
 
         // 候補リストが表示された場合、候補をクリック
         const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(listbox, 2000)) {
           const option = page.getByRole('option', { name: /建築工事/ });
           if (await option.isVisible()) {
             await option.click();
@@ -230,7 +230,7 @@ test.describe('オートコンプリート最適化', () => {
 
         // 候補リストが表示された場合、キーボード操作を実行
         const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(listbox, 2000)) {
           // 下矢印キーで候補を選択
           await majorCategoryInput.press('ArrowDown');
           await page.waitForTimeout(100);
@@ -304,7 +304,7 @@ test.describe('オートコンプリート最適化', () => {
 
         // 候補リストに追加された値が表示されることを確認
         const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(listbox, 2000)) {
           const addedOption = page.getByRole('option', { name: new RegExp(uniqueValue) });
           if (await addedOption.isVisible()) {
             // 追加された値が候補に表示されている
@@ -362,7 +362,7 @@ test.describe('オートコンプリート最適化', () => {
 
         // 候補リストが表示された場合、ソート順を確認
         const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(listbox, 2000)) {
           const options = page.getByRole('option');
           const optionCount = await options.count();
 
@@ -409,7 +409,7 @@ test.describe('オートコンプリート最適化', () => {
       // 数量表編集画面自体が表示されていることを確認
       // （エラーでもページ全体がクラッシュしないこと）
       const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible({ timeout: getTimeout(10000) })) {
+      if (await isVisibleWithin(addItemButton, getTimeout(10000))) {
         // 項目追加が可能であることを確認
         await addItemButton.click();
         await page.waitForTimeout(500);
@@ -471,7 +471,7 @@ test.describe('オートコンプリート最適化', () => {
 
         // ドロップダウンが表示されることを確認
         const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(listbox, 2000)) {
           const options = page.getByRole('option');
           const optionCount = await options.count();
           // 空のフィールドでも候補が表示されるべき
@@ -513,7 +513,7 @@ test.describe('オートコンプリート最適化', () => {
 
         // フィルタリング済み候補が表示されることを確認
         const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(listbox, 2000)) {
           const option = page.getByRole('option', { name: /フィルタテスト値A/ });
           if (await option.isVisible()) {
             expect(await option.textContent()).toContain('フィルタテスト値A');
@@ -564,7 +564,7 @@ test.describe('オートコンプリート最適化', () => {
 
         // 全候補が表示される
         const listbox = page.getByRole('listbox');
-        if (await listbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (await isVisibleWithin(listbox, 2000)) {
           const initialCount = await page.getByRole('option').count();
 
           // テキスト入力でフィルタリング
@@ -572,7 +572,7 @@ test.describe('オートコンプリート最適化', () => {
           await page.waitForTimeout(200);
 
           // フィルタリング後の候補数が初期より少ないか同じであることを確認
-          if (await listbox.isVisible({ timeout: 1000 }).catch(() => false)) {
+          if (await isVisibleWithin(listbox, 1000)) {
             const filteredCount = await page.getByRole('option').count();
             expect(filteredCount).toBeLessThanOrEqual(initialCount);
           }
@@ -612,7 +612,7 @@ test.describe('オートコンプリート最適化', () => {
 
       for (const pattern of fieldPatterns) {
         const input = page.getByRole('combobox', { name: pattern }).first();
-        if (await input.isVisible({ timeout: 1000 }).catch(() => false)) {
+        if (await isVisibleWithin(input, 1000)) {
           // 候補を追加してからフォーカステスト
           const testValue = `テスト_${pattern.source}`;
           await input.fill(testValue);
@@ -626,7 +626,7 @@ test.describe('オートコンプリート最適化', () => {
 
           // ドロップダウンが表示されるかチェック（候補がある場合のみ）
           const listbox = page.getByRole('listbox');
-          const isListVisible = await listbox.isVisible({ timeout: 1000 }).catch(() => false);
+          const isListVisible = await isVisibleWithin(listbox, 1000);
 
           if (isListVisible) {
             // 候補が存在する場合は表示されていることを確認

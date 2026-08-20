@@ -15,7 +15,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin, waitForLoadingComplete } from '../../helpers/wait-helpers';
 
 /**
  * 取引先エラーハンドリングのE2Eテスト
@@ -371,7 +371,7 @@ test.describe('取引先エラーハンドリング', () => {
 
         let errorFound = false;
         for (const indicator of errorIndicators) {
-          if (await indicator.isVisible({ timeout: 2000 }).catch(() => false)) {
+          if (await isVisibleWithin(indicator, 2000)) {
             errorFound = true;
             break;
           }

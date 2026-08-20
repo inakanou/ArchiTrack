@@ -15,7 +15,7 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの__dirname代替
@@ -168,7 +168,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const surveyTab = page.getByRole('tab', { name: /現場調査/i });
       const surveySection = page.getByRole('heading', { name: '現場調査', exact: true });
 
-      const hasLink = await surveyLink.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasLink = await isVisibleWithin(surveyLink, 5000);
       const hasTab = await surveyTab.isVisible().catch(() => false);
       const hasSection = await surveySection.isVisible().catch(() => false);
 
@@ -344,7 +344,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const breadcrumb = page.getByRole('navigation', { name: /パンくず|breadcrumb/i });
       const projectLink = breadcrumb.getByRole('link', { name: projectName });
 
-      const projectLinkVisible = await projectLink.isVisible({ timeout: 5000 });
+      const projectLinkVisible = await isVisibleWithin(projectLink, 5000);
       if (projectLinkVisible) {
         await projectLink.click();
 

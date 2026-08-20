@@ -7,7 +7,7 @@
 
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { TEST_USERS } from '../../helpers/test-users';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -387,8 +387,8 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       const backLink = page.getByRole('link', { name: /一覧に戻る|プロジェクト一覧/i });
       const retryButton = page.getByRole('button', { name: /再試行/i });
 
-      const hasBackLink = await backLink.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasRetryButton = await retryButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasBackLink = await isVisibleWithin(backLink, 3000);
+      const hasRetryButton = await isVisibleWithin(retryButton, 3000);
 
       // 少なくとも1つのナビゲーション手段があることを確認
       expect(hasBackLink || hasRetryButton).toBeTruthy();

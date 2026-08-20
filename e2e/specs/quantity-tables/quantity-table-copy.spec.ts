@@ -17,7 +17,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -443,18 +443,18 @@ test.describe('数量表コピー機能', () => {
         .getByRole('button', { name: /行追加|項目追加|項目を追加/i })
         .first();
 
-      if (await addItemButton.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(addItemButton, getTimeout(5000))) {
         await addItemButton.click();
         await page.waitForTimeout(1000);
 
         // 追加された項目に値を入力（placeholderで特定）
         const lastWorkTypeInput = page.getByPlaceholder('工種を入力').last();
-        if (await lastWorkTypeInput.isVisible({ timeout: 3000 })) {
+        if (await isVisibleWithin(lastWorkTypeInput, 3000)) {
           await lastWorkTypeInput.fill('独立性テスト工種');
         }
 
         const lastNameInput = page.getByPlaceholder('名称を入力').last();
-        if (await lastNameInput.isVisible({ timeout: 3000 })) {
+        if (await isVisibleWithin(lastNameInput, 3000)) {
           await lastNameInput.fill('独立性テスト名称');
           await lastNameInput.blur();
         }
@@ -527,13 +527,13 @@ test.describe('数量表コピー機能', () => {
 
         // 削除ボタンをクリック
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        const hasDeleteButton = await deleteButton.isVisible({ timeout: 5000 });
+        const hasDeleteButton = await isVisibleWithin(deleteButton, 5000);
         if (hasDeleteButton) {
           await deleteButton.click();
           const confirmButton = page
             .getByTestId('focus-manager-overlay')
             .getByRole('button', { name: /^削除$/i });
-          const hasConfirmButton = await confirmButton.isVisible({ timeout: 5000 });
+          const hasConfirmButton = await isVisibleWithin(confirmButton, 5000);
           if (hasConfirmButton) {
             await confirmButton.click();
             await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

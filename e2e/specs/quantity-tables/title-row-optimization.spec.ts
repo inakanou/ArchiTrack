@@ -15,7 +15,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -326,7 +326,7 @@ test.describe('タイトル行表示最適化', () => {
 
       // グループを折りたたむ
       const toggleButton = page.getByRole('button', { name: /グループを折りたたむ/ }).first();
-      const isToggleVisible = await toggleButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const isToggleVisible = await isVisibleWithin(toggleButton, 3000);
 
       if (!isToggleVisible) {
         throw new Error(
@@ -389,16 +389,14 @@ test.describe('タイトル行表示最適化', () => {
 
       // 削除ボタンがある場合は削除（テストデータのクリーンアップ）
       const deleteButton = page.getByRole('button', { name: /削除/i });
-      const isDeleteVisible = await deleteButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const isDeleteVisible = await isVisibleWithin(deleteButton, 3000);
 
       if (isDeleteVisible) {
         await deleteButton.click();
 
         // 確認ダイアログが表示される場合
         const confirmButton = page.getByRole('button', { name: /確認|はい|削除する/i });
-        const isConfirmVisible = await confirmButton
-          .isVisible({ timeout: 3000 })
-          .catch(() => false);
+        const isConfirmVisible = await isVisibleWithin(confirmButton, 3000);
         if (isConfirmVisible) {
           await confirmButton.click();
         }

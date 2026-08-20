@@ -47,7 +47,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -133,28 +133,28 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
     await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
     await page.waitForLoadState('networkidle');
     const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
-    return await editArea.isVisible({ timeout: getTimeout(10000) }).catch(() => false);
+    return await isVisibleWithin(editArea, getTimeout(10000));
   }
 
   await page.goto('/projects');
   await page.waitForLoadState('networkidle');
 
   const projectCard = page.locator('[data-testid^="project-card-"]').first();
-  if (!(await projectCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(projectCard, getTimeout(5000)))) {
     return false;
   }
   await projectCard.click();
   await page.waitForLoadState('networkidle');
 
   const quantityTableLink = page.getByText('すべて見る').first();
-  if (!(await quantityTableLink.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(quantityTableLink, getTimeout(5000)))) {
     return false;
   }
   await quantityTableLink.click();
   await page.waitForLoadState('networkidle');
 
   const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-  if (!(await tableCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(tableCard, getTimeout(5000)))) {
     return false;
   }
   await tableCard.click();
@@ -168,13 +168,13 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
  */
 async function openImportDialog(page: Page): Promise<boolean> {
   const importButton = page.getByRole('button', { name: 'インポート' }).first();
-  if (!(await importButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(importButton, getTimeout(5000)))) {
     return false;
   }
   await importButton.click();
 
   const dialog = page.getByRole('heading', { name: '数量表インポート' });
-  return await dialog.isVisible({ timeout: getTimeout(5000) }).catch(() => false);
+  return await isVisibleWithin(dialog, getTimeout(5000));
 }
 
 /**
@@ -574,9 +574,7 @@ test.describe('REQ-28: Excelデータパース', () => {
       .waitFor({ state: 'visible', timeout: getTimeout(45000) })
       .then(() => true)
       .catch(() => false);
-    const errorVisible = await errorAlert
-      .isVisible({ timeout: getTimeout(2000) })
-      .catch(() => false);
+    const errorVisible = await isVisibleWithin(errorAlert, getTimeout(2000));
 
     if (previewVisible) {
       // ドロップダウン（マッピング先 select）が存在
@@ -797,7 +795,7 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     // グループ選択 → 最初のグループを選択
     const dialog = page.getByRole('dialog');
     const groupSelector = page.getByRole('heading', { name: '取り込み先グループを選択' });
-    if (!(await groupSelector.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+    if (!(await isVisibleWithin(groupSelector, getTimeout(5000)))) {
       return;
     }
 
@@ -807,10 +805,10 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
       .locator('button')
       .filter({ hasText: /\(\d+項目\)/ })
       .first();
-    if (!(await groupButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false))) {
+    if (!(await isVisibleWithin(groupButton, getTimeout(3000)))) {
       // グループが存在しない場合はキャンセル
       const cancelBtn = dialog.getByRole('button', { name: 'キャンセル' }).last();
-      if (await cancelBtn.isVisible({ timeout: getTimeout(2000) }).catch(() => false)) {
+      if (await isVisibleWithin(cancelBtn, getTimeout(2000))) {
         await cancelBtn.click();
       }
       return;
@@ -912,7 +910,7 @@ test.describe('REQ-42.4/42.6: 一括取り込みのクライアントサイド�
 
     // ダイアログを閉じる
     const closeBtn = dialog.getByRole('button', { name: /閉じる|キャンセル/ }).last();
-    if (await closeBtn.isVisible({ timeout: getTimeout(2000) }).catch(() => false)) {
+    if (await isVisibleWithin(closeBtn, getTimeout(2000))) {
       await closeBtn.click();
     }
 

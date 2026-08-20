@@ -18,7 +18,7 @@
 
 import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import fs from 'fs';
 import path from 'path';
@@ -561,7 +561,7 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 画像があればビューアを開く（PhotoManagementPanel内）
       const imageElement = page.locator('[data-testid="photo-image-button"]').first();
-      const imageVisible = await imageElement.isVisible({ timeout: 3000 });
+      const imageVisible = await isVisibleWithin(imageElement, 3000);
 
       // 画像が存在することを確認（第3原則: 前提条件でテストを除外してはならない）
       if (!imageVisible) {
@@ -625,7 +625,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       const cameraButton = page.getByTestId('camera-button');
       const cameraInput = page.locator('input[accept*="image"][capture]');
 
-      const hasCameraButton = await cameraButton.isVisible({ timeout: getTimeout(3000) });
+      const hasCameraButton = await isVisibleWithin(cameraButton, getTimeout(3000));
       const cameraInputCount = await cameraInput.count();
       const hasCameraInput = cameraInputCount > 0;
 

@@ -20,7 +20,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
 
@@ -211,7 +211,7 @@ test.describe('受領見積書 NET金額自動入力（REQ-34）', () => {
         await transcriptionButton.click();
         // 転記時に既存データの上書き確認ダイアログが出る場合、確定する
         const confirmButton = page.getByTestId('transcription-confirm-button');
-        if (await confirmButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+        if (await isVisibleWithin(confirmButton, getTimeout(3000))) {
           await confirmButton.click();
         }
         // 転記成功メッセージが表示されることを確認
@@ -296,7 +296,7 @@ test.describe('受領見積書 NET金額自動入力（REQ-34）', () => {
       if (await transcriptionButton.isVisible().catch(() => false)) {
         await transcriptionButton.click();
         const confirmButton = page.getByTestId('transcription-confirm-button');
-        if (await confirmButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+        if (await isVisibleWithin(confirmButton, getTimeout(3000))) {
           await confirmButton.click();
         }
         await expect(page.getByTestId('transcription-message')).toBeVisible({

@@ -24,7 +24,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -565,13 +565,13 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        const hasDeleteButton = await deleteButton.isVisible({ timeout: 5000 });
+        const hasDeleteButton = await isVisibleWithin(deleteButton, 5000);
         if (hasDeleteButton) {
           await deleteButton.click();
           const confirmButton = page
             .getByTestId('focus-manager-overlay')
             .getByRole('button', { name: /^削除$/i });
-          const hasConfirmButton = await confirmButton.isVisible({ timeout: 5000 });
+          const hasConfirmButton = await isVisibleWithin(confirmButton, 5000);
           if (hasConfirmButton) {
             await confirmButton.click();
             await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

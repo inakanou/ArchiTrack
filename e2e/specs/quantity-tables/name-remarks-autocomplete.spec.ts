@@ -21,7 +21,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import {
   createTestProject,
@@ -90,7 +90,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
       // 名称フィールドを探す（comboboxロールを持つ）
       const nameField = page.locator('input[id$="-name"][role="combobox"]').first();
-      if (await nameField.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(nameField, getTimeout(5000))) {
         // 名称フィールドにフォーカス
         await nameField.click();
 
@@ -116,7 +116,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
       // 名称フィールドを探す
       const nameField = page.locator('input[id$="-name"][role="combobox"]').first();
-      if (await nameField.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(nameField, getTimeout(5000))) {
         // 名称フィールドに入力
         await nameField.fill('テスト');
         await page.waitForTimeout(300);
@@ -161,7 +161,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
       // 備考フィールドを探す（comboboxロールを持つ）
       const remarksField = page.locator('input[id$="-remarks"][role="combobox"]').first();
-      if (await remarksField.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(remarksField, getTimeout(5000))) {
         // 備考フィールドにフォーカス
         await remarksField.click();
 
@@ -193,7 +193,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
       // 名称フィールドを探す
       const nameField = page.locator('input[id$="-name"][role="combobox"]').first();
-      if (await nameField.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(nameField, getTimeout(5000))) {
         // まず名称を入力して候補を生成
         await nameField.fill('テスト名称');
         await nameField.blur();
@@ -216,7 +216,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
           // ドロップダウンが表示される場合、候補をクリック
           const listbox = page.getByRole('listbox').first();
-          if (await listbox.isVisible({ timeout: 2000 })) {
+          if (await isVisibleWithin(listbox, 2000)) {
             const option = listbox.getByRole('option').first();
             if (await option.isVisible()) {
               const optionText = await option.textContent();
@@ -264,7 +264,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
       for (const suffix of autocompleteFieldSuffixes) {
         const field = page.locator(`input[id$="-${suffix}"][role="combobox"]`).first();
-        if (await field.isVisible({ timeout: getTimeout(3000) })) {
+        if (await isVisibleWithin(field, getTimeout(3000))) {
           // comboboxロールが設定されていることを確認
           const role = await field.getAttribute('role');
           expect(role).toBe('combobox');
@@ -292,10 +292,10 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
       await page.waitForLoadState('networkidle');
 
       const deleteButton = page.getByRole('button', { name: /削除/i });
-      if (await deleteButton.isVisible({ timeout: 3000 })) {
+      if (await isVisibleWithin(deleteButton, 3000)) {
         await deleteButton.click();
         const confirmButton = page.getByRole('button', { name: /削除を確認|はい|OK/i });
-        if (await confirmButton.isVisible({ timeout: 3000 })) {
+        if (await isVisibleWithin(confirmButton, 3000)) {
           await confirmButton.click();
           await page.waitForLoadState('networkidle');
         }

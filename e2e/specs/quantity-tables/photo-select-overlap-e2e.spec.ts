@@ -23,7 +23,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
@@ -104,7 +104,7 @@ async function openPhotoDialog(page: Page): Promise<Locator> {
   const changePhotoButton = page.getByRole('button', { name: '写真を変更' }).first();
   const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
 
-  if (await changePhotoButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+  if (await isVisibleWithin(changePhotoButton, getTimeout(3000))) {
     await changePhotoButton.click();
   } else {
     await expect(placeholder, '写真選択用UIが存在する必要がある').toBeVisible({
@@ -173,7 +173,7 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
       await expect(page.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
       await page.getByLabel(/調査名/i).fill(`REQ39_現場調査_${Date.now()}`);
       const dateInput = page.getByLabel(/調査日/i);
-      if (await dateInput.isVisible({ timeout: getTimeout(2000) }).catch(() => false)) {
+      if (await isVisibleWithin(dateInput, getTimeout(2000))) {
         await dateInput.fill(new Date().toISOString().split('T')[0]!);
       }
 

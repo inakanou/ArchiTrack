@@ -21,7 +21,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
@@ -562,7 +562,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
       // 編集ボタンをクリック（準備3で作成したデータを編集）
       const editButton = page.getByRole('button', { name: /編集/i }).first();
-      if (await editButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+      if (await isVisibleWithin(editButton, getTimeout(5000))) {
         await editButton.click();
 
         // 編集フォームが表示される
@@ -611,7 +611,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
       // 編集ボタンをクリック
       const editButton = page.getByRole('button', { name: /編集/i }).first();
-      if (await editButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+      if (await isVisibleWithin(editButton, getTimeout(5000))) {
         await editButton.click();
 
         // 編集フォームが表示される
@@ -677,7 +677,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
       // 一括取り込みボタンが表示された場合のみ検証
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(importButton, 5000)) {
         // 一括取り込みボタンをクリック
         await importButton.click();
 
@@ -688,7 +688,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
         // 取り込み後の数量フィールドが小数2桁表示であることを確認
         const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        if (await quantityInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await isVisibleWithin(quantityInput, 3000)) {
           const quantityValue = await quantityInput.inputValue();
           if (quantityValue && quantityValue !== '0' && quantityValue !== '') {
             // 数量が小数2桁表示であることを確認
@@ -698,7 +698,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
         // 取り込み後の単価フィールドが整数表示であることを確認
         const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-        if (await unitPriceInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await isVisibleWithin(unitPriceInput, 3000)) {
           const unitPriceValue = await unitPriceInput.inputValue();
           if (unitPriceValue && unitPriceValue !== '0' && unitPriceValue !== '') {
             // 単価が整数表示であることを確認（小数点なし）
@@ -731,21 +731,21 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
         .getByRole('button', { name: /項目選択/i })
         .or(page.getByRole('button', { name: /内訳書から選択/i }));
 
-      if (await itemSelectButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(itemSelectButton, 5000)) {
         // 項目選択ボタンをクリック
         await itemSelectButton.click();
 
         // 項目選択ダイアログ/モーダルが表示される
         const dialog = page.locator('[role="dialog"]').or(page.locator('.modal'));
-        if (await dialog.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await isVisibleWithin(dialog, 5000)) {
           // 最初の項目のチェックボックスをチェック
           const firstCheckbox = dialog.locator('input[type="checkbox"]').first();
-          if (await firstCheckbox.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await isVisibleWithin(firstCheckbox, 3000)) {
             await firstCheckbox.check();
 
             // 選択確定ボタンをクリック
             const confirmButton = dialog.getByRole('button', { name: /選択|確定|適用/i });
-            if (await confirmButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+            if (await isVisibleWithin(confirmButton, 3000)) {
               await confirmButton.click();
             }
           }
@@ -753,7 +753,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
         // 転記後の数量フィールドを確認
         const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        if (await quantityInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await isVisibleWithin(quantityInput, 3000)) {
           const quantityValue = await quantityInput.inputValue();
           if (quantityValue && quantityValue !== '0' && quantityValue !== '') {
             // 数量が小数2桁形式であることを確認
@@ -800,11 +800,12 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       // 金額: 2.50 * 1000 = 2500（カンマ区切り整数表示: 2,500）
       await expect(page.getByText('2,500').first()).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 合計金額エリアを確認
-      // 合計金額テキストが表示されている場合
-      const totalArea = page.locator('[data-testid="total-amount"]').or(page.getByText(/合計/i));
+      // 合計金額エリアを確認（REQ-18.12 の主題は合計金額の表示そのもの）
+      // 見出しの「合計」を含む `.or()` は同一画面で 2 要素に一致し、
+      // strict mode 違反で判定そのものが成立しなかった
+      const totalArea = page.locator('[data-testid="total-amount"]');
 
-      if (await totalArea.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(totalArea, 5000)) {
         // 合計金額が整数表示（小数点なし）であることを確認
         const totalText = await totalArea.textContent();
         if (totalText) {

@@ -13,7 +13,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -31,28 +31,28 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
     await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
     await page.waitForLoadState('networkidle');
     const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
-    return await editArea.isVisible({ timeout: getTimeout(10000) }).catch(() => false);
+    return await isVisibleWithin(editArea, getTimeout(10000));
   }
 
   await page.goto('/projects');
   await page.waitForLoadState('networkidle');
 
   const projectCard = page.locator('[data-testid^="project-card-"]').first();
-  if (!(await projectCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(projectCard, getTimeout(5000)))) {
     return false;
   }
   await projectCard.click();
   await page.waitForLoadState('networkidle');
 
   const quantityTableLink = page.getByText('すべて見る').first();
-  if (!(await quantityTableLink.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(quantityTableLink, getTimeout(5000)))) {
     return false;
   }
   await quantityTableLink.click();
   await page.waitForLoadState('networkidle');
 
   const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-  if (!(await tableCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(tableCard, getTimeout(5000)))) {
     return false;
   }
   await tableCard.click();
@@ -170,7 +170,7 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
 
     // 数量グループカードが少なくとも1つ存在する
     const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-    const hasGroup = await groupCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false);
+    const hasGroup = await isVisibleWithin(groupCard, getTimeout(5000));
 
     if (!hasGroup) {
       // グループがない場合はテストの前提が成立しないが、編集画面の存在は検証する
@@ -182,12 +182,8 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     const commentArea = page.locator('[data-testid="photo-comment-display"]').first();
     const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
 
-    const commentVisible = await commentArea
-      .isVisible({ timeout: getTimeout(3000) })
-      .catch(() => false);
-    const placeholderVisible = await placeholder
-      .isVisible({ timeout: getTimeout(3000) })
-      .catch(() => false);
+    const commentVisible = await isVisibleWithin(commentArea, getTimeout(3000));
+    const placeholderVisible = await isVisibleWithin(placeholder, getTimeout(3000));
 
     expect(
       commentVisible || placeholderVisible,
@@ -206,7 +202,7 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     expect(navigated).toBeTruthy();
 
     const commentArea = page.locator('[data-testid="photo-comment-display"]').first();
-    const visible = await commentArea.isVisible({ timeout: getTimeout(5000) }).catch(() => false);
+    const visible = await isVisibleWithin(commentArea, getTimeout(5000));
 
     if (visible) {
       // コメントエリアと隣接する画像の配置を検証
@@ -214,9 +210,7 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
       // コメントエリアと同一カード内のサムネイル画像
       const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
       const thumbnail = groupCard.locator('img').first();
-      const thumbnailVisible = await thumbnail
-        .isVisible({ timeout: getTimeout(3000) })
-        .catch(() => false);
+      const thumbnailVisible = await isVisibleWithin(thumbnail, getTimeout(3000));
 
       if (thumbnailVisible && commentBox) {
         const thumbnailBox = await thumbnail.boundingBox();
@@ -245,7 +239,7 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     expect(navigated).toBeTruthy();
 
     const commentArea = page.locator('[data-testid="photo-comment-display"]').first();
-    const visible = await commentArea.isVisible({ timeout: getTimeout(5000) }).catch(() => false);
+    const visible = await isVisibleWithin(commentArea, getTimeout(5000));
 
     if (visible) {
       // コメントテキスト（中身）を取得
@@ -274,12 +268,8 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     const changeButton = page.getByRole('button', { name: '写真を変更' }).first();
     const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
 
-    const changeButtonVisible = await changeButton
-      .isVisible({ timeout: getTimeout(3000) })
-      .catch(() => false);
-    const placeholderVisible = await placeholder
-      .isVisible({ timeout: getTimeout(3000) })
-      .catch(() => false);
+    const changeButtonVisible = await isVisibleWithin(changeButton, getTimeout(3000));
+    const placeholderVisible = await isVisibleWithin(placeholder, getTimeout(3000));
 
     if (!changeButtonVisible && !placeholderVisible) {
       await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
@@ -297,14 +287,14 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
 
     // 写真選択を試行
     const photoItem = dialog.locator('[data-testid^="photo-item-"]').first();
-    if (await photoItem.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+    if (await isVisibleWithin(photoItem, getTimeout(5000))) {
       await photoItem.click();
       await page.waitForLoadState('networkidle');
       await expect(dialog).not.toBeVisible({ timeout: getTimeout(10000) });
     } else {
       // 写真がない場合はダイアログを閉じる
       const closeBtn = dialog.getByRole('button', { name: 'ダイアログを閉じる' }).first();
-      if (await closeBtn.isVisible({ timeout: getTimeout(2000) }).catch(() => false)) {
+      if (await isVisibleWithin(closeBtn, getTimeout(2000))) {
         await closeBtn.click();
       } else {
         await page.keyboard.press('Escape');
@@ -317,8 +307,8 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     const placeholderAfter = page.locator('[data-testid^="image-placeholder-"]').first();
 
     const stillThere =
-      (await commentAreaAfter.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) ||
-      (await placeholderAfter.isVisible({ timeout: getTimeout(3000) }).catch(() => false));
+      (await isVisibleWithin(commentAreaAfter, getTimeout(3000))) ||
+      (await isVisibleWithin(placeholderAfter, getTimeout(3000)));
 
     expect(
       stillThere,
@@ -336,7 +326,7 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     expect(navigated).toBeTruthy();
 
     const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-    const hasGroup = await groupCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false);
+    const hasGroup = await isVisibleWithin(groupCard, getTimeout(5000));
 
     if (!hasGroup) {
       await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
@@ -345,21 +335,17 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
 
     // 折りたたみボタンを探してクリック
     const collapseButton = groupCard.getByRole('button', { name: 'グループを折りたたむ' }).first();
-    if (!(await collapseButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false))) {
+    if (!(await isVisibleWithin(collapseButton, getTimeout(3000)))) {
       // 折りたたまれた状態であれば、展開ボタンが表示されている
       const expandButton = groupCard.getByRole('button', { name: 'グループを展開' }).first();
-      const expandVisible = await expandButton
-        .isVisible({ timeout: getTimeout(2000) })
-        .catch(() => false);
+      const expandVisible = await isVisibleWithin(expandButton, getTimeout(2000));
       expect(expandVisible, '折りたたみまたは展開ボタンのいずれかが表示される').toBeTruthy();
       return;
     }
 
     // 折りたたみ前のコメント表示エリアを記録
     const commentArea = groupCard.locator('[data-testid="photo-comment-display"]').first();
-    const commentVisibleBefore = await commentArea
-      .isVisible({ timeout: getTimeout(2000) })
-      .catch(() => false);
+    const commentVisibleBefore = await isVisibleWithin(commentArea, getTimeout(2000));
 
     await collapseButton.click();
 

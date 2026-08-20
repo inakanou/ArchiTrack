@@ -25,7 +25,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
@@ -253,7 +253,7 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // OCR結果が表示された場合、一括取り込みボタンも表示されることを確認
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(extractedText, 3000)) {
       // 抽出テキストが空でないことを確認
       const textContent = await extractedText.textContent();
       expect(textContent).toBeTruthy();
@@ -305,7 +305,7 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // エラーが発生した場合、「OCRリトライ」ボタンが表示されることを確認
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-    if (await errorMessage.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(errorMessage, 3000)) {
       // エラーメッセージが表示されている
       const errorText = await errorMessage.textContent();
       expect(errorText).toBeTruthy();
@@ -359,7 +359,7 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // リトライボタンが表示されている場合のみ検証
     const retryButton = page.getByRole('button', { name: /OCRリトライ/i });
-    if (await retryButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(retryButton, 3000)) {
       // リトライボタンをクリック
       await retryButton.click();
 
@@ -373,7 +373,7 @@ test.describe('OCR再実行・リトライ機能', () => {
     } else {
       // OCRが成功した場合、「OCR実行」ボタンで再実行可能であることを確認
       const reRunButton = page.getByRole('button', { name: /OCR実行/i });
-      if (await reRunButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await isVisibleWithin(reRunButton, 3000)) {
         await reRunButton.click();
 
         await expect(
@@ -474,7 +474,7 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // OCR結果が取得できた場合、抽出テキストが表示されることを確認
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(extractedText, 3000)) {
       const textContent = await extractedText.textContent();
       expect(textContent).toBeTruthy();
       expect(textContent!.length).toBeGreaterThan(0);
@@ -520,7 +520,7 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // OCR結果が取得できた場合、一括取り込みを実行
     const importButton = page.locator('[data-testid="ocr-import-button"]');
-    if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await isVisibleWithin(importButton, 5000)) {
       // 一括取り込みボタンをクリック
       await importButton.click();
 

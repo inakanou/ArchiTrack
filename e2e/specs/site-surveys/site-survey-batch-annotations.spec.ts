@@ -27,7 +27,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -86,7 +86,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     const surveyName = `バッチ注釈テスト調査_${Date.now()}`;
     const nameInput = sharedPage.getByRole('textbox', { name: /調査名|現場調査名/i });
-    if (await nameInput.isVisible({ timeout: getTimeout(5000) })) {
+    if (await isVisibleWithin(nameInput, getTimeout(5000))) {
       await nameInput.clear();
       await nameInput.fill(surveyName);
     }
@@ -177,7 +177,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
 
     // 保存ボタンがあればクリック
     const saveButton = sharedPage.getByRole('button', { name: /保存/i });
-    if (await saveButton.isVisible({ timeout: getTimeout(3000) })) {
+    if (await isVisibleWithin(saveButton, getTimeout(3000))) {
       await saveButton.click();
       await sharedPage.waitForTimeout(getTimeout(2000));
     }

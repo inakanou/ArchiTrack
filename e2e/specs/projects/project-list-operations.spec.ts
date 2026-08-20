@@ -17,7 +17,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
@@ -464,7 +464,7 @@ test.describe('プロジェクト一覧操作', () => {
 
         // プロジェクトが存在するか確認
         const table = page.getByRole('table');
-        const hasProjects = await table.isVisible({ timeout: 5000 }).catch(() => false);
+        const hasProjects = await isVisibleWithin(table, 5000);
 
         if (!hasProjects) {
           // プロジェクトがない場合は作成
@@ -593,10 +593,7 @@ test.describe('プロジェクト一覧操作', () => {
       const sortIconSvg = sortButton.locator('svg');
 
       // SVGアイコンが表示されるまで待機（リレンダリング完了を待つ）
-      const hasSvgIcon = await sortIconSvg
-        .first()
-        .isVisible({ timeout: getTimeout(3000) })
-        .catch(() => false);
+      const hasSvgIcon = await isVisibleWithin(sortIconSvg.first(), getTimeout(3000));
 
       // ボタンのテキストまたはaria属性でソート状態を確認
       const buttonText = await sortButton.textContent();

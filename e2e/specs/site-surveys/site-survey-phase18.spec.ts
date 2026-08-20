@@ -17,7 +17,7 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの__dirname代替
@@ -620,7 +620,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
 
       // 画像をクリックしてビューア/エディタを開く
       const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImages = await imageButton.isVisible({ timeout: 5000 });
+      const hasImages = await isVisibleWithin(imageButton, 5000);
 
       if (!hasImages) {
         // 前のテストで画像が削除された可能性があるため、新しい画像をアップロード

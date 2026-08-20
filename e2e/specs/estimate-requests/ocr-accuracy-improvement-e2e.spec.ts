@@ -28,7 +28,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
@@ -144,8 +144,8 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
 
-    const hasResult = await extractedText.isVisible({ timeout: 3000 }).catch(() => false);
-    const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
+    const hasResult = await isVisibleWithin(extractedText, 3000);
+    const hasError = await isVisibleWithin(errorMessage, 3000);
 
     // OCR処理が実行された証拠（結果またはエラーのいずれか）
     expect(hasResult || hasError).toBeTruthy();
@@ -206,12 +206,12 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
 
     // テキスト抽出が成功した場合のみ一括取り込みテストを実行
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    const hasResult = await extractedText.isVisible({ timeout: 3000 }).catch(() => false);
+    const hasResult = await isVisibleWithin(extractedText, 3000);
 
     if (hasResult) {
       // 一括取り込みボタンが表示された場合
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await isVisibleWithin(importButton, 5000)) {
         // 一括取り込みボタンをクリック
         await importButton.click();
 
@@ -314,7 +314,7 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
 
     // テキスト抽出が成功した場合、テキスト内容を確認
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await isVisibleWithin(extractedText, 3000)) {
       const textContent = await extractedText.textContent();
       // テキストPDFからテキストが正常に抽出されていることを確認
       // 画像前処理パイプラインはスキャンPDFフォールバック時のみ適用されるため、

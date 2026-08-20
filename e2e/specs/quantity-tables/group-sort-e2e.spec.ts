@@ -24,7 +24,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -42,28 +42,28 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
     await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
     await page.waitForLoadState('networkidle');
     const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
-    return await editArea.isVisible({ timeout: getTimeout(10000) }).catch(() => false);
+    return await isVisibleWithin(editArea, getTimeout(10000));
   }
 
   await page.goto('/projects');
   await page.waitForLoadState('networkidle');
 
   const projectCard = page.locator('[data-testid^="project-card-"]').first();
-  if (!(await projectCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(projectCard, getTimeout(5000)))) {
     return false;
   }
   await projectCard.click();
   await page.waitForLoadState('networkidle');
 
   const quantityTableLink = page.getByText('すべて見る').first();
-  if (!(await quantityTableLink.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(quantityTableLink, getTimeout(5000)))) {
     return false;
   }
   await quantityTableLink.click();
   await page.waitForLoadState('networkidle');
 
   const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-  if (!(await tableCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+  if (!(await isVisibleWithin(tableCard, getTimeout(5000)))) {
     return false;
   }
   await tableCard.click();
@@ -271,7 +271,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-      if (!(await groupCard.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+      if (!(await isVisibleWithin(groupCard, getTimeout(5000)))) {
         await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
         return;
       }
@@ -294,7 +294,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const firstGroup = page.locator('[data-testid="quantity-group-card"]').first();
-      if (!(await firstGroup.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+      if (!(await isVisibleWithin(firstGroup, getTimeout(5000)))) {
         await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
         return;
       }
@@ -314,7 +314,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const lastGroup = page.locator('[data-testid="quantity-group-card"]').last();
-      if (!(await lastGroup.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+      if (!(await isVisibleWithin(lastGroup, getTimeout(5000)))) {
         await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
         return;
       }
@@ -341,7 +341,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       if (count < 2) {
         // 並び順変更不可：他の検証として最上位と最下位ボタンの状態を確認するに留める
         const firstGroup = groupCards.first();
-        if (await firstGroup.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+        if (await isVisibleWithin(firstGroup, getTimeout(3000))) {
           const sortButtons = firstGroup.locator('[data-testid="sort-order-buttons"]').first();
           await expect(sortButtons).toBeVisible({ timeout: getTimeout(5000) });
         }
@@ -472,7 +472,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const itemRow = page.locator('[data-testid="quantity-item-row"]').first();
-      if (!(await itemRow.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+      if (!(await isVisibleWithin(itemRow, getTimeout(5000)))) {
         await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
         return;
       }
@@ -500,7 +500,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const itemRow = page.locator('[data-testid="quantity-item-row"]').first();
-      if (!(await itemRow.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
+      if (!(await isVisibleWithin(itemRow, getTimeout(5000)))) {
         await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
         return;
       }

@@ -10,7 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 
@@ -253,12 +253,12 @@ test.describe('顧客選択時の住所自動入力', () => {
 
     // 削除ボタンが存在する場合はクリック
     const deleteButton = page.getByRole('button', { name: /削除/i });
-    if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+    if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
       await deleteButton.click();
 
       // 確認ダイアログで削除を確認
       const confirmButton = page.getByRole('button', { name: /削除する|はい|確認/i });
-      if (await confirmButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+      if (await isVisibleWithin(confirmButton, getTimeout(3000))) {
         await confirmButton.click();
       }
     }
