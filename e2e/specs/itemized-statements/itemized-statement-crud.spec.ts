@@ -2707,8 +2707,7 @@ test.describe('内訳書CRUD操作', () => {
       expect(lines.length).toBeGreaterThan(0);
 
       const headerLine = lines[0];
-      expect(headerLine).toBeTruthy();
-      if (!headerLine) return;
+      assertPresent(headerLine, 'クリップボードのヘッダ行');
 
       const expectedHeaders = ['任意分類', '工種', '名称', '規格', '数量', '単位'];
 

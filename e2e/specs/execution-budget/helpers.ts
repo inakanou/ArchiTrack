@@ -7,7 +7,7 @@
  * @module e2e/specs/execution-budget/helpers
  */
 
-import type { APIRequestContext, Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { API_BASE_URL } from '../../config';
 import { getPrismaClient } from '../../fixtures/database';
 import { appendEstimateItem, buildNewEstimateItemNode } from '../../helpers/estimate-draft';
@@ -299,7 +299,9 @@ export async function getExecutionBudget(
   const res = await request.get(`${API_BASE_URL}/api/projects/${projectId}/execution-budget`, {
     headers: authHeaders(token),
   });
-  if (!res.ok()) return null;
+  // 取得に失敗したまま null を返すと、呼び出し側は「実行予算が無い」と区別できず、
+  // 前提の崩れが後段の別の失敗として現れる。取得できないことをここで失敗させる。
+  expect(res.ok(), `実行予算を取得できなかった (status=${res.status()})`).toBeTruthy();
   return res.json();
 }
 

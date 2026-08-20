@@ -3,6 +3,16 @@
  *
  * Requirements:
  * - REQ-16: 取引先オートコンプリート連携
+ *
+ * ## 「セレクトボックスなら読み飛ばす」分岐を除いたこと（Task 115.127 段4）
+ *
+ * 各テストの先頭に `const isSelect = await input.evaluate((el) => el.tagName === 'SELECT')`
+ * と `if (isSelect) return;` が置かれ、「現在の実装はセレクトボックスのためオートコンプリートは
+ * 未実装」という注記が添えられていた。実装（`frontend/src/components/projects/
+ * TradingPartnerSelect.tsx`）は `<input role="combobox">` であり、`<select>` ではない。
+ * すなわち `isSelect` は常に偽で、分岐は一度も発火していない。
+ * それでも残っていると、実装がセレクトボックスへ退行した瞬間に REQ-16 の検証が
+ * 丸ごと消えて緑になる。前提が崩れたら失敗するよう、分岐そのものを除いた。
  */
 
 import { test, expect } from '@playwright/test';
@@ -41,14 +51,6 @@ test.describe('取引先オートコンプリート連携', () => {
       // 取引先フィールドの検索入力（コンボボックスを明示的に指定）
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // 取引先がセレクトボックスの場合、オートコンプリート検索は別途入力欄が必要
-      // 現在の実装はセレクトボックスのため、オートコンプリート機能は未実装
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        // セレクトボックスの場合はテストをスキップ
-        return;
-      }
-
       await tradingPartnerInput.fill('テスト');
 
       // オートコンプリート候補が表示されることを確認
@@ -69,12 +71,6 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       // コンボボックス（オートコンプリート）の場合
       // まずフィールドをクリックしてオプションを表示
@@ -113,12 +109,6 @@ test.describe('取引先オートコンプリート連携', () => {
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
-
       await tradingPartnerInput.fill('株式会社');
 
       // オートコンプリート候補を確認
@@ -141,12 +131,6 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       // 入力開始
       await tradingPartnerInput.fill('テ');
@@ -172,12 +156,6 @@ test.describe('取引先オートコンプリート連携', () => {
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
-
       await tradingPartnerInput.fill('存在しない取引先XYZ12345');
 
       // オートコンプリートが実装されている場合、該当なしメッセージが表示される
@@ -198,12 +176,6 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       await tradingPartnerInput.fill('株'); // 多くの候補がヒットしそうなキーワード
 
@@ -226,12 +198,6 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // コンボボックスを明示的に指定（listboxと区別するため）
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       await tradingPartnerInput.fill('テスト');
 
@@ -261,12 +227,6 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       await tradingPartnerInput.fill('テスト');
 

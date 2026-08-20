@@ -57,6 +57,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -470,7 +471,9 @@ test.describe('写真枚数によらない画面表示の応答性', () => {
   });
 
   test.afterAll(async ({ browser }) => {
-    if (!createdProjectId) return;
+    // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると「後片付けした」ことになり、
+    // 前提の生成が壊れたことが記録に残らない。前提が崩れた地点で失敗させる。
+    assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
 
     const context = await browser.newContext();
     const page = await context.newPage();

@@ -62,14 +62,19 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
 }
 
 /**
- * 最初の数量グループカードを取得（無ければ null）
+ * 最初の数量グループカードを返す。
+ *
+ * REQ-22 の各検証はグループが 1 件存在することを前提とし、その 1 件は本ファイルの
+ * 事前準備が作成している。表示されない場合は前提の生成が壊れているということであり、
+ * 「無ければ null」を返すと呼び出し側は黙って検証を諦めるほかない。
+ * 前提が崩れた地点で失敗させる。
  */
-async function getFirstGroupCard(page: Page) {
+async function requireFirstGroupCard(page: Page) {
   const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-  if (await isVisibleWithin(groupCard, getTimeout(5000))) {
-    return groupCard;
-  }
-  return null;
+  await expect(groupCard, '前提: 事前準備で作成した数量グループのカード').toBeVisible({
+    timeout: getTimeout(5000),
+  });
+  return groupCard;
 }
 
 test.describe('REQ-22: 数量グループの名前変更', () => {
@@ -173,11 +178,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    const groupCard = await getFirstGroupCard(page);
-    if (!groupCard) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    const groupCard = await requireFirstGroupCard(page);
 
     // グループ名（h3）をクリック
     const groupName = groupCard.locator('h3').first();
@@ -196,11 +197,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    const groupCard = await getFirstGroupCard(page);
-    if (!groupCard) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    const groupCard = await requireFirstGroupCard(page);
 
     const groupName = groupCard.locator('h3').first();
     const originalName = (await groupName.textContent()) ?? '';
@@ -238,11 +235,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    const groupCard = await getFirstGroupCard(page);
-    if (!groupCard) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    const groupCard = await requireFirstGroupCard(page);
 
     const groupName = groupCard.locator('h3').first();
     await groupName.click();
@@ -268,11 +261,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    const groupCard = await getFirstGroupCard(page);
-    if (!groupCard) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    const groupCard = await requireFirstGroupCard(page);
 
     const groupName = groupCard.locator('h3').first();
     await groupName.click();
@@ -296,11 +285,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    const groupCard = await getFirstGroupCard(page);
-    if (!groupCard) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    const groupCard = await requireFirstGroupCard(page);
 
     const groupName = groupCard.locator('h3').first();
     await groupName.click();

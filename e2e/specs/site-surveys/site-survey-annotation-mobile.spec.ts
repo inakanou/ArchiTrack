@@ -58,6 +58,7 @@ import { API_BASE_URL } from '../../config';
 // テスト側に数値を複製すると、閾値が変わったときに検証だけが古い前提で緑になる。
 import { DOUBLE_TAP_MS } from '../../../frontend/src/components/site-surveys/gestures/gesture-thresholds';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1243,8 +1244,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
       const c = globalThis.__fabricCanvas;
       return c ? c.viewportTransform : null;
     });
-    expect(vpt).not.toBeNull();
-    if (!vpt) return;
+    assertPresent(vpt, '編集キャンバスの viewportTransform');
     const zoom = vpt[0] ?? 1;
     const tx = vpt[4] ?? 0;
     const ty = vpt[5] ?? 0;
@@ -1257,8 +1257,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     const expectedTop = (Math.min(relStartY, relEndY) - ty) / zoom;
 
     const last = await readLastObject();
-    expect(last).not.toBeNull();
-    if (!last) return;
+    assertPresent(last, '直近に追加された注釈オブジェクトの保存座標');
     // タッチ模擬の丸めとブラシ閾値を考慮した許容差
     expect(Math.abs(last.left - expectedLeft)).toBeLessThan(20);
     expect(Math.abs(last.top - expectedTop)).toBeLessThan(20);
@@ -1399,8 +1398,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     expect(afterFirst.objectCount).toBe(countStart + 1);
 
     const firstObj = await readLastObject();
-    expect(firstObj).not.toBeNull();
-    if (!firstObj) return;
+    assertPresent(firstObj, '先に配置した四角形注釈の保存座標');
 
     // 別の描画ツール（円）に切替え、既存注釈の上から1本指ドラッグ
     await selectTool(/円/i);
@@ -1419,8 +1417,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
       const first = c.getObjects()[0];
       return first ? { left: first.left ?? 0, top: first.top ?? 0 } : null;
     });
-    expect(firstObjAfter).not.toBeNull();
-    if (!firstObjAfter) return;
+    assertPresent(firstObjAfter, '2本目の描画後の既存注釈の保存座標');
     expect(Math.abs(firstObjAfter.left - firstObj.left)).toBeLessThan(1);
     expect(Math.abs(firstObjAfter.top - firstObj.top)).toBeLessThan(1);
   });
@@ -1599,7 +1596,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
    * upper-canvas の boundingBox から算出する（ズーム/パン/配置に依存しない確実な指当て）。
    * `recalcOffset()` 後に呼ぶこと（box と Fabric `_offset` を一致させるため）。
    */
-  async function objectCenterClient(index: number): Promise<{ x: number; y: number } | null> {
+  async function objectCenterClient(index: number): Promise<{ x: number; y: number }> {
     const box = await getCanvasBox();
     const info = await sharedPage.evaluate((i) => {
       const c = globalThis.__fabricCanvas as unknown as {
@@ -1612,7 +1609,9 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
       const ctr = obj.getCenterPoint();
       return { sx: ctr.x, sy: ctr.y, vpt: c.viewportTransform };
     }, index);
-    if (!info) return null;
+    // 取れなかったまま null を返すと、呼び出し側は指を当てる先が無いことを黙って
+    // 受け入れるほかない（同ファイルの type 指定版は同じ場面で throw している）。
+    assertPresent(info, `${index} 番目の注釈オブジェクトの中心座標`);
     return {
       x: box.x + info.sx * (info.vpt[0] ?? 1) + (info.vpt[4] ?? 0),
       y: box.y + info.sy * (info.vpt[3] ?? 1) + (info.vpt[5] ?? 0),
@@ -1847,8 +1846,6 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     // findTarget が誤判定するため再計算してからテキストの実位置を指す。
     await recalcOffset();
     const textClient = await objectCenterClient(0);
-    expect(textClient).not.toBeNull();
-    if (!textClient) return;
 
     const zoomBefore = (await readProbe()).zoom;
 
@@ -1921,8 +1918,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await oneFingerDrag({ x: cx - 30, y: cy - 25 }, { x: cx + 30, y: cy + 25 });
     expect((await readProbe()).objectCount).toBe(1);
     const before = await readObjectLeftTop(0);
-    expect(before).not.toBeNull();
-    if (!before) return;
+    assertPresent(before, '移動前の四角形注釈の保存座標');
 
     // 選択ツールへ切替え、ズームUIで拡大する（Req 33.12: 拡大状態での選択/移動）
     await selectTool(/選択/i);
@@ -1936,8 +1932,6 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     // 拡大後の四角形の実画面位置を算出してタップ選択する（Req 33.11）
     await recalcOffset();
     const rectClient = await objectCenterClient(0);
-    expect(rectClient).not.toBeNull();
-    if (!rectClient) return;
 
     await tapAt(rectClient.x, rectClient.y);
     await sharedPage.waitForTimeout(100);
@@ -1961,8 +1955,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await sharedPage.waitForTimeout(100);
 
     const after = await readObjectLeftTop(0);
-    expect(after).not.toBeNull();
-    if (!after) return;
+    assertPresent(after, '移動後の四角形注釈の保存座標');
 
     // 画面移動量(px) は scene 移動量 × zoom。指の移動に追従し、かつ倍率を考慮した
     // 移動量になる（拡大中は scene 上の移動量が screen/zoom に縮む）。
@@ -2239,8 +2232,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     await enterEditMode();
 
     const viewport = sharedPage.viewportSize();
-    expect(viewport).not.toBeNull();
-    if (!viewport) return;
+    assertPresent(viewport, 'モバイル幅の検証で用いるビューポートの寸法');
     const screenShort = Math.min(viewport.width, viewport.height);
 
     const workArea = await requireBox('[data-testid="annotation-editor-container"]');

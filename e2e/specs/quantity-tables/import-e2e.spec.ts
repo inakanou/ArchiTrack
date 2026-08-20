@@ -792,12 +792,13 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
 
     await importBtn.click();
 
-    // グループ選択 → 最初のグループを選択
+    // グループ選択 → 最初のグループを選択。
+    // 一括取り込みを押せた以上、グループ選択UIは必ず出る（同ファイルの REQ-31.2 の検証が
+    // 同じことを無条件に主張している）。出なければ取り込みが壊れているということであり、
+    // 黙って戻ると REQ-31.3〜31.9 の検証が丸ごと消える。無条件に主張する。
     const dialog = page.getByRole('dialog');
     const groupSelector = page.getByRole('heading', { name: '取り込み先グループを選択' });
-    if (!(await isVisibleWithin(groupSelector, getTimeout(5000)))) {
-      return;
-    }
+    await expect(groupSelector).toBeVisible({ timeout: getTimeout(5000) });
 
     // 利用可能な最初のグループ選択ボタン（ダイアログ内に限定し、項目数表記 "(N項目)"
     // を含む実グループ選択ボタンのみをマッチさせる）

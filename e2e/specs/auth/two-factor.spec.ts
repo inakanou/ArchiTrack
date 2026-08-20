@@ -1029,9 +1029,14 @@ test.describe('2要素認証機能', () => {
     test('QRコードに適切なalt属性が設定されている', async ({ page }) => {
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
 
-      // APIが失敗したり認証が切れることがあるため、最大3回リトライ
+      // APIが失敗したり認証が切れることがあるため、最大3回リトライ。
+      // 再試行の継続条件はループの見出しに置く（分岐の内側で break すると
+      // 「観測結果で黙って脱出する」形になり、以降の検証が消える経路が生まれる）。
+      // 回数は本体の先頭で減らす。`continue` で減算を飛ばさないためである。
       let retries = 3;
-      while (retries > 0) {
+      let qrVisible = false;
+      while (retries > 0 && !qrVisible) {
+        retries--;
         // まずプロフィールページで認証状態を確認してからセットアップページに遷移
         await page.goto('/profile');
         await page.waitForLoadState('networkidle');
@@ -1065,13 +1070,8 @@ test.describe('2要素認証機能', () => {
           await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
         }
 
-        // QRコードが表示されているか確認
-        const isQrVisible = await qrCode.isVisible();
-        if (isQrVisible) {
-          break;
-        }
-
-        retries--;
+        // QRコードが表示されているか確認（真になれば次の周回へ進まない）
+        qrVisible = await qrCode.isVisible();
       }
 
       // QRコードが必ず表示されていることを検証（要素が見つからない場合はテスト失敗）
@@ -1086,9 +1086,13 @@ test.describe('2要素認証機能', () => {
     test('TOTPコード入力フィールドに適切なARIA属性が設定されている', async ({ page }) => {
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
 
-      // APIが失敗したり認証が切れることがあるため、最大3回リトライ
+      // APIが失敗したり認証が切れることがあるため、最大3回リトライ。
+      // 再試行の継続条件はループの見出しに置く（分岐の内側で break すると
+      // 「観測結果で黙って脱出する」形になり、以降の検証が消える経路が生まれる）。
       let retries = 3;
-      while (retries > 0) {
+      let qrVisible = false;
+      while (retries > 0 && !qrVisible) {
+        retries--;
         await page.goto('/profile/2fa-setup');
         await page.waitForLoadState('networkidle');
 
@@ -1106,13 +1110,8 @@ test.describe('2要素認証機能', () => {
           await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
         }
 
-        // QRコードが表示されているか確認
-        const isQrVisible = await qrCode.isVisible();
-        if (isQrVisible) {
-          break;
-        }
-
-        retries--;
+        // QRコードが表示されているか確認（真になれば次の周回へ進まない）
+        qrVisible = await qrCode.isVisible();
       }
 
       // QRコードが必ず表示されていることを検証（要素が見つからない場合はテスト失敗）

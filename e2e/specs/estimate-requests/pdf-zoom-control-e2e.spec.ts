@@ -238,8 +238,9 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       // 初期スケールは fit-to-width のため最低 50% から開始される可能性を考慮し、
       // 50% → +25% × 10 = 300% 到達できるようループ回数を 12 まで許容する。
       // ZOOM_STEP=0.25, ZOOM_MAX=3.0 のため、最大値に達したらボタンが disabled になる。
-      for (let i = 0; i < 12; i++) {
-        if (await zoomIn.isDisabled()) break;
+      // 上限に達したら押さない。継続条件はループの見出しに置く（分岐の内側で break すると
+      // 「観測結果で黙って脱出する」形になり、以降の検証が消える経路が生まれる）。
+      for (let i = 0; i < 12 && !(await zoomIn.isDisabled()); i++) {
         await zoomIn.click();
       }
       await expect(zoomText).toHaveText('300%');
@@ -262,8 +263,9 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       // 初期スケールは fit-to-width のため最大 300% から開始される可能性を考慮し、
       // 300% → -25% × 10 = 50% 到達できるようループ回数を 12 まで許容する。
       // ZOOM_STEP=0.25, ZOOM_MIN=0.5 のため、最小値に達したらボタンが disabled になる。
-      for (let i = 0; i < 12; i++) {
-        if (await zoomOut.isDisabled()) break;
+      // 下限に達したら押さない。継続条件はループの見出しに置く（分岐の内側で break すると
+      // 「観測結果で黙って脱出する」形になり、以降の検証が消える経路が生まれる）。
+      for (let i = 0; i < 12 && !(await zoomOut.isDisabled()); i++) {
         await zoomOut.click();
       }
       await expect(zoomText).toHaveText('50%');
@@ -286,8 +288,8 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
 
       // 初期スケール（fit-to-width）から十分に拡大してスクロール領域を発生させる
       const zoomIn = page.getByRole('button', { name: '拡大' });
-      for (let i = 0; i < 4; i++) {
-        if (await zoomIn.isDisabled()) break;
+      // 上限に達したら押さない（継続条件はループの見出しに置く）
+      for (let i = 0; i < 4 && !(await zoomIn.isDisabled()); i++) {
         await zoomIn.click();
       }
       // 倍率テキストが何らかの値で表示され続けていることを確認（REQ-31.7）

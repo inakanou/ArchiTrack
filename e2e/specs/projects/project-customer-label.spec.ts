@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * プロジェクト「顧客名」ラベル表示のE2Eテスト
@@ -241,7 +242,9 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
    * 後処理: テストで作成したプロジェクトを削除
    */
   test.afterAll(async ({ browser }) => {
-    if (!createdProjectId) return;
+    // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると「後片付けした」ことになり、
+    // 前提の生成が壊れたことが記録に残らない。前提が崩れた地点で失敗させる。
+    assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
 
     const context = await browser.newContext();
     const page = await context.newPage();

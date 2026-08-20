@@ -242,12 +242,21 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
           '消費税',
         ];
 
+        // 空欄の行は取り込み結果ではない（初期化された空行）ため検査対象にならない。
+        // 除外を繰り返しの内側で `continue` して行うと、母集団から黙って要素が抜け、
+        // 全行が空欄でも 1 件も主張せずに緑で終わる。除外は母集団を作る時点で明示し、
+        // 残った件数を無条件に主張する。
+        const nameValues: string[] = [];
         for (let i = 0; i < nameCount; i++) {
-          const nameValue = await nameInputs.nth(i).inputValue();
+          nameValues.push(await nameInputs.nth(i).inputValue());
+        }
+        const importedNames = nameValues.filter((value) => value.trim() !== '');
+        expect(
+          importedNames.length,
+          '一括取り込み後に名称が入った明細行が1件も無い（ゴミ行フィルタ・集計行除外を検査できていない）'
+        ).toBeGreaterThan(0);
 
-          // 空欄の行はスキップ（初期化された空行の可能性がある）
-          if (!nameValue || nameValue.trim() === '') continue;
-
+        for (const nameValue of importedNames) {
           // ゴミ行フィルタの確認（REQ-20.1）: 記号のみの行が含まれていない
           for (const pattern of garbagePatterns) {
             expect(

@@ -89,7 +89,10 @@ async function getProgressRecordIdByDate(
     `${API_BASE_URL}/api/projects/${projectId}/execution-budget/progress`,
     { headers: authHeaders(token) }
   );
-  if (!res.ok()) return null;
+  // 取得に失敗したまま null を返すと、呼び出し側の `expect(recordId).toBeTruthy()` は
+  // 「該当日のレコードが無い」と「履歴を取得できなかった」を区別できない。
+  // 前提が崩れた地点で失敗させる。
+  expect(res.ok(), `出来高履歴を取得できなかった (status=${res.status()})`).toBeTruthy();
   const list = (await res.json()) as Array<{ id: string; constructionDate: string }>;
   const found = list.find((r) => r.constructionDate.startsWith(constructionDate));
   return found?.id ?? null;
@@ -107,7 +110,9 @@ async function clearProgressHistory(
     `${API_BASE_URL}/api/projects/${projectId}/execution-budget/progress`,
     { headers: authHeaders(token) }
   );
-  if (!res.ok()) return;
+  // 取得に失敗したまま黙って戻ると、履歴が消えていないのに「整えた」ことになり、
+  // 後続の検証は前の周回の履歴を相手にしてしまう。ここで失敗させる。
+  expect(res.ok(), `出来高履歴を取得できなかった (status=${res.status()})`).toBeTruthy();
   const list = (await res.json()) as Array<{ id: string }>;
   for (const r of list) {
     await request.delete(

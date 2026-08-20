@@ -15,12 +15,28 @@
  * @module e2e/specs/estimate/estimate-number-format-e2e.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { buildNewEstimateItemNode, saveEstimateDraft } from '../../helpers/estimate-draft';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+
+/**
+ * 一致した入力欄の値をすべて読み取る（母集団を先に確定させるための収集）。
+ *
+ * 検査対象を繰り返しの内側で `continue` して間引くと、母集団から黙って要素が抜け、
+ * 「1件も検査しなかった」場合でも緑で終わる。値を先に集めてから除外を書けば、
+ * 除外した件数と残った件数の双方を主張できる。
+ */
+async function readAllInputValues(inputs: Locator): Promise<string[]> {
+  const count = await inputs.count();
+  const values: string[] = [];
+  for (let i = 0; i < count; i++) {
+    values.push(await inputs.nth(i).inputValue());
+  }
+  return values;
+}
 
 /**
  * 見積書 - 数値表示形式と丸め規則のE2Eテスト
@@ -418,19 +434,17 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
     await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
 
     // 明細の金額フィールドも整数表示である。
-    // 未計算（`-`）の欄は読み飛ばすため、実際に検査できた件数を数えておく。
-    // 全欄が `-` ならループは1件も主張せずに終わってしまう
+    // 未計算（`-`）の欄は金額ではないため検査対象にならない。除外は繰り返しの内側で
+    // 黙って飛ばすのではなく、母集団を作る時点で明示し、残った件数を無条件に主張する。
+    // 繰り返しの内側で飛ばすと、全欄が `-` のときに 1 件も主張せずに緑で終わる。
     const amountFields = page.locator('[data-testid="amount-field"]');
-    const amountCount = await amountFields.count();
-    expect(amountCount).toBeGreaterThan(0);
-    let inspectedAmounts = 0;
-    for (let i = 0; i < amountCount; i++) {
-      const text = (await amountFields.nth(i).textContent()) ?? '';
-      if (text === '-') continue;
+    const amountTexts = await amountFields.allTextContents();
+    expect(amountTexts.length).toBeGreaterThan(0);
+    const computedAmounts = amountTexts.filter((text) => text !== '-');
+    expect(computedAmounts.length, '整数表示を検査できた金額欄が1件も無い').toBeGreaterThan(0);
+    for (const text of computedAmounts) {
       expect(text.replace(/,/g, '')).not.toContain('.');
-      inspectedAmounts += 1;
     }
-    expect(inspectedAmounts, '整数表示を検査できた金額欄が1件も無い').toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -494,18 +508,17 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
     }
     expect(executionTotal).toBe(ALLOCATION_NET_AMOUNT);
 
-    // 画面上の単価はすべて整数で表示される（空欄は読み飛ばすので検査件数も固定する）
+    // 画面上の単価はすべて整数で表示される。空欄は単価ではないため検査対象にならないが、
+    // 除外を繰り返しの内側で黙って飛ばすと全欄が空のときに 1 件も主張せずに緑で終わる。
+    // 母集団を作る時点で除外を明示し、残った件数を無条件に主張する。
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
-    const unitPriceCount = await unitPriceInputs.count();
-    expect(unitPriceCount).toBeGreaterThan(0);
-    let inspectedUnitPrices = 0;
-    for (let i = 0; i < unitPriceCount; i++) {
-      const value = await unitPriceInputs.nth(i).inputValue();
-      if (value === '') continue;
+    const unitPriceValues = await readAllInputValues(unitPriceInputs);
+    expect(unitPriceValues.length).toBeGreaterThan(0);
+    const filledUnitPrices = unitPriceValues.filter((value) => value !== '');
+    expect(filledUnitPrices.length, '整数表示を検査できた単価欄が1件も無い').toBeGreaterThan(0);
+    for (const value of filledUnitPrices) {
       expect(value).not.toContain('.');
-      inspectedUnitPrices += 1;
     }
-    expect(inspectedUnitPrices, '整数表示を検査できた単価欄が1件も無い').toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -597,18 +610,17 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       .locator('input[aria-label="単価"]');
     await expect(estimateUnitPrice).toHaveValue('10301', { timeout: getTimeout(10000) });
 
+    // 空欄は単価ではないため検査対象にならない。除外は母集団を作る時点で明示し、
+    // 残った件数を無条件に主張する（繰り返しの内側で飛ばすと空振りが緑になる）。
     const unitPriceInputs = page.locator('input[aria-label="単価"]');
-    const unitPriceCount = await unitPriceInputs.count();
-    expect(unitPriceCount).toBeGreaterThan(0);
-    let inspectedUnitPrices = 0;
-    for (let i = 0; i < unitPriceCount; i++) {
-      const value = await unitPriceInputs.nth(i).inputValue();
-      if (value === '') continue;
+    const unitPriceValues = await readAllInputValues(unitPriceInputs);
+    expect(unitPriceValues.length).toBeGreaterThan(0);
+    const filledUnitPrices = unitPriceValues.filter((value) => value !== '');
+    expect(filledUnitPrices.length, '整数表示を検査できた単価欄が1件も無い').toBeGreaterThan(0);
+    for (const value of filledUnitPrices) {
       // 単価が整数（小数点を含まない）であることを確認
       expect(value).not.toContain('.');
-      inspectedUnitPrices += 1;
     }
-    expect(inspectedUnitPrices, '整数表示を検査できた単価欄が1件も無い').toBeGreaterThan(0);
   });
 
   // ============================================================================

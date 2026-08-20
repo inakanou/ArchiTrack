@@ -561,21 +561,12 @@ test.describe('プロジェクト一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されていることを確認
+      // REQ-6.3 はソート可能な一覧が表示されていることを前提とする。
+      // 「表もしくは空メッセージもしくはエラー」を待って表が無ければ黙って戻る形では、
+      // 一覧の取得が壊れていても緑で終わる。同ファイルの他の並び替えの検証と同じく、
+      // 表そのものが表示されることを無条件に主張する。
       const table = page.getByRole('table');
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
-      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
-
-      await expect(table.or(emptyMessage).or(errorMessage)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
-
-      // テーブルが表示されている場合のみソートテストを実行
-      const tableVisible = await table.isVisible();
-      if (!tableVisible) {
-        // プロジェクトがない場合はテストをスキップ
-        return;
-      }
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
       // プロジェクト名ヘッダーのソートボタンをクリック
       const sortButton = page.getByRole('button', { name: /プロジェクト名でソート/i });

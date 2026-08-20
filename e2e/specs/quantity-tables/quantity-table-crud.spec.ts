@@ -36,6 +36,7 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -5208,9 +5209,9 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
    * クリーンアップ: 検証用に作成したプロジェクトを削除する
    */
   test.afterAll(async ({ browser }) => {
-    if (!badgeProjectId) {
-      return;
-    }
+    // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると「後片付けした」ことになり、
+    // 前提の生成が壊れたことが記録に残らない。前提が崩れた地点で失敗させる。
+    assertPrepared(badgeProjectId, '注釈の目印の検証用に作成したプロジェクトのID');
     const context = await browser.newContext();
     const page = await context.newPage();
     try {

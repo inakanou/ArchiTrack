@@ -17,10 +17,17 @@
  * したがって「分類の合計＝検出件数」が構成上保証される。
  *
  * 使用方法:
- *   npx tsx scripts/classify-e2e-assertion-guards.ts            内訳を出力する
- *   npx tsx scripts/classify-e2e-assertion-guards.ts --list A   当該群の全箇所を出力する
- *   npx tsx scripts/classify-e2e-assertion-guards.ts --json     JSON で出力する
+ *   npx tsx scripts/classify-e2e-assertion-guards.ts               内訳を出力する
+ *   npx tsx scripts/classify-e2e-assertion-guards.ts --list A      当該群の全箇所を出力する
+ *   npx tsx scripts/classify-e2e-assertion-guards.ts --list D2,E   複数の群をまとめて出力する
+ *   npx tsx scripts/classify-e2e-assertion-guards.ts --list D2 --context 8
+ *                                                                 該当コードを前後 8 行つきで出力する
+ *   npx tsx scripts/classify-e2e-assertion-guards.ts --json        JSON で出力する
  *   npm run classify:e2e-guards
+ *
+ * `--list` は件数ではなく**箇所そのもの**を出す。群ごとの是正（段4 の D2、段6 の E、
+ * 段7 の F / G / D1）は一件ずつ実物を読んで判断する必要があり、件数だけでは着手できない。
+ * `--context` を付けると当該の分岐を含む前後の実コードを併せて印字する。
  *
  * ## 群の定義（振り分けの優先順位は A → B → C → G → D1 → D2 → F → E）
  *
@@ -38,6 +45,7 @@
  * @module scripts/classify-e2e-assertion-guards
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import ts from 'typescript';
@@ -403,11 +411,44 @@ export function classifyAll(): { classified: Classified[]; gateTotal: number; to
   return { classified, gateTotal, total };
 }
 
+/** `--list` で指定された群（カンマ区切り）を解釈する */
+function parseListGroups(raw: string | undefined): Group[] {
+  if (!raw) return [];
+  const requested = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const unknown = requested.filter((s) => !GROUPS.includes(s as Group));
+  if (unknown.length > 0) {
+    throw new Error(
+      `--list に未知の群が指定された: ${unknown.join(', ')}（指定できるのは ${GROUPS.join(' / ')}）`
+    );
+  }
+  return requested as Group[];
+}
+
+/** 該当箇所の前後の実コードを印字する（`--context` 指定時） */
+function printSource(item: Classified, context: number, read: (file: string) => string[]): void {
+  const lines = read(item.file);
+  const from = Math.max(1, item.line - context);
+  const to = Math.min(lines.length, item.line + context);
+  for (let n = from; n <= to; n++) {
+    const marker = n === item.line ? '>' : ' ';
+    console.log(`     ${String(n).padStart(6)} ${marker} ${lines[n - 1] ?? ''}`);
+  }
+  console.log('');
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const asJson = args.includes('--json');
   const listIndex = args.indexOf('--list');
-  const listGroup = listIndex >= 0 ? args[listIndex + 1] : undefined;
+  const listGroups = parseListGroups(listIndex >= 0 ? args[listIndex + 1] : undefined);
+  const contextIndex = args.indexOf('--context');
+  const context = contextIndex >= 0 ? Number.parseInt(args[contextIndex + 1] ?? '6', 10) : 0;
+  if (contextIndex >= 0 && !Number.isFinite(context)) {
+    throw new Error('--context には行数を指定すること（例: --context 8）');
+  }
 
   const { classified, gateTotal, total } = classifyAll();
 
@@ -437,11 +478,23 @@ function main(): void {
     console.log(`     ${type.padEnd(24)} ${String(byType.get(type) ?? 0).padStart(4)}`);
   }
 
-  if (listGroup) {
-    console.log('');
-    for (const item of classified) {
-      if (item.group !== listGroup) continue;
-      console.log(`   ${item.file}:${item.line} [${item.type}] (${item.detail}) ${item.snippet}`);
+  if (listGroups.length > 0) {
+    const cache = new Map<string, string[]>();
+    const read = (file: string): string[] => {
+      const cached = cache.get(file);
+      if (cached) return cached;
+      const lines = fs.readFileSync(file, 'utf8').split('\n');
+      cache.set(file, lines);
+      return lines;
+    };
+    for (const group of listGroups) {
+      const items = classified.filter((item) => item.group === group);
+      console.log('');
+      console.log(`   ── ${group}（${items.length} 件）: ${GROUP_LABEL[group]}`);
+      for (const item of items) {
+        console.log(`   ${item.file}:${item.line} [${item.type}] (${item.detail}) ${item.snippet}`);
+        if (context > 0) printSource(item, context, read);
+      }
     }
   }
 

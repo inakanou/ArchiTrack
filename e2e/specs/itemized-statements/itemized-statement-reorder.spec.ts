@@ -27,6 +27,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * 内訳書項目の並び替え機能のE2Eテスト
@@ -904,7 +905,9 @@ test.describe('内訳書項目の並び替え', () => {
    */
   test.describe('クリーンアップ', () => {
     test('テストデータを削除する', async ({ request }) => {
-      if (!testProjectId) return;
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
 
       const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {

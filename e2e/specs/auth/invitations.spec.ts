@@ -536,9 +536,13 @@ test.describe('管理者招待機能', () => {
     // モバイルビューポートに設定
     await page.setViewportSize({ width: 375, height: 667 });
 
-    // モバイル用のページリロード（リトライ付き）
+    // モバイル用のページリロード（リトライ付き）。
+    // 再試行の継続条件はループの見出しに置く。分岐の内側で break すると、
+    // 「観測結果で黙って脱出する」形になり、以降の検証が消える経路が生まれるためである。
+    // 再試行を使い切ってもエラーが出たままなら、ループ後の無条件の主張で失敗する。
     const maxRetries = 3;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    let hasError = true;
+    for (let attempt = 0; attempt < maxRetries && hasError; attempt++) {
       await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
 
       if (page.url().includes('/login')) {
@@ -553,14 +557,13 @@ test.describe('管理者招待機能', () => {
       // APIエラーが表示されていないか確認
       const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
       const errorAlertCount = await errorAlert.count();
-      const hasError = errorAlertCount > 0 && (await errorAlert.isVisible());
-
-      if (!hasError) {
-        break;
-      }
+      hasError = errorAlertCount > 0 && (await errorAlert.isVisible());
 
       await page.waitForTimeout(500);
     }
+
+    // 再試行を使い切ってもエラーが残っている場合はここで失敗させる（沈黙させない）
+    expect(hasError, '招待一覧の取得エラーが再試行後も表示されたままである').toBe(false);
 
     // カード形式のレイアウトが表示される
     const mobileCard = page.locator('[data-testid="invitation-card"]');
