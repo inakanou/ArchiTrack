@@ -3,373 +3,419 @@
  *
  * Task 42.3: Phase 10のE2Eテストを実装する
  *
+ * ## 前提の用意（Task 115.127 段0）
+ *
+ * 以前は「一覧の先頭のプロジェクトの先頭の数量表」を開き、開けなければ引数なしの
+ * `test.skip` で検証を丸ごと消していた。実際には参照していた `[data-testid="project-card"]` が存在せず
+ * （実装は `project-card-{id}`）、本ファイルの12テストは常に全件が飛んでいた。
+ * AI運用7原則 第3原則（前提条件でテストを自動的に無効化してはならない）に抵触する。
+ *
+ * 本ファイルは前提（プロジェクト・数量表・数量グループ2件・数量項目2行）を事前準備で
+ * **自ら作り**、作れなければその場で失敗する。共通の補助は
+ * `e2e/helpers/quantity-table-preconditions.ts` に置く。
+ *
+ * 数量グループを2件用意するのは、REQ-23.5（最上位の「上へ移動」無効化）と
+ * REQ-23.6（最下位の「下へ移動」無効化）が、グループ1件では両方とも無効化される
+ * （REQ-23.8）ため区別が付かないからである。数量項目も同じ理由で2行用意する。
+ *
  * Requirements coverage:
  * - REQ-22.1-22.3: 数量グループ名前変更
- * - REQ-23.3-23.7: 数量グループの並び順管理
- * - REQ-24.3-24.5, 24.7: 数量項目の並び順管理
- * - REQ-25.1-25.3: スクロールバー表示
+ * - REQ-23.3-23.6: 数量グループの並び順管理（ボタンの表示と無効化）
+ * - REQ-24.5, 24.6: 数量項目の並び順管理（無効化。操作の入口は REQ-36 によりアクションメニュー）
+ * - REQ-25.1, 25.5: 数量項目表示領域の水平スクロール
  * - REQ-26.1, 26.9, 26.11: PDF出力
  *
  * @module e2e/specs/quantity-tables/quantity-table-phase10.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  addQuantityGroup,
+  addQuantityItemRows,
+  createTestProject,
+  createTestQuantityTable,
+  fillItemRequiredFields,
+  openQuantityTableEdit,
+} from '../../helpers/quantity-table-preconditions';
+
+/** 1件目の数量グループに付ける名前 */
+const FIRST_GROUP_NAME = 'Phase10先頭グループ';
+/** 2件目の数量グループに付ける名前 */
+const SECOND_GROUP_NAME = 'Phase10末尾グループ';
 
 test.describe('Phase 10: グループ名変更・並び順管理・スクロールバー・PDF出力', () => {
   test.describe.configure({ mode: 'serial' });
+
+  let testProjectId: string | null = null;
+  let createdQuantityTableId: string | null = null;
+  let createdQuantityTableName: string | null = null;
 
   test.beforeEach(async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
   });
 
   /**
-   * 数量表編集画面に移動するヘルパー
-   * プロジェクト一覧 -> プロジェクト詳細 -> 数量表一覧 -> 数量表編集画面
+   * 数量グループ名を書き換え、画面へ反映されたことまで主張する（REQ-22.1, 22.2）。
+   *
+   * グループ名は見出し（`h3[role="button"]`）で表示され、クリックすると
+   * `input[aria-label="グループ名を編集"]` に切り替わる。
    */
-  async function navigateToQuantityTableEdit(page: import('@playwright/test').Page) {
-    await page.goto('/projects');
-    await page.waitForLoadState('networkidle');
+  async function renameGroup(groupCard: Locator, from: string, to: string): Promise<void> {
+    const nameHeading = groupCard.getByRole('button', { name: from });
+    await expect(nameHeading, `グループ名「${from}」が表示される`).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await nameHeading.click();
 
-    const projectCard = page.locator('[data-testid="project-card"]').first();
-    if (!(await projectCard.isVisible())) return false;
+    const nameInput = groupCard.getByLabel('グループ名を編集');
+    await expect(nameInput, 'REQ-22.1: グループ名が編集可能な状態になる').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await nameInput.fill(to);
+    await nameInput.press('Enter');
 
-    await projectCard.click();
-    await page.waitForLoadState('networkidle');
-
-    const quantityTableLink = page.getByText('すべて見る').first();
-    if (!(await quantityTableLink.isVisible())) return false;
-
-    await quantityTableLink.click();
-    await page.waitForLoadState('networkidle');
-
-    const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-    if (!(await tableCard.isVisible())) return false;
-
-    await tableCard.click();
-    await page.waitForLoadState('networkidle');
-
-    return true;
+    await expect(
+      groupCard.getByRole('button', { name: to }),
+      `REQ-22.2: 変更後の名前「${to}」が画面へ反映される`
+    ).toBeVisible({ timeout: getTimeout(10000) });
   }
 
+  /**
+   * 事前準備で用意した数量表を開き、数量グループ（2件）を返す。
+   */
+  async function openPreparedGroups(page: Page): Promise<Locator> {
+    await openQuantityTableEdit(page, createdQuantityTableId);
+
+    const groupCards = page.locator('[data-testid="quantity-group-card"]');
+    await expect(groupCards, '前提: 事前準備の数量グループが2件存在する').toHaveCount(2, {
+      timeout: getTimeout(15000),
+    });
+    return groupCards;
+  }
+
+  /**
+   * 対象行のアクションメニューを開き、メニューを返す。
+   *
+   * REQ-36 により数量項目の並び替えの入口はアクションメニューへ統合されている。
+   * ドロップダウンは body 直下へ Portal 描画されるため行スコープでは参照できない。
+   */
+  async function openItemActionMenu(page: Page, row: Locator): Promise<Locator> {
+    const actionButton = row.getByRole('button', { name: 'アクション' });
+    await expect(actionButton, 'アクションメニューボタンが表示される').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await actionButton.click();
+
+    const menu = page.getByRole('menu');
+    await expect(menu, 'アクションメニューが表示される').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    return menu;
+  }
+
+  // 前提の生成は1テストあたりのタイムアウト（60秒）に収まるよう段階に分ける。
+  // 直列（serial）であるため、前段が失敗した場合に後段が成功して見えることはない。
+  test.describe('事前準備', () => {
+    test('テスト用プロジェクトと数量表を作成する', async ({ page }) => {
+      testProjectId = await createTestProject(page, 'Phase10_PJ');
+      const created = await createTestQuantityTable(page, testProjectId, 'Phase10_数量表');
+      createdQuantityTableId = created.id;
+      createdQuantityTableName = created.name;
+    });
+
+    test('数量グループ2件と数量項目2行を作成する', async ({ page }) => {
+      await openQuantityTableEdit(page, createdQuantityTableId);
+
+      const firstGroup = await addQuantityGroup(page);
+      const itemRows = await addQuantityItemRows(firstGroup, 2);
+      // 名称が空の項目があると保存が拒否される（REQ-11.2 の整合性チェック）
+      await fillItemRequiredFields(itemRows.nth(0), { name: 'Phase10先頭項目' });
+      await fillItemRequiredFields(itemRows.nth(1), { name: 'Phase10末尾項目' });
+      await renameGroup(firstGroup, 'グループ 1', FIRST_GROUP_NAME);
+
+      const secondGroup = await addQuantityGroup(page);
+      await renameGroup(secondGroup, 'グループ 2', SECOND_GROUP_NAME);
+
+      // REQ-42.5: 追加・名称変更はクライアントドラフトの更新に留まるため明示保存する。
+      // 後続の各テストは編集画面を開き直して前提を参照する。
+      await saveQuantityTableDraft(page);
+    });
+  });
+
   test.describe('REQ-22.1-22.3: 数量グループ名前変更', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-22.1
+     * @requirement quantity-table-generation/REQ-22.2
+     */
     test('グループ名をクリックして編集モードに遷移し、新しい名前を入力して確定後に反映される', async ({
       page,
     }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      const groupCards = await openPreparedGroups(page);
+      const firstGroup = groupCards.first();
 
-      // グループが存在することを確認
-      const groupSection = page.locator('[data-testid="quantity-group"]').first();
-      if (!(await groupSection.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
-
-      // グループ名のテキストをクリックして編集モードに遷移
-      const groupNameText = groupSection.locator('[data-testid="group-name-text"]').first();
-      if (await groupNameText.isVisible()) {
-        const originalName = await groupNameText.textContent();
-        await groupNameText.click();
-
-        // 入力フィールドが表示される
-        const nameInput = groupSection.locator('[data-testid="group-name-input"]');
-        await expect(nameInput).toBeVisible({ timeout: getTimeout(3000) });
-
-        // 新しい名前を入力
-        await nameInput.clear();
-        await nameInput.fill('E2E変更後の名前');
-        await nameInput.press('Enter');
-
-        // 名前が更新されたことを確認
-        await expect(groupSection.getByText('E2E変更後の名前')).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-
-        // 元に戻す（テストの独立性のため）
-        const updatedNameText = groupSection.locator('[data-testid="group-name-text"]').first();
-        if (await updatedNameText.isVisible()) {
-          await updatedNameText.click();
-          const restoreInput = groupSection.locator('[data-testid="group-name-input"]');
-          await restoreInput.clear();
-          await restoreInput.fill(originalName || 'グループ 1');
-          await restoreInput.press('Enter');
-        }
-      }
+      // 変更はドラフトのみを更新する（REQ-42）。保存しないため、次のテストが
+      // 編集画面を開き直した時点で事前準備の名前へ戻る。
+      await renameGroup(firstGroup, FIRST_GROUP_NAME, 'E2E変更後の名前');
     });
 
+    /**
+     * @requirement quantity-table-generation/REQ-22.3
+     */
     test('空白名前を確定しようとした場合にエラーメッセージが表示される', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      const groupCards = await openPreparedGroups(page);
+      const firstGroup = groupCards.first();
 
-      const groupSection = page.locator('[data-testid="quantity-group"]').first();
-      if (!(await groupSection.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
+      const nameHeading = firstGroup.getByRole('button', { name: FIRST_GROUP_NAME });
+      await expect(nameHeading, '前提: 事前準備のグループ名が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await nameHeading.click();
 
-      const groupNameText = groupSection.locator('[data-testid="group-name-text"]').first();
-      if (await groupNameText.isVisible()) {
-        await groupNameText.click();
+      const nameInput = firstGroup.getByLabel('グループ名を編集');
+      await expect(nameInput, 'グループ名が編集可能な状態になる').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await nameInput.fill('   ');
+      await nameInput.press('Enter');
 
-        const nameInput = groupSection.locator('[data-testid="group-name-input"]');
-        await expect(nameInput).toBeVisible({ timeout: getTimeout(3000) });
-
-        // 空白を入力してEnter
-        await nameInput.clear();
-        await nameInput.fill('   ');
-        await nameInput.press('Enter');
-
-        // エラーメッセージまたは警告が表示されることを確認
-        const errorMessage = page.locator('[role="alert"]');
-        const hasError = await errorMessage
-          .isVisible({ timeout: getTimeout(3000) })
-          .catch(() => false);
-        // エラーメッセージが表示されるか、入力が元に戻ることを確認
-        expect(hasError || !(await nameInput.isVisible())).toBeTruthy();
-      }
+      // REQ-22.3: 空白のまま確定するとエラーメッセージを表示し、入力を求める
+      await expect(
+        firstGroup.getByText('グループ名を入力してください'),
+        'REQ-22.3: 空白確定でエラーメッセージが表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(nameInput, 'REQ-22.3: 入力欄は編集状態のまま残り入力を求める').toBeVisible();
     });
   });
 
-  test.describe('REQ-23.3-23.7: 数量グループ並び順管理', () => {
+  test.describe('REQ-23.3-23.6: 数量グループ並び順管理', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-23.3
+     * @requirement quantity-table-generation/REQ-23.4
+     */
     test('数量グループの「上へ移動」「下へ移動」ボタンが表示される', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      const groupCards = await openPreparedGroups(page);
+      const firstGroup = groupCards.first();
 
-      const groupSection = page.locator('[data-testid="quantity-group"]').first();
-      if (!(await groupSection.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
-
-      // 上へ移動ボタンと下へ移動ボタンを確認
-      const upButton = groupSection.getByRole('button', { name: /上へ移動/ });
-      const downButton = groupSection.getByRole('button', { name: /下へ移動/ });
-
-      // グループが1つでも並び順ボタンが表示される
-      const hasUpButton = await upButton
-        .isVisible({ timeout: getTimeout(3000) })
-        .catch(() => false);
-      const hasDownButton = await downButton
-        .isVisible({ timeout: getTimeout(3000) })
-        .catch(() => false);
-
-      // 少なくとも1つは表示される（グループが1つの場合は両方disabledだが表示される）
-      expect(hasUpButton || hasDownButton).toBeTruthy();
+      await expect(
+        firstGroup.getByRole('button', { name: '上へ移動' }),
+        'REQ-23.3: グループに「上へ移動」ボタンが表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(
+        firstGroup.getByRole('button', { name: '下へ移動' }),
+        'REQ-23.4: グループに「下へ移動」ボタンが表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
     });
 
+    /**
+     * @requirement quantity-table-generation/REQ-23.5
+     */
     test('最上位グループの「上へ移動」ボタンが無効化されている', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      const groupCards = await openPreparedGroups(page);
+      const firstGroup = groupCards.first();
 
-      const firstGroup = page.locator('[data-testid="quantity-group"]').first();
-      if (!(await firstGroup.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
-
-      const upButton = firstGroup.getByRole('button', { name: /上へ移動/ });
-      if (await upButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-        await expect(upButton).toBeDisabled();
-      }
+      await expect(
+        firstGroup.getByRole('button', { name: '上へ移動' }),
+        'REQ-23.5: 最上位グループの「上へ移動」は無効化される'
+      ).toBeDisabled();
+      await expect(
+        firstGroup.getByRole('button', { name: '下へ移動' }),
+        'REQ-23.5: 最上位グループの「下へ移動」は有効のままである'
+      ).toBeEnabled();
     });
 
+    /**
+     * @requirement quantity-table-generation/REQ-23.6
+     */
     test('最下位グループの「下へ移動」ボタンが無効化されている', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      const groupCards = await openPreparedGroups(page);
+      const lastGroup = groupCards.last();
 
-      const lastGroup = page.locator('[data-testid="quantity-group"]').last();
-      if (!(await lastGroup.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
-
-      const downButton = lastGroup.getByRole('button', { name: /下へ移動/ });
-      if (await downButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-        await expect(downButton).toBeDisabled();
-      }
+      await expect(
+        lastGroup.getByRole('button', { name: '下へ移動' }),
+        'REQ-23.6: 最下位グループの「下へ移動」は無効化される'
+      ).toBeDisabled();
+      await expect(
+        lastGroup.getByRole('button', { name: '上へ移動' }),
+        'REQ-23.6: 最下位グループの「上へ移動」は有効のままである'
+      ).toBeEnabled();
     });
   });
 
-  test.describe('REQ-24.3-24.5: 数量項目並び順管理', () => {
-    test('数量項目の「上へ移動」「下へ移動」ボタンが表示される', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+  test.describe('REQ-24.5-24.6: 数量項目並び順管理', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-24.3
+     * @requirement quantity-table-generation/REQ-24.4
+     *
+     * REQ-36.1 により個別の並び替えボタンは廃止され、操作の入口はアクションメニューに
+     * 統合されている。したがって「表示される」の判定はメニュー項目に対して行う。
+     */
+    test('数量項目の「上へ移動」「下へ移動」がアクションメニューに表示される', async ({ page }) => {
+      const groupCards = await openPreparedGroups(page);
+      const itemRows = groupCards.first().locator('[data-testid="quantity-item-row"]');
+      await expect(itemRows, '前提: 事前準備の数量項目が2行存在する').toHaveCount(2, {
+        timeout: getTimeout(15000),
+      });
 
-      // 最初のグループ内の項目を確認
-      const groupSection = page.locator('[data-testid="quantity-group"]').first();
-      if (!(await groupSection.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
-
-      // 項目行内の上へ移動/下へ移動ボタンを確認
-      const itemRow = groupSection.locator('tr').nth(1); // ヘッダー行の次
-      if (await itemRow.isVisible()) {
-        const upButton = itemRow.getByRole('button', { name: /上へ移動/ });
-        const downButton = itemRow.getByRole('button', { name: /下へ移動/ });
-
-        const hasUpButton = await upButton
-          .isVisible({ timeout: getTimeout(3000) })
-          .catch(() => false);
-        const hasDownButton = await downButton
-          .isVisible({ timeout: getTimeout(3000) })
-          .catch(() => false);
-
-        expect(hasUpButton || hasDownButton).toBeTruthy();
-      }
+      const menu = await openItemActionMenu(page, itemRows.first());
+      await expect(
+        menu.getByRole('menuitem', { name: /上へ移動/ }),
+        'REQ-24.3: 「上へ移動」の入口が表示される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(
+        menu.getByRole('menuitem', { name: /下へ移動/ }),
+        'REQ-24.4: 「下へ移動」の入口が表示される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
     });
 
-    test('最上位項目の「上へ移動」ボタンが無効化されている', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+    /**
+     * @requirement quantity-table-generation/REQ-24.5
+     * @requirement quantity-table-generation/REQ-24.6
+     */
+    test('最上位項目の「上へ移動」と最下位項目の「下へ移動」が無効化されている', async ({
+      page,
+    }) => {
+      const groupCards = await openPreparedGroups(page);
+      const itemRows = groupCards.first().locator('[data-testid="quantity-item-row"]');
+      await expect(itemRows, '前提: 事前準備の数量項目が2行存在する').toHaveCount(2, {
+        timeout: getTimeout(15000),
+      });
 
-      const groupSection = page.locator('[data-testid="quantity-group"]').first();
-      if (!(await groupSection.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
+      const firstMenu = await openItemActionMenu(page, itemRows.first());
+      await expect(
+        firstMenu.getByRole('menuitem', { name: /上へ移動/ }),
+        'REQ-24.5: 最上位項目の「上へ移動」は無効化される'
+      ).toBeDisabled();
+      await page.keyboard.press('Escape');
+      await expect(firstMenu, 'メニューが閉じる').not.toBeVisible({ timeout: getTimeout(10000) });
 
-      // 最初の項目行の上へ移動ボタンを確認
-      const firstItemRow = groupSection.locator('tr').nth(1);
-      if (await firstItemRow.isVisible()) {
-        const upButton = firstItemRow.getByRole('button', { name: /上へ移動/ });
-        if (await upButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-          await expect(upButton).toBeDisabled();
-        }
-      }
+      const lastMenu = await openItemActionMenu(page, itemRows.last());
+      await expect(
+        lastMenu.getByRole('menuitem', { name: /下へ移動/ }),
+        'REQ-24.6: 最下位項目の「下へ移動」は無効化される'
+      ).toBeDisabled();
     });
   });
 
-  test.describe('REQ-25.1-25.3: スクロールバー表示', () => {
-    test('数量グループセクションにoverflowスタイルが適用されている', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+  test.describe('REQ-25.1, 25.5: 数量項目表示領域のスクロール', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-25.1
+     *
+     * 水平スクロールの対象は数量項目テーブルのラッパー
+     * （`item-table-scroll-{groupId}`、REQ-41 の実装）である。
+     * 数量グループの一覧（`quantity-group-section`）は縦の並びを担うだけで
+     * スクロール領域ではない。
+     */
+    test('数量項目テーブルの表示領域に水平スクロールが設定されている', async ({ page }) => {
+      const groupCards = await openPreparedGroups(page);
+      const tableWrapper = groupCards.first().locator('[data-testid^="item-table-scroll-"]');
+      await expect(tableWrapper, '数量項目テーブルの表示領域が存在する').toHaveCount(1, {
+        timeout: getTimeout(15000),
+      });
 
-      const groupSection = page.locator('[data-testid="quantity-group-section"]');
-      if (await groupSection.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
-        const overflow = await groupSection.evaluate(
-          (el: HTMLElement) => getComputedStyle(el).overflow
-        );
-        expect(overflow).toBe('auto');
-      }
+      const overflowX = await tableWrapper.evaluate(
+        (el: HTMLElement) => getComputedStyle(el).overflowX
+      );
+      expect(overflowX, 'REQ-25.1: 水平方向のスクロールが有効である').toBe('auto');
     });
 
-    test('ビューポートを狭くした場合にスクロールが可能になること', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+    /**
+     * @requirement quantity-table-generation/REQ-25.1
+     * @requirement quantity-table-generation/REQ-25.5
+     */
+    test('ビューポートを狭くした場合に数量項目テーブルを横スクロールできる', async ({ page }) => {
+      const groupCards = await openPreparedGroups(page);
 
-      // ビューポートを狭くする
+      // 列幅の合計（1168px）を下回る幅にして、表示領域から溢れる状態を作る
       await page.setViewportSize({ width: 800, height: 600 });
 
-      const groupSection = page.locator('[data-testid="quantity-group-section"]');
-      if (await groupSection.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
-        const overflowStyle = await groupSection.evaluate(
-          (el: HTMLElement) => getComputedStyle(el).overflow
-        );
-        expect(overflowStyle).toBe('auto');
-      }
+      const tableWrapper = groupCards.first().locator('[data-testid^="item-table-scroll-"]');
+      await expect(tableWrapper, '数量項目テーブルの表示領域が存在する').toHaveCount(1, {
+        timeout: getTimeout(15000),
+      });
+
+      const overflowAmount = await tableWrapper.evaluate(
+        (el: HTMLElement) => el.scrollWidth - el.clientWidth
+      );
+      expect(
+        overflowAmount,
+        'REQ-25.1: 表示領域の横幅を超えるため水平スクロールが必要な状態になる'
+      ).toBeGreaterThan(0);
+
+      // REQ-25.5: 水平方向にスクロールできる
+      const scrolledTo = await tableWrapper.evaluate((el: HTMLElement) => {
+        el.scrollLeft = el.scrollWidth - el.clientWidth;
+        return el.scrollLeft;
+      });
+      expect(scrolledTo, 'REQ-25.5: 横方向にスクロールできる').toBeGreaterThan(0);
     });
   });
 
   test.describe('REQ-26.1, 26.9, 26.11: PDF出力', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-26.1
+     */
     test('PDF出力ボタンが表示される', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      await openPreparedGroups(page);
 
       const pdfButton = page.getByRole('button', { name: /PDF出力/ });
-      await expect(pdfButton).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(pdfButton, 'REQ-26.1: PDF出力ボタンが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
+    /**
+     * @requirement quantity-table-generation/REQ-26.1
+     * @requirement quantity-table-generation/REQ-26.11
+     */
     test('PDF出力ボタンクリックでPDFファイルがダウンロードされる', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      assertPrepared(createdQuantityTableName, '事前準備で作成した数量表の名称');
+      await openPreparedGroups(page);
 
       const pdfButton = page.getByRole('button', { name: /PDF出力/ });
-      if (!(await pdfButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
+      await expect(pdfButton, 'PDF出力ボタンが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // ダウンロードイベントを待つ
-      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
-
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(45000) });
       await pdfButton.click();
+      const download = await downloadPromise;
 
-      try {
-        const download = await downloadPromise;
-
-        // ダウンロードされたファイル名が「{数量表名}.pdf」であることを確認
-        const filename = download.suggestedFilename();
-        expect(filename).toMatch(/\.pdf$/);
-      } catch {
-        // PDF生成がタイムアウトした場合はスキップ
-        // （フォント読み込みに時間がかかる場合がある）
-        test.skip();
-      }
+      // REQ-26.11: ファイル名は「{数量表名}.pdf」
+      expect(
+        download.suggestedFilename(),
+        'REQ-26.11: PDFファイル名が「{数量表名}.pdf」である'
+      ).toBe(`${createdQuantityTableName}.pdf`);
     });
 
+    /**
+     * @requirement quantity-table-generation/REQ-26.9
+     */
     test('PDF生成中にボタンが無効化される (REQ-26.9)', async ({ page }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      if (!navigated) {
-        test.skip();
-        return;
-      }
+      await openPreparedGroups(page);
 
       const pdfButton = page.getByRole('button', { name: /PDF出力/ });
-      if (!(await pdfButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false))) {
-        test.skip();
-        return;
-      }
+      await expect(pdfButton, 'PDF出力ボタンが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // クリック後にボタンが無効化されることを確認
+      const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(45000) });
       await pdfButton.click();
 
-      // 生成中テキストまたはdisabledが確認できること
-      const isGenerating = await page
-        .getByText('PDF生成中')
-        .isVisible({ timeout: getTimeout(3000) })
-        .catch(() => false);
-      const isDisabled = await pdfButton.isDisabled().catch(() => false);
+      // REQ-26.9: 生成中は処理中であることを示し、重複操作を防止する。
+      // 生成の完了（ダウンロード）を待つ前に、無効化されていることを主張する。
+      await expect(pdfButton, 'REQ-26.9: PDF生成中はボタンが無効化される').toBeDisabled({
+        timeout: getTimeout(10000),
+      });
 
-      expect(isGenerating || isDisabled).toBeTruthy();
-
-      // 完了を待つ
-      await page.waitForTimeout(5000);
+      // 生成の完了まで待ち、後続テストへ処理中の状態を持ち越さない
+      await downloadPromise;
+      await expect(pdfButton, 'PDF生成の完了でボタンが再び有効になる').toBeEnabled({
+        timeout: getTimeout(45000),
+      });
     });
   });
 });

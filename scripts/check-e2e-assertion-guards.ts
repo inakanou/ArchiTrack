@@ -24,6 +24,10 @@
  *                           — 出ても出なくても通る。観測結果による早期 return / continue も含む
  *   T6 conditional-skip     前提が満たせない場合に沈黙して飛ばす
  *                           `test.skip(<式>, '理由')` / `test.fixme(<式>, ...)` — 条件次第で検証が丸ごと消える。
+ *                           引数なしの `test.skip()` / `test.fixme()` も同型として計上する。
+ *                           条件分岐の内側で呼ぶ形（`if (!cond) { test.skip(); return; }`）は
+ *                           条件式を渡す形と効果が同一であり、無条件に呼ぶ形は検証そのものの放棄である
+ *                           （Task 115.127 段0）。
  *                           第一引数が文字列（タイトル）や関数（実行条件の宣言）の形は対象外
  *
  * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 は別軸のため重複して計上する）
@@ -450,13 +454,20 @@ function isEvaluableAssignment(node: ts.Expression): boolean {
   return false;
 }
 
-/** 条件付きスキップか（`test.skip(<式>, ...)` / `test.fixme(<式>, ...)`） */
+/**
+ * 条件付きスキップか（`test.skip(<式>, ...)` / `test.fixme(<式>, ...)`）
+ *
+ * 引数なしの呼び出し（`test.skip()`）も対象とする。条件分岐の内側で呼ぶ形は
+ * 条件式を渡す形と効果が同一であり、無条件に呼ぶ形は検証そのものの放棄であるため、
+ * どちらも「前提が満たせない場合に沈黙して飛ばす」型に属する（Task 115.127 段0）。
+ */
 function isConditionalSkip(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   if (!ts.isCallExpression(node)) return false;
   const callee = node.expression.getText(sourceFile);
   if (callee !== 'test.skip' && callee !== 'test.fixme') return false;
   const first = node.arguments[0];
-  if (!first) return false;
+  // 引数なしの飛ばし（`test.skip();`）。条件分岐の内側／外側を問わず検証が消える
+  if (!first) return true;
   // タイトル指定（文字列）や実行条件の宣言（関数）は対象外
   if (ts.isStringLiteralLike(first) || ts.isTemplateExpression(first)) return false;
   if (ts.isArrowFunction(first) || ts.isFunctionExpression(first)) return false;

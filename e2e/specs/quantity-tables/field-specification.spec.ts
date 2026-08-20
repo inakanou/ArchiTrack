@@ -50,84 +50,16 @@
  * @module e2e/specs/quantity-tables/field-specification.spec
  */
 
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { openEditPageWithSingleItemRow } from '../../helpers/quantity-table-preconditions';
 
 /**
  * 計算方法の選択肢（`CalculationMethodSelect` の option 値）
  */
 type CalculationMethodValue = 'STANDARD' | 'AREA_VOLUME' | 'PITCH' | 'COUNT';
-
-/**
- * 欄指定の検証に必要な前提（数量表の編集画面・数量グループ1件・数量項目1行）を用意する。
- *
- * ## 背景（Task 115.126）
- *
- * 本ファイルの計算方法まわりの検証は、以前は次の形で前提を用意していた。
- *
- * ```ts
- * const calculationMethodSelect = page.getByLabel(/計算方法/i);
- * if (await calculationMethodSelect.isVisible()) {
- *   await calculationMethodSelect.selectOption('AREA_VOLUME');
- * }
- * const adjustmentFactorInput = page.getByLabel(/調整係数/i);
- * if (await adjustmentFactorInput.isVisible()) {
- *   await expect(adjustmentFactorInput).toHaveValue('1.00');
- * }
- * ```
- *
- * 数量表を作成した直後の編集画面には数量グループも数量項目も無く、計算方法の選択欄は
- * そもそも描画されない。したがって前提の設定も後段の判定も両方飛び、**何も主張しないまま
- * 緑になる**。AI運用7原則 第3原則（前提条件でテストを自動的に無効化してはならない）に
- * 直接抵触する構造である。
- *
- * 本補助は前提を「表示されていれば」ではなく「表示されるまで待って主張する」形で用意し、
- * 崩れた場合はその場で失敗させる。行を返すため、後段の欄参照も行スコープになり、
- * 画面全体を指す `page.getByLabel()` が複数行に一致して壊れることも起きない。
- *
- * 編集はクライアントドラフトのみを更新し保存しない（REQ-42）ため、テスト間で数量グループが
- * 残留することはない。各テストは常に「グループ0件」の編集画面から始まる。
- *
- * @param page Playwright のページオブジェクト
- * @param quantityTableId 事前準備で作成した数量表のID
- * @returns 追加した数量項目行の Locator
- * @throws 数量表が未作成・グループ追加不可・項目追加不可のいずれかの場合
- */
-async function openEditPageWithSingleItemRow(
-  page: Page,
-  quantityTableId: string | null
-): Promise<Locator> {
-  expect(quantityTableId, '前提: 事前準備で数量表が作成されている').toBeTruthy();
-
-  await page.goto(`/quantity-tables/${quantityTableId}/edit`);
-  await page.waitForLoadState('networkidle');
-
-  const addGroupButton = page.getByRole('button', { name: /グループ追加|グループを追加/i }).first();
-  await expect(addGroupButton, '前提: 数量グループの追加ボタンが表示される').toBeVisible({
-    timeout: getTimeout(15000),
-  });
-  await addGroupButton.click();
-
-  const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-  await expect(groupCard, '前提: 数量グループが追加される').toBeVisible({
-    timeout: getTimeout(10000),
-  });
-
-  const addItemButton = groupCard.getByRole('button', { name: '項目を追加' });
-  await expect(addItemButton, '前提: 数量項目の追加ボタンが表示される').toBeVisible({
-    timeout: getTimeout(10000),
-  });
-  await addItemButton.click();
-
-  const itemRows = groupCard.locator('[data-testid="quantity-item-row"]');
-  await expect(itemRows, '前提: 数量項目が1行だけ存在する').toHaveCount(1, {
-    timeout: getTimeout(10000),
-  });
-
-  return itemRows.first();
-}
 
 /**
  * 数量項目行の計算方法を指定の値に設定し、設定が成立したことまで主張する。

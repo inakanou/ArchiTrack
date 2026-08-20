@@ -9,7 +9,7 @@
     "reduction は削減の目標と計画文書の所在。実行のたびに残り件数を出力する（合否には用いない）。",
     "件数が増える方向の更新は既定で拒否する。記録が必要な場合のみ --allow-increase を付けること。"
   ],
-  "generatedTotal": 1025,
+  "generatedTotal": 919,
   "allowedTotal": 3,
   "reduction": {
     "doc": ".kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md",
@@ -210,8 +210,7 @@
       "T5-observed-result-gate": 5
     },
     "e2e/specs/projects/project-address-autofill.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T5-observed-result-gate": 1
+      "T2-ignored-timeout": 2
     },
     "e2e/specs/projects/project-autocomplete.spec.ts": {
       "T1-conditional-expect": 1,
@@ -280,8 +279,6 @@
       "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/field-specification.spec.ts": {
-      "T3-tautology": 0,
-      "T5-observed-result-gate": 0,
       "T6-conditional-skip": 21
     },
     "e2e/specs/quantity-tables/focus-select-all.spec.ts": {
@@ -308,10 +305,6 @@
       "T2-ignored-timeout": 8,
       "T5-observed-result-gate": 9,
       "T6-conditional-skip": 7
-    },
-    "e2e/specs/quantity-tables/photo-comment-display.spec.ts": {
-      "T2-ignored-timeout": 7,
-      "T5-observed-result-gate": 16
     },
     "e2e/specs/quantity-tables/photo-comment-e2e.spec.ts": {
       "T2-ignored-timeout": 20,
@@ -341,11 +334,6 @@
     "e2e/specs/quantity-tables/quantity-item-action-menu-clipping-e2e.spec.ts": {
       "T2-ignored-timeout": 2
     },
-    "e2e/specs/quantity-tables/quantity-item-action-menu.spec.ts": {
-      "T2-ignored-timeout": 2,
-      "T3-tautology": 2,
-      "T5-observed-result-gate": 21
-    },
     "e2e/specs/quantity-tables/quantity-table-copy.spec.ts": {
       "T2-ignored-timeout": 5,
       "T5-observed-result-gate": 5
@@ -357,11 +345,6 @@
     },
     "e2e/specs/quantity-tables/quantity-table-inline-calculation-fields.spec.ts": {
       "T5-observed-result-gate": 1
-    },
-    "e2e/specs/quantity-tables/quantity-table-phase10.spec.ts": {
-      "T2-ignored-timeout": 20,
-      "T3-tautology": 4,
-      "T5-observed-result-gate": 33
     },
     "e2e/specs/quantity-tables/quantity-table-phase9.spec.ts": {
       "T5-observed-result-gate": 21

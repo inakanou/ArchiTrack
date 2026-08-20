@@ -12,6 +12,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * 顧客選択時の住所自動入力のE2Eテスト
@@ -239,11 +240,10 @@ test.describe('顧客選択時の住所自動入力', () => {
    * テスト後のクリーンアップ
    */
   test('クリーンアップ: テスト用取引先を削除する', async ({ page }) => {
-    // 取引先が作成されていない場合はスキップ
-    if (!createdTradingPartnerId) {
-      test.skip();
-      return;
-    }
+    // 前提（事前準備で作成した取引先）が用意できていなければその場で失敗させる。
+    // 以前は引数なしの test.skip で後始末ごと消していたため、作成の失敗が黙って通り、
+    // かつテストデータが残留していた（AI運用7原則 第3原則、Task 115.127 段0）。
+    assertPrepared(createdTradingPartnerId, '事前準備で作成したテスト用取引先のID');
 
     await loginAsUser(page, 'REGULAR_USER');
 

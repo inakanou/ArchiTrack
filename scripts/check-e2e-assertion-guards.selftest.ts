@@ -181,6 +181,8 @@ const MUST_KEEP: Case[] = [
     expected: ['T3-tautology'],
   },
   {
+    // Task 115.127 段0 で引数なしの飛ばしも T6 として計上するようになったため、
+    // この書き方は「観測結果による関門（T5）」と「沈黙して飛ばす（T6）」の双方に該当する。
     name: '維持2 自ら観測した結果を条件にする（quantity-item-action-menu の前提確認）',
     source: [
       "test('action menu', async ({ page }) => {",
@@ -192,7 +194,7 @@ const MUST_KEEP: Case[] = [
       "  await expect(page.getByRole('menu')).toBeVisible();",
       '});',
     ].join('\n'),
-    expected: ['T5-observed-result-gate'],
+    expected: ['T5-observed-result-gate', 'T6-conditional-skip'],
   },
   {
     name: '維持3 条件付きのスキップ',
@@ -267,6 +269,77 @@ const MUST_KEEP: Case[] = [
 ];
 
 // ============================================================================
+// 115.127 段0: 引数なしの飛ばし（条件式を渡さない `test.skip()`）
+//
+// T6 は当初「第一引数に式を渡す形」だけを見ていたため、条件分岐の内側で
+// 引数なしの `test.skip()` を呼ぶ形（当時 50 箇所）が一件も計上されていなかった。
+// 効果は条件式を渡す形と同一であり、抑止一覧の総数がその分だけ実態より小さかった。
+// 是正（50 箇所の解消）を終えたうえで規則を追加し、ここに固定する。
+// ============================================================================
+
+const BARE_SKIP: Case[] = [
+  {
+    name: '115.127-1 条件分岐の内側で引数なしに飛ばす形',
+    source: [
+      "test('bare skip in branch', async ({ page }) => {",
+      '  const navigated = await navigateToQuantityTableEdit(page);',
+      '  if (!navigated) {',
+      '    test.skip();',
+      '    return;',
+      '  }',
+      "  await expect(page.getByRole('menu')).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: ['T6-conditional-skip'],
+  },
+  {
+    name: '115.127-2 無条件に引数なしで飛ばす形（検証そのものの放棄）',
+    source: [
+      "test('bare skip unconditional', async ({ page }) => {",
+      '  test.skip();',
+      "  await expect(page.getByRole('menu')).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: ['T6-conditional-skip'],
+  },
+  {
+    name: '115.127-3 引数なしの test.fixme も同型として計上する',
+    source: [
+      "test('bare fixme', async ({ page }) => {",
+      '  try {',
+      "    await page.waitForEvent('download', { timeout: 30000 });",
+      '  } catch {',
+      '    test.fixme();',
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: ['T6-conditional-skip'],
+  },
+  {
+    name: '115.127-4 タイトルと本体を渡す宣言（skip 付きテストの定義）は計上しない',
+    source: [
+      "test.skip('未実装のため保留する', async ({ page }) => {",
+      "  await expect(page.getByRole('menu')).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T6-conditional-skip'],
+  },
+  {
+    name: '115.127-5 describe 単位の skip は T6 の対象外（別軸のため計上しない）',
+    source: [
+      "test.describe.skip('保留中の一群', () => {",
+      "  test('x', async ({ page }) => {",
+      "    await expect(page.getByRole('menu')).toBeVisible();",
+      '  });',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T6-conditional-skip'],
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -307,6 +380,7 @@ function main(): void {
     { title: '115.25 過検出（正当な主張は数えない）', cases: OVER_DETECTIONS },
     { title: '115.25 圧縮の境界（代入の右辺の扱い）', cases: ASSIGNMENT_BOUNDARY },
     { title: '維持すべき検出', cases: MUST_KEEP },
+    { title: '115.127 段0 引数なしの飛ばし', cases: BARE_SKIP },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');
