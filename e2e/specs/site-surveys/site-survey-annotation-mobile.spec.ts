@@ -1297,6 +1297,8 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     expect(Math.abs(afterFitPan.panY - atFit.panY)).toBeLessThan(1);
 
     // 拡大してからパン → panX/panY が変化する（Req 33.4）
+    // 指間距離を 40px → 140px（比 3.5）へ広げる。等倍からのピンチなので
+    // 到達すべき倍率は 3.5（ZOOM_CONSTANTS.MAX_ZOOM=10 未満なのでクランプされない）。
     await twoFingerGesture(
       [
         { x: cx - 20, y: cy },
@@ -1308,7 +1310,15 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
       ]
     );
     const zoomed = await readProbe();
-    expect(zoomed.zoom).toBeGreaterThan(1.01);
+    // Req 33.2/33.4: 指を広げ切った最終的な指間距離の比まで拡大していること。
+    //
+    // Task 115.94: ここは以前 `toBeGreaterThan(1.01)` だった。この下限は緩すぎて、
+    // ピンチが最初の 1 ステップ（比 1.313）だけ効いて以降のイベントが捨てられていても
+    // 緑になっていた。実際、touchGestureManager の cooldown タイマが進行中のジェスチャーを
+    // idle へ踏み潰す欠陥により、本検証は常に「1 ステップだけ効いた状態」で通過しており、
+    // 踏み潰しが最初のステップより早く起きた回だけ zoom=1 のまま失敗していた。
+    // 指示した比そのものと突き合わせることで、途中で止まる退行をその場で落とす。
+    expect(zoomed.zoom).toBeCloseTo(3.5, 1);
 
     // 左上方向へ2本指ドラッグ（距離一定）→ panX/panY が負方向へ移動
     await twoFingerGesture(
@@ -1323,8 +1333,13 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     );
     const panned = await readProbe();
     const movedX = Math.abs(panned.panX - zoomed.panX);
-    const movedY = Math.abs(panned.panY - zoomed.panY);
-    expect(movedX + movedY).toBeGreaterThan(5);
+    // Req 33.4: 2本指中点の移動量（水平 -50px）にパンが最後まで追従すること。
+    // 1 ステップぶん（6.25px）だけ動いて止まる退行を落とすため、「5px より大きい」ではなく
+    // 指示した移動量そのものと突き合わせる（旧来の `movedX + movedY > 5` は本主張に含意される）。
+    // 縦方向は clampPan の下限（画像が表示領域を覆う範囲）に既に達しているため 0 になり得る。
+    // 指示量と突き合わせられない理由は拡大中心が画面座標のまま渡されている既存欠陥にあり、
+    // タスク 115.129 で扱う。
+    expect(Math.abs(movedX - 50)).toBeLessThan(2);
   });
 
   /**

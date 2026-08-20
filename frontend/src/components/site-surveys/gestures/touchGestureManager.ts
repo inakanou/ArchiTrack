@@ -399,6 +399,15 @@ export const createTouchGestureManager = (): TouchGestureManager => {
 
     /**
      * cooldown → idle への遷移。Req 30.3 の 150ms 抑止を実装。
+     *
+     * **タイマ発火時に `touchState === 'cooldown'` を再確認する（Task 115.94）**。
+     * この確認が無いと、cooldown 中（COOLDOWN_MS 以内）に次のジェスチャーが始まった場合に、
+     * 前ジェスチャー由来の遅延タイマが進行中の状態（`two-finger-pinch-pan` /
+     * `one-finger-down` / `drawing`）を `idle` へ踏み潰す。踏み潰された以降の
+     * pointermove は `driveViewport` に到達しないため、ピンチ拡大・2本指パンが
+     * 途中で無音のまま停止する（Req 33.2-33.4 / 34.7 の未達）。
+     * cooldown はあくまで「マルチタッチ解除後、次の接地が無いまま経過した場合」に
+     * idle へ戻すためのものであり、新しい接地で状態が進んだ後は無効化されるべきである。
      */
     const startCooldown = (): void => {
       // マルチタッチ終了でピンチ/パンセッションを破棄（次セッションは新規 down で再確定）
@@ -406,7 +415,9 @@ export const createTouchGestureManager = (): TouchGestureManager => {
       touchState = 'cooldown';
       clearCooldownTimer();
       cooldownTimeout = setTimeout(() => {
-        touchState = 'idle';
+        if (touchState === 'cooldown') {
+          touchState = 'idle';
+        }
         cooldownTimeout = null;
       }, COOLDOWN_MS);
     };
