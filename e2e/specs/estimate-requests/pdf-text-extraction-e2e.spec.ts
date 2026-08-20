@@ -13,6 +13,9 @@
  * - 17.7: 処理中インジケーターの表示
  * - 17.8: 30秒タイムアウト
  *
+ * Task 115.127 段1: 前提の生成を `seedEstimateRequest`（`estimate-request-preconditions`）へ寄せ、
+ * `test.skip(!createdEstimateRequestId, …)` 8 件を `assertPrepared` へ改めた。
+ *
  * @module e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec
  */
 
@@ -20,6 +23,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 
@@ -58,115 +63,28 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得（localStorageから取得）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-    expect(accessToken).not.toBe('');
-
-    // 担当者候補を取得（salesPersonIdに必要）
-    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    expect(assignableRes.ok()).toBeTruthy();
-    const assignableUsers = await assignableRes.json();
-    expect(assignableUsers.length).toBeGreaterThan(0);
-    const salesPersonId = assignableUsers[0].id;
-
-    // プロジェクト作成
-    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `PDF抽出E2Eテスト-${Date.now()}`,
-        salesPersonId,
-        siteAddress: '東京都港区テスト1-1-1',
+    // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
+    // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
+    // いずれかの作成に失敗した時点で補助の内側で失敗する。
+    const seed = await seedEstimateRequest(page, {
+      label: 'PDF抽出E2Eテスト',
+      siteAddress: '東京都港区テスト1-1-1',
+      partnerEmail: 'test-pdf-extract@example.com',
+      groupName: '土木工事グループ',
+      item: {
+        workType: '土木工事',
+        name: 'コンクリート打設',
+        specification: '普通',
+        unit: 'm3',
+        quantity: 50,
       },
     });
-    expect(projectRes.ok()).toBeTruthy();
-    const project = await projectRes.json();
-    createdProjectId = project.id;
 
-    // 取引先作成
-    const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `テスト業者-PDF抽出-${Date.now()}`,
-        nameKana: 'テストギョウシャ',
-        types: ['SUBCONTRACTOR'],
-        address: '東京都港区テスト1-1-1',
-        email: 'test-pdf-extract@example.com',
-      },
-    });
-    expect(partnerRes.ok()).toBeTruthy();
-    const partner = await partnerRes.json();
-    createdTradingPartnerId = partner.id;
-
-    // 数量表作成
-    const qtRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `テスト数量表-PDF抽出-${Date.now()}` },
-      }
-    );
-    expect(qtRes.ok()).toBeTruthy();
-    const qt = await qtRes.json();
-
-    // 数量グループ作成
-    const groupRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: '土木工事グループ', displayOrder: 0 },
-      }
-    );
-    expect(groupRes.ok()).toBeTruthy();
-    const group = await groupRes.json();
-
-    // 数量項目作成
-    const itemRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          workType: '土木工事',
-          name: 'コンクリート打設',
-          specification: '普通',
-          unit: 'm3',
-          quantity: 50,
-        },
-      }
-    );
-    expect(itemRes.ok()).toBeTruthy();
-
-    // 内訳書作成（数量表から生成）
-    const statementRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト内訳書-PDF抽出-${Date.now()}`,
-          quantityTableId: qt.id,
-        },
-      }
-    );
-    expect(statementRes.ok()).toBeTruthy();
-    const statement = await statementRes.json();
-    createdItemizedStatementId = statement.id;
-
-    // 見積依頼作成
-    const erRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト見積依頼-PDF抽出-${Date.now()}`,
-          tradingPartnerId: createdTradingPartnerId,
-          itemizedStatementId: createdItemizedStatementId,
-        },
-      }
-    );
-    expect(erRes.ok()).toBeTruthy();
-    const er = await erRes.json();
-    createdEstimateRequestId = er.id;
+    accessToken = seed.accessToken;
+    createdProjectId = seed.projectId;
+    createdTradingPartnerId = seed.tradingPartnerId;
+    createdItemizedStatementId = seed.itemizedStatementId;
+    createdEstimateRequestId = seed.estimateRequestId;
   });
 
   // ============================================================================
@@ -179,7 +97,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('PDFアップロード後に処理中インジケーターが表示される (estimate-request/REQ-17.7)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -225,7 +143,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('PDFアップロード後にテキスト抽出が成功し結果が表示される (estimate-request/REQ-17.1, estimate-request/REQ-17.2)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -277,7 +195,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('テキストPDFではTesseract OCRが呼ばれずpdfjs-distのテキスト抽出結果がそのまま使用される (estimate-request/REQ-17.3)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -363,7 +281,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('スキャン（画像のみ）PDFではCanvas経由でOCR処理が実行される (estimate-request/REQ-17.4)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -426,7 +344,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('抽出結果から一括取り込みボタンが表示され、データが明細行に転記される (estimate-request/REQ-17.5)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -490,7 +408,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('PDFプレビューでページナビゲーションが動作する (estimate-request/REQ-17.6)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -572,7 +490,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
    * @requirement estimate-request/REQ-17.6
    */
   test('単一ページPDFではナビゲーションが非表示 (estimate-request/REQ-17.6)', async ({ page }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -628,7 +546,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('PDF処理が30秒を超えた場合にタイムアウトが発生する (estimate-request/REQ-17.8)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 

@@ -47,14 +47,21 @@
  * - REQ-13.4（左寄せ）、REQ-14.1 / 14.5（右寄せ）、REQ-14.6 / 14.7 および
  *   REQ-15.4 / 15.5（箇所数フィールド）。本ファイルの対象外。
  *
+ * Task 115.127 段1: 前提の生成を共通の補助へ寄せ、`test.skip(!testProjectId, …)` 21 件を除いた。
+ * 各テストが実際に必要とするのは数量表IDであり、`openEditPageWithSingleItemRow` が無条件に主張する。
+ *
  * @module e2e/specs/quantity-tables/field-specification.spec
  */
 
 import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { openEditPageWithSingleItemRow } from '../../helpers/quantity-table-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  createTestProject,
+  createTestQuantityTable,
+  openEditPageWithSingleItemRow,
+} from '../../helpers/quantity-table-preconditions';
 
 /**
  * 計算方法の選択肢（`CalculationMethodSelect` の option 値）
@@ -95,7 +102,6 @@ test.describe('フィールド仕様', () => {
   // テストで作成したリソースのIDを保存
   let testProjectId: string | null = null;
   let createdQuantityTableId: string | null = null;
-  let projectName: string = '';
 
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
@@ -109,71 +115,14 @@ test.describe('フィールド仕様', () => {
     test('テスト用プロジェクトと数量表を作成する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // プロジェクト作成
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await page.getByRole('button', { name: /新規作成/i }).click();
-      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      projectName = `フィールド仕様テスト_${Date.now()}`;
-      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
-
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-      const createProjectPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/projects') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(30000) }
+      // Task 115.127 段1: 前提の生成は共通の補助へ寄せる。作れなければ補助の内側で失敗する
+      testProjectId = await createTestProject(page, 'フィールド仕様テスト');
+      const quantityTable = await createTestQuantityTable(
+        page,
+        testProjectId,
+        'フィールドテスト数量表'
       );
-
-      await page.getByRole('button', { name: /^作成$/i }).click();
-      await createProjectPromise;
-
-      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-      const projectUrl = page.url();
-      const projectMatch = projectUrl.match(/\/projects\/([0-9a-f-]+)$/);
-      testProjectId = projectMatch?.[1] ?? null;
-      expect(testProjectId).toBeTruthy();
-    });
-
-    test('数量表を作成する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 数量表作成ページに直接遷移（プロジェクト詳細ページの「新規作成」リンクは数量表0件時のみ表示）
-      await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
-      await page.waitForLoadState('networkidle');
-
-      // 数量表名を入力（Task 115.126: 入力欄の表示を無条件に主張する）
-      const tableNameInput = page.getByRole('textbox', { name: /数量表名|名称/i }).first();
-      await expect(tableNameInput, '数量表名の入力欄が表示される').toBeVisible({
-        timeout: getTimeout(15000),
-      });
-      await tableNameInput.fill(`フィールドテスト数量表_${Date.now()}`);
-
-      // 作成ボタンをクリック
-      const submitButton = page.getByRole('button', { name: /^作成$/i });
-      await expect(submitButton, '作成ボタンが表示される').toBeVisible({
-        timeout: getTimeout(10000),
-      });
-      await submitButton.click();
-
-      // REQ-2.2: 作成成功後は数量表編集画面へ遷移する。遷移先URLからIDを取得する
-      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+\/edit$/, {
-        timeout: getTimeout(30000),
-      });
-      createdQuantityTableId =
-        page.url().match(/\/quantity-tables\/([0-9a-f-]+)\/edit$/)?.[1] ?? null;
-      expect(createdQuantityTableId, '数量表IDが取得できる').toBeTruthy();
+      createdQuantityTableId = quantityTable.id;
     });
   });
 
@@ -182,8 +131,6 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('REQ-13: テキストフィールドの文字数制限', () => {
     test('13.1: 大項目フィールドに全角25文字まで入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -206,8 +153,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('13.2: 工種フィールドに全角8文字まで入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -228,8 +173,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('13.3: 単位フィールドに全角3文字まで入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -250,8 +193,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('文字数超過時にエラーメッセージが表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -288,8 +229,6 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('REQ-14: 数値フィールドの表示書式', () => {
     test('14.2: 調整係数が小数2桁で表示される（面積・体積選択時）', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -312,8 +251,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('14.2: 丸め設定が小数2桁で表示される（面積・体積選択時）', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -336,8 +273,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('14.2: 数量フィールドが小数2桁で表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -357,8 +292,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('14.3: 寸法フィールドに数値を入力すると小数2桁で表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -381,8 +314,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('14.4: 寸法フィールドが空白の場合は空白のまま表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -416,8 +347,6 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('REQ-15: 数量フィールドの入力制御', () => {
     test('15.1: 数量は-999999.99〜9999999.99の範囲で入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -448,8 +377,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('15.2: 数量フィールドに空白が入力されると0.00が自動設定される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -473,8 +400,6 @@ test.describe('フィールド仕様', () => {
     });
 
     test('15.3: 寸法フィールドは0.01〜9999999.99の範囲で入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -512,8 +437,6 @@ test.describe('フィールド仕様', () => {
     test('9.8: 標準計算時は調整係数フィールドが表示されない (quantity-table-generation/REQ-9.8)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -540,8 +463,6 @@ test.describe('フィールド仕様', () => {
     test('9.1, 9.3: 面積・体積選択時に調整係数フィールドが表示され-9.99〜9.99の範囲で入力できる (quantity-table-generation/REQ-9.1, REQ-9.3)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -573,8 +494,6 @@ test.describe('フィールド仕様', () => {
     test('9.4: 調整係数が空白時は1.00が自動設定される (quantity-table-generation/REQ-9.4)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -611,8 +530,6 @@ test.describe('フィールド仕様', () => {
     test('10.8: 標準計算時は丸め設定フィールドが表示されない (quantity-table-generation/REQ-10.8)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -638,8 +555,6 @@ test.describe('フィールド仕様', () => {
     test('10.1, 10.3: 面積・体積選択時に丸め設定フィールドが表示され-99.99〜99.99の範囲で入力できる (quantity-table-generation/REQ-10.1, REQ-10.3)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -671,8 +586,6 @@ test.describe('フィールド仕様', () => {
     test('10.4: 丸め設定が空白時は0.01が自動設定される (quantity-table-generation/REQ-10.4)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -703,8 +616,6 @@ test.describe('フィールド仕様', () => {
     test('10.4: 丸め設定が0の時は0.01が自動設定される (quantity-table-generation/REQ-10.4)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -738,7 +649,7 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('クリーンアップ', () => {
     test('テスト用プロジェクトを削除する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
 
       await loginAsUser(page, 'ADMIN_USER');
       await page.goto(`/projects/${testProjectId}`);

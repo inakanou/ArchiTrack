@@ -12,13 +12,21 @@
  * - REQ-7.6: blur時の候補追加はAPIリクエスト不要
  * - REQ-7.7: 候補を50音順に表示
  *
+ * Task 115.127 段1: 前提の生成を共通の補助（`quantity-table-preconditions`）へ寄せ、
+ * `test.skip(!testProjectId, …)` 7 件を `assertPrepared` へ改めた。
+ * 併せて「数量表IDがあれば編集画面、無ければプロジェクト詳細」の分岐を除いた（前提は必ず在る）。
+ *
  * @module e2e/specs/quantity-tables/name-remarks-autocomplete.spec
  */
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  createTestProject,
+  createTestQuantityTable,
+} from '../../helpers/quantity-table-preconditions';
 
 /**
  * 名称・備考フィールドのオートコンプリートE2Eテスト
@@ -30,7 +38,6 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
   // テストで作成したリソースのIDを保存
   let testProjectId: string | null = null;
   let createdQuantityTableId: string | null = null;
-  let projectName: string = '';
 
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
@@ -39,81 +46,21 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
   /**
    * 事前準備: テスト用プロジェクトと数量表を作成
+   *
+   * Task 115.127 段1: 前提の生成は共通の補助（`quantity-table-preconditions`）へ寄せる。
+   * 作れなければ補助の内側で失敗するため、前提が崩れたまま後段へ進む経路が無い。
    */
   test.describe('事前準備', () => {
     test('テスト用プロジェクトと数量表を作成する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // プロジェクト作成
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await page.getByRole('button', { name: /新規作成/i }).click();
-      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      projectName = `名称備考AC_${Date.now()}`;
-      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
-
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-      const createProjectPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/projects') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(30000) }
+      testProjectId = await createTestProject(page, '名称備考ACテスト');
+      const quantityTable = await createTestQuantityTable(
+        page,
+        testProjectId,
+        '名称備考ACテスト数量表'
       );
-
-      await page.getByRole('button', { name: /^作成$/i }).click();
-      await createProjectPromise;
-
-      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-      const projectUrl = page.url();
-      const projectMatch = projectUrl.match(/\/projects\/([0-9a-f-]+)$/);
-      testProjectId = projectMatch?.[1] ?? null;
-      expect(testProjectId).toBeTruthy();
-    });
-
-    test('数量表を作成する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 数量表作成ページに直接遷移
-      await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
-      await page.waitForLoadState('networkidle');
-
-      // 数量表名を入力
-      const tableNameInput = page.getByLabel(/数量表名|名称/i);
-      if (await tableNameInput.isVisible()) {
-        await tableNameInput.fill(`名称備考ACテスト数量表_${Date.now()}`);
-      }
-
-      // 作成ボタンをクリック
-      const submitButton = page.getByRole('button', { name: /^作成$|^保存$/i });
-      if (await submitButton.isVisible()) {
-        const createTablePromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/quantity-tables') ||
-            (response.url().includes('/api/projects/') &&
-              response.url().includes('/quantity-tables')),
-          { timeout: getTimeout(30000) }
-        );
-
-        await submitButton.click();
-        const response = await createTablePromise;
-
-        // 作成された数量表IDを取得
-        if (response.status() === 201) {
-          const body = await response.json();
-          createdQuantityTableId = body.id;
-        }
-      }
+      createdQuantityTableId = quantityTable.id;
     });
   });
 
@@ -125,17 +72,12 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
     test('名称フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示される', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
 
       await loginAsUser(page, 'REGULAR_USER');
 
       // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
-      }
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
 
       await page.waitForLoadState('networkidle');
 
@@ -163,17 +105,12 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
     });
 
     test('名称フィールドでテキスト入力時に候補がフィルタリングされる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
 
       await loginAsUser(page, 'REGULAR_USER');
 
       // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
-      }
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
 
       await page.waitForLoadState('networkidle');
 
@@ -213,17 +150,12 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
     test('備考フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示される', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
 
       await loginAsUser(page, 'REGULAR_USER');
 
       // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
-      }
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
 
       await page.waitForLoadState('networkidle');
 
@@ -250,17 +182,12 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
   test.describe('REQ-7.4: 候補選択時の自動入力', () => {
     test('名称フィールドで候補を選択すると値が自動入力される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
 
       await loginAsUser(page, 'REGULAR_USER');
 
       // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
-      }
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
 
       await page.waitForLoadState('networkidle');
 
@@ -313,17 +240,12 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
   test.describe('REQ-7.1: 全9フィールドのオートコンプリート一貫性', () => {
     test('全9フィールドでオートコンプリートが一貫して動作する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
 
       await loginAsUser(page, 'REGULAR_USER');
 
       // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
-      }
+      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
 
       await page.waitForLoadState('networkidle');
 
@@ -361,7 +283,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
   test.describe('クリーンアップ', () => {
     test('テストデータのクリーンアップ', async ({ page }) => {
-      test.skip(!testProjectId, 'クリーンアップ不要');
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
 
       await loginAsUser(page, 'REGULAR_USER');
 

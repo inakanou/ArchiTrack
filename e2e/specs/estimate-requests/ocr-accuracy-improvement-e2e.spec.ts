@@ -20,6 +20,9 @@
  * 5. OCR処理全体が30秒のタイムアウト内に完了することを確認
  * 6. テストデータをクリーンアップ
  *
+ * Task 115.127 段1: 前提の生成を `seedEstimateRequest`（`estimate-request-preconditions`）へ寄せ、
+ * `test.skip(!createdEstimateRequestId, …)` 3 件を `assertPrepared` へ改めた。
+ *
  * @module e2e/specs/estimate-requests/ocr-accuracy-improvement-e2e.spec
  */
 
@@ -27,6 +30,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 
@@ -55,115 +60,28 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得（localStorageから取得）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-    expect(accessToken).not.toBe('');
-
-    // 担当者候補を取得（salesPersonIdに必要）
-    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    expect(assignableRes.ok()).toBeTruthy();
-    const assignableUsers = await assignableRes.json();
-    expect(assignableUsers.length).toBeGreaterThan(0);
-    const salesPersonId = assignableUsers[0].id;
-
-    // プロジェクト作成
-    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `OCR精度改善E2Eテスト-${Date.now()}`,
-        salesPersonId,
-        siteAddress: '東京都渋谷区テスト1-1-1',
+    // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
+    // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
+    // いずれかの作成に失敗した時点で補助の内側で失敗する。
+    const seed = await seedEstimateRequest(page, {
+      label: 'OCR精度改善E2Eテスト',
+      siteAddress: '東京都渋谷区テスト1-1-1',
+      partnerEmail: 'test-ocr-accuracy@example.com',
+      groupName: '建築工事グループ',
+      item: {
+        workType: '建築工事',
+        name: '外壁塗装',
+        specification: 'シリコン系',
+        unit: 'm2',
+        quantity: 100,
       },
     });
-    expect(projectRes.ok()).toBeTruthy();
-    const project = await projectRes.json();
-    createdProjectId = project.id;
 
-    // 取引先作成
-    const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `テスト業者-OCR精度-${Date.now()}`,
-        nameKana: 'テストギョウシャ',
-        types: ['SUBCONTRACTOR'],
-        address: '東京都渋谷区テスト1-1-1',
-        email: 'test-ocr-accuracy@example.com',
-      },
-    });
-    expect(partnerRes.ok()).toBeTruthy();
-    const partner = await partnerRes.json();
-    createdTradingPartnerId = partner.id;
-
-    // 数量表作成
-    const qtRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `テスト数量表-OCR精度-${Date.now()}` },
-      }
-    );
-    expect(qtRes.ok()).toBeTruthy();
-    const qt = await qtRes.json();
-
-    // 数量グループ作成
-    const groupRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: '建築工事グループ', displayOrder: 0 },
-      }
-    );
-    expect(groupRes.ok()).toBeTruthy();
-    const group = await groupRes.json();
-
-    // 数量項目作成
-    const itemRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          workType: '建築工事',
-          name: '外壁塗装',
-          specification: 'シリコン系',
-          unit: 'm2',
-          quantity: 100,
-        },
-      }
-    );
-    expect(itemRes.ok()).toBeTruthy();
-
-    // 内訳書作成（数量表から生成）
-    const statementRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト内訳書-OCR精度-${Date.now()}`,
-          quantityTableId: qt.id,
-        },
-      }
-    );
-    expect(statementRes.ok()).toBeTruthy();
-    const statement = await statementRes.json();
-    createdItemizedStatementId = statement.id;
-
-    // 見積依頼作成
-    const erRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト見積依頼-OCR精度-${Date.now()}`,
-          tradingPartnerId: createdTradingPartnerId,
-          itemizedStatementId: createdItemizedStatementId,
-        },
-      }
-    );
-    expect(erRes.ok()).toBeTruthy();
-    const er = await erRes.json();
-    createdEstimateRequestId = er.id;
+    accessToken = seed.accessToken;
+    createdProjectId = seed.projectId;
+    createdTradingPartnerId = seed.tradingPartnerId;
+    createdItemizedStatementId = seed.itemizedStatementId;
+    createdEstimateRequestId = seed.estimateRequestId;
   });
 
   // ============================================================================
@@ -178,7 +96,7 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   test('スキャンPDFアップロード後にOCR処理が完了しテキスト抽出結果が表示される (REQ-19.1, REQ-19.6, REQ-19.8)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -255,7 +173,7 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   test('一括取り込み後の明細行にゴミデータ（罫線文字・記号のみ行・集計行）が含まれない (REQ-20.1, REQ-20.2, REQ-20.3, REQ-20.5)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -362,7 +280,7 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   test('テキストPDFでは従来通りpdfjs-dist直接テキスト抽出が実行される（互換性確認） (REQ-19.8)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 

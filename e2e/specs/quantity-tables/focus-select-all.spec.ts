@@ -17,13 +17,22 @@
  * - REQ-16.11: 全選択状態での上書き入力
  * - REQ-16.12: オートコンプリートとの共存
  *
+ * Task 115.127 段1: 前提の生成を共通の補助（`quantity-table-preconditions`）へ寄せ、
+ * `test.skip(!testProjectId, …)` 5 件を除いた。編集画面と数量項目1行は
+ * `openEditPageWithSingleItemRow` が無条件に用意し、用意できなければその場で失敗する。
+ *
  * @module e2e/specs/quantity-tables/focus-select-all.spec
  */
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  createTestProject,
+  createTestQuantityTable,
+  openEditPageWithSingleItemRow,
+} from '../../helpers/quantity-table-preconditions';
 
 /**
  * フォーカス時全選択E2Eテスト
@@ -35,7 +44,6 @@ test.describe('フォーカス時全選択', () => {
   // テストで作成したリソースのIDを保存
   let testProjectId: string | null = null;
   let createdQuantityTableId: string | null = null;
-  let projectName: string = '';
 
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
@@ -44,106 +52,25 @@ test.describe('フォーカス時全選択', () => {
 
   /**
    * 事前準備: テスト用プロジェクトと数量表を作成
+   *
+   * Task 115.127 段1: 前提の生成は共通の補助（`quantity-table-preconditions`）へ寄せる。
+   * 作れなければ補助の内側で失敗するため、前提が崩れたまま後段へ進む経路が無い。
+   *
+   * 数量グループと数量項目はここでは作らない。編集画面の変更はクライアントドラフトに
+   * 留まり保存しない限り永続化されない（REQ-42）ため、ここで追加しても次のテストの
+   * 編集画面には残らない。各テストは `openEditPageWithSingleItemRow` で自ら用意する。
    */
   test.describe('事前準備', () => {
     test('テスト用プロジェクトと数量表を作成する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // プロジェクト作成
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await page.getByRole('button', { name: /新規作成/i }).click();
-      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      projectName = `全選択テスト_${Date.now()}`;
-      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
-
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-      const createProjectPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/projects') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(30000) }
+      testProjectId = await createTestProject(page, '全選択テスト');
+      const quantityTable = await createTestQuantityTable(
+        page,
+        testProjectId,
+        '全選択テスト数量表'
       );
-
-      await page.getByRole('button', { name: /^作成$/i }).click();
-      await createProjectPromise;
-
-      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-      const projectUrl = page.url();
-      const projectMatch = projectUrl.match(/\/projects\/([0-9a-f-]+)$/);
-      testProjectId = projectMatch?.[1] ?? null;
-      expect(testProjectId).toBeTruthy();
-    });
-
-    test('数量表を作成してグループと項目を追加する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 数量表作成ページに直接遷移
-      await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
-      await page.waitForLoadState('networkidle');
-
-      // 数量表名を入力
-      const tableNameInput = page.getByLabel(/数量表名|名称/i);
-      await expect(tableNameInput).toBeVisible({ timeout: getTimeout(10000) });
-      await tableNameInput.fill(`全選択テスト数量表_${Date.now()}`);
-
-      // 作成ボタンをクリック
-      const submitButton = page.getByRole('button', { name: /^作成$|^保存$/i });
-      await expect(submitButton).toBeVisible({ timeout: getTimeout(10000) });
-
-      const createTablePromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/quantity-tables') ||
-          (response.url().includes('/api/projects/') &&
-            response.url().includes('/quantity-tables')),
-        { timeout: getTimeout(30000) }
-      );
-
-      await submitButton.click();
-      const response = await createTablePromise;
-
-      // 作成された数量表IDを取得
-      expect(response.status()).toBe(201);
-      const body = await response.json();
-      createdQuantityTableId = body.id;
-      expect(createdQuantityTableId).toBeTruthy();
-
-      // 編集画面にリダイレクトされるまで待機
-      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+\/edit/, {
-        timeout: getTimeout(15000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // グループを追加（ヘッダーと空状態エリアに2つあるため.first()を使用）
-      const addGroupButton = page.getByRole('button', { name: /グループを追加/i }).first();
-      await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
-      await addGroupButton.click();
-      await page.waitForLoadState('networkidle');
-
-      // グループ内の「項目を追加」ボタンが表示されるまで待機
-      const addItemButton = page.getByRole('button', { name: /項目を追加/i }).first();
-      await expect(addItemButton).toBeVisible({ timeout: getTimeout(10000) });
-
-      // 項目を追加
-      await addItemButton.click();
-      await page.waitForLoadState('networkidle');
-
-      // 項目追加のAPIレスポンスを待機し、フィールドが表示されることを確認
-      // comboboxのaccessible nameは「工種を入力」形式
-      await expect(page.getByRole('combobox', { name: /工種/i }).first()).toBeVisible({
-        timeout: getTimeout(15000),
-      });
+      createdQuantityTableId = quantityTable.id;
     });
   });
 
@@ -152,48 +79,17 @@ test.describe('フォーカス時全選択', () => {
    */
   test.describe('REQ-16: フォーカス時全選択', () => {
     /**
-     * ヘルパー: 数量表編集画面に遷移して項目が表示されていることを確認する
+     * ヘルパー: 数量表編集画面を開き、数量項目を1行用意する
+     *
+     * Task 115.127 段1: 以前は「数量表IDがあれば編集画面、無ければプロジェクト詳細から
+     * リンクを探す」という分岐と、「グループ・項目が表示されていなければ追加する」という
+     * 表示条件の分岐を持っていた。いずれも前提が用意できていない場合に黙って別の画面へ
+     * 進み、後段の判定を素通りさせる。前提は共通の補助が無条件に作り、作れなければ失敗する。
      */
     async function navigateToEditPage(page: import('@playwright/test').Page) {
       await loginAsUser(page, 'REGULAR_USER');
 
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
-
-        const tableLink = page.getByRole('link', { name: /全選択テスト数量表/i });
-        await expect(tableLink).toBeVisible({ timeout: getTimeout(10000) });
-        await tableLink.click();
-        await page.waitForLoadState('networkidle');
-      }
-
-      await page.waitForLoadState('networkidle');
-
-      // グループが存在しない場合は追加
-      const addGroupButton = page.getByRole('button', { name: /グループを追加/i }).first();
-      if (await addGroupButton.isVisible()) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加/i }).first();
-        if (!(await addItemButton.isVisible().catch(() => false))) {
-          await addGroupButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-      }
-
-      // 項目が存在しない場合は追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加/i }).first();
-      if (await addItemButton.isVisible()) {
-        const fieldVisible = await page
-          .getByRole('combobox', { name: /工種/i })
-          .first()
-          .isVisible()
-          .catch(() => false);
-        if (!fieldVisible) {
-          await addItemButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-      }
+      await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // フィールドが表示されることを確認
       await expect(page.getByRole('combobox', { name: /工種/i }).first()).toBeVisible({
@@ -281,8 +177,6 @@ test.describe('フォーカス時全選択', () => {
     test('16.1-16.10: 対象10フィールドそれぞれにフォーカスして全選択状態になる', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await navigateToEditPage(page);
 
       // テスト対象フィールドリスト（combobox: 大項目/中項目/小項目/任意分類/工種/規格/単位, textbox: 名称/備考）
@@ -331,8 +225,6 @@ test.describe('フォーカス時全選択', () => {
     });
 
     test('16.11: 全選択状態で新しい文字を入力すると既存値が置換される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await navigateToEditPage(page);
 
       // 名称フィールドで上書き入力を検証
@@ -366,8 +258,6 @@ test.describe('フォーカス時全選択', () => {
     test('16.12: オートコンプリート対象フィールドで全選択とドロップダウンが共存する', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await navigateToEditPage(page);
 
       // 大項目フィールド（AutocompleteInput）でテスト
@@ -396,7 +286,7 @@ test.describe('フォーカス時全選択', () => {
    */
   test.describe('クリーンアップ', () => {
     test('テスト用プロジェクトを削除する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
 
       await loginAsUser(page, 'REGULAR_USER');
 

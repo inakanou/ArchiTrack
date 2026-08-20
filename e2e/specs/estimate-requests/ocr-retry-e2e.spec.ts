@@ -17,6 +17,9 @@
  * - 16.11: 処理中ボタン非活性
  * - 16.12: 編集画面での既存ファイルプレビュー表示
  *
+ * Task 115.127 段1: 前提の生成を `seedEstimateRequest`（`estimate-request-preconditions`）へ寄せ、
+ * `test.skip(!createdEstimateRequestId, …)` 10 件を `assertPrepared` へ改めた。
+ *
  * @module e2e/specs/estimate-requests/ocr-retry-e2e.spec
  */
 
@@ -24,6 +27,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 
@@ -67,118 +72,30 @@ test.describe('OCR再実行・リトライ機能', () => {
   });
 
   test('テスト前提データを作成する', async ({ page }) => {
-    // ログイン
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得（localStorageから）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-    expect(accessToken).not.toBe('');
-
-    // 担当者候補を取得（salesPersonIdに必要、admin以外のユーザー）
-    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    expect(assignableRes.ok()).toBeTruthy();
-    const assignableUsers = await assignableRes.json();
-    expect(assignableUsers.length).toBeGreaterThan(0);
-    const salesPersonId = assignableUsers[0].id;
-
-    // プロジェクト作成
-    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `OCRリトライテスト-${Date.now()}`,
-        salesPersonId,
-        siteAddress: '東京都千代田区',
+    // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
+    // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
+    // いずれかの作成に失敗した時点で補助の内側で失敗する。
+    const seed = await seedEstimateRequest(page, {
+      label: 'OCRリトライテスト',
+      siteAddress: '東京都千代田区',
+      partnerEmail: 'test-ocr@example.com',
+      groupName: '外壁工事グループ',
+      item: {
+        workType: '外壁工事',
+        name: '外壁塗装',
+        specification: 'シリコン系',
+        unit: 'm2',
+        quantity: 100,
       },
     });
-    expect(projectRes.ok()).toBeTruthy();
-    const project = await projectRes.json();
-    createdProjectId = project.id;
 
-    // 取引先作成
-    const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `テスト業者-OCRリトライ-${Date.now()}`,
-        nameKana: 'テストギョウシャ',
-        types: ['SUBCONTRACTOR'],
-        address: '東京都千代田区テスト1-2-3',
-        email: 'test-ocr@example.com',
-      },
-    });
-    expect(partnerRes.ok()).toBeTruthy();
-    const partner = await partnerRes.json();
-    createdTradingPartnerId = partner.id;
-
-    // 数量表作成
-    const qtRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `テスト数量表-OCRリトライ-${Date.now()}` },
-      }
-    );
-    expect(qtRes.ok()).toBeTruthy();
-    const qt = await qtRes.json();
-
-    // 数量グループ作成
-    const groupRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: '外壁工事グループ', displayOrder: 0 },
-      }
-    );
-    expect(groupRes.ok()).toBeTruthy();
-    const group = await groupRes.json();
-
-    // 数量項目作成
-    const itemRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          workType: '外壁工事',
-          name: '外壁塗装',
-          specification: 'シリコン系',
-          unit: 'm2',
-          quantity: 100,
-        },
-      }
-    );
-    expect(itemRes.ok()).toBeTruthy();
-
-    // 内訳書作成（数量表から生成）
-    const statementRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト内訳書-OCRリトライ-${Date.now()}`,
-          quantityTableId: qt.id,
-        },
-      }
-    );
-    expect(statementRes.ok()).toBeTruthy();
-    const statement = await statementRes.json();
-    createdItemizedStatementId = statement.id;
-
-    // 見積依頼作成
-    const erRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト見積依頼-OCRリトライ-${Date.now()}`,
-          tradingPartnerId: createdTradingPartnerId,
-          itemizedStatementId: createdItemizedStatementId,
-        },
-      }
-    );
-    expect(erRes.ok()).toBeTruthy();
-    const er = await erRes.json();
-    createdEstimateRequestId = er.id;
+    accessToken = seed.accessToken;
+    createdProjectId = seed.projectId;
+    createdTradingPartnerId = seed.tradingPartnerId;
+    createdItemizedStatementId = seed.itemizedStatementId;
+    createdEstimateRequestId = seed.estimateRequestId;
   });
 
   /**
@@ -188,7 +105,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('PDFのみアップロードして受領見積書を保存し、編集画面で「OCR実行」ボタンを確認する (estimate-request/REQ-16.1, estimate-request/REQ-16.9)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -263,7 +180,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('「OCR実行」ボタンクリックでOCR処理が開始される (estimate-request/REQ-16.2, estimate-request/REQ-16.3)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -303,7 +220,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('OCR完了後に結果と一括取り込みボタンが表示される (estimate-request/REQ-16.4)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -355,7 +272,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('OCR失敗時に「OCRリトライ」ボタンが表示される (estimate-request/REQ-16.5)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -409,7 +326,7 @@ test.describe('OCR再実行・リトライ機能', () => {
    * @requirement estimate-request/REQ-16.6
    */
   test('リトライボタンでOCR再実行が行われる (estimate-request/REQ-16.6)', async ({ page }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -475,7 +392,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('Excelファイルの場合にデータパースボタンが表示される (estimate-request/REQ-16.7)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -522,7 +439,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('データパース実行でExcelデータが解析される (estimate-request/REQ-16.8)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -570,7 +487,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('編集画面でOCR結果から一括取り込みが行われる (estimate-request/REQ-16.10)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -634,7 +551,7 @@ test.describe('OCR再実行・リトライ機能', () => {
    * 操作不能になった（非表示化された）ことを検証する。
    */
   test('OCR処理中にボタンが非活性になる (estimate-request/REQ-16.11)', async ({ page }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -725,7 +642,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('編集画面で既存ファイルのプレビューが表示される (estimate-request/REQ-16.12)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
