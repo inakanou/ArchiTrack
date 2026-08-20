@@ -9,7 +9,7 @@
     "reduction は削減の目標と計画文書の所在。実行のたびに残り件数を出力する（合否には用いない）。",
     "件数が増える方向の更新は既定で拒否する。記録が必要な場合のみ --allow-increase を付けること。"
   ],
-  "generatedTotal": 1044,
+  "generatedTotal": 1025,
   "allowedTotal": 3,
   "reduction": {
     "doc": ".kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md",
@@ -280,8 +280,8 @@
       "T2-ignored-timeout": 2
     },
     "e2e/specs/quantity-tables/field-specification.spec.ts": {
-      "T3-tautology": 2,
-      "T5-observed-result-gate": 17,
+      "T3-tautology": 0,
+      "T5-observed-result-gate": 0,
       "T6-conditional-skip": 21
     },
     "e2e/specs/quantity-tables/focus-select-all.spec.ts": {
