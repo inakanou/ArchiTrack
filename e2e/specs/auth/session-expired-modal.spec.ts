@@ -4,6 +4,7 @@ import { createTestUser, createAllTestUsers } from '../../fixtures/auth.fixtures
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * セッション切れモーダル再認証のE2Eテスト
@@ -908,12 +909,10 @@ test.describe('セッション切れモーダル再認証', () => {
 
     // モーダルのサイズがビューポートに近いことを確認（フルスクリーン）
     const modalBoundingBox = await dialog.boundingBox();
-    expect(modalBoundingBox).not.toBeNull();
-    if (modalBoundingBox) {
-      // モバイル表示ではモーダルの幅がビューポート幅に近い
-      expect(modalBoundingBox.width).toBeGreaterThanOrEqual(375 * 0.9);
-      // モバイル表示ではmin-h-[80vh]で最小高さ80%のビューポート高さ
-      expect(modalBoundingBox.height).toBeGreaterThanOrEqual(667 * 0.7);
-    }
+    assertPresent(modalBoundingBox, 'セッション切れモーダルの境界ボックス');
+    // モバイル表示ではモーダルの幅がビューポート幅に近い
+    expect(modalBoundingBox.width).toBeGreaterThanOrEqual(375 * 0.9);
+    // モバイル表示ではmin-h-[80vh]で最小高さ80%のビューポート高さ
+    expect(modalBoundingBox.height).toBeGreaterThanOrEqual(667 * 0.7);
   });
 });

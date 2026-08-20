@@ -17,6 +17,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
+import { assertPresent } from '../../helpers/preconditions';
 
 async function openCreateDialog(page: Page, estimateRequestId: string) {
   await page.goto(`/estimate-requests/${estimateRequestId}`);
@@ -157,16 +158,14 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
         .first();
 
       const box = await modalContent.boundingBox();
-      expect(box).toBeTruthy();
-      if (box) {
-        // REQ-32.1: 従来の典型ダイアログ幅(700-900)より広い 1000px 以上
-        expect(box.width).toBeGreaterThanOrEqual(1000);
-        // REQ-32.5: 画面端からはみ出さない（viewport に収まる）
-        const viewport = page.viewportSize();
-        if (viewport) {
-          expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-          expect(box.x).toBeGreaterThanOrEqual(0);
-        }
+      assertPresent(box, 'ダイアログ本体の境界ボックス');
+      // REQ-32.1: 従来の典型ダイアログ幅(700-900)より広い 1000px 以上
+      expect(box.width).toBeGreaterThanOrEqual(1000);
+      // REQ-32.5: 画面端からはみ出さない（viewport に収まる）
+      const viewport = page.viewportSize();
+      if (viewport) {
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+        expect(box.x).toBeGreaterThanOrEqual(0);
       }
     });
   });
@@ -255,12 +254,10 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
         .filter({ hasText: 'ファイル' })
         .first();
       const box = await modalContent.boundingBox();
-      expect(box).toBeTruthy();
-      if (box) {
-        // 画面幅以下に収まる（maxWidth: 95vw のレスポンシブ制御）
-        expect(box.width).toBeLessThanOrEqual(1024);
-        expect(box.x + box.width).toBeLessThanOrEqual(1024);
-      }
+      assertPresent(box, 'ダイアログ本体の境界ボックス');
+      // 画面幅以下に収まる（maxWidth: 95vw のレスポンシブ制御）
+      expect(box.width).toBeLessThanOrEqual(1024);
+      expect(box.x + box.width).toBeLessThanOrEqual(1024);
 
       // キャンセル/保存ボタンが押下可能な位置に存在する
       await expect(page.getByRole('button', { name: /キャンセル/ }).first()).toBeVisible();
@@ -334,10 +331,8 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
         .filter({ hasText: 'ファイル' })
         .first();
       const box = await modalContent.boundingBox();
-      expect(box).toBeTruthy();
-      if (box) {
-        expect(box.width).toBeGreaterThanOrEqual(1000);
-      }
+      assertPresent(box, 'ダイアログ本体の境界ボックス');
+      expect(box.width).toBeGreaterThanOrEqual(1000);
     });
   });
 

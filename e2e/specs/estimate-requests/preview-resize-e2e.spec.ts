@@ -22,6 +22,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
+import { assertPresent } from '../../helpers/preconditions';
 
 const PREVIEW_HEIGHT_STORAGE_KEY = 'architrack:received-quotation:preview-height';
 const RESIZE_MIN_HEIGHT = 200;
@@ -212,10 +213,8 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
 
       // PDF プレビューエリアの実高さを測定 → 200px 以上
       const pdfContainerHeight = await getPdfContainerHeight(page);
-      expect(pdfContainerHeight).not.toBeNull();
-      if (pdfContainerHeight != null) {
-        expect(pdfContainerHeight).toBeGreaterThanOrEqual(RESIZE_MIN_HEIGHT - 1); // 1px の丸め誤差許容
-      }
+      assertPresent(pdfContainerHeight, 'PDF プレビュー領域の実高さ');
+      expect(pdfContainerHeight).toBeGreaterThanOrEqual(RESIZE_MIN_HEIGHT - 1); // 1px の丸め誤差許容
     });
 
     /**
@@ -239,11 +238,9 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       await page.locator('[data-testid="file-input"]').setInputFiles('e2e/fixtures/test-file.pdf');
 
       const pdfContainerHeight = await getPdfContainerHeight(page);
-      expect(pdfContainerHeight).not.toBeNull();
-      if (pdfContainerHeight != null) {
-        // RESIZE_MAX_ABSOLUTE_HEIGHT = 800px と viewport*0.7 のうち小さい方
-        expect(pdfContainerHeight).toBeLessThanOrEqual(RESIZE_MAX_ABSOLUTE_HEIGHT);
-      }
+      assertPresent(pdfContainerHeight, 'PDF プレビュー領域の実高さ');
+      // RESIZE_MAX_ABSOLUTE_HEIGHT = 800px と viewport*0.7 のうち小さい方
+      expect(pdfContainerHeight).toBeLessThanOrEqual(RESIZE_MAX_ABSOLUTE_HEIGHT);
     });
   });
 
@@ -269,12 +266,10 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       await page.locator('[data-testid="file-input"]').setInputFiles('e2e/fixtures/test-file.pdf');
 
       const pdfContainerHeight = await getPdfContainerHeight(page);
-      expect(pdfContainerHeight).not.toBeNull();
-      if (pdfContainerHeight != null) {
-        // 既定値 400px の付近（スクロールバー等で多少ずれても許容: ±20px）
-        expect(pdfContainerHeight).toBeGreaterThanOrEqual(RESIZE_DEFAULT_HEIGHT - 20);
-        expect(pdfContainerHeight).toBeLessThanOrEqual(RESIZE_DEFAULT_HEIGHT + 20);
-      }
+      assertPresent(pdfContainerHeight, 'PDF プレビュー領域の実高さ');
+      // 既定値 400px の付近（スクロールバー等で多少ずれても許容: ±20px）
+      expect(pdfContainerHeight).toBeGreaterThanOrEqual(RESIZE_DEFAULT_HEIGHT - 20);
+      expect(pdfContainerHeight).toBeLessThanOrEqual(RESIZE_DEFAULT_HEIGHT + 20);
     });
   });
 

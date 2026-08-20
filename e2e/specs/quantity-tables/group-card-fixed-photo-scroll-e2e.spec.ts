@@ -35,6 +35,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -346,8 +347,8 @@ test.describe('REQ-41: 数量グループカードの画像・コメント固定
     // スクロール前の画像・コメントの位置を記録（固定表示の基準）
     const thumbBoxBefore = await thumbnail.boundingBox();
     const commentBoxBefore = await comment.boundingBox();
-    expect(thumbBoxBefore, 'スクロール前の画像 bounding box が取得できる').not.toBeNull();
-    expect(commentBoxBefore, 'スクロール前のコメント bounding box が取得できる').not.toBeNull();
+    assertPresent(thumbBoxBefore, 'スクロール前の画像 bounding box');
+    assertPresent(commentBoxBefore, 'スクロール前のコメント bounding box');
 
     // 右端のはみ出しフィールドはスクロール前にはビューポート/ラッパーからはみ出している
     const roundingBoxBefore = await roundingField.boundingBox();
@@ -369,25 +370,21 @@ test.describe('REQ-41: 数量グループカードの画像・コメント固定
 
     const thumbBoxAfter = await thumbnail.boundingBox();
     const commentBoxAfter = await comment.boundingBox();
-    expect(thumbBoxAfter, 'スクロール後の画像 bounding box が取得できる').not.toBeNull();
-    expect(commentBoxAfter, 'スクロール後のコメント bounding box が取得できる').not.toBeNull();
+    assertPresent(thumbBoxAfter, 'スクロール後の画像 bounding box');
+    assertPresent(commentBoxAfter, 'スクロール後のコメント bounding box');
 
-    if (thumbBoxBefore && thumbBoxAfter) {
-      expect(
-        Math.abs(thumbBoxAfter.x - thumbBoxBefore.x),
-        '画像の水平位置はテーブル水平スクロールの影響を受けない（固定）'
-      ).toBeLessThanOrEqual(2);
-      expect(
-        Math.abs(thumbBoxAfter.y - thumbBoxBefore.y),
-        '画像の垂直位置も維持される'
-      ).toBeLessThanOrEqual(2);
-    }
-    if (commentBoxBefore && commentBoxAfter) {
-      expect(
-        Math.abs(commentBoxAfter.x - commentBoxBefore.x),
-        'コメントの水平位置はテーブル水平スクロールの影響を受けない（固定）'
-      ).toBeLessThanOrEqual(2);
-    }
+    expect(
+      Math.abs(thumbBoxAfter.x - thumbBoxBefore.x),
+      '画像の水平位置はテーブル水平スクロールの影響を受けない（固定）'
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(thumbBoxAfter.y - thumbBoxBefore.y),
+      '画像の垂直位置も維持される'
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(commentBoxAfter.x - commentBoxBefore.x),
+      'コメントの水平位置はテーブル水平スクロールの影響を受けない（固定）'
+    ).toBeLessThanOrEqual(2);
 
     // REQ-41.1: 右端のはみ出しフィールド（丸め設定）が水平スクロール後に閲覧可能になる
     await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });

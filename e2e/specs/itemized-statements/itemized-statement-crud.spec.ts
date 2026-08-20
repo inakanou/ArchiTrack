@@ -64,6 +64,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import ExcelJS from 'exceljs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * 内訳書CRUD機能のE2Eテスト
@@ -2717,10 +2718,8 @@ test.describe('内訳書CRUD操作', () => {
 
       expectedHeaders.forEach((header, index) => {
         const column = headerColumns[index];
-        expect(column).toBeTruthy();
-        if (column) {
-          expect(column.trim()).toBe(header);
-        }
+        assertPresent(column, `ヘッダ行の列[${index}]`);
+        expect(column.trim()).toBe(header);
       });
 
       // REQ-14.2, REQ-14.4: データ行がタブ区切りであることを確認

@@ -97,6 +97,19 @@
  *     いずれも条件分岐・例外処理・コールバックの内側でのみ真を代入している
  *     （無条件に真を代入する箇所は 0 件）。真偽のリテラルの代入まで辿ると、
  *     この 34 箇所がそのまま過検出として戻る。
+ *   - 判定・抽出の実装そのものである分岐（Task 115.127 段3・計画の A 群）
+ *     真偽を返す関数、またはブラウザ側で評価される関数（`evaluate` 族）の内側で、
+ *     **expect を一つも含まず** then 節が脱出だけの分岐。述語は false を返す経路を必ず持ち、
+ *     その `return false` を数えることは「述語が述語であること」を欠陥として数えるに等しい。
+ *     真偽を呼び出し側がどう扱うかは関門であり、呼び出し側の分岐は従来どおり検出される。
+ *     真偽を返す関数かどうかは**構造**で判定する（戻り値の型注釈、または自らの return が
+ *     すべて真偽の値であること）。`isX` / `hasX` のような命名では判定しない。
+ *     詳細は predicateImplementationExclusion を参照。
+ *   - どの経路でも throw か無条件の主張に到達する分岐（Task 115.127 段3・計画の B 群）
+ *     `else` を持ち、then / else の双方の到達しうる終端がすべて throw か無条件の主張であり、
+ *     かつ内側に throw を含む分岐。素通りする経路が構造上存在しない。
+ *     throw を含まない全域分岐（計画の G 群）は「どの経路でも**同等の**検証が実行されるか」
+ *     という中身の判断を要するため対象外にしない。詳細は guaranteedFailureExclusion を参照。
  *
  * 検出規則の確認:
  *   scripts/check-e2e-assertion-guards.selftest.ts に、捕捉すべき書き方と
@@ -176,7 +189,7 @@ export type GuardType =
   | 'T5-observed-result-gate'
   | 'T6-conditional-skip';
 
-interface Finding {
+export interface Finding {
   file: string;
   line: number;
   type: GuardType;
@@ -196,6 +209,14 @@ export interface ScanResult {
   allowed: AllowEntry[];
   /** 理由の無い除外注釈（除外として扱わない） */
   invalidAllows: AllowEntry[];
+  /**
+   * 検出の元になった構文木の節点（`findings` と同じ並び・同じ長さ）。
+   *
+   * 分類走査（scripts/classify-e2e-assertion-guards.ts）が、検出箇所を
+   * 行番号で当て直すことなく構文木のまま受け取るために持つ。
+   * JSON 出力には含めない（節点は直列化できないため）。
+   */
+  findingNodes: ts.Node[];
 }
 
 type Baseline = Record<string, Partial<Record<GuardType, number>>>;
@@ -225,7 +246,7 @@ const GUARD_TYPES: GuardType[] = [
 ];
 
 /** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
-const IMMEDIATE_PREDICATES = [
+export const IMMEDIATE_PREDICATES = [
   'isVisible',
   'isHidden',
   'isEnabled',
@@ -283,19 +304,19 @@ function rootIdentifier(node: ts.Node): ts.Node {
   }
 }
 
-function isExpectCall(node: ts.Node): boolean {
+export function isExpectCall(node: ts.Node): boolean {
   if (!ts.isCallExpression(node)) return false;
   const root = rootIdentifier(node.expression);
   return ts.isIdentifier(root) && root.text === 'expect';
 }
 
 /** 検証が実行される呼び出し（expect の matcher 呼び出し） */
-function containsAssertion(node: ts.Node): boolean {
+export function containsAssertion(node: ts.Node): boolean {
   return containsNode(node, (n) => isExpectCall(n));
 }
 
 /** 前提が満たせないときに失敗させる構造（throw / expect.fail / test.fail） */
-function containsFailure(node: ts.Node): boolean {
+export function containsFailure(node: ts.Node): boolean {
   return containsNode(node, (n) => {
     if (ts.isThrowStatement(n)) return true;
     if (ts.isCallExpression(n)) {
@@ -320,8 +341,275 @@ function containsNode(node: ts.Node, predicate: (n: ts.Node) => boolean): boolea
   return found;
 }
 
+/** ブラウザ側で評価する関数を受け取る呼び出し（内側は判定・抽出の実装そのもの） */
+const EVALUATE_CALLEES = new Set([
+  'evaluate',
+  'evaluateAll',
+  'evaluateHandle',
+  'waitForFunction',
+  '$eval',
+  '$$eval',
+]);
+
+/** テスト本体・フックの実行単位を受け取る呼び出し（述語ヘルパーの探索の打ち切り地点） */
+const TEST_BODY_CALLEES = new Set([
+  'test',
+  'it',
+  'describe',
+  'test.step',
+  'test.describe',
+  'test.beforeAll',
+  'test.afterAll',
+  'test.beforeEach',
+  'test.afterEach',
+  'test.describe.serial',
+  'test.describe.parallel',
+  'beforeAll',
+  'afterAll',
+  'beforeEach',
+  'afterEach',
+]);
+
+/**
+ * 真偽の値を持つ式か（述語ヘルパーの判定に用いる）。
+ *
+ * 識別子は辿らない。辿ると「真偽を返す関数」の範囲が曖昧に広がり、
+ * 除外して良い形と紛らわしい形の区別が付かなくなるためである。
+ */
+function isBooleanValued(node: ts.Expression): boolean {
+  const inner = unwrapParentheses(node);
+  if (ts.isAwaitExpression(inner)) return isBooleanValued(inner.expression);
+  if (inner.kind === ts.SyntaxKind.TrueKeyword || inner.kind === ts.SyntaxKind.FalseKeyword) {
+    return true;
+  }
+  if (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken) {
+    return true;
+  }
+  if (ts.isTypeOfExpression(inner)) return false;
+  if (ts.isConditionalExpression(inner)) {
+    return isBooleanValued(inner.whenTrue) && isBooleanValued(inner.whenFalse);
+  }
+  if (ts.isBinaryExpression(inner)) {
+    const kind = inner.operatorToken.kind;
+    if (COMPARISON_OPERATORS.has(kind)) return true;
+    if (
+      kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+      kind === ts.SyntaxKind.BarBarToken ||
+      kind === ts.SyntaxKind.QuestionQuestionToken
+    ) {
+      return isBooleanValued(inner.left) && isBooleanValued(inner.right);
+    }
+    return false;
+  }
+  if (ts.isCallExpression(inner)) {
+    if (ts.isIdentifier(inner.expression) && inner.expression.text === 'Boolean') return true;
+    if (ts.isPropertyAccessExpression(inner.expression)) {
+      const name = inner.expression.name.text;
+      if (IMMEDIATE_PREDICATES.includes(name)) return true;
+      if (['some', 'every', 'includes', 'startsWith', 'endsWith', 'test', 'has'].includes(name)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
+/** 型注釈が真偽（または真偽の Promise）か */
+function isBooleanTypeNode(type: ts.TypeNode | undefined): boolean {
+  if (!type) return false;
+  if (type.kind === ts.SyntaxKind.BooleanKeyword) return true;
+  if (ts.isTypeReferenceNode(type) && type.typeName.getText() === 'Promise') {
+    return isBooleanTypeNode(type.typeArguments?.[0]);
+  }
+  return false;
+}
+
+/** 当該の関数が自ら持つ return 文（入れ子の関数の内側は辿らない） */
+function ownReturnStatements(fn: ts.SignatureDeclaration): ts.ReturnStatement[] {
+  const body = (fn as ts.FunctionLikeDeclaration).body;
+  if (!body || !ts.isBlock(body)) return [];
+  const found: ts.ReturnStatement[] = [];
+  const visit = (n: ts.Node): void => {
+    if (n !== body && ts.isFunctionLike(n)) return;
+    if (ts.isReturnStatement(n)) found.push(n);
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return found;
+}
+
+/**
+ * 真偽を返す関数の本体か。**命名ではなく構造で判定する。**
+ *
+ * `hasX` / `isX` のような命名で判定してはならない。段1 で「ガードが見張る値と
+ * テストが実際に使う値が違っていた」実例があり、名前は構造の保証にならない。
+ *
+ * 次のいずれかを満たす場合に真とする。
+ *   - 戻り値の型注釈が `boolean` / `Promise<boolean>` である
+ *   - 本体が式である矢印関数で、その式が真偽の値を持つ
+ *   - 自らの return 文が一つ以上あり、そのすべてが真偽の値を返す
+ */
+function isBooleanReturningFunction(fn: ts.SignatureDeclaration): boolean {
+  if (isBooleanTypeNode(fn.type)) return true;
+  const body = (fn as ts.FunctionLikeDeclaration).body;
+  if (!body) return false;
+  if (!ts.isBlock(body)) return isBooleanValued(body as ts.Expression);
+  const returns = ownReturnStatements(fn);
+  if (returns.length === 0) return false;
+  return returns.every((r) => r.expression !== undefined && isBooleanValued(r.expression));
+}
+
+/** 呼び出しの被呼び出し名（`page.evaluate` → `evaluate`、`test.step` → `test.step`） */
+function calleeNames(call: ts.CallExpression): { last: string; full: string } {
+  const full = call.expression.getText();
+  const last = ts.isPropertyAccessExpression(call.expression)
+    ? call.expression.name.text
+    : ts.isIdentifier(call.expression)
+      ? call.expression.text
+      : '';
+  return { last, full };
+}
+
+/**
+ * 判定そのものを実装している文脈の内側か（計画 §6 の除外条件 (3)）。
+ *
+ * 該当する場合はその細目を、しない場合は `undefined` を返す。
+ * 判定は構文木の形のみで行い、識別子の綴りは一切見ない。
+ *
+ * 内側の関数から外側へ辿り、テスト本体・フックの実行単位に達した時点で打ち切る
+ * （そこから先はテストの本体であり、述語の実装ではないため）。
+ */
+function booleanPredicateContext(node: ts.Node): string | undefined {
+  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+    if (!ts.isFunctionLike(current)) continue;
+    const parent = current.parent;
+    if (parent && ts.isCallExpression(parent) && parent.arguments.some((a) => a === current)) {
+      const { last, full } = calleeNames(parent);
+      if (EVALUATE_CALLEES.has(last)) {
+        return isBooleanReturningFunction(current)
+          ? 'evaluate:真偽を返す'
+          : 'evaluate:真偽を返さない';
+      }
+      if (TEST_BODY_CALLEES.has(full) || TEST_BODY_CALLEES.has(last)) return undefined;
+      if (isBooleanReturningFunction(current)) return '述語:引数として渡す関数';
+      continue;
+    }
+    if (isBooleanReturningFunction(current)) return '述語:名前に束ねた関数';
+  }
+  return undefined;
+}
+
+/** 当該の分岐が自ら持つ return 文（入れ子の関数の内側は辿らない） */
+function ownReturnsIn(statement: ts.Statement): ts.ReturnStatement[] {
+  const found: ts.ReturnStatement[] = [];
+  const visit = (n: ts.Node): void => {
+    if (n !== statement && ts.isFunctionLike(n)) return;
+    if (ts.isReturnStatement(n)) found.push(n);
+    ts.forEachChild(n, visit);
+  };
+  visit(statement);
+  return found;
+}
+
+/**
+ * 【検出器の規則による対象外 (1)】判定・抽出の実装そのものである分岐か。
+ *
+ * 計画（e2e-assertion-guard-reduction-plan.md）§6 の除外条件 (3)
+ * 「判定そのものを実装している述語ヘルパーの内部」に、構造上必ず該当する形だけを外す。
+ * 該当する場合は理由を、しない場合は `undefined` を返す。
+ *
+ * 次のすべてを満たす場合に限る。**識別子の綴りは一切見ない。**
+ *   (a) `if` 文であり、その内側（then / else の全体）に **expect が一つも無い**。
+ *       主張を包む分岐は「判定の実装」ではなく検証の無効化であるため、ここで必ず落ちる。
+ *   (b) then 節が脱出だけで構成される（`return` / `continue` / `break`）。
+ *       すなわち分岐の役目は「この関数の値を決めること」に尽きる。
+ *   (c) 外側が (i) 真偽を返す関数、または (ii) ブラウザ側で評価される関数
+ *       （`evaluate` 族）である。(i) の場合は then 節の return がすべて真偽の値であること。
+ *
+ * **なぜこれが「抑止」ではないか**: 述語は false を返す経路を必ず持つ。
+ * その `return false` を数えることは「述語が述語であること」を欠陥として数えることに等しい。
+ * 一方、その真偽を**呼び出し側がどう扱うか**は関門であり、呼び出し側の
+ * `if (await hasX())` は従来どおり検出される。したがって債務は移動しない。
+ * (a) の条件があるため、述語の内部であっても主張を条件で包んでいれば検出は残る。
+ */
+export function predicateImplementationExclusion(node: ts.Node): string | undefined {
+  if (!ts.isIfStatement(node)) return undefined;
+  if (containsAssertion(node)) return undefined;
+  if (!isSilentExit(node.thenStatement)) return undefined;
+  const context = booleanPredicateContext(node);
+  if (!context) return undefined;
+  if (context.startsWith('evaluate')) {
+    return `ブラウザ側で評価される関数の内側で値を決める分岐（${context}）`;
+  }
+  const returns = ownReturnsIn(node.thenStatement);
+  if (returns.length === 0) return undefined;
+  if (!returns.every((r) => r.expression !== undefined && isBooleanValued(r.expression))) {
+    return undefined;
+  }
+  return `真偽を返す関数の内側で真偽を決める分岐（${context}）`;
+}
+
+/**
+ * 分岐の到達しうる終端がすべて「throw する」か「主張する」か。
+ *
+ * 入れ子の `if` は else を伴う場合に限り再帰する（else が無ければ素通りする経路が残るため）。
+ */
+function alwaysFailsOrAsserts(statement: ts.Statement): boolean {
+  const list = ts.isBlock(statement) ? [...statement.statements] : [statement];
+  for (const s of list) {
+    if (ts.isThrowStatement(s)) return true;
+    if (ts.isExpressionStatement(s) && containsAssertion(s)) return true;
+    if (
+      ts.isIfStatement(s) &&
+      s.elseStatement &&
+      alwaysFailsOrAsserts(s.thenStatement) &&
+      alwaysFailsOrAsserts(s.elseStatement)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 【検出器の規則による対象外 (2)】どの経路でも throw か主張に到達する分岐か。
+ *
+ * 計画 §6 の除外条件 (1)「条件が偽なら直後に throw / 無条件の主張で落ちる」に
+ * 構造上必ず該当する形だけを外す。
+ *
+ * 次のすべてを満たす場合に限る。
+ *   (a) `if` 文であり `else` を持つ（else が無ければ素通りする経路が残る）。
+ *   (b) then / else の双方について、到達しうる終端がすべて throw か無条件の主張である。
+ *   (c) その内側に throw が少なくとも一つある。
+ *
+ * (c) を課すのは、throw を含まない全域分岐（計画の G 群）を巻き込まないためである。
+ * G 群の正当性は「どの経路でも**同等の**検証・操作が実行される」という中身の判断を要し、
+ * 構造だけでは決められない（計画 §6 の条件 (2)。段7 で一件ずつ扱う）。
+ * throw は中身の判断を要さない無条件の失敗であるため、ここだけを構造で外せる。
+ */
+export function guaranteedFailureExclusion(node: ts.Node): string | undefined {
+  if (!ts.isIfStatement(node)) return undefined;
+  if (!node.elseStatement) return undefined;
+  if (!containsNode(node, (n) => ts.isThrowStatement(n))) return undefined;
+  if (!alwaysFailsOrAsserts(node.thenStatement)) return undefined;
+  if (!alwaysFailsOrAsserts(node.elseStatement)) return undefined;
+  return 'どの経路でも throw か無条件の主張に到達する分岐';
+}
+
+/**
+ * 検出器の規則による対象外。該当する場合は理由を返す。
+ *
+ * 注釈（`e2e-guard-allow`）による除外と違い、こちらは**そもそも欠陥ではない構造**を
+ * 検出器が誤って拾っていた分である（計画 §5 の A 群・B 群、Task 115.127 段3）。
+ * 規則を戻すと自己検査（check-e2e-assertion-guards.selftest.ts）が落ちる。
+ */
+export function ruleBasedExclusion(node: ts.Node): string | undefined {
+  return predicateImplementationExclusion(node) ?? guaranteedFailureExclusion(node);
+}
+
 /** 分岐の本体が「黙って抜ける」だけか（return / continue / test.skip） */
-function isSilentExit(statement: ts.Statement): boolean {
+export function isSilentExit(statement: ts.Statement): boolean {
   const statements = ts.isBlock(statement) ? [...statement.statements] : [statement];
   if (statements.length === 0) return false;
   return statements.every((s) => {
@@ -474,8 +762,13 @@ function isConditionalSkip(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   return true;
 }
 
-function scanFile(absPath: string): ScanResult {
+export function scanFile(absPath: string): ScanResult {
   return scanSource(path.relative(ROOT, absPath), fs.readFileSync(absPath, 'utf8'));
+}
+
+/** e2e 配下の走査対象ファイル（分類走査から同じ集合を辿るために公開する） */
+export function collectE2eFiles(): string[] {
+  return collectFiles(E2E_DIR);
 }
 
 /**
@@ -486,6 +779,7 @@ export function scanSource(relPath: string, source: string): ScanResult {
   const sourceFile = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true);
   const lines = source.split('\n');
   const findings: Finding[] = [];
+  const findingNodes: ts.Node[] = [];
   const allowed: AllowEntry[] = [];
   const invalidAllows: AllowEntry[] = [];
 
@@ -644,6 +938,9 @@ export function scanSource(relPath: string, source: string): ScanResult {
   };
 
   const push = (node: ts.Node, type: GuardType, snippetNode?: ts.Node): void => {
+    // 検出器の規則による対象外（欠陥ではない構造の誤検出を外す。Task 115.127 段3）。
+    // 注釈による除外と違い件数にも残さない。詳細は ruleBasedExclusion の説明を参照。
+    if (ruleBasedExclusion(node)) return;
     const line = lineOf(node);
     const snippet = snippetOf(snippetNode ?? node);
     const { marked, reason } = allowAnnotation(line);
@@ -656,6 +953,7 @@ export function scanSource(relPath: string, source: string): ScanResult {
       invalidAllows.push({ file: relPath, line, type, reason: '', snippet });
     }
     findings.push({ file: relPath, line, type, snippet });
+    findingNodes.push(node);
   };
 
   const visit = (node: ts.Node): void => {
@@ -746,7 +1044,7 @@ export function scanSource(relPath: string, source: string): ScanResult {
   };
 
   visit(sourceFile);
-  return { findings, allowed, invalidAllows };
+  return { findings, allowed, invalidAllows, findingNodes };
 }
 
 // ============================================================================

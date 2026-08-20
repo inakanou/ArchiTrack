@@ -27,6 +27,7 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,13 +75,11 @@ async function expectNoThumbnailOverlap(photoList: Locator, context: string): Pr
   const rects: { x: number; y: number; width: number; height: number }[] = [];
   for (let i = 0; i < count; i++) {
     const box = await items.nth(i).boundingBox();
-    expect(box, `${context}: 写真サムネイル[${i}]の矩形が取得できる必要がある`).not.toBeNull();
-    if (box) {
-      // サムネイルが潰れていない（幅・高さがゼロでない）こと（REQ-39.4 視認可能）
-      expect(box.width, `${context}: サムネイル[${i}]の幅がゼロより大きい`).toBeGreaterThan(0);
-      expect(box.height, `${context}: サムネイル[${i}]の高さがゼロより大きい`).toBeGreaterThan(0);
-      rects.push(box);
-    }
+    assertPresent(box, `${context}: 写真サムネイル[${i}]の矩形`);
+    // サムネイルが潰れていない（幅・高さがゼロでない）こと（REQ-39.4 視認可能）
+    expect(box.width, `${context}: サムネイル[${i}]の幅がゼロより大きい`).toBeGreaterThan(0);
+    expect(box.height, `${context}: サムネイル[${i}]の高さがゼロより大きい`).toBeGreaterThan(0);
+    rects.push(box);
   }
 
   // 全ペアの矩形重複を検証（REQ-39.1/39.2/39.3/39.6: 重なりゼロ）

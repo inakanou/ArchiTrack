@@ -29,6 +29,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -402,13 +403,9 @@ test.describe('REQ-40: 現場調査からの数量グループ一括生成 E2E',
     const thumbnail1 = generated1.locator('img').first();
     const commentBox = await comment1.boundingBox();
     const thumbBox = await thumbnail1.boundingBox();
-    expect(commentBox, 'コメント領域の bounding box が取得できる').not.toBeNull();
-    expect(thumbBox, 'サムネイルの bounding box が取得できる').not.toBeNull();
-    if (commentBox && thumbBox) {
-      expect(commentBox.x, 'コメント領域は写真の右側に配置される').toBeGreaterThanOrEqual(
-        thumbBox.x
-      );
-    }
+    assertPresent(commentBox, 'コメント領域の bounding box');
+    assertPresent(thumbBox, 'サムネイルの bounding box');
+    expect(commentBox.x, 'コメント領域は写真の右側に配置される').toBeGreaterThanOrEqual(thumbBox.x);
 
     // 2枚目（コメントなし）のグループはコメントテキストが空（REQ-40.8 整合: コメント無しは空白）
     const comment2 = generated2.locator('[data-testid="photo-comment-display"]').first();

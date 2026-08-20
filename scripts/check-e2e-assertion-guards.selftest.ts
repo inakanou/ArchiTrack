@@ -340,6 +340,180 @@ const BARE_SKIP: Case[] = [
 ];
 
 // ============================================================================
+// 115.127 段3: 検出器の規則による対象外（計画の A 群・B 群）
+//
+// A 群（述語ヘルパー／page.evaluate の内側）と B 群（どの経路でも throw か主張へ
+// 到達する分岐）は、そもそも検証を無効化していない。検出器の偽陽性である。
+// これらは注釈ではなく**規則**で外す。規則で外す以上、外す形と外してはならない
+// 紛らわしい形の双方をここで固定しないと、規則は「大量除外による見かけ上の解消」と
+// 区別が付かなくなる。
+//
+// 対象外にする側（段3-1 〜 段3-4）は、規則を元へ戻すとすべて検出されて落ちる。
+// 維持する側（段3-5 〜 段3-9）は、規則を広げすぎるとすべて消えて落ちる。
+// ============================================================================
+
+const RULE_EXCLUSION: Case[] = [
+  {
+    // 命名は述語らしくない（`prepare`）。それでも構造が真偽を返す関数であるため対象外。
+    // 逆向きの確認は段3-9（述語らしい命名だが真偽を返さない関数）に置いている。
+    name: '段3-1 真偽を返す関数の内側で真偽を決める分岐（命名ではなく構造で判定する）',
+    source: [
+      'async function prepare(page) {',
+      "  const loginForm = page.locator('form');",
+      '  const count = await loginForm.count();',
+      '  if (count === 0) {',
+      '    return false;',
+      '  }',
+      '  return true;',
+      '}',
+    ].join('\n'),
+    expected: [],
+  },
+  {
+    name: '段3-2 戻り値の型注釈が真偽である遷移ヘルパーの内側',
+    source: [
+      'async function navigateToEdit(page): Promise<boolean> {',
+      '  const card = page.locator(\'[data-testid="project-card"]\').first();',
+      '  if (!(await card.isVisible())) {',
+      '    return false;',
+      '  }',
+      '  await card.click();',
+      '  return true;',
+      '}',
+    ].join('\n'),
+    expected: [],
+  },
+  {
+    name: '段3-3 ブラウザ側で評価される関数の内側で値を決める分岐',
+    source: [
+      "test('evaluate extracts a value', async ({ page }) => {",
+      '  const size = await page.evaluate(() => {',
+      "    const count = document.querySelectorAll('canvas').length;",
+      '    if (count === 0) {',
+      '      return null;',
+      '    }',
+      '    return count;',
+      '  });',
+      '  expect(size).not.toBeNull();',
+      '});',
+    ].join('\n'),
+    expected: [],
+  },
+  {
+    name: '段3-4 どの経路でも throw か無条件の主張に到達する分岐',
+    source: [
+      "test('guaranteed', async ({ page }) => {",
+      "  const visible = await page.locator('input').isVisible();",
+      '  if (!visible) {',
+      '    const area = page.locator(\'[data-testid="upload-area"]\');',
+      '    if ((await area.count()) > 0) {',
+      '      await expect(area).toBeVisible();',
+      '    } else {',
+      "      throw new Error('アップロード領域が無い');",
+      '    }',
+      '  } else {',
+      "    await expect(page.locator('input')).toBeVisible();",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: [],
+  },
+  {
+    // 脱出するのは then 節だが、主張は else 節にある。すなわち主張は条件が偽の経路でしか
+    // 実行されない。「分岐の内側に expect が一つも無いこと」を規則から外すと、この形が
+    // 述語の実装として消える。
+    name: '段3-10 述語ヘルパーの内側でも、else 節が主張していれば検出する',
+    source: [
+      'async function checkDialog(page): Promise<boolean> {',
+      "  const shown = await page.getByRole('dialog').isVisible();",
+      '  if (!shown) {',
+      '    return false;',
+      '  } else {',
+      "    await expect(page.getByRole('dialog')).toBeVisible();",
+      '  }',
+      '  return true;',
+      '}',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '段3-5 述語ヘルパーの内側でも、分岐が主張を包んでいれば検出する',
+    source: [
+      'async function hasHeading(page): Promise<boolean> {',
+      "  const visible = await page.getByRole('heading').isVisible();",
+      '  if (visible) {',
+      "    await expect(page.getByRole('heading')).toBeVisible();",
+      '  }',
+      '  return visible;',
+      '}',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '段3-6 テスト本体の中の同じ形（沈黙して抜ける）は検出する',
+    source: [
+      "test('silent exit in test body', async ({ page }) => {",
+      "  const count = await page.getByRole('row').count();",
+      '  if (count === 0) {',
+      '    return;',
+      '  }',
+      "  await expect(page.getByRole('row').first()).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '段3-7 throw を含まない全域分岐（G 群）は検出したまま残す',
+    source: [
+      "test('total branch', async ({ page }) => {",
+      "  const shown = await page.getByRole('dialog').isVisible();",
+      '  if (shown) {',
+      "    await expect(page.getByRole('dialog')).toBeVisible();",
+      '  } else {',
+      "    await expect(page.getByRole('alert')).toBeVisible();",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '段3-8 throw はあるが素通りする経路が残る分岐は検出する',
+    source: [
+      "test('bypassable throw', async ({ page }) => {",
+      "  const shown = await page.getByRole('dialog').isVisible();",
+      '  if (shown) {',
+      "    const ok = await page.getByRole('alert').isVisible();",
+      '    if (!ok) {',
+      "      throw new Error('補助要素が無い');",
+      '    }',
+      "    await expect(page.getByRole('dialog')).toBeVisible();",
+      '  } else {',
+      "    const alt = await page.getByRole('button').isVisible();",
+      '    if (alt) {',
+      "      await expect(page.getByRole('button')).toBeVisible();",
+      '    }',
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    // 命名は述語らしい（`isRowVisible`）が、真偽を返さない。名前で外していれば消える。
+    name: '段3-9 述語らしい命名でも真偽を返さない関数の内側は検出する',
+    source: [
+      'async function isRowVisible(page) {',
+      "  const count = await page.getByRole('row').count();",
+      '  if (count === 0) {',
+      '    return;',
+      '  }',
+      "  await expect(page.getByRole('row').first()).toBeVisible();",
+      '}',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -381,6 +555,7 @@ function main(): void {
     { title: '115.25 圧縮の境界（代入の右辺の扱い）', cases: ASSIGNMENT_BOUNDARY },
     { title: '維持すべき検出', cases: MUST_KEEP },
     { title: '115.127 段0 引数なしの飛ばし', cases: BARE_SKIP },
+    { title: '115.127 段3 検出器の規則による対象外（A 群・B 群）', cases: RULE_EXCLUSION },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');

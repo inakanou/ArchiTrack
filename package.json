@@ -29,6 +29,7 @@
     "check:e2e-guards:verbose": "npx tsx scripts/check-e2e-assertion-guards.ts --verbose",
     "check:e2e-guards:update": "npx tsx scripts/check-e2e-assertion-guards.ts --update-baseline",
     "check:e2e-guards:selftest": "npx tsx scripts/check-e2e-assertion-guards.selftest.ts",
+    "classify:e2e-guards": "npx tsx scripts/classify-e2e-assertion-guards.ts",
     "check:req-coverage": "npx tsx scripts/check-requirement-coverage.ts",
     "check:req-coverage:verbose": "npx tsx scripts/check-requirement-coverage.ts --verbose",
     "check:req-coverage:json": "npx tsx scripts/check-requirement-coverage.ts --json",

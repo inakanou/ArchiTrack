@@ -31,6 +31,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * 見積依頼詳細画面レイアウト変更・NET金額入力欄のE2Eテスト
@@ -281,12 +282,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       const itemSelectionBbox = await itemSelectionHeading.boundingBox();
       const selectionStatusBbox = await selectionStatusHeading.boundingBox();
 
-      expect(itemSelectionBbox).toBeTruthy();
-      expect(selectionStatusBbox).toBeTruthy();
+      assertPresent(itemSelectionBbox, '数量項目選択セクションの境界ボックス');
+      assertPresent(selectionStatusBbox, '選択状況セクションの境界ボックス');
 
-      if (itemSelectionBbox && selectionStatusBbox) {
-        expect(selectionStatusBbox.y).toBeGreaterThan(itemSelectionBbox.y);
-      }
+      expect(selectionStatusBbox.y).toBeGreaterThan(itemSelectionBbox.y);
     });
 
     /**
@@ -318,12 +317,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       const selectionStatusBbox = await selectionStatusHeading.boundingBox();
       const receivedQuotationBbox = await receivedQuotationSection.boundingBox();
 
-      expect(selectionStatusBbox).toBeTruthy();
-      expect(receivedQuotationBbox).toBeTruthy();
+      assertPresent(selectionStatusBbox, '選択状況セクションの境界ボックス');
+      assertPresent(receivedQuotationBbox, '受領見積書セクションの境界ボックス');
 
-      if (selectionStatusBbox && receivedQuotationBbox) {
-        expect(receivedQuotationBbox.y).toBeGreaterThan(selectionStatusBbox.y);
-      }
+      expect(receivedQuotationBbox.y).toBeGreaterThan(selectionStatusBbox.y);
     });
 
     /**
@@ -397,14 +394,12 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       const basicInfoBbox = await page.getByRole('heading', { name: '基本情報' }).boundingBox();
       const actionBbox = await page.getByRole('heading', { name: 'アクション' }).boundingBox();
 
-      expect(statusBbox).toBeTruthy();
-      expect(basicInfoBbox).toBeTruthy();
-      expect(actionBbox).toBeTruthy();
+      assertPresent(statusBbox, 'ステータスセクションの境界ボックス');
+      assertPresent(basicInfoBbox, '基本情報セクションの境界ボックス');
+      assertPresent(actionBbox, 'アクションセクションの境界ボックス');
 
-      if (statusBbox && basicInfoBbox && actionBbox) {
-        expect(basicInfoBbox.y).toBeGreaterThan(statusBbox.y);
-        expect(actionBbox.y).toBeGreaterThan(basicInfoBbox.y);
-      }
+      expect(basicInfoBbox.y).toBeGreaterThan(statusBbox.y);
+      expect(actionBbox.y).toBeGreaterThan(basicInfoBbox.y);
     });
 
     /**

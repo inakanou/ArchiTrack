@@ -14,6 +14,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -211,11 +212,9 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
 
     // 画像が実際にレンダリングされた寸法を持つことを検証（拡大表示の証跡）
     const boundingBox = await previewImage.boundingBox();
-    expect(boundingBox, 'プレビュー画像の境界ボックスが取得できる').not.toBeNull();
-    if (boundingBox) {
-      expect(boundingBox.width, 'プレビュー画像は0より大きい幅で表示される').toBeGreaterThan(0);
-      expect(boundingBox.height, 'プレビュー画像は0より大きい高さで表示される').toBeGreaterThan(0);
-    }
+    assertPresent(boundingBox, 'プレビュー画像の境界ボックス');
+    expect(boundingBox.width, 'プレビュー画像は0より大きい幅で表示される').toBeGreaterThan(0);
+    expect(boundingBox.height, 'プレビュー画像は0より大きい高さで表示される').toBeGreaterThan(0);
   });
 
   /**
