@@ -163,10 +163,9 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
       expect(box.width).toBeGreaterThanOrEqual(1000);
       // REQ-32.5: 画面端からはみ出さない（viewport に収まる）
       const viewport = page.viewportSize();
-      if (viewport) {
-        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-        expect(box.x).toBeGreaterThanOrEqual(0);
-      }
+      assertPresent(viewport, 'ビューポートのサイズ');
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      expect(box.x).toBeGreaterThanOrEqual(0);
     });
   });
 

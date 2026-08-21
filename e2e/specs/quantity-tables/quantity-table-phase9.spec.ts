@@ -16,12 +16,55 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  addQuantityGroup,
+  attachPhotoToGroup,
+  createTestProject,
+  createTestQuantityTable,
+  openQuantityTableEdit,
+  seedSurveyPhotosWithComments,
+} from '../../helpers/quantity-table-preconditions';
+
+/** 事前準備で現場調査写真に付けるコメント（REQ-21.2 の表示内容の判定に用いる） */
+const PHASE9_PHOTO_COMMENT = 'Phase9: 写真コメント表示エリアの検証用コメント';
+
+/** 事前準備で作成した数量表のID（写真を紐づけたグループを1件持つ） */
+let preparedQuantityTableId: string | null = null;
 
 test.describe('Phase 9: パンくずナビゲーション改善・注釈付き写真・コメント表示', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeEach(async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
+  });
+
+  /**
+   * 事前準備: コメント付き写真を紐づけた数量グループを持つ数量表を作成する。
+   *
+   * REQ-19.1（写真変更ボタン）と REQ-21.2（写真コメント表示エリア）は、いずれも
+   * 「写真の紐づいた数量グループ」がなければ検証対象そのものが描画されない。
+   * 前提を探す形（プロジェクト一覧の先頭カードを辿る）は、当該のプロジェクトに
+   * 写真も数量表も無い場合に検証が丸ごと飛ぶ。前提は探さずに作る。
+   */
+  test.describe('事前準備', () => {
+    test('コメント付き写真を紐づけた数量グループを作成する', async ({ page }) => {
+      const projectId = await createTestProject(page, 'Phase9_PJ');
+      await seedSurveyPhotosWithComments(page, projectId, 'Phase9_現場調査', [
+        PHASE9_PHOTO_COMMENT,
+      ]);
+
+      const quantityTable = await createTestQuantityTable(page, projectId, 'Phase9_数量表');
+      preparedQuantityTableId = quantityTable.id;
+
+      const groupCard = await addQuantityGroup(page);
+      await attachPhotoToGroup(page, groupCard, 0);
+
+      // REQ-42.5: グループ追加・写真紐づけはドラフトのみを更新するため、
+      // 後続テストが開き直したときの前提として明示保存する。
+      await saveQuantityTableDraft(page);
+    });
   });
 
   test.describe('REQ-12.1-12.5: パンくずナビゲーション改善', () => {
@@ -128,33 +171,22 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
 
   test.describe('REQ-21.2-21.5: 写真コメント表示', () => {
     test('写真が紐付けられたグループでコメント表示エリアが存在すること', async ({ page }) => {
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
+      assertPrepared(preparedQuantityTableId, '事前準備で作成した数量表のID');
+      await openQuantityTableEdit(page, preparedQuantityTableId);
 
-      const projectCard = page.locator('[data-testid="project-card"]').first();
-      if (await projectCard.isVisible()) {
-        await projectCard.click();
-        await page.waitForLoadState('networkidle');
+      const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+      await expect(groupCard, '前提: 写真を紐づけた数量グループが表示される').toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-        const quantityTableLink = page.getByText('すべて見る').first();
-        if (await quantityTableLink.isVisible()) {
-          await quantityTableLink.click();
-          await page.waitForLoadState('networkidle');
-
-          const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-          if (await tableCard.isVisible()) {
-            await tableCard.click();
-            await page.waitForLoadState('networkidle');
-
-            // 写真コメント表示エリアが存在すること
-            const commentDisplay = page.locator('[data-testid="photo-comment-display"]').first();
-            // コメント表示エリアが存在する場合の検証
-            if (await commentDisplay.isVisible()) {
-              await expect(commentDisplay).toBeVisible();
-            }
-          }
-        }
-      }
+      const commentDisplay = groupCard.locator('[data-testid="photo-comment-display"]').first();
+      await expect(commentDisplay, 'REQ-21.2: 写真コメント表示エリアが表示される').toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await expect(commentDisplay, 'REQ-21.1: 紐づいた写真のコメントが表示される').toHaveText(
+        PHASE9_PHOTO_COMMENT,
+        { timeout: getTimeout(15000) }
+      );
     });
 
     test('グループ折りたたみ時にコメント表示が非表示になること', async ({ page }) => {
@@ -195,32 +227,18 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
 
   test.describe('REQ-19.1: 写真変更ボタン', () => {
     test('写真変更ボタンが表示されること', async ({ page }) => {
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
+      assertPrepared(preparedQuantityTableId, '事前準備で作成した数量表のID');
+      await openQuantityTableEdit(page, preparedQuantityTableId);
 
-      const projectCard = page.locator('[data-testid="project-card"]').first();
-      if (await projectCard.isVisible()) {
-        await projectCard.click();
-        await page.waitForLoadState('networkidle');
+      const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+      await expect(groupCard, '前提: 写真を紐づけた数量グループが表示される').toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-        const quantityTableLink = page.getByText('すべて見る').first();
-        if (await quantityTableLink.isVisible()) {
-          await quantityTableLink.click();
-          await page.waitForLoadState('networkidle');
-
-          const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-          if (await tableCard.isVisible()) {
-            await tableCard.click();
-            await page.waitForLoadState('networkidle');
-
-            // 写真変更ボタンが表示されること
-            const changePhotoButton = page.getByRole('button', { name: '写真を変更' }).first();
-            if (await changePhotoButton.isVisible()) {
-              await expect(changePhotoButton).toBeVisible();
-            }
-          }
-        }
-      }
+      await expect(
+        groupCard.getByRole('button', { name: '写真を変更' }),
+        'REQ-19.1: 写真が紐づいたグループに写真変更ボタンが表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
 });

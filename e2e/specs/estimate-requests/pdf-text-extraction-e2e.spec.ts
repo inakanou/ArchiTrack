@@ -166,23 +166,17 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出結果またはエラーが表示されるまで待機
-    // テキストPDFの場合はpdfjs-distで直接テキストを取得するため高速に完了する
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // テキスト抽出結果が表示された場合はテキスト内容を確認
+    // REQ-17.1: テキスト入り PDF からは必ずテキストが抽出され、抽出結果が表示される。
+    // Claude Vision が成功した場合も抽出結果は同じ `ocr-extracted-text` に表示されるため
+    // （`processClaudeVision` の `setExtractedText`）、経路によらず無条件に主張できる
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await isVisibleWithin(extractedText, 3000)) {
-      // 抽出されたテキストが空でないことを確認（REQ-17.1: getTextContent APIでテキスト抽出）
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+
+    // 抽出されたテキストが空でないことを確認（REQ-17.1: getTextContent APIでテキスト抽出）
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -569,30 +563,23 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
         .first()
     ).toBeVisible({ timeout: getTimeout(60000) });
 
-    // 処理が完了するまで待機（最大35秒 = タイムアウト30秒 + マージン5秒）
-    // タイムアウト発生時はエラーメッセージが表示される
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(90000) });
+    // REQ-17.8: 抽出処理は 30 秒のタイムアウトを持ち、必ず終端する。
+    // 終端の姿は「抽出結果」または「エラー表示」のいずれかであり、そのどちらであっても
+    // 中身が空であってはならない。分岐を置くと片方の経路が一度も検査されないため、
+    // 終端の要素を一つの locator として捉えて無条件に主張する。
+    // なお待ち時間の上限は Claude Vision 試行（REQ-24.2）を含むパイプライン全体に対するもので、
+    // REQ-17.8 の 30 秒はそのうち `extractPdfHybrid` に掛かる上限である
+    const terminalState = page
+      .locator('[data-testid="ocr-extracted-text"]')
+      .or(page.locator('[data-testid="ocr-error-message"]'))
+      .first();
+    await expect(terminalState).toBeVisible({ timeout: getTimeout(90000) });
+    await expect(terminalState).not.toBeEmpty();
 
-    // エラーが発生した場合、タイムアウトエラーメッセージが含まれることを確認
-    const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-    if (await isVisibleWithin(errorMessage, 3000)) {
-      const errorText = await errorMessage.textContent();
-      // タイムアウトエラーの場合、エラーメッセージにタイムアウト関連のテキストが含まれる
-      // (実際のエラーメッセージはアプリケーション実装に依存)
-      expect(errorText).toBeTruthy();
-    }
-
-    // 正常に抽出完了した場合も、処理が30秒以内に完了していることを間接的に確認
-    // （テスト全体が35秒以内に完了していればタイムアウト制御が機能している）
-    const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await isVisibleWithin(extractedText, 3000)) {
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-    }
+    // 終端後に処理中インジケーターが残っていないこと（タイムアウト制御が後始末まで行う）
+    await expect(page.locator('[data-testid="ocr-progress-indicator"]')).toBeHidden({
+      timeout: getTimeout(10000),
+    });
   });
 
   // ============================================================================

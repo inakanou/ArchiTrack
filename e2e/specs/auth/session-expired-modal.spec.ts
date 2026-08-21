@@ -379,13 +379,13 @@ test.describe('セッション切れモーダル再認証', () => {
       timeout: getTimeout(10000),
     });
 
-    // フォームの表示名フィールドを探して入力データを変更
+    // フォームの表示名フィールドに入力する。
+    // 表示名はプロフィール編集フォームの入力欄であり、必ず表示される（`ProfileForm`）。
+    // 観測して包むと、欄が出ない状態では入力も保持の検証も行われず緑になる。
     const displayNameInput = page.getByLabel(/表示名/i);
-    const isDisplayNameVisible = await displayNameInput.isVisible().catch(() => false);
-    if (isDisplayNameVisible) {
-      await displayNameInput.clear();
-      await displayNameInput.fill('テスト変更名');
-    }
+    await expect(displayNameInput).toBeVisible({ timeout: getTimeout(10000) });
+    await displayNameInput.clear();
+    await displayNameInput.fill('テスト変更名');
 
     // セッション切れモーダルをトリガー
     const dialog = await triggerSessionExpiredModal(page);
@@ -415,11 +415,8 @@ test.describe('セッション切れモーダル再認証', () => {
     // URLがプロフィールページのままであることを確認
     expect(page.url()).toContain('/profile');
 
-    // フォーム入力が保持されていることを確認
-    if (isDisplayNameVisible) {
-      const currentValue = await displayNameInput.inputValue();
-      expect(currentValue).toBe('テスト変更名');
-    }
+    // REQ-30.10: フォーム入力が保持されていることを無条件に確認する
+    await expect(displayNameInput).toHaveValue('テスト変更名');
   });
 
   /**

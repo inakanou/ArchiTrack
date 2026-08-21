@@ -19,6 +19,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { seedProject } from '../../helpers/project-list-preconditions';
 
 /**
  * プロジェクト一覧操作のE2Eテスト
@@ -648,35 +649,27 @@ test.describe('プロジェクト一覧操作', () => {
     test('デフォルトの表示件数が100件である (project-management/REQ-3.1)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-3.1 は一覧が空でないときの表示件数を定める。一覧が空だと
+      // ページネーション自体が描画されず主張が一つも実行されないため、前提を自分で用意する。
+      await seedProject(page, 'E2E一覧デフォルト件数');
+
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合、デフォルト表示件数を確認
+      // プロジェクトが1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
-      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      await expect(emptyMessage.or(errorMessage).or(pagination)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      // 表示件数セレクトが100件で選択されていることを確認
+      const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
+      await expect(limitSelect).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(limitSelect).toHaveValue('100');
 
-      const paginationVisible = await pagination.isVisible();
-      if (paginationVisible) {
-        // 表示件数セレクトが100件で選択されていることを確認
-        const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
-        await expect(limitSelect).toBeVisible({ timeout: getTimeout(10000) });
-
-        const selectedValue = await limitSelect.inputValue();
-        expect(selectedValue).toBe('100');
-      }
-
-      // URLにlimitパラメータがない場合はデフォルト100件
-      const url = page.url();
-      // limitパラメータがない、または100の場合はデフォルト値が適用されている
-      if (url.includes('limit=')) {
-        expect(url).toMatch(/limit=100/);
-      }
+      // 既定値のとき URL に limit を載せない（ProjectListPage の buildSearchParams は
+      // state.limit が DEFAULT_LIMIT(100) と一致する場合にパラメータを付けない）。
+      // 既定値が 100 から変われば limit が URL に現れるため、この主張は既定値を固定する。
+      expect(page.url()).not.toContain('limit=');
     });
 
     /**
@@ -688,32 +681,26 @@ test.describe('プロジェクト一覧操作', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-3.2 は「プロジェクトが存在する場合」を条件とする。その条件自体を前提として用意し、
+      // 以降の主張を無条件にする（一覧が空のまま素通りすると何も検証されない）。
+      await seedProject(page, 'E2Eページネーション表示');
+
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // プロジェクトが存在しない場合は空状態メッセージが表示される
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
-      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
+      // プロジェクトが1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 3つのうちいずれかが表示されることを確認
-      await expect(emptyMessage.or(errorMessage).or(pagination)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      // REQ-3.4: 現在のページ番号が表示されていることを確認
+      await expect(page.getByTestId('current-page')).toBeVisible();
 
-      // ページネーションが表示されている場合、詳細を確認
-      const paginationVisible = await pagination.isVisible();
-      if (paginationVisible) {
-        // 現在のページ番号が表示されていることを確認
-        await expect(page.getByTestId('current-page')).toBeVisible();
+      // REQ-3.4: 総ページ数が表示されていることを確認
+      await expect(page.getByTestId('total-pages')).toBeVisible();
 
-        // 総ページ数が表示されていることを確認
-        await expect(page.getByTestId('total-pages')).toBeVisible();
-
-        // 総件数が表示されていることを確認
-        await expect(page.getByTestId('total-count')).toBeVisible();
-      }
+      // REQ-3.4: 総件数が表示されていることを確認
+      await expect(page.getByTestId('total-count')).toBeVisible();
     });
 
     /**
@@ -813,6 +800,10 @@ test.describe('プロジェクト一覧操作', () => {
     test('デスクトップ表示: テーブル形式で表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-15.1 のデスクトップ表示はテーブルの描画を前提とする。
+      // 一覧が空だとテーブルごと描画されないため、前提を自分で用意する。
+      await seedProject(page, 'E2Eデスクトップ表示');
+
       // デスクトップサイズを設定
       await page.setViewportSize({ width: 1280, height: 720 });
 
@@ -820,21 +811,14 @@ test.describe('プロジェクト一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルまたは空状態メッセージが表示されることを確認
+      // プロジェクトが1件以上存在するため、テーブルは必ず表示される
       const table = page.getByRole('table');
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
-      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
-      await expect(table.or(emptyMessage).or(errorMessage)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      // テーブルが表示されている場合、ヘッダーを確認
-      const tableVisible = await table.isVisible();
-      if (tableVisible) {
-        await expect(page.getByRole('button', { name: /プロジェクト名でソート/i })).toBeVisible();
-        await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible();
-        await expect(page.getByRole('button', { name: /ステータスでソート/i })).toBeVisible();
-      }
+      // テーブルヘッダーを確認
+      await expect(page.getByRole('button', { name: /プロジェクト名でソート/i })).toBeVisible();
+      await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible();
+      await expect(page.getByRole('button', { name: /ステータスでソート/i })).toBeVisible();
     });
 
     /**
@@ -872,6 +856,9 @@ test.describe('プロジェクト一覧操作', () => {
     test('画面幅変更時にテーブル/カード表示が切り替わる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-15.3 の切り替えは一覧に行があることを前提とする。前提を自分で用意する。
+      await seedProject(page, 'E2E画面幅切替');
+
       // デスクトップサイズで開始
       await page.setViewportSize({ width: 1280, height: 720 });
 
@@ -879,32 +866,24 @@ test.describe('プロジェクト一覧操作', () => {
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルまたは空状態メッセージが表示されることを確認
+      // プロジェクトが1件以上存在するため、デスクトップではテーブルが必ず表示される
       const table = page.getByRole('table');
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
-      const errorMessage = page.getByText(/プロジェクト一覧を取得できませんでした/i);
-      await expect(table.or(emptyMessage).or(errorMessage)).toBeVisible({
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+
+      // モバイルサイズに変更
+      await page.setViewportSize({ width: 375, height: 667 });
+
+      // カード表示に切り替わることを確認
+      await expect(page.getByTestId('project-card-list')).toBeVisible({
         timeout: getTimeout(10000),
       });
+      await expect(table).not.toBeVisible();
 
-      // プロジェクトが存在する場合のみビューポート切り替えをテスト
-      const hasProjects = await table.isVisible();
-      if (hasProjects) {
-        // モバイルサイズに変更
-        await page.setViewportSize({ width: 375, height: 667 });
+      // デスクトップサイズに戻す
+      await page.setViewportSize({ width: 1280, height: 720 });
 
-        // カード表示に切り替わることを確認
-        await expect(page.getByTestId('project-card-list')).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-        await expect(table).not.toBeVisible();
-
-        // デスクトップサイズに戻す
-        await page.setViewportSize({ width: 1280, height: 720 });
-
-        // テーブル表示に戻ることを確認
-        await expect(table).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      // テーブル表示に戻ることを確認
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
 

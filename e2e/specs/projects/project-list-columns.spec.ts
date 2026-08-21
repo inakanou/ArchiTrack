@@ -13,6 +13,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { getPrismaClient } from '../../fixtures/database';
 import { hashPassword } from '../../helpers/test-users';
+import { assertPresent } from '../../helpers/preconditions';
 
 // Prisma Client型定義
 type PrismaClientType = ReturnType<typeof getPrismaClient>;
@@ -477,9 +478,8 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
       const button = headerButtons.nth(i);
       const buttonText = await button.textContent();
       const pattern = expectedOrder[i];
-      if (pattern) {
-        expect(buttonText).toMatch(pattern);
-      }
+      assertPresent(pattern, `期待する列順の${i + 1}番目のパターン`);
+      expect(buttonText).toMatch(pattern);
     }
   });
 

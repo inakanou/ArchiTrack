@@ -37,7 +37,11 @@ import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
-import { openEditPageWithSingleItemRow } from '../../helpers/quantity-table-preconditions';
+import {
+  createTestProject,
+  createTestQuantityTable,
+  openEditPageWithSingleItemRow,
+} from '../../helpers/quantity-table-preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -411,34 +415,33 @@ test.describe('数量表CRUD操作', () => {
     test('数量表一覧画面に作成日時順で表示される (quantity-table-generation/REQ-2.3)', async ({
       page,
     }) => {
-      if (!testProjectId) {
-        throw new Error('testProjectIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/projects/${testProjectId}/quantity-tables`);
+
+      // 並び順の判定には数量表が2件以上要る。共有のテストプロジェクトへ足すと
+      // 「直近の数量表カード」を見る別の判定（project-management/REQ-25.3, REQ-25.5）の
+      // 母集団まで変えてしまうため、本判定専用のプロジェクトを用意する。
+      const orderingProjectId = await createTestProject(page, 'REQ2_3_並び順');
+      const olderTable = await createTestQuantityTable(page, orderingProjectId, 'REQ2_3_先に作成');
+      const newerTable = await createTestQuantityTable(page, orderingProjectId, 'REQ2_3_後に作成');
+
+      await page.goto(`/projects/${orderingProjectId}/quantity-tables`);
       await page.waitForLoadState('networkidle');
 
-      // 数量表一覧が表示される
-      const listItems = page.getByTestId('quantity-table-list-item');
-      const count = await listItems.count();
+      // 一覧の各行は `aria-label="{名称}の数量表詳細を見る"` のリンクとして描画される。
+      // 以前は存在しない `data-testid="quantity-table-list-item"` を数えており、
+      // 件数が常に 0 で並び順の判定が一度も実行されていなかった。
+      const listItems = page.getByRole('link', { name: /の数量表詳細を見る$/ });
+      await expect(listItems, 'REQ-2.3: 作成した数量表が一覧に並ぶ').toHaveCount(2, {
+        timeout: getTimeout(10000),
+      });
 
-      // 1件以上存在する場合、作成日時順に並んでいることを確認
-      if (count >= 2) {
-        // 最初のアイテムの日時が2番目より新しいことを確認
-        const firstDate = await listItems
-          .first()
-          .getByText(/\d{4}\/\d{2}\/\d{2}/)
-          .textContent();
-        const secondDate = await listItems
-          .nth(1)
-          .getByText(/\d{4}\/\d{2}\/\d{2}/)
-          .textContent();
-
-        if (firstDate && secondDate) {
-          expect(new Date(firstDate) >= new Date(secondDate)).toBeTruthy();
-        }
-      }
+      const labels = await listItems.evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute('aria-label') ?? '')
+      );
+      expect(labels, 'REQ-2.3: 作成日時順（新しい順）に並ぶ').toEqual([
+        `${newerTable.name}の数量表詳細を見る`,
+        `${olderTable.name}の数量表詳細を見る`,
+      ]);
     });
 
     /**
@@ -1583,24 +1586,19 @@ test.describe('数量表CRUD操作', () => {
       const firstItemRow = itemRows.first();
       await expect(firstItemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 計算方法フィールドを取得して「標準」であることを確認
-      // 新規項目のデフォルト値は「標準」(STANDARD)
+      // 計算方法は選択欄として描画される（`EditableQuantityItemRow`）。
+      // 以前は「表示モードなら文字列を確認する」分岐を併記していたが、その分岐が見ていた
+      // `[data-field="calculationMethod"]` は数量表の行に存在せず（当該属性は見積依頼の
+      // 明細編集にしかない）、一度も発火しない死んだ観測だった。選択欄を無条件に主張する。
       const calculationMethodSelect = firstItemRow.getByLabel(/計算方法/i);
-      const calculationMethodDisplay = firstItemRow.locator('[data-field="calculationMethod"]');
-
-      // 計算方法フィールドが表示されている場合、値を確認
-      const hasSelect = await isVisibleWithin(calculationMethodSelect, 2000);
-      const hasDisplay = await isVisibleWithin(calculationMethodDisplay, 2000);
-
-      if (hasSelect) {
-        // セレクトボックスの場合、「標準」を選択
-        await calculationMethodSelect.selectOption('STANDARD');
-        await page.waitForLoadState('networkidle');
-      } else if (hasDisplay) {
-        // 表示モードの場合、「標準」であることを確認
-        const displayText = await calculationMethodDisplay.textContent();
-        expect(displayText).toMatch(/標準|STANDARD/i);
-      }
+      await expect(calculationMethodSelect, 'REQ-5.1: 計算方法の選択欄が表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await calculationMethodSelect.selectOption('STANDARD');
+      await expect(
+        calculationMethodSelect,
+        'REQ-5.1: 計算方法に「標準」が選択されている'
+      ).toHaveValue('STANDARD');
 
       // REQ-5.5 検証: 計算方法が「標準」の場合、調整係数・丸め設定が表示されない
       // 項目行内の調整係数フィールドを検索
@@ -3565,10 +3563,11 @@ test.describe('数量表CRUD操作', () => {
       // 元の数量 * 1.5 = 新しい数量（丸め処理後）
       expect(updatedValue).not.toBe(initialValue);
 
-      // 丸め処理が適用されていることを確認（10の倍数）
-      if (!isNaN(updatedValue) && updatedValue > 0) {
-        expect(updatedValue % 10).toBe(0);
-      }
+      // 丸め処理が適用されていることを確認（10の倍数）。
+      // 値が数値として取れなかった場合に判定ごと飛ばすと、再計算が壊れても緑になる。
+      expect(Number.isNaN(updatedValue), '再計算後の数量が数値として取得できる').toBe(false);
+      expect(updatedValue, '再計算後の数量は正の値である').toBeGreaterThan(0);
+      expect(updatedValue % 10, 'REQ-10.6: 丸め設定（10）を適用した数量になる').toBe(0);
     });
 
     /**
@@ -4068,14 +4067,25 @@ test.describe('数量表CRUD操作', () => {
       // 右寄せ（right, end）であることを確認
       expect(['right', 'end']).toContain(textAlign);
 
-      // 丸め設定フィールドも確認
+      // 丸め設定は計算方法が「標準」以外のときだけ描画される（REQ-5.5）。
+      // 既定は「標準」であり、「表示されていれば確認する」形では一度も判定されない。
+      // 計算方法を切り替え、欄が出ることを主張したうえで右寄せを判定する。
+      const calcMethodSelect = page.getByLabel(/計算方法/).first();
+      await expect(calcMethodSelect, 'REQ-5.1: 計算方法の選択欄が表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
+
       const roundingField = page.getByLabel(/丸め設定|rounding/i).first();
-      if (await isVisibleWithin(roundingField, 2000)) {
-        const roundingTextAlign = await roundingField.evaluate((el) => {
-          return window.getComputedStyle(el).textAlign;
-        });
-        expect(['right', 'end']).toContain(roundingTextAlign);
-      }
+      await expect(roundingField, 'REQ-5.5: 標準以外では丸め設定の欄が表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      const roundingTextAlign = await roundingField.evaluate((el) => {
+        return window.getComputedStyle(el).textAlign;
+      });
+      expect(['right', 'end'], 'REQ-14.5: 丸め設定の欄も右寄せで表示される').toContain(
+        roundingTextAlign
+      );
     });
   });
 

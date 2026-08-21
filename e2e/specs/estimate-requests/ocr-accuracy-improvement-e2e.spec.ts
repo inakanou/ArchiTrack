@@ -310,25 +310,16 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出結果が表示されるまで待機
-    // テキストPDFではpdfjs-dist直接抽出のため、OCRフォールバックよりも高速に完了する
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // テキスト抽出が成功した場合、テキスト内容を確認
+    // テキスト入り PDF からは必ずテキストが抽出され、エラー表示にはならない。
+    // 画像前処理パイプラインはスキャンPDFフォールバック時のみ適用されるため、
+    // テキストPDFでは従来通りの動作（pdfjs-dist直接抽出）が維持されていることの確認になる
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await isVisibleWithin(extractedText, 3000)) {
-      const textContent = await extractedText.textContent();
-      // テキストPDFからテキストが正常に抽出されていることを確認
-      // 画像前処理パイプラインはスキャンPDFフォールバック時のみ適用されるため、
-      // テキストPDFでは従来通りの動作（pdfjs-dist直接抽出）であることの間接的確認
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   // ============================================================================

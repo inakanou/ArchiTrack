@@ -351,12 +351,11 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
         .filter({ hasText: 'ファイル' })
         .first();
       const box = await modalContent.boundingBox();
-      expect(box).toBeTruthy();
+      assertPresent(box, 'ダイアログ本体の境界ボックス');
       const viewport = page.viewportSize();
-      if (box && viewport) {
-        // ダイアログの bottom 座標が viewport を超えないこと
-        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 1);
-      }
+      assertPresent(viewport, 'ビューポートのサイズ');
+      // ダイアログの bottom 座標が viewport を超えないこと
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 1);
     });
   });
 

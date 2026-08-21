@@ -18,6 +18,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { seedTradingPartner } from '../../helpers/project-list-preconditions';
 
 /**
  * 取引先一覧操作のE2Eテスト
@@ -616,31 +617,27 @@ test.describe('取引先一覧操作', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-1.5 は「取引先が存在する場合」を条件とする。TradingPartnerListPage は
+      // tradingPartners.length > 0 のときだけページネーションを描画するため、
+      // その条件自体を前提として用意し、以降の主張を無条件にする。
+      await seedTradingPartner(page, 'E2Eページネーション表示');
+
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // 取引先が存在しない場合は空状態メッセージが表示される
-      const emptyMessage = page.getByText(/取引先が登録されていません/i);
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 2つのうちいずれかが表示されることを確認
-      await expect(emptyMessage.or(pagination)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      // 現在のページ番号が表示されていることを確認
+      await expect(page.getByTestId('current-page')).toBeVisible();
 
-      // ページネーションが表示されている場合、詳細を確認
-      const paginationVisible = await pagination.isVisible();
-      if (paginationVisible) {
-        // 現在のページ番号が表示されていることを確認
-        await expect(page.getByTestId('current-page')).toBeVisible();
+      // 総ページ数が表示されていることを確認
+      await expect(page.getByTestId('total-pages')).toBeVisible();
 
-        // 総ページ数が表示されていることを確認
-        await expect(page.getByTestId('total-pages')).toBeVisible();
-
-        // 総件数が表示されていることを確認
-        await expect(page.getByTestId('total-count')).toBeVisible();
-      }
+      // 総件数が表示されていることを確認
+      await expect(page.getByTestId('total-count')).toBeVisible();
     });
 
     test('表示件数を変更するとURLパラメータに反映される', async ({ page }) => {
@@ -795,19 +792,20 @@ test.describe('取引先一覧操作', () => {
     test('最初のページでは「前のページ」ボタンが無効化される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // ページネーションは取引先が1件以上あるときだけ描画される。前提を自分で用意する。
+      await seedTradingPartner(page, 'E2E前ページ無効');
+
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合のみテスト
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const paginationVisible = await pagination.isVisible();
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (paginationVisible) {
-        // 前のページボタンが無効化されていることを確認
-        const prevButton = page.getByRole('button', { name: /前のページ/i });
-        await expect(prevButton).toBeDisabled({ timeout: getTimeout(5000) });
-      }
+      // 前のページボタンが無効化されていることを確認
+      const prevButton = page.getByRole('button', { name: /前のページ/i });
+      await expect(prevButton).toBeDisabled({ timeout: getTimeout(5000) });
     });
 
     test('最後のページでは「次のページ」ボタンが無効化される', async ({ page }) => {

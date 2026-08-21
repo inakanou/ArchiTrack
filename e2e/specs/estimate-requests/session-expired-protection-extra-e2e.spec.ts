@@ -428,12 +428,13 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
       const fileInput = page.locator('[data-testid="file-input"]');
       await expect(fileInput).toBeDisabled();
 
-      // 「項目選択から転記」ボタンも存在する場合は非活性
+      // REQ-38.4: 「項目選択から転記」も再認証モーダル表示中は非活性である。
+      // 当該ボタンは `selectedItems`（常に配列）が渡るため登録ダイアログでは必ず描画される
+      // （ReceivedQuotationForm の `{selectedItems && …}` と
+      //  EstimateRequestDetailPage の `selectedItems={items.filter(...)}`）
       const transcriptionButton = page.getByTestId('transcription-button');
-      const isVisible = await transcriptionButton.isVisible().catch(() => false);
-      if (isVisible) {
-        await expect(transcriptionButton).toBeDisabled();
-      }
+      await expect(transcriptionButton).toBeVisible();
+      await expect(transcriptionButton).toBeDisabled();
     });
   });
 

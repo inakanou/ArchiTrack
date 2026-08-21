@@ -27,7 +27,11 @@ import { TEST_USERS } from '../../helpers/test-users';
 /**
  * 登録ダイアログ内で PDF をアップロードして、プレビュー＆ズームコントロールを表示させるヘルパー
  */
-async function openCreateDialogWithPdf(page: Page, estimateRequestId: string) {
+async function openCreateDialogWithPdf(
+  page: Page,
+  estimateRequestId: string,
+  fixturePath: string = 'e2e/fixtures/test-file.pdf'
+) {
   await page.goto(`/estimate-requests/${estimateRequestId}`);
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
@@ -41,7 +45,7 @@ async function openCreateDialogWithPdf(page: Page, estimateRequestId: string) {
     timeout: getTimeout(10000),
   });
 
-  await page.locator('[data-testid="file-input"]').setInputFiles('e2e/fixtures/test-file.pdf');
+  await page.locator('[data-testid="file-input"]').setInputFiles(fixturePath);
   // ズームコントロール（拡大ボタン）が見えるまで待機
   await expect(page.getByRole('button', { name: '拡大' })).toBeVisible({
     timeout: getTimeout(20000),
@@ -322,17 +326,20 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
     /**
      * @requirement estimate-request/REQ-31.12
      *
-     * NOTE: e2e/fixtures/test-file.pdf が単一ページの場合は「前へ/次へ」ボタンが
-     * 非表示になる（FileInlinePreview L582 totalPages > 1 ガード）。
-     * その場合でもズーム後にページ番号テキスト「ページ 1 / N」が正しく表示される
-     * か、ボタンが現れる場合は活性であることを確認する。
+     * REQ-31.12 が求めるのは「拡大縮小操作後も前ページ/次ページが正常に動作する」ことである。
+     * ページナビゲーションは総ページ数が 1 のとき描画されない（FileInlinePreview の
+     * `totalPages > 1` ガード）ため、単一ページの `test-file.pdf` では要件そのものを
+     * 検証できない。複数ページの `test-text-pdf.pdf`（2ページ）を用いて、
+     * 前後移動が実際に効くことと倍率が維持されることを無条件に主張する。
      */
-    test('拡大後もページナビゲーション要素が存在し、操作可能な状態を維持する (REQ-31.12)', async ({
-      page,
-    }) => {
+    test('拡大後も前ページ/次ページのナビゲーションが動作する (REQ-31.12)', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
       await loginAsUser(page, 'REGULAR_USER');
-      await openCreateDialogWithPdf(page, createdEstimateRequestId as string);
+      await openCreateDialogWithPdf(
+        page,
+        createdEstimateRequestId as string,
+        'e2e/fixtures/test-text-pdf.pdf'
+      );
 
       const zoomText = page.getByTestId('zoom-level-text');
       // 初期スケールは fit-to-width で動的（REQ-31.8）。拡大による相対変化を検証する
@@ -344,24 +351,25 @@ test.describe('受領見積書 PDF プレビュー拡大縮小（REQ-31）', () 
       const expectedAfterZoom = `${initial + 25}%`;
       await expect(zoomText).toHaveText(expectedAfterZoom);
 
-      // ページナビゲーション「次へ」ボタンが存在する場合に限り、活性であることを確認する
-      const nextButton = page.getByRole('button', { name: '次へ' });
-      const nextCount = await nextButton.count();
-      if (nextCount > 0) {
-        const isVisible = await nextButton.isVisible();
-        if (isVisible) {
-          // 拡大後もボタンが有効に動作する：disabled 属性が currentPage>=totalPages のときのみ
-          // 単一ページ PDF の場合は非活性の可能性があるが、UI は正常に表示される
-          const disabled = await nextButton.isDisabled();
-          // 拡大状態でナビゲーションが UI 上に存在することが REQ-31.12 の主旨
-          expect(typeof disabled).toBe('boolean');
-        }
-      }
+      // 拡大後のページナビゲーションが実際に動作することを確認する
+      // 親要素まで一致して strict mode 違反にならないよう、行そのものへ錨を張る
+      const pageIndicator = page.getByText(/^ページ \d+ \/ \d+$/);
+      await expect(pageIndicator).toHaveText('ページ 1 / 2');
 
-      // 拡大縮小→ページ番号テキスト表示はコントロール健全性の代理指標
-      // 単一ページでもテキストは表示される実装になっていればよい
-      // （totalPages>0 ガードで pdfNavigation は描画される）
-      // 倍率テキストとズームコントロールが拡大縮小後も健全であることを確認
+      const prevButton = page.getByRole('button', { name: '前へ' });
+      const nextButton = page.getByRole('button', { name: '次へ' });
+      await expect(prevButton).toBeDisabled();
+      await expect(nextButton).toBeEnabled();
+
+      await nextButton.click();
+      await expect(pageIndicator).toHaveText('ページ 2 / 2');
+      await expect(nextButton).toBeDisabled();
+      await expect(prevButton).toBeEnabled();
+
+      await prevButton.click();
+      await expect(pageIndicator).toHaveText('ページ 1 / 2');
+
+      // ページ移動を挟んでも倍率とズームコントロールが健全であること
       await expect(zoomText).toHaveText(expectedAfterZoom);
       await expect(page.getByRole('button', { name: '縮小' })).toBeEnabled();
     });

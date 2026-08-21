@@ -408,15 +408,16 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
       await expect(lineCheckboxes.nth(index)).toBeChecked();
     }
 
-    if (targetKey !== null) {
-      // 未保存の新規行が転記先の選択肢に並ぶこと自体を先に固定する（30.4, 49.7）。
-      // 選択が失敗すると `selectOption` のタイムアウトになり、何が欠けたのか読めない
-      await expect(
-        page.locator(`#target-select option[value="${targetKey}"]`),
-        `転記先の選択肢に ${targetKey} が無い（30.4, 49.7）`
-      ).toHaveCount(1);
-    }
-    await page.locator('#target-select').selectOption({ value: targetKey ?? '' });
+    // 未保存の新規行が転記先の選択肢に並ぶこと自体を先に固定する（30.4, 49.7）。
+    // 選択が失敗すると `selectOption` のタイムアウトになり、何が欠けたのか読めない。
+    // `null`（新規項目として作成）も `<option value="">` として必ず並ぶため、
+    // 分岐を置かずどちらの転記先でも同じ主張を通す
+    const targetOptionValue = targetKey ?? '';
+    await expect(
+      page.locator(`#target-select option[value="${targetOptionValue}"]`),
+      `転記先の選択肢に ${targetKey ?? '新規項目として作成'} が無い（30.4, 49.7）`
+    ).toHaveCount(1);
+    await page.locator('#target-select').selectOption({ value: targetOptionValue });
     await dialog.getByRole('button', { name: '転記', exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
   };

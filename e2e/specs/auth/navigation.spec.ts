@@ -374,10 +374,11 @@ test.describe('画面遷移とナビゲーション', () => {
     // ログイン画面にリダイレクト
     await expect(page).toHaveURL(/\/login/);
 
-    // redirectUrlパラメータが設定されている（実装による）
+    // 要件28.3: 元のURLを redirectUrl パラメータとして保存する。
+    // 「実装による」ではなく要件が定めているため、有無そのものを無条件に主張する
+    // （包んだままだと、保存が失われても検証が一件も実行されずに緑になる）。
     const url = new URL(page.url());
-    if (url.searchParams.has('redirectUrl')) {
-      expect(url.searchParams.get('redirectUrl')).toContain('/profile');
-    }
+    expect(url.searchParams.has('redirectUrl')).toBe(true);
+    expect(url.searchParams.get('redirectUrl')).toContain('/profile');
   });
 });

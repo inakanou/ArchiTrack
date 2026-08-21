@@ -20,6 +20,7 @@ import { fileURLToPath } from 'url';
 import * as path from 'path';
 import * as fs from 'fs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -624,15 +625,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // ファイルタイプの受領見積書がある場合、プレビューボタンが表示される
+      // ファイル型の受領見積書は直列の前段テストで必ず登録されている。
+      // 前提が崩れたまま「プレビューボタンが無い」を素通りさせないため、
+      // 前提そのものをここで主張する
+      assertPrepared(createdFileQuotationId, '前段で登録したファイル型受領見積書のID');
+
+      // ファイルタイプの受領見積書があるため、プレビューボタンが表示される
       // （テキストタイプの場合はプレビューボタンは表示されない）
       const previewButton = page.getByRole('button', { name: /プレビュー/i });
-      // 存在確認のみ（ファイルアップロードテストがスキップされた場合は表示されない可能性がある）
-      const count = await previewButton.count();
-      // テストの前提条件としてファイルアップロードが成功している場合のみチェック
-      if (createdFileQuotationId) {
-        expect(count).toBeGreaterThan(0);
-      }
+      await expect(previewButton.first()).toBeVisible({ timeout: getTimeout(10000) });
+      expect(await previewButton.count()).toBeGreaterThan(0);
     });
 
     /**
@@ -1479,12 +1481,11 @@ test.describe('受領見積書・ステータス管理機能', () => {
         timeout: getTimeout(5000),
       });
 
-      // 単価フィールドが空欄であることを確認（aria-labelで行1の単価を特定）
+      // REQ-15.4: 選択項目の数だけ明細行が生成されるため行1は必ず存在する
+      // REQ-15.10: 一括転記時に単価フィールドは空欄
       const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-      if (await unitPriceInput.isVisible()) {
-        const value = await unitPriceInput.inputValue();
-        expect(value).toBe('');
-      }
+      await expect(unitPriceInput).toBeVisible({ timeout: getTimeout(5000) });
+      expect(await unitPriceInput.inputValue()).toBe('');
 
       // キャンセルしてフォームを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();

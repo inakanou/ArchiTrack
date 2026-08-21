@@ -20,6 +20,35 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { getPrismaClient } from '../../fixtures/database';
+import { seedTradingPartner } from '../../helpers/project-list-preconditions';
+
+/**
+ * 取引先操作が監査ログに記録されていることを主張する。
+ *
+ * REQ-7.4 / REQ-7.6 の監査ログはサーバ側で記録される
+ * （`TradingPartnerService` が `AuditLogService.createLog` を呼ぶ）。
+ * ブラウザは監査ログAPIを呼ばないため、画面側のリクエスト観測では記録の有無を判定できない。
+ * 記録先である `audit_logs` を直接参照する。
+ *
+ * @param partnerId 対象の取引先ID
+ * @param action 期待する操作（`TRADING_PARTNER_UPDATED` / `TRADING_PARTNER_DELETED` など）
+ */
+async function expectAuditLogRecorded(partnerId: string, action: string): Promise<void> {
+  const prisma = getPrismaClient();
+  await expect
+    .poll(
+      async () =>
+        prisma.auditLog.count({
+          where: { targetType: 'TradingPartner', targetId: partnerId, action },
+        }),
+      {
+        timeout: getTimeout(10000),
+        message: `REQ-7.4/REQ-7.6: ${action} が監査ログに記録される (targetId=${partnerId})`,
+      }
+    )
+    .toBeGreaterThan(0);
+}
 
 /**
  * 取引先管理の追加要件テスト
@@ -167,15 +196,6 @@ test.describe('取引先管理の追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
-      // 監査ログAPIの呼び出しを監視（存在しない場合はtimeoutで終了）
-      const auditLogListener = page
-        .waitForResponse(
-          (response) =>
-            response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
-          { timeout: 5000 }
-        )
-        .catch(() => null);
-
       // 保存ボタンをクリック
       await page.getByRole('button', { name: /保存/i }).click();
 
@@ -188,12 +208,12 @@ test.describe('取引先管理の追加要件', () => {
         timeout: getTimeout(10000),
       });
 
-      // 監査ログAPIの結果を確認（オプション - 実装されていなくても成功）
-      const auditLogResponse = await auditLogListener;
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
-      // 注: 監査ログ機能は将来的に実装予定。現時点では更新操作の成功のみを確認
+      // REQ-7.4, REQ-7.6: 更新操作が監査ログに記録されていることを確認。
+      // 監査ログはサーバ側で記録される（TradingPartnerService が AuditLogService.createLog を呼ぶ）ため、
+      // ブラウザからの `POST /api/audit-logs` は原理的に発生しない。
+      // 以前はその発生しない要求を関門にしていたため、この主張は一度も実行されていなかった。
+      // 記録先である監査ログそのものを参照して無条件に主張する。
+      await expectAuditLogRecorded(partnerId, 'TRADING_PARTNER_UPDATED');
     });
 
     /**
@@ -252,15 +272,6 @@ test.describe('取引先管理の追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
-      // 監査ログAPIの呼び出しを監視（存在しない場合はtimeoutで終了）
-      const auditLogListener = page
-        .waitForResponse(
-          (response) =>
-            response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
-          { timeout: 5000 }
-        )
-        .catch(() => null);
-
       // ダイアログ内の「削除」ボタンをクリック
       await page
         .getByTestId('focus-manager-overlay')
@@ -275,12 +286,8 @@ test.describe('取引先管理の追加要件', () => {
         timeout: getTimeout(10000),
       });
 
-      // 監査ログAPIの結果を確認（オプション - 実装されていなくても成功）
-      const auditLogResponse = await auditLogListener;
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
-      // 注: 監査ログ機能は将来的に実装予定。現時点では削除操作の成功のみを確認
+      // REQ-7.4, REQ-7.6: 削除操作が監査ログに記録されていることを確認（記録先を直接参照する）
+      await expectAuditLogRecorded(partnerId, 'TRADING_PARTNER_DELETED');
     });
   });
 
@@ -469,6 +476,10 @@ test.describe('取引先管理の追加要件', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-10.4 は検索結果の各項目を定める。結果が0件だと項目の主張が一つも実行されないため、
+      // 検索語「テスト」に必ず一致する取引先をこのテスト自身が用意する。
+      await seedTradingPartner(page, 'テスト取引先検索');
+
       // APIトークンを取得
       const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
 
@@ -492,14 +503,13 @@ test.describe('取引先管理の追加要件', () => {
       // 最大10件までであることを確認
       expect(searchData.length).toBeLessThanOrEqual(10);
 
-      // 各結果に必要な情報が含まれていることを確認
-      if (searchData.length > 0) {
-        const firstResult = searchData[0];
-        expect(firstResult).toHaveProperty('id');
-        expect(firstResult).toHaveProperty('name');
-        expect(firstResult).toHaveProperty('nameKana');
-        expect(firstResult).toHaveProperty('types');
-      }
+      // REQ-10.4: 検索結果には取引先ID・取引先名・フリガナ・種別が含まれる
+      expect(searchData.length, 'REQ-10.4: 検索結果が1件以上返る').toBeGreaterThan(0);
+      const firstResult = searchData[0];
+      expect(firstResult).toHaveProperty('id');
+      expect(firstResult).toHaveProperty('name');
+      expect(firstResult).toHaveProperty('nameKana');
+      expect(firstResult).toHaveProperty('types');
     });
 
     /**

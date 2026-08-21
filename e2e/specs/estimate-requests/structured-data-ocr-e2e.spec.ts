@@ -677,12 +677,14 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
      * @requirement estimate-request/REQ-13.8
      * @requirement estimate-request/REQ-13.9
      * 抽出結果テキストの表示と選択・コピー可能状態の確認
-     * Note: OCR処理は実際のファイル内容に依存するため、
-     *       処理中、結果表示、エラーのいずれかを確認
-     *       E2E環境ではOCR処理に時間がかかるため、処理開始を確認後、
-     *       完了を待たずにUI要素の存在を検証
+     *
+     * REQ-13.8/13.9 は「抽出が完了したとき、結果をテキストとして表示し、選択・コピーできる」
+     * ことを求める。入力にテキスト入り PDF（`test-file.pdf`）を用いると、
+     * Claude Vision 経路（`setExtractedText` に JSON を格納）でも
+     * pdfjs フォールバック経路（閾値 50 文字を超えるテキストを抽出）でも
+     * 抽出結果が必ず表示されるため、経路によらず無条件に主張できる。
      */
-    test('REQ-13.8/9: 抽出結果またはエラーメッセージが表示される', async ({ page }) => {
+    test('REQ-13.8/9: 抽出結果がテキストとして表示され選択できる', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -692,31 +694,21 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
-      // テキストが含まれる画像をアップロード
-      const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
+      // テキストを含む PDF をアップロードする
+      const testFilePath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始され、処理中・完了・エラーのいずれかの状態になることを確認
-      // E2E環境ではOCR処理完了まで時間がかかる場合があるため、処理中も含めて確認
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // 抽出結果テキストのdata-testidと選択可能スタイルがコンポーネントに定義されていることを確認
-      // （OcrDataExtractor.tsxのコード検証で、user-select: textが設定されていることを確認済み）
-      // 実際のOCR完了を待たず、UIコンポーネントの実装を検証
+      // REQ-13.8: 抽出結果がテキストデータとして表示される
       const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-      if (await isVisibleWithin(extractedText, 5000)) {
-        const userSelect = await extractedText.evaluate((el) => {
-          return window.getComputedStyle(el).userSelect;
-        });
-        expect(userSelect).not.toBe('none');
-      }
+      await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+      await expect(extractedText).not.toBeEmpty();
+
+      // REQ-13.9: 抽出結果は選択・コピーできる状態で表示される
+      const userSelect = await extractedText.evaluate((el) => {
+        return window.getComputedStyle(el).userSelect;
+      });
+      expect(userSelect).not.toBe('none');
     });
 
     /**
@@ -826,25 +818,29 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
+      // REQ-13.14 は「失敗した場合」の要件である。失敗するかどうかを観測して主張を包むと
+      // 成功した回には何も検証されないため、失敗そのものを前提として無条件に作り出す。
+      // Claude Vision を利用不可（503）に固定してフォールバックへ落とし（REQ-25.1）、
+      // Tesseract のワーカー資材（CDN 配信の core/traineddata）の取得を遮断することで、
+      // 抽出の両経路が必ず失敗する状態にする
+      await page.route('**/api/claude-vision/extract', (route) =>
+        route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'テスト用に強制した利用不可' }),
+        })
+      );
+      await page.route(/tessdata|tesseract\.js-core/, (route) => route.abort());
+
       // 画像をアップロード
       const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始されることを確認（処理中・完了・エラーのいずれか）
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // エラーが発生した場合、手動入力を促すメッセージが表示される
+      // REQ-13.14: 抽出に失敗したときはエラーメッセージを表示し手動入力を促す
       const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-      if (await isVisibleWithin(errorMessage, 5000)) {
-        await expect(page.getByText(/手動で明細行にデータを入力してください/i)).toBeVisible();
-      }
+      await expect(errorMessage).toBeVisible({ timeout: getTimeout(60000) });
+      await expect(page.getByText(/手動で明細行にデータを入力してください/i)).toBeVisible();
 
       // 明細行エディタは常に表示されており、手動入力が可能（OCR状態に関わらず）
       const lineItemTable = page.locator('form table');

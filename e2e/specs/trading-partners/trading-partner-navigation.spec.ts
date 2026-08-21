@@ -31,6 +31,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * 取引先ナビゲーション・画面遷移のE2Eテスト
@@ -139,11 +140,11 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
 
       const projectBox = await projectLink.boundingBox();
       const tradingPartnerBox = await tradingPartnerLink.boundingBox();
+      assertPresent(projectBox, 'プロジェクトリンクの境界ボックス');
+      assertPresent(tradingPartnerBox, '取引先リンクの境界ボックス');
 
       // 取引先リンクがプロジェクトリンクの右側（次）にあることを確認
-      if (projectBox && tradingPartnerBox) {
-        expect(tradingPartnerBox.x).toBeGreaterThan(projectBox.x);
-      }
+      expect(tradingPartnerBox.x).toBeGreaterThan(projectBox.x);
     });
   });
 

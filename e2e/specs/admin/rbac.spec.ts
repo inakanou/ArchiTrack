@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { assertPresent } from '../../helpers/preconditions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
@@ -144,39 +146,69 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
    * 要件6.6: 最後のシステム管理者ロールの変更拒否
    * @requirement user-authentication/REQ-6.6
    */
-  test('最後の管理者ユーザーのロールは削除できない', async () => {
+  test('最後の管理者ユーザーのロールは削除できない', async ({ request }) => {
     const prisma = getPrismaClient();
 
-    // 管理者ユーザーを作成してログイン
+    // 管理者ユーザーを作成（beforeEach で cleanDatabase 済みのため、この一人が唯一の管理者になる）
     const admin = await createTestUser('ADMIN_USER');
 
     // 管理者ロールを取得
     const adminRole = await prisma.role.findUnique({
       where: { name: 'admin' },
     });
+    assertPresent(adminRole, 'admin ロール');
 
     // 管理者ユーザーのユーザーロール割り当てを取得
     const userRole = await prisma.userRole.findFirst({
       where: {
         userId: admin.id,
-        roleId: adminRole!.id,
+        roleId: adminRole.id,
       },
     });
 
     expect(userRole).not.toBeNull();
 
-    // ユーザーが最後の管理者かどうかを確認
+    // 前提「このユーザーが最後の管理者である」ことを無条件に主張する。
+    // 観測結果で以降の検証を包むと、管理者が二人以上いる状態で REQ-6.6 の検証が黙って消える。
     const adminCount = await prisma.userRole.count({
       where: {
-        roleId: adminRole!.id,
+        roleId: adminRole.id,
       },
     });
+    expect(adminCount).toBe(1);
 
-    // 最後の管理者の場合、削除を試みると拒否されるべき
-    if (adminCount === 1) {
-      // この検証はAPIテストで行う（UIからは通常この操作ができない）
-      expect(adminCount).toBe(1);
-    }
+    // 管理者としてログインし、自身から admin ロールを外す操作を実際に試みる
+    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
+      data: {
+        email: TEST_USERS.ADMIN_USER.email,
+        password: TEST_USERS.ADMIN_USER.password,
+      },
+    });
+    expect(loginResponse.ok()).toBeTruthy();
+    const { accessToken } = await loginResponse.json();
+
+    const removeRoleResponse = await request.delete(
+      `${API_BASE_URL}/api/v1/users/${admin.id}/roles/${adminRole.id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    // 要件6.6: 最後のシステム管理者ロールの変更は拒否される
+    expect(removeRoleResponse.status()).toBe(400);
+    const removeRoleBody = await removeRoleResponse.json();
+    expect(removeRoleBody.code).toBe('LAST_ADMIN_PROTECTED');
+
+    // 拒否された以上、割り当ては残っていなければならない
+    const remainingAdminAssignments = await prisma.userRole.count({
+      where: {
+        userId: admin.id,
+        roleId: adminRole.id,
+      },
+    });
+    expect(remainingAdminAssignments).toBe(1);
   });
 
   /**

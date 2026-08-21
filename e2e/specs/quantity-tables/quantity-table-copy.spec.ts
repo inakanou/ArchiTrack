@@ -20,6 +20,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 
 /**
  * 数量表コピー機能のE2Eテスト
@@ -244,10 +245,9 @@ test.describe('数量表コピー機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // 遷移先がコピーされた数量表の編集画面であることを確認
-      if (copiedQuantityTableId) {
-        expect(page.url()).toContain(copiedQuantityTableId);
-      }
+      // 遷移先がコピーされた数量表の編集画面であることを確認（REQ-17.3）
+      assertPrepared(copiedQuantityTableId, 'コピー応答が返した数量表のID');
+      expect(page.url()).toContain(copiedQuantityTableId);
     });
 
     /**
@@ -301,12 +301,16 @@ test.describe('数量表コピー機能', () => {
             (g: { displayOrder: number }) => g.displayOrder === sourceGroup.displayOrder
           );
 
-          if (copiedGroup) {
-            expect(copiedGroup.name).toBe(sourceGroup.name);
+          // REQ-17.2: 元のグループはすべて同じ表示順でコピーされる。
+          // 見つからないまま黙って次のグループへ進むと、コピー漏れが検出されない。
+          assertPresent(
+            copiedGroup,
+            `コピー先の displayOrder=${sourceGroup.displayOrder} に対応するグループ`
+          );
+          expect(copiedGroup.name).toBe(sourceGroup.name);
 
-            // 各グループ内の項目数が一致
-            expect(copiedGroup.items.length).toBe(sourceGroup.items.length);
-          }
+          // 各グループ内の項目数が一致
+          expect(copiedGroup.items.length).toBe(sourceGroup.items.length);
         }
 
         // 数量表名はコピー時に指定した名前であること
@@ -488,9 +492,8 @@ test.describe('数量表コピー機能', () => {
         expect(sourceGroupCountAfter).toBe(sourceGroupCountBefore);
 
         // 元の数量表の項目数が変わっていないこと
-        if (sourceItemCountBefore !== null) {
-          expect(sourceItemCountAfter).toBe(sourceItemCountBefore);
-        }
+        assertPresent(sourceItemCountBefore, 'コピー前に数えた元の数量表の項目数');
+        expect(sourceItemCountAfter).toBe(sourceItemCountBefore);
 
         // 元の数量表名が変わっていないこと
         expect(sourceAfterData.name).toBe('コピー元数量表');

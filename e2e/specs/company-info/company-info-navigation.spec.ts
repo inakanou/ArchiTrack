@@ -19,6 +19,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * 自社情報ナビゲーション・画面遷移のE2Eテスト
@@ -125,11 +126,12 @@ test.describe('自社情報ナビゲーション・画面遷移', () => {
 
       const tradingPartnerBox = await tradingPartnerLink.boundingBox();
       const companyInfoBox = await companyInfoLink.boundingBox();
+      // 矩形が取れなければ配置の検証は成立しない。型の絞り込みと主張を一つに畳む
+      assertPresent(tradingPartnerBox, '取引先リンクの境界ボックス');
+      assertPresent(companyInfoBox, '自社情報リンクの境界ボックス');
 
       // 自社情報リンクが取引先リンクの右側（次）にあることを確認
-      if (tradingPartnerBox && companyInfoBox) {
-        expect(companyInfoBox.x).toBeGreaterThan(tradingPartnerBox.x);
-      }
+      expect(companyInfoBox.x).toBeGreaterThan(tradingPartnerBox.x);
     });
 
     /**
@@ -155,13 +157,15 @@ test.describe('自社情報ナビゲーション・画面遷移', () => {
       const projectBox = await projectLink.boundingBox();
       const tradingPartnerBox = await tradingPartnerLink.boundingBox();
       const companyInfoBox = await companyInfoLink.boundingBox();
+      assertPresent(dashboardBox, 'ダッシュボードリンクの境界ボックス');
+      assertPresent(projectBox, 'プロジェクトリンクの境界ボックス');
+      assertPresent(tradingPartnerBox, '取引先リンクの境界ボックス');
+      assertPresent(companyInfoBox, '自社情報リンクの境界ボックス');
 
       // 順序を確認（左から右へ）
-      if (dashboardBox && projectBox && tradingPartnerBox && companyInfoBox) {
-        expect(projectBox.x).toBeGreaterThan(dashboardBox.x);
-        expect(tradingPartnerBox.x).toBeGreaterThan(projectBox.x);
-        expect(companyInfoBox.x).toBeGreaterThan(tradingPartnerBox.x);
-      }
+      expect(projectBox.x).toBeGreaterThan(dashboardBox.x);
+      expect(tradingPartnerBox.x).toBeGreaterThan(projectBox.x);
+      expect(companyInfoBox.x).toBeGreaterThan(tradingPartnerBox.x);
     });
   });
 

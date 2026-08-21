@@ -350,7 +350,8 @@ $ node -e "console.log(545-43, 545-43-77, 545-43-77-194, 43+77+194+52+10+169)"
 | 4 | **完了**（Task 115.127 段4） | D2 群 43 件（21ファイル）を 0 に。`generatedTotal` 545 → **497**（上限 502 を満たす）、`T5` 400 → 352、E 194 → **189**（D2 の是正が呼び出し側の関門も消したため）、自己検査 31/31、対象21ファイルの E2E **370 passed / skipped 0 / failed 0** |
 | 5 | **完了**（Task 115.127 段5） | T3 77 件（34ファイル）を 0 に。`generatedTotal` 497 → **398**（上限 425 を満たす）、`T1` 64 → 61・`T4` 4 → 3・`T5` 352 → 334、除外注釈 3 → 1、自己検査 31/31。対象34ファイル745件の E2E を実測。1回目は 672 passed / 5 failed / 68 did not run（直列の巻き添え。38.5分）。5件の失敗のうち3件は production 未実装（下表）、2件は本段の誤り（後始末の過剰な主張・401の提示先の誤認）で是正済み。未実装の8件へ `test.fail()` のラチェットを付けて再実行し、巻き添えの68件を含めて **failed 0 / skipped 0**（13.4分＋7.0分）。変異検証3件で「是正前は緑・是正後は赤」を実測。査読の指摘で是正を1周（要件検証を放棄した3件を前提生成器で肯定的な主張へ、実装の書き写し2件を削除、陳腐化した要件タグ4件を REQ-14.x → REQ-16.x へ訂正、ラチェット中の3要件を `pending-implementation` へ登録、テスト名の要件番号2件を訂正、段6 の目標値を実測へ訂正）。是正後も `generatedTotal` 398・除外注釈 1 で増加なし、`check:req-coverage` は PASSED |
 | 6 の前提 | **完了**（Task 115.137） | 検出器の観測の語彙・沈黙脱出の見極め・走査対象を実態へ合わせた。`generatedTotal` 398 → **393**（追加 1 件・削除 6 件の差し引き **減少 5**）、`T5` 334 → **329**（T1 61・T4 3 は不変）、除外注釈 1 → **0**、分類は D2 **0 → 1**（真正の沈黙脱出 `import-e2e.spec.ts:809`）・D1 10 → 4・E **171 のまま**（F 168・G 49 は不変）、自己検査 31/31 → **45/45**。査読前の一周では 418 件（誤検出 19 件を含む）と記録したが、破棄して測り直した。E2E スペック本体は一行も変更していない。詳細は §4.3 |
-| 6〜7 | 未着手 | — |
+| 6 | **完了**（Task 115.127 段6） | E 群 171 件（56ファイル）を 0 に。`generatedTotal` 393 → **191**（上限 222 を満たす）、`T1` 61 → **51**・`T4` 3 → **0**・`T5` 329 → **140**、除外注釈 0 のまま。分類は F 168 → **143**・G 49 → **43**（D1 4・D2 1 は不変）。**是正が上流を直したため、対象外の群も併せて減った**（債務の移動は 0 件）。自己検査 45/45 を維持。E2E は変更した 53 spec 882 件を実測（1巡 約44分）。要件どおりの主張へ改めた結果、**これまで一度も落ちなかった検証が 7 箇所で赤くなった**。内訳は検証側の誤り 5 箇所（是正済み）と production 未実装 2 件で、後者（site-survey/REQ-4.6・REQ-3.1）は要件どおりの主張を残して `test.fail()` のラチェットへ計上し `pending-implementation` へ登録した（§4.4）。変異検証 3 件で「是正前は緑・是正後は赤」を実測 |
+| 7 | 未着手 | — |
 
 ### 4.2 段5 で露見した production の未実装（Task 115.127 段5）
 
@@ -850,6 +851,151 @@ E 群の件数自体は段5 完了時点と同じ 171 件であり、**段6 の�
   主張ではなく無条件の代替操作で受け、その後で無条件に検証する形を誤検出として残すため採らなかった。
 - ラベル付きの `break` / `continue`、`switch` を挟む `break` は抜ける先を構造だけで決められないため、
   検出を残す側（沈黙脱出として扱う側）に倒している。
+
+### 4.4 段6 で露見した production の未実装（Task 115.127 段6）
+
+E 群は「観測結果で主張を包むだけ」であり、観測が偽であれば主張が一件も実行されない。
+171 件を無条件の主張へ改めた結果、**これまで一度も落ちなかった検証が 7 箇所で落ちた**。
+一件ずつ切り分けた内訳は次のとおりで、**production の欠陥は 2 件**、残る 5 箇所は検証側の誤りである。
+5 箇所のうち 1 件（REQ-4.10）は**単体実行では緑・全 spec の通し実行では赤**という形で現れた。通しでしか出ない食い違いは 1 巡目の実測で見落としやすいため、実測は通し実行で行うこと。
+
+| 箇所 | 判別 | 内容 |
+|---|---|---|
+| `estimate-requests/number-format-e2e.spec.ts` REQ-18.10 | 検証側の誤り | PDF の取り込み経路では構造上、行に数量が生まれない。資材を Excel のデータパース経路へ差し替えて前提を成立させた |
+| `site-surveys/site-survey-batch-annotations.spec.ts` REQ-18.5 | 検証側の誤り | 観測の窓が画面表示中の取得まで含んでいた。要件が定める「調査報告書出力ボタンを押して以降」へ窓を限った |
+| `site-surveys/site-survey-image-rotation.spec.ts` REQ-22.2 | 検証側の誤り | 注釈の描画を click 二回で行っており図形が生まれていなかった。ドラッグへ改めた。**従来は `0 === 0` で成立しており、E 群の陰に隠れていた** |
+| `quantity-tables/autocomplete-optimization.spec.ts` REQ-7.3a / REQ-7.7 | 検証側の誤り | `AutocompleteInput` の blur による 150ms の遅延クローズがあり、観測を再試行できる形になっていなかった |
+| `site-surveys/site-survey-viewer.spec.ts` REQ-4.10 | 検証側の誤り | 事前準備の画像アップロードが `input[type="file"]` の**即時の件数**で包まれており、0 件なら前提ごと飛んで事前準備が緑になっていた。`count()` は待たないため、画面の描画が遅い状況（全 spec の通し実行）では 0 件と観測される。**単体では緑・通し実行では赤**という食い違いとして現れた。ファイル入力が現れるまで待ってから、2枚のアップロードと一覧への反映を無条件に主張する形へ改めた |
+| **`site-survey/REQ-4.6`** | **production の欠陥** | 圧縮後のサイズが受入基準の下限（250KB）を下回る。`backend/src/services/image-processor.service.ts` の圧縮ループは継続条件が `size > TARGET_MAX_SIZE_BYTES`（350KB）だけで、下限を大きく下回っても抜ける。品質を上げ直して範囲へ戻す経路が無い。実測では 2MB / 1920x1080 の JPEG が 61,638 バイトで登録された |
+| **`site-survey/REQ-3.1`** | **production の欠陥** | 現場調査一覧にページ操作の UI が無い。`frontend/src/pages/SiteSurveyListPage.tsx` は `page: 1, limit: 50` を固定で渡すだけで、ページ番号を変える状態も操作も持たない |
+
+production の 2 件はいずれも**要件どおりの主張をそのまま残し**、`test.fail()` のラチェット
+（`site-survey-responsive.spec.ts` および `project-navigation.spec.ts:383` が先行実装）で
+既知失敗として計上した。あわせて `e2e/requirement-exclusions.json` へ
+`pending-implementation` として登録している（8 件 → **10 件**）。**被覆済みとは数えていない。**
+REQ-4.6 は従来 `infrastructure` 区分で「統合テストで 250KB〜350KB 範囲に圧縮されることを確認」と
+していたが、当該の単体テストは sharp をモックして範囲内のサイズだけを与えており、
+**下限を下回る経路を通していなかった**。根拠が実態を指していなかったため区分ごと差し替えた。
+
+#### 要件の裏づけが無い主張が 1 件見つかった（JWKS の Cache-Control）
+
+`e2e/specs/api/jwks.spec.ts` の「キャッシュ制御: 適切な Cache-Control ヘッダーが設定されていること」は
+`if (cacheControl) { … }` の形であり、`backend/src/routes/jwks.routes.ts` が Cache-Control を
+一切設定していないため**一度も発火せず恒久的に緑**だった。テスト名が掲げる主張を無条件へ改めたが、
+**requirements.md にも design.md にも JWKS のキャッシュ制御を定めた項目は無い**。
+本タスクは要件を発明しない立場を採り、テスト名どおりの主張を残して `test.fail()` のラチェットに計上した。
+当該テストは `@requirement` を持たないため `check:req-coverage` の被覆には影響しない。
+**(a) Cache-Control を実装して要件へ昇格させるか、(b) 要件外のテストとして削除するかは、
+本スペックの所管者が決めるべき事項として残す。**
+
+#### 段6 で主張を削除した箇所と、その受入基準の記録先（査読 round 4 の是正）
+
+段6 の 56 ファイルのうち、`expect(` の件数が実質的に減ったのは
+`estimate-requests/estimate-request-ocr-vision-e2e.spec.ts` の 1 ファイルだけである（57 → 39・−18）。
+他のファイルの −1 / −2 は `expect(x).not.toBeNull()` を `assertPresent()` へ畳んだもので主張は失われていない。
+
+当該ファイルの 3 テストは構造主張を 200 / 422 分岐の内側に置いていた。
+テスト環境の backend は `ANTHROPIC_API_KEY` を持たない
+（実測: `docker exec architrack-backend-test printenv | grep -i anthropic` は何も返さない）ため、
+REQ-22.3 / REQ-22.6 により応答は 503 で確定し、これらの分岐は一度も実行されていない。
+段6 は分岐を 503 の無条件主張へ畳んだが、**`@requirement` タグを据え置いた**。
+その結果、到達し得ない受入基準が「機能が使えないこと」を主張するテストによって
+`check:req-coverage` 上は被覆済みと数えられ続けていた。段5・段6 が `site-survey/REQ-4.6` や
+`site-survey/REQ-3.1` に対して採った「主張は残す・ラチェットで赤にする・除外へ登録する」の逆であり、
+債務を可視化せずに消した形である。査読 round 4 でこれを是正した。
+
+| 受入基準 | 段6 で消えた主張 | 是正後の記録先 |
+|---|---|---|
+| `estimate-request/REQ-21.5` `21.6` `21.7` | `lineItems` / `pageCount` の存在と型、明細 9 フィールドの構成（13 件） | タグを外し `requirement-exclusions.json` へ `integration-test` 区分で登録。根拠は `backend/src/__tests__/unit/services/claude-vision.service.test.ts`（Anthropic SDK をモック・26 件緑を実測） |
+| `estimate-request/REQ-23.4` | 422 分岐の `errorType: 'parse_error'` | 同上（`should throw ClaudeVisionError.parseError() …` 2 件） |
+| `estimate-request/REQ-26.5` `26.6` `26.7` `26.8` | `Array.isArray(lineItems)` と `typeof quantity\|unitPrice\|amount === 'number'` | 同上（`should parse JSON response …` / `should convert string number fields …` / `should handle comma-separated numbers …`） |
+| `estimate-request/REQ-21.8` | `expect(data.pageCount).toBe(3)`（唯一「3 ページ」に触れていた主張） | **E2E に復活**。境界のスキーマに対して 3 ページ一括送信＝503 到達・3 ページ目だけ不正＝400・21 ページ＝上限超過で 400 の 3 点を無条件に主張し、単一画像のテストと区別が付く形にした |
+
+**なぜ (a)（前提を作って主張を復活させる）を採らなかったか**
+
+- **実測**: `page.route('**/api/claude-vision/extract')` を張った状態で `page.request.post` を投げると、
+  ハンドラは一度も発火せず（`routed=0`）実在の backend が応答した（`status=401`）。
+  `page.request` は APIRequestContext でありページのルーティングを経由しない。
+  `structured-data-ocr-e2e.spec.ts` の REQ-13.14 がスタブを使えるのは、要求を出すのが**画面側**だからである。
+- 仮に画面経由でスタブしても、スタブは backend そのものを置き換える。REQ-21.5〜21.7 と REQ-26.5〜26.8 は
+  「Claude API の応答を解釈する backend の振る舞い」を定めた受入基準であるから、
+  スタブした応答を主張しても**テストが自分で書いた資材を主張するだけ**になり、被覆の虚偽は形を変えて残る。
+  前提を実際に作るには実在の APIキー、もしくは Anthropic のモックサーバを compose.test へ追加して
+  `ANTHROPIC_BASE_URL` を向ける改修が要る。後者は Vision を「有効」にするため、
+  同ファイルが持つ REQ-22.6（無効時 503）の主張群と両立せず、段6 の是正の範囲を超える。
+- したがって「検証できない受入基準はタグから外し、代替検証の根拠とともに除外へ記録する」道を採った。
+  除外は 265 件 → **273 件**（`integration-test` 60 → 68 件）。
+
+**残る既知の弱さ（本タスクの境界外・後続で扱うこと）**
+
+同ファイルは `estimate-request/REQ-21.3`・`21.4`・`26.1`〜`26.4`（Anthropic のモデル指定とプロンプトの内容）も
+タグに掲げているが、これらも 503 の応答からは何も分からない。段6 の前後で主張の量は変わっていないため
+本是正の対象からは外したが、**被覆の根拠としては同じ弱さを持つ**。上記 8 件と同じく
+`claude-vision.service.test.ts` が実際の検証を担っている。
+
+**併せて是正したテスト名と要件タグの食い違い（`projects/project-trading-partner.spec.ts`）**
+
+段6 で本体を「入力中に取引先一覧 API を発生させない」形へ改めた一方、テスト名は
+「300ms 後に検索実行される」、タグは `project-management/REQ-22.5`（フリガナ検索）のままだった。
+本体が検証しているのは `TradingPartnerSelect` のクライアント側絞り込み、すなわち
+requirements.md L403 の `REQ-22.4`（入力文字列に部分一致する顧客を候補としてフィルタリング表示する）である。
+テスト名を本体へ合わせ、タグを `REQ-22.4` へ訂正した。`REQ-22.5` は
+`trading-partner-select-kana.spec.ts`（8 件）と `project-kana-search.spec.ts`（7 件）が所管しており被覆は失われない。
+
+#### 段6 の変異検証（実測）
+
+**M1 前提の主張を落とせるかどうか（`company-info-navigation.spec.ts` REQ-5.2）**
+
+段3 §5.3・段4 M3 と同じ検証である。是正後の形から `assertPresent` の 2 行を削除する。
+
+| 形 | 操作 | 結果 |
+|---|---|---|
+| 段6 前（`if (tradingPartnerBox && companyInfoBox) { … }`） | そのまま | **型検査は通る**。矩形が取れなければ主張は一つも実行されない |
+| 段6 後（`assertPresent` ×2） | 2 行を削除 | **型検査が失敗**（`error TS18047: 'companyInfoBox' is possibly 'null'` / `'tradingPartnerBox' is possibly 'null'`）。**削除できない** |
+
+**M2 母集団を壊す（`project-list-operations.spec.ts` REQ-3.1）**
+
+`GET /api/projects` が空の一覧を返すようにして、同じ変異のもとで両方の形を走らせた。
+
+| 形 | 結果 |
+|---|---|
+| 段6 前（`emptyMessage.or(errorMessage).or(pagination)` を待ち、`if (paginationVisible)`） | **PASS**（2s）。表示件数の主張は一つも実行されない |
+| 段6 後（前提を `seedProject` で作り `await expect(pagination).toBeVisible()`） | **FAIL**（13s・`expect(locator).toBeVisible() failed`） |
+
+**M3 設定が失われた場合（`security-measures.spec.ts` REQ-26.10）**
+
+観測したヘッダーの写しから `x-content-type-options` / `x-frame-options` を取り除いた。
+
+| 形 | 結果 |
+|---|---|
+| 段6 前（`if (headers['x-content-type-options']) { … }`） | **PASS**（40ms）。ヘッダーが消えた瞬間に検証ごと消える |
+| 段6 後（無条件の `toBe('nosniff')` / `toContain`） | **FAIL**（25ms） |
+
+変異検証に用いた一時のスペックは検証後に削除している（作業ツリーに残していない）。
+
+#### 段6 の検証（実測）
+
+- `npm run classify:e2e-guards`: **E 0**（171 → 0）、合計 191 が検出件数と一致
+- `npm run check:e2e-guards`: `generatedTotal` 393 → **191**（上限 222 を満たす）、除外注釈 0 で不変
+- `npm run check:e2e-guards:selftest`: **45/45**
+- `npm run check:req-coverage`: **PASSED**（除外 264 → 265 件、`pending-implementation` 8 → 10 件）。
+  査読 round 4 の是正でさらに 8 件を登録し **273 件**（`integration-test` 60 → 68 件）
+- 変更した 53 spec の E2E（`--retries=0`・通し実行 44分30秒）: **873 passed / 0 skipped**。
+  残る 9 件は `test.fail()` のラチェット（期待された失敗）であり、Playwright の総合判定は **PASSED**（終了コード 0）。
+  内訳は段5 由来 6 件（project-management/REQ-21.13、quantity-table-generation/REQ-8.4・9.5・10.5・15.1・15.3）と
+  段6 由来 3 件（site-survey/REQ-4.6、site-survey/REQ-3.1、JWKS の Cache-Control）である。
+  **カスタムレポータの「Failed」欄はラチェットを含めて数えるため、合否の判断は Playwright の総合判定を正とすること。**
+- `npm run lint` / `npx tsc --noEmit` / `npm run format:check`: いずれも 0 件
+
+#### 段6 が用いた畳み先
+
+- `assertPresent` / `assertPrepared`（段0・段3 で新設）— 矩形・ビューポート・ダウンロード先など、
+  観測できたはずの値の型絞り込みを主張と一体にする
+- `e2e/helpers/project-list-preconditions.ts` の `seedProject` / `seedTradingPartner` — **段6 で新設**。
+  プロジェクト一覧・取引先一覧は production 側が「1 件以上あるとき」にだけ表・ページネーションを描くため、
+  「一覧が空かもしれない」を関門にせず前提を API で作る。同型が 4 ファイルに散っていた
+- `openEditPageWithSingleItemRow`（段1 で新設）— 数量表の補完・並び順の検証が
+  「項目行が 1 つも無い編集画面」の下に置かれていたため、前提を作る形へ寄せた
 
 ## 5. 一括で畳める同型の定型（115.92 と同じ手口）
 

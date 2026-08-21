@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -84,12 +85,13 @@ test.describe('セキュリティ対策', () => {
 
     expect(response.ok()).toBeTruthy();
 
-    // Set-Cookieヘッダーを確認
+    // 要件26.5: トークンを Cookie に保存する際は HttpOnly を設定する。
+    // Cookie の有無で包むと、発行そのものが失われても検証が一件も実行されず緑になる。
     const setCookieHeader = response.headers()['set-cookie'];
-    if (setCookieHeader) {
-      // HttpOnly属性が含まれていることを確認
-      expect(setCookieHeader.toLowerCase()).toContain('httponly');
-    }
+    assertPresent(setCookieHeader, 'REQ-26.5: ログイン応答の Set-Cookie ヘッダー');
+
+    // HttpOnly属性が含まれていることを確認
+    expect(setCookieHeader.toLowerCase()).toContain('httponly');
   });
 
   /**
@@ -101,12 +103,13 @@ test.describe('セキュリティ対策', () => {
 
     expect(response.ok()).toBeTruthy();
 
-    // CORSヘッダーを確認（設定されている場合）
+    // 要件26.6: APIエンドポイントには適切な CORS ヘッダーを設定する。
+    // 従来は「あれば検証」で包んだうえに、その中身も `toBeDefined()` という恒真だった。
+    // 設定の有無そのものを主張し、値が CORS の許可元として成立していることまで確かめる。
     const headers = response.headers();
-    // Access-Control-Allow-Originがあれば検証
-    if (headers['access-control-allow-origin']) {
-      expect(headers['access-control-allow-origin']).toBeDefined();
-    }
+    const allowOrigin = headers['access-control-allow-origin'];
+    expect(allowOrigin, 'REQ-26.6: Access-Control-Allow-Origin が設定されていない').toBeTruthy();
+    expect(allowOrigin).toMatch(/^(\*|https?:\/\/\S+)$/);
   });
 
   /**
@@ -120,15 +123,13 @@ test.describe('セキュリティ対策', () => {
 
     const headers = response.headers();
 
+    // 要件26.10: セキュリティ関連ヘッダーは設定されていなければならない。
+    // 「設定されていれば検証する」形は、設定が失われた瞬間に検証ごと消える。
     // X-Content-Type-Optionsヘッダーを確認
-    if (headers['x-content-type-options']) {
-      expect(headers['x-content-type-options']).toBe('nosniff');
-    }
+    expect(headers['x-content-type-options']).toBe('nosniff');
 
     // X-Frame-Optionsヘッダーを確認
-    if (headers['x-frame-options']) {
-      expect(['DENY', 'SAMEORIGIN']).toContain(headers['x-frame-options']);
-    }
+    expect(['DENY', 'SAMEORIGIN']).toContain(headers['x-frame-options']);
   });
 
   /**

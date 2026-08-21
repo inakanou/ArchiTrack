@@ -19,14 +19,114 @@
  * @module e2e/specs/quantity-tables/autocomplete-optimization.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
-import { assertPrepared } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import {
   createTestProject,
   createTestQuantityTable,
+  openEditPageWithSingleItemRow,
 } from '../../helpers/quantity-table-preconditions';
+
+/**
+ * 補完対象フィールドへ確定値を入力し、blur で候補値リストへ登録させる（REQ-7.5）。
+ *
+ * 「表示されていれば入力する」形では、フィールドが描画されない限り登録も後段の判定も
+ * 揃って飛ぶ。入力が保持されたことと焦点が外れたことを主張し、前提が崩れた地点で失敗させる。
+ *
+ * @param field 対象フィールド（`role="combobox"`）
+ * @param value 登録する確定値（欄ごとの入力上限に収まること）
+ */
+async function registerCandidate(field: Locator, value: string): Promise<void> {
+  await field.fill(value);
+  await expect(field, `補完対象フィールドへ「${value}」が入力される`).toHaveValue(value);
+  await field.blur();
+  await expect(field, 'blur で補完対象フィールドから焦点が外れる').not.toBeFocused();
+}
+
+/**
+ * 再試行のたびに入力値の変化を確実に起こすための中継値。
+ *
+ * 半角1文字であり、対象9フィールドのうち最も狭い単位欄（全角3文字/半角6文字）の
+ * 上限にも収まる。`readSuggestions` に渡すどの入力値とも一致しない値を選ぶこと。
+ */
+const REOPEN_SENTINEL = 'z';
+
+/**
+ * 補完対象フィールドへ入力し、表示された候補の文字列を取り出す。
+ *
+ * 候補一覧は `document.body` 直下へ Portal で描画されるため、行ではなくページ配下で参照する。
+ *
+ * ## なぜ Locator ではなく文字列を返すのか（遅延クローズが後から着弾する）
+ *
+ * `AutocompleteInput` が一覧を開く経路は二つしかない。焦点獲得（`handleFocus`。ただし
+ * その時点の値に対する候補が1件以上ある場合のみ）と、入力の変化（`handleInputChange`）である。
+ * 一方 `handleBlur` は 150ms 後に一覧を閉じる遅延処理を**無条件に**仕掛け、その後の
+ * 再フォーカスや再入力でも取り消さない。したがって `registerCandidate` が仕掛けた遅延は、
+ * その後に開いた一覧を**開いた直後に**閉じ得る。
+ *
+ * 開いた一覧の Locator を呼び出し側へ返すと、返した後に遅延クローズが着弾した時点で
+ * 後段の主張が壊れる。実測（Task 115.127 段6 の実ブラウザ実行）でこの形に落ちた。
+ * 一覧の可視は満たしたのに、直後の `getByRole('option')` が 5 秒間 0 件のままとなり、
+ * 失敗時の画面は「欄は focused・listbox は DOM に不在」だった。
+ *
+ * そこで**一覧に依存する読み取りまでを一つの再試行単位に閉じ込め**、呼び出し側へは
+ * 素の文字列を渡す。閉じられても次の周回で開き直せるため、後段の主張は時間に左右されない。
+ *
+ * ## 中継値を挟む理由（同じ値を入れ直しても一覧は開かない）
+ *
+ * React の入力値追跡は DOM の値が実際に変わらない限り `onChange` を発火させない。
+ * 既に同じ値が入っている欄へ同じ値を `fill` しても `handleInputChange` は呼ばれず、
+ * 欄は焦点を持ったままなので `handleFocus` も再発火せず、一覧は閉じたまま固定される。
+ * 中継値を経由して目的の値へ入れ直し、再試行のたびに**必ず値の変化を起こす**。
+ *
+ * ## 取り出した結果そのものを再試行単位の中で主張する
+ *
+ * 遅延クローズは「一覧が出ている」ことを確かめた**直後**にも着弾し得る。
+ * 件数の主張と `allTextContents()` の間に着弾すると、取り出しは空配列を返すが
+ * 再試行単位は例外を出さずに完了してしまい、**空のまま呼び出し側へ渡る**。
+ * 実測（Task 115.127 段6 の実ブラウザ実行）でこの形に落ちた。受領値は `Array []` で、
+ * 中継値の混入ではなく取り出しが空だったことがログから確かめられる。
+ * そこで取り出した結果が空でないことと、取り出し後も一覧の件数が一致していることを
+ * **再試行単位の中で**主張する。破れていれば次の周回で開き直す。
+ *
+ * 本補助は「候補が1件以上あるはず」の場面専用である。呼び出し側はいずれも直前に
+ * `registerCandidate` で候補を登録しており、候補0件を期待する呼び出しは無い。
+ *
+ * 期限内に一覧が開かなければ失敗させる（沈黙して抜ける経路を持たせない）。
+ *
+ * @param page Playwright のページ
+ * @param field 対象フィールド（`role="combobox"`）
+ * @param inputText 入力する文字列（空文字なら全候補が対象になる）
+ * @returns 表示された候補の文字列（表示順）
+ */
+async function readSuggestions(page: Page, field: Locator, inputText: string): Promise<string[]> {
+  expect(inputText, '中継値と同じ入力値では値の変化を起こせない').not.toBe(REOPEN_SENTINEL);
+
+  const listbox = page.getByRole('listbox');
+  let suggestions: string[] = [];
+  await expect(async () => {
+    await field.fill(REOPEN_SENTINEL);
+    await field.fill(inputText);
+    await expect(listbox).toBeVisible({ timeout: getTimeout(1000) });
+
+    const options = listbox.getByRole('option');
+    await expect(options).not.toHaveCount(0, { timeout: getTimeout(1000) });
+
+    const captured = await options.allTextContents();
+    // 取り出しの最中に遅延クローズが着弾すると空になる。空を返すと呼び出し側の
+    // 集合比較が「候補が無い」ことを見逃すため、取り出した結果そのものを主張する。
+    expect(captured, '候補一覧から候補を取り出せる').not.toHaveLength(0);
+    // 取り出した後も一覧が保たれていること（途中で閉じていない）を確かめる。
+    await expect(options, '取り出した件数と一覧の件数が一致する').toHaveCount(captured.length, {
+      timeout: getTimeout(1000),
+    });
+
+    suggestions = captured;
+  }, 'REQ-7.3: 入力に対応する候補一覧が表示される').toPass({ timeout: getTimeout(15000) });
+  return suggestions;
+}
 
 /**
  * オートコンプリート最適化E2Eテスト
@@ -206,51 +306,51 @@ test.describe('オートコンプリート最適化', () => {
 
   test.describe('REQ-7.5: キーボード操作', () => {
     test('上下キーで候補を選択しEnterで確定できる', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(majorCategoryInput, 'REQ-7.3: 大項目の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      await page.waitForLoadState('networkidle');
+      // REQ-7.5: blur で確定値を候補値リストへ追加する
+      await registerCandidate(majorCategoryInput, '建築工事');
 
-      // 数量項目を追加（まだない場合）
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
-
-      // 大項目フィールドで入力を開始
-      const majorCategoryInput = page.getByRole('combobox', { name: /大項目/i }).first();
-      if (await majorCategoryInput.isVisible()) {
+      // 一覧を開いてから確定するまでを一つの再試行単位に閉じ込める。
+      // `handleBlur` の遅延クローズは再フォーカスでも取り消されないため、途中で一覧が
+      // 閉じるとキー操作が届かなくなる（Enter は一覧が閉じていると確定を行わない）。
+      // 期限内に一連の操作が成立しなければ失敗する（沈黙して抜ける経路は無い）。
+      const listbox = page.getByRole('listbox');
+      await expect(async () => {
+        // REQ-7.3: 前方一致する候補がドロップダウン表示される
+        await majorCategoryInput.fill(REOPEN_SENTINEL);
         await majorCategoryInput.fill('建');
-        await page.waitForTimeout(200);
+        await expect(listbox).toBeVisible({ timeout: getTimeout(1000) });
 
-        // 候補リストが表示された場合、キーボード操作を実行
-        const listbox = page.getByRole('listbox');
-        if (await isVisibleWithin(listbox, 2000)) {
-          // 下矢印キーで候補を選択
-          await majorCategoryInput.press('ArrowDown');
-          await page.waitForTimeout(100);
+        // 下矢印キーで候補が選択状態になる（REQ-7.5）
+        await majorCategoryInput.press('ArrowDown');
+        const selectedOption = listbox.getByRole('option', { selected: true });
+        await expect(selectedOption, '上下キーで候補が選択状態になる').toBeVisible({
+          timeout: getTimeout(1000),
+        });
+        const selectedText = await selectedOption.textContent();
+        assertPresent(selectedText, '選択状態になった補完候補の文字列');
 
-          // aria-selectedがtrueの候補があることを確認
-          const selectedOption = page.getByRole('option', { selected: true });
-          if (await selectedOption.isVisible()) {
-            const selectedText = await selectedOption.textContent();
+        // REQ-7.4: Enter で確定すると選択した候補がフィールドへ自動入力される
+        await majorCategoryInput.press('Enter');
+        await expect(majorCategoryInput, 'REQ-7.4: 選択した候補が入力される').toHaveValue(
+          selectedText,
+          { timeout: getTimeout(1000) }
+        );
+      }, 'REQ-7.5/7.4: 上下キーで候補を選択し Enter で確定できる').toPass({
+        timeout: getTimeout(15000),
+      });
 
-            // Enterで確定
-            await majorCategoryInput.press('Enter');
-            await page.waitForTimeout(100);
-
-            // 値がフィールドに反映されたことを確認
-            if (selectedText) {
-              await expect(majorCategoryInput).toHaveValue(selectedText);
-            }
-          }
-        }
-      }
+      // 確定した値は候補として登録した値そのものである
+      await expect(majorCategoryInput, 'REQ-7.4: 確定後の値が候補と一致する').toHaveValue(
+        '建築工事'
+      );
     });
   });
 
@@ -260,21 +360,9 @@ test.describe('オートコンプリート最適化', () => {
 
   test.describe('REQ-7.6: blur時の候補追加', () => {
     test('blur時に入力値が候補に追加され再入力時に候補として表示される', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-
-      await page.waitForLoadState('networkidle');
-
-      // 数量項目を追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // blur時のAPIリクエストを監視
       const blurApiRequests: string[] = [];
@@ -286,32 +374,24 @@ test.describe('オートコンプリート最適化', () => {
         }
       });
 
-      // 大項目フィールドに新しい値を入力してblur
-      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
-      const firstMajorCategory = majorCategoryInputs.first();
-      if (await firstMajorCategory.isVisible()) {
-        const uniqueValue = `テスト大項目_${Date.now()}`;
-        await firstMajorCategory.fill(uniqueValue);
-        await firstMajorCategory.blur();
-        await page.waitForTimeout(300);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(majorCategoryInput, 'REQ-7.3: 大項目の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // blur時にAPIリクエストが発生していないことを確認
-        expect(blurApiRequests).toHaveLength(0);
+      const uniqueValue = `テスト大項目_${Date.now()}`;
+      await registerCandidate(majorCategoryInput, uniqueValue);
 
-        // 同じフィールドで再入力すると追加された値が候補に表示される
-        await firstMajorCategory.fill(uniqueValue.substring(0, 5));
-        await page.waitForTimeout(200);
+      // REQ-7.6: blur時の候補値リスト更新はクライアントサイドのみで行う
+      expect(blurApiRequests, 'REQ-7.6: blur時にAPIリクエストを発行しない').toHaveLength(0);
 
-        // 候補リストに追加された値が表示されることを確認
-        const listbox = page.getByRole('listbox');
-        if (await isVisibleWithin(listbox, 2000)) {
-          const addedOption = page.getByRole('option', { name: new RegExp(uniqueValue) });
-          if (await addedOption.isVisible()) {
-            // 追加された値が候補に表示されている
-            expect(await addedOption.textContent()).toContain(uniqueValue);
-          }
-        }
-      }
+      // REQ-7.5: blur で追加した値が、再入力時に候補として現れる
+      const suggestions = await readSuggestions(
+        page,
+        majorCategoryInput,
+        uniqueValue.substring(0, 5)
+      );
+      expect(suggestions, 'REQ-7.5: blurで追加した値が候補に現れる').toContain(uniqueValue);
     });
   });
 
@@ -321,64 +401,39 @@ test.describe('オートコンプリート最適化', () => {
 
   test.describe('REQ-7.7: 50音順表示', () => {
     test('候補が50音順でソートされて表示される', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(majorCategoryInput, 'REQ-7.3: 大項目の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      await page.waitForLoadState('networkidle');
-
-      // 複数の候補を追加するため、複数の項目を作成
-      for (let i = 0; i < 2; i++) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-        if (await addItemButton.isVisible()) {
-          await addItemButton.click();
-          await page.waitForTimeout(500);
-        }
+      // 50音順の判定に意味を持たせるため、意図的に逆順で候補を登録する（REQ-7.5）
+      const registeredValues = ['ウ工事', 'イ工事', 'ア工事'];
+      for (const value of registeredValues) {
+        await registerCandidate(majorCategoryInput, value);
       }
 
-      // 複数の値を入力してblurで候補に追加
-      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
-      const count = await majorCategoryInputs.count();
+      // REQ-7.3: 空欄へ戻すと全候補が表示される
+      const optionTexts = await readSuggestions(page, majorCategoryInput, '');
 
-      const valuesToAdd = ['土木工事', '建築工事', 'ア行テスト'];
-      for (let i = 0; i < Math.min(count, valuesToAdd.length); i++) {
-        const input = majorCategoryInputs.nth(i);
-        if (await input.isVisible()) {
-          await input.fill(valuesToAdd[i]!);
-          await input.blur();
-          await page.waitForTimeout(200);
-        }
-      }
+      // 登録した候補がすべて、それだけが並ぶ。
+      // 母集団は二つの供給しか持たない。(1) サーバーの入力履歴
+      // （`backend/src/routes/autocomplete.routes.ts:157-181` の groupBy。**永続化された**
+      // 数量項目をプロジェクト単位で集計する）と、(2) blur 時のクライアント追加
+      // （`useAutocompleteCandidateStore.ts:214-226`）である。本ファイルは数量表を
+      // 保存しないため (1) は空、(2) はページ読み込みごとに初期化される。
+      // したがって集合はこのテストが登録した3件に一意に定まる。
+      expect(
+        [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja')),
+        'REQ-7.7 の並びを判定するため登録した候補が揃っている'
+      ).toEqual([...registeredValues].sort((a, b) => a.localeCompare(b, 'ja')));
 
-      // 最初のフィールドで候補を表示
-      const firstInput = majorCategoryInputs.first();
-      if (await firstInput.isVisible()) {
-        await firstInput.fill('');
-        await firstInput.click();
-        await page.waitForTimeout(200);
-
-        // 候補リストが表示された場合、ソート順を確認
-        const listbox = page.getByRole('listbox');
-        if (await isVisibleWithin(listbox, 2000)) {
-          const options = page.getByRole('option');
-          const optionCount = await options.count();
-
-          if (optionCount >= 2) {
-            const optionTexts: string[] = [];
-            for (let i = 0; i < optionCount; i++) {
-              const text = await options.nth(i).textContent();
-              if (text) optionTexts.push(text);
-            }
-
-            // 50音順にソートされていることを確認
-            const sortedTexts = [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja'));
-            expect(optionTexts).toEqual(sortedTexts);
-          }
-        }
-      }
+      // REQ-7.7: 候補は50音順に並ぶ
+      expect(optionTexts, 'REQ-7.7: 候補が50音順に並ぶ').toEqual(
+        [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja'))
+      );
     });
   });
 
@@ -436,208 +491,105 @@ test.describe('オートコンプリート最適化', () => {
     test('空の対象フィールドにフォーカスした際に全候補がドロップダウン表示される', async ({
       page,
     }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(majorCategoryInput, 'REQ-7.3: 大項目の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      await page.waitForLoadState('networkidle');
+      await registerCandidate(majorCategoryInput, 'フォーカステスト大項目');
 
-      // 数量項目を追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
-
-      // まず候補を追加するため、大項目に値を入力してblur
-      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
-      const firstInput = majorCategoryInputs.first();
-      if (await firstInput.isVisible()) {
-        // 候補を追加
-        await firstInput.fill('フォーカステスト大項目');
-        await firstInput.blur();
-        await page.waitForTimeout(300);
-
-        // フィールドをクリア
-        await firstInput.fill('');
-        await page.waitForTimeout(100);
-
-        // 空のフィールドにフォーカス
-        await firstInput.focus();
-        await page.waitForTimeout(300);
-
-        // ドロップダウンが表示されることを確認
-        const listbox = page.getByRole('listbox');
-        if (await isVisibleWithin(listbox, 2000)) {
-          const options = page.getByRole('option');
-          const optionCount = await options.count();
-          // 空のフィールドでも候補が表示されるべき
-          expect(optionCount).toBeGreaterThan(0);
-        }
-      }
+      // REQ-7.3a: 空欄では全候補がドロップダウン表示される
+      const suggestions = await readSuggestions(page, majorCategoryInput, '');
+      expect(suggestions, 'REQ-7.3a: 空欄へのフォーカスで候補が表示される').toEqual([
+        'フォーカステスト大項目',
+      ]);
     });
 
     test('値ありの対象フィールドにフォーカスした際にフィルタリング済み候補が表示される', async ({
       page,
     }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(majorCategoryInput, 'REQ-7.3: 大項目の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      await page.waitForLoadState('networkidle');
+      await registerCandidate(majorCategoryInput, 'フィルタテスト値A');
 
-      // 数量項目を追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
-
-      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
-      const firstInput = majorCategoryInputs.first();
-      if (await firstInput.isVisible()) {
-        // まず候補を追加
-        await firstInput.fill('フィルタテスト値A');
-        await firstInput.blur();
-        await page.waitForTimeout(300);
-
-        // 前方一致する値を入力
-        await firstInput.fill('フィルタ');
-        await page.waitForTimeout(200);
-
-        // フィルタリング済み候補が表示されることを確認
-        const listbox = page.getByRole('listbox');
-        if (await isVisibleWithin(listbox, 2000)) {
-          const option = page.getByRole('option', { name: /フィルタテスト値A/ });
-          if (await option.isVisible()) {
-            expect(await option.textContent()).toContain('フィルタテスト値A');
-          }
-        }
-      }
+      // REQ-7.3: 値がある場合は前方一致する候補だけが表示される
+      const suggestions = await readSuggestions(page, majorCategoryInput, 'フィルタ');
+      expect(suggestions, 'REQ-7.3: 前方一致する候補が表示される').toEqual(['フィルタテスト値A']);
     });
 
     test('フォーカス後にテキスト入力するとリアルタイムで候補がフィルタリング更新される', async ({
       page,
     }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(majorCategoryInput, 'REQ-7.3: 大項目の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      await page.waitForLoadState('networkidle');
-
-      // 数量項目を追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
+      const registeredValues = ['リアルタイムA', 'リアルタイムB', '別の値'];
+      for (const value of registeredValues) {
+        await registerCandidate(majorCategoryInput, value);
       }
 
-      const majorCategoryInputs = page.getByRole('combobox', { name: /大項目/i });
-      const firstInput = majorCategoryInputs.first();
-      if (await firstInput.isVisible()) {
-        // 複数の候補を追加
-        await firstInput.fill('リアルタイムA');
-        await firstInput.blur();
-        await page.waitForTimeout(200);
+      // REQ-7.3: 空欄では登録した全候補が表示される
+      const allSuggestions = await readSuggestions(page, majorCategoryInput, '');
+      expect(
+        [...allSuggestions].sort((a, b) => a.localeCompare(b, 'ja')),
+        '空欄では登録した全候補が表示される'
+      ).toEqual([...registeredValues].sort((a, b) => a.localeCompare(b, 'ja')));
 
-        await firstInput.fill('リアルタイムB');
-        await firstInput.blur();
-        await page.waitForTimeout(200);
-
-        await firstInput.fill('別の値');
-        await firstInput.blur();
-        await page.waitForTimeout(200);
-
-        // フィールドをクリアしてフォーカス
-        await firstInput.fill('');
-        await firstInput.focus();
-        await page.waitForTimeout(300);
-
-        // 全候補が表示される
-        const listbox = page.getByRole('listbox');
-        if (await isVisibleWithin(listbox, 2000)) {
-          const initialCount = await page.getByRole('option').count();
-
-          // テキスト入力でフィルタリング
-          await firstInput.fill('リアルタイム');
-          await page.waitForTimeout(200);
-
-          // フィルタリング後の候補数が初期より少ないか同じであることを確認
-          if (await isVisibleWithin(listbox, 1000)) {
-            const filteredCount = await page.getByRole('option').count();
-            expect(filteredCount).toBeLessThanOrEqual(initialCount);
-          }
-        }
-      }
+      // REQ-7.3a: 入力に応じて前方一致する候補へリアルタイムに絞り込まれる
+      const filteredSuggestions = await readSuggestions(page, majorCategoryInput, 'リアルタイム');
+      expect(filteredSuggestions, 'REQ-7.3a: 残るのは前方一致する候補だけである').toEqual([
+        'リアルタイムA',
+        'リアルタイムB',
+      ]);
     });
 
     test('対象9フィールドすべてでフォーカス時の候補表示が動作する', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      await page.waitForLoadState('networkidle');
-
-      // 数量項目を追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
-
-      // 対象9フィールドの名前パターン
-      const fieldPatterns = [
-        /大項目/i,
-        /中項目/i,
-        /小項目/i,
-        /任意分類/i,
-        /工種/i,
-        /名称/i,
-        /規格/i,
-        /単位/i,
-        /備考/i,
+      // 対象9フィールドと、各欄の入力上限（FIELD_CONSTRAINTS）に収まる登録値。
+      // 単位は全角3文字/半角6文字が上限であり、他の欄と同じ長さの値は入力そのものが
+      // 弾かれて候補が登録されない（REQ-13.3）。欄ごとに上限内の値を用いる。
+      const targetFields: Array<{ label: string; value: string }> = [
+        { label: '大項目', value: 'テスト大項目' },
+        { label: '中項目', value: 'テスト中項目' },
+        { label: '小項目', value: 'テスト小項目' },
+        { label: '任意分類', value: 'テスト任意分類' },
+        { label: '工種', value: 'テスト工種' },
+        { label: '名称', value: 'テスト名称' },
+        { label: '規格', value: 'テスト規格' },
+        { label: '単位', value: '式' },
+        { label: '備考', value: 'テスト備考' },
       ];
 
-      for (const pattern of fieldPatterns) {
-        const input = page.getByRole('combobox', { name: pattern }).first();
-        if (await isVisibleWithin(input, 1000)) {
-          // 候補を追加してからフォーカステスト
-          const testValue = `テスト_${pattern.source}`;
-          await input.fill(testValue);
-          await input.blur();
-          await page.waitForTimeout(200);
+      for (const { label, value } of targetFields) {
+        const input = row.getByRole('combobox', { name: label, exact: true });
+        await expect(input, `REQ-7.3: ${label}の入力欄が表示される`).toBeVisible({
+          timeout: getTimeout(10000),
+        });
 
-          // 空にしてフォーカス
-          await input.fill('');
-          await input.focus();
-          await page.waitForTimeout(300);
+        await registerCandidate(input, value);
 
-          // ドロップダウンが表示されるかチェック（候補がある場合のみ）
-          const listbox = page.getByRole('listbox');
-          const isListVisible = await isVisibleWithin(listbox, 1000);
+        // REQ-7.3a: 空欄へ戻すと当該フィールドの候補がドロップダウン表示される
+        const suggestions = await readSuggestions(page, input, '');
+        expect(suggestions, `REQ-7.3a: ${label}の候補が表示される`).toEqual([value]);
 
-          if (isListVisible) {
-            // 候補が存在する場合は表示されていることを確認
-            const optionCount = await page.getByRole('option').count();
-            expect(optionCount).toBeGreaterThan(0);
-          }
-
-          // フィールドをblurしてクリーンアップ
-          await input.blur();
-          await page.waitForTimeout(200);
-        }
+        await input.blur();
       }
     });
   });

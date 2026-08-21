@@ -14,7 +14,16 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
+import {
+  attachPhotoToGroup,
+  seedSurveyPhotosWithComments,
+} from '../../helpers/quantity-table-preconditions';
+
+/** 事前準備で現場調査へ登録する写真のコメント（枚数＝配列の長さ） */
+const PREVIEW_PHOTO_COMMENTS: readonly (string | null)[] = [
+  'REQ20: プレビュー検証用の写真コメント',
+];
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -111,6 +120,16 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
       expect(testProjectId).toBeTruthy();
     });
 
+    test('注釈対象となる現場調査写真を作成する', async ({ page }) => {
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
+      await seedSurveyPhotosWithComments(
+        page,
+        testProjectId,
+        'REQ20_現場調査',
+        PREVIEW_PHOTO_COMMENTS
+      );
+    });
+
     test('テスト用数量表とグループを作成する', async ({ page }) => {
       if (!testProjectId) {
         throw new Error(
@@ -153,6 +172,11 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
       const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
       await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
 
+      // REQ-20 は「グループに紐づいた注釈付き写真のプレビュー」を対象とする。
+      // グループを作るだけでは「紐付け画像を表示」ボタンが現れる経路が無く、
+      // 各テストの判定が一つも実行されないまま緑になっていた。写真の紐づけまで作る。
+      await attachPhotoToGroup(page, groupCard, 0);
+
       // REQ-42.5: 後続テストが再ナビゲートで参照できるよう明示保存して永続化する。
       await saveQuantityTableDraft(page);
     });
@@ -194,12 +218,11 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
+    // 事前準備が写真を紐づけたグループを保存しているため、表示ボタンは必ず現れる。
     const imageButton = page.getByRole('button', { name: '紐付け画像を表示' }).first();
-    if (!(await isVisibleWithin(imageButton, getTimeout(5000)))) {
-      // 該当グループ無し時はスキップせず、編集画面の存在を検証
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    await expect(imageButton, '前提: 紐付け画像の表示ボタンが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     await imageButton.click();
 
@@ -231,11 +254,11 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
+    // 事前準備が写真を紐づけたグループを保存しているため、表示ボタンは必ず現れる。
     const imageButton = page.getByRole('button', { name: '紐付け画像を表示' }).first();
-    if (!(await isVisibleWithin(imageButton, getTimeout(5000)))) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    await expect(imageButton, '前提: 紐付け画像の表示ボタンが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
     await imageButton.click();
 

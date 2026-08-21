@@ -30,6 +30,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -43,6 +44,8 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
   let sharedPage: Page;
   let sharedContext: BrowserContext;
   let accessToken: string | null = null;
+  /** 事前準備で注釈を保存した画像のID（REQ-18.3 / REQ-18.8 の前提） */
+  let annotatedImageId: string | null = null;
 
   /** 認証ヘッダーを返すヘルパー */
   function getAuthHeaders(): Record<string, string> {
@@ -124,6 +127,43 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       // 画像の存在は後続テストの前提であり、失敗した場合はテストを飛ばさず失敗させる
       expect(uploadResponse.ok()).toBeTruthy();
     }
+
+    // 1枚目にだけ注釈を保存する（Task 115.127 段6）。
+    // REQ-18.3（注釈のある画像は AnnotationInfo が返る）と
+    // REQ-18.4（注釈の無い画像は空が返る）の双方を、観測で分岐せずに主張するための前提。
+    // 前提を用意しないと注釈は 1 件も存在せず、AnnotationInfo の形の検証は
+    // 「注釈があれば検証する」という決して成立しない関門の内側で眠り続ける。
+    const imagesForAnnotation = await sharedPage.request.get(
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      { headers: getAuthHeaders() }
+    );
+    expect(imagesForAnnotation.ok(), '事前準備の画像一覧取得が失敗した').toBeTruthy();
+
+    const uploadedImages = (await imagesForAnnotation.json()) as { id: string }[];
+    expect(uploadedImages.length, '事前準備でアップロードした画像が取得できない').toBe(2);
+    annotatedImageId = uploadedImages[0]!.id;
+
+    const saveAnnotationResponse = await sharedPage.request.put(
+      `${API_BASE_URL}/api/site-surveys/images/${annotatedImageId}/annotations`,
+      {
+        headers: getAuthHeaders(),
+        data: {
+          data: {
+            version: '6.0.0',
+            objects: [
+              {
+                type: 'rect',
+                left: 10,
+                top: 10,
+                width: 20,
+                height: 20,
+              },
+            ],
+          },
+        },
+      }
+    );
+    expect(saveAnnotationResponse.ok(), '事前準備の注釈保存が失敗した').toBeTruthy();
   });
 
   test.afterAll(async () => {
@@ -196,6 +236,19 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       timeout: getTimeout(30000),
     });
 
+    // 観測の対象を「調査報告書出力ボタンを押して以降」に限る。
+    // REQ-18.2 は「調査報告書出力ボタンを押したとき」の取得経路を、
+    // REQ-18.5 は「PDF報告書出力時」の合計リクエスト数を定めており、
+    // いずれも画面表示中の取得は対象外である。
+    // 画面表示では注釈付きサムネイルの合成（AnnotatedImageThumbnail）が
+    // 注釈のある画像について個別の注釈取得を行うことがあり
+    // （サーバ生成の注釈付きサムネイルが無い場合のフォールバック。
+    // frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx:184）、
+    // これを数えると出力経路とは無関係の理由で判定が動く。
+    await sharedPage.waitForLoadState('networkidle');
+    batchRequests.length = 0;
+    individualAnnotationRequests.length = 0;
+
     await exportButton.click();
 
     const download = await downloadPromise;
@@ -250,13 +303,23 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     // 全てのimageIdに対応するエントリが返却される（REQ-18.3）
     for (const imageId of imageIds) {
       expect(batchData.annotations).toHaveProperty(imageId);
-      // 各エントリはAnnotationInfoまたはnull（18.4対応）
-      const annotation = batchData.annotations[imageId];
-      if (annotation !== null) {
-        expect(annotation).toHaveProperty('id');
-        expect(annotation).toHaveProperty('imageId');
-        expect(annotation).toHaveProperty('data');
-      }
+    }
+
+    // 事前準備で注釈を保存した画像は AnnotationInfo が返る（REQ-18.3）。
+    // 以前は `if (annotation !== null)` で包んでおり、注釈を 1 件も作っていなかったため
+    // 全エントリが null となり、AnnotationInfo の形は一度も検証されていなかった。
+    assertPrepared(annotatedImageId, '事前準備で注釈を保存した画像のID');
+    const annotated = batchData.annotations[annotatedImageId];
+    expect(annotated, '注釈を保存した画像の注釈が返らない').not.toBeNull();
+    expect(annotated).toHaveProperty('id');
+    expect(annotated).toHaveProperty('imageId', annotatedImageId);
+    expect(annotated).toHaveProperty('data');
+
+    // 注釈を保存していない画像は空（null）が返る（REQ-18.4）
+    const notAnnotatedIds = imageIds.filter((id) => id !== annotatedImageId);
+    expect(notAnnotatedIds.length, '注釈を保存していない画像が母集団に無い').toBeGreaterThan(0);
+    for (const imageId of notAnnotatedIds) {
+      expect(batchData.annotations[imageId], '注釈の無い画像に空以外が返る').toBeNull();
     }
   });
 
@@ -409,13 +472,20 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     // 画像は beforeAll でアップロード済みであることが前提
     expect(imageIds.length).toBeGreaterThan(0);
 
-    const targetImageId = imageIds[0]!;
+    // 互換性は「注釈が存在する画像」でしか比べられない。
+    // 事前準備で注釈を保存した画像を対象にする（以前は先頭の画像を対象としており、
+    // 注釈が 1 件も無いため三重の `if` の内側が一度も実行されていなかった）。
+    assertPrepared(annotatedImageId, '事前準備で注釈を保存した画像のID');
+    const targetImageId = annotatedImageId;
+    expect(imageIds, '注釈を保存した画像が一覧に無い').toContain(targetImageId);
 
     // 個別エンドポイントで注釈を取得
     const individualResponse = await sharedPage.request.get(
       `${API_BASE_URL}/api/site-surveys/images/${targetImageId}/annotations`,
       { headers: getAuthHeaders() }
     );
+
+    expect(individualResponse.ok(), '個別注釈取得エンドポイントが失敗した').toBeTruthy();
 
     // バッチエンドポイントで注釈を取得
     const batchResponse = await sharedPage.request.post(
@@ -432,28 +502,23 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     expect(batchResponse.ok()).toBeTruthy();
 
     const batchData = await batchResponse.json();
-    const batchAnnotation = batchData.annotations[targetImageId];
-
-    if (individualResponse.ok()) {
-      const individualData = await individualResponse.json();
-
-      // 両方のレスポンスの構造が互換性を持つことを確認
-      // 個別エンドポイントが注釈を返す場合
-      if (individualData && batchAnnotation) {
-        // 同じimageIdを参照していること
-        if (individualData.imageId && batchAnnotation.imageId) {
-          expect(batchAnnotation.imageId).toBe(individualData.imageId);
-        }
-        // dataフィールドが存在すること
-        if ('data' in individualData) {
-          expect(batchAnnotation).toHaveProperty('data');
-        }
-      }
-    }
-
-    // バッチレスポンスの構造が正しいことを確認（注釈があってもなくても）
     expect(batchData).toHaveProperty('annotations');
     expect(typeof batchData.annotations).toBe('object');
+
+    const batchAnnotation = batchData.annotations[targetImageId];
+    expect(batchAnnotation, 'バッチ応答に注釈が含まれない').not.toBeNull();
+
+    const individualData = (await individualResponse.json()) as Record<string, unknown>;
+
+    // REQ-18.8: 個別エンドポイントとバッチエンドポイントのレスポンス形式が一致すること
+    expect(
+      Object.keys(batchAnnotation as Record<string, unknown>).sort(),
+      'バッチと個別で注釈オブジェクトの項目構成が食い違う'
+    ).toEqual(Object.keys(individualData).sort());
+    expect(batchAnnotation.id).toBe(individualData.id);
+    expect(batchAnnotation.imageId).toBe(individualData.imageId);
+    expect(batchAnnotation.imageId).toBe(targetImageId);
+    expect(batchAnnotation.data).toEqual(individualData.data);
   });
 
   // ============================================================================

@@ -13,6 +13,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * プロジェクト管理パンくずナビゲーション表示E2Eテスト
@@ -148,16 +149,18 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       // プロジェクト名テキストが表示されていることを確認（現在ページなのでリンクなし）
       // h1タグに表示されているプロジェクト名と同じ名前がパンくずにも表示される
       const pageTitle = page.locator('h1');
+      await expect(pageTitle).toBeVisible({ timeout: getTimeout(10000) });
       const actualProjectName = await pageTitle.textContent();
+      assertPresent(actualProjectName, 'プロジェクト詳細画面の見出し（プロジェクト名）');
 
-      if (actualProjectName) {
-        // パンくずにプロジェクト名が表示されていることを確認
-        const projectNameInBreadcrumb = breadcrumb.locator('[aria-current="page"]');
-        await expect(projectNameInBreadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+      // REQ-21.15: パンくずの現在ページにプロジェクト名が表示されていることを確認
+      // （ProjectDetailPage の h1 は project.name そのものであり、パンくずの末尾と一致する）
+      const projectNameInBreadcrumb = breadcrumb.locator('[aria-current="page"]');
+      await expect(projectNameInBreadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(projectNameInBreadcrumb).toHaveText(actualProjectName);
 
-        // 現在ページに aria-current="page" が設定されていることを確認
-        await expect(projectNameInBreadcrumb).toHaveAttribute('aria-current', 'page');
-      }
+      // 現在ページに aria-current="page" が設定されていることを確認
+      await expect(projectNameInBreadcrumb).toHaveAttribute('aria-current', 'page');
 
       // 区切り文字「>」が2つ表示されていることを確認
       const separators = breadcrumb.getByText('>');
@@ -314,7 +317,9 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await page.waitForLoadState('networkidle');
 
       const pageTitle = page.locator('h1');
+      await expect(pageTitle).toBeVisible({ timeout: getTimeout(10000) });
       const expectedProjectName = await pageTitle.textContent();
+      assertPresent(expectedProjectName, 'プロジェクト詳細画面の見出し（プロジェクト名）');
 
       // 編集ページに遷移
       await page.goto(`/projects/${project.id}/edit`);
@@ -324,12 +329,9 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-      // パンくず内でプロジェクト名と一致するテキストのリンクを探す
-      if (expectedProjectName) {
-        const projectNameLink = breadcrumb.getByRole('link', { name: expectedProjectName });
-        // プロジェクト名がリンクとして表示されていることを確認
-        await expect(projectNameLink).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      // REQ-21.17: パンくず内にプロジェクト名がリンクとして表示されていることを確認
+      const projectNameLink = breadcrumb.getByRole('link', { name: expectedProjectName });
+      await expect(projectNameLink).toBeVisible({ timeout: getTimeout(10000) });
     });
   });
 
@@ -757,10 +759,14 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await page.keyboard.press('Tab');
       // 編集ページでは詳細ページへのリンクがあるはず
       const allLinks = await breadcrumb.getByRole('link').all();
+      // 編集ページのパンくずは「ダッシュボード > プロジェクト一覧 > [プロジェクト名] > 編集」であり、
+      // リンクは3つ（末尾の「編集」は現在ページなのでリンクではない）
+      expect(allLinks.length, '編集ページのパンくずのリンク数').toBeGreaterThanOrEqual(3);
+      const projectNameLink = allLinks[2];
+      assertPresent(projectNameLink, 'パンくずの3番目のリンク（プロジェクト名）');
+
       // 3番目のリンク（プロジェクト名）がフォーカスされていることを確認
-      if (allLinks.length >= 3 && allLinks[2]) {
-        await expect(allLinks[2]).toBeFocused();
-      }
+      await expect(projectNameLink).toBeFocused();
     });
 
     /**
@@ -964,30 +970,28 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       // 編集ページでは3つのリンクがあるはず（ダッシュボード、プロジェクト一覧、プロジェクト名）
       expect(allLinks.length).toBe(3);
 
+      const dashboardLink = allLinks[0];
+      const projectsLink = allLinks[1];
+      const projectNameLink = allLinks[2];
+      assertPresent(dashboardLink, 'パンくずの1番目のリンク（ダッシュボード）');
+      assertPresent(projectsLink, 'パンくずの2番目のリンク（プロジェクト一覧）');
+      assertPresent(projectNameLink, 'パンくずの3番目のリンク（プロジェクト名）');
+
       // 最初のリンク（ダッシュボード）にフォーカス
-      if (allLinks[0]) {
-        await allLinks[0].focus();
-        await expect(allLinks[0]).toBeFocused();
-        const firstLinkText = await allLinks[0].textContent();
-        expect(firstLinkText).toBe('ダッシュボード');
-      }
+      await dashboardLink.focus();
+      await expect(dashboardLink).toBeFocused();
+      expect(await dashboardLink.textContent()).toBe('ダッシュボード');
 
       // Tabキーで2番目のリンク（プロジェクト一覧）にフォーカス
       await page.keyboard.press('Tab');
-      if (allLinks[1]) {
-        await expect(allLinks[1]).toBeFocused();
-        const secondLinkText = await allLinks[1].textContent();
-        expect(secondLinkText).toBe('プロジェクト一覧');
-      }
+      await expect(projectsLink).toBeFocused();
+      expect(await projectsLink.textContent()).toBe('プロジェクト一覧');
 
       // Tabキーで3番目のリンク（プロジェクト名）にフォーカス
       await page.keyboard.press('Tab');
-      if (allLinks[2]) {
-        await expect(allLinks[2]).toBeFocused();
-        const thirdLinkText = await allLinks[2].textContent();
-        // プロジェクト名が含まれていることを確認
-        expect(thirdLinkText).toContain('テスト案件');
-      }
+      await expect(projectNameLink).toBeFocused();
+      // プロジェクト名が含まれていることを確認
+      expect(await projectNameLink.textContent()).toContain('テスト案件');
     });
   });
 });

@@ -137,24 +137,27 @@ test.describe('ログイン機能', () => {
     const email = 'user@example.com';
     const wrongPassword = 'WrongPassword123!';
 
-    // 5回連続でログイン失敗
-    for (let i = 0; i < 5; i++) {
+    const submitWrongPassword = async (): Promise<void> => {
       await page.getByLabel(/メールアドレス/i).fill(email);
       await page.locator('input#password').fill(wrongPassword);
       await page.getByRole('button', { name: /ログイン/i }).click();
+    };
 
-      // エラーメッセージを待つ
-      if (i < 4) {
-        await expect(
-          page.getByText(/メールアドレスまたはパスワードが正しくありません/i)
-        ).toBeVisible();
-      }
+    // ロックに至らない 4 回。毎回、認証失敗のエラーメッセージが出ることを無条件に主張する
+    // （添字で主張を包むと、周回ごとの検証が実行されたかどうかが構造から読めなくなる）
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await submitWrongPassword();
+
+      await expect(
+        page.getByText(/メールアドレスまたはパスワードが正しくありません/i)
+      ).toBeVisible();
 
       // ページをリロードして次の試行に備える（フォームをリセット）
-      if (i < 4) {
-        await page.reload();
-      }
+      await page.reload();
     }
+
+    // 5 回目の失敗。ここでロックに至る
+    await submitWrongPassword();
 
     // 5回目の失敗後、アカウントロックメッセージが表示される
     await expect(

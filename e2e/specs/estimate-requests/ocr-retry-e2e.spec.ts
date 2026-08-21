@@ -244,26 +244,21 @@ test.describe('OCR再実行・リトライ機能', () => {
     await expect(ocrButton).toBeVisible({ timeout: getTimeout(10000) });
     await ocrButton.click();
 
-    // OCR処理完了を待機（結果またはエラー）
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // OCR結果が表示された場合、一括取り込みボタンも表示されることを確認
+    // REQ-16.4: OCR 完了時は「抽出結果」と「一括取り込みボタン」が必ず表示される。
+    // 対象の `test-file.pdf` はテキスト入り PDF（閾値 50 文字を超える）であり、
+    // Claude Vision 経路・pdfjs フォールバック経路のいずれでも抽出結果が表示される
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await isVisibleWithin(extractedText, 3000)) {
-      // 抽出テキストが空でないことを確認
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
 
-      // 一括取り込みボタンが表示されることを確認
-      await expect(page.locator('[data-testid="ocr-import-button"]')).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    }
+    // 抽出テキストが空でないことを確認
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
+
+    // 一括取り込みボタンが表示されることを確認
+    await expect(page.locator('[data-testid="ocr-import-button"]')).toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   /**
@@ -465,20 +460,14 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     await expect(page.getByText('test-file.pdf')).toBeVisible({ timeout: getTimeout(5000) });
 
-    // OCR処理が自動実行され、結果またはエラーが表示されることを確認
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(30000) });
-
-    // OCR結果が取得できた場合、抽出テキストが表示されることを確認
+    // REQ-16.10 の前提: アップロード直後の自動 OCR で抽出結果が表示される。
+    // `test-file.pdf` はテキスト入り PDF のため抽出は必ず成立する
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await isVisibleWithin(extractedText, 3000)) {
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(30000) });
+
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   /**

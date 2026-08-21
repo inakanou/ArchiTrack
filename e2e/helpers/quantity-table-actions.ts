@@ -22,15 +22,17 @@ import { getTimeout } from './wait-helpers';
  * REQ-42.5: 編集ドラフトの全状態を1回の PUT で確定する。
  * REQ-42.8: 成功時は「保存しました」インジケーターが表示される。
  *
+ * ## 期待するステータスを引数で受けない理由（Task 115.127 段6）
+ *
+ * 以前は `options.expectedStatus` を受け、200 のときだけ REQ-42.8 の完了表示を主張していた。
+ * 呼び出し側は 30 箇所すべてが既定（200）であり、200 以外の経路は一度も実行されていない。
+ * 「引数によっては何も主張しない補助」は、成功を主張しない保存を静かに許す入口になるため、
+ * 成功する保存だけを扱う補助に絞り、完了表示は無条件に主張する。
+ * 保存の失敗を検証する場合は、当該テストが応答と画面表示を直接主張すること。
+ *
  * @param page - Playwright のページオブジェクト
- * @param options.expectedStatus - 期待する保存 API のステータス（既定 200）
  */
-export async function saveQuantityTableDraft(
-  page: Page,
-  options?: { expectedStatus?: number }
-): Promise<void> {
-  const expectedStatus = options?.expectedStatus ?? 200;
-
+export async function saveQuantityTableDraft(page: Page): Promise<void> {
   const saveButton = page.getByRole('button', { name: '保存' });
   await expect(saveButton).toBeVisible({ timeout: getTimeout(10000) });
 
@@ -39,17 +41,15 @@ export async function saveQuantityTableDraft(
     (response) =>
       /\/api\/quantity-tables\/[^/]+\/save$/.test(response.url()) &&
       response.request().method() === 'PUT' &&
-      response.status() === expectedStatus,
+      response.status() === 200,
     { timeout: getTimeout(30000) }
   );
 
   await saveButton.click();
   await saveResponsePromise;
 
-  if (expectedStatus === 200) {
-    // REQ-42.8: 保存完了インジケーターが表示される（「保存中...」→「保存しました」）
-    await expect(page.getByText(/保存しました/).first()).toBeVisible({
-      timeout: getTimeout(10000),
-    });
-  }
+  // REQ-42.8: 保存完了インジケーターが表示される（「保存中...」→「保存しました」）
+  await expect(page.getByText(/保存しました/).first()).toBeVisible({
+    timeout: getTimeout(10000),
+  });
 }

@@ -308,14 +308,21 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     const status = response.status();
     expect([201, 207]).toContain(status);
 
-    if (status === 207) {
-      const body = await response.json();
-      const failureReason: string =
-        Array.isArray(body.failed) && body.failed.length > 0 ? (body.failed[0].error ?? '') : '';
-      expect(failureReason).not.toMatch(
-        /サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/
-      );
-    }
+    // 応答は成功と失敗の双方を返す形である（REQ-19.10 / REQ-19.12）。
+    // 失敗の理由は状態コードに関わらず取り出せるため、観測で分岐せず無条件に主張する。
+    // 以前は 207 のときにだけ判定していたため、201 でも 207 でも
+    // 「マジックバイト判定で拒否されていないこと」は一度も主張されない経路があった。
+    const body = await response.json();
+    expect(body).toHaveProperty('successful');
+    expect(body).toHaveProperty('failed');
+
+    const failureReasons: string = (Array.isArray(body.failed) ? body.failed : [])
+      .map((failure: { error?: string }) => failure.error ?? '')
+      .join(' / ');
+    expect(
+      failureReasons,
+      'マジックバイト判定（先頭3バイト）以外の理由で形式が拒否された'
+    ).not.toMatch(/サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/);
   });
 
   // ==========================================================================
@@ -358,14 +365,21 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     const status = response.status();
     expect([201, 207]).toContain(status);
 
-    if (status === 207) {
-      const body = await response.json();
-      const failureReason: string =
-        Array.isArray(body.failed) && body.failed.length > 0 ? (body.failed[0].error ?? '') : '';
-      expect(failureReason).not.toMatch(
-        /サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/
-      );
-    }
+    // 応答は成功と失敗の双方を返す形である（REQ-19.10 / REQ-19.12）。
+    // 失敗の理由は状態コードに関わらず取り出せるため、観測で分岐せず無条件に主張する。
+    // 以前は 207 のときにだけ判定していたため、201 でも 207 でも
+    // 「マジックバイト判定で拒否されていないこと」は一度も主張されない経路があった。
+    const body = await response.json();
+    expect(body).toHaveProperty('successful');
+    expect(body).toHaveProperty('failed');
+
+    const failureReasons: string = (Array.isArray(body.failed) ? body.failed : [])
+      .map((failure: { error?: string }) => failure.error ?? '')
+      .join(' / ');
+    expect(
+      failureReasons,
+      'マジックバイト判定（先頭3バイト）以外の理由で形式が拒否された'
+    ).not.toMatch(/サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/);
   });
 
   // ==========================================================================
@@ -511,18 +525,21 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     await input.setInputFiles(invalidPath);
 
     const response = await uploadPromise;
-    // REQ-19.10: API がエラー情報を含む結果を返却
-    // 207 Multi-Status または 4xx エラー
-    const status = response.status();
-    expect([207, 400, 415]).toContain(status);
+    // REQ-19.10: API がエラー情報を含む結果を返却する。
+    // multer にファイル種別の絞り込みは無く（survey-images.routes.ts の upload 設定）、
+    // マジックバイト判定は uploadBatch の内側で行われる。したがって 1 件だけ不正な
+    // ファイルを送った場合の応答は必ず 207 Multi-Status（successful=0 / failed=1）であり、
+    // 「207 なら検証する」という関門は不要である。
+    expect(response.status(), 'バッチアップロードの部分失敗が 207 で返らない').toBe(207);
 
-    if (status === 207) {
-      // 207 の場合は failed 配列にエラー情報が含まれること
-      const body = await response.json();
-      expect(body).toHaveProperty('failed');
-      expect(Array.isArray(body.failed)).toBe(true);
-      expect(body.failed.length).toBeGreaterThan(0);
-    }
+    const body = await response.json();
+    expect(body).toHaveProperty('failed');
+    expect(Array.isArray(body.failed)).toBe(true);
+    expect(body.failed.length).toBeGreaterThan(0);
+    // REQ-19.12: 成功分は保持しつつ失敗分のエラー情報も返す（本件は成功 0 件）
+    expect(body).toHaveProperty('successful');
+    expect(Array.isArray(body.successful)).toBe(true);
+    expect(body.successful.length).toBe(0);
 
     // REQ-19.11: UI でエラーメッセージを表示
     const errorAlert = page.locator('[role="alert"]');

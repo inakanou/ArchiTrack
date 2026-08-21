@@ -149,25 +149,25 @@ test.describe('現場調査画像ビューア', () => {
       createdSurveyId = surveyMatch?.[1] ?? null;
       expect(createdSurveyId).toBeTruthy();
 
-      // 後続のテストのために画像を2枚アップロード（REQ-4.10のドラッグ並び替えテストに必要）
+      // 後続のテスト（REQ-4.10 の表示順序・REQ-4.11 の並び替え）のために画像を2枚アップロードする。
+      //
+      // 以前は `input[type="file"]` の件数を即時に数え、0 件なら**アップロードごと丸ごと飛ばして**
+      // 事前準備が緑になっていた（Task 115.127 段6）。`count()` は待たないため、
+      // 画面の描画が遅い状況（全 spec の通し実行など）では 0 件と観測され、
+      // 画像の無い現場調査のまま後続へ進む。実際に REQ-4.10 の主張を無条件へ改めた結果、
+      // 単体では緑・通し実行では赤という食い違いとして現れた。
+      // ファイル入力（ImageUploader が常に描画する隠し入力）が現れるまで待ってから、
+      // 2枚のアップロードと一覧への反映を無条件に主張する。
       const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+      const fileInput = page.getByTestId('file-input').first();
+      await fileInput.waitFor({ state: 'attached', timeout: getTimeout(15000) });
 
-      // ファイル入力を取得
-      let input = page.locator('input[type="file"]').first();
-      if ((await input.count()) === 0) {
-        const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
-        if (await uploadButton.isVisible()) {
-          await uploadButton.click();
-        }
-        input = page.locator('input[type="file"]').first();
-      }
+      for (let uploaded = 0; uploaded < 2; uploaded++) {
+        // アップロード中はファイル入力が disabled になる（ImageUploader.tsx の disabled || isBusy）。
+        // 受け付けられる状態になるまで待つ（固定時間の待機は用いない）
+        await expect(fileInput).toBeEnabled({ timeout: getTimeout(30000) });
 
-      if ((await input.count()) > 0) {
-        // 1枚目の画像をアップロード
-        await input.setInputFiles(testImagePath);
-
-        // アップロード完了を待機
-        await page.waitForResponse(
+        const uploadResponse = page.waitForResponse(
           (response) =>
             response.url().includes('/api/') &&
             response.url().includes('images') &&
@@ -175,33 +175,19 @@ test.describe('現場調査画像ビューア', () => {
             response.status() === 201,
           { timeout: getTimeout(30000) }
         );
-
-        // 2枚目の画像をアップロード（ドラッグ並び替えテスト用）
-        await page.waitForTimeout(500);
-        input = page.locator('input[type="file"]').first();
-        if ((await input.count()) > 0) {
-          await input.setInputFiles(testImagePath);
-
-          await page.waitForResponse(
-            (response) =>
-              response.url().includes('/api/') &&
-              response.url().includes('images') &&
-              response.request().method() === 'POST' &&
-              response.status() === 201,
-            { timeout: getTimeout(30000) }
-          );
-        }
-
-        // ページを再読み込みして画像が表示されることを確認
-        await page.reload({ waitUntil: 'networkidle' });
-
-        // 画像グリッドに画像が表示されていることを確認
-        const imageGrid = page.locator('[aria-label="写真管理パネル"]');
-        await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
-        const imageItems = imageGrid.locator('[data-testid="photo-image-button"]');
-        const imageCount = await imageItems.count();
-        expect(imageCount).toBeGreaterThanOrEqual(2);
+        await fileInput.setInputFiles(testImagePath);
+        await uploadResponse;
       }
+
+      // ページを再読み込みして画像が表示されることを確認
+      await page.reload({ waitUntil: 'networkidle' });
+
+      const imageGrid = page.locator('[aria-label="写真管理パネル"]');
+      await expect(imageGrid).toBeVisible({ timeout: getTimeout(10000) });
+      const imageItems = imageGrid.locator('[data-testid="photo-image-button"]');
+      await expect(imageItems, '事前準備でアップロードした2枚が一覧に並ばない').toHaveCount(2, {
+        timeout: getTimeout(15000),
+      });
     });
   });
 
@@ -335,16 +321,33 @@ test.describe('現場調査画像ビューア', () => {
       // 画像コンテナが存在することを必須検証
       await expect(imageContainer).toBeVisible({ timeout: getTimeout(3000) });
 
-      // 画像アイテムを取得
+      // 画像アイテムを取得（事前準備でアップロード済みであることが前提）
       const imageItems = imageContainer.locator('[data-testid="photo-image-button"]');
-      const count = await imageItems.count();
+      await expect(
+        imageItems.first(),
+        '事前準備でアップロードした画像が一覧に現れない'
+      ).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 画像がある場合、表示順序が存在することを確認
-      if (count > 0) {
-        // data-order属性やindex等で順序が管理されているか確認
-        const firstItem = imageItems.first();
-        await expect(firstItem).toBeVisible();
-      }
+      // REQ-4.10: 画像一覧は固定の表示順序で表示される。
+      // 以前は「画像がある場合のみ先頭が見えることを確認する」形で、
+      // 画像が無ければ何も主張せず、順序そのものは一度も検証していなかった。
+      // 再読み込みしても並びが変わらないことを主張する。
+      const panelItems = imageContainer.locator('[data-testid="photo-panel-item"]');
+      const orderBefore = await panelItems.evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute('data-image-id'))
+      );
+      expect(orderBefore.length, '画像一覧に画像が並んでいない').toBeGreaterThan(0);
+      expect(orderBefore, '画像一覧の項目に画像IDが振られていない').not.toContain(null);
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(imageContainer).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(imageItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+
+      const orderAfter = await panelItems.evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute('data-image-id'))
+      );
+      expect(orderAfter, '再読み込みで画像一覧の表示順序が変わった').toEqual(orderBefore);
     });
   });
 

@@ -67,7 +67,7 @@ test.describe('セッション管理機能', () => {
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
     // セッションデータの読み込み完了を待機（リトライ付き、CI用に増加）
-    let sessionDataLoaded = await waitForSessionDataLoaded(page, {
+    const sessionDataLoaded = await waitForSessionDataLoaded(page, {
       timeout: getTimeout(30000),
       maxRetries: 7,
     });
@@ -84,25 +84,23 @@ test.describe('セッション管理機能', () => {
         await page.goto('/sessions');
         await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
         await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
-        sessionDataLoaded = await waitForSessionDataLoaded(page, {
+        await waitForSessionDataLoaded(page, {
           timeout: getTimeout(30000),
           maxRetries: 3,
         });
       }
     }
 
-    if (!sessionDataLoaded) {
-      // フォールバック：最終確認（タイムアウト延長）
-      await Promise.race([
-        expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(15000) }),
-        expect(page.getByText(/全デバイスからログアウト/i)).toBeVisible({
-          timeout: getTimeout(15000),
-        }),
-        expect(page.getByText(/アクティブなセッションがありません/i)).toBeVisible({
-          timeout: getTimeout(15000),
-        }),
-      ]);
-    }
+    // 読み込みの成否によらず、セッション管理画面が実際に描けていることを無条件に主張する。
+    // 従来は「読み込めなかったときだけ」確認しており、`waitForSessionDataLoaded` が
+    // 誤って真を返すと前提の崩れが一切露見せず、各テストの操作段階まで持ち越されていた。
+    await expect(
+      page
+        .getByText(/現在のデバイス/i)
+        .or(page.getByText(/全デバイスからログアウト/i))
+        .or(page.getByText(/アクティブなセッションがありません/i))
+        .first()
+    ).toBeVisible({ timeout: getTimeout(15000) });
   });
 
   /**

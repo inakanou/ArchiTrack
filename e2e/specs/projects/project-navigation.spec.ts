@@ -8,6 +8,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -164,11 +165,11 @@ test.describe('プロジェクト管理ナビゲーション', () => {
 
       const dashboardBox = await dashboardLink.boundingBox();
       const projectBox = await projectLink.boundingBox();
+      assertPresent(dashboardBox, 'ダッシュボードリンクの境界ボックス');
+      assertPresent(projectBox, 'プロジェクトリンクの境界ボックス');
 
-      if (dashboardBox && projectBox) {
-        // プロジェクトリンクがダッシュボードリンクの右側にあることを確認
-        expect(projectBox.x).toBeGreaterThan(dashboardBox.x);
-      }
+      // プロジェクトリンクがダッシュボードリンクの右側にあることを確認
+      expect(projectBox.x).toBeGreaterThan(dashboardBox.x);
     });
 
     /**
@@ -249,12 +250,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       const cards = page.getByRole('link').filter({ hasText: /管理/ });
       const firstCard = cards.first();
 
+      await expect(firstCard).toBeVisible({ timeout: getTimeout(10000) });
       const firstCardText = await firstCard.textContent();
+      assertPresent(firstCardText, 'クイックアクセス先頭カードのテキスト');
 
       // 最初のカードが「プロジェクト管理」であることを確認
-      if (firstCardText) {
-        expect(firstCardText).toMatch(/プロジェクト管理/i);
-      }
+      expect(firstCardText).toMatch(/プロジェクト管理/i);
     });
 
     /**

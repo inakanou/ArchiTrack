@@ -9,6 +9,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { toObservableApiPath } from '../../helpers/api-request-observer';
+import { seedProject } from '../../helpers/project-list-preconditions';
 
 /**
  * プロジェクト取引先連携のE2Eテスト
@@ -139,9 +141,17 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.5
+     * @requirement project-management/REQ-22.4
+     *
+     * REQ-22.4（入力文字列に部分一致する顧客を候補としてフィルタリング表示する）を、
+     * 「絞り込みが取引先一覧APIの再取得を伴わない」側から検証する。
+     * production の TradingPartnerSelect は初回マウントで一覧を取得し（useEffect の依存は
+     * filterTypesKey のみ）、以降の絞り込みは filteredPartners によるクライアント側処理である。
+     * 従前このテストは「300ms後に検索実行される」と名乗りながら本体は呼び出し回数の上限だけを
+     * 見ており、しかもタグは REQ-22.5（フリガナ検索）であった。REQ-22.5 は
+     * `trading-partner-select-kana.spec.ts` と `project-kana-search.spec.ts` の所管である。
      */
-    test('オートコンプリートの検索フィールドにテキストを入力すると300ms後に検索実行される (project-management/REQ-22.5)', async ({
+    test('顧客名の入力中は取引先一覧APIを再取得せず部分一致で候補を絞り込む (project-management/REQ-22.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -153,41 +163,34 @@ test.describe('プロジェクト取引先連携', () => {
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // API呼び出しをモニタリング
-      let apiCallCount = 0;
-      const apiCalls: number[] = [];
-
+      // 入力中に取引先一覧APIが呼ばれるかを観測する。
+      // 選別はオリジンではなくパスで行う（ブラウザ側の VITE_API_URL と E2E 側の
+      // API_BASE_URL は同一とは限らず、オリジンで選別すると観測が常に空になる）。
+      let listRequestCount = 0;
       page.on('request', (request) => {
-        if (
-          request.url().includes('/api/trading-partners') &&
-          request.method() === 'GET' &&
-          request.url().includes('type=CUSTOMER')
-        ) {
-          apiCallCount++;
-          apiCalls.push(Date.now());
+        const path = toObservableApiPath(request.url());
+        if (path === '/api/trading-partners' && request.method() === 'GET') {
+          listRequestCount++;
         }
       });
 
-      // 短時間で複数文字を入力（デバウンスをテスト）
-      const startTime = Date.now();
+      // 短時間で複数文字を入力（連続入力を模す）
       await tradingPartnerInput.type('E2E', { delay: 50 }); // 各文字間50ms
 
-      // デバウンス期間（300ms）を待機
+      // デバウンス期間（300ms）を超えて待機し、遅れて発火する要求も観測に含める
       await page.waitForTimeout(500);
 
-      // デバウンスにより、最後の入力から300ms後に1回だけAPI呼び出しが行われることを確認
-      // 複数回の入力があっても、デバウンスにより1回のAPI呼び出しに集約される
-      expect(apiCallCount).toBeLessThanOrEqual(2); // デバウンス効果を確認（連続入力で複数回呼ばれない）
+      // REQ-22.4: 入力した文字列に部分一致する候補が絞り込まれて表示される。
+      // これが無いと「要求が0件」はフィールドが壊れていても成立してしまう。
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(page.getByText(testTradingPartnerName, { exact: true })).toBeVisible();
 
-      // 最後のAPI呼び出しが入力完了から約300ms後であることを確認
-      if (apiCalls.length > 0) {
-        const lastApiCallTime = apiCalls[apiCalls.length - 1]!;
-        const timeDiff = lastApiCallTime - startTime;
-        // タイピング時間(3文字 * 50ms = 150ms) + デバウンス(300ms) = 約450ms
-        // 多少の誤差を許容して200ms〜800msの範囲であることを確認
-        expect(timeDiff).toBeGreaterThanOrEqual(200);
-        expect(timeDiff).toBeLessThanOrEqual(800);
-      }
+      // 連続リクエスト抑制（design.md「Performance & Scalability > Optimization Techniques」の
+      // 「デバウンス: 検索・オートコンプリートのリクエスト抑制（300ms）」）。
+      // 絞り込みはクライアント側で行われるため、入力中に一覧取得APIは1件も発生しない。
+      // 3文字打つたびに要求が飛ぶ実装へ退行すれば落ちる。
+      expect(listRequestCount, '入力中に取引先一覧APIを呼び出していない').toBe(0);
     });
   });
 
@@ -492,6 +495,9 @@ test.describe('プロジェクト取引先連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // 一覧に行が無いとテーブルごと描画されないため、前提を自分で用意する
+      await seedProject(page, 'E2E一覧顧客名カラム');
+
       // プロジェクト一覧ページに移動
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
@@ -501,33 +507,15 @@ test.describe('プロジェクト取引先連携', () => {
         timeout: getTimeout(10000),
       });
 
-      // テーブルまたはカードリストが表示されることを確認
+      // 一覧は projects.length > 0 のときだけテーブル／カードを描画する。
+      // 空のままだと顧客名カラムの主張が一つも実行されないため、前提を自分で用意する。
       const table = page.getByRole('table');
-      const cardList = page.getByTestId('project-card-list');
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      await expect(table.or(cardList).or(emptyMessage)).toBeVisible({
-        timeout: getTimeout(10000),
+      // REQ-22.11: 顧客名カラムのヘッダーが表示されることを確認
+      await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible({
+        timeout: getTimeout(5000),
       });
-
-      // テーブルが表示されている場合、顧客名カラムが存在することを確認
-      const tableVisible = await table.isVisible();
-      if (tableVisible) {
-        // 顧客名カラムのヘッダーが表示されることを確認
-        await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-
-        // 取引先と紐付いたプロジェクトがある場合、取引先名が表示される
-        // ProjectListTableコンポーネントは project.tradingPartner?.name を表示する
-      }
-
-      // カードリストが表示されている場合も顧客名が表示されることを確認
-      const cardListVisible = await cardList.isVisible();
-      if (cardListVisible) {
-        // カード内に顧客情報が表示されることを確認
-        // ProjectListCardコンポーネントも同様に取引先名を表示する
-      }
     });
   });
 

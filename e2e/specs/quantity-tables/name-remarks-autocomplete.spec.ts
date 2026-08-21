@@ -24,13 +24,19 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import {
+  addQuantityGroup,
+  addQuantityItemRows,
   createTestProject,
   createTestQuantityTable,
+  openQuantityTableEdit,
 } from '../../helpers/quantity-table-preconditions';
 
 /**
  * 名称・備考フィールドのオートコンプリートE2Eテスト
  */
+/** REQ-7.5 で候補値リストへ登録し、REQ-7.4 で選び直す名称の確定値 */
+const REGISTERED_NAME = 'テスト名称';
+
 test.describe('名称・備考フィールドのオートコンプリート', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
@@ -182,55 +188,48 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
   test.describe('REQ-7.4: 候補選択時の自動入力', () => {
     test('名称フィールドで候補を選択すると値が自動入力される', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      // 数量表を作った直後の編集画面には数量グループも数量項目も無く、名称の入力欄は
+      // そもそも描画されない。「表示されていれば」で探す形では検証が丸ごと飛ぶため、
+      // 前提（グループ1件・項目2行）を作ってから判定する。
+      await openQuantityTableEdit(page, createdQuantityTableId);
+      const groupCard = await addQuantityGroup(page);
+      const itemRows = await addQuantityItemRows(groupCard, 2);
 
-      await page.waitForLoadState('networkidle');
+      // REQ-7.5: 1行目の名称に確定値を入れ、blur で候補値リストへ追加する
+      const firstNameField = itemRows.nth(0).getByRole('combobox', { name: '名称', exact: true });
+      await expect(firstNameField, '1行目の名称の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await firstNameField.fill(REGISTERED_NAME);
+      await expect(firstNameField).toHaveValue(REGISTERED_NAME);
+      await firstNameField.blur();
+      await expect(firstNameField, 'blur で名称の入力欄から焦点が外れる').not.toBeFocused();
 
-      // 名称フィールドを探す
-      const nameField = page.locator('input[id$="-name"][role="combobox"]').first();
-      if (await isVisibleWithin(nameField, getTimeout(5000))) {
-        // まず名称を入力して候補を生成
-        await nameField.fill('テスト名称');
-        await nameField.blur();
-        await page.waitForTimeout(300);
+      // REQ-7.3: 2行目の空欄へフォーカスすると候補一覧が表示される
+      const secondNameField = itemRows.nth(1).getByRole('combobox', { name: '名称', exact: true });
+      await expect(secondNameField, '2行目の名称の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await secondNameField.click();
 
-        // 新しい項目追加
-        const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-        if (await addItemButton.isVisible()) {
-          await addItemButton.click();
-          await page.waitForTimeout(500);
-        }
+      // 候補一覧は body 直下へ Portal で描画されるためページ配下で参照する
+      const listbox = page.getByRole('listbox');
+      await expect(listbox, 'REQ-7.3: 名称の候補一覧が表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-        // 新しい行の名称フィールドを探す
-        const nameFields = page.locator('input[id$="-name"][role="combobox"]');
-        const count = await nameFields.count();
-        if (count > 1) {
-          const newNameField = nameFields.nth(count - 1);
-          await newNameField.click();
-          await page.waitForTimeout(300);
+      const option = listbox.getByRole('option', { name: REGISTERED_NAME, exact: true });
+      await expect(option, 'REQ-7.5: blurで追加した名称が候補に現れる').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await option.click();
 
-          // ドロップダウンが表示される場合、候補をクリック
-          const listbox = page.getByRole('listbox').first();
-          if (await isVisibleWithin(listbox, 2000)) {
-            const option = listbox.getByRole('option').first();
-            if (await option.isVisible()) {
-              const optionText = await option.textContent();
-              await option.click();
-
-              // 選択された値が入力フィールドに反映されることを確認
-              if (optionText) {
-                const fieldValue = await newNameField.inputValue();
-                expect(fieldValue).toBe(optionText);
-              }
-            }
-          }
-        }
-      }
+      // REQ-7.4: 選択した候補が該当フィールドへ自動入力される
+      await expect(secondNameField, 'REQ-7.4: 選択した候補が自動入力される').toHaveValue(
+        REGISTERED_NAME
+      );
     });
   });
 
@@ -240,14 +239,12 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
   test.describe('REQ-7.1: 全9フィールドのオートコンプリート一貫性', () => {
     test('全9フィールドでオートコンプリートが一貫して動作する', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-
-      await page.waitForLoadState('networkidle');
+      // 対象フィールドは数量項目の行にしか存在しないため、前提として1行用意する。
+      await openQuantityTableEdit(page, createdQuantityTableId);
+      const groupCard = await addQuantityGroup(page);
+      await addQuantityItemRows(groupCard, 1);
 
       // 全9フィールドのID末尾を定義
       const autocompleteFieldSuffixes = [
@@ -264,15 +261,19 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
 
       for (const suffix of autocompleteFieldSuffixes) {
         const field = page.locator(`input[id$="-${suffix}"][role="combobox"]`).first();
-        if (await isVisibleWithin(field, getTimeout(3000))) {
-          // comboboxロールが設定されていることを確認
-          const role = await field.getAttribute('role');
-          expect(role).toBe('combobox');
+        // REQ-7.1: 対象9フィールドはいずれも補完付きの入力欄として描画される。
+        // 「表示されていれば確認する」形では、欄が消えても緑のままになる。
+        await expect(field, `REQ-7.1: ${suffix} の入力欄が表示される`).toBeVisible({
+          timeout: getTimeout(10000),
+        });
 
-          // aria-autocomplete属性が設定されていることを確認
-          const ariaAutocomplete = await field.getAttribute('aria-autocomplete');
-          expect(ariaAutocomplete).toBe('list');
-        }
+        // comboboxロールが設定されていることを確認
+        const role = await field.getAttribute('role');
+        expect(role).toBe('combobox');
+
+        // aria-autocomplete属性が設定されていることを確認
+        const ariaAutocomplete = await field.getAttribute('aria-autocomplete');
+        expect(ariaAutocomplete).toBe('list');
       }
     });
   });

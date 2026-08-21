@@ -32,6 +32,22 @@ let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
 
 /**
+ * 事前準備で作成する数量グループの件数。
+ *
+ * REQ-23.3〜23.7 の並び替えは「複数のグループがある」ことを前提とするため、
+ * 各テストはこの件数が揃っていることを無条件に主張してから判定へ進む。
+ * 揃っていなければ前提が崩れた地点で失敗する（黙って抜ける経路を持たせない）。
+ */
+const PREPARED_GROUP_COUNT = 2;
+
+/**
+ * 事前準備で1つ目の数量グループへ作成する数量項目の件数。
+ *
+ * REQ-24.3〜24.7 の並び替えは「複数の項目がある」ことを前提とする。
+ */
+const PREPARED_ITEM_COUNT = 2;
+
+/**
  * 数量表編集画面へ遷移する。
  *
  * 事前準備で作成した tableId が利用できる場合は直接遷移し、
@@ -158,7 +174,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       // 発火しない。ドラフト反映（カード数・見出し・行数）のみを待機し、
       // すべての編集後にまとめて明示保存する。
       const groupNameSuffix = Date.now();
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < PREPARED_GROUP_COUNT; i++) {
         const addGroupButton = page
           .getByRole('button', { name: /グループ追加|グループを追加/i })
           .first();
@@ -193,7 +209,7 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
 
       // 1つ目のグループに項目を2つ追加（REQ-24 のテストは2項目以上を前提）
       const firstGroupCard = page.locator('[data-testid="quantity-group-card"]').first();
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < PREPARED_ITEM_COUNT; i++) {
         const addItemButton = firstGroupCard.getByRole('button', { name: '項目を追加' });
         await expect(addItemButton).toBeVisible({ timeout: getTimeout(10000) });
         await addItemButton.click();
@@ -233,13 +249,15 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       const navigated = await navigateToQuantityTableEdit(page);
       expect(navigated).toBeTruthy();
 
-      // 初回表示時のグループ名一覧を取得
+      // 事前準備が用意した数量グループが揃っていることを前提として主張する。
+      // 「無ければ編集画面の表示だけ見て抜ける」形では、前提が崩れた瞬間に
+      // REQ-23 の判定が丸ごと消える（AI運用7原則 第3原則）。
       const groupCards = page.locator('[data-testid="quantity-group-card"]');
-      const initialCount = await groupCards.count();
-      if (initialCount === 0) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(groupCards, '前提: 事前準備で作成した数量グループが表示される').toHaveCount(
+        PREPARED_GROUP_COUNT,
+        { timeout: getTimeout(10000) }
+      );
+      const initialCount = PREPARED_GROUP_COUNT;
 
       const initialNames: string[] = [];
       for (let i = 0; i < initialCount; i++) {
@@ -271,10 +289,9 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-      if (!(await isVisibleWithin(groupCard, getTimeout(5000)))) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(groupCard, '前提: 事前準備で作成した数量グループが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // ヘッダー直下の SortOrderButtons を取得（最初の sort-order-buttons はグループ用）
       const sortButtons = groupCard.locator('[data-testid="sort-order-buttons"]').first();
@@ -294,10 +311,9 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const firstGroup = page.locator('[data-testid="quantity-group-card"]').first();
-      if (!(await isVisibleWithin(firstGroup, getTimeout(5000)))) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(firstGroup, '前提: 事前準備で作成した数量グループが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       const sortButtons = firstGroup.locator('[data-testid="sort-order-buttons"]').first();
       await expect(sortButtons).toBeVisible({ timeout: getTimeout(5000) });
@@ -314,10 +330,9 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const lastGroup = page.locator('[data-testid="quantity-group-card"]').last();
-      if (!(await isVisibleWithin(lastGroup, getTimeout(5000)))) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(lastGroup, '前提: 事前準備で作成した数量グループが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       const sortButtons = lastGroup.locator('[data-testid="sort-order-buttons"]').first();
       await expect(sortButtons).toBeVisible({ timeout: getTimeout(5000) });
@@ -336,17 +351,11 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const groupCards = page.locator('[data-testid="quantity-group-card"]');
-      const count = await groupCards.count();
-
-      if (count < 2) {
-        // 並び順変更不可：他の検証として最上位と最下位ボタンの状態を確認するに留める
-        const firstGroup = groupCards.first();
-        if (await isVisibleWithin(firstGroup, getTimeout(3000))) {
-          const sortButtons = firstGroup.locator('[data-testid="sort-order-buttons"]').first();
-          await expect(sortButtons).toBeVisible({ timeout: getTimeout(5000) });
-        }
-        return;
-      }
+      // REQ-23.7 の並び替えは2件以上のグループを前提とする。
+      await expect(groupCards, '前提: 並び替えに必要な数量グループが揃っている').toHaveCount(
+        PREPARED_GROUP_COUNT,
+        { timeout: getTimeout(10000) }
+      );
 
       // 元の並び順
       const beforeFirstName = (
@@ -435,11 +444,11 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const itemRows = page.locator('[data-testid="quantity-item-row"]');
-      const count = await itemRows.count();
-      if (count === 0) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(itemRows, '前提: 事前準備で作成した数量項目が表示される').toHaveCount(
+        PREPARED_ITEM_COUNT,
+        { timeout: getTimeout(10000) }
+      );
+      const count = PREPARED_ITEM_COUNT;
 
       // 各項目の name 入力値を取得
       const initialNames: string[] = [];
@@ -472,10 +481,9 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const itemRow = page.locator('[data-testid="quantity-item-row"]').first();
-      if (!(await isVisibleWithin(itemRow, getTimeout(5000)))) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(itemRow, '前提: 事前準備で作成した数量項目の行が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       const actionButton = itemRow.getByRole('button', { name: 'アクション' });
       await expect(actionButton).toBeVisible({ timeout: getTimeout(3000) });
@@ -500,10 +508,9 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const itemRow = page.locator('[data-testid="quantity-item-row"]').first();
-      if (!(await isVisibleWithin(itemRow, getTimeout(5000)))) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(itemRow, '前提: 事前準備で作成した数量項目の行が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       const actionButton = itemRow.getByRole('button', { name: 'アクション' });
       await actionButton.click();
@@ -527,11 +534,10 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const itemRows = page.locator('[data-testid="quantity-item-row"]');
-      const count = await itemRows.count();
-      if (count === 0) {
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        return;
-      }
+      await expect(itemRows, '前提: 事前準備で作成した数量項目が表示される').toHaveCount(
+        PREPARED_ITEM_COUNT,
+        { timeout: getTimeout(10000) }
+      );
 
       const lastRow = itemRows.last();
       const actionButton = lastRow.getByRole('button', { name: 'アクション' });
@@ -556,17 +562,11 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       expect(navigated).toBeTruthy();
 
       const itemRows = page.locator('[data-testid="quantity-item-row"]');
-      const count = await itemRows.count();
-      if (count < 2) {
-        // 項目が2つ未満の場合、サブシナリオとして、ボタンが存在することを確認するに留める
-        if (count === 1) {
-          const actionButton = itemRows.first().getByRole('button', { name: 'アクション' });
-          await expect(actionButton).toBeVisible({ timeout: getTimeout(3000) });
-        } else {
-          await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        }
-        return;
-      }
+      // REQ-24.7 の並び替えは2件以上の数量項目を前提とする。
+      await expect(itemRows, '前提: 並び替えに必要な数量項目が揃っている').toHaveCount(
+        PREPARED_ITEM_COUNT,
+        { timeout: getTimeout(10000) }
+      );
 
       // 各項目の入力 id 属性は `${item.id}-<field>` という構造で、
       // 項目に紐づく安定識別子として利用できる。

@@ -14,9 +14,7 @@
  * - REQ-22.8: 累積回転角度（0度/90度/180度/270度）を正しく管理する
  */
 
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import zlib from 'zlib';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
@@ -24,8 +22,94 @@ import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/**
+ * PNG のチャンク CRC32 を計算する
+ */
+function crc32(buffer: Buffer): number {
+  const table: number[] = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[n] = c >>> 0;
+  }
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = table[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * PNG のチャンクを組み立てる
+ */
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const typeBuffer = Buffer.from(type, 'ascii');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
+  return Buffer.concat([length, typeBuffer, data, crc]);
+}
+
+/**
+ * 指定サイズの PNG 画像を生成する（Task 115.127 段6）
+ *
+ * 既存の fixture `test-image.png` は 100x100 の**正方形**である。
+ * 90 度回転で幅と高さが入れ替わることを検証する REQ-22.3 は、正方形の画像では
+ * 何も観測できないため、従来は `if (|幅 - 高さ| > 5)` という決して成立しない関門の
+ * 内側に主張が置かれ、一度も実行されていなかった。
+ * 前提（正方形でない画像）はテスト自身が用意する。
+ *
+ * @param width - 画像幅（ピクセル）
+ * @param height - 画像高さ（ピクセル）
+ * @returns PNG バイナリ
+ */
+function buildPng(width: number, height: number): Buffer {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // ビット深度
+  ihdr[9] = 2; // カラータイプ: トゥルーカラー（RGB）
+  ihdr[10] = 0; // 圧縮方式
+  ihdr[11] = 0; // フィルター方式
+  ihdr[12] = 0; // インターレース無し
+
+  const stride = width * 3 + 1;
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * stride;
+    raw[rowStart] = 0; // フィルタータイプ: None
+    for (let x = 0; x < width; x++) {
+      const pixel = rowStart + 1 + x * 3;
+      raw[pixel] = Math.floor((x * 255) / width);
+      raw[pixel + 1] = Math.floor((y * 255) / height);
+      raw[pixel + 2] = 128;
+    }
+  }
+
+  return Buffer.concat([
+    signature,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/**
+ * 検証用の横長テスト画像（正方形でないことが REQ-22.3 の前提）
+ *
+ * デスクトップ幅の注釈エディタは `computeFitScale({ allowUpscale: false })`
+ * （frontend/src/components/site-surveys/AnnotationEditor.tsx:1088）により
+ * 原寸で頭打ちになるため、キャンバスの実寸はこの画素数そのものになる。
+ * キャンバス上でドラッグして図形を描く検証があるので、
+ * 中心から十分に離れた座標を取れる大きさにしておく。
+ */
+const LANDSCAPE_IMAGE_WIDTH = 640;
+const LANDSCAPE_IMAGE_HEIGHT = 360;
 
 test.describe('現場調査画像回転機能', () => {
   test.describe.configure({ mode: 'serial' });
@@ -102,9 +186,8 @@ test.describe('現場調査画像回転機能', () => {
       createdSurveyId = surveyMatch?.[1] ?? null;
       expect(createdSurveyId).toBeTruthy();
 
-      // 画像をAPIで直接アップロード
-      const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
-      expect(fs.existsSync(testImagePath)).toBeTruthy();
+      // 画像をAPIで直接アップロード（正方形でない画像を用意する）
+      const landscapeImage = buildPng(LANDSCAPE_IMAGE_WIDTH, LANDSCAPE_IMAGE_HEIGHT);
 
       const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
 
@@ -116,9 +199,9 @@ test.describe('現場調査画像回転機能', () => {
           },
           multipart: {
             images: {
-              name: 'test-image.png',
+              name: 'test-image-landscape.png',
               mimeType: 'image/png',
-              buffer: fs.readFileSync(testImagePath),
+              buffer: landscapeImage,
             },
           },
         }
@@ -239,6 +322,43 @@ test.describe('現場調査画像回転機能', () => {
   }
 
   /**
+   * 背景画像を除く注釈オブジェクトの位置・サイズを読み出すヘルパー関数
+   *
+   * 回転の前後で同じ読み出しを行うため、複製せず一つに畳む。
+   */
+  async function readAnnotationObjects(
+    page: import('@playwright/test').Page
+  ): Promise<{ left: number; top: number; width: number; height: number }[]> {
+    return await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const canvas = (window as any).__fabricCanvas;
+      if (!canvas) return [];
+      return (
+        canvas
+          .getObjects()
+          .filter(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (obj: any) => obj !== canvas.backgroundImage
+          )
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((obj: any) => ({
+            left: obj.left,
+            top: obj.top,
+            width: obj.width,
+            height: obj.height,
+          }))
+      );
+    });
+  }
+
+  /**
+   * 背景画像を除く注釈オブジェクトの件数を返す
+   */
+  async function countAnnotationObjects(page: import('@playwright/test').Page): Promise<number> {
+    return (await readAnnotationObjects(page)).length;
+  }
+
+  /**
    * @requirement site-survey/REQ-22.1
    * @requirement site-survey/REQ-22.7
    */
@@ -269,17 +389,20 @@ test.describe('現場調査画像回転機能', () => {
     const sizeAfter = await getCanvasSize(page);
 
     // 90度回転すると幅と高さが入れ替わるはず (REQ-22.3)
-    // テスト画像が正方形でなければ、幅と高さが変化する
-    // 少なくともキャンバスが有効なサイズであることを確認
     expect(sizeAfter.width).toBeGreaterThan(0);
     expect(sizeAfter.height).toBeGreaterThan(0);
 
-    // 正方形でない画像の場合、幅と高さが入れ替わることを確認
-    if (Math.abs(sizeBefore.width - sizeBefore.height) > 5) {
-      // 幅と高さが入れ替わったことを確認（許容誤差5px）
-      expect(Math.abs(sizeAfter.width - sizeBefore.height)).toBeLessThan(5);
-      expect(Math.abs(sizeAfter.height - sizeBefore.width)).toBeLessThan(5);
-    }
+    // 前提（テスト画像が正方形でないこと）そのものを無条件に主張する。
+    // 従来は同じ条件で主張を包んでおり、事前準備が正方形の画像を使っていたため
+    // 幅と高さの入れ替わりは一度も検証されていなかった。
+    expect(
+      Math.abs(sizeBefore.width - sizeBefore.height),
+      '回転前のキャンバスが正方形であり、幅と高さの入れ替わりを観測できない'
+    ).toBeGreaterThan(5);
+
+    // 幅と高さが入れ替わったことを確認（許容誤差5px）
+    expect(Math.abs(sizeAfter.width - sizeBefore.height)).toBeLessThan(5);
+    expect(Math.abs(sizeAfter.height - sizeBefore.width)).toBeLessThan(5);
   });
 
   /**
@@ -301,10 +424,25 @@ test.describe('現場調査画像回転機能', () => {
     await arrowTool.click();
     await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
 
-    // キャンバス上で描画
+    // キャンバス上で描画する。
+    // REQ-7.1 が定める矢印の作図は「ツールを選択してドラッグする」であり、
+    // 従来の二度のクリックでは矢印が一本も生成されていなかった
+    // （site-survey-annotation-tools.spec.ts の performDrag が正しい操作）。
+    // 生成されないまま `expect(objectsAfter.length).toBe(objectsBefore.length)` が
+    // 0 === 0 で成立していたため、REQ-22.2 の位置・サイズの比較は一度も実行されていない。
     const center = await getCanvasCenter(page);
-    await page.mouse.click(center.x - 40, center.y - 20);
-    await page.mouse.click(center.x + 40, center.y + 20);
+    await page.mouse.move(center.x - 60, center.y - 40);
+    await page.mouse.down();
+    await page.mouse.move(center.x + 60, center.y + 40, { steps: 10 });
+    await page.mouse.up();
+
+    // 描画がキャンバスへ反映されるまで待つ（固定時間ではなく件数の条件で待つ）
+    await expect
+      .poll(async () => await countAnnotationObjects(page), {
+        message: '矢印の描画がキャンバスへ反映されない',
+        timeout: getTimeout(5000),
+      })
+      .toBeGreaterThan(0);
 
     // 選択ツールに切り替え
     const selectTool = page.getByRole('button', { name: /選択/i });
@@ -312,26 +450,7 @@ test.describe('現場調査画像回転機能', () => {
     await page.waitForTimeout(200);
 
     // 注釈オブジェクトの位置情報を取得（Fabric.jsのキャンバスオブジェクトから）
-    const objectsBefore = await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const canvas = (window as any).__fabricCanvas;
-      if (!canvas) return [];
-      return (
-        canvas
-          .getObjects()
-          .filter(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (obj: any) => obj !== canvas.backgroundImage
-          )
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((obj: any) => ({
-            left: obj.left,
-            top: obj.top,
-            width: obj.width,
-            height: obj.height,
-          }))
-      );
-    });
+    const objectsBefore = await readAnnotationObjects(page);
 
     // 回転ボタンをクリック
     const rotateButton = page.getByRole('button', { name: /画像を90度回転/i });
@@ -339,37 +458,21 @@ test.describe('現場調査画像回転機能', () => {
     await page.waitForTimeout(300);
 
     // 回転後の注釈オブジェクトの位置情報を取得
-    const objectsAfter = await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const canvas = (window as any).__fabricCanvas;
-      if (!canvas) return [];
-      return (
-        canvas
-          .getObjects()
-          .filter(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (obj: any) => obj !== canvas.backgroundImage
-          )
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((obj: any) => ({
-            left: obj.left,
-            top: obj.top,
-            width: obj.width,
-            height: obj.height,
-          }))
-      );
-    });
+    const objectsAfter = await readAnnotationObjects(page);
+
+    // 直前に矢印を1本描いているため、回転前に注釈オブジェクトが存在する。
+    // 前提そのものを主張してから位置・サイズを比べる（描画に失敗していた場合、
+    // 従来は主張が一つも実行されないまま緑になっていた）。
+    expect(objectsBefore.length, '回転前に注釈オブジェクトが描画されていない').toBeGreaterThan(0);
 
     // 注釈オブジェクトの数が同じであること
     expect(objectsAfter.length).toBe(objectsBefore.length);
 
     // 注釈オブジェクトの位置・サイズが維持されていること (REQ-22.2: 追従しない)
-    if (objectsBefore.length > 0 && objectsAfter.length > 0) {
-      expect(objectsAfter[0]!.left).toBeCloseTo(objectsBefore[0]!.left, 0);
-      expect(objectsAfter[0]!.top).toBeCloseTo(objectsBefore[0]!.top, 0);
-      expect(objectsAfter[0]!.width).toBeCloseTo(objectsBefore[0]!.width, 0);
-      expect(objectsAfter[0]!.height).toBeCloseTo(objectsBefore[0]!.height, 0);
-    }
+    expect(objectsAfter[0]!.left).toBeCloseTo(objectsBefore[0]!.left, 0);
+    expect(objectsAfter[0]!.top).toBeCloseTo(objectsBefore[0]!.top, 0);
+    expect(objectsAfter[0]!.width).toBeCloseTo(objectsBefore[0]!.width, 0);
+    expect(objectsAfter[0]!.height).toBeCloseTo(objectsBefore[0]!.height, 0);
   });
 
   /**
@@ -475,10 +578,13 @@ test.describe('現場調査画像回転機能', () => {
     // 回転後のキャンバスサイズを記録
     const sizeAfterRotation = await getCanvasSize(page);
 
-    // 正方形でない画像の場合のみサイズの変化を検証
-    if (Math.abs(sizeOriginal.width - sizeOriginal.height) > 5) {
-      expect(Math.abs(sizeAfterRotation.width - sizeOriginal.width)).toBeGreaterThan(3);
-    }
+    // 前提（テスト画像が正方形でないこと）を無条件に主張したうえで、
+    // 回転によってキャンバス幅が変化することを検証する
+    expect(
+      Math.abs(sizeOriginal.width - sizeOriginal.height),
+      '回転前のキャンバスが正方形であり、回転によるサイズ変化を観測できない'
+    ).toBeGreaterThan(5);
+    expect(Math.abs(sizeAfterRotation.width - sizeOriginal.width)).toBeGreaterThan(3);
 
     // Undo操作（元に戻す）
     const undoButton = page.getByRole('button', { name: /元に戻す/i });

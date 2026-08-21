@@ -261,11 +261,10 @@ export async function waitForLoadingComplete(
     ? page.locator(options.loadingSelector)
     : page.getByText(/読み込み中/i);
 
-  // ローディングインジケーターが存在する場合のみ待機
-  const loadingCount = await loadingLocator.count();
-  if (loadingCount > 0) {
-    await expect(loadingLocator).toBeHidden({ timeout });
-  }
+  // 存在の有無を条件にしない。`toBeHidden` は要素が存在しない場合も成立するため、
+  // 「出ていれば消えるまで待つ」という意味は保ったまま、観測結果による関門だけが消える。
+  // 件数で包んでいた従来の形は、観測が偽（描画前・別名）になった瞬間に待機ごと消えていた。
+  await expect(loadingLocator).toBeHidden({ timeout });
 }
 
 /**

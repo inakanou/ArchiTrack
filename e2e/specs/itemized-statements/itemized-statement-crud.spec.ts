@@ -1138,15 +1138,18 @@ test.describe('内訳書CRUD操作', () => {
       // 「/itemized-statements/」で始まるリンク（詳細画面へのリンク）を対象とし、
       // 「/projects/.../itemized-statements/new」（新規作成リンク）を除外
       const statementCard = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
-      if ((await statementCard.count()) > 0) {
-        const firstCard = statementCard.first();
-        await expect(firstCard).toBeVisible();
-        // カード内のテキストに内訳書名、日付、数量表名、項目数が含まれる
-        const cardText = await firstCard.textContent();
-        expect(cardText).not.toBeNull();
-        // 項目数表示（「○項目」形式）
-        expect(cardText).toMatch(/\d+項目/);
-      }
+      // 事前準備で内訳書を1件作成しているため、カードは必ず存在する。
+      // 以前は「1件以上あれば」という関門で包んでいたため、
+      // カードが1件も描画されなくても緑のままだった。
+      expect(await statementCard.count(), '内訳書カードが1件以上表示される').toBeGreaterThan(0);
+
+      const firstCard = statementCard.first();
+      await expect(firstCard).toBeVisible();
+      // カード内のテキストに内訳書名、日付、数量表名、項目数が含まれる
+      const cardText = await firstCard.textContent();
+      assertPresent(cardText, '内訳書カードのテキスト');
+      // 項目数表示（「○項目」形式）
+      expect(cardText).toMatch(/\d+項目/);
     });
 
     test('内訳書行をクリックすると詳細画面に遷移する (Req 3.5)', async ({ page }) => {
@@ -1226,11 +1229,13 @@ test.describe('内訳書CRUD操作', () => {
       const quantityCells = page.locator(`tbody td:nth-child(${quantityColIndex})`);
       const count = await quantityCells.count();
 
-      if (count > 0) {
-        const firstQuantity = await quantityCells.first().textContent();
-        // 小数点以下2桁の形式（例：100.00, 1.50）
-        expect(firstQuantity).toMatch(/^\d+\.\d{2}$/);
-      }
+      // 事前準備で数量項目を1件作成しているため、データ行は必ず存在する。
+      // 行が0件でも通る形のままでは、表が空になっても書式の主張が実行されない。
+      expect(count, '内訳項目のデータ行が1件以上表示される').toBeGreaterThan(0);
+
+      const firstQuantity = await quantityCells.first().textContent();
+      // 小数点以下2桁の形式（例：100.00, 1.50）
+      expect(firstQuantity).toMatch(/^\d+\.\d{2}$/);
     });
 
     test('ヘッダーに作成日時が表示される (Req 4.5)', async ({ page }) => {
@@ -1636,12 +1641,14 @@ test.describe('内訳書CRUD操作', () => {
 
       // 「すべて見る」リンクが存在する
       const viewAllLink = itemizedStatementSection.getByRole('link', { name: /すべて見る/i });
-      if ((await viewAllLink.count()) > 0) {
-        await expect(viewAllLink).toBeVisible();
-        // リンク先が内訳書一覧ページであることを確認
-        const href = await viewAllLink.getAttribute('href');
-        expect(href).toContain('/itemized-statements');
-      }
+      // REQ-26.11 / Req 11.5: 内訳書が1件以上あるとき、一覧画面へのリンクを表示する
+      // （ItemizedStatementSectionCard は totalCount > 0 のときヘッダに「すべて見る」を出す）。
+      // 事前準備で内訳書を作成しているため、リンクは必ず存在する。
+      await expect(viewAllLink).toBeVisible({ timeout: getTimeout(10000) });
+
+      // リンク先が内訳書一覧ページであることを確認
+      const href = await viewAllLink.getAttribute('href');
+      expect(href).toContain('/itemized-statements');
     });
   });
 
@@ -2174,13 +2181,15 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForTimeout(500); // フィルタ適用を待機
 
       // ページネーションがフィルタ結果に対して適用されることを確認
+      // REQ-4.7/REQ-4.8: 50件を超えるとページネーションを表示し1ページ50件で区切る。
+      // フィルタ結果は60件のため、ページネーションは必ず表示される。
       const pagination = page.getByRole('navigation', { name: /ページネーション/i });
-      if (await pagination.isVisible()) {
-        // フィルタ後の総ページ数が変わることを確認（60件 -> 2ページ）
-        await expect(pagination.getByText('1 / 2')).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-6.7: フィルタ後の総ページ数が変わることを確認（60件 -> 2ページ）
+      await expect(pagination.getByText('1 / 2')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // クリーンアップ
       const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
@@ -2252,13 +2261,16 @@ test.describe('内訳書CRUD操作', () => {
       await expect(page.getByRole('heading', { name: /内訳書一覧/i })).toBeVisible();
 
       // 内訳書カードが存在する場合、必要な情報が表示されているか確認
+      // 事前準備で内訳書を作成しているため、一覧は必ず描画される。
+      // 以前は「一覧が見えていれば」という関門で包んでいたため、
+      // 一覧が空になっても行の情報の主張が実行されなかった。
       const statementList = page.getByTestId('statement-list');
-      if (await statementList.isVisible()) {
-        // 作成日時の形式（年月日）が表示されていることを確認
-        await expect(page.getByText(/\d{4}年\d{1,2}月\d{1,2}日/)).toBeVisible();
-        // 項目数が表示されていることを確認
-        await expect(page.getByText(/\d+項目/)).toBeVisible();
-      }
+      await expect(statementList).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-26.6: 作成日時の形式（年月日）が表示されていることを確認
+      await expect(statementList.getByText(/\d{4}年\d{1,2}月\d{1,2}日/).first()).toBeVisible();
+      // REQ-26.6: 項目数が表示されていることを確認
+      await expect(statementList.getByText(/\d+項目/).first()).toBeVisible();
     });
 
     /**
@@ -2588,18 +2600,20 @@ test.describe('内訳書CRUD操作', () => {
         expect(cellValue).toBe(header);
       });
 
-      // REQ-13.5: データ行が存在する場合、数量カラムの形式を確認
-      if (worksheet.rowCount > 1) {
-        const dataRow = worksheet.getRow(2);
-        const quantityCell = dataRow.getCell(5); // 5番目のカラム（数量）
+      // REQ-13.5: 数量カラムの形式を確認する。
+      // 事前準備で数量項目を1件作成しているため、ヘッダ行に続くデータ行は必ず存在する。
+      // 以前は行数を関門にしていたため、出力が空になっても数量の主張が実行されなかった。
+      expect(worksheet.rowCount, 'Excelにヘッダ行に続くデータ行が存在する').toBeGreaterThan(1);
 
-        // REQ-13.5: 数量カラムは文字列ではなく数値としてExcelに書き出される。
-        // 以前は値の有無で判定を包んだうえ `typeof x === 'number'` を真偽で主張していたため、
-        // 数量が空でも文字列でも通っていた。値の存在と型の双方を主張する。
-        const quantityValue = quantityCell.value;
-        expect(quantityValue, '数量セルが空である').not.toBeNull();
-        expect(typeof quantityValue).toBe('number');
-      }
+      const dataRow = worksheet.getRow(2);
+      const quantityCell = dataRow.getCell(5); // 5番目のカラム（数量）
+
+      // REQ-13.5: 数量カラムは文字列ではなく数値としてExcelに書き出される。
+      // 以前は値の有無で判定を包んだうえ `typeof x === 'number'` を真偽で主張していたため、
+      // 数量が空でも文字列でも通っていた。値の存在と型の双方を主張する。
+      const quantityValue = quantityCell.value;
+      expect(quantityValue, '数量セルが空である').not.toBeNull();
+      expect(typeof quantityValue).toBe('number');
     });
 
     /**
@@ -2627,19 +2641,19 @@ test.describe('内訳書CRUD操作', () => {
 
       // 日付部分が有効な日付形式であることを確認
       const dateMatch = suggestedFilename.match(/_(\d{8})\.xlsx$/);
-      expect(dateMatch).toBeTruthy();
-      if (dateMatch && dateMatch[1]) {
-        const dateStr = dateMatch[1];
-        const year = parseInt(dateStr.substring(0, 4));
-        const month = parseInt(dateStr.substring(4, 6));
-        const day = parseInt(dateStr.substring(6, 8));
+      assertPresent(dateMatch, 'ファイル名の日付部分の照合結果');
+      const dateStr = dateMatch[1];
+      assertPresent(dateStr, 'ファイル名の日付部分（YYYYMMDD）');
 
-        expect(year).toBeGreaterThanOrEqual(2024);
-        expect(month).toBeGreaterThanOrEqual(1);
-        expect(month).toBeLessThanOrEqual(12);
-        expect(day).toBeGreaterThanOrEqual(1);
-        expect(day).toBeLessThanOrEqual(31);
-      }
+      const year = parseInt(dateStr.substring(0, 4));
+      const month = parseInt(dateStr.substring(4, 6));
+      const day = parseInt(dateStr.substring(6, 8));
+
+      expect(year).toBeGreaterThanOrEqual(2024);
+      expect(month).toBeGreaterThanOrEqual(1);
+      expect(month).toBeLessThanOrEqual(12);
+      expect(day).toBeGreaterThanOrEqual(1);
+      expect(day).toBeLessThanOrEqual(31);
     });
 
     /**
@@ -2723,22 +2737,24 @@ test.describe('内訳書CRUD操作', () => {
         expect(column.trim()).toBe(header);
       });
 
-      // REQ-14.2, REQ-14.4: データ行がタブ区切りであることを確認
+      // REQ-14.2, REQ-14.4: データ行がタブ区切りであることを確認。
+      // 事前準備で数量項目を1件作成しているため、ヘッダ行に続くデータ行は必ず存在する。
+      // 以前は行の有無・列の有無・空文字かどうかを三重の関門にしていたため、
+      // コピー内容がヘッダだけになっても数量の書式の主張が一度も実行されなかった。
+      expect(lines.length, 'クリップボードにヘッダ行に続くデータ行が含まれる').toBeGreaterThan(1);
       const dataLine = lines[1];
-      if (lines.length > 1 && dataLine && dataLine.trim() !== '') {
-        const dataColumns = dataLine.split('\t');
-        expect(dataColumns.length).toBe(6); // 6カラム
+      assertPresent(dataLine, 'クリップボードのデータ行');
+      expect(dataLine.trim(), 'クリップボードのデータ行が空でない').not.toBe('');
 
-        // REQ-14.8: 数量（5番目のカラム）が小数点以下2桁であることを確認
-        const quantityColumn = dataColumns[4];
-        if (quantityColumn) {
-          const quantityStr = quantityColumn.trim();
-          if (quantityStr !== '') {
-            // 数量が数値形式であり、小数点以下2桁であることを確認
-            expect(quantityStr).toMatch(/^-?\d+\.\d{2}$/);
-          }
-        }
-      }
+      const dataColumns = dataLine.split('\t');
+      expect(dataColumns.length).toBe(6); // 6カラム
+
+      // REQ-14.8: 数量（5番目のカラム）が小数点以下2桁であることを確認
+      const quantityColumn = dataColumns[4];
+      assertPresent(quantityColumn, 'データ行の数量カラム');
+      const quantityStr = quantityColumn.trim();
+      // 数量が数値形式であり、小数点以下2桁であることを確認
+      expect(quantityStr).toMatch(/^-?\d+\.\d{2}$/);
     });
 
     /**

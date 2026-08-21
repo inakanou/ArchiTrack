@@ -352,6 +352,7 @@ test.describe('REQ-41: 数量グループカードの画像・コメント固定
 
     // 右端のはみ出しフィールドはスクロール前にはビューポート/ラッパーからはみ出している
     const roundingBoxBefore = await roundingField.boundingBox();
+    assertPresent(roundingBoxBefore, 'スクロール前の丸め設定 bounding box');
 
     // REQ-41.1: 数量項目テーブルラッパーを右端まで水平スクロールする
     await tableWrapper.evaluate((el) => {
@@ -389,14 +390,13 @@ test.describe('REQ-41: 数量グループカードの画像・コメント固定
     // REQ-41.1: 右端のはみ出しフィールド（丸め設定）が水平スクロール後に閲覧可能になる
     await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
     const roundingBoxAfter = await roundingField.boundingBox();
-    expect(roundingBoxAfter, 'スクロール後の丸め設定 bounding box が取得できる').not.toBeNull();
-    if (roundingBoxBefore && roundingBoxAfter) {
-      // 右端フィールドはスクロールにより左方向へ移動し、ビュー内へ入る
-      expect(
-        roundingBoxAfter.x,
-        'はみ出しフィールドは水平スクロールでビュー内へ移動する'
-      ).toBeLessThanOrEqual(roundingBoxBefore.x);
-    }
+    assertPresent(roundingBoxAfter, 'スクロール後の丸め設定 bounding box');
+
+    // 右端フィールドはスクロールにより左方向へ移動し、ビュー内へ入る
+    expect(
+      roundingBoxAfter.x,
+      'はみ出しフィールドは水平スクロールでビュー内へ移動する'
+    ).toBeLessThanOrEqual(roundingBoxBefore.x);
   });
 
   // ==========================================================================

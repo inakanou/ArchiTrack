@@ -682,11 +682,14 @@ test.describe('取引先データインテグリティ', () => {
             .click()
             .catch(() => {});
 
-          // APIが呼び出された場合、403エラーが返されることを確認
-          const deleteResponse = await deletePromise.catch(() => null);
-          if (deleteResponse) {
-            expect(deleteResponse.status()).toBe(403);
-          }
+          // REQ-7.3: 確認ダイアログで削除を確定した以上、削除APIは必ず呼び出される。
+          // 以前は応答を取り逃がした場合に null へ畳んで主張ごと飛ばしていたため、
+          // 削除要求が送られなくなっても緑のままだった。応答の到達自体を主張する。
+          const deleteResponse = await deletePromise;
+          expect(
+            deleteResponse.status(),
+            'REQ-7.3: 削除権限を持たないユーザーの削除要求は 403 になる'
+          ).toBe(403);
         }
       }
       // 削除ボタンが表示されない場合は、権限制御が正しく動作している

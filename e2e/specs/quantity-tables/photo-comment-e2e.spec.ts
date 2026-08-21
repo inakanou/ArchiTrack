@@ -16,7 +16,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPrepared } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import {
   attachPhotoToGroup,
   seedSurveyPhotosWithComments,
@@ -239,31 +239,32 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    const commentArea = page.locator('[data-testid="photo-comment-display"]').first();
-    const visible = await isVisibleWithin(commentArea, getTimeout(5000));
+    // 事前準備が「コメントの付いた写真を紐づけたグループ」を保存しているため、
+    // サムネイルもコメント表示エリアも必ず現れる。以前は両方を観測で包んでいたため、
+    // どちらかが出なければ配置の判定が一つも実行されないまま緑になっていた。
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+    await expect(groupCard, '前提: 数量グループが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    if (visible) {
-      // コメントエリアと隣接する画像の配置を検証
-      const commentBox = await commentArea.boundingBox();
-      // コメントエリアと同一カード内のサムネイル画像
-      const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-      const thumbnail = groupCard.locator('img').first();
-      const thumbnailVisible = await isVisibleWithin(thumbnail, getTimeout(3000));
+    const commentArea = groupCard.locator('[data-testid="photo-comment-display"]').first();
+    await expect(commentArea, 'REQ-21.2: コメント表示エリアが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const commentBox = await commentArea.boundingBox();
+    assertPresent(commentBox, 'コメント表示エリアの境界ボックス');
 
-      if (thumbnailVisible && commentBox) {
-        const thumbnailBox = await thumbnail.boundingBox();
-        if (thumbnailBox) {
-          // コメントエリアの左辺は画像の右辺以降にある
-          expect(
-            commentBox.x,
-            'コメントエリアは画像の右側（または以降の位置）に配置される'
-          ).toBeGreaterThanOrEqual(thumbnailBox.x);
-        }
-      }
-    } else {
-      // 写真紐付けグループ無し → 編集画面の存在のみ検証
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-    }
+    const thumbnail = groupCard.locator('img').first();
+    await expect(thumbnail, '前提: 紐づいた写真のサムネイルが表示される').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    const thumbnailBox = await thumbnail.boundingBox();
+    assertPresent(thumbnailBox, 'サムネイル画像の境界ボックス');
+
+    // REQ-21.2: コメントは写真の右側に置かれる（左辺が画像の右辺以降にある）
+    expect(commentBox.x, 'REQ-21.2: コメントは写真の右側に表示される').toBeGreaterThanOrEqual(
+      thumbnailBox.x + thumbnailBox.width
+    );
   });
 
   /**
@@ -357,38 +358,31 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
+    // 事前準備が保存した「コメントの付いた写真を紐づけたグループ」は展開状態で開く。
+    // 以前は「グループが無ければ」「折りたたみボタンが無ければ」で弱い代替へ落ちており、
+    // 前提が崩れた場合に REQ-21.5 の判定が一度も実行されなかった。
     const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-    const hasGroup = await isVisibleWithin(groupCard, getTimeout(5000));
+    await expect(groupCard, '前提: 数量グループが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    if (!hasGroup) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
-
-    // 折りたたみボタンを探してクリック
     const collapseButton = groupCard.getByRole('button', { name: 'グループを折りたたむ' }).first();
-    if (!(await isVisibleWithin(collapseButton, getTimeout(3000)))) {
-      // 折りたたまれた状態であれば、展開ボタンが表示されている
-      const expandButton = groupCard.getByRole('button', { name: 'グループを展開' }).first();
-      const expandVisible = await isVisibleWithin(expandButton, getTimeout(2000));
-      expect(expandVisible, '折りたたみまたは展開ボタンのいずれかが表示される').toBeTruthy();
-      return;
-    }
+    await expect(
+      collapseButton,
+      '前提: 展開状態のグループに折りたたみボタンが表示される'
+    ).toBeVisible({ timeout: getTimeout(10000) });
 
-    // 折りたたみ前のコメント表示エリアを記録
     const commentArea = groupCard.locator('[data-testid="photo-comment-display"]').first();
-    const commentVisibleBefore = await isVisibleWithin(commentArea, getTimeout(2000));
+    await expect(commentArea, '前提: 折りたたみ前はコメント表示エリアが表示されている').toBeVisible(
+      { timeout: getTimeout(10000) }
+    );
 
     await collapseButton.click();
 
-    if (commentVisibleBefore) {
-      // 折りたたみ後、コメント表示エリアが非表示になる（CSSのvisibility:hidden等）
-      await expect(commentArea).not.toBeVisible({ timeout: getTimeout(5000) });
-    } else {
-      // 写真未紐付けでコメントエリアが元々無いケース。プレースホルダーが折りたたみ後に
-      // 非表示になることでREQ-21.5（写真と一緒に非表示）の挙動を検証する。
-      const placeholder = groupCard.locator('[data-testid^="image-placeholder-"]').first();
-      await expect(placeholder).not.toBeVisible({ timeout: getTimeout(5000) });
-    }
+    // REQ-21.5: 折りたたむとコメント表示エリアも非表示になる
+    await expect(
+      commentArea,
+      'REQ-21.5: 折りたたみでコメント表示エリアが非表示にならない'
+    ).not.toBeVisible({ timeout: getTimeout(5000) });
   });
 });

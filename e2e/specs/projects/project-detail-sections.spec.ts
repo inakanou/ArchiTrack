@@ -659,11 +659,13 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
       await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
 
-      // detail-summary APIが呼ばれたこと、または基本情報が正常に表示されたことを確認
-      // ページが正常に表示されていればデータ取得方法は問わない
-      if (detailSummaryRequests.length > 0) {
-        expect(detailSummaryRequests.length).toBeGreaterThanOrEqual(1);
-      }
+      // REQ-29.2: プロジェクト詳細画面の表示は一括取得APIで行う。
+      // 以前は「呼ばれていた場合にだけ件数を主張する」形だったため、
+      // 一括取得APIが一度も呼ばれなくなっても緑のままだった。呼ばれること自体を主張する。
+      expect(
+        detailSummaryRequests.length,
+        'プロジェクト詳細表示で detail-summary API が呼び出される'
+      ).toBeGreaterThanOrEqual(1);
 
       // 個別セクションAPIが呼ばれていないことを確認（API効率化の検証）
       // フロントエンドのコンポーネントコードは個別APIを直接呼んでいないが、

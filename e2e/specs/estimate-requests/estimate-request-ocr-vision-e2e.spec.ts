@@ -14,9 +14,6 @@
  * - REQ-21.2: Base64エンコード画像の受け取り
  * - REQ-21.3: Anthropic Messages API使用
  * - REQ-21.4: 建設見積書解析プロンプトの含有
- * - REQ-21.5: JSON形式の表データ抽出
- * - REQ-21.6: 明細行データ（LineItem[]）変換
- * - REQ-21.7: 明細行データのフィールド構成
  * - REQ-21.8: 複数ページ一括処理
  * - REQ-21.9: 認証要求
  * - REQ-22.1: ANTHROPIC_API_KEYの読み込み
@@ -28,7 +25,6 @@
  * - REQ-23.1: タイムアウト処理
  * - REQ-23.2: レート制限エラー処理
  * - REQ-23.3: 認証エラー処理
- * - REQ-23.4: レスポンスパースエラー処理
  * - REQ-23.5: 予期しないエラー処理
  * - REQ-23.6: エラーのログ記録
  * - REQ-23.7: エラー種別の含有
@@ -51,10 +47,14 @@
  * - REQ-26.2: JSON配列形式の返却指示
  * - REQ-26.3: 集計行除外指示
  * - REQ-26.4: ヘッダー行除外指示
- * - REQ-26.5: JSON配列パーサーの実装
- * - REQ-26.6: パースエラー処理
- * - REQ-26.7: 数値データのNumber型変換
- * - REQ-26.8: カンマ区切り数値のNumber型変換
+ *
+ * E2E対象外（`e2e/requirement-exclusions.json` に登録済み）:
+ * 対象は REQ-21.5 / REQ-21.6 / REQ-21.7 / REQ-23.4 / REQ-26.5 / REQ-26.6 / REQ-26.7 / REQ-26.8。
+ * いずれも Claude API の応答を解釈する backend 内部の振る舞いであり、成立させるには
+ * 実在の ANTHROPIC_API_KEY が要る。テスト環境の backend は当該環境変数を持たないため
+ * REQ-22.3 / REQ-22.6 により応答は 503 で確定し、これらの経路へはE2Eから到達できない。
+ * 検証は Anthropic SDK をモックした backend の単体テスト
+ * （`backend/src/__tests__/unit/services/claude-vision.service.test.ts`）の所管である。
  *
  * @module e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec
  */
@@ -114,18 +114,19 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
    * @requirement estimate-request/REQ-21.2
    * @requirement estimate-request/REQ-21.3
    * @requirement estimate-request/REQ-21.4
-   * @requirement estimate-request/REQ-21.5
-   * @requirement estimate-request/REQ-21.6
-   * @requirement estimate-request/REQ-21.7
-   * @requirement estimate-request/REQ-21.8
    * @requirement estimate-request/REQ-22.1
    * @requirement estimate-request/REQ-22.6
    * @requirement estimate-request/REQ-26.1
    * @requirement estimate-request/REQ-26.2
    * @requirement estimate-request/REQ-26.3
    * @requirement estimate-request/REQ-26.4
+   *
+   * REQ-21.5 / REQ-21.6 / REQ-21.7（応答の JSON 抽出・LineItem[] 変換・フィールド構成）は
+   * 実在の APIキーが無ければ到達できないため、本テストの被覆から外して
+   * `e2e/requirement-exclusions.json` へ登録した。主張を消したまま被覆済みと数えない。
+   * 複数ページの一括受け取り（REQ-21.8）は後続の専用テストが担う。
    */
-  test('Claude Vision APIに認証付きでBase64画像を送信できる (estimate-request/REQ-21.2, REQ-21.3, REQ-21.8)', async ({
+  test('Claude Vision APIに認証付きでBase64画像を送信できる (estimate-request/REQ-21.2, REQ-21.3)', async ({
     page,
   }) => {
     expect(accessToken).toBeTruthy();
@@ -146,73 +147,73 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
       },
     });
 
-    // ANTHROPIC_API_KEYが未設定の場合は503、設定済みの場合は200
-    // テスト用の1x1 PNG画像では表データが抽出できないため、422（parse_error）も正当なレスポンス（REQ-23.4）
     const status = response.status();
-    expect([200, 422, 503]).toContain(status);
-
     const data = await response.json();
 
-    if (status === 503) {
-      // REQ-22.6: 機能無効時のHTTP 503（RFC 7807 Problem Details形式）
-      expect(data).toHaveProperty('detail');
-      expect(data).toHaveProperty('errorType', 'service_unavailable');
-    } else if (status === 422) {
-      // REQ-23.4, REQ-23.7: パースエラー時のエラーレスポンス検証（RFC 7807 Problem Details形式）
-      expect(data).toHaveProperty('detail');
-      expect(data).toHaveProperty('errorType', 'parse_error');
-    } else {
-      // REQ-21.5, REQ-21.6, REQ-21.7: 正常レスポンスの検証
-      expect(data).toHaveProperty('lineItems');
-      expect(data).toHaveProperty('pageCount');
-      expect(Array.isArray(data.lineItems)).toBe(true);
-      expect(typeof data.pageCount).toBe('number');
+    // テスト環境の backend には ANTHROPIC_API_KEY が設定されていない。
+    // したがって REQ-22.3 により Claude Vision は無効であり、REQ-22.6 により 503 が返る。
+    // 「200 でも 422 でも 503 でも通る」形にすると、どの経路も一度も検査されないまま緑になるため、
+    // 環境の前提そのものをここで確定させる。キーを設定した環境ではこの主張が落ちて気づける。
+    //
+    // 503（401 でも 400 でもない）に達していること自体が、
+    // REQ-21.2（Base64 画像の受け取り）と REQ-21.9（認証）を通過した証拠でもある。
+    expect(status).toBe(503);
 
-      // 明細行データのフィールド構成を検証（データがある場合）
-      if (data.lineItems.length > 0) {
-        const item = data.lineItems[0];
-        // REQ-21.7: 必須フィールドの存在確認
-        expect(item).toHaveProperty('name');
-        expect(item).toHaveProperty('customCategory');
-        expect(item).toHaveProperty('workType');
-        expect(item).toHaveProperty('specification');
-        expect(item).toHaveProperty('unit');
-        expect(item).toHaveProperty('quantity');
-        expect(item).toHaveProperty('unitPrice');
-        expect(item).toHaveProperty('amount');
-        expect(item).toHaveProperty('remarks');
-      }
-    }
+    // REQ-22.6, REQ-23.7: 機能無効時のエラーレスポンス（RFC 7807 Problem Details 形式）
+    expect(data).toHaveProperty('detail');
+    expect(data).toHaveProperty('errorType', 'service_unavailable');
+
+    // REQ-22.4: APIキーの値そのものがレスポンスに現れない
+    expect(JSON.stringify(data)).not.toMatch(/sk-ant-/);
   });
 
   /**
    * @requirement estimate-request/REQ-21.8
+   *
+   * REQ-21.8 は「複数ページの画像を一括で受け取り、ページ順に処理する」ことを求める。
+   * テスト環境は ANTHROPIC_API_KEY を持たないため抽出そのものは 503 で止まるが、
+   * 「一括で受け取る」側（境界のスキーマ）は APIキー無しでも無条件に主張できる。
+   * ここでは 3 ページを 1 リクエストで送り、次の 3 点で「1 枚だけを見ていない」ことを示す。
+   *  1. 3 ページの一括送信は 400 ではなくサービス層まで到達する（＝受理される）
+   *  2. 3 ページ目だけが不正なら 400 になる（＝先頭 1 枚で判定を打ち切っていない）
+   *  3. 上限（20 ページ）を超える一括送信は 400 で拒否される（＝枚数を数えている）
+   * 「ページ順に処理する」内部の振る舞いは backend の単体テストの所管である
+   * （`claude-vision.service.test.ts` の "should return pageCount matching images count"）。
    */
   test('複数ページの画像を一括で送信できる (estimate-request/REQ-21.8)', async ({ page }) => {
     expect(accessToken).toBeTruthy();
 
     const minimalPngBase64 =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const page1 = { base64Data: minimalPngBase64, mediaType: 'image/png' as const };
 
-    const response = await page.request.post(`${API_BASE_URL}/api/claude-vision/extract`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    const endpoint = `${API_BASE_URL}/api/claude-vision/extract`;
+    const headers = { Authorization: `Bearer ${accessToken}` };
+
+    // 1. 3 ページ分の画像がスキーマ検証を通過して（400 ではなく）サービス層まで届く。
+    //    テスト環境は ANTHROPIC_API_KEY 未設定のため REQ-22.6 により 503 で確定する
+    const threePages = await page.request.post(endpoint, {
+      headers,
+      data: { images: [page1, page1, page1] },
+    });
+    expect(threePages.status(), '3 ページの一括送信がサービス層まで到達する').toBe(503);
+    expect(await threePages.json()).toHaveProperty('errorType', 'service_unavailable');
+
+    // 2. 3 ページ目だけを不正な mediaType にすると、そのページも検証されて 400 になる
+    const invalidThirdPage = await page.request.post(endpoint, {
+      headers,
       data: {
-        images: [
-          { base64Data: minimalPngBase64, mediaType: 'image/png' },
-          { base64Data: minimalPngBase64, mediaType: 'image/png' },
-          { base64Data: minimalPngBase64, mediaType: 'image/png' },
-        ],
+        images: [page1, page1, { base64Data: minimalPngBase64, mediaType: 'application/pdf' }],
       },
     });
+    expect(invalidThirdPage.status(), '3 ページ目の不正が検出される').toBe(400);
 
-    const status = response.status();
-    // テスト用の1x1 PNG画像では表データが抽出できないため、422（parse_error）も正当なレスポンス（REQ-23.4）
-    expect([200, 422, 503]).toContain(status);
-
-    if (status === 200) {
-      const data = await response.json();
-      expect(data.pageCount).toBe(3);
-    }
+    // 3. 一括で受け取れる上限（20 ページ）を超える送信は拒否される
+    const tooManyPages = await page.request.post(endpoint, {
+      headers,
+      data: { images: Array.from({ length: 21 }, () => page1) },
+    });
+    expect(tooManyPages.status(), '21 ページの一括送信は上限超過で拒否される').toBe(400);
   });
 
   // ============================================================================
@@ -268,10 +269,13 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
    * @requirement estimate-request/REQ-23.1
    * @requirement estimate-request/REQ-23.2
    * @requirement estimate-request/REQ-23.3
-   * @requirement estimate-request/REQ-23.4
    * @requirement estimate-request/REQ-23.5
    * @requirement estimate-request/REQ-23.6
    * @requirement estimate-request/REQ-23.7
+   *
+   * REQ-23.4（Claude API 応答のパースエラー）は APIキーが無い環境では到達できない。
+   * 従前は 422 分岐の中でだけ主張しており一度も実行されていなかったため、
+   * 本テストの被覆から外して `e2e/requirement-exclusions.json` へ登録した。
    */
   test('Claude Vision APIのバリデーションエラーが適切に処理される (estimate-request/REQ-23.5, REQ-23.7)', async ({
     page,
@@ -487,10 +491,9 @@ test.describe('OCR画像前処理パイプライン', () => {
    * @requirement estimate-request/REQ-25.7
    * @requirement estimate-request/REQ-20.4
    * @requirement estimate-request/REQ-20.6
-   * @requirement estimate-request/REQ-26.5
-   * @requirement estimate-request/REQ-26.6
-   * @requirement estimate-request/REQ-26.7
-   * @requirement estimate-request/REQ-26.8
+   *
+   * REQ-26.5〜REQ-26.8（backend のJSON配列パーサーと数値変換）は画面表示エリアの
+   * 可視性からは何も分からない。被覆から外して `e2e/requirement-exclusions.json` へ登録した。
    */
   test('OCR処理結果の構造化データ表示エリアが存在する (estimate-request/REQ-24.5, REQ-24.6)', async ({
     page,
@@ -512,10 +515,15 @@ test.describe('OCR画像前処理パイプライン', () => {
 });
 
 // ============================================================================
-// Claude Vision構造化データ抽出精度（バックエンド）
+// Claude Vision機能無効時のエラーレスポンス（バックエンド）
+//
+// 要件26（構造化データ抽出精度）のうち REQ-26.5〜REQ-26.8 は Claude API の
+// 応答を解釈する backend 内部の振る舞いであり、APIキーを持たないテスト環境では
+// 到達できない。E2Eが境界で確実に主張できるのは「無効時に 503 と
+// RFC 7807 のエラー本体を返すこと」（REQ-22.6 / REQ-23.7）である。
 // ============================================================================
 
-test.describe('Claude Vision構造化データ抽出精度', () => {
+test.describe('Claude Vision機能無効時のエラーレスポンス', () => {
   let accessToken: string = '';
 
   test.beforeEach(async ({ context }) => {
@@ -523,16 +531,14 @@ test.describe('Claude Vision構造化データ抽出精度', () => {
   });
 
   /**
-   * @requirement estimate-request/REQ-26.1
-   * @requirement estimate-request/REQ-26.2
-   * @requirement estimate-request/REQ-26.3
-   * @requirement estimate-request/REQ-26.4
-   * @requirement estimate-request/REQ-26.5
-   * @requirement estimate-request/REQ-26.6
-   * @requirement estimate-request/REQ-26.7
-   * @requirement estimate-request/REQ-26.8
+   * @requirement estimate-request/REQ-22.6
+   * @requirement estimate-request/REQ-23.7
+   *
+   * 従前このテストは「レスポンスの構造が LineItem[] 形式に準拠する」と名乗りながら、
+   * その主張を 200 分岐の中に置いていた。APIキーを持たない環境では 200 に到達しないため
+   * 一度も実行されていない。テスト名・被覆ともに、実際に主張している内容へ改めた。
    */
-  test('Claude Vision APIレスポンスの構造がLineItem[]形式に準拠する (estimate-request/REQ-26.5)', async ({
+  test('Claude Vision無効時は503とRFC 7807形式のエラー本体を返す (estimate-request/REQ-22.6, REQ-23.7)', async ({
     page,
   }) => {
     await loginAsUser(page, 'REGULAR_USER');
@@ -550,31 +556,12 @@ test.describe('Claude Vision構造化データ抽出精度', () => {
     });
 
     const status = response.status();
-    // テスト用の1x1 PNG画像では表データが抽出できないため、422（parse_error）も正当なレスポンス（REQ-23.4）
-    expect([200, 422, 503]).toContain(status);
+    const data = await response.json();
 
-    if (status === 422) {
-      // REQ-23.4, REQ-23.7: パースエラー時のエラーレスポンス検証（RFC 7807 Problem Details形式）
-      const data = await response.json();
-      expect(data).toHaveProperty('detail');
-      expect(data).toHaveProperty('errorType', 'parse_error');
-    } else if (status === 200) {
-      const data = await response.json();
-      // REQ-26.5: JSON配列パーサーが正常に動作している
-      expect(Array.isArray(data.lineItems)).toBe(true);
-
-      // REQ-26.7, REQ-26.8: 数値データの型を確認
-      for (const item of data.lineItems) {
-        if (item.quantity !== null) {
-          expect(typeof item.quantity).toBe('number');
-        }
-        if (item.unitPrice !== null) {
-          expect(typeof item.unitPrice).toBe('number');
-        }
-        if (item.amount !== null) {
-          expect(typeof item.amount).toBe('number');
-        }
-      }
-    }
+    // テスト環境は ANTHROPIC_API_KEY 未設定のため、REQ-22.3 / REQ-22.6 により 503 で確定する。
+    // 200 / 422 を条件にして主張を包むと、この環境ではどちらの中身も一度も検査されない
+    expect(status).toBe(503);
+    expect(data).toHaveProperty('detail');
+    expect(data).toHaveProperty('errorType', 'service_unavailable');
   });
 });

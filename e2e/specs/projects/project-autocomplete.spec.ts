@@ -18,6 +18,9 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
+import { toObservableApiPath } from '../../helpers/api-request-observer';
+import { seedTradingPartner } from '../../helpers/project-list-preconditions';
 
 /**
  * 取引先オートコンプリート連携のE2Eテスト
@@ -276,16 +279,17 @@ test.describe('取引先オートコンプリート連携', () => {
         // 入力中はテキストが表示される
         await expect(tradingPartnerInput).toHaveValue('存在しない任意テキスト');
 
-        // ドロップダウンが表示され、候補がないことを確認
+        // ドロップダウンが表示され、候補がないことを確認。
+        // TradingPartnerSelect は入力で isOpen になり、一致が無い場合も一覧自体は開く
+        // （filteredPartners.length === 0 のとき「該当する取引先がありません」を表示する）。
+        // 以前は「一覧が見えていたら」という関門で包んでいたため、
+        // 一覧が開かなくなっても候補数の主張が実行されず緑のままだった。
         const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-        const isListVisible = await autocompleteList.isVisible().catch(() => false);
+        await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-        if (isListVisible) {
-          // 候補リストが表示されている場合、一致する候補がないことを確認
-          const options = await autocompleteList.locator('[role="option"]').all();
-          // 候補がないか、「一致なし」のようなメッセージのみ
-          expect(options.length).toBeLessThanOrEqual(1);
-        }
+        // 一致する候補がないこと（選択できるのは「-- 選択なし --」の高々1件）
+        const options = await autocompleteList.locator('[role="option"]').all();
+        expect(options.length).toBeLessThanOrEqual(1);
 
         // フォーカスを外す（別のフィールドをクリック）
         await page.getByLabel(/プロジェクト名/i).click();
@@ -308,6 +312,13 @@ test.describe('取引先オートコンプリート連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-16.4 は候補の表示形式を定める。候補が1件も無いと形式の主張が一つも実行されないため、
+      // 「名前・部課・代表者名」がすべて揃った候補をテスト自身が用意する。
+      const partner = await seedTradingPartner(page, 'E2E候補表示形式', {
+        branchName: '渋谷支店',
+        representativeName: '検証 太郎',
+      });
+
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
@@ -315,27 +326,21 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ドロップダウンを開く
-      await tradingPartnerInput.click();
+      // 作成した取引先に絞り込む
+      await tradingPartnerInput.fill(partner.name);
 
       // オートコンプリート候補が表示されることを確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
       await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 候補が表示されている場合、表示形式を確認
-      // 各候補には「名前」が必ず表示され、「部課・支店・支社名」「代表者名」が追加で表示される
-      const options = await autocompleteList.locator('[role="option"]').all();
-      if (options.length > 1) {
-        // 「-- 選択なし --」以外の候補を確認
-        const firstOption = options[1];
-        if (firstOption) {
-          const optionText = await firstOption.textContent();
-          // 名前が必ず含まれ、「/」区切りで追加情報がある場合はフォーマットに準拠
-          expect(optionText).toBeTruthy();
-          // 少なくとも名前部分（取引先名）が存在することを確認
-          expect(optionText!.length).toBeGreaterThan(0);
-        }
-      }
+      // REQ-16.4: 候補は「名前 / 部課・支店・支社名 / 代表者名」の組み合わせで表示される
+      const seededOption = autocompleteList
+        .locator('[role="option"]')
+        .filter({ hasText: partner.name });
+      await expect(seededOption).toHaveCount(1);
+      await expect(seededOption).toContainText(partner.name);
+      await expect(seededOption).toContainText('渋谷支店');
+      await expect(seededOption).toContainText('検証 太郎');
     });
 
     /**
@@ -376,11 +381,16 @@ test.describe('取引先オートコンプリート連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 取引先APIリクエストを監視
-      let apiCallParams: string | null = null;
+      // 取引先APIリクエストを監視する。
+      // 選別はオリジンではなくパスで行う（ブラウザ側の VITE_API_URL と E2E 側の API_BASE_URL は
+      // 同一とは限らず、オリジンで選別すると観測が常に空になる）。
+      const listRequestUrls: string[] = [];
       page.on('request', (request) => {
-        if (request.url().includes('/api/trading-partners') && request.method() === 'GET') {
-          apiCallParams = request.url();
+        if (
+          toObservableApiPath(request.url()) === '/api/trading-partners' &&
+          request.method() === 'GET'
+        ) {
+          listRequestUrls.push(request.url());
         }
       });
 
@@ -391,13 +401,15 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // APIリクエストが「顧客」種別でフィルタリングされていることを確認
-      // TradingPartnerSelectコンポーネントは filter: { type: ['CUSTOMER'] } でAPIを呼び出す
-      if (apiCallParams !== null) {
-        // APIリクエストURLに type=CUSTOMER または filter パラメータが含まれる
-        // （実装方式によりパラメータ形式が異なる場合がある）
-        expect(apiCallParams as string).toMatch(/trading-partners/);
-      }
+      // REQ-16.13: 取引先一覧の取得は「顧客」種別で絞り込まれている。
+      // 以前は「要求が観測できていたら URL に trading-partners が含まれる」という
+      // 何も確かめない主張だったため、種別の絞り込みが失われても緑のままだった。
+      // 要求が発生すること自体と、その絞り込み条件の双方を無条件に主張する。
+      expect(listRequestUrls.length, 'REQ-16.13: 取引先一覧APIが呼び出される').toBeGreaterThan(0);
+      const listRequestUrl = listRequestUrls[listRequestUrls.length - 1];
+      assertPresent(listRequestUrl, '取引先一覧APIのリクエストURL');
+      const requestedTypes = new URL(listRequestUrl).searchParams.get('type');
+      expect(requestedTypes, 'REQ-16.13: 取引先一覧APIは顧客種別で絞り込まれる').toBe('CUSTOMER');
 
       // ドロップダウンを開いて候補が表示されることを確認
       await tradingPartnerInput.click();

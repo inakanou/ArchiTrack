@@ -9,11 +9,34 @@
  * - REQ-17: 担当者ユーザー選択
  */
 
-import { test, expect, type Response } from '@playwright/test';
+import { test, expect, type Locator, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+
+/**
+ * 担当者セレクトの選択肢のうち、実際に選択できるもの（value が空でないもの）を集める。
+ *
+ * 空のプレースホルダー選択肢を母集団から外す処理は営業担当者・工事担当者の双方で必要で、
+ * 分岐として各所に複製すると「候補が無ければ何も検証しない」形へ戻りやすい。
+ * 母集団を返す一つの補助へ寄せ、呼び出し側は件数を無条件に主張してから中身を検証する。
+ *
+ * @param options セレクトの全選択肢
+ * @returns 値を持つ選択肢の値と表示文字列
+ */
+async function collectSelectableOptions(
+  options: Locator[]
+): Promise<Array<{ value: string; text: string }>> {
+  const all = await Promise.all(
+    options.map(async (option) => ({
+      value: (await option.getAttribute('value')) ?? '',
+      text: (await option.textContent()) ?? '',
+    }))
+  );
+  // 値を持つ選択肢だけが実際に選択できる候補（先頭の空プレースホルダーを除く）
+  return all.filter((option) => option.value !== '');
+}
 
 /**
  * プロジェクト管理の追加要件E2Eテスト
@@ -88,15 +111,19 @@ test.describe('プロジェクト管理 追加要件', () => {
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const options = await salesPersonSelect.locator('option').all();
 
-      // オプションの値がadmin以外であることを確認
-      for (const option of options) {
-        const value = await option.getAttribute('value');
-        const text = await option.textContent();
+      // 検証対象の母集団（値を持つ＝実際に選択できる候補）を先に確定させる。
+      // 以前は分岐の内側でのみ主張していたため、候補が一つも無くても緑になっていた。
+      const selectableOptions = await collectSelectableOptions(options);
+      expect(
+        selectableOptions.length,
+        'REQ-13.4: 営業担当者の選択候補が1件以上存在する'
+      ).toBeGreaterThan(0);
 
-        // 空のプレースホルダーオプション以外をチェック
-        if (value && value !== '') {
-          expect(text?.toLowerCase()).not.toContain('admin');
-        }
+      for (const { value, text } of selectableOptions) {
+        // REQ-17.5: 各ユーザー候補に表示名が表示される
+        expect(text.trim(), `担当者候補(${value})に表示名がある`).not.toBe('');
+        // REQ-13.4: 候補はいずれも管理者(admin)ではない
+        expect(text.toLowerCase()).not.toContain('admin');
       }
     });
 
@@ -122,15 +149,18 @@ test.describe('プロジェクト管理 追加要件', () => {
       const constructionPersonSelect = page.locator('select[aria-label="工事担当者"]');
       const options = await constructionPersonSelect.locator('option').all();
 
-      // オプションの値がadmin以外であることを確認
-      for (const option of options) {
-        const value = await option.getAttribute('value');
-        const text = await option.textContent();
+      // 検証対象の母集団（値を持つ＝実際に選択できる候補）を先に確定させる
+      const selectableOptions = await collectSelectableOptions(options);
+      expect(
+        selectableOptions.length,
+        'REQ-13.6: 工事担当者の選択候補が1件以上存在する'
+      ).toBeGreaterThan(0);
 
-        // 空のプレースホルダーオプション以外をチェック
-        if (value && value !== '') {
-          expect(text?.toLowerCase()).not.toContain('admin');
-        }
+      for (const { value, text } of selectableOptions) {
+        // REQ-17.5: 各ユーザー候補に表示名が表示される
+        expect(text.trim(), `担当者候補(${value})に表示名がある`).not.toBe('');
+        // REQ-13.6: 候補はいずれも管理者(admin)ではない
+        expect(text.toLowerCase()).not.toContain('admin');
       }
     });
 
@@ -321,17 +351,16 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
-      // APIレスポンスを確認（200または304はどちらも成功）
+      // 一覧取得APIが成功していることを確認。
+      // テストごとに新しいブラウザコンテキストが作られ、条件付きリクエスト（If-None-Match 等）は
+      // 発生しないため 304 の側は成立しない。成立する側だけを主張し、本文の形式まで検証する。
       const response = await apiPromise;
-      expect([200, 304]).toContain(response.status());
+      expect(response.status()).toBe(200);
 
-      // 304の場合はキャッシュレスポンスなのでjsonがない可能性あり
-      if (response.status() === 200) {
-        const responseData = await response.json();
-        // APIレスポンス形式: { data: [...], pagination: {...} }
-        expect(responseData).toHaveProperty('data');
-        expect(responseData).toHaveProperty('pagination');
-      }
+      const responseData = await response.json();
+      // APIレスポンス形式: { data: [...], pagination: {...} }
+      expect(responseData).toHaveProperty('data');
+      expect(responseData).toHaveProperty('pagination');
     });
 
     /**
@@ -735,6 +764,21 @@ test.describe('プロジェクト管理 追加要件', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-17.11 は「有効なユーザーが存在しない場合」を条件とする。
+      // テスト環境には常に有効なユーザーが居るため、以前の形（候補が1件以下のときだけ主張する）は
+      // 一度も実行されていなかった。前提そのものをテストが作り、主張を無条件にする。
+      // 選別はオリジンではなくパスで行う（ブラウザ側と E2E 側で API オリジンが異なりうるため）。
+      await page.route(
+        (url) => url.pathname === '/api/users/assignable',
+        async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([]),
+          });
+        }
+      );
+
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
@@ -745,15 +789,13 @@ test.describe('プロジェクト管理 追加要件', () => {
         timeout: getTimeout(15000),
       });
 
-      // 営業担当者のオプション数を確認
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const options = await salesPersonSelect.locator('option').all();
+      // REQ-17.11: 「選択可能なユーザーがありません」というメッセージが表示される
+      await expect(page.getByText('選択可能なユーザーがありません').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // オプションが存在しない場合（プレースホルダーのみ）、エラーメッセージを確認
-      if (options.length <= 1) {
-        const noUsersMessage = page.getByText(/選択可能なユーザーがいません/i);
-        await expect(noUsersMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // 候補が無いのでセレクトボックス自体が描画されない
+      await expect(page.locator('select[aria-label="営業担当者"]')).toHaveCount(0);
     });
   });
 

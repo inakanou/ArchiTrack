@@ -7,6 +7,8 @@ import {
 } from '../../fixtures/auth.fixtures';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
+import { assertPresent } from '../../helpers/preconditions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
 /**
@@ -98,10 +100,7 @@ test.describe('2要素認証機能', () => {
 
         // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
         const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
-        const loadingExists = await loadingIndicator.count();
-        if (loadingExists > 0) {
-          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
-        }
+        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
 
         // ステップ表示を確認
         try {
@@ -177,10 +176,7 @@ test.describe('2要素認証機能', () => {
 
       // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
       const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
-      const loadingExists = await loadingIndicator.count();
-      if (loadingExists > 0) {
-        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
-      }
+      await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
 
       // QRコードが表示されるまで待機（API応答待ち）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
@@ -251,10 +247,7 @@ test.describe('2要素認証機能', () => {
 
       // ローディングインジケーターが消えるまで待機（CI環境での安定性向上）
       const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
-      const loadingExists = await loadingIndicator.count();
-      if (loadingExists > 0) {
-        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
-      }
+      await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
 
       // QRコードが表示されるまで待機（API応答待ち）
       const qrCode = page.getByRole('img', { name: /QRコード|二要素認証用QRコード/i });
@@ -281,17 +274,18 @@ test.describe('2要素認証機能', () => {
       // ファイル名と形式を確認
       expect(download.suggestedFilename()).toMatch(/backup-codes.*\.txt$/i);
 
-      // ダウンロードしたファイルの内容を検証
+      // ダウンロードしたファイルの内容を検証。
+      // 保存先が得られなければ要件27D.4 のダウンロード自体が成立していないため、その場で失敗させる。
       const path = await download.path();
-      if (path) {
-        const fs = await import('fs/promises');
-        const content = await fs.readFile(path, 'utf-8');
-        // バックアップコードが含まれていることを確認（XXXX-XXXX形式）
-        expect(content).toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
-        // 10個のバックアップコードが含まれていることを確認
-        const codeLines = content.trim().split('\n');
-        expect(codeLines.length).toBe(10);
-      }
+      assertPresent(path, 'ダウンロードしたバックアップコードファイルの保存先');
+
+      const fs = await import('fs/promises');
+      const content = await fs.readFile(path, 'utf-8');
+      // バックアップコードが含まれていることを確認（XXXX-XXXX形式）
+      expect(content).toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
+      // 要件27.6: 10個のバックアップコードが含まれていることを確認
+      const codeLines = content.trim().split('\n');
+      expect(codeLines.length).toBe(10);
     });
 
     /**
@@ -372,10 +366,7 @@ test.describe('2要素認証機能', () => {
 
         // ローディングインジケーターが消えるまで待機
         const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
-        const loadingExists = await loadingIndicator.count();
-        if (loadingExists > 0) {
-          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
-        }
+        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(30000) });
 
         // QRコードが表示されるまで待機（API応答待ち）
         try {
@@ -507,9 +498,8 @@ test.describe('2要素認証機能', () => {
       // TOTP検証画面
       await expect(page.getByText(/2要素認証|二要素認証/i)).toBeVisible();
 
-      // 5回誤ったコードを入力
-      for (let attempt = 0; attempt < 5; attempt++) {
-        // 各イテレーションの開始時に入力フィールドをクリア
+      const submitWrongTotpCode = async (): Promise<void> => {
+        // 各回の開始時に入力フィールドをクリア
         for (let i = 0; i < 6; i++) {
           await page.getByTestId(`totp-digit-${i}`).clear();
         }
@@ -525,16 +515,23 @@ test.describe('2要素認証機能', () => {
         );
         await page.getByRole('button', { name: /検証|ログイン/i }).click();
         await responsePromise;
+      };
 
-        if (attempt < 4) {
-          // エラーメッセージが表示される
-          await expect(page.getByText(/認証コードが正しくありません/i)).toBeVisible();
+      // ロックに至らない 4 回。毎回、検証失敗の告知が出ることを無条件に主張する
+      // （添字で主張を包むと、各周回で検証が実行されたかどうかが構造から読めなくなる）
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await submitWrongTotpCode();
 
-          // 要件27E.4: エラーがaria-live="polite"でスクリーンリーダーに通知される
-          const errorMessage = page.getByRole('alert');
-          await expect(errorMessage).toHaveAttribute('aria-live', 'polite');
-        }
+        // エラーメッセージが表示される
+        await expect(page.getByText(/認証コードが正しくありません/i)).toBeVisible();
+
+        // 要件27E.4: エラーがaria-live="polite"でスクリーンリーダーに通知される
+        const errorMessage = page.getByRole('alert');
+        await expect(errorMessage).toHaveAttribute('aria-live', 'polite');
       }
+
+      // 5 回目の失敗。ここでロックに至る
+      await submitWrongTotpCode();
 
       // 要件27A.4: 5回失敗後にアカウントロックメッセージ
       await expect(
@@ -717,6 +714,45 @@ test.describe('2要素認証機能', () => {
 
       await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
 
+      // 再認証してバックアップコード表示ボタンを取り直す。
+      // 同一の手順がリトライ前処理と応答失敗時の二箇所へ複製されていたため一つに畳む。
+      const restoreBackupCodesButton = async () => {
+        await page.reload({ waitUntil: 'networkidle' });
+
+        // ログインページにリダイレクトされた場合は再認証
+        if (page.url().includes('/login')) {
+          await loginAsUser(page, 'TWO_FA_USER');
+          const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
+          try {
+            await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
+            const digits = '123456'.split('');
+            for (let i = 0; i < 6; i++) {
+              const digitInput = page.getByTestId(`totp-digit-${i}`);
+              const digit = digits[i];
+              if (digit) {
+                await digitInput.fill(digit);
+              }
+            }
+            await page.getByRole('button', { name: /検証/i }).click();
+            await page.waitForURL((url) => !url.pathname.includes('/login'), {
+              timeout: getTimeout(10000),
+            });
+          } catch {
+            // 2FAフォームが表示されない場合は既にログイン済み
+          }
+          await page.goto('/profile');
+          await page.waitForLoadState('networkidle');
+        }
+
+        // 認証状態が復元され、2FAセクションが表示されるまで待機
+        await expect(page.getByRole('heading', { name: '二要素認証', exact: true })).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+        const button = page.getByRole('button', { name: /バックアップコードを表示/i });
+        await button.waitFor({ state: 'visible', timeout: getTimeout(15000) });
+        return button;
+      };
+
       // バックアップコード一覧が表示されるまで待機（API呼び出しを含む）- リトライ付き
       let backupCodesLoaded = false;
       for (let retry = 0; retry < 5; retry++) {
@@ -732,42 +768,8 @@ test.describe('2要素認証機能', () => {
           try {
             await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
           } catch {
-            // ボタンが見つからない場合はページをリロードして再試行
-            await page.reload({ waitUntil: 'networkidle' });
-
-            // ログインページにリダイレクトされた場合は再認証
-            if (page.url().includes('/login')) {
-              await loginAsUser(page, 'TWO_FA_USER');
-              const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-              try {
-                await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-                const digits = '123456'.split('');
-                for (let i = 0; i < 6; i++) {
-                  const digitInput = page.getByTestId(`totp-digit-${i}`);
-                  const digit = digits[i];
-                  if (digit) {
-                    await digitInput.fill(digit);
-                  }
-                }
-                await page.getByRole('button', { name: /検証/i }).click();
-                await page.waitForURL((url) => !url.pathname.includes('/login'), {
-                  timeout: getTimeout(10000),
-                });
-              } catch {
-                // 2FAフォームが表示されない場合は既にログイン済み
-              }
-              await page.goto('/profile');
-              await page.waitForLoadState('networkidle');
-            }
-
-            // 認証状態が復元され、2FAセクションが表示されるまで待機
-            await expect(
-              page.getByRole('heading', { name: '二要素認証', exact: true })
-            ).toBeVisible({
-              timeout: getTimeout(15000),
-            });
-            showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
-            await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(10000) });
+            // ボタンが見つからない場合は再認証して表示状態を作り直す
+            showBackupCodesButton = await restoreBackupCodesButton();
           }
         }
 
@@ -782,56 +784,21 @@ test.describe('2要素認証機能', () => {
         await showBackupCodesButton.click();
 
         try {
-          const apiResponse = await backupCodesApiPromise;
-          if (apiResponse.status() === 200) {
-            // APIが成功した場合、バックアップコードが表示されるはず
-            await page
-              .getByTestId('backup-code-item')
-              .first()
-              .waitFor({ state: 'visible', timeout: getTimeout(5000) });
-            backupCodesLoaded = true;
-            break;
-          } else {
-            // 401エラーの場合、ページをリロードして再試行
-            await page.reload({ waitUntil: 'networkidle' });
+          await backupCodesApiPromise;
 
-            // ログインページにリダイレクトされた場合は再認証
-            if (page.url().includes('/login')) {
-              await loginAsUser(page, 'TWO_FA_USER');
-              const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-              try {
-                await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-                const digits = '123456'.split('');
-                for (let i = 0; i < 6; i++) {
-                  const digitInput = page.getByTestId(`totp-digit-${i}`);
-                  const digit = digits[i];
-                  if (digit) {
-                    await digitInput.fill(digit);
-                  }
-                }
-                await page.getByRole('button', { name: /検証/i }).click();
-                await page.waitForURL((url) => !url.pathname.includes('/login'), {
-                  timeout: getTimeout(10000),
-                });
-              } catch {
-                // 2FAフォームが表示されない場合は既にログイン済み
-              }
-              await page.goto('/profile');
-              await page.waitForLoadState('networkidle');
-            }
-
-            // 認証状態が復元され、2FAセクションが表示されるまで待機
-            await expect(
-              page.getByRole('heading', { name: '二要素認証', exact: true })
-            ).toBeVisible({
-              timeout: getTimeout(15000),
-            });
-            showBackupCodesButton = page.getByRole('button', { name: /バックアップコードを表示/i });
-            await showBackupCodesButton.waitFor({ state: 'visible', timeout: getTimeout(15000) });
-          }
+          // 応答のステータスで主張を包まない。表示要求が通ったかどうかは一覧が描かれたかで決まり、
+          // 401 で弾かれた場合はここが待機切れになって下の catch が再認証を行う。
+          // ステータスで分岐すると、成功側で一つも主張しない経路（出ても出なくても通る形）が残る。
+          await page
+            .getByTestId('backup-code-item')
+            .first()
+            .waitFor({ state: 'visible', timeout: getTimeout(5000) });
+          backupCodesLoaded = true;
+          break;
         } catch {
-          // タイムアウトの場合、次のリトライでループ先頭の処理が実行される
-          // 最後のリトライでも失敗した場合はループを抜ける
+          // 応答が返らない／401 で弾かれた／一覧が現れない場合は再認証して次の周回へ。
+          // 5 周すべて失敗した場合はループ直後の無条件の主張で必ず失敗する。
+          showBackupCodesButton = await restoreBackupCodesButton();
         }
       }
       expect(backupCodesLoaded).toBe(true);
@@ -869,22 +836,43 @@ test.describe('2要素認証機能', () => {
      * @requirement user-authentication/REQ-27B.2 @requirement user-authentication/REQ-27B.3
      */
     test('残りバックアップコードが少ない場合に警告が表示される', async ({ page }) => {
-      // Note: このテストは、バックアップコードが7個以上使用されているユーザーが必要
-      // テストフィクスチャでそのようなユーザーを作成することを想定
+      // 要件27B.2 は「残り3個以下」という条件付きの要件である。
+      // beforeEach が作るのは残り 9 個の状態であり、従来は警告の有無を観測して主張を包んでいたため、
+      // 警告が出ない状態では一つも主張が実行されず恒久的に緑だった。前提はテスト自身が作る。
+      const prisma = getPrismaClient();
+      const twoFactorUser = await prisma.user.findUnique({
+        where: { email: TEST_USERS.TWO_FA_USER.email },
+      });
+      assertPresent(twoFactorUser, '2FA有効なテストユーザー');
+
+      const unusedBackupCodes = await prisma.twoFactorBackupCode.findMany({
+        where: { userId: twoFactorUser.id, usedAt: null },
+        orderBy: { id: 'asc' },
+      });
+
+      // 残り 3 個（要件が定める閾値）になるまで使用済みにする
+      const remainingAfterConsumption = 3;
+      expect(unusedBackupCodes.length).toBeGreaterThan(remainingAfterConsumption);
+      const codesToConsume = unusedBackupCodes.slice(
+        0,
+        unusedBackupCodes.length - remainingAfterConsumption
+      );
+      await prisma.twoFactorBackupCode.updateMany({
+        where: { id: { in: codesToConsume.map((code) => code.id) } },
+        data: { usedAt: new Date() },
+      });
 
       await page.goto('/profile');
 
       // バックアップコードを表示
       await page.getByRole('button', { name: /バックアップコードを表示/i }).click();
 
-      // 要件27B.2: 警告メッセージ（残り3個以下の場合のみ表示される）
+      // 要件27B.2: 残り3個以下なので警告メッセージが表示される
       const warning = page.getByText(/少なくなっています/i);
-      if ((await warning.count()) > 0) {
-        await expect(warning).toBeVisible();
+      await expect(warning).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 再生成リンクが表示される
-        await expect(page.getByRole('link', { name: /再生成|新しいコードを生成/i })).toBeVisible();
-      }
+      // 要件27B.2: 再生成リンクが表示される
+      await expect(page.getByRole('link', { name: /再生成|新しいコードを生成/i })).toBeVisible();
     });
 
     /**
@@ -1065,10 +1053,7 @@ test.describe('2要素認証機能', () => {
 
         // ローディング完了を待機
         const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
-        const loadingExists = await loadingIndicator.count();
-        if (loadingExists > 0) {
-          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
-        }
+        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
 
         // QRコードが表示されているか確認（真になれば次の周回へ進まない）
         qrVisible = await qrCode.isVisible();
@@ -1105,10 +1090,7 @@ test.describe('2要素認証機能', () => {
 
         // ローディングインジケーターが非表示になるか、存在しないことを確認
         const loadingIndicator = page.getByRole('status', { name: /読み込み中/i });
-        const loadingExists = await loadingIndicator.count();
-        if (loadingExists > 0) {
-          await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
-        }
+        await expect(loadingIndicator).toBeHidden({ timeout: getTimeout(15000) });
 
         // QRコードが表示されているか確認（真になれば次の周回へ進まない）
         qrVisible = await qrCode.isVisible();

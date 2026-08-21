@@ -14,7 +14,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -119,6 +119,18 @@ test.describe('現場調査一覧・検索', () => {
     test('現場調査一覧がページネーション付きで表示される (site-survey/REQ-3.1)', async ({
       page,
     }) => {
+      // REQ-3.1 が定める「ページネーション付きで表示する」うち、ページ操作の UI が
+      // production に存在しない。frontend/src/pages/SiteSurveyListPage.tsx:238-239 は
+      // `page: 1, limit: 50` を固定で要求するだけで、描画側の
+      // SiteSurveyResponsiveView / SiteSurveyListTable / SiteSurveyListCard の
+      // いずれにもページ送りの導線が無い（総件数もページ番号も描画しない）。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // ページネーションが実装されると本テストは通り、この注釈により
+      // 「落ちるはずが通った」として赤くなるため、撤去を強制するラチェットになる。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+      test.fail();
+
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -138,17 +150,17 @@ test.describe('現場調査一覧・検索', () => {
         await expect(page.getByText(name)).toBeVisible({ timeout: getTimeout(10000) });
       }
 
-      // ページネーション要素の存在確認（データ数が少ない場合は表示されない可能性あり）
+      // REQ-3.1: 一覧はページネーション付きで表示される。
+      // 従来は「ページネーションが無ければ、作成した調査名の件数が 0 より大きいこと」を
+      // 主張していた。これはテスト側の配列の長さを見ているだけで画面を検証しておらず、
+      // ページネーションが無い状態を無条件に許していた。要件どおりの主張へ改める。
       const paginationElement = page.locator(
         '[data-testid="pagination"], .pagination, [role="navigation"][aria-label*="ページ"]'
       );
-      const hasPagination = await isVisibleWithin(paginationElement, 3000);
-
-      // ページネーションがない場合でも、一覧が正常に表示されていればOK
-      if (!hasPagination) {
-        // 少なくとも作成した調査が全て表示されていることを確認
-        expect(surveyNames.length).toBeGreaterThan(0);
-      }
+      await expect(
+        paginationElement.first(),
+        'REQ-3.1: 現場調査一覧にページネーションが表示されない'
+      ).toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 

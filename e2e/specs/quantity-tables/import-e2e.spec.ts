@@ -458,37 +458,33 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // 処理中: ImportDialog 実装では `<input type="file">` が `disabled={isProcessing}` で
+    // 非活性化される。
+    //
+    // 以前は「disabled 状態を捉えた」「処理結果が表示された」のどちらかが観測されれば良い
+    // 競争にしており、結果が先に出た環境では disabled の判定が一つも実行されなかった。
+    // 抽出は Claude Vision の応答（POST /api/claude-vision/extract）を待つため、
+    // その応答を保留すれば処理中の状態を確定的に観測できる。判定後に解放する。
+    let releaseExtraction: (() => void) | undefined;
+    const extractionHeld = new Promise<void>((resolve) => {
+      releaseExtraction = resolve;
+    });
+    await page.route('**/api/claude-vision/extract', async (route) => {
+      await extractionHeld;
+      await route.continue();
+    });
+
     const fileInput = page.getByLabel('ファイルを選択');
     await fileInput.setInputFiles(TEST_PDF);
 
-    const dialog = page.getByRole('dialog');
-
-    // 処理中: ImportDialog 実装では `<input type="file">` が `disabled={isProcessing}` で
-    // 非活性化される（input は role=button としてアクセシビリティツリーに現れるが、
-    // CSS セレクタ button[disabled] では一致しない）。
-    // OCR が高速完了する環境では disabled 反映の瞬間を捉えにくいため、
-    // 「disabled 状態を捉えた」「処理結果が表示された」のどちらかが観測されることで
-    // 処理中フラグの遷移が機能した証跡とする。
+    // REQ-27.8: 処理中はファイル選択が非活性化される
     const filePicker = page.getByLabel('ファイルを選択');
-    const disabledInputOrButton = dialog.locator('input[disabled], button[disabled]').first();
-    const resultMarkers = dialog.locator('[role="progressbar"], [role="alert"], table').first();
+    await expect(filePicker, 'REQ-27.8: 処理中はファイル選択が非活性化される').toBeDisabled({
+      timeout: getTimeout(45000),
+    });
 
-    const observed = await Promise.race([
-      disabledInputOrButton
-        .waitFor({ state: 'attached', timeout: getTimeout(15000) })
-        .then(() => 'disabled')
-        .catch(() => null),
-      resultMarkers
-        .waitFor({ state: 'visible', timeout: getTimeout(15000) })
-        .then(() => 'result')
-        .catch(() => null),
-    ]);
-    expect(observed, '処理中の disabled 状態または完了後の結果が観測される').not.toBeNull();
-
-    // disabled を実観測できた場合は file input が disabled であることを直接確認する。
-    if (observed === 'disabled') {
-      expect(await filePicker.evaluate((el: HTMLInputElement) => el.disabled)).toBe(true);
-    }
+    releaseExtraction?.();
+    await page.unroute('**/api/claude-vision/extract');
   });
 });
 
@@ -773,29 +769,24 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // REQ-31.3〜31.9 が対象とするのは「抽出結果を数量項目へ取り込む」挙動であり、
+    // 抽出の手段（PDF OCR か Excel パースか）ではない。PDF は Claude Vision
+    // （ANTHROPIC_API_KEY 依存）を経由するため、失敗時に検証を丸ごと飛ばす関門が
+    // 置かれていた。クライアントサイドで決定論的に解析される Excel の資材を用いれば、
+    // 環境に依らず抽出が成立し、関門を置かずに済む（REQ-42.4 の検証と同じ手口）。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
     const importBtn = page.getByRole('button', { name: '一括取り込み' });
-    if (
-      !(await importBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => true)
-        .catch(() => false))
-    ) {
-      // OCR失敗時はテストの前提が成立しない（リトライが表示される）
-      await expect(page.getByRole('button', { name: 'リトライ' })).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-      return;
-    }
+    await expect(importBtn, 'REQ-31.1: 抽出完了後に一括取り込みボタンが表示される').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
     await importBtn.click();
 
     // グループ選択 → 最初のグループを選択。
-    // 一括取り込みを押せた以上、グループ選択UIは必ず出る（同ファイルの REQ-31.2 の検証が
-    // 同じことを無条件に主張している）。出なければ取り込みが壊れているということであり、
-    // 黙って戻ると REQ-31.3〜31.9 の検証が丸ごと消える。無条件に主張する。
+    // 一括取り込みを押せた以上、グループ選択UIは必ず出る。出なければ取り込みが
+    // 壊れているということであり、黙って戻ると REQ-31.3〜31.9 の検証が丸ごと消える。
     const dialog = page.getByRole('dialog');
     const groupSelector = page.getByRole('heading', { name: '取り込み先グループを選択' });
     await expect(groupSelector).toBeVisible({ timeout: getTimeout(5000) });
@@ -1117,49 +1108,34 @@ test.describe('REQ-32: フィールドマッピング調整', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // REQ-32.6 は「必須フィールドが未マッピングなら警告する」ことを対象とする。
+    // その状態を作るには列が抽出されている必要があるため、環境に依存する PDF OCR
+    // ではなく、クライアントサイドで決定論的に解析される Excel の資材を用いる。
+    // 以前は OCR 失敗時にリトライ表示だけを見て抜けており、警告の判定は実行されなかった。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
-    // OCR完了待機: 0列抽出ケースでは table が hidden 扱いになるため、
-    // select 出現または抽出後に必ず描画される警告アラートのいずれかを直接待機する。
     const dialog = page.getByRole('dialog');
-    const firstSelect = dialog.locator('select[aria-label*="のマッピング先"]').first();
-    const retryBtn = dialog.getByRole('button', { name: 'リトライ' });
     const warning = page.getByText(/必須フィールドがマッピングされていません/);
 
-    const observed = await Promise.race([
-      firstSelect
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'select')
-        .catch(() => null),
-      warning
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'warning')
-        .catch(() => null),
-      retryBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'retry')
-        .catch(() => null),
-    ]);
+    // REQ-32.1: 抽出後は列ごとのマッピング先ドロップダウンが表示される
+    const selects = dialog.locator('select[aria-label*="のマッピング先"]');
+    const firstSelect = selects.first();
+    await expect(firstSelect, 'REQ-32.1: マッピング先の選択欄が表示される').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
-    if (observed === 'retry') {
-      // OCR失敗時はマッピング状態を作り出せないため、リトライ表示で代替検証
-      await expect(retryBtn).toBeVisible({ timeout: getTimeout(5000) });
-      return;
+    // 全ての select を 'skip' に設定 → 必須フィールドが未マッピング
+    const selectCount = await selects.count();
+    expect(selectCount, '前提: マッピング対象の列が抽出されている').toBeGreaterThan(0);
+    for (let i = 0; i < selectCount; i++) {
+      await selects.nth(i).selectOption('skip');
     }
 
-    if (observed === 'select') {
-      // 全ての select を 'skip' に設定 → 必須フィールドが未マッピング
-      const selects = dialog.locator('select[aria-label*="のマッピング先"]');
-      const selectCount = await selects.count();
-      for (let i = 0; i < selectCount; i++) {
-        await selects.nth(i).selectOption('skip');
-      }
-    }
-
-    // 警告メッセージ「必須フィールドがマッピングされていません」が表示される
-    // （0列抽出時は最初から、列があれば全 skip 後に表示される）
-    await expect(warning).toBeVisible({ timeout: getTimeout(5000) });
+    // REQ-32.6: 必須フィールドが未マッピングであることの警告が表示される
+    await expect(warning, 'REQ-32.6: 必須フィールド未マッピングの警告が表示される').toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 });
 
