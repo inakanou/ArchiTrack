@@ -29,6 +29,7 @@ const isCI = !!process.env.CI;
  * - CI環境ではタイムアウトを2倍に延長
  * - リトライ回数を増加（CI: 3回、ローカル: 1回）
  * - 各アクション間の安定待機を追加
+ * - 再試行で回復した実行は failOnFlakyTests により失敗として扱う（間欠失敗を隠さない）
  */
 export default defineConfig({
   // テストファイルのパス
@@ -46,8 +47,23 @@ export default defineConfig({
   fullyParallel: false,
 
   // CI環境では3回、ローカルでは1回リトライ
-  // CI環境での不安定性を吸収するためリトライ回数を増加
+  // 再試行は環境由来の揺らぎ（コンテナの起動直後の遅延など）を吸収するために置いている。
+  // ただし再試行は実装や検証の欠陥まで吸収してしまうため、下の failOnFlakyTests と対で使う。
+  // 再試行は「回復させて緑にする」ためではなく、「何回中何回落ちたか」を記録するために残している。
   retries: isCI ? 3 : 1,
+
+  // 再試行で回復した実行（flaky）を失敗として扱う
+  // ------------------------------------------------------------------------
+  // 「緑であること」と「一度で緑になること」は別の主張である。
+  // 再試行のみで回復した実行は後者を満たしていないため、総合判定を failed とし
+  // 終了コード 1 で返す（Playwright 1.52+ の組み込み機能）。
+  // これにより pre-push（CI=true npx playwright test の終了コードで合否を判定）と
+  // GitHub Actions（Run E2E tests ステップの終了コード）の双方で間欠失敗が表面化する。
+  // 詳細（採否の根拠と実測）は
+  // .kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md §6.3 を参照。
+  // 内訳の可視化は e2e/reporters/progress-reporter.ts が担う。
+  // 注: `test.fail()` の期待された失敗は outcome が expected であり flaky にはならない。
+  failOnFlakyTests: true,
 
   // ワーカー数の設定（シリアル実行のため1に固定）
   workers: 1,

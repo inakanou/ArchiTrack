@@ -889,6 +889,11 @@ E2E_EXIT_CODE=$?
 if [ $E2E_EXIT_CODE -ne 0 ]; then
   echo ""
   echo "❌ E2E tests failed. Push aborted."
+  echo ""
+  echo "   失敗には「再試行で回復した検証（flaky）」も含まれる。"
+  echo "   playwright.config.ts の failOnFlakyTests により、再試行のみで緑になった実行は"
+  echo "   失敗として扱う（緑であることと、一度で緑になることは別の主張である）。"
+  echo "   該当があれば上の RETRY-RECOVERED FAILURES (FLAKY) にテスト名と試行結果が出る。"
   npm run test:docker:down > /dev/null 2>&1
   exit 1
 fi
