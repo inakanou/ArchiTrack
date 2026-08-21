@@ -13,19 +13,25 @@
  * 相反する方向の変更であるため、双方をこの一覧で同時に固定する。
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
+  DEFAULT_BASELINE_PATH,
   buildObservationPattern,
   collectBooleanHelperNames,
   collectE2eFiles,
   getObservationPattern,
   getObservationVocabulary,
+  run,
   scanSource,
   type GuardType,
+  type RunOptions,
 } from './check-e2e-assertion-guards.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(SCRIPTS_DIR, '..');
 
 interface Case {
   /** 何を確かめるか */
@@ -950,6 +956,317 @@ const RETRY_EXHAUSTION: Case[] = [
 ];
 
 // ============================================================================
+// 115.128: 抑止一覧を守る二つの関門（増加方向の基準更新の拒否・基準の自己整合の検査）
+//
+// この二つは Task 115.93 が検査器へ置いた関門であり、抑止一覧が黙って恒久化する経路を
+// 塞ぐためのものである。ところが自己検査は検出規則しか見ておらず、関門が将来の改変で
+// 静かに壊れても誰も気づかない状態にあった。守られていない防護は防護ではない。
+//
+// 関門は「引数を解釈し、基準を読み、拒否して終了コードを返す」という一続きの経路であり、
+// 部品を個別に呼んだだけでは結線が切れても緑のままになる（Task 115.137 の教訓）。
+// そのため検査本体 `run()` をそのまま呼び、終了コード・出力・基準ファイルの中身で主張する。
+// 実基準を汚さないよう、使い捨ての基準と使い捨ての spec を作業場所に作って発火させ、
+// 実行のたびに実基準が一字も変わっていないことを併せて確かめる。
+// ============================================================================
+
+/** 使い捨ての spec（沈黙して抜ける形。T5 として必ず検出される）。 */
+function silentExitSpec(count: number): string {
+  const blocks: string[] = [];
+  for (let i = 0; i < count; i++) {
+    blocks.push(
+      [
+        `test('silent exit ${i}', async ({ page }) => {`,
+        "  const visible = await page.getByRole('dialog').isVisible();",
+        '  if (!visible) {',
+        '    return;',
+        '  }',
+        "  await expect(page.getByRole('dialog')).toBeVisible();",
+        '});',
+      ].join('\n')
+    );
+  }
+  return blocks.join('\n\n');
+}
+
+interface SandboxBaseline {
+  generatedTotal: number;
+  allowedTotal: number;
+  files: Record<string, Partial<Record<GuardType, number>>>;
+  allowedFiles: Record<string, number>;
+}
+
+/**
+ * 使い捨ての作業場所で確認を行い、必ず後始末する。
+ * 併せて、実基準がこの確認によって書き換わっていないことを主張する。
+ */
+function withSandbox(fn: (dir: string) => string[]): string[] {
+  // 既定の位置に実基準が無いなら、比較そのものが成立しない（黙って素通りさせない）。
+  if (!fs.existsSync(DEFAULT_BASELINE_PATH)) {
+    return [`既定の基準の位置に実基準がない: ${DEFAULT_BASELINE_PATH}`];
+  }
+  const realBaselineBefore = fs.readFileSync(DEFAULT_BASELINE_PATH, 'utf8');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-guard-selftest-'));
+  try {
+    const failures = fn(dir);
+    if (fs.readFileSync(DEFAULT_BASELINE_PATH, 'utf8') !== realBaselineBefore) {
+      failures.push('実基準 e2e/assertion-guard-baseline.json が確認の実行で書き換えられた');
+    }
+    return failures;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function writeSandboxBaseline(dir: string, baseline: SandboxBaseline): string {
+  const baselinePath = path.join(dir, 'baseline.json');
+  fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
+  return baselinePath;
+}
+
+function writeSandboxSpec(dir: string, source: string): string {
+  const specPath = path.join(dir, 'sandbox.spec.ts');
+  fs.writeFileSync(specPath, `${source}\n`, 'utf8');
+  return specPath;
+}
+
+/** 検査本体を呼ぶ。出力は自己検査の表示を汚さないよう捕えたうえで主張に用いる。 */
+function runCheck(argv: string[], options: RunOptions): { code: number; output: string } {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]): void => {
+    lines.push(args.map((a) => String(a)).join(' '));
+  };
+  try {
+    return { code: run(argv, options), output: lines.join('\n') };
+  } finally {
+    console.log = original;
+  }
+}
+
+function readTotals(baselinePath: string): { generatedTotal: number; allowedTotal: number } {
+  const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf8')) as {
+    generatedTotal?: number;
+    allowedTotal?: number;
+  };
+  return { generatedTotal: parsed.generatedTotal ?? -1, allowedTotal: parsed.allowedTotal ?? -1 };
+}
+
+const BASELINE_GUARDS: Case[] = [
+  {
+    name: '115.128-1 増える方向の基準更新は既定で拒否し、基準を書き換えない',
+    source: '',
+    expected: [],
+    custom: (): string[] =>
+      withSandbox((dir) => {
+        const failures: string[] = [];
+        const baselinePath = writeSandboxBaseline(dir, {
+          generatedTotal: 0,
+          allowedTotal: 0,
+          files: {},
+          allowedFiles: {},
+        });
+        const specPath = writeSandboxSpec(dir, silentExitSpec(1));
+        const before = fs.readFileSync(baselinePath, 'utf8');
+        const { code, output } = runCheck(['--update-baseline'], {
+          baselinePath,
+          collectFiles: () => [specPath],
+        });
+        if (!output.includes('検出件数: 1')) {
+          failures.push(
+            `使い捨ての spec が 1 件検出されていない（確認が空振りしている）: ${output}`
+          );
+        }
+        if (code === 0) {
+          failures.push('件数が増える更新が拒否されていない（終了コード 0）');
+        }
+        if (!output.includes('件数が増える方向の基準更新は既定で拒否します')) {
+          failures.push('拒否の理由が出力されていない');
+        }
+        if (fs.readFileSync(baselinePath, 'utf8') !== before) {
+          failures.push('拒否したにもかかわらず基準が書き換えられた');
+        }
+        return failures;
+      }),
+  },
+  {
+    name: '115.128-2 --allow-increase を明示すれば増加を記録できる',
+    source: '',
+    expected: [],
+    custom: (): string[] =>
+      withSandbox((dir) => {
+        const failures: string[] = [];
+        const baselinePath = writeSandboxBaseline(dir, {
+          generatedTotal: 0,
+          allowedTotal: 0,
+          files: {},
+          allowedFiles: {},
+        });
+        const specPath = writeSandboxSpec(dir, silentExitSpec(1));
+        const { code, output } = runCheck(['--update-baseline', '--allow-increase'], {
+          baselinePath,
+          collectFiles: () => [specPath],
+        });
+        if (code !== 0) {
+          failures.push(`明示した増加が拒否された（終了コード ${code}）: ${output}`);
+        }
+        if (!output.includes('増加を記録しました')) {
+          failures.push('増加を記録した旨が出力されていない');
+        }
+        const totals = readTotals(baselinePath);
+        if (totals.generatedTotal !== 1) {
+          failures.push(
+            `基準が増加後の件数で書き出されていない: generatedTotal ${totals.generatedTotal}`
+          );
+        }
+        return failures;
+      }),
+  },
+  {
+    name: '115.128-3 減る方向の基準更新は --allow-increase 無しでも通る',
+    source: '',
+    expected: [],
+    custom: (): string[] =>
+      withSandbox((dir) => {
+        const failures: string[] = [];
+        const baselinePath = writeSandboxBaseline(dir, {
+          generatedTotal: 0,
+          allowedTotal: 0,
+          files: {},
+          allowedFiles: {},
+        });
+        // まず 2 件を記録した基準を作る（増加なので明示が要る）。
+        const specPath = writeSandboxSpec(dir, silentExitSpec(2));
+        const seeded = runCheck(['--update-baseline', '--allow-increase'], {
+          baselinePath,
+          collectFiles: () => [specPath],
+        });
+        if (seeded.code !== 0 || readTotals(baselinePath).generatedTotal !== 2) {
+          failures.push(`前提の基準（2 件）を用意できていない: ${seeded.output}`);
+          return failures;
+        }
+        // 1 件へ減らした状態での更新は、明示無しでも通らなければならない。
+        fs.writeFileSync(specPath, `${silentExitSpec(1)}\n`, 'utf8');
+        const { code, output } = runCheck(['--update-baseline'], {
+          baselinePath,
+          collectFiles: () => [specPath],
+        });
+        if (code !== 0) {
+          failures.push(`減る方向の更新が拒否された（終了コード ${code}）: ${output}`);
+        }
+        const totals = readTotals(baselinePath);
+        if (totals.generatedTotal !== 1) {
+          failures.push(
+            `基準が減少後の件数で書き出されていない: generatedTotal ${totals.generatedTotal}`
+          );
+        }
+        return failures;
+      }),
+  },
+  {
+    name: '115.128-4 検出の内訳と総数が食い違う基準は照合の前に拒否する',
+    source: '',
+    expected: [],
+    custom: (): string[] =>
+      withSandbox((dir) => {
+        const failures: string[] = [];
+        // 内訳は 1 件しか無いのに総数だけ 5 件へ書き換えた形（抑止の総量を見えなくする改竄）。
+        const baselinePath = writeSandboxBaseline(dir, {
+          generatedTotal: 5,
+          allowedTotal: 0,
+          files: { 'e2e/specs/sandbox.spec.ts': { 'T5-observed-result-gate': 1 } },
+          allowedFiles: {},
+        });
+        const { code, output } = runCheck([], { baselinePath, collectFiles: () => [] });
+        if (code === 0) {
+          failures.push('内訳と総数が食い違う基準が受け入れられた（終了コード 0）');
+        }
+        if (!output.includes('基準の内訳と総数が一致しません')) {
+          failures.push(`不整合の理由が出力されていない: ${output}`);
+        }
+        return failures;
+      }),
+  },
+  {
+    name: '115.128-5 除外の内訳と総数が食い違う基準も拒否する',
+    source: '',
+    expected: [],
+    custom: (): string[] =>
+      withSandbox((dir) => {
+        const failures: string[] = [];
+        // 検出側は整合しており、除外側だけを書き換えた形。条件の片側だけを見る改変を止める。
+        const baselinePath = writeSandboxBaseline(dir, {
+          generatedTotal: 0,
+          allowedTotal: 4,
+          files: {},
+          allowedFiles: { 'e2e/specs/sandbox.spec.ts': 1 },
+        });
+        const { code, output } = runCheck([], { baselinePath, collectFiles: () => [] });
+        if (code === 0) {
+          failures.push('除外の内訳と総数が食い違う基準が受け入れられた（終了コード 0）');
+        }
+        if (!output.includes('基準の内訳と総数が一致しません')) {
+          failures.push(`不整合の理由が出力されていない: ${output}`);
+        }
+        return failures;
+      }),
+  },
+  {
+    name: '115.128-6 内訳と総数が整合した基準は通す（関門が何でも拒否しているのではない）',
+    source: '',
+    expected: [],
+    custom: (): string[] =>
+      withSandbox((dir) => {
+        const failures: string[] = [];
+        const baselinePath = writeSandboxBaseline(dir, {
+          generatedTotal: 1,
+          allowedTotal: 1,
+          files: { 'e2e/specs/sandbox.spec.ts': { 'T5-observed-result-gate': 1 } },
+          allowedFiles: { 'e2e/specs/sandbox.spec.ts': 1 },
+        });
+        const { code, output } = runCheck([], { baselinePath, collectFiles: () => [] });
+        if (output.includes('基準の内訳と総数が一致しません')) {
+          failures.push('整合した基準が不整合として拒否された');
+        }
+        if (code !== 0) {
+          failures.push(`整合した基準で検査が失敗した（終了コード ${code}）: ${output}`);
+        }
+        return failures;
+      }),
+  },
+  {
+    name: '115.128-7 差し替えを指定しない実行は実基準を見る（本番の経路が緩んでいない）',
+    source: '',
+    expected: [],
+    custom: (): string[] => {
+      const failures: string[] = [];
+      const expectedPath = path.join(ROOT, 'e2e', 'assertion-guard-baseline.json');
+      if (path.resolve(DEFAULT_BASELINE_PATH) !== path.resolve(expectedPath)) {
+        failures.push(`既定の基準の位置が実基準ではない: ${DEFAULT_BASELINE_PATH}`);
+        return failures;
+      }
+      const realBaseline = JSON.parse(fs.readFileSync(DEFAULT_BASELINE_PATH, 'utf8')) as {
+        reduction?: { doc?: string };
+      };
+      const doc = realBaseline.reduction?.doc;
+      if (typeof doc !== 'string' || doc.length === 0) {
+        failures.push('実基準に reduction.doc が無く、既定の経路を出力から確かめられない');
+        return failures;
+      }
+      // 走査だけを空にして、基準の読み出しは既定のまま行わせる。
+      // 実基準にしか書かれていない削減計画の所在が出力に現れることで、既定の経路を確かめる。
+      const { code, output } = runCheck([], { collectFiles: () => [] });
+      if (!output.includes(`削減計画: ${doc}`)) {
+        failures.push(`差し替えを指定しない実行が実基準を読んでいない: ${output}`);
+      }
+      if (code !== 0) {
+        failures.push(`実基準での実行が失敗した（終了コード ${code}）: ${output}`);
+      }
+      return failures;
+    },
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -997,6 +1314,7 @@ function main(): void {
     { title: '115.137 探索・再試行の定型を負債として数えない', cases: LOOP_ESCAPE },
     { title: '115.137 語彙の二つの規則と走査対象', cases: VOCABULARY_RULES },
     { title: '115.127 段7 再試行の成功時に抜ける形の境界', cases: RETRY_EXHAUSTION },
+    { title: '115.128 抑止一覧を守る二つの関門', cases: BASELINE_GUARDS },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');

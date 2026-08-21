@@ -182,7 +182,7 @@
  *
  * 抑止一覧（基準）の位置づけ:
  *   基準に載っている件数は「解消済み」ではない。**いま抑止しているだけの既知の欠陥**である。
- *   放置すると「検査は通るのに欠陥は残る」状態が恒久化するため、次の二つを設けている。
+ *   放置すると「検査は通るのに欠陥は残る」状態が恒久化するため、次の三つを設けている。
  *
  *   (1) 負債の可視化
  *       実行のたびに、型別に「現在 / 基準 / 目標 / 残り」を出力する。目標と削減計画の所在は
@@ -192,6 +192,11 @@
  *       `--update-baseline` は件数が増える方向の書き出しを既定で拒否する。
  *       増加を記録する必要がある場合は `--allow-increase` を明示的に付けること。
  *       これは「直せないので登録して黙らせる」を無言でできないようにするための関門である。
+ *   (3) 基準そのものの自己整合
+ *       内訳の合計と総数が食い違う基準（総数だけを手で書き換えた形）は照合の前に拒否する。
+ *
+ *   (2) と (3) は自己検査（`scripts/check-e2e-assertion-guards.selftest.ts` の 115.128 群）が
+ *   使い捨ての基準を用いて実際に発火させ、守られていることを固定している（Task 115.128）。
  *
  * オプション:
  *   --verbose           検出箇所を全件表示する
@@ -210,7 +215,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 const E2E_DIR = path.join(ROOT, 'e2e');
-const BASELINE_PATH = path.join(E2E_DIR, 'assertion-guard-baseline.json');
+/**
+ * 抑止一覧（基準）の既定の位置。
+ *
+ * 自己検査は関門（増加方向の基準更新の拒否・基準の自己整合の検査）を実際に発火させる必要が
+ * あるため、`run()` の引数で使い捨ての基準へ差し替えられるようにしてある。差し替えられるのは
+ * 引数からだけであり、コマンドラインからは指定できない。直接起動した本番の実行は常にこの
+ * 既定を用いる（Task 115.128）。
+ */
+export const DEFAULT_BASELINE_PATH = path.join(E2E_DIR, 'assertion-guard-baseline.json');
 const ALLOW_MARKER = 'e2e-guard-allow:';
 
 /**
@@ -1528,17 +1541,17 @@ function tallyAllowed(allowed: AllowEntry[]): AllowBaseline {
   return result;
 }
 
-function loadBaseline(): {
+function loadBaseline(baselinePath: string): {
   files: Baseline;
   allowedFiles: AllowBaseline;
   generatedTotal: number;
   allowedTotal: number;
   reduction: ReductionPlan;
 } {
-  if (!fs.existsSync(BASELINE_PATH)) {
+  if (!fs.existsSync(baselinePath)) {
     return { files: {}, allowedFiles: {}, generatedTotal: 0, allowedTotal: 0, reduction: {} };
   }
-  const parsed = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) as {
+  const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf8')) as {
     files?: Baseline;
     allowedFiles?: AllowBaseline;
     generatedTotal?: number;
@@ -1555,6 +1568,7 @@ function loadBaseline(): {
 }
 
 function writeBaseline(
+  baselinePath: string,
   current: Baseline,
   total: number,
   allowedFiles: AllowBaseline,
@@ -1591,22 +1605,39 @@ function writeBaseline(
     allowedFiles: orderedAllowed,
     files: ordered,
   };
-  fs.writeFileSync(BASELINE_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(baselinePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
 // ============================================================================
 // 実行
 // ============================================================================
 
-function main(): void {
-  const args = process.argv.slice(2);
+/**
+ * 実行時の差し替え（自己検査のための seam）。
+ *
+ * どちらも省略時は本番の経路（実基準・`e2e/` 配下の走査）になる。コマンドラインからは
+ * 指定できないため、直接起動した実行が実基準以外を見ることはない（Task 115.128）。
+ */
+export interface RunOptions {
+  /** 抑止一覧（基準）の位置。省略時は `DEFAULT_BASELINE_PATH`。 */
+  baselinePath?: string;
+  /** 走査するファイルの集め方。省略時は `collectE2eFiles`。 */
+  collectFiles?: () => string[];
+}
+
+/**
+ * 検査本体。終了コードを返す（呼び出し側が `process.exit` を行う）。
+ * 自己検査はこの関数をそのまま呼び、関門が実際に発火することを確かめる。
+ */
+export function run(args: string[], options: RunOptions = {}): number {
+  const baselinePath = options.baselinePath ?? DEFAULT_BASELINE_PATH;
   const verbose = args.includes('--verbose');
   const asJson = args.includes('--json');
   const update = args.includes('--update-baseline');
   const allowIncrease = args.includes('--allow-increase');
   const skipBaseline = args.includes('--no-baseline');
 
-  const files = collectE2eFiles();
+  const files = (options.collectFiles ?? collectE2eFiles)();
   const results = files.map(scanFile);
   const findings = results.flatMap((r) => r.findings);
   const allowed = results.flatMap((r) => r.allowed);
@@ -1628,7 +1659,7 @@ function main(): void {
         2
       )
     );
-    return;
+    return 0;
   }
 
   const byType = new Map<GuardType, number>(GUARD_TYPES.map((t) => [t, 0]));
@@ -1651,7 +1682,7 @@ function main(): void {
   // 抑止一覧の残高を常に出力する。「検査が通ったこと」と「欠陥が残っていないこと」は別であり、
   // 出力に残高が出ないと、抑止一覧が「直さなくてよい」の記録へ静かに変質する（Task 115.93）。
   if (!skipBaseline) {
-    const recorded = loadBaseline();
+    const recorded = loadBaseline(baselinePath);
     const targets = recorded.reduction.targets ?? {};
     console.log('');
     console.log(
@@ -1701,11 +1732,11 @@ function main(): void {
       console.log(`   ${entry.file}:${entry.line} [${entry.type}] ${entry.snippet}`);
     }
     console.log(`\n   \`// ${ALLOW_MARKER} <理由>\` の形で理由を書いてください。`);
-    process.exit(1);
+    return 1;
   }
 
   if (update) {
-    const previous = loadBaseline();
+    const previous = loadBaseline(baselinePath);
     // 抑止一覧は「今は直せない」の記録であって「直さなくてよい」の記録ではない。
     // 増える方向の書き出しを無言で通すと、検出された欠陥をその場で登録して黙らせられる。
     // 増加の記録には明示的な意思表示（--allow-increase）を要求する（Task 115.93）。
@@ -1735,20 +1766,27 @@ function main(): void {
       console.log(
         '   その際は増加の理由と解消の見通しを、基準の reduction.doc が指す計画文書に残してください。'
       );
-      process.exit(1);
+      return 1;
     }
-    writeBaseline(current, findings.length, currentAllowed, allowed.length, previous.reduction);
-    console.log(`\n✅ 基準を更新しました: ${path.relative(ROOT, BASELINE_PATH)}`);
+    writeBaseline(
+      baselinePath,
+      current,
+      findings.length,
+      currentAllowed,
+      allowed.length,
+      previous.reduction
+    );
+    console.log(`\n✅ 基準を更新しました: ${path.relative(ROOT, baselinePath)}`);
     if (growth.length > 0) {
       console.log('   ⚠️ 増加を記録しました（--allow-increase）。計画文書への記載を忘れないこと:');
       for (const line of growth) console.log(`      ${line}`);
     }
-    return;
+    return 0;
   }
 
-  if (skipBaseline) return;
+  if (skipBaseline) return 0;
 
-  const baseline = loadBaseline();
+  const baseline = loadBaseline(baselinePath);
   const regressions: string[] = [];
   const improvements: string[] = [];
 
@@ -1767,7 +1805,7 @@ function main(): void {
       `   allowedFiles の合計 ${baselineAllowSum} / allowedTotal ${baseline.allowedTotal}`
     );
     console.log('   `npm run check:e2e-guards:update` で書き出し直してください。');
-    process.exit(1);
+    return 1;
   }
 
   for (const file of Object.keys(current).sort()) {
@@ -1820,13 +1858,15 @@ function main(): void {
   }
 
   if (regressions.length > 0 || allowRegressions.length > 0) {
-    process.exit(1);
+    return 1;
   }
 
   console.log('\n✅ 新規の検証無効化は検出されませんでした');
+  return 0;
 }
 
 // 直接起動されたときのみ実行する（検出規則の確認からは走査部分だけを読み込む）
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
-  main();
+  const exitCode = run(process.argv.slice(2));
+  if (exitCode !== 0) process.exit(exitCode);
 }
